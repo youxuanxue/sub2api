@@ -18,7 +18,12 @@ type QAArchiveShard struct {
 
 func (QAArchiveShard) Annotations() []schema.Annotation {
 	return []schema.Annotation{
-		entsql.Annotation{Table: "qa_archive_shards"},
+		entsql.Annotation{
+			Table: "qa_archive_shards",
+			Checks: map[string]string{
+				"qa_archive_shards_forward_cutover_valid": "NOT forward_cutover OR (state = 'committed' AND restore_verified_at IS NOT NULL)",
+			},
+		},
 	}
 }
 
@@ -64,6 +69,7 @@ func (QAArchiveShard) Fields() []ent.Field {
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
 		field.Bool("cleanup_eligible").Default(false),
+		field.Bool("forward_cutover").Default(false),
 		field.Time("first_attempt_at").
 			Optional().
 			Nillable().
@@ -88,5 +94,9 @@ func (QAArchiveShard) Indexes() []ent.Index {
 	return []ent.Index{
 		index.Fields("window_start", "generation").Unique(),
 		index.Fields("state", "window_start"),
+		index.Fields("forward_cutover").
+			StorageKey("idx_qa_archive_shards_one_forward_cutover").
+			Unique().
+			Annotations(entsql.IndexWhere("forward_cutover")),
 	}
 }

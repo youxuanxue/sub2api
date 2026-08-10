@@ -230,6 +230,12 @@ RAW="$(aws ssm get-parameter --name "${QA_B64_PARAM_PREFIX}.part1" --region "${R
 RAW+="$(aws ssm get-parameter --name "${QA_B64_PARAM_PREFIX}.part2" --region "${REGION}" --query Parameter.Value --output text)"
 printf '%s' "${RAW}" | base64 -d | gunzip > /usr/local/bin/tokenkey-qa-stale-cleanup.sh
 chmod +x /usr/local/bin/tokenkey-qa-stale-cleanup.sh
+QA_EXPORT_ORPHAN_B64_PARAM_PREFIX="${STAGE0_PREFIX}/qa-export-orphan.gzip.b64"
+RAW="$(aws ssm get-parameter --name "${QA_EXPORT_ORPHAN_B64_PARAM_PREFIX}.part1" --region "${REGION}" --query Parameter.Value --output text)"
+RAW+="$(aws ssm get-parameter --name "${QA_EXPORT_ORPHAN_B64_PARAM_PREFIX}.part2" --region "${REGION}" --query Parameter.Value --output text)"
+install -d -m 0755 /usr/local/lib/tokenkey
+printf '%s' "${RAW}" | base64 -d | gunzip > /usr/local/lib/tokenkey/qa-export-orphan.py
+chmod 0755 /usr/local/lib/tokenkey/qa-export-orphan.py
 
 printf '%s\n' "${STAGE0_PREFIX}/ghcr-prune.b64" > /etc/tokenkey/ghcr-prune-ssm.path
 install -m 0755 /dev/stdin /usr/local/bin/tokenkey-prune-ghcr-app-tags.sh <<'LOADEREOF'

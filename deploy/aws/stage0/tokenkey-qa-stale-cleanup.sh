@@ -4,10 +4,15 @@ set -euo pipefail
 
 RETENTION_HOURS=24
 CONFIRM_PREFIX="tokenkey-prod-qa-retention-apply-v1:"
+EXPORT_CONFIRM_PREFIX="tokenkey-prod-qa-export-orphan-apply-v1:"
 TOKENKEY_ROOT="${TOKENKEY_ROOT:-/var/lib/tokenkey}"
+PROD_EXPORT_HOST_DIR="/var/lib/tokenkey/app/qa_exports_tmp"
 BLOB_ROOT="${TOKENKEY_ROOT}/app/qa_blobs"
 DLQ_ROOT="${TOKENKEY_ROOT}/app/qa_dlq"
 FIRST_PLAN_MARKER="${TOKENKEY_ROOT}/qa-stale-first-plan.json"
+EXPORT_ACTIVATION_MARKER="${TOKENKEY_ROOT}/qa-export-orphan-cleanup-activated.json"
+EXPORT_LOCK="${TOKENKEY_ROOT}/qa-export-orphan-cleanup.lock"
+EXPORT_ORPHAN_HELPER="${EXPORT_ORPHAN_HELPER:-/usr/local/lib/tokenkey/qa-export-orphan.py}"
 DELETE_BATCH_SIZE=5000
 
 fail() {
@@ -39,18 +44,48 @@ file_count_before() {
   find "${root}" -type f ! -newermt "${cutoff}" -print 2>/dev/null | wc -l | tr -d ' '
 }
 
-active_image() {
+active_container() {
   local color
   color="$(tr -d '[:space:]' <"${TOKENKEY_ROOT}/active-color")"
   [[ "${color}" == blue || "${color}" == green ]] || fail "active color is invalid"
-  docker inspect "tokenkey-${color}" --format '{{.Config.Image}}'
+  printf 'tokenkey-%s\n' "${color}"
+}
+
+active_image() {
+  docker inspect "$(active_container)" --format '{{.Config.Image}}'
+}
+
+export_runtime() {
+  local container default_export_host
+  container="$(active_container)"
+  if [[ "${TOKENKEY_ROOT}" == /var/lib/tokenkey ]]; then
+    default_export_host="${PROD_EXPORT_HOST_DIR}"
+  else
+    default_export_host="${TOKENKEY_ROOT}/app/qa_exports_tmp"
+  fi
+  [[ -r "${EXPORT_ORPHAN_HELPER}" ]] || fail "QA export orphan helper is missing"
+  docker inspect "${container}" | python3 "${EXPORT_ORPHAN_HELPER}" resolve-runtime \
+    --container "${container}" --default-host "${default_export_host}"
+}
+
+export_orphan_action() {
+  local mode="$1" cutoff="$2" expected_hash="${3:-}" runtime
+  runtime="$(export_runtime)" || fail "QA export temp resolution failed"
+  python3 "${EXPORT_ORPHAN_HELPER}" action --mode "${mode}" --cutoff "${cutoff}" \
+    --runtime-json "${runtime}" --proc-root "${QA_STALE_PROC_ROOT:-/proc}" \
+    --expected-hash "${expected_hash}" --activation-marker "${EXPORT_ACTIVATION_MARKER}"
+}
+
+export_activation_ready() {
+  [[ -f "${EXPORT_ACTIVATION_MARKER}" ]] || return 1
+  jq -e '
+    .schema_version == "qa-export-orphan-activation-v1" and
+    (.activated_plan_hash | type == "string" and test("^[0-9a-f]{64}$")) and
+    (.activated_at | type == "string" and length > 0)
+  ' "${EXPORT_ACTIVATION_MARKER}" >/dev/null
 }
 
 require_first_apply_timers() {
-  [[ "$(systemctl is-enabled tokenkey-qa-maintenance.timer)" == enabled ]] \
-    || fail "QA maintenance timer is not enabled"
-  [[ "$(systemctl is-active tokenkey-qa-maintenance.timer)" == active ]] \
-    || fail "QA maintenance timer is not active"
   [[ "$(systemctl is-enabled tokenkey-qa-stale-cleanup.timer)" == disabled ]] \
     || fail "QA stale cleanup timer must be disabled before first apply"
   [[ "$(systemctl is-active tokenkey-qa-stale-cleanup.timer)" == inactive ]] \
@@ -142,7 +177,7 @@ EOF
 
 build_plan() {
   require_runtime
-  local db_json cutoff blob_files dlq_files image
+  local db_json cutoff blob_files dlq_files image export_plan
   db_json="$(psql_value "
 WITH bounds AS (
   SELECT clock_timestamp() AS server_clock,
@@ -153,24 +188,50 @@ SELECT json_build_object(
   'cutoff', to_char(cutoff AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),
   'candidate_rows', (SELECT count(*) FROM qa_records WHERE created_at < cutoff),
   'oldest_created_at', (SELECT to_char(min(created_at) AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM qa_records WHERE created_at < cutoff),
-  'newest_created_at', (SELECT to_char(max(created_at) AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM qa_records WHERE created_at < cutoff)
+  'newest_created_at', (SELECT to_char(max(created_at) AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM qa_records WHERE created_at < cutoff),
+  'export_jobs', json_build_object(
+    'total_rows', (SELECT count(*) FROM qa_export_jobs),
+    'expired_rows', (SELECT count(*) FROM qa_export_jobs WHERE expires_at < server_clock),
+    'status_counts', COALESCE((SELECT json_object_agg(status, count) FROM (
+      SELECT status, count(*) AS count FROM qa_export_jobs GROUP BY status
+    ) grouped), '{}'::json),
+    'done_without_storage_key', (SELECT count(*) FROM qa_export_jobs WHERE status='done' AND btrim(storage_key)=''),
+    'non_done_with_storage_key', (SELECT count(*) FROM qa_export_jobs WHERE status<>'done' AND btrim(storage_key)<>'')
+  )
 )::text FROM bounds;")"
   cutoff="$(jq -r '.cutoff' <<<"${db_json}")"
   validate_cutoff "${cutoff}"
   blob_files="$(file_count_before "${BLOB_ROOT}" "${cutoff}")"
   dlq_files="$(file_count_before "${DLQ_ROOT}" "${cutoff}")"
   image="$(active_image)"
+  export_plan="$(export_orphan_action plan "${cutoff}")"
   jq -cn \
     --argjson db "${db_json}" \
     --argjson blob_files "${blob_files}" \
     --argjson dlq_files "${dlq_files}" \
     --arg confirm "${CONFIRM_PREFIX}${cutoff}" \
     --arg active_image "${image}" \
+    --argjson export_plan "${export_plan}" \
     '{mode:"prod_qa_age_retention_plan",environment:"prod",retention_hours:24,
       server_clock:$db.server_clock,cutoff:$db.cutoff,active_image:$active_image,candidate_rows:$db.candidate_rows,
       oldest_created_at:$db.oldest_created_at,newest_created_at:$db.newest_created_at,
       candidate_blob_files:$blob_files,candidate_dlq_files:$dlq_files,
+      export_tmp:$export_plan,export_jobs:$db.export_jobs,
       required_confirmation:$confirm,deletion_authorized:false}'
+}
+
+apply_export_orphans() {
+  local cutoff="$1" expected_image="$2" expected_hash="$3" confirm="$4"
+  validate_cutoff "${cutoff}"
+  [[ -n "${expected_image}" ]] || fail "expected active image is required"
+  [[ "${expected_hash}" =~ ^[0-9a-f]{64}$ ]] || fail "expected export plan hash is invalid"
+  [[ "${confirm}" == "${EXPORT_CONFIRM_PREFIX}${expected_hash}" ]] \
+    || fail "export orphan plan confirmation mismatch"
+  require_runtime
+  exec 8>"${EXPORT_LOCK}"
+  flock -n 8 || fail "another export orphan cleanup is active"
+  [[ "$(active_image)" == "${expected_image}" ]] || fail "active image changed"
+  export_orphan_action apply-activate "${cutoff}" "${expected_hash}"
 }
 
 apply_cutoff() {
@@ -254,14 +315,27 @@ run_scheduled() {
   local cutoff
   cutoff="$(psql_value "SELECT to_char((clock_timestamp()-interval '${RETENTION_HOURS} hours') AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"');")"
   validate_cutoff "${cutoff}"
-  local rows blobs dlq
+  local rows blobs dlq export_plan export_result export_hash
   rows="$(delete_rows_before "${cutoff}")"
   blobs="$(file_count_before "${BLOB_ROOT}" "${cutoff}")"
   dlq="$(file_count_before "${DLQ_ROOT}" "${cutoff}")"
   find "${BLOB_ROOT}" -type f ! -newermt "${cutoff}" -delete
   find "${DLQ_ROOT}" -type f ! -newermt "${cutoff}" -delete
   find "${BLOB_ROOT}" "${DLQ_ROOT}" -depth -mindepth 1 -type d -empty -delete
-  logger -t tokenkey-qa-stale-cleanup "cleanup_done cutoff=${cutoff} deleted_rows=${rows} blob_files=${blobs} dlq_files=${dlq}"
+  exec 8>"${EXPORT_LOCK}"
+  flock -n 8 || fail "another export orphan cleanup is active"
+  export_plan="$(export_orphan_action plan "${cutoff}")"
+  export_hash="$(jq -r '.plan_hash' <<<"${export_plan}")"
+  if export_activation_ready; then
+    export_result="$(export_orphan_action apply "${cutoff}" "${export_hash}")"
+  else
+    export_result="$(jq -c '. + {mode:"prod_qa_export_orphan_inventory",activation_required:true,deleted_count:0,deleted_bytes:0}' <<<"${export_plan}")"
+  fi
+  logger -t tokenkey-qa-stale-cleanup "cleanup_done cutoff=${cutoff} deleted_rows=${rows} blob_files=${blobs} dlq_files=${dlq} export_orphans=$(jq -r '.count // .planned_count' <<<"${export_result}") export_deleted=$(jq -r '.deleted_count' <<<"${export_result}")"
+  jq -cn --arg cutoff "${cutoff}" --argjson rows "${rows}" --argjson blobs "${blobs}" \
+    --argjson dlq "${dlq}" --argjson export_tmp "${export_result}" \
+    '{mode:"prod_qa_age_retention_scheduled",cutoff:$cutoff,deleted_rows:$rows,
+      deleted_blob_files:$blobs,deleted_dlq_files:$dlq,export_tmp:$export_tmp}'
 }
 
 case "${1:-}" in
@@ -293,6 +367,22 @@ case "${1:-}" in
     mode=apply
     [[ "${operation}" == resume-first ]] && mode=resume
     apply_cutoff "${mode}" "${cutoff}" "${expected_rows}" "${expected_blob_files}" "${expected_dlq_files}" "${expected_image}" "${confirm}"
+    ;;
+  --apply-export-orphans)
+    [[ "$#" -eq 9 ]] || fail "--apply-export-orphans requires cutoff, active image, plan hash, and confirmation"
+    shift
+    cutoff=""; expected_image=""; expected_plan_hash=""; confirm=""
+    while [[ "$#" -gt 0 ]]; do
+      case "$1" in
+        --cutoff) cutoff="${2:-}" ;;
+        --expected-active-image) expected_image="${2:-}" ;;
+        --expected-plan-hash) expected_plan_hash="${2:-}" ;;
+        --confirm) confirm="${2:-}" ;;
+        *) fail "unknown export orphan argument: $1" ;;
+      esac
+      shift 2
+    done
+    apply_export_orphans "${cutoff}" "${expected_image}" "${expected_plan_hash}" "${confirm}"
     ;;
   '')
     run_scheduled

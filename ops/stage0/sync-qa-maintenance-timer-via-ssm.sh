@@ -44,13 +44,17 @@ stderr_file="${OUTPUT_DIR}/stderr.txt"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MAINT_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/tokenkey-qa-maintenance.sh"
+RESOLVER_SRC="${SCRIPT_DIR}/../lib/resolve-app-container.sh"
 [[ -f "${MAINT_SRC}" ]] || { echo "missing ${MAINT_SRC}" >&2; exit 1; }
+[[ -f "${RESOLVER_SRC}" ]] || { echo "missing ${RESOLVER_SRC}" >&2; exit 1; }
 
 MAINT_SH_B64="$(base64 <"${MAINT_SRC}" | tr -d '\n')"
+RESOLVER_SH_B64="$(base64 <"${RESOLVER_SRC}" | tr -d '\n')"
 TEMPLATE_SHA="${GITHUB_SHA:-local}"
 
 jq -n \
   --arg maint "${MAINT_SH_B64}" \
+  --arg resolver "${RESOLVER_SH_B64}" \
   --arg sha "${TEMPLATE_SHA}" \
   --arg timer_command "${timer_command}" \
   --arg timer_state "${TIMER_STATE}" \
@@ -59,11 +63,17 @@ jq -n \
     commands: [
       "set -euo pipefail",
       "echo === qa-maintenance timer sync ===",
+      "if sudo systemctl list-unit-files tokenkey-qa-maintenance.timer --no-legend 2>/dev/null | grep -q \"^tokenkey-qa-maintenance[.]timer\"; then sudo systemctl disable --now tokenkey-qa-maintenance.timer; fi",
+      "! sudo systemctl is-active --quiet tokenkey-qa-maintenance.timer",
+      "! sudo systemctl is-active --quiet tokenkey-qa-maintenance.service",
       ("echo " + $maint + " | base64 -d | sudo tee /usr/local/bin/tokenkey-qa-maintenance.sh > /dev/null"),
       "sudo chmod +x /usr/local/bin/tokenkey-qa-maintenance.sh",
+      "sudo install -d -m 0755 /usr/local/lib/tokenkey",
+      ("echo " + $resolver + " | base64 -d | sudo tee /usr/local/lib/tokenkey/resolve-app-container.sh > /dev/null"),
+      "sudo chmod 0644 /usr/local/lib/tokenkey/resolve-app-container.sh",
+      "sudo test -e /var/lib/tokenkey/app/qa_archive_tmp || sudo install -d -m 0700 -o 1000 -g 1000 /var/lib/tokenkey/app/qa_archive_tmp",
       "sudo /usr/local/bin/tokenkey-qa-maintenance.sh --selftest",
       "sudo /usr/local/bin/tokenkey-qa-maintenance.sh --install-units",
-      "sudo install -d -m 0700 -o 1000 -g 1000 /var/lib/tokenkey/data/qa_archive_tmp",
       "sudo systemctl daemon-reload",
       $timer_command,
       ("test \"$(sudo systemctl is-enabled tokenkey-qa-maintenance.timer)\" = \"" + $timer_state + "\""),

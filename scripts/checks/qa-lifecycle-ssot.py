@@ -11,18 +11,26 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 SSOT = Path("docs/approved/design-prod-qa-24h-s3-lifecycle.md")
+PHASE2_DESIGN = Path("docs/approved/design-qa-phase2-archive-closeout.md")
 POLICY = Path("ops/qa/policy.yaml")
 MAINTENANCE_SCRIPT = Path("deploy/aws/stage0/tokenkey-qa-maintenance.sh")
 CLEANUP_SCRIPT = Path("deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh")
+EXPORT_ORPHAN_HELPER = Path("deploy/aws/stage0/tokenkey-qa-export-orphan.py")
 BOOTSTRAP = Path("deploy/aws/stage0/stage0-ec2-bootstrap.sh")
 LIVE_HOST_ASSERT = Path("ops/stage0/assert-live-host-state.sh")
 QA_SERVICE = Path("backend/internal/observability/qa/service.go")
 QA_CONFIG = Path("backend/internal/config/config.go")
 GO_MAINTENANCE = Path("backend/cmd/server/qa_maintenance.go")
 RAW_ARCHIVE_CFN = Path("deploy/aws/cloudformation/stage0-qa-raw-archive.yaml")
+RAW_ARCHIVE_DEPLOY = Path("ops/qa/deploy_qa_raw_archive_cfn.sh")
+ARCHIVE_CLI = Path("backend/cmd/qa-archive/main.go")
+RECOVERY_GATE = Path("ops/qa/qa_archive_recovery_gate.py")
+BREAK_GLASS = Path("ops/prod/fetch-qa-dump.sh")
+PREFLIGHT = Path("scripts/preflight.sh")
 ARCHIVE_STATE = Path("backend/internal/observability/qa/archive/state.go")
 ROLLOUT = Path("ops/qa/deploy_rollout.yaml")
 QA_README = Path("ops/qa/README.md")
+STALE_OPERATOR = Path("ops/qa/prod_qa_stale_cleanup.py")
 DEPLOY_SSM = Path("ops/stage0/deploy_via_ssm.sh")
 DEPLOY_BG = Path("ops/stage0/deploy_via_ssm_bluegreen.sh")
 
@@ -87,8 +95,18 @@ REQUIRED_BY_FILE = {
         "status: approved",
         "ops/qa/policy.yaml",
         "ops/qa/deploy_rollout.yaml",
+        "forward_cutover",
+        "/var/lib/tokenkey/qa-maintenance-last-run.json",
         "### 8.5 四类存储与备份边界",
         "### 18.1 现状 owner → 唯一目标 owner → 退役门禁",
+    ),
+    PHASE2_DESIGN: (
+        "status: approved",
+        "forward_cutover",
+        "/var/lib/tokenkey/app/qa_archive_tmp",
+        "/var/lib/tokenkey/qa-maintenance-last-run.json",
+        "systemd/host-receipt/DB-heartbeat/control-row",
+        "qa_exports_tmp",
     ),
     POLICY: (
         "schema_version: 1",
@@ -98,12 +116,23 @@ REQUIRED_BY_FILE = {
         "archive:",
         "enabled: true",
         "s3_retention_days: 7",
+        "max_catchup_windows_per_run: 1",
+        "host_scratch_dir: /var/lib/tokenkey/app/qa_archive_tmp",
+        "host_receipt_path: /var/lib/tokenkey/qa-maintenance-last-run.json",
+        "host_export_tmp_dir: /var/lib/tokenkey/app/qa_exports_tmp",
+        "container_export_tmp_dir: /app/data/qa_exports_tmp",
         "capture_enabled: false",
         "edge:",
     ),
     ROLLOUT: (
         "schema_version: 1",
         "deploy_inject_default: false",
+        "target_deploy_inject_default: true",
+        "closeout_state: repository_ready_production_pending",
+        "min_consecutive_scheduled_runs: 2",
+        "host_runner: /usr/local/bin/tokenkey-qa-maintenance.sh",
+        "health_evaluator: ops/qa/qa_phase2_health.py",
+        "export_orphan_activation_marker: /var/lib/tokenkey/qa-export-orphan-cleanup-activated.json",
         "policy_target: prod.archive.enabled",
         "design-qa-phase2-archive-closeout.md",
     ),
@@ -111,6 +140,10 @@ REQUIRED_BY_FILE = {
         "policy.yaml",
         "deploy_rollout.yaml",
         "qa-lifecycle-ssot.py",
+        "qa_phase2_health.py",
+        "tokenkey-qa-maintenance.sh",
+        "tokenkey-qa-stale-cleanup.sh",
+        "apply-export-orphans",
     ),
     Path("ops/stage0/deploy_via_ssm.sh"): (
         "edge_qa_capture_cmds",
@@ -129,11 +162,47 @@ REQUIRED_BY_FILE = {
         "QaRawArchiveBucket",
         "raw/v1/",
         "raw/partial/",
+        "orphan-evidence-index.jsonl.zst",
+        "QaRawArchiveRecoveryRole",
+        "QaRawArchiveS3Endpoint",
+        "QaRawArchiveDataTrail",
+    ),
+    RAW_ARCHIVE_DEPLOY: (
+        "OPS_RECOVERY_PRINCIPAL_ARN",
+        "QA_RAW_ARCHIVE_VPC_ID",
+        "QA_RAW_ARCHIVE_ROUTE_TABLE_IDS",
+        "iam_boundary=shared_ec2_instance_role_no_process_isolation",
+    ),
+    ARCHIVE_CLI: (
+        "NewReadOnlyObjectStoreForWorkstation",
+        "ops-workstation-s3",
+        "database_accessed",
+        "shared_ec2_instance_role_no_process_isolation",
+        "window-bound privacy confirmation required",
+    ),
+    RECOVERY_GATE: (
+        "planned_transition_authorized",
+        "planned_removal_only",
+        "production_evidence_validated",
+        "ops/prod/fetch-qa-dump.sh",
+    ),
+    BREAK_GLASS: (
+        "Export all prod qa_records",
+    ),
+    PREFLIGHT: (
+        "QA Phase 2 recovery and IAM contracts",
+        "deploy.aws.cloudformation.test_stage0_qa_raw_archive_contract",
+        "ops.qa.test_qa_archive_recovery_gate",
     ),
     MAINTENANCE_SCRIPT: (
         "--qa-maintenance-once",
+        "tokenkey-prod-qa-maintenance-v1",
         "archive_start",
         "--install-units",
+        "/usr/local/lib/tokenkey/resolve-app-container.sh",
+        "/var/lib/tokenkey/app/qa_archive_tmp",
+        "/var/lib/tokenkey/qa-maintenance-last-run.json",
+        '"deletion_authorized": False',
     ),
     GO_MAINTENANCE: (
         "qa_maintenance_archive_only",
@@ -160,11 +229,31 @@ REQUIRED_BY_FILE = {
         "IntegrityCorruptArtifact",
     ),
     Path("ops/qa/prod_qa_maintenance.py"): (
-        "tokenkey-prod-qa-maintenance-v1",
+        "/usr/local/bin/tokenkey-qa-maintenance.sh",
+        "qa-maintenance-runner-v1",
         "deletion_authorized",
     ),
     Path("ops/stage0/sync-qa-maintenance-timer-via-ssm.sh"): (
         "tokenkey-qa-maintenance.timer",
+        "/usr/local/lib/tokenkey/resolve-app-container.sh",
+        "/var/lib/tokenkey/app/qa_archive_tmp",
+    ),
+    CLEANUP_SCRIPT: (
+        "EXPORT_ORPHAN_HELPER",
+        "/var/lib/tokenkey/app/qa_exports_tmp",
+        "tokenkey-prod-qa-export-orphan-apply-v1:",
+        "qa-export-orphan-cleanup-activated.json",
+        "--apply-export-orphans",
+    ),
+    EXPORT_ORPHAN_HELPER: (
+        "QA_EXPORT_TMP_DIR=",
+        "/app/data/qa_exports_tmp",
+        "qa-export-orphan-plan-v1",
+    ),
+    STALE_OPERATOR: (
+        "apply_export_orphans",
+        "--apply-export-orphans",
+        "tokenkey-prod-qa-export-orphan-apply-v1:",
     ),
     Path("ops/archive/data_layer_archive_rehearsal.py"): (
         'DATASETS = ("usage", "ops")',
@@ -193,7 +282,16 @@ def _policy_failures(root: Path) -> list[str]:
         ("prod", "archive", "enabled"): True,
         ("prod", "archive", "shard_minutes"): 60,
         ("prod", "archive", "seal_delay_minutes"): 15,
+        ("prod", "archive", "max_catchup_windows_per_run"): 1,
         ("prod", "archive", "s3_retention_days"): 7,
+        ("prod", "archive", "runner_uid"): 1000,
+        ("prod", "archive", "runner_gid"): 1000,
+        ("prod", "archive", "host_scratch_dir"): "/var/lib/tokenkey/app/qa_archive_tmp",
+        ("prod", "archive", "container_scratch_dir"): "/app/data/qa_archive_tmp",
+        ("prod", "archive", "host_receipt_path"): "/var/lib/tokenkey/qa-maintenance-last-run.json",
+        ("prod", "cleanup", "host_export_tmp_dir"): "/var/lib/tokenkey/app/qa_exports_tmp",
+        ("prod", "cleanup", "container_export_tmp_dir"): "/app/data/qa_exports_tmp",
+        ("prod", "cleanup", "export_tmp_owner"): "tokenkey-qa-stale-cleanup",
         ("edge", "capture_enabled"): False,
         ("edge", "archive_enabled"): False,
         ("edge", "cleanup_enabled"): False,
@@ -235,6 +333,11 @@ def _policy_failures(root: Path) -> list[str]:
             f"RandomizedDelaySec={cleanup_delay}min",
             "--resume-first",
             "flock -n 9",
+            "/var/lib/tokenkey/app/qa_exports_tmp",
+            "--apply-export-orphans",
+        ),
+        EXPORT_ORPHAN_HELPER: (
+            "/app/data/qa_exports_tmp",
         ),
         QA_SERVICE: (f"input.CreatedAt.Add({online_hours} * time.Hour)",),
         BOOTSTRAP: (
@@ -276,6 +379,10 @@ def _policy_failures(root: Path) -> list[str]:
         failures.append("bootstrap duplicates the QA cleanup systemd owner")
     if "retention_until" in cleanup:
         failures.append("QA cleanup must not read retention_until")
+    if "tokenkey-qa-maintenance.timer" in cleanup:
+        failures.append("QA cleanup must not depend on maintenance timer state")
+    if re.search(r"DELETE\s+FROM\s+qa_export_jobs", cleanup, re.IGNORECASE):
+        failures.append("QA cleanup must not delete qa_export_jobs")
     if re.search(r"OnCalendar=\*-\*-\* 04:15:00|Description=Daily QA", cleanup):
         failures.append(f"retired daily QA cleanup schedule remains in {CLEANUP_SCRIPT}")
     live_assert = (root / LIVE_HOST_ASSERT).read_text(encoding="utf-8") if (root / LIVE_HOST_ASSERT).is_file() else ""
@@ -300,6 +407,8 @@ def _rollout_failures(root: Path) -> list[str]:
     if not isinstance(prod, dict) or not isinstance(edge, dict):
         return ["deploy_rollout.yaml prod/edge must be mappings"]
     prod_archive = prod.get("QA_ARCHIVE_ENABLED")
+    prod_timer = prod.get("tokenkey_qa_maintenance_timer")
+    prod_cleanup = prod.get("tokenkey_qa_stale_cleanup")
     edge_capture = edge.get("QA_CAPTURE_ENABLED")
     if not isinstance(prod_archive, dict):
         failures.append("rollout prod.QA_ARCHIVE_ENABLED must be a mapping")
@@ -308,10 +417,47 @@ def _rollout_failures(root: Path) -> list[str]:
             failures.append("rollout prod.QA_ARCHIVE_ENABLED.deploy_inject_default must be false")
         if prod_archive.get("policy_target") != "prod.archive.enabled":
             failures.append("rollout prod.QA_ARCHIVE_ENABLED.policy_target drift")
+        if prod_archive.get("target_deploy_inject_default") is not True:
+            failures.append("rollout prod.QA_ARCHIVE_ENABLED target must become true after closeout")
+        if prod_archive.get("closeout_state") != "repository_ready_production_pending":
+            failures.append("rollout prod.QA_ARCHIVE_ENABLED closeout state drift")
+    if not isinstance(prod_timer, dict):
+        failures.append("rollout prod.tokenkey_qa_maintenance_timer must be a mapping")
+    else:
+        if prod_timer.get("closeout_deploy_state") != "disabled":
+            failures.append("rollout maintenance timer must stay disabled during closeout deploy")
+        if prod_timer.get("policy_target_state") != "enabled":
+            failures.append("rollout maintenance timer target drift")
+        if prod_timer.get("min_consecutive_scheduled_runs") != 2:
+            failures.append("rollout maintenance timer observation gate drift")
+        if prod_timer.get("health_evidence") != [
+            "systemd", "host_receipt", "database_heartbeat", "archive_control_rows"
+        ]:
+            failures.append("rollout maintenance health evidence drift")
+    if not isinstance(prod_cleanup, dict):
+        failures.append("rollout prod.tokenkey_qa_stale_cleanup must be a mapping")
+    else:
+        if prod_cleanup.get("policy_target_state") != "enabled":
+            failures.append("rollout stale cleanup target drift")
+        if prod_cleanup.get("archive_independent") is not True:
+            failures.append("rollout stale cleanup must remain archive-independent")
+        if prod_cleanup.get("activation_state") != "pending_production_exact_plan":
+            failures.append("rollout export orphan activation evidence drift")
     if not isinstance(edge_capture, dict):
         failures.append("rollout edge.QA_CAPTURE_ENABLED must be a mapping")
     elif edge_capture.get("deploy_inject_default") is not False:
         failures.append("rollout edge.QA_CAPTURE_ENABLED.deploy_inject_default must be false")
+    recovery = prod.get("raw_archive_recovery")
+    if not isinstance(recovery, dict) or recovery != {
+        "repository_state": "ready",
+        "production_iam_state": "pending_apply",
+        "independent_evidence_state": "pending",
+        "recovery_cli": "backend/cmd/qa-archive",
+        "retirement_gate": "ops/qa/qa_archive_recovery_gate.py",
+        "break_glass_path": "ops/prod/fetch-qa-dump.sh",
+        "shared_role_boundary": "shared_ec2_instance_role_no_process_isolation",
+    }:
+        failures.append("rollout raw archive recovery contract drift")
     return failures
 
 
@@ -403,7 +549,17 @@ prod:
     enabled: true
     shard_minutes: 60
     seal_delay_minutes: 15
+    max_catchup_windows_per_run: 1
     s3_retention_days: 7
+    runner_uid: 1000
+    runner_gid: 1000
+    host_scratch_dir: /var/lib/tokenkey/app/qa_archive_tmp
+    container_scratch_dir: /app/data/qa_archive_tmp
+    host_receipt_path: /var/lib/tokenkey/qa-maintenance-last-run.json
+  cleanup:
+    host_export_tmp_dir: /var/lib/tokenkey/app/qa_exports_tmp
+    container_export_tmp_dir: /app/data/qa_exports_tmp
+    export_tmp_owner: tokenkey-qa-stale-cleanup
 edge:
   capture_enabled: false
   archive_enabled: false
@@ -443,6 +599,20 @@ edge:
             return 1
         (root / POLICY).write_text(policy_fixture, encoding="utf-8")
 
+        preflight = root / PREFLIGHT
+        preflight.write_text(
+            preflight.read_text(encoding="utf-8").replace(
+                "ops.qa.test_qa_archive_recovery_gate",
+                "ops.qa.test_removed_recovery_gate",
+            ),
+            encoding="utf-8",
+        )
+        failures = scan(root)
+        if not any("ops.qa.test_qa_archive_recovery_gate" in item for item in failures):
+            print("self-test failed to detect recovery contract test unwiring")
+            return 1
+        preflight.write_text((ROOT / PREFLIGHT).read_text(encoding="utf-8"), encoding="utf-8")
+
         retired = root / MUST_BE_ABSENT[0]
         retired.parent.mkdir(parents=True, exist_ok=True)
         retired.write_text("old owner\n", encoding="utf-8")
@@ -454,6 +624,13 @@ edge:
             return 1
         if not any("retired QA contract reintroduced" in item for item in failures):
             print("self-test failed to detect retired route")
+            return 1
+        retired.unlink()
+        route.write_text("retired surface absent\n", encoding="utf-8")
+        (root / RECOVERY_GATE).unlink()
+        failures = scan(root)
+        if not any(str(RECOVERY_GATE) in item for item in failures):
+            print("self-test failed to detect missing recovery retirement gate")
             return 1
     print("qa lifecycle SSOT self-test: OK")
     return 0

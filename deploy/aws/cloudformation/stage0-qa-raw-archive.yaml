@@ -76,20 +76,6 @@ Resources:
                 Effect: Allow
                 Action: 's3:GetObject'
                 Resource: !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-${Environment}-qa-raw-archive-${AWS::AccountId}/raw/*'
-              - Sid: DecryptRawObjectsViaS3
-                Effect: Allow
-                Action:
-                  - 'kms:Decrypt'
-                  - 'kms:DescribeKey'
-                Resource: '*'
-                Condition:
-                  StringEquals:
-                    kms:ViaService: !Sub 's3.${AWS::Region}.amazonaws.com'
-                  StringLike:
-                    kms:EncryptionContext:aws:s3:arn:
-                      - !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-${Environment}-qa-raw-archive-${AWS::AccountId}'
-                      - !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-${Environment}-qa-raw-archive-${AWS::AccountId}/raw/*'
-
   QaRawArchiveKey:
     Type: AWS::KMS::Key
     DeletionPolicy: Retain
@@ -207,31 +193,27 @@ Resources:
               AWS: !Ref AppInstanceRoleArn
             Action:
               - 's3:PutObject'
-              - 's3:GetObject'
               - 's3:AbortMultipartUpload'
               - 's3:ListMultipartUploadParts'
             Resource:
-              - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/*'
-              - !Sub '${QaRawArchiveBucket.Arn}/raw/partial/*'
-          - Sid: AllowAppInstanceRoleHeadRaw
+              - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/date=*/hour=*/commit.json'
+              - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/date=*/hour=*/segments/*/manifest.json'
+              - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/date=*/hour=*/segments/*/records.parquet'
+              - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/date=*/hour=*/segments/*/evidence.pack'
+              - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/date=*/hour=*/segments/*/evidence-index.jsonl.zst'
+              - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/date=*/hour=*/segments/*/orphan-evidence-index.jsonl.zst'
+          - Sid: AllowAppInstanceRoleVerifyRaw
             Effect: Allow
             Principal:
               AWS: !Ref AppInstanceRoleArn
             Action: 's3:GetObject'
             Resource:
-              - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/*'
-              - !Sub '${QaRawArchiveBucket.Arn}/raw/partial/*'
-          - Sid: AllowAppInstanceRoleListRawPrefix
-            Effect: Allow
-            Principal:
-              AWS: !Ref AppInstanceRoleArn
-            Action: 's3:ListBucket'
-            Resource: !GetAtt QaRawArchiveBucket.Arn
-            Condition:
-              StringLike:
-                's3:prefix':
-                  - raw/v1/*
-                  - raw/partial/*
+              - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/date=*/hour=*/commit.json'
+              - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/date=*/hour=*/segments/*/manifest.json'
+              - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/date=*/hour=*/segments/*/records.parquet'
+              - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/date=*/hour=*/segments/*/evidence.pack'
+              - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/date=*/hour=*/segments/*/evidence-index.jsonl.zst'
+              - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/date=*/hour=*/segments/*/orphan-evidence-index.jsonl.zst'
           - Sid: AllowOpsRecoveryRoleReadRaw
             Effect: Allow
             Principal:

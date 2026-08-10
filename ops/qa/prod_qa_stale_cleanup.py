@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import pathlib
@@ -19,6 +20,7 @@ REGION = "us-east-1"
 INSTANCE_RE = re.compile(r"i-[0-9a-f]{17}")
 MARKER_SHA_RE = re.compile(r"[0-9a-f]{64}")
 CONFIRM_PREFIX = "tokenkey-prod-qa-retention-apply-v1:"
+EXPORT_CONFIRM_PREFIX = "tokenkey-prod-qa-export-orphan-apply-v1:"
 
 
 class StaleCleanupError(RuntimeError):
@@ -41,7 +43,69 @@ def _atomic_json(path: pathlib.Path, value: dict[str, Any]) -> None:
         raise
 
 
-def _load_plan(path: str | os.PathLike[str], *, allow_stale: bool = False) -> dict[str, Any]:
+def _validate_export_plan(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise StaleCleanupError("QA export orphan plan is missing")
+    files = value.get("files")
+    if not isinstance(files, list):
+        raise StaleCleanupError("QA export orphan file inventory is invalid")
+    for item in files:
+        if not isinstance(item, dict):
+            raise StaleCleanupError("QA export orphan file fact is invalid")
+        basename = item.get("basename")
+        if (
+            not isinstance(basename, str)
+            or basename in {"", ".", ".."}
+            or "/" in basename
+            or isinstance(item.get("size_bytes"), bool)
+            or not isinstance(item.get("size_bytes"), int)
+            or item["size_bytes"] < 0
+            or isinstance(item.get("mtime"), bool)
+            or not isinstance(item.get("mtime"), int)
+            or item["mtime"] < 0
+        ):
+            raise StaleCleanupError("QA export orphan file fact is invalid")
+    base = {
+        "schema_version": value.get("schema_version"),
+        "container_dir": value.get("container_dir"),
+        "host_dir": value.get("host_dir"),
+        "cutoff": value.get("cutoff"),
+        "directory_present": value.get("directory_present"),
+        "files": files,
+        "count": value.get("count"),
+        "total_bytes": value.get("total_bytes"),
+        "deletion_authorized": value.get("deletion_authorized"),
+    }
+    if (
+        base["schema_version"] != "qa-export-orphan-plan-v1"
+        or not isinstance(base["container_dir"], str)
+        or not base["container_dir"].startswith("/")
+        or not isinstance(base["host_dir"], str)
+        or not base["host_dir"].startswith("/")
+        or not isinstance(base["cutoff"], str)
+        or not isinstance(base["directory_present"], bool)
+        or base["count"] != len(files)
+        or base["total_bytes"] != sum(item["size_bytes"] for item in files)
+        or base["deletion_authorized"] is not False
+    ):
+        raise StaleCleanupError("QA export orphan plan failed validation")
+    digest = hashlib.sha256(
+        json.dumps(base, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    if (
+        value.get("plan_hash") != digest
+        or value.get("required_confirmation") != EXPORT_CONFIRM_PREFIX + digest
+    ):
+        raise StaleCleanupError("QA export orphan plan hash is invalid")
+    return value
+
+
+def _load_plan(
+    path: str | os.PathLike[str],
+    *,
+    allow_stale: bool = False,
+    require_activation_ready: bool = True,
+) -> dict[str, Any]:
     try:
         value = json.loads(pathlib.Path(path).expanduser().resolve().read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -50,7 +114,6 @@ def _load_plan(path: str | os.PathLike[str], *, allow_stale: bool = False) -> di
         not isinstance(value, dict)
         or value.get("mode") != "prod_data_retention_activation_plan"
         or value.get("environment") != "prod"
-        or value.get("activation_ready") is not True
         or value.get("deletion_authorized") is not False
         or INSTANCE_RE.fullmatch(str(value.get("instance_id", ""))) is None
         or not isinstance(value.get("qa"), dict)
@@ -58,6 +121,8 @@ def _load_plan(path: str | os.PathLike[str], *, allow_stale: bool = False) -> di
         or value["qa"].get("deletion_authorized") is not False
     ):
         raise StaleCleanupError("retention activation plan failed validation")
+    if require_activation_ready and value.get("activation_ready") is not True:
+        raise StaleCleanupError("retention activation plan is not ready")
     try:
         clock = dt.datetime.fromisoformat(str(value["ops"]["server_clock"]).replace("Z", "+00:00"))
     except (KeyError, TypeError, ValueError) as exc:
@@ -74,6 +139,9 @@ def _load_plan(path: str | os.PathLike[str], *, allow_stale: bool = False) -> di
     cutoff = str(qa.get("cutoff", ""))
     if qa.get("required_confirmation") != CONFIRM_PREFIX + cutoff or not qa.get("active_image"):
         raise StaleCleanupError("QA plan binding is invalid")
+    export = _validate_export_plan(qa.get("export_tmp"))
+    if export.get("cutoff") != cutoff or not isinstance(qa.get("export_jobs"), dict):
+        raise StaleCleanupError("QA export diagnostics are not bound to the retention plan")
     return value
 
 
@@ -165,20 +233,72 @@ def apply_first(
     return combined
 
 
+def apply_export_orphans(
+    plan_path: str | os.PathLike[str],
+    receipt_path: pathlib.Path,
+    confirmation: str,
+) -> dict[str, Any]:
+    if receipt_path.expanduser().exists():
+        raise StaleCleanupError("QA export orphan receipt path already exists")
+    plan = _load_plan(plan_path, require_activation_ready=False)
+    qa = plan["qa"]
+    export = qa["export_tmp"]
+    if confirmation != export["required_confirmation"]:
+        raise StaleCleanupError("QA export orphan confirmation mismatch")
+    values = [
+        "/usr/local/bin/tokenkey-qa-stale-cleanup.sh",
+        "--apply-export-orphans",
+        "--cutoff",
+        qa["cutoff"],
+        "--expected-active-image",
+        qa["active_image"],
+        "--expected-plan-hash",
+        export["plan_hash"],
+        "--confirm",
+        confirmation,
+    ]
+    command_id, receipt = _run_remote(plan["instance_id"], shlex.join(values))
+    if (
+        receipt.get("mode") != "prod_qa_export_orphan_apply"
+        or receipt.get("cutoff") != qa["cutoff"]
+        or receipt.get("container_dir") != export["container_dir"]
+        or receipt.get("host_dir") != export["host_dir"]
+        or receipt.get("files") != export["files"]
+        or receipt.get("planned_count") != export["count"]
+        or receipt.get("planned_bytes") != export["total_bytes"]
+        or receipt.get("plan_hash") != export["plan_hash"]
+        or receipt.get("deleted_count") != export["count"]
+        or receipt.get("deleted_bytes") != export["total_bytes"]
+        or receipt.get("deletion_authorized") is not True
+        or MARKER_SHA_RE.fullmatch(str(receipt.get("activation_marker_sha256", ""))) is None
+    ):
+        raise StaleCleanupError("QA export orphan receipt failed validation")
+    combined = {**receipt, "instance_id": plan["instance_id"], "command_id": command_id}
+    _atomic_json(receipt_path, combined)
+    return combined
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("apply-first", "resume-first"))
+    parser.add_argument(
+        "command", choices=("apply-first", "resume-first", "apply-export-orphans")
+    )
     parser.add_argument("--activation-plan", required=True)
     parser.add_argument("--receipt", required=True)
     parser.add_argument("--confirm", required=True)
     args = parser.parse_args()
     try:
-        value = apply_first(
-            args.activation_plan,
-            pathlib.Path(args.receipt),
-            args.confirm,
-            resume=args.command == "resume-first",
-        )
+        if args.command == "apply-export-orphans":
+            value = apply_export_orphans(
+                args.activation_plan, pathlib.Path(args.receipt), args.confirm
+            )
+        else:
+            value = apply_first(
+                args.activation_plan,
+                pathlib.Path(args.receipt),
+                args.confirm,
+                resume=args.command == "resume-first",
+            )
     except StaleCleanupError as exc:
         print(f"production QA stale cleanup refused: {exc}", file=sys.stderr)
         return 2

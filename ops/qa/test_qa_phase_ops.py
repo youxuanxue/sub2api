@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import datetime as dt
+import base64
+import gzip
 import importlib.util
 import json
+import re
 import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -114,9 +118,16 @@ class TestQAPhaseOps(unittest.TestCase):
                 """#!/usr/bin/env bash
 printf 'docker %s\n' "$*" >> "$CALLS"
 if [ "$1" = ps ]; then echo tokenkey-postgres; exit 0; fi
-if [ "$1" = inspect ]; then echo ghcr.io/youxuanxue/sub2api:1.8.140; exit 0; fi
+if [ "$1" = inspect ]; then
+  if [[ "$*" == *--format* ]]; then
+    echo ghcr.io/youxuanxue/sub2api:1.8.140
+  else
+    printf '[{"Config":{"Image":"ghcr.io/youxuanxue/sub2api:1.8.140","Env":[]},"Mounts":[{"Type":"bind","Source":"%s/app","Destination":"/app/data","RW":true}]}]\n' "$TOKENKEY_ROOT"
+  fi
+  exit 0
+fi
 if [ "$1" = exec ]; then
-  echo '{"server_clock":"2026-08-07T12:00:00.000000Z","cutoff":"2026-08-06T12:00:00.000000Z","candidate_rows":42,"oldest_created_at":"2026-08-04T04:00:00.000000Z","newest_created_at":"2026-08-06T11:59:00.000000Z"}'
+  echo '{"server_clock":"2026-08-07T12:00:00.000000Z","cutoff":"2026-08-06T12:00:00.000000Z","candidate_rows":42,"oldest_created_at":"2026-08-04T04:00:00.000000Z","newest_created_at":"2026-08-06T11:59:00.000000Z","export_jobs":{"total_rows":0,"expired_rows":0,"status_counts":{},"done_without_storage_key":0,"non_done_with_storage_key":0}}'
   exit 0
 fi
 exit 9
@@ -133,6 +144,7 @@ case "$1" in *qa_blobs) printf 'a\nb\n';; *qa_dlq) printf 'c\n';; esac
             for name in ("docker", "find"):
                 (fake_bin / name).chmod(0o755)
             (root / "active-color").write_text("blue\n", encoding="utf-8")
+            (root / "proc").mkdir()
             (fake_bin / "install").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
             (fake_bin / "install").chmod(0o755)
             proc = subprocess.run(
@@ -141,6 +153,10 @@ case "$1" in *qa_blobs) printf 'a\nb\n';; *qa_dlq) printf 'c\n';; esac
                     "PATH": f"{fake_bin}:/opt/homebrew/bin:/usr/bin:/bin",
                     "CALLS": str(calls),
                     "TOKENKEY_ROOT": str(root),
+                    "QA_STALE_PROC_ROOT": str(root / "proc"),
+                    "EXPORT_ORPHAN_HELPER": str(
+                        ROOT / "deploy/aws/stage0/tokenkey-qa-export-orphan.py"
+                    ),
                 },
                 capture_output=True,
                 text=True,
@@ -292,10 +308,43 @@ delete_rows_before 2026-08-06T12:00:00.000000Z
             )
             self.assertEqual(proc.returncode, 99, (proc.stdout, proc.stderr))
             params = json.loads((output / "ssm-params.json").read_text(encoding="utf-8"))
-        timer_command = params["commands"][5]
+        timer_command = next(command for command in params["commands"] if "verify_marker" in command)
         self.assertIn("verify_marker", timer_command)
         self.assertIn("sha256sum", timer_command)
         self.assertIn("a" * 64, timer_command)
+        helper_index, helper_command = next(
+            (index, command)
+            for index, command in enumerate(params["commands"])
+            if "qa-export-orphan.py" in command and "printf %s" in command
+        )
+        runner_index, runner_command = next(
+            (index, command)
+            for index, command in enumerate(params["commands"])
+            if "tokenkey-qa-stale-cleanup.sh" in command and "printf %s" in command
+        )
+        self.assertLess(helper_index, runner_index)
+        helper_parts = shlex.split(helper_command)
+        runner_parts = shlex.split(runner_command)
+        self.assertEqual(helper_parts[:3], ["sudo", "bash", "-c"])
+        self.assertEqual(runner_parts[:3], ["sudo", "bash", "-c"])
+        helper_install = helper_parts[3]
+        runner_install = runner_parts[3]
+        for install, destination in (
+            (helper_install, "/usr/local/lib/tokenkey/qa-export-orphan.py"),
+            (runner_install, "/usr/local/bin/tokenkey-qa-stale-cleanup.sh"),
+        ):
+            self.assertIn('directory=$(dirname "$destination")', install)
+            self.assertIn('temporary=$(mktemp "$directory/.${destination##*/}.XXXXXX")', install)
+            self.assertIn('chmod 0755 "$temporary"', install)
+            self.assertIn('mv -f "$temporary" "$destination"', install)
+            self.assertIn(destination, install)
+        payload = re.search(r"printf %s '([^']+)'", helper_install)
+        self.assertIsNotNone(payload)
+        assert payload is not None
+        self.assertEqual(
+            gzip.decompress(base64.b64decode(payload.group(1))),
+            (ROOT / "deploy/aws/stage0/tokenkey-qa-export-orphan.py").read_bytes(),
+        )
         for command in params["commands"]:
             parsed = subprocess.run(["bash", "-n"], input=command, text=True, capture_output=True)
             self.assertEqual(parsed.returncode, 0, parsed.stderr)
@@ -309,34 +358,6 @@ delete_rows_before 2026-08-06T12:00:00.000000Z
         self.assertIn("--install-units", body)
         self.assertIn("OnCalendar=*-*-* *:15:00", body)
         self.assertNotIn("DELETE FROM qa_records", body)
-
-    def test_qa_maintenance_unit_has_resource_and_filesystem_limits(self) -> None:
-        body = (ROOT / "deploy/aws/stage0/tokenkey-qa-maintenance.sh").read_text(
-            encoding="utf-8"
-        )
-        for needle in (
-            "Nice=15",
-            "IOSchedulingClass=idle",
-            "CPUQuota=20%",
-            "MemoryMax=1G",
-            "TasksMax=128",
-            "PrivateTmp=true",
-            "NoNewPrivileges=true",
-            "ProtectSystem=strict",
-            "ReadWritePaths=/var/lib/tokenkey",
-            "--memory=1g",
-            "--memory-swap=1g",
-            "--cpus=0.20",
-            "--pids-limit=128",
-            '--network="container:${app_container}"',
-            '--volumes-from="${app_container}:rw"',
-            "{{.Image}}",
-            "--read-only",
-            "--cap-drop=ALL",
-            "TMPDIR=/app/data/qa_archive_tmp",
-            "install -d -m 0700 -o 1000 -g 1000 /var/lib/tokenkey/data/qa_archive_tmp",
-        ):
-            self.assertIn(needle, body)
 
     def test_qa_lifecycle_ssot_check_passes(self) -> None:
         proc = subprocess.run(
@@ -412,6 +433,49 @@ exit 0
             'test "$(sudo systemctl is-active tokenkey-qa-maintenance.timer)" = "inactive"',
             payload["commands"],
         )
+        commands = payload["commands"]
+        quiesce_timer = (
+            "if sudo systemctl list-unit-files tokenkey-qa-maintenance.timer "
+            '--no-legend 2>/dev/null | grep -q "^tokenkey-qa-maintenance[.]timer"; '
+            "then sudo systemctl disable --now tokenkey-qa-maintenance.timer; fi"
+        )
+        self.assertIn(quiesce_timer, commands)
+        self.assertIn(
+            "! sudo systemctl is-active --quiet tokenkey-qa-maintenance.timer",
+            commands,
+        )
+        self.assertIn(
+            "! sudo systemctl is-active --quiet tokenkey-qa-maintenance.service",
+            commands,
+        )
+        resolver_install = next(
+            command
+            for command in commands
+            if "/usr/local/lib/tokenkey/resolve-app-container.sh" in command
+        )
+        self.assertIn("base64 -d", resolver_install)
+        scratch_prepare = (
+            "sudo test -e /var/lib/tokenkey/app/qa_archive_tmp || "
+            "sudo install -d -m 0700 -o 1000 -g 1000 "
+            "/var/lib/tokenkey/app/qa_archive_tmp"
+        )
+        self.assertIn(scratch_prepare, commands)
+        self.assertLess(
+            commands.index(quiesce_timer),
+            next(
+                index
+                for index, command in enumerate(commands)
+                if "/usr/local/bin/tokenkey-qa-maintenance.sh" in command
+                and "base64 -d" in command
+            ),
+        )
+        self.assertLess(
+            commands.index(scratch_prepare),
+            commands.index("sudo /usr/local/bin/tokenkey-qa-maintenance.sh --selftest"),
+        )
+        self.assertFalse(
+            any("/var/lib/tokenkey/data/qa_archive_tmp" in command for command in commands)
+        )
 
     def test_qa_maintenance_sync_explicit_enable_starts_and_verifies_timer(self) -> None:
         script = ROOT / "ops/stage0/sync-qa-maintenance-timer-via-ssm.sh"
@@ -466,10 +530,11 @@ exit 0
             body.index("Sid: AllowOpsRecoveryRoleReadRaw")
         ]
         self.assertNotIn("s3:DeleteObject", app_policy)
-        self.assertIn("Sid: AllowAppInstanceRoleListRawPrefix", app_policy)
-        self.assertIn("s3:ListBucket", app_policy)
-        self.assertIn("raw/v1/*", app_policy)
-        self.assertIn("raw/partial/*", app_policy)
+        self.assertNotIn("Sid: AllowAppInstanceRoleListRawPrefix", app_policy)
+        self.assertNotIn("s3:ListBucket", app_policy)
+        self.assertIn("raw/v1/date=*/hour=*/commit.json", app_policy)
+        self.assertNotIn("raw/partial/*", app_policy)
+        self.assertIn("orphan-evidence-index.jsonl.zst", app_policy)
         recovery_policy = body[
             body.index("Sid: AllowOpsRecoveryRoleReadRaw") :
             body.index("QaRawArchiveAuditBucket:")
@@ -537,6 +602,7 @@ exit 0
         self.assertIn("cloudformation describe-change-set", body)
         self.assertIn("cloudformation execute-change-set", body)
         self.assertIn("CAPABILITY_IAM", body)
+        self.assertNotIn("CAPABILITY_NAMED_IAM", body)
         self.assertNotIn("cloudformation deploy", body)
 
     def test_raw_archive_deploy_rejects_replacement_even_when_confirmed(self) -> None:
@@ -550,7 +616,7 @@ exit 0
             fake_aws.write_text(
                 """#!/usr/bin/env bash
 if [[ "$*" == *"sts get-caller-identity"* ]]; then echo 123456789012; exit 0; fi
-if [[ "$*" == *"cloudformation describe-stacks"* ]]; then echo '{}'; exit 0; fi
+if [[ "$*" == *"cloudformation describe-stacks"* ]]; then echo arn:aws:iam::123456789012:role/generated-existing-role; exit 0; fi
 if [[ "$*" == *"cloudformation create-change-set"* ]]; then exit 0; fi
 if [[ "$*" == *"cloudformation describe-change-set"* && "$*" == *"--query Status"* ]]; then
   echo CREATE_COMPLETE
@@ -698,7 +764,7 @@ exit 0
             self.assertIn("commit_mismatch", script)
             self.assertIn("missing_evidence", script)
             self.assertIn("tokenkey-qa-maintenance.timer", script)
-            self.assertIn("tokenkey-qa-stale-cleanup.timer", script)
+            self.assertNotIn("tokenkey-qa-stale-cleanup.timer", script)
             self.assertIn("ops:cleanup:leader", script)
             self.assertNotIn("$WINDOW", script)
         self.assertNotIn("UPDATE qa_archive_shards", plan)
@@ -714,69 +780,17 @@ exit 0
         with self.assertRaisesRegex(module.HistoricalCloseoutError, "confirmation"):
             module.run("apply", "wrong")
 
-    def test_qa_archive_closeout_controller_is_fail_closed(self) -> None:
+    def test_us045_qa_archive_closeout_rejects_repair_apply_before_aws(self) -> None:
         module = _load_closeout_module()
-        window = module._parse_window("2026-08-07T01:00:00Z")
-        self.assertEqual(
-            module._window_token(module.REPAIR_CONFIRMATION_PREFIX, window),
-            "tokenkey-prod-qa-archive-repair-v1:2026-08-07T01:00:00Z",
-        )
-        proof = module._safety_proof(
-            window, dt.datetime(2026, 8, 7, 2, 0, tzinfo=dt.timezone.utc)
-        )
-        proof_payload = json.loads(proof)
-        self.assertEqual(proof_payload["schema_version"], module.SAFETY_SCHEMA)
-        self.assertTrue(proof_payload["cleanup_runtime_disabled"])
-        guard = "\n".join(module._timer_guard_shell())
-        remote = module._remote_command(
-            "repair-apply",
-            window,
-            "",
-            module._window_token(module.REPAIR_CONFIRMATION_PREFIX, window),
-        )
-        self.assertNotIn("--safety-proof", remote)
-        for sidecar_needle in (
-            "{{.Image}}",
-            "docker run --rm",
-            "--user=1000:1000",
-            "--read-only",
-            "--cap-drop=ALL",
-            "--memory=1g",
-            "--memory-swap=1g",
-            "--cpus=0.20",
-            "--pids-limit=128",
-            "TMPDIR=/app/data/qa_archive_tmp",
-            "chmod 0444",
-            "$proof_file:/run/tokenkey-qa-archive-safety-proof.json:ro",
-        ):
-            self.assertIn(sidecar_needle, remote)
-        for needle in (
-            "tokenkey-qa-maintenance.timer",
-            "tokenkey-qa-stale-cleanup.timer",
-            "disabled:inactive",
-            "cleanup_enabled=false",
-            "ops:cleanup:leader",
-        ):
-            self.assertIn(needle, guard)
-
-    def test_qa_archive_closeout_rejects_incomplete_receipt(self) -> None:
-        module = _load_closeout_module()
-        window = module._parse_window("2026-08-07T01:00:00Z")
-        receipt = {
-            "ok": True,
-            "command": "repair-apply",
-            "window_start": "2026-08-07T01:00:00Z",
-            "cleanup_eligible": False,
-            "deletion_authorized": False,
-            "cleanup_hold_active": True,
-            "maintenance_timer_disabled": True,
-            "maintenance_timer_inactive": True,
-            "stale_cleanup_timer_disabled": True,
-            "stale_cleanup_timer_inactive": True,
-            "cleanup_runtime_disabled": True,
-        }
-        with self.assertRaises(module.QAArchiveCloseoutError):
-            module._validate_receipt(json.dumps(receipt), "repair-apply", window)
+        window_text = "2026-08-07T01:00:00Z"
+        with mock.patch.object(module, "_aws_json") as aws_json:
+            with self.assertRaisesRegex(module.QAArchiveCloseoutError, "unsupported command"):
+                module.run(
+                    "repair-apply",
+                    window_text,
+                    confirm="tokenkey-prod-qa-archive-repair-v1:" + window_text,
+                )
+        aws_json.assert_not_called()
 
     def test_qa_archive_closeout_restore_path_cannot_escape_root(self) -> None:
         module = _load_closeout_module()

@@ -154,6 +154,58 @@ func TestReconcilerNoDeltaCreatesNoSecondBase(t *testing.T) {
 	}
 }
 
+func TestUS045_ReconcilerTimelyZeroRowCommitsRestorableBase(t *testing.T) {
+	ctx := context.Background()
+	start := time.Date(2026, 8, 8, 0, 0, 0, 0, time.UTC)
+	store := NewMemoryObjectStore()
+	control := &fakeReconcileControl{}
+	reconciler := NewReconciler(store, control, t.TempDir())
+	reconciler.Now = func() time.Time { return start.Add(2 * time.Hour) }
+	reconciler.Build = func(context.Context, *sql.Conn, BuildInput) (BuiltSegment, error) {
+		return zeroBuiltSegmentFixture(t, start, SegmentKindBase, "empty-base"), nil
+	}
+
+	receipt, err := reconciler.Reconcile(ctx, nil, Window{Start: start, End: start.Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !receipt.Uploaded || receipt.SegmentCount != 1 || receipt.RecordCount != 0 || control.started != 1 || control.verified != 1 || control.committed == nil {
+		t.Fatalf("receipt=%+v control=%+v", receipt, control)
+	}
+	restoreDir := filepath.Join(t.TempDir(), "restore")
+	verified, err := VerifyCommit(ctx, store, ShardRelativePrefix(start)+"/commit.json", restoreDir)
+	if err != nil {
+		t.Fatalf("restore empty base: %v", err)
+	}
+	defer func() { _ = verified.Close() }()
+	if verified.RecordCount != 0 || len(verified.Document.Segments) != 1 {
+		t.Fatalf("verified=%+v", verified)
+	}
+	if _, err := os.Stat(filepath.Join(restoreDir, "segments", "empty-base", "records.parquet")); err != nil {
+		t.Fatalf("restored empty parquet: %v", err)
+	}
+}
+
+func TestUS045_ReconcilerExpiredZeroRowBecomesSourceUnavailableFailure(t *testing.T) {
+	start := time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)
+	store := NewMemoryObjectStore()
+	control := &fakeReconcileControl{}
+	reconciler := NewReconciler(store, control, t.TempDir())
+	reconciler.Now = func() time.Time { return start.Add(25 * time.Hour) }
+	reconciler.Build = func(context.Context, *sql.Conn, BuildInput) (BuiltSegment, error) {
+		return zeroBuiltSegmentFixture(t, start, SegmentKindBase, "expired-empty"), nil
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), nil, Window{Start: start, End: start.Add(time.Hour)})
+	var integrity *IntegrityError
+	if !errors.As(err, &integrity) || integrity.Code != IntegritySourceUnavailableAfterRetention {
+		t.Fatalf("err=%v", err)
+	}
+	if control.failureCode != IntegritySourceUnavailableAfterRetention || control.started != 0 || len(store.Keys()) != 0 {
+		t.Fatalf("control=%+v keys=%v", control, store.Keys())
+	}
+}
+
 func TestReconcilerVerificationFailureMarksSegmentFailed(t *testing.T) {
 	start := time.Date(2026, 8, 7, 1, 0, 0, 0, time.UTC)
 	control := &fakeReconcileControl{}
@@ -300,6 +352,40 @@ func emptyBuiltSegment(t *testing.T, start time.Time, kind string) BuiltSegment 
 		SchemaVersion: ManifestSchemaV1, SegmentID: "empty", SegmentKind: kind,
 		WindowStart: start, WindowEnd: start.Add(time.Hour),
 	}}
+}
+
+func zeroBuiltSegmentFixture(t *testing.T, start time.Time, kind, segmentID string) BuiltSegment {
+	t.Helper()
+	root := t.TempDir()
+	var records bytes.Buffer
+	writer := parquet.NewGenericWriter[RecordRow](&records)
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	recordsPath := filepath.Join(root, "records.parquet")
+	if err := os.WriteFile(recordsPath, records.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := SegmentManifest{
+		SchemaVersion: ManifestSchemaV1, SegmentID: segmentID, SegmentKind: kind,
+		WindowStart: start, WindowEnd: start.Add(time.Hour), ArtifactBytes: int64(records.Len()),
+		RecordsSHA256: SHA256Hex(records.Bytes()),
+	}
+	manifestBytes, err := MarshalJSON(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(root, "manifest.json")
+	if err := os.WriteFile(manifestPath, manifestBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return BuiltSegment{
+		SegmentID: segmentID, ScratchDir: root, RecordsPath: recordsPath, Manifest: manifest,
+		Artifacts: []BuiltArtifact{
+			{Name: "records.parquet", Path: recordsPath, Size: int64(records.Len()), SHA256: SHA256Hex(records.Bytes()), ContentType: "application/vnd.apache.parquet"},
+			{Name: "manifest.json", Path: manifestPath, Size: int64(len(manifestBytes)), SHA256: SHA256Hex(manifestBytes), ContentType: "application/json"},
+		},
+	}
 }
 
 func uploadBuiltFixture(t *testing.T, store ObjectStore, built BuiltSegment) {

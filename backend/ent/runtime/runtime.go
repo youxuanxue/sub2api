@@ -1811,12 +1811,16 @@ func init() {
 	qaarchiveshardDescCleanupEligible := qaarchiveshardFields[24].Descriptor()
 	// qaarchiveshard.DefaultCleanupEligible holds the default value on creation for the cleanup_eligible field.
 	qaarchiveshard.DefaultCleanupEligible = qaarchiveshardDescCleanupEligible.Default.(bool)
+	// qaarchiveshardDescForwardCutover is the schema descriptor for forward_cutover field.
+	qaarchiveshardDescForwardCutover := qaarchiveshardFields[25].Descriptor()
+	// qaarchiveshard.DefaultForwardCutover holds the default value on creation for the forward_cutover field.
+	qaarchiveshard.DefaultForwardCutover = qaarchiveshardDescForwardCutover.Default.(bool)
 	// qaarchiveshardDescCreatedAt is the schema descriptor for created_at field.
-	qaarchiveshardDescCreatedAt := qaarchiveshardFields[28].Descriptor()
+	qaarchiveshardDescCreatedAt := qaarchiveshardFields[29].Descriptor()
 	// qaarchiveshard.DefaultCreatedAt holds the default value on creation for the created_at field.
 	qaarchiveshard.DefaultCreatedAt = qaarchiveshardDescCreatedAt.Default.(func() time.Time)
 	// qaarchiveshardDescUpdatedAt is the schema descriptor for updated_at field.
-	qaarchiveshardDescUpdatedAt := qaarchiveshardFields[29].Descriptor()
+	qaarchiveshardDescUpdatedAt := qaarchiveshardFields[30].Descriptor()
 	// qaarchiveshard.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	qaarchiveshard.DefaultUpdatedAt = qaarchiveshardDescUpdatedAt.Default.(func() time.Time)
 	// qaarchiveshard.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.

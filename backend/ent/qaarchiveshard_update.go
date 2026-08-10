@@ -481,6 +481,20 @@ func (_u *QAArchiveShardUpdate) SetNillableCleanupEligible(v *bool) *QAArchiveSh
 	return _u
 }
 
+// SetForwardCutover sets the "forward_cutover" field.
+func (_u *QAArchiveShardUpdate) SetForwardCutover(v bool) *QAArchiveShardUpdate {
+	_u.mutation.SetForwardCutover(v)
+	return _u
+}
+
+// SetNillableForwardCutover sets the "forward_cutover" field if the given value is not nil.
+func (_u *QAArchiveShardUpdate) SetNillableForwardCutover(v *bool) *QAArchiveShardUpdate {
+	if v != nil {
+		_u.SetForwardCutover(*v)
+	}
+	return _u
+}
+
 // SetFirstAttemptAt sets the "first_attempt_at" field.
 func (_u *QAArchiveShardUpdate) SetFirstAttemptAt(v time.Time) *QAArchiveShardUpdate {
 	_u.mutation.SetFirstAttemptAt(v)
@@ -725,6 +739,9 @@ func (_u *QAArchiveShardUpdate) sqlSave(ctx context.Context) (_node int, err err
 	}
 	if value, ok := _u.mutation.CleanupEligible(); ok {
 		_spec.SetField(qaarchiveshard.FieldCleanupEligible, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.ForwardCutover(); ok {
+		_spec.SetField(qaarchiveshard.FieldForwardCutover, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.FirstAttemptAt(); ok {
 		_spec.SetField(qaarchiveshard.FieldFirstAttemptAt, field.TypeTime, value)
@@ -1220,6 +1237,20 @@ func (_u *QAArchiveShardUpdateOne) SetNillableCleanupEligible(v *bool) *QAArchiv
 	return _u
 }
 
+// SetForwardCutover sets the "forward_cutover" field.
+func (_u *QAArchiveShardUpdateOne) SetForwardCutover(v bool) *QAArchiveShardUpdateOne {
+	_u.mutation.SetForwardCutover(v)
+	return _u
+}
+
+// SetNillableForwardCutover sets the "forward_cutover" field if the given value is not nil.
+func (_u *QAArchiveShardUpdateOne) SetNillableForwardCutover(v *bool) *QAArchiveShardUpdateOne {
+	if v != nil {
+		_u.SetForwardCutover(*v)
+	}
+	return _u
+}
+
 // SetFirstAttemptAt sets the "first_attempt_at" field.
 func (_u *QAArchiveShardUpdateOne) SetFirstAttemptAt(v time.Time) *QAArchiveShardUpdateOne {
 	_u.mutation.SetFirstAttemptAt(v)
@@ -1494,6 +1525,9 @@ func (_u *QAArchiveShardUpdateOne) sqlSave(ctx context.Context) (_node *QAArchiv
 	}
 	if value, ok := _u.mutation.CleanupEligible(); ok {
 		_spec.SetField(qaarchiveshard.FieldCleanupEligible, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.ForwardCutover(); ok {
+		_spec.SetField(qaarchiveshard.FieldForwardCutover, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.FirstAttemptAt(); ok {
 		_spec.SetField(qaarchiveshard.FieldFirstAttemptAt, field.TypeTime, value)

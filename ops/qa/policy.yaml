@@ -14,8 +14,19 @@ prod:
     scope: all_users_all_api_keys
     shard_minutes: 60
     seal_delay_minutes: 15
+    max_catchup_windows_per_run: 1
     s3_retention_days: 7
     raw_user_access: false
+    runner_uid: 1000
+    runner_gid: 1000
+    host_scratch_dir: /var/lib/tokenkey/app/qa_archive_tmp
+    container_scratch_dir: /app/data/qa_archive_tmp
+    host_receipt_path: /var/lib/tokenkey/qa-maintenance-last-run.json
+
+  cleanup:
+    host_export_tmp_dir: /var/lib/tokenkey/app/qa_exports_tmp
+    container_export_tmp_dir: /app/data/qa_exports_tmp
+    export_tmp_owner: tokenkey-qa-stale-cleanup
 
   user_export:
     entitlement: users.traj_export_enabled

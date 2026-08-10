@@ -68,6 +68,8 @@ type QAArchiveShard struct {
 	FinalReconciledAt *time.Time `json:"final_reconciled_at,omitempty"`
 	// CleanupEligible holds the value of the "cleanup_eligible" field.
 	CleanupEligible bool `json:"cleanup_eligible,omitempty"`
+	// ForwardCutover holds the value of the "forward_cutover" field.
+	ForwardCutover bool `json:"forward_cutover,omitempty"`
 	// FirstAttemptAt holds the value of the "first_attempt_at" field.
 	FirstAttemptAt *time.Time `json:"first_attempt_at,omitempty"`
 	// CompletedAt holds the value of the "completed_at" field.
@@ -88,7 +90,7 @@ func (*QAArchiveShard) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case qaarchiveshard.FieldChecksums:
 			values[i] = new([]byte)
-		case qaarchiveshard.FieldCleanupEligible:
+		case qaarchiveshard.FieldCleanupEligible, qaarchiveshard.FieldForwardCutover:
 			values[i] = new(sql.NullBool)
 		case qaarchiveshard.FieldID, qaarchiveshard.FieldGeneration, qaarchiveshard.FieldRecordCount, qaarchiveshard.FieldBlobRefCount, qaarchiveshard.FieldBlobPresentCount, qaarchiveshard.FieldBlobMissingCount, qaarchiveshard.FieldLogicalBytes, qaarchiveshard.FieldArtifactBytes, qaarchiveshard.FieldAggregateRecordCount, qaarchiveshard.FieldAggregateBlobRefCount, qaarchiveshard.FieldAggregateBlobPresentCount, qaarchiveshard.FieldAggregateBlobMissingCount:
 			values[i] = new(sql.NullInt64)
@@ -277,6 +279,12 @@ func (_m *QAArchiveShard) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.CleanupEligible = value.Bool
 			}
+		case qaarchiveshard.FieldForwardCutover:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field forward_cutover", values[i])
+			} else if value.Valid {
+				_m.ForwardCutover = value.Bool
+			}
 		case qaarchiveshard.FieldFirstAttemptAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
 				return fmt.Errorf("unexpected type %T for field first_attempt_at", values[i])
@@ -436,6 +444,9 @@ func (_m *QAArchiveShard) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("cleanup_eligible=")
 	builder.WriteString(fmt.Sprintf("%v", _m.CleanupEligible))
+	builder.WriteString(", ")
+	builder.WriteString("forward_cutover=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ForwardCutover))
 	builder.WriteString(", ")
 	if v := _m.FirstAttemptAt; v != nil {
 		builder.WriteString("first_attempt_at=")

@@ -25,8 +25,8 @@ class RetentionActivationTest(unittest.TestCase):
         self.assertIn("active_image", script)
         self.assertIn("telemetry_archive_shadow", script)
         self.assertIn("ops_partition_maintenance", script)
-        self.assertIn("forward_archive_window", script)
-        self.assertIn("restore_verified_at", script)
+        self.assertNotIn("forward_archive_window", script)
+        self.assertNotIn("qa_archive_shards", script)
         self.assertIn("WITH bounds AS MATERIALIZED", script)
         self.assertIn("usage_logs", script)
         self.assertIn("tokenkey-qa-maintenance.timer", script)
@@ -40,26 +40,12 @@ class RetentionActivationTest(unittest.TestCase):
         payload = {
             "active_image": "ghcr.io/youxuanxue/sub2api:1.8.140",
             "timers": {
-                "qa_maintenance": {"enabled": "enabled", "active": "active"},
+                "qa_maintenance": {"enabled": "disabled", "active": "inactive"},
                 "qa_stale_cleanup": {"enabled": "disabled", "active": "inactive"},
             },
-            "qa": {
-                "active_image": "ghcr.io/youxuanxue/sub2api:1.8.140",
-                "mode": "prod_qa_age_retention_plan",
-            },
+            "qa": {"active_image": "ghcr.io/youxuanxue/sub2api:1.8.140"},
             "ops": {
                 "ops_retention_days": 30,
-                "historical_windows": {
-                    "2026-08-04T04:00:00Z": {
-                        "state": "failed",
-                        "verification_error_code": "missing_evidence",
-                    },
-                    "2026-08-07T01:00:00Z": {
-                        "state": "failed",
-                        "verification_error_code": "commit_mismatch",
-                    },
-                },
-                "forward_archive_window": {"state": "committed"},
                 "usage_logs_partitioned": True,
                 "usage_legacy_attached": True,
                 "usage_future_partition_exists": False,
@@ -83,6 +69,28 @@ class RetentionActivationTest(unittest.TestCase):
             with self.assertRaisesRegex(activation.ActivationError, "hold receipt"):
                 activation.plan("/does/not/exist")
         self.assertFalse(called)
+
+    def test_qa_cleanup_readiness_is_independent_of_archive_and_maintenance(self) -> None:
+        payload = {
+            "active_image": "ghcr.io/youxuanxue/sub2api:1.8.140",
+            "timers": {
+                "qa_maintenance": {"enabled": "disabled", "active": "inactive"},
+                "qa_stale_cleanup": {"enabled": "disabled", "active": "inactive"},
+            },
+            "qa": {"active_image": "ghcr.io/youxuanxue/sub2api:1.8.140"},
+            "ops": {
+                "ops_retention_days": 30,
+                "usage_logs_partitioned": True,
+                "usage_legacy_attached": True,
+                "usage_future_partition_exists": True,
+                "usage_partition_maintenance_clean": True,
+                "telemetry_clean": True,
+                "telemetry_stats": {"dropped": 0, "failed": 0},
+            },
+        }
+        ready, reasons = activation._ready(payload)
+        self.assertIs(ready, True)
+        self.assertEqual(reasons, [])
 
 
 if __name__ == "__main__":

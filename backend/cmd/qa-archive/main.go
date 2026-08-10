@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -21,26 +19,9 @@ import (
 )
 
 const (
-	repairConfirmationPrefix  = "tokenkey-prod-qa-archive-repair-v1"
-	restoreConfirmationPrefix = "tokenkey-prod-qa-archive-restore-v1"
-	safetyProofSchema         = "qa-archive-safety-v1"
-	safetyProofFile           = "/run/tokenkey-qa-archive-safety-proof.json"
-	safetyProofMaxAge         = 5 * time.Minute
+	restoreConfirmationPrefix        = "tokenkey-prod-qa-archive-restore-v1"
+	forwardCutoverConfirmationPrefix = "tokenkey-prod-qa-forward-cutover-v1"
 )
-
-var Commit = "unknown"
-
-type safetyProof struct {
-	SchemaVersion          string    `json:"schema_version"`
-	WindowStart            time.Time `json:"window_start"`
-	CheckedAt              time.Time `json:"checked_at"`
-	MaintenanceDisabled    bool      `json:"maintenance_disabled"`
-	MaintenanceInactive    bool      `json:"maintenance_inactive"`
-	StaleCleanupDisabled   bool      `json:"stale_cleanup_disabled"`
-	StaleCleanupInactive   bool      `json:"stale_cleanup_inactive"`
-	CleanupRuntimeDisabled bool      `json:"cleanup_runtime_disabled"`
-	CleanupLockInactive    bool      `json:"cleanup_lock_inactive"`
-}
 
 type controlStatus struct {
 	Exists                bool   `json:"exists"`
@@ -56,13 +37,11 @@ type cliDeps struct {
 	loadConfig        func() (*config.Config, error)
 	openDB            func(string, string) (*sql.DB, error)
 	newObjectStore    func(context.Context, config.QACaptureStorageConfig) (archive.ObjectStore, error)
-	verifyCommit      func(context.Context, archive.ObjectStore, string, string) (archive.VerifiedCommit, error)
+	newRecoveryStore  func(context.Context, archive.WorkstationRecoveryConfig) (archive.ReadOnlyObjectStore, error)
+	verifyCommit      func(context.Context, archive.ReadOnlyObjectStore, string, string) (archive.VerifiedCommit, error)
 	inspectControl    func(context.Context, *sql.Conn, archive.Window) (controlStatus, error)
 	planSourceDelta   func(context.Context, *sql.Conn, archive.Window, archive.VerifiedCommit) (archive.SourceDeltaPlan, error)
-	cleanupHoldActive func(context.Context, *sql.DB) (bool, error)
-	readSafetyProof   func() ([]byte, error)
-	reconcile         func(context.Context, *sql.Conn, archive.ObjectStore, archive.Window, string, string) (archive.ReconcileReceipt, error)
-	now               func() time.Time
+	setForwardCutover func(context.Context, *sql.Conn) (archive.ForwardCutover, error)
 }
 
 func defaultDeps() cliDeps {
@@ -70,19 +49,11 @@ func defaultDeps() cliDeps {
 		loadConfig:        config.LoadForBootstrap,
 		openDB:            sql.Open,
 		newObjectStore:    archive.NewObjectStoreFromConfig,
+		newRecoveryStore:  archive.NewReadOnlyObjectStoreForWorkstation,
 		verifyCommit:      archive.VerifyCommit,
 		inspectControl:    defaultInspectControl,
 		planSourceDelta:   archive.PlanSourceDelta,
-		cleanupHoldActive: defaultCleanupHoldActive,
-		readSafetyProof: func() ([]byte, error) {
-			return os.ReadFile(safetyProofFile)
-		},
-		reconcile: func(ctx context.Context, conn *sql.Conn, store archive.ObjectStore, window archive.Window, blobRoot, scratchRoot string) (archive.ReconcileReceipt, error) {
-			reconciler := archive.NewReconciler(store, archive.NewSQLControlStore(), scratchRoot)
-			reconciler.BlobRoot = blobRoot
-			return reconciler.Reconcile(ctx, conn, window)
-		},
-		now: time.Now,
+		setForwardCutover: archive.NewSQLControlStore().SetApprovedForwardCutover,
 	}
 }
 
@@ -97,14 +68,55 @@ func main() {
 
 func runCLI(ctx context.Context, args []string, out io.Writer, deps cliDeps) error {
 	if len(args) == 0 {
-		return fmt.Errorf("command required: inspect, verify, restore, repair-plan, or repair-apply")
+		return fmt.Errorf("command required: inspect, verify, restore, repair-plan, or set-forward-cutover")
 	}
 	switch args[0] {
-	case "inspect", "verify", "restore", "repair-plan", "repair-apply":
+	case "inspect", "verify", "restore", "repair-plan":
 		return runWindowCommand(ctx, args[0], args[1:], out, deps)
+	case "set-forward-cutover":
+		return runSetForwardCutover(ctx, args[1:], out, deps)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runSetForwardCutover(ctx context.Context, args []string, out io.Writer, deps cliDeps) error {
+	fs := flag.NewFlagSet("set-forward-cutover", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	confirm := fs.String("confirm", "", "exact approved cutover confirmation")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("unexpected positional arguments")
+	}
+	approved := archive.Phase2ForwardCutoverWindow()
+	if *confirm != windowConfirmation(forwardCutoverConfirmationPrefix, approved.Start) {
+		return fmt.Errorf("exact cutover confirmation required")
+	}
+	deps = fillDefaults(deps)
+	cfg, err := deps.loadConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	db, conn, err := openCLIConnection(ctx, deps, cfg)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close(); _ = db.Close() }()
+	cutover, err := deps.setForwardCutover(ctx, conn)
+	if err != nil {
+		return fmt.Errorf("set approved forward cutover: %w", err)
+	}
+	if !cutover.Window.Start.Equal(approved.Start) || !cutover.Window.End.Equal(approved.End) {
+		return fmt.Errorf("set approved forward cutover returned an unexpected window")
+	}
+	return writeJSON(out, map[string]any{
+		"ok": true, "command": "set-forward-cutover", "shard_id": cutover.ShardID,
+		"window_start": cutover.Window.Start, "window_end": cutover.Window.End,
+		"restore_verified_at": cutover.RestoreVerifiedAt,
+		"forward_cutover":     true, "deletion_authorized": false,
+	})
 }
 
 func runWindowCommand(ctx context.Context, command string, args []string, out io.Writer, deps cliDeps) error {
@@ -112,7 +124,13 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 	fs.SetOutput(io.Discard)
 	windowArg := fs.String("window-start", "", "UTC hour in RFC3339 format")
 	outputDir := fs.String("output", "", "new restore directory")
+	restoreRoot := fs.String("restore-root", "", "isolated parent directory for workstation restore")
 	confirm := fs.String("confirm", "", "window-bound confirmation")
+	workstation := fs.Bool("workstation", false, "read S3 directly from an ops workstation")
+	region := fs.String("region", "", "AWS region for workstation recovery")
+	bucket := fs.String("bucket", "", "raw archive bucket for workstation recovery")
+	recoveryRoleARN := fs.String("recovery-role-arn", "", "dedicated recovery role ARN")
+	recoveryRunID := fs.String("recovery-run-id", "", "shared identifier for inspect, verify, and restore receipts")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -124,47 +142,59 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 		return err
 	}
 
-	var proof safetyProof
-	proofSHA := ""
 	if command == "restore" {
 		if *confirm != windowConfirmation(restoreConfirmationPrefix, window.Start) {
 			return fmt.Errorf("window-bound privacy confirmation required")
 		}
-		validatedOutput, err := validateRestoreOutput(*outputDir)
+	}
+	if *workstation {
+		if command == "repair-plan" {
+			return fmt.Errorf("repair-plan is unavailable in workstation mode")
+		}
+		if strings.TrimSpace(*region) == "" || strings.TrimSpace(*bucket) == "" || strings.TrimSpace(*recoveryRoleARN) == "" {
+			return fmt.Errorf("workstation mode requires --region, --bucket, and --recovery-role-arn")
+		}
+		if !validRecoveryRunID(*recoveryRunID) {
+			return fmt.Errorf("workstation mode requires a safe --recovery-run-id")
+		}
+	}
+	if command == "restore" {
+		if *workstation && strings.TrimSpace(*restoreRoot) == "" {
+			return fmt.Errorf("workstation restore requires --restore-root")
+		}
+		validatedOutput, err := validateRestoreOutput(*outputDir, *restoreRoot)
 		if err != nil {
 			return err
 		}
 		*outputDir = validatedOutput
 	}
-	if command == "repair-apply" {
-		if *confirm != windowConfirmation(repairConfirmationPrefix, window.Start) {
-			return fmt.Errorf("window-bound confirmation required")
-		}
-	}
-
 	deps = fillDefaults(deps)
-	if command == "repair-apply" {
-		proofBody, readErr := deps.readSafetyProof()
-		if readErr != nil {
-			return fmt.Errorf("read controller safety proof: %w", readErr)
-		}
-		proof, proofSHA, err = parseSafetyProof(proofBody, window, dependencyNow(deps))
+	var cfg *config.Config
+	var store archive.ReadOnlyObjectStore
+	if *workstation {
+		store, err = deps.newRecoveryStore(ctx, archive.WorkstationRecoveryConfig{
+			Region: *region, Bucket: *bucket, Prefix: "raw/v1", RoleARN: *recoveryRoleARN,
+		})
 		if err != nil {
-			return err
+			return fmt.Errorf("open workstation recovery store: %w", err)
 		}
-	}
-	cfg, err := deps.loadConfig()
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-	store, err := deps.newObjectStore(ctx, cfg.QaArchive.Storage)
-	if err != nil {
-		return fmt.Errorf("open archive store: %w", err)
+	} else {
+		cfg, err = deps.loadConfig()
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		store, err = deps.newObjectStore(ctx, cfg.QaArchive.Storage)
+		if err != nil {
+			return fmt.Errorf("open archive store: %w", err)
+		}
 	}
 	commitKey := archive.ShardRelativePrefix(window.Start) + "/commit.json"
 
 	switch command {
 	case "inspect":
+		if *workstation {
+			return runWorkstationInspect(ctx, out, deps, store, window, commitKey, *bucket, *recoveryRoleARN, *recoveryRunID)
+		}
 		return runInspect(ctx, out, deps, cfg, store, window, commitKey)
 	case "verify":
 		verified, err := deps.verifyCommit(ctx, store, commitKey, "")
@@ -172,7 +202,11 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 			return fmt.Errorf("verify archive commit: %w", err)
 		}
 		defer func() { _ = verified.Close() }()
-		return writeJSON(out, verifiedReceipt(command, commitKey, verified))
+		receipt := verifiedReceipt(command, commitKey, verified)
+		if *workstation {
+			addWorkstationReceipt(receipt, command, true, *bucket, *recoveryRoleARN, *recoveryRunID)
+		}
+		return writeJSON(out, receipt)
 	case "restore":
 		if _, err := os.Lstat(*outputDir); !errors.Is(err, os.ErrNotExist) {
 			if err == nil {
@@ -185,22 +219,23 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 			return fmt.Errorf("restore archive commit: %w", err)
 		}
 		defer func() { _ = verified.Close() }()
+		if err := validateSecureRestoreTree(filepath.Clean(*outputDir)); err != nil {
+			return err
+		}
 		receipt := verifiedReceipt(command, commitKey, verified)
 		receipt["restore_dir"] = filepath.Clean(*outputDir)
 		receipt["privacy_confirmed"] = true
+		if *workstation {
+			addWorkstationReceipt(receipt, command, false, *bucket, *recoveryRoleARN, *recoveryRunID)
+		}
 		return writeJSON(out, receipt)
 	case "repair-plan":
 		return runRepairPlan(ctx, out, deps, cfg, store, window, commitKey)
-	case "repair-apply":
-		if !cfg.QaArchive.Enabled {
-			return fmt.Errorf("qa archive is disabled")
-		}
-		return runRepairApply(ctx, out, deps, cfg, store, window, proof, proofSHA)
 	}
 	return fmt.Errorf("unsupported command %q", command)
 }
 
-func runInspect(ctx context.Context, out io.Writer, deps cliDeps, cfg *config.Config, store archive.ObjectStore, window archive.Window, commitKey string) error {
+func runInspect(ctx context.Context, out io.Writer, deps cliDeps, cfg *config.Config, store archive.ReadOnlyObjectStore, window archive.Window, commitKey string) error {
 	db, conn, err := openCLIConnection(ctx, deps, cfg)
 	if err != nil {
 		return err
@@ -212,30 +247,71 @@ func runInspect(ctx context.Context, out io.Writer, deps cliDeps, cfg *config.Co
 	}
 	verified, verifyErr := deps.verifyCommit(ctx, store, commitKey, "")
 	defer func() { _ = verified.Close() }()
+	receipt, err := buildInspectReceipt(window, commitKey, verified, verifyErr, &control)
+	if err != nil {
+		return err
+	}
+	return writeJSON(out, receipt)
+}
+
+func buildInspectReceipt(
+	window archive.Window,
+	commitKey string,
+	verified archive.VerifiedCommit,
+	verifyErr error,
+	control *controlStatus,
+) (map[string]any, error) {
 	receipt := map[string]any{
 		"ok": true, "command": "inspect", "window_start": window.Start, "window_end": window.End,
-		"control": control, "verified": verifyErr == nil, "blocked": false,
+		"verified": verifyErr == nil, "blocked": false,
 		"cleanup_eligible": false, "deletion_authorized": false,
+	}
+	if control != nil {
+		receipt["control"] = *control
 	}
 	if verifyErr == nil {
 		for key, value := range verifiedReceipt("inspect", commitKey, verified) {
 			receipt[key] = value
 		}
-		return writeJSON(out, receipt)
+		return receipt, nil
 	}
 	var integrity *archive.IntegrityError
 	if !errors.As(verifyErr, &integrity) {
-		return fmt.Errorf("inspect archive commit: %w", verifyErr)
+		return nil, fmt.Errorf("inspect archive commit: %w", verifyErr)
 	}
 	receipt["verification_error_code"] = integrity.Code
 	receipt["blocked"] = isBlockedCode(integrity.Code)
 	if integrity.RequestID != "" {
 		receipt["request_id"] = integrity.RequestID
 	}
+	return receipt, nil
+}
+
+func runWorkstationInspect(ctx context.Context, out io.Writer, deps cliDeps, store archive.ReadOnlyObjectStore, window archive.Window, commitKey, bucket, recoveryRoleARN, recoveryRunID string) error {
+	verified, verifyErr := deps.verifyCommit(ctx, store, commitKey, "")
+	defer func() { _ = verified.Close() }()
+	receipt, err := buildInspectReceipt(window, commitKey, verified, verifyErr, nil)
+	if err != nil {
+		return err
+	}
+	addWorkstationReceipt(receipt, "inspect", true, bucket, recoveryRoleARN, recoveryRunID)
 	return writeJSON(out, receipt)
 }
 
-func runRepairPlan(ctx context.Context, out io.Writer, deps cliDeps, cfg *config.Config, store archive.ObjectStore, window archive.Window, commitKey string) error {
+func addWorkstationReceipt(receipt map[string]any, command string, metadataOnly bool, bucket, recoveryRoleARN, recoveryRunID string) {
+	receipt["source"] = "ops-workstation-s3"
+	receipt["metadata_only"] = metadataOnly
+	receipt["database_accessed"] = false
+	receipt["prod_host_accessed"] = false
+	receipt["iam_boundary"] = "shared_ec2_instance_role_no_process_isolation"
+	receipt["bucket"] = strings.TrimSpace(bucket)
+	receipt["recovery_role_arn"] = strings.TrimSpace(recoveryRoleARN)
+	receipt["recovery_run_id"] = strings.TrimSpace(recoveryRunID)
+	receipt["receipt_id"] = strings.TrimSpace(recoveryRunID) + ":" + command
+	receipt["captured_at"] = time.Now().UTC()
+}
+
+func runRepairPlan(ctx context.Context, out io.Writer, deps cliDeps, cfg *config.Config, store archive.ReadOnlyObjectStore, window archive.Window, commitKey string) error {
 	db, conn, err := openCLIConnection(ctx, deps, cfg)
 	if err != nil {
 		return err
@@ -268,76 +344,6 @@ func runRepairPlan(ctx context.Context, out io.Writer, deps cliDeps, cfg *config
 	})
 }
 
-func runRepairApply(ctx context.Context, out io.Writer, deps cliDeps, cfg *config.Config, store archive.ObjectStore, window archive.Window, proof safetyProof, proofSHA string) error {
-	db, err := deps.openDB("postgres", cfg.Database.DSNWithTimezone(cfg.Timezone))
-	if err != nil {
-		return fmt.Errorf("open database: %w", err)
-	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	defer func() { _ = db.Close() }()
-	if err := db.PingContext(ctx); err != nil {
-		return fmt.Errorf("ping database: %w", err)
-	}
-	holdActive, err := deps.cleanupHoldActive(ctx, db)
-	if err != nil {
-		return fmt.Errorf("verify cleanup hold: %w", err)
-	}
-	if !holdActive {
-		return fmt.Errorf("cleanup hold is not active")
-	}
-	conn, err := db.Conn(ctx)
-	if err != nil {
-		return fmt.Errorf("acquire repair connection: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-	var locked bool
-	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", archive.MaintenanceAdvisoryLockID).Scan(&locked); err != nil {
-		return fmt.Errorf("acquire maintenance lock: %w", err)
-	}
-	if !locked {
-		return fmt.Errorf("maintenance lock already held")
-	}
-	defer func() {
-		_, _ = conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", archive.MaintenanceAdvisoryLockID)
-	}()
-	beforeKey := archive.ShardRelativePrefix(window.Start) + "/commit.json"
-	beforeInfo, beforeExists, err := optionalObjectInfo(ctx, store, beforeKey)
-	if err != nil {
-		return err
-	}
-	reconciled, err := deps.reconcile(ctx, conn, store, window, qaBlobRoot(), qaArchiveScratchRoot())
-	if err != nil {
-		return fmt.Errorf("repair reconcile: %w", err)
-	}
-	if reconciled.DeletionAuthorized {
-		return fmt.Errorf("reconciler violated deletion denial")
-	}
-	finalCommit, err := deps.verifyCommit(ctx, store, reconciled.CommitKey, "")
-	if err != nil {
-		return fmt.Errorf("verify repaired commit: %w", err)
-	}
-	defer func() { _ = finalCommit.Close() }()
-	if finalCommit.ETag != reconciled.CommitETag || finalCommit.RecordCount != reconciled.RecordCount ||
-		len(finalCommit.Document.Segments) != reconciled.SegmentCount || finalCommit.BlobMissingCount != 0 {
-		return fmt.Errorf("repaired commit receipt does not match final S3 state")
-	}
-	return writeJSON(out, map[string]any{
-		"ok": true, "command": "repair-apply", "window_start": window.Start, "window_end": window.End,
-		"before_commit_exists": beforeExists, "before_commit_etag": beforeInfo.ETag,
-		"after_commit_etag": finalCommit.ETag, "commit_key": reconciled.CommitKey,
-		"segment_count": len(finalCommit.Document.Segments), "record_count": finalCommit.RecordCount,
-		"manifests":      finalCommit.Document.Segments,
-		"blob_ref_count": reconciled.BlobRefCount, "blob_missing_count": reconciled.BlobMissingCount,
-		"uploaded": reconciled.Uploaded, "cleanup_hold_active": true,
-		"maintenance_timer_disabled": proof.MaintenanceDisabled, "maintenance_timer_inactive": proof.MaintenanceInactive,
-		"stale_cleanup_timer_disabled": proof.StaleCleanupDisabled, "stale_cleanup_timer_inactive": proof.StaleCleanupInactive,
-		"cleanup_runtime_disabled": proof.CleanupRuntimeDisabled, "cleanup_lock_inactive": proof.CleanupLockInactive,
-		"safety_checked_at": proof.CheckedAt, "safety_proof_sha256": proofSHA,
-		"source_commit": Commit, "cleanup_eligible": false, "deletion_authorized": false,
-	})
-}
-
 func fillDefaults(deps cliDeps) cliDeps {
 	defaults := defaultDeps()
 	if deps.loadConfig == nil {
@@ -349,6 +355,9 @@ func fillDefaults(deps cliDeps) cliDeps {
 	if deps.newObjectStore == nil {
 		deps.newObjectStore = defaults.newObjectStore
 	}
+	if deps.newRecoveryStore == nil {
+		deps.newRecoveryStore = defaults.newRecoveryStore
+	}
 	if deps.verifyCommit == nil {
 		deps.verifyCommit = defaults.verifyCommit
 	}
@@ -358,26 +367,10 @@ func fillDefaults(deps cliDeps) cliDeps {
 	if deps.planSourceDelta == nil {
 		deps.planSourceDelta = defaults.planSourceDelta
 	}
-	if deps.cleanupHoldActive == nil {
-		deps.cleanupHoldActive = defaults.cleanupHoldActive
-	}
-	if deps.readSafetyProof == nil {
-		deps.readSafetyProof = defaults.readSafetyProof
-	}
-	if deps.reconcile == nil {
-		deps.reconcile = defaults.reconcile
-	}
-	if deps.now == nil {
-		deps.now = defaults.now
+	if deps.setForwardCutover == nil {
+		deps.setForwardCutover = defaults.setForwardCutover
 	}
 	return deps
-}
-
-func dependencyNow(deps cliDeps) time.Time {
-	if deps.now != nil {
-		return deps.now().UTC()
-	}
-	return time.Now().UTC()
 }
 
 func parseWindow(value string) (archive.Window, error) {
@@ -388,8 +381,11 @@ func parseWindow(value string) (archive.Window, error) {
 	return archive.Window{Start: parsed.UTC(), End: parsed.UTC().Add(time.Hour)}, nil
 }
 
-func validateRestoreOutput(value string) (string, error) {
-	root, err := filepath.Abs(filepath.Join(dataDir(), "qa_archive_restore"))
+func validateRestoreOutput(value, rootValue string) (string, error) {
+	if strings.TrimSpace(rootValue) == "" {
+		rootValue = filepath.Join(dataDir(), "qa_archive_restore")
+	}
+	root, err := filepath.Abs(strings.TrimSpace(rootValue))
 	if err != nil {
 		return "", fmt.Errorf("resolve isolated restore root: %w", err)
 	}
@@ -414,28 +410,48 @@ func validateRestoreOutput(value string) (string, error) {
 	return output, nil
 }
 
-func windowConfirmation(prefix string, start time.Time) string {
-	return prefix + ":" + start.UTC().Format(time.RFC3339)
+func validRecoveryRunID(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '-' || char == '_' || char == '.' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
-func parseSafetyProof(body []byte, window archive.Window, now time.Time) (safetyProof, string, error) {
-	if len(body) == 0 || len(body) > 4096 {
-		return safetyProof{}, "", fmt.Errorf("valid safety proof required")
-	}
-	var proof safetyProof
-	if err := json.Unmarshal(body, &proof); err != nil {
-		return safetyProof{}, "", fmt.Errorf("valid safety proof required")
-	}
-	age := now.UTC().Sub(proof.CheckedAt.UTC())
-	if proof.SchemaVersion != safetyProofSchema || !proof.WindowStart.Equal(window.Start) ||
-		!proof.MaintenanceDisabled || !proof.MaintenanceInactive ||
-		!proof.StaleCleanupDisabled || !proof.StaleCleanupInactive ||
-		!proof.CleanupRuntimeDisabled || !proof.CleanupLockInactive ||
-		age < -30*time.Second || age > safetyProofMaxAge {
-		return safetyProof{}, "", fmt.Errorf("active timer safety proof required")
-	}
-	sum := sha256.Sum256(body)
-	return proof, hex.EncodeToString(sum[:]), nil
+func validateSecureRestoreTree(root string) error {
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("inspect restored path: %w", err)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("inspect restored path: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("restored path contains a symlink")
+		}
+		if entry.IsDir() {
+			if info.Mode().Perm() != 0o700 {
+				return fmt.Errorf("restored directory mode must be 0700")
+			}
+			return nil
+		}
+		if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+			return fmt.Errorf("restored files must be regular mode-0600 files")
+		}
+		return nil
+	})
+}
+
+func windowConfirmation(prefix string, start time.Time) string {
+	return prefix + ":" + start.UTC().Format(time.RFC3339)
 }
 
 func openCLIConnection(ctx context.Context, deps cliDeps, cfg *config.Config) (*sql.DB, *sql.Conn, error) {
@@ -457,7 +473,7 @@ func openCLIConnection(ctx context.Context, deps cliDeps, cfg *config.Config) (*
 	return db, conn, nil
 }
 
-func readOptionalCommit(ctx context.Context, deps cliDeps, store archive.ObjectStore, key string) (archive.VerifiedCommit, bool, error) {
+func readOptionalCommit(ctx context.Context, deps cliDeps, store archive.ReadOnlyObjectStore, key string) (archive.VerifiedCommit, bool, error) {
 	exists, err := store.Head(ctx, key)
 	if err != nil {
 		return archive.VerifiedCommit{}, false, fmt.Errorf("head archive commit: %w", err)
@@ -470,21 +486,6 @@ func readOptionalCommit(ctx context.Context, deps cliDeps, store archive.ObjectS
 		return archive.VerifiedCommit{}, true, fmt.Errorf("verify archive commit: %w", err)
 	}
 	return verified, true, nil
-}
-
-func optionalObjectInfo(ctx context.Context, store archive.ObjectStore, key string) (archive.ObjectInfo, bool, error) {
-	exists, err := store.Head(ctx, key)
-	if err != nil {
-		return archive.ObjectInfo{}, false, fmt.Errorf("head archive commit: %w", err)
-	}
-	if !exists {
-		return archive.ObjectInfo{}, false, nil
-	}
-	info, err := store.HeadInfo(ctx, key)
-	if err != nil {
-		return archive.ObjectInfo{}, true, fmt.Errorf("inspect archive commit: %w", err)
-	}
-	return info, true, nil
 }
 
 func defaultInspectControl(ctx context.Context, conn *sql.Conn, window archive.Window) (controlStatus, error) {
@@ -507,17 +508,6 @@ WHERE window_start=$1 AND generation=0`, window.Start).Scan(
 	return status, nil
 }
 
-func defaultCleanupHoldActive(ctx context.Context, db *sql.DB) (bool, error) {
-	var enabled bool
-	err := db.QueryRowContext(ctx, `
-SELECT COALESCE((value::jsonb #>> '{data_retention,cleanup_enabled}')::boolean, false)
-FROM settings WHERE key='ops_advanced_settings' LIMIT 1`).Scan(&enabled)
-	if err != nil {
-		return false, err
-	}
-	return !enabled, nil
-}
-
 func isBlockedCode(code string) bool {
 	switch code {
 	case archive.IntegrityMissingEvidence, archive.IntegrityCorruptArtifact, "commit_mismatch", "restore_failed":
@@ -538,8 +528,6 @@ func verifiedReceipt(command, commitKey string, verified archive.VerifiedCommit)
 	}
 }
 
-func qaBlobRoot() string           { return filepath.Join(dataDir(), "qa_blobs") }
-func qaArchiveScratchRoot() string { return filepath.Join(dataDir(), "qa_archive_tmp") }
 func dataDir() string {
 	if value := strings.TrimSpace(os.Getenv("DATA_DIR")); value != "" {
 		return value

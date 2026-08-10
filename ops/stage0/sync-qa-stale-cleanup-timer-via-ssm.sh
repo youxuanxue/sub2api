@@ -43,18 +43,32 @@ esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE="${SCRIPT_DIR}/../../deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh"
-[[ -f "${SOURCE}" ]] || { echo "missing ${SOURCE}" >&2; exit 1; }
+HELPER_SOURCE="${SCRIPT_DIR}/../../deploy/aws/stage0/tokenkey-qa-export-orphan.py"
+[[ -f "${SOURCE}" && -f "${HELPER_SOURCE}" ]] || { echo "missing QA stale cleanup distribution source" >&2; exit 1; }
 payload="$(gzip -9n -c "${SOURCE}" | base64 | tr -d '\n')"
+helper_payload="$(gzip -9n -c "${HELPER_SOURCE}" | base64 | tr -d '\n')"
 mkdir -p "${OUTPUT_DIR}"
 params="${OUTPUT_DIR}/ssm-params.json"
 stdout="${OUTPUT_DIR}/stdout.txt"
 stderr="${OUTPUT_DIR}/stderr.txt"
 
-jq -n --arg payload "${payload}" --arg command "${timer_command}" \
-  --arg timer_state "${TIMER_STATE}" --arg active_state "${active_state}" '{commands:[
+jq -n --arg payload "${payload}" --arg helper_payload "${helper_payload}" --arg command "${timer_command}" \
+  --arg timer_state "${TIMER_STATE}" --arg active_state "${active_state}" '
+  def atomic_install($artifact; $destination):
+    "sudo bash -c " + (
+      (
+        "set -euo pipefail; destination=" + ($destination | @sh)
+        + "; directory=$(dirname \"$destination\"); install -d -m 0755 \"$directory\""
+        + "; temporary=$(mktemp \"$directory/.${destination##*/}.XXXXXX\")"
+        + "; trap \"rm -f \\\"$temporary\\\"\" EXIT"
+        + "; printf %s " + ($artifact | @sh) + " | base64 -d | gunzip > \"$temporary\""
+        + "; chmod 0755 \"$temporary\"; mv -f \"$temporary\" \"$destination\""
+      ) | @sh
+    );
+  {commands:[
     "set -euo pipefail",
-    ("printf %s " + ($payload|@sh) + " | base64 -d | gunzip | sudo tee /usr/local/bin/tokenkey-qa-stale-cleanup.sh >/dev/null"),
-    "sudo chmod +x /usr/local/bin/tokenkey-qa-stale-cleanup.sh",
+    atomic_install($helper_payload; "/usr/local/lib/tokenkey/qa-export-orphan.py"),
+    atomic_install($payload; "/usr/local/bin/tokenkey-qa-stale-cleanup.sh"),
     "sudo /usr/local/bin/tokenkey-qa-stale-cleanup.sh --install-units",
     "sudo systemctl daemon-reload",
     $command,
