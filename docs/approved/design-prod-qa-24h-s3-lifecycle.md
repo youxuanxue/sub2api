@@ -379,8 +379,8 @@ archive完整性判断使用final commit segment集合，不把首次base segmen
 
 四者 bucket/prefix、KMS/IAM、Lifecycle 和 operator role 不得混用。不得把用户 ZIP bucket或通用
 usage/ops archive bucket 改名后当作 raw QA archive，也不得把 pgdump 中保留的 QA schema 误报为 QA
-历史备份。Phase 2 raw restore 验证前，`ops/prod/fetch-qa-dump.sh` 仅作为人工只读 break-glass；它不
-定义 lifecycle、不得定时运行、不得作为删除证据，验证通过后必须删除。
+历史备份。Phase 2 raw restore 验证前，过渡期 prod QA break-glass dump 工具仅作为人工只读 break-glass；它不
+定义 lifecycle、不得定时运行、不得作为删除证据，验证通过后必须退役（**已 shipped 2026-08-10**）。
 
 ## 9. Cleanup 设计
 
@@ -576,8 +576,8 @@ ops workstation -> assume ops recovery role -> S3 -> local isolated workspace
 - 支持完全离线的 evidence decode 和 trajectory projection。
 
 工具必须能在 ops workstation assume recovery role 后直接定位指定 window 的 `commit.json`，不依赖
-prod host 代为列举或下载。用该入口完成至少一个 committed shard 的独立 verify/restore 验收后，删除
-`ops/prod/fetch-qa-dump.sh`；在此之前该脚本仅是人工只读 break-glass，不能被 timer 或 cleanup 调用。
+prod host 代为列举或下载。用该入口完成至少一个 committed shard 的独立 verify/restore 验收后，退役
+过渡期 prod QA break-glass dump 工具；在此之前它仅是人工只读 break-glass，不能被 timer 或 cleanup 调用。
 
 ## 13. Edge 退出 QA
 
@@ -810,7 +810,7 @@ Phase 2 的生产 inventory、精确修复窗口、执行顺序和回滚步骤�
 | 应用内 daily auto-export、`ArchiveAuto`、`auto_export_enabled`、auto UI kind | 只覆盖 entitlement 用户的投影 | raw archive + Fargate export | 本设计审批时删除；不得作为 archive fallback |
 | generic data-layer rehearsal/inventory 中的 `qa` dataset、`QA_RETENTION_DAYS`、Blob scan | usage/ops 之外的重复 QA owner | 本文专属 QA pipeline | 本设计审批时删除，并以负向测试拒绝重新引入 |
 | Edge workflow/Lightsail bootstrap/host-unit sync/remediation 中的 QA capture/cleanup wiring | 现网兼容保护 | `edge.capture_enabled=false` 且无 QA unit/IAM | Phase 1 原子替换；先验证不再增长，再清存量并删除全部 wiring |
-| `ops/prod/fetch-qa-dump.sh` | 从 prod 打包的只读 break-glass | `qa-archive inspect/fetch/verify` | Phase 2 raw S3 本机 restore 验证通过后删除；之前不得定时或触发 purge |
+| prod QA break-glass dump（已退役） | 从 prod 打包的只读 break-glass | `qa-archive --workstation` | Phase 2 workstation S3 restore 验证通过后退役；之前不得定时或触发 purge |
 | root `docker exec ... --qa-maintenance-once` operator 旁路 | 手工执行可绕过 timer 的 UID/mount/receipt 契约 | `/usr/local/bin/tokenkey-qa-maintenance.sh` 单一 host runner | production integrity closeout 时删除 operator caller；timer/operator 都走同一 runner |
 | 当前应用内 trajectory worker、localfs/S3 ZIP 生成和 prod 下载代理 | 用户导出的临时实现 | DynamoDB/SQS/Fargate + direct S3 | Phase 3 原子切换；切换后删除 prod 重型 build/read/proxy 与相关 env 注入 |
 | `tk_030` / Ent schema 中 daily auto-export、`auto` kind 的历史说明 | 已删除能力的注释残留；兼容列仍被旧数据读取 | manual job 兼容 schema + Phase 3 job model | 本次修正文案但不删列/历史 row、不新增 job retention；Phase 3 再迁移 schema 语义 |

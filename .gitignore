@@ -225,3 +225,6 @@ exports/
 /ssm-params.json
 /stdout.txt
 /stderr.txt
+
+# Operator-held production recovery evidence (privacy + hash-bound approval); not repo SSOT.
+.testing/user-stories/attachments/us045-workstation-recovery-*/

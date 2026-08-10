@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate independent recovery evidence and plan break-glass retirement without deleting it."""
+"""Validate independent recovery evidence and authorize break-glass retirement (script removed post-closeout)."""
 from __future__ import annotations
 
 import argparse
@@ -93,7 +93,7 @@ def evaluate(
         "planned_transition_authorized": False,
         "production_success_claimed": False,
         "script_action": "preserve",
-        "break_glass_path": "ops/prod/fetch-qa-dump.sh",
+        "break_glass_state": "retired",
     }
     try:
         evidence_bytes = evidence_path.read_bytes()
@@ -197,7 +197,7 @@ def evaluate(
             "production_evidence_validated": True,
             "production_success_claimed": False,
             "script_action": "planned_removal_only",
-            "note": "production evidence is hash-bound to an unexpired human high-risk approval; the gate authorizes a plan without claiming success or changing the tracked script",
+            "note": "production evidence is hash-bound to an unexpired human high-risk approval; the gate authorizes retirement without claiming operational success",
         })
         return 0, result
 

@@ -22,11 +22,9 @@ atomic host receipt path, one-window catch-up bound, and the stale-cleanup-owned
 temp host/container paths. The production cutover timestamp is live database control state,
 not policy.
 
-`deploy_rollout.yaml` keeps `QA_ARCHIVE_ENABLED` deploy injection at `false` until the
-approved Phase 2 production-integrity closeout is implemented and verified; approval of
-the document alone is not activation. It records that the recently enabled live timer
-must be stopped and reclosed through the single-runner rollout before the deploy default
-can move to the policy target. Edge deploy always injects `QA_CAPTURE_ENABLED=false`.
+`deploy_rollout.yaml` keeps prod `QA_ARCHIVE_ENABLED` deploy injection aligned with
+`policy.yaml` after the approved Phase 2 closeout: production deploy now injects archive
+enabled by default, while edge deploy still injects `QA_CAPTURE_ENABLED=false`.
 
 Operator scripts: `prod_qa_maintenance.py`, `prod_qa_historical_closeout.py`,
 `prod_qa_stale_cleanup.py`, `prod_qa_archive_closeout.py`, `prod_phase2_baseline.py`;
@@ -57,7 +55,6 @@ The root/output directories are mode 0700 and restored files are mode 0600.
 only. Production scope also requires exact expected window/bucket/role arguments and a
 separate unexpired human high-risk approval JSON whose `evidence_sha256` binds the reviewed
 receipt bundle. Production receipts must be no older than 24 hours and the approval must
-postdate the final receipt. The gate emits a planned transition but never removes
-`ops/prod/fetch-qa-dump.sh`. Actual IAM apply, independent production recovery evidence,
-and script retirement remain approval-gated. Gateway and maintenance still share the EC2
-instance role, so the current bucket policy is not process-level isolation.
+postdate the final receipt. Break-glass prod QA dump tooling is retired after
+production workstation recovery evidence passes the gate. Gateway and maintenance still share the EC2 instance role, so the
+current bucket policy is not process-level isolation.
