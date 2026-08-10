@@ -160,7 +160,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	openAIOAuthService := service.ProvideOpenAIOAuthService(proxyRepository, openAIOAuthClient, privacyClientFactory)
 	openAITokenProvider := service.ProvideOpenAITokenProvider(accountRepository, geminiTokenCache, openAIOAuthService, oAuthRefreshAPI)
 	grokOAuthClient := repository.NewGrokOAuthClient()
-	grokOAuthService := service.NewGrokOAuthService(proxyRepository, grokOAuthClient)
+	grokOAuthService := service.ProvideGrokOAuthService(proxyRepository, grokOAuthClient, configConfig, redisClient)
 	grokTokenProvider := service.ProvideGrokTokenProvider(accountRepository, geminiTokenCache, grokOAuthService, oAuthRefreshAPI, tempUnschedCache)
 	openAIGatewayService := service.NewOpenAIGatewayService(accountRepository, usageLogRepository, usageBillingRepository, userRepository, userSubscriptionRepository, userGroupRateRepository, gatewayCache, configConfig, schedulerSnapshotService, concurrencyService, billingService, rateLimitService, billingCacheService, httpUpstream, deferredService, openAITokenProvider, grokTokenProvider, modelPricingResolver, channelService, balanceNotifyService, settingService, serviceUserPlatformQuotaRepository)
 	geminiOAuthClient := repository.NewGeminiOAuthClient(configConfig)
@@ -183,8 +183,11 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	announcementService := service.NewAnnouncementService(announcementRepository, announcementReadRepository, userRepository, userSubscriptionRepository)
 	announcementHandler := handler.NewAnnouncementHandler(announcementService)
 	channelMonitorRepository := repository.NewChannelMonitorRepository(client, db)
-	channelMonitorService := service.ProvideChannelMonitorService(channelMonitorRepository, secretEncryptor)
+	channelMonitorService := service.ProvideChannelMonitorService(channelMonitorRepository, secretEncryptor, settingService)
 	channelMonitorUserHandler := handler.NewChannelMonitorUserHandler(channelMonitorService, settingService)
+	channelMonitorV2Repository := repository.NewChannelMonitorV2Repository(db)
+	channelMonitorV2Service := service.ProvideChannelMonitorV2Service(channelMonitorV2Repository, settingService)
+	channelMonitorV2Handler := handler.NewChannelMonitorV2Handler(channelMonitorV2Service)
 	dashboardAggregationRepository := repository.NewDashboardAggregationRepository(db)
 	dashboardStatsCache := repository.NewDashboardCache(redisClient, configConfig)
 	dashboardService := service.NewDashboardService(usageLogRepository, dashboardAggregationRepository, dashboardStatsCache, configConfig)
@@ -204,7 +207,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	claudeUsageFetcher := repository.NewClaudeUsageFetcher(httpUpstream)
 	antigravityQuotaFetcher := service.NewAntigravityQuotaFetcher(proxyRepository)
 	grokQuotaFetcher := service.NewGrokQuotaFetcher()
-	grokQuotaService := service.ProvideGrokQuotaService(accountRepository, proxyRepository, grokTokenProvider, httpUpstream, configConfig, usageLogRepository)
+	grokQuotaService := service.ProvideGrokQuotaService(accountRepository, proxyRepository, grokTokenProvider, httpUpstream, configConfig, usageLogRepository, settingService)
 	openAIQuotaService := service.ProvideOpenAIQuotaService(accountRepository, proxyRepository, openAITokenProvider, privacyClientFactory, openAIGatewayService)
 	usageCache := service.NewUsageCache()
 	accountUsageService := service.ProvideAccountUsageService(accountRepository, usageLogRepository, claudeUsageFetcher, geminiQuotaService, antigravityQuotaFetcher, grokQuotaFetcher, grokQuotaService, openAIQuotaService, usageCache, identityCache, tlsFingerprintProfileService, oAuthRefreshAPI, openAIGatewayService)
@@ -739,6 +742,12 @@ func provideCleanup(
 			{"PaymentOrderExpiryService", func() error {
 				if paymentOrderExpiry != nil {
 					paymentOrderExpiry.Stop()
+				}
+				return nil
+			}},
+			{"ChannelMonitorV2Aggregator", func() error {
+				if channelMonitorV2Aggregator != nil {
+					channelMonitorV2Aggregator.Stop()
 				}
 				return nil
 			}},

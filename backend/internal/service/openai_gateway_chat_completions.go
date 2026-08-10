@@ -419,6 +419,11 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	if finalResponse == nil {
 		return s.openAICompatBufferedMissingTerminalResult(c, account, requestID, acc, openAICompatBufferedRouteChat)
 	}
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
+	observer.Observe(finalResponse.Model, true)
 	if strings.TrimSpace(finalResponse.Status) == "failed" {
 		payload, _ := json.Marshal(gin.H{"type": "response.failed", "response": finalResponse})
 		// cyber_policy 致命不可重试：不 failover，以 Chat Completions 错误格式回写（F4），
@@ -459,15 +464,26 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.JSON(http.StatusOK, chatResp)
 
-	return &OpenAIForwardResult{
-		RequestID:     requestID,
-		Usage:         usage,
-		Model:         originalModel,
-		BillingModel:  billingModel,
-		UpstreamModel: upstreamModel,
-		Stream:        false,
-		Duration:      time.Since(startTime),
-	}, nil
+	result := &OpenAIForwardResult{
+		RequestID:                     requestID,
+		Usage:                         usage,
+		Model:                         originalModel,
+		BillingModel:                  billingModel,
+		UpstreamModel:                 upstreamModel,
+		UpstreamResponseModel:         observedUpstreamResponseModel(c),
+		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+		Stream:                        false,
+		Duration:                      time.Since(startTime),
+	}
+	// Grok chat bridge: bill native search tools found in the terminal Responses body.
+	if account != nil && account.IsGrok() && finalResponse != nil {
+		if body, err := json.Marshal(finalResponse); err == nil {
+			if n := countGrokNativeSearchCallsFromJSONBytes(body); n > 0 {
+				result.SearchCount = n
+			}
+		}
+	}
+	return result, nil
 }
 
 // handleChatStreamingResponse reads Responses SSE events from upstream,
@@ -500,6 +516,14 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
 	var streamFailoverErr *UpstreamFailoverError
 	var streamNonFailoverErr error
+	// Grok chat bridge reuses Responses SSE; count native search tools for surcharge.
+	searchCount := 0
+	streamSearchSeen := make(map[string]struct{})
+	countSearch := account != nil && account.IsGrok()
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 
@@ -518,16 +542,22 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	}
 
 	resultWithUsage := func() *OpenAIForwardResult {
-		return &OpenAIForwardResult{
-			RequestID:     requestID,
-			Usage:         usage,
-			Model:         originalModel,
-			BillingModel:  billingModel,
-			UpstreamModel: upstreamModel,
-			Stream:        true,
-			Duration:      time.Since(startTime),
-			FirstTokenMs:  firstTokenMs,
+		out := &OpenAIForwardResult{
+			RequestID:                     requestID,
+			Usage:                         usage,
+			Model:                         originalModel,
+			BillingModel:                  billingModel,
+			UpstreamModel:                 upstreamModel,
+			UpstreamResponseModel:         observedUpstreamResponseModel(c),
+			UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+			Stream:                        true,
+			Duration:                      time.Since(startTime),
+			FirstTokenMs:                  firstTokenMs,
 		}
+		if searchCount > 0 {
+			out.SearchCount = searchCount
+		}
+		return out
 	}
 
 	processDataLine := func(payload string) bool {
@@ -535,6 +565,9 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			firstChunk = false
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
+		}
+		if countSearch {
+			searchCount += countGrokNativeSearchCallsInSSEDataDedup([]byte(payload), streamSearchSeen)
 		}
 
 		var event apicompat.ResponsesStreamEvent
@@ -545,6 +578,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			)
 			return false
 		}
+		observer.ObserveOpenAI([]byte(payload), event.Type)
 		refusalDetector.ObservePayload([]byte(payload))
 
 		// Nested evt.Response.Usage takes precedence over top-level evt.Usage:

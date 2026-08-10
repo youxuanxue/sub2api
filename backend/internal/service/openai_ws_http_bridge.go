@@ -180,6 +180,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	if writeClientMessage == nil {
 		return nil, errors.New("client websocket writer is nil")
 	}
+	responseModelObserver := &upstreamResponseModelObserver{}
 
 	body, err := prepareOpenAIWSHTTPBridgeBody(payload)
 	if err != nil {
@@ -341,6 +342,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 
 		upstreamMessage := []byte(trimmedData)
 		eventType, eventResponseID, _ := parseOpenAIWSEventEnvelope(upstreamMessage)
+		responseModelObserver.ObserveOpenAI(upstreamMessage, eventType)
 		if responseID == "" && eventResponseID != "" {
 			responseID = eventResponseID
 		}
@@ -374,7 +376,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		replayCollector.AddEvent(eventType, upstreamMessage)
 
 		if !clientDisconnected {
-			if err := writeClientMessage(upstreamMessage); err != nil {
+			if err := writeClientMessage(clientMessage); err != nil {
 				if isOpenAIWSClientDisconnectError(err) {
 					clientDisconnected = true
 					closeStatus, closeReason := summarizeOpenAIWSReadCloseError(err)

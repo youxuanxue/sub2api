@@ -11,6 +11,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // IsRegistrationEnabled 检查是否开放注册
@@ -26,6 +27,16 @@ func (s *SettingService) IsRegistrationEnabled(ctx context.Context) bool {
 // IsEmailVerifyEnabled 检查是否开启邮件验证
 func (s *SettingService) IsEmailVerifyEnabled(ctx context.Context) bool {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyEmailVerifyEnabled)
+	if err != nil {
+		return false
+	}
+	return value == "true"
+}
+
+// IsRegistrationEmailDomainQuotaEnabled 检查白名单非空时是否放行非白名单域名限量注册。
+// 安全默认：设置缺失或查询出错时按关闭处理（保持白名单严格模式）。
+func (s *SettingService) IsRegistrationEmailDomainQuotaEnabled(ctx context.Context) bool {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyRegistrationEmailDomainQuotaEnabled)
 	if err != nil {
 		return false
 	}

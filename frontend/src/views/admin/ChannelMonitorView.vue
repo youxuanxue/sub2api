@@ -79,7 +79,8 @@
           @update:pageSize="onPageSizeChange"
         />
       </template>
-    </TablePageLayout>
+      </TablePageLayout>
+    </div>
 
     <MonitorFormDialog
       :show="showDialog"
@@ -113,7 +114,7 @@
   </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
@@ -141,9 +142,13 @@ import MonitorPrimaryModelCell from '@/components/admin/monitor/MonitorPrimaryMo
 import MonitorActionsCell from '@/components/admin/monitor/MonitorActionsCell.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
+import MonitorSettingsPanel from '@/features/channel-monitor-v2/MonitorSettingsPanel.vue'
+import { isChannelMonitorV1Mode } from '@/utils/featureFlags'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const isV1Mode = computed(() => isChannelMonitorV1Mode())
+const adminMonitorTab = ref<'v2' | 'legacy'>(isChannelMonitorV1Mode() ? 'legacy' : 'v2')
 const {
   providerLabel,
   providerBadgeClass,
@@ -262,6 +267,10 @@ async function toggleEnabled(row: ChannelMonitor) {
 }
 
 async function handleRunNow(row: ChannelMonitor) {
+  if (!isV1Mode.value) {
+    appStore.showError(t('admin.channelMonitor.runFailed'))
+    return
+  }
   if (runningId.value != null) return
   runningId.value = row.id
   try {
@@ -315,7 +324,12 @@ async function confirmDelete() {
   }
 }
 
-onMounted(reload)
+watch(adminMonitorTab, (tab) => {
+  if (tab === 'legacy' && monitors.value.length === 0) void reload()
+})
+onMounted(() => {
+  if (adminMonitorTab.value === 'legacy') void reload()
+})
 onUnmounted(() => {
   if (searchTimeout) clearTimeout(searchTimeout)
   abortController?.abort()

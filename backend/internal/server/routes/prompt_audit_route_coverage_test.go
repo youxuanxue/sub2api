@@ -43,12 +43,15 @@ func TestEveryGatewayPOSTRouteIsClassifiedForPromptAuditCoverage(t *testing.T) {
 		"/images/generations/async": {"image_task_handler.go"},
 		"/images/edits/async":       {"image_task_handler.go"},
 		"/images/batches":           {"batch_image_handler.go"},
+		"/videos":                   {"grok_media.go"},
 		"/videos/generations":       {"grok_media.go"},
 		"/videos/edits":             {"grok_media.go"},
 		"/videos/extensions":        {"grok_media.go"},
 		"/video/generations":        {"openai_gateway_tk_video.go"},
 		"/videos":                   {"openai_gateway_tk_video.go"},
 		"/models/*modelAction":      {"gemini_v1beta_handler.go"},
+		"/tts":                      {"grok_audio.go"},
+		"/web_search":               {"gateway_web_search.go"},
 	}
 	excluded := map[string]string{
 		"/messages/count_tokens":     "tokenization only; it does not execute a model request",

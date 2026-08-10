@@ -1424,6 +1424,9 @@ type VideoPriceConfig struct {
 	Price480P  *float64 // 480p 每秒价格（nil 表示使用默认值）
 	Price720P  *float64 // 720p 每秒价格（nil 表示使用默认值）
 	Price1080P *float64 // 1080p 每秒价格（nil 表示使用默认值）
+	// ModelPrices is optional per-model-family override: family → resolution → USD/s.
+	// When set for a model, it wins over Price* flat columns for that model only.
+	ModelPrices map[string]map[string]float64
 }
 
 // CalculateWebSearchCost 计算 Codex alpha/search 网页搜索按次费用。
@@ -1447,6 +1450,80 @@ func (s *BillingService) CalculateWebSearchCost(callCount int, groupPrice *float
 	return &CostBreakdown{
 		TotalCost:   totalCost,
 		ActualCost:  totalCost * rateMultiplier,
+		BillingMode: string(BillingModePerRequest),
+	}
+}
+
+// CalculateSearchCost bills search/tool invocations (e.g. web_search) per 1k calls.
+// groupPricePer1k: nil → defaultSearchPricePer1k; explicit 0 → free; >0 → that rate.
+func (s *BillingService) CalculateSearchCost(numCalls int, groupPricePer1k *float64, rateMultiplier float64) *CostBreakdown {
+	if numCalls <= 0 {
+		return &CostBreakdown{}
+	}
+	pricePer1k := defaultSearchPricePer1k
+	if groupPricePer1k != nil {
+		if *groupPricePer1k < 0 {
+			return &CostBreakdown{}
+		}
+		pricePer1k = *groupPricePer1k
+	}
+	if pricePer1k == 0 {
+		return &CostBreakdown{}
+	}
+	if rateMultiplier < 0 {
+		rateMultiplier = 0
+	}
+	unit := pricePer1k / 1000.0
+	total := unit * float64(numCalls)
+	return &CostBreakdown{
+		TotalCost:   total,
+		ActualCost:  total * rateMultiplier,
+		BillingMode: string(BillingModePerRequest),
+	}
+}
+
+type audioPriceConfig struct {
+	RealtimePerMin *float64
+	TTSPerMChars   *float64
+	STTPerHour     *float64
+}
+
+// CalculateAudioCost supports realtime (per min), tts (per M chars), stt (per hr).
+// Missing group prices use defaults; explicit 0 means free for that mode.
+func (s *BillingService) CalculateAudioCost(mode string, durationOrUnits float64, groupConfig *audioPriceConfig, rateMultiplier float64) *CostBreakdown {
+	if durationOrUnits <= 0 {
+		return &CostBreakdown{}
+	}
+	var unitPrice float64
+	switch strings.ToLower(mode) {
+	case "realtime":
+		unitPrice = defaultAudioRealtimePricePerMin
+		if groupConfig != nil && groupConfig.RealtimePerMin != nil {
+			unitPrice = *groupConfig.RealtimePerMin
+		}
+	case "tts":
+		unitPrice = defaultAudioTTSPricePerMillionChars
+		if groupConfig != nil && groupConfig.TTSPerMChars != nil {
+			unitPrice = *groupConfig.TTSPerMChars
+		}
+	case "stt":
+		unitPrice = defaultAudioSTTPricePerHour
+		if groupConfig != nil && groupConfig.STTPerHour != nil {
+			unitPrice = *groupConfig.STTPerHour
+		}
+	default:
+		return &CostBreakdown{}
+	}
+	if unitPrice <= 0 {
+		return &CostBreakdown{}
+	}
+	if rateMultiplier < 0 {
+		rateMultiplier = 0
+	}
+	total := unitPrice * durationOrUnits
+	return &CostBreakdown{
+		TotalCost:   total,
+		ActualCost:  total * rateMultiplier,
 		BillingMode: string(BillingModePerRequest),
 	}
 }
@@ -1556,7 +1633,10 @@ func (s *BillingService) getImageUnitPrice(model string, imageSize string, group
 
 func (s *BillingService) getVideoUnitPrice(model string, resolution string, groupConfig *VideoPriceConfig, opts *VideoBillingOptions) float64 {
 	if groupConfig != nil {
-		switch resolution {
+		if price := LookupVideoModelPrice(groupConfig.ModelPrices, model, resolution); price != nil {
+			return *price
+		}
+		switch NormalizeVideoBillingResolutionOrDefault(resolution) {
 		case VideoBillingResolution480P:
 			if groupConfig.Price480P != nil {
 				return *groupConfig.Price480P

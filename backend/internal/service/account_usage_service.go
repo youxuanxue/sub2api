@@ -391,17 +391,22 @@ func NewAccountUsageService(
 	}
 }
 
-// GetUsage 获取账号使用量
-// OAuth账号: 调用Anthropic API获取真实数据（需要profile scope），API响应缓存10分钟，窗口统计缓存1分钟
-// Setup Token账号: 根据session_window推算5h窗口，7d数据不可用（没有profile scope）
-// API Key账号: 不支持usage查询
-func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, force ...bool) (*UsageInfo, error) {
-	forceProbe := len(force) > 0 && force[0]
+func supportsAnthropicPassiveUsage(account *Account) bool {
+	return account != nil && account.IsAnthropicOAuthOrSetupToken()
+}
 
-	account, err := s.accountRepo.GetByID(ctx, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("get account failed: %w", err)
+func batchUsageErrorMessage(err error) string {
+	if err == nil {
+		return ""
 	}
+	return err.Error()
+}
+
+func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *Account, forceProbe bool) (*UsageInfo, error) {
+	if account == nil {
+		return nil, fmt.Errorf("account is required")
+	}
+	accountID := account.ID
 
 	return s.getUsageForAccount(ctx, account, forceProbe)
 }

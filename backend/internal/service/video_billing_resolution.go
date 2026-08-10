@@ -51,3 +51,12 @@ func NormalizeVideoBillingResolutionForModel(model, resolution string) string {
 	}
 	return tkVideoNormalizeResolution(model, resolution)
 }
+
+// NormalizeVideoBillingResolutionOrDefault 用于运行时计费：上游回传的分辨率
+// 缺失或无法识别时按最低档兜底，保证请求仍可计费。
+func NormalizeVideoBillingResolutionOrDefault(resolution string) string {
+	if normalized, ok := LookupVideoBillingResolution(resolution); ok {
+		return normalized
+	}
+	return VideoBillingResolution480P
+}

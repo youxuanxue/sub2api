@@ -131,8 +131,11 @@ import { adminAPI } from "@/api";
 import {
   appendAuthSourceDefaultsToUpdateRequest,
   buildAuthSourceDefaultsState,
+  normalizeAccountSchedulingThresholdsMap,
   normalizePlatformQuotasMap,
+  sanitizeAccountSchedulingThresholdsMap,
   sanitizePlatformQuotasMap,
+  SCHEDULING_THRESHOLD_PLATFORMS,
   defaultWeChatConnectScopesForMode,
   deriveWeChatConnectStoredMode,
   normalizeDefaultSubscriptionSettings,
@@ -757,6 +760,11 @@ async function loadSettings() {
     gatewayPanelRef.value?.hydrateFromForm();
     form.login_agreement_mode =
       settings.login_agreement_mode === "checkbox" ? "checkbox" : "modal";
+    form.channel_monitor_mode =
+      settings.channel_monitor_mode === "v2" ? "v2" : "v1";
+    form.channel_monitor_hide_throughput = Boolean(
+      settings.channel_monitor_hide_throughput
+    );
     form.login_agreement_updated_at =
       settings.login_agreement_updated_at || "2026-03-31";
     form.login_agreement_documents =
@@ -773,6 +781,9 @@ async function loadSettings() {
     )
     Object.assign(authSourceDefaults, buildAuthSourceDefaultsState(settings));
     form.default_platform_quotas = normalizePlatformQuotasMap(settings.default_platform_quotas);
+    form.account_scheduling_thresholds = normalizeAccountSchedulingThresholdsMap(
+      settings.account_scheduling_thresholds,
+    );
     form.backend_mode_enabled = settings.backend_mode_enabled;
     form.default_subscriptions = normalizeDefaultSubscriptionSettings(
       settings.default_subscriptions,
@@ -1058,6 +1069,8 @@ async function saveSettings() {
         registrationEmailSuffixWhitelistTags.value.map((suffix) =>
           suffix.startsWith("*.") ? suffix : `@${suffix}`,
         ),
+      registration_email_domain_quota_enabled:
+        form.registration_email_domain_quota_enabled,
       promo_code_enabled: form.promo_code_enabled,
       invitation_code_enabled: form.invitation_code_enabled,
       password_reset_enabled: form.password_reset_enabled,
@@ -1223,6 +1236,11 @@ async function saveSettings() {
       fallback_model_openai: form.fallback_model_openai,
       fallback_model_gemini: form.fallback_model_gemini,
       fallback_model_antigravity: form.fallback_model_antigravity,
+      grok_default_text_model:
+        form.grok_default_text_model.trim() || "grok-4.5",
+      grok_cross_client_model_map_enabled:
+        form.grok_cross_client_model_map_enabled,
+      grok_default_base_url_mode: form.grok_default_base_url_mode,
       enable_identity_patch: form.enable_identity_patch,
       identity_patch_prompt: form.identity_patch_prompt,
       min_claude_code_version: form.min_claude_code_version,
@@ -1347,6 +1365,7 @@ async function saveSettings() {
         (form.auto_generate_default_token_name || '').trim() || 'trial',
       pricing_catalog_public: form.pricing_catalog_public,
       channel_monitor_enabled: form.channel_monitor_enabled,
+      channel_monitor_mode: form.channel_monitor_mode === 'v1' ? 'v1' : 'v2',
       channel_monitor_default_interval_seconds:
         Number(form.channel_monitor_default_interval_seconds) || 60,
       available_channels_enabled: form.available_channels_enabled,
@@ -1392,6 +1411,9 @@ async function saveSettings() {
     }
 
     payload.default_platform_quotas = sanitizePlatformQuotasMap(form.default_platform_quotas);
+    payload.account_scheduling_thresholds = sanitizeAccountSchedulingThresholdsMap(
+      form.account_scheduling_thresholds,
+    );
     appendAuthSourceDefaultsToUpdateRequest(payload, authSourceDefaults);
 
     const updated = await adminAPI.settings.updateSettings(payload);
