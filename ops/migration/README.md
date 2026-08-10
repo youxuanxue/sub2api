@@ -37,6 +37,28 @@ bash ops/migration/edge-platform-cutover-check.sh \
 `target.oauth_model_smoke_ok`。每个阶段都重新采集，不使用仓库快照；任一缺失信号
 或 blocker 使命令非零退出。
 
+最后一个 Edge 切换成功并继续观察完整 1 天后，先对 15 分钟内生成的实时 Fleet
+snapshot 运行退役计划。snapshot 必须绑定最后切换 receipt 的 commit，并逐 Edge
+包含 EC2 健康、DNS 唯一指向 EIP、源账号不可调度、逻辑备份校验、data snapshot
+完成状态，以及 Lightsail 实例、Static IP 和 SSM managed-instance 的精确资源身份：
+
+```bash
+bash ops/migration/retire-lightsail-fleet.sh \
+  --snapshot /path/to/live-fleet-retirement-snapshot.json \
+  --output "${RUNNER_TEMP:-/tmp}/lightsail-fleet-retirement-plan.json"
+```
+
+默认只输出计划，不调用 AWS。确认计划无 blocker 后，执行仍需显式提供固定确认串；
+工具按 `us5 -> us4 -> us6 -> us3` 顺序逐资源执行，失败立即停止，已不存在的资源跳过：
+
+```bash
+bash ops/migration/retire-lightsail-fleet.sh \
+  --snapshot /path/to/live-fleet-retirement-snapshot.json \
+  --apply \
+  --confirm retire-lightsail-us3-us4-us5-us6-after-one-day \
+  --output "${RUNNER_TEMP:-/tmp}/lightsail-fleet-retirement-apply.json"
+```
+
 # usage_logs 日分区切换
 
 该目录的 `usage_logs_daily_partition.py` 是唯一生产入口。它不会由应用启动或 migration

@@ -49,6 +49,16 @@ class LightsailOidcPermCoverageTests(unittest.TestCase):
                              f"action {action!r} doesn't look like an IAM action")
             self.assertIsInstance(notes, str)
 
+    def test_fleet_retirement_actions_are_covered(self):
+        retirement_actions = {
+            "lightsail:DetachStaticIp",
+            "lightsail:DeleteInstance",
+            "lightsail:ReleaseStaticIp",
+            "ssm:DeregisterManagedInstance",
+        }
+        expected = {action for action, _ in self.mod.EXPECTED_ACTIONS}
+        self.assertTrue(retirement_actions <= expected, retirement_actions - expected)
+
     def test_missing_action_detected(self):
         # Synthetic empty policies → every expected action reported as missing.
         missing = self.mod._missing_actions(

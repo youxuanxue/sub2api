@@ -236,6 +236,8 @@ if command -v python3 >/dev/null 2>&1; then
         python3 -m unittest ops/migration/test_edge_platform_migration_preflight.py
     _bg_spawn edge_platform_cutover_test \
         python3 -m unittest ops/migration/test_edge_platform_cutover_check.py
+    _bg_spawn retire_lightsail_fleet_test \
+        python3 -m unittest ops/migration/test_retire_lightsail_fleet.py
     _bg_spawn newapi_sibling_test bash ./scripts/checks/ensure-new-api-sibling_test.sh
     _bg_spawn redactor_test bash ./scripts/agent/redact-stream_test.sh
     _bg_spawn smoke_unittest python3 -m unittest scripts.test_smoke_suite \
@@ -2388,7 +2390,8 @@ else
     _edge_migration_failed=0
     for _edge_migration_key in \
         edge_platform_migration_preflight_test \
-        edge_platform_cutover_test; do
+        edge_platform_cutover_test \
+        retire_lightsail_fleet_test; do
         _bg_rc=1
         if _bg_spawned "$_edge_migration_key"; then
             _bg_join "$_edge_migration_key"
@@ -2403,7 +2406,7 @@ else
         fi
     done
     if [ "$_edge_migration_failed" -eq 0 ]; then
-        echo "  ok: infrastructure preflight and single-Edge cutover fixture suites pass"
+        echo "  ok: infrastructure preflight, cutover, and fleet retirement suites pass"
     fi
     unset _edge_migration_key _edge_migration_failed
 fi

@@ -49,12 +49,27 @@ stdlib-only.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import pathlib
 import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 ADDON_CFN = REPO_ROOT / "deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml"
 BASE_CFN = REPO_ROOT / "deploy/aws/cloudformation/cicd-oidc.yaml"
+RETIREMENT_TOOL = REPO_ROOT / "ops/migration/retire_lightsail_fleet.py"
+
+
+def _retirement_actions() -> list[tuple[str, str]]:
+    spec = importlib.util.spec_from_file_location("retire_lightsail_fleet", RETIREMENT_TOOL)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load retirement tool: {RETIREMENT_TOOL}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return [
+        (call["iam_action"], f"fleet retirement: {call['service']} {call['command']}")
+        for call in module.AWS_CALLS.values()
+    ]
 
 # Hard-coded list of every AWS action the Lightsail Edge workflow issues.
 # Maintenance contract: when provision-edge.sh / render-bootstrap.sh /
@@ -91,6 +106,10 @@ EXPECTED_ACTIONS: list[tuple[str, str]] = [
     ("ssm:PutParameter", "provision writes managed_instance_id / public_ip etc."),
     ("ssm:GetParameter", "upgrade / IP rotation read public_ip and instance id"),
 ]
+
+for _retirement_action in _retirement_actions():
+    if _retirement_action[0] not in {action for action, _ in EXPECTED_ACTIONS}:
+        EXPECTED_ACTIONS.append(_retirement_action)
 
 
 def _load(path: pathlib.Path) -> str:
