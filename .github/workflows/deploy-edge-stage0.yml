@@ -193,6 +193,15 @@ jobs:
           bash ops/migration/edge-platform-migration-preflight.sh --format json --output "$REPORT"
           jq -e '.blockers == []' "$REPORT" >/dev/null
 
+      - name: Upload live migration preflight
+        if: always() && inputs.operation == 'provision'
+        uses: actions/upload-artifact@v6
+        with:
+          name: edge-migration-preflight-${{ inputs.edge_id }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/all-edge-ec2-migration-preflight.json
+          if-no-files-found: ignore
+          retention-days: 3
+
       - name: Provision EC2 candidate stack
         id: provision
         if: inputs.operation == 'provision'

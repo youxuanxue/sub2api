@@ -280,6 +280,35 @@ class Ec2WorkflowSafetyContractTest(unittest.TestCase):
                 "${{ steps.edge.outputs.cfn_execution_role_arn }}",
             )
 
+    def test_provision_uploads_the_live_preflight_as_a_temporary_artifact(self) -> None:
+        steps = self._load_steps()
+        preflight_index = next(
+            i for i, step in enumerate(steps)
+            if step.get("name") == "Run live migration preflight"
+        )
+        upload_indexes = [
+            i for i, step in enumerate(steps)
+            if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+            and step.get("with", {}).get("path")
+            == "${{ runner.temp }}/all-edge-ec2-migration-preflight.json"
+        ]
+        self.assertEqual(1, len(upload_indexes), upload_indexes)
+        upload_index = upload_indexes[0]
+        self.assertEqual(preflight_index + 1, upload_index)
+        upload = steps[upload_index]
+        self.assertEqual(
+            upload.get("if"),
+            "always() && inputs.operation == 'provision'",
+        )
+        self.assertEqual(upload.get("with", {}).get("if-no-files-found"), "ignore")
+        self.assertLessEqual(int(upload.get("with", {}).get("retention-days", 999)), 7)
+
+        provision = next(step for step in steps if step.get("id") == "provision")
+        self.assertNotIn(
+            "all-edge-ec2-migration-preflight.json",
+            json.dumps(provision, sort_keys=True),
+        )
+
     def test_provision_checks_ghcr_pat_metadata_without_reading_the_secret(self) -> None:
         provision_step = next(
             step for step in self._load_steps() if step.get("id") == "provision"
