@@ -240,11 +240,15 @@ if command -v python3 >/dev/null 2>&1; then
 fi
 _bg_spawn ssm_parse bash ./scripts/checks/check-stage0-ssm-host-parse.sh
 
-# dev-rules template check 18a omits PREFLIGHT_BASE until submodule picks up the fix.
+# Compatibility shims until the dev-rules template carries the project-needed
+# deleted-ref base and scans colocated Python tests outside tests/ directories.
 _dev_preflight_template="./dev-rules/templates/preflight.sh"
-if ! grep -q 'check_deleted_file_refs.py --base' "$_dev_preflight_template" 2>/dev/null; then
+if ! grep -q 'check_deleted_file_refs.py --base' "$_dev_preflight_template" 2>/dev/null || \
+   ! grep -q 'check_existence_only_tests.py --glob' "$_dev_preflight_template" 2>/dev/null; then
     _dev_preflight_template="$(mktemp "${TMPDIR:-/tmp}/preflight-dev-rules.XXXXXX")"
-    sed 's|check_deleted_file_refs\.py >|check_deleted_file_refs.py --base "${PREFLIGHT_BASE:-origin/main}" >|' \
+    sed \
+        -e 's|check_deleted_file_refs\.py >|check_deleted_file_refs.py --base "${PREFLIGHT_BASE:-origin/main}" >|' \
+        -e 's|"$PYTHON_BIN" dev-rules/scripts/check_existence_only_tests\.py >|"$PYTHON_BIN" -W ignore::SyntaxWarning dev-rules/scripts/check_existence_only_tests.py --glob "test_*.py" --glob "*_test.py" --glob "**/test_*.py" --glob "**/*_test.py" >|' \
         ./dev-rules/templates/preflight.sh > "$_dev_preflight_template"
     chmod +x "$_dev_preflight_template"
 fi
