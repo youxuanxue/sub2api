@@ -153,15 +153,14 @@ WITH child_bounds AS (
   FROM pg_inherits inheritance
   JOIN pg_class child ON child.oid = inheritance.inhrelid
   WHERE inheritance.inhparent = to_regclass($1)
+    AND pg_get_expr(child.relpartbound, child.oid, true) <> 'DEFAULT'
 ), parsed_bounds AS (
   SELECT
     bound_expr LIKE 'FOR VALUES FROM (MINVALUE)%' AS lower_unbounded,
     bound_expr LIKE '%TO (MAXVALUE)' AS upper_unbounded,
-    bound_expr = 'DEFAULT' AS is_default,
     substring(bound_expr FROM $$FROM \('([^']+)'$$)::timestamptz AS lower_bound,
     substring(bound_expr FROM $$TO \('([^']+)'$$)::timestamptz AS upper_bound
   FROM child_bounds
-  WHERE NOT is_default
 ), covered_union AS (
   SELECT range_agg(tstzrange(
     CASE WHEN lower_unbounded THEN NULL ELSE lower_bound END,

@@ -2491,6 +2491,7 @@ func setDefaults() {
 	viper.SetDefault("qa_archive.storage.secret_access_key", "")
 	viper.SetDefault("qa_archive.storage.prefix", "raw/v1")
 	viper.SetDefault("qa_archive.storage.force_path_style", false)
+	viper.SetDefault("qa_archive.hourly_storage_cutover_utc", "")
 
 	// media_storage.* has no struct default, so pin viper keys here to enable
 	// MEDIA_STORAGE_* env injection (same nested-key reason as export_storage).

@@ -109,11 +109,3 @@ func HourlyDLQKey(hourStart time.Time, requestID string) string {
 	return fmt.Sprintf("%s/%04d/%02d/%02d/%02d/%s.json.zst",
 		dlqRootName, h.Year(), int(h.Month()), h.Day(), h.Hour(), strings.TrimSpace(requestID))
 }
-
-func requestIDPrefix(requestID string) string {
-	requestID = strings.TrimSpace(requestID)
-	if len(requestID) < 2 {
-		return "00"
-	}
-	return requestID[:2]
-}

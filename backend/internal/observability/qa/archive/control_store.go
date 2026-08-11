@@ -592,7 +592,7 @@ WHERE id=$3 AND state IN ('pending', 'writing', 'verified', 'failed')`,
 	}
 	if changed, rowsErr := result.RowsAffected(); rowsErr != nil {
 		return 0, fmt.Errorf("boundary terminal gap: inspect update: %w", rowsErr)
-	} else if changed != 1 && !(state == StateFailed && code.String == IntegritySourceUnavailableAfterRetention) {
+	} else if changed != 1 && (state != StateFailed || code.String != IntegritySourceUnavailableAfterRetention) {
 		return 0, fmt.Errorf("boundary terminal gap: shard changed concurrently")
 	}
 	return shardID, nil
