@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/observability/qa/archive"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pgpartition"
 )
 
@@ -30,11 +31,17 @@ func TestUsesHourlyStorageRespectsCutoverHour(t *testing.T) {
 	}
 }
 
-func TestParseHourlyCutoverUTC(t *testing.T) {
-	got := ParseHourlyCutoverUTC("2026-08-11T12:00:00Z")
+func TestParseHourlyCutoverUTCStrict(t *testing.T) {
+	got, err := ParseHourlyCutoverUTCStrict("2026-08-11T12:00:00Z")
+	if err != nil {
+		t.Fatalf("ParseHourlyCutoverUTCStrict() err=%v", err)
+	}
 	want := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)
 	if !got.Equal(want) {
-		t.Fatalf("ParseHourlyCutoverUTC()=%s want %s", got, want)
+		t.Fatalf("ParseHourlyCutoverUTCStrict()=%s want %s", got, want)
+	}
+	if _, err := ParseHourlyCutoverUTCStrict("not-a-time"); err == nil {
+		t.Fatal("invalid cutover must fail")
 	}
 	if !ParseHourlyCutoverUTC("").IsZero() {
 		t.Fatal("empty cutover must be zero")
@@ -57,7 +64,47 @@ func TestValidateCutoverPlanApplyRequiresCoverage(t *testing.T) {
 
 func TestRetentionBoundaryMatchesPgPartition(t *testing.T) {
 	anchor := time.Date(2026, 3, 1, 0, 30, 0, 0, time.UTC)
-	if !pgpartition.RetentionBoundary(anchor).Equal(pgpartition.RetentionBoundary(anchor)) {
-		t.Fatal("lifecycle retention boundary must stay aligned with pgpartition helper")
+	want := pgpartition.RetentionBoundary(anchor)
+	if got := pgpartition.RetentionBoundary(anchor); !got.Equal(want) {
+		t.Fatalf("RetentionBoundary()=%s want %s", got, want)
+	}
+}
+
+func TestHourlyTargetRangeCountIsExclusiveHorizon(t *testing.T) {
+	ranges := pgpartition.HourlyTargetRanges(time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC), HourlyHorizon)
+	if len(ranges) != HourlyHorizon {
+		t.Fatalf("HourlyTargetRanges() len=%d want %d", len(ranges), HourlyHorizon)
+	}
+}
+
+func TestNeedsBoundaryTerminalGapRequiresMembershipCoverage(t *testing.T) {
+	if !needsBoundaryTerminalGap(archive.CatchupHourStatus{
+		Exists: true, State: archive.StateCommitted, RestoreVerified: true, UncoveredSourceExists: true,
+	}) {
+		t.Fatal("uncovered committed hour must require terminal gap")
+	}
+	if needsBoundaryTerminalGap(archive.CatchupHourStatus{
+		Exists: true, State: archive.StateCommitted, RestoreVerified: true,
+	}) {
+		t.Fatal("fully covered committed hour must not require terminal gap")
+	}
+}
+
+func TestBuildCutoverPlanHashesInventory(t *testing.T) {
+	inv := CutoverInventory{
+		HourlyHorizonHours:  72,
+		CoveredFutureHours:  72,
+		RequiredFutureHours: 72,
+	}
+	t0 := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)
+	plan, err := BuildCutoverPlan(inv, t0)
+	if err != nil {
+		t.Fatalf("BuildCutoverPlan() err=%v", err)
+	}
+	if len(plan.PlanHash) != 64 {
+		t.Fatalf("plan hash len=%d", len(plan.PlanHash))
+	}
+	if RequiredCutoverConfirmation(plan.PlanHash) == "" {
+		t.Fatal("confirmation token missing")
 	}
 }

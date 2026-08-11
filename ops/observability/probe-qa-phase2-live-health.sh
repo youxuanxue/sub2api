@@ -171,13 +171,55 @@ WITH heartbeat AS (
     AND s.window_start < n.window_start
     AND s.state = 'failed'
     AND s.verification_error_code IS NOT NULL
+), default_child AS (
+  SELECT c.oid
+  FROM pg_inherits i
+  JOIN pg_class c ON c.oid = i.inhrelid
+  WHERE i.inhparent = 'qa_records'::regclass
+    AND pg_get_expr(c.relpartbound, c.oid, true) = 'DEFAULT'
 ), qa_counts AS (
   SELECT
-    count(*) FILTER (WHERE r.tableoid = 'qa_records_default'::regclass) AS default_rows,
-    count(*) FILTER (WHERE r.tableoid <> 'qa_records_default'::regclass) AS non_default_rows
+    count(*) FILTER (
+      WHERE EXISTS (SELECT 1 FROM default_child d WHERE r.tableoid = d.oid)
+    ) AS default_rows,
+    count(*) FILTER (
+      WHERE NOT EXISTS (SELECT 1 FROM default_child d WHERE r.tableoid = d.oid)
+    ) AS non_default_rows
   FROM qa_records r
   CROSS JOIN cutover c
   WHERE r.created_at >= c.window_start
+), lifecycle AS (
+  SELECT
+    (SELECT count(*) FROM default_child) > 0 AS default_present,
+    (
+      SELECT count(*)
+      FROM pg_inherits i
+      JOIN pg_class c ON c.oid = i.inhrelid
+      WHERE i.inhparent = 'qa_records'::regclass
+        AND pg_get_expr(c.relpartbound, c.oid, true) <> 'DEFAULT'
+        AND substring(pg_get_expr(c.relpartbound, c.oid, true) FROM $$TO \\('([^']+)'$$)::timestamptz
+          <= date_trunc('hour', clock_timestamp()) - interval '24 hours'
+    ) AS expired_partitions_attached,
+    (
+      SELECT count(*)
+      FROM qa_archive_shards s
+      WHERE s.source_dropped_at IS NOT NULL
+        AND s.hot_files_cleaned_at IS NULL
+    ) AS hot_cleanup_backlog,
+    (
+      SELECT count(*) = 0
+      FROM pg_inherits i
+      JOIN pg_class c ON c.oid = i.inhrelid
+      WHERE i.inhparent = 'qa_records'::regclass
+        AND pg_get_expr(c.relpartbound, c.oid, true) <> 'DEFAULT'
+        AND substring(pg_get_expr(c.relpartbound, c.oid, true) FROM $$FROM \\('([^']+)'$$)::timestamptz
+          = date_trunc('hour', clock_timestamp())
+    ) AS current_hour_partition_missing
+), boundary_heartbeat AS (
+  SELECT last_run_at, last_result
+  FROM ops_job_heartbeats
+  WHERE job_name = 'qa-boundary'
+  LIMIT 1
 ), current_write AS (
   SELECT child.relname AS partition_name
   FROM pg_class child
@@ -214,8 +256,26 @@ FROM (
     END AS partition_owner,
     q.default_rows,
     q.non_default_rows,
-    cw.partition_name AS current_write_partition
+    cw.partition_name AS current_write_partition,
+    (q.default_rows = 0 AND NOT l.current_hour_partition_missing) AS hourly_cutover_active,
+    l.default_present,
+    GREATEST(0, 72 - (
+      SELECT count(*)::int
+      FROM pg_inherits i
+      JOIN pg_class c ON c.oid = i.inhrelid
+      WHERE i.inhparent = 'qa_records'::regclass
+        AND pg_get_expr(c.relpartbound, c.oid, true) <> 'DEFAULT'
+        AND substring(pg_get_expr(c.relpartbound, c.oid, true) FROM $$TO \\('([^']+)'$$)::timestamptz
+          > date_trunc('hour', clock_timestamp())
+        AND substring(pg_get_expr(c.relpartbound, c.oid, true) FROM $$TO \\('([^']+)'$$)::timestamptz
+          - substring(pg_get_expr(c.relpartbound, c.oid, true) FROM $$FROM \\('([^']+)'$$)::timestamptz = interval '1 hour'
+    )) AS future_coverage_gap_hours,
+    l.current_hour_partition_missing,
+    l.expired_partitions_attached,
+    (l.hot_cleanup_backlog > 0) AS hot_files_cleanup_pending,
+    (SELECT row_to_json(b) FROM boundary_heartbeat b) AS boundary_heartbeat
   FROM qa_counts q
+  CROSS JOIN lifecycle l
   LEFT JOIN current_write cw ON true
 ) v;
 """

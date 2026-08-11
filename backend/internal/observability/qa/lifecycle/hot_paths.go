@@ -59,6 +59,9 @@ func ValidateHourDir(dataDir, root string, hourStart time.Time, candidate string
 	if err != nil {
 		return err
 	}
+	if err := validateHourPathComponents(dataDir, root, hourStart); err != nil {
+		return err
+	}
 	absWant, err := filepath.Abs(want)
 	if err != nil {
 		return err
@@ -79,6 +82,36 @@ func ValidateHourDir(dataDir, root string, hourStart time.Time, candidate string
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("lifecycle: hour cleanup path %q is a symlink", absCandidate)
+	}
+	return nil
+}
+
+func validateHourPathComponents(dataDir, root string, hourStart time.Time) error {
+	base, err := canonicalDataRoot(dataDir)
+	if err != nil {
+		return err
+	}
+	h := hourStart.UTC()
+	parts := []string{
+		root,
+		fmt.Sprintf("%04d", h.Year()),
+		fmt.Sprintf("%02d", int(h.Month())),
+		fmt.Sprintf("%02d", h.Day()),
+		fmt.Sprintf("%02d", h.Hour()),
+	}
+	current := base
+	for _, part := range parts {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("lifecycle: hour cleanup ancestor %q is a symlink", current)
+		}
 	}
 	return nil
 }

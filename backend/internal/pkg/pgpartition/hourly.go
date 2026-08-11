@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -40,7 +41,7 @@ func EnsureHourly(ctx context.Context, db DB, table string, now time.Time, hours
 		return fmt.Errorf("pgpartition: hoursAhead must be non-negative")
 	}
 	base := HourStartUTC(now)
-	for h := 0; h <= hoursAhead; h++ {
+	for h := 0; h < hoursAhead; h++ {
 		start := base.Add(time.Duration(h) * time.Hour)
 		end := start.Add(time.Hour)
 		name := HourlyPartitionName(table, start)
@@ -73,30 +74,48 @@ type ChildPartitionBound struct {
 	IsDefault      bool
 }
 
-// ListChildPartitionBounds returns direct child bounds for a partitioned table.
+const childBoundsQuery = `
+	SELECT
+		n.nspname,
+		c.relname,
+		pg_get_expr(c.relpartbound, c.oid, true) AS bound_expr,
+		pg_get_expr(c.relpartbound, c.oid, true) LIKE 'FOR VALUES FROM (MINVALUE)%' AS lower_unbounded,
+		pg_get_expr(c.relpartbound, c.oid, true) LIKE '%TO (MAXVALUE)' AS upper_unbounded,
+		pg_get_expr(c.relpartbound, c.oid, true) = 'DEFAULT' AS is_default,
+		substring(
+			pg_get_expr(c.relpartbound, c.oid, true)
+			FROM $$FROM \('([^']+)'\)$$
+		)::timestamptz AS lower_bound,
+		substring(
+			pg_get_expr(c.relpartbound, c.oid, true)
+			FROM $$TO \('([^']+)'\)$$
+		)::timestamptz AS upper_bound
+	FROM pg_inherits i
+	JOIN pg_class c ON c.oid = i.inhrelid
+	JOIN pg_namespace n ON n.oid = c.relnamespace
+	WHERE i.inhparent = to_regclass($1)
+	ORDER BY n.nspname, c.relname`
+
+type boundScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanChildBoundRow(rows boundScanner) (ChildPartitionBound, sql.NullTime, sql.NullTime, error) {
+	var child ChildPartitionBound
+	var lower, upper sql.NullTime
+	if err := rows.Scan(
+		&child.Schema, &child.Name, &child.BoundExpr,
+		&child.LowerUnbounded, &child.UpperUnbounded, &child.IsDefault,
+		&lower, &upper,
+	); err != nil {
+		return ChildPartitionBound{}, sql.NullTime{}, sql.NullTime{}, fmt.Errorf("pgpartition: scan child bound: %w", err)
+	}
+	return child, lower, upper, nil
+}
+
+// ListChildPartitionBounds returns canonical UTC-hour direct children for destructive ops.
 func ListChildPartitionBounds(ctx context.Context, db DB, table string) ([]ChildPartitionBound, error) {
-	const listQ = `
-		SELECT
-			n.nspname,
-			c.relname,
-			pg_get_expr(c.relpartbound, c.oid, true) AS bound_expr,
-			pg_get_expr(c.relpartbound, c.oid, true) LIKE 'FOR VALUES FROM (MINVALUE)%' AS lower_unbounded,
-			pg_get_expr(c.relpartbound, c.oid, true) LIKE '%TO (MAXVALUE)' AS upper_unbounded,
-			pg_get_expr(c.relpartbound, c.oid, true) = 'DEFAULT' AS is_default,
-			substring(
-				pg_get_expr(c.relpartbound, c.oid, true)
-				FROM $$FROM \('([^']+)'\)$$
-			)::timestamptz AS lower_bound,
-			substring(
-				pg_get_expr(c.relpartbound, c.oid, true)
-				FROM $$TO \('([^']+)'\)$$
-			)::timestamptz AS upper_bound
-		FROM pg_inherits i
-		JOIN pg_class c ON c.oid = i.inhrelid
-		JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE i.inhparent = to_regclass($1)
-		ORDER BY n.nspname, c.relname`
-	rows, err := db.QueryContext(ctx, listQ, table)
+	rows, err := db.QueryContext(ctx, childBoundsQuery, table)
 	if err != nil {
 		return nil, fmt.Errorf("pgpartition: list child bounds of %s: %w", table, err)
 	}
@@ -104,14 +123,9 @@ func ListChildPartitionBounds(ctx context.Context, db DB, table string) ([]Child
 
 	var out []ChildPartitionBound
 	for rows.Next() {
-		var child ChildPartitionBound
-		var lower, upper sql.NullTime
-		if scanErr := rows.Scan(
-			&child.Schema, &child.Name, &child.BoundExpr,
-			&child.LowerUnbounded, &child.UpperUnbounded, &child.IsDefault,
-			&lower, &upper,
-		); scanErr != nil {
-			return nil, fmt.Errorf("pgpartition: scan child bound: %w", scanErr)
+		child, lower, upper, err := scanChildBoundRow(rows)
+		if err != nil {
+			return nil, err
 		}
 		if child.IsDefault {
 			out = append(out, child)
@@ -131,12 +145,35 @@ func ListChildPartitionBounds(ctx context.Context, db DB, table string) ([]Child
 				child.Schema, child.Name, child.BoundExpr,
 			)
 		}
+		if table == qaRecordsTableName && !isCanonicalHourlyName(child.Name, child.Lower) {
+			return nil, fmt.Errorf(
+				"pgpartition: partition %s.%s is not a canonical hourly child name",
+				child.Schema, child.Name,
+			)
+		}
 		out = append(out, child)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("pgpartition: iterate child bounds: %w", err)
 	}
 	return out, nil
+}
+
+// DropChildPartition drops one validated direct child partition.
+func DropChildPartition(ctx context.Context, execer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, child ChildPartitionBound) error {
+	if child.IsDefault {
+		return fmt.Errorf("pgpartition: refuse to drop DEFAULT partition %s.%s", child.Schema, child.Name)
+	}
+	if strings.TrimSpace(child.Schema) == "" || strings.TrimSpace(child.Name) == "" {
+		return fmt.Errorf("pgpartition: drop child partition: missing schema or name")
+	}
+	qualified := pq.QuoteIdentifier(child.Schema) + "." + pq.QuoteIdentifier(child.Name)
+	if _, err := execer.ExecContext(ctx, "DROP TABLE IF EXISTS "+qualified); err != nil {
+		return fmt.Errorf("pgpartition: drop partition %s: %w", qualified, err)
+	}
+	return nil
 }
 
 // CountCoveredHourlyRanges reports how many required [start,end) hour ranges are covered.
@@ -161,6 +198,10 @@ WITH child_bounds AS (
     substring(bound_expr FROM $$FROM \('([^']+)'$$)::timestamptz AS lower_bound,
     substring(bound_expr FROM $$TO \('([^']+)'$$)::timestamptz AS upper_bound
   FROM child_bounds
+  WHERE bound_expr NOT LIKE 'FOR VALUES FROM (MINVALUE)%'
+    AND bound_expr NOT LIKE '%TO (MAXVALUE)'
+    AND substring(bound_expr FROM $$TO \('([^']+)'$$)::timestamptz
+      - substring(bound_expr FROM $$FROM \('([^']+)'$$)::timestamptz = interval '1 hour'
 ), covered_union AS (
   SELECT range_agg(tstzrange(
     CASE WHEN lower_unbounded THEN NULL ELSE lower_bound END,
@@ -193,8 +234,8 @@ type HourlyRange struct {
 // HourlyTargetRanges returns required UTC-hour ranges from now through hoursAhead.
 func HourlyTargetRanges(now time.Time, hoursAhead int) []HourlyRange {
 	base := HourStartUTC(now)
-	ranges := make([]HourlyRange, 0, hoursAhead+1)
-	for offset := 0; offset <= hoursAhead; offset++ {
+	ranges := make([]HourlyRange, 0, hoursAhead)
+	for offset := 0; offset < hoursAhead; offset++ {
 		start := base.Add(time.Duration(offset) * time.Hour)
 		ranges = append(ranges, HourlyRange{Start: start, End: start.Add(time.Hour)})
 	}
@@ -203,7 +244,7 @@ func HourlyTargetRanges(now time.Time, hoursAhead int) []HourlyRange {
 
 // DefaultChildPartition returns the DEFAULT child name if present.
 func DefaultChildPartition(ctx context.Context, db DB, table string) (string, bool, error) {
-	children, err := ListChildPartitionBounds(ctx, db, table)
+	children, err := ListInventoryChildBounds(ctx, db, table)
 	if err != nil {
 		return "", false, err
 	}

@@ -54,6 +54,7 @@ IOSchedulingClass=idle
 CPUQuota=20%
 MemoryMax=1G
 TasksMax=128
+TimeoutStartSec=2400
 PrivateTmp=true
 NoNewPrivileges=true
 ProtectSystem=strict

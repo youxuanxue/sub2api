@@ -6,15 +6,28 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestWriterUsesHourlyDLQPath(t *testing.T) {
+	dir := t.TempDir()
+	writer := NewWriter(nil, dir)
+	hour := time.Date(2026, 8, 11, 7, 15, 0, 0, time.UTC)
+	uri, err := writer.Write(context.Background(), "unused", []byte("payload"), "req-1", &WriteLayout{
+		Hourly: true, CreatedAt: hour,
+	})
+	require.NoError(t, err)
+	want := filepath.Join(dir, "2026", "08", "11", "07", "req-1.json.zst")
+	require.Equal(t, "dlq://"+want, uri)
+}
 
 func TestWriterUsesSafeBoundedDLQBasename(t *testing.T) {
 	dir := t.TempDir()
 	writer := NewWriter(nil, dir)
 
-	uri, err := writer.Write(context.Background(), "unused", []byte("payload"), "../../escaped")
+	uri, err := writer.Write(context.Background(), "unused", []byte("payload"), "../../escaped", nil)
 	require.NoError(t, err)
 	require.NoFileExists(t, filepath.Join(dir, "..", "escaped.json.zst"))
 	files, err := filepath.Glob(filepath.Join(dir, "*.json.zst"))
@@ -23,7 +36,7 @@ func TestWriterUsesSafeBoundedDLQBasename(t *testing.T) {
 	require.Equal(t, "payload", string(requireFile(t, files[0])))
 	require.Equal(t, "dlq://"+files[0], uri)
 
-	longURI, err := writer.Write(context.Background(), "unused", []byte("long"), strings.Repeat("a", 1024))
+	longURI, err := writer.Write(context.Background(), "unused", []byte("long"), strings.Repeat("a", 1024), nil)
 	require.NoError(t, err)
 	require.LessOrEqual(t, len(filepath.Base(strings.TrimPrefix(longURI, "dlq://"))), len("dlq-")+32+len(".json.zst"))
 }
@@ -32,7 +45,7 @@ func TestWriterPreservesSafeCorrelationIDBasename(t *testing.T) {
 	dir := t.TempDir()
 	writer := NewWriter(nil, dir)
 
-	uri, err := writer.Write(context.Background(), "unused", []byte("payload"), "req-safe_123.abc")
+	uri, err := writer.Write(context.Background(), "unused", []byte("payload"), "req-safe_123.abc", nil)
 	require.NoError(t, err)
 	require.Equal(t, "dlq://"+filepath.Join(dir, "req-safe_123.abc.json.zst"), uri)
 }

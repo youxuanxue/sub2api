@@ -14,6 +14,7 @@ SSOT = Path("docs/approved/design-prod-qa-24h-s3-lifecycle.md")
 PHASE2_DESIGN = Path("docs/approved/design-qa-phase2-archive-closeout.md")
 POLICY = Path("ops/qa/policy.yaml")
 MAINTENANCE_SCRIPT = Path("deploy/aws/stage0/tokenkey-qa-maintenance.sh")
+BOUNDARY_SCRIPT = Path("deploy/aws/stage0/tokenkey-qa-boundary.sh")
 CLEANUP_SCRIPT = Path("deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh")
 EXPORT_ORPHAN_HELPER = Path("deploy/aws/stage0/tokenkey-qa-export-orphan.py")
 BOOTSTRAP = Path("deploy/aws/stage0/stage0-ec2-bootstrap.sh")
@@ -545,6 +546,15 @@ def _closeout_implementation_failures(root: Path) -> list[str]:
         failures.append("qa boundary maintenance command missing")
     elif "--qa-boundary-once" not in boundary_cmd.read_text(encoding="utf-8"):
         failures.append("qa boundary maintenance entrypoint missing")
+    elif "--qa-cutover-plan" not in boundary_cmd.read_text(encoding="utf-8"):
+        failures.append("qa cutover plan entrypoint missing")
+    boundary_runner = root / BOUNDARY_SCRIPT
+    if not boundary_runner.is_file():
+        failures.append("qa boundary host runner missing")
+    elif "tokenkey-qa-boundary.timer" not in boundary_runner.read_text(encoding="utf-8"):
+        failures.append("qa boundary timer unit missing")
+    elif "TimeoutStartSec=2400" not in (root / MAINTENANCE_SCRIPT).read_text(encoding="utf-8"):
+        failures.append("qa archive maintenance timer must allow 40 minute start window")
     once_partition = root / "backend/cmd/server/partition_maintenance.go"
     if once_partition.is_file() and "partitionmaintenance.Options{}" not in once_partition.read_text(encoding="utf-8"):
         failures.append("one-shot partition maintenance must skip qa_records lifecycle")
@@ -615,6 +625,8 @@ def self_test() -> int:
             Path("backend/internal/pkg/pgpartition/hourly.go"),
             Path("backend/internal/observability/qa/lifecycle/boundary.go"),
             Path("backend/cmd/server/qa_maintenance_boundary.go"),
+            BOUNDARY_SCRIPT,
+            MAINTENANCE_SCRIPT,
         }
         for rel in fixture_files:
             src = ROOT / rel
@@ -659,7 +671,7 @@ edge:
 """
         (root / POLICY).write_text(policy_fixture, encoding="utf-8")
         with (root / MAINTENANCE_SCRIPT).open("a", encoding="utf-8") as handle:
-            handle.write("OnCalendar=*-*-* *:15:00\n")
+            handle.write("OnCalendar=*-*-* *:15:00\nTimeoutStartSec=2400\n")
         with (root / CLEANUP_SCRIPT).open("a", encoding="utf-8") as handle:
             handle.write("RETENTION_HOURS=24\nDELETE_BATCH_SIZE=5000\nOnCalendar=*-*-* *:45:00\nRandomizedDelaySec=15min\n--resume-first\nflock -n 9\npg_try_advisory_xact_lock(1363234113)\n")
         with (root / BOOTSTRAP).open("a", encoding="utf-8") as handle:

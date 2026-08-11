@@ -32,6 +32,10 @@ func (a SQLControlAdapter) RecordHotFilesCleaned(ctx context.Context, conn *sql.
 	return a.Store.RecordHotFilesCleaned(ctx, conn, shardID, cleanedAt, cleanupError)
 }
 
+func (a SQLControlAdapter) InspectCatchupHourTx(ctx context.Context, tx *sql.Tx, window archive.Window) (archive.CatchupHourStatus, error) {
+	return a.Store.InspectCatchupHourTx(ctx, tx, window)
+}
+
 func (a SQLControlAdapter) PersistBoundaryTerminalGap(ctx context.Context, tx *sql.Tx, window archive.Window) (int64, error) {
 	return a.Store.PersistBoundaryTerminalGap(ctx, tx, window)
 }

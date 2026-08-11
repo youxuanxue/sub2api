@@ -332,10 +332,12 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 		return err
 	}
 	key := trajectory.BlobKey(input.CreatedAt.Year(), int(input.CreatedAt.Month()), input.CreatedAt.Day(), input.RequestID)
+	var writeLayout *trajectory.WriteLayout
 	if lifecycle.UsesHourlyStorage(s.hourlyCutover, input.CreatedAt) {
 		key = trajectory.HourlyBlobKey(input.CreatedAt, input.RequestID)
+		writeLayout = &trajectory.WriteLayout{Hourly: true, CreatedAt: input.CreatedAt}
 	}
-	blobURI, err := trajectory.NewWriter(s.store, s.dlqDir).Write(ctx, key, payload, input.RequestID)
+	blobURI, err := trajectory.NewWriter(s.store, s.dlqDir).Write(ctx, key, payload, input.RequestID, writeLayout)
 	if err != nil {
 		return err
 	}
