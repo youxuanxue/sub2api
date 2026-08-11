@@ -271,83 +271,7 @@ func TestPgPartition_OpsErrorLogsConvertedByMigration(t *testing.T) {
 	_, _ = integrationDB.ExecContext(ctx, `DELETE FROM ops_error_logs WHERE id=$1`, id)
 }
 
-// TestPgPartition_RehomeDefaultMonthlyDrainsDefaultBeforeAttach proves PostgreSQL
-// rejects CREATE TABLE ... PARTITION OF while DEFAULT still holds rows in the target
-// range, and that staging-first rehome succeeds end-to-end.
-func TestPgPartition_RehomeDefaultMonthlyDrainsDefaultBeforeAttach(t *testing.T) {
-	ctx := context.Background()
-	tbl := "pgpart_itest_rehome"
-	q := pq.QuoteIdentifier(tbl)
-	_, _ = integrationDB.ExecContext(ctx, "DROP TABLE IF EXISTS "+q+" CASCADE")
-	t.Cleanup(func() {
-		_, _ = integrationDB.ExecContext(context.Background(), "DROP TABLE IF EXISTS "+q+" CASCADE")
-	})
-
-	_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(
-		`CREATE TABLE %s (
-			id BIGSERIAL,
-			created_at TIMESTAMPTZ NOT NULL,
-			request_id TEXT NOT NULL,
-			payload TEXT NOT NULL DEFAULT '',
-			PRIMARY KEY (id, created_at)
-		) PARTITION BY RANGE (created_at)`, q))
-	require.NoError(t, err)
-	defaultName := tbl + "_default"
-	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf(
-		"CREATE TABLE %s PARTITION OF %s DEFAULT",
-		pq.QuoteIdentifier(defaultName), q,
-	))
-	require.NoError(t, err)
-
-	monthStart := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
-	monthEnd := monthStart.AddDate(0, 1, 0)
-	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf(
-		`INSERT INTO %s (created_at, request_id, payload) VALUES
-		 ($1, 'req-a', 'a'),
-		 ($2, 'req-b', 'b')`,
-		q,
-	), monthStart.Add(24*time.Hour), monthStart.Add(48*time.Hour))
-	require.NoError(t, err)
-
-	partitionName := pgpartition.MonthlyPartitionName(tbl, monthStart)
-	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf(
-		"CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%s) TO (%s)",
-		pq.QuoteIdentifier(partitionName), q,
-		pq.QuoteLiteral(monthStart.Format(time.RFC3339)),
-		pq.QuoteLiteral(monthEnd.Format(time.RFC3339)),
-	))
-	require.Error(t, err, "PostgreSQL must reject bounded partition create while DEFAULT holds rows in range")
-
-	result, err := pgpartition.RehomeDefaultMonthly(
-		ctx, integrationDB, tbl, "created_at", monthStart.Add(15*24*time.Hour),
-		pgpartition.RehomeOptions{
-			BatchSize:     5000,
-			MaxRowsPerRun: 20000,
-			DedupColumns:  []string{"created_at", "request_id"},
-		},
-	)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), result.RemainingRows)
-	require.Len(t, result.Months, 1)
-	require.Equal(t, int64(2), result.Months[0].RowsMoved)
-
-	var attached bool
-	require.NoError(t, integrationDB.QueryRowContext(ctx, `
-		SELECT EXISTS (
-		  SELECT 1 FROM pg_inherits i
-		  JOIN pg_class child ON child.oid = i.inhrelid
-		  JOIN pg_class parent ON parent.oid = i.inhparent
-		 WHERE parent.relname = $1 AND child.relname = $2
-		)`, tbl, partitionName).Scan(&attached))
-	require.True(t, attached)
-
-	var inPartition int
-	require.NoError(t, integrationDB.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM "+pq.QuoteIdentifier(partitionName)).Scan(&inPartition))
-	require.Equal(t, 2, inPartition)
-}
-
-func setupRehomeIntegrationTable(ctx context.Context, t *testing.T, tbl string) time.Time {
+func setupHourlyIntegrationTable(ctx context.Context, t *testing.T, tbl string) time.Time {
 	t.Helper()
 	q := pq.QuoteIdentifier(tbl)
 	_, err := integrationDB.ExecContext(ctx, "DROP TABLE IF EXISTS "+q+" CASCADE")
@@ -364,248 +288,55 @@ func setupRehomeIntegrationTable(ctx context.Context, t *testing.T, tbl string) 
 			PRIMARY KEY (id, created_at)
 		) PARTITION BY RANGE (created_at)`, q))
 	require.NoError(t, err)
-	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf(
-		"CREATE TABLE %s PARTITION OF %s DEFAULT",
-		pq.QuoteIdentifier(tbl+"_default"), q,
-	))
-	require.NoError(t, err)
-	return time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	return time.Date(2026, 8, 11, 10, 0, 0, 0, time.UTC)
 }
 
-func TestPgPartition_RehomeDefaultMultiTickBudget(t *testing.T) {
+func TestPgPartition_EnsureHourlyCoversFutureHorizon(t *testing.T) {
 	ctx := context.Background()
-	tbl := "pgpart_itest_rehome_multitick"
-	monthStart := setupRehomeIntegrationTable(ctx, t, tbl)
-	now := monthStart.Add(15 * 24 * time.Hour)
-	opts := pgpartition.RehomeOptions{
-		BatchSize:     5000,
-		MaxRowsPerRun: 2,
-		DedupColumns:  []string{"created_at", "request_id"},
-	}
-	for i := 0; i < 5; i++ {
-		_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(
-			`INSERT INTO %s (created_at, request_id, payload) VALUES ($1, $2, $3)`,
-			pq.QuoteIdentifier(tbl),
-		), monthStart.Add(time.Duration(i+1)*24*time.Hour), fmt.Sprintf("req-%d", i), fmt.Sprintf("row-%d", i))
-		require.NoError(t, err)
-	}
-
-	result, err := pgpartition.RehomeDefaultMonthly(ctx, integrationDB, tbl, "created_at", now, opts)
+	tbl := "pgpart_itest_hourly_cover"
+	anchor := setupHourlyIntegrationTable(ctx, t, tbl)
+	require.NoError(t, pgpartition.EnsureHourly(ctx, integrationDB, tbl, anchor, pgpartition.QARecordsHourlyHorizon))
+	ranges := pgpartition.HourlyTargetRanges(anchor, pgpartition.QARecordsHourlyHorizon)
+	covered, err := pgpartition.CountCoveredHourlyRanges(ctx, integrationDB, tbl, ranges)
 	require.NoError(t, err)
-	require.True(t, result.BudgetExhausted)
-	require.True(t, result.PendingFinalize)
-	require.Equal(t, int64(2), result.RowsMoved)
-
-	result, err = pgpartition.RehomeDefaultMonthly(ctx, integrationDB, tbl, "created_at", now, opts)
-	require.NoError(t, err)
-	require.True(t, result.BudgetExhausted)
-	require.True(t, result.PendingFinalize)
-	require.Equal(t, int64(2), result.RowsMoved)
-
-	result, err = pgpartition.RehomeDefaultMonthly(
-		ctx, integrationDB, tbl, "created_at", now,
-		pgpartition.RehomeOptions{BatchSize: 5000, MaxRowsPerRun: 10, DedupColumns: opts.DedupColumns},
-	)
-	require.NoError(t, err)
-	require.False(t, result.PendingFinalize)
-	require.Equal(t, int64(0), result.RemainingRows)
-	require.Equal(t, int64(5), result.RowsMoved)
-
-	partitionName := pgpartition.MonthlyPartitionName(tbl, monthStart)
-	var inPartition int
-	require.NoError(t, integrationDB.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM "+pq.QuoteIdentifier(partitionName)).Scan(&inPartition))
-	require.Equal(t, 5, inPartition)
+	require.Equal(t, len(ranges), covered)
 }
 
-func TestPgPartition_RehomeDefaultCompositeIdentityDedup(t *testing.T) {
+func TestPgPartition_HourlyWriteRoutesToChildPartition(t *testing.T) {
 	ctx := context.Background()
-	tbl := "pgpart_itest_rehome_dedup"
-	monthStart := setupRehomeIntegrationTable(ctx, t, tbl)
-	now := monthStart.Add(15 * 24 * time.Hour)
-	sharedRequestID := "shared-request-id"
+	tbl := "pgpart_itest_hourly_write"
+	anchor := setupHourlyIntegrationTable(ctx, t, tbl)
+	require.NoError(t, pgpartition.EnsureHourly(ctx, integrationDB, tbl, anchor, 0))
+	partitionName := pgpartition.HourlyPartitionName(tbl, anchor)
 	_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(
-		`INSERT INTO %s (created_at, request_id, payload) VALUES
-		 ($1, $2, 'first'),
-		 ($3, $2, 'second')`,
+		`INSERT INTO %s (created_at, request_id, payload) VALUES ($1, $2, 'row')`,
 		pq.QuoteIdentifier(tbl),
-	), monthStart.Add(24*time.Hour), sharedRequestID, monthStart.Add(48*time.Hour))
+	), anchor.Add(15*time.Minute), "req-hourly")
 	require.NoError(t, err)
-
-	result, err := pgpartition.RehomeDefaultMonthly(
-		ctx, integrationDB, tbl, "created_at", now,
-		pgpartition.RehomeOptions{
-			BatchSize:     5000,
-			MaxRowsPerRun: 20000,
-			DedupColumns:  []string{"created_at", "request_id"},
-		},
-	)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), result.RemainingRows)
-	require.Equal(t, int64(2), result.RowsMoved)
-
-	partitionName := pgpartition.MonthlyPartitionName(tbl, monthStart)
-	var inPartition int
+	var inChild int
 	require.NoError(t, integrationDB.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM "+pq.QuoteIdentifier(partitionName)).Scan(&inPartition))
-	require.Equal(t, 2, inPartition)
+		"SELECT COUNT(*) FROM "+pq.QuoteIdentifier(partitionName)).Scan(&inChild))
+	require.Equal(t, 1, inChild)
 }
 
-func TestPgPartition_RehomeAttachedOrphanStagingRecovery(t *testing.T) {
+func TestPgPartition_DropExpiredHourlyUsesCatalogUpperBound(t *testing.T) {
 	ctx := context.Background()
-	tbl := "pgpart_itest_rehome_orphan"
-	monthStart := setupRehomeIntegrationTable(ctx, t, tbl)
-	monthEnd := monthStart.AddDate(0, 1, 0)
-	now := monthStart.Add(15 * 24 * time.Hour)
-	partitionName := pgpartition.MonthlyPartitionName(tbl, monthStart)
-	stagingName := partitionName + "_rehome_staging"
+	tbl := "pgpart_itest_hourly_drop"
+	anchor := setupHourlyIntegrationTable(ctx, t, tbl)
+	expiredHour := anchor.Add(-25 * time.Hour)
+	require.NoError(t, pgpartition.EnsureHourly(ctx, integrationDB, tbl, expiredHour, 0))
+	partitionName := pgpartition.HourlyPartitionName(tbl, expiredHour)
 	_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(
-		"CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%s) TO (%s)",
-		pq.QuoteIdentifier(partitionName), pq.QuoteIdentifier(tbl),
-		pq.QuoteLiteral(monthStart.Format(time.RFC3339)),
-		pq.QuoteLiteral(monthEnd.Format(time.RFC3339)),
-	))
+		`INSERT INTO %s (created_at, request_id, payload) VALUES ($1, 'old-req', 'old')`,
+		pq.QuoteIdentifier(tbl),
+	), expiredHour.Add(10*time.Minute))
 	require.NoError(t, err)
-	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf(
-		"CREATE TABLE %s (LIKE %s INCLUDING DEFAULTS INCLUDING GENERATED)",
-		pq.QuoteIdentifier(stagingName), pq.QuoteIdentifier(tbl+"_default"),
-	))
+	cutoff := pgpartition.RetentionBoundary(anchor)
+	reclaimed, err := pgpartition.DropExpired(ctx, integrationDB, tbl, cutoff)
 	require.NoError(t, err)
-	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf(
-		`INSERT INTO %s (created_at, request_id, payload) VALUES
-		 ($1, 'orph-1', 'one'),
-		 ($2, 'orph-2', 'two')`,
-		pq.QuoteIdentifier(stagingName),
-	), monthStart.Add(24*time.Hour), monthStart.Add(48*time.Hour))
-	require.NoError(t, err)
-
-	result, err := pgpartition.RehomeDefaultMonthly(
-		ctx, integrationDB, tbl, "created_at", now,
-		pgpartition.RehomeOptions{
-			BatchSize:     5000,
-			MaxRowsPerRun: 20000,
-			DedupColumns:  []string{"created_at", "request_id"},
-		},
-	)
-	require.NoError(t, err)
-	require.Equal(t, int64(2), result.RowsMoved)
-	require.Equal(t, int64(0), result.RemainingRows)
-
-	var inPartition int
+	require.GreaterOrEqual(t, reclaimed, int64(0))
+	var exists bool
 	require.NoError(t, integrationDB.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM "+pq.QuoteIdentifier(partitionName)).Scan(&inPartition))
-	require.Equal(t, 2, inPartition)
-
-	var stagingExists bool
-	require.NoError(t, integrationDB.QueryRowContext(ctx,
-		`SELECT EXISTS (SELECT 1 FROM pg_class WHERE relname = $1)`, stagingName).Scan(&stagingExists))
-	require.False(t, stagingExists)
-}
-
-func TestPgPartition_RehomeFinalizeBlocksConcurrentCaptureEndToEnd(t *testing.T) {
-	ctx := context.Background()
-	tbl := "pgpart_itest_rehome_finalize_lock"
-	monthStart := setupRehomeIntegrationTable(ctx, t, tbl)
-	now := monthStart.Add(15 * 24 * time.Hour)
-	q := pq.QuoteIdentifier(tbl)
-	dedup := []string{"created_at", "request_id"}
-	lateCreatedAt := monthStart.Add(72 * time.Hour)
-	lateRequestID := "late-req"
-
-	for i := 0; i < 2; i++ {
-		_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(
-			`INSERT INTO %s (created_at, request_id, payload) VALUES ($1, $2, $3)`,
-			q,
-		), monthStart.Add(time.Duration(i+1)*24*time.Hour), fmt.Sprintf("req-%d", i), fmt.Sprintf("row-%d", i))
-		require.NoError(t, err)
-	}
-
-	partial, err := pgpartition.RehomeDefaultMonthly(
-		ctx, integrationDB, tbl, "created_at", now,
-		pgpartition.RehomeOptions{BatchSize: 5000, MaxRowsPerRun: 2, DedupColumns: dedup},
-	)
-	require.NoError(t, err)
-	require.True(t, partial.BudgetExhausted)
-	require.True(t, partial.PendingFinalize)
-	require.Equal(t, int64(2), partial.RowsMoved)
-
-	rehomeDone := make(chan error, 1)
-	insertDone := make(chan error, 1)
-	lockObserved := make(chan bool, 1)
-
-	go func() {
-		_, err := pgpartition.RehomeDefaultMonthly(
-			ctx, integrationDB, tbl, "created_at", now,
-			pgpartition.RehomeOptions{BatchSize: 5000, MaxRowsPerRun: 100, DedupColumns: dedup},
-		)
-		rehomeDone <- err
-	}()
-
-	go func() {
-		observed := waitForTableShareRowExclusiveLock(ctx, tbl, 15*time.Second)
-		lockObserved <- observed
-		if !observed {
-			insertDone <- fmt.Errorf("finalize parent lock was not observed")
-			return
-		}
-		_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(
-			`INSERT INTO %s (created_at, request_id, payload) VALUES ($1, $2, 'late')`,
-			q,
-		), lateCreatedAt, lateRequestID)
-		insertDone <- err
-	}()
-
-	require.True(t, <-lockObserved, "finalizeStagingPartition must acquire ShareRowExclusiveLock")
-	require.NoError(t, <-rehomeDone)
-	require.NoError(t, <-insertDone, "concurrent capture must succeed after finalize commits")
-
-	partitionName := pgpartition.MonthlyPartitionName(tbl, monthStart)
-	pqPartition := pq.QuoteIdentifier(partitionName)
-	defaultName := tbl + "_default"
-	pqDefault := pq.QuoteIdentifier(defaultName)
-
-	var lateInPartition int
-	require.NoError(t, integrationDB.QueryRowContext(ctx, fmt.Sprintf(
-		`SELECT COUNT(*) FROM %s WHERE request_id = $1`, pqPartition,
-	), lateRequestID).Scan(&lateInPartition))
-	require.Equal(t, 1, lateInPartition,
-		"late capture must persist after finalize commits (partition routing or rehome)")
-
-	var inDefaultMonth int
-	require.NoError(t, integrationDB.QueryRowContext(ctx, fmt.Sprintf(
-		`SELECT COUNT(*) FROM %s WHERE created_at >= $1 AND created_at < $2`, pqDefault,
-	), monthStart, monthStart.AddDate(0, 1, 0)).Scan(&inDefaultMonth))
-	require.Equal(t, 0, inDefaultMonth, "month rows must not remain in DEFAULT after finalize")
-
-	var inPartition int
-	require.NoError(t, integrationDB.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM "+pqPartition).Scan(&inPartition))
-	require.Equal(t, 3, inPartition)
-
-	var distinctIdentity int
-	require.NoError(t, integrationDB.QueryRowContext(ctx, fmt.Sprintf(
-		`SELECT COUNT(DISTINCT (created_at, request_id)) FROM %s`,
-		pq.QuoteIdentifier(partitionName),
-	)).Scan(&distinctIdentity))
-	require.Equal(t, 3, distinctIdentity)
-}
-
-func waitForTableShareRowExclusiveLock(ctx context.Context, table string, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		var locked bool
-		err := integrationDB.QueryRowContext(ctx, `
-			SELECT EXISTS (
-			  SELECT 1
-			    FROM pg_locks l
-			    JOIN pg_class c ON c.oid = l.relation
-			   WHERE c.relname = $1
-			     AND l.mode = 'ShareRowExclusiveLock'
-			)`, table).Scan(&locked)
-		if err == nil && locked {
-			return true
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	return false
+		`SELECT EXISTS (SELECT 1 FROM pg_class WHERE relname = $1)`, partitionName).Scan(&exists))
+	require.False(t, exists)
 }

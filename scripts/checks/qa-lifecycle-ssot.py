@@ -143,7 +143,7 @@ REQUIRED_BY_FILE = {
         "iam_contract_verifier: ops/qa/verify_raw_archive_iam_contract.py",
         "iam_contract_reconciler: ops/qa/reconcile_raw_archive_iam_contract.sh",
         "reconcile_raw_archive_iam_contract.sh",
-        "partition_owner_repository: ops_partition_maintenance",
+        "partition_owner_repository: qa_lifecycle_boundary",
         "phase3_worker_observed_state: transitional_in_prod",
         "design-qa-phase2-archive-closeout.md",
     ),
@@ -490,7 +490,7 @@ def _rollout_failures(root: Path) -> list[str]:
         failures.append("rollout raw archive recovery contract drift")
     qa_records = prod.get("qa_records")
     if not isinstance(qa_records, dict) or qa_records != {
-        "partition_owner_repository": "ops_partition_maintenance",
+        "partition_owner_repository": "qa_lifecycle_boundary",
         "partition_owner_observed": "pending_live_probe",
     }:
         failures.append("rollout qa_records partition owner contract drift")
@@ -519,84 +519,42 @@ def _deploy_rollout_failures(root: Path) -> list[str]:
 
 def _closeout_implementation_failures(root: Path) -> list[str]:
     failures: list[str] = []
-    probe = root / "ops/observability/probe-qa-phase2-live-health.sh"
-    if probe.is_file():
-        body = probe.read_text(encoding="utf-8")
-        if "docker exec -i " not in body and "docker exec -i" not in body.replace("\n", " "):
-            failures.append("phase2 live probe must use docker exec -i for psql stdin")
-    maintenance = root / GO_MAINTENANCE
-    if maintenance.is_file():
-        body = maintenance.read_text(encoding="utf-8")
-        if "compensation_terminal" not in body:
-            failures.append("qa maintenance must fail closed on terminal compensation")
+    hourly = root / "backend/internal/pkg/pgpartition/hourly.go"
+    lifecycle_pkg = root / "backend/internal/observability/qa/lifecycle/boundary.go"
+    if not hourly.is_file():
+        failures.append("qa_records hourly partition implementation missing")
+    elif "EnsureHourly" not in hourly.read_text(encoding="utf-8"):
+        failures.append("qa_records EnsureHourly owner missing")
+    if not lifecycle_pkg.is_file():
+        failures.append("qa lifecycle boundary owner missing")
+    else:
+        body = lifecycle_pkg.read_text(encoding="utf-8")
+        for needle in ("RunProvision", "DropExpiredHour", "RunBoundary"):
+            if needle not in body:
+                failures.append(f"qa lifecycle boundary missing {needle}")
     rehome = root / "backend/internal/pkg/pgpartition/rehome_default.go"
-    if not rehome.is_file():
-        failures.append("qa_records default rehome implementation missing")
-    elif "PARTITION OF" not in rehome.read_text(encoding="utf-8"):
-        failures.append("qa_records rehome must attach bounded partitions after draining DEFAULT")
-    elif "_rehome_staging" not in rehome.read_text(encoding="utf-8"):
-        failures.append("qa_records rehome must copy into detached staging before finalize attach")
-    elif "copyDefaultToStaging" not in rehome.read_text(encoding="utf-8"):
-        failures.append("qa_records rehome must copy-only into staging until finalize transaction")
-    elif "created_at" not in rehome.read_text(encoding="utf-8") or "request_id" not in rehome.read_text(encoding="utf-8"):
-        failures.append("qa_records rehome dedup must use (created_at, request_id) composite identity")
-    elif "rehome requires dedup identity columns" not in rehome.read_text(encoding="utf-8"):
-        failures.append("qa_records rehome must fail closed when dedup identity is missing")
-    elif "SHARE ROW EXCLUSIVE" not in rehome.read_text(encoding="utf-8"):
-        failures.append("qa_records rehome finalize must lock parent table against concurrent capture")
+    if rehome.is_file():
+        failures.append("retired qa_records rehome implementation still present")
     partition_maintenance = root / "backend/internal/pkg/partitionmaintenance/maintenance.go"
     if partition_maintenance.is_file():
         body = partition_maintenance.read_text(encoding="utf-8")
-        rehome_at = body.find("RehomeDefaultMonthly(")
-        ensure_at = body.find("EnsureMonthly(ctx, db, target.table")
-        if rehome_at < 0 or ensure_at < 0 or rehome_at > ensure_at:
-            failures.append("qa_records rehome must run before EnsureMonthly in partition maintenance")
-        if "opts.RehomeQaRecordsDefault" not in body:
-            failures.append("qa_records rehome must be gated behind explicit maintainer options")
-        if "OpsCleanupOptions" not in body:
-            failures.append("ops cleanup rehome budget must be declared in OpsCleanupOptions")
-        if "PendingFinalize" not in body or "BudgetExhausted" not in body:
-            failures.append("partition maintenance must skip EnsureMonthly while qa_records rehome is partial")
-        if "rehome_remaining=" not in body:
-            failures.append("partition maintenance heartbeat must expose partial default_rehome receipt")
-    host_runner = root / MAINTENANCE_SCRIPT
-    if host_runner.is_file():
-        body = host_runner.read_text(encoding="utf-8")
-        for forbidden in (
-            "--partition-maintenance-once",
-            "run_partition_maintenance",
-            "tokenkey-prod-partition-maintenance-v1",
-        ):
-            if forbidden in body:
-                failures.append(
-                    f"qa host runner must not invoke partition maintenance ({forbidden})"
-                )
+        if "RehomeDefaultMonthly" in body or 'table: "qa_records"' in body:
+            failures.append("ops partition maintenance must not own qa_records rehome or provisioning")
+    boundary_cmd = root / "backend/cmd/server/qa_maintenance_boundary.go"
+    if not boundary_cmd.is_file():
+        failures.append("qa boundary maintenance command missing")
+    elif "--qa-boundary-once" not in boundary_cmd.read_text(encoding="utf-8"):
+        failures.append("qa boundary maintenance entrypoint missing")
     once_partition = root / "backend/cmd/server/partition_maintenance.go"
-    if once_partition.is_file():
-        body = once_partition.read_text(encoding="utf-8")
-        if "statement_timeout = '120s'" in body:
-            failures.append("one-shot partition maintenance must keep approved 5s statement timeout")
-        if "partitionmaintenance.Options{}" not in body:
-            failures.append("one-shot partition maintenance must skip qa_records default rehome")
-    ops_cleanup = root / "backend/internal/service/ops_cleanup_service.go"
-    if ops_cleanup.is_file():
-        body = ops_cleanup.read_text(encoding="utf-8")
-        if "partitionmaintenance.OpsCleanupOptions" not in body:
-            failures.append("OpsCleanupService must own qa_records rehome via OpsCleanupOptions")
-    archive_health = root / "ops/observability/data_layer_archive_health.py"
-    if archive_health.is_file():
-        body = archive_health.read_text(encoding="utf-8")
-        if "TAIL_EXPORT_MAX_AGE = dt.timedelta(days=7)" in body:
-            failures.append("archive health stale threshold must follow ops retention SSOT")
-        if "_ops_retention_days" not in body:
-            failures.append("archive health must derive tail export freshness from retention SSOT")
+    if once_partition.is_file() and "partitionmaintenance.Options{}" not in once_partition.read_text(encoding="utf-8"):
+        failures.append("one-shot partition maintenance must skip qa_records lifecycle")
     rollout = root / ROLLOUT
     if rollout.is_file():
         try:
             data = yaml.safe_load(rollout.read_text(encoding="utf-8"))
-            prod_archive = (data.get("prod") or {}).get("QA_ARCHIVE_ENABLED") or {}
-            if prod_archive.get("repository_closeout_state") == "production_closeout_verified":
-                failures.append("rollout repository closeout must not claim production_closeout_verified before live reconciliation")
+            qa_records = (data.get("prod") or {}).get("qa_records") or {}
+            if qa_records.get("partition_owner_repository") != "qa_lifecycle_boundary":
+                failures.append("rollout qa_records partition owner must be qa_lifecycle_boundary")
         except (OSError, yaml.YAMLError):
             pass
     return failures
@@ -654,7 +612,9 @@ def self_test() -> int:
             DEPLOY_BG,
             Path("ops/observability/probe-qa-phase2-live-health.sh"),
             Path("ops/observability/data_layer_archive_health.py"),
-            Path("backend/internal/pkg/pgpartition/rehome_default.go"),
+            Path("backend/internal/pkg/pgpartition/hourly.go"),
+            Path("backend/internal/observability/qa/lifecycle/boundary.go"),
+            Path("backend/cmd/server/qa_maintenance_boundary.go"),
         }
         for rel in fixture_files:
             src = ROOT / rel

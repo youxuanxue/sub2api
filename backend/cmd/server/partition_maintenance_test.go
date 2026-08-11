@@ -79,13 +79,10 @@ func TestPartitionMaintenanceSuccessUsesStrictBoundedPath(t *testing.T) {
 			}
 			return db, nil
 		},
-		ensure: func(_ context.Context, gotDB pgpartition.DB, now time.Time, mode partitionmaintenance.Mode, opts partitionmaintenance.Options) (partitionmaintenance.Result, error) {
+		ensure: func(_ context.Context, gotDB pgpartition.DB, now time.Time, mode partitionmaintenance.Mode, _ partitionmaintenance.Options) (partitionmaintenance.Result, error) {
 			ensureCalls++
 			if _, ok := gotDB.(*sql.Conn); !ok || !now.Equal(fixedNow) || mode != partitionmaintenance.ModeRequireAllPartitioned {
 				t.Fatalf("unexpected ensure args: db=%T now=%s mode=%d", gotDB, now, mode)
-			}
-			if opts.RehomeQaRecordsDefault {
-				t.Fatalf("one-shot partition maintenance must not rehome qa_records default")
 			}
 			return partitionmaintenance.Result{Tables: []partitionmaintenance.TableResult{
 				{Table: "ops_system_logs", RangeCount: 4},

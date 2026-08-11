@@ -37,7 +37,7 @@ prod:
     export_orphan_activation_marker: /var/lib/tokenkey/qa-export-orphan-cleanup-activated.json
     activation_state: production_export_orphan_activated
   qa_records:
-    partition_owner_repository: ops_partition_maintenance
+    partition_owner_repository: qa_lifecycle_boundary
     partition_owner_observed: pending_live_probe
   user_export:
     phase3_worker_repository_state: approved_fargate_worker

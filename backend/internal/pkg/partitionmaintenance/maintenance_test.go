@@ -31,11 +31,7 @@ func expectCoverage(mock sqlmock.Sqlmock, table string, covered int) {
 		WillReturnRows(sqlmock.NewRows([]string{"covered_ranges"}).AddRow(covered))
 }
 
-func expectNoDefaultRehome(mock sqlmock.Sqlmock, table string) {
-	mock.ExpectQuery("pg_inherits").
-		WithArgs(table).
-		WillReturnRows(sqlmock.NewRows([]string{"relname", "bound_expr"}))
-}
+func expectNoDefaultRehome(_ sqlmock.Sqlmock, _ string) {}
 
 func TestEnsureStrictCreatesAndVerifiesAllTargets(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
@@ -50,7 +46,6 @@ func TestEnsureStrictCreatesAndVerifiesAllTargets(t *testing.T) {
 	}{
 		{"ops_system_logs", 4},
 		{"ops_error_logs", 4},
-		{"qa_records", 4},
 		{"usage_logs", 8},
 	} {
 		expectPartitioned(mock, target.table, true)
@@ -65,7 +60,6 @@ func TestEnsureStrictCreatesAndVerifiesAllTargets(t *testing.T) {
 	want := []TableResult{
 		{Table: "ops_system_logs", RangeCount: 4},
 		{Table: "ops_error_logs", RangeCount: 4},
-		{Table: "qa_records", RangeCount: 4},
 		{Table: "usage_logs", RangeCount: 8},
 	}
 	if len(result.Tables) != len(want) {
@@ -108,7 +102,6 @@ func TestEnsureAllowUnpartitionedSkipsCompatibilityTarget(t *testing.T) {
 	expectPartitioned(mock, "ops_error_logs", true)
 	expectCreates(mock, 4)
 	expectCoverage(mock, "ops_error_logs", 4)
-	expectPartitioned(mock, "qa_records", false)
 	expectPartitioned(mock, "usage_logs", false)
 
 	result, err := Ensure(context.Background(), db, maintenanceNow, ModeAllowUnpartitioned, Options{})

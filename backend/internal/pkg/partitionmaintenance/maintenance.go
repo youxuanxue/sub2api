@@ -1,5 +1,6 @@
 // Package partitionmaintenance owns the partition targets, provisioning windows,
 // and post-create coverage checks shared by scheduled and one-shot maintenance.
+// qa_records UTC-hour lifecycle is owned separately by observability/qa/lifecycle.
 package partitionmaintenance
 
 import (
@@ -17,26 +18,13 @@ const (
 
 	opsMonthsAhead = 3
 	usageDaysAhead = 7
-
-	qaRecordsTable          = "qa_records"
-	qaRecordsTimeColumn     = "created_at"
-	opsCleanupRehomeBatchSz = 5000
-	// opsCleanupRehomeMaxRowsPerRun caps qa_records DEFAULT rehome work per OpsCleanup tick.
-	opsCleanupRehomeMaxRowsPerRun int64 = 20000
 )
 
-// Options controls optional maintainer behavior. One-shot partition maintenance
-// and approved create-only paths must leave RehomeQaRecordsDefault false.
-type Options struct {
-	RehomeQaRecordsDefault bool
-	QaRecordsRehomeMaxRows int64
-}
+// Options controls optional maintainer behavior.
+type Options struct{}
 
-// OpsCleanupOptions is the production cron owner profile for partition maintenance.
-var OpsCleanupOptions = Options{
-	RehomeQaRecordsDefault: true,
-	QaRecordsRehomeMaxRows: opsCleanupRehomeMaxRowsPerRun,
-}
+// OpsCleanupOptions is the production cron owner profile for non-QA partition maintenance.
+var OpsCleanupOptions = Options{}
 
 type Mode uint8
 
@@ -46,9 +34,8 @@ const (
 )
 
 type TableResult struct {
-	Table         string                           `json:"table"`
-	RangeCount    int                              `json:"range_count"`
-	DefaultRehome *pgpartition.RehomeDefaultResult `json:"default_rehome,omitempty"`
+	Table      string `json:"table"`
+	RangeCount int    `json:"range_count"`
 }
 
 type Result struct {
@@ -58,19 +45,6 @@ type Result struct {
 func (r Result) String() string {
 	parts := make([]string, 0, len(r.Tables))
 	for _, table := range r.Tables {
-		if table.DefaultRehome != nil {
-			rehome := table.DefaultRehome
-			parts = append(parts, fmt.Sprintf(
-				"%s:rehome_remaining=%d staging=%d moved=%d pending=%t budget=%t",
-				table.Table,
-				rehome.RemainingRows,
-				rehome.StagingRows,
-				rehome.RowsMoved,
-				rehome.PendingFinalize,
-				rehome.BudgetExhausted,
-			))
-			continue
-		}
 		parts = append(parts, fmt.Sprintf("%s:%d", table.Table, table.RangeCount))
 	}
 	return strings.Join(parts, ",")
@@ -92,7 +66,6 @@ type target struct {
 var targets = [...]target{
 	{table: "ops_system_logs", cadence: cadenceMonthly, ahead: opsMonthsAhead},
 	{table: "ops_error_logs", cadence: cadenceMonthly, ahead: opsMonthsAhead},
-	{table: "qa_records", cadence: cadenceMonthly, ahead: opsMonthsAhead},
 	{table: "usage_logs", cadence: cadenceDaily, ahead: usageDaysAhead},
 }
 
@@ -106,7 +79,7 @@ func Ensure(
 	db pgpartition.DB,
 	now time.Time,
 	mode Mode,
-	opts Options,
+	_ Options,
 ) (Result, error) {
 	result := Result{Tables: make([]TableResult, 0, len(targets))}
 	if db == nil {
@@ -129,33 +102,6 @@ func Ensure(
 		}
 
 		ranges := targetRanges(target, now)
-		var defaultRehome *pgpartition.RehomeDefaultResult
-		if target.table == qaRecordsTable && opts.RehomeQaRecordsDefault {
-			rehome, rehomeErr := pgpartition.RehomeDefaultMonthly(
-				ctx,
-				db,
-				qaRecordsTable,
-				qaRecordsTimeColumn,
-				now,
-				pgpartition.RehomeOptions{
-					BatchSize:     opsCleanupRehomeBatchSz,
-					MaxRowsPerRun: opts.QaRecordsRehomeMaxRows,
-				},
-			)
-			if rehomeErr != nil {
-				return result, fmt.Errorf("partitionmaintenance: rehome %s default: %w", target.table, rehomeErr)
-			}
-			if rehome.DefaultPartition != "" || len(rehome.Months) > 0 || rehome.RemainingRows > 0 ||
-				rehome.StagingRows > 0 || rehome.PendingFinalize || rehome.BudgetExhausted {
-				defaultRehome = &rehome
-			}
-			if rehome.PendingFinalize || rehome.BudgetExhausted || rehome.RemainingRows > 0 || rehome.StagingRows > 0 {
-				tableResult := TableResult{Table: target.table, DefaultRehome: defaultRehome}
-				result.Tables = append(result.Tables, tableResult)
-				continue
-			}
-		}
-
 		switch target.cadence {
 		case cadenceMonthly:
 			err = pgpartition.EnsureMonthly(ctx, db, target.table, now, target.ahead)
@@ -180,11 +126,7 @@ func Ensure(
 				len(ranges),
 			)
 		}
-		tableResult := TableResult{Table: target.table, RangeCount: covered}
-		if defaultRehome != nil {
-			tableResult.DefaultRehome = defaultRehome
-		}
-		result.Tables = append(result.Tables, tableResult)
+		result.Tables = append(result.Tables, TableResult{Table: target.table, RangeCount: covered})
 	}
 
 	return result, nil
@@ -225,14 +167,6 @@ func countCoveredRanges(
 		ends = append(ends, item.end)
 	}
 
-	// A converted table keeps its history in an attached legacy partition declared
-	// FROM (MINVALUE), which is how tk_035 / tk_037 / the usage_logs cutover leave
-	// prod: the current month or day is served by that partition alone, and the
-	// matching CREATE is skipped as a benign overlap. Treating MINVALUE as an
-	// unparseable bound would drop that partition from the union and report a real,
-	// writable range as uncovered. Bounds we cannot classify (DEFAULT, LIST) are
-	// still excluded so an unrecognized topology fails closed instead of counting
-	// as covered.
 	const query = `
 WITH child_bounds AS (
   SELECT pg_get_expr(child.relpartbound, child.oid, true) AS bound_expr

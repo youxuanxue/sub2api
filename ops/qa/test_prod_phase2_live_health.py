@@ -32,6 +32,7 @@ def _load_runtime_case():
 def _fresh_snapshot() -> tuple[dict, dt.datetime]:
     now = dt.datetime.now(dt.timezone.utc)
     snapshot, _ = _load_runtime_case()._healthy_snapshot()
+    snapshot.setdefault("qa_records", {"partition_owner": "partitioned", "hourly_cutover_active": False})
     finished = now - dt.timedelta(seconds=30)
     started = finished - dt.timedelta(seconds=30)
     iso = lambda value: value.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -101,6 +102,7 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
                 "PHASE2RECEIPT " + json.dumps(snapshot["host_receipt"], sort_keys=True),
                 "PHASE2HEARTBEAT " + json.dumps(snapshot["database_heartbeat"], sort_keys=True),
                 "PHASE2ARCHIVE " + json.dumps(snapshot["archive_control"], sort_keys=True),
+                "PHASE2QARECORDS " + json.dumps(snapshot.get("qa_records", {"partition_owner": "partitioned"}), sort_keys=True),
             ]
         )
         proc = subprocess.run(

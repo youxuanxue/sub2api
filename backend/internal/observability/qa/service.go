@@ -19,6 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/engine"
+	"github.com/Wei-Shaw/sub2api/internal/observability/qa/lifecycle"
 	"github.com/Wei-Shaw/sub2api/internal/observability/trajectory"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -39,6 +40,7 @@ type Service struct {
 	bodyMaxBytes      int
 	optInBodyMaxBytes int
 	dlqDir            string
+	hourlyCutover     time.Time
 
 	// Trajectory export runs off the request path on its own single-worker pool
 	// (NOT the capture pool) so a heavy export can never contend with live
@@ -125,6 +127,7 @@ func NewService(cfg *config.Config, client *ent.Client) (*Service, error) {
 		bodyMaxBytes:      cfg.QACapture.BodyMaxBytes,
 		optInBodyMaxBytes: cfg.QACapture.OptInBodyMaxBytes,
 		dlqDir:            filepath.Join(dataDir, "qa_dlq"),
+		hourlyCutover:     lifecycle.ParseHourlyCutoverUTC(cfg.QaArchive.HourlyStorageCutoverUTC),
 	}
 	svc.pool = pond.NewPool(cfg.QACapture.WorkerCount, pond.WithQueueSize(cfg.QACapture.QueueSize))
 	// Single-worker export pool: at most one trajectory export materializes at a
@@ -329,6 +332,9 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 		return err
 	}
 	key := trajectory.BlobKey(input.CreatedAt.Year(), int(input.CreatedAt.Month()), input.CreatedAt.Day(), input.RequestID)
+	if lifecycle.UsesHourlyStorage(s.hourlyCutover, input.CreatedAt) {
+		key = trajectory.HourlyBlobKey(input.CreatedAt, input.RequestID)
+	}
 	blobURI, err := trajectory.NewWriter(s.store, s.dlqDir).Write(ctx, key, payload, input.RequestID)
 	if err != nil {
 		return err
@@ -340,6 +346,11 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 	requestBlobURI := captureDefault(input.RequestBlobURI, blobURI)
 	responseBlobURI := captureDefault(input.ResponseBlobURI, blobURI)
 	streamBlobURI := captureDefault(input.StreamBlobURI, blobURI)
+
+	retentionUntil := input.CreatedAt.Add(24 * time.Hour)
+	if lifecycle.UsesHourlyStorage(s.hourlyCutover, input.CreatedAt) {
+		retentionUntil = lifecycle.RetentionUntilForHour(input.CreatedAt)
+	}
 
 	create := s.client.QARecord.Create().
 		SetRequestID(input.RequestID).
@@ -361,7 +372,7 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 		SetBlobURI(blobURI).
 		SetTags(tags).
 		SetCreatedAt(input.CreatedAt).
-		SetRetentionUntil(input.CreatedAt.Add(24 * time.Hour))
+		SetRetentionUntil(retentionUntil)
 	if v := strings.TrimSpace(input.TrajectoryID); v != "" {
 		create = create.SetTrajectoryID(v)
 	}

@@ -90,7 +90,7 @@ func (m *MemoryObjectStore) Open(_ context.Context, key string) (ObjectReader, e
 	defer m.mu.Unlock()
 	object, ok := m.objs[key]
 	if !ok {
-		return ObjectReader{}, fmt.Errorf("missing key %s", key)
+		return ObjectReader{}, fmt.Errorf("NoSuchKey: missing key %s", key)
 	}
 	return ObjectReader{
 		Info: object.info,
@@ -103,7 +103,7 @@ func (m *MemoryObjectStore) HeadInfo(_ context.Context, key string) (ObjectInfo,
 	defer m.mu.Unlock()
 	object, ok := m.objs[key]
 	if !ok {
-		return ObjectInfo{}, fmt.Errorf("missing key %s", key)
+		return ObjectInfo{}, fmt.Errorf("NoSuchKey: missing key %s", key)
 	}
 	return object.info, nil
 }

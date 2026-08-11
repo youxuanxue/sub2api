@@ -660,6 +660,17 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
                 self.assertIn(verdict["status"], {"degraded", "failed"})
                 self.assertTrue(verdict["reasons"], verdict)
 
+    def test_us045_archive_failed_health_exits_failed(self) -> None:
+        health = _load_module("qa_phase2_health_archive_failed", "ops/qa/qa_phase2_health.py")
+        baseline, now = self._healthy_snapshot()
+        baseline["qa_records"] = {"hourly_cutover_active": False}
+        baseline["archive_control"]["archive_failed_windows"] = [
+            {"window_start": "2026-08-07T22:00:00Z", "verification_error_code": "archive_failed"}
+        ]
+        verdict = health.evaluate(baseline, now=now)
+        self.assertEqual(verdict["status"], "failed", verdict)
+        self.assertIn("archive_failed", verdict["reasons"], verdict)
+
 
 if __name__ == "__main__":
     raise SystemExit(unittest.main())

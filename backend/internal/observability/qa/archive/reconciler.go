@@ -210,18 +210,25 @@ func (r *Reconciler) Reconcile(ctx context.Context, conn *sql.Conn, window Windo
 }
 
 func (r *Reconciler) readCommit(ctx context.Context, commitKey string) (VerifiedCommit, bool, error) {
-	exists, err := r.Store.Head(ctx, commitKey)
+	opened, err := r.Store.Open(ctx, commitKey)
 	if err != nil {
-		return VerifiedCommit{}, false, fmt.Errorf("head archive commit: %w", err)
+		if isObjectNotFound(err) {
+			return VerifiedCommit{}, false, nil
+		}
+		return VerifiedCommit{}, false, fmt.Errorf("open archive commit: %w", err)
 	}
-	if !exists {
-		return VerifiedCommit{}, false, nil
+	if closeErr := opened.Body.Close(); closeErr != nil {
+		return VerifiedCommit{}, false, fmt.Errorf("close archive commit body: %w", closeErr)
 	}
 	verified, err := r.VerifyAll(ctx, r.Store, commitKey, "")
 	if err != nil {
 		return VerifiedCommit{}, true, err
 	}
 	return verified, true, nil
+}
+
+func isObjectNotFound(err error) bool {
+	return isObjectStoreNotFound(err)
 }
 
 func (r *Reconciler) commitPending(ctx context.Context, commitKey string, window Window, pending []CommitSegment) (VerifiedCommit, error) {

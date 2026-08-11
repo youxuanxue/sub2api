@@ -15,6 +15,53 @@ MAX_RECEIPT_AGE = dt.timedelta(hours=2)
 MAX_CORRELATION_SKEW = dt.timedelta(minutes=5)
 DEFAULT_CATCHUP_GAP_POLICY = "accepted_terminal"
 TERMINAL_CATCHUP_ERROR = "source_unavailable_after_retention"
+FAILED_ARCHIVE_ERROR = "archive_failed"
+
+
+def _evaluate_qa_records_lifecycle(
+    reasons: list[str],
+    qa_records: dict[str, Any] | None,
+    archive: dict[str, Any] | None,
+) -> bool:
+    """Return True when lifecycle/catalog facts require a failed health verdict."""
+    failed = False
+    if qa_records is None:
+        reasons.append("qa_records_catalog_missing")
+        return True
+    if qa_records.get("hourly_cutover_active") is True:
+        if qa_records.get("default_present") is True:
+            reasons.append("qa_records_default_after_hourly_cutover")
+            failed = True
+        gap = qa_records.get("future_coverage_gap_hours")
+        if isinstance(gap, (int, float)) and gap > 0:
+            reasons.append("qa_records_future_partition_gap")
+            failed = True
+        if qa_records.get("current_hour_partition_missing") is True:
+            reasons.append("qa_records_current_partition_missing")
+            failed = True
+        overdue = qa_records.get("expired_partitions_attached")
+        if isinstance(overdue, (int, float)) and overdue > 0:
+            reasons.append("qa_records_expired_partitions_attached")
+            failed = True
+        if qa_records.get("hot_files_cleanup_pending") is True:
+            reasons.append("qa_records_hot_files_cleanup_pending")
+            failed = True
+    if archive is not None:
+        for key in ("failed_shards", "archive_failed_windows"):
+            entries = archive.get(key)
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                code = entry.get("verification_error_code")
+                if code == FAILED_ARCHIVE_ERROR:
+                    reasons.append("archive_failed")
+                    failed = True
+                elif code not in {None, "", TERMINAL_CATCHUP_ERROR}:
+                    reasons.append("archive_verification_failure")
+                    failed = True
+    return failed
 
 
 def _mapping(value: Any) -> dict[str, Any] | None:
@@ -244,6 +291,7 @@ def evaluate(
     receipt = _mapping(snapshot.get("host_receipt"))
     database = _mapping(snapshot.get("database_heartbeat"))
     archive = _mapping(snapshot.get("archive_control"))
+    qa_records = _mapping(snapshot.get("qa_records"))
     if systemd is None:
         forward_reasons.append("systemd_missing")
     else:
@@ -355,6 +403,9 @@ def evaluate(
         ):
             failed = True
 
+    if _evaluate_qa_records_lifecycle(forward_reasons, qa_records, archive):
+        failed = True
+
     forward_reasons = sorted(set(forward_reasons))
     catchup_reasons = sorted(set(catchup_reasons))
     reasons = sorted(set(forward_reasons + catchup_reasons))
@@ -390,7 +441,9 @@ def main() -> int:
         return 2
     verdict = evaluate(snapshot, catchup_gap_policy=args.catchup_gap_policy)
     print(json.dumps(verdict, ensure_ascii=True, sort_keys=True))
-    return 0 if verdict["healthy"] else 2
+    if verdict.get("status") == "failed":
+        return 2
+    return 0 if verdict.get("healthy") else 2
 
 
 if __name__ == "__main__":
