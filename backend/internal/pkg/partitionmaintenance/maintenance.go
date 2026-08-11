@@ -58,6 +58,19 @@ type Result struct {
 func (r Result) String() string {
 	parts := make([]string, 0, len(r.Tables))
 	for _, table := range r.Tables {
+		if table.DefaultRehome != nil {
+			rehome := table.DefaultRehome
+			parts = append(parts, fmt.Sprintf(
+				"%s:rehome_remaining=%d staging=%d moved=%d pending=%t budget=%t",
+				table.Table,
+				rehome.RemainingRows,
+				rehome.StagingRows,
+				rehome.RowsMoved,
+				rehome.PendingFinalize,
+				rehome.BudgetExhausted,
+			))
+			continue
+		}
 		parts = append(parts, fmt.Sprintf("%s:%d", table.Table, table.RangeCount))
 	}
 	return strings.Join(parts, ",")

@@ -3,6 +3,7 @@ package pgpartition
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -22,20 +23,52 @@ var rehomeStagingSuffix = regexp.MustCompile(`^(.+)_rehome_staging$`)
 
 // RehomeOptions bounds one rehome invocation. BatchSize caps each SQL page;
 // MaxRowsPerRun caps total rows copied into staging per run (0 = unlimited).
-// Rows are never deleted from DEFAULT until finalize commits.
+// DedupColumns identifies rows already copied into staging; qa_records defaults
+// to (created_at, request_id). Rows stay in DEFAULT until finalize commits.
 type RehomeOptions struct {
 	BatchSize     int
 	MaxRowsPerRun int64
+	DedupColumns  []string
 }
 
-func (o RehomeOptions) withDefaults() RehomeOptions {
+func (o RehomeOptions) withDefaults(table string) RehomeOptions {
 	if o.BatchSize <= 0 {
 		o.BatchSize = defaultRehomeBatchSize
 	}
 	if o.MaxRowsPerRun <= 0 {
 		o.MaxRowsPerRun = defaultRehomeMaxRowsPerRun
 	}
+	if len(o.DedupColumns) == 0 {
+		o.DedupColumns = defaultRehomeDedupColumns(table)
+	}
 	return o
+}
+
+func defaultRehomeDedupColumns(table string) []string {
+	if table == "qa_records" {
+		return []string{"created_at", "request_id"}
+	}
+	return nil
+}
+
+func rehomeRowNotInStaging(stagingName, rowAlias string, dedupCols []string) string {
+	if len(dedupCols) == 0 {
+		return "TRUE"
+	}
+	parts := make([]string, len(dedupCols))
+	for i, col := range dedupCols {
+		parts[i] = fmt.Sprintf(
+			"s.%s IS NOT DISTINCT FROM %s.%s",
+			pq.QuoteIdentifier(col),
+			rowAlias,
+			pq.QuoteIdentifier(col),
+		)
+	}
+	return fmt.Sprintf(
+		`NOT EXISTS (SELECT 1 FROM %s s WHERE %s)`,
+		pq.QuoteIdentifier(stagingName),
+		strings.Join(parts, " AND "),
+	)
 }
 
 // RehomeMonthResult reports one month moved out of the DEFAULT partition.
@@ -69,7 +102,7 @@ func RehomeDefaultMonthly(
 	now time.Time,
 	opts RehomeOptions,
 ) (RehomeDefaultResult, error) {
-	opts = opts.withDefaults()
+	opts = opts.withDefaults(table)
 	result := RehomeDefaultResult{}
 	if db == nil {
 		return result, fmt.Errorf("pgpartition: database is required")
@@ -108,7 +141,7 @@ func RehomeDefaultMonthly(
 		}
 		moved, exhausted, pending, err := rehomeDefaultMonth(
 			ctx, db, table, defaultName, partitionName, timeCol,
-			monthStart, monthEnd, opts.BatchSize, rowsBudget,
+			monthStart, monthEnd, opts.BatchSize, rowsBudget, opts.DedupColumns,
 		)
 		if err != nil {
 			return result, fmt.Errorf("pgpartition: rehome %s: %w", partitionName, err)
@@ -335,40 +368,38 @@ func rehomeDefaultMonth(
 	start, end time.Time,
 	batchSize int,
 	rowBudget int64,
+	dedupCols []string,
 ) (copied int64, budgetExhausted, pendingFinalize bool, err error) {
+	stagingName := rehomeStagingName(partitionName)
 	attached, err := childPartitionExists(ctx, db, table, partitionName)
 	if err != nil {
 		return 0, false, false, err
 	}
 	if attached {
+		stagingMoved, consumeErr := consumeOrphanStaging(
+			ctx, db, table, defaultName, partitionName, stagingName, timeCol, start, end, dedupCols,
+		)
+		if consumeErr != nil {
+			return 0, false, true, consumeErr
+		}
+		if stagingMoved > 0 {
+			return stagingMoved, false, false, nil
+		}
 		moved, exhausted, moveErr := moveRowsBetweenTables(
 			ctx, db, defaultName, partitionName, timeCol, start, end, batchSize, rowBudget,
 		)
 		return moved, exhausted, false, moveErr
 	}
 
-	stagingName := rehomeStagingName(partitionName)
 	if err := ensureRehomeStaging(ctx, db, defaultName, stagingName); err != nil {
 		return 0, false, false, err
 	}
 
-	stagingRows, err := countRowsInRange(ctx, db, stagingName, timeCol, start, end)
+	defaultRows, err := countRowsInRange(ctx, db, defaultName, timeCol, start, end)
 	if err != nil {
 		return 0, false, false, err
 	}
-	if stagingRows > 0 {
-		finalized, finalizeErr := finalizeStagingPartition(
-			ctx, db, table, defaultName, partitionName, stagingName, timeCol, start, end,
-		)
-		if finalizeErr != nil {
-			return 0, false, true, finalizeErr
-		}
-		if finalized {
-			return stagingRows, false, false, nil
-		}
-	}
-
-	defaultRows, err := countRowsInRange(ctx, db, defaultName, timeCol, start, end)
+	stagingRows, err := countRowsInRange(ctx, db, stagingName, timeCol, start, end)
 	if err != nil {
 		return 0, false, false, err
 	}
@@ -376,46 +407,35 @@ func rehomeDefaultMonth(
 		return 0, false, false, nil
 	}
 
-	copied, budgetExhausted, err = copyDefaultToStaging(
-		ctx, db, defaultName, stagingName, timeCol, start, end, batchSize, rowBudget,
-	)
+	ready, err := defaultMonthFullyCopiedToStaging(ctx, db, defaultName, stagingName, timeCol, start, end, dedupCols)
 	if err != nil {
-		return copied, budgetExhausted, stagingRows > 0 || defaultRows > 0, err
+		return 0, false, true, err
 	}
-	if budgetExhausted {
-		return copied, true, true, nil
-	}
-
-	stagingRows, err = countRowsInRange(ctx, db, stagingName, timeCol, start, end)
-	if err != nil {
-		return copied, false, true, err
-	}
-	defaultRows, err = countRowsInRange(ctx, db, defaultName, timeCol, start, end)
-	if err != nil {
-		return copied, false, true, err
-	}
-	if defaultRows == 0 && stagingRows > 0 {
-		finalized, err := finalizeStagingPartition(
-			ctx, db, table, defaultName, partitionName, stagingName, timeCol, start, end,
+	if !ready {
+		copied, budgetExhausted, err = copyDefaultToStaging(
+			ctx, db, defaultName, stagingName, timeCol, start, end, batchSize, rowBudget, dedupCols,
 		)
+		if err != nil {
+			return copied, budgetExhausted, true, err
+		}
+		if budgetExhausted {
+			return copied, true, true, nil
+		}
+		ready, err = defaultMonthFullyCopiedToStaging(ctx, db, defaultName, stagingName, timeCol, start, end, dedupCols)
 		if err != nil {
 			return copied, false, true, err
 		}
-		if finalized {
-			return stagingRows, false, false, nil
+		if !ready {
+			return copied, false, true, nil
 		}
-		return copied, false, true, nil
-	}
-	ready, err := defaultMonthFullyCopiedToStaging(ctx, db, defaultName, stagingName, timeCol, start, end)
-	if err != nil {
-		return copied, false, true, err
-	}
-	if !ready {
-		return copied, false, true, nil
+		stagingRows, err = countRowsInRange(ctx, db, stagingName, timeCol, start, end)
+		if err != nil {
+			return copied, false, true, err
+		}
 	}
 
 	finalized, err := finalizeStagingPartition(
-		ctx, db, table, defaultName, partitionName, stagingName, timeCol, start, end,
+		ctx, db, table, defaultName, partitionName, stagingName, timeCol, start, end, dedupCols,
 	)
 	if err != nil {
 		return copied, false, true, err
@@ -424,6 +444,35 @@ func rehomeDefaultMonth(
 		return copied, false, true, nil
 	}
 	return stagingRows, false, false, nil
+}
+
+func consumeOrphanStaging(
+	ctx context.Context,
+	db DB,
+	table, defaultName, partitionName, stagingName, timeCol string,
+	start, end time.Time,
+	dedupCols []string,
+) (int64, error) {
+	stagingRows, err := countRowsInRange(ctx, db, stagingName, timeCol, start, end)
+	if err != nil {
+		if isUndefinedTable(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	if stagingRows == 0 {
+		return 0, nil
+	}
+	finalized, err := finalizeStagingPartition(
+		ctx, db, table, defaultName, partitionName, stagingName, timeCol, start, end, dedupCols,
+	)
+	if err != nil {
+		return 0, err
+	}
+	if !finalized {
+		return 0, fmt.Errorf("pgpartition: orphan staging %s was not finalized", stagingName)
+	}
+	return stagingRows, nil
 }
 
 func ensureRehomeStaging(ctx context.Context, db DB, defaultName, stagingName string) error {
@@ -445,6 +494,7 @@ func copyDefaultToStaging(
 	start, end time.Time,
 	batchSize int,
 	rowBudget int64,
+	dedupCols []string,
 ) (copied int64, budgetExhausted bool, err error) {
 	if rowBudget <= 0 {
 		return 0, true, nil
@@ -453,21 +503,19 @@ func copyDefaultToStaging(
 	if int64(limit) > rowBudget {
 		limit = int(rowBudget)
 	}
-	// Copy-only: rows stay in DEFAULT until finalize deletes them in one transaction.
+	notInStaging := rehomeRowNotInStaging(stagingName, "d", dedupCols)
 	insertQ := fmt.Sprintf(
 		`INSERT INTO %s
 		 SELECT d.*
 		   FROM %s d
 		  WHERE d.%s >= $1 AND d.%s < $2
-		    AND NOT EXISTS (
-		          SELECT 1 FROM %s s WHERE s.request_id = d.request_id
-		        )
+		    AND %s
 		  LIMIT $3`,
 		pq.QuoteIdentifier(stagingName),
 		pq.QuoteIdentifier(defaultName),
 		pq.QuoteIdentifier(timeCol),
 		pq.QuoteIdentifier(timeCol),
-		pq.QuoteIdentifier(stagingName),
+		notInStaging,
 	)
 	res, err := db.ExecContext(ctx, insertQ, start, end, limit)
 	if err != nil {
@@ -489,7 +537,7 @@ func copyDefaultToStaging(
 		return copied, false, nil
 	}
 	extra, exhausted, err := copyDefaultToStaging(
-		ctx, db, defaultName, stagingName, timeCol, start, end, batchSize, rowBudget,
+		ctx, db, defaultName, stagingName, timeCol, start, end, batchSize, rowBudget, dedupCols,
 	)
 	return copied + extra, exhausted, err
 }
@@ -499,9 +547,13 @@ func finalizeStagingPartition(
 	db DB,
 	table, defaultName, partitionName, stagingName, timeCol string,
 	start, end time.Time,
+	dedupCols []string,
 ) (bool, error) {
 	stagingRows, err := countRowsInRange(ctx, db, stagingName, timeCol, start, end)
 	if err != nil {
+		if isUndefinedTable(err) {
+			return false, nil
+		}
 		return false, err
 	}
 	if stagingRows == 0 {
@@ -517,10 +569,14 @@ func finalizeStagingPartition(
 		if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", qaRecordsRehomeLockKey); err != nil {
 			return fmt.Errorf("acquire rehome finalize lock: %w", err)
 		}
-		if err := copyRemainingDefaultToStaging(ctx, tx, defaultName, stagingName, timeCol, start, end); err != nil {
+		lockQ := fmt.Sprintf("LOCK TABLE %s IN SHARE ROW EXCLUSIVE MODE", pq.QuoteIdentifier(table))
+		if _, err := tx.ExecContext(ctx, lockQ); err != nil {
+			return fmt.Errorf("lock parent table %s for rehome finalize: %w", table, err)
+		}
+		if err := copyRemainingDefaultToStaging(ctx, tx, defaultName, stagingName, timeCol, start, end, dedupCols); err != nil {
 			return err
 		}
-		ready, err := defaultMonthFullyCopiedToStaging(ctx, tx, defaultName, stagingName, timeCol, start, end)
+		ready, err := defaultMonthFullyCopiedToStaging(ctx, tx, defaultName, stagingName, timeCol, start, end, dedupCols)
 		if err != nil {
 			return err
 		}
@@ -564,19 +620,8 @@ func finalizeStagingPartition(
 			}
 		}
 
-		partitionRows, err := countRowsInRange(ctx, tx, partitionName, timeCol, start, end)
-		if err != nil {
+		if err := insertStagingIntoPartition(ctx, tx, partitionName, stagingName, dedupCols); err != nil {
 			return err
-		}
-		if partitionRows == 0 {
-			insertQ := fmt.Sprintf(
-				"INSERT INTO %s SELECT * FROM %s",
-				pq.QuoteIdentifier(partitionName),
-				pq.QuoteIdentifier(stagingName),
-			)
-			if _, err := tx.ExecContext(ctx, insertQ); err != nil {
-				return fmt.Errorf("copy staging into %s: %w", partitionName, err)
-			}
 		}
 
 		dropQ := "DROP TABLE IF EXISTS " + pq.QuoteIdentifier(stagingName)
@@ -592,25 +637,47 @@ func finalizeStagingPartition(
 	return finalized, nil
 }
 
+func insertStagingIntoPartition(
+	ctx context.Context,
+	db DB,
+	partitionName, stagingName string,
+	dedupCols []string,
+) error {
+	notInPartition := rehomeRowNotInStaging(partitionName, "s", dedupCols)
+	insertQ := fmt.Sprintf(
+		`INSERT INTO %s
+		 SELECT s.*
+		   FROM %s s
+		  WHERE %s`,
+		pq.QuoteIdentifier(partitionName),
+		pq.QuoteIdentifier(stagingName),
+		notInPartition,
+	)
+	if _, err := db.ExecContext(ctx, insertQ); err != nil {
+		return fmt.Errorf("copy staging into %s: %w", partitionName, err)
+	}
+	return nil
+}
+
 func copyRemainingDefaultToStaging(
 	ctx context.Context,
 	db DB,
 	defaultName, stagingName, timeCol string,
 	start, end time.Time,
+	dedupCols []string,
 ) error {
+	notInStaging := rehomeRowNotInStaging(stagingName, "d", dedupCols)
 	insertQ := fmt.Sprintf(
 		`INSERT INTO %s
 		 SELECT d.*
 		   FROM %s d
 		  WHERE d.%s >= $1 AND d.%s < $2
-		    AND NOT EXISTS (
-		          SELECT 1 FROM %s s WHERE s.request_id = d.request_id
-		        )`,
+		    AND %s`,
 		pq.QuoteIdentifier(stagingName),
 		pq.QuoteIdentifier(defaultName),
 		pq.QuoteIdentifier(timeCol),
 		pq.QuoteIdentifier(timeCol),
-		pq.QuoteIdentifier(stagingName),
+		notInStaging,
 	)
 	if _, err := db.ExecContext(ctx, insertQ, start, end); err != nil {
 		return fmt.Errorf("sync default into %s before finalize: %w", stagingName, err)
@@ -623,20 +690,20 @@ func defaultMonthFullyCopiedToStaging(
 	db DB,
 	defaultName, stagingName, timeCol string,
 	start, end time.Time,
+	dedupCols []string,
 ) (bool, error) {
+	notInStaging := rehomeRowNotInStaging(stagingName, "d", dedupCols)
 	q := fmt.Sprintf(
 		`SELECT NOT EXISTS (
 		    SELECT 1
 		      FROM %s d
 		     WHERE d.%s >= $1 AND d.%s < $2
-		       AND NOT EXISTS (
-		             SELECT 1 FROM %s s WHERE s.request_id = d.request_id
-		           )
+		       AND %s
 		  )`,
 		pq.QuoteIdentifier(defaultName),
 		pq.QuoteIdentifier(timeCol),
 		pq.QuoteIdentifier(timeCol),
-		pq.QuoteIdentifier(stagingName),
+		notInStaging,
 	)
 	var ready bool
 	if err := db.QueryRowContext(ctx, q, start, end).Scan(&ready); err != nil {
@@ -728,13 +795,9 @@ func execInTx(ctx context.Context, db DB, fn func(DB) error) error {
 	return nil
 }
 
-func relationExists(ctx context.Context, db DB, name string) (bool, error) {
-	const q = `SELECT EXISTS (SELECT 1 FROM pg_class WHERE relname = $1)`
-	var exists bool
-	if err := db.QueryRowContext(ctx, q, name).Scan(&exists); err != nil {
-		return false, fmt.Errorf("pgpartition: inspect relation %s: %w", name, err)
-	}
-	return exists, nil
+func isUndefinedTable(err error) bool {
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && pqErr.Code == "42P01"
 }
 
 func countTableRows(ctx context.Context, db DB, table string) (int64, error) {

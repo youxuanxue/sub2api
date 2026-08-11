@@ -538,6 +538,10 @@ def _closeout_implementation_failures(root: Path) -> list[str]:
         failures.append("qa_records rehome must copy into detached staging before finalize attach")
     elif "copyDefaultToStaging" not in rehome.read_text(encoding="utf-8"):
         failures.append("qa_records rehome must copy-only into staging until finalize transaction")
+    elif "created_at" not in rehome.read_text(encoding="utf-8") or "request_id" not in rehome.read_text(encoding="utf-8"):
+        failures.append("qa_records rehome dedup must use (created_at, request_id) composite identity")
+    elif "SHARE ROW EXCLUSIVE" not in rehome.read_text(encoding="utf-8"):
+        failures.append("qa_records rehome finalize must lock parent table against concurrent capture")
     partition_maintenance = root / "backend/internal/pkg/partitionmaintenance/maintenance.go"
     if partition_maintenance.is_file():
         body = partition_maintenance.read_text(encoding="utf-8")
@@ -551,6 +555,8 @@ def _closeout_implementation_failures(root: Path) -> list[str]:
             failures.append("ops cleanup rehome budget must be declared in OpsCleanupOptions")
         if "PendingFinalize" not in body or "BudgetExhausted" not in body:
             failures.append("partition maintenance must skip EnsureMonthly while qa_records rehome is partial")
+        if "rehome_remaining=" not in body:
+            failures.append("partition maintenance heartbeat must expose partial default_rehome receipt")
     host_runner = root / MAINTENANCE_SCRIPT
     if host_runner.is_file():
         body = host_runner.read_text(encoding="utf-8")

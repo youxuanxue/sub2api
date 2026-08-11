@@ -1,9 +1,9 @@
 ---
 title: QA Phase 2 Archive Closeout
 status: approved
-approved_by: "feng (conversation approvals, 2026-08-07 and 2026-08-08)"
+approved_by: "feng (conversation approvals 2026-08-07 through 2026-08-11; qa_records rehome state machine 2026-08-11)"
 date: 2026-08-07
-last_reviewed: 2026-08-10
+last_reviewed: 2026-08-11
 supersedes: null
 related:
   - docs/approved/design-prod-qa-24h-s3-lifecycle.md
@@ -540,8 +540,13 @@ If finalize fails mid-transaction, the next tick retries copy + finalize. Concur
 capture during copy is absorbed by request_id dedup and a transaction-local sync copy
 before DELETE.
 
-**Concurrency:** finalize holds `pg_advisory_xact_lock(qa_records)` for the duration of
-delete + attach + staging load so only one finalize proceeds at a time.
+**Concurrency:** finalize holds `pg_advisory_xact_lock(qa_records)` and
+`LOCK TABLE qa_records IN SHARE ROW EXCLUSIVE MODE` through delete + attach +
+staging load so concurrent capture cannot insert into DEFAULT between sync copy
+and month delete.
+
+**Dedup identity:** staging copy uses `(created_at, request_id)` — not
+`request_id` alone — matching the partitioned primary key shape.
 
 ### Production rollout
 

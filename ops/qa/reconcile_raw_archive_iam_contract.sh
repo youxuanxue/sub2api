@@ -38,28 +38,28 @@ resolve_stack_resource() {
 
 resolve_vpc_and_route_tables() {
   local vpc_id route_table_ids
-  vpc_id="$(aws cloudformation describe-stacks \
+  if ! vpc_id="$(aws cloudformation describe-stacks \
     --region "${REGION}" \
     --stack-name "${STAGE0_STACK}" \
     --query "Stacks[0].Outputs[?OutputKey=='VpcId'].OutputValue | [0]" \
-    --output text 2>/dev/null || true)"
-  if [ -z "${vpc_id}" ] || [ "${vpc_id}" = "None" ]; then
-    vpc_id="$(resolve_stack_resource "${STAGE0_STACK}" "VPC" 2>/dev/null || true)"
+    --output text 2>/dev/null)"; then
+    vpc_id=""
   fi
   if [ -z "${vpc_id}" ] || [ "${vpc_id}" = "None" ]; then
-    vpc_id="$(aws ec2 describe-vpcs \
-      --region "${REGION}" \
-      --filters "Name=tag:Name,Values=*tokenkey*prod*" \
-      --query 'Vpcs[0].VpcId' \
-      --output text)"
+    if ! vpc_id="$(resolve_stack_resource "${STAGE0_STACK}" "VPC")"; then
+      vpc_id=""
+    fi
   fi
-  route_table_ids="$(resolve_stack_resource "${STAGE0_STACK}" "PublicRouteTable" 2>/dev/null || true)"
+  if [ -z "${vpc_id}" ] || [ "${vpc_id}" = "None" ]; then
+    echo "failed to resolve VPC from CloudFormation stack ${STAGE0_STACK}" >&2
+    exit 1
+  fi
+  if ! route_table_ids="$(resolve_stack_resource "${STAGE0_STACK}" "PublicRouteTable")"; then
+    route_table_ids=""
+  fi
   if [ -z "${route_table_ids}" ] || [ "${route_table_ids}" = "None" ]; then
-    route_table_ids="$(aws ec2 describe-route-tables \
-      --region "${REGION}" \
-      --filters "Name=vpc-id,Values=${vpc_id}" "Name=tag:Name,Values=*public*rt*" \
-      --query 'RouteTables[0].RouteTableId' \
-      --output text)"
+    echo "failed to resolve PublicRouteTable from CloudFormation stack ${STAGE0_STACK}" >&2
+    exit 1
   fi
   require_value QA_RAW_ARCHIVE_VPC_ID "${vpc_id}"
   require_value QA_RAW_ARCHIVE_ROUTE_TABLE_IDS "${route_table_ids}"

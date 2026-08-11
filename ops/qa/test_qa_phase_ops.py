@@ -425,6 +425,52 @@ delete_rows_before 2026-08-06T12:00:00.000000Z
         self.assertIn("s3_endpoint_route_table_not_attached:rtb-public", failures)
         self.assertIn("route_table_missing_s3_gateway_route:rtb-public", failures)
 
+    def test_verify_raw_archive_iam_contract_requires_gateway_and_prefix_on_same_route(self) -> None:
+        iam_contract = _load_module(
+            "verify_raw_archive_iam_contract", "ops/qa/verify_raw_archive_iam_contract.py"
+        )
+
+        def fake_aws_json(args: list[str]) -> dict:
+            if "describe-vpc-endpoints" in args:
+                return {
+                    "VpcEndpoints": [
+                        {
+                            "VpcId": "vpc-abc",
+                            "State": "available",
+                            "VpcEndpointType": "Gateway",
+                            "ServiceName": "com.amazonaws.us-east-1.s3",
+                            "PrefixListId": "pl-s3",
+                            "RouteTableIds": ["rtb-public"],
+                        }
+                    ]
+                }
+            if "describe-route-tables" in args:
+                return {
+                    "RouteTables": [
+                        {
+                            "Routes": [
+                                {
+                                    "GatewayId": "vpce-qa",
+                                    "DestinationPrefixListId": "pl-s3",
+                                }
+                            ]
+                        }
+                    ]
+                }
+            raise AssertionError(f"unexpected aws call: {args}")
+
+        original = iam_contract._aws_json
+        iam_contract._aws_json = fake_aws_json
+        try:
+            failures = iam_contract._verify_s3_gateway_endpoint(
+                vpc_id="vpc-abc",
+                route_table_ids=["rtb-public"],
+                endpoint_id="vpce-qa",
+            )
+        finally:
+            iam_contract._aws_json = original
+        self.assertEqual(failures, [])
+
     def test_verify_raw_archive_iam_contract_rejects_non_gateway_endpoint(self) -> None:
         iam_contract = _load_module(
             "verify_raw_archive_iam_contract", "ops/qa/verify_raw_archive_iam_contract.py"
