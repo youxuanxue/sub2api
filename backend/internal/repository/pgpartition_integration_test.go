@@ -561,6 +561,8 @@ func TestPgPartition_RehomeFinalizeBlocksConcurrentCaptureEndToEnd(t *testing.T)
 
 	partitionName := pgpartition.MonthlyPartitionName(tbl, monthStart)
 	pqPartition := pq.QuoteIdentifier(partitionName)
+	defaultName := tbl + "_default"
+	pqDefault := pq.QuoteIdentifier(defaultName)
 
 	var lateInPartition int
 	require.NoError(t, integrationDB.QueryRowContext(ctx, fmt.Sprintf(
@@ -571,17 +573,9 @@ func TestPgPartition_RehomeFinalizeBlocksConcurrentCaptureEndToEnd(t *testing.T)
 
 	var inDefaultMonth int
 	require.NoError(t, integrationDB.QueryRowContext(ctx, fmt.Sprintf(
-		`SELECT COUNT(*) FROM %s WHERE created_at >= $1 AND created_at < $2`, q,
+		`SELECT COUNT(*) FROM %s WHERE created_at >= $1 AND created_at < $2`, pqDefault,
 	), monthStart, monthStart.AddDate(0, 1, 0)).Scan(&inDefaultMonth))
-	if inDefaultMonth > 0 {
-		followUp, err := pgpartition.RehomeDefaultMonthly(
-			ctx, integrationDB, tbl, "created_at", now,
-			pgpartition.RehomeOptions{BatchSize: 5000, MaxRowsPerRun: 100, DedupColumns: dedup},
-		)
-		require.NoError(t, err)
-		require.Equal(t, int64(inDefaultMonth), followUp.RowsMoved)
-		require.Equal(t, int64(0), followUp.RemainingRows)
-	}
+	require.Equal(t, 0, inDefaultMonth, "month rows must not remain in DEFAULT after finalize")
 
 	var inPartition int
 	require.NoError(t, integrationDB.QueryRowContext(ctx,
