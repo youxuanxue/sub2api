@@ -3411,10 +3411,10 @@
     {
       "path": "backend/internal/service/openai_gateway_upstream_errors.go",
       "must_contain": [
-        "case http.StatusBadRequest, http.StatusNotFound, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:",
-        "errMsg = \"Upstream rejected the request\""
+        "isOpenAIDeterministicClientError(resp.StatusCode)",
+        "writeOpenAIUpstreamClientError(c, resp.StatusCode, body, upstreamMsg)"
       ],
-      "rationale": "Bug B (prod P0 2026-06-05): the native OpenAI error handler handleErrorResponse (used by /v1/responses) must pass a client-induced upstream 4xx (400/404/413/422 — e.g. Codex/ChatGPT-OAuth 'model is not supported when using Codex with a ChatGPT account') through with its REAL status + the actionable upstream message, instead of the legacy default that masked every non-special status as a generic 502 'Upstream request failed'. This is parity with handleCompatErrorResponse (used by /v1/chat/completions, which already passes these through) and pairs with the ops-classification fix. 401/402/403 stay masked as 502 on purpose (account-side auth/billing/access). An upstream merge that rewrites the status switch and drops this case re-introduces the 400->502 surfacing bug; this sentinel anchors the case and its fallback message."
+      "rationale": "Bug B / upstream #5479: native /v1/responses handleErrorResponse must pass deterministic upstream 400 through with real status plus upstream code/param/message via writeOpenAIUpstreamClientError, instead of rewrapping as retryable 502 upstream_error. 401/402/403/404/422 stay on the masked 502 path on purpose. This sentinel anchors the deterministic-400 branch after upstream merges."
     },
     {
       "path": "backend/internal/service/gateway_scheduling.go",

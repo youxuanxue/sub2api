@@ -139,8 +139,6 @@ func TestOpenAIHandleErrorResponse_ClientInduced4xxPassesThrough(t *testing.T) {
 		wantType string
 	}{
 		{"400 invalid_request", http.StatusBadRequest, "invalid_request_error"},
-		{"404 not_found", http.StatusNotFound, "not_found_error"},
-		{"422 unprocessable", http.StatusUnprocessableEntity, "invalid_request_error"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

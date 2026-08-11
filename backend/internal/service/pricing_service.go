@@ -782,6 +782,61 @@ func comparablePricingCost(p *LiteLLMModelPricing) float64 {
 	return p.InputCostPerToken
 }
 
+// GetIdentifiedModelPricing 在价格表中确定性地识别模型，识别不到时返回 nil。
+// 与 GetModelPricing 的区别：不会退化成按 "opus"/"haiku" 之类子串猜出的系列兜底价。
+// 用于必须区分"这是价格表里已知的模型"和"这只是名字里带某个关键词"的场景。
+func (s *PricingService) GetIdentifiedModelPricing(modelName string) *LiteLLMModelPricing {
+	if s == nil || strings.TrimSpace(modelName) == "" {
+		return nil
+	}
+	var pricingData map[string]*LiteLLMModelPricing
+	var present func(*LiteLLMModelPricing) *LiteLLMModelPricing
+	if s.useActiveRegistry {
+		snapshot := loadTKPricingOverlaySnapshot()
+		if snapshot != nil {
+			pricingData = snapshot.Models
+			present = func(pricing *LiteLLMModelPricing) *LiteLLMModelPricing {
+				return tkPresentLiteLLMModelPricingFromSnapshot(pricing, snapshot)
+			}
+		}
+	} else {
+		s.mu.RLock()
+		pricingData = s.pricingData
+		s.mu.RUnlock()
+		baseTax := loadTkOfficialListBaseTaxPolicy()
+		present = func(pricing *LiteLLMModelPricing) *LiteLLMModelPricing {
+			return tkApplyBaseTaxToLiteLLMModelPricingCloneWithPolicy(pricing, baseTax)
+		}
+	}
+	if pricingData == nil || present == nil {
+		return nil
+	}
+	modelLower := strings.ToLower(strings.TrimSpace(modelName))
+	lookupCandidates := s.buildModelLookupCandidates(modelLower)
+	for _, candidate := range lookupCandidates {
+		if candidate == "" {
+			continue
+		}
+		if pricing, ok := pricingData[candidate]; ok {
+			return present(pricing)
+		}
+	}
+	for _, candidate := range lookupCandidates {
+		normalized := strings.ReplaceAll(candidate, "-4-5-", "-4.5-")
+		if pricing, ok := pricingData[normalized]; ok {
+			return present(pricing)
+		}
+	}
+	baseName := s.extractBaseName(lookupCandidates[0])
+	for key, pricing := range pricingData {
+		keyBase := s.extractBaseName(strings.ToLower(key))
+		if keyBase == baseName {
+			return present(pricing)
+		}
+	}
+	return nil
+}
+
 func (s *PricingService) buildModelLookupCandidates(modelLower string) []string {
 	rawCandidates := []string{
 		modelLower,
