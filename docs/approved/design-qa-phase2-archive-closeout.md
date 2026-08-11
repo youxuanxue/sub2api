@@ -505,6 +505,44 @@ host preflight failure -> host receipt advances while DB heartbeat does not
 The resource test generates a dense shard larger than the memory limit expectation and
 asserts bounded resident memory rather than merely checking that output files exist.
 
+### qa_records DEFAULT rehome (OpsCleanup owner)
+
+`qa_records` rows that landed in the DEFAULT partition must be moved into bounded monthly
+partitions without disappearing from parent-table reads mid-run. Only **OpsCleanupService**
+runs this work (`partitionmaintenance.OpsCleanupOptions`, 20k rows per tick); the QA
+`:15` host runner and `--partition-maintenance-once` never invoke rehome.
+
+**State machine (per month):**
+
+```text
+DEFAULT has month rows
+  -> copy-only into {partition}_rehome_staging (rows remain visible via DEFAULT)
+  -> when month fully copied OR orphan staging rediscovered:
+       single finalize transaction (pg_advisory_xact_lock):
+         sync copy -> delete month from DEFAULT -> CREATE PARTITION OF (if missing)
+         -> INSERT partition <- staging -> DROP staging
+  -> attached partition already exists: DELETE+INSERT move via parent visibility
+```
+
+**Parent visibility:** copy into detached staging never deletes DEFAULT rows. Reads through
+`qa_records` stay complete until finalize commits. Budget exhaustion after copy leaves
+rows in DEFAULT (and duplicate-safe staging) — not invisible.
+
+**Partial progress / EnsureMonthly:** while DEFAULT still holds in-progress months,
+staging tables exist, or the per-run row budget is exhausted, partition maintenance
+records a partial `default_rehome` receipt and **skips** `EnsureMonthly` for
+`qa_records` (PostgreSQL rejects creating a monthly partition while DEFAULT still holds
+that month's rows). Subsequent OpsCleanup ticks resume copy and finalize.
+
+**Crash recovery:** orphan `{table}_YYYY_MM_rehome_staging` tables are rediscovered via
+catalog scan and finalized; copy-only staging never removes DEFAULT rows until finalize.
+If finalize fails mid-transaction, the next tick retries copy + finalize. Concurrent
+capture during copy is absorbed by request_id dedup and a transaction-local sync copy
+before DELETE.
+
+**Concurrency:** finalize holds `pg_advisory_xact_lock(qa_records)` for the duration of
+delete + attach + staging load so only one finalize proceeds at a time.
+
 ### Production rollout
 
 The age-based stale-cleanup timer is already active and healthy; keep it running throughout

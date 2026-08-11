@@ -535,7 +535,9 @@ def _closeout_implementation_failures(root: Path) -> list[str]:
     elif "PARTITION OF" not in rehome.read_text(encoding="utf-8"):
         failures.append("qa_records rehome must attach bounded partitions after draining DEFAULT")
     elif "_rehome_staging" not in rehome.read_text(encoding="utf-8"):
-        failures.append("qa_records rehome must drain DEFAULT into detached staging before attach")
+        failures.append("qa_records rehome must copy into detached staging before finalize attach")
+    elif "copyDefaultToStaging" not in rehome.read_text(encoding="utf-8"):
+        failures.append("qa_records rehome must copy-only into staging until finalize transaction")
     partition_maintenance = root / "backend/internal/pkg/partitionmaintenance/maintenance.go"
     if partition_maintenance.is_file():
         body = partition_maintenance.read_text(encoding="utf-8")
@@ -547,6 +549,8 @@ def _closeout_implementation_failures(root: Path) -> list[str]:
             failures.append("qa_records rehome must be gated behind explicit maintainer options")
         if "OpsCleanupOptions" not in body:
             failures.append("ops cleanup rehome budget must be declared in OpsCleanupOptions")
+        if "PendingFinalize" not in body or "BudgetExhausted" not in body:
+            failures.append("partition maintenance must skip EnsureMonthly while qa_records rehome is partial")
     host_runner = root / MAINTENANCE_SCRIPT
     if host_runner.is_file():
         body = host_runner.read_text(encoding="utf-8")

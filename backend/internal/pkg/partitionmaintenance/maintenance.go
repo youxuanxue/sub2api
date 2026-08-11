@@ -35,7 +35,7 @@ type Options struct {
 // OpsCleanupOptions is the production cron owner profile for partition maintenance.
 var OpsCleanupOptions = Options{
 	RehomeQaRecordsDefault: true,
-	QaRecordsRehomeMaxRows:   opsCleanupRehomeMaxRowsPerRun,
+	QaRecordsRehomeMaxRows: opsCleanupRehomeMaxRowsPerRun,
 }
 
 type Mode uint8
@@ -132,8 +132,14 @@ func Ensure(
 			if rehomeErr != nil {
 				return result, fmt.Errorf("partitionmaintenance: rehome %s default: %w", target.table, rehomeErr)
 			}
-			if rehome.DefaultPartition != "" || len(rehome.Months) > 0 || rehome.RemainingRows > 0 {
+			if rehome.DefaultPartition != "" || len(rehome.Months) > 0 || rehome.RemainingRows > 0 ||
+				rehome.StagingRows > 0 || rehome.PendingFinalize || rehome.BudgetExhausted {
 				defaultRehome = &rehome
+			}
+			if rehome.PendingFinalize || rehome.BudgetExhausted || rehome.RemainingRows > 0 || rehome.StagingRows > 0 {
+				tableResult := TableResult{Table: target.table, DefaultRehome: defaultRehome}
+				result.Tables = append(result.Tables, tableResult)
+				continue
 			}
 		}
 

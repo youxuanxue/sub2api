@@ -396,6 +396,10 @@ delete_rows_before 2026-08-06T12:00:00.000000Z
                     "VpcEndpoints": [
                         {
                             "VpcId": "vpc-abc",
+                            "State": "available",
+                            "VpcEndpointType": "Gateway",
+                            "ServiceName": "com.amazonaws.us-east-1.s3",
+                            "PrefixListId": "pl-s3",
                             "RouteTableIds": ["rtb-other"],
                         }
                     ]
@@ -419,6 +423,86 @@ delete_rows_before 2026-08-06T12:00:00.000000Z
         finally:
             iam_contract._aws_json = original
         self.assertIn("s3_endpoint_route_table_not_attached:rtb-public", failures)
+        self.assertIn("route_table_missing_s3_gateway_route:rtb-public", failures)
+
+    def test_verify_raw_archive_iam_contract_rejects_non_gateway_endpoint(self) -> None:
+        iam_contract = _load_module(
+            "verify_raw_archive_iam_contract", "ops/qa/verify_raw_archive_iam_contract.py"
+        )
+
+        def fake_aws_json(args: list[str]) -> dict:
+            if "describe-vpc-endpoints" in args:
+                return {
+                    "VpcEndpoints": [
+                        {
+                            "VpcId": "vpc-abc",
+                            "State": "available",
+                            "VpcEndpointType": "Interface",
+                            "ServiceName": "com.amazonaws.us-east-1.s3",
+                            "RouteTableIds": ["rtb-public"],
+                        }
+                    ]
+                }
+            if "describe-route-tables" in args:
+                return {"RouteTables": [{"Routes": []}]}
+            raise AssertionError(f"unexpected aws call: {args}")
+
+        original = iam_contract._aws_json
+        iam_contract._aws_json = fake_aws_json
+        try:
+            failures = iam_contract._verify_s3_gateway_endpoint(
+                vpc_id="vpc-abc",
+                route_table_ids=["rtb-public"],
+                endpoint_id="vpce-qa",
+            )
+        finally:
+            iam_contract._aws_json = original
+        self.assertIn("s3_endpoint_not_gateway", failures)
+
+    def test_verify_raw_archive_iam_contract_rejects_unrelated_prefix_list_route(self) -> None:
+        iam_contract = _load_module(
+            "verify_raw_archive_iam_contract", "ops/qa/verify_raw_archive_iam_contract.py"
+        )
+
+        def fake_aws_json(args: list[str]) -> dict:
+            if "describe-vpc-endpoints" in args:
+                return {
+                    "VpcEndpoints": [
+                        {
+                            "VpcId": "vpc-abc",
+                            "State": "available",
+                            "VpcEndpointType": "Gateway",
+                            "ServiceName": "com.amazonaws.us-east-1.s3",
+                            "PrefixListId": "pl-s3",
+                            "RouteTableIds": ["rtb-public"],
+                        }
+                    ]
+                }
+            if "describe-route-tables" in args:
+                return {
+                    "RouteTables": [
+                        {
+                            "Routes": [
+                                {
+                                    "DestinationPrefixListId": "pl-unrelated",
+                                    "GatewayId": "vpce-other",
+                                }
+                            ]
+                        }
+                    ]
+                }
+            raise AssertionError(f"unexpected aws call: {args}")
+
+        original = iam_contract._aws_json
+        iam_contract._aws_json = fake_aws_json
+        try:
+            failures = iam_contract._verify_s3_gateway_endpoint(
+                vpc_id="vpc-abc",
+                route_table_ids=["rtb-public"],
+                endpoint_id="vpce-qa",
+            )
+        finally:
+            iam_contract._aws_json = original
         self.assertIn("route_table_missing_s3_gateway_route:rtb-public", failures)
 
     def test_qa_lifecycle_ssot_check_passes(self) -> None:

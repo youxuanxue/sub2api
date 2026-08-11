@@ -233,8 +233,17 @@ def _verify_s3_gateway_endpoint(
     if not isinstance(endpoints, list) or not endpoints:
         return [f"s3_endpoint_missing:{endpoint_id}"]
     endpoint = endpoints[0]
+    if endpoint.get("State") != "available":
+        failures.append("s3_endpoint_not_available")
+    if endpoint.get("VpcEndpointType") != "Gateway":
+        failures.append("s3_endpoint_not_gateway")
+    service_name = endpoint.get("ServiceName")
+    expected_service = f"com.amazonaws.{PROD_REGION}.s3"
+    if service_name != expected_service:
+        failures.append("s3_endpoint_service_name_drift")
     if endpoint.get("VpcId") != vpc_id:
         failures.append("s3_endpoint_vpc_mismatch")
+    prefix_list_id = endpoint.get("PrefixListId")
     attached = endpoint.get("RouteTableIds") or []
     if not isinstance(attached, list):
         attached = []
@@ -267,8 +276,10 @@ def _verify_s3_gateway_endpoint(
             if route.get("GatewayId") == endpoint_id:
                 has_gateway_route = True
                 break
-            prefix = route.get("DestinationPrefixListId")
-            if isinstance(prefix, str) and prefix.startswith("pl-"):
+            if (
+                isinstance(prefix_list_id, str)
+                and route.get("DestinationPrefixListId") == prefix_list_id
+            ):
                 has_gateway_route = True
                 break
         if not has_gateway_route:
