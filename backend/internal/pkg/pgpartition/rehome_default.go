@@ -170,14 +170,11 @@ func rehomeDefaultMonth(
 			pq.QuoteLiteral(end.Format(time.RFC3339)),
 		)
 		if _, err := db.ExecContext(ctx, createQ); err != nil {
-			if isOverlap(err) {
-				attached = true
-			} else {
+			if !isOverlap(err) {
 				return 0, fmt.Errorf("create attached partition %s: %w", partitionName, err)
 			}
 		} else {
 			createdAttached = true
-			attached = true
 		}
 	}
 
