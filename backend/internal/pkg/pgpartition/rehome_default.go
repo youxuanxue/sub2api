@@ -22,9 +22,10 @@ const (
 var rehomeStagingSuffix = regexp.MustCompile(`^(.+)_rehome_staging$`)
 
 // RehomeOptions bounds one rehome invocation. BatchSize caps each SQL page;
-// MaxRowsPerRun caps total rows copied into staging per run (0 = unlimited).
-// DedupColumns identifies rows already copied into staging; qa_records defaults
-// to (created_at, request_id). Rows stay in DEFAULT until finalize commits.
+// MaxRowsPerRun caps total rows copied into staging per run; zero or negative
+// applies defaultRehomeMaxRowsPerRun (20000). DedupColumns identifies rows
+// already copied into staging; qa_records defaults to (created_at, request_id).
+// Rows stay in DEFAULT until finalize commits.
 type RehomeOptions struct {
 	BatchSize     int
 	MaxRowsPerRun int64

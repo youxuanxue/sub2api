@@ -2884,28 +2884,17 @@ fi
 
 # ---- sub2api: changed Go file gofmt -------------------------------------------
 # golangci-lint does not format-check build-tag files such as *_test.go with
-# //go:build unit; gate every changed .go file in the diff directly.
+# //go:build unit; scan branch diff plus staged/unstaged/untracked Go files.
 echo ""
 echo "=== sub2api: changed Go file gofmt ==="
-_gofmt_base="${PREFLIGHT_BASE:-origin/main}"
-_gofmt_files=$(git diff --name-only "${_gofmt_base}"...HEAD -- '*.go' 2>/dev/null || true)
-if [ -z "$_gofmt_files" ]; then
-    echo "  ok: no changed Go files"
-elif ! command -v gofmt >/dev/null 2>&1; then
-    echo "  FAIL: gofmt not on PATH"
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by gofmt-changed-go.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/gofmt-changed-go.py --base "${PREFLIGHT_BASE:-origin/main}" --quiet; then
+    python3 ./scripts/checks/gofmt-changed-go.py --base "${PREFLIGHT_BASE:-origin/main}" 2>&1 | sed 's/^/  /'
     errors=$((errors + 1))
 else
-    _gofmt_dirty=$(printf '%s\n' "$_gofmt_files" | while IFS= read -r _gf; do
-        [ -n "$_gf" ] && [ -f "$_gf" ] && gofmt -l "$_gf"
-    done)
-    if [ -n "$_gofmt_dirty" ]; then
-        echo "  FAIL: changed Go files are not gofmt-clean:"
-        printf '%s\n' "$_gofmt_dirty" | sed 's/^/    /'
-        echo "        Run: gofmt -w <files>"
-        errors=$((errors + 1))
-    else
-        echo "  ok: changed Go files are gofmt-clean"
-    fi
+    echo "  ok: changed Go files are gofmt-clean"
 fi
 
 # ---- sub2api: go.mod replace path validation ---------------------------------

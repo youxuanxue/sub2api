@@ -502,17 +502,15 @@ func TestPgPartition_RehomeAttachedOrphanStagingRecovery(t *testing.T) {
 	require.False(t, stagingExists)
 }
 
-func TestPgPartition_RehomeParentLockBlocksConcurrentCapture(t *testing.T) {
+func TestPgPartition_RehomeFinalizeBlocksConcurrentCaptureEndToEnd(t *testing.T) {
 	ctx := context.Background()
-	tbl := "pgpart_itest_rehome_lock"
+	tbl := "pgpart_itest_rehome_finalize_lock"
 	monthStart := setupRehomeIntegrationTable(ctx, t, tbl)
 	now := monthStart.Add(15 * 24 * time.Hour)
 	q := pq.QuoteIdentifier(tbl)
-	opts := pgpartition.RehomeOptions{
-		BatchSize:     5000,
-		MaxRowsPerRun: 20000,
-		DedupColumns:  []string{"created_at", "request_id"},
-	}
+	dedup := []string{"created_at", "request_id"}
+	lateCreatedAt := monthStart.Add(72 * time.Hour)
+	lateRequestID := "late-req"
 
 	for i := 0; i < 2; i++ {
 		_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(
@@ -522,64 +520,52 @@ func TestPgPartition_RehomeParentLockBlocksConcurrentCapture(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	holdReady := make(chan struct{})
-	releaseHold := make(chan struct{})
-	holdErr := make(chan error, 1)
+	partial, err := pgpartition.RehomeDefaultMonthly(
+		ctx, integrationDB, tbl, "created_at", now,
+		pgpartition.RehomeOptions{BatchSize: 5000, MaxRowsPerRun: 2, DedupColumns: dedup},
+	)
+	require.NoError(t, err)
+	require.True(t, partial.BudgetExhausted)
+	require.True(t, partial.PendingFinalize)
+	require.Equal(t, int64(2), partial.RowsMoved)
+
+	rehomeDone := make(chan error, 1)
+	insertDone := make(chan error, 1)
+	lockObserved := make(chan bool, 1)
+
 	go func() {
-		conn, err := integrationDB.Conn(ctx)
-		if err != nil {
-			holdErr <- err
-			return
-		}
-		defer func() { _ = conn.Close() }()
-		tx, err := conn.BeginTx(ctx, nil)
-		if err != nil {
-			holdErr <- err
-			return
-		}
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf("LOCK TABLE %s IN SHARE ROW EXCLUSIVE MODE", q)); err != nil {
-			_ = tx.Rollback()
-			holdErr <- err
-			return
-		}
-		close(holdReady)
-		<-releaseHold
-		if err := tx.Rollback(); err != nil {
-			holdErr <- err
-		}
+		_, err := pgpartition.RehomeDefaultMonthly(
+			ctx, integrationDB, tbl, "created_at", now,
+			pgpartition.RehomeOptions{BatchSize: 5000, MaxRowsPerRun: 100, DedupColumns: dedup},
+		)
+		rehomeDone <- err
 	}()
 
-	select {
-	case err := <-holdErr:
-		require.NoError(t, err)
-	case <-holdReady:
-	}
+	go func() {
+		observed := waitForTableShareRowExclusiveLock(ctx, tbl, 15*time.Second)
+		lockObserved <- observed
+		if !observed {
+			insertDone <- fmt.Errorf("finalize parent lock was not observed")
+			return
+		}
+		_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(
+			`INSERT INTO %s (created_at, request_id, payload) VALUES ($1, $2, 'late')`,
+			q,
+		), lateCreatedAt, lateRequestID)
+		insertDone <- err
+	}()
 
-	insertCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	_, blockedErr := integrationDB.ExecContext(insertCtx, fmt.Sprintf(
-		`INSERT INTO %s (created_at, request_id, payload) VALUES ($1, 'late-req', 'late')`,
-		q,
-	), monthStart.Add(72*time.Hour))
-	require.Error(t, blockedErr, "concurrent capture must block while parent table lock is held")
-	close(releaseHold)
+	require.True(t, <-lockObserved, "finalizeStagingPartition must acquire ShareRowExclusiveLock")
+	require.NoError(t, <-rehomeDone)
+	require.NoError(t, <-insertDone, "concurrent capture must succeed after finalize commits")
 
-	select {
-	case err := <-holdErr:
-		require.NoError(t, err)
-	default:
-	}
-
-	_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(
-		`INSERT INTO %s (created_at, request_id, payload) VALUES ($1, 'late-req', 'late')`,
-		q,
-	), monthStart.Add(72*time.Hour))
+	followUp, err := pgpartition.RehomeDefaultMonthly(
+		ctx, integrationDB, tbl, "created_at", now,
+		pgpartition.RehomeOptions{BatchSize: 5000, MaxRowsPerRun: 100, DedupColumns: dedup},
+	)
 	require.NoError(t, err)
-
-	result, err := pgpartition.RehomeDefaultMonthly(ctx, integrationDB, tbl, "created_at", now, opts)
-	require.NoError(t, err)
-	require.Equal(t, int64(3), result.RowsMoved)
-	require.Equal(t, int64(0), result.RemainingRows)
+	require.Equal(t, int64(1), followUp.RowsMoved)
+	require.Equal(t, int64(0), followUp.RemainingRows)
 
 	partitionName := pgpartition.MonthlyPartitionName(tbl, monthStart)
 	var inPartition int
@@ -593,4 +579,24 @@ func TestPgPartition_RehomeParentLockBlocksConcurrentCapture(t *testing.T) {
 		pq.QuoteIdentifier(partitionName),
 	)).Scan(&distinctIdentity))
 	require.Equal(t, 3, distinctIdentity)
+}
+
+func waitForTableShareRowExclusiveLock(ctx context.Context, table string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		var locked bool
+		err := integrationDB.QueryRowContext(ctx, `
+			SELECT EXISTS (
+			  SELECT 1
+			    FROM pg_locks l
+			    JOIN pg_class c ON c.oid = l.relation
+			   WHERE c.relname = $1
+			     AND l.mode = 'ShareRowExclusiveLock'
+			)`, table).Scan(&locked)
+		if err == nil && locked {
+			return true
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return false
 }

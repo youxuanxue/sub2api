@@ -95,7 +95,7 @@
 - `backend/internal/repository/pgpartition_integration_test.go`::`TestPgPartition_RehomeDefaultMultiTickBudget`
 - `backend/internal/repository/pgpartition_integration_test.go`::`TestPgPartition_RehomeDefaultCompositeIdentityDedup`
 - `backend/internal/repository/pgpartition_integration_test.go`::`TestPgPartition_RehomeAttachedOrphanStagingRecovery`
-- `backend/internal/repository/pgpartition_integration_test.go`::`TestPgPartition_RehomeParentLockBlocksConcurrentCapture`
+- `backend/internal/repository/pgpartition_integration_test.go`::`TestPgPartition_RehomeFinalizeBlocksConcurrentCaptureEndToEnd`
 
 运行命令：
 
@@ -123,7 +123,7 @@ python3 .testing/user-stories/verify_quality.py
 - Task 6 已实跑结构化 IAM、部署渲染、workstation direct-S3 CLI 边界与 recovery retirement gate 测试；全部 AWS/DB/S3 边界使用本地 fake、memory store 或临时目录。
 - 2026-08-10 production workstation recovery：`2026-08-07T21:00:00Z` cutover window 经 recovery role 完成 inspect/verify/restore；gate `plan-retirement` 在 `approved_by=feng` approval 下通过。生产 receipt/approval _bundle 由 operator 本地保管（不入库）；执行时证据目录示例 `/tmp/tk-qa-workstation-recovery-20260810T071805Z/`（含 `recovery-evidence.json`、`production-approval.json`）。
 - break-glass prod QA dump 工具已退役；prod deploy 默认注入 `QA_ARCHIVE_ENABLED=true`。
-- Task 7（qa_records rehome）：已实跑 dedup fail-closed unit tests、partial heartbeat string test、multi-tick/composite-dedup/orphan-staging integration tests；并发 capture 阻塞由 `TestPgPartition_RehomeParentLockBlocksConcurrentCapture` 在 PostgreSQL 双连接下验证（需 testcontainer/CI）。
+- Task 7（qa_records rehome）：已实跑 dedup fail-closed unit tests、partial heartbeat string test、multi-tick/composite-dedup/orphan-staging integration tests；`TestPgPartition_RehomeFinalizeBlocksConcurrentCaptureEndToEnd` 在 PostgreSQL 上通过真实 `RehomeDefaultMonthly` finalize 期间观察 ShareRowExclusiveLock 并验证 capture 在提交后成功且不丢不重（需 testcontainer/CI）。
 
 ## Status
 
