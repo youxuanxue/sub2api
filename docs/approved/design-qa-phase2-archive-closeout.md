@@ -537,16 +537,18 @@ that month's rows). Subsequent OpsCleanup ticks resume copy and finalize.
 **Crash recovery:** orphan `{table}_YYYY_MM_rehome_staging` tables are rediscovered via
 catalog scan and finalized; copy-only staging never removes DEFAULT rows until finalize.
 If finalize fails mid-transaction, the next tick retries copy + finalize. Concurrent
-capture during copy is absorbed by request_id dedup and a transaction-local sync copy
-before DELETE.
+capture during finalize is blocked by the parent-table lock; rows landing before copy
+complete are absorbed by composite dedup and a transaction-local sync copy before
+DELETE.
 
 **Concurrency:** finalize holds `pg_advisory_xact_lock(qa_records)` and
 `LOCK TABLE qa_records IN SHARE ROW EXCLUSIVE MODE` through delete + attach +
 staging load so concurrent capture cannot insert into DEFAULT between sync copy
 and month delete.
 
-**Dedup identity:** staging copy uses `(created_at, request_id)` — not
-`request_id` alone — matching the partitioned primary key shape.
+**Dedup identity:** staging copy dedup uses `(created_at, request_id)`, matching the
+unique index `idx_qa_records_request_id_created_at`. The partitioned table primary
+key remains `(id, created_at)`; rehome never dedupes on `request_id` alone.
 
 ### Production rollout
 

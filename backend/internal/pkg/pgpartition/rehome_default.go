@@ -45,15 +45,18 @@ func (o RehomeOptions) withDefaults(table string) RehomeOptions {
 }
 
 func defaultRehomeDedupColumns(table string) []string {
-	if table == "qa_records" {
+	if table == qaRecordsRehomeTable {
 		return []string{"created_at", "request_id"}
 	}
 	return nil
 }
 
+const qaRecordsRehomeTable = "qa_records"
+
 func rehomeRowNotInStaging(stagingName, rowAlias string, dedupCols []string) string {
 	if len(dedupCols) == 0 {
-		return "TRUE"
+		// Misconfiguration must never widen copy to all rows.
+		return "FALSE"
 	}
 	parts := make([]string, len(dedupCols))
 	for i, col := range dedupCols {
@@ -104,13 +107,16 @@ func RehomeDefaultMonthly(
 ) (RehomeDefaultResult, error) {
 	opts = opts.withDefaults(table)
 	result := RehomeDefaultResult{}
-	if db == nil {
-		return result, fmt.Errorf("pgpartition: database is required")
-	}
 	table = strings.TrimSpace(table)
 	timeCol = strings.TrimSpace(timeCol)
 	if table == "" || timeCol == "" {
 		return result, fmt.Errorf("pgpartition: table and time column are required")
+	}
+	if len(opts.DedupColumns) == 0 {
+		return result, fmt.Errorf("pgpartition: rehome requires dedup identity columns for %s", table)
+	}
+	if db == nil {
+		return result, fmt.Errorf("pgpartition: database is required")
 	}
 
 	defaultName, ok, err := defaultChildPartition(ctx, db, table)

@@ -12,7 +12,7 @@
   - 逻辑错误：cutover 指向非 `committed`、未 restore-verified 或非批准小时；normal 失败后仍补偿；保留期后无 source 的小时被写成空成功。
   - 行为回归：任意窗口 `repair-apply`、历史 backfill、move/unset cutover、第二 catchup owner 或 archive-gated stale cleanup 被重新引入。
   - 安全问题：共享 EC2 role 被误报为进程隔离；app 获得 raw bucket 无界 list/read；恢复正文绕过显式隐私确认或从 prod 回源。
-  - 运行时问题：timer/operator 使用不同 image、UID/GID、mount、scratch 或资源限制；host receipt、DB heartbeat 与 control state 矛盾时仍报告健康；export 临时文件清理发生竞态或计划漂移。
+  - 运行时问题：timer/operator 使用不同 image、UID/GID、mount、scratch 或资源限制；host receipt、DB heartbeat 与 control state 矛盾时仍报告健康；export 临时文件清理发生竞态或计划漂移；`qa_records` DEFAULT rehome 在 copy/finalize 中途丢行、重复复制或 orphan staging 永不收敛。
 
 ## Acceptance Criteria
 
@@ -23,6 +23,7 @@
 5. **AC-005（runtime）**：Given timer、operator、self-test 与 health probe，When执行或发生 pre-app/child failure，Then它们共用唯一 host runner 与批准的 image/user/mount/scratch/resource contract，原子 receipt 始终推进且四类运行事实矛盾时 fail closed。
 6. **AC-006（IAM 与 recovery）**：Given app archive role 与 ops recovery role，When渲染 policy 或从 workstation inspect/verify/restore，Then app 只有所需 suffix-scoped artifact 权限且无无界 list/partial read，recovery 不经过 prod 主机/API/数据库，正文恢复要求 privacy confirmation，并如实保留 shared-role 风险。
 7. **AC-007（stale cleanup 与回归）**：Given独立 24 小时 stale cleanup 与 export temp crash orphan，When plan/apply，Then只处理 effective mount 内 age/type/open-handle 全部合格且 exact plan-hash 未漂移的文件；archive completeness、cutover 或 maintenance health 不改变其 owner、窗口或删除权限，已知历史坏小时与 `qa_export_jobs` 保持不变。
+8. **AC-008（qa_records DEFAULT rehome）**：Given `qa_records` DEFAULT 仍持有目标月行或 orphan `{partition}_rehome_staging`，When OpsCleanup partition maintenance 运行，Then 仅 copy 到 staging 直至 `(created_at, request_id)` 整月齐备，finalize 在单事务内 `LOCK TABLE qa_records SHARE ROW EXCLUSIVE` 后 sync/delete/attach/load/drop；partial tick 跳过 EnsureMonthly 且 heartbeat 暴露 `default_rehome`；缺 dedup identity、attached+orphan staging 或并发 capture 均不得丢行或重复复制。
 
 ## Assertions
 
@@ -87,6 +88,14 @@
 - `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_copied_command_receipts_cannot_be_production_evidence`
 - `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_production_evidence_requires_hash_bound_human_approval`
 - `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_stale_production_receipts_cannot_authorize_retirement`
+- `backend/internal/pkg/pgpartition/rehome_default_test.go`::`TestRehomeDefaultMonthlyRejectsMissingDedupIdentity`
+- `backend/internal/pkg/pgpartition/rehome_default_test.go`::`TestRehomeDefaultMonthlyFinalizeUsesParentTableLock`
+- `backend/internal/pkg/pgpartition/rehome_default_test.go`::`TestRehomeDefaultMonthlyBudgetExhaustedDefersFinalize`
+- `backend/internal/pkg/partitionmaintenance/maintenance_rehome_test.go`::`TestResultStringIncludesPartialRehomeReceipt`
+- `backend/internal/repository/pgpartition_integration_test.go`::`TestPgPartition_RehomeDefaultMultiTickBudget`
+- `backend/internal/repository/pgpartition_integration_test.go`::`TestPgPartition_RehomeDefaultCompositeIdentityDedup`
+- `backend/internal/repository/pgpartition_integration_test.go`::`TestPgPartition_RehomeAttachedOrphanStagingRecovery`
+- `backend/internal/repository/pgpartition_integration_test.go`::`TestPgPartition_RehomeParentLockBlocksConcurrentCapture`
 
 运行命令：
 
@@ -95,6 +104,8 @@ cd backend
 go test -tags=unit -count=1 -run 'TestUS045_' ./cmd/qa-archive
 go test -tags=unit -count=1 -run 'TestUS045_' ./cmd/server
 go test -tags=integration -count=1 -run 'TestUS045_' ./internal/observability/qa/archive
+go test -tags=unit -count=1 -run 'TestRehomeDefault|TestResultStringIncludesPartialRehome' ./internal/pkg/pgpartition/... ./internal/pkg/partitionmaintenance/...
+go test -tags=integration -count=1 -run 'TestPgPartition_Rehome' ./internal/repository/
 cd ..
 python3 -m unittest ops.qa.test_qa_maintenance_phase2_runtime ops.qa.test_qa_phase_ops
 python3 -m unittest ops.qa.test_prod_qa_stale_cleanup ops.archive.test_data_layer_retention_activation
@@ -112,6 +123,7 @@ python3 .testing/user-stories/verify_quality.py
 - Task 6 已实跑结构化 IAM、部署渲染、workstation direct-S3 CLI 边界与 recovery retirement gate 测试；全部 AWS/DB/S3 边界使用本地 fake、memory store 或临时目录。
 - 2026-08-10 production workstation recovery：`2026-08-07T21:00:00Z` cutover window 经 recovery role 完成 inspect/verify/restore；gate `plan-retirement` 在 `approved_by=feng` approval 下通过。生产 receipt/approval _bundle 由 operator 本地保管（不入库）；执行时证据目录示例 `/tmp/tk-qa-workstation-recovery-20260810T071805Z/`（含 `recovery-evidence.json`、`production-approval.json`）。
 - break-glass prod QA dump 工具已退役；prod deploy 默认注入 `QA_ARCHIVE_ENABLED=true`。
+- Task 7（qa_records rehome）：已实跑 dedup fail-closed unit tests、partial heartbeat string test、multi-tick/composite-dedup/orphan-staging integration tests；并发 capture 阻塞由 `TestPgPartition_RehomeParentLockBlocksConcurrentCapture` 在 PostgreSQL 双连接下验证（需 testcontainer/CI）。
 
 ## Status
 

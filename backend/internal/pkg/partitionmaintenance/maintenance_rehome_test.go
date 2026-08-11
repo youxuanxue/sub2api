@@ -15,12 +15,12 @@ func TestResultStringIncludesPartialRehomeReceipt(t *testing.T) {
 			{
 				Table: "qa_records",
 				DefaultRehome: &pgpartition.RehomeDefaultResult{
-					RemainingRows:   10,
-					StagingRows:     3,
-					RowsMoved:         3,
-					PendingFinalize:   true,
-					BudgetExhausted:   true,
-					DefaultPartition:  "qa_records_default",
+					RemainingRows:    10,
+					StagingRows:      3,
+					RowsMoved:        3,
+					PendingFinalize:  true,
+					BudgetExhausted:  true,
+					DefaultPartition: "qa_records_default",
 				},
 			},
 		},

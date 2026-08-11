@@ -540,6 +540,8 @@ def _closeout_implementation_failures(root: Path) -> list[str]:
         failures.append("qa_records rehome must copy-only into staging until finalize transaction")
     elif "created_at" not in rehome.read_text(encoding="utf-8") or "request_id" not in rehome.read_text(encoding="utf-8"):
         failures.append("qa_records rehome dedup must use (created_at, request_id) composite identity")
+    elif "rehome requires dedup identity columns" not in rehome.read_text(encoding="utf-8"):
+        failures.append("qa_records rehome must fail closed when dedup identity is missing")
     elif "SHARE ROW EXCLUSIVE" not in rehome.read_text(encoding="utf-8"):
         failures.append("qa_records rehome finalize must lock parent table against concurrent capture")
     partition_maintenance = root / "backend/internal/pkg/partitionmaintenance/maintenance.go"

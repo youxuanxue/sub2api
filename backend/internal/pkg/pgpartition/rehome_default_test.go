@@ -38,7 +38,7 @@ func TestOrderRehomeMonthsPrefersCurrentThenFutureThenPast(t *testing.T) {
 }
 
 func TestDefaultRehomeDedupColumnsUsesCompositeIdentityForQARecords(t *testing.T) {
-	got := defaultRehomeDedupColumns("qa_records")
+	got := defaultRehomeDedupColumns(qaRecordsRehomeTable)
 	want := []string{"created_at", "request_id"}
 	if len(got) != len(want) {
 		t.Fatalf("got=%v want=%v", got, want)
@@ -54,6 +54,20 @@ func TestDefaultRehomeDedupColumnsUsesCompositeIdentityForQARecords(t *testing.T
 	}
 	if strings.Contains(clause, "request_id = d.request_id") {
 		t.Fatalf("dedup must compare created_at and request_id together: %q", clause)
+	}
+}
+
+func TestRehomeDefaultMonthlyRejectsMissingDedupIdentity(t *testing.T) {
+	_, err := RehomeDefaultMonthly(
+		context.Background(),
+		nil,
+		"pgpart_itest_rehome",
+		"created_at",
+		time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC),
+		RehomeOptions{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "dedup identity columns") {
+		t.Fatalf("expected dedup identity error, got %v", err)
 	}
 }
 
