@@ -559,18 +559,33 @@ func TestPgPartition_RehomeFinalizeBlocksConcurrentCaptureEndToEnd(t *testing.T)
 	require.NoError(t, <-rehomeDone)
 	require.NoError(t, <-insertDone, "concurrent capture must succeed after finalize commits")
 
-	followUp, err := pgpartition.RehomeDefaultMonthly(
-		ctx, integrationDB, tbl, "created_at", now,
-		pgpartition.RehomeOptions{BatchSize: 5000, MaxRowsPerRun: 100, DedupColumns: dedup},
-	)
-	require.NoError(t, err)
-	require.Equal(t, int64(1), followUp.RowsMoved)
-	require.Equal(t, int64(0), followUp.RemainingRows)
-
 	partitionName := pgpartition.MonthlyPartitionName(tbl, monthStart)
+	pqPartition := pq.QuoteIdentifier(partitionName)
+
+	var lateInPartition int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, fmt.Sprintf(
+		`SELECT COUNT(*) FROM %s WHERE request_id = $1`, pqPartition,
+	), lateRequestID).Scan(&lateInPartition))
+	require.Equal(t, 1, lateInPartition,
+		"late capture must persist after finalize commits (partition routing or rehome)")
+
+	var inDefaultMonth int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, fmt.Sprintf(
+		`SELECT COUNT(*) FROM %s WHERE created_at >= $1 AND created_at < $2`, q,
+	), monthStart, monthStart.AddDate(0, 1, 0)).Scan(&inDefaultMonth))
+	if inDefaultMonth > 0 {
+		followUp, err := pgpartition.RehomeDefaultMonthly(
+			ctx, integrationDB, tbl, "created_at", now,
+			pgpartition.RehomeOptions{BatchSize: 5000, MaxRowsPerRun: 100, DedupColumns: dedup},
+		)
+		require.NoError(t, err)
+		require.Equal(t, int64(inDefaultMonth), followUp.RowsMoved)
+		require.Equal(t, int64(0), followUp.RemainingRows)
+	}
+
 	var inPartition int
 	require.NoError(t, integrationDB.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM "+pq.QuoteIdentifier(partitionName)).Scan(&inPartition))
+		"SELECT COUNT(*) FROM "+pqPartition).Scan(&inPartition))
 	require.Equal(t, 3, inPartition)
 
 	var distinctIdentity int
