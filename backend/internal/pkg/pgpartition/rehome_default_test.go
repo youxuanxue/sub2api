@@ -108,13 +108,11 @@ func TestRehomeDefaultMonthlyMovesOneMonthAndAttachesPartition(t *testing.T) {
 	mock.ExpectQuery("SELECT EXISTS").
 		WithArgs("qa_records", "qa_records_2026_08").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectExec("CREATE TABLE \"qa_records_2026_08\"").
+	mock.ExpectExec("CREATE TABLE IF NOT EXISTS \"qa_records_2026_08\" PARTITION OF \"qa_records\"").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec("WITH moved AS").
 		WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectExec("WITH moved AS").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("ALTER TABLE \"qa_records\" ATTACH PARTITION \"qa_records_2026_08\"").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM \"qa_records_default\"").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
@@ -131,7 +129,7 @@ func TestRehomeDefaultMonthlyMovesOneMonthAndAttachesPartition(t *testing.T) {
 	}
 }
 
-func TestRehomeDefaultMonthlyDropsUnusedStagingPartition(t *testing.T) {
+func TestRehomeDefaultMonthlyDropsUnusedAttachedPartition(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
@@ -155,7 +153,7 @@ func TestRehomeDefaultMonthlyDropsUnusedStagingPartition(t *testing.T) {
 	mock.ExpectQuery("SELECT EXISTS").
 		WithArgs("qa_records", "qa_records_2026_08").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE "qa_records_2026_08"`)).
+	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE IF NOT EXISTS "qa_records_2026_08" PARTITION OF "qa_records"`)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec("WITH moved AS").
 		WillReturnResult(sqlmock.NewResult(0, 0))

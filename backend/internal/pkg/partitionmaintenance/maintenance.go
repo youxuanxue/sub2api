@@ -100,6 +100,24 @@ func Ensure(
 		}
 
 		ranges := targetRanges(target, now)
+		var defaultRehome *pgpartition.RehomeDefaultResult
+		if target.table == qaRecordsTable {
+			rehome, rehomeErr := pgpartition.RehomeDefaultMonthly(
+				ctx,
+				db,
+				qaRecordsTable,
+				qaRecordsTimeColumn,
+				now,
+				defaultRehomeBatchSz,
+			)
+			if rehomeErr != nil {
+				return result, fmt.Errorf("partitionmaintenance: rehome %s default: %w", target.table, rehomeErr)
+			}
+			if rehome.DefaultPartition != "" || len(rehome.Months) > 0 || rehome.RemainingRows > 0 {
+				defaultRehome = &rehome
+			}
+		}
+
 		switch target.cadence {
 		case cadenceMonthly:
 			err = pgpartition.EnsureMonthly(ctx, db, target.table, now, target.ahead)
@@ -125,21 +143,8 @@ func Ensure(
 			)
 		}
 		tableResult := TableResult{Table: target.table, RangeCount: covered}
-		if target.table == qaRecordsTable {
-			rehome, rehomeErr := pgpartition.RehomeDefaultMonthly(
-				ctx,
-				db,
-				qaRecordsTable,
-				qaRecordsTimeColumn,
-				now,
-				defaultRehomeBatchSz,
-			)
-			if rehomeErr != nil {
-				return result, fmt.Errorf("partitionmaintenance: rehome %s default: %w", target.table, rehomeErr)
-			}
-			if rehome.DefaultPartition != "" || len(rehome.Months) > 0 || rehome.RemainingRows > 0 {
-				tableResult.DefaultRehome = &rehome
-			}
+		if defaultRehome != nil {
+			tableResult.DefaultRehome = defaultRehome
 		}
 		result.Tables = append(result.Tables, tableResult)
 	}

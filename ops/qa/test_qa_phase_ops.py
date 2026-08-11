@@ -362,6 +362,36 @@ delete_rows_before 2026-08-06T12:00:00.000000Z
         self.assertIn("--install-units", body)
         self.assertIn("OnCalendar=*-*-* *:15:00", body)
         self.assertNotIn("DELETE FROM qa_records", body)
+        self.assertNotIn("if ! run_partition_maintenance", body)
+        self.assertIn("run_partition_maintenance || return $?", body)
+
+    def test_partition_maintenance_failure_propagates_runner_exit_code(self) -> None:
+        fixed = """
+        set -euo pipefail
+        run_partition_maintenance() { return 9; }
+        run_qa_maintenance() {
+          run_partition_maintenance || return $?
+          echo archive_would_run
+        }
+        run_qa_maintenance
+        """
+        proc = subprocess.run(["bash", "-c", fixed], capture_output=True, text=True, check=False)
+        self.assertEqual(proc.returncode, 9, proc.stdout + proc.stderr)
+        self.assertNotIn("archive_would_run", proc.stdout)
+
+    def test_negated_partition_guard_masks_failure_exit_code(self) -> None:
+        buggy = """
+        set -euo pipefail
+        run_partition_maintenance() { return 9; }
+        run_qa_maintenance() {
+          if ! run_partition_maintenance; then return $?; fi
+          echo archive_would_run
+        }
+        run_qa_maintenance
+        """
+        proc = subprocess.run(["bash", "-c", buggy], capture_output=True, text=True, check=False)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertNotIn("archive_would_run", proc.stdout)
 
     def test_qa_lifecycle_ssot_check_passes(self) -> None:
         proc = subprocess.run(

@@ -216,6 +216,7 @@ REQUIRED_BY_FILE = {
         "ops_partition_maintenance",
         "archive_start",
         "partition_start",
+        "run_partition_maintenance || return $?",
         "--install-units",
         "/usr/local/lib/tokenkey/resolve-app-container.sh",
         "/var/lib/tokenkey/app/qa_archive_tmp",
@@ -537,6 +538,15 @@ def _closeout_implementation_failures(root: Path) -> list[str]:
     rehome = root / "backend/internal/pkg/pgpartition/rehome_default.go"
     if not rehome.is_file():
         failures.append("qa_records default rehome implementation missing")
+    elif "PARTITION OF" not in rehome.read_text(encoding="utf-8"):
+        failures.append("qa_records rehome must create attached PARTITION OF ranges before row moves")
+    partition_maintenance = root / "backend/internal/pkg/partitionmaintenance/maintenance.go"
+    if partition_maintenance.is_file():
+        body = partition_maintenance.read_text(encoding="utf-8")
+        rehome_at = body.find("RehomeDefaultMonthly(")
+        ensure_at = body.find("EnsureMonthly(ctx, db, target.table")
+        if rehome_at < 0 or ensure_at < 0 or rehome_at > ensure_at:
+            failures.append("qa_records rehome must run before EnsureMonthly in partition maintenance")
     archive_health = root / "ops/observability/data_layer_archive_health.py"
     if archive_health.is_file():
         body = archive_health.read_text(encoding="utf-8")

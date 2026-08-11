@@ -288,7 +288,7 @@ finalize_maintenance() {
   exit "${runner_exit}"
 }
 
-	run_partition_maintenance() {
+run_partition_maintenance() {
   local partition_stdout partition_stderr partition_exit
   partition_stdout="$(mktemp "${QA_MAINTENANCE_RUNTIME_DIR}/partition.out.XXXXXX")"
   partition_stderr="$(mktemp "${QA_MAINTENANCE_RUNTIME_DIR}/partition.err.XXXXXX")"
@@ -371,9 +371,7 @@ run_qa_maintenance() {
   CHILD_STDOUT="$(mktemp "${QA_MAINTENANCE_RUNTIME_DIR}/child.out.XXXXXX")"
   CHILD_STDERR="$(mktemp "${QA_MAINTENANCE_RUNTIME_DIR}/child.err.XXXXXX")"
   chmod 0600 "${CHILD_STDOUT}" "${CHILD_STDERR}"
-  if ! run_partition_maintenance; then
-    return $?
-  fi
+  run_partition_maintenance || return $?
   qa_log "archive_start run_id=${RUN_ID} trigger=${TRIGGER} container=${APP_CONTAINER}"
   set +e
   qa_container_run "tokenkey-qa-maintenance-${RUN_ID}" \

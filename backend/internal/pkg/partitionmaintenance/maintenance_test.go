@@ -54,11 +54,11 @@ func TestEnsureStrictCreatesAndVerifiesAllTargets(t *testing.T) {
 		{"usage_logs", 8},
 	} {
 		expectPartitioned(mock, target.table, true)
-		expectCreates(mock, target.count)
-		expectCoverage(mock, target.table, target.count)
 		if target.table == qaRecordsTable {
 			expectNoDefaultRehome(mock, target.table)
 		}
+		expectCreates(mock, target.count)
+		expectCoverage(mock, target.table, target.count)
 	}
 
 	result, err := Ensure(context.Background(), db, maintenanceNow, ModeRequireAllPartitioned)

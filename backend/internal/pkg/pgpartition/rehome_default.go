@@ -28,9 +28,9 @@ type RehomeDefaultResult struct {
 }
 
 // RehomeDefaultMonthly moves rows from a table's DEFAULT child partition into
-// bounded monthly partitions. Future months are expected to already exist from
-// EnsureMonthly; this routine creates and ATTACHes any missing month partitions
-// before batch-moving matching rows out of DEFAULT.
+// bounded monthly partitions. Missing month partitions are created as attached
+// PARTITION OF ranges before any rows are moved; EnsureMonthly should run after
+// rehome so future empty months are provisioned without blocking DEFAULT moves.
 func RehomeDefaultMonthly(
 	ctx context.Context,
 	db DB,
@@ -160,14 +160,24 @@ func rehomeDefaultMonth(
 	if err != nil {
 		return 0, err
 	}
+	createdAttached := false
 	if !attached {
 		createQ := fmt.Sprintf(
-			"CREATE TABLE %s (LIKE %s INCLUDING ALL)",
+			"CREATE TABLE IF NOT EXISTS %s PARTITION OF %s FOR VALUES FROM (%s) TO (%s)",
 			pq.QuoteIdentifier(partitionName),
 			pq.QuoteIdentifier(table),
+			pq.QuoteLiteral(start.Format(time.RFC3339)),
+			pq.QuoteLiteral(end.Format(time.RFC3339)),
 		)
 		if _, err := db.ExecContext(ctx, createQ); err != nil {
-			return 0, fmt.Errorf("create staging partition %s: %w", partitionName, err)
+			if isOverlap(err) {
+				attached = true
+			} else {
+				return 0, fmt.Errorf("create attached partition %s: %w", partitionName, err)
+			}
+		} else {
+			createdAttached = true
+			attached = true
 		}
 	}
 
@@ -205,24 +215,10 @@ func rehomeDefaultMonth(
 		moved += batch
 	}
 
-	if moved == 0 && !attached {
+	if moved == 0 && createdAttached {
 		dropQ := "DROP TABLE IF EXISTS " + pq.QuoteIdentifier(partitionName)
 		if _, err := db.ExecContext(ctx, dropQ); err != nil {
-			return moved, fmt.Errorf("drop unused staging partition %s: %w", partitionName, err)
-		}
-		return 0, nil
-	}
-
-	if !attached {
-		attachQ := fmt.Sprintf(
-			"ALTER TABLE %s ATTACH PARTITION %s FOR VALUES FROM (%s) TO (%s)",
-			pq.QuoteIdentifier(table),
-			pq.QuoteIdentifier(partitionName),
-			pq.QuoteLiteral(start.Format(time.RFC3339)),
-			pq.QuoteLiteral(end.Format(time.RFC3339)),
-		)
-		if _, err := db.ExecContext(ctx, attachQ); err != nil {
-			return moved, fmt.Errorf("attach partition %s: %w", partitionName, err)
+			return moved, fmt.Errorf("drop empty attached partition %s: %w", partitionName, err)
 		}
 	}
 	return moved, nil
