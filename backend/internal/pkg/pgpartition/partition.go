@@ -16,6 +16,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -56,10 +57,19 @@ func IsPartitioned(ctx context.Context, db DB, table string) (bool, error) {
 	return partitioned, nil
 }
 
-// EnsureMonthly creates monthly RANGE partitions `<table>_YYYYMM` for the current
-// month through `monthsAhead` months in the future, so live inserts always have a
-// home as the calendar rolls forward. Months already covered by an existing partition
-// (e.g. a legacy mega-partition right after conversion) raise 42P17 and are skipped.
+// MonthlyPartitionName returns the canonical child partition name for a month.
+// qa_records follows tk_004 migration naming (qa_records_YYYY_MM); other tables use YYYYMM.
+func MonthlyPartitionName(table string, monthStart time.Time) string {
+	if strings.TrimSpace(table) == "qa_records" {
+		return fmt.Sprintf("%s_%s", table, monthStart.Format("2006_01"))
+	}
+	return fmt.Sprintf("%s_%s", table, monthStart.Format("200601"))
+}
+
+// EnsureMonthly creates monthly RANGE partitions for the current month through
+// `monthsAhead` months in the future, so live inserts always have a home as the
+// calendar rolls forward. Months already covered by an existing partition (e.g. a
+// legacy mega-partition right after conversion) raise 42P17 and are skipped.
 // It never creates PAST months — those are either covered already or were intentionally
 // dropped by retention, and recreating them would resurrect an empty partition.
 // Idempotent (CREATE ... IF NOT EXISTS + overlap-skip).
@@ -68,7 +78,7 @@ func EnsureMonthly(ctx context.Context, db DB, table string, now time.Time, mont
 	for m := 0; m <= monthsAhead; m++ {
 		start := base.AddDate(0, m, 0)
 		end := start.AddDate(0, 1, 0)
-		name := fmt.Sprintf("%s_%s", table, start.Format("200601"))
+		name := MonthlyPartitionName(table, start)
 		q := fmt.Sprintf(
 			"CREATE TABLE IF NOT EXISTS %s PARTITION OF %s FOR VALUES FROM (%s) TO (%s)",
 			pq.QuoteIdentifier(name),

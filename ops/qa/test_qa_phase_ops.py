@@ -349,12 +349,16 @@ delete_rows_before 2026-08-06T12:00:00.000000Z
             parsed = subprocess.run(["bash", "-n"], input=command, text=True, capture_output=True)
             self.assertEqual(parsed.returncode, 0, parsed.stderr)
 
-    def test_qa_maintenance_host_script_is_archive_only(self) -> None:
+    def test_qa_maintenance_host_script_runs_partition_then_archive(self) -> None:
         body = (ROOT / "deploy/aws/stage0/tokenkey-qa-maintenance.sh").read_text(
             encoding="utf-8"
         )
         self.assertIn("--qa-maintenance-once", body)
         self.assertIn("tokenkey-prod-qa-maintenance-v1", body)
+        self.assertIn("--partition-maintenance-once", body)
+        self.assertIn("tokenkey-prod-partition-maintenance-v1", body)
+        self.assertIn("ops_partition_maintenance", body)
+        self.assertLess(body.index("run_partition_maintenance"), body.index("archive_start"))
         self.assertIn("--install-units", body)
         self.assertIn("OnCalendar=*-*-* *:15:00", body)
         self.assertNotIn("DELETE FROM qa_records", body)

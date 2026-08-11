@@ -288,6 +288,68 @@ finalize_maintenance() {
   exit "${runner_exit}"
 }
 
+	run_partition_maintenance() {
+  local partition_stdout partition_stderr partition_exit
+  partition_stdout="$(mktemp "${QA_MAINTENANCE_RUNTIME_DIR}/partition.out.XXXXXX")"
+  partition_stderr="$(mktemp "${QA_MAINTENANCE_RUNTIME_DIR}/partition.err.XXXXXX")"
+  chmod 0600 "${partition_stdout}" "${partition_stderr}"
+  qa_log "partition_start run_id=${RUN_ID} trigger=${TRIGGER} container=${APP_CONTAINER}"
+  set +e
+  qa_container_run "tokenkey-partition-maintenance-${RUN_ID}" \
+    "${APP_IMAGE}" /app/sub2api \
+    --partition-maintenance-once \
+    --confirm=tokenkey-prod-partition-maintenance-v1 \
+    >"${partition_stdout}" 2>"${partition_stderr}"
+  partition_exit=$?
+  set -e
+  cat "${partition_stdout}"
+  if [ "${partition_exit}" -ne 0 ]; then
+    ERROR_CODE=partition_maintenance_failed
+    qa_log "partition_failed run_id=${RUN_ID} child_exit=${partition_exit}"
+    rm -f -- "${partition_stdout}" "${partition_stderr}"
+    return "${partition_exit}"
+  fi
+  if ! PARTITION_STDOUT="${partition_stdout}" validate_partition_receipt; then
+    ERROR_CODE=partition_receipt_invalid
+    qa_log "partition_failed run_id=${RUN_ID} error_code=${ERROR_CODE}"
+    rm -f -- "${partition_stdout}" "${partition_stderr}"
+    return 53
+  fi
+  rm -f -- "${partition_stdout}" "${partition_stderr}"
+  qa_log "partition_done run_id=${RUN_ID}"
+}
+
+validate_partition_receipt() {
+  PARTITION_STDOUT="${PARTITION_STDOUT:?}" python3 - <<'PY'
+import json
+import os
+import pathlib
+import sys
+
+path = pathlib.Path(os.environ["PARTITION_STDOUT"])
+child = None
+for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    try:
+        candidate = json.loads(raw.strip())
+    except (json.JSONDecodeError, TypeError):
+        continue
+    if isinstance(candidate, dict):
+        child = candidate
+
+valid = (
+    isinstance(child, dict)
+    and child.get("receipt_version") == 1
+    and child.get("mode") == "partition_maintenance"
+    and child.get("ok") is True
+    and child.get("job_name") == "ops_partition_maintenance"
+    and child.get("deletion_authorized") is False
+    and isinstance(child.get("tables"), list)
+    and len(child.get("tables")) >= 1
+)
+raise SystemExit(0 if valid else 1)
+PY
+}
+
 run_qa_maintenance() {
   TRIGGER="$1"
   case "${TRIGGER}" in
@@ -309,6 +371,9 @@ run_qa_maintenance() {
   CHILD_STDOUT="$(mktemp "${QA_MAINTENANCE_RUNTIME_DIR}/child.out.XXXXXX")"
   CHILD_STDERR="$(mktemp "${QA_MAINTENANCE_RUNTIME_DIR}/child.err.XXXXXX")"
   chmod 0600 "${CHILD_STDOUT}" "${CHILD_STDERR}"
+  if ! run_partition_maintenance; then
+    return $?
+  fi
   qa_log "archive_start run_id=${RUN_ID} trigger=${TRIGGER} container=${APP_CONTAINER}"
   set +e
   qa_container_run "tokenkey-qa-maintenance-${RUN_ID}" \

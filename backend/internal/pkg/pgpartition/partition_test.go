@@ -65,6 +65,20 @@ func TestIsOverlap(t *testing.T) {
 	}
 }
 
+func TestEnsureMonthly_QARecordsUsesLegacyMonthNaming(t *testing.T) {
+	rec := &execRecorder{}
+	now := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
+	if err := EnsureMonthly(context.Background(), rec, "qa_records", now, 1); err != nil {
+		t.Fatalf("EnsureMonthly: %v", err)
+	}
+	if len(rec.queries) != 2 {
+		t.Fatalf("expected 2 CREATE statements, got %d", len(rec.queries))
+	}
+	if !strings.Contains(rec.queries[0], "qa_records_2026_08") {
+		t.Fatalf("qa_records must use YYYY_MM naming: %q", rec.queries[0])
+	}
+}
+
 func TestEnsureMonthly_CreatesCurrentThroughAhead(t *testing.T) {
 	rec := &execRecorder{}
 	now := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)

@@ -50,6 +50,7 @@ prod:
     repository_iam_state: contract_ready
     observed_iam_state: pending_live_verification
     iam_contract_verifier: ops/qa/verify_raw_archive_iam_contract.py
+    iam_contract_reconciler: ops/qa/reconcile_raw_archive_iam_contract.sh
     independent_evidence_state: production_workstation_recovery_verified
     recovery_cli: backend/cmd/qa-archive
     retirement_gate: ops/qa/qa_archive_recovery_gate.py

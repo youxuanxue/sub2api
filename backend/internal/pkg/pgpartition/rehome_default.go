@@ -229,12 +229,19 @@ func rehomeDefaultMonth(
 }
 
 func monthlyPartitionNameCandidates(table string, monthStart time.Time) []string {
+	canonical := MonthlyPartitionName(table, monthStart)
 	compact := fmt.Sprintf("%s_%s", table, monthStart.Format("200601"))
 	legacy := fmt.Sprintf("%s_%s", table, monthStart.Format("2006_01"))
-	if compact == legacy {
-		return []string{compact}
+	seen := make(map[string]struct{}, 3)
+	var candidates []string
+	for _, candidate := range []string{canonical, legacy, compact} {
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		candidates = append(candidates, candidate)
 	}
-	return []string{compact, legacy}
+	return candidates
 }
 
 func resolveMonthlyPartitionName(ctx context.Context, db DB, table string, monthStart time.Time) (string, error) {

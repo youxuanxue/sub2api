@@ -45,9 +45,6 @@ func TestResolveMonthlyPartitionNamePrefersAttachedLegacyName(t *testing.T) {
 
 	month := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	mock.ExpectQuery("SELECT EXISTS").
-		WithArgs("qa_records", "qa_records_202608").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery("SELECT EXISTS").
 		WithArgs("qa_records", "qa_records_2026_08").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
@@ -103,21 +100,21 @@ func TestRehomeDefaultMonthlyMovesOneMonthAndAttachesPartition(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"month"}).
 			AddRow(time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)))
 	mock.ExpectQuery("SELECT EXISTS").
-		WithArgs("qa_records", "qa_records_202608").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery("SELECT EXISTS").
 		WithArgs("qa_records", "qa_records_2026_08").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectQuery("SELECT EXISTS").
 		WithArgs("qa_records", "qa_records_202608").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectExec("CREATE TABLE \"qa_records_202608\"").
+	mock.ExpectQuery("SELECT EXISTS").
+		WithArgs("qa_records", "qa_records_2026_08").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectExec("CREATE TABLE \"qa_records_2026_08\"").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec("WITH moved AS").
 		WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectExec("WITH moved AS").
 		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("ALTER TABLE \"qa_records\" ATTACH PARTITION \"qa_records_202608\"").
+	mock.ExpectExec("ALTER TABLE \"qa_records\" ATTACH PARTITION \"qa_records_2026_08\"").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM \"qa_records_default\"").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
@@ -150,19 +147,19 @@ func TestRehomeDefaultMonthlyDropsUnusedStagingPartition(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"month"}).
 			AddRow(time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)))
 	mock.ExpectQuery("SELECT EXISTS").
-		WithArgs("qa_records", "qa_records_202608").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery("SELECT EXISTS").
 		WithArgs("qa_records", "qa_records_2026_08").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectQuery("SELECT EXISTS").
 		WithArgs("qa_records", "qa_records_202608").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE "qa_records_202608"`)).
+	mock.ExpectQuery("SELECT EXISTS").
+		WithArgs("qa_records", "qa_records_2026_08").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE "qa_records_2026_08"`)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec("WITH moved AS").
 		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec(regexp.QuoteMeta(`DROP TABLE IF EXISTS "qa_records_202608"`)).
+	mock.ExpectExec(regexp.QuoteMeta(`DROP TABLE IF EXISTS "qa_records_2026_08"`)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM \"qa_records_default\"").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(5)))
