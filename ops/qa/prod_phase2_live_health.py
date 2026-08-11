@@ -91,7 +91,9 @@ def evaluate_snapshot(
             account_id = iam_contract._account_id()
             bucket = f"tokenkey-prod-qa-raw-archive-{account_id}"
             app_role_arn = iam_contract.resolve_app_role_arn()
-            iam = iam_contract.evaluate(bucket=bucket, app_role_arn=app_role_arn)
+            iam = iam_contract.evaluate(
+                bucket=bucket, app_role_arn=app_role_arn, verify_network=True,
+            )
         except RuntimeError as exc:
             iam = {"ok": False, "status": "unknown", "failures": [str(exc)]}
         if not iam.get("ok"):

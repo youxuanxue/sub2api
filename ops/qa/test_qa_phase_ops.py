@@ -349,49 +349,77 @@ delete_rows_before 2026-08-06T12:00:00.000000Z
             parsed = subprocess.run(["bash", "-n"], input=command, text=True, capture_output=True)
             self.assertEqual(parsed.returncode, 0, parsed.stderr)
 
-    def test_qa_maintenance_host_script_runs_partition_then_archive(self) -> None:
+    def test_qa_maintenance_host_script_runs_archive_only(self) -> None:
         body = (ROOT / "deploy/aws/stage0/tokenkey-qa-maintenance.sh").read_text(
             encoding="utf-8"
         )
         self.assertIn("--qa-maintenance-once", body)
         self.assertIn("tokenkey-prod-qa-maintenance-v1", body)
-        self.assertIn("--partition-maintenance-once", body)
-        self.assertIn("tokenkey-prod-partition-maintenance-v1", body)
-        self.assertIn("ops_partition_maintenance", body)
-        self.assertLess(body.index("run_partition_maintenance"), body.index("archive_start"))
+        self.assertIn("archive_start", body)
         self.assertIn("--install-units", body)
         self.assertIn("OnCalendar=*-*-* *:15:00", body)
         self.assertNotIn("DELETE FROM qa_records", body)
-        self.assertNotIn("if ! run_partition_maintenance", body)
-        self.assertIn("run_partition_maintenance || return $?", body)
+        self.assertNotIn("--partition-maintenance-once", body)
+        self.assertNotIn("run_partition_maintenance", body)
+        self.assertNotIn("tokenkey-prod-partition-maintenance-v1", body)
 
-    def test_partition_maintenance_failure_propagates_runner_exit_code(self) -> None:
-        fixed = """
-        set -euo pipefail
-        run_partition_maintenance() { return 9; }
-        run_qa_maintenance() {
-          run_partition_maintenance || return $?
-          echo archive_would_run
-        }
-        run_qa_maintenance
-        """
-        proc = subprocess.run(["bash", "-c", fixed], capture_output=True, text=True, check=False)
-        self.assertEqual(proc.returncode, 9, proc.stdout + proc.stderr)
-        self.assertNotIn("archive_would_run", proc.stdout)
+    def test_verify_raw_archive_iam_contract_flags_missing_s3_gateway_route(self) -> None:
+        iam_contract = _load_module(
+            "verify_raw_archive_iam_contract", "ops/qa/verify_raw_archive_iam_contract.py"
+        )
 
-    def test_negated_partition_guard_masks_failure_exit_code(self) -> None:
-        buggy = """
-        set -euo pipefail
-        run_partition_maintenance() { return 9; }
-        run_qa_maintenance() {
-          if ! run_partition_maintenance; then return $?; fi
-          echo archive_would_run
-        }
-        run_qa_maintenance
-        """
-        proc = subprocess.run(["bash", "-c", buggy], capture_output=True, text=True, check=False)
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertNotIn("archive_would_run", proc.stdout)
+        def fake_aws_json(args: list[str]) -> dict:
+            if "describe-vpc-endpoints" in args:
+                return {"VpcEndpoints": []}
+            raise AssertionError(f"unexpected aws call: {args}")
+
+        original = iam_contract._aws_json
+        iam_contract._aws_json = fake_aws_json
+        try:
+            failures = iam_contract._verify_s3_gateway_endpoint(
+                vpc_id="vpc-abc",
+                route_table_ids=["rtb-public"],
+                endpoint_id="vpce-qa",
+            )
+        finally:
+            iam_contract._aws_json = original
+        self.assertIn("s3_endpoint_missing:vpce-qa", failures)
+
+    def test_verify_raw_archive_iam_contract_detects_detached_route_table(self) -> None:
+        iam_contract = _load_module(
+            "verify_raw_archive_iam_contract", "ops/qa/verify_raw_archive_iam_contract.py"
+        )
+
+        def fake_aws_json(args: list[str]) -> dict:
+            if "describe-vpc-endpoints" in args:
+                return {
+                    "VpcEndpoints": [
+                        {
+                            "VpcId": "vpc-abc",
+                            "RouteTableIds": ["rtb-other"],
+                        }
+                    ]
+                }
+            if "describe-route-tables" in args:
+                return {
+                    "RouteTables": [
+                        {"Routes": [{"DestinationCidrBlock": "0.0.0.0/0", "GatewayId": "igw-1"}]}
+                    ]
+                }
+            raise AssertionError(f"unexpected aws call: {args}")
+
+        original = iam_contract._aws_json
+        iam_contract._aws_json = fake_aws_json
+        try:
+            failures = iam_contract._verify_s3_gateway_endpoint(
+                vpc_id="vpc-abc",
+                route_table_ids=["rtb-public"],
+                endpoint_id="vpce-qa",
+            )
+        finally:
+            iam_contract._aws_json = original
+        self.assertIn("s3_endpoint_route_table_not_attached:rtb-public", failures)
+        self.assertIn("route_table_missing_s3_gateway_route:rtb-public", failures)
 
     def test_qa_lifecycle_ssot_check_passes(self) -> None:
         proc = subprocess.run(

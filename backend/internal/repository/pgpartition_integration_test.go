@@ -270,3 +270,71 @@ func TestPgPartition_OpsErrorLogsConvertedByMigration(t *testing.T) {
 	require.Equal(t, int64(1), n, "UPDATE ... WHERE id must affect exactly the one row")
 	_, _ = integrationDB.ExecContext(ctx, `DELETE FROM ops_error_logs WHERE id=$1`, id)
 }
+
+// TestPgPartition_RehomeDefaultMonthlyDrainsDefaultBeforeAttach proves PostgreSQL
+// rejects CREATE TABLE ... PARTITION OF while DEFAULT still holds rows in the target
+// range, and that staging-first rehome succeeds end-to-end.
+func TestPgPartition_RehomeDefaultMonthlyDrainsDefaultBeforeAttach(t *testing.T) {
+	ctx := context.Background()
+	tbl := "pgpart_itest_rehome"
+	q := pq.QuoteIdentifier(tbl)
+	_, _ = integrationDB.ExecContext(ctx, "DROP TABLE IF EXISTS "+q+" CASCADE")
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DROP TABLE IF EXISTS "+q+" CASCADE")
+	})
+
+	_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(
+		`CREATE TABLE %s (
+			id BIGSERIAL,
+			created_at TIMESTAMPTZ NOT NULL,
+			payload TEXT NOT NULL DEFAULT ''
+		) PARTITION BY RANGE (created_at)`, q))
+	require.NoError(t, err)
+	defaultName := tbl + "_default"
+	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf(
+		"CREATE TABLE %s PARTITION OF %s DEFAULT",
+		pq.QuoteIdentifier(defaultName), q,
+	))
+	require.NoError(t, err)
+
+	monthStart := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	monthEnd := monthStart.AddDate(0, 1, 0)
+	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf(
+		"INSERT INTO %s (created_at, payload) VALUES ($1, 'a'), ($2, 'b')",
+		q,
+	), monthStart.Add(24*time.Hour), monthStart.Add(48*time.Hour))
+	require.NoError(t, err)
+
+	partitionName := pgpartition.MonthlyPartitionName(tbl, monthStart)
+	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf(
+		"CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%s) TO (%s)",
+		pq.QuoteIdentifier(partitionName), q,
+		pq.QuoteLiteral(monthStart.Format(time.RFC3339)),
+		pq.QuoteLiteral(monthEnd.Format(time.RFC3339)),
+	))
+	require.Error(t, err, "PostgreSQL must reject bounded partition create while DEFAULT holds rows in range")
+
+	result, err := pgpartition.RehomeDefaultMonthly(
+		ctx, integrationDB, tbl, "created_at", monthStart.Add(15*24*time.Hour),
+		pgpartition.RehomeOptions{BatchSize: 5000, MaxRowsPerRun: 20000},
+	)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), result.RemainingRows)
+	require.Len(t, result.Months, 1)
+	require.Equal(t, int64(2), result.Months[0].RowsMoved)
+
+	var attached bool
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM pg_inherits i
+		  JOIN pg_class child ON child.oid = i.inhrelid
+		  JOIN pg_class parent ON parent.oid = i.inhparent
+		 WHERE parent.relname = $1 AND child.relname = $2
+		)`, tbl, partitionName).Scan(&attached))
+	require.True(t, attached)
+
+	var inPartition int
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM "+pq.QuoteIdentifier(partitionName)).Scan(&inPartition))
+	require.Equal(t, 2, inPartition)
+}

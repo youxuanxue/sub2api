@@ -26,6 +26,16 @@ resolve_stack_parameter() {
     --output text
 }
 
+resolve_stack_resource() {
+  local stack_name="$1" logical_id="$2"
+  aws cloudformation describe-stack-resources \
+    --region "${REGION}" \
+    --stack-name "${stack_name}" \
+    --logical-resource-id "${logical_id}" \
+    --query "StackResources[0].PhysicalResourceId" \
+    --output text
+}
+
 resolve_vpc_and_route_tables() {
   local vpc_id route_table_ids
   vpc_id="$(aws cloudformation describe-stacks \
@@ -34,17 +44,23 @@ resolve_vpc_and_route_tables() {
     --query "Stacks[0].Outputs[?OutputKey=='VpcId'].OutputValue | [0]" \
     --output text 2>/dev/null || true)"
   if [ -z "${vpc_id}" ] || [ "${vpc_id}" = "None" ]; then
+    vpc_id="$(resolve_stack_resource "${STAGE0_STACK}" "VPC" 2>/dev/null || true)"
+  fi
+  if [ -z "${vpc_id}" ] || [ "${vpc_id}" = "None" ]; then
     vpc_id="$(aws ec2 describe-vpcs \
       --region "${REGION}" \
       --filters "Name=tag:Name,Values=*tokenkey*prod*" \
       --query 'Vpcs[0].VpcId' \
       --output text)"
   fi
-  route_table_ids="$(aws ec2 describe-route-tables \
-    --region "${REGION}" \
-    --filters "Name=vpc-id,Values=${vpc_id}" \
-    --query 'RouteTables[0].RouteTableId' \
-    --output text)"
+  route_table_ids="$(resolve_stack_resource "${STAGE0_STACK}" "PublicRouteTable" 2>/dev/null || true)"
+  if [ -z "${route_table_ids}" ] || [ "${route_table_ids}" = "None" ]; then
+    route_table_ids="$(aws ec2 describe-route-tables \
+      --region "${REGION}" \
+      --filters "Name=vpc-id,Values=${vpc_id}" "Name=tag:Name,Values=*public*rt*" \
+      --query 'RouteTables[0].RouteTableId' \
+      --output text)"
+  fi
   require_value QA_RAW_ARCHIVE_VPC_ID "${vpc_id}"
   require_value QA_RAW_ARCHIVE_ROUTE_TABLE_IDS "${route_table_ids}"
   export QA_RAW_ARCHIVE_VPC_ID="${vpc_id}"

@@ -18,10 +18,25 @@ const (
 	opsMonthsAhead = 3
 	usageDaysAhead = 7
 
-	qaRecordsTable       = "qa_records"
-	qaRecordsTimeColumn  = "created_at"
-	defaultRehomeBatchSz = 5000
+	qaRecordsTable          = "qa_records"
+	qaRecordsTimeColumn     = "created_at"
+	opsCleanupRehomeBatchSz = 5000
+	// opsCleanupRehomeMaxRowsPerRun caps qa_records DEFAULT rehome work per OpsCleanup tick.
+	opsCleanupRehomeMaxRowsPerRun int64 = 20000
 )
+
+// Options controls optional maintainer behavior. One-shot partition maintenance
+// and approved create-only paths must leave RehomeQaRecordsDefault false.
+type Options struct {
+	RehomeQaRecordsDefault bool
+	QaRecordsRehomeMaxRows int64
+}
+
+// OpsCleanupOptions is the production cron owner profile for partition maintenance.
+var OpsCleanupOptions = Options{
+	RehomeQaRecordsDefault: true,
+	QaRecordsRehomeMaxRows:   opsCleanupRehomeMaxRowsPerRun,
+}
 
 type Mode uint8
 
@@ -78,6 +93,7 @@ func Ensure(
 	db pgpartition.DB,
 	now time.Time,
 	mode Mode,
+	opts Options,
 ) (Result, error) {
 	result := Result{Tables: make([]TableResult, 0, len(targets))}
 	if db == nil {
@@ -101,14 +117,17 @@ func Ensure(
 
 		ranges := targetRanges(target, now)
 		var defaultRehome *pgpartition.RehomeDefaultResult
-		if target.table == qaRecordsTable {
+		if target.table == qaRecordsTable && opts.RehomeQaRecordsDefault {
 			rehome, rehomeErr := pgpartition.RehomeDefaultMonthly(
 				ctx,
 				db,
 				qaRecordsTable,
 				qaRecordsTimeColumn,
 				now,
-				defaultRehomeBatchSz,
+				pgpartition.RehomeOptions{
+					BatchSize:     opsCleanupRehomeBatchSz,
+					MaxRowsPerRun: opts.QaRecordsRehomeMaxRows,
+				},
 			)
 			if rehomeErr != nil {
 				return result, fmt.Errorf("partitionmaintenance: rehome %s default: %w", target.table, rehomeErr)

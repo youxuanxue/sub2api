@@ -27,7 +27,7 @@ const (
 type partitionMaintenanceDeps struct {
 	loadConfig     func() (*config.Config, error)
 	openDB         func(driverName, dataSourceName string) (*sql.DB, error)
-	ensure         func(context.Context, pgpartition.DB, time.Time, partitionmaintenance.Mode) (partitionmaintenance.Result, error)
+	ensure         func(context.Context, pgpartition.DB, time.Time, partitionmaintenance.Mode, partitionmaintenance.Options) (partitionmaintenance.Result, error)
 	writeHeartbeat func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error
 	now            func() time.Time
 }
@@ -126,7 +126,7 @@ func runPartitionMaintenanceCommand(
 	if _, err := conn.ExecContext(ctx, "SET lock_timeout = '100ms'"); err != nil {
 		return fmt.Errorf("set partition maintenance lock timeout: %w", err)
 	}
-	if _, err := conn.ExecContext(ctx, "SET statement_timeout = '120s'"); err != nil {
+	if _, err := conn.ExecContext(ctx, "SET statement_timeout = '5s'"); err != nil {
 		return fmt.Errorf("set partition maintenance statement timeout: %w", err)
 	}
 
@@ -136,6 +136,7 @@ func runPartitionMaintenanceCommand(
 		conn,
 		startedAt,
 		partitionmaintenance.ModeRequireAllPartitioned,
+		partitionmaintenance.Options{},
 	)
 	if err != nil {
 		return fmt.Errorf("ensure production partitions: %w", err)

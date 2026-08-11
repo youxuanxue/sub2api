@@ -210,13 +210,7 @@ REQUIRED_BY_FILE = {
     MAINTENANCE_SCRIPT: (
         "--qa-maintenance-once",
         "tokenkey-prod-qa-maintenance-v1",
-        "--partition-maintenance-once",
-        "tokenkey-prod-partition-maintenance-v1",
-        "partition_maintenance",
-        "ops_partition_maintenance",
         "archive_start",
-        "partition_start",
-        "run_partition_maintenance || return $?",
         "--install-units",
         "/usr/local/lib/tokenkey/resolve-app-container.sh",
         "/var/lib/tokenkey/app/qa_archive_tmp",
@@ -539,7 +533,9 @@ def _closeout_implementation_failures(root: Path) -> list[str]:
     if not rehome.is_file():
         failures.append("qa_records default rehome implementation missing")
     elif "PARTITION OF" not in rehome.read_text(encoding="utf-8"):
-        failures.append("qa_records rehome must create attached PARTITION OF ranges before row moves")
+        failures.append("qa_records rehome must attach bounded partitions after draining DEFAULT")
+    elif "_rehome_staging" not in rehome.read_text(encoding="utf-8"):
+        failures.append("qa_records rehome must drain DEFAULT into detached staging before attach")
     partition_maintenance = root / "backend/internal/pkg/partitionmaintenance/maintenance.go"
     if partition_maintenance.is_file():
         body = partition_maintenance.read_text(encoding="utf-8")
@@ -547,6 +543,34 @@ def _closeout_implementation_failures(root: Path) -> list[str]:
         ensure_at = body.find("EnsureMonthly(ctx, db, target.table")
         if rehome_at < 0 or ensure_at < 0 or rehome_at > ensure_at:
             failures.append("qa_records rehome must run before EnsureMonthly in partition maintenance")
+        if "opts.RehomeQaRecordsDefault" not in body:
+            failures.append("qa_records rehome must be gated behind explicit maintainer options")
+        if "OpsCleanupOptions" not in body:
+            failures.append("ops cleanup rehome budget must be declared in OpsCleanupOptions")
+    host_runner = root / MAINTENANCE_SCRIPT
+    if host_runner.is_file():
+        body = host_runner.read_text(encoding="utf-8")
+        for forbidden in (
+            "--partition-maintenance-once",
+            "run_partition_maintenance",
+            "tokenkey-prod-partition-maintenance-v1",
+        ):
+            if forbidden in body:
+                failures.append(
+                    f"qa host runner must not invoke partition maintenance ({forbidden})"
+                )
+    once_partition = root / "backend/cmd/server/partition_maintenance.go"
+    if once_partition.is_file():
+        body = once_partition.read_text(encoding="utf-8")
+        if "statement_timeout = '120s'" in body:
+            failures.append("one-shot partition maintenance must keep approved 5s statement timeout")
+        if "partitionmaintenance.Options{}" not in body:
+            failures.append("one-shot partition maintenance must skip qa_records default rehome")
+    ops_cleanup = root / "backend/internal/service/ops_cleanup_service.go"
+    if ops_cleanup.is_file():
+        body = ops_cleanup.read_text(encoding="utf-8")
+        if "partitionmaintenance.OpsCleanupOptions" not in body:
+            failures.append("OpsCleanupService must own qa_records rehome via OpsCleanupOptions")
     archive_health = root / "ops/observability/data_layer_archive_health.py"
     if archive_health.is_file():
         body = archive_health.read_text(encoding="utf-8")

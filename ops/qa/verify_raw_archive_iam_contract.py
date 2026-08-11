@@ -13,6 +13,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 PROD_REGION = "us-east-1"
 RAW_ARCHIVE_STACK = "tokenkey-prod-qa-raw-archive"
+STAGE0_STACK = "tokenkey-prod-stage0"
+STAGE0_PUBLIC_ROUTE_TABLE_LOGICAL = "PublicRouteTable"
 
 APP_WRITE_SID = "AllowAppInstanceRoleWriteRaw"
 APP_VERIFY_SID = "AllowAppInstanceRoleVerifyRaw"
@@ -52,9 +54,61 @@ def _aws_json(args: list[str]) -> dict[str, Any]:
     if completed.returncode != 0:
         raise RuntimeError((completed.stderr or completed.stdout or "aws failed").strip()[:600])
     payload = json.loads(completed.stdout)
+    if isinstance(payload, list):
+        return {"Items": payload}
     if not isinstance(payload, dict):
         raise RuntimeError("aws json is not an object")
     return payload
+
+
+def _stack_output(stack_name: str, key: str) -> str:
+    payload = _aws_json(
+        [
+            "aws",
+            "cloudformation",
+            "describe-stacks",
+            "--region",
+            PROD_REGION,
+            "--stack-name",
+            stack_name,
+            "--output",
+            "json",
+        ]
+    )
+    stacks = payload.get("Stacks")
+    if not isinstance(stacks, list) or not stacks:
+        raise RuntimeError(f"stack missing: {stack_name}")
+    for item in stacks[0].get("Outputs", []):
+        if isinstance(item, dict) and item.get("OutputKey") == key:
+            value = item.get("OutputValue")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    raise RuntimeError(f"{stack_name} output missing: {key}")
+
+
+def _stack_resource_physical_id(stack_name: str, logical_id: str) -> str:
+    payload = _aws_json(
+        [
+            "aws",
+            "cloudformation",
+            "describe-stack-resources",
+            "--region",
+            PROD_REGION,
+            "--stack-name",
+            stack_name,
+            "--logical-resource-id",
+            logical_id,
+            "--output",
+            "json",
+        ]
+    )
+    resources = payload.get("StackResources")
+    if not isinstance(resources, list) or not resources:
+        raise RuntimeError(f"{stack_name} resource missing: {logical_id}")
+    physical = resources[0].get("PhysicalResourceId")
+    if not isinstance(physical, str) or not physical.strip():
+        raise RuntimeError(f"{stack_name} resource {logical_id} has no physical id")
+    return physical.strip()
 
 
 def _account_id() -> str:
@@ -155,11 +209,79 @@ def _expected_app_resources(bucket: str) -> list[str]:
     return sorted(f"{base}{suffix}" for suffix in EXPECTED_APP_RESOURCES)
 
 
+def _verify_s3_gateway_endpoint(
+    *,
+    vpc_id: str,
+    route_table_ids: list[str],
+    endpoint_id: str,
+) -> list[str]:
+    failures: list[str] = []
+    payload = _aws_json(
+        [
+            "aws",
+            "ec2",
+            "describe-vpc-endpoints",
+            "--region",
+            PROD_REGION,
+            "--vpc-endpoint-ids",
+            endpoint_id,
+            "--output",
+            "json",
+        ]
+    )
+    endpoints = payload.get("VpcEndpoints")
+    if not isinstance(endpoints, list) or not endpoints:
+        return [f"s3_endpoint_missing:{endpoint_id}"]
+    endpoint = endpoints[0]
+    if endpoint.get("VpcId") != vpc_id:
+        failures.append("s3_endpoint_vpc_mismatch")
+    attached = endpoint.get("RouteTableIds") or []
+    if not isinstance(attached, list):
+        attached = []
+    attached_set = {str(item) for item in attached}
+    for route_table_id in route_table_ids:
+        if route_table_id not in attached_set:
+            failures.append(f"s3_endpoint_route_table_not_attached:{route_table_id}")
+        route_payload = _aws_json(
+            [
+                "aws",
+                "ec2",
+                "describe-route-tables",
+                "--region",
+                PROD_REGION,
+                "--route-table-ids",
+                route_table_id,
+                "--output",
+                "json",
+            ]
+        )
+        tables = route_payload.get("RouteTables")
+        if not isinstance(tables, list) or not tables:
+            failures.append(f"route_table_missing:{route_table_id}")
+            continue
+        routes = tables[0].get("Routes") or []
+        has_gateway_route = False
+        for route in routes:
+            if not isinstance(route, dict):
+                continue
+            if route.get("GatewayId") == endpoint_id:
+                has_gateway_route = True
+                break
+            prefix = route.get("DestinationPrefixListId")
+            if isinstance(prefix, str) and prefix.startswith("pl-"):
+                has_gateway_route = True
+                break
+        if not has_gateway_route:
+            failures.append(f"route_table_missing_s3_gateway_route:{route_table_id}")
+    return failures
+
+
 def evaluate(
     *,
     bucket: str,
     app_role_arn: str,
     statements: list[dict[str, Any]] | None = None,
+    verify_network: bool = False,
 ) -> dict[str, Any]:
     failures: list[str] = []
     if statements is None:
@@ -202,6 +324,23 @@ def evaluate(
         if sorted(resources) != expected_resources:
             failures.append(f"{sid}:resource_scope_drift")
 
+    if verify_network:
+        try:
+            vpc_id = _stack_resource_physical_id(STAGE0_STACK, "VPC")
+            route_table_id = _stack_resource_physical_id(
+                STAGE0_STACK, STAGE0_PUBLIC_ROUTE_TABLE_LOGICAL
+            )
+            endpoint_id = _stack_output(RAW_ARCHIVE_STACK, "QaRawArchiveS3EndpointId")
+            failures.extend(
+                _verify_s3_gateway_endpoint(
+                    vpc_id=vpc_id,
+                    route_table_ids=[route_table_id],
+                    endpoint_id=endpoint_id,
+                )
+            )
+        except RuntimeError as exc:
+            failures.append(f"network_contract:{exc}")
+
     status = "applied" if not failures else "drift"
     return {
         "ok": not failures,
@@ -220,7 +359,7 @@ def main() -> int:
     account_id = _account_id()
     bucket = f"tokenkey-prod-qa-raw-archive-{account_id}"
     app_role_arn = resolve_app_role_arn()
-    verdict = evaluate(bucket=bucket, app_role_arn=app_role_arn)
+    verdict = evaluate(bucket=bucket, app_role_arn=app_role_arn, verify_network=True)
     print(json.dumps(verdict, ensure_ascii=True, sort_keys=True))
     return 0 if verdict["ok"] else 2
 

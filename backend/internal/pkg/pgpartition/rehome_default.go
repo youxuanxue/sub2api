@@ -2,6 +2,7 @@ package pgpartition
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
@@ -10,7 +11,27 @@ import (
 	"github.com/lib/pq"
 )
 
-const defaultRehomeBatchSize = 5000
+const (
+	defaultRehomeBatchSize    = 5000
+	defaultRehomeMaxRowsPerRun = 20000
+)
+
+// RehomeOptions bounds one rehome invocation. BatchSize caps each SQL page;
+// MaxRowsPerRun caps total rows moved across all months (0 = unlimited).
+type RehomeOptions struct {
+	BatchSize     int
+	MaxRowsPerRun int64
+}
+
+func (o RehomeOptions) withDefaults() RehomeOptions {
+	if o.BatchSize <= 0 {
+		o.BatchSize = defaultRehomeBatchSize
+	}
+	if o.MaxRowsPerRun <= 0 {
+		o.MaxRowsPerRun = defaultRehomeMaxRowsPerRun
+	}
+	return o
+}
 
 // RehomeMonthResult reports one month moved out of the DEFAULT partition.
 type RehomeMonthResult struct {
@@ -24,20 +45,24 @@ type RehomeMonthResult struct {
 type RehomeDefaultResult struct {
 	DefaultPartition string              `json:"default_partition"`
 	RemainingRows    int64               `json:"remaining_default_rows"`
+	RowsMoved        int64               `json:"rows_moved"`
+	BudgetExhausted  bool                `json:"budget_exhausted,omitempty"`
 	Months           []RehomeMonthResult `json:"months,omitempty"`
 }
 
 // RehomeDefaultMonthly moves rows from a table's DEFAULT child partition into
-// bounded monthly partitions. Missing month partitions are created as attached
-// PARTITION OF ranges before any rows are moved; EnsureMonthly should run after
-// rehome so future empty months are provisioned without blocking DEFAULT moves.
+// bounded monthly partitions. Rows are drained into a detached staging table
+// before CREATE TABLE ... PARTITION OF so PostgreSQL never rejects the attach
+// with "updated partition constraint would be violated". EnsureMonthly should
+// run after rehome so future empty months are provisioned without blocking moves.
 func RehomeDefaultMonthly(
 	ctx context.Context,
 	db DB,
 	table, timeCol string,
 	now time.Time,
-	batchSize int,
+	opts RehomeOptions,
 ) (RehomeDefaultResult, error) {
+	opts = opts.withDefaults()
 	result := RehomeDefaultResult{}
 	if db == nil {
 		return result, fmt.Errorf("pgpartition: database is required")
@@ -46,9 +71,6 @@ func RehomeDefaultMonthly(
 	timeCol = strings.TrimSpace(timeCol)
 	if table == "" || timeCol == "" {
 		return result, fmt.Errorf("pgpartition: table and time column are required")
-	}
-	if batchSize <= 0 {
-		batchSize = defaultRehomeBatchSize
 	}
 
 	defaultName, ok, err := defaultChildPartition(ctx, db, table)
@@ -65,15 +87,30 @@ func RehomeDefaultMonthly(
 	if err != nil {
 		return result, err
 	}
+
+	var rowsBudget int64 = opts.MaxRowsPerRun
 	for _, monthStart := range orderRehomeMonths(months, now) {
+		if rowsBudget <= 0 {
+			result.BudgetExhausted = true
+			break
+		}
 		monthEnd := monthStart.AddDate(0, 1, 0)
 		partitionName, err := resolveMonthlyPartitionName(ctx, db, table, monthStart)
 		if err != nil {
 			return result, err
 		}
-		moved, err := rehomeDefaultMonth(ctx, db, table, defaultName, partitionName, timeCol, monthStart, monthEnd, batchSize)
+		moved, exhausted, err := rehomeDefaultMonth(
+			ctx, db, table, defaultName, partitionName, timeCol,
+			monthStart, monthEnd, opts.BatchSize, rowsBudget,
+		)
 		if err != nil {
 			return result, fmt.Errorf("pgpartition: rehome %s: %w", partitionName, err)
+		}
+		result.RowsMoved += moved
+		rowsBudget -= moved
+		if exhausted {
+			result.BudgetExhausted = true
+			break
 		}
 		if moved > 0 {
 			result.Months = append(result.Months, RehomeMonthResult{
@@ -149,18 +186,109 @@ func distinctMonthsInDefault(ctx context.Context, db DB, defaultName, timeCol st
 	return months, nil
 }
 
+func rehomeStagingName(partitionName string) string {
+	return partitionName + "_rehome_staging"
+}
+
 func rehomeDefaultMonth(
 	ctx context.Context,
 	db DB,
 	table, defaultName, partitionName, timeCol string,
 	start, end time.Time,
 	batchSize int,
-) (int64, error) {
+	rowBudget int64,
+) (moved int64, budgetExhausted bool, err error) {
 	attached, err := childPartitionExists(ctx, db, table, partitionName)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	createdAttached := false
+	if attached {
+		return moveRowsBetweenTables(
+			ctx, db, defaultName, partitionName, timeCol, start, end, batchSize, rowBudget,
+		)
+	}
+
+	stagingName := rehomeStagingName(partitionName)
+	stagingExists, err := relationExists(ctx, db, stagingName)
+	if err != nil {
+		return 0, false, err
+	}
+	remainingInDefault, err := countRowsInRange(ctx, db, defaultName, timeCol, start, end)
+	if err != nil {
+		return 0, false, err
+	}
+	if stagingExists && remainingInDefault == 0 {
+		finalized, finalizeErr := finalizeStagingPartition(ctx, db, table, partitionName, stagingName, start, end)
+		if finalizeErr != nil {
+			return 0, false, finalizeErr
+		}
+		if finalized {
+			return 0, false, nil
+		}
+	}
+
+	if err := ensureRehomeStaging(ctx, db, defaultName, stagingName); err != nil {
+		return 0, false, err
+	}
+
+	moved, budgetExhausted, err = moveRowsBetweenTables(
+		ctx, db, defaultName, stagingName, timeCol, start, end, batchSize, rowBudget,
+	)
+	if err != nil {
+		return moved, budgetExhausted, err
+	}
+	if budgetExhausted {
+		return moved, true, nil
+	}
+
+	remainingInDefault, err = countRowsInRange(ctx, db, defaultName, timeCol, start, end)
+	if err != nil {
+		return moved, false, err
+	}
+	if remainingInDefault > 0 {
+		return moved, false, nil
+	}
+
+	if _, err := finalizeStagingPartition(ctx, db, table, partitionName, stagingName, start, end); err != nil {
+		return moved, false, err
+	}
+	return moved, false, nil
+}
+
+func ensureRehomeStaging(ctx context.Context, db DB, defaultName, stagingName string) error {
+	q := fmt.Sprintf(
+		"CREATE TABLE IF NOT EXISTS %s (LIKE %s INCLUDING DEFAULTS INCLUDING GENERATED)",
+		pq.QuoteIdentifier(stagingName),
+		pq.QuoteIdentifier(defaultName),
+	)
+	if _, err := db.ExecContext(ctx, q); err != nil {
+		return fmt.Errorf("ensure rehome staging %s: %w", stagingName, err)
+	}
+	return nil
+}
+
+func finalizeStagingPartition(
+	ctx context.Context,
+	db DB,
+	table, partitionName, stagingName string,
+	start, end time.Time,
+) (bool, error) {
+	stagingRows, err := countTableRows(ctx, db, stagingName)
+	if err != nil {
+		return false, err
+	}
+	if stagingRows == 0 {
+		dropQ := "DROP TABLE IF EXISTS " + pq.QuoteIdentifier(stagingName)
+		if _, err := db.ExecContext(ctx, dropQ); err != nil {
+			return false, fmt.Errorf("drop empty rehome staging %s: %w", stagingName, err)
+		}
+		return false, nil
+	}
+
+	attached, err := childPartitionExists(ctx, db, table, partitionName)
+	if err != nil {
+		return false, err
+	}
 	if !attached {
 		createQ := fmt.Sprintf(
 			"CREATE TABLE IF NOT EXISTS %s PARTITION OF %s FOR VALUES FROM (%s) TO (%s)",
@@ -171,54 +299,144 @@ func rehomeDefaultMonth(
 		)
 		if _, err := db.ExecContext(ctx, createQ); err != nil {
 			if !isOverlap(err) {
-				return 0, fmt.Errorf("create attached partition %s: %w", partitionName, err)
+				return false, fmt.Errorf("create attached partition %s: %w", partitionName, err)
 			}
-		} else {
-			createdAttached = true
 		}
 	}
 
-	var moved int64
-	for {
-		insertQ := fmt.Sprintf(
-			`WITH moved AS (
-			    DELETE FROM %s
-			     WHERE ctid IN (
-			           SELECT ctid
-			             FROM %s
-			            WHERE %s >= $1 AND %s < $2
-			            LIMIT $3
-			     )
-			     RETURNING *
-			)
-			INSERT INTO %s SELECT * FROM moved`,
-			pq.QuoteIdentifier(defaultName),
-			pq.QuoteIdentifier(defaultName),
-			pq.QuoteIdentifier(timeCol),
-			pq.QuoteIdentifier(timeCol),
-			pq.QuoteIdentifier(partitionName),
+	insertQ := fmt.Sprintf(
+		"INSERT INTO %s SELECT * FROM %s",
+		pq.QuoteIdentifier(partitionName),
+		pq.QuoteIdentifier(stagingName),
+	)
+	if err := execInTx(ctx, db, func(tx DB) error {
+		if _, err := tx.ExecContext(ctx, insertQ); err != nil {
+			return fmt.Errorf("copy staging into %s: %w", partitionName, err)
+		}
+		dropQ := "DROP TABLE IF EXISTS " + pq.QuoteIdentifier(stagingName)
+		if _, err := tx.ExecContext(ctx, dropQ); err != nil {
+			return fmt.Errorf("drop rehome staging %s: %w", stagingName, err)
+		}
+		return nil
+	}); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func moveRowsBetweenTables(
+	ctx context.Context,
+	db DB,
+	sourceName, destName, timeCol string,
+	start, end time.Time,
+	batchSize int,
+	rowBudget int64,
+) (moved int64, budgetExhausted bool, err error) {
+	if rowBudget <= 0 {
+		return moved, true, nil
+	}
+	limit := batchSize
+	if int64(limit) > rowBudget {
+		limit = int(rowBudget)
+	}
+	insertQ := fmt.Sprintf(
+		`WITH moved AS (
+		    DELETE FROM %s
+		     WHERE ctid IN (
+		           SELECT ctid
+		             FROM %s
+		            WHERE %s >= $1 AND %s < $2
+		            LIMIT $3
+		     )
+		     RETURNING *
 		)
-		res, err := db.ExecContext(ctx, insertQ, start, end, batchSize)
-		if err != nil {
-			return moved, fmt.Errorf("batch move into %s: %w", partitionName, err)
-		}
-		batch, err := res.RowsAffected()
-		if err != nil {
-			return moved, fmt.Errorf("inspect batch move into %s: %w", partitionName, err)
-		}
-		if batch == 0 {
-			break
-		}
-		moved += batch
+		INSERT INTO %s SELECT * FROM moved`,
+		pq.QuoteIdentifier(sourceName),
+		pq.QuoteIdentifier(sourceName),
+		pq.QuoteIdentifier(timeCol),
+		pq.QuoteIdentifier(timeCol),
+		pq.QuoteIdentifier(destName),
+	)
+	res, err := db.ExecContext(ctx, insertQ, start, end, limit)
+	if err != nil {
+		return moved, false, fmt.Errorf("batch move %s -> %s: %w", sourceName, destName, err)
 	}
+	batch, err := res.RowsAffected()
+	if err != nil {
+		return moved, false, fmt.Errorf("inspect batch move %s -> %s: %w", sourceName, destName, err)
+	}
+	if batch == 0 {
+		return moved, false, nil
+	}
+	moved += batch
+	rowBudget -= batch
+	if rowBudget <= 0 {
+		return moved, true, nil
+	}
+	if batch < int64(limit) {
+		return moved, false, nil
+	}
+	extra, exhausted, err := moveRowsBetweenTables(
+		ctx, db, sourceName, destName, timeCol, start, end, batchSize, rowBudget,
+	)
+	return moved + extra, exhausted, err
+}
 
-	if moved == 0 && createdAttached {
-		dropQ := "DROP TABLE IF EXISTS " + pq.QuoteIdentifier(partitionName)
-		if _, err := db.ExecContext(ctx, dropQ); err != nil {
-			return moved, fmt.Errorf("drop empty attached partition %s: %w", partitionName, err)
-		}
+type txBeginner interface {
+	BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
+}
+
+func execInTx(ctx context.Context, db DB, fn func(DB) error) error {
+	beginner, ok := db.(txBeginner)
+	if !ok {
+		return fn(db)
 	}
-	return moved, nil
+	tx, err := beginner.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("pgpartition: begin tx: %w", err)
+	}
+	if err := fn(tx); err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			return fmt.Errorf("%w (rollback: %v)", err, rbErr)
+		}
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("pgpartition: commit tx: %w", err)
+	}
+	return nil
+}
+
+func relationExists(ctx context.Context, db DB, name string) (bool, error) {
+	const q = `SELECT EXISTS (SELECT 1 FROM pg_class WHERE relname = $1)`
+	var exists bool
+	if err := db.QueryRowContext(ctx, q, name).Scan(&exists); err != nil {
+		return false, fmt.Errorf("pgpartition: inspect relation %s: %w", name, err)
+	}
+	return exists, nil
+}
+
+func countTableRows(ctx context.Context, db DB, table string) (int64, error) {
+	q := "SELECT COUNT(*) FROM " + pq.QuoteIdentifier(table)
+	var count int64
+	if err := db.QueryRowContext(ctx, q).Scan(&count); err != nil {
+		return 0, fmt.Errorf("pgpartition: count %s rows: %w", table, err)
+	}
+	return count, nil
+}
+
+func countRowsInRange(ctx context.Context, db DB, table, timeCol string, start, end time.Time) (int64, error) {
+	q := fmt.Sprintf(
+		`SELECT COUNT(*) FROM %s WHERE %s >= $1 AND %s < $2`,
+		pq.QuoteIdentifier(table),
+		pq.QuoteIdentifier(timeCol),
+		pq.QuoteIdentifier(timeCol),
+	)
+	var count int64
+	if err := db.QueryRowContext(ctx, q, start, end).Scan(&count); err != nil {
+		return 0, fmt.Errorf("pgpartition: count %s rows in range: %w", table, err)
+	}
+	return count, nil
 }
 
 func monthlyPartitionNameCandidates(table string, monthStart time.Time) []string {
@@ -268,12 +486,7 @@ func childPartitionExists(ctx context.Context, db DB, table, partitionName strin
 }
 
 func countDefaultRows(ctx context.Context, db DB, defaultName string) (int64, error) {
-	q := "SELECT COUNT(*) FROM " + pq.QuoteIdentifier(defaultName)
-	var count int64
-	if err := db.QueryRowContext(ctx, q).Scan(&count); err != nil {
-		return 0, fmt.Errorf("pgpartition: count %s rows: %w", defaultName, err)
-	}
-	return count, nil
+	return countTableRows(ctx, db, defaultName)
 }
 
 func orderRehomeMonths(months []time.Time, now time.Time) []time.Time {
