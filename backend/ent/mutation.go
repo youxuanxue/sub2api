@@ -40031,6 +40031,10 @@ type QAArchiveShardMutation struct {
 	first_attempt_at                *time.Time
 	completed_at                    *time.Time
 	last_error                      *string
+	source_partition_name           *string
+	source_dropped_at               *time.Time
+	hot_files_cleaned_at            *time.Time
+	hot_cleanup_error               *string
 	created_at                      *time.Time
 	updated_at                      *time.Time
 	clearedFields                   map[string]struct{}
@@ -41544,6 +41548,202 @@ func (m *QAArchiveShardMutation) ResetLastError() {
 	delete(m.clearedFields, qaarchiveshard.FieldLastError)
 }
 
+// SetSourcePartitionName sets the "source_partition_name" field.
+func (m *QAArchiveShardMutation) SetSourcePartitionName(s string) {
+	m.source_partition_name = &s
+}
+
+// SourcePartitionName returns the value of the "source_partition_name" field in the mutation.
+func (m *QAArchiveShardMutation) SourcePartitionName() (r string, exists bool) {
+	v := m.source_partition_name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSourcePartitionName returns the old "source_partition_name" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldSourcePartitionName(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSourcePartitionName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSourcePartitionName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSourcePartitionName: %w", err)
+	}
+	return oldValue.SourcePartitionName, nil
+}
+
+// ClearSourcePartitionName clears the value of the "source_partition_name" field.
+func (m *QAArchiveShardMutation) ClearSourcePartitionName() {
+	m.source_partition_name = nil
+	m.clearedFields[qaarchiveshard.FieldSourcePartitionName] = struct{}{}
+}
+
+// SourcePartitionNameCleared returns if the "source_partition_name" field was cleared in this mutation.
+func (m *QAArchiveShardMutation) SourcePartitionNameCleared() bool {
+	_, ok := m.clearedFields[qaarchiveshard.FieldSourcePartitionName]
+	return ok
+}
+
+// ResetSourcePartitionName resets all changes to the "source_partition_name" field.
+func (m *QAArchiveShardMutation) ResetSourcePartitionName() {
+	m.source_partition_name = nil
+	delete(m.clearedFields, qaarchiveshard.FieldSourcePartitionName)
+}
+
+// SetSourceDroppedAt sets the "source_dropped_at" field.
+func (m *QAArchiveShardMutation) SetSourceDroppedAt(t time.Time) {
+	m.source_dropped_at = &t
+}
+
+// SourceDroppedAt returns the value of the "source_dropped_at" field in the mutation.
+func (m *QAArchiveShardMutation) SourceDroppedAt() (r time.Time, exists bool) {
+	v := m.source_dropped_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSourceDroppedAt returns the old "source_dropped_at" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldSourceDroppedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSourceDroppedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSourceDroppedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSourceDroppedAt: %w", err)
+	}
+	return oldValue.SourceDroppedAt, nil
+}
+
+// ClearSourceDroppedAt clears the value of the "source_dropped_at" field.
+func (m *QAArchiveShardMutation) ClearSourceDroppedAt() {
+	m.source_dropped_at = nil
+	m.clearedFields[qaarchiveshard.FieldSourceDroppedAt] = struct{}{}
+}
+
+// SourceDroppedAtCleared returns if the "source_dropped_at" field was cleared in this mutation.
+func (m *QAArchiveShardMutation) SourceDroppedAtCleared() bool {
+	_, ok := m.clearedFields[qaarchiveshard.FieldSourceDroppedAt]
+	return ok
+}
+
+// ResetSourceDroppedAt resets all changes to the "source_dropped_at" field.
+func (m *QAArchiveShardMutation) ResetSourceDroppedAt() {
+	m.source_dropped_at = nil
+	delete(m.clearedFields, qaarchiveshard.FieldSourceDroppedAt)
+}
+
+// SetHotFilesCleanedAt sets the "hot_files_cleaned_at" field.
+func (m *QAArchiveShardMutation) SetHotFilesCleanedAt(t time.Time) {
+	m.hot_files_cleaned_at = &t
+}
+
+// HotFilesCleanedAt returns the value of the "hot_files_cleaned_at" field in the mutation.
+func (m *QAArchiveShardMutation) HotFilesCleanedAt() (r time.Time, exists bool) {
+	v := m.hot_files_cleaned_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldHotFilesCleanedAt returns the old "hot_files_cleaned_at" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldHotFilesCleanedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldHotFilesCleanedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldHotFilesCleanedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldHotFilesCleanedAt: %w", err)
+	}
+	return oldValue.HotFilesCleanedAt, nil
+}
+
+// ClearHotFilesCleanedAt clears the value of the "hot_files_cleaned_at" field.
+func (m *QAArchiveShardMutation) ClearHotFilesCleanedAt() {
+	m.hot_files_cleaned_at = nil
+	m.clearedFields[qaarchiveshard.FieldHotFilesCleanedAt] = struct{}{}
+}
+
+// HotFilesCleanedAtCleared returns if the "hot_files_cleaned_at" field was cleared in this mutation.
+func (m *QAArchiveShardMutation) HotFilesCleanedAtCleared() bool {
+	_, ok := m.clearedFields[qaarchiveshard.FieldHotFilesCleanedAt]
+	return ok
+}
+
+// ResetHotFilesCleanedAt resets all changes to the "hot_files_cleaned_at" field.
+func (m *QAArchiveShardMutation) ResetHotFilesCleanedAt() {
+	m.hot_files_cleaned_at = nil
+	delete(m.clearedFields, qaarchiveshard.FieldHotFilesCleanedAt)
+}
+
+// SetHotCleanupError sets the "hot_cleanup_error" field.
+func (m *QAArchiveShardMutation) SetHotCleanupError(s string) {
+	m.hot_cleanup_error = &s
+}
+
+// HotCleanupError returns the value of the "hot_cleanup_error" field in the mutation.
+func (m *QAArchiveShardMutation) HotCleanupError() (r string, exists bool) {
+	v := m.hot_cleanup_error
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldHotCleanupError returns the old "hot_cleanup_error" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldHotCleanupError(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldHotCleanupError is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldHotCleanupError requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldHotCleanupError: %w", err)
+	}
+	return oldValue.HotCleanupError, nil
+}
+
+// ClearHotCleanupError clears the value of the "hot_cleanup_error" field.
+func (m *QAArchiveShardMutation) ClearHotCleanupError() {
+	m.hot_cleanup_error = nil
+	m.clearedFields[qaarchiveshard.FieldHotCleanupError] = struct{}{}
+}
+
+// HotCleanupErrorCleared returns if the "hot_cleanup_error" field was cleared in this mutation.
+func (m *QAArchiveShardMutation) HotCleanupErrorCleared() bool {
+	_, ok := m.clearedFields[qaarchiveshard.FieldHotCleanupError]
+	return ok
+}
+
+// ResetHotCleanupError resets all changes to the "hot_cleanup_error" field.
+func (m *QAArchiveShardMutation) ResetHotCleanupError() {
+	m.hot_cleanup_error = nil
+	delete(m.clearedFields, qaarchiveshard.FieldHotCleanupError)
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (m *QAArchiveShardMutation) SetCreatedAt(t time.Time) {
 	m.created_at = &t
@@ -41650,7 +41850,7 @@ func (m *QAArchiveShardMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *QAArchiveShardMutation) Fields() []string {
-	fields := make([]string, 0, 31)
+	fields := make([]string, 0, 35)
 	if m.window_start != nil {
 		fields = append(fields, qaarchiveshard.FieldWindowStart)
 	}
@@ -41738,6 +41938,18 @@ func (m *QAArchiveShardMutation) Fields() []string {
 	if m.last_error != nil {
 		fields = append(fields, qaarchiveshard.FieldLastError)
 	}
+	if m.source_partition_name != nil {
+		fields = append(fields, qaarchiveshard.FieldSourcePartitionName)
+	}
+	if m.source_dropped_at != nil {
+		fields = append(fields, qaarchiveshard.FieldSourceDroppedAt)
+	}
+	if m.hot_files_cleaned_at != nil {
+		fields = append(fields, qaarchiveshard.FieldHotFilesCleanedAt)
+	}
+	if m.hot_cleanup_error != nil {
+		fields = append(fields, qaarchiveshard.FieldHotCleanupError)
+	}
 	if m.created_at != nil {
 		fields = append(fields, qaarchiveshard.FieldCreatedAt)
 	}
@@ -41810,6 +42022,14 @@ func (m *QAArchiveShardMutation) Field(name string) (ent.Value, bool) {
 		return m.CompletedAt()
 	case qaarchiveshard.FieldLastError:
 		return m.LastError()
+	case qaarchiveshard.FieldSourcePartitionName:
+		return m.SourcePartitionName()
+	case qaarchiveshard.FieldSourceDroppedAt:
+		return m.SourceDroppedAt()
+	case qaarchiveshard.FieldHotFilesCleanedAt:
+		return m.HotFilesCleanedAt()
+	case qaarchiveshard.FieldHotCleanupError:
+		return m.HotCleanupError()
 	case qaarchiveshard.FieldCreatedAt:
 		return m.CreatedAt()
 	case qaarchiveshard.FieldUpdatedAt:
@@ -41881,6 +42101,14 @@ func (m *QAArchiveShardMutation) OldField(ctx context.Context, name string) (ent
 		return m.OldCompletedAt(ctx)
 	case qaarchiveshard.FieldLastError:
 		return m.OldLastError(ctx)
+	case qaarchiveshard.FieldSourcePartitionName:
+		return m.OldSourcePartitionName(ctx)
+	case qaarchiveshard.FieldSourceDroppedAt:
+		return m.OldSourceDroppedAt(ctx)
+	case qaarchiveshard.FieldHotFilesCleanedAt:
+		return m.OldHotFilesCleanedAt(ctx)
+	case qaarchiveshard.FieldHotCleanupError:
+		return m.OldHotCleanupError(ctx)
 	case qaarchiveshard.FieldCreatedAt:
 		return m.OldCreatedAt(ctx)
 	case qaarchiveshard.FieldUpdatedAt:
@@ -42097,6 +42325,34 @@ func (m *QAArchiveShardMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetLastError(v)
 		return nil
+	case qaarchiveshard.FieldSourcePartitionName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSourcePartitionName(v)
+		return nil
+	case qaarchiveshard.FieldSourceDroppedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSourceDroppedAt(v)
+		return nil
+	case qaarchiveshard.FieldHotFilesCleanedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetHotFilesCleanedAt(v)
+		return nil
+	case qaarchiveshard.FieldHotCleanupError:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetHotCleanupError(v)
+		return nil
 	case qaarchiveshard.FieldCreatedAt:
 		v, ok := value.(time.Time)
 		if !ok {
@@ -42309,6 +42565,18 @@ func (m *QAArchiveShardMutation) ClearedFields() []string {
 	if m.FieldCleared(qaarchiveshard.FieldLastError) {
 		fields = append(fields, qaarchiveshard.FieldLastError)
 	}
+	if m.FieldCleared(qaarchiveshard.FieldSourcePartitionName) {
+		fields = append(fields, qaarchiveshard.FieldSourcePartitionName)
+	}
+	if m.FieldCleared(qaarchiveshard.FieldSourceDroppedAt) {
+		fields = append(fields, qaarchiveshard.FieldSourceDroppedAt)
+	}
+	if m.FieldCleared(qaarchiveshard.FieldHotFilesCleanedAt) {
+		fields = append(fields, qaarchiveshard.FieldHotFilesCleanedAt)
+	}
+	if m.FieldCleared(qaarchiveshard.FieldHotCleanupError) {
+		fields = append(fields, qaarchiveshard.FieldHotCleanupError)
+	}
 	return fields
 }
 
@@ -42355,6 +42623,18 @@ func (m *QAArchiveShardMutation) ClearField(name string) error {
 		return nil
 	case qaarchiveshard.FieldLastError:
 		m.ClearLastError()
+		return nil
+	case qaarchiveshard.FieldSourcePartitionName:
+		m.ClearSourcePartitionName()
+		return nil
+	case qaarchiveshard.FieldSourceDroppedAt:
+		m.ClearSourceDroppedAt()
+		return nil
+	case qaarchiveshard.FieldHotFilesCleanedAt:
+		m.ClearHotFilesCleanedAt()
+		return nil
+	case qaarchiveshard.FieldHotCleanupError:
+		m.ClearHotCleanupError()
 		return nil
 	}
 	return fmt.Errorf("unknown QAArchiveShard nullable field %s", name)
@@ -42450,6 +42730,18 @@ func (m *QAArchiveShardMutation) ResetField(name string) error {
 		return nil
 	case qaarchiveshard.FieldLastError:
 		m.ResetLastError()
+		return nil
+	case qaarchiveshard.FieldSourcePartitionName:
+		m.ResetSourcePartitionName()
+		return nil
+	case qaarchiveshard.FieldSourceDroppedAt:
+		m.ResetSourceDroppedAt()
+		return nil
+	case qaarchiveshard.FieldHotFilesCleanedAt:
+		m.ResetHotFilesCleanedAt()
+		return nil
+	case qaarchiveshard.FieldHotCleanupError:
+		m.ResetHotCleanupError()
 		return nil
 	case qaarchiveshard.FieldCreatedAt:
 		m.ResetCreatedAt()

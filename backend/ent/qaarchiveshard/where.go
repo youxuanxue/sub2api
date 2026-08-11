@@ -194,6 +194,26 @@ func LastError(v string) predicate.QAArchiveShard {
 	return predicate.QAArchiveShard(sql.FieldEQ(FieldLastError, v))
 }
 
+// SourcePartitionName applies equality check predicate on the "source_partition_name" field. It's identical to SourcePartitionNameEQ.
+func SourcePartitionName(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldSourcePartitionName, v))
+}
+
+// SourceDroppedAt applies equality check predicate on the "source_dropped_at" field. It's identical to SourceDroppedAtEQ.
+func SourceDroppedAt(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldSourceDroppedAt, v))
+}
+
+// HotFilesCleanedAt applies equality check predicate on the "hot_files_cleaned_at" field. It's identical to HotFilesCleanedAtEQ.
+func HotFilesCleanedAt(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldHotFilesCleanedAt, v))
+}
+
+// HotCleanupError applies equality check predicate on the "hot_cleanup_error" field. It's identical to HotCleanupErrorEQ.
+func HotCleanupError(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldHotCleanupError, v))
+}
+
 // CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
 func CreatedAt(v time.Time) predicate.QAArchiveShard {
 	return predicate.QAArchiveShard(sql.FieldEQ(FieldCreatedAt, v))
@@ -1547,6 +1567,256 @@ func LastErrorEqualFold(v string) predicate.QAArchiveShard {
 // LastErrorContainsFold applies the ContainsFold predicate on the "last_error" field.
 func LastErrorContainsFold(v string) predicate.QAArchiveShard {
 	return predicate.QAArchiveShard(sql.FieldContainsFold(FieldLastError, v))
+}
+
+// SourcePartitionNameEQ applies the EQ predicate on the "source_partition_name" field.
+func SourcePartitionNameEQ(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldSourcePartitionName, v))
+}
+
+// SourcePartitionNameNEQ applies the NEQ predicate on the "source_partition_name" field.
+func SourcePartitionNameNEQ(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNEQ(FieldSourcePartitionName, v))
+}
+
+// SourcePartitionNameIn applies the In predicate on the "source_partition_name" field.
+func SourcePartitionNameIn(vs ...string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIn(FieldSourcePartitionName, vs...))
+}
+
+// SourcePartitionNameNotIn applies the NotIn predicate on the "source_partition_name" field.
+func SourcePartitionNameNotIn(vs ...string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotIn(FieldSourcePartitionName, vs...))
+}
+
+// SourcePartitionNameGT applies the GT predicate on the "source_partition_name" field.
+func SourcePartitionNameGT(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGT(FieldSourcePartitionName, v))
+}
+
+// SourcePartitionNameGTE applies the GTE predicate on the "source_partition_name" field.
+func SourcePartitionNameGTE(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGTE(FieldSourcePartitionName, v))
+}
+
+// SourcePartitionNameLT applies the LT predicate on the "source_partition_name" field.
+func SourcePartitionNameLT(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLT(FieldSourcePartitionName, v))
+}
+
+// SourcePartitionNameLTE applies the LTE predicate on the "source_partition_name" field.
+func SourcePartitionNameLTE(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLTE(FieldSourcePartitionName, v))
+}
+
+// SourcePartitionNameContains applies the Contains predicate on the "source_partition_name" field.
+func SourcePartitionNameContains(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldContains(FieldSourcePartitionName, v))
+}
+
+// SourcePartitionNameHasPrefix applies the HasPrefix predicate on the "source_partition_name" field.
+func SourcePartitionNameHasPrefix(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldHasPrefix(FieldSourcePartitionName, v))
+}
+
+// SourcePartitionNameHasSuffix applies the HasSuffix predicate on the "source_partition_name" field.
+func SourcePartitionNameHasSuffix(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldHasSuffix(FieldSourcePartitionName, v))
+}
+
+// SourcePartitionNameIsNil applies the IsNil predicate on the "source_partition_name" field.
+func SourcePartitionNameIsNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIsNull(FieldSourcePartitionName))
+}
+
+// SourcePartitionNameNotNil applies the NotNil predicate on the "source_partition_name" field.
+func SourcePartitionNameNotNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotNull(FieldSourcePartitionName))
+}
+
+// SourcePartitionNameEqualFold applies the EqualFold predicate on the "source_partition_name" field.
+func SourcePartitionNameEqualFold(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEqualFold(FieldSourcePartitionName, v))
+}
+
+// SourcePartitionNameContainsFold applies the ContainsFold predicate on the "source_partition_name" field.
+func SourcePartitionNameContainsFold(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldContainsFold(FieldSourcePartitionName, v))
+}
+
+// SourceDroppedAtEQ applies the EQ predicate on the "source_dropped_at" field.
+func SourceDroppedAtEQ(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldSourceDroppedAt, v))
+}
+
+// SourceDroppedAtNEQ applies the NEQ predicate on the "source_dropped_at" field.
+func SourceDroppedAtNEQ(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNEQ(FieldSourceDroppedAt, v))
+}
+
+// SourceDroppedAtIn applies the In predicate on the "source_dropped_at" field.
+func SourceDroppedAtIn(vs ...time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIn(FieldSourceDroppedAt, vs...))
+}
+
+// SourceDroppedAtNotIn applies the NotIn predicate on the "source_dropped_at" field.
+func SourceDroppedAtNotIn(vs ...time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotIn(FieldSourceDroppedAt, vs...))
+}
+
+// SourceDroppedAtGT applies the GT predicate on the "source_dropped_at" field.
+func SourceDroppedAtGT(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGT(FieldSourceDroppedAt, v))
+}
+
+// SourceDroppedAtGTE applies the GTE predicate on the "source_dropped_at" field.
+func SourceDroppedAtGTE(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGTE(FieldSourceDroppedAt, v))
+}
+
+// SourceDroppedAtLT applies the LT predicate on the "source_dropped_at" field.
+func SourceDroppedAtLT(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLT(FieldSourceDroppedAt, v))
+}
+
+// SourceDroppedAtLTE applies the LTE predicate on the "source_dropped_at" field.
+func SourceDroppedAtLTE(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLTE(FieldSourceDroppedAt, v))
+}
+
+// SourceDroppedAtIsNil applies the IsNil predicate on the "source_dropped_at" field.
+func SourceDroppedAtIsNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIsNull(FieldSourceDroppedAt))
+}
+
+// SourceDroppedAtNotNil applies the NotNil predicate on the "source_dropped_at" field.
+func SourceDroppedAtNotNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotNull(FieldSourceDroppedAt))
+}
+
+// HotFilesCleanedAtEQ applies the EQ predicate on the "hot_files_cleaned_at" field.
+func HotFilesCleanedAtEQ(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldHotFilesCleanedAt, v))
+}
+
+// HotFilesCleanedAtNEQ applies the NEQ predicate on the "hot_files_cleaned_at" field.
+func HotFilesCleanedAtNEQ(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNEQ(FieldHotFilesCleanedAt, v))
+}
+
+// HotFilesCleanedAtIn applies the In predicate on the "hot_files_cleaned_at" field.
+func HotFilesCleanedAtIn(vs ...time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIn(FieldHotFilesCleanedAt, vs...))
+}
+
+// HotFilesCleanedAtNotIn applies the NotIn predicate on the "hot_files_cleaned_at" field.
+func HotFilesCleanedAtNotIn(vs ...time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotIn(FieldHotFilesCleanedAt, vs...))
+}
+
+// HotFilesCleanedAtGT applies the GT predicate on the "hot_files_cleaned_at" field.
+func HotFilesCleanedAtGT(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGT(FieldHotFilesCleanedAt, v))
+}
+
+// HotFilesCleanedAtGTE applies the GTE predicate on the "hot_files_cleaned_at" field.
+func HotFilesCleanedAtGTE(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGTE(FieldHotFilesCleanedAt, v))
+}
+
+// HotFilesCleanedAtLT applies the LT predicate on the "hot_files_cleaned_at" field.
+func HotFilesCleanedAtLT(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLT(FieldHotFilesCleanedAt, v))
+}
+
+// HotFilesCleanedAtLTE applies the LTE predicate on the "hot_files_cleaned_at" field.
+func HotFilesCleanedAtLTE(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLTE(FieldHotFilesCleanedAt, v))
+}
+
+// HotFilesCleanedAtIsNil applies the IsNil predicate on the "hot_files_cleaned_at" field.
+func HotFilesCleanedAtIsNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIsNull(FieldHotFilesCleanedAt))
+}
+
+// HotFilesCleanedAtNotNil applies the NotNil predicate on the "hot_files_cleaned_at" field.
+func HotFilesCleanedAtNotNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotNull(FieldHotFilesCleanedAt))
+}
+
+// HotCleanupErrorEQ applies the EQ predicate on the "hot_cleanup_error" field.
+func HotCleanupErrorEQ(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldHotCleanupError, v))
+}
+
+// HotCleanupErrorNEQ applies the NEQ predicate on the "hot_cleanup_error" field.
+func HotCleanupErrorNEQ(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNEQ(FieldHotCleanupError, v))
+}
+
+// HotCleanupErrorIn applies the In predicate on the "hot_cleanup_error" field.
+func HotCleanupErrorIn(vs ...string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIn(FieldHotCleanupError, vs...))
+}
+
+// HotCleanupErrorNotIn applies the NotIn predicate on the "hot_cleanup_error" field.
+func HotCleanupErrorNotIn(vs ...string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotIn(FieldHotCleanupError, vs...))
+}
+
+// HotCleanupErrorGT applies the GT predicate on the "hot_cleanup_error" field.
+func HotCleanupErrorGT(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGT(FieldHotCleanupError, v))
+}
+
+// HotCleanupErrorGTE applies the GTE predicate on the "hot_cleanup_error" field.
+func HotCleanupErrorGTE(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGTE(FieldHotCleanupError, v))
+}
+
+// HotCleanupErrorLT applies the LT predicate on the "hot_cleanup_error" field.
+func HotCleanupErrorLT(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLT(FieldHotCleanupError, v))
+}
+
+// HotCleanupErrorLTE applies the LTE predicate on the "hot_cleanup_error" field.
+func HotCleanupErrorLTE(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLTE(FieldHotCleanupError, v))
+}
+
+// HotCleanupErrorContains applies the Contains predicate on the "hot_cleanup_error" field.
+func HotCleanupErrorContains(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldContains(FieldHotCleanupError, v))
+}
+
+// HotCleanupErrorHasPrefix applies the HasPrefix predicate on the "hot_cleanup_error" field.
+func HotCleanupErrorHasPrefix(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldHasPrefix(FieldHotCleanupError, v))
+}
+
+// HotCleanupErrorHasSuffix applies the HasSuffix predicate on the "hot_cleanup_error" field.
+func HotCleanupErrorHasSuffix(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldHasSuffix(FieldHotCleanupError, v))
+}
+
+// HotCleanupErrorIsNil applies the IsNil predicate on the "hot_cleanup_error" field.
+func HotCleanupErrorIsNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIsNull(FieldHotCleanupError))
+}
+
+// HotCleanupErrorNotNil applies the NotNil predicate on the "hot_cleanup_error" field.
+func HotCleanupErrorNotNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotNull(FieldHotCleanupError))
+}
+
+// HotCleanupErrorEqualFold applies the EqualFold predicate on the "hot_cleanup_error" field.
+func HotCleanupErrorEqualFold(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEqualFold(FieldHotCleanupError, v))
+}
+
+// HotCleanupErrorContainsFold applies the ContainsFold predicate on the "hot_cleanup_error" field.
+func HotCleanupErrorContainsFold(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldContainsFold(FieldHotCleanupError, v))
 }
 
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.

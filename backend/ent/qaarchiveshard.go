@@ -76,6 +76,14 @@ type QAArchiveShard struct {
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 	// LastError holds the value of the "last_error" field.
 	LastError *string `json:"last_error,omitempty"`
+	// SourcePartitionName holds the value of the "source_partition_name" field.
+	SourcePartitionName *string `json:"source_partition_name,omitempty"`
+	// SourceDroppedAt holds the value of the "source_dropped_at" field.
+	SourceDroppedAt *time.Time `json:"source_dropped_at,omitempty"`
+	// HotFilesCleanedAt holds the value of the "hot_files_cleaned_at" field.
+	HotFilesCleanedAt *time.Time `json:"hot_files_cleaned_at,omitempty"`
+	// HotCleanupError holds the value of the "hot_cleanup_error" field.
+	HotCleanupError *string `json:"hot_cleanup_error,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// UpdatedAt holds the value of the "updated_at" field.
@@ -94,9 +102,9 @@ func (*QAArchiveShard) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case qaarchiveshard.FieldID, qaarchiveshard.FieldGeneration, qaarchiveshard.FieldRecordCount, qaarchiveshard.FieldBlobRefCount, qaarchiveshard.FieldBlobPresentCount, qaarchiveshard.FieldBlobMissingCount, qaarchiveshard.FieldLogicalBytes, qaarchiveshard.FieldArtifactBytes, qaarchiveshard.FieldAggregateRecordCount, qaarchiveshard.FieldAggregateBlobRefCount, qaarchiveshard.FieldAggregateBlobPresentCount, qaarchiveshard.FieldAggregateBlobMissingCount:
 			values[i] = new(sql.NullInt64)
-		case qaarchiveshard.FieldState, qaarchiveshard.FieldS3Prefix, qaarchiveshard.FieldManifestKey, qaarchiveshard.FieldCommitKey, qaarchiveshard.FieldCommitEtag, qaarchiveshard.FieldVerificationErrorCode, qaarchiveshard.FieldLastError:
+		case qaarchiveshard.FieldState, qaarchiveshard.FieldS3Prefix, qaarchiveshard.FieldManifestKey, qaarchiveshard.FieldCommitKey, qaarchiveshard.FieldCommitEtag, qaarchiveshard.FieldVerificationErrorCode, qaarchiveshard.FieldLastError, qaarchiveshard.FieldSourcePartitionName, qaarchiveshard.FieldHotCleanupError:
 			values[i] = new(sql.NullString)
-		case qaarchiveshard.FieldWindowStart, qaarchiveshard.FieldWindowEnd, qaarchiveshard.FieldVerifiedAt, qaarchiveshard.FieldRestoreVerifiedAt, qaarchiveshard.FieldLastReconciledAt, qaarchiveshard.FieldFinalReconciledAt, qaarchiveshard.FieldFirstAttemptAt, qaarchiveshard.FieldCompletedAt, qaarchiveshard.FieldCreatedAt, qaarchiveshard.FieldUpdatedAt:
+		case qaarchiveshard.FieldWindowStart, qaarchiveshard.FieldWindowEnd, qaarchiveshard.FieldVerifiedAt, qaarchiveshard.FieldRestoreVerifiedAt, qaarchiveshard.FieldLastReconciledAt, qaarchiveshard.FieldFinalReconciledAt, qaarchiveshard.FieldFirstAttemptAt, qaarchiveshard.FieldCompletedAt, qaarchiveshard.FieldSourceDroppedAt, qaarchiveshard.FieldHotFilesCleanedAt, qaarchiveshard.FieldCreatedAt, qaarchiveshard.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -306,6 +314,34 @@ func (_m *QAArchiveShard) assignValues(columns []string, values []any) error {
 				_m.LastError = new(string)
 				*_m.LastError = value.String
 			}
+		case qaarchiveshard.FieldSourcePartitionName:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field source_partition_name", values[i])
+			} else if value.Valid {
+				_m.SourcePartitionName = new(string)
+				*_m.SourcePartitionName = value.String
+			}
+		case qaarchiveshard.FieldSourceDroppedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field source_dropped_at", values[i])
+			} else if value.Valid {
+				_m.SourceDroppedAt = new(time.Time)
+				*_m.SourceDroppedAt = value.Time
+			}
+		case qaarchiveshard.FieldHotFilesCleanedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field hot_files_cleaned_at", values[i])
+			} else if value.Valid {
+				_m.HotFilesCleanedAt = new(time.Time)
+				*_m.HotFilesCleanedAt = value.Time
+			}
+		case qaarchiveshard.FieldHotCleanupError:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field hot_cleanup_error", values[i])
+			} else if value.Valid {
+				_m.HotCleanupError = new(string)
+				*_m.HotCleanupError = value.String
+			}
 		case qaarchiveshard.FieldCreatedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
 				return fmt.Errorf("unexpected type %T for field created_at", values[i])
@@ -460,6 +496,26 @@ func (_m *QAArchiveShard) String() string {
 	builder.WriteString(", ")
 	if v := _m.LastError; v != nil {
 		builder.WriteString("last_error=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.SourcePartitionName; v != nil {
+		builder.WriteString("source_partition_name=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.SourceDroppedAt; v != nil {
+		builder.WriteString("source_dropped_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
+	builder.WriteString(", ")
+	if v := _m.HotFilesCleanedAt; v != nil {
+		builder.WriteString("hot_files_cleaned_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
+	builder.WriteString(", ")
+	if v := _m.HotCleanupError; v != nil {
+		builder.WriteString("hot_cleanup_error=")
 		builder.WriteString(*v)
 	}
 	builder.WriteString(", ")

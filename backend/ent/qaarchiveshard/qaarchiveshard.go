@@ -71,6 +71,14 @@ const (
 	FieldCompletedAt = "completed_at"
 	// FieldLastError holds the string denoting the last_error field in the database.
 	FieldLastError = "last_error"
+	// FieldSourcePartitionName holds the string denoting the source_partition_name field in the database.
+	FieldSourcePartitionName = "source_partition_name"
+	// FieldSourceDroppedAt holds the string denoting the source_dropped_at field in the database.
+	FieldSourceDroppedAt = "source_dropped_at"
+	// FieldHotFilesCleanedAt holds the string denoting the hot_files_cleaned_at field in the database.
+	FieldHotFilesCleanedAt = "hot_files_cleaned_at"
+	// FieldHotCleanupError holds the string denoting the hot_cleanup_error field in the database.
+	FieldHotCleanupError = "hot_cleanup_error"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
@@ -111,6 +119,10 @@ var Columns = []string{
 	FieldFirstAttemptAt,
 	FieldCompletedAt,
 	FieldLastError,
+	FieldSourcePartitionName,
+	FieldSourceDroppedAt,
+	FieldHotFilesCleanedAt,
+	FieldHotCleanupError,
 	FieldCreatedAt,
 	FieldUpdatedAt,
 }
@@ -312,6 +324,26 @@ func ByCompletedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByLastError orders the results by the last_error field.
 func ByLastError(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldLastError, opts...).ToFunc()
+}
+
+// BySourcePartitionName orders the results by the source_partition_name field.
+func BySourcePartitionName(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSourcePartitionName, opts...).ToFunc()
+}
+
+// BySourceDroppedAt orders the results by the source_dropped_at field.
+func BySourceDroppedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSourceDroppedAt, opts...).ToFunc()
+}
+
+// ByHotFilesCleanedAt orders the results by the hot_files_cleaned_at field.
+func ByHotFilesCleanedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldHotFilesCleanedAt, opts...).ToFunc()
+}
+
+// ByHotCleanupError orders the results by the hot_cleanup_error field.
+func ByHotCleanupError(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldHotCleanupError, opts...).ToFunc()
 }
 
 // ByCreatedAt orders the results by the created_at field.

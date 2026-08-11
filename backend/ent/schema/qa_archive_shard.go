@@ -79,6 +79,16 @@ func (QAArchiveShard) Fields() []ent.Field {
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
 		field.String("last_error").Optional().Nillable(),
+		field.String("source_partition_name").Optional().Nillable(),
+		field.Time("source_dropped_at").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
+		field.Time("hot_files_cleaned_at").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
+		field.String("hot_cleanup_error").Optional().Nillable(),
 		field.Time("created_at").
 			Default(time.Now).
 			Immutable().
