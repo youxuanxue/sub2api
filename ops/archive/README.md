@@ -13,6 +13,10 @@ deployment integration.
 Retention day defaults: `pipeline_status.yaml` (preflight:
 `scripts/checks/data-layer-archive-ssot.py`).
 
+`data_layer_retention_activation.py` owns production usage/ops only. It does not query,
+plan, or activate QA retention; the QA lifecycle owner and operator entrypoints remain in
+[`ops/qa/README.md`](../qa/README.md).
+
 ## Source contract
 
 Prepare a local SQLite file with this table:

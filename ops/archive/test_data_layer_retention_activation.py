@@ -16,9 +16,8 @@ SPEC.loader.exec_module(activation)
 
 
 class RetentionActivationTest(unittest.TestCase):
-    def test_remote_plan_is_read_only_and_age_owned(self) -> None:
+    def test_remote_plan_is_read_only_and_ops_owned(self) -> None:
         script = activation._remote_plan_script()
-        self.assertIn("tokenkey-qa-stale-cleanup.sh --plan", script)
         self.assertIn("30 days", script)
         self.assertIn("ops_error_logs", script)
         self.assertIn("ops_system_logs", script)
@@ -29,8 +28,9 @@ class RetentionActivationTest(unittest.TestCase):
         self.assertNotIn("qa_archive_shards", script)
         self.assertIn("WITH bounds AS MATERIALIZED", script)
         self.assertIn("usage_logs", script)
-        self.assertIn("tokenkey-qa-maintenance.timer", script)
-        self.assertIn("tokenkey-qa-stale-cleanup.timer", script)
+        self.assertNotIn("tokenkey-qa-maintenance", script)
+        self.assertNotIn("tokenkey-qa-stale-cleanup", script)
+        self.assertNotIn("qa_records", script)
         self.assertNotIn("DELETE FROM", script)
         self.assertNotIn("UPDATE ", script)
         self.assertNotIn("cleanup_eligible", script)
@@ -39,11 +39,6 @@ class RetentionActivationTest(unittest.TestCase):
     def test_ready_accepts_legacy_window_without_tomorrow_child_partition(self) -> None:
         payload = {
             "active_image": "ghcr.io/youxuanxue/sub2api:1.8.140",
-            "timers": {
-                "qa_maintenance": {"enabled": "disabled", "active": "inactive"},
-                "qa_stale_cleanup": {"enabled": "disabled", "active": "inactive"},
-            },
-            "qa": {"active_image": "ghcr.io/youxuanxue/sub2api:1.8.140"},
             "ops": {
                 "ops_retention_days": 30,
                 "usage_logs_partitioned": True,
@@ -70,14 +65,10 @@ class RetentionActivationTest(unittest.TestCase):
                 activation.plan("/does/not/exist")
         self.assertFalse(called)
 
-    def test_qa_cleanup_readiness_is_independent_of_archive_and_maintenance(self) -> None:
+    def test_ops_readiness_ignores_qa_lifecycle_payloads(self) -> None:
         payload = {
             "active_image": "ghcr.io/youxuanxue/sub2api:1.8.140",
-            "timers": {
-                "qa_maintenance": {"enabled": "disabled", "active": "inactive"},
-                "qa_stale_cleanup": {"enabled": "disabled", "active": "inactive"},
-            },
-            "qa": {"active_image": "ghcr.io/youxuanxue/sub2api:1.8.140"},
+            "qa": {"malformed": "must be ignored by generic retention"},
             "ops": {
                 "ops_retention_days": 30,
                 "usage_logs_partitioned": True,

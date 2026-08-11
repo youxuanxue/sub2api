@@ -6,16 +6,6 @@ import (
 	"time"
 )
 
-// ParseHourlyCutoverUTC parses an RFC3339 UTC cutover timestamp.
-// Invalid non-empty values return zero so legacy layout remains in effect until corrected.
-func ParseHourlyCutoverUTC(raw string) time.Time {
-	parsed, err := ParseHourlyCutoverUTCStrict(raw)
-	if err != nil {
-		return time.Time{}
-	}
-	return parsed
-}
-
 // ParseHourlyCutoverUTCStrict parses T0 and rejects malformed non-empty values.
 func ParseHourlyCutoverUTCStrict(raw string) (time.Time, error) {
 	raw = strings.TrimSpace(raw)
@@ -30,5 +20,9 @@ func ParseHourlyCutoverUTCStrict(raw string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("lifecycle: invalid hourly_storage_cutover_utc %q: %w", raw, err)
 	}
 	hour := parsed.UTC()
-	return time.Date(hour.Year(), hour.Month(), hour.Day(), hour.Hour(), 0, 0, 0, time.UTC), nil
+	hourStart := time.Date(hour.Year(), hour.Month(), hour.Day(), hour.Hour(), 0, 0, 0, time.UTC)
+	if !hour.Equal(hourStart) {
+		return time.Time{}, fmt.Errorf("lifecycle: hourly_storage_cutover_utc must be an exact UTC hour")
+	}
+	return hourStart, nil
 }

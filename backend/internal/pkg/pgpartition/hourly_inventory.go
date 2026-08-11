@@ -76,6 +76,9 @@ func inventoryLayout(child ChildPartitionBound, lower, upper sql.NullTime) strin
 }
 
 func isCanonicalHourlyName(name string, lower time.Time) bool {
+	if !lower.Equal(HourStartUTC(lower)) {
+		return false
+	}
 	want := HourlyPartitionName(qaRecordsTableName, lower)
 	return name == want
 }

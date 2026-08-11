@@ -4,7 +4,7 @@
 - Title: QA Phase 2 production integrity closeout
 - Priority: P0（不可逆归档控制状态、生产恢复与数据生命周期）
 - As a / I want / So that:
-  作为 **TokenKey 生产运维者**，我希望 **QA Phase 2 归档只按已批准状态机运行，并由唯一不可变 cutover、同一受限 runner、可验证恢复、最小 IAM 与独立 stale cleanup 共同守卫**，**以便** 缺失或损坏的归档不能伪装成成功，历史 repair 不能重开，保留期清理也不能获得额外删除授权。
+  作为 **TokenKey 生产运维者**，我希望 **QA Phase 2 归档只按已批准状态机运行，并由唯一不可变 cutover、同一受限 runner、可验证恢复、最小 IAM 与 default-free 小时 boundary 共同守卫**，**以便** 缺失或损坏的归档不能伪装成成功，历史 repair 不能重开，保留期清理也不能获得额外删除授权。
 - Trace:
   - 长期设计：`docs/approved/design-prod-qa-24h-s3-lifecycle.md`
   - Phase 2 收口：`docs/approved/design-qa-phase2-archive-closeout.md`
@@ -22,7 +22,7 @@
 4. **AC-004（完整性）**：Given timely zero-row hour、source retention 后首次发现的未知小时、late identity 或 missing/corrupt evidence，When reconcile，Then 分别产生可恢复空 base、`source_unavailable_after_retention`、单一 delta 或 failed/blocked control；不得合成缺失历史、授权删除或覆盖 immutable commit。
 5. **AC-005（runtime）**：Given timer、operator、self-test 与 health probe，When执行或发生 pre-app/child failure，Then它们共用唯一 host runner 与批准的 image/user/mount/scratch/resource contract，原子 receipt 始终推进且四类运行事实矛盾时 fail closed。
 6. **AC-006（IAM 与 recovery）**：Given app archive role 与 ops recovery role，When渲染 policy 或从 workstation inspect/verify/restore，Then app 只有所需 suffix-scoped artifact 权限且无无界 list/partial read，recovery 不经过 prod 主机/API/数据库，正文恢复要求 privacy confirmation，并如实保留 shared-role 风险。
-7. **AC-007（stale cleanup 与回归）**：Given独立 24 小时 stale cleanup 与 export temp crash orphan，When plan/apply，Then只处理 effective mount 内 age/type/open-handle 全部合格且 exact plan-hash 未漂移的文件；archive completeness、cutover 或 maintenance health 不改变其 owner、窗口或删除权限，已知历史坏小时与 `qa_export_jobs` 保持不变。
+7. **AC-007（cutover 排空与 export orphan）**：Given legacy stale cleanup 仅在 no-move cutover 排空期间运行，且 steady-state boundary 处理 export temp crash orphan，When plan/apply，Then只处理 effective mount 内 age/type/open-handle 全部合格且 exact plan-hash 未漂移的文件；durable same-T0 finalize receipt 原子切换 owner 后，legacy cleanup 必须停用，已知历史坏小时与 `qa_export_jobs` 保持不变。
 8. **AC-008（qa_records UTC 小时生命周期）**：Given `qa_records` 已切换为 UTC 小时 RANGE 分区且 archive/boundary 共用 `QAMA` 锁，When `*:00` boundary owner 运行，Then 仅基于 catalog bound 预建 `[current_hour, current_hour+72h)`、DROP `upper_bound <= retention_boundary` 的规范子分区，并在同一事务内完成 terminal gap 分类 + DROP + `source_dropped_at`；hot blob/DLQ 小时目录在 DROP 后幂等清理；稳态禁止 rehome/staging/copy/move 与逐行 QA retention；`archive_failed`、分区缺口、DEFAULT 稳态残留与 hot-file 残留必须 health failed。
 
 ## Assertions
@@ -68,8 +68,11 @@
 - `ops/qa/test_prod_qa_stale_cleanup.py`::`ProdQAStaleCleanupTest.test_export_orphan_apply_rejects_plan_drift_before_removal`
 - `ops/qa/test_prod_qa_stale_cleanup.py`::`ProdQAStaleCleanupTest.test_export_tmp_override_resolves_its_effective_bind`
 - `ops/qa/test_prod_qa_stale_cleanup.py`::`ProdQAStaleCleanupTest.test_age_retention_first_apply_does_not_depend_on_maintenance_timer`
+- `ops/qa/test_prod_qa_stale_cleanup.py`::`ProdQAStaleCleanupTest.test_dedicated_operator_plan_cannot_depend_on_generic_retention`
+- `ops/qa/test_prod_qa_stale_cleanup.py`::`ProdQAStaleCleanupTest.test_legacy_cleanup_rejects_every_plan_after_finalize`
+- `ops/qa/test_prod_qa_stale_cleanup.py`::`ProdQAStaleCleanupTest.test_generic_data_retention_plan_cannot_drive_qa_cleanup`
+- `ops/qa/test_qa_phase_ops.py`::`TestQAPhaseOps.test_qa_stale_timer_enable_requires_first_apply_receipt_before_aws`
 - `deploy/aws/stage0/test_build_cfn.py`::`BuildCfnSizeTest.test_qa_orphan_helper_is_distributed_within_ssm_standard_limits`
-- `ops/archive/test_data_layer_retention_activation.py`::`RetentionActivationTest.test_qa_cleanup_readiness_is_independent_of_archive_and_maintenance`
 - `backend/cmd/qa-archive/main_test.go`::`TestUS045_WorkstationRecoveryInspectUsesDirectS3WithoutAppConfigOrDatabase`
 - `backend/cmd/qa-archive/main_test.go`::`TestUS045_WorkstationRecoveryInspectReportsMissingAndCorruptEvidenceWithoutDependencies`
 - `backend/cmd/qa-archive/main_test.go`::`TestUS045_WorkstationRecoveryVerifyUsesDirectS3WithoutAppConfigOrDatabase`
@@ -90,7 +93,18 @@
 - `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_stale_production_receipts_cannot_authorize_retirement`
 - `backend/internal/pkg/pgpartition/hourly_test.go`::`TestRetentionBoundaryUsesDatabaseHourSemantics`
 - `backend/internal/pkg/pgpartition/hourly_test.go`::`TestHourlyTargetRangesCrossMonthYear`
-- `backend/internal/observability/qa/lifecycle/boundary_test.go`::`TestValidateCutoverPlanApplyRejectsDefaultRows`
+- `backend/internal/observability/qa/lifecycle/boundary_test.go`::`TestRetentionUntilForHourUsesHourStartPlus25Hours`
+- `backend/internal/observability/qa/lifecycle/boundary_test.go`::`TestBuildCutoverFinalizePlanRequiresDrainAndT0Plus25Hours`
+- `backend/internal/observability/qa/lifecycle/boundary_execution_test.go`::`TestRunBoundaryStopsBeforeExpiryWhenProvisioningFails`
+- `backend/internal/observability/qa/lifecycle/boundary_execution_test.go`::`TestDropExpiredHourLocksChildBeforeInspectingArchiveCoverage`
+- `backend/internal/observability/qa/lifecycle/boundary_execution_test.go`::`TestDropExpiredHourRejectsCatalogBoundDriftAfterLock`
+- `backend/internal/observability/qa/lifecycle/cutover_apply_test.go`::`TestApplyCutoverFinalizeRequiresMatchingActivationReceipt`
+- `backend/internal/observability/qa/lifecycle/cutover_apply_test.go`::`TestApplyCutoverFinalizeDropsEmptyDefaultAndPersistsReceipt`
+- `backend/cmd/server/qa_maintenance_boundary_test.go`::`TestQABoundaryLockContentionAdvancesFailureHeartbeatAndReceipt`
+- `backend/internal/repository/migrations_schema_integration_test.go`::`TestQAHourlyCutoverFinalizeReceiptRequiresMatchingActivationT0`
+- `ops/qa/test_qa_boundary_runtime.py`::`QABoundaryRunnerTest.test_finalize_operator_requires_fresh_successful_archive_receipt`
+- `ops/qa/test_qa_boundary_runtime.py`::`QABoundaryDeploymentTest.test_ssm_sync_installs_runtime_and_switches_cleanup_owner_atomically`
+- `ops/qa/test_qa_maintenance_phase2_runtime.py`::`QAPhase2OperatorAndHealthTest.test_us045_catalog_health_rejects_finalize_without_same_t0_activation`
 - `backend/internal/observability/qa/lifecycle/hot_paths_test.go`::`TestValidateHourDirRejectsEscape`
 - `backend/internal/repository/pgpartition_integration_test.go`::`TestPgPartition_EnsureHourlyCoversFutureHorizon`
 - `backend/internal/repository/pgpartition_integration_test.go`::`TestPgPartition_HourlyWriteRoutesToChildPartition`
@@ -103,11 +117,12 @@ cd backend
 go test -tags=unit -count=1 -run 'TestUS045_' ./cmd/qa-archive
 go test -tags=unit -count=1 -run 'TestUS045_' ./cmd/server
 go test -tags=integration -count=1 -run 'TestUS045_' ./internal/observability/qa/archive
-go test -tags=unit -count=1 -run 'TestHourly|TestRetention|TestValidateCutover|TestValidateHourDir' ./internal/pkg/pgpartition/... ./internal/observability/qa/lifecycle/...
-go test -tags=integration -count=1 -run 'TestPgPartition_EnsureHourly|TestPgPartition_Hourly|TestPgPartition_DropExpiredHourly' ./internal/repository/
+go test -tags=unit -count=1 -run 'TestHourly|TestRetention|TestBuildCutover|TestRunBoundary|TestDropExpiredHour|TestApplyCutover|TestValidateHourDir' ./internal/pkg/pgpartition/... ./internal/observability/qa/lifecycle/...
+go test -tags=integration -count=1 -run 'TestQAHourlyCutover|TestPgPartition_EnsureHourly|TestPgPartition_Hourly|TestPgPartition_DropExpiredHourly' ./internal/repository/
 cd ..
-python3 -m unittest ops.qa.test_qa_maintenance_phase2_runtime ops.qa.test_qa_phase_ops
-python3 -m unittest ops.qa.test_prod_qa_stale_cleanup ops.archive.test_data_layer_retention_activation
+python3 -m unittest ops.qa.test_qa_boundary_runtime ops.observability.test_probe_qa_phase2_live_health ops.qa.test_prod_phase2_live_health ops.qa.test_qa_maintenance_phase2_runtime ops.qa.test_qa_phase_ops
+python3 -m unittest ops.qa.test_prod_qa_stale_cleanup
+python3 scripts/checks/qa-lifecycle-ssot.py --self-test
 python3 -m unittest deploy.aws.cloudformation.test_stage0_qa_raw_archive_contract ops.qa.test_qa_archive_recovery_gate
 python3 .testing/user-stories/verify_quality.py
 ```
@@ -126,4 +141,4 @@ python3 .testing/user-stories/verify_quality.py
 
 ## Status
 
-- [x] Done — Phase 2 production integrity closeout 已完成：prod re-closeout、age retention、export orphan、workstation recovery evidence、break-glass 退役、deploy inject flip 均已在 prod/仓库 SSOT 对齐。
+- [x] InTest — 仓库实现、本地行为测试与 PostgreSQL testcontainer integration 已完成；新的 prod T0 activate、至少 25 小时排空、same-T0 finalize、timer owner switch 与至少一次真实 partition DROP 仍须按批准 rollout 执行和观测，本 PR 未写线上服务。

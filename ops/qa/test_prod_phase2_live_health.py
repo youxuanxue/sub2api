@@ -41,6 +41,18 @@ def _fresh_snapshot() -> tuple[dict, dt.datetime]:
     snapshot["host_receipt"]["finished_at"] = iso(finished)
     snapshot["database_heartbeat"]["last_run_at"] = iso(started)
     snapshot["database_heartbeat"]["last_success_at"] = iso(finished)
+    boundary_finished = now - dt.timedelta(minutes=30)
+    boundary_started = boundary_finished - dt.timedelta(seconds=30)
+    snapshot["boundary_systemd"]["finished_at"] = iso(boundary_finished)
+    snapshot["boundary_host_receipt"]["started_at"] = iso(boundary_started)
+    snapshot["boundary_host_receipt"]["finished_at"] = iso(boundary_finished)
+    snapshot["boundary_database_heartbeat"]["last_run_at"] = iso(boundary_started)
+    snapshot["boundary_database_heartbeat"]["last_success_at"] = iso(boundary_finished)
+    current_hour = now.replace(minute=0, second=0, microsecond=0)
+    snapshot["qa_records"]["future_coverage_start_utc"] = iso(current_hour)
+    snapshot["qa_records"]["future_coverage_end_utc"] = iso(
+        current_hour + dt.timedelta(hours=72)
+    )
     return snapshot, now
 
 
@@ -53,7 +65,10 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
                 "PHASE2RECEIPT " + json.dumps(snapshot["host_receipt"], sort_keys=True),
                 "PHASE2HEARTBEAT " + json.dumps(snapshot["database_heartbeat"], sort_keys=True),
                 "PHASE2ARCHIVE " + json.dumps(snapshot["archive_control"], sort_keys=True),
-                "PHASE2QARECORDS " + json.dumps({"partition_owner": "partitioned"}, sort_keys=True),
+                "PHASE2BOUNDARYSYSTEMD " + json.dumps(snapshot["boundary_systemd"], sort_keys=True),
+                "PHASE2BOUNDARYRECEIPT " + json.dumps(snapshot["boundary_host_receipt"], sort_keys=True),
+                "PHASE2BOUNDARYHEARTBEAT " + json.dumps(snapshot["boundary_database_heartbeat"], sort_keys=True),
+                "PHASE2QARECORDS " + json.dumps(snapshot["qa_records"], sort_keys=True),
             ]
         )
 
@@ -63,12 +78,18 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         self.assertIn("host_receipt", snapshot)
         self.assertEqual(snapshot["qa_records"]["partition_owner"], "partitioned")
 
-    def test_evaluate_snapshot_marks_default_only_partition_degraded(self) -> None:
+    def test_parse_probe_output_treats_zero_qa_rows_as_partitioned(self) -> None:
+        snapshot = live_health._parse_probe_output(
+            'PHASE2QARECORDS {"default_rows":0,"non_default_rows":0}'
+        )
+        self.assertEqual(snapshot["qa_records"].get("partition_owner"), "partitioned")
+
+    def test_evaluate_snapshot_marks_default_only_partition_failed(self) -> None:
         snapshot, now = _fresh_snapshot()
-        snapshot["qa_records"] = {"partition_owner": "default_only"}
+        snapshot["qa_records"].update(partition_owner="default_only", default_present=True)
         payload = live_health.evaluate_snapshot(snapshot, skip_iam=True, now=now)
         self.assertIn("qa_records_partition_owner_default_only", payload["warnings"])
-        self.assertEqual(payload["health"]["status"], "degraded")
+        self.assertEqual(payload["health"]["status"], "failed")
         self.assertIn("qa_records_partition_owner_default_only", payload["health"]["reasons"])
 
     def test_cli_from_probe_stdin(self) -> None:
@@ -102,6 +123,9 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
                 "PHASE2RECEIPT " + json.dumps(snapshot["host_receipt"], sort_keys=True),
                 "PHASE2HEARTBEAT " + json.dumps(snapshot["database_heartbeat"], sort_keys=True),
                 "PHASE2ARCHIVE " + json.dumps(snapshot["archive_control"], sort_keys=True),
+                "PHASE2BOUNDARYSYSTEMD " + json.dumps(snapshot["boundary_systemd"], sort_keys=True),
+                "PHASE2BOUNDARYRECEIPT " + json.dumps(snapshot["boundary_host_receipt"], sort_keys=True),
+                "PHASE2BOUNDARYHEARTBEAT " + json.dumps(snapshot["boundary_database_heartbeat"], sort_keys=True),
                 "PHASE2QARECORDS " + json.dumps(snapshot.get("qa_records", {"partition_owner": "partitioned"}), sort_keys=True),
             ]
         )
@@ -120,6 +144,41 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
         self.assertEqual(payload["health"]["status"], "degraded")
+
+    def test_cli_nonwhitelisted_degraded_exit_nonzero(self) -> None:
+        snapshot, _ = _fresh_snapshot()
+        snapshot["archive_control"]["terminal_failures_after_cutover"] = [
+            {
+                "window_start": "2026-08-07T22:00:00Z",
+                "verification_error_code": "source_unavailable_after_retention",
+            }
+        ]
+        snapshot["qa_records"].update(partition_owner="default_only", default_present=True)
+        probe_text = "\n".join(
+            [
+                "PHASE2SYSTEMD " + json.dumps(snapshot["systemd"], sort_keys=True),
+                "PHASE2RECEIPT " + json.dumps(snapshot["host_receipt"], sort_keys=True),
+                "PHASE2HEARTBEAT " + json.dumps(snapshot["database_heartbeat"], sort_keys=True),
+                "PHASE2ARCHIVE " + json.dumps(snapshot["archive_control"], sort_keys=True),
+                "PHASE2BOUNDARYSYSTEMD " + json.dumps(snapshot["boundary_systemd"], sort_keys=True),
+                "PHASE2BOUNDARYRECEIPT " + json.dumps(snapshot["boundary_host_receipt"], sort_keys=True),
+                "PHASE2BOUNDARYHEARTBEAT " + json.dumps(snapshot["boundary_database_heartbeat"], sort_keys=True),
+                "PHASE2QARECORDS " + json.dumps(snapshot["qa_records"], sort_keys=True),
+            ]
+        )
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "ops/qa/prod_phase2_live_health.py"),
+                "--from-probe-stdin",
+                "--skip-iam",
+            ],
+            input=probe_text,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
 
     def test_timestamp_parses_systemd_finished_at(self) -> None:
         parsed = health._timestamp("Mon 2026-08-10 13:15:01 UTC")

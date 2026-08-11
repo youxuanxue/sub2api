@@ -169,6 +169,9 @@ fi
 
 # --- 2b. data directory layout ------------------------------------------
 install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app
+install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app/qa_blobs
+install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app/qa_dlq
+install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app/qa_exports_tmp
 install -d -m 0700 /var/lib/tokenkey/postgres
 install -d -m 0755 /var/lib/tokenkey/redis
 install -d -m 0755 /var/lib/tokenkey/pgdump
@@ -236,6 +239,11 @@ RAW+="$(aws ssm get-parameter --name "${QA_EXPORT_ORPHAN_B64_PARAM_PREFIX}.part2
 install -d -m 0755 /usr/local/lib/tokenkey
 printf '%s' "${RAW}" | base64 -d | gunzip > /usr/local/lib/tokenkey/qa-export-orphan.py
 chmod 0755 /usr/local/lib/tokenkey/qa-export-orphan.py
+QA_BOUNDARY_B64_PARAM_PREFIX="${STAGE0_PREFIX}/qa-boundary.gzip.b64"
+RAW="$(aws ssm get-parameter --name "${QA_BOUNDARY_B64_PARAM_PREFIX}.part1" --region "${REGION}" --query Parameter.Value --output text)"
+RAW+="$(aws ssm get-parameter --name "${QA_BOUNDARY_B64_PARAM_PREFIX}.part2" --region "${REGION}" --query Parameter.Value --output text)"
+printf '%s' "${RAW}" | base64 -d | gunzip > /usr/local/bin/tokenkey-qa-boundary.sh
+chmod 0755 /usr/local/bin/tokenkey-qa-boundary.sh
 
 printf '%s\n' "${STAGE0_PREFIX}/ghcr-prune.b64" > /etc/tokenkey/ghcr-prune-ssm.path
 install -m 0755 /dev/stdin /usr/local/bin/tokenkey-prune-ghcr-app-tags.sh <<'LOADEREOF'
@@ -491,6 +499,7 @@ WantedBy=timers.target
 PTEOF
 
 /usr/local/bin/tokenkey-qa-stale-cleanup.sh --install-units /etc/systemd/system
+/usr/local/bin/tokenkey-qa-boundary.sh --install-units
 
 # --- 7. CloudWatch Agent ------------------------------------------------
 cat > /opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json <<'CWEOF'
@@ -522,6 +531,7 @@ systemctl enable --now tokenkey.service
 systemctl enable --now tokenkey-pgdump.timer
 systemctl enable --now tokenkey-disk-metrics.timer
 systemctl disable --now tokenkey-qa-stale-cleanup.timer
+systemctl disable --now tokenkey-qa-boundary.timer
 systemctl enable --now tokenkey-ghcr-prune-daily.timer
 if [ -x /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then
   /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \

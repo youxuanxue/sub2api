@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the fixed QA age-retention unit. Default keeps deletion disabled.
+# Install the legacy no-move cutover drain. Default and post-finalize state are disabled.
 set -euo pipefail
 
 INSTANCE_ID="${1:-${INSTANCE_ID:-}}"
@@ -32,7 +32,7 @@ case "${TIMER_STATE}" in
       (.marker_sha256 | type == "string" and test("^[0-9a-f]{64}$"))
     ' "${ACTIVATION_RECEIPT}" >/dev/null || { echo "invalid or expired QA stale activation receipt" >&2; exit 1; }
     marker_sha256="$(jq -r '.marker_sha256' "${ACTIVATION_RECEIPT}")"
-    timer_command="sudo bash -c 'set -e; marker=/var/lib/tokenkey/qa-stale-first-plan.json; expected=${marker_sha256}; verify_marker() { test -f \"\${marker}\" && test \"\$(sha256sum \"\${marker}\" | awk \"{print \\\$1}\")\" = \"\${expected}\"; }; if test \"\$(systemctl is-enabled tokenkey-qa-stale-cleanup.timer)\" = enabled && test \"\$(systemctl is-active tokenkey-qa-stale-cleanup.timer)\" = active; then if test -f \"\${marker}\"; then verify_marker; fi; rm -f \"\${marker}\"; exit 0; fi; verify_marker; if systemctl enable --now tokenkey-qa-stale-cleanup.timer && test \"\$(systemctl is-enabled tokenkey-qa-stale-cleanup.timer)\" = enabled && test \"\$(systemctl is-active tokenkey-qa-stale-cleanup.timer)\" = active; then rm -f \"\${marker}\"; else systemctl disable --now tokenkey-qa-stale-cleanup.timer || true; exit 1; fi'"
+    timer_command="sudo bash -c 'set -euo pipefail; marker=/var/lib/tokenkey/qa-stale-first-plan.json; expected=${marker_sha256}; verify_marker() { test -f \"\${marker}\" && test \"\$(sha256sum \"\${marker}\" | awk \"{print \\\$1}\")\" = \"\${expected}\"; }; drain_open=\$(docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 -c \"SELECT CASE WHEN to_regclass('public.qa_lifecycle_receipts') IS NULL OR NOT EXISTS (SELECT 1 FROM qa_lifecycle_receipts WHERE phase=concat(chr(102),chr(105),chr(110),chr(97),chr(108),chr(105),chr(122),chr(101))) THEN 1 ELSE 0 END\" | tr -d \"[:space:]\"); if test \"\${drain_open}\" != 1; then systemctl disable --now tokenkey-qa-stale-cleanup.timer; exit 1; fi; if test \"\$(systemctl is-enabled tokenkey-qa-stale-cleanup.timer)\" = enabled && test \"\$(systemctl is-active tokenkey-qa-stale-cleanup.timer)\" = active; then if test -f \"\${marker}\"; then verify_marker; fi; rm -f \"\${marker}\"; exit 0; fi; verify_marker; if systemctl enable --now tokenkey-qa-stale-cleanup.timer && test \"\$(systemctl is-enabled tokenkey-qa-stale-cleanup.timer)\" = enabled && test \"\$(systemctl is-active tokenkey-qa-stale-cleanup.timer)\" = active; then rm -f \"\${marker}\"; else systemctl disable --now tokenkey-qa-stale-cleanup.timer || true; exit 1; fi'"
     active_state=active
     ;;
   *)

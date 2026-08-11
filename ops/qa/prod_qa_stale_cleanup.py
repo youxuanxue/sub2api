@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply the first fixed QA age-retention plan through production SSM."""
+"""Plan and apply the legacy QA cutover drain through production SSM."""
 from __future__ import annotations
 
 import argparse
@@ -24,7 +24,7 @@ EXPORT_CONFIRM_PREFIX = "tokenkey-prod-qa-export-orphan-apply-v1:"
 
 
 class StaleCleanupError(RuntimeError):
-    """Fail-closed first QA cleanup error."""
+    """Fail-closed QA cutover-drain error."""
 
 
 def _atomic_json(path: pathlib.Path, value: dict[str, Any]) -> None:
@@ -104,15 +104,18 @@ def _load_plan(
     path: str | os.PathLike[str],
     *,
     allow_stale: bool = False,
-    require_activation_ready: bool = True,
 ) -> dict[str, Any]:
     try:
         value = json.loads(pathlib.Path(path).expanduser().resolve().read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise StaleCleanupError("retention activation plan cannot be read") from exc
+        raise StaleCleanupError("QA cutover drain plan cannot be read") from exc
+    return _validate_plan(value, allow_stale=allow_stale)
+
+
+def _validate_plan(value: Any, *, allow_stale: bool = False) -> dict[str, Any]:
     if (
         not isinstance(value, dict)
-        or value.get("mode") != "prod_data_retention_activation_plan"
+        or value.get("mode") != "prod_qa_cutover_drain_plan"
         or value.get("environment") != "prod"
         or value.get("deletion_authorized") is not False
         or INSTANCE_RE.fullmatch(str(value.get("instance_id", ""))) is None
@@ -120,18 +123,16 @@ def _load_plan(
         or value["qa"].get("mode") != "prod_qa_age_retention_plan"
         or value["qa"].get("deletion_authorized") is not False
     ):
-        raise StaleCleanupError("retention activation plan failed validation")
-    if require_activation_ready and value.get("activation_ready") is not True:
-        raise StaleCleanupError("retention activation plan is not ready")
+        raise StaleCleanupError("QA cutover drain plan failed validation")
     try:
-        clock = dt.datetime.fromisoformat(str(value["ops"]["server_clock"]).replace("Z", "+00:00"))
+        clock = dt.datetime.fromisoformat(str(value["qa"]["server_clock"]).replace("Z", "+00:00"))
     except (KeyError, TypeError, ValueError) as exc:
-        raise StaleCleanupError("retention activation plan has no valid server clock") from exc
+        raise StaleCleanupError("QA cutover drain plan has no valid server clock") from exc
     age = dt.datetime.now(dt.timezone.utc) - clock
     if age < dt.timedelta(0):
-        raise StaleCleanupError("retention activation plan clock is in the future")
+        raise StaleCleanupError("QA cutover drain plan clock is in the future")
     if age > dt.timedelta(minutes=10) and not allow_stale:
-        raise StaleCleanupError("retention activation plan is stale")
+        raise StaleCleanupError("QA cutover drain plan is stale")
     qa = value["qa"]
     for key in ("candidate_rows", "candidate_blob_files", "candidate_dlq_files"):
         if isinstance(qa.get(key), bool) or not isinstance(qa.get(key), int) or qa[key] < 0:
@@ -142,6 +143,25 @@ def _load_plan(
     export = _validate_export_plan(qa.get("export_tmp"))
     if export.get("cutoff") != cutoff or not isinstance(qa.get("export_jobs"), dict):
         raise StaleCleanupError("QA export diagnostics are not bound to the retention plan")
+    return value
+
+
+def build_plan(instance_id: str, output_path: pathlib.Path) -> dict[str, Any]:
+    if INSTANCE_RE.fullmatch(instance_id) is None:
+        raise StaleCleanupError("valid prod instance id is required")
+    command_id, qa = _run_remote(
+        instance_id,
+        "/usr/local/bin/tokenkey-qa-stale-cleanup.sh --plan",
+    )
+    value = _validate_plan({
+        "mode": "prod_qa_cutover_drain_plan",
+        "environment": "prod",
+        "instance_id": instance_id,
+        "command_id": command_id,
+        "qa": qa,
+        "deletion_authorized": False,
+    })
+    _atomic_json(output_path, value)
     return value
 
 
@@ -161,7 +181,7 @@ def _aws_json(args: list[str]) -> dict[str, Any]:
 def _run_remote(instance_id: str, command: str) -> tuple[str, dict[str, Any]]:
     sent = _aws_json([
         "aws", "ssm", "send-command", "--region", REGION, "--instance-ids", instance_id,
-        "--document-name", "AWS-RunShellScript", "--comment", "TokenKey first QA age retention",
+        "--document-name", "AWS-RunShellScript", "--comment", "TokenKey QA cutover drain",
         "--parameters", json.dumps({"commands": ["set -euo pipefail", command]}, separators=(",", ":")),
         "--output", "json",
     ])
@@ -201,7 +221,7 @@ def apply_first(
     plan = _load_plan(plan_path, allow_stale=resume)
     qa = plan["qa"]
     if confirmation != qa["required_confirmation"]:
-        raise StaleCleanupError("first QA cleanup confirmation mismatch")
+        raise StaleCleanupError("QA cutover drain confirmation mismatch")
     values = [
         "/usr/local/bin/tokenkey-qa-stale-cleanup.sh", "--resume-first" if resume else "--apply-first",
         "--cutoff", qa["cutoff"], "--expected-rows", str(qa["candidate_rows"]),
@@ -240,7 +260,7 @@ def apply_export_orphans(
 ) -> dict[str, Any]:
     if receipt_path.expanduser().exists():
         raise StaleCleanupError("QA export orphan receipt path already exists")
-    plan = _load_plan(plan_path, require_activation_ready=False)
+    plan = _load_plan(plan_path)
     qa = plan["qa"]
     export = qa["export_tmp"]
     if confirmation != export["required_confirmation"]:
@@ -281,14 +301,24 @@ def apply_export_orphans(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command", choices=("apply-first", "resume-first", "apply-export-orphans")
+        "command", choices=("plan", "apply-first", "resume-first", "apply-export-orphans")
     )
-    parser.add_argument("--activation-plan", required=True)
-    parser.add_argument("--receipt", required=True)
-    parser.add_argument("--confirm", required=True)
+    parser.add_argument("--instance-id")
+    parser.add_argument("--output")
+    parser.add_argument("--activation-plan")
+    parser.add_argument("--receipt")
+    parser.add_argument("--confirm")
     args = parser.parse_args()
     try:
-        if args.command == "apply-export-orphans":
+        if args.command == "plan":
+            if not args.instance_id or not args.output:
+                raise StaleCleanupError("plan requires --instance-id and --output")
+            value = build_plan(args.instance_id, pathlib.Path(args.output))
+        elif not args.activation_plan or not args.receipt or not args.confirm:
+            raise StaleCleanupError(
+                f"{args.command} requires --activation-plan, --receipt, and --confirm"
+            )
+        elif args.command == "apply-export-orphans":
             value = apply_export_orphans(
                 args.activation_plan, pathlib.Path(args.receipt), args.confirm
             )
@@ -300,7 +330,7 @@ def main() -> int:
                 resume=args.command == "resume-first",
             )
     except StaleCleanupError as exc:
-        print(f"production QA stale cleanup refused: {exc}", file=sys.stderr)
+        print(f"production QA cutover drain refused: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":")))
     return 0

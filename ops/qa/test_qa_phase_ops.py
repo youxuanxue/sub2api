@@ -34,6 +34,62 @@ def _load_closeout_module():
 
 
 class TestQAPhaseOps(unittest.TestCase):
+    def test_hourly_boundary_is_the_steady_state_cleanup_owner(self) -> None:
+        import yaml
+
+        policy = yaml.safe_load((ROOT / "ops/qa/policy.yaml").read_text(encoding="utf-8"))
+        lifecycle = policy["prod"]["lifecycle"]
+        self.assertEqual(lifecycle["owner"], "tokenkey-qa-boundary")
+        self.assertEqual(lifecycle["boundary_schedule_utc"], "*:00")
+        self.assertEqual(lifecycle["randomized_delay_minutes"], 0)
+        self.assertEqual(lifecycle["future_horizon_hours"], 72)
+        self.assertEqual(
+            lifecycle["host_receipt_path"],
+            "/var/lib/tokenkey/qa-boundary-last-run.json",
+        )
+        self.assertEqual(
+            policy["prod"]["cleanup"]["export_tmp_owner"],
+            "tokenkey-qa-boundary",
+        )
+        for retired in (
+            "cleanup_schedule_utc",
+            "cleanup_randomized_delay_minutes",
+            "cleanup_batch_size",
+            "physical_cleanup_max_lag_minutes",
+        ):
+            self.assertNotIn(retired, policy["prod"])
+
+        rollout = yaml.safe_load(
+            (ROOT / "ops/qa/deploy_rollout.yaml").read_text(encoding="utf-8")
+        )["prod"]
+        self.assertEqual(
+            rollout["tokenkey_qa_boundary"]["policy_target_state"],
+            "enabled_after_finalize",
+        )
+        self.assertEqual(
+            rollout["tokenkey_qa_boundary"]["host_runner"],
+            "/usr/local/bin/tokenkey-qa-boundary.sh",
+        )
+        self.assertEqual(
+            rollout["tokenkey_qa_stale_cleanup"]["policy_target_state"],
+            "disabled_after_finalize",
+        )
+        self.assertEqual(
+            rollout["tokenkey_qa_stale_cleanup"]["lifecycle_role"],
+            "cutover_drain_only",
+        )
+
+        boundary = (ROOT / "deploy/aws/stage0/tokenkey-qa-boundary.sh").read_text(
+            encoding="utf-8"
+        )
+        archive = (ROOT / "deploy/aws/stage0/tokenkey-qa-maintenance.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("OnCalendar=*-*-* *:00:00", boundary)
+        self.assertNotIn("RandomizedDelaySec", boundary)
+        self.assertIn("OnCalendar=*-*-* *:15:00", archive)
+        self.assertNotIn("RandomizedDelaySec", archive)
+
     def test_closeout_script_compiles(self) -> None:
         proc = subprocess.run(
             [sys.executable, "-m", "py_compile", str(ROOT / "ops/qa/edge_phase1_closeout.py")],
@@ -127,7 +183,11 @@ if [ "$1" = inspect ]; then
   exit 0
 fi
 if [ "$1" = exec ]; then
-  echo '{"server_clock":"2026-08-07T12:00:00.000000Z","cutoff":"2026-08-06T12:00:00.000000Z","candidate_rows":42,"oldest_created_at":"2026-08-04T04:00:00.000000Z","newest_created_at":"2026-08-06T11:59:00.000000Z","export_jobs":{"total_rows":0,"expired_rows":0,"status_counts":{},"done_without_storage_key":0,"non_done_with_storage_key":0}}'
+  if [[ "$*" == *qa_lifecycle_receipts* ]]; then
+    echo 1
+  else
+    echo '{"server_clock":"2026-08-07T12:00:00.000000Z","cutoff":"2026-08-06T12:00:00.000000Z","candidate_rows":42,"oldest_created_at":"2026-08-04T04:00:00.000000Z","newest_created_at":"2026-08-06T11:59:00.000000Z","export_jobs":{"total_rows":0,"expired_rows":0,"status_counts":{},"done_without_storage_key":0,"non_done_with_storage_key":0}}'
+  fi
   exit 0
 fi
 exit 9
@@ -263,6 +323,8 @@ delete_rows_before 2026-08-06T12:00:00.000000Z
         self.assertIn('test -f \\"\\${marker}\\"', sync_body)
         self.assertIn('rm -f \\"\\${marker}\\"', sync_body)
         self.assertIn("systemctl is-enabled tokenkey-qa-stale-cleanup.timer", sync_body)
+        self.assertIn("qa_lifecycle_receipts", sync_body)
+        self.assertIn("systemctl disable --now tokenkey-qa-stale-cleanup.timer", sync_body)
         self.assertNotIn(".activating", sync_body)
 
     def test_qa_stale_timer_enable_renders_marker_bound_shell(self) -> None:

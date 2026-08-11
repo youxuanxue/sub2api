@@ -34,8 +34,8 @@ func RetentionBoundary(now time.Time) time.Time {
 	return HourStartUTC(now).Add(-24 * time.Hour)
 }
 
-// EnsureHourly creates UTC-hour RANGE partitions from the current hour through
-// hoursAhead inclusive. Each child covers [hour, hour+1h). Idempotent with overlap skip.
+// EnsureHourly creates hoursAhead UTC-hour RANGE partitions starting at the current hour.
+// Each child covers [hour, hour+1h). Idempotent with overlap skip.
 func EnsureHourly(ctx context.Context, db DB, table string, now time.Time, hoursAhead int) error {
 	if hoursAhead < 0 {
 		return fmt.Errorf("pgpartition: hoursAhead must be non-negative")
@@ -176,6 +176,23 @@ func DropChildPartition(ctx context.Context, execer interface {
 	return nil
 }
 
+// LockChildPartition blocks writes to one validated direct child before destructive inspection.
+func LockChildPartition(ctx context.Context, execer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, child ChildPartitionBound) error {
+	if child.IsDefault {
+		return fmt.Errorf("pgpartition: refuse to lock DEFAULT partition %s.%s", child.Schema, child.Name)
+	}
+	if strings.TrimSpace(child.Schema) == "" || strings.TrimSpace(child.Name) == "" {
+		return fmt.Errorf("pgpartition: lock child partition: missing schema or name")
+	}
+	qualified := pq.QuoteIdentifier(child.Schema) + "." + pq.QuoteIdentifier(child.Name)
+	if _, err := execer.ExecContext(ctx, "LOCK TABLE "+qualified+" IN ACCESS EXCLUSIVE MODE"); err != nil {
+		return fmt.Errorf("pgpartition: lock partition %s: %w", qualified, err)
+	}
+	return nil
+}
+
 // CountCoveredHourlyRanges reports how many required [start,end) hour ranges are covered.
 func CountCoveredHourlyRanges(ctx context.Context, db DB, table string, ranges []HourlyRange) (int, error) {
 	starts := make([]time.Time, 0, len(ranges))
@@ -186,13 +203,14 @@ func CountCoveredHourlyRanges(ctx context.Context, db DB, table string, ranges [
 	}
 	const query = `
 WITH child_bounds AS (
-  SELECT pg_get_expr(child.relpartbound, child.oid, true) AS bound_expr
+  SELECT child.relname, pg_get_expr(child.relpartbound, child.oid, true) AS bound_expr
   FROM pg_inherits inheritance
   JOIN pg_class child ON child.oid = inheritance.inhrelid
   WHERE inheritance.inhparent = to_regclass($1)
     AND pg_get_expr(child.relpartbound, child.oid, true) <> 'DEFAULT'
 ), parsed_bounds AS (
   SELECT
+    relname,
     bound_expr LIKE 'FOR VALUES FROM (MINVALUE)%' AS lower_unbounded,
     bound_expr LIKE '%TO (MAXVALUE)' AS upper_unbounded,
     substring(bound_expr FROM $$FROM \('([^']+)'$$)::timestamptz AS lower_bound,
@@ -211,6 +229,8 @@ WITH child_bounds AS (
   FROM parsed_bounds
   WHERE (lower_unbounded OR lower_bound IS NOT NULL)
     AND (upper_unbounded OR upper_bound IS NOT NULL)
+    AND lower_bound = date_trunc('hour', lower_bound)
+    AND relname = $1 || '_' || to_char(lower_bound AT TIME ZONE 'UTC', 'YYYYMMDD_HH24')
 ), required_ranges AS (
   SELECT lower_bound, upper_bound
   FROM unnest($2::timestamptz[], $3::timestamptz[]) AS required(lower_bound, upper_bound)
@@ -242,30 +262,20 @@ func HourlyTargetRanges(now time.Time, hoursAhead int) []HourlyRange {
 	return ranges
 }
 
-// DefaultChildPartition returns the DEFAULT child name if present.
-func DefaultChildPartition(ctx context.Context, db DB, table string) (string, bool, error) {
-	children, err := ListInventoryChildBounds(ctx, db, table)
-	if err != nil {
-		return "", false, err
-	}
-	for _, child := range children {
-		if child.IsDefault {
-			return child.Name, true, nil
-		}
-	}
-	return "", false, nil
-}
-
 // CountTableRows counts rows in a single relation.
-func CountTableRows(ctx context.Context, db DB, table string) (int64, error) {
-	return countTableRows(ctx, db, table)
+func CountTableRows(ctx context.Context, db DB, schema, table string) (int64, error) {
+	return countTableRows(ctx, db, schema, table)
 }
 
-func countTableRows(ctx context.Context, db DB, table string) (int64, error) {
+func countTableRows(ctx context.Context, db DB, schema, table string) (int64, error) {
+	if strings.TrimSpace(schema) == "" || strings.TrimSpace(table) == "" {
+		return 0, fmt.Errorf("pgpartition: count relation requires schema and table")
+	}
 	var count int64
-	q := fmt.Sprintf("SELECT COUNT(*) FROM %s", pq.QuoteIdentifier(table))
+	qualified := pq.QuoteIdentifier(schema) + "." + pq.QuoteIdentifier(table)
+	q := "SELECT COUNT(*) FROM " + qualified
 	if err := db.QueryRowContext(ctx, q).Scan(&count); err != nil {
-		return 0, fmt.Errorf("pgpartition: count %s: %w", table, err)
+		return 0, fmt.Errorf("pgpartition: count %s: %w", qualified, err)
 	}
 	return count, nil
 }

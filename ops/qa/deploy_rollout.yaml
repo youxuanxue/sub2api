@@ -30,12 +30,27 @@ prod:
       - database_heartbeat
       - archive_control_rows
   tokenkey_qa_stale_cleanup:
-    policy_target_state: enabled
+    policy_target_state: disabled_after_finalize
+    lifecycle_role: cutover_drain_only
     archive_independent: true
-    export_orphan_plan_command: /usr/local/bin/tokenkey-qa-stale-cleanup.sh --plan
-    export_orphan_apply_command: /usr/local/bin/tokenkey-qa-stale-cleanup.sh --apply-export-orphans
+    disable_after_receipt_phase: finalize
+  tokenkey_qa_boundary:
+    repository_closeout_state: implementation_ready_pending_live_verification
+    observed_live_state: pending_live_reconciliation
+    policy_target_state: enabled_after_finalize
+    schedule_utc: "*:00"
+    randomized_delay_minutes: 0
+    host_runner: /usr/local/bin/tokenkey-qa-boundary.sh
+    host_receipt: /var/lib/tokenkey/qa-boundary-last-run.json
+    database_heartbeat_job: qa-boundary
+    replaces_timer: tokenkey-qa-stale-cleanup.timer
+    owns_export_orphans: true
     export_orphan_activation_marker: /var/lib/tokenkey/qa-export-orphan-cleanup-activated.json
-    activation_state: production_export_orphan_activated
+    health_evidence:
+      - boundary_systemd
+      - boundary_host_receipt
+      - boundary_database_heartbeat
+      - qa_records_catalog
   qa_records:
     partition_owner_repository: qa_lifecycle_boundary
     partition_owner_observed: pending_live_probe

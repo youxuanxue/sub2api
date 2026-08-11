@@ -33,6 +33,16 @@ QA_README = Path("ops/qa/README.md")
 STALE_OPERATOR = Path("ops/qa/prod_qa_stale_cleanup.py")
 DEPLOY_SSM = Path("ops/stage0/deploy_via_ssm.sh")
 DEPLOY_BG = Path("ops/stage0/deploy_via_ssm_bluegreen.sh")
+LIVE_PROBE = Path("ops/observability/probe-qa-phase2-live-health.sh")
+CUTOVER_MIGRATION = Path("backend/migrations/tk_074_qa_hourly_cutover_receipts.sql")
+BOUNDARY_OWNER_SWITCH = Path("ops/stage0/sync-qa-boundary-timer-via-ssm.sh")
+STALE_TIMER_SYNC = Path("ops/stage0/sync-qa-stale-cleanup-timer-via-ssm.sh")
+GENERIC_RETENTION_ACTIVATION = Path("ops/archive/data_layer_retention_activation.py")
+GENERIC_PARTITION = Path("backend/internal/pkg/pgpartition/partition.go")
+DEPLOY_GUIDE = Path("docs/deploy/aws-us-openai-gateway-deployment.md")
+DEPLOY_README = Path("deploy/aws/README.md")
+DR_RUNBOOK = Path("deploy/aws/RUNBOOK-disaster-recovery.md")
+ARCHIVE_README = Path("ops/archive/README.md")
 
 MUST_BE_ABSENT = (
     Path("docs/qa-export-s3-and-auto-archive.md"),
@@ -89,6 +99,9 @@ FORBIDDEN_BY_FILE = {
     Path("ops/stage0/remediate-edge-disk-via-ssm.sh"): (
         "tokenkey-qa-stale-cleanup",
     ),
+    BOUNDARY_OWNER_SWITCH: (
+        "systemctl enable --now tokenkey-qa-stale-cleanup.timer",
+    ),
 }
 
 REQUIRED_BY_FILE = {
@@ -113,7 +126,11 @@ REQUIRED_BY_FILE = {
         "schema_version: 1",
         "capture_enabled: true",
         "online_window_hours: 24",
-        "cleanup_schedule_utc",
+        "owner: tokenkey-qa-boundary",
+        'boundary_schedule_utc: "*:00"',
+        "randomized_delay_minutes: 0",
+        "future_horizon_hours: 72",
+        "host_receipt_path: /var/lib/tokenkey/qa-boundary-last-run.json",
         "archive:",
         "enabled: true",
         "s3_retention_days: 7",
@@ -122,6 +139,7 @@ REQUIRED_BY_FILE = {
         "host_receipt_path: /var/lib/tokenkey/qa-maintenance-last-run.json",
         "host_export_tmp_dir: /var/lib/tokenkey/app/qa_exports_tmp",
         "container_export_tmp_dir: /app/data/qa_exports_tmp",
+        "export_tmp_owner: tokenkey-qa-boundary",
         "capture_enabled: false",
         "edge:",
     ),
@@ -137,6 +155,13 @@ REQUIRED_BY_FILE = {
         "live_health_probe: ops/observability/probe-qa-phase2-live-health.sh",
         "live_health_evaluator: ops/qa/prod_phase2_live_health.py",
         "catchup_gap_policy: accepted_terminal",
+        "tokenkey_qa_boundary:",
+        "policy_target_state: enabled_after_finalize",
+        "host_runner: /usr/local/bin/tokenkey-qa-boundary.sh",
+        "host_receipt: /var/lib/tokenkey/qa-boundary-last-run.json",
+        "database_heartbeat_job: qa-boundary",
+        "lifecycle_role: cutover_drain_only",
+        "policy_target_state: disabled_after_finalize",
         "export_orphan_activation_marker: /var/lib/tokenkey/qa-export-orphan-cleanup-activated.json",
         "policy_target: prod.archive.enabled",
         "repository_iam_state: contract_ready",
@@ -154,8 +179,27 @@ REQUIRED_BY_FILE = {
         "qa-lifecycle-ssot.py",
         "qa_phase2_health.py",
         "tokenkey-qa-maintenance.sh",
+        "tokenkey-qa-boundary.sh",
         "tokenkey-qa-stale-cleanup.sh",
         "apply-export-orphans",
+        "prod_qa_cutover_drain_plan",
+    ),
+    DEPLOY_GUIDE: (
+        "tokenkey-qa-boundary.sh",
+        "cutover drain only",
+    ),
+    DEPLOY_README: (
+        "tokenkey-qa-boundary.sh",
+        "cutover drain only",
+    ),
+    DR_RUNBOOK: (
+        "qa_records*` 走 UTC 小时分区 boundary",
+    ),
+    ARCHIVE_README: (
+        "data_layer_retention_activation.py",
+        "usage/ops only",
+        "It does not query,",
+        "plan, or activate QA retention",
     ),
     Path("ops/stage0/deploy_via_ssm.sh"): (
         "edge_qa_capture_cmds",
@@ -269,6 +313,21 @@ REQUIRED_BY_FILE = {
         "--apply-export-orphans",
         "tokenkey-prod-qa-export-orphan-apply-v1:",
     ),
+    LIVE_PROBE: (
+        "YYYYMMDD_HH24",
+        "finalize_receipt_present",
+        "JOIN qa_lifecycle_receipts a ON a.t0_utc = f.t0_utc",
+    ),
+    CUTOVER_MIGRATION: (
+        "tk_qa_lifecycle_receipts_insert_guard",
+        "phase = 'activate' AND t0_utc = NEW.t0_utc",
+    ),
+    BOUNDARY_OWNER_SWITCH: (
+        "JOIN qa_lifecycle_receipts a ON a.t0_utc=f.t0_utc",
+        "rollback() { local rc=\\$?; trap - ERR;",
+        "systemctl disable --now tokenkey-qa-stale-cleanup.timer || true",
+        "systemctl enable --now tokenkey-qa-boundary.timer || true",
+    ),
     Path("ops/archive/data_layer_archive_rehearsal.py"): (
         'DATASETS = ("usage", "ops")',
         'POSTGRES_TABLES = ("usage_logs", "ops_system_logs", "ops_error_logs")',
@@ -289,10 +348,11 @@ def _policy_failures(root: Path) -> list[str]:
         ("prod", "capture_enabled"): True,
         ("prod", "online_window_hours"): 24,
         ("prod", "maintenance_schedule_utc"): "*:15",
-        ("prod", "cleanup_schedule_utc"): "*:45",
-        ("prod", "cleanup_randomized_delay_minutes"): 15,
-        ("prod", "cleanup_batch_size"): 5000,
-        ("prod", "physical_cleanup_max_lag_minutes"): 75,
+        ("prod", "lifecycle", "owner"): "tokenkey-qa-boundary",
+        ("prod", "lifecycle", "boundary_schedule_utc"): "*:00",
+        ("prod", "lifecycle", "randomized_delay_minutes"): 0,
+        ("prod", "lifecycle", "future_horizon_hours"): 72,
+        ("prod", "lifecycle", "host_receipt_path"): "/var/lib/tokenkey/qa-boundary-last-run.json",
         ("prod", "archive", "enabled"): True,
         ("prod", "archive", "shard_minutes"): 60,
         ("prod", "archive", "seal_delay_minutes"): 15,
@@ -306,7 +366,7 @@ def _policy_failures(root: Path) -> list[str]:
         ("prod", "archive", "host_receipt_path"): "/var/lib/tokenkey/qa-maintenance-last-run.json",
         ("prod", "cleanup", "host_export_tmp_dir"): "/var/lib/tokenkey/app/qa_exports_tmp",
         ("prod", "cleanup", "container_export_tmp_dir"): "/app/data/qa_exports_tmp",
-        ("prod", "cleanup", "export_tmp_owner"): "tokenkey-qa-stale-cleanup",
+        ("prod", "cleanup", "export_tmp_owner"): "tokenkey-qa-boundary",
         ("edge", "capture_enabled"): False,
         ("edge", "archive_enabled"): False,
         ("edge", "cleanup_enabled"): False,
@@ -325,27 +385,33 @@ def _policy_failures(root: Path) -> list[str]:
             failures.append(f"QA policy drift at {'.'.join(keys)}: expected {wanted!r}, got {value!r}")
 
     prod = policy.get("prod", {})
-    if isinstance(prod, dict) and (
-        prod.get("physical_cleanup_max_lag_minutes")
-        != 60 + prod.get("cleanup_randomized_delay_minutes", -1)
-    ):
-        failures.append("QA cleanup max lag must equal hourly cadence plus randomized delay")
+    if isinstance(prod, dict):
+        for retired in (
+            "cleanup_schedule_utc",
+            "cleanup_randomized_delay_minutes",
+            "cleanup_batch_size",
+            "physical_cleanup_max_lag_minutes",
+        ):
+            if retired in prod:
+                failures.append(f"retired steady-state QA cleanup policy remains: prod.{retired}")
 
     archive = prod.get("archive", {}) if isinstance(prod, dict) else {}
+    lifecycle = prod.get("lifecycle", {}) if isinstance(prod, dict) else {}
     online_hours = prod.get("online_window_hours")
     maintenance_schedule = prod.get("maintenance_schedule_utc")
-    cleanup_schedule = prod.get("cleanup_schedule_utc")
-    cleanup_delay = prod.get("cleanup_randomized_delay_minutes")
-    cleanup_batch = prod.get("cleanup_batch_size")
-    max_lag = prod.get("physical_cleanup_max_lag_minutes")
+    boundary_schedule = lifecycle.get("boundary_schedule_utc") if isinstance(lifecycle, dict) else None
     raw_retention = archive.get("s3_retention_days") if isinstance(archive, dict) else None
     rendered = {
         MAINTENANCE_SCRIPT: (f"OnCalendar=*-*-* *:{str(maintenance_schedule).split(':')[-1]}:00",),
+        BOUNDARY_SCRIPT: (
+            f"OnCalendar=*-*-* *:{str(boundary_schedule).split(':')[-1]}:00",
+            "/var/lib/tokenkey/qa-boundary-last-run.json",
+            "action --mode plan",
+            "action --mode apply",
+            "--expected-hash",
+        ),
         CLEANUP_SCRIPT: (
             f"RETENTION_HOURS={online_hours}",
-            f"DELETE_BATCH_SIZE={cleanup_batch}",
-            f"OnCalendar=*-*-* *:{str(cleanup_schedule).split(':')[-1]}:00",
-            f"RandomizedDelaySec={cleanup_delay}min",
             "--resume-first",
             "flock -n 9",
             "/var/lib/tokenkey/app/qa_exports_tmp",
@@ -357,6 +423,7 @@ def _policy_failures(root: Path) -> list[str]:
         QA_SERVICE: (f"input.CreatedAt.Add({online_hours} * time.Hour)",),
         BOOTSTRAP: (
             "tokenkey-qa-stale-cleanup.sh --install-units /etc/systemd/system",
+            "tokenkey-qa-boundary.sh --install-units",
         ),
         RAW_ARCHIVE_CFN: (f"Default: {raw_retention}",),
     }
@@ -383,6 +450,12 @@ def _policy_failures(root: Path) -> list[str]:
     elif "RetentionDays" in qa_config.group("body") or 'mapstructure:"retention_days"' in qa_config.group("body"):
         failures.append("QACaptureConfig still exposes a second retention owner")
     cleanup = (root / CLEANUP_SCRIPT).read_text(encoding="utf-8") if (root / CLEANUP_SCRIPT).is_file() else ""
+    boundary = (root / BOUNDARY_SCRIPT).read_text(encoding="utf-8") if (root / BOUNDARY_SCRIPT).is_file() else ""
+    maintenance = (root / MAINTENANCE_SCRIPT).read_text(encoding="utf-8") if (root / MAINTENANCE_SCRIPT).is_file() else ""
+    if "RandomizedDelaySec" in boundary:
+        failures.append("QA boundary timer must not use randomized delay")
+    if "RandomizedDelaySec" in maintenance:
+        failures.append("QA archive timer must not use randomized delay")
     state = (root / ARCHIVE_STATE).read_text(encoding="utf-8") if (root / ARCHIVE_STATE).is_file() else ""
     lock_match = re.search(r"MaintenanceAdvisoryLockID int64 = (0x[0-9A-Fa-f]+|[0-9]+)", state)
     if not lock_match:
@@ -424,6 +497,7 @@ def _rollout_failures(root: Path) -> list[str]:
     prod_archive = prod.get("QA_ARCHIVE_ENABLED")
     prod_timer = prod.get("tokenkey_qa_maintenance_timer")
     prod_cleanup = prod.get("tokenkey_qa_stale_cleanup")
+    prod_boundary = prod.get("tokenkey_qa_boundary")
     edge_capture = edge.get("QA_CAPTURE_ENABLED")
     if not isinstance(prod_archive, dict):
         failures.append("rollout prod.QA_ARCHIVE_ENABLED must be a mapping")
@@ -464,12 +538,38 @@ def _rollout_failures(root: Path) -> list[str]:
     if not isinstance(prod_cleanup, dict):
         failures.append("rollout prod.tokenkey_qa_stale_cleanup must be a mapping")
     else:
-        if prod_cleanup.get("policy_target_state") != "enabled":
+        if prod_cleanup.get("policy_target_state") != "disabled_after_finalize":
             failures.append("rollout stale cleanup target drift")
         if prod_cleanup.get("archive_independent") is not True:
             failures.append("rollout stale cleanup must remain archive-independent")
-        if prod_cleanup.get("activation_state") != "production_export_orphan_activated":
-            failures.append("rollout export orphan activation evidence drift")
+        if prod_cleanup.get("lifecycle_role") != "cutover_drain_only":
+            failures.append("rollout stale cleanup must be cutover drain only")
+        if prod_cleanup.get("disable_after_receipt_phase") != "finalize":
+            failures.append("rollout stale cleanup finalize gate drift")
+    if not isinstance(prod_boundary, dict):
+        failures.append("rollout prod.tokenkey_qa_boundary must be a mapping")
+    else:
+        expected_boundary = {
+            "repository_closeout_state": "implementation_ready_pending_live_verification",
+            "observed_live_state": "pending_live_reconciliation",
+            "policy_target_state": "enabled_after_finalize",
+            "schedule_utc": "*:00",
+            "randomized_delay_minutes": 0,
+            "host_runner": "/usr/local/bin/tokenkey-qa-boundary.sh",
+            "host_receipt": "/var/lib/tokenkey/qa-boundary-last-run.json",
+            "database_heartbeat_job": "qa-boundary",
+            "replaces_timer": "tokenkey-qa-stale-cleanup.timer",
+            "owns_export_orphans": True,
+            "export_orphan_activation_marker": "/var/lib/tokenkey/qa-export-orphan-cleanup-activated.json",
+            "health_evidence": [
+                "boundary_systemd",
+                "boundary_host_receipt",
+                "boundary_database_heartbeat",
+                "qa_records_catalog",
+            ],
+        }
+        if prod_boundary != expected_boundary:
+            failures.append("rollout boundary owner contract drift")
     if not isinstance(edge_capture, dict):
         failures.append("rollout edge.QA_CAPTURE_ENABLED must be a mapping")
     elif edge_capture.get("deploy_inject_default") is not False:
@@ -541,6 +641,18 @@ def _closeout_implementation_failures(root: Path) -> list[str]:
         body = partition_maintenance.read_text(encoding="utf-8")
         if "RehomeDefaultMonthly" in body or 'table: "qa_records"' in body:
             failures.append("ops partition maintenance must not own qa_records rehome or provisioning")
+    generic_partition = root / GENERIC_PARTITION
+    if not generic_partition.is_file():
+        failures.append("generic partition provisioner missing")
+    else:
+        body = generic_partition.read_text(encoding="utf-8")
+        if (
+            body.count("rejectQAHourlyOwner(table)") != 3
+            or "qa_records is owned by EnsureHourly" not in body
+        ):
+            failures.append(
+                "generic partition provisioner can own qa_records; monthly, daily, and generic DROP paths must reject"
+            )
     boundary_cmd = root / "backend/cmd/server/qa_maintenance_boundary.go"
     if not boundary_cmd.is_file():
         failures.append("qa boundary maintenance command missing")
@@ -567,6 +679,52 @@ def _closeout_implementation_failures(root: Path) -> list[str]:
                 failures.append("rollout qa_records partition owner must be qa_lifecycle_boundary")
         except (OSError, yaml.YAMLError):
             pass
+    return failures
+
+
+def _ownership_boundary_failures(root: Path) -> list[str]:
+    failures: list[str] = []
+    required = {
+        CLEANUP_SCRIPT: (
+            "require_cutover_drain_open",
+            "qa_lifecycle_receipts",
+            "phase='finalize'",
+            "QA cutover drain is closed by the durable finalize receipt",
+        ),
+        STALE_TIMER_SYNC: (
+            "qa_lifecycle_receipts",
+            "drain_open=",
+            "systemctl disable --now tokenkey-qa-stale-cleanup.timer",
+        ),
+        STALE_OPERATOR: (
+            "prod_qa_cutover_drain_plan",
+            "/usr/local/bin/tokenkey-qa-stale-cleanup.sh --plan",
+        ),
+    }
+    labels = {
+        CLEANUP_SCRIPT: "legacy QA drain durable finalize guard",
+        STALE_TIMER_SYNC: "stale timer finalize guard",
+        STALE_OPERATOR: "dedicated cutover drain plan",
+    }
+    for rel, needles in required.items():
+        path = root / rel
+        if not path.is_file():
+            failures.append(f"{labels[rel]} owner missing: {rel}")
+            continue
+        body = path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in body:
+                failures.append(f"{labels[rel]} anchor missing from {rel}: {needle}")
+
+    generic_path = root / GENERIC_RETENTION_ACTIVATION
+    if not generic_path.is_file():
+        failures.append(f"generic usage/ops retention activation missing: {GENERIC_RETENTION_ACTIVATION}")
+    else:
+        generic_body = generic_path.read_text(encoding="utf-8")
+        if re.search(r"(?i)(?<![a-z0-9])qa(?:\b|[_-])", generic_body):
+            failures.append(
+                "generic retention activation owns QA; QA lifecycle must remain under ops/qa"
+            )
     return failures
 
 
@@ -599,6 +757,7 @@ def scan(root: Path) -> list[str]:
     failures.extend(_rollout_failures(root))
     failures.extend(_deploy_rollout_failures(root))
     failures.extend(_closeout_implementation_failures(root))
+    failures.extend(_ownership_boundary_failures(root))
     return failures
 
 
@@ -620,13 +779,16 @@ def self_test() -> int:
             QA_README,
             DEPLOY_SSM,
             DEPLOY_BG,
-            Path("ops/observability/probe-qa-phase2-live-health.sh"),
+            LIVE_PROBE,
             Path("ops/observability/data_layer_archive_health.py"),
             Path("backend/internal/pkg/pgpartition/hourly.go"),
             Path("backend/internal/observability/qa/lifecycle/boundary.go"),
             Path("backend/cmd/server/qa_maintenance_boundary.go"),
             BOUNDARY_SCRIPT,
             MAINTENANCE_SCRIPT,
+            STALE_TIMER_SYNC,
+            GENERIC_RETENTION_ACTIVATION,
+            GENERIC_PARTITION,
         }
         for rel in fixture_files:
             src = ROOT / rel
@@ -642,10 +804,12 @@ prod:
   capture_enabled: true
   online_window_hours: 24
   maintenance_schedule_utc: "*:15"
-  cleanup_schedule_utc: "*:45"
-  cleanup_randomized_delay_minutes: 15
-  cleanup_batch_size: 5000
-  physical_cleanup_max_lag_minutes: 75
+  lifecycle:
+    owner: tokenkey-qa-boundary
+    boundary_schedule_utc: "*:00"
+    randomized_delay_minutes: 0
+    future_horizon_hours: 72
+    host_receipt_path: /var/lib/tokenkey/qa-boundary-last-run.json
   archive:
     enabled: true
     shard_minutes: 60
@@ -661,7 +825,7 @@ prod:
   cleanup:
     host_export_tmp_dir: /var/lib/tokenkey/app/qa_exports_tmp
     container_export_tmp_dir: /app/data/qa_exports_tmp
-    export_tmp_owner: tokenkey-qa-stale-cleanup
+    export_tmp_owner: tokenkey-qa-boundary
 edge:
   capture_enabled: false
   archive_enabled: false
@@ -674,6 +838,14 @@ edge:
             handle.write("OnCalendar=*-*-* *:15:00\nTimeoutStartSec=2400\n")
         with (root / CLEANUP_SCRIPT).open("a", encoding="utf-8") as handle:
             handle.write("RETENTION_HOURS=24\nDELETE_BATCH_SIZE=5000\nOnCalendar=*-*-* *:45:00\nRandomizedDelaySec=15min\n--resume-first\nflock -n 9\npg_try_advisory_xact_lock(1363234113)\n")
+        with (root / BOUNDARY_SCRIPT).open("a", encoding="utf-8") as handle:
+            handle.write(
+                "OnCalendar=*-*-* *:00:00\n"
+                "/var/lib/tokenkey/qa-boundary-last-run.json\n"
+                "action --mode plan\n"
+                "action --mode apply\n"
+                "--expected-hash\n"
+            )
         with (root / BOOTSTRAP).open("a", encoding="utf-8") as handle:
             handle.write("tokenkey-qa-stale-cleanup.sh --install-units /etc/systemd/system\n")
         with (root / QA_SERVICE).open("a", encoding="utf-8") as handle:
@@ -700,6 +872,77 @@ edge:
             print("self-test failed to detect QA policy drift")
             return 1
         (root / POLICY).write_text(policy_fixture, encoding="utf-8")
+
+        probe = root / LIVE_PROBE
+        probe_body = probe.read_text(encoding="utf-8")
+        probe.write_text(probe_body.replace("YYYYMMDD_HH24", "YYYYMMDD_HH"), encoding="utf-8")
+        failures = scan(root)
+        if not any("YYYYMMDD_HH24" in item for item in failures):
+            print("self-test failed to detect 12-hour QA partition-name probe drift")
+            return 1
+        probe.write_text(probe_body, encoding="utf-8")
+
+        cleanup = root / CLEANUP_SCRIPT
+        cleanup_body = cleanup.read_text(encoding="utf-8")
+        cleanup.write_text(
+            cleanup_body.replace("phase='finalize'", "phase='retired'"),
+            encoding="utf-8",
+        )
+        failures = scan(root)
+        if not any("durable finalize" in item for item in failures):
+            print("self-test failed to detect legacy QA drain finalize-guard removal")
+            return 1
+        cleanup.write_text(cleanup_body, encoding="utf-8")
+
+        timer_sync = root / STALE_TIMER_SYNC
+        timer_sync_body = timer_sync.read_text(encoding="utf-8")
+        timer_sync.write_text(
+            timer_sync_body.replace("qa_lifecycle_receipts", "qa_retired_receipts"),
+            encoding="utf-8",
+        )
+        failures = scan(root)
+        if not any("stale timer finalize" in item for item in failures):
+            print("self-test failed to detect stale timer finalize-guard removal")
+            return 1
+        timer_sync.write_text(timer_sync_body, encoding="utf-8")
+
+        stale_operator = root / STALE_OPERATOR
+        stale_operator_body = stale_operator.read_text(encoding="utf-8")
+        stale_operator.write_text(
+            stale_operator_body.replace(
+                "prod_qa_cutover_drain_plan", "prod_qa_generic_retention_plan"
+            ),
+            encoding="utf-8",
+        )
+        failures = scan(root)
+        if not any("dedicated cutover drain plan" in item for item in failures):
+            print("self-test failed to detect dedicated QA drain-plan removal")
+            return 1
+        stale_operator.write_text(stale_operator_body, encoding="utf-8")
+
+        generic_activation = root / GENERIC_RETENTION_ACTIVATION
+        generic_activation_body = generic_activation.read_text(encoding="utf-8")
+        generic_activation.write_text(
+            generic_activation_body + "\nQA_RETENTION_DAYS = 24\n",
+            encoding="utf-8",
+        )
+        failures = scan(root)
+        if not any("generic retention activation owns QA" in item for item in failures):
+            print("self-test failed to detect generic retention reacquiring QA ownership")
+            return 1
+        generic_activation.write_text(generic_activation_body, encoding="utf-8")
+
+        generic_partition = root / GENERIC_PARTITION
+        generic_partition_body = generic_partition.read_text(encoding="utf-8")
+        generic_partition.write_text(
+            generic_partition_body.replace("rejectQAHourlyOwner(table)", "nil"),
+            encoding="utf-8",
+        )
+        failures = scan(root)
+        if not any("generic partition provisioner can own qa_records" in item for item in failures):
+            print("self-test failed to detect generic QA partition-owner guard removal")
+            return 1
+        generic_partition.write_text(generic_partition_body, encoding="utf-8")
 
         preflight = root / PREFLIGHT
         preflight.write_text(

@@ -16,7 +16,6 @@ import (
 
 const (
 	TableQARecords        = "qa_records"
-	TimeColumnCreatedAt   = "created_at"
 	HourlyHorizon         = pgpartition.QARecordsHourlyHorizon
 	MaintenanceLockID     = archive.MaintenanceAdvisoryLockID
 	MaxExpiredDropsPerRun = 48
@@ -49,7 +48,6 @@ type ExpiryResult struct {
 	RetentionBoundary time.Time `json:"retention_boundary_utc"`
 	PartitionName     string    `json:"partition_name,omitempty"`
 	PartitionUpper    time.Time `json:"partition_upper_utc,omitempty"`
-	RowsDropped       int64     `json:"rows_dropped_estimate"`
 	TerminalGap       bool      `json:"terminal_gap"`
 	SourceDroppedAt   time.Time `json:"source_dropped_at,omitempty"`
 	HotFilesCleaned   bool      `json:"hot_files_cleaned"`
@@ -75,10 +73,6 @@ type Options struct {
 	HoursAhead int
 	BlobRoot   string
 	DLQRoot    string
-}
-
-func DefaultOptions() Options {
-	return Options{HoursAhead: HourlyHorizon}
 }
 
 func DatabaseUTC(ctx context.Context, db DB) (time.Time, error) {
@@ -177,6 +171,18 @@ func DropExpiredHour(
 		return result, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := pgpartition.LockChildPartition(ctx, tx, child); err != nil {
+		result.Error = err.Error()
+		return result, err
+	}
+	lockedChild, err := revalidateLockedChild(ctx, tx, child, boundary)
+	if err != nil {
+		result.Error = err.Error()
+		return result, err
+	}
+	child = lockedChild
+	result.PartitionName = child.Name
+	result.PartitionUpper = child.Upper
 
 	status, err := control.InspectCatchupHourTx(ctx, tx, window)
 	if err != nil {
@@ -207,6 +213,44 @@ func DropExpiredHour(
 	}
 	result.SourceDroppedAt = droppedAt
 	return result, nil
+}
+
+func revalidateLockedChild(
+	ctx context.Context,
+	tx *sql.Tx,
+	expected pgpartition.ChildPartitionBound,
+	boundary time.Time,
+) (pgpartition.ChildPartitionBound, error) {
+	children, err := pgpartition.ListChildPartitionBounds(ctx, tx, TableQARecords)
+	if err != nil {
+		return pgpartition.ChildPartitionBound{}, fmt.Errorf("lifecycle: revalidate locked partition: %w", err)
+	}
+	for _, current := range children {
+		if current.Schema != expected.Schema || current.Name != expected.Name {
+			continue
+		}
+		if current.IsDefault || !current.Lower.Equal(expected.Lower) || !current.Upper.Equal(expected.Upper) {
+			return pgpartition.ChildPartitionBound{}, fmt.Errorf(
+				"lifecycle: locked partition %s.%s catalog bound drift",
+				expected.Schema,
+				expected.Name,
+			)
+		}
+		if current.Upper.After(boundary) {
+			return pgpartition.ChildPartitionBound{}, fmt.Errorf(
+				"lifecycle: locked partition %s.%s is no longer expired",
+				expected.Schema,
+				expected.Name,
+			)
+		}
+		return current, nil
+	}
+	return pgpartition.ChildPartitionBound{}, fmt.Errorf(
+		"lifecycle: locked partition %s.%s is no longer attached to %s",
+		expected.Schema,
+		expected.Name,
+		TableQARecords,
+	)
 }
 
 func runExpiryDrops(
@@ -245,7 +289,7 @@ func runExpiryDrops(
 		}
 		anyDropped = true
 		if opts.BlobRoot != "" && !child.Lower.IsZero() {
-			cleanupErr := cleanupHotFilesForShard(ctx, db, control, child.Lower, expiry.TerminalGap, opts)
+			cleanupErr := cleanupHotFilesForShard(ctx, db, control, child.Lower, opts)
 			if cleanupErr != nil {
 				out[len(out)-1].Error = cleanupErr.Error()
 				dropErr = errors.Join(dropErr, cleanupErr)
@@ -262,7 +306,6 @@ func cleanupHotFilesForShard(
 	db *sql.DB,
 	control ControlStore,
 	hourStart time.Time,
-	_ bool,
 	opts Options,
 ) error {
 	conn, err := db.Conn(ctx)
@@ -322,7 +365,7 @@ LIMIT $1`, MaxHotCleanupResume)
 			return out, err
 		}
 		item := HotCleanupResumeResult{ShardID: shardID, WindowStart: windowStart.UTC()}
-		cleanupErr := cleanupHotFilesForShard(ctx, db, control, windowStart, true, opts)
+		cleanupErr := cleanupHotFilesForShard(ctx, db, control, windowStart, opts)
 		if cleanupErr != nil {
 			item.Error = cleanupErr.Error()
 		} else {
@@ -344,7 +387,7 @@ func RunBoundary(ctx context.Context, db *sql.DB, control ControlStore, opts Opt
 	provision, provErr := RunProvision(ctx, db, opts, nil)
 	out.Provision = provision
 	if provErr != nil {
-		joined = errors.Join(joined, provErr)
+		return out, provErr
 	}
 
 	anchor := provision.DBAnchor
@@ -405,27 +448,9 @@ func UsesHourlyStorage(cutover time.Time, createdAt time.Time) bool {
 	return !createdAt.Before(cutover)
 }
 
-// ValidateDefaultRemoval rejects DEFAULT removal when it still holds rows.
-func ValidateDefaultRemoval(ctx context.Context, db DB) error {
-	name, ok, err := pgpartition.DefaultChildPartition(ctx, db, TableQARecords)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return nil
-	}
-	count, err := pgpartition.CountTableRows(ctx, db, name)
-	if err != nil {
-		return err
-	}
-	if count > 0 {
-		return fmt.Errorf("lifecycle: DEFAULT partition %s still holds %d rows", name, count)
-	}
-	return nil
-}
-
 // InventoryRow summarizes one child partition for cutover planning.
 type InventoryRow struct {
+	Schema    string    `json:"schema"`
 	Name      string    `json:"name"`
 	Lower     time.Time `json:"lower_utc"`
 	Upper     time.Time `json:"upper_utc"`
@@ -435,7 +460,7 @@ type InventoryRow struct {
 }
 
 // Inventory builds a read-only partition inventory.
-func Inventory(ctx context.Context, db DB, anchor time.Time) ([]InventoryRow, error) {
+func Inventory(ctx context.Context, db DB) ([]InventoryRow, error) {
 	children, err := pgpartition.ListInventoryChildBounds(ctx, db, TableQARecords)
 	if err != nil {
 		return nil, err
@@ -443,6 +468,7 @@ func Inventory(ctx context.Context, db DB, anchor time.Time) ([]InventoryRow, er
 	out := make([]InventoryRow, 0, len(children))
 	for _, child := range children {
 		row := InventoryRow{
+			Schema:    child.Schema,
 			Name:      child.Name,
 			IsDefault: child.IsDefault,
 			Layout:    child.Layout,
@@ -451,13 +477,12 @@ func Inventory(ctx context.Context, db DB, anchor time.Time) ([]InventoryRow, er
 			row.Lower = child.Lower
 			row.Upper = child.Upper
 		}
-		count, err := pgpartition.CountTableRows(ctx, db, child.Name)
+		count, err := pgpartition.CountTableRows(ctx, db, child.Schema, child.Name)
 		if err != nil {
 			return nil, err
 		}
 		row.RowCount = count
 		out = append(out, row)
 	}
-	_ = anchor
 	return out, nil
 }

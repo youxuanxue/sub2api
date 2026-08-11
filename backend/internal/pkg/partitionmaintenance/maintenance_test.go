@@ -31,8 +31,6 @@ func expectCoverage(mock sqlmock.Sqlmock, table string, covered int) {
 		WillReturnRows(sqlmock.NewRows([]string{"covered_ranges"}).AddRow(covered))
 }
 
-func expectNoDefaultRehome(_ sqlmock.Sqlmock, _ string) {}
-
 func TestEnsureStrictCreatesAndVerifiesAllTargets(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {

@@ -16,7 +16,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -57,13 +56,11 @@ func IsPartitioned(ctx context.Context, db DB, table string) (bool, error) {
 	return partitioned, nil
 }
 
-// MonthlyPartitionName returns the canonical child partition name for a month.
-// qa_records follows tk_004 migration naming (qa_records_YYYY_MM); other tables use YYYYMM.
-func MonthlyPartitionName(table string, monthStart time.Time) string {
-	if strings.TrimSpace(table) == "qa_records" {
-		return fmt.Sprintf("%s_%s", table, monthStart.Format("2006_01"))
+func rejectQAHourlyOwner(table string) error {
+	if table == qaRecordsTableName {
+		return fmt.Errorf("pgpartition: qa_records is owned by EnsureHourly")
 	}
-	return fmt.Sprintf("%s_%s", table, monthStart.Format("200601"))
+	return nil
 }
 
 // EnsureMonthly creates monthly RANGE partitions for the current month through
@@ -74,11 +71,14 @@ func MonthlyPartitionName(table string, monthStart time.Time) string {
 // dropped by retention, and recreating them would resurrect an empty partition.
 // Idempotent (CREATE ... IF NOT EXISTS + overlap-skip).
 func EnsureMonthly(ctx context.Context, db DB, table string, now time.Time, monthsAhead int) error {
+	if err := rejectQAHourlyOwner(table); err != nil {
+		return err
+	}
 	base := monthStartUTC(now)
 	for m := 0; m <= monthsAhead; m++ {
 		start := base.AddDate(0, m, 0)
 		end := start.AddDate(0, 1, 0)
-		name := MonthlyPartitionName(table, start)
+		name := fmt.Sprintf("%s_%s", table, start.Format("200601"))
 		q := fmt.Sprintf(
 			"CREATE TABLE IF NOT EXISTS %s PARTITION OF %s FOR VALUES FROM (%s) TO (%s)",
 			pq.QuoteIdentifier(name),
@@ -100,6 +100,9 @@ func EnsureMonthly(ctx context.Context, db DB, table string, now time.Time, mont
 // It has the same overlap semantics as EnsureMonthly so the attach-legacy partition
 // may cover the cutover day while tomorrow and later are still provisioned.
 func EnsureDaily(ctx context.Context, db DB, table string, now time.Time, daysAhead int) error {
+	if err := rejectQAHourlyOwner(table); err != nil {
+		return err
+	}
 	base := dayStartUTC(now)
 	for d := 0; d <= daysAhead; d++ {
 		start := base.AddDate(0, 0, d)
@@ -130,6 +133,9 @@ func EnsureDaily(ctx context.Context, db DB, table string, now time.Time, daysAh
 // Returns the estimated number of rows reclaimed (sum of dropped partitions' reltuples,
 // for heartbeat/observability). Never drops the parent.
 func DropExpired(ctx context.Context, db DropExecutor, table string, cutoff time.Time) (int64, error) {
+	if err := rejectQAHourlyOwner(table); err != nil {
+		return 0, err
+	}
 	const listQ = `
 		SELECT
 			n.nspname,

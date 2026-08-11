@@ -20,6 +20,7 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
         self,
         *,
         receipt: dict | None = None,
+        boundary_receipt: dict | None = None,
         psql_lines: list[str] | None = None,
     ) -> tuple[str, str]:
         with tempfile.TemporaryDirectory() as td:
@@ -29,6 +30,9 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
             receipt_path = root / "qa-maintenance-last-run.json"
             if receipt is not None:
                 receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+            boundary_receipt_path = root / "qa-boundary-last-run.json"
+            if boundary_receipt is not None:
+                boundary_receipt_path.write_text(json.dumps(boundary_receipt), encoding="utf-8")
             psql_log = root / "psql.log"
             psql_output = root / "psql.out"
             psql_output.write_text("\n".join(psql_lines or []) + "\n", encoding="utf-8")
@@ -62,6 +66,7 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
             env = os.environ.copy()
             env["PATH"] = f"{fakebin}:{env['PATH']}"
             env["QA_MAINTENANCE_RECEIPT"] = str(receipt_path)
+            env["QA_BOUNDARY_RECEIPT"] = str(boundary_receipt_path)
             env["PSQL_LOG"] = str(psql_log)
             env["PSQL_OUTPUT"] = str(psql_output)
             completed = subprocess.run(
@@ -87,6 +92,8 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
         self.assertIn("PHASE2SYSTEMD", output)
         self.assertIn("PHASE2RECEIPT", output)
         self.assertIn("PHASE2HEARTBEAT", output)
+        self.assertIn("PHASE2BOUNDARYSYSTEMD", output)
+        self.assertIn("PHASE2BOUNDARYRECEIPT null", output)
         self.assertNotIn(":'receipt_comp_window'", sql_log)
         self.assertIn("2026-08-07T22:00:00Z", sql_log)
         self.assertIn("comp_target AS", sql_log)
@@ -99,6 +106,31 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
         ]
         _, sql_log = self.run_probe(psql_lines=psql_lines)
         self.assertIn("SELECT NULL::timestamptz AS window_start", sql_log)
+
+    def test_probe_emits_boundary_receipt_and_exact_catalog_coverage_query(self) -> None:
+        boundary_receipt = {
+            "schema_version": "qa-boundary-runner-v1",
+            "run_id": "boundary-1",
+            "trigger": "timer",
+        }
+        psql_lines = [
+            'PHASE2HEARTBEAT null',
+            'PHASE2ARCHIVE {"normal":null,"compensation":null,"terminal_failures_after_cutover":[]}',
+            'PHASE2BOUNDARYHEARTBEAT {"last_result":"status=ok phase=boundary"}',
+            'PHASE2QARECORDS {"future_coverage_canonical_hours":72}',
+        ]
+        output, sql_log = self.run_probe(
+            boundary_receipt=boundary_receipt,
+            psql_lines=psql_lines,
+        )
+        self.assertIn("PHASE2BOUNDARYRECEIPT", output)
+        self.assertIn('"run_id": "boundary-1"', output)
+        self.assertIn("generate_series(0, 71)", sql_log)
+        self.assertIn("'qa_records_' || to_char", sql_log)
+        self.assertIn("'YYYYMMDD_HH24'", sql_log)
+        self.assertIn("JOIN qa_lifecycle_receipts a ON a.t0_utc = f.t0_utc", sql_log)
+        self.assertIn("finalize_receipt_present", sql_log)
+        self.assertIn("PHASE2BOUNDARYHEARTBEAT", output)
 
     def test_probe_without_docker_exec_i_skips_psql(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -132,6 +164,8 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
         output = completed.stdout + completed.stderr
         self.assertIn("PHASE2SYSTEMD", output)
         self.assertIn("PHASE2RECEIPT null", output)
+        self.assertIn("PHASE2BOUNDARYSYSTEMD", output)
+        self.assertIn("PHASE2BOUNDARYRECEIPT null", output)
         self.assertNotIn("PHASE2HEARTBEAT", output)
         self.assertNotIn("PHASE2ARCHIVE", output)
         self.assertNotIn("PHASE2QARECORDS", output)

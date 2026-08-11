@@ -6,24 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/Wei-Shaw/sub2api/internal/observability/trajectory"
 )
 
 const (
 	blobRootName = "qa_blobs"
 	dlqRootName  = "qa_dlq"
 )
-
-// HourBlobDir returns qa_blobs/YYYY/MM/DD/HH under dataDir.
-func HourBlobDir(dataDir string, hourStart time.Time) (string, error) {
-	return hourDir(dataDir, blobRootName, hourStart)
-}
-
-// HourDLQDir returns qa_dlq/YYYY/MM/DD/HH under dataDir.
-func HourDLQDir(dataDir string, hourStart time.Time) (string, error) {
-	return hourDir(dataDir, dlqRootName, hourStart)
-}
 
 func hourDir(dataDir, root string, hourStart time.Time) (string, error) {
 	base, err := canonicalDataRoot(dataDir)
@@ -131,14 +119,73 @@ func RemoveHourDirectory(dataDir, root string, hourStart time.Time) error {
 	return nil
 }
 
-// HourlyBlobKey returns the relative blob-store key for one UTC hour.
-func HourlyBlobKey(hourStart time.Time, requestID string) string {
-	return trajectory.HourlyBlobKey(hourStart, requestID)
+type LegacyHotFileInventory struct {
+	BlobFiles int64
+	DLQFiles  int64
 }
 
-// HourlyDLQKey returns qa_dlq/YYYY/MM/DD/HH/<request-id>.json.zst relative key.
-func HourlyDLQKey(hourStart time.Time, requestID string) string {
-	h := hourStart.UTC()
-	return fmt.Sprintf("%s/%04d/%02d/%02d/%02d/%s.json.zst",
-		dlqRootName, h.Year(), int(h.Month()), h.Day(), h.Hour(), strings.TrimSpace(requestID))
+// InspectLegacyHotFiles counts files that do not use the canonical UTC-hour layout.
+func InspectLegacyHotFiles(dataDir string) (LegacyHotFileInventory, error) {
+	base, err := canonicalDataRoot(dataDir)
+	if err != nil {
+		return LegacyHotFileInventory{}, err
+	}
+	blobs, err := countLegacyLayoutFiles(filepath.Join(base, blobRootName), 6)
+	if err != nil {
+		return LegacyHotFileInventory{}, err
+	}
+	dlq, err := countLegacyLayoutFiles(filepath.Join(base, dlqRootName), 5)
+	if err != nil {
+		return LegacyHotFileInventory{}, err
+	}
+	return LegacyHotFileInventory{BlobFiles: blobs, DLQFiles: dlq}, nil
+}
+
+func countLegacyLayoutFiles(root string, hourlyParts int) (int64, error) {
+	info, err := os.Lstat(root)
+	if err != nil {
+		return 0, fmt.Errorf("lifecycle: inspect hot root %s: %w", root, err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return 0, fmt.Errorf("lifecycle: hot root %s is not a canonical directory", root)
+	}
+	var count int64
+	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == root {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("lifecycle: hot path %s is a symlink", path)
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("lifecycle: hot path %s is not a regular file", path)
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		if len(parts) != hourlyParts || !validHourPathPrefix(parts) {
+			count++
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("lifecycle: inventory hot files under %s: %w", root, err)
+	}
+	return count, nil
+}
+
+func validHourPathPrefix(parts []string) bool {
+	if len(parts) < 4 {
+		return false
+	}
+	_, err := time.Parse("2006/01/02/15", strings.Join(parts[:4], "/"))
+	return err == nil
 }

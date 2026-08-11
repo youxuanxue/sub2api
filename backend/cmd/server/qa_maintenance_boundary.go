@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -91,11 +92,15 @@ func qaBoundaryRequested(args []string) bool {
 		case "--qa-boundary-once", "--qa-boundary-once=true",
 			"--qa-cutover-inventory", "--qa-cutover-inventory=true",
 			"--qa-cutover-plan", "--qa-cutover-plan=true",
-			"--qa-cutover-apply", "--qa-cutover-apply=true":
+			"--qa-cutover-apply", "--qa-cutover-apply=true",
+			"--qa-cutover-finalize-plan", "--qa-cutover-finalize-plan=true",
+			"--qa-cutover-finalize", "--qa-cutover-finalize=true":
 			return true
 		}
 		if strings.HasPrefix(arg, "--qa-cutover-plan=") ||
-			strings.HasPrefix(arg, "--qa-cutover-apply=") {
+			strings.HasPrefix(arg, "--qa-cutover-apply=") ||
+			strings.HasPrefix(arg, "--qa-cutover-finalize-plan=") ||
+			strings.HasPrefix(arg, "--qa-cutover-finalize=") {
 			return true
 		}
 	}
@@ -164,6 +169,9 @@ func runQACutoverInventory(ctx context.Context, out io.Writer, deps qaBoundaryDe
 	if err != nil {
 		return err
 	}
+	if err := lifecycle.AddHotFileInventory(&inv, qaBoundaryDataDir()); err != nil {
+		return err
+	}
 	payload, err := lifecycle.EncodeCutoverInventory(inv)
 	if err != nil {
 		return err
@@ -174,7 +182,15 @@ func runQACutoverInventory(ctx context.Context, out io.Writer, deps qaBoundaryDe
 	return nil
 }
 
-func runQACutoverPlan(ctx context.Context, t0Raw string, out io.Writer, deps qaBoundaryDeps) error {
+func qaBoundaryDataDir() string {
+	dataDir := strings.TrimSpace(os.Getenv("DATA_DIR"))
+	if dataDir == "" {
+		return "/app/data"
+	}
+	return dataDir
+}
+
+func runQACutoverPlan(ctx context.Context, t0Raw string, phase lifecycle.CutoverPhase, out io.Writer, deps qaBoundaryDeps) error {
 	t0, err := lifecycle.ParseHourlyCutoverUTCStrict(t0Raw)
 	if err != nil {
 		return err
@@ -191,7 +207,18 @@ func runQACutoverPlan(ctx context.Context, t0Raw string, out io.Writer, deps qaB
 	if err != nil {
 		return err
 	}
-	plan, err := lifecycle.BuildCutoverPlan(inv, t0)
+	if err := lifecycle.AddHotFileInventory(&inv, qaBoundaryDataDir()); err != nil {
+		return err
+	}
+	var plan lifecycle.CutoverPlan
+	switch phase {
+	case lifecycle.CutoverPhaseActivate:
+		plan, err = lifecycle.BuildCutoverPlan(inv, t0)
+	case lifecycle.CutoverPhaseFinalize:
+		plan, err = lifecycle.BuildCutoverFinalizePlan(inv, t0)
+	default:
+		return fmt.Errorf("qa cutover plan phase %q is unsupported", phase)
+	}
 	if err != nil {
 		return err
 	}
@@ -205,7 +232,7 @@ func runQACutoverPlan(ctx context.Context, t0Raw string, out io.Writer, deps qaB
 	return nil
 }
 
-func runQACutoverApply(ctx context.Context, t0Raw, planHash, confirmation string, deps qaBoundaryDeps) error {
+func runQACutoverApply(ctx context.Context, t0Raw, planHash, confirmation string, phase lifecycle.CutoverPhase, deps qaBoundaryDeps) error {
 	t0, err := lifecycle.ParseHourlyCutoverUTCStrict(t0Raw)
 	if err != nil {
 		return err
@@ -222,11 +249,29 @@ func runQACutoverApply(ctx context.Context, t0Raw, planHash, confirmation string
 	}
 	defer func() { _ = db.Close() }()
 	return withQAMaintenanceLock(ctx, db, deps, func(ctx context.Context, lockedDB *sql.DB) error {
+		applied, err := lifecycle.MatchAppliedCutover(ctx, lockedDB, phase, t0, planHash)
+		if err != nil {
+			return err
+		}
+		if applied {
+			return nil
+		}
 		inv, err := lifecycle.BuildCutoverInventory(ctx, lockedDB, lifecycle.HourlyHorizon)
 		if err != nil {
 			return err
 		}
-		plan, err := lifecycle.BuildCutoverPlan(inv, t0)
+		if err := lifecycle.AddHotFileInventory(&inv, qaBoundaryDataDir()); err != nil {
+			return err
+		}
+		var plan lifecycle.CutoverPlan
+		switch phase {
+		case lifecycle.CutoverPhaseActivate:
+			plan, err = lifecycle.BuildCutoverPlan(inv, t0)
+		case lifecycle.CutoverPhaseFinalize:
+			plan, err = lifecycle.BuildCutoverFinalizePlan(inv, t0)
+		default:
+			return fmt.Errorf("qa cutover apply phase %q is unsupported", phase)
+		}
 		if err != nil {
 			return err
 		}
@@ -238,31 +283,57 @@ func runQACutoverApply(ctx context.Context, t0Raw, planHash, confirmation string
 }
 
 func runQABoundaryCommand(ctx context.Context, args []string, out io.Writer, deps qaBoundaryDeps) error {
-	if len(args) > 0 && (args[0] == "--qa-cutover-inventory" || args[0] == "--qa-cutover-inventory=true") {
-		return runQACutoverInventory(ctx, out, deps)
-	}
 	fs := flag.NewFlagSet("qa-boundary", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var once bool
+	var cutoverInventory bool
 	var cutoverPlan bool
 	var cutoverApply bool
+	var cutoverFinalizePlan bool
+	var cutoverFinalize bool
 	var confirmation string
 	var t0 string
 	var planHash string
 	fs.BoolVar(&once, "qa-boundary-once", false, "run QA lifecycle boundary maintenance and exit")
+	fs.BoolVar(&cutoverInventory, "qa-cutover-inventory", false, "render read-only hourly cutover inventory JSON")
 	fs.BoolVar(&cutoverPlan, "qa-cutover-plan", false, "render guarded hourly cutover plan JSON")
 	fs.BoolVar(&cutoverApply, "qa-cutover-apply", false, "apply guarded hourly cutover plan under QAMA lock")
+	fs.BoolVar(&cutoverFinalizePlan, "qa-cutover-finalize-plan", false, "render guarded DEFAULT-removal plan JSON")
+	fs.BoolVar(&cutoverFinalize, "qa-cutover-finalize", false, "remove empty DEFAULT under the final cutover gate")
 	fs.StringVar(&confirmation, "confirm", "", "exact production QA confirmation")
 	fs.StringVar(&t0, "t0", "", "UTC cutover hour for plan/apply")
 	fs.StringVar(&planHash, "plan-hash", "", "expected cutover plan hash for apply")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("qa boundary flags: %w", err)
 	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("qa boundary does not accept positional arguments")
+	}
+	modeCount := 0
+	for _, selected := range []bool{
+		once, cutoverInventory, cutoverPlan, cutoverApply, cutoverFinalizePlan, cutoverFinalize,
+	} {
+		if selected {
+			modeCount++
+		}
+	}
+	if modeCount != 1 {
+		return fmt.Errorf("qa boundary requires exactly one mode")
+	}
+	if cutoverInventory {
+		return runQACutoverInventory(ctx, out, deps)
+	}
 	if cutoverPlan {
-		return runQACutoverPlan(ctx, t0, out, deps)
+		return runQACutoverPlan(ctx, t0, lifecycle.CutoverPhaseActivate, out, deps)
 	}
 	if cutoverApply {
-		return runQACutoverApply(ctx, t0, planHash, confirmation, deps)
+		return runQACutoverApply(ctx, t0, planHash, confirmation, lifecycle.CutoverPhaseActivate, deps)
+	}
+	if cutoverFinalizePlan {
+		return runQACutoverPlan(ctx, t0, lifecycle.CutoverPhaseFinalize, out, deps)
+	}
+	if cutoverFinalize {
+		return runQACutoverApply(ctx, t0, planHash, confirmation, lifecycle.CutoverPhaseFinalize, deps)
 	}
 	if !once {
 		return fmt.Errorf("qa boundary mode was not requested")
@@ -270,10 +341,6 @@ func runQABoundaryCommand(ctx context.Context, args []string, out io.Writer, dep
 	if confirmation != qaBoundaryConfirmation {
 		return fmt.Errorf("qa boundary confirmation mismatch")
 	}
-	if fs.NArg() != 0 {
-		return fmt.Errorf("qa boundary does not accept positional arguments")
-	}
-
 	deps = deps.withDefaults()
 	db, err := openQABoundaryDB(deps)
 	if err != nil {
@@ -297,18 +364,26 @@ func runQABoundaryCommand(ctx context.Context, args []string, out io.Writer, dep
 		return runErr
 	})
 	if lockErr != nil {
-		return lockErr
+		runErr = lockErr
 	}
 
 	completedAt := deps.now().UTC()
-	durationMs := completedAt.Sub(startedAt).Milliseconds()
+	duration := completedAt.Sub(startedAt)
+	if duration < 0 {
+		duration = 0
+	}
+	durationMs := duration.Milliseconds()
+	runID := strings.TrimSpace(os.Getenv("QA_MAINTENANCE_RUN_ID"))
+	trigger := strings.TrimSpace(os.Getenv("QA_MAINTENANCE_TRIGGER"))
 	status := "ok"
 	if runErr != nil {
 		status = "failed"
 	}
 	lastResult := fmt.Sprintf(
-		"status=%s phase=boundary provision_covered=%d/%d deletion_authorized=%t",
+		"status=%s phase=boundary run_id=%s trigger=%s provision_covered=%d/%d deletion_authorized=%t",
 		status,
+		runID,
+		trigger,
 		result.Provision.RangesCovered,
 		result.Provision.RangesRequired,
 		result.DeletionAuthorized,
@@ -319,15 +394,23 @@ func runQABoundaryCommand(ctx context.Context, args []string, out io.Writer, dep
 	if len(result.Expiries) > 1 {
 		lastResult += fmt.Sprintf(" drops=%d", len(result.Expiries))
 	}
-	heartbeatCtx, cancel := context.WithTimeout(ctx, qaBoundaryHeartbeatTimeout)
-	defer cancel()
-	if heartbeatErr := deps.writeHeartbeat(heartbeatCtx, db, &service.OpsUpsertJobHeartbeatInput{
+	heartbeat := &service.OpsUpsertJobHeartbeatInput{
 		JobName:        qaBoundaryJobName,
 		LastRunAt:      &startedAt,
 		LastDurationMs: &durationMs,
 		LastResult:     &lastResult,
-	}); heartbeatErr != nil {
-		return fmt.Errorf("write qa boundary heartbeat: %w", heartbeatErr)
+	}
+	if runErr == nil {
+		heartbeat.LastSuccessAt = &completedAt
+	} else {
+		message := truncateErr(runErr)
+		heartbeat.LastErrorAt = &completedAt
+		heartbeat.LastError = &message
+	}
+	heartbeatCtx, cancel := context.WithTimeout(context.Background(), qaBoundaryHeartbeatTimeout)
+	defer cancel()
+	if heartbeatErr := deps.writeHeartbeat(heartbeatCtx, db, heartbeat); heartbeatErr != nil {
+		runErr = errors.Join(runErr, fmt.Errorf("write qa boundary heartbeat: %w", heartbeatErr))
 	}
 	receipt := struct {
 		ReceiptVersion     int                      `json:"receipt_version"`
@@ -337,6 +420,7 @@ func runQABoundaryCommand(ctx context.Context, args []string, out io.Writer, dep
 		RunID              string                   `json:"run_id"`
 		Trigger            string                   `json:"trigger"`
 		CompletedAt        time.Time                `json:"completed_at"`
+		Error              string                   `json:"error,omitempty"`
 		Boundary           lifecycle.BoundaryResult `json:"boundary"`
 		DeletionAuthorized bool                     `json:"deletion_authorized"`
 	}{
@@ -344,14 +428,17 @@ func runQABoundaryCommand(ctx context.Context, args []string, out io.Writer, dep
 		Mode:               qaBoundaryReceiptMode,
 		OK:                 runErr == nil,
 		JobName:            qaBoundaryJobName,
-		RunID:              strings.TrimSpace(os.Getenv("QA_MAINTENANCE_RUN_ID")),
-		Trigger:            strings.TrimSpace(os.Getenv("QA_MAINTENANCE_TRIGGER")),
+		RunID:              runID,
+		Trigger:            trigger,
 		CompletedAt:        completedAt,
 		Boundary:           result,
 		DeletionAuthorized: result.DeletionAuthorized,
 	}
+	if runErr != nil {
+		receipt.Error = truncateErr(runErr)
+	}
 	if encErr := json.NewEncoder(out).Encode(receipt); encErr != nil {
-		return fmt.Errorf("encode qa boundary receipt: %w", encErr)
+		return errors.Join(runErr, fmt.Errorf("encode qa boundary receipt: %w", encErr))
 	}
 	return runErr
 }

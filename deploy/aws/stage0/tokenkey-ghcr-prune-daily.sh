@@ -20,7 +20,7 @@ ExecStart=/usr/local/bin/tokenkey-ghcr-prune-daily.sh
 EOF
   cat >"${systemd_dir}/tokenkey-ghcr-prune-daily.timer" <<'EOF'
 [Unit]
-Description=Daily GHCR prune (low-traffic window, after QA cleanup)
+Description=Daily GHCR prune (low-traffic window)
 
 [Timer]
 OnCalendar=*-*-* 05:00:00

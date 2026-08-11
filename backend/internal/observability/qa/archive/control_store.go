@@ -587,7 +587,7 @@ FOR UPDATE`, window.Start).Scan(&shardID, &state, &code, &restoreVerified)
 			return shardID, nil
 		}
 	}
-	if state == StateCommitted || (state == StateFailed && IsTerminalArchiveFailure(code.String)) {
+	if state == StateFailed && IsTerminalArchiveFailure(code.String) {
 		if code.String != IntegritySourceUnavailableAfterRetention {
 			return shardID, nil
 		}
@@ -600,7 +600,7 @@ UPDATE qa_archive_shards SET
     last_reconciled_at=now(),
     cleanup_eligible=false,
     updated_at=now()
-WHERE id=$3 AND state IN ('pending', 'writing', 'verified', 'failed')`,
+WHERE id=$3 AND state IN ('pending', 'writing', 'verified', 'committed', 'failed')`,
 		StateFailed, IntegritySourceUnavailableAfterRetention, shardID,
 	)
 	if err != nil {

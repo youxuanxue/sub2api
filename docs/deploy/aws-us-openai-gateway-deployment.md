@@ -176,7 +176,9 @@ aws cloudformation deploy \
     GhcrPullUser="${GHCR_OWNER}"
 ```
 
-> **CFN 模板自包含**：`docker-compose.yml`、`Caddyfile`、`deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh` 已 gzip+base64 内嵌在 UserData。
+> **CFN 模板自包含**：`docker-compose.yml`、`Caddyfile` 和 QA 生命周期 payload 已 gzip+base64 内嵌；
+> `tokenkey-qa-boundary.sh` 是 default-free 小时生命周期 owner，`tokenkey-qa-stale-cleanup.sh` 只用于
+> finalize 前的 cutover drain only，export-orphan helper 由两者按阶段复用。
 > 编辑这些文件后**必须** `bash deploy/aws/stage0/build-cfn.sh` 重新刷新 base64 段，
 > 否则上线的会是旧版。CI 上加 `bash deploy/aws/stage0/build-cfn.sh --check` 兜底。
 

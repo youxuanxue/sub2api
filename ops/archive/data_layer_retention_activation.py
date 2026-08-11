@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Build the read-only production retention activation plan.
-
-Bundles QA age-retention readiness with generic ops preconditions before a
-guarded cleanup-hold release. QA stale cleanup remains independent of archive
-completeness and maintenance health; its owner is documented in ``ops/qa/``.
-"""
+"""Build the read-only production usage/ops retention activation plan."""
 from __future__ import annotations
 
 import argparse
@@ -70,13 +65,8 @@ SELECT json_build_object(
         'active=$(tr -d "[:space:]" < active-color)',
         'case "$active" in blue|green) APP_CONTAINER="tokenkey-$active";; *) exit 21;; esac',
         'active_image=$(docker inspect "$APP_CONTAINER" --format "{{.Config.Image}}")',
-        'maintenance_enabled=$(systemctl is-enabled tokenkey-qa-maintenance.timer 2>/dev/null || true)',
-        'maintenance_active=$(systemctl is-active tokenkey-qa-maintenance.timer 2>/dev/null || true)',
-        'stale_enabled=$(systemctl is-enabled tokenkey-qa-stale-cleanup.timer 2>/dev/null || true)',
-        'stale_active=$(systemctl is-active tokenkey-qa-stale-cleanup.timer 2>/dev/null || true)',
-        'qa_plan=$(/usr/local/bin/tokenkey-qa-stale-cleanup.sh --plan)',
         "db=$(docker exec -e PGOPTIONS='-c default_transaction_read_only=on -c lock_timeout=100ms -c statement_timeout=30s' tokenkey-postgres psql -U tokenkey -d tokenkey -X -q -t -A -P pager=off -v ON_ERROR_STOP=1 -c " + shlex.quote(sql) + ")",
-        "jq -cn --arg image \"$active_image\" --arg me \"$maintenance_enabled\" --arg ma \"$maintenance_active\" --arg se \"$stale_enabled\" --arg sa \"$stale_active\" --argjson qa \"$qa_plan\" --argjson db \"$db\" '{mode:\"prod_data_retention_activation_plan\",environment:\"prod\",active_image:$image,timers:{qa_maintenance:{enabled:$me,active:$ma},qa_stale_cleanup:{enabled:$se,active:$sa}},qa:$qa,ops:$db,deletion_authorized:false}'",
+        "jq -cn --arg image \"$active_image\" --argjson db \"$db\" '{mode:\"prod_data_retention_activation_plan\",environment:\"prod\",active_image:$image,ops:$db,deletion_authorized:false}'",
     ])
 
 
@@ -139,12 +129,6 @@ def _run_remote(instance_id: str) -> dict[str, Any]:
 
 def _ready(payload: dict[str, Any]) -> tuple[bool,list[str]]:
     reasons: list[str] = []
-    timers = payload.get("timers",{})
-    if timers.get("qa_stale_cleanup",{}).get("enabled") != "disabled" or timers.get("qa_stale_cleanup",{}).get("active") != "inactive":
-        reasons.append("qa stale cleanup timer must remain disabled before first apply")
-    qa = payload.get("qa",{})
-    if qa.get("active_image") != payload.get("active_image"):
-        reasons.append("QA plan active image does not match the host")
     ops = payload.get("ops",{})
     if ops.get("ops_retention_days") != 30:
         reasons.append("ops retention is not 30 days")

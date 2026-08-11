@@ -1405,7 +1405,7 @@ if [[ "${_smoke_syntax_ok}" == "true" ]]; then
 fi
 
 # ---- sub2api: standalone host script syntax (tokenkey-*.sh) ------------------
-# The tokenkey-*.sh host scripts (pgdump, qa-stale-cleanup, prune, disk-metrics)
+# The tokenkey-*.sh host scripts (pgdump, QA boundary/cutover drain, prune, disk-metrics)
 # ship to prod/edge boxes either embedded in the CFN/Lightsail bootstrap or
 # base64-pushed by the *_via_ssm.sh refresh primitives. In the base64 path the
 # SSM host-parse guard below only sees the OPAQUE base64 blob, so a syntax error
@@ -2529,7 +2529,7 @@ fi
 
 # ---- sub2api: stage0 CFN base64 drift ---------------------------------------
 # Source of truth: deploy/aws/stage0/build-cfn.sh + its inputs
-# (docker-compose.yml, Caddyfile, Caddyfile.edge, tokenkey-qa-stale-cleanup.sh,
+# (docker-compose.yml, Caddyfile, Caddyfile.edge, QA boundary/cutover-drain/helper,
 # tokenkey-prune-ghcr-app-tags.sh). build-cfn.sh --check fails if the
 # embedded SSM blobs or thin UserData launcher drift. Also run
 # python3 deploy/aws/stage0/test_build_cfn.py for the 16 KiB UserData gate.

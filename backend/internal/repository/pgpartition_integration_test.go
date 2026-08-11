@@ -302,11 +302,30 @@ func TestPgPartition_EnsureHourlyCoversFutureHorizon(t *testing.T) {
 	require.Equal(t, len(ranges), covered)
 }
 
+func TestPgPartition_HourlyCoverageRejectsNoncanonicalChildName(t *testing.T) {
+	ctx := context.Background()
+	tbl := "pgpart_itest_hourly_noncanonical"
+	anchor := setupHourlyIntegrationTable(ctx, t, tbl)
+	_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(
+		`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%s) TO (%s)`,
+		pq.QuoteIdentifier(tbl+"_wrong"),
+		pq.QuoteIdentifier(tbl),
+		pq.QuoteLiteral(anchor.Format(time.RFC3339)),
+		pq.QuoteLiteral(anchor.Add(time.Hour).Format(time.RFC3339)),
+	))
+	require.NoError(t, err)
+
+	ranges := pgpartition.HourlyTargetRanges(anchor, 1)
+	covered, err := pgpartition.CountCoveredHourlyRanges(ctx, integrationDB, tbl, ranges)
+	require.NoError(t, err)
+	require.Zero(t, covered, "a wrong child name must not satisfy canonical hourly coverage")
+}
+
 func TestPgPartition_HourlyWriteRoutesToChildPartition(t *testing.T) {
 	ctx := context.Background()
 	tbl := "pgpart_itest_hourly_write"
 	anchor := setupHourlyIntegrationTable(ctx, t, tbl)
-	require.NoError(t, pgpartition.EnsureHourly(ctx, integrationDB, tbl, anchor, 0))
+	require.NoError(t, pgpartition.EnsureHourly(ctx, integrationDB, tbl, anchor, 1))
 	partitionName := pgpartition.HourlyPartitionName(tbl, anchor)
 	_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(
 		`INSERT INTO %s (created_at, request_id, payload) VALUES ($1, $2, 'row')`,
@@ -324,7 +343,7 @@ func TestPgPartition_DropExpiredHourlyUsesCatalogUpperBound(t *testing.T) {
 	tbl := "pgpart_itest_hourly_drop"
 	anchor := setupHourlyIntegrationTable(ctx, t, tbl)
 	expiredHour := anchor.Add(-25 * time.Hour)
-	require.NoError(t, pgpartition.EnsureHourly(ctx, integrationDB, tbl, expiredHour, 0))
+	require.NoError(t, pgpartition.EnsureHourly(ctx, integrationDB, tbl, expiredHour, 1))
 	partitionName := pgpartition.HourlyPartitionName(tbl, expiredHour)
 	_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(
 		`INSERT INTO %s (created_at, request_id, payload) VALUES ($1, 'old-req', 'old')`,

@@ -4,10 +4,13 @@ prod:
   capture_enabled: true
   online_window_hours: 24
   maintenance_schedule_utc: "*:15"
-  cleanup_schedule_utc: "*:45"
-  cleanup_randomized_delay_minutes: 15
-  cleanup_batch_size: 5000
-  physical_cleanup_max_lag_minutes: 75
+
+  lifecycle:
+    owner: tokenkey-qa-boundary
+    boundary_schedule_utc: "*:00"
+    randomized_delay_minutes: 0
+    future_horizon_hours: 72
+    host_receipt_path: /var/lib/tokenkey/qa-boundary-last-run.json
 
   archive:
     enabled: true
@@ -27,7 +30,7 @@ prod:
   cleanup:
     host_export_tmp_dir: /var/lib/tokenkey/app/qa_exports_tmp
     container_export_tmp_dir: /app/data/qa_exports_tmp
-    export_tmp_owner: tokenkey-qa-stale-cleanup
+    export_tmp_owner: tokenkey-qa-boundary
 
   user_export:
     entitlement: users.traj_export_enabled

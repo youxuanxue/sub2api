@@ -47,3 +47,10 @@ func TestHourStartUTCNormalizesLocalInput(t *testing.T) {
 		t.Fatalf("HourStartUTC()=%s want %s", got, want)
 	}
 }
+
+func TestCanonicalHourlyNameRejectsShiftedBound(t *testing.T) {
+	lower := time.Date(2026, 8, 11, 7, 30, 0, 0, time.UTC)
+	if isCanonicalHourlyName("qa_records_20260811_07", lower) {
+		t.Fatal("shifted one-hour bound must not be canonical")
+	}
+}

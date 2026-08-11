@@ -413,6 +413,14 @@ compensation result, child and runner exit codes, and redacted error codes. The 
 writes it even when image/mount/scratch preflight fails before the Go process can update
 the database. A host receipt may prove an attempted failure; it never proves a commit.
 
+The boundary host runner independently writes `/var/lib/tokenkey/qa-boundary-last-run.json`
+with the same atomic mode-0600 temporary-file, `fsync`, rename, and parent-directory `fsync`
+discipline. It binds run ID, trigger, active container and immutable image, runner UID/GID,
+child/runner exits, redacted error code, provisioning facts, exact catalog-bound expiry,
+partition DROP, and hot-file cleanup. A pre-app resolver/image/mount failure must still
+advance this host receipt; a scheduled boundary run never overwrites it with an operator
+cutover receipt.
+
 Health evaluation correlates both systemd phases and last results, their host receipts,
 DB heartbeats, catalog bounds, shard/segment control rows, and hot-file cleanup state.
 Missing or stale evidence, a systemd success with no DB/control progress, or a
@@ -436,7 +444,7 @@ TimeoutStartSec=40min
 ```
 
 The service uses one worker, bounded keyset page size, bounded multipart concurrency,
-and a scratch-space preflight. The repo-owned host runner is the only timer/operator
+and a scratch-space preflight. The repo-owned archive host runner is the only archive timer/operator
 entrypoint. It resolves the active app container and immutable image, then starts the
 same constrained sibling container as UID/GID `1000:1000`, with the app network and
 mounts. The only approved scratch mapping is:
@@ -451,6 +459,21 @@ mount combination to create, read, and remove a sentinel through the container p
 then verifies the host path. Wrong ownership, mode, mount source, or image fails before
 timer activation. Insufficient scratch space fails before upload. Operator automation
 calls this runner remotely and validates its receipt; it never issues root `docker exec`.
+
+Boundary scheduling and all cutover modes (`inventory`, `activate plan/apply`, and
+`finalize plan/apply`) likewise enter through `/usr/local/bin/tokenkey-qa-boundary.sh`.
+The runner resolves the same active immutable image and hardened sibling-container runtime;
+the app CLI is not a supported direct prod operator surface. Exactly one mode is accepted
+per invocation. Apply consumes a hash-bound plan and confirmation; after a durable phase
+receipt exists, the same phase/hash/T0 replay succeeds without rebuilding mutable inventory,
+while a different hash or T0 fails closed.
+
+The hash binds only decision-bearing facts, not live row counts that continue changing between
+plan and apply. Activation binds the database hour anchor, T0, horizon, and exact empty monthly
+children/bounds to remove. Finalize binds the database hour anchor, T0, future coverage,
+DEFAULT presence/count, legacy blob/DLQ counts, and archive-heartbeat gate. Apply reconstructs
+those facts and rechecks all catalog/data preconditions under lock; unrelated DEFAULT writes
+before T0 or active-hour writes after T0 cannot make an otherwise valid plan impossible to apply.
 
 The raw archive stack must also provide:
 
@@ -476,7 +499,8 @@ export temp path. With no non-empty `QA_EXPORT_TMP_DIR`, the effective container
 `/var/lib/tokenkey/app/qa_exports_tmp`. It may select only regular files older than the
 same retention boundary and with no open handle. The first deletion of the observed
 `traj-export-4288971549.zip` (1,041,960,960 bytes) requires a no-write plan and exact plan
-hash confirmation. This delivery diagnoses `qa_export_jobs` but does not delete its rows
+hash confirmation. Scheduled cleanup also executes plan followed by apply with the same
+cutoff, exact hash and expected count, then validates the deletion receipt. This delivery diagnoses `qa_export_jobs` but does not delete its rows
 or add job-history retention semantics.
 
 ## Testing
@@ -509,6 +533,14 @@ or add job-history retention semantics.
 - timer and operator render the same runner command/image/user/mount/env contract;
 - self-test performs a real UID/GID `1000:1000` write/read/delete through the live mount;
 - host receipt rename is atomic and each pre-app failure remains observable;
+- boundary operator modes use the same hardened host runner as the timer and cannot overwrite
+  the scheduled boundary receipt;
+- activate/finalize phase receipts are append-only; same phase/hash/T0 replay is idempotent,
+  different facts fail, and finalize without a matching activate receipt is rejected;
+- finalize rejects stale/failed archive host receipt or DB heartbeat, any legacy blob/DLQ
+  file, nonzero export-orphan plan, DEFAULT rows, legacy child, or future coverage gap;
+- owner switch consumes the durable finalize receipt before disabling legacy cleanup and
+  keeps legacy disabled while best-effort preserving boundary if enable/verification fails;
 - health fails on every systemd/receipt/heartbeat/control contradiction;
 - default export-temp path and configured override resolve to their effective host mount;
 - export orphan plan requires age, regular-file, no-open-handle, and exact plan hash; no
@@ -589,12 +621,13 @@ hours. New rows set `retention_until` to their UTC hour upper bound plus 24 hour
 field describes the partition DROP boundary rather than the earlier
 `created_at + 24 hours` eligibility instant. The timer has no randomized delay;
 scheduling delay is surfaced by health.
-Provision and expiry cleanup use separate transactions under the same run: either failure
-is reported, but one cannot silently suppress the other.
+Provision and expiry cleanup use separate transactions under the same run. Provisioning and
+the complete current-plus-72-hour coverage check are hard prerequisites: either failure ends
+the run before any archive inspection, partition DROP, or file cleanup.
 
 Steady state has no DEFAULT partition. Provisioning is a hard prerequisite, and a missing
 current partition makes QA persistence fail and alert without failing the gateway request.
-There is no `RehomeDefaultMonthly`, staging table, copy budget, dedup/finalize path, or
+There is no `RehomeDefaultMonthly`, staging table, copy budget, row-migration dedup/finalize path, or
 steady-state row DELETE. Archive and export continue to query the parent `qa_records` and
 remain independent of physical child names.
 
@@ -605,12 +638,19 @@ remain active, provision hourly children beginning at a future exact UTC hour `T
 Writes at and after `T0` route naturally to hourly children; old DEFAULT/monthly rows and
 day-layout files expire in place. After at least 25 hours, require DEFAULT row count zero,
 no nonempty legacy child, no expired legacy file, complete current-plus-72-hour coverage,
-and correlated healthy receipts. Under the parent/lifecycle lock, recheck those facts and
+zero export-orphan plan count, a fresh successful archive host receipt for the active
+container/image, a fresh successful archive DB heartbeat, and correlated healthy receipts.
+Finalize also requires the durable activate receipt for the exact same T0. A database insert
+trigger independently rejects a finalize receipt without that same-T0 activation. Under the
+parent/lifecycle lock, recheck the database/catalog facts and
 remove the empty DEFAULT. Only then replace legacy row/file cleanup with the `*:00`
 whole-hour boundary phase.
 
 File cleanup follows the database transaction. The transaction records any terminal
-archive gap, drops the child, and sets `source_dropped_at` atomically. Directory cleanup
+archive gap, drops the child, and sets `source_dropped_at` atomically. Before archive
+inspection, it takes `ACCESS EXCLUSIVE` on the selected direct child and rereads the catalog;
+parent attachment, canonical name, and exact bounds must still match the enumerated hour.
+Directory cleanup
 then sets `hot_files_cleaned_at`. A failed or interrupted directory removal is retried
 from control state; path canonicalization, exact-hour containment, and symlink rejection
 prevent a cleanup scope escape. Export scratch remains file-oriented and retains its
@@ -642,22 +682,27 @@ phase remains disabled. No rollout step copies or moves source data.
    runs while correlating systemd, host receipt, DB heartbeat/control, DB latency, WAL,
    scratch, RSS, CPU, and S3 objects.
 9. Apply the IAM tightening as the final CloudFormation change set and run an archive
-   canary. On failure stop maintenance and restore the previous IAM policy; stale cleanup
-   remains active.
+   canary. On failure stop maintenance and restore the previous IAM policy; the pre-finalize
+   legacy cutover drain remains active. A durable finalize receipt permanently closes it.
 10. Produce a read-only hourly-cutover inventory: exact child bounds, row counts by child
     and hour, future timestamps, overlapping monthly children, current/future coverage,
-    DEFAULT age, and legacy blob/DLQ/export paths. Bind the inventory and chosen future
+    DEFAULT age, and legacy blob/DLQ/export paths. Bind the decision-bearing inventory facts and chosen future
     `T0` to a separate high-risk approval.
 11. Under that approval, remove only empty overlapping monthly children and provision
     `[T0,T0+72h)`. Set the immutable application cutover hour to `T0`; PostgreSQL routes
     new rows and the capture writer uses hourly file paths from that boundary.
 12. Keep legacy age cleanup active for at least 25 hours. Abort if DEFAULT grows after
     `T0`, any future coverage gap appears, or archive/cleanup evidence contradicts.
-13. Stop lifecycle timers, acquire the shared lock, and revalidate DEFAULT empty, legacy
-    children/files drained, and 72-hour coverage. Remove the empty DEFAULT and atomically
-    replace legacy DB/blob/DLQ cleanup with the no-random-delay `*:00` boundary timer.
-    Keep export-orphan cleanup under that boundary runner.
-14. Re-enable both phases and observe at least 26 hours, including one real partition DROP,
+13. Through the boundary host runner, require the same-T0 activate receipt, fresh successful
+    archive host receipt and DB heartbeat, zero export-orphan plan, then acquire the shared
+    lock and revalidate DEFAULT empty, legacy children/blob/DLQ files drained, and 72-hour
+    coverage. Remove the empty DEFAULT and persist the append-only finalize receipt.
+14. The owner-switch SSM workflow must read that durable finalize receipt before disabling
+    legacy DB/blob/DLQ cleanup and enabling the no-random-delay `*:00` boundary timer. If any
+    enable/verification step fails, it keeps legacy disabled, best-effort leaves boundary enabled,
+    and exits nonzero for hard intervention; finalized legacy cleanup is never a valid fallback.
+    Export-orphan cleanup remains under the boundary runner.
+15. Observe the archive and boundary phases for at least 26 hours, including one real partition DROP,
     blob/DLQ directory cleanup, archive success or durable gap classification, and continuous
     future provisioning. Only then may rollout report the hourly lifecycle complete.
 
@@ -691,6 +736,8 @@ Phase 2 archive closeout is complete only when:
 - success/failure heartbeats reflect actual commit state;
 - timer/operator share one host runner, the live-mount UID self-test passes, and the atomic
   host receipt agrees with systemd, DB heartbeat, and control rows;
+- cutover inventory/activate/finalize run only through the boundary host runner; the durable
+  same-T0 activate/finalize receipts support exact replay and gate the legacy-to-boundary owner switch;
 - runtime resource limits and the raw-bucket security/audit controls are deployed;
 - the hourly archive timer completes at least two consecutive regular sealed hours under observation;
 - app IAM has no ListBucket/partial read and suffix-scoped GetObject, with shared-role risk
