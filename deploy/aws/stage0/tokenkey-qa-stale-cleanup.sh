@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fixed 24-hour QA retention. Archive completeness is intentionally independent.
+# Legacy no-move cutover drain. Never a steady-state QA retention owner.
 set -euo pipefail
 
 RETENTION_HOURS=24
@@ -32,6 +32,17 @@ ensure_roots() {
 psql_value() {
   docker exec tokenkey-postgres psql -U tokenkey -d tokenkey \
     -X -q -t -A -P pager=off -v ON_ERROR_STOP=1 -c "$1"
+}
+
+require_cutover_drain_open() {
+  local drain_open
+  drain_open="$(psql_value "
+SELECT CASE
+  WHEN to_regclass('public.qa_lifecycle_receipts') IS NULL THEN 1
+  WHEN NOT EXISTS (SELECT 1 FROM qa_lifecycle_receipts WHERE phase='finalize') THEN 1
+  ELSE 0
+END;")"
+  [[ "${drain_open}" == 1 ]] || fail "QA cutover drain is closed by the durable finalize receipt"
 }
 
 validate_cutoff() {
@@ -144,7 +155,7 @@ install_units() {
   install -d -m 0755 "${systemd_dir}"
   cat >"${systemd_dir}/tokenkey-qa-stale-cleanup.service" <<'EOF'
 [Unit]
-Description=Prune QA records and files older than 24 hours
+Description=Legacy QA no-move cutover drain (disabled after finalize)
 After=network-online.target tokenkey.service
 Wants=network-online.target
 Requires=tokenkey.service
@@ -163,7 +174,7 @@ ProtectHome=true
 EOF
   cat >"${systemd_dir}/tokenkey-qa-stale-cleanup.timer" <<'EOF'
 [Unit]
-Description=Hourly QA 24-hour age retention
+Description=Legacy QA cutover drain timer (disabled after finalize)
 
 [Timer]
 OnCalendar=*-*-* *:45:00
@@ -177,6 +188,7 @@ EOF
 
 build_plan() {
   require_runtime
+  require_cutover_drain_open
   local db_json cutoff blob_files dlq_files image export_plan
   db_json="$(psql_value "
 WITH bounds AS (
@@ -228,6 +240,7 @@ apply_export_orphans() {
   [[ "${confirm}" == "${EXPORT_CONFIRM_PREFIX}${expected_hash}" ]] \
     || fail "export orphan plan confirmation mismatch"
   require_runtime
+  require_cutover_drain_open
   exec 8>"${EXPORT_LOCK}"
   flock -n 8 || fail "another export orphan cleanup is active"
   [[ "$(active_image)" == "${expected_image}" ]] || fail "active image changed"
@@ -243,6 +256,7 @@ apply_cutoff() {
   [[ -n "${expected_image}" ]] || fail "expected active image is required"
   [[ "${confirm}" == "${CONFIRM_PREFIX}${cutoff}" ]] || fail "first-run confirmation mismatch"
   require_runtime
+  require_cutover_drain_open
   ensure_roots
   exec 9>"${FIRST_PLAN_MARKER}.lock"
   flock -n 9 || fail "another first-run cleanup is active"
@@ -310,6 +324,7 @@ SELECT json_build_object(
 
 run_scheduled() {
   require_runtime
+  require_cutover_drain_open
   [[ ! -f "${FIRST_PLAN_MARKER}" ]] || fail "first-run cleanup is incomplete"
   ensure_roots
   local cutoff

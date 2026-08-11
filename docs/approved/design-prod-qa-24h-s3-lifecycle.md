@@ -1,9 +1,9 @@
 ---
 title: Prod-only QA 24 小时在线层与 S3 归档生命周期
 status: approved
-approved_by: "user (conversation approvals, 2026-08-05 and 2026-08-08)"
+approved_by: "user (conversation approvals, 2026-08-05 through 2026-08-11; UTC-hour partitions, default-free steady state, no rehome)"
 approved_at: 2026-08-05
-last_reviewed: 2026-08-08
+last_reviewed: 2026-08-11
 created: 2026-08-05
 authors: [agent]
 risk: high
@@ -23,8 +23,9 @@ scope:
 QA 数据面收敛为一个清晰产品承诺和一条运维流水线：
 
 > 只有 prod 捕获 QA；prod 在线查询严格覆盖过去 24 小时；每小时运行的
-> `tokenkey-qa-maintenance` 负责归档、校验和受限前向补偿，独立的
-> `tokenkey-qa-stale-cleanup` 按年龄清理过期在线数据；S3 原始归档保留 7 天。Edge 完全退出 QA。
+> `tokenkey-qa-maintenance` 负责归档、校验和受限前向补偿，整点运行的
+> `tokenkey-qa-boundary` 负责未来小时分区覆盖、整分区 DROP 和对应热文件清理；稳态没有 DEFAULT、
+> 逐行 DELETE、rehome、copy 或 move。S3 原始归档保留 7 天。Edge 完全退出 QA。
 > 用户导出和运维深度分析都不从 prod 下载大文件，
 > 也不在 prod 执行重型投影或解压分析。
 
@@ -48,8 +49,8 @@ S3 中保存的是经过现有 QA 脱敏逻辑处理的 evidence，不是未经�
 1. 用户在线只看到滚动过去 24 小时的 QA 数据。
 2. 到期数据在下一次小时维护中及时物理清理，不再形成 48–72 小时锯齿。
 3. prod 所有用户、所有 API key 的 QA 原始证据按小时归档到 S3，并保留 7 天；不受用户导出开关影响。
-4. 归档、最终核对和前向补偿由 maintenance 唯一负责；年龄清理由 stale cleanup 唯一负责，
-   两者共用 advisory lock，消除竞态和重复 owner。
+4. 归档、最终核对和前向补偿由 maintenance 唯一负责；小时分区供给与到期 DROP 由 boundary 唯一负责；
+   两个确定性阶段共用 advisory lock，消除竞态和重复 owner。
 5. 用户 API-key 导出仍由管理员授予的 `traj_export_enabled` 控制，且不在 prod 读取大量 Blob、生成 ZIP
    或承载下载流量。
 6. 运维可从 S3 直接下载到本机隔离目录深度分析，不经过 prod API、数据库、磁盘或网络。
@@ -75,11 +76,12 @@ S3 中保存的是经过现有 QA 脱敏逻辑处理的 evidence，不是未经�
 控制的 API-key trajectory export。
 
 已退休实现曾每天运行一次 `tokenkey-qa-stale-cleanup.timer`，以可变 N-day 配置删除 DB 行并
-全目录扫描 `qa_blobs/qa_dlq`。当前唯一年龄清理 owner 固定使用数据库时钟计算24小时cutoff，
-每小时`:45`触发并最多随机延迟15分钟；它不读取S3归档状态。DB删除按5000行短事务执行，
-Blob/DLQ仍按同一cutoff处理，百万小文件扫描成本通过资源限制和独立timer观测。
+全目录扫描 `qa_blobs/qa_dlq`；过渡实现也曾使用 `*:45`、随机延迟和分批 DELETE。批准的稳态改为
+UTC 小时分区：`tokenkey-qa-boundary.timer` 在 `*:00` 使用数据库时钟供给未来分区并 DROP 所有已到期
+小时子表，再删除同小时 Blob/DLQ 目录。legacy stale cleanup 只在 no-move cutover 排空期间保留，
+finalize receipt 成功后禁用，不再是稳态 owner。
 
-数值配置的唯一owner是`ops/qa/policy.yaml`；archive maintenance、age cleanup、bootstrap、
+数值配置的唯一 owner 是 `ops/qa/policy.yaml`；archive maintenance、hourly boundary、bootstrap、
 CloudFormation、approved文档和测试由`qa-lifecycle-ssot.py`机械交叉校验。Edge QA capture、
 cleanup unit和S3权限保持退役。
 
@@ -88,8 +90,8 @@ cleanup unit和S3权限保持退役。
 
 Phase 2 的生产复核证据、已知异常小时、一次性文件清理对象和精确 rollout/rollback 步骤只由
 [`design-qa-phase2-archive-closeout.md`](design-qa-phase2-archive-closeout.md) 维护。本文只保留由该复核
-沉淀出的长期契约：timer/operator 共用唯一 runner、前向补偿不恢复历史 backfill、年龄清理独立运行、
-健康判断必须关联 host 与数据库事实，且共享 EC2 role 不得被表述为进程级隔离。
+沉淀出的长期契约：timer/operator 共用唯一 runner、前向补偿不恢复历史 backfill、归档与小时边界分阶段运行、
+健康判断必须关联 systemd、host receipt、数据库 heartbeat 和 control/catalog 事实，且共享 EC2 role 不得被表述为进程级隔离。
 
 ## 4. 单一 QA Policy
 
@@ -99,15 +101,16 @@ Preflight `scripts/checks/qa-lifecycle-ssot.py` 机械校验 policy 结构、dep
 本文语义锚点；禁止在其它文件复制 policy 数值副本。
 
 数值契约只在 policy 中定义；脚本结构化读取 policy，并机械校验 CloudFormation/bootstrap、
-archive maintenance、age cleanup 与 Edge 退役状态。当前 production archive owner 为
-`tokenkey-qa-maintenance.timer`，年龄删除 owner 为 `tokenkey-qa-stale-cleanup.timer`；
-后者与 `online_window_hours` 对齐且独立受控启用。不得再从
+archive maintenance、hourly boundary 与 Edge 退役状态。production archive owner 为
+`tokenkey-qa-maintenance.timer`，分区生命周期 owner 为 `tokenkey-qa-boundary.timer`；
+legacy `tokenkey-qa-stale-cleanup.timer` 只允许作为 finalize 前的排空工具。不得再从
 `QaStaleRetentionDays`、`TOKENKEY_QA_STALE_RETENTION_DAYS` 或 `qa_capture.retention_days`
 派生数值。历史 backfill flag、selector 和脚本必须不存在，不得恢复第二套 archive 或 retention owner。
 
 Policy 同时固定 maintenance runner UID/GID、host/container scratch、host receipt 和单轮最大补偿窗口，
-以及 stale cleanup 管理的 host export tmp 路径。这些是运行时契约，不是可由 unit、operator 或
-bootstrap 各自覆盖的建议值。生产 cutover 小时属于数据库控制状态，不写入静态 policy。
+以及 boundary schedule、未来覆盖范围、boundary receipt 与 host export tmp 路径。这些是运行时契约，
+不是可由 unit、operator 或 bootstrap 各自覆盖的建议值。生产 cutover 小时属于数据库不可变控制状态，
+不写入静态 policy。
 
 ## 5. Prod 在线捕获
 
@@ -142,9 +145,9 @@ qa_blobs Put 失败 -> qa_dlq -> capture_status=captured_dlq -> blob_uri=dlq://.
 `qa_dlq` 只是 evidence 降级落盘，不是业务重试队列。新归档器必须原生读取 `file://` 与
 `dlq://`，避免当前 trajectory export 将 `dlq://` 视为 unsupported 的缺口。
 
-capture写入的`retention_until`固定为`created_at+24h`，仅作为兼容展示元数据。年龄删除资格只由
-cleanup使用数据库时钟计算的`created_at < database_now()-24h`决定；任何调用方不得改读
-`retention_until`形成第二套retention owner。
+cutover 前记录沿用兼容值 `created_at+24h`；cutover 后记录的 `retention_until` 固定为所属 UTC 小时
+上界再加 24 小时，与整分区 DROP 时刻一致。DROP 资格只由数据库时钟和 PostgreSQL catalog 中的真实
+分区上界决定；任何调用方不得改读 `retention_until` 或解析表名形成第二套 retention owner。
 
 ### 5.3 时间分桶
 
@@ -184,22 +187,20 @@ created_at >= now() - interval '24 hours'
 
 ### 6.2 `retention_until`
 
-新记录固定写入：
+cutover 后的新记录固定写入：
 
 ```text
-retention_until = created_at + 24h
+retention_until = UTC hour upper bound + 24h
 ```
 
-regular cleanup只以`created_at < database_now()-24h`作为候选；`retention_until`必须保持同值，
-但不参与删除资格判断。24小时是capture元数据与cleanup共享的policy值；archive状态不参与年龄资格。
+boundary 只以数据库小时锚点和 direct child 的真实 catalog 上界选择到期分区；`retention_until` 只描述
+该记录随整分区 DROP 的时间，不参与删除资格判断。archive 状态不延长热数据生命周期。
 
 ### 6.3 物理窗口
 
-归档维护在每小时 15 分执行；独立stale cleanup按受控timer执行并删除所有已超过24小时的数据。
-用户可见窗口始终严格为24小时，物理清理延迟由timer和运行时健康信号独立观测。
-
-`physical_cleanup_max_lag_minutes=75` 是机械健康契约：非 emergency 状态下，最老物理 QA 不应
-超过 25 小时 15 分。超过该值进入 ledger/daily diagnostics，但不单独推送告警。
+`tokenkey-qa-boundary` 在每小时整点运行且没有 randomized delay。正常情况下，上一批 24 小时边界内
+的记录在其小时子表到期时整表 DROP，因此物理保留为 24 至 25 小时；调度延迟、到期分区 backlog 或
+任何 overdue attached partition 都由 boundary 健康信号直接暴露。用户可见窗口始终严格为 24 小时。
 
 ## 7. 统一每小时 Maintenance
 
@@ -213,8 +214,8 @@ OnCalendar=*-*-* *:15:00
 Persistent=true
 ```
 
-它是唯一archive owner，不执行物理删除。`HH:15` 避开整点 PostgreSQL pgdump，并给上一小时
-异步 capture 15 分钟 seal delay；年龄删除由独立stale-cleanup owner执行。
+它是唯一 archive owner，不执行物理删除。`HH:15` 给上一小时异步 capture 15 分钟 seal delay；
+分区供给和物理 DROP 由 `HH:00` boundary owner 执行。archive 最长运行 40 分钟，避免跨越下一轮 boundary。
 
 systemd timer 和人工 operator 都必须调用 host 上同一个 repo-owned runner；operator 禁止直接
 `docker exec` 应用容器。runner 解析 active container 和其 immutable image，使用与 timer 完全相同的
@@ -263,7 +264,7 @@ preflight/lock
 `qa_archive_shards` 中唯一 `forward_cutover=true` 的 committed 且 restore-verified shard 是前向边界。
 精确生产锚点和首次补偿窗口由 Phase 2 closeout 文档唯一维护。补偿集合不包含 cutover 及其之前的
 历史缺口，不恢复任意窗口 selector、历史 backfill flag 或第二个脚本。时间轴中不可恢复的 terminal
-failed 小时持续进入 archive health，但不阻塞后续可重试小时。归档和 cleanup 不并发。普通失败
+failed 小时持续进入 archive health，但不阻塞后续可重试小时。archive 与 boundary 通过共享锁串行。普通失败
 不会阻塞 gateway，也不会触发密集通知。
 
 ### 7.3 Crash 可恢复
@@ -276,7 +277,8 @@ failed 小时持续进入 archive health，但不阻塞后续可重试小时。�
 - 进程在任一步 crash，下一轮根据 control row、segment membership 和 S3 commit 收敛；
 - host runner 在同目录临时文件完成 `fsync` 后 rename，原子写
   `/var/lib/tokenkey/qa-maintenance-last-run.json`，即使 child 在写 DB heartbeat 前失败也留下机器证据；
-- stale cleanup 自己持有删除 receipt/quarantine 恢复逻辑，maintenance 不写 cleanup receipt。
+- boundary 使用独立 DB heartbeat 和原子 host receipt；partition DROP 与 `source_dropped_at` 同事务，
+  hot-file cleanup 失败由 `hot_files_cleaned_at`/`hot_cleanup_error` 幂等续跑；maintenance receipt 永不授权删除。
 
 ## 8. S3 Raw Archive
 
@@ -382,52 +384,55 @@ usage/ops archive bucket 改名后当作 raw QA archive，也不得把 pgdump �
 历史备份。Phase 2 raw restore 验证前，过渡期 prod QA break-glass dump 工具仅作为人工只读 break-glass；它不
 定义 lifecycle、不得定时运行、不得作为删除证据，验证通过后必须退役（**已 shipped 2026-08-10**）。
 
-## 9. Cleanup 设计
+## 9. Hourly Boundary 设计
 
-### 9.1 DB 删除
+### 9.1 分区供给与整分区 DROP
 
-cleanup只以数据库时钟计算的24小时`created_at` cutoff选择候选。首次恢复执行前必须输出数据库时钟、cutoff、
-候选行数和时间范围、Blob/DLQ候选数及active image并取得独立确认；计划10分钟内有效。执行时重新核对
-这些字段、maintenance/stale timer状态，并在每个5000行短事务取得QA maintenance advisory lock；任一
-漂移都在删除前拒绝。首次执行持久化plan marker并持有host file lock；崩溃后只能显式使用
-`resume-first`和同plan/确认串续跑，fresh apply不得复用marker，resume也不得创建marker。marker在首次删除
-receipt验证通过并启用timer的同一SSM命令中清除，marker存在时scheduled cleanup拒绝运行。archive是否完整
-不改变候选集合。
+`tokenkey-qa-boundary` 是唯一热数据生命周期 owner。每轮在共享 QA advisory lock 下读取数据库 UTC 小时，
+确保 `[current,current+72h)` 的每一个规范小时范围由恰好一个 direct child 覆盖，并枚举 catalog 上界不晚于
+`date_trunc('hour', database_now())-24h` 的规范小时子表。表名只作佐证；DEFAULT、未知布局、错位/重叠边界、
+覆盖缺口或 overdue partition 都 fail closed。未来分区供给是本轮 DROP 的硬前置条件：供给或覆盖核验失败时
+本轮立即退出，不检查 archive control、不 DROP，也不继续文件清理。
 
-### 9.2 Blob 删除
+每个到期小时在一个事务内完成：先对目标 direct child 取得 `ACCESS EXCLUSIVE` 锁，再重读 catalog 并确认
+parent、规范表名和上下界仍与枚举事实一致；随后检查 archive control 与剩余 source membership；需要时把该小时持久化为
+terminal `source_unavailable_after_retention`；DROP 整个 child；在同一 shard control 记录
+`source_partition_name/source_dropped_at`。archive 已失败或不完整不会延长 24 至 25 小时热保留，但 terminal
+事实写入失败时 DROP 同事务回滚，禁止小时从控制时间轴静默消失。稳态没有逐行 DELETE。
 
-新小时布局按目录处理：
+### 9.2 Blob/DLQ 与 export scratch
 
-1. 根据文件mtime计算24小时候选；
-2. 删除对应DB过期行；
-3. 删除`qa_blobs`/`qa_dlq`中的过期文件；
-4. 清理空目录；
-5. 下一轮重试失败项。
+数据库事务提交后，boundary 只删除同一 `window_start` 对应的
+`qa_blobs/YYYY/MM/DD/HH` 与 `qa_dlq/YYYY/MM/DD/HH` 目录。路径必须经过 exact-hour containment、祖先
+symlink 拒绝和规范化校验；目录不存在视为幂等成功。成功记录 `hot_files_cleaned_at`，失败记录经截断脱敏的
+`hot_cleanup_error`，后续 boundary 从 control state 有界续跑，不扫描或删除其它小时。
 
-旧布局按 DB 记录的 Blob URI 分批删除，不对整个树做每小时 `find`。每日某一轮做受限 orphan sweep，
-仅作为兜底，不承担主保留策略。
+`qa_exports_tmp` 不能按分区处理，仍由同一个 boundary host runner 管理。它从 active container 的真实配置
+解析 effective path：未配置时 container 为 `/app/data/qa_exports_tmp`、host 为
+`/var/lib/tokenkey/app/qa_exports_tmp`。scheduled cleanup 只选择超过 retention boundary、regular file 且
+没有打开句柄的 crash orphan；每轮先生成 plan，再以同一 cutoff、精确 plan hash 和 expected count apply，
+并校验删除 receipt。首次纳管现存 orphan 仍需 activation marker。`qa_export_jobs` 只诊断，不删除历史行，
+不新增 job retention 语义。
 
-同一个 stale-cleanup runner 是 `qa_exports_tmp` 唯一清理 owner。baseline 必须先从 active container 的
-有效配置计算目录：显式 `QA_EXPORT_TMP_DIR` 非空时使用其真实 bind mount；未配置时使用当前默认
-container `/app/data/qa_exports_tmp`，即 host `/var/lib/tokenkey/app/qa_exports_tmp`。不得因 env 未配置
-而跳过默认目录，也不得把 `/var/lib/tokenkey/qa_exports_tmp` 误当线上路径。
+### 9.3 Cutover 期间的 legacy cleanup
 
-正常 export 在进程内通过 `defer` 删除临时 ZIP；scheduled cleanup 只处理超过统一 24 小时 cutoff、
-regular file、位于该单一目录且没有打开句柄的 crash orphan。plan/receipt 必须增加逐文件 basename、
-size、mtime、总数和总字节，不记录文件内容。首次纳管任何现存 orphan 必须先输出 no-write plan，
-并以精确 plan hash 确认后才删除；不能混入 timer 首次无提示清理。当前生产 inventory 和一次性
-清理对象只由 Phase 2 closeout 文档维护。`qa_export_jobs` 本次只输出状态/过期分布和 `storage_key`
-一致性诊断，不删除历史行、不新增 job retention 语义，也不以 job row 作为 temp ZIP 仍在使用的
-替代证据。
+旧 DEFAULT/monthly rows 与旧日期目录不复制、不移动、不 rehome。`tokenkey-qa-stale-cleanup` 只在未来 T0
+激活后的排空窗口继续按已批准旧逻辑处理这些 legacy 数据；新 boundary timer 此时保持 disabled。finalize
+必须在至少 25 小时后重新确认 DEFAULT 仍存在且为空、legacy child/file 与 export orphan 均已排空、未来小时覆盖完整、
+archive host receipt 与 DB heartbeat 新鲜成功，并消费同 T0 的 activate receipt。数据库 insert trigger 也拒绝
+任何没有同 T0 activate 的 finalize，避免应用、operator 或手工 SQL 绕过。finalize receipt 落库后，
+owner-switch 自动禁用 legacy timer 并启用无随机延迟的 boundary timer。durable finalize 后
+legacy 已永久关闭；切换失败时必须继续保持 legacy disabled、best-effort 保持 boundary enabled，
+并以非零退出硬告警，禁止制造一个实际必然失败的 legacy fallback。
 
-### 9.3 用户主动删除不在本期范围
+### 9.4 用户主动删除不在本期范围
 
 产品没有用户主动删除 QA 的 UI、HTTP API 或 service capability。本设计不引入 deletion tombstone、
 跨系统撤销或 raw shard rewrite。
 
 本期 QA 删除来源只有：
 
-- regular maintenance 按统一 24 小时在线生命周期清理；
+- boundary 按统一 24 至 25 小时物理生命周期执行整小时分区 DROP；
 - disk emergency 按第 10 节执行 QA-only 提前清理；
 - 经独立人工批准的受控运维流程。
 
@@ -593,7 +598,7 @@ QA_ARCHIVE_ENABLED=false
 - QA middleware 不读取/tee request 与 response；
 - 不新增 `qa_records`；
 - 不写 `qa_blobs/qa_dlq/qa_exports_tmp`；
-- 不安装或运行 QA maintenance/stale cleanup timer；
+- 不安装或运行 QA maintenance/boundary/legacy-cleanup timer；
 - 不配置 raw archive/export S3；
 - Edge instance role 无 QA S3 权限；
 - Edge deploy smoke 断言 capture disabled；
@@ -640,28 +645,25 @@ cutover 后每个已封口小时最终都必须有 durable control：成功状�
 表示未 committed 小时被时间轴处理时已经没有可证明完整的源数据；它覆盖无既存 control 和已有
 retryable control 但源数据随后过期两种情况，是 terminal failed，不是空归档、confirmed gap 或删除授权。
 
-### 14.2 Cleanup receipt
+### 14.2 Boundary lifecycle control 与 receipt
 
-记录：
-
-```text
-window / reason(normal|emergency|ops_approved)
-archive_generation 或 gap_id
-deleted_rows / quarantined_files / released_bytes
-started_at / completed_at / error
-```
-
-### 14.3 Archive gap
-
-不可变 gap 记录包含：
+不新建第二套 cleanup/gap 表。每个小时继续由 `qa_archive_shards` 唯一承载 archive outcome 与热源移除状态：
 
 ```text
-window / reason / retry_summary
-rows / blob_refs / missing_or_unarchived
-local_delete_at / emergency_state / policy_hash
+source_partition_name / source_dropped_at
+hot_files_cleaned_at / hot_cleanup_error
+verification_error_code=source_unavailable_after_retention
 ```
 
-P0 卡片引用 gap ID，避免在通知中泄漏 body 或用户数据。
+应用 boundary heartbeat 记录 run ID、trigger、数据库 UTC anchor、未来覆盖、DROP/cleanup 结果和失败码；
+host runner 原子写 `/var/lib/tokenkey/qa-boundary-last-run.json`，再与 systemd、DB heartbeat、catalog/control
+交叉核对。archive receipt 始终 `deletion_authorized=false`，不能替代 boundary 删除事实。
+
+### 14.3 Cutover phase receipt
+
+`qa_lifecycle_receipts` 只允许 append-only `activate` 与 `finalize` 两行，绑定 `phase/plan_hash/t0_utc/applied_at`。
+同 phase、同 hash、同 T0 的重放幂等成功；任何不同事实都 fail closed。finalize 必须消费同 T0 的 activate
+receipt；owner switch 只在 durable finalize receipt 存在后关闭 legacy cleanup。
 
 ### 14.4 Export authorization snapshot
 
@@ -683,7 +685,7 @@ prod job creator 必须从服务端用户事实读取 `traj_export_enabled` 并�
 - capture submitted/persisted/failed、queue depth、sync fallback、captured_dlq；
 - latest committed hour、archive lag、shard rows/bytes、duration/retry；
 - missing/corrupt Blob、partial generation；
-- cleanup cutoff、最老物理记录、删除行/文件/字节、duration；
+- boundary database anchor、未来小时覆盖、到期/overdue partition、DROP 小时、hot cleanup backlog 和 duration；
 - policy hash、timer state、Edge capture disabled；
 - S3 lifecycle 与超过 8 天对象检查。
 
@@ -700,6 +702,11 @@ host receipt、新旧 DB heartbeat、对应 `qa_archive_shards`/segments/control
 缺 receipt、receipt stale、systemd success 但 DB 无对应进展、DB heartbeat 未记录 child 失败、或 control
 row 与 receipt 冲突都必须报告明确的 degraded/failure 原因，不能沿用最后一次成功 heartbeat 报绿。
 cutover 后任何未处置的 terminal failed 小时都使 archive health 保持 degraded，即使后续 normal 成功。
+
+boundary 健康同样交叉核对 `tokenkey-qa-boundary` systemd、原子 host receipt、`qa-boundary` DB heartbeat 和
+`qa_records` catalog/control。稳态出现 DEFAULT、当前/未来小时覆盖缺口、overdue attached partition、DROP 后
+hot-file backlog、未知终态码或四方矛盾都必须 failed 且 CLI 非零；只有四方一致的
+`source_unavailable_after_retention` 历史事实可以 degraded。
 
 ## 16. 安全与隐私边界
 
@@ -723,7 +730,7 @@ cutover 后任何未处置的 terminal failed 小时都使 archive health 保持
   由每轮最多一个窗口的正式补偿选择器收敛，不推送；
 - archive 在 control 创建前失败：后续按 cutover 后 UTC 时间轴重新发现；若发现时源数据已过期，写
   terminal `source_unavailable_after_retention` 并持续报 degraded，不伪造零行成功；
-- cleanup crash：下一轮按 receipt/quarantine 重入；
+- partition DROP 前失败：事务回滚并保留 child；DROP 后 hot-file cleanup 失败：下一轮按 shard control 幂等续跑；
 - Export Worker 失败：job 标记 failed，用户重试；不得 fallback 到 prod；
 - ops fetch 损坏：checksum fail closed，不输出不可信证据。
 
@@ -733,7 +740,8 @@ cutover 后任何未处置的 terminal failed 小时都使 archive health 保持
 
 - archive-only 可独立关闭，不改变现有本地 retention；
 - off-prod export 上线前仅暂留现有 API-key trajectory in-prod 实现；切换后若 Worker 故障只能返回暂不可用，不能回退重型 prod；
-- 24h cleanup只按年龄执行；首次删除绑定实时plan、active image、候选数和独立确认，不以archive soak或恢复完整性为前置；
+- finalize 前 legacy cleanup 继续排空旧布局；finalize 后只有 boundary 按 catalog 小时上界执行整分区 DROP，
+  不以 archive 成功延长热保留；
 - Edge capture=false 可通过配置回滚，但不自动恢复已删除 Edge QA；
 - emergency mode 可关闭自动动作并回到人工处置，但 P0 disk monitor 必须保留。
 
@@ -767,7 +775,7 @@ Phase 2 的生产 inventory、精确修复窗口、执行顺序和回滚步骤�
 3. 唯一批准 cutover 已独立 restore-verify；其后的每个已封口小时都有可恢复 commit 或明确 terminal
    failure，正式补偿不得伪造成功；
 4. ops workstation 可经 recovery role 直接从 S3 restore，随后删除 prod-host break-glass 下载脚本；
-5. maintenance timer 达到 closeout 规定的连续健康标准，且 stale cleanup 在 rollout 全程保持运行；
+5. maintenance timer 达到 closeout 规定的连续健康标准，且 legacy stale cleanup 在 finalize 前保持运行；
 6. archive canary 和 IAM rollback 证据完整后，deploy rollout 才可把 prod archive 默认值迁移到 policy
    target；历史 backfill 始终保持退休。
 
@@ -782,10 +790,11 @@ Phase 2 的生产 inventory、精确修复窗口、执行顺序和回滚步骤�
 ### Phase 4：24 小时在线层
 
 1. 查询接口先硬过滤过去 24 小时；
-2. 新记录固定写入兼容元数据`retention_until=created_at+24h`，删除owner仍只读取`created_at`；
-3. 先启用每小时archive→verify maintenance并完成新sealed hour的restore证明；
-4. 经实时activation plan和独立确认分批收敛当前超过24小时数据，再启用独立每小时age cleanup；
-5. 验证最老物理数据、DB latency、WAL、磁盘与用户导出。
+2. 通过 hash-bound activate plan 选择未来精确 T0，建立 `[T0,T0+72h)` 小时子表并固化不可变 T0；
+3. 新记录写入小时目录/子表，`retention_until` 为所属小时上界加 24 小时；旧 DEFAULT/monthly 数据原地排空；
+4. 至少 25 小时后通过 hash-bound finalize plan 移除空 DEFAULT，持久化 finalize receipt，并原子切换到
+   无 randomized delay 的 `*:00` boundary owner；
+5. 验证当前加未来覆盖、至少一次真实 partition DROP、hot cleanup 恢复、DB latency、WAL、磁盘与用户导出。
 
 ### Phase 5：Emergency 与 P0
 
@@ -815,8 +824,8 @@ Phase 2 的生产 inventory、精确修复窗口、执行顺序和回滚步骤�
 | 当前应用内 trajectory worker、localfs/S3 ZIP 生成和 prod 下载代理 | 用户导出的临时实现 | DynamoDB/SQS/Fargate + direct S3 | Phase 3 原子切换；切换后删除 prod 重型 build/read/proxy 与相关 env 注入 |
 | `tk_030` / Ent schema 中 daily auto-export、`auto` kind 的历史说明 | 已删除能力的注释残留；兼容列仍被旧数据读取 | manual job 兼容 schema + Phase 3 job model | 本次修正文案但不删列/历史 row、不新增 job retention；Phase 3 再迁移 schema 语义 |
 | `QaExportsBucket` | 当前用户 trajectory ZIP artifact bucket | Phase 3 user artifact bucket/prefix | 可迁移或复用，但永远不是 raw archive；TTL/IAM 与 raw bucket 分离 |
-| `/var/lib/tokenkey/app/qa_exports_tmp` crash orphan | in-prod export 的共享 EBS 临时文件 | `tokenkey-qa-stale-cleanup` | 本次纳入 plan/receipt；现有 inventory 按 Phase 2 closeout 精确确认，Phase 3 切换后删除该 prod staging surface |
-| `QaStaleRetentionDays`、retention env、daily stale timer/script、`qa_capture.retention_days` | 已退休的可变prod物理清理 | policy固定24小时、每小时`:45`的`tokenkey-qa-stale-cleanup.timer` | 删除可变retention入口；bootstrap仅可单向删除旧env文件；首次执行经实时plan确认后受控启用固定timer |
+| `/var/lib/tokenkey/app/qa_exports_tmp` crash orphan | in-prod export 的共享 EBS 临时文件 | `tokenkey-qa-boundary` host runner | 每轮 plan→exact-hash apply；首次对象受 activation marker 保护，Phase 3 切换后删除该 prod staging surface |
+| `QaStaleRetentionDays`、retention env、daily/`:45` stale timer/script、`qa_capture.retention_days` | 已退休的可变 prod 物理清理与 cutover 排空工具 | policy 固定的 `*:00` `tokenkey-qa-boundary.timer` | legacy timer 只保留到 durable finalize receipt；owner switch 成功后禁用，稳态禁止逐行 DELETE |
 | `tokenkey-pgdump.sh` 的 `qa_records*` data exclusion | 避免 pgdump 被 QA 撑爆的备份边界 | raw QA archive 负责 QA 历史 | 长期保留 exclusion，但注释必须指向本文；它不是 lifecycle owner |
 
 Phase PR 必须同时删除该行所有 deploy、test、doc 和 generated fixture 引用；不得只关开关后留下可再次启用
@@ -832,7 +841,7 @@ Phase PR 必须同时删除该行所有 deploy、test、doc 和 generated fixtur
 - 普通 `/users/me/qa/export`、daily auto-export 和 destructive full purge 不存在；
 - Edge capture disabled 与无 QA timer/S3 权限；
 - 24h 查询硬过滤和 per-key 不再越界；
-- `retention_until`精确为`created_at+24h`，且cleanup源码不读取该字段；
+- cutover 后 `retention_until` 精确为所属小时上界加 24 小时，boundary 不读取该字段或解析表名决定 DROP；
 - archive 小时边界、排序、manifest/checksum；
 - `file://`/`dlq://` 读取；
 - committed + restore-verified 小时存在未覆盖 late identity 时仍进入补偿选择，产生恰好一个
@@ -848,9 +857,9 @@ Phase PR 必须同时删除该行所有 deploy、test、doc 和 generated fixtur
   `1000:1000` selftest 行为通过；
 - `traj_export_enabled=false` 时 UI 隐藏入口且 enqueue/list/get/download 均服务端拒绝；
 - 导出开关关闭后 prod 不再返回 job/签发 URL，Worker 无 prod DB 依赖，同时 raw archive 仍覆盖该用户；
-- cleanup按24小时年龄处理所有过期数据，不读取archive完整性；
-- crash 后 receipt/quarantine 重入；
-- host receipt 原子替换，systemd/receipt/DB heartbeat/control 任一矛盾都不能报健康；
+- boundary 按 catalog 上界 DROP 所有到期小时，不读取 archive 完整性延长 retention；
+- DROP/control 同事务，hot-file cleanup crash 后按 `source_dropped_at` 重入；
+- archive/boundary host receipt 原子替换，systemd/receipt/DB heartbeat/control/catalog 任一矛盾都不能报健康；
 - `qa_exports_tmp` 默认路径解析、24h/no-open-handle 选择、no-write plan 和精确 plan hash 确认；
 - `qa_export_jobs` 只有诊断查询，没有历史删除 SQL；
 - confirmed gap 后仍按生命周期删除并生成一次 P0；
@@ -866,7 +875,7 @@ Phase PR 必须同时删除该行所有 deploy、test、doc 和 generated fixtur
 - 归档中断、S3 失败、DB timeout、missing Blob、重复运行和并发 lock；
 - control 前 crash→年龄清理→terminal failure、零记录小时 empty base、committed 小时 late delta；
 - 大小时 shard 的 CPU/内存/IO 资源上限；
-- cleanup 小事务与 gateway 并发，无长锁和明显 latency 抬升；
+- 小时 partition DROP 与 gateway 并发，无异常长锁和明显 latency 抬升；
 - S3 lifecycle、IAM/KMS deny 和 CloudTrail 读取审计。
 - app role 无 `ListBucket`/partial Get，GetObject 只覆盖验证所需后缀（含已声明的
   `orphan-evidence-index.jsonl.zst`）；共享 EC2 role 边界在测试报告中不得误报为
@@ -876,14 +885,14 @@ Phase PR 必须同时删除该行所有 deploy、test、doc 和 generated fixtur
 
 - Edge 连续至少 24 小时无新增 QA 行/文件；
 - prod 在线接口严格不返回 24h 以前数据；
-- 非 emergency 时最老物理 QA 不超过 25h15m；
+- 正常调度时物理 QA 保留为 24 至 25 小时，且不存在 overdue attached partition；
 - cutover 后每个已封口小时有 valid restored commit 或明确 terminal failure；年龄清理不能让缺少 control
   的小时静默消失；
 - Phase 2 closeout 指定的唯一 cutover 独立 restore 通过；首次补偿窗口由正式选择器收敛，或以明确
   terminal failure 停止并进入单独 gap 审批，不能伪造成功；
 - maintenance timer 达到 closeout 规定的连续健康标准，且 systemd、host receipt、DB heartbeat、
   control rows 四方一致；
-- stale cleanup 在 maintenance rollout 全程保持健康，现存 `qa_exports_tmp` orphan 经精确 plan 确认清除；
+- finalize 前 legacy cleanup 保持健康；finalize 后 boundary timer 独占 retention，现存 `qa_exports_tmp` orphan 经精确 plan 确认清除；
 - S3 raw archive 7 天生命周期有效，partial 1 天收敛；
 - ops 从 S3 到本机恢复成功且不访问 prod；
 - 用户导出生成/下载期间 prod 无重型读取、ZIP、代理下载；
@@ -905,10 +914,11 @@ Hourly HH:15 tokenkey-qa-maintenance (archive owner)
   -> after normal success, reconcile at most one oldest post-cutover gap
   -> atomic host receipt + DB heartbeat + archive ledger/metrics
 
-Controlled tokenkey-qa-stale-cleanup (retention owner)
-  -> plan database/file cutoff
-  -> delete all data older than 24h
-  -> cleanup metrics/journal
+Hourly HH:00 tokenkey-qa-boundary (partition lifecycle owner)
+  -> provision exact [current,current+72h) UTC-hour coverage
+  -> classify terminal archive fact + DROP expired whole partitions
+  -> cleanup exact-hour blob/DLQ paths + plan/apply export orphans
+  -> atomic host receipt + DB heartbeat + catalog/control health
 
 Raw S3 (7d, private)
   -> trusted Fargate Export Worker -> user-scoped ZIP -> direct S3 download
@@ -928,8 +938,8 @@ Edge
 ## 21. 书面审批项
 
 - [x] 只有 prod 启用 QA，Edge 完全退出 QA。
-- [x] 在线查询严格过去 24 小时；物理清理最多滞后到 25h15m。
-- [x] 每小时`HH:15` maintenance只负责archive→verify及受限前向补偿；独立固定24小时stale cleanup负责年龄删除。
+- [x] 在线查询严格过去 24 小时；正常物理保留为 24 至 25 小时。
+- [x] `HH:15` maintenance 只负责 archive→verify 及受限前向补偿；`HH:00` boundary 负责小时分区供给与整分区 DROP。
 - [x] raw archive 覆盖所有 prod 用户/API key，S3 保留 7 天，不受 `traj_export_enabled` 影响。
 - [x] 只有 `traj_export_enabled=true` 用户可见/可用 API-key 导出；Fargate 从 S3 生成，禁止 prod fallback。
 - [x] ops 从 S3 直达本机隔离分析，不经过 prod。
@@ -940,5 +950,5 @@ Edge
 - [x] maintenance 采用唯一 host runner；timer/operator 同路径、固定 UID/GID、真实 scratch 和原子 receipt。
 - [x] forward cutover 只接受 Phase 2 closeout 批准的精确锚点；normal 成功后每轮最多补一个最老缺口，
   不恢复历史 backfill。
-- [x] stale cleanup 唯一清理 `qa_exports_tmp`；任何现存 orphan 删除前必须经 no-write plan 和精确 hash 确认。
+- [x] boundary 唯一清理 `qa_exports_tmp`；任何现存 orphan 删除前必须经 plan、精确 hash/count apply 和 receipt 校验。
 - [x] 当前共享 EC2 role 不是进程级 IAM 隔离；本次只收窄整机权限并如实记录、验收。

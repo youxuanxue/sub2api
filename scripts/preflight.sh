@@ -240,11 +240,15 @@ if command -v python3 >/dev/null 2>&1; then
 fi
 _bg_spawn ssm_parse bash ./scripts/checks/check-stage0-ssm-host-parse.sh
 
-# dev-rules template check 18a omits PREFLIGHT_BASE until submodule picks up the fix.
+# Compatibility shims until the dev-rules template carries the project-needed
+# deleted-ref base and scans colocated Python tests outside tests/ directories.
 _dev_preflight_template="./dev-rules/templates/preflight.sh"
-if ! grep -q 'check_deleted_file_refs.py --base' "$_dev_preflight_template" 2>/dev/null; then
+if ! grep -q 'check_deleted_file_refs.py --base' "$_dev_preflight_template" 2>/dev/null || \
+   ! grep -q 'check_existence_only_tests.py --glob' "$_dev_preflight_template" 2>/dev/null; then
     _dev_preflight_template="$(mktemp "${TMPDIR:-/tmp}/preflight-dev-rules.XXXXXX")"
-    sed 's|check_deleted_file_refs\.py >|check_deleted_file_refs.py --base "${PREFLIGHT_BASE:-origin/main}" >|' \
+    sed \
+        -e 's|check_deleted_file_refs\.py >|check_deleted_file_refs.py --base "${PREFLIGHT_BASE:-origin/main}" >|' \
+        -e 's|"$PYTHON_BIN" dev-rules/scripts/check_existence_only_tests\.py >|"$PYTHON_BIN" -W ignore::SyntaxWarning dev-rules/scripts/check_existence_only_tests.py --glob "test_*.py" --glob "*_test.py" --glob "**/test_*.py" --glob "**/*_test.py" >|' \
         ./dev-rules/templates/preflight.sh > "$_dev_preflight_template"
     chmod +x "$_dev_preflight_template"
 fi
@@ -1405,7 +1409,7 @@ if [[ "${_smoke_syntax_ok}" == "true" ]]; then
 fi
 
 # ---- sub2api: standalone host script syntax (tokenkey-*.sh) ------------------
-# The tokenkey-*.sh host scripts (pgdump, qa-stale-cleanup, prune, disk-metrics)
+# The tokenkey-*.sh host scripts (pgdump, QA boundary/cutover drain, prune, disk-metrics)
 # ship to prod/edge boxes either embedded in the CFN/Lightsail bootstrap or
 # base64-pushed by the *_via_ssm.sh refresh primitives. In the base64 path the
 # SSM host-parse guard below only sees the OPAQUE base64 blob, so a syntax error
@@ -2529,7 +2533,7 @@ fi
 
 # ---- sub2api: stage0 CFN base64 drift ---------------------------------------
 # Source of truth: deploy/aws/stage0/build-cfn.sh + its inputs
-# (docker-compose.yml, Caddyfile, Caddyfile.edge, tokenkey-qa-stale-cleanup.sh,
+# (docker-compose.yml, Caddyfile, Caddyfile.edge, QA boundary/cutover-drain/helper,
 # tokenkey-prune-ghcr-app-tags.sh). build-cfn.sh --check fails if the
 # embedded SSM blobs or thin UserData launcher drift. Also run
 # python3 deploy/aws/stage0/test_build_cfn.py for the 16 KiB UserData gate.
@@ -2880,6 +2884,21 @@ else
         echo "  ok: ent generated code is up to date"
     fi
     git checkout -- backend/ent/ 2>/dev/null || true
+fi
+
+# ---- sub2api: changed Go file gofmt -------------------------------------------
+# golangci-lint does not format-check build-tag files such as *_test.go with
+# //go:build unit; scan branch diff plus staged/unstaged/untracked Go files.
+echo ""
+echo "=== sub2api: changed Go file gofmt ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by gofmt-changed-go.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/gofmt-changed-go.py --base "${PREFLIGHT_BASE:-origin/main}" --quiet; then
+    python3 ./scripts/checks/gofmt-changed-go.py --base "${PREFLIGHT_BASE:-origin/main}" 2>&1 | sed 's/^/  /'
+    errors=$((errors + 1))
+else
+    echo "  ok: changed Go files are gofmt-clean"
 fi
 
 # ---- sub2api: go.mod replace path validation ---------------------------------

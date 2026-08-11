@@ -70,6 +70,18 @@ func main() {
 		return
 	}
 
+	if qaBoundaryRequested(os.Args[1:]) {
+		if err := runQABoundaryCommand(
+			context.Background(),
+			os.Args[1:],
+			os.Stdout,
+			defaultQABoundaryDeps(),
+		); err != nil {
+			log.Fatalf("QA boundary maintenance failed: %v", err)
+		}
+		return
+	}
+
 	if qaMaintenanceRequested(os.Args[1:]) {
 		if err := runQAMaintenanceCommand(
 			context.Background(),

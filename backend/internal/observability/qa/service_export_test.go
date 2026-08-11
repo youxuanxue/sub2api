@@ -276,6 +276,34 @@ func TestUS070_PersistCapture_WritesUpstreamModel(t *testing.T) {
 	require.Equal(t, createdAt.Add(24*time.Hour), record.RetentionUntil)
 }
 
+func TestPersistCaptureUsesImmutableDatabaseHourlyCutover(t *testing.T) {
+	svc, client, _ := newQAExportTestService(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 8, 11, 13, 0, 0, 0, time.UTC)
+	_, err := client.Setting.Create().
+		SetKey("qa_hourly_storage_cutover_utc").
+		SetValue(t0.Format(time.RFC3339)).
+		Save(ctx)
+	require.NoError(t, err)
+
+	err = svc.persistCapture(ctx, CaptureInput{
+		RequestID: "capture-hourly-cutover", UserID: 7, APIKeyID: 1,
+		Platform: "anthropic", StatusCode: 200, CreatedAt: t0.Add(5 * time.Minute),
+	})
+	require.NoError(t, err)
+	record, err := client.QARecord.Query().Only(ctx)
+	require.NoError(t, err)
+	require.Equal(t, t0.Add(25*time.Hour), record.RetentionUntil)
+	require.NotNil(t, record.BlobURI)
+	require.Contains(t, *record.BlobURI, "2026/08/11/13/")
+
+	_, err = client.Setting.Delete().Exec(ctx)
+	require.NoError(t, err)
+	cached, err := svc.hourlyStorageCutover(ctx)
+	require.NoError(t, err)
+	require.Equal(t, t0, cached)
+}
+
 func TestUS070_PersistCapture_WritesExtendedMetadata(t *testing.T) {
 	svc, client, _ := newQAExportTestService(t)
 	ctx := context.Background()

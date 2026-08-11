@@ -280,6 +280,7 @@ func (s *OpsCleanupService) runScheduled() {
 		s.db,
 		runAt,
 		partitionmaintenance.ModeAllowUnpartitioned,
+		partitionmaintenance.OpsCleanupOptions,
 	)
 	if partitionErr != nil {
 		s.recordJobHeartbeatError(partitionmaintenance.JobName, runAt, time.Since(startedAt), partitionErr)

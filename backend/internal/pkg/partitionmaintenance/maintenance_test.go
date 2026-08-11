@@ -44,7 +44,6 @@ func TestEnsureStrictCreatesAndVerifiesAllTargets(t *testing.T) {
 	}{
 		{"ops_system_logs", 4},
 		{"ops_error_logs", 4},
-		{"qa_records", 4},
 		{"usage_logs", 8},
 	} {
 		expectPartitioned(mock, target.table, true)
@@ -52,14 +51,13 @@ func TestEnsureStrictCreatesAndVerifiesAllTargets(t *testing.T) {
 		expectCoverage(mock, target.table, target.count)
 	}
 
-	result, err := Ensure(context.Background(), db, maintenanceNow, ModeRequireAllPartitioned)
+	result, err := Ensure(context.Background(), db, maintenanceNow, ModeRequireAllPartitioned, Options{})
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
 	want := []TableResult{
 		{Table: "ops_system_logs", RangeCount: 4},
 		{Table: "ops_error_logs", RangeCount: 4},
-		{Table: "qa_records", RangeCount: 4},
 		{Table: "usage_logs", RangeCount: 8},
 	}
 	if len(result.Tables) != len(want) {
@@ -83,7 +81,7 @@ func TestEnsureStrictRejectsUnpartitionedTarget(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	expectPartitioned(mock, "ops_system_logs", false)
 
-	_, err = Ensure(context.Background(), db, maintenanceNow, ModeRequireAllPartitioned)
+	_, err = Ensure(context.Background(), db, maintenanceNow, ModeRequireAllPartitioned, Options{})
 	if err == nil || !strings.Contains(err.Error(), "ops_system_logs is not partitioned") {
 		t.Fatalf("expected strict unpartitioned error, got %v", err)
 	}
@@ -102,10 +100,9 @@ func TestEnsureAllowUnpartitionedSkipsCompatibilityTarget(t *testing.T) {
 	expectPartitioned(mock, "ops_error_logs", true)
 	expectCreates(mock, 4)
 	expectCoverage(mock, "ops_error_logs", 4)
-	expectPartitioned(mock, "qa_records", false)
 	expectPartitioned(mock, "usage_logs", false)
 
-	result, err := Ensure(context.Background(), db, maintenanceNow, ModeAllowUnpartitioned)
+	result, err := Ensure(context.Background(), db, maintenanceNow, ModeAllowUnpartitioned, Options{})
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
@@ -130,7 +127,7 @@ func TestEnsureRejectsUncoveredOverlap(t *testing.T) {
 	expectCreates(mock, 3)
 	expectCoverage(mock, "ops_system_logs", 3)
 
-	_, err = Ensure(context.Background(), db, maintenanceNow, ModeRequireAllPartitioned)
+	_, err = Ensure(context.Background(), db, maintenanceNow, ModeRequireAllPartitioned, Options{})
 	if err == nil || !strings.Contains(err.Error(), "covers 3 of 4 required ranges") {
 		t.Fatalf("expected uncovered range error, got %v", err)
 	}

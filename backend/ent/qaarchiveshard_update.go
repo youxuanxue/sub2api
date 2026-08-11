@@ -555,6 +555,86 @@ func (_u *QAArchiveShardUpdate) ClearLastError() *QAArchiveShardUpdate {
 	return _u
 }
 
+// SetSourcePartitionName sets the "source_partition_name" field.
+func (_u *QAArchiveShardUpdate) SetSourcePartitionName(v string) *QAArchiveShardUpdate {
+	_u.mutation.SetSourcePartitionName(v)
+	return _u
+}
+
+// SetNillableSourcePartitionName sets the "source_partition_name" field if the given value is not nil.
+func (_u *QAArchiveShardUpdate) SetNillableSourcePartitionName(v *string) *QAArchiveShardUpdate {
+	if v != nil {
+		_u.SetSourcePartitionName(*v)
+	}
+	return _u
+}
+
+// ClearSourcePartitionName clears the value of the "source_partition_name" field.
+func (_u *QAArchiveShardUpdate) ClearSourcePartitionName() *QAArchiveShardUpdate {
+	_u.mutation.ClearSourcePartitionName()
+	return _u
+}
+
+// SetSourceDroppedAt sets the "source_dropped_at" field.
+func (_u *QAArchiveShardUpdate) SetSourceDroppedAt(v time.Time) *QAArchiveShardUpdate {
+	_u.mutation.SetSourceDroppedAt(v)
+	return _u
+}
+
+// SetNillableSourceDroppedAt sets the "source_dropped_at" field if the given value is not nil.
+func (_u *QAArchiveShardUpdate) SetNillableSourceDroppedAt(v *time.Time) *QAArchiveShardUpdate {
+	if v != nil {
+		_u.SetSourceDroppedAt(*v)
+	}
+	return _u
+}
+
+// ClearSourceDroppedAt clears the value of the "source_dropped_at" field.
+func (_u *QAArchiveShardUpdate) ClearSourceDroppedAt() *QAArchiveShardUpdate {
+	_u.mutation.ClearSourceDroppedAt()
+	return _u
+}
+
+// SetHotFilesCleanedAt sets the "hot_files_cleaned_at" field.
+func (_u *QAArchiveShardUpdate) SetHotFilesCleanedAt(v time.Time) *QAArchiveShardUpdate {
+	_u.mutation.SetHotFilesCleanedAt(v)
+	return _u
+}
+
+// SetNillableHotFilesCleanedAt sets the "hot_files_cleaned_at" field if the given value is not nil.
+func (_u *QAArchiveShardUpdate) SetNillableHotFilesCleanedAt(v *time.Time) *QAArchiveShardUpdate {
+	if v != nil {
+		_u.SetHotFilesCleanedAt(*v)
+	}
+	return _u
+}
+
+// ClearHotFilesCleanedAt clears the value of the "hot_files_cleaned_at" field.
+func (_u *QAArchiveShardUpdate) ClearHotFilesCleanedAt() *QAArchiveShardUpdate {
+	_u.mutation.ClearHotFilesCleanedAt()
+	return _u
+}
+
+// SetHotCleanupError sets the "hot_cleanup_error" field.
+func (_u *QAArchiveShardUpdate) SetHotCleanupError(v string) *QAArchiveShardUpdate {
+	_u.mutation.SetHotCleanupError(v)
+	return _u
+}
+
+// SetNillableHotCleanupError sets the "hot_cleanup_error" field if the given value is not nil.
+func (_u *QAArchiveShardUpdate) SetNillableHotCleanupError(v *string) *QAArchiveShardUpdate {
+	if v != nil {
+		_u.SetHotCleanupError(*v)
+	}
+	return _u
+}
+
+// ClearHotCleanupError clears the value of the "hot_cleanup_error" field.
+func (_u *QAArchiveShardUpdate) ClearHotCleanupError() *QAArchiveShardUpdate {
+	_u.mutation.ClearHotCleanupError()
+	return _u
+}
+
 // SetUpdatedAt sets the "updated_at" field.
 func (_u *QAArchiveShardUpdate) SetUpdatedAt(v time.Time) *QAArchiveShardUpdate {
 	_u.mutation.SetUpdatedAt(v)
@@ -760,6 +840,30 @@ func (_u *QAArchiveShardUpdate) sqlSave(ctx context.Context) (_node int, err err
 	}
 	if _u.mutation.LastErrorCleared() {
 		_spec.ClearField(qaarchiveshard.FieldLastError, field.TypeString)
+	}
+	if value, ok := _u.mutation.SourcePartitionName(); ok {
+		_spec.SetField(qaarchiveshard.FieldSourcePartitionName, field.TypeString, value)
+	}
+	if _u.mutation.SourcePartitionNameCleared() {
+		_spec.ClearField(qaarchiveshard.FieldSourcePartitionName, field.TypeString)
+	}
+	if value, ok := _u.mutation.SourceDroppedAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldSourceDroppedAt, field.TypeTime, value)
+	}
+	if _u.mutation.SourceDroppedAtCleared() {
+		_spec.ClearField(qaarchiveshard.FieldSourceDroppedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.HotFilesCleanedAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldHotFilesCleanedAt, field.TypeTime, value)
+	}
+	if _u.mutation.HotFilesCleanedAtCleared() {
+		_spec.ClearField(qaarchiveshard.FieldHotFilesCleanedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.HotCleanupError(); ok {
+		_spec.SetField(qaarchiveshard.FieldHotCleanupError, field.TypeString, value)
+	}
+	if _u.mutation.HotCleanupErrorCleared() {
+		_spec.ClearField(qaarchiveshard.FieldHotCleanupError, field.TypeString)
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(qaarchiveshard.FieldUpdatedAt, field.TypeTime, value)
@@ -1311,6 +1415,86 @@ func (_u *QAArchiveShardUpdateOne) ClearLastError() *QAArchiveShardUpdateOne {
 	return _u
 }
 
+// SetSourcePartitionName sets the "source_partition_name" field.
+func (_u *QAArchiveShardUpdateOne) SetSourcePartitionName(v string) *QAArchiveShardUpdateOne {
+	_u.mutation.SetSourcePartitionName(v)
+	return _u
+}
+
+// SetNillableSourcePartitionName sets the "source_partition_name" field if the given value is not nil.
+func (_u *QAArchiveShardUpdateOne) SetNillableSourcePartitionName(v *string) *QAArchiveShardUpdateOne {
+	if v != nil {
+		_u.SetSourcePartitionName(*v)
+	}
+	return _u
+}
+
+// ClearSourcePartitionName clears the value of the "source_partition_name" field.
+func (_u *QAArchiveShardUpdateOne) ClearSourcePartitionName() *QAArchiveShardUpdateOne {
+	_u.mutation.ClearSourcePartitionName()
+	return _u
+}
+
+// SetSourceDroppedAt sets the "source_dropped_at" field.
+func (_u *QAArchiveShardUpdateOne) SetSourceDroppedAt(v time.Time) *QAArchiveShardUpdateOne {
+	_u.mutation.SetSourceDroppedAt(v)
+	return _u
+}
+
+// SetNillableSourceDroppedAt sets the "source_dropped_at" field if the given value is not nil.
+func (_u *QAArchiveShardUpdateOne) SetNillableSourceDroppedAt(v *time.Time) *QAArchiveShardUpdateOne {
+	if v != nil {
+		_u.SetSourceDroppedAt(*v)
+	}
+	return _u
+}
+
+// ClearSourceDroppedAt clears the value of the "source_dropped_at" field.
+func (_u *QAArchiveShardUpdateOne) ClearSourceDroppedAt() *QAArchiveShardUpdateOne {
+	_u.mutation.ClearSourceDroppedAt()
+	return _u
+}
+
+// SetHotFilesCleanedAt sets the "hot_files_cleaned_at" field.
+func (_u *QAArchiveShardUpdateOne) SetHotFilesCleanedAt(v time.Time) *QAArchiveShardUpdateOne {
+	_u.mutation.SetHotFilesCleanedAt(v)
+	return _u
+}
+
+// SetNillableHotFilesCleanedAt sets the "hot_files_cleaned_at" field if the given value is not nil.
+func (_u *QAArchiveShardUpdateOne) SetNillableHotFilesCleanedAt(v *time.Time) *QAArchiveShardUpdateOne {
+	if v != nil {
+		_u.SetHotFilesCleanedAt(*v)
+	}
+	return _u
+}
+
+// ClearHotFilesCleanedAt clears the value of the "hot_files_cleaned_at" field.
+func (_u *QAArchiveShardUpdateOne) ClearHotFilesCleanedAt() *QAArchiveShardUpdateOne {
+	_u.mutation.ClearHotFilesCleanedAt()
+	return _u
+}
+
+// SetHotCleanupError sets the "hot_cleanup_error" field.
+func (_u *QAArchiveShardUpdateOne) SetHotCleanupError(v string) *QAArchiveShardUpdateOne {
+	_u.mutation.SetHotCleanupError(v)
+	return _u
+}
+
+// SetNillableHotCleanupError sets the "hot_cleanup_error" field if the given value is not nil.
+func (_u *QAArchiveShardUpdateOne) SetNillableHotCleanupError(v *string) *QAArchiveShardUpdateOne {
+	if v != nil {
+		_u.SetHotCleanupError(*v)
+	}
+	return _u
+}
+
+// ClearHotCleanupError clears the value of the "hot_cleanup_error" field.
+func (_u *QAArchiveShardUpdateOne) ClearHotCleanupError() *QAArchiveShardUpdateOne {
+	_u.mutation.ClearHotCleanupError()
+	return _u
+}
+
 // SetUpdatedAt sets the "updated_at" field.
 func (_u *QAArchiveShardUpdateOne) SetUpdatedAt(v time.Time) *QAArchiveShardUpdateOne {
 	_u.mutation.SetUpdatedAt(v)
@@ -1546,6 +1730,30 @@ func (_u *QAArchiveShardUpdateOne) sqlSave(ctx context.Context) (_node *QAArchiv
 	}
 	if _u.mutation.LastErrorCleared() {
 		_spec.ClearField(qaarchiveshard.FieldLastError, field.TypeString)
+	}
+	if value, ok := _u.mutation.SourcePartitionName(); ok {
+		_spec.SetField(qaarchiveshard.FieldSourcePartitionName, field.TypeString, value)
+	}
+	if _u.mutation.SourcePartitionNameCleared() {
+		_spec.ClearField(qaarchiveshard.FieldSourcePartitionName, field.TypeString)
+	}
+	if value, ok := _u.mutation.SourceDroppedAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldSourceDroppedAt, field.TypeTime, value)
+	}
+	if _u.mutation.SourceDroppedAtCleared() {
+		_spec.ClearField(qaarchiveshard.FieldSourceDroppedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.HotFilesCleanedAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldHotFilesCleanedAt, field.TypeTime, value)
+	}
+	if _u.mutation.HotFilesCleanedAtCleared() {
+		_spec.ClearField(qaarchiveshard.FieldHotFilesCleanedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.HotCleanupError(); ok {
+		_spec.SetField(qaarchiveshard.FieldHotCleanupError, field.TypeString, value)
+	}
+	if _u.mutation.HotCleanupErrorCleared() {
+		_spec.ClearField(qaarchiveshard.FieldHotCleanupError, field.TypeString)
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(qaarchiveshard.FieldUpdatedAt, field.TypeTime, value)

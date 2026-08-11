@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -29,6 +30,58 @@ func TestMigrationsRunner_ConcurrentInstancesSerializeOnSessionLock(t *testing.T
 	for i, err := range errorsByInstance {
 		require.NoErrorf(t, err, "migration instance %d", i)
 	}
+}
+
+func TestQAHourlyCutoverStateIsDatabaseImmutable(t *testing.T) {
+	tx := testTx(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 8, 11, 13, 0, 0, 0, time.UTC)
+	_, err := tx.ExecContext(ctx, `INSERT INTO settings (key,value) VALUES ('qa_hourly_storage_cutover_utc',$1)`, t0.Format(time.RFC3339))
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, `UPDATE settings SET value=$1 WHERE key='qa_hourly_storage_cutover_utc'`, t0.Add(time.Hour).Format(time.RFC3339))
+	require.Error(t, err)
+	require.NoError(t, tx.Rollback())
+
+	tx = testTx(t)
+	_, err = tx.ExecContext(ctx, `INSERT INTO qa_lifecycle_receipts (phase,plan_hash,t0_utc) VALUES ('activate',$1,$2)`, strings.Repeat("a", 64), t0)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, `DELETE FROM qa_lifecycle_receipts WHERE phase='activate'`)
+	require.Error(t, err)
+}
+
+func TestQAHourlyCutoverSettingCannotBeCreatedByRenamingAnotherSetting(t *testing.T) {
+	tx := testTx(t)
+	ctx := context.Background()
+	_, err := tx.ExecContext(ctx, `INSERT INTO settings (key,value) VALUES ('qa_cutover_rename_source','unrelated')`)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, `
+UPDATE settings
+SET key='qa_hourly_storage_cutover_utc', value='2026-08-11T13:00:00Z'
+WHERE key='qa_cutover_rename_source'`)
+	require.Error(t, err)
+}
+
+func TestQAHourlyCutoverFinalizeReceiptRequiresMatchingActivationT0(t *testing.T) {
+	ctx := context.Background()
+	t0 := time.Date(2026, 8, 11, 13, 0, 0, 0, time.UTC)
+
+	tx := testTx(t)
+	_, err := tx.ExecContext(ctx, `INSERT INTO qa_lifecycle_receipts (phase,plan_hash,t0_utc) VALUES ('finalize',$1,$2)`, strings.Repeat("f", 64), t0)
+	require.Error(t, err)
+	require.NoError(t, tx.Rollback())
+
+	tx = testTx(t)
+	_, err = tx.ExecContext(ctx, `INSERT INTO qa_lifecycle_receipts (phase,plan_hash,t0_utc) VALUES ('activate',$1,$2)`, strings.Repeat("a", 64), t0)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, `INSERT INTO qa_lifecycle_receipts (phase,plan_hash,t0_utc) VALUES ('finalize',$1,$2)`, strings.Repeat("f", 64), t0.Add(time.Hour))
+	require.Error(t, err)
+	require.NoError(t, tx.Rollback())
+
+	tx = testTx(t)
+	_, err = tx.ExecContext(ctx, `INSERT INTO qa_lifecycle_receipts (phase,plan_hash,t0_utc) VALUES ('activate',$1,$2)`, strings.Repeat("a", 64), t0)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, `INSERT INTO qa_lifecycle_receipts (phase,plan_hash,t0_utc) VALUES ('finalize',$1,$2)`, strings.Repeat("f", 64), t0)
+	require.NoError(t, err)
 }
 
 func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {

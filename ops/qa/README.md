@@ -11,15 +11,16 @@ Policy 数值不在此重复。Owner 表：
 | Mechanical drift guard | [`scripts/checks/qa-lifecycle-ssot.py`](../../scripts/checks/qa-lifecycle-ssot.py) |
 | Timer/operator host runner | [`deploy/aws/stage0/tokenkey-qa-maintenance.sh`](../../deploy/aws/stage0/tokenkey-qa-maintenance.sh) |
 | Correlated Phase 2 health verdict | [`qa_phase2_health.py`](qa_phase2_health.py) |
-| Age cleanup + export crash-orphan owner | [`tokenkey-qa-stale-cleanup.sh`](../../deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh) |
+| UTC-hour partition + hot-file/export-orphan owner | [`tokenkey-qa-boundary.sh`](../../deploy/aws/stage0/tokenkey-qa-boundary.sh) |
+| Cutover drain-only legacy cleanup | [`tokenkey-qa-stale-cleanup.sh`](../../deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh) |
 | Direct workstation recovery | [`backend/cmd/qa-archive`](../../backend/cmd/qa-archive) |
 | Break-glass retirement evidence gate | [`qa_archive_recovery_gate.py`](qa_archive_recovery_gate.py) |
 
 Generic usage/ops data-layer archive: [`ops/archive/README.md`](../archive/README.md).
 
 `policy.yaml` also owns the archive runner UID/GID, real host/container scratch paths,
-atomic host receipt path, one-window catch-up bound, and the stale-cleanup-owned export
-temp host/container paths. The production cutover timestamp is live database control state,
+atomic host receipt path, one-window catch-up bound, and the boundary-owned export temp
+host/container paths. The production cutover timestamp is live database control state,
 not policy.
 
 `deploy_rollout.yaml` keeps prod `QA_ARCHIVE_ENABLED` deploy injection aligned with
@@ -28,21 +29,32 @@ enabled by default, while edge deploy still injects `QA_CAPTURE_ENABLED=false`.
 
 Operator scripts: `prod_qa_maintenance.py`, `prod_qa_historical_closeout.py`,
 `prod_qa_stale_cleanup.py`, `prod_qa_archive_closeout.py`, `prod_phase2_baseline.py`;
-timer install: `sync-qa-maintenance-timer-via-ssm.sh`, `sync-qa-stale-cleanup-timer-via-ssm.sh`.
+timer install: `sync-qa-maintenance-timer-via-ssm.sh`, `sync-qa-boundary-timer-via-ssm.sh`.
 Maintenance timer and operator execution both enter through the installed host runner; the
 operator wrappers do not own a second Docker execution contract. `qa_phase2_health.py`
 evaluates a structured snapshot and fails closed unless systemd, host receipt, DB heartbeat,
 and archive control facts all describe the same fresh scheduled run.
 
-`tokenkey-qa-stale-cleanup.sh --plan` always inventories the effective export temp bind,
+During no-move cutover drain, `tokenkey-qa-stale-cleanup.sh --plan` inventories the effective export temp bind,
 including the default `/app/data/qa_exports_tmp` to
 `/var/lib/tokenkey/app/qa_exports_tmp` mapping, and emits basename/size/mtime facts plus an
 exact canonical plan hash without deleting files. The first export-orphan deletion uses
 `prod_qa_stale_cleanup.py apply-export-orphans` with the plan's separate confirmation and
 creates `/var/lib/tokenkey/qa-export-orphan-cleanup-activated.json`; until that marker exists,
 scheduled stale cleanup continues age retention but only reports export candidates. This
-path does not depend on archive completeness, cutover, or maintenance timer health, and it
-never deletes `qa_export_jobs` rows.
+path does not depend on archive completeness or maintenance timer health, and it never
+deletes `qa_export_jobs` rows. After the durable finalize receipt, that timer is disabled;
+the `*:00` boundary runner is the only partition, hot-file, and export-orphan cleanup owner.
+The only operator plan envelope for this transitional path is
+`prod_qa_cutover_drain_plan`, produced directly from the legacy runner:
+
+```bash
+python3 ops/qa/prod_qa_stale_cleanup.py plan \
+  --instance-id i-0123456789abcdef0 \
+  --output /tmp/prod-qa-cutover-drain-plan.json
+```
+
+Generic `ops/archive/data_layer_retention_activation.py` plans cannot drive QA cleanup.
 
 `qa-archive inspect|verify|restore --workstation` assumes the dedicated recovery role and
 reads the raw S3 window without loading app config or opening PostgreSQL. The three commands

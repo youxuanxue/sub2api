@@ -213,8 +213,18 @@ WHERE id=$4`, StateFailed, code, message, shardID)
 }
 
 func (s *SQLControlStore) InspectCatchupHour(ctx context.Context, conn *sql.Conn, window Window) (CatchupHourStatus, error) {
-	if conn == nil {
-		return CatchupHourStatus{}, fmt.Errorf("inspect catchup hour: nil database connection")
+	return inspectCatchupHour(ctx, conn, window)
+}
+
+func (s *SQLControlStore) InspectCatchupHourTx(ctx context.Context, tx *sql.Tx, window Window) (CatchupHourStatus, error) {
+	return inspectCatchupHour(ctx, tx, window)
+}
+
+func inspectCatchupHour(ctx context.Context, querier interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, window Window) (CatchupHourStatus, error) {
+	if querier == nil {
+		return CatchupHourStatus{}, fmt.Errorf("inspect catchup hour: nil querier")
 	}
 	window.Start = window.Start.UTC()
 	window.End = window.End.UTC()
@@ -224,7 +234,7 @@ func (s *SQLControlStore) InspectCatchupHour(ctx context.Context, conn *sql.Conn
 
 	var status CatchupHourStatus
 	var storedEnd sql.NullTime
-	err := conn.QueryRowContext(ctx, `
+	err := querier.QueryRowContext(ctx, `
 SELECT
     s.id IS NOT NULL,
     COALESCE(s.id, 0),
@@ -531,6 +541,139 @@ func nullableKey(present bool, value string) any {
 		return nil
 	}
 	return value
+}
+
+// PersistBoundaryTerminalGap marks an expired hour terminal before its partition DROP.
+func (s *SQLControlStore) PersistBoundaryTerminalGap(ctx context.Context, tx *sql.Tx, window Window) (int64, error) {
+	window.Start = window.Start.UTC()
+	window.End = window.End.UTC()
+	if !window.End.Equal(window.Start.Add(time.Hour)) {
+		return 0, fmt.Errorf("boundary terminal gap: window must be one UTC hour")
+	}
+	_, err := tx.ExecContext(ctx, `
+INSERT INTO qa_archive_shards (
+    window_start, window_end, generation, state, s3_prefix, first_attempt_at,
+    cleanup_eligible, created_at, updated_at
+) VALUES (
+    $1, $2, 0, $3, $4, now(), false, now(), now()
+)
+ON CONFLICT (window_start, generation) DO NOTHING`,
+		window.Start, window.End, StatePending, ShardPrefix(window.Start),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("boundary terminal gap: insert control: %w", err)
+	}
+	var shardID int64
+	var state string
+	var code sql.NullString
+	var restoreVerified sql.NullTime
+	err = tx.QueryRowContext(ctx, `
+SELECT id, state, verification_error_code, restore_verified_at
+FROM qa_archive_shards
+WHERE window_start=$1 AND generation=0
+FOR UPDATE`, window.Start).Scan(&shardID, &state, &code, &restoreVerified)
+	if err != nil {
+		return 0, fmt.Errorf("boundary terminal gap: lock control: %w", err)
+	}
+	if state == StateFailed && code.String == IntegritySourceUnavailableAfterRetention {
+		return shardID, nil
+	}
+	if state == StateCommitted && restoreVerified.Valid && code.String == "" {
+		var uncovered bool
+		if err := tx.QueryRowContext(ctx, uncoveredSourceInWindowQuery, window.Start, window.End, shardID).Scan(&uncovered); err != nil {
+			return 0, fmt.Errorf("boundary terminal gap: inspect uncovered membership: %w", err)
+		}
+		if !uncovered {
+			return shardID, nil
+		}
+	}
+	if state == StateFailed && IsTerminalArchiveFailure(code.String) {
+		if code.String != IntegritySourceUnavailableAfterRetention {
+			return shardID, nil
+		}
+	}
+	result, err := tx.ExecContext(ctx, `
+UPDATE qa_archive_shards SET
+    state=$1,
+    verification_error_code=$2,
+    last_error='source unavailable after retention at boundary drop',
+    last_reconciled_at=now(),
+    cleanup_eligible=false,
+    updated_at=now()
+WHERE id=$3 AND state IN ('pending', 'writing', 'verified', 'committed', 'failed')`,
+		StateFailed, IntegritySourceUnavailableAfterRetention, shardID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("boundary terminal gap: update control: %w", err)
+	}
+	if changed, rowsErr := result.RowsAffected(); rowsErr != nil {
+		return 0, fmt.Errorf("boundary terminal gap: inspect update: %w", rowsErr)
+	} else if changed != 1 && (state != StateFailed || code.String != IntegritySourceUnavailableAfterRetention) {
+		return 0, fmt.Errorf("boundary terminal gap: shard changed concurrently")
+	}
+	return shardID, nil
+}
+
+// RecordSourceDropped binds the dropped partition name to the shard control row.
+func (s *SQLControlStore) RecordSourceDropped(ctx context.Context, tx *sql.Tx, shardID int64, partitionName string, droppedAt time.Time) error {
+	if shardID <= 0 {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `
+UPDATE qa_archive_shards SET
+    source_partition_name=$2,
+    source_dropped_at=$3,
+    updated_at=now()
+WHERE id=$1`, shardID, partitionName, droppedAt.UTC())
+	return err
+}
+
+// RecordHotFilesCleaned records post-DROP hot-file cleanup completion or a redacted error.
+func (s *SQLControlStore) RecordHotFilesCleaned(ctx context.Context, execer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, shardID int64, cleanedAt time.Time, cleanupError string) error {
+	if shardID <= 0 {
+		return nil
+	}
+	if strings.TrimSpace(cleanupError) == "" {
+		_, err := execer.ExecContext(ctx, `
+UPDATE qa_archive_shards SET
+    hot_files_cleaned_at=$2,
+    hot_cleanup_error=NULL,
+    updated_at=now()
+WHERE id=$1`, shardID, cleanedAt.UTC())
+		return err
+	}
+	_, err := execer.ExecContext(ctx, `
+UPDATE qa_archive_shards SET
+    hot_cleanup_error=$2,
+    updated_at=now()
+WHERE id=$1 AND hot_files_cleaned_at IS NULL`, shardID, redactHotCleanupError(cleanupError))
+	return err
+}
+
+const uncoveredSourceInWindowQuery = `
+SELECT EXISTS (
+    SELECT 1
+    FROM qa_records q
+    WHERE q.created_at >= $1 AND q.created_at < $2
+      AND NOT EXISTS (
+          SELECT 1
+          FROM qa_archive_segment_records sr
+          JOIN qa_archive_segments seg ON seg.id = sr.segment_id
+          WHERE seg.shard_id = $3
+            AND seg.state IN ('verified', 'committed')
+            AND sr.created_at = q.created_at
+            AND sr.request_id = q.request_id
+      )
+)`
+
+func redactHotCleanupError(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if len(msg) > 512 {
+		msg = msg[:512]
+	}
+	return msg
 }
 
 var _ ReconcileControl = (*SQLControlStore)(nil)

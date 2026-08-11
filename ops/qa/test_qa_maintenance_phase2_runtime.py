@@ -546,6 +546,62 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
                 "compensation": None,
                 "terminal_failures_after_cutover": [],
             },
+            "boundary_systemd": {
+                "timer_enabled": True,
+                "timer_active": True,
+                "service_result": "success",
+                "finished_at": "2026-08-08T22:00:05Z",
+            },
+            "boundary_host_receipt": {
+                "schema_version": "qa-boundary-runner-v1",
+                "run_id": "boundary-045",
+                "trigger": "timer",
+                "started_at": "2026-08-08T22:00:01Z",
+                "finished_at": "2026-08-08T22:00:04Z",
+                "active_container": "tokenkey-green",
+                "image": "sha256:image-v2",
+                "runner_uid": 1000,
+                "runner_gid": 1000,
+                "child_exit_code": 0,
+                "runner_exit_code": 0,
+                "error_code": "",
+                "boundary": {
+                    "provision": {
+                        "db_anchor_utc": "2026-08-08T22:00:00Z",
+                        "hours_ahead": 72,
+                        "ranges_required": 72,
+                        "ranges_covered": 72,
+                    },
+                    "deletion_authorized": False,
+                },
+                "deletion_authorized": False,
+            },
+            "boundary_database_heartbeat": {
+                "last_run_at": "2026-08-08T22:00:00Z",
+                "last_success_at": "2026-08-08T22:00:03Z",
+                "last_error_at": None,
+                "last_result": (
+                    "status=ok phase=boundary run_id=boundary-045 trigger=timer "
+                    "provision_covered=72/72 deletion_authorized=false"
+                ),
+            },
+            "qa_records": {
+                "partition_owner": "partitioned",
+                "hourly_cutover_active": True,
+                "hourly_cutover_finalize_receipt_present": True,
+                "hourly_cutover_finalized": True,
+                "default_present": False,
+                "future_coverage_start_utc": "2026-08-08T22:00:00Z",
+                "future_coverage_end_utc": "2026-08-11T22:00:00Z",
+                "future_coverage_required_hours": 72,
+                "future_coverage_canonical_hours": 72,
+                "future_coverage_gap_hours": 0,
+                "current_hour_partition_missing": False,
+                "expired_partitions_attached": 0,
+                "noncanonical_partitions_attached": 0,
+                "hot_cleanup_backlog": 0,
+                "hot_files_cleanup_pending": False,
+            },
         }
         return snapshot, now
 
@@ -657,8 +713,102 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
                 mutation(snapshot)
                 verdict = health.evaluate(snapshot, now=now)
                 self.assertIs(verdict["healthy"], False, verdict)
-                self.assertIn(verdict["status"], {"degraded", "failed"})
+                self.assertEqual(verdict["status"], "failed", verdict)
                 self.assertTrue(verdict["reasons"], verdict)
+
+    def test_us045_boundary_health_requires_matching_three_source_success(self) -> None:
+        health = _load_module("qa_phase2_health_boundary", "ops/qa/qa_phase2_health.py")
+        baseline, now = self._healthy_snapshot()
+
+        mutations = {
+            "boundary systemd missing": lambda value: value.pop("boundary_systemd"),
+            "boundary receipt missing": lambda value: value.pop("boundary_host_receipt"),
+            "boundary heartbeat missing": lambda value: value.pop("boundary_database_heartbeat"),
+            "boundary run mismatch": lambda value: value["boundary_database_heartbeat"].update(
+                last_result=value["boundary_database_heartbeat"]["last_result"].replace(
+                    "boundary-045", "boundary-other"
+                )
+            ),
+            "boundary failure": lambda value: value["boundary_host_receipt"].update(
+                runner_exit_code=1, error_code="child_failed"
+            ),
+            "boundary stale": lambda value: value["boundary_host_receipt"].update(
+                finished_at="2026-08-08T19:00:00Z"
+            ),
+        }
+        for name, mutation in mutations.items():
+            with self.subTest(name=name):
+                snapshot = copy.deepcopy(baseline)
+                mutation(snapshot)
+                verdict = health.evaluate(snapshot, now=now)
+                self.assertEqual(verdict["status"], "failed", verdict)
+                self.assertTrue(
+                    any(reason.startswith("boundary_") for reason in verdict["forward_reasons"]),
+                    verdict,
+                )
+
+    def test_us045_catalog_health_requires_exact_canonical_current_plus_72h(self) -> None:
+        health = _load_module("qa_phase2_health_catalog", "ops/qa/qa_phase2_health.py")
+        snapshot, now = self._healthy_snapshot()
+        snapshot["qa_records"]["future_coverage_canonical_hours"] = 71
+        snapshot["qa_records"]["future_coverage_gap_hours"] = 0
+        verdict = health.evaluate(snapshot, now=now)
+        self.assertEqual(verdict["status"], "failed", verdict)
+        self.assertIn("qa_records_future_partition_gap", verdict["forward_reasons"], verdict)
+
+    def test_us045_catalog_health_rejects_finalize_without_same_t0_activation(self) -> None:
+        health = _load_module("qa_phase2_health_cutover_receipts", "ops/qa/qa_phase2_health.py")
+        snapshot, now = self._healthy_snapshot()
+        snapshot["qa_records"]["hourly_cutover_finalized"] = False
+        verdict = health.evaluate(snapshot, now=now)
+        self.assertEqual(verdict["status"], "failed", verdict)
+        self.assertIn("qa_records_cutover_receipts_inconsistent", verdict["forward_reasons"], verdict)
+
+    def test_us045_catalog_health_rejects_finalize_without_activation(self) -> None:
+        health = _load_module("qa_phase2_health_orphan_finalize", "ops/qa/qa_phase2_health.py")
+        snapshot, now = self._healthy_snapshot()
+        snapshot["qa_records"].update(
+            hourly_cutover_active=False,
+            hourly_cutover_finalize_receipt_present=True,
+            hourly_cutover_finalized=False,
+        )
+        verdict = health.evaluate(snapshot, now=now)
+        self.assertEqual(verdict["status"], "failed", verdict)
+        self.assertIn("qa_records_cutover_receipts_inconsistent", verdict["forward_reasons"], verdict)
+
+    def test_us045_archive_failed_health_exits_failed(self) -> None:
+        health = _load_module("qa_phase2_health_archive_failed", "ops/qa/qa_phase2_health.py")
+        baseline, now = self._healthy_snapshot()
+        baseline["qa_records"] = {"hourly_cutover_active": False}
+        baseline["archive_control"]["archive_failed_windows"] = [
+            {"window_start": "2026-08-07T22:00:00Z", "verification_error_code": "archive_failed"}
+        ]
+        verdict = health.evaluate(baseline, now=now)
+        self.assertEqual(verdict["status"], "failed", verdict)
+        self.assertIn("archive_failed", verdict["reasons"], verdict)
+
+    def test_us045_terminal_inventory_only_degrades_for_source_retention_gap(self) -> None:
+        health = _load_module("qa_phase2_health_terminal_codes", "ops/qa/qa_phase2_health.py")
+        baseline, now = self._healthy_snapshot()
+        for code, reason in (
+            ("archive_failed", "archive_failed"),
+            ("restore_failed", "archive_verification_failure"),
+        ):
+            with self.subTest(code=code):
+                snapshot = copy.deepcopy(baseline)
+                snapshot["archive_control"]["terminal_failures_after_cutover"] = [
+                    {
+                        "window_start": "2026-08-07T22:00:00Z",
+                        "verification_error_code": code,
+                    }
+                ]
+                verdict = health.evaluate(
+                    snapshot,
+                    now=now,
+                    catchup_gap_policy="accepted_terminal",
+                )
+                self.assertEqual(verdict["status"], "failed", verdict)
+                self.assertIn(reason, verdict["catchup_reasons"], verdict)
 
 
 if __name__ == "__main__":

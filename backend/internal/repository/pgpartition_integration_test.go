@@ -270,3 +270,92 @@ func TestPgPartition_OpsErrorLogsConvertedByMigration(t *testing.T) {
 	require.Equal(t, int64(1), n, "UPDATE ... WHERE id must affect exactly the one row")
 	_, _ = integrationDB.ExecContext(ctx, `DELETE FROM ops_error_logs WHERE id=$1`, id)
 }
+
+func setupHourlyIntegrationTable(ctx context.Context, t *testing.T, tbl string) time.Time {
+	t.Helper()
+	q := pq.QuoteIdentifier(tbl)
+	_, err := integrationDB.ExecContext(ctx, "DROP TABLE IF EXISTS "+q+" CASCADE")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DROP TABLE IF EXISTS "+q+" CASCADE")
+	})
+	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf(
+		`CREATE TABLE %s (
+			id BIGSERIAL,
+			created_at TIMESTAMPTZ NOT NULL,
+			request_id TEXT NOT NULL,
+			payload TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (id, created_at)
+		) PARTITION BY RANGE (created_at)`, q))
+	require.NoError(t, err)
+	return time.Date(2026, 8, 11, 10, 0, 0, 0, time.UTC)
+}
+
+func TestPgPartition_EnsureHourlyCoversFutureHorizon(t *testing.T) {
+	ctx := context.Background()
+	tbl := "pgpart_itest_hourly_cover"
+	anchor := setupHourlyIntegrationTable(ctx, t, tbl)
+	require.NoError(t, pgpartition.EnsureHourly(ctx, integrationDB, tbl, anchor, pgpartition.QARecordsHourlyHorizon))
+	ranges := pgpartition.HourlyTargetRanges(anchor, pgpartition.QARecordsHourlyHorizon)
+	covered, err := pgpartition.CountCoveredHourlyRanges(ctx, integrationDB, tbl, ranges)
+	require.NoError(t, err)
+	require.Equal(t, len(ranges), covered)
+}
+
+func TestPgPartition_HourlyCoverageRejectsNoncanonicalChildName(t *testing.T) {
+	ctx := context.Background()
+	tbl := "pgpart_itest_hourly_noncanonical"
+	anchor := setupHourlyIntegrationTable(ctx, t, tbl)
+	_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(
+		`CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%s) TO (%s)`,
+		pq.QuoteIdentifier(tbl+"_wrong"),
+		pq.QuoteIdentifier(tbl),
+		pq.QuoteLiteral(anchor.Format(time.RFC3339)),
+		pq.QuoteLiteral(anchor.Add(time.Hour).Format(time.RFC3339)),
+	))
+	require.NoError(t, err)
+
+	ranges := pgpartition.HourlyTargetRanges(anchor, 1)
+	covered, err := pgpartition.CountCoveredHourlyRanges(ctx, integrationDB, tbl, ranges)
+	require.NoError(t, err)
+	require.Zero(t, covered, "a wrong child name must not satisfy canonical hourly coverage")
+}
+
+func TestPgPartition_HourlyWriteRoutesToChildPartition(t *testing.T) {
+	ctx := context.Background()
+	tbl := "pgpart_itest_hourly_write"
+	anchor := setupHourlyIntegrationTable(ctx, t, tbl)
+	require.NoError(t, pgpartition.EnsureHourly(ctx, integrationDB, tbl, anchor, 1))
+	partitionName := pgpartition.HourlyPartitionName(tbl, anchor)
+	_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(
+		`INSERT INTO %s (created_at, request_id, payload) VALUES ($1, $2, 'row')`,
+		pq.QuoteIdentifier(tbl),
+	), anchor.Add(15*time.Minute), "req-hourly")
+	require.NoError(t, err)
+	var inChild int
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM "+pq.QuoteIdentifier(partitionName)).Scan(&inChild))
+	require.Equal(t, 1, inChild)
+}
+
+func TestPgPartition_DropExpiredHourlyUsesCatalogUpperBound(t *testing.T) {
+	ctx := context.Background()
+	tbl := "pgpart_itest_hourly_drop"
+	anchor := setupHourlyIntegrationTable(ctx, t, tbl)
+	expiredHour := anchor.Add(-25 * time.Hour)
+	require.NoError(t, pgpartition.EnsureHourly(ctx, integrationDB, tbl, expiredHour, 1))
+	partitionName := pgpartition.HourlyPartitionName(tbl, expiredHour)
+	_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(
+		`INSERT INTO %s (created_at, request_id, payload) VALUES ($1, 'old-req', 'old')`,
+		pq.QuoteIdentifier(tbl),
+	), expiredHour.Add(10*time.Minute))
+	require.NoError(t, err)
+	cutoff := pgpartition.RetentionBoundary(anchor)
+	reclaimed, err := pgpartition.DropExpired(ctx, integrationDB, tbl, cutoff)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, reclaimed, int64(0))
+	var exists bool
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`SELECT EXISTS (SELECT 1 FROM pg_class WHERE relname = $1)`, partitionName).Scan(&exists))
+	require.False(t, exists)
+}

@@ -11,7 +11,7 @@ prod:
     policy_target: prod.archive.enabled
     target_deploy_inject_default: true
     enable_after: docs/approved/design-qa-phase2-archive-closeout.md#production-rollout
-    repository_closeout_state: production_closeout_verified
+    repository_closeout_state: implementation_ready_pending_live_verification
     observed_live_state: pending_live_reconciliation
   tokenkey_qa_maintenance_timer:
     repository_closeout_state: implementation_ready_pending_live_verification
@@ -30,14 +30,29 @@ prod:
       - database_heartbeat
       - archive_control_rows
   tokenkey_qa_stale_cleanup:
-    policy_target_state: enabled
+    policy_target_state: disabled_after_finalize
+    lifecycle_role: cutover_drain_only
     archive_independent: true
-    export_orphan_plan_command: /usr/local/bin/tokenkey-qa-stale-cleanup.sh --plan
-    export_orphan_apply_command: /usr/local/bin/tokenkey-qa-stale-cleanup.sh --apply-export-orphans
+    disable_after_receipt_phase: finalize
+  tokenkey_qa_boundary:
+    repository_closeout_state: implementation_ready_pending_live_verification
+    observed_live_state: pending_live_reconciliation
+    policy_target_state: enabled_after_finalize
+    schedule_utc: "*:00"
+    randomized_delay_minutes: 0
+    host_runner: /usr/local/bin/tokenkey-qa-boundary.sh
+    host_receipt: /var/lib/tokenkey/qa-boundary-last-run.json
+    database_heartbeat_job: qa-boundary
+    replaces_timer: tokenkey-qa-stale-cleanup.timer
+    owns_export_orphans: true
     export_orphan_activation_marker: /var/lib/tokenkey/qa-export-orphan-cleanup-activated.json
-    activation_state: production_export_orphan_activated
+    health_evidence:
+      - boundary_systemd
+      - boundary_host_receipt
+      - boundary_database_heartbeat
+      - qa_records_catalog
   qa_records:
-    partition_owner_repository: ops_partition_maintenance
+    partition_owner_repository: qa_lifecycle_boundary
     partition_owner_observed: pending_live_probe
   user_export:
     phase3_worker_repository_state: approved_fargate_worker
@@ -50,6 +65,7 @@ prod:
     repository_iam_state: contract_ready
     observed_iam_state: pending_live_verification
     iam_contract_verifier: ops/qa/verify_raw_archive_iam_contract.py
+    iam_contract_reconciler: ops/qa/reconcile_raw_archive_iam_contract.sh
     independent_evidence_state: production_workstation_recovery_verified
     recovery_cli: backend/cmd/qa-archive
     retirement_gate: ops/qa/qa_archive_recovery_gate.py

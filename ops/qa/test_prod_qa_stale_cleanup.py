@@ -56,14 +56,13 @@ def export_plan(*, files: list[dict] | None = None) -> dict:
 
 def plan(clock: str | None = None) -> dict:
     return {
-        "mode": "prod_data_retention_activation_plan",
+        "mode": "prod_qa_cutover_drain_plan",
         "environment": "prod",
         "instance_id": INSTANCE,
-        "activation_ready": True,
         "deletion_authorized": False,
-        "ops": {"server_clock": clock or dt.datetime.now(dt.timezone.utc).isoformat()},
         "qa": {
             "mode": "prod_qa_age_retention_plan",
+            "server_clock": clock or dt.datetime.now(dt.timezone.utc).isoformat(),
             "cutoff": CUTOFF,
             "active_image": "ghcr.io/youxuanxue/sub2api:1.8.140",
             "candidate_rows": 42,
@@ -84,6 +83,23 @@ def plan(clock: str | None = None) -> dict:
 
 
 class ProdQAStaleCleanupTest(unittest.TestCase):
+    def test_dedicated_operator_plan_cannot_depend_on_generic_retention(self) -> None:
+        qa = plan()["qa"]
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(
+            control, "_run_remote", return_value=("ssm-plan", qa)
+        ) as remote:
+            output = pathlib.Path(temp) / "plan.json"
+            result = control.build_plan(INSTANCE, output)
+            persisted = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(result, persisted)
+        self.assertEqual(result["mode"], "prod_qa_cutover_drain_plan")
+        self.assertNotIn("ops", result)
+        self.assertNotIn("timers", result)
+        self.assertEqual(
+            remote.call_args.args,
+            (INSTANCE, "/usr/local/bin/tokenkey-qa-stale-cleanup.sh --plan"),
+        )
+
     def _orphan_action_args(
         self, export_root: pathlib.Path, proc_root: pathlib.Path
     ) -> tuple[object, dict[str, str]]:
@@ -243,6 +259,7 @@ case "$1" in
     ;;
   exec)
     case "$*" in
+      *"qa_lifecycle_receipts"*"finalize"*) echo "${TEST_CUTOVER_DRAIN_OPEN:-1}" ;;
       *"WITH bounds AS"*) cat "$TEST_DB_JSON" ;;
       *"clock_timestamp()-interval '24 hours'"*) echo '2026-08-06T12:00:00.000000Z' ;;
       *"'ready'"*) echo '{"ready":true,"fresh":true,"candidate_rows":0}' ;;
@@ -495,6 +512,24 @@ esac
                 "systemctl is-enabled tokenkey-qa-maintenance.timer",
                 calls.read_text(encoding="utf-8"),
             )
+
+    def test_legacy_cleanup_rejects_every_plan_after_finalize(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            env, _, _, calls = self._host_sandbox(pathlib.Path(temp))
+            env["TEST_CUTOVER_DRAIN_OPEN"] = "0"
+            proc = self._run_host(env, "--plan")
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("cutover drain is closed", proc.stderr)
+            self.assertNotIn("WITH bounds AS", calls.read_text(encoding="utf-8"))
+
+    def test_generic_data_retention_plan_cannot_drive_qa_cleanup(self) -> None:
+        generic = plan()
+        generic["mode"] = "prod_data_retention_activation_plan"
+        with tempfile.TemporaryDirectory() as temp:
+            path = pathlib.Path(temp) / "plan.json"
+            path.write_text(json.dumps(generic), encoding="utf-8")
+            with self.assertRaisesRegex(control.StaleCleanupError, "failed validation"):
+                control._load_plan(path)
 
     def test_wrong_confirmation_is_rejected_before_ssm(self) -> None:
         with tempfile.TemporaryDirectory() as temp, mock.patch.object(control, "_run_remote") as remote:

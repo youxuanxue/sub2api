@@ -67,6 +67,55 @@ func TestMemoryObjectStoreConditionalReaderContract(t *testing.T) {
 	}
 }
 
+func TestMemoryObjectStoreCreateDoesNotRequirePriorHead(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryObjectStore()
+	headCalls := 0
+	tracking := &headTrackingStore{inner: store, headCalls: &headCalls}
+	key := "2026/08/11/07/commit.json"
+	created, err := tracking.Create(ctx, key, bytes.NewReader([]byte("v1")), 2, "application/json")
+	if err != nil {
+		t.Fatalf("Create()=%v", err)
+	}
+	if created.ETag == "" {
+		t.Fatalf("created=%+v", created)
+	}
+	if headCalls != 0 {
+		t.Fatalf("Create() invoked Head %d times, want 0", headCalls)
+	}
+}
+
+type headTrackingStore struct {
+	inner     ObjectStore
+	headCalls *int
+}
+
+func (s *headTrackingStore) PutReader(ctx context.Context, key string, body io.Reader, size int64, contentType string) (ObjectInfo, error) {
+	return s.inner.PutReader(ctx, key, body, size, contentType)
+}
+
+func (s *headTrackingStore) Create(ctx context.Context, key string, body io.Reader, size int64, contentType string) (ObjectInfo, error) {
+	return s.inner.Create(ctx, key, body, size, contentType)
+}
+
+func (s *headTrackingStore) CompareAndSwap(ctx context.Context, key, expectedETag string, body io.Reader, size int64, contentType string) (ObjectInfo, error) {
+	return s.inner.CompareAndSwap(ctx, key, expectedETag, body, size, contentType)
+}
+
+func (s *headTrackingStore) Open(ctx context.Context, key string) (ObjectReader, error) {
+	return s.inner.Open(ctx, key)
+}
+
+func (s *headTrackingStore) HeadInfo(ctx context.Context, key string) (ObjectInfo, error) {
+	*s.headCalls++
+	return s.inner.HeadInfo(ctx, key)
+}
+
+func (s *headTrackingStore) Head(ctx context.Context, key string) (bool, error) {
+	*s.headCalls++
+	return s.inner.Head(ctx, key)
+}
+
 func TestMemoryObjectStorePutReaderRejectsWrongSize(t *testing.T) {
 	store := NewMemoryObjectStore()
 	_, err := store.PutReader(context.Background(), "artifact", bytes.NewReader([]byte("abc")), 4, "application/octet-stream")

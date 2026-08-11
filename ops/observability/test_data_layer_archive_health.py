@@ -41,6 +41,25 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
         )
         self.assertEqual(signal["evidence_errors"], [])
 
+    def test_tail_export_stale_uses_ops_retention_window(self) -> None:
+        now = dt.datetime(2026, 8, 5, tzinfo=dt.timezone.utc)
+        cutoff = now - dt.timedelta(days=29)
+        self.assertFalse(
+            health._tail_export_stale(
+                [{"final_cutoff_exclusive": cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")}],
+                now,
+                30,
+            )
+        )
+        older = now - dt.timedelta(days=32)
+        self.assertTrue(
+            health._tail_export_stale(
+                [{"final_cutoff_exclusive": older.strftime("%Y-%m-%dT%H:%M:%SZ")}],
+                now,
+                30,
+            )
+        )
+
     def test_checked_in_tail_export_is_stale_for_current_coverage(self) -> None:
         signal = health.build_signal(now=dt.datetime(2026, 8, 10, tzinfo=dt.timezone.utc))
         self.assertTrue(signal["closeout_complete"])

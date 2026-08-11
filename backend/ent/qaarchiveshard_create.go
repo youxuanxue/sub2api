@@ -404,6 +404,62 @@ func (_c *QAArchiveShardCreate) SetNillableLastError(v *string) *QAArchiveShardC
 	return _c
 }
 
+// SetSourcePartitionName sets the "source_partition_name" field.
+func (_c *QAArchiveShardCreate) SetSourcePartitionName(v string) *QAArchiveShardCreate {
+	_c.mutation.SetSourcePartitionName(v)
+	return _c
+}
+
+// SetNillableSourcePartitionName sets the "source_partition_name" field if the given value is not nil.
+func (_c *QAArchiveShardCreate) SetNillableSourcePartitionName(v *string) *QAArchiveShardCreate {
+	if v != nil {
+		_c.SetSourcePartitionName(*v)
+	}
+	return _c
+}
+
+// SetSourceDroppedAt sets the "source_dropped_at" field.
+func (_c *QAArchiveShardCreate) SetSourceDroppedAt(v time.Time) *QAArchiveShardCreate {
+	_c.mutation.SetSourceDroppedAt(v)
+	return _c
+}
+
+// SetNillableSourceDroppedAt sets the "source_dropped_at" field if the given value is not nil.
+func (_c *QAArchiveShardCreate) SetNillableSourceDroppedAt(v *time.Time) *QAArchiveShardCreate {
+	if v != nil {
+		_c.SetSourceDroppedAt(*v)
+	}
+	return _c
+}
+
+// SetHotFilesCleanedAt sets the "hot_files_cleaned_at" field.
+func (_c *QAArchiveShardCreate) SetHotFilesCleanedAt(v time.Time) *QAArchiveShardCreate {
+	_c.mutation.SetHotFilesCleanedAt(v)
+	return _c
+}
+
+// SetNillableHotFilesCleanedAt sets the "hot_files_cleaned_at" field if the given value is not nil.
+func (_c *QAArchiveShardCreate) SetNillableHotFilesCleanedAt(v *time.Time) *QAArchiveShardCreate {
+	if v != nil {
+		_c.SetHotFilesCleanedAt(*v)
+	}
+	return _c
+}
+
+// SetHotCleanupError sets the "hot_cleanup_error" field.
+func (_c *QAArchiveShardCreate) SetHotCleanupError(v string) *QAArchiveShardCreate {
+	_c.mutation.SetHotCleanupError(v)
+	return _c
+}
+
+// SetNillableHotCleanupError sets the "hot_cleanup_error" field if the given value is not nil.
+func (_c *QAArchiveShardCreate) SetNillableHotCleanupError(v *string) *QAArchiveShardCreate {
+	if v != nil {
+		_c.SetHotCleanupError(*v)
+	}
+	return _c
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (_c *QAArchiveShardCreate) SetCreatedAt(v time.Time) *QAArchiveShardCreate {
 	_c.mutation.SetCreatedAt(v)
@@ -745,6 +801,22 @@ func (_c *QAArchiveShardCreate) createSpec() (*QAArchiveShard, *sqlgraph.CreateS
 	if value, ok := _c.mutation.LastError(); ok {
 		_spec.SetField(qaarchiveshard.FieldLastError, field.TypeString, value)
 		_node.LastError = &value
+	}
+	if value, ok := _c.mutation.SourcePartitionName(); ok {
+		_spec.SetField(qaarchiveshard.FieldSourcePartitionName, field.TypeString, value)
+		_node.SourcePartitionName = &value
+	}
+	if value, ok := _c.mutation.SourceDroppedAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldSourceDroppedAt, field.TypeTime, value)
+		_node.SourceDroppedAt = &value
+	}
+	if value, ok := _c.mutation.HotFilesCleanedAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldHotFilesCleanedAt, field.TypeTime, value)
+		_node.HotFilesCleanedAt = &value
+	}
+	if value, ok := _c.mutation.HotCleanupError(); ok {
+		_spec.SetField(qaarchiveshard.FieldHotCleanupError, field.TypeString, value)
+		_node.HotCleanupError = &value
 	}
 	if value, ok := _c.mutation.CreatedAt(); ok {
 		_spec.SetField(qaarchiveshard.FieldCreatedAt, field.TypeTime, value)
@@ -1271,6 +1343,78 @@ func (u *QAArchiveShardUpsert) UpdateLastError() *QAArchiveShardUpsert {
 // ClearLastError clears the value of the "last_error" field.
 func (u *QAArchiveShardUpsert) ClearLastError() *QAArchiveShardUpsert {
 	u.SetNull(qaarchiveshard.FieldLastError)
+	return u
+}
+
+// SetSourcePartitionName sets the "source_partition_name" field.
+func (u *QAArchiveShardUpsert) SetSourcePartitionName(v string) *QAArchiveShardUpsert {
+	u.Set(qaarchiveshard.FieldSourcePartitionName, v)
+	return u
+}
+
+// UpdateSourcePartitionName sets the "source_partition_name" field to the value that was provided on create.
+func (u *QAArchiveShardUpsert) UpdateSourcePartitionName() *QAArchiveShardUpsert {
+	u.SetExcluded(qaarchiveshard.FieldSourcePartitionName)
+	return u
+}
+
+// ClearSourcePartitionName clears the value of the "source_partition_name" field.
+func (u *QAArchiveShardUpsert) ClearSourcePartitionName() *QAArchiveShardUpsert {
+	u.SetNull(qaarchiveshard.FieldSourcePartitionName)
+	return u
+}
+
+// SetSourceDroppedAt sets the "source_dropped_at" field.
+func (u *QAArchiveShardUpsert) SetSourceDroppedAt(v time.Time) *QAArchiveShardUpsert {
+	u.Set(qaarchiveshard.FieldSourceDroppedAt, v)
+	return u
+}
+
+// UpdateSourceDroppedAt sets the "source_dropped_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsert) UpdateSourceDroppedAt() *QAArchiveShardUpsert {
+	u.SetExcluded(qaarchiveshard.FieldSourceDroppedAt)
+	return u
+}
+
+// ClearSourceDroppedAt clears the value of the "source_dropped_at" field.
+func (u *QAArchiveShardUpsert) ClearSourceDroppedAt() *QAArchiveShardUpsert {
+	u.SetNull(qaarchiveshard.FieldSourceDroppedAt)
+	return u
+}
+
+// SetHotFilesCleanedAt sets the "hot_files_cleaned_at" field.
+func (u *QAArchiveShardUpsert) SetHotFilesCleanedAt(v time.Time) *QAArchiveShardUpsert {
+	u.Set(qaarchiveshard.FieldHotFilesCleanedAt, v)
+	return u
+}
+
+// UpdateHotFilesCleanedAt sets the "hot_files_cleaned_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsert) UpdateHotFilesCleanedAt() *QAArchiveShardUpsert {
+	u.SetExcluded(qaarchiveshard.FieldHotFilesCleanedAt)
+	return u
+}
+
+// ClearHotFilesCleanedAt clears the value of the "hot_files_cleaned_at" field.
+func (u *QAArchiveShardUpsert) ClearHotFilesCleanedAt() *QAArchiveShardUpsert {
+	u.SetNull(qaarchiveshard.FieldHotFilesCleanedAt)
+	return u
+}
+
+// SetHotCleanupError sets the "hot_cleanup_error" field.
+func (u *QAArchiveShardUpsert) SetHotCleanupError(v string) *QAArchiveShardUpsert {
+	u.Set(qaarchiveshard.FieldHotCleanupError, v)
+	return u
+}
+
+// UpdateHotCleanupError sets the "hot_cleanup_error" field to the value that was provided on create.
+func (u *QAArchiveShardUpsert) UpdateHotCleanupError() *QAArchiveShardUpsert {
+	u.SetExcluded(qaarchiveshard.FieldHotCleanupError)
+	return u
+}
+
+// ClearHotCleanupError clears the value of the "hot_cleanup_error" field.
+func (u *QAArchiveShardUpsert) ClearHotCleanupError() *QAArchiveShardUpsert {
+	u.SetNull(qaarchiveshard.FieldHotCleanupError)
 	return u
 }
 
@@ -1877,6 +2021,90 @@ func (u *QAArchiveShardUpsertOne) UpdateLastError() *QAArchiveShardUpsertOne {
 func (u *QAArchiveShardUpsertOne) ClearLastError() *QAArchiveShardUpsertOne {
 	return u.Update(func(s *QAArchiveShardUpsert) {
 		s.ClearLastError()
+	})
+}
+
+// SetSourcePartitionName sets the "source_partition_name" field.
+func (u *QAArchiveShardUpsertOne) SetSourcePartitionName(v string) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetSourcePartitionName(v)
+	})
+}
+
+// UpdateSourcePartitionName sets the "source_partition_name" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertOne) UpdateSourcePartitionName() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateSourcePartitionName()
+	})
+}
+
+// ClearSourcePartitionName clears the value of the "source_partition_name" field.
+func (u *QAArchiveShardUpsertOne) ClearSourcePartitionName() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearSourcePartitionName()
+	})
+}
+
+// SetSourceDroppedAt sets the "source_dropped_at" field.
+func (u *QAArchiveShardUpsertOne) SetSourceDroppedAt(v time.Time) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetSourceDroppedAt(v)
+	})
+}
+
+// UpdateSourceDroppedAt sets the "source_dropped_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertOne) UpdateSourceDroppedAt() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateSourceDroppedAt()
+	})
+}
+
+// ClearSourceDroppedAt clears the value of the "source_dropped_at" field.
+func (u *QAArchiveShardUpsertOne) ClearSourceDroppedAt() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearSourceDroppedAt()
+	})
+}
+
+// SetHotFilesCleanedAt sets the "hot_files_cleaned_at" field.
+func (u *QAArchiveShardUpsertOne) SetHotFilesCleanedAt(v time.Time) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetHotFilesCleanedAt(v)
+	})
+}
+
+// UpdateHotFilesCleanedAt sets the "hot_files_cleaned_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertOne) UpdateHotFilesCleanedAt() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateHotFilesCleanedAt()
+	})
+}
+
+// ClearHotFilesCleanedAt clears the value of the "hot_files_cleaned_at" field.
+func (u *QAArchiveShardUpsertOne) ClearHotFilesCleanedAt() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearHotFilesCleanedAt()
+	})
+}
+
+// SetHotCleanupError sets the "hot_cleanup_error" field.
+func (u *QAArchiveShardUpsertOne) SetHotCleanupError(v string) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetHotCleanupError(v)
+	})
+}
+
+// UpdateHotCleanupError sets the "hot_cleanup_error" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertOne) UpdateHotCleanupError() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateHotCleanupError()
+	})
+}
+
+// ClearHotCleanupError clears the value of the "hot_cleanup_error" field.
+func (u *QAArchiveShardUpsertOne) ClearHotCleanupError() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearHotCleanupError()
 	})
 }
 
@@ -2651,6 +2879,90 @@ func (u *QAArchiveShardUpsertBulk) UpdateLastError() *QAArchiveShardUpsertBulk {
 func (u *QAArchiveShardUpsertBulk) ClearLastError() *QAArchiveShardUpsertBulk {
 	return u.Update(func(s *QAArchiveShardUpsert) {
 		s.ClearLastError()
+	})
+}
+
+// SetSourcePartitionName sets the "source_partition_name" field.
+func (u *QAArchiveShardUpsertBulk) SetSourcePartitionName(v string) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetSourcePartitionName(v)
+	})
+}
+
+// UpdateSourcePartitionName sets the "source_partition_name" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertBulk) UpdateSourcePartitionName() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateSourcePartitionName()
+	})
+}
+
+// ClearSourcePartitionName clears the value of the "source_partition_name" field.
+func (u *QAArchiveShardUpsertBulk) ClearSourcePartitionName() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearSourcePartitionName()
+	})
+}
+
+// SetSourceDroppedAt sets the "source_dropped_at" field.
+func (u *QAArchiveShardUpsertBulk) SetSourceDroppedAt(v time.Time) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetSourceDroppedAt(v)
+	})
+}
+
+// UpdateSourceDroppedAt sets the "source_dropped_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertBulk) UpdateSourceDroppedAt() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateSourceDroppedAt()
+	})
+}
+
+// ClearSourceDroppedAt clears the value of the "source_dropped_at" field.
+func (u *QAArchiveShardUpsertBulk) ClearSourceDroppedAt() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearSourceDroppedAt()
+	})
+}
+
+// SetHotFilesCleanedAt sets the "hot_files_cleaned_at" field.
+func (u *QAArchiveShardUpsertBulk) SetHotFilesCleanedAt(v time.Time) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetHotFilesCleanedAt(v)
+	})
+}
+
+// UpdateHotFilesCleanedAt sets the "hot_files_cleaned_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertBulk) UpdateHotFilesCleanedAt() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateHotFilesCleanedAt()
+	})
+}
+
+// ClearHotFilesCleanedAt clears the value of the "hot_files_cleaned_at" field.
+func (u *QAArchiveShardUpsertBulk) ClearHotFilesCleanedAt() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearHotFilesCleanedAt()
+	})
+}
+
+// SetHotCleanupError sets the "hot_cleanup_error" field.
+func (u *QAArchiveShardUpsertBulk) SetHotCleanupError(v string) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetHotCleanupError(v)
+	})
+}
+
+// UpdateHotCleanupError sets the "hot_cleanup_error" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertBulk) UpdateHotCleanupError() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateHotCleanupError()
+	})
+}
+
+// ClearHotCleanupError clears the value of the "hot_cleanup_error" field.
+func (u *QAArchiveShardUpsertBulk) ClearHotCleanupError() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearHotCleanupError()
 	})
 }
 

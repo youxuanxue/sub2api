@@ -54,6 +54,7 @@ func TestPartitionMaintenance_CoverageAcceptsAttachedLegacyPartition(t *testing.
 		integrationDB,
 		time.Now().UTC(),
 		partitionmaintenance.ModeAllowUnpartitioned,
+		partitionmaintenance.Options{},
 	)
 	require.NoError(t, err,
 		"maintenance must accept a MINVALUE legacy partition as covering the current range")

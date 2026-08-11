@@ -196,8 +196,6 @@ type QACaptureConfig struct {
 }
 
 // QaArchiveConfig controls hourly raw QA archive shards (Phase 2+).
-// Disabled by default; when enabled, maintenance writes to storage only —
-// DB cleanup remains gated until Phase 4.
 type QaArchiveConfig struct {
 	Enabled          bool                   `mapstructure:"enabled"`
 	SealDelayMinutes int                    `mapstructure:"seal_delay_minutes"`

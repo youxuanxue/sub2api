@@ -65,6 +65,18 @@ func TestIsOverlap(t *testing.T) {
 	}
 }
 
+func TestEnsureMonthly_RejectsQARecordsHourlyOwner(t *testing.T) {
+	rec := &execRecorder{}
+	now := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
+	err := EnsureMonthly(context.Background(), rec, "qa_records", now, 1)
+	if err == nil || !strings.Contains(err.Error(), "EnsureHourly") {
+		t.Fatalf("EnsureMonthly error=%v, want QA hourly-owner rejection", err)
+	}
+	if len(rec.queries) != 0 {
+		t.Fatalf("QA rejection must happen before SQL, got %d queries", len(rec.queries))
+	}
+}
+
 func TestEnsureMonthly_CreatesCurrentThroughAhead(t *testing.T) {
 	rec := &execRecorder{}
 	now := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
@@ -134,6 +146,23 @@ func TestEnsureDaily_CreatesCurrentThroughAhead(t *testing.T) {
 	}
 }
 
+func TestEnsureDaily_RejectsQARecordsHourlyOwner(t *testing.T) {
+	rec := &execRecorder{}
+	err := EnsureDaily(
+		context.Background(),
+		rec,
+		"qa_records",
+		time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC),
+		1,
+	)
+	if err == nil || !strings.Contains(err.Error(), "EnsureHourly") {
+		t.Fatalf("EnsureDaily error=%v, want QA hourly-owner rejection", err)
+	}
+	if len(rec.queries) != 0 {
+		t.Fatalf("QA rejection must happen before SQL, got %d queries", len(rec.queries))
+	}
+}
+
 func TestEnsureDaily_SkipsLegacyOverlapAndContinues(t *testing.T) {
 	rec := &execRecorder{errs: []error{&pq.Error{Code: pq.ErrorCode(pgPartitionOverlapCode)}}}
 	now := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)
@@ -178,6 +207,22 @@ func TestDropExpired_UsesBoundsAndKeepsEmptyFuturePartition(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unexpected database action: %v", err)
+	}
+}
+
+func TestDropExpired_RejectsQARecordsHourlyOwner(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	_, err = DropExpired(context.Background(), db, "qa_records", time.Now())
+	if err == nil || !strings.Contains(err.Error(), "EnsureHourly") {
+		t.Fatalf("DropExpired error=%v, want QA hourly-owner rejection", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("QA rejection must happen before SQL: %v", err)
 	}
 }
 

@@ -1,5 +1,6 @@
 // Package partitionmaintenance owns the partition targets, provisioning windows,
 // and post-create coverage checks shared by scheduled and one-shot maintenance.
+// qa_records UTC-hour lifecycle is owned separately by observability/qa/lifecycle.
 package partitionmaintenance
 
 import (
@@ -18,6 +19,12 @@ const (
 	opsMonthsAhead = 3
 	usageDaysAhead = 7
 )
+
+// Options controls optional maintainer behavior.
+type Options struct{}
+
+// OpsCleanupOptions is the production cron owner profile for non-QA partition maintenance.
+var OpsCleanupOptions = Options{}
 
 type Mode uint8
 
@@ -59,7 +66,6 @@ type target struct {
 var targets = [...]target{
 	{table: "ops_system_logs", cadence: cadenceMonthly, ahead: opsMonthsAhead},
 	{table: "ops_error_logs", cadence: cadenceMonthly, ahead: opsMonthsAhead},
-	{table: "qa_records", cadence: cadenceMonthly, ahead: opsMonthsAhead},
 	{table: "usage_logs", cadence: cadenceDaily, ahead: usageDaysAhead},
 }
 
@@ -73,6 +79,7 @@ func Ensure(
 	db pgpartition.DB,
 	now time.Time,
 	mode Mode,
+	_ Options,
 ) (Result, error) {
 	result := Result{Tables: make([]TableResult, 0, len(targets))}
 	if db == nil {
@@ -160,14 +167,6 @@ func countCoveredRanges(
 		ends = append(ends, item.end)
 	}
 
-	// A converted table keeps its history in an attached legacy partition declared
-	// FROM (MINVALUE), which is how tk_035 / tk_037 / the usage_logs cutover leave
-	// prod: the current month or day is served by that partition alone, and the
-	// matching CREATE is skipped as a benign overlap. Treating MINVALUE as an
-	// unparseable bound would drop that partition from the union and report a real,
-	// writable range as uncovered. Bounds we cannot classify (DEFAULT, LIST) are
-	// still excluded so an unrecognized topology fails closed instead of counting
-	// as covered.
 	const query = `
 WITH child_bounds AS (
   SELECT pg_get_expr(child.relpartbound, child.oid, true) AS bound_expr

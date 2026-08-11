@@ -22,6 +22,21 @@ PROBE = ROOT / "ops" / "observability/probe-qa-phase2-live-health.sh"
 POLICY = ROOT / "ops/qa/policy.yaml"
 
 
+def _partition_owner(qa_records: dict[str, Any]) -> str | None:
+    default_rows = qa_records.get("default_rows")
+    non_default_rows = qa_records.get("non_default_rows")
+    counts_are_valid = all(
+        isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        for value in (default_rows, non_default_rows)
+    )
+    if counts_are_valid:
+        if default_rows > 0:
+            return "mixed" if non_default_rows > 0 else "default_only"
+        return "partitioned"
+    owner = qa_records.get("partition_owner")
+    return owner if owner in {"partitioned", "mixed", "default_only"} else None
+
+
 def _load_catchup_gap_policy() -> str:
     try:
         import yaml
@@ -52,9 +67,18 @@ def _parse_probe_output(text: str) -> dict[str, Any]:
             snapshot["database_heartbeat"] = None if payload == "null" else json.loads(payload)
         elif prefix == "PHASE2ARCHIVE":
             snapshot["archive_control"] = json.loads(payload)
+        elif prefix == "PHASE2BOUNDARYSYSTEMD":
+            snapshot["boundary_systemd"] = json.loads(payload)
+        elif prefix == "PHASE2BOUNDARYRECEIPT":
+            snapshot["boundary_host_receipt"] = None if payload == "null" else json.loads(payload)
+        elif prefix == "PHASE2BOUNDARYHEARTBEAT":
+            snapshot["boundary_database_heartbeat"] = None if payload == "null" else json.loads(payload)
         elif prefix == "PHASE2QARECORDS":
             qa_records = json.loads(payload)
     if qa_records is not None:
+        owner = _partition_owner(qa_records)
+        if owner is not None:
+            qa_records["partition_owner"] = owner
         snapshot["qa_records"] = qa_records
     return snapshot
 
@@ -70,11 +94,19 @@ def evaluate_snapshot(
     warnings: list[str] = []
     qa_records = snapshot.get("qa_records")
     if isinstance(qa_records, dict):
-        owner = qa_records.get("partition_owner")
-        if owner == "default_only":
-            warnings.append("qa_records_partition_owner_default_only")
-        elif owner == "mixed":
-            warnings.append("qa_records_partition_owner_mixed")
+        owner = _partition_owner(qa_records)
+        if owner in {"default_only", "mixed"}:
+            reason = f"qa_records_partition_owner_{owner}"
+            warnings.append(reason)
+            forward = health.setdefault("forward_reasons", [])
+            if reason not in forward:
+                forward.append(reason)
+            health["forward_reasons"] = sorted(set(forward))
+            health.setdefault("reasons", [])
+            if reason not in health["reasons"]:
+                health["reasons"] = sorted(set([*health["reasons"], reason]))
+            health["status"] = "failed"
+            health["healthy"] = False
     if skip_iam:
         iam: dict[str, Any] = {"ok": True, "status": "skipped", "failures": []}
     else:
@@ -82,14 +114,15 @@ def evaluate_snapshot(
             account_id = iam_contract._account_id()
             bucket = f"tokenkey-prod-qa-raw-archive-{account_id}"
             app_role_arn = iam_contract.resolve_app_role_arn()
-            iam = iam_contract.evaluate(bucket=bucket, app_role_arn=app_role_arn)
+            iam = iam_contract.evaluate(
+                bucket=bucket, app_role_arn=app_role_arn, verify_network=True,
+            )
         except RuntimeError as exc:
             iam = {"ok": False, "status": "unknown", "failures": [str(exc)]}
         if not iam.get("ok"):
             health.setdefault("reasons", []).append("raw_archive_iam_contract_drift")
             health["reasons"] = sorted(set(health["reasons"]))
-            if health.get("status") == "healthy":
-                health["status"] = "degraded"
+            health["status"] = "failed"
             health["healthy"] = False
     return {
         "health": health,
@@ -136,7 +169,13 @@ def main() -> int:
     health_status = payload["health"].get("status", "failed")
     if not args.skip_iam and not payload.get("iam_contract", {}).get("ok", False):
         return 2
-    if health_status in {"healthy", "degraded"}:
+    accepted_terminal_only = (
+        health_status == "degraded"
+        and payload["health"].get("forward_reasons") == []
+        and set(payload["health"].get("catchup_reasons", []))
+        == {"catchup_terminal_gaps_present"}
+    )
+    if health_status == "healthy" or accepted_terminal_only:
         return 0
     return 2
 

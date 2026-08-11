@@ -31,7 +31,7 @@ func (s *OpsService) persistPreparedErrorFallback(ctx context.Context, entry *Op
 	}
 	writer := trajectory.NewWriter(nil, dir)
 	key := trajectory.BlobKey(entry.CreatedAt.Year(), int(entry.CreatedAt.Month()), entry.CreatedAt.Day(), requestID)
-	_, err = writer.Write(ctx, key, payload, requestID)
+	_, err = writer.Write(ctx, key, payload, requestID, nil)
 	if err != nil {
 		return err
 	}

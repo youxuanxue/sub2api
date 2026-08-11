@@ -79,7 +79,7 @@ class BuildCfnSizeTest(unittest.TestCase):
         )
 
     def test_qa_orphan_helper_is_distributed_within_ssm_standard_limits(self) -> None:
-        """The generated template must ship both parts of stale-cleanup ownership."""
+        """The generated template must ship the shared export-orphan helper."""
         original_main = CFN_MAIN.read_bytes()
         with tempfile.TemporaryDirectory() as temp_dir:
             cfn_copy = pathlib.Path(temp_dir) / "stage0-single-ec2.yaml"
@@ -124,6 +124,39 @@ class BuildCfnSizeTest(unittest.TestCase):
             helper_bytes,
             (STAGE0 / "tokenkey-qa-export-orphan.py").read_bytes(),
         )
+
+    def test_qa_boundary_runner_is_distributed_within_ssm_standard_limits(self) -> None:
+        original_main = CFN_MAIN.read_bytes()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cfn_copy = pathlib.Path(temp_dir) / "stage0-single-ec2.yaml"
+            cfn_copy.write_bytes(original_main)
+            proc = subprocess.run(
+                ["bash", str(STAGE0 / "build-cfn.sh")],
+                cwd=_REPO,
+                env={**os.environ, "CFN_FILE": str(cfn_copy)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            cfn_text = cfn_copy.read_text(encoding="utf-8")
+        self.assertEqual(
+            proc.returncode,
+            0,
+            msg=f"build-cfn failed:\nstdout={proc.stdout}\nstderr={proc.stderr}",
+        )
+        parts = []
+        for part in (1, 2):
+            runner = re.search(
+                rf"# >>> QA_BOUNDARY_GZB64_SSM_PART{part} START[^\n]*\n\s*Value: '([^']*)'\n"
+                rf"\s*# >>> QA_BOUNDARY_GZB64_SSM_PART{part} END",
+                cfn_text,
+            )
+            self.assertIsNotNone(runner, "CFN must carry the QA boundary runner payload")
+            assert runner is not None
+            self.assertLessEqual(len(runner.group(1)), SSM_STANDARD_LIMIT)
+            parts.append(runner.group(1))
+        runner_bytes = gzip.decompress(__import__("base64").b64decode("".join(parts)))
+        self.assertEqual(runner_bytes, (STAGE0 / "tokenkey-qa-boundary.sh").read_bytes())
 
     def test_build_cfn_check_detects_source_drift(self) -> None:
         # Negative path: the content-based --check must FAIL when a source script

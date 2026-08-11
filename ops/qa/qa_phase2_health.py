@@ -15,6 +15,187 @@ MAX_RECEIPT_AGE = dt.timedelta(hours=2)
 MAX_CORRELATION_SKEW = dt.timedelta(minutes=5)
 DEFAULT_CATCHUP_GAP_POLICY = "accepted_terminal"
 TERMINAL_CATCHUP_ERROR = "source_unavailable_after_retention"
+FAILED_ARCHIVE_ERROR = "archive_failed"
+HOURLY_HORIZON = 72
+
+
+def _evaluate_qa_records_lifecycle(
+    reasons: list[str],
+    qa_records: dict[str, Any] | None,
+    archive: dict[str, Any] | None,
+    now: dt.datetime,
+) -> bool:
+    """Return True when lifecycle/catalog facts require a failed health verdict."""
+    failed = False
+    if qa_records is None:
+        reasons.append("qa_records_catalog_missing")
+        return True
+    active = qa_records.get("hourly_cutover_active") is True
+    finalized = qa_records.get("hourly_cutover_finalized") is True
+    finalize_receipt_present = qa_records.get("hourly_cutover_finalize_receipt_present")
+    receipts_inconsistent = (
+        (finalized and not active)
+        or (
+            isinstance(finalize_receipt_present, bool)
+            and finalize_receipt_present != finalized
+        )
+        or (active and not isinstance(finalize_receipt_present, bool))
+    )
+    if receipts_inconsistent:
+        reasons.append("qa_records_cutover_receipts_inconsistent")
+        failed = True
+    if active:
+        if finalized and qa_records.get("default_present") is True:
+            reasons.append("qa_records_default_after_hourly_cutover")
+            failed = True
+        required = qa_records.get("future_coverage_required_hours")
+        canonical = qa_records.get("future_coverage_canonical_hours")
+        gap = qa_records.get("future_coverage_gap_hours")
+        coverage_start = _timestamp(qa_records.get("future_coverage_start_utc"))
+        coverage_end = _timestamp(qa_records.get("future_coverage_end_utc"))
+        current_hour = now.replace(minute=0, second=0, microsecond=0)
+        if (
+            required != HOURLY_HORIZON
+            or canonical != HOURLY_HORIZON
+            or gap != 0
+            or coverage_start != current_hour
+            or coverage_end != current_hour + dt.timedelta(hours=HOURLY_HORIZON)
+        ):
+            reasons.append("qa_records_future_partition_gap")
+            failed = True
+        if qa_records.get("current_hour_partition_missing") is True:
+            reasons.append("qa_records_current_partition_missing")
+            failed = True
+        overdue = qa_records.get("expired_partitions_attached")
+        if isinstance(overdue, (int, float)) and overdue > 0:
+            reasons.append("qa_records_expired_partitions_attached")
+            failed = True
+        noncanonical = qa_records.get("noncanonical_partitions_attached")
+        if finalized and isinstance(noncanonical, (int, float)) and noncanonical > 0:
+            reasons.append("qa_records_noncanonical_partitions_attached")
+            failed = True
+        backlog = qa_records.get("hot_cleanup_backlog")
+        if qa_records.get("hot_files_cleanup_pending") is True or (
+            isinstance(backlog, (int, float)) and backlog > 0
+        ):
+            reasons.append("qa_records_hot_files_cleanup_pending")
+            failed = True
+    if archive is not None:
+        for key in ("failed_shards", "archive_failed_windows"):
+            entries = archive.get(key)
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                code = entry.get("verification_error_code")
+                if code == FAILED_ARCHIVE_ERROR:
+                    reasons.append("archive_failed")
+                    failed = True
+                elif code not in {None, "", TERMINAL_CATCHUP_ERROR}:
+                    reasons.append("archive_verification_failure")
+                    failed = True
+    return failed
+
+
+def _evaluate_boundary(
+    reasons: list[str],
+    snapshot: dict[str, Any],
+    now: dt.datetime,
+) -> bool:
+    systemd = _mapping(snapshot.get("boundary_systemd"))
+    receipt = _mapping(snapshot.get("boundary_host_receipt"))
+    database = _mapping(snapshot.get("boundary_database_heartbeat"))
+    if systemd is None:
+        reasons.append("boundary_systemd_missing")
+    if receipt is None:
+        reasons.append("boundary_host_receipt_missing")
+    if database is None:
+        reasons.append("boundary_database_heartbeat_missing")
+    if systemd is None or receipt is None or database is None:
+        return True
+
+    if systemd.get("timer_enabled") is not True:
+        reasons.append("boundary_timer_not_enabled")
+    if systemd.get("timer_active") is not True:
+        reasons.append("boundary_timer_not_active")
+    if systemd.get("service_result") != "success":
+        reasons.append("boundary_systemd_service_failed")
+
+    if receipt.get("schema_version") != "qa-boundary-runner-v1":
+        reasons.append("boundary_host_receipt_schema_invalid")
+    run_id = receipt.get("run_id")
+    if not isinstance(run_id, str) or not run_id:
+        reasons.append("boundary_host_receipt_run_id_missing")
+    if receipt.get("trigger") != "timer":
+        reasons.append("boundary_host_receipt_trigger_not_timer")
+    if not isinstance(receipt.get("active_container"), str) or not receipt.get("active_container"):
+        reasons.append("boundary_host_receipt_container_missing")
+    if not isinstance(receipt.get("image"), str) or not receipt.get("image", "").startswith("sha256:"):
+        reasons.append("boundary_host_receipt_image_invalid")
+    if receipt.get("runner_uid") != 1000 or receipt.get("runner_gid") != 1000:
+        reasons.append("boundary_host_receipt_runner_identity_invalid")
+    started = _timestamp(receipt.get("started_at"))
+    finished = _timestamp(receipt.get("finished_at"))
+    if started is None:
+        reasons.append("boundary_host_receipt_started_at_invalid")
+    if finished is None:
+        reasons.append("boundary_host_receipt_finished_at_invalid")
+    elif finished > now or now - finished > MAX_RECEIPT_AGE:
+        reasons.append("boundary_host_receipt_stale")
+    elif started is not None and started > finished:
+        reasons.append("boundary_host_receipt_time_order_invalid")
+    if receipt.get("runner_exit_code") != 0:
+        reasons.append("boundary_host_runner_failed")
+    if receipt.get("child_exit_code") != 0:
+        reasons.append("boundary_maintenance_child_failed")
+    if receipt.get("error_code") not in {None, ""}:
+        reasons.append("boundary_host_receipt_success_has_error")
+
+    boundary = _mapping(receipt.get("boundary"))
+    provision = _mapping(boundary.get("provision")) if boundary is not None else None
+    if provision is None:
+        reasons.append("boundary_provision_receipt_missing")
+        covered = None
+        required = None
+    else:
+        covered = provision.get("ranges_covered")
+        required = provision.get("ranges_required")
+        if covered != HOURLY_HORIZON or required != HOURLY_HORIZON:
+            reasons.append("boundary_provision_coverage_incomplete")
+
+    heartbeat = _last_result(database.get("last_result"))
+    if heartbeat.get("status") != "ok" or heartbeat.get("phase") != "boundary":
+        reasons.append("boundary_database_heartbeat_not_ok")
+    if heartbeat.get("run_id") != run_id:
+        reasons.append("boundary_run_id_mismatch")
+    if heartbeat.get("trigger") != receipt.get("trigger"):
+        reasons.append("boundary_trigger_mismatch")
+    if heartbeat.get("provision_covered") != f"{covered}/{required}":
+        reasons.append("boundary_provision_heartbeat_mismatch")
+    deletion_authorized = str(receipt.get("deletion_authorized") is True).lower()
+    if heartbeat.get("deletion_authorized") != deletion_authorized:
+        reasons.append("boundary_deletion_authorized_mismatch")
+
+    heartbeat_run = _timestamp(database.get("last_run_at"))
+    heartbeat_success = _timestamp(database.get("last_success_at"))
+    if heartbeat_run is None:
+        reasons.append("boundary_database_last_run_invalid")
+    elif started is not None and abs(started - heartbeat_run) > MAX_CORRELATION_SKEW:
+        reasons.append("boundary_receipt_heartbeat_run_time_mismatch")
+    if heartbeat_success is None:
+        reasons.append("boundary_database_last_success_invalid")
+    elif finished is not None and abs(finished - heartbeat_success) > MAX_CORRELATION_SKEW:
+        reasons.append("boundary_receipt_heartbeat_time_mismatch")
+    last_error = _timestamp(database.get("last_error_at"))
+    if last_error is not None and (heartbeat_success is None or last_error > heartbeat_success):
+        reasons.append("boundary_database_has_newer_failure")
+    systemd_finished = _timestamp(systemd.get("finished_at"))
+    if systemd_finished is None:
+        reasons.append("boundary_systemd_finished_at_invalid")
+    elif finished is not None and abs(systemd_finished - finished) > MAX_CORRELATION_SKEW:
+        reasons.append("boundary_systemd_receipt_time_mismatch")
+    return bool(reasons)
 
 
 def _mapping(value: Any) -> dict[str, Any] | None:
@@ -148,6 +329,31 @@ def _evaluate_terminal_compensation(
     return failed
 
 
+def _evaluate_terminal_inventory_control(
+    reasons: list[str],
+    control: dict[str, Any],
+    heartbeat: dict[str, str],
+    archive: dict[str, Any],
+) -> bool:
+    """Return True when a historical terminal control row contradicts other sources."""
+    failed = False
+    window = control.get("window_start")
+    terminal = _terminal_inventory(archive)
+    if window and not any(entry.get("window_start") == window for entry in terminal):
+        reasons.append("compensation_window_not_in_terminal_inventory")
+        failed = True
+    if any(key.startswith("compensation_") for key in heartbeat):
+        reasons.append("compensation_heartbeat_without_receipt")
+        failed = True
+    if control.get("state") != "failed":
+        reasons.append("compensation_state_control_mismatch")
+        failed = True
+    if control.get("verification_error_code") != TERMINAL_CATCHUP_ERROR:
+        reasons.append("compensation_error_code_control_mismatch")
+        failed = True
+    return failed
+
+
 def _evaluate_catchup(
     reasons: list[str],
     *,
@@ -169,10 +375,17 @@ def _evaluate_catchup(
         reasons.append("compensation_receipt_invalid")
         failed = True
     else:
-        if archive.get("compensation") is not None:
-            reasons.append("compensation_control_without_receipt")
-            failed = True
-        if any(key.startswith("compensation_") for key in heartbeat):
+        control = _mapping(archive.get("compensation"))
+        heartbeat_checked = False
+        if control is not None:
+            if catchup_gap_policy == "accepted_terminal" and _is_terminal_compensation(control):
+                if _evaluate_terminal_inventory_control(reasons, control, heartbeat, archive):
+                    failed = True
+                heartbeat_checked = True
+            else:
+                reasons.append("compensation_control_without_receipt")
+                failed = True
+        if not heartbeat_checked and any(key.startswith("compensation_") for key in heartbeat):
             reasons.append("compensation_heartbeat_without_receipt")
             failed = True
 
@@ -181,7 +394,16 @@ def _evaluate_catchup(
         reasons.append("terminal_failure_inventory_missing")
         failed = True
     elif terminal:
-        if catchup_gap_policy == "accepted_terminal":
+        terminal_codes_valid = True
+        for entry in terminal:
+            code = entry.get("verification_error_code") if isinstance(entry, dict) else None
+            if code == TERMINAL_CATCHUP_ERROR:
+                continue
+            terminal_codes_valid = False
+            reasons.append("archive_failed" if code == FAILED_ARCHIVE_ERROR else "archive_verification_failure")
+        if not terminal_codes_valid:
+            failed = True
+        elif catchup_gap_policy == "accepted_terminal":
             reasons.append("catchup_terminal_gaps_present")
         else:
             reasons.append("terminal_failures_after_cutover")
@@ -212,6 +434,7 @@ def evaluate(
     receipt = _mapping(snapshot.get("host_receipt"))
     database = _mapping(snapshot.get("database_heartbeat"))
     archive = _mapping(snapshot.get("archive_control"))
+    qa_records = _mapping(snapshot.get("qa_records"))
     if systemd is None:
         forward_reasons.append("systemd_missing")
     else:
@@ -323,9 +546,20 @@ def evaluate(
         ):
             failed = True
 
+    if _evaluate_boundary(forward_reasons, snapshot, now):
+        failed = True
+
+    if _evaluate_qa_records_lifecycle(forward_reasons, qa_records, archive, now):
+        failed = True
+
     forward_reasons = sorted(set(forward_reasons))
     catchup_reasons = sorted(set(catchup_reasons))
     reasons = sorted(set(forward_reasons + catchup_reasons))
+    accepted_degraded_reasons = {"catchup_terminal_gaps_present"}
+    if forward_reasons:
+        failed = True
+    if catchup_reasons and set(catchup_reasons) != accepted_degraded_reasons:
+        failed = True
     if not reasons:
         status = "healthy"
     elif failed:
@@ -358,7 +592,9 @@ def main() -> int:
         return 2
     verdict = evaluate(snapshot, catchup_gap_policy=args.catchup_gap_policy)
     print(json.dumps(verdict, ensure_ascii=True, sort_keys=True))
-    return 0 if verdict["healthy"] else 2
+    if verdict.get("status") == "failed":
+        return 2
+    return 0 if verdict.get("healthy") else 2
 
 
 if __name__ == "__main__":

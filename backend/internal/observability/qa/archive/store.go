@@ -218,6 +218,12 @@ func (s *s3ObjectStore) HeadInfo(ctx context.Context, key string) (ObjectInfo, e
 		Key:    aws.String(s.fullKey(key)),
 	})
 	if err != nil {
+		if isAccessDenied(err) {
+			return ObjectInfo{}, fmt.Errorf("head archive object %s: access denied", key)
+		}
+		if isObjectStoreNotFound(err) {
+			return ObjectInfo{}, err
+		}
 		return ObjectInfo{}, err
 	}
 	return ObjectInfo{ETag: aws.ToString(out.ETag), Size: aws.ToInt64(out.ContentLength)}, nil
@@ -226,12 +232,30 @@ func (s *s3ObjectStore) HeadInfo(ctx context.Context, key string) (ObjectInfo, e
 func (s *s3ObjectStore) Head(ctx context.Context, key string) (bool, error) {
 	_, err := s.HeadInfo(ctx, key)
 	if err != nil {
-		if stringsContains(err.Error(), "NotFound", "404", "NoSuchKey") {
+		if isAccessDenied(err) {
+			return false, err
+		}
+		if isObjectStoreNotFound(err) {
 			return false, nil
 		}
 		return false, err
 	}
 	return true, nil
+}
+
+func isAccessDenied(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "403") || strings.Contains(msg, "accessdenied")
+}
+
+func isObjectStoreNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	return stringsContains(err.Error(), "NotFound", "404", "NoSuchKey")
 }
 
 func stringsContains(msg string, parts ...string) bool {
