@@ -73,7 +73,7 @@ func Test_tkShouldApplyMessagesDispatchBodyMapping(t *testing.T) {
 	}
 }
 
-func Test_tkApplyResponsesDispatchModelMapping_skippedForTokenseaRelay(t *testing.T) {
+func Test_tkApplyResponsesDispatchModelMapping_skippedForAPIKeyRelays(t *testing.T) {
 	openaiDefaults, ok := service.TkMessagesDispatchPlatformDefaults(service.PlatformOpenAI)
 	if !ok {
 		t.Fatal("openai platform_defaults missing from tk_messages_dispatch_family_registry.json")
@@ -87,24 +87,46 @@ func Test_tkApplyResponsesDispatchModelMapping_skippedForTokenseaRelay(t *testin
 		return service.ReplaceModelInBody(body, newModel)
 	}
 
-	tokensea := &service.Account{
-		Type: service.AccountTypeAPIKey,
-		Extra: map[string]any{
-			openai_compat.ExtraKeyNativeMessagesSupported: true,
-			openai_compat.ExtraKeyResponsesSupported:      false,
+	relayCases := []struct {
+		name    string
+		account *service.Account
+	}{
+		{
+			name: "tokensea native messages relay",
+			account: &service.Account{
+				Type: service.AccountTypeAPIKey,
+				Extra: map[string]any{
+					openai_compat.ExtraKeyNativeMessagesSupported: true,
+					openai_compat.ExtraKeyResponsesSupported:      false,
+				},
+			},
+		},
+		{
+			name: "cloudwise native messages relay",
+			account: &service.Account{
+				Type: service.AccountTypeAPIKey,
+				Extra: map[string]any{
+					openai_compat.ExtraKeyNativeMessagesSupported: true,
+					openai_compat.ExtraKeyResponsesSupported:      false,
+				},
+			},
 		},
 	}
 
-	dispatchBody := body
-	if tkShouldApplyMessagesDispatchBodyMapping(tokensea) {
-		dispatchBody = tkApplyResponsesDispatchModelMapping(apiKey, body, replace)
-	}
-	if got := gjson.GetBytes(dispatchBody, "model").String(); got != "claude-haiku-4-5-20251001" {
-		t.Fatalf("tokensea forward model = %q, want claude-haiku-4-5-20251001", got)
+	for _, tc := range relayCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dispatchBody := body
+			if tkShouldApplyMessagesDispatchBodyMapping(tc.account) {
+				dispatchBody = tkApplyResponsesDispatchModelMapping(apiKey, body, replace)
+			}
+			if got := gjson.GetBytes(dispatchBody, "model").String(); got != "claude-haiku-4-5-20251001" {
+				t.Fatalf("relay forward model = %q, want claude-haiku-4-5-20251001", got)
+			}
+		})
 	}
 
 	oauth := &service.Account{Type: service.AccountTypeOAuth}
-	dispatchBody = body
+	dispatchBody := body
 	if tkShouldApplyMessagesDispatchBodyMapping(oauth) {
 		dispatchBody = tkApplyResponsesDispatchModelMapping(apiKey, body, replace)
 	}
