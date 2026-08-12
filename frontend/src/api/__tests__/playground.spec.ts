@@ -6,6 +6,12 @@ import {
   gatewayGeminiImageViaChat,
   gatewayImageToPrompt,
   resolveBrowserGatewayFetchBaseUrl,
+  extractChatCompletionText,
+  isChatCompletionLengthTruncated,
+  GatewayRequestTimeoutError,
+  PLAYGROUND_DEFAULT_MAX_TOKENS,
+  PLAYGROUND_MAX_TOKENS_CAP,
+  PLAYGROUND_CHAT_TIMEOUT_MS,
 } from '@/api/playground'
 
 // Capture the JSON body each builder sends so we can assert the wire shape:
@@ -256,5 +262,52 @@ describe('gatewayImageToPrompt', () => {
     expect(text).toBe('a red square on white')
     const msgs = body.messages as Array<{ content: Array<{ type: string }> }>
     expect(msgs[0].content.map((p) => p.type)).toEqual(['text', 'image_url'])
+  })
+})
+
+describe('playground chat completion helpers', () => {
+  it('defaults Studio max output tokens to the approved cap', () => {
+    expect(PLAYGROUND_DEFAULT_MAX_TOKENS).toBe(PLAYGROUND_MAX_TOKENS_CAP)
+  })
+
+  it('uses a longer timeout for chat than short gateway probes', () => {
+    expect(PLAYGROUND_CHAT_TIMEOUT_MS).toBeGreaterThan(60_000)
+  })
+
+  it('extractChatCompletionText joins string and part-array content', () => {
+    expect(extractChatCompletionText({ choices: [{ message: { content: ' hello ' } }] })).toBe('hello')
+    expect(
+      extractChatCompletionText({
+        choices: [{ message: { content: [{ text: 'part-a' }, { text: 'part-b' }] } }],
+      })
+    ).toBe('part-apart-b')
+  })
+
+  it('extractChatCompletionText falls back to refusal when content is empty', () => {
+    expect(
+      extractChatCompletionText({
+        choices: [{ message: { content: '', refusal: 'Policy decline.' } }],
+      })
+    ).toBe('Policy decline.')
+  })
+
+  it('GatewayRequestTimeoutError carries timeoutMs', () => {
+    const err = new GatewayRequestTimeoutError(180_000)
+    expect(err.name).toBe('GatewayRequestTimeoutError')
+    expect(err.timeoutMs).toBe(180_000)
+  })
+
+  it('isChatCompletionLengthTruncated detects finish_reason and stop_reason', () => {
+    expect(isChatCompletionLengthTruncated({ choices: [{ finish_reason: 'stop', message: { content: 'ok' } }] })).toBe(
+      false
+    )
+    expect(isChatCompletionLengthTruncated({ choices: [{ finish_reason: 'length', message: { content: 'cut' } }] })).toBe(
+      true
+    )
+    expect(
+      isChatCompletionLengthTruncated({
+        choices: [{ finish_reason: 'stop', message: { content: 'cut', stop_reason: 'max_tokens' } }],
+      })
+    ).toBe(true)
   })
 })

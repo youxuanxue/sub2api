@@ -27,13 +27,19 @@ export interface ChatCompletionRequest {
   max_tokens?: number
 }
 
-/** Default max output tokens per request (cost guardrail). */
-export const PLAYGROUND_DEFAULT_MAX_TOKENS = 1024
+/** Default max output tokens per request (Studio chat expects full answers). */
+export const PLAYGROUND_DEFAULT_MAX_TOKENS = 4096
 /** Hard cap aligned with approved prototype footnote. */
 export const PLAYGROUND_MAX_TOKENS_CAP = 4096
 /** Max user+assistant turns kept in browser memory. */
 export const PLAYGROUND_MAX_TURNS = 50
+/** Short JSON calls (video submit, model list probes, image-to-prompt). */
 export const PLAYGROUND_FETCH_TIMEOUT_MS = 60_000
+/**
+ * Studio chat completion timeout. Long answers (4096 output tokens + upstream
+ * queue) can exceed 60s; aborting early looked like a silent truncation bug.
+ */
+export const PLAYGROUND_CHAT_TIMEOUT_MS = 180_000
 /**
  * Video-task FETCH timeout. Must be far larger than the chat/submit timeout: a
  * Veo terminal SUCCESS response carries the generated clip as INLINE base64
@@ -50,6 +56,17 @@ export interface GatewayRequestTrace {
   studioSource?: string
   studioRunId?: string
   studioPanelId?: string
+}
+
+/** Thrown when gatewayRequestJSON hits its per-request timeout (not user cancel). */
+export class GatewayRequestTimeoutError extends Error {
+  readonly timeoutMs: number
+
+  constructor(timeoutMs: number) {
+    super(`Gateway request timed out after ${timeoutMs}ms`)
+    this.name = 'GatewayRequestTimeoutError'
+    this.timeoutMs = timeoutMs
+  }
 }
 
 export function gatewayTraceRunId(prefix: string): string {
@@ -143,7 +160,11 @@ async function gatewayRequestJSON(
   signal?: AbortSignal
 ): Promise<unknown> {
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), init.timeoutMs)
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    ctrl.abort()
+  }, init.timeoutMs)
   const onAbort = (): void => {
     ctrl.abort()
   }
@@ -183,6 +204,11 @@ async function gatewayRequestJSON(
       throw new Error(msg || `HTTP ${res.status}`)
     }
     return json
+  } catch (err) {
+    if (timedOut) {
+      throw new GatewayRequestTimeoutError(init.timeoutMs)
+    }
+    throw err
   } finally {
     clearTimeout(timer)
     if (signal) {
@@ -226,7 +252,7 @@ export async function gatewayChatCompletion(
         max_tokens: body.max_tokens,
         stream: false
       },
-      timeoutMs: PLAYGROUND_FETCH_TIMEOUT_MS
+      timeoutMs: PLAYGROUND_CHAT_TIMEOUT_MS
     },
     signal
   )
@@ -395,24 +421,46 @@ export async function gatewayImageToPrompt(
     },
     signal
   )
-  return extractChatText(raw)
+  return extractChatCompletionText(raw)
 }
 
 /** Pull the assistant message text out of a chat completion (string or parts). */
-function extractChatText(resp: unknown): string {
+export function extractChatCompletionText(resp: unknown): string {
   const root = resp && typeof resp === 'object' ? (resp as Record<string, unknown>) : null
   const choices = root?.choices
   if (!Array.isArray(choices) || !choices.length) return ''
   const message = (choices[0] as Record<string, unknown>)?.message as Record<string, unknown> | undefined
-  const content = message?.content
-  if (typeof content === 'string') return content.trim()
-  if (Array.isArray(content)) {
-    return content
-      .map((p) => (p && typeof p === 'object' && typeof (p as { text?: unknown }).text === 'string' ? (p as { text: string }).text : ''))
+  if (!message) return ''
+  const content = message.content
+  if (typeof content === 'string') {
+    const text = content.trim()
+    if (text) return text
+  } else if (Array.isArray(content)) {
+    const text = content
+      .map((p) =>
+        p && typeof p === 'object' && typeof (p as { text?: unknown }).text === 'string' ? (p as { text: string }).text : ''
+      )
       .join('')
       .trim()
+    if (text) return text
+  }
+  if (typeof message.refusal === 'string' && message.refusal.trim()) {
+    return message.refusal.trim()
   }
   return ''
+}
+
+/** True when the upstream stopped because the output token budget was exhausted. */
+export function isChatCompletionLengthTruncated(resp: unknown): boolean {
+  const root = resp && typeof resp === 'object' ? (resp as Record<string, unknown>) : null
+  const choices = root?.choices
+  if (!Array.isArray(choices) || !choices.length) return false
+  const choice = choices[0] as Record<string, unknown>
+  const finishReason = choice.finish_reason
+  if (finishReason === 'length' || finishReason === 'max_tokens') return true
+  const message = choice.message as Record<string, unknown> | undefined
+  const stopReason = message?.stop_reason
+  return stopReason === 'max_tokens' || stopReason === 'length'
 }
 
 export interface VideoGenerationRequest {
