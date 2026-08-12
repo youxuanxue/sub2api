@@ -120,6 +120,7 @@
           <div class="flex flex-wrap items-center gap-3">
             <button
               type="button"
+              data-testid="studio-chat-send"
               class="inline-flex items-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
               :disabled="sending || !apiKey || !draft.trim() || !selectedModelId"
               @click="submit"
@@ -156,7 +157,7 @@
           />
         </div>
         <p class="text-xs text-gray-500 dark:text-dark-400">
-          {{ t('studio.chat.limitsHint', { turns: PLAYGROUND_MAX_TURNS, maxTok: PLAYGROUND_MAX_TOKENS_CAP }) }}
+          {{ t('studio.chat.limitsHint', { turns: PLAYGROUND_MAX_TURNS, maxTok: PLAYGROUND_MAX_TOKENS_CAP, timeoutSec: chatTimeoutSec }) }}
         </p>
         <div class="rounded-lg border border-gray-200 bg-white p-3 dark:border-dark-600 dark:bg-dark-900">
           <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('studio.chat.integrationsTitle') }}</h3>
@@ -218,6 +219,13 @@
           </dl>
         </div>
         <div
+          v-if="lastTruncated"
+          class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100"
+          data-testid="studio-chat-truncated"
+        >
+          {{ t('studio.chat.truncatedHint', { maxTok: PLAYGROUND_MAX_TOKENS_CAP }) }}
+        </div>
+        <div
           v-if="requestError"
           class="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-100"
           data-testid="studio-chat-error"
@@ -241,6 +249,10 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import {
   gatewayChatCompletion,
+  extractChatCompletionText,
+  GatewayRequestTimeoutError,
+  isChatCompletionLengthTruncated,
+  PLAYGROUND_CHAT_TIMEOUT_MS,
   PLAYGROUND_DEFAULT_MAX_TOKENS,
   PLAYGROUND_MAX_TOKENS_CAP,
   PLAYGROUND_MAX_TURNS,
@@ -274,6 +286,7 @@ const selectedModelId = ref('')
 
 const temperature = ref(1)
 const maxTokens = ref(PLAYGROUND_DEFAULT_MAX_TOKENS)
+const chatTimeoutSec = Math.round(PLAYGROUND_CHAT_TIMEOUT_MS / 1000)
 const systemPromptLocal = ref('')
 const draft = ref('')
 const chatMessages = ref<ChatMessage[]>([])
@@ -281,6 +294,7 @@ const sending = ref(false)
 const requestError = ref('')
 const abortCtrl = ref<AbortController | null>(null)
 const lastUsage = ref<{ prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null>(null)
+const lastTruncated = ref(false)
 
 const displayMessages = computed(() => chatMessages.value.filter((m) => m.role !== 'system'))
 
@@ -329,7 +343,15 @@ function openIntegration(client: TkClientIntegration): void {
 function clearConversation(): void {
   chatMessages.value = []
   lastUsage.value = null
+  lastTruncated.value = false
   requestError.value = ''
+}
+
+function rollbackFailedUserTurn(text: string): void {
+  if (chatMessages.value.at(-1)?.role === 'user') {
+    chatMessages.value = chatMessages.value.slice(0, -1)
+  }
+  draft.value = text
 }
 
 async function submit(): Promise<void> {
@@ -337,6 +359,7 @@ async function submit(): Promise<void> {
   if (!text || !props.apiKey || !selectedModelId.value || sending.value) return
 
   requestError.value = ''
+  lastTruncated.value = false
   const sys = systemPromptLocal.value.trim()
   const userMsg: ChatMessage = { role: 'user', content: text }
   chatMessages.value = trimConversation([...chatMessages.value, userMsg])
@@ -363,9 +386,8 @@ async function submit(): Promise<void> {
       abortCtrl.value.signal
     )) as Record<string, unknown>
 
-    const choice = raw?.choices && Array.isArray(raw.choices) ? (raw.choices[0] as Record<string, unknown>) : null
-    const msg = choice?.message as Record<string, unknown> | undefined
-    const content = typeof msg?.content === 'string' ? msg.content : ''
+    const content = extractChatCompletionText(raw)
+    lastTruncated.value = isChatCompletionLengthTruncated(raw)
     chatMessages.value = trimConversation([
       ...chatMessages.value,
       { role: 'assistant', content: content || '(empty)' }
@@ -380,8 +402,18 @@ async function submit(): Promise<void> {
       }
     }
   } catch (e) {
-    const err = e as Error
-    requestError.value = err.name === 'AbortError' ? t('studio.chat.cancelled') : err.message || t('studio.chat.requestFailed')
+    if (e instanceof GatewayRequestTimeoutError) {
+      requestError.value = t('studio.chat.timedOut', { timeoutSec: chatTimeoutSec })
+      rollbackFailedUserTurn(text)
+    } else {
+      const err = e as Error
+      if (err.name === 'AbortError') {
+        requestError.value = t('studio.chat.cancelled')
+      } else {
+        requestError.value = err.message || t('studio.chat.requestFailed')
+        rollbackFailedUserTurn(text)
+      }
+    }
   } finally {
     sending.value = false
     abortCtrl.value = null
