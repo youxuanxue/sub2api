@@ -136,9 +136,12 @@ func TestOpenAIHandleErrorResponse_ClientInduced4xxPassesThrough(t *testing.T) {
 	cases := []struct {
 		name     string
 		status   int
+		body     string
 		wantType string
 	}{
-		{"400 invalid_request", http.StatusBadRequest, "invalid_request_error"},
+		{"400 invalid_request", http.StatusBadRequest, "", "invalid_request_error"},
+		{"404 model_not_found", http.StatusNotFound, `{"error":{"code":"model_not_found","message":"The model 'gpt-missing' does not exist","type":"invalid_request_error"}}`, "invalid_request_error"},
+		{"422 invalid_schema", http.StatusUnprocessableEntity, `{"error":{"message":"Invalid schema for field messages","type":"invalid_request_error"}}`, "invalid_request_error"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -146,7 +149,11 @@ func TestOpenAIHandleErrorResponse_ClientInduced4xxPassesThrough(t *testing.T) {
 			c, _ := gin.CreateTestContext(rec)
 
 			svc := &OpenAIGatewayService{}
-			respBody := []byte(`{"error":{"message":"` + upstreamMsg + `","type":"invalid_request_error"}}`)
+			upstreamMsg := "The 'gpt-4o' model is not supported when using Codex with a ChatGPT account."
+			respBody := []byte(tc.body)
+			if len(respBody) == 0 {
+				respBody = []byte(`{"error":{"message":"` + upstreamMsg + `","type":"invalid_request_error"}}`)
+			}
 			resp := &http.Response{
 				StatusCode: tc.status,
 				Body:       io.NopCloser(bytes.NewReader(respBody)),
@@ -163,7 +170,9 @@ func TestOpenAIHandleErrorResponse_ClientInduced4xxPassesThrough(t *testing.T) {
 			errField, ok := payload["error"].(map[string]any)
 			require.True(t, ok)
 			assert.Equal(t, tc.wantType, errField["type"])
-			assert.Equal(t, upstreamMsg, errField["message"], "actionable upstream message must survive")
+			if tc.status == http.StatusBadRequest {
+				assert.Equal(t, upstreamMsg, errField["message"], "actionable upstream message must survive")
+			}
 		})
 	}
 }

@@ -541,6 +541,16 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		return nil, fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
 	}
 
+	// TK: after failover, pass caller-fault 422 and model-not-found 404 through on
+	// the native /v1/responses path. Ops misconfig 404 (Unknown URL) stays 502 below.
+	if tkShouldPassthroughOpenAINativeClientError(resp.StatusCode, upstreamMsg, body) {
+		tkWriteOpenAINativeClientError(c, resp.StatusCode, body, upstreamMsg)
+		if upstreamMsg == "" {
+			return nil, fmt.Errorf("upstream error: %d", resp.StatusCode)
+		}
+		return nil, fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
+	}
+
 	// Return appropriate error response
 	var errType, errMsg string
 	var statusCode int

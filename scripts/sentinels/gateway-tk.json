@@ -3412,9 +3412,30 @@
       "path": "backend/internal/service/openai_gateway_upstream_errors.go",
       "must_contain": [
         "isOpenAIDeterministicClientError(resp.StatusCode)",
-        "writeOpenAIUpstreamClientError(c, resp.StatusCode, body, upstreamMsg)"
+        "writeOpenAIUpstreamClientError(c, resp.StatusCode, body, upstreamMsg)",
+        "tkShouldPassthroughOpenAINativeClientError(resp.StatusCode, upstreamMsg, body)",
+        "tkWriteOpenAINativeClientError(c, resp.StatusCode, body, upstreamMsg)"
       ],
-      "rationale": "Bug B / upstream #5479: native /v1/responses handleErrorResponse must pass deterministic upstream 400 through with real status plus upstream code/param/message via writeOpenAIUpstreamClientError, instead of rewrapping as retryable 502 upstream_error. 401/402/403/404/422 stay on the masked 502 path on purpose. This sentinel anchors the deterministic-400 branch after upstream merges."
+      "rationale": "Bug B / upstream #5479: native /v1/responses handleErrorResponse must pass deterministic upstream 400 through with real status plus upstream code/param/message via writeOpenAIUpstreamClientError. TK companion restores end-user passthrough for 422 and model-not-found 404 after failover decision, while ops misconfig 404 (Unknown URL) stays masked 502. This sentinel anchors both branches after upstream merges."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_upstream_errors_tk.go",
+      "must_contain": [
+        "func tkShouldPassthroughOpenAINativeClientError(statusCode int, upstreamMsg string, body []byte) bool",
+        "func tkWriteOpenAINativeClientError(c *gin.Context, statusCode int, body []byte, upstreamMsg string)",
+        "isUpstreamModelNotFoundError(statusCode, body)",
+        "IsOpenAICompatModelNotFound404(body, upstreamMsg)"
+      ],
+      "rationale": "TK native OpenAI error passthrough companion: 422 always caller-owned; 404 only when model-not-found classifiers match. Prevents upstream merge from reverting TokenKey terminal-user DX on /v1/responses while preserving upstream 502 masking for base_url/ops 404."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_upstream_errors_tk_test.go",
+      "must_contain": [
+        "TestHandleErrorResponse_TkPassthrough422AfterNoFailover",
+        "TestHandleErrorResponse_TkPassthroughModelNotFound404AfterNoFailover",
+        "TestHandleErrorResponse_TkOps404UnknownURLStays502"
+      ],
+      "rationale": "Regression tests for TK native OpenAI 422/model-not-found 404 passthrough vs ops 404 staying 502."
     },
     {
       "path": "backend/internal/service/gateway_scheduling.go",
