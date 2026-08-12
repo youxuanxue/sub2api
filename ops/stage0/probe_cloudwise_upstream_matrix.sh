@@ -29,7 +29,7 @@ SELECT json_build_object(
   'channel_type', a.channel_type,
   'api_key', COALESCE(a.credentials->>'api_key', ''),
   'base_url', COALESCE(a.credentials->>'base_url', ''),
-  'model_mapping', COALESCE(a.extra->'model_mapping', '{{}}'::jsonb)
+  'model_mapping', COALESCE(a.credentials->'model_mapping', '{{}}'::jsonb)
 )::text
 FROM accounts a
 WHERE a.id={account_id} AND a.deleted_at IS NULL;

@@ -380,12 +380,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	if channelMapping.Mapped && h.rejectDeprecatedOpenAICompatMappedModel(c, apiKey, channelMapping.MappedModel, false) {
 		return
 	}
-	// TK: /v1/responses 入口补套 group messages-dispatch 模型映射（claude 家族名 →
-	// 配置的 gpt 模型），与 /v1/messages、/v1/chat/completions 同源。否则裸 claude 名
-	// 透传 Codex/ChatGPT 后端会被上游拒为 400 "model not supported"。
-	// 见 openai_gateway_handler_tk_responses_dispatch.go。
-	forwardBody = tkApplyResponsesDispatchModelMapping(apiKey, forwardBody, h.gatewayService.ReplaceModelInBody)
-	if h.rejectDeprecatedOpenAICompatMappedModel(c, apiKey, gjson.GetBytes(forwardBody, "model").String(), false) {
+	dispatchMappedModel := resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel)
+	if h.rejectDeprecatedOpenAICompatMappedModel(c, apiKey, dispatchMappedModel, false) {
 		return
 	}
 
@@ -454,11 +450,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	var passthroughFailoverState openAIPassthroughFailoverState
 
-	// TK: route account selection on the same dispatch-mapped model that the forward
-	// body carries (claude 家族名 → 配置 gpt 模型），与 /v1/messages 对齐，避免
-	// scheduler 的渠道计价/模型限制与粘性按一个永不真打到上游的 claude 名判定。
-	// 见 openai_gateway_handler_tk_responses_dispatch.go。
-	selectionModel := tkResolveResponsesSelectionModel(apiKey, reqModel)
+	// TK: account selection routes on the client-requested model (canonicalized),
+	// matching /v1/chat/completions. Group dispatch mapping applies per-account at
+	// forward time for OAuth/Codex paths; tokensea relays keep Claude wire IDs.
+	selectionModel := service.CanonicalizeOpenAICompatRoutingModel(reqModel)
 	// 生图意图的 /v1/responses 请求必须调度到确实支持 Responses API 的账号，否则
 	// 会在 forward 阶段被静默降级为无法生图的 Chat Completions 直转（#4417）。
 	// 仅对 OpenAI 平台生效：Grok 生图走独立的 forwardGrokResponses 路径，不应被过滤。
@@ -572,6 +567,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// Channel model mapping is already applied to forwardBody before the loop.
 		writerSizeBeforeForward := service.OpenAICompactKeepaliveAdjustedWrittenSize(c)
 		dispatchBody := forwardBody
+		if tkShouldApplyMessagesDispatchBodyMapping(account) {
+			dispatchBody = tkApplyResponsesDispatchModelMapping(apiKey, forwardBody, h.gatewayService.ReplaceModelInBody)
+		}
 		if len(failedAccountIDs) > 0 {
 			dispatchBody = service.TkStripEncryptedReasoningForFailover(dispatchBody)
 		}
@@ -1091,10 +1089,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		if failoverClientGone(c) {
 			return
 		}
+		// Route selection on the client-requested model (same as /v1/chat/completions).
+		// effectiveMappedModel is still passed to ForwardAsAnthropic as the OAuth/CC
+		// dispatch fallback when account-level mapping does not match.
 		currentRoutingModel := routingModel
-		if effectiveMappedModel != "" {
-			currentRoutingModel = effectiveMappedModel
-		}
 		reqLog.Debug("openai_messages.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
 			c.Request.Context(),
