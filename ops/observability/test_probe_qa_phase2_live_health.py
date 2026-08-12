@@ -128,9 +128,27 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
         self.assertIn("generate_series(0, 71)", sql_log)
         self.assertIn("'qa_records_' || to_char", sql_log)
         self.assertIn("'YYYYMMDD_HH24'", sql_log)
-        self.assertIn("JOIN qa_lifecycle_receipts a ON a.t0_utc = f.t0_utc", sql_log)
+        self.assertIn("cs.activate_t0_utc = cs.finalize_t0_utc", sql_log)
         self.assertIn("finalize_receipt_present", sql_log)
+        self.assertIn("activate_t0_utc", sql_log)
+        self.assertIn("activate_plan_hash", sql_log)
+        self.assertIn("activate_applied_at", sql_log)
+        self.assertIn("finalize_t0_utc", sql_log)
+        self.assertIn("default_rows_after_t0", sql_log)
+        self.assertIn("last_error_at, last_error, last_result", sql_log)
         self.assertIn("PHASE2BOUNDARYHEARTBEAT", output)
+        lifecycle_sql = sql_log[
+            sql_log.index("), lifecycle AS (") : sql_log.index("), boundary_heartbeat AS (")
+        ]
+        self.assertIn("c.relname = 'qa_records_' || to_char", lifecycle_sql)
+        self.assertIn("+ interval '1 hour'", lifecycle_sql)
+
+    def test_probe_uses_non_reserved_generate_series_alias(self) -> None:
+        _, sql_log = self.run_probe()
+
+        self.assertIn("AS g(hour_offset)", sql_log)
+        self.assertIn("g.hour_offset", sql_log)
+        self.assertNotIn("AS g(offset)", sql_log)
 
     def test_probe_without_docker_exec_i_skips_psql(self) -> None:
         with tempfile.TemporaryDirectory() as td:

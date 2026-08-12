@@ -291,6 +291,30 @@ raise SystemExit(9)
                 docker_log.read_text(encoding="utf-8"),
             )
 
+    def test_cutover_provision_only_bypasses_finalize_gates_and_preserves_scheduled_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            env, receipt, docker_log = self._sandbox(root)
+            env["QA_MAINTENANCE_RECEIPT"] = str(root / "missing-archive-receipt.json")
+            env["TEST_ORPHAN_RC"] = "17"
+            proc = subprocess.run(
+                [
+                    "bash",
+                    str(RUNNER),
+                    "--qa-cutover-provision-only",
+                    "--confirm=tokenkey-prod-qa-cutover-provision-v1",
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, (proc.stdout, proc.stderr))
+            call = docker_log.read_text(encoding="utf-8")
+            self.assertIn("sha256:image-v2 /app/sub2api --qa-cutover-provision-only", call)
+            self.assertIn("--confirm=tokenkey-prod-qa-cutover-provision-v1", call)
+            self.assertFalse(receipt.exists())
+
     def test_finalize_operator_rejects_pending_export_orphans(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             env, receipt, docker_log = self._sandbox(Path(temp_dir))

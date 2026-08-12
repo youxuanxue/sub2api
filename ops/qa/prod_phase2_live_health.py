@@ -95,7 +95,7 @@ def evaluate_snapshot(
     qa_records = snapshot.get("qa_records")
     if isinstance(qa_records, dict):
         owner = _partition_owner(qa_records)
-        if owner in {"default_only", "mixed"}:
+        if owner in {"default_only", "mixed"} and health.get("lifecycle_phase") == "finalized":
             reason = f"qa_records_partition_owner_{owner}"
             warnings.append(reason)
             forward = health.setdefault("forward_reasons", [])

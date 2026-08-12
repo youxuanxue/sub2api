@@ -161,7 +161,7 @@ else:
 print(
     f"""
 WITH heartbeat AS (
-  SELECT last_run_at, last_success_at, last_error_at, last_result
+  SELECT last_run_at, last_success_at, last_error_at, last_error, last_result
   FROM ops_job_heartbeats
   WHERE job_name = 'qa-maintenance'
   LIMIT 1
@@ -225,6 +225,14 @@ WITH heartbeat AS (
   JOIN pg_class c ON c.oid = i.inhrelid
   WHERE i.inhparent = 'qa_records'::regclass
     AND pg_get_expr(c.relpartbound, c.oid, true) = 'DEFAULT'
+), cutover_state AS (
+  SELECT
+    (SELECT t0_utc FROM qa_lifecycle_receipts WHERE phase = 'activate') AS activate_t0_utc,
+    (SELECT plan_hash FROM qa_lifecycle_receipts WHERE phase = 'activate') AS activate_plan_hash,
+    (SELECT applied_at FROM qa_lifecycle_receipts WHERE phase = 'activate') AS activate_applied_at,
+    (SELECT t0_utc FROM qa_lifecycle_receipts WHERE phase = 'finalize') AS finalize_t0_utc,
+    (SELECT plan_hash FROM qa_lifecycle_receipts WHERE phase = 'finalize') AS finalize_plan_hash,
+    (SELECT applied_at FROM qa_lifecycle_receipts WHERE phase = 'finalize') AS finalize_applied_at
 ), qa_counts AS (
   SELECT
     count(*) FILTER (
@@ -232,9 +240,15 @@ WITH heartbeat AS (
     ) AS default_rows,
     count(*) FILTER (
       WHERE NOT EXISTS (SELECT 1 FROM default_child d WHERE r.tableoid = d.oid)
-    ) AS non_default_rows
+    ) AS non_default_rows,
+    count(*) FILTER (
+      WHERE EXISTS (SELECT 1 FROM default_child d WHERE r.tableoid = d.oid)
+        AND cs.activate_t0_utc IS NOT NULL
+        AND r.created_at >= cs.activate_t0_utc
+    ) AS default_rows_after_t0
   FROM qa_records r
   CROSS JOIN cutover c
+  CROSS JOIN cutover_state cs
   WHERE r.created_at >= c.window_start
 ), lifecycle AS (
   SELECT
@@ -262,20 +276,37 @@ WITH heartbeat AS (
         AND pg_get_expr(c.relpartbound, c.oid, true) <> 'DEFAULT'
         AND substring(pg_get_expr(c.relpartbound, c.oid, true) FROM $$FROM \\('([^']+)'$$)::timestamptz
           = date_trunc('hour', clock_timestamp())
+        AND substring(pg_get_expr(c.relpartbound, c.oid, true) FROM $$TO \\('([^']+)'$$)::timestamptz
+          = date_trunc('hour', clock_timestamp()) + interval '1 hour'
+        AND c.relname = 'qa_records_' || to_char(
+          date_trunc('hour', clock_timestamp()) AT TIME ZONE 'UTC',
+          'YYYYMMDD_HH24'
+        )
     ) AS current_hour_partition_missing
 ), boundary_heartbeat AS (
-  SELECT last_run_at, last_success_at, last_error_at, last_result
+  SELECT last_run_at, last_success_at, last_error_at, last_error, last_result
   FROM ops_job_heartbeats
   WHERE job_name = 'qa-boundary'
   LIMIT 1
 ), db_clock AS (
   SELECT date_trunc('hour', clock_timestamp()) AS current_hour
+), coverage_clock AS (
+  SELECT
+    CASE
+      WHEN cs.activate_t0_utc IS NOT NULL
+       AND cs.finalize_t0_utc IS NULL
+       AND d.current_hour < cs.activate_t0_utc
+      THEN cs.activate_t0_utc
+      ELSE d.current_hour
+    END AS coverage_start
+  FROM db_clock d
+  CROSS JOIN cutover_state cs
 ), required_hours AS (
   SELECT
-    d.current_hour + (g.offset * interval '1 hour') AS lower_bound,
-    d.current_hour + ((g.offset + 1) * interval '1 hour') AS upper_bound
-  FROM db_clock d
-  CROSS JOIN generate_series(0, 71) AS g(offset)
+    d.coverage_start + (g.hour_offset * interval '1 hour') AS lower_bound,
+    d.coverage_start + ((g.hour_offset + 1) * interval '1 hour') AS upper_bound
+  FROM coverage_clock d
+  CROSS JOIN generate_series(0, 71) AS g(hour_offset)
 ), parsed_children AS (
   SELECT
     c.relname,
@@ -304,16 +335,6 @@ WITH heartbeat AS (
      OR c.upper_bound - c.lower_bound <> interval '1 hour'
      OR c.lower_bound <> date_trunc('hour', c.lower_bound)
      OR c.relname <> 'qa_records_' || to_char(c.lower_bound AT TIME ZONE 'UTC', 'YYYYMMDD_HH24')
-), cutover_state AS (
-  SELECT
-    EXISTS (SELECT 1 FROM qa_lifecycle_receipts WHERE phase = 'activate') AS active,
-    EXISTS (SELECT 1 FROM qa_lifecycle_receipts WHERE phase = 'finalize') AS finalize_receipt_present,
-    EXISTS (
-      SELECT 1
-      FROM qa_lifecycle_receipts f
-      JOIN qa_lifecycle_receipts a ON a.t0_utc = f.t0_utc
-      WHERE f.phase = 'finalize' AND a.phase = 'activate'
-    ) AS finalized
 )
 SELECT 'PHASE2HEARTBEAT ' || COALESCE((SELECT row_to_json(h)::text FROM heartbeat h), 'null')
 UNION ALL
@@ -341,12 +362,19 @@ FROM (
   SELECT
     q.default_rows,
     q.non_default_rows,
-    cs.active AS hourly_cutover_active,
-    cs.finalize_receipt_present AS hourly_cutover_finalize_receipt_present,
-    cs.finalized AS hourly_cutover_finalized,
+    q.default_rows_after_t0,
+    (cs.activate_t0_utc IS NOT NULL) AS hourly_cutover_active,
+    (cs.finalize_t0_utc IS NOT NULL) AS hourly_cutover_finalize_receipt_present,
+    (cs.activate_t0_utc IS NOT NULL AND cs.activate_t0_utc = cs.finalize_t0_utc) AS hourly_cutover_finalized,
+    to_char(cs.activate_t0_utc AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS activate_t0_utc,
+    cs.activate_plan_hash,
+    to_char(cs.activate_applied_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS activate_applied_at,
+    to_char(cs.finalize_t0_utc AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS finalize_t0_utc,
+    cs.finalize_plan_hash,
+    to_char(cs.finalize_applied_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS finalize_applied_at,
     l.default_present,
-    to_char(d.current_hour AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS future_coverage_start_utc,
-    to_char((d.current_hour + interval '72 hours') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS future_coverage_end_utc,
+    to_char(cv.coverage_start AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS future_coverage_start_utc,
+    to_char((cv.coverage_start + interval '72 hours') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS future_coverage_end_utc,
     72 AS future_coverage_required_hours,
     cc.covered AS future_coverage_canonical_hours,
     GREATEST(0, 72 - cc.covered) AS future_coverage_gap_hours,
@@ -359,6 +387,7 @@ FROM (
   FROM qa_counts q
   CROSS JOIN lifecycle l
   CROSS JOIN db_clock d
+  CROSS JOIN coverage_clock cv
   CROSS JOIN canonical_coverage cc
   CROSS JOIN invalid_children ic
   CROSS JOIN cutover_state cs

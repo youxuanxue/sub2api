@@ -10,6 +10,7 @@ import (
 
 const (
 	IntegrityCommitMismatch                  = "commit_mismatch"
+	IntegrityCommitExistenceUnknown          = "commit_existence_unknown"
 	IntegrityRestoreFailed                   = "restore_failed"
 	IntegritySourceUnavailableAfterRetention = "source_unavailable_after_retention"
 
@@ -74,6 +75,11 @@ func SelectOldestCatchup(
 		}
 		if status.State == StateFailed && IsTerminalArchiveFailure(status.VerificationErrorCode) {
 			continue
+		}
+		if status.State == StateFailed && status.VerificationErrorCode == IntegrityCommitExistenceUnknown {
+			return CatchupSelection{
+				Window: window, ShardID: status.ShardID, Disposition: CatchupDispositionReconcile,
+			}, true, nil
 		}
 		switch status.State {
 		case "", StatePending, StateWriting, StateVerified, StateFailed:
