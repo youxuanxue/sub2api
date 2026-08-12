@@ -106,6 +106,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"
 
+      - name: Checkout target-tag QA host artifacts
+        uses: actions/checkout@v6
+        with:
+          ref: v${{ inputs.tag }}
+          path: qa-host-runtime
+          fetch-depth: 1
+
+      - name: Verify target-tag QA host artifacts
+        id: qa_host_artifacts
+        run: |
+          set -euo pipefail
+          test "$(git -C qa-host-runtime describe --tags --exact-match)" = "v${INPUT_TAG}"
+          test -f qa-host-runtime/deploy/aws/stage0/tokenkey-qa-maintenance.sh
+          test -f qa-host-runtime/deploy/aws/stage0/tokenkey-qa-boundary.sh
+          SHA="$(git -C qa-host-runtime rev-parse HEAD)"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "QA host artifacts resolved from v${INPUT_TAG}@${SHA}"
+
       - name: Blue/green migration safety gate
         # The target app can apply migrations while the old app is still serving
         # existing requests on the same prod DB. Advisory locks serialize
@@ -193,6 +211,24 @@ jobs:
         env:
           API_URL: ${{ steps.instance.outputs.api_url }}
         run: bash ops/stage0/external_health.sh "$API_URL"
+
+      - name: Sync QA maintenance host runner
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          QA_MAINTENANCE_TIMER_STATE: enabled
+          QA_HOST_ARTIFACT_ROOT: qa-host-runtime
+          QA_HOST_ARTIFACT_SHA: ${{ steps.qa_host_artifacts.outputs.sha }}
+          STAGE0_SSM_OUTPUT_DIR: .qa-maintenance-sync
+        run: bash ops/stage0/sync-qa-maintenance-timer-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-maintenance host artifact"
+
+      - name: Sync QA boundary host runner and restore durable owner
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          QA_BOUNDARY_TIMER_STATE: auto
+          QA_HOST_ARTIFACT_ROOT: qa-host-runtime
+          QA_HOST_ARTIFACT_SHA: ${{ steps.qa_host_artifacts.outputs.sha }}
+          STAGE0_SSM_OUTPUT_DIR: .qa-boundary-sync
+        run: bash ops/stage0/sync-qa-boundary-timer-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-boundary host artifact"
 
       - name: Audit pricing registry runtime (read-only)
         # Price publication is owned only by pricing-registry-publish.yml after a

@@ -12,6 +12,7 @@ set -euo pipefail
 INSTANCE_ID="${1:-${INSTANCE_ID:-}}"
 COMMENT="${2:-${SSM_COMMENT:-ops-qa-maintenance-timer-sync}}"
 TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-300}"
+DRAIN_TIMEOUT_SECONDS="${QA_SYNC_DRAIN_TIMEOUT_SECONDS:-300}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
 TIMER_STATE="${QA_MAINTENANCE_TIMER_STATE:-disabled}"
 
@@ -19,6 +20,10 @@ if [ -z "${INSTANCE_ID}" ]; then
   echo "sync_qa_maintenance_timer_via_ssm: instance id is required" >&2
   exit 1
 fi
+[[ "${DRAIN_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]] || {
+  echo "QA_SYNC_DRAIN_TIMEOUT_SECONDS must be a positive integer" >&2
+  exit 1
+}
 case "${TIMER_STATE}" in
   disabled)
     timer_command="sudo systemctl disable --now tokenkey-qa-maintenance.timer"
@@ -43,14 +48,19 @@ stdout_file="${OUTPUT_DIR}/stdout.txt"
 stderr_file="${OUTPUT_DIR}/stderr.txt"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MAINT_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/tokenkey-qa-maintenance.sh"
-RESOLVER_SRC="${SCRIPT_DIR}/../lib/resolve-app-container.sh"
+if [ -n "${QA_HOST_ARTIFACT_ROOT:-}" ]; then
+  ARTIFACT_ROOT="$(cd "${QA_HOST_ARTIFACT_ROOT}" && pwd)"
+else
+  ARTIFACT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+fi
+MAINT_SRC="${ARTIFACT_ROOT}/deploy/aws/stage0/tokenkey-qa-maintenance.sh"
+RESOLVER_SRC="${ARTIFACT_ROOT}/ops/lib/resolve-app-container.sh"
 [[ -f "${MAINT_SRC}" ]] || { echo "missing ${MAINT_SRC}" >&2; exit 1; }
 [[ -f "${RESOLVER_SRC}" ]] || { echo "missing ${RESOLVER_SRC}" >&2; exit 1; }
 
 MAINT_SH_B64="$(base64 <"${MAINT_SRC}" | tr -d '\n')"
 RESOLVER_SH_B64="$(base64 <"${RESOLVER_SRC}" | tr -d '\n')"
-TEMPLATE_SHA="${GITHUB_SHA:-local}"
+TEMPLATE_SHA="${QA_HOST_ARTIFACT_SHA:-${GITHUB_SHA:-local}}"
 
 jq -n \
   --arg maint "${MAINT_SH_B64}" \
@@ -59,12 +69,15 @@ jq -n \
   --arg timer_command "${timer_command}" \
   --arg timer_state "${TIMER_STATE}" \
   --arg timer_active_state "${timer_active_state}" \
+  --argjson drain_timeout "${DRAIN_TIMEOUT_SECONDS}" \
   '{
     commands: [
       "set -euo pipefail",
       "echo === qa-maintenance timer sync ===",
+      "if sudo systemctl is-enabled --quiet tokenkey-qa-maintenance.timer; then qa_timer_enabled=1; else qa_timer_enabled=0; fi; if sudo systemctl is-active --quiet tokenkey-qa-maintenance.timer; then qa_timer_active=1; else qa_timer_active=0; fi; qa_sync_committed=0; qa_sync_restore() { qa_sync_rc=$?; trap - EXIT; if [ \"${qa_sync_committed}\" != 1 ]; then if [ \"${qa_timer_enabled}\" = 1 ]; then sudo systemctl enable tokenkey-qa-maintenance.timer >/dev/null 2>&1 || true; else sudo systemctl disable tokenkey-qa-maintenance.timer >/dev/null 2>&1 || true; fi; if [ \"${qa_timer_active}\" = 1 ]; then sudo systemctl start tokenkey-qa-maintenance.timer >/dev/null 2>&1 || true; else sudo systemctl stop tokenkey-qa-maintenance.timer >/dev/null 2>&1 || true; fi; fi; exit \"${qa_sync_rc}\"; }; trap qa_sync_restore EXIT",
       "if sudo systemctl list-unit-files tokenkey-qa-maintenance.timer --no-legend 2>/dev/null | grep -q \"^tokenkey-qa-maintenance[.]timer\"; then sudo systemctl disable --now tokenkey-qa-maintenance.timer; fi",
       "! sudo systemctl is-active --quiet tokenkey-qa-maintenance.timer",
+      ("qa_sync_deadline=$(( $(date +%s) + " + ($drain_timeout | tostring) + " )); while sudo systemctl is-active --quiet tokenkey-qa-maintenance.service; do if [ \"$(date +%s)\" -ge \"${qa_sync_deadline}\" ]; then echo \"timeout draining tokenkey-qa-maintenance.service\" >&2; exit 1; fi; sleep 2; done"),
       "! sudo systemctl is-active --quiet tokenkey-qa-maintenance.service",
       ("echo " + $maint + " | base64 -d | sudo tee /usr/local/bin/tokenkey-qa-maintenance.sh > /dev/null"),
       "sudo chmod +x /usr/local/bin/tokenkey-qa-maintenance.sh",
@@ -78,6 +91,8 @@ jq -n \
       $timer_command,
       ("test \"$(sudo systemctl is-enabled tokenkey-qa-maintenance.timer)\" = \"" + $timer_state + "\""),
       ("test \"$(sudo systemctl is-active tokenkey-qa-maintenance.timer)\" = \"" + $timer_active_state + "\""),
+      "qa_sync_committed=1",
+      "trap - EXIT",
       "sudo systemctl list-timers tokenkey-qa-maintenance.timer --no-pager || true",
       ("echo Live qa-maintenance units now match deploy/aws@" + $sha + " timer=" + $timer_state + " on $(hostname)")
     ]

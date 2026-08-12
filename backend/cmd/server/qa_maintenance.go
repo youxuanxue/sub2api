@@ -77,6 +77,22 @@ type qaMaintenanceCycleResult struct {
 	FailureCode           string
 }
 
+type qaMaintenanceCommandReceipt struct {
+	ReceiptVersion     int                `json:"receipt_version"`
+	Mode               string             `json:"mode"`
+	OK                 bool               `json:"ok"`
+	JobName            string             `json:"job_name"`
+	RunID              string             `json:"run_id"`
+	Trigger            string             `json:"trigger"`
+	CompletedAt        time.Time          `json:"completed_at"`
+	Plan               qaMaintenancePlan  `json:"plan"`
+	Compensation       *qaMaintenancePlan `json:"compensation,omitempty"`
+	FailureStage       string             `json:"failure_stage,omitempty"`
+	FailureCode        string             `json:"failure_code,omitempty"`
+	DeletionAuthorized bool               `json:"deletion_authorized"`
+	UploadAuthorized   bool               `json:"upload_authorized"`
+}
+
 func runQAMaintenanceArchiveCycle(
 	ctx context.Context,
 	normal archive.Window,
@@ -380,6 +396,19 @@ func runQAMaintenanceCommand(
 				plan.VerificationErrorCode = cycle.FailureCode
 			}
 			failureLastResult = qaMaintenanceCycleLastResult("failed", runID, trigger, plan, compensationPlan, cycle.FailureStage, cycle.FailureCode)
+			if !cycle.Normal.WindowStart.IsZero() {
+				receipt := qaMaintenanceCommandReceipt{
+					ReceiptVersion: qaMaintenanceReceiptVersion,
+					Mode:           qaMaintenanceReceiptModeUpload,
+					OK:             false, JobName: qaMaintenanceJobName, RunID: runID, Trigger: trigger,
+					CompletedAt: deps.now().UTC(), Plan: plan, Compensation: compensationPlan,
+					FailureStage: cycle.FailureStage, FailureCode: cycle.FailureCode,
+					DeletionAuthorized: false, UploadAuthorized: true,
+				}
+				if encodeErr := json.NewEncoder(out).Encode(receipt); encodeErr != nil {
+					return fmt.Errorf("%w; encode qa maintenance failure receipt: %v", cycleErr, encodeErr)
+				}
+			}
 			return cycleErr
 		}
 		uploadAuthorized = true
@@ -428,19 +457,7 @@ func runQAMaintenanceCommand(
 	}
 	heartbeatWritten = true
 
-	receipt := struct {
-		ReceiptVersion     int                `json:"receipt_version"`
-		Mode               string             `json:"mode"`
-		OK                 bool               `json:"ok"`
-		JobName            string             `json:"job_name"`
-		RunID              string             `json:"run_id"`
-		Trigger            string             `json:"trigger"`
-		CompletedAt        time.Time          `json:"completed_at"`
-		Plan               qaMaintenancePlan  `json:"plan"`
-		Compensation       *qaMaintenancePlan `json:"compensation,omitempty"`
-		DeletionAuthorized bool               `json:"deletion_authorized"`
-		UploadAuthorized   bool               `json:"upload_authorized"`
-	}{
+	receipt := qaMaintenanceCommandReceipt{
 		ReceiptVersion:     qaMaintenanceReceiptVersion,
 		Mode:               mode,
 		OK:                 true,

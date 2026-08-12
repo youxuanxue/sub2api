@@ -557,6 +557,14 @@ def _rollout_failures(root: Path) -> list[str]:
             failures.append("rollout maintenance timer observed live state drift")
         if prod_timer.get("policy_target_state") != "enabled":
             failures.append("rollout maintenance timer target drift")
+        if prod_timer.get("host_artifact_sync_on_prod_deploy") != "required":
+            failures.append("rollout maintenance host artifact sync drift")
+        if prod_timer.get("host_artifact_source") != "target_release_tag":
+            failures.append("rollout maintenance host artifact source drift")
+        if prod_timer.get("sync_active_service_policy") != "bounded_drain_then_replace":
+            failures.append("rollout maintenance active-service sync policy drift")
+        if prod_timer.get("sync_failure_restore_policy") != "pre_sync_timer_state":
+            failures.append("rollout maintenance sync failure restore drift")
         if prod_timer.get("min_consecutive_scheduled_runs") != 2:
             failures.append("rollout maintenance timer observation gate drift")
         if prod_timer.get("catchup_gap_policy") != "accepted_terminal":
@@ -587,6 +595,11 @@ def _rollout_failures(root: Path) -> list[str]:
             "repository_closeout_state": "implementation_ready_pending_live_verification",
             "observed_live_state": "pending_live_reconciliation",
             "policy_target_state": "enabled_after_finalize",
+            "host_artifact_sync_on_prod_deploy": "required",
+            "host_artifact_source": "target_release_tag",
+            "sync_active_service_policy": "bounded_drain_then_replace",
+            "sync_failure_restore_policy": "pre_finalize_snapshot_or_finalized_boundary",
+            "deploy_owner_restore_mode": "durable_finalize_receipt",
             "schedule_utc": "*:00",
             "randomized_delay_minutes": 0,
             "host_runner": "/usr/local/bin/tokenkey-qa-boundary.sh",

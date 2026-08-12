@@ -47,10 +47,33 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertIn("id-token: write", deploy)
         self.assertIn("packages: read", deploy)
         self.assertIn("deploy_via_ssm_bluegreen.sh", deploy)
+        self.assertIn("QA_MAINTENANCE_TIMER_STATE: enabled", deploy)
+        self.assertIn("sync-qa-maintenance-timer-via-ssm.sh", deploy)
+        self.assertIn("QA_BOUNDARY_TIMER_STATE: auto", deploy)
+        self.assertIn("sync-qa-boundary-timer-via-ssm.sh", deploy)
         self.assertIn("bash ops/stage0/post_deploy_smoke.sh", deploy)
         self.assertIn(
             "bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout",
             deploy,
+        )
+
+    def test_qa_host_artifacts_are_bound_to_target_tag_before_prod_mutation(self) -> None:
+        deploy = job_block("deploy")
+        target_checkout = deploy.index("name: Checkout target-tag QA host artifacts")
+        image_mutation = deploy.index("name: Deploy via SSM Run-Command")
+
+        self.assertLess(target_checkout, image_mutation)
+        target_block = deploy[target_checkout:image_mutation]
+        self.assertIn("ref: v${{ inputs.tag }}", target_block)
+        self.assertIn("path: qa-host-runtime", target_block)
+        self.assertIn("id: qa_host_artifacts", target_block)
+        self.assertIn("git -C qa-host-runtime rev-parse HEAD", target_block)
+        self.assertEqual(deploy.count("QA_HOST_ARTIFACT_ROOT: qa-host-runtime"), 2)
+        self.assertEqual(
+            deploy.count(
+                "QA_HOST_ARTIFACT_SHA: ${{ steps.qa_host_artifacts.outputs.sha }}"
+            ),
+            2,
         )
 
     def test_smoke_only_job_is_read_only_and_uses_prod_environment(self) -> None:

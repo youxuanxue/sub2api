@@ -389,6 +389,31 @@ def _terminal_inventory(archive: dict[str, Any]) -> list[dict[str, Any]]:
     return [item for item in terminal if isinstance(item, dict)]
 
 
+def _is_correlatable_terminal_catchup_attempt(
+    receipt: dict[str, Any] | None,
+    heartbeat: dict[str, str],
+) -> bool:
+    if receipt is None:
+        return False
+    normal = _mapping(receipt.get("normal"))
+    compensation = _mapping(receipt.get("compensation"))
+    return bool(
+        receipt.get("failure_stage") == "compensation_terminal"
+        and receipt.get("failure_code") == TERMINAL_CATCHUP_ERROR
+        and receipt.get("error_code") == "child_failed"
+        and receipt.get("runner_exit_code") != 0
+        and receipt.get("child_exit_code") != 0
+        and normal is not None
+        and normal.get("state") == "committed"
+        and normal.get("restore_verified") is True
+        and compensation is not None
+        and _is_terminal_compensation(compensation)
+        and heartbeat.get("status") == "failed"
+        and heartbeat.get("stage") == "compensation_terminal"
+        and heartbeat.get("error_code") == TERMINAL_CATCHUP_ERROR
+    )
+
+
 def _evaluate_terminal_compensation(
     reasons: list[str],
     compensation: dict[str, Any],
@@ -535,6 +560,8 @@ def evaluate(
     database = _mapping(snapshot.get("database_heartbeat"))
     archive = _mapping(snapshot.get("archive_control"))
     qa_records = _mapping(snapshot.get("qa_records"))
+    heartbeat = _last_result(database.get("last_result")) if database is not None else {}
+    terminal_catchup_attempt = _is_correlatable_terminal_catchup_attempt(receipt, heartbeat)
     if systemd is None:
         forward_reasons.append("systemd_missing")
     else:
@@ -542,7 +569,7 @@ def evaluate(
             forward_reasons.append("timer_not_enabled")
         if systemd.get("timer_active") is not True:
             forward_reasons.append("timer_not_active")
-        if systemd.get("service_result") != "success":
+        if systemd.get("service_result") != "success" and not terminal_catchup_attempt:
             forward_reasons.append("systemd_service_failed")
             failed = True
     if receipt is None:
@@ -577,22 +604,21 @@ def evaluate(
             forward_reasons.append("host_receipt_stale")
         elif started is not None and started > finished:
             forward_reasons.append("host_receipt_time_order_invalid")
-        if receipt.get("runner_exit_code") != 0:
+        if receipt.get("runner_exit_code") != 0 and not terminal_catchup_attempt:
             forward_reasons.append("host_runner_failed")
             failed = True
-        if receipt.get("child_exit_code") != 0:
+        if receipt.get("child_exit_code") != 0 and not terminal_catchup_attempt:
             forward_reasons.append("maintenance_child_failed")
             failed = True
-        if receipt.get("error_code") not in {None, ""}:
+        if receipt.get("error_code") not in {None, ""} and not terminal_catchup_attempt:
             forward_reasons.append("host_receipt_success_has_error")
             failed = True
     else:
         started = None
         finished = None
 
-    heartbeat = _last_result(database.get("last_result")) if database is not None else {}
     if database is not None:
-        if heartbeat.get("status") != "committed":
+        if heartbeat.get("status") != "committed" and not terminal_catchup_attempt:
             forward_reasons.append("database_heartbeat_not_committed")
             failed = True
         if heartbeat.get("deletion_authorized") != "false":
@@ -612,11 +638,19 @@ def evaluate(
         heartbeat_success = _timestamp(database.get("last_success_at"))
         if heartbeat_success is None:
             forward_reasons.append("database_last_success_invalid")
-        elif finished is not None and abs(finished - heartbeat_success) > MAX_CORRELATION_SKEW:
+        elif (
+            finished is not None
+            and not terminal_catchup_attempt
+            and abs(finished - heartbeat_success) > MAX_CORRELATION_SKEW
+        ):
             forward_reasons.append("receipt_heartbeat_time_mismatch")
             failed = True
         last_error = _timestamp(database.get("last_error_at"))
-        if last_error is not None and (heartbeat_success is None or last_error > heartbeat_success):
+        if terminal_catchup_attempt:
+            if last_error is None or finished is None or abs(finished - last_error) > MAX_CORRELATION_SKEW:
+                forward_reasons.append("terminal_catchup_failure_time_mismatch")
+                failed = True
+        elif last_error is not None and (heartbeat_success is None or last_error > heartbeat_success):
             forward_reasons.append("database_has_newer_failure")
             failed = True
 
