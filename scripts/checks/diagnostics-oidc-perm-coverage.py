@@ -16,6 +16,22 @@ EXPECTED_BASE_ACTIONS: list[tuple[str, str]] = [
         "ec2:DescribeSnapshots",
         "ops/observability/data_layer_snapshot_signal.sh on prod diagnostics (#1554)",
     ),
+    (
+        "cloudformation:DescribeStackResources",
+        "ops/qa/verify_raw_archive_iam_contract.py stack resource lookup (#1621)",
+    ),
+    (
+        "s3:GetBucketPolicy",
+        "ops/qa/verify_raw_archive_iam_contract.py bucket policy read (#1621)",
+    ),
+    (
+        "ec2:DescribeVpcEndpoints",
+        "ops/qa/verify_raw_archive_iam_contract.py S3 gateway endpoint check (#1620)",
+    ),
+    (
+        "ec2:DescribeRouteTables",
+        "ops/qa/verify_raw_archive_iam_contract.py route table gateway route check (#1620)",
+    ),
 ]
 
 
