@@ -3,6 +3,60 @@
   "rationale": "Load-bearing files and symbols that anchor TokenKey's seventh platform `grok` (xAI / SuperGrok Heavy OAuth). Unlike kiro, xAI speaks the OpenAI-compatible wire protocol, so grok is an OpenAICompatPool member and REUSES the OpenAI-compat routing/scheduling/forward/billing path; the only grok-specific code is the OAuth refresh, the two forward seams that make the OAuth branch forward like the apikey branch (plain Bearer + api.x.ai base_url, NOT the ChatGPT/Codex branch), and the Heavy-403 honesty guard. If any sentinel below is missing, the platform either silently disappears from scheduling/UI or mis-forwards/mis-bills at runtime. Single source of truth read by both `scripts/preflight.sh` and `.github/workflows/upstream-merge-pr-shape.yml`. Adding a new load-bearing surface for grok MUST add a sentinel here in the same commit.",
   "sentinels": [
     {
+      "path": "backend/internal/pkg/xai/billing.go",
+      "must_contain": [
+        "CLIClientVersion = \"",
+        "billingCLIUserAgent = \"grok-pager/\" + CLIClientVersion",
+        "req.Header.Set(CLIClientVersionHeader, CLIClientVersion)"
+      ],
+      "rationale": "CLIClientVersion is the sole Grok CLI compile fallback and directly owns the billing-probe identity. Watchers must never track a separate advisory constant."
+    },
+    {
+      "path": "backend/internal/pkg/xai/cli_identity.go",
+      "must_contain": [
+        "return CLIClientVersion",
+        "version = CLIClientVersion",
+        "req.Header.Set(\"x-grok-client-version\", version)"
+      ],
+      "rationale": "Runtime Grok identity resolves an optional valid environment override, then falls back to CLIClientVersion for the headers xAI sees."
+    },
+    {
+      "path": "backend/internal/service/grok_upstream_headers.go",
+      "must_contain": [
+        "return xai.CLIUserAgent(xai.ResolveCLIVersion())",
+        "req.Header.Set(\"x-grok-client-version\", xai.ResolveCLIVersion())"
+      ],
+      "rationale": "The service request path must keep deriving Grok User-Agent and version headers from the xai runtime resolver rather than introducing another pin."
+    },
+    {
+      "path": "scripts/fingerprint/client_release_watch.py",
+      "must_contain": [
+        "IDENTITY_REGISTRY = Path(__file__).with_name(\"client_identity_registry.json\")",
+        "re.search(r'CLIClientVersion\\s*=\\s*\"([^\"]+)\"', text)",
+        "PLATFORM_SPECS: list[PlatformSpec] = platform_specs_from_registry(IDENTITY_REGISTRY_DATA)"
+      ],
+      "rationale": "Release observation must use the registry-derived compile owner metadata and the same CLIClientVersion pin reader that runtime requests use."
+    },
+    {
+      "path": "scripts/fingerprint/client_identity_registry.json",
+      "must_contain": [
+        "\"id\": \"grok-cli\"",
+        "\"path\": \"backend/internal/pkg/xai/billing.go\"",
+        "\"symbol\": \"CLIClientVersion\"",
+        "\"symbol\": \"ResolveCLIVersion\""
+      ],
+      "rationale": "The static identity registry must keep Grok's compile owner and runtime resolver explicit without duplicating a current version value."
+    },
+    {
+      "path": "ops/xai/capture_grok_fingerprint.py",
+      "must_contain": [
+        "BILLING_GO = REPO_ROOT / \"backend/internal/pkg/xai/billing.go\"",
+        "_PIN_RE = re.compile(r'CLIClientVersion\\s*=\\s*\"([^\"]+)\"')",
+        "bump CLIClientVersion"
+      ],
+      "rationale": "The local-binary Grok check must compare against the sole runtime fallback owner and route remediation back to it."
+    },
+    {
       "path": "backend/internal/domain/constants.go",
       "must_contain": [
         "PlatformGrok      = \"grok\""

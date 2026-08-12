@@ -162,6 +162,24 @@ class ProfileAndDiffTests(unittest.TestCase):
         self.assertEqual(prof["expected_http"]["source"], "repo-constants")
         self.assertIsNone(eng.validate_profile_provenance(prof))
 
+    def test_runtime_projection_digest_is_stable_and_order_sensitive(self):
+        profile = eng.build_canonical_profile(self._fields(), {}, "passive-pcap:test")
+        projection = eng.runtime_profile_projection(profile)
+        self.assertEqual(list(projection), list(eng.RUNTIME_PROFILE_FIELDS))
+        digest = eng.runtime_profile_digest(profile)
+        self.assertEqual(len(digest), 64)
+        self.assertEqual(digest, eng.runtime_profile_digest(dict(profile)))
+
+        reordered = dict(profile)
+        reordered["cipher_suites"] = list(reversed(profile["cipher_suites"]))
+        self.assertNotEqual(digest, eng.runtime_profile_digest(reordered))
+
+    def test_runtime_projection_rejects_missing_field(self):
+        profile = eng.build_canonical_profile(self._fields(), {}, "passive-pcap:test")
+        del profile["extensions"]
+        with self.assertRaisesRegex(ValueError, "missing runtime field: extensions"):
+            eng.runtime_profile_projection(profile)
+
     def test_rejects_legacy_mixed_profile_provenance(self):
         legacy = {
             "observed": {

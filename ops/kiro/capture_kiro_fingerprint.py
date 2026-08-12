@@ -74,6 +74,18 @@ TSHARK_FIELDS = (
 # TLS/JA3-only: HTTP-protocol verification lives in probe_runtime_gateway.py (the
 # mitm path was empirically non-viable — Kiro direct-dials, bypassing proxies).
 CRITICAL_FIELDS = frozenset({"tls.ja3_hash"})
+RUNTIME_PROFILE_FIELDS = (
+    "enable_grease",
+    "cipher_suites",
+    "curves",
+    "point_formats",
+    "signature_algorithms",
+    "alpn_protocols",
+    "supported_versions",
+    "key_share_groups",
+    "psk_modes",
+    "extensions",
+)
 
 
 @dataclass(frozen=True)
@@ -208,6 +220,34 @@ def build_canonical_profile(
             "source": "repo-constants",
         },
     }
+
+
+def runtime_profile_projection(profile: dict[str, Any]) -> dict[str, Any]:
+    """Project only fields that drive TLSFingerprintProfile.ToTLSProfile().
+
+    Field order is part of the digest contract, and list order is intentionally
+    preserved because cipher, extension, and preference order affect ClientHello.
+    """
+    if not isinstance(profile, dict):
+        raise ValueError("profile must be an object")
+    projection: dict[str, Any] = {}
+    for field in RUNTIME_PROFILE_FIELDS:
+        if field not in profile:
+            raise ValueError(f"profile is missing runtime field: {field}")
+        value = profile[field]
+        if field == "enable_grease":
+            if not isinstance(value, bool):
+                raise ValueError("enable_grease must be a boolean")
+        elif not isinstance(value, list):
+            raise ValueError(f"{field} must be an array")
+        projection[field] = value
+    return projection
+
+
+def runtime_profile_digest(profile: dict[str, Any]) -> str:
+    projection = runtime_profile_projection(profile)
+    encoded = json.dumps(projection, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def validate_profile_provenance(profile: dict[str, Any]) -> str | None:

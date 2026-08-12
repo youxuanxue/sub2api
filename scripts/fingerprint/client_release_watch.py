@@ -26,6 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_STATE = REPO_ROOT / ".cache/fingerprint/client-release-watch.json"
 DEFAULT_REPORT_JSON = REPO_ROOT / ".cache/fingerprint/client-release-watch/report.json"
 DEFAULT_REPORT_MD = REPO_ROOT / ".cache/fingerprint/client-release-watch/report.md"
+IDENTITY_REGISTRY = Path(__file__).with_name("client_identity_registry.json")
 
 _VER_CORE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
 _GH_RELEASES = "https://api.github.com/repos/{repo}/releases/latest"
@@ -37,12 +38,19 @@ CLAUDE_CONSTANTS_GO = REPO_ROOT / "backend/internal/pkg/claude/constants.go"
 ANTIGRAVITY_OAUTH_GO = REPO_ROOT / "backend/internal/pkg/antigravity/oauth.go"
 KIRO_CONSTANTS_GO = REPO_ROOT / "backend/internal/pkg/kiro/constants.go"
 GEMINI_CONSTANTS_GO = REPO_ROOT / "backend/internal/pkg/geminicli/constants.go"
-XAI_OAUTH_GO = REPO_ROOT / "backend/internal/pkg/xai/oauth.go"
+XAI_BILLING_GO = REPO_ROOT / "backend/internal/pkg/xai/billing.go"
 SETTING_GO = REPO_ROOT / "backend/internal/service/setting_gateway_runtime.go"
 
-# Platforms that mirror another platform's drift/issue signal (listed in report, no duplicate issue).
+def load_identity_registry(path: Path = IDENTITY_REGISTRY) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+IDENTITY_REGISTRY_DATA = load_identity_registry()
+# Companions mirror another identity's drift/issue signal (listed in report, no duplicate issue).
 COMPANION_OF: dict[str, str] = {
-    "codex-vscode": "codex",
+    str(identity["id"]): str(identity["companion_identity"])
+    for identity in IDENTITY_REGISTRY_DATA.get("identities") or []
+    if identity.get("companion_identity")
 }
 
 
@@ -194,8 +202,8 @@ def read_pinned_gemini_cli() -> str:
 
 
 def read_pinned_grok_cli() -> str:
-    text = _read_text(XAI_OAUTH_GO)
-    m = re.search(r'DefaultGrokCLIVersion\s*=\s*"([^"]+)"', text)
+    text = _read_text(XAI_BILLING_GO)
+    m = re.search(r'CLIClientVersion\s*=\s*"([^"]+)"', text)
     return normalize_version(m.group(1)) if m else ""
 
 
@@ -323,159 +331,36 @@ PLATFORM_PLAYBOOKS: dict[str, dict[str, Any]] = {
         "umbrella_skill": "tokenkey-fingerprint-alignment-all",
         "first_commands": [
             "npm view @xai-official/grok version",
-            "grep DefaultGrokCLIVersion backend/internal/pkg/xai/oauth.go",
+            "grep CLIClientVersion backend/internal/pkg/xai/billing.go",
         ],
     },
 }
 
 
-PLATFORM_SPECS: list[PlatformSpec] = [
-    PlatformSpec(
-        id="claude-code",
-        name="Claude Code",
-        skill="tokenkey-cc-fingerprint-alignment",
-        pin_path=str(CC_BASELINE_JSON.relative_to(REPO_ROOT)),
-        sources=[
-            SourceSpec(
-                kind="github_release",
-                label="GitHub anthropics/claude-code",
-                repo="anthropics/claude-code",
-                tag_prefix="v",
-            ),
-            SourceSpec(
-                kind="npm",
-                label="npm @anthropic-ai/claude-code",
-                package="@anthropic-ai/claude-code",
-            ),
-        ],
-    ),
-    PlatformSpec(
-        id="cc-stainless",
-        name="Claude Code (Stainless SDK)",
-        skill="tokenkey-cc-fingerprint-alignment",
-        pin_path=str(CLAUDE_CONSTANTS_GO.relative_to(REPO_ROOT)) + " X-Stainless-Package-Version",
-        sources=[
-            SourceSpec(
-                kind="npm",
-                label="npm @anthropic-ai/sdk",
-                package="@anthropic-ai/sdk",
-            ),
-        ],
-        actionable=False,
-        status_note=(
-            "npm SDK semver is advisory; Claude Code on-wire X-Stainless-Package-Version "
-            "remains capture ground truth."
-        ),
-    ),
-    PlatformSpec(
-        id="codex",
-        name="Codex CLI",
-        skill="tokenkey-codex-fingerprint-alignment",
-        pin_path="backend/internal/service/setting_gateway_runtime.go DefaultOpenAICodexVersion",
-        sources=[
-            SourceSpec(
-                kind="npm",
-                label="npm @openai/codex",
-                package="@openai/codex",
-            ),
-            SourceSpec(
-                kind="github_release",
-                label="GitHub openai/codex",
-                repo="openai/codex",
-                tag_prefix="rust-v",
-            ),
-        ],
-    ),
-    PlatformSpec(
-        id="codex-vscode",
-        name="Codex VS Code / Copilot",
-        skill="tokenkey-codex-fingerprint-alignment",
-        pin_path="same codex-tui pins (verify codex_vscode/* / codex_vscode_copilot/* UA)",
-        sources=[
-            SourceSpec(
-                kind="npm",
-                label="npm @openai/codex",
-                package="@openai/codex",
-            ),
-            SourceSpec(
-                kind="github_release",
-                label="GitHub openai/codex",
-                repo="openai/codex",
-                tag_prefix="rust-v",
-            ),
-        ],
-    ),
-    PlatformSpec(
-        id="gemini-cli",
-        name="Gemini CLI",
-        skill="tokenkey-gemini-fingerprint-alignment",
-        pin_path=str(GEMINI_CONSTANTS_GO.relative_to(REPO_ROOT)),
-        sources=[
-            SourceSpec(
-                kind="npm",
-                label="npm @google/gemini-cli",
-                package="@google/gemini-cli",
-            ),
-        ],
-    ),
-    PlatformSpec(
-        id="grok-cli",
-        name="Grok CLI",
-        skill="tokenkey-grok-fingerprint-alignment",
-        pin_path=str(XAI_OAUTH_GO.relative_to(REPO_ROOT)) + " DefaultGrokCLIVersion",
-        sources=[
-            SourceSpec(
-                kind="npm",
-                label="npm @xai-official/grok",
-                package="@xai-official/grok",
-            ),
-        ],
-        actionable=False,
-        status_note=(
-            "npm registry /latest may publish ahead of installable tarballs; "
-            "DefaultGrokCLIVersion tracks locally installable semver via capture."
-        ),
-    ),
-    PlatformSpec(
-        id="antigravity",
-        name="Antigravity IDE",
-        skill="tokenkey-antigravity-fingerprint-alignment",
-        pin_path=str(ANTIGRAVITY_OAUTH_GO.relative_to(REPO_ROOT)),
-        sources=[
-            SourceSpec(
-                kind="brew_cask",
-                label="Homebrew cask antigravity",
-                cask="antigravity",
-            ),
-        ],
-    ),
-    PlatformSpec(
-        id="kiro",
-        name="Kiro IDE",
-        skill="tokenkey-kiro-fingerprint-alignment",
-        pin_path=str(KIRO_CONSTANTS_GO.relative_to(REPO_ROOT)),
-        sources=[
-            SourceSpec(
-                kind="brew_cask",
-                label="Homebrew cask kiro",
-                cask="kiro",
-            ),
-        ],
-    ),
-    PlatformSpec(
-        id="kiro-cli",
-        name="Kiro CLI",
-        skill="tokenkey-kiro-fingerprint-alignment",
-        pin_path=str(KIRO_CONSTANTS_GO.relative_to(REPO_ROOT)) + " DefaultKiroCLIVersion",
-        sources=[
-            SourceSpec(
-                kind="brew_cask",
-                label="Homebrew cask kiro-cli",
-                cask="kiro-cli",
-            ),
-        ],
-    ),
-]
+def platform_specs_from_registry(registry: dict[str, Any]) -> list[PlatformSpec]:
+    specs: list[PlatformSpec] = []
+    for identity in registry.get("identities") or []:
+        owner = identity["compile_owner"]
+        pin_path = str(owner["path"])
+        symbol = str(owner.get("symbol") or "")
+        if symbol:
+            pin_path += " " + symbol
+        specs.append(
+            PlatformSpec(
+                id=str(identity["id"]),
+                name=str(identity["name"]),
+                skill=str(identity["skill"]),
+                pin_path=pin_path,
+                sources=[SourceSpec(**source) for source in identity.get("release_sources") or []],
+                actionable=bool(identity.get("actionable", True)),
+                status_note=str(identity.get("status_note") or ""),
+            )
+        )
+    return specs
+
+
+PLATFORM_SPECS: list[PlatformSpec] = platform_specs_from_registry(IDENTITY_REGISTRY_DATA)
+
 
 
 def fetch_source(spec: SourceSpec) -> dict[str, str]:

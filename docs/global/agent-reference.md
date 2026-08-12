@@ -21,6 +21,14 @@ Long-form operational reference moved out of root `CLAUDE.md` to stay under the 
 
 新增 Studio 行为时：先查上表能否扩展 owner；若 Image **与** Video **与** BakeOff 任两者都需要，必须进共享 composable/组件并在 `scripts/sentinels/frontend-tk.json` 加锚点。宪法原则见 `dev-rules/global/CLAUDE.md` §5.1。
 
+## Client identity / fingerprint evidence SSOT
+
+客户端身份只走一条 daily/manual 路径：`.github/workflows/client-fidelity-watch.yml`。它串联 release metadata、registry/fixture gate、生产观察与一个汇总报告；artifacts 和 tracking issues 保留，但不创建 cache branch 或自动 draft PR。
+
+静态身份清单唯一 owner 是 `scripts/fingerprint/client_identity_registry.json`：只登记 release source、compile/runtime owner、证据模式、capture tool、production observer 与 companion identity，不保存当前版本、漂移状态或采集结果。真实证据仍由各 capture/observer owner 产生；release 新版本只表示 `stale`，生产配置 parity（例如 Kiro DB row）必须标 `production_configured`，不能冒充 `wire_observed`。
+
+人工对齐从 `tokenkey-fingerprint-alignment-all` 或报告路由到单平台 skill；四个 capture engines 保持独立机制与 `0/1/2/3` exit contract。
+
 ## Disaster recovery / 数据重建从哪找
 
 prod 数据层要恢复/重建时，**先看 `deploy/aws/RUNBOOK-disaster-recovery.md` 顶部的「恢复资产地图」**——一张表说清每份备份（PG 账本、`.env` 密钥、CFN 模板、S3 离机 dump）存在哪、用哪节恢复。最常见 §3（实例死卷在→换机零丢失）；离机最后一手是 §4.4（S3 `s3://tokenkey-prod-pgdump-<acct>/prod/pgdump/`，hourly，RPO ≤1h）。

@@ -2,7 +2,8 @@
 """Deterministic Grok CLI fingerprint alignment for TokenKey.
 
 Ground truth = locally-installed ``@xai-official/grok`` (``grok --version``).
-Alignment target = ``DefaultGrokCLIVersion`` in ``backend/internal/pkg/xai/oauth.go``.
+Alignment target = the runtime fallback ``CLIClientVersion`` in
+``backend/internal/pkg/xai/billing.go``.
 
 Subcommands:
   check-env     Verify grok CLI is installed and version is parseable.
@@ -26,10 +27,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OAUTH_GO = REPO_ROOT / "backend/internal/pkg/xai/oauth.go"
+BILLING_GO = REPO_ROOT / "backend/internal/pkg/xai/billing.go"
 OUT_DIR = REPO_ROOT / ".cache/fingerprint/grok-cli"
 _VER = r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?"
-_PIN_RE = re.compile(r'DefaultGrokCLIVersion\s*=\s*"([^"]+)"')
+_PIN_RE = re.compile(r'CLIClientVersion\s*=\s*"([^"]+)"')
 
 
 @dataclass
@@ -49,7 +50,7 @@ def _read(path: Path) -> str:
 
 
 def load_pinned_version() -> str:
-    m = _PIN_RE.search(_read(OAUTH_GO))
+    m = _PIN_RE.search(_read(BILLING_GO))
     return m.group(1) if m else ""
 
 
@@ -70,13 +71,13 @@ def installed_grok_version() -> str:
 def diff_rows(pinned: str, installed: str) -> list[Row]:
     rows: list[Row] = []
     if not pinned:
-        rows.append(Row("default_grok_cli_version", "", installed, "missing", note="DefaultGrokCLIVersion not found"))
+        rows.append(Row("cli_client_version", "", installed, "missing", note="CLIClientVersion not found"))
         return rows
     if not installed:
-        rows.append(Row("default_grok_cli_version", pinned, "", "info", note="grok CLI not installed"))
+        rows.append(Row("cli_client_version", pinned, "", "info", note="grok CLI not installed"))
         return rows
     status = "match" if pinned == installed else "mismatch"
-    rows.append(Row("default_grok_cli_version", pinned, installed, status))
+    rows.append(Row("cli_client_version", pinned, installed, status))
     return rows
 
 
@@ -109,7 +110,7 @@ def cmd_show_baseline(_args) -> int:
     pinned = load_pinned_version()
     installed = installed_grok_version()
     print(f"installed grok version: {installed or '(not installed)'}")
-    print(f"TK DefaultGrokCLIVersion: {pinned or '(not found)'}")
+    print(f"TK CLIClientVersion: {pinned or '(not found)'}")
     return 0
 
 
@@ -123,7 +124,7 @@ def cmd_diff(_args, gate: bool = False) -> int:
     _print_rows(rows)
     if has_drift(rows):
         print("\nfollow skill: tokenkey-grok-fingerprint-alignment")
-        print(f"  bump DefaultGrokCLIVersion in {OAUTH_GO.relative_to(REPO_ROOT)}")
+        print(f"  bump CLIClientVersion in {BILLING_GO.relative_to(REPO_ROOT)}")
         print("  go test -tags=unit ./internal/pkg/xai/...")
     return 1 if has_drift(rows) else 0
 
