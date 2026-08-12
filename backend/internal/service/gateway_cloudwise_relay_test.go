@@ -64,6 +64,36 @@ func TestOpenAICloudwiseRelayFloorIsProbeCuratedOnly(t *testing.T) {
 	requireIdentityMappingForIDs(t, mapping, supportedCatalogModelIDsFromMap(supportedOpenAICloudwiseRelayCatalogModels))
 }
 
+func TestForwardResponses_CloudwiseRelayPreservesClaudeModelOnChatFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.6-terra","input":"Reply OK only.","stream":false,"max_output_tokens":8}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Set(OpsModelKey, "claude-sonnet-4-6")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl-cw","object":"chat.completion","model":"claude-sonnet-4-6","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":1,"total_tokens":9}}`,
+		)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+
+	result, err := svc.Forward(context.Background(), c, cloudwiseNativeMessagesAccount(), body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "https://api.cloudwise.ai/api/v1/chat/completions", upstream.lastReq.URL.String())
+	require.Equal(t, "claude-sonnet-4-6", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "claude-sonnet-4-6", result.UpstreamModel)
+	require.Equal(t, "gpt-5.6-terra", result.Model)
+}
+
 func TestForwardAsAnthropic_CloudwiseNativeMessagesPassthrough(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

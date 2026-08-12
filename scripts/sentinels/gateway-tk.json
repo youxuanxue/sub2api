@@ -1146,6 +1146,7 @@
       "must_contain": [
         "TestAccount_IsOpenAICloudwiseRelay",
         "TestOpenAICloudwiseRelayFloorIsProbeCuratedOnly",
+        "TestForwardResponses_CloudwiseRelayPreservesClaudeModelOnChatFallback",
         "TestForwardAsAnthropic_CloudwiseNativeMessagesPassthrough",
         "https://api.cloudwise.ai/api/v1/messages"
       ],
