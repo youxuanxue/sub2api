@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -21,6 +24,9 @@ import (
 const (
 	restoreConfirmationPrefix        = "tokenkey-prod-qa-archive-restore-v1"
 	forwardCutoverConfirmationPrefix = "tokenkey-prod-qa-forward-cutover-v1"
+	gapDecisionConfirmationPrefix    = "tokenkey-prod-qa-gap-decision-v1"
+	maxGapDecisionPlanBytes          = 8 << 20
+	maxGapDecisionTransportChars     = 18000
 )
 
 type controlStatus struct {
@@ -34,26 +40,30 @@ type controlStatus struct {
 }
 
 type cliDeps struct {
-	loadConfig        func() (*config.Config, error)
-	openDB            func(string, string) (*sql.DB, error)
-	newObjectStore    func(context.Context, config.QACaptureStorageConfig) (archive.ObjectStore, error)
-	newRecoveryStore  func(context.Context, archive.WorkstationRecoveryConfig) (archive.ReadOnlyObjectStore, error)
-	verifyCommit      func(context.Context, archive.ReadOnlyObjectStore, string, string) (archive.VerifiedCommit, error)
-	inspectControl    func(context.Context, *sql.Conn, archive.Window) (controlStatus, error)
-	planSourceDelta   func(context.Context, *sql.Conn, archive.Window, archive.VerifiedCommit) (archive.SourceDeltaPlan, error)
-	setForwardCutover func(context.Context, *sql.Conn) (archive.ForwardCutover, error)
+	loadConfig             func() (*config.Config, error)
+	openDB                 func(string, string) (*sql.DB, error)
+	newObjectStore         func(context.Context, config.QACaptureStorageConfig) (archive.ObjectStore, error)
+	newRecoveryStore       func(context.Context, archive.WorkstationRecoveryConfig) (archive.ReadOnlyObjectStore, error)
+	verifyCommit           func(context.Context, archive.ReadOnlyObjectStore, string, string) (archive.VerifiedCommit, error)
+	inspectControl         func(context.Context, *sql.Conn, archive.Window) (controlStatus, error)
+	planSourceDelta        func(context.Context, *sql.Conn, archive.Window, archive.VerifiedCommit) (archive.SourceDeltaPlan, error)
+	setForwardCutover      func(context.Context, *sql.Conn) (archive.ForwardCutover, error)
+	buildGapDecisionDBPlan func(context.Context, *sql.DB) (archive.GapDecisionPlan, error)
+	applyGapDecisionPlan   func(context.Context, *sql.DB, archive.GapDecisionPlan, string) (archive.GapDecisionReceipt, error)
 }
 
 func defaultDeps() cliDeps {
 	return cliDeps{
-		loadConfig:        config.LoadForBootstrap,
-		openDB:            sql.Open,
-		newObjectStore:    archive.NewObjectStoreFromConfig,
-		newRecoveryStore:  archive.NewReadOnlyObjectStoreForWorkstation,
-		verifyCommit:      archive.VerifyCommit,
-		inspectControl:    defaultInspectControl,
-		planSourceDelta:   archive.PlanSourceDelta,
-		setForwardCutover: archive.NewSQLControlStore().SetApprovedForwardCutover,
+		loadConfig:             config.LoadForBootstrap,
+		openDB:                 sql.Open,
+		newObjectStore:         archive.NewObjectStoreFromConfig,
+		newRecoveryStore:       archive.NewReadOnlyObjectStoreForWorkstation,
+		verifyCommit:           archive.VerifyCommit,
+		inspectControl:         defaultInspectControl,
+		planSourceDelta:        archive.PlanSourceDelta,
+		setForwardCutover:      archive.NewSQLControlStore().SetApprovedForwardCutover,
+		buildGapDecisionDBPlan: archive.BuildGapDecisionDBPlan,
+		applyGapDecisionPlan:   archive.ApplyGapDecisionPlan,
 	}
 }
 
@@ -68,16 +78,205 @@ func main() {
 
 func runCLI(ctx context.Context, args []string, out io.Writer, deps cliDeps) error {
 	if len(args) == 0 {
-		return fmt.Errorf("command required: inspect, verify, restore, repair-plan, or set-forward-cutover")
+		return fmt.Errorf("command required: inspect, verify, restore, repair-plan, set-forward-cutover, gap-decision-db-plan, gap-decision-s3-plan, or gap-decision-apply")
 	}
 	switch args[0] {
 	case "inspect", "verify", "restore", "repair-plan":
 		return runWindowCommand(ctx, args[0], args[1:], out, deps)
 	case "set-forward-cutover":
 		return runSetForwardCutover(ctx, args[1:], out, deps)
+	case "gap-decision-db-plan":
+		return runGapDecisionDBPlan(ctx, args[1:], out, deps)
+	case "gap-decision-s3-plan":
+		return runGapDecisionS3Plan(ctx, args[1:], out, deps)
+	case "gap-decision-apply":
+		return runGapDecisionApply(ctx, args[1:], out, deps)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runGapDecisionS3Plan(ctx context.Context, args []string, out io.Writer, deps cliDeps) error {
+	fs := flag.NewFlagSet("gap-decision-s3-plan", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	dbPlanBase64 := fs.String("db-plan-gzip-base64", "", "gzip+base64 database gap plan")
+	region := fs.String("region", "", "AWS region")
+	bucket := fs.String("bucket", "", "raw archive bucket")
+	recoveryRoleARN := fs.String("recovery-role-arn", "", "dedicated recovery role ARN")
+	recoveryRunID := fs.String("recovery-run-id", "", "operator recovery observation id")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("unexpected positional arguments")
+	}
+	var dbPlan archive.GapDecisionPlan
+	if err := decodeGapDecisionPlanTransport(*dbPlanBase64, &dbPlan); err != nil {
+		return fmt.Errorf("decode database gap plan: %w", err)
+	}
+	if strings.TrimSpace(*region) == "" || strings.TrimSpace(*bucket) == "" ||
+		strings.TrimSpace(*recoveryRoleARN) == "" || !validRecoveryRunID(*recoveryRunID) {
+		return fmt.Errorf("gap-decision-s3-plan requires region, bucket, recovery role, and safe recovery run id")
+	}
+	deps = fillDefaults(deps)
+	store, err := deps.newRecoveryStore(ctx, archive.WorkstationRecoveryConfig{
+		Region: strings.TrimSpace(*region), Bucket: strings.TrimSpace(*bucket),
+		Prefix: archive.RawV1Prefix, RoleARN: strings.TrimSpace(*recoveryRoleARN),
+	})
+	if err != nil {
+		return fmt.Errorf("open workstation recovery store: %w", err)
+	}
+	plan, err := archive.CompleteGapDecisionPlanFromStore(
+		ctx, dbPlan, store, *region, *bucket, *recoveryRoleARN, *recoveryRunID,
+	)
+	if err != nil {
+		return err
+	}
+	return writeJSON(out, map[string]any{
+		"ok": true, "command": "gap-decision-s3-plan", "plan": plan,
+		"required_confirmation": gapDecisionConfirmationPrefix + ":" + plan.PlanHash,
+		"cleanup_eligible":      false, "deletion_authorized": false,
+	})
+}
+
+func runGapDecisionDBPlan(ctx context.Context, args []string, out io.Writer, deps cliDeps) error {
+	if len(args) != 0 {
+		return fmt.Errorf("gap-decision-db-plan accepts no arguments")
+	}
+	deps = fillDefaults(deps)
+	cfg, err := deps.loadConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	db, err := deps.openDB("postgres", cfg.Database.DSNWithTimezone(cfg.Timezone))
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping database: %w", err)
+	}
+	plan, err := deps.buildGapDecisionDBPlan(ctx, db)
+	if err != nil {
+		return err
+	}
+	transport, rawBytes, err := encodeGapDecisionPlanTransport(plan)
+	if err != nil {
+		return err
+	}
+	return writeJSON(out, map[string]any{
+		"ok": true, "command": "gap-decision-db-plan",
+		"plan_gzip_base64": transport, "plan_uncompressed_bytes": rawBytes,
+		"window_count":     len(plan.Windows),
+		"cleanup_eligible": false, "deletion_authorized": false,
+	})
+}
+
+func runGapDecisionApply(ctx context.Context, args []string, out io.Writer, deps cliDeps) error {
+	fs := flag.NewFlagSet("gap-decision-apply", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	planBase64 := fs.String("plan-gzip-base64", "", "gzip+base64 canonical gap decision plan")
+	confirm := fs.String("confirm", "", "exact plan-hash confirmation")
+	approvedBy := fs.String("approved-by", "", "human approver identity")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("unexpected positional arguments")
+	}
+	var plan archive.GapDecisionPlan
+	if err := decodeGapDecisionPlanTransport(*planBase64, &plan); err != nil {
+		return fmt.Errorf("decode gap decision plan: %w", err)
+	}
+	if *confirm != gapDecisionConfirmationPrefix+":"+plan.PlanHash {
+		return fmt.Errorf("exact plan-hash confirmation required")
+	}
+	if strings.TrimSpace(*approvedBy) == "" {
+		return fmt.Errorf("--approved-by is required")
+	}
+	deps = fillDefaults(deps)
+	cfg, err := deps.loadConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	db, err := deps.openDB("postgres", cfg.Database.DSNWithTimezone(cfg.Timezone))
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping database: %w", err)
+	}
+	receipt, err := deps.applyGapDecisionPlan(ctx, db, plan, strings.TrimSpace(*approvedBy))
+	if err != nil {
+		return err
+	}
+	return writeJSON(out, map[string]any{
+		"ok": true, "command": "gap-decision-apply", "plan_hash": receipt.PlanHash,
+		"approved_by": receipt.ApprovedBy, "window_count": receipt.WindowCount,
+		"applied_at": receipt.AppliedAt, "already_applied": receipt.AlreadyApplied,
+		"cleanup_eligible": false, "deletion_authorized": false,
+	})
+}
+
+func encodeGapDecisionPlanTransport(plan archive.GapDecisionPlan) (string, int, error) {
+	raw, err := json.Marshal(plan)
+	if err != nil {
+		return "", 0, fmt.Errorf("encode gap decision plan: %w", err)
+	}
+	if len(raw) > maxGapDecisionPlanBytes {
+		return "", 0, fmt.Errorf("gap decision plan exceeds decompressed size limit")
+	}
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err := writer.Write(raw); err != nil {
+		return "", 0, fmt.Errorf("compress gap decision plan: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return "", 0, fmt.Errorf("compress gap decision plan: %w", err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(compressed.Bytes())
+	if len(encoded) > maxGapDecisionTransportChars {
+		return "", 0, fmt.Errorf("gap decision plan exceeds SSM transport limit")
+	}
+	return encoded, len(raw), nil
+}
+
+func decodeGapDecisionPlanTransport(encoded string, plan *archive.GapDecisionPlan) error {
+	encoded = strings.TrimSpace(encoded)
+	if encoded == "" || len(encoded) > maxGapDecisionTransportChars {
+		return fmt.Errorf("invalid gzip+base64 transport")
+	}
+	compressed, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return fmt.Errorf("invalid gzip+base64 transport")
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		return fmt.Errorf("invalid gzip transport: %w", err)
+	}
+	defer func() { _ = reader.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(reader, maxGapDecisionPlanBytes+1))
+	if err != nil {
+		return fmt.Errorf("decompress gap decision plan: %w", err)
+	}
+	if len(raw) > maxGapDecisionPlanBytes {
+		return fmt.Errorf("gap decision plan exceeds decompressed size limit")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(plan); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("gap decision plan contains trailing JSON")
+	}
+	return nil
 }
 
 func runSetForwardCutover(ctx context.Context, args []string, out io.Writer, deps cliDeps) error {
@@ -370,6 +569,12 @@ func fillDefaults(deps cliDeps) cliDeps {
 	}
 	if deps.setForwardCutover == nil {
 		deps.setForwardCutover = defaults.setForwardCutover
+	}
+	if deps.buildGapDecisionDBPlan == nil {
+		deps.buildGapDecisionDBPlan = defaults.buildGapDecisionDBPlan
+	}
+	if deps.applyGapDecisionPlan == nil {
+		deps.applyGapDecisionPlan = defaults.applyGapDecisionPlan
 	}
 	return deps
 }

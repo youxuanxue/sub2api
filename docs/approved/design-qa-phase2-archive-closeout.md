@@ -3,7 +3,7 @@ title: QA Phase 2 Archive Closeout
 status: approved
 approved_by: "feng (conversation approvals 2026-08-07 through 2026-08-11; UTC-hour partition lifecycle and no-rehome cutover 2026-08-11)"
 date: 2026-08-07
-last_reviewed: 2026-08-11
+last_reviewed: 2026-08-12
 supersedes: null
 related:
   - docs/approved/design-prod-qa-24h-s3-lifecycle.md
@@ -96,8 +96,10 @@ artifact installation, self-test, or owner-state verification fails.
    phase may remove only an expired, catalog-validated UTC-hour partition and its exact
    matching hot-file directories under the lifecycle rules below.
 2. A shard with missing or corrupt evidence is not committed and is not cleanup eligible.
-3. `confirmed gap` requires a separate immutable approval receipt. Detection alone never
-   creates that receipt, and this rollout creates no confirmed-gap receipt.
+3. `confirmed gap` requires a separate immutable approval receipt. Detection and plan
+   generation never create that receipt. Only an exact hash-bound batch apply, after
+   explicit human approval, may create it and the matching terminal shard facts in one
+   database transaction.
 4. Once a base segment is referenced by a commit, late records create delta segments;
    they never replace or rewrite the base segment.
 5. S3 `commit.json` is the reader marker. A segment is invisible until an ETag-guarded
@@ -145,8 +147,8 @@ uses `accepted_terminal`:
   `healthy`. Any contradiction across the four sources is `failed` (fail closed).
 - **Rollout stop vs degraded:** `accepted_terminal` does **not** treat an already-terminal
   historical gap such as `2026-08-07 22:00 UTC` as a blocker for forward scheduled runs
-  once facts correlate. A **new** gap discovered during closeout still requires a separate
-  immutable gap decision before compensation can be retried; until then rollout remains
+  once facts correlate. A **new** gap discovered during closeout still requires the batch
+  decision below before compensation can skip it; until then rollout remains
   `observed_live_state: pending_live_reconciliation`.
 - **`strict` alternative:** inventory presence or any terminal gap fails correlated health
   and blocks rollout observation gates.
@@ -227,6 +229,32 @@ Do not create a parallel `qa_archive_gaps` vocabulary or a second cleanup-contro
 The hourly shard row is the control owner for both archive outcome and hot-source removal.
 Missing/corrupt evidence remains represented by shard verification failure and
 `cleanup_eligible=false`; cleanup eligibility does not grant or deny time-based retention.
+
+`qa_archive_gap_decision_receipts` is an append-only approval ledger, not a second gap
+state machine. It stores the canonical plan JSON, SHA-256, approver, window count, and apply
+time. Updates and deletes are rejected by schema trigger. Per-hour outcome remains only in
+`qa_archive_shards`; no receipt grants cleanup, DROP, rehome, copy, move, or S3 mutation.
+
+The batch plan is eligible only for exact UTC hours strictly after `forward_cutover`, before
+the latest committed normal window, and older than the database-derived 24-hour retention
+cutoff. Each hour must have zero live `qa_records`, a non-committed/non-terminal control
+fact, and no `commit.json` as observed through the dedicated workstation recovery role.
+The canonical hash binds the database UTC-hour anchor, retention cutoff, cutover, latest
+normal window, exact ordered windows, source counts, shard state/code/update time, segment
+fingerprint, stored shard window end, whether any segment is commit-ready, bucket,
+recovery-role ARN, recovery run ID, and every S3 absence result. A window with a
+`verified`/`committed` segment or contradictory shard state/error code is ineligible.
+
+Apply requires `tokenkey-prod-qa-gap-decision-v1:<plan_hash>` and an explicit approver.
+Under the shared `QAMA` transaction lock it rechecks the same database hour anchor, cutoff,
+cutover, latest normal, source counts, shard control, and segment fingerprint. Any drift
+rejects the whole batch. Because commit creation requires a commit-ready segment, binding
+that fact plus the segment fingerprint and shard update time closes the plan/apply race
+without an S3 read during apply. For each still-valid hour it uses the existing archive control
+owner to persist `failed/source_unavailable_after_retention`, then inserts the approval
+receipt in the same transaction. S3 is not read or written during apply; the reviewed
+recovery-role absence facts are immutable plan evidence. Repeating the identical applied
+hash is idempotent; a different or stale plan requires a new plan and approval.
 
 At `*:00`, the lifecycle boundary phase locks the QA lifecycle, resolves the exact expired
 hour from database time, and validates the child bound through the PostgreSQL catalog. If
@@ -351,6 +379,14 @@ Use the repo-owned Go CLI under `backend/cmd/qa-archive` for recovery reads:
 - `restore`: reconstruct records and evidence into an explicit local isolated directory;
 - `repair-plan`: remain a no-write diagnostic comparing control state, S3 commit, and
   current source identities.
+- `gap-decision-db-plan`: under the shared `QAMA` lock, emit the read-only database half
+  of one batch plan; it accepts no arbitrary window selector.
+- `gap-decision-s3-plan`: on an ops workstation, assume the dedicated recovery role,
+  HEAD every candidate commit, exclude any existing commit, and emit the canonical plan
+  and required SHA-256 confirmation.
+- `gap-decision-apply`: on the production host runner, consume only the complete plan,
+  exact plan-hash confirmation, and approver; atomically persist terminal shard facts and
+  the append-only receipt after database revalidation.
 
 `inspect`, `verify`, and `restore` gain an ops-workstation mode that assumes the dedicated
 recovery role and reads a specified S3 window directly, without prod SSH/SSM, API,
@@ -372,6 +408,16 @@ requires exact expected window/bucket/role values and a separate unexpired human
 approval record hash-bound to the evidence bytes and issued after the final receipt. The
 production receipts expire from this gate after 24 hours; changing a scope label or copying
 one command receipt cannot claim production success.
+
+`ops/qa/prod_qa_archive_closeout.py gap-plan` orchestrates the host database plan and the
+target-tag workstation binary's recovery-role S3 plan, then writes a mode-0600 plan file
+atomically. `gap-apply` requires a distinct receipt path and writes it atomically only after
+the remote receipt matches the reviewed hash, approver, and window count. Plan generation
+does not classify a gap; production apply remains a separate high-risk approval gate.
+The host DB-plan receipt and apply command transport only bounded `gzip+base64` plan bytes;
+raw plan JSON is never emitted into SSM stdout or embedded in the remote command. Both ends
+enforce the same compressed and decompressed limits before parsing, and the canonical hash
+continues to cover the uncompressed plan facts rather than transport bytes.
 
 After an independent workstation verify/restore succeeds, retire the transitional
 prod QA break-glass dump tooling. Before that gate it remained manual read-only break-glass and was not
@@ -716,25 +762,29 @@ phase remains disabled. No rollout step copies or moves source data.
    compensation attempt, and request a separate gap decision. Under `accepted_terminal`, an
    already-terminal 22:00 hour recorded in control rows does not block forward runs once
    the four-source health probe correlates; contradictory facts fail closed.
-7. From an ops workstation, assume the recovery role and verify/restore S3 directly; after
+7. For any remaining expired zero-source hours without recovery-role-visible commits,
+   generate one hash-bound batch plan. Review its exact windows and hash, then request a
+   separate high-risk approval before `gap-apply`. A changed database hour, source/control
+   fact, segment fingerprint, cutover, or latest normal rejects the entire batch.
+8. From an ops workstation, assume the recovery role and verify/restore S3 directly; after
    success retire the transitional prod QA break-glass dump tooling.
-8. Enable the `*:15` archive timer and observe at least two consecutive regular scheduled
+9. Enable the `*:15` archive timer and observe at least two consecutive regular scheduled
    runs while correlating systemd, host receipt, DB heartbeat/control, DB latency, WAL,
    scratch, RSS, CPU, and S3 objects.
-9. Apply the IAM tightening as the final CloudFormation change set and run an archive
+10. Apply the IAM tightening as the final CloudFormation change set and run an archive
    canary. On failure stop maintenance and restore the previous IAM policy; the pre-finalize
    legacy cutover drain remains active. A durable finalize receipt permanently closes it.
-10. Produce a read-only hourly-cutover inventory: exact child bounds, row counts by child
+11. Produce a read-only hourly-cutover inventory: exact child bounds, row counts by child
     and hour, future timestamps, overlapping monthly children, current/future coverage,
     DEFAULT age, and legacy blob/DLQ/export paths. Bind the decision-bearing inventory facts and chosen future
     `T0` to a separate high-risk approval.
-11. Under that approval, remove only empty overlapping monthly children and provision
+12. Under that approval, remove only empty overlapping monthly children and provision
     `[T0,T0+72h)`. Set the immutable application cutover hour to `T0`; PostgreSQL routes
     new rows and the capture writer uses hourly file paths from that boundary.
-12. Keep legacy age cleanup active for at least 25 hours. Abort if DEFAULT grows after
+13. Keep legacy age cleanup active for at least 25 hours. Abort if DEFAULT grows after
     `T0`, the current-hour child is missing, or archive/cleanup evidence contradicts. The
     initial activation horizon may decay during this drain; the boundary timer remains disabled.
-13. Through the boundary host runner, run `--qa-cutover-provision-only` with exact confirmation
+14. Through the boundary host runner, run `--qa-cutover-provision-only` with exact confirmation
     `tokenkey-prod-qa-cutover-provision-v1`. It requires the activate receipt, database time at
     or after T0, no finalize receipt, and provisions current-plus-72-hour coverage under the
     shared lock without DROP or cleanup. Then require fresh successful archive host receipt and
@@ -743,12 +793,12 @@ phase remains disabled. No rollout step copies or moves source data.
     legacy blob/DLQ files drained, the exact empty-monthly hash-bound set, and 72-hour coverage
     before atomically removing that monthly set plus DEFAULT and persisting the append-only
     finalize receipt.
-14. The owner-switch SSM workflow must read that durable finalize receipt before disabling
+15. The owner-switch SSM workflow must read that durable finalize receipt before disabling
     legacy DB/blob/DLQ cleanup and enabling the no-random-delay `*:00` boundary timer. If any
     enable/verification step fails, it keeps legacy disabled, best-effort leaves boundary enabled,
     and exits nonzero for hard intervention; finalized legacy cleanup is never a valid fallback.
     Export-orphan cleanup remains under the boundary runner.
-15. Observe the archive and boundary phases for at least 26 hours, including one real partition DROP,
+16. Observe the archive and boundary phases for at least 26 hours, including one real partition DROP,
     blob/DLQ directory cleanup, archive success or durable gap classification, and continuous
     future provisioning. Only then may rollout report the hourly lifecycle complete.
 

@@ -4,10 +4,13 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,6 +62,252 @@ func TestUS045_RepairApplyIsUnavailableBeforeDependencies(t *testing.T) {
 	if called {
 		t.Fatal("retired repair-apply touched dependencies")
 	}
+}
+
+func TestUS045_GapDecisionApplyRequiresHashBoundConfirmationBeforeDependencies(t *testing.T) {
+	plan := commandGapDecisionPlan(t)
+	encoded, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	deps := cliDeps{loadConfig: func() (*config.Config, error) {
+		called = true
+		return nil, errors.New("must not run")
+	}}
+	err = runCLI(context.Background(), []string{
+		"gap-decision-apply",
+		"--plan-gzip-base64", gzipBase64(t, encoded),
+		"--confirm", gapDecisionConfirmationPrefix,
+		"--approved-by", "feng",
+	}, &bytes.Buffer{}, deps)
+	if err == nil || !strings.Contains(err.Error(), "exact plan-hash confirmation") {
+		t.Fatalf("runCLI() error=%v", err)
+	}
+	if called {
+		t.Fatal("dependencies ran before gap decision confirmation validation")
+	}
+}
+
+func TestUS045_GapDecisionDBPlanUsesReadOnlyOwner(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	mock.ExpectPing()
+	mock.ExpectClose()
+	want := commandGapDecisionPlan(t)
+	want.Region, want.Bucket, want.RecoveryRoleARN, want.RecoveryRunID, want.PlanHash = "", "", "", "", ""
+	deps := cliDeps{
+		loadConfig: func() (*config.Config, error) {
+			return &config.Config{Timezone: "UTC", Database: config.DatabaseConfig{
+				Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable",
+			}}, nil
+		},
+		openDB: func(string, string) (*sql.DB, error) { return db, nil },
+		buildGapDecisionDBPlan: func(context.Context, *sql.DB) (archive.GapDecisionPlan, error) {
+			return want, nil
+		},
+	}
+	out := &bytes.Buffer{}
+	if err := runCLI(context.Background(), []string{"gap-decision-db-plan"}, out, deps); err != nil {
+		t.Fatalf("runCLI()=%v", err)
+	}
+	var receipt struct {
+		OK                    bool   `json:"ok"`
+		Command               string `json:"command"`
+		PlanGzipBase64        string `json:"plan_gzip_base64"`
+		PlanUncompressedBytes int    `json:"plan_uncompressed_bytes"`
+		WindowCount           int    `json:"window_count"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	decoded := gunzipBase64(t, receipt.PlanGzipBase64)
+	var got archive.GapDecisionPlan
+	if err := json.Unmarshal(decoded, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !receipt.OK || receipt.Command != "gap-decision-db-plan" || len(got.Windows) != 1 ||
+		receipt.PlanUncompressedBytes != len(decoded) || receipt.WindowCount != 1 {
+		t.Fatalf("receipt=%+v", receipt)
+	}
+	if strings.Contains(out.String(), `"plan":`) {
+		t.Fatal("database plan receipt leaked the uncompressed plan into SSM stdout")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUS045_GapDecisionS3PlanUsesOnlyWorkstationRecoveryStore(t *testing.T) {
+	dbPlan := commandGapDecisionPlan(t)
+	dbPlan.Region, dbPlan.Bucket, dbPlan.RecoveryRoleARN, dbPlan.RecoveryRunID, dbPlan.PlanHash = "", "", "", "", ""
+	encoded, err := json.Marshal(dbPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calledConfig := false
+	calledDB := false
+	calledRecovery := false
+	deps := cliDeps{
+		loadConfig: func() (*config.Config, error) { calledConfig = true; return nil, errors.New("must not run") },
+		openDB:     func(string, string) (*sql.DB, error) { calledDB = true; return nil, errors.New("must not run") },
+		newRecoveryStore: func(_ context.Context, input archive.WorkstationRecoveryConfig) (archive.ReadOnlyObjectStore, error) {
+			calledRecovery = true
+			if input.Region != "us-east-1" || input.Bucket != "tokenkey-prod-qa-raw-archive-123456789012" ||
+				input.RoleARN != "arn:aws:iam::123456789012:role/tokenkey-prod-qa-raw-recovery" || input.Prefix != archive.RawV1Prefix {
+				t.Fatalf("recovery input=%+v", input)
+			}
+			return archive.NewMemoryObjectStore(), nil
+		},
+	}
+	out := &bytes.Buffer{}
+	if err := runCLI(context.Background(), []string{
+		"gap-decision-s3-plan",
+		"--db-plan-gzip-base64", gzipBase64(t, encoded),
+		"--region", "us-east-1",
+		"--bucket", "tokenkey-prod-qa-raw-archive-123456789012",
+		"--recovery-role-arn", "arn:aws:iam::123456789012:role/tokenkey-prod-qa-raw-recovery",
+		"--recovery-run-id", "recovery-head-batch-20260812T050000Z",
+	}, out, deps); err != nil {
+		t.Fatalf("runCLI()=%v", err)
+	}
+	if !calledRecovery || calledConfig || calledDB {
+		t.Fatalf("recovery=%t config=%t db=%t", calledRecovery, calledConfig, calledDB)
+	}
+	var receipt struct {
+		OK   bool                    `json:"ok"`
+		Plan archive.GapDecisionPlan `json:"plan"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if !receipt.OK || receipt.Plan.PlanHash == "" || len(receipt.Plan.Windows) != 1 {
+		t.Fatalf("receipt=%+v", receipt)
+	}
+}
+
+func TestUS045_GapDecisionApplyInvokesAtomicOwnerWithExactPlan(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	mock.ExpectPing()
+	mock.ExpectClose()
+	plan := commandGapDecisionPlan(t)
+	encoded, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	deps := cliDeps{
+		loadConfig: func() (*config.Config, error) {
+			return &config.Config{Timezone: "UTC", Database: config.DatabaseConfig{
+				Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable",
+			}}, nil
+		},
+		openDB: func(string, string) (*sql.DB, error) { return db, nil },
+		applyGapDecisionPlan: func(_ context.Context, gotDB *sql.DB, got archive.GapDecisionPlan, approvedBy string) (archive.GapDecisionReceipt, error) {
+			called = true
+			if gotDB != db || got.PlanHash != plan.PlanHash || approvedBy != "feng" {
+				t.Fatalf("db=%p plan=%+v approvedBy=%q", gotDB, got, approvedBy)
+			}
+			return archive.GapDecisionReceipt{PlanHash: got.PlanHash, ApprovedBy: approvedBy, WindowCount: len(got.Windows)}, nil
+		},
+	}
+	out := &bytes.Buffer{}
+	if err := runCLI(context.Background(), []string{
+		"gap-decision-apply",
+		"--plan-gzip-base64", gzipBase64(t, encoded),
+		"--confirm", gapDecisionConfirmationPrefix + ":" + plan.PlanHash,
+		"--approved-by", "feng",
+	}, out, deps); err != nil {
+		t.Fatalf("runCLI()=%v", err)
+	}
+	if !called {
+		t.Fatal("atomic gap decision owner was not called")
+	}
+	var receipt map[string]any
+	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt["ok"] != true || receipt["command"] != "gap-decision-apply" ||
+		receipt["plan_hash"] != plan.PlanHash || receipt["deletion_authorized"] != false {
+		t.Fatalf("receipt=%v", receipt)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUS045_GapDecisionPlanTransportRejectsOversizedExpansion(t *testing.T) {
+	oversized := bytes.Repeat([]byte("a"), maxGapDecisionPlanBytes+1)
+	encoded := gzipBase64(t, oversized)
+	var plan archive.GapDecisionPlan
+	err := decodeGapDecisionPlanTransport(encoded, &plan)
+	if err == nil || !strings.Contains(err.Error(), "exceeds decompressed size limit") {
+		t.Fatalf("decodeGapDecisionPlanTransport() error=%v", err)
+	}
+}
+
+func gzipBase64(t *testing.T, raw []byte) string {
+	t.Helper()
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err := writer.Write(raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(compressed.Bytes())
+}
+
+func gunzipBase64(t *testing.T, encoded string) []byte {
+	t.Helper()
+	compressed, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reader.Close() }()
+	raw, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func commandGapDecisionPlan(t *testing.T) archive.GapDecisionPlan {
+	t.Helper()
+	anchor := time.Date(2026, 8, 12, 5, 0, 0, 0, time.UTC)
+	window := time.Date(2026, 8, 8, 23, 0, 0, 0, time.UTC)
+	plan := archive.GapDecisionPlan{
+		SchemaVersion: archive.GapDecisionPlanSchemaVersion,
+		DBUTCAnchor:   anchor, RetentionCutoff: anchor.Add(-24 * time.Hour),
+		ForwardCutover:          archive.GapDecisionAnchor{WindowStart: time.Date(2026, 8, 7, 21, 0, 0, 0, time.UTC), WindowEnd: time.Date(2026, 8, 7, 22, 0, 0, 0, time.UTC)},
+		LatestNormalWindowStart: anchor.Add(-time.Hour),
+		Region:                  "us-east-1", Bucket: "tokenkey-prod-qa-raw-archive-123456789012",
+		RecoveryRoleARN: "arn:aws:iam::123456789012:role/tokenkey-prod-qa-raw-recovery",
+		RecoveryRunID:   "recovery-head-batch-20260812T050000Z",
+		Windows: []archive.GapDecisionWindow{{
+			WindowStart: window, WindowEnd: window.Add(time.Hour),
+			CommitKey:         archive.ShardPrefix(window) + "/commit.json",
+			SourceRecordCount: 0, Control: archive.GapDecisionControl{},
+		}},
+	}
+	hash, err := archive.HashGapDecisionPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.PlanHash = hash
+	return plan
 }
 
 func TestUS045_SetForwardCutoverUsesFixedApprovedWindow(t *testing.T) {

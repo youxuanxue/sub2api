@@ -25,6 +25,9 @@ GO_MAINTENANCE = Path("backend/cmd/server/qa_maintenance.go")
 RAW_ARCHIVE_CFN = Path("deploy/aws/cloudformation/stage0-qa-raw-archive.yaml")
 RAW_ARCHIVE_DEPLOY = Path("ops/qa/deploy_qa_raw_archive_cfn.sh")
 ARCHIVE_CLI = Path("backend/cmd/qa-archive/main.go")
+GAP_DECISION_OWNER = Path("backend/internal/observability/qa/archive/gap_decision.go")
+GAP_DECISION_RECEIPTS = Path("backend/migrations/tk_075_qa_archive_gap_decision_receipts.sql")
+ARCHIVE_OPERATOR = Path("ops/qa/prod_qa_archive_closeout.py")
 RECOVERY_GATE = Path("ops/qa/qa_archive_recovery_gate.py")
 PREFLIGHT = Path("scripts/preflight.sh")
 ARCHIVE_STATE = Path("backend/internal/observability/qa/archive/state.go")
@@ -126,6 +129,9 @@ REQUIRED_BY_FILE = {
         "qa_exports_tmp",
         "--qa-cutover-provision-only",
         "tokenkey-prod-qa-cutover-provision-v1",
+        "qa_archive_gap_decision_receipts",
+        "tokenkey-prod-qa-gap-decision-v1:<plan_hash>",
+        "segment fingerprint",
     ),
     POLICY: (
         "schema_version: 1",
@@ -194,6 +200,9 @@ REQUIRED_BY_FILE = {
         "prod_qa_cutover_drain_plan",
         "--qa-cutover-provision-only",
         "tokenkey-prod-qa-cutover-provision-v1",
+        "gap-plan",
+        "gap-apply",
+        "failed/source_unavailable_after_retention",
     ),
     DEPLOY_GUIDE: (
         "tokenkey-qa-boundary.sh",
@@ -251,6 +260,40 @@ REQUIRED_BY_FILE = {
         "database_accessed",
         "shared_ec2_instance_role_no_process_isolation",
         "window-bound privacy confirmation required",
+        "gap-decision-db-plan",
+        "gap-decision-s3-plan",
+        "gap-decision-apply",
+        "exact plan-hash confirmation required",
+        "plan-gzip-base64",
+        "maxGapDecisionPlanBytes",
+    ),
+    GAP_DECISION_OWNER: (
+        "BuildGapDecisionDBPlan",
+        "CompleteGapDecisionPlanFromStore",
+        "ApplyGapDecisionPlan",
+        "pg_try_advisory_xact_lock",
+        "SegmentFingerprint",
+        "PersistApprovedGapTerminal",
+        "qa_archive_gap_decision_receipts",
+    ),
+    GAP_DECISION_RECEIPTS: (
+        "qa_archive_gap_decision_receipts",
+        "plan_json jsonb NOT NULL",
+        "approved_by text NOT NULL",
+        "BEFORE UPDATE OR DELETE",
+        "BEFORE TRUNCATE",
+        "append-only",
+    ),
+    ARCHIVE_OPERATOR: (
+        "gap-plan",
+        "gap-apply",
+        "GAP_CONFIRMATION_PREFIX",
+        "_run_gap_db_plan",
+        "_run_gap_s3_plan",
+        "_run_gap_apply",
+        "target-tag qa-archive binary",
+        "MAX_GAP_PLAN_BYTES",
+        "plan_gzip_base64",
     ),
     RECOVERY_GATE: (
         "planned_transition_authorized",
@@ -703,6 +746,18 @@ def _closeout_implementation_failures(root: Path) -> list[str]:
     rehome = root / "backend/internal/pkg/pgpartition/rehome_default.go"
     if rehome.is_file():
         failures.append("retired qa_records rehome implementation still present")
+    gap_owner = root / GAP_DECISION_OWNER
+    if gap_owner.is_file():
+        body = gap_owner.read_text(encoding="utf-8")
+        for forbidden in (
+            "qa_archive_gaps",
+            "DELETE FROM qa_records",
+            "DROP TABLE",
+            "s3:PutObject",
+            "RehomeDefaultMonthly",
+        ):
+            if forbidden in body:
+                failures.append(f"QA gap decision reintroduced a forbidden owner or mutation: {forbidden}")
     partition_maintenance = root / "backend/internal/pkg/partitionmaintenance/maintenance.go"
     if partition_maintenance.is_file():
         body = partition_maintenance.read_text(encoding="utf-8")
