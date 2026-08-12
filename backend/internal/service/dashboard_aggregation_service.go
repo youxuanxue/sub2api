@@ -49,11 +49,12 @@ type DashboardAggregationRepository interface {
 
 // DashboardAggregationService 负责定时聚合与回填。
 type DashboardAggregationService struct {
-	repo                 DashboardAggregationRepository
-	timingWheel          *TimingWheelService
-	cfg                  config.DashboardAggregationConfig
-	running              int32
-	lastRetentionCleanup atomic.Value // time.Time
+	repo                  DashboardAggregationRepository
+	timingWheel           *TimingWheelService
+	cfg                   config.DashboardAggregationConfig
+	usageLogRetentionDays int
+	running               int32
+	lastRetentionCleanup  atomic.Value // time.Time
 
 	lockCache  LeaderLockCache
 	db         *sql.DB
@@ -66,11 +67,13 @@ func NewDashboardAggregationService(repo DashboardAggregationRepository, timingW
 	if cfg != nil {
 		aggCfg = cfg.DashboardAgg
 	}
+	policy := resolveDataLifecyclePolicy(cfg, config.OpsCleanupConfig{})
 	return &DashboardAggregationService{
-		repo:        repo,
-		timingWheel: timingWheel,
-		cfg:         aggCfg,
-		instanceID:  uuid.NewString(),
+		repo:                  repo,
+		timingWheel:           timingWheel,
+		cfg:                   aggCfg,
+		usageLogRetentionDays: policy.usageLogRetentionDays,
+		instanceID:            uuid.NewString(),
 	}
 }
 
@@ -240,7 +243,7 @@ func (s *DashboardAggregationService) runScheduledAggregation() {
 	epoch := time.Unix(0, 0).UTC()
 	start := last.Add(-lookback)
 	if !last.After(epoch) {
-		retentionDays := s.cfg.Retention.UsageLogsDays
+		retentionDays := s.usageLogRetentionDays
 		if retentionDays <= 0 {
 			retentionDays = 1
 		}
@@ -325,24 +328,12 @@ func (s *DashboardAggregationService) maybeCleanupRetention(ctx context.Context,
 
 	hourlyCutoff := now.AddDate(0, 0, -s.cfg.Retention.HourlyDays)
 	dailyCutoff := now.AddDate(0, 0, -s.cfg.Retention.DailyDays)
-	usageCutoff := now.AddDate(0, 0, -s.cfg.Retention.UsageLogsDays)
-	dedupCutoff := now.AddDate(0, 0, -s.cfg.Retention.UsageBillingDedupDays)
 
-	aggErr := s.repo.CleanupAggregates(ctx, hourlyCutoff, dailyCutoff)
-	if aggErr != nil {
-		logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] 聚合保留清理失败: %v", aggErr)
+	if err := s.repo.CleanupAggregates(ctx, hourlyCutoff, dailyCutoff); err != nil {
+		logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] 聚合保留清理失败: %v", err)
+		return
 	}
-	usageErr := s.repo.CleanupUsageLogs(ctx, usageCutoff)
-	if usageErr != nil {
-		logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] usage_logs 保留清理失败: %v", usageErr)
-	}
-	dedupErr := s.repo.CleanupUsageBillingDedup(ctx, dedupCutoff)
-	if dedupErr != nil {
-		logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] usage_billing_dedup 保留清理失败: %v", dedupErr)
-	}
-	if aggErr == nil && usageErr == nil && dedupErr == nil {
-		s.lastRetentionCleanup.Store(now)
-	}
+	s.lastRetentionCleanup.Store(now)
 }
 
 func truncateToDayUTC(t time.Time) time.Time {

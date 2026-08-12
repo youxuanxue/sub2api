@@ -121,6 +121,10 @@ def _tail_export_stale(
 
 
 def build_signal(evidence_dir: pathlib.Path | None = None, *, now: dt.datetime | None = None) -> dict[str, Any]:
+    pipeline = pipeline_status.load_pipeline_status()
+    archive_mode = pipeline.get("archive_mode")
+    if archive_mode not in {"active", "frozen"}:
+        archive_mode = "invalid"
     layout = pipeline_status.load_evidence_layout()
     if evidence_dir is None:
         evidence_dir = layout.evidence_dir
@@ -228,8 +232,14 @@ def build_signal(evidence_dir: pathlib.Path | None = None, *, now: dt.datetime |
             evidence_errors.append(f"{table}:tail_export_ledger")
     closeout_complete = closeout_tables == set(layout.tables)
     tail_export_complete = tail_export_tables == set(layout.tables)
-    tail_export_stale = _tail_export_stale(tail_ledgers, now, _ops_retention_days())
+    tail_export_stale = (
+        _tail_export_stale(tail_ledgers, now, _ops_retention_days())
+        if archive_mode == "active"
+        else False
+    )
     archive_coverage_current = tail_export_complete and not tail_export_stale
+    if archive_mode == "invalid":
+        evidence_errors.append("archive_mode")
     cleanup_release_complete = False
     cleanup_release_verified_at: str | None = None
     if closeout_complete and tail_export_complete:
@@ -248,6 +258,7 @@ def build_signal(evidence_dir: pathlib.Path | None = None, *, now: dt.datetime |
             except cleanup_hold.HoldControlError:
                 evidence_errors.append("cleanup_release")
     return {
+        "archive_mode": archive_mode,
         "ledgers": ledgers,
         "tail_ledgers": tail_ledgers,
         "hold_started_at": hold.get("hold_started_at"),

@@ -189,6 +189,7 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
                     )
                 )
 
+    archive_mode = archive.get("archive_mode") if isinstance(archive, dict) else None
     ledgers = archive.get("ledgers") if isinstance(archive, dict) else None
     evidence_errors = (
         archive.get("evidence_errors") if isinstance(archive, dict) else None
@@ -210,7 +211,14 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
             )
         )
     elif closeout_complete and tail_export_complete:
-        if archive.get("archive_coverage_current") is not True:
+        if archive_mode not in {"active", "frozen"}:
+            findings.append(
+                _finding(
+                    "archive_evidence",
+                    "archive mode is missing or invalid",
+                )
+            )
+        elif archive_mode == "active" and archive.get("archive_coverage_current") is not True:
             findings.append(
                 _finding(
                     "archive_lag",
@@ -272,15 +280,20 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
     parsed_restore = [
         stamp for stamp in (_timestamp(value) for value in (restore_times or [])) if stamp
     ]
-    if len(parsed_restore) != 2 or any(
-        not _fresh(stamp, now, RESTORE_MAX_AGE) for stamp in parsed_restore
-    ):
-        findings.append(
-            _finding(
-                "archive_restore_proof",
-                "long-term archive restore proof is missing, stale, or future-dated for one or both ops tables",
-            )
+    restore_invalid = len(parsed_restore) != 2 or any(
+        stamp > now + MAX_FUTURE_SKEW for stamp in parsed_restore
+    )
+    if archive_mode != "frozen":
+        restore_invalid = restore_invalid or any(
+            not _fresh(stamp, now, RESTORE_MAX_AGE) for stamp in parsed_restore
         )
+    if restore_invalid:
+        detail = (
+            "long-term archive restore proof is missing, invalid, or future-dated for one or both ops tables"
+            if archive_mode == "frozen"
+            else "long-term archive restore proof is missing, stale, or future-dated for one or both ops tables"
+        )
+        findings.append(_finding("archive_restore_proof", detail))
 
     return {
         "verdict": "green" if not findings else "unsafe",

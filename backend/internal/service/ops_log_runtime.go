@@ -32,8 +32,8 @@ func defaultOpsRuntimeLogConfig(cfg *config.Config) *OpsRuntimeLogConfig {
 	out.SamplingNext = cfg.Log.Sampling.Thereafter
 	out.Caller = cfg.Log.Caller
 	out.StacktraceLevel = strings.ToLower(strings.TrimSpace(cfg.Log.StacktraceLevel))
-	if cfg.Ops.Cleanup.ErrorLogRetentionDays > 0 {
-		out.RetentionDays = cfg.Ops.Cleanup.ErrorLogRetentionDays
+	if cfg.Ops.Cleanup.SystemLogRetentionDays > 0 {
+		out.RetentionDays = cfg.Ops.Cleanup.SystemLogRetentionDays
 	}
 	return out
 }

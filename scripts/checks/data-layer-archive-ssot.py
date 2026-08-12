@@ -110,6 +110,10 @@ def scan(root: Path) -> list[str]:
     except (OSError, ValueError, RuntimeError) as exc:
         return [f"data-layer archive SSOT load failed: {exc}"]
 
+    archive_mode = pipeline.get("archive_mode")
+    if archive_mode not in {"active", "frozen"}:
+        failures.append("pipeline_status.yaml archive_mode must be active or frozen")
+
     hot = pipeline.get("retention_hot_layer_days")
     if not isinstance(hot, dict):
         failures.append("pipeline_status.yaml retention_hot_layer_days must be a mapping")

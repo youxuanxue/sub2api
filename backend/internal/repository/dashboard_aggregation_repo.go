@@ -21,9 +21,14 @@ type dashboardAggregationRepository struct {
 const usageLogsCleanupBatchSize = 10000
 const usageBillingDedupCleanupBatchSize = 10000
 
+// Automatic lifecycle cleanup drains large backlogs across existing cron runs rather
+// than monopolizing the database in the first run after a retention-window change.
+const usageLogsCleanupMaxRowsPerRun = 1_000_000
+const usageBillingDedupCleanupMaxRowsPerRun = 1_000_000
+
 // usageLogsStraddleReclaimMaxRowsPerRun caps expired-row DELETE from bound-straddling
 // partitions (notably usage_logs_legacy) in one retention pass.
-const usageLogsStraddleReclaimMaxRowsPerRun = 1_000_000
+const usageLogsStraddleReclaimMaxRowsPerRun = usageLogsCleanupMaxRowsPerRun
 const dashboardHistoricalBackfillMinRemaining = 5 * time.Minute
 
 // NewDashboardAggregationRepository 创建仪表盘预聚合仓储。
@@ -284,6 +289,7 @@ func (r *dashboardAggregationRepository) CleanupUsageLogs(ctx context.Context, c
 	if isPartitioned {
 		return r.cleanupPartitionedUsageLogs(ctx, cutoff.UTC())
 	}
+	var total int64
 	for {
 		res, err := r.sql.ExecContext(ctx, `
 			WITH victims AS (
@@ -302,7 +308,8 @@ func (r *dashboardAggregationRepository) CleanupUsageLogs(ctx context.Context, c
 		if err != nil {
 			return err
 		}
-		if affected < usageLogsCleanupBatchSize {
+		total += affected
+		if affected < usageLogsCleanupBatchSize || total >= usageLogsCleanupMaxRowsPerRun {
 			return nil
 		}
 	}
@@ -394,6 +401,7 @@ func isMissingUsageLogsRelationError(err error) bool {
 }
 
 func (r *dashboardAggregationRepository) CleanupUsageBillingDedup(ctx context.Context, cutoff time.Time) error {
+	var total int64
 	for {
 		res, err := r.sql.ExecContext(ctx, `
 			WITH victims AS (
@@ -417,7 +425,8 @@ func (r *dashboardAggregationRepository) CleanupUsageBillingDedup(ctx context.Co
 		if err != nil {
 			return err
 		}
-		if affected < usageBillingDedupCleanupBatchSize {
+		total += affected
+		if affected < usageBillingDedupCleanupBatchSize || total >= usageBillingDedupCleanupMaxRowsPerRun {
 			return nil
 		}
 	}

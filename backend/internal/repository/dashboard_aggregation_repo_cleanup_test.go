@@ -70,6 +70,37 @@ func TestDeleteOldUsageLogRowsByID_RespectsMaxRows(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestCleanupUsageLogs_NonPartitionedRespectsPerRunCap(t *testing.T) {
+	db, mock := newSQLMock(t)
+	repo := newDashboardAggregationRepositoryWithSQL(db)
+	cutoff := time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery("pg_partitioned_table").WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	for i := 0; i < usageLogsCleanupMaxRowsPerRun/usageLogsCleanupBatchSize; i++ {
+		mock.ExpectExec("DELETE FROM usage_logs").
+			WithArgs(cutoff, usageLogsCleanupBatchSize).
+			WillReturnResult(sqlmock.NewResult(0, usageLogsCleanupBatchSize))
+	}
+
+	require.NoError(t, repo.CleanupUsageLogs(context.Background(), cutoff))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCleanupUsageBillingDedupRespectsPerRunCap(t *testing.T) {
+	db, mock := newSQLMock(t)
+	repo := newDashboardAggregationRepositoryWithSQL(db)
+	cutoff := time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)
+
+	for i := 0; i < usageBillingDedupCleanupMaxRowsPerRun/usageBillingDedupCleanupBatchSize; i++ {
+		mock.ExpectExec("INSERT INTO usage_billing_dedup_archive").
+			WithArgs(cutoff, usageBillingDedupCleanupBatchSize).
+			WillReturnResult(sqlmock.NewResult(0, usageBillingDedupCleanupBatchSize))
+	}
+
+	require.NoError(t, repo.CleanupUsageBillingDedup(context.Background(), cutoff))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestCleanupUsageLogs_NonPartitionedUsesChunkedDelete(t *testing.T) {
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)

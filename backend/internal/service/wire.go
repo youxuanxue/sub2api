@@ -583,6 +583,7 @@ func ProvideOpsAlertEvaluatorService(
 // opsService 用来反向注入 cleanup hook，以便 UI 改清理设置时能 Reload cron。
 func ProvideOpsCleanupService(
 	opsRepo OpsRepository,
+	dashboardRepo DashboardAggregationRepository,
 	db *sql.DB,
 	redisClient *redis.Client,
 	cfg *config.Config,
@@ -590,7 +591,7 @@ func ProvideOpsCleanupService(
 	settingRepo SettingRepository,
 	opsService *OpsService,
 ) *OpsCleanupService {
-	svc := NewOpsCleanupService(opsRepo, db, redisClient, cfg, channelMonitorSvc, settingRepo)
+	svc := NewOpsCleanupService(opsRepo, dashboardRepo, db, redisClient, cfg, channelMonitorSvc, settingRepo)
 	svc.Start()
 	if opsService != nil {
 		opsService.SetCleanupReloader(svc)
@@ -598,8 +599,9 @@ func ProvideOpsCleanupService(
 	return svc
 }
 
-func ProvideOpsSystemLogSink(opsRepo OpsRepository) *OpsSystemLogSink {
+func ProvideOpsSystemLogSink(opsRepo OpsRepository, cfg *config.Config) *OpsSystemLogSink {
 	sink := NewOpsSystemLogSink(opsRepo)
+	sink.SetEnabled(cfg == nil || cfg.Ops.Enabled)
 	sink.Start()
 	logger.SetSink(sink)
 	return sink

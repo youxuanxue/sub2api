@@ -73,9 +73,12 @@
       "must_contain": [
         "pgpartition.DropExpired(ctx, db, table, cutoff)",
         "pgpartition.ListStraddling(ctx, db, table, timeCol, cutoff)",
-        "opsStraddleReclaimMaxRowsPerRun"
+        "opsStraddleReclaimMaxRowsPerRun",
+        "usageLogs     string",
+        "billingDedup  string",
+        "usage_logs=%s billing_dedup=%s"
       ],
-      "rationale": "Each partitioned cleanup first drops only fully expired bounds, then caps row-level reclaim from a surviving wide legacy partition that still contains expired rows. Removing either bound-driven call or the cap can yield green cleanup heartbeats while disk growth resumes. Partition provisioning is separately guarded by the shared partitionmaintenance owner."
+      "rationale": "Each partitioned cleanup first drops only fully expired bounds, then caps row-level reclaim from a surviving wide legacy partition that still contains expired rows. Removing either bound-driven call or the cap can yield green cleanup heartbeats while disk growth resumes. The shared cleanup heartbeat must also report usage_logs and billing-dedup states now that OpsCleanupService owns those datasets; without the fields, a lifecycle run can look green while omitting the newly transferred owners from its operator-visible result. Partition provisioning is separately guarded by the shared partitionmaintenance owner."
     },
     {
       "path": "backend/internal/pkg/partitionmaintenance/maintenance.go",

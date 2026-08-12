@@ -6184,6 +6184,110 @@
         "TestFillDashboardUsageStatsAggregated_AverageGatewayLatencyMs"
       ],
       "rationale": "Dashboard mean must divide by gateway_latency_samples (non-NULL rows only), not total_requests; this regression guards the SQL aggregation wiring."
+    },
+    {
+      "path": "backend/internal/service/data_lifecycle_policy_tk.go",
+      "must_contain": [
+        "prodUsageLogRetentionDays  = 90",
+        "prodErrorLogRetentionDays  = 30",
+        "prodSystemLogRetentionDays = 7",
+        "edgeUsageLogRetentionDays  = 7",
+        "edgeErrorLogRetentionDays  = 14",
+        "edgeSystemLogRetentionDays = 3",
+        "billingDedupRetentionDays  = 365",
+        "func resolveDataLifecyclePolicy(",
+        "billingDedupRetentionDays: billingDedupRetentionDays",
+        "if IsEdgeFrontendURL(cfg.Server.FrontendURL) {",
+        "func capLifecycleRetention(",
+        "func dataLifecycleRoleKnown("
+      ],
+      "rationale": "Single role-policy owner for automatic hot-data lifecycle. Prod and edge retention ceilings, the 365-day billing-dedup window, canonical frontend-URL edge detection, explicit-zero preservation, and unknown-role detection must stay together; duplicating or dropping this companion can make nodes silently apply the wrong destructive cutoff while all cleanup jobs still report success."
+    },
+    {
+      "path": "backend/internal/service/ops_cleanup_service.go",
+      "must_contain": [
+        "partitionmaintenance.OpsCleanupOptions",
+        "if !s.snapshotEffective().Enabled {",
+        "policy := resolveDataLifecyclePolicy(s.cfg, effective)",
+        "s.dashboardRepo.CleanupUsageLogs(ctx, now.AddDate(0, 0, -policy.usageLogRetentionDays))",
+        "s.dashboardRepo.CleanupUsageBillingDedup(ctx, now.AddDate(0, 0, -policy.billingDedupRetentionDays))",
+        "{policy.errorLogRetentionDays, \"ops_error_logs\"",
+        "{policy.systemLogRetentionDays, \"ops_system_logs\""
+      ],
+      "rationale": "OpsCleanupService is the sole automatic age-retention owner. It must keep partition provisioning active during cleanup hold, then use the shared role policy for usage, archive-first billing dedup, and separate error/system windows. Losing any hook can create double ownership, leave a dataset unbounded, or advance destructive cleanup under the wrong role policy."
+    },
+    {
+      "path": "backend/internal/service/dashboard_aggregation_service.go",
+      "must_contain": [
+        "policy := resolveDataLifecyclePolicy(cfg, config.OpsCleanupConfig{})",
+        "usageLogRetentionDays: policy.usageLogRetentionDays",
+        "if err := s.repo.CleanupAggregates(ctx, hourlyCutoff, dailyCutoff); err != nil {"
+      ],
+      "must_not_contain": [
+        "s.repo.CleanupUsageLogs(",
+        "s.repo.CleanupUsageBillingDedup("
+      ],
+      "rationale": "Dashboard aggregation may use the shared effective usage window for its initial query, but it owns aggregate-table retention only. Reintroducing usage_logs or billing-dedup deletion here creates a second automatic lifecycle owner whose schedule, failure, and hold semantics diverge from OpsCleanupService."
+    },
+    {
+      "path": "backend/internal/repository/dashboard_aggregation_repo.go",
+      "must_contain": [
+        "usageLogsCleanupMaxRowsPerRun = 1_000_000",
+        "usageBillingDedupCleanupMaxRowsPerRun = 1_000_000",
+        "total >= usageLogsCleanupMaxRowsPerRun",
+        "total >= usageBillingDedupCleanupMaxRowsPerRun",
+        "INSERT INTO usage_billing_dedup_archive",
+        "ON CONFLICT (request_id, api_key_id) DO NOTHING"
+      ],
+      "rationale": "Automatic usage and billing-dedup cleanup must drain large backlogs across cron runs instead of monopolizing PostgreSQL, while dedup remains archive-first. Dropping either per-run cap can turn a retention shrink into an unbounded transaction; dropping the archive insert or conflict-safe shape destroys the durable idempotency evidence before hot-row deletion."
+    },
+    {
+      "path": "backend/internal/config/config.go",
+      "must_contain": [
+        "viper.SetDefault(\"ops.cleanup.system_log_retention_days\", 7)",
+        "viper.SetDefault(\"ops.cleanup.error_log_retention_days\", 30)"
+      ],
+      "rationale": "Non-edge defaults must match the 30-day error and 7-day system-log policy. The role helper caps configured values but intentionally preserves shorter explicit values, so reverting the error default to 14 would silently shrink prod below the approved window."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": [
+        "dashboardRepo DashboardAggregationRepository,",
+        "NewOpsCleanupService(opsRepo, dashboardRepo, db, redisClient, cfg, channelMonitorSvc, settingRepo)",
+        "func ProvideOpsSystemLogSink(opsRepo OpsRepository, cfg *config.Config)",
+        "sink.SetEnabled(cfg == nil || cfg.Ops.Enabled)"
+      ],
+      "rationale": "Load-bearing DI seams for lifecycle ownership and system-log ingress. OpsCleanupService needs the dashboard repository to own usage/dedup cleanup, while the system-log sink must inherit static monitoring enablement before it starts; stale wiring compiles only with stale generated code and leaves the new owners inert."
+    },
+    {
+      "path": "backend/cmd/server/wire_gen.go",
+      "must_contain": [
+        "service.ProvideOpsSystemLogSink(opsRepository, configConfig)",
+        "service.ProvideOpsCleanupService(opsRepository, dashboardAggregationRepository, db, redisClient, configConfig, channelMonitorService, settingRepository, opsService)"
+      ],
+      "rationale": "Generated application wiring must carry the lifecycle-owner repository and static monitoring config through the real server graph. Wire regeneration or upstream conflict resolution can otherwise restore the old constructor calls and silently bypass the policy even when source providers and unit tests remain intact."
+    },
+    {
+      "path": "backend/internal/service/ops_system_log_sink.go",
+      "must_contain": [
+        "enabled   atomic.Bool",
+        "func (s *OpsSystemLogSink) SetEnabled(enabled bool)",
+        "!s.enabled.Load() || !s.shouldIndex(event)",
+        "if strings.Contains(component, \"audit\") {"
+      ],
+      "must_not_contain": [
+        "strings.Contains(component, \"http.access\")"
+      ],
+      "rationale": "System-log indexing must honor the monitoring gate, retain WARN+ and audit events, and stop indexing successful INFO http.access events already represented by usage_logs. Reintroducing the access special case restores high-volume duplicate storage; dropping the gate writes ops_system_logs while monitoring is disabled."
+    },
+    {
+      "path": "backend/internal/service/ops_service.go",
+      "must_contain": [
+        "func (s *OpsService) syncSystemLogSinkEnabled()",
+        "s.systemLogSink.SetEnabled(s.IsMonitoringEnabled(context.Background()))",
+        "s.syncSystemLogSinkEnabled()"
+      ],
+      "rationale": "Runtime monitoring settings must drive the already-running system-log sink without a poller or restart. The sync helper and call sites keep initialization, refresh, and admin setting changes on the same gate; losing this seam leaves static startup state diverged from the runtime control plane."
     }
   ]
 }
