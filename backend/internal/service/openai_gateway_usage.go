@@ -292,7 +292,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	s.tkNotifyServedZeroCost(cost, result, apiKey, input, billingModels, actualInputTokens, multiplier, accountRateMultiplier)
 	{
 		reqModel := result.Model
-		if input != nil && input.OriginalModel != "" {
+		if input.OriginalModel != "" {
 			reqModel = input.OriginalModel
 		}
 		fbUnits := int64(actualInputTokens) + int64(result.Usage.OutputTokens) +
