@@ -4708,19 +4708,28 @@
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
       "must_contain": [
-        "forwardBody = tkApplyResponsesDispatchModelMapping(apiKey, forwardBody, h.gatewayService.ReplaceModelInBody)",
-        "selectionModel := tkResolveResponsesSelectionModel(apiKey, reqModel)"
+        "selectionModel := service.CanonicalizeOpenAICompatRoutingModel(reqModel)",
+        "if tkShouldApplyMessagesDispatchBodyMapping(account) {",
+        "dispatchBody = tkApplyResponsesDispatchModelMapping(apiKey, forwardBody, h.gatewayService.ReplaceModelInBody)",
+        "// effectiveMappedModel is still passed to ForwardAsAnthropic"
       ],
-      "rationale": "TK fix (PR #809): the two thin injection points that make the /v1/responses inbound handler apply the group messages_dispatch_model_config mapping (claude family name -> configured gpt model), at parity with /v1/messages and /v1/chat/completions. (1) tkApplyResponsesDispatchModelMapping rewrites the forward-body model before dispatch so a claude model name (e.g. claude-opus-4-7) is not sent raw to the Codex/ChatGPT backend, which rejects it with upstream 400 'model not supported when using Codex with a ChatGPT account'. (2) tkResolveResponsesSelectionModel routes account selection on the same mapped model so the scheduler's channel-pricing / model-restriction filtering and load/sticky decisions see the real upstream-bound model instead of a claude name that never reaches the upstream. service.Forward resolves the upstream model via account-level GetMappedModel + codex normalization and never consults the group dispatch config, so the body must be rewritten here. An upstream merge that rewrites the Responses handler forward-body construction or the account-selection loop would silently drop either hook and regress the fix. Pairs with the openai_gateway_handler_tk_responses_dispatch.go sentinel."
+      "rationale": "TK /v1/responses routing: account selection uses the client-requested model (parity with /v1/chat/completions) so tokensea relays whose model_mapping lists Claude wire IDs remain selectable. Per-account forward attempts apply tkApplyResponsesDispatchModelMapping only when tkShouldApplyMessagesDispatchBodyMapping(account) is true (OAuth/Codex paths); tokensea API-key relays skip the claude→gpt rewrite so CC fallback keeps Claude upstream IDs. An upstream merge that restores global pre-loop dispatch mapping or dispatch-mapped selection silently breaks tokensea #92 responses/messages. Pairs with openai_gateway_handler_tk_tokensea_routing.go and openai_gateway_handler_tk_responses_dispatch.go sentinels."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler_tk_responses_dispatch.go",
       "must_contain": [
-        "func tkApplyResponsesDispatchModelMapping(",
-        "func tkResolveResponsesSelectionModel(",
-        "CanonicalizeOpenAICompatRoutingModel"
+        "func tkApplyResponsesDispatchModelMapping("
       ],
-      "rationale": "TK companion (PR #809) holding the /v1/responses dispatch model-mapping helpers: forward-body rewrite (tkApplyResponsesDispatchModelMapping) and account-selection model (tkResolveResponsesSelectionModel). tkResolveResponsesSelectionModel must canonicalize via CanonicalizeOpenAICompatRoutingModel so gpt alias spellings hit the same restriction/negative-cache keys as /v1/chat/completions (newapi GLM/Qwen/Doubao responses SSOT parity). Load-bearing: deleting the file silently regresses /v1/responses for claude model names (upstream 400) and the responses<->messages selection parity. Anchored so an upstream merge or refactor cannot remove the companion without tripping the sentinel; pairs with the openai_gateway_handler.go injection-site sentinel above."
+      "rationale": "TK companion (PR #809) holding tkApplyResponsesDispatchModelMapping: rewrites /v1/responses forward-body claude family names to group messages_dispatch_model_config gpt models for OAuth/Codex upstreams. Invoked per-account from openai_gateway_handler.go when tkShouldApplyMessagesDispatchBodyMapping(account) is true. Deleting the helper silently regresses Codex /v1/responses for claude model names (upstream 400). Pairs with the openai_gateway_handler.go injection-site sentinel."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler_tk_tokensea_routing.go",
+      "must_contain": [
+        "func tkShouldApplyMessagesDispatchBodyMapping(",
+        "ShouldUseNativeAnthropicMessagesAPI",
+        "ShouldUseResponsesAPI"
+      ],
+      "rationale": "TK tokensea relay guard: skips group messages-dispatch claude→gpt body rewrite for API-key accounts with native /v1/messages and/or CC-only upstream (openai_responses_supported=false). Without this companion, /v1/responses would rewrite Claude wire IDs to gpt dispatch models before forwardResponsesViaRawChatCompletions, breaking agent.tokensea.ai relays. Pairs with openai_gateway_handler.go per-account dispatch injection sentinel."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_kiro_mirror_scheduling.go",
