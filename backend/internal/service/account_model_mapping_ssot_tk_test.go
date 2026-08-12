@@ -137,6 +137,9 @@ func TestAccountModelMappingFloorForOps_ExportsAinzyRelayScope(t *testing.T) {
 	tokensea, ok := doc.Platforms[accountModelMappingPlatformOpenAITokenseaRelay]
 	require.True(t, ok)
 	requireIdentityMappingForIDs(t, tokensea, supportedCatalogModelIDsFromMap(supportedOpenAITokenseaRelayCatalogModels))
+	cloudwise, ok := doc.Platforms[accountModelMappingPlatformOpenAICloudwiseRelay]
+	require.True(t, ok)
+	requireIdentityMappingForIDs(t, cloudwise, supportedCatalogModelIDsFromMap(supportedOpenAICloudwiseRelayCatalogModels))
 	anthropicTokensea, ok := doc.Platforms[accountModelMappingPlatformAnthropicTokenseaRelay]
 	require.True(t, ok)
 	require.Equal(t, anthropicTokenseaRelayModelMappingFloor(), anthropicTokensea)
