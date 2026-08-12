@@ -147,9 +147,29 @@ Resources:
                 Effect: Allow
                 Action:
                   - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackResources
                 Resource:
                   - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/tokenkey-cicd-oidc/*"
                   - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/tokenkey-prod-stage0/*"
+                  - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/tokenkey-prod-qa-raw-archive/*"
+              - Sid: ReadQaRawArchiveIamContract
+                # ops/qa/verify_raw_archive_iam_contract.py on the GHA runner (OIDC
+                # creds) needs read-only bucket policy + S3 gateway route checks.
+                Effect: Allow
+                Action:
+                  - s3:GetBucketPolicy
+                Resource:
+                  - !Sub "arn:aws:s3:::tokenkey-prod-qa-raw-archive-${AWS::AccountId}"
+              - Sid: ReadQaRawArchiveNetworkForDiagnostics
+                Effect: Allow
+                Action:
+                  - ec2:DescribeVpcEndpoints
+                  - ec2:DescribeRouteTables
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "aws:RequestedRegion":
+                      - !Ref AWS::Region
               - Sid: ReadEbsSnapshotsForDiagnostics
                 # ops-daily-diagnostics data_layer_snapshot_signal.sh runs on the
                 # GHA runner (OIDC creds), not via SSM — needs direct EC2 read.
