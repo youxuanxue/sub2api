@@ -527,8 +527,15 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json <<'CWEOF'
 CWEOF
 
 systemctl daemon-reload
-systemctl enable --now tokenkey.service
-systemctl enable --now tokenkey-pgdump.timer
+if [ "${TK_CANDIDATE_MODE:-0}" = "1" ]; then
+  systemctl disable --now tokenkey.service tokenkey-pgdump.timer
+  docker compose --env-file /var/lib/tokenkey/.env pull
+  docker compose --env-file /var/lib/tokenkey/.env up -d --no-deps postgres redis
+  echo "CANDIDATE_READY $(date -u +%FT%TZ)" >> /var/log/tokenkey-bootstrap.log
+else
+  systemctl enable --now tokenkey.service
+  systemctl enable --now tokenkey-pgdump.timer
+fi
 systemctl enable --now tokenkey-disk-metrics.timer
 systemctl disable --now tokenkey-qa-stale-cleanup.timer
 systemctl disable --now tokenkey-qa-boundary.timer

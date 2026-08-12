@@ -22,7 +22,7 @@ deploy/aws/
     ├── docker-compose.yml            源真：Caddy + tokenkey + PostgreSQL + Redis（主站与 Edge 共用）
     ├── Caddyfile                     主站/test Caddy：LE 自动签证书 + 反代到 tokenkey:8080
     ├── Caddyfile.edge                Edge Caddy：/v1/*、/api/* 默认只允许主网关出口；Lightsail edge 复用
-    ├── edge-targets.json             EC2 edge 矩阵（2026-06-07 已清空：edges 改 Lightsail，见 deploy/aws/lightsail/edge-targets-lightsail.json；文件保留为空 stub 供 resolver 不致缺文件 hard-fail）
+    ├── edge-targets.json             EC2 Edge owner / migration candidate 矩阵
     ├── resolve-edge-target.py        workflow 解析 Edge 目标并 fail-before-AWS（合并读 Lightsail 矩阵）
     ├── .env.example                  环境变量模板（生产 .env 由 Cloud-Init 自动生成；本地调试可复制使用）
     └── build-cfn.sh                  把 compose/Caddy + QA 生命周期 / GHCR prune 等 payload 注入 CFN（含 SSM 段）
@@ -54,7 +54,7 @@ CFN 模板已把 `docker-compose.yml`、`Caddyfile`、QA 生命周期 payload �
 # prod（EC2 instance-id 从 deploy-stage0 的 Resolve target 步骤拿，或 describe-stacks）
 bash ops/stage0/sync_caddyfile_via_ssm.sh prod <instance-id>
 
-# edge（Lightsail Hybrid，按 EdgeId tag 寻址；edges 均为 Lightsail）
+# Lightsail edge（Hybrid SSM，按 EdgeId tag 寻址）
 EDGE_ID=<edge> bash ops/stage0/sync_caddyfile_via_ssm.sh edge <mi-id>
 ```
 
@@ -211,23 +211,31 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 # 期望 200；首次若 503 是 LE 还在签证书，等 1–2 min
 ```
 
-## Edge Stage 0（Lightsail-only）
+## Edge Stage 0（唯一 owner，多平台）
 
-> **2026-06-07：edges 改为 Lightsail 唯一路径。** EC2/CFN 的 **Edge** 矩阵已退役（`deploy-edge-stage0.yml`、`stage0-edge-ec2.yaml`、EIP 轮换工具已删除，`edge-targets.json` 清空为 stub）。**prod 主网关仍是 EC2/CFN（`tokenkey-prod-stage0`），不受影响**——本节只讲 edge。
+每个 Edge 在 Lightsail 与 EC2 中恰好只有一个 `deployable=true` owner。统一入口
+`scripts/stage0/dispatch-edge-deploy.sh` 默认跟随该 owner；EC2 migration candidate 只能通过显式
+`--platform ec2` 进入，不参与普通 rollout。prod 主网关仍是独立 EC2/CFN 栈
+`tokenkey-prod-stage0`。
 
 Edge 子网关不是第二个用户入口。区域域名（如 `api-us3.tokenkey.dev`、`api-us4.tokenkey.dev`）只作为 `api.tokenkey.dev` 背后的区域资源节点，默认 API 路径只允许主网关出口访问。
 
-所有 edge 都在 Lightsail（矩阵 `deploy/aws/lightsail/edge-targets-lightsail.json`，workflow `deploy-edge-lightsail-stage0.yml`）。当前 edge 矩阵示例：
+平台矩阵分别是 `deploy/aws/lightsail/edge-targets-lightsail.json` 与
+`deploy/aws/stage0/edge-targets.json`；workflow 分别是
+`deploy-edge-lightsail-stage0.yml` 与 `deploy-edge-stage0.yml`。当前 active owner 仍由矩阵机械解析，
+不要从文档示例推断线上 owner。
 
 ```text
 us3 -> us-east-2 -> api-us3.tokenkey.dev -> tokenkey-edge-us-oh1-ls -> deploy-edge-lightsail-stage0.yml
 us4 -> us-west-2 -> api-us4.tokenkey.dev -> tokenkey-edge-us-or1-ls -> deploy-edge-lightsail-stage0.yml
 ```
 
-新增 edge / 升级 / 回滚 / IP 轮换的端到端流程见
+新增 Lightsail edge / 升级 / 回滚 / IP 轮换见
 [`.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md)
 与 [`deploy/aws/lightsail/README.md`](lightsail/README.md)。日常发版 rollout 经
-`scripts/stage0/dispatch-edge-deploy.sh`（路由到 `deploy-edge-lightsail-stage0.yml`）。
+`scripts/stage0/dispatch-edge-deploy.sh` 自动路由到当前 owner。Lightsail → EC2 的零数据丢失迁移见
+[`ops/migration/README.md`](../../ops/migration/README.md) 与
+[`docs/approved/design-edge-ec2-zero-loss-migration.md`](../../docs/approved/design-edge-ec2-zero-loss-migration.md)。
 
 Edge 不是第二套部署逻辑：prod/test 和 Edge 都调用同一批共享脚本：
 
@@ -258,7 +266,7 @@ ops/stage0/sync-feishu-config.sh
   只读核对用 `bash ops/observability/probe-alert-config.sh`（看 `feishu_enabled`/`feishu_webhook_present`/`feishu_secret_present`）。
   脚本绝不打印 webhook/secret。
 
-**IAM**：prod 的 OIDC/SSM/CFN 权限仍在 `deploy/aws/cloudformation/cicd-oidc.yaml`（**`tokenkey-cicd-oidc`**，部署区域须与仓库变量 **`AWS_OIDC_STACK_REGION`** 一致；未设置时 workflow 使用 `vars.AWS_REGION`，再没有则用 `us-east-1`，与 `docs/approved/deploy-stage0-workflow.md` 默认一致）。**所有 Lightsail edge** 走独立一次性 addon（`cicd-oidc-lightsail-addon.yaml`，Lightsail API + SSM Hybrid Activation 权限），不再有按 edge 的 CFN execution role。
+**IAM**：prod 的 OIDC/SSM/CFN 权限仍在 `deploy/aws/cloudformation/cicd-oidc.yaml`（**`tokenkey-cicd-oidc`**，部署区域须与仓库变量 **`AWS_OIDC_STACK_REGION`** 一致；未设置时 workflow 使用 `vars.AWS_REGION`，再没有则用 `us-east-1`，与 `docs/approved/deploy-stage0-workflow.md` 默认一致）。Lightsail Edge 使用一次性 addon `cicd-oidc-lightsail-addon.yaml`；EC2 Edge 使用独立的 `cicd-oidc-ec2-edge-addon.yaml` 和受限 CFN execution role。两者都附着到现有 GitHub OIDC role，不把平台权限塞回 prod 基础策略。
 
 > **live==repo 漂移检查（IAM/OIDC CFN stack 非自动部署，手工 deploy 易漏）。** `cicd-oidc.yaml` / `cicd-oidc-lightsail-addon.yaml` 由人工 `aws cloudformation deploy`，git 改了模板若忘了重新部署，live 就会落后（2026-06-07 addon 的 `lightsail:OpenInstancePublicPorts` 即因此缺失，导致 provision 开 443 被拒、edge 防火墙关着）。用 `ops/stage0/check-cfn-live-drift.sh` 拿 repo 模板对 live stack 建 no-execute changeset、断言无变更来抓这类漂移（需 PowerUserAccess 等带 `cloudformation:CreateChangeSet` 的凭证；退出码 0 同步 / 1 漂移 / 2 出错）：
 >
@@ -935,7 +943,7 @@ GitHub Actions 不再用长期 AWS 凭证，**OIDC 临时换 STS** → `ssm:Send
 ### Workflow 行为
 
 - 触发：每天 02:00 UTC cron + 手动 `workflow_dispatch`。
-- 默认 operation：`diagnostics`，覆盖 prod + `deploy/aws/lightsail/edge-targets-lightsail.json` 里 `deployable=true` 的 Lightsail Edge（edges 均为 Lightsail；`deploy/aws/stage0/edge-targets.json` 已清空为 stub）。
+- 默认 operation：`diagnostics`，覆盖 prod 和矩阵解析出的唯一 `deployable=true` Edge owner；EC2 migration candidate 不进入普通 diagnostics/rollout。
 - 手动 target selector：`all`、`prod`、`edge:*`、`edge:<id>`；`deployable=false` 的 Edge 只进入 excluded summary。
 - 输出：每个目标上传 `prod-ops-target-<target>-<run_id>` artifact，汇总上传 `prod-ops-report-<run_id>`。
 - Issue 决策：账号容量与 provider health 异常保留在日报并由现有飞书链路告警，不创建 GitHub Issue；Caddy error-level access 粗计数仅作 report-only 证据，由 canonical daily ledger 负责可行动错误分类；其余 `issue_candidate` / `manual_ops` findings 才创建或更新 Issue，并使用 `ops-sig:*`、`target:*`、`finding:*` label 去重。开放签名追加评论，最近 7 天内已关闭的签名处于冷却期，不重新建单。

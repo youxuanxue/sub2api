@@ -53,7 +53,7 @@ def resolve_route_tab(
     ec2_target = (ec2_data.get("targets") or {}).get(eid)
 
     if pref == "lightsail":
-        if not ls_target:
+        if not ls_target or ls_target.get("deployable") is not True:
             _fail(
                 f"edge_id={eid} not in lightsail matrix or matrix missing ({ls_path})",
             )
@@ -65,6 +65,11 @@ def resolve_route_tab(
     if pref == "ec2":
         if not ec2_target:
             _fail(f"unknown edge_id in EC2 matrix: {eid}")
+        if not (
+            ec2_target.get("deployable") is True
+            or ec2_target.get("migration_candidate") is True
+        ):
+            _fail(f"edge {eid} is neither deployable nor a migration candidate")
         region = ec2_target.get("region")
         stack = ec2_target.get("stack")
         if not region or not stack:
@@ -72,22 +77,29 @@ def resolve_route_tab(
         return ("ec2", str(region), str(stack))
 
     # auto
-    if (
+    ls_deployable = bool(
         ls_target
         and ls_target.get("deployable") is True
         and ls_target.get("lightsail_region")
-    ):
+    )
+    ec2_deployable = bool(
+        ec2_target
+        and ec2_target.get("deployable") is True
+        and ec2_target.get("region")
+        and ec2_target.get("stack")
+    )
+    if ls_deployable and ec2_deployable:
+        _fail(f"edge {eid}: both EC2 and Lightsail are deployable; owner is ambiguous")
+    if ls_deployable:
         return ("lightsail", str(ls_target["lightsail_region"]), None)
 
     if not ec2_target:
         _fail(
             f"edge {eid}: no Lightsail deployable route and unknown in EC2 matrix",
         )
-    region = ec2_target.get("region")
-    stack = ec2_target.get("stack")
-    if not region or not stack:
-        _fail(f"edge {eid} missing region/stack for EC2 fallback")
-    return ("ec2", str(region), str(stack))
+    if not ec2_deployable:
+        _fail(f"edge {eid}: no deployable owner; explicit --platform ec2 is required for a candidate")
+    return ("ec2", str(ec2_target["region"]), str(ec2_target["stack"]))
 
 
 def load_lightsail_targets(repo_root: pathlib.Path | str) -> dict[str, dict]:
@@ -125,6 +137,8 @@ def edge_effective_deployable(
         and ec2_target.get("region")
         and ec2_target.get("stack"),
     )
+    if ls_ok and ec2_ok:
+        _fail("both EC2 and Lightsail are deployable; owner is ambiguous")
     return ls_ok or ec2_ok
 
 

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Resolve canonical Edge deploy workflow + confirm token for gh dispatch.
 
-Uses ``edge_routing_matrix`` (Lightsail deployable wins over EC2). stdout is JSON
-when ``--json`` is set; otherwise KEY=value lines for shell consumers.
+Uses the active owner by default. Explicit EC2 may select a migration candidate.
 """
 from __future__ import annotations
 
@@ -29,6 +28,7 @@ def _fail(message: str, code: int = 1) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Resolve Edge deploy workflow route.")
     parser.add_argument("--edge-id", required=True)
+    parser.add_argument("--platform", choices=("auto", "ec2", "lightsail"), default="auto")
     parser.add_argument("--json", action="store_true", help="Emit JSON on stdout.")
     args = parser.parse_args()
 
@@ -45,13 +45,13 @@ def main() -> int:
     ec2_target = (ec2_data.get("targets") or {}).get(edge_id)
     ls_target = ls_targets.get(edge_id)
 
-    if not edge_effective_deployable(ec2_target, ls_target):
+    if args.platform == "auto" and not edge_effective_deployable(ec2_target, ls_target):
         _fail(
             f"edge_id {edge_id} is not effectively deployable "
             "(set deployable=true in exactly one EC2 or Lightsail matrix)"
         )
 
-    mode, region, stack = resolve_route_tab(REPO_ROOT, edge_id, "auto")
+    mode, region, stack = resolve_route_tab(REPO_ROOT, edge_id, args.platform)
 
     if mode == "lightsail":
         if not ls_target:
@@ -66,22 +66,31 @@ def main() -> int:
             "workflow_file": "deploy-edge-lightsail-stage0.yml",
             "confirm_flag": "confirm_instance",
             "confirm_value": instance_name,
+            "allow_migration_candidate": False,
         }
     else:
-        # The EC2 edge deploy path was removed 2026-06-07 (deploy-edge-stage0.yml
-        # deleted; edges are Lightsail-only). The EC2 matrix is empty so this branch
-        # is unreachable in practice — fail loud rather than emit a deleted workflow.
-        _fail(
-            f"edge_id {edge_id} resolved to the retired EC2 edge path; edges are "
-            "Lightsail-only (deploy-edge-stage0.yml was removed 2026-06-07)"
-        )
+        if not ec2_target:
+            _fail(f"edge_id {edge_id} resolved to EC2 but the matrix entry is missing")
+        payload = {
+            "edge_id": edge_id,
+            "platform": "ec2",
+            "region": region,
+            "workflow_file": "deploy-edge-stage0.yml",
+            "confirm_flag": "confirm_stack",
+            "confirm_value": stack,
+            "allow_migration_candidate": (
+                ec2_target.get("deployable") is not True
+                and ec2_target.get("migration_candidate") is True
+            ),
+        }
 
     if args.json:
         json.dump(payload, sys.stdout, separators=(",", ":"), sort_keys=True)
         sys.stdout.write("\n")
     else:
         for key, value in payload.items():
-            print(f"{key}={value}")
+            rendered = str(value).lower() if isinstance(value, bool) else value
+            print(f"{key}={rendered}")
     return 0
 
 

@@ -111,6 +111,15 @@ if [[ -z "${INSTANCE_ID}" ]]; then
   exit 1
 fi
 
+IS_PROD_EC2=0
+IS_EDGE=0
+if [[ "${INSTANCE_ID}" == i-* && -z "${EDGE_ID:-}" ]]; then
+  IS_PROD_EC2=1
+fi
+if [[ "${INSTANCE_ID}" == mi-* || -n "${EDGE_ID:-}" ]]; then
+  IS_EDGE=1
+fi
+
 ssm_region_args=()
 if [[ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
   ssm_region_args=(--region "${AWS_REGION:-${AWS_DEFAULT_REGION}}")
@@ -144,7 +153,7 @@ stderr_file="${OUTPUT_DIR}/stderr.txt"
 # SERVER_FRONTEND_URL is unique to the tokenkey service and is guaranteed present by
 # the SERVER_FRONTEND_URL backfill below, which runs earlier in this command list.
 qa_export_cmds='[]'
-if [[ "${INSTANCE_ID}" == i-* ]]; then
+if [[ "${IS_PROD_EC2}" -eq 1 ]]; then
   qa_export_cmds="$(jq -n \
     --arg tag "${TAG}" \
     --arg driver "${QA_CAPTURE_EXPORT_STORAGE_DRIVER:-s3}" \
@@ -173,7 +182,7 @@ fi
 # Target policy: ops/qa/policy.yaml (prod.archive.enabled). Deploy inject default
 # true after Phase 2 recovery closeout: ops/qa/deploy_rollout.yaml (SSOT).
 qa_archive_cmds='[]'
-if [[ "${INSTANCE_ID}" == i-* ]]; then
+if [[ "${IS_PROD_EC2}" -eq 1 ]]; then
   qa_archive_cmds="$(jq -n \
     --arg tag "${TAG}" \
     --arg enabled "${QA_ARCHIVE_ENABLED:-true}" \
@@ -214,7 +223,7 @@ fi
 # enable before the CFN media bucket exists: the store degrades to base64
 # passthrough on any S3 error. The media/ key prefix matches the bucket lifecycle.
 media_storage_cmds='[]'
-if [[ "${INSTANCE_ID}" == i-* ]]; then
+if [[ "${IS_PROD_EC2}" -eq 1 ]]; then
   media_storage_cmds="$(jq -n \
     --arg tag "${TAG}" \
     --arg driver "${MEDIA_STORAGE_DRIVER:-s3}" \
@@ -255,7 +264,7 @@ fi
 # capture, archive, export, or retain QA. Prod-only blocks above stay gated to
 # EC2 i-*; this block is the symmetric edge gate. Values derive from ops/qa/policy.yaml.
 edge_qa_capture_cmds='[]'
-if [[ "${INSTANCE_ID}" == mi-* ]]; then
+if [[ "${IS_EDGE}" -eq 1 ]]; then
   edge_qa_capture_cmds="$(jq -n \
     --arg tag "${TAG}" '
     [
@@ -273,8 +282,13 @@ if [[ "${INSTANCE_ID}" == mi-* ]]; then
     ]')"
 fi
 
+edge_migration_guard_cmds='[]'
+if [[ "${IS_EDGE}" -eq 1 ]]; then
+  edge_migration_guard_cmds='["sudo install -d -m 0700 /var/lib/tokenkey/migration; exec 9>/var/lib/tokenkey/migration/.action.lock; flock -n 9 || { echo '\''migration action is running; Edge deploy refused'\'' >&2; exit 75; }; test ! -e /var/lib/tokenkey/migration/.write-owner-locked || { echo '\''migration froze this write owner; Edge deploy refused'\'' >&2; exit 76; }; test ! -e /var/lib/tokenkey/migration/.target-proxy-retained || { echo '\''migration retains this EC2 target as a proxy; Edge deploy refused'\'' >&2; exit 77; }"]'
+fi
+
 image_concurrency_cmds='[]'
-if [[ "${INSTANCE_ID}" == i-* ]]; then
+if [[ "${IS_PROD_EC2}" -eq 1 ]]; then
   image_concurrency_cmds="$(jq -n \
     --arg tag "${TAG}" \
     --arg enabled "${GATEWAY_IMAGE_CONCURRENCY_ENABLED:-true}" \
@@ -297,7 +311,7 @@ if [[ "${INSTANCE_ID}" == i-* ]]; then
     ]')"
 fi
 
-jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_export_cmds}" --argjson qa_archive_cmds "${qa_archive_cmds}" --argjson media_cmds "${media_storage_cmds}" --argjson ic_cmds "${image_concurrency_cmds}" --argjson edge_qa_cmds "${edge_qa_capture_cmds}" '{
+jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_export_cmds}" --argjson qa_archive_cmds "${qa_archive_cmds}" --argjson media_cmds "${media_storage_cmds}" --argjson ic_cmds "${image_concurrency_cmds}" --argjson edge_qa_cmds "${edge_qa_capture_cmds}" --argjson edge_guard_cmds "${edge_migration_guard_cmds}" '{
   commands: ([
     "set -euo pipefail",
     ("echo === deploy stage0 to tag=" + $tag + " ==="),
@@ -313,7 +327,7 @@ jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_export_cmds}" --argjson qa_arch
     "if ! grep -q '\''^SERVER_FRONTEND_URL='\'' /var/lib/tokenkey/.env; then d=$(sed -n '\''s/^API_DOMAIN=//p'\'' /var/lib/tokenkey/.env | head -1); if [ -n \"$d\" ]; then echo \"SERVER_FRONTEND_URL=https://$d\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured SERVER_FRONTEND_URL=https://$d\"; else echo \"API_DOMAIN empty; skip SERVER_FRONTEND_URL backfill\"; fi; else echo \"SERVER_FRONTEND_URL already present\"; fi",
     "if ! grep -q '\''^TOKENKEY_GHCR_KEEP_TAGS='\'' /var/lib/tokenkey/.env; then echo '\''TOKENKEY_GHCR_KEEP_TAGS=3'\'' | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo '\''ensured TOKENKEY_GHCR_KEEP_TAGS=3'\''; else echo '\''TOKENKEY_GHCR_KEEP_TAGS already present'\''; fi",
     ("if [ -f /var/lib/tokenkey/docker-compose.yml ] && ! grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then sudo cp -a /var/lib/tokenkey/docker-compose.yml /var/lib/tokenkey/docker-compose.yml.compose-before-" + $tag + "; sudo sed -i '\''/^      - TZ=/a\\      - SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}'\'' /var/lib/tokenkey/docker-compose.yml; if grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then echo ensured-compose-SERVER_FRONTEND_URL-mapping; else echo '\''::warning::failed to insert compose SERVER_FRONTEND_URL mapping'\''; fi; else echo compose-SERVER_FRONTEND_URL-mapping-present-or-no-compose; fi")
-  ] + $qa_cmds + $qa_archive_cmds + $media_cmds + $ic_cmds + $edge_qa_cmds + [
+  ] + $edge_guard_cmds + $qa_cmds + $qa_archive_cmds + $media_cmds + $ic_cmds + $edge_qa_cmds + [
     "echo \"=== pull new image BEFORE drain (old container keeps serving 100% traffic) ===\"",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
     "echo \"=== pre-drain: SIGUSR1 + wait in_flight=0 (only when outgoing container healthy) ===\"",

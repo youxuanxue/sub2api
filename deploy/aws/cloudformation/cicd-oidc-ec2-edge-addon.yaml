@@ -1,0 +1,602 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  EC2 Edge automation addon for TokenKey. Attaches a scoped caller policy to
+  the existing GitHub Actions OIDC role and creates a separate CloudFormation
+  execution role. The caller can operate only tokenkey-edge-*-stage0 stacks;
+  regional operations are limited to us-east-2 and us-west-2.
+
+Parameters:
+  GitHubOidcRoleNames:
+    Type: CommaDelimitedList
+    Default: tokenkey-gha-us-east-1-error-clustering
+    Description: Existing GHA OIDC role names from the tokenkey-cicd-oidc stack.
+
+Resources:
+  Ec2EdgeInstanceBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: tokenkey-ec2-edge-instance-boundary
+      Description: Maximum permissions for TokenKey EC2 Edge instance roles.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: SsmAgentCore
+            Effect: Allow
+            Action:
+              - ec2messages:AcknowledgeMessage
+              - ec2messages:DeleteMessage
+              - ec2messages:FailMessage
+              - ec2messages:GetEndpoint
+              - ec2messages:GetMessages
+              - ec2messages:SendReply
+              - ssm:DescribeAssociation
+              - ssm:DescribeDocument
+              - ssm:GetDeployablePatchSnapshotForInstance
+              - ssm:GetDocument
+              - ssm:GetManifest
+              - ssm:ListAssociations
+              - ssm:ListInstanceAssociations
+              - ssm:PutComplianceItems
+              - ssm:PutConfigurePackageResult
+              - ssm:PutInventory
+              - ssm:UpdateAssociationStatus
+              - ssm:UpdateInstanceAssociationStatus
+              - ssm:UpdateInstanceInformation
+              - ssmmessages:CreateControlChannel
+              - ssmmessages:CreateDataChannel
+              - ssmmessages:OpenControlChannel
+              - ssmmessages:OpenDataChannel
+            Resource: "*"
+          - Sid: EdgeBootstrapParameters
+            Effect: Allow
+            Action:
+              - ssm:GetParameter
+              - ssm:GetParameters
+            Resource:
+              - !Sub arn:${AWS::Partition}:ssm:us-east-2:${AWS::AccountId}:parameter/tokenkey/edge/us*/stage0/*
+              - !Sub arn:${AWS::Partition}:ssm:us-west-2:${AWS::AccountId}:parameter/tokenkey/edge/us*/stage0/*
+              - !Sub arn:${AWS::Partition}:ssm:us-east-2:${AWS::AccountId}:parameter/tokenkey/ghcr/pat
+              - !Sub arn:${AWS::Partition}:ssm:us-west-2:${AWS::AccountId}:parameter/tokenkey/ghcr/pat
+              - !Sub arn:${AWS::Partition}:ssm:us-east-2:${AWS::AccountId}:parameter/tokenkey/edge/us*/ghcr/pat
+              - !Sub arn:${AWS::Partition}:ssm:us-west-2:${AWS::AccountId}:parameter/tokenkey/edge/us*/ghcr/pat
+          - Sid: EdgeKmsViaSsm
+            Effect: Allow
+            Action: kms:Decrypt
+            Resource: "*"
+            Condition:
+              StringEquals:
+                kms:ViaService:
+                  - ssm.us-east-2.amazonaws.com
+                  - ssm.us-west-2.amazonaws.com
+          - Sid: EdgeMetrics
+            Effect: Allow
+            Action:
+              - cloudwatch:DescribeAlarms
+              - cloudwatch:PutMetricData
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  - us-east-2
+                  - us-west-2
+          - Sid: EdgeLogDelivery
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:DescribeLogGroups
+              - logs:DescribeLogStreams
+              - logs:PutLogEvents
+              - logs:PutRetentionPolicy
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  - us-east-2
+                  - us-west-2
+          - Sid: EdgeTaggedVolumes
+            Effect: Allow
+            Action: ec2:AttachVolume
+            Resource: "*"
+            Condition:
+              StringEquals:
+                ec2:ResourceTag/Project: tokenkey
+          - Sid: ReadVolumeAttachmentState
+            Effect: Allow
+            Action:
+              - ec2:DescribeTags
+              - ec2:DescribeVolumes
+            Resource: "*"
+
+  Ec2EdgeDlmBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: tokenkey-ec2-edge-dlm-boundary
+      Description: Maximum permissions for TokenKey EC2 Edge DLM roles.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EdgeSnapshotLifecycle
+            Effect: Allow
+            Action:
+              - ec2:CopySnapshot
+              - ec2:CreateSnapshot
+              - ec2:CreateSnapshots
+              - ec2:CreateTags
+              - ec2:DeleteSnapshot
+              - ec2:DeleteTags
+              - ec2:Describe*
+              - ec2:DisableFastSnapshotRestores
+              - ec2:EnableFastSnapshotRestores
+              - ec2:ModifySnapshotAttribute
+              - ec2:ModifySnapshotTier
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  - us-east-2
+                  - us-west-2
+          - Sid: EdgeSnapshotEvents
+            Effect: Allow
+            Action:
+              - events:DeleteRule
+              - events:DescribeRule
+              - events:DisableRule
+              - events:EnableRule
+              - events:ListTargetsByRule
+              - events:PutRule
+              - events:PutTargets
+              - events:RemoveTargets
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  - us-east-2
+                  - us-west-2
+
+  Ec2EdgeCloudFormationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tokenkey-cfn-ec2-edge-stage0
+      Description: CloudFormation execution role for approved TokenKey EC2 Edge stacks.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ProvisionTokenkeyEc2Edge
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadEc2EdgeProvisioningState
+                Effect: Allow
+                Action:
+                  - ec2:Describe*
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion:
+                      - us-east-2
+                      - us-west-2
+              - Sid: CreateTaggedEc2EdgeResources
+                Effect: Allow
+                Action:
+                  - ec2:CreateInternetGateway
+                  - ec2:CreateRouteTable
+                  - ec2:CreateSecurityGroup
+                  - ec2:CreateSubnet
+                  - ec2:CreateVolume
+                  - ec2:CreateVpc
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    aws:RequestTag/Project: tokenkey
+                    aws:RequestTag/Environment: edge
+                    aws:RequestedRegion:
+                      - us-east-2
+                      - us-west-2
+                  StringLike:
+                    aws:RequestTag/EdgeId: us*
+              - Sid: TagNewEc2EdgeResources
+                Effect: Allow
+                Action: ec2:CreateTags
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    aws:RequestTag/Project: tokenkey
+                    aws:RequestTag/Environment: edge
+                    ec2:CreateAction:
+                      - CreateInternetGateway
+                      - CreateRouteTable
+                      - CreateSecurityGroup
+                      - CreateSubnet
+                      - CreateVolume
+                      - CreateVpc
+                      - RunInstances
+                    aws:RequestedRegion:
+                      - us-east-2
+                      - us-west-2
+                  StringLike:
+                    aws:RequestTag/EdgeId: us*
+              - Sid: RunTaggedEc2EdgeInstances
+                Effect: Allow
+                Action: ec2:RunInstances
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    aws:RequestTag/Project: tokenkey
+                    aws:RequestTag/Environment: edge
+                    aws:RequestedRegion:
+                      - us-east-2
+                      - us-west-2
+                  StringLike:
+                    aws:RequestTag/EdgeId: us*
+              - Sid: UseEc2EdgeLaunchDependencies
+                Effect: Allow
+                Action: ec2:RunInstances
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ec2:us-east-2::image/*
+                  - !Sub arn:${AWS::Partition}:ec2:us-west-2::image/*
+                  - !Sub arn:${AWS::Partition}:ec2:us-east-2:${AWS::AccountId}:network-interface/*
+                  - !Sub arn:${AWS::Partition}:ec2:us-west-2:${AWS::AccountId}:network-interface/*
+                  - !Sub arn:${AWS::Partition}:ec2:us-east-2:${AWS::AccountId}:security-group/*
+                  - !Sub arn:${AWS::Partition}:ec2:us-west-2:${AWS::AccountId}:security-group/*
+                  - !Sub arn:${AWS::Partition}:ec2:us-east-2:${AWS::AccountId}:subnet/*
+                  - !Sub arn:${AWS::Partition}:ec2:us-west-2:${AWS::AccountId}:subnet/*
+                  - !Sub arn:${AWS::Partition}:ec2:us-east-2:${AWS::AccountId}:volume/*
+                  - !Sub arn:${AWS::Partition}:ec2:us-west-2:${AWS::AccountId}:volume/*
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion:
+                      - us-east-2
+                      - us-west-2
+              - Sid: ManageTaggedEc2EdgeResources
+                Effect: Allow
+                Action:
+                  - ec2:AssociateAddress
+                  - ec2:AssociateRouteTable
+                  - ec2:AttachInternetGateway
+                  - ec2:AttachVolume
+                  - ec2:AuthorizeSecurityGroupIngress
+                  - ec2:CreateRoute
+                  - ec2:DeleteInternetGateway
+                  - ec2:DeleteRoute
+                  - ec2:DeleteRouteTable
+                  - ec2:DeleteSecurityGroup
+                  - ec2:DeleteSubnet
+                  - ec2:DeleteTags
+                  - ec2:DeleteVolume
+                  - ec2:DeleteVpc
+                  - ec2:DetachInternetGateway
+                  - ec2:DetachVolume
+                  - ec2:DisassociateAddress
+                  - ec2:DisassociateRouteTable
+                  - ec2:ModifyInstanceAttribute
+                  - ec2:ModifyInstanceCreditSpecification
+                  - ec2:ModifySubnetAttribute
+                  - ec2:ModifyVolume
+                  - ec2:ModifyVpcAttribute
+                  - ec2:ReplaceRoute
+                  - ec2:RevokeSecurityGroupIngress
+                  - ec2:StartInstances
+                  - ec2:StopInstances
+                  - ec2:TerminateInstances
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    ec2:ResourceTag/Project: tokenkey
+                    ec2:ResourceTag/Environment: edge
+                    aws:RequestedRegion:
+                      - us-east-2
+                      - us-west-2
+              - Sid: ManageEdgeRuntimeIamRoles
+                Effect: Allow
+                Action:
+                  - iam:AddRoleToInstanceProfile
+                  - iam:AttachRolePolicy
+                  - iam:CreateInstanceProfile
+                  - iam:DeleteInstanceProfile
+                  - iam:DeleteRole
+                  - iam:DeleteRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:GetInstanceProfile
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListInstanceProfilesForRole
+                  - iam:ListRolePolicies
+                  - iam:ListRoleTags
+                  - iam:PutRolePolicy
+                  - iam:RemoveRoleFromInstanceProfile
+                  - iam:TagInstanceProfile
+                  - iam:TagRole
+                  - iam:UntagInstanceProfile
+                  - iam:UntagRole
+                  - iam:UpdateRoleDescription
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-edge-*-stage0-*
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:instance-profile/tokenkey-edge-*-stage0-*
+              - Sid: CreateBoundedEdgeInstanceRoles
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:PutRolePermissionsBoundary
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-edge-*-stage0-instance
+                Condition:
+                  ArnEquals:
+                    iam:PermissionsBoundary: !Ref Ec2EdgeInstanceBoundary
+              - Sid: CreateBoundedEdgeDlmRoles
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:PutRolePermissionsBoundary
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-edge-*-stage0-dlm
+                Condition:
+                  ArnEquals:
+                    iam:PermissionsBoundary: !Ref Ec2EdgeDlmBoundary
+              - Sid: PassEdgeInstanceRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-edge-*-stage0-instance
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: ec2.amazonaws.com
+              - Sid: PassEdgeDlmRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-edge-*-stage0-dlm
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: dlm.amazonaws.com
+              - Sid: ManageEdgeBootstrapParameters
+                Effect: Allow
+                Action:
+                  - ssm:DeleteParameter
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:PutParameter
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:us-east-2:${AWS::AccountId}:parameter/tokenkey/edge/us*/stage0/*
+                  - !Sub arn:${AWS::Partition}:ssm:us-west-2:${AWS::AccountId}:parameter/tokenkey/edge/us*/stage0/*
+              - Sid: ManageEdgeAlarms
+                Effect: Allow
+                Action:
+                  - cloudwatch:DeleteAlarms
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:PutMetricAlarm
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudwatch:us-east-2:${AWS::AccountId}:alarm:tokenkey-us*-*
+                  - !Sub arn:${AWS::Partition}:cloudwatch:us-west-2:${AWS::AccountId}:alarm:tokenkey-us*-*
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion:
+                      - us-east-2
+                      - us-west-2
+              - Sid: ListEdgeSnapshotPolicies
+                Effect: Allow
+                Action: dlm:GetLifecyclePolicies
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion:
+                      - us-east-2
+                      - us-west-2
+              - Sid: CreateTaggedEdgeSnapshotPolicy
+                Effect: Allow
+                Action: dlm:CreateLifecyclePolicy
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    aws:RequestTag/Project: tokenkey
+                    aws:RequestTag/Environment: edge
+                    aws:RequestedRegion:
+                      - us-east-2
+                      - us-west-2
+                  StringLike:
+                    aws:RequestTag/EdgeId: us*
+              - Sid: ManageTaggedEdgeSnapshotPolicies
+                Effect: Allow
+                Action:
+                  - dlm:DeleteLifecyclePolicy
+                  - dlm:GetLifecyclePolicy
+                  - dlm:ListTagsForResource
+                  - dlm:TagResource
+                  - dlm:UntagResource
+                  - dlm:UpdateLifecyclePolicy
+                Resource:
+                  - !Sub arn:${AWS::Partition}:dlm:us-east-2:${AWS::AccountId}:policy/*
+                  - !Sub arn:${AWS::Partition}:dlm:us-west-2:${AWS::AccountId}:policy/*
+                Condition:
+                  StringEquals:
+                    aws:ResourceTag/Project: tokenkey
+                    aws:ResourceTag/Environment: edge
+                    aws:RequestedRegion:
+                      - us-east-2
+                      - us-west-2
+                  StringLike:
+                    aws:ResourceTag/EdgeId: us*
+      Tags:
+        - Key: Project
+          Value: tokenkey
+        - Key: ManagedBy
+          Value: cloudformation
+
+  Ec2EdgeAddonPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: tokenkey-ec2-edge-addon
+      Roles: !Ref GitHubOidcRoleNames
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CreateApprovedEdgeChangeSet
+            Effect: Allow
+            Action: cloudformation:CreateChangeSet
+            Resource:
+              - !Sub arn:${AWS::Partition}:cloudformation:us-east-2:${AWS::AccountId}:stack/tokenkey-edge-*-stage0/*
+              - !Sub arn:${AWS::Partition}:cloudformation:us-west-2:${AWS::AccountId}:stack/tokenkey-edge-*-stage0/*
+            Condition:
+              StringEquals:
+                cloudformation:RoleArn: !GetAtt Ec2EdgeCloudFormationExecutionRole.Arn
+                aws:RequestedRegion:
+                  - us-east-2
+                  - us-west-2
+          - Sid: OperateApprovedEdgeChangeSets
+            Effect: Allow
+            Action:
+              - cloudformation:DeleteChangeSet
+              - cloudformation:DescribeChangeSet
+              - cloudformation:DescribeStackEvents
+              - cloudformation:DescribeStacks
+              - cloudformation:ExecuteChangeSet
+              - cloudformation:GetTemplate
+              - cloudformation:GetTemplateSummary
+            Resource:
+              - !Sub arn:${AWS::Partition}:cloudformation:us-east-2:${AWS::AccountId}:stack/tokenkey-edge-*-stage0/*
+              - !Sub arn:${AWS::Partition}:cloudformation:us-west-2:${AWS::AccountId}:stack/tokenkey-edge-*-stage0/*
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  - us-east-2
+                  - us-west-2
+          - Sid: PassEc2EdgeCloudFormationExecutionRole
+            Effect: Allow
+            Action: iam:PassRole
+            Resource: !GetAtt Ec2EdgeCloudFormationExecutionRole.Arn
+            Condition:
+              StringEquals:
+                iam:PassedToService: cloudformation.amazonaws.com
+          - Sid: ReadEc2EdgeState
+            Effect: Allow
+            Action:
+              - ec2:DescribeAddresses
+              - ec2:DescribeImages
+              - ec2:DescribeInstances
+              - ec2:DescribeInstanceTypeOfferings
+              - ec2:DescribeSnapshots
+              - ec2:DescribeVolumes
+              - ec2:DescribeVpcs
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  - us-east-2
+                  - us-west-2
+          - Sid: ReadEdgeAlarmHealthWindow
+            Effect: Allow
+            Action:
+              - cloudwatch:DescribeAlarms
+              - cloudwatch:DescribeAlarmHistory
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  - us-east-2
+                  - us-west-2
+          - Sid: AllocateEdgeEip
+            Effect: Allow
+            Action: ec2:AllocateAddress
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestTag/Project: tokenkey
+                aws:RequestTag/Environment: edge
+                aws:RequestTag/Purpose: migration-candidate
+                aws:RequestedRegion:
+                  - us-east-2
+                  - us-west-2
+              StringLike:
+                aws:RequestTag/EdgeId: us*
+          - Sid: TagNewEdgeResources
+            Effect: Allow
+            Action: ec2:CreateTags
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestTag/Project: tokenkey
+                aws:RequestTag/Environment: edge
+                aws:RequestTag/Purpose: migration-candidate
+                ec2:CreateAction:
+                  - AllocateAddress
+                aws:RequestedRegion:
+                  - us-east-2
+                  - us-west-2
+              StringLike:
+                aws:RequestTag/EdgeId: us*
+          - Sid: SendRunShellScriptToTokenkeyEdge
+            Effect: Allow
+            Action: ssm:SendCommand
+            Resource:
+              - !Sub arn:${AWS::Partition}:ec2:us-east-2:${AWS::AccountId}:instance/*
+              - !Sub arn:${AWS::Partition}:ec2:us-west-2:${AWS::AccountId}:instance/*
+            Condition:
+              StringEquals:
+                ssm:resourceTag/Project: tokenkey
+                aws:RequestedRegion:
+                  - us-east-2
+                  - us-west-2
+          - Sid: SendRunShellScriptToTokenkeyLightsailEdge
+            Effect: Allow
+            Action: ssm:SendCommand
+            Resource:
+              - !Sub arn:${AWS::Partition}:ssm:us-east-2:${AWS::AccountId}:managed-instance/*
+              - !Sub arn:${AWS::Partition}:ssm:us-west-2:${AWS::AccountId}:managed-instance/*
+            Condition:
+              StringEquals:
+                ssm:resourceTag/Project: tokenkey
+                ssm:resourceTag/Platform: lightsail
+                aws:RequestedRegion:
+                  - us-east-2
+                  - us-west-2
+          - Sid: UseRunShellScriptDocument
+            Effect: Allow
+            Action: ssm:SendCommand
+            Resource:
+              - arn:aws:ssm:us-east-2::document/AWS-RunShellScript
+              - arn:aws:ssm:us-west-2::document/AWS-RunShellScript
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  - us-east-2
+                  - us-west-2
+          - Sid: ReadProvisionInputs
+            Effect: Allow
+            Action: ssm:GetParameter
+            Resource:
+              - !Sub arn:${AWS::Partition}:ssm:us-east-2::parameter/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+              - !Sub arn:${AWS::Partition}:ssm:us-west-2::parameter/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+              - !Sub arn:${AWS::Partition}:ssm:us-east-2:${AWS::AccountId}:parameter/tokenkey/lightsail/us*/ssm_managed_instance_id
+              - !Sub arn:${AWS::Partition}:ssm:us-west-2:${AWS::AccountId}:parameter/tokenkey/lightsail/us*/ssm_managed_instance_id
+          - Sid: ReadProvisionParameterMetadata
+            Effect: Allow
+            Action: ssm:DescribeParameters
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  - us-east-2
+                  - us-west-2
+          - Sid: ReadEdgeCommandResults
+            Effect: Allow
+            Action:
+              - ssm:DescribeInstanceInformation
+              - ssm:GetCommandInvocation
+              - ssm:ListCommandInvocations
+              - ssm:ListCommands
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  - us-east-2
+                  - us-west-2
+
+Outputs:
+  CloudFormationExecutionRoleArn:
+    Description: Role passed to CloudFormation for tokenkey-edge-*-stage0 stacks.
+    Value: !GetAtt Ec2EdgeCloudFormationExecutionRole.Arn
+  AttachedGitHubOidcRoleNames:
+    Description: Existing GitHub OIDC roles receiving the scoped addon policy.
+    Value: !Join [",", !Ref GitHubOidcRoleNames]

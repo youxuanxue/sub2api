@@ -5,6 +5,7 @@
 # divergent copies:
 #   - .github/workflows/deploy-stage0.yml            (prod)
 #   - .github/workflows/deploy-edge-lightsail-stage0.yml (Lightsail edge)
+#   - .github/workflows/deploy-edge-stage0.yml       (EC2 edge)
 #
 # History: the regex was inlined in all three; the Lightsail copy had already
 # dropped the "(optionally -rc.N / -beta.N)" note from its error message — the

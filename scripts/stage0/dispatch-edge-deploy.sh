@@ -3,16 +3,17 @@
 #
 # Usage:
 #   bash scripts/stage0/dispatch-edge-deploy.sh \
-#     --edge-id uk1 --operation upgrade --tag 1.2.3 [--smoke-phase infra|full|edge-native-oauth|main-via-edge]
+#     --edge-id us4 [--platform auto|ec2|lightsail] --operation upgrade --tag 1.2.3
 #
-# Resolves platform via scripts/stage0/resolve-edge-deploy-route.py and calls
-# gh workflow run on deploy-edge-lightsail-stage0.yml (EC2 edge path removed 2026-06-07).
+# Resolves the unique active owner, or an explicitly selected EC2 migration
+# candidate, then dispatches the matching Lightsail/EC2 workflow.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 EDGE_ID=""
+PLATFORM_PREF="auto"
 OPERATION=""
 TAG=""
 SMOKE_PHASE=""
@@ -25,6 +26,7 @@ usage() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --edge-id) EDGE_ID="${2:-}"; shift 2 ;;
+    --platform) PLATFORM_PREF="${2:-}"; shift 2 ;;
     --operation) OPERATION="${2:-}"; shift 2 ;;
     --tag) TAG="${2:-}"; shift 2 ;;
     --smoke-phase) SMOKE_PHASE="${2:-}"; shift 2 ;;
@@ -41,8 +43,9 @@ if [[ -z "${EDGE_ID}" || -z "${OPERATION}" ]]; then
   usage
 fi
 
+case "${PLATFORM_PREF}" in auto|ec2|lightsail) ;; *) echo "dispatch-edge-deploy: invalid platform" >&2; exit 1 ;; esac
 case "${OPERATION}" in
-  provision|upgrade|rollback|smoke|rotate_egress_ip|decommission) ;;
+  provision|upgrade|rollback|smoke) ;;
   *)
     echo "dispatch-edge-deploy: unsupported operation=${OPERATION}" >&2
     exit 1
@@ -60,21 +63,16 @@ WORKFLOW=""
 CONFIRM_FLAG=""
 CONFIRM_VALUE=""
 PLATFORM=""
+ALLOW_MIGRATION_CANDIDATE="false"
 while IFS='=' read -r key value; do
   case "${key}" in
     workflow_file) WORKFLOW="${value}" ;;
     confirm_flag) CONFIRM_FLAG="${value}" ;;
     confirm_value) CONFIRM_VALUE="${value}" ;;
     platform) PLATFORM="${value}" ;;
+    allow_migration_candidate) ALLOW_MIGRATION_CANDIDATE="${value}" ;;
   esac
-done < <(python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "${EDGE_ID}")
-
-if [[ "${OPERATION}" == "rotate_egress_ip" || "${OPERATION}" == "decommission" ]]; then
-  if [[ "${PLATFORM}" != "ec2" ]]; then
-    echo "dispatch-edge-deploy: operation=${OPERATION} is EC2-only; edge ${EDGE_ID} is not on EC2/CFN (platform=${PLATFORM})" >&2
-    exit 1
-  fi
-fi
+done < <(python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "${EDGE_ID}" --platform "${PLATFORM_PREF}")
 
 GH_ARGS=(
   workflow run "${WORKFLOW}"
@@ -82,6 +80,9 @@ GH_ARGS=(
   -f "operation=${OPERATION}"
   -f "${CONFIRM_FLAG}=${CONFIRM_VALUE}"
 )
+if [[ "${ALLOW_MIGRATION_CANDIDATE}" == "true" ]]; then
+  GH_ARGS+=(-f "allow_migration_candidate=true")
+fi
 
 if [[ -n "${TAG}" ]]; then
   GH_ARGS+=(-f "tag=${TAG}")

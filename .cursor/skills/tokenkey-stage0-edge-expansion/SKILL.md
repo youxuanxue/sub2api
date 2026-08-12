@@ -1,14 +1,16 @@
 ---
 name: tokenkey-stage0-edge-expansion
 description: >-
-  Deprecated TokenKey EC2/CFN edge expansion path. Use only to redirect old edge-add requests to tokenkey-stage0-edge-lightsail-expansion.
+  Use when a request asks to add a new TokenKey EC2/CFN Edge and must be distinguished from migrating an existing Lightsail Edge.
 ---
 
-# DEPRECATED：新增 EC2/CFN Edge 网关
+# 新增 EC2/CFN Edge 请求路由
 
-**已于 2026-06-07 退役。** TokenKey 的 EC2/CFN **Edge** 路径已整体移除（`deploy-edge-stage0.yml`、`stage0-edge-ec2.yaml`、相关 EIP 轮换工具均已删除，`edge-targets.json` 清空）。新增 edge 不再走 EC2/CFN。
+当前 EC2 workflow 只服务 `edge-targets.json` 中已有的 migration candidate 或 active owner，不是任意
+新 Edge 的扩容入口。
 
-- **新增 edge（唯一路径）：** 用 `tokenkey-stage0-edge-lightsail-expansion`。
-- **prod 不受影响**：prod 主网关仍是 EC2/CFN。
+- 迁移现有 Lightsail Edge 到 EC2：用 `tokenkey-stage0-edge-platform-migration`。
+- 新增全新 Edge：用 `tokenkey-stage0-edge-lightsail-expansion`。
+- 不要把全新 Edge 擅自写成 EC2 `migration_candidate`；这会绕过已有迁移数据与 owner 契约。
 
-历史 EC2 edge 接入 runbook 保留在 git 历史中（本文件此前版本）。
+若业务明确要求“全新 Edge 也直接建在 EC2”，这是新的平台决策，先走高风险设计审批。

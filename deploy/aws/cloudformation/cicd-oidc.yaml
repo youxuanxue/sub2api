@@ -10,11 +10,10 @@ Description: >-
 
   Region-agnostic: the ClusteringRole name embeds ${AWS::Region}, so the same
   template serves the us-east-1 (prod) and eu-west-2 (uk-edge) OIDC stacks.
-  EC2 Edge CloudFormation execution roles + EIP-rotation / decommission
-  permissions were removed 2026-06-07 when the EC2 Edge path was retired —
-  edges are Lightsail-only and deploy via the separate
-  tokenkey-cicd-lightsail-addon stack, not a per-edge CFN execution role.
-  (prod itself remains EC2 and is unaffected.)
+  EC2 Edge provisioning is intentionally absent from this base role. It is
+  added by cicd-oidc-ec2-edge-addon.yaml through a separate scoped
+  CloudFormation execution role; Lightsail permissions remain in the separate
+  tokenkey-cicd-lightsail-addon stack. (prod itself remains EC2.)
 
 Parameters:
   GitHubRepo:

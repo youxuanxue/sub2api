@@ -1,6 +1,7 @@
-# Edge Stage0 on AWS Lightsail（edges 唯一路径）
+# Edge Stage0 on AWS Lightsail
 
-> **Lightsail 是 edge 的唯一路径**（2026-06-07 起；EC2/CFN 的 edge 路径已移除）。
+> 本目录只负责 Lightsail 平台。统一 dispatcher 根据唯一 deployable owner 在
+> Lightsail 与 EC2 workflow 之间路由；EC2 candidate 不会被 `auto` 选中。
 > **prod 主网关仍是 EC2/CFN（`tokenkey-prod-stage0`），不在本目录范围。**
 > 背景见 `docs/spec-delta/edge-lightsail.md` 与 `docs/archive/deploy/tokenkey-multiregion-egress-gateway-plan.md` §6（已标 superseded）。
 
