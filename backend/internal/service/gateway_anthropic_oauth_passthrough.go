@@ -41,6 +41,19 @@ func (s *GatewayService) buildAnthropicPassthroughUpstreamRequest(
 	}
 }
 
+func anthropicPassthroughAuthKindForAccount(account *Account) (anthropicPassthroughAuthKind, bool) {
+	if account == nil {
+		return 0, false
+	}
+	if account.IsAnthropicOAuthPassthroughEnabled() {
+		return anthropicPassthroughAuthOAuth, true
+	}
+	if account.IsAnthropicAPIKeyPassthroughEnabled() {
+		return anthropicPassthroughAuthAPIKey, true
+	}
+	return 0, false
+}
+
 func (s *GatewayService) buildAnthropicPassthroughCountTokensRequest(
 	ctx context.Context,
 	c *gin.Context,

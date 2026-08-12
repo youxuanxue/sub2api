@@ -1324,6 +1324,31 @@ func (a *Account) IsOpenAIAinzyRelay() bool {
 	return base == "https://api.ainzy.net/v1" || base == "https://api.ainzy.net"
 }
 
+// IsOpenAITokenseaRelay reports prod OpenAI apikey accounts whose upstream is
+// agent.tokensea.ai. They expose Claude models through dual-stack OpenAI Chat
+// and Anthropic Messages endpoints but not /v1/responses.
+func (a *Account) IsOpenAITokenseaRelay() bool {
+	if a == nil || !a.IsOpenAI() || a.Type != AccountTypeAPIKey {
+		return false
+	}
+	return isTokenseaRelayBaseURL(a.GetCredential("base_url"))
+}
+
+// IsAnthropicTokenseaRelay reports prod Anthropic apikey accounts whose upstream
+// is agent.tokensea.ai. Clients use short Claude IDs; upstream wire IDs may carry
+// date suffixes (see anthropicTokenseaRelayModelMappingFloor).
+func (a *Account) IsAnthropicTokenseaRelay() bool {
+	if a == nil || a.Platform != PlatformAnthropic || a.Type != AccountTypeAPIKey {
+		return false
+	}
+	return isTokenseaRelayBaseURL(a.GetCredential("base_url"))
+}
+
+func isTokenseaRelayBaseURL(raw string) bool {
+	base := strings.ToLower(strings.TrimSpace(strings.TrimSuffix(raw, "/")))
+	return base == "https://agent.tokensea.ai"
+}
+
 func (a *Account) GetOpenAIBaseURL() string {
 	if a == nil {
 		return ""

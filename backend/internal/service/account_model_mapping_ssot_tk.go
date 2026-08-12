@@ -15,8 +15,10 @@ import (
 )
 
 const (
-	accountModelMappingPlatformBedrock          = "bedrock"
-	accountModelMappingPlatformOpenAIAinzyRelay = "openai_ainzy_relay"
+	accountModelMappingPlatformBedrock                = "bedrock"
+	accountModelMappingPlatformOpenAIAinzyRelay       = "openai_ainzy_relay"
+	accountModelMappingPlatformOpenAITokenseaRelay    = "openai_tokensea_relay"
+	accountModelMappingPlatformAnthropicTokenseaRelay = "anthropic_tokensea_relay"
 )
 
 // accountModelMappingRuntime is the hot runtime replacement layer for the
@@ -161,8 +163,14 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 		if account.IsOpenAIAinzyRelay() {
 			return openAIAinzyRelayAccountModelMappingFloor(ctx, pricing, availability), true
 		}
+		if account.IsOpenAITokenseaRelay() {
+			return openAITokenseaRelayAccountModelMappingFloor(ctx, pricing, availability), true
+		}
 		return openAICanonicalAccountModelMappingFloor(ctx, pricing, availability), true
 	case PlatformAnthropic, PlatformGemini:
+		if scope == PlatformAnthropic && account.IsAnthropicTokenseaRelay() {
+			return anthropicTokenseaRelayModelMappingFloor(), true
+		}
 		ids := ServableClientFacingIDs(ctx, scope, availability, pricing)
 		if len(ids) == 0 {
 			ids = supportedCatalogModelIDsForPlatform(scope)
@@ -229,6 +237,26 @@ func AccountModelMappingFloorForOps(ctx context.Context, runtimeRaw string) (*Ac
 	}, nil, nil, runtime)
 	if ok && len(relayMapping) > 0 {
 		out.Platforms[accountModelMappingPlatformOpenAIAinzyRelay] = cloneStringMap(relayMapping)
+	}
+	tokenseaMapping, ok := accountModelMappingForAccount(ctx, &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://agent.tokensea.ai",
+		},
+	}, nil, nil, runtime)
+	if ok && len(tokenseaMapping) > 0 {
+		out.Platforms[accountModelMappingPlatformOpenAITokenseaRelay] = cloneStringMap(tokenseaMapping)
+	}
+	anthropicTokenseaMapping, ok := accountModelMappingForAccount(ctx, &Account{
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://agent.tokensea.ai",
+		},
+	}, nil, nil, runtime)
+	if ok && len(anthropicTokenseaMapping) > 0 {
+		out.Platforms[accountModelMappingPlatformAnthropicTokenseaRelay] = cloneStringMap(anthropicTokenseaMapping)
 	}
 	bedrock, ok := accountModelMappingForAccount(ctx, &Account{Platform: PlatformAnthropic, Type: AccountTypeBedrock}, nil, nil, runtime)
 	if ok && len(bedrock) > 0 {
@@ -363,6 +391,42 @@ func openAIAinzyRelayAccountModelMappingFloor(ctx context.Context, pricing *Pric
 		return nil
 	}
 	return identityModelMapping(ids)
+}
+
+func openAITokenseaRelayAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
+	ids := supportedCatalogModelIDsFromMap(supportedOpenAITokenseaRelayCatalogModels)
+	if len(ids) == 0 {
+		return nil
+	}
+	return identityModelMapping(ids)
+}
+
+func anthropicTokenseaRelayModelMappingFloor() map[string]string {
+	ids := supportedCatalogModelIDsFromMap(supportedAnthropicTokenseaRelayCatalogModels)
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(ids))
+	for _, id := range ids {
+		wire, ok := anthropicTokenseaRelayWireModelMapping[id]
+		if !ok {
+			continue
+		}
+		out[id] = wire
+	}
+	return out
+}
+
+var anthropicTokenseaRelayWireModelMapping = map[string]string{
+	"claude-fable-5":    "claude-fable-5",
+	"claude-haiku-4-5":  "claude-haiku-4-5-20251001",
+	"claude-opus-4-5":   "claude-opus-4-5-20251101",
+	"claude-opus-4-6":   "claude-opus-4-6",
+	"claude-opus-4-7":   "claude-opus-4-7",
+	"claude-opus-4-8":   "claude-opus-4-8",
+	"claude-opus-5":     "claude-opus-5",
+	"claude-sonnet-4-6": "claude-sonnet-4-6",
+	"claude-sonnet-5":   "claude-sonnet-5",
 }
 
 func supportedCatalogModelIDsFromMap(src map[string]struct{}) []string {

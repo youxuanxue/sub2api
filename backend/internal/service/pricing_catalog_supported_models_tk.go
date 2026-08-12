@@ -154,6 +154,38 @@ var supportedOpenAIAinzyRelayCatalogModels = map[string]struct{}{
 	"gpt-5.5":      {},
 }
 
+// supportedOpenAITokenseaRelayCatalogModels — Claude IDs kept in the compiled
+// model_mapping floor for prod account 92 (agent.tokensea.ai). Derived from
+// upstream GET /v1/models on 2026-08-12; claude-opus-4-5-20251101 is listed but
+// may return model_not_found when the upstream channel pool is empty.
+var supportedOpenAITokenseaRelayCatalogModels = map[string]struct{}{
+	"claude-fable-5":            {},
+	"claude-haiku-4-5-20251001": {},
+	"claude-opus-4-5-20251101":  {},
+	"claude-opus-4-6":           {},
+	"claude-opus-4-7":           {},
+	"claude-opus-4-8":           {},
+	"claude-opus-5":             {},
+	"claude-sonnet-4-6":         {},
+	"claude-sonnet-5":           {},
+}
+
+// supportedAnthropicTokenseaRelayCatalogModels — client-facing Claude IDs for
+// prod account 93 (agent.tokensea.ai Anthropic relay). Wire IDs are mapped in
+// anthropicTokenseaRelayModelMappingFloor; claude-opus-4-5 may 503 when the
+// upstream channel pool is empty.
+var supportedAnthropicTokenseaRelayCatalogModels = map[string]struct{}{
+	"claude-fable-5":    {},
+	"claude-haiku-4-5":  {},
+	"claude-opus-4-5":   {},
+	"claude-opus-4-6":   {},
+	"claude-opus-4-7":   {},
+	"claude-opus-4-8":   {},
+	"claude-opus-5":     {},
+	"claude-sonnet-4-6": {},
+	"claude-sonnet-5":   {},
+}
+
 // supportedGeminiCatalogModels — gemini/Vertex IDs confirmed servable through
 // the prod Vertex pool. Gemini 3.5 Flash Lite and 3.6 Flash were confirmed on
 // accounts 47/57/58/59/74 via direct global generateContent on 2026-07-22.

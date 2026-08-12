@@ -1041,6 +1041,7 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"privacy_mode",
 		"openai_responses_mode",
 		"openai_responses_supported",
+		"openai_native_messages_supported",
 		"codex_5h_used_percent",
 		"codex_7d_used_percent",
 		"codex_5h_reset_at",

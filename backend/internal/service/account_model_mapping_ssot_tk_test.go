@@ -47,6 +47,49 @@ func TestAccount_IsOpenAIAinzyRelay(t *testing.T) {
 	require.True(t, ainzy.IsOpenAIAinzyRelay())
 }
 
+func TestAccount_IsOpenAITokenseaRelay(t *testing.T) {
+	t.Parallel()
+	require.False(t, (*Account)(nil).IsOpenAITokenseaRelay())
+
+	tokensea := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://agent.tokensea.ai",
+		},
+	}
+	require.True(t, tokensea.IsOpenAITokenseaRelay())
+
+	other := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://relay.example.com/v1",
+		},
+	}
+	require.False(t, other.IsOpenAITokenseaRelay())
+}
+
+func TestAccount_IsAnthropicTokenseaRelay(t *testing.T) {
+	t.Parallel()
+	require.False(t, (*Account)(nil).IsAnthropicTokenseaRelay())
+
+	tokensea := &Account{
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://agent.tokensea.ai",
+		},
+	}
+	require.True(t, tokensea.IsAnthropicTokenseaRelay())
+}
+
+func TestOpenAITokenseaRelayFloorIsProbeCuratedOnly(t *testing.T) {
+	t.Parallel()
+	mapping := openAITokenseaRelayAccountModelMappingFloor(context.Background(), nil, nil)
+	requireIdentityMappingForIDs(t, mapping, supportedCatalogModelIDsFromMap(supportedOpenAITokenseaRelayCatalogModels))
+}
+
 func TestOpenAIAinzyRelayFloorIsProbeCuratedOnly(t *testing.T) {
 	t.Parallel()
 	mapping := openAIAinzyRelayAccountModelMappingFloor(context.Background(), nil, nil)
@@ -91,6 +134,12 @@ func TestAccountModelMappingFloorForOps_ExportsAinzyRelayScope(t *testing.T) {
 	ainzy, ok := doc.Platforms[accountModelMappingPlatformOpenAIAinzyRelay]
 	require.True(t, ok)
 	requireIdentityMappingForIDs(t, ainzy, supportedCatalogModelIDsFromMap(supportedOpenAIAinzyRelayCatalogModels))
+	tokensea, ok := doc.Platforms[accountModelMappingPlatformOpenAITokenseaRelay]
+	require.True(t, ok)
+	requireIdentityMappingForIDs(t, tokensea, supportedCatalogModelIDsFromMap(supportedOpenAITokenseaRelayCatalogModels))
+	anthropicTokensea, ok := doc.Platforms[accountModelMappingPlatformAnthropicTokenseaRelay]
+	require.True(t, ok)
+	require.Equal(t, anthropicTokenseaRelayModelMappingFloor(), anthropicTokensea)
 	canonical, ok := doc.Platforms[PlatformOpenAI]
 	require.True(t, ok)
 	requireIdentityMappingForIDs(t, canonical, supportedCatalogModelIDsForPlatform(PlatformOpenAI))

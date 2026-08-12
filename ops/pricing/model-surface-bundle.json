@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "floor_sha256": "063622a5c372a4a9f29dc251f9f863e160248219adfe25cde0b38baa54c4ab6d",
+  "floor_sha256": "395b9b3e33b9a14225c4dd2ad25643425f05cc800ef41bb4990533ecc77f203a",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -12,6 +12,17 @@
         "claude-opus-4-7": "claude-opus-4-7",
         "claude-opus-4-8": "claude-opus-4-8",
         "claude-sonnet-4-5": "claude-sonnet-4-5",
+        "claude-sonnet-4-6": "claude-sonnet-4-6",
+        "claude-sonnet-5": "claude-sonnet-5"
+      },
+      "anthropic_tokensea_relay": {
+        "claude-fable-5": "claude-fable-5",
+        "claude-haiku-4-5": "claude-haiku-4-5-20251001",
+        "claude-opus-4-5": "claude-opus-4-5-20251101",
+        "claude-opus-4-6": "claude-opus-4-6",
+        "claude-opus-4-7": "claude-opus-4-7",
+        "claude-opus-4-8": "claude-opus-4-8",
+        "claude-opus-5": "claude-opus-5",
         "claude-sonnet-4-6": "claude-sonnet-4-6",
         "claude-sonnet-5": "claude-sonnet-5"
       },
@@ -177,6 +188,17 @@
         "gpt-5.4": "gpt-5.4",
         "gpt-5.4-mini": "gpt-5.4-mini",
         "gpt-5.5": "gpt-5.5"
+      },
+      "openai_tokensea_relay": {
+        "claude-fable-5": "claude-fable-5",
+        "claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",
+        "claude-opus-4-5-20251101": "claude-opus-4-5-20251101",
+        "claude-opus-4-6": "claude-opus-4-6",
+        "claude-opus-4-7": "claude-opus-4-7",
+        "claude-opus-4-8": "claude-opus-4-8",
+        "claude-opus-5": "claude-opus-5",
+        "claude-sonnet-4-6": "claude-sonnet-4-6",
+        "claude-sonnet-5": "claude-sonnet-5"
       }
     },
     "newapi_channel_types": {

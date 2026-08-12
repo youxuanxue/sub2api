@@ -219,6 +219,25 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	return req, body, nil
 }
 
+// buildAnthropicCompatUpstreamRequest builds the upstream /v1/messages HTTP request
+// after a compat bridge (chat completions / responses) has converted the client body.
+// Ingress protocol picks the bridge; this helper only mirrors the account's existing
+// upstream policy (passthrough vs mimic) via anthropicPassthroughAuthKindForAccount.
+func (s *GatewayService) buildAnthropicCompatUpstreamRequest(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	token, tokenType, modelID string,
+	reqStream bool,
+	mimicClaudeCode bool,
+) (*http.Request, []byte, error) {
+	if authKind, ok := anthropicPassthroughAuthKindForAccount(account); ok {
+		return s.buildAnthropicPassthroughUpstreamRequest(ctx, c, account, body, token, authKind)
+	}
+	return s.buildUpstreamRequest(ctx, c, account, body, token, tokenType, modelID, reqStream, mimicClaudeCode)
+}
+
 // vertexSupportedBetaTokens 是 Vertex AI 的 Anthropic 端点接受的 anthropic-beta
 // 白名单。Vertex 对任何未知 token 直接 HTTP 400，故采用白名单（与 Bedrock 的
 // bedrockSupportedBetaTokens 同思路）而非黑名单：未来 Claude Code 新增的、Vertex 尚未

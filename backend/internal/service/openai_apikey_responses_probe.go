@@ -203,10 +203,25 @@ func decideResponsesProbeSupport(status int, body []byte) bool {
 	if status == http.StatusNotFound || status == http.StatusMethodNotAllowed {
 		return false
 	}
+	if responsesProbeBodyIndicatesNotImplemented(body) {
+		return false
+	}
 	if status < 200 || status >= 300 {
 		return true
 	}
 	return responsesProbeBodyHasFunctionCall(body)
+}
+
+func responsesProbeBodyIndicatesNotImplemented(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	lower := strings.ToLower(string(body))
+	if strings.Contains(lower, "not implemented") {
+		return true
+	}
+	code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "error.code").String()))
+	return code == "convert_request_failed"
 }
 
 // responsesProbeBodyHasFunctionCall 判断非流式 Responses 响应体的 output 数组里

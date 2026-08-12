@@ -458,9 +458,31 @@ def _is_openai_ainzy_relay(row: dict[str, Any]) -> bool:
     return base in {"https://api.ainzy.net/v1", "https://api.ainzy.net"}
 
 
+def _is_openai_tokensea_relay(row: dict[str, Any]) -> bool:
+    if str(row.get("platform") or "").strip().lower() != "openai":
+        return False
+    if str(row.get("type") or "") != "apikey":
+        return False
+    base = str(row.get("base_url") or "").strip().lower().rstrip("/")
+    return base == "https://agent.tokensea.ai"
+
+
+def _is_anthropic_tokensea_relay(row: dict[str, Any]) -> bool:
+    if str(row.get("platform") or "").strip().lower() != "anthropic":
+        return False
+    if str(row.get("type") or "") != "apikey":
+        return False
+    base = str(row.get("base_url") or "").strip().lower().rstrip("/")
+    return base == "https://agent.tokensea.ai"
+
+
 def _account_scope(row: dict[str, Any]) -> str:
     if _is_openai_ainzy_relay(row):
         return "openai_ainzy_relay"
+    if _is_openai_tokensea_relay(row):
+        return "openai_tokensea_relay"
+    if _is_anthropic_tokensea_relay(row):
+        return "anthropic_tokensea_relay"
     if _is_kiro_scope(row):
         return "kiro"
     platform = str(row.get("platform") or "").strip().lower()
