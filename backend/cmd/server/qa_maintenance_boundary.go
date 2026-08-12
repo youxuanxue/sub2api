@@ -20,21 +20,23 @@ import (
 )
 
 const (
-	qaBoundaryConfirmation     = "tokenkey-prod-qa-boundary-v1"
-	qaBoundaryReceiptVersion   = 1
-	qaBoundaryReceiptMode      = "qa_maintenance_boundary"
-	qaBoundaryJobName          = "qa-boundary"
-	qaBoundaryHeartbeatTimeout = 5 * time.Second
+	qaBoundaryConfirmation         = "tokenkey-prod-qa-boundary-v1"
+	qaBoundaryReceiptVersion       = 1
+	qaBoundaryReceiptMode          = "qa_maintenance_boundary"
+	qaBoundaryJobName              = "qa-boundary"
+	qaBoundaryHeartbeatTimeout     = 5 * time.Second
+	qaCutoverProvisionConfirmation = "tokenkey-prod-qa-cutover-provision-v1"
 )
 
 type qaBoundaryDeps struct {
-	loadConfig      func() (*config.Config, error)
-	openDB          func(driverName, dataSourceName string) (*sql.DB, error)
-	tryAdvisoryLock func(context.Context, *sql.Conn) (bool, error)
-	unlockAdvisory  func(context.Context, *sql.Conn) error
-	runBoundary     func(context.Context, *sql.DB, lifecycle.ControlStore, lifecycle.Options) (lifecycle.BoundaryResult, error)
-	writeHeartbeat  func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error
-	now             func() time.Time
+	loadConfig       func() (*config.Config, error)
+	openDB           func(driverName, dataSourceName string) (*sql.DB, error)
+	tryAdvisoryLock  func(context.Context, *sql.Conn) (bool, error)
+	unlockAdvisory   func(context.Context, *sql.Conn) error
+	runBoundary      func(context.Context, *sql.DB, lifecycle.ControlStore, lifecycle.Options) (lifecycle.BoundaryResult, error)
+	runProvisionOnly func(context.Context, lifecycle.DB, lifecycle.Options) (lifecycle.ProvisionResult, error)
+	writeHeartbeat   func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error
+	now              func() time.Time
 }
 
 func defaultQABoundaryDeps() qaBoundaryDeps {
@@ -53,6 +55,7 @@ func defaultQABoundaryDeps() qaBoundaryDeps {
 		runBoundary: func(ctx context.Context, db *sql.DB, control lifecycle.ControlStore, opts lifecycle.Options) (lifecycle.BoundaryResult, error) {
 			return lifecycle.RunBoundary(ctx, db, control, opts)
 		},
+		runProvisionOnly: lifecycle.RunCutoverProvisionOnly,
 		writeHeartbeat: func(ctx context.Context, db *sql.DB, input *service.OpsUpsertJobHeartbeatInput) error {
 			return repository.NewOpsRepository(db).UpsertJobHeartbeat(ctx, input)
 		},
@@ -77,6 +80,9 @@ func (d qaBoundaryDeps) withDefaults() qaBoundaryDeps {
 	if d.runBoundary == nil {
 		d.runBoundary = defaults.runBoundary
 	}
+	if d.runProvisionOnly == nil {
+		d.runProvisionOnly = defaults.runProvisionOnly
+	}
 	if d.writeHeartbeat == nil {
 		d.writeHeartbeat = defaults.writeHeartbeat
 	}
@@ -93,18 +99,44 @@ func qaBoundaryRequested(args []string) bool {
 			"--qa-cutover-inventory", "--qa-cutover-inventory=true",
 			"--qa-cutover-plan", "--qa-cutover-plan=true",
 			"--qa-cutover-apply", "--qa-cutover-apply=true",
+			"--qa-cutover-provision-only", "--qa-cutover-provision-only=true",
 			"--qa-cutover-finalize-plan", "--qa-cutover-finalize-plan=true",
 			"--qa-cutover-finalize", "--qa-cutover-finalize=true":
 			return true
 		}
 		if strings.HasPrefix(arg, "--qa-cutover-plan=") ||
 			strings.HasPrefix(arg, "--qa-cutover-apply=") ||
+			strings.HasPrefix(arg, "--qa-cutover-provision-only=") ||
 			strings.HasPrefix(arg, "--qa-cutover-finalize-plan=") ||
 			strings.HasPrefix(arg, "--qa-cutover-finalize=") {
 			return true
 		}
 	}
 	return false
+}
+
+func runQACutoverProvisionOnly(ctx context.Context, confirmation string, out io.Writer, deps qaBoundaryDeps) error {
+	if strings.TrimSpace(confirmation) != qaCutoverProvisionConfirmation {
+		return fmt.Errorf("qa cutover provision confirmation mismatch")
+	}
+	deps = deps.withDefaults()
+	db, err := openQABoundaryDB(deps)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	var result lifecycle.ProvisionResult
+	if err := withQAMaintenanceLock(ctx, db, deps, func(ctx context.Context, lockedDB *sql.DB) error {
+		var runErr error
+		result, runErr = deps.runProvisionOnly(ctx, lockedDB, lifecycle.Options{HoursAhead: lifecycle.HourlyHorizon})
+		return runErr
+	}); err != nil {
+		return err
+	}
+	if err := json.NewEncoder(out).Encode(result); err != nil {
+		return fmt.Errorf("encode qa cutover provision result: %w", err)
+	}
+	return nil
 }
 
 func openQABoundaryDB(deps qaBoundaryDeps) (*sql.DB, error) {
@@ -289,6 +321,7 @@ func runQABoundaryCommand(ctx context.Context, args []string, out io.Writer, dep
 	var cutoverInventory bool
 	var cutoverPlan bool
 	var cutoverApply bool
+	var cutoverProvisionOnly bool
 	var cutoverFinalizePlan bool
 	var cutoverFinalize bool
 	var confirmation string
@@ -298,6 +331,7 @@ func runQABoundaryCommand(ctx context.Context, args []string, out io.Writer, dep
 	fs.BoolVar(&cutoverInventory, "qa-cutover-inventory", false, "render read-only hourly cutover inventory JSON")
 	fs.BoolVar(&cutoverPlan, "qa-cutover-plan", false, "render guarded hourly cutover plan JSON")
 	fs.BoolVar(&cutoverApply, "qa-cutover-apply", false, "apply guarded hourly cutover plan under QAMA lock")
+	fs.BoolVar(&cutoverProvisionOnly, "qa-cutover-provision-only", false, "extend the post-T0 hourly horizon without expiry or cleanup")
 	fs.BoolVar(&cutoverFinalizePlan, "qa-cutover-finalize-plan", false, "render guarded DEFAULT-removal plan JSON")
 	fs.BoolVar(&cutoverFinalize, "qa-cutover-finalize", false, "remove empty DEFAULT under the final cutover gate")
 	fs.StringVar(&confirmation, "confirm", "", "exact production QA confirmation")
@@ -311,7 +345,7 @@ func runQABoundaryCommand(ctx context.Context, args []string, out io.Writer, dep
 	}
 	modeCount := 0
 	for _, selected := range []bool{
-		once, cutoverInventory, cutoverPlan, cutoverApply, cutoverFinalizePlan, cutoverFinalize,
+		once, cutoverInventory, cutoverPlan, cutoverApply, cutoverProvisionOnly, cutoverFinalizePlan, cutoverFinalize,
 	} {
 		if selected {
 			modeCount++
@@ -328,6 +362,9 @@ func runQABoundaryCommand(ctx context.Context, args []string, out io.Writer, dep
 	}
 	if cutoverApply {
 		return runQACutoverApply(ctx, t0, planHash, confirmation, lifecycle.CutoverPhaseActivate, deps)
+	}
+	if cutoverProvisionOnly {
+		return runQACutoverProvisionOnly(ctx, confirmation, out, deps)
 	}
 	if cutoverFinalizePlan {
 		return runQACutoverPlan(ctx, t0, lifecycle.CutoverPhaseFinalize, out, deps)

@@ -62,6 +62,14 @@ type Reconciler struct {
 	VerifyAll       func(context.Context, ObjectStore, string, string) (VerifiedCommit, error)
 }
 
+type commitReadState uint8
+
+const (
+	commitMissing commitReadState = iota
+	commitPresent
+	commitExistenceUnknown
+)
+
 func NewReconciler(store ObjectStore, control ReconcileControl, scratchRoot string) *Reconciler {
 	return &Reconciler{
 		Store: store, Control: control, ScratchRoot: scratchRoot,
@@ -109,11 +117,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, conn *sql.Conn, window Windo
 	}()
 
 	commitKey := ShardRelativePrefix(window.Start) + "/commit.json"
-	current, exists, err := r.readCommit(ctx, commitKey)
+	current, commitState, err := r.readCommit(ctx, commitKey)
 	if err != nil {
 		return ReconcileReceipt{}, err
 	}
-	if exists {
+	if commitState == commitPresent {
 		defer func() { _ = current.Close() }()
 		if err := r.Control.ImportCommit(ctx, conn, shardID, current); err != nil {
 			return ReconcileReceipt{}, fmt.Errorf("import existing commit control: %w", err)
@@ -130,7 +138,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, conn *sql.Conn, window Windo
 	}
 	if len(pending) == 0 {
 		kind := SegmentKindBase
-		if exists {
+		if commitState == commitPresent {
 			kind = SegmentKindDelta
 		}
 		built, err := r.Build(ctx, conn, BuildInput{
@@ -142,11 +150,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, conn *sql.Conn, window Windo
 		}
 		defer func() { _ = built.Close() }()
 		if built.Manifest.RecordCount == 0 {
-			if exists {
+			if commitState == commitPresent {
 				if err := r.Control.PersistCommit(ctx, conn, shardID, current); err != nil {
 					return ReconcileReceipt{}, fmt.Errorf("persist verified existing commit: %w", err)
 				}
 				return receiptFromVerified(commitKey, current), nil
+			}
+			if commitState == commitExistenceUnknown {
+				return ReconcileReceipt{}, &IntegrityError{
+					Code: IntegrityCommitExistenceUnknown,
+					Err:  fmt.Errorf("archive commit existence is unknown; cannot infer an empty source window while commit visibility is denied"),
+				}
 			}
 			if window.Start.Before(r.Now().UTC().Add(-r.SourceRetention)) {
 				return ReconcileReceipt{}, &IntegrityError{
@@ -209,22 +223,25 @@ func (r *Reconciler) Reconcile(ctx context.Context, conn *sql.Conn, window Windo
 	return receipt, nil
 }
 
-func (r *Reconciler) readCommit(ctx context.Context, commitKey string) (VerifiedCommit, bool, error) {
+func (r *Reconciler) readCommit(ctx context.Context, commitKey string) (VerifiedCommit, commitReadState, error) {
 	opened, err := r.Store.Open(ctx, commitKey)
 	if err != nil {
 		if isObjectNotFound(err) {
-			return VerifiedCommit{}, false, nil
+			return VerifiedCommit{}, commitMissing, nil
 		}
-		return VerifiedCommit{}, false, fmt.Errorf("open archive commit: %w", err)
+		if isAccessDenied(err) {
+			return VerifiedCommit{}, commitExistenceUnknown, nil
+		}
+		return VerifiedCommit{}, commitMissing, fmt.Errorf("open archive commit: %w", err)
 	}
 	if closeErr := opened.Body.Close(); closeErr != nil {
-		return VerifiedCommit{}, false, fmt.Errorf("close archive commit body: %w", closeErr)
+		return VerifiedCommit{}, commitPresent, fmt.Errorf("close archive commit body: %w", closeErr)
 	}
 	verified, err := r.VerifyAll(ctx, r.Store, commitKey, "")
 	if err != nil {
-		return VerifiedCommit{}, true, err
+		return VerifiedCommit{}, commitPresent, err
 	}
-	return verified, true, nil
+	return verified, commitPresent, nil
 }
 
 func isObjectNotFound(err error) bool {
@@ -233,12 +250,12 @@ func isObjectNotFound(err error) bool {
 
 func (r *Reconciler) commitPending(ctx context.Context, commitKey string, window Window, pending []CommitSegment) (VerifiedCommit, error) {
 	for attempt := 0; attempt < r.CASAttempts; attempt++ {
-		current, exists, err := r.readCommit(ctx, commitKey)
+		current, commitState, err := r.readCommit(ctx, commitKey)
 		if err != nil {
 			return VerifiedCommit{}, err
 		}
 		segments := make([]CommitSegment, 0, len(pending)+len(current.Document.Segments))
-		if exists {
+		if commitState == commitPresent {
 			segments = append(segments, current.Document.Segments...)
 		}
 		known := make(map[string]struct{}, len(segments))
@@ -276,12 +293,18 @@ func (r *Reconciler) commitPending(ctx context.Context, commitKey string, window
 		if err != nil {
 			return VerifiedCommit{}, err
 		}
-		if exists {
+		if commitState == commitPresent {
 			_, err = r.Store.CompareAndSwap(ctx, commitKey, current.ETag, bytes.NewReader(body), int64(len(body)), "application/json")
 		} else {
 			_, err = r.Store.Create(ctx, commitKey, bytes.NewReader(body), int64(len(body)), "application/json")
 		}
 		if errors.Is(err, ErrPreconditionFailed) {
+			if commitState == commitExistenceUnknown {
+				return VerifiedCommit{}, &IntegrityError{
+					Code: IntegrityCommitExistenceUnknown,
+					Err:  fmt.Errorf("archive commit existence is unknown and conditional create was rejected: %w", err),
+				}
+			}
 			continue
 		}
 		if err != nil {

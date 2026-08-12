@@ -28,6 +28,7 @@ ARCHIVE_CLI = Path("backend/cmd/qa-archive/main.go")
 RECOVERY_GATE = Path("ops/qa/qa_archive_recovery_gate.py")
 PREFLIGHT = Path("scripts/preflight.sh")
 ARCHIVE_STATE = Path("backend/internal/observability/qa/archive/state.go")
+ARCHIVE_CONTROL = Path("backend/internal/observability/qa/archive/control_store.go")
 ROLLOUT = Path("ops/qa/deploy_rollout.yaml")
 QA_README = Path("ops/qa/README.md")
 STALE_OPERATOR = Path("ops/qa/prod_qa_stale_cleanup.py")
@@ -43,6 +44,8 @@ DEPLOY_GUIDE = Path("docs/deploy/aws-us-openai-gateway-deployment.md")
 DEPLOY_README = Path("deploy/aws/README.md")
 DR_RUNBOOK = Path("deploy/aws/RUNBOOK-disaster-recovery.md")
 ARCHIVE_README = Path("ops/archive/README.md")
+CUTOVER_PLAN = Path("backend/internal/observability/qa/lifecycle/cutover_plan.go")
+CUTOVER_APPLY = Path("backend/internal/observability/qa/lifecycle/cutover_apply.go")
 
 MUST_BE_ABSENT = (
     Path("docs/qa-export-s3-and-auto-archive.md"),
@@ -121,6 +124,8 @@ REQUIRED_BY_FILE = {
         "/var/lib/tokenkey/qa-maintenance-last-run.json",
         "systemd/host-receipt/DB-heartbeat/control-row",
         "qa_exports_tmp",
+        "--qa-cutover-provision-only",
+        "tokenkey-prod-qa-cutover-provision-v1",
     ),
     POLICY: (
         "schema_version: 1",
@@ -160,6 +165,10 @@ REQUIRED_BY_FILE = {
         "host_runner: /usr/local/bin/tokenkey-qa-boundary.sh",
         "host_receipt: /var/lib/tokenkey/qa-boundary-last-run.json",
         "database_heartbeat_job: qa-boundary",
+        "pre_finalize_provision_mode: qa-cutover-provision-only",
+        "pre_finalize_confirmation: tokenkey-prod-qa-cutover-provision-v1",
+        "pre_finalize_timer_state: disabled",
+        "finalize_legacy_monthly_policy: drop_empty_hash_bound_with_default",
         "lifecycle_role: cutover_drain_only",
         "policy_target_state: disabled_after_finalize",
         "export_orphan_activation_marker: /var/lib/tokenkey/qa-export-orphan-cleanup-activated.json",
@@ -183,6 +192,8 @@ REQUIRED_BY_FILE = {
         "tokenkey-qa-stale-cleanup.sh",
         "apply-export-orphans",
         "prod_qa_cutover_drain_plan",
+        "--qa-cutover-provision-only",
+        "tokenkey-prod-qa-cutover-provision-v1",
     ),
     DEPLOY_GUIDE: (
         "tokenkey-qa-boundary.sh",
@@ -278,8 +289,20 @@ REQUIRED_BY_FILE = {
     ),
     Path("backend/internal/observability/qa/archive/reconciler.go"): (
         "CompareAndSwap",
+        "commitExistenceUnknown",
+        "IntegrityCommitExistenceUnknown",
+        "cannot infer an empty source window while commit visibility is denied",
+        "conditional create was rejected",
         'commitKey := ShardRelativePrefix(window.Start) + "/commit.json"',
         "DeletionAuthorized: false",
+    ),
+    ARCHIVE_CONTROL: (
+        "WHERE id=$4 AND state IN ('pending','writing','verified','failed')",
+        "code.String == IntegrityCommitExistenceUnknown",
+    ),
+    Path("backend/internal/observability/qa/archive/timeline_selector.go"): (
+        "IntegrityCommitExistenceUnknown",
+        "CatchupDispositionReconcile",
     ),
     Path("backend/internal/observability/qa/archive/verifier.go"): (
         "VerifyCommit",
@@ -316,7 +339,18 @@ REQUIRED_BY_FILE = {
     LIVE_PROBE: (
         "YYYYMMDD_HH24",
         "finalize_receipt_present",
-        "JOIN qa_lifecycle_receipts a ON a.t0_utc = f.t0_utc",
+        "activate_t0_utc",
+        "activate_plan_hash",
+        "default_rows_after_t0",
+        "last_error_at, last_error, last_result",
+    ),
+    Path("backend/cmd/server/qa_maintenance_boundary.go"): (
+        "--qa-cutover-provision-only",
+        "tokenkey-prod-qa-cutover-provision-v1",
+        "runProvisionOnly",
+    ),
+    BOUNDARY_SCRIPT: (
+        "--qa-cutover-provision-only",
     ),
     CUTOVER_MIGRATION: (
         "tk_qa_lifecycle_receipts_insert_guard",
@@ -558,6 +592,10 @@ def _rollout_failures(root: Path) -> list[str]:
             "host_runner": "/usr/local/bin/tokenkey-qa-boundary.sh",
             "host_receipt": "/var/lib/tokenkey/qa-boundary-last-run.json",
             "database_heartbeat_job": "qa-boundary",
+            "pre_finalize_provision_mode": "qa-cutover-provision-only",
+            "pre_finalize_confirmation": "tokenkey-prod-qa-cutover-provision-v1",
+            "pre_finalize_timer_state": "disabled",
+            "finalize_legacy_monthly_policy": "drop_empty_hash_bound_with_default",
             "replaces_timer": "tokenkey-qa-stale-cleanup.timer",
             "owns_export_orphans": True,
             "export_orphan_activation_marker": "/var/lib/tokenkey/qa-export-orphan-cleanup-activated.json",
@@ -630,9 +668,25 @@ def _closeout_implementation_failures(root: Path) -> list[str]:
         failures.append("qa lifecycle boundary owner missing")
     else:
         body = lifecycle_pkg.read_text(encoding="utf-8")
-        for needle in ("RunProvision", "DropExpiredHour", "RunBoundary"):
+        for needle in ("RunProvision", "RunCutoverProvisionOnly", "DropExpiredHour", "RunBoundary"):
             if needle not in body:
                 failures.append(f"qa lifecycle boundary missing {needle}")
+        if "status.VerificationErrorCode == archive.IntegrityCommitExistenceUnknown" not in body:
+            failures.append("qa lifecycle boundary must preserve unknown commit existence while dropping hot source")
+    cutover_plan = root / CUTOVER_PLAN
+    cutover_apply = root / CUTOVER_APPLY
+    if not cutover_plan.is_file() or not cutover_apply.is_file():
+        failures.append("qa finalize empty-monthly owner missing")
+    else:
+        plan_body = cutover_plan.read_text(encoding="utf-8")
+        apply_body = cutover_apply.read_text(encoding="utf-8")
+        if (
+            'SchemaVersion: "qa-hourly-cutover-finalize-plan-v2"' not in plan_body
+            or "DropMonthly:   dropMonthly" not in plan_body
+            or "monthly partition inventory drift" not in apply_body
+            or "drop empty legacy monthly child" not in apply_body
+        ):
+            failures.append("qa finalize must hash-bind and atomically drop empty legacy monthly children")
     rehome = root / "backend/internal/pkg/pgpartition/rehome_default.go"
     if rehome.is_file():
         failures.append("retired qa_records rehome implementation still present")
@@ -775,6 +829,7 @@ def self_test() -> int:
             LIVE_HOST_ASSERT,
             RAW_ARCHIVE_CFN,
             ARCHIVE_STATE,
+            ARCHIVE_CONTROL,
             ROLLOUT,
             QA_README,
             DEPLOY_SSM,
@@ -783,6 +838,8 @@ def self_test() -> int:
             Path("ops/observability/data_layer_archive_health.py"),
             Path("backend/internal/pkg/pgpartition/hourly.go"),
             Path("backend/internal/observability/qa/lifecycle/boundary.go"),
+            CUTOVER_PLAN,
+            CUTOVER_APPLY,
             Path("backend/cmd/server/qa_maintenance_boundary.go"),
             BOUNDARY_SCRIPT,
             MAINTENANCE_SCRIPT,
@@ -943,6 +1000,20 @@ edge:
             print("self-test failed to detect generic QA partition-owner guard removal")
             return 1
         generic_partition.write_text(generic_partition_body, encoding="utf-8")
+
+        cutover_apply = root / CUTOVER_APPLY
+        cutover_apply_body = cutover_apply.read_text(encoding="utf-8")
+        cutover_apply.write_text(
+            cutover_apply_body.replace(
+                "drop empty legacy monthly child", "reject every legacy monthly child"
+            ),
+            encoding="utf-8",
+        )
+        failures = scan(root)
+        if not any("atomically drop empty legacy monthly" in item for item in failures):
+            print("self-test failed to detect finalize empty-monthly owner removal")
+            return 1
+        cutover_apply.write_text(cutover_apply_body, encoding="utf-8")
 
         preflight = root / PREFLIGHT
         preflight.write_text(

@@ -116,6 +116,34 @@ func TestUS045_TimelineCompensationClassifiesExpiredMissingHourWithoutStarvingNe
 	}
 }
 
+func TestTimelineCompensationKeepsUnknownCommitExistenceRetryableAfterRetention(t *testing.T) {
+	cutover := Phase2ForwardCutoverWindow()
+	unknown := cutover.End
+	normal := Window{Start: unknown.Add(time.Hour), End: unknown.Add(2 * time.Hour)}
+	control := &fakeCatchupTimelineControl{
+		cutover: ForwardCutover{ShardID: 45, Window: cutover, RestoreVerifiedAt: cutover.End},
+		hours: map[time.Time]CatchupHourStatus{
+			unknown: {
+				Exists: true, ShardID: 46, State: StateFailed,
+				VerificationErrorCode: IntegrityCommitExistenceUnknown,
+			},
+		},
+	}
+
+	selection, ok, err := SelectOldestCatchup(
+		context.Background(), nil, control, normal, unknown.Add(30*time.Minute),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || selection.Window.Start != unknown || selection.ShardID != 46 || selection.Disposition != CatchupDispositionReconcile {
+		t.Fatalf("selection=%+v ok=%v", selection, ok)
+	}
+	if len(control.classified) != 0 {
+		t.Fatalf("unknown commit existence was terminalized: %v", control.classified)
+	}
+}
+
 func TestUS045_TimelineCompensationSelectsUncoveredLateIdentityUntilConverged(t *testing.T) {
 	cutover := Phase2ForwardCutoverWindow()
 	late := cutover.End

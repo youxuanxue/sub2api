@@ -418,8 +418,11 @@ symlink 拒绝和规范化校验；目录不存在视为幂等成功。成功记
 
 旧 DEFAULT/monthly rows 与旧日期目录不复制、不移动、不 rehome。`tokenkey-qa-stale-cleanup` 只在未来 T0
 激活后的排空窗口继续按已批准旧逻辑处理这些 legacy 数据；新 boundary timer 此时保持 disabled。finalize
-必须在至少 25 小时后重新确认 DEFAULT 仍存在且为空、legacy child/file 与 export orphan 均已排空、未来小时覆盖完整、
-archive host receipt 与 DB heartbeat 新鲜成功，并消费同 T0 的 activate receipt。数据库 insert trigger 也拒绝
+必须在至少 25 小时后重新确认 DEFAULT 仍存在且为空、不存在非空或未知布局 legacy child、legacy file 与
+export orphan 均已排空、未来小时覆盖完整、archive host receipt 与 DB heartbeat 新鲜成功，并消费同 T0 的
+activate receipt。仍附着的空 legacy monthly child 以精确 schema/name/bounds 纳入 finalize plan hash；apply 在父表锁和
+同一事务内复核清单完整、边界不变且仍为零行，再与空 DEFAULT 一并 DROP。任何缺失、额外、改界或重新非空均在
+首个 DROP 前失败。数据库 insert trigger 也拒绝
 任何没有同 T0 activate 的 finalize，避免应用、operator 或手工 SQL 绕过。finalize receipt 落库后，
 owner-switch 自动禁用 legacy timer 并启用无随机延迟的 boundary timer。durable finalize 后
 legacy 已永久关闭；切换失败时必须继续保持 legacy disabled、best-effort 保持 boundary enabled，
@@ -644,6 +647,11 @@ cutover 后每个已封口小时最终都必须有 durable control：成功状�
 在 retention 内确认的零行 base），失败状态至少包含机器错误码。`source_unavailable_after_retention`
 表示未 committed 小时被时间轴处理时已经没有可证明完整的源数据；它覆盖无既存 control 和已有
 retryable control 但源数据随后过期两种情况，是 terminal failed，不是空归档、confirmed gap 或删除授权。
+缺少 `ListBucket` 时，缺失 key 的 `GetObject` 403 只能证明 commit 存在性未知；在 conditional create 或
+后续成功读取完成消歧前，不得把过期零行源误判为 `source_unavailable_after_retention`。该状态以
+`commit_existence_unknown` 保持可重试，通用失败写入不得把已有 committed shard 降级。
+该可重试状态不延长热保留：boundary 仍按 catalog 上界 DROP 到期小时并记录
+`source_partition_name/source_dropped_at`，但不得把 control 改写成 terminal gap。
 
 ### 14.2 Boundary lifecycle control 与 receipt
 

@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,6 +82,85 @@ func (s *conflictOnceStore) CompareAndSwap(ctx context.Context, key, etag string
 		return ObjectInfo{}, ErrPreconditionFailed
 	}
 	return s.MemoryObjectStore.CompareAndSwap(ctx, key, etag, body, size, contentType)
+}
+
+type missingObjectAccessDeniedStore struct {
+	*MemoryObjectStore
+	denyExistingReads bool
+	createCalls       int
+	compareAndSwaps   int
+}
+
+func (s *missingObjectAccessDeniedStore) Open(ctx context.Context, key string) (ObjectReader, error) {
+	if s.denyExistingReads && strings.HasSuffix(key, "/commit.json") {
+		return ObjectReader{}, errors.New("S3 GetObject 403 AccessDenied")
+	}
+	opened, err := s.MemoryObjectStore.Open(ctx, key)
+	if err != nil && isObjectNotFound(err) {
+		return ObjectReader{}, errors.New("S3 GetObject 403 AccessDenied")
+	}
+	return opened, err
+}
+
+func (s *missingObjectAccessDeniedStore) Create(ctx context.Context, key string, body io.Reader, size int64, contentType string) (ObjectInfo, error) {
+	s.createCalls++
+	return s.MemoryObjectStore.Create(ctx, key, body, size, contentType)
+}
+
+func (s *missingObjectAccessDeniedStore) CompareAndSwap(ctx context.Context, key, etag string, body io.Reader, size int64, contentType string) (ObjectInfo, error) {
+	s.compareAndSwaps++
+	return s.MemoryObjectStore.CompareAndSwap(ctx, key, etag, body, size, contentType)
+}
+
+func TestReconcilerCreatesFirstCommitWhenMissingGetReturnsAccessDenied(t *testing.T) {
+	ctx := context.Background()
+	start := time.Date(2026, 8, 11, 23, 0, 0, 0, time.UTC)
+	store := &missingObjectAccessDeniedStore{MemoryObjectStore: NewMemoryObjectStore()}
+	control := &fakeReconcileControl{}
+	reconciler := NewReconciler(store, control, t.TempDir())
+	reconciler.Build = func(context.Context, *sql.Conn, BuildInput) (BuiltSegment, error) {
+		return builtSegmentFixture(t, start, SegmentKindBase, "base-first", "req-first"), nil
+	}
+
+	receipt, err := reconciler.Reconcile(ctx, nil, Window{Start: start, End: start.Add(time.Hour)})
+	if err != nil {
+		t.Fatalf("Reconcile()=%v", err)
+	}
+	if store.createCalls != 1 || store.compareAndSwaps != 0 || receipt.SegmentCount != 1 || control.committed == nil {
+		t.Fatalf("receipt=%+v store=%+v control=%+v", receipt, store, control)
+	}
+	if _, err := store.MemoryObjectStore.Open(ctx, ShardRelativePrefix(start)+"/commit.json"); err != nil {
+		t.Fatalf("first commit was not created: %v", err)
+	}
+}
+
+func TestReconcilerDoesNotOverwriteExistingCommitWhenGetIsAccessDenied(t *testing.T) {
+	ctx := context.Background()
+	start := time.Date(2026, 8, 11, 23, 0, 0, 0, time.UTC)
+	inner := NewMemoryObjectStore()
+	commitKey := ShardRelativePrefix(start) + "/commit.json"
+	original := []byte("existing-commit-must-survive")
+	if err := inner.Put(ctx, commitKey, original, "application/json"); err != nil {
+		t.Fatal(err)
+	}
+	store := &missingObjectAccessDeniedStore{MemoryObjectStore: inner, denyExistingReads: true}
+	control := &fakeReconcileControl{}
+	reconciler := NewReconciler(store, control, t.TempDir())
+	reconciler.Build = func(context.Context, *sql.Conn, BuildInput) (BuiltSegment, error) {
+		return builtSegmentFixture(t, start, SegmentKindBase, "base-blocked", "req-blocked"), nil
+	}
+
+	_, err := reconciler.Reconcile(ctx, nil, Window{Start: start, End: start.Add(time.Hour)})
+	if err == nil || !strings.Contains(err.Error(), "existence is unknown") {
+		t.Fatalf("Reconcile() error=%v, want fail-closed unknown-existence error", err)
+	}
+	if control.failureCode != IntegrityCommitExistenceUnknown {
+		t.Fatalf("failureCode=%q, want %q", control.failureCode, IntegrityCommitExistenceUnknown)
+	}
+	got, readErr := inner.Get(ctx, commitKey)
+	if readErr != nil || !bytes.Equal(got, original) || store.createCalls != 1 || store.compareAndSwaps != 0 {
+		t.Fatalf("existing commit changed: body=%q readErr=%v store=%+v", got, readErr, store)
+	}
 }
 
 func TestReconcilerLateRowsAppendDeltaAndCASRetry(t *testing.T) {
@@ -203,6 +283,36 @@ func TestUS045_ReconcilerExpiredZeroRowBecomesSourceUnavailableFailure(t *testin
 	}
 	if control.failureCode != IntegritySourceUnavailableAfterRetention || control.started != 0 || len(store.Keys()) != 0 {
 		t.Fatalf("control=%+v keys=%v", control, store.Keys())
+	}
+}
+
+func TestReconcilerExpiredZeroRowWithUnknownCommitExistenceStaysRetryable(t *testing.T) {
+	ctx := context.Background()
+	start := time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)
+	inner := NewMemoryObjectStore()
+	commitKey := ShardRelativePrefix(start) + "/commit.json"
+	original := []byte("existing-commit-must-survive")
+	if err := inner.Put(ctx, commitKey, original, "application/json"); err != nil {
+		t.Fatal(err)
+	}
+	store := &missingObjectAccessDeniedStore{MemoryObjectStore: inner, denyExistingReads: true}
+	control := &fakeReconcileControl{}
+	reconciler := NewReconciler(store, control, t.TempDir())
+	reconciler.Now = func() time.Time { return start.Add(25 * time.Hour) }
+	reconciler.Build = func(context.Context, *sql.Conn, BuildInput) (BuiltSegment, error) {
+		return zeroBuiltSegmentFixture(t, start, SegmentKindBase, "unknown-expired-empty"), nil
+	}
+
+	_, err := reconciler.Reconcile(ctx, nil, Window{Start: start, End: start.Add(time.Hour)})
+	if err == nil || !strings.Contains(err.Error(), "existence is unknown") {
+		t.Fatalf("Reconcile() error=%v, want retryable unknown-existence error", err)
+	}
+	if control.failureCode != IntegrityCommitExistenceUnknown || control.failureCode == IntegritySourceUnavailableAfterRetention {
+		t.Fatalf("control=%+v", control)
+	}
+	got, readErr := inner.Get(ctx, commitKey)
+	if readErr != nil || !bytes.Equal(got, original) || store.createCalls != 0 || store.compareAndSwaps != 0 {
+		t.Fatalf("existing commit changed: body=%q readErr=%v store=%+v", got, readErr, store)
 	}
 }
 

@@ -24,15 +24,21 @@ def _evaluate_qa_records_lifecycle(
     qa_records: dict[str, Any] | None,
     archive: dict[str, Any] | None,
     now: dt.datetime,
-) -> bool:
-    """Return True when lifecycle/catalog facts require a failed health verdict."""
+) -> tuple[bool, str]:
+    """Return the lifecycle/catalog failure flag and the derived cutover phase."""
     failed = False
     if qa_records is None:
         reasons.append("qa_records_catalog_missing")
-        return True
+        return True, "unknown"
     active = qa_records.get("hourly_cutover_active") is True
     finalized = qa_records.get("hourly_cutover_finalized") is True
     finalize_receipt_present = qa_records.get("hourly_cutover_finalize_receipt_present")
+    activate_t0 = _timestamp(qa_records.get("activate_t0_utc"))
+    activate_applied_at = _timestamp(qa_records.get("activate_applied_at"))
+    activate_plan_hash = qa_records.get("activate_plan_hash")
+    finalize_t0 = _timestamp(qa_records.get("finalize_t0_utc"))
+    finalize_applied_at = _timestamp(qa_records.get("finalize_applied_at"))
+    finalize_plan_hash = qa_records.get("finalize_plan_hash")
     receipts_inconsistent = (
         (finalized and not active)
         or (
@@ -40,13 +46,75 @@ def _evaluate_qa_records_lifecycle(
             and finalize_receipt_present != finalized
         )
         or (active and not isinstance(finalize_receipt_present, bool))
+        or (active and activate_t0 is None)
+        or (active and not _valid_plan_hash(activate_plan_hash))
+        or (active and activate_applied_at is None)
+        or (activate_applied_at is not None and activate_applied_at > now)
+        or (
+            finalized
+            and (
+                finalize_t0 is None
+                or finalize_t0 != activate_t0
+                or not _valid_plan_hash(finalize_plan_hash)
+                or finalize_applied_at is None
+                or finalize_applied_at > now
+                or (
+                    activate_applied_at is not None
+                    and finalize_applied_at is not None
+                    and finalize_applied_at < activate_applied_at
+                )
+            )
+        )
     )
     if receipts_inconsistent:
         reasons.append("qa_records_cutover_receipts_inconsistent")
         failed = True
-    if active:
-        if finalized and qa_records.get("default_present") is True:
+
+    if not active:
+        phase = "pre_activate"
+    elif finalized:
+        phase = "finalized"
+    elif activate_t0 is not None and now < activate_t0:
+        phase = "scheduled_activation"
+    else:
+        phase = "draining"
+
+    if phase in {"scheduled_activation", "draining"}:
+        if qa_records.get("default_present") is not True:
+            reasons.append("qa_records_default_missing_before_finalize")
+            failed = True
+        if qa_records.get("default_rows_after_t0") != 0:
+            reasons.append("qa_records_default_growth_after_t0")
+            failed = True
+
+    if phase == "scheduled_activation":
+        required = qa_records.get("future_coverage_required_hours")
+        canonical = qa_records.get("future_coverage_canonical_hours")
+        gap = qa_records.get("future_coverage_gap_hours")
+        coverage_start = _timestamp(qa_records.get("future_coverage_start_utc"))
+        coverage_end = _timestamp(qa_records.get("future_coverage_end_utc"))
+        if (
+            activate_t0 is None
+            or required != HOURLY_HORIZON
+            or canonical != HOURLY_HORIZON
+            or gap != 0
+            or coverage_start != activate_t0
+            or coverage_end != activate_t0 + dt.timedelta(hours=HOURLY_HORIZON)
+        ):
+            reasons.append("qa_records_activation_partition_gap")
+            failed = True
+
+    if phase == "draining" and qa_records.get("current_hour_partition_missing") is not False:
+        reasons.append("qa_records_current_partition_missing")
+        failed = True
+
+    if phase == "finalized":
+        default_present = qa_records.get("default_present")
+        if default_present is True:
             reasons.append("qa_records_default_after_hourly_cutover")
+            failed = True
+        elif default_present is not False:
+            reasons.append("qa_records_default_presence_unknown")
             failed = True
         required = qa_records.get("future_coverage_required_hours")
         canonical = qa_records.get("future_coverage_canonical_hours")
@@ -63,21 +131,29 @@ def _evaluate_qa_records_lifecycle(
         ):
             reasons.append("qa_records_future_partition_gap")
             failed = True
-        if qa_records.get("current_hour_partition_missing") is True:
+        if qa_records.get("current_hour_partition_missing") is not False:
             reasons.append("qa_records_current_partition_missing")
             failed = True
         overdue = qa_records.get("expired_partitions_attached")
-        if isinstance(overdue, (int, float)) and overdue > 0:
+        if not _is_nonnegative_int(overdue):
+            reasons.append("qa_records_expired_partitions_fact_missing")
+            failed = True
+        elif overdue > 0:
             reasons.append("qa_records_expired_partitions_attached")
             failed = True
         noncanonical = qa_records.get("noncanonical_partitions_attached")
-        if finalized and isinstance(noncanonical, (int, float)) and noncanonical > 0:
+        if not _is_nonnegative_int(noncanonical):
+            reasons.append("qa_records_noncanonical_partitions_fact_missing")
+            failed = True
+        elif noncanonical > 0:
             reasons.append("qa_records_noncanonical_partitions_attached")
             failed = True
         backlog = qa_records.get("hot_cleanup_backlog")
-        if qa_records.get("hot_files_cleanup_pending") is True or (
-            isinstance(backlog, (int, float)) and backlog > 0
-        ):
+        cleanup_pending = qa_records.get("hot_files_cleanup_pending")
+        if not _is_nonnegative_int(backlog) or not isinstance(cleanup_pending, bool):
+            reasons.append("qa_records_hot_cleanup_fact_missing")
+            failed = True
+        elif cleanup_pending or backlog > 0:
             reasons.append("qa_records_hot_files_cleanup_pending")
             failed = True
     if archive is not None:
@@ -95,7 +171,31 @@ def _evaluate_qa_records_lifecycle(
                 elif code not in {None, "", TERMINAL_CATCHUP_ERROR}:
                     reasons.append("archive_verification_failure")
                     failed = True
-    return failed
+    return failed, phase
+
+
+def _valid_plan_hash(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _is_nonnegative_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _evaluate_boundary_disabled(reasons: list[str], snapshot: dict[str, Any]) -> bool:
+    systemd = _mapping(snapshot.get("boundary_systemd"))
+    if systemd is None:
+        reasons.append("boundary_systemd_missing")
+        return True
+    if systemd.get("timer_enabled") is not False:
+        reasons.append("boundary_timer_enabled_before_finalize")
+    if systemd.get("timer_active") is not False:
+        reasons.append("boundary_timer_active_before_finalize")
+    return any(reason.startswith("boundary_") for reason in reasons)
 
 
 def _evaluate_boundary(
@@ -546,10 +646,15 @@ def evaluate(
         ):
             failed = True
 
-    if _evaluate_boundary(forward_reasons, snapshot, now):
+    lifecycle_failed, lifecycle_phase = _evaluate_qa_records_lifecycle(
+        forward_reasons, qa_records, archive, now
+    )
+    if lifecycle_failed:
         failed = True
-
-    if _evaluate_qa_records_lifecycle(forward_reasons, qa_records, archive, now):
+    if lifecycle_phase == "finalized":
+        if _evaluate_boundary(forward_reasons, snapshot, now):
+            failed = True
+    elif _evaluate_boundary_disabled(forward_reasons, snapshot):
         failed = True
 
     forward_reasons = sorted(set(forward_reasons))
@@ -572,6 +677,7 @@ def evaluate(
         "reasons": reasons,
         "forward_reasons": forward_reasons,
         "catchup_reasons": catchup_reasons,
+        "lifecycle_phase": lifecycle_phase,
     }
 
 

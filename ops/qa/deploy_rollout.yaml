@@ -43,6 +43,10 @@ prod:
     host_runner: /usr/local/bin/tokenkey-qa-boundary.sh
     host_receipt: /var/lib/tokenkey/qa-boundary-last-run.json
     database_heartbeat_job: qa-boundary
+    pre_finalize_provision_mode: qa-cutover-provision-only
+    pre_finalize_confirmation: tokenkey-prod-qa-cutover-provision-v1
+    pre_finalize_timer_state: disabled
+    finalize_legacy_monthly_policy: drop_empty_hash_bound_with_default
     replaces_timer: tokenkey-qa-stale-cleanup.timer
     owns_export_orphans: true
     export_orphan_activation_marker: /var/lib/tokenkey/qa-export-orphan-cleanup-activated.json

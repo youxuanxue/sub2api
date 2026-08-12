@@ -86,8 +86,19 @@ func BuildCutoverFinalizePlan(inv CutoverInventory, t0 time.Time) (CutoverPlan, 
 	if inv.DefaultRowCount != 0 {
 		return CutoverPlan{}, fmt.Errorf("lifecycle: DEFAULT still holds %d rows", inv.DefaultRowCount)
 	}
+	dropMonthly := make([]InventoryRow, 0)
 	for _, row := range inv.Partitions {
 		if row.IsDefault || row.Layout == "hourly" {
+			continue
+		}
+		if row.Layout == "monthly" {
+			if row.RowCount != 0 {
+				return CutoverPlan{}, fmt.Errorf("lifecycle: monthly partition %s.%s still holds %d rows during finalize", row.Schema, row.Name, row.RowCount)
+			}
+			if row.Lower.IsZero() || row.Upper.IsZero() || !row.Lower.Before(row.Upper) {
+				return CutoverPlan{}, fmt.Errorf("lifecycle: monthly partition %s.%s has invalid bounds during finalize", row.Schema, row.Name)
+			}
+			dropMonthly = append(dropMonthly, row)
 			continue
 		}
 		return CutoverPlan{}, fmt.Errorf("lifecycle: legacy partition %s.%s remains during finalize", row.Schema, row.Name)
@@ -106,10 +117,11 @@ func BuildCutoverFinalizePlan(inv CutoverInventory, t0 time.Time) (CutoverPlan, 
 		return CutoverPlan{}, fmt.Errorf("lifecycle: archive heartbeat is not a fresh success")
 	}
 	plan := CutoverPlan{
-		SchemaVersion: "qa-hourly-cutover-finalize-plan-v1",
+		SchemaVersion: "qa-hourly-cutover-finalize-plan-v2",
 		Phase:         CutoverPhaseFinalize,
 		T0UTC:         t0,
 		HorizonHours:  HourlyHorizon,
+		DropMonthly:   dropMonthly,
 		Inventory:     inv,
 	}
 	hash, err := hashCutoverPlan(plan)
@@ -141,14 +153,15 @@ func hashCutoverPlan(plan CutoverPlan) (string, error) {
 		DropMonthly []InventoryRow `json:"drop_empty_monthly,omitempty"`
 	}
 	type finalizeFacts struct {
-		DBAnchorUTC             time.Time `json:"db_anchor_utc"`
-		CoveredFutureHours      int       `json:"covered_future_hours"`
-		RequiredFutureHours     int       `json:"required_future_hours"`
-		DefaultPresent          bool      `json:"default_present"`
-		DefaultRowCount         int64     `json:"default_row_count"`
-		LegacyBlobFiles         int64     `json:"legacy_blob_files"`
-		LegacyDLQFiles          int64     `json:"legacy_dlq_files"`
-		ArchiveHeartbeatHealthy bool      `json:"archive_heartbeat_healthy"`
+		DBAnchorUTC             time.Time      `json:"db_anchor_utc"`
+		CoveredFutureHours      int            `json:"covered_future_hours"`
+		RequiredFutureHours     int            `json:"required_future_hours"`
+		DefaultPresent          bool           `json:"default_present"`
+		DefaultRowCount         int64          `json:"default_row_count"`
+		LegacyBlobFiles         int64          `json:"legacy_blob_files"`
+		LegacyDLQFiles          int64          `json:"legacy_dlq_files"`
+		ArchiveHeartbeatHealthy bool           `json:"archive_heartbeat_healthy"`
+		DropMonthly             []InventoryRow `json:"drop_empty_monthly,omitempty"`
 	}
 	payload := struct {
 		SchemaVersion string           `json:"schema_version"`
@@ -179,6 +192,7 @@ func hashCutoverPlan(plan CutoverPlan) (string, error) {
 			LegacyBlobFiles:         plan.Inventory.LegacyBlobFiles,
 			LegacyDLQFiles:          plan.Inventory.LegacyDLQFiles,
 			ArchiveHeartbeatHealthy: plan.Inventory.ArchiveHeartbeatHealthy,
+			DropMonthly:             plan.DropMonthly,
 		}
 	default:
 		return "", fmt.Errorf("lifecycle: unsupported cutover phase %q", plan.Phase)

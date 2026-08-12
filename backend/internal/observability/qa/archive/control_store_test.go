@@ -144,10 +144,14 @@ FROM qa_archive_shards WHERE id=$1`, shardID).Scan(
 	require.Equal(t, 1, membershipCount)
 
 	require.NoError(t, control.Fail(ctx, conn, shardID, "commit_conflict", errors.New("CAS exhausted")))
-	var persistedFailureCode string
+	var stateAfterFail string
+	var persistedFailureCode sql.NullString
 	require.NoError(t, db.QueryRowContext(ctx, `
-SELECT verification_error_code FROM qa_archive_shards WHERE id=$1`, shardID).Scan(&persistedFailureCode))
-	require.Equal(t, "commit_conflict", persistedFailureCode)
+SELECT state, verification_error_code FROM qa_archive_shards WHERE id=$1`, shardID).Scan(
+		&stateAfterFail, &persistedFailureCode,
+	))
+	require.Equal(t, StateCommitted, stateAfterFail)
+	require.False(t, persistedFailureCode.Valid)
 }
 
 func TestSQLControlStoreFailureBlocksCleanupAndRedactsMessage(t *testing.T) {
