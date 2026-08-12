@@ -463,40 +463,6 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		return nil, fmt.Errorf("upstream error: %d (passthrough rule matched) message=%s", resp.StatusCode, upstreamMsg)
 	}
 
-	if isOpenAIClientInduced4xx(resp.StatusCode) {
-		errType := "invalid_request_error"
-		if resp.StatusCode == http.StatusNotFound {
-			errType = "not_found_error"
-		} else if upstreamType := strings.TrimSpace(gjson.GetBytes(body, "error.type").String()); upstreamType != "" {
-			errType = upstreamType
-		}
-		errMsg := upstreamMsg
-		if errMsg == "" {
-			errMsg = "Upstream rejected the request"
-		}
-		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			Platform:           account.Platform,
-			AccountID:          account.ID,
-			AccountName:        account.Name,
-			UpstreamStatusCode: resp.StatusCode,
-			UpstreamRequestID:  resp.Header.Get("x-request-id"),
-			Kind:               "http_error",
-			Message:            upstreamMsg,
-			Detail:             upstreamDetail,
-		})
-		MarkResponseCommitted(c)
-		c.JSON(resp.StatusCode, gin.H{
-			"error": gin.H{
-				"type":    errType,
-				"message": errMsg,
-			},
-		})
-		if upstreamMsg == "" {
-			return nil, fmt.Errorf("upstream error: %d", resp.StatusCode)
-		}
-		return nil, fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
-	}
-
 	// Check custom error codes
 	if !account.ShouldHandleErrorCode(resp.StatusCode) {
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -557,6 +523,34 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 
 	MarkResponseCommitted(c)
 
+	// 上游 400 是确定性的请求错误：同一份请求体换账号、重试多少次都会失败。归一成
+	// 502 upstream_error 会让下游网关把它当成可重试的上游故障反复重放（#5479 实测
+	// 30 个失败请求被放大成 60 次上游调用），同时抹掉客户端定位问题所需的 code/param。
+	//
+	// 走到这里说明 shouldFailoverOpenAIUpstreamResponse 已判定该 400 不可 failover，
+	// 即 server_is_overloaded / at capacity 这类可重试的 400 不会到达此处。
+	//
+	// 兄弟路径早已这么做：handleCompatErrorResponse（ChatCompletions / Anthropic）
+	// 回真实状态码 + invalid_request_error + 真实 message；/v1/images 还额外透传
+	// code/param。原生 Responses 是唯一漏掉的一条。
+	if isOpenAIDeterministicClientError(resp.StatusCode) {
+		writeOpenAIUpstreamClientError(c, resp.StatusCode, body, upstreamMsg)
+		if upstreamMsg == "" {
+			return nil, fmt.Errorf("upstream error: %d", resp.StatusCode)
+		}
+		return nil, fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
+	}
+
+	// TK: after failover, pass caller-fault 422 and model-not-found 404 through on
+	// the native /v1/responses path. Ops misconfig 404 (Unknown URL) stays 502 below.
+	if tkShouldPassthroughOpenAINativeClientError(resp.StatusCode, upstreamMsg, body) {
+		tkWriteOpenAINativeClientError(c, resp.StatusCode, body, upstreamMsg)
+		if upstreamMsg == "" {
+			return nil, fmt.Errorf("upstream error: %d", resp.StatusCode)
+		}
+		return nil, fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
+	}
+
 	// Return appropriate error response
 	var errType, errMsg string
 	var statusCode int
@@ -600,15 +594,6 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		return nil, fmt.Errorf("upstream error: %d", resp.StatusCode)
 	}
 	return nil, fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
-}
-
-func isOpenAIClientInduced4xx(statusCode int) bool {
-	switch statusCode {
-	case http.StatusBadRequest, http.StatusNotFound, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:
-		return true
-	default:
-		return false
-	}
 }
 
 // compatErrorWriter is the signature for format-specific error writers used by
@@ -676,16 +661,6 @@ func (s *OpenAIGatewayService) handleCompatErrorResponse(
 	}
 	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 	if account != nil && account.IsGrok() && tkIsGrokEntitlement403(resp.StatusCode, body) {
-		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			Platform:           account.Platform,
-			AccountID:          account.ID,
-			AccountName:        account.Name,
-			UpstreamStatusCode: resp.StatusCode,
-			UpstreamRequestID:  firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id")),
-			Kind:               "http_error",
-			Message:            upstreamMsg,
-			Detail:             upstreamDetail,
-		})
 		MarkResponseCommitted(c)
 		writeError(c, http.StatusForbidden, "permission_error", tkGrokEntitlement403ClientMessage(upstreamMsg))
 		return nil, fmt.Errorf("upstream error: %d (grok entitlement 403)", resp.StatusCode)

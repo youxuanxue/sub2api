@@ -36,6 +36,9 @@ const (
 const (
 	// sameAccountRetryDelay 同账号重试间隔
 	sameAccountRetryDelay = 500 * time.Millisecond
+	// maxRequestScopedRetryDelay 限制请求级瞬时错误的指数退避上限，避免高重试配置
+	// 将单次请求拖入分钟级等待。
+	maxRequestScopedRetryDelay = 8 * time.Second
 	// singleAccountBackoffDelay 单账号分组 503 退避重试固定延时。
 	// Service 层在 SingleAccountRetry 模式下已做充分原地重试（最多 3 次、总等待 30s），
 	// Handler 层只需短暂间隔后重新进入 Service 层即可。
@@ -51,6 +54,21 @@ const (
 // profitVetoExhaustedMessage 是利润否决次数耗尽时返回给客户端的文案。
 // 语义上等同于「无可用账号」：候选账号都不满足分组的利润约束。
 const profitVetoExhaustedMessage = "No available accounts: all candidates rejected by group profit control"
+
+func sameAccountRetryDelayFor(failoverErr *service.UpstreamFailoverError, retryCount int) time.Duration {
+	if failoverErr == nil || !failoverErr.RequestScopedTransient || retryCount <= 1 {
+		return sameAccountRetryDelay
+	}
+
+	delay := sameAccountRetryDelay
+	for i := 1; i < retryCount; i++ {
+		if delay >= maxRequestScopedRetryDelay/2 {
+			return maxRequestScopedRetryDelay
+		}
+		delay *= 2
+	}
+	return delay
+}
 
 // FailoverState 跨循环迭代共享的 failover 状态
 type FailoverState struct {
@@ -184,15 +202,19 @@ func (s *FailoverState) HandleFailoverError(
 		s.ForceCacheBilling = true
 	}
 
-	// 同账号重试：对 RetryableOnSameAccount 的临时性错误，先在同一账号上重试
+	// 同账号重试：对 RetryableOnSameAccount 的临时性错误，先在同一账号上重试。
+	// 重试次数上限 sameAccountRetryLimit 由调用方传入（账号级 pool_mode_retry_count 配置）。
 	if failoverErr.RetryableOnSameAccount && s.SameAccountRetryCount[accountID] < sameAccountRetryLimit {
+		nextAttempt := s.SameAccountRetryCount[accountID] + 1
+		retryDelay := sameAccountRetryDelayFor(failoverErr, nextAttempt)
 		logger.FromContext(ctx).Warn("gateway.failover_same_account_retry",
 			zap.Int64("account_id", accountID),
 			zap.Int("upstream_status", failoverErr.StatusCode),
-			zap.Int("same_account_retry_count", s.SameAccountRetryCount[accountID]+1),
+			zap.Int("same_account_retry_count", nextAttempt),
 			zap.Int("same_account_retry_max", sameAccountRetryLimit),
+			zap.Duration("retry_delay", retryDelay),
 		)
-		if !sleepWithContext(ctx, sameAccountRetryDelay) {
+		if !sleepWithContext(ctx, retryDelay) {
 			return FailoverCanceled
 		}
 		s.SameAccountRetryCount[accountID]++
