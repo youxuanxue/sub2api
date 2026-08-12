@@ -131,7 +131,6 @@ func TestGatewayHandleErrorResponse_Anthropic404NonModelKeeps502(t *testing.T) {
 // GatewayService test above.
 func TestOpenAIHandleErrorResponse_ClientInduced4xxPassesThrough(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	const upstreamMsg = "The 'gpt-4o' model is not supported when using Codex with a ChatGPT account."
 
 	cases := []struct {
 		name     string
