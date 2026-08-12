@@ -92,6 +92,41 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         self.assertEqual(payload["health"]["status"], "failed")
         self.assertIn("qa_records_partition_owner_default_only", payload["health"]["reasons"])
 
+    def test_evaluate_snapshot_accepts_default_only_before_scheduled_t0(self) -> None:
+        snapshot, now = _fresh_snapshot()
+        t0 = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
+        iso = lambda value: value.strftime("%Y-%m-%dT%H:%M:%SZ")
+        snapshot["boundary_systemd"].update(
+            timer_enabled=False,
+            timer_active=False,
+            service_result="unknown",
+            finished_at=None,
+        )
+        snapshot["boundary_host_receipt"] = None
+        snapshot["boundary_database_heartbeat"] = None
+        snapshot["qa_records"].update(
+            partition_owner="default_only",
+            default_rows=10,
+            non_default_rows=0,
+            hourly_cutover_finalize_receipt_present=False,
+            hourly_cutover_finalized=False,
+            activate_t0_utc=iso(t0),
+            activate_applied_at=iso(now - dt.timedelta(minutes=30)),
+            finalize_t0_utc=None,
+            finalize_plan_hash=None,
+            finalize_applied_at=None,
+            default_present=True,
+            default_rows_after_t0=0,
+            future_coverage_start_utc=iso(t0),
+            future_coverage_end_utc=iso(t0 + dt.timedelta(hours=72)),
+            current_hour_partition_missing=True,
+        )
+
+        payload = live_health.evaluate_snapshot(snapshot, skip_iam=True, now=now)
+
+        self.assertEqual(payload["health"]["status"], "healthy", payload)
+        self.assertEqual(payload["warnings"], [], payload)
+
     def test_cli_from_probe_stdin(self) -> None:
         proc = subprocess.run(
             [

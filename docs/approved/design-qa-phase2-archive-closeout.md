@@ -313,8 +313,18 @@ contains the ordered existing segments plus the new verified delta, aggregate co
 and an aggregate checksum over canonical segment descriptors. On a precondition failure,
 maintenance rereads the commit, rebuilds the proposal, and retries a bounded number of
 times. It never performs an unconditional overwrite. Under the approved no-ListBucket app
-role, a new object write never performs a preflight `HeadObject`: the conditional create
-is authoritative, and only its conflict response enters the existing-object read/CAS path.
+role, a missing-key `GetObject` 403 means commit existence is unknown, not absent. The
+archiver may use conditional create to disambiguate a nonempty source window, but it must
+not infer `source_unavailable_after_retention` from an expired zero-row source while commit
+visibility is denied. That case remains retryable as `commit_existence_unknown`, and generic
+failure persistence cannot downgrade an already committed shard.
+Maintenance may attempt only `If-None-Match: *` creation when existence is unknown.
+Success establishes the first commit; a conflict requires a successful reread before CAS and
+otherwise fails closed. No `HeadObject` preflight, unconditional overwrite, or blanket
+AccessDenied-as-NotFound rule is allowed.
+Unknown existence does not extend hot retention: boundary still drops the expired catalog
+child and records the source-drop facts, while preserving `commit_existence_unknown` instead
+of fabricating a terminal gap.
 
 After CAS, maintenance rereads the commit and all referenced manifests. Only then does a
 single database transaction mark segment and shard committed and persist the same ETag,
@@ -426,9 +436,13 @@ DB heartbeats, catalog bounds, shard/segment control rows, and hot-file cleanup 
 Missing or stale evidence, a systemd success with no DB/control progress, or a
 receipt/heartbeat/control contradiction is failed. The last successful DB heartbeat
 cannot mask a newer host-side failure. `source_unavailable_after_retention` is the only
-accepted degraded terminal failure; `archive_failed`, a current/future partition gap, an
-overdue attached partition, a DEFAULT partition after cutover, or lingering hot-file
-cleanup is failed and returns a nonzero health exit.
+accepted degraded terminal failure. Lifecycle health derives `pre_activate`,
+`scheduled_activation`, `draining`, or `finalized` from append-only receipt T0 facts.
+Before finalize the boundary timer must remain disabled; scheduled activation requires exact
+`[T0,T0+72h)` coverage, while draining requires the current child and zero rows routed to
+DEFAULT at or after T0. Only finalized steady state requires a fresh boundary receipt,
+current-plus-72-hour coverage, no DEFAULT, no overdue attached partition, and no lingering
+hot-file cleanup. `archive_failed` is always failed and returns a nonzero health exit.
 
 ## Runtime and Infrastructure
 
@@ -460,8 +474,9 @@ then verifies the host path. Wrong ownership, mode, mount source, or image fails
 timer activation. Insufficient scratch space fails before upload. Operator automation
 calls this runner remotely and validates its receipt; it never issues root `docker exec`.
 
-Boundary scheduling and all cutover modes (`inventory`, `activate plan/apply`, and
-`finalize plan/apply`) likewise enter through `/usr/local/bin/tokenkey-qa-boundary.sh`.
+Boundary scheduling and all cutover modes (`inventory`, `activate plan/apply`, pre-finalize
+`provision-only`, and `finalize plan/apply`) likewise enter through
+`/usr/local/bin/tokenkey-qa-boundary.sh`.
 The runner resolves the same active immutable image and hardened sibling-container runtime;
 the app CLI is not a supported direct prod operator surface. Exactly one mode is accepted
 per invocation. Apply consumes a hash-bound plan and confirmation; after a durable phase
@@ -471,7 +486,8 @@ while a different hash or T0 fails closed.
 The hash binds only decision-bearing facts, not live row counts that continue changing between
 plan and apply. Activation binds the database hour anchor, T0, horizon, and exact empty monthly
 children/bounds to remove. Finalize binds the database hour anchor, T0, future coverage,
-DEFAULT presence/count, legacy blob/DLQ counts, and archive-heartbeat gate. Apply reconstructs
+DEFAULT presence/count, the exact remaining empty legacy monthly children/bounds, legacy
+blob/DLQ counts, and archive-heartbeat gate. Apply reconstructs
 those facts and rechecks all catalog/data preconditions under lock; unrelated DEFAULT writes
 before T0 or active-hour writes after T0 cannot make an otherwise valid plan impossible to apply.
 
@@ -535,10 +551,13 @@ or add job-history retention semantics.
 - host receipt rename is atomic and each pre-app failure remains observable;
 - boundary operator modes use the same hardened host runner as the timer and cannot overwrite
   the scheduled boundary receipt;
+- provision-only is accepted only at or after activate T0 and before finalize, takes the QAMA
+  lock, creates current-plus-72-hour children, and cannot run expiry DROP or file cleanup;
 - activate/finalize phase receipts are append-only; same phase/hash/T0 replay is idempotent,
   different facts fail, and finalize without a matching activate receipt is rejected;
 - finalize rejects stale/failed archive host receipt or DB heartbeat, any legacy blob/DLQ
-  file, nonzero export-orphan plan, DEFAULT rows, legacy child, or future coverage gap;
+  file, nonzero export-orphan plan, DEFAULT rows, nonempty or unknown-layout legacy child,
+  empty-monthly inventory drift, or future coverage gap;
 - owner switch consumes the durable finalize receipt before disabling legacy cleanup and
   keeps legacy disabled while best-effort preserving boundary if enable/verification fails;
 - health fails on every systemd/receipt/heartbeat/control contradiction;
@@ -580,6 +599,7 @@ pre-control crash -> source cleanup -> durable source_unavailable_after_retentio
 committed hour + late source identity -> one delta -> membership convergence
 host preflight failure -> host receipt advances while DB heartbeat does not
 T0 cutover -> old DEFAULT rows stay put -> new writes route hourly -> DEFAULT drains
+T0+25h provision-only -> current-plus-72-hour coverage without DROP -> finalize plan
 nonempty DEFAULT -> removal rejected; empty DEFAULT + 72h coverage -> removal succeeds
 archive read racing expired DROP -> shared lock serializes both phases
 uncommitted/late-delta hour at retention -> terminal gap + DROP in one transaction
@@ -636,14 +656,20 @@ empty monthly children that overlap the future hourly horizon; a nonempty child 
 through the existing age cleanup and is never moved. While DEFAULT and the legacy cleanup
 remain active, provision hourly children beginning at a future exact UTC hour `T0`.
 Writes at and after `T0` route naturally to hourly children; old DEFAULT/monthly rows and
-day-layout files expire in place. After at least 25 hours, require DEFAULT row count zero,
-no nonempty legacy child, no expired legacy file, complete current-plus-72-hour coverage,
+day-layout files expire in place. The activation horizon intentionally decays during drain.
+At or after T0, and before finalize, an explicitly confirmed provision-only operator command
+extends coverage from the current database hour through 72 hours while the boundary timer
+stays disabled; this command cannot inspect archive state, DROP partitions, or clean files.
+After at least 25 hours, require DEFAULT row count zero, no nonempty or unknown-layout legacy
+child, no expired legacy file, complete current-plus-72-hour coverage,
 zero export-orphan plan count, a fresh successful archive host receipt for the active
 container/image, a fresh successful archive DB heartbeat, and correlated healthy receipts.
 Finalize also requires the durable activate receipt for the exact same T0. A database insert
-trigger independently rejects a finalize receipt without that same-T0 activation. Under the
-parent/lifecycle lock, recheck the database/catalog facts and
-remove the empty DEFAULT. Only then replace legacy row/file cleanup with the `*:00`
+trigger independently rejects a finalize receipt without that same-T0 activation. The finalize
+plan hash binds every remaining empty monthly child by exact schema/name/bounds. Under the
+parent/lifecycle lock, recheck that the bound set is complete, unchanged, and still empty, then
+drop those children and the empty DEFAULT in the same transaction. Any missing, extra, changed,
+or newly nonempty monthly child fails before the first DROP. Only then replace legacy row/file cleanup with the `*:00`
 whole-hour boundary phase.
 
 File cleanup follows the database transaction. The transaction records any terminal
@@ -692,11 +718,17 @@ phase remains disabled. No rollout step copies or moves source data.
     `[T0,T0+72h)`. Set the immutable application cutover hour to `T0`; PostgreSQL routes
     new rows and the capture writer uses hourly file paths from that boundary.
 12. Keep legacy age cleanup active for at least 25 hours. Abort if DEFAULT grows after
-    `T0`, any future coverage gap appears, or archive/cleanup evidence contradicts.
-13. Through the boundary host runner, require the same-T0 activate receipt, fresh successful
-    archive host receipt and DB heartbeat, zero export-orphan plan, then acquire the shared
-    lock and revalidate DEFAULT empty, legacy children/blob/DLQ files drained, and 72-hour
-    coverage. Remove the empty DEFAULT and persist the append-only finalize receipt.
+    `T0`, the current-hour child is missing, or archive/cleanup evidence contradicts. The
+    initial activation horizon may decay during this drain; the boundary timer remains disabled.
+13. Through the boundary host runner, run `--qa-cutover-provision-only` with exact confirmation
+    `tokenkey-prod-qa-cutover-provision-v1`. It requires the activate receipt, database time at
+    or after T0, no finalize receipt, and provisions current-plus-72-hour coverage under the
+    shared lock without DROP or cleanup. Then require fresh successful archive host receipt and
+    DB heartbeat plus a zero export-orphan plan, build the finalize plan, and apply it under the
+    same-T0 gate. Finalize revalidates DEFAULT empty, no nonempty or unknown-layout legacy child,
+    legacy blob/DLQ files drained, the exact empty-monthly hash-bound set, and 72-hour coverage
+    before atomically removing that monthly set plus DEFAULT and persisting the append-only
+    finalize receipt.
 14. The owner-switch SSM workflow must read that durable finalize receipt before disabling
     legacy DB/blob/DLQ cleanup and enabling the no-random-delay `*:00` boundary timer. If any
     enable/verification step fails, it keeps legacy disabled, best-effort leaves boundary enabled,
@@ -736,8 +768,9 @@ Phase 2 archive closeout is complete only when:
 - success/failure heartbeats reflect actual commit state;
 - timer/operator share one host runner, the live-mount UID self-test passes, and the atomic
   host receipt agrees with systemd, DB heartbeat, and control rows;
-- cutover inventory/activate/finalize run only through the boundary host runner; the durable
-  same-T0 activate/finalize receipts support exact replay and gate the legacy-to-boundary owner switch;
+- cutover inventory/activate/provision-only/finalize run only through the boundary host runner;
+  the durable same-T0 activate/finalize receipts support exact replay and gate the
+  legacy-to-boundary owner switch;
 - runtime resource limits and the raw-bucket security/audit controls are deployed;
 - the hourly archive timer completes at least two consecutive regular sealed hours under observation;
 - app IAM has no ListBucket/partial read and suffix-scoped GetObject, with shared-role risk

@@ -519,7 +519,7 @@ main() {
       [ "$#" -eq 1 ] || { printf 'tokenkey-qa-boundary: trigger accepts no arguments\n' >&2; return 40; }
       run_qa_boundary "${trigger}"
       ;;
-    --qa-cutover-inventory | --qa-cutover-plan | --qa-cutover-apply | --qa-cutover-finalize-plan | --qa-cutover-finalize)
+    --qa-cutover-inventory | --qa-cutover-plan | --qa-cutover-apply | --qa-cutover-provision-only | --qa-cutover-finalize-plan | --qa-cutover-finalize)
       run_qa_cutover_operator "$@"
       ;;
     '')

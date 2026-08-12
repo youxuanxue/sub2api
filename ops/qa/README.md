@@ -35,6 +35,23 @@ operator wrappers do not own a second Docker execution contract. `qa_phase2_heal
 evaluates a structured snapshot and fails closed unless systemd, host receipt, DB heartbeat,
 and archive control facts all describe the same fresh scheduled run.
 
+Before finalize, the boundary timer stays disabled. After activate T0, extend the decaying
+activation horizon without enabling cleanup or authorizing DROP:
+
+```bash
+sudo /usr/local/bin/tokenkey-qa-boundary.sh \
+  --qa-cutover-provision-only \
+  --confirm=tokenkey-prod-qa-cutover-provision-v1
+```
+
+This operator mode requires an activate receipt, rejects execution before T0 or after
+finalize, takes the shared QAMA lock, and only provisions current-plus-72-hour children.
+Finalize plan/apply remains a separate archive/export/catalog-gated operation. Its plan
+includes every remaining empty legacy monthly child with exact schema, name, and bounds;
+under the parent lock, apply rechecks that each is still attached and empty, then drops the
+hash-bound monthly set and empty DEFAULT in one transaction. A nonempty monthly child,
+unknown layout, missing/extra child, or bound drift fails before any DROP.
+
 During no-move cutover drain, `tokenkey-qa-stale-cleanup.sh --plan` inventories the effective export temp bind,
 including the default `/app/data/qa_exports_tmp` to
 `/var/lib/tokenkey/app/qa_exports_tmp` mapping, and emits basename/size/mtime facts plus an

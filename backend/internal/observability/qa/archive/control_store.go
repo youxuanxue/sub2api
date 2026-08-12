@@ -208,7 +208,7 @@ func (s *SQLControlStore) Fail(ctx context.Context, conn *sql.Conn, shardID int6
 UPDATE qa_archive_shards SET
     state=$1, verification_error_code=$2, last_error=$3,
     cleanup_eligible=false, updated_at=now()
-WHERE id=$4`, StateFailed, code, message, shardID)
+WHERE id=$4 AND state IN ('pending','writing','verified','failed')`, StateFailed, code, message, shardID)
 	return err
 }
 
@@ -576,6 +576,9 @@ FOR UPDATE`, window.Start).Scan(&shardID, &state, &code, &restoreVerified)
 		return 0, fmt.Errorf("boundary terminal gap: lock control: %w", err)
 	}
 	if state == StateFailed && code.String == IntegritySourceUnavailableAfterRetention {
+		return shardID, nil
+	}
+	if state == StateFailed && code.String == IntegrityCommitExistenceUnknown {
 		return shardID, nil
 	}
 	if state == StateCommitted && restoreVerified.Valid && code.String == "" {

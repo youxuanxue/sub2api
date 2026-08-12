@@ -590,7 +590,14 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
                 "hourly_cutover_active": True,
                 "hourly_cutover_finalize_receipt_present": True,
                 "hourly_cutover_finalized": True,
+                "activate_t0_utc": "2026-08-07T20:00:00Z",
+                "activate_plan_hash": "a" * 64,
+                "activate_applied_at": "2026-08-07T19:30:00Z",
+                "finalize_t0_utc": "2026-08-07T20:00:00Z",
+                "finalize_plan_hash": "f" * 64,
+                "finalize_applied_at": "2026-08-08T21:30:00Z",
                 "default_present": False,
+                "default_rows_after_t0": 0,
                 "future_coverage_start_utc": "2026-08-08T22:00:00Z",
                 "future_coverage_end_utc": "2026-08-11T22:00:00Z",
                 "future_coverage_required_hours": 72,
@@ -612,6 +619,155 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
         self.assertIs(verdict["healthy"], True)
         self.assertEqual(verdict["status"], "healthy")
         self.assertEqual(verdict["reasons"], [])
+
+    def test_finalized_requires_complete_catalog_and_cleanup_facts(self) -> None:
+        health = _load_module("qa_phase2_health_complete_facts", "ops/qa/qa_phase2_health.py")
+        required = {
+            "default_present": "qa_records_default_presence_unknown",
+            "expired_partitions_attached": "qa_records_expired_partitions_fact_missing",
+            "noncanonical_partitions_attached": "qa_records_noncanonical_partitions_fact_missing",
+            "hot_cleanup_backlog": "qa_records_hot_cleanup_fact_missing",
+            "hot_files_cleanup_pending": "qa_records_hot_cleanup_fact_missing",
+        }
+
+        for field, reason in required.items():
+            with self.subTest(field=field):
+                snapshot, now = self._healthy_snapshot()
+                del snapshot["qa_records"][field]
+
+                verdict = health.evaluate(snapshot, now=now)
+
+                self.assertEqual(verdict["status"], "failed", verdict)
+                self.assertIn(reason, verdict["forward_reasons"], verdict)
+
+    def test_scheduled_activation_accepts_default_and_disabled_boundary_before_t0(self) -> None:
+        health = _load_module("qa_phase2_health_scheduled", "ops/qa/qa_phase2_health.py")
+        snapshot, now = self._healthy_snapshot()
+        snapshot["boundary_systemd"].update(
+            timer_enabled=False,
+            timer_active=False,
+            service_result="unknown",
+            finished_at=None,
+        )
+        snapshot["boundary_host_receipt"] = None
+        snapshot["boundary_database_heartbeat"] = None
+        snapshot["qa_records"].update(
+            partition_owner="default_only",
+            hourly_cutover_finalize_receipt_present=False,
+            hourly_cutover_finalized=False,
+            activate_t0_utc="2026-08-08T23:00:00Z",
+            activate_applied_at="2026-08-08T21:30:00Z",
+            finalize_t0_utc=None,
+            finalize_plan_hash=None,
+            finalize_applied_at=None,
+            default_present=True,
+            default_rows_after_t0=0,
+            future_coverage_start_utc="2026-08-08T23:00:00Z",
+            future_coverage_end_utc="2026-08-11T23:00:00Z",
+            current_hour_partition_missing=True,
+        )
+
+        verdict = health.evaluate(snapshot, now=now)
+
+        self.assertEqual(verdict["status"], "healthy", verdict)
+        self.assertEqual(verdict["lifecycle_phase"], "scheduled_activation", verdict)
+
+    def test_draining_accepts_decaying_horizon_but_rejects_default_growth_after_t0(self) -> None:
+        health = _load_module("qa_phase2_health_draining", "ops/qa/qa_phase2_health.py")
+        snapshot, now = self._healthy_snapshot()
+        snapshot["boundary_systemd"].update(
+            timer_enabled=False,
+            timer_active=False,
+            service_result="unknown",
+            finished_at=None,
+        )
+        snapshot["boundary_host_receipt"] = None
+        snapshot["boundary_database_heartbeat"] = None
+        snapshot["qa_records"].update(
+            partition_owner="mixed",
+            hourly_cutover_finalize_receipt_present=False,
+            hourly_cutover_finalized=False,
+            activate_t0_utc="2026-08-07T20:00:00Z",
+            finalize_t0_utc=None,
+            finalize_plan_hash=None,
+            finalize_applied_at=None,
+            default_present=True,
+            default_rows_after_t0=0,
+            future_coverage_start_utc="2026-08-08T22:00:00Z",
+            future_coverage_end_utc="2026-08-11T22:00:00Z",
+            future_coverage_canonical_hours=46,
+            future_coverage_gap_hours=26,
+            expired_partitions_attached=1,
+        )
+
+        verdict = health.evaluate(snapshot, now=now)
+        self.assertEqual(verdict["status"], "healthy", verdict)
+        self.assertEqual(verdict["lifecycle_phase"], "draining", verdict)
+
+        snapshot["qa_records"]["default_rows_after_t0"] = 1
+        failed = health.evaluate(snapshot, now=now)
+        self.assertEqual(failed["status"], "failed", failed)
+        self.assertIn("qa_records_default_growth_after_t0", failed["forward_reasons"], failed)
+
+    def test_draining_rejects_missing_current_partition_fact(self) -> None:
+        health = _load_module("qa_phase2_health_draining_missing", "ops/qa/qa_phase2_health.py")
+        snapshot, now = self._healthy_snapshot()
+        snapshot["boundary_systemd"].update(timer_enabled=False, timer_active=False)
+        snapshot["boundary_host_receipt"] = None
+        snapshot["boundary_database_heartbeat"] = None
+        snapshot["qa_records"].update(
+            hourly_cutover_finalize_receipt_present=False,
+            hourly_cutover_finalized=False,
+            activate_t0_utc="2026-08-07T20:00:00Z",
+            finalize_t0_utc=None,
+            finalize_plan_hash=None,
+            finalize_applied_at=None,
+            default_present=True,
+            default_rows_after_t0=0,
+        )
+        del snapshot["qa_records"]["current_hour_partition_missing"]
+
+        verdict = health.evaluate(snapshot, now=now)
+
+        self.assertEqual(verdict["status"], "failed", verdict)
+        self.assertIn("qa_records_current_partition_missing", verdict["forward_reasons"], verdict)
+
+    def test_pre_finalize_rejects_enabled_boundary_timer(self) -> None:
+        health = _load_module("qa_phase2_health_early_boundary", "ops/qa/qa_phase2_health.py")
+        snapshot, now = self._healthy_snapshot()
+        snapshot["qa_records"].update(
+            hourly_cutover_finalize_receipt_present=False,
+            hourly_cutover_finalized=False,
+            finalize_t0_utc=None,
+            finalize_plan_hash=None,
+            finalize_applied_at=None,
+            default_present=True,
+        )
+
+        verdict = health.evaluate(snapshot, now=now)
+
+        self.assertEqual(verdict["status"], "failed", verdict)
+        self.assertIn("boundary_timer_enabled_before_finalize", verdict["forward_reasons"], verdict)
+
+    def test_finalized_rejects_mismatched_receipt_t0(self) -> None:
+        health = _load_module("qa_phase2_health_receipt_t0", "ops/qa/qa_phase2_health.py")
+        snapshot, now = self._healthy_snapshot()
+        snapshot["qa_records"]["finalize_t0_utc"] = "2026-08-07T21:00:00Z"
+
+        verdict = health.evaluate(snapshot, now=now)
+
+        self.assertEqual(verdict["status"], "failed", verdict)
+        self.assertIn("qa_records_cutover_receipts_inconsistent", verdict["forward_reasons"], verdict)
+
+    def test_finalized_rejects_receipt_application_time_reversal(self) -> None:
+        health = _load_module("qa_phase2_health_receipt_order", "ops/qa/qa_phase2_health.py")
+        snapshot, now = self._healthy_snapshot()
+        snapshot["qa_records"]["finalize_applied_at"] = "2026-08-07T19:00:00Z"
+
+        verdict = health.evaluate(snapshot, now=now)
+
+        self.assertEqual(verdict["status"], "failed", verdict)
+        self.assertIn("qa_records_cutover_receipts_inconsistent", verdict["forward_reasons"], verdict)
 
     def test_us045_correlated_health_rejects_missing_stale_and_contradictory_facts(self) -> None:
         health = _load_module("qa_phase2_health_failures", "ops/qa/qa_phase2_health.py")

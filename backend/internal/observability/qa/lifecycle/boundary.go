@@ -119,6 +119,37 @@ func RunProvision(ctx context.Context, db DB, opts Options, clock Clock) (Provis
 	return result, nil
 }
 
+// RunCutoverProvisionOnly extends the hourly horizon after T0 without running expiry or cleanup.
+func RunCutoverProvisionOnly(ctx context.Context, db DB, opts Options) (ProvisionResult, error) {
+	anchor, err := DatabaseUTC(ctx, db)
+	if err != nil {
+		return ProvisionResult{}, err
+	}
+	var activateT0 sql.NullTime
+	var finalized bool
+	if err := db.QueryRowContext(ctx, `
+SELECT
+  (SELECT t0_utc FROM qa_lifecycle_receipts WHERE phase = 'activate'),
+  EXISTS (SELECT 1 FROM qa_lifecycle_receipts WHERE phase = 'finalize')`).Scan(
+		&activateT0, &finalized,
+	); err != nil {
+		return ProvisionResult{}, fmt.Errorf("lifecycle: read cutover receipts for provision-only: %w", err)
+	}
+	if !activateT0.Valid {
+		return ProvisionResult{}, fmt.Errorf("lifecycle: provision-only requires an activation receipt")
+	}
+	if finalized {
+		return ProvisionResult{}, fmt.Errorf("lifecycle: cutover is already finalized; boundary owns provisioning")
+	}
+	t0 := activateT0.Time.UTC()
+	if anchor.Before(t0) {
+		return ProvisionResult{}, fmt.Errorf("lifecycle: provision-only is forbidden before activation T0")
+	}
+	return RunProvision(ctx, db, opts, func(context.Context, DB) (time.Time, error) {
+		return anchor, nil
+	})
+}
+
 // SelectExpiredHours returns all direct hourly children whose catalog upper bound is at or before boundary.
 func SelectExpiredHours(ctx context.Context, db DB, boundary time.Time) ([]pgpartition.ChildPartitionBound, error) {
 	children, err := pgpartition.ListChildPartitionBounds(ctx, db, TableQARecords)
@@ -144,6 +175,9 @@ func SelectExpiredHours(ctx context.Context, db DB, boundary time.Time) ([]pgpar
 func needsBoundaryTerminalGap(status archive.CatchupHourStatus) bool {
 	if !status.Exists {
 		return true
+	}
+	if status.State == archive.StateFailed && status.VerificationErrorCode == archive.IntegrityCommitExistenceUnknown {
+		return false
 	}
 	if status.State != archive.StateCommitted || !status.RestoreVerified {
 		return true

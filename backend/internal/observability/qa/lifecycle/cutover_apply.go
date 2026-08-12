@@ -232,6 +232,18 @@ func applyCutoverFinalize(ctx context.Context, tx *sql.Tx, plan CutoverPlan) err
 	if err != nil {
 		return err
 	}
+	wantDrops := make(map[string]InventoryRow, len(plan.DropMonthly))
+	for _, row := range plan.DropMonthly {
+		if row.Layout != "monthly" || row.RowCount != 0 || row.Lower.IsZero() || row.Upper.IsZero() || !row.Lower.Before(row.Upper) {
+			return fmt.Errorf("lifecycle: invalid planned monthly drop %s.%s", row.Schema, row.Name)
+		}
+		key := row.Schema + "\x00" + row.Name
+		if _, exists := wantDrops[key]; exists {
+			return fmt.Errorf("lifecycle: duplicate planned monthly drop %s.%s", row.Schema, row.Name)
+		}
+		wantDrops[key] = row
+	}
+	foundDrops := make(map[string]pgpartition.InventoryChildBound, len(plan.DropMonthly))
 	var defaultChild *pgpartition.InventoryChildBound
 	for i := range children {
 		child := &children[i]
@@ -240,8 +252,26 @@ func applyCutoverFinalize(ctx context.Context, tx *sql.Tx, plan CutoverPlan) err
 			continue
 		}
 		if child.Layout != "hourly" {
-			return fmt.Errorf("lifecycle: legacy partition %s.%s remains during finalize", child.Schema, child.Name)
+			if child.Layout != "monthly" {
+				return fmt.Errorf("lifecycle: legacy partition %s.%s remains during finalize", child.Schema, child.Name)
+			}
+			key := child.Schema + "\x00" + child.Name
+			planned, ok := wantDrops[key]
+			if !ok || !planned.Lower.Equal(child.Lower) || !planned.Upper.Equal(child.Upper) {
+				return fmt.Errorf("lifecycle: monthly partition inventory drift")
+			}
+			count, err := pgpartition.CountTableRows(ctx, tx, child.Schema, child.Name)
+			if err != nil {
+				return err
+			}
+			if count != 0 {
+				return fmt.Errorf("lifecycle: monthly partition %s.%s now holds %d rows", child.Schema, child.Name, count)
+			}
+			foundDrops[key] = *child
 		}
+	}
+	if len(foundDrops) != len(wantDrops) {
+		return fmt.Errorf("lifecycle: planned monthly drop inventory drift")
 	}
 	ranges := pgpartition.HourlyTargetRanges(anchor, HourlyHorizon)
 	covered, err := pgpartition.CountCoveredHourlyRanges(ctx, tx, TableQARecords, ranges)
@@ -260,6 +290,14 @@ func applyCutoverFinalize(ctx context.Context, tx *sql.Tx, plan CutoverPlan) err
 	}
 	if count != 0 {
 		return fmt.Errorf("lifecycle: DEFAULT partition %s.%s still holds %d rows", defaultChild.Schema, defaultChild.Name, count)
+	}
+	for _, planned := range plan.DropMonthly {
+		child := foundDrops[planned.Schema+"\x00"+planned.Name]
+		if err := pgpartition.DropChildPartition(ctx, tx, pgpartition.ChildPartitionBound{
+			Schema: child.Schema, Name: child.Name, Lower: child.Lower, Upper: child.Upper,
+		}); err != nil {
+			return fmt.Errorf("lifecycle: drop empty legacy monthly child: %w", err)
+		}
 	}
 	qualified := pq.QuoteIdentifier(defaultChild.Schema) + "." + pq.QuoteIdentifier(defaultChild.Name)
 	if _, err := tx.ExecContext(ctx, "DROP TABLE IF EXISTS "+qualified); err != nil {

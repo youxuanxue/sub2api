@@ -106,10 +106,28 @@ func TestBuildCutoverFinalizePlanRequiresDrainAndT0Plus25Hours(t *testing.T) {
 	if _, err := BuildCutoverFinalizePlan(missingDefault, t0); err == nil {
 		t.Fatal("missing DEFAULT before finalize must fail closed")
 	}
-	legacy := base
-	legacy.Partitions = []InventoryRow{{Schema: "public", Name: "qa_records_202608", Layout: "monthly"}}
-	if _, err := BuildCutoverFinalizePlan(legacy, t0); err == nil {
-		t.Fatal("legacy child must block finalize")
+	emptyMonthly := base
+	emptyMonthly.Partitions = []InventoryRow{{
+		Schema: "public", Name: "qa_records_202604", Layout: "monthly",
+		Lower: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+		Upper: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+	}}
+	emptyMonthlyPlan, err := BuildCutoverFinalizePlan(emptyMonthly, t0)
+	if err != nil {
+		t.Fatalf("empty monthly child should be finalized atomically: %v", err)
+	}
+	if len(emptyMonthlyPlan.DropMonthly) != 1 || emptyMonthlyPlan.DropMonthly[0].Name != "qa_records_202604" {
+		t.Fatalf("drop monthly=%+v", emptyMonthlyPlan.DropMonthly)
+	}
+	nonemptyMonthly := emptyMonthly
+	nonemptyMonthly.Partitions[0].RowCount = 1
+	if _, err := BuildCutoverFinalizePlan(nonemptyMonthly, t0); err == nil {
+		t.Fatal("nonempty monthly child must block finalize")
+	}
+	unknownLegacy := base
+	unknownLegacy.Partitions = []InventoryRow{{Schema: "public", Name: "qa_records_legacy", Layout: "legacy"}}
+	if _, err := BuildCutoverFinalizePlan(unknownLegacy, t0); err == nil {
+		t.Fatal("unknown legacy child must block finalize")
 	}
 	hotFiles := base
 	hotFiles.LegacyBlobFiles = 1
@@ -200,5 +218,31 @@ func TestBuildCutoverFinalizePlanHashIgnoresActiveHourlyRows(t *testing.T) {
 	}
 	if first.PlanHash != second.PlanHash {
 		t.Fatal("active hourly writes must not invalidate a finalize plan")
+	}
+}
+
+func TestBuildCutoverFinalizePlanHashBindsEmptyMonthlyBounds(t *testing.T) {
+	t0 := time.Date(2026, 8, 11, 11, 0, 0, 0, time.UTC)
+	inv := CutoverInventory{
+		DBAnchorUTC: t0.Add(25 * time.Hour), HourlyHorizonHours: HourlyHorizon,
+		CoveredFutureHours: HourlyHorizon, RequiredFutureHours: HourlyHorizon,
+		DefaultPresent: true, ArchiveHeartbeatHealthy: true,
+		Partitions: []InventoryRow{{
+			Schema: "public", Name: "qa_records_202604", Layout: "monthly",
+			Lower: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+			Upper: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		}},
+	}
+	first, err := BuildCutoverFinalizePlan(inv, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv.Partitions[0].Upper = time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC)
+	second, err := BuildCutoverFinalizePlan(inv, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.PlanHash == second.PlanHash {
+		t.Fatal("empty monthly bound drift must invalidate the finalize plan hash")
 	}
 }

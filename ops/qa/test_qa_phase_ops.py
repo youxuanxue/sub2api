@@ -71,6 +71,22 @@ class TestQAPhaseOps(unittest.TestCase):
             "/usr/local/bin/tokenkey-qa-boundary.sh",
         )
         self.assertEqual(
+            rollout["tokenkey_qa_boundary"]["pre_finalize_provision_mode"],
+            "qa-cutover-provision-only",
+        )
+        self.assertEqual(
+            rollout["tokenkey_qa_boundary"]["pre_finalize_confirmation"],
+            "tokenkey-prod-qa-cutover-provision-v1",
+        )
+        self.assertEqual(
+            rollout["tokenkey_qa_boundary"]["pre_finalize_timer_state"],
+            "disabled",
+        )
+        self.assertEqual(
+            rollout["tokenkey_qa_boundary"]["finalize_legacy_monthly_policy"],
+            "drop_empty_hash_bound_with_default",
+        )
+        self.assertEqual(
             rollout["tokenkey_qa_stale_cleanup"]["policy_target_state"],
             "disabled_after_finalize",
         )
@@ -86,6 +102,7 @@ class TestQAPhaseOps(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("OnCalendar=*-*-* *:00:00", boundary)
+        self.assertIn("--qa-cutover-provision-only", boundary)
         self.assertNotIn("RandomizedDelaySec", boundary)
         self.assertIn("OnCalendar=*-*-* *:15:00", archive)
         self.assertNotIn("RandomizedDelaySec", archive)
