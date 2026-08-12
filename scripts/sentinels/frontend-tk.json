@@ -1058,9 +1058,11 @@
       "must_contain": [
         "resolveTkClientIntegrationUrl",
         "TK_CLIENT_INTEGRATIONS",
-        "gatewayChatCompletion"
+        "gatewayChatCompletion",
+        "extractChatCompletionText",
+        "isChatCompletionLengthTruncated"
       ],
-      "rationale": "Chat surface, folded from the retired /playground into the Studio's Chat modality (route /playground now redirects to /studio?mode=chat). The external-client one-click deeplink imports (Cherry Studio etc.) and the /v1/chat/completions call live here; the key-first cascade moved to the shell (MediaStudioView selectedKeyId + pickModalityKey). An upstream merge or refactor that drops the integrations wiring silently reverts the connect-your-tools UX."
+      "rationale": "Chat surface, folded from the retired /playground into the Studio's Chat modality (route /playground now redirects to /studio?mode=chat). The external-client one-click deeplink imports (Cherry Studio etc.) and the /v1/chat/completions call live here; extractChatCompletionText + isChatCompletionLengthTruncated guard against silent mid-answer truncation (parts-array content, finish_reason=length). The key-first cascade moved to the shell (MediaStudioView selectedKeyId + pickModalityKey). An upstream merge or refactor that drops the integrations wiring silently reverts the connect-your-tools UX."
     },
     {
       "path": "frontend/src/constants/clientIntegrations.tk.ts",
@@ -1078,7 +1080,8 @@
       "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
         "\"integrationsTitle\": \"Connect external apps\"",
-        "\"pickKeyPlaceholder\": \"Select an API key…\""
+        "\"pickKeyPlaceholder\": \"Select an API key…\"",
+        "\"truncatedHint\":"
       ],
       "rationale": "Studio chat key-selector + integrations card strings (studio.chat.integrationsTitle / studio.pickKeyPlaceholder, folded in from the retired playground block); anchors keep the TK i18n from being dropped in an i18n-heavy upstream merge."
     },
@@ -1143,9 +1146,12 @@
         "X-TokenKey-Studio-Source",
         "gatewayTraceHeaders",
         "resolveBrowserGatewayFetchBaseUrl",
-        "gatewayWarmupConnection"
+        "gatewayWarmupConnection",
+        "PLAYGROUND_CHAT_TIMEOUT_MS",
+        "GatewayRequestTimeoutError",
+        "isChatCompletionLengthTruncated"
       ],
-      "rationale": "Gateway media calls for the playground (images sync POST with 180s timeout, video submit + per-task fetch). Paths must stay the TK gateway aliases registered in routes/gateway_tk_openai_compat_handlers.go. gatewayTraceHeaders forwards X-TokenKey-Studio-* on Studio image/video submits so backend audit.openai_image_request can correlate BakeOff/ImageStudio runs. resolveBrowserGatewayFetchBaseUrl + gatewayWarmupConnection pin Quickstart/Studio browser probes to the configured api host (not apex same-origin fallback) and the best-effort TLS warmup used before live tests."
+      "rationale": "Gateway media + Studio chat browser calls. Media: images sync POST with 180s timeout, video submit + per-task fetch; paths must stay the TK gateway aliases registered in routes/gateway_tk_openai_compat_handlers.go. Chat: PLAYGROUND_CHAT_TIMEOUT_MS (180s) + GatewayRequestTimeoutError distinguish upstream slowness from user cancel; isChatCompletionLengthTruncated surfaces max_tokens cutoffs. gatewayTraceHeaders forwards X-TokenKey-Studio-* on Studio image/video submits so backend audit.openai_image_request can correlate BakeOff/ImageStudio runs. resolveBrowserGatewayFetchBaseUrl + gatewayWarmupConnection pin Quickstart/Studio browser probes to the configured api host (not apex same-origin fallback) and the best-effort TLS warmup used before live tests."
     },
     {
       "path": "frontend/src/components/user/dashboard/UserDashboardCharts.vue",
