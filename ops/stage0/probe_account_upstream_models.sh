@@ -123,6 +123,10 @@ def derive_account_scope(row):
         "https://api.ainzy.net", "https://api.ainzy.net/v1",
     }:
         return "openai_ainzy_relay"
+    if platform == "openai" and account_type == "apikey" and account_base_url == "https://agent.tokensea.ai":
+        return "openai_tokensea_relay"
+    if platform == "anthropic" and account_type == "apikey" and account_base_url == "https://agent.tokensea.ai":
+        return "anthropic_tokensea_relay"
     if platform == "newapi":
         channel_type = account.get("channel_type")
         if isinstance(channel_type, int) and channel_type > 0:

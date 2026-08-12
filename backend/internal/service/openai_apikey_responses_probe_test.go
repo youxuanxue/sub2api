@@ -30,6 +30,7 @@ func TestDecideResponsesProbeSupport(t *testing.T) {
 		{"400 conservative true", 400, reasoningOnly, true},
 		{"401 conservative true", 401, nil, true},
 		{"500 conservative true", 500, nil, true},
+		{"500 not implemented", 500, []byte(`{"error":{"message":"not implemented","code":"convert_request_failed"}}`), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

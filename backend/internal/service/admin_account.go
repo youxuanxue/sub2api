@@ -118,6 +118,7 @@ var duplicateAccountDiscardedExtraKeys = map[string]struct{}{
 	"grok_usage_snapshot":                    {},
 	"grok_billing_snapshot":                  {},
 	"openai_responses_supported":             {},
+	"openai_native_messages_supported":       {},
 	"openai_compact_supported":               {},
 	"openai_compact_checked_at":              {},
 	"openai_compact_last_status":             {},

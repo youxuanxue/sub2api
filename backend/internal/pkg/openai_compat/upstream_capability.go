@@ -58,6 +58,10 @@ const ExtraKeyResponsesMode = "openai_responses_mode"
 // 值类型为 bool：true=支持、false=不支持、键缺失=未探测。
 const ExtraKeyResponsesSupported = "openai_responses_supported"
 
+// ExtraKeyNativeMessagesSupported 标记 OpenAI APIKey 中继上游是否原生暴露
+// Anthropic /v1/messages（无需 CC 回退转换）。键缺失或未探测时默认 false。
+const ExtraKeyNativeMessagesSupported = "openai_native_messages_supported"
+
 // NormalizeResponsesSupportMode 归一化账号级 Responses API 路由覆盖模式。
 // 缺失或非法值按 auto 处理，以保持存量行为。
 func NormalizeResponsesSupportMode(mode string) ResponsesSupportMode {
@@ -112,6 +116,21 @@ func ResolveResponsesSupport(extra map[string]any) AccountResponsesSupport {
 // （详见 internal/service/openai_gateway_chat_completions_raw.go）。
 func ShouldUseResponsesAPI(extra map[string]any) bool {
 	return ResolveResponsesSupport(extra) != ResponsesSupportNo
+}
+
+// ShouldUseNativeAnthropicMessagesAPI reports whether inbound /v1/messages
+// should passthrough to the account upstream /v1/messages endpoint instead of
+// converting through /v1/chat/completions.
+func ShouldUseNativeAnthropicMessagesAPI(extra map[string]any) bool {
+	if extra == nil {
+		return false
+	}
+	v, ok := extra[ExtraKeyNativeMessagesSupported]
+	if !ok {
+		return false
+	}
+	supported, ok := v.(bool)
+	return ok && supported
 }
 
 // ResponsesEndpointSupportedByStatus 根据探测响应的 HTTP 状态码判定上游

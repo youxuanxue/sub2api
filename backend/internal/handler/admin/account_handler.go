@@ -891,7 +891,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	}
 	// OpenAI APIKey 账号创建后异步探测上游 /v1/responses 能力。
 	// 探测失败不影响账号创建响应。
-	h.scheduleOpenAIResponsesProbe(createdAccount)
+	h.scheduleOpenAIAPIKeyCapabilityProbes(createdAccount)
 	h.scheduleGrokImportProbe(createdAccount)
 	response.Success(c, result.Data)
 }
@@ -1011,10 +1011,17 @@ func (h *AccountHandler) Update(c *gin.Context) {
 	// OpenAI APIKey: credentials 修改后重新探测上游能力（base_url/api_key 可能变更）。
 	// 异步执行，探测失败不影响账号更新响应。
 	if len(req.Credentials) > 0 {
-		h.scheduleOpenAIResponsesProbe(account)
+		h.scheduleOpenAIAPIKeyCapabilityProbes(account)
 	}
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
+// scheduleOpenAIAPIKeyCapabilityProbes asynchronously probes OpenAI APIKey relay
+// upstream capabilities (Responses + native Anthropic Messages).
+func (h *AccountHandler) scheduleOpenAIAPIKeyCapabilityProbes(account *service.Account) {
+	h.scheduleOpenAIResponsesProbe(account)
+	h.scheduleOpenAINativeMessagesProbe(account)
 }
 
 // scheduleOpenAIResponsesProbe 异步触发 OpenAI APIKey 账号的 Responses API 能力探测。
@@ -1038,6 +1045,24 @@ func (h *AccountHandler) scheduleOpenAIResponsesProbe(account *service.Account) 
 			}
 		}()
 		h.accountTestService.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), accountID)
+	}()
+}
+
+func (h *AccountHandler) scheduleOpenAINativeMessagesProbe(account *service.Account) {
+	if account == nil || account.Platform != service.PlatformOpenAI || account.Type != service.AccountTypeAPIKey {
+		return
+	}
+	if h.accountTestService == nil {
+		return
+	}
+	accountID := account.ID
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("openai_native_messages_probe_panic", "account_id", accountID, "recover", r)
+			}
+		}()
+		h.accountTestService.ProbeOpenAIAPIKeyNativeMessagesSupport(context.Background(), accountID)
 	}()
 }
 
@@ -1948,7 +1973,7 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				}
 			}
 			// OpenAI APIKey 账号异步探测 /v1/responses 能力。
-			h.scheduleOpenAIResponsesProbe(account)
+			h.scheduleOpenAIAPIKeyCapabilityProbes(account)
 			h.scheduleGrokImportProbe(account)
 			success++
 			results = append(results, gin.H{

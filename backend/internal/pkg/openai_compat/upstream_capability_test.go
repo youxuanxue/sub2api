@@ -67,6 +67,28 @@ func TestShouldUseResponsesAPI(t *testing.T) {
 	}
 }
 
+func TestShouldUseNativeAnthropicMessagesAPI(t *testing.T) {
+	tests := []struct {
+		name  string
+		extra map[string]any
+		want  bool
+	}{
+		{"nil extra", nil, false},
+		{"missing key", map[string]any{}, false},
+		{"explicit true", map[string]any{ExtraKeyNativeMessagesSupported: true}, true},
+		{"explicit false", map[string]any{ExtraKeyNativeMessagesSupported: false}, false},
+		{"wrong type", map[string]any{ExtraKeyNativeMessagesSupported: "true"}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ShouldUseNativeAnthropicMessagesAPI(tc.extra)
+			if got != tc.want {
+				t.Errorf("ShouldUseNativeAnthropicMessagesAPI(%v) = %v, want %v", tc.extra, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestResponsesEndpointSupportedByStatus(t *testing.T) {
 	tests := []struct {
 		name   string
