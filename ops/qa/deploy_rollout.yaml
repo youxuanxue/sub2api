@@ -18,6 +18,10 @@ prod:
     observed_live_state: pending_live_reconciliation
     closeout_deploy_state: enabled
     policy_target_state: enabled
+    host_artifact_sync_on_prod_deploy: required
+    host_artifact_source: target_release_tag
+    sync_active_service_policy: bounded_drain_then_replace
+    sync_failure_restore_policy: pre_sync_timer_state
     min_consecutive_scheduled_runs: 2
     host_runner: /usr/local/bin/tokenkey-qa-maintenance.sh
     health_evaluator: ops/qa/qa_phase2_health.py
@@ -38,6 +42,11 @@ prod:
     repository_closeout_state: implementation_ready_pending_live_verification
     observed_live_state: pending_live_reconciliation
     policy_target_state: enabled_after_finalize
+    host_artifact_sync_on_prod_deploy: required
+    host_artifact_source: target_release_tag
+    sync_active_service_policy: bounded_drain_then_replace
+    sync_failure_restore_policy: pre_finalize_snapshot_or_finalized_boundary
+    deploy_owner_restore_mode: durable_finalize_receipt
     schedule_utc: "*:00"
     randomized_delay_minutes: 0
     host_runner: /usr/local/bin/tokenkey-qa-boundary.sh

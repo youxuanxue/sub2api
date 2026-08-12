@@ -76,6 +76,9 @@ if [ "${1:-}" = run ]; then
     exit 0
 	  fi
 	  if [[ "$*" == *'/app/sub2api'* ]]; then
+	    if [ -n "${TEST_CHILD_STDERR:-}" ]; then
+	      printf '%s\n' "$TEST_CHILD_STDERR" >&2
+	    fi
 	    if [ -n "${TEST_CHILD_JSON:-}" ]; then
 	      run_id=""
 	      trigger=""
@@ -266,6 +269,89 @@ esac
                 self.assertEqual(payload["runner_exit_code"], proc.returncode)
                 self.assertIs(payload["deletion_authorized"], False)
                 self.assertEqual(stat.S_IMODE(receipt.stat().st_mode), 0o600)
+
+    def test_runner_returns_child_stderr_when_archive_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env, receipt, _, _, _ = self._sandbox(Path(temp_dir), child_rc=23)
+            env["TEST_CHILD_STDERR"] = "normal reconcile: source unavailable after retention"
+
+            proc = subprocess.run(
+                ["bash", str(RUNNER), "--trigger=operator"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(proc.returncode, 23, (proc.stdout, proc.stderr))
+            self.assertIn("normal reconcile: source unavailable after retention", proc.stderr)
+            payload = json.loads(receipt.read_text(encoding="utf-8"))
+            self.assertEqual(payload["error_code"], "child_failed")
+            self.assertNotIn("source unavailable", receipt.read_text(encoding="utf-8"))
+
+    def test_runner_preserves_structured_child_facts_when_compensation_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env, receipt, _, _, _ = self._sandbox(Path(temp_dir), child_rc=1)
+            child = json.loads(env["TEST_CHILD_JSON"])
+            child.update(
+                ok=False,
+                failure_stage="compensation_terminal",
+                failure_code="source_unavailable_after_retention",
+            )
+            child["compensation"].update(
+                state="failed",
+                commit_etag="",
+                restore_verified=False,
+                verification_error_code="source_unavailable_after_retention",
+            )
+            env["TEST_CHILD_JSON"] = json.dumps(child, separators=(",", ":"))
+
+            proc = subprocess.run(
+                ["bash", str(RUNNER), "--trigger=timer"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(proc.returncode, 1, (proc.stdout, proc.stderr))
+            payload = json.loads(receipt.read_text(encoding="utf-8"))
+            self.assertEqual(payload["normal"]["commit_etag"], "normal-etag")
+            self.assertEqual(
+                payload["compensation"]["verification_error_code"],
+                "source_unavailable_after_retention",
+            )
+            self.assertEqual(payload["failure_stage"], "compensation_terminal")
+            self.assertEqual(payload["failure_code"], "source_unavailable_after_retention")
+            self.assertEqual(payload["child_exit_code"], 1)
+            self.assertEqual(payload["runner_exit_code"], 1)
+
+    def test_runner_rejects_uncorrelated_failure_json_as_host_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env, receipt, _, _, _ = self._sandbox(Path(temp_dir), child_rc=1)
+            child = json.loads(env["TEST_CHILD_JSON"])
+            child.update(
+                ok=False,
+                run_id="different-run",
+                failure_stage="compensation_terminal",
+                failure_code="source_unavailable_after_retention",
+            )
+            env["TEST_CHILD_JSON"] = json.dumps(child, separators=(",", ":"))
+
+            proc = subprocess.run(
+                ["bash", str(RUNNER), "--trigger=timer"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(proc.returncode, 1, (proc.stdout, proc.stderr))
+            payload = json.loads(receipt.read_text(encoding="utf-8"))
+            self.assertIsNone(payload["normal"])
+            self.assertIsNone(payload["compensation"])
+            self.assertIsNone(payload["failure_stage"])
+            self.assertIsNone(payload["failure_code"])
 
     def test_us045_runner_rejects_zero_exit_without_correlated_child_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -871,6 +957,67 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
                 self.assertIs(verdict["healthy"], False, verdict)
                 self.assertEqual(verdict["status"], "failed", verdict)
                 self.assertTrue(verdict["reasons"], verdict)
+
+    def test_terminal_compensation_failure_keeps_forward_health_and_degrades_catchup(self) -> None:
+        health = _load_module("qa_phase2_health_terminal_run", "ops/qa/qa_phase2_health.py")
+        snapshot, now = self._healthy_snapshot()
+        terminal_window = "2026-08-07T22:00:00Z"
+        snapshot["systemd"]["service_result"] = "exit-code"
+        snapshot["host_receipt"].update(
+            child_exit_code=1,
+            runner_exit_code=1,
+            error_code="child_failed",
+            failure_stage="compensation_terminal",
+            failure_code="source_unavailable_after_retention",
+            compensation={
+                "window_start": terminal_window,
+                "state": "failed",
+                "commit_etag": "",
+                "restore_verified": False,
+                "verification_error_code": "source_unavailable_after_retention",
+                "cleanup_eligible": False,
+            },
+        )
+        snapshot["database_heartbeat"].update(
+            last_success_at="2026-08-08T22:16:03Z",
+            last_error_at="2026-08-08T22:16:03Z",
+            last_result=(
+                "status=failed run_id=run-045 trigger=timer "
+                "stage=compensation_terminal error_code=source_unavailable_after_retention "
+                "normal_window=2026-08-08T20:00:00Z normal_state=committed "
+                "normal_commit_etag=etag-045 normal_restore_verified=true "
+                f"compensation_window={terminal_window} compensation_state=failed "
+                "compensation_error_code=source_unavailable_after_retention "
+                "deletion_authorized=false"
+            ),
+        )
+        snapshot["archive_control"].update(
+            compensation={
+                "window_start": terminal_window,
+                "state": "failed",
+                "commit_etag": None,
+                "restore_verified": False,
+                "verification_error_code": "source_unavailable_after_retention",
+                "cleanup_eligible": False,
+            },
+            terminal_failures_after_cutover=[
+                {
+                    "window_start": terminal_window,
+                    "verification_error_code": "source_unavailable_after_retention",
+                }
+            ],
+        )
+
+        verdict = health.evaluate(snapshot, now=now, catchup_gap_policy="accepted_terminal")
+
+        self.assertEqual(verdict["status"], "degraded", verdict)
+        self.assertEqual(verdict["forward_reasons"], [], verdict)
+        self.assertEqual(verdict["catchup_reasons"], ["catchup_terminal_gaps_present"], verdict)
+
+        snapshot["host_receipt"]["failure_code"] = "archive_failed"
+        failed = health.evaluate(snapshot, now=now, catchup_gap_policy="accepted_terminal")
+        self.assertEqual(failed["status"], "failed", failed)
+        self.assertTrue(failed["forward_reasons"], failed)
 
     def test_us045_boundary_health_requires_matching_three_source_success(self) -> None:
         health = _load_module("qa_phase2_health_boundary", "ops/qa/qa_phase2_health.py")

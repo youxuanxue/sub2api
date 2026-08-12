@@ -37,6 +37,17 @@ after the normal window succeeds. It also assigns stale export-temp cleanup and 
 the honest shared-EC2-role IAM boundary. This revision does not reopen historical
 backfill, Phase 3 user export, or Phase 5 emergency work.
 
+Every production image deploy resolves both QA host-runner artifacts from the exact target
+release tag before changing the production image, then synchronizes those artifacts after
+the application health check. Maintenance is restored enabled. Boundary owner state is
+derived from durable lifecycle receipts: before activate it remains disabled; during drain
+the legacy timer remains enabled and boundary remains disabled; after finalize boundary is
+enabled and legacy remains disabled. Synchronization stops new timer starts and waits for an
+already-running oneshot service to finish before replacing artifacts. A failure restores the
+pre-sync timer state before finalize; after finalize it must preserve boundary enabled and
+legacy disabled. A deploy or rollback fails if target-tag resolution, bounded service drain,
+artifact installation, self-test, or owner-state verification fails.
+
 ## Scope
 
 ### Included
@@ -421,7 +432,10 @@ a mode-0600 temporary file, `fsync`, and rename. It contains a schema version, r
 trigger, timestamps, active container/image, runner UID/GID, normal result, optional
 compensation result, child and runner exit codes, and redacted error codes. The runner
 writes it even when image/mount/scratch preflight fails before the Go process can update
-the database. A host receipt may prove an attempted failure; it never proves a commit.
+the database. When normal succeeds but compensation fails, the child emits a structured
+failure receipt and the host receipt preserves both the committed normal result and the
+failed compensation result; the overall run remains nonzero. A host receipt may prove an
+attempted failure; it never proves a commit without matching heartbeat and control facts.
 
 The boundary host runner independently writes `/var/lib/tokenkey/qa-boundary-last-run.json`
 with the same atomic mode-0600 temporary-file, `fsync`, rename, and parent-directory `fsync`

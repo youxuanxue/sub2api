@@ -382,8 +382,31 @@ func TestUS045_QAMaintenanceCommandFailsClosedOnTerminalCatchupGap(t *testing.T)
 	if !strings.Contains(*heartbeat.LastResult, "normal_commit_etag=normal-etag") {
 		t.Fatalf("heartbeat result %q missing normal success fact", *heartbeat.LastResult)
 	}
-	if out.Len() > 0 {
-		t.Fatalf("unexpected success receipt on terminal compensation: %s", out.String())
+	var failureReceipt struct {
+		OK           bool              `json:"ok"`
+		RunID        string            `json:"run_id"`
+		Trigger      string            `json:"trigger"`
+		Plan         qaMaintenancePlan `json:"plan"`
+		Compensation qaMaintenancePlan `json:"compensation"`
+		FailureStage string            `json:"failure_stage"`
+		FailureCode  string            `json:"failure_code"`
+	}
+	if decodeErr := json.Unmarshal(out.Bytes(), &failureReceipt); decodeErr != nil {
+		t.Fatalf("decode failure receipt: %v; output=%s", decodeErr, out.String())
+	}
+	if failureReceipt.OK || failureReceipt.RunID != "run-terminal-045" || failureReceipt.Trigger != "timer" {
+		t.Fatalf("failure receipt identity=%+v", failureReceipt)
+	}
+	if failureReceipt.Plan.CommitETag != "normal-etag" || !failureReceipt.Plan.RestoreVerified {
+		t.Fatalf("failure receipt lost normal success: %+v", failureReceipt.Plan)
+	}
+	if failureReceipt.Compensation.WindowStart != terminal.Start ||
+		failureReceipt.Compensation.VerificationErrorCode != archive.IntegritySourceUnavailableAfterRetention {
+		t.Fatalf("failure receipt lost terminal compensation: %+v", failureReceipt.Compensation)
+	}
+	if failureReceipt.FailureStage != "compensation_terminal" ||
+		failureReceipt.FailureCode != archive.IntegritySourceUnavailableAfterRetention {
+		t.Fatalf("failure receipt code=%+v", failureReceipt)
 	}
 	if err := mockDB.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

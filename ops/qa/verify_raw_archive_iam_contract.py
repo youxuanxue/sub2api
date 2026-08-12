@@ -273,11 +273,14 @@ def _verify_s3_gateway_endpoint(
         for route in routes:
             if not isinstance(route, dict):
                 continue
-            if (
-                route.get("GatewayId") == endpoint_id
-                and isinstance(prefix_list_id, str)
-                and route.get("DestinationPrefixListId") == prefix_list_id
-            ):
+            destination_prefix_list_id = route.get("DestinationPrefixListId")
+            prefix_matches = (
+                destination_prefix_list_id == prefix_list_id
+                if isinstance(prefix_list_id, str) and prefix_list_id
+                else isinstance(destination_prefix_list_id, str)
+                and bool(destination_prefix_list_id)
+            )
+            if route.get("GatewayId") == endpoint_id and prefix_matches:
                 has_gateway_route = True
                 break
         if not has_gateway_route:

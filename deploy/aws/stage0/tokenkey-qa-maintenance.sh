@@ -231,7 +231,15 @@ if child_path and child_path.is_file():
         except json.JSONDecodeError:
             continue
         if isinstance(candidate, dict):
-            child = candidate
+            if (
+                candidate.get("receipt_version") == 2
+                and candidate.get("job_name") == "qa-maintenance"
+                and candidate.get("run_id") == os.environ["QA_RECEIPT_RUN_ID"]
+                and candidate.get("trigger") == os.environ["QA_RECEIPT_TRIGGER"]
+                and candidate.get("deletion_authorized") is False
+                and isinstance(candidate.get("plan"), dict)
+            ):
+                child = candidate
 
 payload = {
     "schema_version": os.environ["QA_RECEIPT_SCHEMA"],
@@ -245,6 +253,8 @@ payload = {
     "runner_gid": int(os.environ["QA_RECEIPT_GID"]),
     "normal": child.get("plan") if child else None,
     "compensation": child.get("compensation") if child else None,
+    "failure_stage": child.get("failure_stage") if child else None,
+    "failure_code": child.get("failure_code") if child else None,
     "child_exit_code": int(os.environ["QA_RECEIPT_CHILD_EXIT"]),
     "runner_exit_code": int(os.environ["QA_RECEIPT_RUNNER_EXIT"]),
     "error_code": os.environ["QA_RECEIPT_ERROR_CODE"],
@@ -323,6 +333,7 @@ run_qa_maintenance() {
   set -e
   cat "${CHILD_STDOUT}"
   if [ "${CHILD_EXIT_CODE}" -ne 0 ]; then
+    cat "${CHILD_STDERR}" >&2
     ERROR_CODE=child_failed
     qa_log "archive_failed run_id=${RUN_ID} child_exit=${CHILD_EXIT_CODE}"
     return "${CHILD_EXIT_CODE}"

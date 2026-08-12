@@ -7,6 +7,7 @@ import base64
 import gzip
 import importlib.util
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -550,6 +551,52 @@ delete_rows_before 2026-08-06T12:00:00.000000Z
             iam_contract._aws_json = original
         self.assertEqual(failures, [])
 
+    def test_verify_raw_archive_iam_contract_accepts_live_gateway_endpoint_shape(self) -> None:
+        iam_contract = _load_module(
+            "verify_raw_archive_iam_contract", "ops/qa/verify_raw_archive_iam_contract.py"
+        )
+
+        def fake_aws_json(args: list[str]) -> dict:
+            if "describe-vpc-endpoints" in args:
+                return {
+                    "VpcEndpoints": [
+                        {
+                            "VpcId": "vpc-abc",
+                            "State": "available",
+                            "VpcEndpointType": "Gateway",
+                            "ServiceName": "com.amazonaws.us-east-1.s3",
+                            "PrefixListId": None,
+                            "RouteTableIds": ["rtb-public"],
+                        }
+                    ]
+                }
+            if "describe-route-tables" in args:
+                return {
+                    "RouteTables": [
+                        {
+                            "Routes": [
+                                {
+                                    "GatewayId": "vpce-qa",
+                                    "DestinationPrefixListId": "pl-s3",
+                                }
+                            ]
+                        }
+                    ]
+                }
+            raise AssertionError(f"unexpected aws call: {args}")
+
+        original = iam_contract._aws_json
+        iam_contract._aws_json = fake_aws_json
+        try:
+            failures = iam_contract._verify_s3_gateway_endpoint(
+                vpc_id="vpc-abc",
+                route_table_ids=["rtb-public"],
+                endpoint_id="vpce-qa",
+            )
+        finally:
+            iam_contract._aws_json = original
+        self.assertEqual(failures, [])
+
     def test_verify_raw_archive_iam_contract_rejects_non_gateway_endpoint(self) -> None:
         iam_contract = _load_module(
             "verify_raw_archive_iam_contract", "ops/qa/verify_raw_archive_iam_contract.py"
@@ -719,6 +766,24 @@ exit 0
             "! sudo systemctl is-active --quiet tokenkey-qa-maintenance.service",
             commands,
         )
+        restore = next(command for command in commands if "qa_sync_restore" in command)
+        self.assertIn("trap qa_sync_restore EXIT", restore)
+        self.assertIn("qa_timer_enabled", restore)
+        self.assertIn("qa_timer_active", restore)
+        drain = next(
+            command
+            for command in commands
+            if "timeout draining tokenkey-qa-maintenance.service" in command
+        )
+        self.assertIn(
+            "while sudo systemctl is-active --quiet tokenkey-qa-maintenance.service",
+            drain,
+        )
+        self.assertLess(commands.index(restore), commands.index(quiesce_timer))
+        self.assertGreater(
+            commands.index("qa_sync_committed=1"),
+            commands.index("sudo systemctl disable --now tokenkey-qa-maintenance.timer"),
+        )
         resolver_install = next(
             command
             for command in commands
@@ -747,6 +812,9 @@ exit 0
         self.assertFalse(
             any("/var/lib/tokenkey/data/qa_archive_tmp" in command for command in commands)
         )
+        for command in commands:
+            parsed = subprocess.run(["bash", "-n"], input=command, text=True, capture_output=True)
+            self.assertEqual(parsed.returncode, 0, (command, parsed.stderr))
 
     def test_qa_maintenance_sync_explicit_enable_starts_and_verifies_timer(self) -> None:
         script = ROOT / "ops/stage0/sync-qa-maintenance-timer-via-ssm.sh"
@@ -791,6 +859,85 @@ exit 0
             'test "$(sudo systemctl is-active tokenkey-qa-maintenance.timer)" = "active"',
             payload["commands"],
         )
+
+    def test_qa_boundary_sync_auto_derives_owner_from_finalize_receipt(self) -> None:
+        script = ROOT / "ops/stage0/sync-qa-boundary-timer-via-ssm.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            output = root / "output"
+            fake_bin.mkdir()
+            fake_aws = fake_bin / "aws"
+            fake_aws.write_text(
+                """#!/usr/bin/env bash
+case " $* " in
+  *" ssm send-command "*) printf '%s\n' command-auto ;;
+  *" --query Status "*) printf '%s\n' Success ;;
+  *" --query ResponseCode "*) printf '%s\n' 0 ;;
+  *) printf '\n' ;;
+esac
+""",
+                encoding="utf-8",
+            )
+            fake_aws.chmod(0o755)
+            proc = subprocess.run(
+                ["bash", str(script), "i-0123456789abcdef0"],
+                env={
+                    **os.environ,
+                    "PATH": f"{fake_bin}:/opt/homebrew/bin:/usr/bin:/bin",
+                    "QA_BOUNDARY_TIMER_STATE": "auto",
+                    "STAGE0_SSM_OUTPUT_DIR": str(output),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, (proc.stdout, proc.stderr))
+            payload = json.loads((output / "ssm-params.json").read_text(encoding="utf-8"))
+
+        owner = next(
+            command
+            for command in payload["commands"]
+            if "invalid QA lifecycle receipt counts" in command
+        )
+        self.assertIn("qa_lifecycle_receipts", owner)
+        self.assertIn("f.phase=concat", owner)
+        self.assertIn('case "${counts}" in 0:0)', owner)
+        self.assertIn("1:0)", owner)
+        self.assertIn("1:1)", owner)
+        self.assertNotIn("systemctl enable --now tokenkey-qa-stale-cleanup.timer", owner)
+        self.assertIn("systemctl is-enabled tokenkey-qa-stale-cleanup.timer", owner)
+        self.assertIn("systemctl disable --now tokenkey-qa-stale-cleanup.timer", owner)
+        self.assertIn("systemctl enable --now tokenkey-qa-boundary.timer", owner)
+        commands = payload["commands"]
+        restore = next(command for command in commands if "qa_sync_restore" in command)
+        self.assertIn("trap qa_sync_restore EXIT", restore)
+        for state in (
+            "qa_boundary_enabled",
+            "qa_boundary_active",
+            "qa_legacy_enabled",
+            "qa_legacy_active",
+            "qa_finalized",
+        ):
+            self.assertIn(state, restore)
+        finalized_restore = restore[restore.index('if [ "${qa_finalized}" = 1 ]'):]
+        self.assertIn("enable tokenkey-qa-boundary.timer", finalized_restore)
+        self.assertIn("start tokenkey-qa-boundary.timer", finalized_restore)
+        self.assertIn("disable tokenkey-qa-stale-cleanup.timer", finalized_restore)
+        self.assertIn("stop tokenkey-qa-stale-cleanup.timer", finalized_restore)
+        drain = next(
+            command
+            for command in commands
+            if "timeout draining tokenkey-qa-boundary.service" in command
+        )
+        self.assertIn(
+            "while sudo systemctl is-active --quiet tokenkey-qa-boundary.service",
+            drain,
+        )
+        self.assertGreater(commands.index("qa_sync_committed=1"), commands.index(owner))
+        for command in commands:
+            parsed = subprocess.run(["bash", "-n"], input=command, text=True, capture_output=True)
+            self.assertEqual(parsed.returncode, 0, (command, parsed.stderr))
 
     def test_raw_archive_cfn_keeps_app_and_recovery_permissions_separate(self) -> None:
         body = (ROOT / "deploy/aws/cloudformation/stage0-qa-raw-archive.yaml").read_text(
