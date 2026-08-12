@@ -1222,7 +1222,10 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	if account.Platform == PlatformOpenAI {
 		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
 	}
-	if s.tkMaybeRefreshKiroInvalidBearer403(ctx, account, upstreamMsg, responseBody) {
+	// HTML 403 bodies (CDN/proxy interstitials) are never Kiro invalid-bearer
+	// responses — skip the Kiro-specific check to let platform handlers below
+	// apply the correct account-penalty logic for each platform.
+	if !isHTMLResponse(responseBody) && s.tkMaybeRefreshKiroInvalidBearer403(ctx, account, upstreamMsg, responseBody) {
 		return true
 	}
 	if account.Platform == PlatformAnthropic {
@@ -1568,35 +1571,13 @@ func buildAnthropicUpstreamErrorMessage(statusCode int, upstreamMsg string, resp
 }
 
 func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
-	// TK: Cloudflare / Arkose challenge pages return 403 on OAuth image paths
-	// (and occasionally other paths under heavy automation). The OAuth account
-	// is healthy — the 403 is per-request infrastructure noise. Skip the 403
-	// counter increment AND the temp_unschedulable write so the OAuth pool
-	// is not poisoned for non-image traffic. The in-flight request still
-	// fails over (shouldDisable=true) because this account can't serve it
-	// right now. See upstream Wei-Shaw/sub2api#1824 and #2413.
-	if matched := matchTempUnschedKeyword(strings.ToLower(string(responseBody)), openAICloudflareChallengeKeywords); matched != "" {
+	if isHTMLResponse(responseBody) {
 		slog.Warn(
-			"openai_403_cf_challenge_skip_cooldown",
+			"openai_403_html_body_skips_account_penalty",
 			"account_id", account.ID,
-			"matched_keyword", matched,
-			"upstream_msg", upstreamMsg,
+			"upstream_message", upstreamMsg,
 		)
-		return true
-	}
-
-	// TK: shape-based fallback for HTML 403 bodies that don't match a known
-	// challenge keyword — most notably OpenAI's own UA / bot-detect
-	// access-denied page (issue #2413 sample). Real OpenAI account-level
-	// 403s return JSON; any HTML body on a 403 is per-request infrastructure
-	// noise and must not poison the OAuth pool with a cooldown.
-	if openAIIsHTMLBody(responseBody) {
-		slog.Warn(
-			"openai_403_html_body_skip_cooldown",
-			"account_id", account.ID,
-			"upstream_msg", upstreamMsg,
-		)
-		return true
+		return false
 	}
 
 	// TK (prod P0 2026-06-25): a client-induced model/endpoint capability 403

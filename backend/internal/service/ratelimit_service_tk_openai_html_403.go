@@ -35,6 +35,9 @@ const openAIHTMLProbe = 2048
 // real OpenAI account-level 403 returns structured JSON. Any HTML 403 is
 // upstream infrastructure rejecting *this request*, not OpenAI rejecting
 // *this account*.
+// isHTMLResponse is the upstream-facing alias for openAIIsHTMLBody.
+func isHTMLResponse(body []byte) bool { return openAIIsHTMLBody(body) }
+
 func openAIIsHTMLBody(body []byte) bool {
 	trimmed := bytes.TrimLeft(body, " \t\r\n\xef\xbb\xbf")
 	if len(trimmed) == 0 || trimmed[0] != '<' {
