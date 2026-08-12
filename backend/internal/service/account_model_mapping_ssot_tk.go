@@ -402,7 +402,19 @@ func openAITokenseaRelayAccountModelMappingFloor(ctx context.Context, pricing *P
 }
 
 func anthropicTokenseaRelayModelMappingFloor() map[string]string {
-	return cloneStringMap(anthropicTokenseaRelayWireModelMapping)
+	ids := supportedCatalogModelIDsFromMap(supportedAnthropicTokenseaRelayCatalogModels)
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(ids))
+	for _, id := range ids {
+		wire, ok := anthropicTokenseaRelayWireModelMapping[id]
+		if !ok {
+			continue
+		}
+		out[id] = wire
+	}
+	return out
 }
 
 var anthropicTokenseaRelayWireModelMapping = map[string]string{
