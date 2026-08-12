@@ -101,6 +101,19 @@ bash ops/observability/run-probe.sh \
   --env MODEL=<candidate_model>
 ```
 
+For a CloudWise MaaS OpenAI apikey account (`base_url` under
+`api.cloudwise.ai` / `api-us.cloudwise.ai`), run the direct upstream protocol
+matrix (models list, chat, messages, responses, embeddings, images, videos).
+Output never includes `api_key`; use it to refresh probe-curated
+`openai_cloudwise_relay` catalog floors and `extra` capability flags:
+
+```bash
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/stage0/probe_cloudwise_upstream_matrix.sh \
+  --env ACCOUNT_ID=95
+```
+
 The JSON result includes database-derived `account_platform` and effective
 `account_scope` (for example an Anthropic transport stub with
 `mirror_platform=kiro` reports `account_platform=anthropic`,
