@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "floor_sha256": "395b9b3e33b9a14225c4dd2ad25643425f05cc800ef41bb4990533ecc77f203a",
+  "floor_sha256": "c859340998691fb37c6b1943515fb1d3ec0d293362eed750e04f757b22284443",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -188,6 +188,36 @@
         "gpt-5.4": "gpt-5.4",
         "gpt-5.4-mini": "gpt-5.4-mini",
         "gpt-5.5": "gpt-5.5"
+      },
+      "openai_cloudwise_relay": {
+        "MiniMax-M3": "MiniMax-M3",
+        "claude-fable-5": "claude-fable-5",
+        "claude-opus-4-6": "claude-opus-4-6",
+        "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
+        "claude-opus-4-7": "claude-opus-4-7",
+        "claude-opus-4-7-thinking": "claude-opus-4-7-thinking",
+        "claude-opus-4-8": "claude-opus-4-8",
+        "claude-sonnet-4-5": "claude-sonnet-4-5",
+        "claude-sonnet-4-6": "claude-sonnet-4-6",
+        "claude-sonnet-4-6-thinking": "claude-sonnet-4-6-thinking",
+        "deepseek-v3.2": "deepseek-v3.2",
+        "deepseek-v4-flash": "deepseek-v4-flash",
+        "deepseek-v4-pro": "deepseek-v4-pro",
+        "gemini-3-flash-preview": "gemini-3-flash-preview",
+        "gemini-3-pro-image-preview": "gemini-3-pro-image-preview",
+        "gemini-3-pro-image-preview-S": "gemini-3-pro-image-preview-S",
+        "gemini-3-pro-preview": "gemini-3-pro-preview",
+        "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image-preview",
+        "gemini-3.1-flash-image-preview-S": "gemini-3.1-flash-image-preview-S",
+        "gemini-3.1-flash-lite-preview": "gemini-3.1-flash-lite-preview",
+        "gemini-3.1-pro-preview": "gemini-3.1-pro-preview",
+        "glm-5": "glm-5",
+        "glm-5.1": "glm-5.1",
+        "glm-5.2": "glm-5.2",
+        "gpt-5.2": "gpt-5.2",
+        "gpt-5.3-codex": "gpt-5.3-codex",
+        "gpt-5.4": "gpt-5.4",
+        "kimi-k3": "kimi-k3"
       },
       "openai_tokensea_relay": {
         "claude-fable-5": "claude-fable-5",

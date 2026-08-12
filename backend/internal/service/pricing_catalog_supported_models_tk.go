@@ -186,6 +186,40 @@ var supportedAnthropicTokenseaRelayCatalogModels = map[string]struct{}{
 	"claude-sonnet-5":   {},
 }
 
+// supportedOpenAICloudwiseRelayCatalogModels — probe-curated IDs from prod account
+// 95 upstream GET /v1/models on 2026-08-12. Identity mapping; servability still
+// requires per-model gateway/upstream probes before catalog exposure.
+var supportedOpenAICloudwiseRelayCatalogModels = map[string]struct{}{
+	"MiniMax-M3":                       {},
+	"claude-fable-5":                   {},
+	"claude-opus-4-6":                  {},
+	"claude-opus-4-6-thinking":         {},
+	"claude-opus-4-7":                  {},
+	"claude-opus-4-7-thinking":         {},
+	"claude-opus-4-8":                  {},
+	"claude-sonnet-4-5":                {},
+	"claude-sonnet-4-6":                {},
+	"claude-sonnet-4-6-thinking":       {},
+	"deepseek-v3.2":                    {},
+	"deepseek-v4-flash":                {},
+	"deepseek-v4-pro":                  {},
+	"gemini-3-flash-preview":           {},
+	"gemini-3-pro-image-preview":       {},
+	"gemini-3-pro-image-preview-S":     {},
+	"gemini-3-pro-preview":             {},
+	"gemini-3.1-flash-image-preview":   {},
+	"gemini-3.1-flash-image-preview-S": {},
+	"gemini-3.1-flash-lite-preview":    {},
+	"gemini-3.1-pro-preview":           {},
+	"glm-5":                            {},
+	"glm-5.1":                          {},
+	"glm-5.2":                          {},
+	"gpt-5.2":                          {},
+	"gpt-5.3-codex":                    {},
+	"gpt-5.4":                          {},
+	"kimi-k3":                          {},
+}
+
 // supportedGeminiCatalogModels — gemini/Vertex IDs confirmed servable through
 // the prod Vertex pool. Gemini 3.5 Flash Lite and 3.6 Flash were confirmed on
 // accounts 47/57/58/59/74 via direct global generateContent on 2026-07-22.

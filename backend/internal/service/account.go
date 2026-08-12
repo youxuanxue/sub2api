@@ -1349,6 +1349,26 @@ func isTokenseaRelayBaseURL(raw string) bool {
 	return base == "https://agent.tokensea.ai"
 }
 
+// IsOpenAICloudwiseRelay reports prod OpenAI apikey accounts whose upstream is
+// CloudWise MaaS (api.cloudwise.ai or api-us.cloudwise.ai). They expose a
+// dual-stack OpenAI Chat + Anthropic Messages gateway but not /v1/responses.
+func (a *Account) IsOpenAICloudwiseRelay() bool {
+	if a == nil || !a.IsOpenAI() || a.Type != AccountTypeAPIKey {
+		return false
+	}
+	return isCloudwiseRelayBaseURL(a.GetCredential("base_url"))
+}
+
+func isCloudwiseRelayBaseURL(raw string) bool {
+	base := strings.ToLower(strings.TrimSpace(strings.TrimSuffix(raw, "/")))
+	switch base {
+	case "https://api.cloudwise.ai/api", "https://api-us.cloudwise.ai/api":
+		return true
+	default:
+		return false
+	}
+}
+
 func (a *Account) GetOpenAIBaseURL() string {
 	if a == nil {
 		return ""

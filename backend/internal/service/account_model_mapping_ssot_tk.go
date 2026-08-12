@@ -19,6 +19,7 @@ const (
 	accountModelMappingPlatformOpenAIAinzyRelay       = "openai_ainzy_relay"
 	accountModelMappingPlatformOpenAITokenseaRelay    = "openai_tokensea_relay"
 	accountModelMappingPlatformAnthropicTokenseaRelay = "anthropic_tokensea_relay"
+	accountModelMappingPlatformOpenAICloudwiseRelay   = "openai_cloudwise_relay"
 )
 
 // accountModelMappingRuntime is the hot runtime replacement layer for the
@@ -166,6 +167,9 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 		if account.IsOpenAITokenseaRelay() {
 			return openAITokenseaRelayAccountModelMappingFloor(ctx, pricing, availability), true
 		}
+		if account.IsOpenAICloudwiseRelay() {
+			return openAICloudwiseRelayAccountModelMappingFloor(ctx, pricing, availability), true
+		}
 		return openAICanonicalAccountModelMappingFloor(ctx, pricing, availability), true
 	case PlatformAnthropic, PlatformGemini:
 		if scope == PlatformAnthropic && account.IsAnthropicTokenseaRelay() {
@@ -247,6 +251,16 @@ func AccountModelMappingFloorForOps(ctx context.Context, runtimeRaw string) (*Ac
 	}, nil, nil, runtime)
 	if ok && len(tokenseaMapping) > 0 {
 		out.Platforms[accountModelMappingPlatformOpenAITokenseaRelay] = cloneStringMap(tokenseaMapping)
+	}
+	cloudwiseMapping, ok := accountModelMappingForAccount(ctx, &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://api.cloudwise.ai/api",
+		},
+	}, nil, nil, runtime)
+	if ok && len(cloudwiseMapping) > 0 {
+		out.Platforms[accountModelMappingPlatformOpenAICloudwiseRelay] = cloneStringMap(cloudwiseMapping)
 	}
 	anthropicTokenseaMapping, ok := accountModelMappingForAccount(ctx, &Account{
 		Platform: PlatformAnthropic,
@@ -395,6 +409,14 @@ func openAIAinzyRelayAccountModelMappingFloor(ctx context.Context, pricing *Pric
 
 func openAITokenseaRelayAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
 	ids := supportedCatalogModelIDsFromMap(supportedOpenAITokenseaRelayCatalogModels)
+	if len(ids) == 0 {
+		return nil
+	}
+	return identityModelMapping(ids)
+}
+
+func openAICloudwiseRelayAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
+	ids := supportedCatalogModelIDsFromMap(supportedOpenAICloudwiseRelayCatalogModels)
 	if len(ids) == 0 {
 		return nil
 	}

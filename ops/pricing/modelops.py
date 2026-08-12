@@ -891,7 +891,7 @@ def _account_platform_allows_scope(account_platform: str, account_scope: str) ->
     if account_platform == "anthropic":
         return account_scope in {"kiro", "bedrock", "anthropic_tokensea_relay"}
     if account_platform == "openai":
-        return account_scope in {"openai_ainzy_relay", "openai_tokensea_relay"}
+        return account_scope in {"openai_ainzy_relay", "openai_tokensea_relay", "openai_cloudwise_relay"}
     if account_platform == "newapi":
         return account_scope.startswith("newapi_channel_type:")
     return False
