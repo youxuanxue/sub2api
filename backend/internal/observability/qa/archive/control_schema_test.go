@@ -157,6 +157,47 @@ RETURNING id`, start, start.Add(time.Hour), state, restoreAt).Scan(&id))
 	require.Error(t, err, "the established cutover must not be deleted")
 }
 
+func TestUS045_QAArchiveGapDecisionReceiptsAreAppendOnlyAndNotASecondStateMachine(t *testing.T) {
+	ctx := context.Background()
+	container, err := postgres.Run(
+		ctx,
+		"postgres:18.1-alpine3.23",
+		postgres.WithDatabase("qa_archive_gap_receipts"),
+		postgres.WithUsername("postgres"),
+		postgres.WithPassword("postgres"),
+		postgres.BasicWaitStrategies(),
+	)
+	if err != nil {
+		t.Skipf("start postgres: %v", err)
+	}
+	defer func() { _ = container.Terminate(ctx) }()
+
+	dsn, err := container.ConnectionString(ctx, "sslmode=disable", "TimeZone=UTC")
+	require.NoError(t, err)
+	db, err := sql.Open("postgres", dsn)
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	applyMigration(t, ctx, db, "tk_069_create_qa_archive_shards.sql")
+	applyMigration(t, ctx, db, "tk_075_qa_archive_gap_decision_receipts.sql")
+	assertTable(t, db, "qa_archive_gap_decision_receipts")
+	assertTableAbsent(t, db, "qa_archive_gaps")
+
+	planHash := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	planJSON := `{"schema_version":"qa-archive-gap-decision-v1","plan_hash":"` + planHash + `","windows":[{}]}`
+	_, err = db.ExecContext(ctx, `
+INSERT INTO qa_archive_gap_decision_receipts
+    (plan_hash, plan_schema_version, plan_json, approved_by, window_count)
+VALUES ($1,'qa-archive-gap-decision-v1',$2::jsonb,'feng',1)`, planHash, planJSON)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `UPDATE qa_archive_gap_decision_receipts SET approved_by='other' WHERE plan_hash=$1`, planHash)
+	require.ErrorContains(t, err, "append-only")
+	_, err = db.ExecContext(ctx, `DELETE FROM qa_archive_gap_decision_receipts WHERE plan_hash=$1`, planHash)
+	require.ErrorContains(t, err, "append-only")
+	_, err = db.ExecContext(ctx, `TRUNCATE qa_archive_gap_decision_receipts`)
+	require.ErrorContains(t, err, "append-only")
+}
+
 func applyMigration(t *testing.T, ctx context.Context, db *sql.DB, name string) {
 	t.Helper()
 	body, err := migrations.FS.ReadFile(name)

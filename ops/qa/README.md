@@ -15,6 +15,7 @@ Policy 数值不在此重复。Owner 表：
 | Cutover drain-only legacy cleanup | [`tokenkey-qa-stale-cleanup.sh`](../../deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh) |
 | Direct workstation recovery | [`backend/cmd/qa-archive`](../../backend/cmd/qa-archive) |
 | Break-glass retirement evidence gate | [`qa_archive_recovery_gate.py`](qa_archive_recovery_gate.py) |
+| Hash-bound expired-gap operator | [`prod_qa_archive_closeout.py`](prod_qa_archive_closeout.py) |
 
 Generic usage/ops data-layer archive: [`ops/archive/README.md`](../archive/README.md).
 
@@ -87,3 +88,33 @@ receipt bundle. Production receipts must be no older than 24 hours and the appro
 postdate the final receipt. Break-glass prod QA dump tooling is retired after
 production workstation recovery evidence passes the gate. Gateway and maintenance still share the EC2 instance role, so the
 current bucket policy is not process-level isolation.
+
+Expired zero-source archive gaps use one batch path in the same operator; there is no
+arbitrary-window apply or second catch-up executable:
+
+```bash
+python3 ops/qa/prod_qa_archive_closeout.py gap-plan \
+  --output /tmp/qa-gap-plan.json \
+  --qa-archive-bin /path/to/target-tag/qa-archive \
+  --recovery-run-id gap-YYYYMMDDTHHMMSSZ
+
+python3 ops/qa/prod_qa_archive_closeout.py gap-apply \
+  --plan /tmp/qa-gap-plan.json \
+  --receipt-output /tmp/qa-gap-receipt.json \
+  --confirm tokenkey-prod-qa-gap-decision-v1:<plan_hash> \
+  --approved-by <approver>
+```
+
+`gap-plan` is read-only: the host emits database facts under `QAMA`, then the explicit
+target-tag workstation binary assumes the dedicated recovery role and HEADs each candidate
+`commit.json`. The SHA-256 binds DB anchors, exact windows, control/segment fingerprints,
+bucket/role/recovery-run identity, source count, and S3 absence. `gap-apply` is a separate
+high-risk approval gate; it revalidates all database facts under `QAMA`, writes only
+`failed/source_unavailable_after_retention` through the existing shard owner, and inserts
+the append-only approval receipt in the same transaction. It never reads or writes S3,
+deletes hot data, moves/copies rows, or changes timers.
+
+The host DB plan and apply command use bounded `gzip+base64` transport so a large historical
+batch cannot be silently truncated by SSM. The operator and Go CLI reject transport or
+decompressed-plan overflow before parsing; the reviewed SHA-256 still binds canonical
+uncompressed JSON.
