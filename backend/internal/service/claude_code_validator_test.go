@@ -141,7 +141,7 @@ func TestClaudeCodeValidator_SecurityMonitorWithoutBillingBlock(t *testing.T) {
 	require.NoError(t, err)
 
 	validHeaders := map[string]string{
-		"User-Agent":        "claude-cli/2.1.226 (external, cli)",
+		"User-Agent":        "claude-cli/2.1.228 (external, cli)",
 		"X-App":             "cli",
 		"anthropic-beta":    "claude-code-20250219",
 		"anthropic-version": "2023-06-01",
@@ -156,7 +156,7 @@ func TestClaudeCodeValidator_SecurityMonitorWithoutBillingBlock(t *testing.T) {
 		}
 	}
 
-	// 真实 CLI（2.1.226）在监视器提示词之后追加的独立会话上下文块（脱敏），
+	// 真实 CLI（2.1.228）在监视器提示词之后追加的独立会话上下文块（脱敏），
 	// 随会话/环境变化，服务端不可控（见 issue #5152 抓包）。
 	sessionContext := "\n\n## Session Context\n\n- **User identity**: testuser\n" +
 		"- **Working directory**: /home/testuser/project\n- **Platform**: linux"
