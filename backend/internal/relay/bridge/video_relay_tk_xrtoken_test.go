@@ -94,6 +94,50 @@ func TestXRTokenTaskAdaptor_BuildRequestURL_EmptyBase(t *testing.T) {
 	}
 }
 
+// TestXRTokenTaskAdaptor_DoRequest_HitsV1Path proves the actual submit request
+// keeps virtual dispatch to the wrapper's URL builder. Merely testing
+// BuildRequestURL is insufficient: the promoted TaskAdaptor.DoRequest binds its
+// receiver to the embedded adaptor and would otherwise call the inherited
+// `/api/v3/` builder even though a.BuildRequestURL itself returns `/v1/`.
+func TestXRTokenTaskAdaptor_DoRequest_HitsV1Path(t *testing.T) {
+	ensureNewAPIDeps()
+
+	var gotPath string
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"cgt-xr-submit-1"}`))
+	}))
+	defer srv.Close()
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", nil)
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelType:    newapiconstant.ChannelTypeDoubaoVideo,
+			ChannelBaseUrl: srv.URL,
+			ApiKey:         "tr-test-key",
+		},
+	}
+	a := newXRTokenTaskAdaptor()
+	a.Init(info)
+
+	resp, err := a.DoRequest(c, info, bytes.NewReader([]byte(`{"model":"volcengine/doubao-seedance-2-5-260628"}`)))
+	if err != nil {
+		t.Fatalf("DoRequest error: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if gotPath != "/v1/contents/generations/tasks" {
+		t.Fatalf("submit hit %q, want XRToken /v1 path (embedded adaptor would use /api/v3)", gotPath)
+	}
+	if gotAuth != "Bearer tr-test-key" {
+		t.Fatalf("auth header = %q, want Bearer tr-test-key", gotAuth)
+	}
+}
+
 // TestXRTokenTaskAdaptor_FetchTask_HitsV1Path drives the real poll path over
 // real HTTP against an upstream that serves ONLY XRToken's shape. The fake
 // 404s /api/v3/..., so this fails if FetchTask ever reverts to the inherited

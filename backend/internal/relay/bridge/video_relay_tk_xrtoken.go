@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	newapichannel "github.com/QuantumNous/new-api/relay/channel"
 	taskdoubao "github.com/QuantumNous/new-api/relay/channel/task/doubao"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	newapiservice "github.com/QuantumNous/new-api/service"
@@ -35,14 +36,16 @@ import (
 // New API"), so the fix belongs here.
 //
 // Because the bodies match, wrapping is deliberately minimal: embed the upstream
-// adaptor and override ONLY the two URL builders. Everything else — request body
-// construction, submit/fetch response parsing, OpenAI-Video projection, the
-// video-input billing ratios, task status mapping — is inherited unchanged, so
-// an upstream fix or Ark schema change flows through automatically instead of
-// being frozen into a TK copy.
+// adaptor, override the two URL builders, and override DoRequest only to preserve
+// virtual dispatch to this wrapper's submit URL. Go's promoted-method semantics
+// bind the embedded TaskAdaptor.DoRequest receiver to the inner adaptor, which
+// would otherwise call its own `/api/v3/` BuildRequestURL and bypass this wrapper.
+// Request-body construction and normalization, submit/fetch response parsing,
+// OpenAI-Video projection, video-input billing ratios, and task-status mapping
+// still delegate to the upstream adaptor so upstream fixes continue to flow.
 //
-// Auth needs no override: XRToken accepts `Authorization: Bearer <key>`, which
-// is exactly what the embedded BuildRequestHeader / FetchTask already send.
+// Auth needs no header override: XRToken accepts `Authorization: Bearer <key>`,
+// which is exactly what the embedded BuildRequestHeader sends.
 type xrTokenTaskAdaptor struct {
 	*taskdoubao.TaskAdaptor
 
@@ -78,6 +81,17 @@ func (a *xrTokenTaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, 
 		return "", fmt.Errorf("xrtoken video submit: empty base_url")
 	}
 	return fmt.Sprintf("%s/v1/contents/generations/tasks", a.baseURL), nil
+}
+
+// DoRequest preserves method dispatch to this wrapper's BuildRequestURL.
+//
+// Calling the promoted TaskAdaptor.DoRequest is not sufficient: that method
+// passes its embedded receiver to DoTaskApiRequest, so Go resolves
+// BuildRequestURL on *taskdoubao.TaskAdaptor and silently restores `/api/v3/`.
+// Passing the outer adaptor keeps the inherited request-header behavior while
+// ensuring the submit uses XRToken's `/v1/` path.
+func (a *xrTokenTaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
+	return newapichannel.DoTaskApiRequest(a, c, info, requestBody)
 }
 
 // FetchTask polls XRToken's ARK-compatible task-status path.

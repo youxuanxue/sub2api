@@ -258,8 +258,9 @@ func newAPIQianfanModelDisplayPresetIDs() []string {
 // index. Same mechanism — and same reason — as qianfanSharedManifestModelIDs.
 //
 // These are the Ark billing ids; XRToken exposes them under a `volcengine/`
-// prefix and the account model_mapping keys them back, so the shared overlay
-// price applies to both accounts unchanged.
+// prefix that the task adaptor adds only on the upstream wire. The account's
+// identity model_mapping remains a serving whitelist, so the shared overlay
+// continues to price both accounts by the client-facing Ark ids.
 //
 // The two XRToken-only SKUs (doubao-seedance-2-5-260628, doubao-seedance-2.0-mini)
 // are deliberately absent: they ARE indexed under channel_type=54, so the scoped
