@@ -315,9 +315,10 @@
         "\"display\"",
         "account 88",
         "account 90",
-        "served-via-modelops-activation"
+        "served-via-modelops-activation",
+        "account 96"
       ],
-      "rationale": "The served-models MANIFEST is the single declarative intent source consumed by the drift guard, onboarding skill, display projections, and generated account-mapping bundle. Pinning the schema keys plus the modelops activation declaration prevents an upstream merge from truncating the manifest or reverting new mapping floors to generic-deploy migrations while leaving compile/tests superficially green. Co-located with the overlay so the same preflight parses price and serving intent."
+      "rationale": "The served-models MANIFEST is the single declarative intent source consumed by the drift guard, onboarding skill, display projections, and generated account-mapping bundle. Pinning the schema keys plus the modelops activation declaration prevents an upstream merge from truncating the manifest or reverting new mapping floors to generic-deploy migrations while leaving compile/tests superficially green. Co-located with the overlay so the same preflight parses price and serving intent. account 96 pins the XRToken ch54 Seedance serving intent (two XRToken-only SKUs plus three shared with the Ark pool) so a merge cannot revert the manifest to the Ark-only rows."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay.go",

@@ -127,9 +127,12 @@
         "IsVideoSupportedChannelType",
         "normalizeVideoSubmitBodyForTaskAdaptor",
         "videoFetchResponseMaxBytes",
-        "errVideoFetchResponseTooLarge"
+        "errVideoFetchResponseTooLarge",
+        "ModelMappedHelper",
+        "IsXRTokenBaseURL",
+        "newXRTokenTaskAdaptor"
       ],
-      "rationale": "Bridge for the asynchronous video task pipeline (POST /v1/video/generations + GET /v1/video/generations/:task_id and the OpenAI-compat /v1/videos aliases) — currently the only newapi pathway for VolcEngine / DoubaoVideo video generation. normalizeVideoSubmitBodyForTaskAdaptor maps the public resolution/audio fields into pinned new-api TaskSubmitReq metadata so the upstream-generated tier cannot diverge from TokenKey billing. videoFetchResponseMaxBytes / errVideoFetchResponseTooLarge are the pressure guard for upstreams that return inline video bytes: TokenKey may deliver one bounded response to the client, never accept unbounded media into memory."
+      "rationale": "Bridge for the asynchronous video task pipeline (POST /v1/video/generations + GET /v1/video/generations/:task_id and the OpenAI-compat /v1/videos aliases) — currently the only newapi pathway for VolcEngine / DoubaoVideo video generation. normalizeVideoSubmitBodyForTaskAdaptor maps the public resolution/audio fields into pinned new-api TaskSubmitReq metadata so the upstream-generated tier cannot diverge from TokenKey billing. videoFetchResponseMaxBytes / errVideoFetchResponseTooLarge are the pressure guard for upstreams that return inline video bytes: TokenKey may deliver one bounded response to the client, never accept unbounded media into memory. ModelMappedHelper is the account model_mapping application on the video submit path: video was the only bridge relay missing it (text/responses/embedding/image all call it), so credentials.model_mapping was ignored and any upstream naming its SKUs differently was unreachable. It must rewrite UpstreamModelName ONLY — OriginModelName stays the billing key, so a re-introduced body rewrite would bill $0 for an id absent from the overlay. IsXRTokenBaseURL/newXRTokenTaskAdaptor are the base_url-sentinel dispatch that lets ch54 serve both official Ark and the ARK-compatible XRToken host without minting a TK-private channel_type."
     },
     {
       "path": "backend/internal/integration/newapi/video_task_resolution.go",
@@ -654,6 +657,45 @@
       "rationale": "Regression for Qianfan base-url normalization and channel-type guard; prevents silent misrouting when credentials omit or suffix the /v2 path."
     },
     {
+      "path": "backend/internal/integration/newapi/xrtoken.go",
+      "must_contain": [
+        "XRTokenBaseURL",
+        "IsXRTokenBaseURL",
+        "NormalizeXRTokenBaseURL",
+        "ChannelTypeDoubaoVideo"
+      ],
+      "rationale": "XRToken base-url detection for ch54 (DoubaoVideo) accounts — an ARK-compatible reseller whose task paths differ from official Ark by one middle segment (/v1/ vs /api/v3/). Without it the bridge selects the upstream doubao adaptor and every submit/poll 404s. NormalizeXRTokenBaseURL collapses the SDK-documented '.../v1' spelling so the wrapper cannot emit /v1/v1/contents/...; the ChannelTypeDoubaoVideo scope keeps a ch45 account on the same host from being treated as XRToken (that channel additionally exposes chat/embeddings/images paths XRToken does not serve)."
+    },
+    {
+      "path": "backend/internal/integration/newapi/xrtoken_test.go",
+      "must_contain": [
+        "TestIsXRTokenBaseURL",
+        "TestNormalizeXRTokenBaseURL"
+      ],
+      "rationale": "Regressions for XRToken base-url detection and /v1 normalization, including the channel-type guard; prevents silent misrouting when credentials suffix or omit the documented /v1 path."
+    },
+    {
+      "path": "backend/internal/relay/bridge/video_relay_tk_xrtoken.go",
+      "must_contain": [
+        "xrTokenTaskAdaptor",
+        "newXRTokenTaskAdaptor",
+        "/v1/contents/generations/tasks",
+        "NormalizeXRTokenBaseURL"
+      ],
+      "rationale": "TK companion task adaptor for XRToken video. Embeds the upstream doubao TaskAdaptor and overrides ONLY BuildRequestURL + FetchTask to swap the hardcoded /api/v3/ segment for /v1/; request and response bodies are byte-identical per XRToken's published ARK-compatibility contract, so every other method (billing ratios, body build, response parse, OpenAI-Video projection) is inherited and follows upstream fixes. new-api is a pinned upstream that must not be patched from this repo, so this wrapper is the only correct place for the path difference."
+    },
+    {
+      "path": "backend/internal/relay/bridge/video_relay_tk_xrtoken_test.go",
+      "must_contain": [
+        "TestXRTokenTaskAdaptor_BuildRequestURL",
+        "TestXRTokenTaskAdaptor_FetchTask_HitsV1Path",
+        "TestTaskAdaptorForChannel_XRTokenSelection",
+        "TestDispatchVideoSubmit_AppliesModelMapping",
+        "TestDispatchVideoSubmit_IdentityMappingIsNoOp"
+      ],
+      "rationale": "Focused bridge regressions for the XRToken video path. The fake upstream serves only XRToken's shape and 404s /api/v3/*, so a regression to the inherited URL fails here instead of in prod. AppliesModelMapping pins that credentials.model_mapping reaches the upstream body while OriginModel (the billing key) stays the client-facing Ark id; IdentityMappingIsNoOp pins that existing Ark accounts provisioned with `X: X` identity whitelists (tk_033/tk_056) are unaffected."
+    },
+    {
       "path": "backend/internal/integration/newapi/ark_channel_base_url.go",
       "must_contain": [
         "VolcEngineAgentPlanBaseKey",
@@ -666,9 +708,10 @@
       "must_contain": [
         "accountModelMappingOverrideAccounts",
         "NewAPIModelDisplayIDsForAccount",
-        "tkServedModelsManifestPresetIDsForSelector"
+        "tkServedModelsManifestPresetIDsForSelector",
+        "isNewAPIXRTokenAccount"
       ],
-      "rationale": "Agent Plan admin preset, model-surface account override, and default probe model derive from the platform/channel/base_url property selector, not an account-id registry or ch45 channel-wide preset that mixes pay-as-you-go account 7."
+      "rationale": "Agent Plan admin preset, model-surface account override, and default probe model derive from the platform/channel/base_url property selector, not an account-id registry or ch45 channel-wide preset that mixes pay-as-you-go account 7. isNewAPIXRTokenAccount is the ch54 XRToken selector: its preset/display menus must merge the shared manifest ids with the ch54-scoped ones, or the admin model picker silently drops the three Seedance SKUs indexed under ch45."
     },
     {
       "path": "backend/internal/service/account_test_service_tk_newapi_volcagentplan.go",
@@ -684,9 +727,10 @@
         "tkServedModelsManifestDisplayPresetIDsForSelector",
         "account_scope",
         "manifestEntryIsQianfanScopedOnly",
-        "newAPIQianfanModelMappingPresetIDs"
+        "newAPIQianfanModelMappingPresetIDs",
+        "xrtokenSharedManifestModelIDs"
       ],
-      "rationale": "Property-scoped manifest projections keep Agent Plan and Qianfan user menus aligned with platform/channel/base_url while served_on remains evidence only, even when canonical channel_type values describe another upstream adaptor."
+      "rationale": "Property-scoped manifest projections keep Agent Plan and Qianfan user menus aligned with platform/channel/base_url while served_on remains evidence only, even when canonical channel_type values describe another upstream adaptor. xrtokenSharedManifestModelIDs carries the Seedance ids served on XRToken account 96 but indexed under ch45 (the manifest forbids duplicate model_id), the same mechanism as the Qianfan account-90 list."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_tk_volcagentplan.go",
