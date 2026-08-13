@@ -189,6 +189,8 @@ var supportedAnthropicTokenseaRelayCatalogModels = map[string]struct{}{
 // supportedOpenAICloudwiseRelayCatalogModels — probe-curated IDs from prod account
 // 95 upstream GET /v1/models on 2026-08-12. Identity mapping; servability still
 // requires per-model gateway/upstream probes before catalog exposure.
+// GPT ids (gpt-5.2 … gpt-5.6-* incl. gpt-5.5/gpt-5.6-sol) are intentionally
+// excluded: CloudWise relay has no reliable OpenAI GPT routing surface.
 var supportedOpenAICloudwiseRelayCatalogModels = map[string]struct{}{
 	"MiniMax-M3":                       {},
 	"claude-fable-5":                   {},

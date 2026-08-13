@@ -65,6 +65,9 @@ func TestOpenAICloudwiseRelayFloorIsProbeCuratedOnly(t *testing.T) {
 	for id := range supportedOpenAICloudwiseRelayCatalogModels {
 		require.False(t, strings.HasPrefix(id, "gpt-"), "cloudwise relay catalog must not list GPT ids: %s", id)
 	}
+	for _, excluded := range []string{"gpt-5.5", "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"} {
+		require.NotContains(t, mapping, excluded, "cloudwise relay must not expose %s", excluded)
+	}
 }
 
 func TestForwardAsAnthropic_CloudwiseNativeMessagesPassthrough(t *testing.T) {

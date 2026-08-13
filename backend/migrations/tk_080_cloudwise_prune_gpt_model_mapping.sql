@@ -1,10 +1,10 @@
 -- TokenKey: drop GPT-series ids from CloudWise relay account model_mapping floors.
 --
 -- CloudWise MaaS relays expose Claude/Gemini/DeepSeek/GLM/etc. via dual-stack
--- chat + native messages, but GPT ids are not a supported routing surface for
--- these accounts (count_tokens/input_tokens gaps caused prod #95 auth_error).
--- Runtime SSOT (supportedOpenAICloudwiseRelayCatalogModels) no longer lists
--- gpt-*; this migration prunes any persisted gpt-* whitelist keys.
+-- chat + native messages. GPT ids (gpt-5.2 … gpt-5.6-* incl. gpt-5.5/gpt-5.6-sol)
+-- are not a supported routing surface (count_tokens/input_tokens gaps caused prod
+-- #95 auth_error). Runtime SSOT excludes all gpt-*; this migration prunes any
+-- persisted gpt-* whitelist keys (including gpt-5.6 series if manually added).
 --
 -- Idempotent: re-running is a no-op when no gpt-* keys remain.
 
