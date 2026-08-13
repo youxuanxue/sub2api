@@ -28,6 +28,12 @@ class VersionHelpersTest(unittest.TestCase):
 
 
 class PinReadersLiveRepoTest(unittest.TestCase):
+    def test_registry_derives_every_release_watched_identity(self) -> None:
+        registry_ids = [row["id"] for row in crw.IDENTITY_REGISTRY_DATA["identities"]]
+        self.assertEqual(registry_ids, [spec.id for spec in crw.PLATFORM_SPECS])
+        self.assertEqual(set(registry_ids), set(crw.PIN_READERS))
+        self.assertEqual(crw.COMPANION_OF, {"codex-vscode": "codex"})
+
     def test_live_pins_are_present(self) -> None:
         self.assertRegex(crw.read_pinned_claude_code(), r"^\d+\.\d+\.\d+")
         self.assertRegex(crw.read_pinned_codex(), r"^\d+\.\d+\.\d+")
@@ -122,7 +128,7 @@ class ScanPlatformTest(unittest.TestCase):
                 },
             }
         }
-        with mock.patch.dict(crw.PIN_READERS, {"grok-cli": lambda: "0.2.111"}):
+        with mock.patch.dict(crw.PIN_READERS, {"grok-cli": crw.read_pinned_grok_cli}):
             result = crw.scan_platform(spec, offline_upstream=offline)
         report = crw.build_report([result])
         self.assertTrue(result.drift)
@@ -132,6 +138,19 @@ class ScanPlatformTest(unittest.TestCase):
         row = report["platforms"][0]
         self.assertTrue(row["issue_suppressed"])
         self.assertIn("installable", row["status_note"])
+
+    def test_grok_cli_uses_runtime_fallback_owner(self) -> None:
+        spec = next(p for p in crw.PLATFORM_SPECS if p.id == "grok-cli")
+        self.assertEqual(
+            spec.pin_path,
+            "backend/internal/pkg/xai/billing.go CLIClientVersion",
+        )
+        self.assertTrue(crw.XAI_BILLING_GO.is_file())
+        self.assertRegex(crw.read_pinned_grok_cli(), r"^\d+\.\d+\.\d+")
+        self.assertIn(
+            "grep CLIClientVersion backend/internal/pkg/xai/billing.go",
+            crw.PLATFORM_PLAYBOOKS["grok-cli"]["first_commands"],
+        )
 
 
 class SkillPlanTest(unittest.TestCase):

@@ -14,8 +14,9 @@ description: >-
 2. **指纹对齐（Layer 2，本 skill）** — 在 Cursor **加载本 skill 或单平台 skill 后**，跑
    `capture-all-fingerprints.sh` 做真实 capture/diff，再合一个 PR。
 
-CI 里 `.github/workflows/client-fidelity-watch.yml` 每日顺序跑 Layer 1 release scan → prompt registry-gate → prod aggregate，并开 tracking issue；
-人工/agent  remediation 从 Layer 1 的 skill 路由进入 Layer 2。
+CI 里 `.github/workflows/client-fidelity-watch.yml` 每日顺序跑 Layer 1 release scan → prompt registry-gate → production observations，并开 tracking issue；
+人工/agent remediation 从 Layer 1 的 skill 路由进入 Layer 2。身份的静态 owner、release source 与证据层级只登记在
+`scripts/fingerprint/client_identity_registry.json`；registry 不保存当前版本、漂移状态或 capture 结果。
 
 一次对齐**所有**客户端指纹，合一个 PR。四条引擎**机制不同必须独立**——cc 主动重定向到
 自建 collector + cc0 MITM；kiro 被动 pcap（端点硬编码不可重定向）；antigravity 用 mitmproxy
@@ -41,7 +42,7 @@ bash ops/fingerprint/capture-all-fingerprints.sh \
   --cc-arg --http \
   --kiro-arg --proxy-port --kiro-arg 7890 \
   --antigravity-arg --proxy-port --antigravity-arg 8080
-#   → 末尾打印 combined coverage + drift report：
+#   → 末尾打印四引擎 drift report + registry 派生的全 identity evidence matrix：
 #     0=全部要求证据已观察且 aligned，1=drift，2=error/invalid evidence，3=incomplete/skipped
 # 只跑部分引擎：--skip-cc / --skip-kiro / --skip-antigravity / --skip-codex
 # codex 无前置、默认就跑；本机没装 codex 时用 --skip-codex。

@@ -682,6 +682,65 @@
       "rationale": "Load-bearing QA evidence for the kiro TLS-fingerprint gate (matches the *_tk_*.go hotspot rule). Guards the default-on/opt-out behavior and the by-name canonical-profile resolution; losing it removes the regression guard that keeps kiro from silently reverting to a Go-default JA3 or wearing the wrong (cc) fingerprint."
     },
     {
+      "path": "deploy/aws/stage0/tk_canonical_kiro_ide.json",
+      "must_contain": [
+        "\"name\": \"tk_canonical_kiro_ide\"",
+        "\"enable_grease\":",
+        "\"cipher_suites\":",
+        "\"extensions\":"
+      ],
+      "rationale": "Ongoing Kiro capture baseline and canonical production-config parity owner. The runtime TLS arrays are order-sensitive; this JSON remains capture provenance while the named DB row is the deployed runtime configuration."
+    },
+    {
+      "path": "backend/migrations/tk_014_seed_kiro_ide_tls_template.sql",
+      "must_contain": [
+        "ON CONFLICT (name) DO NOTHING",
+        "NOT auto-synced",
+        "deploy/aws/stage0/tk_canonical_kiro_ide.json"
+      ],
+      "rationale": "Immutable historical seed provenance, not a living second owner. DO NOTHING must remain explicit so parity observation cannot be mistaken for an automatic database propagation mechanism."
+    },
+    {
+      "path": "ops/kiro/capture_kiro_fingerprint.py",
+      "must_contain": [
+        "RUNTIME_PROFILE_FIELDS = (",
+        "def runtime_profile_projection(",
+        "def runtime_profile_digest("
+      ],
+      "rationale": "Single stdlib projection/digest owner for exactly the ten ordered fields consumed by TLSFingerprintProfile.ToTLSProfile(). Capture and production-configured parity must hash the same runtime inputs."
+    },
+    {
+      "path": "ops/kiro/check_kiro_tls_profile_parity.py",
+      "must_contain": [
+        "This proves production-configured parity only",
+        "def compare_profiles(",
+        "\"evidence_level\": \"production_configured\"",
+        "\"status\": \"missing\"",
+        "\"status\": \"observer_failed\""
+      ],
+      "rationale": "Read-only canonical JSON versus DB snapshot checker. Its evidence label prevents configured parity from being promoted to wire observation, while explicit missing/failure states prevent false healthy verdicts."
+    },
+    {
+      "path": "ops/observability/probe-kiro-tls-profile-parity.sh",
+      "must_contain": [
+        "Read-only production-configured snapshot",
+        "PROFILE_NAME=\"tk_canonical_kiro_ide\"",
+        "FROM tls_fingerprint_profiles",
+        "docker exec tokenkey-postgres"
+      ],
+      "rationale": "Production observation is a read-only projection of the named canonical DB row. It must never expose account or credential payloads and must never mutate the profile."
+    },
+    {
+      "path": ".github/workflows/client-fidelity-watch.yml",
+      "must_contain": [
+        "kiro-production-configured:",
+        "probe-kiro-tls-profile-parity.sh",
+        "--kiro-profile-observation-status",
+        "client-fidelity-kiro-parity-${{ github.run_id }}"
+      ],
+      "rationale": "The umbrella daily/manual workflow must execute and publish Kiro production-configured parity as an independent observation instead of inferring it from job success or from capture provenance."
+    },
+    {
       "path": "frontend/src/constants/gatewayPlatforms.ts",
       "must_contain": [
         "'kiro'"
