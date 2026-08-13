@@ -519,6 +519,33 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     // upstream rejects). TODO: verify against canonical Volcengine Ark docs.
     videoDurations: [4, 8, 12],
   },
+  {
+    modelId: 'doubao-seedance-2-5-260628',
+    displayName: 'Seedance 2.5',
+    qualityBadge: 'cinematic',
+    qualityBadgeKey: 'studio.badge.cinematic',
+    vendorLabel: VOLC,
+    modality: 'video',
+    supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
+    // Served through XRToken (ARK-compatible reseller, channel_type=54); billed
+    // on the Ark id above. The captured Volcengine Ark price table documents
+    // only 480p/720p output for this SKU and cites 5s examples, so keep the
+    // conservative single duration until an official table is captured.
+    videoDurations: [5],
+  },
+  {
+    modelId: 'doubao-seedance-2.0-mini',
+    displayName: 'Seedance 2.0 · Mini',
+    qualityBadge: 'fast',
+    qualityBadgeKey: 'studio.badge.fast',
+    vendorLabel: VOLC,
+    modality: 'video',
+    supportedParams: ['seed', 'firstFrameImage', 'generateAudio'],
+    // Same XRToken path as Seedance 2.5. Official Ark id is dotted
+    // (doubao-seedance-2.0-mini), not the hyphen+date form used by its siblings.
+    // Price table documents 480p/720p only; 5s kept conservative.
+    videoDurations: [5],
+  },
 ]
 
 function lookupPresentation(modelId: string): MediaModelPresentation | undefined {
