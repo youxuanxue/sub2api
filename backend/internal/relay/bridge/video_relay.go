@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	newapihelper "github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/engine"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
@@ -155,6 +156,32 @@ func DispatchVideoSubmit(_ context.Context, c *gin.Context, in ChannelContextInp
 	// read or written. Skipping it caused a nil pointer deref in early dev.
 	relayInfo.InitChannelMeta(c)
 	relayInfo.UpstreamModelName = req.Model
+	// Apply the account's credentials.model_mapping, exactly as the four sibling
+	// bridge relays do (text/responses/embedding/image all call this right after
+	// InitChannelMeta). Video was the only relay missing it, so the requested
+	// model was forwarded verbatim and every account whose upstream names its
+	// SKUs differently was unreachable — e.g. XRToken serves Ark Seedance as
+	// `volcengine/doubao-seedance-*` and rejected the bare Ark id.
+	//
+	// Two invariants this must preserve:
+	//
+	//   - BILLING KEY IS UNCHANGED. relayInfo.OriginModelName (set above from
+	//     req.Model) is what TaskSubmitOutcome.OriginModel returns and what the
+	//     handler bills on. ModelMappedHelper only rewrites UpstreamModelName, so
+	//     the overlay price key stays the client-facing Ark id. Rewriting the
+	//     request body instead would have moved the billing key to the upstream
+	//     name and billed $0 for an id absent from the overlay.
+	//   - IDENTITY MAPPINGS STAY A NO-OP. For `X: X` the helper's cycle check
+	//     reports IsModelMapped=false and leaves UpstreamModelName alone, so
+	//     existing Ark accounts (tk_033/tk_056 write identity whitelists) behave
+	//     exactly as before.
+	//
+	// request is nil on purpose: TaskSubmitReq does not implement dto.Request
+	// (no SetModelName), and the task adaptors already substitute the mapped name
+	// themselves from info.IsModelMapped/UpstreamModelName in BuildRequestBody.
+	if err := newapihelper.ModelMappedHelper(c, relayInfo, nil); err != nil {
+		return nil, types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
+	}
 	// Seed the public task id so adaptor.DoResponse stamps it on the wire.
 	// Without this every adaptor would write an empty / random id, making
 	// the GET /v1/videos/:task_id response inconsistent with the POST.

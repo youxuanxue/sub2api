@@ -3,6 +3,8 @@
 package bridge
 
 import (
+	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +13,8 @@ import (
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
+	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // fakeXRTokenUpstream answers ONLY XRToken's ARK-compatible paths
@@ -26,6 +30,7 @@ import (
 type fakeXRTokenUpstream struct {
 	lastFetchPath  string
 	lastAuthHeader string
+	lastSubmitBody []byte
 	upstreamTaskID string
 }
 
@@ -33,7 +38,7 @@ func (f *fakeXRTokenUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	f.lastAuthHeader = r.Header.Get("Authorization")
 	switch {
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/contents/generations/tasks":
-		_, _ = io.ReadAll(r.Body)
+		f.lastSubmitBody, _ = io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"id":"` + f.upstreamTaskID + `"}`))
@@ -180,5 +185,120 @@ func TestTaskAdaptorForChannel_XRTokenSelection(t *testing.T) {
 					tc.channelType, tc.baseURL, isXR, tc.wantXR)
 			}
 		})
+	}
+}
+
+// TestDispatchVideoSubmit_AppliesModelMapping is the regression test for the
+// defect this file's first revision shipped: video was the ONLY bridge relay
+// that never called helper.ModelMappedHelper (text/responses/embedding/image
+// all do), so credentials.model_mapping was ignored and the client-facing model
+// went upstream verbatim. Any account whose upstream names its SKUs differently
+// was therefore unreachable — XRToken serves Ark Seedance as
+// `volcengine/doubao-seedance-*` and rejects the bare Ark id.
+//
+// The two assertions encode the invariants that make the fix safe:
+//
+//  1. the UPSTREAM body carries the mapped name, and
+//  2. OriginModel — the billing key the handler prices on — stays the
+//     client-facing Ark id. Fixing this by rewriting the request body instead
+//     would satisfy (1) and silently break (2), billing $0 for a model absent
+//     from the pricing overlay.
+func TestDispatchVideoSubmit_AppliesModelMapping(t *testing.T) {
+	ensureNewAPIDeps()
+
+	// The upstream here answers official Ark's path, NOT XRToken's: the
+	// XRToken wrapper is selected by the sentinel host (api.xrtoken.net), which
+	// an httptest server can never be, so this exercises the plain doubao
+	// adaptor. That is the right scope — the mapping defect lived in
+	// DispatchVideoSubmit and affected EVERY newapi video account, not just
+	// XRToken. The XRToken model names below document the motivating case; the
+	// URL-swap half of the story is covered by the wrapper tests above.
+	var gotUpstreamModel string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v3/contents/generations/tasks" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		gotUpstreamModel = gjson.GetBytes(raw, "model").String()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"cgt-xr-map-1"}`))
+	}))
+	defer srv.Close()
+
+	const clientModel = "doubao-seedance-2-5-260628"
+	const upstreamModel = "volcengine/doubao-seedance-2-5-260628"
+
+	body := mustJSON(t, map[string]any{"model": clientModel, "prompt": "a cat"})
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	out, apiErr := DispatchVideoSubmit(context.Background(), c, ChannelContextInput{
+		ChannelType:      newapiconstant.ChannelTypeDoubaoVideo,
+		BaseURL:          srv.URL,
+		APIKey:           "tr-test-key",
+		ModelMappingJSON: `{"` + clientModel + `":"` + upstreamModel + `"}`,
+	}, "vt_map_1", body)
+	if apiErr != nil {
+		t.Fatalf("DispatchVideoSubmit error: %v", apiErr)
+	}
+	if gotUpstreamModel != upstreamModel {
+		t.Fatalf("upstream received model %q, want the MAPPED name %q — model_mapping was not applied",
+			gotUpstreamModel, upstreamModel)
+	}
+	if out.OriginModel != clientModel {
+		t.Fatalf("OriginModel (billing key) = %q, want the client-facing id %q — "+
+			"billing must not drift to the upstream name", out.OriginModel, clientModel)
+	}
+	if out.UpstreamModel != upstreamModel {
+		t.Fatalf("UpstreamModel = %q, want %q", out.UpstreamModel, upstreamModel)
+	}
+}
+
+// TestDispatchVideoSubmit_IdentityMappingIsNoOp pins the compatibility half of
+// the fix. Existing Ark accounts are provisioned with identity whitelists
+// (tk_033 / tk_056 write `X: X` to gate which SKUs a pool serves), and adding
+// ModelMappedHelper to this path must not disturb them: the helper's cycle
+// check resolves `X: X` to IsModelMapped=false, leaving the upstream name
+// untouched. Without this test the fix could regress live Seedance serving on
+// the official Ark pool.
+func TestDispatchVideoSubmit_IdentityMappingIsNoOp(t *testing.T) {
+	ensureNewAPIDeps()
+
+	const model = "doubao-seedance-2-0-260128"
+	var gotUpstreamModel string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v3/contents/generations/tasks" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		gotUpstreamModel = gjson.GetBytes(raw, "model").String()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"cgt-ark-identity-1"}`))
+	}))
+	defer srv.Close()
+
+	body := mustJSON(t, map[string]any{"model": model, "prompt": "a cat"})
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	out, apiErr := DispatchVideoSubmit(context.Background(), c, ChannelContextInput{
+		ChannelType:      newapiconstant.ChannelTypeVolcEngine,
+		BaseURL:          srv.URL,
+		APIKey:           "ark-test-key",
+		ModelMappingJSON: `{"` + model + `":"` + model + `"}`,
+	}, "vt_identity_1", body)
+	if apiErr != nil {
+		t.Fatalf("DispatchVideoSubmit error: %v", apiErr)
+	}
+	if gotUpstreamModel != model {
+		t.Fatalf("upstream received model %q, want %q unchanged", gotUpstreamModel, model)
+	}
+	if out.OriginModel != model || out.UpstreamModel != model {
+		t.Fatalf("identity mapping must leave both names as %q, got origin=%q upstream=%q",
+			model, out.OriginModel, out.UpstreamModel)
 	}
 }
