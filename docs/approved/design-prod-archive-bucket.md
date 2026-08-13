@@ -5,7 +5,7 @@ approved_by: "xuejiao (archive bucket approval, 2026-07-23)"
 approved_at: 2026-07-23
 authors: [agent]
 created: 2026-07-22
-related_prs: [1401]
+related_prs: [1401, 1653]
 ---
 
 # 生产 ops 长期 archive bucket 与 promote
@@ -13,7 +13,7 @@ related_prs: [1401]
 ## 决策
 
 export staging（`tokenkey-stage0-backups` / `prod/pgdump/archive-export/`）仅 **7 天**
-周转；长期归档使用 **独立 S3 桶**，一条 canonical promote 路径。ops 月分区回收前 export/promote
+周转；长期归档使用 **独立 S3 桶**，一条 canonical promote 路径。ops 分区回收前 export/promote
 证据须齐全（`drop_ready` 仍不授权删除）；steady state 下 physical DROP 由 `OpsCleanupService`
 执行；终态与 re-export 例外路径见 `ops/archive/README.md`。
 
@@ -39,8 +39,8 @@ export staging（`tokenkey-stage0-backups` / `prod/pgdump/archive-export/`）仅
 
 ### 分区回收门禁（本文件不实现 drop；执行 owner 为 `OpsCleanupService`）
 
-以下 **全部** 满足后，ops **月分区** 才可在 bound 到期时做整分区 DROP（由 daily cleanup 的
-`pgpartition.DropExpired` 自动执行，**不是**本目录 operator CLI）：
+以下 **全部** 满足后，ops **日分区** 才可在 `upper_bound <= retention cutoff` 时做整分区
+DROP（由 daily cleanup 的 `pgpartition.DropExpired` 自动执行，**不是**本目录 operator CLI）：
 
 1. 对应表 export ledger：`more_cold_rows_remaining=false`
 2. ledger 中 **每个** `batch_id` 有 promote receipt，且 archive 前缀 manifest
@@ -48,7 +48,7 @@ export staging（`tokenkey-stage0-backups` / `prod/pgdump/archive-export/`）仅
 3. `cleanup_release_complete=true`（`data_layer_archive_health.py`）；`drop_ready`
    **不是**删除授权
 
-`usage_logs_legacy`（attach-legacy，90d 热层）与 ops 月分区模型不同：回收走行级 DELETE 与
+`usage_logs_legacy`（attach-legacy，90d 热层）与 ops 日分区模型不同：回收走行级 DELETE 与
 DropExpired，不由本 promote 路径手工 DROP。
 
 ## 状态机
