@@ -365,11 +365,22 @@ class EdgeEC2RemotePlanTest(unittest.TestCase):
         self.assertGreater(unlock_index, start_index)
 
     def test_release_target_returns_to_candidate_mode(self) -> None:
-        plan = "\n".join(self._plan("release-target-candidate"))
+        steps = self._plan("release-target-candidate")
+        plan = "\n".join(steps)
         self.assertIn("stop tokenkey caddy", plan)
+        self.assertIn("up -d --no-deps postgres redis", plan)
+        self.assertIn("pg_isready", plan)
+        self.assertIn("redis-cli ping", plan)
+        self.assertIn("State.Health.Status", plan)
+        self.assertIn("tokenkey-postgres", plan)
+        self.assertIn("tokenkey-redis", plan)
         self.assertIn(".target-write-owner-active", plan)
         self.assertIn(".write-owner-locked", plan)
-        self.assertLess(plan.index("stop tokenkey caddy"), plan.index("rm -f"))
+        start_data = next(i for i, item in enumerate(steps) if "up -d --no-deps postgres redis" in item)
+        verify_data = next(i for i, item in enumerate(steps) if "pg_isready" in item and "redis-cli ping" in item)
+        unlock = next(i for i, item in enumerate(steps) if ".write-owner-locked" in item and "rm -f" in item)
+        self.assertLess(start_data, verify_data)
+        self.assertLess(verify_data, unlock)
 
     def test_freeze_target_creates_verified_reverse_bundle(self) -> None:
         steps = self._plan("freeze-target")

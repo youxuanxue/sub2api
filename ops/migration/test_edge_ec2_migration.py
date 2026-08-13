@@ -107,7 +107,7 @@ class EdgeEC2MigrationContractTest(unittest.TestCase):
             )
             clock = FakeClock()
             runner = FakeRunner(clock)
-            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now)
+            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now, sleep=clock.advance)
 
             with self.assertRaisesRegex(MigrationError, "state file"):
                 orchestrator.run("prepare", binding(), execute=True)
@@ -119,7 +119,7 @@ class EdgeEC2MigrationContractTest(unittest.TestCase):
             state_path = pathlib.Path(raw) / "state.json"
             clock = FakeClock()
             runner = FakeRunner(clock)
-            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now)
+            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now, sleep=clock.advance)
 
             result = orchestrator.run("prepare", binding(), execute=False)
 
@@ -129,6 +129,21 @@ class EdgeEC2MigrationContractTest(unittest.TestCase):
             ])
             self.assertEqual(runner.calls, [])
             self.assertFalse(state_path.exists())
+
+    def test_mark_stable_plan_discloses_the_final_remote_health_checks(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            orchestrator = MigrationOrchestrator(
+                pathlib.Path(raw) / "state.json",
+                runner=FakeRunner(FakeClock()),
+            )
+
+            result = orchestrator.run("mark-stable", binding(), execute=False)
+
+            self.assertEqual(result["steps"], [
+                {"local": "require-completed-continuous-observation"},
+                {"endpoint": "target", "action": "verify-target"},
+                {"endpoint": "target", "action": "verify-source-proxy"},
+            ])
 
     def test_same_edge_execute_is_serialized_across_controllers(self) -> None:
         class BlockingRunner(FakeRunner):
@@ -177,7 +192,7 @@ class EdgeEC2MigrationContractTest(unittest.TestCase):
             state_path = pathlib.Path(raw) / "state.json"
             clock = FakeClock()
             runner = FakeRunner(clock, durations={"prepare-source": 20, "restore-target": 30})
-            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now)
+            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now, sleep=clock.advance)
 
             result = orchestrator.run("prepare", binding(), execute=True)
             repeated = orchestrator.run("prepare", binding(), execute=True)
@@ -199,7 +214,7 @@ class EdgeEC2MigrationContractTest(unittest.TestCase):
             state_path = pathlib.Path(raw) / "state.json"
             clock = FakeClock()
             runner = FakeRunner(clock)
-            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now)
+            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now, sleep=clock.advance)
             orchestrator.run("prepare", b, execute=True)
             orchestrator.run("cutover", b, execute=True)
             orchestrator.run("rollback", b, execute=True)
@@ -239,7 +254,7 @@ class EdgeEC2MigrationContractTest(unittest.TestCase):
             state_path = pathlib.Path(raw) / "state.json"
             clock = FakeClock()
             runner = FakeRunner(clock)
-            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now)
+            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now, sleep=clock.advance)
 
             result = orchestrator.run("prepare", binding(manifest_digest="auto"), execute=True)
 
@@ -252,7 +267,7 @@ class EdgeEC2MigrationContractTest(unittest.TestCase):
             state_path = pathlib.Path(raw) / "state.json"
             clock = FakeClock()
             runner = FakeRunner(clock)
-            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now)
+            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now, sleep=clock.advance)
 
             with self.assertRaisesRegex(MigrationError, "manifest digest mismatch"):
                 orchestrator.run("prepare", binding(manifest_digest="f" * 64), execute=True)
@@ -264,7 +279,7 @@ class EdgeEC2MigrationContractTest(unittest.TestCase):
             state_path = pathlib.Path(raw) / "state.json"
             clock = FakeClock()
             runner = FakeRunner(clock)
-            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now)
+            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now, sleep=clock.advance)
             orchestrator.run("prepare", binding(), execute=True)
             call_count = len(runner.calls)
 
@@ -287,7 +302,12 @@ class EdgeEC2MigrationContractTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             clock = FakeClock()
             runner = FakeRunner(clock)
-            orchestrator = MigrationOrchestrator(pathlib.Path(raw) / "state.json", runner=runner, now=clock.now)
+            orchestrator = MigrationOrchestrator(
+                pathlib.Path(raw) / "state.json",
+                runner=runner,
+                now=clock.now,
+                sleep=clock.advance,
+            )
             with self.assertRaisesRegex(MigrationError, "requires state cutting_over"):
                 orchestrator.run(
                     "observe",
@@ -310,7 +330,7 @@ class EdgeEC2MigrationCutoverTest(unittest.TestCase):
         state_path = pathlib.Path(raw) / "state.json"
         clock = FakeClock()
         runner = FakeRunner(clock, durations=durations)
-        orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now)
+        orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now, sleep=clock.advance)
         orchestrator.run("prepare", binding_value or binding(), execute=True)
         runner.calls.clear()
         runner.fail_on = fail_on
@@ -423,7 +443,7 @@ class EdgeEC2MigrationCutoverTest(unittest.TestCase):
             state_path = pathlib.Path(raw) / "state.json"
             clock = FakeClock()
             runner = FakeRunner(clock, fail_on="proxy-source")
-            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now)
+            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now, sleep=clock.advance)
             orchestrator.run("prepare", b, execute=True)
             runner.calls.clear()
             runner.interrupt_on = "resume-source"
@@ -482,7 +502,7 @@ class EdgeEC2MigrationCutoverTest(unittest.TestCase):
             state_path = pathlib.Path(raw) / "state.json"
             clock = FakeClock()
             runner = FakeRunner(clock)
-            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now)
+            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now, sleep=clock.advance)
             orchestrator.run("prepare", b, execute=True)
             orchestrator.run("cutover", b, execute=True)
             orchestrator.run("rollback", b, execute=True)
@@ -542,45 +562,91 @@ class EdgeEC2MigrationCutoverTest(unittest.TestCase):
     def test_mark_stable_enforces_ten_minute_observation(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             b = binding(source_public_ip="35.81.204.18")
-            orchestrator, runner, clock, _ = self._prepared(raw, binding_value=b)
+            state_path = pathlib.Path(raw) / "state.json"
+            clock = FakeClock()
+            runner = FakeRunner(
+                clock,
+                durations={"verify-target": 4, "verify-source-proxy": 4},
+            )
+            orchestrator = MigrationOrchestrator(
+                state_path,
+                runner=runner,
+                now=clock.now,
+                sleep=clock.advance,
+            )
+            orchestrator.run("prepare", b, execute=True)
+            runner.calls.clear()
             orchestrator.run("cutover", b, execute=True)
-            orchestrator.run(
+            started = clock.now()
+
+            result = orchestrator.run(
                 "observe", b, execute=True,
                 confirm_dns=dns_confirmation_token(b), observed_dns_ip=b.target_eip,
             )
-            clock.advance(599)
-            with self.assertRaisesRegex(MigrationError, "600 seconds"):
-                orchestrator.run("mark-stable", b, execute=True)
-            clock.advance(1)
-            result = orchestrator.run("mark-stable", b, execute=True)
-            self.assertEqual(result["state"], "stable")
+
+            self.assertEqual(result["state"], "observing")
+            self.assertGreaterEqual(clock.now() - started, 600)
+            probe_actions = [
+                call["action"]
+                for call in runner.calls
+                if call["action"] in {"verify-target", "verify-source-proxy"}
+            ]
+            self.assertEqual(probe_actions.count("verify-target"), 21)
             self.assertEqual(
-                [call["action"] for call in runner.calls[-2:]],
+                probe_actions,
+                ["verify-target", "verify-source-proxy"]
+                * (len(probe_actions) // 2),
+            )
+            persisted = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertGreaterEqual(
+                persisted["checkpoints"]["observation_complete"]["duration_seconds"],
+                600,
+            )
+            calls_before_stable = len(runner.calls)
+            stable = orchestrator.run("mark-stable", b, execute=True)
+            self.assertEqual(stable["state"], "stable")
+            self.assertEqual(
+                [call["action"] for call in runner.calls[calls_before_stable:]],
                 ["verify-target", "verify-source-proxy"],
             )
-            self.assertEqual(runner.calls[-1]["endpoint"], "target")
-            self.assertEqual(runner.calls[-1]["target_eip"], b.source_public_ip)
 
-    def test_mark_stable_keeps_observing_when_proxy_health_fails(self) -> None:
+    def test_failed_observation_restarts_the_full_window(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             b = binding(source_public_ip="35.81.204.18")
-            orchestrator, runner, clock, state_path = self._prepared(raw, binding_value=b)
+            state_path = pathlib.Path(raw) / "state.json"
+            clock = FakeClock()
+            runner = FakeRunner(clock)
+            orchestrator = MigrationOrchestrator(
+                state_path,
+                runner=runner,
+                now=clock.now,
+                sleep=clock.advance,
+            )
+            orchestrator.run("prepare", b, execute=True)
             orchestrator.run("cutover", b, execute=True)
+            runner.fail_on = "verify-source-proxy"
+
+            with self.assertRaisesRegex(MigrationError, "verify-source-proxy"):
+                orchestrator.run(
+                    "observe", b, execute=True,
+                    confirm_dns=dns_confirmation_token(b),
+                    observed_dns_ip=b.target_eip,
+                )
+
+            failed = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(failed["state"], "observing")
+            self.assertNotIn("observation_complete", failed["checkpoints"])
+            failed_at = clock.now()
+            with self.assertRaisesRegex(MigrationError, "continuous observation"):
+                orchestrator.run("mark-stable", b, execute=True)
+
+            runner.fail_on = ""
             orchestrator.run(
                 "observe", b, execute=True,
                 confirm_dns=dns_confirmation_token(b),
                 observed_dns_ip=b.target_eip,
             )
-            clock.advance(600)
-            runner.fail_on = "verify-source-proxy"
-
-            with self.assertRaisesRegex(MigrationError, "verify-source-proxy"):
-                orchestrator.run("mark-stable", b, execute=True)
-
-            self.assertEqual(
-                json.loads(state_path.read_text(encoding="utf-8"))["state"],
-                "observing",
-            )
+            self.assertEqual(clock.now() - failed_at, 600)
 
     def test_post_write_manual_rollback_waits_for_source_dns_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -588,7 +654,7 @@ class EdgeEC2MigrationCutoverTest(unittest.TestCase):
             state_path = pathlib.Path(raw) / "state.json"
             clock = FakeClock()
             runner = FakeRunner(clock)
-            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now)
+            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now, sleep=clock.advance)
             orchestrator.run("prepare", b, execute=True)
             orchestrator.run("cutover", b, execute=True)
             orchestrator.run(
@@ -622,7 +688,7 @@ class EdgeEC2MigrationCutoverTest(unittest.TestCase):
             state_path = pathlib.Path(raw) / "state.json"
             clock = FakeClock()
             runner = FakeRunner(clock)
-            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now)
+            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now, sleep=clock.advance)
             orchestrator.run("prepare", b, execute=True)
             orchestrator.run("cutover", b, execute=True)
             runner.calls.clear()
@@ -648,7 +714,7 @@ class EdgeEC2MigrationCutoverTest(unittest.TestCase):
             state_path = pathlib.Path(raw) / "state.json"
             clock = FakeClock()
             runner = FakeRunner(clock)
-            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now)
+            orchestrator = MigrationOrchestrator(state_path, runner=runner, now=clock.now, sleep=clock.advance)
             orchestrator.run("prepare", b, execute=True)
             orchestrator.run("cutover", b, execute=True)
             orchestrator.run("rollback", b, execute=True)

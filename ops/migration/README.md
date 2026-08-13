@@ -292,9 +292,10 @@ ops/migration/edge-ec2-migration.sh observe "${MIGRATION_ARGS[@]}" --execute \
   --confirm-dns "$DNS_CONFIRM" --observed-dns-ip "$TK_MIGRATION_TARGET_EIP"
 ```
 
-观察期连续至少 600 秒。`mark-stable` 会机械复验 EC2 本机 HTTPS 健康和旧 Lightsail IP 的
-Caddy 代理链路；CloudWatch/飞书告警需在执行审批时人工确认正常。最终数据、账号和凭证差异已由
-冻结后的 restore 对称校验门禁。随后 plan 并经独立审批标记稳定：
+`observe --execute` 会每 30 秒机械复验 EC2 本机 HTTPS 健康和旧 Lightsail IP 的 Caddy 代理链路，
+连续通过至少 600 秒才记录完成；任一探测失败或控制进程中断，下一次 `observe --execute` 会从完整
+窗口重新开始。CloudWatch/飞书告警仍需在执行审批时人工确认正常。最终数据、账号和凭证差异已由
+冻结后的 restore 对称校验门禁。观察完成后，plan 并经独立审批标记稳定：
 
 ```bash
 ops/migration/edge-ec2-migration.sh mark-stable "${MIGRATION_ARGS[@]}"

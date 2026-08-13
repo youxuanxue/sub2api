@@ -31,6 +31,8 @@ PUBLIC_STATES = {"prepared", "cutting_over", "observing", "stable"}
 CUTOVER_DEADLINE_SECONDS = 120
 TARGET_ENABLE_HEADROOM_SECONDS = 15
 OBSERVATION_SECONDS = 600
+OBSERVATION_PROBE_INTERVAL_SECONDS = 30
+OBSERVATION_PROBE_TIMEOUT_SECONDS = 20
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 URL_RE = re.compile(r"https?://[^\s'\"<>]+")
 
@@ -119,10 +121,12 @@ class MigrationOrchestrator:
         *,
         runner: RemoteRunner,
         now: Callable[[], float] = time.time,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.state_path = pathlib.Path(state_path)
         self.runner = runner
         self.now = now
+        self.sleep = sleep
 
     def _read(self) -> dict[str, Any] | None:
         if not self.state_path.exists():
@@ -179,10 +183,15 @@ class MigrationOrchestrator:
                 {"endpoint": "source", "action": "proxy-source"},
             ]
         if command == "observe":
-            return [{"external": "confirm-dns"}]
+            return [
+                {"external": "confirm-dns"},
+                {"local": "continuous-600-second-health-window"},
+                {"endpoint": "target", "action": "verify-target"},
+                {"endpoint": "target", "action": "verify-source-proxy"},
+            ]
         if command == "mark-stable":
             return [
-                {"local": "enforce-observation-window"},
+                {"local": "require-completed-continuous-observation"},
                 {"endpoint": "target", "action": "verify-target"},
                 {"endpoint": "target", "action": "verify-source-proxy"},
             ]
@@ -423,18 +432,53 @@ class MigrationOrchestrator:
         confirm_dns: str,
         observed_dns_ip: str,
     ) -> dict[str, Any]:
-        if state["state"] == "observing":
+        if state["state"] == "observing" and state.get("checkpoints", {}).get("observation_complete"):
             return {"mode": "noop", "state": "observing"}
-        if state["state"] != "cutting_over" or not state.get("checkpoints", {}).get("source_proxy_ready"):
+        if state["state"] not in {"cutting_over", "observing"} or not state.get("checkpoints", {}).get("source_proxy_ready"):
             raise MigrationError("observe requires state cutting_over with source proxy ready")
         expected = dns_confirmation_token(binding)
         if confirm_dns != expected:
             raise MigrationError(f"DNS confirmation mismatch; expected {expected}")
         if observed_dns_ip != binding.target_eip:
             raise MigrationError(f"{binding.domain} does not resolve to target EIP")
+        if not binding.source_public_ip:
+            raise MigrationError("observe requires source_public_ip to verify the old public path")
+        started = self.now()
         state["state"] = "observing"
-        state["observing_started_at"] = self.now()
+        state["observing_started_at"] = started
+        state["checkpoints"].pop("observation_complete", None)
         state["checkpoints"]["dns_observed"] = {"at": _utc(self.now()), "value": observed_dns_ip}
+        self._write(state)
+
+        deadline = started + OBSERVATION_SECONDS
+        next_probe_at = started
+        while True:
+            wait_seconds = next_probe_at - self.now()
+            if wait_seconds > 0:
+                self.sleep(wait_seconds)
+            self.runner.run(
+                "target",
+                "verify-target",
+                timeout_seconds=OBSERVATION_PROBE_TIMEOUT_SECONDS,
+            )
+            self.runner.run(
+                "target",
+                "verify-source-proxy",
+                target_eip=binding.source_public_ip,
+                timeout_seconds=OBSERVATION_PROBE_TIMEOUT_SECONDS,
+            )
+            if self.now() >= deadline:
+                break
+            next_probe_at = min(
+                next_probe_at + OBSERVATION_PROBE_INTERVAL_SECONDS,
+                deadline,
+            )
+
+        completed = self.now()
+        state["checkpoints"]["observation_complete"] = {
+            "at": _utc(completed),
+            "duration_seconds": round(completed - started, 3),
+        }
         self._write(state)
         return {"mode": "executed", "state": "observing"}
 
@@ -443,11 +487,9 @@ class MigrationOrchestrator:
             return {"mode": "noop", "state": "stable"}
         if state["state"] != "observing" or state.get("observing_started_at") is None:
             raise MigrationError("mark-stable requires state observing")
-        elapsed = self.now() - float(state["observing_started_at"])
-        if elapsed < OBSERVATION_SECONDS:
-            raise MigrationError(f"observing must last at least 600 seconds; elapsed={elapsed:.0f}")
-        if not binding.source_public_ip:
-            raise MigrationError("mark-stable requires source_public_ip to verify the old public path")
+        observation = state.get("checkpoints", {}).get("observation_complete")
+        if not isinstance(observation, dict) or float(observation.get("duration_seconds", 0)) < OBSERVATION_SECONDS:
+            raise MigrationError("mark-stable requires a completed continuous observation window")
         self.runner.run("target", "verify-target")
         self.runner.run(
             "target",

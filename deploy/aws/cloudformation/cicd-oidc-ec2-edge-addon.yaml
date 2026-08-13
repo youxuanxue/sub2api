@@ -535,9 +535,12 @@ Resources:
             Condition:
               StringEquals:
                 ssm:resourceTag/Project: tokenkey
+                ssm:resourceTag/Environment: edge
                 aws:RequestedRegion:
                   - us-east-2
                   - us-west-2
+              StringLike:
+                ssm:resourceTag/EdgeId: us*
           - Sid: SendRunShellScriptToTokenkeyLightsailEdge
             Effect: Allow
             Action: ssm:SendCommand

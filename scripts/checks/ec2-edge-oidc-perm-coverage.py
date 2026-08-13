@@ -524,6 +524,22 @@ def validate_contract(addon: dict, base: dict, edge: dict) -> list[str]:
     if alarm_resources != expected_alarm_resources:
         failures.append("execution role alarm scope must cover only tokenkey Edge alarm names")
 
+    ec2_command = caller_by_sid.get("SendRunShellScriptToTokenkeyEdge") or {}
+    ec2_command_resources = set(_flatten_strings(ec2_command.get("Resource")))
+    expected_ec2_command_resources = {
+        f"arn:${{AWS::Partition}}:ec2:{region}:${{AWS::AccountId}}:instance/*"
+        for region in ALLOWED_REGIONS
+    }
+    ec2_command_equals = ((ec2_command.get("Condition") or {}).get("StringEquals") or {})
+    ec2_command_like = ((ec2_command.get("Condition") or {}).get("StringLike") or {})
+    if (
+        ec2_command_resources != expected_ec2_command_resources
+        or ec2_command_equals.get("ssm:resourceTag/Project") != "tokenkey"
+        or ec2_command_equals.get("ssm:resourceTag/Environment") != "edge"
+        or ec2_command_like.get("ssm:resourceTag/EdgeId") != "us*"
+    ):
+        failures.append("caller policy EC2 instance SendCommand must be tag-scoped to TokenKey Edge instances")
+
     dlm_create = execution_by_sid.get("CreateTaggedEdgeSnapshotPolicy") or {}
     dlm_create_equals = ((dlm_create.get("Condition") or {}).get("StringEquals") or {})
     dlm_create_like = ((dlm_create.get("Condition") or {}).get("StringLike") or {})

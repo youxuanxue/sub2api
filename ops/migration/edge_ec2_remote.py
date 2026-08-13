@@ -587,6 +587,10 @@ def build_remote_plan(
         return setup + [
             f"{compose} stop tokenkey caddy",
             "sudo systemctl disable --now tokenkey.service tokenkey-pgdump.timer",
+            f"{compose} up -d --no-deps postgres redis",
+            "for attempt in $(seq 1 60); do test \"$(sudo docker inspect -f '{{.State.Health.Status}}' tokenkey-postgres)\" = healthy && test \"$(sudo docker inspect -f '{{.State.Health.Status}}' tokenkey-redis)\" = healthy && sudo docker exec tokenkey-postgres pg_isready -U tokenkey -d tokenkey >/dev/null && sudo docker exec tokenkey-redis redis-cli ping | grep -qx PONG && break; [ \"$attempt\" -lt 60 ] || exit 50; sleep 1; done",
+            "test \"$(sudo docker inspect -f '{{.State.Running}}' tokenkey 2>/dev/null || echo false)\" = false",
+            "test \"$(sudo docker inspect -f '{{.State.Running}}' tokenkey-caddy 2>/dev/null || echo false)\" = false",
             f"rm -f {_q(ACTION_WORK_PARENT / '.write-owner-locked')} {_q(ACTION_WORK_PARENT / '.target-write-owner-active')} {_q(ACTION_WORK_PARENT / '.target-proxy-retained')}",
             "printf '%s\\n' RELEASE_TARGET_CANDIDATE_OK",
         ]

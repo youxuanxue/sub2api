@@ -204,6 +204,22 @@ class Ec2EdgeOidcPermCoverageTest(unittest.TestCase):
 
         self.assertTrue(any("Lightsail managed-instance" in failure for failure in failures), failures)
 
+    def test_ec2_commands_require_project_environment_and_edge_id_tags(self) -> None:
+        for operator, key in (
+            ("StringEquals", "ssm:resourceTag/Project"),
+            ("StringEquals", "ssm:resourceTag/Environment"),
+            ("StringLike", "ssm:resourceTag/EdgeId"),
+        ):
+            with self.subTest(key=key):
+                mutated = copy.deepcopy(self.addon)
+                statements = mutated["Resources"]["Ec2EdgeAddonPolicy"]["Properties"]["PolicyDocument"]["Statement"]
+                target = next(item for item in statements if item.get("Sid") == "SendRunShellScriptToTokenkeyEdge")
+                target["Condition"].get(operator, {}).pop(key, None)
+
+                failures = self.mod.validate_contract(mutated, self.base, self.edge)
+
+                self.assertTrue(any("EC2 instance SendCommand" in failure for failure in failures), failures)
+
     def test_candidate_eip_allocation_requires_edge_tags(self) -> None:
         mutated = copy.deepcopy(self.addon)
         statements = mutated["Resources"]["Ec2EdgeAddonPolicy"]["Properties"]["PolicyDocument"]["Statement"]
