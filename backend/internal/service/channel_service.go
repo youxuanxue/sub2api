@@ -503,7 +503,7 @@ func (s *ChannelService) lookupGroupChannel(ctx context.Context, groupID int64) 
 	return &channelLookup{
 		cache:    cache,
 		channel:  ch,
-		platform: cache.groupPlatform[groupID],
+		platform: channelLookupPlatform(ctx, cache.groupPlatform[groupID]),
 	}, nil
 }
 

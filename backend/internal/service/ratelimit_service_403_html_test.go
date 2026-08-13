@@ -166,7 +166,7 @@ func TestIsHTMLResponse(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, isHTMLResponse([]byte(tc.body)))
+			require.Equal(t, tc.want, openAIIsHTMLBody([]byte(tc.body)))
 		})
 	}
 }
