@@ -48,10 +48,11 @@ type Model struct {
 	DisplayName string `json:"display_name,omitempty"`
 }
 
-// DefaultTextModel is the built-in fallback for empty model fields and Grok
-// text aliases (e.g. "grok", "grok-latest"). Operators may override the runtime
-// default via settings key grok_default_text_model.
-const DefaultTextModel = "grok-4.5"
+// DefaultTextModel is the built-in fallback for empty model fields and generic
+// Grok text aliases. Keep this on a real upstream ID: the bare "grok" alias is
+// not accepted by xAI upstream even though clients commonly send it. Operators
+// may override the runtime default via settings key grok_default_text_model.
+const DefaultTextModel = "grok-4.6"
 
 // Official Imagine model IDs (https://docs.x.ai/docs/models).
 const (
@@ -65,10 +66,10 @@ const (
 // ModelMappingOptions controls optional expansions of the default mapping.
 // Cross-client wildcards (gpt-*/claude-*) default ON via settings
 // grok_cross_client_model_map_enabled so Codex/Claude clients keep working
-// against Grok groups (map to DefaultText / grok-4.5). Operators may disable.
+// against Grok groups (map to DefaultText / grok-4.6). Operators may disable.
 type ModelMappingOptions struct {
 	// DefaultText is the target for empty models and optional cross-client maps.
-	// Empty → DefaultTextModel (grok-4.5).
+	// Empty → DefaultTextModel (grok-4.6).
 	DefaultText string
 	// EnableCrossClientMap merges gpt-*/codex-*/o*/claude-* → DefaultText.
 	EnableCrossClientMap bool
@@ -83,6 +84,7 @@ func (o ModelMappingOptions) defaultText() string {
 
 var defaultModels = []Model{
 	// Text
+	{ID: "grok-4.6", Object: "model", Type: "model", OwnedBy: "xai", DisplayName: "Grok 4.6"},
 	{ID: "grok-4.5", Object: "model", Type: "model", OwnedBy: "xai", DisplayName: "Grok 4.5"},
 	{ID: "grok-4.3", Object: "model", Type: "model", OwnedBy: "xai", DisplayName: "Grok 4.3"},
 	{ID: "grok-3-mini", Object: "model", Type: "model", OwnedBy: "xai", DisplayName: "Grok 3 Mini"},
@@ -105,15 +107,16 @@ var defaultModels = []Model{
 // upstream ID. Used by DefaultModelMapping and IsGrokTextResponsesModelID.
 var grokTextResponsesModelAliases = map[string]string{
 	"grok":                         DefaultTextModel,
-	"grok-latest":                  DefaultTextModel,
-	"grok-4.5":                     DefaultTextModel,
-	"grok-4.5-latest":              DefaultTextModel,
+	"grok-latest":                  "grok-4.3",
+	"grok-4.6":                     DefaultTextModel,
+	"grok-4.5":                     "grok-4.5",
+	"grok-4.5-latest":              "grok-4.5",
 	"grok-4.3":                     "grok-4.3",
 	"grok-4.3-latest":              "grok-4.3",
 	"grok-3-mini":                  "grok-3-mini",
 	"grok-3-mini-fast":             "grok-3-mini-fast",
 	"grok-build":                   "grok-build-0.1",
-	"grok-build-latest":            DefaultTextModel,
+	"grok-build-latest":            "grok-4.5",
 	"grok-build-0.1":               "grok-build-0.1",
 	"grok-composer-2.5-fast":       "grok-composer-2.5-fast",
 	"grok-composer":                "grok-composer-2.5-fast",

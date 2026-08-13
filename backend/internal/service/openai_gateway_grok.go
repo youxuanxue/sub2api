@@ -24,7 +24,7 @@ const (
 	grokComposerImageBridgeMaxOutputTokens = 512
 	// grokUpstreamUserAgent lives in grok_upstream_headers.go (shared with TLS header helpers).
 	grokCLIVersion                   = xai.CLIClientVersion
-	grokDefaultResponsesModel        = "grok-4.5"
+	grokDefaultResponsesModel        = xai.DefaultTextModel
 	grokRateLimitFallbackCooldown    = 2 * time.Minute
 	grokRateLimitRepeatCooldown      = 10 * time.Minute
 	grokRateLimitSustainedCooldown   = 30 * time.Minute
@@ -632,7 +632,7 @@ func normalizeGrokReasoningEffortValue(raw string) (string, bool) {
 func grokSupportsReasoningEffort(model string) bool {
 	model = strings.ToLower(xai.StripGrokProviderPrefix(strings.TrimSpace(model)))
 	switch model {
-	case xai.DefaultTextModel, "grok-4.5-latest", "grok-4.3", "grok-4.3-latest",
+	case xai.DefaultTextModel, "grok-4.5", "grok-4.5-latest", "grok-4.3", "grok-4.3-latest",
 		"grok-3-mini", "grok-3-mini-fast", "grok-4.20-0309-reasoning",
 		"grok-4.20-reasoning", "grok-4.20-multi-agent-0309":
 		return true

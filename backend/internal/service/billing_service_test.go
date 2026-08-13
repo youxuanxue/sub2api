@@ -1155,10 +1155,29 @@ func TestCalculateCostWithLongContext_PropagatesError(t *testing.T) {
 	require.Contains(t, err.Error(), "pricing not found")
 }
 
+func TestGetModelPricing_Grok46OfficialFallback(t *testing.T) {
+	svc := newTestBillingService()
+
+	for _, model := range []string{"grok", "grok-4.6"} {
+		model := model
+		t.Run(model, func(t *testing.T) {
+			pricing, err := svc.GetModelPricing(model)
+			require.NoError(t, err)
+			require.InDelta(t, 2e-6, pricing.InputPricePerToken, 1e-12)
+			require.InDelta(t, 6e-6, pricing.OutputPricePerToken, 1e-12)
+			require.InDelta(t, 0.5e-6, pricing.CacheReadPricePerToken, 1e-12)
+			require.Equal(t, 200000, pricing.LongContextInputThreshold)
+			require.InDelta(t, 2.0, pricing.LongContextInputMultiplier, 1e-12)
+			require.InDelta(t, 2.0, pricing.LongContextOutputMultiplier, 1e-12)
+			require.False(t, pricing.SupportsCacheBreakdown)
+		})
+	}
+}
+
 func TestGetModelPricing_Grok45OfficialFallback(t *testing.T) {
 	svc := newTestBillingService()
 
-	for _, model := range []string{"grok", "grok-4.5", "grok-4.5-latest", "grok-build-latest"} {
+	for _, model := range []string{"grok-4.5", "grok-4.5-latest", "grok-build-latest"} {
 		model := model
 		t.Run(model, func(t *testing.T) {
 			pricing, err := svc.GetModelPricing(model)
@@ -1179,6 +1198,22 @@ func TestGetModelPricing_GrokLatestUsesExplicitRegistryOwner(t *testing.T) {
 	require.InDelta(t, 1.25e-6, pricing.InputPricePerToken, 1e-12)
 	require.InDelta(t, 2.5e-6, pricing.OutputPricePerToken, 1e-12)
 	require.InDelta(t, 0.2e-6, pricing.CacheReadPricePerToken, 1e-12)
+}
+
+func TestCalculateCost_Grok46LongContextAppliesOfficialTier(t *testing.T) {
+	svc := newTestBillingService()
+
+	tokens := UsageTokens{InputTokens: 201000, CacheReadTokens: 1000, OutputTokens: 1000}
+	cost, err := svc.CalculateCost("grok-4.6", tokens, 1.0)
+	require.NoError(t, err)
+
+	expectedInput := float64(tokens.InputTokens) * 2e-6 * 2.0
+	expectedCacheRead := float64(tokens.CacheReadTokens) * 0.5e-6 * 2.0
+	expectedOutput := float64(tokens.OutputTokens) * 6e-6 * 2.0
+	require.InDelta(t, expectedInput, cost.InputCost, 1e-10)
+	require.InDelta(t, expectedCacheRead, cost.CacheReadCost, 1e-10)
+	require.InDelta(t, expectedOutput, cost.OutputCost, 1e-10)
+	require.True(t, cost.LongContextBillingApplied)
 }
 
 func TestGetModelPricing_GrokCatalogFallbacks(t *testing.T) {
