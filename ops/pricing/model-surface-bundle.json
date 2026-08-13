@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "floor_sha256": "25b71b37377aed02bef815ea7745b66826dae3f1c4a9cddeae0a593d412997c9",
+  "floor_sha256": "47a922c2a4838a7ecd9a49c927edfc2c08906271d153eb779e07b74c57ef85bc",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -224,9 +224,6 @@
         "glm-5": "glm-5",
         "glm-5.1": "glm-5.1",
         "glm-5.2": "glm-5.2",
-        "gpt-5.2": "gpt-5.2",
-        "gpt-5.3-codex": "gpt-5.3-codex",
-        "gpt-5.4": "gpt-5.4",
         "kimi-k3": "kimi-k3"
       },
       "openai_tokensea_relay": {

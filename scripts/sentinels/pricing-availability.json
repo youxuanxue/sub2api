@@ -84,6 +84,7 @@
         "func supportedCatalogModelIDsForPlatform(",
         "supportedAnthropicCatalogModels",
         "supportedOpenAICatalogModels",
+        "supportedOpenAICloudwiseRelayCatalogModels",
         "supportedGeminiCatalogModels",
         "supportedAntigravityCatalogModels",
         "supportedGrokCatalogModels",
