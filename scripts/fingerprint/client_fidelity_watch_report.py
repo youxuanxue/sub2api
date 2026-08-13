@@ -298,7 +298,11 @@ def derive_fidelity_verdict(
     else:
         platforms = release_report.get("platforms") or []
         unknown_ids = [str(item.get("id")) for item in platforms if item.get("status") == "unknown"]
-        stale_ids = [str(item.get("id")) for item in platforms if item.get("drift")]
+        stale_ids = [
+            str(item.get("id"))
+            for item in platforms
+            if item.get("drift") and not item.get("issue_suppressed")
+        ]
         if not platforms:
             candidates.add("incomplete")
             reasons.append("release report contains no platform observations")
@@ -650,6 +654,28 @@ def main(argv: list[str] | None = None) -> int:
         )
         assert release_newer["fidelity_verdict"]["status"] == "stale"
         assert any(s["signal_type"] == "release-drift" for s in release_newer["signals"])
+
+        advisory_drift = fixture(
+            release_report={
+                "platforms": [
+                    {
+                        "id": "cc-stainless",
+                        "status": "drift",
+                        "drift": True,
+                        "issue_suppressed": True,
+                    },
+                    {
+                        "id": "claude-code",
+                        "status": "aligned",
+                        "drift": False,
+                        "issue_suppressed": False,
+                    },
+                ],
+                "summary": {},
+            }
+        )
+        assert advisory_drift["fidelity_verdict"]["status"] == "healthy"
+        assert not any(s["signal_type"] == "release-drift" for s in advisory_drift["signals"])
 
         oidc_skipped = fixture(
             prod_observation_status="skipped",
