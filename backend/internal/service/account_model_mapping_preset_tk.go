@@ -97,9 +97,8 @@ func isNewAPIQianfanAccount(account *Account) bool {
 
 // isNewAPIXRTokenAccount reports whether this is an XRToken account — an
 // ARK-compatible reseller provisioned on the video-only DoubaoVideo channel.
-// Its preset surface must merge the ch54-indexed XRToken-only SKUs with the
-// seedance rows the manifest indexes under ch45 (see
-// xrtokenSharedManifestModelIDs), exactly as the Qianfan case does.
+// Its preset surface comes from the manifest's XRToken property scope, which
+// includes both primary ch54 rows and shared rows indexed under ch45.
 func isNewAPIXRTokenAccount(account *Account) bool {
 	return account != nil &&
 		account.Platform == PlatformNewAPI &&
@@ -128,13 +127,10 @@ func accountModelMappingOverrideAccounts() []*Account {
 			},
 		},
 		// XRToken shares ChannelTypeDoubaoVideo with official Ark and is told
-		// apart only by base_url, so its serving intent is narrower than the
-		// ch54 channel floor: the two XRToken-only SKUs are indexed under ch54
-		// while the three shared Seedance rows live under the ch45 manifest
-		// index. Without this entry the bundle carries no XRToken scope at all,
-		// and `modelops activate` fails closed ("bundle delta has no added or
-		// retargeted required model mappings") because the account it is trying
-		// to activate is invisible to the floor.
+		// apart only by base_url, so its manifest property scope is narrower
+		// than the generic ch54 floor. Without this entry the bundle carries no
+		// XRToken account override, and `modelops activate` fails closed because
+		// the account it is trying to activate is invisible to the floor.
 		{
 			Platform:    PlatformNewAPI,
 			Type:        AccountTypeAPIKey,

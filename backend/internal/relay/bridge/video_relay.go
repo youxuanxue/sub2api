@@ -80,6 +80,10 @@ type VideoFetchOutcome struct {
 	Status      string
 }
 
+// videoSubmitErrorBodyMaxBytes bounds untrusted upstream diagnostics before they
+// are copied into a typed error. Successful task bodies are parsed by the adaptor.
+const videoSubmitErrorBodyMaxBytes int64 = 512 << 10
+
 // videoFetchResponseMaxBytes bounds task-poll response bodies. Some upstreams
 // return terminal video bytes as inline base64 JSON; TokenKey should hand that
 // result to the client once, not accept unbounded media into memory.
@@ -207,7 +211,7 @@ func DispatchVideoSubmit(_ context.Context, c *gin.Context, in ChannelContextInp
 		return nil, types.NewError(errors.New("empty upstream response"), types.ErrorCodeDoRequestFailed, types.ErrOptionWithSkipRetry())
 	}
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, videoSubmitErrorBodyMaxBytes))
 		_ = resp.Body.Close()
 		return nil, types.NewErrorWithStatusCode(
 			fmt.Errorf("upstream task submit failed: %s", strings.TrimSpace(string(bodyBytes))),

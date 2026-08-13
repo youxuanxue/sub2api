@@ -29,12 +29,13 @@ type tkServedModelsManifestFile struct {
 }
 
 type tkServedModelsManifestEntry struct {
-	Platform     string                       `json:"platform"`
-	ModelID      string                       `json:"model_id"`
-	ChannelType  int                          `json:"channel_type"`
-	AccountScope *tkServedModelsManifestScope `json:"account_scope"`
-	Display      bool                         `json:"display"`
-	ServedOn     []string                     `json:"served_on"`
+	Platform      string                        `json:"platform"`
+	ModelID       string                        `json:"model_id"`
+	ChannelType   int                           `json:"channel_type"`
+	AccountScope  *tkServedModelsManifestScope  `json:"account_scope"`
+	AccountScopes []tkServedModelsManifestScope `json:"account_scopes"`
+	Display       bool                          `json:"display"`
+	ServedOn      []string                      `json:"served_on"`
 }
 
 type tkServedModelsManifestScope struct {
@@ -84,7 +85,7 @@ func loadTkServedModelsManifest() {
 			if e.Display {
 				display[e.ModelID] = struct{}{}
 			}
-			if scope := manifestEntryScopeKey(e); scope != "" {
+			for _, scope := range manifestEntryScopeKeys(e) {
 				if byScope[scope] == nil {
 					byScope[scope] = make(map[string]struct{})
 				}
@@ -95,9 +96,9 @@ func loadTkServedModelsManifest() {
 					}
 					displayByScope[scope][e.ModelID] = struct{}{}
 				}
-				if manifestEntryIsAgentPlanOnly(e) || manifestEntryIsQianfanScopedOnly(e) {
-					continue
-				}
+			}
+			if manifestEntryIsAccountScopedOnly(e) {
+				continue
 			}
 			if e.ChannelType <= 0 {
 				continue
@@ -154,42 +155,44 @@ func loadTkServedModelsManifest() {
 	})
 }
 
-func manifestEntryIsAgentPlanOnly(e tkServedModelsManifestEntry) bool {
-	return strings.EqualFold(strings.TrimSpace(e.Platform), PlatformNewAPI) &&
-		e.AccountScope != nil &&
+func manifestEntryIsAccountScopedOnly(e tkServedModelsManifestEntry) bool {
+	return e.AccountScope != nil &&
 		e.ChannelType == e.AccountScope.ChannelType &&
-		e.ChannelType == newapiconstant.ChannelTypeVolcEngine &&
-		newapiintegration.IsVolcEngineAgentPlanBaseURL(e.AccountScope.ChannelType, e.AccountScope.BaseURL)
+		manifestScopeKey(*e.AccountScope) != ""
 }
 
-func manifestEntryIsQianfanScopedOnly(e tkServedModelsManifestEntry) bool {
-	return strings.EqualFold(strings.TrimSpace(e.Platform), PlatformNewAPI) &&
-		e.AccountScope != nil &&
-		e.ChannelType == e.AccountScope.ChannelType &&
-		e.ChannelType == newapiconstant.ChannelTypeBaiduV2 &&
-		newapiintegration.IsQianfanBaseURL(e.AccountScope.ChannelType, e.AccountScope.BaseURL)
+func manifestEntryScopeKeys(e tkServedModelsManifestEntry) []string {
+	scopes := make([]tkServedModelsManifestScope, 0, len(e.AccountScopes)+1)
+	if e.AccountScope != nil {
+		scopes = append(scopes, *e.AccountScope)
+	}
+	scopes = append(scopes, e.AccountScopes...)
+	seen := make(map[string]struct{}, len(scopes))
+	out := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		key := manifestScopeKey(scope)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, key)
+	}
+	return out
 }
 
-func manifestEntryScopeKey(e tkServedModelsManifestEntry) string {
-	if e.AccountScope == nil ||
-		!strings.EqualFold(strings.TrimSpace(e.AccountScope.Platform), PlatformNewAPI) {
+func manifestScopeKey(scope tkServedModelsManifestScope) string {
+	if !strings.EqualFold(strings.TrimSpace(scope.Platform), PlatformNewAPI) {
 		return ""
 	}
-	if newapiintegration.IsVolcEngineAgentPlanBaseURL(e.AccountScope.ChannelType, e.AccountScope.BaseURL) {
-		return normalizeAccountModelMappingOverrideScope(
-			e.AccountScope.Platform,
-			e.AccountScope.ChannelType,
-			e.AccountScope.BaseURL,
-		)
+	if !newapiintegration.IsVolcEngineAgentPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
+		!newapiintegration.IsQianfanBaseURL(scope.ChannelType, scope.BaseURL) &&
+		!newapiintegration.IsXRTokenBaseURL(scope.ChannelType, scope.BaseURL) {
+		return ""
 	}
-	if newapiintegration.IsQianfanBaseURL(e.AccountScope.ChannelType, e.AccountScope.BaseURL) {
-		return normalizeAccountModelMappingOverrideScope(
-			e.AccountScope.Platform,
-			e.AccountScope.ChannelType,
-			e.AccountScope.BaseURL,
-		)
-	}
-	return ""
+	return normalizeAccountModelMappingOverrideScope(scope.Platform, scope.ChannelType, scope.BaseURL)
 }
 
 func normalizeAccountModelMappingOverrideScope(platform string, channelType int, baseURL string) string {
@@ -252,33 +255,20 @@ func newAPIQianfanModelDisplayPresetIDs() []string {
 	return mergeSortedManifestModelIDs(scoped, qianfanSharedManifestModelIDs)
 }
 
-// xrtokenSharedManifestModelIDs lists manifest rows also served on XRToken
-// account 96 (channel_type=54) but indexed under channel_type=45, because the
-// manifest forbids a duplicate model_id and the VolcEngine Ark account owns that
-// index. Same mechanism — and same reason — as qianfanSharedManifestModelIDs.
-//
-// These are the Ark billing ids; XRToken exposes them under a `volcengine/`
-// prefix that the task adaptor adds only on the upstream wire. The account's
-// identity model_mapping remains a serving whitelist, so the shared overlay
-// continues to price both accounts by the client-facing Ark ids.
-//
-// The two XRToken-only SKUs (doubao-seedance-2-5-260628, doubao-seedance-2.0-mini)
-// are deliberately absent: they ARE indexed under channel_type=54, so the scoped
-// lookup already returns them and repeating them here would be redundant.
-var xrtokenSharedManifestModelIDs = []string{
-	"doubao-seedance-1-5-pro-251215",
-	"doubao-seedance-2-0-260128",
-	"doubao-seedance-2-0-fast-260128",
-}
-
 func newAPIXRTokenModelMappingPresetIDs() []string {
-	scoped := tkServedModelsManifestPresetIDsByChannelType(newapiconstant.ChannelTypeDoubaoVideo)
-	return mergeSortedManifestModelIDs(scoped, xrtokenSharedManifestModelIDs)
+	return tkServedModelsManifestPresetIDsForSelector(
+		PlatformNewAPI,
+		newapiconstant.ChannelTypeDoubaoVideo,
+		newapiintegration.XRTokenBaseURL,
+	)
 }
 
 func newAPIXRTokenModelDisplayPresetIDs() []string {
-	scoped := tkServedModelsManifestDisplayPresetIDsByChannelType(newapiconstant.ChannelTypeDoubaoVideo)
-	return mergeSortedManifestModelIDs(scoped, xrtokenSharedManifestModelIDs)
+	return tkServedModelsManifestDisplayPresetIDsForSelector(
+		PlatformNewAPI,
+		newapiconstant.ChannelTypeDoubaoVideo,
+		newapiintegration.XRTokenBaseURL,
+	)
 }
 
 func mergeSortedManifestModelIDs(primary, extra []string) []string {

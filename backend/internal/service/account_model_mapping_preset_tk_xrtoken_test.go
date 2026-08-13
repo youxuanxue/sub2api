@@ -12,15 +12,10 @@ import (
 )
 
 // XRToken account 96 is a ch54 (DoubaoVideo) ARK-compatible reseller. Its five
-// served seedance SKUs are split across two manifest channel_type indexes: the
-// two XRToken-only SKUs are indexed under ch54, while the three shared with the
-// VolcEngine Ark pool stay indexed under ch45 (the manifest forbids duplicate
-// model_id, and account 7 owns that index). The admin preset surface must
-// therefore merge the ch54 scoped lookup with xrtokenSharedManifestModelIDs —
-// exactly the mechanism qianfanSharedManifestModelIDs provides for account 90.
-//
-// Without the merge the admin model dropdown silently shows only 2 of 5 models,
-// which is how a provisioning step quietly drops the shared SKUs.
+// Seedance SKUs are projected from the manifest's XRToken property scope: two
+// primary ch54 rows plus three shared ch45 rows that declare an additional scope.
+// The account preset must consume that one declarative owner rather than keep a
+// second Go list of shared ids.
 func xrTokenProbeAccount(baseURL string) *Account {
 	return &Account{
 		Platform:    PlatformNewAPI,
@@ -36,11 +31,12 @@ func TestXRTokenAccountPresetMergesSharedAndScopedModels(t *testing.T) {
 		t.Fatal("ch54 + XRToken base_url must be recognized as an XRToken account")
 	}
 
-	// Derived from the manifest, NOT a hand-copied list: the shared rows plus the
-	// ch54-scoped rows are the definition of "what account 96 serves".
-	want := mergeSortedManifestModelIDs(
-		tkServedModelsManifestPresetIDsByChannelType(newapiconstant.ChannelTypeDoubaoVideo),
-		xrtokenSharedManifestModelIDs,
+	// Derived independently from the manifest scope, not from the account helper
+	// under test and not from a second hand-copied list.
+	want := tkServedModelsManifestPresetIDsForSelector(
+		PlatformNewAPI,
+		newapiconstant.ChannelTypeDoubaoVideo,
+		newapiintegration.XRTokenBaseURL,
 	)
 	if len(want) == 0 {
 		t.Fatal("manifest projection produced no XRToken models — manifest wiring regressed")
@@ -56,22 +52,7 @@ func TestXRTokenAccountPresetMergesSharedAndScopedModels(t *testing.T) {
 		}
 	}
 
-	// Every shared SKU must be present: these are the ones a ch54-only lookup
-	// misses, so assert them explicitly rather than trusting the count.
-	for _, id := range xrtokenSharedManifestModelIDs {
-		found := false
-		for _, g := range got {
-			if g == id {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("shared model %q missing from XRToken preset %v", id, got)
-		}
-	}
-
-	// display projection follows the same merge (all five rows are display=true)
+	// display projection follows the same scope (all five rows are display=true)
 	if disp := NewAPIModelDisplayIDsForAccount(account); len(disp) != len(want) {
 		t.Fatalf("display ids = %v (%d), want %d entries", disp, len(disp), len(want))
 	}
@@ -102,13 +83,26 @@ func TestPlainArkCh54AccountDoesNotInheritXRTokenSharedModels(t *testing.T) {
 		t.Fatal("official Ark base_url on ch54 must NOT be treated as XRToken")
 	}
 	got := NewAPIModelMappingPresetIDsForAccount(account)
-	for _, shared := range xrtokenSharedManifestModelIDs {
-		for _, g := range got {
-			if g == shared {
-				t.Errorf("plain Ark ch54 preset leaked XRToken shared model %q: %v", shared, got)
-			}
-		}
-	}
+	require.Empty(t, got,
+		"XRToken-only ch54 rows must stay scoped to its base_url; plain Ark must not inherit them")
+}
+
+func TestXRTokenManifestScopeOwnsAllFiveModels(t *testing.T) {
+	scoped := tkServedModelsManifestPresetIDsForSelector(
+		PlatformNewAPI,
+		newapiconstant.ChannelTypeDoubaoVideo,
+		newapiintegration.XRTokenBaseURL,
+	)
+	require.ElementsMatch(t, []string{
+		"doubao-seedance-1-5-pro-251215",
+		"doubao-seedance-2-0-260128",
+		"doubao-seedance-2-0-fast-260128",
+		"doubao-seedance-2-5-260628",
+		"doubao-seedance-2.0-mini",
+	}, scoped)
+	require.Empty(t, tkServedModelsManifestPresetIDsByChannelType(
+		newapiconstant.ChannelTypeDoubaoVideo,
+	), "base_url-scoped XRToken models must not leak into the generic ch54 floor")
 }
 
 // TestAccountModelMappingFloorForOpsIncludesXRTokenOverride is the SSOT half of
@@ -124,11 +118,9 @@ func TestPlainArkCh54AccountDoesNotInheritXRTokenSharedModels(t *testing.T) {
 //
 // Two assertions, both load-bearing:
 //
-//  1. All FIVE served SKUs are present. Falling through to the generic
-//     channel-type floor would export only the two ch54-indexed ones, and
-//     apply-accounts would then PRUNE the three shared SKUs off the live
-//     account (they would read as `compatible_extra_keys` at best, and the
-//     admin surface would disagree with the floor).
+//  1. All FIVE served SKUs are present. The generic ch54 floor is empty because
+//     these rows are XRToken base_url-scoped; falling through would leave the
+//     live account without a compiled serving floor.
 //  2. Every target is IDENTITY. XRToken's `volcengine/` namespace belongs on
 //     the wire (applied by the task adaptor), never in a mapping target: the
 //     floor cannot represent a prefixed target, so storing one makes

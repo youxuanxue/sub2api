@@ -730,7 +730,7 @@
         "tkServedModelsManifestPresetIDsForSelector",
         "isNewAPIXRTokenAccount"
       ],
-      "rationale": "Agent Plan admin preset, model-surface account override, and default probe model derive from the platform/channel/base_url property selector, not an account-id registry or ch45 channel-wide preset that mixes pay-as-you-go account 7. isNewAPIXRTokenAccount is the ch54 XRToken selector: its preset/display menus must merge the shared manifest ids with the ch54-scoped ones, or the admin model picker silently drops the three Seedance SKUs indexed under ch45."
+      "rationale": "Agent Plan admin preset, model-surface account override, and default probe model derive from the platform/channel/base_url property selector, not an account-id registry or channel-wide preset. isNewAPIXRTokenAccount is the ch54 XRToken selector: its preset/display menus consume the manifest's XRToken scope, including shared rows indexed under ch45."
     },
     {
       "path": "backend/internal/service/account_test_service_tk_newapi_volcagentplan.go",
@@ -745,11 +745,12 @@
         "tkServedModelsManifestPresetIDsForSelector",
         "tkServedModelsManifestDisplayPresetIDsForSelector",
         "account_scope",
-        "manifestEntryIsQianfanScopedOnly",
+        "account_scopes",
+        "manifestEntryIsAccountScopedOnly",
         "newAPIQianfanModelMappingPresetIDs",
-        "xrtokenSharedManifestModelIDs"
+        "newAPIXRTokenModelMappingPresetIDs"
       ],
-      "rationale": "Property-scoped manifest projections keep Agent Plan and Qianfan user menus aligned with platform/channel/base_url while served_on remains evidence only, even when canonical channel_type values describe another upstream adaptor. xrtokenSharedManifestModelIDs carries the Seedance ids served on XRToken account 96 but indexed under ch45 (the manifest forbids duplicate model_id), the same mechanism as the Qianfan account-90 list."
+      "rationale": "Property-scoped manifest projections keep Agent Plan, Qianfan, and XRToken menus aligned with platform/channel/base_url while served_on remains evidence only. account_scopes lets one manifest model belong to additional property-scoped pools without a duplicate Go model-id list; XRToken's five-model surface therefore has one declarative owner."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_tk_volcagentplan.go",

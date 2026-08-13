@@ -143,14 +143,11 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 			}
 			return identityModelMapping(ids), true
 		}
-		// XRToken (ch54 + sentinel base_url) serves five Seedance SKUs, but only
-		// the two XRToken-exclusive ones are indexed under channel_type 54 — the
-		// three shared with the official Ark pool live under channel_type 45
-		// because the manifest allows one entry per model_id. The generic
-		// channel-type fallback below would therefore emit a 2-model floor and
-		// apply-accounts would prune the other three off the account. Route
-		// through the per-account preset (scoped ∪ xrtokenSharedManifestModelIDs)
-		// for the same reason the Qianfan branch above exists.
+		// XRToken (ch54 + sentinel base_url) serves the manifest's five-model
+		// property scope. The generic channel-type fallback must not own this
+		// account: XRToken-only rows are base_url-scoped, and three shared rows
+		// are indexed under channel_type 45. Route through the scoped account
+		// preset so apply-accounts preserves exactly the declared five models.
 		//
 		// The mapping stays IDENTITY: XRToken's `volcengine/` vendor namespace is
 		// applied on the wire by the task adaptor
