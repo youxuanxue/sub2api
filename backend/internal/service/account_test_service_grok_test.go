@@ -274,7 +274,7 @@ func TestAccountTestService_TestAccountConnection_GrokUsesXAIResponses(t *testin
 	require.Contains(t, rec.Body.String(), `"type":"test_complete"`)
 }
 
-func TestAccountTestService_TestAccountConnection_GrokDefaultsEmptyModelTo45(t *testing.T) {
+func TestAccountTestService_TestAccountConnection_GrokDefaultsEmptyModelToDefaultText(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	account := &Account{

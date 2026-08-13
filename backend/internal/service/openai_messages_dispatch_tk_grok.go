@@ -6,9 +6,9 @@ const (
 	defaultGrokMessagesDispatchHaikuMappedModel  = "grok-code-fast-1"
 )
 
-// Grok /v1/messages dispatch intentionally moved up with the Grok 4.6
-// refresh: opus -> 4.6, sonnet -> 4.5, while grok-4.3 remains a lower tier
-// explicit model and pricing/catalog alias rather than the default sonnet tier.
+// Grok /v1/messages dispatch defaults are owned by
+// tk_messages_dispatch_family_registry.json; the constants below are runtime
+// mirrors mechanically checked by scripts/checks/messages-dispatch-family-drift.py.
 
 func defaultMessagesDispatchMappedModelForPlatform(platform string, family string) string {
 	switch platform {

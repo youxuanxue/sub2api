@@ -601,9 +601,9 @@
         "defaultGrokMessagesDispatchSonnetMappedModel",
         "defaultGrokMessagesDispatchHaikuMappedModel",
         "defaultMessagesDispatchMappedModelForPlatform",
-        "grok-4.6"
+        "PlatformGrok"
       ],
-      "rationale": "Grok /v1/messages dispatch must map claude-opus/sonnet/haiku to grok-4.5 / grok-4.3 / grok-code-fast-1 instead of GPT defaults. Losing this companion re-breaks Claude Code on grok groups even when route + allow_messages_dispatch are enabled."
+      "rationale": "Grok /v1/messages dispatch must map claude-opus/sonnet/haiku through the Grok platform defaults rather than GPT defaults; concrete model IDs are owned by tk_messages_dispatch_family_registry.json and checked by messages-dispatch-family-drift.py. Losing this companion re-breaks Claude Code on grok groups even when route + allow_messages_dispatch are enabled."
     },
     {
       "path": "backend/internal/service/openai_messages_dispatch_tk_grok_test.go",

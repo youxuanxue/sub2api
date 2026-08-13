@@ -190,7 +190,7 @@ func TestOpenAIWSHTTPBridgeRelaysSSEFramesAsWebSocketMessages(t *testing.T) {
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
 }
 
-func TestProxyOpenAIWSHTTPBridgeTurnForGrokDefaultsEmptyModelTo45(t *testing.T) {
+func TestProxyOpenAIWSHTTPBridgeTurnForGrokDefaultsEmptyModelToDefaultText(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
