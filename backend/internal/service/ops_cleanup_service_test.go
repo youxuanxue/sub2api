@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,11 +29,12 @@ type cutoffDaysArg struct {
 
 func (a cutoffDaysArg) Match(v driver.Value) bool {
 	t, ok := v.(time.Time)
-	if !ok {
-		return false
-	}
+	return ok && cutoffMatchesDays(t, a.days)
+}
+
+func cutoffMatchesDays(t time.Time, days int) bool {
 	age := time.Since(t)
-	want := time.Duration(a.days) * 24 * time.Hour
+	want := time.Duration(days) * 24 * time.Hour
 	return age >= want-time.Minute && age <= want+time.Minute
 }
 
@@ -60,31 +62,48 @@ func TestOpsCleanupServiceRunCleanupOnceUsesSeparateLogRetentions(t *testing.T) 
 	}
 	defer func() { _ = db.Close() }()
 
-	// After upstream refactor (d218b6c2): all log tables (error + system) share
-	// ErrorLogRetentionDays. SystemLogRetentionDays is kept in config for backwards compat
-	// but not used by the cleanup executor. days < 0 → skip (days == 0 → TRUNCATE).
+	// Error and system evidence have separate lifecycle windows. days < 0 skips a
+	// dataset, while the pre-existing days == 0 semantics remain TRUNCATE.
 	cfg := &config.Config{
+		Server: config.ServerConfig{FrontendURL: "https://api.tokenkey.dev"},
 		Ops: config.OpsConfig{
 			Cleanup: config.OpsCleanupConfig{
+				SystemLogRetentionDays:     7,
 				ErrorLogRetentionDays:      14,
 				MinuteMetricsRetentionDays: -1,
 				HourlyMetricsRetentionDays: -1,
 			},
 		},
+		DashboardAgg: config.DashboardAggregationConfig{
+			Retention: config.DashboardAggregationRetentionConfig{
+				UsageLogsDays:         90,
+				UsageBillingDedupDays: 365,
+			},
+		},
 	}
-	svc := NewOpsCleanupService(&opsRepoMock{}, db, nil, cfg, nil, nil)
+	dashboardRepo := &dashboardAggregationRepoTestStub{}
+	svc := NewOpsCleanupService(&opsRepoMock{}, dashboardRepo, db, nil, cfg, nil, nil)
 	svc.refreshEffectiveBeforeRun(context.Background())
 
 	// Upstream Wei-Shaw/sub2api commit 2eb622f2 dropped ops_retry_attempts
 	// alongside the retry/replay feature; the cleanup loop no longer touches it.
 	expectCleanupTable(t, mock, "ops_error_logs", 14, 3)
 	expectCleanupTable(t, mock, "ops_alert_events", 14, 1)
-	expectCleanupTable(t, mock, "ops_system_logs", 14, 5)
-	expectCleanupTable(t, mock, "ops_system_log_cleanup_audits", 14, 4)
+	expectCleanupTable(t, mock, "ops_system_logs", 7, 5)
+	expectCleanupTable(t, mock, "ops_system_log_cleanup_audits", 7, 4)
 
 	counts, err := svc.runCleanupOnce(context.Background())
 	if err != nil {
 		t.Fatalf("runCleanupOnce() error = %v", err)
+	}
+	if dashboardRepo.cleanupUsageCalls != 1 || dashboardRepo.cleanupDedupCalls != 1 {
+		t.Fatalf("usage lifecycle calls = usage:%d dedup:%d, want 1 each", dashboardRepo.cleanupUsageCalls, dashboardRepo.cleanupDedupCalls)
+	}
+	if !cutoffMatchesDays(dashboardRepo.lastUsageCutoff, 90) || !cutoffMatchesDays(dashboardRepo.lastDedupCutoff, 365) {
+		t.Fatalf("unexpected usage cutoffs: usage=%s dedup=%s", dashboardRepo.lastUsageCutoff, dashboardRepo.lastDedupCutoff)
+	}
+	if counts.usageLogs != "ok" || counts.billingDedup != "ok" {
+		t.Fatalf("unexpected usage cleanup states: %+v", counts)
 	}
 	if counts.errorLogs != 3 || counts.alertEvents != 1 {
 		t.Fatalf("unexpected error-like cleanup counts: %+v", counts)
@@ -97,6 +116,45 @@ func TestOpsCleanupServiceRunCleanupOnceUsesSeparateLogRetentions(t *testing.T) 
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestOpsCleanupServiceRunCleanupOnceUsageFailureStopsBeforeOpsTables(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	dashboardRepo := &dashboardAggregationRepoTestStub{cleanupUsageErr: errors.New("usage unavailable")}
+	cfg := &config.Config{
+		Server: config.ServerConfig{FrontendURL: "https://api-us1.tokenkey.dev"},
+		Ops: config.OpsConfig{Cleanup: config.OpsCleanupConfig{
+			SystemLogRetentionDays:     7,
+			ErrorLogRetentionDays:      30,
+			MinuteMetricsRetentionDays: -1,
+			HourlyMetricsRetentionDays: -1,
+		}},
+		DashboardAgg: config.DashboardAggregationConfig{Retention: config.DashboardAggregationRetentionConfig{
+			UsageLogsDays:         90,
+			UsageBillingDedupDays: 365,
+		}},
+	}
+	svc := NewOpsCleanupService(&opsRepoMock{}, dashboardRepo, db, nil, cfg, nil, nil)
+	svc.refreshEffectiveBeforeRun(context.Background())
+
+	_, err = svc.runCleanupOnce(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "cleanup usage_logs") {
+		t.Fatalf("runCleanupOnce() error = %v, want usage cleanup failure", err)
+	}
+	if dashboardRepo.cleanupUsageCalls != 1 || dashboardRepo.cleanupDedupCalls != 0 {
+		t.Fatalf("usage lifecycle calls = usage:%d dedup:%d", dashboardRepo.cleanupUsageCalls, dashboardRepo.cleanupDedupCalls)
+	}
+	if !cutoffMatchesDays(dashboardRepo.lastUsageCutoff, 7) {
+		t.Fatalf("edge usage cutoff = %s, want 7 days", dashboardRepo.lastUsageCutoff)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unexpected ops table cleanup: %v", err)
 	}
 }
 
@@ -124,7 +182,7 @@ func TestOpsCleanupScheduled_DisabledStillMaintainsPartitionsWithoutCleanupHeart
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	cfg.Ops.Cleanup.Enabled = false
 	cfg.Ops.Cleanup.Schedule = opsCleanupDefaultSchedule
-	svc := NewOpsCleanupService(repo, db, nil, cfg, nil, nil)
+	svc := NewOpsCleanupService(repo, nil, db, nil, cfg, nil, nil)
 	svc.refreshEffectiveBeforeRun(context.Background())
 	svc.runScheduled()
 
@@ -154,7 +212,7 @@ func TestOpsCleanupScheduled_PartitionFailureStopsBeforeCleanup(t *testing.T) {
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	cfg.Ops.Cleanup.Enabled = true
 	cfg.Ops.Cleanup.Schedule = opsCleanupDefaultSchedule
-	svc := NewOpsCleanupService(repo, db, nil, cfg, nil, nil)
+	svc := NewOpsCleanupService(repo, nil, db, nil, cfg, nil, nil)
 	svc.refreshEffectiveBeforeRun(context.Background())
 	svc.runScheduled()
 

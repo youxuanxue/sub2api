@@ -2349,7 +2349,7 @@ func setDefaults() {
 	viper.SetDefault("ops.cleanup.enabled", true)
 	viper.SetDefault("ops.cleanup.schedule", "0 2 * * *")
 	viper.SetDefault("ops.cleanup.system_log_retention_days", 7)
-	viper.SetDefault("ops.cleanup.error_log_retention_days", 14)
+	viper.SetDefault("ops.cleanup.error_log_retention_days", 30)
 	viper.SetDefault("ops.cleanup.minute_metrics_retention_days", 30)
 	viper.SetDefault("ops.cleanup.hourly_metrics_retention_days", 30)
 	viper.SetDefault("ops.aggregation.enabled", true)

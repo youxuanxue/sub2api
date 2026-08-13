@@ -1361,8 +1361,8 @@ func TestLoadDefaultOpsCleanupRetentionConfig(t *testing.T) {
 	if cfg.Ops.Cleanup.SystemLogRetentionDays != 7 {
 		t.Fatalf("SystemLogRetentionDays = %d, want 7", cfg.Ops.Cleanup.SystemLogRetentionDays)
 	}
-	if cfg.Ops.Cleanup.ErrorLogRetentionDays != 14 {
-		t.Fatalf("ErrorLogRetentionDays = %d, want 14", cfg.Ops.Cleanup.ErrorLogRetentionDays)
+	if cfg.Ops.Cleanup.ErrorLogRetentionDays != 30 {
+		t.Fatalf("ErrorLogRetentionDays = %d, want 30", cfg.Ops.Cleanup.ErrorLogRetentionDays)
 	}
 	if cfg.Ops.Cleanup.MinuteMetricsRetentionDays != 30 {
 		t.Fatalf("MinuteMetricsRetentionDays = %d, want 30", cfg.Ops.Cleanup.MinuteMetricsRetentionDays)

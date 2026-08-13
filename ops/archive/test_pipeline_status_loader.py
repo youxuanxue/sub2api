@@ -15,6 +15,7 @@ import pipeline_status_loader as loader  # noqa: E402
 
 class PipelineStatusLoaderTest(unittest.TestCase):
     def test_evidence_layout_derives_attachment_names_from_ssot(self) -> None:
+        self.assertEqual(loader.load_pipeline_status()["archive_mode"], "frozen")
         layout = loader.load_evidence_layout()
         self.assertEqual(
             layout.evidence_dir,

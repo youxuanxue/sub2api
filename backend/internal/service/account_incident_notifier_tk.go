@@ -626,6 +626,10 @@ func isEdgeSiteID(site string) bool {
 // mirror-relay edge. Empty/unparseable/custom hosts are treated as non-edge so
 // prod does not silently lose global checks when config is incomplete.
 func IsEdgeFrontendURL(frontendURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(frontendURL))
+	if err != nil || !strings.HasSuffix(strings.ToLower(parsed.Hostname()), ".tokenkey.dev") {
+		return false
+	}
 	return isEdgeSiteID(siteFromFrontendURL(frontendURL))
 }
 

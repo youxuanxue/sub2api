@@ -168,6 +168,7 @@ func TestIsEdgeFrontendURL(t *testing.T) {
 	require.False(t, IsEdgeFrontendURL("https://api.tokenkey.dev"))
 	require.False(t, IsEdgeFrontendURL(""))
 	require.False(t, IsEdgeFrontendURL("https://gateway.example.com"))
+	require.False(t, IsEdgeFrontendURL("https://api-us3.example.com"))
 }
 
 func TestNotifyPermanentSendsImmediately(t *testing.T) {

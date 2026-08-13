@@ -32,8 +32,13 @@ func TestOpsSystemLogSink_ShouldIndex(t *testing.T) {
 			want:  true,
 		},
 		{
-			name:  "access component",
+			name:  "info access component",
 			event: &logger.LogEvent{Level: "info", Component: "http.access"},
+			want:  false,
+		},
+		{
+			name:  "warn access component",
+			event: &logger.LogEvent{Level: "warn", Component: "http.access"},
 			want:  true,
 		},
 		{
@@ -43,7 +48,7 @@ func TestOpsSystemLogSink_ShouldIndex(t *testing.T) {
 				Component: "",
 				Fields:    map[string]any{"component": "http.access"},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name:  "audit component",
@@ -67,7 +72,7 @@ func TestOpsSystemLogSink_ShouldIndex(t *testing.T) {
 		{
 			name:  "sticky access component",
 			event: &logger.LogEvent{Level: "info", Component: "http.access.sticky"},
-			want:  true,
+			want:  false,
 		},
 		{
 			name: "sticky access component from fields",
@@ -76,7 +81,7 @@ func TestOpsSystemLogSink_ShouldIndex(t *testing.T) {
 				Component: "service.gateway",
 				Fields:    map[string]any{"component": "http.access.sticky"},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name:  "plain info",
@@ -92,10 +97,26 @@ func TestOpsSystemLogSink_ShouldIndex(t *testing.T) {
 	}
 }
 
+func TestOpsSystemLogSink_WriteLogEvent_RespectsEnabledGate(t *testing.T) {
+	sink := &OpsSystemLogSink{queue: make(chan *logger.LogEvent, 2)}
+	sink.SetEnabled(false)
+	sink.WriteLogEvent(&logger.LogEvent{Level: "warn", Component: "app"})
+	if got := len(sink.queue); got != 0 {
+		t.Fatalf("disabled queue len = %d, want 0", got)
+	}
+
+	sink.SetEnabled(true)
+	sink.WriteLogEvent(&logger.LogEvent{Level: "warn", Component: "app"})
+	if got := len(sink.queue); got != 1 {
+		t.Fatalf("enabled queue len = %d, want 1", got)
+	}
+}
+
 func TestOpsSystemLogSink_WriteLogEvent_ShouldDropWhenQueueFull(t *testing.T) {
 	sink := &OpsSystemLogSink{
 		queue: make(chan *logger.LogEvent, 1),
 	}
+	sink.SetEnabled(true)
 
 	sink.WriteLogEvent(&logger.LogEvent{Level: "warn", Component: "app"})
 	sink.WriteLogEvent(&logger.LogEvent{Level: "warn", Component: "app"})

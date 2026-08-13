@@ -311,7 +311,7 @@ jobs:
             SAFETY_VERDICT="$(printf '%s\nSNAPSHOTSTATS %s\n%s\n' "$SAFETY_OUT" "$SNAPSHOT_SIGNAL" "$ARCHIVE_SIGNAL" | python3 ops/observability/data_layer_safety_verdict.py 2>>"$STDERR" || echo '{"verdict":"unsafe","findings":[{"kind":"data_layer_safety_probe","status":"issue_candidate","severity":"error","summary":"data-layer safety verdict failed"}]}')"
             printf 'data_layer_safety: %s\n' "$SAFETY_VERDICT" >> "$STDOUT"
             if [ "$(printf '%s' "$SAFETY_VERDICT" | jq -r '.verdict // "unsafe"')" = "green" ]; then
-              add_finding "data_layer_safety" "ok" "info" "Data-layer protection gates passed ($TARGET_ID)" "Partition, backup, archive, hold, and restore gates are current." "data-layer-safety|$TARGET_ID"
+              add_finding "data_layer_safety" "ok" "info" "Data-layer protection gates passed ($TARGET_ID)" "Partition and backup gates are current; frozen archive evidence and bindings are valid." "data-layer-safety|$TARGET_ID"
             else
               while IFS= read -r SAFETY_FINDING; do
                 SF_KIND="$(printf '%s' "$SAFETY_FINDING" | jq -r '.kind')"

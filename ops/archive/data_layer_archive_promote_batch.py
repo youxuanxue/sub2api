@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import sys
 import tempfile
 from collections.abc import Iterable
@@ -27,6 +28,7 @@ PROMOTE_LEDGER_SCHEMA = 1
 PROMOTE_LEDGER_MODE = "prod_archive_promote_ledger"
 ARCHIVE_STANDARD_DAYS = 90
 ARCHIVE_EXPIRE_DAYS = 400
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class PromoteError(canary.CanaryError):
@@ -276,6 +278,59 @@ def init_promote_ledger(path: str | os.PathLike[str]) -> dict[str, Any]:
     return payload
 
 
+def _validate_promote_receipt(receipt: Any) -> None:
+    if not isinstance(receipt, dict):
+        raise PromoteError("promote receipt must be a JSON object")
+    batch_id = receipt.get("batch_id")
+    manifest_sha256 = receipt.get("manifest_sha256")
+    objects = receipt.get("objects")
+    archive_prefix = receipt.get("archive_s3_prefix")
+    staging_prefix = receipt.get("staging_s3_prefix")
+    try:
+        _, archive_key = canary._s3_location(archive_prefix)
+        _, staging_key = canary._s3_location(staging_prefix)
+    except canary.CanaryError as exc:
+        raise PromoteError("promote receipt prefix is invalid") from exc
+    if (
+        receipt.get("schema_version") != PROMOTE_RECEIPT_SCHEMA
+        or receipt.get("mode") != PROMOTE_RECEIPT_MODE
+        or receipt.get("environment") != "prod"
+        or not isinstance(batch_id, str)
+        or _validated_batch_id(batch_id) != batch_id
+        or archive_key != f"{ARCHIVE_KEY_BASE}/{batch_id}"
+        or staging_key != f"{STAGING_EXPORT_BASE}/{batch_id}"
+        or not isinstance(manifest_sha256, str)
+        or _SHA256_RE.fullmatch(manifest_sha256) is None
+        or not isinstance(objects, list)
+        or not objects
+        or receipt.get("manifest_promoted_last") is not True
+        or receipt.get("archive_standard_days") != ARCHIVE_STANDARD_DAYS
+        or receipt.get("archive_expire_days") != ARCHIVE_EXPIRE_DAYS
+        or receipt.get("source_mutated") is not False
+        or receipt.get("deletion_authorized") is not False
+    ):
+        raise PromoteError("promote receipt failed validation")
+    manifest = objects[-1]
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("uri") != f"{archive_prefix}/manifest.json"
+        or manifest.get("sha256") != manifest_sha256
+    ):
+        raise PromoteError("promote receipt manifest binding is invalid")
+    for obj in objects:
+        if (
+            not isinstance(obj, dict)
+            or not isinstance(obj.get("uri"), str)
+            or not obj["uri"].startswith(archive_prefix + "/")
+            or not isinstance(obj.get("bytes"), int)
+            or isinstance(obj.get("bytes"), bool)
+            or obj["bytes"] < 0
+            or not isinstance(obj.get("sha256"), str)
+            or _SHA256_RE.fullmatch(obj["sha256"]) is None
+        ):
+            raise PromoteError("promote receipt object failed validation")
+
+
 def load_promote_ledger(path: str | os.PathLike[str]) -> dict[str, Any]:
     try:
         payload = json.loads(
@@ -293,6 +348,13 @@ def load_promote_ledger(path: str | os.PathLike[str]) -> dict[str, Any]:
         or not isinstance(payload.get("promoted_batches"), list)
     ):
         raise PromoteError("promote ledger failed validation")
+    seen: set[str] = set()
+    for receipt in payload["promoted_batches"]:
+        _validate_promote_receipt(receipt)
+        batch_id = receipt["batch_id"]
+        if batch_id in seen:
+            raise PromoteError("promote ledger contains duplicate batch ids")
+        seen.add(batch_id)
     return payload
 
 

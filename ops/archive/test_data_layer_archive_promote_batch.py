@@ -45,6 +45,38 @@ def _sample_manifest() -> dict[str, object]:
     }
 
 
+def _sample_promote_receipt() -> dict[str, object]:
+    manifest_sha256 = "b" * 64
+    return {
+        "schema_version": promote.PROMOTE_RECEIPT_SCHEMA,
+        "mode": promote.PROMOTE_RECEIPT_MODE,
+        "environment": "prod",
+        "batch_id": _BATCH_ID,
+        "staging_s3_prefix": _STAGING_PREFIX,
+        "archive_s3_prefix": _ARCHIVE_PREFIX,
+        "manifest_sha256": manifest_sha256,
+        "objects": [
+            {
+                "uri": f"{_ARCHIVE_PREFIX}/ops.jsonl.gz",
+                "bytes": 128,
+                "sha256": "a" * 64,
+                "server_side_encryption": "AES256",
+            },
+            {
+                "uri": f"{_ARCHIVE_PREFIX}/manifest.json",
+                "bytes": 128,
+                "sha256": manifest_sha256,
+                "server_side_encryption": "AES256",
+            },
+        ],
+        "manifest_promoted_last": True,
+        "archive_standard_days": promote.ARCHIVE_STANDARD_DAYS,
+        "archive_expire_days": promote.ARCHIVE_EXPIRE_DAYS,
+        "source_mutated": False,
+        "deletion_authorized": False,
+    }
+
+
 class PromoteBatchTest(unittest.TestCase):
     def test_plan_is_offline_and_names_archive_contract(self) -> None:
         with mock.patch.object(canary, "_stack_output") as stack_output:
@@ -133,10 +165,7 @@ class PromoteBatchTest(unittest.TestCase):
             "source_mutated": False,
             "deletion_authorized": False,
         }
-        existing_receipt = {
-            "batch_id": _BATCH_ID,
-            "manifest_sha256": "b" * 64,
-        }
+        existing_receipt = _sample_promote_receipt()
         with tempfile.TemporaryDirectory() as temp:
             export_path = pathlib.Path(temp) / "export.json"
             promote_path = pathlib.Path(temp) / "promote.json"
@@ -155,6 +184,19 @@ class PromoteBatchTest(unittest.TestCase):
                 )
             self.assertEqual(result["newly_promoted"], 0)
             self.assertTrue(result["drop_ready"])
+
+    def test_promote_ledger_rejects_malformed_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            promote_path = pathlib.Path(temp) / "promote.json"
+            promote.init_promote_ledger(promote_path)
+            loaded = json.loads(promote_path.read_text(encoding="utf-8"))
+            receipt = _sample_promote_receipt()
+            receipt["objects"][-1]["sha256"] = "c" * 64
+            loaded["promoted_batches"].append(receipt)
+            promote._atomic_json(promote_path, loaded)
+
+            with self.assertRaisesRegex(promote.PromoteError, "manifest binding"):
+                promote.load_promote_ledger(promote_path)
 
     def test_cli_refuses_without_confirmation(self) -> None:
         result = subprocess.run(
