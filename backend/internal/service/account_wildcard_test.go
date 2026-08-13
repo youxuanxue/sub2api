@@ -21,9 +21,17 @@ func TestGrokAccountModelMappingCacheInvalidatesWithRuntimeSettings(t *testing.T
 		DefaultText:          "grok-build-0.1",
 		EnableCrossClientMap: true,
 	})
-	requireMappedModel(t, account, "claude-opus-4-8", "grok-4.6")
-	requireMappedModel(t, account, "claude-sonnet-4-6", "grok-4.5")
-	requireMappedModel(t, account, "claude-haiku-4-5", "grok-code-fast-1")
+	claudeFamilyModels := map[string]string{
+		"claude-opus-4-8":   defaultMessagesDispatchMappedModelForPlatform(PlatformGrok, "opus"),
+		"claude-sonnet-4-6": defaultMessagesDispatchMappedModelForPlatform(PlatformGrok, "sonnet"),
+		"claude-haiku-4-5":  defaultMessagesDispatchMappedModelForPlatform(PlatformGrok, "haiku"),
+	}
+	for requested, expected := range claudeFamilyModels {
+		requireMappedModel(t, account, requested, expected)
+		if !account.IsModelSupported(requested) {
+			t.Fatalf("IsModelSupported(%q) = false, want true", requested)
+		}
+	}
 	requireMappedModel(t, account, "claude-fable-5", "grok-build-0.1")
 }
 
