@@ -590,6 +590,17 @@ func (a *Account) GetModelMapping() map[string]string {
 	return mapping
 }
 
+func defaultGrokAccountModelMapping() map[string]string {
+	mapping := xai.DefaultModelMapping()
+	if !xai.RuntimeModelMappingOptions().EnableCrossClientMap {
+		return mapping
+	}
+	mapping["claude-opus-*"] = defaultMessagesDispatchMappedModelForPlatform(PlatformGrok, "opus")
+	mapping["claude-sonnet-*"] = defaultMessagesDispatchMappedModelForPlatform(PlatformGrok, "sonnet")
+	mapping["claude-haiku-*"] = defaultMessagesDispatchMappedModelForPlatform(PlatformGrok, "haiku")
+	return mapping
+}
+
 func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]string {
 	if a.Credentials == nil {
 		// Antigravity 平台使用默认映射
@@ -597,7 +608,7 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 			return domain.DefaultAntigravityModelMapping
 		}
 		if a.Platform == domain.PlatformGrok {
-			return xai.DefaultModelMapping()
+			return defaultGrokAccountModelMapping()
 		}
 		// Bedrock 默认映射由 forwardBedrock 统一处理（需配合 region prefix 调整）
 		return nil
@@ -608,7 +619,7 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 			return domain.DefaultAntigravityModelMapping
 		}
 		if a.Platform == domain.PlatformGrok {
-			return xai.DefaultModelMapping()
+			return defaultGrokAccountModelMapping()
 		}
 		return nil
 	}
