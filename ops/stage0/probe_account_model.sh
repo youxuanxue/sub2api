@@ -250,7 +250,6 @@ SET
   model_routing = '{}'::jsonb,
   allow_messages_dispatch = true,
   supported_model_scopes = '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
-  messages_dispatch_model_config = '{}'::jsonb,
   models_list_config = '{}'::jsonb,
   sort_order = 2147483000,
   rpm_limit = 0,

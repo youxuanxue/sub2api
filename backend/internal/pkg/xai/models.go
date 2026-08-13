@@ -11,8 +11,15 @@ var runtimeMappingOpts atomic.Value // ModelMappingOptions
 var runtimeMappingVersion atomic.Uint64
 
 func init() {
-	runtimeMappingOpts.Store(ModelMappingOptions{})
+	runtimeMappingOpts.Store(defaultRuntimeModelMappingOptions())
 	runtimeMappingVersion.Store(1)
+}
+
+func defaultRuntimeModelMappingOptions() ModelMappingOptions {
+	return ModelMappingOptions{
+		DefaultText:          DefaultTextModel,
+		EnableCrossClientMap: true,
+	}
 }
 
 // SetRuntimeModelMappingOptions updates process-wide defaults used by
