@@ -20,4 +20,9 @@ SET schedulable = true,
 WHERE deleted_at IS NULL
   AND status = 'active'
   AND schedulable = false
-  AND COALESCE(error_message, '') = '';
+  AND COALESCE(error_message, '') = ''
+  AND LOWER(TRIM(BOTH '/' FROM credentials->>'base_url')) IN (
+    'https://api.cloudwise.ai/api',
+    'https://api-us.cloudwise.ai/api',
+    'https://agent.tokensea.ai'
+  );

@@ -1128,18 +1128,22 @@
         "Wei-Shaw/sub2api#1322",
         "\"response.cancelled\", \"response.canceled\"",
         "ShouldUseNativeAnthropicMessagesAPI",
-        "forwardAnthropicViaNativeMessages"
+        "shouldForwardNativeAnthropicMessagesForModel",
+        "forwardAnthropicViaNativeMessages",
+        "forwardAnthropicViaRawChatCompletions"
       ],
-      "rationale": "Non-stream /v1/messages uses the same buffered Responses SSE -> JSON conversion root cause as /v1/chat/completions; it must also override Content-Type after WriteFilteredHeaders so JSON bodies are not labeled text/event-stream. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530). isOpenAICompatResponsesTerminalEvent — used by both the Messages and Chat Completions streaming handlers — must keep response.cancelled / response.canceled in its terminal set so legitimate upstream cancellations close the stream cleanly instead of degenerating to 'stream usage incomplete: missing terminal event' (upstream #1322). OpenAI APIKey dual-stack relays (tokensea) must branch to native /v1/messages passthrough when extra.openai_native_messages_supported is true; dropping the hook silently routes /v1/messages through Responses/CC conversion and breaks Anthropic clients on agent.tokensea.ai."
+      "rationale": "Non-stream /v1/messages uses the same buffered Responses SSE -> JSON conversion root cause as /v1/chat/completions; it must also override Content-Type after WriteFilteredHeaders so JSON bodies are not labeled text/event-stream. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530). isOpenAICompatResponsesTerminalEvent — used by both the Messages and Chat Completions streaming handlers — must keep response.cancelled / response.canceled in its terminal set so legitimate upstream cancellations close the stream cleanly instead of degenerating to 'stream usage incomplete: missing terminal event' (upstream #1322). OpenAI APIKey dual-stack relays (tokensea/cloudwise) branch to native /v1/messages passthrough only for claude-* models when extra.openai_native_messages_supported is true; non-Claude models (MiniMax-M3, glm-5) must fall back to raw chat completions like /v1/responses."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_native.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(",
         "nativeAnthropicMessagesTargetURL",
-        "nativeOpenAIApiKeyForAccount"
+        "nativeOpenAIApiKeyForAccount",
+        "shouldForwardNativeAnthropicMessagesForModel",
+        "tkIsForwardableAnthropicModelName"
       ],
-      "rationale": "Native Anthropic Messages passthrough for OpenAI-platform dual-stack relays (agent.tokensea.ai). Must forward /v1/messages directly with API key Bearer auth and wire model mapping instead of converting through Responses or CC bridges."
+      "rationale": "Native Anthropic Messages passthrough for OpenAI-platform dual-stack relays (agent.tokensea.ai, cloudwise). Must forward claude-* /v1/messages directly with API key Bearer auth; non-Claude models stay on chat fallback."
     },
     {
       "path": "backend/internal/service/gateway_cloudwise_relay_test.go",
@@ -1147,9 +1151,11 @@
         "TestAccount_IsOpenAICloudwiseRelay",
         "TestOpenAICloudwiseRelayFloorIsProbeCuratedOnly",
         "TestForwardAsAnthropic_CloudwiseNativeMessagesPassthrough",
-        "https://api.cloudwise.ai/api/v1/messages"
+        "TestForwardAsAnthropic_CloudwiseNonClaudeUsesChatFallback",
+        "https://api.cloudwise.ai/api/v1/messages",
+        "https://api.cloudwise.ai/api/v1/chat/completions"
       ],
-      "rationale": "Focused regressions for CloudWise MaaS relay (prod account #95): probe-curated model_mapping floor and native /v1/messages passthrough for CC clients."
+      "rationale": "Focused regressions for CloudWise MaaS relay (prod account #95): probe-curated model_mapping floor, native /v1/messages passthrough for claude-*, and chat fallback for MiniMax-M3."
     },
     {
       "path": "backend/internal/service/gateway_tokensea_anthropic_relay_test.go",
@@ -6304,6 +6310,23 @@
         "s.syncSystemLogSinkEnabled()"
       ],
       "rationale": "Runtime monitoring settings must drive the already-running system-log sink without a poller or restart. The sync helper and call sites keep initialization, refresh, and admin setting changes on the same gate; losing this seam leaves static startup state diverged from the runtime control plane."
+    },
+    {
+      "path": "backend/internal/service/upstream_billing_probe.go",
+      "must_contain": [
+        "upstreamBillingProbeSupportsSub2APIBilling",
+        "IsOpenAICloudwiseRelay()",
+        "IsOpenAITokenseaRelay()"
+      ],
+      "rationale": "MaaS dual-stack relays (CloudWise, tokensea) do not expose /v1/sub2api/billing. Runner, manual probe, and admin enable paths must skip/reject them so prod accounts stop accumulating failed probe snapshots."
+    },
+    {
+      "path": "backend/internal/service/upstream_billing_probe_multiplatform_test.go",
+      "must_contain": [
+        "TestUpstreamBillingProbeCloudwiseRelayManualProbeRejectsAccount",
+        "TestUpstreamBillingProbeCloudwiseRelaySetEnabledRejects"
+      ],
+      "rationale": "Regression: CloudWise relay accounts must not probe or enable upstream billing probe."
     }
   ]
 }
