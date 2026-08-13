@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -17,12 +18,13 @@ import (
 var tkServedModelsOwnerRawForTest []byte
 
 type tkServedModelsOwnerEntryForTest struct {
-	Platform     string                           `json:"platform"`
-	ModelID      string                           `json:"model_id"`
-	ChannelType  int                              `json:"channel_type"`
-	AccountScope *tkServedModelsOwnerScopeForTest `json:"account_scope"`
-	Display      bool                             `json:"display"`
-	ServedOn     []string                         `json:"served_on"`
+	Platform      string                            `json:"platform"`
+	ModelID       string                            `json:"model_id"`
+	ChannelType   int                               `json:"channel_type"`
+	AccountScope  *tkServedModelsOwnerScopeForTest  `json:"account_scope"`
+	AccountScopes []tkServedModelsOwnerScopeForTest `json:"account_scopes"`
+	Display       bool                              `json:"display"`
+	ServedOn      []string                          `json:"served_on"`
 }
 
 type tkServedModelsOwnerScopeForTest struct {
@@ -68,6 +70,20 @@ func TestTkServedModelsManifestProjectionsMatchRawOwner(t *testing.T) {
 			"channel preset", want.IDsByChannel[channelType], tkServedModelsManifestPresetIDsByChannelType(channelType))
 		requireServedManifestProjectionEqualForTest(t,
 			"channel display preset", want.displayIDsByChannel[channelType], tkServedModelsManifestDisplayPresetIDsByChannelType(channelType))
+	}
+	for scope, ids := range want.IDsByScope {
+		parts := strings.SplitN(scope, ":", 3)
+		if len(parts) != 3 {
+			t.Fatalf("invalid test scope key %q", scope)
+		}
+		channelType, err := strconv.Atoi(parts[1])
+		if err != nil {
+			t.Fatalf("invalid test scope channel_type %q: %v", scope, err)
+		}
+		requireServedManifestProjectionEqualForTest(t,
+			"scope preset", ids, tkServedModelsManifestPresetIDsForSelector(parts[0], channelType, parts[2]))
+		requireServedManifestProjectionEqualForTest(t,
+			"scope display preset", want.displayIDsByScope[scope], tkServedModelsManifestDisplayPresetIDsForSelector(parts[0], channelType, parts[2]))
 	}
 
 	for _, modelID := range []string{
@@ -141,19 +157,13 @@ func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerP
 		if entry.Display {
 			out.displayIDs[entry.ModelID] = struct{}{}
 		}
-		if scope := manifestScopeKeyForTest(entry); scope != "" {
+		for _, scope := range manifestScopeKeysForTest(entry) {
 			out.IDsByScope[scope] = append(out.IDsByScope[scope], entry.ModelID)
 			if entry.Display {
 				out.displayIDsByScope[scope] = append(out.displayIDsByScope[scope], entry.ModelID)
 			}
 		}
-		if qScope := qianfanScopeKeyForTest(entry); qScope != "" {
-			out.IDsByScope[qScope] = append(out.IDsByScope[qScope], entry.ModelID)
-			if entry.Display {
-				out.displayIDsByScope[qScope] = append(out.displayIDsByScope[qScope], entry.ModelID)
-			}
-		}
-		if manifestEntryIsAgentPlanOnlyForTest(entry) || manifestEntryIsQianfanScopedOnlyForTest(entry) {
+		if manifestEntryIsAccountScopedOnlyForTest(entry) {
 			continue
 		}
 		out.IDsByChannel[entry.ChannelType] = append(out.IDsByChannel[entry.ChannelType], entry.ModelID)
@@ -182,42 +192,47 @@ func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerP
 	return out
 }
 
-func manifestEntryIsAgentPlanOnlyForTest(entry tkServedModelsOwnerEntryForTest) bool {
+func manifestEntryIsAccountScopedOnlyForTest(entry tkServedModelsOwnerEntryForTest) bool {
 	return entry.AccountScope != nil &&
 		entry.ChannelType == entry.AccountScope.ChannelType &&
-		entry.ChannelType == 45 &&
-		manifestScopeKeyForTest(entry) != ""
+		manifestScopeKeyForTest(*entry.AccountScope) != ""
 }
 
-func manifestEntryIsQianfanScopedOnlyForTest(entry tkServedModelsOwnerEntryForTest) bool {
-	return entry.AccountScope != nil &&
-		entry.ChannelType == entry.AccountScope.ChannelType &&
-		entry.ChannelType == 46 &&
-		qianfanScopeKeyForTest(entry) != ""
+func manifestScopeKeysForTest(entry tkServedModelsOwnerEntryForTest) []string {
+	scopes := make([]tkServedModelsOwnerScopeForTest, 0, len(entry.AccountScopes)+1)
+	if entry.AccountScope != nil {
+		scopes = append(scopes, *entry.AccountScope)
+	}
+	scopes = append(scopes, entry.AccountScopes...)
+	seen := make(map[string]struct{}, len(scopes))
+	out := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		key := manifestScopeKeyForTest(scope)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, key)
+	}
+	return out
 }
 
-func manifestScopeKeyForTest(entry tkServedModelsOwnerEntryForTest) string {
-	if entry.AccountScope == nil {
+func manifestScopeKeyForTest(scope tkServedModelsOwnerScopeForTest) string {
+	platform := strings.ToLower(strings.TrimSpace(scope.Platform))
+	baseURL := strings.TrimRight(strings.ToLower(strings.TrimSpace(scope.BaseURL)), "/")
+	if platform != "newapi" {
 		return ""
 	}
-	baseURL := strings.TrimRight(strings.ToLower(strings.TrimSpace(entry.AccountScope.BaseURL)), "/")
-	if strings.ToLower(strings.TrimSpace(entry.AccountScope.Platform)) != "newapi" ||
-		entry.AccountScope.ChannelType != 45 || baseURL != "https://ark.cn-beijing.volces.com/api/plan/v3" {
+	valid := (scope.ChannelType == 45 && baseURL == "https://ark.cn-beijing.volces.com/api/plan/v3") ||
+		(scope.ChannelType == 46 && baseURL == "https://qianfan.baidubce.com") ||
+		(scope.ChannelType == 54 && baseURL == "https://api.xrtoken.net")
+	if !valid {
 		return ""
 	}
-	return "newapi:45:" + baseURL
-}
-
-func qianfanScopeKeyForTest(entry tkServedModelsOwnerEntryForTest) string {
-	if entry.AccountScope == nil {
-		return ""
-	}
-	baseURL := strings.TrimRight(strings.ToLower(strings.TrimSpace(entry.AccountScope.BaseURL)), "/")
-	if strings.ToLower(strings.TrimSpace(entry.AccountScope.Platform)) != "newapi" ||
-		entry.AccountScope.ChannelType != 46 || baseURL != "https://qianfan.baidubce.com" {
-		return ""
-	}
-	return "newapi:46:" + baseURL
+	return platform + ":" + strconv.Itoa(scope.ChannelType) + ":" + baseURL
 }
 
 func requireServedManifestProjectionEqualForTest(t *testing.T, name string, want, got any) {

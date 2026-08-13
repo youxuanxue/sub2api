@@ -190,6 +190,30 @@ func TestDispatchVideoSubmit_MissingModel(t *testing.T) {
 	}
 }
 
+func TestDispatchVideoSubmit_BoundsUpstreamErrorBody(t *testing.T) {
+	const marker = "must-not-reach-error"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = io.CopyN(w, strings.NewReader(strings.Repeat("x", int(videoSubmitErrorBodyMaxBytes))), videoSubmitErrorBodyMaxBytes)
+		_, _ = w.Write([]byte(marker))
+	}))
+	defer srv.Close()
+
+	body := mustJSON(t, map[string]any{"model": "x", "prompt": "x"})
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	in := ChannelContextInput{ChannelType: newapiconstant.ChannelTypeVolcEngine, BaseURL: srv.URL, APIKey: "k"}
+	_, apiErr := DispatchVideoSubmit(context.Background(), c, in, "vt_error", body)
+	if apiErr == nil {
+		t.Fatal("expected upstream status error, got nil")
+	}
+	if strings.Contains(apiErr.Error(), marker) {
+		t.Fatalf("error body exceeded %d-byte bound", videoSubmitErrorBodyMaxBytes)
+	}
+}
+
 func TestNormalizeVideoSubmitBodyForTaskAdaptor_RejectsMalformedTierFields(t *testing.T) {
 	for name, body := range map[string][]byte{
 		"resolution":     []byte(`{"model":"x","resolution":720}`),

@@ -29,12 +29,13 @@ type tkServedModelsManifestFile struct {
 }
 
 type tkServedModelsManifestEntry struct {
-	Platform     string                       `json:"platform"`
-	ModelID      string                       `json:"model_id"`
-	ChannelType  int                          `json:"channel_type"`
-	AccountScope *tkServedModelsManifestScope `json:"account_scope"`
-	Display      bool                         `json:"display"`
-	ServedOn     []string                     `json:"served_on"`
+	Platform      string                        `json:"platform"`
+	ModelID       string                        `json:"model_id"`
+	ChannelType   int                           `json:"channel_type"`
+	AccountScope  *tkServedModelsManifestScope  `json:"account_scope"`
+	AccountScopes []tkServedModelsManifestScope `json:"account_scopes"`
+	Display       bool                          `json:"display"`
+	ServedOn      []string                      `json:"served_on"`
 }
 
 type tkServedModelsManifestScope struct {
@@ -84,7 +85,7 @@ func loadTkServedModelsManifest() {
 			if e.Display {
 				display[e.ModelID] = struct{}{}
 			}
-			if scope := manifestEntryScopeKey(e); scope != "" {
+			for _, scope := range manifestEntryScopeKeys(e) {
 				if byScope[scope] == nil {
 					byScope[scope] = make(map[string]struct{})
 				}
@@ -95,9 +96,9 @@ func loadTkServedModelsManifest() {
 					}
 					displayByScope[scope][e.ModelID] = struct{}{}
 				}
-				if manifestEntryIsAgentPlanOnly(e) || manifestEntryIsQianfanScopedOnly(e) {
-					continue
-				}
+			}
+			if manifestEntryIsAccountScopedOnly(e) {
+				continue
 			}
 			if e.ChannelType <= 0 {
 				continue
@@ -154,42 +155,44 @@ func loadTkServedModelsManifest() {
 	})
 }
 
-func manifestEntryIsAgentPlanOnly(e tkServedModelsManifestEntry) bool {
-	return strings.EqualFold(strings.TrimSpace(e.Platform), PlatformNewAPI) &&
-		e.AccountScope != nil &&
+func manifestEntryIsAccountScopedOnly(e tkServedModelsManifestEntry) bool {
+	return e.AccountScope != nil &&
 		e.ChannelType == e.AccountScope.ChannelType &&
-		e.ChannelType == newapiconstant.ChannelTypeVolcEngine &&
-		newapiintegration.IsVolcEngineAgentPlanBaseURL(e.AccountScope.ChannelType, e.AccountScope.BaseURL)
+		manifestScopeKey(*e.AccountScope) != ""
 }
 
-func manifestEntryIsQianfanScopedOnly(e tkServedModelsManifestEntry) bool {
-	return strings.EqualFold(strings.TrimSpace(e.Platform), PlatformNewAPI) &&
-		e.AccountScope != nil &&
-		e.ChannelType == e.AccountScope.ChannelType &&
-		e.ChannelType == newapiconstant.ChannelTypeBaiduV2 &&
-		newapiintegration.IsQianfanBaseURL(e.AccountScope.ChannelType, e.AccountScope.BaseURL)
+func manifestEntryScopeKeys(e tkServedModelsManifestEntry) []string {
+	scopes := make([]tkServedModelsManifestScope, 0, len(e.AccountScopes)+1)
+	if e.AccountScope != nil {
+		scopes = append(scopes, *e.AccountScope)
+	}
+	scopes = append(scopes, e.AccountScopes...)
+	seen := make(map[string]struct{}, len(scopes))
+	out := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		key := manifestScopeKey(scope)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, key)
+	}
+	return out
 }
 
-func manifestEntryScopeKey(e tkServedModelsManifestEntry) string {
-	if e.AccountScope == nil ||
-		!strings.EqualFold(strings.TrimSpace(e.AccountScope.Platform), PlatformNewAPI) {
+func manifestScopeKey(scope tkServedModelsManifestScope) string {
+	if !strings.EqualFold(strings.TrimSpace(scope.Platform), PlatformNewAPI) {
 		return ""
 	}
-	if newapiintegration.IsVolcEngineAgentPlanBaseURL(e.AccountScope.ChannelType, e.AccountScope.BaseURL) {
-		return normalizeAccountModelMappingOverrideScope(
-			e.AccountScope.Platform,
-			e.AccountScope.ChannelType,
-			e.AccountScope.BaseURL,
-		)
+	if !newapiintegration.IsVolcEngineAgentPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
+		!newapiintegration.IsQianfanBaseURL(scope.ChannelType, scope.BaseURL) &&
+		!newapiintegration.IsXRTokenBaseURL(scope.ChannelType, scope.BaseURL) {
+		return ""
 	}
-	if newapiintegration.IsQianfanBaseURL(e.AccountScope.ChannelType, e.AccountScope.BaseURL) {
-		return normalizeAccountModelMappingOverrideScope(
-			e.AccountScope.Platform,
-			e.AccountScope.ChannelType,
-			e.AccountScope.BaseURL,
-		)
-	}
-	return ""
+	return normalizeAccountModelMappingOverrideScope(scope.Platform, scope.ChannelType, scope.BaseURL)
 }
 
 func normalizeAccountModelMappingOverrideScope(platform string, channelType int, baseURL string) string {
@@ -250,6 +253,22 @@ func newAPIQianfanModelDisplayPresetIDs() []string {
 		newapiintegration.QianfanBaseURL,
 	)
 	return mergeSortedManifestModelIDs(scoped, qianfanSharedManifestModelIDs)
+}
+
+func newAPIXRTokenModelMappingPresetIDs() []string {
+	return tkServedModelsManifestPresetIDsForSelector(
+		PlatformNewAPI,
+		newapiconstant.ChannelTypeDoubaoVideo,
+		newapiintegration.XRTokenBaseURL,
+	)
+}
+
+func newAPIXRTokenModelDisplayPresetIDs() []string {
+	return tkServedModelsManifestDisplayPresetIDsForSelector(
+		PlatformNewAPI,
+		newapiconstant.ChannelTypeDoubaoVideo,
+		newapiintegration.XRTokenBaseURL,
+	)
 }
 
 func mergeSortedManifestModelIDs(primary, extra []string) []string {
