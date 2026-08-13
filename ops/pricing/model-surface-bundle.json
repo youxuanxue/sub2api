@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "floor_sha256": "e27678d12921e37f256c7c5a4e7929ba10a420a73a43a026ce84c4bcac481f58",
+  "floor_sha256": "25b71b37377aed02bef815ea7745b66826dae3f1c4a9cddeae0a593d412997c9",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -81,6 +81,9 @@
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
       "grok": {
+        "claude-*": "grok-4.6",
+        "codex-*": "grok-4.6",
+        "gpt-*": "grok-4.6",
         "grok": "grok-4.6",
         "grok-4-fast-reasoning": "grok-4.3",
         "grok-4.20-0309-non-reasoning": "grok-4.20-0309-non-reasoning",
@@ -125,6 +128,9 @@
         "grok/grok-imagine-image-quality": "grok-imagine-image-quality",
         "grok/grok-imagine-video": "grok-imagine-video",
         "grok/grok-latest": "grok-4.3",
+        "o1*": "grok-4.6",
+        "o3*": "grok-4.6",
+        "o4*": "grok-4.6",
         "x-ai/grok": "grok-4.6",
         "x-ai/grok-4.20-0309-non-reasoning": "grok-4.20-0309-non-reasoning",
         "x-ai/grok-4.20-0309-reasoning": "grok-4.20-0309-reasoning",

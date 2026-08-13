@@ -88,6 +88,39 @@ func TestClassifyOpenAIInputTokensFallback(t *testing.T) {
 			body:       `{"error":{"code":"InvalidAction","message":"The specified action is invalid: /api/v3/models","type":"NotFound"}}`,
 			want:       openAIInputTokensFallbackNone,
 		},
+		{
+			name: "cloudwise_relay_401_uses_anthropic_estimate",
+			account: &Account{
+				Type:        AccountTypeAPIKey,
+				Platform:    PlatformOpenAI,
+				Credentials: map[string]any{"base_url": "https://api.cloudwise.ai/api"},
+			},
+			statusCode: http.StatusUnauthorized,
+			body:       `{"error":{"message":"invalid or expired credentials"}}`,
+			want:       openAIInputTokensFallbackAnthropicEstimate,
+		},
+		{
+			name: "tokensea_relay_401_uses_anthropic_estimate",
+			account: &Account{
+				Type:        AccountTypeAPIKey,
+				Platform:    PlatformOpenAI,
+				Credentials: map[string]any{"base_url": "https://agent.tokensea.ai"},
+			},
+			statusCode: http.StatusUnauthorized,
+			body:       `{"error":{"message":"invalid authorization"}}`,
+			want:       openAIInputTokensFallbackAnthropicEstimate,
+		},
+		{
+			name: "plain_openai_apikey_401_stays_upstream_error",
+			account: &Account{
+				Type:        AccountTypeAPIKey,
+				Platform:    PlatformOpenAI,
+				Credentials: map[string]any{"base_url": "https://api.openai.com/v1"},
+			},
+			statusCode: http.StatusUnauthorized,
+			body:       `{"error":{"message":"invalid api key"}}`,
+			want:       openAIInputTokensFallbackNone,
+		},
 	}
 
 	for _, tt := range cases {
