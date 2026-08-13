@@ -14,14 +14,17 @@ func TestGrokAccountModelMappingCacheInvalidatesWithRuntimeSettings(t *testing.T
 	t.Cleanup(func() { xai.SetRuntimeModelMappingOptions(original) })
 	account := &Account{Platform: PlatformGrok, Credentials: map[string]any{}}
 
-	xai.SetRuntimeModelMappingOptions(xai.ModelMappingOptions{})
+	xai.SetRuntimeModelMappingOptions(xai.ModelMappingOptions{EnableCrossClientMap: false})
 	requireMappedModel(t, account, "claude-sonnet-4-5", "claude-sonnet-4-5")
 
 	xai.SetRuntimeModelMappingOptions(xai.ModelMappingOptions{
 		DefaultText:          "grok-build-0.1",
 		EnableCrossClientMap: true,
 	})
-	requireMappedModel(t, account, "claude-sonnet-4-5", "grok-build-0.1")
+	requireMappedModel(t, account, "claude-opus-4-8", "grok-4.6")
+	requireMappedModel(t, account, "claude-sonnet-4-6", "grok-4.5")
+	requireMappedModel(t, account, "claude-haiku-4-5", "grok-code-fast-1")
+	requireMappedModel(t, account, "claude-fable-5", "grok-build-0.1")
 }
 
 func requireMappedModel(t *testing.T, account *Account, requested, expected string) {

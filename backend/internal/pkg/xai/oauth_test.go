@@ -348,7 +348,7 @@ func TestRuntimeSanityReportsInvalidOverridesWithoutSecrets(t *testing.T) {
 func TestDefaultModelMappingIncludesGrokAliases(t *testing.T) {
 	original := RuntimeModelMappingOptions()
 	t.Cleanup(func() { SetRuntimeModelMappingOptions(original) })
-	SetRuntimeModelMappingOptions(ModelMappingOptions{})
+	SetRuntimeModelMappingOptions(ModelMappingOptions{EnableCrossClientMap: false})
 	mapping := DefaultModelMapping()
 	require.Equal(t, DefaultTextModel, mapping["grok"])
 	require.Equal(t, "grok-4.3", mapping["grok-latest"])
