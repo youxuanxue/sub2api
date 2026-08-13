@@ -42,8 +42,8 @@ func TestEnsureStrictCreatesAndVerifiesAllTargets(t *testing.T) {
 		table string
 		count int
 	}{
-		{"ops_system_logs", 4},
-		{"ops_error_logs", 4},
+		{"ops_system_logs", 8},
+		{"ops_error_logs", 8},
 		{"usage_logs", 8},
 	} {
 		expectPartitioned(mock, target.table, true)
@@ -56,8 +56,8 @@ func TestEnsureStrictCreatesAndVerifiesAllTargets(t *testing.T) {
 		t.Fatalf("Ensure: %v", err)
 	}
 	want := []TableResult{
-		{Table: "ops_system_logs", RangeCount: 4},
-		{Table: "ops_error_logs", RangeCount: 4},
+		{Table: "ops_system_logs", RangeCount: 8},
+		{Table: "ops_error_logs", RangeCount: 8},
 		{Table: "usage_logs", RangeCount: 8},
 	}
 	if len(result.Tables) != len(want) {
@@ -98,15 +98,15 @@ func TestEnsureAllowUnpartitionedSkipsCompatibilityTarget(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	expectPartitioned(mock, "ops_system_logs", false)
 	expectPartitioned(mock, "ops_error_logs", true)
-	expectCreates(mock, 4)
-	expectCoverage(mock, "ops_error_logs", 4)
+	expectCreates(mock, 8)
+	expectCoverage(mock, "ops_error_logs", 8)
 	expectPartitioned(mock, "usage_logs", false)
 
 	result, err := Ensure(context.Background(), db, maintenanceNow, ModeAllowUnpartitioned, Options{})
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
-	if len(result.Tables) != 1 || result.Tables[0] != (TableResult{Table: "ops_error_logs", RangeCount: 4}) {
+	if len(result.Tables) != 1 || result.Tables[0] != (TableResult{Table: "ops_error_logs", RangeCount: 8}) {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -124,11 +124,11 @@ func TestEnsureRejectsUncoveredOverlap(t *testing.T) {
 	mock.ExpectExec("CREATE TABLE IF NOT EXISTS").WillReturnError(
 		&pq.Error{Code: pq.ErrorCode("42P17")},
 	)
-	expectCreates(mock, 3)
-	expectCoverage(mock, "ops_system_logs", 3)
+	expectCreates(mock, 7)
+	expectCoverage(mock, "ops_system_logs", 7)
 
 	_, err = Ensure(context.Background(), db, maintenanceNow, ModeRequireAllPartitioned, Options{})
-	if err == nil || !strings.Contains(err.Error(), "covers 3 of 4 required ranges") {
+	if err == nil || !strings.Contains(err.Error(), "covers 7 of 8 required ranges") {
 		t.Fatalf("expected uncovered range error, got %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

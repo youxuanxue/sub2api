@@ -85,8 +85,8 @@ func TestPartitionMaintenanceSuccessUsesStrictBoundedPath(t *testing.T) {
 				t.Fatalf("unexpected ensure args: db=%T now=%s mode=%d", gotDB, now, mode)
 			}
 			return partitionmaintenance.Result{Tables: []partitionmaintenance.TableResult{
-				{Table: "ops_system_logs", RangeCount: 4},
-				{Table: "ops_error_logs", RangeCount: 4},
+				{Table: "ops_system_logs", RangeCount: 8},
+				{Table: "ops_error_logs", RangeCount: 8},
 				{Table: "usage_logs", RangeCount: 8},
 			}}, nil
 		},
