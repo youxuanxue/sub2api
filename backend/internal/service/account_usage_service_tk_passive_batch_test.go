@@ -151,8 +151,10 @@ func TestAccountUsageService_GetPassiveUsage_OpenAIOAuthExpiredCodexFallsBackToL
 		Extra: map[string]any{
 			"codex_5h_used_percent": 42.0,
 			"codex_5h_reset_at":     now.Add(-2 * time.Hour).UTC().Format(time.RFC3339),
+			"codex_5h_window_minutes": 0,
 			"codex_7d_used_percent": 34.0,
 			"codex_7d_reset_at":     now.Add(5 * 24 * time.Hour).UTC().Format(time.RFC3339),
+			"codex_7d_window_minutes": 10080,
 		},
 	}
 	logRepo := &passiveBatchUsageLogRepo{
@@ -165,11 +167,7 @@ func TestAccountUsageService_GetPassiveUsage_OpenAIOAuthExpiredCodexFallsBackToL
 
 	usage, err := svc.GetPassiveUsage(context.Background(), 56)
 	require.NoError(t, err)
-	require.NotNil(t, usage.FiveHour)
-	require.Zero(t, usage.FiveHour.Utilization, "expired codex 5h must not surface stale used%%")
-	require.NotNil(t, usage.FiveHour.WindowStats)
-	require.Equal(t, int64(1), usage.FiveHour.WindowStats.Requests)
-	require.Equal(t, 9.5, usage.FiveHour.WindowStats.Cost)
+	require.Nil(t, usage.FiveHour, "expired/absent upstream 5h must not render a synthetic five_hour row")
 	require.NotNil(t, usage.SevenDay)
 	require.Equal(t, 34.0, usage.SevenDay.Utilization)
 }

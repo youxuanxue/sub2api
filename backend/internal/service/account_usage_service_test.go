@@ -288,10 +288,23 @@ func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 		extra := map[string]any{
 			"codex_7d_used_percent": 88.0,
 			"codex_7d_reset_at":     "2026-03-15T00:00:00Z", // yesterday
+			"codex_7d_window_minutes": 10080,
 		}
 		progress := buildCodexUsageProgressFromExtra(extra, "7d", now)
 		if progress != nil {
 			t.Fatalf("expected nil progress for expired 7d window, got %#v", progress)
+		}
+	})
+
+	t.Run("zero window minutes means upstream 5h absent", func(t *testing.T) {
+		extra := map[string]any{
+			"codex_5h_used_percent":   0.0,
+			"codex_5h_window_minutes": 0,
+			"codex_5h_reset_at":       now.Add(2 * time.Hour).Format(time.RFC3339),
+		}
+		progress := buildCodexUsageProgressFromExtra(extra, "5h", now)
+		if progress != nil {
+			t.Fatalf("expected nil progress when codex_5h_window_minutes=0, got %#v", progress)
 		}
 	})
 }
