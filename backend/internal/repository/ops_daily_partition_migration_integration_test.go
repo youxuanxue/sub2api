@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pgpartition"
 	dbmigrations "github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
@@ -31,6 +32,10 @@ func TestOpsDailyPartitionMigration_SuccessFreshAndIdempotent(t *testing.T) {
 
 	runOpsDailyMigration(t, schema, migrationSQL)
 	assertOpsDailyMigrationResult(t, schema, currentOID)
+	beforeCompatibilityCheck := partitionOIDSnapshot(t, schema)
+	assertPreviousMonthlyOwnerCompatibility(t, schema)
+	require.Equal(t, beforeCompatibilityCheck, partitionOIDSnapshot(t, schema),
+		"the previous monthly owner compatibility check must leave the daily topology unchanged")
 
 	before := partitionOIDSnapshot(t, schema)
 	runOpsDailyMigration(t, schema, migrationSQL)
@@ -255,6 +260,60 @@ func assertOpsDailyMigrationResult(t *testing.T, schema string, currentOID uint3
 	require.NoError(t, integrationDB.QueryRowContext(ctx, fmt.Sprintf(
 		`SELECT count(*) FROM %s.ops_system_logs_20260901 WHERE message = 'daily-boundary'`, qSchema)).Scan(&routedRows))
 	require.Equal(t, 1, routedRows)
+}
+
+func assertPreviousMonthlyOwnerCompatibility(t *testing.T, schema string) {
+	t.Helper()
+	ctx := context.Background()
+	qSchema := pq.QuoteIdentifier(schema)
+	conn, err := integrationDB.Conn(ctx)
+	require.NoError(t, err)
+	defer conn.Close()
+	_, err = conn.ExecContext(ctx, "SET search_path = "+qSchema)
+	require.NoError(t, err)
+	defer func() { _, _ = conn.ExecContext(context.Background(), "RESET search_path") }()
+
+	for _, table := range []string{"ops_error_logs", "ops_system_logs"} {
+		qualifiedTable := qSchema + "." + pq.QuoteIdentifier(table)
+		require.NoError(t, pgpartition.EnsureMonthly(ctx, conn, table, opsDailyCutoverNow, 3),
+			"the previous monthly owner must treat complete daily month coverage as benign overlap")
+
+		var covered int
+		require.NoError(t, conn.QueryRowContext(ctx, `
+			WITH child_bounds AS (
+			  SELECT pg_get_expr(child.relpartbound, child.oid, true) AS bound_expr
+			  FROM pg_inherits inheritance
+			  JOIN pg_class child ON child.oid = inheritance.inhrelid
+			  WHERE inheritance.inhparent = to_regclass($1)
+			), parsed_bounds AS (
+			  SELECT
+			    bound_expr LIKE 'FOR VALUES FROM (MINVALUE)%' AS lower_unbounded,
+			    substring(bound_expr FROM $$FROM \('([^']+)'$$)::timestamptz AS lower_bound,
+			    substring(bound_expr FROM $$TO \('([^']+)'$$)::timestamptz AS upper_bound
+			  FROM child_bounds
+			), covered_union AS (
+			  SELECT range_agg(tstzrange(
+			    CASE WHEN lower_unbounded THEN NULL ELSE lower_bound END,
+			    upper_bound,
+			    '[)'
+			  )) AS ranges
+			  FROM parsed_bounds
+			  WHERE (lower_unbounded OR lower_bound IS NOT NULL) AND upper_bound IS NOT NULL
+			), required_ranges AS (
+			  SELECT month_start, month_start + interval '1 month' AS month_end
+			  FROM generate_series(
+			    date_trunc('month', $2::timestamptz),
+			    date_trunc('month', $2::timestamptz) + interval '3 months',
+			    interval '1 month'
+			  ) AS month_start
+			)
+			SELECT count(*)
+			FROM required_ranges, covered_union
+			WHERE covered_union.ranges @> tstzrange(month_start, month_end, '[)')`,
+			qualifiedTable, opsDailyCutoverNow).Scan(&covered))
+		require.Equal(t, 4, covered,
+			"the previous owner must prove current month plus three complete future months")
+	}
 }
 
 func partitionOIDSnapshot(t *testing.T, schema string) map[string]uint32 {
