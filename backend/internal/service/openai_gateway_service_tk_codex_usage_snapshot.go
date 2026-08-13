@@ -48,6 +48,10 @@ type NormalizedCodexLimits struct {
 // 99% used cannot coexist with a 7d that is 1% used. 5h is now passed through
 // like 7d. Do NOT reintroduce a 100-raw inversion without a fresh raw-header
 // capture proving remaining% semantics.
+//
+// Upstream layout drift (2026-08 prod): OpenAI may send only a 7d primary window
+// (10080min) with secondary window_minutes=0 — treat zero-minute windows as
+// absent, not as an exhausted 5h bucket at 0%.
 // Returns nil if snapshot is nil or has no useful data.
 func (s *OpenAICodexUsageSnapshot) Normalize() *NormalizedCodexLimits {
 	if s == nil {
@@ -58,16 +62,13 @@ func (s *OpenAICodexUsageSnapshot) Normalize() *NormalizedCodexLimits {
 
 	primaryMins := 0
 	secondaryMins := 0
-	hasPrimaryWindow := false
-	hasSecondaryWindow := false
-
-	if s.PrimaryWindowMinutes != nil {
+	hasPrimaryWindow := codexSnapshotWindowMinutesActive(s.PrimaryWindowMinutes)
+	hasSecondaryWindow := codexSnapshotWindowMinutesActive(s.SecondaryWindowMinutes)
+	if hasPrimaryWindow {
 		primaryMins = *s.PrimaryWindowMinutes
-		hasPrimaryWindow = true
 	}
-	if s.SecondaryWindowMinutes != nil {
+	if hasSecondaryWindow {
 		secondaryMins = *s.SecondaryWindowMinutes
-		hasSecondaryWindow = true
 	}
 
 	// Determine mapping based on window_minutes
@@ -107,19 +108,46 @@ func (s *OpenAICodexUsageSnapshot) Normalize() *NormalizedCodexLimits {
 		result.Used5hPercent = s.PrimaryUsedPercent
 		result.Reset5hSeconds = s.PrimaryResetAfterSeconds
 		result.Window5hMinutes = s.PrimaryWindowMinutes
-		result.Used7dPercent = s.SecondaryUsedPercent
-		result.Reset7dSeconds = s.SecondaryResetAfterSeconds
-		result.Window7dMinutes = s.SecondaryWindowMinutes
+		if hasSecondaryWindow {
+			result.Used7dPercent = s.SecondaryUsedPercent
+			result.Reset7dSeconds = s.SecondaryResetAfterSeconds
+			result.Window7dMinutes = s.SecondaryWindowMinutes
+		}
 	} else if use7dFromPrimary {
 		result.Used7dPercent = s.PrimaryUsedPercent
 		result.Reset7dSeconds = s.PrimaryResetAfterSeconds
 		result.Window7dMinutes = s.PrimaryWindowMinutes
-		result.Used5hPercent = s.SecondaryUsedPercent
-		result.Reset5hSeconds = s.SecondaryResetAfterSeconds
-		result.Window5hMinutes = s.SecondaryWindowMinutes
+		if codexSnapshotSecondaryQuotaPresent(s) {
+			result.Used5hPercent = s.SecondaryUsedPercent
+			result.Reset5hSeconds = s.SecondaryResetAfterSeconds
+			if hasSecondaryWindow {
+				result.Window5hMinutes = s.SecondaryWindowMinutes
+			}
+		}
 	}
 
 	return result
+}
+
+func codexSnapshotWindowMinutesActive(mins *int) bool {
+	return mins != nil && *mins > 0
+}
+
+// codexSnapshotSecondaryQuotaPresent is true when secondary carries quota signal
+// and is not explicitly absent (window_minutes=0 on a present primary 7d layout).
+func codexSnapshotSecondaryQuotaPresent(s *OpenAICodexUsageSnapshot) bool {
+	if s == nil {
+		return false
+	}
+	if s.SecondaryWindowMinutes != nil && *s.SecondaryWindowMinutes <= 0 {
+		return false
+	}
+	return s.SecondaryUsedPercent != nil || s.SecondaryResetAfterSeconds != nil ||
+		codexSnapshotWindowMinutesActive(s.SecondaryWindowMinutes)
+}
+
+func codexNormalizedWindowActive(mins *int) bool {
+	return codexSnapshotWindowMinutesActive(mins)
 }
 
 type accountWriteThrottle struct {
@@ -546,29 +574,33 @@ func buildCodexUsageExtraUpdates(snapshot *OpenAICodexUsageSnapshot, fallbackNow
 
 	// 归一化到 5h/7d 规范字段
 	if normalized := snapshot.Normalize(); normalized != nil {
-		if normalized.Used5hPercent != nil {
-			updates["codex_5h_used_percent"] = *normalized.Used5hPercent
+		if codexNormalizedWindowActive(normalized.Window5hMinutes) {
+			if normalized.Used5hPercent != nil {
+				updates["codex_5h_used_percent"] = *normalized.Used5hPercent
+			}
+			if normalized.Reset5hSeconds != nil {
+				updates["codex_5h_reset_after_seconds"] = *normalized.Reset5hSeconds
+			}
+			if normalized.Window5hMinutes != nil {
+				updates["codex_5h_window_minutes"] = *normalized.Window5hMinutes
+			}
+			if reset5hAt := codexResetAtRFC3339(baseTime, normalized.Reset5hSeconds); reset5hAt != nil {
+				updates["codex_5h_reset_at"] = *reset5hAt
+			}
 		}
-		if normalized.Reset5hSeconds != nil {
-			updates["codex_5h_reset_after_seconds"] = *normalized.Reset5hSeconds
-		}
-		if normalized.Window5hMinutes != nil {
-			updates["codex_5h_window_minutes"] = *normalized.Window5hMinutes
-		}
-		if normalized.Used7dPercent != nil {
-			updates["codex_7d_used_percent"] = *normalized.Used7dPercent
-		}
-		if normalized.Reset7dSeconds != nil {
-			updates["codex_7d_reset_after_seconds"] = *normalized.Reset7dSeconds
-		}
-		if normalized.Window7dMinutes != nil {
-			updates["codex_7d_window_minutes"] = *normalized.Window7dMinutes
-		}
-		if reset5hAt := codexResetAtRFC3339(baseTime, normalized.Reset5hSeconds); reset5hAt != nil {
-			updates["codex_5h_reset_at"] = *reset5hAt
-		}
-		if reset7dAt := codexResetAtRFC3339(baseTime, normalized.Reset7dSeconds); reset7dAt != nil {
-			updates["codex_7d_reset_at"] = *reset7dAt
+		if codexNormalizedWindowActive(normalized.Window7dMinutes) {
+			if normalized.Used7dPercent != nil {
+				updates["codex_7d_used_percent"] = *normalized.Used7dPercent
+			}
+			if normalized.Reset7dSeconds != nil {
+				updates["codex_7d_reset_after_seconds"] = *normalized.Reset7dSeconds
+			}
+			if normalized.Window7dMinutes != nil {
+				updates["codex_7d_window_minutes"] = *normalized.Window7dMinutes
+			}
+			if reset7dAt := codexResetAtRFC3339(baseTime, normalized.Reset7dSeconds); reset7dAt != nil {
+				updates["codex_7d_reset_at"] = *reset7dAt
+			}
 		}
 	}
 

@@ -650,6 +650,58 @@ describe('AccountUsageCell', () => {
     expect(getUsage).not.toHaveBeenCalled()
   })
 
+  it('OpenAI OAuth 上游仅 7d 时不渲染 5h 进度条', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 89,
+          platform: 'openai',
+          type: 'oauth',
+          extra: {}
+        }),
+        usageOverride: {
+          source: 'passive',
+          five_hour: null,
+          seven_day: {
+            utilization: 37,
+            resets_at: '2099-03-07T12:00:00Z',
+            remaining_seconds: 3600,
+            window_stats: {
+              requests: 44076,
+              tokens: 1_806_601_032,
+              cost: 1659.74,
+              standard_cost: 1659.74,
+              user_cost: 387.12
+            }
+          }
+        },
+        todayStats: {
+          requests: 4501,
+          tokens: 100_354_973,
+          cost: 80.74,
+          standard_cost: 80.74,
+          user_cost: 19.99
+        }
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'windowStats'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ windowStats?.requests }}</div>'
+          },
+          OpenAIQuotaResetCell: true,
+          UpstreamQuotaSummary: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('5h|')
+    expect(wrapper.text()).toContain('7d|37|44076')
+    expect(wrapper.text()).toContain('4.5K req')
+  })
+
   it('OpenAI OAuth 用量窗口同时展示今日 req/token/account/user 统计', async () => {
     const wrapper = mount(AccountUsageCell, {
       props: {

@@ -940,10 +940,9 @@ func (s *AccountUsageService) attachOpenAICodexWindowStats(ctx context.Context, 
 		return
 	}
 	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, codexWindowStatsStart(usage.FiveHour, 5*time.Hour, now)); err == nil {
-		if usage.FiveHour == nil {
-			usage.FiveHour = &UsageProgress{Utilization: 0}
+		if usage.FiveHour != nil {
+			usage.FiveHour.WindowStats = windowStatsFromAccountStats(stats)
 		}
-		usage.FiveHour.WindowStats = windowStatsFromAccountStats(stats)
 	}
 	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, codexWindowStatsStart(usage.SevenDay, 7*24*time.Hour, now)); err == nil {
 		if usage.SevenDay == nil {
@@ -1571,6 +1570,23 @@ func windowStatsFromAccountStats(stats *usagestats.AccountStats) *WindowStats {
 	}
 }
 
+func codexExtraCanonicalWindowAbsent(extra map[string]any, window string) bool {
+	var wmKey string
+	switch window {
+	case "5h":
+		wmKey = "codex_5h_window_minutes"
+	case "7d":
+		wmKey = "codex_7d_window_minutes"
+	default:
+		return false
+	}
+	raw, ok := extra[wmKey]
+	if !ok {
+		return false
+	}
+	return parseExtraInt(raw) <= 0
+}
+
 func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now time.Time) *UsageProgress {
 	if len(extra) == 0 {
 		return nil
@@ -1597,6 +1613,9 @@ func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now t
 
 	usedRaw, ok := extra[usedPercentKey]
 	if !ok {
+		return nil
+	}
+	if codexExtraCanonicalWindowAbsent(extra, window) {
 		return nil
 	}
 

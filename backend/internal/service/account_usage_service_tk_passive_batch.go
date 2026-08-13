@@ -251,10 +251,7 @@ func applyPreloadedCodexWindowStats(usage *UsageInfo, preloaded *localWindowStat
 	if usage == nil || preloaded == nil {
 		return
 	}
-	if preloaded.fiveHour != nil {
-		if usage.FiveHour == nil {
-			usage.FiveHour = &UsageProgress{Utilization: 0}
-		}
+	if preloaded.fiveHour != nil && usage.FiveHour != nil {
 		usage.FiveHour.WindowStats = windowStatsFromAccountStats(preloaded.fiveHour)
 	}
 	if preloaded.sevenDay != nil {
