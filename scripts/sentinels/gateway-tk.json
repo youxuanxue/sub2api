@@ -1150,6 +1150,7 @@
       "must_contain": [
         "TestAccount_IsOpenAICloudwiseRelay",
         "TestOpenAICloudwiseRelayFloorIsProbeCuratedOnly",
+        "cloudwise relay catalog must not list GPT ids",
         "TestForwardAsAnthropic_CloudwiseNativeMessagesPassthrough",
         "TestForwardAsAnthropic_CloudwiseNonClaudeUsesChatFallback",
         "https://api.cloudwise.ai/api/v1/messages",
