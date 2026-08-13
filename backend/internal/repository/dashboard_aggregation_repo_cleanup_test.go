@@ -54,7 +54,7 @@ func TestDeleteOldUsageLogRowsByID_RespectsMaxRows(t *testing.T) {
 	cutoff := time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)
 
 	mock.ExpectExec("DELETE FROM \"usage_logs_legacy\"").
-		WithArgs(cutoff, usageLogsCleanupBatchSize).
+		WithArgs(cutoff, 5).
 		WillReturnResult(sqlmock.NewResult(0, 5))
 
 	deleted, err := deleteOldUsageLogRowsByID(

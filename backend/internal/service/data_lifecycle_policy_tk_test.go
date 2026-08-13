@@ -83,4 +83,22 @@ func TestDataLifecycleRoleKnown(t *testing.T) {
 	require.True(t, dataLifecycleRoleKnown("https://api-jp1.tokenkey.dev"))
 	require.False(t, dataLifecycleRoleKnown(""))
 	require.False(t, dataLifecycleRoleKnown("https://custom.example.com"))
+	require.False(t, dataLifecycleRoleKnown("https://api-jp1.example.com"))
+}
+
+func TestResolveDataLifecyclePolicyTreatsCustomAPISubdomainAsProdSafe(t *testing.T) {
+	policy := resolveDataLifecyclePolicy(&config.Config{
+		Server: config.ServerConfig{FrontendURL: "https://api-us1.example.com"},
+		DashboardAgg: config.DashboardAggregationConfig{
+			Retention: config.DashboardAggregationRetentionConfig{UsageLogsDays: 90},
+		},
+	}, config.OpsCleanupConfig{
+		SystemLogRetentionDays: 7,
+		ErrorLogRetentionDays:  30,
+	})
+
+	require.Equal(t, "prod", policy.role)
+	require.Equal(t, 90, policy.usageLogRetentionDays)
+	require.Equal(t, 30, policy.errorLogRetentionDays)
+	require.Equal(t, 7, policy.systemLogRetentionDays)
 }

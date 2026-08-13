@@ -1,10 +1,6 @@
 package service
 
-import (
-	"strings"
-
-	"github.com/Wei-Shaw/sub2api/internal/config"
-)
+import "github.com/Wei-Shaw/sub2api/internal/config"
 
 const (
 	prodUsageLogRetentionDays  = 90
@@ -53,5 +49,5 @@ func capLifecycleRetention(configured, upperBound int) int {
 
 func dataLifecycleRoleKnown(frontendURL string) bool {
 	site := siteFromFrontendURL(frontendURL)
-	return site == "prod" || strings.HasPrefix(site, "edge-")
+	return site == "prod" || IsEdgeFrontendURL(frontendURL)
 }

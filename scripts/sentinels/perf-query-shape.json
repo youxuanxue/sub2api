@@ -74,11 +74,25 @@
         "pgpartition.DropExpired(ctx, db, table, cutoff)",
         "pgpartition.ListStraddling(ctx, db, table, timeCol, cutoff)",
         "opsStraddleReclaimMaxRowsPerRun",
+        "remaining := maxRows - int(total)",
+        "limit = min(limit, remaining)",
         "usageLogs     string",
         "billingDedup  string",
         "usage_logs=%s billing_dedup=%s"
       ],
-      "rationale": "Each partitioned cleanup first drops only fully expired bounds, then caps row-level reclaim from a surviving wide legacy partition that still contains expired rows. Removing either bound-driven call or the cap can yield green cleanup heartbeats while disk growth resumes. The shared cleanup heartbeat must also report usage_logs and billing-dedup states now that OpsCleanupService owns those datasets; without the fields, a lifecycle run can look green while omitting the newly transferred owners from its operator-visible result. Partition provisioning is separately guarded by the shared partitionmaintenance owner."
+      "rationale": "Each partitioned cleanup first drops only fully expired bounds, then caps row-level reclaim from a surviving wide legacy partition that still contains expired rows. The SQL LIMIT must use min(batchSize, remaining), not merely stop after a full batch, or the advertised hard cap can overshoot by almost one batch. Removing either bound-driven call or the exact remaining-budget clamp can yield green cleanup heartbeats while disk or lock pressure exceeds the online-safety contract. The shared cleanup heartbeat must also report usage_logs and billing-dedup states now that OpsCleanupService owns those datasets; without the fields, a lifecycle run can look green while omitting the newly transferred owners from its operator-visible result. Partition provisioning is separately guarded by the shared partitionmaintenance owner."
+    },
+    {
+      "path": "backend/internal/repository/dashboard_aggregation_repo.go",
+      "must_contain": [
+        "remaining := maxRows - int(total)",
+        "limit = min(limit, remaining)",
+        "db.ExecContext(ctx, q, cutoff, limit)"
+      ],
+      "must_not_contain": [
+        "isMissingUsageLogsRelationError"
+      ],
+      "rationale": "Partitioned usage_logs reclaim shares the online-safety hard cap and unified fail-closed heartbeat contract. Its SQL LIMIT must use the remaining row budget, and a missing straddling relation must surface as an error rather than being silently reported as successful cleanup."
     },
     {
       "path": "backend/internal/pkg/partitionmaintenance/maintenance.go",

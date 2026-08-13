@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pgpartition"
@@ -370,11 +369,16 @@ WHERE id IN (SELECT id FROM batch)
 
 	var total int64
 	for {
-		res, err := db.ExecContext(ctx, q, cutoff, batchSize)
-		if err != nil {
-			if isMissingUsageLogsRelationError(err) {
-				return total, nil
+		limit := batchSize
+		if maxRows > 0 {
+			remaining := maxRows - int(total)
+			if remaining <= 0 {
+				break
 			}
+			limit = min(limit, remaining)
+		}
+		res, err := db.ExecContext(ctx, q, cutoff, limit)
+		if err != nil {
 			return total, err
 		}
 		affected, err := res.RowsAffected()
@@ -390,14 +394,6 @@ WHERE id IN (SELECT id FROM batch)
 		}
 	}
 	return total, nil
-}
-
-func isMissingUsageLogsRelationError(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "does not exist") && strings.Contains(s, "relation")
 }
 
 func (r *dashboardAggregationRepository) CleanupUsageBillingDedup(ctx context.Context, cutoff time.Time) error {

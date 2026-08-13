@@ -123,6 +123,22 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
         self.assertEqual(signal["hold_started_at"], "2026-08-07T02:40:22Z")
         self.assertNotIn("cleanup_hold", signal["evidence_errors"])
 
+    def test_frozen_tail_rejects_promote_manifest_hash_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            for path in _checked_in_evidence_dir().iterdir():
+                if path.is_file():
+                    (root / path.name).write_bytes(path.read_bytes())
+            promote_path = root / "data-layer-ops-error-logs-tail-promote-ledger.json"
+            ledger = json.loads(promote_path.read_text(encoding="utf-8"))
+            ledger["promoted_batches"][0]["objects"][-1]["sha256"] = "0" * 64
+            promote_path.write_text(json.dumps(ledger), encoding="utf-8")
+
+            signal = health.build_signal(root)
+
+        self.assertFalse(signal["tail_export_complete"])
+        self.assertIn("ops_error_logs:tail_export_ledger", signal["evidence_errors"])
+
     def test_minimal_unvalidated_json_cannot_report_closeout_complete(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp)

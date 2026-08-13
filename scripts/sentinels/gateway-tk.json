@@ -6204,6 +6204,22 @@
       "rationale": "Single role-policy owner for automatic hot-data lifecycle. Prod and edge retention ceilings, the 365-day billing-dedup window, canonical frontend-URL edge detection, explicit-zero preservation, and unknown-role detection must stay together; duplicating or dropping this companion can make nodes silently apply the wrong destructive cutoff while all cleanup jobs still report success."
     },
     {
+      "path": "backend/internal/service/account_incident_notifier_tk.go",
+      "must_contain": [
+        "func IsEdgeFrontendURL(frontendURL string) bool {",
+        "strings.HasSuffix(strings.ToLower(parsed.Hostname()), \".tokenkey.dev\")"
+      ],
+      "rationale": "The lifecycle policy now connects this shared role helper to destructive retention cutoffs. Edge classification must require the canonical TokenKey domain; otherwise a custom prod host such as api-us1.example.com silently receives the shorter edge windows while cleanup still reports success."
+    },
+    {
+      "path": "backend/internal/service/data_lifecycle_policy_tk_test.go",
+      "must_contain": [
+        "TestResolveDataLifecyclePolicyTreatsCustomAPISubdomainAsProdSafe",
+        "https://api-us1.example.com"
+      ],
+      "rationale": "Focused destructive-boundary regression: a custom api-* hostname must remain on the conservative prod policy and surface as an unknown role rather than being mistaken for a TokenKey edge."
+    },
+    {
       "path": "backend/internal/service/ops_cleanup_service.go",
       "must_contain": [
         "partitionmaintenance.OpsCleanupOptions",

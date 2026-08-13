@@ -13,6 +13,7 @@ PIPELINE = ROOT / "ops" / "archive" / "pipeline_status.yaml"
 REHEARSAL = ROOT / "ops" / "archive" / "data_layer_archive_rehearsal.py"
 LOADER = ROOT / "ops" / "archive" / "pipeline_status_loader.py"
 HEALTH = ROOT / "ops" / "observability" / "data_layer_archive_health.py"
+PROMOTE = ROOT / "ops" / "archive" / "data_layer_archive_promote_batch.py"
 
 _HARDCODED_EVIDENCE = re.compile(
     r"US-039|US-040|phase4-|\.testing/user-stories/attachments|ops/archive/evidence"
@@ -55,10 +56,13 @@ def _evidence_failures(root: Path, pipeline: dict) -> list[str]:
     failures: list[str] = []
     loader_path = root / LOADER.relative_to(ROOT)
     health_path = root / HEALTH.relative_to(ROOT)
+    promote_path = root / PROMOTE.relative_to(ROOT)
     if not loader_path.is_file():
         return [f"missing pipeline loader: {LOADER.relative_to(ROOT)}"]
     if not health_path.is_file():
         return [f"missing archive health script: {HEALTH.relative_to(ROOT)}"]
+    if not promote_path.is_file():
+        return [f"missing archive promote script: {PROMOTE.relative_to(ROOT)}"]
     health_body = health_path.read_text(encoding="utf-8")
     if "pipeline_status_loader" not in health_body:
         failures.append("data_layer_archive_health.py must import pipeline_status_loader")
@@ -67,6 +71,14 @@ def _evidence_failures(root: Path, pipeline: dict) -> list[str]:
             "data_layer_archive_health.py hardcodes evidence path fragment: "
             f"{match.group(0)!r}"
         )
+    promote_body = promote_path.read_text(encoding="utf-8")
+    for anchor in (
+        "def _validate_promote_receipt(",
+        "promote receipt manifest binding is invalid",
+        "promote ledger contains duplicate batch ids",
+    ):
+        if anchor not in promote_body:
+            failures.append(f"archive promote receipt validation missing anchor: {anchor}")
     evidence = pipeline.get("evidence_attachments")
     if not isinstance(evidence, dict):
         failures.append("pipeline_status.yaml evidence_attachments must be a mapping")
