@@ -41,9 +41,14 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// 入口分流：APIKey 账号 + 上游原生 /v1/messages → 直转；否则不支持
 	// Responses 时走 CC 回退。缺少 native 分流时会将 /v1/messages 错误地转为
 	// Responses 或 CC，浪费双栈中继的原生 Anthropic 能力。
+	// 双栈 relay 的非 claude-* 模型（如 MiniMax-M3）走 chat 回退，与 /v1/responses
+	// fallback 一致，避免 native passthrough 在选号/转发链路上的不一致。
 	if account.Type == AccountTypeAPIKey {
 		if openai_compat.ShouldUseNativeAnthropicMessagesAPI(account.Extra) {
-			return s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)
+			if shouldForwardNativeAnthropicMessagesForModel(body) {
+				return s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)
+			}
+			return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 		}
 		if !openai_compat.ShouldUseResponsesAPI(account.Extra) {
 			return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)

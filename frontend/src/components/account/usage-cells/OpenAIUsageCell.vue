@@ -86,7 +86,6 @@ const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCel
 const { t } = useI18n()
 const rootRef = ref<HTMLElement | null>(null)
 const upstreamQuotaWindowDimensionKeys = [
-  'openai_codex_5h',
   'openai_codex_7d'
 ]
 

@@ -323,3 +323,73 @@ func TestNormalize_ProdLayoutUsedPercentPassthrough(t *testing.T) {
 		}
 	})
 }
+
+// TestNormalize_7dOnlyLayoutOmits5h pins the 2026-08 prod header shape: primary=7d
+// (10080min) with secondary window_minutes=0 must not synthesize a 5h bucket.
+func TestNormalize_7dOnlyLayoutOmits5h(t *testing.T) {
+	win7d := 10080
+	zeroWin := 0
+	used7d := 37.0
+	usedSecondary := 0.0
+	secondaryReset := 0
+
+	snapshot := &OpenAICodexUsageSnapshot{
+		PrimaryUsedPercent:         &used7d,
+		PrimaryWindowMinutes:       &win7d,
+		PrimaryResetAfterSeconds:   intPtrCodexTest(436970),
+		SecondaryUsedPercent:       &usedSecondary,
+		SecondaryWindowMinutes:     &zeroWin,
+		SecondaryResetAfterSeconds: &secondaryReset,
+	}
+
+	n := snapshot.Normalize()
+	if n == nil {
+		t.Fatal("expected non-nil normalized")
+	}
+	if n.Used5hPercent != nil || n.Window5hMinutes != nil {
+		t.Fatalf("expected no 5h fields, got Used5hPercent=%v Window5hMinutes=%v", n.Used5hPercent, n.Window5hMinutes)
+	}
+	if n.Used7dPercent == nil || *n.Used7dPercent != 37.0 {
+		t.Fatalf("Used7dPercent = %v, want 37", n.Used7dPercent)
+	}
+	if n.Window7dMinutes == nil || *n.Window7dMinutes != 10080 {
+		t.Fatalf("Window7dMinutes = %v, want 10080", n.Window7dMinutes)
+	}
+}
+
+func TestBuildCodexUsageExtraUpdates_7dOnlyLayoutOmits5hFields(t *testing.T) {
+	win7d := 10080
+	zeroWin := 0
+	used7d := 37.0
+	usedSecondary := 0.0
+	secondaryReset := 0
+	reset7d := 436970
+
+	snapshot := &OpenAICodexUsageSnapshot{
+		PrimaryUsedPercent:         &used7d,
+		PrimaryWindowMinutes:       &win7d,
+		PrimaryResetAfterSeconds:   &reset7d,
+		SecondaryUsedPercent:       &usedSecondary,
+		SecondaryWindowMinutes:     &zeroWin,
+		SecondaryResetAfterSeconds: &secondaryReset,
+		UpdatedAt:                  "2026-08-12T23:39:13Z",
+	}
+
+	updates := buildCodexUsageExtraUpdates(snapshot, time.Date(2026, 8, 12, 23, 39, 13, 0, time.UTC))
+	if updates == nil {
+		t.Fatal("expected non-nil updates")
+	}
+	if _, ok := updates["codex_5h_used_percent"]; ok {
+		t.Fatalf("did not expect codex_5h_used_percent: %v", updates["codex_5h_used_percent"])
+	}
+	if _, ok := updates["codex_5h_reset_at"]; ok {
+		t.Fatalf("did not expect codex_5h_reset_at: %v", updates["codex_5h_reset_at"])
+	}
+	if got := updates["codex_7d_used_percent"]; got != 37.0 {
+		t.Fatalf("codex_7d_used_percent = %v, want 37", got)
+	}
+}
+
+func intPtrCodexTest(v int) *int {
+	return &v
+}

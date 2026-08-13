@@ -1000,7 +1000,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 	bindOpenAIReasoningEffortPolicyForMessagesRequest(c, apiKey, body)
-	routingModel := service.NormalizeOpenAICompatRequestedModel(reqModel)
+	routingModel := service.CanonicalizeOpenAICompatRoutingModel(service.NormalizeOpenAICompatRequestedModel(reqModel))
 	preferredMappedModel := resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel)
 	if h.rejectDeprecatedOpenAICompatMappedModel(c, apiKey, preferredMappedModel, true) {
 		return

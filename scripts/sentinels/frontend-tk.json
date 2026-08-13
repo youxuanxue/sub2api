@@ -304,10 +304,10 @@
         ":stats=\"todayStats\"",
         ":loading=\"todayStatsLoading\"",
         ":hidden-dimension-keys=\"upstreamQuotaWindowDimensionKeys\"",
-        "openai_codex_5h",
+        "usageInfo?.five_hour",
         "openai_codex_7d"
       ],
-      "rationale": "OpenAI Codex OAuth usage windows mirror the Anthropic display contract: TodayStatsBadges owns current-day request/token/account-cost/user-cost badges, the 5h and 7d progress bars own Codex quota windows, and UpstreamQuotaSummary is only for supplemental quota facts. Anchors keep upstream merges from silently dropping the generic usage badges on OAuth-only accounts or restoring duplicate Codex window chips."
+      "rationale": "OpenAI Codex OAuth usage windows mirror the Anthropic display contract: TodayStatsBadges owns current-day request/token/account-cost/user-cost badges, the 5h bar renders only when upstream reports an active codex 5h window (usageInfo.five_hour), the 7d bar owns the Codex 7d quota window, and UpstreamQuotaSummary is only for supplemental quota facts. Anchors keep upstream merges from silently dropping the generic usage badges on OAuth-only accounts or restoring duplicate Codex window chips."
     },
     {
       "path": "frontend/src/components/account/usage-cells/KiroUsageCell.vue",
@@ -965,11 +965,11 @@
       "must_contain": [
         "opus_mapped_model: \"gpt-5.6-sol\",",
         "GROK_MESSAGES_DISPATCH_DEFAULTS",
-        "grok-4.5",
-        "grok-4.6",
-        "grok-code-fast-1"
+        "opus_mapped_model",
+        "sonnet_mapped_model",
+        "haiku_mapped_model"
       ],
-      "rationale": "Frontend mirror of Go messages dispatch defaults: openai groups prefilled with gpt-5.6-sol/gpt-5.6-terra/gpt-5.6-luna; grok groups prefilled with grok-4.6/grok-4.5/grok-code-fast-1. Drift between admin UI defaults and gateway fallbacks silently misroutes Claude Code tier picks."
+      "rationale": "Frontend must keep an explicit Grok messages-dispatch defaults block; concrete tier values are checked against tk_messages_dispatch_family_registry.json by scripts/checks/messages-dispatch-family-drift.py so this sentinel does not duplicate the model list. Drift between admin UI defaults and gateway fallbacks silently misroutes Claude Code tier picks."
     },
     {
       "path": "frontend/src/components/keys/UseKeyGuide.vue",

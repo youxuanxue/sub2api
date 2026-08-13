@@ -365,7 +365,7 @@ func (s *UpstreamBillingProbeService) RunDue(ctx context.Context) error {
 	due := make([]Account, 0, len(accounts))
 	for i := range accounts {
 		account := accounts[i]
-		if !isUpstreamBillingProbeAccount(&account) || !account.IsActive() || !upstreamBillingProbeEnabled(&account) {
+		if !isUpstreamBillingProbeAccount(&account) || !account.IsActive() || !upstreamBillingProbeEnabled(&account) || !upstreamBillingProbeSupportsSub2APIBilling(&account) {
 			continue
 		}
 		snapshot := decodeUpstreamBillingProbeSnapshot(account.Extra)
@@ -468,6 +468,9 @@ func (s *UpstreamBillingProbeService) probeAccountWithMode(ctx context.Context, 
 			return nil, loadErr
 		}
 		if !isUpstreamBillingProbeAccount(account) {
+			return nil, ErrUpstreamBillingProbeAccountInvalid
+		}
+		if !upstreamBillingProbeSupportsSub2APIBilling(account) {
 			return nil, ErrUpstreamBillingProbeAccountInvalid
 		}
 		if requireEnabled {
@@ -578,6 +581,9 @@ func (s *UpstreamBillingProbeService) SetAccountEnabled(ctx context.Context, acc
 	if !isUpstreamBillingProbeAccount(account) {
 		return ErrUpstreamBillingProbeAccountInvalid
 	}
+	if enabled && !upstreamBillingProbeSupportsSub2APIBilling(account) {
+		return ErrUpstreamBillingProbeAccountInvalid
+	}
 	updates := map[string]any{UpstreamBillingProbeEnabledExtraKey: enabled}
 	if !enabled {
 		updates[UpstreamBillingRateSyncEnabledExtraKey] = false
@@ -589,6 +595,9 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 	now := s.currentTime().UTC()
 	if s.accountTestService == nil || s.accountTestService.httpUpstream == nil {
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "transport_unavailable", 0)
+	}
+	if !upstreamBillingProbeSupportsSub2APIBilling(account) {
+		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "unsupported", 0)
 	}
 	// 平台放宽后取数直读 credentials：所有 API-key 平台的密钥与自定义上游
 	// 统一存放在 credentials.api_key / credentials.base_url。
@@ -987,6 +996,19 @@ func IsUpstreamBillingProbeIdentity(platform, accountType string) bool {
 
 func isUpstreamBillingProbeAccount(account *Account) bool {
 	return account != nil && IsUpstreamBillingProbeIdentity(account.Platform, account.Type)
+}
+
+// upstreamBillingProbeSupportsSub2APIBilling reports whether the account upstream
+// exposes TokenKey's /v1/sub2api/billing probe. MaaS dual-stack relays such as
+// CloudWise and tokensea do not implement that endpoint.
+func upstreamBillingProbeSupportsSub2APIBilling(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	if account.IsOpenAICloudwiseRelay() || account.IsOpenAITokenseaRelay() {
+		return false
+	}
+	return true
 }
 
 // upstreamBillingProbeOfficialAPIDomains lists the root domains of official
