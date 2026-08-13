@@ -38,12 +38,9 @@ func (UserPlatformQuota) Fields() []ent.Field {
 			MaxLen(32).
 			NotEmpty().
 			Validate(func(s string) error {
-				// SSOT: must match service.AllowedQuotaPlatforms in
-				// internal/service/domain_constants.go (intentionally a 5-platform
-				// subset of domain.Platform*; kiro and newapi are excluded from
-				// per-user quota). Update both places in lockstep.
+				// Must match service.AllowedQuotaPlatforms and the DB CHECK constraint.
 				switch s {
-				case "anthropic", "openai", "gemini", "antigravity", "grok":
+				case "anthropic", "openai", "gemini", "antigravity", "newapi", "kiro", "grok":
 					return nil
 				default:
 					return fmt.Errorf("platform %q is not allowed", s)
