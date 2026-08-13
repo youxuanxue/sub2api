@@ -10,6 +10,7 @@ import (
 type capturedKiroHeaders struct {
 	userAgent    string
 	amzUserAgent string
+	optOut       string
 }
 
 type kiroHeaderCaptureDoer struct {
@@ -20,6 +21,7 @@ func (d *kiroHeaderCaptureDoer) Do(req *http.Request) (*http.Response, error) {
 	d.seen = append(d.seen, capturedKiroHeaders{
 		userAgent:    req.Header.Get("User-Agent"),
 		amzUserAgent: req.Header.Get("x-amz-user-agent"),
+		optOut:       req.Header.Get("x-amzn-codewhisperer-optout"),
 	})
 	return &http.Response{
 		StatusCode: http.StatusUnauthorized,
@@ -28,75 +30,29 @@ func (d *kiroHeaderCaptureDoer) Do(req *http.Request) (*http.Response, error) {
 	}, nil
 }
 
-func TestHeaderValuesUseCanonicalKiroIdentity(t *testing.T) {
-	tests := []struct {
-		name       string
-		override   string
-		apiName    string
-		sdkVersion string
-		mode       string
-		build      func(*Account, string) kiroHeaderValues
-	}{
-		{
-			name:       "streaming default",
-			apiName:    "codewhispererstreaming",
-			sdkVersion: tkkiro.StreamingSDKVersion,
-			mode:       "m/E",
-			build:      buildStreamingHeaderValues,
-		},
-		{
-			name:       "runtime env override",
-			override:   "9.9.9-test",
-			apiName:    "codewhispererruntime",
-			sdkVersion: tkkiro.RuntimeSDKVersion,
-			mode:       "m/N,E",
-			build:      buildRuntimeHeaderValues,
-		},
+func TestHeaderValuesUseCanonicalKiroCLIIdentity(t *testing.T) {
+	got := buildKiroHeaderValues("runtime.us-east-1.kiro.dev")
+	if got.UserAgent != tkkiro.KiroCLIUserAgent {
+		t.Fatalf("User-Agent drifted:\n got: %s\nwant: %s", got.UserAgent, tkkiro.KiroCLIUserAgent)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(tkkiro.UserAgentVersionEnv, tt.override)
-			account := &Account{MachineId: "machine-1"}
-			got := tt.build(account, "runtime.us-east-1.kiro.dev")
-			identity := tkkiro.ResolveClientIdentity()
-
-			wantUA := tkkiro.BuildUserAgent(identity, tt.apiName, tt.sdkVersion, tt.mode, account.MachineId)
-			if got.UserAgent != wantUA {
-				t.Fatalf("User-Agent drifted from canonical builder:\n got: %s\nwant: %s", got.UserAgent, wantUA)
-			}
-			wantAmzUA := tkkiro.BuildAmzUserAgent(identity, tt.sdkVersion, account.MachineId)
-			if got.AmzUserAgent != wantAmzUA {
-				t.Fatalf("x-amz-user-agent drifted from canonical builder:\n got: %s\nwant: %s", got.AmzUserAgent, wantAmzUA)
-			}
-		})
+	if got.AmzUserAgent != tkkiro.KiroCLIAmzUserAgent {
+		t.Fatalf("x-amz-user-agent drifted:\n got: %s\nwant: %s", got.AmzUserAgent, tkkiro.KiroCLIAmzUserAgent)
 	}
 }
 
-func TestRequestPathsUseCanonicalKiroHeaders(t *testing.T) {
+func TestRequestPathsUseCanonicalKiroCLIHeaders(t *testing.T) {
 	tests := []struct {
-		name       string
-		override   string
-		apiName    string
-		sdkVersion string
-		mode       string
-		run        func(*kiroHeaderCaptureDoer, *Account) error
+		name string
+		run  func(*kiroHeaderCaptureDoer, *Account) error
 	}{
 		{
-			name:       "streaming",
-			apiName:    "codewhispererstreaming",
-			sdkVersion: tkkiro.StreamingSDKVersion,
-			mode:       "m/E",
+			name: "streaming",
 			run: func(doer *kiroHeaderCaptureDoer, account *Account) error {
 				return CallKiroAPIWithDoer(doer, account, &KiroPayload{}, nil)
 			},
 		},
 		{
-			name:       "runtime",
-			override:   "9.9.9-test",
-			apiName:    "codewhispererruntime",
-			sdkVersion: tkkiro.RuntimeSDKVersion,
-			mode:       "m/N,E",
+			name: "runtime",
 			run: func(doer *kiroHeaderCaptureDoer, account *Account) error {
 				_, err := getUsageLimitsWithDoer(account, doer)
 				return err
@@ -106,7 +62,6 @@ func TestRequestPathsUseCanonicalKiroHeaders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(tkkiro.UserAgentVersionEnv, tt.override)
 			account := &Account{
 				AccessToken: "token",
 				ProfileArn:  "arn:aws:codewhisperer:us-east-1:1:profile/test",
@@ -119,16 +74,15 @@ func TestRequestPathsUseCanonicalKiroHeaders(t *testing.T) {
 			if len(doer.seen) == 0 {
 				t.Fatal("actual request path did not reach the injected doer")
 			}
-
-			identity := tkkiro.ResolveClientIdentity()
-			wantUA := tkkiro.BuildUserAgent(identity, tt.apiName, tt.sdkVersion, tt.mode, account.MachineId)
-			wantAmzUA := tkkiro.BuildAmzUserAgent(identity, tt.sdkVersion, account.MachineId)
 			for i, got := range doer.seen {
-				if got.userAgent != wantUA {
-					t.Fatalf("request %d User-Agent drifted:\n got: %s\nwant: %s", i, got.userAgent, wantUA)
+				if got.userAgent != tkkiro.KiroCLIUserAgent {
+					t.Fatalf("request %d User-Agent drifted:\n got: %s\nwant: %s", i, got.userAgent, tkkiro.KiroCLIUserAgent)
 				}
-				if got.amzUserAgent != wantAmzUA {
-					t.Fatalf("request %d x-amz-user-agent drifted:\n got: %s\nwant: %s", i, got.amzUserAgent, wantAmzUA)
+				if got.amzUserAgent != tkkiro.KiroCLIAmzUserAgent {
+					t.Fatalf("request %d x-amz-user-agent drifted:\n got: %s\nwant: %s", i, got.amzUserAgent, tkkiro.KiroCLIAmzUserAgent)
+				}
+				if got.optOut != "false" {
+					t.Fatalf("request %d opt-out drifted: got %q, want false", i, got.optOut)
 				}
 			}
 		})

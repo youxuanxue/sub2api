@@ -206,8 +206,8 @@ func (s *TLSFingerprintProfileService) ResolveTLSProfile(account *Account) *tlsf
 			return p
 		}
 	}
-	// Kiro：无显式 profile_id 时按名解析真实 Kiro IDE canonical 模板，绝不回退到
-	// Node.js 24.x 内置默认值（那是 cc 形态，对 Kiro 是错指纹）。seed migration 尚未
+	// Kiro：无显式 profile_id 时按名解析 canonical 模板，绝不回退到
+	// Node.js 24.x 内置默认值（那是 cc 形态，对 Kiro 是错指纹）。CLI profile migration 尚未
 	// 落地时 GetProfileByName 返回 nil → 退回普通 TLS（安全，等同未开启前的行为）。
 	if account.IsKiro() {
 		return s.GetProfileByName(CanonicalKiroTLSProfileName)

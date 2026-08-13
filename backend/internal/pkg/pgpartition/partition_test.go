@@ -210,6 +210,61 @@ func TestDropExpired_UsesBoundsAndKeepsEmptyFuturePartition(t *testing.T) {
 	}
 }
 
+func TestListStraddling_PrunesFutureDailyChildren(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	cutoff := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	rows := sqlmock.NewRows([]string{"schema_name", "partition_name", "bound_expr", "lower_unbounded", "lower_bound"}).
+		AddRow("public", "ops_system_logs_legacy", "FOR VALUES FROM (MINVALUE) TO ('2026-09-01 00:00:00+00')", true, nil).
+		AddRow("public", "ops_system_logs_20260803", "FOR VALUES FROM ('2026-08-03 00:00:00+00') TO ('2026-08-04 00:00:00+00')", false, time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)).
+		AddRow("public", "ops_system_logs_20260804", "FOR VALUES FROM ('2026-08-04 00:00:00+00') TO ('2026-08-05 00:00:00+00')", false, time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC))
+	mock.ExpectQuery(`(?s)SELECT.*lower_unbounded.*FROM pg_inherits`).
+		WithArgs("ops_system_logs").
+		WillReturnRows(rows)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT min("created_at") FROM "public"."ops_system_logs_legacy"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow(cutoff.Add(-48 * time.Hour)))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT min("created_at") FROM "public"."ops_system_logs_20260803"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow(cutoff.Add(-time.Hour)))
+
+	got, err := ListStraddling(context.Background(), db, "ops_system_logs", "created_at", cutoff)
+	if err != nil {
+		t.Fatalf("ListStraddling: %v", err)
+	}
+	want := []string{"ops_system_logs_legacy", "ops_system_logs_20260803"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("straddling=%v want %v", got, want)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("future child must not trigger min query: %v", err)
+	}
+}
+
+func TestListStraddling_UnparseableLowerBoundFailsBeforeMin(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	rows := sqlmock.NewRows([]string{"schema_name", "partition_name", "bound_expr", "lower_unbounded", "lower_bound"}).
+		AddRow("public", "ops_system_logs_default", "DEFAULT", false, nil)
+	mock.ExpectQuery(`(?s)SELECT.*lower_unbounded.*FROM pg_inherits`).
+		WithArgs("ops_system_logs").
+		WillReturnRows(rows)
+
+	_, err = ListStraddling(context.Background(), db, "ops_system_logs", "created_at", time.Now())
+	if err == nil || !strings.Contains(err.Error(), "has no finite timestamptz lower bound") {
+		t.Fatalf("expected fail-closed lower-bound error, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unparseable bound must fail before min query: %v", err)
+	}
+}
+
 func TestDropExpired_RejectsQARecordsHourlyOwner(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

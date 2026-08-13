@@ -38,7 +38,6 @@ class PinReadersLiveRepoTest(unittest.TestCase):
         self.assertRegex(crw.read_pinned_claude_code(), r"^\d+\.\d+\.\d+")
         self.assertRegex(crw.read_pinned_codex(), r"^\d+\.\d+\.\d+")
         self.assertRegex(crw.read_pinned_antigravity(), r"^\d+\.\d+\.\d+")
-        self.assertRegex(crw.read_pinned_kiro(), r"^\d+\.\d+\.\d+")
         self.assertRegex(crw.read_pinned_cc_stainless(), r"^\d+\.\d+\.\d+")
         self.assertRegex(crw.read_pinned_gemini_cli(), r"^\d+\.\d+\.\d+")
         self.assertRegex(crw.read_pinned_grok_cli(), r"^\d+\.\d+\.\d+")
@@ -156,14 +155,14 @@ class ScanPlatformTest(unittest.TestCase):
 class SkillPlanTest(unittest.TestCase):
     def test_plan_lists_skill_for_drift(self) -> None:
         report = {
-            "drift_platform_ids": ["kiro"],
+            "drift_platform_ids": ["kiro-cli"],
             "platforms": [
                 {
-                    "id": "kiro",
-                    "name": "Kiro IDE",
+                    "id": "kiro-cli",
+                    "name": "Kiro CLI",
                     "skill": "tokenkey-kiro-fingerprint-alignment",
-                    "pinned": "0.11.107",
-                    "upstream_latest": "0.12.333",
+                    "pinned": "2.18.0",
+                    "upstream_latest": "2.19.0",
                 }
             ],
         }
@@ -281,14 +280,6 @@ class MainIntegrationTest(unittest.TestCase):
                     "published_at": "",
                 },
             },
-            "kiro": {
-                "Homebrew cask kiro": {
-                    "version": "1.0.0",
-                    "url": "https://example.com/kiro",
-                    "raw_tag": "1.0.0",
-                    "published_at": "",
-                },
-            },
             "kiro-cli": {
                 "Homebrew cask kiro-cli": {
                     "version": "1.0.0",
@@ -315,7 +306,6 @@ class MainIntegrationTest(unittest.TestCase):
                     "gemini-cli": lambda: "0.0.1",
                     "grok-cli": lambda: "0.0.1",
                     "antigravity": lambda: "0.0.1",
-                    "kiro": lambda: "0.0.1",
                     "kiro-cli": lambda: "0.0.1",
                 },
             ):
@@ -336,8 +326,8 @@ class MainIntegrationTest(unittest.TestCase):
             self.assertTrue(report_json.is_file())
             self.assertTrue(state.is_file())
             data = json.loads(report_json.read_text(encoding="utf-8"))
-            self.assertEqual(data["summary"]["drift_count"], 6)
-            self.assertEqual(data["summary"]["platform_count"], 9)
+            self.assertEqual(data["summary"]["drift_count"], 5)
+            self.assertEqual(data["summary"]["platform_count"], 8)
 
             plan_report = tmp_path / "plan-report.json"
             plan_markdown = tmp_path / "plan-report.md"

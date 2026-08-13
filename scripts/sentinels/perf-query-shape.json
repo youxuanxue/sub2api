@@ -64,9 +64,11 @@
         "pg_get_expr(c.relpartbound, c.oid, true) AS bound_expr",
         "WHERE i.inhparent = to_regclass($1)",
         "if !child.upper.After(cutoff)",
-        "has no finite timestamptz upper bound"
+        "has no finite timestamptz upper bound",
+        "child.lowerUnbounded || child.lower.Time.Before(cutoff)",
+        "has no finite timestamptz lower bound"
       ],
-      "rationale": "Partition retention must use PostgreSQL's declared exclusive upper bound, never max(data) or a filename suffix. This preserves empty future partitions, reclaims empty expired partitions, handles legacy names, and fails before any DROP when a finite time bound cannot be proven. A data-based regression can delete newly provisioned empty partitions immediately while every populated-partition test stays green."
+      "rationale": "Partition retention must use PostgreSQL's declared exclusive upper bound, never max(data) or a filename suffix. This preserves empty future partitions, reclaims empty expired partitions, handles legacy names, and fails before any DROP when a finite time bound cannot be proven. A data-based regression can delete newly provisioned empty partitions immediately while every populated-partition test stays green. ListStraddling must also prune children whose declared lower bound is at/after cutoff before issuing min(created_at), or daily partitioning creates one cleanup round-trip per current/future day."
     },
     {
       "path": "backend/internal/service/ops_cleanup_executor.go",
@@ -100,7 +102,8 @@
         "{table: \"ops_system_logs\"",
         "{table: \"ops_error_logs\"",
         "{table: \"usage_logs\"",
-        "pgpartition.EnsureMonthly(ctx, db, target.table, now, target.ahead)",
+        "{table: \"ops_system_logs\", ahead: daysAhead}",
+        "{table: \"ops_error_logs\", ahead: daysAhead}",
         "pgpartition.EnsureDaily(ctx, db, target.table, now, target.ahead)",
         "ModeRequireAllPartitioned",
         "pg_get_expr(child.relpartbound, child.oid, true)",

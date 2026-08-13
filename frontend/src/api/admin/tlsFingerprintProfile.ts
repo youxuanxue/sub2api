@@ -13,6 +13,7 @@ export interface TLSFingerprintProfile {
   name: string
   description: string | null
   enable_grease: boolean
+  shuffle_extensions: boolean
   cipher_suites: number[]
   curves: number[]
   point_formats: number[]
@@ -33,6 +34,7 @@ export interface CreateProfileRequest {
   name: string
   description?: string | null
   enable_grease?: boolean
+  shuffle_extensions?: boolean
   cipher_suites?: number[]
   curves?: number[]
   point_formats?: number[]
@@ -51,6 +53,7 @@ export interface UpdateProfileRequest {
   name?: string
   description?: string | null
   enable_grease?: boolean
+  shuffle_extensions?: boolean
   cipher_suites?: number[]
   curves?: number[]
   point_formats?: number[]

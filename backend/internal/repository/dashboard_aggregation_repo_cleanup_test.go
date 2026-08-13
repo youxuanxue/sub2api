@@ -32,9 +32,10 @@ func TestCleanupUsageLogs_PartitionedReclaimsStraddlingLegacy(t *testing.T) {
 	)
 
 	mock.ExpectQuery("FROM pg_inherits i").WillReturnRows(
-		sqlmock.NewRows([]string{"relname"}).AddRow("usage_logs_legacy"),
+		sqlmock.NewRows([]string{"nspname", "relname", "bound_expr", "lower_unbounded", "lower_bound"}).
+			AddRow("public", "usage_logs_legacy", "FOR VALUES FROM (MINVALUE) TO ('2026-08-10')", true, nil),
 	)
-	mock.ExpectQuery("SELECT min\\(\"created_at\"\\) FROM \"usage_logs_legacy\"").
+	mock.ExpectQuery("SELECT min\\(\"created_at\"\\) FROM \"public\"\\.\"usage_logs_legacy\"").
 		WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow(time.Date(2026, 5, 9, 0, 0, 0, 0, time.UTC)))
 
 	mock.ExpectExec("DELETE FROM \"usage_logs_legacy\"").

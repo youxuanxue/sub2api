@@ -4,6 +4,7 @@ status: approved
 approved_by: "xuejiao (phase 1 items 1/2/3 approval, 2026-08-03)"
 approved_at: 2026-08-03
 authors: [agent]
+related_prs: [1653]
 ---
 
 # Data-layer 第一阶段收尾
@@ -28,9 +29,10 @@ cron + leader lock
   -> cleanup_enabled=true  -> retention/drop/delete -> ops_cleanup heartbeat
 ```
 
-关闭 cleanup 只关闭删除，不再关闭 cron。分区维护为分区化的 ops 表创建当前月和未来月；
-`usage_logs` 完成显式切换后创建当前日和未来日。维护失败只写维护心跳，不伪造 cleanup
-运行记录；cleanup hold 期间 `ops_cleanup` heartbeat 必须保持不动。
+关闭 cleanup 只关闭删除，不再关闭 cron。分区维护为 `ops_system_logs`、
+`ops_error_logs` 与 `usage_logs` 创建当前 UTC 日和未来 7 日（共 8 个日范围）。ops 两表从下一个
+完整 UTC 月起使用日分区；切换前的 current month 与历史 child 保持不动。维护失败只写维护
+心跳，不伪造 cleanup 运行记录；cleanup hold 期间 `ops_cleanup` heartbeat 必须保持不动。
 
 日常诊断 fail closed：当前或未来分区缺失、分区维护心跳过期、pgdump 或 EBS snapshot
 过期、归档 ledger 落后、cleanup hold 长期未收口、恢复演练证据过期，均产生独立 finding。
@@ -46,8 +48,8 @@ Archive closeout 继续证明冷数据可恢复，但不再作为年龄 retentio
 
 **Prod 终态**由 repo 证据 + `python3 ops/observability/data_layer_archive_health.py` 定义：
 `closeout_complete`、`tail_export_complete`、`cleanup_release_complete` 均为 true，且
-`evidence_errors` 为空。日常回收唯一 owner 是 `OpsCleanupService`（ops 月分区在
-`upper_bound <= now-30d` 时整分区 DROP；跨边界宽分区 capped 行级 DELETE；
+`evidence_errors` 为空。日常回收唯一 owner 是 `OpsCleanupService`（ops 日分区在
+`upper_bound <= retention cutoff` 时整分区 DROP；跨边界宽分区 capped 行级 DELETE；
 `usage_logs_legacy` 走 attach-legacy + 90d DELETE/DropExpired）。promote ledger 的
 `drop_ready` 只证明 export 证据齐全，**不授权**删除。
 

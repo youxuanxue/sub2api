@@ -3,12 +3,13 @@
 # This observes database configuration only; it does not capture ClientHello bytes.
 set -euo pipefail
 
-PROFILE_NAME="tk_canonical_kiro_ide"
+PROFILE_NAME="tk_canonical_kiro_cli"
 SQL="
 SELECT row_to_json(t) FROM (
   SELECT
     name,
     enable_grease,
+    shuffle_extensions,
     cipher_suites,
     curves,
     point_formats,

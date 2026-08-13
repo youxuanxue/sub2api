@@ -2,7 +2,7 @@
 """Discover upstream client releases and compare to TokenKey fingerprint pins.
 
 Polls public release channels for Claude Code (incl. Stainless SDK), Codex (CLI + VS Code family),
-Antigravity, Kiro IDE/CLI, Gemini CLI, and Grok CLI, reads the pinned versions from the repo,
+Antigravity, Kiro CLI, Gemini CLI, and Grok CLI, reads the pinned versions from the repo,
 and reports drift so operators can run the matching fingerprint-alignment skill before upstream
 rejects spoofed traffic.
 
@@ -183,12 +183,6 @@ def read_pinned_antigravity() -> str:
     return normalize_version(m.group(1)) if m else ""
 
 
-def read_pinned_kiro() -> str:
-    text = _read_text(KIRO_CONSTANTS_GO)
-    m = re.search(r'DefaultKiroIDEVersion\s*=\s*"([^"]+)"', text)
-    return normalize_version(m.group(1)) if m else ""
-
-
 def read_pinned_cc_stainless() -> str:
     text = _read_text(CLAUDE_CONSTANTS_GO)
     m = re.search(r'"X-Stainless-Package-Version":\s*"([^"]+)"', text)
@@ -244,7 +238,6 @@ PIN_READERS: dict[str, Callable[[], str]] = {
     "codex": read_pinned_codex,
     "codex-vscode": read_pinned_codex_vscode,
     "antigravity": read_pinned_antigravity,
-    "kiro": read_pinned_kiro,
     "kiro-cli": read_pinned_kiro_cli,
     "gemini-cli": read_pinned_gemini_cli,
     "grok-cli": read_pinned_grok_cli,
@@ -299,24 +292,15 @@ PLATFORM_PLAYBOOKS: dict[str, dict[str, Any]] = {
             "bash ops/antigravity/capture-antigravity-fingerprint.sh check",
         ],
     },
-    "kiro": {
-        "skill": "tokenkey-kiro-fingerprint-alignment",
-        "umbrella_skill": "tokenkey-fingerprint-alignment-all",
-        "first_commands": [
-            "bash ops/kiro/capture-kiro-fingerprint.sh check env",
-            "bash ops/kiro/capture-kiro-fingerprint.sh capture --proxy-port 7890 --seconds 75",
-            "bash ops/kiro/capture-kiro-fingerprint.sh check-tls",
-        ],
-    },
     "kiro-cli": {
         "skill": "tokenkey-kiro-fingerprint-alignment",
         "umbrella_skill": "tokenkey-fingerprint-alignment-all",
         "first_commands": [
-            "brew info --cask kiro-cli",
-            "/Applications/Kiro\\ CLI.app/Contents/MacOS/kiro-cli --version",
-            "rg DefaultKiroCLIVersion backend/internal/pkg/kiro/constants.go",
+            "bash ops/kiro/capture-kiro-fingerprint.sh version",
+            "bash ops/kiro/capture-kiro-fingerprint.sh capture --samples 3",
+            "bash ops/kiro/capture-kiro-fingerprint.sh check --bundle <bundle>",
         ],
-        "note": "Homebrew kiro-cli semver is distinct from Kiro IDE; verify the local CLI binary before bumping DefaultKiroCLIVersion.",
+        "note": "Release metadata is advisory until the installed kiro-cli produces complete TLS, HTTP, protocol, and auth evidence.",
     },
     "gemini-cli": {
         "skill": "tokenkey-gemini-fingerprint-alignment",
@@ -672,7 +656,6 @@ def run_selftest() -> None:
     cc = read_pinned_claude_code()
     codex = read_pinned_codex()
     ag = read_pinned_antigravity()
-    kiro = read_pinned_kiro()
     stainless = read_pinned_cc_stainless()
     gemini = read_pinned_gemini_cli()
     grok = read_pinned_grok_cli()
@@ -680,7 +663,6 @@ def run_selftest() -> None:
     assert cc, "expected cc_version pin"
     assert codex, "expected codex pin"
     assert ag, "expected antigravity pin"
-    assert kiro, "expected kiro pin"
     assert stainless, "expected cc stainless pin"
     assert gemini, "expected gemini-cli pin"
     assert grok, "expected grok-cli pin"

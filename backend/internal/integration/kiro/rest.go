@@ -371,7 +371,7 @@ func setKiroHeaders(req *http.Request, account *Account) {
 	if req.URL != nil {
 		host = req.URL.Host
 	}
-	headerValues := buildRuntimeHeaderValues(account, host)
+	headerValues := buildKiroHeaderValues(host)
 
 	req.Header.Set("Accept", "application/json")
 	applyKiroBaseHeaders(req, account, headerValues)

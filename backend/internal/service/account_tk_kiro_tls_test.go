@@ -169,12 +169,16 @@ func firstAnthropicModelOutsideKiroCatalogForAccountTest(t *testing.T) string {
 // name (no explicit tls_fingerprint_profile_id binding needed).
 func TestResolveTLSProfile_KiroByName(t *testing.T) {
 	svc := newTLSSvcWithProfiles(&model.TLSFingerprintProfile{
-		Name:         CanonicalKiroTLSProfileName,
-		CipherSuites: []uint16{4865, 4866},
+		Name:              CanonicalKiroTLSProfileName,
+		ShuffleExtensions: true,
+		CipherSuites:      []uint16{4865, 4866},
 	})
 	got := svc.ResolveTLSProfile(kiroTestAccount(nil))
 	if got == nil || got.Name != CanonicalKiroTLSProfileName {
 		t.Fatalf("kiro must resolve %q by name, got %+v", CanonicalKiroTLSProfileName, got)
+	}
+	if !got.ShuffleExtensions {
+		t.Fatal("kiro profile must preserve extension permutation at runtime")
 	}
 }
 

@@ -43,7 +43,10 @@ class CaptureAllExitContractTest(unittest.TestCase):
         self.assertIn("grok-cli", result.stdout)
         self.assertIn("advisory", result.stdout)
         self.assertIn("kiro-cli", result.stdout)
-        self.assertIn("version_only", (REPO_ROOT / "scripts/fingerprint/client_identity_registry.json").read_text())
+        registry = (REPO_ROOT / "scripts/fingerprint/client_identity_registry.json").read_text()
+        self.assertNotIn('"id": "kiro"', registry)
+        self.assertIn('"id": "kiro-cli"', registry)
+        self.assertIn('"evidence_mode": "wire_tls_http"', registry)
 
     def test_drift_exits_one(self) -> None:
         result = self._run((1, 0, 0, 0))

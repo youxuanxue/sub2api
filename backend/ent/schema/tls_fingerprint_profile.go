@@ -52,6 +52,10 @@ func (TLSFingerprintProfile) Fields() []ent.Field {
 		field.Bool("enable_grease").
 			Default(false),
 
+		// shuffle_extensions: 是否在每次握手前随机排列扩展（rustls 使用）
+		field.Bool("shuffle_extensions").
+			Default(false),
+
 		// cipher_suites: TLS 加密套件列表（顺序敏感，影响 JA3）
 		field.JSON("cipher_suites", []uint16{}).
 			Optional().

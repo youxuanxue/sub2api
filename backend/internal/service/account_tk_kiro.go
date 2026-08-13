@@ -154,12 +154,10 @@ func kiroMirrorStubSupportsModel(requestedModel string) bool {
 	return false
 }
 
-// CanonicalKiroTLSProfileName is the name of the TLS fingerprint profile captured
-// from a real Kiro IDE ClientHello (deploy/aws/stage0/tk_canonical_kiro_ide.json,
-// seeded by migration tk_014). It is intentionally distinct from the Claude Code
-// canonical profile (tk_canonical_cc_oauth): Kiro bundles Node 22.x while cc ships
-// Node 24.x, so their JA3 differ and the profiles must not be shared.
-const CanonicalKiroTLSProfileName = "tk_canonical_kiro_ide"
+// CanonicalKiroTLSProfileName is the sole Kiro TLS identity, captured from real
+// kiro-cli traffic and seeded by the current forward migration. It remains
+// distinct from the Claude Code canonical profile because the TLS stacks differ.
+const CanonicalKiroTLSProfileName = "tk_canonical_kiro_cli"
 
 // isKiroTLSFingerprintEnabled reports whether TLS fingerprint masking is active for
 // this Kiro account. It is default-on: Kiro egresses to AWS CodeWhisperer where a

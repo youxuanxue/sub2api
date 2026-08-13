@@ -13,6 +13,7 @@ package tlsfingerprint
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -278,7 +279,76 @@ func TestBuildClientHelloSpec(t *testing.T) {
 	}
 }
 
-// TestToUTLSCurves tests curve ID conversion.
+func TestBuildClientHelloSpecShufflesExtensions(t *testing.T) {
+	profile := &Profile{
+		Name:              "rustls_permuted",
+		ShuffleExtensions: true,
+		Extensions:        []uint16{0, 5, 10, 11, 13, 23, 35, 43, 45, 51},
+	}
+
+	seen := make(map[string]struct{})
+	for range 20 {
+		spec := buildClientHelloSpecFromProfile(profile)
+		ids := make([]uint16, 0, len(spec.Extensions))
+		for _, ext := range spec.Extensions {
+			ids = append(ids, extensionTypeID(t, ext))
+		}
+		if !sameUint16Set(ids, profile.Extensions) {
+			t.Fatalf("shuffled extension set changed: got %v, want set %v", ids, profile.Extensions)
+		}
+		seen[fmt.Sprint(ids)] = struct{}{}
+	}
+	if len(seen) < 2 {
+		t.Fatal("expected extension order to vary across ClientHello specs")
+	}
+}
+
+func extensionTypeID(t *testing.T, ext utls.TLSExtension) uint16 {
+	t.Helper()
+	switch ext.(type) {
+	case *utls.SNIExtension:
+		return 0
+	case *utls.StatusRequestExtension:
+		return 5
+	case *utls.SupportedCurvesExtension:
+		return 10
+	case *utls.SupportedPointsExtension:
+		return 11
+	case *utls.SignatureAlgorithmsExtension:
+		return 13
+	case *utls.ExtendedMasterSecretExtension:
+		return 23
+	case *utls.SessionTicketExtension:
+		return 35
+	case *utls.SupportedVersionsExtension:
+		return 43
+	case *utls.PSKKeyExchangeModesExtension:
+		return 45
+	case *utls.KeyShareExtension:
+		return 51
+	default:
+		t.Fatalf("unexpected extension type %T", ext)
+		return 0
+	}
+}
+
+func sameUint16Set(left, right []uint16) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	counts := make(map[uint16]int, len(left))
+	for _, value := range left {
+		counts[value]++
+	}
+	for _, value := range right {
+		counts[value]--
+		if counts[value] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func TestToUTLSCurves(t *testing.T) {
 	input := []uint16{0x001d, 0x0017, 0x0018}
 	result := toUTLSCurves(input)
