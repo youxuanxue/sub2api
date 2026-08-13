@@ -665,13 +665,14 @@
       "platform": "newapi",
       "model_id": "doubao-seedance-1-5-pro-251215",
       "served_on": [
-        "7"
+        "7",
+        "96"
       ],
       "channel_type": 45,
       "price_source": "overlay",
       "price_key": "doubao-seedance-1-5-pro-251215",
       "display": true,
-      "notes": "volcengine account 7. Seedance 1.5-pro VIDEO model, mapped by tk_033. Priced in overlay (output_cost_per_second, VolcEngine Ark official 1080p-with-audio max tier)."
+      "notes": "volcengine account 7. Seedance 1.5-pro VIDEO model, mapped by tk_033. Priced in overlay (output_cost_per_second, VolcEngine Ark official 1080p-with-audio max tier). Also served on XRToken account 96 (platform=newapi, channel_type=54, base_url=https://api.xrtoken.net) — an ARK-compatible reseller reached through the TK task-adaptor wrapper in internal/relay/bridge/video_relay_tk_xrtoken.go; same Ark model id, so the overlay price key is unchanged. Account 96 mapping: served-via-modelops-activation. channel_type stays 45 here because the manifest forbids duplicate model_id — the ch54 preset projection picks this row up via xrtokenSharedManifestModelIDs (same mechanism as Qianfan account 90)."
     },
     "newapi/doubao-seedance-1-0-pro-fast-251015": {
       "platform": "newapi",
@@ -689,25 +690,61 @@
       "platform": "newapi",
       "model_id": "doubao-seedance-2-0-260128",
       "served_on": [
-        "7"
+        "7",
+        "96"
       ],
       "channel_type": 45,
       "price_source": "overlay",
       "price_key": "doubao-seedance-2-0-260128",
       "display": true,
-      "notes": "volcengine account 7. Seedance 2.0 VIDEO model, mapped by tk_033. Priced in overlay (output_cost_per_second, VolcEngine Ark official 1080p text/image-to-video tier). NOTE: video-input continuation is rejected upstream of pricing by the video submit guard until re-priced."
+      "notes": "volcengine account 7. Seedance 2.0 VIDEO model, mapped by tk_033. Priced in overlay (output_cost_per_second, VolcEngine Ark official 1080p text/image-to-video tier). NOTE: video-input continuation is rejected upstream of pricing by the video submit guard until re-priced. Also served on XRToken account 96 (platform=newapi, channel_type=54, base_url=https://api.xrtoken.net) via the ARK-compatible task-adaptor wrapper in internal/relay/bridge/video_relay_tk_xrtoken.go; XRToken exposes this SKU as volcengine/doubao-seedance-2-0-260128 and the account model_mapping keys it back to this Ark billing id, so the overlay price above applies unchanged. channel_type stays 45 because the manifest indexes one entry per model_id and account 7 owns that index; the ch54 preset surface picks account 96 up through xrtokenSharedManifestModelIDs (same mechanism as qianfanSharedManifestModelIDs for account 90). Account 96 mapping: served-via-modelops-activation."
     },
     "newapi/doubao-seedance-2-0-fast-260128": {
       "platform": "newapi",
       "model_id": "doubao-seedance-2-0-fast-260128",
       "served_on": [
-        "7"
+        "7",
+        "96"
       ],
       "channel_type": 45,
       "price_source": "overlay",
       "price_key": "doubao-seedance-2-0-fast-260128",
       "display": true,
-      "notes": "volcengine account 7. Seedance 2.0-fast VIDEO model, mapped by tk_033. Priced in overlay (output_cost_per_second, VolcEngine Ark official 720p max-output tier)."
+      "notes": "volcengine account 7. Seedance 2.0-fast VIDEO model, mapped by tk_033. Priced in overlay (output_cost_per_second, VolcEngine Ark official 720p max-output tier). Also served on XRToken account 96 (platform=newapi, channel_type=54, base_url=https://api.xrtoken.net) via the ARK-compatible task-adaptor wrapper in internal/relay/bridge/video_relay_tk_xrtoken.go; XRToken exposes this SKU as volcengine/doubao-seedance-2-0-fast-260128 and the account model_mapping keys it back to this Ark billing id, so the overlay price above applies unchanged. channel_type stays 45 because the manifest indexes one entry per model_id and account 7 owns that index; the ch54 preset surface picks account 96 up through xrtokenSharedManifestModelIDs (same mechanism as qianfanSharedManifestModelIDs for account 90). Account 96 mapping: served-via-modelops-activation."
+    },
+    "newapi/doubao-seedance-2-5-260628": {
+      "platform": "newapi",
+      "model_id": "doubao-seedance-2-5-260628",
+      "served_on": [
+        "96"
+      ],
+      "channel_type": 54,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 54,
+        "base_url": "https://api.xrtoken.net"
+      },
+      "price_source": "overlay",
+      "price_key": "doubao-seedance-2-5-260628",
+      "display": true,
+      "notes": "XRToken account 96 (platform=newapi, channel_type=54 DoubaoVideo, base_url=https://api.xrtoken.net). Seedance 2.5 VIDEO model reached through the ARK-compatible task-adaptor wrapper in internal/relay/bridge/video_relay_tk_xrtoken.go (XRToken serves Ark bodies at /v1/contents/generations/tasks instead of Ark's /api/v3 path). XRToken exposes the SKU as volcengine/doubao-seedance-2-5-260628; the account model_mapping keys it back to this Ark billing id so the overlay price applies. Priced in overlay from the VolcEngine Ark official model-pricing page 70.00 CNY/M-token input-without-video rate; Ark publishes ONLY 480p/720p for this SKU, so the tiers stop at 720p on purpose — inventing a 1080p tier would silently bill a resolution the upstream does not produce. Video-input continuation stays rejected by the video submit guard (it bills input+output duration). Account 96 mapping: served-via-modelops-activation."
+    },
+    "newapi/doubao-seedance-2.0-mini": {
+      "platform": "newapi",
+      "model_id": "doubao-seedance-2.0-mini",
+      "served_on": [
+        "96"
+      ],
+      "channel_type": 54,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 54,
+        "base_url": "https://api.xrtoken.net"
+      },
+      "price_source": "overlay",
+      "price_key": "doubao-seedance-2.0-mini",
+      "display": true,
+      "notes": "XRToken account 96 (platform=newapi, channel_type=54 DoubaoVideo, base_url=https://api.xrtoken.net). Seedance 2.0 Mini VIDEO model via the ARK-compatible task-adaptor wrapper in internal/relay/bridge/video_relay_tk_xrtoken.go. The dotted id is Ark's OWN spelling on the official model-pricing page (doubao-seedance-2.0-mini, no date suffix), not an XRToken rename, so it is also the Ark billing id and the overlay price key; XRToken exposes it as volcengine/doubao-seedance-2.0-mini and the account model_mapping keys it back. Priced in overlay from the Ark official 23.00 CNY/M-token input-without-video LIST rate — the page's 限时4折 promo is deliberately NOT applied, matching every existing seedance row (a promo expiry would otherwise turn into silent under-billing). Ark publishes ONLY 480p/720p for this SKU so the tiers stop at 720p. Video-input continuation stays rejected by the video submit guard. Account 96 mapping: served-via-modelops-activation."
     },
     "newapi/doubao-seedream-4-0-250828": {
       "platform": "newapi",

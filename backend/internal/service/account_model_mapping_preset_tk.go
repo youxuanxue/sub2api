@@ -95,6 +95,18 @@ func isNewAPIQianfanAccount(account *Account) bool {
 		newapiintegration.IsQianfanBaseURL(account.ChannelType, account.GetBaseURL())
 }
 
+// isNewAPIXRTokenAccount reports whether this is an XRToken account — an
+// ARK-compatible reseller provisioned on the video-only DoubaoVideo channel.
+// Its preset surface must merge the ch54-indexed XRToken-only SKUs with the
+// seedance rows the manifest indexes under ch45 (see
+// xrtokenSharedManifestModelIDs), exactly as the Qianfan case does.
+func isNewAPIXRTokenAccount(account *Account) bool {
+	return account != nil &&
+		account.Platform == PlatformNewAPI &&
+		account.ChannelType == newapiconstant.ChannelTypeDoubaoVideo &&
+		newapiintegration.IsXRTokenBaseURL(account.ChannelType, account.GetBaseURL())
+}
+
 // accountModelMappingOverrideAccounts declares account-specific mapping scopes
 // whose serving intent is narrower than their shared platform/channel floor.
 func accountModelMappingOverrideAccounts() []*Account {
@@ -134,6 +146,11 @@ func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
 		sort.Strings(ids)
 		return ids
 	}
+	if isNewAPIXRTokenAccount(account) {
+		ids := newAPIXRTokenModelMappingPresetIDs()
+		sort.Strings(ids)
+		return ids
+	}
 	return AccountModelMappingPresetIDs(context.Background(), account.Platform, account.ChannelType, nil)
 }
 
@@ -151,6 +168,11 @@ func NewAPIModelDisplayIDsForAccount(account *Account) []string {
 	}
 	if isNewAPIQianfanAccount(account) {
 		ids := newAPIQianfanModelDisplayPresetIDs()
+		sort.Strings(ids)
+		return ids
+	}
+	if isNewAPIXRTokenAccount(account) {
+		ids := newAPIXRTokenModelDisplayPresetIDs()
 		sort.Strings(ids)
 		return ids
 	}

@@ -146,7 +146,7 @@ func DispatchVideoSubmit(_ context.Context, c *gin.Context, in ChannelContextInp
 		relayInfo.RelayMode = relayconstant.RelayModeVideoSubmit
 	}
 
-	adaptor := taskAdaptorForChannel(in.ChannelType)
+	adaptor := taskAdaptorForChannel(in.ChannelType, in.BaseURL)
 	if adaptor == nil {
 		return nil, errUnsupportedChannel(in.ChannelType)
 	}
@@ -379,14 +379,19 @@ func DispatchVideoFetch(_ context.Context, _ *gin.Context, in VideoFetchInput) (
 	if strings.TrimSpace(in.UpstreamTaskID) == "" {
 		return nil, types.NewError(errors.New("upstream task id is required"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
-	adaptor := taskAdaptorForChannel(in.ChannelType)
-	if adaptor == nil {
-		return nil, errUnsupportedChannel(in.ChannelType)
-	}
-
+	// Resolve base_url BEFORE adaptor selection: which adaptor serves this
+	// channel_type can depend on the base (XRToken shares ch54 with official
+	// Ark, distinguished only by host), so selecting first would pick the Ark
+	// adaptor for a registry record that stored an empty base and then fell
+	// back to the Ark default.
 	baseURL := in.BaseURL
 	if baseURL == "" && in.ChannelType >= 0 && in.ChannelType < len(newapiconstant.ChannelBaseURLs) {
 		baseURL = newapiconstant.ChannelBaseURLs[in.ChannelType]
+	}
+
+	adaptor := taskAdaptorForChannel(in.ChannelType, baseURL)
+	if adaptor == nil {
+		return nil, errUnsupportedChannel(in.ChannelType)
 	}
 
 	resp, err := adaptor.FetchTask(baseURL, in.APIKey, map[string]any{
@@ -444,9 +449,25 @@ func readVideoFetchResponseBodyLimited(r io.Reader, maxBytes int64) ([]byte, err
 // channel type, or nil. DispatchVideoSubmit and DispatchVideoFetch own the
 // bridge-local lookup; external preflight callers MUST use engine-level truth
 // so capability semantics stay centralized outside the bridge package.
-func taskAdaptorForChannel(channelType int) channel.TaskAdaptor {
+//
+// baseURL selects among variants that share a channel_type. Today that is
+// XRToken, an ARK-compatible reseller reached on ChannelTypeDoubaoVideo whose
+// task paths differ from official Ark by one middle path segment — see
+// video_relay_tk_xrtoken.go. Dispatching on the sentinel base_url (rather than
+// minting a TK-private channel_type) keeps this a pure bridge-local concern:
+// engine capability, route registration and the admin channel catalog all keep
+// treating the account as ch54, exactly as they do for the ch45 Agent Plan and
+// ch46 Qianfan sentinels.
+//
+// An empty baseURL falls through to the upstream adaptor, which is the correct
+// default: callers that have no base_url (legacy registry rows) get official
+// Ark behavior, unchanged from before this override existed.
+func taskAdaptorForChannel(channelType int, baseURL string) channel.TaskAdaptor {
 	if channelType <= 0 {
 		return nil
+	}
+	if newapiintegration.IsXRTokenBaseURL(channelType, baseURL) {
+		return newXRTokenTaskAdaptor()
 	}
 	platform := newapiconstant.TaskPlatform(strconv.Itoa(channelType))
 	return newapirelay.GetTaskAdaptor(platform)

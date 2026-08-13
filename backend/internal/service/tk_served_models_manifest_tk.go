@@ -252,6 +252,34 @@ func newAPIQianfanModelDisplayPresetIDs() []string {
 	return mergeSortedManifestModelIDs(scoped, qianfanSharedManifestModelIDs)
 }
 
+// xrtokenSharedManifestModelIDs lists manifest rows also served on XRToken
+// account 96 (channel_type=54) but indexed under channel_type=45, because the
+// manifest forbids a duplicate model_id and the VolcEngine Ark account owns that
+// index. Same mechanism — and same reason — as qianfanSharedManifestModelIDs.
+//
+// These are the Ark billing ids; XRToken exposes them under a `volcengine/`
+// prefix and the account model_mapping keys them back, so the shared overlay
+// price applies to both accounts unchanged.
+//
+// The two XRToken-only SKUs (doubao-seedance-2-5-260628, doubao-seedance-2.0-mini)
+// are deliberately absent: they ARE indexed under channel_type=54, so the scoped
+// lookup already returns them and repeating them here would be redundant.
+var xrtokenSharedManifestModelIDs = []string{
+	"doubao-seedance-1-5-pro-251215",
+	"doubao-seedance-2-0-260128",
+	"doubao-seedance-2-0-fast-260128",
+}
+
+func newAPIXRTokenModelMappingPresetIDs() []string {
+	scoped := tkServedModelsManifestPresetIDsByChannelType(newapiconstant.ChannelTypeDoubaoVideo)
+	return mergeSortedManifestModelIDs(scoped, xrtokenSharedManifestModelIDs)
+}
+
+func newAPIXRTokenModelDisplayPresetIDs() []string {
+	scoped := tkServedModelsManifestDisplayPresetIDsByChannelType(newapiconstant.ChannelTypeDoubaoVideo)
+	return mergeSortedManifestModelIDs(scoped, xrtokenSharedManifestModelIDs)
+}
+
 func mergeSortedManifestModelIDs(primary, extra []string) []string {
 	if len(primary) == 0 && len(extra) == 0 {
 		return nil

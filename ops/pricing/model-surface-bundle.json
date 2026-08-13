@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "floor_sha256": "c19d41f7c37492be9806c596dea39b3f24f2c5e0285db2c0da4ea68b23abeb4d",
+  "floor_sha256": "49810bad2ef2a715d7234092996459d719b077651b507c883ea7f5b502790780",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -320,6 +320,10 @@
         "doubao-seedream-4-0-250828": "doubao-seedream-4-0-250828",
         "doubao-seedream-4-5-251128": "doubao-seedream-4-5-251128",
         "doubao-seedream-5-0-260128": "doubao-seedream-5-0-260128"
+      },
+      "54": {
+        "doubao-seedance-2-5-260628": "doubao-seedance-2-5-260628",
+        "doubao-seedance-2.0-mini": "doubao-seedance-2.0-mini"
       }
     },
     "account_overrides": [
