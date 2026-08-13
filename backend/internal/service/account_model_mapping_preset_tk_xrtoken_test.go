@@ -3,10 +3,12 @@
 package service
 
 import (
+	"context"
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
+	"github.com/stretchr/testify/require"
 )
 
 // XRToken account 96 is a ch54 (DoubaoVideo) ARK-compatible reseller. Its five
@@ -106,5 +108,69 @@ func TestPlainArkCh54AccountDoesNotInheritXRTokenSharedModels(t *testing.T) {
 				t.Errorf("plain Ark ch54 preset leaked XRToken shared model %q: %v", shared, got)
 			}
 		}
+	}
+}
+
+// TestAccountModelMappingFloorForOpsIncludesXRTokenOverride is the SSOT half of
+// the fix. It is not enough that the admin preset surface knows about account
+// 96: the COMPILED FLOOR must export an XRToken account_override too, because
+// that floor is what `modelops activate` / `apply-accounts` diff live accounts
+// against.
+//
+// Before this override existed the bundle carried no XRToken scope at all, so
+// activation had nothing to add and refused with "bundle delta has no added or
+// retargeted required model mappings" — i.e. the documented
+// `served-via-modelops-activation` path could not actually run.
+//
+// Two assertions, both load-bearing:
+//
+//  1. All FIVE served SKUs are present. Falling through to the generic
+//     channel-type floor would export only the two ch54-indexed ones, and
+//     apply-accounts would then PRUNE the three shared SKUs off the live
+//     account (they would read as `compatible_extra_keys` at best, and the
+//     admin surface would disagree with the floor).
+//  2. Every target is IDENTITY. XRToken's `volcengine/` namespace belongs on
+//     the wire (applied by the task adaptor), never in a mapping target: the
+//     floor cannot represent a prefixed target, so storing one makes
+//     apply-accounts see permanent `bad_targets` drift and rewrite it back.
+func TestAccountModelMappingFloorForOpsIncludesXRTokenOverride(t *testing.T) {
+	t.Parallel()
+	floor, err := AccountModelMappingFloorForOps(context.Background(), "")
+	require.NoError(t, err)
+	require.NotEmpty(t, floor.AccountOverrides)
+
+	var override *AccountModelMappingOverride
+	for i := range floor.AccountOverrides {
+		candidate := floor.AccountOverrides[i]
+		if candidate.Platform == PlatformNewAPI &&
+			candidate.ChannelType == newapiconstant.ChannelTypeDoubaoVideo &&
+			candidate.BaseURL == newapiintegration.XRTokenBaseURL {
+			override = &floor.AccountOverrides[i]
+			break
+		}
+	}
+	require.NotNil(t, override,
+		"XRToken ch54 account override must be exported in the bundle floor, "+
+			"otherwise modelops activate has no delta to apply")
+
+	// (1) every served SKU, not just the ch54-indexed pair.
+	wantModels := NewAPIModelMappingPresetIDsForAccount(
+		xrTokenProbeAccount(newapiintegration.XRTokenBaseURL),
+	)
+	require.Len(t, wantModels, 5, "account 96 serves five seedance SKUs")
+	for _, id := range wantModels {
+		require.Contains(t, override.ModelMapping, id,
+			"floor must export %q or apply-accounts prunes it off account 96", id)
+	}
+	require.Len(t, override.ModelMapping, len(wantModels))
+
+	// (2) identity targets only — the vendor prefix lives in the adaptor.
+	for key, target := range override.ModelMapping {
+		require.Equal(t, key, target,
+			"model_mapping target must be identity; the volcengine/ prefix is applied "+
+				"on the wire by the XRToken task adaptor, and a prefixed target here "+
+				"would be reverted by the next apply-accounts")
+		require.NotContains(t, target, newapiintegration.XRTokenVideoVendorPrefix,
+			"vendor prefix must never appear in a mapping target")
 	}
 }

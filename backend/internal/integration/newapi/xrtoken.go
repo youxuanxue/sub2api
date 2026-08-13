@@ -78,3 +78,48 @@ func NormalizeXRTokenBaseURL(base string) string {
 	}
 	return base
 }
+
+// XRTokenVideoVendorPrefix is the vendor namespace XRToken publishes its Ark
+// video SKUs under. Verified against the live public catalog (GET
+// https://api.xrtoken.net/v1/models, no auth): all 60 ids carry a vendor
+// prefix, and every `type:"video"` id is `volcengine/<ark-id>` — e.g.
+// `volcengine/doubao-seedance-2-5-260628`. Its own ARK-compatibility docs show
+// the same shape in the createVideoTask cURL example.
+const XRTokenVideoVendorPrefix = "volcengine/"
+
+// XRTokenUpstreamVideoModel translates a TokenKey-facing Ark model id into the
+// id XRToken actually accepts, by prepending the vendor namespace.
+//
+// WHY THIS IS NOT model_mapping's JOB. The obvious alternative is to store
+// `{"doubao-seedance-2-5-260628": "volcengine/doubao-seedance-2-5-260628"}` in
+// the account's credentials.model_mapping. That does not survive contact with
+// TokenKey's mapping SSOT, in three separate ways:
+//
+//  1. The compiled floor can only express IDENTITY mappings — every newapi
+//     branch of accountModelMappingForAccount returns identityModelMapping(ids),
+//     i.e. `id -> id`. A prefixed target is unrepresentable.
+//  2. So the correct value could only be written by hand, out-of-band from the
+//     floor — and `manage-account-model-mapping-runtime.py` then classifies it
+//     as a `bad_targets` drift (got != want) and rewrites it BACK to identity on
+//     the next routine apply-accounts. A hand-fixed account silently regresses.
+//  3. It duplicates one fact in two places. The adaptor already knows this
+//     account is XRToken (that is how it rewrites the task URL); repeating the
+//     vendor rule as five hand-written mapping rows means every new Seedance SKU
+//     needs a manual, unvalidated edit — the overlay has a pricing gate and the
+//     manifest has a drift gate, but a mapping TARGET has no checker at all.
+//
+// Keeping the rule here makes model_mapping plain identity (representable by the
+// floor, emitted in the bundle, stable under apply-accounts), leaves the billing
+// key as the Ark id, and means onboarding a new Seedance SKU is overlay +
+// manifest only.
+//
+// Idempotent by design: an id that already carries any vendor prefix is returned
+// untouched, so a legacy hand-written prefixed mapping cannot become
+// `volcengine/volcengine/...`.
+func XRTokenUpstreamVideoModel(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" || strings.Contains(model, "/") {
+		return model
+	}
+	return XRTokenVideoVendorPrefix + model
+}

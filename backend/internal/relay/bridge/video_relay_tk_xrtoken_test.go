@@ -12,6 +12,10 @@ import (
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	newapihelper "github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/types"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -300,5 +304,130 @@ func TestDispatchVideoSubmit_IdentityMappingIsNoOp(t *testing.T) {
 	if out.OriginModel != model || out.UpstreamModel != model {
 		t.Fatalf("identity mapping must leave both names as %q, got origin=%q upstream=%q",
 			model, out.OriginModel, out.UpstreamModel)
+	}
+}
+
+// buildXRTokenSubmitBody drives the wrapper through the exact same sequence
+// DispatchVideoSubmit uses (context keys → RelayInfo → InitChannelMeta →
+// model mapping → Validate → BuildRequestBody) and returns the bytes that would
+// go on the wire plus the resolved RelayInfo.
+//
+// The wrapper is selected in production by the sentinel base_url, which an
+// httptest server can never carry, so a full DispatchVideoSubmit round-trip
+// cannot exercise this override. Driving the documented sequence directly is the
+// closest faithful harness: every step below is the same call, in the same
+// order, as the dispatcher.
+func buildXRTokenSubmitBody(t *testing.T, clientModel, mappingJSON string) ([]byte, *relaycommon.RelayInfo) {
+	t.Helper()
+	ensureNewAPIDeps()
+
+	// Mirror DispatchVideoSubmit's own first step: the public resolution/audio
+	// fields are folded into adaptor metadata before the adaptor ever sees the
+	// body. Skipping it here would exercise a body shape production never
+	// produces (and would drop `resolution` on the floor).
+	body, err := normalizeVideoSubmitBodyForTaskAdaptor(mustJSON(t, map[string]any{
+		"model":      clientModel,
+		"prompt":     "a cat playing piano",
+		"resolution": "720p",
+	}))
+	if err != nil {
+		t.Fatalf("normalizeVideoSubmitBodyForTaskAdaptor: %v", err)
+	}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	if err := installBodyStorage(c, body); err != nil {
+		t.Fatalf("installBodyStorage: %v", err)
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+
+	PopulateContextKeys(c, ChannelContextInput{
+		ChannelType:      newapiconstant.ChannelTypeDoubaoVideo,
+		BaseURL:          newapiintegration.XRTokenBaseURL,
+		APIKey:           "tr-test-key",
+		ModelMappingJSON: mappingJSON,
+	})
+	SetOriginalModel(c, clientModel)
+
+	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
+	if err != nil {
+		t.Fatalf("GenRelayInfo: %v", err)
+	}
+	relayInfo.OriginModelName = clientModel
+	relayInfo.RelayMode = relayconstant.RelayModeVideoSubmit
+	relayInfo.InitChannelMeta(c)
+	relayInfo.UpstreamModelName = clientModel
+	if err := newapihelper.ModelMappedHelper(c, relayInfo, nil); err != nil {
+		t.Fatalf("ModelMappedHelper: %v", err)
+	}
+	relayInfo.PublicTaskID = "vt_xr_unit"
+
+	adaptor := newXRTokenTaskAdaptor()
+	adaptor.Init(relayInfo)
+	if taskErr := adaptor.ValidateRequestAndSetAction(c, relayInfo); taskErr != nil {
+		t.Fatalf("ValidateRequestAndSetAction: %+v", taskErr)
+	}
+	reader, err := adaptor.BuildRequestBody(c, relayInfo)
+	if err != nil {
+		t.Fatalf("BuildRequestBody: %v", err)
+	}
+	wire, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read wire body: %v", err)
+	}
+	return wire, relayInfo
+}
+
+// TestXRTokenTaskAdaptor_BuildRequestBody_PrefixesModel is the regression for
+// the vendor-prefix design decision.
+//
+// The account carries an IDENTITY model_mapping — the only shape TokenKey's
+// mapping SSOT can express (every newapi branch of accountModelMappingForAccount
+// returns identityModelMapping) and therefore the only shape that survives a
+// routine `apply-accounts`. XRToken still requires the vendor-namespaced id on
+// the wire, so the adaptor supplies the prefix itself.
+//
+// Both halves are asserted together because getting either wrong is a
+// production defect: without the prefix XRToken rejects every Seedance request,
+// and if the prefix leaked into the billing key the overlay lookup would miss
+// and the task would bill $0.
+func TestXRTokenTaskAdaptor_BuildRequestBody_PrefixesModel(t *testing.T) {
+	const clientModel = "doubao-seedance-2-5-260628"
+	const wantUpstream = "volcengine/doubao-seedance-2-5-260628"
+
+	wire, info := buildXRTokenSubmitBody(t, clientModel, `{"`+clientModel+`":"`+clientModel+`"}`)
+
+	if got := gjson.GetBytes(wire, "model").String(); got != wantUpstream {
+		t.Fatalf("wire model = %q, want %q — XRToken rejects the bare Ark id", got, wantUpstream)
+	}
+	if info.UpstreamModelName != wantUpstream {
+		t.Fatalf("UpstreamModelName = %q, want %q (ops evidence must match the wire)",
+			info.UpstreamModelName, wantUpstream)
+	}
+	if info.OriginModelName != clientModel {
+		t.Fatalf("OriginModelName (billing key) = %q, want the bare Ark id %q — "+
+			"the vendor prefix must never reach the pricing key", info.OriginModelName, clientModel)
+	}
+	// The inherited payload fields must survive the rewrite untouched.
+	if got := gjson.GetBytes(wire, "resolution").String(); got != "720p" {
+		t.Fatalf("resolution = %q, want 720p — the rewrite must only touch `model`", got)
+	}
+}
+
+// TestXRTokenTaskAdaptor_BuildRequestBody_AlreadyPrefixedIsNotDoubled covers the
+// compatibility case: an operator (or a legacy hand-written mapping predating
+// this fix) may still map straight to the namespaced id. The rewrite must be a
+// no-op there rather than producing `volcengine/volcengine/...`.
+func TestXRTokenTaskAdaptor_BuildRequestBody_AlreadyPrefixedIsNotDoubled(t *testing.T) {
+	const clientModel = "doubao-seedance-2-0-260128"
+	const wantUpstream = "volcengine/doubao-seedance-2-0-260128"
+
+	wire, info := buildXRTokenSubmitBody(t, clientModel, `{"`+clientModel+`":"`+wantUpstream+`"}`)
+
+	if got := gjson.GetBytes(wire, "model").String(); got != wantUpstream {
+		t.Fatalf("wire model = %q, want %q with no doubled prefix", got, wantUpstream)
+	}
+	if info.OriginModelName != clientModel {
+		t.Fatalf("OriginModelName = %q, want %q", info.OriginModelName, clientModel)
 	}
 }

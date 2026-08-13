@@ -1,12 +1,17 @@
 package bridge
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 
 	taskdoubao "github.com/QuantumNous/new-api/relay/channel/task/doubao"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	newapiservice "github.com/QuantumNous/new-api/service"
+	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 )
@@ -107,4 +112,54 @@ func (a *xrTokenTaskAdaptor) FetchTask(baseUrl, key string, body map[string]any,
 		return nil, fmt.Errorf("xrtoken video fetch: new proxy http client failed: %w", err)
 	}
 	return client.Do(req)
+}
+
+// BuildRequestBody delegates to the embedded Ark payload builder, then rewrites
+// exactly one field: `model` gains XRToken's vendor namespace.
+//
+// XRToken publishes each Ark SKU as `volcengine/<ark-id>` and rejects the bare
+// Ark id, so this is the same class of fact as the task URL this wrapper already
+// rewrites — a wire-dialect difference, not per-account configuration. See
+// newapiintegration.XRTokenUpstreamVideoModel for why encoding it here beats
+// storing prefixed targets in credentials.model_mapping (short version: the
+// mapping SSOT can only express identity, so a prefixed target is both
+// unrepresentable and reverted by the next routine apply-accounts).
+//
+// Everything else about the payload — content parts, resolution/ratio/duration,
+// audio and seed fields, first-frame image — is inherited untouched, so an
+// upstream Ark schema change still flows through automatically.
+//
+// info.UpstreamModelName is updated to match what actually goes on the wire.
+// That value surfaces as TaskSubmitOutcome.UpstreamModel and lands in the ops
+// forward-result evidence, so leaving it as the un-prefixed id would make the
+// logs disagree with the request. The BILLING key is unaffected: the handler
+// prices on OriginModel, which DispatchVideoSubmit takes from the client-facing
+// request model.
+func (a *xrTokenTaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayInfo) (io.Reader, error) {
+	inner, err := a.TaskAdaptor.BuildRequestBody(c, info)
+	if err != nil {
+		return nil, err
+	}
+	if inner == nil {
+		return nil, fmt.Errorf("xrtoken video submit: embedded adaptor produced no body")
+	}
+	raw, err := io.ReadAll(inner)
+	if err != nil {
+		return nil, fmt.Errorf("xrtoken video submit: read embedded body: %w", err)
+	}
+	current := gjson.GetBytes(raw, "model").String()
+	upstream := newapiintegration.XRTokenUpstreamVideoModel(current)
+	if upstream == current {
+		// Already namespaced (or empty) — nothing to rewrite. Idempotent so a
+		// legacy hand-written prefixed mapping cannot double the prefix.
+		return bytes.NewReader(raw), nil
+	}
+	rewritten, err := sjson.SetBytes(raw, "model", upstream)
+	if err != nil {
+		return nil, fmt.Errorf("xrtoken video submit: rewrite model to %q: %w", upstream, err)
+	}
+	if info != nil {
+		info.UpstreamModelName = upstream
+	}
+	return bytes.NewReader(rewritten), nil
 }

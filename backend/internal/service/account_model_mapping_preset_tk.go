@@ -127,6 +127,22 @@ func accountModelMappingOverrideAccounts() []*Account {
 				"base_url": newapiintegration.QianfanBaseURL,
 			},
 		},
+		// XRToken shares ChannelTypeDoubaoVideo with official Ark and is told
+		// apart only by base_url, so its serving intent is narrower than the
+		// ch54 channel floor: the two XRToken-only SKUs are indexed under ch54
+		// while the three shared Seedance rows live under the ch45 manifest
+		// index. Without this entry the bundle carries no XRToken scope at all,
+		// and `modelops activate` fails closed ("bundle delta has no added or
+		// retargeted required model mappings") because the account it is trying
+		// to activate is invisible to the floor.
+		{
+			Platform:    PlatformNewAPI,
+			Type:        AccountTypeAPIKey,
+			ChannelType: newapiconstant.ChannelTypeDoubaoVideo,
+			Credentials: map[string]any{
+				"base_url": newapiintegration.XRTokenBaseURL,
+			},
+		},
 	}
 }
 

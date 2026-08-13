@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "floor_sha256": "49810bad2ef2a715d7234092996459d719b077651b507c883ea7f5b502790780",
+  "floor_sha256": "e27678d12921e37f256c7c5a4e7929ba10a420a73a43a026ce84c4bcac481f58",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -384,6 +384,18 @@
           "qwen3.5-27b": "qwen3.5-27b",
           "qwen3.5-35b-a3b": "qwen3.5-35b-a3b",
           "qwen3.5-397b-a17b": "qwen3.5-397b-a17b"
+        }
+      },
+      {
+        "platform": "newapi",
+        "channel_type": 54,
+        "base_url": "https://api.xrtoken.net",
+        "model_mapping": {
+          "doubao-seedance-1-5-pro-251215": "doubao-seedance-1-5-pro-251215",
+          "doubao-seedance-2-0-260128": "doubao-seedance-2-0-260128",
+          "doubao-seedance-2-0-fast-260128": "doubao-seedance-2-0-fast-260128",
+          "doubao-seedance-2-5-260628": "doubao-seedance-2-5-260628",
+          "doubao-seedance-2.0-mini": "doubao-seedance-2.0-mini"
         }
       }
     ],

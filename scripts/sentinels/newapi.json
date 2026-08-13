@@ -662,9 +662,12 @@
         "XRTokenBaseURL",
         "IsXRTokenBaseURL",
         "NormalizeXRTokenBaseURL",
-        "ChannelTypeDoubaoVideo"
+        "ChannelTypeDoubaoVideo",
+        "XRTokenVideoVendorPrefix",
+        "XRTokenUpstreamVideoModel",
+        "volcengine/"
       ],
-      "rationale": "XRToken base-url detection for ch54 (DoubaoVideo) accounts — an ARK-compatible reseller whose task paths differ from official Ark by one middle segment (/v1/ vs /api/v3/). Without it the bridge selects the upstream doubao adaptor and every submit/poll 404s. NormalizeXRTokenBaseURL collapses the SDK-documented '.../v1' spelling so the wrapper cannot emit /v1/v1/contents/...; the ChannelTypeDoubaoVideo scope keeps a ch45 account on the same host from being treated as XRToken (that channel additionally exposes chat/embeddings/images paths XRToken does not serve)."
+      "rationale": "XRToken base-url detection for ch54 (DoubaoVideo) accounts — an ARK-compatible reseller whose task paths differ from official Ark by one middle segment (/v1/ vs /api/v3/). Without it the bridge selects the upstream doubao adaptor and every submit/poll 404s. NormalizeXRTokenBaseURL collapses the SDK-documented '.../v1' spelling so the wrapper cannot emit /v1/v1/contents/...; the ChannelTypeDoubaoVideo scope keeps a ch45 account on the same host from being treated as XRToken (that channel additionally exposes chat/embeddings/images paths XRToken does not serve). XRTokenVideoVendorPrefix / XRTokenUpstreamVideoModel encode the one wire fact that XRToken publishes every Ark video SKU as `volcengine/<ark-id>` and rejects the bare Ark id. It lives here (applied by the task adaptor) and NOT as a credentials.model_mapping target because the compiled mapping floor can only express identity mappings, so a prefixed target is both unrepresentable in the SSOT and reverted to identity by the next routine apply-accounts. Dropping these makes every XRToken seedance submit fail upstream while the account still looks correctly provisioned."
     },
     {
       "path": "backend/internal/integration/newapi/xrtoken_test.go",
@@ -680,9 +683,11 @@
         "xrTokenTaskAdaptor",
         "newXRTokenTaskAdaptor",
         "/v1/contents/generations/tasks",
-        "NormalizeXRTokenBaseURL"
+        "NormalizeXRTokenBaseURL",
+        "BuildRequestBody",
+        "XRTokenUpstreamVideoModel"
       ],
-      "rationale": "TK companion task adaptor for XRToken video. Embeds the upstream doubao TaskAdaptor and overrides ONLY BuildRequestURL + FetchTask to swap the hardcoded /api/v3/ segment for /v1/; request and response bodies are byte-identical per XRToken's published ARK-compatibility contract, so every other method (billing ratios, body build, response parse, OpenAI-Video projection) is inherited and follows upstream fixes. new-api is a pinned upstream that must not be patched from this repo, so this wrapper is the only correct place for the path difference."
+      "rationale": "TK companion task adaptor for XRToken video. Embeds the upstream doubao TaskAdaptor and overrides ONLY BuildRequestURL + FetchTask to swap the hardcoded /api/v3/ segment for /v1/; request and response bodies are byte-identical per XRToken's published ARK-compatibility contract, so every other method (billing ratios, body build, response parse, OpenAI-Video projection) is inherited and follows upstream fixes. new-api is a pinned upstream that must not be patched from this repo, so this wrapper is the only correct place for the path difference. The BuildRequestBody override is what puts the `volcengine/` namespace on the wire while leaving every other inherited Ark payload field untouched; it also updates info.UpstreamModelName so ops evidence matches the request. The billing key is deliberately NOT rewritten (the handler prices on OriginModel), so losing this override breaks serving, and mis-widening it to the body's billing key would bill $0 against an overlay key that does not exist."
     },
     {
       "path": "backend/internal/relay/bridge/video_relay_tk_xrtoken_test.go",
@@ -691,9 +696,11 @@
         "TestXRTokenTaskAdaptor_FetchTask_HitsV1Path",
         "TestTaskAdaptorForChannel_XRTokenSelection",
         "TestDispatchVideoSubmit_AppliesModelMapping",
-        "TestDispatchVideoSubmit_IdentityMappingIsNoOp"
+        "TestDispatchVideoSubmit_IdentityMappingIsNoOp",
+        "TestXRTokenTaskAdaptor_BuildRequestBody_PrefixesModel",
+        "TestXRTokenTaskAdaptor_BuildRequestBody_AlreadyPrefixedIsNotDoubled"
       ],
-      "rationale": "Focused bridge regressions for the XRToken video path. The fake upstream serves only XRToken's shape and 404s /api/v3/*, so a regression to the inherited URL fails here instead of in prod. AppliesModelMapping pins that credentials.model_mapping reaches the upstream body while OriginModel (the billing key) stays the client-facing Ark id; IdentityMappingIsNoOp pins that existing Ark accounts provisioned with `X: X` identity whitelists (tk_033/tk_056) are unaffected."
+      "rationale": "Focused bridge regressions for the XRToken video path. The fake upstream serves only XRToken's shape and 404s /api/v3/*, so a regression to the inherited URL fails here instead of in prod. AppliesModelMapping pins that credentials.model_mapping reaches the upstream body while OriginModel (the billing key) stays the client-facing Ark id; IdentityMappingIsNoOp pins that existing Ark accounts provisioned with `X: X` identity whitelists (tk_033/tk_056) are unaffected. The BuildRequestBody regressions assert both halves of the prefix design: the wire model gains the vendor namespace under an IDENTITY model_mapping (the only shape the SSOT emits), the billing key stays the bare Ark id, and an already-namespaced id is not doubled."
     },
     {
       "path": "backend/internal/integration/newapi/ark_channel_base_url.go",

@@ -69,3 +69,59 @@ func TestNormalizeXRTokenBaseURL(t *testing.T) {
 		}
 	}
 }
+
+// TestXRTokenUpstreamVideoModel pins the vendor-namespace rule and, more
+// importantly, its idempotence.
+//
+// The rule itself was verified against the live public catalog (GET
+// https://api.xrtoken.net/v1/models, no auth required): all 60 published ids
+// carry a vendor prefix and every `type:"video"` id is `volcengine/<ark-id>`.
+//
+// Idempotence is the load-bearing half. Account 96 was originally provisioned
+// with a hand-written PREFIXED model_mapping (that was the documented shape
+// before the prefix moved into the adaptor), so a live account can still hand us
+// an already-namespaced id. Prefixing that again would produce
+// `volcengine/volcengine/...` and 404 — a regression that would only surface in
+// production, on exactly the account this feature exists for.
+func TestXRTokenUpstreamVideoModel(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		// Bare Ark ids gain the namespace.
+		"doubao-seedance-2-5-260628":      "volcengine/doubao-seedance-2-5-260628",
+		"doubao-seedance-2.0-mini":        "volcengine/doubao-seedance-2.0-mini",
+		"doubao-seedance-1-5-pro-251215":  "volcengine/doubao-seedance-1-5-pro-251215",
+		"doubao-seedance-2-0-260128":      "volcengine/doubao-seedance-2-0-260128",
+		"doubao-seedance-2-0-fast-260128": "volcengine/doubao-seedance-2-0-fast-260128",
+		// Already namespaced — unchanged (idempotent).
+		"volcengine/doubao-seedance-2-5-260628": "volcengine/doubao-seedance-2-5-260628",
+		// Any other vendor namespace is left alone rather than double-prefixed.
+		"ctyun/glm-5.2": "ctyun/glm-5.2",
+		// Degenerate input stays degenerate instead of becoming a bare prefix.
+		"":    "",
+		"   ": "",
+	}
+	for in, want := range cases {
+		if got := XRTokenUpstreamVideoModel(in); got != want {
+			t.Fatalf("XRTokenUpstreamVideoModel(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestXRTokenUpstreamVideoModel_IsIdempotentUnderRepetition states the
+// invariant directly: applying the rule twice equals applying it once. A future
+// refactor that switches to unconditional concatenation passes the table above
+// only if it also drops the already-prefixed rows; this closes that gap.
+func TestXRTokenUpstreamVideoModel_IsIdempotentUnderRepetition(t *testing.T) {
+	t.Parallel()
+	for _, id := range []string{
+		"doubao-seedance-2-5-260628",
+		"volcengine/doubao-seedance-2-5-260628",
+		"doubao-seedance-2.0-mini",
+	} {
+		once := XRTokenUpstreamVideoModel(id)
+		twice := XRTokenUpstreamVideoModel(once)
+		if once != twice {
+			t.Fatalf("not idempotent for %q: once=%q twice=%q", id, once, twice)
+		}
+	}
+}
