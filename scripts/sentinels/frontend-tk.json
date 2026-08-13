@@ -304,10 +304,10 @@
         ":stats=\"todayStats\"",
         ":loading=\"todayStatsLoading\"",
         ":hidden-dimension-keys=\"upstreamQuotaWindowDimensionKeys\"",
-        "openai_codex_5h",
+        "usageInfo?.five_hour",
         "openai_codex_7d"
       ],
-      "rationale": "OpenAI Codex OAuth usage windows mirror the Anthropic display contract: TodayStatsBadges owns current-day request/token/account-cost/user-cost badges, the 5h and 7d progress bars own Codex quota windows, and UpstreamQuotaSummary is only for supplemental quota facts. Anchors keep upstream merges from silently dropping the generic usage badges on OAuth-only accounts or restoring duplicate Codex window chips."
+      "rationale": "OpenAI Codex OAuth usage windows mirror the Anthropic display contract: TodayStatsBadges owns current-day request/token/account-cost/user-cost badges, the 5h bar renders only when upstream reports an active codex 5h window (usageInfo.five_hour), the 7d bar owns the Codex 7d quota window, and UpstreamQuotaSummary is only for supplemental quota facts. Anchors keep upstream merges from silently dropping the generic usage badges on OAuth-only accounts or restoring duplicate Codex window chips."
     },
     {
       "path": "frontend/src/components/account/usage-cells/KiroUsageCell.vue",
