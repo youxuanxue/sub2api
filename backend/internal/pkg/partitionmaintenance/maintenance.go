@@ -16,8 +16,7 @@ import (
 const (
 	JobName = "ops_partition_maintenance"
 
-	opsMonthsAhead = 3
-	usageDaysAhead = 7
+	daysAhead = 7
 )
 
 // Options controls optional maintainer behavior.
@@ -50,23 +49,15 @@ func (r Result) String() string {
 	return strings.Join(parts, ",")
 }
 
-type cadence uint8
-
-const (
-	cadenceMonthly cadence = iota
-	cadenceDaily
-)
-
 type target struct {
-	table   string
-	cadence cadence
-	ahead   int
+	table string
+	ahead int
 }
 
 var targets = [...]target{
-	{table: "ops_system_logs", cadence: cadenceMonthly, ahead: opsMonthsAhead},
-	{table: "ops_error_logs", cadence: cadenceMonthly, ahead: opsMonthsAhead},
-	{table: "usage_logs", cadence: cadenceDaily, ahead: usageDaysAhead},
+	{table: "ops_system_logs", ahead: daysAhead},
+	{table: "ops_error_logs", ahead: daysAhead},
+	{table: "usage_logs", ahead: daysAhead},
 }
 
 type partitionRange struct {
@@ -102,14 +93,7 @@ func Ensure(
 		}
 
 		ranges := targetRanges(target, now)
-		switch target.cadence {
-		case cadenceMonthly:
-			err = pgpartition.EnsureMonthly(ctx, db, target.table, now, target.ahead)
-		case cadenceDaily:
-			err = pgpartition.EnsureDaily(ctx, db, target.table, now, target.ahead)
-		default:
-			err = fmt.Errorf("unsupported cadence %d", target.cadence)
-		}
+		err = pgpartition.EnsureDaily(ctx, db, target.table, now, target.ahead)
 		if err != nil {
 			return result, fmt.Errorf("partitionmaintenance: ensure %s: %w", target.table, err)
 		}
@@ -134,22 +118,12 @@ func Ensure(
 
 func targetRanges(target target, now time.Time) []partitionRange {
 	u := now.UTC()
-	var base time.Time
-	if target.cadence == cadenceMonthly {
-		base = time.Date(u.Year(), u.Month(), 1, 0, 0, 0, 0, time.UTC)
-	} else {
-		base = time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
-	}
+	base := time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
 
 	ranges := make([]partitionRange, 0, target.ahead+1)
 	for offset := 0; offset <= target.ahead; offset++ {
 		start := base.AddDate(0, 0, offset)
-		end := start.AddDate(0, 0, 1)
-		if target.cadence == cadenceMonthly {
-			start = base.AddDate(0, offset, 0)
-			end = start.AddDate(0, 1, 0)
-		}
-		ranges = append(ranges, partitionRange{start: start, end: end})
+		ranges = append(ranges, partitionRange{start: start, end: start.AddDate(0, 0, 1)})
 	}
 	return ranges
 }

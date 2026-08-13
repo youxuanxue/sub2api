@@ -25,8 +25,8 @@ def remote_receipt() -> dict[str, object]:
         "job_name": "ops_partition_maintenance",
         "completed_at": "2026-08-04T12:00:00Z",
         "tables": [
-            {"table": "ops_system_logs", "range_count": 4},
-            {"table": "ops_error_logs", "range_count": 4},
+            {"table": "ops_system_logs", "range_count": 8},
+            {"table": "ops_error_logs", "range_count": 8},
             {"table": "usage_logs", "range_count": 8},
         ],
         "deletion_authorized": False,

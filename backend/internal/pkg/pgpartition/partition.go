@@ -1,5 +1,5 @@
-// Package pgpartition provides a small, table-agnostic monthly RANGE-partition
-// retention mechanism: keep N future months provisioned and DROP whole partitions
+// Package pgpartition provides small, table-agnostic RANGE-partition
+// retention mechanisms: keep future ranges provisioned and DROP whole partitions
 // once their data is fully past the retention cutoff. It is the reusable core behind
 // the data-layer partition program (WAVE 1: ops_system_logs; later: ops_error_logs,
 // usage_logs) — replacing bloat-generating chunked DELETE retention with instant
@@ -204,27 +204,58 @@ func DropExpired(ctx context.Context, db DropExecutor, table string, cutoff time
 // ListStraddling returns remaining child partitions that contain rows older than the
 // cutoff. Callers invoke it after DropExpired, so these are bound-straddling partitions
 // (notably the wide legacy partition) that cannot yet be dropped as a whole and need a
-// capped row-level reclaim. Checking min(timeCol) also catches a surviving partition
-// whose current rows are all expired while its declared upper bound is still in-window.
+// capped row-level reclaim. Finite lower bounds at or after the cutoff prove that a
+// current/future daily child cannot contain expired rows, avoiding one min query per day.
 func ListStraddling(ctx context.Context, db DB, table, timeCol string, cutoff time.Time) ([]string, error) {
 	const listQ = `
-		SELECT c.relname
+		SELECT
+			n.nspname,
+			c.relname,
+			pg_get_expr(c.relpartbound, c.oid, true) AS bound_expr,
+			pg_get_expr(c.relpartbound, c.oid, true) LIKE 'FOR VALUES FROM (MINVALUE)%' AS lower_unbounded,
+			substring(
+				pg_get_expr(c.relpartbound, c.oid, true)
+				FROM $$FROM \('([^']+)'\)$$
+			)::timestamptz AS lower_bound
 		FROM pg_inherits i
 		JOIN pg_class c ON c.oid = i.inhrelid
-		JOIN pg_class p ON p.oid = i.inhparent
-		WHERE p.relname = $1`
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE i.inhparent = to_regclass($1)
+		ORDER BY n.nspname, c.relname`
 	rows, err := db.QueryContext(ctx, listQ, table)
 	if err != nil {
 		return nil, fmt.Errorf("pgpartition: list partitions of %s: %w", table, err)
 	}
-	var children []string
+	type childPartition struct {
+		schema         string
+		name           string
+		boundExpr      string
+		lowerUnbounded bool
+		lower          sql.NullTime
+	}
+	var candidates []childPartition
 	for rows.Next() {
-		var name string
-		if scanErr := rows.Scan(&name); scanErr != nil {
+		var child childPartition
+		if scanErr := rows.Scan(
+			&child.schema,
+			&child.name,
+			&child.boundExpr,
+			&child.lowerUnbounded,
+			&child.lower,
+		); scanErr != nil {
 			_ = rows.Close()
-			return nil, fmt.Errorf("pgpartition: scan partition name: %w", scanErr)
+			return nil, fmt.Errorf("pgpartition: scan partition lower bound: %w", scanErr)
 		}
-		children = append(children, name)
+		if !child.lowerUnbounded && !child.lower.Valid {
+			_ = rows.Close()
+			return nil, fmt.Errorf(
+				"pgpartition: partition %s.%s has no finite timestamptz lower bound: %s",
+				child.schema, child.name, child.boundExpr,
+			)
+		}
+		if child.lowerUnbounded || child.lower.Time.Before(cutoff) {
+			candidates = append(candidates, child)
+		}
 	}
 	if rowsErr := rows.Err(); rowsErr != nil {
 		_ = rows.Close()
@@ -233,19 +264,19 @@ func ListStraddling(ctx context.Context, db DB, table, timeCol string, cutoff ti
 	_ = rows.Close()
 
 	var straddling []string
-	for _, name := range children {
+	for _, child := range candidates {
 		var minT sql.NullTime
-		q := fmt.Sprintf("SELECT min(%s) FROM %s", pq.QuoteIdentifier(timeCol), pq.QuoteIdentifier(name))
+		qualifiedName := pq.QuoteIdentifier(child.schema) + "." + pq.QuoteIdentifier(child.name)
+		q := fmt.Sprintf("SELECT min(%s) FROM %s", pq.QuoteIdentifier(timeCol), qualifiedName)
 		if err := db.QueryRowContext(ctx, q).Scan(&minT); err != nil {
-			return nil, fmt.Errorf("pgpartition: min(%s) on %s: %w", timeCol, name, err)
+			return nil, fmt.Errorf("pgpartition: min(%s) on %s: %w", timeCol, qualifiedName, err)
 		}
 		if minT.Valid && minT.Time.Before(cutoff) {
-			straddling = append(straddling, name)
+			straddling = append(straddling, child.name)
 		}
 	}
 	return straddling, nil
 }
-
 func isOverlap(err error) bool {
 	var pqErr *pq.Error
 	if errors.As(err, &pqErr) {

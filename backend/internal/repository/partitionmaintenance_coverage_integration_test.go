@@ -64,7 +64,7 @@ func TestPartitionMaintenance_CoverageAcceptsAttachedLegacyPartition(t *testing.
 		verified[table.Table] = table.RangeCount
 	}
 	for _, table := range []string{"ops_system_logs", "ops_error_logs"} {
-		require.Equal(t, 4, verified[table],
-			"%s must prove the current month plus three future months are covered", table)
+		require.Equal(t, 8, verified[table],
+			"%s must prove today plus seven future UTC days are covered", table)
 	}
 }
