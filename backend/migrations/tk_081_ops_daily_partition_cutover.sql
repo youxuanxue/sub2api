@@ -1,4 +1,4 @@
--- tk_080_ops_daily_partition_cutover.sql
+-- tk_081_ops_daily_partition_cutover.sql
 -- Replace only empty future monthly ops partitions with complete UTC daily coverage.
 -- The current-month writer partition and all historical partitions remain untouched.
 --
@@ -70,7 +70,7 @@ BEGIN
        AND pt.partnatts = 1
        AND pg_get_partkeydef(c.oid) = 'RANGE (created_at)';
     IF parent_oid IS NULL THEN
-      RAISE EXCEPTION 'tk_080: %.% must be RANGE (created_at) partitioned', schema_name, parent_name;
+      RAISE EXCEPTION 'tk_081: %.% must be RANGE (created_at) partitioned', schema_name, parent_name;
     END IF;
 
     SELECT count(*)
@@ -89,7 +89,7 @@ BEGIN
         OR upper_bound IS NULL
         OR (NOT lower_unbounded AND lower_bound IS NULL);
     IF invalid_count <> 0 THEN
-      RAISE EXCEPTION 'tk_080: %.% has DEFAULT, MAXVALUE, or unparseable child bounds', schema_name, parent_name;
+      RAISE EXCEPTION 'tk_081: %.% has DEFAULT, MAXVALUE, or unparseable child bounds', schema_name, parent_name;
     END IF;
 
     SELECT count(*), min(child_oid), min(bound_expr)
@@ -107,7 +107,7 @@ BEGIN
      WHERE (lower_unbounded OR lower_bound <= current_start)
        AND upper_bound >= next_start;
     IF matching_count <> 1 OR current_child_oid IS NULL THEN
-      RAISE EXCEPTION 'tk_080: %.% must have exactly one child covering the current UTC month', schema_name, parent_name;
+      RAISE EXCEPTION 'tk_081: %.% must have exactly one child covering the current UTC month', schema_name, parent_name;
     END IF;
     INSERT INTO tk_ops_daily_current_state VALUES (parent_name, current_child_oid, current_bound_expr);
 
@@ -125,7 +125,7 @@ BEGIN
      WHERE lower_bound >= next_start
        AND (upper_bound IS NULL OR lower_bound IS NULL OR upper_bound > horizon_end);
     IF invalid_count <> 0 THEN
-      RAISE EXCEPTION 'tk_080: %.% has a future child outside the three-month horizon', schema_name, parent_name;
+      RAISE EXCEPTION 'tk_081: %.% has a future child outside the three-month horizon', schema_name, parent_name;
     END IF;
 
     month_start := next_start;
@@ -169,7 +169,7 @@ BEGIN
         IF matching_count = expected_days AND attached_days = expected_days THEN
           INSERT INTO tk_ops_daily_target_state VALUES (parent_name, month_start, month_end, 'daily', NULL, NULL);
         ELSE
-          RAISE EXCEPTION 'tk_080: %.% has partial or unexpected coverage for month %', schema_name, parent_name, month_start;
+          RAISE EXCEPTION 'tk_081: %.% has partial or unexpected coverage for month %', schema_name, parent_name, month_start;
         END IF;
       END IF;
       DROP TABLE tk_ops_daily_month_children;
@@ -192,7 +192,7 @@ BEGIN
         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
        WHERE n.nspname = schema_name AND c.relname = child_name;
       IF relation_kind IS NOT NULL THEN
-        RAISE EXCEPTION 'tk_080: relation %.% already exists outside expected daily topology', schema_name, child_name;
+        RAISE EXCEPTION 'tk_081: relation %.% already exists outside expected daily topology', schema_name, child_name;
       END IF;
 
       EXECUTE format('CREATE TABLE %I.%I (LIKE %I.%I INCLUDING ALL)',
@@ -227,7 +227,7 @@ BEGIN
        AND child.oid = current_rec.child_oid
        AND pg_get_expr(child.relpartbound, child.oid, true) = current_rec.bound_expr;
     IF matching_count <> 1 THEN
-      RAISE EXCEPTION 'tk_080: current writer partition changed for %.%', schema_name, current_rec.parent_name;
+      RAISE EXCEPTION 'tk_081: current writer partition changed for %.%', schema_name, current_rec.parent_name;
     END IF;
   END LOOP;
 
@@ -251,19 +251,19 @@ BEGIN
            AND substring(pg_get_expr(child.relpartbound, child.oid, true) FROM $$FROM \('([^']+)'$$)::timestamptz = target_rec.month_start
            AND substring(pg_get_expr(child.relpartbound, child.oid, true) FROM $$TO \('([^']+)'$$)::timestamptz = target_rec.month_end
       ) THEN
-        RAISE EXCEPTION 'tk_080: future monthly child changed for %.% month %', schema_name, target_rec.parent_name, target_rec.month_start;
+        RAISE EXCEPTION 'tk_081: future monthly child changed for %.% month %', schema_name, target_rec.parent_name, target_rec.month_start;
       END IF;
       EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I.%I LIMIT 1)', schema_name, target_rec.monthly_child_name)
         INTO has_rows;
       IF has_rows THEN
-        RAISE EXCEPTION 'tk_080: refusing to replace non-empty future child %.%', schema_name, target_rec.monthly_child_name;
+        RAISE EXCEPTION 'tk_081: refusing to replace non-empty future child %.%', schema_name, target_rec.monthly_child_name;
       END IF;
     ELSIF target_rec.state = 'absent' AND matching_count <> 0 THEN
-      RAISE EXCEPTION 'tk_080: future topology appeared for %.% month %', schema_name, target_rec.parent_name, target_rec.month_start;
+      RAISE EXCEPTION 'tk_081: future topology appeared for %.% month %', schema_name, target_rec.parent_name, target_rec.month_start;
     ELSIF target_rec.state = 'daily' THEN
       expected_days := (target_rec.month_end::date - target_rec.month_start::date);
       IF matching_count <> expected_days THEN
-        RAISE EXCEPTION 'tk_080: daily topology changed for %.% month %', schema_name, target_rec.parent_name, target_rec.month_start;
+        RAISE EXCEPTION 'tk_081: daily topology changed for %.% month %', schema_name, target_rec.parent_name, target_rec.month_start;
       END IF;
     END IF;
   END LOOP;
@@ -312,7 +312,7 @@ BEGIN
        AND substring(pg_get_expr(child.relpartbound, child.oid, true) FROM $$TO \('([^']+)'$$)::timestamptz =
            substring(pg_get_expr(child.relpartbound, child.oid, true) FROM $$FROM \('([^']+)'$$)::timestamptz + interval '1 day';
     IF attached_days <> expected_days THEN
-      RAISE EXCEPTION 'tk_080: incomplete daily coverage for %.% month %', schema_name, target_rec.parent_name, target_rec.month_start;
+      RAISE EXCEPTION 'tk_081: incomplete daily coverage for %.% month %', schema_name, target_rec.parent_name, target_rec.month_start;
     END IF;
 
     -- PostgreSQL ATTACH automatically attaches or creates matching child indexes.
@@ -338,7 +338,7 @@ BEGIN
               )
          )
     ) THEN
-      RAISE EXCEPTION 'tk_080: child index attachment incomplete for %.% month %', schema_name, target_rec.parent_name, target_rec.month_start;
+      RAISE EXCEPTION 'tk_081: child index attachment incomplete for %.% month %', schema_name, target_rec.parent_name, target_rec.month_start;
     END IF;
   END LOOP;
 END $migration$;

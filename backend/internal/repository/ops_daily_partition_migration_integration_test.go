@@ -184,7 +184,7 @@ func setupOpsDailyMigrationSchema(t *testing.T, schema string, futureMonths int)
 
 func readOpsDailyMigration(t *testing.T) string {
 	t.Helper()
-	migrationSQL, err := dbmigrations.FS.ReadFile("tk_080_ops_daily_partition_cutover.sql")
+	migrationSQL, err := dbmigrations.FS.ReadFile("tk_081_ops_daily_partition_cutover.sql")
 	require.NoError(t, err)
 	return string(migrationSQL)
 }
