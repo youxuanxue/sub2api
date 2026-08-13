@@ -95,6 +95,17 @@ func isNewAPIQianfanAccount(account *Account) bool {
 		newapiintegration.IsQianfanBaseURL(account.ChannelType, account.GetBaseURL())
 }
 
+// isNewAPIXRTokenAccount reports whether this is an XRToken account — an
+// ARK-compatible reseller provisioned on the video-only DoubaoVideo channel.
+// Its preset surface comes from the manifest's XRToken property scope, which
+// includes both primary ch54 rows and shared rows indexed under ch45.
+func isNewAPIXRTokenAccount(account *Account) bool {
+	return account != nil &&
+		account.Platform == PlatformNewAPI &&
+		account.ChannelType == newapiconstant.ChannelTypeDoubaoVideo &&
+		newapiintegration.IsXRTokenBaseURL(account.ChannelType, account.GetBaseURL())
+}
+
 // accountModelMappingOverrideAccounts declares account-specific mapping scopes
 // whose serving intent is narrower than their shared platform/channel floor.
 func accountModelMappingOverrideAccounts() []*Account {
@@ -113,6 +124,19 @@ func accountModelMappingOverrideAccounts() []*Account {
 			ChannelType: newapiconstant.ChannelTypeBaiduV2,
 			Credentials: map[string]any{
 				"base_url": newapiintegration.QianfanBaseURL,
+			},
+		},
+		// XRToken shares ChannelTypeDoubaoVideo with official Ark and is told
+		// apart only by base_url, so its manifest property scope is narrower
+		// than the generic ch54 floor. Without this entry the bundle carries no
+		// XRToken account override, and `modelops activate` fails closed because
+		// the account it is trying to activate is invisible to the floor.
+		{
+			Platform:    PlatformNewAPI,
+			Type:        AccountTypeAPIKey,
+			ChannelType: newapiconstant.ChannelTypeDoubaoVideo,
+			Credentials: map[string]any{
+				"base_url": newapiintegration.XRTokenBaseURL,
 			},
 		},
 	}
@@ -134,6 +158,11 @@ func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
 		sort.Strings(ids)
 		return ids
 	}
+	if isNewAPIXRTokenAccount(account) {
+		ids := newAPIXRTokenModelMappingPresetIDs()
+		sort.Strings(ids)
+		return ids
+	}
 	return AccountModelMappingPresetIDs(context.Background(), account.Platform, account.ChannelType, nil)
 }
 
@@ -151,6 +180,11 @@ func NewAPIModelDisplayIDsForAccount(account *Account) []string {
 	}
 	if isNewAPIQianfanAccount(account) {
 		ids := newAPIQianfanModelDisplayPresetIDs()
+		sort.Strings(ids)
+		return ids
+	}
+	if isNewAPIXRTokenAccount(account) {
+		ids := newAPIXRTokenModelDisplayPresetIDs()
 		sort.Strings(ids)
 		return ids
 	}

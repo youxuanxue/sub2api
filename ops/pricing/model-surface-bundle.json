@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "floor_sha256": "ef42f258b9071852099f53bec38138aef50067256041d9b51bc05e6a56f7604b",
+  "floor_sha256": "c88637d9acdff48026bcfe5b62ee443de49eca431ba07391279b0b3d308fd353",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -204,31 +204,11 @@
         "gpt-5.5": "gpt-5.5"
       },
       "openai_cloudwise_relay": {
-        "MiniMax-M3": "MiniMax-M3",
-        "claude-fable-5": "claude-fable-5",
-        "claude-opus-4-6": "claude-opus-4-6",
-        "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
-        "claude-opus-4-7": "claude-opus-4-7",
-        "claude-opus-4-7-thinking": "claude-opus-4-7-thinking",
-        "claude-opus-4-8": "claude-opus-4-8",
-        "claude-sonnet-4-5": "claude-sonnet-4-5",
-        "claude-sonnet-4-6": "claude-sonnet-4-6",
-        "claude-sonnet-4-6-thinking": "claude-sonnet-4-6-thinking",
-        "deepseek-v3.2": "deepseek-v3.2",
-        "deepseek-v4-flash": "deepseek-v4-flash",
-        "deepseek-v4-pro": "deepseek-v4-pro",
-        "gemini-3-flash-preview": "gemini-3-flash-preview",
-        "gemini-3-pro-image-preview": "gemini-3-pro-image-preview",
-        "gemini-3-pro-image-preview-S": "gemini-3-pro-image-preview-S",
-        "gemini-3-pro-preview": "gemini-3-pro-preview",
-        "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image-preview",
-        "gemini-3.1-flash-image-preview-S": "gemini-3.1-flash-image-preview-S",
-        "gemini-3.1-flash-lite-preview": "gemini-3.1-flash-lite-preview",
-        "gemini-3.1-pro-preview": "gemini-3.1-pro-preview",
-        "glm-5": "glm-5",
-        "glm-5.1": "glm-5.1",
-        "glm-5.2": "glm-5.2",
-        "kimi-k3": "kimi-k3"
+        "claude-*": "claude-*",
+        "deepseek-*": "deepseek-*",
+        "glm-*": "glm-*",
+        "kimi-*": "kimi-*",
+        "minimax-*": "minimax-*"
       },
       "openai_tokensea_relay": {
         "claude-fable-5": "claude-fable-5",
@@ -387,6 +367,18 @@
           "qwen3.5-27b": "qwen3.5-27b",
           "qwen3.5-35b-a3b": "qwen3.5-35b-a3b",
           "qwen3.5-397b-a17b": "qwen3.5-397b-a17b"
+        }
+      },
+      {
+        "platform": "newapi",
+        "channel_type": 54,
+        "base_url": "https://api.xrtoken.net",
+        "model_mapping": {
+          "doubao-seedance-1-5-pro-251215": "doubao-seedance-1-5-pro-251215",
+          "doubao-seedance-2-0-260128": "doubao-seedance-2-0-260128",
+          "doubao-seedance-2-0-fast-260128": "doubao-seedance-2-0-fast-260128",
+          "doubao-seedance-2-5-260628": "doubao-seedance-2-5-260628",
+          "doubao-seedance-2.0-mini": "doubao-seedance-2.0-mini"
         }
       }
     ],

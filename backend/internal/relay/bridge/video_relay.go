@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	newapihelper "github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/engine"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
@@ -78,6 +79,10 @@ type VideoFetchOutcome struct {
 	RawResponse []byte
 	Status      string
 }
+
+// videoSubmitErrorBodyMaxBytes bounds untrusted upstream diagnostics before they
+// are copied into a typed error. Successful task bodies are parsed by the adaptor.
+const videoSubmitErrorBodyMaxBytes int64 = 512 << 10
 
 // videoFetchResponseMaxBytes bounds task-poll response bodies. Some upstreams
 // return terminal video bytes as inline base64 JSON; TokenKey should hand that
@@ -146,7 +151,7 @@ func DispatchVideoSubmit(_ context.Context, c *gin.Context, in ChannelContextInp
 		relayInfo.RelayMode = relayconstant.RelayModeVideoSubmit
 	}
 
-	adaptor := taskAdaptorForChannel(in.ChannelType)
+	adaptor := taskAdaptorForChannel(in.ChannelType, in.BaseURL)
 	if adaptor == nil {
 		return nil, errUnsupportedChannel(in.ChannelType)
 	}
@@ -155,6 +160,32 @@ func DispatchVideoSubmit(_ context.Context, c *gin.Context, in ChannelContextInp
 	// read or written. Skipping it caused a nil pointer deref in early dev.
 	relayInfo.InitChannelMeta(c)
 	relayInfo.UpstreamModelName = req.Model
+	// Apply the account's credentials.model_mapping, exactly as the four sibling
+	// bridge relays do (text/responses/embedding/image all call this right after
+	// InitChannelMeta). Video was the only relay missing it, so the requested
+	// model was forwarded verbatim and every account whose upstream names its
+	// SKUs differently was unreachable — e.g. XRToken serves Ark Seedance as
+	// `volcengine/doubao-seedance-*` and rejected the bare Ark id.
+	//
+	// Two invariants this must preserve:
+	//
+	//   - BILLING KEY IS UNCHANGED. relayInfo.OriginModelName (set above from
+	//     req.Model) is what TaskSubmitOutcome.OriginModel returns and what the
+	//     handler bills on. ModelMappedHelper only rewrites UpstreamModelName, so
+	//     the overlay price key stays the client-facing Ark id. Rewriting the
+	//     request body instead would have moved the billing key to the upstream
+	//     name and billed $0 for an id absent from the overlay.
+	//   - IDENTITY MAPPINGS STAY A NO-OP. For `X: X` the helper's cycle check
+	//     reports IsModelMapped=false and leaves UpstreamModelName alone, so
+	//     existing Ark accounts (tk_033/tk_056 write identity whitelists) behave
+	//     exactly as before.
+	//
+	// request is nil on purpose: TaskSubmitReq does not implement dto.Request
+	// (no SetModelName), and the task adaptors already substitute the mapped name
+	// themselves from info.IsModelMapped/UpstreamModelName in BuildRequestBody.
+	if err := newapihelper.ModelMappedHelper(c, relayInfo, nil); err != nil {
+		return nil, types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
+	}
 	// Seed the public task id so adaptor.DoResponse stamps it on the wire.
 	// Without this every adaptor would write an empty / random id, making
 	// the GET /v1/videos/:task_id response inconsistent with the POST.
@@ -180,7 +211,7 @@ func DispatchVideoSubmit(_ context.Context, c *gin.Context, in ChannelContextInp
 		return nil, types.NewError(errors.New("empty upstream response"), types.ErrorCodeDoRequestFailed, types.ErrOptionWithSkipRetry())
 	}
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, videoSubmitErrorBodyMaxBytes))
 		_ = resp.Body.Close()
 		return nil, types.NewErrorWithStatusCode(
 			fmt.Errorf("upstream task submit failed: %s", strings.TrimSpace(string(bodyBytes))),
@@ -379,14 +410,19 @@ func DispatchVideoFetch(_ context.Context, _ *gin.Context, in VideoFetchInput) (
 	if strings.TrimSpace(in.UpstreamTaskID) == "" {
 		return nil, types.NewError(errors.New("upstream task id is required"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
-	adaptor := taskAdaptorForChannel(in.ChannelType)
-	if adaptor == nil {
-		return nil, errUnsupportedChannel(in.ChannelType)
-	}
-
+	// Resolve base_url BEFORE adaptor selection: which adaptor serves this
+	// channel_type can depend on the base (XRToken shares ch54 with official
+	// Ark, distinguished only by host), so selecting first would pick the Ark
+	// adaptor for a registry record that stored an empty base and then fell
+	// back to the Ark default.
 	baseURL := in.BaseURL
 	if baseURL == "" && in.ChannelType >= 0 && in.ChannelType < len(newapiconstant.ChannelBaseURLs) {
 		baseURL = newapiconstant.ChannelBaseURLs[in.ChannelType]
+	}
+
+	adaptor := taskAdaptorForChannel(in.ChannelType, baseURL)
+	if adaptor == nil {
+		return nil, errUnsupportedChannel(in.ChannelType)
 	}
 
 	resp, err := adaptor.FetchTask(baseURL, in.APIKey, map[string]any{
@@ -399,7 +435,7 @@ func DispatchVideoFetch(_ context.Context, _ *gin.Context, in VideoFetchInput) (
 		return nil, types.NewError(errors.New("empty upstream fetch response"), types.ErrorCodeDoRequestFailed, types.ErrOptionWithSkipRetry())
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := readVideoFetchResponseBody(resp.Body)
+	body, err := readVideoFetchResponseBodyForAdaptor(adaptor, resp.Body)
 	if err != nil {
 		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeReadResponseBodyFailed, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 	}
@@ -417,6 +453,42 @@ func DispatchVideoFetch(_ context.Context, _ *gin.Context, in VideoFetchInput) (
 		out.Status = string(info.Status)
 	}
 	return out, nil
+}
+
+// videoFetchResponseSanitizer is implemented by task adaptors whose upstream
+// speaks a dialect that must not reach the client. Kept as a narrow optional
+// interface rather than a branch on base_url so the rule stays in the variant's
+// own file (see video_relay_tk_xrtoken.go) and adaptors without a dialect need
+// no code at all.
+type videoFetchResponseSanitizer interface {
+	sanitizeFetchResponse(body []byte) []byte
+}
+
+// readVideoFetchResponseBodyForAdaptor reads the bounded poll body and gives a
+// variant adaptor one chance to normalize upstream-dialect fields back to the
+// client-facing contract before anything is returned.
+//
+// The two steps are fused into ONE function on purpose. The handler hands
+// VideoFetchOutcome.RawResponse to the client verbatim, so a dialect field that
+// survives here reaches the client — and a separate, skippable "sanitize" step at
+// the call site is exactly the kind of line a later refactor drops silently while
+// every test still passes. Fusing them means the only way to skip sanitizing is
+// to stop reading the body at all, which fails loudly.
+//
+// Sanitizing deliberately happens AFTER the bounded read rather than inside
+// FetchTask: videoFetchResponseMaxBytes is enforced here, and some upstreams
+// return terminal video bytes inline, so a rewrite that consumed the stream
+// earlier (FetchTask hands back an *http.Response) would bypass that bound and
+// pull unbounded media into memory.
+func readVideoFetchResponseBodyForAdaptor(adaptor channel.TaskAdaptor, r io.Reader) ([]byte, error) {
+	body, err := readVideoFetchResponseBody(r)
+	if err != nil {
+		return nil, err
+	}
+	if variant, ok := adaptor.(videoFetchResponseSanitizer); ok {
+		body = variant.sanitizeFetchResponse(body)
+	}
+	return body, nil
 }
 
 func readVideoFetchResponseBody(r io.Reader) ([]byte, error) {
@@ -444,9 +516,25 @@ func readVideoFetchResponseBodyLimited(r io.Reader, maxBytes int64) ([]byte, err
 // channel type, or nil. DispatchVideoSubmit and DispatchVideoFetch own the
 // bridge-local lookup; external preflight callers MUST use engine-level truth
 // so capability semantics stay centralized outside the bridge package.
-func taskAdaptorForChannel(channelType int) channel.TaskAdaptor {
+//
+// baseURL selects among variants that share a channel_type. Today that is
+// XRToken, an ARK-compatible reseller reached on ChannelTypeDoubaoVideo whose
+// task paths differ from official Ark by one middle path segment — see
+// video_relay_tk_xrtoken.go. Dispatching on the sentinel base_url (rather than
+// minting a TK-private channel_type) keeps this a pure bridge-local concern:
+// engine capability, route registration and the admin channel catalog all keep
+// treating the account as ch54, exactly as they do for the ch45 Agent Plan and
+// ch46 Qianfan sentinels.
+//
+// An empty baseURL falls through to the upstream adaptor, which is the correct
+// default: callers that have no base_url (legacy registry rows) get official
+// Ark behavior, unchanged from before this override existed.
+func taskAdaptorForChannel(channelType int, baseURL string) channel.TaskAdaptor {
 	if channelType <= 0 {
 		return nil
+	}
+	if newapiintegration.IsXRTokenBaseURL(channelType, baseURL) {
+		return newXRTokenTaskAdaptor()
 	}
 	platform := newapiconstant.TaskPlatform(strconv.Itoa(channelType))
 	return newapirelay.GetTaskAdaptor(platform)

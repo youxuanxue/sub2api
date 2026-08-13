@@ -139,6 +139,38 @@ def migration_maps_model(files: dict[str, str], account: str, model_id: str) -> 
     return False
 
 
+def validate_account_scope(label: str, scope: Any) -> list[str]:
+    if not isinstance(scope, dict):
+        return [f"{label} must be an object"]
+    errors: list[str] = []
+    missing = sorted(ACCOUNT_SCOPE_FIELDS - set(scope))
+    unknown = sorted(set(scope) - ACCOUNT_SCOPE_FIELDS)
+    if missing:
+        errors.append(f"{label} omitted fields: " + ", ".join(missing))
+    if unknown:
+        errors.append(f"{label} has unknown fields: " + ", ".join(unknown))
+    if missing or unknown:
+        return errors
+    platform = scope["platform"]
+    channel_type = scope["channel_type"]
+    base_url = scope["base_url"]
+    if (
+        not isinstance(platform, str)
+        or not platform.strip()
+        or platform != platform.strip().lower()
+    ):
+        errors.append(f"{label}.platform must be a normalized non-empty string")
+    if not isinstance(channel_type, int) or isinstance(channel_type, bool) or channel_type <= 0:
+        errors.append(f"{label}.channel_type must be a positive integer")
+    if (
+        not isinstance(base_url, str)
+        or not base_url.strip()
+        or base_url != base_url.strip().lower().rstrip("/")
+    ):
+        errors.append(f"{label}.base_url must be a normalized non-empty string")
+    return errors
+
+
 # --------------------------------------------------------------------------- core
 
 
@@ -195,41 +227,23 @@ def evaluate(
 
         account_scope = entry.get("account_scope")
         if account_scope is not None:
-            if not isinstance(account_scope, dict):
-                errors.append(f"{key}: account_scope must be an object")
+            scope_errors = validate_account_scope(f"{key}: account_scope", account_scope)
+            errors.extend(scope_errors)
+            if scope_errors:
                 continue
-            missing_scope = sorted(ACCOUNT_SCOPE_FIELDS - set(account_scope))
-            unknown_scope = sorted(set(account_scope) - ACCOUNT_SCOPE_FIELDS)
-            if missing_scope:
-                errors.append(f"{key}: account_scope omitted fields: " + ", ".join(missing_scope))
-                continue
-            if unknown_scope:
-                errors.append(f"{key}: account_scope has unknown fields: " + ", ".join(unknown_scope))
-                continue
-            scope_platform = account_scope["platform"]
-            scope_channel_type = account_scope["channel_type"]
-            scope_base_url = account_scope["base_url"]
-            if (
-                not isinstance(scope_platform, str)
-                or not scope_platform.strip()
-                or scope_platform != scope_platform.strip().lower()
-            ):
-                errors.append(f"{key}: account_scope.platform must be a normalized non-empty string")
-                continue
-            if (
-                not isinstance(scope_channel_type, int)
-                or isinstance(scope_channel_type, bool)
-                or scope_channel_type <= 0
-            ):
-                errors.append(f"{key}: account_scope.channel_type must be a positive integer")
-                continue
-            if (
-                not isinstance(scope_base_url, str)
-                or not scope_base_url.strip()
-                or scope_base_url != scope_base_url.strip().lower().rstrip("/")
-            ):
-                errors.append(f"{key}: account_scope.base_url must be a normalized non-empty string")
-                continue
+
+        account_scopes = entry.get("account_scopes", [])
+        if not isinstance(account_scopes, list):
+            errors.append(f"{key}: account_scopes must be a list")
+            continue
+        scope_errors = [
+            error
+            for index, scope in enumerate(account_scopes)
+            for error in validate_account_scope(f"{key}: account_scopes[{index}]", scope)
+        ]
+        errors.extend(scope_errors)
+        if scope_errors:
+            continue
 
         platform = entry["platform"]
         model_id = entry["model_id"]

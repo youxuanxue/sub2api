@@ -123,6 +123,17 @@ func TestMatchWildcardMappingResult(t *testing.T) {
 			matched:        true,
 		},
 
+		// identity wildcard passthrough (CloudWise prefix floor)
+		{
+			name: "identity wildcard passthrough",
+			mapping: map[string]string{
+				"claude-*": "claude-*",
+			},
+			requestedModel: "claude-sonnet-4-6",
+			expected:       "claude-sonnet-4-6",
+			matched:        true,
+		},
+
 		// 无匹配返回原始模型
 		{
 			name: "no match returns original",

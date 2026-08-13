@@ -2235,6 +2235,44 @@
     ],
     "default_video_resolution": "720p"
   },
+  "doubao-seedance-2-5-260628": {
+    "litellm_provider": "volcengine",
+    "mode": "video_generation",
+    "output_cost_per_second": 0.10493731343283583,
+    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-08-13: doubao-seedance-2.5 declares 「输出视频分辨率为 480p，720p」 with 输入不含视频 = 70.00 CNY/M tokens (输入包含视频 = 42.00, not served — the video-input submit guard rejects it before pricing). Ark bills video tokens as duration*W*H*fps/1024; the per-tier tokens/s constants (480p 10044, 720p 21600) are cross-checked against the already-priced doubao-seedance-2-0-fast-260128 row and reproduce its stored values exactly. 720p derivation: 21600 tokens/s * 70/1e6 = 1.512 CNY/s ÷ 6.7 = 0.22567164179104476. Deliberately priced from the official list rate; Ark shows no promotional discount on this SKU. Only 480p/720p tiers exist because Ark does not offer 1080p/4k here — inventing one would let a 1080p request bill at a fabricated rate. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-08-13: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
+    "failure_billing": "success_only",
+    "video_price_tiers": [
+      {
+        "resolution": "480p",
+        "output_cost_per_second": 0.10493731343283583
+      },
+      {
+        "resolution": "720p",
+        "output_cost_per_second": 0.22567164179104476,
+        "default_for_model": true
+      }
+    ],
+    "default_video_resolution": "720p"
+  },
+  "doubao-seedance-2.0-mini": {
+    "litellm_provider": "volcengine",
+    "mode": "video_generation",
+    "output_cost_per_second": 0.034479402985074625,
+    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-08-13: doubao-seedance-2.0-mini declares 「输出视频分辨率为 480p，720p」 with 输入不含视频 = 原价 23.00 CNY/M tokens carrying a 限时4折 promotion (输入包含视频 = 原价 14.00, not served — the video-input submit guard rejects it before pricing). The UNDISCOUNTED 23.00 list rate is used on purpose: every other seedance row here is priced from list (verified by recomputing doubao-seedance-2-0-fast-260128 from its own 原价 37.00 and matching its stored values), so a promotional basis would silently start under-billing the day the promotion lapses. Ark bills video tokens as duration*W*H*fps/1024; 720p derivation: 21600 tokens/s * 23/1e6 = 0.4968 CNY/s ÷ 6.7 = 0.07414925373134329. Only 480p/720p tiers exist because Ark does not offer 1080p/4k here — inventing one would let a 1080p request bill at a fabricated rate. Note this model ID is dotted (2.0-mini, no date suffix) in Ark's own pricing page, and XRToken exposes it verbatim as volcengine/doubao-seedance-2.0-mini. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-08-13: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
+    "failure_billing": "success_only",
+    "video_price_tiers": [
+      {
+        "resolution": "480p",
+        "output_cost_per_second": 0.034479402985074625
+      },
+      {
+        "resolution": "720p",
+        "output_cost_per_second": 0.07414925373134329,
+        "default_for_model": true
+      }
+    ],
+    "default_video_resolution": "720p"
+  },
   "doubao-seedream-4-0-250828": {
     "litellm_provider": "volcengine",
     "mode": "image_generation",

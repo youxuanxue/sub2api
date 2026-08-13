@@ -143,6 +143,23 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 			}
 			return identityModelMapping(ids), true
 		}
+		// XRToken (ch54 + sentinel base_url) serves the manifest's five-model
+		// property scope. The generic channel-type fallback must not own this
+		// account: XRToken-only rows are base_url-scoped, and three shared rows
+		// are indexed under channel_type 45. Route through the scoped account
+		// preset so apply-accounts preserves exactly the declared five models.
+		//
+		// The mapping stays IDENTITY: XRToken's `volcengine/` vendor namespace is
+		// applied on the wire by the task adaptor
+		// (newapiintegration.XRTokenUpstreamVideoModel), not stored as a mapping
+		// target the floor cannot represent and apply-accounts would revert.
+		if isNewAPIXRTokenAccount(account) {
+			ids := NewAPIModelMappingPresetIDsForAccount(account)
+			if len(ids) == 0 {
+				return nil, false
+			}
+			return identityModelMapping(ids), true
+		}
 		if runtime != nil {
 			if mapping, ok := runtime.newAPIChannelTypes[account.ChannelType]; ok {
 				return cloneStringMap(mapping), true
@@ -416,11 +433,10 @@ func openAITokenseaRelayAccountModelMappingFloor(ctx context.Context, pricing *P
 }
 
 func openAICloudwiseRelayAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
-	ids := supportedCatalogModelIDsFromMap(supportedOpenAICloudwiseRelayCatalogModels)
-	if len(ids) == 0 {
-		return nil
-	}
-	return identityModelMapping(ids)
+	_ = ctx
+	_ = pricing
+	_ = availability
+	return cloneStringMap(openAICloudwiseRelayWildcardModelMappingFloor())
 }
 
 func anthropicTokenseaRelayModelMappingFloor() map[string]string {

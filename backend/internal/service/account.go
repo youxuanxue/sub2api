@@ -733,7 +733,7 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 		return mappedModel, true
 	}
 	if lookupKey != "" && lookupKey != requestedModel {
-		if mappedModel, matched := matchNormalizedWildcardMappingResult(mapping, lookupKey); matched {
+		if mappedModel, matched := matchNormalizedWildcardMappingResult(mapping, lookupKey, requestedModel); matched {
 			return mappedModel, true
 		}
 	}
@@ -751,30 +751,6 @@ func sortedModelMappingKeys(mapping map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-func matchNormalizedWildcardMappingResult(mapping map[string]string, requestedModel string) (string, bool) {
-	type patternMatch struct {
-		pattern string
-		target  string
-	}
-	var matches []patternMatch
-	for pattern, target := range mapping {
-		normalizedPattern := normalizeModelMappingLookupKey(pattern)
-		if matchWildcard(normalizedPattern, requestedModel) {
-			matches = append(matches, patternMatch{pattern: pattern, target: target})
-		}
-	}
-	if len(matches) == 0 {
-		return requestedModel, false
-	}
-	sort.Slice(matches, func(i, j int) bool {
-		if len(matches[i].pattern) != len(matches[j].pattern) {
-			return len(matches[i].pattern) > len(matches[j].pattern)
-		}
-		return matches[i].pattern < matches[j].pattern
-	})
-	return matches[0].target, true
 }
 
 // IsModelSupported 检查模型是否在 model_mapping 中（支持通配符）
@@ -828,12 +804,12 @@ func (a *Account) ResolveMappedModel(requestedModel string) (mappedModel string,
 		return requestedModel, false
 	}
 	if mappedModel, matched := resolveRequestedModelInMapping(mapping, requestedModel); matched {
-		return mappedModel, true
+		return applyOpenAICloudwiseRelayUpstreamModelID(a, mappedModel), true
 	}
 	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
 	if normalized != requestedModel {
 		if mappedModel, matched := resolveRequestedModelInMapping(mapping, normalized); matched {
-			return mappedModel, true
+			return applyOpenAICloudwiseRelayUpstreamModelID(a, mappedModel), true
 		}
 	}
 	return requestedModel, false
@@ -996,35 +972,6 @@ func matchAntigravityWildcard(pattern, str string) bool {
 // 复用 Antigravity 的通配符逻辑，供其他平台使用
 func matchWildcard(pattern, str string) bool {
 	return matchAntigravityWildcard(pattern, str)
-}
-
-func matchWildcardMappingResult(mapping map[string]string, requestedModel string) (string, bool) {
-	// 收集所有匹配的 pattern，按长度降序排序（最长优先）
-	type patternMatch struct {
-		pattern string
-		target  string
-	}
-	var matches []patternMatch
-
-	for pattern, target := range mapping {
-		if matchWildcard(pattern, requestedModel) {
-			matches = append(matches, patternMatch{pattern, target})
-		}
-	}
-
-	if len(matches) == 0 {
-		return requestedModel, false // 无匹配，返回原始模型名
-	}
-
-	// 按 pattern 长度降序排序
-	sort.Slice(matches, func(i, j int) bool {
-		if len(matches[i].pattern) != len(matches[j].pattern) {
-			return len(matches[i].pattern) > len(matches[j].pattern)
-		}
-		return matches[i].pattern < matches[j].pattern
-	})
-
-	return matches[0].target, true
 }
 
 func (a *Account) IsCustomErrorCodesEnabled() bool {

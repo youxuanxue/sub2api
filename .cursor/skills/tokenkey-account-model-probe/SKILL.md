@@ -114,6 +114,17 @@ bash ops/observability/run-probe.sh \
   --env ACCOUNT_ID=95
 ```
 
+To probe one model spelling against CloudWise `/v1/chat/completions` (case
+sensitivity / canonical wire id — e.g. `MiniMax-M3` vs `minimax-m3`):
+
+```bash
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/stage0/probe_cloudwise_model_case.sh \
+  --env ACCOUNT_ID=95 \
+  --env MODEL=MiniMax-M3
+```
+
 The JSON result includes database-derived `account_platform` and effective
 `account_scope` (for example an Anthropic transport stub with
 `mirror_platform=kiro` reports `account_platform=anthropic`,
