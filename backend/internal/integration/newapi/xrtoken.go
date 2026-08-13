@@ -123,3 +123,26 @@ func XRTokenUpstreamVideoModel(model string) string {
 	}
 	return XRTokenVideoVendorPrefix + model
 }
+
+// XRTokenClientFacingVideoModel is the inverse of XRTokenUpstreamVideoModel: it
+// strips the vendor namespace so a model id XRToken echoed back becomes the Ark
+// id the client actually asked for.
+//
+// Needed because the video poll path hands the upstream JSON to the client
+// verbatim (see DispatchVideoFetch / the VideoFetch handler — deliberate, so
+// volcengine/doubao SDK clients see the body shape new-api would return for this
+// channel type). XRToken's task payload carries a `model` field, so without this
+// the client would submit `doubao-seedance-2-5-260628` and then read
+// `volcengine/doubao-seedance-2-5-260628` back from the same task — the two
+// halves of one wire contract disagreeing, and an incidental disclosure of which
+// reseller served the request.
+//
+// Only the exact vendor prefix this integration adds is removed; any other
+// namespace is left alone rather than guessed at.
+func XRTokenClientFacingVideoModel(model string) string {
+	trimmed := strings.TrimSpace(model)
+	if !strings.HasPrefix(trimmed, XRTokenVideoVendorPrefix) {
+		return model
+	}
+	return strings.TrimPrefix(trimmed, XRTokenVideoVendorPrefix)
+}

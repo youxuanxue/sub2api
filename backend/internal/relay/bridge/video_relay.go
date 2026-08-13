@@ -431,7 +431,7 @@ func DispatchVideoFetch(_ context.Context, _ *gin.Context, in VideoFetchInput) (
 		return nil, types.NewError(errors.New("empty upstream fetch response"), types.ErrorCodeDoRequestFailed, types.ErrOptionWithSkipRetry())
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := readVideoFetchResponseBody(resp.Body)
+	body, err := readVideoFetchResponseBodyForAdaptor(adaptor, resp.Body)
 	if err != nil {
 		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeReadResponseBodyFailed, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 	}
@@ -449,6 +449,42 @@ func DispatchVideoFetch(_ context.Context, _ *gin.Context, in VideoFetchInput) (
 		out.Status = string(info.Status)
 	}
 	return out, nil
+}
+
+// videoFetchResponseSanitizer is implemented by task adaptors whose upstream
+// speaks a dialect that must not reach the client. Kept as a narrow optional
+// interface rather than a branch on base_url so the rule stays in the variant's
+// own file (see video_relay_tk_xrtoken.go) and adaptors without a dialect need
+// no code at all.
+type videoFetchResponseSanitizer interface {
+	sanitizeFetchResponse(body []byte) []byte
+}
+
+// readVideoFetchResponseBodyForAdaptor reads the bounded poll body and gives a
+// variant adaptor one chance to normalize upstream-dialect fields back to the
+// client-facing contract before anything is returned.
+//
+// The two steps are fused into ONE function on purpose. The handler hands
+// VideoFetchOutcome.RawResponse to the client verbatim, so a dialect field that
+// survives here reaches the client — and a separate, skippable "sanitize" step at
+// the call site is exactly the kind of line a later refactor drops silently while
+// every test still passes. Fusing them means the only way to skip sanitizing is
+// to stop reading the body at all, which fails loudly.
+//
+// Sanitizing deliberately happens AFTER the bounded read rather than inside
+// FetchTask: videoFetchResponseMaxBytes is enforced here, and some upstreams
+// return terminal video bytes inline, so a rewrite that consumed the stream
+// earlier (FetchTask hands back an *http.Response) would bypass that bound and
+// pull unbounded media into memory.
+func readVideoFetchResponseBodyForAdaptor(adaptor channel.TaskAdaptor, r io.Reader) ([]byte, error) {
+	body, err := readVideoFetchResponseBody(r)
+	if err != nil {
+		return nil, err
+	}
+	if variant, ok := adaptor.(videoFetchResponseSanitizer); ok {
+		body = variant.sanitizeFetchResponse(body)
+	}
+	return body, nil
 }
 
 func readVideoFetchResponseBody(r io.Reader) ([]byte, error) {

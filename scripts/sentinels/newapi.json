@@ -130,9 +130,11 @@
         "errVideoFetchResponseTooLarge",
         "ModelMappedHelper",
         "IsXRTokenBaseURL",
-        "newXRTokenTaskAdaptor"
+        "newXRTokenTaskAdaptor",
+        "readVideoFetchResponseBodyForAdaptor",
+        "videoFetchResponseSanitizer"
       ],
-      "rationale": "Bridge for the asynchronous video task pipeline (POST /v1/video/generations + GET /v1/video/generations/:task_id and the OpenAI-compat /v1/videos aliases) — currently the only newapi pathway for VolcEngine / DoubaoVideo video generation. normalizeVideoSubmitBodyForTaskAdaptor maps the public resolution/audio fields into pinned new-api TaskSubmitReq metadata so the upstream-generated tier cannot diverge from TokenKey billing. videoFetchResponseMaxBytes / errVideoFetchResponseTooLarge are the pressure guard for upstreams that return inline video bytes: TokenKey may deliver one bounded response to the client, never accept unbounded media into memory. ModelMappedHelper is the account model_mapping application on the video submit path: video was the only bridge relay missing it (text/responses/embedding/image all call it), so credentials.model_mapping was ignored and any upstream naming its SKUs differently was unreachable. It must rewrite UpstreamModelName ONLY — OriginModelName stays the billing key, so a re-introduced body rewrite would bill $0 for an id absent from the overlay. IsXRTokenBaseURL/newXRTokenTaskAdaptor are the base_url-sentinel dispatch that lets ch54 serve both official Ark and the ARK-compatible XRToken host without minting a TK-private channel_type."
+      "rationale": "Bridge for the asynchronous video task pipeline (POST /v1/video/generations + GET /v1/video/generations/:task_id and the OpenAI-compat /v1/videos aliases) — currently the only newapi pathway for VolcEngine / DoubaoVideo video generation. normalizeVideoSubmitBodyForTaskAdaptor maps the public resolution/audio fields into pinned new-api TaskSubmitReq metadata so the upstream-generated tier cannot diverge from TokenKey billing. videoFetchResponseMaxBytes / errVideoFetchResponseTooLarge are the pressure guard for upstreams that return inline video bytes: TokenKey may deliver one bounded response to the client, never accept unbounded media into memory. ModelMappedHelper is the account model_mapping application on the video submit path: video was the only bridge relay missing it (text/responses/embedding/image all call it), so credentials.model_mapping was ignored and any upstream naming its SKUs differently was unreachable. It must rewrite UpstreamModelName ONLY — OriginModelName stays the billing key, so a re-introduced body rewrite would bill $0 for an id absent from the overlay. IsXRTokenBaseURL/newXRTokenTaskAdaptor are the base_url-sentinel dispatch that lets ch54 serve both official Ark and the ARK-compatible XRToken host without minting a TK-private channel_type. readVideoFetchResponseBodyForAdaptor fuses the bounded poll read with the variant-dialect rewrite in one function precisely so the rewrite cannot be dropped as a separate skippable line while tests still pass; it must run AFTER the bound because inline-media responses would otherwise be read unbounded inside FetchTask."
     },
     {
       "path": "backend/internal/integration/newapi/video_task_resolution.go",
@@ -665,17 +667,21 @@
         "ChannelTypeDoubaoVideo",
         "XRTokenVideoVendorPrefix",
         "XRTokenUpstreamVideoModel",
-        "volcengine/"
+        "volcengine/",
+        "XRTokenClientFacingVideoModel"
       ],
-      "rationale": "XRToken base-url detection for ch54 (DoubaoVideo) accounts — an ARK-compatible reseller whose task paths differ from official Ark by one middle segment (/v1/ vs /api/v3/). Without it the bridge selects the upstream doubao adaptor and every submit/poll 404s. NormalizeXRTokenBaseURL collapses the SDK-documented '.../v1' spelling so the wrapper cannot emit /v1/v1/contents/...; the ChannelTypeDoubaoVideo scope keeps a ch45 account on the same host from being treated as XRToken (that channel additionally exposes chat/embeddings/images paths XRToken does not serve). XRTokenVideoVendorPrefix / XRTokenUpstreamVideoModel encode the one wire fact that XRToken publishes every Ark video SKU as `volcengine/<ark-id>` and rejects the bare Ark id. It lives here (applied by the task adaptor) and NOT as a credentials.model_mapping target because the compiled mapping floor can only express identity mappings, so a prefixed target is both unrepresentable in the SSOT and reverted to identity by the next routine apply-accounts. Dropping these makes every XRToken seedance submit fail upstream while the account still looks correctly provisioned."
+      "rationale": "XRToken base-url detection for ch54 (DoubaoVideo) accounts — an ARK-compatible reseller whose task paths differ from official Ark by one middle segment (/v1/ vs /api/v3/). Without it the bridge selects the upstream doubao adaptor and every submit/poll 404s. NormalizeXRTokenBaseURL collapses the SDK-documented '.../v1' spelling so the wrapper cannot emit /v1/v1/contents/...; the ChannelTypeDoubaoVideo scope keeps a ch45 account on the same host from being treated as XRToken (that channel additionally exposes chat/embeddings/images paths XRToken does not serve). XRTokenVideoVendorPrefix / XRTokenUpstreamVideoModel encode the one wire fact that XRToken publishes every Ark video SKU as `volcengine/<ark-id>` and rejects the bare Ark id. It lives here (applied by the task adaptor) and NOT as a credentials.model_mapping target because the compiled mapping floor can only express identity mappings, so a prefixed target is both unrepresentable in the SSOT and reverted to identity by the next routine apply-accounts. Dropping these makes every XRToken seedance submit fail upstream while the account still looks correctly provisioned. The vendor-namespace pair is the wire contract for XRToken video: XRTokenUpstreamVideoModel adds `volcengine/` on submit (XRToken rejects the bare Ark id) and XRTokenClientFacingVideoModel removes it from the verbatim-passthrough poll body, so one task never reports two model ids across POST and GET. Encoding the rule here rather than in credentials.model_mapping is load-bearing: the mapping SSOT can only express identity targets (accountModelMappingForAccount -> identityModelMapping), so a prefixed target is unrepresentable AND would be reverted to identity by the next routine apply-accounts."
     },
     {
       "path": "backend/internal/integration/newapi/xrtoken_test.go",
       "must_contain": [
         "TestIsXRTokenBaseURL",
-        "TestNormalizeXRTokenBaseURL"
+        "TestNormalizeXRTokenBaseURL",
+        "TestXRTokenUpstreamVideoModel",
+        "TestXRTokenClientFacingVideoModel",
+        "TestXRTokenVideoModelRoundTrip"
       ],
-      "rationale": "Regressions for XRToken base-url detection and /v1 normalization, including the channel-type guard; prevents silent misrouting when credentials suffix or omit the documented /v1 path."
+      "rationale": "Regressions for XRToken base-url detection and /v1 normalization, including the channel-type guard; prevents silent misrouting when credentials suffix or omit the documented /v1 path. Round-trip regression pins both directions plus idempotence, so a change that doubles the prefix or strips a foreign vendor namespace fails here."
     },
     {
       "path": "backend/internal/relay/bridge/video_relay_tk_xrtoken.go",
@@ -685,9 +691,11 @@
         "/v1/contents/generations/tasks",
         "NormalizeXRTokenBaseURL",
         "BuildRequestBody",
-        "XRTokenUpstreamVideoModel"
+        "XRTokenUpstreamVideoModel",
+        "sanitizeFetchResponse",
+        "XRTokenClientFacingVideoModel"
       ],
-      "rationale": "TK companion task adaptor for XRToken video. Embeds the upstream doubao TaskAdaptor and overrides ONLY BuildRequestURL + FetchTask to swap the hardcoded /api/v3/ segment for /v1/; request and response bodies are byte-identical per XRToken's published ARK-compatibility contract, so every other method (billing ratios, body build, response parse, OpenAI-Video projection) is inherited and follows upstream fixes. new-api is a pinned upstream that must not be patched from this repo, so this wrapper is the only correct place for the path difference. The BuildRequestBody override is what puts the `volcengine/` namespace on the wire while leaving every other inherited Ark payload field untouched; it also updates info.UpstreamModelName so ops evidence matches the request. The billing key is deliberately NOT rewritten (the handler prices on OriginModel), so losing this override breaks serving, and mis-widening it to the body's billing key would bill $0 against an overlay key that does not exist."
+      "rationale": "TK companion task adaptor for XRToken video. Embeds the upstream doubao TaskAdaptor and overrides ONLY BuildRequestURL + FetchTask to swap the hardcoded /api/v3/ segment for /v1/; request and response bodies are byte-identical per XRToken's published ARK-compatibility contract, so every other method (billing ratios, body build, response parse, OpenAI-Video projection) is inherited and follows upstream fixes. new-api is a pinned upstream that must not be patched from this repo, so this wrapper is the only correct place for the path difference. The BuildRequestBody override is what puts the `volcengine/` namespace on the wire while leaving every other inherited Ark payload field untouched; it also updates info.UpstreamModelName so ops evidence matches the request. The billing key is deliberately NOT rewritten (the handler prices on OriginModel), so losing this override breaks serving, and mis-widening it to the body's billing key would bill $0 against an overlay key that does not exist. BuildRequestBody delegates to the embedded Ark builder and rewrites only `model`; sanitizeFetchResponse is the inverse on the poll body. Both must stay: dropping the first makes every Seedance submit 400 at XRToken, dropping the second leaks the reseller's namespace into the client-facing task response."
     },
     {
       "path": "backend/internal/relay/bridge/video_relay_tk_xrtoken_test.go",
@@ -698,9 +706,10 @@
         "TestDispatchVideoSubmit_AppliesModelMapping",
         "TestDispatchVideoSubmit_IdentityMappingIsNoOp",
         "TestXRTokenTaskAdaptor_BuildRequestBody_PrefixesModel",
-        "TestXRTokenTaskAdaptor_BuildRequestBody_AlreadyPrefixedIsNotDoubled"
+        "TestXRTokenTaskAdaptor_BuildRequestBody_AlreadyPrefixedIsNotDoubled",
+        "TestDispatchVideoFetch_XRTokenStripsVendorPrefixFromClientBody"
       ],
-      "rationale": "Focused bridge regressions for the XRToken video path. The fake upstream serves only XRToken's shape and 404s /api/v3/*, so a regression to the inherited URL fails here instead of in prod. AppliesModelMapping pins that credentials.model_mapping reaches the upstream body while OriginModel (the billing key) stays the client-facing Ark id; IdentityMappingIsNoOp pins that existing Ark accounts provisioned with `X: X` identity whitelists (tk_033/tk_056) are unaffected. The BuildRequestBody regressions assert both halves of the prefix design: the wire model gains the vendor namespace under an IDENTITY model_mapping (the only shape the SSOT emits), the billing key stays the bare Ark id, and an already-namespaced id is not doubled."
+      "rationale": "Focused bridge regressions for the XRToken video path. The fake upstream serves only XRToken's shape and 404s /api/v3/*, so a regression to the inherited URL fails here instead of in prod. AppliesModelMapping pins that credentials.model_mapping reaches the upstream body while OriginModel (the billing key) stays the client-facing Ark id; IdentityMappingIsNoOp pins that existing Ark accounts provisioned with `X: X` identity whitelists (tk_033/tk_056) are unaffected. The BuildRequestBody regressions assert both halves of the prefix design: the wire model gains the vendor namespace under an IDENTITY model_mapping (the only shape the SSOT emits), the billing key stays the bare Ark id, and an already-namespaced id is not doubled. The submit test proves the prefix reaches the wire while OriginModelName (the overlay billing key) stays the bare Ark id; the fetch test drives readVideoFetchResponseBodyForAdaptor so the sanitize WIRING is covered, not just the rewrite helper."
     },
     {
       "path": "backend/internal/integration/newapi/ark_channel_base_url.go",

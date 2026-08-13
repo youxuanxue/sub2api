@@ -431,3 +431,93 @@ func TestXRTokenTaskAdaptor_BuildRequestBody_AlreadyPrefixedIsNotDoubled(t *test
 		t.Fatalf("OriginModelName = %q, want %q", info.OriginModelName, clientModel)
 	}
 }
+
+// TestDispatchVideoFetch_XRTokenStripsVendorPrefixFromClientBody is the
+// end-to-end regression for the poll half of the wire contract.
+//
+// The VideoFetch handler writes VideoFetchOutcome.RawResponse to the client
+// verbatim (deliberately — volcengine/doubao SDK clients rely on the upstream
+// body shape), and XRToken's task payload echoes the namespaced `model` it was
+// submitted with. A client that POSTed `doubao-seedance-2-5-260628` must not read
+// `volcengine/doubao-seedance-2-5-260628` back from the same task.
+func TestDispatchVideoFetch_XRTokenStripsVendorPrefixFromClientBody(t *testing.T) {
+	ensureNewAPIDeps()
+
+	const arkID = "doubao-seedance-2-5-260628"
+	const upstreamID = "volcengine/doubao-seedance-2-5-260628"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/v1/contents/generations/tasks/") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		// Shape mirrors XRToken/Ark: the task echoes the model it ran.
+		_, _ = w.Write([]byte(`{"id":"cgt-xr-poll-1","model":"` + upstreamID +
+			`","status":"succeeded","content":{"video_url":"https://cdn.example/v.mp4"}}`))
+	}))
+	defer srv.Close()
+
+	// Drive the wrapper directly: dispatch selects it by sentinel base_url, which
+	// an httptest host cannot satisfy.
+	adaptor := newXRTokenTaskAdaptor()
+	resp, err := adaptor.FetchTask(srv.URL, "tr-test-key", map[string]any{"task_id": "cgt-xr-poll-1"}, "")
+	if err != nil {
+		t.Fatalf("FetchTask: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if got := gjson.GetBytes(raw, "model").String(); got != upstreamID {
+		t.Fatalf("fixture upstream model = %q, want %q (test would not be proving anything)", got, upstreamID)
+	}
+
+	// Go through the SAME entry point DispatchVideoFetch uses, not the sanitizer
+	// directly: the bounded read and the dialect rewrite are fused there, so this
+	// also proves the wiring is in place rather than only the rewrite logic.
+	sanitized, err := readVideoFetchResponseBodyForAdaptor(adaptor, bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("readVideoFetchResponseBodyForAdaptor: %v", err)
+	}
+	if got := gjson.GetBytes(sanitized, "model").String(); got != arkID {
+		t.Fatalf("client-facing model = %q, want the submitted Ark id %q — the vendor "+
+			"prefix must not leak into the poll response", got, arkID)
+	}
+	// Everything else in the passthrough body must survive untouched.
+	if got := gjson.GetBytes(sanitized, "status").String(); got != "succeeded" {
+		t.Fatalf("status = %q, want succeeded — only `model` may be rewritten", got)
+	}
+	if got := gjson.GetBytes(sanitized, "content.video_url").String(); got != "https://cdn.example/v.mp4" {
+		t.Fatalf("video_url = %q — the client must still receive the media URL", got)
+	}
+	if got := gjson.GetBytes(sanitized, "id").String(); got != "cgt-xr-poll-1" {
+		t.Fatalf("upstream task id = %q, want it preserved", got)
+	}
+}
+
+// TestXRTokenSanitizeFetchResponse_LeavesForeignBodiesAlone guards the failure
+// modes of a rewrite that sits on the client passthrough path: a poll must never
+// fail because of a cosmetic model name, and a body without our vendor prefix
+// must come back byte-identical.
+func TestXRTokenSanitizeFetchResponse_LeavesForeignBodiesAlone(t *testing.T) {
+	adaptor := newXRTokenTaskAdaptor()
+	for name, body := range map[string]string{
+		"no model field": `{"id":"x","status":"succeeded"}`,
+		"already ark id": `{"id":"x","model":"doubao-seedance-2-0-260128"}`,
+		"other vendor":   `{"id":"x","model":"someone-else/doubao-seedance-2-0-260128"}`,
+		"not json":       `<html>gateway error</html>`,
+		"empty object":   `{}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := adaptor.sanitizeFetchResponse([]byte(body))
+			if string(got) != body {
+				t.Fatalf("sanitizeFetchResponse rewrote a body it should not touch:\n got: %s\nwant: %s", got, body)
+			}
+		})
+	}
+	if got := adaptor.sanitizeFetchResponse(nil); got != nil {
+		t.Fatalf("nil body must stay nil, got %q", got)
+	}
+}

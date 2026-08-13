@@ -163,3 +163,41 @@ func (a *xrTokenTaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.
 	}
 	return bytes.NewReader(rewritten), nil
 }
+
+// sanitizeFetchResponse rewrites the client-facing `model` field of a poll
+// response back to the Ark id the caller submitted.
+//
+// The video poll path hands upstream JSON to the client verbatim (see the
+// VideoFetch handler: `body := out.RawResponse` goes straight to the writer).
+// That passthrough is deliberate — volcengine/doubao SDK clients should see the
+// body shape new-api would return for this channel type — but XRToken's task
+// payload carries a `model` field holding the vendor-namespaced id this wrapper
+// put on the wire at submit. Without this, one task reports two different model
+// names across POST and GET, and the response discloses which reseller served
+// the request.
+//
+// This runs on the ALREADY-BOUNDED body rather than inside FetchTask on purpose:
+// videoFetchResponseMaxBytes is enforced by DispatchVideoFetch after FetchTask
+// returns, so reading the stream early to rewrite it would bypass that limit and
+// pull an unbounded inline-media response into memory.
+//
+// Returns the input untouched on any parse/rewrite failure: a cosmetic model
+// name is never worth failing a poll the client needs for its video URL.
+func (a *xrTokenTaskAdaptor) sanitizeFetchResponse(body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+	current := gjson.GetBytes(body, "model")
+	if !current.Exists() {
+		return body
+	}
+	clientFacing := newapiintegration.XRTokenClientFacingVideoModel(current.String())
+	if clientFacing == current.String() {
+		return body
+	}
+	rewritten, err := sjson.SetBytes(body, "model", clientFacing)
+	if err != nil {
+		return body
+	}
+	return rewritten
+}

@@ -125,3 +125,52 @@ func TestXRTokenUpstreamVideoModel_IsIdempotentUnderRepetition(t *testing.T) {
 		}
 	}
 }
+
+// TestXRTokenClientFacingVideoModel is the inverse-direction regression: the
+// video poll path hands the upstream JSON to the client verbatim, and XRToken's
+// task payload echoes a `model` field. Without stripping, one task reports
+// `doubao-seedance-2-5-260628` at POST and `volcengine/doubao-seedance-2-5-260628`
+// at GET.
+func TestXRTokenClientFacingVideoModel(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"volcengine/doubao-seedance-2-5-260628", "doubao-seedance-2-5-260628"},
+		{"volcengine/doubao-seedance-2.0-mini", "doubao-seedance-2.0-mini"},
+		// Already client-facing: unchanged.
+		{"doubao-seedance-2-0-260128", "doubao-seedance-2-0-260128"},
+		// A different vendor namespace is NOT ours to interpret; leave it alone
+		// rather than guessing which segment is the bare id.
+		{"someone-else/doubao-seedance-2-0-260128", "someone-else/doubao-seedance-2-0-260128"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		if got := XRTokenClientFacingVideoModel(tc.in); got != tc.want {
+			t.Fatalf("XRTokenClientFacingVideoModel(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestXRTokenVideoModelRoundTrip pins the two directions as exact inverses for
+// every SKU TokenKey serves on XRToken. If the prefix constant or either helper
+// drifts, a submit/poll pair stops agreeing and this fails.
+func TestXRTokenVideoModelRoundTrip(t *testing.T) {
+	t.Parallel()
+	for _, arkID := range []string{
+		"doubao-seedance-1-5-pro-251215",
+		"doubao-seedance-2-0-260128",
+		"doubao-seedance-2-0-fast-260128",
+		"doubao-seedance-2-5-260628",
+		"doubao-seedance-2.0-mini",
+	} {
+		upstream := XRTokenUpstreamVideoModel(arkID)
+		if upstream == arkID {
+			t.Fatalf("XRTokenUpstreamVideoModel(%q) did not add the vendor prefix", arkID)
+		}
+		if back := XRTokenClientFacingVideoModel(upstream); back != arkID {
+			t.Fatalf("round trip broken: %q -> %q -> %q", arkID, upstream, back)
+		}
+	}
+}
