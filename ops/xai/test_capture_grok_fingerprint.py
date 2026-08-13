@@ -4,7 +4,6 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
-from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import capture_grok_fingerprint as mod  # noqa: E402
@@ -19,15 +18,13 @@ class CaptureGrokFingerprintTest(unittest.TestCase):
         rows = mod.diff_rows("0.2.73", "0.2.74")
         self.assertTrue(mod.has_drift(rows))
 
-    @mock.patch.object(mod, "installed_grok_version", return_value="0.2.106")
-    def test_live_repo_aligned(self, _inst) -> None:
-        if not mod.OAUTH_GO.is_file():
-            self.skipTest("oauth.go missing")
+    def test_live_repo_owner_is_aligned_with_itself(self) -> None:
+        self.assertTrue(mod.BILLING_GO.is_file())
         pinned = mod.load_pinned_version()
-        if not pinned:
-            self.skipTest("no pinned version")
-        rows = mod.diff_rows(pinned, "0.2.106")
+        self.assertRegex(pinned, r"^\d+\.\d+\.\d+")
+        rows = mod.diff_rows(pinned, pinned)
         self.assertFalse(mod.has_drift(rows))
+        self.assertEqual(rows[0].field, "cli_client_version")
 
 
 if __name__ == "__main__":

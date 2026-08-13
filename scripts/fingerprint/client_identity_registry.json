@@ -1,0 +1,231 @@
+{
+  "schema_version": 1,
+  "evidence_modes": [
+    "wire_tls_http",
+    "wire_http",
+    "local_binary_static",
+    "version_only",
+    "advisory_release"
+  ],
+  "identities": [
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "skill": "tokenkey-cc-fingerprint-alignment",
+      "pin_reader": "claude-code",
+      "compile_owner": {
+        "path": "deploy/aws/stage0/anthropic-http-mimicry-baselines.json",
+        "symbol": "cc_version"
+      },
+      "runtime_identity": {
+        "path": "backend/internal/service/identity_service.go",
+        "symbol": "IdentityService.ApplyFingerprint",
+        "override": "admin fingerprint plus runtime headers"
+      },
+      "evidence_mode": "wire_tls_http",
+      "capture_tool": "ops/anthropic/capture-cc-fingerprint.sh",
+      "production_observer": "ops/observability/probe-prompt-surface-fingerprints.sh",
+      "companion_identity": null,
+      "actionable": true,
+      "status_note": "",
+      "release_sources": [
+        {"kind": "github_release", "label": "GitHub anthropics/claude-code", "repo": "anthropics/claude-code", "tag_prefix": "v"},
+        {"kind": "npm", "label": "npm @anthropic-ai/claude-code", "package": "@anthropic-ai/claude-code"}
+      ]
+    },
+    {
+      "id": "cc-stainless",
+      "name": "Claude Code (Stainless SDK)",
+      "skill": "tokenkey-cc-fingerprint-alignment",
+      "pin_reader": "cc-stainless",
+      "compile_owner": {
+        "path": "backend/internal/pkg/claude/constants.go",
+        "symbol": "X-Stainless-Package-Version"
+      },
+      "runtime_identity": {
+        "path": "backend/internal/service/identity_service.go",
+        "symbol": "IdentityService.ApplyFingerprint",
+        "override": "captured fingerprint headers"
+      },
+      "evidence_mode": "wire_http",
+      "capture_tool": "ops/anthropic/capture-cc-fingerprint.sh",
+      "production_observer": "ops/observability/probe-prompt-surface-fingerprints.sh",
+      "companion_identity": null,
+      "actionable": false,
+      "status_note": "npm SDK semver is advisory; Claude Code on-wire X-Stainless-Package-Version remains capture ground truth.",
+      "release_sources": [
+        {"kind": "npm", "label": "npm @anthropic-ai/sdk", "package": "@anthropic-ai/sdk"}
+      ]
+    },
+    {
+      "id": "codex",
+      "name": "Codex CLI",
+      "skill": "tokenkey-codex-fingerprint-alignment",
+      "pin_reader": "codex",
+      "compile_owner": {
+        "path": "backend/internal/service/setting_gateway_runtime.go",
+        "symbol": "DefaultOpenAICodexVersion"
+      },
+      "runtime_identity": {
+        "path": "backend/internal/service/setting_gateway_runtime.go",
+        "symbol": "SettingService.GetOpenAICodexClientVersion",
+        "override": "admin override then synced setting then compile fallback"
+      },
+      "evidence_mode": "local_binary_static",
+      "capture_tool": "ops/openai/capture-codex-fingerprint.sh",
+      "production_observer": null,
+      "companion_identity": null,
+      "actionable": true,
+      "status_note": "",
+      "release_sources": [
+        {"kind": "npm", "label": "npm @openai/codex", "package": "@openai/codex"},
+        {"kind": "github_release", "label": "GitHub openai/codex", "repo": "openai/codex", "tag_prefix": "rust-v"}
+      ]
+    },
+    {
+      "id": "codex-vscode",
+      "name": "Codex VS Code / Copilot",
+      "skill": "tokenkey-codex-fingerprint-alignment",
+      "pin_reader": "codex-vscode",
+      "compile_owner": {
+        "path": "backend/internal/service/setting_gateway_runtime.go",
+        "symbol": "DefaultOpenAICodexVersion"
+      },
+      "runtime_identity": {
+        "path": "backend/internal/service/setting_gateway_runtime.go",
+        "symbol": "SettingService.GetOpenAICodexClientVersion",
+        "override": "shares Codex release train and runtime version resolution"
+      },
+      "evidence_mode": "local_binary_static",
+      "capture_tool": "ops/openai/capture-codex-fingerprint.sh",
+      "production_observer": null,
+      "companion_identity": "codex",
+      "actionable": true,
+      "status_note": "Verify codex_vscode/* and codex_vscode_copilot/* UA prefixes share @openai/codex release train.",
+      "release_sources": [
+        {"kind": "npm", "label": "npm @openai/codex", "package": "@openai/codex"},
+        {"kind": "github_release", "label": "GitHub openai/codex", "repo": "openai/codex", "tag_prefix": "rust-v"}
+      ]
+    },
+    {
+      "id": "gemini-cli",
+      "name": "Gemini CLI",
+      "skill": "tokenkey-gemini-fingerprint-alignment",
+      "pin_reader": "gemini-cli",
+      "compile_owner": {
+        "path": "backend/internal/pkg/geminicli/constants.go",
+        "symbol": "GeminiCLIUserAgent"
+      },
+      "runtime_identity": {
+        "path": "backend/internal/pkg/geminicli/constants.go",
+        "symbol": "GeminiCLIUserAgent",
+        "override": null
+      },
+      "evidence_mode": "local_binary_static",
+      "capture_tool": "ops/geminicli/capture-gemini-fingerprint.sh",
+      "production_observer": null,
+      "companion_identity": null,
+      "actionable": true,
+      "status_note": "",
+      "release_sources": [
+        {"kind": "npm", "label": "npm @google/gemini-cli", "package": "@google/gemini-cli"}
+      ]
+    },
+    {
+      "id": "grok-cli",
+      "name": "Grok CLI",
+      "skill": "tokenkey-grok-fingerprint-alignment",
+      "pin_reader": "grok-cli",
+      "compile_owner": {
+        "path": "backend/internal/pkg/xai/billing.go",
+        "symbol": "CLIClientVersion"
+      },
+      "runtime_identity": {
+        "path": "backend/internal/pkg/xai/cli_identity.go",
+        "symbol": "ResolveCLIVersion",
+        "override": "XAI_GROK_CLI_VERSION"
+      },
+      "evidence_mode": "local_binary_static",
+      "capture_tool": "ops/xai/capture-grok-fingerprint.sh",
+      "production_observer": null,
+      "companion_identity": null,
+      "actionable": false,
+      "status_note": "npm registry /latest may publish ahead of installable tarballs; CLIClientVersion tracks locally installable semver and owns the runtime fallback.",
+      "release_sources": [
+        {"kind": "npm", "label": "npm @xai-official/grok", "package": "@xai-official/grok"}
+      ]
+    },
+    {
+      "id": "antigravity",
+      "name": "Antigravity IDE",
+      "skill": "tokenkey-antigravity-fingerprint-alignment",
+      "pin_reader": "antigravity",
+      "compile_owner": {
+        "path": "backend/internal/pkg/antigravity/oauth.go",
+        "symbol": "DefaultUserAgentVersion"
+      },
+      "runtime_identity": {
+        "path": "backend/internal/pkg/antigravity/oauth.go",
+        "symbol": "GetUserAgentVersionForContext",
+        "override": "admin setting then environment then compile fallback"
+      },
+      "evidence_mode": "wire_http",
+      "capture_tool": "ops/antigravity/capture-antigravity-fingerprint.sh",
+      "production_observer": null,
+      "companion_identity": null,
+      "actionable": true,
+      "status_note": "",
+      "release_sources": [
+        {"kind": "brew_cask", "label": "Homebrew cask antigravity", "cask": "antigravity"}
+      ]
+    },
+    {
+      "id": "kiro",
+      "name": "Kiro IDE",
+      "skill": "tokenkey-kiro-fingerprint-alignment",
+      "pin_reader": "kiro",
+      "compile_owner": {
+        "path": "backend/internal/pkg/kiro/constants.go",
+        "symbol": "DefaultKiroIDEVersion"
+      },
+      "runtime_identity": {
+        "path": "backend/internal/pkg/kiro/constants.go",
+        "symbol": "ResolveClientIdentity",
+        "override": "KIRO_IDE_VERSION"
+      },
+      "evidence_mode": "wire_tls_http",
+      "capture_tool": "ops/kiro/capture-kiro-fingerprint.sh",
+      "production_observer": "ops/observability/probe-kiro-tls-profile-parity.sh",
+      "companion_identity": null,
+      "actionable": true,
+      "status_note": "Production observer proves configured DB parity only; real ClientHello still requires passive capture.",
+      "release_sources": [
+        {"kind": "brew_cask", "label": "Homebrew cask kiro", "cask": "kiro"}
+      ]
+    },
+    {
+      "id": "kiro-cli",
+      "name": "Kiro CLI",
+      "skill": "tokenkey-kiro-fingerprint-alignment",
+      "pin_reader": "kiro-cli",
+      "compile_owner": {
+        "path": "backend/internal/pkg/kiro/constants.go",
+        "symbol": "DefaultKiroCLIVersion"
+      },
+      "runtime_identity": {
+        "path": "backend/internal/pkg/kiro/constants.go",
+        "symbol": "DefaultKiroCLIVersion",
+        "override": null
+      },
+      "evidence_mode": "version_only",
+      "capture_tool": null,
+      "production_observer": null,
+      "companion_identity": null,
+      "actionable": true,
+      "status_note": "Homebrew kiro-cli semver is distinct from Kiro IDE; verify the local CLI binary before bumping DefaultKiroCLIVersion.",
+      "release_sources": [
+        {"kind": "brew_cask", "label": "Homebrew cask kiro-cli", "cask": "kiro-cli"}
+      ]
+    }
+  ]
+}

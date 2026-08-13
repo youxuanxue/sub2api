@@ -1056,11 +1056,17 @@ if ! command -v python3 >/dev/null 2>&1; then
 elif ! python3 ./scripts/fingerprint/client_release_watch.py --selftest --quiet; then
     echo "  FAIL: client_release_watch.py self-test failed"
     errors=$((errors + 1))
+elif ! python3 ./scripts/fingerprint/check_client_identity_registry.py --selftest >/dev/null; then
+    echo "  FAIL: client identity registry self-test failed"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/fingerprint/check_client_identity_registry.py --quiet; then
+    echo "  FAIL: client identity registry validation failed"
+    errors=$((errors + 1))
 elif ! python3 -m unittest discover -s scripts/fingerprint -p 'test_*.py' -q; then
     echo "  FAIL: client release watch unit tests failed"
     errors=$((errors + 1))
 else
-    echo "  ok: client release watch engine self-test + unit tests"
+    echo "  ok: client identity registry + release watch self-tests + unit tests"
 fi
 
 # ---- sub2api: sentinel registry update gate ---------------------------------

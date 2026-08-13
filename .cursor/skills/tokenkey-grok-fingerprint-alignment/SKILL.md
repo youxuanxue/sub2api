@@ -13,8 +13,8 @@ Layer 1：`bash ops/fingerprint/client-release-watch.sh scan --plan` 发现 `gro
 
 | 信号 | 路径 |
 |---|---|
-| grok-cli semver watch pin | `backend/internal/pkg/xai/oauth.go` `DefaultGrokCLIVersion` |
-| Responses 路径 UA | `backend/internal/service/openai_gateway_grok.go`（`sub2api-grok/*` 族，与 CLI semver 分轨） |
+| grok-cli compile fallback / wire owner | `backend/internal/pkg/xai/billing.go` `CLIClientVersion` |
+| 运行时 UA / headers | `backend/internal/pkg/xai/cli_identity.go`（`XAI_GROK_CLI_VERSION` 可覆盖，非法值回退 owner） |
 
 Upstream：`npm @xai-official/grok`。
 
@@ -23,6 +23,6 @@ Upstream：`npm @xai-official/grok`。
 1. 升级本机 CLI：`npm i -g @xai-official/grok@<target>`（**不是** npm 上的 `grok-cli` 包）
 2. `bash ops/xai/capture-grok-fingerprint.sh check env`
 3. `bash ops/xai/capture-grok-fingerprint.sh capture`（写入 `.cache/fingerprint/grok-cli/*.bundle.json`）
-4. 有 drift 时 bump `DefaultGrokCLIVersion` + `go test -tags=unit ./internal/pkg/xai/...` → `scripts/preflight.sh`
+4. 有 drift 时 bump `CLIClientVersion` + `go test -tags=unit ./internal/pkg/xai/...` → `scripts/preflight.sh`
 
 **禁止**仅凭 npm release 改 pin；至少对照本机 `grok --version`（capture 脚本）后再合 PR。

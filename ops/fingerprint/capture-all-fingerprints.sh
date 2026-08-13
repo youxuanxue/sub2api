@@ -31,6 +31,7 @@ CC="${TOKENKEY_CAPTURE_ALL_CC:-$REPO_ROOT/ops/anthropic/capture-cc-fingerprint.s
 KIRO="${TOKENKEY_CAPTURE_ALL_KIRO:-$REPO_ROOT/ops/kiro/capture-kiro-fingerprint.sh}"
 ANTIGRAVITY="${TOKENKEY_CAPTURE_ALL_ANTIGRAVITY:-$REPO_ROOT/ops/antigravity/capture-antigravity-fingerprint.sh}"
 CODEX="${TOKENKEY_CAPTURE_ALL_CODEX:-$REPO_ROOT/ops/openai/capture-codex-fingerprint.sh}"
+IDENTITY_REGISTRY_CHECK="$REPO_ROOT/scripts/fingerprint/check_client_identity_registry.py"
 
 SKIP_CC=0
 SKIP_KIRO=0
@@ -148,6 +149,13 @@ printf "  %-14s %s\n" "claude-code" "$CC_STATUS"
 printf "  %-14s %s\n" "kiro"        "$KIRO_STATUS"
 printf "  %-14s %s\n" "antigravity" "$ANTIGRAVITY_STATUS"
 printf "  %-14s %s\n" "codex"       "$CODEX_STATUS"
+echo "==================================================================="
+echo ""
+echo "================ identity evidence coverage ======================"
+python3 "$IDENTITY_REGISTRY_CHECK" --coverage || {
+  echo "→ identity registry invalid; coverage cannot be trusted." >&2
+  exit 2
+}
 echo "==================================================================="
 
 has_drift=0

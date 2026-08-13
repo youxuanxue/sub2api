@@ -39,6 +39,11 @@ class CaptureAllExitContractTest(unittest.TestCase):
     def test_all_observed_and_aligned_exits_zero(self) -> None:
         result = self._run((0, 0, 0, 0))
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("identity evidence coverage", result.stdout)
+        self.assertIn("grok-cli", result.stdout)
+        self.assertIn("advisory", result.stdout)
+        self.assertIn("kiro-cli", result.stdout)
+        self.assertIn("version_only", (REPO_ROOT / "scripts/fingerprint/client_identity_registry.json").read_text())
 
     def test_drift_exits_one(self) -> None:
         result = self._run((1, 0, 0, 0))
