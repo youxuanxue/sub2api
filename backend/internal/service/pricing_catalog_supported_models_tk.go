@@ -214,9 +214,6 @@ var supportedOpenAICloudwiseRelayCatalogModels = map[string]struct{}{
 	"glm-5":                            {},
 	"glm-5.1":                          {},
 	"glm-5.2":                          {},
-	"gpt-5.2":                          {},
-	"gpt-5.3-codex":                    {},
-	"gpt-5.4":                          {},
 	"kimi-k3":                          {},
 }
 

@@ -62,6 +62,9 @@ func TestAccount_IsOpenAICloudwiseRelay(t *testing.T) {
 func TestOpenAICloudwiseRelayFloorIsProbeCuratedOnly(t *testing.T) {
 	mapping := openAICloudwiseRelayAccountModelMappingFloor(context.Background(), nil, nil)
 	requireIdentityMappingForIDs(t, mapping, supportedCatalogModelIDsFromMap(supportedOpenAICloudwiseRelayCatalogModels))
+	for id := range supportedOpenAICloudwiseRelayCatalogModels {
+		require.False(t, strings.HasPrefix(id, "gpt-"), "cloudwise relay catalog must not list GPT ids: %s", id)
+	}
 }
 
 func TestForwardAsAnthropic_CloudwiseNativeMessagesPassthrough(t *testing.T) {
