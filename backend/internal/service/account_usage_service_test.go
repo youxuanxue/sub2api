@@ -286,8 +286,8 @@ func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 
 	t.Run("expired 7d window drops stale upstream sample", func(t *testing.T) {
 		extra := map[string]any{
-			"codex_7d_used_percent": 88.0,
-			"codex_7d_reset_at":     "2026-03-15T00:00:00Z", // yesterday
+			"codex_7d_used_percent":   88.0,
+			"codex_7d_reset_at":       "2026-03-15T00:00:00Z", // yesterday
 			"codex_7d_window_minutes": 10080,
 		}
 		progress := buildCodexUsageProgressFromExtra(extra, "7d", now)

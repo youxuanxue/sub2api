@@ -149,11 +149,11 @@ func TestAccountUsageService_GetPassiveUsage_OpenAIOAuthExpiredCodexFallsBackToL
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeOAuth,
 		Extra: map[string]any{
-			"codex_5h_used_percent": 42.0,
-			"codex_5h_reset_at":     now.Add(-2 * time.Hour).UTC().Format(time.RFC3339),
+			"codex_5h_used_percent":   42.0,
+			"codex_5h_reset_at":       now.Add(-2 * time.Hour).UTC().Format(time.RFC3339),
 			"codex_5h_window_minutes": 0,
-			"codex_7d_used_percent": 34.0,
-			"codex_7d_reset_at":     now.Add(5 * 24 * time.Hour).UTC().Format(time.RFC3339),
+			"codex_7d_used_percent":   34.0,
+			"codex_7d_reset_at":       now.Add(5 * 24 * time.Hour).UTC().Format(time.RFC3339),
 			"codex_7d_window_minutes": 10080,
 		},
 	}
