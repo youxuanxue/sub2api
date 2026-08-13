@@ -1145,17 +1145,25 @@
       "rationale": "Native Anthropic Messages passthrough for OpenAI-platform dual-stack relays (agent.tokensea.ai, cloudwise). Must forward claude-* /v1/messages directly with API key Bearer auth; non-Claude models stay on chat fallback."
     },
     {
+      "path": "backend/internal/service/openai_cloudwise_relay_tk.go",
+      "must_contain": [
+        "openAICloudwiseRelayAllowedModelPrefixes",
+        "openAICloudwiseRelayUpstreamModelID(",
+        "openAICloudwiseRelayWildcardModelMappingFloor("
+      ],
+      "rationale": "Single SSOT for CloudWise MaaS relay supported model families (kimi/claude/glm/minimax/deepseek prefix policy). Adjust only openAICloudwiseRelayAllowedModelPrefixes; wildcard model_mapping floor derives from it."
+    },
+    {
       "path": "backend/internal/service/gateway_cloudwise_relay_test.go",
       "must_contain": [
         "TestAccount_IsOpenAICloudwiseRelay",
-        "TestOpenAICloudwiseRelayFloorIsProbeCuratedOnly",
-        "cloudwise relay catalog must not list GPT ids",
+        "TestOpenAICloudwiseRelayFloorUsesPrefixWildcards",
         "TestForwardAsAnthropic_CloudwiseNativeMessagesPassthrough",
         "TestForwardAsAnthropic_CloudwiseNonClaudeUsesChatFallback",
         "https://api.cloudwise.ai/api/v1/messages",
         "https://api.cloudwise.ai/api/v1/chat/completions"
       ],
-      "rationale": "Focused regressions for CloudWise MaaS relay (prod account #95): probe-curated model_mapping floor, native /v1/messages passthrough for claude-*, and chat fallback for MiniMax-M3."
+      "rationale": "Focused regressions for CloudWise MaaS relay (prod account #95): prefix wildcard model_mapping floor, native /v1/messages passthrough for claude-*, and chat fallback for MiniMax-M3."
     },
     {
       "path": "backend/internal/service/gateway_tokensea_anthropic_relay_test.go",
@@ -5080,14 +5088,24 @@
       "rationale": "Universal-key routing must use the same account-level model+protocol predicate as the direct schedulers before consulting the lossy group-level served-model union. This pins the provider type, the GatewayService implementation, the OpenAI-compatible pool/member + IsModelSupported path, endpoint-shape capability gates (including video-capable accounts), the native gateway path, and the alias-aware served-set fallback. Dropping any of these can make a universal key choose a different backing group than a direct key for the same model/protocol while existing /v1/models output still looks plausible."
     },
     {
+      "path": "backend/internal/service/account_wildcard_tk.go",
+      "must_contain": [
+        "func resolveWildcardMappingTarget(pattern, target, requestedModel string) string",
+        "func matchWildcardMappingResult(mapping map[string]string, requestedModel string)",
+        "func matchNormalizedWildcardMappingResult(mapping map[string]string, lookupKey, originalRequestedModel string)"
+      ],
+      "rationale": "TK companion for wildcard model_mapping passthrough (identity rules like claude-* -> claude-* preserve client spelling; mixed-case MiniMax-M3 via normalized lookup). Keeps upstream-shaped account.go diff minimal."
+    },
+    {
       "path": "backend/internal/service/account.go",
       "must_contain": [
         "func normalizeModelMappingLookupKey(model string) string",
         "return strings.ToLower(strings.TrimSpace(model))",
         "if normalizeModelMappingLookupKey(key) == lookupKey",
-        "func matchNormalizedWildcardMappingResult(mapping map[string]string, requestedModel string)"
+        "matchNormalizedWildcardMappingResult(mapping, lookupKey, requestedModel)",
+        "applyOpenAICloudwiseRelayUpstreamModelID(a, mappedModel)"
       ],
-      "rationale": "Account-level model_mapping lookup must treat client model-name casing variants as the same upstream capability while preserving explicit exact-spelling priority. This is load-bearing for universal and direct OpenAI-compatible routing: DeepSeek-V4-Pro / deepSeek-v4-pro must hit account mappings keyed as deepseek-v4-pro instead of emptying the pool into client-visible 403/400. account.go is upstream-shaped, so pin the normalization fallback and normalized wildcard path to prevent an upstream merge from silently reverting to case-sensitive lookup while the admin-visible raw model_mapping remains unchanged."
+      "rationale": "Account-level model_mapping lookup must treat client model-name casing variants as the same upstream capability while preserving explicit exact-spelling priority. This is load-bearing for universal and direct OpenAI-compatible routing: DeepSeek-V4-Pro / deepSeek-v4-pro must hit account mappings keyed as deepseek-v4-pro instead of emptying the pool into client-visible 403/400. account.go is upstream-shaped, so pin the normalization fallback call site and normalized wildcard path to prevent an upstream merge from silently reverting to case-sensitive lookup while the admin-visible raw model_mapping remains unchanged."
     },
     {
       "path": "backend/internal/service/wire_tk.go",

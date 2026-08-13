@@ -433,11 +433,10 @@ func openAITokenseaRelayAccountModelMappingFloor(ctx context.Context, pricing *P
 }
 
 func openAICloudwiseRelayAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
-	ids := supportedCatalogModelIDsFromMap(supportedOpenAICloudwiseRelayCatalogModels)
-	if len(ids) == 0 {
-		return nil
-	}
-	return identityModelMapping(ids)
+	_ = ctx
+	_ = pricing
+	_ = availability
+	return cloneStringMap(openAICloudwiseRelayWildcardModelMappingFloor())
 }
 
 func anthropicTokenseaRelayModelMappingFloor() map[string]string {
