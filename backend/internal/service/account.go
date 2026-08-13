@@ -804,12 +804,12 @@ func (a *Account) ResolveMappedModel(requestedModel string) (mappedModel string,
 		return requestedModel, false
 	}
 	if mappedModel, matched := resolveRequestedModelInMapping(mapping, requestedModel); matched {
-		return mappedModel, true
+		return applyOpenAICloudwiseRelayUpstreamModelID(a, mappedModel), true
 	}
 	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
 	if normalized != requestedModel {
 		if mappedModel, matched := resolveRequestedModelInMapping(mapping, normalized); matched {
-			return mappedModel, true
+			return applyOpenAICloudwiseRelayUpstreamModelID(a, mappedModel), true
 		}
 	}
 	return requestedModel, false

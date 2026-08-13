@@ -24,3 +24,29 @@ func openAICloudwiseRelayWildcardModelMappingFloor() map[string]string {
 	}
 	return out
 }
+
+// openAICloudwiseRelayUpstreamModelID rewrites client model spellings to the exact
+// wire ids CloudWise upstream accepts. Prod account #95 probe (2026-08-13):
+// GET /v1/models lists MiniMax-M3; only that mixed-case id returns 200 on
+// /v1/chat/completions — lowercase minimax-m3 returns 400 "not supported".
+func openAICloudwiseRelayUpstreamModelID(modelID string) string {
+	normalized := strings.ToLower(strings.TrimSpace(modelID))
+	if !strings.HasPrefix(normalized, "minimax-") {
+		return modelID
+	}
+	suffix := strings.TrimPrefix(normalized, "minimax-")
+	if suffix == "" {
+		return modelID
+	}
+	if suffix[0] >= 'a' && suffix[0] <= 'z' {
+		suffix = strings.ToUpper(suffix[:1]) + suffix[1:]
+	}
+	return "MiniMax-" + suffix
+}
+
+func applyOpenAICloudwiseRelayUpstreamModelID(account *Account, modelID string) string {
+	if account == nil || !account.IsOpenAICloudwiseRelay() {
+		return modelID
+	}
+	return openAICloudwiseRelayUpstreamModelID(modelID)
+}

@@ -1149,6 +1149,7 @@
       "path": "backend/internal/service/openai_cloudwise_relay_tk.go",
       "must_contain": [
         "openAICloudwiseRelayAllowedModelPrefixes",
+        "openAICloudwiseRelayUpstreamModelID(",
         "openAICloudwiseRelayWildcardModelMappingFloor("
       ],
       "rationale": "Single SSOT for CloudWise MaaS relay supported model families (kimi/claude/glm/minimax/deepseek prefix policy). Adjust only openAICloudwiseRelayAllowedModelPrefixes; wildcard model_mapping floor derives from it."
@@ -5091,7 +5092,8 @@
         "func normalizeModelMappingLookupKey(model string) string",
         "return strings.ToLower(strings.TrimSpace(model))",
         "if normalizeModelMappingLookupKey(key) == lookupKey",
-        "matchNormalizedWildcardMappingResult(mapping, lookupKey, requestedModel)"
+        "matchNormalizedWildcardMappingResult(mapping, lookupKey, requestedModel)",
+        "applyOpenAICloudwiseRelayUpstreamModelID(a, mappedModel)"
       ],
       "rationale": "Account-level model_mapping lookup must treat client model-name casing variants as the same upstream capability while preserving explicit exact-spelling priority. This is load-bearing for universal and direct OpenAI-compatible routing: DeepSeek-V4-Pro / deepSeek-v4-pro must hit account mappings keyed as deepseek-v4-pro instead of emptying the pool into client-visible 403/400. account.go is upstream-shaped, so pin the normalization fallback call site and normalized wildcard path to prevent an upstream merge from silently reverting to case-sensitive lookup while the admin-visible raw model_mapping remains unchanged."
     },
