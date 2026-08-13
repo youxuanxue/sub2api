@@ -28,6 +28,7 @@ func (r *accountRepoStubForClearAccountError) ClearError(ctx context.Context, id
 	r.clearErrorCalls++
 	r.account.Status = StatusActive
 	r.account.ErrorMessage = ""
+	r.account.Schedulable = true
 	return nil
 }
 

@@ -133,6 +133,11 @@ func DetectModelPlatform(model string) (string, bool) {
 		return PlatformGemini, true
 	case normalized == "grok" || strings.HasPrefix(normalized, "grok-"):
 		return PlatformGrok, true
+	case strings.HasPrefix(normalized, "minimax-"),
+		strings.HasPrefix(normalized, "glm-"),
+		strings.HasPrefix(normalized, "deepseek-"),
+		strings.HasPrefix(normalized, "qwen"):
+		return PlatformOpenAI, true
 	default:
 		return "", false
 	}

@@ -91,3 +91,31 @@ func TestForwardAsAnthropic_CloudwiseNativeMessagesPassthrough(t *testing.T) {
 	require.Equal(t, "claude-sonnet-4-6", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Contains(t, rec.Body.String(), "OK")
 }
+
+func TestForwardAsAnthropic_CloudwiseNonClaudeUsesChatFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"MiniMax-M3","max_tokens":8,"messages":[{"role":"user","content":"Reply OK only."}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl-test","object":"chat.completion","model":"MiniMax-M3","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":1,"total_tokens":8}}`,
+		)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, cloudwiseNativeMessagesAccount(), body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "https://api.cloudwise.ai/api/v1/chat/completions", upstream.lastReq.URL.String())
+	require.Equal(t, "MiniMax-M3", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Contains(t, rec.Body.String(), "OK")
+}

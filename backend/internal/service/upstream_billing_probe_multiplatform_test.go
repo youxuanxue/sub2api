@@ -77,6 +77,48 @@ func TestUpstreamBillingProbeGrokAccountPersistsSnapshot(t *testing.T) {
 	require.Equal(t, UpstreamBillingProbeStatusOK, persisted.Status)
 }
 
+func TestUpstreamBillingProbeCloudwiseRelayManualProbeRejectsAccount(t *testing.T) {
+	account := &Account{
+		ID:       95,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Status:   StatusActive,
+		Credentials: map[string]any{
+			"api_key":  "sk-cloudwise",
+			"base_url": "https://api.cloudwise.ai/api",
+		},
+		Extra: map[string]any{
+			"upstream_billing_probe_enabled": true,
+		},
+	}
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	upstream := &httpUpstreamRecorder{}
+	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+
+	snapshot, err := svc.ProbeAccount(context.Background(), account.ID)
+	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
+	require.Nil(t, snapshot)
+	require.Nil(t, upstream.lastReq)
+}
+
+func TestUpstreamBillingProbeCloudwiseRelaySetEnabledRejects(t *testing.T) {
+	account := &Account{
+		ID:       95,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Status:   StatusActive,
+		Credentials: map[string]any{
+			"api_key":  "sk-cloudwise",
+			"base_url": "https://api.cloudwise.ai/api",
+		},
+	}
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	svc := newUpstreamBillingProbeTestService(repo, &httpUpstreamRecorder{}, &upstreamBillingProbeSettingRepo{})
+
+	err := svc.SetAccountEnabled(context.Background(), account.ID, true)
+	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
+}
+
 // 非 OpenAI 平台没有自定义 base_url 时，上游是各自官方 API，必无
 // /v1/sub2api/billing：不发请求，直接落 unsupported。
 func TestUpstreamBillingProbeNonOpenAIWithoutBaseURLIsUnsupportedWithoutRequest(t *testing.T) {

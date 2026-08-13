@@ -17,6 +17,11 @@ import (
 	"go.uber.org/zap"
 )
 
+func shouldForwardNativeAnthropicMessagesForModel(body []byte) bool {
+	model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	return tkIsForwardableAnthropicModelName(model)
+}
+
 // forwardAnthropicViaNativeMessages serves /v1/messages clients by passthrough
 // to an upstream that natively exposes Anthropic Messages (dual-stack OpenAI
 // relays such as agent.tokensea.ai).
