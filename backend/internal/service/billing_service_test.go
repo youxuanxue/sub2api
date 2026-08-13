@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1158,7 +1159,7 @@ func TestCalculateCostWithLongContext_PropagatesError(t *testing.T) {
 func TestGetModelPricing_Grok46OfficialFallback(t *testing.T) {
 	svc := newTestBillingService()
 
-	for _, model := range []string{"grok", "grok-4.6"} {
+	for _, model := range []string{"grok", xai.DefaultTextModel} {
 		model := model
 		t.Run(model, func(t *testing.T) {
 			pricing, err := svc.GetModelPricing(model)
@@ -1204,7 +1205,7 @@ func TestCalculateCost_Grok46LongContextAppliesOfficialTier(t *testing.T) {
 	svc := newTestBillingService()
 
 	tokens := UsageTokens{InputTokens: 201000, CacheReadTokens: 1000, OutputTokens: 1000}
-	cost, err := svc.CalculateCost("grok-4.6", tokens, 1.0)
+	cost, err := svc.CalculateCost(xai.DefaultTextModel, tokens, 1.0)
 	require.NoError(t, err)
 
 	expectedInput := float64(tokens.InputTokens) * 2e-6 * 2.0

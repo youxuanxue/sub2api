@@ -519,7 +519,7 @@ func TestGrokQuotaServiceProbeUsageReturnsRateLimitedSnapshot(t *testing.T) {
 	require.Zero(t, repo.tempUnschedCalls)
 }
 
-func TestGrokQuotaServiceQueryQuotaFreeFallsBackToGrok45(t *testing.T) {
+func TestGrokQuotaServiceQueryQuotaFreeFallsBackToDefaultModel(t *testing.T) {
 	t.Parallel()
 
 	account := healthyGrokQuotaOAuthAccount(51)
