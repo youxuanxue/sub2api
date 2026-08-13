@@ -966,10 +966,10 @@
         "opus_mapped_model: \"gpt-5.6-sol\",",
         "GROK_MESSAGES_DISPATCH_DEFAULTS",
         "grok-4.5",
-        "grok-4.3",
+        "grok-4.6",
         "grok-code-fast-1"
       ],
-      "rationale": "Frontend mirror of Go messages dispatch defaults: openai groups prefilled with gpt-5.6-sol/gpt-5.6-terra/gpt-5.6-luna; grok groups prefilled with grok-4.5/grok-4.3/grok-code-fast-1. Drift between admin UI defaults and gateway fallbacks silently misroutes Claude Code tier picks."
+      "rationale": "Frontend mirror of Go messages dispatch defaults: openai groups prefilled with gpt-5.6-sol/gpt-5.6-terra/gpt-5.6-luna; grok groups prefilled with grok-4.6/grok-4.5/grok-code-fast-1. Drift between admin UI defaults and gateway fallbacks silently misroutes Claude Code tier picks."
     },
     {
       "path": "frontend/src/components/keys/UseKeyGuide.vue",
