@@ -24,7 +24,7 @@ stdlib-only except when invoked as __main__ with no network.
 from __future__ import annotations
 
 import argparse
-import importlib.util
+import hashlib
 import json
 import os
 import re
@@ -594,16 +594,34 @@ def diff_baseline_vs_capture(
         )
     )
 
-    cap_stainless = str(
-        cap_tls.get("stainless_package_version")
-        or (capture.get("http") or {}).get("haiku", {}).get("x_stainless", {}).get(
-            "X-Stainless-Package-Version", ""
-        )
-        or ""
-    )
+    http_evidence = evidence.get("http") or {}
+
+    def _cap_stainless_header(field: str) -> str:
+        http = capture.get("http") or {}
+        for variant in ("haiku", "sonnet", "opus"):
+            rec = http.get(variant) or {}
+            xs = rec.get("x_stainless") or {}
+            if isinstance(xs, dict):
+                val = str(xs.get(field) or "").strip()
+                if val:
+                    return val
+        return ""
+
+    http_stainless = _cap_stainless_header("X-Stainless-Package-Version")
+    tls_stainless = str(cap_tls.get("stainless_package_version") or "").strip()
+    if bool(http_evidence.get("observed")) and http_stainless:
+        # A real HTTP observation is the ground truth for the header. In
+        # particular, an HTTP-only bundle carries old TLS baseline values only
+        # to preserve bundle shape; those values are not fresh Stainless evidence.
+        cap_stainless = http_stainless
+    elif tls_was_observed and tls_evidence_valid and tls_stainless:
+        cap_stainless = tls_stainless
+    else:
+        # Legacy bundles may predate explicit evidence metadata while still
+        # carrying a real mitm HTTP record.
+        cap_stainless = http_stainless
     canon_stainless = baseline["canonical_http"]["stainless_package_version"]
     mimic_stainless = baseline["mimic_http"]["stainless_package_version"]
-    http_evidence = evidence.get("http") or {}
     stainless_status = "match" if canon_stainless == cap_stainless else "mismatch"
     mimic_stainless_status = "match" if mimic_stainless == cap_stainless else "mismatch"
     if not cap_stainless:
@@ -632,17 +650,6 @@ def diff_baseline_vs_capture(
             critical="mimic.stainless_package_version" in CRITICAL_HTTP_FIELDS,
         )
     )
-
-    def _cap_stainless_header(field: str) -> str:
-        http = capture.get("http") or {}
-        for variant in ("haiku", "sonnet", "opus"):
-            rec = http.get(variant) or {}
-            xs = rec.get("x_stainless") or {}
-            if isinstance(xs, dict):
-                val = str(xs.get(field) or "").strip()
-                if val:
-                    return val
-        return ""
 
     cap_runtime = _cap_stainless_header("X-Stainless-Runtime-Version")
     canon_runtime = baseline["canonical_http"]["stainless_runtime_version"]
@@ -1375,16 +1382,64 @@ def cmd_classify_config(args: argparse.Namespace) -> int:
     return EXIT_ALIGNED if payload["auth_route"] != "unknown" else EXIT_INCOMPLETE
 
 
-def _load_kiro_ja3_engine() -> Any:
-    """Reuse the Kiro engine's tshark/JA3 helpers (same wire format, no network)."""
-    kiro_py = REPO_ROOT / "ops/kiro/capture_kiro_fingerprint.py"
-    spec = importlib.util.spec_from_file_location("capture_kiro_fingerprint", kiro_py)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load kiro JA3 engine from {kiro_py}")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+TSHARK_TLS_FIELDS = (
+    "tls.handshake.version",
+    "tls.handshake.ciphersuite",
+    "tls.handshake.extension.type",
+    "tls.handshake.extensions_supported_group",
+    "tls.handshake.extensions_ec_point_format",
+    "tls.handshake.extensions_server_name",
+)
+
+GREASE_VALUES = frozenset(range(0x0A0A, 0xFAFB, 0x1010))
+
+
+def _parse_tshark_ints(cell: str) -> list[int]:
+    values: list[int] = []
+    for token in (cell or "").split(","):
+        token = token.strip()
+        if token:
+            values.append(int(token, 16) if token.lower().startswith("0x") else int(token))
+    return values
+
+
+def _parse_tshark_client_hello(tsv_text: str) -> dict[str, Any]:
+    lines = [line for line in tsv_text.splitlines() if line.strip()]
+    if len(lines) < 2:
+        raise ValueError("tshark TSV has no ClientHello data row")
+    header = lines[0].split("\t")
+    row = lines[1].split("\t")
+    row += [""] * (len(header) - len(row))
+    cells = dict(zip(header, row, strict=False))
+    server_names = [
+        item.strip()
+        for item in cells.get("tls.handshake.extensions_server_name", "").split(",")
+        if item.strip()
+    ]
+    return {
+        "version": (_parse_tshark_ints(cells.get("tls.handshake.version", "")) or [771])[0],
+        "ciphers": _parse_tshark_ints(cells.get("tls.handshake.ciphersuite", "")),
+        "extensions": _parse_tshark_ints(cells.get("tls.handshake.extension.type", "")),
+        "curves": _parse_tshark_ints(cells.get("tls.handshake.extensions_supported_group", "")),
+        "point_formats": _parse_tshark_ints(cells.get("tls.handshake.extensions_ec_point_format", "")),
+        "server_name": server_names[0] if server_names else "",
+    }
+
+
+def _compute_ja3(fields: dict[str, Any]) -> tuple[str, str]:
+    def join(values: list[int]) -> str:
+        return "-".join(str(value) for value in values if value not in GREASE_VALUES)
+
+    ja3_raw = ",".join(
+        [
+            str(fields["version"]),
+            join(fields["ciphers"]),
+            join(fields["extensions"]),
+            join(fields["curves"]),
+            "-".join(str(value) for value in fields["point_formats"]),
+        ]
+    )
+    return ja3_raw, hashlib.md5(ja3_raw.encode("ascii")).hexdigest()
 
 
 def tls_observed_from_tshark_tsv(
@@ -1394,21 +1449,14 @@ def tls_observed_from_tshark_tsv(
     source: str = "passive-pcap",
 ) -> dict[str, Any]:
     """Parse one ClientHello row and return collector-shaped tls-observed JSON."""
-    kiro = _load_kiro_ja3_engine()
-    fields = kiro.parse_tshark_tsv(tsv_text)
-    ja3_raw, ja3_hash = kiro.compute_ja3(
-        fields["version"],
-        fields["ciphers"],
-        fields["extensions"],
-        fields["curves"],
-        fields["point_formats"],
-    )
+    fields = _parse_tshark_client_hello(tsv_text)
+    ja3_raw, ja3_hash = _compute_ja3(fields)
     ua = f"claude-cli/{cc_version} (external, cli)" if cc_version else ""
     return {
         "ja3_hash": ja3_hash,
         "ja3_raw": ja3_raw,
         "user_agent": ua,
-        "server_name": fields.get("server_name", ""),
+        "server_name": fields["server_name"],
         "source": source,
     }
 

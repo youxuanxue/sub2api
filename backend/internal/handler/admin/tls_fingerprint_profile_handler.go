@@ -24,6 +24,7 @@ type CreateTLSFingerprintProfileRequest struct {
 	Name                string   `json:"name" binding:"required"`
 	Description         *string  `json:"description"`
 	EnableGREASE        *bool    `json:"enable_grease"`
+	ShuffleExtensions   *bool    `json:"shuffle_extensions"`
 	CipherSuites        []uint16 `json:"cipher_suites"`
 	Curves              []uint16 `json:"curves"`
 	PointFormats        []uint16 `json:"point_formats"`
@@ -40,6 +41,7 @@ type UpdateTLSFingerprintProfileRequest struct {
 	Name                *string  `json:"name"`
 	Description         *string  `json:"description"`
 	EnableGREASE        *bool    `json:"enable_grease"`
+	ShuffleExtensions   *bool    `json:"shuffle_extensions"`
 	CipherSuites        []uint16 `json:"cipher_suites"`
 	Curves              []uint16 `json:"curves"`
 	PointFormats        []uint16 `json:"point_formats"`
@@ -110,6 +112,9 @@ func (h *TLSFingerprintProfileHandler) Create(c *gin.Context) {
 	if req.EnableGREASE != nil {
 		profile.EnableGREASE = *req.EnableGREASE
 	}
+	if req.ShuffleExtensions != nil {
+		profile.ShuffleExtensions = *req.ShuffleExtensions
+	}
 
 	created, err := h.service.Create(c.Request.Context(), profile)
 	if err != nil {
@@ -155,6 +160,7 @@ func (h *TLSFingerprintProfileHandler) Update(c *gin.Context) {
 		Name:                existing.Name,
 		Description:         existing.Description,
 		EnableGREASE:        existing.EnableGREASE,
+		ShuffleExtensions:   existing.ShuffleExtensions,
 		CipherSuites:        existing.CipherSuites,
 		Curves:              existing.Curves,
 		PointFormats:        existing.PointFormats,
@@ -174,6 +180,9 @@ func (h *TLSFingerprintProfileHandler) Update(c *gin.Context) {
 	}
 	if req.EnableGREASE != nil {
 		profile.EnableGREASE = *req.EnableGREASE
+	}
+	if req.ShuffleExtensions != nil {
+		profile.ShuffleExtensions = *req.ShuffleExtensions
 	}
 	if req.CipherSuites != nil {
 		profile.CipherSuites = req.CipherSuites

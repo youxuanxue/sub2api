@@ -56,7 +56,7 @@ const (
 	// neither env nor runtime resolver provides a value. Keep in sync with
 	// the most recent cc CLI release this build was validated against; the
 	// admin UI / runtime resolver is the normal update path going forward.
-	DefaultClaudeCodeUserAgentVersion = "2.1.228"
+	DefaultClaudeCodeUserAgentVersion = "2.1.229"
 
 	// canonicalUAPrefix / canonicalUASuffix wrap the version-only field.
 	// Matches interactive Claude Code REPL ingress (`claude-cli/<version> (external, cli)`).
@@ -153,7 +153,7 @@ func GetCanonicalUserAgentForContext(ctx context.Context) string {
 // releases.
 var canonicalHTTPObservedStatic = Fingerprint{
 	StainlessLang:           "js",
-	StainlessPackageVersion: "0.94.0",
+	StainlessPackageVersion: "0.112.1",
 	StainlessOS:             "MacOS",
 	StainlessArch:           "arm64",
 	StainlessRuntime:        "node",

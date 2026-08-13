@@ -14,6 +14,7 @@ type TLSFingerprintProfile struct {
 	Name                string    `json:"name"`
 	Description         *string   `json:"description"`
 	EnableGREASE        bool      `json:"enable_grease"`
+	ShuffleExtensions   bool      `json:"shuffle_extensions"`
 	CipherSuites        []uint16  `json:"cipher_suites"`
 	Curves              []uint16  `json:"curves"`
 	PointFormats        []uint16  `json:"point_formats"`
@@ -41,6 +42,7 @@ func (p *TLSFingerprintProfile) ToTLSProfile() *tlsfingerprint.Profile {
 	return &tlsfingerprint.Profile{
 		Name:                p.Name,
 		EnableGREASE:        p.EnableGREASE,
+		ShuffleExtensions:   p.ShuffleExtensions,
 		CipherSuites:        p.CipherSuites,
 		Curves:              p.Curves,
 		PointFormats:        p.PointFormats,

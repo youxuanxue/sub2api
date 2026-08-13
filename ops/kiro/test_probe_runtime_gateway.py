@@ -1,215 +1,99 @@
 #!/usr/bin/env python3
-"""Unit tests for probe_runtime_gateway.py (stdlib unittest).
-
-  python3 ops/kiro/test_probe_runtime_gateway.py
-"""
+"""Tests for the synthetic, non-evidence Kiro upstream probe."""
 from __future__ import annotations
 
 import json
-import os
 import sys
 import tempfile
-import time
 import unittest
-from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 import probe_runtime_gateway as probe  # noqa: E402
 
+IDENTITY = {
+    "user_agent": "aws-sdk-rust/1.3.10 app/AmazonQ-For-CLI",
+    "x_amz_user_agent": "aws-sdk-rust/1.3.10 m/F app/AmazonQ-For-CLI",
+}
+TOKEN = {
+    "access_token": "access-secret-token",
+    "profile_arn": "arn:aws:codewhisperer:us-east-1:1:profile/private",
+}
 
-class TokenLoadTests(unittest.TestCase):
-    def test_load_local_token_reads_access_token(self):
+
+class TokenAndIdentityTests(unittest.TestCase):
+    def test_load_token_reads_but_error_messages_do_not_expose_it(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "kiro-auth-token.json"
-            path.write_text(
-                json.dumps(
-                    {
-                        "accessToken": "access-secret-token",
-                        "refreshToken": "refresh",
-                        "region": "us-east-1",
-                        "profileArn": "arn:aws:codewhisperer:us-east-1:123:profile/abc",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            got = probe.load_local_token(path)
-            self.assertEqual(got["access_token"], "access-secret-token")
-            self.assertEqual(got["profile_arn"], "arn:aws:codewhisperer:us-east-1:123:profile/abc")
+            path = Path(tmp) / "auth.json"
+            path.write_text(json.dumps({"accessToken": TOKEN["access_token"], "profileArn": TOKEN["profile_arn"]}), encoding="utf-8")
+            self.assertEqual(probe.load_local_token(path), TOKEN)
 
-    def test_load_local_token_missing_file_raises(self):
-        with self.assertRaises(probe.ProbeEnvError):
-            probe.load_local_token(Path("/tmp/does-not-exist-kiro-token.json"))
-
-    def test_load_local_token_missing_access_token_raises(self):
+    def test_identity_comes_from_cli_canonical_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "kiro-auth-token.json"
-            path.write_text(json.dumps({"refreshToken": "x"}), encoding="utf-8")
+            path = Path(tmp) / "profile.json"
+            path.write_text(json.dumps({"name": "tk_canonical_kiro_cli", "observed": IDENTITY}), encoding="utf-8")
+            self.assertEqual(probe.load_cli_identity(path), IDENTITY)
+
+    def test_retired_profile_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "profile.json"
+            path.write_text(json.dumps({"name": "tk_canonical_kiro_ide", "observed": IDENTITY}), encoding="utf-8")
             with self.assertRaises(probe.ProbeEnvError):
-                probe.load_local_token(path)
-
-    def test_load_local_token_accepts_tokenkey_snake_case_credentials(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "credentials.json"
-            path.write_text(
-                json.dumps(
-                    {
-                        "access_token": "edge-access-token",
-                        "refresh_token": "edge-refresh-token",
-                        "profile_arn": "arn:aws:codewhisperer:us-east-1:123:profile/test",
-                        "auth_method": "social",
-                        "region": "us-east-1",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            got = probe.load_local_token(path)
-
-        self.assertEqual(got["access_token"], "edge-access-token")
-        self.assertEqual(got["refresh_token"], "edge-refresh-token")
-        self.assertEqual(
-            got["profile_arn"],
-            "arn:aws:codewhisperer:us-east-1:123:profile/test",
-        )
-        self.assertEqual(got["auth_method"], "social")
+                probe.load_cli_identity(path)
 
 
-class HeaderTests(unittest.TestCase):
-    def test_ide_headers_include_bearer_and_target(self):
-        headers = probe.build_headers(
-            style="ide",
-            host="runtime.us-east-1.kiro.dev",
-            bearer_token="tok",
-            content_type="application/x-amz-json-1.0",
-            extra={"X-Amz-Target": probe.X_AMZ_TARGET_RUNTIME_USAGE},
-            machine_id="abc123",
-        )
-        self.assertTrue(headers["Authorization"].endswith("tok"))
-        self.assertEqual(headers["Host"], "runtime.us-east-1.kiro.dev")
-        self.assertIn("KiroIDE", headers["User-Agent"])
-        self.assertIn("abc123", headers["User-Agent"])
-        self.assertEqual(headers["X-Amz-Target"], probe.X_AMZ_TARGET_RUNTIME_USAGE)
+class RequestShapeTests(unittest.TestCase):
+    def test_headers_use_only_cli_identity(self):
+        headers = probe.build_headers(host="runtime.us-east-1.kiro.dev", bearer_token="secret", content_type="application/json", identity=IDENTITY)
+        self.assertEqual(headers["User-Agent"], IDENTITY["user_agent"])
+        self.assertEqual(headers["x-amz-user-agent"], IDENTITY["x_amz_user_agent"])
+        self.assertEqual(headers["x-amzn-codewhisperer-optout"], "false")
 
-    def test_tokenkey_headers_include_amz_user_agent(self):
-        headers = probe.build_headers(
-            style="tokenkey",
-            host="runtime.us-east-1.kiro.dev",
-            bearer_token="tok",
-            content_type="application/json",
-        )
-        self.assertIn("aws-sdk-js/", headers["User-Agent"])
-        self.assertIn("x-amz-user-agent", headers)
-        self.assertEqual(headers["x-amzn-codewhisperer-optout"], "true")
+    def test_parser_has_no_header_style_or_machine_id_compatibility(self):
+        parser = probe.build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--header-style", "ide"])
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--machine-id", "legacy"])
 
-    def test_headers_can_load_constants_from_remote_probe_path(self):
-        constants = Path(__file__).resolve().parents[2] / "backend/internal/pkg/kiro/constants.go"
-        with mock.patch.dict(os.environ, {"KIRO_CONSTANTS_GO": str(constants)}):
-            headers = probe.build_headers(
-                style="tokenkey",
-                host="runtime.us-east-1.kiro.dev",
-                bearer_token="tok",
-                content_type="application/json",
-            )
-        self.assertIn("KiroIDE-", headers["User-Agent"])
+    def test_protocol_specs_remain_synthetic_compatibility_requests(self):
+        runtime = probe.build_runtime_chat_spec(token=TOKEN, identity=IDENTITY, message="ping", model_id="auto")
+        self.assertEqual(runtime.url, "https://runtime.us-east-1.kiro.dev/generateAssistantResponse")
+        self.assertEqual(runtime.headers["X-Amz-Target"], probe.X_AMZ_TARGET_STREAMING_CHAT)
+        management = probe.build_management_usage_spec(token=TOKEN, identity=IDENTITY)
+        self.assertIn("profileArn=", management.url)
+        legacy = probe.build_legacy_q_usage_spec(token=TOKEN, identity=IDENTITY)
+        self.assertEqual(legacy.url, "https://q.us-east-1.amazonaws.com/")
 
 
-class ProbeSpecTests(unittest.TestCase):
-    TOKEN = {
-        "access_token": "access-token-value",
-        "profile_arn": "arn:aws:codewhisperer:us-east-1:1:profile/x",
-    }
+class OutputRedactionTests(unittest.TestCase):
+    def test_safe_shape_emits_no_profile_arn_body_or_token(self):
+        spec = probe.build_runtime_chat_spec(token=TOKEN, identity=IDENTITY, message="private prompt", model_id="private-model")
+        encoded = json.dumps(probe.safe_shape(spec))
+        for forbidden in (TOKEN["access_token"], TOKEN["profile_arn"], "profileArn", "private prompt", "private-model"):
+            self.assertNotIn(forbidden, encoded)
+        self.assertIn('"evidence_eligible": false', encoded)
 
-    def test_legacy_q_usage_posts_to_q_root(self):
-        spec = probe.build_legacy_q_usage_spec(
-            token=self.TOKEN, style="ide", machine_id="m1"
-        )
-        self.assertEqual(spec.method, "POST")
-        self.assertEqual(spec.url, "https://q.us-east-1.amazonaws.com/")
-        body = json.loads(spec.body.decode("utf-8"))
-        self.assertEqual(body["origin"], "AI_EDITOR")
-        self.assertEqual(body["profileArn"], self.TOKEN["profile_arn"])
-
-    def test_runtime_chat_targets_generate_assistant_response(self):
-        spec = probe.build_runtime_chat_spec(
-            token=self.TOKEN,
-            style="ide",
-            machine_id="m1",
-            message="hello",
-            model_id="claude-sonnet-4.5",
-        )
-        self.assertIn("/generateAssistantResponse", spec.url)
-        self.assertEqual(
-            spec.headers["X-Amz-Target"], probe.X_AMZ_TARGET_STREAMING_CHAT
-        )
-        body = json.loads(spec.body.decode("utf-8"))
-        self.assertEqual(
-            body["conversationState"]["currentMessage"]["userInputMessage"]["content"],
-            "hello",
-        )
-
-    def test_management_usage_is_get_with_query(self):
-        spec = probe.build_management_usage_spec(
-            token=self.TOKEN, style="ide", machine_id="m1"
-        )
-        self.assertEqual(spec.method, "GET")
-        self.assertIn("management.us-east-1.kiro.dev", spec.url)
-        self.assertIn("origin=AI_EDITOR", spec.url)
-        self.assertIn("profileArn=", spec.url)
+    def test_result_redacts_url_query_auth_and_never_has_response_body(self):
+        result = probe.ProbeResult(
+            "management", True, 200, "GET",
+            f"https://management.us-east-1.kiro.dev/Get?profileArn={TOKEN['profile_arn']}",
+            {"Authorization": f"Bearer {TOKEN['access_token']}", "User-Agent": IDENTITY["user_agent"]},
+        ).to_dict()
+        encoded = json.dumps(result)
+        self.assertNotIn(TOKEN["profile_arn"], encoded)
+        self.assertNotIn(TOKEN["access_token"], encoded)
+        self.assertNotIn("body", result)
+        self.assertFalse(result["evidence_eligible"])
 
 
-class RedactionTests(unittest.TestCase):
-    def test_redact_headers_hides_bearer_token(self):
-        redacted = probe.redact_headers({"Authorization": "Bearer super-secret-access"})
-        self.assertNotIn("super-secret-access", redacted["Authorization"])
-        self.assertTrue(redacted["Authorization"].startswith("Bearer "))
+class ParseTests(unittest.TestCase):
+    def test_parse_profile_arns(self):
+        self.assertEqual(probe.parse_profile_arns({"profiles": [{"arn": "arn:a"}, {"profileName": "x"}]}), ["arn:a"])
 
+    def test_parse_model_ids(self):
+        self.assertEqual(probe.parse_model_ids({"models": [{"modelId": "m"}, {}]}), ["m"])
 
-class ParseApiTests(unittest.TestCase):
-    def test_parse_profile_arns_extracts_arn_list(self):
-        payload = {
-            "profiles": [
-                {"arn": "arn:aws:codewhisperer:us-east-1:1:profile/A"},
-                {"arn": ""},
-                {"profileName": "missing-arn"},
-            ]
-        }
-        self.assertEqual(
-            probe.parse_profile_arns(payload),
-            ["arn:aws:codewhisperer:us-east-1:1:profile/A"],
-        )
-
-    def test_parse_model_ids_extracts_model_id_list(self):
-        payload = {
-            "models": [
-                {"modelId": "qwen3-coder-next", "modelName": "Qwen"},
-                {"modelName": "no-id"},
-            ]
-        }
-        self.assertEqual(probe.parse_model_ids(payload), ["qwen3-coder-next"])
-
-
-class RefreshTokenTests(unittest.TestCase):
-    def test_latest_idc_registration_picks_newest_file(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            cache = Path(tmp)
-            old = cache / "old.json"
-            new = cache / "new.json"
-            old.write_text(
-                json.dumps({"clientId": "old-id", "clientSecret": "old-secret"}),
-                encoding="utf-8",
-            )
-            new.write_text(
-                json.dumps({"clientId": "new-id", "clientSecret": "new-secret"}),
-                encoding="utf-8",
-            )
-            old.touch()
-            time.sleep(0.01)
-            new.touch()
-            got = probe.latest_idc_registration(cache)
-            self.assertIsNotNone(got)
-            assert got is not None
-            self.assertEqual(got["client_id"], "new-id")
 
 if __name__ == "__main__":
     unittest.main()

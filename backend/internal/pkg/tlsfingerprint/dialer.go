@@ -24,6 +24,7 @@ type Profile struct {
 	Curves              []uint16
 	PointFormats        []uint16
 	EnableGREASE        bool
+	ShuffleExtensions   bool     // Randomize extension order per ClientHello
 	SignatureAlgorithms []uint16 // Empty uses defaultSignatureAlgorithms
 	ALPNProtocols       []string // Empty uses ["http/1.1"]
 	SupportedVersions   []uint16 // Empty uses [TLS1.3, TLS1.2]
@@ -447,6 +448,9 @@ func buildClientHelloSpecFromProfile(profile *Profile) *utls.ClientHelloSpec {
 	if enableGREASE && (profile == nil || len(profile.Extensions) == 0) {
 		extensions = append([]utls.TLSExtension{&utls.UtlsGREASEExtension{}}, extensions...)
 		extensions = append(extensions, &utls.UtlsGREASEExtension{})
+	}
+	if profile != nil && profile.ShuffleExtensions {
+		extensions = utls.ShuffleChromeTLSExtensions(extensions)
 	}
 
 	return &utls.ClientHelloSpec{

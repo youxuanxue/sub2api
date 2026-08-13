@@ -50326,6 +50326,7 @@ type TLSFingerprintProfileMutation struct {
 	name                       *string
 	description                *string
 	enable_grease              *bool
+	shuffle_extensions         *bool
 	cipher_suites              *[]uint16
 	appendcipher_suites        []uint16
 	curves                     *[]uint16
@@ -50639,6 +50640,42 @@ func (m *TLSFingerprintProfileMutation) OldEnableGrease(ctx context.Context) (v 
 // ResetEnableGrease resets all changes to the "enable_grease" field.
 func (m *TLSFingerprintProfileMutation) ResetEnableGrease() {
 	m.enable_grease = nil
+}
+
+// SetShuffleExtensions sets the "shuffle_extensions" field.
+func (m *TLSFingerprintProfileMutation) SetShuffleExtensions(b bool) {
+	m.shuffle_extensions = &b
+}
+
+// ShuffleExtensions returns the value of the "shuffle_extensions" field in the mutation.
+func (m *TLSFingerprintProfileMutation) ShuffleExtensions() (r bool, exists bool) {
+	v := m.shuffle_extensions
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldShuffleExtensions returns the old "shuffle_extensions" field's value of the TLSFingerprintProfile entity.
+// If the TLSFingerprintProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TLSFingerprintProfileMutation) OldShuffleExtensions(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldShuffleExtensions is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldShuffleExtensions requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldShuffleExtensions: %w", err)
+	}
+	return oldValue.ShuffleExtensions, nil
+}
+
+// ResetShuffleExtensions resets all changes to the "shuffle_extensions" field.
+func (m *TLSFingerprintProfileMutation) ResetShuffleExtensions() {
+	m.shuffle_extensions = nil
 }
 
 // SetCipherSuites sets the "cipher_suites" field.
@@ -51260,7 +51297,7 @@ func (m *TLSFingerprintProfileMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *TLSFingerprintProfileMutation) Fields() []string {
-	fields := make([]string, 0, 14)
+	fields := make([]string, 0, 15)
 	if m.created_at != nil {
 		fields = append(fields, tlsfingerprintprofile.FieldCreatedAt)
 	}
@@ -51275,6 +51312,9 @@ func (m *TLSFingerprintProfileMutation) Fields() []string {
 	}
 	if m.enable_grease != nil {
 		fields = append(fields, tlsfingerprintprofile.FieldEnableGrease)
+	}
+	if m.shuffle_extensions != nil {
+		fields = append(fields, tlsfingerprintprofile.FieldShuffleExtensions)
 	}
 	if m.cipher_suites != nil {
 		fields = append(fields, tlsfingerprintprofile.FieldCipherSuites)
@@ -51321,6 +51361,8 @@ func (m *TLSFingerprintProfileMutation) Field(name string) (ent.Value, bool) {
 		return m.Description()
 	case tlsfingerprintprofile.FieldEnableGrease:
 		return m.EnableGrease()
+	case tlsfingerprintprofile.FieldShuffleExtensions:
+		return m.ShuffleExtensions()
 	case tlsfingerprintprofile.FieldCipherSuites:
 		return m.CipherSuites()
 	case tlsfingerprintprofile.FieldCurves:
@@ -51358,6 +51400,8 @@ func (m *TLSFingerprintProfileMutation) OldField(ctx context.Context, name strin
 		return m.OldDescription(ctx)
 	case tlsfingerprintprofile.FieldEnableGrease:
 		return m.OldEnableGrease(ctx)
+	case tlsfingerprintprofile.FieldShuffleExtensions:
+		return m.OldShuffleExtensions(ctx)
 	case tlsfingerprintprofile.FieldCipherSuites:
 		return m.OldCipherSuites(ctx)
 	case tlsfingerprintprofile.FieldCurves:
@@ -51419,6 +51463,13 @@ func (m *TLSFingerprintProfileMutation) SetField(name string, value ent.Value) e
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetEnableGrease(v)
+		return nil
+	case tlsfingerprintprofile.FieldShuffleExtensions:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetShuffleExtensions(v)
 		return nil
 	case tlsfingerprintprofile.FieldCipherSuites:
 		v, ok := value.([]uint16)
@@ -51609,6 +51660,9 @@ func (m *TLSFingerprintProfileMutation) ResetField(name string) error {
 		return nil
 	case tlsfingerprintprofile.FieldEnableGrease:
 		m.ResetEnableGrease()
+		return nil
+	case tlsfingerprintprofile.FieldShuffleExtensions:
+		m.ResetShuffleExtensions()
 		return nil
 	case tlsfingerprintprofile.FieldCipherSuites:
 		m.ResetCipherSuites()

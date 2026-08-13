@@ -84,6 +84,20 @@ func (_c *TLSFingerprintProfileCreate) SetNillableEnableGrease(v *bool) *TLSFing
 	return _c
 }
 
+// SetShuffleExtensions sets the "shuffle_extensions" field.
+func (_c *TLSFingerprintProfileCreate) SetShuffleExtensions(v bool) *TLSFingerprintProfileCreate {
+	_c.mutation.SetShuffleExtensions(v)
+	return _c
+}
+
+// SetNillableShuffleExtensions sets the "shuffle_extensions" field if the given value is not nil.
+func (_c *TLSFingerprintProfileCreate) SetNillableShuffleExtensions(v *bool) *TLSFingerprintProfileCreate {
+	if v != nil {
+		_c.SetShuffleExtensions(*v)
+	}
+	return _c
+}
+
 // SetCipherSuites sets the "cipher_suites" field.
 func (_c *TLSFingerprintProfileCreate) SetCipherSuites(v []uint16) *TLSFingerprintProfileCreate {
 	_c.mutation.SetCipherSuites(v)
@@ -185,6 +199,10 @@ func (_c *TLSFingerprintProfileCreate) defaults() {
 		v := tlsfingerprintprofile.DefaultEnableGrease
 		_c.mutation.SetEnableGrease(v)
 	}
+	if _, ok := _c.mutation.ShuffleExtensions(); !ok {
+		v := tlsfingerprintprofile.DefaultShuffleExtensions
+		_c.mutation.SetShuffleExtensions(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -205,6 +223,9 @@ func (_c *TLSFingerprintProfileCreate) check() error {
 	}
 	if _, ok := _c.mutation.EnableGrease(); !ok {
 		return &ValidationError{Name: "enable_grease", err: errors.New(`ent: missing required field "TLSFingerprintProfile.enable_grease"`)}
+	}
+	if _, ok := _c.mutation.ShuffleExtensions(); !ok {
+		return &ValidationError{Name: "shuffle_extensions", err: errors.New(`ent: missing required field "TLSFingerprintProfile.shuffle_extensions"`)}
 	}
 	return nil
 }
@@ -252,6 +273,10 @@ func (_c *TLSFingerprintProfileCreate) createSpec() (*TLSFingerprintProfile, *sq
 	if value, ok := _c.mutation.EnableGrease(); ok {
 		_spec.SetField(tlsfingerprintprofile.FieldEnableGrease, field.TypeBool, value)
 		_node.EnableGrease = value
+	}
+	if value, ok := _c.mutation.ShuffleExtensions(); ok {
+		_spec.SetField(tlsfingerprintprofile.FieldShuffleExtensions, field.TypeBool, value)
+		_node.ShuffleExtensions = value
 	}
 	if value, ok := _c.mutation.CipherSuites(); ok {
 		_spec.SetField(tlsfingerprintprofile.FieldCipherSuites, field.TypeJSON, value)
@@ -392,6 +417,18 @@ func (u *TLSFingerprintProfileUpsert) SetEnableGrease(v bool) *TLSFingerprintPro
 // UpdateEnableGrease sets the "enable_grease" field to the value that was provided on create.
 func (u *TLSFingerprintProfileUpsert) UpdateEnableGrease() *TLSFingerprintProfileUpsert {
 	u.SetExcluded(tlsfingerprintprofile.FieldEnableGrease)
+	return u
+}
+
+// SetShuffleExtensions sets the "shuffle_extensions" field.
+func (u *TLSFingerprintProfileUpsert) SetShuffleExtensions(v bool) *TLSFingerprintProfileUpsert {
+	u.Set(tlsfingerprintprofile.FieldShuffleExtensions, v)
+	return u
+}
+
+// UpdateShuffleExtensions sets the "shuffle_extensions" field to the value that was provided on create.
+func (u *TLSFingerprintProfileUpsert) UpdateShuffleExtensions() *TLSFingerprintProfileUpsert {
+	u.SetExcluded(tlsfingerprintprofile.FieldShuffleExtensions)
 	return u
 }
 
@@ -662,6 +699,20 @@ func (u *TLSFingerprintProfileUpsertOne) SetEnableGrease(v bool) *TLSFingerprint
 func (u *TLSFingerprintProfileUpsertOne) UpdateEnableGrease() *TLSFingerprintProfileUpsertOne {
 	return u.Update(func(s *TLSFingerprintProfileUpsert) {
 		s.UpdateEnableGrease()
+	})
+}
+
+// SetShuffleExtensions sets the "shuffle_extensions" field.
+func (u *TLSFingerprintProfileUpsertOne) SetShuffleExtensions(v bool) *TLSFingerprintProfileUpsertOne {
+	return u.Update(func(s *TLSFingerprintProfileUpsert) {
+		s.SetShuffleExtensions(v)
+	})
+}
+
+// UpdateShuffleExtensions sets the "shuffle_extensions" field to the value that was provided on create.
+func (u *TLSFingerprintProfileUpsertOne) UpdateShuffleExtensions() *TLSFingerprintProfileUpsertOne {
+	return u.Update(func(s *TLSFingerprintProfileUpsert) {
+		s.UpdateShuffleExtensions()
 	})
 }
 
@@ -1125,6 +1176,20 @@ func (u *TLSFingerprintProfileUpsertBulk) SetEnableGrease(v bool) *TLSFingerprin
 func (u *TLSFingerprintProfileUpsertBulk) UpdateEnableGrease() *TLSFingerprintProfileUpsertBulk {
 	return u.Update(func(s *TLSFingerprintProfileUpsert) {
 		s.UpdateEnableGrease()
+	})
+}
+
+// SetShuffleExtensions sets the "shuffle_extensions" field.
+func (u *TLSFingerprintProfileUpsertBulk) SetShuffleExtensions(v bool) *TLSFingerprintProfileUpsertBulk {
+	return u.Update(func(s *TLSFingerprintProfileUpsert) {
+		s.SetShuffleExtensions(v)
+	})
+}
+
+// UpdateShuffleExtensions sets the "shuffle_extensions" field to the value that was provided on create.
+func (u *TLSFingerprintProfileUpsertBulk) UpdateShuffleExtensions() *TLSFingerprintProfileUpsertBulk {
+	return u.Update(func(s *TLSFingerprintProfileUpsert) {
+		s.UpdateShuffleExtensions()
 	})
 }
 

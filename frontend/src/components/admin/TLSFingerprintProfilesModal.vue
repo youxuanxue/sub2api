@@ -202,6 +202,33 @@
           </div>
         </div>
 
+        <!-- Extension order toggle -->
+        <div class="flex items-center gap-3">
+          <button
+            type="button"
+            @click="form.shuffle_extensions = !form.shuffle_extensions"
+            :class="[
+              'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              form.shuffle_extensions ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                form.shuffle_extensions ? 'translate-x-4' : 'translate-x-0'
+              ]"
+            />
+          </button>
+          <div>
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t('admin.tlsFingerprintProfiles.form.shuffleExtensions') }}
+            </span>
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.tlsFingerprintProfiles.form.shuffleExtensionsHint') }}
+            </p>
+          </div>
+        </div>
+
         <!-- TLS Array Fields - 2 column grid -->
         <div class="grid grid-cols-2 gap-4">
           <div>
@@ -376,7 +403,8 @@ const fieldInputs = reactive({
 const form = reactive({
   name: '',
   description: null as string | null,
-  enable_grease: false
+  enable_grease: false,
+  shuffle_extensions: false
 })
 
 // Load profiles when dialog opens
@@ -412,6 +440,7 @@ const resetForm = () => {
   form.name = ''
   form.description = null
   form.enable_grease = false
+  form.shuffle_extensions = false
   fieldInputs.cipher_suites = ''
   fieldInputs.curves = ''
   fieldInputs.point_formats = ''
@@ -469,6 +498,9 @@ const parseYamlInput = () => {
       }
       case 'enable_grease':
         form.enable_grease = value === 'true'
+        break
+      case 'shuffle_extensions':
+        form.shuffle_extensions = value === 'true'
         break
       case 'cipher_suites':
       case 'curves':
@@ -560,6 +592,7 @@ const handleEdit = (profile: TLSFingerprintProfile) => {
   form.name = profile.name
   form.description = profile.description
   form.enable_grease = profile.enable_grease
+  form.shuffle_extensions = profile.shuffle_extensions
   fieldInputs.cipher_suites = formatNumericArray(profile.cipher_suites)
   fieldInputs.curves = formatPlainNumericArray(profile.curves)
   fieldInputs.point_formats = formatPlainNumericArray(profile.point_formats)
@@ -589,6 +622,7 @@ const handleSubmit = async () => {
       name: form.name.trim(),
       description: form.description?.trim() || null,
       enable_grease: form.enable_grease,
+      shuffle_extensions: form.shuffle_extensions,
       cipher_suites: parseNumericArray(fieldInputs.cipher_suites),
       curves: parseNumericArray(fieldInputs.curves),
       point_formats: parseNumericArray(fieldInputs.point_formats),

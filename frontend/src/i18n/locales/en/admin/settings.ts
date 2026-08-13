@@ -1423,6 +1423,8 @@ export default {
         descriptionPlaceholder: 'Optional description for this profile',
         enableGrease: 'Enable GREASE',
         enableGreaseHint: 'Insert GREASE values in TLS ClientHello extensions',
+        shuffleExtensions: 'Shuffle extensions',
+        shuffleExtensionsHint: 'Randomize TLS extension order for every ClientHello',
         cipherSuites: 'Cipher Suites',
         cipherSuitesHint: 'Comma-separated hex values, e.g. 0x1301, 0x1302, 0xc02c',
         curves: 'Elliptic Curves',

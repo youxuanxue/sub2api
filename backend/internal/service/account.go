@@ -2096,9 +2096,9 @@ func (a *Account) IsAnthropicOAuthOrSetupToken() bool {
 
 // IsTLSFingerprintEnabled 检查是否启用 TLS 指纹伪装
 // 适用于 Anthropic OAuth/SetupToken 账号（模拟 Claude Code Node.js 握手），
-// 以及 Kiro 账号（模拟真实 Kiro IDE 握手，见 account_tk_kiro.go）
+// 以及 Kiro 账号（模拟真实 Kiro CLI 握手，见 account_tk_kiro.go）
 func (a *Account) IsTLSFingerprintEnabled() bool {
-	// Kiro：默认开启，按名解析 tk_canonical_kiro_ide（详见 isKiroTLSFingerprintEnabled）
+	// Kiro：默认开启，按名解析 tk_canonical_kiro_cli（详见 isKiroTLSFingerprintEnabled）
 	if a.IsKiro() {
 		return a.isKiroTLSFingerprintEnabled()
 	}

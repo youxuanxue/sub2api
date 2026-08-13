@@ -2174,6 +2174,10 @@ func init() {
 	tlsfingerprintprofileDescEnableGrease := tlsfingerprintprofileFields[2].Descriptor()
 	// tlsfingerprintprofile.DefaultEnableGrease holds the default value on creation for the enable_grease field.
 	tlsfingerprintprofile.DefaultEnableGrease = tlsfingerprintprofileDescEnableGrease.Default.(bool)
+	// tlsfingerprintprofileDescShuffleExtensions is the schema descriptor for shuffle_extensions field.
+	tlsfingerprintprofileDescShuffleExtensions := tlsfingerprintprofileFields[3].Descriptor()
+	// tlsfingerprintprofile.DefaultShuffleExtensions holds the default value on creation for the shuffle_extensions field.
+	tlsfingerprintprofile.DefaultShuffleExtensions = tlsfingerprintprofileDescShuffleExtensions.Default.(bool)
 	tierMixin := schema.Tier{}.Mixin()
 	tierMixinFields0 := tierMixin[0].Fields()
 	_ = tierMixinFields0
