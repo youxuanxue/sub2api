@@ -287,7 +287,7 @@ func TestGrokQuotaServiceProbeUsageStoresHeaders(t *testing.T) {
 	result, err := svc.ProbeUsage(context.Background(), 42)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, result.StatusCode)
-	require.Equal(t, "grok-4.5", result.Model)
+	require.Equal(t, grokQuotaDefaultModel, result.Model)
 	require.True(t, result.HeadersObserved)
 	require.NotNil(t, result.Snapshot)
 	require.True(t, result.Snapshot.HeadersObserved)
@@ -300,7 +300,7 @@ func TestGrokQuotaServiceProbeUsageStoresHeaders(t *testing.T) {
 	require.Equal(t, "https://cli-chat-proxy.grok.com/v1/responses", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer access-token", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, grokCLIVersion, upstream.lastReq.Header.Get("X-Grok-Client-Version"))
-	require.Equal(t, "grok-4.5", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, grokQuotaDefaultModel, gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Equal(t, grokQuotaProbeInput, gjson.GetBytes(upstream.lastBody, "input").String())
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
 	require.NotNil(t, repo.updates[42][grokQuotaSnapshotExtraKey])
@@ -328,8 +328,8 @@ func TestGrokQuotaServiceProbeUsageIgnoresAccountGrokMapping(t *testing.T) {
 
 	result, err := svc.ProbeUsage(context.Background(), 47)
 	require.NoError(t, err)
-	require.Equal(t, "grok-4.5", result.Model)
-	require.Equal(t, "grok-4.5", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, grokQuotaDefaultModel, result.Model)
+	require.Equal(t, grokQuotaDefaultModel, gjson.GetBytes(upstream.lastBody, "model").String())
 	require.NotContains(t, string(upstream.lastBody), "grok-composer")
 }
 
@@ -352,7 +352,7 @@ func TestGrokQuotaServiceProbeUsageReportsProbeModelOnUpstreamError(t *testing.T
 	_, err := svc.ProbeUsage(context.Background(), 48)
 	require.Error(t, err)
 	require.Equal(t, "GROK_QUOTA_PROBE_UPSTREAM_ERROR", infraerrors.Reason(err))
-	require.Contains(t, infraerrors.Message(err), `probe model "grok-4.5"`)
+	require.Contains(t, infraerrors.Message(err), `probe model "`+grokQuotaDefaultModel+`"`)
 }
 
 func TestGrokQuotaServiceProbeUsageRedactsUpstreamErrorBodyFromErrorAndLogs(t *testing.T) {
@@ -386,7 +386,7 @@ func TestGrokQuotaServiceProbeUsageRedactsUpstreamErrorBodyFromErrorAndLogs(t *t
 	_, err := svc.ProbeUsage(context.Background(), account.ID)
 	require.Error(t, err)
 	require.Equal(t, "GROK_QUOTA_PROBE_UPSTREAM_ERROR", infraerrors.Reason(err))
-	require.Contains(t, infraerrors.Message(err), `probe model "grok-4.5"`)
+	require.Contains(t, infraerrors.Message(err), `probe model "`+grokQuotaDefaultModel+`"`)
 	require.NotContains(t, err.Error(), upstreamSecret)
 	require.NotContains(t, infraerrors.Message(err), upstreamSecret)
 	require.Contains(t, logs.String(), "GROK_QUOTA_PROBE_UPSTREAM_ERROR")
@@ -533,7 +533,7 @@ func TestGrokQuotaServiceQueryQuotaFreeFallsBackToGrok45(t *testing.T) {
 	result, err := svc.QueryQuota(context.Background(), account.ID)
 	require.NoError(t, err)
 	require.Equal(t, "hybrid_probe", result.Source)
-	require.Equal(t, "grok-4.5", result.Model)
+	require.Equal(t, grokQuotaDefaultModel, result.Model)
 	require.NotNil(t, result.Billing)
 	require.Nil(t, result.Billing.UsagePercent)
 	require.NotNil(t, result.LocalUsage24h)
@@ -554,7 +554,7 @@ func TestGrokQuotaServiceQueryQuotaFreeFallsBackToGrok45(t *testing.T) {
 		}
 		responseCalls++
 		require.Equal(t, http.MethodPost, req.Method)
-		require.Equal(t, "grok-4.5", gjson.GetBytes(bodies[i], "model").String())
+		require.Equal(t, grokQuotaDefaultModel, gjson.GetBytes(bodies[i], "model").String())
 		require.Equal(t, grokQuotaProbeInput, gjson.GetBytes(bodies[i], "input").String())
 		require.True(t, gjson.GetBytes(bodies[i], "stream").Bool())
 	}

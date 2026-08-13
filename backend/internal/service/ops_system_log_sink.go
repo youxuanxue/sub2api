@@ -48,6 +48,7 @@ type OpsSystemLogSink struct {
 	totalDelayNs uint64
 
 	lastError atomic.Value
+	enabled   atomic.Bool
 }
 
 const maxSystemLogHostLength = 255
@@ -74,7 +75,15 @@ func NewOpsSystemLogSink(opsRepo OpsRepository) *OpsSystemLogSink {
 		cancel:          cancel,
 	}
 	s.lastError.Store("")
+	s.enabled.Store(true)
 	return s
+}
+
+func (s *OpsSystemLogSink) SetEnabled(enabled bool) {
+	if s == nil {
+		return
+	}
+	s.enabled.Store(enabled)
 }
 
 // flushBackoffFor 返回第 failures 次连续失败后的退避时长（指数退避，封顶）。
@@ -129,7 +138,7 @@ func (s *OpsSystemLogSink) Stop() {
 }
 
 func (s *OpsSystemLogSink) WriteLogEvent(event *logger.LogEvent) {
-	if s == nil || event == nil || !s.shouldIndex(event) {
+	if s == nil || event == nil || !s.enabled.Load() || !s.shouldIndex(event) {
 		return
 	}
 	if s.ctx != nil {
@@ -160,9 +169,6 @@ func (s *OpsSystemLogSink) shouldIndex(event *logger.LogEvent) bool {
 		if fc := strings.ToLower(strings.TrimSpace(asString(event.Fields["component"]))); fc != "" {
 			component = fc
 		}
-	}
-	if strings.Contains(component, "http.access") {
-		return true
 	}
 	if strings.Contains(component, "audit") {
 		return true

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pgpartition"
@@ -34,6 +33,8 @@ type opsCleanupTarget struct {
 }
 
 type opsCleanupDeletedCounts struct {
+	usageLogs     string
+	billingDedup  string
 	errorLogs     int64
 	alertEvents   int64
 	systemLogs    int64
@@ -45,7 +46,9 @@ type opsCleanupDeletedCounts struct {
 
 func (c opsCleanupDeletedCounts) String() string {
 	return fmt.Sprintf(
-		"error_logs=%d alert_events=%d system_logs=%d log_audits=%d system_metrics=%d hourly_preagg=%d daily_preagg=%d",
+		"usage_logs=%s billing_dedup=%s error_logs=%d alert_events=%d system_logs=%d log_audits=%d system_metrics=%d hourly_preagg=%d daily_preagg=%d",
+		c.usageLogs,
+		c.billingDedup,
 		c.errorLogs,
 		c.alertEvents,
 		c.systemLogs,
@@ -157,11 +160,16 @@ WHERE id IN (SELECT id FROM batch)
 
 	var total int64
 	for {
-		res, err := db.ExecContext(ctx, q, cutoff, batchSize)
-		if err != nil {
-			if isMissingRelationError(err) {
-				return total, nil
+		limit := batchSize
+		if maxRows > 0 {
+			remaining := maxRows - int(total)
+			if remaining <= 0 {
+				break
 			}
+			limit = min(limit, remaining)
+		}
+		res, err := db.ExecContext(ctx, q, cutoff, limit)
+		if err != nil {
 			return total, err
 		}
 		affected, err := res.RowsAffected()
@@ -188,27 +196,13 @@ func truncateOpsTable(ctx context.Context, db *sql.DB, table string) (int64, err
 	}
 	var count int64
 	if err := db.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count); err != nil {
-		if isMissingRelationError(err) {
-			return 0, nil
-		}
 		return 0, fmt.Errorf("count %s: %w", table, err)
 	}
 	if count == 0 {
 		return 0, nil
 	}
 	if _, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", table)); err != nil {
-		if isMissingRelationError(err) {
-			return 0, nil
-		}
 		return 0, fmt.Errorf("truncate %s: %w", table, err)
 	}
 	return count, nil
-}
-
-func isMissingRelationError(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "does not exist") && strings.Contains(s, "relation")
 }

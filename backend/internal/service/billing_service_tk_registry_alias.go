@@ -87,7 +87,7 @@ func (s *BillingService) getRegistryAliasPricing(model string) *ModelPricing {
 		"minimax-m3", "minimax-m2.7-highspeed", "minimax-m2.7",
 		"minimax-m2.5", "minimax-m2.1", "minimax-m2",
 		"doubao-embedding-vision", "gpt-5.4", "gpt-5.2", "gpt-5.3-codex",
-		"grok-4.5", "grok-4.3", "grok-build-0.1",
+		"grok-4.6", "grok-4.5", "grok-4.3", "grok-build-0.1",
 	}
 	for _, owner := range owners {
 		if fallback := s.fallbackPrices[owner]; fallback != nil && fallback == legacy {

@@ -181,7 +181,7 @@ func TestResetRuntimeLogConfig_ShouldFallbackToBaseline(t *testing.T) {
 			},
 			Ops: config.OpsConfig{
 				Cleanup: config.OpsCleanupConfig{
-					ErrorLogRetentionDays: 45,
+					SystemLogRetentionDays: 45,
 				},
 			},
 		},
@@ -382,7 +382,7 @@ func TestDefaultNormalizeAndValidateRuntimeLogConfig(t *testing.T) {
 		},
 		Ops: config.OpsConfig{
 			Cleanup: config.OpsCleanupConfig{
-				ErrorLogRetentionDays: 7,
+				SystemLogRetentionDays: 7,
 			},
 		},
 	})

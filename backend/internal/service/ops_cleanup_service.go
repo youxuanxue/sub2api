@@ -45,6 +45,7 @@ return 0
 // 统一共享 cron schedule + leader lock + heartbeat，避免再引一套调度。
 type OpsCleanupService struct {
 	opsRepo           OpsRepository
+	dashboardRepo     DashboardAggregationRepository
 	db                *sql.DB
 	redisClient       *redis.Client
 	cfg               *config.Config
@@ -67,6 +68,7 @@ type OpsCleanupService struct {
 
 func NewOpsCleanupService(
 	opsRepo OpsRepository,
+	dashboardRepo DashboardAggregationRepository,
 	db *sql.DB,
 	redisClient *redis.Client,
 	cfg *config.Config,
@@ -75,6 +77,7 @@ func NewOpsCleanupService(
 ) *OpsCleanupService {
 	return &OpsCleanupService{
 		opsRepo:           opsRepo,
+		dashboardRepo:     dashboardRepo,
 		db:                db,
 		redisClient:       redisClient,
 		cfg:               cfg,
@@ -161,11 +164,23 @@ func (s *OpsCleanupService) applyScheduleLocked(ctx context.Context) error {
 	}
 	c.Start()
 	s.cron = c
+	policy := resolveDataLifecyclePolicy(s.cfg, s.effective)
+	frontendURL := ""
+	if s.cfg != nil {
+		frontendURL = s.cfg.Server.FrontendURL
+	}
+	if !dataLifecycleRoleKnown(frontendURL) {
+		logger.LegacyPrintf("service.ops_cleanup", "[OpsCleanup] unknown server.frontend_url=%q; applying non-edge lifecycle limits", frontendURL)
+	}
 	logger.LegacyPrintf("service.ops_cleanup",
-		"[OpsCleanup] scheduled (schedule=%q tz=%s cleanup_enabled=%t retention_days=err:%d/min:%d/hour:%d)",
+		"[OpsCleanup] scheduled (schedule=%q tz=%s cleanup_enabled=%t role=%s retention_days=usage:%d/dedup:%d/system:%d/error:%d/min:%d/hour:%d)",
 		schedule, loc.String(),
 		s.effective.Enabled,
-		s.effective.ErrorLogRetentionDays,
+		policy.role,
+		policy.usageLogRetentionDays,
+		policy.billingDedupRetentionDays,
+		policy.systemLogRetentionDays,
+		policy.errorLogRetentionDays,
 		s.effective.MinuteMetricsRetentionDays,
 		s.effective.HourlyMetricsRetentionDays,
 	)
@@ -316,13 +331,34 @@ func (s *OpsCleanupService) runCleanupOnce(ctx context.Context) (opsCleanupDelet
 	}
 
 	effective := s.snapshotEffective()
+	policy := resolveDataLifecyclePolicy(s.cfg, effective)
 	now := time.Now().UTC()
 
+	if s.dashboardRepo == nil {
+		return out, errors.New("dashboard aggregation repository not initialized")
+	}
+	if policy.usageLogRetentionDays >= 0 {
+		if err := s.dashboardRepo.CleanupUsageLogs(ctx, now.AddDate(0, 0, -policy.usageLogRetentionDays)); err != nil {
+			return out, fmt.Errorf("cleanup usage_logs: %w", err)
+		}
+		out.usageLogs = "ok"
+	} else {
+		out.usageLogs = "skipped"
+	}
+	if policy.billingDedupRetentionDays >= 0 {
+		if err := s.dashboardRepo.CleanupUsageBillingDedup(ctx, now.AddDate(0, 0, -policy.billingDedupRetentionDays)); err != nil {
+			return out, fmt.Errorf("cleanup usage_billing_dedup: %w", err)
+		}
+		out.billingDedup = "ok"
+	} else {
+		out.billingDedup = "skipped"
+	}
+
 	targets := []opsCleanupTarget{
-		{effective.ErrorLogRetentionDays, "ops_error_logs", "created_at", false, &out.errorLogs},
-		{effective.ErrorLogRetentionDays, "ops_alert_events", "created_at", false, &out.alertEvents},
-		{effective.ErrorLogRetentionDays, "ops_system_logs", "created_at", false, &out.systemLogs},
-		{effective.ErrorLogRetentionDays, "ops_system_log_cleanup_audits", "created_at", false, &out.logAudits},
+		{policy.errorLogRetentionDays, "ops_error_logs", "created_at", false, &out.errorLogs},
+		{policy.errorLogRetentionDays, "ops_alert_events", "created_at", false, &out.alertEvents},
+		{policy.systemLogRetentionDays, "ops_system_logs", "created_at", false, &out.systemLogs},
+		{policy.systemLogRetentionDays, "ops_system_log_cleanup_audits", "created_at", false, &out.logAudits},
 		{effective.MinuteMetricsRetentionDays, "ops_system_metrics", "created_at", false, &out.systemMetrics},
 		{effective.HourlyMetricsRetentionDays, "ops_metrics_hourly", "bucket_start", false, &out.hourlyPreagg},
 		{effective.HourlyMetricsRetentionDays, "ops_metrics_daily", "bucket_date", true, &out.dailyPreagg},

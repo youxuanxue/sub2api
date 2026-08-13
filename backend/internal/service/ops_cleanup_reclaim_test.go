@@ -6,6 +6,7 @@ import (
 	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,14 +19,30 @@ func TestDeleteOldRowsByID_RespectsMaxRowsCap(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	// batchSize=5000, maxRows=10000 → exactly two batches reach the cap; a third
-	// DELETE would be an unexpected call and fail ExpectationsWereMet.
-	mock.ExpectExec("DELETE FROM ops_test").WillReturnResult(sqlmock.NewResult(0, 5000))
-	mock.ExpectExec("DELETE FROM ops_test").WillReturnResult(sqlmock.NewResult(0, 5000))
+	// The remaining cap is smaller than batchSize. Passing the full batch would
+	// let PostgreSQL delete 5000 rows despite the advertised 3-row hard limit.
+	mock.ExpectExec("DELETE FROM ops_test").
+		WithArgs(time.Unix(0, 0).UTC(), 3).
+		WillReturnResult(sqlmock.NewResult(0, 3))
 
-	total, err := deleteOldRowsByID(context.Background(), db, "ops_test", "created_at", time.Unix(0, 0).UTC(), 5000, false, 10000)
+	total, err := deleteOldRowsByID(context.Background(), db, "ops_test", "created_at", time.Unix(0, 0).UTC(), 5000, false, 3)
 	require.NoError(t, err)
-	require.Equal(t, int64(10000), total)
+	require.Equal(t, int64(3), total)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Lifecycle tables are required schema. A missing relation must fail the unified
+// cleanup heartbeat instead of being reported as a successful zero-row cleanup.
+func TestDeleteOldRowsByID_MissingRelationFails(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectExec("DELETE FROM ops_test").
+		WillReturnError(assert.AnError)
+
+	_, err = deleteOldRowsByID(context.Background(), db, "ops_test", "created_at", time.Unix(0, 0).UTC(), 5000, false, 0)
+	require.ErrorIs(t, err, assert.AnError)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

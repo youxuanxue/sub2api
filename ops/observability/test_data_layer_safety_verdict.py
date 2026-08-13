@@ -36,6 +36,7 @@ def _signals() -> dict:
         "SNAPSHOTSTATS": {"latest_snapshot_at": (NOW - dt.timedelta(hours=12)).isoformat()},
         "TELEMETRYSTATS": {"probe_ok": True, "enabled": False},
         "ARCHIVESTATS": {
+            "archive_mode": "frozen",
             "ledgers": [
                 {
                     "table": table,
@@ -60,15 +61,19 @@ def _signals() -> dict:
 
 
 class DataLayerSafetyVerdictTest(unittest.TestCase):
-    def test_stale_tail_export_reports_archive_lag(self) -> None:
+    def test_frozen_tail_does_not_report_rolling_archive_lag(self) -> None:
         signals = _signals()
         signals["ARCHIVESTATS"]["archive_coverage_current"] = False
         result = verdict.compute_verdict(signals)
+        self.assertEqual(result["verdict"], "green")
+
+    def test_active_tail_still_reports_archive_lag(self) -> None:
+        signals = _signals()
+        signals["ARCHIVESTATS"]["archive_mode"] = "active"
+        signals["ARCHIVESTATS"]["archive_coverage_current"] = False
+        result = verdict.compute_verdict(signals)
         self.assertEqual(result["verdict"], "unsafe")
-        self.assertIn(
-            "archive_lag",
-            {finding["kind"] for finding in result["findings"]},
-        )
+        self.assertIn("archive_lag", {finding["kind"] for finding in result["findings"]})
 
     def test_all_gates_green(self) -> None:
         result = verdict.compute_verdict(_signals())
@@ -81,6 +86,34 @@ class DataLayerSafetyVerdictTest(unittest.TestCase):
             ledger.pop("final_cutoff_exclusive", None)
             ledger["more_cold_rows_remaining"] = True
         self.assertEqual(verdict.compute_verdict(signals)["verdict"], "green")
+
+    def test_frozen_restore_proof_has_no_rolling_freshness_obligation(self) -> None:
+        signals = _signals()
+        signals["ARCHIVESTATS"]["restore_verified_at"] = [
+            (NOW - dt.timedelta(days=400)).isoformat(),
+            (NOW - dt.timedelta(days=400)).isoformat(),
+        ]
+        self.assertEqual(verdict.compute_verdict(signals)["verdict"], "green")
+
+    def test_invalid_archive_mode_fails_closed(self) -> None:
+        signals = _signals()
+        signals["ARCHIVESTATS"]["archive_mode"] = "retired"
+        result = verdict.compute_verdict(signals)
+        self.assertEqual(result["verdict"], "unsafe")
+        self.assertIn(
+            "archive_evidence",
+            {finding["kind"] for finding in result["findings"]},
+        )
+
+    def test_frozen_corrupt_restore_timestamp_fails_closed(self) -> None:
+        signals = _signals()
+        signals["ARCHIVESTATS"]["restore_verified_at"][0] = "not-a-timestamp"
+        result = verdict.compute_verdict(signals)
+        self.assertEqual(result["verdict"], "unsafe")
+        self.assertIn(
+            "archive_restore_proof",
+            {finding["kind"] for finding in result["findings"]},
+        )
 
     def test_missing_cleanup_release_fails_when_archive_steady_state_complete(self) -> None:
         signals = _signals()

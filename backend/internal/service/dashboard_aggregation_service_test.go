@@ -22,6 +22,8 @@ type dashboardAggregationRepoTestStub struct {
 	cleanupAggregatesErr error
 	cleanupUsageErr      error
 	cleanupDedupErr      error
+	lastUsageCutoff      time.Time
+	lastDedupCutoff      time.Time
 }
 
 func (s *dashboardAggregationRepoTestStub) AggregateRange(ctx context.Context, start, end time.Time) error {
@@ -50,18 +52,21 @@ func (s *dashboardAggregationRepoTestStub) CleanupAggregates(ctx context.Context
 
 func (s *dashboardAggregationRepoTestStub) CleanupUsageLogs(ctx context.Context, cutoff time.Time) error {
 	s.cleanupUsageCalls++
+	s.lastUsageCutoff = cutoff
 	return s.cleanupUsageErr
 }
 
 func (s *dashboardAggregationRepoTestStub) CleanupUsageBillingDedup(ctx context.Context, cutoff time.Time) error {
 	s.cleanupDedupCalls++
+	s.lastDedupCutoff = cutoff
 	return s.cleanupDedupErr
 }
 
 func TestDashboardAggregationService_RunScheduledAggregation_EpochUsesRetentionStart(t *testing.T) {
 	repo := &dashboardAggregationRepoTestStub{watermark: time.Unix(0, 0).UTC()}
 	svc := &DashboardAggregationService{
-		repo: repo,
+		repo:                  repo,
+		usageLogRetentionDays: 1,
 		cfg: config.DashboardAggregationConfig{
 			Enabled:         true,
 			IntervalSeconds: 60,
@@ -97,12 +102,15 @@ func TestDashboardAggregationService_CleanupRetentionFailure_DoesNotRecord(t *te
 	svc.maybeCleanupRetention(context.Background(), time.Now().UTC())
 
 	require.Nil(t, svc.lastRetentionCleanup.Load())
-	require.Equal(t, 1, repo.cleanupUsageCalls)
-	require.Equal(t, 1, repo.cleanupDedupCalls)
+	require.Equal(t, 0, repo.cleanupUsageCalls)
+	require.Equal(t, 0, repo.cleanupDedupCalls)
 }
 
-func TestDashboardAggregationService_CleanupDedupFailure_DoesNotRecord(t *testing.T) {
-	repo := &dashboardAggregationRepoTestStub{cleanupDedupErr: errors.New("dedup cleanup failed")}
+func TestDashboardAggregationService_CleanupRetentionOnlyOwnsAggregates(t *testing.T) {
+	repo := &dashboardAggregationRepoTestStub{
+		cleanupUsageErr: errors.New("usage cleanup must not run"),
+		cleanupDedupErr: errors.New("dedup cleanup must not run"),
+	}
 	svc := &DashboardAggregationService{
 		repo: repo,
 		cfg: config.DashboardAggregationConfig{
@@ -116,8 +124,28 @@ func TestDashboardAggregationService_CleanupDedupFailure_DoesNotRecord(t *testin
 
 	svc.maybeCleanupRetention(context.Background(), time.Now().UTC())
 
-	require.Nil(t, svc.lastRetentionCleanup.Load())
-	require.Equal(t, 1, repo.cleanupDedupCalls)
+	require.NotNil(t, svc.lastRetentionCleanup.Load())
+	require.Equal(t, 0, repo.cleanupUsageCalls)
+	require.Equal(t, 0, repo.cleanupDedupCalls)
+}
+
+func TestDashboardAggregationService_BackfillDoesNotOwnUsageLifecycle(t *testing.T) {
+	repo := &dashboardAggregationRepoTestStub{}
+	svc := &DashboardAggregationService{
+		repo: repo,
+		cfg: config.DashboardAggregationConfig{
+			Retention: config.DashboardAggregationRetentionConfig{
+				HourlyDays: 1,
+				DailyDays:  1,
+			},
+		},
+	}
+
+	end := time.Now().UTC()
+	require.NoError(t, svc.backfillRange(context.Background(), end.Add(-time.Hour), end))
+	require.Equal(t, 0, repo.cleanupUsageCalls)
+	require.Equal(t, 0, repo.cleanupDedupCalls)
+	require.NotNil(t, svc.lastRetentionCleanup.Load())
 }
 
 func TestDashboardAggregationService_TriggerBackfill_TooLarge(t *testing.T) {

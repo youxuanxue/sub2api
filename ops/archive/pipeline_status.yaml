@@ -1,4 +1,5 @@
 schema_version: 1
+archive_mode: frozen
 # Repo-evidence SSOT for generic usage/ops data-layer archive (not live prod).
 # Refresh repo evidence under ops/archive/evidence/ after re-export exception-path batches only.
 # Live probes: ops/observability/probe-data-layer-*.sh
@@ -28,5 +29,6 @@ evidence_attachments:
     ops_error_logs: ops-error-logs
 
 closeout_required_before_cleanup_release: true
-# Steady-state evidence: archive_health validates closeout, tail export, hold binding, release.
+# Frozen historical evidence: archive_health validates closeout, final tail promotion,
+# hold/release binding, and restore-proof binding without imposing rolling freshness.
 # closeout_required_before_cleanup_release applies only to first hold release.

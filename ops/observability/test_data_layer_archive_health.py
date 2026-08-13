@@ -29,6 +29,7 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
             {"ops_error_logs", "ops_system_logs"},
         )
         self.assertIsInstance(signal["hold_started_at"], str)
+        self.assertEqual(signal["archive_mode"], "frozen")
         self.assertTrue(signal["closeout_complete"])
         self.assertTrue(signal["tail_export_complete"])
         self.assertFalse(signal["tail_export_stale"])
@@ -60,12 +61,13 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
             )
         )
 
-    def test_checked_in_tail_export_is_stale_for_current_coverage(self) -> None:
-        signal = health.build_signal(now=dt.datetime(2026, 8, 10, tzinfo=dt.timezone.utc))
+    def test_checked_in_frozen_tail_has_no_rolling_freshness_obligation(self) -> None:
+        signal = health.build_signal(now=dt.datetime(2027, 8, 10, tzinfo=dt.timezone.utc))
+        self.assertEqual(signal["archive_mode"], "frozen")
         self.assertTrue(signal["closeout_complete"])
         self.assertTrue(signal["tail_export_complete"])
-        self.assertTrue(signal["tail_export_stale"])
-        self.assertFalse(signal["archive_coverage_current"])
+        self.assertFalse(signal["tail_export_stale"])
+        self.assertTrue(signal["archive_coverage_current"])
 
     def test_latest_valid_hold_receipt_is_selected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -120,6 +122,22 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
 
         self.assertEqual(signal["hold_started_at"], "2026-08-07T02:40:22Z")
         self.assertNotIn("cleanup_hold", signal["evidence_errors"])
+
+    def test_frozen_tail_rejects_promote_manifest_hash_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            for path in _checked_in_evidence_dir().iterdir():
+                if path.is_file():
+                    (root / path.name).write_bytes(path.read_bytes())
+            promote_path = root / "data-layer-ops-error-logs-tail-promote-ledger.json"
+            ledger = json.loads(promote_path.read_text(encoding="utf-8"))
+            ledger["promoted_batches"][0]["objects"][-1]["sha256"] = "0" * 64
+            promote_path.write_text(json.dumps(ledger), encoding="utf-8")
+
+            signal = health.build_signal(root)
+
+        self.assertFalse(signal["tail_export_complete"])
+        self.assertIn("ops_error_logs:tail_export_ledger", signal["evidence_errors"])
 
     def test_minimal_unvalidated_json_cannot_report_closeout_complete(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

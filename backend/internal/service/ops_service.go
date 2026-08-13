@@ -135,6 +135,7 @@ func NewOpsService(
 		systemLogSink:             systemLogSink,
 	}
 	svc.initRuntimeSettings(context.Background())
+	svc.syncSystemLogSinkEnabled()
 	svc.applyRuntimeLogConfigOnStartup(context.Background())
 	return svc
 }
@@ -164,6 +165,13 @@ func parseOpsMonitoringEnabled(value string) bool {
 	default:
 		return true
 	}
+}
+
+func (s *OpsService) syncSystemLogSinkEnabled() {
+	if s == nil || s.systemLogSink == nil {
+		return
+	}
+	s.systemLogSink.SetEnabled(s.IsMonitoringEnabled(context.Background()))
 }
 
 func (s *OpsService) initRuntimeSettings(ctx context.Context) {
@@ -206,6 +214,7 @@ func (s *OpsService) RefreshRuntimeSettings(ctx context.Context) error {
 	normalizeOpsAdvancedSettings(advanced)
 
 	s.runtimeSettings.Store(&opsRuntimeSettingsSnapshot{monitoringEnabled: monitoringEnabled, advanced: *advanced})
+	s.syncSystemLogSinkEnabled()
 	return nil
 }
 
@@ -350,6 +359,7 @@ func (s *OpsService) SetMonitoringEnabled(enabled bool) {
 	}
 	s.runtimeSettings.Store(next)
 	s.runtimeSettingsMu.Unlock()
+	s.syncSystemLogSinkEnabled()
 }
 
 func (s *OpsService) storeAdvancedSettingsSnapshot(cfg *OpsAdvancedSettings) {

@@ -277,7 +277,11 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 // of the per-user menu produced nothing and a grok group showed an EMPTY
 // "分组目录" (incident 2026-06-20). The set is the SAME grok IDs the public
 // /pricing catalog surfaces: grok chat ids whose official xAI price is in
-// tk_pricing_overlay.json and whose native-grok live probe returned 200. The
+// tk_pricing_overlay.json and whose native-grok live probe returned 200. Grok
+// 4.6 was added after the 2026-08-13 direct xAI upstream probe on edge-us4
+// account 6 returned 200; grok-latest stayed mapped to upstream grok-4.3 in the
+// same probe window, and the bare grok / grok-4.6-latest aliases returned
+// model-not-found upstream, so only the official grok-4.6 id is displayed. The
 // grok-imagine paid media ids joined this set after the 2026-07-04 post-#1198
 // paid gate returned direct/universal 200 for image and video. Note that
 // `/v1/videos/generations` is the xAI-native alias and returns request_id
@@ -296,6 +300,7 @@ var supportedGrokCatalogModels = map[string]struct{}{
 	"grok-4.3-latest":              {},
 	"grok-4.5":                     {},
 	"grok-4.5-latest":              {},
+	"grok-4.6":                     {},
 	"grok-build-0.1":               {},
 	"grok-build-latest":            {},
 	"grok-code-fast":               {},

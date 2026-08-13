@@ -88,9 +88,12 @@ timeouts and a row cap, and reports elapsed time, source/candidate rows,
 logical/artifact bytes, compression ratio, and restore verification. It never
 deletes source or target data.
 
-## Production steady state
+## Frozen production evidence
 
-Generic usage/ops data-layer prod is in **release steady state**:
+Generic usage/ops promoted archive is a **frozen historical closeout**, declared by
+`pipeline_status.yaml` → `archive_mode: frozen`. It is not an active tail pipeline:
+new rows belong to PostgreSQL hot retention, while the checked-in final tail remains
+the immutable historical coverage boundary.
 
 | Owner | Responsibility |
 | --- | --- |
@@ -106,10 +109,16 @@ python3 ops/observability/data_layer_archive_health.py
 
 All must hold:
 
+- `archive_mode=frozen`
 - `closeout_complete=true`
-- `tail_export_complete=true`
+- `tail_export_complete=true` and every final tail batch is promoted
 - `cleanup_release_complete=true`
+- both closeout restore proofs remain present and correctly bound
 - `evidence_errors=[]`
+
+Frozen mode deliberately does not compare the final tail cutoff with today's hot-layer
+window and does not require a new restore rehearsal every 30 days. Missing/corrupt
+ledgers, bindings, release evidence, or restore proofs still fail closed.
 
 Do not treat hold **apply** receipts as current prod state. `archive_health` binds the
 **release** receipt to the latest valid hold apply receipt. QA lifecycle is separate:
@@ -118,10 +127,11 @@ Do not treat hold **apply** receipts as current prod state. `archive_health` bin
 Physical DROP semantics: `docs/approved/design-prod-archive-bucket.md` §分区回收门禁.
 Promote ledger `drop_ready` proves export evidence only; it does **not** authorize deletion.
 
-## Exception path: post-legacy cold re-export
+## Break-glass re-export tooling
 
-Run **only** when new cold ops rows appear after a completed tail export
-(`tail_export_complete=true` with a fresh `post_legacy_cold` ledger gap — health will fail).
+The export/promote/closeout/hold CLIs remain available for an explicitly approved
+historical-evidence repair. Frozen mode does not run or request routine post-legacy
+cold re-export, and archive health does not infer a new gap from the passage of time.
 
 1. **Hold** — `data_layer_archive_cleanup_hold.py` plan → apply → verify (new receipt)
 2. **Export** — `data_layer_archive_prod_export.py run-batch` with scope `post_legacy_cold`
