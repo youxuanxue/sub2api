@@ -64,7 +64,11 @@ def is_tool(path: str) -> bool:
 
 
 def list_tools() -> list[str]:
-    return sorted(p for p in _git(["ls-files", *TOOL_GLOBS]) if is_tool(p))
+    return sorted(
+        p
+        for p in _git(["ls-files", *TOOL_GLOBS])
+        if is_tool(p) and (REPO_ROOT / p).is_file()
+    )
 
 
 def collect_corpus() -> dict[str, str]:

@@ -1417,6 +1417,8 @@ export default {
         descriptionPlaceholder: '可选的模板描述',
         enableGrease: '启用 GREASE',
         enableGreaseHint: '在 TLS ClientHello 扩展中插入 GREASE 值',
+        shuffleExtensions: '随机排列扩展',
+        shuffleExtensionsHint: '为每个 ClientHello 随机排列 TLS 扩展顺序',
         cipherSuites: '密码套件',
         cipherSuitesHint: '逗号分隔的十六进制值，例如 0x1301, 0x1302, 0xc02c',
         curves: '椭圆曲线',

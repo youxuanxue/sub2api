@@ -27,8 +27,8 @@ class ProbeKiroTLSProfileParityTest(unittest.TestCase):
                     """\
                     #!/usr/bin/env bash
                     case "$*" in
-                      *"FROM tls_fingerprint_profiles"*"WHERE name = 'tk_canonical_kiro_ide'"*)
-                        echo '{"name":"tk_canonical_kiro_ide","enable_grease":false,"cipher_suites":[1],"curves":[2],"point_formats":[0],"signature_algorithms":[3],"alpn_protocols":[],"supported_versions":[772],"key_share_groups":[29],"psk_modes":[1],"extensions":[0]}'
+                      *"FROM tls_fingerprint_profiles"*"WHERE name = 'tk_canonical_kiro_cli'"*)
+                        echo '{"name":"tk_canonical_kiro_cli","enable_grease":false,"shuffle_extensions":true,"cipher_suites":[1],"curves":[2],"point_formats":[0],"signature_algorithms":[3],"alpn_protocols":[],"supported_versions":[772],"key_share_groups":[29],"psk_modes":[1],"extensions":[0]}'
                         ;;
                       *) exit 9 ;;
                     esac
@@ -46,7 +46,8 @@ class ProbeKiroTLSProfileParityTest(unittest.TestCase):
             )
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         row = json.loads(proc.stdout)
-        self.assertEqual(row["name"], "tk_canonical_kiro_ide")
+        self.assertEqual(row["name"], "tk_canonical_kiro_cli")
+        self.assertTrue(row["shuffle_extensions"])
         self.assertNotIn("description", row)
         self.assertNotIn("credentials", row)
         self.assertNotIn("account_id", row)

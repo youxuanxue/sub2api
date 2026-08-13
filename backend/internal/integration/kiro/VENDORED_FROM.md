@@ -29,7 +29,7 @@ to `go.mod`.
 | --- | --- | --- |
 | `translator.go` | `proxy/translator.go` | Claude ↔ Kiro and OpenAI ↔ Kiro request/response translation, model mapping, prompt filtering |
 | `client.go` | `proxy/kiro.go` | HTTP client, official runtime + transitional q fallback, `CallKiroAPI`, `parseEventStream`, AWS EventStream decode, tool-use handling |
-| `headers.go` | `proxy/kiro_headers.go` | aws-sdk-js style User-Agent / `x-amz-user-agent` builder |
+| `headers.go` | `proxy/kiro_headers.go` | TokenKey Kiro CLI User-Agent / `x-amz-user-agent` adapter |
 | `rest.go` | `proxy/kiro_api.go` | REST calls: usage limits, user info, model list, profile ARN resolution, `RefreshAccountInfo` |
 | `refresh.go` | `auth/oidc.go` | `RefreshToken`: social + OIDC token refresh |
 | `shim.go` | *(new, TK-authored)* | Local replacements for the upstream `config` / `logger` / `auth` packages |
@@ -67,11 +67,10 @@ mechanical, scoped edits below. Translation/transport logic is unchanged.
      client, reuses `buildKiroTransport`).
 
 3. **Canonical fingerprint adapter** (`headers.go`). Instead of copying upstream
-   config defaults and User-Agent formatting, the actual request path calls
-   `internal/pkg/kiro.ResolveClientIdentity`, `BuildUserAgent`, and
-   `BuildAmzUserAgent`. IDE/SDK/OS/Node values, the env override, and rendering
-   therefore have one TokenKey owner. `headers_test.go` locks both streaming and
-   runtime output to that owner.
+   config defaults and User-Agent formatting, every actual request path consumes
+   the one real-CLI HTTP identity in `internal/pkg/kiro`. There is no per-account
+   suffix, environment override, or alternate client mode. `headers_test.go` locks
+   streaming and runtime requests to that owner.
 
 4. **DB side effects removed.** The vendored package never writes a database.
    - `config.UpdateAccountProfileArn(...)` calls in `ResolveProfileArn` deleted —

@@ -1,128 +1,21 @@
-// Package kiro holds TokenKey-side runtime constants and fingerprint helpers for
-// the sixth platform (AWS Kiro / CodeWhisperer).
-//
-// The wire-level protocol (request/response translation, EventStream decoding,
-// REST + token refresh) is vendored from Quorinex/Kiro-Go under
-// internal/integration/kiro. This package owns the *TokenKey-controlled* knobs:
-// the KiroIDE client-identity strings (SDK versions, IDE version, OS/Node tags)
-// and the User-Agent builder used to mimic the real Kiro IDE on the wire. Keeping
-// these here (rather than hard-coded in the vendored layer) lets the canonical
-// fingerprint be bumped via setting/redeploy when Kiro IDE updates — the same
-// posture as the Claude Code canonical UA (see identity_service_tk_canonical_http).
+// Package kiro owns TokenKey-controlled Kiro runtime constants.
 package kiro
-
-import (
-	"fmt"
-	"os"
-	"strings"
-)
-
-// UserAgentVersionEnv overrides the on-wire KiroIDE version at runtime without a
-// code change, so the fingerprint can track upstream Kiro client releases by a
-// deploy-env edit alone. Kept identical to the env key read by the vendored
-// internal/integration/kiro layer so both UA-building paths stay consistent.
-const UserAgentVersionEnv = "KIRO_IDE_USER_AGENT_VERSION"
 
 // DefaultKiroAccountPriority is the creation-time scheduler priority default for
 // native Kiro accounts when the caller omits priority (0). Smaller priority wins
 // in the scheduler; after creation, admin edits own the account priority.
 const DefaultKiroAccountPriority = 10
 
-// SDK version strings carried in the aws-sdk-js style User-Agent. These mirror
-// the last on-wire evidence and must not be inferred from the IDE package version.
+// DefaultKiroCLIVersion is the sole Kiro client release owner. The HTTP identity
+// below is captured from the installed kiro-cli binary; do not infer any segment
+// from release metadata alone.
+const DefaultKiroCLIVersion = "2.18.0"
+
 const (
-	StreamingSDKVersion = "1.0.34"
-	RuntimeSDKVersion   = "1.0.0"
+	kiroCLISDKVersion    = "1.3.10"
+	kiroCLIAPIVersion    = "0.1.10231"
+	kiroCLIRustVersion   = "1.92.0"
+	kiroCLIUserAgentBase = "aws-sdk-rust/" + kiroCLISDKVersion + " ua/2.1 api/codewhispererruntime/" + kiroCLIAPIVersion + " os/macos lang/rust/" + kiroCLIRustVersion
+	KiroCLIUserAgent     = kiroCLIUserAgentBase + " md/appVersion-" + DefaultKiroCLIVersion + " app/AmazonQ-For-CLI"
+	KiroCLIAmzUserAgent  = kiroCLIUserAgentBase + " m/F app/AmazonQ-For-CLI"
 )
-
-// Compile-time defaults for the KiroIDE client identity. These are overridable at
-// runtime (env / setting) in PR6; the constants are the canonical baseline.
-// The IDE/CLI versions track their signed shipping packages. System and Node
-// defaults remain tied to the last on-wire baseline. The vendored integration
-// layer derives its IDE default from this owner so both User-Agent paths stay in sync.
-const (
-	DefaultKiroIDEVersion = "1.0.288"
-	// DefaultKiroCLIVersion tracks Homebrew cask kiro-cli (distinct semver from Kiro IDE).
-	DefaultKiroCLIVersion = "2.16.2"
-	DefaultSystemVersion  = "darwin#24.0.0"
-	DefaultNodeVersion    = "22.22.0"
-)
-
-// Streaming endpoints, in auto-fallback order. The vendored CallKiroAPI uses the
-// same set; these constants are the TokenKey-side source of truth for the hosts
-// the gateway egresses to (used by fingerprint/TLS profile selection in PR6).
-const (
-	EndpointKiroIDE        = "https://q.us-east-1.amazonaws.com/generateAssistantResponse"
-	EndpointCodeWhisperer  = "https://codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse"
-	RESTAPIBase            = "https://codewhisperer.us-east-1.amazonaws.com"
-	DefaultRegion          = "us-east-1"
-	AmzTargetCodeWhisperer = "AmazonCodeWhispererStreamingService.GenerateAssistantResponse"
-)
-
-// ClientIdentity carries the mutable client-fingerprint fields woven into the
-// User-Agent. A zero value falls back to the compile-time defaults.
-type ClientIdentity struct {
-	KiroIDEVersion string
-	SystemVersion  string
-	NodeVersion    string
-}
-
-func (c ClientIdentity) withDefaults() ClientIdentity {
-	if c.KiroIDEVersion == "" {
-		c.KiroIDEVersion = DefaultKiroIDEVersion
-	}
-	if c.SystemVersion == "" {
-		c.SystemVersion = DefaultSystemVersion
-	}
-	if c.NodeVersion == "" {
-		c.NodeVersion = DefaultNodeVersion
-	}
-	return c
-}
-
-// BuildUserAgent renders the aws-sdk-js style User-Agent the Kiro IDE sends, e.g.
-//
-//	aws-sdk-js/1.0.34 ua/2.1 os/darwin#24.0.0 lang/js md/nodejs#20.18.1 api/codewhispererstreaming#1.0.34 m/E KiroIDE-0.7.45[-<machineID>]
-//
-// apiName/sdkVersion/mode select the streaming vs runtime variant. A non-empty
-// machineID is appended to the KiroIDE-<ver> segment as the per-account
-// fingerprint suffix.
-func BuildUserAgent(id ClientIdentity, apiName, sdkVersion, mode, machineID string) string {
-	id = id.withDefaults()
-	ua := fmt.Sprintf(
-		"aws-sdk-js/%s ua/2.1 os/%s lang/js md/nodejs#%s api/%s#%s %s KiroIDE-%s",
-		sdkVersion, id.SystemVersion, id.NodeVersion, apiName, sdkVersion, mode, id.KiroIDEVersion,
-	)
-	if machineID != "" {
-		ua += "-" + machineID
-	}
-	return ua
-}
-
-// BuildAmzUserAgent renders the shorter x-amz-user-agent header value:
-//
-//	aws-sdk-js/<sdkVersion> KiroIDE-<ver>[-<machineID>]
-func BuildAmzUserAgent(id ClientIdentity, sdkVersion, machineID string) string {
-	id = id.withDefaults()
-	ua := fmt.Sprintf("aws-sdk-js/%s KiroIDE-%s", sdkVersion, id.KiroIDEVersion)
-	if machineID != "" {
-		ua += "-" + machineID
-	}
-	return ua
-}
-
-// StreamingUserAgent is the convenience builder for the streaming API surface.
-func StreamingUserAgent(id ClientIdentity, machineID string) string {
-	return BuildUserAgent(id, "codewhispererstreaming", StreamingSDKVersion, "m/E", machineID)
-}
-
-// ResolveClientIdentity returns the active client identity, applying the
-// KIRO_IDE_USER_AGENT_VERSION env override over the compile-time defaults. This
-// is the entry point callers should use so the runtime version knob is honored.
-func ResolveClientIdentity() ClientIdentity {
-	id := ClientIdentity{}
-	if v := strings.TrimSpace(os.Getenv(UserAgentVersionEnv)); v != "" {
-		id.KiroIDEVersion = v
-	}
-	return id.withDefaults()
-}

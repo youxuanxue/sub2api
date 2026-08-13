@@ -34,18 +34,24 @@ class KiroTLSProfileParityTest(unittest.TestCase):
         self.assertEqual(result["evidence_level"], "production_configured")
         self.assertEqual(result["canonical_digest"], result["database_digest"])
 
-    def test_array_order_change_is_drift(self) -> None:
+    def test_shuffled_extension_order_is_semantically_equal(self) -> None:
         row = self.row()
         row["extensions"] = list(reversed(row["extensions"]))
         result = parity.compare_profiles(self.canonical, row)
+        self.assertEqual(result["status"], "healthy")
+
+    def test_non_extension_array_order_change_is_drift(self) -> None:
+        row = self.row()
+        row["cipher_suites"] = list(reversed(row["cipher_suites"]))
+        result = parity.compare_profiles(self.canonical, row)
         self.assertEqual(result["status"], "drift")
-        self.assertIn("extensions", result["field_diffs"])
+        self.assertIn("cipher_suites", result["field_diffs"])
 
     def test_any_field_change_is_drift(self) -> None:
         for field in capture.RUNTIME_PROFILE_FIELDS:
             with self.subTest(field=field):
                 row = copy.deepcopy(self.row())
-                if field == "enable_grease":
+                if field in {"enable_grease", "shuffle_extensions"}:
                     row[field] = not row[field]
                 elif row[field]:
                     row[field][0] = "h2" if field == "alpn_protocols" else int(row[field][0]) + 1

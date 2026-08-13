@@ -180,30 +180,6 @@
       ]
     },
     {
-      "id": "kiro",
-      "name": "Kiro IDE",
-      "skill": "tokenkey-kiro-fingerprint-alignment",
-      "pin_reader": "kiro",
-      "compile_owner": {
-        "path": "backend/internal/pkg/kiro/constants.go",
-        "symbol": "DefaultKiroIDEVersion"
-      },
-      "runtime_identity": {
-        "path": "backend/internal/pkg/kiro/constants.go",
-        "symbol": "ResolveClientIdentity",
-        "override": "KIRO_IDE_VERSION"
-      },
-      "evidence_mode": "wire_tls_http",
-      "capture_tool": "ops/kiro/capture-kiro-fingerprint.sh",
-      "production_observer": "ops/observability/probe-kiro-tls-profile-parity.sh",
-      "companion_identity": null,
-      "actionable": true,
-      "status_note": "Production observer proves configured DB parity only; real ClientHello still requires passive capture.",
-      "release_sources": [
-        {"kind": "brew_cask", "label": "Homebrew cask kiro", "cask": "kiro"}
-      ]
-    },
-    {
       "id": "kiro-cli",
       "name": "Kiro CLI",
       "skill": "tokenkey-kiro-fingerprint-alignment",
@@ -213,16 +189,16 @@
         "symbol": "DefaultKiroCLIVersion"
       },
       "runtime_identity": {
-        "path": "backend/internal/pkg/kiro/constants.go",
-        "symbol": "DefaultKiroCLIVersion",
+        "path": "backend/internal/integration/kiro/headers.go",
+        "symbol": "buildKiroHeaderValues",
         "override": null
       },
-      "evidence_mode": "version_only",
-      "capture_tool": null,
-      "production_observer": null,
+      "evidence_mode": "wire_tls_http",
+      "capture_tool": "ops/kiro/capture-kiro-fingerprint.sh",
+      "production_observer": "ops/observability/probe-kiro-tls-profile-parity.sh",
       "companion_identity": null,
       "actionable": true,
-      "status_note": "Homebrew kiro-cli semver is distinct from Kiro IDE; verify the local CLI binary before bumping DefaultKiroCLIVersion.",
+      "status_note": "Real kiro-cli capture is wire ground truth; production observer proves configured DB parity only.",
       "release_sources": [
         {"kind": "brew_cask", "label": "Homebrew cask kiro-cli", "cask": "kiro-cli"}
       ]

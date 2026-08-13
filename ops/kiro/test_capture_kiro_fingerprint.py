@@ -1,229 +1,221 @@
 #!/usr/bin/env python3
-"""Unit tests for capture_kiro_fingerprint.py (the deterministic kiro fingerprint
-diff engine). stdlib unittest only — run with:
-
-  python3 ops/kiro/test_capture_kiro_fingerprint.py
-  # or: python3 -m pytest ops/kiro/test_capture_kiro_fingerprint.py
-"""
+"""Tests for the real Kiro CLI evidence engine."""
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 import capture_kiro_fingerprint as eng  # noqa: E402
 
-GREASE_CIPHER = 0x1A1A
-GREASE_EXT = 0x0A0A
-GREASE_CURVE = 0x2A2A
+
+BASE_TLS = {
+    "server_name": "codewhisperer.us-east-1.amazonaws.com",
+    "version": 771,
+    "cipher_suites": [4866, 4865, 4867, 49196, 49195, 52393, 49200, 49199, 52392, 255],
+    "extensions": [45, 13, 10, 43, 11, 51, 5, 35, 0, 23],
+    "curves": [29, 23, 24],
+    "point_formats": [0],
+    "signature_algorithms": [1283, 1027, 2055, 2054, 2053, 2052, 1537, 1281, 1025],
+    "alpn_protocols": [],
+    "supported_versions": [772, 771],
+    "key_share_groups": [29],
+    "psk_modes": [1],
+}
+HTTP = {
+    "host": "codewhisperer.us-east-1.amazonaws.com",
+    "path": "/",
+    "method": "POST",
+    "headers": {
+        "user-agent": "aws-sdk-rust/1.3.10 ua/2.1 api/codewhispererruntime/0.1.10231 os/macos lang/rust/1.92.0 md/appVersion-2.18.0 app/AmazonQ-For-CLI",
+        "x-amz-user-agent": "aws-sdk-rust/1.3.10 ua/2.1 api/codewhispererruntime/0.1.10231 os/macos lang/rust/1.92.0 m/F app/AmazonQ-For-CLI",
+        "x-amz-target": "AmazonCodeWhispererService.GenerateCompletions",
+        "content-type": "application/x-amz-json-1.0",
+    },
+    "body_keys": ["fileContext", "maxResults"],
+    "origin": "",
+    "model_id": "",
+    "chat_trigger_type": "",
+    "status_code": 200,
+    "success": True,
+}
+
+
+def write_jsonl(path: Path, records: list[dict]) -> None:
+    path.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+
+
+def tls_samples() -> list[dict]:
+    orders = [
+        [45, 13, 10, 43, 11, 51, 5, 35, 0, 23],
+        [51, 35, 5, 23, 0, 10, 43, 45, 13, 11],
+        [13, 45, 35, 10, 0, 11, 43, 23, 51, 5],
+    ]
+    return [{**BASE_TLS, "extensions": order} for order in orders]
+
+
+def auth_files(root: Path, *, method: str = "IdC", provider: str = "Enterprise", account_type: str = "BuilderId") -> tuple[Path, Path]:
+    cache = root / "auth.json"
+    cache.write_text(json.dumps({"authMethod": method, "provider": provider, "region": "us-east-1", "accessToken": "must-not-be-read"}), encoding="utf-8")
+    whoami_file = root / "whoami.txt"
+    whoami_file.write_text(json.dumps({"account_type": account_type, "region": "us-east-1"}) + "\n", encoding="utf-8")
+    return cache, whoami_file
+
+
+def complete_bundle(root: Path) -> dict:
+    tls_path, http_path = root / "tls.jsonl", root / "http.jsonl"
+    write_jsonl(tls_path, tls_samples())
+    write_jsonl(http_path, [HTTP])
+    cache, whoami = auth_files(root)
+    http = eng.build_http_lane(http_path)
+    return eng.assemble_evidence_bundle(
+        [eng.build_tls_lane(tls_path), http, eng.build_protocol_lane(http), eng.build_auth_lane(cache, whoami)],
+        kiro_cli_version="2.18.0",
+    )
 
 
 class JA3Tests(unittest.TestCase):
-    def test_strips_grease_and_formats(self):
-        ja3_raw, ja3_md5 = eng.compute_ja3(
-            version=771,
-            ciphers=[GREASE_CIPHER, 4865, 4866],
-            extensions=[GREASE_EXT, 0, 23],
-            curves=[GREASE_CURVE, 29, 23],
-            point_formats=[0],
-        )
-        self.assertEqual(ja3_raw, "771,4865-4866,0-23,29-23,0")
-        # GREASE decimal values must not survive.
-        self.assertNotIn(str(GREASE_CIPHER), ja3_raw)
-        self.assertNotIn(str(GREASE_EXT), ja3_raw)
-        self.assertEqual(ja3_md5, hashlib.md5(ja3_raw.encode("ascii")).hexdigest())
-
-    def test_empty_lists_render_empty_fields(self):
-        ja3_raw, _ = eng.compute_ja3(771, [], [], [], [])
-        self.assertEqual(ja3_raw, "771,,,,")
+    def test_strips_grease_but_preserves_observed_order(self):
+        raw, digest = eng.compute_ja3(771, [0x1A1A, 4865], [0x0A0A, 23, 0], [0x2A2A, 29], [0])
+        self.assertEqual(raw, "771,4865,23-0,29,0")
+        self.assertEqual(digest, hashlib.md5(raw.encode("ascii")).hexdigest())
 
 
-class UserAgentTests(unittest.TestCase):
-    SYNTH = {
-        "streaming_sdk_version": "1.0.34",
-        "runtime_sdk_version": "1.0.0",
-        "kiro_ide_version": "0.11.107",
-        "system_version": "darwin#24.0.0",
-        "node_version": "22.22.0",
-    }
+class TLSLaneTests(unittest.TestCase):
+    def test_requires_three_semantically_stable_permuted_samples(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tls.jsonl"
+            write_jsonl(path, tls_samples())
+            lane = eng.build_tls_lane(path)
+        self.assertTrue(lane.valid)
+        self.assertEqual(lane.source, "real-cli-mitm-clienthello")
+        self.assertTrue(lane.observed["shuffle_extensions"])
+        self.assertEqual(lane.observed["extensions"], sorted(BASE_TLS["extensions"]))
+        self.assertEqual(len({sample["ja3_hash"] for sample in lane.observed["samples"]}), 3)
 
-    def test_expected_user_agent_matches_go_builder_shape(self):
-        # Mirrors kiro.BuildUserAgent(apiName=codewhispererstreaming, mode=m/E).
-        self.assertEqual(
-            eng.expected_user_agent(self.SYNTH),
-            "aws-sdk-js/1.0.34 ua/2.1 os/darwin#24.0.0 lang/js md/nodejs#22.22.0 "
-            "api/codewhispererstreaming#1.0.34 m/E KiroIDE-0.11.107",
-        )
+    def test_fixed_order_is_incomplete_not_false_cli_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tls.jsonl"
+            write_jsonl(path, [BASE_TLS, BASE_TLS, BASE_TLS])
+            lane = eng.build_tls_lane(path)
+        self.assertTrue(lane.valid)
+        self.assertIn("permutation", lane.error)
 
-    def test_expected_amz_user_agent_matches_go_builder_shape(self):
-        self.assertEqual(
-            eng.expected_amz_user_agent(self.SYNTH),
-            "aws-sdk-js/1.0.34 KiroIDE-0.11.107",
-        )
+    def test_semantic_variance_is_invalid(self):
+        records = tls_samples()
+        records[2] = {**records[2], "cipher_suites": [4865]}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tls.jsonl"
+            write_jsonl(path, records)
+            lane = eng.build_tls_lane(path)
+        self.assertFalse(lane.valid)
+        self.assertIn("vary", lane.error)
 
-    def test_live_constants_load_and_render(self):
-        # Locks the engine against the real repo constants file (drift gate): the
-        # rebuilt UA must contain each constant the Go builder weaves in.
-        consts = eng.load_kiro_constants()
-        ua = eng.expected_user_agent(consts)
-        for key in ("streaming_sdk_version", "system_version", "node_version", "kiro_ide_version"):
-            self.assertIn(consts[key], ua, f"{key} missing from rebuilt UA")
-        self.assertTrue(ua.startswith("aws-sdk-js/"))
-        self.assertIn("api/codewhispererstreaming#", ua)
-
-    def test_committed_expected_http_matches_live_constants(self):
-        profile = eng.load_committed_profile()
-        self.assertIsNotNone(profile)
-        self.assertIsNone(eng.validate_profile_provenance(profile))
-
-        consts = eng.load_kiro_constants()
-        expected_http = profile["expected_http"]
-        expected = {
-            "kiro_ide_version": consts["kiro_ide_version"],
-            "streaming_sdk_version": consts["streaming_sdk_version"],
-            "node_version": consts["node_version"],
-            "system_version": consts["system_version"],
-            "user_agent": eng.expected_user_agent(consts),
-            "x_amz_user_agent": eng.expected_amz_user_agent(consts),
-            "source": "repo-constants",
-        }
-        self.assertEqual(expected_http, expected)
+    def test_missing_is_not_observed(self):
+        self.assertEqual(eng.build_tls_lane(None).source, eng.NOT_OBSERVED)
 
 
-class TsharkParseTests(unittest.TestCase):
-    def test_parses_hex_and_decimal_aggregated_cells(self):
-        header = "\t".join(eng.TSHARK_FIELDS)
-        row = "\t".join(
-            [
-                "0x0303",            # version
-                "0x1301,0x1302",     # ciphers
-                "0,23,65281",        # extensions
-                "0x001d,0x0017",     # supported_group
-                "0",                 # ec_point_format
-                "0x0403,0x0804",     # sig_hash_alg
-                "h2,http/1.1",       # alpn_str
-                "0x0304,0x0303",     # supported_version
-                "0x001d",            # key_share_group
-                "1",                 # psk_ke_modes
-                "runtime.us-east-1.kiro.dev",
-            ]
-        )
-        fields = eng.parse_tshark_tsv(header + "\n" + row + "\n")
-        self.assertEqual(fields["version"], 771)
-        self.assertEqual(fields["ciphers"], [0x1301, 0x1302])
-        self.assertEqual(fields["extensions"], [0, 23, 65281])
-        self.assertEqual(fields["curves"], [0x1D, 0x17])
-        self.assertEqual(fields["alpn_protocols"], ["h2", "http/1.1"])
-        self.assertEqual(fields["supported_versions"], [0x0304, 0x0303])
-        self.assertEqual(fields["server_name"], "runtime.us-east-1.kiro.dev")
+class HTTPLaneTests(unittest.TestCase):
+    def test_requires_a_successful_real_response(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "http.jsonl"
+            write_jsonl(path, [{**HTTP, "status_code": 403, "success": False}])
+            lane = eng.build_http_lane(path)
+        self.assertTrue(lane.valid)
+        self.assertIn("no successful response", lane.error)
 
-    def test_raises_without_data_row(self):
-        with self.assertRaises(ValueError):
-            eng.parse_tshark_tsv("\t".join(eng.TSHARK_FIELDS) + "\n")
+    def test_rejects_secret_fields_or_values(self):
+        for record in ({**HTTP, "authorization": "Bearer secret"}, {**HTTP, "path": "arn:aws:secret"}):
+            with self.subTest(record=record):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = Path(tmp) / "http.jsonl"
+                    write_jsonl(path, [record])
+                    lane = eng.build_http_lane(path)
+                self.assertFalse(lane.valid)
+
+    def test_protocol_is_derived_only_from_http_success(self):
+        lane = eng.EvidenceLane("http", {"successful_count": 1, "records": [HTTP]}, "real-cli-mitm-http", True)
+        protocol = eng.build_protocol_lane(lane)
+        self.assertEqual(protocol.source, "real-cli-mitm-http")
+        self.assertEqual(protocol.observed["targets"], ["AmazonCodeWhispererService.GenerateCompletions"])
+        self.assertEqual(protocol.observed["body_keys"], ["fileContext", "maxResults"])
 
 
-class ProfileAndDiffTests(unittest.TestCase):
-    def _fields(self):
-        return {
-            "version": 771,
-            "ciphers": [GREASE_CIPHER, 4865, 4866, 4867],
-            "extensions": [GREASE_EXT, 0, 23, 10],
-            "curves": [GREASE_CURVE, 29, 23],
-            "point_formats": [0],
-            "signature_algorithms": [0x0403, 0x0804],
-            "alpn_protocols": ["http/1.1"],
-            "supported_versions": [0x0304, 0x0303],
-            "key_share_groups": [29],
-            "psk_modes": [1],
-        }
+class AuthLaneTests(unittest.TestCase):
+    def test_combines_matching_whoami_and_cache_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache, whoami = auth_files(Path(tmp))
+            lane = eng.build_auth_lane(cache, whoami)
+        self.assertTrue(lane.valid)
+        self.assertEqual(lane.observed, {"cohort": "builder_id", "region": "us-east-1"})
+        self.assertNotIn("token", json.dumps(lane.observed).lower())
 
-    def test_build_profile_strips_grease_and_records_flag(self):
-        expected_http = {
-            "kiro_ide_version": "0.11.107",
-            "streaming_sdk_version": "1.0.34",
-            "node_version": "22.22.0",
-            "system_version": "darwin#24.0.0",
-            "user_agent": "synthetic-ua",
-            "x_amz_user_agent": "synthetic-amz-ua",
-        }
-        prof = eng.build_canonical_profile(self._fields(), expected_http, "passive-pcap:test")
-        self.assertEqual(prof["name"], eng.KIRO_PROFILE_NAME)
-        self.assertTrue(prof["enable_grease"])  # GREASE was present in capture
-        self.assertNotIn(GREASE_CIPHER, prof["cipher_suites"])
-        self.assertNotIn(GREASE_EXT, prof["extensions"])
-        self.assertEqual(prof["cipher_suites"], [4865, 4866, 4867])
-        self.assertIn("ja3_hash", prof["observed"])
-        self.assertEqual(prof["observed"]["source"], "passive-pcap:test")
-        self.assertNotIn("user_agent", prof["observed"])
-        self.assertEqual(prof["expected_http"]["user_agent"], "synthetic-ua")
-        self.assertEqual(prof["expected_http"]["source"], "repo-constants")
-        self.assertIsNone(eng.validate_profile_provenance(prof))
+    def test_unknown_source_combination_is_invalid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache, whoami = auth_files(Path(tmp), method="Social", provider="BuilderID")
+            lane = eng.build_auth_lane(cache, whoami)
+        self.assertFalse(lane.valid)
+        self.assertIn("unknown", lane.error)
 
-    def test_runtime_projection_digest_is_stable_and_order_sensitive(self):
-        profile = eng.build_canonical_profile(self._fields(), {}, "passive-pcap:test")
-        projection = eng.runtime_profile_projection(profile)
-        self.assertEqual(list(projection), list(eng.RUNTIME_PROFILE_FIELDS))
-        digest = eng.runtime_profile_digest(profile)
-        self.assertEqual(len(digest), 64)
-        self.assertEqual(digest, eng.runtime_profile_digest(dict(profile)))
+    def test_caller_cannot_supply_a_cohort_label(self):
+        parser = eng.build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["bundle", "--auth-cohort", "builder_id", "--kiro-cli-version", "2.18.0", "--out", "/tmp/x"])
 
+
+class BundleAndProfileTests(unittest.TestCase):
+    def test_all_four_real_lanes_and_version_are_required(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = complete_bundle(Path(tmp))
+        self.assertTrue(eng.evidence_complete(bundle))
+        self.assertEqual(eng.compute_bundle_exit_code(bundle, None), eng.EXIT_COMPLETE)
+        bundle["evidence_lanes"]["auth"]["source"] = eng.NOT_OBSERVED
+        self.assertEqual(eng.compute_bundle_exit_code(bundle, None), eng.EXIT_INCOMPLETE)
+
+    def test_candidate_is_cli_only_and_semantic_projection_ignores_permutation_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = eng.build_canonical_profile(complete_bundle(Path(tmp)))
+        encoded = json.dumps(profile)
+        self.assertEqual(profile["name"], "tk_canonical_kiro_cli")
+        self.assertTrue(profile["shuffle_extensions"])
+        self.assertIn("aws-sdk-rust", profile["observed"]["user_agent"])
+        for retired in ("KiroIDE", "aws-sdk-js", "kiro_ide", "expected_http"):
+            self.assertNotIn(retired, encoded)
         reordered = dict(profile)
-        reordered["cipher_suites"] = list(reversed(profile["cipher_suites"]))
-        self.assertNotEqual(digest, eng.runtime_profile_digest(reordered))
+        reordered["extensions"] = list(reversed(profile["extensions"]))
+        self.assertEqual(eng.runtime_profile_digest(profile), eng.runtime_profile_digest(reordered))
+        changed = dict(profile)
+        changed["cipher_suites"] = list(reversed(profile["cipher_suites"]))
+        self.assertNotEqual(eng.runtime_profile_digest(profile), eng.runtime_profile_digest(changed))
 
-    def test_runtime_projection_rejects_missing_field(self):
-        profile = eng.build_canonical_profile(self._fields(), {}, "passive-pcap:test")
-        del profile["extensions"]
-        with self.assertRaisesRegex(ValueError, "missing runtime field: extensions"):
-            eng.runtime_profile_projection(profile)
+    def test_semantic_drift_not_sample_ja3_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = complete_bundle(Path(tmp))
+            committed = eng.build_canonical_profile(bundle)
+        committed["observed"]["samples"] = [{"ja3_hash": "different-observation"}]
+        self.assertEqual(eng.compute_bundle_exit_code(bundle, committed), eng.EXIT_COMPLETE)
+        committed["curves"] = [29]
+        self.assertEqual(eng.compute_bundle_exit_code(bundle, committed), eng.EXIT_DRIFT)
 
-    def test_rejects_legacy_mixed_profile_provenance(self):
-        legacy = {
-            "observed": {
-                "ja3_raw": "771,,,,",
-                "ja3_hash": "a" * 32,
-                "server_name": "runtime.us-east-1.kiro.dev",
-                "user_agent": "constant-derived-but-mislabeled",
-                "source": "passive-pcap",
-            },
-            "expected_http": {
-                "kiro_ide_version": "1.0.165",
-                "streaming_sdk_version": "1.0.34",
-                "node_version": "22.22.0",
-                "system_version": "darwin#24.0.0",
-                "user_agent": "expected-ua",
-                "x_amz_user_agent": "expected-amz-ua",
-                "source": "repo-constants",
-            },
-        }
-        error = eng.validate_profile_provenance(legacy)
-        self.assertIsNotNone(error)
-        self.assertIn("non-pcap HTTP fields", error)
+    def test_emit_profile_rejects_incomplete_bundle(self):
+        bundle = eng.assemble_evidence_bundle([], kiro_cli_version="2.18.0")
+        with self.assertRaisesRegex(ValueError, "complete real CLI evidence"):
+            eng.build_canonical_profile(bundle)
 
-    def test_diff_first_capture_is_non_actionable(self):
-        prof = eng.build_canonical_profile(self._fields(), {}, "passive-pcap:test")
-        bundle = {"tls": {"ja3_hash": prof["observed"]["ja3_hash"]}}
-        rows = eng.diff_bundle(bundle, committed=None)
-        ja3_row = next(r for r in rows if r.field == "tls.ja3_hash")
-        self.assertEqual(ja3_row.status, "missing_tokenkey")
-        self.assertFalse(eng.has_actionable_mismatch(rows))
-
-    def test_diff_detects_ja3_drift_against_committed(self):
-        committed = {"observed": {"ja3_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
-        bundle = {"tls": {"ja3_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
-        rows = eng.diff_bundle(bundle, committed)
-        self.assertTrue(eng.has_actionable_mismatch(rows))
-
-    def test_diff_matches_ja3(self):
-        committed = {"observed": {"ja3_hash": "cccccccccccccccccccccccccccccccc"}}
-        bundle = {"tls": {"ja3_hash": "cccccccccccccccccccccccccccccccc"}}
-        rows = eng.diff_bundle(bundle, committed)
-        self.assertFalse(eng.has_actionable_mismatch(rows))
-        statuses = {r.field: r.status for r in rows}
-        self.assertEqual(statuses["tls.ja3_hash"], "match")
+    def test_replay_lane_has_distinct_runtime_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tls.jsonl"
+            write_jsonl(path, tls_samples())
+            lane = eng.build_tls_lane(
+                path,
+                observed_source="tokenkey-utls-mitm-clienthello",
+            )
+        self.assertTrue(lane.valid)
+        self.assertEqual(lane.source, "tokenkey-utls-mitm-clienthello")
 
 
 if __name__ == "__main__":

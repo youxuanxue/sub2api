@@ -162,43 +162,34 @@ Use the normal Kiro windows:
 Always distinguish exact Kiro rows from unrelated Anthropic `claude-*` rows on
 the same edge.
 
-### 3. Local Credential Extraction
+### 3. Local Credential Handling
 
-Use this only after the user confirms Kiro was opened and re-authorized locally.
-Run locally on the operator machine. Do not save the emitted JSON under a repo
-path.
+Use this only after the user confirms Kiro CLI was re-authorized locally. Raw
+credentials must never be printed or written to a temporary payload file.
 
-For the operator onboarding doc handoff, prefer the repo-level field exporter.
-It writes a human-readable admin-form field file with mode `0600`; the operator
-doc intentionally tells operators to receive fields from a technical owner
-instead of running skill scripts themselves:
+The standalone helper emits only a hash-based metadata summary:
 
 ```bash
-bash ops/kiro/export-tokenkey-fields.sh /tmp/kiro-tokenkey-fields.txt
+python3 .cursor/skills/tokenkey-kiro-reauth/scripts/local_kiro_credentials.py
+python3 .cursor/skills/tokenkey-kiro-reauth/scripts/local_kiro_credentials.py --refresh
 ```
 
-Commands:
+For live repair, use the orchestrator. It imports the local helper and passes the
+admin payload directly in memory to the apply helper's stdin; only safe summaries
+reach stdout:
 
 ```bash
-python3 .cursor/skills/tokenkey-kiro-reauth/scripts/local_kiro_credentials.py --mode full
-python3 .cursor/skills/tokenkey-kiro-reauth/scripts/local_kiro_credentials.py --mode admin-payload
-python3 .cursor/skills/tokenkey-kiro-reauth/scripts/local_kiro_credentials.py --mode summary
-```
-
-If local cache lacks a parseable `expires_at`, or you intentionally want a newly
-minted token without reopening Kiro:
-
-```bash
-python3 .cursor/skills/tokenkey-kiro-reauth/scripts/local_kiro_credentials.py --refresh --mode admin-payload
-python3 .cursor/skills/tokenkey-kiro-reauth/scripts/local_kiro_credentials.py --refresh --mode summary
+python3 .cursor/skills/tokenkey-kiro-reauth/scripts/run_kiro_reauth_flow.py \
+  <account-name> <edge-id> \
+  --apply --ensure-schedulable --verify-real-request
 ```
 
 Rules:
 
 - Prefer applying the **exact local current cache** when the user says local
   Kiro works right now.
-- Use `--refresh` only when you intentionally want fresh token material or need
-  a derived `expires_at`.
+- Use `--local-refresh` only when intentionally minting fresh token material.
+- Never add output modes that serialize full credentials or admin payloads.
 - `auth_method=idc` requires `client_id` and `client_secret`.
 - `auth_method=social` uses only `refresh_token` for refresh.
 
@@ -229,25 +220,16 @@ Only proceed after explicit user approval.
 
 Preferred path:
 
-1. Generate the request body locally with
-   `local_kiro_credentials.py --mode admin-payload`.
-2. Apply it with the bundled helper:
+1. Run the orchestrator with `--apply`; it reads the local cache, constructs the
+   request in memory, and pipes it directly to the apply helper without emitting
+   or materializing secrets.
+2. The orchestrator performs the read-before-write account identity check.
+3. It re-reads the edge auth summary immediately afterward and compares safe
+   fingerprints before running the optional real request.
 
-```bash
-python3 .cursor/skills/tokenkey-kiro-reauth/scripts/apply_edge_kiro_oauth.py \
-  --base-url https://api-<edge>.tokenkey.dev \
-  --account-id <id> \
-  --expected-account-name <name> \
-  --payload-file /tmp/kiro-admin-payload.json \
-  --admin-password-file ~/Codes/keys/tokenkey-<edge>-admin-password.txt \
-  --ensure-schedulable
-```
-
-3. Re-read the edge auth summary immediately afterward.
-
-Do not use the helper directly for normal runs; the orchestrator already wraps
-payload generation, identity check, apply, post-summary, compare, and real
-request verification.
+Do not use the apply helper directly for normal runs. The orchestrator already
+wraps payload construction, identity check, apply, post-summary, compare, and
+real request verification.
 
 Important:
 
@@ -273,14 +255,12 @@ summary:
 
 Mechanical compare:
 
-```bash
-python3 .cursor/skills/tokenkey-kiro-reauth/scripts/compare_auth_summaries.py \
-  --local /tmp/kiro-local-summary.json \
-  --edge /tmp/kiro-edge-summary.json
-```
+The orchestrator performs this comparison in memory. For offline debugging, the
+compare helper accepts files containing **safe summaries only**; never write raw
+credentials or an admin payload to those files.
 
-If you used `--refresh`, compare against the **refreshed** local summary, not
-against an older cached access token.
+If you used `--local-refresh`, compare against the **refreshed** local summary,
+not against an older cached access token.
 
 ### 7. Real Kiro Request Verification
 

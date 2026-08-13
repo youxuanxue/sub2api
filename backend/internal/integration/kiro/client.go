@@ -418,7 +418,7 @@ func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, paylo
 		if parsedURL, parseErr := url.Parse(ep.URL); parseErr == nil {
 			host = parsedURL.Host
 		}
-		headerValues := buildStreamingHeaderValues(account, host)
+		headerValues := buildKiroHeaderValues(host)
 
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "*/*")
@@ -427,7 +427,6 @@ func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, paylo
 		}
 		applyKiroBaseHeaders(req, account, headerValues)
 		req.Header.Set("x-amzn-kiro-agent-mode", "vibe")
-		req.Header.Set("x-amzn-codewhisperer-optout", "true")
 		req.Header.Set("Amz-Sdk-Request", "attempt=1; max=3")
 		req.Header.Set("Amz-Sdk-Invocation-Id", uuid.New().String())
 

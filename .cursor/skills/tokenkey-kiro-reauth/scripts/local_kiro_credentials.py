@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Extract or locally refresh Kiro OAuth credentials from ~/.aws/sso/cache.
+"""Inspect or locally refresh Kiro OAuth credentials without emitting secrets.
 
-This script never writes back to the local cache. It only emits one of:
-  - full credentials JSON
-  - admin apply payload JSON
-  - hash-only summary JSON
+The CLI only prints a hash-only metadata summary. The reauthorization orchestrator
+imports this module in-process when it must apply credentials, so raw credential
+material never appears on stdout or in a temporary payload file.
 """
 
 from __future__ import annotations
@@ -196,6 +195,7 @@ def render_summary(credentials: dict[str, Any], meta: dict[str, Any]) -> dict[st
 
 
 def render_admin_payload(credentials: dict[str, Any], token_version_ms: int | None) -> dict[str, Any]:
+    """Build an in-memory admin payload for the authorized orchestrator only."""
     payload_credentials = dict(credentials)
     payload_credentials["_token_version"] = str(token_version_ms or int(time.time() * 1000))
     payload_credentials["tos_acknowledged"] = True
@@ -208,21 +208,9 @@ def render_admin_payload(credentials: dict[str, Any], token_version_ms: int | No
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--mode",
-        choices=("full", "summary", "admin-payload"),
-        default="full",
-        help="output format",
-    )
-    parser.add_argument(
         "--refresh",
         action="store_true",
-        help="mint a fresh access token locally using the current refresh token",
-    )
-    parser.add_argument(
-        "--token-version-ms",
-        type=int,
-        default=None,
-        help="override _token_version when --mode admin-payload",
+        help="mint a fresh access token locally before printing the safe summary",
     )
     parser.add_argument(
         "--timeout",
@@ -237,13 +225,7 @@ def main() -> int:
         credentials, refresh_meta = refresh_locally(credentials, timeout=args.timeout)
         meta.update(refresh_meta)
 
-    if args.mode == "full":
-        output: dict[str, Any] = dict(credentials)
-    elif args.mode == "summary":
-        output = render_summary(credentials, meta)
-    else:
-        output = render_admin_payload(credentials, token_version_ms=args.token_version_ms)
-
+    output = render_summary(credentials, meta)
     json.dump(output, sys.stdout, ensure_ascii=False, indent=2)
     sys.stdout.write("\n")
     return 0

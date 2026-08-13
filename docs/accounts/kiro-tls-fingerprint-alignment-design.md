@@ -1,159 +1,116 @@
-# Kiro (sixth platform) TLS fingerprint alignment — design
+# Kiro CLI fingerprint alignment
 
-Status: **Phase 1 shipped (capture toolchain). Phase 2 (open the gate) is the
-follow-up PR — not in this one.**
+## Decision
 
-## Problem
+TokenKey has one Kiro client identity: the real Kiro CLI. Kiro platform behavior—OAuth
+refresh, translation, EventStream decoding, models, scheduling, billing, admin UI, and
+protocol fallbacks—remains unchanged. Only the retired alternate client identity and its
+duplicate operational surfaces are removed.
 
-Kiro accounts egress to AWS CodeWhisperer/AmazonQ
-(`codewhisperer.us-east-1.amazonaws.com`, `q.us-east-1.amazonaws.com`). TokenKey
-already mimics the Kiro IDE at the **HTTP layer**: the `aws-sdk-js` style
-`User-Agent` / `x-amz-user-agent` are built in `backend/internal/pkg/kiro/
-constants.go` + `backend/internal/integration/kiro/headers.go`, with a per-account
-`machine_id` suffix and a `KIRO_IDE_USER_AGENT_VERSION` runtime knob.
-
-But the **TLS layer has no fingerprint masking** for Kiro. Requests go out over the
-standard Go `http.Client`, so the JA3 is Go's — not a real Kiro IDE
-(Electron / Node 22). Community reports (linux.do) consistently tie account bans to
-client/protocol fingerprint mismatch and unstable egress IPs.
-
-The plumbing to fix this is **already wired**: `kiroDoer` (in
-`kiro_gateway_service.go`) carries a `tlsProfile` and calls
-`httpUpstream.DoWithTLS(...)`, and the gateway already calls
-`tlsFPProfileService.ResolveTLSProfile(account)`. The only blocker is the platform
-gate in `account.go`:
-
-```go
-func (a *Account) IsTLSFingerprintEnabled() bool {
-    if !a.IsAnthropicOAuthOrSetupToken() { // ← Kiro is always rejected
-        return false
-    }
-    ...
-}
+```text
+real kiro-cli
+  → sanitized TLS + HTTP + protocol + auth evidence
+  → one HTTP owner
+  → tk_canonical_kiro_cli
+  → one runtime DB row
+  → one release watcher / observer / remediation path
 ```
 
-So `ResolveTLSProfile` returns `nil` for Kiro and `DoWithTLS` falls back to plain
-Go TLS. Opening this gate is clean: the canonical-HTTP pinning (cc User-Agent /
-Stainless) is keyed off the **anthropic gateway path** in `gateway_service.go`
-(`tlsFingerprintProfileNameForAccount` → `IsCanonicalTLSProfileName` →
-`applyCanonicalHTTPObserved`); the Kiro forward path does **not** call
-`GetOrCreateFingerprint`, so enabling Kiro TLS will not drag in anthropic-only HTTP
-canonicalization.
+Release metadata and binary strings are discovery evidence only. They cannot prove HTTP
+identity or ClientHello semantics. Missing evidence stays `NOT_OBSERVED`.
 
-## Why we cannot just reuse the cc profile
+## Evidence contract
 
-The only committed canonical TLS profile, `deploy/aws/stage0/
-tk_canonical_cc_oauth.json`, was captured from a real Claude Code client
-(`ja3_hash=d871...`, Node **24.3**). Kiro IDE bundles Node **22.22.0** (per its UA),
-a different OpenSSL build, so its ClientHello — and therefore its JA3 — is very
-likely different. Reusing cc's profile, or hand-crafting a JA3 from the known UA,
-would be a **confident-but-wrong fingerprint**: potentially *easier* to flag than
-Go's default. So the canonical Kiro profile must come from a **real capture with
-provenance**, exactly like the cc one.
+The capture engine runs the installed, logged-in `kiro-cli` through a local MITM collector
+for a deterministic minimal operation. A valid bundle contains four independent lanes:
 
-## Why the capture method differs from cc
+| Lane | Required observation |
+| --- | --- |
+| TLS | At least three real ClientHellos with stable semantic fields |
+| HTTP | Request method/host/path plus allowed identity headers |
+| Protocol | Target, content type, opt-out value, and request-body key projection |
+| Auth | Mechanically classified cohort from sanitized `whoami` + cache metadata |
 
-cc capture works by redirecting Claude Code to a self-hosted TLS collector via
-`ANTHROPIC_BASE_URL` + a cc0 proxy MITM (`ops/anthropic/capture-cc-fingerprint.sh`).
-The **real Kiro IDE hard-codes the CodeWhisperer endpoint and cannot be
-redirected.** Therefore:
+The collector discards authorization, tokens, client secrets, profile ARNs, user content,
+complete bodies, response bodies, and key-share bytes before writing evidence. The unified
+exit contract is `0=complete/aligned`, `1=drift`, `2=invalid/error`, and
+`3=incomplete/NOT_OBSERVED`.
 
-- **TLS (primary, deterministic):** passive `tcpdump` of the real Kiro IDE
-  handshake to the CodeWhisperer IPs → `tshark` extracts the ClientHello (sent in
-  the clear, no MITM) → JA3 computed with GREASE stripped.
-- **HTTP protocol (secondary):** `probe_runtime_gateway.py` reads the local IDE
-  token and hits the gateway directly to verify the on-wire protocol. The original
-  mitm UA-confirmation path was **empirically non-viable** — the Kiro IDE
-  direct-dials its gateway and ignores `HTTP_PROXY`, so no proxy can intercept it;
-  it was removed. JA3 from pcap is the load-bearing signal; the UA is constant-derived.
+The captured CLI 2.18.0 identity is owned by:
 
-## Phase 1 deliverables (this PR)
+- `backend/internal/pkg/kiro/constants.go`: exact HTTP identity constants.
+- `backend/internal/integration/kiro/headers.go`: single consumer used by streaming and
+  management/runtime requests.
+- `deploy/aws/stage0/tk_canonical_kiro_cli.json`: TLS capture provenance and runtime
+  projection.
 
-Under `ops/kiro/` (parallel to cc's `ops/anthropic/`):
+## TLS semantics
 
-| File | Role |
-|---|---|
-| `capture-kiro-fingerprint.sh` | Passive pcap orchestrator: resolve CodeWhisperer IPs → `tcpdump` handshake → `tshark` ClientHello (SNI-filtered to `amazonaws`) → call the engine → diff. Also `diff` / `check` / `check-tls` / `show-baseline` / `emit-profile` pass-throughs. |
-| `capture_kiro_fingerprint.py` | Deterministic engine (stdlib): rebuild expected UA from `kiro/constants.go`, parse the tshark TSV, compute `ja3_raw`/`ja3_hash` (GREASE-stripped, md5), assemble an upstream-shaped TLS profile, diff vs the committed profile, exit-code gating. Pure functions unit-tested. |
-| `test_capture_kiro_fingerprint.py` | Unit tests for JA3/GREASE, UA rebuild, TSV parse, profile build, diff gating. |
+The real CLI uses rustls. Cipher order, groups, signatures, supported versions, key share,
+PSK modes, point formats, and extension membership are stable. Extension order is permuted
+for each ClientHello; therefore:
 
-Phase 1 does **not** touch any Go code, does **not** open the gate, and does
-**not** fabricate a profile. `deploy/aws/stage0/tk_canonical_kiro_ide.json` is
-produced only by running `emit-profile` against a **real** capture (committed as a
-follow-up commit once a real Kiro IDE ClientHello is captured).
+- the canonical profile stores `shuffle_extensions=true`;
+- individual JA3 hashes and extension orders remain observational samples;
+- semantic comparison sorts extensions only when shuffle is enabled;
+- capture and replay require at least three samples and at least two distinct orders;
+- all other ordered arrays remain order-sensitive.
 
-## Capture runbook
+`TLSFingerprintProfile.ToTLSProfile()` carries this field to the uTLS dialer, which permutes
+the configured extension list per handshake. The replay gate captures TokenKey-generated
+ClientHellos with distinct provenance and compares their semantic projection to the real CLI
+profile. A replay does not become real-client evidence merely because it matches.
+
+## Runtime and database cutover
+
+`CanonicalKiroTLSProfileName` resolves `tk_canonical_kiro_cli` for Kiro accounts. Migration
+`tk_079_kiro_cli_tls_profile.sql` atomically:
+
+1. upserts the complete CLI runtime projection;
+2. rebinds only accounts explicitly referencing the old canonical row;
+3. emits scheduler refresh events for those accounts;
+4. proves no old-ID references remain;
+5. removes the retired row.
+
+Operator-created profiles are untouched. The migration is idempotent. Published migration
+`tk_014_seed_kiro_ide_tls_template.sql` is immutable history and is not a current owner;
+changing history would make already-deployed databases non-reproducible.
+
+The canonical JSON is capture provenance and current projection. The DB row is runtime
+configuration. `ops/kiro/check_kiro_tls_profile_parity.py` compares the two, while
+`ops/observability/probe-kiro-tls-profile-parity.sh` performs a read-only production snapshot.
+This proves `production_configured` parity only, not a deployed live ClientHello.
+
+## Runbook
 
 ```bash
-# On a host running a real, logged-in Kiro IDE (tcpdump needs sudo).
-# Direct egress:
-bash ops/kiro/capture-kiro-fingerprint.sh capture --iface en0 --seconds 60
-# Proxied egress (Electron follows the macOS system proxy, e.g. Clash on 7890 —
-# the cleartext ClientHello is on loopback to the proxy port before it is
-# re-encrypted onward, so capture lo0 + that port):
-bash ops/kiro/capture-kiro-fingerprint.sh capture --proxy-port 7890 --seconds 75
-#   → trigger ONE Kiro IDE request when prompted (e.g. send a Kiro chat message)
-#   → prints ja3_hash + a diff (first capture = "missing_tokenkey", non-actionable)
+# Real-client capture; requires logged-in CLI, mitmdump, and its local CA.
+bash ops/kiro/capture-kiro-fingerprint.sh capture --samples 3
 
-# Commit the canonical profile from the real capture:
-python3 ops/kiro/capture_kiro_fingerprint.py emit-profile \
-    --bundle .kiro_tls/<stamp>-kiro-capture.bundle.json
-#   → writes deploy/aws/stage0/tk_canonical_kiro_ide.json
+# Complete evidence/diff gate.
+bash ops/kiro/capture-kiro-fingerprint.sh check \
+  --bundle .kiro_tls/<stamp>-kiro-cli.bundle.json
 
-# Re-run later to detect drift (e.g. after a Kiro IDE update):
-bash ops/kiro/capture-kiro-fingerprint.sh check --bundle .kiro_tls/<stamp>...bundle.json
+# Refresh committed projection only from valid real evidence.
+bash ops/kiro/capture-kiro-fingerprint.sh emit-profile \
+  --bundle .kiro_tls/<stamp>-kiro-cli.bundle.json
+
+# Validate captured TokenKey/uTLS replay semantics.
+bash ops/kiro/capture-kiro-fingerprint.sh check-replay \
+  --tls-jsonl /tmp/kiro-tokenkey-replay-tls.jsonl
+
+# Validate local canonical projection; production snapshot remains read-only automation.
+python3 ops/kiro/check_kiro_tls_profile_parity.py
 ```
 
-**Propagating an update to the live wire.** The profile is encoded in two places
-with distinct roles: `tk_canonical_kiro_ide.json` is the capture/diff baseline +
-provenance (read by `capture_kiro_fingerprint.py` and humans), and the
-`tls_fingerprint_profiles` DB row (seeded by `tk_014`) is what the runtime dialer
-uses. They are **not auto-synced.** After a re-capture, `emit-profile` refreshes
-only the JSON; to change the live JA3 you must also update the DB row — either via
-the admin TLS-fingerprint-profile UI, or a follow-up migration that re-seeds with
-`ON CONFLICT (name) DO UPDATE SET ...` (the `tk_014` `DO NOTHING` seed sets the
-initial value only). This is the same JSON-source / DB-runtime split cc uses; cc
-auto-syncs via `manage-anthropic-config sync-runtime` (GetOrCreateByName for row existence; content owned by the ops pipeline), kiro
-does the propagation step explicitly.
+Raw evidence lives under ignored local paths and must never be committed. Any runtime-field
+change requires a new forward migration; never rewrite an already-published migration.
 
-### First real capture (provenance)
+## Invariants
 
-Captured 2026-06-03 from a real Kiro IDE on macOS (Node 22.22.0), proxied egress
-via the system proxy on `127.0.0.1:7890`, SNI `q.us-east-1.amazonaws.com` (the
-`EndpointKiroIDE` primary), 6 byte-identical ClientHellos in the window:
-
-- `ja3_hash = 51bddd625044f75a235ba857ac8b0145`, no GREASE.
-
-This **differs** from the cc canonical (`d871d02cecbde59abbf8f4806134addf`, Node
-24.3) — Kiro carries one extra cipher (`0xc027`), a different cipher order, and a
-different extension set (no `16`/ALPN, no `5`/status_request, no `18`/SCT) — which
-confirms the profiles must not be shared.
-
-## Phase 2 (follow-up PR — open the gate)
-
-Once `tk_canonical_kiro_ide.json` exists from a real capture:
-
-1. **Gate:** in `backend/internal/service/account.go`, add a Kiro-aware predicate
-   (e.g. `IsKiroOAuth()`) and let `IsTLSFingerprintEnabled()` accept Kiro accounts.
-   Keep the anthropic-only canonical-HTTP path untouched (verify no Kiro forward
-   path reaches `applyCanonicalHTTPObserved`).
-2. **Seed:** migration `tk_0xx_seed_kiro_ide_tls_template.sql` (mirror
-   `tk_011_seed_claude_code_template`) upserts the profile row into
-   `tls_fingerprint_profiles`.
-3. **Bind:** set each Kiro account's `extra.enable_tls_fingerprint=true` +
-   `extra.tls_fingerprint_profile_id=<id>`; when done via raw SQL, also enqueue a
-   `scheduler_outbox` row so running replicas reload the account snapshot.
-4. **Lock:** add `identity_canonical_consistency_kiro_test.go` asserting the
-   constant-derived UA stays in lockstep with `kiro.BuildUserAgent`.
-5. **Verify streaming:** the EventStream reader (`integration/kiro/client.go`
-   `parseEventStream`, `io.ReadFull`) is TLS-transparent, so utls does not affect
-   streaming — confirm with a live smoke after enabling.
-
-## Out of scope
-
-- `kiro-us1-real` `concurrency` 0→5 (community anti-ban ceiling) — operational,
-  done via admin UI or `UPDATE accounts ... WHERE platform='kiro' AND
-  concurrency<=0` + `scheduler_outbox`, not in this PR.
-- Reusing the anthropic **tier** mechanism for Kiro — rejected: tier semantics
-  (5h window / sessions / RPM zones) are anthropic-subscription-specific and do not
-  map to AWS CodeWhisperer.
+- One Kiro registry identity: `kiro-cli`, evidence mode `wire_tls_http`.
+- One compile release owner and one pair of HTTP identity constants.
+- One canonical profile name and one production parity observer.
+- No alternate identity mode, fallback flag, version environment override, per-account
+  identity suffix, compatibility alias, or retired runtime row.
+- No credentials or private request content in evidence, tests, reports, or git.

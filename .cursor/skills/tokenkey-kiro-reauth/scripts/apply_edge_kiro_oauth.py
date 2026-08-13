@@ -5,8 +5,8 @@ The script supports either:
   - admin API key auth via x-api-key
   - admin email/password login via /api/v1/auth/login
 
-Payload input should usually come from:
-  python3 local_kiro_credentials.py --mode admin-payload
+Payload input is passed in-memory by run_kiro_reauth_flow.py. Do not print or
+materialize credential payloads for manual handoff.
 """
 
 from __future__ import annotations

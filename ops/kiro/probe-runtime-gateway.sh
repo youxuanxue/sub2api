@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Probe Kiro runtime.us-east-1.kiro.dev / management.us-east-1.kiro.dev with the
-# local IDE OAuth token — no mitm, no system-proxy surgery.
+# Synthetic upstream-compatibility probe using the local Kiro CLI token and the
+# committed CLI identity. This path never qualifies as fingerprint evidence.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

@@ -12,24 +12,10 @@ type kiroHeaderValues struct {
 	Host         string
 }
 
-func buildStreamingHeaderValues(account *Account, host string) kiroHeaderValues {
-	return buildKiroHeaderValues(account, host, "codewhispererstreaming", tkkiro.StreamingSDKVersion, "m/E")
-}
-
-func buildRuntimeHeaderValues(account *Account, host string) kiroHeaderValues {
-	return buildKiroHeaderValues(account, host, "codewhispererruntime", tkkiro.RuntimeSDKVersion, "m/N,E")
-}
-
-func buildKiroHeaderValues(account *Account, host, apiName, sdkVersion, mode string) kiroHeaderValues {
-	identity := tkkiro.ResolveClientIdentity()
-	machineID := ""
-	if account != nil {
-		machineID = account.MachineId
-	}
-
+func buildKiroHeaderValues(host string) kiroHeaderValues {
 	return kiroHeaderValues{
-		UserAgent:    tkkiro.BuildUserAgent(identity, apiName, sdkVersion, mode, machineID),
-		AmzUserAgent: tkkiro.BuildAmzUserAgent(identity, sdkVersion, machineID),
+		UserAgent:    tkkiro.KiroCLIUserAgent,
+		AmzUserAgent: tkkiro.KiroCLIAmzUserAgent,
 		Host:         host,
 	}
 }
@@ -40,7 +26,7 @@ func applyKiroBaseHeaders(req *http.Request, account *Account, values kiroHeader
 	}
 	req.Header.Set("User-Agent", values.UserAgent)
 	req.Header.Set("x-amz-user-agent", values.AmzUserAgent)
-	req.Header.Set("x-amzn-codewhisperer-optout", "true")
+	req.Header.Set("x-amzn-codewhisperer-optout", "false")
 	if values.Host != "" {
 		req.Host = values.Host
 	}

@@ -113,6 +113,9 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	// groups: OpenAI Live 默认关闭，管理员显式开启后才可访问。
 	requireColumn(t, tx, "groups", "allow_live", "boolean", 0, false)
 
+	// TLS profiles can opt into per-ClientHello extension permutation.
+	requireColumn(t, tx, "tls_fingerprint_profiles", "shuffle_extensions", "boolean", 0, false)
+
 	// api_keys: key length should be 128
 	requireColumn(t, tx, "api_keys", "key", "character varying", 128, false)
 

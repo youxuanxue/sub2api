@@ -151,8 +151,7 @@ class CaptureCCFingerprintTest(unittest.TestCase):
 
 class TLSObservedFromPcapTests(unittest.TestCase):
     def test_builds_observed_json_from_tshark_tsv(self) -> None:
-        kiro = mod._load_kiro_ja3_engine()
-        header = "\t".join(kiro.TSHARK_FIELDS)
+        header = "\t".join(mod.TSHARK_TLS_FIELDS)
         row = "\t".join(
             [
                 "0x0303",
@@ -160,11 +159,6 @@ class TLSObservedFromPcapTests(unittest.TestCase):
                 "0,23,65281",
                 "29,23,24",
                 "0",
-                "0x0403,0x0804",
-                "h2,http/1.1",
-                "0x0304,0x0303",
-                "29",
-                "1",
                 "api.anthropic.com",
             ]
         )
@@ -233,6 +227,34 @@ class BundleRoundtripTests(unittest.TestCase):
         tls_rows = [r for r in rows if r.field.startswith("tls.")]
         self.assertTrue(all(r.status == "not_observed" for r in tls_rows))
         self.assertEqual(mod.EXIT_INCOMPLETE, mod.diff_exit_code(tls_rows))
+
+    def test_http_only_stub_cannot_mask_observed_http_stainless(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        observed_stainless = "9.9.9-observed"
+        bundle = mod.bundle_from_artifacts(
+            cc_version=baseline["canonical_http"]["default_version"],
+            tls_observed={
+                "ja3_hash": baseline["tls"]["ja3_hash"],
+                "ja3_raw": baseline["tls"]["ja3_raw"],
+                "source": "baseline_stub_http_only",
+                "stainless_package_version": baseline["canonical_http"][
+                    "stainless_package_version"
+                ],
+            },
+            http_by_variant={
+                "haiku": {
+                    "x_stainless": {
+                        "X-Stainless-Package-Version": observed_stainless,
+                    }
+                }
+            },
+            http_cohort=mod.THIRD_PARTY_TOKEN,
+        )
+        rows = mod.diff_baseline_vs_capture(baseline, bundle)
+        stainless_rows = [r for r in rows if "stainless_package_version" in r.field]
+        self.assertEqual(2, len(stainless_rows))
+        self.assertTrue(all(r.captured == observed_stainless for r in stainless_rows))
+        self.assertTrue(all(r.status == "mismatch" for r in stainless_rows))
 
     def test_unsupported_tls_source_is_invalid_evidence(self) -> None:
         baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)

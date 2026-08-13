@@ -1,76 +1,88 @@
 ---
 name: tokenkey-kiro-fingerprint-alignment
 description: >-
-  Capture and diff real Kiro IDE TLS JA3 and aws-sdk-js User-Agent against TokenKey constants. Use for Kiro TLS onboarding, suspected IDE JA3 drift, or pre-Phase-2 TLS gate verification; capture/diff only.
+  Capture and diff complete real Kiro CLI TLS, HTTP, protocol, and auth evidence against TokenKey's single CLI runtime identity and canonical TLS profile. Use for kiro-cli release drift, Kiro TLS parity, or replay verification.
 ---
 
-# TokenKey：Kiro 指纹对齐（被动抓包 → diff → 落 profile）
+# TokenKey：Kiro CLI 指纹对齐
 
-适用于本仓库（TokenKey fork of sub2api）。把 **真实 Kiro IDE 流量** 当 ground truth，
-**kiro 常量 + DB TLS profile** 当待对齐对象。**禁止从 UA 版本号推断 ja3**。
+真实、已登录的 `kiro-cli` 是唯一 ground truth；release metadata、版本字符串、binary
+strings 和 TokenKey 自己构造的请求都不能替代 wire evidence。证据缺失必须保留为
+`NOT_OBSERVED`，禁止从 UA 或版本号推断 TLS。
 
-关联：`docs/accounts/kiro-tls-fingerprint-alignment-design.md`（两阶段设计 + Phase 2 开闸清单）、
-`tokenkey-cc-fingerprint-alignment`（anthropic 平行 skill）、
-`tokenkey-fingerprint-alignment-all`（umbrella：cc+kiro 一次对齐、合一个 PR）。
+## 唯一链路
 
-## 为什么与 cc 不同
-
-cc 靠 `ANTHROPIC_BASE_URL` 重定向到自建 collector + MITM。Kiro IDE 端点
-`codewhisperer.us-east-1.amazonaws.com` 硬编码、无法重定向。故：
-- **TLS（主，承重）**：`tcpdump` 被动抓握手 → `tshark` 解 ClientHello（明文，无需 MITM）→ JA3。
-- **HTTP 协议（次）**：用 `probe_runtime_gateway.py` 读本机 token 直打网关验证。**mitm 实测不可行**
-  —— Kiro IDE 直连网关、忽略 `HTTP_PROXY`，无代理可截获，故已移除 mitm 路径；UA 由常量已知。
-
-## 工具（`ops/kiro/`）
-
-- `capture-kiro-fingerprint.sh` — 被动 pcap 编排（`capture` / `diff` / `check` /
-  `check-tls` / `show-baseline` / `emit-profile`）。
-- `capture_kiro_fingerprint.py` — 确定性引擎（TLS/JA3-only）：重建期望 UA、解 tshark TSV、算 ja3
-  （剥 GREASE、md5）、组 upstream 形态 profile、diff、退出码门禁。
-- `probe-runtime-gateway.sh` / `probe_runtime_gateway.py` — 读本机 Kiro token，直打
-  `runtime.us-east-1.kiro.dev` / `management.us-east-1.kiro.dev` 验证 HTTP 协议（无需 mitm）。
-- `test_capture_kiro_fingerprint.py` / `test_probe_runtime_gateway.py` — 单测。
-
-> **实测结论（2026-06-26，edge-us6 真账号 kiro-us6-real；smoke = 一个 minimal ping，非穷举）**：
-> `*.kiro.dev` 网关与 legacy `q`/`codewhisperer.us-east-1.amazonaws.com` **协议同构**——
-> `runtime.us-east-1.kiro.dev/generateAssistantResponse` 用 TK 完整 on-wire 形态
-> （`X-Amz-Target=AmazonCodeWhispererStreamingService.GenerateAssistantResponse`、KiroPayload body、
-> aws-sdk-js UA）返回 200 + 真实 assistant event-stream；`management.us-east-1.kiro.dev/ListAvailableProfiles`
-> 返回与 legacy **相同的 profileArn**。故迁移 = 换 host（legacy 仍 LIVE，暂不切）。注意:本仓库的
-> `probe_runtime_gateway.py` 读**本机** Kiro 登录、走本机出口（用 `--header-style tokenkey` 对齐 TK UA），
-> 只证网关协议形态;edge 账号 + edge 出口的授权确认需在服务 edge 上复刻 TK 请求实测。详见
-> `backend/internal/integration/kiro/client.go` 的 NOTE。
-
-## 流程
-
-```bash
-# 在跑着真实、已登录 Kiro IDE 的机器上（tcpdump 需 sudo）：
-# 直连出口：
-bash ops/kiro/capture-kiro-fingerprint.sh capture --iface en0 --seconds 60
-# 走系统代理（Electron 跟随系统代理，如 Clash:7890）——抓 loopback 上明文 ClientHello：
-bash ops/kiro/capture-kiro-fingerprint.sh capture --proxy-port 7890 --seconds 75
-#   → 提示时在 Kiro IDE 触发一次请求；首抓为 missing_tokenkey（非阻断）
-
-# 用真实抓包落盘 canonical profile：
-python3 ops/kiro/capture_kiro_fingerprint.py emit-profile --bundle .kiro_tls/<stamp>-kiro-capture.bundle.json
-#   → 只写 deploy/aws/stage0/tk_canonical_kiro_ide.json（抓包/diff 基线 + provenance）
-#   ⚠️ 更新线上 JA3 还需把 DB 行同步：首次由 migration tk_014 seed；后续更新走 admin
-#      TLS profile UI，或新 migration 用 ON CONFLICT (name) DO UPDATE 重灌（tk_014 是
-#      DO NOTHING 只初始化）。emit-profile 单独不改 DB。详见 design doc。
-
-# 后续漂移检测（Kiro IDE 升级后）：
-bash ops/kiro/capture-kiro-fingerprint.sh check --bundle .kiro_tls/<stamp>...bundle.json
-
-# runtime.kiro.dev HTTP 协议探针（不用 mitm；需 Kiro 已登录）：
-HTTPS_PROXY=http://127.0.0.1:7890 bash ops/kiro/probe-runtime-gateway.sh --refresh-token
-# 只看请求形状：bash ops/kiro/probe-runtime-gateway.sh --dry-run all
-# 指定模型：bash ops/kiro/probe-runtime-gateway.sh --refresh-token --model-id qwen3-coder-next runtime-chat
-# TokenKey 形 UA 对比：bash ops/kiro/probe-runtime-gateway.sh --refresh-token --header-style tokenkey runtime-chat
+```text
+real kiro-cli
+  → mitm collector: ClientHello + HTTP/protocol projection
+  → sanitized auth cohort
+  → tk_canonical_kiro_cli.json
+  → TokenKey uTLS replay capture
+  → production-configured DB parity
 ```
 
-## 边界
+- HTTP owner：`backend/internal/pkg/kiro/constants.go`，由
+  `backend/internal/integration/kiro/headers.go` 的所有请求路径消费。
+- TLS capture owner：`deploy/aws/stage0/tk_canonical_kiro_cli.json`。
+- Runtime DB owner：同名 `tls_fingerprint_profiles` row；daily parity 只证明
+  `production_configured`，不冒充 live wire。
+- `backend/migrations/tk_014_seed_kiro_ide_tls_template.sql` 只是不可变迁移历史；
+  `tk_081_kiro_cli_tls_profile.sql` 完成现行 CLI row 的原子切换。
 
-- 本 skill **只抓包 + diff + 落 profile**，**不开闸**。开闸（放开
-  `IsTLSFingerprintEnabled` 给 kiro、migration seed、绑定账号、consistency test）
-  是 Phase 2 PR，见 design doc。
-- `tk_canonical_kiro_ide.json` **只能来自真实抓包**，不得捏造 JA3。
+## 工具
+
+- `capture-kiro-fingerprint.sh`：运行真实 `kiro-cli translate` 至少三次。
+- `mitm_kiro_http_logger.py`：从源头只保留允许的 TLS/HTTP/协议字段；丢弃凭证、
+  profile ARN、用户内容、完整 body 和 key-share bytes。
+- `capture_kiro_fingerprint.py`：机械分类 auth cohort、验证四条 evidence lanes、
+  做 semantic diff、生成 profile、验证 replay。
+- `check_kiro_tls_profile_parity.py`：比较 committed profile 与只读 DB snapshot。
+- `probe-runtime-gateway.sh` / `probe_runtime_gateway.py`：shell 是稳定入口，Python
+  用 committed CLI HTTP identity 做协议兼容性 probe；这是 TokenKey probe provenance，
+  不是真实 CLI capture。
+
+## 标准流程
+
+```bash
+# 1. 环境与真实 CLI 版本；不会打印 token。
+bash ops/kiro/capture-kiro-fingerprint.sh version
+
+# 2. 真实采证。要求已登录 CLI、mitmdump 和本机 mitm CA。
+bash ops/kiro/capture-kiro-fingerprint.sh capture --samples 3
+# → .kiro_tls/<stamp>-kiro-cli.bundle.json（ignored）
+
+# 3. 完整证据门禁与 semantic diff。
+bash ops/kiro/capture-kiro-fingerprint.sh check \
+  --bundle .kiro_tls/<stamp>-kiro-cli.bundle.json
+
+# 4. 仅在完整真实证据通过后刷新 canonical profile。
+bash ops/kiro/capture-kiro-fingerprint.sh emit-profile \
+  --bundle .kiro_tls/<stamp>-kiro-cli.bundle.json
+
+# 5. 捕获 TokenKey/uTLS 重放后，验证其 semantic projection。
+bash ops/kiro/capture-kiro-fingerprint.sh check-replay \
+  --tls-jsonl /tmp/kiro-tokenkey-replay-tls.jsonl
+
+# 6. 本地 canonical projection；生产 snapshot 由只读 workflow 提供。
+python3 ops/kiro/check_kiro_tls_profile_parity.py
+```
+
+退出码统一：`0=完整且对齐`、`1=semantic drift`、`2=无效证据/执行失败`、
+`3=incomplete/NOT_OBSERVED`。
+
+## 漂移处理
+
+1. 先确认完整 real-client bundle，不接受 release/version-only 代证。
+2. HTTP 漂移只改唯一 CLI owner 与 request-recorder tests。
+3. TLS 漂移用 `emit-profile` 刷新 CLI JSON；若 runtime 字段改变，新增 forward
+   migration 投影至同名 DB row，不能改已发布 migration。
+4. 重跑 uTLS capture，至少三次；`shuffle_extensions=true` 时必须看到多个 extension
+   orders，并用 `check-replay` 比较 semantic projection，而非固定 JA3 hash。
+5. 运行 focused tests、sentinel、preflight 和全量测试后再提交。
+
+## 禁止
+
+- 不新增 IDE/CLI 双模式、alias、fallback、环境版本 override 或 retired profile row。
+- 不提交 `.kiro_tls/`、token cache、pcap、mitm log、原始请求/响应正文。
+- 不打印 access token、refresh token、client secret 或 profile ARN。
+- 不把 production-configured parity、TokenKey probe 或 uTLS replay标成真实 CLI capture。

@@ -83,6 +83,20 @@ func (_u *TLSFingerprintProfileUpdate) SetNillableEnableGrease(v *bool) *TLSFing
 	return _u
 }
 
+// SetShuffleExtensions sets the "shuffle_extensions" field.
+func (_u *TLSFingerprintProfileUpdate) SetShuffleExtensions(v bool) *TLSFingerprintProfileUpdate {
+	_u.mutation.SetShuffleExtensions(v)
+	return _u
+}
+
+// SetNillableShuffleExtensions sets the "shuffle_extensions" field if the given value is not nil.
+func (_u *TLSFingerprintProfileUpdate) SetNillableShuffleExtensions(v *bool) *TLSFingerprintProfileUpdate {
+	if v != nil {
+		_u.SetShuffleExtensions(*v)
+	}
+	return _u
+}
+
 // SetCipherSuites sets the "cipher_suites" field.
 func (_u *TLSFingerprintProfileUpdate) SetCipherSuites(v []uint16) *TLSFingerprintProfileUpdate {
 	_u.mutation.SetCipherSuites(v)
@@ -323,6 +337,9 @@ func (_u *TLSFingerprintProfileUpdate) sqlSave(ctx context.Context) (_node int, 
 	if value, ok := _u.mutation.EnableGrease(); ok {
 		_spec.SetField(tlsfingerprintprofile.FieldEnableGrease, field.TypeBool, value)
 	}
+	if value, ok := _u.mutation.ShuffleExtensions(); ok {
+		_spec.SetField(tlsfingerprintprofile.FieldShuffleExtensions, field.TypeBool, value)
+	}
 	if value, ok := _u.mutation.CipherSuites(); ok {
 		_spec.SetField(tlsfingerprintprofile.FieldCipherSuites, field.TypeJSON, value)
 	}
@@ -492,6 +509,20 @@ func (_u *TLSFingerprintProfileUpdateOne) SetEnableGrease(v bool) *TLSFingerprin
 func (_u *TLSFingerprintProfileUpdateOne) SetNillableEnableGrease(v *bool) *TLSFingerprintProfileUpdateOne {
 	if v != nil {
 		_u.SetEnableGrease(*v)
+	}
+	return _u
+}
+
+// SetShuffleExtensions sets the "shuffle_extensions" field.
+func (_u *TLSFingerprintProfileUpdateOne) SetShuffleExtensions(v bool) *TLSFingerprintProfileUpdateOne {
+	_u.mutation.SetShuffleExtensions(v)
+	return _u
+}
+
+// SetNillableShuffleExtensions sets the "shuffle_extensions" field if the given value is not nil.
+func (_u *TLSFingerprintProfileUpdateOne) SetNillableShuffleExtensions(v *bool) *TLSFingerprintProfileUpdateOne {
+	if v != nil {
+		_u.SetShuffleExtensions(*v)
 	}
 	return _u
 }
@@ -765,6 +796,9 @@ func (_u *TLSFingerprintProfileUpdateOne) sqlSave(ctx context.Context) (_node *T
 	}
 	if value, ok := _u.mutation.EnableGrease(); ok {
 		_spec.SetField(tlsfingerprintprofile.FieldEnableGrease, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.ShuffleExtensions(); ok {
+		_spec.SetField(tlsfingerprintprofile.FieldShuffleExtensions, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.CipherSuites(); ok {
 		_spec.SetField(tlsfingerprintprofile.FieldCipherSuites, field.TypeJSON, value)

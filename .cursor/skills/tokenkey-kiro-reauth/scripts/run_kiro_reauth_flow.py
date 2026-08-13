@@ -13,6 +13,7 @@ This wrapper composes the bundled scripts instead of re-implementing their logic
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import shlex
@@ -27,6 +28,12 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[3]
 
 LOCAL_CREDS = HERE / "local_kiro_credentials.py"
+LOCAL_CREDS_SPEC = importlib.util.spec_from_file_location("local_kiro_credentials", LOCAL_CREDS)
+if LOCAL_CREDS_SPEC is None or LOCAL_CREDS_SPEC.loader is None:
+    raise RuntimeError(f"cannot load local credential helper from {LOCAL_CREDS}")
+local_credentials = importlib.util.module_from_spec(LOCAL_CREDS_SPEC)
+LOCAL_CREDS_SPEC.loader.exec_module(local_credentials)
+
 APPLY_EDGE = HERE / "apply_edge_kiro_oauth.py"
 COMPARE = HERE / "compare_auth_summaries.py"
 EDGE_SUMMARY = HERE / "probe_edge_auth_summary.sh"
@@ -105,18 +112,12 @@ def resolve_edge(edge_id: str) -> dict[str, Any]:
     )
 
 
-def local_summary(refresh: bool) -> dict[str, Any]:
-    argv = [sys.executable, str(LOCAL_CREDS), "--mode", "summary"]
+def load_local_auth(refresh: bool) -> tuple[dict[str, Any], dict[str, Any]]:
+    credentials, meta = local_credentials.load_local_credentials()
     if refresh:
-        argv.append("--refresh")
-    return run_json(argv, label="local_summary")
-
-
-def local_admin_payload(refresh: bool) -> dict[str, Any]:
-    argv = [sys.executable, str(LOCAL_CREDS), "--mode", "admin-payload"]
-    if refresh:
-        argv.append("--refresh")
-    return run_json(argv, label="local_admin_payload")
+        credentials, refresh_meta = local_credentials.refresh_locally(credentials, timeout=30)
+        meta.update(refresh_meta)
+    return credentials, meta
 
 
 def edge_summary(edge_id: str, account_id: int | None, account_name: str) -> dict[str, Any]:
@@ -310,13 +311,14 @@ def main() -> int:
         sys.stdout.write("\n")
         return 0
 
-    local_summary_obj = local_summary(args.local_refresh)
+    credentials, credential_meta = load_local_auth(args.local_refresh)
+    local_summary_obj = local_credentials.render_summary(credentials, credential_meta)
     output["local_summary"] = local_summary_obj
 
     output["pre_apply_edge_summary"] = pre_edge
 
     if args.apply:
-        payload = local_admin_payload(args.local_refresh)
+        payload = local_credentials.render_admin_payload(credentials, token_version_ms=None)
         apply_result = apply_edge(
             base_url=base_url,
             account_id=resolved_account_id,
