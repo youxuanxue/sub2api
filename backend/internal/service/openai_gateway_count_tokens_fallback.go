@@ -54,7 +54,21 @@ func classifyOpenAIInputTokensFallback(account *Account, statusCode int, body []
 	if isOpenAICompatInputTokensCapabilityGap(account, statusCode, upstreamMsg, body) {
 		return openAIInputTokensFallbackDecision{Kind: openAIInputTokensFallbackAnthropicEstimate, UpstreamMessage: upstreamMsg}
 	}
+	if isMaaSRelayInputTokensAuthGap(account, statusCode) {
+		return openAIInputTokensFallbackDecision{Kind: openAIInputTokensFallbackAnthropicEstimate, UpstreamMessage: upstreamMsg}
+	}
 	return openAIInputTokensFallbackDecision{Kind: openAIInputTokensFallbackNone, UpstreamMessage: upstreamMsg}
+}
+
+// isMaaSRelayInputTokensAuthGap reports CloudWise/tokensea dual-stack relays that
+// reject OpenAI /v1/responses/input_tokens with 401 even while chat/messages
+// remain healthy. count_tokens must local-estimate instead of permanently
+// disabling the apikey account (prod #95 incident 2026-08-13).
+func isMaaSRelayInputTokensAuthGap(account *Account, statusCode int) bool {
+	if account == nil || account.Type != AccountTypeAPIKey || statusCode != http.StatusUnauthorized {
+		return false
+	}
+	return account.IsOpenAICloudwiseRelay() || account.IsOpenAITokenseaRelay()
 }
 
 func isOpenAIInputTokensUnsupported(statusCode int, body []byte) bool {

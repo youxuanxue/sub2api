@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "floor_sha256": "c19d41f7c37492be9806c596dea39b3f24f2c5e0285db2c0da4ea68b23abeb4d",
+  "floor_sha256": "647d5f429a9bdce1ef78e217d06ef4b316cc249cc7b444a42ced018760998abe",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -81,6 +81,9 @@
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
       "grok": {
+        "claude-*": "grok-4.6",
+        "codex-*": "grok-4.6",
+        "gpt-*": "grok-4.6",
         "grok": "grok-4.6",
         "grok-4-fast-reasoning": "grok-4.3",
         "grok-4.20-0309-non-reasoning": "grok-4.20-0309-non-reasoning",
@@ -125,6 +128,9 @@
         "grok/grok-imagine-image-quality": "grok-imagine-image-quality",
         "grok/grok-imagine-video": "grok-imagine-video",
         "grok/grok-latest": "grok-4.3",
+        "o1*": "grok-4.6",
+        "o3*": "grok-4.6",
+        "o4*": "grok-4.6",
         "x-ai/grok": "grok-4.6",
         "x-ai/grok-4.20-0309-non-reasoning": "grok-4.20-0309-non-reasoning",
         "x-ai/grok-4.20-0309-reasoning": "grok-4.20-0309-reasoning",
@@ -218,9 +224,6 @@
         "glm-5": "glm-5",
         "glm-5.1": "glm-5.1",
         "glm-5.2": "glm-5.2",
-        "gpt-5.2": "gpt-5.2",
-        "gpt-5.3-codex": "gpt-5.3-codex",
-        "gpt-5.4": "gpt-5.4",
         "kimi-k3": "kimi-k3"
       },
       "openai_tokensea_relay": {
