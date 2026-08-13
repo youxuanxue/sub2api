@@ -1,4 +1,7 @@
 -- Persist whether a TLS fingerprint profile permutes extension order per ClientHello.
+-- bluegreen-safe-destructive-ok: expand-only NOT NULL column with a stable false
+-- default; old binaries ignore it, old writers may omit it, and existing rows remain
+-- behaviorally unchanged until a profile explicitly enables extension shuffling.
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '10min';
