@@ -57,6 +57,8 @@ func TestPatchGrokResponsesBodySanitizesComposerReasoningParameters(t *testing.T
 		{name: "composer legacy alias", upstreamModel: "composer-2.5"},
 		{name: "provider-prefixed composer", upstreamModel: "xai/grok-composer-2.5-fast"},
 		{name: "grok 4.5", upstreamModel: "grok-4.5", wantReasoning: true},
+		{name: "grok 4.6", upstreamModel: "grok-4.6", wantReasoning: true},
+		{name: "grok 4.6 latest", upstreamModel: "grok-4.6-latest", wantReasoning: true},
 	}
 
 	bodyTemplate := []byte(`{
@@ -2069,7 +2071,7 @@ func TestHandleGrokAccountUpstreamError_DownstreamCapacitySkipsRelayCooldown(t *
 	body := []byte(`{"type":"error","error":{"type":"rate_limit_error","message":"Upstream rate limit exceeded, please retry later"}}`)
 
 	for i := 0; i < 3; i++ {
-		svc.handleGrokAccountUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, body, "grok-build-0.1")
+		svc.handleGrokAccountUpstreamError(withGrokTeamRateLimitModel(context.Background(), "grok-build-0.1"), account, http.StatusTooManyRequests, http.Header{}, body)
 	}
 
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))

@@ -52,3 +52,7 @@ func openAIIsHTMLBody(body []byte) bool {
 	}
 	return false
 }
+
+func isHTMLResponse(body []byte) bool {
+	return openAIIsHTMLBody(body)
+}

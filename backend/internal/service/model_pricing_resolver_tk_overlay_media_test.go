@@ -105,7 +105,7 @@ func TestOpenAIGatewayService_CalculateRecordUsageCost_ImagenTokenPathUsesOverla
 		[]string{"imagen-4.0-generate-001"},
 		1.0, 1.0, 1.0, 1.0,
 		UsageTokens{InputTokens: 200, OutputTokens: 58},
-		"", false,
+		"", boolPtr(false),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, cost)

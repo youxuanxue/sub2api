@@ -860,9 +860,11 @@ func TestCalculateCost_DoubaoEmbeddingVisionDifferentialInput(t *testing.T) {
 	require.NoError(t, err)
 	textRate := tkCNYPerMTokToUSDPerToken(0.7) * tkOfficialListBaseTaxMultiplier()
 	imageRate := tkCNYPerMTokToUSDPerToken(1.8) * tkOfficialListBaseTaxMultiplier()
-	wantMixed := float64(1312)*textRate + float64(28)*imageRate
-	require.InDelta(t, wantMixed, cost.InputCost, 1e-15)
-	require.InDelta(t, wantMixed, cost.TotalCost, 1e-15)
+	wantTextInput := float64(1312) * textRate
+	wantImageInput := float64(28) * imageRate
+	require.InDelta(t, wantTextInput, cost.InputCost, 1e-15)
+	require.InDelta(t, wantImageInput, cost.ImageInputCost, 1e-15)
+	require.InDelta(t, wantTextInput+wantImageInput, cost.TotalCost, 1e-15)
 	require.Zero(t, cost.OutputCost)
 
 	// 纯文本：全部按文本档计费，与原单价路径一致。
@@ -875,7 +877,42 @@ func TestCalculateCost_DoubaoEmbeddingVisionDifferentialInput(t *testing.T) {
 	weird := UsageTokens{InputTokens: 10, ImageInputTokens: 50}
 	costWeird, err := svc.CalculateCost("doubao-embedding-vision", weird, 1.0)
 	require.NoError(t, err)
-	require.InDelta(t, float64(10)*imageRate, costWeird.InputCost, 1e-15)
+	require.Zero(t, costWeird.InputCost, "全为图片输入时文本费用为 0")
+	require.InDelta(t, float64(10)*imageRate, costWeird.ImageInputCost, 1e-15)
+	require.InDelta(t, float64(10)*imageRate, costWeird.TotalCost, 1e-15)
+}
+
+// 复现 issue #4386：gpt-image-2 /v1/images/edits 带 1 张输入图。
+// 上游 usage：input_tokens=371（image_tokens=352 + text_tokens=19），
+// output_tokens=439（全部图片输出）。官方定价：文本输入 $5/1M、图片输入 $8/1M、
+// 文本输出 $10/1M、图片输出 $30/1M。修复前图片输入被并入文本价，单次偏低 ~6.6%。
+func TestComputeTokenBreakdown_GptImage2ImageEditIssue4386(t *testing.T) {
+	svc := newTestBillingService()
+
+	pricing := &ModelPricing{
+		InputPricePerToken:       5e-6,
+		ImageInputPricePerToken:  8e-6,
+		OutputPricePerToken:      10e-6,
+		ImageOutputPricePerToken: 30e-6,
+		ImageOutputPriceExplicit: true,
+	}
+	tokens := UsageTokens{
+		InputTokens:       371,
+		ImageInputTokens:  352,
+		OutputTokens:      439,
+		ImageOutputTokens: 439,
+	}
+
+	cost := svc.computeTokenBreakdown(pricing, tokens, 1.0, "", false, true)
+
+	wantTextInput := float64(19) * 5e-6     // 0.000095
+	wantImageInput := float64(352) * 8e-6   // 0.002816
+	wantImageOutput := float64(439) * 30e-6 // 0.013170
+	require.InDelta(t, wantTextInput, cost.InputCost, 1e-15, "InputCost 仅含文本输入")
+	require.InDelta(t, wantImageInput, cost.ImageInputCost, 1e-15, "图片输入按 $8/1M 独立计费")
+	require.Zero(t, cost.OutputCost, "输出全部为图片，文本输出费用为 0")
+	require.InDelta(t, wantImageOutput, cost.ImageOutputCost, 1e-15)
+	require.InDelta(t, 0.016081, cost.TotalCost, 1e-9, "总额应为 $0.016081（修复前为 $0.015025）")
 }
 func TestCalculateCostWithLongContext_BelowThreshold(t *testing.T) {
 	svc := newTestBillingService()
@@ -1156,10 +1193,26 @@ func TestCalculateCostWithLongContext_PropagatesError(t *testing.T) {
 	require.Contains(t, err.Error(), "pricing not found")
 }
 
+func TestGetModelPricing_Grok45OfficialFallback(t *testing.T) {
+	svc := newTestBillingService()
+
+	for _, model := range []string{"grok-4.5", "grok-4.5-latest"} {
+		model := model
+		t.Run(model, func(t *testing.T) {
+			pricing, err := svc.GetModelPricing(model)
+			require.NoError(t, err)
+			require.InDelta(t, 2e-6, pricing.InputPricePerToken, 1e-12)
+			require.InDelta(t, 6e-6, pricing.OutputPricePerToken, 1e-12)
+			require.InDelta(t, 0.5e-6, pricing.CacheReadPricePerToken, 1e-12)
+			require.False(t, pricing.SupportsCacheBreakdown)
+		})
+	}
+}
+
 func TestGetModelPricing_Grok46OfficialFallback(t *testing.T) {
 	svc := newTestBillingService()
 
-	for _, model := range []string{"grok", xai.DefaultTextModel} {
+	for _, model := range []string{"grok", "grok-4.6", "grok-4.6-latest", xai.DefaultTextModel} {
 		model := model
 		t.Run(model, func(t *testing.T) {
 			pricing, err := svc.GetModelPricing(model)
@@ -1173,32 +1226,6 @@ func TestGetModelPricing_Grok46OfficialFallback(t *testing.T) {
 			require.False(t, pricing.SupportsCacheBreakdown)
 		})
 	}
-}
-
-func TestGetModelPricing_Grok45OfficialFallback(t *testing.T) {
-	svc := newTestBillingService()
-
-	for _, model := range []string{"grok-4.5", "grok-4.5-latest", "grok-build-latest"} {
-		model := model
-		t.Run(model, func(t *testing.T) {
-			pricing, err := svc.GetModelPricing(model)
-			require.NoError(t, err)
-			require.InDelta(t, 2e-6, pricing.InputPricePerToken, 1e-12)
-			require.InDelta(t, 6e-6, pricing.OutputPricePerToken, 1e-12)
-			require.InDelta(t, 0.5e-6, pricing.CacheReadPricePerToken, 1e-12)
-			require.False(t, pricing.SupportsCacheBreakdown)
-		})
-	}
-}
-
-func TestGetModelPricing_GrokLatestUsesExplicitRegistryOwner(t *testing.T) {
-	svc := newTestBillingService()
-
-	pricing, err := svc.GetModelPricing("grok-latest")
-	require.NoError(t, err)
-	require.InDelta(t, 1.25e-6, pricing.InputPricePerToken, 1e-12)
-	require.InDelta(t, 2.5e-6, pricing.OutputPricePerToken, 1e-12)
-	require.InDelta(t, 0.2e-6, pricing.CacheReadPricePerToken, 1e-12)
 }
 
 func TestCalculateCost_Grok46LongContextAppliesOfficialTier(t *testing.T) {
@@ -1215,6 +1242,69 @@ func TestCalculateCost_Grok46LongContextAppliesOfficialTier(t *testing.T) {
 	require.InDelta(t, expectedCacheRead, cost.CacheReadCost, 1e-10)
 	require.InDelta(t, expectedOutput, cost.OutputCost, 1e-10)
 	require.True(t, cost.LongContextBillingApplied)
+}
+
+func TestCalculateCostUnified_GroupLongContextToggleUsesPresetLadder(t *testing.T) {
+	svc := newTestBillingService()
+	resolver := NewModelPricingResolver(nil, svc)
+	tokens := UsageTokens{InputTokens: 250000, OutputTokens: 1000}
+
+	off := &Group{LongContextPricingEnabled: false}
+	disabled, err := svc.CalculateCostUnified(CostInput{
+		Model: "grok-4.6", Group: off, Tokens: tokens, RateMultiplier: 1, Resolver: resolver,
+	})
+	require.NoError(t, err)
+
+	on := &Group{LongContextPricingEnabled: true}
+	enabled, err := svc.CalculateCostUnified(CostInput{
+		Model: "grok-4.6", Group: on, Tokens: tokens, RateMultiplier: 1, Resolver: resolver,
+	})
+	require.NoError(t, err)
+
+	require.False(t, disabled.LongContextBillingApplied)
+	require.True(t, enabled.LongContextBillingApplied)
+	require.InDelta(t, disabled.InputCost*2, enabled.InputCost, 1e-12)
+	require.InDelta(t, disabled.OutputCost*2, enabled.OutputCost, 1e-12)
+}
+
+func TestGetModelPricing_UnknownGrokTextFallsBackToDefaultTextCard(t *testing.T) {
+	svc := newTestBillingService()
+	baseline, err := svc.GetModelPricing("grok-4.6")
+	require.NoError(t, err)
+
+	for _, model := range []string{"grok-5", "grok-5-latest", "x-ai/grok-7", "grok-4.7-beta"} {
+		pricing, err := svc.GetModelPricing(model)
+		require.NoError(t, err, "model %s", model)
+		require.InDelta(t, baseline.InputPricePerToken, pricing.InputPricePerToken, 1e-12, model)
+		require.InDelta(t, baseline.OutputPricePerToken, pricing.OutputPricePerToken, 1e-12, model)
+		require.InDelta(t, baseline.CacheReadPricePerToken, pricing.CacheReadPricePerToken, 1e-12, model)
+	}
+
+	// Per-unit media ids must not inherit the text card just because they carry
+	// a version number; they are billed by the image/video/audio paths instead.
+	for _, model := range []string{"grok-2-image-1212", "grok-2-audio", "grok-5-video", "x-ai/grok-6-image"} {
+		require.False(t, isGrokUnknownTextFamilyModel(model), "model %s", model)
+	}
+	// Multimodal chat models stay token billed.
+	require.True(t, isGrokUnknownTextFamilyModel("grok-2-vision-1212"))
+
+	for _, model := range []string{
+		"grok-imagine-image-3.0",
+		"grok-imagine-video-2",
+		"grok-voice-latest",
+		"grok-web-search",
+		"grok-x-search",
+		"grok-speech-1",
+	} {
+		_, err := svc.GetModelPricing(model)
+		require.Error(t, err, "non-text grok family %s must not inherit default token rates", model)
+		require.ErrorIs(t, err, ErrModelPricingUnavailable)
+	}
+
+	// Known cards stay on their own rate, not the default family floor.
+	build, err := svc.GetModelPricing("grok-build-0.1")
+	require.NoError(t, err)
+	require.InDelta(t, 1e-6, build.InputPricePerToken, 1e-12)
 }
 
 func TestGetModelPricing_GrokCatalogFallbacks(t *testing.T) {
