@@ -117,10 +117,12 @@ func (s *OpenAICodexUsageSnapshot) Normalize() *NormalizedCodexLimits {
 		result.Used7dPercent = s.PrimaryUsedPercent
 		result.Reset7dSeconds = s.PrimaryResetAfterSeconds
 		result.Window7dMinutes = s.PrimaryWindowMinutes
-		if hasSecondaryWindow {
+		if codexSnapshotSecondaryQuotaPresent(s) {
 			result.Used5hPercent = s.SecondaryUsedPercent
 			result.Reset5hSeconds = s.SecondaryResetAfterSeconds
-			result.Window5hMinutes = s.SecondaryWindowMinutes
+			if hasSecondaryWindow {
+				result.Window5hMinutes = s.SecondaryWindowMinutes
+			}
 		}
 	}
 
@@ -129,6 +131,19 @@ func (s *OpenAICodexUsageSnapshot) Normalize() *NormalizedCodexLimits {
 
 func codexSnapshotWindowMinutesActive(mins *int) bool {
 	return mins != nil && *mins > 0
+}
+
+// codexSnapshotSecondaryQuotaPresent is true when secondary carries quota signal
+// and is not explicitly absent (window_minutes=0 on a present primary 7d layout).
+func codexSnapshotSecondaryQuotaPresent(s *OpenAICodexUsageSnapshot) bool {
+	if s == nil {
+		return false
+	}
+	if s.SecondaryWindowMinutes != nil && *s.SecondaryWindowMinutes <= 0 {
+		return false
+	}
+	return s.SecondaryUsedPercent != nil || s.SecondaryResetAfterSeconds != nil ||
+		codexSnapshotWindowMinutesActive(s.SecondaryWindowMinutes)
 }
 
 func codexNormalizedWindowActive(mins *int) bool {
