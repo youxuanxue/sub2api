@@ -246,11 +246,7 @@ def derive_pipeline_health(
         "edge-oauth-mimic": _normalize_observation_status(edge_oauth_mimic_observation_status),
         "kiro-production-configured": _normalize_observation_status(kiro_profile_observation_status),
     }
-    failed_jobs = [
-        name
-        for name, result in job_results.items()
-        if result == "failure" and observations.get(name) != "observed"
-    ]
+    failed_jobs = [name for name, result in job_results.items() if result == "failure"]
     incomplete_jobs = [name for name, result in job_results.items() if result in {"skipped", "unknown", "cancelled"}]
     if release_scan_result == "success" and release_report is None:
         incomplete_jobs.append("release-scan-report")
@@ -700,6 +696,14 @@ def main(argv: list[str] | None = None) -> int:
         assert observer_failure["fidelity_verdict"]["status"] == "observer_failed"
         assert any(s["signal_type"] == "observer-failure" for s in observer_failure["signals"])
         assert not any(s["signal_type"] == "prod-drift" for s in observer_failure["signals"])
+
+        downstream_step_failure = fixture(
+            prod_observation_status="observed",
+            prod_aggregate_result="failure",
+        )
+        assert downstream_step_failure["pipeline_health"]["status"] == "failed"
+        assert downstream_step_failure["pipeline_health"]["failed_jobs"] == ["prod-aggregate"]
+        assert downstream_step_failure["workflow_should_fail"] is True
 
         measured_drift = fixture(
             prompt_prod_report={"summary": {"has_actionable_drift": True, "alerts": ["x=1"], "count": 1}}
