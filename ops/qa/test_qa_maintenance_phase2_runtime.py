@@ -657,6 +657,8 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
                         "hours_ahead": 72,
                         "ranges_required": 72,
                         "ranges_covered": 72,
+                        "attempts": 1,
+                        "lock_retries": 0,
                     },
                     "deletion_authorized": False,
                 },
@@ -668,7 +670,8 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
                 "last_error_at": None,
                 "last_result": (
                     "status=ok phase=boundary run_id=boundary-045 trigger=timer "
-                    "provision_covered=72/72 deletion_authorized=false"
+                    "provision_covered=72/72 provision_attempts=1 "
+                    "provision_lock_retries=0 deletion_authorized=false"
                 ),
             },
             "qa_records": {
@@ -704,6 +707,51 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
         verdict = health.evaluate(snapshot, now=now)
         self.assertIs(verdict["healthy"], True)
         self.assertEqual(verdict["status"], "healthy")
+        self.assertEqual(verdict["reasons"], [])
+
+    def test_boundary_provision_retry_facts_must_correlate(self) -> None:
+        health = _load_module("qa_phase2_health_retry", "ops/qa/qa_phase2_health.py")
+        snapshot, now = self._healthy_snapshot()
+        snapshot["boundary_host_receipt"]["boundary"]["provision"]["attempts"] = 3
+        snapshot["boundary_host_receipt"]["boundary"]["provision"]["lock_retries"] = 2
+
+        verdict = health.evaluate(snapshot, now=now)
+
+        self.assertIs(verdict["healthy"], False)
+        self.assertIn("boundary_provision_attempts_heartbeat_mismatch", verdict["reasons"])
+        self.assertIn("boundary_provision_lock_retries_heartbeat_mismatch", verdict["reasons"])
+
+    def test_boundary_correlated_nonzero_retry_facts_remain_healthy(self) -> None:
+        health = _load_module("qa_phase2_health_retry_ok", "ops/qa/qa_phase2_health.py")
+        snapshot, now = self._healthy_snapshot()
+        snapshot["boundary_host_receipt"]["boundary"]["provision"]["attempts"] = 3
+        snapshot["boundary_host_receipt"]["boundary"]["provision"]["lock_retries"] = 2
+        heartbeat = snapshot["boundary_database_heartbeat"]
+        heartbeat["last_result"] = heartbeat["last_result"].replace(
+            "provision_attempts=1 provision_lock_retries=0",
+            "provision_attempts=3 provision_lock_retries=2",
+        )
+
+        verdict = health.evaluate(snapshot, now=now)
+
+        self.assertIs(verdict["healthy"], True)
+        self.assertEqual(verdict["reasons"], [])
+
+    def test_boundary_legacy_retry_shape_is_accepted_during_rollout(self) -> None:
+        health = _load_module("qa_phase2_health_retry_legacy", "ops/qa/qa_phase2_health.py")
+        snapshot, now = self._healthy_snapshot()
+        provision = snapshot["boundary_host_receipt"]["boundary"]["provision"]
+        provision.pop("attempts")
+        provision.pop("lock_retries")
+        heartbeat = snapshot["boundary_database_heartbeat"]
+        heartbeat["last_result"] = heartbeat["last_result"].replace(
+            " provision_attempts=1 provision_lock_retries=0",
+            "",
+        )
+
+        verdict = health.evaluate(snapshot, now=now)
+
+        self.assertIs(verdict["healthy"], True)
         self.assertEqual(verdict["reasons"], [])
 
     def test_finalized_requires_complete_catalog_and_cleanup_facts(self) -> None:

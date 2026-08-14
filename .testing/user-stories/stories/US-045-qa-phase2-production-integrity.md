@@ -23,7 +23,7 @@
 5. **AC-005（runtime）**：Given timer、operator、self-test 与 health probe，When执行或发生 pre-app/child failure，Then它们共用唯一 host runner 与批准的 image/user/mount/scratch/resource contract，原子 receipt 始终推进且四类运行事实矛盾时 fail closed。
 6. **AC-006（IAM 与 recovery）**：Given app archive role 与 ops recovery role，When渲染 policy 或从 workstation inspect/verify/restore，Then app 只有所需 suffix-scoped artifact 权限且无无界 list/partial read，recovery 不经过 prod 主机/API/数据库，正文恢复要求 privacy confirmation，并如实保留 shared-role 风险。
 7. **AC-007（cutover 排空与 export orphan）**：Given legacy stale cleanup 仅在 no-move cutover 排空期间运行，且 steady-state boundary 处理 export temp crash orphan，When plan/apply，Then只处理 effective mount 内 age/type/open-handle 全部合格且 exact plan-hash 未漂移的文件；durable same-T0 finalize receipt 原子切换 owner 后，legacy cleanup 必须停用，已知历史坏小时与 `qa_export_jobs` 保持不变。
-8. **AC-008（qa_records UTC 小时生命周期）**：Given `qa_records` 已切换为 UTC 小时 RANGE 分区且 archive/boundary 共用 `QAMA` 锁，When `*:00` boundary owner 运行，Then 仅基于 catalog bound 预建 `[current_hour, current_hour+72h)`、DROP `upper_bound <= retention_boundary` 的规范子分区，并在同一事务内完成 terminal gap 分类 + DROP + `source_dropped_at`；hot blob/DLQ 小时目录在 DROP 后幂等清理；稳态禁止 rehome/staging/copy/move 与逐行 QA retention；`archive_failed`、分区缺口、DEFAULT 稳态残留与 hot-file 残留必须 health failed。
+8. **AC-008（qa_records UTC 小时生命周期）**：Given `qa_records` 已切换为 UTC 小时 RANGE 分区且 archive/boundary 共用 `QAMA` 锁，When `*:00` boundary owner 运行，Then 每条 pooled connection 继承短 DDL timeout，仅对可识别锁竞争有界重试，并在任何 DROP 前完成 `[current_hour, current_hour+72h)` catalog coverage；之后仅基于 catalog bound DROP `upper_bound <= retention_boundary` 的规范子分区，并在同一事务内完成 terminal gap 分类 + DROP + `source_dropped_at`；hot blob/DLQ 小时目录在 DROP 后幂等清理；稳态禁止 rehome/staging/copy/move 与逐行 QA retention；非锁错误、取消、重试耗尽、`archive_failed`、分区缺口、DEFAULT 稳态残留与 hot-file 残留必须 fail closed/health failed。
 9. **AC-009（过期 gap 批量决策）**：Given 已过 24 小时、源行数为零、无 commit-ready segment、非 committed/terminal 且 recovery role 确认无 `commit.json` 的精确小时，When 生成 batch plan，Then hash 绑定 DB UTC anchor/cutoff/cutover/latest-normal、精确窗口、control window/update/segment fingerprint/commit-ready fact、bucket/role/recovery-run 与 S3 absence；When 使用精确 hash 与 approver apply，Then 在 `QAMA` 同一事务中重验证全部事实、通过 `qa_archive_shards` owner 写入 `failed/source_unavailable_after_retention` 并追加不可变 receipt；任一事实漂移整批拒绝，且不写 S3、不删/搬数据、不切 timer。
 
 ## Assertions
@@ -102,6 +102,14 @@
 - `backend/internal/observability/qa/lifecycle/cutover_apply_test.go`::`TestApplyCutoverFinalizeRequiresMatchingActivationReceipt`
 - `backend/internal/observability/qa/lifecycle/cutover_apply_test.go`::`TestApplyCutoverFinalizeDropsEmptyDefaultAndPersistsReceipt`
 - `backend/cmd/server/qa_maintenance_boundary_test.go`::`TestQABoundaryLockContentionAdvancesFailureHeartbeatAndReceipt`
+- `backend/cmd/server/qa_maintenance_boundary_test.go`::`TestOpenQABoundaryDBAppliesTimeoutsToEveryPooledConnection`
+- `backend/cmd/server/qa_maintenance_boundary_integration_test.go`::`TestUS045_QABoundaryPooledConnectionsApplyLockTimeoutAndRetry`
+- `backend/internal/observability/qa/lifecycle/boundary_execution_test.go`::`TestRunProvisionRetriesOnlyLockContentionBeforeCoverageCheck`
+- `backend/internal/observability/qa/lifecycle/boundary_execution_test.go`::`TestRunProvisionDoesNotRetryNearMatchLockTimeoutText`
+- `backend/internal/observability/qa/lifecycle/boundary_execution_test.go`::`TestRunBoundaryLockRetryExhaustionRemainsFailClosed`
+- `backend/internal/observability/qa/lifecycle/boundary_execution_test.go`::`TestRunProvisionContextCancellationStopsLockRetry`
+- `ops/qa/test_qa_maintenance_phase2_runtime.py`::`QAPhase2OperatorAndHealthTest.test_boundary_correlated_nonzero_retry_facts_remain_healthy`
+- `ops/qa/test_qa_maintenance_phase2_runtime.py`::`QAPhase2OperatorAndHealthTest.test_boundary_legacy_retry_shape_is_accepted_during_rollout`
 - `backend/internal/repository/migrations_schema_integration_test.go`::`TestQAHourlyCutoverFinalizeReceiptRequiresMatchingActivationT0`
 - `ops/qa/test_qa_boundary_runtime.py`::`QABoundaryRunnerTest.test_finalize_operator_requires_fresh_successful_archive_receipt`
 - `ops/qa/test_qa_boundary_runtime.py`::`QABoundaryDeploymentTest.test_ssm_sync_installs_runtime_and_switches_cleanup_owner_atomically`
@@ -131,7 +139,7 @@
 cd backend
 go test -tags=unit -count=1 -run 'TestUS045_' ./cmd/qa-archive
 go test -tags=unit -count=1 -run 'TestUS045_' ./cmd/server
-go test -tags=integration -count=1 -run 'TestUS045_' ./internal/observability/qa/archive
+go test -tags=integration -count=1 -run 'TestUS045_' ./internal/observability/qa/archive ./cmd/server
 go test -tags=unit -count=1 -run 'TestHourly|TestRetention|TestBuildCutover|TestRunBoundary|TestDropExpiredHour|TestApplyCutover|TestValidateHourDir' ./internal/pkg/pgpartition/... ./internal/observability/qa/lifecycle/...
 go test -tags=integration -count=1 -run 'TestQAHourlyCutover|TestPgPartition_EnsureHourly|TestPgPartition_Hourly|TestPgPartition_DropExpiredHourly' ./internal/repository/
 go test -tags=unit -count=1 -run 'TestUS045_.*GapDecision' ./internal/observability/qa/archive ./cmd/qa-archive

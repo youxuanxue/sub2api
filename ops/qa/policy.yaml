@@ -10,6 +10,9 @@ prod:
     boundary_schedule_utc: "*:00"
     randomized_delay_minutes: 0
     future_horizon_hours: 72
+    lock_timeout_ms: 100
+    provision_lock_retry_sqlstate: "55P03"
+    provision_lock_retry_backoff_ms: [250, 500, 1000, 2000, 4000, 8000]
     host_receipt_path: /var/lib/tokenkey/qa-boundary-last-run.json
 
   archive:

@@ -1,9 +1,9 @@
 ---
 title: Prod-only QA 24 小时在线层与 S3 归档生命周期
 status: approved
-approved_by: "user (conversation approvals, 2026-08-05 through 2026-08-11; UTC-hour partitions, default-free steady state, no rehome)"
+approved_by: "user (conversation approvals, 2026-08-05 through 2026-08-14; UTC-hour partitions, default-free steady state, no rehome, bounded lock-contention retry)"
 approved_at: 2026-08-05
-last_reviewed: 2026-08-11
+last_reviewed: 2026-08-14
 created: 2026-08-05
 authors: [agent]
 risk: high
@@ -201,6 +201,14 @@ boundary 只以数据库小时锚点和 direct child 的真实 catalog 上界选
 `tokenkey-qa-boundary` 在每小时整点运行且没有 randomized delay。正常情况下，上一批 24 小时边界内
 的记录在其小时子表到期时整表 DROP，因此物理保留为 24 至 25 小时；调度延迟、到期分区 backlog 或
 任何 overdue attached partition 都由 boundary 健康信号直接暴露。用户可见窗口始终严格为 24 小时。
+
+boundary 保持短 `lock_timeout`，避免分区 DDL 长时间阻塞在线事务；供给阶段仅对
+`ops/qa/policy.yaml` 指定的 PostgreSQL lock-contention SQLSTATE 或等价的 server lock-timeout
+错误执行有界退避。非锁错误和 context 取消立即失败；退避预算耗尽后仍必须在覆盖校验和任何 DROP
+之前 fail closed。重试不改变小时分区的幂等供给语义，也不通过延长锁等待掩盖持续阻塞。
+Go boundary CLI 必须把 `lock_timeout` 与 `statement_timeout` 写入 `sql.DB` 的 lib/pq DSN options，
+使供给、覆盖校验和 DROP 使用的每条 pooled connection 都继承超时；advisory-lock connection 的
+显式 `SET` 与 host runner 的 `PGOPTIONS` 只作同值纵深守卫，不能替代 CLI 自身的连接池约束。
 
 ## 7. 统一每小时 Maintenance
 
@@ -663,9 +671,12 @@ hot_files_cleaned_at / hot_cleanup_error
 verification_error_code=source_unavailable_after_retention
 ```
 
-应用 boundary heartbeat 记录 run ID、trigger、数据库 UTC anchor、未来覆盖、DROP/cleanup 结果和失败码；
+应用 boundary heartbeat 记录 run ID、trigger、数据库 UTC anchor、未来覆盖、供给尝试/锁重试次数、
+DROP/cleanup 结果和失败码；
 host runner 原子写 `/var/lib/tokenkey/qa-boundary-last-run.json`，再与 systemd、DB heartbeat、catalog/control
 交叉核对。archive receipt 始终 `deletion_authorized=false`，不能替代 boundary 删除事实。
+滚动发布期间，仅当 child receipt 与 DB heartbeat **同时**没有尝试/锁重试字段时兼容旧格式；任一侧
+出现任一新字段后，四个字段必须完整、计数有效且双边一致，否则 health fail closed。
 
 ### 14.3 Cutover phase receipt
 
@@ -739,6 +750,8 @@ hot-file backlog、未知终态码或四方矛盾都必须 failed 且 CLI 非零
 - archive 在 control 创建前失败：后续按 cutover 后 UTC 时间轴重新发现；若发现时源数据已过期，写
   terminal `source_unavailable_after_retention` 并持续报 degraded，不伪造零行成功；
 - partition DROP 前失败：事务回滚并保留 child；DROP 后 hot-file cleanup 失败：下一轮按 shard control 幂等续跑；
+- partition provision 短锁竞争：只按 policy 有界重试；非锁错误、取消或重试耗尽均在 DROP 前失败，
+  并由 child receipt 与 DB heartbeat 保留尝试次数和最终错误；
 - Export Worker 失败：job 标记 failed，用户重试；不得 fallback 到 prod；
 - ops fetch 损坏：checksum fail closed，不输出不可信证据。
 
@@ -866,6 +879,7 @@ Phase PR 必须同时删除该行所有 deploy、test、doc 和 generated fixtur
 - `traj_export_enabled=false` 时 UI 隐藏入口且 enqueue/list/get/download 均服务端拒绝；
 - 导出开关关闭后 prod 不再返回 job/签发 URL，Worker 无 prod DB 依赖，同时 raw archive 仍覆盖该用户；
 - boundary 按 catalog 上界 DROP 所有到期小时，不读取 archive 完整性延长 retention；
+- boundary provision 对可识别锁竞争有界重试，非锁错误不重试，取消立即停止，预算耗尽时不进入 DROP；
 - DROP/control 同事务，hot-file cleanup crash 后按 `source_dropped_at` 重入；
 - archive/boundary host receipt 原子替换，systemd/receipt/DB heartbeat/control/catalog 任一矛盾都不能报健康；
 - `qa_exports_tmp` 默认路径解析、24h/no-open-handle 选择、no-write plan 和精确 plan hash 确认；

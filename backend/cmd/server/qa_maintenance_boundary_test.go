@@ -82,6 +82,36 @@ func TestQABoundaryLockContentionAdvancesFailureHeartbeatAndReceipt(t *testing.T
 	}
 }
 
+func TestOpenQABoundaryDBAppliesTimeoutsToEveryPooledConnection(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var gotDSN string
+	opened, err := openQABoundaryDB(qaBoundaryDeps{
+		loadConfig: func() (*config.Config, error) {
+			return &config.Config{
+				Timezone: "UTC",
+				Database: config.DatabaseConfig{Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable"},
+			}, nil
+		},
+		openDB: func(_ string, dsn string) (*sql.DB, error) {
+			gotDSN = dsn
+			return db, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("openQABoundaryDB() err=%v", err)
+	}
+	if opened != db {
+		t.Fatal("openQABoundaryDB() returned an unexpected database handle")
+	}
+	if !strings.Contains(gotDSN, "options='-c lock_timeout=100ms -c statement_timeout=120s'") {
+		t.Fatalf("dsn=%q", gotDSN)
+	}
+}
+
 func TestQABoundaryRequestedIncludesCutoverFinalizeCommands(t *testing.T) {
 	for _, argument := range []string{
 		"--qa-cutover-provision-only", "--qa-cutover-finalize-plan", "--qa-cutover-finalize",
@@ -166,6 +196,57 @@ func TestQABoundaryProvisionOnlyRunsProvisionWithoutBoundaryCleanup(t *testing.T
 	}
 	if result.RangesCovered != 72 || result.RangesRequired != 72 {
 		t.Fatalf("result=%+v", result)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestQABoundaryHeartbeatReportsProvisionLockRetries(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	mock.ExpectExec("SET lock_timeout = '100ms'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("SET statement_timeout = '120s'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectClose()
+
+	now := time.Date(2026, 8, 14, 3, 0, 0, 0, time.UTC)
+	var heartbeat *service.OpsUpsertJobHeartbeatInput
+	deps := qaBoundaryDeps{
+		loadConfig: func() (*config.Config, error) {
+			return &config.Config{
+				Timezone: "UTC",
+				Database: config.DatabaseConfig{Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable"},
+			}, nil
+		},
+		openDB:          func(string, string) (*sql.DB, error) { return db, nil },
+		tryAdvisoryLock: func(context.Context, *sql.Conn) (bool, error) { return true, nil },
+		unlockAdvisory:  func(context.Context, *sql.Conn) error { return nil },
+		runBoundary: func(context.Context, *sql.DB, lifecycle.ControlStore, lifecycle.Options) (lifecycle.BoundaryResult, error) {
+			return lifecycle.BoundaryResult{Provision: lifecycle.ProvisionResult{
+				HoursAhead: 72, RangesRequired: 72, RangesCovered: 72, Attempts: 3, LockRetries: 2,
+			}}, nil
+		},
+		writeHeartbeat: func(_ context.Context, _ *sql.DB, input *service.OpsUpsertJobHeartbeatInput) error {
+			heartbeat = input
+			return nil
+		},
+		now: func() time.Time { return now },
+	}
+
+	err = runQABoundaryCommand(context.Background(), []string{
+		"--qa-boundary-once", "--confirm", qaBoundaryConfirmation,
+	}, &bytes.Buffer{}, deps)
+	if err != nil {
+		t.Fatalf("runQABoundaryCommand() err=%v", err)
+	}
+	if heartbeat == nil || heartbeat.LastResult == nil {
+		t.Fatalf("heartbeat=%+v", heartbeat)
+	}
+	if !strings.Contains(*heartbeat.LastResult, "provision_attempts=3 provision_lock_retries=2") {
+		t.Fatalf("last_result=%q", *heartbeat.LastResult)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

@@ -38,6 +38,7 @@ STALE_OPERATOR = Path("ops/qa/prod_qa_stale_cleanup.py")
 DEPLOY_SSM = Path("ops/stage0/deploy_via_ssm.sh")
 DEPLOY_BG = Path("ops/stage0/deploy_via_ssm_bluegreen.sh")
 LIVE_PROBE = Path("ops/observability/probe-qa-phase2-live-health.sh")
+HEALTH_EVALUATOR = Path("ops/qa/qa_phase2_health.py")
 CUTOVER_MIGRATION = Path("backend/migrations/tk_074_qa_hourly_cutover_receipts.sql")
 BOUNDARY_OWNER_SWITCH = Path("ops/stage0/sync-qa-boundary-timer-via-ssm.sh")
 STALE_TIMER_SYNC = Path("ops/stage0/sync-qa-stale-cleanup-timer-via-ssm.sh")
@@ -49,6 +50,9 @@ DR_RUNBOOK = Path("deploy/aws/RUNBOOK-disaster-recovery.md")
 ARCHIVE_README = Path("ops/archive/README.md")
 CUTOVER_PLAN = Path("backend/internal/observability/qa/lifecycle/cutover_plan.go")
 CUTOVER_APPLY = Path("backend/internal/observability/qa/lifecycle/cutover_apply.go")
+LIFECYCLE_EXECUTION_TEST = Path(
+    "backend/internal/observability/qa/lifecycle/boundary_execution_test.go"
+)
 
 MUST_BE_ABSENT = (
     Path("docs/qa-export-s3-and-auto-archive.md"),
@@ -141,6 +145,9 @@ REQUIRED_BY_FILE = {
         'boundary_schedule_utc: "*:00"',
         "randomized_delay_minutes: 0",
         "future_horizon_hours: 72",
+        "lock_timeout_ms: 100",
+        'provision_lock_retry_sqlstate: "55P03"',
+        "provision_lock_retry_backoff_ms: [250, 500, 1000, 2000, 4000, 8000]",
         "host_receipt_path: /var/lib/tokenkey/qa-boundary-last-run.json",
         "archive:",
         "enabled: true",
@@ -391,6 +398,20 @@ REQUIRED_BY_FILE = {
         "--qa-cutover-provision-only",
         "tokenkey-prod-qa-cutover-provision-v1",
         "runProvisionOnly",
+        "provision_attempts=%d",
+        "provision_lock_retries=%d",
+    ),
+    HEALTH_EVALUATOR: (
+        "boundary_provision_attempts_invalid",
+        "boundary_provision_lock_retries_invalid",
+        "boundary_provision_attempts_heartbeat_mismatch",
+        "boundary_provision_lock_retries_heartbeat_mismatch",
+    ),
+    LIFECYCLE_EXECUTION_TEST: (
+        "TestRunProvisionRetriesOnlyLockContentionBeforeCoverageCheck",
+        "TestRunProvisionDoesNotRetryNearMatchLockTimeoutText",
+        "TestRunBoundaryLockRetryExhaustionRemainsFailClosed",
+        "TestRunProvisionContextCancellationStopsLockRetry",
     ),
     BOUNDARY_SCRIPT: (
         "--qa-cutover-provision-only",
@@ -429,6 +450,16 @@ def _policy_failures(root: Path) -> list[str]:
         ("prod", "lifecycle", "boundary_schedule_utc"): "*:00",
         ("prod", "lifecycle", "randomized_delay_minutes"): 0,
         ("prod", "lifecycle", "future_horizon_hours"): 72,
+        ("prod", "lifecycle", "lock_timeout_ms"): 100,
+        ("prod", "lifecycle", "provision_lock_retry_sqlstate"): "55P03",
+        ("prod", "lifecycle", "provision_lock_retry_backoff_ms"): [
+            250,
+            500,
+            1000,
+            2000,
+            4000,
+            8000,
+        ],
         ("prod", "lifecycle", "host_receipt_path"): "/var/lib/tokenkey/qa-boundary-last-run.json",
         ("prod", "archive", "enabled"): True,
         ("prod", "archive", "shard_minutes"): 60,
@@ -477,6 +508,9 @@ def _policy_failures(root: Path) -> list[str]:
     online_hours = prod.get("online_window_hours")
     maintenance_schedule = prod.get("maintenance_schedule_utc")
     boundary_schedule = lifecycle.get("boundary_schedule_utc") if isinstance(lifecycle, dict) else None
+    lock_timeout_ms = lifecycle.get("lock_timeout_ms") if isinstance(lifecycle, dict) else None
+    retry_sqlstate = lifecycle.get("provision_lock_retry_sqlstate") if isinstance(lifecycle, dict) else None
+    retry_backoff_ms = lifecycle.get("provision_lock_retry_backoff_ms") if isinstance(lifecycle, dict) else None
     raw_retention = archive.get("s3_retention_days") if isinstance(archive, dict) else None
     rendered = {
         MAINTENANCE_SCRIPT: (f"OnCalendar=*-*-* *:{str(maintenance_schedule).split(':')[-1]}:00",),
@@ -486,6 +520,10 @@ def _policy_failures(root: Path) -> list[str]:
             "action --mode plan",
             "action --mode apply",
             "--expected-hash",
+            f"lock_timeout={lock_timeout_ms}ms",
+        ),
+        Path("backend/cmd/server/qa_maintenance_boundary.go"): (
+            f"SET lock_timeout = '{lock_timeout_ms}ms'",
         ),
         CLEANUP_SCRIPT: (
             f"RETENTION_HOURS={online_hours}",
@@ -513,6 +551,51 @@ def _policy_failures(root: Path) -> list[str]:
         for needle in needles:
             if needle not in body:
                 failures.append(f"QA policy value is not rendered in {rel}: {needle}")
+    boundary_command = root / "backend/cmd/server/qa_maintenance_boundary.go"
+    try:
+        boundary_command_body = boundary_command.read_text(encoding="utf-8")
+    except OSError as exc:
+        failures.append(f"QA boundary command missing for pooled connection timeouts: {exc}")
+    else:
+        normalized_boundary_command = re.sub(r"\s+", " ", boundary_command_body)
+        expected_connection_options = (
+            'qaBoundaryConnectionOptions = "-c '
+            f'lock_timeout={lock_timeout_ms}ms -c statement_timeout=120s"'
+        )
+        expected_dsn_wiring = (
+            'dsn := cfg.Database.DSNWithTimezone(cfg.Timezone) + " options=\'" + '
+            'qaBoundaryConnectionOptions + "\'"'
+        )
+        if (
+            expected_connection_options not in normalized_boundary_command
+            or expected_dsn_wiring not in normalized_boundary_command
+        ):
+            failures.append("QA pooled connection timeout options drift")
+    lifecycle_owner = root / "backend/internal/observability/qa/lifecycle/boundary.go"
+    try:
+        lifecycle_body = lifecycle_owner.read_text(encoding="utf-8")
+    except OSError as exc:
+        failures.append(f"QA lifecycle owner missing for lock retry policy: {exc}")
+    else:
+        normalized = re.sub(r"\s+", " ", lifecycle_body)
+        if f'qaProvisionLockContentionSQLState = "{retry_sqlstate}"' not in normalized:
+            failures.append("QA provision lock retry SQLSTATE drift")
+        duration_tokens: list[str] = []
+        if isinstance(retry_backoff_ms, list) and all(
+            type(value) is int and value >= 0 for value in retry_backoff_ms
+        ):
+            for value in retry_backoff_ms:
+                if value % 1000 == 0:
+                    duration_tokens.append(f"{value // 1000} * time.Second")
+                else:
+                    duration_tokens.append(f"{value} * time.Millisecond")
+        expected_backoff = (
+            "var qaProvisionLockRetryBackoff = [...]time.Duration{ "
+            + ", ".join(duration_tokens)
+            + ", }"
+        )
+        if not duration_tokens or expected_backoff not in normalized:
+            failures.append("QA provision lock retry backoff drift")
     go_maintenance = (root / GO_MAINTENANCE).read_text(encoding="utf-8") if (root / GO_MAINTENANCE).is_file() else ""
     py_maintenance_path = root / "ops/qa/prod_qa_maintenance.py"
     py_maintenance = py_maintenance_path.read_text(encoding="utf-8") if py_maintenance_path.is_file() else ""
@@ -727,6 +810,19 @@ def _closeout_implementation_failures(root: Path) -> list[str]:
         for needle in ("RunProvision", "RunCutoverProvisionOnly", "DropExpiredHour", "RunBoundary"):
             if needle not in body:
                 failures.append(f"qa lifecycle boundary missing {needle}")
+        for needle in (
+            "result.Attempts++",
+            "isProvisionLockContention(err)",
+            "result.LockRetries >= len(backoff)",
+            "retrySleep(ctx, backoff[result.LockRetries])",
+        ):
+            if needle not in body:
+                failures.append(f"QA provision lock retry behavior drift: missing {needle}")
+        run_boundary = body[body.find("func RunBoundary") :]
+        provision_call = run_boundary.find("RunProvision(ctx")
+        expiry_call = run_boundary.find("runExpiryDrops(ctx")
+        if provision_call < 0 or expiry_call < 0 or provision_call > expiry_call:
+            failures.append("QA boundary no longer provisions before expiry DROP")
         if "status.VerificationErrorCode == archive.IntegrityCommitExistenceUnknown" not in body:
             failures.append("qa lifecycle boundary must preserve unknown commit existence while dropping hot source")
     cutover_plan = root / CUTOVER_PLAN
@@ -934,6 +1030,9 @@ prod:
     boundary_schedule_utc: "*:00"
     randomized_delay_minutes: 0
     future_horizon_hours: 72
+    lock_timeout_ms: 100
+    provision_lock_retry_sqlstate: "55P03"
+    provision_lock_retry_backoff_ms: [250, 500, 1000, 2000, 4000, 8000]
     host_receipt_path: /var/lib/tokenkey/qa-boundary-last-run.json
   archive:
     enabled: true
@@ -970,6 +1069,7 @@ edge:
                 "action --mode plan\n"
                 "action --mode apply\n"
                 "--expected-hash\n"
+                "lock_timeout=100ms\n"
             )
         with (root / BOOTSTRAP).open("a", encoding="utf-8") as handle:
             handle.write("tokenkey-qa-stale-cleanup.sh --install-units /etc/systemd/system\n")
@@ -997,6 +1097,49 @@ edge:
             print("self-test failed to detect QA policy drift")
             return 1
         (root / POLICY).write_text(policy_fixture, encoding="utf-8")
+
+        lifecycle_owner = root / "backend/internal/observability/qa/lifecycle/boundary.go"
+        lifecycle_body = lifecycle_owner.read_text(encoding="utf-8")
+        lifecycle_owner.write_text(
+            lifecycle_body.replace(
+                'qaProvisionLockContentionSQLState = "55P03"',
+                'qaProvisionLockContentionSQLState = "40001"',
+            ),
+            encoding="utf-8",
+        )
+        failures = scan(root)
+        if not any("lock retry SQLSTATE drift" in item for item in failures):
+            print("self-test failed to detect QA provision lock retry SQLSTATE drift")
+            return 1
+        lifecycle_owner.write_text(lifecycle_body, encoding="utf-8")
+
+        lifecycle_owner.write_text(
+            lifecycle_body.replace(
+                "if !isProvisionLockContention(err) || result.LockRetries >= len(backoff) {",
+                "if result.LockRetries >= len(backoff) {",
+            ),
+            encoding="utf-8",
+        )
+        failures = scan(root)
+        if not any("lock retry behavior drift" in item for item in failures):
+            print("self-test failed to detect QA provision lock retry behavior drift")
+            return 1
+        lifecycle_owner.write_text(lifecycle_body, encoding="utf-8")
+
+        boundary_command = root / "backend/cmd/server/qa_maintenance_boundary.go"
+        boundary_command_body = boundary_command.read_text(encoding="utf-8")
+        boundary_command.write_text(
+            boundary_command_body.replace(
+                ' + " options=\'" + qaBoundaryConnectionOptions + "\'"',
+                "",
+            ),
+            encoding="utf-8",
+        )
+        failures = scan(root)
+        if not any("pooled connection timeout options" in item for item in failures):
+            print("self-test failed to detect QA pooled connection timeout drift")
+            return 1
+        boundary_command.write_text(boundary_command_body, encoding="utf-8")
 
         probe = root / LIVE_PROBE
         probe_body = probe.read_text(encoding="utf-8")
