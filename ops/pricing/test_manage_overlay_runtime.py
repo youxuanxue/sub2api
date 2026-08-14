@@ -259,6 +259,29 @@ class PricingRegistryRuntimeTests(unittest.TestCase):
             self.assertEqual(runtime.cmd_sync_runtime(args), 0)
         write.assert_called_once_with(mock.ANY, mock.ANY, "absent")
 
+    def test_sync_post_write_provenance_mismatch_fails_closed(self) -> None:
+        artifact = runtime.RegistryArtifact(self.COMMIT, self.REGISTRY)
+        args = type("Args", (), {"dry_run": False})()
+        other_source = "b" * 40
+        same_content = runtime.build_runtime_envelope(self.REGISTRY, other_source)
+        with mock.patch.object(
+            runtime, "load_origin_main_artifact", return_value=artifact
+        ), mock.patch.object(runtime, "_run_registry_gate"), mock.patch.object(
+            runtime._SSM, "resolve_prod_instance", return_value="i-" + "1" * 17
+        ), mock.patch.object(
+            runtime, "read_runtime_document",
+            side_effect=[self.document({}, "absent"), self.document(same_content, "43")],
+        ), mock.patch.object(
+            runtime, "_write_runtime_document", return_value=True
+        ) as write, mock.patch.object(
+            runtime, "_git_is_ancestor", return_value=True
+        ) as ancestry, self.assertRaisesRegex(
+            SystemExit, "2"
+        ):
+            runtime.cmd_sync_runtime(args)
+        write.assert_called_once_with(mock.ANY, mock.ANY, "absent")
+        ancestry.assert_called_once_with(other_source, self.COMMIT)
+
     def test_sync_conflict_then_exact_current_succeeds_without_second_write(self) -> None:
         artifact = runtime.RegistryArtifact(self.COMMIT, self.REGISTRY)
         args = type("Args", (), {"dry_run": False})()

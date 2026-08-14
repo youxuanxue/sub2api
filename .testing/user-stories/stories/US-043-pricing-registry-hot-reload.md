@@ -57,6 +57,7 @@
 - `ops/pricing/test_manage_overlay_runtime.py`::`test_remote_cas_uses_cte_and_conflict_exits_before_redis`
 - `ops/pricing/test_manage_overlay_runtime.py`::`test_check_is_read_only_and_reports_provenance_lag_as_healthy`
 - `ops/pricing/test_manage_overlay_runtime.py`::`test_sync_cas_success_verifies_exact_readback`
+- `ops/pricing/test_manage_overlay_runtime.py`::`test_sync_post_write_provenance_mismatch_fails_closed`
 - `ops/pricing/test_manage_overlay_runtime.py`::`test_sync_conflict_then_newer_source_refuses_retry`
 - `ops/pricing/test_pricing_registry_sensor.py`::`test_candidate_updates_only_existing_owner_billable_fields`
 - `scripts/checks/test_pricing_registry_publication.py`::`test_rejects_non_main_extra_event_or_extra_path`
