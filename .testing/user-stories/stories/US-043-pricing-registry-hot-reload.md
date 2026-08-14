@@ -51,10 +51,10 @@
 - `backend/internal/service/billing_service_tk_image_token_settlement_test.go`::`TestUS043_BothGatewayImageFunnelsUseTokenSettlement`
 - `backend/internal/service/billing_service_tk_image_token_settlement_test.go`::`TestUS043_GatewayMissingImageTokensReturnsBillingError`
 - `backend/internal/service/pricing_catalog_tk_test.go`::`TestUS043_PublicCatalogSurfacesImageTokenSettlementDimensions`
-- `ops/pricing/test_manage_overlay_runtime.py`::`test_sync_verifies_readback_after_one_atomic_write`
-- `ops/pricing/test_manage_overlay_runtime.py`::`test_sync_refuses_to_downgrade_newer_runtime_source`
+- `ops/pricing/test_manage_overlay_runtime.py`::`test_sync_cas_success_verifies_exact_readback`
+- `ops/pricing/test_manage_overlay_runtime.py`::`test_sync_conflict_then_newer_source_refuses_retry`
 - `ops/pricing/test_pricing_registry_sensor.py`::`test_candidate_updates_only_existing_owner_billable_fields`
-- `scripts/checks/test_pricing_registry_publication.py`::`test_rejects_non_main_or_multi_file_publication_trigger`
+- `scripts/checks/test_pricing_registry_publication.py`::`test_rejects_non_main_extra_event_or_extra_path`
 - `scripts/checks/test_pricing_registry_publication.py`::`test_rejects_deploy_price_write`
 - `scripts/checks/test_pricing_registry_publication.py`::`test_rejects_sensor_aws_or_runtime_publication_capability`
 - `scripts/checks/test_pricing_overlay.py`::`PricingRegistryMigrationParityTest.test_reconstructs_legacy_fill_only_precedence`
