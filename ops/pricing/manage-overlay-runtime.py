@@ -36,6 +36,9 @@ SETTING_KEY = "tk_pricing_overlay_runtime"
 SCHEMA_VERSION = 1
 MAX_REGISTRY_BYTES = 8 << 20
 CAS_MAX_ATTEMPTS = 3
+READ_MAX_ATTEMPTS = 3
+RUNTIME_CHUNK_BYTES = 12 << 10
+MAX_RUNTIME_DOCUMENT_BYTES = 12 << 20
 
 PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
 REDISCLI = "env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli"
@@ -84,6 +87,13 @@ class RuntimeInspection:
         return (
             self.state == "valid"
             and self.source_commit == expected.source_commit
+            and self.registry_sha256 == expected.registry_sha256
+            and self.registry_bytes == expected.registry_bytes
+        )
+
+    def is_content_current(self, expected: RegistryArtifact) -> bool:
+        return (
+            self.state == "valid"
             and self.registry_sha256 == expected.registry_sha256
             and self.registry_bytes == expected.registry_bytes
         )
@@ -222,43 +232,128 @@ def load_origin_main_artifact(*, require_publishable_checkout: bool) -> Registry
     return RegistryArtifact(source_commit=source_commit, registry_bytes=registry_bytes)
 
 
-def _decode_runtime_value(output: str) -> RuntimeDocument:
-    output = output.strip()
-    if not output:
-        raise ValueError("runtime settings read returned no versioned result")
-    payload = json.loads(gzip.decompress(base64.b64decode(output)).decode("utf-8"))
-    if not isinstance(payload, dict) or set(payload) != {"version", "value"}:
-        raise ValueError("runtime settings read must contain exactly version and value")
-    version = payload["version"]
-    value = payload["value"]
-    if not isinstance(version, str) or not version:
-        raise ValueError("runtime settings version must be a non-empty string")
-    if not isinstance(value, dict):
-        raise ValueError("runtime settings value must be a JSON object")
-    if version == "absent" and value != {}:
-        raise ValueError("absent runtime settings row must have an empty value")
-    if version != "absent" and not version.isdigit():
-        raise ValueError("runtime settings row version must be a PostgreSQL xmin")
-    return RuntimeDocument(value=value, version=version)
+def _run_pricing_shell(instance_id: str, shell: str, comment: str) -> str:
+    shell_b64 = base64.b64encode(shell.encode("utf-8")).decode("ascii")
+    return _SSM.run_shell_b64(instance_id, shell_b64, comment)
+
+
+def _read_runtime_metadata(instance_id: str) -> tuple[str, int] | None:
+    query = (
+        "SELECT COALESCE((SELECT CASE "
+        "WHEN value IS NULL OR octet_length(convert_to(value, 'UTF8')) = 0 "
+        "THEN 'ROW_INVALID' ELSE 'ROW_PRESENT|' || xmin::text || '|' || "
+        "octet_length(convert_to(value, 'UTF8'))::text END "
+        f"FROM settings WHERE key='{SETTING_KEY}'), 'ROW_ABSENT');"
+    )
+    output = _run_pricing_shell(
+        instance_id,
+        f'{PSQL} -c "{query}"',
+        "pricing registry: read runtime snapshot metadata",
+    ).strip()
+    if output == "ROW_ABSENT":
+        return None
+    if output == "ROW_INVALID":
+        fail("runtime settings row has a null or empty value")
+    parts = output.split("|")
+    if len(parts) != 3 or parts[0] != "ROW_PRESENT":
+        fail(f"runtime settings metadata returned an invalid marker: {output!r}")
+    version, raw_total = parts[1:]
+    if not version.isdigit():
+        fail("runtime settings metadata returned an invalid PostgreSQL xmin")
+    if not raw_total.isdigit():
+        fail("runtime settings metadata returned an invalid byte length")
+    total_bytes = int(raw_total)
+    if not 0 < total_bytes <= MAX_RUNTIME_DOCUMENT_BYTES:
+        fail(
+            "runtime settings document size is outside the supported range: "
+            f"{total_bytes} bytes"
+        )
+    return version, total_bytes
+
+
+def _read_runtime_chunk(
+    instance_id: str, version: str, offset: int, expected_bytes: int
+) -> bytes | None:
+    if not version.isdigit():
+        fail("runtime chunk read requires a PostgreSQL xmin")
+    query = (
+        "SELECT COALESCE((SELECT 'CHUNK|' || "
+        "octet_length(chunk_bytes)::text || '|' || encode(chunk_bytes, 'base64') "
+        "FROM (SELECT substring(convert_to(value, 'UTF8') "
+        f"FROM {offset} FOR {expected_bytes}) AS chunk_bytes FROM settings "
+        f"WHERE key='{SETTING_KEY}' AND xmin='{version}'::xid) AS chunk_row), "
+        "'CHUNK_STALE');"
+    )
+    output = _run_pricing_shell(
+        instance_id,
+        f'{PSQL} -c "{query}" | tr -d \'\\n\'',
+        "pricing registry: read runtime snapshot chunk",
+    ).strip()
+    if output == "CHUNK_STALE":
+        return None
+    parts = output.split("|", 2)
+    if len(parts) != 3 or parts[0] != "CHUNK":
+        fail(f"runtime settings chunk returned an invalid marker: {output!r}")
+    if not parts[1].isdigit():
+        fail("runtime settings chunk returned an invalid byte length")
+    reported_bytes = int(parts[1])
+    if reported_bytes != expected_bytes:
+        fail(
+            "runtime settings chunk length mismatch: "
+            f"expected {expected_bytes}, got {reported_bytes}"
+        )
+    try:
+        chunk = base64.b64decode(parts[2], validate=True)
+    except ValueError as exc:
+        fail(f"runtime settings chunk base64 decode failed: {exc}")
+    if len(chunk) != expected_bytes:
+        fail(
+            "runtime settings decoded chunk length mismatch: "
+            f"expected {expected_bytes}, got {len(chunk)}"
+        )
+    return chunk
 
 
 def read_runtime_document(instance_id: str) -> RuntimeDocument:
-    shell = (
-        f"{PSQL} -c \"SELECT json_build_object("
-        "'version', COALESCE((SELECT xmin::text FROM settings "
-        f"WHERE key='{SETTING_KEY}'), 'absent'), "
-        "'value', COALESCE((SELECT value::json FROM settings "
-        f"WHERE key='{SETTING_KEY}'), '{{}}'::json))::text;\""
-        " | gzip -c | base64 | tr -d '\\n'"
+    for attempt in range(1, READ_MAX_ATTEMPTS + 1):
+        metadata = _read_runtime_metadata(instance_id)
+        if metadata is None:
+            return RuntimeDocument(value={}, version="absent")
+        version, total_bytes = metadata
+        chunks: list[bytes] = []
+        stale = False
+        for start in range(0, total_bytes, RUNTIME_CHUNK_BYTES):
+            expected_bytes = min(RUNTIME_CHUNK_BYTES, total_bytes - start)
+            chunk = _read_runtime_chunk(
+                instance_id, version, start + 1, expected_bytes
+            )
+            if chunk is None:
+                stale = True
+                break
+            chunks.append(chunk)
+        if stale:
+            print(
+                f"runtime snapshot changed during read attempt {attempt}; "
+                "restarting from metadata."
+            )
+            continue
+        payload = b"".join(chunks)
+        if len(payload) != total_bytes:
+            fail(
+                "runtime settings document length mismatch: "
+                f"expected {total_bytes}, got {len(payload)}"
+            )
+        try:
+            value = json.loads(payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            fail(f"runtime settings document decode failed: {exc}")
+        if not isinstance(value, dict):
+            fail("runtime settings value must be a JSON object")
+        return RuntimeDocument(value=value, version=version)
+    fail(
+        f"runtime snapshot changed during {READ_MAX_ATTEMPTS} read attempts; "
+        "refusing an inconsistent document"
     )
-    shell_b64 = base64.b64encode(shell.encode()).decode()
-    output = _SSM.run_shell_b64(
-        instance_id, shell_b64, "pricing registry: read runtime snapshot"
-    )
-    try:
-        return _decode_runtime_value(output)
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        fail(f"runtime settings blob decode failed: {exc}")
 
 
 def _run_registry_gate() -> None:
@@ -276,6 +371,13 @@ def _print_inspection(expected: RegistryArtifact, inspection: RuntimeInspection)
     if inspection.is_current(expected):
         print("OK: runtime snapshot is the exact protected-main registry artifact.")
         return
+    if inspection.is_content_current(expected):
+        print("OK: runtime snapshot has the exact protected-main registry content.")
+        print(
+            "NOTE: runtime snapshot provenance lag: "
+            f"runtime={inspection.source_commit} origin/main={expected.source_commit}."
+        )
+        return
     if inspection.state == "valid":
         print(
             "DRIFT: runtime snapshot is valid but differs from protected main "
@@ -291,7 +393,7 @@ def cmd_check(_args: argparse.Namespace) -> int:
     instance_id = _SSM.resolve_prod_instance()
     inspection = inspect_runtime_document(read_runtime_document(instance_id).value)
     _print_inspection(expected, inspection)
-    return 0 if inspection.is_current(expected) else 1
+    return 0 if inspection.is_content_current(expected) else 1
 
 
 def _write_runtime_document(
@@ -305,22 +407,31 @@ def _write_runtime_document(
     raw_b64_len = len(base64.b64encode(envelope_bytes))
     if expected_version == "absent":
         mutation = (
-            f"INSERT INTO settings (key, value, updated_at) VALUES "
+            "WITH mutation AS (INSERT INTO settings (key, value, updated_at) VALUES "
             f"('{SETTING_KEY}', convert_from(decode('$JSON_B64','base64'),'UTF8'), NOW()) "
-            "ON CONFLICT (key) DO NOTHING RETURNING 1"
+            "ON CONFLICT (key) DO NOTHING RETURNING 1) "
+            "SELECT CASE WHEN EXISTS (SELECT 1 FROM mutation) "
+            "THEN 'CAS_APPLIED' ELSE 'CAS_CONFLICT' END"
         )
     else:
         mutation = (
-            f"UPDATE settings SET value=convert_from(decode('$JSON_B64','base64'),'UTF8'), "
+            "WITH mutation AS (UPDATE settings SET "
+            "value=convert_from(decode('$JSON_B64','base64'),'UTF8'), "
             f"updated_at=NOW() WHERE key='{SETTING_KEY}' "
-            f"AND xmin='{expected_version}'::xid RETURNING 1"
+            f"AND xmin='{expected_version}'::xid RETURNING 1) "
+            "SELECT CASE WHEN EXISTS (SELECT 1 FROM mutation) "
+            "THEN 'CAS_APPLIED' ELSE 'CAS_CONFLICT' END"
         )
     shell = (
         "set -euo pipefail\n"
         f"JSON_B64=\"$(echo {gz_b64} | base64 -d | gunzip | base64 | tr -d '\\n')\"\n"
         f"test \"${{#JSON_B64}}\" -eq {raw_b64_len}\n"
         f"CAS_RESULT=\"$({PSQL} -c \"{mutation};\")\"\n"
-        "if [ \"$CAS_RESULT\" != \"1\" ]; then echo CAS_CONFLICT; exit 0; fi\n"
+        "case \"$CAS_RESULT\" in\n"
+        "  CAS_APPLIED) ;;\n"
+        "  CAS_CONFLICT) echo CAS_CONFLICT; exit 0 ;;\n"
+        "  *) echo \"ERROR: unexpected runtime CAS result: $CAS_RESULT\" >&2; exit 1 ;;\n"
+        "esac\n"
         f"{PSQL} -c \"SELECT key || '|' || length(value)::text || '|' || md5(value) "
         f"FROM settings WHERE key='{SETTING_KEY}';\"\n"
         "echo CAS_APPLIED\n"
@@ -334,12 +445,14 @@ def _write_runtime_document(
         instance_id, shell_b64, "pricing registry: publish protected-main snapshot"
     )
     print(output)
-    if "CAS_CONFLICT" in output:
-        if "CAS_APPLIED" in output:
-            fail("runtime CAS returned conflicting terminal markers")
+    lines = output.splitlines()
+    markers = [line for line in lines if line in {"CAS_APPLIED", "CAS_CONFLICT"}]
+    if markers == ["CAS_CONFLICT"]:
         return False
+    if markers != ["CAS_APPLIED"]:
+        fail(f"runtime CAS returned invalid terminal markers: {markers!r}")
     expected_line = f"{SETTING_KEY}|{expected_len}|{expected_md5}"
-    if "CAS_APPLIED" not in output or expected_line not in output:
+    if expected_line not in lines:
         fail(f"runtime CAS read-back mismatch; expected {expected_line!r}")
     return True
 

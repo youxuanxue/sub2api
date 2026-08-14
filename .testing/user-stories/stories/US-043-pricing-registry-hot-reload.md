@@ -34,7 +34,8 @@
 - External parse/sync 可以保留用于 sensor 和上游兼容，但它的结果在 effective map 中被完整 registry 替换。
 - `channel_model_pricing` 只覆盖指定 scope，缺失维度继续遵循现有 resolver 契约。
 - deliberate-free 与 unknown-zero 必须可区分；unknown-zero 仍 fail closed。
-- publisher 写后必须读回并核对 source commit 与 digest。
+- publisher 写后必须以同一 PostgreSQL row version 分块读回，并核对 source commit、digest 与 exact registry bytes；截断或并发变化必须 fail closed。
+- read-only audit 以 exact digest/bytes 判定价格内容健康，并将 source commit 差异单独报告为 provenance lag；publisher no-op 仍要求 provenance 与内容都精确一致。
 
 ## Linked Tests
 
@@ -51,6 +52,10 @@
 - `backend/internal/service/billing_service_tk_image_token_settlement_test.go`::`TestUS043_BothGatewayImageFunnelsUseTokenSettlement`
 - `backend/internal/service/billing_service_tk_image_token_settlement_test.go`::`TestUS043_GatewayMissingImageTokensReturnsBillingError`
 - `backend/internal/service/pricing_catalog_tk_test.go`::`TestUS043_PublicCatalogSurfacesImageTokenSettlementDimensions`
+- `ops/pricing/test_manage_overlay_runtime.py`::`test_chunked_read_reassembles_payload_larger_than_ssm_stdout`
+- `ops/pricing/test_manage_overlay_runtime.py`::`test_runtime_xmin_change_exhausts_bounded_retries`
+- `ops/pricing/test_manage_overlay_runtime.py`::`test_remote_cas_uses_cte_and_conflict_exits_before_redis`
+- `ops/pricing/test_manage_overlay_runtime.py`::`test_check_is_read_only_and_reports_provenance_lag_as_healthy`
 - `ops/pricing/test_manage_overlay_runtime.py`::`test_sync_cas_success_verifies_exact_readback`
 - `ops/pricing/test_manage_overlay_runtime.py`::`test_sync_conflict_then_newer_source_refuses_retry`
 - `ops/pricing/test_pricing_registry_sensor.py`::`test_candidate_updates_only_existing_owner_billable_fields`
