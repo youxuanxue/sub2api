@@ -122,9 +122,9 @@ func applyNewAPIResponsesChatFallbackShape(model string, chatBody []byte) []byte
 	}
 
 	requiresStream := isNewAPIResponsesChatFallbackStreamModel(trimmedModel)
-	isQwenPreview := isNewAPIResponsesQwen37PreviewVariant(trimmedModel)
+	requiresThinking := isNewAPIResponsesQwenStreamThinkingVariant(trimmedModel)
 	isQwen3 := isNewAPIQwen3Model(trimmedModel)
-	if !requiresStream && !isQwenPreview && !isQwen3 {
+	if !requiresStream && !requiresThinking && !isQwen3 {
 		return chatBody
 	}
 
@@ -136,7 +136,7 @@ func applyNewAPIResponsesChatFallbackShape(model string, chatBody []byte) []byte
 	if requiresStream {
 		payload["stream"] = true
 	}
-	if isQwenPreview {
+	if requiresThinking {
 		payload["enable_thinking"] = true
 	}
 	normalizeNewAPIQwenNonStreamingPayload(trimmedModel, payload)
@@ -178,7 +178,11 @@ func ensureNewAPIChatFallbackStreamOptions(chatBody []byte) []byte {
 func isNewAPIResponsesChatFallbackStreamModel(model string) bool {
 	return model == "glm-4.5" ||
 		model == "glm-4.5-air" ||
-		isNewAPIResponsesQwen37PreviewVariant(model)
+		isNewAPIResponsesQwenStreamThinkingVariant(model)
+}
+
+func isNewAPIResponsesQwenStreamThinkingVariant(model string) bool {
+	return isNewAPIResponsesQwen37PreviewVariant(model) || model == "qwen3.8-2.4t-a95b"
 }
 
 func isNewAPIResponsesQwen37PreviewVariant(model string) bool {

@@ -301,7 +301,7 @@ func TestForwardAsResponsesDispatched_ProactiveChatFallbackSkipsResponsesAdaptor
 	require.Equal(t, "response", gjson.Get(rec.Body.String(), "object").String())
 }
 
-func TestForwardAsResponsesDispatched_NewAPIStreamOnlyModelBuffersNonStreamingClient(t *testing.T) {
+func TestForwardAsResponsesDispatched_Qwen38StreamOnlyModelBuffersNonStreamingClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	oldResponses := dispatchNewAPIResponses
@@ -321,24 +321,24 @@ func TestForwardAsResponsesDispatched_NewAPIStreamOnlyModelBuffersNonStreamingCl
 		c.Writer.Header().Set("Content-Type", "text/event-stream")
 		c.Writer.WriteHeader(http.StatusOK)
 		_, _ = c.Writer.Write([]byte(strings.Join([]string{
-			`data: {"id":"chatcmpl_glm","object":"chat.completion.chunk","model":"glm-4.5","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":null}]}`,
+			`data: {"id":"chatcmpl_qwen38","object":"chat.completion.chunk","model":"qwen3.8-2.4t-a95b","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":null}]}`,
 			"",
-			`data: {"id":"chatcmpl_glm","object":"chat.completion.chunk","model":"glm-4.5","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+			`data: {"id":"chatcmpl_qwen38","object":"chat.completion.chunk","model":"qwen3.8-2.4t-a95b","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
 			"",
-			`data: {"id":"chatcmpl_glm","object":"chat.completion.chunk","model":"glm-4.5","choices":[],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}`,
+			`data: {"id":"chatcmpl_qwen38","object":"chat.completion.chunk","model":"qwen3.8-2.4t-a95b","choices":[],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}`,
 			"",
 			"data: [DONE]",
 			"",
 		}, "\n")))
 		return &bridge.DispatchOutcome{
 			Usage:         &newapidto.Usage{PromptTokens: 4, CompletionTokens: 2, TotalTokens: 6},
-			Model:         "glm-4.5",
-			UpstreamModel: "glm-4.5",
+			Model:         "qwen3.8-2.4t-a95b",
+			UpstreamModel: "qwen3.8-2.4t-a95b",
 			Stream:        true,
 		}, nil
 	}
 
-	body := []byte(`{"model":"glm-4.5","input":"hello","stream":false}`)
+	body := []byte(`{"model":"qwen3.8-2.4t-a95b","input":"hello","stream":false}`)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
@@ -347,7 +347,7 @@ func TestForwardAsResponsesDispatched_NewAPIStreamOnlyModelBuffersNonStreamingCl
 	svc := &OpenAIGatewayService{}
 	account := &Account{
 		ID:          4302,
-		Name:        "newapi-glm",
+		Name:        "newapi-qwen38",
 		Platform:    PlatformNewAPI,
 		Type:        AccountTypeAPIKey,
 		ChannelType: 43,
@@ -366,6 +366,7 @@ func TestForwardAsResponsesDispatched_NewAPIStreamOnlyModelBuffersNonStreamingCl
 	require.Equal(t, "response", gjson.Get(rec.Body.String(), "object").String())
 	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
 	require.True(t, gjson.GetBytes(capturedChatBody, "stream").Bool())
+	require.True(t, gjson.GetBytes(capturedChatBody, "enable_thinking").Bool())
 	require.True(t, gjson.GetBytes(capturedChatBody, "stream_options.include_usage").Bool())
 	require.False(t, result.Stream)
 	require.Equal(t, 4, result.Usage.InputTokens)
@@ -500,6 +501,18 @@ func TestApplyNewAPIResponsesChatFallbackShape(t *testing.T) {
 		shaped := applyNewAPIResponsesChatFallbackShape("qwen3.7-max-2026-05-17", baseBody)
 		require.Equal(t, true, gjson.GetBytes(shaped, "stream").Bool())
 		require.Equal(t, true, gjson.GetBytes(shaped, "enable_thinking").Bool())
+	})
+
+	t.Run("qwen3.8 large variant sets stream and thinking", func(t *testing.T) {
+		shaped := applyNewAPIResponsesChatFallbackShape("qwen3.8-2.4t-a95b", baseBody)
+		require.True(t, gjson.GetBytes(shaped, "stream").Bool())
+		require.True(t, gjson.GetBytes(shaped, "enable_thinking").Bool())
+	})
+
+	t.Run("qwen3.8 near miss keeps generic non-streaming shape", func(t *testing.T) {
+		shaped := applyNewAPIResponsesChatFallbackShape("qwen3.8-32b", baseBody)
+		require.False(t, gjson.GetBytes(shaped, "stream").Bool())
+		require.False(t, gjson.GetBytes(shaped, "enable_thinking").Bool())
 	})
 
 	t.Run("glm-4.5 forces stream true", func(t *testing.T) {
