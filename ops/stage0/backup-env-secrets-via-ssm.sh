@@ -52,22 +52,54 @@ stderr_file="${OUTPUT_DIR}/stderr.txt"
 
 # Host-side script: read the 3 secret lines, change-detect against the current SSM
 # value, PutParameter SecureString only if changed. Plaintext stays on the host
-# (--value file://, never echoed). Output carries only status + a line COUNT.
+# (--value file://, never echoed). Exit 0 proves the final SecureString exactly
+# matches the three expected assignments; output carries status + a line count.
 HOST_B64="$(base64 <<HOSTEOF | tr -d '\n'
-set -uo pipefail
+set -euo pipefail
 PARAM="${PARAM}"
 T=\$(mktemp); C=\$(mktemp); chmod 600 "\$T" "\$C"
+cleanup() {
+  if command -v shred >/dev/null 2>&1; then
+    shred -u "\$T" "\$C" 2>/dev/null || rm -f "\$T" "\$C"
+  else
+    rm -f "\$T" "\$C"
+  fi
+}
+trap cleanup EXIT
 grep -E '^(POSTGRES_PASSWORD|JWT_SECRET|TOTP_ENCRYPTION_KEY)=' /var/lib/tokenkey/.env | sort > "\$T" || true
-if [ ! -s "\$T" ]; then echo "::error::no secrets found in /var/lib/tokenkey/.env"; rm -f "\$T" "\$C"; exit 1; fi
-aws ssm get-parameter --name "\$PARAM" --with-decryption --query Parameter.Value --output text > "\$C" 2>/dev/null || true
-if cmp -s "\$T" "\$C"; then
+for K in POSTGRES_PASSWORD JWT_SECRET TOTP_ENCRYPTION_KEY; do
+  N=\$(awk -v key="\$K" 'index(\$0, key "=") == 1 { count++ } END { print count + 0 }' "\$T")
+  if [ "\$N" -ne 1 ]; then
+    echo "::error::expected exactly one \${K} assignment in /var/lib/tokenkey/.env" >&2
+    exit 1
+  fi
+done
+if aws ssm get-parameter --name "\$PARAM" --with-decryption --query Parameter.Value --output text > "\$C" 2>/dev/null \
+    && cmp -s "\$T" "\$C"; then
   echo "secrets unchanged; no new SSM version written"
 else
-  aws ssm put-parameter --name "\$PARAM" --type SecureString --overwrite --value "file://\$T" >/dev/null && echo "secrets off-boxed to SSM \$PARAM"
+  # AWS CLI text output adds one trailing newline; store none so readback matches T.
+  awk 'NR > 1 { printf "\\n" } { printf "%s", \$0 }' "\$T" > "\$C"
+  if ! aws ssm put-parameter --name "\$PARAM" --type SecureString --overwrite --value "file://\$C" >/dev/null; then
+    echo "::error::failed to off-box secrets to SSM \$PARAM" >&2
+    exit 1
+  fi
+  echo "secrets off-boxed to SSM \$PARAM"
 fi
-N=\$(aws ssm get-parameter --name "\$PARAM" --with-decryption --query Parameter.Value --output text 2>/dev/null | grep -c '=' || echo 0)
+if ! aws ssm get-parameter --name "\$PARAM" --with-decryption --query Parameter.Value --output text > "\$C" 2>/dev/null; then
+  echo "::error::failed to verify secrets in SSM \$PARAM" >&2
+  exit 1
+fi
+if ! cmp -s "\$T" "\$C"; then
+  echo "::error::SSM secret backup does not match source assignments in \$PARAM" >&2
+  exit 1
+fi
+N=\$(wc -l < "\$C" | tr -d ' ')
+if [ "\$N" -ne 3 ]; then
+  echo "::error::expected 3 secret lines in SSM \$PARAM, found \$N" >&2
+  exit 1
+fi
 echo "verify: \$N secret line(s) now in \$PARAM (values not printed)"
-command -v shred >/dev/null 2>&1 && shred -u "\$T" "\$C" 2>/dev/null || rm -f "\$T" "\$C"
 HOSTEOF
 )"
 

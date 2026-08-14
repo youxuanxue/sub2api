@@ -1722,6 +1722,15 @@ else
     echo "  ok: edge disk remediation + recovery anchors pass"
 fi
 
+echo "=== sub2api: env secret backup fail-closed contract ==="
+if ! bash ./ops/stage0/test_backup_env_secrets_via_ssm.sh >/dev/null 2>&1; then
+    echo "  FAIL: env secret backup fail-closed contract test"
+    echo "        — run: bash ops/stage0/test_backup_env_secrets_via_ssm.sh"
+    errors=$((errors + 1))
+else
+    echo "  ok: rejected writes fail and verified backups succeed"
+fi
+
 echo "=== sub2api: ghcr-prune-daily timer contract ==="
 if ! bash ./deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh --selftest >/dev/null 2>&1; then
     echo "  FAIL: tokenkey-ghcr-prune-daily.sh --selftest"
