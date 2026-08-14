@@ -24,6 +24,11 @@ on:
         required: false
         type: boolean
         default: false
+      ssot_models:
+        description: "Optional comma/space-separated model IDs. smoke-only runs the focused universal-key SSOT gate for exactly these models; empty keeps the platform canary."
+        required: false
+        type: string
+        default: ""
 
 # Default to read-only. The deploy job explicitly opts into AWS OIDC and package
 # access; smoke-only cannot obtain either capability.
@@ -360,6 +365,7 @@ jobs:
       INPUT_TAG: ${{ inputs.tag }}
       TOKENKEY_BASE_URL: ${{ vars.PROD_API_URL || 'https://api.tokenkey.dev' }}
       TK_FULLTEST_BASE_URL: ${{ vars.PROD_API_URL || 'https://api.tokenkey.dev' }}
+      INPUT_SSOT_MODELS: ${{ inputs.ssot_models }}
       GATEWAY_SMOKE_SUITE: full
     steps:
       - uses: actions/checkout@v6
@@ -402,7 +408,11 @@ jobs:
           TK_FULLTEST_TIMEOUT: "15"
         run: |
           set -euo pipefail
-          bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout
+          if [[ -n "${INPUT_SSOT_MODELS//[[:space:]]/}" ]]; then
+            python3 scripts/checks/ssot-delta-gate.py focused --models "$INPUT_SSOT_MODELS"
+          else
+            bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout
+          fi
 
       - name: Job summary
         if: always()
@@ -418,5 +428,6 @@ jobs:
             echo "- api: ${TOKENKEY_BASE_URL}"
             echo "- gateway smoke: ${GATEWAY_SMOKE_OUTCOME:-not-run}"
             echo "- SSOT display gate: ${SSOT_GATE_OUTCOME:-not-run}"
+            echo "- focused SSOT models: ${INPUT_SSOT_MODELS:-platform-canary}"
             echo "- safety: no image or host state was changed"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -43,6 +43,8 @@ ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "grok")
 MATRIX = REPO / "ops/test/gateway_model_ssot_matrix.py"
 
 MODEL_ID_RE = re.compile(r'"([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})"\s*:\s*"')
+MODEL_ID_FULL_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$")
+MAX_FOCUSED_MODELS = 50
 MIGRATION_ADDED_MODEL_RE = re.compile(
     r'^\+\s*"(?P<id>[a-zA-Z0-9][a-zA-Z0-9._-]{0,127})"\s*:\s*"(?P=id)"'
 )
@@ -275,6 +277,21 @@ def run_focused_gate(models: set[str], *, base_url: str, key: str) -> int:
     return proc.returncode
 
 
+def parse_explicit_models(raw: str) -> set[str]:
+    values = [value for value in re.split(r"[\s,]+", raw.strip()) if value]
+    if not values:
+        raise ValueError("at least one model id is required")
+    invalid = sorted({value for value in values if not MODEL_ID_FULL_RE.fullmatch(value)})
+    if invalid:
+        raise ValueError("invalid model id(s): " + ", ".join(invalid))
+    models = set(values)
+    if len(models) > MAX_FOCUSED_MODELS:
+        raise ValueError(
+            f"focused gate accepts at most {MAX_FOCUSED_MODELS} unique model ids"
+        )
+    return models
+
+
 def cmd_paths_changed(args) -> int:
     if not _base_resolves(args.base):
         print("false")
@@ -335,6 +352,25 @@ def cmd_check(args) -> int:
     rc = run_focused_gate(models, base_url=base_url, key=key)
     if rc == 0:
         print("ssot-delta-gate: ok (focused live gate passed)")
+    return rc
+
+
+def cmd_focused(args) -> int:
+    try:
+        models = parse_explicit_models(args.models)
+    except ValueError as exc:
+        print(f"ssot-delta-gate: error: {exc}", file=sys.stderr)
+        return 2
+    key = args.key or os.environ.get("TK_FULLTEST_KEY", "")
+    if not key:
+        print("ssot-delta-gate: error: TK_FULLTEST_KEY required for live gate", file=sys.stderr)
+        return 2
+    base_url = args.base_url or os.environ.get(
+        "TK_FULLTEST_BASE_URL", "https://api.tokenkey.dev"
+    )
+    rc = run_focused_gate(models, base_url=base_url, key=key)
+    if rc == 0:
+        print("ssot-delta-gate: ok (explicit focused live gate passed)")
     return rc
 
 
@@ -400,6 +436,20 @@ def cmd_selftest(_args) -> int:
         },
         {"shown-priced", "shown-free"},
     ) == {"shown-priced"}
+    assert parse_explicit_models("model-a, model-b\nmodel-a") == {"model-a", "model-b"}
+    for invalid in ("", "model/a", "model;echo", "-leading"):
+        try:
+            parse_explicit_models(invalid)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"accepted invalid explicit model input: {invalid!r}")
+    try:
+        parse_explicit_models(" ".join(f"model-{i}" for i in range(MAX_FOCUSED_MODELS + 1)))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("accepted an unbounded focused model set")
 
     print("ssot-delta-gate selftest: PASS")
     return 0
@@ -420,6 +470,13 @@ def main() -> int:
             p.add_argument("--key", default="", help="override TK_FULLTEST_KEY")
             p.add_argument("--base-url", default="", help="override TK_FULLTEST_BASE_URL")
         p.set_defaults(func=globals()[f"cmd_{name.replace('-', '_')}"])
+    focused = sub.add_parser(
+        "focused", help="run a focused live gate for explicit comma/space-separated model ids"
+    )
+    focused.add_argument("--models", required=True)
+    focused.add_argument("--key", default="", help="override TK_FULLTEST_KEY")
+    focused.add_argument("--base-url", default="", help="override TK_FULLTEST_BASE_URL")
+    focused.set_defaults(func=cmd_focused)
     st = sub.add_parser("selftest")
     st.set_defaults(func=cmd_selftest)
     args = ap.parse_args()
