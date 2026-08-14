@@ -2,7 +2,7 @@
 # Read-only host-side protection probe; verdict logic lives in the Python sibling.
 set -u
 
-PSQL=(docker exec -e 'PGOPTIONS=-c default_transaction_read_only=on -c lock_timeout=100ms -c statement_timeout=2s' tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
+PSQL=(docker exec -i -e 'PGOPTIONS=-c default_transaction_read_only=on -c lock_timeout=100ms -c statement_timeout=2s' tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
 APP_CONTAINER="${APP_CONTAINER:-auto}"
 
 # Canonical app-container resolver (ops/lib/resolve-app-container.sh) is the sole

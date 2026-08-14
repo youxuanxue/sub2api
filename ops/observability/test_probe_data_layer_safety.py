@@ -71,6 +71,14 @@ class ProbeDataLayerSafetyTest(unittest.TestCase):
                       if [[ "$*" == *telemetry_archive_shadow* ]]; then
                         printf '%s\n' 'TELEMETRYSTATS {"probe_ok":true,"enabled":true,"last_result":{"dropped":0,"failed":0}}'
                       else
+                        has_i=false
+                        for arg in "$@"; do
+                          if [ "$arg" = "-i" ]; then
+                            has_i=true
+                            break
+                          fi
+                        done
+                        [ "$has_i" = true ] || exit 2
                         query="$(cat)"
                         printf '%s' "$query" > "$FAKE_PARTITION_STDIN"
                         [ "${PARTITION_FAILURE:-false}" = true ] && exit 1
@@ -180,6 +188,7 @@ class ProbeDataLayerSafetyTest(unittest.TestCase):
             telemetry={"tokenkey": "false"},
         )
         self.assertEqual(partition, {"probe_ok": True})
+        self.assertIn("exec -i -e", calls)
         self.assertIn("PARTITION_SQL:", calls)
         self.assertIn("pg_get_expr(child.relpartbound, child.oid, true)", calls)
 
