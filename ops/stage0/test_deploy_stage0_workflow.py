@@ -40,6 +40,18 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertIn("default: deploy", body)
         self.assertRegex(body, r"(?ms)options:\s*\n\s*- deploy\s*\n\s*- smoke-only\s*$")
 
+    def test_focused_ssot_input_is_optional_and_defaults_empty(self) -> None:
+        text = workflow_text()
+        focused = re.search(
+            r"(?ms)^      ssot_models:\n(?P<body>.*?)(?=^      [A-Za-z0-9_-]+:\n|^# Default)",
+            text,
+        )
+        self.assertIsNotNone(focused)
+        body = focused.group("body")
+        self.assertIn("required: false", body)
+        self.assertIn("type: string", body)
+        self.assertIn('default: ""', body)
+
     def test_deploy_job_retains_mutating_capabilities_and_canonical_gates(self) -> None:
         deploy = job_block("deploy")
         self.assertIn("if: inputs.operation == 'deploy'", deploy)
@@ -94,6 +106,11 @@ class DeployStage0WorkflowTest(unittest.TestCase):
             "bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout",
             smoke,
         )
+        self.assertIn(
+            'python3 scripts/checks/ssot-delta-gate.py focused --models "$INPUT_SSOT_MODELS"',
+            smoke,
+        )
+        self.assertIn("INPUT_SSOT_MODELS: ${{ inputs.ssot_models }}", smoke)
         self.assertIn("TK_SMOKE_API_KEY: ${{ secrets.TK_SMOKE_API_KEY }}", smoke)
         self.assertIn("TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}", smoke)
 
