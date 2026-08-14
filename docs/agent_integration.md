@@ -498,6 +498,8 @@ explicit model-activation check: prod account model_mapping must cover the selec
 explicitly apply reviewed SSOT diffs to live accounts
 
 - `--target` (required): prod, edge:<id>, or all-deployable-and-prod
+- `--account-ids`: comma-separated positive account IDs for targeted apply (single explicit target only)
+- `--expected-plan-sha256`: required in targeted mode for non-dry-run; must match recomputed plan digest
 - `--confirm`: required for writes: yes-apply-account-model-mapping
 - `--dry-run`: print the planned account/group changes without writing
 - `--prod-instance-id`: pin prod planning and apply to this EC2 instance id
