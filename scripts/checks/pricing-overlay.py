@@ -96,6 +96,7 @@ ANCHORS = {
 THINKING_ANCHORS = ("qwen3-8b", "qwen3-14b", "qwen3-32b")
 VIDEO_RESOLUTIONS = {"480p", "720p", "1080p", "4k"}
 VIDEO_SOURCE_CONTRACT = "video_price_tiers is the billing ssot"
+XAI_LONG_CONTEXT_SOURCE_CONTRACT = "xai 200k long-context billing ssot"
 STALE_VIDEO_SOURCE_PHRASES = (
     "tk bills a single",
     "tk's flat",
@@ -227,6 +228,28 @@ def validate_priced_dimension_completeness(model: str, pricing: dict) -> list[st
             f"{model}: long_context_threshold_inclusive requires a complete "
             "long-context policy"
         )
+
+    source = pricing.get("source")
+    source_lower = source.lower() if isinstance(source, str) else ""
+    if XAI_LONG_CONTEXT_SOURCE_CONTRACT in source_lower:
+        if pricing.get("long_context_input_token_threshold") != 200000:
+            errors.append(
+                f"{model}: {XAI_LONG_CONTEXT_SOURCE_CONTRACT} requires "
+                "long_context_input_token_threshold=200000"
+            )
+        if pricing.get("long_context_threshold_inclusive") is not True:
+            errors.append(
+                f"{model}: {XAI_LONG_CONTEXT_SOURCE_CONTRACT} requires "
+                "long_context_threshold_inclusive=true"
+            )
+        for field in (
+                "long_context_input_cost_multiplier",
+                "long_context_output_cost_multiplier"):
+            if not positive(field):
+                errors.append(
+                    f"{model}: {XAI_LONG_CONTEXT_SOURCE_CONTRACT} requires "
+                    f"positive {field}"
+                )
     return errors
 
 

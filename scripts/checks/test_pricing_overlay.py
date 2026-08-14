@@ -129,6 +129,67 @@ class LongContextThresholdInclusiveBoolShapeTest(unittest.TestCase):
                     self.assertTrue(errors, f"Expected error for value {bad!r}")
 
 
+class XAILongContextEvidenceContractTest(unittest.TestCase):
+    def base_row(self) -> dict:
+        return {
+            "mode": "chat",
+            "input_cost_per_token": 1e-6,
+            "output_cost_per_token": 2e-6,
+            "source": "Dated evidence; xAI 200k long-context billing SSOT.",
+        }
+
+    def errors(self, row: dict) -> list[str]:
+        return CHECK.validate_priced_dimension_completeness("grok-test", row)
+
+    def test_rejects_tagged_row_missing_inclusive_bool(self) -> None:
+        row = self.base_row()
+        row.update({
+            "long_context_input_token_threshold": 200000,
+            "long_context_input_cost_multiplier": 2,
+            "long_context_output_cost_multiplier": 2,
+        })
+        self.assertTrue(self.errors(row))
+
+    def test_rejects_tagged_row_with_explicit_false(self) -> None:
+        row = self.base_row()
+        row.update({
+            "long_context_input_token_threshold": 200000,
+            "long_context_input_cost_multiplier": 2,
+            "long_context_output_cost_multiplier": 2,
+            "long_context_threshold_inclusive": False,
+        })
+        self.assertTrue(self.errors(row))
+
+    def test_rejects_tagged_row_with_partial_policy(self) -> None:
+        row = self.base_row()
+        row.update({
+            "long_context_input_token_threshold": 200000,
+            "long_context_input_cost_multiplier": 2,
+            "long_context_threshold_inclusive": True,
+        })
+        self.assertTrue(self.errors(row))
+
+    def test_accepts_tagged_row_with_complete_inclusive_policy(self) -> None:
+        row = self.base_row()
+        row.update({
+            "long_context_input_token_threshold": 200000,
+            "long_context_input_cost_multiplier": 2,
+            "long_context_output_cost_multiplier": 2,
+            "long_context_threshold_inclusive": True,
+        })
+        self.assertFalse(self.errors(row))
+
+    def test_does_not_apply_contract_to_untagged_xai_row(self) -> None:
+        row = {
+            "mode": "chat",
+            "input_cost_per_token": 1e-6,
+            "output_cost_per_token": 2e-6,
+            "litellm_provider": "xai",
+            "source": "Official flat xAI pricing without a tier contract.",
+        }
+        self.assertFalse(self.errors(row))
+
+
 class PricingRegistryMigrationParityTest(unittest.TestCase):
     def test_reconstructs_legacy_fill_only_precedence(self) -> None:
         external = {

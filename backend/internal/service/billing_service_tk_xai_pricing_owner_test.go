@@ -119,6 +119,29 @@ func TestGrokRegistryAliasesUseCanonicalOwners(t *testing.T) {
 	}
 }
 
+func TestGrokDirectRegistryRowsMatchSemanticOwners(t *testing.T) {
+	resetPricingRegistrySnapshot(t)
+	cases := map[string]string{
+		"grok-latest":           "grok-4.3",
+		"grok-4.3-latest":       "grok-4.3",
+		"grok-4.5-latest":       "grok-4.5",
+		"grok-build-latest":     "grok-4.5",
+		"grok-code-fast":        "grok-build-0.1",
+		"grok-code-fast-1":      "grok-build-0.1",
+		"grok-code-fast-1-0825": "grok-build-0.1",
+		"grok-4-fast-reasoning": "grok-4.3",
+	}
+	for directOwner, semanticOwner := range cases {
+		direct := tkRegistryAliasOwnerPricing(directOwner)
+		semantic := tkRegistryAliasOwnerPricing(semanticOwner)
+		require.NotNil(t, direct, directOwner)
+		require.NotNil(t, semantic, semanticOwner)
+		direct.registryOwner = ""
+		semantic.registryOwner = ""
+		require.Equal(t, semantic, direct, directOwner)
+	}
+}
+
 func TestGrokLongContextInclusiveBoundaryCosts(t *testing.T) {
 	svc := newTestBillingService()
 	card := &ModelPricing{
