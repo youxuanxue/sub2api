@@ -198,6 +198,9 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 		if e.LongContextOutputCostMultiplier != nil {
 			p.LongContextOutputCostMultiplier = *e.LongContextOutputCostMultiplier
 		}
+		if e.LongContextThresholdInclusive != nil {
+			p.LongContextThresholdInclusive = *e.LongContextThresholdInclusive
+		}
 		tkNormalizeAbove272KPricing(p, e)
 		// TK: input-token interval (tiered) pricing. LiteLLMRawEntry has no
 		// "intervals" field (it is TK-overlay-only), so parse the raw entry a

@@ -53,7 +53,11 @@ func (s *BillingService) EstimateTokenHold(model, serviceTier string, promptToke
 	)
 
 	lcIn, lcOut := 1.0, 1.0
-	if pricing.LongContextInputThreshold > 0 && promptTokens > pricing.LongContextInputThreshold {
+	longContextApplies := promptTokens > pricing.LongContextInputThreshold
+	if pricing.LongContextThresholdInclusive {
+		longContextApplies = promptTokens >= pricing.LongContextInputThreshold
+	}
+	if pricing.LongContextInputThreshold > 0 && longContextApplies {
 		if pricing.LongContextInputMultiplier > 1 {
 			lcIn = pricing.LongContextInputMultiplier
 		}

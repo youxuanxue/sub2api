@@ -36,6 +36,14 @@ func (s *BillingService) getRegistryAliasPricing(model string) *ModelPricing {
 		return direct
 	}
 
+	// xAI: resolve known aliases via their routing canonical → pricing owner.
+	// This sits before the legacy matcher so direct registry rows (above) still
+	// take precedence, and known aliases without a public pricing owner fail
+	// closed rather than inheriting the unknown-model floor.
+	if grokOwner, known := resolveGrokTextPricingOwner(lower); known {
+		return tkRegistryAliasOwnerPricing(grokOwner)
+	}
+
 	// This compatibility SKU routes to ordinary GPT-5.5. A provider-advertised
 	// Pro row is sensor evidence only and is not a serving/billing owner.
 	if normalizeOpenAIBillingModel(lower) == "gpt-5.5-pro" {

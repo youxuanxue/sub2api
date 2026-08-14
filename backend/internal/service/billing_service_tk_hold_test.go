@@ -54,6 +54,33 @@ func TestEstimateTokenHold_IsUpperBoundOverDistributions(t *testing.T) {
 	}
 }
 
+func TestEstimateTokenHold_HonorsInclusiveLongContextBoundary(t *testing.T) {
+	s := NewBillingService(&config.Config{}, nil)
+	pricing := s.fallbackPrices["grok-4.6"]
+	pricing.LongContextThresholdInclusive = true
+	const (
+		prompt = 200000
+		maxOut = 1000
+	)
+
+	hold, err := s.EstimateTokenHold("grok-4.6", "", prompt, maxOut, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, err := s.CalculateCostWithServiceTier(
+		"grok-4.6",
+		UsageTokens{InputTokens: prompt, OutputTokens: maxOut},
+		1,
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actual.ActualCost > hold {
+		t.Fatalf("inclusive threshold hold must cover settlement: actual=%.12f hold=%.12f", actual.ActualCost, hold)
+	}
+}
+
 func TestEstimateTokenHold_ScalesWithRateMultiplier(t *testing.T) {
 	s := NewBillingService(&config.Config{}, nil)
 	h1, err := s.EstimateTokenHold("claude-sonnet-4", "", 1000, 500, 1.0)

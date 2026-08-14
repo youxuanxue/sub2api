@@ -551,6 +551,16 @@ func (s *BillingService) initFallbackPricing() {
 		LongContextInputMultiplier:    2,
 		LongContextOutputMultiplier:   2,
 	}
+	// Legacy-only numeric fixtures for canonical Grok 4.20 rows. Alias lineage
+	// still resolves each model to its own registry owner; these shared pointers
+	// merely preserve the non-registry test path's historical dimensions.
+	for _, model := range []string{
+		"grok-4.20-0309-reasoning",
+		"grok-4.20-0309-non-reasoning",
+		"grok-4.20-multi-agent-0309",
+	} {
+		s.fallbackPrices[model] = s.fallbackPrices["grok-4.3"]
+	}
 	// xAI Grok Build 0.1 (official docs: $1 input / $0.20 cached input /
 	// $2 output per MTok). Composer is available only through Grok Build and
 	// has no standalone public API rate card, so its aliases use this coding
@@ -780,20 +790,11 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 		return s.fallbackPrices["gpt-5.4"]
 	}
 
-	switch modelLower {
-	case "grok", "grok-latest", "grok-4.6", "grok-4.6-latest":
-		return s.fallbackPrices["grok-4.6"]
-	case "grok-4.5", "grok-4.5-latest":
-		return s.fallbackPrices["grok-4.5"]
-	case "grok-4.3",
-		"grok-4.20-0309-reasoning",
-		"grok-4.20-0309-non-reasoning",
-		"grok-4.20-multi-agent-0309",
-		"grok-4.20-reasoning",
-		"grok-4.20-non-reasoning":
-		return s.fallbackPrices["grok-4.3"]
-	case "grok-build", "grok-build-latest", "grok-build-0.1", "grok-composer", "grok-composer-2.5-fast", "composer-2.5":
-		return s.fallbackPrices["grok-build-0.1"]
+	// xAI known aliases: resolve via the shared xai/models.go SSOT. Known aliases
+	// without a public pricing owner fail closed instead of inheriting the unknown
+	// family floor below.
+	if grokOwner, known := resolveGrokTextPricingOwner(modelLower); known {
+		return s.fallbackPrices[grokOwner]
 	}
 
 	// Unknown Grok text IDs (grok-5, dated snapshots, provider-prefixed) inherit
@@ -825,6 +826,7 @@ func tkModelPricingFromLiteLLM(p *LiteLLMModelPricing) *ModelPricing {
 		CacheCreation1hPrice:               price1h,
 		SupportsCacheBreakdown:             price1h > 0 && price1h > price5m,
 		LongContextInputThreshold:          p.LongContextInputTokenThreshold,
+		LongContextThresholdInclusive:      p.LongContextThresholdInclusive,
 		LongContextInputMultiplier:         p.LongContextInputCostMultiplier,
 		LongContextOutputMultiplier:        p.LongContextOutputCostMultiplier,
 		ImageInputPricePerToken:            p.InputCostPerImageToken,

@@ -55,6 +55,7 @@ class PricingRegistrySensorTests(unittest.TestCase):
             "model-a": {
                 "litellm_provider": "provider-a",
                 "input_cost_per_token": 4e-6,
+                "long_context_threshold_inclusive": True,
                 "supports_vision": True,
                 "provider_private_metadata": "ignore",
             },
@@ -68,6 +69,7 @@ class PricingRegistrySensorTests(unittest.TestCase):
         candidate, owners = sensor.build_candidate_registry(self.registry, report)
         self.assertEqual(owners, ["model-a"])
         self.assertEqual(candidate["model-a"]["input_cost_per_token"], 4e-6)
+        self.assertTrue(candidate["model-a"]["long_context_threshold_inclusive"])
         self.assertFalse(candidate["model-a"]["supports_vision"])
         self.assertEqual(candidate["model-a"]["source"], "human-approved")
         self.assertNotIn("new-model", candidate)
