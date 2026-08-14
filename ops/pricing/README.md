@@ -35,6 +35,7 @@ hand-maintained empirical sets in the same file.
 | `reconcile-served-models.py` | Compatibility wrapper for `modelops.py`. New runbooks should call `modelops.py`. |
 | `model-surface-bundle.json` | Deterministic, checksummed release projection generated once from the Go model owner and published as a release asset. |
 | `model_surface_bundle.py` | Shared stdlib-only schema and digest validator used by rollout tools; it owns no model list. |
+| `model-surface-refresh-report.py` | Offline/read-only evidence normalizer. It consumes saved account inventory, authoritative candidate discovery, direct-upstream/gateway/traffic evidence, the bundle, pricing overlay, and reprobe ledger; emits per-shared-scope deltas plus the Vertex ch41 intersection/union/profile clusters. It never probes or writes. |
 | `manage-account-model-mapping-runtime.py` | Consumes a generated bundle without compiling Go, hot-pushes optional runtime replacement scopes, checks required floor + forbidden policy while preserving compatible extras, keeps Edge diagnostics available, and applies reviewed account/group diffs only through explicit confirmation. |
 | `pricing-registry-sensor.py` | Compares provider/LiteLLM evidence with the complete registry and prepares a registry-only draft PR candidate. It never publishes or changes serving. |
 | `manage-overlay-runtime.py` | Publishes or audits the exact protected-main registry envelope. `sync-runtime` is reserved for the protected publisher workflow; operators use `check` for read-only drift inspection. |
@@ -104,6 +105,31 @@ It logs exactly what it skipped, for human review:
   logged); the query additionally requires real generation (tokens / image / video)
   so a `$0` placeholder row never counts as proof.
 
+## Offline model-surface refresh report
+
+Keep discovery and probing in the existing platform-specific tools. Once their
+outputs are saved, normalize them without network or runtime writes:
+
+```bash
+python3 ops/pricing/model-surface-refresh-report.py generate \
+  --inventory /tmp/model-account-inventory.json \
+  --candidates /tmp/model-candidates.json \
+  --raw-probe /tmp/raw-provider-results.json \
+  --gateway-probe /tmp/gateway-results.json \
+  --traffic-evidence /tmp/traffic.tsv \
+  --format text
+
+python3 ops/pricing/model-surface-refresh-report.py --selftest
+```
+
+Candidate JSON should carry `observed_at`, `authoritative: true`, and a `scopes`
+object. JSON probe rows should carry `observed_at`; gateway successes additionally
+need matching `account_id` and `usage_account_id`. Legacy TSV inputs use the file
+mtime as their evidence time and therefore expire after 24 hours. Missing/stale
+candidate authority, non-ch41 account divergence, inconclusive 429/5xx, local
+mapping-floor rejection, missing price, and unapproved paid-media evidence all
+block `proposed_add` rather than inferring support.
+
 ## Modelops plan and activation
 
 **Operator entry:** skill `tokenkey-modelops-planner` (`.cursor/skills/tokenkey-modelops-planner/SKILL.md`).
@@ -164,7 +190,12 @@ align on prod: catalog allowlists, active registry/scoped channel rows, and prod
 bundle contains `account_overrides`, the property-based
 `account_override:<platform>:<channel_type>:<base_url>` scope overrides the
 shared platform/channel floor only when all selector metadata matches; account IDs
-are not used as override selectors.
+are not used as override selectors. Vertex `newapi/channel_type=41` is the one
+capability-profile exception: public display is the verified union, the shared
+channel floor is the strict successful intersection, and a normalized
+`vertex_capability_profile` selects a complete named profile floor. Missing or
+unknown profiles use the shared floor and produce a check violation; no other
+platform/channel has account-level profiles.
 Post-release diagnostics use `check-accounts` **without** `--include-edges`;
 its expected mappings and forbidden policy metadata come from the selected
 checksummed bundle.
@@ -205,7 +236,18 @@ python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --jso
 # explicit modelops/model-activation floor precheck; never a generic deploy/rollback dependency:
 python3 ops/pricing/manage-account-model-mapping-runtime.py release-gate
 
-# after reviewing the diff, explicitly apply account/group changes:
+# ch41 only: verify id/name/platform/channel/current-profile, then assign the
+# profile property on prod without changing model_mapping in the same operation:
+python3 ops/pricing/manage-account-model-mapping-runtime.py assign-vertex-profiles \
+  --file /tmp/vertex-profile-assignments.json \
+  --bundle /tmp/model-surface-bundle.json \
+  --dry-run
+python3 ops/pricing/manage-account-model-mapping-runtime.py assign-vertex-profiles \
+  --file /tmp/vertex-profile-assignments.json \
+  --bundle /tmp/model-surface-bundle.json \
+  --confirm yes-assign-vertex-capability-profiles
+
+# after reviewing the separate mapping diff, explicitly apply account/group changes:
 python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts \
   --target prod \
   --bundle /tmp/model-surface-bundle.json \

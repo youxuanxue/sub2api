@@ -8,6 +8,7 @@ ACCOUNT_ID="${ACCOUNT_ID:?ACCOUNT_ID required}"
 MODEL="${MODEL:?MODEL required}"
 MAX_TOKENS="${MAX_TOKENS:-16}"
 PROMPT_TEXT="${PROMPT_TEXT:-Reply OK only.}"
+ENDPOINT="${ENDPOINT:-chat}"
 UPSTREAM_BASE="${UPSTREAM_BASE:-https://api.x.ai/v1}"
 
 PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -q -A -t -v ON_ERROR_STOP=1)
@@ -25,6 +26,9 @@ if [[ ! "$ACCOUNT_ID" =~ ^[0-9]+$ ]]; then
 fi
 if [[ ! "$MAX_TOKENS" =~ ^[0-9]+$ ]] || [[ "$MAX_TOKENS" -lt 1 ]]; then
   fail_json "MAX_TOKENS must be a positive integer"
+fi
+if [[ "$ENDPOINT" != "chat" && "$ENDPOINT" != "responses" ]]; then
+  fail_json "ENDPOINT must be chat or responses"
 fi
 
 psql_err="$(mktemp)"
@@ -59,16 +63,35 @@ if [[ -n "${UPSTREAM_BASE}" ]]; then
   BASE_URL="${UPSTREAM_BASE%/}"
 fi
 
-payload="$(python3 - "$MODEL" "$MAX_TOKENS" "$PROMPT_TEXT" <<'PY'
+payload="$(python3 - "$MODEL" "$MAX_TOKENS" "$PROMPT_TEXT" "$ENDPOINT" <<'PY'
 import json, sys
-print(json.dumps({
-    "model": sys.argv[1],
-    "messages": [{"role": "user", "content": sys.argv[3]}],
-    "max_tokens": int(sys.argv[2]),
-    "stream": False,
-}, ensure_ascii=False))
+model, max_tokens, prompt, endpoint = sys.argv[1:5]
+if endpoint == "responses":
+    payload = {
+        "model": model,
+        "instructions": "You are a terse probe responder.",
+        "input": [{
+            "type": "message", "role": "user",
+            "content": [{"type": "input_text", "text": prompt}],
+        }],
+        "max_output_tokens": int(max_tokens),
+        "stream": False,
+    }
+else:
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": int(max_tokens),
+        "stream": False,
+    }
+print(json.dumps(payload, ensure_ascii=False))
 PY
 )"
+if [[ "$ENDPOINT" == "responses" ]]; then
+  PROBE_PATH="/responses"
+else
+  PROBE_PATH="/chat/completions"
+fi
 
 tmp_body="$(mktemp)"
 tmp_hdr="$(mktemp)"
@@ -78,7 +101,7 @@ http_code="$(
     -H "Authorization: Bearer ${ACCESS_TOKEN}" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
-    -X POST "${BASE_URL}/chat/completions" \
+    -X POST "${BASE_URL}${PROBE_PATH}" \
     --data-binary "$payload" || echo "000"
 )"
 
@@ -98,10 +121,10 @@ PY
 
 rm -f "$tmp_body" "$tmp_hdr"
 
-python3 - "$ACCOUNT_ID" "$ACCOUNT_NAME" "$PLATFORM" "$MODEL" "$BASE_URL" "$http_code" "$body_excerpt" <<'PY'
+python3 - "$ACCOUNT_ID" "$ACCOUNT_NAME" "$PLATFORM" "$MODEL" "$BASE_URL" "$http_code" "$body_excerpt" "$PROBE_PATH" <<'PY'
 import json, sys
 
-account_id, account_name, platform, model, base_url, http_code, body_excerpt = sys.argv[1:8]
+account_id, account_name, platform, model, base_url, http_code, body_excerpt, endpoint = sys.argv[1:9]
 http_code = str(http_code)
 verdict = "setup_error"
 if http_code.startswith("2"):
@@ -125,7 +148,7 @@ print(json.dumps({
         "platform": platform,
         "model": model,
         "upstream_base": base_url,
-        "endpoint": "chat/completions",
+        "endpoint": endpoint.lstrip("/"),
     },
     "response": {"body_excerpt": body_excerpt},
 }, ensure_ascii=False, indent=2))

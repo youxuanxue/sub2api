@@ -71,8 +71,10 @@ func FetchUpstreamModelList(ctx context.Context, baseURL string, channelType int
 	}
 
 	switch channelType {
+	case newapiconstant.ChannelTypeAli:
+		return fetchOpenAICompatModels(ctx, base+"/compatible-mode/v1/models", key)
 	case newapiconstant.ChannelTypeVolcEngine, newapiconstant.ChannelTypeDoubaoVideo:
-		modelsURL, err := volcEngineModelsURL(base)
+		modelsURL, err := volcEngineModelsURL(channelType, base)
 		if err != nil {
 			return nil, err
 		}
@@ -109,7 +111,10 @@ func FetchUpstreamModelList(ctx context.Context, baseURL string, channelType int
 	}
 }
 
-func volcEngineModelsURL(base string) (string, error) {
+func volcEngineModelsURL(channelType int, base string) (string, error) {
+	if IsXRTokenBaseURL(channelType, base) {
+		return XRTokenBaseURL + "/v1/models", nil
+	}
 	if IsVolcEngineAgentPlanBaseURL(newapiconstant.ChannelTypeVolcEngine, base) {
 		return strings.TrimRight(VolcEngineAgentPlanBaseURL, "/") + "/models", nil
 	}

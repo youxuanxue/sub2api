@@ -37,7 +37,10 @@ class ModelActivationTest(unittest.TestCase):
         self.now = dt.datetime(2026, 7, 15, 8, 0, tzinfo=dt.timezone.utc)
         current_floor = {
             "platforms": {"openai": {"gpt-current": "gpt-current"}},
-            "newapi_channel_types": {},
+            "newapi_channel_types": {"41": {"vertex-shared": "vertex-shared"}},
+            "vertex_capability_profiles": {
+                "core-pro": {"vertex-shared": "vertex-shared"},
+            },
             "account_overrides": [],
             "antigravity_group_scopes": ["claude"],
             "forbidden_model_mapping_keys": {},
@@ -50,7 +53,10 @@ class ModelActivationTest(unittest.TestCase):
                     "gpt-new": "gpt-new-upstream",
                 },
             },
-            "newapi_channel_types": {},
+            "newapi_channel_types": {"41": {"vertex-shared": "vertex-shared"}},
+            "vertex_capability_profiles": {
+                "core-pro": {"vertex-shared": "vertex-shared"},
+            },
             "account_overrides": [],
             "antigravity_group_scopes": ["claude"],
             "forbidden_model_mapping_keys": {},
@@ -190,9 +196,43 @@ class ModelActivationTest(unittest.TestCase):
         self.assertTrue(MODEL_OPS._account_platform_allows_scope("anthropic", "kiro"))
         self.assertTrue(MODEL_OPS._account_platform_allows_scope("newapi", "newapi_channel_type:17"))
         self.assertTrue(MODEL_OPS._account_platform_allows_scope(
+            "newapi", "newapi_vertex_profile:core-pro"
+        ))
+        self.assertTrue(MODEL_OPS._account_platform_allows_scope(
             "newapi", "account_override:newapi:45:https://ark.cn-beijing.volces.com/api/plan/v3"
         ))
         self.assertFalse(MODEL_OPS._account_platform_allows_scope("kiro", "anthropic"))
+
+    def test_vertex_profile_scope_is_part_of_activation_delta_and_evidence(self) -> None:
+        target_floor = json.loads(json.dumps(self.current["account_model_mapping"]))
+        target_floor["vertex_capability_profiles"]["core-pro"]["gemini-pro"] = "gemini-pro"
+        self.target_path, self.target = self.write_bundle("target-vertex-profile.json", target_floor)
+        scope = "newapi_vertex_profile:core-pro"
+        self.write_evidence(
+            scope=scope,
+            model_id="gemini-pro",
+            target="gemini-pro",
+            account_id="47",
+            account_platform="newapi",
+            account_scope=scope,
+        )
+        context = self.build_context()
+        self.assertEqual([row["scope"] for row in context["delta"]["activated"]], [scope])
+
+    def test_vertex_profile_evidence_must_match_exact_profile_scope(self) -> None:
+        target_floor = json.loads(json.dumps(self.current["account_model_mapping"]))
+        target_floor["vertex_capability_profiles"]["core-pro"]["gemini-pro"] = "gemini-pro"
+        self.target_path, self.target = self.write_bundle("target-vertex-profile-bad.json", target_floor)
+        self.write_evidence(
+            scope="newapi_vertex_profile:core-pro",
+            model_id="gemini-pro",
+            target="gemini-pro",
+            account_id="47",
+            account_platform="newapi",
+            account_scope="newapi_channel_type:41",
+        )
+        with self.assertRaisesRegex(MODEL_OPS.ActivationError, "must match mapping scope"):
+            self.build_context()
 
     def test_us035_account_override_scope_is_part_of_activation_delta(self) -> None:
         target = self.use_account_override_target()
@@ -235,6 +275,7 @@ class ModelActivationTest(unittest.TestCase):
     def test_us035_v1_current_bundle_remains_readable(self) -> None:
         legacy_floor = json.loads(json.dumps(self.current["account_model_mapping"]))
         legacy_floor.pop("account_overrides")
+        legacy_floor.pop("vertex_capability_profiles")
         legacy_bundle = {
             "schema_version": 1,
             "floor_sha256": MODEL_OPS._BUNDLE.floor_sha256(legacy_floor),
@@ -246,6 +287,25 @@ class ModelActivationTest(unittest.TestCase):
             MODEL_OPS._BUNDLE.load_bundle(legacy_path)["schema_version"],
             1,
         )
+
+    def test_schema_v3_bundle_remains_readable(self) -> None:
+        legacy_floor = json.loads(json.dumps(self.current["account_model_mapping"]))
+        legacy_floor.pop("vertex_capability_profiles")
+        legacy_bundle = {
+            "schema_version": 3,
+            "floor_sha256": MODEL_OPS._BUNDLE.floor_sha256(legacy_floor),
+            "account_model_mapping": legacy_floor,
+        }
+        legacy_path = self.root / "legacy-v3.json"
+        legacy_path.write_text(json.dumps(legacy_bundle), encoding="utf-8")
+        self.assertEqual(MODEL_OPS._BUNDLE.load_bundle(legacy_path)["schema_version"], 3)
+
+    def test_schema_v4_profile_must_contain_shared_floor(self) -> None:
+        bad_floor = json.loads(json.dumps(self.current["account_model_mapping"]))
+        bad_floor["vertex_capability_profiles"]["core-pro"] = {"profile-only": "profile-only"}
+        bad_path, _ = self.write_bundle("bad-vertex-profile.json", bad_floor)
+        with self.assertRaisesRegex(RuntimeError, "complete shared floor"):
+            MODEL_OPS._BUNDLE.load_bundle(bad_path)
 
     def test_us035_id_keyed_schema_v2_is_rejected(self) -> None:
         legacy_floor = json.loads(json.dumps(self.current["account_model_mapping"]))
@@ -371,7 +431,10 @@ class ModelActivationTest(unittest.TestCase):
     def test_us035_self_digested_invalid_bundle_is_rejected(self) -> None:
         bad_floor = {
             "platforms": {"openai": {"": "bad-target"}},
-            "newapi_channel_types": {},
+            "newapi_channel_types": {"41": {"vertex-shared": "vertex-shared"}},
+            "vertex_capability_profiles": {
+                "core-pro": {"vertex-shared": "vertex-shared"},
+            },
             "account_overrides": [],
             "antigravity_group_scopes": ["claude"],
             "forbidden_model_mapping_keys": {},

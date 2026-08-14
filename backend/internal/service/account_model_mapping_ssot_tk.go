@@ -41,6 +41,7 @@ type AccountModelMappingFloorDoc struct {
 	Platforms                     map[string]map[string]string  `json:"platforms"`
 	NewAPIChannelTypes            map[string]map[string]string  `json:"newapi_channel_types"`
 	AccountOverrides              []AccountModelMappingOverride `json:"account_overrides"`
+	VertexCapabilityProfiles      map[string]map[string]string  `json:"vertex_capability_profiles"`
 	AntigravityScopes             []string                      `json:"antigravity_group_scopes"`
 	ForbiddenModelMappingKeys     map[string][]string           `json:"forbidden_model_mapping_keys,omitempty"`
 	ForbiddenModelMappingPrefixes map[string][]string           `json:"forbidden_model_mapping_prefixes,omitempty"`
@@ -56,7 +57,7 @@ type AccountModelMappingOverride struct {
 	ModelMapping map[string]string `json:"model_mapping"`
 }
 
-const ModelSurfaceBundleSchemaVersion = 3
+const ModelSurfaceBundleSchemaVersion = 4
 
 // ModelSurfaceBundle is the deterministic release artifact consumed by modelops.
 // The digest covers the Go-owned floor projection, not mutable release metadata.
@@ -129,6 +130,10 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 		return nil, false
 	}
 	if scope == PlatformNewAPI {
+		if account.ChannelType == newapiconstant.ChannelTypeVertexAi {
+			mapping, _ := vertexModelMappingForAccount(account)
+			return mapping, len(mapping) > 0
+		}
 		if isNewAPIVolcEngineAgentPlanAccount(account) {
 			ids := NewAPIModelMappingPresetIDsForAccount(account)
 			if len(ids) == 0 {
@@ -222,23 +227,13 @@ func AccountModelMappingFloorForOps(ctx context.Context, runtimeRaw string) (*Ac
 		return nil, err
 	}
 	out := &AccountModelMappingFloorDoc{
-		Platforms:          make(map[string]map[string]string),
-		NewAPIChannelTypes: make(map[string]map[string]string),
-		AccountOverrides:   make([]AccountModelMappingOverride, 0),
-		AntigravityScopes:  append([]string(nil), canonicalAntigravityModelScopes...),
-		ForbiddenModelMappingKeys: map[string][]string{
-			// Kiro-backed Claude models remain public under the anthropic vendor,
-			// but native Anthropic accounts must not inherit Kiro-only capability.
-			// Kiro mirror stubs resolve to PlatformKiro before this policy applies.
-			PlatformAnthropic: kiroExclusiveModelIDs(),
-			PlatformAntigravity: append(
-				domain.AntigravityStructuralDeadModelMappingKeys(),
-				domain.AntigravityUnpricedModelMappingKeys()...,
-			),
-		},
-		ForbiddenModelMappingPrefixes: map[string][]string{
-			PlatformAntigravity: {"gpt-oss-"},
-		},
+		Platforms:                     make(map[string]map[string]string),
+		NewAPIChannelTypes:            make(map[string]map[string]string),
+		AccountOverrides:              make([]AccountModelMappingOverride, 0),
+		VertexCapabilityProfiles:      vertexCapabilityProfileMappingsForOps(),
+		AntigravityScopes:             append([]string(nil), canonicalAntigravityModelScopes...),
+		ForbiddenModelMappingKeys:     accountModelMappingForbiddenKeysByScope(),
+		ForbiddenModelMappingPrefixes: accountModelMappingForbiddenPrefixesByScope(),
 	}
 	for _, keys := range out.ForbiddenModelMappingKeys {
 		sort.Strings(keys)
@@ -344,6 +339,25 @@ func AccountModelMappingFloorForOps(ctx context.Context, runtimeRaw string) (*Ac
 
 func normalizeAccountModelMappingOverrideBaseURL(raw string) string {
 	return strings.TrimRight(strings.ToLower(strings.TrimSpace(raw)), "/")
+}
+
+func accountModelMappingForbiddenKeysByScope() map[string][]string {
+	return map[string][]string{
+		// Kiro-backed Claude models remain public under the anthropic vendor,
+		// but native Anthropic accounts must not inherit Kiro-only capability.
+		// Kiro mirror stubs resolve to PlatformKiro before this policy applies.
+		PlatformAnthropic: kiroExclusiveModelIDs(),
+		PlatformAntigravity: append(
+			domain.AntigravityStructuralDeadModelMappingKeys(),
+			domain.AntigravityUnpricedModelMappingKeys()...,
+		),
+	}
+}
+
+func accountModelMappingForbiddenPrefixesByScope() map[string][]string {
+	return map[string][]string{
+		PlatformAntigravity: {"gpt-oss-"},
+	}
 }
 
 func kiroExclusiveModelIDs() []string {
@@ -582,6 +596,33 @@ func accountRawModelMapping(account *Account) map[string]string {
 		return nil
 	}
 	return stringMappingFromRaw(account.Credentials["model_mapping"])
+}
+
+func reconciledAccountModelMapping(account *Account, required map[string]string) map[string]string {
+	current := accountRawModelMapping(account)
+	scope := accountModelMappingScopeForAccount(account)
+	forbiddenKeys := stringSet(accountModelMappingForbiddenKeysByScope()[scope])
+	forbiddenPrefixes := accountModelMappingForbiddenPrefixesByScope()[scope]
+	out := make(map[string]string, len(current)+len(required))
+	for key, target := range current {
+		if _, forbidden := forbiddenKeys[key]; forbidden {
+			continue
+		}
+		blocked := false
+		for _, prefix := range forbiddenPrefixes {
+			if strings.HasPrefix(key, prefix) {
+				blocked = true
+				break
+			}
+		}
+		if !blocked {
+			out[key] = target
+		}
+	}
+	for key, target := range required {
+		out[key] = target
+	}
+	return out
 }
 
 func modelMappingsEqual(a, b map[string]string) bool {

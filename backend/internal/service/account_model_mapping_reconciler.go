@@ -109,10 +109,11 @@ func (r *AccountModelMappingReconciler) reconcileAccountBatch(ctx context.Contex
 	mappingBySig := make(map[string]map[string]string)
 	for i := range accounts {
 		account := &accounts[i]
-		want, ok := accountModelMappingForAccount(ctx, account, r.pricing, r.availability, runtime)
-		if !ok || len(want) == 0 {
+		required, ok := accountModelMappingForAccount(ctx, account, r.pricing, r.availability, runtime)
+		if !ok || len(required) == 0 {
 			continue
 		}
+		want := reconciledAccountModelMapping(account, required)
 		if modelMappingsEqual(accountRawModelMapping(account), want) {
 			continue
 		}

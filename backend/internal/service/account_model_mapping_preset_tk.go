@@ -24,7 +24,7 @@ func AccountModelMappingPresetIDs(ctx context.Context, platform string, channelT
 		ids = kiroModelMappingPresetIDs()
 	case PlatformNewAPI:
 		if channelType == newapiconstant.ChannelTypeVertexAi {
-			ids = supportedCatalogModelIDsForPlatform(PlatformGemini)
+			ids = vertexSharedModelMappingPresetIDs()
 		} else {
 			ids = tkServedModelsManifestPresetIDsByChannelType(channelType)
 		}
@@ -147,6 +147,10 @@ func accountModelMappingOverrideAccounts() []*Account {
 func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
 	if account == nil {
 		return nil
+	}
+	if account.ChannelType == newapiconstant.ChannelTypeVertexAi {
+		ids, _ := vertexCapabilityProfileModelMappingIDs(account.VertexCapabilityProfile())
+		return ids
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
 		ids := tkServedModelsManifestPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())

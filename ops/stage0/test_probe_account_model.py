@@ -66,6 +66,22 @@ class ProbeAccountModelTest(unittest.TestCase):
         bind_at = script.index("INSERT INTO account_groups (account_id, group_id, priority, created_at)")
         self.assertLess(unbind_at, bind_at)
 
+    def test_rebinding_group_notifies_scheduler_snapshot(self) -> None:
+        script = _SCRIPT.read_text()
+        bind_at = script.index("INSERT INTO account_groups (account_id, group_id, priority, created_at)")
+        key_at = script.index('if [[ "$PROBE_REUSE_MODE" == "1" ]]; then\n  NEW_API_KEY=', bind_at)
+        binding_sql = script[bind_at:key_at]
+
+        self.assertIn("INSERT INTO scheduler_outbox", binding_sql)
+        self.assertIn("'group_changed'", binding_sql)
+        self.assertIn("${GROUP_ID}", binding_sql)
+
+        cleanup_at = script.index("cleanup() {")
+        trap_at = script.index("trap cleanup EXIT", cleanup_at)
+        cleanup_sql = script[cleanup_at:trap_at]
+        self.assertIn("INSERT INTO scheduler_outbox", cleanup_sql)
+        self.assertIn("'group_changed'", cleanup_sql)
+
     def test_probe_script_wires_verdict_module_and_embeddings_endpoint(self) -> None:
         script = _SCRIPT.read_text()
 

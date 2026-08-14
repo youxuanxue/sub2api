@@ -118,7 +118,7 @@ func TestAccountModelMappingForAccount_KiroBedrockAndNewAPI(t *testing.T) {
 		ChannelType: newapiconstant.ChannelTypeVertexAi,
 	}, nil, nil, nil)
 	require.True(t, ok)
-	requireIdentityMappingForIDs(t, vertex, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi))
+	requireIdentityMappingForIDs(t, vertex, vertexSharedModelMappingPresetIDs())
 }
 
 func TestAccountModelMappingRuntimeOverride(t *testing.T) {
@@ -126,7 +126,7 @@ func TestAccountModelMappingRuntimeOverride(t *testing.T) {
 
 	grokID := firstStringSortedForReconcilerTest(t, supportedCatalogModelIDsForPlatform(PlatformGrok))
 	anthropicID := firstStringSortedForReconcilerTest(t, supportedCatalogModelIDsForPlatform(PlatformAnthropic))
-	vertexID := firstStringSortedForReconcilerTest(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi))
+	vertexID := "runtime-only-vertex-model"
 	raw := runtimeOverrideRawForReconcilerTest(t, accountModelMappingRuntimeDoc{
 		Platforms: map[string]map[string]string{
 			"grok":   {grokID: grokID},
@@ -152,7 +152,9 @@ func TestAccountModelMappingRuntimeOverride(t *testing.T) {
 		ChannelType: newapiconstant.ChannelTypeVertexAi,
 	}, nil, nil, runtime)
 	require.True(t, ok)
-	require.Equal(t, map[string]string{vertexID: vertexID}, vertex)
+	requireIdentityMappingForIDs(t, vertex, vertexSharedModelMappingPresetIDs())
+	require.NotContains(t, vertex, vertexID,
+		"runtime channel replacement must not erase the ch41 profile/shared capability contract")
 }
 
 func TestAccountModelMappingReconciler_RewritesDriftedAccountsAcrossPlatforms(t *testing.T) {
@@ -183,6 +185,62 @@ func TestAccountModelMappingReconciler_RewritesDriftedAccountsAcrossPlatforms(t 
 		require.NotEmpty(t, mm)
 	}
 	require.ElementsMatch(t, []int64{1, 2, 3}, touched)
+}
+
+func TestAccountModelMappingReconciler_PreservesCompatibleExtrasAndRepairsRequiredFloor(t *testing.T) {
+	shared := identityModelMapping(vertexSharedModelMappingPresetIDs())
+	account57Mapping := cloneStringMap(shared)
+	account57Mapping["gemini-2.5-pro"] = "gemini-2.5-pro"
+	account57Mapping["gemini-2.5-flash"] = "wrong-target"
+	account57Mapping["compatible-future-model"] = "compatible-future-model"
+
+	acc := &reconcilerAccountStub{
+		byPlatform: map[string][]Account{
+			PlatformNewAPI: {
+				{
+					ID:          57,
+					Platform:    PlatformNewAPI,
+					ChannelType: newapiconstant.ChannelTypeVertexAi,
+					Credentials: map[string]any{
+						VertexCapabilityProfileCredentialKey: vertexCapabilityProfileCoreImagenUltra,
+						"model_mapping":                      modelMappingToAny(account57Mapping),
+					},
+				},
+			},
+		},
+	}
+	r := NewAccountModelMappingReconciler(acc, nil, nil, nil, nil)
+	r.runOnce(context.Background())
+
+	require.Len(t, acc.bulkCalls, 1)
+	require.Equal(t, []int64{57}, acc.bulkCalls[0].ids)
+	got, ok := acc.bulkCalls[0].updates.Credentials["model_mapping"].(map[string]any)
+	require.True(t, ok)
+	profileIDs, known := vertexCapabilityProfileModelMappingIDs(vertexCapabilityProfileCoreImagenUltra)
+	require.True(t, known)
+	for _, id := range profileIDs {
+		require.Equal(t, id, got[id])
+	}
+	require.Equal(t, "gemini-2.5-pro", got["gemini-2.5-pro"],
+		"account 57 Pro result is inconclusive and must survive as a compatible extra")
+	require.Equal(t, "compatible-future-model", got["compatible-future-model"])
+}
+
+func TestReconciledAccountModelMapping_RemovesForbiddenEntries(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		Platform: PlatformAntigravity,
+		Credentials: map[string]any{"model_mapping": map[string]any{
+			"required":                          "wrong-target",
+			"compatible-extra":                  "compatible-extra",
+			"gpt-oss-forbidden-prefix-boundary": "gpt-oss-forbidden-prefix-boundary",
+		}},
+	}
+	got := reconciledAccountModelMapping(account, map[string]string{"required": "required-target"})
+	require.Equal(t, "required-target", got["required"])
+	require.Equal(t, "compatible-extra", got["compatible-extra"])
+	require.NotContains(t, got, "gpt-oss-forbidden-prefix-boundary")
 }
 
 func TestAccountModelMappingReconciler_RuntimeOverrideFromSettings(t *testing.T) {

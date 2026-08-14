@@ -19,6 +19,7 @@ if [[ ! "$REQUEST_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [[ "$REQUEST_TIMEOUT_SECOND
 fi
 
 python3 - "$ACCOUNT_ID" "$BASE_URL" "$TARGET_MODELS" "$MODEL" "$REQUEST_TIMEOUT_SECONDS" <<'PY'
+import ipaddress
 import json
 import re
 import ssl
@@ -49,13 +50,26 @@ def validate_base_url(raw):
         setup_error("BASE_URL must not contain userinfo, query, or fragment")
     if parsed.path.rstrip("/") != "/api/v1":
         setup_error("BASE_URL path must be /api/v1")
-    is_loopback = hostname in {"127.0.0.1", "localhost", "::1"}
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        address = None
+    is_loopback = hostname == "localhost" or bool(address and address.is_loopback)
+    private_networks = (
+        ipaddress.ip_network("10.0.0.0/8"),
+        ipaddress.ip_network("172.16.0.0/12"),
+        ipaddress.ip_network("192.168.0.0/16"),
+    )
+    is_private_literal = bool(
+        address and address.version == 4
+        and any(address in network for network in private_networks)
+    )
     is_tokenkey_api = re.fullmatch(r"api(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\.tokenkey\.dev", hostname)
-    if parsed.scheme == "http" and is_loopback:
+    if parsed.scheme == "http" and (is_loopback or is_private_literal):
         return raw.rstrip("/")
     if parsed.scheme == "https" and is_tokenkey_api and port in {None, 443}:
         return raw.rstrip("/")
-    setup_error("BASE_URL must use loopback HTTP or a TokenKey API HTTPS host")
+    setup_error("BASE_URL must use private/loopback literal HTTP or a TokenKey API HTTPS host")
 
 
 class NoRedirect(HTTPRedirectHandler):

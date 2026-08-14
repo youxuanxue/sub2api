@@ -34,8 +34,9 @@ func TestListChannelTypeModels_VertexAIUsesTokenKeyServablePreset(t *testing.T) 
 	require.NotEmpty(t, resp.Data["41"])
 	require.ElementsMatch(t, resp.Data["41"], service.VertexNewAPIChannelServableModelIDs())
 	require.Contains(t, resp.Data["41"], "gemini-2.5-flash")
-	require.Contains(t, resp.Data["41"], "imagen-4.0-fast-generate-001")
 	require.Contains(t, resp.Data["41"], "veo-3.1-generate-001")
+	require.NotContains(t, resp.Data["41"], "imagen-4.0-fast-generate-001",
+		"unknown ch41 accounts must be provisioned with the shared floor, not the public union")
 }
 
 func TestListChannelTypeModels_ManifestChannelsUseTokenKeyPresets(t *testing.T) {
