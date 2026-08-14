@@ -1,9 +1,9 @@
 ---
 title: QA Phase 2 Archive Closeout
 status: approved
-approved_by: "feng (conversation approvals 2026-08-07 through 2026-08-14; UTC-hour partition lifecycle, no-rehome cutover, bounded lock-contention retry)"
+approved_by: "feng (conversation approvals 2026-08-07 through 2026-08-15; Phase 2 evidence retained, later runtime target delegated to the primary QA design)"
 date: 2026-08-07
-last_reviewed: 2026-08-14
+last_reviewed: 2026-08-15
 supersedes: null
 related:
   - docs/approved/design-prod-qa-24h-s3-lifecycle.md
@@ -12,6 +12,15 @@ related:
 # QA Phase 2 Archive Closeout Design
 
 **Approval baseline:** `docs/approved/design-prod-qa-24h-s3-lifecycle.md`
+
+> **Scope boundary after the 2026-08-15 approval:** this document preserves the implemented
+> Phase 2 archive, recovery, historical-gap, no-rehome cutover, and production evidence contract.
+> It does not own the next runtime target. The primary QA design now exclusively owns
+> S3-only user list/detail/export, `qa_capture` hard-health, archive-gated partition DROP,
+> the single `tokenkey-qa-maintenance` lifecycle owner, retirement of the independent boundary
+> timer, and removal of automatic destructive emergency cleanup. Present-tense descriptions
+> below of the two-timer 24-to-25-hour Phase 2 runtime describe the migration baseline until
+> that separately implemented and approved activation; they cannot override the primary design.
 
 ## Purpose
 
