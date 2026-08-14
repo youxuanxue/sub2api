@@ -840,13 +840,24 @@ def _check_target(
 
 
 def _canonicalize_observed_mapping(row: dict[str, Any]) -> Any:
-    """Return observed model_mapping as dict or None (absent/null canonicalized to None)."""
-    raw = row.get("model_mapping")
-    if raw is None or (isinstance(raw, dict) and not raw):
+    """Return observed model_mapping for CAS comparison.
+
+    - absent key or JSON null -> None
+    - empty dict {} -> {} (preserved for CAS)
+    - non-empty dict -> sorted keys dict
+    - other JSON values (string, array, etc.) -> preserved as-is
+    """
+    if "model_mapping" not in row:
+        return None
+    raw = row["model_mapping"]
+    if raw is None:
         return None
     if isinstance(raw, dict):
+        if not raw:
+            return {}
         return dict(sorted((str(k), str(v)) for k, v in raw.items()))
-    return None
+    # Preserve non-dict JSON values (string, array, number) for accurate CAS
+    return raw
 
 
 def _collect_apply_plan(
@@ -866,6 +877,7 @@ def _collect_apply_plan(
     if runtime_reason:
         raise RuntimeError(runtime_reason)
     floor = _load_effective_floor(runtime_raw)
+    floor_sha = hashlib.sha256(canonical_json(floor).encode("utf-8")).hexdigest()
 
     all_rows = bundle.get("accounts") or []
 
@@ -882,6 +894,7 @@ def _collect_apply_plan(
 
     account_changes: list[dict[str, Any]] = []
     already_compliant_ids: list[int] = []
+    skipped_ids: list[int] = []
     for row in selected_rows:
         plan = _account_plan(row, floor)
         if plan and plan.get("desired_model_mapping"):
@@ -889,7 +902,12 @@ def _collect_apply_plan(
             plan["observed_model_mapping"] = _canonicalize_observed_mapping(row)
             account_changes.append(plan)
         elif account_ids is not None:
-            already_compliant_ids.append(int(row.get("id") or 0))
+            # Distinguish skipped (no desired mapping / no scope match) from already-compliant.
+            want, _scope = _desired_mapping_for_account(row, floor)
+            if want:
+                already_compliant_ids.append(int(row.get("id") or 0))
+            else:
+                skipped_ids.append(int(row.get("id") or 0))
 
     # Targeted mode: group_changes always empty.
     group_changes: list[dict[str, Any]] = []
@@ -913,6 +931,7 @@ def _collect_apply_plan(
         "target": label,
         "region": region,
         "instance_id": instance_id,
+        "floor_sha256": floor_sha,
         "account_changes": sorted(account_changes, key=lambda p: int(p.get("id") or 0)),
         "group_changes": sorted(group_changes, key=lambda p: int(p.get("id") or 0)),
     }
@@ -924,6 +943,7 @@ def _collect_apply_plan(
         result["found_ids"] = found_ids
         result["missing_ids"] = missing_ids
         result["already_compliant_ids"] = sorted(already_compliant_ids)
+        result["skipped_ids"] = sorted(skipped_ids)
         result["changed_ids"] = sorted(int(c.get("id") or 0) for c in account_changes)
         result["counts"] = {
             "requested": len(account_ids),
@@ -931,7 +951,7 @@ def _collect_apply_plan(
             "missing": len(missing_ids),
             "already_compliant": len(already_compliant_ids),
             "changed": len(account_changes),
-            "skipped": 0,
+            "skipped": len(skipped_ids),
         }
     return result
 
@@ -968,16 +988,23 @@ def _json_b64(doc: Any) -> str:
 
 
 def _compute_plan_sha256(plan: dict[str, Any]) -> str:
-    """Compute a deterministic, path-independent digest over the targeted plan.
+    """Compute a deterministic digest over the targeted plan.
 
-    Path-independent means the digest does NOT depend on region or instance_id
-    (deployment topology). It covers: target label, floor_sha256, requested_ids,
-    per-account observed+desired+diff, and (empty) group_changes.
+    Covers: target, region, instance_id, floor_sha256 (always present from bundle),
+    requested/found/missing/already_compliant IDs, per-account observed+desired+diff,
+    and empty group write-set.
     """
+    # floor_sha256: prefer activation_floor_sha256 if present, fall back to floor_sha256
+    floor_sha = plan.get("activation_floor_sha256") or plan.get("floor_sha256") or ""
     digest_input: dict[str, Any] = {
         "target": plan.get("target"),
-        "activation_floor_sha256": plan.get("activation_floor_sha256"),
+        "region": plan.get("region"),
+        "instance_id": plan.get("instance_id"),
+        "floor_sha256": floor_sha,
         "requested_ids": plan.get("requested_ids") or [],
+        "found_ids": plan.get("found_ids") or [],
+        "missing_ids": plan.get("missing_ids") or [],
+        "already_compliant_ids": plan.get("already_compliant_ids") or [],
         "account_changes": [
             {
                 "id": int(c.get("id") or 0),
@@ -1027,11 +1054,13 @@ def _render_targeted_apply_sql(plan: dict[str, Any]) -> str:
             f"IF changed <> 1 THEN RAISE EXCEPTION 'account {account_id} CAS failed: observed model_mapping changed'; "
             f"END IF; END $tk_targeted_{account_id}$;",
         ])
-    # One merged outbox event for all changed accounts
-    outbox_payload = json.dumps({"account_ids": sorted(changed_ids)}, separators=(",", ":"))
+    # One merged outbox event for all changed accounts. Encode the payload like
+    # account updates so future payload fields cannot introduce SQL quoting hazards.
+    outbox_payload_b64 = _json_b64({"account_ids": sorted(changed_ids)})
     lines.append(
         "INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload) "
-        f"VALUES ('account_bulk_changed', NULL, NULL, '{outbox_payload}'::jsonb);"
+        "VALUES ('account_bulk_changed', NULL, NULL, "
+        f"convert_from(decode('{outbox_payload_b64}', 'base64'), 'UTF8')::jsonb);"
     )
     lines.extend([
         "COMMIT;",
@@ -1617,7 +1646,7 @@ def cmd_apply_accounts(args) -> int:
     # Targeted mode: --account-ids
     account_ids_raw = getattr(args, "account_ids", None)
     account_ids: list[int] | None = None
-    if account_ids_raw:
+    if account_ids_raw is not None:
         try:
             account_ids = _parse_account_ids(account_ids_raw)
         except ValueError as e:
@@ -1651,13 +1680,6 @@ def cmd_apply_accounts(args) -> int:
 
     plans.sort(key=lambda p: str(p.get("target") or ""))
 
-    # In targeted mode, error on missing active IDs
-    if account_ids is not None and plans:
-        plan = plans[0]
-        missing = plan.get("missing_ids") or []
-        if missing:
-            fail(f"--account-ids: active accounts not found: {','.join(str(i) for i in missing)}")
-
     report = {
         "bundle": str(_BUNDLE_PATH),
         "floor_sha256": _load_bundle()["floor_sha256"],
@@ -1671,24 +1693,31 @@ def cmd_apply_accounts(args) -> int:
     if activation_floor_sha256:
         report["activation_floor_sha256"] = activation_floor_sha256
 
-    # Compute plan_sha256 for targeted mode
+    # Compute plan_sha256 for targeted mode (always, even if no-op)
     if account_ids is not None and plans and not errors:
         plan_digest = _compute_plan_sha256(plans[0])
         report["plan_sha256"] = plan_digest
 
+    # In targeted mode, missing active IDs -> exit 2 with JSON report
+    if account_ids is not None and plans:
+        plan = plans[0]
+        missing = plan.get("missing_ids") or []
+        if missing:
+            report["errors"].append({
+                "target": plan.get("target"),
+                "error": f"active accounts not found: {','.join(str(i) for i in missing)}",
+                "missing_ids": missing,
+            })
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return 2
+
     if errors:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 2
-    if args.dry_run:
-        print(json.dumps(report, ensure_ascii=False, indent=2))
-        return 0
-    if report["account_change_count"] == 0 and report["group_change_count"] == 0:
-        print(json.dumps(report, ensure_ascii=False, indent=2))
-        return 0
 
-    # Non-dry-run targeted mode requires --expected-plan-sha256
+    # Non-dry-run targeted mode requires --expected-plan-sha256 (checked before no-op return)
     expected_plan_sha256 = getattr(args, "expected_plan_sha256", None)
-    if account_ids is not None:
+    if account_ids is not None and not args.dry_run:
         if not expected_plan_sha256:
             fail("targeted apply (--account-ids) requires --expected-plan-sha256 in non-dry-run mode")
         # Recompute plan digest and compare
@@ -1699,30 +1728,26 @@ def cmd_apply_accounts(args) -> int:
                 f"expected {expected_plan_sha256!r}; plan changed between dry-run and apply"
             )
 
+    if args.dry_run:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0
+    if report["account_change_count"] == 0 and report["group_change_count"] == 0:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0
+
     # Targeted mode uses CAS SQL
     if account_ids is not None:
         plan = plans[0]
-        sql = _render_targeted_apply_sql(plan)
-        sql_b64 = base64.b64encode(sql.encode("utf-8")).decode("ascii")
-        shell = (
-            "set -euo pipefail\n"
-            f"PSQL='{PSQL}'\n"
-            f"echo {sql_b64} | base64 -d | $PSQL\n"
-            "echo TARGETED_APPLY_OK\n"
-        )
+        changed_ids = plan.get("changed_ids") or []
         try:
-            out = _ssm_run_shell_b64_region(
-                plan["region"],
-                plan["instance_id"],
-                base64.b64encode(shell.encode("utf-8")).decode("ascii"),
-                f"account model_mapping targeted apply {plan['target']}",
-            )
+            out = _apply_targeted_plan_remote(plan)
             if "TARGETED_APPLY_OK" not in out:
                 raise RuntimeError("remote SQL did not report TARGETED_APPLY_OK")
             result = {
                 "bundle": str(_BUNDLE_PATH),
                 "floor_sha256": _load_bundle()["floor_sha256"],
                 "plan_sha256": expected_plan_sha256,
+                "changed_ids": changed_ids,
                 "applied": [{"target": plan["target"], "account_changes": len(plan.get("account_changes") or []), "group_changes": 0}],
                 "errors": [],
             }
@@ -1731,6 +1756,7 @@ def cmd_apply_accounts(args) -> int:
                 "bundle": str(_BUNDLE_PATH),
                 "floor_sha256": _load_bundle()["floor_sha256"],
                 "plan_sha256": expected_plan_sha256,
+                "changed_ids": [],
                 "applied": [],
                 "errors": [{"target": plan["target"], "error": str(e)}],
             }
@@ -2478,6 +2504,8 @@ def cmd_selftest(_args) -> int:
                            "gpt-5.6-terra": "gpt-5.6-terra"}},  # missing sol
         {"id": 30, "name": "acc-30", "platform": "grok", "type": "oauth",
          "model_mapping": {"grok": "grok-4.3"}},  # needs more keys
+        {"id": 40, "name": "acc-40", "platform": "unknown", "type": "oauth",
+         "model_mapping": {"custom": "custom"}},  # no bundle scope: skipped
     ]
     original_run_check_sql_json = globals()["_run_check_sql_json"]
     original_load_effective_floor = globals()["_load_effective_floor"]
@@ -2509,6 +2537,22 @@ def cmd_selftest(_args) -> int:
         assert 30 not in change_ids
         # observed_model_mapping present
         assert targeted_plan["account_changes"][0]["observed_model_mapping"] is not None
+        # Feed the actual selected plan into SQL rendering: unselected account 30
+        # must not appear in updates or the merged outbox payload.
+        selected_sql = _render_targeted_apply_sql(targeted_plan)
+        assert "id = 20" in selected_sql
+        assert "id = 30" not in selected_sql
+        selected_outbox_b64 = _json_b64({"account_ids": [20]})
+        assert selected_outbox_b64 in selected_sql
+        assert _json_b64({"account_ids": [20, 30]}) not in selected_sql
+
+        # Found rows without a bundle scope are reported as skipped, not compliant.
+        skipped_plan = _collect_apply_plan("prod", "test-region", "i-test", account_ids=[40])
+        assert skipped_plan["found_ids"] == [40]
+        assert skipped_plan["skipped_ids"] == [40]
+        assert skipped_plan["already_compliant_ids"] == []
+        assert skipped_plan["changed_ids"] == []
+        assert skipped_plan["counts"]["skipped"] == 1
 
         # Targeted plan where all selected are compliant (no-op)
         noop_plan = _collect_apply_plan("prod", "test-region", "i-test", account_ids=[10])
@@ -2520,11 +2564,12 @@ def cmd_selftest(_args) -> int:
         globals()["_run_check_sql_json"] = original_run_check_sql_json
         globals()["_load_effective_floor"] = original_load_effective_floor
 
-    # --- Targeted apply: _compute_plan_sha256 determinism and path-independence ---
+    # --- Targeted apply: _compute_plan_sha256 determinism ---
     plan_a = {
         "target": "prod",
         "region": "us-east-1",
         "instance_id": "i-00000000000000001",
+        "floor_sha256": "f" * 64,
         "targeted": True,
         "requested_ids": [10, 20],
         "found_ids": [10, 20],
@@ -2542,12 +2587,21 @@ def cmd_selftest(_args) -> int:
     }
     sha_a = _compute_plan_sha256(plan_a)
     assert len(sha_a) == 64
-    # Same plan, different instance_id -> same sha (path-independent)
+    # Same plan repeated -> deterministic
+    assert _compute_plan_sha256(plan_a) == sha_a
+    # Different instance_id -> different sha (region/instance included in digest)
     plan_b = {**plan_a, "instance_id": "i-00000000000000099"}
-    assert _compute_plan_sha256(plan_b) == sha_a
-    # Different target region still same sha
+    assert _compute_plan_sha256(plan_b) != sha_a
+    # Different region -> different sha
     plan_c = {**plan_a, "region": "eu-west-1"}
-    assert _compute_plan_sha256(plan_c) == sha_a
+    assert _compute_plan_sha256(plan_c) != sha_a
+    # Different floor_sha256 -> different sha
+    plan_e = {**plan_a, "floor_sha256": "e" * 64}
+    assert _compute_plan_sha256(plan_e) != sha_a
+    # Different found_ids -> different sha
+    plan_f = copy.deepcopy(plan_a)
+    plan_f["found_ids"] = [10, 20, 30]
+    assert _compute_plan_sha256(plan_f) != sha_a
     # Change content -> different sha
     plan_d = copy.deepcopy(plan_a)
     plan_d["account_changes"][0]["desired_model_mapping"]["extra"] = "extra"
@@ -2586,14 +2640,58 @@ def cmd_selftest(_args) -> int:
     assert id20_pos < id30_pos, "SQL updates should be ordered by account ID"
     # Single merged outbox entry
     assert targeted_sql.count("'account_bulk_changed'") == 1
-    # Outbox contains both IDs
-    assert '"account_ids":[20,30]' in targeted_sql
+    # Outbox contains both IDs in a quoting-safe encoded payload.
+    assert _json_b64({"account_ids": [20, 30]}) in targeted_sql
     # ROLLBACK on CAS miss
     assert "RAISE EXCEPTION" in targeted_sql
     # Null observed uses 'null'::jsonb comparison
     assert "'null'::jsonb" in targeted_sql
     # TARGETED_APPLY_OK sentinel
     assert "TARGETED_APPLY_OK" in targeted_sql
+
+    # --- {} CAS preservation: empty dict observed is preserved as {} in SQL, not null ---
+    empty_obs_plan = {
+        "target": "prod",
+        "region": "us-east-1",
+        "instance_id": "i-test",
+        "targeted": True,
+        "account_changes": [
+            {
+                "id": 50,
+                "observed_model_mapping": {},
+                "desired_model_mapping": {"new-model": "new-model"},
+            },
+        ],
+        "group_changes": [],
+    }
+    empty_obs_sql = _render_targeted_apply_sql(empty_obs_plan)
+    # {} should encode as base64 of "{}" not "null"
+    import base64 as _b64_test
+    empty_obj_b64 = _b64_test.b64encode(b"{}").decode("ascii")
+    assert empty_obj_b64 in empty_obs_sql, "empty {} observed must be preserved in CAS SQL"
+    null_b64 = _b64_test.b64encode(b"null").decode("ascii")
+    # null_b64 must NOT appear for this account (it has {}, not null)
+    # Find the DO block for account 50
+    block_50_start = empty_obs_sql.find("tk_targeted_50")
+    block_50_end = empty_obs_sql.find("END $tk_targeted_50$")
+    block_50 = empty_obs_sql[block_50_start:block_50_end]
+    assert empty_obj_b64 in block_50
+    assert null_b64 not in block_50, "{} observed must not encode as null"
+
+    # --- _canonicalize_observed_mapping: {} preserved, non-dict coerced ---
+    assert _canonicalize_observed_mapping({"model_mapping": {}}) == {}
+    assert _canonicalize_observed_mapping({"model_mapping": None}) is None
+    assert _canonicalize_observed_mapping({}) is None  # absent key
+    assert _canonicalize_observed_mapping({"model_mapping": "not-a-dict"}) == "not-a-dict"
+    assert _canonicalize_observed_mapping({"model_mapping": {"b": "2", "a": "1"}}) == {"a": "1", "b": "2"}
+
+    # --- Empty string --account-ids rejection ---
+    try:
+        _parse_account_ids("")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("empty string --account-ids accepted")
 
     # --- Targeted apply: digest mismatch rejection ---
     # Parser accepts --account-ids and --expected-plan-sha256
@@ -2640,6 +2738,116 @@ def cmd_selftest(_args) -> int:
         globals()["_resolve_apply_targets"] = original_resolve
         globals()["_load_effective_floor"] = original_load_effective_floor
         globals()["_run_check_sql_json"] = original_run_check_sql_json
+
+    # --- Targeted apply: cmd-level digest mismatch with SSM mocked (no write call) ---
+    ssm_calls: list[str] = []
+    original_ssm = globals()["_ssm_run_shell_b64_region"]
+    globals()["_ssm_run_shell_b64_region"] = lambda r, i, b, desc: ssm_calls.append(desc) or "TARGETED_APPLY_OK"
+    original_resolve2 = globals()["_resolve_apply_targets"]
+    globals()["_resolve_apply_targets"] = lambda target, **kw: [("prod", "us-east-1", "i-prod")]
+    original_load_effective_floor2 = globals()["_load_effective_floor"]
+    globals()["_load_effective_floor"] = lambda _raw: floor
+    original_run_check_sql_json2 = globals()["_run_check_sql_json"]
+    globals()["_run_check_sql_json"] = lambda _r, _i, _l: {
+        "runtime_setting": None,
+        "accounts": targeted_accounts,
+        "antigravity_groups": [],
+    }
+    try:
+        ssm_calls.clear()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            try:
+                cmd_apply_accounts(argparse.Namespace(
+                    target="prod",
+                    account_ids="20",
+                    expected_plan_sha256="wrong" * 13,  # 65 chars, definitely wrong
+                    confirm=APPLY_CONFIRM,
+                    dry_run=False,
+                    prod_instance_id=None,
+                    activation_floor_sha256=None,
+                    bundle=None,
+                    parallel=1,
+                ))
+            except SystemExit as e:
+                assert e.code == 2, f"digest mismatch should exit 2, got {e.code}"
+            else:
+                raise AssertionError("digest mismatch was not rejected")
+        assert len(ssm_calls) == 0, "SSM should NOT be called when digest mismatches"
+    finally:
+        globals()["_ssm_run_shell_b64_region"] = original_ssm
+        globals()["_resolve_apply_targets"] = original_resolve2
+        globals()["_load_effective_floor"] = original_load_effective_floor2
+        globals()["_run_check_sql_json"] = original_run_check_sql_json2
+
+    # --- Targeted apply: digest changes on region/instance/floor/found state ---
+    plan_base = {
+        "target": "prod",
+        "region": "us-east-1",
+        "instance_id": "i-00000000000000001",
+        "floor_sha256": "a" * 64,
+        "targeted": True,
+        "requested_ids": [10, 20],
+        "found_ids": [10, 20],
+        "missing_ids": [],
+        "already_compliant_ids": [10],
+        "changed_ids": [20],
+        "account_changes": [{
+            "id": 20,
+            "observed_model_mapping": {"k": "v"},
+            "desired_model_mapping": {"k": "v", "k2": "v2"},
+            "diff": {"missing_keys": ["k2"], "forbidden_keys": [], "compatible_extra_keys": [], "bad_targets": [], "current_count": 1, "desired_count": 2},
+        }],
+        "group_changes": [],
+    }
+    sha_base = _compute_plan_sha256(plan_base)
+    # Different region -> different sha
+    plan_diff_region = {**plan_base, "region": "eu-west-1"}
+    assert _compute_plan_sha256(plan_diff_region) != sha_base, "region must affect digest"
+    # Different instance_id -> different sha
+    plan_diff_instance = {**plan_base, "instance_id": "i-99999"}
+    assert _compute_plan_sha256(plan_diff_instance) != sha_base, "instance_id must affect digest"
+    # Different floor_sha256 -> different sha
+    plan_diff_floor = {**plan_base, "floor_sha256": "b" * 64}
+    assert _compute_plan_sha256(plan_diff_floor) != sha_base, "floor_sha256 must affect digest"
+    # Different found_ids -> different sha
+    plan_diff_found = {**plan_base, "found_ids": [20]}
+    assert _compute_plan_sha256(plan_diff_found) != sha_base, "found_ids must affect digest"
+    # Different already_compliant_ids -> different sha
+    plan_diff_compliant = {**plan_base, "already_compliant_ids": []}
+    assert _compute_plan_sha256(plan_diff_compliant) != sha_base, "already_compliant_ids must affect digest"
+    # Different missing_ids -> different sha
+    plan_diff_missing = {**plan_base, "missing_ids": [99]}
+    assert _compute_plan_sha256(plan_diff_missing) != sha_base, "missing_ids must affect digest"
+
+    # --- Targeted apply: compatible-extra preservation in desired ---
+    # _account_plan reconciles: keeps extras not in forbidden_keys, adds wanted keys
+    # This is implicitly tested by _account_plan returning reconciled mapping.
+    # Explicitly test that _collect_apply_plan preserves compatible extras in the plan.
+    compatible_extra_accounts = [
+        {"id": 40, "name": "acc-40", "platform": "openai", "type": "oauth",
+         "model_mapping": {"gpt-5.6": "gpt-5.6", "gpt-5.6-luna": "gpt-5.6-luna",
+                           "gpt-5.6-terra": "gpt-5.6-terra",
+                           "custom-extra": "custom-target"}},  # missing sol, has compatible extra
+    ]
+    globals()["_run_check_sql_json"] = lambda _r, _i, _l: {
+        "runtime_setting": None,
+        "accounts": compatible_extra_accounts,
+        "antigravity_groups": [],
+    }
+    globals()["_load_effective_floor"] = lambda _raw: floor
+    try:
+        compat_plan = _collect_apply_plan("prod", "us-east-1", "i-test", account_ids=[40])
+        assert compat_plan["changed_ids"] == [40]
+        change = compat_plan["account_changes"][0]
+        # desired_model_mapping should contain both the floor keys AND the compatible extra
+        assert "custom-extra" in change["desired_model_mapping"], \
+            "compatible extras must be preserved in desired_model_mapping"
+        assert change["desired_model_mapping"]["custom-extra"] == "custom-target"
+        assert "gpt-5.6-sol" in change["desired_model_mapping"], \
+            "missing floor key must be added"
+    finally:
+        globals()["_run_check_sql_json"] = original_run_check_sql_json2
+        globals()["_load_effective_floor"] = original_load_effective_floor2
 
     print("selftest ok")
     return 0
