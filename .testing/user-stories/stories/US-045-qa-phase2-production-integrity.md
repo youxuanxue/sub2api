@@ -23,7 +23,7 @@
 5. **AC-005（runtime）**：Given timer、operator、self-test 与 health probe，When执行或发生 pre-app/child failure，Then它们共用唯一 host runner 与批准的 image/user/mount/scratch/resource contract，原子 receipt 始终推进且四类运行事实矛盾时 fail closed。
 6. **AC-006（IAM 与 recovery）**：Given app archive role 与 ops recovery role，When渲染 policy 或从 workstation inspect/verify/restore，Then app 只有所需 suffix-scoped artifact 权限且无无界 list/partial read，recovery 不经过 prod 主机/API/数据库，正文恢复要求 privacy confirmation，并如实保留 shared-role 风险。
 7. **AC-007（cutover 排空与 export orphan）**：Given legacy stale cleanup 仅在 no-move cutover 排空期间运行，且 steady-state boundary 处理 export temp crash orphan，When plan/apply，Then只处理 effective mount 内 age/type/open-handle 全部合格且 exact plan-hash 未漂移的文件；durable same-T0 finalize receipt 原子切换 owner 后，legacy cleanup 必须停用，已知历史坏小时与 `qa_export_jobs` 保持不变。
-8. **AC-008（qa_records UTC 小时生命周期）**：Given `qa_records` 已切换为 UTC 小时 RANGE 分区且 archive/boundary 共用 `QAMA` 锁，When `*:00` boundary owner 运行，Then 仅基于 catalog bound 预建 `[current_hour, current_hour+72h)`、DROP `upper_bound <= retention_boundary` 的规范子分区，并在同一事务内完成 terminal gap 分类 + DROP + `source_dropped_at`；hot blob/DLQ 小时目录在 DROP 后幂等清理；稳态禁止 rehome/staging/copy/move 与逐行 QA retention；`archive_failed`、分区缺口、DEFAULT 稳态残留与 hot-file 残留必须 health failed。
+8. **AC-008（qa_records UTC 小时生命周期）**：Given `qa_records` 已切换为 UTC 小时 RANGE 分区且 archive/boundary 共用 `QAMA` 锁，When `*:00` boundary owner 运行，Then 每条 pooled connection 继承短 DDL timeout，仅对可识别锁竞争有界重试，并在任何 DROP 前完成 `[current_hour, current_hour+72h)` catalog coverage；之后仅基于 catalog bound DROP `upper_bound <= retention_boundary` 的规范子分区，并在同一事务内完成 terminal gap 分类 + DROP + `source_dropped_at`；hot blob/DLQ 小时目录在 DROP 后幂等清理；稳态禁止 rehome/staging/copy/move 与逐行 QA retention；非锁错误、取消、重试耗尽、`archive_failed`、分区缺口、DEFAULT 稳态残留与 hot-file 残留必须 fail closed/health failed。
 9. **AC-009（过期 gap 批量决策）**：Given 已过 24 小时、源行数为零、无 commit-ready segment、非 committed/terminal 且 recovery role 确认无 `commit.json` 的精确小时，When 生成 batch plan，Then hash 绑定 DB UTC anchor/cutoff/cutover/latest-normal、精确窗口、control window/update/segment fingerprint/commit-ready fact、bucket/role/recovery-run 与 S3 absence；When 使用精确 hash 与 approver apply，Then 在 `QAMA` 同一事务中重验证全部事实、通过 `qa_archive_shards` owner 写入 `failed/source_unavailable_after_retention` 并追加不可变 receipt；任一事实漂移整批拒绝，且不写 S3、不删/搬数据、不切 timer。
 
 ## Assertions
@@ -32,7 +32,8 @@
 - 唯一 write API 不接收 window 或 boolean；批准小时由 archive package 持有，operator 只做固定确认与接线。
 - `cleanup_eligible=false` 与 `deletion_authorized=false` 在整个 Phase 2 保持不变。
 - `2026-08-07 01:00 UTC` 保持 `commit_mismatch`，`2026-08-04 04:00 UTC` 保持 `missing_evidence`，不得修改两者 S3 commit。
-- 本 Story 的 InTest 只表示仓库实现正在闭环；不表示生产 schema、IAM、timer、恢复或清理已执行。
+- `production_recloseout_state: production_recloseout_verified`：2026-08-14 的只读生产复核已确认 archive、maintenance timer、boundary、小时分区 owner、raw archive IAM、same-T0 finalize、owner switch 与真实 partition DROP 均已落地；历史 terminal gaps 仍按 `accepted_terminal` 保持 degraded。
+- `retry_release_observation: pending`：本 PR 新增的 bounded lock retry 与 receipt/heartbeat 尝试字段尚未合并发版；当前生产旧格式仅由双边全旧 rolling-compatibility 规则接受，不能被表述为新重试已在线验证。
 
 ## Linked Tests
 
@@ -102,6 +103,14 @@
 - `backend/internal/observability/qa/lifecycle/cutover_apply_test.go`::`TestApplyCutoverFinalizeRequiresMatchingActivationReceipt`
 - `backend/internal/observability/qa/lifecycle/cutover_apply_test.go`::`TestApplyCutoverFinalizeDropsEmptyDefaultAndPersistsReceipt`
 - `backend/cmd/server/qa_maintenance_boundary_test.go`::`TestQABoundaryLockContentionAdvancesFailureHeartbeatAndReceipt`
+- `backend/cmd/server/qa_maintenance_boundary_test.go`::`TestOpenQABoundaryDBAppliesTimeoutsToEveryPooledConnection`
+- `backend/cmd/server/qa_maintenance_boundary_integration_test.go`::`TestUS045_QABoundaryPooledConnectionsApplyLockTimeoutAndRetry`
+- `backend/internal/observability/qa/lifecycle/boundary_execution_test.go`::`TestRunProvisionRetriesOnlyLockContentionBeforeCoverageCheck`
+- `backend/internal/observability/qa/lifecycle/boundary_execution_test.go`::`TestRunProvisionDoesNotRetryNearMatchLockTimeoutText`
+- `backend/internal/observability/qa/lifecycle/boundary_execution_test.go`::`TestRunBoundaryLockRetryExhaustionRemainsFailClosed`
+- `backend/internal/observability/qa/lifecycle/boundary_execution_test.go`::`TestRunProvisionContextCancellationStopsLockRetry`
+- `ops/qa/test_qa_maintenance_phase2_runtime.py`::`QAPhase2OperatorAndHealthTest.test_boundary_correlated_nonzero_retry_facts_remain_healthy`
+- `ops/qa/test_qa_maintenance_phase2_runtime.py`::`QAPhase2OperatorAndHealthTest.test_boundary_legacy_retry_shape_is_accepted_during_rollout`
 - `backend/internal/repository/migrations_schema_integration_test.go`::`TestQAHourlyCutoverFinalizeReceiptRequiresMatchingActivationT0`
 - `ops/qa/test_qa_boundary_runtime.py`::`QABoundaryRunnerTest.test_finalize_operator_requires_fresh_successful_archive_receipt`
 - `ops/qa/test_qa_boundary_runtime.py`::`QABoundaryDeploymentTest.test_ssm_sync_installs_runtime_and_switches_cleanup_owner_atomically`
@@ -131,7 +140,7 @@
 cd backend
 go test -tags=unit -count=1 -run 'TestUS045_' ./cmd/qa-archive
 go test -tags=unit -count=1 -run 'TestUS045_' ./cmd/server
-go test -tags=integration -count=1 -run 'TestUS045_' ./internal/observability/qa/archive
+go test -tags=integration -count=1 -run 'TestUS045_' ./internal/observability/qa/archive ./cmd/server
 go test -tags=unit -count=1 -run 'TestHourly|TestRetention|TestBuildCutover|TestRunBoundary|TestDropExpiredHour|TestApplyCutover|TestValidateHourDir' ./internal/pkg/pgpartition/... ./internal/observability/qa/lifecycle/...
 go test -tags=integration -count=1 -run 'TestQAHourlyCutover|TestPgPartition_EnsureHourly|TestPgPartition_Hourly|TestPgPartition_DropExpiredHourly' ./internal/repository/
 go test -tags=unit -count=1 -run 'TestUS045_.*GapDecision' ./internal/observability/qa/archive ./cmd/qa-archive
@@ -156,7 +165,8 @@ python3 .testing/user-stories/verify_quality.py
 - 2026-08-10 production workstation recovery：`2026-08-07T21:00:00Z` cutover window 经 recovery role 完成 inspect/verify/restore；gate `plan-retirement` 在 `approved_by=feng` approval 下通过。生产 receipt/approval _bundle 由 operator 本地保管（不入库）；执行时证据目录示例 `/tmp/tk-qa-workstation-recovery-20260810T071805Z/`（含 `recovery-evidence.json`、`production-approval.json`）。
 - break-glass prod QA dump 工具已退役；prod deploy 默认注入 `QA_ARCHIVE_ENABLED=true`。
 - Task 7（qa_records UTC 小时生命周期）：已实跑 hourly bound/unit tests、lifecycle hot-path/boundary tests 与 PostgreSQL integration（EnsureHourly 覆盖、写入路由、catalog-bound DROP）；rehome/staging/copy/move 路径已删除并由 sentinel + qa-lifecycle-ssot 守卫。
+- 2026-08-14 production recloseout：只读四源 evaluator 已关联 archive/boundary systemd、host receipt、DB heartbeat、archive control 与 `qa_records` catalog；same-T0 finalize、timer owner switch、真实 partition DROP/hot cleanup 和 raw archive IAM 均已验证，forward reasons 为空。历史 `source_unavailable_after_retention` 仍使总状态保持 degraded。
 
 ## Status
 
-- [x] InTest — 仓库实现、本地行为测试与 PostgreSQL testcontainer integration 已完成；新的 prod T0 activate、至少 25 小时排空、same-T0 finalize、timer owner switch 与至少一次真实 partition DROP 仍须按批准 rollout 执行和观测，本 PR 未写线上服务。
+- [x] InTest — 仓库实现、本地行为测试、PostgreSQL testcontainer integration 与 2026-08-14 production recloseout 已完成；本 PR 未写线上服务，新增 bounded lock retry 及其 receipt/heartbeat 字段仍须在合并发版后通过真实调度观测，届时再将 `retry_release_observation` 更新为 `verified`。

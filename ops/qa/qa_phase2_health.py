@@ -258,13 +258,47 @@ def _evaluate_boundary(
         reasons.append("boundary_provision_receipt_missing")
         covered = None
         required = None
+        provision_attempts = None
+        provision_lock_retries = None
+        provision_attempts_present = False
+        provision_lock_retries_present = False
     else:
         covered = provision.get("ranges_covered")
         required = provision.get("ranges_required")
         if covered != HOURLY_HORIZON or required != HOURLY_HORIZON:
             reasons.append("boundary_provision_coverage_incomplete")
+        provision_attempts = provision.get("attempts")
+        provision_lock_retries = provision.get("lock_retries")
+        provision_attempts_present = "attempts" in provision
+        provision_lock_retries_present = "lock_retries" in provision
 
     heartbeat = _last_result(database.get("last_result"))
+    heartbeat_attempts_present = "provision_attempts" in heartbeat
+    heartbeat_lock_retries_present = "provision_lock_retries" in heartbeat
+    retry_contract_present = any(
+        (
+            provision_attempts_present,
+            provision_lock_retries_present,
+            heartbeat_attempts_present,
+            heartbeat_lock_retries_present,
+        )
+    )
+    if retry_contract_present:
+        if type(provision_attempts) is not int or provision_attempts < 1:
+            reasons.append("boundary_provision_attempts_invalid")
+        if type(provision_lock_retries) is not int or provision_lock_retries < 0:
+            reasons.append("boundary_provision_lock_retries_invalid")
+        if (
+            type(provision_attempts) is int
+            and type(provision_lock_retries) is int
+            and provision_lock_retries != provision_attempts - 1
+        ):
+            reasons.append("boundary_provision_retry_accounting_invalid")
+        if heartbeat.get("provision_attempts") != str(provision_attempts):
+            reasons.append("boundary_provision_attempts_heartbeat_mismatch")
+        if heartbeat.get("provision_lock_retries") != str(provision_lock_retries):
+            reasons.append("boundary_provision_lock_retries_heartbeat_mismatch")
+
     if heartbeat.get("status") != "ok" or heartbeat.get("phase") != "boundary":
         reasons.append("boundary_database_heartbeat_not_ok")
     if heartbeat.get("run_id") != run_id:

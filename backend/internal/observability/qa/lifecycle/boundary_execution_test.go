@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/archive"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pgpartition"
+	"github.com/lib/pq"
 )
 
 type lockOrderingControl struct{}
@@ -125,6 +127,160 @@ func TestRunBoundaryStopsBeforeExpiryWhenProvisioningFails(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "was not expected") {
 		t.Fatalf("RunBoundary() continued after provisioning failure: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunProvisionRetriesOnlyLockContentionBeforeCoverageCheck(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	anchor := time.Date(2026, 8, 14, 3, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`SELECT date_trunc\('hour', clock_timestamp\(\)\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"anchor"}).AddRow(anchor))
+	mock.ExpectExec(`CREATE TABLE IF NOT EXISTS`).
+		WillReturnError(fmt.Errorf("wrapped create: %w", &pq.Error{Code: pq.ErrorCode("55P03")}))
+	mock.ExpectExec(`CREATE TABLE IF NOT EXISTS`).
+		WillReturnError(errors.New("pq: canceling statement due to lock timeout"))
+	mock.ExpectExec(`CREATE TABLE IF NOT EXISTS`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`WITH child_bounds AS`).
+		WithArgs(TableQARecords, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	result, err := RunProvision(context.Background(), db, Options{
+		HoursAhead:                1,
+		provisionLockRetryBackoff: []time.Duration{0, 0},
+	}, nil)
+	if err != nil {
+		t.Fatalf("RunProvision() err=%v", err)
+	}
+	if result.Attempts != 3 || result.LockRetries != 2 || result.RangesCovered != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunProvisionDoesNotRetryNonLockFailure(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	anchor := time.Date(2026, 8, 14, 3, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`SELECT date_trunc\('hour', clock_timestamp\(\)\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"anchor"}).AddRow(anchor))
+	mock.ExpectExec(`CREATE TABLE IF NOT EXISTS`).
+		WillReturnError(&pq.Error{Code: pq.ErrorCode("53100")})
+
+	result, err := RunProvision(context.Background(), db, Options{
+		HoursAhead:                1,
+		provisionLockRetryBackoff: []time.Duration{0, 0},
+	}, nil)
+	var pqErr *pq.Error
+	if !errors.As(err, &pqErr) || pqErr == nil || string(pqErr.Code) != "53100" {
+		t.Fatalf("RunProvision() err=%v", err)
+	}
+	if result.Attempts != 1 || result.LockRetries != 0 {
+		t.Fatalf("result=%+v", result)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunProvisionDoesNotRetryNearMatchLockTimeoutText(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	anchor := time.Date(2026, 8, 14, 3, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`SELECT date_trunc\('hour', clock_timestamp\(\)\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"anchor"}).AddRow(anchor))
+	mock.ExpectExec(`CREATE TABLE IF NOT EXISTS`).
+		WillReturnError(errors.New("pq: canceling statement due to lock timeout; unrelated diagnostic"))
+
+	result, err := RunProvision(context.Background(), db, Options{
+		HoursAhead:                1,
+		provisionLockRetryBackoff: []time.Duration{0},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "unrelated diagnostic") {
+		t.Fatalf("RunProvision() err=%v", err)
+	}
+	if result.Attempts != 1 || result.LockRetries != 0 {
+		t.Fatalf("result=%+v", result)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunBoundaryLockRetryExhaustionRemainsFailClosed(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	anchor := time.Date(2026, 8, 14, 3, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`SELECT date_trunc\('hour', clock_timestamp\(\)\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"anchor"}).AddRow(anchor))
+	for range 3 {
+		mock.ExpectExec(`CREATE TABLE IF NOT EXISTS`).
+			WillReturnError(&pq.Error{Code: pq.ErrorCode("55P03")})
+	}
+
+	result, err := RunBoundary(context.Background(), db, nil, Options{
+		HoursAhead:                1,
+		provisionLockRetryBackoff: []time.Duration{0, 0},
+	})
+	var pqErr *pq.Error
+	if !errors.As(err, &pqErr) || pqErr == nil || string(pqErr.Code) != "55P03" {
+		t.Fatalf("RunBoundary() err=%v", err)
+	}
+	if result.Provision.Attempts != 3 || result.Provision.LockRetries != 2 {
+		t.Fatalf("provision=%+v", result.Provision)
+	}
+	if result.DeletionAuthorized || result.Expiry != nil || len(result.Expiries) != 0 {
+		t.Fatalf("boundary continued after retry exhaustion: %+v", result)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunProvisionContextCancellationStopsLockRetry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	anchor := time.Date(2026, 8, 14, 3, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`SELECT date_trunc\('hour', clock_timestamp\(\)\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"anchor"}).AddRow(anchor))
+	mock.ExpectExec(`CREATE TABLE IF NOT EXISTS`).
+		WillReturnError(&pq.Error{Code: pq.ErrorCode("55P03")})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	result, err := RunProvision(ctx, db, Options{
+		HoursAhead:                1,
+		provisionLockRetryBackoff: []time.Duration{time.Second},
+		provisionRetrySleep: func(ctx context.Context, _ time.Duration) error {
+			cancel()
+			return ctx.Err()
+		},
+	}, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunProvision() err=%v", err)
+	}
+	if result.Attempts != 1 || result.LockRetries != 0 || result.RangesCovered != 0 {
+		t.Fatalf("result=%+v", result)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

@@ -1,7 +1,7 @@
 ---
 title: QA Phase 2 Archive Closeout
 status: approved
-approved_by: "feng (conversation approvals 2026-08-07 through 2026-08-11; UTC-hour partition lifecycle and no-rehome cutover 2026-08-11)"
+approved_by: "feng (conversation approvals 2026-08-07 through 2026-08-14; UTC-hour partition lifecycle, no-rehome cutover, bounded lock-contention retry)"
 date: 2026-08-07
 last_reviewed: 2026-08-14
 supersedes: null
@@ -456,6 +456,25 @@ Because 96 evidence references are missing, set the shard to `failed` with
 `cleanup_eligible=false`. Do not alter the S3 commit, create a gap receipt, or schedule
 historical repair. Independent age-based retention may delete the expired source data.
 
+### Production recloseout: `2026-08-14`
+
+The repository and observed production state are `production_recloseout_verified`.
+The read-only production evaluator correlated the enabled `*:15` archive timer and
+`*:00` boundary timer with their host receipts, database heartbeats, archive control,
+and `qa_records` catalog. The latest archive window was committed and independently
+restore-verified. The latest boundary run provisioned the complete policy horizon,
+dropped the eligible expired hourly partition, and completed its exact hot-file cleanup.
+Production had no DEFAULT partition, missing current/future hour, overdue attached child,
+noncanonical child, or hot-cleanup backlog. The raw archive IAM contract reported
+`applied` with no failure.
+
+Correlated health remains intentionally `degraded`, not `healthy`, solely because the
+approved `accepted_terminal` inventory retains historical
+`source_unavailable_after_retention` facts. Its forward reasons are empty; those immutable
+historical facts do not reopen the production rollout or authorize a second archive or
+retention owner. A future forward contradiction or newly unapproved gap still fails
+closed and must replace the observed rollout state with pending reconciliation.
+
 ## Heartbeats and Receipts
 
 Success records the committed window, commit ETag, segment count, aggregate records,
@@ -607,6 +626,8 @@ or add job-history retention semantics.
 - a committed and restore-verified hour with one uncovered late source identity is selected,
   creates exactly one delta, and stops qualifying after membership converges;
 - lock acquisition failure does not unlock and writes a failure heartbeat;
+- provision lock contention retries within the policy budget, while non-lock errors,
+  cancellation, and retry exhaustion cannot authorize expiry DROP;
 - missing evidence cannot reach verified or committed;
 - retry with no source delta creates no second base;
 - late rows create one delta and preserve the base descriptor;
@@ -718,6 +739,15 @@ scheduling delay is surfaced by health.
 Provision and expiry cleanup use separate transactions under the same run. Provisioning and
 the complete current-plus-72-hour coverage check are hard prerequisites: either failure ends
 the run before any archive inspection, partition DROP, or file cleanup.
+Provisioning keeps the policy-owned short lock timeout and retries only PostgreSQL lock
+contention with the bounded backoff declared in `ops/qa/policy.yaml`. Non-lock failures and
+context cancellation stop immediately. Exhaustion preserves the same fail-closed boundary,
+while the provision result and database heartbeat expose actual attempts and lock retries.
+The Go boundary CLI injects the lock and statement timeouts into the lib/pq DSN so every
+pooled connection inherits them; connection-local `SET` and runner `PGOPTIONS` remain only
+defense-in-depth. During a rolling release, health accepts the legacy shape only when both
+receipt and heartbeat omit all retry fields. Once either side emits one field, all retry facts
+must be present, valid, and equal on both sides.
 
 Steady state has no DEFAULT partition. Provisioning is a hard prerequisite, and a missing
 current partition makes QA persistence fail and alert without failing the gateway request.

@@ -8,10 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/archive"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pgpartition"
+	"github.com/lib/pq"
 )
 
 const (
@@ -20,7 +22,18 @@ const (
 	MaintenanceLockID     = archive.MaintenanceAdvisoryLockID
 	MaxExpiredDropsPerRun = 48
 	MaxHotCleanupResume   = 48
+
+	qaProvisionLockContentionSQLState = "55P03"
 )
+
+var qaProvisionLockRetryBackoff = [...]time.Duration{
+	250 * time.Millisecond,
+	500 * time.Millisecond,
+	1 * time.Second,
+	2 * time.Second,
+	4 * time.Second,
+	8 * time.Second,
+}
 
 type DB interface {
 	pgpartition.DB
@@ -40,6 +53,8 @@ type ProvisionResult struct {
 	HoursAhead     int       `json:"hours_ahead"`
 	RangesRequired int       `json:"ranges_required"`
 	RangesCovered  int       `json:"ranges_covered"`
+	Attempts       int       `json:"attempts"`
+	LockRetries    int       `json:"lock_retries"`
 	Error          string    `json:"error,omitempty"`
 }
 
@@ -73,6 +88,9 @@ type Options struct {
 	HoursAhead int
 	BlobRoot   string
 	DLQRoot    string
+
+	provisionLockRetryBackoff []time.Duration
+	provisionRetrySleep       func(context.Context, time.Duration) error
 }
 
 func DatabaseUTC(ctx context.Context, db DB) (time.Time, error) {
@@ -81,6 +99,35 @@ func DatabaseUTC(ctx context.Context, db DB) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("lifecycle: read database UTC anchor: %w", err)
 	}
 	return anchor.UTC(), nil
+}
+
+func sleepForProvisionRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func isProvisionLockContention(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return pqErr != nil && string(pqErr.Code) == qaProvisionLockContentionSQLState
+	}
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		message := strings.TrimSpace(strings.ToLower(current.Error()))
+		if message == "pq: canceling statement due to lock timeout" ||
+			message == "canceling statement due to lock timeout" {
+			return true
+		}
+	}
+	return false
 }
 
 // RunProvision ensures [anchor, anchor+hoursAhead) hourly children exist.
@@ -101,9 +148,30 @@ func RunProvision(ctx context.Context, db DB, opts Options, clock Clock) (Provis
 	result.DBAnchor = anchor
 	ranges := pgpartition.HourlyTargetRanges(anchor, opts.HoursAhead)
 	result.RangesRequired = len(ranges)
-	if err := pgpartition.EnsureHourly(ctx, db, TableQARecords, anchor, opts.HoursAhead); err != nil {
-		result.Error = err.Error()
-		return result, err
+	backoff := opts.provisionLockRetryBackoff
+	if backoff == nil {
+		backoff = qaProvisionLockRetryBackoff[:]
+	}
+	retrySleep := opts.provisionRetrySleep
+	if retrySleep == nil {
+		retrySleep = sleepForProvisionRetry
+	}
+	for {
+		result.Attempts++
+		err = pgpartition.EnsureHourly(ctx, db, TableQARecords, anchor, opts.HoursAhead)
+		if err == nil {
+			break
+		}
+		if !isProvisionLockContention(err) || result.LockRetries >= len(backoff) {
+			result.Error = err.Error()
+			return result, err
+		}
+		if sleepErr := retrySleep(ctx, backoff[result.LockRetries]); sleepErr != nil {
+			err = fmt.Errorf("lifecycle: wait to retry hourly partition lock contention: %w", sleepErr)
+			result.Error = err.Error()
+			return result, err
+		}
+		result.LockRetries++
 	}
 	covered, err := pgpartition.CountCoveredHourlyRanges(ctx, db, TableQARecords, ranges)
 	if err != nil {

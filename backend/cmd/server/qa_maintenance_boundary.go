@@ -26,6 +26,7 @@ const (
 	qaBoundaryJobName              = "qa-boundary"
 	qaBoundaryHeartbeatTimeout     = 5 * time.Second
 	qaCutoverProvisionConfirmation = "tokenkey-prod-qa-cutover-provision-v1"
+	qaBoundaryConnectionOptions    = "-c lock_timeout=100ms -c statement_timeout=120s"
 )
 
 type qaBoundaryDeps struct {
@@ -145,7 +146,8 @@ func openQABoundaryDB(deps qaBoundaryDeps) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load qa boundary config: %w", err)
 	}
-	db, err := deps.openDB("postgres", cfg.Database.DSNWithTimezone(cfg.Timezone))
+	dsn := cfg.Database.DSNWithTimezone(cfg.Timezone) + " options='" + qaBoundaryConnectionOptions + "'"
+	db, err := deps.openDB("postgres", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open qa boundary database: %w", err)
 	}
@@ -417,12 +419,14 @@ func runQABoundaryCommand(ctx context.Context, args []string, out io.Writer, dep
 		status = "failed"
 	}
 	lastResult := fmt.Sprintf(
-		"status=%s phase=boundary run_id=%s trigger=%s provision_covered=%d/%d deletion_authorized=%t",
+		"status=%s phase=boundary run_id=%s trigger=%s provision_covered=%d/%d provision_attempts=%d provision_lock_retries=%d deletion_authorized=%t",
 		status,
 		runID,
 		trigger,
 		result.Provision.RangesCovered,
 		result.Provision.RangesRequired,
+		result.Provision.Attempts,
+		result.Provision.LockRetries,
 		result.DeletionAuthorized,
 	)
 	if result.Expiry != nil && result.Expiry.PartitionName != "" {

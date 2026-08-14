@@ -11,11 +11,11 @@ prod:
     policy_target: prod.archive.enabled
     target_deploy_inject_default: true
     enable_after: docs/approved/design-qa-phase2-archive-closeout.md#production-rollout
-    repository_closeout_state: implementation_ready_pending_live_verification
-    observed_live_state: pending_live_reconciliation
+    repository_closeout_state: production_recloseout_verified
+    observed_live_state: production_recloseout_verified
   tokenkey_qa_maintenance_timer:
-    repository_closeout_state: implementation_ready_pending_live_verification
-    observed_live_state: pending_live_reconciliation
+    repository_closeout_state: production_recloseout_verified
+    observed_live_state: production_recloseout_verified
     closeout_deploy_state: enabled
     policy_target_state: enabled
     host_artifact_sync_on_prod_deploy: required
@@ -39,8 +39,8 @@ prod:
     archive_independent: true
     disable_after_receipt_phase: finalize
   tokenkey_qa_boundary:
-    repository_closeout_state: implementation_ready_pending_live_verification
-    observed_live_state: pending_live_reconciliation
+    repository_closeout_state: production_recloseout_verified
+    observed_live_state: production_recloseout_verified
     policy_target_state: enabled_after_finalize
     host_artifact_sync_on_prod_deploy: required
     host_artifact_source: target_release_tag
@@ -66,7 +66,7 @@ prod:
       - qa_records_catalog
   qa_records:
     partition_owner_repository: qa_lifecycle_boundary
-    partition_owner_observed: pending_live_probe
+    partition_owner_observed: qa_lifecycle_boundary
   user_export:
     phase3_worker_repository_state: approved_fargate_worker
     phase3_worker_observed_state: transitional_in_prod
@@ -76,7 +76,7 @@ prod:
   raw_archive_recovery:
     repository_state: ready
     repository_iam_state: contract_ready
-    observed_iam_state: pending_live_verification
+    observed_iam_state: applied
     iam_contract_verifier: ops/qa/verify_raw_archive_iam_contract.py
     iam_contract_reconciler: ops/qa/reconcile_raw_archive_iam_contract.sh
     independent_evidence_state: production_workstation_recovery_verified
