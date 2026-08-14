@@ -53,11 +53,11 @@ TOTP_ENCRYPTION_KEY=totp-test-secret
 POSTGRES_PASSWORD=postgres-test-secret
 JWT_SECRET=jwt-test-secret
 EOF
-expected_file="${tmp}/expected.secret"
-LC_ALL=C sort "${secret_file}" >"${expected_file}"
 expected_parameter="${tmp}/expected.parameter"
-awk 'NR > 1 { printf "\n" } { printf "%s", $0 }' \
-  "${expected_file}" >"${expected_parameter}"
+printf '%s\n%s\n%s' \
+  'JWT_SECRET=jwt-test-secret' \
+  'POSTGRES_PASSWORD=postgres-test-secret' \
+  'TOTP_ENCRYPTION_KEY=totp-test-secret' >"${expected_parameter}"
 sed "s#/var/lib/tokenkey/.env#${secret_file}#g" \
   "${host_rendered}" >"${host_script}"
 
