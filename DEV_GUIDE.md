@@ -53,7 +53,7 @@ npm install -g pnpm
 
 ### CI 要求
 
-- Go 版本必须是 **1.26.5**：三个 workflow 都用 `go-version-file: backend/go.mod` 取版本，随后硬断言 `go version | grep -q 'go1.26.5'`。升级 Go 时要同时改 `backend/go.mod` 和 `backend-ci.yml`（两处）、`release.yml`、`security-scan.yml` 里的这句断言，否则 CI 会在版本校验步骤直接失败。
+- Go 版本由 `backend/go.mod` 唯一声明；workflows 通过 `go-version-file` 安装该版本，并动态校验实际 toolchain。Docker、工具模块和 README 镜像由 `scripts/checks/go-version-align.py` 在 preflight 中守卫。
 - 前端使用 `pnpm install --frozen-lockfile`，必须提交 `pnpm-lock.yaml`
 
 ### 本地测试命令
