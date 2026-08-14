@@ -35,6 +35,34 @@ def _load_closeout_module():
 
 
 class TestQAPhaseOps(unittest.TestCase):
+    def test_prod_rollout_records_verified_phase2_owners(self) -> None:
+        import yaml
+
+        rollout = yaml.safe_load(
+            (ROOT / "ops/qa/deploy_rollout.yaml").read_text(encoding="utf-8")
+        )["prod"]
+        for owner in (
+            "QA_ARCHIVE_ENABLED",
+            "tokenkey_qa_maintenance_timer",
+            "tokenkey_qa_boundary",
+        ):
+            self.assertEqual(
+                rollout[owner]["repository_closeout_state"],
+                "production_recloseout_verified",
+            )
+            self.assertEqual(
+                rollout[owner]["observed_live_state"],
+                "production_recloseout_verified",
+            )
+        self.assertEqual(
+            rollout["qa_records"]["partition_owner_observed"],
+            "qa_lifecycle_boundary",
+        )
+        self.assertEqual(
+            rollout["raw_archive_recovery"]["observed_iam_state"],
+            "applied",
+        )
+
     def test_hourly_boundary_is_the_steady_state_cleanup_owner(self) -> None:
         import yaml
 

@@ -136,6 +136,7 @@ REQUIRED_BY_FILE = {
         "qa_archive_gap_decision_receipts",
         "tokenkey-prod-qa-gap-decision-v1:<plan_hash>",
         "segment fingerprint",
+        "production_recloseout_verified",
     ),
     POLICY: (
         "schema_version: 1",
@@ -165,8 +166,8 @@ REQUIRED_BY_FILE = {
         "schema_version: 1",
         "deploy_inject_default: true",
         "target_deploy_inject_default: true",
-        "repository_closeout_state: implementation_ready_pending_live_verification",
-        "observed_live_state: pending_live_reconciliation",
+        "repository_closeout_state: production_recloseout_verified",
+        "observed_live_state: production_recloseout_verified",
         "min_consecutive_scheduled_runs: 2",
         "host_runner: /usr/local/bin/tokenkey-qa-maintenance.sh",
         "health_evaluator: ops/qa/qa_phase2_health.py",
@@ -187,7 +188,7 @@ REQUIRED_BY_FILE = {
         "export_orphan_activation_marker: /var/lib/tokenkey/qa-export-orphan-cleanup-activated.json",
         "policy_target: prod.archive.enabled",
         "repository_iam_state: contract_ready",
-        "observed_iam_state: pending_live_verification",
+        "observed_iam_state: applied",
         "iam_contract_verifier: ops/qa/verify_raw_archive_iam_contract.py",
         "iam_contract_reconciler: ops/qa/reconcile_raw_archive_iam_contract.sh",
         "reconcile_raw_archive_iam_contract.sh",
@@ -668,18 +669,18 @@ def _rollout_failures(root: Path) -> list[str]:
             failures.append("rollout prod.QA_ARCHIVE_ENABLED.policy_target drift")
         if prod_archive.get("target_deploy_inject_default") is not True:
             failures.append("rollout prod.QA_ARCHIVE_ENABLED target must become true after closeout")
-        if prod_archive.get("repository_closeout_state") != "implementation_ready_pending_live_verification":
+        if prod_archive.get("repository_closeout_state") != "production_recloseout_verified":
             failures.append("rollout prod.QA_ARCHIVE_ENABLED repository closeout state drift")
-        if prod_archive.get("observed_live_state") != "pending_live_reconciliation":
+        if prod_archive.get("observed_live_state") != "production_recloseout_verified":
             failures.append("rollout prod.QA_ARCHIVE_ENABLED observed live state drift")
     if not isinstance(prod_timer, dict):
         failures.append("rollout prod.tokenkey_qa_maintenance_timer must be a mapping")
     else:
         if prod_timer.get("closeout_deploy_state") != "enabled":
             failures.append("rollout maintenance timer closeout deploy state drift")
-        if prod_timer.get("repository_closeout_state") != "implementation_ready_pending_live_verification":
+        if prod_timer.get("repository_closeout_state") != "production_recloseout_verified":
             failures.append("rollout maintenance timer repository closeout state drift")
-        if prod_timer.get("observed_live_state") != "pending_live_reconciliation":
+        if prod_timer.get("observed_live_state") != "production_recloseout_verified":
             failures.append("rollout maintenance timer observed live state drift")
         if prod_timer.get("policy_target_state") != "enabled":
             failures.append("rollout maintenance timer target drift")
@@ -718,8 +719,8 @@ def _rollout_failures(root: Path) -> list[str]:
         failures.append("rollout prod.tokenkey_qa_boundary must be a mapping")
     else:
         expected_boundary = {
-            "repository_closeout_state": "implementation_ready_pending_live_verification",
-            "observed_live_state": "pending_live_reconciliation",
+            "repository_closeout_state": "production_recloseout_verified",
+            "observed_live_state": "production_recloseout_verified",
             "policy_target_state": "enabled_after_finalize",
             "host_artifact_sync_on_prod_deploy": "required",
             "host_artifact_source": "target_release_tag",
@@ -755,7 +756,7 @@ def _rollout_failures(root: Path) -> list[str]:
     expected_recovery = {
         "repository_state": "ready",
         "repository_iam_state": "contract_ready",
-        "observed_iam_state": "pending_live_verification",
+        "observed_iam_state": "applied",
         "iam_contract_verifier": "ops/qa/verify_raw_archive_iam_contract.py",
         "iam_contract_reconciler": "ops/qa/reconcile_raw_archive_iam_contract.sh",
         "independent_evidence_state": "production_workstation_recovery_verified",
@@ -769,7 +770,7 @@ def _rollout_failures(root: Path) -> list[str]:
     qa_records = prod.get("qa_records")
     if not isinstance(qa_records, dict) or qa_records != {
         "partition_owner_repository": "qa_lifecycle_boundary",
-        "partition_owner_observed": "pending_live_probe",
+        "partition_owner_observed": "qa_lifecycle_boundary",
     }:
         failures.append("rollout qa_records partition owner contract drift")
     user_export = prod.get("user_export")

@@ -456,6 +456,25 @@ Because 96 evidence references are missing, set the shard to `failed` with
 `cleanup_eligible=false`. Do not alter the S3 commit, create a gap receipt, or schedule
 historical repair. Independent age-based retention may delete the expired source data.
 
+### Production recloseout: `2026-08-14`
+
+The repository and observed production state are `production_recloseout_verified`.
+The read-only production evaluator correlated the enabled `*:15` archive timer and
+`*:00` boundary timer with their host receipts, database heartbeats, archive control,
+and `qa_records` catalog. The latest archive window was committed and independently
+restore-verified. The latest boundary run provisioned the complete policy horizon,
+dropped the eligible expired hourly partition, and completed its exact hot-file cleanup.
+Production had no DEFAULT partition, missing current/future hour, overdue attached child,
+noncanonical child, or hot-cleanup backlog. The raw archive IAM contract reported
+`applied` with no failure.
+
+Correlated health remains intentionally `degraded`, not `healthy`, solely because the
+approved `accepted_terminal` inventory retains historical
+`source_unavailable_after_retention` facts. Its forward reasons are empty; those immutable
+historical facts do not reopen the production rollout or authorize a second archive or
+retention owner. A future forward contradiction or newly unapproved gap still fails
+closed and must replace the observed rollout state with pending reconciliation.
+
 ## Heartbeats and Receipts
 
 Success records the committed window, commit ETag, segment count, aggregate records,
