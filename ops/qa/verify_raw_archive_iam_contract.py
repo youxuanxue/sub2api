@@ -13,8 +13,11 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 PROD_REGION = "us-east-1"
 RAW_ARCHIVE_STACK = "tokenkey-prod-qa-raw-archive"
+BACKUPS_STACK = "tokenkey-stage0-backups"
 STAGE0_STACK = "tokenkey-prod-stage0"
 STAGE0_PUBLIC_ROUTE_TABLE_LOGICAL = "PublicRouteTable"
+EDGE_ROLE_NAME = "tokenkey-lightsail-ssm-hybrid"
+EDGE_DENY_SID = "DenyLightsailEdgeRole"
 
 APP_WRITE_SID = "AllowAppInstanceRoleWriteRaw"
 APP_VERIFY_SID = "AllowAppInstanceRoleVerifyRaw"
@@ -209,6 +212,104 @@ def _expected_app_resources(bucket: str) -> list[str]:
     return sorted(f"{base}{suffix}" for suffix in EXPECTED_APP_RESOURCES)
 
 
+def _principal_arns(statement: dict[str, Any]) -> set[str]:
+    principal = statement.get("Principal")
+    if isinstance(principal, dict):
+        principal = principal.get("AWS")
+    values = principal if isinstance(principal, list) else [principal]
+    return {str(value) for value in values if isinstance(value, str)}
+
+
+def _statement_names_principal(statement: dict[str, Any], principal_arn: str) -> bool:
+    if principal_arn in _principal_arns(statement):
+        return True
+    condition = statement.get("Condition")
+    if not isinstance(condition, dict):
+        return False
+    for operator in ("ArnEquals", "ArnLike", "StringEquals", "StringLike"):
+        clause = condition.get(operator)
+        if not isinstance(clause, dict):
+            continue
+        value = clause.get("aws:PrincipalArn")
+        candidates = value if isinstance(value, list) else [value]
+        if principal_arn in {str(item) for item in candidates if isinstance(item, str)}:
+            return True
+    return False
+
+
+def evaluate_edge_qa_boundary(
+    *,
+    account_id: str,
+    buckets: dict[str, list[dict[str, Any]]],
+    partition: str = "aws",
+) -> dict[str, Any]:
+    edge_role_arn = f"arn:{partition}:iam::{account_id}:role/{EDGE_ROLE_NAME}"
+    failures: list[str] = []
+    checked_buckets = sorted(buckets)
+    for bucket, statements in sorted(buckets.items()):
+        expected_resources = {
+            f"arn:{partition}:s3:::{bucket}",
+            f"arn:{partition}:s3:::{bucket}/*",
+        }
+        matching_denies = [
+            statement
+            for statement in statements
+            if statement.get("Sid") == EDGE_DENY_SID
+        ]
+        if len(matching_denies) != 1:
+            failures.append(f"{bucket}:edge_deny_count:{len(matching_denies)}")
+        else:
+            deny = matching_denies[0]
+            if deny.get("Effect") != "Deny":
+                failures.append(f"{bucket}:edge_deny_effect")
+            if deny.get("Principal") != "*":
+                failures.append(f"{bucket}:edge_deny_principal")
+            if _action_set(deny) != {"s3:*"}:
+                failures.append(f"{bucket}:edge_deny_actions")
+            if set(_resource_list(deny)) != expected_resources:
+                failures.append(f"{bucket}:edge_deny_resources")
+            condition = deny.get("Condition")
+            expected_condition = {
+                "ArnEquals": {"aws:PrincipalArn": edge_role_arn}
+            }
+            if condition != expected_condition:
+                failures.append(f"{bucket}:edge_deny_condition")
+
+        for statement in statements:
+            if statement.get("Effect") != "Allow":
+                continue
+            if _statement_names_principal(statement, edge_role_arn):
+                sid = str(statement.get("Sid") or "missing")
+                failures.append(f"{bucket}:edge_role_allowed:{sid}")
+
+    return {
+        "ok": not failures,
+        "status": "applied" if not failures else "drift",
+        "edge_role_arn": edge_role_arn,
+        "buckets": checked_buckets,
+        "failures": failures,
+    }
+
+
+def verify_live_edge_qa_boundary(account_id: str) -> dict[str, Any]:
+    try:
+        raw_bucket = _stack_output(RAW_ARCHIVE_STACK, "QaRawArchiveBucketName")
+        exports_bucket = _stack_output(BACKUPS_STACK, "QaExportsBucketName")
+        buckets = {
+            raw_bucket: _live_bucket_policy(raw_bucket),
+            exports_bucket: _live_bucket_policy(exports_bucket),
+        }
+    except RuntimeError as exc:
+        return {
+            "ok": False,
+            "status": "unknown",
+            "edge_role_arn": f"arn:aws:iam::{account_id}:role/{EDGE_ROLE_NAME}",
+            "buckets": [],
+            "failures": [str(exc)],
+        }
+    return evaluate_edge_qa_boundary(account_id=account_id, buckets=buckets)
+
+
 def _verify_s3_gateway_endpoint(
     *,
     vpc_id: str,
@@ -366,12 +467,20 @@ def evaluate(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--edge-qa-boundary",
+        action="store_true",
+        help="read both prod QA bucket policies and verify the shared edge-role deny",
+    )
     args = parser.parse_args()
 
     account_id = _account_id()
-    bucket = f"tokenkey-prod-qa-raw-archive-{account_id}"
-    app_role_arn = resolve_app_role_arn()
-    verdict = evaluate(bucket=bucket, app_role_arn=app_role_arn, verify_network=True)
+    if args.edge_qa_boundary:
+        verdict = verify_live_edge_qa_boundary(account_id)
+    else:
+        bucket = f"tokenkey-prod-qa-raw-archive-{account_id}"
+        app_role_arn = resolve_app_role_arn()
+        verdict = evaluate(bucket=bucket, app_role_arn=app_role_arn, verify_network=True)
     print(json.dumps(verdict, ensure_ascii=True, sort_keys=True))
     return 0 if verdict["ok"] else 2
 

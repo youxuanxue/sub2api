@@ -13,6 +13,7 @@ const (
 	ResponsesCompact  = "/v1/responses/compact"
 	ImagesGenerations = "/v1/images/generations"
 	ImagesEdits       = "/v1/images/edits"
+	VideoGenerations  = "/v1/video/generations"
 	VideosGenerations = "/v1/videos/generations"
 	Videos            = "/v1/videos"
 	GeminiModels      = "/v1beta/models"

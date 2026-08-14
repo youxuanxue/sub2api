@@ -108,17 +108,24 @@ audit the active snapshot but must not synchronize the deployed tag into it.
 
 ## Protected publication and rollback
 
-A push to protected `main` that changes the registry starts one serialized
-publisher. The publisher fetches current `origin/main`, verifies that the local
-artifact is byte-identical to that head, runs the registry gate, builds the
-envelope, writes it through the existing SSM settings path, publishes
-`settings_updated`, and reads the row back to verify commit and digest.
+A push to protected `main` that changes the registry or the publisher workflow
+starts the publisher. The protected-main merge is the only price approval; the
+publisher has no second Environment approval gate. It fetches current
+`origin/main`, verifies that the local artifact is byte-identical to that head,
+runs the registry gate, builds the envelope, writes it through the existing SSM
+settings path, publishes `settings_updated`, and reads the row back to verify
+commit and digest. A workflow-only change intentionally reconciles the current
+snapshot and becomes an idempotent no-op when it is already exact.
 
-If multiple publisher runs queue, each publishes the latest protected-main
-artifact rather than its stale event checkout. Unmerged branches and arbitrary
-local files fail publication. A candidate source commit must also descend from
-the active runtime source commit; a stale local `origin/main` can never publish a
-downgrade, while a Git revert remains valid because it creates a newer descendant.
+New runs supersede obsolete waiting or running workflow jobs, but cancellation
+is not the write-safety boundary because an older runner may already have issued
+a detached SSM command. Each write uses the settings row's PostgreSQL version as
+a compare-and-set token; a conflict triggers a fresh read, exact-current check,
+and ancestry check before a bounded retry. Redis invalidation is emitted only
+after a successful compare-and-set. A candidate source commit must descend from
+the active runtime source commit; stale publication cannot overwrite a newer
+snapshot, while a Git revert remains valid because it creates a newer descendant.
+Unmerged branches and arbitrary local files fail publication.
 
 Rollback is a Git revert followed by the same publisher. The reverted content
 is still published from a new protected-main commit, so rollback does not need
@@ -170,7 +177,8 @@ conversion and the existing billing regression test pins it.
 - Balance hold, final settlement, catalog display and channel override tests use
   the same registry snapshot.
 - A normal price-only change requires changing only the registry file.
-- Publisher ancestry validation rejects any snapshot older than the active
-  runtime source commit.
+- Publisher ancestry validation and PostgreSQL compare-and-set reject stale
+  writers; workflow cancellation is only queue cleanup, not write safety.
+- Deploy, sensor and workstation paths cannot publish the runtime snapshot.
 - Upstream merge-tree conflict surface may not grow beyond the minimum existing
   TK companion hook; deletions of upstream pricing machinery are forbidden.

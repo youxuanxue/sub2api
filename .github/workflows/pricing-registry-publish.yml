@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - backend/internal/service/tk_pricing_overlay.json
+      - .github/workflows/pricing-registry-publish.yml
 
 permissions:
   contents: read
@@ -12,13 +13,12 @@ permissions:
 
 concurrency:
   group: pricing-registry-publish
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: prod
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}

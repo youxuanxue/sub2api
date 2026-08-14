@@ -41,6 +41,16 @@ func TestOpenAIUpstreamEndpoint_ViaGetUpstreamEndpoint(t *testing.T) {
 			path: "/v1/messages",
 			want: EndpointResponses,
 		},
+		{
+			name: "singular video generation keeps actual upstream path",
+			path: "/v1/video/generations",
+			want: EndpointVideoGenerations,
+		},
+		{
+			name: "singular video status keeps generation root",
+			path: "/v1/video/generations/vt_123",
+			want: EndpointVideoGenerations,
+		},
 	}
 
 	for _, tt := range tests {

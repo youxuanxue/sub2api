@@ -4,6 +4,12 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +30,104 @@ import (
 // aborts partition maintenance before cleanup and writes an error heartbeat every
 // night; unit tests with mocked bound strings cannot catch it because the defect
 // lives in what PostgreSQL returns for pg_get_expr.
+type partitionProbeStats struct {
+	OpsErrorCurrent  bool `json:"ops_error_logs_current_covered"`
+	OpsErrorFuture   bool `json:"ops_error_logs_future_covered"`
+	OpsSystemCurrent bool `json:"ops_system_logs_current_covered"`
+	OpsSystemFuture  bool `json:"ops_system_logs_future_covered"`
+	UsageCurrent     bool `json:"usage_logs_current_covered"`
+	UsageFuture      bool `json:"usage_logs_future_covered"`
+}
+
+func TestDataLayerSafetyProbePartitionCoverage(t *testing.T) {
+	_, filename, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	queryPath := filepath.Join(filepath.Dir(filename), "../../../ops/observability/data-layer-partition-coverage.sql")
+	query, err := os.ReadFile(queryPath)
+	require.NoError(t, err)
+
+	cases := []struct {
+		name        string
+		partitions  []string
+		wantCurrent bool
+		wantFuture  bool
+	}{
+		{name: "daily", partitions: []string{
+			"FOR VALUES FROM (CURRENT_DATE) TO (CURRENT_DATE + 1)",
+			"FOR VALUES FROM (CURRENT_DATE + 1) TO (CURRENT_DATE + 8)",
+		}, wantCurrent: true, wantFuture: true},
+		{name: "monthly", partitions: []string{
+			"FOR VALUES FROM (date_trunc('month', CURRENT_DATE)) TO (date_trunc('month', CURRENT_DATE) + interval '2 months')",
+		}, wantCurrent: true, wantFuture: true},
+		{name: "mixed", partitions: []string{
+			"FOR VALUES FROM (CURRENT_DATE) TO (CURRENT_DATE + 3)",
+			"FOR VALUES FROM (CURRENT_DATE + 3) TO (CURRENT_DATE + 8)",
+		}, wantCurrent: true, wantFuture: true},
+		{name: "minvalue", partitions: []string{
+			"FOR VALUES FROM (MINVALUE) TO (CURRENT_DATE + 8)",
+		}, wantCurrent: true, wantFuture: true},
+		{name: "gap", partitions: []string{
+			"FOR VALUES FROM (CURRENT_DATE) TO (CURRENT_DATE + 3)",
+			"FOR VALUES FROM (CURRENT_DATE + 4) TO (CURRENT_DATE + 8)",
+		}, wantCurrent: true, wantFuture: false},
+		{name: "default", partitions: []string{"DEFAULT"}, wantCurrent: false, wantFuture: false},
+		{name: "maxvalue", partitions: []string{
+			"FOR VALUES FROM (CURRENT_DATE) TO (MAXVALUE)",
+		}, wantCurrent: false, wantFuture: false},
+	}
+
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			schema := "probe_" + strings.ReplaceAll(test.name, "-", "_")
+			_, err := integrationDB.ExecContext(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				_, _ = integrationDB.ExecContext(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+			})
+			_, err = integrationDB.ExecContext(context.Background(), "CREATE SCHEMA "+schema)
+			require.NoError(t, err)
+
+			conn, err := integrationDB.Conn(context.Background())
+			require.NoError(t, err)
+			defer func() {
+				_, _ = conn.ExecContext(context.Background(), "RESET search_path")
+				_ = conn.Close()
+			}()
+			_, err = conn.ExecContext(context.Background(), "SET search_path TO "+schema)
+			require.NoError(t, err)
+			_, err = conn.ExecContext(context.Background(), `CREATE TABLE ops_job_heartbeats (
+				job_name text PRIMARY KEY, last_success_at timestamptz, last_error_at timestamptz
+			)`)
+			require.NoError(t, err)
+			for _, table := range []string{"ops_error_logs", "ops_system_logs", "usage_logs"} {
+				_, err = conn.ExecContext(context.Background(), fmt.Sprintf(
+					"CREATE TABLE %s (created_at timestamptz NOT NULL) PARTITION BY RANGE (created_at)", table))
+				require.NoError(t, err)
+				for index, bound := range test.partitions {
+					_, err = conn.ExecContext(context.Background(), fmt.Sprintf(
+						"CREATE TABLE %s_part_%d PARTITION OF %s %s", table, index, table, bound))
+					require.NoError(t, err)
+				}
+			}
+
+			var output string
+			require.NoError(t, conn.QueryRowContext(context.Background(), string(query)).Scan(&output))
+			var stats partitionProbeStats
+			require.NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(output, "PARTITIONSTATS ")), &stats))
+			for _, covered := range []bool{
+				stats.OpsErrorCurrent, stats.OpsSystemCurrent, stats.UsageCurrent,
+			} {
+				require.Equal(t, test.wantCurrent, covered, "%s current coverage mismatch", test.name)
+			}
+			for _, covered := range []bool{
+				stats.OpsErrorFuture, stats.OpsSystemFuture, stats.UsageFuture,
+			} {
+				require.Equal(t, test.wantFuture, covered, "%s future coverage mismatch", test.name)
+			}
+		})
+	}
+}
+
 func TestPartitionMaintenance_CoverageAcceptsAttachedLegacyPartition(t *testing.T) {
 	ctx := context.Background()
 

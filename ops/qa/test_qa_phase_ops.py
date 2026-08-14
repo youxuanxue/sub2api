@@ -443,6 +443,170 @@ delete_rows_before 2026-08-06T12:00:00.000000Z
         self.assertNotIn("run_partition_maintenance", body)
         self.assertNotIn("tokenkey-prod-partition-maintenance-v1", body)
 
+    def test_verify_edge_qa_boundary_accepts_exact_dual_bucket_denies(self) -> None:
+        iam_contract = _load_module(
+            "verify_raw_archive_iam_contract", "ops/qa/verify_raw_archive_iam_contract.py"
+        )
+        account_id = "123456789012"
+        edge_role = (
+            f"arn:aws:iam::{account_id}:role/tokenkey-lightsail-ssm-hybrid"
+        )
+
+        def statements(bucket: str) -> list[dict]:
+            return [
+                {
+                    "Sid": "DenyLightsailEdgeRole",
+                    "Effect": "Deny",
+                    "Principal": "*",
+                    "Action": "s3:*",
+                    "Resource": [
+                        f"arn:aws:s3:::{bucket}",
+                        f"arn:aws:s3:::{bucket}/*",
+                    ],
+                    "Condition": {
+                        "ArnEquals": {"aws:PrincipalArn": edge_role}
+                    },
+                },
+                {
+                    "Sid": "AllowProdApp",
+                    "Effect": "Allow",
+                    "Principal": {
+                        "AWS": f"arn:aws:iam::{account_id}:role/prod-app"
+                    },
+                    "Action": "s3:GetObject",
+                    "Resource": f"arn:aws:s3:::{bucket}/*",
+                },
+            ]
+
+        buckets = {
+            "tokenkey-prod-qa-raw-archive-123456789012": statements(
+                "tokenkey-prod-qa-raw-archive-123456789012"
+            ),
+            "tokenkey-prod-qa-exports-123456789012": statements(
+                "tokenkey-prod-qa-exports-123456789012"
+            ),
+        }
+        verdict = iam_contract.evaluate_edge_qa_boundary(
+            account_id=account_id, buckets=buckets
+        )
+        self.assertTrue(verdict["ok"], verdict)
+        self.assertEqual(verdict["status"], "applied")
+        self.assertEqual(verdict["edge_role_arn"], edge_role)
+
+    def test_verify_edge_qa_boundary_rejects_missing_deny_and_edge_allow(self) -> None:
+        iam_contract = _load_module(
+            "verify_raw_archive_iam_contract", "ops/qa/verify_raw_archive_iam_contract.py"
+        )
+        account_id = "123456789012"
+        edge_role = (
+            f"arn:aws:iam::{account_id}:role/tokenkey-lightsail-ssm-hybrid"
+        )
+        bucket = "tokenkey-prod-qa-exports-123456789012"
+        verdict = iam_contract.evaluate_edge_qa_boundary(
+            account_id=account_id,
+            buckets={
+                bucket: [
+                    {
+                        "Sid": "AllowEdgeByMistake",
+                        "Effect": "Allow",
+                        "Principal": "*",
+                        "Action": "s3:GetObject",
+                        "Resource": f"arn:aws:s3:::{bucket}/*",
+                        "Condition": {
+                            "ArnEquals": {"aws:PrincipalArn": edge_role}
+                        },
+                    }
+                ]
+            },
+        )
+        self.assertFalse(verdict["ok"])
+        self.assertIn(f"{bucket}:edge_deny_count:0", verdict["failures"])
+        self.assertIn(
+            f"{bucket}:edge_role_allowed:AllowEdgeByMistake", verdict["failures"]
+        )
+
+    def test_verify_edge_qa_boundary_rejects_wrong_role_or_resource_scope(self) -> None:
+        iam_contract = _load_module(
+            "verify_raw_archive_iam_contract", "ops/qa/verify_raw_archive_iam_contract.py"
+        )
+        bucket = "tokenkey-prod-qa-raw-archive-123456789012"
+        verdict = iam_contract.evaluate_edge_qa_boundary(
+            account_id="123456789012",
+            buckets={
+                bucket: [
+                    {
+                        "Sid": "DenyLightsailEdgeRole",
+                        "Effect": "Deny",
+                        "Principal": "*",
+                        "Action": "s3:*",
+                        "Resource": [
+                            f"arn:aws:s3:::{bucket}",
+                            f"arn:aws:s3:::{bucket}/*",
+                            "arn:aws:s3:::tokenkey-prod-pgdump-123456789012/*",
+                        ],
+                        "Condition": {
+                            "ArnEquals": {
+                                "aws:PrincipalArn": "arn:aws:iam::123456789012:role/wrong"
+                            }
+                        },
+                    }
+                ]
+            },
+        )
+        self.assertFalse(verdict["ok"])
+        self.assertIn(f"{bucket}:edge_deny_resources", verdict["failures"])
+        self.assertIn(f"{bucket}:edge_deny_condition", verdict["failures"])
+
+    def test_verify_live_edge_qa_boundary_reads_both_stack_outputs_and_policies(self) -> None:
+        iam_contract = _load_module(
+            "verify_raw_archive_iam_contract", "ops/qa/verify_raw_archive_iam_contract.py"
+        )
+        output_calls: list[tuple[str, str]] = []
+        policy_calls: list[str] = []
+
+        def fake_stack_output(stack: str, key: str) -> str:
+            output_calls.append((stack, key))
+            return {
+                (iam_contract.RAW_ARCHIVE_STACK, "QaRawArchiveBucketName"): "raw-bucket",
+                (iam_contract.BACKUPS_STACK, "QaExportsBucketName"): "exports-bucket",
+            }[(stack, key)]
+
+        def fake_policy(bucket: str) -> list[dict]:
+            policy_calls.append(bucket)
+            edge_role = (
+                "arn:aws:iam::123456789012:role/tokenkey-lightsail-ssm-hybrid"
+            )
+            return [
+                {
+                    "Sid": "DenyLightsailEdgeRole",
+                    "Effect": "Deny",
+                    "Principal": "*",
+                    "Action": "s3:*",
+                    "Resource": [
+                        f"arn:aws:s3:::{bucket}",
+                        f"arn:aws:s3:::{bucket}/*",
+                    ],
+                    "Condition": {
+                        "ArnEquals": {"aws:PrincipalArn": edge_role}
+                    },
+                }
+            ]
+
+        with mock.patch.object(iam_contract, "_stack_output", fake_stack_output), mock.patch.object(
+            iam_contract, "_live_bucket_policy", fake_policy
+        ):
+            verdict = iam_contract.verify_live_edge_qa_boundary("123456789012")
+
+        self.assertTrue(verdict["ok"], verdict)
+        self.assertEqual(
+            output_calls,
+            [
+                (iam_contract.RAW_ARCHIVE_STACK, "QaRawArchiveBucketName"),
+                (iam_contract.BACKUPS_STACK, "QaExportsBucketName"),
+            ],
+        )
+        self.assertEqual(policy_calls, ["raw-bucket", "exports-bucket"])
+
     def test_verify_raw_archive_iam_contract_flags_missing_s3_gateway_route(self) -> None:
         iam_contract = _load_module(
             "verify_raw_archive_iam_contract", "ops/qa/verify_raw_archive_iam_contract.py"

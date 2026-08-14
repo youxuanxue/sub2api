@@ -305,7 +305,7 @@ jobs:
               *) add_finding "data_layer_capacity" "skip" "info" "Data-layer capacity inconclusive ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID" ;;
             esac
 
-            SAFETY_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-safety.sh --comment "daily data-layer protection gates" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — missing signal becomes an explicit fail-closed finding
+            SAFETY_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-safety.sh --with ops/observability/data-layer-partition-coverage.sql --comment "daily data-layer protection gates" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — missing signal becomes an explicit fail-closed finding
             SNAPSHOT_SIGNAL="$(bash ops/observability/data_layer_snapshot_signal.sh "$TARGET_REGION" "$STACK_NAME" 2>>"$STDERR" || echo '{"latest_snapshot_at":null}')" # preflight-allow: swallow — helper failures become an explicit missing snapshot signal
             ARCHIVE_SIGNAL="$(python3 ops/observability/data_layer_archive_health.py 2>>"$STDERR" || echo 'ARCHIVESTATS {}')"
             SAFETY_VERDICT="$(printf '%s\nSNAPSHOTSTATS %s\n%s\n' "$SAFETY_OUT" "$SNAPSHOT_SIGNAL" "$ARCHIVE_SIGNAL" | python3 ops/observability/data_layer_safety_verdict.py 2>>"$STDERR" || echo '{"verdict":"unsafe","findings":[{"kind":"data_layer_safety_probe","status":"issue_candidate","severity":"error","summary":"data-layer safety verdict failed"}]}')"

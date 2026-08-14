@@ -35,6 +35,7 @@ REGISTRY_GATE = REPO_ROOT / "scripts" / "checks" / "pricing-overlay.py"
 SETTING_KEY = "tk_pricing_overlay_runtime"
 SCHEMA_VERSION = 1
 MAX_REGISTRY_BYTES = 8 << 20
+CAS_MAX_ATTEMPTS = 3
 
 PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
 REDISCLI = "env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli"
@@ -63,6 +64,12 @@ class RegistryArtifact:
     @property
     def registry_sha256(self) -> str:
         return hashlib.sha256(self.registry_bytes).hexdigest()
+
+
+@dataclass(frozen=True)
+class RuntimeDocument:
+    value: dict
+    version: str
 
 
 @dataclass(frozen=True)
@@ -215,22 +222,33 @@ def load_origin_main_artifact(*, require_publishable_checkout: bool) -> Registry
     return RegistryArtifact(source_commit=source_commit, registry_bytes=registry_bytes)
 
 
-def _decode_runtime_value(output: str) -> dict:
+def _decode_runtime_value(output: str) -> RuntimeDocument:
     output = output.strip()
     if not output:
-        return {}
-    raw = gzip.decompress(base64.b64decode(output)).decode("utf-8").strip()
-    if not raw:
-        return {}
-    value = json.loads(raw)
+        raise ValueError("runtime settings read returned no versioned result")
+    payload = json.loads(gzip.decompress(base64.b64decode(output)).decode("utf-8"))
+    if not isinstance(payload, dict) or set(payload) != {"version", "value"}:
+        raise ValueError("runtime settings read must contain exactly version and value")
+    version = payload["version"]
+    value = payload["value"]
+    if not isinstance(version, str) or not version:
+        raise ValueError("runtime settings version must be a non-empty string")
     if not isinstance(value, dict):
         raise ValueError("runtime settings value must be a JSON object")
-    return value
+    if version == "absent" and value != {}:
+        raise ValueError("absent runtime settings row must have an empty value")
+    if version != "absent" and not version.isdigit():
+        raise ValueError("runtime settings row version must be a PostgreSQL xmin")
+    return RuntimeDocument(value=value, version=version)
 
 
-def read_runtime_document(instance_id: str) -> dict:
+def read_runtime_document(instance_id: str) -> RuntimeDocument:
     shell = (
-        f"{PSQL} -c \"SELECT value FROM settings WHERE key='{SETTING_KEY}';\""
+        f"{PSQL} -c \"SELECT json_build_object("
+        "'version', COALESCE((SELECT xmin::text FROM settings "
+        f"WHERE key='{SETTING_KEY}'), 'absent'), "
+        "'value', COALESCE((SELECT value::json FROM settings "
+        f"WHERE key='{SETTING_KEY}'), '{{}}'::json))::text;\""
         " | gzip -c | base64 | tr -d '\\n'"
     )
     shell_b64 = base64.b64encode(shell.encode()).decode()
@@ -271,28 +289,41 @@ def _print_inspection(expected: RegistryArtifact, inspection: RuntimeInspection)
 def cmd_check(_args: argparse.Namespace) -> int:
     expected = load_origin_main_artifact(require_publishable_checkout=False)
     instance_id = _SSM.resolve_prod_instance()
-    inspection = inspect_runtime_document(read_runtime_document(instance_id))
+    inspection = inspect_runtime_document(read_runtime_document(instance_id).value)
     _print_inspection(expected, inspection)
     return 0 if inspection.is_current(expected) else 1
 
 
-def _write_runtime_document(instance_id: str, envelope_bytes: bytes) -> None:
+def _write_runtime_document(
+    instance_id: str, envelope_bytes: bytes, expected_version: str
+) -> bool:
+    if expected_version != "absent" and not expected_version.isdigit():
+        fail("runtime CAS version must be absent or a PostgreSQL xmin")
     gz_b64 = base64.b64encode(gzip.compress(envelope_bytes, mtime=0)).decode("ascii")
     expected_len = len(envelope_bytes.decode("utf-8"))
     expected_md5 = hashlib.md5(envelope_bytes).hexdigest()
     raw_b64_len = len(base64.b64encode(envelope_bytes))
+    if expected_version == "absent":
+        mutation = (
+            f"INSERT INTO settings (key, value, updated_at) VALUES "
+            f"('{SETTING_KEY}', convert_from(decode('$JSON_B64','base64'),'UTF8'), NOW()) "
+            "ON CONFLICT (key) DO NOTHING RETURNING 1"
+        )
+    else:
+        mutation = (
+            f"UPDATE settings SET value=convert_from(decode('$JSON_B64','base64'),'UTF8'), "
+            f"updated_at=NOW() WHERE key='{SETTING_KEY}' "
+            f"AND xmin='{expected_version}'::xid RETURNING 1"
+        )
     shell = (
         "set -euo pipefail\n"
         f"JSON_B64=\"$(echo {gz_b64} | base64 -d | gunzip | base64 | tr -d '\\n')\"\n"
         f"test \"${{#JSON_B64}}\" -eq {raw_b64_len}\n"
-        f"{PSQL} <<SQL\n"
-        f"INSERT INTO settings (key, value, updated_at) VALUES "
-        f"('{SETTING_KEY}', convert_from(decode('$JSON_B64','base64'),'UTF8'), NOW()) "
-        "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();\n"
-        f"SELECT key || '|' || length(value)::text || '|' || md5(value) "
-        f"FROM settings WHERE key='{SETTING_KEY}';\n"
-        "SQL\n"
-        "echo UPSERT_OK\n"
+        f"CAS_RESULT=\"$({PSQL} -c \"{mutation};\")\"\n"
+        "if [ \"$CAS_RESULT\" != \"1\" ]; then echo CAS_CONFLICT; exit 0; fi\n"
+        f"{PSQL} -c \"SELECT key || '|' || length(value)::text || '|' || md5(value) "
+        f"FROM settings WHERE key='{SETTING_KEY}';\"\n"
+        "echo CAS_APPLIED\n"
         f"{REDISCLI} PUBLISH settings_updated refresh </dev/null || "
         "echo 'WARN: redis PUBLISH failed; replicas will reload on their poll interval'\n"
     )
@@ -303,9 +334,14 @@ def _write_runtime_document(instance_id: str, envelope_bytes: bytes) -> None:
         instance_id, shell_b64, "pricing registry: publish protected-main snapshot"
     )
     print(output)
+    if "CAS_CONFLICT" in output:
+        if "CAS_APPLIED" in output:
+            fail("runtime CAS returned conflicting terminal markers")
+        return False
     expected_line = f"{SETTING_KEY}|{expected_len}|{expected_md5}"
-    if "UPSERT_OK" not in output or expected_line not in output:
-        fail(f"runtime UPSERT read-back mismatch; expected {expected_line!r}")
+    if "CAS_APPLIED" not in output or expected_line not in output:
+        fail(f"runtime CAS read-back mismatch; expected {expected_line!r}")
+    return True
 
 
 def cmd_sync_runtime(args: argparse.Namespace) -> int:
@@ -320,25 +356,38 @@ def cmd_sync_runtime(args: argparse.Namespace) -> int:
         return 0
 
     instance_id = _SSM.resolve_prod_instance()
-    current = inspect_runtime_document(read_runtime_document(instance_id))
-    if current.is_current(expected):
-        print("runtime snapshot already equals protected main; nothing to publish.")
-        return 0
+    for attempt in range(1, CAS_MAX_ATTEMPTS + 1):
+        document = read_runtime_document(instance_id)
+        current = inspect_runtime_document(document.value)
+        if current.is_current(expected):
+            print("runtime snapshot already equals protected main; nothing to publish.")
+            return 0
 
-    # A Git revert is a newer descendant and remains publishable. An expected
-    # commit behind the active source means the local origin/main ref is stale;
-    # fail closed instead of turning a workstation or delayed run into rollback.
-    if current.state == "valid" and current.source_commit != expected.source_commit:
-        if not _git_is_ancestor(current.source_commit, expected.source_commit):
-            fail(
-                "refusing pricing snapshot downgrade: active runtime source "
-                f"{current.source_commit} is not an ancestor of expected "
-                f"protected-main source {expected.source_commit}"
-            )
+        # A Git revert is a newer descendant and remains publishable. An expected
+        # commit behind the active source means the local origin/main ref is stale;
+        # fail closed instead of turning a delayed run into rollback.
+        if current.state == "valid" and current.source_commit != expected.source_commit:
+            if not _git_is_ancestor(current.source_commit, expected.source_commit):
+                fail(
+                    "refusing pricing snapshot downgrade: active runtime source "
+                    f"{current.source_commit} is not an ancestor of expected "
+                    f"protected-main source {expected.source_commit}"
+                )
 
-    _write_runtime_document(instance_id, envelope_bytes)
-    post = inspect_runtime_document(read_runtime_document(instance_id))
+        if _write_runtime_document(instance_id, envelope_bytes, document.version):
+            break
+        print(f"runtime CAS conflict on attempt {attempt}; re-reading current snapshot.")
+    else:
+        fail(f"runtime CAS conflicted {CAS_MAX_ATTEMPTS} times; refusing stale publication")
+
+    post = inspect_runtime_document(read_runtime_document(instance_id).value)
     if not post.is_current(expected):
+        if post.state == "valid" and post.source_commit != expected.source_commit:
+            if not _git_is_ancestor(post.source_commit, expected.source_commit):
+                fail(
+                    "runtime changed after CAS to a source that expected protected main "
+                    f"does not descend from: {post.source_commit}"
+                )
         fail(
             "publish returned success but exact-byte read-back verification failed: "
             f"state={post.state} error={post.error!r}"

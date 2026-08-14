@@ -3,7 +3,7 @@ title: QA Phase 2 Archive Closeout
 status: approved
 approved_by: "feng (conversation approvals 2026-08-07 through 2026-08-11; UTC-hour partition lifecycle and no-rehome cutover 2026-08-11)"
 date: 2026-08-07
-last_reviewed: 2026-08-12
+last_reviewed: 2026-08-14
 supersedes: null
 related:
   - docs/approved/design-prod-qa-24h-s3-lifecycle.md
@@ -564,10 +564,21 @@ The raw archive stack must also provide:
 - an explicit security statement that the Stage0 gateway and maintenance sibling inherit
   one EC2 instance role. These policies reduce whole-host privilege but do not provide
   process-level IAM isolation; separate compute credentials are deferred beyond this
-  closeout.
+  closeout;
+- prod is the sole QA owner. Every deployable Lightsail edge assumes the shared
+  `tokenkey-lightsail-ssm-hybrid` role and owns no QA capture, archive, cleanup, export, timer,
+  or health path. The raw archive and trajectory-export bucket policies each explicitly deny
+  that exact role `s3:*`, using `Principal: "*"` plus exact `aws:PrincipalArn` so role
+  recreation cannot weaken the boundary. Each Deny is scoped only to its own QA bucket and
+  object ARNs; pgdump, media, audit, and KMS resources are outside the Deny.
 
 Deployment scripts resolve and print the exact role, VPC, route table, bucket, key, and
-trail before change and fail closed when a production security parameter is blank.
+trail before change and fail closed when a production security parameter is blank. The
+existing verifier keeps its default app-role/network contract for nightly health and exposes
+an explicit operator-only `--edge-qa-boundary` readback for both live bucket policies. This
+repository declaration is not live evidence: the two CloudFormation stacks must be applied
+under separate approval, then pass no-execute drift and dual-bucket readback before the edge
+QA boundary is reported as deployed.
 
 The `*:00` lifecycle boundary runner also owns crash-orphan cleanup under the effective
 export temp path. With no non-empty `QA_EXPORT_TMP_DIR`, the effective container path is
@@ -637,6 +648,9 @@ or add job-history retention semantics.
 - systemd contract tests fix `*:00`, `*:15`, no randomized delay, the shared lock, and the
   archive hard timeout;
 - IAM/KMS/bucket/trail/VPC endpoint templates enforce the intended principals and actions;
+- fleet-to-identity-to-policy contract tests prove every deployable Lightsail edge uses the
+  one shared hybrid role, both prod QA buckets deny that exact role all S3 actions, no QA
+  Allow names the role, and pgdump/media/KMS resources remain outside the Deny;
 - the app role has no ListBucket or partial read and only suffix-scoped GetObject, including
   the declared `orphan-evidence-index.jsonl.zst` artifact; tests label the shared
   instance-role boundary as non-isolated.
@@ -839,6 +853,8 @@ Phase 2 archive closeout is complete only when:
 - the hourly archive timer completes at least two consecutive regular sealed hours under observation;
 - app IAM has no ListBucket/partial read and suffix-scoped GetObject, with shared-role risk
   explicitly retained rather than reported as process isolation;
+- after a separately approved CloudFormation apply, both prod QA bucket policies pass
+  no-execute drift and operator dual-bucket readback for the exact shared edge-role Deny;
 - `qa_records` has canonical UTC-hour children through the future 72-hour horizon, no
   DEFAULT, no rehome/staging path, and no overdue attached child;
 - at least one production hour completes the full boundary lifecycle: archive terminal

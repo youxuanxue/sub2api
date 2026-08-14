@@ -15,6 +15,7 @@ except ImportError as exc:  # pragma: no cover - preflight environment failure
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 REGISTRY = "backend/internal/service/tk_pricing_overlay.json"
+PUBLISHER = ".github/workflows/pricing-registry-publish.yml"
 
 
 def _load_workflow(path: pathlib.Path) -> dict:
@@ -54,25 +55,40 @@ def validate_publication_boundary(root: pathlib.Path) -> list[str]:
         else:
             if push.get("branches") != ["main"]:
                 errors.append("publisher push branches must be exactly [main]")
-            if push.get("paths") != [REGISTRY]:
-                errors.append(f"publisher push paths must be exactly [{REGISTRY}]")
+            if push.get("paths") != [REGISTRY, PUBLISHER]:
+                errors.append(
+                    f"publisher push paths must be exactly [{REGISTRY}, {PUBLISHER}]"
+                )
 
     concurrency = publisher.get("concurrency")
-    if not isinstance(concurrency, dict) or concurrency.get("cancel-in-progress") is not False:
-        errors.append("publisher must serialize runs with cancel-in-progress=false")
+    if not isinstance(concurrency, dict) or concurrency.get("group") != "pricing-registry-publish":
+        errors.append("publisher must use the unique pricing-registry-publish concurrency group")
+    elif concurrency.get("cancel-in-progress") is not True:
+        errors.append("publisher must supersede obsolete runs with cancel-in-progress=true")
+
+    permissions = publisher.get("permissions")
+    if not isinstance(permissions, dict) or permissions.get("id-token") != "write":
+        errors.append("publisher must retain id-token: write for repository-branch OIDC")
 
     jobs = publisher.get("jobs")
     publish_job = jobs.get("publish") if isinstance(jobs, dict) else None
-    if not isinstance(publish_job, dict) or publish_job.get("environment") != "prod":
-        errors.append("publisher job must use the protected prod environment")
+    if not isinstance(publish_job, dict):
+        errors.append("publisher must define the publish job")
+    else:
+        if "environment" in publish_job:
+            errors.append("publisher job must not add a second Environment approval gate")
+        steps = publish_job.get("steps")
+        canonical_sync = "python3 ops/pricing/manage-overlay-runtime.py sync-runtime"
+        if not isinstance(steps, list) or not any(
+            isinstance(step, dict) and step.get("run") == canonical_sync for step in steps
+        ):
+            errors.append("publisher must invoke the canonical sync-runtime command")
 
     try:
         publisher_text = publisher_path.read_text(encoding="utf-8")
     except OSError as exc:
         errors.append(f"{publisher_path}: cannot read workflow: {exc}")
     else:
-        if "manage-overlay-runtime.py sync-runtime" not in publisher_text:
-            errors.append("publisher must invoke the protected sync-runtime command")
         if "git checkout --detach origin/main" not in publisher_text:
             errors.append("publisher must detach onto freshly fetched origin/main")
 

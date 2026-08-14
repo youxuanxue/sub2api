@@ -25,6 +25,7 @@ const (
 	EndpointImagesGenerations = apipath.ImagesGenerations
 	EndpointImagesEdits       = apipath.ImagesEdits
 	EndpointImageTasks        = "/v1/images/tasks"
+	EndpointVideoGenerations  = apipath.VideoGenerations
 	EndpointVideosGenerations = apipath.VideosGenerations
 	EndpointVideosEdits       = "/v1/videos/edits"
 	EndpointVideosExtensions  = "/v1/videos/extensions"
@@ -99,6 +100,8 @@ func NormalizeInboundEndpoint(path string) string {
 		return EndpointImagesEdits
 	case strings.Contains(path, EndpointImageTasks) || strings.Contains(path, "/images/tasks/"):
 		return EndpointImageTasks
+	case strings.Contains(path, EndpointVideoGenerations):
+		return EndpointVideoGenerations
 	case strings.Contains(path, EndpointVideosGenerations) || strings.Contains(path, "/videos/generations"):
 		return EndpointVideosGenerations
 	case strings.Contains(path, EndpointVideosEdits) || strings.Contains(path, "/videos/edits"):
@@ -190,7 +193,7 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 
 	switch platform {
 	case service.PlatformOpenAI, service.PlatformNewAPI, service.PlatformGrok:
-		if inbound == EndpointEmbeddings || inbound == EndpointImagesGenerations || inbound == EndpointImagesEdits || inbound == EndpointVideosGenerations || inbound == EndpointVideos {
+		if inbound == EndpointEmbeddings || inbound == EndpointImagesGenerations || inbound == EndpointImagesEdits || inbound == EndpointVideoGenerations || inbound == EndpointVideosGenerations || inbound == EndpointVideos {
 			return inbound
 		}
 		if upstream, ok := tkDeriveOpenAITokenKeyUpstream(inbound); ok {
