@@ -496,7 +496,11 @@ def compact_body(protocol: str, model: str) -> dict[str, Any]:
         body: dict[str, Any] = {"model": model, "max_tokens": 8, "messages": [{"role": "user", "content": "hi"}]}
         if chat_requires_stream(model):
             body["stream"] = True
-        if model in {"qwen3.7-max-preview", "qwen3.7-max-2026-05-17"}:
+        if model in {
+            "qwen3.7-max-preview",
+            "qwen3.7-max-2026-05-17",
+            "qwen3.8-2.4t-a95b",
+        }:
             body["enable_thinking"] = True
         elif re.match(r"qwen3[-.]", model):
             body["enable_thinking"] = False
@@ -537,6 +541,7 @@ def chat_requires_stream(model: str) -> bool:
         "glm-4.5-air",
         "qwen3.7-max-preview",
         "qwen3.7-max-2026-05-17",
+        "qwen3.8-2.4t-a95b",
     }
 
 
@@ -846,6 +851,10 @@ def cmd_selftest(_args) -> int:
     assert compact_body("chat", "qwen3-8b")["enable_thinking"] is False
     assert compact_body("chat", "qwen3.7-max-preview")["stream"] is True
     assert compact_body("chat", "qwen3.7-max-preview")["enable_thinking"] is True
+    assert compact_body("chat", "qwen3.8-2.4t-a95b")["stream"] is True
+    assert compact_body("chat", "qwen3.8-2.4t-a95b")["enable_thinking"] is True
+    assert compact_body("chat", "qwen3.8-32b")["enable_thinking"] is False
+    assert "stream" not in compact_body("chat", "qwen3.8-32b")
     assert compact_body("chat", "glm-4.5")["stream"] is True
     assert classify(429, '{"error":"No available accounts"}', False)[0] == "SKIP"
     assert classify(403, '{"error":"universal_no_entitled_group"}', False)[0] == "SKIP"
