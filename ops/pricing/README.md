@@ -123,10 +123,12 @@ python3 ops/pricing/model-surface-refresh-report.py --selftest
 ```
 
 Candidate JSON should carry `observed_at`, `authoritative: true`, and a `scopes`
-object. JSON probe rows should carry `observed_at`; gateway successes additionally
-need matching `account_id` and `usage_account_id`. Legacy TSV inputs use the file
-mtime as their evidence time and therefore expire after 24 hours. Missing/stale
-candidate authority, non-ch41 account divergence, inconclusive 429/5xx, local
+object. JSON probe rows should carry `observed_at`; a promotion requires direct and
+gateway success for the same active account, and the gateway row additionally needs
+matching `account_id` and `usage_account_id`. Legacy TSV inputs cannot prove that
+same-account join and therefore remain classification-only; their file mtime is used
+as the evidence time and expires after 24 hours. Missing/stale
+candidate authority, non-ch41 account divergence, inconclusive 401/403/429/5xx, local
 mapping-floor rejection, missing price, and unapproved paid-media evidence all
 block `proposed_add` rather than inferring support.
 

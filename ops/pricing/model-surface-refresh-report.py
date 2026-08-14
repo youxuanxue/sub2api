@@ -363,6 +363,8 @@ def _evidence_class(row: dict[str, Any], kind: str) -> str:
         status = int(status_raw)
     except ValueError:
         status = 0
+    if status in {401, 403}:
+        return "inconclusive"
     if status == 429 or status >= 500:
         return "inconclusive"
     if verdict in {"unsupported", "unsupported_or_denied", "upstream_rejected"} and 400 <= status < 500:
@@ -559,6 +561,7 @@ def build_report(
         "traffic": defaultdict(lambda: defaultdict(set)),
     }
     raw_by_account: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+    gateway_by_account: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     modality: dict[tuple[str, str], str] = {}
     paid_approval: dict[tuple[str, str], bool] = {}
     for kind, rows in (("raw", fresh_raw), ("gateway", fresh_gateway), ("traffic", fresh_traffic)):
@@ -576,8 +579,11 @@ def build_report(
             if row.get("paid_probe_approved") is True:
                 paid_approval[(scope, model)] = True
             account_id = str(row.get("account_id") or "").strip()
-            if kind == "raw" and account_id:
-                raw_by_account[account_id][klass].add(model)
+            if account_id in account_by_id:
+                if kind == "raw":
+                    raw_by_account[account_id][klass].add(model)
+                elif kind == "gateway":
+                    gateway_by_account[account_id][klass].add(model)
 
     all_scopes = set(floors) | set(candidates) | set(accounts_by_scope)
     for kind in evidence.values():
@@ -648,7 +654,14 @@ def build_report(
             model for model in listed | raw_capable | gateway_served
             if _mapping_covers_model(current_coverage, model)
         }
-        proposed = (listed & raw_capable & gateway_served) - already_required - price_missing
+        paired_account_success = set().union(*(
+            raw_by_account[account_id].get("servable", set())
+            & gateway_by_account[account_id].get("servable", set())
+            for account_id in accounts_by_scope.get(scope, [])
+        )) if accounts_by_scope.get(scope) else set()
+        proposed = (
+            listed & raw_capable & gateway_served & paired_account_success
+        ) - already_required - price_missing
         paid_pending = set()
         for model in list(proposed):
             model_modality = modality.get((scope, model), candidates.get(scope, {}).get(model, "chat"))
@@ -665,6 +678,7 @@ def build_report(
             "traffic_proven": _sorted(traffic),
             "raw_capable": _sorted(raw_capable),
             "gateway_served": _sorted(gateway_served),
+            "same_account_proven": _sorted(paired_account_success),
             "unsupported": _sorted(unsupported),
             "inconclusive": _sorted(inconclusive),
             "local_floor_blocked": _sorted(local_blocked),
@@ -825,7 +839,10 @@ def _selftest() -> int:
     assert report["scopes"]["openai"]["inconclusive"] == ["unpriced"]
     assert _evidence_class(
         {"status": 401, "verdict": "unsupported_or_denied"}, "raw",
-    ) == "unsupported"
+    ) == "inconclusive"
+    assert _evidence_class(
+        {"status": 403, "verdict": "upstream_rejected"}, "raw",
+    ) == "inconclusive"
 
     report_accounts, _ = _active_accounts(inventory, bundle_floor)
     account_by_id = {row["account_id"]: row for row in report_accounts}
@@ -908,6 +925,22 @@ def _selftest() -> int:
     assert divergent["scopes"]["openai"]["account_divergence"]
     assert divergent["scopes"]["openai"]["proposed_add"] == []
 
+    split_account_gateway = [{
+        "scope": "openai", "account_id": 2, "usage_account_id": 2,
+        "model": "new-text", "status": 200, "verdict": "servable",
+        "observed_at": observed,
+    }]
+    split_account = build_report(
+        bundle=bundle, overlay=overlay, ledger={}, inventory=inventory,
+        candidates_raw=candidates,
+        raw_rows=[raw[0]], gateway_rows=split_account_gateway,
+        traffic_rows=[], as_of=as_of,
+    )
+    assert split_account["scopes"]["openai"]["raw_capable"] == ["new-text"]
+    assert split_account["scopes"]["openai"]["gateway_served"] == ["new-text"]
+    assert split_account["scopes"]["openai"]["same_account_proven"] == []
+    assert split_account["scopes"]["openai"]["proposed_add"] == []
+
     listed_divergent_candidates = dict(candidates)
     listed_divergent_candidates["account_lists"] = {
         "openai": {
@@ -933,7 +966,11 @@ def _selftest() -> int:
         "observed_at": "2026-08-14T10:00:00Z", "authoritative": True,
         "scopes": {"openai": [{"model": "paid-image", "modality": "image"}]},
     }
-    paid_raw = [{"scope": "openai", "model": "paid-image", "modality": "image", "status": 200, "verdict": "servable", "observed_at": observed}]
+    paid_raw = [{
+        "scope": "openai", "account_id": 1, "model": "paid-image",
+        "modality": "image", "status": 200, "verdict": "servable",
+        "observed_at": observed,
+    }]
     paid_gateway = [{
         "scope": "openai", "account_id": 1, "usage_account_id": 1,
         "model": "paid-image", "modality": "image", "status": 200,
