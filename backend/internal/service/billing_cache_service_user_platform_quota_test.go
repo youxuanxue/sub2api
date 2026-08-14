@@ -489,6 +489,27 @@ func TestIncrementUserPlatformQuotaUsage_GuardsAgainstEmpty(t *testing.T) {
 	}
 }
 
+func TestIncrementUserPlatformQuotaUsage_CallsCacheForAllowedPlatforms(t *testing.T) {
+	fake := &fakeIncrCache{}
+	cfg := &config.Config{}
+	cfg.Billing.UserPlatformQuotaCacheTTLSeconds = 60
+	s := &BillingCacheService{
+		cache: fake,
+		cfg:   cfg,
+	}
+
+	for _, platform := range []string{PlatformNewAPI, PlatformKiro} {
+		s.IncrementUserPlatformQuotaUsage(1, platform, 0.5)
+	}
+
+	if len(fake.calls) != 2 {
+		t.Fatalf("expected allowed newapi/kiro platforms to incr cache, got %d calls", len(fake.calls))
+	}
+	if fake.calls[0].platform != PlatformNewAPI || fake.calls[1].platform != PlatformKiro {
+		t.Errorf("unexpected platforms: %+v", fake.calls)
+	}
+}
+
 func TestIncrementUserPlatformQuotaUsage_SkipsUnsupportedPlatform(t *testing.T) {
 	fake := &fakeIncrCache{}
 	cfg := &config.Config{}
@@ -498,7 +519,7 @@ func TestIncrementUserPlatformQuotaUsage_SkipsUnsupportedPlatform(t *testing.T) 
 		cfg:   cfg,
 	}
 
-	s.IncrementUserPlatformQuotaUsage(1, PlatformNewAPI, 0.5)
+	s.IncrementUserPlatformQuotaUsage(1, "unsupported-platform", 0.5)
 
 	if len(fake.calls) != 0 {
 		t.Errorf("unsupported platform must not incr cache, got %d calls", len(fake.calls))
@@ -519,11 +540,27 @@ func (t *trackingQuotaRepo) GetByUserPlatform(_ context.Context, _ int64, platfo
 	}, nil
 }
 
+func TestCheckUserPlatformQuotaEligibility_QueriesAllowedPlatforms(t *testing.T) {
+	for _, platform := range []string{PlatformNewAPI, PlatformKiro} {
+		t.Run(platform, func(t *testing.T) {
+			repo := &trackingQuotaRepo{}
+			s := newServiceForPreflight(t, repo, nil)
+
+			if err := s.checkUserPlatformQuotaEligibility(context.Background(), 1, platform); err == nil {
+				t.Fatalf("allowed platform with zero limit should be rejected")
+			}
+			if repo.getCalls != 1 {
+				t.Errorf("allowed platform must query repo once, got %d calls", repo.getCalls)
+			}
+		})
+	}
+}
+
 func TestCheckUserPlatformQuotaEligibility_SkipsUnsupportedPlatform(t *testing.T) {
 	repo := &trackingQuotaRepo{}
 	s := newServiceForPreflight(t, repo, nil)
 
-	if err := s.checkUserPlatformQuotaEligibility(context.Background(), 1, PlatformNewAPI); err != nil {
+	if err := s.checkUserPlatformQuotaEligibility(context.Background(), 1, "unsupported-platform"); err != nil {
 		t.Fatalf("unsupported platform should pass eligibility, got %v", err)
 	}
 	if repo.getCalls != 0 {

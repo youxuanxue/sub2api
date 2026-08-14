@@ -14,12 +14,8 @@ import (
 // tests. Current requests use the pinned default UA from this package.
 const grokUpstreamUserAgent = "sub2api-grok/1.0"
 
-// Fixed CLI identity aliases — single source of truth is internal/pkg/xai.
-const (
-	grokClientVersionHeader    = xai.CLIStableVersion
-	grokClientIdentifierHeader = xai.CLIClientIdentifier
-	grokClientModeHeader       = xai.CLIClientMode
-)
+// Fixed CLI identity alias — single source of truth is internal/pkg/xai.
+const grokClientIdentifierHeader = xai.CLIClientIdentifier
 
 // defaultGrokUpstreamUserAgent is the pinned Grok CLI / workspace UA.
 // Grok upstream must not forward Claude Code / Codex / browser client UAs.

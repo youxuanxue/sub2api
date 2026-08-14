@@ -246,11 +246,7 @@ def derive_pipeline_health(
         "edge-oauth-mimic": _normalize_observation_status(edge_oauth_mimic_observation_status),
         "kiro-production-configured": _normalize_observation_status(kiro_profile_observation_status),
     }
-    failed_jobs = [
-        name
-        for name, result in job_results.items()
-        if result == "failure" and observations.get(name) != "observed"
-    ]
+    failed_jobs = [name for name, result in job_results.items() if result == "failure"]
     incomplete_jobs = [name for name, result in job_results.items() if result in {"skipped", "unknown", "cancelled"}]
     if release_scan_result == "success" and release_report is None:
         incomplete_jobs.append("release-scan-report")
@@ -298,7 +294,11 @@ def derive_fidelity_verdict(
     else:
         platforms = release_report.get("platforms") or []
         unknown_ids = [str(item.get("id")) for item in platforms if item.get("status") == "unknown"]
-        stale_ids = [str(item.get("id")) for item in platforms if item.get("drift")]
+        stale_ids = [
+            str(item.get("id"))
+            for item in platforms
+            if item.get("drift") and not item.get("issue_suppressed")
+        ]
         if not platforms:
             candidates.add("incomplete")
             reasons.append("release report contains no platform observations")
@@ -651,6 +651,28 @@ def main(argv: list[str] | None = None) -> int:
         assert release_newer["fidelity_verdict"]["status"] == "stale"
         assert any(s["signal_type"] == "release-drift" for s in release_newer["signals"])
 
+        advisory_drift = fixture(
+            release_report={
+                "platforms": [
+                    {
+                        "id": "cc-stainless",
+                        "status": "drift",
+                        "drift": True,
+                        "issue_suppressed": True,
+                    },
+                    {
+                        "id": "claude-code",
+                        "status": "aligned",
+                        "drift": False,
+                        "issue_suppressed": False,
+                    },
+                ],
+                "summary": {},
+            }
+        )
+        assert advisory_drift["fidelity_verdict"]["status"] == "healthy"
+        assert not any(s["signal_type"] == "release-drift" for s in advisory_drift["signals"])
+
         oidc_skipped = fixture(
             prod_observation_status="skipped",
             prod_aggregate_result="success",
@@ -674,6 +696,14 @@ def main(argv: list[str] | None = None) -> int:
         assert observer_failure["fidelity_verdict"]["status"] == "observer_failed"
         assert any(s["signal_type"] == "observer-failure" for s in observer_failure["signals"])
         assert not any(s["signal_type"] == "prod-drift" for s in observer_failure["signals"])
+
+        downstream_step_failure = fixture(
+            prod_observation_status="observed",
+            prod_aggregate_result="failure",
+        )
+        assert downstream_step_failure["pipeline_health"]["status"] == "failed"
+        assert downstream_step_failure["pipeline_health"]["failed_jobs"] == ["prod-aggregate"]
+        assert downstream_step_failure["workflow_should_fail"] is True
 
         measured_drift = fixture(
             prompt_prod_report={"summary": {"has_actionable_drift": True, "alerts": ["x=1"], "count": 1}}

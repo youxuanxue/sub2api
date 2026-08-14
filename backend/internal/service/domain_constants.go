@@ -56,6 +56,8 @@ var AllowedQuotaPlatforms = []string{
 	PlatformOpenAI,
 	PlatformGemini,
 	PlatformAntigravity,
+	PlatformNewAPI,
+	PlatformKiro,
 	PlatformGrok,
 }
 
