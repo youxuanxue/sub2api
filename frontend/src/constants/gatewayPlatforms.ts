@@ -8,7 +8,7 @@ export const GATEWAY_PLATFORMS = ['anthropic', 'openai', 'gemini', 'antigravity'
  * Mirrors `service.AllowedQuotaPlatforms` in the Go backend
  * (`backend/internal/service/domain_constants.go`).
  */
-export const ALLOWED_QUOTA_PLATFORMS = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok'] as const satisfies readonly AccountPlatform[]
+export const ALLOWED_QUOTA_PLATFORMS = ['anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro', 'grok'] as const satisfies readonly AccountPlatform[]
 export type QuotaPlatform = (typeof ALLOWED_QUOTA_PLATFORMS)[number]
 
 /**
