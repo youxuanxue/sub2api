@@ -355,9 +355,10 @@
         "def _git_is_ancestor",
         "refusing pricing snapshot downgrade",
         "def cmd_sync_runtime",
-        "inspection.is_current(expected)"
+        "inspection.is_current(expected)",
+        "post.is_current(expected)"
       ],
-      "rationale": "Protected publisher contract: sync-runtime must load the exact current origin/main registry, require HEAD and workspace bytes to match, build a schema/commit/exact-byte digest envelope, and verify the stored readback. Arbitrary local files and unmerged branches cannot become global runtime owners."
+      "rationale": "Protected publisher contract: sync-runtime must load the exact current origin/main registry, require HEAD and workspace bytes to match, build a schema/commit/exact-byte digest envelope, and verify post-write provenance plus exact content with post.is_current. Read-only audit may accept content-current provenance lag, but publisher no-op and post-write success remain strict. Arbitrary local files and unmerged branches cannot become global runtime owners."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay_runtime.go",

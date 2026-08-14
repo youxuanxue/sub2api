@@ -104,7 +104,11 @@ scoped channel_model_pricing override
 
 The deploy workflow never writes the runtime price setting. Therefore an older
 application release cannot overwrite a newer active price snapshot. Deploy may
-audit the active snapshot but must not synchronize the deployed tag into it.
+audit the active snapshot but must not synchronize the deployed tag into it. A
+read-only audit treats exact registry digest and bytes as healthy even when an
+unrelated protected-main commit has advanced; it reports that source-commit
+difference separately as provenance lag. Publication no-op and post-write
+verification remain stricter and require exact provenance plus exact content.
 
 ## Protected publication and rollback
 
@@ -114,8 +118,12 @@ publisher has no second Environment approval gate. It fetches current
 `origin/main`, verifies that the local artifact is byte-identical to that head,
 runs the registry gate, builds the envelope, writes it through the existing SSM
 settings path, publishes `settings_updated`, and reads the row back to verify
-commit and digest. A workflow-only change intentionally reconciles the current
-snapshot and becomes an idempotent no-op when it is already exact.
+commit, digest and exact registry bytes. Readback uses bounded byte chunks tied
+to one PostgreSQL row version, so an SSM inline-output limit or concurrent row
+change cannot turn a partial document into successful verification. A
+workflow-only change intentionally reconciles the current snapshot and becomes
+an idempotent no-op only when both protected-main provenance and content are
+already exact.
 
 New runs supersede obsolete waiting or running workflow jobs, but cancellation
 is not the write-safety boundary because an older runner may already have issued
