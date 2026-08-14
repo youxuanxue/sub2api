@@ -542,8 +542,10 @@ jobs:
             ARGS+=(--kiro-profile-report-json "$KIRO_PROFILE_JSON")
           fi
           python3 scripts/fingerprint/client_fidelity_watch_report.py "${ARGS[@]}"
+          WORKFLOW_SHOULD_FAIL="$(python3 -c "import json; print(str(json.load(open('.cache/fingerprint/client-fidelity-watch/report.json'))['workflow_should_fail']).lower())")"
           PIPELINE_HEALTH="$(python3 -c "import json; print(json.load(open('.cache/fingerprint/client-fidelity-watch/report.json'))['pipeline_health']['status'])")"
           FIDELITY_VERDICT="$(python3 -c "import json; print(json.load(open('.cache/fingerprint/client-fidelity-watch/report.json'))['fidelity_verdict']['status'])")"
+          echo "workflow_should_fail=$WORKFLOW_SHOULD_FAIL" >> "$GITHUB_OUTPUT"
           echo "pipeline_health=$PIPELINE_HEALTH" >> "$GITHUB_OUTPUT"
           echo "fidelity_verdict=$FIDELITY_VERDICT" >> "$GITHUB_OUTPUT"
           cat .cache/fingerprint/client-fidelity-watch/report.md >> "$GITHUB_STEP_SUMMARY"
@@ -554,6 +556,12 @@ jobs:
           name: client-fidelity-watch-${{ github.run_id }}
           path: .cache/fingerprint/client-fidelity-watch/
           if-no-files-found: ignore
+
+      - name: Enforce daily fidelity verdict
+        if: always() && steps.merge.outputs.workflow_should_fail == 'true'
+        run: |
+          echo "::error::Daily client fidelity report contains an actionable failure."
+          exit 1
 
   contract:
     needs: [release-scan, registry-gate, prod-aggregate, edge-oauth-mimic-aggregate, kiro-production-configured, daily-report]
