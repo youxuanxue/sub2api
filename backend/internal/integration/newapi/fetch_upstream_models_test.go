@@ -54,10 +54,48 @@ func TestFetchUpstreamModelList_TrimsTrailingV1FromBase(t *testing.T) {
 	}
 }
 
+func TestFetchUpstreamModelList_UsesDashScopeCompatibleModelsPath(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/compatible-mode/v1/models" {
+			t.Errorf("unexpected path %q", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"id": "qwen3.7-max"}},
+		})
+	}))
+	t.Cleanup(ts.Close)
+
+	models, err := FetchUpstreamModelList(context.Background(), ts.URL, newapiconstant.ChannelTypeAli, "sk-test")
+	if err != nil {
+		t.Fatalf("FetchUpstreamModelList: %v", err)
+	}
+	if len(models) != 1 || models[0].ID != "qwen3.7-max" {
+		t.Fatalf("models = %#v", models)
+	}
+}
+
+func TestVolcEngineModelsURL_ResolvesXRTokenPublicCatalog(t *testing.T) {
+	t.Parallel()
+
+	for _, base := range []string{XRTokenBaseURL, XRTokenBaseURL + "/v1"} {
+		got, err := volcEngineModelsURL(newapiconstant.ChannelTypeDoubaoVideo, base)
+		if err != nil {
+			t.Fatalf("volcEngineModelsURL(%q): %v", base, err)
+		}
+		if got != XRTokenBaseURL+"/v1/models" {
+			t.Fatalf("volcEngineModelsURL(%q) = %q", base, got)
+		}
+	}
+}
+
 func TestVolcEngineModelsURL_ResolvesAgentPlanSpecialBase(t *testing.T) {
 	t.Parallel()
 
-	got, err := volcEngineModelsURL(VolcEngineAgentPlanBaseURL)
+	got, err := volcEngineModelsURL(newapiconstant.ChannelTypeVolcEngine, VolcEngineAgentPlanBaseURL)
 	if err != nil {
 		t.Fatalf("volcEngineModelsURL: %v", err)
 	}

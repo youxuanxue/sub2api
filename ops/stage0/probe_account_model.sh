@@ -209,6 +209,8 @@ cleanup() {
 	DELETE FROM account_groups WHERE group_id = ${GROUP_ID};
 	UPDATE api_keys SET status='disabled', updated_at=NOW() WHERE group_id = ${GROUP_ID} AND name = '$(sql_escape "$KEY_NAME")' AND deleted_at IS NULL;
 	UPDATE groups SET status='disabled', updated_at=NOW() WHERE id = ${GROUP_ID} AND name = '$(sql_escape "$GROUP_NAME")' AND deleted_at IS NULL;
+	INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)
+	VALUES ('group_changed', NULL, ${GROUP_ID}, NULL);
 	" >/dev/null 2>&1 || true # preflight-allow: swallow
     else
       "${PSQL[@]}" -c "
@@ -321,6 +323,8 @@ DELETE FROM account_groups WHERE group_id = ${GROUP_ID};
 INSERT INTO account_groups (account_id, group_id, priority, created_at)
 VALUES (${ACCOUNT_ID}, ${GROUP_ID}, 1, NOW())
 ON CONFLICT (account_id, group_id) DO NOTHING;
+INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)
+VALUES ('group_changed', NULL, ${GROUP_ID}, NULL);
 " >/dev/null
 
 if [[ "$PROBE_REUSE_MODE" == "1" ]]; then

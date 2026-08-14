@@ -20,10 +20,13 @@ func TestAccountModelMappingPresetIDs_KiroUsesAdminTestModels(t *testing.T) {
 	require.ElementsMatch(t, kiroAdminTestModelIDsForPresetTest(), ids)
 }
 
-func TestAccountModelMappingPresetIDs_NewAPIVertexMatchesGeminiServable(t *testing.T) {
+func TestAccountModelMappingPresetIDs_NewAPIVertexUsesSharedFloor(t *testing.T) {
 	t.Parallel()
 	ids := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeVertexAi, nil)
-	require.ElementsMatch(t, supportedCatalogModelIDsForPlatform(PlatformGemini), ids)
+	require.ElementsMatch(t, vertexSharedModelMappingPresetIDs(), ids)
+	require.Subset(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi), ids)
+	require.NotElementsMatch(t, supportedCatalogModelIDsForPlatform(PlatformGemini), ids,
+		"admin empty mapping must not prefill the public union onto an unknown Vertex account")
 }
 
 func TestAccountModelMappingPresetIDs_NewAPIMoonshotUsesManifest(t *testing.T) {

@@ -66,7 +66,7 @@ MODE_FIELDS = {
 }
 
 # Native platforms that actually have a Go servable-allowlist map.
-ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity")
+ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "grok")
 
 # A4 advisory: overlay vendors whose chat models are the manifest's curated long-tail.
 ENUMERATION_PROVIDERS = {"dashscope", "deepseek", "moonshot", "volcengine", "zhipu", "bigmodel", "zai"}

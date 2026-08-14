@@ -10002,5 +10002,91 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_web_search": true
+  },
+  "glm-5.2-fast-preview": {
+    "litellm_provider": "zhipu",
+    "mode": "chat",
+    "input_cost_per_token": 2.3880597014925373e-06,
+    "output_cost_per_token": 8.35820895522388e-06,
+    "cache_read_input_token_cost": 2.3880597014925373e-06,
+    "source": "Alibaba DashScope official China-mainland pricing https://help.aliyun.com/zh/model-studio/model-pricing, captured 2026-08-14: glm-5.2-fast-preview input ¥16/Mtok, output ¥56/Mtok; CNY/USD=6.7. Pricing and serving both use the configured Alibaba DashScope/Qwen pool (channel_type=17). Overlay stores pre-tax official list rates; TokenKey applies the official_list_base_tax zhipu multiplier at resolution/catalog time. Cache discount not separately listed, so cache-read conservatively equals input."
+  },
+  "qwen3.7-flash": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 2.9850746268656714e-08,
+    "output_cost_per_token": 1.1940298507462686e-07,
+    "cache_read_input_token_cost": 2.9850746268656714e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 2.9850746268656714e-08,
+        "output_cost_per_token": 1.1940298507462686e-07,
+        "cache_read_input_token_cost": 2.9850746268656714e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 256000,
+        "input_cost_per_token": 8.955223880597015e-08,
+        "output_cost_per_token": 3.582089552238806e-07,
+        "cache_read_input_token_cost": 8.955223880597015e-08
+      },
+      {
+        "min_tokens": 256000,
+        "max_tokens": 1000000,
+        "input_cost_per_token": 1.791044776119403e-07,
+        "output_cost_per_token": 7.164179104477612e-07,
+        "cache_read_input_token_cost": 1.791044776119403e-07
+      }
+    ],
+    "source": "Alibaba DashScope official China-mainland pricing https://help.aliyun.com/zh/model-studio/model-pricing, captured 2026-08-14; tiered by input tokens (0<Token≤32K in ¥0.2/M out ¥0.8/M; 32K<Token≤256K in ¥0.6/M out ¥2.4/M; 256K<Token≤1M in ¥1.2/M out ¥4.8/M), CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. Whole-request input-tier via overlay intervals; cache discount not separately listed, so cache-read conservatively equals input."
+  },
+  "qwen3.7-flash-2026-07-15": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 2.9850746268656714e-08,
+    "output_cost_per_token": 1.1940298507462686e-07,
+    "cache_read_input_token_cost": 2.9850746268656714e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 2.9850746268656714e-08,
+        "output_cost_per_token": 1.1940298507462686e-07,
+        "cache_read_input_token_cost": 2.9850746268656714e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 256000,
+        "input_cost_per_token": 8.955223880597015e-08,
+        "output_cost_per_token": 3.582089552238806e-07,
+        "cache_read_input_token_cost": 8.955223880597015e-08
+      },
+      {
+        "min_tokens": 256000,
+        "max_tokens": 1000000,
+        "input_cost_per_token": 1.791044776119403e-07,
+        "output_cost_per_token": 7.164179104477612e-07,
+        "cache_read_input_token_cost": 1.791044776119403e-07
+      }
+    ],
+    "source": "Alibaba DashScope official China-mainland pricing https://help.aliyun.com/zh/model-studio/model-pricing, captured 2026-08-14; tiered by input tokens (0<Token≤32K in ¥0.2/M out ¥0.8/M; 32K<Token≤256K in ¥0.6/M out ¥2.4/M; 256K<Token≤1M in ¥1.2/M out ¥4.8/M), CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. Whole-request input-tier via overlay intervals; cache discount not separately listed, so cache-read conservatively equals input. Dated snapshot uses the same official family price as qwen3.7-flash."
+  },
+  "qwen3.8-2.4t-a95b": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.7910447761194032e-06,
+    "output_cost_per_token": 5.373134328358209e-06,
+    "cache_read_input_token_cost": 1.7910447761194032e-06,
+    "source": "Alibaba DashScope qwen3.8-2.4t-a95b official China-mainland pricing https://help.aliyun.com/zh/model-studio/model-pricing, captured 2026-08-14: input ¥12/Mtok, output ¥36/Mtok; CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. Cache discount not separately listed, so cache-read conservatively equals input."
+  },
+  "qwen3.8-max": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.7910447761194032e-06,
+    "output_cost_per_token": 5.373134328358209e-06,
+    "cache_read_input_token_cost": 1.7910447761194032e-06,
+    "source": "Alibaba DashScope qwen3.8-max official China-mainland pricing https://help.aliyun.com/zh/model-studio/model-pricing, captured 2026-08-14: input ¥12/Mtok, output ¥36/Mtok; CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. Cache discount not separately listed, so cache-read conservatively equals input."
   }
 }

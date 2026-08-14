@@ -723,6 +723,17 @@
       "rationale": "Canonicalizes legacy Agent Plan aliases and pasted /api/plan/* endpoint shapes to the native /api/plan/v3 root. TokenKey routing must not depend on a new-api fork or ChannelSpecialBases entry."
     },
     {
+      "path": "backend/internal/service/account_model_mapping_vertex_tk.go",
+      "must_contain": [
+        "VertexCapabilityProfileCredentialKey",
+        "vertexSharedModelMappingIDs",
+        "vertexCapabilityProfileExtraIDs",
+        "vertexCapabilityProfileModelMappingIDs",
+        "vertexCapabilityProfileMappingsForOps"
+      ],
+      "rationale": "Vertex channel_type 41 is the sole account-varying capability scope. This owner separates the verified public union from the strict shared intersection and complete named profile floors. Its selector is a non-secret credential property, never an account ID/name; unknown or missing profiles fail safe to the shared floor. Losing this companion would either over-provision unknown Vertex service-account projects with the union or make profile-specific activation impossible to express in the immutable bundle."
+    },
+    {
       "path": "backend/internal/service/account_model_mapping_preset_tk.go",
       "must_contain": [
         "accountModelMappingOverrideAccounts",

@@ -314,6 +314,62 @@
       "display": true,
       "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Mapped by tk_024. Tiered (overlay intervals)."
     },
+    "newapi/qwen3.7-flash": {
+      "platform": "newapi",
+      "model_id": "qwen3.7-flash",
+      "served_on": [
+        "60",
+        "72",
+        "77"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3.7-flash",
+      "display": true,
+      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77 are static mapping evidence, not complete live pool membership. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14. Tiered (overlay intervals)."
+    },
+    "newapi/qwen3.7-flash-2026-07-15": {
+      "platform": "newapi",
+      "model_id": "qwen3.7-flash-2026-07-15",
+      "served_on": [
+        "60",
+        "72",
+        "77"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3.7-flash-2026-07-15",
+      "display": true,
+      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77 are static mapping evidence, not complete live pool membership. Dated snapshot of qwen3.7-flash. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14. Tiered (overlay intervals)."
+    },
+    "newapi/qwen3.8-2.4t-a95b": {
+      "platform": "newapi",
+      "model_id": "qwen3.8-2.4t-a95b",
+      "served_on": [
+        "60",
+        "72",
+        "77"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3.8-2.4t-a95b",
+      "display": true,
+      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77 are static mapping evidence, not complete live pool membership. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14."
+    },
+    "newapi/qwen3.8-max": {
+      "platform": "newapi",
+      "model_id": "qwen3.8-max",
+      "served_on": [
+        "60",
+        "72",
+        "77"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3.8-max",
+      "display": true,
+      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77 are static mapping evidence, not complete live pool membership. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14."
+    },
     "newapi/qwen3.6-flash": {
       "platform": "newapi",
       "model_id": "qwen3.6-flash",
@@ -823,6 +879,20 @@
       "price_key": "glm-5.2",
       "display": true,
       "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time). Also on VolcEngine Agent Plan account 88 (ch45 /api/plan/v3); mapped by tk_068; probe 200 on 2026-07-30. Also on Baidu Qianfan account 90 (ch46); Qianfan console confirms ¥0.008/¥0.028 per 1k in/out; probe 200 on 2026-08-07. Account 90 mapping: served-via-modelops-activation."
+    },
+    "newapi/glm-5.2-fast-preview": {
+      "platform": "newapi",
+      "model_id": "glm-5.2-fast-preview",
+      "served_on": [
+        "60",
+        "72",
+        "77"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "glm-5.2-fast-preview",
+      "display": true,
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on accounts 60,72,77 are static mapping-evidence anchors, while live account membership comes from runtime DB/admin config. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14. Overlay uses Alibaba DashScope official China-mainland pricing (https://help.aliyun.com/zh/model-studio/model-pricing, captured 2026-08-14; CNY/USD=6.7)."
     },
     "newapi/glm-5.1": {
       "platform": "newapi",

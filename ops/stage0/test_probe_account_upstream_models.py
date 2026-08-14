@@ -89,12 +89,20 @@ class ProbeAccountUpstreamModelsTest(unittest.TestCase):
             "https://api-us4.tokenkey.dev:8443/api/v1",
             "https://api-us4.tokenkey.dev/api/v1?next=evil",
             "https://api-us4.tokenkey.dev/not-api/v1",
+            "http://example.test/api/v1",
+            "http://0.0.0.0/api/v1",
+            "http://169.254.169.254/api/v1",
         ]
         for base_url in unsafe:
             with self.subTest(base_url=base_url):
                 got = self.run_probe(base_url=base_url)
                 self.assertEqual(got["verdict"], "setup_error")
                 self.assertIn("BASE_URL", got["error"])
+
+    def test_allows_private_ipv4_literal_for_container_network(self):
+        script = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('ipaddress.ip_network("172.16.0.0/12")', script)
+        self.assertIn('parsed.scheme == "http" and (is_loopback or is_private_literal)', script)
 
     def test_lists_models_from_an_allowed_loopback_target(self):
         seen = {}

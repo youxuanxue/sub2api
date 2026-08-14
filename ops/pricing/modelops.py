@@ -893,7 +893,10 @@ def _account_platform_allows_scope(account_platform: str, account_scope: str) ->
     if account_platform == "openai":
         return account_scope in {"openai_ainzy_relay", "openai_tokensea_relay", "openai_cloudwise_relay"}
     if account_platform == "newapi":
-        return account_scope.startswith("newapi_channel_type:")
+        return (
+            account_scope.startswith("newapi_channel_type:")
+            or account_scope.startswith("newapi_vertex_profile:")
+        )
     return False
 
 
@@ -922,6 +925,9 @@ def _bundle_mapping_scopes(bundle: dict[str, Any]) -> dict[str, dict[str, str]]:
     for channel_type, mapping in (floor.get("newapi_channel_types") or {}).items():
         if isinstance(mapping, dict):
             scopes[f"newapi_channel_type:{channel_type}"] = dict(mapping)
+    for profile, mapping in (floor.get("vertex_capability_profiles") or {}).items():
+        if isinstance(mapping, dict):
+            scopes[f"newapi_vertex_profile:{profile}"] = dict(mapping)
     for override in floor.get("account_overrides") or []:
         if isinstance(override, dict) and isinstance(override.get("model_mapping"), dict):
             scopes[_BUNDLE.account_override_scope(override)] = dict(override["model_mapping"])

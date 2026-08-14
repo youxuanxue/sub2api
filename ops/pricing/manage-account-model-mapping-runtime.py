@@ -74,6 +74,8 @@ _bundle_spec.loader.exec_module(_BUNDLE)
 PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
 REDISCLI = "env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli"
 APPLY_CONFIRM = "yes-apply-account-model-mapping"
+VERTEX_PROFILE_ASSIGN_CONFIRM = "yes-assign-vertex-capability-profiles"
+VERTEX_PROFILE_CREDENTIAL_KEY = "vertex_capability_profile"
 DEFAULT_BUNDLE_PATH = _BUNDLE.DEFAULT_BUNDLE_PATH
 BUNDLE_SCHEMA_VERSION = _BUNDLE.SCHEMA_VERSION
 DEFAULT_RUNTIME_TARGET = "all-deployable-and-prod"
@@ -92,7 +94,8 @@ SELECT jsonb_build_object(
       'model_mapping', a.credentials->'model_mapping',
       'mirror_platform', a.credentials->>'mirror_platform',
       'base_url', a.credentials->>'base_url',
-      'auth_mode', a.credentials->>'auth_mode'
+      'auth_mode', a.credentials->>'auth_mode',
+      'vertex_capability_profile', a.credentials->>'vertex_capability_profile'
     ) ORDER BY a.platform, a.id)
     FROM accounts a
     WHERE a.deleted_at IS NULL
@@ -529,7 +532,7 @@ def _forbidden_mapping_entries(
     mapping: dict[str, str],
     floor: dict[str, Any],
 ) -> list[str]:
-    if scope.startswith("newapi_channel_type:"):
+    if scope.startswith("newapi_channel_type:") or scope.startswith("newapi_vertex_profile:"):
         scope = "newapi"
     forbidden_by_scope = floor.get("forbidden_model_mapping_keys") or {}
     forbidden = set(forbidden_by_scope.get(scope) or [])
@@ -580,6 +583,12 @@ def _desired_mapping_for_account(
     scope = _account_scope(row)
     if scope == "newapi":
         ct = str(row.get("channel_type") or "").strip()
+        if ct == "41":
+            profile = str(row.get("vertex_capability_profile") or "").strip().lower()
+            profiles = floor.get("vertex_capability_profiles") or {}
+            mapping = profiles.get(profile) if profile else None
+            if isinstance(mapping, dict):
+                return mapping, f"newapi_vertex_profile:{profile}"
         mapping = (floor.get("newapi_channel_types") or {}).get(ct)
         return mapping if isinstance(mapping, dict) else None, f"newapi_channel_type:{ct or '0'}"
     mapping = (floor.get("platforms") or {}).get(scope)
@@ -631,6 +640,27 @@ def _format_mapping_diff_reason(scope: str, diff: dict[str, Any]) -> str:
     if diff["compatible_extra_keys"]:
         parts.append("preserved_extras: " + _short_list(diff["compatible_extra_keys"]))
     return "; ".join(parts)
+
+
+def _vertex_profile_issue(row: dict[str, Any], floor: dict[str, Any]) -> str | None:
+    if str(row.get("platform") or "").strip().lower() != "newapi":
+        return None
+    try:
+        channel_type = int(row.get("channel_type") or 0)
+    except (TypeError, ValueError):
+        return None
+    if channel_type != 41:
+        return None
+    profile = str(row.get("vertex_capability_profile") or "").strip().lower()
+    profiles = floor.get("vertex_capability_profiles") or {}
+    if not profile:
+        return "missing vertex_capability_profile; fail-safe shared channel_type 41 floor applies"
+    if profile not in profiles:
+        return (
+            f"unknown vertex_capability_profile {profile!r}; "
+            "fail-safe shared channel_type 41 floor applies"
+        )
+    return None
 
 
 def _account_plan(
@@ -723,6 +753,12 @@ def _runtime_policy_conflict(doc: dict[str, Any], floor: dict[str, Any]) -> str 
 
     effective_channel_types = floor.get("newapi_channel_types") or {}
     for channel_type in (doc.get("newapi_channel_types") or {}):
+        if channel_type == "41":
+            conflicts.append(
+                "newapi_channel_types.41: ch41 is owned by the shared/profile capability contract; "
+                "runtime channel replacement is not allowed"
+            )
+            continue
         desired = effective_channel_types.get(channel_type)
         if not isinstance(desired, dict):
             continue
@@ -774,10 +810,20 @@ def _check_target(
     floor = _load_effective_floor(runtime_raw)
     for row in bundle.get("accounts") or []:
         plan = _account_plan(row, floor)
-        if not plan:
-            continue
-        plan["target"] = label
-        violations.append(plan)
+        if plan:
+            plan["target"] = label
+            violations.append(plan)
+        profile_issue = _vertex_profile_issue(row, floor)
+        if profile_issue:
+            violations.append({
+                "target": label,
+                "kind": "vertex_capability_profile",
+                "id": row.get("id"),
+                "name": row.get("name"),
+                "platform": row.get("platform"),
+                "scope": "newapi_channel_type:41",
+                "reason": profile_issue,
+            })
     for row in bundle.get("antigravity_groups") or []:
         reason = _group_violation(row, floor)
         if reason:
@@ -852,6 +898,186 @@ def _ids_sql(ids: list[int]) -> str:
 def _json_b64(doc: Any) -> str:
     raw = json.dumps(doc, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return base64.b64encode(raw).decode("ascii")
+
+
+def _load_vertex_profile_assignments(path: Path, floor: dict[str, Any]) -> list[dict[str, Any]]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as e:
+        fail(f"cannot read {path}: {e}")
+    except json.JSONDecodeError as e:
+        fail(f"invalid JSON {path}: {e}")
+    if not isinstance(raw, dict) or set(raw) != {"assignments"}:
+        fail("profile assignment file must contain only an assignments array")
+    assignments = raw.get("assignments")
+    if not isinstance(assignments, list) or not assignments:
+        fail("profile assignment file assignments must be a non-empty array")
+    profiles = floor.get("vertex_capability_profiles") or {}
+    out: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for index, assignment in enumerate(assignments):
+        label = f"assignments[{index}]"
+        if not isinstance(assignment, dict):
+            fail(f"{label} must be an object")
+        expected_fields = {"id", "name", "platform", "channel_type", "current_profile", "profile"}
+        if set(assignment) != expected_fields:
+            fail(f"{label} must contain exactly: " + ", ".join(sorted(expected_fields)))
+        try:
+            account_id = int(assignment.get("id"))
+            channel_type = int(assignment.get("channel_type"))
+        except (TypeError, ValueError):
+            fail(f"{label}: id and channel_type must be integers")
+        if account_id <= 0 or account_id in seen:
+            fail(f"{label}: id must be unique and positive")
+        seen.add(account_id)
+        name = str(assignment.get("name") or "").strip()
+        platform = str(assignment.get("platform") or "").strip().lower()
+        current_profile = str(assignment.get("current_profile") or "").strip().lower()
+        profile = str(assignment.get("profile") or "").strip().lower()
+        if not name:
+            fail(f"{label}: name must be non-empty")
+        if platform != "newapi" or channel_type != 41:
+            fail(f"{label}: selector must be platform=newapi and channel_type=41")
+        if profile not in profiles:
+            fail(f"{label}: unknown Vertex capability profile {profile!r}")
+        if current_profile and current_profile not in profiles:
+            fail(f"{label}: current_profile {current_profile!r} is not a known profile")
+        out.append({
+            "id": account_id,
+            "name": name,
+            "platform": platform,
+            "channel_type": channel_type,
+            "current_profile": current_profile,
+            "profile": profile,
+        })
+    return sorted(out, key=lambda row: row["id"])
+
+
+def _collect_vertex_profile_assignment_plan(
+    label: str,
+    region: str,
+    instance_id: str,
+    assignments: list[dict[str, Any]],
+) -> dict[str, Any]:
+    live = _run_check_sql_json(region, instance_id, label)
+    rows = {int(row.get("id") or 0): row for row in (live.get("accounts") or [])}
+    changes: list[dict[str, Any]] = []
+    for assignment in assignments:
+        account_id = assignment["id"]
+        row = rows.get(account_id)
+        if row is None:
+            raise RuntimeError(f"account {account_id}: not found in active managed prod inventory")
+        actual_name = str(row.get("name") or "")
+        actual_platform = str(row.get("platform") or "").strip().lower()
+        try:
+            actual_channel_type = int(row.get("channel_type") or 0)
+        except (TypeError, ValueError):
+            actual_channel_type = 0
+        actual_profile = str(row.get(VERTEX_PROFILE_CREDENTIAL_KEY) or "").strip().lower()
+        expected_selector = (
+            assignment["name"], assignment["platform"], assignment["channel_type"],
+            assignment["current_profile"],
+        )
+        actual_selector = (actual_name, actual_platform, actual_channel_type, actual_profile)
+        if actual_selector != expected_selector:
+            raise RuntimeError(
+                f"account {account_id}: selector drift; expected "
+                f"name={assignment['name']!r} platform={assignment['platform']} "
+                f"channel_type={assignment['channel_type']} current_profile={assignment['current_profile']!r}; "
+                f"got name={actual_name!r} platform={actual_platform} "
+                f"channel_type={actual_channel_type} current_profile={actual_profile!r}"
+            )
+        if actual_profile == assignment["profile"]:
+            continue
+        changes.append({**assignment, "target": label})
+    return {
+        "target": label,
+        "region": region,
+        "instance_id": instance_id,
+        "changes": changes,
+    }
+
+
+def _render_vertex_profile_assignment_sql(plan: dict[str, Any]) -> str:
+    changes = plan.get("changes") or []
+    if not changes:
+        return ""
+    lines = ["BEGIN;", "SET LOCAL statement_timeout = '30s';"]
+    changed_ids: list[int] = []
+    for change in changes:
+        payload_b64 = _json_b64({VERTEX_PROFILE_CREDENTIAL_KEY: change["profile"]})
+        expected_name_b64 = base64.b64encode(change["name"].encode("utf-8")).decode("ascii")
+        current_profile_b64 = base64.b64encode(change["current_profile"].encode("utf-8")).decode("ascii")
+        account_id = int(change["id"])
+        changed_ids.append(account_id)
+        lines.extend([
+            "DO $tk_vertex_profile$ DECLARE changed bigint; BEGIN ",
+            "UPDATE accounts SET credentials = COALESCE(credentials, '{}'::jsonb) "
+            f"|| convert_from(decode('{payload_b64}', 'base64'), 'UTF8')::jsonb, updated_at = NOW() "
+            f"WHERE id = {account_id} AND deleted_at IS NULL AND status = 'active' "
+            "AND platform = 'newapi' AND channel_type = 41 "
+            f"AND name = convert_from(decode('{expected_name_b64}', 'base64'), 'UTF8') "
+            f"AND COALESCE(credentials->>'{VERTEX_PROFILE_CREDENTIAL_KEY}', '') = "
+            f"convert_from(decode('{current_profile_b64}', 'base64'), 'UTF8'); ",
+            "GET DIAGNOSTICS changed = ROW_COUNT; "
+            f"IF changed <> 1 THEN RAISE EXCEPTION 'account {account_id} selector changed before profile assignment'; "
+            "END IF; END $tk_vertex_profile$;",
+        ])
+    payload = json.dumps({"account_ids": sorted(changed_ids)}, separators=(",", ":"))
+    lines.extend([
+        "INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload) "
+        f"VALUES ('account_bulk_changed', NULL, NULL, '{payload}'::jsonb);",
+        "COMMIT;",
+        "SELECT 'PROFILE_ASSIGN_OK' AS status;",
+    ])
+    return "\n".join(lines) + "\n"
+
+
+def _apply_vertex_profile_assignment_plan(plan: dict[str, Any]) -> str:
+    sql = _render_vertex_profile_assignment_sql(plan)
+    if not sql:
+        return "PROFILE_ASSIGN_OK"
+    shell = (
+        "set -euo pipefail\n"
+        f"PSQL='{PSQL}'\n"
+        f"echo {base64.b64encode(sql.encode('utf-8')).decode('ascii')} | base64 -d | $PSQL\n"
+        "echo PROFILE_ASSIGN_OK\n"
+    )
+    return _ssm_run_shell_b64_region(
+        plan["region"], plan["instance_id"],
+        base64.b64encode(shell.encode("utf-8")).decode("ascii"),
+        "assign Vertex capability profiles",
+    )
+
+
+def cmd_assign_vertex_profiles(args) -> int:
+    _set_bundle_path(getattr(args, "bundle", None))
+    floor = _load_bundle()["account_model_mapping"]
+    assignments = _load_vertex_profile_assignments(args.file, floor)
+    if not args.dry_run and args.confirm != VERTEX_PROFILE_ASSIGN_CONFIRM:
+        fail(f"assign-vertex-profiles requires --confirm {VERTEX_PROFILE_ASSIGN_CONFIRM}")
+    target = _resolve_apply_targets("prod", prod_instance_id=getattr(args, "prod_instance_id", None))[0]
+    plan = _collect_vertex_profile_assignment_plan(*target, assignments)
+    report = {
+        "bundle": str(_BUNDLE_PATH),
+        "target": "prod",
+        "assignment_count": len(assignments),
+        "change_count": len(plan["changes"]),
+        "changes": plan["changes"],
+    }
+    if args.dry_run or not plan["changes"]:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0
+    out = _apply_vertex_profile_assignment_plan(plan)
+    if "PROFILE_ASSIGN_OK" not in out:
+        raise RuntimeError("remote SQL did not report PROFILE_ASSIGN_OK")
+    verified = _collect_vertex_profile_assignment_plan(*target, [
+        {**change, "current_profile": change["profile"]} for change in plan["changes"]
+    ])
+    if verified["changes"]:
+        raise RuntimeError("post-assignment read-back still reports profile changes")
+    print(json.dumps({**report, "applied": True, "verified": True}, ensure_ascii=False, indent=2))
+    return 0
 
 
 def _render_apply_sql(plan: dict[str, Any]) -> str:
@@ -1482,7 +1708,12 @@ def cmd_selftest(_args) -> int:
             },
         },
         "newapi_channel_types": {
+            "41": {"vertex-shared": "vertex-shared"},
             "45": {"generic-model": "generic-model"},
+        },
+        "vertex_capability_profiles": {
+            "core-pro": {"vertex-shared": "vertex-shared", "vertex-pro": "vertex-pro"},
+            "core-ultra": {"vertex-shared": "vertex-shared", "vertex-ultra": "vertex-ultra"},
         },
         "account_overrides": [
             {
@@ -1578,6 +1809,36 @@ def cmd_selftest(_args) -> int:
         "type": "oauth",
         "model_mapping": {},
     }, floor)
+    vertex_known = {
+        "id": 47,
+        "name": "vertex-47",
+        "platform": "newapi",
+        "type": "apikey",
+        "channel_type": 41,
+        "vertex_capability_profile": "core-pro",
+        "model_mapping": {
+            "vertex-shared": "vertex-shared",
+            "vertex-pro": "vertex-pro",
+        },
+    }
+    assert _desired_mapping_for_account(vertex_known, floor)[1] == "newapi_vertex_profile:core-pro"
+    assert _account_plan(vertex_known, floor) is None
+    vertex_missing = dict(vertex_known, vertex_capability_profile="", model_mapping={"vertex-shared": "vertex-shared"})
+    assert _desired_mapping_for_account(vertex_missing, floor)[1] == "newapi_channel_type:41"
+    assert _vertex_profile_issue(vertex_missing, floor)
+    vertex_unknown = dict(vertex_missing, vertex_capability_profile="unknown")
+    assert _vertex_profile_issue(vertex_unknown, floor)
+    vertex57 = dict(
+        vertex_known,
+        id=57,
+        vertex_capability_profile="core-ultra",
+        model_mapping={
+            "vertex-shared": "vertex-shared",
+            "vertex-ultra": "vertex-ultra",
+            "vertex-pro": "vertex-pro",
+        },
+    )
+    assert _account_plan(vertex57, floor) is None
     compatible_extra_row = {
         "id": 3,
         "platform": "openai",
@@ -1662,10 +1923,51 @@ def cmd_selftest(_args) -> int:
     assert "LOCK TABLE settings IN SHARE ROW EXCLUSIVE MODE" in guarded_sql
     assert f"{SETTING_KEY} appeared before activation write" in guarded_sql
     assert guarded_sql.index("LOCK TABLE settings") < guarded_sql.index("UPDATE accounts")
+    with tempfile.TemporaryDirectory() as profile_temp_dir:
+        profile_path = Path(profile_temp_dir) / "vertex-profiles.json"
+        profile_path.write_text(json.dumps({"assignments": [{
+            "id": 47,
+            "name": "vertex-47",
+            "platform": "newapi",
+            "channel_type": 41,
+            "current_profile": "",
+            "profile": "core-pro",
+        }]}), encoding="utf-8")
+        profile_assignments = _load_vertex_profile_assignments(profile_path, floor)
+        original_run_check_sql_json = globals()["_run_check_sql_json"]
+        globals()["_run_check_sql_json"] = lambda _region, _instance_id, _label: {
+            "runtime_setting": None,
+            "accounts": [{
+                "id": 47,
+                "name": "vertex-47",
+                "platform": "newapi",
+                "channel_type": 41,
+                "vertex_capability_profile": None,
+                "model_mapping": {"vertex-shared": "vertex-shared"},
+            }],
+            "antigravity_groups": [],
+        }
+        try:
+            profile_plan = _collect_vertex_profile_assignment_plan(
+                "prod", "test-region", "i-test", profile_assignments)
+            assert len(profile_plan["changes"]) == 1
+            profile_sql = _render_vertex_profile_assignment_sql(profile_plan)
+            assert VERTEX_PROFILE_CREDENTIAL_KEY in profile_sql
+            assert "model_mapping" not in profile_sql
+            assert "name = convert_from" in profile_sql
+            assert "channel_type = 41" in profile_sql
+            assert profile_sql.count("'account_bulk_changed'") == 1
+            assert '"account_ids":[47]' in profile_sql
+            assert "PROFILE_ASSIGN_OK" in profile_sql
+        finally:
+            globals()["_run_check_sql_json"] = original_run_check_sql_json
     assert _group_violation({"scopes": ["gemini_text"]}, floor)
     assert _group_violation({"scopes": ["claude", "gemini_text", "gemini_image"]}, floor) is None
     assert _runtime_setting_violation('{"platforms":{"grok":{}}}')
     assert _runtime_setting_violation('{"platforms":{"grok":{"grok":"grok-4.3"}}}') is None
+    assert _runtime_setting_violation(
+        '{"newapi_channel_types":{"41":{"vertex-shared":"vertex-shared"}}}'
+    )
     assert _runtime_setting_violation(None) is None
     effective_floor = _load_effective_floor(None)
     real_policy_samples: list[tuple[str, str]] = []
@@ -1835,6 +2137,11 @@ def cmd_selftest(_args) -> int:
         else:
             raise AssertionError("release-gate accepted edge scope")
     assert parser.parse_args(["check-accounts", "--include-edges"]).include_edges
+    profile_args = parser.parse_args([
+        "assign-vertex-profiles", "--file", "profiles.json", "--dry-run",
+    ])
+    assert profile_args.dry_run
+    assert not hasattr(profile_args, "target"), "profile assignment must be prod-only with no target escape hatch"
     selected_bundle_args = ["--bundle", str(DEFAULT_BUNDLE_PATH)]
     assert parser.parse_args(["validate", "--file", "runtime.json", *selected_bundle_args]).bundle
     assert parser.parse_args(["sync-runtime", "--file", "runtime.json", *selected_bundle_args]).bundle
@@ -1935,6 +2242,15 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--activation-floor-sha256", help=argparse.SUPPRESS)
     sp.add_argument("--bundle", help="generated model-surface bundle to apply")
     sp.add_argument("--parallel", type=int, default=3, help="parallel SSM workers")
+    sp = sub.add_parser(
+        "assign-vertex-profiles",
+        help="guardedly assign ch41 capability profiles on prod without changing model_mapping",
+    )
+    sp.add_argument("--file", type=Path, required=True)
+    sp.add_argument("--confirm", help=f"required for writes: {VERTEX_PROFILE_ASSIGN_CONFIRM}")
+    sp.add_argument("--dry-run", action="store_true", help="verify selectors and print profile-only changes")
+    sp.add_argument("--prod-instance-id", help="pin prod planning and apply to this EC2 instance id")
+    sp.add_argument("--bundle", help="generated model-surface bundle whose profile names are allowed")
     sp = sub.add_parser("sync-runtime", help="hot-push a JSON file to runtime settings")
     sp.add_argument("--file", type=Path, required=True)
     sp.add_argument("--target", default=DEFAULT_RUNTIME_TARGET, help="prod, edge:<id>, or all-deployable-and-prod")
@@ -1964,6 +2280,8 @@ def main() -> int:
         return cmd_release_gate(args)
     if args.cmd == "apply-accounts":
         return cmd_apply_accounts(args)
+    if args.cmd == "assign-vertex-profiles":
+        return cmd_assign_vertex_profiles(args)
     if args.cmd == "sync-runtime":
         return cmd_sync_runtime(args)
     if args.cmd == "clear-runtime":

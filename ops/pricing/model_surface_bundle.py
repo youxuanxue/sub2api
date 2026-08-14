@@ -9,8 +9,8 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BUNDLE_PATH = REPO_ROOT / "ops" / "pricing" / "model-surface-bundle.json"
-SCHEMA_VERSION = 3
-SUPPORTED_SCHEMA_VERSIONS = {1, SCHEMA_VERSION}
+SCHEMA_VERSION = 4
+SUPPORTED_SCHEMA_VERSIONS = {1, 3, SCHEMA_VERSION}
 BUNDLE_FIELDS = {
     "schema_version",
     "floor_sha256",
@@ -123,6 +123,8 @@ def _validate_floor(floor: dict[str, Any], schema_version: int) -> None:
     floor_fields = set(BASE_FLOOR_FIELDS)
     if schema_version >= 2:
         floor_fields.add("account_overrides")
+    if schema_version >= 4:
+        floor_fields.add("vertex_capability_profiles")
     missing = sorted(floor_fields - set(floor))
     if missing:
         raise RuntimeError("model surface bundle omitted account_model_mapping fields: " + ", ".join(missing))
@@ -149,6 +151,41 @@ def _validate_floor(floor: dict[str, Any], schema_version: int) -> None:
         _validate_account_overrides(floor.get("account_overrides"))
         if schema_version >= 2 else {}
     )
+
+    vertex_profiles: dict[str, dict[str, str]] = {}
+    if schema_version >= 4:
+        raw_profiles = floor.get("vertex_capability_profiles")
+        if not isinstance(raw_profiles, dict) or not raw_profiles:
+            raise RuntimeError(
+                "model surface bundle account_model_mapping.vertex_capability_profiles must be non-empty"
+            )
+        shared = channel_types.get("41")
+        if not isinstance(shared, dict) or not shared:
+            raise RuntimeError(
+                "vertex_capability_profiles require a non-empty newapi channel_type 41 shared floor"
+            )
+        public_profile_names: set[str] = set()
+        for profile, mapping in raw_profiles.items():
+            if (
+                not isinstance(profile, str)
+                or not profile.strip()
+                or profile != profile.strip().lower()
+            ):
+                raise RuntimeError("vertex_capability_profiles contains an invalid profile name")
+            if profile in public_profile_names:
+                raise RuntimeError(f"vertex_capability_profiles duplicates profile {profile!r}")
+            public_profile_names.add(profile)
+            clean = _validate_mapping(
+                f"account_model_mapping.vertex_capability_profiles.{profile}", mapping)
+            missing_shared = sorted(
+                key for key, target in shared.items() if clean.get(key) != target
+            )
+            if missing_shared:
+                raise RuntimeError(
+                    f"vertex_capability_profiles.{profile} does not contain the complete shared floor: "
+                    + ", ".join(missing_shared)
+                )
+            vertex_profiles[profile] = clean
 
     scopes = floor.get("antigravity_group_scopes")
     if not isinstance(scopes, list) or not scopes:
@@ -188,6 +225,16 @@ def _validate_floor(floor: dict[str, Any], schema_version: int) -> None:
         if conflicts:
             raise RuntimeError(
                 f"account_model_mapping.newapi_channel_types.{channel_type} requires forbidden keys: "
+                + ", ".join(conflicts)
+            )
+    for profile, mapping in vertex_profiles.items():
+        conflicts = sorted(
+            key for key in mapping
+            if key in blocked or any(key.startswith(prefix) for prefix in prefixes)
+        )
+        if conflicts:
+            raise RuntimeError(
+                f"account_model_mapping.vertex_capability_profiles.{profile} requires forbidden keys: "
                 + ", ".join(conflicts)
             )
     for override in account_overrides:

@@ -504,6 +504,16 @@ explicitly apply reviewed SSOT diffs to live accounts
 - `--bundle`: generated model-surface bundle to apply
 - `--parallel` (default: `3`): parallel SSM workers
 
+#### `manage-account-model-mapping-runtime.py assign-vertex-profiles`
+
+guardedly assign ch41 capability profiles on prod without changing model_mapping
+
+- `--file` (required):
+- `--confirm`: required for writes: yes-assign-vertex-capability-profiles
+- `--dry-run`: verify selectors and print profile-only changes
+- `--prod-instance-id`: pin prod planning and apply to this EC2 instance id
+- `--bundle`: generated model-surface bundle whose profile names are allowed
+
 #### `manage-account-model-mapping-runtime.py sync-runtime`
 
 hot-push a JSON file to runtime settings

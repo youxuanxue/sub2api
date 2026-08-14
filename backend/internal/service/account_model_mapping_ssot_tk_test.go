@@ -148,6 +148,21 @@ func TestAccountModelMappingFloorForOps_ExportsAinzyRelayScope(t *testing.T) {
 	requireIdentityMappingForIDs(t, canonical, supportedCatalogModelIDsForPlatform(PlatformOpenAI))
 }
 
+func TestAccountModelMappingFloorForOps_ExportsVertexSharedAndProfileFloors(t *testing.T) {
+	t.Parallel()
+
+	doc, err := AccountModelMappingFloorForOps(context.Background(), "")
+	require.NoError(t, err)
+	shared := doc.NewAPIChannelTypes["41"]
+	requireIdentityMappingForIDs(t, shared, vertexSharedModelMappingPresetIDs())
+	require.Equal(t, vertexCapabilityProfileMappingsForOps(), doc.VertexCapabilityProfiles)
+	for profile, mapping := range doc.VertexCapabilityProfiles {
+		for id, target := range shared {
+			require.Equal(t, target, mapping[id], "profile %s must contain shared model %s", profile, id)
+		}
+	}
+}
+
 func TestAccountModelMappingFloorForOps_ExportsPolicyMetadata(t *testing.T) {
 	t.Parallel()
 	doc, err := AccountModelMappingFloorForOps(context.Background(), "")
@@ -199,6 +214,20 @@ func TestAccountModelMappingFloorForOps_ExportsAccountOverrides(t *testing.T) {
 		)
 	}
 
+}
+
+func TestAccountModelMappingFloorForOps_RuntimeDoesNotShadowVertexProfiles(t *testing.T) {
+	t.Parallel()
+
+	compiled, err := AccountModelMappingFloorForOps(context.Background(), "")
+	require.NoError(t, err)
+	runtime, err := AccountModelMappingFloorForOps(
+		context.Background(),
+		`{"newapi_channel_types":{"41":{"runtime-model":"runtime-target"}}}`,
+	)
+	require.NoError(t, err)
+	require.Equal(t, compiled.NewAPIChannelTypes["41"], runtime.NewAPIChannelTypes["41"])
+	require.Equal(t, compiled.VertexCapabilityProfiles, runtime.VertexCapabilityProfiles)
 }
 
 func TestAccountModelMappingFloorForOps_RuntimeDoesNotShadowAccountOverrides(t *testing.T) {

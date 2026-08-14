@@ -62,7 +62,7 @@ Customer-visible serving is gated by three layers that must stay aligned on **pr
 
 1. **可展示** — `supported*CatalogModels` / `ServableClientFacingIDs` (public `/models`, `/pricing`, menu).
 2. **已定价** — channel pricing + `tk_pricing_overlay.json` (zero-price leak is an ops alert, not a customer block).
-3. **可服务 + prod 账号放行** — prod `accounts.credentials.model_mapping` (plus optional runtime replacement in `settings.tk_account_model_mapping_runtime`) must match the compiled Go floor for each managed platform. Property-selected bundle overrides for the VolcEngine Agent Plan (`platform + channel_type + base_url`) take precedence over the shared newapi channel floor; account IDs are not used as selectors.
+3. **可服务 + prod 账号放行** — prod `accounts.credentials.model_mapping` (plus optional runtime replacement in `settings.tk_account_model_mapping_runtime`) must match the compiled Go floor for each managed platform. Property-selected bundle overrides for the VolcEngine Agent Plan (`platform + channel_type + base_url`) take precedence over the shared newapi channel floor; account IDs are not used as selectors. Vertex `newapi/channel_type=41` is the only account-varying capability scope: its public catalog is the verified union, its shared floor is the strict successful intersection, and `vertex_capability_profile` selects a complete named profile floor. Missing/unknown profiles fail safe to the shared floor and are configuration violations; other platform/channel scopes remain shared.
 
 **Official upstream aliases are displayable when priced and servable.** For every
 TokenKey-managed native platform and newapi `channel_type`, if the provider's
@@ -79,7 +79,10 @@ python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --jso
 ```
 
 Default scope is prod only. A violation is a yellow configuration-drift finding:
-review the Go-SSOT-derived diff and converge prod via:
+review the Go-SSOT-derived diff and converge prod via. For ch41, assign the
+reviewed profile first with the separate prod-only `assign-vertex-profiles`
+dry-run/confirmed flow; that operation writes only the profile property and does
+not change `model_mapping` in the same transaction.
 
 ```bash
 python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts --target prod --dry-run

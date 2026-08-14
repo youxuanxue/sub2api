@@ -1,6 +1,6 @@
 {
-  "schema_version": 3,
-  "floor_sha256": "c88637d9acdff48026bcfe5b62ee443de49eca431ba07391279b0b3d308fd353",
+  "schema_version": 4,
+  "floor_sha256": "09eb39ad73902a2f01190389fa9ae66a2f81553aa72c6cd88000ae0a3e00968f",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -231,6 +231,7 @@
         "glm-5": "glm-5",
         "glm-5.1": "glm-5.1",
         "glm-5.2": "glm-5.2",
+        "glm-5.2-fast-preview": "glm-5.2-fast-preview",
         "qwen-max": "qwen-max",
         "qwen-plus": "qwen-plus",
         "qwen-turbo": "qwen-turbo",
@@ -241,12 +242,16 @@
         "qwen3-coder-plus": "qwen3-coder-plus",
         "qwen3.6-27b": "qwen3.6-27b",
         "qwen3.6-flash": "qwen3.6-flash",
+        "qwen3.7-flash": "qwen3.7-flash",
+        "qwen3.7-flash-2026-07-15": "qwen3.7-flash-2026-07-15",
         "qwen3.7-max": "qwen3.7-max",
         "qwen3.7-max-2026-05-17": "qwen3.7-max-2026-05-17",
         "qwen3.7-max-2026-05-20": "qwen3.7-max-2026-05-20",
         "qwen3.7-max-2026-06-08": "qwen3.7-max-2026-06-08",
         "qwen3.7-max-preview": "qwen3.7-max-preview",
-        "qwen3.7-plus": "qwen3.7-plus"
+        "qwen3.7-plus": "qwen3.7-plus",
+        "qwen3.8-2.4t-a95b": "qwen3.8-2.4t-a95b",
+        "qwen3.8-max": "qwen3.8-max"
       },
       "25": {
         "kimi-k2.5": "kimi-k2.5",
@@ -265,13 +270,9 @@
       "41": {
         "gemini-2.5-flash": "gemini-2.5-flash",
         "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
-        "gemini-2.5-pro": "gemini-2.5-pro",
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-embedding-001": "gemini-embedding-001",
-        "imagen-4.0-fast-generate-001": "imagen-4.0-fast-generate-001",
-        "imagen-4.0-generate-001": "imagen-4.0-generate-001",
-        "imagen-4.0-ultra-generate-001": "imagen-4.0-ultra-generate-001",
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
       "43": {
@@ -382,6 +383,47 @@
         }
       }
     ],
+    "vertex_capability_profiles": {
+      "core-imagen-ultra": {
+        "gemini-2.5-flash": "gemini-2.5-flash",
+        "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+        "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
+        "gemini-3.6-flash": "gemini-3.6-flash",
+        "gemini-embedding-001": "gemini-embedding-001",
+        "imagen-4.0-ultra-generate-001": "imagen-4.0-ultra-generate-001",
+        "veo-3.1-generate-001": "veo-3.1-generate-001"
+      },
+      "core-pro": {
+        "gemini-2.5-flash": "gemini-2.5-flash",
+        "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+        "gemini-2.5-pro": "gemini-2.5-pro",
+        "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
+        "gemini-3.6-flash": "gemini-3.6-flash",
+        "gemini-embedding-001": "gemini-embedding-001",
+        "veo-3.1-generate-001": "veo-3.1-generate-001"
+      },
+      "core-pro-imagen-fast-standard": {
+        "gemini-2.5-flash": "gemini-2.5-flash",
+        "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+        "gemini-2.5-pro": "gemini-2.5-pro",
+        "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
+        "gemini-3.6-flash": "gemini-3.6-flash",
+        "gemini-embedding-001": "gemini-embedding-001",
+        "imagen-4.0-fast-generate-001": "imagen-4.0-fast-generate-001",
+        "imagen-4.0-generate-001": "imagen-4.0-generate-001",
+        "veo-3.1-generate-001": "veo-3.1-generate-001"
+      },
+      "core-pro-imagen-standard": {
+        "gemini-2.5-flash": "gemini-2.5-flash",
+        "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+        "gemini-2.5-pro": "gemini-2.5-pro",
+        "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
+        "gemini-3.6-flash": "gemini-3.6-flash",
+        "gemini-embedding-001": "gemini-embedding-001",
+        "imagen-4.0-generate-001": "imagen-4.0-generate-001",
+        "veo-3.1-generate-001": "veo-3.1-generate-001"
+      }
+    },
     "antigravity_group_scopes": [
       "claude",
       "gemini_text",
