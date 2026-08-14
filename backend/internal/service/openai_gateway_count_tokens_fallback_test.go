@@ -121,6 +121,27 @@ func TestClassifyOpenAIInputTokensFallback(t *testing.T) {
 			body:       `{"error":{"message":"invalid api key"}}`,
 			want:       openAIInputTokensFallbackNone,
 		},
+		{
+			name:       "openai_apikey_502_uses_prepared_estimate",
+			account:    &Account{Type: AccountTypeAPIKey, Platform: PlatformOpenAI},
+			statusCode: http.StatusBadGateway,
+			body:       `{"error":{"message":"temporarily unavailable"}}`,
+			want:       openAIInputTokensFallbackPreparedEstimate,
+		},
+		{
+			name:       "openai_oauth_502_stays_upstream_error",
+			account:    &Account{Type: AccountTypeOAuth, Platform: PlatformOpenAI},
+			statusCode: http.StatusBadGateway,
+			body:       `{"error":{"message":"temporarily unavailable"}}`,
+			want:       openAIInputTokensFallbackNone,
+		},
+		{
+			name:       "newapi_apikey_502_stays_upstream_error",
+			account:    &Account{Type: AccountTypeAPIKey, Platform: PlatformNewAPI},
+			statusCode: http.StatusBadGateway,
+			body:       `{"error":{"message":"temporarily unavailable"}}`,
+			want:       openAIInputTokensFallbackNone,
+		},
 	}
 
 	for _, tt := range cases {

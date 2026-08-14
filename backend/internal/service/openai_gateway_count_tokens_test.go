@@ -673,6 +673,50 @@ func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_InputTokensPolicy403
 	require.NotNil(t, upstream.lastReq)
 }
 
+func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_OpenAIAPIKey502UsesLocalEstimate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"gpt-5.6","messages":[{"role":"user","content":"hello"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusBadGateway,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"temporarily unavailable"}}`)),
+	}}
+
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled:           false,
+			AllowInsecureHTTP: true,
+		}}},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          68,
+		Name:        "openai-us4",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-test",
+			"base_url": "http://upstream.example",
+		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	err := svc.ForwardCountTokensAsAnthropic(context.Background(), c, account, body, "gpt-5.6")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Greater(t, int(gjson.GetBytes(rec.Body.Bytes(), "input_tokens").Int()), 0)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "http://upstream.example/v1/responses/input_tokens", upstream.lastReq.URL.String())
+}
+
 func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_MissingInputTokensUsesLocalEstimate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

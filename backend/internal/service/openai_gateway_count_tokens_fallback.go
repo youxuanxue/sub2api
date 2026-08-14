@@ -57,7 +57,26 @@ func classifyOpenAIInputTokensFallback(account *Account, statusCode int, body []
 	if isMaaSRelayInputTokensAuthGap(account, statusCode) {
 		return openAIInputTokensFallbackDecision{Kind: openAIInputTokensFallbackAnthropicEstimate, UpstreamMessage: upstreamMsg}
 	}
+	if isOpenAIAPIKeyInputTokensTransientFailure(account, statusCode) {
+		return openAIInputTokensFallbackDecision{Kind: openAIInputTokensFallbackPreparedEstimate, UpstreamMessage: upstreamMsg}
+	}
 	return openAIInputTokensFallbackDecision{Kind: openAIInputTokensFallbackNone, UpstreamMessage: upstreamMsg}
+}
+
+func isOpenAIAPIKeyInputTokensTransientFailure(account *Account, statusCode int) bool {
+	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
+		return false
+	}
+	switch statusCode {
+	case http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout,
+		529:
+		return true
+	default:
+		return false
+	}
 }
 
 // isMaaSRelayInputTokensAuthGap reports CloudWise/tokensea dual-stack relays that
