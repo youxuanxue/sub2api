@@ -168,6 +168,16 @@ Resources:
             Condition:
               Bool:
                 'aws:SecureTransport': 'false'
+          - Sid: DenyLightsailEdgeRole
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt QaExportsBucket.Arn
+              - !Sub '${QaExportsBucket.Arn}/*'
+            Condition:
+              ArnEquals:
+                'aws:PrincipalArn': !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid'
           # Same direct-role-ARN principal pattern as the pgdump grant above — a
           # same-account resource-based grant is sufficient on its own, so the prod
           # instance stack is never touched. The app writes export ZIPs (PutObject),

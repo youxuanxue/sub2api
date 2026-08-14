@@ -38,121 +38,17 @@ else
   telemetry_enabled=unknown
 fi
 
-"${PSQL[@]}" -c "
-WITH names AS (
-  SELECT
-    to_char(now() AT TIME ZONE 'UTC', 'YYYYMM') AS current_month,
-    to_char((now() AT TIME ZONE 'UTC') + interval '1 month', 'YYYYMM') AS future_month,
-    to_char(now() AT TIME ZONE 'UTC', 'YYYYMMDD') AS current_day,
-    to_char((now() AT TIME ZONE 'UTC') + interval '1 day', 'YYYYMMDD') AS future_day
-), named_partitions AS (
-  SELECT parent.relname AS parent_name, child.relname AS child_name
-  FROM pg_inherits inheritance
-  JOIN pg_class parent ON parent.oid = inheritance.inhparent
-  JOIN pg_class child ON child.oid = inheritance.inhrelid
-), legacy_bounds AS (
-  SELECT
-    parent.relname AS parent_name,
-    substring(
-      pg_get_expr(child.relpartbound, child.oid)
-      FROM 'TO \(''([^'']+)''\)$'
-    )::timestamptz AS upper_exclusive
-  FROM pg_inherits inheritance
-  JOIN pg_class parent ON parent.oid = inheritance.inhparent
-  JOIN pg_class child ON child.oid = inheritance.inhrelid
-  WHERE child.relname = parent.relname || '_legacy'
-), heartbeat AS (
-  SELECT last_success_at, last_error_at
-  FROM ops_job_heartbeats
-  WHERE job_name = 'ops_partition_maintenance'
-)
-SELECT 'PARTITIONSTATS ' || row_to_json(v)::text
-FROM (
-  SELECT
-    now() AS server_clock,
-    (
-      EXISTS (
-        SELECT 1 FROM named_partitions
-        WHERE parent_name = 'ops_error_logs'
-          AND child_name = 'ops_error_logs_' || names.current_month
-      )
-      OR COALESCE((
-        SELECT upper_exclusive >= (
-          date_trunc('month', now() AT TIME ZONE 'UTC') + interval '1 month'
-        ) AT TIME ZONE 'UTC'
-        FROM legacy_bounds WHERE parent_name = 'ops_error_logs'
-      ), false)
-    ) AS ops_error_logs_current_covered,
-    (
-      EXISTS (
-        SELECT 1 FROM named_partitions
-        WHERE parent_name = 'ops_error_logs'
-          AND child_name = 'ops_error_logs_' || names.future_month
-      )
-      OR COALESCE((
-        SELECT upper_exclusive >= (
-          date_trunc('month', now() AT TIME ZONE 'UTC') + interval '2 month'
-        ) AT TIME ZONE 'UTC'
-        FROM legacy_bounds WHERE parent_name = 'ops_error_logs'
-      ), false)
-    ) AS ops_error_logs_future_covered,
-    (
-      EXISTS (
-        SELECT 1 FROM named_partitions
-        WHERE parent_name = 'ops_system_logs'
-          AND child_name = 'ops_system_logs_' || names.current_month
-      )
-      OR COALESCE((
-        SELECT upper_exclusive >= (
-          date_trunc('month', now() AT TIME ZONE 'UTC') + interval '1 month'
-        ) AT TIME ZONE 'UTC'
-        FROM legacy_bounds WHERE parent_name = 'ops_system_logs'
-      ), false)
-    ) AS ops_system_logs_current_covered,
-    (
-      EXISTS (
-        SELECT 1 FROM named_partitions
-        WHERE parent_name = 'ops_system_logs'
-          AND child_name = 'ops_system_logs_' || names.future_month
-      )
-      OR COALESCE((
-        SELECT upper_exclusive >= (
-          date_trunc('month', now() AT TIME ZONE 'UTC') + interval '2 month'
-        ) AT TIME ZONE 'UTC'
-        FROM legacy_bounds WHERE parent_name = 'ops_system_logs'
-      ), false)
-    ) AS ops_system_logs_future_covered,
-    (
-      EXISTS (
-        SELECT 1 FROM named_partitions
-        WHERE parent_name = 'usage_logs'
-          AND child_name = 'usage_logs_' || names.current_day
-      )
-      OR COALESCE((
-        SELECT upper_exclusive >= (
-          date_trunc('day', now() AT TIME ZONE 'UTC') + interval '1 day'
-        ) AT TIME ZONE 'UTC'
-        FROM legacy_bounds WHERE parent_name = 'usage_logs'
-      ), false)
-    ) AS usage_logs_current_covered,
-    (
-      EXISTS (
-        SELECT 1 FROM named_partitions
-        WHERE parent_name = 'usage_logs'
-          AND child_name = 'usage_logs_' || names.future_day
-      )
-      OR COALESCE((
-        SELECT upper_exclusive >= (
-          date_trunc('day', now() AT TIME ZONE 'UTC') + interval '2 day'
-        ) AT TIME ZONE 'UTC'
-        FROM legacy_bounds WHERE parent_name = 'usage_logs'
-      ), false)
-    ) AS usage_logs_future_covered,
-    (SELECT last_success_at FROM heartbeat) AS partition_maintenance_last_success_at,
-    (SELECT last_error_at FROM heartbeat) AS partition_maintenance_last_error_at
-  FROM names
-) v;
-" 2>/dev/null || printf '%s\n' 'PARTITIONSTATS {"probe_ok":false}'
+partition_sql=""
+if [ -n "${PARTITION_COVERAGE_SQL:-}" ]; then
+  [ -f "$PARTITION_COVERAGE_SQL" ] && partition_sql="$PARTITION_COVERAGE_SQL"
+elif [ -f "$(dirname "$0")/data-layer-partition-coverage.sql" ]; then
+  partition_sql="$(dirname "$0")/data-layer-partition-coverage.sql"
+fi
+if [ -n "$partition_sql" ]; then
+  "${PSQL[@]}" < "$partition_sql" 2>/dev/null || printf '%s\n' 'PARTITIONSTATS {"probe_ok":false}'
+else
+  printf '%s\n' 'PARTITIONSTATS {"probe_ok":false}'
+fi
 
 case "$telemetry_enabled" in
   false)

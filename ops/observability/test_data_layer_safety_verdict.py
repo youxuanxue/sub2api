@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import datetime as dt
 import pathlib
+import re
 import subprocess
 import sys
 import unittest
@@ -288,12 +289,16 @@ class DataLayerSafetyVerdictTest(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
 
-    def test_probe_uses_legacy_partition_bound_not_table_existence(self) -> None:
+    def test_probe_uses_shared_bounds_union_query(self) -> None:
         probe = (_DIR / "probe-data-layer-safety.sh").read_text(encoding="utf-8")
-        self.assertIn("pg_get_expr(child.relpartbound, child.oid)", probe)
-        self.assertIn("FROM named_partitions", probe)
-        self.assertNotIn("OR to_regclass('usage_logs_legacy') IS NOT NULL", probe)
-        self.assertNotIn("OR to_regclass('ops_error_logs_legacy') IS NOT NULL", probe)
+        query = (_DIR / "data-layer-partition-coverage.sql").read_text(encoding="utf-8")
+        self.assertIn('"${PSQL[@]}" < "$partition_sql"', probe)
+        self.assertNotIn("named_partitions", probe)
+        self.assertIn("pg_get_expr(child.relpartbound, child.oid, true)", query)
+        self.assertIn("range_agg(tstzrange(", query)
+        self.assertIn("covered_ranges @>", query)
+        self.assertIsNone(re.search(r"child\.relname\b", query))
+        self.assertNotIn("YYYYMM", query)
 
 
 if __name__ == "__main__":

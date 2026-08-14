@@ -44,17 +44,53 @@ class PricingRegistryPublicationGateTest(unittest.TestCase):
     def test_accepts_current_protected_boundary(self) -> None:
         self.assertEqual(CHECK.validate_publication_boundary(self.root), [])
 
-    def test_rejects_non_main_or_multi_file_publication_trigger(self) -> None:
+    def test_rejects_non_main_extra_event_or_extra_path(self) -> None:
         workflow = ".github/workflows/pricing-registry-publish.yml"
         self._replace(workflow, "branches: [main]", "branches: [feature]")
+        self._replace(workflow, "on:\n  push:", "on:\n  push:\n  workflow_dispatch:")
         self._replace(
             workflow,
-            "      - backend/internal/service/tk_pricing_overlay.json",
-            "      - backend/internal/service/tk_pricing_overlay.json\n      - backend/internal/service/pricing_service.go",
+            "      - .github/workflows/pricing-registry-publish.yml",
+            "      - .github/workflows/pricing-registry-publish.yml\n      - backend/internal/service/pricing_service.go",
         )
         errors = CHECK.validate_publication_boundary(self.root)
-        self.assertTrue(any("branches" in error for error in errors), errors)
-        self.assertTrue(any("paths" in error for error in errors), errors)
+        self.assertTrue(any("push event" in error for error in errors), errors)
+
+    def test_rejects_missing_workflow_reconciliation_path(self) -> None:
+        workflow = ".github/workflows/pricing-registry-publish.yml"
+        self._replace(
+            workflow,
+            "      - .github/workflows/pricing-registry-publish.yml\n",
+            "",
+        )
+        errors = CHECK.validate_publication_boundary(self.root)
+        self.assertTrue(any("push paths" in error for error in errors), errors)
+
+    def test_rejects_environment_gate_bad_concurrency_or_missing_oidc(self) -> None:
+        workflow = ".github/workflows/pricing-registry-publish.yml"
+        self._replace(workflow, "    env:\n", "    environment: prod\n    env:\n")
+        self._replace(workflow, "cancel-in-progress: true", "cancel-in-progress: false")
+        self._replace(workflow, "id-token: write", "id-token: read")
+        errors = CHECK.validate_publication_boundary(self.root)
+        self.assertTrue(any("Environment" in error for error in errors), errors)
+        self.assertTrue(any("cancel-in-progress" in error for error in errors), errors)
+        self.assertTrue(any("id-token" in error for error in errors), errors)
+
+    def test_rejects_missing_latest_main_or_canonical_sync(self) -> None:
+        workflow = ".github/workflows/pricing-registry-publish.yml"
+        self._replace(
+            workflow,
+            "git checkout --detach origin/main",
+            "git checkout --detach HEAD",
+        )
+        self._replace(
+            workflow,
+            "python3 ops/pricing/manage-overlay-runtime.py sync-runtime\n",
+            "python3 ops/pricing/manage-overlay-runtime.py check\n",
+        )
+        errors = CHECK.validate_publication_boundary(self.root)
+        self.assertTrue(any("freshly fetched origin/main" in error for error in errors), errors)
+        self.assertTrue(any("sync-runtime" in error for error in errors), errors)
 
     def test_rejects_deploy_price_write(self) -> None:
         deploy = self.root / ".github/workflows/deploy-stage0.yml"

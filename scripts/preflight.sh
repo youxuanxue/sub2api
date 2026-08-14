@@ -1253,10 +1253,12 @@ elif ! python3 -m py_compile \
     ./ops/qa/prod_phase2_live_health.py \
     ./ops/qa/verify_raw_archive_iam_contract.py \
     ./ops/qa/qa_phase2_health.py \
-    ./deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py; then
+    ./deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py \
+    ./deploy/aws/cloudformation/test_stage0_edge_qa_s3_boundary.py; then
     errors=$((errors + 1))
 elif ! python3 -m unittest \
     deploy.aws.cloudformation.test_stage0_qa_raw_archive_contract \
+    deploy.aws.cloudformation.test_stage0_edge_qa_s3_boundary \
     ops.qa.test_qa_archive_recovery_gate \
     ops.qa.test_prod_qa_archive_closeout \
     ops.qa.test_prod_phase2_live_health; then

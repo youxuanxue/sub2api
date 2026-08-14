@@ -81,7 +81,7 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
             findings.append(
                 _finding(
                     "partition_coverage",
-                    "missing current/future partition coverage: " + ", ".join(missing),
+                    "missing UTC today/future-7-day partition coverage: " + ", ".join(missing),
                 )
             )
         heartbeat = _timestamp(partitions.get("partition_maintenance_last_success_at"))

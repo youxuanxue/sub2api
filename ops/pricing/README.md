@@ -251,9 +251,11 @@ python3 scripts/checks/pricing-registry-publication.py
 Use `channel_model_pricing` only when the price is intentionally scoped to one
 channel. It wins within that scope but is not a global hotfix owner. Do not call
 `manage-overlay-runtime.py sync-runtime` from a workstation: publication accepts
-only the exact current `origin/main` registry and is bound to the protected prod
-environment. Rollback is a Git revert of the registry followed by the same
-publisher. Alert digest cadence remains
+only the exact current `origin/main` registry through the protected-main
+publisher. New workflow runs supersede obsolete jobs, while PostgreSQL
+compare-and-set prevents any already-detached stale SSM command from overwriting
+a newer snapshot. Deploy and sensor paths remain non-publishing. Rollback is a
+Git revert of the registry followed by the same publisher. Alert digest cadence remains
 `feishu.pricing_missing_digest_seconds` (default 1800s).
 
 ## Classification & de-dup rules
