@@ -2789,6 +2789,23 @@ else
     echo "  ok: CI setup-node majors match Dockerfile NODE_IMAGE"
 fi
 
+# ---- sub2api: Go version alignment -------------------------------------------
+# backend/go.mod owns the CI toolchain version. Docker builders, standalone Go
+# tools, and user-facing version declarations must mirror it exactly.
+echo ""
+echo "=== sub2api: Go version alignment ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by go-version-align.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/go-version-align.py --selftest >/dev/null; then
+    echo "  FAIL: go-version-align.py self-test failed"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/go-version-align.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: Go toolchain pins match backend/go.mod"
+fi
+
 # ---- sub2api: platform registry drift ----------------------------------------
 # Go ↔ TS platform registry lockstep: OpenAI-compat list, dispatch-config
 # platforms, Platform constant universe, Ent enum coverage, and admin UI style
