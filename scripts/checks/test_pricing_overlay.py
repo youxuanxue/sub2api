@@ -75,6 +75,60 @@ class PricingRegistryGateTest(unittest.TestCase):
         }))
 
 
+class LongContextThresholdInclusiveBoolShapeTest(unittest.TestCase):
+    """Validate that long_context_threshold_inclusive is treated as a boolean."""
+
+    def test_absent_field_passes(self) -> None:
+        row = {"mode": "chat", "input_cost_per_token": 1e-6,
+               "output_cost_per_token": 2e-6}
+        errors = CHECK.validate_runtime_owner_shape("model-no-inclusive", row)
+        self.assertFalse(errors)
+
+    def test_explicit_false_passes_with_complete_policy(self) -> None:
+        row = {"mode": "chat", "input_cost_per_token": 1e-6,
+               "output_cost_per_token": 2e-6,
+               "long_context_input_token_threshold": 200000,
+               "long_context_input_cost_multiplier": 2.0,
+               "long_context_output_cost_multiplier": 2.0,
+               "long_context_threshold_inclusive": False}
+        errors = CHECK.validate_runtime_owner_shape("model-false", row)
+        self.assertFalse(errors)
+
+    def test_bool_without_policy_is_rejected(self) -> None:
+        for value in (False, True):
+            with self.subTest(value=value):
+                row = {"mode": "chat", "input_cost_per_token": 1e-6,
+                       "output_cost_per_token": 2e-6,
+                       "long_context_threshold_inclusive": value}
+                shape_errors = CHECK.validate_runtime_owner_shape("model-partial", row)
+                policy_errors = CHECK.validate_priced_dimension_completeness("model-partial", row)
+                self.assertFalse(shape_errors)
+                self.assertTrue(policy_errors)
+
+    def test_explicit_true_passes(self) -> None:
+        row = {"mode": "chat", "input_cost_per_token": 1e-6,
+               "output_cost_per_token": 2e-6,
+               "long_context_threshold_inclusive": True,
+               "long_context_input_token_threshold": 200000,
+               "long_context_input_cost_multiplier": 2.0,
+               "long_context_output_cost_multiplier": 2.0}
+        errors = CHECK.validate_runtime_owner_shape("model-true", row)
+        self.assertFalse(errors)
+
+    def test_non_bool_value_rejected(self) -> None:
+        for bad in (1, 0, "true", "false", None):
+            with self.subTest(value=bad):
+                row = {"mode": "chat", "input_cost_per_token": 1e-6,
+                       "output_cost_per_token": 2e-6,
+                       "long_context_threshold_inclusive": bad}
+                errors = CHECK.validate_runtime_owner_shape("model-bad", row)
+                # None is treated as absent by the validator (field present but None skipped)
+                if bad is None:
+                    self.assertFalse(errors)
+                else:
+                    self.assertTrue(errors, f"Expected error for value {bad!r}")
+
+
 class PricingRegistryMigrationParityTest(unittest.TestCase):
     def test_reconstructs_legacy_fill_only_precedence(self) -> None:
         external = {

@@ -42,6 +42,7 @@ CANDIDATE_FIELDS = frozenset({
     "long_context_input_token_threshold",
     "long_context_input_cost_multiplier",
     "long_context_output_cost_multiplier",
+    "long_context_threshold_inclusive",
     "input_cost_per_token_above_272k_tokens",
     "output_cost_per_token_above_272k_tokens",
     "cache_read_input_token_cost_above_272k_tokens",

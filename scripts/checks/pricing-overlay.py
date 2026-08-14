@@ -72,7 +72,7 @@ RUNTIME_BOOL_FIELDS = (
     "supports_service_tier", "supports_prompt_caching", "supports_vision",
     "supports_tool_choice", "supports_function_calling", "supports_reasoning",
     "supports_response_schema", "supports_pdf_input", "supports_web_search",
-    "explicit_free",
+    "explicit_free", "long_context_threshold_inclusive",
 )
 INTERVAL_FLOAT_FIELDS = (
     "input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost",
@@ -221,6 +221,12 @@ def validate_priced_dimension_completeness(model: str, pricing: dict) -> list[st
             errors.append(
                 f"{model}: partial long-context policy; missing positive {missing}"
             )
+    if "long_context_threshold_inclusive" in pricing and not any(
+            field in pricing for field in long_context_fields):
+        errors.append(
+            f"{model}: long_context_threshold_inclusive requires a complete "
+            "long-context policy"
+        )
     return errors
 
 
