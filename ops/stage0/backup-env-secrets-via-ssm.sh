@@ -78,7 +78,9 @@ if aws ssm get-parameter --name "\$PARAM" --with-decryption --query Parameter.Va
     && cmp -s "\$T" "\$C"; then
   echo "secrets unchanged; no new SSM version written"
 else
-  if ! aws ssm put-parameter --name "\$PARAM" --type SecureString --overwrite --value "file://\$T" >/dev/null; then
+  # AWS CLI text output adds one trailing newline; store none so readback matches T.
+  awk 'NR > 1 { printf "\\n" } { printf "%s", \$0 }' "\$T" > "\$C"
+  if ! aws ssm put-parameter --name "\$PARAM" --type SecureString --overwrite --value "file://\$C" >/dev/null; then
     echo "::error::failed to off-box secrets to SSM \$PARAM" >&2
     exit 1
   fi

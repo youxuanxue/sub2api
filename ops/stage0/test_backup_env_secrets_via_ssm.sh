@@ -55,6 +55,9 @@ JWT_SECRET=jwt-test-secret
 EOF
 expected_file="${tmp}/expected.secret"
 LC_ALL=C sort "${secret_file}" >"${expected_file}"
+expected_parameter="${tmp}/expected.parameter"
+awk 'NR > 1 { printf "\n" } { printf "%s", $0 }' \
+  "${expected_file}" >"${expected_parameter}"
 sed "s#/var/lib/tokenkey/.env#${secret_file}#g" \
   "${host_rendered}" >"${host_script}"
 
@@ -68,7 +71,9 @@ case "${args}" in
       echo "ParameterNotFound" >&2
       exit 254
     fi
+    # AWS CLI --output text appends one newline after a scalar value.
     cat "${FAKE_SSM_STATE}"
+    printf '\n'
     ;;
   *"ssm put-parameter"*)
     if [ "${FAKE_PUT_RESULT:-ok}" = fail ]; then
@@ -139,14 +144,14 @@ assert_work_dir_empty
 # A first write persists and verifies the exact three source assignments.
 rm -f "${state_file}" "${put_count_file}"
 run_host first-write ok
-cmp -s "${expected_file}" "${state_file}"
+cmp -s "${expected_parameter}" "${state_file}"
 test "$(cat "${put_count_file}")" = 1
 grep -F 'secrets off-boxed' "${tmp}/first-write.out" >/dev/null
 grep -F 'verify: 3 secret line(s)' "${tmp}/first-write.out" >/dev/null
 assert_work_dir_empty
 
 # An unchanged value remains a no-op and still verifies successfully.
-cp "${expected_file}" "${state_file}"
+cp "${expected_parameter}" "${state_file}"
 rm -f "${put_count_file}"
 run_host unchanged ok
 test ! -e "${put_count_file}"
