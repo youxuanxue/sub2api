@@ -32,7 +32,8 @@
 - 唯一 write API 不接收 window 或 boolean；批准小时由 archive package 持有，operator 只做固定确认与接线。
 - `cleanup_eligible=false` 与 `deletion_authorized=false` 在整个 Phase 2 保持不变。
 - `2026-08-07 01:00 UTC` 保持 `commit_mismatch`，`2026-08-04 04:00 UTC` 保持 `missing_evidence`，不得修改两者 S3 commit。
-- 本 Story 的 InTest 只表示仓库实现正在闭环；不表示生产 schema、IAM、timer、恢复或清理已执行。
+- `production_recloseout_state: production_recloseout_verified`：2026-08-14 的只读生产复核已确认 archive、maintenance timer、boundary、小时分区 owner、raw archive IAM、same-T0 finalize、owner switch 与真实 partition DROP 均已落地；历史 terminal gaps 仍按 `accepted_terminal` 保持 degraded。
+- `retry_release_observation: pending`：本 PR 新增的 bounded lock retry 与 receipt/heartbeat 尝试字段尚未合并发版；当前生产旧格式仅由双边全旧 rolling-compatibility 规则接受，不能被表述为新重试已在线验证。
 
 ## Linked Tests
 
@@ -164,7 +165,8 @@ python3 .testing/user-stories/verify_quality.py
 - 2026-08-10 production workstation recovery：`2026-08-07T21:00:00Z` cutover window 经 recovery role 完成 inspect/verify/restore；gate `plan-retirement` 在 `approved_by=feng` approval 下通过。生产 receipt/approval _bundle 由 operator 本地保管（不入库）；执行时证据目录示例 `/tmp/tk-qa-workstation-recovery-20260810T071805Z/`（含 `recovery-evidence.json`、`production-approval.json`）。
 - break-glass prod QA dump 工具已退役；prod deploy 默认注入 `QA_ARCHIVE_ENABLED=true`。
 - Task 7（qa_records UTC 小时生命周期）：已实跑 hourly bound/unit tests、lifecycle hot-path/boundary tests 与 PostgreSQL integration（EnsureHourly 覆盖、写入路由、catalog-bound DROP）；rehome/staging/copy/move 路径已删除并由 sentinel + qa-lifecycle-ssot 守卫。
+- 2026-08-14 production recloseout：只读四源 evaluator 已关联 archive/boundary systemd、host receipt、DB heartbeat、archive control 与 `qa_records` catalog；same-T0 finalize、timer owner switch、真实 partition DROP/hot cleanup 和 raw archive IAM 均已验证，forward reasons 为空。历史 `source_unavailable_after_retention` 仍使总状态保持 degraded。
 
 ## Status
 
-- [x] InTest — 仓库实现、本地行为测试与 PostgreSQL testcontainer integration 已完成；新的 prod T0 activate、至少 25 小时排空、same-T0 finalize、timer owner switch 与至少一次真实 partition DROP 仍须按批准 rollout 执行和观测，本 PR 未写线上服务。
+- [x] InTest — 仓库实现、本地行为测试、PostgreSQL testcontainer integration 与 2026-08-14 production recloseout 已完成；本 PR 未写线上服务，新增 bounded lock retry 及其 receipt/heartbeat 字段仍须在合并发版后通过真实调度观测，届时再将 `retry_release_observation` 更新为 `verified`。

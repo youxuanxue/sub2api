@@ -12,6 +12,9 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 SSOT = Path("docs/approved/design-prod-qa-24h-s3-lifecycle.md")
 PHASE2_DESIGN = Path("docs/approved/design-qa-phase2-archive-closeout.md")
+PHASE2_STORY = Path(
+    ".testing/user-stories/stories/US-045-qa-phase2-production-integrity.md"
+)
 POLICY = Path("ops/qa/policy.yaml")
 MAINTENANCE_SCRIPT = Path("deploy/aws/stage0/tokenkey-qa-maintenance.sh")
 BOUNDARY_SCRIPT = Path("deploy/aws/stage0/tokenkey-qa-boundary.sh")
@@ -65,6 +68,10 @@ MUST_BE_ABSENT = (
 )
 
 FORBIDDEN_BY_FILE = {
+    PHASE2_STORY: (
+        "不表示生产 schema、IAM、timer、恢复或清理已执行",
+        "新的 prod T0 activate、至少 25 小时排空",
+    ),
     Path("backend/internal/server/routes/user_tk_routes.go"): (
         'POST("/users/me/qa/export"',
         'GET("/users/me/qa/exports/*key"',
@@ -137,6 +144,11 @@ REQUIRED_BY_FILE = {
         "tokenkey-prod-qa-gap-decision-v1:<plan_hash>",
         "segment fingerprint",
         "production_recloseout_verified",
+    ),
+    PHASE2_STORY: (
+        "production_recloseout_state: production_recloseout_verified",
+        "retry_release_observation:",
+        "2026-08-14 production recloseout",
     ),
     POLICY: (
         "schema_version: 1",
@@ -1088,6 +1100,32 @@ edge:
             for failure in failures:
                 print(f"  - {failure}")
             return 1
+
+        story = root / PHASE2_STORY
+        story_body = story.read_text(encoding="utf-8")
+        story.write_text(
+            story_body.replace(
+                "production_recloseout_state: production_recloseout_verified",
+                "production_recloseout_state: pending_live_reconciliation",
+            ),
+            encoding="utf-8",
+        )
+        failures = scan(root)
+        if not any(
+            "production_recloseout_state: production_recloseout_verified" in item
+            for item in failures
+        ):
+            print("self-test failed to detect QA Story production recloseout drift")
+            return 1
+        story.write_text(
+            story_body + "\n新的 prod T0 activate、至少 25 小时排空仍须执行。\n",
+            encoding="utf-8",
+        )
+        failures = scan(root)
+        if not any("新的 prod T0 activate" in item for item in failures):
+            print("self-test failed to detect stale QA Story rollout claim")
+            return 1
+        story.write_text(story_body, encoding="utf-8")
 
         (root / POLICY).write_text(
             policy_fixture.replace("online_window_hours: 24", "online_window_hours: 25"),
