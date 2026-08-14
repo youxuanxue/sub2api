@@ -196,7 +196,7 @@
         "account.IsGrokOAuth()",
         "validateUpstreamBaseURLForAccount(account, baseURL)",
         "shouldFailoverGrokUpstreamError(resp.StatusCode, respBody)",
-        "handleGrokAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)"
+        "handleGrokAccountUpstreamError(withGrokTeamRateLimitModel(ctx, upstreamModel), account, resp.StatusCode, resp.Header, respBody)"
       ],
       "rationale": "The raw CC forwarder resolves the grok OAuth Bearer + api.x.ai base_url here; first-class grok API-key relay stubs intentionally use GetOpenAIApiKey/GetOpenAIBaseURL and the edge base_url. Entitlement 403 must route through the canonical grok account side-effect seam before any pool failover."
     },
@@ -205,7 +205,7 @@
       "must_contain": [
         "func (s *OpenAIGatewayService) forwardGrokChatCompletionsViaResponses(",
         "shouldFailoverGrokUpstreamError(resp.StatusCode, respBody)",
-        "handleGrokAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)"
+        "handleGrokAccountUpstreamError(withGrokTeamRateLimitModel(ctx, upstreamModel), account, resp.StatusCode, resp.Header, respBody)"
       ],
       "rationale": "Cacheable Chat Completions requests use the Grok Responses bridge rather than the raw CC forwarder. Entitlement 403 must use the canonical account side-effect seam and terminal failover guard before pool failover logging."
     },

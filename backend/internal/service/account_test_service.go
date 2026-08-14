@@ -925,6 +925,20 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	return s.processOpenAIStream(c, resp.Body)
 }
 
+// testGrokAccountConnection routes Grok admin connectivity tests by explicit mode first,
+// then by selected model family for media. Standalone modes (search/tts/stt) never share
+// the text Responses path; image/video never hit Responses either.
+//
+// Modes:
+//   - default/text → Responses (optional model)
+//   - image → /v1/images/generations (model optional; defaults to grok-imagine-image)
+//   - video → /v1/videos/generations (model optional; defaults to grok-imagine-video)
+//   - search → standalone web-search probe (gateway /v1/web_search semantics)
+//   - tts → HTTP /v1/tts
+//   - stt → HTTP /v1/stt (synthetic tiny wav probe)
+//   - realtime → WS /v1/realtime dial + optional first server event
+//
+// When mode is default, image/video can still be inferred from model_id for backward compat.
 // testOpenAIChatCompletionsConnection tests an OpenAI-compatible APIKey account
 // through the raw /v1/chat/completions endpoint.
 func (s *AccountTestService) testOpenAIChatCompletionsConnection(

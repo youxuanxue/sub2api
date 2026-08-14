@@ -1587,9 +1587,11 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 
 	// TK: shape-based fallback for HTML 403 bodies that don't match a known
 	// challenge keyword — most notably OpenAI's own UA / bot-detect
-	// access-denied page (issue #2413 sample). Real OpenAI account-level
+	// access-denied page (issue #2413 sample) and proxy/CDN HTML 403s before the
+	// request reaches the OpenAI API (issue #5334). Real OpenAI account-level
 	// 403s return JSON; any HTML body on a 403 is per-request infrastructure
-	// noise and must not poison the OAuth pool with a cooldown.
+	// noise and must not poison the OAuth pool with a cooldown. The request still
+	// fails over so another route/proxy/account can try it.
 	if openAIIsHTMLBody(responseBody) {
 		slog.Warn(
 			"openai_403_html_body_skip_cooldown",

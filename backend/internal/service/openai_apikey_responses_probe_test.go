@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,7 +35,8 @@ func TestDecideResponsesProbeSupport(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, decideResponsesProbeSupport(tc.status, tc.body))
+			endpointSupported := openai_compat.ResponsesEndpointSupportedByStatus(tc.status)
+			require.Equal(t, tc.want, decideResponsesProbeSupport(endpointSupported, tc.status, tc.body))
 		})
 	}
 }

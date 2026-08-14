@@ -353,6 +353,8 @@ func TestDefaultModelMappingIncludesGrokAliases(t *testing.T) {
 	require.Equal(t, DefaultTextModel, mapping["grok"])
 	require.Equal(t, "grok-4.3", mapping["grok-latest"])
 	require.Equal(t, DefaultTextModel, mapping[DefaultTextModel])
+	require.Equal(t, DefaultTextModel, mapping["grok-4.6"])
+	require.Equal(t, DefaultTextModel, mapping["grok-4.6-latest"])
 	require.Equal(t, "grok-4.5", mapping["grok-4.5"])
 	require.Equal(t, "grok-4.5", mapping["grok-4.5-latest"])
 	require.Equal(t, "grok-build-0.1", mapping["grok-build"])

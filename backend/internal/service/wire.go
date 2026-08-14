@@ -698,6 +698,58 @@ func ProvideOpsScheduledReportService(
 	return svc
 }
 
+// ProvideAPIKeyAuthCacheInvalidator 提供 API Key 认证缓存失效能力
+func ProvideAPIKeyAuthCacheInvalidator(apiKeyService *APIKeyService) APIKeyAuthCacheInvalidator {
+	// Start Pub/Sub subscriber for L1 cache invalidation across instances
+	apiKeyService.StartAuthCacheInvalidationSubscriber(context.Background())
+	return apiKeyService
+}
+
+// ProvideImageStorageSettingService 构造异步生图对象存储的后台设置服务。
+//
+// config.yaml 里的 image_storage 作为回落：后台从未保存过设置时沿用它，
+// 使升级前已通过配置文件开启该功能的部署不被打断。
+func ProvideImageStorageSettingService(
+	settingRepo SettingRepository,
+	encryptor SecretEncryptor,
+	backup *BackupService,
+	factory ImageStorageFactory,
+	cfg *config.Config,
+) *ImageStorageSettingService {
+	if cfg.ImageStorage.Enabled && !cfg.ImageStorage.Active() {
+		// 列出具体缺失的键。若这些键其实已在环境变量里设过，说明它们没被读进来，
+		// 请确认 setDefaults 中已为其注册默认值（见 config.setEnvReachableDefaults）。
+		logger.L().Warn("image_storage.enabled is true in config but object storage is not fully configured; configure it in the admin UI or complete the config file",
+			zap.Strings("missing_keys", cfg.ImageStorage.MissingCredentialKeys()))
+	}
+	return NewImageStorageSettingService(settingRepo, encryptor, backup, factory, cfg.ImageStorage)
+}
+
+// ProvideImageTaskService 构造异步图片任务服务。
+//
+// 对象存储是异步图片任务的启用前提：仅当开关打开且凭证齐全时功能才可用，否则整体禁用
+// （handler 返回 404，不创建任务、不写 Redis），从而避免大 base64 结果撑爆 Redis。
+// 启用状态由 settings 服务在运行时解析，因此后台改开关后无需重启即可生效。
+func ProvideImageTaskService(store ImageTaskStore, settings *ImageStorageSettingService) *ImageTaskService {
+	return NewImageTaskServiceWithResolver(store, settings.Resolver(), defaultImageTaskTTL, defaultImageTaskExecutionTimeout)
+}
+
+// ProvideBackupService creates and starts BackupService
+func ProvideBackupService(
+	settingRepo SettingRepository,
+	cfg *config.Config,
+	encryptor SecretEncryptor,
+	storeFactory BackupObjectStoreFactory,
+	dumper DBDumper,
+	lockCache LeaderLockCache,
+	db *sql.DB,
+) *BackupService {
+	svc := NewBackupService(settingRepo, cfg, encryptor, storeFactory, dumper)
+	svc.SetLeaderLock(lockCache, db)
+	svc.Start()
+	return svc
+}
+
 // ProvideOpsService constructs OpsService and wires the SettingService-backed quota
 // auto-pause cache sink. Mirrors the SetCleanupReloader pattern: OpsService doesn't
 // hold a *SettingService reference, but wire injects a tiny callback so writes to
@@ -752,49 +804,6 @@ func ProvideOpsIngressRejectAggregator(opsRepo OpsRepository, opsService *OpsSer
 	aggregator.Start()
 	opsService.SetIngressRejectAggregator(aggregator)
 	return aggregator
-}
-
-// ProvideAPIKeyAuthCacheInvalidator 提供 API Key 认证缓存失效能力
-func ProvideAPIKeyAuthCacheInvalidator(apiKeyService *APIKeyService) APIKeyAuthCacheInvalidator {
-	// Start Pub/Sub subscriber for L1 cache invalidation across instances
-	apiKeyService.StartAuthCacheInvalidationSubscriber(context.Background())
-	return apiKeyService
-}
-
-// ProvideImageStorageSettingService 构造异步生图对象存储的后台设置服务。
-//
-// config.yaml 里的 image_storage 作为回落：后台从未保存过设置时沿用它，
-// 使升级前已通过配置文件开启该功能的部署不被打断。
-func ProvideImageStorageSettingService(
-	settingRepo SettingRepository,
-	encryptor SecretEncryptor,
-	backup *BackupService,
-	factory ImageStorageFactory,
-	cfg *config.Config,
-) *ImageStorageSettingService {
-	if cfg.ImageStorage.Enabled && !cfg.ImageStorage.Active() {
-		logger.L().Warn("image_storage.enabled is true in config but object storage is not fully configured; configure it in the admin UI or complete the config file",
-			zap.Strings("missing_keys", cfg.ImageStorage.MissingCredentialKeys()))
-	}
-	return NewImageStorageSettingService(settingRepo, encryptor, backup, factory, cfg.ImageStorage)
-}
-
-// ProvideImageTaskService 构造异步图片任务服务。
-func ProvideImageTaskService(store ImageTaskStore, settings *ImageStorageSettingService) *ImageTaskService {
-	return NewImageTaskServiceWithResolver(store, settings.Resolver(), defaultImageTaskTTL, defaultImageTaskExecutionTimeout)
-}
-
-// ProvideBackupService creates and starts BackupService
-func ProvideBackupService(
-	settingRepo SettingRepository,
-	cfg *config.Config,
-	encryptor SecretEncryptor,
-	storeFactory BackupObjectStoreFactory,
-	dumper DBDumper,
-) *BackupService {
-	svc := NewBackupService(settingRepo, cfg, encryptor, storeFactory, dumper)
-	svc.Start()
-	return svc
 }
 
 // ProvideSettingService wires SettingService with group reader and proxy repo.
@@ -984,6 +993,7 @@ var ProviderSet = wire.NewSet(
 	ProvideScheduledTestRunnerService,
 	NewGroupCapacityService,
 	NewChannelService,
+	wire.Bind(new(ChannelCacheInvalidator), new(*ChannelService)),
 	NewModelPricingResolver,
 	NewContentModerationService,
 	NewAffiliateService,
