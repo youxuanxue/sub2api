@@ -14,6 +14,7 @@ fi
 if systemctl is-active tokenkey-qa-maintenance.timer >/dev/null 2>&1; then
   timer_active=true
 fi
+timer_last_trigger="$(systemctl show tokenkey-qa-maintenance.timer -p LastTriggerUSec --value 2>/dev/null || true)"
 service_result="$(systemctl show tokenkey-qa-maintenance.service -p Result --value 2>/dev/null || true)"
 service_finished="$(systemctl show tokenkey-qa-maintenance.service -p ExecMainExitTimestamp --value 2>/dev/null || true)"
 if [ -z "${service_result}" ]; then
@@ -21,6 +22,7 @@ if [ -z "${service_result}" ]; then
 fi
 export TK_TIMER_ENABLED="${timer_enabled}"
 export TK_TIMER_ACTIVE="${timer_active}"
+export TK_TIMER_LAST_TRIGGER="${timer_last_trigger}"
 export TK_SERVICE_RESULT="${service_result}"
 export TK_SERVICE_FINISHED="${service_finished}"
 
@@ -32,6 +34,7 @@ fi
 if systemctl is-active tokenkey-qa-boundary.timer >/dev/null 2>&1; then
   boundary_timer_active=true
 fi
+boundary_timer_last_trigger="$(systemctl show tokenkey-qa-boundary.timer -p LastTriggerUSec --value 2>/dev/null || true)"
 boundary_service_result="$(systemctl show tokenkey-qa-boundary.service -p Result --value 2>/dev/null || true)"
 boundary_service_finished="$(systemctl show tokenkey-qa-boundary.service -p ExecMainExitTimestamp --value 2>/dev/null || true)"
 if [ -z "${boundary_service_result}" ]; then
@@ -39,6 +42,7 @@ if [ -z "${boundary_service_result}" ]; then
 fi
 export TK_BOUNDARY_TIMER_ENABLED="${boundary_timer_enabled}"
 export TK_BOUNDARY_TIMER_ACTIVE="${boundary_timer_active}"
+export TK_BOUNDARY_TIMER_LAST_TRIGGER="${boundary_timer_last_trigger}"
 export TK_BOUNDARY_SERVICE_RESULT="${boundary_service_result}"
 export TK_BOUNDARY_SERVICE_FINISHED="${boundary_service_finished}"
 
@@ -71,8 +75,8 @@ import json
 import os
 
 
-def _finished_at():
-    value = os.environ.get("TK_SERVICE_FINISHED", "").strip()
+def _systemd_timestamp(name):
+    value = os.environ.get(name, "").strip()
     if not value or value.lower() in {"n/a", "none", "[n/a]"}:
         return None
     for fmt in ("%a %Y-%m-%d %H:%M:%S UTC", "%a %Y-%m-%d %H:%M:%S.%f UTC"):
@@ -97,21 +101,19 @@ def _finished_at():
 payload = {
     "timer_enabled": os.environ.get("TK_TIMER_ENABLED") == "true",
     "timer_active": os.environ.get("TK_TIMER_ACTIVE") == "true",
+    "last_trigger_at": _systemd_timestamp("TK_TIMER_LAST_TRIGGER"),
     "service_result": os.environ.get("TK_SERVICE_RESULT", "unknown"),
-    "finished_at": _finished_at(),
+    "finished_at": _systemd_timestamp("TK_SERVICE_FINISHED"),
 }
 print("PHASE2SYSTEMD " + json.dumps(payload, ensure_ascii=True, sort_keys=True))
 
 boundary_payload = {
     "timer_enabled": os.environ.get("TK_BOUNDARY_TIMER_ENABLED") == "true",
     "timer_active": os.environ.get("TK_BOUNDARY_TIMER_ACTIVE") == "true",
+    "last_trigger_at": _systemd_timestamp("TK_BOUNDARY_TIMER_LAST_TRIGGER"),
     "service_result": os.environ.get("TK_BOUNDARY_SERVICE_RESULT", "unknown"),
-    "finished_at": None,
+    "finished_at": _systemd_timestamp("TK_BOUNDARY_SERVICE_FINISHED"),
 }
-archive_finished = os.environ.get("TK_SERVICE_FINISHED", "")
-os.environ["TK_SERVICE_FINISHED"] = os.environ.get("TK_BOUNDARY_SERVICE_FINISHED", "")
-boundary_payload["finished_at"] = _finished_at()
-os.environ["TK_SERVICE_FINISHED"] = archive_finished
 print("PHASE2BOUNDARYSYSTEMD " + json.dumps(boundary_payload, ensure_ascii=True, sort_keys=True))
 PY
 
