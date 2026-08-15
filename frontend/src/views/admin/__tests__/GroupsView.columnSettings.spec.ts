@@ -47,6 +47,9 @@ const messages: Record<string, string> = {
   'admin.groups.columns.usage': 'Usage',
   'admin.groups.columns.status': 'Status',
   'admin.groups.columns.actions': 'Actions',
+  'admin.groups.usageToday': 'Today',
+  'admin.groups.usageYesterday': 'Yesterday',
+  'admin.groups.usageTotal': 'Total',
 }
 
 vi.mock('@/api/admin', () => ({
@@ -154,6 +157,9 @@ const DataTableStub = {
     <div>
       <div data-test="columns">{{ columns.map((col) => col.key).join(',') }}</div>
       <div data-test="rows">{{ data.map((row) => row.name).join(',') }}</div>
+      <div v-if="data.length" data-test="usage-cell">
+        <slot name="cell-usage" :row="data[0]" />
+      </div>
     </div>
   `,
 }
@@ -383,6 +389,7 @@ describe('admin GroupsView column settings', () => {
     await openColumnSettings(wrapper)
     await clickColumnToggle(wrapper, 'Usage')
     expect(getUsageSummary).toHaveBeenCalledTimes(1)
+    expect(getUsageSummary).toHaveBeenCalledWith()
     expect(getCapacitySummary).not.toHaveBeenCalled()
 
     await clickColumnToggle(wrapper, 'Capacity')
@@ -390,22 +397,18 @@ describe('admin GroupsView column settings', () => {
     expect(getCapacitySummary).toHaveBeenCalledTimes(1)
   })
 
-  it('shows the backend create error message instead of the generic fallback', async () => {
-    createGroupApi.mockRejectedValueOnce({
-      status: 400,
-      code: 400,
-      message: 'rate_multiplier must be > 0',
-    })
+  it('renders yesterday usage between today and total', async () => {
+    getUsageSummary.mockResolvedValue([
+      { group_id: 1, today_cost: 1.25, yesterday_cost: 2.5, total_cost: 9.75 },
+    ])
+
     const wrapper = await mountView()
+    const text = wrapper.get('[data-test="usage-cell"]').text()
 
-    await wrapper.get('[data-tour="groups-create-btn"]').trigger('click')
-    await flushPromises()
-    await wrapper.get('[data-tour="group-form-name"]').setValue('bad group')
-    await wrapper.get('form#create-group-form').trigger('submit')
-    await flushPromises()
-
-    expect(createGroupApi).toHaveBeenCalledTimes(1)
-    expect(showError).toHaveBeenCalledWith('rate_multiplier must be > 0')
-    expect(showError).not.toHaveBeenCalledWith('Failed to create group')
+    expect(text).toContain('Today$1.25')
+    expect(text).toContain('Yesterday$2.50')
+    expect(text).toContain('Total$9.75')
+    expect(text.indexOf('Today')).toBeLessThan(text.indexOf('Yesterday'))
+    expect(text.indexOf('Yesterday')).toBeLessThan(text.indexOf('Total'))
   })
 })

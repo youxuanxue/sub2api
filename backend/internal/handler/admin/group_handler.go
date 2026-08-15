@@ -13,7 +13,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/platform/liveattestation"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -762,11 +761,10 @@ func (h *GroupHandler) GetStats(c *gin.Context) {
 	_ = groupID // TODO: implement actual stats
 }
 
-// GetUsageSummary returns today's and cumulative cost for all groups.
+// GetUsageSummary returns today's, yesterday's, and cumulative cost for all groups.
 // GET /api/v1/admin/groups/usage-summary
-// Day boundaries use the server-configured timezone (timezone query param is ignored).
 func (h *GroupHandler) GetUsageSummary(c *gin.Context) {
-	todayStart := timezone.Today()
+	todayStart := service.GroupUsageTodayStart(time.Now())
 
 	// Cache by the local day boundary (the only input that affects the result).
 	cacheKey := todayStart.UTC().Format(time.RFC3339)
