@@ -884,7 +884,15 @@ esac
 
         commands = payload["commands"]
         restore = next(command for command in commands if "qa_sync_restore" in command)
-        owner = next(command for command in commands if "qa_lifecycle_receipts" in command and command != restore)
+        owner = commands[commands.index("qa_sync_committed=1") - 1]
+
+        lifecycle_lock = next(
+            command
+            for command in commands
+            if "/run/lock/tokenkey-qa-lifecycle.lock" in command
+        )
+        self.assertIn("flock -x", lifecycle_lock)
+        self.assertLess(commands.index(lifecycle_lock), commands.index(restore))
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -893,9 +901,19 @@ esac
             calls = root / "calls"
             enabled = root / "enabled"
             active = root / "active"
+            receipt_responses = root / "receipt-responses"
             enabled.write_text("enabled\n", encoding="utf-8")
             active.write_text("active\n", encoding="utf-8")
-            (fake_bin / "docker").write_text("#!/bin/sh\nprintf '1\\n'\n", encoding="utf-8")
+            (fake_bin / "docker").write_text(
+                """#!/usr/bin/env bash
+response="$(head -n 1 "${RECEIPT_RESPONSES}")"
+tail -n +2 "${RECEIPT_RESPONSES}" > "${RECEIPT_RESPONSES}.next"
+mv "${RECEIPT_RESPONSES}.next" "${RECEIPT_RESPONSES}"
+if [[ "${response}" == FAIL ]]; then exit 7; fi
+printf '%s\n' "${response}"
+""",
+                encoding="utf-8",
+            )
             (fake_bin / "sudo").write_text("#!/bin/sh\nexec \"$@\"\n", encoding="utf-8")
             (fake_bin / "systemctl").write_text(
                 """#!/usr/bin/env bash
@@ -922,10 +940,16 @@ esac
                 "CALLS": str(calls),
                 "ENABLED": str(enabled),
                 "ACTIVE": str(active),
+                "RECEIPT_RESPONSES": str(receipt_responses),
             }
-            for name, command in (("success", owner), ("rollback", f"{restore}; false")):
+            for name, command, responses in (
+                ("success", f"{restore}; {owner}; qa_sync_committed=1; trap - EXIT", "1\n1\n"),
+                ("rollback-transition", f"{restore}; false", "0\n0\n1\n"),
+                ("rollback-query-uncertain", f"{restore}; false", "0\n0\nFAIL\n"),
+            ):
                 enabled.write_text("enabled\n", encoding="utf-8")
                 active.write_text("active\n", encoding="utf-8")
+                receipt_responses.write_text(responses, encoding="utf-8")
                 calls.unlink(missing_ok=True)
                 proc = subprocess.run(["bash", "-c", command], env=env, capture_output=True, text=True)
                 if name == "success":

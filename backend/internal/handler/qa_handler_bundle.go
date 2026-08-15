@@ -9,6 +9,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func qaBundleJobID(c *gin.Context) (string, bool) {
+	jobID := strings.TrimSpace(c.Param("job_id"))
+	if len(jobID) != 64 {
+		response.BadRequest(c, "job_id is invalid")
+		return "", false
+	}
+	for _, char := range jobID {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
+			response.BadRequest(c, "job_id is invalid")
+			return "", false
+		}
+	}
+	return jobID, true
+}
+
 func (h *QAHandler) requireTrajectoryExportEnabled(c *gin.Context, userID int64) bool {
 	if !h.service.Enabled() {
 		response.Error(c, http.StatusServiceUnavailable, "QA capture is disabled in this environment")
@@ -68,7 +83,11 @@ func (h *QAHandler) GetSelfQABundle(c *gin.Context) {
 	if !h.requireTrajectoryExportEnabled(c, subject.UserID) {
 		return
 	}
-	job, found, err := h.service.GetUserBundle(c.Request.Context(), subject.UserID, strings.TrimSpace(c.Param("job_id")))
+	jobID, ok := qaBundleJobID(c)
+	if !ok {
+		return
+	}
+	job, found, err := h.service.GetUserBundle(c.Request.Context(), subject.UserID, jobID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -89,7 +108,20 @@ func (h *QAHandler) CreateSelfQABundleExport(c *gin.Context) {
 	if !h.requireTrajectoryExportEnabled(c, subject.UserID) {
 		return
 	}
-	job, err := h.service.CreateUserBundleExport(c.Request.Context(), subject.UserID, strings.TrimSpace(c.Param("job_id")))
+	jobID, ok := qaBundleJobID(c)
+	if !ok {
+		return
+	}
+	_, found, err := h.service.GetUserBundle(c.Request.Context(), subject.UserID, jobID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if !found {
+		response.NotFound(c, "QA bundle not found")
+		return
+	}
+	job, err := h.service.CreateUserBundleExport(c.Request.Context(), subject.UserID, jobID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -106,7 +138,11 @@ func (h *QAHandler) GetSelfQABundleExport(c *gin.Context) {
 	if !h.requireTrajectoryExportEnabled(c, subject.UserID) {
 		return
 	}
-	job, found, err := h.service.GetUserBundleExport(c.Request.Context(), subject.UserID, strings.TrimSpace(c.Param("job_id")))
+	jobID, ok := qaBundleJobID(c)
+	if !ok {
+		return
+	}
+	job, found, err := h.service.GetUserBundleExport(c.Request.Context(), subject.UserID, jobID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

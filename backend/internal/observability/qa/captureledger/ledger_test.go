@@ -181,6 +181,26 @@ func TestMissingRuntimeDrainCreatesDurableDiscontinuity(t *testing.T) {
 	require.ErrorIs(t, err, ErrHourUnsealed)
 }
 
+func TestMissingRuntimeDrainBlocksOnlyRecordedDiscontinuityInterval(t *testing.T) {
+	now := time.Date(2026, 8, 15, 8, 30, 0, 0, time.UTC)
+	root := t.TempDir()
+	_, err := Open(root, "runtime-a", now, func() time.Time { return now })
+	require.NoError(t, err)
+
+	now = time.Date(2026, 8, 15, 10, 10, 0, 0, time.UTC)
+	runtimeB, err := Open(root, "runtime-b", now, func() time.Time { return now })
+	require.NoError(t, err)
+
+	_, err = runtimeB.SealHour(time.Date(2026, 8, 15, 9, 0, 0, 0, time.UTC))
+	require.ErrorIs(t, err, ErrHourUnsealed, "the recorded discontinuity must block an overlapping hour")
+
+	now = time.Date(2026, 8, 15, 12, 1, 0, 0, time.UTC)
+	require.NoError(t, runtimeB.Snapshot())
+	seal, err := runtimeB.SealHour(time.Date(2026, 8, 15, 11, 0, 0, 0, time.UTC))
+	require.NoError(t, err, "the stale runtime must not intersect hours after its last durable snapshot")
+	require.Equal(t, []string{"runtime-b"}, seal.RuntimeIDs)
+}
+
 func TestHourSealIgnoresLaterHeartbeatButRejectsNewSourceHourWork(t *testing.T) {
 	now := time.Date(2026, 8, 15, 9, 30, 0, 0, time.UTC)
 	root := t.TempDir()

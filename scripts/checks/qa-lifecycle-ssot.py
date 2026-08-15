@@ -164,6 +164,27 @@ FORBIDDEN_TREE_TEXT = {
     ),
 }
 
+FORBIDDEN_LEGACY_PROD_QA_TEXT = {
+    "backend/internal/server/routes/user_tk_routes.go": (
+        '"/users/me/qa/traj/export"',
+        '"/users/me/qa/traj/export/jobs"',
+        '"/users/me/qa/traj/export/jobs/:job_id"',
+        '"/users/me/qa/traj/exports/*key"',
+    ),
+}
+
+FORBIDDEN_LEGACY_PROD_QA_TREES = {
+    "backend/internal/handler": (
+        "func (h *QAHandler) ExportSelfTrajectory(",
+        "func (h *QAHandler) GetSelfTrajectoryExportJob(",
+        "func (h *QAHandler) ListSelfTrajectoryExports(",
+        "func (h *QAHandler) DownloadSelfTrajectoryExport(",
+    ),
+    "frontend/src/api": (
+        "/users/me/qa/traj/",
+    ),
+}
+
 BOUNDARY_PRE_ACTIVATION_GUARD = "ensureQABoundaryPreActivation(ctx, lockedDB, deps)"
 
 FIXED_AGE_OWNER_SURFACES = (
@@ -227,6 +248,32 @@ def scan(root: Path) -> list[str]:
                     failures.append(
                         f"retired monthly cutover owner remains in {source_rel}: {needle}"
                     )
+
+    for rel, needles in FORBIDDEN_LEGACY_PROD_QA_TEXT.items():
+        path = root / rel
+        if not path.is_file():
+            failures.append(f"required QA implementation surface missing: {rel}")
+            continue
+        body = path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle in body:
+                failures.append(f"legacy prod QA route remains in {rel}: {needle}")
+
+    for rel, needles in FORBIDDEN_LEGACY_PROD_QA_TREES.items():
+        path = root / rel
+        if not path.is_dir():
+            failures.append(f"required QA implementation surface missing: {rel}")
+            continue
+        suffix = ".go" if rel.endswith("handler") else ".ts"
+        for source in path.glob(f"*{suffix}"):
+            if source.name.endswith("_test.go") or source.name.endswith(".spec.ts"):
+                continue
+            body = source.read_text(encoding="utf-8")
+            for needle in needles:
+                if needle in body:
+                    source_rel = source.relative_to(root)
+                    surface = "legacy prod QA handler" if suffix == ".go" else "legacy frontend QA fallback"
+                    failures.append(f"{surface} remains in {source_rel}: {needle}")
 
     boundary_command = _read(root, "backend/cmd/server/qa_maintenance_boundary.go")
     if boundary_command.count(BOUNDARY_PRE_ACTIVATION_GUARD) != 2:
@@ -301,12 +348,22 @@ def self_test() -> int:
             *REQUIRED,
             *FORBIDDEN_TEXT,
             *FIXED_AGE_OWNER_SURFACES,
+            *FORBIDDEN_LEGACY_PROD_QA_TEXT,
             "ops/qa/policy.yaml",
             "ops/qa/deploy_rollout.yaml",
         }:
             target = fixture / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / rel, target)
+        for rel in FORBIDDEN_LEGACY_PROD_QA_TREES:
+            source_dir = ROOT / rel
+            target_dir = fixture / rel
+            target_dir.mkdir(parents=True, exist_ok=True)
+            suffix = "*.go" if rel.endswith("handler") else "*.ts"
+            for source in source_dir.glob(suffix):
+                if source.name.endswith("_test.go") or source.name.endswith(".spec.ts"):
+                    continue
+                shutil.copy2(source, target_dir / source.name)
         retired = fixture / RETIRED[0]
         retired.parent.mkdir(parents=True, exist_ok=True)
         retired.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -387,6 +444,31 @@ def self_test() -> int:
         if not any("aws-us-openai-gateway-deployment.md" in item for item in scan(fixture)):
             print("self-test failed to detect the retired deployment-guide owner")
             return 1
+        for rel, marker, label in (
+            (
+                "backend/internal/server/routes/user_tk_routes.go",
+                'dualAuth.POST("/users/me/qa/traj/export", h.QA.ExportSelfTrajectory)',
+                "legacy prod QA route",
+            ),
+            (
+                "backend/internal/handler/qa_handler_bundle.go",
+                "func (h *QAHandler) ExportSelfTrajectory(c *gin.Context) {}",
+                "legacy prod QA handler",
+            ),
+            (
+                "frontend/src/api/qaBundle.ts",
+                "apiClient.post('/users/me/qa/traj/export')",
+                "legacy frontend QA fallback",
+            ),
+        ):
+            target = fixture / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / rel, target)
+            target.write_text(target.read_text(encoding="utf-8") + "\n" + marker + "\n", encoding="utf-8")
+            if not any(label in item for item in scan(fixture)):
+                print(f"self-test failed to detect {label}")
+                return 1
+            shutil.copy2(ROOT / rel, target)
     print("qa lifecycle ssot self-test: ok")
     return 0
 

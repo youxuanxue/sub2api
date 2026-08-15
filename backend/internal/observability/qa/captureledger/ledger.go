@@ -660,7 +660,11 @@ func runtimeIntersects(runtime RuntimeReceipt, start, end time.Time) bool {
 	if !runtime.StartedAt.Before(end) {
 		return false
 	}
-	return runtime.DrainedAt == nil || runtime.DrainedAt.After(start)
+	runtimeEnd := runtime.LastSnapshotAt
+	if runtime.DrainedAt != nil {
+		runtimeEnd = *runtime.DrainedAt
+	}
+	return runtimeEnd.After(start)
 }
 
 func failureID(identity CaptureIdentity) string {
