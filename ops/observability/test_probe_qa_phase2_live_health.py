@@ -63,6 +63,36 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
                 encoding="utf-8",
             )
             docker.chmod(0o755)
+            systemctl = fakebin / "systemctl"
+            systemctl.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env bash
+                    set -u
+                    case "$*" in
+                      "is-enabled tokenkey-qa-maintenance.timer"|\
+                      "is-active tokenkey-qa-maintenance.timer"|\
+                      "is-enabled tokenkey-qa-boundary.timer"|\
+                      "is-active tokenkey-qa-boundary.timer") exit 0 ;;
+                      "show tokenkey-qa-maintenance.timer -p LastTriggerUSec --value")
+                        printf '%s\n' 'Sat 2026-08-08 22:15:00 UTC' ;;
+                      "show tokenkey-qa-maintenance.service -p Result --value")
+                        printf '%s\n' success ;;
+                      "show tokenkey-qa-maintenance.service -p ExecMainExitTimestamp --value")
+                        printf '%s\n' '[n/a]' ;;
+                      "show tokenkey-qa-boundary.timer -p LastTriggerUSec --value")
+                        printf '%s\n' 'Sat 2026-08-08 22:00:00 UTC' ;;
+                      "show tokenkey-qa-boundary.service -p Result --value")
+                        printf '%s\n' success ;;
+                      "show tokenkey-qa-boundary.service -p ExecMainExitTimestamp --value")
+                        printf '%s\n' '[n/a]' ;;
+                      *) exit 2 ;;
+                    esac
+                    """
+                ),
+                encoding="utf-8",
+            )
+            systemctl.chmod(0o755)
             env = os.environ.copy()
             env["PATH"] = f"{fakebin}:{env['PATH']}"
             env["QA_MAINTENANCE_RECEIPT"] = str(receipt_path)
@@ -90,6 +120,22 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
         ]
         output, sql_log = self.run_probe(receipt=receipt, psql_lines=psql_lines)
         self.assertIn("PHASE2SYSTEMD", output)
+        systemd_line = next(
+            line for line in output.splitlines() if line.startswith("PHASE2SYSTEMD ")
+        )
+        systemd = json.loads(systemd_line.removeprefix("PHASE2SYSTEMD "))
+        self.assertEqual(systemd["last_trigger_at"], "2026-08-08T22:15:00Z")
+        self.assertIsNone(systemd["finished_at"])
+        boundary_systemd_line = next(
+            line
+            for line in output.splitlines()
+            if line.startswith("PHASE2BOUNDARYSYSTEMD ")
+        )
+        boundary_systemd = json.loads(
+            boundary_systemd_line.removeprefix("PHASE2BOUNDARYSYSTEMD ")
+        )
+        self.assertEqual(boundary_systemd["last_trigger_at"], "2026-08-08T22:00:00Z")
+        self.assertIsNone(boundary_systemd["finished_at"])
         self.assertIn("PHASE2RECEIPT", output)
         self.assertIn("PHASE2HEARTBEAT", output)
         self.assertIn("PHASE2BOUNDARYSYSTEMD", output)

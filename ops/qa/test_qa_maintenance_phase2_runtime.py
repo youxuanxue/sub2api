@@ -585,6 +585,7 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
                 "timer_enabled": True,
                 "timer_active": True,
                 "service_result": "success",
+                "last_trigger_at": "2026-08-08T22:15:00Z",
                 "finished_at": "2026-08-08T22:16:05Z",
             },
             "host_receipt": {
@@ -636,6 +637,7 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
                 "timer_enabled": True,
                 "timer_active": True,
                 "service_result": "success",
+                "last_trigger_at": "2026-08-08T22:00:00Z",
                 "finished_at": "2026-08-08T22:00:05Z",
             },
             "boundary_host_receipt": {
@@ -708,6 +710,80 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
         self.assertIs(verdict["healthy"], True)
         self.assertEqual(verdict["status"], "healthy")
         self.assertEqual(verdict["reasons"], [])
+
+    def test_daemon_reload_allows_missing_service_finish_with_timer_receipt_db_chain(self) -> None:
+        health = _load_module("qa_phase2_health_reload", "ops/qa/qa_phase2_health.py")
+        snapshot, now = self._healthy_snapshot()
+        snapshot["systemd"]["finished_at"] = None
+        snapshot["boundary_systemd"]["finished_at"] = None
+
+        verdict = health.evaluate(snapshot, now=now)
+
+        self.assertEqual(verdict["status"], "healthy", verdict)
+        self.assertNotIn("systemd_finished_at_invalid", verdict["forward_reasons"], verdict)
+        self.assertNotIn(
+            "boundary_systemd_finished_at_invalid", verdict["forward_reasons"], verdict
+        )
+
+    def test_timer_receipt_start_correlation_fails_closed_for_both_lifecycles(self) -> None:
+        health = _load_module("qa_phase2_health_timer", "ops/qa/qa_phase2_health.py")
+        baseline, now = self._healthy_snapshot()
+        for owner, reason in (
+            ("systemd", "systemd_receipt_start_time_mismatch"),
+            ("boundary_systemd", "boundary_systemd_receipt_start_time_mismatch"),
+        ):
+            with self.subTest(owner=owner):
+                snapshot = copy.deepcopy(baseline)
+                snapshot[owner]["last_trigger_at"] = "2026-08-08T21:00:00Z"
+
+                verdict = health.evaluate(snapshot, now=now)
+
+                self.assertEqual(verdict["status"], "failed", verdict)
+                self.assertIn(reason, verdict["forward_reasons"], verdict)
+
+    def test_missing_or_invalid_timer_trigger_fails_closed_for_both_lifecycles(self) -> None:
+        health = _load_module(
+            "qa_phase2_health_timer_missing", "ops/qa/qa_phase2_health.py"
+        )
+        baseline, now = self._healthy_snapshot()
+        for owner, value, reason in (
+            ("systemd", None, "systemd_last_trigger_at_invalid"),
+            ("systemd", "invalid", "systemd_last_trigger_at_invalid"),
+            (
+                "boundary_systemd",
+                None,
+                "boundary_systemd_last_trigger_at_invalid",
+            ),
+            (
+                "boundary_systemd",
+                "invalid",
+                "boundary_systemd_last_trigger_at_invalid",
+            ),
+        ):
+            with self.subTest(owner=owner, value=value):
+                snapshot = copy.deepcopy(baseline)
+                snapshot[owner]["last_trigger_at"] = value
+
+                verdict = health.evaluate(snapshot, now=now)
+
+                self.assertEqual(verdict["status"], "failed", verdict)
+                self.assertIn(reason, verdict["forward_reasons"], verdict)
+
+    def test_service_finish_still_fails_when_present_and_mismatched(self) -> None:
+        health = _load_module("qa_phase2_health_finish", "ops/qa/qa_phase2_health.py")
+        baseline, now = self._healthy_snapshot()
+        for owner, reason in (
+            ("systemd", "systemd_receipt_time_mismatch"),
+            ("boundary_systemd", "boundary_systemd_receipt_time_mismatch"),
+        ):
+            with self.subTest(owner=owner):
+                snapshot = copy.deepcopy(baseline)
+                snapshot[owner]["finished_at"] = "2026-08-08T21:00:00Z"
+
+                verdict = health.evaluate(snapshot, now=now)
+
+                self.assertEqual(verdict["status"], "failed", verdict)
+                self.assertIn(reason, verdict["forward_reasons"], verdict)
 
     def test_boundary_provision_retry_facts_must_correlate(self) -> None:
         health = _load_module("qa_phase2_health_retry", "ops/qa/qa_phase2_health.py")

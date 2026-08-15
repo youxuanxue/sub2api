@@ -324,12 +324,42 @@ def _evaluate_boundary(
     last_error = _timestamp(database.get("last_error_at"))
     if last_error is not None and (heartbeat_success is None or last_error > heartbeat_success):
         reasons.append("boundary_database_has_newer_failure")
-    systemd_finished = _timestamp(systemd.get("finished_at"))
-    if systemd_finished is None:
-        reasons.append("boundary_systemd_finished_at_invalid")
-    elif finished is not None and abs(systemd_finished - finished) > MAX_CORRELATION_SKEW:
-        reasons.append("boundary_systemd_receipt_time_mismatch")
+    if _correlate_systemd_receipt(
+        reasons,
+        "boundary_",
+        systemd,
+        started,
+        finished,
+    ):
+        return True
     return bool(reasons)
+
+
+def _correlate_systemd_receipt(
+    reasons: list[str],
+    prefix: str,
+    systemd: dict[str, Any],
+    started: dt.datetime | None,
+    finished: dt.datetime | None,
+) -> bool:
+    failed = False
+    last_trigger = _timestamp(systemd.get("last_trigger_at"))
+    if last_trigger is None:
+        reasons.append(f"{prefix}systemd_last_trigger_at_invalid")
+        failed = True
+    elif started is not None and abs(last_trigger - started) > MAX_CORRELATION_SKEW:
+        reasons.append(f"{prefix}systemd_receipt_start_time_mismatch")
+        failed = True
+
+    systemd_finished = _timestamp(systemd.get("finished_at"))
+    if (
+        systemd_finished is not None
+        and finished is not None
+        and abs(systemd_finished - finished) > MAX_CORRELATION_SKEW
+    ):
+        reasons.append(f"{prefix}systemd_receipt_time_mismatch")
+        failed = True
+    return failed
 
 
 def _mapping(value: Any) -> dict[str, Any] | None:
@@ -688,13 +718,14 @@ def evaluate(
             forward_reasons.append("database_has_newer_failure")
             failed = True
 
-    if systemd is not None and finished is not None:
-        systemd_finished = _timestamp(systemd.get("finished_at"))
-        if systemd_finished is None:
-            forward_reasons.append("systemd_finished_at_invalid")
-        elif abs(systemd_finished - finished) > MAX_CORRELATION_SKEW:
-            forward_reasons.append("systemd_receipt_time_mismatch")
-            failed = True
+    if systemd is not None and _correlate_systemd_receipt(
+        forward_reasons,
+        "",
+        systemd,
+        started,
+        finished,
+    ):
+        failed = True
 
     if receipt is not None and archive is not None:
         normal = _mapping(receipt.get("normal"))

@@ -719,7 +719,12 @@ raw/date=YYYY-MM-DD/hour=HH/...
 ```
 
 The lifecycle has one logical owner and two deterministic systemd phases using the
-existing `QAMA` advisory lock:
+existing `QAMA` advisory lock. Health treats the host receipt plus the matching database
+heartbeat as durable completion evidence. The timer's `LastTriggerUSec` is durable trigger
+evidence and must correlate with receipt `started_at` within the health skew. A oneshot
+service's `ExecMainExitTimestamp` is auxiliary evidence: when present it must correlate
+with receipt `finished_at`, but `daemon-reload` may clear it and that absence alone is not
+a failure:
 
 - `*:00` boundary: validate current coverage, provision through the next 72 hours,
   classify the exact expired source hour, DROP its whole database partition, and clean
