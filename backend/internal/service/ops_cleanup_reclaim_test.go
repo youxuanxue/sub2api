@@ -10,6 +10,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestDeleteOldRowsByID_OrdersByTimeColumnThenID(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	cutoff := time.Unix(0, 0).UTC()
+	mock.ExpectExec(`(?s)SELECT id FROM ops_test\s+WHERE created_at < \$1\s+ORDER BY created_at, id\s+LIMIT \$2`).
+		WithArgs(cutoff, 5000).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	total, err := deleteOldRowsByID(context.Background(), db, "ops_test", "created_at", cutoff, 5000, false, 0)
+	require.NoError(t, err)
+	require.Zero(t, total)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 // Guards the D1 straddling-partition reclaim's per-run cap: the chunked DELETE
 // must stop once it has removed maxRows, so the first reclaim of a large legacy
 // backlog cannot turn into a runaway delete that hammers prod in a single cleanup

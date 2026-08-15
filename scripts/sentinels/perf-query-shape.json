@@ -78,11 +78,12 @@
         "opsStraddleReclaimMaxRowsPerRun",
         "remaining := maxRows - int(total)",
         "limit = min(limit, remaining)",
+        "ORDER BY %s, id",
         "usageLogs     string",
         "billingDedup  string",
         "usage_logs=%s billing_dedup=%s"
       ],
-      "rationale": "Each partitioned cleanup first drops only fully expired bounds, then caps row-level reclaim from a surviving wide legacy partition that still contains expired rows. The SQL LIMIT must use min(batchSize, remaining), not merely stop after a full batch, or the advertised hard cap can overshoot by almost one batch. Removing either bound-driven call or the exact remaining-budget clamp can yield green cleanup heartbeats while disk or lock pressure exceeds the online-safety contract. The shared cleanup heartbeat must also report usage_logs and billing-dedup states now that OpsCleanupService owns those datasets; without the fields, a lifecycle run can look green while omitting the newly transferred owners from its operator-visible result. Partition provisioning is separately guarded by the shared partitionmaintenance owner."
+      "rationale": "Each partitioned cleanup first drops only fully expired bounds, then caps row-level reclaim from a surviving wide legacy partition that still contains expired rows. Batches must sort by the retention time column and then ID so the existing composite time index is used; reverting to ID-only ordering scans and sorts nearly the full legacy wide partition, returns the same result, but runs until the overall cleanup timeout. The SQL LIMIT must use min(batchSize, remaining), not merely stop after a full batch, or the advertised hard cap can overshoot by almost one batch. Removing either bound-driven call or the exact remaining-budget clamp can yield green cleanup heartbeats while disk or lock pressure exceeds the online-safety contract. The shared cleanup heartbeat must also report usage_logs and billing-dedup states now that OpsCleanupService owns those datasets; without the fields, a lifecycle run can look green while omitting the newly transferred owners from its operator-visible result. Partition provisioning is separately guarded by the shared partitionmaintenance owner."
     },
     {
       "path": "backend/internal/repository/dashboard_aggregation_repo.go",
