@@ -61,6 +61,14 @@ jobs:
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
       INPUT_TAG: ${{ inputs.tag }}
       INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
+      # Single desired-state owner for the prod-only QA Bundle host config.
+      # The deploy and its post-deploy assertion consume these same values.
+      QA_BUNDLE_ENABLED: "false"
+      QA_BUNDLE_QUEUE_URL: "https://sqs.us-east-1.amazonaws.com/682751977094/tokenkey-prod-qa-bundle"
+      QA_BUNDLE_STORAGE_DRIVER: "s3"
+      QA_BUNDLE_STORAGE_REGION: "us-east-1"
+      QA_BUNDLE_STORAGE_BUCKET: "tokenkey-prod-qa-bundles-682751977094"
+      QA_BUNDLE_STORAGE_PREFIX: "user-qa"
     steps:
       - uses: actions/checkout@v6
         with:
@@ -210,6 +218,12 @@ jobs:
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           STAGE0_SSM_OUTPUT_DIR: .
+          QA_BUNDLE_ENABLED: ${{ env.QA_BUNDLE_ENABLED }}
+          QA_BUNDLE_QUEUE_URL: ${{ env.QA_BUNDLE_QUEUE_URL }}
+          QA_BUNDLE_STORAGE_DRIVER: ${{ env.QA_BUNDLE_STORAGE_DRIVER }}
+          QA_BUNDLE_STORAGE_REGION: ${{ env.QA_BUNDLE_STORAGE_REGION }}
+          QA_BUNDLE_STORAGE_BUCKET: ${{ env.QA_BUNDLE_STORAGE_BUCKET }}
+          QA_BUNDLE_STORAGE_PREFIX: ${{ env.QA_BUNDLE_STORAGE_PREFIX }}
         run: bash ops/stage0/deploy_via_ssm_bluegreen.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-stage0 env=prod bluegreen"
 
       - name: External health check
@@ -261,13 +275,14 @@ jobs:
       - name: Assert live-host state (drift check)
         # ADVISORY ONLY — never blocks the deploy. Reads (read-only) the running
         # active app container image tag + the deploy_via_ssm-injected env (SERVER_FRONTEND_URL,
-        # QA_CAPTURE_EXPORT_STORAGE_*) and warns if the live host drifted from what
+        # QA_BUNDLE_*) and warns if the live host drifted from what
         # this deploy intended (the running tag != the tag we just deployed, or a
         # sed-injection that wrote the wrong content — the 2026-06 "3× repeat" was
         # caught only by a human probing by hand; this makes it an automatic warning).
         continue-on-error: true
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          EXPECT_ENV: QA_BUNDLE_ENABLED=${{ env.QA_BUNDLE_ENABLED }},QA_BUNDLE_QUEUE_URL=${{ env.QA_BUNDLE_QUEUE_URL }},QA_BUNDLE_STORAGE_DRIVER=${{ env.QA_BUNDLE_STORAGE_DRIVER }},QA_BUNDLE_STORAGE_REGION=${{ env.QA_BUNDLE_STORAGE_REGION }},QA_BUNDLE_STORAGE_BUCKET=${{ env.QA_BUNDLE_STORAGE_BUCKET }},QA_BUNDLE_STORAGE_PREFIX=${{ env.QA_BUNDLE_STORAGE_PREFIX }}
         run: bash ops/stage0/assert-live-host-state.sh "$INSTANCE_ID" "$INPUT_TAG" "deploy-stage0 live-host assert env=prod"
 
       - name: Sync Feishu alert config

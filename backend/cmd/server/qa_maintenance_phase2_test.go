@@ -588,7 +588,9 @@ func us045CommandDeps(db *sql.DB, now time.Time) qaMaintenanceDeps {
 		newObjectStore: func(context.Context, config.QACaptureStorageConfig) (archive.ObjectStore, error) {
 			return archive.NewMemoryObjectStore(), nil
 		},
-		now: func() time.Time { return now },
+		provision:         qaMaintenanceTestProvision,
+		singleOwnerActive: qaMaintenanceTestInactive,
+		now:               func() time.Time { return now },
 	}
 }
 

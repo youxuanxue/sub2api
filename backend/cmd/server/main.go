@@ -58,6 +58,27 @@ func main() {
 	logger.InitBootstrap()
 	defer logger.Sync()
 
+	if qaBundleWorkerRequested(os.Args[1:]) {
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		if err := runQABundleWorkerCommand(ctx, os.Args[1:], os.Stdout, defaultQABundleWorkerDeps()); err != nil {
+			log.Fatalf("QA bundle worker failed: %v", err)
+		}
+		return
+	}
+
+	if qaSingleOwnerActivationRequested(os.Args[1:]) {
+		if err := runQASingleOwnerActivationCommand(
+			context.Background(),
+			os.Args[1:],
+			os.Stdout,
+			defaultQASingleOwnerActivationDeps(),
+		); err != nil {
+			log.Fatalf("QA single-owner activation failed: %v", err)
+		}
+		return
+	}
+
 	if partitionMaintenanceRequested(os.Args[1:]) {
 		if err := runPartitionMaintenanceCommand(
 			context.Background(),

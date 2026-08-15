@@ -154,7 +154,8 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertEqual(params.get("executionTimeout"), ["1200"])
         self.assertIn("/tmp/tokenkey-bluegreen-deploy.sh", joined)
         self.assertIn("TAG='1.8.99'", joined)
-        self.assertIn("QA_CAPTURE_EXPORT_STORAGE_BUCKET='tokenkey-prod-qa-exports-682751977094'", joined)
+        self.assertIn("QA_BUNDLE_STORAGE_BUCKET=''", joined)
+        self.assertIn("QA_BUNDLE_STORAGE_BUCKET_SET=false", joined)
         self.assertIn("QA_ARCHIVE_ENABLED='true'", joined)
         self.assertIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-prod-qa-raw-archive-682751977094'", joined)
         self.assertIn("TELEMETRY_ARCHIVE_ENABLED=''", joined)
@@ -244,16 +245,29 @@ class BlueGreenRenderTest(unittest.TestCase):
 
     def test_values_are_env_overridable(self) -> None:
         proc, params, _ = _render(env_extra={
-            "QA_CAPTURE_EXPORT_STORAGE_BUCKET": "custom-qa",
+            "QA_BUNDLE_STORAGE_BUCKET": "custom-qa",
             "MEDIA_STORAGE_BUCKET": "custom-media",
             "GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS": "16",
         })
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         assert params is not None
         joined = "\n".join(params["commands"])
-        self.assertIn("QA_CAPTURE_EXPORT_STORAGE_BUCKET='custom-qa'", joined)
+        self.assertIn("QA_BUNDLE_STORAGE_BUCKET='custom-qa'", joined)
         self.assertIn("MEDIA_STORAGE_BUCKET='custom-media'", joined)
         self.assertIn("GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS='16'", joined)
+
+    def test_bundle_desired_value_replaces_a_stale_host_value(self) -> None:
+        proc, params, remote = _render(env_extra={
+            "QA_BUNDLE_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/123456789012/new-queue",
+        })
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert params is not None
+        assert remote is not None
+        joined = "\n".join(params["commands"])
+        self.assertIn("QA_BUNDLE_QUEUE_URL='https://sqs.us-east-1.amazonaws.com/123456789012/new-queue'", joined)
+        self.assertIn("QA_BUNDLE_QUEUE_URL_SET=true", joined)
+        self.assertIn("env_desired_or_default", remote)
+        self.assertIn("env_set \"${key}\" \"${desired}\"", remote)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ from edge_ssm_execution import resolve_edge_execution_identity  # noqa: E402
 REMOTE = r"""set -euo pipefail
 cd /var/lib/tokenkey
 tag=$(sudo docker compose -f docker-compose.yml --env-file .env ps --format json 2>/dev/null | python3 -c "import json,sys; rows=[json.loads(l) for l in sys.stdin if l.strip()]; imgs=[r.get('Image','') for r in rows if r.get('Service')=='tokenkey']; print(imgs[0].split(':')[-1] if imgs else 'unknown')" 2>/dev/null || echo unknown)
-qa_env=$(grep -E '^(QA_CAPTURE_ENABLED|QA_CAPTURE_EXPORT_STORAGE_)' .env 2>/dev/null | tr '\n' ';' || true)
+qa_env=$(grep -E '^(QA_CAPTURE_ENABLED|QA_BUNDLE_)' .env 2>/dev/null | tr '\n' ';' || true)
 qa_timer=$(systemctl show -p ActiveState --value tokenkey-qa-stale-cleanup.timer 2>/dev/null || echo missing)
 qa_cap=$(sudo docker compose -f docker-compose.yml --env-file .env exec -T tokenkey printenv QA_CAPTURE_ENABLED 2>/dev/null || echo missing)
 blob_count=0

@@ -45,6 +45,8 @@ def iter_frontend_input_paths() -> list[Path]:
 def filter_input_paths(paths) -> list[Path]:
     filtered: list[Path] = []
     for path in paths:
+        if not path.is_file():
+            continue
         rel = path.relative_to(REPO_ROOT)
         if any(part in {"node_modules", "dist", "coverage", "__tests__", ".vite", "e2e"} for part in rel.parts):
             continue

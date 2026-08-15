@@ -82,6 +82,7 @@ QA 数据面只有一个目标形态：
 目标激活后：
 
 - `tokenkey-qa-maintenance.timer` 是唯一 lifecycle owner；
+- append-only `single_owner_activate` receipt 是不可逆 owner 边界；receipt 存在后 boundary success/rollback 均保持 disabled/inactive；
 - `tokenkey-qa-boundary.timer` 和它的独立 host receipt/DB heartbeat 退役；
 - 用户读取不再依赖 `qa_records`、`qa_blobs`、prod export pool 或 gateway download proxy；
 - hot retention 由 raw archive 成功决定，不再由固定 24 小时年龄决定。
@@ -192,7 +193,7 @@ HH:15 acquire QAMA lock
   -> reconcile at most one oldest retryable post-cutover backlog hour
   -> read target-hour seal from capture ledger, lock child, and recheck seal + membership
   -> DROP each capture-sealed, committed, restore-verified source partition
-  -> clean exact-hour Blob/DLQ and eligible export scratch
+  -> clean exact-hour Blob/DLQ
   -> write one atomic host receipt and one DB heartbeat
 ```
 
@@ -235,8 +236,7 @@ capture seal 是删除授权，不是普通监控提示。ledger 缺失、过期
 `source_dropped_at` 驱动下一轮幂等续做并写 `hot_files_cleaned_at`。路径必须 canonicalize、限定在精确小时目录，
 拒绝 symlink 与目录逃逸。
 
-`qa_exports_tmp` 仍按 regular-file、age、open-handle 和 exact plan hash 清理，直到 prod 内旧 export worker 退役；
-之后删除该 staging surface，而不是保留永久 orphan cleaner。
+旧 prod export worker 与 `qa_exports_tmp` staging surface 已从目标仓库退役；maintenance 不保留 export-orphan cleaner。
 
 ## 7. Raw S3 Archive
 
@@ -499,7 +499,6 @@ PR 3 的代码发布不自动激活 DROP；生产激活仍需独立高风险批�
 | partition provision/DROP | `tokenkey-qa-boundary.timer` | `tokenkey-qa-maintenance.timer` | Bundle 用户面验证、single-owner 人工批准 |
 | user list/detail/export | prod DB/export worker | S3 QA Bundle | 一个真实 Bundle 经 UI 验证，无 prod fallback |
 | disk protection | monitor + legacy emergency design | monitor + single P0 owner | 自动 destructive action 全部不存在 |
-| export scratch | boundary orphan cleanup | maintenance 过渡清理后删除 staging | prod 内旧 export worker 退役 |
 
 生产顺序：
 

@@ -32,11 +32,17 @@ type ObjectReader struct {
 	Body io.ReadCloser
 }
 
+type ObjectWriteOptions struct {
+	ContentType     string
+	ContentEncoding string
+}
+
 // ObjectStore provides immutable artifact writes and ETag-guarded commit updates.
 type ObjectStore interface {
 	ReadOnlyObjectStore
 	PutReader(ctx context.Context, key string, body io.Reader, size int64, contentType string) (ObjectInfo, error)
 	Create(ctx context.Context, key string, body io.Reader, size int64, contentType string) (ObjectInfo, error)
+	CreateWithOptions(ctx context.Context, key string, body io.Reader, size int64, options ObjectWriteOptions) (ObjectInfo, error)
 	CompareAndSwap(ctx context.Context, key, expectedETag string, body io.Reader, size int64, contentType string) (ObjectInfo, error)
 }
 
@@ -142,22 +148,28 @@ func (s *s3ObjectStore) put(
 	key string,
 	body io.Reader,
 	size int64,
-	contentType string,
+	options ObjectWriteOptions,
 	ifMatch *string,
 	ifNoneMatch *string,
 ) (ObjectInfo, error) {
 	if size < 0 {
 		return ObjectInfo{}, fmt.Errorf("qa archive object size must be non-negative")
 	}
-	out, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+	input := &s3.PutObjectInput{
 		Bucket:        aws.String(s.bucket),
 		Key:           aws.String(s.fullKey(key)),
 		Body:          body,
 		ContentLength: aws.Int64(size),
-		ContentType:   aws.String(contentType),
 		IfMatch:       ifMatch,
 		IfNoneMatch:   ifNoneMatch,
-	})
+	}
+	if strings.TrimSpace(options.ContentType) != "" {
+		input.ContentType = aws.String(options.ContentType)
+	}
+	if strings.TrimSpace(options.ContentEncoding) != "" {
+		input.ContentEncoding = aws.String(options.ContentEncoding)
+	}
+	out, err := s.client.PutObject(ctx, input)
 	if err != nil {
 		if stringsContains(err.Error(), "PreconditionFailed", "ConditionalRequestConflict", "412", "409") {
 			return ObjectInfo{}, fmt.Errorf("%w: %s", ErrPreconditionFailed, key)
@@ -188,14 +200,18 @@ func (s *s3ObjectStore) PutReader(ctx context.Context, key string, body io.Reade
 }
 
 func (s *s3ObjectStore) Create(ctx context.Context, key string, body io.Reader, size int64, contentType string) (ObjectInfo, error) {
-	return s.put(ctx, key, body, size, contentType, nil, aws.String("*"))
+	return s.CreateWithOptions(ctx, key, body, size, ObjectWriteOptions{ContentType: contentType})
+}
+
+func (s *s3ObjectStore) CreateWithOptions(ctx context.Context, key string, body io.Reader, size int64, options ObjectWriteOptions) (ObjectInfo, error) {
+	return s.put(ctx, key, body, size, options, nil, aws.String("*"))
 }
 
 func (s *s3ObjectStore) CompareAndSwap(ctx context.Context, key, expectedETag string, body io.Reader, size int64, contentType string) (ObjectInfo, error) {
 	if strings.TrimSpace(expectedETag) == "" {
 		return ObjectInfo{}, fmt.Errorf("expected ETag is required")
 	}
-	return s.put(ctx, key, body, size, contentType, aws.String(expectedETag), nil)
+	return s.put(ctx, key, body, size, ObjectWriteOptions{ContentType: contentType}, aws.String(expectedETag), nil)
 }
 
 func (s *s3ObjectStore) Open(ctx context.Context, key string) (ObjectReader, error) {

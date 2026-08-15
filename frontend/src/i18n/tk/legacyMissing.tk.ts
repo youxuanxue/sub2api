@@ -413,6 +413,20 @@ const en: LocaleOverlay = {
     "exportSuccess": "Exported {count} conversation records",
     "exportEmpty": "No conversation records captured for this key yet",
     "exportFailed": "Export failed, please try again",
+    "qaBundle": {
+      "title": "QA History",
+      "window": "{from} – {until}",
+      "watermark": "Archived through {time}",
+      "recordCount": "{count} records",
+      "export": "Export ZIP",
+      "exporting": "Preparing…",
+      "failed": "QA history is temporarily unavailable",
+      "empty": "No QA records in this archived window",
+      "platform": "Platform",
+      "model": "Model",
+      "tokens": "Input / output",
+      "latency": "Latency"
+    },
     "exportPanel": {
       "title": "Export Conversations",
       "exportNow": "Export now",
@@ -1354,6 +1368,20 @@ const zh: LocaleOverlay = {
     "exportSuccess": "已导出 {count} 条对话记录",
     "exportEmpty": "该 Key 暂无可导出的对话记录",
     "exportFailed": "导出失败，请重试",
+    "qaBundle": {
+      "title": "QA 记录",
+      "window": "{from} 至 {until}",
+      "watermark": "归档水位：{time}",
+      "recordCount": "共 {count} 条",
+      "export": "导出 ZIP",
+      "exporting": "生成中…",
+      "failed": "QA 记录暂时不可用",
+      "empty": "该归档窗口暂无 QA 记录",
+      "platform": "平台",
+      "model": "模型",
+      "tokens": "输入 / 输出",
+      "latency": "耗时"
+    },
     "exportPanel": {
       "title": "导出对话",
       "exportNow": "立即导出",

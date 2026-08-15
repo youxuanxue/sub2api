@@ -112,27 +112,50 @@ func TestOpenQABoundaryDBAppliesTimeoutsToEveryPooledConnection(t *testing.T) {
 	}
 }
 
-func TestQABoundaryRequestedIncludesCutoverFinalizeCommands(t *testing.T) {
+func TestQABoundaryRequestedIncludesOnlyActiveModes(t *testing.T) {
 	for _, argument := range []string{
-		"--qa-cutover-provision-only", "--qa-cutover-finalize-plan", "--qa-cutover-finalize",
+		"--qa-boundary-once", "--qa-boundary-once=true", "--qa-boundary-once=false",
+		"--qa-cutover-provision-only", "--qa-cutover-provision-only=true", "--qa-cutover-provision-only=false",
 	} {
 		if !qaBoundaryRequested([]string{argument}) {
 			t.Fatalf("qaBoundaryRequested(%q)=false", argument)
 		}
 	}
+	for _, argument := range []string{
+		"--qa-cutover-inventory", "--qa-cutover-plan", "--qa-cutover-apply",
+		"--qa-cutover-finalize-plan", "--qa-cutover-finalize",
+	} {
+		if qaBoundaryRequested([]string{argument}) {
+			t.Fatalf("qaBoundaryRequested(%q)=true for retired mode", argument)
+		}
+	}
 }
 
 func TestQABoundaryCommandRejectsMultipleModes(t *testing.T) {
-	for _, args := range [][]string{
-		{"--qa-boundary-once", "--qa-cutover-inventory"},
-		{"--qa-cutover-plan", "--qa-cutover-finalize-plan"},
-		{"--qa-cutover-apply", "--qa-cutover-finalize"},
-		{"--qa-cutover-provision-only", "--qa-cutover-finalize-plan"},
+	err := runQABoundaryCommand(
+		context.Background(),
+		[]string{"--qa-boundary-once", "--qa-cutover-provision-only"},
+		&bytes.Buffer{},
+		qaBoundaryDeps{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "exactly one mode") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestQABoundaryCommandRejectsRetiredCutoverModes(t *testing.T) {
+	for _, argument := range []string{
+		"--qa-cutover-inventory", "--qa-cutover-plan", "--qa-cutover-apply",
+		"--qa-cutover-finalize-plan", "--qa-cutover-finalize",
 	} {
-		err := runQABoundaryCommand(context.Background(), args, &bytes.Buffer{}, qaBoundaryDeps{})
-		if err == nil || !strings.Contains(err.Error(), "exactly one mode") {
-			t.Fatalf("args=%v err=%v", args, err)
-		}
+		t.Run(argument, func(t *testing.T) {
+			err := runQABoundaryCommand(
+				context.Background(), []string{argument}, &bytes.Buffer{}, qaBoundaryDeps{},
+			)
+			if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
+				t.Fatalf("runQABoundaryCommand(%q) err=%v", argument, err)
+			}
+		})
 	}
 }
 
@@ -168,13 +191,12 @@ func TestQABoundaryProvisionOnlyRunsProvisionWithoutBoundaryCleanup(t *testing.T
 		openDB:          func(string, string) (*sql.DB, error) { return db, nil },
 		tryAdvisoryLock: func(context.Context, *sql.Conn) (bool, error) { return true, nil },
 		unlockAdvisory:  func(context.Context, *sql.Conn) error { return nil },
-		runProvisionOnly: func(context.Context, lifecycle.DB, lifecycle.Options) (lifecycle.ProvisionResult, error) {
+		singleOwnerActive: func(context.Context, *sql.DB) (bool, error) {
+			return false, nil
+		},
+		runProvision: func(context.Context, lifecycle.DB, lifecycle.Options) (lifecycle.ProvisionResult, error) {
 			provisionCalls++
 			return lifecycle.ProvisionResult{HoursAhead: 72, RangesRequired: 72, RangesCovered: 72}, nil
-		},
-		runBoundary: func(context.Context, *sql.DB, lifecycle.ControlStore, lifecycle.Options) (lifecycle.BoundaryResult, error) {
-			t.Fatal("provision-only invoked full boundary cleanup")
-			return lifecycle.BoundaryResult{}, nil
 		},
 	}
 	out := &bytes.Buffer{}
@@ -202,6 +224,48 @@ func TestQABoundaryProvisionOnlyRunsProvisionWithoutBoundaryCleanup(t *testing.T
 	}
 }
 
+func TestQABoundaryProvisionOnlyRefusesAfterSingleOwnerActivation(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	mock.ExpectExec("SET lock_timeout = '100ms'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("SET statement_timeout = '120s'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectClose()
+	provisionCalls := 0
+	err = runQABoundaryCommand(
+		context.Background(),
+		[]string{"--qa-cutover-provision-only", "--confirm", qaCutoverProvisionConfirmation},
+		&bytes.Buffer{},
+		qaBoundaryDeps{
+			loadConfig: func() (*config.Config, error) {
+				return &config.Config{
+					Timezone: "UTC",
+					Database: config.DatabaseConfig{Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable"},
+				}, nil
+			},
+			openDB:            func(string, string) (*sql.DB, error) { return db, nil },
+			tryAdvisoryLock:   func(context.Context, *sql.Conn) (bool, error) { return true, nil },
+			unlockAdvisory:    func(context.Context, *sql.Conn) error { return nil },
+			singleOwnerActive: func(context.Context, *sql.DB) (bool, error) { return true, nil },
+			runProvision: func(context.Context, lifecycle.DB, lifecycle.Options) (lifecycle.ProvisionResult, error) {
+				provisionCalls++
+				return lifecycle.ProvisionResult{}, nil
+			},
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "single-owner") {
+		t.Fatalf("err=%v", err)
+	}
+	if provisionCalls != 0 {
+		t.Fatalf("provisionCalls=%d", provisionCalls)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestQABoundaryHeartbeatReportsProvisionLockRetries(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
 	if err != nil {
@@ -221,13 +285,14 @@ func TestQABoundaryHeartbeatReportsProvisionLockRetries(t *testing.T) {
 				Database: config.DatabaseConfig{Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable"},
 			}, nil
 		},
-		openDB:          func(string, string) (*sql.DB, error) { return db, nil },
-		tryAdvisoryLock: func(context.Context, *sql.Conn) (bool, error) { return true, nil },
-		unlockAdvisory:  func(context.Context, *sql.Conn) error { return nil },
-		runBoundary: func(context.Context, *sql.DB, lifecycle.ControlStore, lifecycle.Options) (lifecycle.BoundaryResult, error) {
-			return lifecycle.BoundaryResult{Provision: lifecycle.ProvisionResult{
+		openDB:            func(string, string) (*sql.DB, error) { return db, nil },
+		tryAdvisoryLock:   func(context.Context, *sql.Conn) (bool, error) { return true, nil },
+		unlockAdvisory:    func(context.Context, *sql.Conn) error { return nil },
+		singleOwnerActive: func(context.Context, *sql.DB) (bool, error) { return false, nil },
+		runProvision: func(context.Context, lifecycle.DB, lifecycle.Options) (lifecycle.ProvisionResult, error) {
+			return lifecycle.ProvisionResult{
 				HoursAhead: 72, RangesRequired: 72, RangesCovered: 72, Attempts: 3, LockRetries: 2,
-			}}, nil
+			}, nil
 		},
 		writeHeartbeat: func(_ context.Context, _ *sql.DB, input *service.OpsUpsertJobHeartbeatInput) error {
 			heartbeat = input
@@ -253,10 +318,52 @@ func TestQABoundaryHeartbeatReportsProvisionLockRetries(t *testing.T) {
 	}
 }
 
+func TestQABoundaryCommandRefusesAfterSingleOwnerActivation(t *testing.T) {
+	provisionCalls := 0
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectExec("SET lock_timeout = '100ms'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("SET statement_timeout = '120s'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectClose()
+	err = runQABoundaryCommand(
+		context.Background(),
+		[]string{"--qa-boundary-once", "--confirm", qaBoundaryConfirmation},
+		&bytes.Buffer{},
+		qaBoundaryDeps{
+			loadConfig: func() (*config.Config, error) {
+				return &config.Config{
+					Timezone: "UTC",
+					Database: config.DatabaseConfig{Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable"},
+				}, nil
+			},
+			openDB:            func(string, string) (*sql.DB, error) { return db, nil },
+			tryAdvisoryLock:   func(context.Context, *sql.Conn) (bool, error) { return true, nil },
+			unlockAdvisory:    func(context.Context, *sql.Conn) error { return nil },
+			singleOwnerActive: func(context.Context, *sql.DB) (bool, error) { return true, nil },
+			runProvision: func(context.Context, lifecycle.DB, lifecycle.Options) (lifecycle.ProvisionResult, error) {
+				provisionCalls++
+				return lifecycle.ProvisionResult{}, nil
+			},
+			writeHeartbeat: func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error { return nil },
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "single-owner") {
+		t.Fatalf("err=%v", err)
+	}
+	if provisionCalls != 0 {
+		t.Fatalf("provisionCalls=%d", provisionCalls)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestQABoundaryCommandRejectsCutoverPositionalArguments(t *testing.T) {
 	err := runQABoundaryCommand(
 		context.Background(),
-		[]string{"--qa-cutover-plan", "unexpected"},
+		[]string{"--qa-cutover-provision-only", "unexpected"},
 		&bytes.Buffer{},
 		qaBoundaryDeps{},
 	)

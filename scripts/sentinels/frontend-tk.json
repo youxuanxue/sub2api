@@ -34,30 +34,33 @@
       "rationale": "Single source of truth for TK sidebar geometry and admin-shell default zoom. AppSidebar.vue / AppLayout.vue import the sidebar constants so upstream-shaped layout files stay close to upstream; AdminShellView imports TK_ADMIN_UI_ZOOM for the ops default 80% scale. If either constant disappears, the import sites fail to compile (loud). The sentinel adds a second layer in case an upstream merge replaces the entire constants file."
     },
     {
-      "path": "frontend/src/composables/useTkExportPanel.ts",
+      "path": "frontend/src/composables/useTkQABundle.ts",
       "must_contain": [
-        "export function useTkExportPanel",
-        "qaTrajAPI.listExports",
-        "exportNow",
-        "async function download"
+        "export function useTkQABundle",
+        "qaBundleAPI.createBundle",
+        "qaBundleAPI.fetchPage",
+        "qaBundleAPI.createExport",
+        "qaBundleAPI.download"
       ],
-      "rationale": "TK-only composable owning the per-API-key conversation Export Panel flow (#792 follow-up): lists the key's persisted export jobs (qaTrajAPI.listExports -> GET /users/me/qa/traj/export/jobs), runs an on-demand export with poll-to-terminal (exportNow), and triggers the download. download() re-mints the presigned URL at click time via qaTrajAPI.getJob, because prod signs export URLs with the EC2 instance role's temporary credentials whose session token rotates within hours, so a URL captured when the panel loaded otherwise dies with S3 ExpiredToken on a later click. Keeps the upstream-shaped KeysView.vue thin (template + wiring) per CLAUDE.md section 5. Guards against silent upstream-merge deletion that would orphan the panel or revert the click-time re-mint."
+      "rationale": "Single frontend behavior owner for per-key S3 QA Bundle list, page hydration, selection, retry, and ZIP export. All user-visible QA reads and downloads must stay on Bundle/S3 APIs with no prod trajectory-export fallback; KeysView remains thin wiring."
     },
     {
-      "path": "frontend/src/components/keys/ExportPanel.vue",
+      "path": "frontend/src/components/keys/QABundlePanel.vue",
       "must_contain": [
-        "useTkExportPanel",
-        "keys.exportPanel.title"
+        "useTkQABundle",
+        "keys.qaBundle.title",
+        "qa.exportZip"
       ],
-      "rationale": "TK-only Export Panel modal (BaseDialog) opened from the API-key card's export action. Lists exports still inside their download TTL (so a redeploy/refresh no longer orphans the download - the bug this feature fixes), shows the last export time, and offers an immediate export. Thin template over useTkExportPanel; the two anchors pin the composable wiring + the i18n title so an upstream merge can't silently drop the modal."
+      "rationale": "Shared QA Bundle dialog renders the archived watermark, S3-backed record list/detail, retry state, and ZIP command over useTkQABundle. Losing it would remove the only supported user QA surface."
     },
     {
       "path": "frontend/src/views/user/KeysView.vue",
       "must_contain": [
         "openExportPanel",
-        "ExportPanel"
+        "QABundlePanel",
+        "canExportTraj && trajExportPlatforms.includes(row.group?.platform"
       ],
-      "rationale": "The injection point that mounts the Export Panel from the API-key card. KeysView.vue is a large upstream-shaped file; the export button calls openExportPanel(row) and the <ExportPanel> render sits beside <UseKeyModal>. An upstream merge that rewrites the key card or actions could silently drop the open handler or the render while compiling green, hiding the export feature - these anchors turn that backward-drift into a merge-gate failure (mirrors the useTkAccountTier / AccountTierModal pattern)."
+      "rationale": "The upstream-shaped API-key page only gates and mounts QABundlePanel. The admin-granted entitlement and server-driven platform allowlist must both remain at the entry point; Bundle service authorization repeats the same security boundary server-side."
     },
     {
       "path": "frontend/src/components/layout/AppSidebar.vue",
@@ -1523,20 +1526,14 @@
       "rationale": "TK-only Studio presentation/capability overlay. MEDIA_MODEL_PRESENTATIONS is NOT the membership or pricing SSOT; it holds UI metadata for currently public-served media models (friendly name, vendor label, supportedParams, aspect ratios, discrete durations). resolveAvailableModels(modality, availableIds, priceMap) is the priced∩servable runtime filter the model-card picker drives. Dropping these silently regresses the transparent model picker or, worse, lets an unservable/unpriced model surface as a 400-on-submit footgun. The explicit video model anchors keep Studio presentation aligned with backend/public catalog video SSOT: routed Seedance IDs are the doubao-* manifest/mapping IDs (no-prefix seedance is billing parity only). Grok Imagine Video and Veo stay out of this presentation set until an explicit paid gate proves them keep_displayed. supportedParams is the honest Advanced-panel capability gate — only params a model actually honors are rendered. IMAGEN_IMAGE_SIZES / SEEDREAM_IMAGE_SIZES / GEMINI_IMAGE_SIZES are the per-model aspect-ratio option sets: Imagen MUST send ratio codes {1:1,3:4,4:3,9:16,16:9} verbatim, Seedream MUST send pixel WxH, and GEMINI_IMAGE_SIZES carries the 10 prod-canary-verified (2026-06-17) gemini-native ratios that ride extra_body.google.image_config.aspect_ratio. Losing the imagen set reverts to the fixed-pixel preset that made the gemini/vertex adaptor emit 3:2/2:3, which Imagen hard-400s ('Invalid aspect ratio, 3:2'); losing the gemini set silently drops the restored aspect picker back to R-001's no-control state."
     },
     {
-      "path": "frontend/src/views/user/KeysView.vue",
+      "path": "frontend/src/api/qaBundle.ts",
       "must_contain": [
-        "canExportTraj && trajExportPlatforms.includes(row.group?.platform"
+        "qaBundleAPI",
+        "'/users/me/qa/bundles'",
+        "/users/me/qa/bundle-exports/",
+        "credentials: 'omit'"
       ],
-      "rationale": "PR #792/#808 + multi-platform: the per-key conversation-record (traj) Export chip is gated by BOTH the admin-granted per-user switch (canExportTraj) AND the server-driven projectable-platform allowlist (trajExportPlatforms, from /auth/me traj_export_platforms = engine.TrajProjectablePlatforms). The platform list is no longer hardcoded in the UI. KeysView.vue is upstream-shaped; a git merge that overwrites it back to upstream shape would silently drop the chip or its dual gate, exposing the export entry to every platform/user while still compiling."
-    },
-    {
-      "path": "frontend/src/api/qaTraj.ts",
-      "must_contain": [
-        "qaTrajAPI",
-        "format: 'v2'",
-        "api_key_id"
-      ],
-      "rationale": "PR #792: the TK-only conversation-export API client. qaTrajAPI.exportKey posts {api_key_id, format:'v2'} to the per-key self-export endpoint; an upstream merge replacing the api/ layer or dropping this module would silently sever the export wiring (KeysView import breaks loud, but a merge that rewrites both would not)."
+      "rationale": "The QA Bundle API client is the only frontend data path for QA list/detail/export. Page objects and ZIP artifacts use presigned S3 URLs without credentials; no legacy prod read/export/proxy endpoint may return."
     },
     {
       "path": "frontend/src/api/client.tk.ts",

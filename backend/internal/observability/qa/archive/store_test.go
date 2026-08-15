@@ -67,6 +67,22 @@ func TestMemoryObjectStoreConditionalReaderContract(t *testing.T) {
 	}
 }
 
+func TestMemoryObjectStorePreservesContentEncoding(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryObjectStore()
+	body := []byte("compressed")
+
+	if _, err := store.CreateWithOptions(ctx, "bundle/page.json.gz", bytes.NewReader(body), int64(len(body)), ObjectWriteOptions{
+		ContentType: "application/json", ContentEncoding: "gzip",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	meta, ok := store.Metadata("bundle/page.json.gz")
+	if !ok || meta.ContentType != "application/json" || meta.ContentEncoding != "gzip" {
+		t.Fatalf("metadata=%+v ok=%v", meta, ok)
+	}
+}
+
 func TestMemoryObjectStoreCreateDoesNotRequirePriorHead(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryObjectStore()
@@ -96,6 +112,10 @@ func (s *headTrackingStore) PutReader(ctx context.Context, key string, body io.R
 
 func (s *headTrackingStore) Create(ctx context.Context, key string, body io.Reader, size int64, contentType string) (ObjectInfo, error) {
 	return s.inner.Create(ctx, key, body, size, contentType)
+}
+
+func (s *headTrackingStore) CreateWithOptions(ctx context.Context, key string, body io.Reader, size int64, options ObjectWriteOptions) (ObjectInfo, error) {
+	return s.inner.CreateWithOptions(ctx, key, body, size, options)
 }
 
 func (s *headTrackingStore) CompareAndSwap(ctx context.Context, key, expectedETag string, body io.Reader, size int64, contentType string) (ObjectInfo, error) {

@@ -110,6 +110,16 @@ env_default() {
   fi
 }
 
+env_desired_or_default() {
+  local key="$1" desired="$2" supplied="$3" fallback="$4"
+  if [[ "${supplied}" = true ]]; then
+    env_set "${key}" "${desired}"
+    log "applied desired ${key}"
+  else
+    env_default "${key}" "${fallback}"
+  fi
+}
+
 backup_env() {
   local phase="$1" ts
   ts="$(date +%Y%m%d-%H%M%S)"
@@ -153,10 +163,12 @@ ensure_prod_defaults() {
 
   env_default TOKENKEY_GHCR_KEEP_TAGS 3
 
-  env_default QA_CAPTURE_EXPORT_STORAGE_DRIVER "${QA_CAPTURE_EXPORT_STORAGE_DRIVER:-s3}"
-  env_default QA_CAPTURE_EXPORT_STORAGE_REGION "${QA_CAPTURE_EXPORT_STORAGE_REGION:-us-east-1}"
-  env_default QA_CAPTURE_EXPORT_STORAGE_BUCKET "${QA_CAPTURE_EXPORT_STORAGE_BUCKET:-tokenkey-prod-qa-exports-682751977094}"
-  env_default QA_CAPTURE_EXPORT_STORAGE_PREFIX "${QA_CAPTURE_EXPORT_STORAGE_PREFIX:-traj-exports}"
+  env_desired_or_default QA_BUNDLE_ENABLED "${QA_BUNDLE_ENABLED:-}" "${QA_BUNDLE_ENABLED_SET:-false}" false
+  env_desired_or_default QA_BUNDLE_QUEUE_URL "${QA_BUNDLE_QUEUE_URL:-}" "${QA_BUNDLE_QUEUE_URL_SET:-false}" https://sqs.us-east-1.amazonaws.com/682751977094/tokenkey-prod-qa-bundle
+  env_desired_or_default QA_BUNDLE_STORAGE_DRIVER "${QA_BUNDLE_STORAGE_DRIVER:-}" "${QA_BUNDLE_STORAGE_DRIVER_SET:-false}" s3
+  env_desired_or_default QA_BUNDLE_STORAGE_REGION "${QA_BUNDLE_STORAGE_REGION:-}" "${QA_BUNDLE_STORAGE_REGION_SET:-false}" us-east-1
+  env_desired_or_default QA_BUNDLE_STORAGE_BUCKET "${QA_BUNDLE_STORAGE_BUCKET:-}" "${QA_BUNDLE_STORAGE_BUCKET_SET:-false}" tokenkey-prod-qa-bundles-682751977094
+  env_desired_or_default QA_BUNDLE_STORAGE_PREFIX "${QA_BUNDLE_STORAGE_PREFIX:-}" "${QA_BUNDLE_STORAGE_PREFIX_SET:-false}" user-qa
 
   # Target: ops/qa/policy.yaml prod.archive.enabled. Rollout gate default true
   # after Phase 2 recovery closeout: ops/qa/deploy_rollout.yaml (SSOT).
@@ -371,10 +383,12 @@ services:
       - TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS=${TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS:-150}
       - GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_CONCURRENCY_MIRROR_ENABLED=${GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_CONCURRENCY_MIRROR_ENABLED:-true}
       - GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED=${GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED:-false}
-      - QA_CAPTURE_EXPORT_STORAGE_DRIVER=${QA_CAPTURE_EXPORT_STORAGE_DRIVER:-}
-      - QA_CAPTURE_EXPORT_STORAGE_REGION=${QA_CAPTURE_EXPORT_STORAGE_REGION:-}
-      - QA_CAPTURE_EXPORT_STORAGE_BUCKET=${QA_CAPTURE_EXPORT_STORAGE_BUCKET:-}
-      - QA_CAPTURE_EXPORT_STORAGE_PREFIX=${QA_CAPTURE_EXPORT_STORAGE_PREFIX:-}
+      - QA_BUNDLE_ENABLED=${QA_BUNDLE_ENABLED:-}
+      - QA_BUNDLE_QUEUE_URL=${QA_BUNDLE_QUEUE_URL:-}
+      - QA_BUNDLE_STORAGE_DRIVER=${QA_BUNDLE_STORAGE_DRIVER:-}
+      - QA_BUNDLE_STORAGE_REGION=${QA_BUNDLE_STORAGE_REGION:-}
+      - QA_BUNDLE_STORAGE_BUCKET=${QA_BUNDLE_STORAGE_BUCKET:-}
+      - QA_BUNDLE_STORAGE_PREFIX=${QA_BUNDLE_STORAGE_PREFIX:-}
       - QA_ARCHIVE_ENABLED=${QA_ARCHIVE_ENABLED:-}
       - QA_ARCHIVE_STORAGE_DRIVER=${QA_ARCHIVE_STORAGE_DRIVER:-}
       - QA_ARCHIVE_STORAGE_REGION=${QA_ARCHIVE_STORAGE_REGION:-}
@@ -452,10 +466,12 @@ services:
       - TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS=${TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS:-150}
       - GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_CONCURRENCY_MIRROR_ENABLED=${GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_CONCURRENCY_MIRROR_ENABLED:-true}
       - GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED=${GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED:-false}
-      - QA_CAPTURE_EXPORT_STORAGE_DRIVER=${QA_CAPTURE_EXPORT_STORAGE_DRIVER:-}
-      - QA_CAPTURE_EXPORT_STORAGE_REGION=${QA_CAPTURE_EXPORT_STORAGE_REGION:-}
-      - QA_CAPTURE_EXPORT_STORAGE_BUCKET=${QA_CAPTURE_EXPORT_STORAGE_BUCKET:-}
-      - QA_CAPTURE_EXPORT_STORAGE_PREFIX=${QA_CAPTURE_EXPORT_STORAGE_PREFIX:-}
+      - QA_BUNDLE_ENABLED=${QA_BUNDLE_ENABLED:-}
+      - QA_BUNDLE_QUEUE_URL=${QA_BUNDLE_QUEUE_URL:-}
+      - QA_BUNDLE_STORAGE_DRIVER=${QA_BUNDLE_STORAGE_DRIVER:-}
+      - QA_BUNDLE_STORAGE_REGION=${QA_BUNDLE_STORAGE_REGION:-}
+      - QA_BUNDLE_STORAGE_BUCKET=${QA_BUNDLE_STORAGE_BUCKET:-}
+      - QA_BUNDLE_STORAGE_PREFIX=${QA_BUNDLE_STORAGE_PREFIX:-}
       - QA_ARCHIVE_ENABLED=${QA_ARCHIVE_ENABLED:-}
       - QA_ARCHIVE_STORAGE_DRIVER=${QA_ARCHIVE_STORAGE_DRIVER:-}
       - QA_ARCHIVE_STORAGE_REGION=${QA_ARCHIVE_STORAGE_REGION:-}
@@ -735,10 +751,18 @@ chunks_json="$(printf '%s' "${REMOTE_B64}" | fold -w 1000 | jq -R -s 'split("\n"
 jq -n \
   --arg tag "${TAG}" \
   --arg execution_timeout "${EXECUTION_TIMEOUT_SECONDS}" \
-  --arg qa_driver "${QA_CAPTURE_EXPORT_STORAGE_DRIVER:-s3}" \
-  --arg qa_region "${QA_CAPTURE_EXPORT_STORAGE_REGION:-us-east-1}" \
-  --arg qa_bucket "${QA_CAPTURE_EXPORT_STORAGE_BUCKET:-tokenkey-prod-qa-exports-682751977094}" \
-  --arg qa_prefix "${QA_CAPTURE_EXPORT_STORAGE_PREFIX:-traj-exports}" \
+  --arg qa_enabled "${QA_BUNDLE_ENABLED-}" \
+  --arg qa_queue_url "${QA_BUNDLE_QUEUE_URL-}" \
+  --arg qa_driver "${QA_BUNDLE_STORAGE_DRIVER-}" \
+  --arg qa_region "${QA_BUNDLE_STORAGE_REGION-}" \
+  --arg qa_bucket "${QA_BUNDLE_STORAGE_BUCKET-}" \
+  --arg qa_prefix "${QA_BUNDLE_STORAGE_PREFIX-}" \
+  --argjson qa_enabled_set "$([[ -n "${QA_BUNDLE_ENABLED+x}" ]] && echo true || echo false)" \
+  --argjson qa_queue_url_set "$([[ -n "${QA_BUNDLE_QUEUE_URL+x}" ]] && echo true || echo false)" \
+  --argjson qa_driver_set "$([[ -n "${QA_BUNDLE_STORAGE_DRIVER+x}" ]] && echo true || echo false)" \
+  --argjson qa_region_set "$([[ -n "${QA_BUNDLE_STORAGE_REGION+x}" ]] && echo true || echo false)" \
+  --argjson qa_bucket_set "$([[ -n "${QA_BUNDLE_STORAGE_BUCKET+x}" ]] && echo true || echo false)" \
+  --argjson qa_prefix_set "$([[ -n "${QA_BUNDLE_STORAGE_PREFIX+x}" ]] && echo true || echo false)" \
   --arg qa_archive_enabled "${QA_ARCHIVE_ENABLED:-true}" \
   --arg qa_archive_driver "${QA_ARCHIVE_STORAGE_DRIVER:-s3}" \
   --arg qa_archive_region "${QA_ARCHIVE_STORAGE_REGION:-us-east-1}" \
@@ -770,10 +794,18 @@ jq -n \
     "chmod 700 /tmp/tokenkey-bluegreen-deploy.sh",
     (
       "TAG=" + ($tag|@sh)
-      + " QA_CAPTURE_EXPORT_STORAGE_DRIVER=" + ($qa_driver|@sh)
-      + " QA_CAPTURE_EXPORT_STORAGE_REGION=" + ($qa_region|@sh)
-      + " QA_CAPTURE_EXPORT_STORAGE_BUCKET=" + ($qa_bucket|@sh)
-      + " QA_CAPTURE_EXPORT_STORAGE_PREFIX=" + ($qa_prefix|@sh)
+      + " QA_BUNDLE_ENABLED=" + ($qa_enabled|@sh)
+      + " QA_BUNDLE_ENABLED_SET=" + ($qa_enabled_set|tostring)
+      + " QA_BUNDLE_QUEUE_URL=" + ($qa_queue_url|@sh)
+      + " QA_BUNDLE_QUEUE_URL_SET=" + ($qa_queue_url_set|tostring)
+      + " QA_BUNDLE_STORAGE_DRIVER=" + ($qa_driver|@sh)
+      + " QA_BUNDLE_STORAGE_DRIVER_SET=" + ($qa_driver_set|tostring)
+      + " QA_BUNDLE_STORAGE_REGION=" + ($qa_region|@sh)
+      + " QA_BUNDLE_STORAGE_REGION_SET=" + ($qa_region_set|tostring)
+      + " QA_BUNDLE_STORAGE_BUCKET=" + ($qa_bucket|@sh)
+      + " QA_BUNDLE_STORAGE_BUCKET_SET=" + ($qa_bucket_set|tostring)
+      + " QA_BUNDLE_STORAGE_PREFIX=" + ($qa_prefix|@sh)
+      + " QA_BUNDLE_STORAGE_PREFIX_SET=" + ($qa_prefix_set|tostring)
       + " QA_ARCHIVE_ENABLED=" + ($qa_archive_enabled|@sh)
       + " QA_ARCHIVE_STORAGE_DRIVER=" + ($qa_archive_driver|@sh)
       + " QA_ARCHIVE_STORAGE_REGION=" + ($qa_archive_region|@sh)

@@ -15,7 +15,7 @@ machinery itself — this guard makes the drift fail closed:
      update; scripts/checks/* are covered by rule 1 since that dir also holds
      merge-topology helpers like skip-ci-marker.py that are NOT gate sentinels).
   3. The one merge-gate check that is a go test, not a script
-     (TestUS077_QAEvidenceDatasetCheck_), must appear in both files.
+     (TestUS044_QABundle), must appear in both files.
 
 Exit 0 = in sync; 1 = drift; 2 = environment failure.
 
@@ -33,7 +33,7 @@ REPO = Path(__file__).resolve().parents[2]
 MANIFEST = REPO / "scripts/sentinels/merge-gate-parity.json"
 PREFLIGHT = REPO / "scripts/preflight.sh"
 WORKFLOW = REPO / ".github/workflows/upstream-merge-pr-shape.yml"
-GO_TEST_TOKEN = "TestUS077_QAEvidenceDatasetCheck_"
+GO_TEST_TOKEN = "TestUS044_QABundle"
 SENTINEL_REF_RE = re.compile(r"scripts/sentinels/check-[A-Za-z0-9_-]+\.py")
 
 
@@ -67,7 +67,7 @@ def main() -> int:
                 "scripts/sentinels/merge-gate-parity.json (add it, and run it in preflight.sh too)"
             )
 
-    # Rule 3 — the QA-evidence go test is the one non-script merge-gate check.
+    # Rule 3 — the QA Bundle go test is the one non-script merge-gate check.
     if GO_TEST_TOKEN not in preflight_text:
         failures.append(f"{GO_TEST_TOKEN}: go test not found in scripts/preflight.sh")
     if GO_TEST_TOKEN not in workflow_text:

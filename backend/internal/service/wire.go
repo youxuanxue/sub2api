@@ -523,8 +523,10 @@ func ProvideOpsMetricsCollector(
 	db *sql.DB,
 	redisClient *redis.Client,
 	cfg *config.Config,
+	qaCaptureHealth QACaptureHealthSource,
 ) *OpsMetricsCollector {
 	collector := NewOpsMetricsCollector(opsRepo, settingRepo, accountRepo, concurrencyService, db, redisClient, cfg)
+	collector.qaCaptureHealth = qaCaptureHealth
 	collector.Start()
 	return collector
 }

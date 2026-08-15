@@ -11,6 +11,7 @@ import os
 import stat
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -33,9 +34,12 @@ class QAPhase2RunnerTest(unittest.TestCase):
         runtime = root / "run"
         data_root = root / "app"
         scratch = data_root / "qa_archive_tmp"
+        blob_root = data_root / "qa_blobs"
+        dlq_root = data_root / "qa_dlq"
+        ledger_root = data_root / "qa_capture_ledger"
         receipt = root / "qa-maintenance-last-run.json"
         systemd = root / "systemd"
-        for path in (fake_bin, runtime, data_root, scratch, systemd):
+        for path in (fake_bin, runtime, data_root, scratch, blob_root, dlq_root, ledger_root, systemd):
             path.mkdir(parents=True, exist_ok=True)
         scratch.chmod(0o700)
 
@@ -71,9 +75,31 @@ if [ "${1:-}" = run ]; then
     chmod 0600 "$TEST_SCRATCH/.qa-maintenance-selftest"
     exit 0
   fi
-  if [[ "$*" == *qa-maintenance-selftest-remove* ]]; then
-    rm -f -- "$TEST_SCRATCH/.qa-maintenance-selftest"
-    exit 0
+	  if [[ "$*" == *qa-maintenance-selftest-remove* ]]; then
+	    rm -f -- "$TEST_SCRATCH/.qa-maintenance-selftest"
+	    exit 0
+	  fi
+	  if [[ "$*" == *'--qa-single-owner-activate'* ]]; then
+	    run_id=""
+	    plan_hash=""
+	    for argument in "$@"; do
+	      case "$argument" in
+	        --env=QA_SINGLE_OWNER_ACTIVATION_RUN_ID=*)
+	          run_id="${argument#--env=QA_SINGLE_OWNER_ACTIVATION_RUN_ID=}"
+	          ;;
+	        --plan-hash=*) plan_hash="${argument#--plan-hash=}" ;;
+	      esac
+	    done
+	    ready="$TEST_ACTIVATION_DIR/$run_id.ready.json"
+	    ack="$TEST_ACTIVATION_DIR/$run_id.ack.json"
+	    printf '{"schema_version":"qa-single-owner-db-lock-ready-v1","run_id":"%s","nonce":"nonce-1","plan_hash":"%s","database_lock_acquired":true,"ready_at":"2026-08-15T10:00:00Z"}\n' "$run_id" "$plan_hash" > "$ready"
+	    deadline=$(( $(date +%s) + 3 ))
+	    while [ ! -f "$ack" ]; do
+	      [ "$(date +%s)" -lt "$deadline" ] || exit 61
+	      sleep 0.01
+	    done
+	    printf '{"ok":true,"phase":"single_owner_activate","run_id":"%s","plan_hash":"%s","t0_utc":"2026-08-15T10:00:00Z","activated_at":"2026-08-15T10:00:01Z"}\n' "$run_id" "$plan_hash"
+	    exit 0
 	  fi
 	  if [[ "$*" == *'/app/sub2api'* ]]; then
 	    if [ -n "${TEST_CHILD_STDERR:-}" ]; then
@@ -121,6 +147,9 @@ esac
             encoding="utf-8",
         )
         fake_stat.chmod(0o755)
+        fake_flock = fake_bin / "flock"
+        fake_flock.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        fake_flock.chmod(0o755)
         child = {
             "receipt_version": 2,
             "mode": "qa_maintenance_archive",
@@ -156,6 +185,7 @@ esac
             "QA_MAINTENANCE_HOST_SCRATCH": str(scratch),
             "QA_MAINTENANCE_RECEIPT": str(receipt),
             "QA_MAINTENANCE_SYSTEMD_DIR": str(systemd),
+            "QA_LIFECYCLE_LOCK_FILE": str(root / "qa-lifecycle.lock"),
             "TEST_DOCKER_LOG": str(docker_log),
             "TEST_DATA_ROOT": str(data_root),
             "TEST_MOUNT_FACT": f"bind|{data_root}|true",
@@ -177,6 +207,120 @@ esac
             ),
         }
         return env, receipt, docker_log, scratch, systemd
+
+    def _install_activation_host_fakes(self, root: Path, env: dict[str, str]) -> Path:
+        fake_bin = root / "bin"
+        systemctl_log = root / "systemctl.log"
+        systemctl = fake_bin / "systemctl"
+        systemctl.write_text(
+            """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$TEST_SYSTEMCTL_LOG"
+case "$*" in
+  "disable --now tokenkey-qa-boundary.timer") exit 0 ;;
+  "is-enabled tokenkey-qa-boundary.timer") printf 'disabled\n'; exit 1 ;;
+  "is-active tokenkey-qa-boundary.timer") printf 'inactive\n'; exit 3 ;;
+  "is-active tokenkey-qa-boundary.service")
+    count=0
+    [ ! -f "$TEST_SERVICE_POLLS" ] || count="$(cat "$TEST_SERVICE_POLLS")"
+    count=$((count + 1))
+    printf '%s\n' "$count" > "$TEST_SERVICE_POLLS"
+    if [ "$count" -le "${TEST_SERVICE_ACTIVE_POLLS:-0}" ]; then
+      printf 'active\n'; exit 0
+    fi
+    printf 'inactive\n'; exit 3 ;;
+esac
+exit 9
+""",
+            encoding="utf-8",
+        )
+        systemctl.chmod(0o755)
+        flock = fake_bin / "flock"
+        flock.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        flock.chmod(0o755)
+        activation_dir = root / "activation"
+        activation_dir.mkdir(mode=0o700)
+        env.update(
+            {
+                "QA_SINGLE_OWNER_ACTIVATION_DIR": str(activation_dir),
+                "QA_SINGLE_OWNER_DRAIN_TIMEOUT_SECONDS": "2",
+                "QA_LIFECYCLE_LOCK_FILE": str(root / "qa-lifecycle.lock"),
+                "TEST_ACTIVATION_DIR": str(activation_dir),
+                "TEST_SYSTEMCTL_LOG": str(systemctl_log),
+                "TEST_SERVICE_POLLS": str(root / "service-polls"),
+                "TEST_SERVICE_ACTIVE_POLLS": "1",
+            }
+        )
+        return systemctl_log
+
+    def test_phase3_activation_drains_boundary_and_commits_without_manual_maintenance(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            env, _, docker_log, _, _ = self._sandbox(root)
+            systemctl_log = self._install_activation_host_fakes(root, env)
+            plan_hash = "a" * 64
+
+            proc = subprocess.run(
+                [
+                    "bash",
+                    str(RUNNER),
+                    "--activate-single-owner",
+                    f"--plan-hash={plan_hash}",
+                    f"--confirm=tokenkey-prod-qa-single-owner-activate-v1:{plan_hash}",
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(proc.returncode, 0, (proc.stdout, proc.stderr))
+            receipt = json.loads(proc.stdout.strip().splitlines()[-1])
+            self.assertTrue(receipt["ok"])
+            self.assertEqual(receipt["plan_hash"], plan_hash)
+            calls = systemctl_log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(calls[0], "disable --now tokenkey-qa-boundary.timer")
+            self.assertIn("is-active tokenkey-qa-boundary.service", calls)
+            self.assertFalse(any(call.startswith(("stop ", "kill ", "enable ")) for call in calls))
+            docker_calls = docker_log.read_text(encoding="utf-8")
+            self.assertIn("--qa-single-owner-activate", docker_calls)
+            self.assertNotIn("--qa-maintenance-once", docker_calls)
+            ack_files = list(Path(env["TEST_ACTIVATION_DIR"]).glob("*.ack.json"))
+            self.assertEqual(len(ack_files), 1)
+            ack = json.loads(ack_files[0].read_text(encoding="utf-8"))
+            self.assertEqual(ack["nonce"], "nonce-1")
+            self.assertFalse(ack["boundary_service_active"])
+
+    def test_phase3_activation_drain_timeout_never_forces_or_reenables_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            env, _, docker_log, _, _ = self._sandbox(root)
+            systemctl_log = self._install_activation_host_fakes(root, env)
+            env["QA_SINGLE_OWNER_DRAIN_TIMEOUT_SECONDS"] = "1"
+            env["TEST_SERVICE_ACTIVE_POLLS"] = "999"
+            plan_hash = "b" * 64
+
+            proc = subprocess.run(
+                [
+                    "bash",
+                    str(RUNNER),
+                    "--activate-single-owner",
+                    f"--plan-hash={plan_hash}",
+                    f"--confirm=tokenkey-prod-qa-single-owner-activate-v1:{plan_hash}",
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(proc.returncode, 0, (proc.stdout, proc.stderr))
+            self.assertTrue(systemctl_log.exists(), (proc.stdout, proc.stderr))
+            calls = systemctl_log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(calls[0], "disable --now tokenkey-qa-boundary.timer")
+            self.assertFalse(any(call.startswith(("stop ", "kill ", "enable ")) for call in calls))
+            docker_calls = docker_log.read_text(encoding="utf-8") if docker_log.exists() else ""
+            self.assertNotIn("--qa-single-owner-activate", docker_calls)
 
     def test_us045_selftest_uses_real_image_user_and_mount_for_create_read_remove(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -238,6 +382,9 @@ esac
                 "--pids-limit=128",
                 "--network=container:tokenkey-green",
                 f"{env['TEST_DATA_ROOT']}:/app/data:ro",
+                f"{env['TEST_DATA_ROOT']}/qa_blobs:/app/data/qa_blobs:rw",
+                f"{env['TEST_DATA_ROOT']}/qa_dlq:/app/data/qa_dlq:rw",
+                f"{env['TEST_DATA_ROOT']}/qa_capture_ledger:/app/data/qa_capture_ledger:ro",
                 f"{scratch}:/app/data/qa_archive_tmp:rw",
                 "QA_MAINTENANCE_RUN_ID=",
                 "QA_MAINTENANCE_TRIGGER=operator",
@@ -245,6 +392,34 @@ esac
             ):
                 self.assertIn(expected, calls)
             self.assertNotIn("--volumes-from", calls)
+
+    def test_phase3_runner_preserves_archive_gated_deletion_authorization(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env, receipt, _, _, _ = self._sandbox(Path(temp_dir))
+            child = json.loads(env["TEST_CHILD_JSON"])
+            child["deletion_authorized"] = True
+            child["normal_drop"] = {
+                "partition_name": "qa_records_20260808_20",
+                "source_dropped_at": "2026-08-08T21:16:00Z",
+                "hot_files_cleaned": True,
+            }
+            env["TEST_CHILD_JSON"] = json.dumps(child, separators=(",", ":"))
+
+            proc = subprocess.run(
+                ["bash", str(RUNNER), "--trigger=operator"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(proc.returncode, 0, (proc.stdout, proc.stderr))
+            payload = json.loads(receipt.read_text(encoding="utf-8"))
+            self.assertIs(payload["deletion_authorized"], True)
+            self.assertEqual(
+                payload["normal_drop"]["partition_name"],
+                "qa_records_20260808_20",
+            )
 
     def test_us045_runner_records_child_and_pre_app_failures(self) -> None:
         for name, image, child_rc, expected_code, expected_child in (
@@ -460,6 +635,22 @@ esac
                 "PrivateTmp=true",
             ):
                 self.assertIn(line, service)
+
+    def test_phase3_unit_install_is_content_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env, _, _, _, systemd = self._sandbox(Path(temp_dir))
+            command = ["bash", str(RUNNER), "--install-units"]
+            first = subprocess.run(command, env=env, capture_output=True, text=True, check=False)
+            self.assertEqual(first.returncode, 0, (first.stdout, first.stderr))
+            service = systemd / "tokenkey-qa-maintenance.service"
+            timer = systemd / "tokenkey-qa-maintenance.timer"
+            before = (service.stat().st_mtime_ns, timer.stat().st_mtime_ns)
+            time.sleep(0.02)
+
+            second = subprocess.run(command, env=env, capture_output=True, text=True, check=False)
+
+            self.assertEqual(second.returncode, 0, (second.stdout, second.stderr))
+            self.assertEqual(before, (service.stat().st_mtime_ns, timer.stat().st_mtime_ns))
 
     def test_us045_archive_restore_accepts_only_the_isolated_owned_root(self) -> None:
         for name, prepare, expected_code in (

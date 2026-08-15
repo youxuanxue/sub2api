@@ -88,6 +88,30 @@ class DeployStage0WorkflowTest(unittest.TestCase):
             2,
         )
 
+    def test_bundle_desired_state_is_shared_by_deploy_and_live_host_assertion(self) -> None:
+        deploy = job_block("deploy")
+        desired = {
+            "QA_BUNDLE_ENABLED": "false",
+            "QA_BUNDLE_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/682751977094/tokenkey-prod-qa-bundle",
+            "QA_BUNDLE_STORAGE_DRIVER": "s3",
+            "QA_BUNDLE_STORAGE_REGION": "us-east-1",
+            "QA_BUNDLE_STORAGE_BUCKET": "tokenkey-prod-qa-bundles-682751977094",
+            "QA_BUNDLE_STORAGE_PREFIX": "user-qa",
+        }
+        for key, value in desired.items():
+            with self.subTest(key=key):
+                self.assertEqual(deploy.count(f"{key}: \"{value}\""), 1)
+
+        deploy_step = deploy[deploy.index("- name: Deploy via SSM Run-Command"):deploy.index("- name: External health check")]
+        for key in desired:
+            with self.subTest(deploy_key=key):
+                self.assertIn(f"{key}: ${{{{ env.{key} }}}}", deploy_step)
+
+        assertion = deploy[deploy.index("- name: Assert live-host state (drift check)"):]
+        expect_env = ",".join(f"{key}=${{{{ env.{key} }}}}" for key in desired)
+        self.assertIn(f"EXPECT_ENV: {expect_env}", assertion)
+        self.assertIn("assert-live-host-state.sh", assertion)
+
     def test_smoke_only_job_is_read_only_and_uses_prod_environment(self) -> None:
         smoke = job_block("smoke-only")
         self.assertIn("if: inputs.operation == 'smoke-only'", smoke)

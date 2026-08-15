@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUS044_RegisterTKUserDualAuthRoutes_OnlyTrajectoryExportRemains(t *testing.T) {
+func TestRegisterTKUserDualAuthRoutes_OnlyS3QABundleSurfaceRemains(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	v1 := r.Group("/api/v1")
@@ -21,14 +21,18 @@ func TestUS044_RegisterTKUserDualAuthRoutes_OnlyTrajectoryExportRemains(t *testi
 	for _, removed := range []routePath{
 		{"POST", "/api/v1/users/me/qa/export"},
 		{"GET", "/api/v1/users/me/qa/exports/*key"},
-	} {
-		require.Falsef(t, got[removed], "retired QA self-export route is still registered: %s %s", removed.method, removed.path)
-	}
-	for _, kept := range []routePath{
 		{"POST", "/api/v1/users/me/qa/traj/export"},
 		{"GET", "/api/v1/users/me/qa/traj/export/jobs"},
 		{"GET", "/api/v1/users/me/qa/traj/export/jobs/:job_id"},
 		{"GET", "/api/v1/users/me/qa/traj/exports/*key"},
+	} {
+		require.Falsef(t, got[removed], "retired QA self-export route is still registered: %s %s", removed.method, removed.path)
+	}
+	for _, kept := range []routePath{
+		{"POST", "/api/v1/users/me/qa/bundles"},
+		{"GET", "/api/v1/users/me/qa/bundles/:job_id"},
+		{"POST", "/api/v1/users/me/qa/bundles/:job_id/export"},
+		{"GET", "/api/v1/users/me/qa/bundle-exports/:job_id"},
 	} {
 		require.Truef(t, got[kept], "trajectory export route missing: %s %s", kept.method, kept.path)
 	}

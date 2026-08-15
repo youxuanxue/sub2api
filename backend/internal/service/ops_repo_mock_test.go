@@ -15,6 +15,7 @@ type opsRepoMock struct {
 	InsertSystemLogCleanupAuditFn    func(ctx context.Context, input *OpsSystemLogCleanupAudit) error
 	LookupDeletedKeyAuditFn          func(ctx context.Context, key string) (*DeletedKeyAuditResult, error)
 	UpdateAlertEventFeishuDeliveryFn func(ctx context.Context, eventID int64, phase string, sent bool, status string, errMessage string, sentAt *time.Time) error
+	UpsertJobHeartbeatFn             func(ctx context.Context, input *OpsUpsertJobHeartbeatInput) error
 }
 
 func (m *opsRepoMock) InsertErrorLog(ctx context.Context, input *OpsInsertErrorLogInput) (int64, error) {
@@ -144,6 +145,9 @@ func (m *opsRepoMock) GetLatestSystemMetrics(ctx context.Context, windowMinutes 
 }
 
 func (m *opsRepoMock) UpsertJobHeartbeat(ctx context.Context, input *OpsUpsertJobHeartbeatInput) error {
+	if m.UpsertJobHeartbeatFn != nil {
+		return m.UpsertJobHeartbeatFn(ctx, input)
+	}
 	return nil
 }
 

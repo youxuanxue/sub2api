@@ -44,6 +44,33 @@ Parameters:
     Default: qa-raw-archive
     AllowedPattern: '^[A-Za-z0-9!_.*()/=-]+$'
     Description: Prefix in the dedicated audit bucket for this trail.
+  BundleRetentionDays:
+    Type: Number
+    Default: 2
+    MinValue: 1
+    MaxValue: 7
+    Description: Days to retain short-lived user QA Bundle job surfaces.
+  BundleBrowserAllowedOrigin:
+    Type: String
+    AllowedPattern: '^https://[A-Za-z0-9][A-Za-z0-9.-]*(?::[0-9]{1,5})?$'
+    Description: Exact HTTPS browser origin allowed to GET/HEAD presigned QA Bundle objects.
+  BundleWorkerImage:
+    Type: String
+    Description: Immutable private GHCR release tag or sha256 digest containing the worker command.
+  BundleWorkerRepositoryCredentialsSecretArn:
+    Type: String
+    NoEcho: true
+    AllowedPattern: '^arn:[a-z0-9-]+:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+$'
+    Description: Secrets Manager ARN holding Docker registry credentials for private GHCR pulls.
+  BundleWorkerPublicSubnetIds:
+    Type: CommaDelimitedList
+    Description: Public subnet IDs in the supplied Stage0 VPC for the outbound-only Fargate worker.
+  BundleWorkerDesiredCount:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    MaxValue: 4
+    Description: Fail-safe worker activation count. Keep zero until an approved dark deploy.
 
 Resources:
   QaRawArchiveRecoveryRole:
@@ -343,6 +370,295 @@ Resources:
               Values:
                 - !Sub '${QaRawArchiveBucket.Arn}/raw/'
 
+  QaBundleBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-qa-bundles-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+              - HEAD
+            AllowedOrigins:
+              - !Ref BundleBrowserAllowedOrigin
+            ExposedHeaders:
+              - ETag
+              - Content-Encoding
+              - Content-Length
+            MaxAge: 300
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-qa-bundle-job-surfaces
+            Status: Enabled
+            Prefix: user-qa/qa-bundles/v1/jobs/
+            ExpirationInDays: !Ref BundleRetentionDays
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+  QaBundleBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref QaBundleBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt QaBundleBucket.Arn
+              - !Sub '${QaBundleBucket.Arn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+          - Sid: DenyLightsailEdgeRole
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt QaBundleBucket.Arn
+              - !Sub '${QaBundleBucket.Arn}/*'
+            Condition:
+              ArnEquals:
+                'aws:PrincipalArn': !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid'
+          - Sid: AllowAppInstanceRoleCreateScopedBundleJobs
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action: 's3:PutObject'
+            Resource: !Sub '${QaBundleBucket.Arn}/user-qa/qa-bundles/v1/jobs/*/spec.json'
+          - Sid: AllowAppInstanceRoleReadScopedBundleArtifacts
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action: 's3:GetObject'
+            Resource:
+              - !Sub '${QaBundleBucket.Arn}/user-qa/qa-bundles/v1/jobs/*/spec.json'
+              - !Sub '${QaBundleBucket.Arn}/user-qa/qa-bundles/v1/jobs/*/receipt.json'
+              - !Sub '${QaBundleBucket.Arn}/user-qa/qa-bundles/v1/jobs/*/failure.json'
+              - !Sub '${QaBundleBucket.Arn}/user-qa/qa-bundles/v1/jobs/*/generation/manifest.json'
+              - !Sub '${QaBundleBucket.Arn}/user-qa/qa-bundles/v1/jobs/*/generation/pages/*.json.gz'
+              - !Sub '${QaBundleBucket.Arn}/user-qa/qa-bundles/v1/jobs/*/export.zip'
+          - Sid: AllowAppInstanceRoleListScopedBundleJobs
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action: 's3:ListBucket'
+            Resource: !GetAtt QaBundleBucket.Arn
+            Condition:
+              StringLike:
+                's3:prefix':
+                  - user-qa/qa-bundles/v1/jobs/*
+
+  QaBundleDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-qa-bundle-dlq'
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  QaBundleQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-qa-bundle'
+      VisibilityTimeout: 3600
+      MessageRetentionPeriod: 345600
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt QaBundleDeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  QaBundleQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref QaBundleQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowAppInstanceRoleSendBundleJobs
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action: 'sqs:SendMessage'
+            Resource: !GetAtt QaBundleQueue.Arn
+
+  QaBundleWorkerExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: qa-bundle-ghcr-repository-credentials
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadPrivateGhcrRepositoryCredentials
+                Effect: Allow
+                Action: 'secretsmanager:GetSecretValue'
+                Resource: !Ref BundleWorkerRepositoryCredentialsSecretArn
+
+  QaBundleWorkerTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: qa-bundle-worker-surfaces
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadRawArchive
+                Effect: Allow
+                Action: 's3:GetObject'
+                Resource: !Sub '${QaRawArchiveBucket.Arn}/raw/v1/*'
+              - Sid: DecryptRawArchive
+                Effect: Allow
+                Action: 'kms:Decrypt'
+                Resource: !GetAtt QaRawArchiveKey.Arn
+                Condition:
+                  StringEquals:
+                    kms:ViaService: !Sub 's3.${AWS::Region}.amazonaws.com'
+              - Sid: WriteBundleJobSurface
+                Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:PutObject'
+                Resource: !Sub '${QaBundleBucket.Arn}/user-qa/qa-bundles/v1/jobs/*'
+              - Sid: ListBundleJobSurface
+                Effect: Allow
+                Action: 's3:ListBucket'
+                Resource: !GetAtt QaBundleBucket.Arn
+                Condition:
+                  StringLike:
+                    's3:prefix':
+                      - user-qa/qa-bundles/v1/jobs/*
+              - Sid: ConsumeBundleQueue
+                Effect: Allow
+                Action:
+                  - 'sqs:DeleteMessage'
+                  - 'sqs:GetQueueAttributes'
+                  - 'sqs:ReceiveMessage'
+                Resource: !GetAtt QaBundleQueue.Arn
+
+  QaBundleWorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub '/tokenkey/${ProjectName}-${Environment}/qa-bundle-worker'
+      RetentionInDays: 14
+
+  QaBundleWorkerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Outbound-only network boundary for the QA Bundle Fargate worker.
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+
+  QaBundleWorkerCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub '${ProjectName}-${Environment}-qa-bundle'
+
+  QaBundleWorkerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${ProjectName}-${Environment}-qa-bundle-worker'
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      Cpu: '512'
+      Memory: '1024'
+      ExecutionRoleArn: !GetAtt QaBundleWorkerExecutionRole.Arn
+      TaskRoleArn: !GetAtt QaBundleWorkerTaskRole.Arn
+      ContainerDefinitions:
+        - Name: qa-bundle-worker
+          Image: !Ref BundleWorkerImage
+          Command:
+            - --qa-bundle-worker
+          Essential: true
+          RepositoryCredentials:
+            CredentialsParameter: !Ref BundleWorkerRepositoryCredentialsSecretArn
+          Environment:
+            - Name: QA_BUNDLE_ENABLED
+              Value: 'true'
+            - Name: QA_BUNDLE_QUEUE_URL
+              Value: !Ref QaBundleQueue
+            - Name: QA_BUNDLE_STORAGE_DRIVER
+              Value: s3
+            - Name: QA_BUNDLE_STORAGE_REGION
+              Value: !Ref AWS::Region
+            - Name: QA_BUNDLE_STORAGE_BUCKET
+              Value: !Ref QaBundleBucket
+            - Name: QA_BUNDLE_STORAGE_PREFIX
+              Value: user-qa
+            - Name: QA_ARCHIVE_ENABLED
+              Value: 'true'
+            - Name: QA_ARCHIVE_STORAGE_DRIVER
+              Value: s3
+            - Name: QA_ARCHIVE_STORAGE_REGION
+              Value: !Ref AWS::Region
+            - Name: QA_ARCHIVE_STORAGE_BUCKET
+              Value: !Ref QaRawArchiveBucket
+            - Name: QA_ARCHIVE_STORAGE_PREFIX
+              Value: raw/v1
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref QaBundleWorkerLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: worker
+
+  QaBundleWorkerService:
+    Type: AWS::ECS::Service
+    DependsOn: QaBundleQueuePolicy
+    Properties:
+      ServiceName: !Sub '${ProjectName}-${Environment}-qa-bundle-worker'
+      Cluster: !Ref QaBundleWorkerCluster
+      TaskDefinition: !Ref QaBundleWorkerTaskDefinition
+      DesiredCount: !Ref BundleWorkerDesiredCount
+      LaunchType: FARGATE
+      EnableExecuteCommand: false
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: !Ref BundleWorkerPublicSubnetIds
+          SecurityGroups:
+            - !GetAtt QaBundleWorkerSecurityGroup.GroupId
+
 Outputs:
   QaRawArchiveBucketName:
     Description: Prod QA raw archive bucket (7d committed / 1d partial lifecycle)
@@ -361,3 +677,12 @@ Outputs:
     Value: !Ref QaRawArchiveS3Endpoint
   QaRawArchiveDataTrailArn:
     Value: !GetAtt QaRawArchiveDataTrail.Arn
+  QaBundleBucketName:
+    Description: Private short-lifecycle user QA Bundle bucket.
+    Value: !Ref QaBundleBucket
+  QaBundleQueueUrl:
+    Description: QA Bundle worker SQS queue URL.
+    Value: !Ref QaBundleQueue
+  QaBundleWorkerServiceName:
+    Description: Parameterized, fail-safe QA Bundle Fargate worker service.
+    Value: !GetAtt QaBundleWorkerService.Name
