@@ -7,13 +7,19 @@
   作为 **TokenKey 用户与生产运维者**，我希望 **QA 生命周期只由一个 approved SSOT 管理，用户只通过受授权的 API-key trajectory export 导出最近 24 小时数据**，**以便** 旧 archive/purge/self-export 路径不能绕过授权、扩大窗口、在 prod 执行无界操作或重新制造多套 retention 语义。
 - Trace:
   - 设计锚点：`docs/approved/design-prod-qa-24h-s3-lifecycle.md`
-  - 唯一用户导出：`/api/v1/users/me/qa/traj/*`
+  - 已实现导出基线：`/api/v1/users/me/qa/traj/*`
   - 机械门禁：`scripts/checks/qa-lifecycle-ssot.py`
+
+## Scope Boundary
+
+- 本 Story 只记录已实现的 prod trajectory export 基线，不定义最终用户读取路径。
+- 未来 S3-only list/detail/export 目标只由主 QA 设计定义；当前 prod route 和测试不能覆盖该目标。
+
 - Risk Focus:
   - 逻辑错误：per-key 导出重新读取全部 retained history，或通用 data-layer 工具重新接管 QA。
   - 行为回归：普通 `/users/me/qa/export`、daily auto-export 或 destructive purge 被重新注册。
   - 安全问题：仅靠 UI 隐藏，伪造请求绕过 `traj_export_enabled`、key ownership 或 projectable-platform 检查。
-  - 运行时问题：在 prod 构建/下载大文件的临时兼容路径被扩展；本 Story 只收窄当前路径，Phase 3 再原子迁往 Fargate。
+  - 运行时问题：已实现基线中的 prod 大文件构建/下载路径被扩展，或被误写成未来 S3-only 目标。
 
 ## Acceptance Criteria
 
@@ -30,7 +36,7 @@
 - projectable platform allowlist 直接读取 `engine.TrajProjectablePlatforms()`，不得复制列表。
 - synth 字段继续 capture/project，但不能作为绕过 24 小时窗口的导出 selector。
 - 用户 ZIP bucket、raw QA bucket、generic usage/ops archive bucket 与 pgdump bucket边界分离。
-- 本 Story 不启用 AWS 资源、不部署、不清理线上 QA；后续 Phase 仍需各自审批和验证。
+- 本 Story 不启用 AWS 资源、不部署、不清理线上 QA，也不验收未来 S3-only 用户面。
 
 ## Linked Tests
 
@@ -67,4 +73,4 @@ pnpm exec vitest run src/api/__tests__/qaTraj.spec.ts src/composables/__tests__/
 
 ## Status
 
-- [x] Done — 当前收敛范围已由行为测试、SSOT sentinel 和 preflight 验证；后续生产 Phase 仍按 approved 设计独立审批。
+- [x] Done — 已实现的 prod trajectory export 基线由行为测试、SSOT sentinel 和 preflight 验证；未来目标由主 QA 设计验收。

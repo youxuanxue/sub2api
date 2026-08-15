@@ -8,9 +8,15 @@
 - Trace:
   - 长期设计：`docs/approved/design-prod-qa-24h-s3-lifecycle.md`
   - Phase 2 收口：`docs/approved/design-qa-phase2-archive-closeout.md`
+
+## Scope Boundary
+
+- 本 Story 只记录已实现的双 timer 固定时龄删除基线及其生产证据。
+- 未来 archive-gated DROP 与 single maintenance owner 只由主 QA 设计定义；本 Story 的 AC/test 不得覆盖它。
+
 - Risk Focus:
   - 逻辑错误：cutover 指向非 `committed`、未 restore-verified 或非批准小时；normal 失败后仍补偿；保留期后无 source 的小时被写成空成功。
-  - 行为回归：任意窗口 `repair-apply`、历史 backfill、move/unset cutover、第二 catchup owner 或 archive-gated stale cleanup 被重新引入。
+  - 行为回归：任意窗口 `repair-apply`、历史 backfill、move/unset cutover、第二 catchup owner 被重新引入，或 Phase 2 固定时龄删除被误写成未来目标。
   - 安全问题：共享 EC2 role 被误报为进程隔离；app 获得 raw bucket 无界 list/read；恢复正文绕过显式隐私确认或从 prod 回源。
   - 运行时问题：timer/operator 使用不同 image、UID/GID、mount、scratch 或资源限制；host receipt、DB heartbeat 与 control state 矛盾时仍报告健康；export 临时文件清理发生竞态或计划漂移；`qa_records` UTC 小时分区缺口、过期分区未 DROP、DEFAULT 稳态残留或 hot-file 清理未完成。
 
@@ -169,4 +175,4 @@ python3 .testing/user-stories/verify_quality.py
 
 ## Status
 
-- [x] InTest — 仓库实现、本地行为测试、PostgreSQL testcontainer integration 与 2026-08-14 production recloseout 已完成；本 PR 未写线上服务，新增 bounded lock retry 及其 receipt/heartbeat 字段仍须在合并发版后通过真实调度观测，届时再将 `retry_release_observation` 更新为 `verified`。
+- [x] InTest — Phase 2 仓库实现、本地行为测试、PostgreSQL testcontainer integration 与 2026-08-14 production recloseout 已完成；本 Story 不声明未来 archive-gated lifecycle 已实现。本 PR 未写线上服务，新增 bounded lock retry 及其 receipt/heartbeat 字段仍须在合并发版后通过真实调度观测，届时再将 `retry_release_observation` 更新为 `verified`。

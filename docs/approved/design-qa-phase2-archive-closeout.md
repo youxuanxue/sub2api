@@ -16,13 +16,14 @@ related:
 > **Scope boundary after the 2026-08-15 approval:** this document preserves the implemented
 > Phase 2 archive, recovery, historical-gap, no-rehome cutover, and production evidence contract.
 > It does not own the next runtime target. The primary QA design now exclusively owns
-> S3-only user list/detail/export, `qa_capture` hard-health, archive-gated partition DROP,
+> S3-only user list/detail/export, durable capture ledger, archive-gated partition DROP,
 > the single `tokenkey-qa-maintenance` lifecycle owner, retirement of the independent boundary
 > timer, and removal of automatic destructive emergency cleanup. That target additionally requires
-> a durable target-hour capture seal before DROP, lazy ZIP construction from a committed Bundle,
+> server-assigned production capture time, a durable target-hour seal before DROP, bounded
+> full-record Bundle pages with no `records/*` layer, lazy ZIP construction from those pages,
 > and a fail-closed ordered owner handoff whose final step is the single-owner activation receipt.
-> Present-tense descriptions
-> below of the two-timer 24-to-25-hour Phase 2 runtime describe the migration baseline until
+> Present-tense descriptions below of the two-timer 24-to-25-hour Phase 2 runtime describe the
+> migration baseline until
 > that separately implemented and approved activation; they cannot override the primary design.
 
 ## Purpose

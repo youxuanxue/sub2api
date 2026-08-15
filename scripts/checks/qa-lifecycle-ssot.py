@@ -15,6 +15,15 @@ PHASE2_DESIGN = Path("docs/approved/design-qa-phase2-archive-closeout.md")
 PHASE2_STORY = Path(
     ".testing/user-stories/stories/US-045-qa-phase2-production-integrity.md"
 )
+USER_EXPORT_STORY = Path(
+    ".testing/user-stories/stories/US-044-qa-lifecycle-single-owner-and-export-contract.md"
+)
+US044_BASELINE_ANCHOR = "本 Story 只记录已实现的 prod trajectory export 基线"
+US044_TARGET_ANCHOR = "未来 S3-only list/detail/export 目标只由主 QA 设计定义"
+US045_BASELINE_ANCHOR = "本 Story 只记录已实现的双 timer 固定时龄删除基线"
+US045_TARGET_ANCHOR = "未来 archive-gated DROP 与 single maintenance owner 只由主 QA 设计定义"
+US044_OBSOLETE_TARGET = "本 Story 只收窄当前路径，Phase 3 再原子迁往 Fargate"
+US045_OBSOLETE_TARGET = "archive-gated stale cleanup 被重新引入"
 POLICY = Path("ops/qa/policy.yaml")
 MAINTENANCE_SCRIPT = Path("deploy/aws/stage0/tokenkey-qa-maintenance.sh")
 BOUNDARY_SCRIPT = Path("deploy/aws/stage0/tokenkey-qa-boundary.sh")
@@ -68,9 +77,13 @@ MUST_BE_ABSENT = (
 )
 
 FORBIDDEN_BY_FILE = {
+    USER_EXPORT_STORY: (
+        US044_OBSOLETE_TARGET,
+    ),
     PHASE2_STORY: (
         "不表示生产 schema、IAM、timer、恢复或清理已执行",
         "新的 prod T0 activate、至少 25 小时排空",
+        US045_OBSOLETE_TARGET,
     ),
     Path("backend/internal/server/routes/user_tk_routes.go"): (
         'POST("/users/me/qa/export"',
@@ -128,6 +141,10 @@ REQUIRED_BY_FILE = {
         "ops/qa/deploy_rollout.yaml",
         "forward_cutover",
         "/var/lib/tokenkey/qa-maintenance-last-run.json",
+        "durable capture ledger",
+        "生产 `Submit` 必须忽略 caller 提供的 `CreatedAt`",
+        "heartbeat 只是 Admin/Ops 镜像，不参与 DROP 授权",
+        "Bundle 不创建 `records/*` 层",
         "### 8.5 四类存储与备份边界",
         "### 18.1 现状 owner → 唯一目标 owner → 退役门禁",
     ),
@@ -149,6 +166,12 @@ REQUIRED_BY_FILE = {
         "production_recloseout_state: production_recloseout_verified",
         "retry_release_observation:",
         "2026-08-14 production recloseout",
+        US045_BASELINE_ANCHOR,
+        US045_TARGET_ANCHOR,
+    ),
+    USER_EXPORT_STORY: (
+        US044_BASELINE_ANCHOR,
+        US044_TARGET_ANCHOR,
     ),
     POLICY: (
         "schema_version: 1",
@@ -1126,6 +1149,25 @@ edge:
             print("self-test failed to detect stale QA Story rollout claim")
             return 1
         story.write_text(story_body, encoding="utf-8")
+
+        story_boundaries = (
+            (USER_EXPORT_STORY, US044_BASELINE_ANCHOR, US044_OBSOLETE_TARGET, "US-044"),
+            (PHASE2_STORY, US045_TARGET_ANCHOR, US045_OBSOLETE_TARGET, "US-045"),
+        )
+        for rel, required, forbidden, label in story_boundaries:
+            path = root / rel
+            body = path.read_text(encoding="utf-8")
+            path.write_text(body.replace(required, "", 1), encoding="utf-8")
+            failures = scan(root)
+            if not any(required in item for item in failures):
+                print(f"self-test failed to detect missing {label} scope boundary")
+                return 1
+            path.write_text(body + f"\n{forbidden}\n", encoding="utf-8")
+            failures = scan(root)
+            if not any(forbidden in item for item in failures):
+                print(f"self-test failed to detect obsolete {label} target wording")
+                return 1
+            path.write_text(body, encoding="utf-8")
 
         (root / POLICY).write_text(
             policy_fixture.replace("online_window_hours: 24", "online_window_hours: 25"),

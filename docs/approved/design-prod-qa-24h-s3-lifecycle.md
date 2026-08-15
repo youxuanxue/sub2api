@@ -38,15 +38,16 @@ QA 数据面只有一个目标形态：
 | 数据层 | 范围 | 生命周期 | 读取路径 |
 |---|---|---|---|
 | prod hot QA | 当前小时；失败时附加未归档 backlog | capture seal、raw commit 与 restore verification 全部成立后删除 | capture 与小时归档输入，不提供用户历史查询 |
+| durable capture ledger | runtime、小时 seal 与未决 persist failure | 覆盖 hot QA 删除门禁所需窗口 | capture seal 的唯一持久化事实源；heartbeat 只镜像 |
 | S3 raw archive | 所有 prod QA 元数据及脱敏 evidence | 7 天 | Export Worker 与受控 ops recovery |
 | S3 QA Bundle | 指定 user、API key、archive watermark 的 24 小时投影 | 独立短生命周期 | 用户网页列表、详情与 ZIP 下载 |
-| archive control | shard、segment、membership、receipt、heartbeat | 运维控制生命周期 | 自动健康与审计，不是用户数据源 |
+| archive control | shard、segment、membership 与最终 gap receipt | 运维控制生命周期 | archive/DROP 事实与审计，不派生 capture 状态 |
 
 ## 2. 目标与非目标
 
 ### 2.1 目标
 
-- prod capture 的持久化失败或静默停滞在 5 分钟内进入 durable hard-health；
+- prod capture 的持久化失败或静默停滞在 5 分钟内进入 durable capture ledger 与 hard-health；
 - raw archive 是 QA 历史的唯一恢复源，commit 前必须完成 artifact 与本地 restore 验证；
 - 每小时归档、分区供给、DROP 和热文件清理由一个 timer、一个 runner、一个 receipt/heartbeat owner 完成；
 - 正常情况下只保留当前小时 hot partition，capture 未封口或 archive 失败绝不 DROP；
@@ -128,36 +129,38 @@ edge:
 prod 对所有用户和 API key 的受支持 gateway 请求捕获脱敏 QA。`traj_export_enabled` 只控制用户读取能力，
 不得过滤 capture 或 raw archive。capture 失败不能改变用户请求响应。
 
-记录与 evidence 继续使用 UTC 小时布局。稳态没有 DEFAULT；缺失当前小时 child 时持久化失败、用户请求继续，
+生产 `Submit` 必须忽略 caller 提供的 `CreatedAt`，在入队前用服务端可信时钟写入当前 UTC `captured_at`，并只从该值
+派生不可变 `source_hour`。caller 不能把实时请求写回过去小时；测试通过注入 clock 控制时间，不在生产入口保留
+历史时间 override。进入队列前先增加该小时的 process pending，执行时转为 inflight，最终转为 persisted 或 failed。
+
+这条约束使小时封口很简单：UTC 小时切换后不会再接受属于上一小时的新 capture；上一小时已有的 pending/inflight
+仍由同一进程计数，归零前不能生成 seal。稳态没有 DEFAULT；缺失当前小时 child 时持久化失败、用户请求继续，
 同时进入 QA hard-health。
 
-### 5.2 单一健康信号与未决失败
+### 5.2 单一持久状态
 
-QA service 暴露一个 process stats snapshot，包含 candidate、submitted、async accepted、sync fallback、
-persisted、captured to DLQ 和 persist failed。accepted capture 在进入队列前按 `source_hour` 增加 pending，
-执行时转为 inflight，最终转为 persisted 或 failed；快照同时包含 `snapshot_at`、
-`oldest_pending_created_at` 以及各 source hour 的 pending/inflight/unresolved 数量。
+capture 状态只有一个 durable owner：现有共享 QA data volume 下的 **durable capture ledger**，有效路径由 QA policy
+管理。QA service 是 ledger 的唯一 writer，内容只保留两类原子 receipt：
 
-现有 `OpsMetricsCollector` 每分钟采样，并把快照和 active runtime identity 写入唯一 `qa_capture` job heartbeat 的
-`last_result`。process counters 只是采样输入，持久化 heartbeat 才是 Admin/Ops 与 DROP gate 的读取契约；进程启动时
-必须从持久化状态恢复未决失败，不能把全零内存计数解释为健康。不新增 service、table 或 watcher。
+- runtime/hour receipt：runtime identity、快照时间、每小时 pending/inflight、`sealed_at` 与最终 `drained`；
+- failure receipt：按 `failure_id` 存放 `request_id/source_hour/stage/occurred_at/runtime_identity` 及
+  `unresolved` 或 `recovered` 状态。
 
-每个 persist failure 同时向现有 durable ops log 追加一个不含 body/credential 的事件，至少固定
-`failure_id/request_id/source_hour/stage/occurred_at/runtime_identity`。状态只通过同一 `failure_id` 的后续事件演进：
+process counters 是生成 receipt 的运行时输入，不是第二份持久状态。小时切换后，QA service 只有在 ledger 中
+所有与该小时相交的 runtime receipt 都新鲜、pending/inflight 为 0、没有 unresolved failure 且 transition clean 时，
+才原子发布 hour seal；这同样覆盖蓝绿切换期间并存的 runtime。
+普通成功不能清除 failure；只有按 source identity 证明 row 已存在才写 `recovered`。小时已排空但 identity 仍不存在时，
+maintenance 把最终 `confirmed_gap` 写入 archive control，并阻止 DROP 等待人工决策。
 
-- `unresolved`：写入结果仍不确定；
-- `recovered`：按 source identity 证明 QA row 已存在；
-- `confirmed_gap`：该小时 capture 已排空且 source identity 仍不存在。
+正常 shutdown 由 QA service 在停止接收、排空 worker 后写 `drained=true`；现有 shutdown 顺序先停
+`OpsMetricsCollector`，因此 final receipt 不依赖 collector。新进程若看不到上一 runtime 的 clean drain，就在 ledger
+记录 `runtime_discontinuity`，与该不确定时间窗相交的小时不得生成 seal。缺失、损坏、过期 ledger 或未知 transition
+都只会阻止 DROP 并进入 hard-health；运行时不确定性本身不自动升级 P0。
 
-`OpsMetricsCollector` 从这些事件派生未决集合并写 heartbeat；普通成功样本不得清除 `unresolved`。进程重启后继续
-同一路径：能证明 source row 存在则自动记 `recovered`，小时排空后仍不存在则自动记 `confirmed_gap`，同步写入
-archive control 并交给现有单一 P0 owner。不得靠重启、计数归零或连续成功掩盖缺口。
-
-runtime identity 切换也必须闭合：正常 shutdown 先停止接收新 capture、排空 worker，再持久化该 identity 的
-`drained=true` 最终快照；新进程只有看到此前 identity 的 clean-drain 快照才继承健康。缺少该凭据时立即产生
-`runtime_discontinuity` 未决事件，覆盖 `last_snapshot_at` 到新 runtime 启动的时间窗；与该时间窗相交的 source hour
-不得取得 capture seal。由于未持久化的队列 identity 无法事后证明完整，该不确定性只能进入 P0 和独立人工决策，
-不能因新进程连续健康而自动清除或自动授权 DROP。
+`OpsMetricsCollector` 每分钟只把 ledger 当前结论镜像到 `qa_capture` heartbeat，供 Admin/Ops 查看。
+heartbeat 只是 Admin/Ops 镜像，不参与 DROP 授权。`ops_error_logs` 只写 best-effort 诊断，也不用于重建状态。
+即使 PostgreSQL QA 写入
+同时导致 heartbeat/ops log 失败，shared-volume ledger 仍保留删除门禁事实。不新增 service、DB table 或 watcher。
 
 状态只有三种：
 
@@ -165,7 +168,7 @@ runtime identity 切换也必须闭合：正常 shutdown 先停止接收新 capt
 - `degraded`：记录已持久化但 evidence 落入 DLQ，数据仍可恢复；
 - `failed`：出现 persist failure，或 candidate/submitted 已前进而 persisted 连续 5 分钟无进展。
 
-失败已解析为 `recovered` 后，连续 5 分钟健康才清除当前 hard-health；事件历史仍保留在 ops log。
+失败已解析为 `recovered` 后，连续 5 分钟健康才清除当前 hard-health；ledger receipt 保留到其 source hour 完成生命周期。
 `confirmed_gap` 不自动清除，继续保留在 archive control，等待独立人工决策。
 普通 capture failure 不直接发飞书。只有确认不可恢复 gap、未经归档的数据删除，或磁盘已经需要人工动作时，
 才交给现有单一 P0 owner。
@@ -184,7 +187,7 @@ HH:15 acquire QAMA lock
   -> ensure [current_hour, current_hour+72h) partitions
   -> archive + verify + restore previous sealed hour
   -> reconcile at most one oldest retryable post-cutover backlog hour
-  -> seal target-hour capture, lock child, and recheck membership
+  -> read target-hour seal from capture ledger, lock child, and recheck seal + membership
   -> DROP each capture-sealed, committed, restore-verified source partition
   -> clean exact-hour Blob/DLQ and eligible export scratch
   -> write one atomic host receipt and one DB heartbeat
@@ -205,17 +208,16 @@ receipt path `/var/lib/tokenkey/qa-maintenance-last-run.json`。`forward_cutover
 一个小时只有同时满足以下条件才可 DROP：
 
 1. source child 是 catalog 直接 child，bounds 精确为该 UTC 小时；
-2. 最新 `qa_capture` heartbeat 来自当前 active runtime identity，快照未过期；
-3. 该 source hour 的 pending、inflight 和 unresolved 均为 0，`oldest_pending_created_at` 为空或不早于该小时上界，
-   且没有与该小时相交的 `runtime_discontinuity`；
+2. durable capture ledger 存在该 source hour 的有效 seal，且当前 runtime receipt 新鲜、连续；
+3. seal 证明该小时 pending、inflight 和 unresolved 均为 0，且没有与该小时相交的 `runtime_discontinuity`；
 4. shard state 为 `committed`；
 5. `restore_verified_at` 非空，S3 commit 与 control aggregate 一致；
-6. DROP 事务先取得该 child 的 `ACCESS EXCLUSIVE` lock，再在同一事务内重新读取 capture seal 和 committed
+6. DROP 事务先取得该 child 的 `ACCESS EXCLUSIVE` lock，再重新读取同一 ledger seal，并在同一事务内复核 committed
    membership；锁后 membership 覆盖 child 中仍存在的全部 source identities；
 7. DROP 与 `source_partition_name/source_dropped_at` 在同一数据库事务提交。
 
-capture seal 是删除授权，不是普通监控提示。heartbeat 缺失、过期、runtime identity 不一致、source-hour 状态未知，
-或 lock 后 seal/membership 任一变化，都必须回滚并保留 partition。child lock 阻止新的目标小时写入，lock 后复核
+capture seal 是删除授权，不是普通监控提示。ledger 缺失、过期、runtime identity 不连续、source-hour 状态未知，
+或 lock 后 seal/membership 任一变化，都必须回滚并保留 partition。child lock 阻止目标小时残留写入，lock 后复核
 证明归档覆盖一个稳定 source set；两者缺一不可。
 
 任一条件失败都保留分区并写 hard-health。archive failure、S3 failure、missing/corrupt evidence 或 restore failure
@@ -291,19 +293,19 @@ pgdump 继续排除 `qa_records*` data，保留 schema/control；该排除不是
 ```text
 manifest.json
 pages/<page>.json.gz
-records/<opaque-record-key>.json.gz
 ```
 
-`manifest.json` 包含 data window、archive watermark、record count、page/detail object map、checksums 和格式版本。
-分页摘要服务网页列表，record object 服务详情。打开页面只等待这些浏览 artifact，不等待 ZIP。
+每个 page 按记录数和字节数双重限界，记录同时包含列表字段与完整详情。`manifest.json` 只包含 data window、
+archive watermark、record count、page map、checksums 和格式版本。列表与详情读取同一 page。
+Bundle 不创建 `records/*` 层。打开页面只等待 committed pages，不等待 ZIP。
 
 用户点击导出后，prod 创建或复用 `(bundle_generation, export_format)` 唯一 export job；同一个 Fargate Worker
-只读取已经 committed 的 Bundle objects，生成 `exports/<opaque-export-id>/export.zip`，不重新扫描 raw archive。
+只读取已经 committed 的 Bundle pages，生成 `exports/<opaque-export-id>/export.zip`，不重新扫描 raw archive。
 因此列表、详情和导出仍共享一个投影 owner，但大导出不会阻塞首次浏览。
 
 ### 9.2 原子发布与复用
 
-Worker 先写不可见 generation，校验全部 list/detail artifact 后最后发布 manifest。没有 committed manifest 的 partial generation
+Worker 先写不可见 generation，校验全部 pages 后最后发布 manifest。没有 committed manifest 的 partial generation
 对用户不可见并由 lifecycle 清理。相同 user/key/watermark 复用已完成 Bundle；新 watermark 创建新 generation，
 旧 Bundle 按独立短生命周期过期。
 
@@ -316,7 +318,7 @@ prod 只负责鉴权、创建/查询 job、校验 artifact 属于授权 prefix�
 prod 禁止读取 `qa_records`/`qa_blobs`、扫描 raw S3、构建 ZIP、代理大文件或补当前小时。
 
 浏览器只访问 scoped Bundle object；JSON object 使用标准 HTTP gzip metadata，由浏览器原生解码。
-手工调用 create/list/get/sign/download 时服务端重复校验 entitlement 与 ownership。list/detail artifact key 必须来自
+手工调用 create/list/get/sign/download 时服务端重复校验 entitlement 与 ownership。page key 必须来自
 已经 committed 的 immutable Bundle manifest；ZIP key 必须来自已经完成的 export job receipt；两者都不能接受客户端
 拼接 raw key 或任意 object key。
 关闭 `traj_export_enabled` 后不再创建 job、返回状态或签发新 URL。已经签发的 URL 只在自身短 TTL 内有效。
@@ -348,6 +350,7 @@ Bundle 是否完成不增加新的 hot partition DROP 门禁：DROP 仍严格要
 
 继续复用 `qa_archive_shards`、`qa_archive_segments`、`qa_archive_segment_records`、
 `qa_archive_gap_decision_receipts`、`qa_lifecycle_receipts` 和 `ops_job_heartbeats`；不新增平行状态表。
+durable capture ledger 独立承担 capture seal，archive control 与 heartbeat 不复制或反向推导它。
 
 单 owner maintenance heartbeat/receipt 至少关联：
 
@@ -363,7 +366,8 @@ systemd 只证明 timer/unit enabled、service 未 failed 或超时运行。新�
 与 archive/control state 为准，不再依赖 `ExecMainExitTimestamp`。unit 安装必须 content-idempotent；内容未变化时
 不重写 unit、不 `daemon-reload`。
 
-普通 degraded/failed health 进入 Admin/Ops 与自动诊断但不直接通知；不可恢复 gap、未经归档删除或磁盘需要人工
+`qa_capture` heartbeat 只镜像 ledger 当前健康结论。普通 degraded/failed health 进入 Admin/Ops 与自动诊断但不直接通知；
+不可恢复 gap、未经归档删除或磁盘需要人工
 动作才由现有单一 P0 owner 通知。
 
 ## 12. 失败语义
@@ -430,7 +434,7 @@ single-owner 激活不假装跨两个 systemd unit 原子切换。唯一 host ac
 
 ### PR 1：非破坏性健康闭环
 
-- QA stats snapshot 与 `qa_capture` heartbeat；
+- 服务端可信 capture time、durable capture ledger 与 `qa_capture` heartbeat 镜像；
 - 5 分钟 hard-health 和 Admin/Ops 可见性；
 - systemd unit content-idempotent sync；
 - evaluator 移除 `ExecMainExitTimestamp` 新鲜度依赖；
@@ -461,14 +465,17 @@ PR 3 的代码发布不自动激活 DROP；生产激活仍需独立高风险批�
 核心行为必须自动化：
 
 - capture healthy、persist failure、5 分钟无进展、DLQ degraded 与恢复；
+- caller `CreatedAt` 不能让生产 capture 进入过去小时；hour rollover 后不再出现新的旧小时 submission；
 - unresolved failure 跨进程重启保留，普通成功不能清除；recovered/confirmed-gap 派生确定且可审计；
 - clean drain 可继承健康；缺失 drain receipt 的 runtime discontinuity 持续阻止相交小时 DROP；
-- router/sentinel 证明 QA middleware 与唯一 heartbeat owner 未漂移；
+- ledger 缺失、损坏或过期均禁止 DROP；heartbeat/ops log 失败不丢失 capture gate；
+- router/sentinel 证明 QA middleware、durable ledger owner 与 heartbeat 镜像边界未漂移；
 - local PostgreSQL + fake/S3-compatible store 验证 archive+restore 成功才 DROP；
-- target-hour pending/inflight/unresolved、stale heartbeat、runtime identity drift 任一存在均禁止 DROP；
+- target-hour pending/inflight/unresolved、stale ledger、runtime identity drift 任一存在均禁止 DROP；
 - child lock 后重检 seal 与 membership；archive、restore、catalog、membership、transaction 任一失败均保留 partition；
 - DROP 后文件清理失败可幂等续做；
-- Bundle generation 原子发布、watermark reuse、partial invisible；ZIP lazy build 失败不影响列表/详情；
+- Bundle generation 原子发布、watermark reuse、partial invisible；page 同时服务列表/详情，且不存在 per-record object；
+- ZIP 从 committed pages lazy build，失败不影响列表/详情；
 - entitlement、ownership、projectable platform、cross-user/object traversal 负向；
 - prod API 不查询 QA source、不构建 ZIP、不代理下载；
 - Playwright 经真实 UI 验证列表、详情、导出、watermark 和失败态；
@@ -506,20 +513,21 @@ PR 3 的代码发布不自动激活 DROP；生产激活仍需独立高风险批�
 ```text
 Prod gateway
   -> current UTC-hour qa_records + hourly Blob/DLQ
-  -> qa_capture heartbeat (Admin/Ops; no direct notification)
+  -> durable capture ledger (capture seal owner)
+  -> qa_capture heartbeat mirror (Admin/Ops; no DROP authority)
 
 HH:15 tokenkey-qa-maintenance
   -> provision future partitions
   -> archive + verify + restore previous hour
   -> reconcile at most one backlog hour
-  -> seal target-hour capture and lock/recheck stable membership
+  -> read target-hour ledger seal and lock/recheck seal + stable membership
   -> DROP only capture-sealed + committed + restore-verified source partitions
   -> clean exact-hour files
   -> one host receipt + one DB heartbeat
 
 Raw S3 (private, 7d)
-  -> Fargate builds committed user/API-key QA Bundle for list/detail
-  -> export request lazily builds ZIP from that committed Bundle
+  -> Fargate builds committed full-record pages for list/detail
+  -> export request lazily builds ZIP from those committed pages
   -> browser list/detail/export from scoped Bundle S3
   -> ops recovery role restores to isolated workstation
 
@@ -539,12 +547,14 @@ Edge
 - [x] raw archive 覆盖所有 prod 用户/API key，保留 7 天且不受 entitlement 影响。
 - [x] maintenance 是唯一目标 lifecycle owner；独立 boundary timer 在激活后退役。
 - [x] raw commit + restore verification 是 partition DROP 的必要条件。
-- [x] DROP 还要求 target-hour capture seal；pending、inflight、unresolved 或 stale/unknown heartbeat 均 fail closed。
+- [x] DROP 还要求 durable capture ledger 的 target-hour seal；pending、inflight、unresolved 或 stale/unknown ledger
+  均 fail closed。
 - [x] 正常完成后数据库只保留当前小时；失败小时保留并 hard-health。
 - [x] 稳态没有 DEFAULT、row DELETE、rehome、copy 或 move。
 - [x] Bundle failure 不阻塞已可靠 raw archive 对应的 hot cleanup。
 - [x] 自动 destructive emergency 删除取消；disk monitor 只做 hard-health/P0，不暂停 capture。
-- [x] capture failure 在 5 分钟内进入现有 Admin/Ops heartbeat；未决状态跨重启保留，未解析前不能被成功样本清除。
-- [x] QA 页面不等待 ZIP；ZIP 只从 committed Bundle 懒生成，不重扫 raw archive。
+- [x] production `Submit` 使用服务端当前 UTC 时间，caller 不能把实时 capture 写入过去小时。
+- [x] capture failure 在 5 分钟内进入 durable ledger；heartbeat 只做 Admin/Ops 镜像，未决状态跨重启保留。
+- [x] Bundle page 同时包含列表字段和完整详情，不存在 `records/*`；ZIP 只从 committed pages 懒生成。
 - [x] single-owner 采用先停旧 owner、排空、最后提交 activation receipt 的 fail-closed 交接，不伪称 systemd 原子切换。
 - [x] 设计批准不授权线上写入、手工 timer、DDL 或生产激活。
