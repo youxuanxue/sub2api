@@ -38,7 +38,7 @@ func cutoffMatchesDays(t time.Time, days int) bool {
 	return age >= want-time.Minute && age <= want+time.Minute
 }
 
-func expectCleanupTable(t *testing.T, mock sqlmock.Sqlmock, table string, cutoffDays int, deleted int64) {
+func expectCleanupTable(t *testing.T, mock sqlmock.Sqlmock, table, timeColumn string, cutoffDays int, deleted int64) {
 	t.Helper()
 	// opsCleanupRunOne first checks whether the table is partitioned; a plain table
 	// (false) falls through to the chunked DELETE below. (A partitioned table would
@@ -47,10 +47,10 @@ func expectCleanupTable(t *testing.T, mock sqlmock.Sqlmock, table string, cutoff
 	mock.ExpectQuery("pg_partitioned_table").
 		WithArgs(table).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectExec(table).
+	mock.ExpectExec(`(?s)SELECT id FROM `+table+`\s+WHERE `+timeColumn+` < \$1\s+ORDER BY `+timeColumn+`, id\s+LIMIT \$2`).
 		WithArgs(cutoffDaysArg{days: cutoffDays}, 5000).
 		WillReturnResult(sqlmock.NewResult(0, deleted))
-	mock.ExpectExec(table).
+	mock.ExpectExec(`(?s)SELECT id FROM `+table+`\s+WHERE `+timeColumn+` < \$1\s+ORDER BY `+timeColumn+`, id\s+LIMIT \$2`).
 		WithArgs(cutoffDaysArg{days: cutoffDays}, 5000).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 }
@@ -87,10 +87,10 @@ func TestOpsCleanupServiceRunCleanupOnceUsesSeparateLogRetentions(t *testing.T) 
 
 	// Upstream Wei-Shaw/sub2api commit 2eb622f2 dropped ops_retry_attempts
 	// alongside the retry/replay feature; the cleanup loop no longer touches it.
-	expectCleanupTable(t, mock, "ops_error_logs", 14, 3)
-	expectCleanupTable(t, mock, "ops_alert_events", 14, 1)
-	expectCleanupTable(t, mock, "ops_system_logs", 7, 5)
-	expectCleanupTable(t, mock, "ops_system_log_cleanup_audits", 7, 4)
+	expectCleanupTable(t, mock, "ops_error_logs", "created_at", 14, 3)
+	expectCleanupTable(t, mock, "ops_alert_events", "fired_at", 14, 1)
+	expectCleanupTable(t, mock, "ops_system_logs", "created_at", 7, 5)
+	expectCleanupTable(t, mock, "ops_system_log_cleanup_audits", "created_at", 7, 4)
 
 	counts, err := svc.runCleanupOnce(context.Background())
 	if err != nil {

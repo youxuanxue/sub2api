@@ -356,7 +356,7 @@ func (s *OpsCleanupService) runCleanupOnce(ctx context.Context) (opsCleanupDelet
 
 	targets := []opsCleanupTarget{
 		{policy.errorLogRetentionDays, "ops_error_logs", "created_at", false, &out.errorLogs},
-		{policy.errorLogRetentionDays, "ops_alert_events", "created_at", false, &out.alertEvents},
+		{policy.errorLogRetentionDays, "ops_alert_events", "fired_at", false, &out.alertEvents},
 		{policy.systemLogRetentionDays, "ops_system_logs", "created_at", false, &out.systemLogs},
 		{policy.systemLogRetentionDays, "ops_system_log_cleanup_audits", "created_at", false, &out.logAudits},
 		{effective.MinuteMetricsRetentionDays, "ops_system_metrics", "created_at", false, &out.systemMetrics},

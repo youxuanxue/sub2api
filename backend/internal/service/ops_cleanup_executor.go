@@ -151,12 +151,12 @@ func deleteOldRowsByID(
 WITH batch AS (
   SELECT id FROM %s
   WHERE %s
-  ORDER BY id
+  ORDER BY %s, id
   LIMIT $2
 )
 DELETE FROM %s
 WHERE id IN (SELECT id FROM batch)
-`, table, where, table)
+`, table, where, timeColumn, table)
 
 	var total int64
 	for {
