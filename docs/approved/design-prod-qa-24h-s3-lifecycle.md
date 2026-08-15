@@ -152,6 +152,9 @@ process counters 是生成 receipt 的运行时输入，不是第二份持久状
 普通成功不能清除 failure；只有按 source identity 证明 row 已存在才写 `recovered`。小时已排空但 identity 仍不存在时，
 maintenance 把最终 `confirmed_gap` 写入 archive control，并阻止 DROP 等待人工决策。
 
+任何 ledger 写失败都把当前 runtime sticky 标为不可 seal；后续成功快照或 heartbeat 不能清除它。只有写失败的同一
+receipt 已持久化并完成所需精确对账后才能恢复 seal；若进程在此之前退出，缺失 clean drain 产生同样的 fail-closed 结果。
+
 正常 shutdown 由 QA service 在停止接收、排空 worker 后写 `drained=true`；现有 shutdown 顺序先停
 `OpsMetricsCollector`，因此 final receipt 不依赖 collector。新进程若看不到上一 runtime 的 clean drain，就在 ledger
 记录 `runtime_discontinuity`，与该不确定时间窗相交的小时不得生成 seal。缺失、损坏、过期 ledger 或未知 transition
@@ -469,6 +472,7 @@ PR 3 的代码发布不自动激活 DROP；生产激活仍需独立高风险批�
 - unresolved failure 跨进程重启保留，普通成功不能清除；recovered/confirmed-gap 派生确定且可审计；
 - clean drain 可继承健康；缺失 drain receipt 的 runtime discontinuity 持续阻止相交小时 DROP；
 - ledger 缺失、损坏或过期均禁止 DROP；heartbeat/ops log 失败不丢失 capture gate；
+- ledger 写失败后，后续成功快照不能清除 sticky unsealable；精确对账前始终禁止 DROP；
 - router/sentinel 证明 QA middleware、durable ledger owner 与 heartbeat 镜像边界未漂移；
 - local PostgreSQL + fake/S3-compatible store 验证 archive+restore 成功才 DROP；
 - target-hour pending/inflight/unresolved、stale ledger、runtime identity drift 任一存在均禁止 DROP；

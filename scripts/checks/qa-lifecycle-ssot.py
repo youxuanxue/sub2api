@@ -77,6 +77,11 @@ MUST_BE_ABSENT = (
 )
 
 FORBIDDEN_BY_FILE = {
+    SSOT: (
+        "records/<opaque-record-key>.json.gz",
+        "持久化 heartbeat 才是 Admin/Ops 与 DROP gate 的读取契约",
+        "该不确定性只能进入 P0",
+    ),
     USER_EXPORT_STORY: (
         US044_OBSOLETE_TARGET,
     ),
@@ -145,6 +150,8 @@ REQUIRED_BY_FILE = {
         "生产 `Submit` 必须忽略 caller 提供的 `CreatedAt`",
         "heartbeat 只是 Admin/Ops 镜像，不参与 DROP 授权",
         "Bundle 不创建 `records/*` 层",
+        "任何 ledger 写失败都把当前 runtime sticky 标为不可 seal",
+        "运行时不确定性本身不自动升级 P0",
         "### 8.5 四类存储与备份边界",
         "### 18.1 现状 owner → 唯一目标 owner → 退役门禁",
     ),
@@ -1153,6 +1160,24 @@ edge:
         story_boundaries = (
             (USER_EXPORT_STORY, US044_BASELINE_ANCHOR, US044_OBSOLETE_TARGET, "US-044"),
             (PHASE2_STORY, US045_TARGET_ANCHOR, US045_OBSOLETE_TARGET, "US-045"),
+            (
+                SSOT,
+                "Bundle 不创建 `records/*` 层",
+                "records/<opaque-record-key>.json.gz",
+                "QA Bundle",
+            ),
+            (
+                SSOT,
+                "heartbeat 只是 Admin/Ops 镜像，不参与 DROP 授权",
+                "持久化 heartbeat 才是 Admin/Ops 与 DROP gate 的读取契约",
+                "QA heartbeat",
+            ),
+            (
+                SSOT,
+                "运行时不确定性本身不自动升级 P0",
+                "该不确定性只能进入 P0",
+                "QA runtime uncertainty",
+            ),
         )
         for rel, required, forbidden, label in story_boundaries:
             path = root / rel
