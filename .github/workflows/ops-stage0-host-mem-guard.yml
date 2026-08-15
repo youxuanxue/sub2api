@@ -11,14 +11,14 @@ name: Stage0 Host Mem-Guard Refresh
 # that bootstrap at run time — single source of truth, no second copy to drift.
 # A future stack rebuild remains the source of truth.
 #
-# Prod-only: swap + the tokenkey-disk-metrics timer are EC2/prod constructs;
-# edges are Lightsail relays with a separate bootstrap and no such timer.
+# Prod-only: this one-shot targets the prod bootstrap contract. EC2 Edge hosts
+# have their own candidate/active workflow and are not managed by this refresh.
 
 on:
   workflow_dispatch:
     inputs:
       target:
-        description: "Target: prod (edges are Lightsail-only and not covered by this EC2 SSM refresh)"
+        description: "Target: prod (Edge hosts are outside this prod-only SSM refresh)"
         required: true
         type: choice
         options:

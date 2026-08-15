@@ -12,6 +12,7 @@ import unittest
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "deploy_via_ssm.sh"
 _PROD_IID = "i-0prod000000000000"
 _EDGE_IID = "mi-0edge000000000000"
+_EC2_EDGE_IID = "i-0edge000000000000"
 
 
 def _render(instance_id: str, tag: str = "1.8.99", env_extra: dict | None = None):
@@ -51,6 +52,39 @@ class EdgeQACaptureDisableRenderTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertEqual(_edge_qa_cmds(commands), [])
 
+    def test_ec2_edge_uses_edge_only_injections_not_prod_only_injections(self) -> None:
+        proc, commands = _render(_EC2_EDGE_IID, env_extra={"EDGE_ID": "us6"})
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertEqual(len(_edge_qa_cmds(commands)), 2)
+        prod_only = [
+            command
+            for command in commands
+            if "QA_CAPTURE_EXPORT_STORAGE" in command
+            or "QA_ARCHIVE_" in command
+            or "MEDIA_STORAGE_" in command
+            or "GATEWAY_IMAGE_CONCURRENCY" in command
+        ]
+        self.assertEqual(prod_only, [])
+
+    def test_edge_deploy_fails_closed_while_source_is_frozen(self) -> None:
+        proc, commands = _render(_EDGE_IID, env_extra={"EDGE_ID": "us6"})
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        guard = next(command for command in commands if ".write-owner-locked" in command)
+        self.assertIn("flock -n", guard)
+        self.assertIn("/var/lib/tokenkey/migration/.action.lock", guard)
+
+    def test_ec2_edge_deploy_fails_closed_while_target_is_retained_as_proxy(self) -> None:
+        proc, commands = _render(_EC2_EDGE_IID, env_extra={"EDGE_ID": "us6"})
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        guard = next(command for command in commands if ".write-owner-locked" in command)
+        self.assertIn(".target-proxy-retained", guard)
+
+    def test_ec2_edge_deploy_fails_closed_while_target_is_frozen_for_rollback(self) -> None:
+        proc, commands = _render(_EC2_EDGE_IID, env_extra={"EDGE_ID": "us6"})
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        guard = next(command for command in commands if ".write-owner-locked" in command)
+        self.assertIn(".write-owner-locked", guard)
+
     def test_prod_minus_edge_counts_prod_only_and_edge_only_blocks(self) -> None:
         _, prod = _render(_PROD_IID)
         _, edge = _render(_EDGE_IID, env_extra={"EDGE_ID": "us6"})
@@ -63,9 +97,11 @@ class EdgeQACaptureDisableRenderTest(unittest.TestCase):
             or "GATEWAY_IMAGE_CONCURRENCY" in c
         )
         edge_only = len(_edge_qa_cmds(edge))
+        migration_guards = sum(1 for c in edge if ".write-owner-locked" in c)
         self.assertEqual(prod_only, 8)
         self.assertEqual(edge_only, 2)
-        self.assertEqual(len(prod) - len(edge), prod_only - edge_only)
+        self.assertEqual(migration_guards, 1)
+        self.assertEqual(len(prod) - len(edge), prod_only - edge_only - migration_guards)
 
 
 if __name__ == "__main__":

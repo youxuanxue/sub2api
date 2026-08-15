@@ -22,8 +22,11 @@ assert _spec and _spec.loader
 _spec.loader.exec_module(wec)
 
 
-def _matrix(deployable_ids: list[str]) -> str:
-    return json.dumps({"targets": {eid: {"deployable": True} for eid in deployable_ids}})
+def _matrix(deployable_ids: list[str], candidate_ids: list[str] | None = None) -> str:
+    targets = {eid: {"deployable": True} for eid in deployable_ids}
+    for eid in candidate_ids or []:
+        targets[eid] = {"deployable": False, "migration_candidate": True}
+    return json.dumps({"targets": targets})
 
 
 def _workflow(input_name: str, options: list[str]) -> str:
@@ -42,7 +45,8 @@ def _workflow(input_name: str, options: list[str]) -> str:
 class WorkflowEdgeCoverageTest(unittest.TestCase):
     def _run(self, *, ec2: list[str], lightsail: list[str], wf_options: list[str],
              input_name: str = "edge_id", option_prefix: str = "",
-             required_set: str = "ec2-deployable", opt_out: list[dict] | None = None) -> int:
+             required_set: str = "ec2-deployable", opt_out: list[dict] | None = None,
+             ec2_candidates: list[str] | None = None) -> int:
         with tempfile.TemporaryDirectory() as d:
             root = pathlib.Path(d)
             (root / "deploy/aws/stage0").mkdir(parents=True)
@@ -50,7 +54,7 @@ class WorkflowEdgeCoverageTest(unittest.TestCase):
             (root / ".github/workflows").mkdir(parents=True)
             ec2_path = root / "deploy/aws/stage0/edge-targets.json"
             ls_path = root / "deploy/aws/lightsail/edge-targets-lightsail.json"
-            ec2_path.write_text(_matrix(ec2))
+            ec2_path.write_text(_matrix(ec2, ec2_candidates))
             ls_path.write_text(_matrix(lightsail))
             wf_rel = ".github/workflows/wf.yml"
             (root / wf_rel).write_text(_workflow(input_name, wf_options))
@@ -99,6 +103,42 @@ class WorkflowEdgeCoverageTest(unittest.TestCase):
         self.assertEqual(
             self._run(ec2=["us1"], lightsail=[], wf_options=["prod", "edge-us1", "all"],
                       input_name="target", option_prefix="edge-", required_set="all-deployable"),
+            0,
+        )
+
+    def test_ec2_migration_candidate_set_requires_every_candidate_option(self) -> None:
+        self.assertEqual(
+            self._run(
+                ec2=[],
+                ec2_candidates=["us3", "us4"],
+                lightsail=["us3", "us4"],
+                wf_options=["us3"],
+                required_set="ec2-migration-candidate",
+            ),
+            1,
+        )
+
+    def test_ec2_migration_candidate_set_is_independent_of_deployable_owner(self) -> None:
+        self.assertEqual(
+            self._run(
+                ec2=[],
+                ec2_candidates=["us3", "us4"],
+                lightsail=["us3", "us4"],
+                wf_options=["us3", "us4"],
+                required_set="ec2-migration-candidate",
+            ),
+            0,
+        )
+
+    def test_ec2_workflow_target_set_covers_active_and_candidate_edges(self) -> None:
+        self.assertEqual(
+            self._run(
+                ec2=["us3"],
+                ec2_candidates=["us4"],
+                lightsail=[],
+                wf_options=["us3", "us4"],
+                required_set="ec2-workflow-target",
+            ),
             0,
         )
 

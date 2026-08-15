@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gzip
+import base64
 import os
 import pathlib
 import re
@@ -13,9 +14,11 @@ import unittest
 _REPO = pathlib.Path(__file__).resolve().parents[3]
 STAGE0 = _REPO / "deploy/aws/stage0"
 CFN_MAIN = _REPO / "deploy/aws/cloudformation/stage0-single-ec2.yaml"
+CFN_EDGE = _REPO / "deploy/aws/cloudformation/stage0-edge-ec2.yaml"
 
 EC2_USERDATA_LIMIT = 16384
 SSM_STANDARD_LIMIT = 4096
+CLOUDFORMATION_TEMPLATE_BODY_LIMIT = 51_200
 
 
 def _extract_userdata_body(cfn_text: str) -> str:
@@ -30,6 +33,65 @@ def _extract_userdata_body(cfn_text: str) -> str:
 
 
 class BuildCfnSizeTest(unittest.TestCase):
+    def test_edge_template_fits_direct_cloudformation_upload(self) -> None:
+        self.assertLessEqual(
+            CFN_EDGE.stat().st_size,
+            CLOUDFORMATION_TEMPLATE_BODY_LIMIT,
+            "Edge template must not require a regional S3 artifact bucket",
+        )
+
+    def test_edge_parameter_payloads_restore_every_runtime_source(self) -> None:
+        proc = subprocess.run(
+            ["bash", str(STAGE0 / "build-cfn.sh"), "--edge-parameter-values"],
+            cwd=_REPO,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(
+            proc.returncode,
+            0,
+            msg=f"edge parameter generation failed:\nstdout={proc.stdout}\nstderr={proc.stderr}",
+        )
+        values = dict(line.split("\t", 1) for line in proc.stdout.splitlines())
+        expected = {
+            "Stage0ComposeGzipB64": ("docker-compose.yml", "gzip"),
+            "Stage0CaddyGzipB64": ("Caddyfile.edge", "gzip"),
+            "PgdumpScriptGzipB64": ("tokenkey-pgdump.sh", "gzip"),
+            "GhcrPruneScriptB64": ("tokenkey-prune-ghcr-app-tags.sh", "raw"),
+            "GhcrPruneDailyScriptB64": ("tokenkey-ghcr-prune-daily.sh", "raw"),
+        }
+        multipart = {
+            "QaStaleCleanupGzipB64Part": ("tokenkey-qa-stale-cleanup.sh", 2),
+            "QaExportOrphanGzipB64Part": ("tokenkey-qa-export-orphan.py", 2),
+            "QaBoundaryGzipB64Part": ("tokenkey-qa-boundary.sh", 2),
+            "Stage0BootstrapGzipB64Part": ("stage0-ec2-bootstrap.sh", 3),
+        }
+        expected_keys = set(expected)
+        for prefix, (_source, count) in multipart.items():
+            expected_keys.update(f"{prefix}{part}" for part in range(1, count + 1))
+        self.assertEqual(expected_keys, set(values))
+
+        for suffix, (source, encoding) in expected.items():
+            with self.subTest(suffix=suffix):
+                decoded = base64.b64decode(values[suffix])
+                if encoding == "gzip":
+                    decoded = gzip.decompress(decoded)
+                self.assertEqual(decoded, (STAGE0 / source).read_bytes())
+                self.assertLessEqual(len(values[suffix]), SSM_STANDARD_LIMIT)
+        for prefix, (source, count) in multipart.items():
+            with self.subTest(prefix=prefix):
+                encoded = "".join(values[f"{prefix}{part}"] for part in range(1, count + 1))
+                self.assertEqual(
+                    gzip.decompress(base64.b64decode(encoded)),
+                    (STAGE0 / source).read_bytes(),
+                )
+                for part in range(1, count + 1):
+                    self.assertLessEqual(
+                        len(values[f"{prefix}{part}"]),
+                        SSM_STANDARD_LIMIT,
+                    )
+
     def test_prod_userdata_under_ec2_limit(self) -> None:
         body = _extract_userdata_body(CFN_MAIN.read_text())
         self.assertLessEqual(
@@ -181,6 +243,33 @@ class BuildCfnSizeTest(unittest.TestCase):
             )
         finally:
             src.write_bytes(original)
+
+    def test_build_cfn_check_detects_edge_template_drift(self) -> None:
+        original = CFN_EDGE.read_bytes()
+        try:
+            text = original.decode()
+            tampered = re.sub(
+                r"(export TK_CANDIDATE_MODE=)'1'",
+                r"\1'0'",
+                text,
+                count=1,
+            )
+            self.assertNotEqual(text, tampered)
+            CFN_EDGE.write_text(tampered, encoding="utf-8")
+            proc = subprocess.run(
+                ["bash", str(STAGE0 / "build-cfn.sh"), "--check"],
+                cwd=_REPO,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(
+                proc.returncode,
+                0,
+                msg="build-cfn --check passed despite Edge template embed drift",
+            )
+        finally:
+            CFN_EDGE.write_bytes(original)
 
     def test_cfn_has_bootstrap_ssm_markers(self) -> None:
         text = CFN_MAIN.read_text()

@@ -215,7 +215,7 @@ fi
 if command -v python3 >/dev/null 2>&1; then
     _bg_spawn anthropic_unittest \
         python3 -m unittest discover -s ops/anthropic -p 'test_*.py' -t ops/anthropic
-    for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0 deploy/aws/lightsail; do
+    for _det_dir in ops/observability ops/stage0 ops/migration scripts deploy/aws/stage0 deploy/aws/lightsail; do
         _bg_spawn "det_$(echo "$_det_dir" | tr '/' '_')" \
             env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR \
             python3 -m unittest discover -s "$_det_dir" -p 'test_*.py' -t "$_det_dir"
@@ -1931,21 +1931,24 @@ fi
 
 echo ""
 echo "=== sub2api: Stage0 deployment primitive sharing ==="
-# EC2 edge path removed 2026-06-07 (deploy-edge-stage0.yml deleted); edges are
-# Lightsail-only. prod now uses the blue/green SSM primitive; Lightsail edge
-# stays on the legacy single-app primitive because its bootstrap still uses the
-# shared single-app compose. Neither workflow may inline compose deploy commands.
+# prod uses the blue/green SSM primitive; both Lightsail and active EC2 Edge
+# owners use the shared single-app primitive. Candidate-only EC2 updates have a
+# separate stop/pull check and never start the app. Active deploy workflows may
+# not inline compose deployment commands.
 if ! grep -q 'ops/stage0/deploy_via_ssm_bluegreen.sh' .github/workflows/deploy-stage0.yml; then
     echo "  FAIL: deploy-stage0.yml must use ops/stage0/deploy_via_ssm_bluegreen.sh"
     errors=$((errors + 1))
 elif ! grep -q 'ops/stage0/deploy_via_ssm.sh' .github/workflows/deploy-edge-lightsail-stage0.yml; then
     echo "  FAIL: deploy-edge-lightsail-stage0.yml must use ops/stage0/deploy_via_ssm.sh"
     errors=$((errors + 1))
-elif grep -q 'docker compose --env-file .* up -d --no-deps tokenkey' .github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-lightsail-stage0.yml; then
+elif ! grep -q 'ops/stage0/deploy_via_ssm.sh' .github/workflows/deploy-edge-stage0.yml; then
+    echo "  FAIL: deploy-edge-stage0.yml must use ops/stage0/deploy_via_ssm.sh for the active EC2 owner"
+    errors=$((errors + 1))
+elif grep -q 'docker compose --env-file .* up -d --no-deps tokenkey' .github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-lightsail-stage0.yml .github/workflows/deploy-edge-stage0.yml; then
     echo "  FAIL: Stage0 workflows must not inline tokenkey SSM deploy commands; use the matching ops/stage0 deploy primitive"
     errors=$((errors + 1))
 else
-    echo "  ok: prod uses blue/green SSM primitive; Lightsail edge stays on single-app SSM primitive"
+    echo "  ok: prod uses blue/green; Lightsail and active EC2 Edge share the single-app SSM primitive"
 fi
 
 echo ""

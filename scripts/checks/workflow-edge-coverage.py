@@ -37,6 +37,17 @@ def _deployable_ids(path: pathlib.Path) -> set[str]:
     return {eid for eid, t in targets.items() if isinstance(t, dict) and t.get("deployable") is True}
 
 
+def _migration_candidate_ids(path: pathlib.Path) -> set[str]:
+    if not path.is_file():
+        return set()
+    targets = (json.loads(path.read_text(encoding="utf-8")).get("targets") or {})
+    return {
+        eid
+        for eid, target in targets.items()
+        if isinstance(target, dict) and target.get("migration_candidate") is True
+    }
+
+
 def _workflow_options(doc: dict, input_name: str) -> list[str] | None:
     # YAML 1.1 parses bare `on:` to boolean True — accept either key.
     on = doc.get("on")
@@ -62,6 +73,7 @@ def main() -> int:
     try:
         registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
         ec2 = _deployable_ids(EC2_MATRIX)
+        ec2_candidates = _migration_candidate_ids(EC2_MATRIX)
         lightsail = _deployable_ids(LIGHTSAIL_MATRIX)
     except (OSError, json.JSONDecodeError) as exc:
         print(f"FAIL: cannot read registry/matrix: {exc}", file=sys.stderr)
@@ -69,6 +81,8 @@ def main() -> int:
 
     sets = {
         "ec2-deployable": ec2,
+        "ec2-migration-candidate": ec2_candidates,
+        "ec2-workflow-target": ec2 | ec2_candidates,
         "lightsail-deployable": lightsail,
         "all-deployable": ec2 | lightsail,
     }
@@ -106,7 +120,7 @@ def main() -> int:
         stale = sorted(e for e in opt_out if e not in required)
         if stale:
             failures.append(
-                f"{wf_rel}: stale opt_out_edges {stale} — no longer deployable in "
+                f"{wf_rel}: stale opt_out_edges {stale} — no longer required by "
                 f"{required_key}; remove them from the registry"
             )
         missing_reason = sorted(e for e in opt_out if not opt_out[e].strip())
@@ -118,7 +132,7 @@ def main() -> int:
         uncovered = [e for e in needed if f"{prefix}{e}" not in opt_set]
         if uncovered:
             failures.append(
-                f"{wf_rel}: deployable edge(s) {uncovered} missing from input "
+                f"{wf_rel}: required edge(s) {uncovered} missing from input "
                 f"'{cfg.get('input')}' options (expected option '{prefix}<id>'). "
                 f"Add them to the workflow, or opt out in {REGISTRY.name} with a reason."
             )

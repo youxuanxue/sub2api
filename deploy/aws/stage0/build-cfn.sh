@@ -14,6 +14,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../../.." && pwd)"
 COMPOSE_SRC="${HERE}/docker-compose.yml"
 CADDY_SRC="${HERE}/Caddyfile"
+CADDY_EDGE_SRC="${HERE}/Caddyfile.edge"
 QA_CLEANUP_SRC="${HERE}/tokenkey-qa-stale-cleanup.sh"
 QA_EXPORT_ORPHAN_SRC="${HERE}/tokenkey-qa-export-orphan.py"
 QA_BOUNDARY_SRC="${HERE}/tokenkey-qa-boundary.sh"
@@ -22,22 +23,34 @@ PRUNE_SRC="${HERE}/tokenkey-prune-ghcr-app-tags.sh"
 DAILY_PRUNE_SRC="${HERE}/tokenkey-ghcr-prune-daily.sh"
 BOOTSTRAP_SRC="${HERE}/stage0-ec2-bootstrap.sh"
 LAUNCHER_SRC="${HERE}/stage0-ec2-userdata-launcher.sub.sh"
-CFN_FILE="${CFN_FILE:-${REPO_ROOT}/deploy/aws/cloudformation/stage0-single-ec2.yaml}"
+DEFAULT_CFN_FILE="${REPO_ROOT}/deploy/aws/cloudformation/stage0-single-ec2.yaml"
+EDGE_CFN_FILE="${REPO_ROOT}/deploy/aws/cloudformation/stage0-edge-ec2.yaml"
+if [[ -n "${CFN_FILE:-}" ]]; then
+  MANAGE_EDGE_CFN=0
+else
+  CFN_FILE="${DEFAULT_CFN_FILE}"
+  MANAGE_EDGE_CFN=1
+fi
 
 EC2_USERDATA_LIMIT=16384
 SSM_STANDARD_VALUE_LIMIT=4096
 USERDATA_WARN_BYTES=12000
 
-mode="apply"
-if [[ "${1:-}" == "--check" ]]; then
-  mode="check"
-fi
+case "${1:-}" in
+  "") mode="apply" ;;
+  --check) mode="check" ;;
+  --edge-parameter-values) mode="edge-parameter-values" ;;
+  *) echo "usage: $0 [--check|--edge-parameter-values]" >&2; exit 2 ;;
+esac
 
 required=(
   "${COMPOSE_SRC}" "${CADDY_SRC}"
   "${QA_CLEANUP_SRC}" "${QA_EXPORT_ORPHAN_SRC}" "${QA_BOUNDARY_SRC}" "${PGDUMP_SRC}" "${PRUNE_SRC}" "${DAILY_PRUNE_SRC}" "${BOOTSTRAP_SRC}" "${LAUNCHER_SRC}"
   "${CFN_FILE}"
 )
+if [[ "${MANAGE_EDGE_CFN}" -eq 1 ]]; then
+  required+=("${CADDY_EDGE_SRC}" "${EDGE_CFN_FILE}")
+fi
 for f in "${required[@]}"; do
   [[ -f "${f}" ]] || { echo "missing ${f}" >&2; exit 1; }
 done
@@ -75,6 +88,7 @@ split_b64_for_ssm() {
 
 COMPOSE_GZB64="$(encode_gzb64 "${COMPOSE_SRC}")"
 CADDY_GZB64="$(encode_gzb64 "${CADDY_SRC}")"
+CADDY_EDGE_GZB64="$(encode_gzb64 "${CADDY_EDGE_SRC}")"
 QA_CLEANUP_GZB64="$(encode_gzb64 "${QA_CLEANUP_SRC}")"
 QA_CLEANUP_PART1="${QA_CLEANUP_GZB64:0:${SSM_STANDARD_VALUE_LIMIT}}"
 QA_CLEANUP_PART2="${QA_CLEANUP_GZB64:${SSM_STANDARD_VALUE_LIMIT}}"
@@ -108,6 +122,7 @@ check_ssm_len() {
 
 check_ssm_len compose "${COMPOSE_GZB64}"
 check_ssm_len caddy "${CADDY_GZB64}"
+check_ssm_len caddy_edge "${CADDY_EDGE_GZB64}"
 check_ssm_len qa_part1 "${QA_CLEANUP_PART1}"
 check_ssm_len qa_part2 "${QA_CLEANUP_PART2}"
 check_ssm_len qa_export_orphan_part1 "${QA_EXPORT_ORPHAN_PART1}"
@@ -120,6 +135,25 @@ check_ssm_len daily_prune "${DAILY_PRUNE_B64}"
 check_ssm_len bootstrap_part1 "${BOOTSTRAP_PART1}"
 check_ssm_len bootstrap_part2 "${BOOTSTRAP_PART2}"
 check_ssm_len bootstrap_part3 "${BOOTSTRAP_PART3}"
+
+if [[ "${mode}" == "edge-parameter-values" ]]; then
+  printf '%s\t%s\n' \
+    Stage0ComposeGzipB64 "${COMPOSE_GZB64}" \
+    Stage0CaddyGzipB64 "${CADDY_EDGE_GZB64}" \
+    QaStaleCleanupGzipB64Part1 "${QA_CLEANUP_PART1}" \
+    QaStaleCleanupGzipB64Part2 "${QA_CLEANUP_PART2}" \
+    QaExportOrphanGzipB64Part1 "${QA_EXPORT_ORPHAN_PART1}" \
+    QaExportOrphanGzipB64Part2 "${QA_EXPORT_ORPHAN_PART2}" \
+    QaBoundaryGzipB64Part1 "${QA_BOUNDARY_PART1}" \
+    QaBoundaryGzipB64Part2 "${QA_BOUNDARY_PART2}" \
+    PgdumpScriptGzipB64 "${PGDUMP_GZB64}" \
+    GhcrPruneScriptB64 "${PRUNE_B64}" \
+    GhcrPruneDailyScriptB64 "${DAILY_PRUNE_B64}" \
+    Stage0BootstrapGzipB64Part1 "${BOOTSTRAP_PART1}" \
+    Stage0BootstrapGzipB64Part2 "${BOOTSTRAP_PART2}" \
+    Stage0BootstrapGzipB64Part3 "${BOOTSTRAP_PART3}"
+  exit 0
+fi
 
 indent_launcher() {
   local indent='          '
@@ -135,10 +169,42 @@ if (( USERDATA_BYTES > EC2_USERDATA_LIMIT )); then
   exit 1
 fi
 
+indent_edge_launcher() {
+  local indent='          '
+  local first_line=1
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    if [[ "${first_line}" -eq 1 ]]; then
+      [[ "${line}" == '#!/bin/bash' ]] || { echo "UserData launcher must start with #!/bin/bash" >&2; exit 1; }
+      first_line=0
+      continue
+    fi
+    if [[ "${line}" == export\ TK_STAGE0_PREFIX=* ]]; then
+      printf "%sexport TK_STAGE0_PREFIX='/\${ProjectName}/edge/\${EdgeId}/stage0'\n" "${indent}"
+      printf "%sexport TK_SWAP_SIZE_MB='2048'\n" "${indent}"
+      printf "%sexport TK_CADDY_PROFILE='edge'\n" "${indent}"
+      printf "%sexport TK_CANDIDATE_MODE='1'\n" "${indent}"
+      printf "%sexport TK_MAIN_GATEWAY_ALLOWED_CIDR='\${MainGatewayAllowedCidr}'\n" "${indent}"
+      printf "%sexport TK_CLOUDWATCH_CPU_ALARM_NAMES='\${ProjectName}-\${EdgeId}-cpu-24h-above-baseline,\${ProjectName}-\${EdgeId}-cpu-surplus-borrowing,\${ProjectName}-\${EdgeId}-cpu-surplus-charged'\n" "${indent}"
+    elif [[ -z "${line}" ]]; then
+      printf '\n'
+    else
+      printf '%s%s\n' "${indent}" "${line}"
+    fi
+  done <"${LAUNCHER_SRC}"
+}
+
+EDGE_USERDATA_BODY="$(indent_edge_launcher)"
+EDGE_USERDATA_BYTES=$(printf '%s' "${EDGE_USERDATA_BODY}" | wc -c | awk '{print $1}')
+if (( EDGE_USERDATA_BYTES > EC2_USERDATA_LIMIT )); then
+  echo "EC2 Edge UserData launcher is ${EDGE_USERDATA_BYTES} bytes (limit ${EC2_USERDATA_LIMIT})" >&2
+  exit 1
+fi
+
 refresh_template() {
   local src="$1"
   local dst="$2"
   local caddy_blob="$3"
+  local userdata_body="${4:-${USERDATA_BODY}}"
   local indent='      '
   local new_compose="${indent}Value: '${COMPOSE_GZB64}'"
   local new_caddy="${indent}Value: '${caddy_blob}'"
@@ -156,7 +222,7 @@ refresh_template() {
   local new_bootstrap3="${indent}Value: '${BOOTSTRAP_PART3}'"
   local userdata_tmp
   userdata_tmp="$(mktemp)"
-  printf '%s\n' "${USERDATA_BODY}" >"${userdata_tmp}"
+  printf '%s\n' "${userdata_body}" >"${userdata_tmp}"
 
   awk -v new_compose_ssm="${new_compose}" \
       -v new_caddy_ssm="${new_caddy}" \
@@ -203,14 +269,66 @@ refresh_template() {
     />>> BOOTSTRAP_GZB64_SSM_PART3 START/ { print; print new_bootstrap3_ssm; skip = 1; next }
     />>> BOOTSTRAP_GZB64_SSM_PART3 END/ { skip = 0; print; next }
     />>> USERDATA_LAUNCHER START/ {
+      print
       while ((getline line < userdata_file) > 0) print line
       close(userdata_file)
       skip = 1
       next
     }
-    />>> USERDATA_LAUNCHER END/ { skip = 0; next }
+    />>> USERDATA_LAUNCHER END/ { skip = 0; print; next }
     { if (!skip) print }
   ' "${src}" > "${dst}"
+  rm -f "${userdata_tmp}"
+}
+
+parameterize_edge_template() {
+  local src="$1"
+  local dst="$2"
+  local userdata_body="$3"
+  local userdata_tmp
+  userdata_tmp="$(mktemp)"
+  printf '%s\n' "${userdata_body}" >"${userdata_tmp}"
+
+  awk -v userdata_file="${userdata_tmp}" '
+    BEGIN { skip = 0 }
+    />>> COMPOSE_GZB64_SSM START/ { print; print "      Value: !Ref Stage0ComposeGzipB64"; skip = 1; next }
+    />>> COMPOSE_GZB64_SSM END/ { skip = 0; print; next }
+    />>> CADDY_GZB64_SSM START/ { print; print "      Value: !Ref Stage0CaddyGzipB64"; skip = 1; next }
+    />>> CADDY_GZB64_SSM END/ { skip = 0; print; next }
+    />>> QA_CLEANUP_GZB64_SSM_PART1 START/ { print; print "      Value: !Ref QaStaleCleanupGzipB64Part1"; skip = 1; next }
+    />>> QA_CLEANUP_GZB64_SSM_PART1 END/ { skip = 0; print; next }
+    />>> QA_CLEANUP_GZB64_SSM_PART2 START/ { print; print "      Value: !Ref QaStaleCleanupGzipB64Part2"; skip = 1; next }
+    />>> QA_CLEANUP_GZB64_SSM_PART2 END/ { skip = 0; print; next }
+    />>> QA_EXPORT_ORPHAN_GZB64_SSM_PART1 START/ { print; print "      Value: !Ref QaExportOrphanGzipB64Part1"; skip = 1; next }
+    />>> QA_EXPORT_ORPHAN_GZB64_SSM_PART1 END/ { skip = 0; print; next }
+    />>> QA_EXPORT_ORPHAN_GZB64_SSM_PART2 START/ { print; print "      Value: !Ref QaExportOrphanGzipB64Part2"; skip = 1; next }
+    />>> QA_EXPORT_ORPHAN_GZB64_SSM_PART2 END/ { skip = 0; print; next }
+    />>> QA_BOUNDARY_GZB64_SSM_PART1 START/ { print; print "      Value: !Ref QaBoundaryGzipB64Part1"; skip = 1; next }
+    />>> QA_BOUNDARY_GZB64_SSM_PART1 END/ { skip = 0; print; next }
+    />>> QA_BOUNDARY_GZB64_SSM_PART2 START/ { print; print "      Value: !Ref QaBoundaryGzipB64Part2"; skip = 1; next }
+    />>> QA_BOUNDARY_GZB64_SSM_PART2 END/ { skip = 0; print; next }
+    />>> PGDUMP_B64_PARAM START/ { print; print "      Value: !Ref PgdumpScriptGzipB64"; skip = 1; next }
+    />>> PGDUMP_B64_PARAM END/ { skip = 0; print; next }
+    />>> GHCR_PRUNE_B64_PARAM START/ { print; print "      Value: !Ref GhcrPruneScriptB64"; skip = 1; next }
+    />>> GHCR_PRUNE_B64_PARAM END/ { skip = 0; print; next }
+    />>> GHCR_PRUNE_DAILY_B64_PARAM START/ { print; print "      Value: !Ref GhcrPruneDailyScriptB64"; skip = 1; next }
+    />>> GHCR_PRUNE_DAILY_B64_PARAM END/ { skip = 0; print; next }
+    />>> BOOTSTRAP_GZB64_SSM_PART1 START/ { print; print "      Value: !Ref Stage0BootstrapGzipB64Part1"; skip = 1; next }
+    />>> BOOTSTRAP_GZB64_SSM_PART1 END/ { skip = 0; print; next }
+    />>> BOOTSTRAP_GZB64_SSM_PART2 START/ { print; print "      Value: !Ref Stage0BootstrapGzipB64Part2"; skip = 1; next }
+    />>> BOOTSTRAP_GZB64_SSM_PART2 END/ { skip = 0; print; next }
+    />>> BOOTSTRAP_GZB64_SSM_PART3 START/ { print; print "      Value: !Ref Stage0BootstrapGzipB64Part3"; skip = 1; next }
+    />>> BOOTSTRAP_GZB64_SSM_PART3 END/ { skip = 0; print; next }
+    />>> USERDATA_LAUNCHER START/ {
+      print
+      while ((getline line < userdata_file) > 0) print line
+      close(userdata_file)
+      skip = 1
+      next
+    }
+    />>> USERDATA_LAUNCHER END/ { skip = 0; print; next }
+    { if (!skip) print }
+  ' "${src}" >"${dst}"
   rm -f "${userdata_tmp}"
 }
 
@@ -223,8 +341,8 @@ if [[ "${mode}" == "check" ]]; then
   # across BSD vs GNU gzip, which made the pre-commit hook unsatisfiable on macOS
   # for PR #778 (the committed bytes could never match a non-CI contributor's gzip).
   drift=0
-  committed_value() {  # $1 = marker name; prints the base64 inside its Value: '...'
-    awk -v m="$1" -v q="'" '
+  committed_value() {  # $1 = template, $2 = marker
+    awk -v m="$2" -v q="'" '
       index($0, ">>> " m " START") { g = 1; next }
       index($0, ">>> " m " END")   { g = 0 }
       g && /Value:/ {
@@ -233,26 +351,64 @@ if [[ "${mode}" == "check" ]]; then
         sub(q "[[:space:]]*$", "", s)
         print s; g = 0
       }
-    ' "${CFN_FILE}"
+    ' "$1"
   }
   report() { echo "  drift: ${1} embed no longer decodes to its source — run: bash deploy/aws/stage0/build-cfn.sh" >&2; drift=1; }
 
-  # gzip+base64 payloads (the version-fragile ones):
-  committed_value COMPOSE_GZB64_SSM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${COMPOSE_SRC}" || report compose
-  committed_value CADDY_GZB64_SSM   | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${CADDY_SRC}"   || report caddy
-  { committed_value BOOTSTRAP_GZB64_SSM_PART1; committed_value BOOTSTRAP_GZB64_SSM_PART2; committed_value BOOTSTRAP_GZB64_SSM_PART3; } \
-    | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${BOOTSTRAP_SRC}" || report bootstrap
-  # pgdump and QA cleanup are also gzip+base64:
-  committed_value PGDUMP_B64_PARAM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${PGDUMP_SRC}" || report pgdump
-  { committed_value QA_CLEANUP_GZB64_SSM_PART1; committed_value QA_CLEANUP_GZB64_SSM_PART2; } \
-    | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${QA_CLEANUP_SRC}" || report qa-cleanup
-  { committed_value QA_EXPORT_ORPHAN_GZB64_SSM_PART1; committed_value QA_EXPORT_ORPHAN_GZB64_SSM_PART2; } \
-    | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${QA_EXPORT_ORPHAN_SRC}" || report qa-export-orphan
-  { committed_value QA_BOUNDARY_GZB64_SSM_PART1; committed_value QA_BOUNDARY_GZB64_SSM_PART2; } \
-    | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${QA_BOUNDARY_SRC}" || report qa-boundary
-  # plain base64 payloads:
-  committed_value GHCR_PRUNE_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${PRUNE_SRC}"      || report ghcr-prune
-  committed_value GHCR_PRUNE_DAILY_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${DAILY_PRUNE_SRC}" || report ghcr-prune-daily
+  check_template() {
+    local template="$1" caddy_source="$2" label
+    label="$(basename "${template}")"
+    committed_value "${template}" COMPOSE_GZB64_SSM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${COMPOSE_SRC}" || report "${label}:compose"
+    committed_value "${template}" CADDY_GZB64_SSM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${caddy_source}" || report "${label}:caddy"
+    { committed_value "${template}" BOOTSTRAP_GZB64_SSM_PART1; committed_value "${template}" BOOTSTRAP_GZB64_SSM_PART2; committed_value "${template}" BOOTSTRAP_GZB64_SSM_PART3; } \
+      | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${BOOTSTRAP_SRC}" || report "${label}:bootstrap"
+    committed_value "${template}" PGDUMP_B64_PARAM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${PGDUMP_SRC}" || report "${label}:pgdump"
+    { committed_value "${template}" QA_CLEANUP_GZB64_SSM_PART1; committed_value "${template}" QA_CLEANUP_GZB64_SSM_PART2; } \
+      | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${QA_CLEANUP_SRC}" || report "${label}:qa-cleanup"
+    { committed_value "${template}" QA_EXPORT_ORPHAN_GZB64_SSM_PART1; committed_value "${template}" QA_EXPORT_ORPHAN_GZB64_SSM_PART2; } \
+      | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${QA_EXPORT_ORPHAN_SRC}" || report "${label}:qa-export-orphan"
+    { committed_value "${template}" QA_BOUNDARY_GZB64_SSM_PART1; committed_value "${template}" QA_BOUNDARY_GZB64_SSM_PART2; } \
+      | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${QA_BOUNDARY_SRC}" || report "${label}:qa-boundary"
+    committed_value "${template}" GHCR_PRUNE_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${PRUNE_SRC}" || report "${label}:ghcr-prune"
+    committed_value "${template}" GHCR_PRUNE_DAILY_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${DAILY_PRUNE_SRC}" || report "${label}:ghcr-prune-daily"
+  }
+
+  check_template "${CFN_FILE}" "${CADDY_SRC}"
+  if [[ "${MANAGE_EDGE_CFN}" -eq 1 ]]; then
+    check_edge_ref() {
+      local marker="$1" expected="$2" actual
+      actual="$(awk -v m="${marker}" '
+        index($0, ">>> " m " START") { active = 1; next }
+        index($0, ">>> " m " END") { active = 0 }
+        active && /Value:/ {
+          sub(/^[[:space:]]*Value:[[:space:]]*/, "")
+          print
+          exit
+        }
+      ' "${EDGE_CFN_FILE}")"
+      [[ "${actual}" == "!Ref ${expected}" ]] \
+        || report "stage0-edge-ec2.yaml:${marker} must reference ${expected}"
+    }
+    check_edge_ref COMPOSE_GZB64_SSM Stage0ComposeGzipB64
+    check_edge_ref CADDY_GZB64_SSM Stage0CaddyGzipB64
+    check_edge_ref QA_CLEANUP_GZB64_SSM_PART1 QaStaleCleanupGzipB64Part1
+    check_edge_ref QA_CLEANUP_GZB64_SSM_PART2 QaStaleCleanupGzipB64Part2
+    check_edge_ref QA_EXPORT_ORPHAN_GZB64_SSM_PART1 QaExportOrphanGzipB64Part1
+    check_edge_ref QA_EXPORT_ORPHAN_GZB64_SSM_PART2 QaExportOrphanGzipB64Part2
+    check_edge_ref QA_BOUNDARY_GZB64_SSM_PART1 QaBoundaryGzipB64Part1
+    check_edge_ref QA_BOUNDARY_GZB64_SSM_PART2 QaBoundaryGzipB64Part2
+    check_edge_ref PGDUMP_B64_PARAM PgdumpScriptGzipB64
+    check_edge_ref GHCR_PRUNE_B64_PARAM GhcrPruneScriptB64
+    check_edge_ref GHCR_PRUNE_DAILY_B64_PARAM GhcrPruneDailyScriptB64
+    check_edge_ref BOOTSTRAP_GZB64_SSM_PART1 Stage0BootstrapGzipB64Part1
+    check_edge_ref BOOTSTRAP_GZB64_SSM_PART2 Stage0BootstrapGzipB64Part2
+    check_edge_ref BOOTSTRAP_GZB64_SSM_PART3 Stage0BootstrapGzipB64Part3
+    awk '
+      />>> USERDATA_LAUNCHER START/ { active = 1; next }
+      />>> USERDATA_LAUNCHER END/ { active = 0 }
+      active { print }
+    ' "${EDGE_CFN_FILE}" | cmp -s - <(printf '%s\n' "${EDGE_USERDATA_BODY}") || report "stage0-edge-ec2.yaml:userdata"
+  fi
   # (The thin UserData launcher is a pass-through YAML block, not a marker-spliced
   #  SSM embed, so it is not part of the gzip-drift surface; its 16 KiB size guard
   #  above still runs in both modes.)
@@ -264,14 +420,21 @@ if [[ "${mode}" == "check" ]]; then
 fi
 
 tmp_main="$(mktemp)"
-trap 'rm -f "${tmp_main}"' EXIT
+tmp_edge=""
+trap 'rm -f "${tmp_main}" "${tmp_edge}"' EXIT
 refresh_template "${CFN_FILE}" "${tmp_main}" "${CADDY_GZB64}"
 mv "${tmp_main}" "${CFN_FILE}"
+if [[ "${MANAGE_EDGE_CFN}" -eq 1 ]]; then
+  tmp_edge="$(mktemp)"
+  parameterize_edge_template "${EDGE_CFN_FILE}" "${tmp_edge}" "${EDGE_USERDATA_BODY}"
+  mv "${tmp_edge}" "${EDGE_CFN_FILE}"
+fi
 trap - EXIT
 
 echo "stage0 CFN refreshed."
 echo "  compose gzip+base64 (SSM): ${#COMPOSE_GZB64} chars"
 echo "  caddy gzip+base64 (SSM): ${#CADDY_GZB64} chars"
+echo "  edge caddy gzip+base64 (SSM): ${#CADDY_EDGE_GZB64} chars"
 echo "  qa cleanup gzip+base64 (SSM total): ${#QA_CLEANUP_GZB64} chars (part1=${#QA_CLEANUP_PART1}, part2=${#QA_CLEANUP_PART2})"
 echo "  qa export orphan gzip+base64 (SSM total): ${#QA_EXPORT_ORPHAN_GZB64} chars (part1=${#QA_EXPORT_ORPHAN_PART1}, part2=${#QA_EXPORT_ORPHAN_PART2})"
 echo "  qa boundary gzip+base64 (SSM total): ${#QA_BOUNDARY_GZB64} chars (part1=${#QA_BOUNDARY_PART1}, part2=${#QA_BOUNDARY_PART2})"
@@ -280,6 +443,7 @@ echo "  ghcr prune base64 (SSM): ${#PRUNE_B64} chars"
 echo "  ghcr daily prune base64 (SSM): ${#DAILY_PRUNE_B64} chars"
 echo "  bootstrap gzip+base64 (SSM total): ${#BOOTSTRAP_GZB64} chars (part1=${#BOOTSTRAP_PART1}, part2=${#BOOTSTRAP_PART2}, part3=${#BOOTSTRAP_PART3})"
 echo "  prod UserData launcher: ${USERDATA_BYTES} bytes (EC2 limit ${EC2_USERDATA_LIMIT})"
+echo "  edge UserData launcher: ${EDGE_USERDATA_BYTES} bytes (EC2 limit ${EC2_USERDATA_LIMIT})"
 if (( USERDATA_BYTES > USERDATA_WARN_BYTES )); then
   echo "WARNING: UserData approaching EC2 limit." >&2
 fi

@@ -1,0 +1,237 @@
+name: EC2 Edge Stage0 Deploy
+
+run-name: "ec2-edge=${{ inputs.edge_id }} op=${{ inputs.operation }} tag=${{ inputs.tag || 'none' }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      edge_id:
+        description: "EC2 Edge target from deploy/aws/stage0/edge-targets.json."
+        required: true
+        type: choice
+        options: [us3, us4, us5, us6]
+      operation:
+        description: "EC2 Edge candidate or active-owner operation."
+        required: true
+        type: choice
+        options: [provision, upgrade, rollback, smoke]
+      tag:
+        description: "Released image tag without leading v."
+        required: false
+        type: string
+      confirm_stack:
+        description: "Must exactly match the matrix stack name."
+        required: true
+        type: string
+      allow_migration_candidate:
+        description: "Explicitly allow a deployable=false migration candidate."
+        required: false
+        type: boolean
+        default: false
+      smoke_phase:
+        description: "infra | edge-native-oauth | main-via-edge | full"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  id-token: write
+  packages: read
+
+concurrency:
+  group: ec2-edge-stage0-${{ inputs.edge_id }}
+  cancel-in-progress: false
+
+jobs:
+  edge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: edge-${{ inputs.edge_id }}
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      INPUT_EDGE_ID: ${{ inputs.edge_id }}
+      INPUT_OPERATION: ${{ inputs.operation }}
+      INPUT_TAG: ${{ inputs.tag }}
+      INPUT_CONFIRM_STACK: ${{ inputs.confirm_stack }}
+      INPUT_ALLOW_CANDIDATE: ${{ inputs.allow_migration_candidate }}
+      INPUT_SMOKE_PHASE: ${{ inputs.smoke_phase }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Resolve EC2 Edge target
+        id: edge
+        run: |
+          set -euo pipefail
+          if [[ ! "${OIDC_ROLE_ARN:-}" =~ ^arn:(aws(-[a-z]+)?):iam::([0-9]{12}):role/.+$ ]]; then
+            echo "::error::AWS_OIDC_ROLE_ARN is required and must be a role ARN"
+            exit 1
+          fi
+          echo "cfn_execution_role_arn=arn:${BASH_REMATCH[1]}:iam::${BASH_REMATCH[3]}:role/tokenkey-cfn-ec2-edge-stage0" >> "$GITHUB_OUTPUT"
+          flags=()
+          if [ "$INPUT_ALLOW_CANDIDATE" = true ]; then
+            flags+=(--allow-migration-candidate)
+          fi
+          python3 deploy/aws/stage0/resolve-edge-target.py \
+            --edge-id "$INPUT_EDGE_ID" \
+            --confirm-stack "$INPUT_CONFIRM_STACK" \
+            "${flags[@]}" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Validate operation and target mode
+        run: |
+          set -euo pipefail
+          if [ "$INPUT_OPERATION" = provision ] && [ "${{ steps.edge.outputs.deployable }}" = true ]; then
+            echo "::error::active EC2 Edge is already provisioned"
+            exit 1
+          fi
+          case "$INPUT_OPERATION" in
+            provision|upgrade|rollback)
+              [ -n "${INPUT_TAG:-}" ] || { echo "::error::tag is required"; exit 1; }
+              bash ops/stage0/validate-deploy-tag.sh "$INPUT_TAG"
+              ;;
+            smoke) ;;
+            *) echo "::error::unsupported operation=$INPUT_OPERATION"; exit 1 ;;
+          esac
+          bash deploy/aws/stage0/build-cfn.sh --check
+
+      - name: Verify GHCR multi-arch manifest
+        if: inputs.operation == 'provision' || inputs.operation == 'upgrade' || inputs.operation == 'rollback'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" false
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ steps.edge.outputs.region }}
+
+      - name: Provision candidate infrastructure
+        id: provision
+        if: inputs.operation == 'provision' && steps.edge.outputs.deployable != 'true' && steps.edge.outputs.migration_candidate == 'true'
+        env:
+          REGION: ${{ steps.edge.outputs.region }}
+          STACK: ${{ steps.edge.outputs.stack }}
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          DOMAIN: ${{ steps.edge.outputs.domain }}
+          INSTANCE_TYPE: ${{ steps.edge.outputs.instance_type }}
+          ROOT_GIB: ${{ steps.edge.outputs.root_volume_gib }}
+          DATA_GIB: ${{ steps.edge.outputs.data_volume_gib }}
+          SWAP_GIB: ${{ steps.edge.outputs.swap_gib }}
+          SNAPSHOT_SCHEDULE: ${{ steps.edge.outputs.snapshot_schedule }}
+          CFN_ROLE_ARN: ${{ steps.edge.outputs.cfn_execution_role_arn }}
+          ACME_EMAIL: ${{ vars.EDGE_ACME_EMAIL }}
+          MAIN_GATEWAY_ALLOWED_CIDR: ${{ vars.EDGE_MAIN_GATEWAY_ALLOWED_CIDR }}
+          GHCR_PAT_SSM_NAME: ${{ vars.EDGE_GHCR_PAT_SSM_NAME }}
+        run: |
+          set -euo pipefail
+          [ "$INPUT_ALLOW_CANDIDATE" = true ] || { echo "::error::candidate acknowledgement required"; exit 1; }
+          [ "${{ steps.edge.outputs.migration_candidate }}" = true ] || { echo "::error::target is not a candidate"; exit 1; }
+          [ -n "${ACME_EMAIL:-}" ] && [ -n "${MAIN_GATEWAY_ALLOWED_CIDR:-}" ]
+          PARAMETER_VALUES="$(bash deploy/aws/stage0/build-cfn.sh --edge-parameter-values)"
+          PARAMETERS=()
+          while IFS=$'\t' read -r name value; do
+            [ -n "$name" ] && [ -n "$value" ] || { echo "::error::empty Edge bootstrap parameter"; exit 1; }
+            PARAMETERS+=("$name=$value")
+          done <<<"$PARAMETER_VALUES"
+          AMI_ID="$(aws ssm get-parameter --region "$REGION" --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64 --query Parameter.Value --output text)"
+          EXISTING_EIPS="$(aws ec2 describe-addresses --region "$REGION" \
+            --filters Name=tag:Project,Values=tokenkey Name=tag:Environment,Values=edge Name=tag:EdgeId,Values="$EDGE_ID" Name=tag:Purpose,Values=migration-candidate \
+            --query 'Addresses[].AllocationId' --output json)"
+          case "$(jq 'length' <<<"$EXISTING_EIPS")" in
+            0)
+              ALLOCATION_ID="$(aws ec2 allocate-address --region "$REGION" --domain vpc --tag-specifications "ResourceType=elastic-ip,Tags=[{Key=Project,Value=tokenkey},{Key=Environment,Value=edge},{Key=EdgeId,Value=$EDGE_ID},{Key=Purpose,Value=migration-candidate}]" --query AllocationId --output text)"
+              ;;
+            1) ALLOCATION_ID="$(jq -r '.[0]' <<<"$EXISTING_EIPS")" ;;
+            *) echo "::error::multiple candidate EIPs found for edge=$EDGE_ID"; exit 1 ;;
+          esac
+          PUBLIC_IPV4="$(aws ec2 describe-addresses --region "$REGION" --allocation-ids "$ALLOCATION_ID" --query 'Addresses[0].PublicIp' --output text)"
+          [ -n "$PUBLIC_IPV4" ] && [ "$PUBLIC_IPV4" != None ]
+          aws cloudformation deploy \
+            --region "$REGION" \
+            --stack-name "$STACK" \
+            --template-file deploy/aws/cloudformation/stage0-edge-ec2.yaml \
+            --role-arn "$CFN_ROLE_ARN" \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              EdgeId="$EDGE_ID" ApiDomain="$DOMAIN" AmazonLinux2023Arm64Ami="$AMI_ID" \
+              InstanceType="$INSTANCE_TYPE" RootVolumeSizeGiB="$ROOT_GIB" DataVolumeSizeGiB="$DATA_GIB" \
+              SwapSizeGiB="$SWAP_GIB" SnapshotSchedule="$SNAPSHOT_SCHEDULE" EipAllocationId="$ALLOCATION_ID" PublicIpv4="$PUBLIC_IPV4" \
+              AcmeEmail="$ACME_EMAIL" MainGatewayAllowedCidr="$MAIN_GATEWAY_ALLOWED_CIDR" \
+              GhcrOwner="${{ github.repository_owner }}" GhcrPullUser="${{ github.repository_owner }}" \
+              ImageTag="$INPUT_TAG" GhcrPatSsmName="$GHCR_PAT_SSM_NAME" \
+              "${PARAMETERS[@]}"
+
+      - name: Resolve EC2 instance
+        id: instance
+        env:
+          REGION: ${{ steps.edge.outputs.region }}
+          STACK: ${{ steps.edge.outputs.stack }}
+        run: |
+          set -euo pipefail
+          INSTANCE_ID="$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" --output text)"
+          [ -n "$INSTANCE_ID" ] && [ "$INSTANCE_ID" != None ]
+          echo "instance_id=$INSTANCE_ID" >> "$GITHUB_OUTPUT"
+          echo "api_url=https://${{ steps.edge.outputs.domain }}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify candidate host readiness
+        if: steps.edge.outputs.deployable != 'true' && steps.edge.outputs.migration_candidate == 'true' && (inputs.operation == 'provision' || inputs.operation == 'smoke')
+        env:
+          REGION: ${{ steps.edge.outputs.region }}
+          INSTANCE_ID: ${{ steps.instance.outputs.instance_id }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            STATUS="$(aws ssm describe-instance-information --region "$REGION" --filters "Key=InstanceIds,Values=$INSTANCE_ID" --query "InstanceInformationList[0].PingStatus" --output text)"
+            [ "$STATUS" = Online ] && break
+            [ "$attempt" -lt 60 ] || { echo "::error::candidate SSM did not become Online"; exit 1; }
+            sleep 10
+          done
+          COMMAND_ID="$(aws ssm send-command --region "$REGION" --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript --parameters '{"commands":["set -euo pipefail","grep -q CANDIDATE_READY /var/log/tokenkey-bootstrap.log","test \"$(docker inspect -f {{.State.Running}} tokenkey-caddy 2>/dev/null || echo false)\" = false","test \"$(docker inspect -f {{.State.Running}} tokenkey 2>/dev/null || echo false)\" = false","test \"$(docker inspect -f {{.State.Health.Status}} tokenkey-postgres)\" = healthy","test \"$(docker inspect -f {{.State.Health.Status}} tokenkey-redis)\" = healthy"]}' --query Command.CommandId --output text)"
+          for attempt in $(seq 1 60); do
+            STATUS="$(aws ssm get-command-invocation --region "$REGION" --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || true)"
+            case "$STATUS" in Success) break ;; Failed|TimedOut|Cancelled) exit 1 ;; esac
+            [ "$attempt" -lt 60 ] || exit 1
+            sleep 5
+          done
+
+      - name: Update candidate image without starting the app
+        id: ssm
+        if: steps.edge.outputs.deployable != 'true' && steps.edge.outputs.migration_candidate == 'true' && (inputs.operation == 'upgrade' || inputs.operation == 'rollback')
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.instance_id }}
+          AWS_REGION: ${{ steps.edge.outputs.region }}
+          STAGE0_SSM_OUTPUT_DIR: .
+        run: bash ops/stage0/update_ec2_edge_candidate_via_ssm.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-ec2-edge-candidate edge=$INPUT_EDGE_ID op=$INPUT_OPERATION"
+
+      - name: Deploy active EC2 Edge
+        if: steps.edge.outputs.deployable == 'true' && (inputs.operation == 'upgrade' || inputs.operation == 'rollback')
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.instance_id }}
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          AWS_REGION: ${{ steps.edge.outputs.region }}
+          STAGE0_SSM_OUTPUT_DIR: .
+        run: bash ops/stage0/deploy_via_ssm.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-ec2-edge edge=$INPUT_EDGE_ID op=$INPUT_OPERATION"
+
+      - name: Sync active Edge Feishu config
+        if: steps.edge.outputs.deployable == 'true' && (inputs.operation == 'upgrade' || inputs.operation == 'rollback')
+        env:
+          TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+          TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+        run: bash ops/stage0/sync-feishu-config.sh --platform ec2 "${{ steps.edge.outputs.edge_id }}"
+
+      - name: Smoke active EC2 Edge
+        if: steps.edge.outputs.deployable == 'true' && (inputs.operation == 'smoke' || inputs.operation == 'upgrade' || inputs.operation == 'rollback')
+        env:
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          EDGE_API_URL: ${{ steps.instance.outputs.api_url }}
+          EDGE_INSTANCE_ID: ${{ steps.instance.outputs.instance_id }}
+          EDGE_SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
+          AWS_REGION: ${{ steps.edge.outputs.region }}
+          EDGE_SMOKE_PHASE: ${{ inputs.smoke_phase || 'infra' }}
+          TK_SMOKE_API_KEY: ${{ secrets.TK_SMOKE_API_KEY }}
+        run: bash ops/stage0/edge_post_deploy_smoke.sh

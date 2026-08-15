@@ -38,14 +38,17 @@ def load_matrix(path: str) -> dict:
     return json.loads(matrix_path.read_text(encoding="utf-8"))
 
 
-def resolve_target(data: dict, edge_id: str, *, confirm_stack: str = "", profile: str = "", allow_planned: bool = False) -> dict:
+def resolve_target(data: dict, edge_id: str, *, confirm_stack: str = "", profile: str = "", allow_planned: bool = False, allow_migration_candidate: bool = False) -> dict:
     targets = data.get("targets") or {}
     target = targets.get(edge_id)
     if target is None:
         fail(f"unknown edge_id {edge_id}; known edges: {', '.join(sorted(targets))}")
 
     deployable = bool(target.get("deployable"))
-    if not deployable and not allow_planned:
+    migration_candidate = target.get("migration_candidate") is True
+    if allow_migration_candidate and not migration_candidate:
+        fail(f"edge_id {edge_id} is not a migration candidate")
+    if not deployable and not allow_planned and not (allow_migration_candidate and migration_candidate):
         fail(
             f"edge_id {edge_id} is planned but not deployable; "
             "set deployable=true in deploy/aws/stage0/edge-targets.json when ready"
@@ -68,11 +71,6 @@ def resolve_target(data: dict, edge_id: str, *, confirm_stack: str = "", profile
     if target_profile != default_profile:
         fail(f"edge_id {edge_id} profile {target_profile} is not the default allowed profile {default_profile}")
 
-    budget = int(target.get("monthly_budget_usd", 0))
-    max_budget = int(data.get("max_monthly_budget_usd", 16))
-    if budget > max_budget:
-        fail(f"edge_id {edge_id} budget ${budget} exceeds max ${max_budget}")
-
     stack = str(target.get("stack") or "")
     if confirm_stack and confirm_stack != stack:
         fail(f"confirm_stack mismatch: got {confirm_stack}, expected {stack}")
@@ -86,7 +84,6 @@ def resolve_target(data: dict, edge_id: str, *, confirm_stack: str = "", profile
         "data_volume_gib",
         "swap_gib",
         "snapshot_schedule",
-        "monthly_budget_usd",
         "ssm_prefix",
     ]
     missing = [key for key in required if key not in target or target[key] in (None, "")]
@@ -96,6 +93,7 @@ def resolve_target(data: dict, edge_id: str, *, confirm_stack: str = "", profile
     return {
         "edge_id": edge_id,
         "deployable": str(deployable).lower(),
+        "migration_candidate": str(migration_candidate).lower(),
         "profile": target_profile,
         "region": target["region"],
         "domain": target["domain"],
@@ -105,7 +103,6 @@ def resolve_target(data: dict, edge_id: str, *, confirm_stack: str = "", profile
         "data_volume_gib": target["data_volume_gib"],
         "swap_gib": target["swap_gib"],
         "snapshot_schedule": target["snapshot_schedule"],
-        "monthly_budget_usd": budget,
         "ssm_prefix": target["ssm_prefix"],
         "purpose": target.get("purpose", ""),
     }
@@ -231,6 +228,7 @@ def main() -> int:
     parser.add_argument("--profile", default="")
     parser.add_argument("--matrix", default=str(DEFAULT_MATRIX))
     parser.add_argument("--allow-planned", action="store_true")
+    parser.add_argument("--allow-migration-candidate", action="store_true")
     parser.add_argument("--github-output", default="")
     parser.add_argument("--prod-ops-matrix", action="store_true")
     parser.add_argument("--target-selector", default="all")
@@ -297,6 +295,7 @@ def main() -> int:
         confirm_stack=args.confirm_stack,
         profile=args.profile,
         allow_planned=args.allow_planned,
+        allow_migration_candidate=args.allow_migration_candidate,
     )
 
     for key, value in outputs.items():

@@ -5,8 +5,9 @@ name: Edge Lightsail Stage0 Deploy
 # opening logs — all edges share this one workflow file.
 run-name: "edge=${{ inputs.edge_id }} op=${{ inputs.operation }} tag=${{ inputs.tag || 'none' }}"
 
-# Sole Edge deploy path — on AWS Lightsail (the EC2/CFN edge path was removed
-# 2026-06-07; prod stays EC2/CFN). Shares image manifest checks, SSM upgrade
+# Lightsail Edge deploy path. The shared dispatcher selects this workflow only
+# when Lightsail is the active owner; EC2 candidates/owners use
+# deploy-edge-stage0.yml. Both paths share image checks, the SSM upgrade
 # primitive, and smoke scripts with deploy-stage0.yml.
 # See deploy/aws/lightsail/README.md and docs/spec-delta-edge-lightsail.md.
 

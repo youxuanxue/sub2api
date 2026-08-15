@@ -35,7 +35,7 @@ description: >-
 
 | 参数 | 语义 |
 |---|---|
-| `edge_id` | 新 Lightsail edge，如 `uk1`、`us1`、`fra1`、`sg1`。**必须**与 EC2 `edge_id` 不同名空间（同 id 不同栈不要并存活跑）。 |
+| `edge_id` | 新 Lightsail edge，如 `uk1`、`us1`、`fra1`、`sg1`。新建时不得占用现有 Edge ID；平台迁移可让同一 ID 的 Lightsail owner 与 EC2 candidate 并存，但禁止两边同时 `deployable=true`。 |
 | `region` | Lightsail API region（`eu-west-2` / `us-west-2` / `eu-central-1` / `ap-southeast-1` 等）。Paris 无 Lightsail，`fra1` 必须映射到 `eu-central-1`。 |
 | `operation=prepare` | 仅做注册 + 一次性 IAM/SSM/PAT 配置，**不**创建实例。 |
 | `operation=provision` | 创建 Lightsail 实例 + 分配 Static IP + 等 SSM Hybrid 注册完成。默认 fail-if-exists；要销毁重建须 `recreate=true`（destructive）。 |
@@ -182,15 +182,15 @@ aws iam get-role --role-name tokenkey-gha-us-east-1-error-clustering \
 
 新 edge **若不跑 smoke**，可跳过 `TK_SMOKE_API_KEY`（见 §1.5 说明；uk1/us1 以外的 edge 默认不配）。
 
-#### 1.3b Lightsail-only edge：**不要**加 EC2 CFN execution role
+#### 1.3b 非迁移的新 Lightsail Edge：**不要**加 EC2 addon
 
-`us2` / `us3` / `us4`、已完成 EC2→Lightsail 的 `uk1` 等 **只在 Lightsail 矩阵 `deployable=true`** 的 edge：
+只新增 Lightsail 资源、没有 EC2 migration candidate 的 Edge：
 
 - OIDC 只需 `cicd-oidc.yaml` → `AllowedSubjects` 含 `environment:edge-<id>`（§1.5a）。
-- **不要**在 `cicd-oidc.yaml` 新增 `Edge<PascalCase>CloudFormationExecutionRoleArn` / `EdgeXTargetInstanceId` / 区域 SSM `ssm:SendCommand` 到 EC2 instance ARN——那是已于 2026-06-07 退役的 EC2/CFN edge 路径,不要复活。
+- **不要**为它部署 `cicd-oidc-ec2-edge-addon.yaml` 或写入 EC2 matrix；EC2 addon 只服务已审批的平台迁移 candidate / owner。
 - 运维入口：`deploy-edge-lightsail-stage0.yml` + SSM Hybrid tag `EdgeId` / `Platform=lightsail`。
 
-若误加了 uk1 EC2 IAM 又已迁移到 Lightsail，Phase 5 收尾见 `tokenkey-stage0-edge-platform-migration` §5。
+若后续要迁移到 EC2，改走 `tokenkey-stage0-edge-platform-migration`，不要在新增流程里顺手扩权限。
 
 ### 1.6 PR + 落库
 

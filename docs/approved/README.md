@@ -37,6 +37,7 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 | [`channel-pricing-refund-gate-and-runtime-pricing.md`](channel-pricing-refund-gate-and-runtime-pricing.md) | Runtime pricing and refund gate |
 | [`design-data-layer-prod-export-canary.md`](design-data-layer-prod-export-canary.md) | 生产只读、export-only、无删除归档 canary |
 | [`design-capacity-first-data-layer-safety.md`](design-capacity-first-data-layer-safety.md) | Capacity-first 阈值契约；正式 probe 已晋升进 daily diagnostics |
+| [`design-edge-ec2-zero-loss-migration.md`](design-edge-ec2-zero-loss-migration.md) | Edge EC2 零数据丢失迁移平台与四状态切换 |
 | [`design-prod-archive-bucket.md`](design-prod-archive-bucket.md) | 长期 ops archive 桶 + promote |
 | [`design-prod-qa-24h-s3-lifecycle.md`](design-prod-qa-24h-s3-lifecycle.md) | Prod-only QA 24h 在线层与 7d raw S3 生命周期 SSOT |
 | [`disable-cancel-storm-detector.md`](disable-cancel-storm-detector.md) | Cancel-storm detector retirement |
