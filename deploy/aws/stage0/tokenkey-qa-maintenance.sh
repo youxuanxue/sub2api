@@ -524,6 +524,20 @@ raise SystemExit(0 if valid else 1)
 PY
 }
 
+terminate_activation_child() {
+  local child_name="$1"
+  local child_pid="$2"
+  if [ -n "${child_name}" ]; then
+    qa_docker rm -f "${child_name}" >/dev/null 2>&1 || true
+  fi
+  if [ -n "${child_pid}" ] && kill -0 "${child_pid}" >/dev/null 2>&1; then
+    kill "${child_pid}" >/dev/null 2>&1 || true
+  fi
+  set +e
+  wait "${child_pid}" >/dev/null 2>&1
+  set -e
+}
+
 run_single_owner_activation() {
   local plan_hash="$1"
   local confirmation="$2"
@@ -580,14 +594,11 @@ run_single_owner_activation() {
       return
     fi
     if [ "$(date +%s)" -ge "${deadline}" ]; then
-      set +e
-      wait "${child_pid}"
-      child_exit=$?
-      set -e
+      terminate_activation_child "${child_name}" "${child_pid}"
       cat "${child_stderr}" >&2
       rm -f -- "${child_stdout}" "${child_stderr}"
       cleanup_runtime_files
-      qa_fail activation_ready_timeout "${child_exit}" "single-owner activation database-lock ready timed out"
+      qa_fail activation_ready_timeout 66 "single-owner activation database-lock ready timed out"
       return
     fi
     sleep 0.1
@@ -596,10 +607,21 @@ run_single_owner_activation() {
   if systemctl is-enabled tokenkey-qa-boundary.timer >/dev/null 2>&1 ||
     systemctl is-active tokenkey-qa-boundary.timer >/dev/null 2>&1 ||
     systemctl is-active tokenkey-qa-boundary.service >/dev/null 2>&1; then
+    terminate_activation_child "${child_name}" "${child_pid}"
+    cat "${child_stderr}" >&2
+    rm -f -- "${child_stdout}" "${child_stderr}"
+    cleanup_runtime_files
     qa_fail boundary_reactivated 64 "boundary owner reactivated while database lock was held"
     return
   fi
-  write_activation_ack "${ready_path}" "${ack_path}" "${run_id}" "${plan_hash}"
+  if ! write_activation_ack "${ready_path}" "${ack_path}" "${run_id}" "${plan_hash}"; then
+    terminate_activation_child "${child_name}" "${child_pid}"
+    cat "${child_stderr}" >&2
+    rm -f -- "${child_stdout}" "${child_stderr}"
+    cleanup_runtime_files
+    qa_fail activation_ack_failed 67 "single-owner activation host acknowledgement failed"
+    return
+  fi
   set +e
   wait "${child_pid}"
   child_exit=$?

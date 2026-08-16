@@ -69,6 +69,9 @@ if [ "${1:-}" = inspect ]; then
   esac
   exit 0
 fi
+if [ "${1:-}" = rm ]; then
+  exit 0
+fi
 if [ "${1:-}" = run ]; then
   if [[ "$*" == *qa-maintenance-selftest-create* ]]; then
     printf '%s' 'qa-maintenance-selftest-ok' > "$TEST_SCRATCH/.qa-maintenance-selftest"
@@ -92,6 +95,10 @@ if [ "${1:-}" = run ]; then
 	    done
 	    ready="$TEST_ACTIVATION_DIR/$run_id.ready.json"
 	    ack="$TEST_ACTIVATION_DIR/$run_id.ack.json"
+	    if [ "${TEST_ACTIVATION_SKIP_READY:-0}" = 1 ]; then
+	      sleep "${TEST_ACTIVATION_SLEEP_SECONDS:-30}"
+	      exit 99
+	    fi
 	    printf '{"schema_version":"qa-single-owner-db-lock-ready-v1","run_id":"%s","nonce":"nonce-1","plan_hash":"%s","database_lock_acquired":true,"ready_at":"2026-08-15T10:00:00Z"}\n' "$run_id" "$plan_hash" > "$ready"
 	    deadline=$(( $(date +%s) + 3 ))
 	    while [ ! -f "$ack" ]; do
@@ -218,8 +225,16 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$TEST_SYSTEMCTL_LOG"
 case "$*" in
   "disable --now tokenkey-qa-boundary.timer") exit 0 ;;
-  "is-enabled tokenkey-qa-boundary.timer") printf 'disabled\n'; exit 1 ;;
-  "is-active tokenkey-qa-boundary.timer") printf 'inactive\n'; exit 3 ;;
+  "is-enabled tokenkey-qa-boundary.timer")
+    enabled_count=0
+    [ ! -f "$TEST_TIMER_ENABLED_POLLS" ] || enabled_count="$(cat "$TEST_TIMER_ENABLED_POLLS")"
+    enabled_count=$((enabled_count + 1))
+    printf '%s\n' "$enabled_count" > "$TEST_TIMER_ENABLED_POLLS"
+    if [ "${TEST_BOUNDARY_TIMER_ENABLED:-0}" = 1 ] || [ "$enabled_count" -ge "${TEST_BOUNDARY_TIMER_ENABLED_AFTER_POLLS:-999999}" ]; then printf 'enabled\n'; exit 0; fi
+    printf 'disabled\n'; exit 1 ;;
+  "is-active tokenkey-qa-boundary.timer")
+    if [ "${TEST_BOUNDARY_TIMER_ACTIVE:-0}" = 1 ]; then printf 'active\n'; exit 0; fi
+    printf 'inactive\n'; exit 3 ;;
   "is-active tokenkey-qa-boundary.service")
     count=0
     [ ! -f "$TEST_SERVICE_POLLS" ] || count="$(cat "$TEST_SERVICE_POLLS")"
@@ -248,6 +263,7 @@ exit 9
                 "TEST_ACTIVATION_DIR": str(activation_dir),
                 "TEST_SYSTEMCTL_LOG": str(systemctl_log),
                 "TEST_SERVICE_POLLS": str(root / "service-polls"),
+                "TEST_TIMER_ENABLED_POLLS": str(root / "timer-enabled-polls"),
                 "TEST_SERVICE_ACTIVE_POLLS": "1",
             }
         )
@@ -290,6 +306,73 @@ exit 9
             ack = json.loads(ack_files[0].read_text(encoding="utf-8"))
             self.assertEqual(ack["nonce"], "nonce-1")
             self.assertFalse(ack["boundary_service_active"])
+
+    def test_phase3_activation_ready_timeout_terminates_child_container(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            env, _, docker_log, _, _ = self._sandbox(root)
+            self._install_activation_host_fakes(root, env)
+            env["QA_SINGLE_OWNER_ACK_TIMEOUT_SECONDS"] = "1"
+            env["TEST_ACTIVATION_SKIP_READY"] = "1"
+            env["TEST_ACTIVATION_SLEEP_SECONDS"] = "30"
+            plan_hash = "c" * 64
+
+            started = time.monotonic()
+            proc = subprocess.run(
+                [
+                    "bash",
+                    str(RUNNER),
+                    "--activate-single-owner",
+                    f"--plan-hash={plan_hash}",
+                    f"--confirm=tokenkey-prod-qa-single-owner-activate-v1:{plan_hash}",
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+            elapsed = time.monotonic() - started
+
+            self.assertNotEqual(proc.returncode, 0, (proc.stdout, proc.stderr))
+            self.assertLess(elapsed, 5, (proc.stdout, proc.stderr))
+            combined_output = proc.stdout + proc.stderr
+            self.assertIn("single-owner activation database-lock ready timed out", combined_output)
+            docker_calls = docker_log.read_text(encoding="utf-8")
+            self.assertIn("--qa-single-owner-activate", docker_calls)
+            self.assertIn("rm -f tokenkey-qa-single-owner-", docker_calls)
+            self.assertEqual(list(Path(env["TEST_ACTIVATION_DIR"]).glob("*.ack.json")), [])
+
+    def test_phase3_activation_boundary_reactivation_terminates_child_container(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            env, _, docker_log, _, _ = self._sandbox(root)
+            self._install_activation_host_fakes(root, env)
+            env["TEST_BOUNDARY_TIMER_ENABLED_AFTER_POLLS"] = "2"
+            plan_hash = "d" * 64
+
+            proc = subprocess.run(
+                [
+                    "bash",
+                    str(RUNNER),
+                    "--activate-single-owner",
+                    f"--plan-hash={plan_hash}",
+                    f"--confirm=tokenkey-prod-qa-single-owner-activate-v1:{plan_hash}",
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+
+            self.assertNotEqual(proc.returncode, 0, (proc.stdout, proc.stderr))
+            combined_output = proc.stdout + proc.stderr
+            self.assertIn("boundary owner reactivated while database lock was held", combined_output)
+            docker_calls = docker_log.read_text(encoding="utf-8")
+            self.assertIn("--qa-single-owner-activate", docker_calls)
+            self.assertIn("rm -f tokenkey-qa-single-owner-", docker_calls)
+            self.assertEqual(list(Path(env["TEST_ACTIVATION_DIR"]).glob("*.ack.json")), [])
 
     def test_phase3_activation_drain_timeout_never_forces_or_reenables_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
