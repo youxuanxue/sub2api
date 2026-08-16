@@ -121,7 +121,7 @@ params_file="${OUTPUT_DIR}/ssm-params.json"
 stdout_file="${OUTPUT_DIR}/stdout.txt"
 stderr_file="${OUTPUT_DIR}/stderr.txt"
 
-# --- QA trajectory export → durable S3 (prod-only) ---------------------------
+# --- QA Bundle user surface (prod-only) --------------------------------------
 # Same mechanism as the SERVER_FRONTEND_URL backfill below: additive, guarded
 # (`grep -q`), idempotent .env + compose-mapping patches on a LIVE host, re-applied
 # on every deploy. The QA Bundle runtime vars are deliberately
@@ -131,9 +131,9 @@ stderr_file="${OUTPUT_DIR}/stderr.txt"
 # that never capture/export QA trajectories, so they have no use for this config.
 # Gate on the prod signal (EC2 `i-*`; every edge is a Lightsail `mi-*`) → edges get
 # an empty array, i.e. a byte-identical command list to before this change.
-# Credentials stay EMPTY on purpose: the prod instance role + the qa-exports bucket
-# policy (Principal = prod InstanceRole ARN) grant s3:PutObject, so no static keys
-# ever land in .env. Values are env-overridable but default to the prod bucket.
+# Credentials stay EMPTY on purpose: the dedicated QA Bundle bucket policy names
+# the prod InstanceRole ARN, so no static keys ever land in .env. Values are
+# env-overridable but default to the prod Bundle infrastructure outputs.
 # Lifecycle owner: docs/approved/design-prod-qa-24h-s3-lifecycle.md.
 #
 # Compose insertion anchors on the tokenkey service's SERVER_FRONTEND_URL line, NOT

@@ -1,7 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   tokenkey Stage 0 standalone QA raw archive bucket (Phase 2). Separate from
-  QaExportsBucket (user trajectory ZIP artifacts) and generic data-layer archive.
+  the retained legacy QaExportsBucket and generic data-layer archive. Active
+  user list, detail, and ZIP surfaces use QaBundleBucket in this stack.
   Lifecycle owner: docs/approved/design-prod-qa-24h-s3-lifecycle.md section 8.1.
 
 Parameters:

@@ -1,9 +1,9 @@
 schema_version: 1
 # Deploy-time env injection defaults for Stage0 SSM deploy scripts.
 # Target runtime policy values: ops/qa/policy.yaml (SSOT).
-# Rollout gates keep deploy defaults conservative until the approved Phase 2 production-
-# integrity closeout is implemented and verified; document approval alone does not open the gate.
-# Repository states describe code/design readiness; observed_* fields are reconciled by live probes.
+# Rollout gates keep repository readiness separate from observed production state;
+# document approval alone does not prove deployment or activate the single owner.
+# observed_* fields are reconciled by live probes.
 
 prod:
   QA_ARCHIVE_ENABLED:
