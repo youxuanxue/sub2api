@@ -1,7 +1,9 @@
 name: Ops Daily Diagnostics
 
 # Canonical production and Edge diagnostics entry point.
-# Read-only diagnostics may reach prod/Edge through GHA → AWS STS (OIDC) → SSM.
+# Diagnostics may reach prod/Edge through GHA → AWS STS (OIDC) → SSM. The only
+# write is the bounded prod QA Bundle synthetic canary (immutable spec + queue);
+# its short-lived artifacts expire under the Bundle lifecycle policy.
 # Issue creation and repair dispatch are isolated from AWS credentials. This
 # workflow never deploys, rolls back, edits secrets, writes code, pushes
 # branches, or creates PRs. Daily classification is deterministic; eligible
@@ -354,6 +356,20 @@ jobs:
               [ -n "$PHASE2_WARNING" ] || continue
               add_finding "qa_phase2_live_health" "warning" "warning" "QA Phase 2 live probe warning ($TARGET_ID)" "$PHASE2_WARNING" "qa-phase2-live-warning|$TARGET_ID|$PHASE2_WARNING"
             done < <(printf '%s' "$PHASE2_VERDICT" | jq -r '.warnings[]?')
+
+            if QA_BUNDLE_INFRA="$(QA_RAW_ARCHIVE_STACK="${{ vars.QA_RAW_ARCHIVE_STACK || 'tokenkey-prod-qa-raw-archive' }}" bash ops/qa/verify_qa_bundle_infra.sh 2>>"$STDERR")"; then
+              printf 'qa_bundle_infra: %s\n' "$QA_BUNDLE_INFRA" >> "$STDOUT"
+              add_finding "qa_bundle_infra" "ok" "info" "QA Bundle infrastructure passed ($TARGET_ID)" "Stack, bucket, queues, ECS capacity, DLQ, and worker image are ready." "qa-bundle-infra|$TARGET_ID"
+            else
+              add_finding "qa_bundle_infra" "issue_candidate" "error" "QA Bundle infrastructure failed ($TARGET_ID)" "The read-only Bundle infrastructure readiness gate failed." "qa-bundle-infra|$TARGET_ID"
+            fi
+
+            if QA_BUNDLE_CANARY="$(STAGE0_SSM_OUTPUT_DIR="$OUT/qa-bundle-canary" bash ops/stage0/run-qa-bundle-canary-via-ssm.sh "$INSTANCE_ID" "daily qa-bundle canary" 2>>"$STDERR")"; then
+              printf 'qa_bundle_canary: %s\n' "$QA_BUNDLE_CANARY" >> "$STDOUT"
+              add_finding "qa_bundle_canary" "ok" "info" "QA Bundle end-to-end canary passed ($TARGET_ID)" "Raw S3, immutable spec, SQS, Fargate worker, receipt, and manifest completed." "qa-bundle-canary|$TARGET_ID"
+            else
+              add_finding "qa_bundle_canary" "issue_candidate" "error" "QA Bundle end-to-end canary failed ($TARGET_ID)" "The canonical raw-to-Bundle synthetic job did not complete." "qa-bundle-canary|$TARGET_ID"
+            fi
           fi
 
           if [ "$TARGET_KIND" = "edge" ] && [ -n "$API_URL" ]; then

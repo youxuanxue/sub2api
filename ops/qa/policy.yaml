@@ -33,6 +33,8 @@ prod:
     source: s3_qa_bundle
     compute: ecs_fargate
     download: direct_s3
+    job_registry: immutable_s3_spec
+    database_job_registry: false
     prod_fallback: forbidden
 
   disk_monitor:

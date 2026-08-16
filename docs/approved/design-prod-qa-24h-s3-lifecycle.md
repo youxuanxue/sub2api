@@ -3,7 +3,7 @@ title: Prod-only QA S3 用户面与小时归档生命周期
 status: approved
 approved_by: "user (conversation approvals, 2026-08-05 through 2026-08-15; S3-only user surface, capture-sealed archive-gated hourly DROP, fail-closed single maintenance owner, no automatic emergency deletion)"
 approved_at: 2026-08-05
-last_reviewed: 2026-08-15
+last_reviewed: 2026-08-16
 created: 2026-08-05
 authors: [agent]
 risk: high
@@ -75,6 +75,8 @@ QA 数据面只有一个目标形态：
 目标实现前：
 
 - 现有两个 timer 和 24 小时本地 retention 仍是线上事实；
+- 仓库中的 transition boundary 只有一个定时入口：activation receipt 不存在时继续供给小时分区，并按现行
+  24 小时规则只 DROP 整小时分区；无法形成完整 raw archive 的到期小时必须先持久化 terminal gap，不能静默消失；
 - `production_recloseout_verified` 只证明 Phase 2 已验证，不能证明本设计已实现；
 - `phase3_worker_observed_state: transitional_in_prod` 表示用户路径仍在 prod；
 - 不得仅通过修改 rollout YAML 宣称 S3 Bundle、single owner 或 archive-gated DROP 已上线。
@@ -290,7 +292,11 @@ pgdump 继续排除 `qa_records*` data，保留 schema/control；该排除不是
 ### 9.1 一个 Bundle 支持三种能力
 
 用户打开 QA 页面时，prod 校验 JWT、`traj_export_enabled`、API key ownership 和 projectable platform，
-然后创建或复用 `(user_id, api_key_id, archive_watermark, format_version)` 唯一 job。Fargate 从 raw S3 构建
+然后创建或复用 `(user_id, api_key_id, archive_watermark, format_version)` 唯一 job。prod 将 immutable
+`user-qa/qa-bundles/v1/jobs/<job-id>/spec.json` 写入 Bundle bucket 并投递 SQS；该 spec 是 job registry 和
+ownership 的唯一持久事实源。`qa_export_jobs` 不参与 Bundle/ZIP 创建或读取，数据库只提供 entitlement 与
+API key ownership。spec 生命周期到期后 job 即不存在，可按新的 archive watermark 重建，禁止回查旧数据库 row。
+Fargate 从 raw S3 构建
 可浏览的 committed Bundle：
 
 ```text
@@ -302,8 +308,9 @@ pages/<page>.json.gz
 archive watermark、record count、page map、checksums 和格式版本。列表与详情读取同一 page。
 Bundle 不创建 `records/*` 层。打开页面只等待 committed pages，不等待 ZIP。
 
-用户点击导出后，prod 创建或复用 `(bundle_generation, export_format)` 唯一 export job；同一个 Fargate Worker
-只读取已经 committed 的 Bundle pages，生成 `exports/<opaque-export-id>/export.zip`，不重新扫描 raw archive。
+用户点击导出后，prod 创建或复用 `(bundle_generation, export_format)` 唯一 ZIP job；同一个 Fargate Worker
+只读取已经 committed 的 Bundle pages，生成
+`user-qa/qa-bundles/v1/jobs/<zip-job-id>/export.zip`，不重新扫描 raw archive。
 因此列表、详情和导出仍共享一个投影 owner，但大导出不会阻塞首次浏览。
 
 ### 9.2 原子发布与复用
@@ -314,6 +321,8 @@ Worker 先写不可见 generation，校验全部 pages 后最后发布 manifest�
 
 export job 只引用一个 immutable committed Bundle generation。ZIP 先写临时 object，校验后以 durable export job receipt
 发布；失败或 partial ZIP 不改变 Bundle manifest，也不影响列表和详情。相同 Bundle generation/format 复用已完成 ZIP。
+Bundle 与 ZIP 的 spec/receipt/manifest/output 都位于各自 deterministic job prefix；读取时从 URL job ID 反解
+`spec.json`，校验 canonical keys、user、API key、kind 和 parent Bundle 后才签发 URL。
 
 ### 9.3 Prod 与浏览器边界
 
@@ -422,7 +431,9 @@ single-owner 激活不假装跨两个 systemd unit 原子切换。唯一 host ac
 1. 取得同一 host lock，先 `disable --now` 独立 boundary timer，阻止新 run；
 2. 等待 boundary service 自然结束；超时立即停线且禁止强杀，随后验证 timer disabled/inactive、service inactive、
    boundary receipt/heartbeat 不再前进；
-3. 取得 QAMA database advisory lock，重新验证上述事实；
+3. 取得 QAMA database advisory lock，重新验证上述事实；activation plan 还必须证明最近 24 个已完成 UTC
+   小时的精确分区连续存在，且每个分区都已 capture-sealed、raw committed、restore-verified、无遗漏 source；
+   当前 UTC 小时到未来 72 小时的 catalog 也必须连续，未来分区只做供给门禁，不进入 archive/seal 计划；
 4. 最后在数据库事务中写 append-only single-owner activation receipt，maintenance 的 DROP phase 只认该 receipt；
 5. 释放锁后等待下一个自然 `HH:15` maintenance，不手工启动 DROP。
 
@@ -457,6 +468,7 @@ PR 2 不改变 partition DROP、systemd lifecycle owner 或 disk emergency 行�
 ### PR 3：唯一目标生命周期
 
 - maintenance 内聚 partition provision、archive、restore、capture seal、DROP 与 cleanup；
+- activation 前 transition boundary 继续现行 24 小时整分区清理，不留下 provision-only 或第二人工 cutover 旁路；
 - fail-closed activation runner 和 append-only single-owner receipt；
 - 激活后退役独立 boundary timer/runner/receipt/heartbeat；
 - 删除自动 emergency action，只保留 disk hard-health/P0。
@@ -480,8 +492,12 @@ PR 3 的代码发布不自动激活 DROP；生产激活仍需独立高风险批�
 - DROP 后文件清理失败可幂等续做；
 - Bundle generation 原子发布、watermark reuse、partial invisible；page 同时服务列表/详情，且不存在 per-record object；
 - ZIP 从 committed pages lazy build，失败不影响列表/详情；
+- immutable S3 spec 篡改必须失败；spec 过期按 job 不存在处理；Bundle/ZIP 全程不创建或依赖数据库 job row；
 - entitlement、ownership、projectable platform、cross-user/object traversal 负向；
 - prod API 不查询 QA source、不构建 ZIP、不代理下载；
+- Bundle infra readiness 必须真实回读 stack、bucket CORS/AES256 encryption/job-surface lifecycle、queue/DLQ、
+  Fargate capacity 与实际 worker image，任一配置漂移都在 app image 切换前 fail closed；
+- synthetic canary 必须真实走连续 raw commits -> immutable spec -> SQS -> Fargate -> receipt/manifest；
 - Playwright 经真实 UI 验证列表、详情、导出、watermark 和失败态；
 - systemd 内容未变化时不 reload，健康判断不读取 `ExecMainExitTimestamp`；
 - activation 每一步故障均保持 fail-closed，机械证明从未同时存在两个 DROP owner；
@@ -503,11 +519,14 @@ PR 3 的代码发布不自动激活 DROP；生产激活仍需独立高风险批�
 生产顺序：
 
 1. 发布 PR 1，只观察 capture hard-health 与幂等 systemd 行为；
-2. dark deploy Bundle Worker/API/UI，验证一个 user/key/watermark Bundle；
-3. 切换用户读取并观察至少一个自然 archive + Bundle 周期；
-4. 经独立高风险批准，执行 fail-closed 有序交接并提交 single-owner activation receipt；
-5. 观察自然 archive -> restore -> DROP -> cleanup 周期后，确认 boundary runtime 退役；
-6. rollout 才能把 repository/observed state 更新为 target verified。
+2. 在 app image 切换前部署并真实回读 Bundle bucket CORS/AES256 encryption/job-surface lifecycle、queue/DLQ
+   与至少一个运行中的 Fargate Worker；
+   首次部署所需的 OIDC role、CloudFormation service role 与 GitHub variables 统一按 `ops/qa/README.md` bootstrap；
+3. 发布启用 Bundle 的 API/UI，真实 canary 走 raw S3 -> spec -> SQS -> Worker -> receipt/manifest；
+4. 切换用户读取并观察至少一个自然 archive + Bundle 周期；transition boundary 同期继续 24 小时清理；
+5. 经独立高风险批准，执行 fail-closed 有序交接并提交 single-owner activation receipt；
+6. 观察自然 archive -> restore -> DROP -> cleanup 周期后，确认 boundary runtime 退役；
+7. rollout 才能把 repository/observed state 更新为 target verified。
 
 任何步骤失败都停止推进，不通过手工触发 timer、DDL 或线上写入来伪造验证。
 
@@ -560,4 +579,6 @@ Edge
 - [x] capture failure 在 5 分钟内进入 durable ledger；heartbeat 只做 Admin/Ops 镜像，未决状态跨重启保留。
 - [x] Bundle page 同时包含列表字段和完整详情，不存在 `records/*`；ZIP 只从 committed pages 懒生成。
 - [x] single-owner 采用先停旧 owner、排空、最后提交 activation receipt 的 fail-closed 交接，不伪称 systemd 原子切换。
+- [x] activation plan 在锁内拒绝最近 24 个已完成 UTC 小时及当前到未来 72 小时的任一 catalog 缺口；
+  已完成小时还须逐小时验证 archive 与 capture seal，未来小时不进入 archive/seal 计划。
 - [x] 设计批准不授权线上写入、手工 timer、DDL 或生产激活。

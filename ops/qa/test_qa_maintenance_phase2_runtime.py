@@ -322,6 +322,24 @@ exit 9
             docker_calls = docker_log.read_text(encoding="utf-8") if docker_log.exists() else ""
             self.assertNotIn("--qa-single-owner-activate", docker_calls)
 
+    def test_bundle_canary_does_not_block_or_depend_on_the_lifecycle_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            env, _, docker_log, _, _ = self._sandbox(root)
+            flock = root / "bin" / "flock"
+            flock.write_text("#!/usr/bin/env bash\nexit 75\n", encoding="utf-8")
+            flock.chmod(0o755)
+
+            result = subprocess.run(
+                ["bash", str(RUNNER), "--qa-bundle-canary"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("--qa-bundle-canary", docker_log.read_text(encoding="utf-8"))
+
     def test_us045_selftest_uses_real_image_user_and_mount_for_create_read_remove(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             env, _, docker_log, scratch, _ = self._sandbox(Path(temp_dir))

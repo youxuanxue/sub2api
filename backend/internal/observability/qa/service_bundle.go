@@ -12,7 +12,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
-	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/engine"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/archive"
@@ -44,6 +43,12 @@ func (s *Service) UserMayExportAPIKey(ctx context.Context, userID, apiKeyID int6
 	}
 	group := key.Edges.Group
 	return group != nil && slices.Contains(engine.TrajProjectablePlatforms(), group.Platform), nil
+}
+
+// BundleEnabled reports whether the complete S3 Bundle user path is ready.
+func (s *Service) BundleEnabled() bool {
+	return s != nil && s.client != nil && s.bundleStore != nil && s.bundleQueue != nil &&
+		s.bundleWatermark != nil && s.bundleAuthorize != nil && s.exportStore != nil
 }
 
 func (s *Service) configureBundle(ctx context.Context, cfg *config.Config, db *sql.DB) error {
@@ -177,20 +182,6 @@ func (s *Service) CreateUserBundle(ctx context.Context, userID, apiKeyID int64) 
 	if err := bundle.PublishJobSpec(ctx, s.bundleStore, spec); err != nil {
 		return BundleJob{}, fmt.Errorf("publish qa bundle job spec: %w", err)
 	}
-	row, err := s.client.QAExportJob.Query().Where(qaexportjob.JobIDEQ(spec.JobID)).Only(ctx)
-	if ent.IsNotFound(err) {
-		row, err = s.client.QAExportJob.Create().
-			SetJobID(spec.JobID).SetUserID(userID).SetAPIKeyID(apiKeyID).
-			SetStatus(string(BundleJobPending)).SetExportKind(string(bundle.JobKindBundle)).SetFormat(bundle.JobSchemaVersion).
-			SetWindowStart(spec.DataFrom).SetWindowEnd(spec.DataUntil).SetStorageKey(spec.ManifestKey).
-			Save(ctx)
-	}
-	if err != nil {
-		return BundleJob{}, err
-	}
-	if row.UserID != userID || row.APIKeyID == nil || *row.APIKeyID != apiKeyID || row.ExportKind != string(bundle.JobKindBundle) {
-		return BundleJob{}, errors.New("qa bundle deterministic job ownership conflict")
-	}
 	ready, err := s.bundleStore.Head(ctx, spec.ReceiptKey)
 	if err != nil {
 		return BundleJob{}, err
@@ -211,33 +202,22 @@ func (s *Service) GetUserBundle(ctx context.Context, userID int64, jobID string)
 	if s == nil || s.client == nil || s.bundleStore == nil {
 		return BundleJob{}, false, errors.New("qa bundle service is unavailable")
 	}
-	row, err := s.client.QAExportJob.Query().Where(
-		qaexportjob.JobIDEQ(strings.TrimSpace(jobID)),
-		qaexportjob.UserIDEQ(userID),
-		qaexportjob.ExportKindEQ(string(bundle.JobKindBundle)),
-	).Only(ctx)
-	if ent.IsNotFound(err) {
-		return BundleJob{}, false, nil
-	}
+	spec, found, err := bundle.ReadJobSpec(ctx, s.bundleStore, jobID)
 	if err != nil {
 		return BundleJob{}, false, err
 	}
-	if row.APIKeyID == nil || row.WindowStart == nil || row.WindowEnd == nil {
-		return BundleJob{}, false, errors.New("qa bundle job row is incomplete")
+	if !found || spec.Kind != bundle.JobKindBundle || spec.UserID != userID {
+		return BundleJob{}, false, nil
 	}
 	if s.bundleAuthorize == nil {
 		return BundleJob{}, false, errors.New("qa bundle authorization is unavailable")
 	}
-	authorized, err := s.bundleAuthorize(ctx, row.UserID, *row.APIKeyID)
+	authorized, err := s.bundleAuthorize(ctx, spec.UserID, spec.APIKeyID)
 	if err != nil {
 		return BundleJob{}, false, err
 	}
 	if !authorized {
 		return BundleJob{}, false, nil
-	}
-	spec := bundle.NewBundleJobSpec(row.UserID, *row.APIKeyID, row.WindowEnd.UTC())
-	if spec.JobID != row.JobID || !spec.DataFrom.Equal(row.WindowStart.UTC()) || spec.ManifestKey != row.StorageKey {
-		return BundleJob{}, false, errors.New("qa bundle job row does not match canonical spec")
 	}
 	job := BundleJob{
 		ID: spec.JobID, Status: BundleJobPending, APIKeyID: spec.APIKeyID,
@@ -312,20 +292,6 @@ func (s *Service) CreateUserBundleExport(ctx context.Context, userID int64, bund
 	if err := bundle.PublishJobSpec(ctx, s.bundleStore, zipSpec); err != nil {
 		return BundleExportJob{}, fmt.Errorf("publish qa bundle zip job spec: %w", err)
 	}
-	row, err := s.client.QAExportJob.Query().Where(qaexportjob.JobIDEQ(zipSpec.JobID)).Only(ctx)
-	if ent.IsNotFound(err) {
-		row, err = s.client.QAExportJob.Create().
-			SetJobID(zipSpec.JobID).SetUserID(userID).SetAPIKeyID(bundleJob.APIKeyID).
-			SetStatus(string(BundleJobPending)).SetExportKind(string(bundle.JobKindBundleZip)).SetFormat("zip").
-			SetWindowStart(zipSpec.DataFrom).SetWindowEnd(zipSpec.DataUntil).SetStorageKey(zipSpec.OutputKey).
-			Save(ctx)
-	}
-	if err != nil {
-		return BundleExportJob{}, err
-	}
-	if row.UserID != userID || row.APIKeyID == nil || *row.APIKeyID != bundleJob.APIKeyID || row.ExportKind != string(bundle.JobKindBundleZip) {
-		return BundleExportJob{}, errors.New("qa bundle export deterministic job ownership conflict")
-	}
 	ready, err := s.bundleStore.Head(ctx, zipSpec.ReceiptKey)
 	if err != nil {
 		return BundleExportJob{}, err
@@ -346,34 +312,26 @@ func (s *Service) GetUserBundleExport(ctx context.Context, userID int64, jobID s
 	if s == nil || s.client == nil || s.bundleStore == nil {
 		return BundleExportJob{}, false, errors.New("qa bundle service is unavailable")
 	}
-	row, err := s.client.QAExportJob.Query().Where(
-		qaexportjob.JobIDEQ(strings.TrimSpace(jobID)),
-		qaexportjob.UserIDEQ(userID),
-		qaexportjob.ExportKindEQ(string(bundle.JobKindBundleZip)),
-	).Only(ctx)
-	if ent.IsNotFound(err) {
-		return BundleExportJob{}, false, nil
-	}
+	zipSpec, found, err := bundle.ReadJobSpec(ctx, s.bundleStore, jobID)
 	if err != nil {
 		return BundleExportJob{}, false, err
 	}
-	if row.APIKeyID == nil || row.WindowStart == nil || row.WindowEnd == nil {
-		return BundleExportJob{}, false, errors.New("qa bundle export row is incomplete")
+	if !found || zipSpec.Kind != bundle.JobKindBundleZip || zipSpec.UserID != userID {
+		return BundleExportJob{}, false, nil
 	}
 	if s.bundleAuthorize == nil {
 		return BundleExportJob{}, false, errors.New("qa bundle authorization is unavailable")
 	}
-	authorized, err := s.bundleAuthorize(ctx, row.UserID, *row.APIKeyID)
+	authorized, err := s.bundleAuthorize(ctx, zipSpec.UserID, zipSpec.APIKeyID)
 	if err != nil {
 		return BundleExportJob{}, false, err
 	}
 	if !authorized {
 		return BundleExportJob{}, false, nil
 	}
-	bundleSpec := bundle.NewBundleJobSpec(row.UserID, *row.APIKeyID, row.WindowEnd.UTC())
-	zipSpec := bundle.NewZipJobSpec(bundleSpec, bundleSpec.ManifestKey)
-	if zipSpec.JobID != row.JobID || !zipSpec.DataFrom.Equal(row.WindowStart.UTC()) || zipSpec.OutputKey != row.StorageKey {
-		return BundleExportJob{}, false, errors.New("qa bundle export row does not match canonical spec")
+	bundleSpec := bundle.NewBundleJobSpec(zipSpec.UserID, zipSpec.APIKeyID, zipSpec.ArchiveWatermark)
+	if zipSpec.BundleJobID != bundleSpec.JobID {
+		return BundleExportJob{}, false, errors.New("qa bundle export parent does not match canonical spec")
 	}
 	job := BundleExportJob{ID: zipSpec.JobID, BundleJobID: bundleSpec.JobID, Status: BundleJobPending}
 	ready, err := s.bundleStore.Head(ctx, zipSpec.ReceiptKey)

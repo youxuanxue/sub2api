@@ -42,7 +42,7 @@ class TestQAPhaseOps(unittest.TestCase):
             (ROOT / "ops/qa/deploy_rollout.yaml").read_text(encoding="utf-8")
         )["prod"]
         self.assertEqual(rollout["tokenkey_qa_maintenance_timer"]["repository_closeout_state"], "single_owner_ready")
-        self.assertEqual(rollout["tokenkey_qa_boundary"]["repository_closeout_state"], "pre_activation_provision_only")
+        self.assertEqual(rollout["tokenkey_qa_boundary"]["repository_closeout_state"], "pre_activation_fixed_age_transition")
         for owner in ("tokenkey_qa_maintenance_timer", "tokenkey_qa_boundary"):
             self.assertEqual(rollout[owner]["observed_live_state"], "single_owner_not_activated")
         self.assertEqual(
@@ -53,6 +53,12 @@ class TestQAPhaseOps(unittest.TestCase):
             rollout["raw_archive_recovery"]["observed_iam_state"],
             "applied",
         )
+        user_export = rollout["user_export"]
+        self.assertEqual(user_export["phase3_worker_repository_state"], "s3_bundle_ready")
+        self.assertEqual(user_export["phase3_worker_observed_state"], "transitional_in_prod")
+        self.assertEqual(user_export["job_registry"], "immutable_s3_spec")
+        self.assertEqual(user_export["database_job_registry"], "retired")
+        self.assertEqual(user_export["bundle_worker_desired_count"], 1)
 
     def test_maintenance_is_the_only_target_lifecycle_owner(self) -> None:
         import yaml
@@ -65,6 +71,15 @@ class TestQAPhaseOps(unittest.TestCase):
         self.assertTrue(lifecycle["drop_requires_restore_verified"])
         self.assertTrue(lifecycle["drop_requires_capture_seal"])
         self.assertNotIn("cleanup", policy["prod"])
+        self.assertEqual(policy["prod"]["user_qa"], {
+            "entitlement": "users.traj_export_enabled",
+            "source": "s3_qa_bundle",
+            "compute": "ecs_fargate",
+            "download": "direct_s3",
+            "job_registry": "immutable_s3_spec",
+            "database_job_registry": False,
+            "prod_fallback": "forbidden",
+        })
 
         rollout = yaml.safe_load(
             (ROOT / "ops/qa/deploy_rollout.yaml").read_text(encoding="utf-8")
@@ -78,12 +93,13 @@ class TestQAPhaseOps(unittest.TestCase):
             "/usr/local/bin/tokenkey-qa-boundary.sh",
         )
         self.assertEqual(
-            rollout["tokenkey_qa_boundary"]["pre_activation_provision_mode"],
-            "qa-cutover-provision-only",
+            rollout["tokenkey_qa_boundary"]["pre_activation_role"],
+            "provision_and_fixed_age_whole_partition_cleanup",
         )
+        self.assertEqual(rollout["tokenkey_qa_boundary"]["pre_activation_retention_hours"], 24)
         self.assertEqual(
-            rollout["tokenkey_qa_boundary"]["pre_activation_confirmation"],
-            "tokenkey-prod-qa-cutover-provision-v1",
+            rollout["tokenkey_qa_boundary"]["pre_activation_terminal_gap_policy"],
+            "persist_before_drop",
         )
         boundary = (ROOT / "deploy/aws/stage0/tokenkey-qa-boundary.sh").read_text(
             encoding="utf-8"
@@ -92,7 +108,8 @@ class TestQAPhaseOps(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("OnCalendar=*-*-* *:00:00", boundary)
-        self.assertIn("--qa-cutover-provision-only", boundary)
+        self.assertIn("--qa-boundary-once", boundary)
+        self.assertNotIn("--qa-cutover-provision-only", boundary)
         self.assertNotIn("--qa-cutover-finalize", boundary)
         self.assertNotIn("qa_exports_tmp", boundary)
         self.assertNotIn("RandomizedDelaySec", boundary)
@@ -965,6 +982,160 @@ esac
             parsed = subprocess.run(["bash", "-n"], input=command, text=True, capture_output=True)
             self.assertEqual(parsed.returncode, 0, (command, parsed.stderr))
 
+    def test_qa_bundle_infra_verifier_checks_live_capacity_image_and_dlq(self) -> None:
+        script = ROOT / "ops/qa/verify_qa_bundle_infra.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            calls = root / "aws-calls"
+            fake_aws = fake_bin / "aws"
+            fake_aws.write_text(
+                """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "${AWS_CALLS}"
+case "$*" in
+  *"cloudformation describe-stacks"*)
+    cat <<'JSON'
+{"Stacks":[{"StackStatus":"UPDATE_COMPLETE","Parameters":[{"ParameterKey":"BundleWorkerImage","ParameterValue":"ghcr.io/youxuanxue/sub2api:1.8.156"},{"ParameterKey":"BundleBrowserAllowedOrigin","ParameterValue":"https://tokenkey.dev"},{"ParameterKey":"BundleRetentionDays","ParameterValue":"2"}],"Outputs":[{"OutputKey":"QaBundleBucketName","OutputValue":"qa-bucket"},{"OutputKey":"QaBundleQueueUrl","OutputValue":"https://sqs/queue"},{"OutputKey":"QaBundleDeadLetterQueueUrl","OutputValue":"https://sqs/dlq"},{"OutputKey":"QaBundleWorkerClusterName","OutputValue":"qa-cluster"},{"OutputKey":"QaBundleWorkerServiceName","OutputValue":"qa-service"}]}]}
+JSON
+    ;;
+  *"s3api head-bucket"*) ;;
+  *"s3api get-bucket-cors"*)
+    printf '{"CORSRules":[{"AllowedHeaders":["*"],"AllowedMethods":["GET","HEAD"],"AllowedOrigins":["%s"],"ExposeHeaders":["ETag","Content-Encoding","Content-Length"],"MaxAgeSeconds":300}]}\n' "${ACTUAL_CORS_ORIGIN:-https://tokenkey.dev}"
+    ;;
+  *"s3api get-bucket-encryption"*)
+    printf '%s\n' '{"ServerSideEncryptionConfiguration":{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}}'
+    ;;
+  *"s3api get-bucket-lifecycle-configuration"*)
+    printf '%s\n' '{"Rules":[{"ID":"expire-qa-bundle-job-surfaces","Status":"Enabled","Filter":{"Prefix":"user-qa/qa-bundles/v1/jobs/"},"Expiration":{"Days":2}}]}'
+    ;;
+  *"sqs get-queue-attributes"*"https://sqs/dlq"*)
+    printf '{"Attributes":{"QueueArn":"arn:dlq","ApproximateNumberOfMessages":"%s"}}\n' "${DLQ_DEPTH:-0}"
+    ;;
+  *"sqs get-queue-attributes"*"https://sqs/queue"*)
+    printf '%s\n' '{"Attributes":{"QueueArn":"arn:queue","ApproximateNumberOfMessages":"0","ApproximateNumberOfMessagesNotVisible":"0"}}'
+    ;;
+  *"ecs describe-services"*)
+    printf '%s\n' '{"failures":[],"services":[{"status":"ACTIVE","desiredCount":1,"runningCount":1,"taskDefinition":"arn:task:1"}]}'
+    ;;
+  *"ecs describe-task-definition"*)
+    printf '%s\n' '{"taskDefinition":{"containerDefinitions":[{"name":"qa-bundle-worker","image":"ghcr.io/youxuanxue/sub2api:1.8.156"}]}}'
+    ;;
+  *) echo "unexpected aws call: $*" >&2; exit 90 ;;
+esac
+""",
+                encoding="utf-8",
+            )
+            fake_aws.chmod(0o755)
+            base_env = {
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+                "AWS_CALLS": str(calls),
+                "QA_BUNDLE_WORKER_IMAGE": "ghcr.io/youxuanxue/sub2api:1.8.156",
+                "QA_BUNDLE_WORKER_DESIRED_COUNT": "1",
+            }
+            healthy = subprocess.run(
+                ["bash", str(script)], env=base_env, capture_output=True, text=True, check=False
+            )
+            self.assertEqual(healthy.returncode, 0, healthy.stderr)
+            receipt = json.loads(healthy.stdout)
+            self.assertTrue(receipt["ok"])
+            self.assertEqual(receipt["image"], base_env["QA_BUNDLE_WORKER_IMAGE"])
+            self.assertEqual(receipt["desired_count"], 1)
+            self.assertEqual(receipt["running_count"], 1)
+            self.assertEqual(receipt["browser_origin"], "https://tokenkey.dev")
+            observed = calls.read_text(encoding="utf-8")
+            for expected in (
+                "cloudformation describe-stacks",
+                "s3api head-bucket",
+                "s3api get-bucket-cors",
+                "s3api get-bucket-encryption",
+                "s3api get-bucket-lifecycle-configuration",
+                "sqs get-queue-attributes",
+                "ecs describe-services",
+                "ecs describe-task-definition",
+            ):
+                self.assertIn(expected, observed)
+
+            cors_drift = subprocess.run(
+                ["bash", str(script)],
+                env={**base_env, "ACTUAL_CORS_ORIGIN": "https://api.tokenkey.dev"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(cors_drift.returncode, 0)
+            self.assertIn("QA Bundle bucket CORS drift", cors_drift.stderr)
+
+            unhealthy = subprocess.run(
+                ["bash", str(script)],
+                env={**base_env, "DLQ_DEPTH": "2"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(unhealthy.returncode, 0)
+            self.assertIn("QA Bundle DLQ is not empty: 2", unhealthy.stderr)
+
+    def test_qa_bundle_canary_ssm_wrapper_requires_canonical_receipt(self) -> None:
+        script = ROOT / "ops/stage0/run-qa-bundle-canary-via-ssm.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_aws = fake_bin / "aws"
+            fake_aws.write_text(
+                """#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+  *"ssm send-command"*) printf '%s\n' command-canary ;;
+  *"--query Status"*) printf '%s\n' Success ;;
+  *"--query StandardOutputContent"*)
+    printf '{"schema_version":"qa-bundle-canary-v1","ok":true,"commit_count":%s,"record_count":0,"job_id":"%064d"}\n' "${CANARY_COMMIT_COUNT:-24}" 0
+    ;;
+  *"--query StandardErrorContent"*) ;;
+  *"--query ResponseCode"*) printf '%s\n' 0 ;;
+  *) echo "unexpected aws call: $*" >&2; exit 90 ;;
+esac
+""",
+                encoding="utf-8",
+            )
+            fake_aws.chmod(0o755)
+            base_env = {
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+                "STAGE0_SSM_TIMEOUT_SECONDS": "10",
+            }
+
+            healthy_output = root / "healthy"
+            healthy = subprocess.run(
+                ["bash", str(script), "i-0123456789abcdef0"],
+                env={**base_env, "STAGE0_SSM_OUTPUT_DIR": str(healthy_output)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(healthy.returncode, 0, healthy.stderr)
+            payload = json.loads((healthy_output / "ssm-params.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                payload["commands"],
+                ["set -euo pipefail", "sudo /usr/local/bin/tokenkey-qa-maintenance.sh --qa-bundle-canary"],
+            )
+
+            invalid_output = root / "invalid"
+            invalid = subprocess.run(
+                ["bash", str(script), "i-0123456789abcdef0"],
+                env={
+                    **base_env,
+                    "STAGE0_SSM_OUTPUT_DIR": str(invalid_output),
+                    "CANARY_COMMIT_COUNT": "23",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(invalid.returncode, 0)
+            self.assertIn("invalid QA Bundle canary receipt", invalid.stderr)
+
     def test_raw_archive_cfn_keeps_app_and_recovery_permissions_separate(self) -> None:
         body = (ROOT / "deploy/aws/cloudformation/stage0-qa-raw-archive.yaml").read_text(
             encoding="utf-8"
@@ -1085,8 +1256,8 @@ exit 1
                     "QA_RAW_ARCHIVE_VPC_ID": "vpc-1234",
                     "QA_RAW_ARCHIVE_ROUTE_TABLE_IDS": "rtb-1234",
                     "QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS": "subnet-1234",
-                    "QA_BUNDLE_WORKER_REPOSITORY_CREDENTIALS_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:qa-bundle-ghcr",
                     "QA_BUNDLE_WORKER_IMAGE": "ghcr.io/youxuanxue/sub2api:1.8.156",
+                    "QA_BUNDLE_BROWSER_ALLOWED_ORIGIN": "https://api.tokenkey.dev",
                     "QA_RAW_ARCHIVE_CONFIRM": "yes",
                     "EXECUTE_MARKER": str(marker),
                 },

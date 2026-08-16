@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ const (
 	HourlyHorizon        = pgpartition.QARecordsHourlyHorizon
 	MaintenanceLockID    = archive.MaintenanceAdvisoryLockID
 	MaxPendingHotCleanup = 48
+	MaxTransitionDrops   = 48
 
 	qaProvisionLockContentionSQLState = "55P03"
 )
@@ -43,6 +45,11 @@ type ControlStore interface {
 	InspectCatchupHourTx(context.Context, *sql.Tx, archive.Window) (archive.CatchupHourStatus, error)
 	RecordSourceDropped(context.Context, *sql.Tx, int64, string, time.Time) error
 	RecordHotFilesCleaned(context.Context, *sql.Conn, int64, time.Time, string) error
+}
+
+type TransitionControlStore interface {
+	ControlStore
+	PersistBoundaryTerminalGap(context.Context, *sql.Tx, archive.Window) (int64, error)
 }
 
 type ProvisionResult struct {
@@ -71,6 +78,15 @@ type HotCleanupResult struct {
 	WindowStart time.Time `json:"window_start_utc"`
 	Cleaned     bool      `json:"cleaned"`
 	Error       string    `json:"error,omitempty"`
+}
+
+// TransitionBoundaryResult is the pre-activation compatibility result. It is
+// retired irreversibly when the single-owner activation receipt is committed.
+type TransitionBoundaryResult struct {
+	Provision          ProvisionResult    `json:"provision"`
+	Expiries           []ExpiryResult     `json:"expiries,omitempty"`
+	HotCleanupResumed  []HotCleanupResult `json:"hot_cleanup_resumed,omitempty"`
+	DeletionAuthorized bool               `json:"deletion_authorized"`
 }
 
 type Options struct {
@@ -292,6 +308,178 @@ func revalidateLockedChild(
 		expected.Name,
 		TableQARecords,
 	)
+}
+
+// SelectTransitionExpiredHours returns the fixed-age hours owned by the
+// pre-activation boundary during ledger warm-up.
+func SelectTransitionExpiredHours(ctx context.Context, db DB, boundary time.Time) ([]pgpartition.ChildPartitionBound, error) {
+	children, err := pgpartition.ListChildPartitionBounds(ctx, db, TableQARecords)
+	if err != nil {
+		return nil, err
+	}
+	var expired []pgpartition.ChildPartitionBound
+	for _, child := range children {
+		if child.IsDefault || child.Upper.After(boundary) {
+			continue
+		}
+		expired = append(expired, child)
+	}
+	sort.Slice(expired, func(i, j int) bool { return expired[i].Upper.Before(expired[j].Upper) })
+	return expired, nil
+}
+
+func transitionNeedsTerminalGap(status archive.CatchupHourStatus) bool {
+	if !status.Exists {
+		return true
+	}
+	if status.State == archive.StateFailed && status.VerificationErrorCode == archive.IntegrityCommitExistenceUnknown {
+		return false
+	}
+	if status.State != archive.StateCommitted || !status.RestoreVerified {
+		return true
+	}
+	return status.UncoveredSourceExists
+}
+
+// DropTransitionExpiredHour preserves the already-running fixed-age policy
+// until activation. It must never be called by the final maintenance owner.
+func DropTransitionExpiredHour(
+	ctx context.Context,
+	conn *sql.Conn,
+	control TransitionControlStore,
+	child pgpartition.ChildPartitionBound,
+	boundary time.Time,
+	now func() time.Time,
+) (ExpiryResult, error) {
+	result := ExpiryResult{RetentionBoundary: boundary, PartitionName: child.Name, PartitionUpper: child.Upper}
+	if control == nil {
+		return result, errors.New("lifecycle: transition archive control is required")
+	}
+	if now == nil {
+		now = time.Now
+	}
+	window := archive.Window{Start: child.Lower.UTC(), End: child.Upper.UTC()}
+	if !window.End.Equal(window.Start.Add(time.Hour)) {
+		return result, errors.New("lifecycle: source partition is not an exact UTC hour")
+	}
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		result.Error = err.Error()
+		return result, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := pgpartition.LockChildPartition(ctx, tx, child); err != nil {
+		result.Error = err.Error()
+		return result, err
+	}
+	child, err = revalidateLockedChild(ctx, tx, child, boundary)
+	if err != nil {
+		result.Error = err.Error()
+		return result, err
+	}
+	status, err := control.InspectCatchupHourTx(ctx, tx, window)
+	if err != nil {
+		result.Error = err.Error()
+		return result, err
+	}
+	shardID := status.ShardID
+	if transitionNeedsTerminalGap(status) {
+		shardID, err = control.PersistBoundaryTerminalGap(ctx, tx, window)
+		if err != nil {
+			result.Error = err.Error()
+			return result, fmt.Errorf("lifecycle: transition terminal gap classification: %w", err)
+		}
+		result.TerminalGap = true
+	}
+	if shardID <= 0 {
+		err = errors.New("lifecycle: transition drop requires a durable shard identity")
+		result.Error = err.Error()
+		return result, err
+	}
+	if err := pgpartition.DropChildPartition(ctx, tx, child); err != nil {
+		result.Error = err.Error()
+		return result, err
+	}
+	droppedAt := now().UTC()
+	if err := control.RecordSourceDropped(ctx, tx, shardID, child.Name, droppedAt); err != nil {
+		result.Error = err.Error()
+		return result, fmt.Errorf("lifecycle: record transition source drop: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		result.Error = err.Error()
+		return result, fmt.Errorf("lifecycle: commit transition partition drop: %w", err)
+	}
+	result.SourceDroppedAt = droppedAt
+	return result, nil
+}
+
+// RunTransitionBoundary preserves the pre-existing 24-hour cleanup while the
+// capture ledger warms up. The command layer gates it on the absence of the
+// irreversible single-owner activation receipt.
+func RunTransitionBoundary(
+	ctx context.Context,
+	db *sql.DB,
+	control TransitionControlStore,
+	opts Options,
+) (TransitionBoundaryResult, error) {
+	var result TransitionBoundaryResult
+	provision, err := RunProvision(ctx, db, opts, nil)
+	result.Provision = provision
+	if err != nil {
+		return result, err
+	}
+	boundary := pgpartition.RetentionBoundary(provision.DBAnchor)
+	expired, err := SelectTransitionExpiredHours(ctx, db, boundary)
+	if err != nil {
+		return result, err
+	}
+	if len(expired) > MaxTransitionDrops {
+		expired = expired[:MaxTransitionDrops]
+	}
+	var joined error
+	for _, child := range expired {
+		conn, connErr := db.Conn(ctx)
+		if connErr != nil {
+			return result, errors.Join(joined, connErr)
+		}
+		expiry, dropErr := DropTransitionExpiredHour(ctx, conn, control, child, boundary, time.Now)
+		_ = conn.Close()
+		result.Expiries = append(result.Expiries, expiry)
+		if dropErr != nil {
+			joined = errors.Join(joined, dropErr)
+			continue
+		}
+		result.DeletionAuthorized = true
+		if opts.BlobRoot != "" {
+			cleanupConn, cleanupConnErr := db.Conn(ctx)
+			if cleanupConnErr != nil {
+				joined = errors.Join(joined, cleanupConnErr)
+				continue
+			}
+			_, cleanupErr := ResumeDroppedHourCleanup(ctx, cleanupConn, control, child.Lower, opts)
+			_ = cleanupConn.Close()
+			if cleanupErr != nil {
+				joined = errors.Join(joined, cleanupErr)
+			} else {
+				result.Expiries[len(result.Expiries)-1].HotFilesCleaned = true
+			}
+		}
+	}
+	conn, connErr := db.Conn(ctx)
+	if connErr != nil {
+		return result, errors.Join(joined, connErr)
+	}
+	result.HotCleanupResumed, err = ResumePendingHotCleanups(ctx, conn, control, opts)
+	_ = conn.Close()
+	if err != nil {
+		joined = errors.Join(joined, err)
+	}
+	for _, cleanup := range result.HotCleanupResumed {
+		if cleanup.Error != "" {
+			joined = errors.Join(joined, fmt.Errorf("lifecycle: resume transition hot cleanup shard %d: %s", cleanup.ShardID, cleanup.Error))
+		}
+	}
+	return result, joined
 }
 
 // CleanupHotFilesForHour removes only the canonical Blob/DLQ directories for

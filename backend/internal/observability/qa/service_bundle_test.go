@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/archive"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/bundle"
 	"github.com/stretchr/testify/require"
@@ -26,7 +25,7 @@ func (q *recordingBundleQueue) Enqueue(_ context.Context, key string) error {
 	return nil
 }
 
-func TestCreateUserBundlePersistsScopedJobAndEnqueuesImmutableSpec(t *testing.T) {
+func TestCreateUserBundleUsesOnlyImmutableS3SpecAndEnqueuesIt(t *testing.T) {
 	svc, client, signer := newQAExportTestService(t)
 	objects := archive.NewMemoryObjectStore()
 	queue := &recordingBundleQueue{}
@@ -44,11 +43,9 @@ func TestCreateUserBundlePersistsScopedJobAndEnqueuesImmutableSpec(t *testing.T)
 	require.Equal(t, watermark, job.DataUntil)
 	require.Len(t, queue.keys, 1)
 
-	row, err := client.QAExportJob.Query().Where(qaexportjob.JobIDEQ(job.ID)).Only(context.Background())
+	count, err := client.QAExportJob.Query().Count(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, "bundle", row.ExportKind)
-	require.Equal(t, int64(11), *row.APIKeyID)
-	require.Equal(t, watermark, *row.WindowEnd)
+	require.Zero(t, count)
 
 	specBody, err := objects.Get(context.Background(), queue.keys[0])
 	require.NoError(t, err)
@@ -102,8 +99,50 @@ func TestUS044_QABundleReadsCommittedManifestAndRejectsCrossUser(t *testing.T) {
 	require.False(t, found)
 }
 
-func TestCreateUserBundleExportRequiresReadyBundleAndSignsWorkerArtifact(t *testing.T) {
+func TestGetUserBundleRejectsTamperedS3RegistrySpec(t *testing.T) {
 	svc, _, signer := newQAExportTestService(t)
+	objects := archive.NewMemoryObjectStore()
+	store := bundle.NewArchiveStore(objects)
+	watermark := time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)
+	spec := bundle.NewBundleJobSpec(7, 11, watermark)
+	tampered := spec
+	tampered.APIKeyID = 12
+	body, err := json.Marshal(tampered)
+	require.NoError(t, err)
+	_, err = objects.Create(context.Background(), spec.SpecKey, bytes.NewReader(body), int64(len(body)), "application/json")
+	require.NoError(t, err)
+
+	svc.bundleStore = store
+	svc.bundleAuthorize = func(context.Context, int64, int64) (bool, error) {
+		t.Fatal("tampered spec must fail before authorization")
+		return false, nil
+	}
+	svc.exportStore = signer
+
+	_, found, err := svc.GetUserBundle(context.Background(), 7, spec.JobID)
+	require.ErrorContains(t, err, "qa bundle build job is invalid")
+	require.False(t, found)
+}
+
+func TestGetUserBundleTreatsExpiredS3RegistrySpecAsMissing(t *testing.T) {
+	svc, client, signer := newQAExportTestService(t)
+	svc.bundleStore = bundle.NewArchiveStore(archive.NewMemoryObjectStore())
+	svc.bundleAuthorize = func(context.Context, int64, int64) (bool, error) {
+		t.Fatal("missing S3 registry spec must fail before authorization")
+		return false, nil
+	}
+	svc.exportStore = signer
+
+	_, found, err := svc.GetUserBundle(context.Background(), 7, strings.Repeat("a", 64))
+	require.NoError(t, err)
+	require.False(t, found)
+	count, err := client.QAExportJob.Query().Count(context.Background())
+	require.NoError(t, err)
+	require.Zero(t, count)
+}
+
+func TestCreateUserBundleExportRequiresReadyBundleAndSignsWorkerArtifact(t *testing.T) {
+	svc, client, signer := newQAExportTestService(t)
 	objects := archive.NewMemoryObjectStore()
 	store := bundle.NewArchiveStore(objects)
 	queue := &recordingBundleQueue{}
@@ -136,6 +175,9 @@ func TestCreateUserBundleExportRequiresReadyBundleAndSignsWorkerArtifact(t *test
 	require.NoError(t, err)
 	require.Equal(t, BundleJobPending, exportJob.Status)
 	require.Len(t, queue.keys, 2)
+	count, err := client.QAExportJob.Query().Count(context.Background())
+	require.NoError(t, err)
+	require.Zero(t, count, "Bundle and ZIP registry ownership must remain S3-only")
 	zipSpecBody, err := objects.Get(context.Background(), queue.keys[1])
 	require.NoError(t, err)
 	zipSpec, err := bundle.ParseJobSpec(zipSpecBody)
@@ -154,6 +196,9 @@ func TestCreateUserBundleExportRequiresReadyBundleAndSignsWorkerArtifact(t *test
 	require.True(t, found)
 	require.Equal(t, BundleJobReady, ready.Status)
 	require.Contains(t, ready.DownloadURL, zipSpec.OutputKey)
+	count, err = client.QAExportJob.Query().Count(context.Background())
+	require.NoError(t, err)
+	require.Zero(t, count, "reading a completed ZIP must not require or recreate a database job row")
 
 	_, found, err = svc.GetUserBundleExport(context.Background(), 8, zipSpec.JobID)
 	require.NoError(t, err)

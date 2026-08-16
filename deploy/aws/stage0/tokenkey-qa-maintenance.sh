@@ -621,6 +621,37 @@ run_single_owner_activation() {
   cleanup_runtime_files
 }
 
+run_single_owner_plan() {
+  ERROR_CODE=""
+  CHILD_STDOUT=""
+  CHILD_STDERR=""
+  load_app_runtime
+  set +e
+  qa_container_run "tokenkey-qa-single-owner-plan-$$" \
+    "${APP_IMAGE}" /app/sub2api --qa-single-owner-plan
+  local result=$?
+  set -e
+  cleanup_runtime_files
+  return "${result}"
+}
+
+run_bundle_canary() {
+  ERROR_CODE=""
+  CHILD_STDOUT=""
+  CHILD_STDERR=""
+  load_app_runtime
+  set +e
+  qa_container_run "tokenkey-qa-bundle-canary-$$" \
+    "${APP_IMAGE}" /app/sub2api \
+    --qa-bundle-canary \
+    --confirm=tokenkey-prod-qa-bundle-canary-v1 \
+    --timeout-seconds="${QA_BUNDLE_CANARY_TIMEOUT_SECONDS:-600}"
+  local result=$?
+  set -e
+  cleanup_runtime_files
+  return "${result}"
+}
+
 run_selftest_container() {
   local name="$1"
   shift
@@ -778,6 +809,14 @@ main() {
         return 40
       }
       with_qa_lifecycle_lock run_single_owner_activation "${plan_hash}" "${confirmation}"
+      ;;
+    --plan-single-owner)
+      [ "$#" -eq 1 ] || { printf 'tokenkey-qa-maintenance: plan accepts no arguments\n' >&2; return 40; }
+      with_qa_lifecycle_lock run_single_owner_plan
+      ;;
+    --qa-bundle-canary)
+      [ "$#" -eq 1 ] || { printf 'tokenkey-qa-maintenance: canary accepts no arguments\n' >&2; return 40; }
+      run_bundle_canary
       ;;
     --trigger=*)
       local trigger="${1#--trigger=}"

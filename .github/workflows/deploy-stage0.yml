@@ -59,11 +59,12 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      QA_INFRA_OIDC_ROLE_ARN: ${{ vars.QA_INFRA_OIDC_ROLE_ARN }}
       INPUT_TAG: ${{ inputs.tag }}
       INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
       # Single desired-state owner for the prod-only QA Bundle host config.
       # The deploy and its post-deploy assertion consume these same values.
-      QA_BUNDLE_ENABLED: "false"
+      QA_BUNDLE_ENABLED: "true"
       QA_BUNDLE_QUEUE_URL: "https://sqs.us-east-1.amazonaws.com/682751977094/tokenkey-prod-qa-bundle"
       QA_BUNDLE_STORAGE_DRIVER: "s3"
       QA_BUNDLE_STORAGE_REGION: "us-east-1"
@@ -84,6 +85,10 @@ jobs:
           bash ops/stage0/validate-deploy-tag.sh "$INPUT_TAG"
           if [ -z "${OIDC_ROLE_ARN:-}" ]; then
             echo "::error::AWS_OIDC_ROLE_ARN repo variable not set; configure per docs/approved/deploy-stage0-workflow.md §5"
+            exit 1
+          fi
+          if [ -z "${QA_INFRA_OIDC_ROLE_ARN:-}" ]; then
+            echo "::error::QA_INFRA_OIDC_ROLE_ARN repo variable not set; QA Bundle infrastructure cannot be gated before prod mutation."
             exit 1
           fi
           NAME="${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}"
@@ -194,6 +199,9 @@ jobs:
         id: instance
         env:
           STACK_NAME: ${{ steps.stack.outputs.name }}
+          QA_STACK_NAME: ${{ vars.QA_RAW_ARCHIVE_STACK || 'tokenkey-prod-qa-raw-archive' }}
+          CICD_OIDC_STACK_NAME: ${{ vars.CICD_OIDC_STACK_NAME || 'tokenkey-cicd-oidc' }}
+          CONFIGURED_OPS_RECOVERY_PRINCIPAL_ARN: ${{ vars.QA_OPS_RECOVERY_PRINCIPAL_ARN }}
         run: |
           set -euo pipefail
           read -r ID API_URL < <(
@@ -209,9 +217,80 @@ jobs:
             echo "::error::could not resolve ApiUrl from stack $STACK_NAME"
             exit 1
           fi
+          API_HOST="${API_URL#https://}"
+          if [ "$API_HOST" = "$API_URL" ] || [ -z "$API_HOST" ]; then
+            echo "::error::ApiUrl must be one HTTPS origin"
+            exit 1
+          fi
+          browser_origin="$API_URL"
+          if [[ "$API_HOST" == api.* ]]; then
+            browser_origin="https://${API_HOST#api.}"
+          fi
           echo "id=$ID" >> "$GITHUB_OUTPUT"
           echo "api_url=$API_URL" >> "$GITHUB_OUTPUT"
+          echo "browser_origin=$browser_origin" >> "$GITHUB_OUTPUT"
+          resources="$(aws cloudformation describe-stack-resources --stack-name "$STACK_NAME" --output json)"
+          physical_id() {
+            jq -r --arg logical "$1" '.StackResources[] | select(.LogicalResourceId == $logical) | .PhysicalResourceId' <<<"$resources"
+          }
+          VPC_ID="$(physical_id VPC)"
+          SUBNET_ID="$(physical_id PublicSubnet)"
+          ROUTE_TABLE_ID="$(physical_id PublicRouteTable)"
+          INSTANCE_ROLE_NAME="$(physical_id InstanceRole)"
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          SERVICE_ROLE_ARN="$(aws cloudformation describe-stacks --stack-name "$CICD_OIDC_STACK_NAME" --query "Stacks[0].Outputs[?OutputKey=='QAInfraCloudFormationServiceRoleArn'].OutputValue | [0]" --output text)"
+          OPS_RECOVERY_PRINCIPAL_ARN="$(aws cloudformation describe-stacks --stack-name "$QA_STACK_NAME" --query "Stacks[0].Parameters[?ParameterKey=='OpsRecoveryPrincipalArn'].ParameterValue | [0]" --output text 2>/dev/null || true)"
+          if [ -z "$OPS_RECOVERY_PRINCIPAL_ARN" ] || [ "$OPS_RECOVERY_PRINCIPAL_ARN" = None ]; then
+            OPS_RECOVERY_PRINCIPAL_ARN="$CONFIGURED_OPS_RECOVERY_PRINCIPAL_ARN"
+          fi
+          for value in "$VPC_ID" "$SUBNET_ID" "$ROUTE_TABLE_ID" "$INSTANCE_ROLE_NAME" "$SERVICE_ROLE_ARN" "$OPS_RECOVERY_PRINCIPAL_ARN"; do
+            if [ -z "$value" ] || [ "$value" = None ]; then
+              echo "::error::QA infrastructure input could not be resolved before prod mutation"
+              exit 1
+            fi
+          done
+          echo "vpc_id=$VPC_ID" >> "$GITHUB_OUTPUT"
+          echo "subnet_id=$SUBNET_ID" >> "$GITHUB_OUTPUT"
+          echo "route_table_id=$ROUTE_TABLE_ID" >> "$GITHUB_OUTPUT"
+          echo "app_role_arn=arn:aws:iam::${ACCOUNT_ID}:role/${INSTANCE_ROLE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "qa_stack_name=$QA_STACK_NAME" >> "$GITHUB_OUTPUT"
+          echo "qa_cfn_service_role_arn=$SERVICE_ROLE_ARN" >> "$GITHUB_OUTPUT"
+          echo "ops_recovery_principal_arn=$OPS_RECOVERY_PRINCIPAL_ARN" >> "$GITHUB_OUTPUT"
           echo "deploying ${INPUT_TAG} to instance=$ID api=$API_URL (env=prod stack=$STACK_NAME)"
+
+      - name: Configure QA infrastructure credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.QA_INFRA_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy QA Bundle infrastructure
+        env:
+          QA_RAW_ARCHIVE_STACK: ${{ steps.instance.outputs.qa_stack_name }}
+          APP_INSTANCE_ROLE_ARN: ${{ steps.instance.outputs.app_role_arn }}
+          OPS_RECOVERY_PRINCIPAL_ARN: ${{ steps.instance.outputs.ops_recovery_principal_arn }}
+          QA_RAW_ARCHIVE_VPC_ID: ${{ steps.instance.outputs.vpc_id }}
+          QA_RAW_ARCHIVE_ROUTE_TABLE_IDS: ${{ steps.instance.outputs.route_table_id }}
+          QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS: ${{ steps.instance.outputs.subnet_id }}
+          QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}
+          QA_BUNDLE_WORKER_DESIRED_COUNT: "1"
+          QA_BUNDLE_BROWSER_ALLOWED_ORIGIN: ${{ steps.instance.outputs.browser_origin }}
+          QA_CLOUDFORMATION_SERVICE_ROLE_ARN: ${{ steps.instance.outputs.qa_cfn_service_role_arn }}
+          QA_RAW_ARCHIVE_CONFIRM: "yes"
+        run: bash ops/qa/deploy_qa_raw_archive_cfn.sh
+
+      - name: Verify QA Bundle infrastructure
+        env:
+          QA_RAW_ARCHIVE_STACK: ${{ steps.instance.outputs.qa_stack_name }}
+          QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}
+          QA_BUNDLE_WORKER_DESIRED_COUNT: "1"
+        run: bash ops/qa/verify_qa_bundle_infra.sh
+
+      - name: Restore Stage0 deployment credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Deploy via SSM Run-Command
         id: ssm
@@ -248,6 +327,12 @@ jobs:
           QA_HOST_ARTIFACT_SHA: ${{ steps.qa_host_artifacts.outputs.sha }}
           STAGE0_SSM_OUTPUT_DIR: .qa-boundary-sync
         run: bash ops/stage0/sync-qa-boundary-timer-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-boundary host artifact"
+
+      - name: Post-deploy QA Bundle canary
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          STAGE0_SSM_OUTPUT_DIR: .qa-bundle-canary
+        run: bash ops/stage0/run-qa-bundle-canary-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-bundle canary"
 
       - name: Audit pricing registry runtime (read-only)
         # Price publication is owned only by pricing-registry-publish.yml after a

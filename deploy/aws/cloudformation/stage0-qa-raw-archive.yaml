@@ -56,21 +56,16 @@ Parameters:
     Description: Exact HTTPS browser origin allowed to GET/HEAD presigned QA Bundle objects.
   BundleWorkerImage:
     Type: String
-    Description: Immutable private GHCR release tag or sha256 digest containing the worker command.
-  BundleWorkerRepositoryCredentialsSecretArn:
-    Type: String
-    NoEcho: true
-    AllowedPattern: '^arn:[a-z0-9-]+:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+$'
-    Description: Secrets Manager ARN holding Docker registry credentials for private GHCR pulls.
+    Description: Immutable public GHCR release tag or sha256 digest containing the worker command.
   BundleWorkerPublicSubnetIds:
     Type: CommaDelimitedList
     Description: Public subnet IDs in the supplied Stage0 VPC for the outbound-only Fargate worker.
   BundleWorkerDesiredCount:
     Type: Number
-    Default: 0
-    MinValue: 0
+    Default: 1
+    MinValue: 1
     MaxValue: 4
-    Description: Fail-safe worker activation count. Keep zero until an approved dark deploy.
+    Description: Active worker count required before the prod Bundle user path is enabled.
 
 Resources:
   QaRawArchiveRecoveryRole:
@@ -510,15 +505,6 @@ Resources:
             Action: 'sts:AssumeRole'
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-      Policies:
-        - PolicyName: qa-bundle-ghcr-repository-credentials
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: ReadPrivateGhcrRepositoryCredentials
-                Effect: Allow
-                Action: 'secretsmanager:GetSecretValue'
-                Resource: !Ref BundleWorkerRepositoryCredentialsSecretArn
 
   QaBundleWorkerTaskRole:
     Type: AWS::IAM::Role
@@ -607,8 +593,6 @@ Resources:
           Command:
             - --qa-bundle-worker
           Essential: true
-          RepositoryCredentials:
-            CredentialsParameter: !Ref BundleWorkerRepositoryCredentialsSecretArn
           Environment:
             - Name: QA_BUNDLE_ENABLED
               Value: 'true'
@@ -683,6 +667,15 @@ Outputs:
   QaBundleQueueUrl:
     Description: QA Bundle worker SQS queue URL.
     Value: !Ref QaBundleQueue
+  QaBundleDeadLetterQueueUrl:
+    Description: QA Bundle worker dead-letter queue URL.
+    Value: !Ref QaBundleDeadLetterQueue
+  QaBundleWorkerClusterName:
+    Description: QA Bundle worker ECS cluster name.
+    Value: !Ref QaBundleWorkerCluster
   QaBundleWorkerServiceName:
-    Description: Parameterized, fail-safe QA Bundle Fargate worker service.
+    Description: Active QA Bundle Fargate worker service.
     Value: !GetAtt QaBundleWorkerService.Name
+  QaBundleWorkerTaskDefinitionArn:
+    Description: QA Bundle worker task definition selected by the service.
+    Value: !Ref QaBundleWorkerTaskDefinition

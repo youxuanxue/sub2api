@@ -170,6 +170,21 @@ Resources:
                   StringEquals:
                     "aws:RequestedRegion":
                       - !Ref AWS::Region
+              - Sid: ReadQaBundleRuntimeForDiagnostics
+                Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:DescribeTaskDefinition
+                  - sqs:GetQueueAttributes
+                Resource: "*"
+              - Sid: ReadQaBundleBucketState
+                Effect: Allow
+                Action:
+                  - s3:GetBucketCORS
+                  - s3:GetEncryptionConfiguration
+                  - s3:GetLifecycleConfiguration
+                  - s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-bundles-${AWS::AccountId}"
               - Sid: ReadEbsSnapshotsForDiagnostics
                 # ops-daily-diagnostics data_layer_snapshot_signal.sh runs on the
                 # GHA runner (OIDC creds), not via SSM — needs direct EC2 read.
@@ -187,9 +202,227 @@ Resources:
         - Key: ManagedBy
           Value: cloudformation
 
+  QAInfraCloudFormationServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "tokenkey-${AWS::Region}-qa-infra-cloudformation"
+      Description: Executes only the dedicated prod QA raw archive and Bundle stack.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ManageQaArchiveAndBundleInfra
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ManageQaBucketsAndObjects
+                Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:DeleteBucketPolicy
+                  - s3:GetBucketPolicy
+                  - s3:PutBucketPolicy
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutBucketEncryption
+                  - s3:PutBucketVersioning
+                  - s3:PutLifecycleConfiguration
+                  - s3:PutBucketCORS
+                  - s3:GetBucketCORS
+                  - s3:GetBucketLocation
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:GetBucketTagging
+                  - s3:GetBucketVersioning
+                  - s3:GetEncryptionConfiguration
+                  - s3:GetLifecycleConfiguration
+                  - s3:PutBucketTagging
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-*"
+              - Sid: ManageQaKms
+                Effect: Allow
+                Action:
+                  - kms:CreateAlias
+                  - kms:CreateKey
+                  - kms:DeleteAlias
+                  - kms:DescribeKey
+                  - kms:EnableKeyRotation
+                  - kms:GetKeyPolicy
+                  - kms:PutKeyPolicy
+                  - kms:TagResource
+                  - kms:UntagResource
+                  - kms:UpdateAlias
+                Resource: "*"
+              - Sid: ManageQaRoles
+                Effect: Allow
+                Action:
+                  - iam:AttachRolePolicy
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:DeleteRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                  - iam:PassRole
+                  - iam:PutRolePolicy
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:UpdateRole
+                  - iam:UpdateRoleDescription
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-prod-qa-raw-archive-*"
+              - Sid: CreateEcsServiceLinkedRole
+                Effect: Allow
+                Action: iam:CreateServiceLinkedRole
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    iam:AWSServiceName: ecs.amazonaws.com
+              - Sid: ManageQaEcs
+                Effect: Allow
+                Action:
+                  - ecs:CreateCluster
+                  - ecs:CreateService
+                  - ecs:DeleteCluster
+                  - ecs:DeleteService
+                  - ecs:DeregisterTaskDefinition
+                  - ecs:DescribeClusters
+                  - ecs:DescribeServices
+                  - ecs:DescribeTaskDefinition
+                  - ecs:ListTagsForResource
+                  - ecs:RegisterTaskDefinition
+                  - ecs:TagResource
+                  - ecs:UntagResource
+                  - ecs:UpdateService
+                Resource: "*"
+              - Sid: ManageQaQueueLogsTrailAndNetwork
+                Effect: Allow
+                Action:
+                  - sqs:CreateQueue
+                  - sqs:DeleteQueue
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                  - sqs:ListQueueTags
+                  - sqs:SetQueueAttributes
+                  - sqs:TagQueue
+                  - sqs:UntagQueue
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogGroup
+                  - logs:DescribeLogGroups
+                  - logs:ListTagsForResource
+                  - logs:PutRetentionPolicy
+                  - logs:TagResource
+                  - logs:UntagResource
+                  - cloudtrail:CreateTrail
+                  - cloudtrail:DeleteTrail
+                  - cloudtrail:GetEventSelectors
+                  - cloudtrail:GetTrail
+                  - cloudtrail:GetTrailStatus
+                  - cloudtrail:ListTags
+                  - cloudtrail:PutEventSelectors
+                  - cloudtrail:RemoveTags
+                  - cloudtrail:StartLogging
+                  - cloudtrail:StopLogging
+                  - cloudtrail:UpdateTrail
+                  - cloudtrail:AddTags
+                  - ec2:CreateSecurityGroup
+                  - ec2:CreateTags
+                  - ec2:CreateVpcEndpoint
+                  - ec2:DeleteSecurityGroup
+                  - ec2:DeleteVpcEndpoints
+                  - ec2:DescribeRouteTables
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeVpcEndpoints
+                  - ec2:DescribeVpcs
+                  - ec2:ModifyVpcEndpoint
+                  - ec2:RevokeSecurityGroupEgress
+                  - ec2:AuthorizeSecurityGroupEgress
+                Resource: "*"
+      Tags:
+        - Key: Project
+          Value: tokenkey
+        - Key: ManagedBy
+          Value: cloudformation
+
+  QAInfraDeploymentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "tokenkey-gha-${AWS::Region}-qa-infra-deploy"
+      Description: GitHub prod environment role for the dedicated QA infrastructure stack.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - ShouldCreateOIDC
+                - !Ref GitHubOIDCProvider
+                - !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+                "token.actions.githubusercontent.com:sub": "repo:youxuanxue/sub2api:environment:prod"
+      Policies:
+        - PolicyName: DeployQaArchiveAndBundleStack
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: MutateQaStack
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStacks
+                  - cloudformation:ExecuteChangeSet
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/tokenkey-prod-qa-raw-archive/*"
+                  - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:changeSet/qa-raw-archive-*/*"
+              - Sid: PassQaCloudFormationServiceRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt QAInfraCloudFormationServiceRole.Arn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: cloudformation.amazonaws.com
+              - Sid: VerifyQaBundleRuntime
+                Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:DescribeTaskDefinition
+                  - sqs:GetQueueAttributes
+                Resource: "*"
+              - Sid: ReadQaBundleBucketState
+                Effect: Allow
+                Action:
+                  - s3:GetBucketCORS
+                  - s3:GetEncryptionConfiguration
+                  - s3:GetLifecycleConfiguration
+                  - s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-bundles-${AWS::AccountId}"
+      Tags:
+        - Key: Project
+          Value: tokenkey
+        - Key: ManagedBy
+          Value: cloudformation
+
 Outputs:
   RoleArn:
     Description: ARN to set as GitHub repo variable AWS_OIDC_ROLE_ARN.
     Value: !GetAtt ClusteringRole.Arn
     Export:
       Name: !Sub "${AWS::StackName}-RoleArn"
+  QAInfraDeploymentRoleArn:
+    Description: ARN to set as GitHub repo variable QA_INFRA_OIDC_ROLE_ARN.
+    Value: !GetAtt QAInfraDeploymentRole.Arn
+  QAInfraCloudFormationServiceRoleArn:
+    Description: Service role passed to the dedicated QA CloudFormation stack.
+    Value: !GetAtt QAInfraCloudFormationServiceRole.Arn

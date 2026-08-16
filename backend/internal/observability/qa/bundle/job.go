@@ -118,6 +118,47 @@ func PublishJobSpec(ctx context.Context, store Store, spec JobSpec) error {
 	return createOrVerify(ctx, store, spec.SpecKey, body, ObjectMetadata{ContentType: "application/json"})
 }
 
+// SpecKeyForJobID resolves the only durable registry key for a Bundle job.
+func SpecKeyForJobID(jobID string) (string, error) {
+	jobID = strings.TrimSpace(jobID)
+	if len(jobID) != 64 {
+		return "", errors.New("qa bundle job id is invalid")
+	}
+	for _, char := range jobID {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
+			return "", errors.New("qa bundle job id is invalid")
+		}
+	}
+	return jobBase(jobID) + "/spec.json", nil
+}
+
+// ReadJobSpec reads and validates the immutable S3 job registry entry.
+func ReadJobSpec(ctx context.Context, store Store, jobID string) (JobSpec, bool, error) {
+	if store == nil {
+		return JobSpec{}, false, errors.New("qa bundle store is required")
+	}
+	key, err := SpecKeyForJobID(jobID)
+	if err != nil {
+		return JobSpec{}, false, err
+	}
+	found, err := store.Head(ctx, key)
+	if err != nil || !found {
+		return JobSpec{}, false, err
+	}
+	body, err := store.Read(ctx, key)
+	if err != nil {
+		return JobSpec{}, false, err
+	}
+	spec, err := ParseJobSpec(body)
+	if err != nil {
+		return JobSpec{}, false, err
+	}
+	if spec.JobID != strings.TrimSpace(jobID) || spec.SpecKey != key {
+		return JobSpec{}, false, errors.New("qa bundle spec identity does not match registry key")
+	}
+	return spec, true, nil
+}
+
 func (s JobSpec) Validate() error {
 	if s.SchemaVersion != JobSchemaVersion || s.UserID <= 0 || s.APIKeyID <= 0 {
 		return errors.New("qa bundle job identity is invalid")

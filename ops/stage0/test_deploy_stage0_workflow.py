@@ -91,7 +91,7 @@ class DeployStage0WorkflowTest(unittest.TestCase):
     def test_bundle_desired_state_is_shared_by_deploy_and_live_host_assertion(self) -> None:
         deploy = job_block("deploy")
         desired = {
-            "QA_BUNDLE_ENABLED": "false",
+            "QA_BUNDLE_ENABLED": "true",
             "QA_BUNDLE_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/682751977094/tokenkey-prod-qa-bundle",
             "QA_BUNDLE_STORAGE_DRIVER": "s3",
             "QA_BUNDLE_STORAGE_REGION": "us-east-1",
@@ -111,6 +111,22 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         expect_env = ",".join(f"{key}=${{{{ env.{key} }}}}" for key in desired)
         self.assertIn(f"EXPECT_ENV: {expect_env}", assertion)
         self.assertIn("assert-live-host-state.sh", assertion)
+
+    def test_bundle_infrastructure_is_ready_before_app_image_swap(self) -> None:
+        deploy = job_block("deploy")
+        infra = deploy.index("name: Deploy QA Bundle infrastructure")
+        verify = deploy.index("name: Verify QA Bundle infrastructure")
+        image_mutation = deploy.index("name: Deploy via SSM Run-Command")
+        self.assertLess(infra, verify)
+        self.assertLess(verify, image_mutation)
+        pre_mutation = deploy[:image_mutation]
+        self.assertIn("QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}", pre_mutation)
+        self.assertIn("QA_BUNDLE_WORKER_DESIRED_COUNT: \"1\"", pre_mutation)
+        self.assertIn('browser_origin="https://${API_HOST#api.}"', pre_mutation)
+        self.assertIn('echo "browser_origin=$browser_origin" >> "$GITHUB_OUTPUT"', pre_mutation)
+        self.assertIn("QA_BUNDLE_BROWSER_ALLOWED_ORIGIN: ${{ steps.instance.outputs.browser_origin }}", pre_mutation)
+        self.assertIn("deploy_qa_raw_archive_cfn.sh", pre_mutation)
+        self.assertIn("verify_qa_bundle_infra.sh", pre_mutation)
 
     def test_smoke_only_job_is_read_only_and_uses_prod_environment(self) -> None:
         smoke = job_block("smoke-only")

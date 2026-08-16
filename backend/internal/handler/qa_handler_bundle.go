@@ -25,8 +25,8 @@ func qaBundleJobID(c *gin.Context) (string, bool) {
 }
 
 func (h *QAHandler) requireTrajectoryExportEnabled(c *gin.Context, userID int64) bool {
-	if !h.service.Enabled() {
-		response.Error(c, http.StatusServiceUnavailable, "QA capture is disabled in this environment")
+	if !h.service.BundleEnabled() {
+		response.Error(c, http.StatusServiceUnavailable, "QA Bundle is unavailable in this environment")
 		return false
 	}
 	authorized, err := h.service.UserTrajExportEnabled(c.Request.Context(), userID)

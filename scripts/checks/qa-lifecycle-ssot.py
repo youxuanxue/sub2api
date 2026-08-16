@@ -33,6 +33,8 @@ REQUIRED = {
         "capture seal",
         "restore_verified",
         "source: s3_qa_bundle",
+        "immutable S3",
+        "qa_export_jobs",
         "prod_fallback: forbidden",
         "pause_capture: false",
     ),
@@ -40,6 +42,7 @@ REQUIRED = {
         "only target lifecycle owner",
         "single_owner_not_activated",
         "transition-only",
+        "24-hour whole-partition cleanup",
     ),
     "docs/deploy/aws-us-openai-gateway-deployment.md": (
         "tokenkey-qa-maintenance.sh",
@@ -57,7 +60,7 @@ REQUIRED = {
         "single_owner_not_activated",
         "ResumePendingHotCleanups",
         "TestQABoundaryCommandRejectsRetiredCutoverModes",
-        "TestQABoundaryProvisionOnlyRefusesAfterSingleOwnerActivation",
+        "TestQABoundaryRunsTransitionCleanupBeforeSingleOwnerActivation",
     ),
     "backend/cmd/server/qa_maintenance.go": (
         "singleOwnerActive",
@@ -69,7 +72,7 @@ REQUIRED = {
     "backend/cmd/server/qa_maintenance_boundary.go": (
         "single_owner_activate",
         "qa boundary is retired after single-owner activation",
-        "runProvision",
+        "runTransitionBoundary",
     ),
     "scripts/preflight.sh": (
         "python3 ./scripts/checks/qa-lifecycle-ssot.py; then",
@@ -90,6 +93,7 @@ REQUIRED = {
 
 FORBIDDEN_TEXT = {
     "backend/cmd/server/qa_maintenance_boundary.go": (
+        "--qa-cutover-provision-only",
         "--qa-cutover-inventory",
         "--qa-cutover-plan",
         "--qa-cutover-apply",
@@ -106,6 +110,7 @@ FORBIDDEN_TEXT = {
     "deploy/aws/stage0/tokenkey-qa-boundary.sh": (
         "qa_exports_tmp",
         "qa-export-orphan",
+        "--qa-cutover-provision-only",
         "--qa-cutover-finalize",
     ),
     "deploy/aws/stage0/stage0-ec2-bootstrap.sh": (
@@ -207,6 +212,15 @@ FIXED_AGE_OWNER_MARKERS = (
     "24 * time.Hour",
 )
 
+# The existing 24-hour cleanup remains available only through the explicitly
+# pre-activation transition owner. Every other fixed-age deletion marker is a
+# conflicting lifecycle owner.
+TRANSITION_FIXED_AGE_OWNER = {
+    "backend/internal/observability/qa/lifecycle/boundary.go": {
+        "RetentionBoundary(": "boundary := pgpartition.RetentionBoundary(provision.DBAnchor)",
+    },
+}
+
 
 def _read(root: Path, rel: str) -> str:
     return (root / rel).read_text(encoding="utf-8")
@@ -276,8 +290,8 @@ def scan(root: Path) -> list[str]:
                     failures.append(f"{surface} remains in {source_rel}: {needle}")
 
     boundary_command = _read(root, "backend/cmd/server/qa_maintenance_boundary.go")
-    if boundary_command.count(BOUNDARY_PRE_ACTIVATION_GUARD) != 2:
-        failures.append("every QA boundary mode must fail after single-owner activation")
+    if boundary_command.count(BOUNDARY_PRE_ACTIVATION_GUARD) != 1:
+        failures.append("the QA transition boundary must fail after single-owner activation")
 
     for rel in FIXED_AGE_OWNER_SURFACES:
         path = root / rel
@@ -286,7 +300,15 @@ def scan(root: Path) -> list[str]:
             continue
         body = path.read_text(encoding="utf-8")
         for needle in FIXED_AGE_OWNER_MARKERS:
-            if needle in body:
+            occurrences = body.count(needle)
+            allowed_anchor = TRANSITION_FIXED_AGE_OWNER.get(rel, {}).get(needle)
+            if allowed_anchor is not None:
+                if occurrences != 1 or body.count(allowed_anchor) != 1:
+                    failures.append(
+                        f"transition fixed-age owner drift in {rel}: {needle}"
+                    )
+                continue
+            if occurrences:
                 failures.append(f"alternate fixed-age deletion owner remains in {rel}: {needle}")
 
     try:
@@ -311,6 +333,8 @@ def scan(root: Path) -> list[str]:
             "source": "s3_qa_bundle",
             "compute": "ecs_fargate",
             "download": "direct_s3",
+            "job_registry": "immutable_s3_spec",
+            "database_job_registry": False,
             "prod_fallback": "forbidden",
         }:
             failures.append("QA user source must remain S3-only with no prod fallback")
@@ -327,10 +351,30 @@ def scan(root: Path) -> list[str]:
             failures.append("maintenance observed state must remain not activated")
         if boundary["policy_target_state"] != "disabled_after_single_owner_activate":
             failures.append("boundary target state drift")
+        if boundary["repository_closeout_state"] != "pre_activation_fixed_age_transition":
+            failures.append("boundary transition repository state drift")
+        if boundary["pre_activation_role"] != "provision_and_fixed_age_whole_partition_cleanup":
+            failures.append("boundary transition role drift")
+        if boundary["pre_activation_retention_hours"] != 24:
+            failures.append("boundary transition retention drift")
+        if boundary["pre_activation_terminal_gap_policy"] != "persist_before_drop":
+            failures.append("boundary transition terminal-gap policy drift")
         if boundary["observed_live_state"] != "single_owner_not_activated":
             failures.append("boundary observed state must remain not activated")
         if rollout["qa_records"]["partition_owner_repository"] != "tokenkey-qa-maintenance":
             failures.append("repository partition owner drift")
+        if rollout["user_export"] != {
+            "phase3_worker_repository_state": "s3_bundle_ready",
+            "phase3_worker_observed_state": "transitional_in_prod",
+            "job_registry": "immutable_s3_spec",
+            "database_job_registry": "retired",
+            "bundle_infra_repository_state": "ready",
+            "bundle_infra_observed_state": "not_verified",
+            "bundle_worker_desired_count": 1,
+            "bundle_readiness_verifier": "ops/qa/verify_qa_bundle_infra.sh",
+            "bundle_canary": "ops/stage0/run-qa-bundle-canary-via-ssm.sh",
+        }:
+            failures.append("QA Bundle rollout contract drift")
     except (KeyError, TypeError, yaml.YAMLError) as exc:
         failures.append(f"QA rollout invalid: {exc}")
     return failures
@@ -379,6 +423,14 @@ def self_test() -> int:
         policy.write_text((ROOT / "ops/qa/policy.yaml").read_text(encoding="utf-8"), encoding="utf-8")
         boundary_command = fixture / "backend/cmd/server/qa_maintenance_boundary.go"
         boundary_command.write_text(
+            boundary_command.read_text(encoding="utf-8") + "\n--qa-cutover-provision-only\n",
+            encoding="utf-8",
+        )
+        if not any("--qa-cutover-provision-only" in item for item in scan(fixture)):
+            print("self-test failed to detect the retired provision-only mode")
+            return 1
+        shutil.copy2(ROOT / "backend/cmd/server/qa_maintenance_boundary.go", boundary_command)
+        boundary_command.write_text(
             boundary_command.read_text(encoding="utf-8") + "\n--qa-cutover-finalize\n",
             encoding="utf-8",
         )
@@ -401,7 +453,7 @@ def self_test() -> int:
             ),
             encoding="utf-8",
         )
-        if not any("every QA boundary mode" in item for item in scan(fixture)):
+        if not any("QA transition boundary" in item for item in scan(fixture)):
             print("self-test failed to detect an unguarded boundary mode")
             return 1
         shutil.copy2(ROOT / "backend/cmd/server/qa_maintenance_boundary.go", boundary_command)
@@ -417,12 +469,33 @@ def self_test() -> int:
                 print(f"self-test failed to detect policy drift: {current}")
                 return 1
             shutil.copy2(ROOT / "ops/qa/policy.yaml", policy)
+        rollout = fixture / "ops/qa/deploy_rollout.yaml"
+        rollout.write_text(
+            rollout.read_text(encoding="utf-8").replace(
+                "repository_closeout_state: pre_activation_fixed_age_transition",
+                "repository_closeout_state: pre_activation_provision_only",
+            ),
+            encoding="utf-8",
+        )
+        if not any("boundary transition repository state drift" in item for item in scan(fixture)):
+            print("self-test failed to detect boundary transition rollout drift")
+            return 1
+        shutil.copy2(ROOT / "ops/qa/deploy_rollout.yaml", rollout)
         lifecycle_owner.write_text(
             lifecycle_owner.read_text(encoding="utf-8") + "\nfunc RunBoundary() {}\n",
             encoding="utf-8",
         )
         if not any("alternate fixed-age deletion owner" in item for item in scan(fixture)):
             print("self-test failed to detect an alternate fixed-age deletion owner")
+            return 1
+        shutil.copy2(ROOT / "backend/internal/observability/qa/lifecycle/boundary.go", lifecycle_owner)
+        lifecycle_owner.write_text(
+            lifecycle_owner.read_text(encoding="utf-8")
+            + "\nfunc alternateRetentionOwner() { _ = pgpartition.RetentionBoundary(time.Now()) }\n",
+            encoding="utf-8",
+        )
+        if not any("transition fixed-age owner drift" in item for item in scan(fixture)):
+            print("self-test failed to detect a second fixed-age transition owner")
             return 1
         shutil.copy2(ROOT / "backend/internal/observability/qa/lifecycle/boundary.go", lifecycle_owner)
         preflight = fixture / "scripts/preflight.sh"

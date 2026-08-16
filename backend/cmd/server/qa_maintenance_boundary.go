@@ -20,29 +20,23 @@ import (
 )
 
 const (
-	qaBoundaryConfirmation         = "tokenkey-prod-qa-boundary-v1"
-	qaBoundaryReceiptVersion       = 1
-	qaBoundaryReceiptMode          = "qa_maintenance_boundary"
-	qaBoundaryJobName              = "qa-boundary"
-	qaBoundaryHeartbeatTimeout     = 5 * time.Second
-	qaCutoverProvisionConfirmation = "tokenkey-prod-qa-cutover-provision-v1"
-	qaBoundaryConnectionOptions    = "-c lock_timeout=100ms -c statement_timeout=120s"
+	qaBoundaryConfirmation      = "tokenkey-prod-qa-boundary-v1"
+	qaBoundaryReceiptVersion    = 1
+	qaBoundaryReceiptMode       = "qa_maintenance_boundary"
+	qaBoundaryJobName           = "qa-boundary"
+	qaBoundaryHeartbeatTimeout  = 5 * time.Second
+	qaBoundaryConnectionOptions = "-c lock_timeout=100ms -c statement_timeout=120s"
 )
 
 type qaBoundaryDeps struct {
-	loadConfig        func() (*config.Config, error)
-	openDB            func(driverName, dataSourceName string) (*sql.DB, error)
-	tryAdvisoryLock   func(context.Context, *sql.Conn) (bool, error)
-	unlockAdvisory    func(context.Context, *sql.Conn) error
-	singleOwnerActive func(context.Context, *sql.DB) (bool, error)
-	runProvision      func(context.Context, lifecycle.DB, lifecycle.Options) (lifecycle.ProvisionResult, error)
-	writeHeartbeat    func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error
-	now               func() time.Time
-}
-
-type qaBoundaryTransitionResult struct {
-	Provision          lifecycle.ProvisionResult `json:"provision"`
-	DeletionAuthorized bool                      `json:"deletion_authorized"`
+	loadConfig            func() (*config.Config, error)
+	openDB                func(driverName, dataSourceName string) (*sql.DB, error)
+	tryAdvisoryLock       func(context.Context, *sql.Conn) (bool, error)
+	unlockAdvisory        func(context.Context, *sql.Conn) error
+	singleOwnerActive     func(context.Context, *sql.DB) (bool, error)
+	runTransitionBoundary func(context.Context, *sql.DB, lifecycle.TransitionControlStore, lifecycle.Options) (lifecycle.TransitionBoundaryResult, error)
+	writeHeartbeat        func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error
+	now                   func() time.Time
 }
 
 func defaultQABoundaryDeps() qaBoundaryDeps {
@@ -65,9 +59,7 @@ func defaultQABoundaryDeps() qaBoundaryDeps {
 			)`).Scan(&active)
 			return active, err
 		},
-		runProvision: func(ctx context.Context, db lifecycle.DB, opts lifecycle.Options) (lifecycle.ProvisionResult, error) {
-			return lifecycle.RunProvision(ctx, db, opts, nil)
-		},
+		runTransitionBoundary: lifecycle.RunTransitionBoundary,
 		writeHeartbeat: func(ctx context.Context, db *sql.DB, input *service.OpsUpsertJobHeartbeatInput) error {
 			return repository.NewOpsRepository(db).UpsertJobHeartbeat(ctx, input)
 		},
@@ -92,8 +84,8 @@ func (d qaBoundaryDeps) withDefaults() qaBoundaryDeps {
 	if d.singleOwnerActive == nil {
 		d.singleOwnerActive = defaults.singleOwnerActive
 	}
-	if d.runProvision == nil {
-		d.runProvision = defaults.runProvision
+	if d.runTransitionBoundary == nil {
+		d.runTransitionBoundary = defaults.runTransitionBoundary
 	}
 	if d.writeHeartbeat == nil {
 		d.writeHeartbeat = defaults.writeHeartbeat
@@ -106,43 +98,14 @@ func (d qaBoundaryDeps) withDefaults() qaBoundaryDeps {
 
 func qaBoundaryRequested(args []string) bool {
 	for _, arg := range args {
-		switch arg {
-		case "--qa-boundary-once", "--qa-cutover-provision-only":
+		if arg == "--qa-boundary-once" {
 			return true
 		}
-		if strings.HasPrefix(arg, "--qa-boundary-once=") ||
-			strings.HasPrefix(arg, "--qa-cutover-provision-only=") {
+		if strings.HasPrefix(arg, "--qa-boundary-once=") {
 			return true
 		}
 	}
 	return false
-}
-
-func runQACutoverProvisionOnly(ctx context.Context, confirmation string, out io.Writer, deps qaBoundaryDeps) error {
-	if strings.TrimSpace(confirmation) != qaCutoverProvisionConfirmation {
-		return fmt.Errorf("qa cutover provision confirmation mismatch")
-	}
-	deps = deps.withDefaults()
-	db, err := openQABoundaryDB(deps)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = db.Close() }()
-	var result lifecycle.ProvisionResult
-	if err := withQAMaintenanceLock(ctx, db, deps, func(ctx context.Context, lockedDB *sql.DB) error {
-		if err := ensureQABoundaryPreActivation(ctx, lockedDB, deps); err != nil {
-			return err
-		}
-		var runErr error
-		result, runErr = deps.runProvision(ctx, lockedDB, lifecycle.Options{HoursAhead: lifecycle.HourlyHorizon})
-		return runErr
-	}); err != nil {
-		return err
-	}
-	if err := json.NewEncoder(out).Encode(result); err != nil {
-		return fmt.Errorf("encode qa cutover provision result: %w", err)
-	}
-	return nil
 }
 
 func ensureQABoundaryPreActivation(ctx context.Context, db *sql.DB, deps qaBoundaryDeps) error {
@@ -213,28 +176,14 @@ func runQABoundaryCommand(ctx context.Context, args []string, out io.Writer, dep
 	fs := flag.NewFlagSet("qa-boundary", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var once bool
-	var cutoverProvisionOnly bool
 	var confirmation string
 	fs.BoolVar(&once, "qa-boundary-once", false, "run QA lifecycle boundary maintenance and exit")
-	fs.BoolVar(&cutoverProvisionOnly, "qa-cutover-provision-only", false, "extend the post-T0 hourly horizon without expiry or cleanup")
 	fs.StringVar(&confirmation, "confirm", "", "exact production QA confirmation")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("qa boundary flags: %w", err)
 	}
 	if fs.NArg() != 0 {
 		return fmt.Errorf("qa boundary does not accept positional arguments")
-	}
-	modeCount := 0
-	for _, selected := range []bool{once, cutoverProvisionOnly} {
-		if selected {
-			modeCount++
-		}
-	}
-	if modeCount != 1 {
-		return fmt.Errorf("qa boundary requires exactly one mode")
-	}
-	if cutoverProvisionOnly {
-		return runQACutoverProvisionOnly(ctx, confirmation, out, deps)
 	}
 	if !once {
 		return fmt.Errorf("qa boundary mode was not requested")
@@ -250,13 +199,19 @@ func runQABoundaryCommand(ctx context.Context, args []string, out io.Writer, dep
 	defer func() { _ = db.Close() }()
 
 	startedAt := deps.now().UTC()
-	var result qaBoundaryTransitionResult
+	var result lifecycle.TransitionBoundaryResult
 	var runErr error
 	lockErr := withQAMaintenanceLock(ctx, db, deps, func(ctx context.Context, lockedDB *sql.DB) error {
 		if err := ensureQABoundaryPreActivation(ctx, lockedDB, deps); err != nil {
 			return err
 		}
-		result.Provision, runErr = deps.runProvision(ctx, lockedDB, lifecycle.Options{HoursAhead: lifecycle.HourlyHorizon})
+		dataDir := qaDataRoot()
+		result, runErr = deps.runTransitionBoundary(
+			ctx,
+			lockedDB,
+			lifecycle.NewSQLControlAdapter(archive.NewSQLControlStore()),
+			lifecycle.Options{HoursAhead: lifecycle.HourlyHorizon, BlobRoot: dataDir, DLQRoot: dataDir},
+		)
 		return runErr
 	})
 	if lockErr != nil {
@@ -305,16 +260,16 @@ func runQABoundaryCommand(ctx context.Context, args []string, out io.Writer, dep
 		runErr = errors.Join(runErr, fmt.Errorf("write qa boundary heartbeat: %w", heartbeatErr))
 	}
 	receipt := struct {
-		ReceiptVersion     int                        `json:"receipt_version"`
-		Mode               string                     `json:"mode"`
-		OK                 bool                       `json:"ok"`
-		JobName            string                     `json:"job_name"`
-		RunID              string                     `json:"run_id"`
-		Trigger            string                     `json:"trigger"`
-		CompletedAt        time.Time                  `json:"completed_at"`
-		Error              string                     `json:"error,omitempty"`
-		Boundary           qaBoundaryTransitionResult `json:"boundary"`
-		DeletionAuthorized bool                       `json:"deletion_authorized"`
+		ReceiptVersion     int                                `json:"receipt_version"`
+		Mode               string                             `json:"mode"`
+		OK                 bool                               `json:"ok"`
+		JobName            string                             `json:"job_name"`
+		RunID              string                             `json:"run_id"`
+		Trigger            string                             `json:"trigger"`
+		CompletedAt        time.Time                          `json:"completed_at"`
+		Error              string                             `json:"error,omitempty"`
+		Boundary           lifecycle.TransitionBoundaryResult `json:"boundary"`
+		DeletionAuthorized bool                               `json:"deletion_authorized"`
 	}{
 		ReceiptVersion:     qaBoundaryReceiptVersion,
 		Mode:               qaBoundaryReceiptMode,

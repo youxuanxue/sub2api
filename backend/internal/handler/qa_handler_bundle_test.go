@@ -184,6 +184,19 @@ func TestQABundleHandlersDenyAllSurfacesWhenEntitlementIsOff(t *testing.T) {
 	require.Empty(t, queue.keys)
 }
 
+func TestQABundleHandlersReturnServiceUnavailableWhenBundleIsNotConfigured(t *testing.T) {
+	r, client, h := newQAHandlerTestEnv(t, true, 1)
+	userID := seedTrajExportUser(t, context.Background(), client, true)
+	require.Equal(t, int64(1), userID)
+	registerQABundleHandlerRoutes(r, h)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me/qa/bundles/"+strings.Repeat("a", 64), nil)
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), "QA Bundle")
+}
+
 func TestCreateSelfQABundleRejectsIneligibleAPIKeysWithoutEnqueue(t *testing.T) {
 	r, client, h := newQAHandlerTestEnv(t, true, 1)
 	ctx := context.Background()

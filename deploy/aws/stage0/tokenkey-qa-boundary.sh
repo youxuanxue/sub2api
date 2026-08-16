@@ -316,25 +316,6 @@ run_qa_boundary() {
   fi
 }
 
-run_qa_cutover_operator() {
-  TRIGGER=operator
-  RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
-  ERROR_CODE=""
-  ERROR_MESSAGE=""
-  trap cleanup_runtime_files EXIT
-  load_app_runtime
-  set +e  # preflight-allow: swallow (return the operator child exit unchanged)
-  qa_container_run "tokenkey-qa-cutover-${RUN_ID}" \
-    --env="QA_MAINTENANCE_RUN_ID=${RUN_ID}" \
-    --env="QA_MAINTENANCE_TRIGGER=${TRIGGER}" \
-    "${APP_IMAGE}" /app/sub2api "$@"
-  local child_exit=$?
-  set -e
-  trap - EXIT
-  cleanup_runtime_files
-  return "${child_exit}"
-}
-
 main() {
   case "${1:-}" in
     --install-units)
@@ -345,9 +326,6 @@ main() {
       local trigger="${1#--trigger=}"
       [ "$#" -eq 1 ] || { printf 'tokenkey-qa-boundary: trigger accepts no arguments\n' >&2; return 40; }
       run_qa_boundary "${trigger}"
-      ;;
-    --qa-cutover-provision-only)
-      run_qa_cutover_operator "$@"
       ;;
     '')
       run_qa_boundary timer

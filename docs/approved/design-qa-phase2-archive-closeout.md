@@ -3,7 +3,7 @@ title: QA Phase 2 Archive Closeout
 status: approved
 approved_by: "feng (conversation approvals 2026-08-07 through 2026-08-15; Phase 2 evidence retained, later runtime target delegated to the primary QA design)"
 date: 2026-08-07
-last_reviewed: 2026-08-15
+last_reviewed: 2026-08-16
 supersedes: null
 related:
   - docs/approved/design-prod-qa-24h-s3-lifecycle.md
@@ -60,11 +60,13 @@ Phase 2 observed a no-move transition from legacy monthly/default-backed storage
 UTC-hour children. Existing rows were not copied or rehomed. Production closeout evidence later
 showed a default-free hourly layout with future coverage and a completed whole-partition drop.
 
-The former fixed-age boundary runtime, temporary legacy cleanup, temporary export-staging
-cleanup, inventory/plan/apply surfaces, and transition receipts are retired implementation
-history. Their schedules, confirmations, ordering, eligibility rules, and rollback mechanics
-are intentionally omitted so this approved record cannot be used to recreate an alternate
-deletion owner.
+The former multi-mode cutover, temporary legacy cleanup, temporary export-staging cleanup,
+inventory/plan/apply surfaces, and transition receipts are retired implementation history.
+The only surviving compatibility behavior is defined by the primary design: before
+`single_owner_activate`, one timer path continues the already-running 24-hour whole-partition
+cleanup while provisioning future hours; after activation it is permanently disabled. This
+record intentionally omits the old commands and confirmations so it cannot recreate an
+alternate deletion owner.
 
 The immutable hourly storage cutover setting remains readable only for capture-layout
 compatibility. It cannot mutate lifecycle state or authorize deletion.
@@ -113,8 +115,8 @@ or this evidence record cannot claim activation, deployment, or successful produ
 The target contract delegated away from this document is:
 
 - `tokenkey-qa-maintenance.timer` is the only lifecycle owner after activation;
-- the independent boundary runtime is provision-only before activation and permanently fails
-  closed after the activation receipt exists;
+- the transition boundary continues provision plus fixed-age whole-partition cleanup before
+  activation and permanently fails closed after the activation receipt exists;
 - partition DROP requires committed raw archive, restore verification, and a durable capture
   seal revalidated under the child lock;
 - exact-hour Blob/DLQ cleanup resumes idempotently from durable source-drop state;

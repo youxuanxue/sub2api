@@ -146,6 +146,15 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn("qa-raw-archive-iam|$TARGET_ID", text)
         self.assertLess(text.index("SAFETY_VERDICT="), text.index("PHASE2_PROBE="))
 
+    def test_qa_bundle_infra_and_real_canary_are_wired_for_prod(self) -> None:
+        text = workflow_text()
+        self.assertIn("verify_qa_bundle_infra.sh", text)
+        self.assertIn("run-qa-bundle-canary-via-ssm.sh", text)
+        self.assertIn("qa-bundle-infra|$TARGET_ID", text)
+        self.assertIn("qa-bundle-canary|$TARGET_ID", text)
+        self.assertLess(text.index("PHASE2_PROBE="), text.index("QA_BUNDLE_INFRA="))
+        self.assertLess(text.index("QA_BUNDLE_INFRA="), text.index("QA_BUNDLE_CANARY="))
+
     def test_internal_health_probe_uses_drain_immune_live_endpoint(self) -> None:
         commands = extract_runtime_params_commands()
         internal_start = commands.index("echo ===INTERNAL_HEALTH===")

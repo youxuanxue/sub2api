@@ -178,7 +178,8 @@ aws cloudformation deploy \
 
 > **CFN 模板自包含**：`docker-compose.yml`、`Caddyfile` 和 QA 生命周期 payload 已 gzip+base64 内嵌；
 > `tokenkey-qa-maintenance.sh` 是唯一目标 lifecycle owner，`tokenkey-qa-boundary.sh` 仅为
-> transition-only 迁移工件，并在 single-owner activation 后永久禁用。旧 stale-cleanup 与
+> transition-only 迁移工件：activation 前继续供给小时分区和现行 24 小时整分区清理，
+> single-owner activation 后永久禁用。不存在 provision-only 人工旁路。旧 stale-cleanup 与
 > export-orphan helper 不再打包。
 > 编辑这些文件后**必须** `bash deploy/aws/stage0/build-cfn.sh` 重新刷新 base64 段，
 > 否则上线的会是旧版。CI 上加 `bash deploy/aws/stage0/build-cfn.sh --check` 兜底。

@@ -58,6 +58,15 @@ func main() {
 	logger.InitBootstrap()
 	defer logger.Sync()
 
+	if qaBundleCanaryRequested(os.Args[1:]) {
+		if err := runQABundleCanaryCommand(
+			context.Background(), os.Args[1:], os.Stdout, defaultQABundleCanaryDeps(),
+		); err != nil {
+			log.Fatalf("QA Bundle canary failed: %v", err)
+		}
+		return
+	}
+
 	if qaBundleWorkerRequested(os.Args[1:]) {
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()

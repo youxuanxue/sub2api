@@ -12,7 +12,7 @@
 ## Acceptance Criteria
 
 1. Phase 2 production recloseout remains historical evidence and does not authorize current/future deletion.
-2. Before `single_owner_activate`, boundary can only provision hourly children; after receipt existence it fails closed.
+2. Before `single_owner_activate`, the single boundary timer path provisions future children and preserves the existing 24-hour whole-partition cleanup; after receipt existence it fails closed.
 3. Boundary sync success and rollback both force boundary disabled/inactive after activation.
 4. Maintenance resumes a bounded list of exact already-dropped Blob/DLQ hours idempotently; per-hour failure remains visible without undoing DROP.
 5. `retention_until` is legacy schema compatibility only and cannot authorize deletion.
@@ -23,7 +23,7 @@
 - `backend/internal/observability/qa/lifecycle/boundary_execution_test.go`::`TestResumePendingHotCleanupsCleansExactDroppedHoursAndIsIdempotent`
 - `backend/internal/observability/qa/lifecycle/boundary_execution_test.go`::`TestResumePendingHotCleanupsKeepsPerHourFailureVisibleAfterDrop`
 - `backend/cmd/server/qa_maintenance_boundary_test.go`::`TestQABoundaryCommandRejectsRetiredCutoverModes`
-- `backend/cmd/server/qa_maintenance_boundary_test.go`::`TestQABoundaryProvisionOnlyRefusesAfterSingleOwnerActivation`
+- `backend/cmd/server/qa_maintenance_boundary_test.go`::`TestQABoundaryRunsTransitionCleanupBeforeSingleOwnerActivation`
 - `backend/cmd/server/qa_maintenance_boundary_test.go`::`TestQABoundaryCommandRefusesAfterSingleOwnerActivation`
 
 运行命令：

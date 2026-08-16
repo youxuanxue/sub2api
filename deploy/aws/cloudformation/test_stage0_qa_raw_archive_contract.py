@@ -157,6 +157,7 @@ exit 91
                     "QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS": "subnet-1111aaaa,subnet-2222bbbb",
                     "QA_BUNDLE_WORKER_REPOSITORY_CREDENTIALS_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:ghcr-pull",
                     "QA_BUNDLE_WORKER_IMAGE": "ghcr.io/youxuanxue/sub2api:1.8.99",
+                    "QA_BUNDLE_BROWSER_ALLOWED_ORIGIN": "https://api.tokenkey.dev",
                 },
                 capture_output=True,
                 text=True,

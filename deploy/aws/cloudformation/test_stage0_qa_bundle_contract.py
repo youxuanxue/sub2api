@@ -14,6 +14,7 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 TEMPLATE = pathlib.Path(__file__).with_name("stage0-qa-raw-archive.yaml")
+OIDC_TEMPLATE = pathlib.Path(__file__).with_name("cicd-oidc.yaml")
 DEPLOY = ROOT / "ops/qa/deploy_qa_raw_archive_cfn.sh"
 DEPLOY_SURFACES = (
     ROOT / "ops/stage0/deploy_via_ssm.sh",
@@ -52,6 +53,10 @@ CloudFormationLoader.add_multi_constructor("!", _cloudformation_tag)
 
 def _load_template() -> dict:
     return yaml.load(TEMPLATE.read_text(encoding="utf-8"), Loader=CloudFormationLoader)
+
+
+def _load_oidc_template() -> dict:
+    return yaml.load(OIDC_TEMPLATE.read_text(encoding="utf-8"), Loader=CloudFormationLoader)
 
 
 class Stage0QABundleContractTest(unittest.TestCase):
@@ -109,18 +114,95 @@ class Stage0QABundleContractTest(unittest.TestCase):
         self.assertIsNone(re.fullmatch(origin["AllowedPattern"], "*"))
         self.assertIsNone(re.fullmatch(origin["AllowedPattern"], "http://app.tokenkey.example"))
 
-    def test_worker_uses_explicit_private_ghcr_credentials_and_minimal_surfaces(self) -> None:
+    def test_worker_uses_public_immutable_ghcr_image_and_minimal_surfaces(self) -> None:
         self.assert_worker_contract(self.template)
+
+    def test_qa_cloudformation_service_role_covers_managed_resource_lifecycles(self) -> None:
+        oidc = _load_oidc_template()
+        policies = oidc["Resources"]["QAInfraCloudFormationServiceRole"]["Properties"]["Policies"]
+        statements = {
+            statement["Sid"]: set(statement["Action"])
+            for policy in policies
+            for statement in policy["PolicyDocument"]["Statement"]
+        }
+        expected = {
+            "ManageQaBucketsAndObjects": {
+                "s3:GetBucketCORS",
+                "s3:GetBucketPublicAccessBlock",
+                "s3:GetBucketVersioning",
+                "s3:GetEncryptionConfiguration",
+                "s3:GetLifecycleConfiguration",
+            },
+            "ManageQaKms": {"kms:CreateAlias", "kms:DeleteAlias", "kms:UntagResource"},
+            "ManageQaRoles": {
+                "iam:ListAttachedRolePolicies",
+                "iam:ListRolePolicies",
+                "iam:UpdateRole",
+                "iam:UpdateRoleDescription",
+            },
+            "ManageQaEcs": {"ecs:DeleteCluster", "ecs:ListTagsForResource", "ecs:UntagResource"},
+            "ManageQaQueueLogsTrailAndNetwork": {
+                "sqs:GetQueueUrl",
+                "sqs:ListQueueTags",
+                "sqs:UntagQueue",
+                "logs:UntagResource",
+                "cloudtrail:DeleteTrail",
+                "cloudtrail:GetEventSelectors",
+                "cloudtrail:GetTrail",
+                "cloudtrail:ListTags",
+                "cloudtrail:PutEventSelectors",
+                "cloudtrail:RemoveTags",
+                "cloudtrail:StopLogging",
+            },
+        }
+        for sid, actions in expected.items():
+            with self.subTest(sid=sid):
+                self.assertTrue(actions <= statements[sid], actions - statements[sid])
+
+        service_linked_role = next(
+            statement
+            for policy in policies
+            for statement in policy["PolicyDocument"]["Statement"]
+            if statement["Sid"] == "CreateEcsServiceLinkedRole"
+        )
+        self.assertEqual(service_linked_role["Action"], "iam:CreateServiceLinkedRole")
+        self.assertEqual(service_linked_role["Resource"], "*")
+        self.assertEqual(
+            service_linked_role["Condition"],
+            {"StringEquals": {"iam:AWSServiceName": "ecs.amazonaws.com"}},
+        )
+
+    def test_qa_bundle_verifier_roles_have_scoped_bucket_readback(self) -> None:
+        oidc = _load_oidc_template()
+        resources = oidc["Resources"]
+        expected_actions = {
+            "s3:GetBucketCORS",
+            "s3:GetEncryptionConfiguration",
+            "s3:GetLifecycleConfiguration",
+            "s3:ListBucket",
+        }
+        expected_resource = "arn:${AWS::Partition}:s3:::tokenkey-prod-qa-bundles-${AWS::AccountId}"
+        for role_name in ("ClusteringRole", "QAInfraDeploymentRole"):
+            with self.subTest(role_name=role_name):
+                policies = resources[role_name]["Properties"]["Policies"]
+                statement = next(
+                    statement
+                    for policy in policies
+                    for statement in policy["PolicyDocument"]["Statement"]
+                    if isinstance(statement, dict) and statement.get("Sid") == "ReadQaBundleBucketState"
+                )
+                self.assertEqual(set(statement["Action"]), expected_actions)
+                self.assertEqual(statement["Resource"], expected_resource)
 
     def assert_worker_contract(self, template: dict) -> None:
         parameters = template["Parameters"]
-        self.assertEqual(parameters["BundleWorkerDesiredCount"]["Default"], 0)
-        self.assertEqual(parameters["BundleWorkerRepositoryCredentialsSecretArn"]["NoEcho"], True)
+        self.assertEqual(parameters["BundleWorkerDesiredCount"]["Default"], 1)
+        self.assertNotIn("BundleWorkerRepositoryCredentialsSecretArn", parameters)
         self.assertNotIn("Default", parameters["BundleWorkerImage"])
         resources = template["Resources"]
         task = resources["QaBundleWorkerTaskDefinition"]["Properties"]
         container = task["ContainerDefinitions"][0]
-        self.assertEqual(container["RepositoryCredentials"], {"CredentialsParameter": "BundleWorkerRepositoryCredentialsSecretArn"})
+        self.assertNotIn("RepositoryCredentials", container)
         self.assertEqual(container["Command"], ["--qa-bundle-worker"])
         environment = {item["Name"]: item["Value"] for item in container["Environment"]}
         self.assertEqual(environment, {
@@ -139,9 +221,7 @@ class Stage0QABundleContractTest(unittest.TestCase):
         self.assertEqual(resources["QaBundleWorkerService"]["Properties"]["DesiredCount"], "BundleWorkerDesiredCount")
 
         execution = resources["QaBundleWorkerExecutionRole"]["Properties"]
-        secret = execution["Policies"][0]["PolicyDocument"]["Statement"][0]
-        self.assertEqual(secret["Action"], "secretsmanager:GetSecretValue")
-        self.assertEqual(secret["Resource"], "BundleWorkerRepositoryCredentialsSecretArn")
+        self.assertNotIn("Policies", execution)
 
         role = resources["QaBundleWorkerTaskRole"]["Properties"]
         statements = {statement["Sid"]: statement for policy in role["Policies"] for statement in policy["PolicyDocument"]["Statement"]}
@@ -219,15 +299,17 @@ exit 91
                     "QA_RAW_ARCHIVE_VPC_ID": "vpc-1234abcd",
                     "QA_RAW_ARCHIVE_ROUTE_TABLE_IDS": "rtb-1111aaaa,rtb-2222bbbb",
                     "QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS": "subnet-1111aaaa,subnet-2222bbbb",
-                    "QA_BUNDLE_WORKER_REPOSITORY_CREDENTIALS_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:ghcr-pull",
                     "QA_BUNDLE_WORKER_IMAGE": "ghcr.io/youxuanxue/sub2api:1.8.99",
+                    "QA_BUNDLE_BROWSER_ALLOWED_ORIGIN": "https://api.tokenkey.dev",
                 }, capture_output=True, text=True, check=False,
             )
             self.assertEqual(proc.returncode, 91, msg=proc.stderr)
             calls = call_log.read_text(encoding="utf-8")
             self.assertIn('"ParameterKey":"BundleWorkerPublicSubnetIds","ParameterValue":"subnet-1111aaaa,subnet-2222bbbb"', calls, msg=proc.stdout + proc.stderr + calls)
-            self.assertIn('"ParameterKey":"BundleWorkerRepositoryCredentialsSecretArn","ParameterValue":"arn:aws:secretsmanager:us-east-1:123456789012:secret:ghcr-pull"', calls, msg=proc.stdout + proc.stderr + calls)
+            self.assertNotIn("BundleWorkerRepositoryCredentialsSecretArn", calls)
             self.assertIn('"ParameterKey":"BundleWorkerImage","ParameterValue":"ghcr.io/youxuanxue/sub2api:1.8.99"', calls, msg=proc.stdout + proc.stderr + calls)
+            self.assertIn('"ParameterKey":"BundleWorkerDesiredCount","ParameterValue":"1"', calls, msg=proc.stdout + proc.stderr + calls)
+            self.assertIn('"ParameterKey":"BundleBrowserAllowedOrigin","ParameterValue":"https://api.tokenkey.dev"', calls, msg=proc.stdout + proc.stderr + calls)
         for surface in DEPLOY_SURFACES:
             text = surface.read_text(encoding="utf-8")
             self.assertNotIn("QA_CAPTURE_EXPORT_STORAGE", text)
@@ -241,7 +323,7 @@ exit 91
             "QA_RAW_ARCHIVE_VPC_ID": "vpc-1234abcd",
             "QA_RAW_ARCHIVE_ROUTE_TABLE_IDS": "rtb-1111aaaa",
             "QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS": "subnet-1111aaaa",
-            "QA_BUNDLE_WORKER_REPOSITORY_CREDENTIALS_SECRET_ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:ghcr-pull",
+            "QA_BUNDLE_BROWSER_ALLOWED_ORIGIN": "https://api.tokenkey.dev",
         }
         mutable = subprocess.run(
             ["bash", str(DEPLOY)], env={"PATH": "/usr/bin:/bin", **common_env, "QA_BUNDLE_WORKER_IMAGE": "ghcr.io/acme/worker:latest"},
