@@ -59,6 +59,10 @@ class RetiredRouteContractTest(unittest.TestCase):
             "/api/v1/users/me/qa/bundles",
         )
         self.assertEqual(
+            replacements["/api/v1/users/me/qa/traj/export/jobs"],
+            "POST /api/v1/users/me/qa/bundles",
+        )
+        self.assertEqual(
             replacements["/api/v1/users/me/qa/traj/export/jobs/:job_id"],
             "/api/v1/users/me/qa/bundles/:job_id",
         )

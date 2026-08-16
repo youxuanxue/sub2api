@@ -148,7 +148,7 @@ RETIRED_HTTP_ROUTES = (
         "path": "/api/v1/users/me/qa/traj/export/jobs",
         "source": "backend/internal/server/routes/user_tk_routes.go",
         "source_literal": "/users/me/qa/traj/export/jobs",
-        "replacement": "/api/v1/users/me/qa/bundles/:job_id",
+        "replacement": "POST /api/v1/users/me/qa/bundles",
     },
     {
         "method": "GET",
