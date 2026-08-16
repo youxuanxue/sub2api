@@ -134,6 +134,12 @@ const (
 	BundleJobFailed  BundleJobStatus = "failed"
 )
 
+var (
+	ErrBundleAccessDenied = errors.New("qa bundle API key is not authorized")
+	ErrBundleNotFound     = errors.New("qa bundle not found")
+	ErrBundleNotReady     = errors.New("qa bundle is not ready for export")
+)
+
 type BundlePageAccess struct {
 	Page        int    `json:"page"`
 	RecordCount int    `json:"record_count"`
@@ -163,6 +169,12 @@ type BundleExportJob struct {
 	Error       string          `json:"error,omitempty"`
 }
 
+type userBundleRead struct {
+	job      BundleJob
+	spec     bundle.JobSpec
+	manifest bundle.Manifest
+}
+
 func (s *Service) CreateUserBundle(ctx context.Context, userID, apiKeyID int64) (BundleJob, error) {
 	if s == nil || s.client == nil || s.bundleStore == nil || s.bundleQueue == nil || s.bundleWatermark == nil || s.bundleAuthorize == nil {
 		return BundleJob{}, errors.New("qa bundle service is unavailable")
@@ -172,7 +184,7 @@ func (s *Service) CreateUserBundle(ctx context.Context, userID, apiKeyID int64) 
 		return BundleJob{}, err
 	}
 	if !authorized {
-		return BundleJob{}, errors.New("qa bundle API key is not authorized")
+		return BundleJob{}, ErrBundleAccessDenied
 	}
 	watermark, err := s.bundleWatermark(ctx)
 	if err != nil {
@@ -192,81 +204,24 @@ func (s *Service) CreateUserBundle(ctx context.Context, userID, apiKeyID int64) 
 		}
 	}
 	job, found, err := s.GetUserBundle(ctx, userID, spec.JobID)
-	if err != nil || !found {
+	if err != nil {
 		return BundleJob{}, err
+	}
+	if !found {
+		return BundleJob{}, ErrBundleNotFound
 	}
 	return job, nil
 }
 
 func (s *Service) GetUserBundle(ctx context.Context, userID int64, jobID string) (BundleJob, bool, error) {
-	if s == nil || s.client == nil || s.bundleStore == nil {
-		return BundleJob{}, false, errors.New("qa bundle service is unavailable")
+	result, found, err := s.readUserBundle(ctx, userID, jobID)
+	if err != nil || !found {
+		return BundleJob{}, found, err
 	}
-	spec, found, err := bundle.ReadJobSpec(ctx, s.bundleStore, jobID)
-	if err != nil {
-		return BundleJob{}, false, err
+	if result.job.Status != BundleJobReady {
+		return result.job, true, nil
 	}
-	if !found || spec.Kind != bundle.JobKindBundle || spec.UserID != userID {
-		return BundleJob{}, false, nil
-	}
-	if s.bundleAuthorize == nil {
-		return BundleJob{}, false, errors.New("qa bundle authorization is unavailable")
-	}
-	authorized, err := s.bundleAuthorize(ctx, spec.UserID, spec.APIKeyID)
-	if err != nil {
-		return BundleJob{}, false, err
-	}
-	if !authorized {
-		return BundleJob{}, false, nil
-	}
-	job := BundleJob{
-		ID: spec.JobID, Status: BundleJobPending, APIKeyID: spec.APIKeyID,
-		DataFrom: spec.DataFrom, DataUntil: spec.DataUntil, ArchiveWatermark: spec.ArchiveWatermark,
-	}
-	ready, err := s.bundleStore.Head(ctx, spec.ReceiptKey)
-	if err != nil {
-		return BundleJob{}, false, err
-	}
-	if !ready {
-		failed, headErr := s.bundleStore.Head(ctx, spec.FailureKey)
-		if headErr != nil {
-			return BundleJob{}, false, headErr
-		}
-		if failed {
-			job.Status = BundleJobFailed
-			job.Error = "bundle_failed"
-		}
-		return job, true, nil
-	}
-	receiptBody, err := s.bundleStore.Read(ctx, spec.ReceiptKey)
-	if err != nil {
-		return BundleJob{}, false, err
-	}
-	var receipt bundle.JobReceipt
-	if err := json.Unmarshal(receiptBody, &receipt); err != nil {
-		return BundleJob{}, false, errors.New("qa bundle receipt is invalid")
-	}
-	if receipt.SchemaVersion != bundle.JobSchemaVersion || receipt.Kind != bundle.JobKindBundle || receipt.JobID != spec.JobID ||
-		receipt.ManifestKey != spec.ManifestKey || !receipt.DataFrom.Equal(spec.DataFrom) || !receipt.DataUntil.Equal(spec.DataUntil) ||
-		!receipt.ArchiveWatermark.Equal(spec.ArchiveWatermark) || receipt.RecordCount < 0 {
-		return BundleJob{}, false, errors.New("qa bundle receipt does not match job")
-	}
-	manifestBody, err := s.bundleStore.Read(ctx, spec.ManifestKey)
-	if err != nil {
-		return BundleJob{}, false, err
-	}
-	var manifest bundle.Manifest
-	if err := json.Unmarshal(manifestBody, &manifest); err != nil || manifest.SchemaVersion != bundle.SchemaVersion ||
-		manifest.RecordCount != receipt.RecordCount || !manifest.DataFrom.Equal(spec.DataFrom) || !manifest.DataUntil.Equal(spec.DataUntil) ||
-		!manifest.ArchiveWatermark.Equal(spec.ArchiveWatermark) {
-		return BundleJob{}, false, errors.New("qa bundle manifest does not match receipt")
-	}
-	job.Status = BundleJobReady
-	job.RecordCount = receipt.RecordCount
-	for index, page := range manifest.Pages {
-		if page.Page != index+1 || !strings.HasPrefix(page.Key, spec.GenerationPrefix+"/pages/") {
-			return BundleJob{}, false, errors.New("qa bundle page is outside job generation")
-		}
+	for _, page := range result.manifest.Pages {
 		if s.exportStore == nil {
 			return BundleJob{}, false, errors.New("qa bundle signer is unavailable")
 		}
@@ -274,21 +229,100 @@ func (s *Service) GetUserBundle(ctx context.Context, userID int64, jobID string)
 		if err != nil {
 			return BundleJob{}, false, err
 		}
-		job.Pages = append(job.Pages, BundlePageAccess{Page: page.Page, RecordCount: page.RecordCount, SHA256: page.SHA256, URL: url})
+		result.job.Pages = append(result.job.Pages, BundlePageAccess{
+			Page: page.Page, RecordCount: page.RecordCount, SHA256: page.SHA256, URL: url,
+		})
 	}
-	return job, true, nil
+	return result.job, true, nil
+}
+
+func (s *Service) readUserBundle(ctx context.Context, userID int64, jobID string) (userBundleRead, bool, error) {
+	if s == nil || s.client == nil || s.bundleStore == nil {
+		return userBundleRead{}, false, errors.New("qa bundle service is unavailable")
+	}
+	spec, found, err := bundle.ReadJobSpec(ctx, s.bundleStore, jobID)
+	if err != nil {
+		return userBundleRead{}, false, err
+	}
+	if !found || spec.Kind != bundle.JobKindBundle || spec.UserID != userID {
+		return userBundleRead{}, false, nil
+	}
+	if s.bundleAuthorize == nil {
+		return userBundleRead{}, false, errors.New("qa bundle authorization is unavailable")
+	}
+	authorized, err := s.bundleAuthorize(ctx, spec.UserID, spec.APIKeyID)
+	if err != nil {
+		return userBundleRead{}, false, err
+	}
+	if !authorized {
+		return userBundleRead{}, false, nil
+	}
+	job := BundleJob{
+		ID: spec.JobID, Status: BundleJobPending, APIKeyID: spec.APIKeyID,
+		DataFrom: spec.DataFrom, DataUntil: spec.DataUntil, ArchiveWatermark: spec.ArchiveWatermark,
+	}
+	result := userBundleRead{job: job, spec: spec}
+	ready, err := s.bundleStore.Head(ctx, spec.ReceiptKey)
+	if err != nil {
+		return userBundleRead{}, false, err
+	}
+	if !ready {
+		failed, headErr := s.bundleStore.Head(ctx, spec.FailureKey)
+		if headErr != nil {
+			return userBundleRead{}, false, headErr
+		}
+		if failed {
+			result.job.Status = BundleJobFailed
+			result.job.Error = "bundle_failed"
+		}
+		return result, true, nil
+	}
+	receiptBody, err := s.bundleStore.Read(ctx, spec.ReceiptKey)
+	if err != nil {
+		return userBundleRead{}, false, err
+	}
+	var receipt bundle.JobReceipt
+	if err := json.Unmarshal(receiptBody, &receipt); err != nil {
+		return userBundleRead{}, false, errors.New("qa bundle receipt is invalid")
+	}
+	if receipt.SchemaVersion != bundle.JobSchemaVersion || receipt.Kind != bundle.JobKindBundle || receipt.JobID != spec.JobID ||
+		receipt.ManifestKey != spec.ManifestKey || !receipt.DataFrom.Equal(spec.DataFrom) || !receipt.DataUntil.Equal(spec.DataUntil) ||
+		!receipt.ArchiveWatermark.Equal(spec.ArchiveWatermark) || receipt.RecordCount < 0 {
+		return userBundleRead{}, false, errors.New("qa bundle receipt does not match job")
+	}
+	manifestBody, err := s.bundleStore.Read(ctx, spec.ManifestKey)
+	if err != nil {
+		return userBundleRead{}, false, err
+	}
+	var manifest bundle.Manifest
+	if err := json.Unmarshal(manifestBody, &manifest); err != nil || manifest.SchemaVersion != bundle.SchemaVersion ||
+		manifest.RecordCount != receipt.RecordCount || !manifest.DataFrom.Equal(spec.DataFrom) || !manifest.DataUntil.Equal(spec.DataUntil) ||
+		!manifest.ArchiveWatermark.Equal(spec.ArchiveWatermark) {
+		return userBundleRead{}, false, errors.New("qa bundle manifest does not match receipt")
+	}
+	result.job.Status = BundleJobReady
+	result.job.RecordCount = receipt.RecordCount
+	result.manifest = manifest
+	for index, page := range manifest.Pages {
+		if page.Page != index+1 || !strings.HasPrefix(page.Key, spec.GenerationPrefix+"/pages/") {
+			return userBundleRead{}, false, errors.New("qa bundle page is outside job generation")
+		}
+	}
+	return result, true, nil
 }
 
 func (s *Service) CreateUserBundleExport(ctx context.Context, userID int64, bundleJobID string) (BundleExportJob, error) {
-	bundleJob, found, err := s.GetUserBundle(ctx, userID, bundleJobID)
+	result, found, err := s.readUserBundle(ctx, userID, bundleJobID)
 	if err != nil {
 		return BundleExportJob{}, err
 	}
-	if !found || bundleJob.Status != BundleJobReady {
-		return BundleExportJob{}, errors.New("qa bundle is not ready for export")
+	if !found {
+		return BundleExportJob{}, ErrBundleNotFound
 	}
-	bundleSpec := bundle.NewBundleJobSpec(userID, bundleJob.APIKeyID, bundleJob.ArchiveWatermark)
-	zipSpec := bundle.NewZipJobSpec(bundleSpec, bundleSpec.ManifestKey)
+	if result.job.Status != BundleJobReady {
+		return BundleExportJob{}, ErrBundleNotReady
+	}
+	zipSpec := bundle.NewZipJobSpec(result.spec, result.spec.ManifestKey)
 	if err := bundle.PublishJobSpec(ctx, s.bundleStore, zipSpec); err != nil {
 		return BundleExportJob{}, fmt.Errorf("publish qa bundle zip job spec: %w", err)
 	}

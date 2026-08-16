@@ -24,26 +24,41 @@ export function useTkQABundle(args: UseTkQABundleArgs) {
   const loading = ref(false)
   const exporting = ref(false)
   const error = ref(false)
-  let loadGeneration = 0
+  let lifecycleGeneration = 0
 
   const pages = computed(() => job.value?.pages ?? [])
   const hasPreviousPage = computed(() => pageIndex.value > 0)
   const hasNextPage = computed(() => pageIndex.value + 1 < pages.value.length)
 
-  async function pollBundle(initial: QABundleJob): Promise<QABundleJob> {
+  function isCurrent(generation: number, apiKeyId: number | null): boolean {
+    return generation === lifecycleGeneration && args.apiKeyId.value === apiKeyId
+  }
+
+  function cancel(): void {
+    lifecycleGeneration += 1
+    loading.value = false
+    exporting.value = false
+  }
+
+  async function pollBundle(initial: QABundleJob, generation: number, apiKeyId: number): Promise<QABundleJob | null> {
     let current = initial
     const deadline = Date.now() + POLL_DEADLINE_MS
     while (current.status === 'pending') {
+      if (!isCurrent(generation, apiKeyId)) return null
       if (Date.now() > deadline) throw new Error('QA Bundle timed out')
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
-      current = await qaBundleAPI.getBundle(current.job_id)
+      if (!isCurrent(generation, apiKeyId)) return null
+      const next = await qaBundleAPI.getBundle(current.job_id)
+      if (!isCurrent(generation, apiKeyId)) return null
+      current = next
     }
     return current
   }
 
   async function load(): Promise<void> {
     const apiKeyId = args.apiKeyId.value
-    const generation = ++loadGeneration
+    const generation = ++lifecycleGeneration
+    exporting.value = false
     job.value = null
     records.value = []
     selected.value = null
@@ -52,8 +67,8 @@ export function useTkQABundle(args: UseTkQABundleArgs) {
     if (apiKeyId == null) return
     loading.value = true
     try {
-      const next = await pollBundle(await qaBundleAPI.createBundle(apiKeyId))
-      if (generation !== loadGeneration || args.apiKeyId.value !== apiKeyId) return
+      const next = await pollBundle(await qaBundleAPI.createBundle(apiKeyId), generation, apiKeyId)
+      if (!next || !isCurrent(generation, apiKeyId)) return
       job.value = next
       if (next.status === 'failed') {
         error.value = true
@@ -61,29 +76,34 @@ export function useTkQABundle(args: UseTkQABundleArgs) {
       }
       if (next.status === 'ready' && (next.pages?.length ?? 0) > 0) await loadPage(0)
     } catch {
-      if (generation === loadGeneration) error.value = true
+      if (isCurrent(generation, apiKeyId)) error.value = true
     } finally {
-      if (generation === loadGeneration) loading.value = false
+      if (isCurrent(generation, apiKeyId)) loading.value = false
     }
   }
 
   async function loadPage(index: number): Promise<void> {
     const descriptor = pages.value[index]
     if (!descriptor) return
+    const generation = lifecycleGeneration
+    const apiKeyId = args.apiKeyId.value
     loading.value = true
     error.value = false
     try {
       const page = await qaBundleAPI.fetchPage(descriptor.url)
+      if (!isCurrent(generation, apiKeyId)) return
       if (page.page !== descriptor.page) throw new Error('QA Bundle page mismatch')
       pageIndex.value = index
       records.value = page.records
       selected.value = page.records[0] ?? null
     } catch {
-      error.value = true
-      records.value = []
-      selected.value = null
+      if (isCurrent(generation, apiKeyId)) {
+        error.value = true
+        records.value = []
+        selected.value = null
+      }
     } finally {
-      loading.value = false
+      if (isCurrent(generation, apiKeyId)) loading.value = false
     }
   }
 
@@ -94,28 +114,37 @@ export function useTkQABundle(args: UseTkQABundleArgs) {
   async function exportZip(): Promise<void> {
     const current = job.value
     if (!current || current.status !== 'ready' || exporting.value) return
+    const generation = lifecycleGeneration
+    const apiKeyId = args.apiKeyId.value
+    const apiKeyName = args.apiKeyName.value
     exporting.value = true
     try {
       let exportJob = await qaBundleAPI.createExport(current.job_id)
+      if (!isCurrent(generation, apiKeyId)) return
       const deadline = Date.now() + POLL_DEADLINE_MS
       while (exportJob.status === 'pending') {
+        if (!isCurrent(generation, apiKeyId)) return
         if (Date.now() > deadline) throw new Error('QA Bundle export timed out')
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
-        exportJob = await qaBundleAPI.getExport(exportJob.job_id)
+        if (!isCurrent(generation, apiKeyId)) return
+        const next = await qaBundleAPI.getExport(exportJob.job_id)
+        if (!isCurrent(generation, apiKeyId)) return
+        exportJob = next
       }
       if (exportJob.status !== 'ready' || !exportJob.download_url) throw new Error('QA Bundle export failed')
-      const safeName = (args.apiKeyName.value || `key-${args.apiKeyId.value ?? ''}`).replace(/[^\w.-]+/g, '_')
+      if (!isCurrent(generation, apiKeyId)) return
+      const safeName = (apiKeyName || `key-${apiKeyId ?? ''}`).replace(/[^\w.-]+/g, '_')
       const stamp = (current.data_until || new Date().toISOString()).slice(0, 10)
       qaBundleAPI.download(exportJob.download_url, `qa-${safeName}-${stamp}.zip`)
     } catch {
-      appStore.showError(t('keys.qaBundle.failed'))
+      if (isCurrent(generation, apiKeyId)) appStore.showError(t('keys.qaBundle.failed'))
     } finally {
-      exporting.value = false
+      if (isCurrent(generation, apiKeyId)) exporting.value = false
     }
   }
 
   return {
     job, records, selected, pageIndex, pages, loading, exporting, error,
-    hasPreviousPage, hasNextPage, load, loadPage, select, exportZip
+    hasPreviousPage, hasNextPage, load, loadPage, select, exportZip, cancel
   }
 }

@@ -97,7 +97,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, toRef, watch } from 'vue'
+import { computed, onBeforeUnmount, toRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -110,8 +110,14 @@ const qa = useTkQABundle({ apiKeyId: toRef(props, 'apiKeyId'), apiKeyName: toRef
 const detailJSON = computed(() => JSON.stringify(qa.selected.value?.detail ?? {}, null, 2))
 
 watch(() => [props.show, props.apiKeyId] as const, ([show]) => {
-  if (show) void qa.load()
+  if (show) {
+    void qa.load()
+  } else {
+    qa.cancel()
+  }
 }, { immediate: true })
+
+onBeforeUnmount(qa.cancel)
 
 function formatTime(value?: string): string {
   if (!value) return ''

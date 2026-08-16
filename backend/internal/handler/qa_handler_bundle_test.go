@@ -31,7 +31,10 @@ import (
 
 type handlerBundleQueue struct{ keys []string }
 
-type qaMemBlobStore struct{ objects map[string][]byte }
+type qaMemBlobStore struct {
+	objects       map[string][]byte
+	presignedKeys []string
+}
 
 func (m *qaMemBlobStore) Put(_ context.Context, key string, body []byte, _ string) (string, error) {
 	if m.objects == nil {
@@ -60,6 +63,7 @@ func (m *qaMemBlobStore) Get(_ context.Context, key string) ([]byte, error) {
 func (m *qaMemBlobStore) Delete(context.Context, string) error { return nil }
 
 func (m *qaMemBlobStore) PresignURL(_ context.Context, key string, _ time.Duration) (string, error) {
+	m.presignedKeys = append(m.presignedKeys, key)
 	return "https://mem.example/" + key, nil
 }
 
@@ -154,6 +158,52 @@ func TestQABundleHandlersCreateAndReadScopedPendingJob(t *testing.T) {
 	get := httptest.NewRecorder()
 	r.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/api/v1/users/me/qa/bundles/"+data["job_id"].(string), nil))
 	require.Equal(t, http.StatusOK, get.Code, get.Body.String())
+}
+
+func TestCreateSelfQABundleExportDoesNotSignUnusedBundlePages(t *testing.T) {
+	r, client, h := newQAHandlerTestEnv(t, true, 1)
+	ctx := context.Background()
+	userID := seedTrajExportUser(t, ctx, client, true)
+	require.Equal(t, int64(1), userID)
+	apiKeyID := seedTrajExportAPIKey(t, ctx, client, userID, "anthropic")
+	objects := archive.NewMemoryObjectStore()
+	store := bundle.NewArchiveStore(objects)
+	queue := &handlerBundleQueue{}
+	signer := &qaMemBlobStore{}
+	watermark := time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)
+	h.service.ConfigureBundleForTest(
+		store, queue,
+		func(context.Context) (time.Time, error) { return watermark, nil },
+		h.service.UserMayExportAPIKey,
+		signer,
+	)
+	registerQABundleHandlerRoutes(r, h)
+
+	created, err := h.service.CreateUserBundle(ctx, userID, apiKeyID)
+	require.NoError(t, err)
+	spec := bundle.NewBundleJobSpec(userID, apiKeyID, watermark)
+	manifest, err := bundle.Publish(ctx, store, bundle.PublishInput{
+		Prefix: spec.GenerationPrefix, DataFrom: spec.DataFrom, DataUntil: spec.DataUntil,
+		ArchiveWatermark: spec.ArchiveWatermark,
+		Records:          []bundle.Record{{RequestID: "req-1", UserID: userID, APIKeyID: apiKeyID, CapturedAt: spec.DataFrom.Add(time.Minute)}},
+	})
+	require.NoError(t, err)
+	receipt := bundle.JobReceipt{
+		SchemaVersion: bundle.JobSchemaVersion, Kind: bundle.JobKindBundle, JobID: spec.JobID,
+		ManifestKey: manifest.ManifestKey, DataFrom: spec.DataFrom, DataUntil: spec.DataUntil,
+		ArchiveWatermark: spec.ArchiveWatermark, RecordCount: 1, CompletedAt: watermark.Add(time.Minute),
+	}
+	receiptBody, err := json.Marshal(receipt)
+	require.NoError(t, err)
+	_, err = objects.Create(ctx, spec.ReceiptKey, bytes.NewReader(receiptBody), int64(len(receiptBody)), "application/json")
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/bundles/"+created.ID+"/export", nil))
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Empty(t, signer.presignedKeys, "ZIP creation must not sign Bundle page URLs that it discards")
+	require.Len(t, queue.keys, 2)
 }
 
 func TestQABundleHandlersDenyAllSurfacesWhenEntitlementIsOff(t *testing.T) {

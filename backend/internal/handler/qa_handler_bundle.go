@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
+	qaobs "github.com/Wei-Shaw/sub2api/internal/observability/qa"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/gin-gonic/gin"
@@ -57,17 +59,12 @@ func (h *QAHandler) CreateSelfQABundle(c *gin.Context) {
 		response.BadRequest(c, "api_key_id is required")
 		return
 	}
-	authorized, err := h.service.UserMayExportAPIKey(c.Request.Context(), subject.UserID, request.APIKeyID)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	if !authorized {
-		response.Forbidden(c, "API key is not eligible for QA history")
-		return
-	}
 	job, err := h.service.CreateUserBundle(c.Request.Context(), subject.UserID, request.APIKeyID)
 	if err != nil {
+		if errors.Is(err, qaobs.ErrBundleAccessDenied) {
+			response.Forbidden(c, "API key is not eligible for QA history")
+			return
+		}
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -112,18 +109,16 @@ func (h *QAHandler) CreateSelfQABundleExport(c *gin.Context) {
 	if !ok {
 		return
 	}
-	_, found, err := h.service.GetUserBundle(c.Request.Context(), subject.UserID, jobID)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	if !found {
-		response.NotFound(c, "QA bundle not found")
-		return
-	}
 	job, err := h.service.CreateUserBundleExport(c.Request.Context(), subject.UserID, jobID)
 	if err != nil {
-		response.ErrorFrom(c, err)
+		switch {
+		case errors.Is(err, qaobs.ErrBundleNotFound):
+			response.NotFound(c, "QA bundle not found")
+		case errors.Is(err, qaobs.ErrBundleNotReady):
+			response.Error(c, http.StatusConflict, "QA bundle is not ready for export")
+		default:
+			response.ErrorFrom(c, err)
+		}
 		return
 	}
 	response.Success(c, job)
