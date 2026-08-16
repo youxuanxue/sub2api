@@ -70,21 +70,21 @@ const readyBundle = {
   job_id: 'bundle-job-1',
   status: 'ready',
   api_key_id: apiKey.id,
-  data_from: '2026-08-15T10:00:00Z',
+  data_from: '2026-08-14T11:00:00Z',
   data_until: '2026-08-15T11:00:00Z',
-  archive_watermark: '2026-08-15T11:03:00Z',
+  archive_watermark: '2026-08-15T11:00:00Z',
   record_count: 2,
   pages: [{
-    page: 0,
+    page: 1,
     record_count: 2,
     sha256: 'a'.repeat(64),
-    url: `${UI_BASE}/__qa_bundle/page-0.json`,
+    url: `${UI_BASE}/__qa_bundle/page-1.json`,
   }],
 }
 
 const bundlePage = {
-  schema_version: 'qa-bundle/v1',
-  page: 0,
+  schema_version: 'qa-bundle-v1',
+  page: 1,
   records: [
     {
       request_id: 'req-claude-1',
@@ -129,6 +129,7 @@ async function json(route: Route, data: unknown, status = 200): Promise<void> {
 async function installMocks(page: Page, options: MockOptions = {}) {
   const apiRequests: string[] = []
   let bundleAttempts = 0
+  let bundlePageFetches = 0
   const entitled = options.entitled !== false
 
   await page.addInitScript(({ storedUser }) => {
@@ -201,7 +202,10 @@ async function installMocks(page: Page, options: MockOptions = {}) {
     await json(route, { code: 'UNEXPECTED_E2E_REQUEST', message: path }, 500)
   })
 
-  await page.route('**/__qa_bundle/page-0.json', route => json(route, bundlePage))
+  await page.route('**/__qa_bundle/page-1.json', async (route) => {
+    bundlePageFetches += 1
+    await json(route, bundlePage)
+  })
   await page.route('**/__qa_bundle/qa-e2e.zip', route => route.fulfill({
     status: 200,
     contentType: 'application/zip',
@@ -209,7 +213,11 @@ async function installMocks(page: Page, options: MockOptions = {}) {
     body: 'PK\u0003\u0004qa-e2e',
   }))
 
-  return { apiRequests, get bundleAttempts() { return bundleAttempts } }
+  return {
+    apiRequests,
+    get bundleAttempts() { return bundleAttempts },
+    get bundlePageFetches() { return bundlePageFetches },
+  }
 }
 
 async function openKeys(page: Page): Promise<void> {
@@ -246,6 +254,7 @@ test('QA Bundle list, detail, watermark and ZIP export stay on Bundle/S3 paths',
   expect(download.suggestedFilename()).toMatch(/^qa-QA_E2E_Key-2026-08-15\.zip$/)
 
   expect(mock.bundleAttempts).toBe(1)
+  expect(mock.bundlePageFetches).toBe(1)
   expect(mock.apiRequests).toContain('POST /api/v1/users/me/qa/bundles')
   expect(mock.apiRequests).toContain('POST /api/v1/users/me/qa/bundles/bundle-job-1/export')
   expectNoProdFallback(mock.apiRequests)

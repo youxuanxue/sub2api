@@ -507,6 +507,9 @@ func runQAMaintenanceCommand(
 	}
 	var compensationPlan *qaMaintenancePlan
 	var dropPhase qaMaintenanceDropPhaseResult
+	var compensationErr error
+	var compensationFailureStage string
+	var compensationFailureCode string
 	uploadAuthorized := false
 	if cfg.QaArchive.Enabled {
 		store, err := deps.newObjectStore(ctx, cfg.QaArchive.Storage)
@@ -552,24 +555,17 @@ func runQAMaintenanceCommand(
 				plan.State = archive.StateFailed
 				plan.VerificationErrorCode = cycle.FailureCode
 			}
-			failureLastResult = qaMaintenanceCycleLastResult("failed", runID, trigger, plan, compensationPlan, cycle.FailureStage, cycle.FailureCode, false)
-			if !cycle.Normal.WindowStart.IsZero() {
-				receipt := qaMaintenanceCommandReceipt{
-					ReceiptVersion: qaMaintenanceReceiptVersion,
-					Mode:           qaMaintenanceReceiptMode,
-					OK:             false, JobName: qaMaintenanceJobName, RunID: runID, Trigger: trigger,
-					CompletedAt: deps.now().UTC(), Plan: plan, Compensation: compensationPlan,
-					FailureStage: cycle.FailureStage, FailureCode: cycle.FailureCode,
-					DeletionAuthorized: false, UploadAuthorized: true,
-					Provision: provision,
-				}
-				if encodeErr := json.NewEncoder(out).Encode(receipt); encodeErr != nil {
-					return fmt.Errorf("%w; encode qa maintenance failure receipt: %v", cycleErr, encodeErr)
-				}
+			if cycle.Normal.WindowStart.IsZero() {
+				failureLastResult = qaMaintenanceCycleLastResult("failed", runID, trigger, plan, compensationPlan, cycle.FailureStage, cycle.FailureCode, false)
+				return cycleErr
 			}
-			return cycleErr
+			compensationErr = cycleErr
+			compensationFailureStage = cycle.FailureStage
+			compensationFailureCode = cycle.FailureCode
+			uploadAuthorized = true
+		} else {
+			uploadAuthorized = true
 		}
-		uploadAuthorized = true
 	} else {
 		plan, err = deps.planShard(ctx, conn, windowStart, windowEnd, s3Prefix, false)
 		if err != nil {
@@ -578,10 +574,14 @@ func runQAMaintenanceCommand(
 		plan.State = archive.StatePending
 	}
 
+	dropCompensation := compensationPlan
+	if compensationErr != nil {
+		dropCompensation = nil
+	}
 	dropPhase, err = runQAMaintenanceDropPhase(
 		ctx,
 		plan,
-		compensationPlan,
+		dropCompensation,
 		qaMaintenanceDropPhaseDeps{
 			active: func(dropCtx context.Context) (bool, error) {
 				return deps.singleOwnerActive(dropCtx, conn)
@@ -595,8 +595,30 @@ func runQAMaintenanceCommand(
 		},
 	)
 	if err != nil {
-		failureLastResult = qaMaintenanceCycleLastResult("failed", runID, trigger, plan, compensationPlan, "drop", "archive_gated_drop_failed", false)
+		failureLastResult = qaMaintenanceCycleLastResult(
+			"failed", runID, trigger, plan, compensationPlan,
+			"drop", "archive_gated_drop_failed", dropPhase.DeletionAuthorized,
+		)
 		return err
+	}
+	if compensationErr != nil {
+		failureLastResult = qaMaintenanceCycleLastResult(
+			"failed", runID, trigger, plan, compensationPlan,
+			compensationFailureStage, compensationFailureCode, dropPhase.DeletionAuthorized,
+		)
+		receipt := qaMaintenanceCommandReceipt{
+			ReceiptVersion: qaMaintenanceReceiptVersion,
+			Mode:           qaMaintenanceReceiptMode,
+			OK:             false, JobName: qaMaintenanceJobName, RunID: runID, Trigger: trigger,
+			CompletedAt: deps.now().UTC(), Plan: plan, Compensation: compensationPlan,
+			FailureStage: compensationFailureStage, FailureCode: compensationFailureCode,
+			DeletionAuthorized: dropPhase.DeletionAuthorized, UploadAuthorized: uploadAuthorized,
+			Provision: provision, NormalDrop: dropPhase.Normal, CleanupResumed: dropPhase.CleanupResumed,
+		}
+		if encodeErr := json.NewEncoder(out).Encode(receipt); encodeErr != nil {
+			return fmt.Errorf("%w; encode qa maintenance failure receipt: %v", compensationErr, encodeErr)
+		}
+		return compensationErr
 	}
 
 	if err := deps.unlockAdvisory(ctx, conn); err != nil {

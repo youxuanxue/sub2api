@@ -224,6 +224,7 @@ TRANSITION_FIXED_AGE_OWNER = {
 
 BUNDLE_DEPLOY_OWNER_SURFACES = (
     ".github/workflows/deploy-stage0.yml",
+    "ops/stage0/deploy_via_ssm.sh",
     "ops/stage0/deploy_via_ssm_bluegreen.sh",
 )
 

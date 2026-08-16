@@ -132,8 +132,10 @@ stderr_file="${OUTPUT_DIR}/stderr.txt"
 # Gate on the prod signal (EC2 `i-*`; every edge is a Lightsail `mi-*`) → edges get
 # an empty array, i.e. a byte-identical command list to before this change.
 # Credentials stay EMPTY on purpose: the dedicated QA Bundle bucket policy names
-# the prod InstanceRole ARN, so no static keys ever land in .env. Values are
-# env-overridable but default to the prod Bundle infrastructure outputs.
+# the prod InstanceRole ARN, so no static keys ever land in .env. Bundle coordinates
+# are supplied only by the canonical deploy workflow from verified CloudFormation
+# outputs; this legacy path preserves host values and fails closed if an enabled
+# Bundle is incomplete.
 # Lifecycle owner: docs/approved/design-prod-qa-24h-s3-lifecycle.md.
 #
 # Compose insertion anchors on the tokenkey service's SERVER_FRONTEND_URL line, NOT
@@ -166,7 +168,8 @@ if [[ "${INSTANCE_ID}" == i-* ]]; then
         + " key=\"QA_BUNDLE_${kv%%=*}\"; val=\"${kv#*=}\";"
         + " case \"$key\" in QA_BUNDLE_ENABLED) supplied=$qa_en_set;; QA_BUNDLE_QUEUE_URL) supplied=$qa_q_set;; QA_BUNDLE_STORAGE_DRIVER) supplied=$qa_d_set;; QA_BUNDLE_STORAGE_REGION) supplied=$qa_r_set;; QA_BUNDLE_STORAGE_BUCKET) supplied=$qa_b_set;; *) supplied=$qa_p_set;; esac;"
         + " if [ \"$supplied\" = true ]; then if grep -q \"^${key}=\" /var/lib/tokenkey/.env; then sudo sed -i \"s|^${key}=.*|${key}=${val}|\" /var/lib/tokenkey/.env; else echo \"${key}=${val}\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; fi; echo \"applied desired ${key}\";"
-        + " elif ! grep -q \"^${key}=\" /var/lib/tokenkey/.env; then case \"$key\" in QA_BUNDLE_ENABLED) val=false;; QA_BUNDLE_QUEUE_URL) val=https://sqs.us-east-1.amazonaws.com/682751977094/tokenkey-prod-qa-bundle;; QA_BUNDLE_STORAGE_DRIVER) val=s3;; QA_BUNDLE_STORAGE_REGION) val=us-east-1;; QA_BUNDLE_STORAGE_BUCKET) val=tokenkey-prod-qa-bundles-682751977094;; *) val=user-qa;; esac; echo \"${key}=${val}\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured ${key}\"; else echo \"${key} already present\"; fi; done" ),
+        + " else echo \"${key} not supplied; preserving existing host value\"; fi; done;"
+        + " if grep -q \"^QA_BUNDLE_ENABLED=true$\" /var/lib/tokenkey/.env; then for key in QA_BUNDLE_QUEUE_URL QA_BUNDLE_STORAGE_DRIVER QA_BUNDLE_STORAGE_REGION QA_BUNDLE_STORAGE_BUCKET QA_BUNDLE_STORAGE_PREFIX; do if ! grep -q \"^${key}=.\" /var/lib/tokenkey/.env; then echo \"${key} is required when QA_BUNDLE_ENABLED=true\" >&2; exit 1; fi; done; fi" ),
       ( "CF=/var/lib/tokenkey/docker-compose.yml; if [ -f \"$CF\" ]; then miss=0;"
         + " for k in ENABLED QUEUE_URL STORAGE_DRIVER STORAGE_REGION STORAGE_BUCKET STORAGE_PREFIX; do grep -q \"QA_BUNDLE_${k}=\" \"$CF\" || miss=1; done;"
         + " if [ \"$miss\" = 1 ]; then sudo cp -a \"$CF\" \"$CF.qa-bundle-before-" + $tag + "\";"
