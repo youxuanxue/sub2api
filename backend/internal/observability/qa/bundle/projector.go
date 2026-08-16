@@ -93,7 +93,7 @@ func visitVerifiedSegments(segments []archive.VerifiedSegment, userID, apiKeyID 
 	previousRequestID := ""
 	havePrevious := false
 	for queue.Len() > 0 {
-		stream := heap.Pop(&queue).(*projectedSegmentStream)
+		stream := mustProjectedSegmentStream(heap.Pop(&queue))
 		row := stream.current
 		if havePrevious && row.CreatedAt == previousCreatedAt && row.RequestID == previousRequestID {
 			return fmt.Errorf("qa bundle projection contains duplicate identity %d/%s", row.CreatedAt, row.RequestID)
@@ -188,12 +188,20 @@ func (h projectedSegmentHeap) Less(i, j int) bool {
 	return h[i].index < h[j].index
 }
 func (h projectedSegmentHeap) Swap(i, j int)   { h[i], h[j] = h[j], h[i] }
-func (h *projectedSegmentHeap) Push(value any) { *h = append(*h, value.(*projectedSegmentStream)) }
+func (h *projectedSegmentHeap) Push(value any) { *h = append(*h, mustProjectedSegmentStream(value)) }
 func (h *projectedSegmentHeap) Pop() any {
 	old := *h
 	last := old[len(old)-1]
 	*h = old[:len(old)-1]
 	return last
+}
+
+func mustProjectedSegmentStream(value any) *projectedSegmentStream {
+	stream, ok := value.(*projectedSegmentStream)
+	if !ok {
+		panic("qa bundle projected segment heap contains an invalid value")
+	}
+	return stream
 }
 
 func projectRecord(restoreDir string, row archive.RecordRow) (Record, error) {
