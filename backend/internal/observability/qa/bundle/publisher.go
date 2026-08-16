@@ -23,6 +23,7 @@ const (
 	ExportReceiptSchema    = "qa-bundle-export-v1"
 	defaultPageRecordLimit = 100
 	defaultPageByteLimit   = 4 << 20
+	defaultPageMemoryLimit = 64 << 20
 )
 
 var ErrObjectExists = errors.New("qa bundle object already exists")
@@ -104,13 +105,14 @@ type Manifest struct {
 }
 
 type PublishInput struct {
-	Prefix                 string
-	DataFrom               time.Time
-	DataUntil              time.Time
-	ArchiveWatermark       time.Time
-	Records                []Record
-	MaxRecordsPerPage      int
-	MaxCompressedPageBytes int
+	Prefix                   string
+	DataFrom                 time.Time
+	DataUntil                time.Time
+	ArchiveWatermark         time.Time
+	Records                  []Record
+	MaxRecordsPerPage        int
+	MaxCompressedPageBytes   int
+	MaxUncompressedPageBytes int
 }
 
 type ExportReceipt struct {
@@ -166,6 +168,9 @@ func publishRecordSource(ctx context.Context, store Store, input PublishInput, s
 	if input.MaxCompressedPageBytes <= 0 {
 		input.MaxCompressedPageBytes = defaultPageByteLimit
 	}
+	if input.MaxUncompressedPageBytes <= 0 {
+		input.MaxUncompressedPageBytes = defaultPageMemoryLimit
+	}
 
 	manifest = Manifest{
 		SchemaVersion:    SchemaVersion,
@@ -178,6 +183,7 @@ func publishRecordSource(ctx context.Context, store Store, input PublishInput, s
 	pageNumber := 1
 	var pageRecords []Record
 	var pageEncoded []byte
+	pageUncompressedBytes := 0
 	flushPage := func() error {
 		if len(pageRecords) == 0 {
 			return nil
@@ -193,6 +199,7 @@ func publishRecordSource(ctx context.Context, store Store, input PublishInput, s
 		pageNumber++
 		pageRecords = nil
 		pageEncoded = nil
+		pageUncompressedBytes = 0
 		return nil
 	}
 
@@ -210,6 +217,18 @@ func publishRecordSource(ctx context.Context, store Store, input PublishInput, s
 		if havePrevious && (record.CapturedAt.Before(previousCapturedAt) ||
 			(record.CapturedAt.Equal(previousCapturedAt) && record.RequestID <= previousRequestID)) {
 			return fmt.Errorf("qa bundle projection contains duplicate or unordered identity %d/%s", record.CapturedAt.UnixMicro(), record.RequestID)
+		}
+		recordBody, err := json.Marshal(record)
+		if err != nil {
+			return err
+		}
+		if len(recordBody) > input.MaxUncompressedPageBytes {
+			return fmt.Errorf("qa bundle record %s exceeds uncompressed page limit", record.RequestID)
+		}
+		if len(pageRecords) > 0 && pageUncompressedBytes+len(recordBody) > input.MaxUncompressedPageBytes {
+			if err := flushPage(); err != nil {
+				return err
+			}
 		}
 		if len(pageRecords) == input.MaxRecordsPerPage {
 			if err := flushPage(); err != nil {
@@ -239,6 +258,7 @@ func publishRecordSource(ctx context.Context, store Store, input PublishInput, s
 		}
 		pageRecords = candidateRecords
 		pageEncoded = candidate
+		pageUncompressedBytes += len(recordBody)
 		manifest.RecordCount++
 		previousCapturedAt = record.CapturedAt
 		previousRequestID = record.RequestID

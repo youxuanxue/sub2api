@@ -305,7 +305,7 @@ manifest.json
 pages/<page>.json.gz
 ```
 
-每个 page 按记录数和字节数双重限界，记录同时包含列表字段与完整详情。`manifest.json` 只包含 data window、
+每个 page 按记录数、压缩字节数和未压缩驻留字节数限界，记录同时包含列表字段与完整详情。`manifest.json` 只包含 data window、
 archive watermark、record count、page map、checksums 和格式版本。列表与详情读取同一 page。
 Bundle 不创建 `records/*` 层。打开页面只等待 committed pages，不等待 ZIP。
 Worker 按小时对已验证 segment 做有界归并，单条投影 evidence 后立即送入当前 page；内存只保留归并元数据、

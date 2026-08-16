@@ -37,6 +37,7 @@
 - `backend/cmd/server/qa_single_owner_activation_test.go`::`TestQASingleOwnerActivationPlanRejectsMalformedCurrentOrFutureHour`
 - `backend/internal/observability/qa/bundle/projector_test.go`::`TestPublishVerifiedCommitsStreamsPagesBeforeLateProjectionFailure`
 - `backend/internal/observability/qa/bundle/projector_test.go`::`TestVisitVerifiedSegmentsMergesDeterministically`
+- `backend/internal/observability/qa/bundle/publisher_test.go`::`TestPublishBoundsCompressibleRecordsByUncompressedPageBytes`
 - `backend/internal/observability/qa/bundle/publisher_test.go`::`TestBuildExportZipReadsOnlyCommittedBundlePages`
 - `deploy/aws/cloudformation/test_stage0_qa_bundle_contract.py`::`Stage0QABundleContractTest.test_qa_cloudformation_service_role_covers_managed_resource_lifecycles`
 - `deploy/aws/cloudformation/test_stage0_qa_bundle_contract.py`::`Stage0QABundleContractTest.test_qa_bundle_verifier_roles_have_scoped_bucket_readback`

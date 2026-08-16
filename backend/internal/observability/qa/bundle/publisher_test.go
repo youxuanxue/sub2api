@@ -162,6 +162,35 @@ func TestPublishFailureLeavesPartialGenerationInvisible(t *testing.T) {
 	}
 }
 
+func TestPublishBoundsCompressibleRecordsByUncompressedPageBytes(t *testing.T) {
+	store := &recordingStore{}
+	from := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
+	records := []Record{
+		{RequestID: "req-1", UserID: 7, APIKeyID: 11, CapturedAt: from.Add(time.Minute), Detail: map[string]json.RawMessage{"request": json.RawMessage(`{"body":"` + strings.Repeat("a", 512) + `"}`)}},
+		{RequestID: "req-2", UserID: 7, APIKeyID: 11, CapturedAt: from.Add(2 * time.Minute), Detail: map[string]json.RawMessage{"request": json.RawMessage(`{"body":"` + strings.Repeat("b", 512) + `"}`)}},
+		{RequestID: "req-3", UserID: 7, APIKeyID: 11, CapturedAt: from.Add(3 * time.Minute), Detail: map[string]json.RawMessage{"request": json.RawMessage(`{"body":"` + strings.Repeat("c", 512) + `"}`)}},
+	}
+	firstBody, err := json.Marshal(records[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondBody, err := json.Marshal(records[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := Publish(context.Background(), store, PublishInput{
+		Prefix: "bundles/7/11/generations/g-memory-bound", DataFrom: from, DataUntil: from.Add(24 * time.Hour),
+		ArchiveWatermark: from.Add(24 * time.Hour), Records: records, MaxRecordsPerPage: 100,
+		MaxCompressedPageBytes: 1 << 20, MaxUncompressedPageBytes: len(firstBody) + len(secondBody) - 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Pages) != 3 {
+		t.Fatalf("pages=%+v, compressible records exceeded the resident page bound", manifest.Pages)
+	}
+}
+
 func TestBuildExportZipReadsOnlyCommittedBundlePages(t *testing.T) {
 	store := &recordingStore{}
 	from := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
