@@ -142,10 +142,10 @@ func runQAMaintenanceDropPhase(
 	}
 	normalDrop, err := deps.drop(ctx, archive.Window{Start: normal.WindowStart, End: normal.WindowEnd})
 	result.Normal = &normalDrop
+	result.DeletionAuthorized = !normalDrop.SourceDroppedAt.IsZero()
 	if err != nil {
 		return result, fmt.Errorf("drop normal archived hour: %w", err)
 	}
-	result.DeletionAuthorized = !normalDrop.SourceDroppedAt.IsZero()
 	if compensation == nil {
 		result.CleanupResumed, err = deps.resume(ctx)
 		return result, err
@@ -155,10 +155,10 @@ func runQAMaintenanceDropPhase(
 	}
 	compensationDrop, err := deps.drop(ctx, archive.Window{Start: compensation.WindowStart, End: compensation.WindowEnd})
 	result.Compensation = &compensationDrop
+	result.DeletionAuthorized = result.DeletionAuthorized || !compensationDrop.SourceDroppedAt.IsZero()
 	if err != nil {
 		return result, fmt.Errorf("drop compensation archived hour: %w", err)
 	}
-	result.DeletionAuthorized = result.DeletionAuthorized || !compensationDrop.SourceDroppedAt.IsZero()
 	result.CleanupResumed, err = deps.resume(ctx)
 	if err != nil {
 		return result, fmt.Errorf("resume pending hot cleanup: %w", err)
@@ -599,6 +599,19 @@ func runQAMaintenanceCommand(
 			"failed", runID, trigger, plan, compensationPlan,
 			"drop", "archive_gated_drop_failed", dropPhase.DeletionAuthorized,
 		)
+		receipt := qaMaintenanceCommandReceipt{
+			ReceiptVersion: qaMaintenanceReceiptVersion,
+			Mode:           qaMaintenanceReceiptMode,
+			OK:             false, JobName: qaMaintenanceJobName, RunID: runID, Trigger: trigger,
+			CompletedAt: deps.now().UTC(), Plan: plan, Compensation: compensationPlan,
+			FailureStage: "drop", FailureCode: "archive_gated_drop_failed",
+			DeletionAuthorized: dropPhase.DeletionAuthorized, UploadAuthorized: uploadAuthorized,
+			Provision: provision, NormalDrop: dropPhase.Normal, CompensationDrop: dropPhase.Compensation,
+			CleanupResumed: dropPhase.CleanupResumed,
+		}
+		if encodeErr := json.NewEncoder(out).Encode(receipt); encodeErr != nil {
+			return fmt.Errorf("%w; encode qa maintenance failure receipt: %v", err, encodeErr)
+		}
 		return err
 	}
 	if compensationErr != nil {

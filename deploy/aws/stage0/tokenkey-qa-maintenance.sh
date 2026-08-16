@@ -317,6 +317,7 @@ payload = {
 	    "compensation": child.get("compensation") if child else None,
 	    "normal_drop": child.get("normal_drop") if child else None,
 	    "compensation_drop": child.get("compensation_drop") if child else None,
+	    "cleanup_resumed": child.get("cleanup_resumed") if child else None,
     "failure_stage": child.get("failure_stage") if child else None,
     "failure_code": child.get("failure_code") if child else None,
     "child_exit_code": int(os.environ["QA_RECEIPT_CHILD_EXIT"]),

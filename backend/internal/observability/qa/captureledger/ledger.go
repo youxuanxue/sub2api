@@ -307,7 +307,7 @@ func (l *Ledger) SealHour(sourceHour time.Time) (HourSeal, error) {
 func ValidateHourSeal(root string, sourceHour, now time.Time, freshness time.Duration) (HourSeal, error) {
 	root = filepath.Clean(strings.TrimSpace(root))
 	var persisted HourSeal
-	err := withLedgerLock(root, func() error {
+	err := withLedgerReadLock(root, func() error {
 		if err := readJSON(sealPath(root, sourceHour), &persisted); err != nil {
 			return fmt.Errorf("%w: seal unavailable: %v", ErrHourUnsealed, err)
 		}
@@ -725,6 +725,19 @@ func withLedgerLock(root string, fn func() error) error {
 	defer func() { _ = lock.Close() }()
 	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
 		return fmt.Errorf("lock qa capture ledger: %w", err)
+	}
+	defer func() { _ = unix.Flock(int(lock.Fd()), unix.LOCK_UN) }()
+	return fn()
+}
+
+func withLedgerReadLock(root string, fn func() error) error {
+	lock, err := os.Open(filepath.Join(root, ".lock"))
+	if err != nil {
+		return fmt.Errorf("open qa capture ledger read lock: %w", err)
+	}
+	defer func() { _ = lock.Close() }()
+	if err := unix.Flock(int(lock.Fd()), unix.LOCK_SH); err != nil {
+		return fmt.Errorf("read lock qa capture ledger: %w", err)
 	}
 	defer func() { _ = unix.Flock(int(lock.Fd()), unix.LOCK_UN) }()
 	return fn()

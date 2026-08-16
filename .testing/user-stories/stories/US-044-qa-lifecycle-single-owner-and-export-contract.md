@@ -16,9 +16,10 @@
 3. prod trajectory/self-export worker、gateway download proxy 与 `qa_exports_tmp` orphan cleaner 不存在。
 4. lifecycle sentinel 拒绝 prod fallback、第二目标 deletion owner、transition 之外的固定时龄 DROP 与 export-orphan runtime。
 5. Bundle infra readiness 真实回读 bucket CORS/AES256 encryption/job-surface lifecycle、queue/DLQ、
-   Fargate capacity 与 worker image；raw-S3-to-Fargate canary 是发布/日常健康门禁。
+   Fargate capacity 与 worker image；raw-S3-to-Fargate canary 是发布/日常健康门禁；Worker 以单记录/单页有界内存
+   从 verified segments 发布 Bundle，ZIP immutable 校验只读对象流。
 6. rollout 将 repository readiness 与 `single_owner_not_activated` observed state 分开记录。
-7. single-owner activation 在锁内拒绝最近 24 个已完成小时及当前到未来 72 小时的 catalog 缺口；
+7. single-owner activation 在锁内拒绝最近 24 个已完成小时及当前到未来 72 小时的 catalog 缺口和非精确 UTC-hour bounds；
    首次 Bundle 部署所需 IAM bootstrap 有唯一运维入口且 app image 切换前 fail closed。
 
 ## Linked Tests
@@ -33,6 +34,10 @@
 - `ops/qa/test_qa_phase_ops.py`::`TestQAPhaseOps.test_qa_lifecycle_ssot_check_passes`
 - `backend/cmd/server/qa_single_owner_activation_test.go`::`TestQASingleOwnerActivationPlanRejectsMissingRecentCompletedHour`
 - `backend/cmd/server/qa_single_owner_activation_test.go`::`TestQASingleOwnerActivationPlanRejectsMissingCurrentOrFutureHour`
+- `backend/cmd/server/qa_single_owner_activation_test.go`::`TestQASingleOwnerActivationPlanRejectsMalformedCurrentOrFutureHour`
+- `backend/internal/observability/qa/bundle/projector_test.go`::`TestPublishVerifiedCommitsStreamsPagesBeforeLateProjectionFailure`
+- `backend/internal/observability/qa/bundle/projector_test.go`::`TestVisitVerifiedSegmentsMergesDeterministically`
+- `backend/internal/observability/qa/bundle/publisher_test.go`::`TestBuildExportZipReadsOnlyCommittedBundlePages`
 - `deploy/aws/cloudformation/test_stage0_qa_bundle_contract.py`::`Stage0QABundleContractTest.test_qa_cloudformation_service_role_covers_managed_resource_lifecycles`
 - `deploy/aws/cloudformation/test_stage0_qa_bundle_contract.py`::`Stage0QABundleContractTest.test_qa_bundle_verifier_roles_have_scoped_bucket_readback`
 - `frontend/e2e/qa-bundle.e2e.ts`::`QA Bundle list, detail, watermark and ZIP export stay on Bundle/S3 paths`
@@ -51,6 +56,7 @@ cd frontend && pnpm exec playwright test e2e/qa-bundle.e2e.ts --project=chromium
 
 - User QA never falls back to prod DB/export workers.
 - Maintenance is the only target deletion owner.
+- Bundle projection and ZIP verification stay bounded by one record/page or an object stream, never one full 24-hour result.
 
 ## Evidence
 

@@ -20,6 +20,8 @@ type recordingStore struct {
 	objects map[string][]byte
 	meta    map[string]ObjectMetadata
 	writes  []string
+	opens   []string
+	reads   []string
 	readers map[string]string
 	failKey string
 }
@@ -51,11 +53,21 @@ func (s *recordingStore) Create(_ context.Context, key string, body io.Reader, s
 }
 
 func (s *recordingStore) Read(_ context.Context, key string) ([]byte, error) {
+	s.reads = append(s.reads, key)
 	payload, ok := s.objects[key]
 	if !ok {
 		return nil, errors.New("not found")
 	}
 	return append([]byte(nil), payload...), nil
+}
+
+func (s *recordingStore) Open(_ context.Context, key string) (ObjectReader, error) {
+	payload, ok := s.objects[key]
+	if !ok {
+		return ObjectReader{}, errors.New("not found")
+	}
+	s.opens = append(s.opens, key)
+	return ObjectReader{Body: io.NopCloser(bytes.NewReader(payload)), Size: int64(len(payload))}, nil
 }
 
 func (s *recordingStore) Head(_ context.Context, key string) (bool, error) {
@@ -195,5 +207,18 @@ func TestBuildExportZipReadsOnlyCommittedBundlePages(t *testing.T) {
 	_ = file.Close()
 	if !bytes.Contains(body, []byte(`"request_id":"req-export"`)) {
 		t.Fatalf("zip body=%s", body)
+	}
+
+	repeated, err := BuildExportZip(context.Background(), store, manifest.ManifestKey, zipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repeated.SHA256 != receipt.SHA256 || len(store.opens) == 0 || store.opens[len(store.opens)-1] != zipKey {
+		t.Fatalf("repeated=%+v opens=%v", repeated, store.opens)
+	}
+	for _, key := range store.reads {
+		if key == zipKey {
+			t.Fatalf("existing ZIP was read into memory: reads=%v", store.reads)
+		}
 	}
 }

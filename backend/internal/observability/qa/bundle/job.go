@@ -258,18 +258,10 @@ func ExecuteJob(ctx context.Context, spec JobSpec, rawStore archive.ReadOnlyObje
 			verified = append(verified, commit)
 		}
 		defer closeVerifiedCommits(verified)
-		var segments []archive.VerifiedSegment
-		for index := range verified {
-			segments = append(segments, verified[index].Segments...)
-		}
-		records, err := ProjectVerifiedSegments(segments, spec.UserID, spec.APIKeyID)
-		if err != nil {
-			return JobReceipt{}, err
-		}
-		manifest, err := Publish(ctx, outputStore, PublishInput{
+		manifest, err := PublishVerifiedCommits(ctx, outputStore, PublishInput{
 			Prefix: spec.GenerationPrefix, DataFrom: spec.DataFrom, DataUntil: spec.DataUntil,
-			ArchiveWatermark: spec.ArchiveWatermark, Records: records,
-		})
+			ArchiveWatermark: spec.ArchiveWatermark,
+		}, verified, spec.UserID, spec.APIKeyID)
 		if err != nil {
 			return JobReceipt{}, err
 		}

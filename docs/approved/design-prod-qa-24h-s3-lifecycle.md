@@ -143,7 +143,8 @@ prod 对所有用户和 API key 的受支持 gateway 请求捕获脱敏 QA。`tr
 ### 5.2 单一持久状态
 
 capture 状态只有一个 durable owner：现有共享 QA data volume 下的 **durable capture ledger**，有效路径由 QA policy
-管理。QA service 是 ledger 的唯一 writer，内容只保留两类原子 receipt：
+管理。QA service 是 ledger 的唯一 writer；maintenance/activation 只以只读共享锁验证已有 seal，不创建或修改
+ledger 文件。内容只保留两类原子 receipt：
 
 - runtime/hour receipt：runtime identity、快照时间、每小时 pending/inflight、`sealed_at` 与最终 `drained`；
 - failure receipt：按 `failure_id` 存放 `request_id/source_hour/stage/occurred_at/runtime_identity` 及
@@ -307,6 +308,8 @@ pages/<page>.json.gz
 每个 page 按记录数和字节数双重限界，记录同时包含列表字段与完整详情。`manifest.json` 只包含 data window、
 archive watermark、record count、page map、checksums 和格式版本。列表与详情读取同一 page。
 Bundle 不创建 `records/*` 层。打开页面只等待 committed pages，不等待 ZIP。
+Worker 按小时对已验证 segment 做有界归并，单条投影 evidence 后立即送入当前 page；内存只保留归并元数据、
+单条记录和当前 page，不聚合全天记录。immutable ZIP 已存在时按对象流校验 size/checksum，不把整个 ZIP 读入内存。
 
 用户点击导出后，prod 创建或复用 `(bundle_generation, export_format)` 唯一 ZIP job；同一个 Fargate Worker
 只读取已经 committed 的 Bundle pages，生成
@@ -433,7 +436,8 @@ single-owner 激活不假装跨两个 systemd unit 原子切换。唯一 host ac
    boundary receipt/heartbeat 不再前进；
 3. 取得 QAMA database advisory lock，重新验证上述事实；activation plan 还必须证明最近 24 个已完成 UTC
    小时的精确分区连续存在，且每个分区都已 capture-sealed、raw committed、restore-verified、无遗漏 source；
-   当前 UTC 小时到未来 72 小时的 catalog 也必须连续，未来分区只做供给门禁，不进入 archive/seal 计划；
+   当前 UTC 小时到未来 72 小时的 catalog 也必须连续，所有 relevant child 的 bounds 必须严格为
+   `[UTC hour, UTC hour + 1h)`；未来分区只做供给门禁，不进入 archive/seal 计划；
 4. 最后在数据库事务中写 append-only single-owner activation receipt，maintenance 的 DROP phase 只认该 receipt；
 5. 释放锁后等待下一个自然 `HH:15` maintenance，不手工启动 DROP。
 

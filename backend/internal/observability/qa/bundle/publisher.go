@@ -35,7 +35,13 @@ type ObjectMetadata struct {
 type Store interface {
 	Create(context.Context, string, io.Reader, int64, ObjectMetadata) error
 	Read(context.Context, string) ([]byte, error)
+	Open(context.Context, string) (ObjectReader, error)
 	Head(context.Context, string) (bool, error)
+}
+
+type ObjectReader struct {
+	Body io.ReadCloser
+	Size int64
 }
 
 type Record struct {
@@ -117,9 +123,32 @@ type ExportReceipt struct {
 }
 
 func Publish(ctx context.Context, store Store, input PublishInput) (Manifest, error) {
+	records := append([]Record(nil), input.Records...)
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].CapturedAt.Equal(records[j].CapturedAt) {
+			return records[i].RequestID < records[j].RequestID
+		}
+		return records[i].CapturedAt.Before(records[j].CapturedAt)
+	})
+	return publishRecordSource(ctx, store, input, func(yield func(Record) error) error {
+		for _, record := range records {
+			if err := yield(record); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+type recordSource func(func(Record) error) error
+
+func publishRecordSource(ctx context.Context, store Store, input PublishInput, source recordSource) (Manifest, error) {
 	var manifest Manifest
 	if store == nil {
 		return manifest, errors.New("qa bundle store is required")
+	}
+	if source == nil {
+		return manifest, errors.New("qa bundle record source is required")
 	}
 	prefix, err := validateObjectPrefix(input.Prefix)
 	if err != nil {
@@ -137,22 +166,6 @@ func Publish(ctx context.Context, store Store, input PublishInput) (Manifest, er
 	if input.MaxCompressedPageBytes <= 0 {
 		input.MaxCompressedPageBytes = defaultPageByteLimit
 	}
-	records := append([]Record(nil), input.Records...)
-	sort.Slice(records, func(i, j int) bool {
-		if records[i].CapturedAt.Equal(records[j].CapturedAt) {
-			return records[i].RequestID < records[j].RequestID
-		}
-		return records[i].CapturedAt.Before(records[j].CapturedAt)
-	})
-	for i := range records {
-		records[i].CapturedAt = records[i].CapturedAt.UTC()
-		if strings.TrimSpace(records[i].RequestID) == "" {
-			return manifest, errors.New("qa bundle record request id is required")
-		}
-		if records[i].CapturedAt.Before(input.DataFrom) || !records[i].CapturedAt.Before(input.DataUntil) {
-			return manifest, fmt.Errorf("qa bundle record %s is outside the data window", records[i].RequestID)
-		}
-	}
 
 	manifest = Manifest{
 		SchemaVersion:    SchemaVersion,
@@ -160,35 +173,83 @@ func Publish(ctx context.Context, store Store, input PublishInput) (Manifest, er
 		DataFrom:         input.DataFrom,
 		DataUntil:        input.DataUntil,
 		ArchiveWatermark: input.ArchiveWatermark,
-		RecordCount:      len(records),
 		ManifestKey:      prefix + "/manifest.json",
 	}
-	for offset, pageNumber := 0, 1; offset < len(records); pageNumber++ {
-		end := offset
-		var encoded []byte
-		for end < len(records) && end-offset < input.MaxRecordsPerPage {
-			candidate, encodeErr := encodePage(Page{SchemaVersion: SchemaVersion, Page: pageNumber, Records: records[offset : end+1]})
-			if encodeErr != nil {
-				return Manifest{}, encodeErr
-			}
-			if len(candidate) > input.MaxCompressedPageBytes {
-				if end == offset {
-					return Manifest{}, fmt.Errorf("qa bundle record %s exceeds compressed page limit", records[offset].RequestID)
-				}
-				break
-			}
-			encoded = candidate
-			end++
+	pageNumber := 1
+	var pageRecords []Record
+	var pageEncoded []byte
+	flushPage := func() error {
+		if len(pageRecords) == 0 {
+			return nil
 		}
 		key := fmt.Sprintf("%s/pages/%06d.json.gz", prefix, pageNumber)
-		if err := createOrVerify(ctx, store, key, encoded, ObjectMetadata{ContentType: "application/json", ContentEncoding: "gzip"}); err != nil {
-			return Manifest{}, err
+		if err := createOrVerify(ctx, store, key, pageEncoded, ObjectMetadata{ContentType: "application/json", ContentEncoding: "gzip"}); err != nil {
+			return err
 		}
 		manifest.Pages = append(manifest.Pages, PageDescriptor{
-			Page: pageNumber, Key: key, RecordCount: end - offset,
-			CompressedBytes: int64(len(encoded)), SHA256: sha256Hex(encoded),
+			Page: pageNumber, Key: key, RecordCount: len(pageRecords),
+			CompressedBytes: int64(len(pageEncoded)), SHA256: sha256Hex(pageEncoded),
 		})
-		offset = end
+		pageNumber++
+		pageRecords = nil
+		pageEncoded = nil
+		return nil
+	}
+
+	var previousCapturedAt time.Time
+	previousRequestID := ""
+	havePrevious := false
+	err = source(func(record Record) error {
+		record.CapturedAt = record.CapturedAt.UTC()
+		if strings.TrimSpace(record.RequestID) == "" {
+			return errors.New("qa bundle record request id is required")
+		}
+		if record.CapturedAt.Before(input.DataFrom) || !record.CapturedAt.Before(input.DataUntil) {
+			return fmt.Errorf("qa bundle record %s is outside the data window", record.RequestID)
+		}
+		if havePrevious && (record.CapturedAt.Before(previousCapturedAt) ||
+			(record.CapturedAt.Equal(previousCapturedAt) && record.RequestID <= previousRequestID)) {
+			return fmt.Errorf("qa bundle projection contains duplicate or unordered identity %d/%s", record.CapturedAt.UnixMicro(), record.RequestID)
+		}
+		if len(pageRecords) == input.MaxRecordsPerPage {
+			if err := flushPage(); err != nil {
+				return err
+			}
+		}
+		candidateRecords := append(pageRecords, record)
+		candidate, err := encodePage(Page{SchemaVersion: SchemaVersion, Page: pageNumber, Records: candidateRecords})
+		if err != nil {
+			return err
+		}
+		if len(candidate) > input.MaxCompressedPageBytes {
+			if len(pageRecords) == 0 {
+				return fmt.Errorf("qa bundle record %s exceeds compressed page limit", record.RequestID)
+			}
+			if err := flushPage(); err != nil {
+				return err
+			}
+			candidateRecords = []Record{record}
+			candidate, err = encodePage(Page{SchemaVersion: SchemaVersion, Page: pageNumber, Records: candidateRecords})
+			if err != nil {
+				return err
+			}
+			if len(candidate) > input.MaxCompressedPageBytes {
+				return fmt.Errorf("qa bundle record %s exceeds compressed page limit", record.RequestID)
+			}
+		}
+		pageRecords = candidateRecords
+		pageEncoded = candidate
+		manifest.RecordCount++
+		previousCapturedAt = record.CapturedAt
+		previousRequestID = record.RequestID
+		havePrevious = true
+		return nil
+	})
+	if err != nil {
+		return Manifest{}, err
+	}
+	if err := flushPage(); err != nil {
+		return Manifest{}, err
 	}
 	manifestBody, err := json.Marshal(manifest)
 	if err != nil {
@@ -327,11 +388,20 @@ func createFileOrVerify(ctx context.Context, store Store, key string, file *os.F
 	if !errors.Is(err, ErrObjectExists) {
 		return err
 	}
-	existing, readErr := store.Read(ctx, key)
-	if readErr != nil {
-		return readErr
+	existing, openErr := store.Open(ctx, key)
+	if openErr != nil {
+		return openErr
 	}
-	if int64(len(existing)) != size || sha256Hex(existing) != checksum {
+	defer func() { _ = existing.Body.Close() }()
+	if existing.Size != size {
+		return fmt.Errorf("qa bundle immutable object conflict: %s", key)
+	}
+	hash := sha256.New()
+	written, copyErr := io.Copy(hash, existing.Body)
+	if copyErr != nil {
+		return copyErr
+	}
+	if written != size || hex.EncodeToString(hash.Sum(nil)) != checksum {
 		return fmt.Errorf("qa bundle immutable object conflict: %s", key)
 	}
 	return nil

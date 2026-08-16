@@ -49,6 +49,17 @@ func (s *ArchiveStore) Read(ctx context.Context, key string) ([]byte, error) {
 	return body, nil
 }
 
+func (s *ArchiveStore) Open(ctx context.Context, key string) (ObjectReader, error) {
+	if s == nil || s.inner == nil {
+		return ObjectReader{}, errors.New("qa bundle archive store is required")
+	}
+	object, err := s.inner.Open(ctx, key)
+	if err != nil {
+		return ObjectReader{}, err
+	}
+	return ObjectReader{Body: object.Body, Size: object.Info.Size}, nil
+}
+
 func (s *ArchiveStore) Head(ctx context.Context, key string) (bool, error) {
 	if s == nil || s.inner == nil {
 		return false, errors.New("qa bundle archive store is required")

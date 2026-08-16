@@ -16,6 +16,7 @@
 3. Boundary sync success and rollback both force boundary disabled/inactive after activation.
 4. Maintenance resumes a bounded list of exact already-dropped Blob/DLQ hours idempotently; per-hour failure remains visible without undoing DROP.
 5. `retention_until` is legacy schema compatibility only and cannot authorize deletion.
+6. Read-only seal validation works on the mounted ledger；DROP/cleanup failure receipts preserve every already-committed deletion and resumed cleanup fact.
 
 ## Linked Tests
 
@@ -25,6 +26,10 @@
 - `backend/cmd/server/qa_maintenance_boundary_test.go`::`TestQABoundaryCommandRejectsRetiredCutoverModes`
 - `backend/cmd/server/qa_maintenance_boundary_test.go`::`TestQABoundaryRunsTransitionCleanupBeforeSingleOwnerActivation`
 - `backend/cmd/server/qa_maintenance_boundary_test.go`::`TestQABoundaryCommandRefusesAfterSingleOwnerActivation`
+- `backend/internal/observability/qa/captureledger/ledger_test.go`::`TestValidateHourSealWorksWithReadOnlyLedger`
+- `backend/cmd/server/qa_maintenance_phase2_test.go`::`TestUS045_QAMaintenanceCommandDropFailureHeartbeatPreservesCommittedDeletion`
+- `backend/cmd/server/qa_maintenance_test.go`::`TestQAMaintenanceDropPhasePreservesCommittedNormalDropOnCleanupError`
+- `ops/qa/test_qa_maintenance_phase2_runtime.py`::`QAPhase2RunnerTest.test_phase3_runner_preserves_committed_drop_when_child_fails`
 
 运行命令：
 

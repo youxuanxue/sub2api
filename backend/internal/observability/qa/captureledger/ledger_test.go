@@ -4,6 +4,8 @@ package captureledger
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -32,6 +34,33 @@ func TestHourSealRequiresPersistedCaptureTransitions(t *testing.T) {
 	validated, err := ValidateHourSeal(ledger.Root(), identity.SourceHour(), now, DefaultFreshness)
 	require.NoError(t, err)
 	require.Equal(t, seal.StateDigest, validated.StateDigest)
+}
+
+func TestValidateHourSealWorksWithReadOnlyLedger(t *testing.T) {
+	now := time.Date(2026, 8, 15, 9, 40, 0, 0, time.UTC)
+	root := t.TempDir()
+	ledger, err := Open(root, "runtime-a", now.Add(-10*time.Minute), func() time.Time { return now })
+	require.NoError(t, err)
+
+	identity := CaptureIdentity{RequestID: "req-read-only", CapturedAt: now}
+	require.NoError(t, ledger.Begin(identity))
+	require.NoError(t, ledger.Start(identity))
+	require.NoError(t, ledger.Complete(identity, OutcomePersisted))
+	now = time.Date(2026, 8, 15, 10, 16, 0, 0, time.UTC)
+	require.NoError(t, ledger.Snapshot())
+	sealed, err := ledger.SealHour(identity.SourceHour())
+	require.NoError(t, err)
+
+	require.NoError(t, os.Chmod(filepath.Join(root, ".lock"), 0o400))
+	require.NoError(t, os.Chmod(root, 0o500))
+	t.Cleanup(func() {
+		_ = os.Chmod(root, 0o700)
+		_ = os.Chmod(filepath.Join(root, ".lock"), 0o600)
+	})
+
+	validated, err := ValidateHourSeal(root, identity.SourceHour(), now, DefaultFreshness)
+	require.NoError(t, err)
+	require.Equal(t, sealed.StateDigest, validated.StateDigest)
 }
 
 func TestPersistFailureRemainsUnresolvedAfterLaterSuccess(t *testing.T) {

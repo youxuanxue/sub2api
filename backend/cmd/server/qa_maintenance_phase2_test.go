@@ -582,21 +582,35 @@ func TestUS045_QAMaintenanceCommandDropFailureHeartbeatPreservesCommittedDeletio
 		return lifecycle.ExpiryResult{PartitionName: "qa_normal", SourceDroppedAt: window.End}, nil
 	}
 	deps.resumeHotCleanup = func(context.Context, *sql.Conn) ([]lifecycle.HotCleanupResult, error) {
-		return nil, errors.New("cleanup unavailable")
+		return []lifecycle.HotCleanupResult{{ShardID: 44, WindowStart: normal.Start.Add(-time.Hour), Cleaned: true}}, errors.New("cleanup unavailable")
 	}
 	deps.writeHeartbeat = func(_ context.Context, _ *sql.DB, input *service.OpsUpsertJobHeartbeatInput) error {
 		heartbeat = input
 		return nil
 	}
 
+	out := &bytes.Buffer{}
 	err = runQAMaintenanceCommand(context.Background(), []string{
 		"--qa-maintenance-once", "--confirm", qaMaintenanceConfirmation,
-	}, &bytes.Buffer{}, deps)
+	}, out, deps)
 	if err == nil || !strings.Contains(err.Error(), "cleanup unavailable") {
 		t.Fatalf("err=%v", err)
 	}
 	if heartbeat == nil || heartbeat.LastResult == nil || !strings.Contains(*heartbeat.LastResult, "deletion_authorized=true") {
 		t.Fatalf("heartbeat=%+v", heartbeat)
+	}
+	var failureReceipt qaMaintenanceCommandReceipt
+	if decodeErr := json.Unmarshal(out.Bytes(), &failureReceipt); decodeErr != nil {
+		t.Fatalf("decode failure receipt: %v; output=%s", decodeErr, out.String())
+	}
+	if failureReceipt.OK || !failureReceipt.DeletionAuthorized || failureReceipt.FailureStage != "drop" || failureReceipt.FailureCode != "archive_gated_drop_failed" {
+		t.Fatalf("failure receipt=%+v", failureReceipt)
+	}
+	if failureReceipt.NormalDrop == nil || failureReceipt.NormalDrop.PartitionName != "qa_normal" || failureReceipt.NormalDrop.SourceDroppedAt.IsZero() {
+		t.Fatalf("failure receipt lost committed normal DROP: %+v", failureReceipt)
+	}
+	if len(failureReceipt.CleanupResumed) != 1 || failureReceipt.CleanupResumed[0].ShardID != 44 || !failureReceipt.CleanupResumed[0].Cleaned {
+		t.Fatalf("failure receipt lost resumed cleanup: %+v", failureReceipt)
 	}
 	if err := mockDB.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

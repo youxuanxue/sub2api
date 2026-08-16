@@ -110,6 +110,33 @@ func TestQAMaintenanceDropPhaseStopsWhenNormalDropFails(t *testing.T) {
 	}
 }
 
+func TestQAMaintenanceDropPhasePreservesCommittedNormalDropOnCleanupError(t *testing.T) {
+	normalStart := time.Date(2026, 8, 15, 9, 0, 0, 0, time.UTC)
+	result, err := runQAMaintenanceDropPhase(
+		context.Background(),
+		qaMaintenancePlan{WindowStart: normalStart, WindowEnd: normalStart.Add(time.Hour), State: archive.StateCommitted, RestoreVerified: true},
+		nil,
+		qaMaintenanceDropPhaseDeps{
+			active: func(context.Context) (bool, error) { return true, nil },
+			drop: func(context.Context, archive.Window) (lifecycle.ExpiryResult, error) {
+				return lifecycle.ExpiryResult{
+					PartitionName: "qa_records_20260815_09", SourceDroppedAt: normalStart.Add(time.Hour),
+				}, errors.New("hot cleanup unavailable")
+			},
+			resume: func(context.Context) ([]lifecycle.HotCleanupResult, error) {
+				t.Fatal("cleanup resume must not run after the normal drop call returned an error")
+				return nil, nil
+			},
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "hot cleanup unavailable") {
+		t.Fatalf("err=%v", err)
+	}
+	if !result.DeletionAuthorized || result.Normal == nil || result.Normal.PartitionName != "qa_records_20260815_09" || result.Normal.SourceDroppedAt.IsZero() {
+		t.Fatalf("result lost committed DROP facts: %+v", result)
+	}
+}
+
 func TestQAMaintenanceDropArchivedHourResumesCleanupAfterCommittedDrop(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

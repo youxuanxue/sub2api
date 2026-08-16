@@ -422,6 +422,61 @@ func TestQASingleOwnerActivationPlanRejectsMissingCurrentOrFutureHour(t *testing
 	}
 }
 
+func TestQASingleOwnerActivationPlanRejectsMalformedCurrentOrFutureHour(t *testing.T) {
+	databaseHour := time.Date(2026, 8, 15, 11, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name         string
+		offset       int
+		lower        time.Time
+		upper        time.Time
+		wantContains string
+	}{
+		{name: "short current hour", offset: 0, lower: databaseHour, upper: databaseHour.Add(30 * time.Minute), wantContains: "exactly one hour"},
+		{name: "wide future hour", offset: 7, lower: databaseHour.Add(7 * time.Hour), upper: databaseHour.Add(9 * time.Hour), wantContains: "exactly one hour"},
+		{name: "misaligned future hour", offset: 7, lower: databaseHour.Add(7*time.Hour + 30*time.Minute), upper: databaseHour.Add(8*time.Hour + 30*time.Minute), wantContains: "canonical hourly child name"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Close() }()
+			conn, err := db.Conn(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = conn.Close() }()
+
+			rows := sqlmock.NewRows([]string{
+				"schema", "name", "bound", "lower_unbounded", "upper_unbounded", "is_default", "lower", "upper",
+			})
+			for offset := -24; offset < pgpartition.QARecordsHourlyHorizon; offset++ {
+				hour := databaseHour.Add(time.Duration(offset) * time.Hour)
+				upper := hour.Add(time.Hour)
+				if offset == test.offset {
+					hour = test.lower
+					upper = test.upper
+				}
+				rows.AddRow(
+					"public", "qa_records_"+hour.UTC().Format("20060102_15"),
+					"FOR VALUES FROM ('"+hour.Format(time.RFC3339)+"') TO ('"+upper.Format(time.RFC3339)+"')",
+					false, false, false, hour, upper,
+				)
+			}
+			mock.ExpectQuery("SELECT date_trunc").WillReturnRows(sqlmock.NewRows([]string{"hour"}).AddRow(databaseHour))
+			mock.ExpectQuery("FROM pg_inherits").WithArgs("qa_records").WillReturnRows(rows)
+
+			_, err = buildQASingleOwnerActivationPlan(context.Background(), conn, databaseHour.Add(10*time.Minute))
+			if err == nil || !strings.Contains(err.Error(), test.wantContains) {
+				t.Fatalf("err=%v", err)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func activationPartitionRows(databaseHour time.Time) *sqlmock.Rows {
 	rows := sqlmock.NewRows([]string{
 		"schema", "name", "bound", "lower_unbounded", "upper_unbounded", "is_default", "lower", "upper",

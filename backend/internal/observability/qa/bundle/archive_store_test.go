@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/archive"
@@ -24,6 +25,15 @@ func TestArchiveStorePreservesMetadataAndMapsImmutableConflict(t *testing.T) {
 	got, err := store.Read(ctx, "bundles/7/11/g/page.json.gz")
 	if err != nil || !bytes.Equal(got, body) {
 		t.Fatalf("Read()=%q err=%v", got, err)
+	}
+	opened, err := store.Open(ctx, "bundles/7/11/g/page.json.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	streamed, err := io.ReadAll(opened.Body)
+	closeErr := opened.Body.Close()
+	if err != nil || closeErr != nil || opened.Size != int64(len(body)) || !bytes.Equal(streamed, body) {
+		t.Fatalf("Open() size=%d body=%q err=%v closeErr=%v", opened.Size, streamed, err, closeErr)
 	}
 	storedMetadata, ok := inner.Metadata("bundles/7/11/g/page.json.gz")
 	if !ok || storedMetadata.ContentType != metadata.ContentType || storedMetadata.ContentEncoding != metadata.ContentEncoding {

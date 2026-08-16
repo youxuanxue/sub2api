@@ -439,6 +439,48 @@ exit 9
                 "qa_records_20260808_20",
             )
 
+    def test_phase3_runner_preserves_committed_drop_when_child_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env, receipt, _, _, _ = self._sandbox(Path(temp_dir), child_rc=23)
+            child = json.loads(env["TEST_CHILD_JSON"])
+            child.update(
+                {
+                    "ok": False,
+                    "failure_stage": "drop",
+                    "failure_code": "archive_gated_drop_failed",
+                    "deletion_authorized": True,
+                    "normal_drop": {
+                        "partition_name": "qa_records_20260808_20",
+                        "source_dropped_at": "2026-08-08T21:16:00Z",
+                        "hot_files_cleaned": False,
+                    },
+                    "cleanup_resumed": [
+                        {
+                            "shard_id": 44,
+                            "window_start_utc": "2026-08-08T19:00:00Z",
+                            "cleaned": True,
+                        }
+                    ],
+                }
+            )
+            env["TEST_CHILD_JSON"] = json.dumps(child, separators=(",", ":"))
+
+            proc = subprocess.run(
+                ["bash", str(RUNNER), "--trigger=timer"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(proc.returncode, 23, (proc.stdout, proc.stderr))
+            payload = json.loads(receipt.read_text(encoding="utf-8"))
+            self.assertIs(payload["deletion_authorized"], True)
+            self.assertEqual(payload["normal_drop"]["partition_name"], "qa_records_20260808_20")
+            self.assertEqual(payload["cleanup_resumed"][0]["shard_id"], 44)
+            self.assertEqual(payload["failure_stage"], "drop")
+            self.assertEqual(payload["failure_code"], "archive_gated_drop_failed")
+
     def test_us045_runner_records_child_and_pre_app_failures(self) -> None:
         for name, image, child_rc, expected_code, expected_child in (
             ("child", "sha256:image-v2", 23, "child_failed", 23),
