@@ -51,6 +51,13 @@ func (w Worker) RunOne(ctx context.Context) (bool, error) {
 	if completed {
 		return true, w.Consumer.Ack(ctx, message)
 	}
+	failed, err := w.OutputStore.Head(ctx, spec.FailureKey)
+	if err != nil {
+		return true, err
+	}
+	if failed {
+		return true, w.Consumer.Ack(ctx, message)
+	}
 	execute := w.Execute
 	if execute == nil {
 		execute = ExecuteJob
@@ -69,6 +76,7 @@ func (w Worker) RunOne(ctx context.Context) (bool, error) {
 			if publishErr := createOrVerify(ctx, w.OutputStore, spec.FailureKey, failureBody, ObjectMetadata{ContentType: "application/json"}); publishErr != nil {
 				return true, fmt.Errorf("publish qa bundle failure receipt: %w", publishErr)
 			}
+			return true, w.Consumer.Ack(ctx, message)
 		}
 		return true, executeErr
 	}

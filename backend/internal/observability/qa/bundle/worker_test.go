@@ -41,7 +41,7 @@ func TestWorkerAcknowledgesOnlySuccessfulImmutableJob(t *testing.T) {
 	}
 }
 
-func TestWorkerPublishesScopedFailureAfterFinalAttemptWithoutAck(t *testing.T) {
+func TestWorkerPublishesScopedFailureAfterFinalAttemptAndAcks(t *testing.T) {
 	spec := NewBundleJobSpec(7, 11, time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC))
 	store := &recordingStore{}
 	if err := PublishJobSpec(context.Background(), store, spec); err != nil {
@@ -52,10 +52,29 @@ func TestWorkerPublishesScopedFailureAfterFinalAttemptWithoutAck(t *testing.T) {
 		return JobReceipt{}, errors.New("injected raw verify failure")
 	}}
 	processed, err := worker.RunOne(context.Background())
-	if err == nil || !processed || consumer.acked {
+	if err != nil || !processed || !consumer.acked {
 		t.Fatalf("processed=%v acked=%v err=%v", processed, consumer.acked, err)
 	}
 	if _, ok := store.objects[spec.FailureKey]; !ok {
 		t.Fatalf("failure receipt %s was not published", spec.FailureKey)
+	}
+}
+
+func TestWorkerAcknowledgesExistingFailureWithoutReexecuting(t *testing.T) {
+	spec := NewBundleJobSpec(7, 11, time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC))
+	store := &recordingStore{}
+	if err := PublishJobSpec(context.Background(), store, spec); err != nil {
+		t.Fatal(err)
+	}
+	store.objects[spec.FailureKey] = []byte(`{"schema_version":"qa-bundle-job-v1","kind":"bundle","job_id":"existing","error":"bundle_failed"}`)
+	consumer := &fakeJobConsumer{message: JobMessage{SpecKey: spec.SpecKey, ReceiptHandle: "r4", ReceiveCount: 4}}
+	executed := false
+	worker := Worker{Consumer: consumer, OutputStore: store, Execute: func(context.Context, JobSpec, archive.ReadOnlyObjectStore, Store, ExecuteDeps) (JobReceipt, error) {
+		executed = true
+		return JobReceipt{}, errors.New("must not execute")
+	}}
+	processed, err := worker.RunOne(context.Background())
+	if err != nil || !processed || !consumer.acked || executed {
+		t.Fatalf("processed=%v acked=%v executed=%v err=%v", processed, consumer.acked, executed, err)
 	}
 }
