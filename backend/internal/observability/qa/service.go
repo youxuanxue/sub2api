@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -419,11 +418,6 @@ func isDLQBlobURI(blobURI string) bool {
 	return strings.HasPrefix(strings.TrimSpace(blobURI), "dlq://")
 }
 
-func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error {
-	_, err := s.persistCaptureOutcome(ctx, input)
-	return err
-}
-
 func (s *Service) persistCaptureOutcome(ctx context.Context, input CaptureInput) (captureledger.Outcome, error) {
 	cutover, err := s.hourlyStorageCutover(ctx)
 	if err != nil {
@@ -564,23 +558,6 @@ func (s *Service) hourlyStorageCutover(ctx context.Context) (time.Time, error) {
 
 const presignedURLTTL = 24 * time.Hour
 
-func hasUnsafePathSegment(path string) bool {
-	for _, segment := range strings.Split(path, "/") {
-		if segment == "" || segment == "." || segment == ".." {
-			return true
-		}
-	}
-	return false
-}
-
-func exportKeyExpired(key string, now time.Time) bool {
-	stamp := strings.TrimSuffix(filepath.Base(key), ".zip")
-	if nanos, err := strconv.ParseInt(stamp, 10, 64); err == nil {
-		return !now.Before(time.Unix(0, nanos).UTC().Add(presignedURLTTL))
-	}
-	return false
-}
-
 func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []string, error) {
 	// traj-opt-in 的 Anthropic 记录：保留 thinking 块的 signature（仅 thinking 块，
 	// 见 thinking_preserve.go）。默认（非 opt-in / 非 Anthropic）行为不变。
@@ -646,19 +623,6 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 	requestSHA := trajectory.SHA256Hex(requestValue)
 	responseSHA := trajectory.SHA256Hex(responseValue)
 	return compressed, requestSHA, responseSHA, dedupeTags(input.Tags), nil
-}
-
-func (s *Service) keyFromBlobURI(blobURI string) string {
-	switch {
-	case strings.HasPrefix(blobURI, "s3://"):
-		parts := strings.SplitN(strings.TrimPrefix(blobURI, "s3://"), "/", 2)
-		if len(parts) == 2 {
-			return parts[1]
-		}
-	case strings.HasPrefix(blobURI, "file://"):
-		return strings.TrimPrefix(blobURI, "file://")
-	}
-	return ""
 }
 
 func sanitizeQABytes(raw []byte, maxBytes int) any {
