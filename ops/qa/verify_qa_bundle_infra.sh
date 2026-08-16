@@ -91,10 +91,14 @@ actual_image="$(jq -r '.taskDefinition.containerDefinitions[] | select(.name == 
   exit 1
 }
 
-jq -n \
+receipt="$(jq -n \
   --arg stack "${STACK}" --arg status "${stack_status}" --arg bucket "${bucket}" \
   --arg browser_origin "${browser_origin}" --argjson retention_days "${retention_days}" \
   --arg queue_url "${queue_url}" --arg dlq_url "${dlq_url}" \
   --arg cluster "${cluster}" --arg service "${service}" --arg image "${actual_image}" \
   --argjson desired "${desired}" --argjson running "${running}" --argjson dlq_depth "${dlq_depth}" \
-  '{ok:true,stack:$stack,stack_status:$status,bucket:$bucket,browser_origin:$browser_origin,retention_days:$retention_days,queue_url:$queue_url,dlq_url:$dlq_url,cluster:$cluster,service:$service,image:$image,desired_count:$desired,running_count:$running,dlq_depth:$dlq_depth}'
+  '{ok:true,stack:$stack,stack_status:$status,bucket:$bucket,browser_origin:$browser_origin,retention_days:$retention_days,queue_url:$queue_url,dlq_url:$dlq_url,cluster:$cluster,service:$service,image:$image,desired_count:$desired,running_count:$running,dlq_depth:$dlq_depth}')"
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  printf 'bucket=%s\nqueue_url=%s\n' "${bucket}" "${queue_url}" >> "${GITHUB_OUTPUT}"
+fi
+printf '%s\n' "${receipt}"

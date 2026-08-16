@@ -1031,6 +1031,7 @@ esac
             base_env = {
                 "PATH": f"{fake_bin}:/usr/bin:/bin",
                 "AWS_CALLS": str(calls),
+                "GITHUB_OUTPUT": str(root / "github-output"),
                 "QA_BUNDLE_WORKER_IMAGE": "ghcr.io/youxuanxue/sub2api:1.8.156",
                 "QA_BUNDLE_WORKER_DESIRED_COUNT": "1",
             }
@@ -1044,6 +1045,10 @@ esac
             self.assertEqual(receipt["desired_count"], 1)
             self.assertEqual(receipt["running_count"], 1)
             self.assertEqual(receipt["browser_origin"], "https://tokenkey.dev")
+            self.assertEqual(
+                (root / "github-output").read_text(encoding="utf-8").splitlines(),
+                ["bucket=qa-bucket", "queue_url=https://sqs/queue"],
+            )
             observed = calls.read_text(encoding="utf-8")
             for expected in (
                 "cloudformation describe-stacks",

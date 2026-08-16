@@ -49,6 +49,14 @@ if [[ ! "${TIMEOUT_SECONDS}" =~ ^[0-9]+$ || ! "${EXECUTION_TIMEOUT_SECONDS}" =~ 
   echo "stage0_deploy_via_ssm_bluegreen: timeout values must be positive integers" >&2
   exit 1
 fi
+if [[ "${QA_BUNDLE_ENABLED-}" = true ]]; then
+  for key in QA_BUNDLE_QUEUE_URL QA_BUNDLE_STORAGE_DRIVER QA_BUNDLE_STORAGE_REGION QA_BUNDLE_STORAGE_BUCKET QA_BUNDLE_STORAGE_PREFIX; do
+    if [[ -z "${!key-}" ]]; then
+      echo "stage0_deploy_via_ssm_bluegreen: ${key} is required when QA_BUNDLE_ENABLED=true" >&2
+      exit 1
+    fi
+  done
+fi
 
 ssm_region_args=()
 if [[ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
@@ -110,13 +118,13 @@ env_default() {
   fi
 }
 
-env_desired_or_default() {
-  local key="$1" desired="$2" supplied="$3" fallback="$4"
+env_apply_if_supplied() {
+  local key="$1" desired="$2" supplied="$3"
   if [[ "${supplied}" = true ]]; then
     env_set "${key}" "${desired}"
     log "applied desired ${key}"
   else
-    env_default "${key}" "${fallback}"
+    log "${key} not supplied; preserving existing host value"
   fi
 }
 
@@ -163,12 +171,17 @@ ensure_prod_defaults() {
 
   env_default TOKENKEY_GHCR_KEEP_TAGS 3
 
-  env_desired_or_default QA_BUNDLE_ENABLED "${QA_BUNDLE_ENABLED:-}" "${QA_BUNDLE_ENABLED_SET:-false}" false
-  env_desired_or_default QA_BUNDLE_QUEUE_URL "${QA_BUNDLE_QUEUE_URL:-}" "${QA_BUNDLE_QUEUE_URL_SET:-false}" https://sqs.us-east-1.amazonaws.com/682751977094/tokenkey-prod-qa-bundle
-  env_desired_or_default QA_BUNDLE_STORAGE_DRIVER "${QA_BUNDLE_STORAGE_DRIVER:-}" "${QA_BUNDLE_STORAGE_DRIVER_SET:-false}" s3
-  env_desired_or_default QA_BUNDLE_STORAGE_REGION "${QA_BUNDLE_STORAGE_REGION:-}" "${QA_BUNDLE_STORAGE_REGION_SET:-false}" us-east-1
-  env_desired_or_default QA_BUNDLE_STORAGE_BUCKET "${QA_BUNDLE_STORAGE_BUCKET:-}" "${QA_BUNDLE_STORAGE_BUCKET_SET:-false}" tokenkey-prod-qa-bundles-682751977094
-  env_desired_or_default QA_BUNDLE_STORAGE_PREFIX "${QA_BUNDLE_STORAGE_PREFIX:-}" "${QA_BUNDLE_STORAGE_PREFIX_SET:-false}" user-qa
+  env_apply_if_supplied QA_BUNDLE_ENABLED "${QA_BUNDLE_ENABLED:-}" "${QA_BUNDLE_ENABLED_SET:-false}"
+  env_apply_if_supplied QA_BUNDLE_QUEUE_URL "${QA_BUNDLE_QUEUE_URL:-}" "${QA_BUNDLE_QUEUE_URL_SET:-false}"
+  env_apply_if_supplied QA_BUNDLE_STORAGE_DRIVER "${QA_BUNDLE_STORAGE_DRIVER:-}" "${QA_BUNDLE_STORAGE_DRIVER_SET:-false}"
+  env_apply_if_supplied QA_BUNDLE_STORAGE_REGION "${QA_BUNDLE_STORAGE_REGION:-}" "${QA_BUNDLE_STORAGE_REGION_SET:-false}"
+  env_apply_if_supplied QA_BUNDLE_STORAGE_BUCKET "${QA_BUNDLE_STORAGE_BUCKET:-}" "${QA_BUNDLE_STORAGE_BUCKET_SET:-false}"
+  env_apply_if_supplied QA_BUNDLE_STORAGE_PREFIX "${QA_BUNDLE_STORAGE_PREFIX:-}" "${QA_BUNDLE_STORAGE_PREFIX_SET:-false}"
+  if [[ "$(env_get QA_BUNDLE_ENABLED)" = true ]]; then
+    for key in QA_BUNDLE_QUEUE_URL QA_BUNDLE_STORAGE_DRIVER QA_BUNDLE_STORAGE_REGION QA_BUNDLE_STORAGE_BUCKET QA_BUNDLE_STORAGE_PREFIX; do
+      [[ -n "$(env_get "${key}")" ]] || die "${key} is required when QA_BUNDLE_ENABLED=true"
+    done
+  fi
 
   # Target: ops/qa/policy.yaml prod.archive.enabled. Rollout gate default true
   # after Phase 2 recovery closeout: ops/qa/deploy_rollout.yaml (SSOT).

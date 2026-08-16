@@ -266,8 +266,39 @@ class BlueGreenRenderTest(unittest.TestCase):
         joined = "\n".join(params["commands"])
         self.assertIn("QA_BUNDLE_QUEUE_URL='https://sqs.us-east-1.amazonaws.com/123456789012/new-queue'", joined)
         self.assertIn("QA_BUNDLE_QUEUE_URL_SET=true", joined)
-        self.assertIn("env_desired_or_default", remote)
+        self.assertIn("env_apply_if_supplied", remote)
         self.assertIn("env_set \"${key}\" \"${desired}\"", remote)
+
+    def test_unset_bundle_values_preserve_the_host_without_prod_fallbacks(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert remote is not None
+        self.assertIn("not supplied; preserving existing host value", remote)
+        self.assertNotIn(
+            "https://sqs.us-east-1.amazonaws.com/682751977094/tokenkey-prod-qa-bundle",
+            remote,
+        )
+        self.assertNotIn("tokenkey-prod-qa-bundles-682751977094", remote)
+
+    def test_explicit_bundle_enable_requires_complete_configuration(self) -> None:
+        incomplete, params, remote = _render(env_extra={"QA_BUNDLE_ENABLED": "true"})
+        self.assertNotEqual(incomplete.returncode, 0)
+        self.assertIn("QA_BUNDLE_QUEUE_URL is required", incomplete.stderr)
+        self.assertIsNone(params)
+        self.assertIsNone(remote)
+
+        complete_env = {
+            "QA_BUNDLE_ENABLED": "true",
+            "QA_BUNDLE_QUEUE_URL": "https://sqs.example/queue",
+            "QA_BUNDLE_STORAGE_DRIVER": "s3",
+            "QA_BUNDLE_STORAGE_REGION": "us-east-1",
+            "QA_BUNDLE_STORAGE_BUCKET": "qa-bucket",
+            "QA_BUNDLE_STORAGE_PREFIX": "user-qa",
+        }
+        complete, params, remote = _render(env_extra=complete_env)
+        self.assertEqual(complete.returncode, 0, msg=complete.stderr)
+        self.assertIsNotNone(params)
+        self.assertIsNotNone(remote)
 
 
 if __name__ == "__main__":

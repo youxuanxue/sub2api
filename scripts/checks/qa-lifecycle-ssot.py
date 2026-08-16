@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -221,6 +222,16 @@ TRANSITION_FIXED_AGE_OWNER = {
     },
 }
 
+BUNDLE_DEPLOY_OWNER_SURFACES = (
+    ".github/workflows/deploy-stage0.yml",
+    "ops/stage0/deploy_via_ssm_bluegreen.sh",
+)
+
+FORBIDDEN_BUNDLE_COORDINATE_PATTERNS = (
+    re.compile(r"https://sqs\.[a-z0-9-]+\.amazonaws\.com/[0-9]{12}/[A-Za-z0-9_.-]+"),
+    re.compile(r"\btokenkey-[A-Za-z0-9-]*qa-bundles-[0-9]{12}\b"),
+)
+
 
 def _read(root: Path, rel: str) -> str:
     return (root / rel).read_text(encoding="utf-8")
@@ -231,6 +242,21 @@ def scan(root: Path) -> list[str]:
     for rel in RETIRED:
         if (root / rel).exists():
             failures.append(f"retired QA owner still exists: {rel}")
+    for rel in BUNDLE_DEPLOY_OWNER_SURFACES:
+        path = root / rel
+        if not path.is_file():
+            failures.append(f"required QA Bundle deploy owner missing: {rel}")
+            continue
+        body = path.read_text(encoding="utf-8")
+        for pattern in FORBIDDEN_BUNDLE_COORDINATE_PATTERNS:
+            match = pattern.search(body)
+            if match:
+                failures.append(f"hardcoded QA Bundle coordinate remains in {rel}: {match.group(0)}")
+    workflow = root / ".github/workflows/deploy-stage0.yml"
+    if workflow.is_file():
+        for line in workflow.read_text(encoding="utf-8").splitlines():
+            if "describe-stacks" in line and "QA_STACK_NAME" in line and "|| true" in line:
+                failures.append("QA stack discovery must fail closed except for explicit stack-not-found")
     for rel, needles in REQUIRED.items():
         path = root / rel
         if not path.is_file():
@@ -393,6 +419,7 @@ def self_test() -> int:
             *FORBIDDEN_TEXT,
             *FIXED_AGE_OWNER_SURFACES,
             *FORBIDDEN_LEGACY_PROD_QA_TEXT,
+            *BUNDLE_DEPLOY_OWNER_SURFACES,
             "ops/qa/policy.yaml",
             "ops/qa/deploy_rollout.yaml",
         }:
@@ -508,6 +535,25 @@ def self_test() -> int:
         if not any("--quiet" in item for item in scan(fixture)):
             print("self-test failed to detect the retired sentinel invocation")
             return 1
+        workflow = fixture / ".github/workflows/deploy-stage0.yml"
+        workflow.write_text(
+            workflow.read_text(encoding="utf-8")
+            + "\n# https://sqs.us-east-1.amazonaws.com/682751977094/tokenkey-prod-qa-bundle\n",
+            encoding="utf-8",
+        )
+        if not any("hardcoded QA Bundle coordinate" in item for item in scan(fixture)):
+            print("self-test failed to detect a hardcoded QA Bundle coordinate")
+            return 1
+        shutil.copy2(ROOT / ".github/workflows/deploy-stage0.yml", workflow)
+        workflow.write_text(
+            workflow.read_text(encoding="utf-8")
+            + '\nOPS_RECOVERY_PRINCIPAL_ARN="$(aws cloudformation describe-stacks --stack-name "$QA_STACK_NAME" || true)"\n',
+            encoding="utf-8",
+        )
+        if not any("fail closed" in item for item in scan(fixture)):
+            print("self-test failed to detect catch-all QA stack discovery fallback")
+            return 1
+        shutil.copy2(ROOT / ".github/workflows/deploy-stage0.yml", workflow)
         deploy_doc = fixture / "docs/deploy/aws-us-openai-gateway-deployment.md"
         deploy_doc.write_text(
             deploy_doc.read_text(encoding="utf-8")

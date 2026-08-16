@@ -63,12 +63,9 @@ jobs:
       INPUT_TAG: ${{ inputs.tag }}
       INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
       # Single desired-state owner for the prod-only QA Bundle host config.
-      # The deploy and its post-deploy assertion consume these same values.
+      # Infrastructure coordinates come only from the verified stack outputs.
       QA_BUNDLE_ENABLED: "true"
-      QA_BUNDLE_QUEUE_URL: "https://sqs.us-east-1.amazonaws.com/682751977094/tokenkey-prod-qa-bundle"
       QA_BUNDLE_STORAGE_DRIVER: "s3"
-      QA_BUNDLE_STORAGE_REGION: "us-east-1"
-      QA_BUNDLE_STORAGE_BUCKET: "tokenkey-prod-qa-bundles-682751977094"
       QA_BUNDLE_STORAGE_PREFIX: "user-qa"
     steps:
       - uses: actions/checkout@v6
@@ -199,9 +196,7 @@ jobs:
         id: instance
         env:
           STACK_NAME: ${{ steps.stack.outputs.name }}
-          QA_STACK_NAME: ${{ vars.QA_RAW_ARCHIVE_STACK || 'tokenkey-prod-qa-raw-archive' }}
           CICD_OIDC_STACK_NAME: ${{ vars.CICD_OIDC_STACK_NAME || 'tokenkey-cicd-oidc' }}
-          CONFIGURED_OPS_RECOVERY_PRINCIPAL_ARN: ${{ vars.QA_OPS_RECOVERY_PRINCIPAL_ARN }}
         run: |
           set -euo pipefail
           read -r ID API_URL < <(
@@ -239,11 +234,7 @@ jobs:
           INSTANCE_ROLE_NAME="$(physical_id InstanceRole)"
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
           SERVICE_ROLE_ARN="$(aws cloudformation describe-stacks --stack-name "$CICD_OIDC_STACK_NAME" --query "Stacks[0].Outputs[?OutputKey=='QAInfraCloudFormationServiceRoleArn'].OutputValue | [0]" --output text)"
-          OPS_RECOVERY_PRINCIPAL_ARN="$(aws cloudformation describe-stacks --stack-name "$QA_STACK_NAME" --query "Stacks[0].Parameters[?ParameterKey=='OpsRecoveryPrincipalArn'].ParameterValue | [0]" --output text 2>/dev/null || true)"
-          if [ -z "$OPS_RECOVERY_PRINCIPAL_ARN" ] || [ "$OPS_RECOVERY_PRINCIPAL_ARN" = None ]; then
-            OPS_RECOVERY_PRINCIPAL_ARN="$CONFIGURED_OPS_RECOVERY_PRINCIPAL_ARN"
-          fi
-          for value in "$VPC_ID" "$SUBNET_ID" "$ROUTE_TABLE_ID" "$INSTANCE_ROLE_NAME" "$SERVICE_ROLE_ARN" "$OPS_RECOVERY_PRINCIPAL_ARN"; do
+          for value in "$VPC_ID" "$SUBNET_ID" "$ROUTE_TABLE_ID" "$INSTANCE_ROLE_NAME" "$SERVICE_ROLE_ARN"; do
             if [ -z "$value" ] || [ "$value" = None ]; then
               echo "::error::QA infrastructure input could not be resolved before prod mutation"
               exit 1
@@ -253,9 +244,7 @@ jobs:
           echo "subnet_id=$SUBNET_ID" >> "$GITHUB_OUTPUT"
           echo "route_table_id=$ROUTE_TABLE_ID" >> "$GITHUB_OUTPUT"
           echo "app_role_arn=arn:aws:iam::${ACCOUNT_ID}:role/${INSTANCE_ROLE_NAME}" >> "$GITHUB_OUTPUT"
-          echo "qa_stack_name=$QA_STACK_NAME" >> "$GITHUB_OUTPUT"
           echo "qa_cfn_service_role_arn=$SERVICE_ROLE_ARN" >> "$GITHUB_OUTPUT"
-          echo "ops_recovery_principal_arn=$OPS_RECOVERY_PRINCIPAL_ARN" >> "$GITHUB_OUTPUT"
           echo "deploying ${INPUT_TAG} to instance=$ID api=$API_URL (env=prod stack=$STACK_NAME)"
 
       - name: Configure QA infrastructure credentials via OIDC
@@ -264,11 +253,44 @@ jobs:
           role-to-assume: ${{ env.QA_INFRA_OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Resolve QA infrastructure deploy inputs
+        id: qa_infra
+        env:
+          QA_STACK_NAME: ${{ vars.QA_RAW_ARCHIVE_STACK || 'tokenkey-prod-qa-raw-archive' }}
+          CONFIGURED_OPS_RECOVERY_PRINCIPAL_ARN: ${{ vars.QA_OPS_RECOVERY_PRINCIPAL_ARN }}
+        run: |
+          set -euo pipefail
+          STACK_ERROR="$(mktemp)"
+          trap 'rm -f "$STACK_ERROR"' EXIT
+          if STACK_JSON="$(aws cloudformation describe-stacks --stack-name "$QA_STACK_NAME" --output json 2>"$STACK_ERROR")"; then
+            OPS_RECOVERY_PRINCIPAL_ARN="$(jq -r '.Stacks[0].Parameters[]? | select(.ParameterKey == "OpsRecoveryPrincipalArn") | .ParameterValue' <<<"$STACK_JSON")"
+            if [ -z "$OPS_RECOVERY_PRINCIPAL_ARN" ] || [ "$OPS_RECOVERY_PRINCIPAL_ARN" = None ]; then
+              echo "::error::existing QA stack has no OpsRecoveryPrincipalArn parameter"
+              exit 1
+            fi
+          else
+            describe_rc=$?
+            STACK_ERROR_TEXT="$(<"$STACK_ERROR")"
+            if [[ "$STACK_ERROR_TEXT" == *"(ValidationError)"* && "$STACK_ERROR_TEXT" == *"does not exist"* ]]; then
+              OPS_RECOVERY_PRINCIPAL_ARN="$CONFIGURED_OPS_RECOVERY_PRINCIPAL_ARN"
+              if [ -z "$OPS_RECOVERY_PRINCIPAL_ARN" ]; then
+                echo "::error::QA_OPS_RECOVERY_PRINCIPAL_ARN is required to create QA stack $QA_STACK_NAME"
+                exit 1
+              fi
+            else
+              cat "$STACK_ERROR" >&2
+              echo "::error::could not inspect existing QA stack; refusing bootstrap fallback" >&2
+              exit "$describe_rc"
+            fi
+          fi
+          echo "qa_stack_name=$QA_STACK_NAME" >> "$GITHUB_OUTPUT"
+          echo "ops_recovery_principal_arn=$OPS_RECOVERY_PRINCIPAL_ARN" >> "$GITHUB_OUTPUT"
+
       - name: Deploy QA Bundle infrastructure
         env:
-          QA_RAW_ARCHIVE_STACK: ${{ steps.instance.outputs.qa_stack_name }}
+          QA_RAW_ARCHIVE_STACK: ${{ steps.qa_infra.outputs.qa_stack_name }}
           APP_INSTANCE_ROLE_ARN: ${{ steps.instance.outputs.app_role_arn }}
-          OPS_RECOVERY_PRINCIPAL_ARN: ${{ steps.instance.outputs.ops_recovery_principal_arn }}
+          OPS_RECOVERY_PRINCIPAL_ARN: ${{ steps.qa_infra.outputs.ops_recovery_principal_arn }}
           QA_RAW_ARCHIVE_VPC_ID: ${{ steps.instance.outputs.vpc_id }}
           QA_RAW_ARCHIVE_ROUTE_TABLE_IDS: ${{ steps.instance.outputs.route_table_id }}
           QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS: ${{ steps.instance.outputs.subnet_id }}
@@ -280,8 +302,9 @@ jobs:
         run: bash ops/qa/deploy_qa_raw_archive_cfn.sh
 
       - name: Verify QA Bundle infrastructure
+        id: qa_bundle
         env:
-          QA_RAW_ARCHIVE_STACK: ${{ steps.instance.outputs.qa_stack_name }}
+          QA_RAW_ARCHIVE_STACK: ${{ steps.qa_infra.outputs.qa_stack_name }}
           QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}
           QA_BUNDLE_WORKER_DESIRED_COUNT: "1"
         run: bash ops/qa/verify_qa_bundle_infra.sh
@@ -298,10 +321,10 @@ jobs:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           STAGE0_SSM_OUTPUT_DIR: .
           QA_BUNDLE_ENABLED: ${{ env.QA_BUNDLE_ENABLED }}
-          QA_BUNDLE_QUEUE_URL: ${{ env.QA_BUNDLE_QUEUE_URL }}
+          QA_BUNDLE_QUEUE_URL: ${{ steps.qa_bundle.outputs.queue_url }}
           QA_BUNDLE_STORAGE_DRIVER: ${{ env.QA_BUNDLE_STORAGE_DRIVER }}
-          QA_BUNDLE_STORAGE_REGION: ${{ env.QA_BUNDLE_STORAGE_REGION }}
-          QA_BUNDLE_STORAGE_BUCKET: ${{ env.QA_BUNDLE_STORAGE_BUCKET }}
+          QA_BUNDLE_STORAGE_REGION: ${{ env.AWS_REGION }}
+          QA_BUNDLE_STORAGE_BUCKET: ${{ steps.qa_bundle.outputs.bucket }}
           QA_BUNDLE_STORAGE_PREFIX: ${{ env.QA_BUNDLE_STORAGE_PREFIX }}
         run: bash ops/stage0/deploy_via_ssm_bluegreen.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-stage0 env=prod bluegreen"
 
@@ -367,7 +390,7 @@ jobs:
         continue-on-error: true
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
-          EXPECT_ENV: QA_BUNDLE_ENABLED=${{ env.QA_BUNDLE_ENABLED }},QA_BUNDLE_QUEUE_URL=${{ env.QA_BUNDLE_QUEUE_URL }},QA_BUNDLE_STORAGE_DRIVER=${{ env.QA_BUNDLE_STORAGE_DRIVER }},QA_BUNDLE_STORAGE_REGION=${{ env.QA_BUNDLE_STORAGE_REGION }},QA_BUNDLE_STORAGE_BUCKET=${{ env.QA_BUNDLE_STORAGE_BUCKET }},QA_BUNDLE_STORAGE_PREFIX=${{ env.QA_BUNDLE_STORAGE_PREFIX }}
+          EXPECT_ENV: QA_BUNDLE_ENABLED=${{ env.QA_BUNDLE_ENABLED }},QA_BUNDLE_QUEUE_URL=${{ steps.qa_bundle.outputs.queue_url }},QA_BUNDLE_STORAGE_DRIVER=${{ env.QA_BUNDLE_STORAGE_DRIVER }},QA_BUNDLE_STORAGE_REGION=${{ env.AWS_REGION }},QA_BUNDLE_STORAGE_BUCKET=${{ steps.qa_bundle.outputs.bucket }},QA_BUNDLE_STORAGE_PREFIX=${{ env.QA_BUNDLE_STORAGE_PREFIX }}
         run: bash ops/stage0/assert-live-host-state.sh "$INSTANCE_ID" "$INPUT_TAG" "deploy-stage0 live-host assert env=prod"
 
       - name: Sync Feishu alert config
