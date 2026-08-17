@@ -696,6 +696,8 @@ QA Bundle 的 dedicated OIDC role、CloudFormation service role 和 GitHub varia
 gh workflow run deploy-stage0.yml -f tag=<上一版本>
 ```
 
+这只把输入解释为 app tag；QA Worker 与 host runners 不随 legacy app 一起降级。具体模式、失败边界和 degraded 验收只以 `ops/qa/README.md` 链接的 QA SSOT 为准。
+
 ### 生产升级 SOP（备用：纯手工 SSM）
 
 > 当 `deploy-stage0.yml` 被禁用、或调试 workflow 本身时使用。两段是 1:1 等价的。

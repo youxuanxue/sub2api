@@ -38,12 +38,28 @@ REQUIRED = {
         "qa_export_jobs",
         "prod_fallback: forbidden",
         "pause_capture: false",
+        "resolved_worker_image",
+        "legacy_rollback",
+        "原样保留已经部署的 Phase 3 maintenance/boundary runners",
     ),
     "ops/qa/README.md": (
         "only target lifecycle owner",
         "single_owner_not_activated",
         "transition-only",
         "24-hour whole-partition cleanup",
+        "App rollback does not imply QA control-plane rollback",
+    ),
+    "ops/qa/resolve_qa_bundle_worker_image.py": (
+        'PHASE3_MINIMUM_TAG = "1.8.156"',
+        '"mode": "phase3"',
+        '"mode": "legacy_rollback"',
+        'IMAGE_REPOSITORY = "ghcr.io/youxuanxue/sub2api"',
+    ),
+    ".github/workflows/deploy-stage0.yml": (
+        "ops/qa/resolve_qa_bundle_worker_image.py",
+        "steps.qa_infra.outputs.resolved_worker_image",
+        "if: steps.qa_infra.outputs.mode == 'legacy_rollback'",
+        "QA Phase 3 degraded",
     ),
     "docs/deploy/aws-us-openai-gateway-deployment.md": (
         "tokenkey-qa-maintenance.sh",
@@ -55,6 +71,7 @@ REQUIRED = {
         "S3 Bundle",
         "prod fallback",
         "Observed live: transitional",
+        "legacy app 保留 Phase 3 控制面",
     ),
     ".testing/user-stories/stories/US-045-qa-phase2-production-integrity.md": (
         "historical/superseded",
@@ -74,6 +91,14 @@ REQUIRED = {
         "single_owner_activate",
         "qa boundary is retired after single-owner activation",
         "runTransitionBoundary",
+    ),
+    "backend/cmd/server/qa_bundle_worker.go": (
+        "qaBundleWorkerRequested",
+        '"--qa-bundle-worker"',
+    ),
+    "backend/cmd/server/qa_bundle_worker_test.go": (
+        "TestQABundleWorkerRequested",
+        '[]string{"--qa-bundle-worker"}',
     ),
     "scripts/preflight.sh": (
         "python3 ./scripts/checks/qa-lifecycle-ssot.py; then",
@@ -255,9 +280,15 @@ def scan(root: Path) -> list[str]:
                 failures.append(f"hardcoded QA Bundle coordinate remains in {rel}: {match.group(0)}")
     workflow = root / ".github/workflows/deploy-stage0.yml"
     if workflow.is_file():
-        for line in workflow.read_text(encoding="utf-8").splitlines():
+        workflow_body = workflow.read_text(encoding="utf-8")
+        for line in workflow_body.splitlines():
             if "describe-stacks" in line and "QA_STACK_NAME" in line and "|| true" in line:
                 failures.append("QA stack discovery must fail closed except for explicit stack-not-found")
+        resolved_binding = "QA_BUNDLE_WORKER_IMAGE: ${{ steps.qa_infra.outputs.resolved_worker_image }}"
+        if workflow_body.count(resolved_binding) != 2:
+            failures.append("QA deploy and verifier must share exactly one resolved Worker image")
+        if "QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}" in workflow_body:
+            failures.append("QA Bundle Worker image must not be coupled directly to the app tag")
     for rel, needles in REQUIRED.items():
         path = root / rel
         if not path.is_file():
@@ -544,6 +575,18 @@ def self_test() -> int:
         )
         if not any("hardcoded QA Bundle coordinate" in item for item in scan(fixture)):
             print("self-test failed to detect a hardcoded QA Bundle coordinate")
+            return 1
+        shutil.copy2(ROOT / ".github/workflows/deploy-stage0.yml", workflow)
+        workflow.write_text(
+            workflow.read_text(encoding="utf-8").replace(
+                "QA_BUNDLE_WORKER_IMAGE: ${{ steps.qa_infra.outputs.resolved_worker_image }}",
+                "QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        if not any("resolved Worker image" in item for item in scan(fixture)):
+            print("self-test failed to detect app/Worker image recoupling")
             return 1
         shutil.copy2(ROOT / ".github/workflows/deploy-stage0.yml", workflow)
         workflow.write_text(

@@ -25,6 +25,8 @@ This is the single operator entry for the IAM and GitHub configuration required 
 
 `QA_INFRA_OIDC_ROLE_ARN`, `QA_OPS_RECOVERY_PRINCIPAL_ARN`, `CICD_OIDC_STACK_NAME`, and `QA_RAW_ARCHIVE_STACK` are GitHub Actions variables, not secrets. No AWS long-lived credentials are added to GitHub.
 
+App rollback does not imply QA control-plane rollback. The deploy workflow resolves the Bundle Worker image independently; legacy app rollback preserves the compatible Worker and Phase 3 host runners, skips the unsupported Bundle canary, and reports a degraded state. The complete resolver and recovery contract has one normative source: `docs/approved/design-prod-qa-24h-s3-lifecycle.md` section 18.2.
+
 ## State and checks
 
 The repository may be `single_owner_ready` while observed live state remains `single_owner_not_activated`. Editing rollout metadata never proves deployment.
@@ -32,6 +34,7 @@ The repository may be `single_owner_ready` while observed live state remains `si
 ```bash
 python3 scripts/checks/qa-lifecycle-ssot.py --self-test
 python3 scripts/checks/qa-lifecycle-ssot.py
+python3 -m unittest ops.qa.test_resolve_qa_bundle_worker_image ops.stage0.test_deploy_stage0_workflow
 python3 -m unittest ops.qa.test_qa_phase_ops
 cd backend && go test -tags=unit ./internal/observability/qa/lifecycle ./cmd/server
 ```

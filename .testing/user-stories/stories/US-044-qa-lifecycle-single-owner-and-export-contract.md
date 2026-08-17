@@ -21,6 +21,7 @@
 6. rollout 将 repository readiness 与 `single_owner_not_activated` observed state 分开记录。
 7. single-owner activation 在锁内拒绝最近 24 个已完成小时及当前到未来 72 小时的 catalog 缺口和非精确 UTC-hour bounds；
    首次 Bundle 部署所需 IAM bootstrap 有唯一运维入口且 app image 切换前 fail closed。
+8. app rollback 与 Bundle Worker/host runners 解耦：兼容 Worker 只前进，legacy app 保留 Phase 3 控制面、跳过不兼容 canary 并明确报告 degraded；首次 legacy bootstrap 在任何 mutation 前失败。
 
 ## Linked Tests
 
@@ -41,6 +42,10 @@
 - `backend/internal/observability/qa/bundle/publisher_test.go`::`TestBuildExportZipReadsOnlyCommittedBundlePages`
 - `deploy/aws/cloudformation/test_stage0_qa_bundle_contract.py`::`Stage0QABundleContractTest.test_qa_cloudformation_service_role_covers_managed_resource_lifecycles`
 - `deploy/aws/cloudformation/test_stage0_qa_bundle_contract.py`::`Stage0QABundleContractTest.test_qa_bundle_verifier_roles_have_scoped_bucket_readback`
+- `ops/qa/test_resolve_qa_bundle_worker_image.py`::`ResolveQABundleWorkerImageTest.test_phase3_app_rollback_does_not_downgrade_worker`
+- `ops/qa/test_resolve_qa_bundle_worker_image.py`::`ResolveQABundleWorkerImageTest.test_legacy_app_rollback_preserves_compatible_worker`
+- `ops/stage0/test_deploy_stage0_workflow.py`::`DeployStage0WorkflowTest.test_legacy_rollback_preserves_phase3_control_plane_and_reports_degraded`
+- `ops/stage0/test_deploy_stage0_workflow.py`::`DeployStage0WorkflowTest.test_legacy_bootstrap_without_compatible_worker_fails_before_mutation`
 - `frontend/e2e/qa-bundle.e2e.ts`::`QA Bundle list, detail, watermark and ZIP export stay on Bundle/S3 paths`
 - `frontend/e2e/qa-bundle.e2e.ts`::`QA Bundle entitlement denial removes the entry and never starts a job`
 - `frontend/e2e/qa-bundle.e2e.ts`::`temporary unavailability is recoverable from the visible retry action`
@@ -50,6 +55,7 @@
 ```bash
 cd backend && go test -tags=unit ./internal/handler ./internal/observability/qa
 cd .. && python3 scripts/checks/qa-lifecycle-ssot.py
+python3 -m unittest ops.qa.test_resolve_qa_bundle_worker_image ops.stage0.test_deploy_stage0_workflow
 cd frontend && pnpm exec playwright test e2e/qa-bundle.e2e.ts --project=chromium
 ```
 

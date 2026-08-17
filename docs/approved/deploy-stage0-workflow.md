@@ -223,7 +223,9 @@ To stay focused on prod deploy automation and nothing else:
   upgrades **`prod` only**; smoke probes target that stack's `ApiUrl`.
 - **No post-cutover auto-rollback** — before Caddy reload, failures leave the
   old color untouched and serving; after Caddy reload, re-dispatch the workflow
-  with the previous tag so the rollback goes through the same health/smoke path.
+  with the previous app tag so the rollback goes through the same health/smoke
+  path. QA Worker/host-runner rollback is a separate lifecycle governed only by
+  `docs/approved/design-prod-qa-24h-s3-lifecycle.md` section 18.2.
 - **No CFN `ImageTag` parameter mutation** — drift between the CFN
   parameter and runtime `TOKENKEY_IMAGE` remains the accepted trade-off
   documented in `deploy/aws/README.md` §升级 / 发版.
@@ -245,6 +247,8 @@ If the workflow misbehaves after merge:
   `/var/lib/tokenkey/active-color`, per-color image env keys, and a blue/green
   `tokenkey.service`. To disable the workflow without rolling the host layout
   back, re-dispatch the previous known-good tag through the same workflow.
+  This is an app-image rollback; its QA control-plane behavior remains governed
+  by the QA lifecycle SSOT linked above.
 
 ## 8. Acceptance criteria
 

@@ -91,10 +91,17 @@ class DeployStage0WorkflowTest(unittest.TestCase):
     def test_qa_host_artifacts_are_bound_to_target_tag_before_prod_mutation(self) -> None:
         deploy = job_block("deploy")
         target_checkout = deploy.index("name: Checkout target-tag QA host artifacts")
+        resolve = deploy.index("name: Resolve QA infrastructure deploy inputs")
+        infra_mutation = deploy.index("name: Deploy QA Bundle infrastructure")
         image_mutation = deploy.index("name: Deploy via SSM Run-Command")
 
+        self.assertLess(resolve, target_checkout)
+        self.assertLess(target_checkout, infra_mutation)
         self.assertLess(target_checkout, image_mutation)
         target_block = deploy[target_checkout:image_mutation]
+        self.assertEqual(
+            target_block.count("if: steps.qa_infra.outputs.mode == 'phase3'"), 2
+        )
         self.assertIn("ref: v${{ inputs.tag }}", target_block)
         self.assertIn("path: qa-host-runtime", target_block)
         self.assertIn("id: qa_host_artifacts", target_block)
@@ -185,7 +192,7 @@ class DeployStage0WorkflowTest(unittest.TestCase):
 set -euo pipefail
 case "${AWS_SCENARIO}" in
   existing)
-    printf '%s\n' '{"Stacks":[{"Parameters":[{"ParameterKey":"OpsRecoveryPrincipalArn","ParameterValue":"arn:existing"}]}]}'
+    printf '%s\n' '{"Stacks":[{"Parameters":[{"ParameterKey":"OpsRecoveryPrincipalArn","ParameterValue":"arn:existing"},{"ParameterKey":"BundleWorkerImage","ParameterValue":"ghcr.io/youxuanxue/sub2api:1.8.158"}]}]}'
     ;;
   missing)
     echo 'An error occurred (ValidationError) when calling the DescribeStacks operation: Stack with id tokenkey-prod-qa-raw-archive does not exist' >&2
@@ -205,24 +212,69 @@ esac
                 "PATH": f"{fake_bin}:/usr/bin:/bin",
                 "QA_STACK_NAME": "tokenkey-prod-qa-raw-archive",
                 "CONFIGURED_OPS_RECOVERY_PRINCIPAL_ARN": "arn:bootstrap",
+                "INPUT_TAG": "1.8.157",
             }
 
-            for scenario, expected in (("existing", "arn:existing"), ("missing", "arn:bootstrap")):
-                output = root / f"{scenario}-output"
+            for (
+                scenario,
+                target,
+                expected_principal,
+                expected_mode,
+                expected_image,
+            ) in (
+                (
+                    "existing",
+                    "1.8.157",
+                    "arn:existing",
+                    "phase3",
+                    "ghcr.io/youxuanxue/sub2api:1.8.158",
+                ),
+                (
+                    "existing",
+                    "1.8.155",
+                    "arn:existing",
+                    "legacy_rollback",
+                    "ghcr.io/youxuanxue/sub2api:1.8.158",
+                ),
+                (
+                    "missing",
+                    "1.8.157",
+                    "arn:bootstrap",
+                    "phase3",
+                    "ghcr.io/youxuanxue/sub2api:1.8.157",
+                ),
+            ):
+                output = root / f"{scenario}-{target}-output"
                 proc = subprocess.run(
                     ["bash", "-c", script],
-                    env={**base_env, "AWS_SCENARIO": scenario, "GITHUB_OUTPUT": str(output)},
+                    env={
+                        **base_env,
+                        "AWS_SCENARIO": scenario,
+                        "INPUT_TAG": target,
+                        "GITHUB_OUTPUT": str(output),
+                    },
+                    cwd=REPO_ROOT,
                     capture_output=True,
                     text=True,
                     check=False,
                 )
                 self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-                self.assertIn(f"ops_recovery_principal_arn={expected}\n", output.read_text())
+                outputs = output.read_text()
+                self.assertIn(
+                    f"ops_recovery_principal_arn={expected_principal}\n", outputs
+                )
+                self.assertIn(f"resolved_worker_image={expected_image}\n", outputs)
+                self.assertIn(f"mode={expected_mode}\n", outputs)
 
             denied_output = root / "denied-output"
             denied = subprocess.run(
                 ["bash", "-c", script],
-                env={**base_env, "AWS_SCENARIO": "denied", "GITHUB_OUTPUT": str(denied_output)},
+                env={
+                    **base_env,
+                    "AWS_SCENARIO": "denied",
+                    "GITHUB_OUTPUT": str(denied_output),
+                },
+                cwd=REPO_ROOT,
                 capture_output=True,
                 text=True,
                 check=False,
@@ -230,6 +282,41 @@ esac
             self.assertNotEqual(denied.returncode, 0)
             self.assertIn("refusing bootstrap fallback", denied.stderr)
             self.assertFalse(denied_output.exists())
+
+    def test_legacy_bootstrap_without_compatible_worker_fails_before_mutation(self) -> None:
+        script = step_run("Resolve QA infrastructure deploy inputs")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = pathlib.Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_aws = fake_bin / "aws"
+            fake_aws.write_text(
+                """#!/usr/bin/env bash
+echo 'An error occurred (ValidationError) when calling the DescribeStacks operation: Stack with id tokenkey-prod-qa-raw-archive does not exist' >&2
+exit 255
+""",
+                encoding="utf-8",
+            )
+            fake_aws.chmod(0o755)
+            output = root / "output"
+            proc = subprocess.run(
+                ["bash", "-c", script],
+                env={
+                    **os.environ,
+                    "PATH": f"{fake_bin}:/usr/bin:/bin",
+                    "QA_STACK_NAME": "tokenkey-prod-qa-raw-archive",
+                    "CONFIGURED_OPS_RECOVERY_PRINCIPAL_ARN": "arn:bootstrap",
+                    "INPUT_TAG": "1.8.155",
+                    "GITHUB_OUTPUT": str(output),
+                },
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("requires an existing compatible QA Bundle Worker", proc.stderr)
+            self.assertFalse(output.exists())
 
     def test_bundle_infrastructure_is_ready_before_app_image_swap(self) -> None:
         deploy = job_block("deploy")
@@ -239,13 +326,48 @@ esac
         self.assertLess(infra, verify)
         self.assertLess(verify, image_mutation)
         pre_mutation = deploy[:image_mutation]
-        self.assertIn("QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}", pre_mutation)
+        resolved_image = "${{ steps.qa_infra.outputs.resolved_worker_image }}"
+        self.assertEqual(pre_mutation.count(f"QA_BUNDLE_WORKER_IMAGE: {resolved_image}"), 2)
+        self.assertNotIn("QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}", pre_mutation)
         self.assertIn("QA_BUNDLE_WORKER_DESIRED_COUNT: \"1\"", pre_mutation)
         self.assertIn('browser_origin="https://${API_HOST#api.}"', pre_mutation)
         self.assertIn('echo "browser_origin=$browser_origin" >> "$GITHUB_OUTPUT"', pre_mutation)
         self.assertIn("QA_BUNDLE_BROWSER_ALLOWED_ORIGIN: ${{ steps.instance.outputs.browser_origin }}", pre_mutation)
         self.assertIn("deploy_qa_raw_archive_cfn.sh", pre_mutation)
         self.assertIn("verify_qa_bundle_infra.sh", pre_mutation)
+
+    def test_legacy_rollback_preserves_phase3_control_plane_and_reports_degraded(self) -> None:
+        deploy = job_block("deploy")
+        phase3_guard = "if: steps.qa_infra.outputs.mode == 'phase3'"
+        for step_name in (
+            "Sync QA maintenance host runner",
+            "Sync QA boundary host runner and restore durable owner",
+            "Post-deploy QA Bundle canary",
+        ):
+            start = deploy.index(f"- name: {step_name}")
+            end = deploy.find("      - name:", start + 1)
+            block = deploy[start : end if end != -1 else None]
+            self.assertIn(phase3_guard, block)
+
+        warning_start = deploy.index("- name: Report legacy QA rollback degradation")
+        warning_end = deploy.find("      - name:", warning_start + 1)
+        warning = deploy[warning_start : warning_end if warning_end != -1 else None]
+        self.assertIn("if: steps.qa_infra.outputs.mode == 'legacy_rollback'", warning)
+        self.assertIn("QA Phase 3 degraded", warning)
+        self.assertIn("existing Worker and host runners were preserved", warning)
+
+        summary = deploy[deploy.index("- name: Job summary") :]
+        self.assertIn("QA_MODE: ${{ steps.qa_infra.outputs.mode }}", summary)
+        self.assertIn(
+            "QA_WORKER_IMAGE: ${{ steps.qa_infra.outputs.resolved_worker_image }}",
+            summary,
+        )
+        self.assertIn(r"- QA mode: \`${QA_MODE:-not-resolved}\`", summary)
+        self.assertIn(
+            r"- QA Bundle Worker image: \`${QA_WORKER_IMAGE:-not-resolved}\`", summary
+        )
+        self.assertIn("QA Phase 3 degraded", summary)
+        self.assertIn("legacy rollback changed only the app image", summary)
 
     def test_smoke_only_job_is_read_only_and_uses_prod_environment(self) -> None:
         smoke = job_block("smoke-only")

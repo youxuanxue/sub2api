@@ -121,24 +121,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"
 
-      - name: Checkout target-tag QA host artifacts
-        uses: actions/checkout@v6
-        with:
-          ref: v${{ inputs.tag }}
-          path: qa-host-runtime
-          fetch-depth: 1
-
-      - name: Verify target-tag QA host artifacts
-        id: qa_host_artifacts
-        run: |
-          set -euo pipefail
-          test "$(git -C qa-host-runtime describe --tags --exact-match)" = "v${INPUT_TAG}"
-          test -f qa-host-runtime/deploy/aws/stage0/tokenkey-qa-maintenance.sh
-          test -f qa-host-runtime/deploy/aws/stage0/tokenkey-qa-boundary.sh
-          SHA="$(git -C qa-host-runtime rev-parse HEAD)"
-          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
-          echo "QA host artifacts resolved from v${INPUT_TAG}@${SHA}"
-
       - name: Blue/green migration safety gate
         # The target app can apply migrations while the old app is still serving
         # existing requests on the same prod DB. Advisory locks serialize
@@ -262,12 +244,14 @@ jobs:
           set -euo pipefail
           STACK_ERROR="$(mktemp)"
           trap 'rm -f "$STACK_ERROR"' EXIT
+          EXISTING_WORKER_IMAGE=""
           if STACK_JSON="$(aws cloudformation describe-stacks --stack-name "$QA_STACK_NAME" --output json 2>"$STACK_ERROR")"; then
             OPS_RECOVERY_PRINCIPAL_ARN="$(jq -r '.Stacks[0].Parameters[]? | select(.ParameterKey == "OpsRecoveryPrincipalArn") | .ParameterValue' <<<"$STACK_JSON")"
             if [ -z "$OPS_RECOVERY_PRINCIPAL_ARN" ] || [ "$OPS_RECOVERY_PRINCIPAL_ARN" = None ]; then
               echo "::error::existing QA stack has no OpsRecoveryPrincipalArn parameter"
               exit 1
             fi
+            EXISTING_WORKER_IMAGE="$(jq -r '.Stacks[0].Parameters[]? | select(.ParameterKey == "BundleWorkerImage") | .ParameterValue' <<<"$STACK_JSON")"
           else
             describe_rc=$?
             STACK_ERROR_TEXT="$(<"$STACK_ERROR")"
@@ -283,8 +267,34 @@ jobs:
               exit "$describe_rc"
             fi
           fi
+          RESOLUTION="$(python3 ops/qa/resolve_qa_bundle_worker_image.py \
+            --target-tag "$INPUT_TAG" --existing-image "$EXISTING_WORKER_IMAGE")"
+          MODE="$(jq -er '.mode' <<<"$RESOLUTION")"
+          RESOLVED_WORKER_IMAGE="$(jq -er '.resolved_worker_image' <<<"$RESOLUTION")"
           echo "qa_stack_name=$QA_STACK_NAME" >> "$GITHUB_OUTPUT"
           echo "ops_recovery_principal_arn=$OPS_RECOVERY_PRINCIPAL_ARN" >> "$GITHUB_OUTPUT"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "resolved_worker_image=$RESOLVED_WORKER_IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout target-tag QA host artifacts
+        if: steps.qa_infra.outputs.mode == 'phase3'
+        uses: actions/checkout@v6
+        with:
+          ref: v${{ inputs.tag }}
+          path: qa-host-runtime
+          fetch-depth: 1
+
+      - name: Verify target-tag QA host artifacts
+        if: steps.qa_infra.outputs.mode == 'phase3'
+        id: qa_host_artifacts
+        run: |
+          set -euo pipefail
+          test "$(git -C qa-host-runtime describe --tags --exact-match)" = "v${INPUT_TAG}"
+          test -f qa-host-runtime/deploy/aws/stage0/tokenkey-qa-maintenance.sh
+          test -f qa-host-runtime/deploy/aws/stage0/tokenkey-qa-boundary.sh
+          SHA="$(git -C qa-host-runtime rev-parse HEAD)"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "QA host artifacts resolved from v${INPUT_TAG}@${SHA}"
 
       - name: Deploy QA Bundle infrastructure
         env:
@@ -294,7 +304,7 @@ jobs:
           QA_RAW_ARCHIVE_VPC_ID: ${{ steps.instance.outputs.vpc_id }}
           QA_RAW_ARCHIVE_ROUTE_TABLE_IDS: ${{ steps.instance.outputs.route_table_id }}
           QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS: ${{ steps.instance.outputs.subnet_id }}
-          QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}
+          QA_BUNDLE_WORKER_IMAGE: ${{ steps.qa_infra.outputs.resolved_worker_image }}
           QA_BUNDLE_WORKER_DESIRED_COUNT: "1"
           QA_BUNDLE_BROWSER_ALLOWED_ORIGIN: ${{ steps.instance.outputs.browser_origin }}
           QA_CLOUDFORMATION_SERVICE_ROLE_ARN: ${{ steps.instance.outputs.qa_cfn_service_role_arn }}
@@ -305,7 +315,7 @@ jobs:
         id: qa_bundle
         env:
           QA_RAW_ARCHIVE_STACK: ${{ steps.qa_infra.outputs.qa_stack_name }}
-          QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}
+          QA_BUNDLE_WORKER_IMAGE: ${{ steps.qa_infra.outputs.resolved_worker_image }}
           QA_BUNDLE_WORKER_DESIRED_COUNT: "1"
         run: bash ops/qa/verify_qa_bundle_infra.sh
 
@@ -334,6 +344,7 @@ jobs:
         run: bash ops/stage0/external_health.sh "$API_URL"
 
       - name: Sync QA maintenance host runner
+        if: steps.qa_infra.outputs.mode == 'phase3'
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           QA_MAINTENANCE_TIMER_STATE: enabled
@@ -343,6 +354,7 @@ jobs:
         run: bash ops/stage0/sync-qa-maintenance-timer-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-maintenance host artifact"
 
       - name: Sync QA boundary host runner and restore durable owner
+        if: steps.qa_infra.outputs.mode == 'phase3'
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           QA_BOUNDARY_TIMER_STATE: auto
@@ -352,10 +364,16 @@ jobs:
         run: bash ops/stage0/sync-qa-boundary-timer-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-boundary host artifact"
 
       - name: Post-deploy QA Bundle canary
+        if: steps.qa_infra.outputs.mode == 'phase3'
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           STAGE0_SSM_OUTPUT_DIR: .qa-bundle-canary
         run: bash ops/stage0/run-qa-bundle-canary-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-bundle canary"
+
+      - name: Report legacy QA rollback degradation
+        if: steps.qa_infra.outputs.mode == 'legacy_rollback'
+        run: |
+          echo "::warning::QA Phase 3 degraded: the app was rolled back to legacy mode; existing Worker and host runners were preserved, Bundle canary was skipped, and archive-gated DROP may pause until a Phase 3 app is restored."
 
       - name: Audit pricing registry runtime (read-only)
         # Price publication is owned only by pricing-registry-publish.yml after a
@@ -460,17 +478,25 @@ jobs:
           STACK_NAME: ${{ steps.stack.outputs.name }}
           CMD_ID: ${{ steps.ssm.outputs.command_id }}
           INPUT_TAG: ${{ inputs.tag }}
+          QA_MODE: ${{ steps.qa_infra.outputs.mode }}
+          QA_WORKER_IMAGE: ${{ steps.qa_infra.outputs.resolved_worker_image }}
         run: |
           {
             echo "## deploy-stage0"
             echo "- environment: \`prod\`"
-            echo "- tag: \`$INPUT_TAG\`"
+            echo "- app image: \`ghcr.io/youxuanxue/sub2api:$INPUT_TAG\`"
+            echo "- QA mode: \`${QA_MODE:-not-resolved}\`"
+            echo "- QA Bundle Worker image: \`${QA_WORKER_IMAGE:-not-resolved}\`"
             echo "- stack: \`$STACK_NAME\`"
             echo "- instance: \`$INSTANCE_ID\`"
             echo "- api: $API_URL"
             echo "- ssm command id: \`${CMD_ID:-none}\`"
             echo
-            echo "Rollback: re-dispatch this workflow with the previous tag."
+            if [ "$QA_MODE" = legacy_rollback ]; then
+              echo "**QA Phase 3 degraded:** legacy rollback changed only the app image; the existing compatible Worker and host runners were retained, Bundle canary was skipped, and archive-gated DROP may pause."
+              echo
+            fi
+            echo "Rollback: re-dispatch with a previous app tag. The QA resolver never downgrades the Bundle Worker; legacy mode also preserves the Phase 3 host runners."
             echo
             echo '```bash'
             echo "gh workflow run deploy-stage0.yml -f tag=<previous>"
