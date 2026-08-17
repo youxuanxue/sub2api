@@ -368,7 +368,7 @@ Resources:
 
   QaBundleBucket:
     Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
+    DeletionPolicy: RetainExceptOnCreate
     UpdateReplacePolicy: Retain
     Properties:
       BucketName: !Sub '${ProjectName}-${Environment}-qa-bundles-${AWS::AccountId}'
@@ -557,7 +557,7 @@ Resources:
 
   QaBundleWorkerLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
+    DeletionPolicy: RetainExceptOnCreate
     UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: !Sub '/tokenkey/${ProjectName}-${Environment}/qa-bundle-worker'
