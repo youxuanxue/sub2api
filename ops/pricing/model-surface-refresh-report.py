@@ -18,6 +18,7 @@ import tempfile
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlparse
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BUNDLE = REPO_ROOT / "ops" / "pricing" / "model-surface-bundle.json"
@@ -134,6 +135,15 @@ def _normalize_base_url(raw: Any) -> str:
     return _BUNDLE.normalize_account_override_base_url(raw)
 
 
+def _is_cloudwise_relay_base_url(raw: Any) -> bool:
+    parsed = urlparse(str(raw or "").strip())
+    host = (parsed.hostname or "").lower()
+    if host not in {"api.cloudwise.ai", "api-us.cloudwise.ai"}:
+        return False
+    path = (parsed.path or "").rstrip("/").lower()
+    return path in {"", "/api", "/v1", "/api/v1"}
+
+
 def _account_shared_scope(row: dict[str, Any], floor: dict[str, Any]) -> str:
     platform = _clean_scope(row.get("platform"))
     account_type = _clean_scope(row.get("type"))
@@ -155,7 +165,7 @@ def _account_shared_scope(row: dict[str, Any], floor: dict[str, Any]) -> str:
             return "openai_ainzy_relay"
         if base_url == "https://agent.tokensea.ai":
             return "openai_tokensea_relay"
-        if base_url in {"https://api.cloudwise.ai/api", "https://api-us.cloudwise.ai/api"}:
+        if _is_cloudwise_relay_base_url(base_url):
             return "openai_cloudwise_relay"
     if platform == "anthropic" and account_type == "apikey":
         if base_url == "https://agent.tokensea.ai":
@@ -846,6 +856,14 @@ def _selftest() -> int:
 
     report_accounts, _ = _active_accounts(inventory, bundle_floor)
     account_by_id = {row["account_id"]: row for row in report_accounts}
+    assert _is_cloudwise_relay_base_url("https://api.cloudwise.ai")
+    assert _is_cloudwise_relay_base_url("https://api.cloudwise.ai/v1")
+    assert _is_cloudwise_relay_base_url("https://api-us.cloudwise.ai/api/")
+    assert not _is_cloudwise_relay_base_url("https://api.cloudwise.ai/other")
+    assert _account_shared_scope(
+        {"platform": "openai", "type": "apikey", "base_url": "https://api.cloudwise.ai"},
+        {},
+    ) == "openai_cloudwise_relay"
     assert _normalize_row_scope(
         {"scope": "openai", "account_id": 3}, account_by_id,
     ) == "openai_cloudwise_relay"

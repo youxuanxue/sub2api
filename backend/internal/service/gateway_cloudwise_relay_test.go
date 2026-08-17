@@ -49,6 +49,27 @@ func TestAccount_IsOpenAICloudwiseRelay(t *testing.T) {
 	}
 	require.True(t, us.IsOpenAICloudwiseRelay())
 
+	hostOnly := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://api.cloudwise.ai",
+		},
+	}
+	require.True(t, hostOnly.IsOpenAICloudwiseRelay())
+	require.Equal(t, "https://api.cloudwise.ai/api", hostOnly.GetOpenAIBaseURL())
+	require.Equal(t, "https://api.cloudwise.ai/api", hostOnly.GetBaseURL())
+
+	versioned := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://api.cloudwise.ai/v1",
+		},
+	}
+	require.True(t, versioned.IsOpenAICloudwiseRelay())
+	require.Equal(t, "https://api.cloudwise.ai/api", versioned.GetOpenAIBaseURL())
+
 	other := &Account{
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeAPIKey,

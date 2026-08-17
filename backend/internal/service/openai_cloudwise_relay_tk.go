@@ -1,6 +1,9 @@
 package service
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 // openAICloudwiseRelayAllowedModelPrefixes is the single SSOT for which model
 // families CloudWise MaaS relay accounts may serve. Adjust only here.
@@ -10,6 +13,14 @@ var openAICloudwiseRelayAllowedModelPrefixes = []string{
 	"glm-",
 	"minimax-",
 	"deepseek-",
+}
+
+// cloudwiseRelayCanonicalBaseURLs is the path CloudWise nginx actually serves.
+// Host-only or /v1 spellings resolve to the same /api prefix; without it,
+// /v1/chat/completions and /v1/responses return nginx/1.24.0 HTML 404.
+var cloudwiseRelayCanonicalBaseURLs = map[string]string{
+	"api.cloudwise.ai":    "https://api.cloudwise.ai/api",
+	"api-us.cloudwise.ai": "https://api-us.cloudwise.ai/api",
 }
 
 func openAICloudwiseRelayWildcardModelMappingFloor() map[string]string {
@@ -49,4 +60,30 @@ func applyOpenAICloudwiseRelayUpstreamModelID(account *Account, modelID string) 
 		return modelID
 	}
 	return openAICloudwiseRelayUpstreamModelID(modelID)
+}
+
+func normalizeCloudwiseRelayBaseURL(raw string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", false
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Host == "" {
+		return "", false
+	}
+	canonical, ok := cloudwiseRelayCanonicalBaseURLs[strings.ToLower(parsed.Hostname())]
+	if !ok {
+		return "", false
+	}
+	switch strings.ToLower(strings.TrimRight(parsed.Path, "/")) {
+	case "", "/api", "/v1", "/api/v1":
+		return canonical, true
+	default:
+		return "", false
+	}
+}
+
+func isCloudwiseRelayBaseURL(raw string) bool {
+	_, ok := normalizeCloudwiseRelayBaseURL(raw)
+	return ok
 }

@@ -99,6 +99,24 @@ func TestGetBaseURL(t *testing.T) {
 			expected: "https://ark.cn-beijing.volces.com",
 		},
 		{
+			name: "cloudwise host-only base_url gains the /api prefix nginx requires",
+			account: Account{
+				Type:        AccountTypeAPIKey,
+				Platform:    PlatformOpenAI,
+				Credentials: map[string]any{"base_url": "https://api.cloudwise.ai"},
+			},
+			expected: "https://api.cloudwise.ai/api",
+		},
+		{
+			name: "cloudwise /v1 base_url is rewritten to /api, not /api/v1",
+			account: Account{
+				Type:        AccountTypeAPIKey,
+				Platform:    PlatformOpenAI,
+				Credentials: map[string]any{"base_url": "https://api.cloudwise.ai/v1"},
+			},
+			expected: "https://api.cloudwise.ai/api",
+		},
+		{
 			// Legacy rows with an empty platform string predate multi-platform
 			// support and were all anthropic — keep the historical default.
 			name: "legacy empty-platform apikey without base_url keeps anthropic default",

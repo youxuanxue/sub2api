@@ -808,7 +808,10 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		if err != nil {
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
 		}
-		if !openai_compat.ShouldUseResponsesAPI(account.Extra) {
+		// CloudWise nginx only serves /api/v1/* and does not implement a working
+		// Responses completion path. Host-only /v1/responses is the nginx HTML 404
+		// operators see in admin "测试账号连接".
+		if credentialAccount.IsOpenAICloudwiseRelay() || !openai_compat.ShouldUseResponsesAPI(account.Extra) {
 			return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, normalizedBaseURL, authToken)
 		}
 		apiURL = buildOpenAIResponsesURL(normalizedBaseURL)

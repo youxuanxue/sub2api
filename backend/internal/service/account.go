@@ -914,6 +914,9 @@ func (a *Account) GetBaseURL() string {
 	if a.Platform == PlatformAntigravity {
 		return strings.TrimRight(baseURL, "/") + "/antigravity"
 	}
+	if normalized, ok := normalizeCloudwiseRelayBaseURL(baseURL); ok {
+		return normalized
+	}
 	return baseURL
 }
 
@@ -1317,16 +1320,6 @@ func (a *Account) IsOpenAICloudwiseRelay() bool {
 	return isCloudwiseRelayBaseURL(a.GetCredential("base_url"))
 }
 
-func isCloudwiseRelayBaseURL(raw string) bool {
-	base := strings.ToLower(strings.TrimSpace(strings.TrimSuffix(raw, "/")))
-	switch base {
-	case "https://api.cloudwise.ai/api", "https://api-us.cloudwise.ai/api":
-		return true
-	default:
-		return false
-	}
-}
-
 func (a *Account) GetOpenAIBaseURL() string {
 	if a == nil {
 		return ""
@@ -1340,6 +1333,9 @@ func (a *Account) GetOpenAIBaseURL() string {
 	if a.Type == AccountTypeAPIKey {
 		baseURL := a.GetCredential("base_url")
 		if baseURL != "" {
+			if normalized, ok := normalizeCloudwiseRelayBaseURL(baseURL); ok {
+				return normalized
+			}
 			return baseURL
 		}
 	}

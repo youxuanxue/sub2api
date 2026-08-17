@@ -62,6 +62,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, NoReturn
+from urllib.parse import urlparse
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SETTING_KEY = "tk_account_model_mapping_runtime"
@@ -471,13 +472,21 @@ def _is_openai_tokensea_relay(row: dict[str, Any]) -> bool:
     return base == "https://agent.tokensea.ai"
 
 
+def _is_cloudwise_relay_base_url(raw: Any) -> bool:
+    parsed = urlparse(str(raw or "").strip())
+    host = (parsed.hostname or "").lower()
+    if host not in {"api.cloudwise.ai", "api-us.cloudwise.ai"}:
+        return False
+    path = (parsed.path or "").rstrip("/").lower()
+    return path in {"", "/api", "/v1", "/api/v1"}
+
+
 def _is_openai_cloudwise_relay(row: dict[str, Any]) -> bool:
     if str(row.get("platform") or "").strip().lower() != "openai":
         return False
     if str(row.get("type") or "") != "apikey":
         return False
-    base = str(row.get("base_url") or "").strip().lower().rstrip("/")
-    return base in {"https://api.cloudwise.ai/api", "https://api-us.cloudwise.ai/api"}
+    return _is_cloudwise_relay_base_url(row.get("base_url"))
 
 
 def _is_anthropic_tokensea_relay(row: dict[str, Any]) -> bool:

@@ -8,6 +8,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNormalizeCloudwiseRelayBaseURL(t *testing.T) {
+	for _, tc := range []struct {
+		in     string
+		want   string
+		wantOK bool
+	}{
+		{"https://api.cloudwise.ai/api", "https://api.cloudwise.ai/api", true},
+		{"https://api.cloudwise.ai/api/", "https://api.cloudwise.ai/api", true},
+		{"https://api.cloudwise.ai", "https://api.cloudwise.ai/api", true},
+		{"https://api.cloudwise.ai/", "https://api.cloudwise.ai/api", true},
+		{"https://api.cloudwise.ai/v1", "https://api.cloudwise.ai/api", true},
+		{"https://api.cloudwise.ai/v1/", "https://api.cloudwise.ai/api", true},
+		{"https://api.cloudwise.ai/api/v1", "https://api.cloudwise.ai/api", true},
+		{"https://API.Cloudwise.AI/V1", "https://api.cloudwise.ai/api", true},
+		{"https://api-us.cloudwise.ai", "https://api-us.cloudwise.ai/api", true},
+		{"https://api-us.cloudwise.ai/v1", "https://api-us.cloudwise.ai/api", true},
+		{"https://api.cloudwise.ai/other", "", false},
+		{"https://api.openai.com", "", false},
+		{"", "", false},
+	} {
+		got, ok := normalizeCloudwiseRelayBaseURL(tc.in)
+		require.Equal(t, tc.wantOK, ok, tc.in)
+		require.Equal(t, tc.want, got, tc.in)
+	}
+
+	// Host-only CloudWise URLs are the nginx HTML 404 path operators hit today.
+	require.Equal(t, "https://api.cloudwise.ai/v1/responses", buildOpenAIResponsesURL("https://api.cloudwise.ai"))
+	require.Equal(t, "https://api.cloudwise.ai/v1/chat/completions", buildOpenAIChatCompletionsURL("https://api.cloudwise.ai"))
+	normalized, ok := normalizeCloudwiseRelayBaseURL("https://api.cloudwise.ai")
+	require.True(t, ok)
+	require.Equal(t, "https://api.cloudwise.ai/api/v1/responses", buildOpenAIResponsesURL(normalized))
+	require.Equal(t, "https://api.cloudwise.ai/api/v1/chat/completions", buildOpenAIChatCompletionsURL(normalized))
+}
+
 func TestOpenAICloudwiseRelayAllowedModelPrefixes(t *testing.T) {
 	require.Equal(t, []string{
 		"kimi-",
