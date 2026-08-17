@@ -12,9 +12,10 @@ import (
 )
 
 func TestKiroInternalThinking_EncodeDecodeRoundTrip(t *testing.T) {
-	blocks := kiroInternalThinkingBlocksFromPlaintext("reason step one")
+	blocks := kiroInternalThinkingBlocksFromCapture("reason step one", "UPSTREAM_SIG_abc")
 	require.Len(t, blocks, 1)
 	require.Contains(t, blocks[0], `"type":"thinking"`)
+	require.Contains(t, blocks[0], `"signature":"UPSTREAM_SIG_abc"`)
 	require.Contains(t, blocks[0], "reason step one")
 
 	payload := encodeKiroInternalThinkingPayload(blocks)
@@ -22,15 +23,22 @@ func TestKiroInternalThinking_EncodeDecodeRoundTrip(t *testing.T) {
 	require.Equal(t, blocks, got)
 }
 
+func TestKiroInternalThinkingBlockJSON_OmitsSyntheticSignature(t *testing.T) {
+	block := kiroInternalThinkingBlockJSON("plain only", "")
+	require.Contains(t, block, `"thinking":"plain only"`)
+	require.NotContains(t, block, `"signature"`)
+}
+
 func TestParseKiroInternalThinkingSSECommentLine(t *testing.T) {
 	thinking := "streamed reasoning"
-	payload := encodeKiroInternalThinkingPayload(kiroInternalThinkingBlocksFromPlaintext(thinking))
+	payload := encodeKiroInternalThinkingPayload(kiroInternalThinkingBlocksFromCapture(thinking, "SIG_LIVE"))
 	line := kiroInternalThinkingSSECommentPfx + payload
 
 	blocks, ok := parseKiroInternalThinkingSSECommentLine(line)
 	require.True(t, ok)
 	require.Len(t, blocks, 1)
 	require.Contains(t, blocks[0], thinking)
+	require.Contains(t, blocks[0], "SIG_LIVE")
 
 	_, bad := parseKiroInternalThinkingSSECommentLine(": unrelated comment")
 	require.False(t, bad)
@@ -40,8 +48,8 @@ func TestStashKiroInternalThinkingBlocks_GinContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 
-	stashKiroInternalThinkingBlocks(c, "first")
-	stashKiroInternalThinkingBlocks(c, "second")
+	stashKiroInternalThinkingBlocks(c, "first", "SIG1")
+	stashKiroInternalThinkingBlocks(c, "second", "")
 
 	raw, ok := c.Get(kiroInternalThinkingGinKey)
 	require.True(t, ok)
@@ -52,12 +60,13 @@ func TestStashKiroInternalThinkingBlocks_GinContext(t *testing.T) {
 
 func TestWriteKiroInternalThinkingResponseHeader(t *testing.T) {
 	hdr := httptest.NewRecorder().Header()
-	writeKiroInternalThinkingResponseHeader(hdr, "non-stream reasoning")
+	writeKiroInternalThinkingResponseHeader(hdr, "non-stream reasoning", "SIG_HDR")
 	require.NotEmpty(t, hdr.Get(kiroInternalThinkingResponseHeader))
 
 	got := kiroInternalThinkingBlocksFromUpstream(hdr)
 	require.Len(t, got, 1)
 	require.Contains(t, got[0], "non-stream reasoning")
+	require.Contains(t, got[0], "SIG_HDR")
 }
 
 func TestPublishKiroInternalThinkingSideChannel_DirectEdgeOmitsWire(t *testing.T) {
@@ -66,7 +75,7 @@ func TestPublishKiroInternalThinkingSideChannel_DirectEdgeOmitsWire(t *testing.T
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 
-	publishKiroInternalThinkingSideChannel(c, rec, rec.Header(), "edge-only reasoning")
+	publishKiroInternalThinkingSideChannel(c, rec, rec.Header(), "edge-only reasoning", "SIG_EDGE")
 
 	require.NotContains(t, rec.Body.String(), kiroInternalThinkingSSECommentPfx)
 	require.Empty(t, rec.Header().Get(kiroInternalThinkingResponseHeader))
@@ -77,6 +86,7 @@ func TestPublishKiroInternalThinkingSideChannel_DirectEdgeOmitsWire(t *testing.T
 	require.True(t, ok)
 	require.Len(t, blocks, 1)
 	require.Contains(t, blocks[0], "edge-only reasoning")
+	require.Contains(t, blocks[0], "SIG_EDGE")
 }
 
 func TestPublishKiroInternalThinkingSideChannel_MirrorHopEmitsWire(t *testing.T) {
@@ -86,7 +96,7 @@ func TestPublishKiroInternalThinkingSideChannel_MirrorHopEmitsWire(t *testing.T)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 	c.Request.Header.Set(kiroInternalThinkingMirrorHopRequestHeader, "1")
 
-	publishKiroInternalThinkingSideChannel(c, rec, rec.Header(), "mirror hop reasoning")
+	publishKiroInternalThinkingSideChannel(c, rec, rec.Header(), "mirror hop reasoning", "SIG_MIRROR")
 
 	require.Contains(t, rec.Body.String(), kiroInternalThinkingSSECommentPfx)
 	require.NotEmpty(t, rec.Header().Get(kiroInternalThinkingResponseHeader))
