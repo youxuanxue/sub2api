@@ -132,6 +132,7 @@ class Stage0QABundleContractTest(unittest.TestCase):
                 "s3:GetBucketVersioning",
                 "s3:GetEncryptionConfiguration",
                 "s3:GetLifecycleConfiguration",
+                "s3:PutEncryptionConfiguration",
             },
             "ManageQaKms": {"kms:CreateAlias", "kms:DeleteAlias", "kms:UntagResource"},
             "ManageQaRoles": {
