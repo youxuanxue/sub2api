@@ -56,6 +56,7 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 | [`tk052-reenable-anthropic-request-normalize.md`](tk052-reenable-anthropic-request-normalize.md) | Anthropic request normalize |
 | [`universal-key-routing.md`](universal-key-routing.md) | Universal key routing |
 | [`upstream-merge-2026-07-02.md`](upstream-merge-2026-07-02.md) | Upstream merge anchor |
+| [`upstream-merge-2026-08-15-migrations.md`](upstream-merge-2026-08-15-migrations.md) | Upstream merge 2026-08-15 migration anchor |
 | [`user-cold-start.md`](user-cold-start.md) | New-user cold start |
 
 ## Pending baselines
