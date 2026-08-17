@@ -99,6 +99,27 @@ class ResolveQABundleWorkerImageTest(unittest.TestCase):
                 host_runtime_mode="current_safe_degraded",
             )
 
+    def test_legacy_manifest_without_user_export_preserves_verified_tag(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = pathlib.Path(temp_dir) / "deploy_rollout.yaml"
+            manifest.write_text(
+                "prod:\n"
+                "  QA_ARCHIVE_ENABLED:\n"
+                "    deploy_inject_default: false\n",
+                encoding="utf-8",
+            )
+            image = f"{IMAGE_REPOSITORY}:1.8.155"
+            self.assert_resolution(
+                "1.8.140",
+                manifest,
+                image,
+                mode="legacy_rollback",
+                image=image,
+                worker_source="verified_live_worker",
+                run_canary=False,
+                host_runtime_mode="current_safe_degraded",
+            )
+
     def test_legacy_accepts_verified_repository_digest(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             manifest = rollout_manifest(pathlib.Path(temp_dir), None)

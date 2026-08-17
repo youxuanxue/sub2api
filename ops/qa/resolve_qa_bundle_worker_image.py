@@ -25,9 +25,13 @@ DIGEST_PATTERN = re.compile(r"^sha256:[a-f0-9]{64}$")
 def release_contract(path: Path) -> str | None:
     try:
         payload = yaml.safe_load(path.read_text(encoding="utf-8"))
-        user_export = payload["prod"]["user_export"]
-    except (OSError, KeyError, TypeError, yaml.YAMLError) as exc:
+    except (OSError, yaml.YAMLError) as exc:
         raise ValueError(f"target rollout manifest is invalid: {exc}") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("prod"), dict):
+        raise ValueError("target rollout manifest prod must be a mapping")
+    user_export = payload["prod"].get("user_export")
+    if user_export is None:
+        return None
     if not isinstance(user_export, dict):
         raise ValueError("target rollout manifest prod.user_export must be a mapping")
     contract = user_export.get("bundle_runtime_contract")
