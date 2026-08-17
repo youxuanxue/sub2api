@@ -245,8 +245,13 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 
 	pro, ok := byID["deepseek-v4-pro"]
 	require.True(t, ok, "overlay-only deepseek-v4-pro must surface in catalog")
-	assert.InDelta(t, 0.000435*tkOfficialListBaseTaxMultiplier(), pro.Pricing.InputPer1KTokens, 1e-9, "deepseek-v4-pro input = overlay official × base tax")
-	assert.InDelta(t, 0.00087*tkOfficialListBaseTaxMultiplier(), pro.Pricing.OutputPer1KTokens, 1e-9, "deepseek-v4-pro output = overlay official × base tax")
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(4.5)*1000*tkOfficialListBaseTaxMultiplier(), pro.Pricing.InputPer1KTokens, 1e-12, "deepseek-v4-pro input = overlay official × base tax")
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(13.5)*1000*tkOfficialListBaseTaxMultiplier(), pro.Pricing.OutputPer1KTokens, 1e-12, "deepseek-v4-pro output = overlay official × base tax")
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(0.15)*1000*tkOfficialListBaseTaxMultiplier(), pro.Pricing.CacheReadPer1K, 1e-12)
+	assert.Equal(t, 1_000_000, pro.ContextWindow)
+	assert.Equal(t, 384_000, pro.MaxOutputTokens)
+	require.NotNil(t, pro.Pricing.PeakValley)
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(9)*1000*tkOfficialListBaseTaxMultiplier(), pro.Pricing.PeakValley.InputPer1KTokens, 1e-12)
 	_, ok = byID["doubao-seed-2-0-pro-260215"]
 	assert.True(t, ok, "doubao overlay model must surface")
 	glm52, ok := byID["glm-5.2"]
@@ -590,10 +595,10 @@ func TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice(t *testing.T) 
 
 	pro, ok := byID["deepseek-v4-pro"]
 	require.True(t, ok)
-	assert.InDelta(t, 0.000435*tkOfficialListBaseTaxMultiplier(), pro.Pricing.InputPer1KTokens, 1e-9,
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(4.5)*1000*tkOfficialListBaseTaxMultiplier(), pro.Pricing.InputPer1KTokens, 1e-12,
 		"zero placeholder row must display the overlay deepseek-v4-pro price with base tax")
-	assert.InDelta(t, 0.00087*tkOfficialListBaseTaxMultiplier(), pro.Pricing.OutputPer1KTokens, 1e-9)
-	assert.InDelta(t, 0.000003625*tkOfficialListBaseTaxMultiplier(), pro.Pricing.CacheReadPer1K, 1e-12)
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(13.5)*1000*tkOfficialListBaseTaxMultiplier(), pro.Pricing.OutputPer1KTokens, 1e-12)
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(0.15)*1000*tkOfficialListBaseTaxMultiplier(), pro.Pricing.CacheReadPer1K, 1e-12)
 	registryPro := loadTKPricingOverlay()["deepseek-v4-pro"]
 	require.NotNil(t, registryPro)
 	assert.Equal(t, registryPro.MaxInputTokens, pro.ContextWindow, "registry metadata must match the billing snapshot")
