@@ -22,6 +22,44 @@ func setupAccountListRouter() (*gin.Engine, *stubAdminService) {
 	return router, adminSvc
 }
 
+func TestAccountHandlerListForwardsChannelTypeFilter(t *testing.T) {
+	router, adminSvc := setupAccountListRouter()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?platform=newapi&channel_type=17", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "newapi", adminSvc.lastListAccounts.platform)
+	require.Equal(t, 17, adminSvc.lastListAccounts.channelType)
+}
+
+func TestAccountHandlerListRejectsInvalidChannelTypeFilter(t *testing.T) {
+	router, _ := setupAccountListRouter()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?platform=newapi&channel_type=not-a-number", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestParseAccountListChannelTypeQuery(t *testing.T) {
+	got, err := parseAccountListChannelTypeQuery("")
+	require.NoError(t, err)
+	require.Equal(t, 0, got)
+
+	got, err = parseAccountListChannelTypeQuery(" 14 ")
+	require.NoError(t, err)
+	require.Equal(t, 14, got)
+
+	_, err = parseAccountListChannelTypeQuery("-1")
+	require.Error(t, err)
+
+	_, err = parseAccountListChannelTypeQuery("abc")
+	require.Error(t, err)
+}
+
 func TestAccountHandlerListIncludesCreatedAt(t *testing.T) {
 	router, adminSvc := setupAccountListRouter()
 

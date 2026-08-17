@@ -8,6 +8,14 @@
       @search="$emit('change')"
     />
     <Select :model-value="filters.platform" class="w-40" :options="pOpts" @update:model-value="updatePlatform" @change="$emit('change')" />
+    <Select
+      v-if="isNewApiPlatform"
+      :model-value="channelTypeFilterValue"
+      class="w-48"
+      :options="channelTypeOpts"
+      @update:model-value="updateChannelType"
+      @change="$emit('change')"
+    />
     <Select :model-value="filters.type" class="w-40" :options="tOpts" @update:model-value="updateType" @change="$emit('change')" />
     <Select :model-value="filters.status" class="w-40" :options="sOpts" @update:model-value="updateStatus" @change="$emit('change')" />
     <Select :model-value="filters.privacy_mode" class="w-40" :options="privacyOpts" @update:model-value="updatePrivacyMode" @change="$emit('change')" />
@@ -16,13 +24,28 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'; import Select from '@/components/common/Select.vue'; import SearchInput from '@/components/common/SearchInput.vue'
 import { usePlatformOptions } from '@/composables/usePlatformOptions'
+import { useNewApiChannelTypes } from '@/composables/useNewApiChannelTypes'
+import { PLATFORM_NEWAPI } from '@/constants/gatewayPlatforms'
 import type { AdminGroup } from '@/types'
 const props = defineProps<{ searchQuery: string; filters: Record<string, any>; groups?: AdminGroup[] }>()
 const emit = defineEmits(['update:searchQuery', 'update:filters', 'change']); const { t } = useI18n()
-const updatePlatform = (value: string | number | boolean | null) => { emit('update:filters', { ...props.filters, platform: value }) }
+const isNewApiPlatform = computed(() => props.filters.platform === PLATFORM_NEWAPI)
+const channelTypeFilterValue = computed(() => {
+  const raw = props.filters.channel_type
+  if (raw === undefined || raw === null || raw === 0) return ''
+  return String(raw)
+})
+const updatePlatform = (value: string | number | boolean | null) => {
+  const next = { ...props.filters, platform: value }
+  if (value !== PLATFORM_NEWAPI) next.channel_type = ''
+  emit('update:filters', next)
+}
+const updateChannelType = (value: string | number | boolean | null) => {
+  emit('update:filters', { ...props.filters, channel_type: value == null ? '' : String(value) })
+}
 const updateType = (value: string | number | boolean | null) => { emit('update:filters', { ...props.filters, type: value }) }
 const updateStatus = (value: string | number | boolean | null) => { emit('update:filters', { ...props.filters, status: value }) }
 const updatePrivacyMode = (value: string | number | boolean | null) => { emit('update:filters', { ...props.filters, privacy_mode: value }) }
@@ -30,12 +53,26 @@ const updateGroup = (value: string | number | boolean | null) => { emit('update:
 // Platform filter options come from the canonical composable so the fifth
 // platform `newapi` (and any future addition) shows up automatically; the
 // "All" entry is rendered with the same label key as elsewhere in the admin UI.
-// The getter form keeps the i18n label reactive on locale switch.
+// Composite is a group-only routing platform, not an account platform.
 const { optionsWithAll } = usePlatformOptions()
 const basePlatformOptions = optionsWithAll(() => t('admin.accounts.allPlatforms'))
-const pOpts = computed(() => [
-  ...basePlatformOptions.value,
-  { value: '__kiro_stub__', label: t('admin.accounts.kiroStubPlatform') },
+const pOpts = computed(() =>
+  basePlatformOptions.value.filter((option) => option.value !== 'composite'),
+)
+const { types: channelTypes, load: loadChannelTypes } = useNewApiChannelTypes()
+watch(isNewApiPlatform, (selected) => {
+  if (selected) {
+    void loadChannelTypes().catch(() => {
+      /* catalog fallback labels still work when empty */
+    })
+  }
+}, { immediate: true })
+const channelTypeOpts = computed(() => [
+  { value: '', label: t('admin.accounts.allChannelTypes') },
+  ...channelTypes.value.map((item) => ({
+    value: String(item.channel_type),
+    label: item.name || `Channel #${item.channel_type}`
+  }))
 ])
 const tOpts = computed(() => [{ value: '', label: t('admin.accounts.allTypes') }, { value: 'oauth', label: t('admin.accounts.oauthType') }, { value: 'setup-token', label: t('admin.accounts.setupToken') }, { value: 'apikey', label: t('admin.accounts.apiKey') }, { value: 'bedrock', label: 'AWS Bedrock' }])
 const sOpts = computed(() => [{ value: '', label: t('admin.accounts.allStatus') }, { value: 'active', label: t('admin.accounts.status.active') }, { value: 'inactive', label: t('admin.accounts.status.inactive') }, { value: 'error', label: t('admin.accounts.status.error') }, { value: 'rate_limited', label: t('admin.accounts.status.rateLimited') }, { value: 'temp_unschedulable', label: t('admin.accounts.status.tempUnschedulable') }, { value: 'unschedulable', label: t('admin.accounts.status.unschedulable') }])

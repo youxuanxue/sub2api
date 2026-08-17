@@ -21,9 +21,9 @@ import (
 )
 
 // Account management implementations
-func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]Account, int64, error) {
+func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, channelType int) ([]Account, int64, error) {
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: sortBy, SortOrder: sortOrder}
-	accounts, result, err := s.accountRepo.ListWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode)
+	accounts, result, err := s.accountRepo.ListWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode, channelType)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -34,7 +34,7 @@ func (s *adminServiceImpl) ListAccountsForSchedulerScoreFilter(ctx context.Conte
 	if s == nil || s.accountRepo == nil {
 		return nil, nil
 	}
-	return s.accountRepo.ListAllWithFilters(ctx, platform, accountType, status, search, groupID, privacyMode)
+	return s.accountRepo.ListAllWithFilters(ctx, platform, accountType, status, search, groupID, privacyMode, 0)
 }
 
 func (s *adminServiceImpl) ListOpenAISchedulableAccountsForSchedulerScore(ctx context.Context, groupID *int64) ([]Account, error) {
@@ -1267,6 +1267,7 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 			filters.PrivacyMode,
 			"",
 			"",
+			filters.ChannelType,
 		)
 		if err != nil {
 			return nil, err

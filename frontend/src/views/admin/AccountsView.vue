@@ -1130,6 +1130,7 @@ const {
     status: '',
     privacy_mode: '',
     group: '',
+    channel_type: '',
     search: '',
     include_scheduler_score: shouldIncludeSchedulerScore() ? '1' : '0',
     sort_by: sortState.sort_by,
@@ -2131,6 +2132,7 @@ const buildBulkEditFilterSnapshot = () => {
     group: typeof rawParams.group === 'string' ? rawParams.group : '',
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
+    channel_type: rawParams.channel_type == null || rawParams.channel_type === '' ? '' : String(rawParams.channel_type),
     sort_by: typeof rawParams.sort_by === 'string' ? rawParams.sort_by : '',
     sort_order: sortOrder
   }
@@ -2207,6 +2209,7 @@ const buildAccountQueryFilters = () => ({
   status: params.status || '',
   group: params.group || '',
   privacy_mode: params.privacy_mode || '',
+  channel_type: params.channel_type == null || params.channel_type === '' ? '' : String(params.channel_type),
   search: params.search || '',
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order
@@ -2214,6 +2217,10 @@ const buildAccountQueryFilters = () => ({
 const accountMatchesCurrentFilters = (account: Account) => {
   const filters = buildAccountQueryFilters()
   if (!accountMatchesPlatformFilter(account, filters.platform)) return false
+  if (filters.channel_type) {
+    const wanted = Number(filters.channel_type)
+    if (!Number.isFinite(wanted) || wanted <= 0 || account.channel_type !== wanted) return false
+  }
   if (filters.type && account.type !== filters.type) return false
   if (filters.status) {
     const now = Date.now()

@@ -185,6 +185,7 @@ type BulkUpdateAccountFilters struct {
 	Group       string `json:"group"`
 	Search      string `json:"search"`
 	PrivacyMode string `json:"privacy_mode"`
+	ChannelType int    `json:"channel_type"`
 }
 
 // CheckMixedChannelRequest represents check mixed channel risk request
@@ -512,6 +513,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 	status := c.Query("status")
 	search := c.Query("search")
 	privacyMode := strings.TrimSpace(c.Query("privacy_mode"))
+	channelType, channelTypeErr := parseAccountListChannelTypeQuery(c.Query("channel_type"))
+	if channelTypeErr != nil {
+		response.ErrorFrom(c, channelTypeErr)
+		return
+	}
 	sortBy := c.DefaultQuery("sort_by", "name")
 	sortOrder := c.DefaultQuery("sort_order", "asc")
 	// 标准化和验证 search 参数
@@ -541,7 +547,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder)
+	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, channelType)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -666,7 +672,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 
 	h.enrichShadowParents(c.Request.Context(), result)
 
-	etag := buildAccountsListETag(result, total, page, pageSize, platform, accountType, status, search, lite)
+	etag := buildAccountsListETag(result, total, page, pageSize, platform, accountType, status, search, channelType, lite)
 	if etag != "" {
 		c.Header("ETag", etag)
 		c.Header("Vary", "If-None-Match")
@@ -679,11 +685,24 @@ func (h *AccountHandler) List(c *gin.Context) {
 	response.Paginated(c, result, total, page, pageSize)
 }
 
+func parseAccountListChannelTypeQuery(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed < 0 {
+		return 0, infraerrors.BadRequest("INVALID_CHANNEL_TYPE_FILTER", "invalid channel_type filter")
+	}
+	return parsed, nil
+}
+
 func buildAccountsListETag(
 	items []AccountWithConcurrency,
 	total int64,
 	page, pageSize int,
 	platform, accountType, status, search string,
+	channelType int,
 	lite bool,
 ) string {
 	payload := struct {
@@ -694,6 +713,7 @@ func buildAccountsListETag(
 		AccountType string                   `json:"type"`
 		Status      string                   `json:"status"`
 		Search      string                   `json:"search"`
+		ChannelType int                      `json:"channel_type"`
 		Lite        bool                     `json:"lite"`
 		Items       []AccountWithConcurrency `json:"items"`
 	}{
@@ -704,6 +724,7 @@ func buildAccountsListETag(
 		AccountType: accountType,
 		Status:      status,
 		Search:      search,
+		ChannelType: channelType,
 		Lite:        lite,
 		Items:       items,
 	}
@@ -2201,6 +2222,7 @@ func toServiceBulkUpdateAccountFilters(filters *BulkUpdateAccountFilters) *servi
 		Group:       filters.Group,
 		Search:      filters.Search,
 		PrivacyMode: filters.PrivacyMode,
+		ChannelType: filters.ChannelType,
 	}
 }
 
@@ -3112,7 +3134,7 @@ func (h *AccountHandler) BatchRefreshTier(c *gin.Context) {
 	accounts := make([]*service.Account, 0)
 
 	if len(req.AccountIDs) == 0 {
-		allAccounts, _, err := h.adminService.ListAccounts(ctx, 1, 10000, service.PlatformGemini, service.AccountTypeOAuth, "", "", 0, "", "name", "asc")
+		allAccounts, _, err := h.adminService.ListAccounts(ctx, 1, 10000, service.PlatformGemini, service.AccountTypeOAuth, "", "", 0, "", "name", "asc", 0)
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return

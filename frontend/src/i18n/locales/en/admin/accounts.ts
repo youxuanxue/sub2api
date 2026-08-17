@@ -83,6 +83,7 @@ export default {
       notesPlaceholder: 'Enter notes',
       notesHint: 'Notes are optional',
       allPlatforms: 'All Platforms',
+      allChannelTypes: 'All Channel Types',
       allTypes: 'All Types',
       allStatus: 'All Status',
       allGroups: 'All Groups',
