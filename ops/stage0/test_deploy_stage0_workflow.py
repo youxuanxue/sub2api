@@ -208,6 +208,22 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertIn("deploy_qa_raw_archive_cfn.sh", pre_mutation)
         self.assertIn("verify_qa_bundle_infra.sh", pre_mutation)
 
+    def test_real_maintenance_unit_health_gate_blocks_before_bundle_canary(self) -> None:
+        deploy = job_block("deploy")
+        maintenance_sync = deploy.index("name: Sync QA maintenance host runner")
+        boundary_sync = deploy.index(
+            "name: Sync QA boundary host runner and restore durable owner"
+        )
+        health_gate = deploy.index("name: Verify QA maintenance systemd execution")
+        bundle_canary = deploy.index("name: Post-deploy QA Bundle canary")
+
+        self.assertLess(maintenance_sync, boundary_sync)
+        self.assertLess(boundary_sync, health_gate)
+        self.assertLess(health_gate, bundle_canary)
+        gate = deploy[health_gate:bundle_canary]
+        self.assertIn("if: steps.qa_infra.outputs.mode == 'phase3'", gate)
+        self.assertIn("run-qa-maintenance-health-gate-via-ssm.sh", gate)
+
     def test_legacy_rollback_converges_safe_control_plane_before_app_mutation(self) -> None:
         deploy = job_block("deploy")
         maintenance = deploy.index("name: Converge current QA maintenance runner before legacy app rollback")

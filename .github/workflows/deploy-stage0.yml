@@ -415,6 +415,14 @@ jobs:
           STAGE0_SSM_OUTPUT_DIR: .qa-boundary-sync
         run: bash ops/stage0/sync-qa-boundary-timer-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-boundary host artifact"
 
+      - name: Verify QA maintenance systemd execution
+        if: steps.qa_infra.outputs.mode == 'phase3'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          STAGE0_SSM_OUTPUT_DIR: .qa-maintenance-health-gate
+          STAGE0_SSM_TIMEOUT_SECONDS: "2700"
+        run: bash ops/stage0/run-qa-maintenance-health-gate-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-maintenance systemd health gate"
+
       - name: Post-deploy QA Bundle canary
         if: steps.qa_infra.outputs.run_canary == 'true'
         env:
