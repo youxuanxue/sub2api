@@ -18,7 +18,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
-var ErrPreconditionFailed = errors.New("qa archive object precondition failed")
+var (
+	ErrPreconditionFailed = errors.New("qa archive object precondition failed")
+	ErrAccessDenied       = errors.New("qa archive object access denied")
+)
 
 const archiveMultipartPartSize int64 = 64 << 20
 
@@ -235,7 +238,7 @@ func (s *s3ObjectStore) HeadInfo(ctx context.Context, key string) (ObjectInfo, e
 	})
 	if err != nil {
 		if isAccessDenied(err) {
-			return ObjectInfo{}, fmt.Errorf("head archive object %s: access denied", key)
+			return ObjectInfo{}, fmt.Errorf("head archive object %s: %w", key, ErrAccessDenied)
 		}
 		if isObjectStoreNotFound(err) {
 			return ObjectInfo{}, err
@@ -264,7 +267,8 @@ func isAccessDenied(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "403") || strings.Contains(msg, "accessdenied")
+	return errors.Is(err, ErrAccessDenied) || strings.Contains(msg, "403") ||
+		strings.Contains(msg, "accessdenied") || strings.Contains(msg, "access denied")
 }
 
 func isObjectStoreNotFound(err error) bool {
