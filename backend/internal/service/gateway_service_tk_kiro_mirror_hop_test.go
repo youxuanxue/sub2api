@@ -103,7 +103,7 @@ func TestGatewayService_HandleStreamingResponse_StripsKiroInternalThinkingSSECom
 	}
 
 	thinking := "prod mirror stub reasoning"
-	payload := encodeKiroInternalThinkingPayload(kiroInternalThinkingBlocksFromPlaintext(thinking))
+	payload := encodeKiroInternalThinkingPayload(kiroInternalThinkingBlocksFromCapture(thinking, "SIG_TEST"))
 	commentLine := kiroInternalThinkingSSECommentPfx + payload
 
 	resp := &http.Response{

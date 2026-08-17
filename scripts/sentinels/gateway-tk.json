@@ -4772,9 +4772,12 @@
       "must_contain": [
         "TestSetKiroInternalThinkingMirrorHopHeaderForAccount_ExplicitEdgeBaseURL",
         "TestSetKiroInternalThinkingMirrorHopHeaderForAccount_NativeEdgeRelayOmitsHop",
+        "TestGatewayService_HandleStreamingResponse_StripsKiroInternalThinkingSSEComment",
+        "kiroInternalThinkingBlocksFromCapture",
+        "SIG_TEST",
         "mirror_platform"
       ],
-      "rationale": "Regression guard for prod mirror-hop vs native edge relay: only Anthropic API-key stubs with mirror_platform=kiro emit kiroInternalThinkingMirrorHopRequestHeader; cc-us5/cc-us6 native edge relays with base_url but no mirror_platform must omit the header so Fable/Opus 4.1 requests are not misclassified as Kiro-sidecar traffic on edge."
+      "rationale": "Regression guard for prod mirror-hop vs native edge relay and passthrough stripping of internal-thinking SSE comments while stashing upstream thinking blocks (including optional signature) for QA/traj export. Only Anthropic API-key stubs with mirror_platform=kiro emit kiroInternalThinkingMirrorHopRequestHeader; cc-us5/cc-us6 native edge relays with base_url but no mirror_platform must omit the header so Fable/Opus 4.1 requests are not misclassified as Kiro-sidecar traffic on edge."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_image.go",

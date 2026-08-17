@@ -50,9 +50,9 @@ const KiroDefaultTestModel = "claude-sonnet-4-5"
 // IDs for admin account tests and mapping presets. Dated Anthropic snapshot IDs
 // (e.g. claude-haiku-4-5-20251001) are normalized by the Kiro translator before
 // upstream; this list intentionally exposes the short undated IDs operators should
-// pick in the admin UI. Live probe sources: ops/stage0/probe_kiro_claude_models.sh
-// and the direct runtime probe ops/stage0/probe_kiro_upstream_models.sh. Opus 5
-// returned HTTP 200 on independent us3/us4/us5/us6 OAuth accounts on 2026-07-26.
+// pick in the admin UI. Live probe sources: ops/stage0/probe_kiro_claude_models.sh,
+// ops/stage0/probe_kiro_upstream_models.sh, and ops/stage0/probe_kiro_upstream_thinking_fields.sh.
+// Opus 5 returned HTTP 200 on independent us3/us4/us5/us6 OAuth accounts on 2026-07-26.
 func KiroAdminTestModels() []claude.Model {
 	return []claude.Model{
 		{

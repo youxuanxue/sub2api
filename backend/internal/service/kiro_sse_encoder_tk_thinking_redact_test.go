@@ -67,6 +67,46 @@ func TestKiroGatewayService_Forward_Streaming_WithReasoningEvent(t *testing.T) {
 	require.NotContains(t, out, "plan step one")
 }
 
+func TestKiroGatewayService_Forward_Streaming_StashesReasoningSignature(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	reasoningFrame := buildKiroEventStreamMessage("reasoningContentEvent",
+		[]byte(`{"text":"plan step one","signature":"UPSTREAM_SIG_GATEWAY"}`))
+	textFrame := buildKiroEventStreamMessage("assistantResponseEvent",
+		[]byte(`{"content":"final answer"}`))
+	body := append(reasoningFrame, textFrame...)
+	body = appendKiroTerminalStop(body, "END_TURN")
+	upstream := &kiroFakeUpstream{body: body}
+
+	svc := NewKiroGatewayService(upstream, nil, nil)
+	reqBody, _ := json.Marshal(map[string]any{
+		"model":      "claude-sonnet-4-6",
+		"messages":   []map[string]any{{"role": "user", "content": "hi"}},
+		"max_tokens": 32,
+		"stream":     true,
+		"thinking":   map[string]any{"type": "enabled", "budget_tokens": 1000},
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(reqBody), Model: "claude-sonnet-4-6", Stream: true}
+
+	_, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.NoError(t, err)
+
+	out := rec.Body.String()
+	require.NotContains(t, out, "UPSTREAM_SIG_GATEWAY")
+	require.NotContains(t, out, "plan step one")
+	require.Contains(t, out, "final answer")
+
+	raw, ok := c.Get(kiroInternalThinkingGinKey)
+	require.True(t, ok)
+	blocks, ok := raw.([]string)
+	require.True(t, ok)
+	require.Len(t, blocks, 1)
+	require.Contains(t, blocks[0], "plan step one")
+	require.Contains(t, blocks[0], "UPSTREAM_SIG_GATEWAY")
+}
+
 func TestKiroGatewayService_Forward_Streaming_OmitsSplitInlineThinkingTags(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

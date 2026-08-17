@@ -124,3 +124,50 @@ func TestParseEventStream_MetadataStopReason(t *testing.T) {
 		t.Fatalf("expected refusal category %q, got %q", "policy", gotMetadata.StopDetails.Refusal.Category)
 	}
 }
+
+func TestParseEventStream_ReasoningContentEventSignature(t *testing.T) {
+	frame := buildEventStreamMessage("reasoningContentEvent", []byte(`{"text":"plan","signature":"UPSTREAM_SIG_XYZ"}`))
+	frame = append(frame, buildEventStreamMessage("metadataEvent", []byte(`{"stopReason":"END_TURN"}`))...)
+
+	var gotText string
+	var gotSig string
+	cb := &KiroStreamCallback{
+		OnReasoningContent: func(text, signature string) {
+			gotText += text
+			if signature != "" && gotSig == "" {
+				gotSig = signature
+			}
+		},
+	}
+
+	if err := parseEventStream(bytes.NewReader(frame), cb); err != nil {
+		t.Fatalf("parseEventStream returned error: %v", err)
+	}
+	if gotText != "plan" {
+		t.Fatalf("expected reasoning text %q, got %q", "plan", gotText)
+	}
+	if gotSig != "UPSTREAM_SIG_XYZ" {
+		t.Fatalf("expected signature %q, got %q", "UPSTREAM_SIG_XYZ", gotSig)
+	}
+}
+
+func TestParseEventStream_ReasoningContentEventSignatureOnlyFrame(t *testing.T) {
+	frame := buildEventStreamMessage("reasoningContentEvent", []byte(`{"signature":"SIG_ONLY"}`))
+	frame = append(frame, buildEventStreamMessage("metadataEvent", []byte(`{"stopReason":"END_TURN"}`))...)
+
+	var gotSig string
+	cb := &KiroStreamCallback{
+		OnReasoningContent: func(text, signature string) {
+			if signature != "" {
+				gotSig = signature
+			}
+		},
+	}
+
+	if err := parseEventStream(bytes.NewReader(frame), cb); err != nil {
+		t.Fatalf("parseEventStream returned error: %v", err)
+	}
+	if gotSig != "SIG_ONLY" {
+		t.Fatalf("expected signature-only frame %q, got %q", "SIG_ONLY", gotSig)
+	}
+}

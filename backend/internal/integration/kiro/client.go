@@ -238,14 +238,18 @@ type InferenceConfig struct {
 
 // KiroStreamCallback stream response callbacks
 type KiroStreamCallback struct {
-	OnText         func(text string, isThinking bool)
-	OnToolUse      func(toolUse KiroToolUse)
-	OnStopReason   func(stopReason string)
-	OnStopMetadata func(metadata KiroStopMetadata)
-	OnComplete     func(inputTokens, outputTokens int)
-	OnError        func(err error)
-	OnCredits      func(credits float64)
-	OnContextUsage func(percentage float64)
+	OnText func(text string, isThinking bool)
+	// OnReasoningContent carries Kiro adaptive-thinking frames
+	// (reasoningContentEvent and reasoningText variants). Signature is
+	// upstream-provided and may appear only on the first frame.
+	OnReasoningContent func(text, signature string)
+	OnToolUse          func(toolUse KiroToolUse)
+	OnStopReason       func(stopReason string)
+	OnStopMetadata     func(metadata KiroStopMetadata)
+	OnComplete         func(inputTokens, outputTokens int)
+	OnError            func(err error)
+	OnCredits          func(credits float64)
+	OnContextUsage     func(percentage float64)
 	// ResetForRetry resets consumer-side state after a response-body read error.
 	// Returning true permits retrying the next endpoint; false preserves the
 	// error, which is required once streaming output has been committed.
@@ -575,12 +579,22 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
 					callback.OnText(normalized, false)
 				}
 			}
-		case "reasoningContentEvent":
-			if text, ok := event["text"].(string); ok && text != "" {
-				normalized := normalizeChunk(text, &lastReasoningContent)
-				if normalized != "" && callback.OnText != nil {
-					callback.OnText(normalized, true)
+			if reasoningText := kiroReasoningTextFromEvent(event); reasoningText != "" {
+				normalized := normalizeChunk(reasoningText, &lastReasoningContent)
+				if normalized != "" {
+					dispatchKiroReasoningContent(callback, normalized, "")
 				}
+			}
+		case "reasoningContentEvent":
+			text, _ := event["text"].(string)
+			signature, _ := event["signature"].(string)
+			if text != "" {
+				normalized := normalizeChunk(text, &lastReasoningContent)
+				if normalized != "" {
+					dispatchKiroReasoningContent(callback, normalized, signature)
+				}
+			} else if strings.TrimSpace(signature) != "" {
+				dispatchKiroReasoningContent(callback, "", signature)
 			}
 		case "toolUseEvent":
 			currentToolUse = handleToolUseEvent(event, currentToolUse, callback)
@@ -909,6 +923,38 @@ func firstBoolField(m map[string]interface{}, keys ...string) bool {
 		}
 	}
 	return false
+}
+
+func kiroReasoningTextFromEvent(event map[string]interface{}) string {
+	raw, ok := event["reasoningText"]
+	if !ok || raw == nil {
+		return ""
+	}
+	switch v := raw.(type) {
+	case string:
+		return v
+	case map[string]interface{}:
+		if text, ok := v["text"].(string); ok {
+			return text
+		}
+		if text, ok := v["Text"].(string); ok {
+			return text
+		}
+	}
+	return ""
+}
+
+func dispatchKiroReasoningContent(callback *KiroStreamCallback, text, signature string) {
+	if callback == nil {
+		return
+	}
+	if callback.OnReasoningContent != nil {
+		callback.OnReasoningContent(text, signature)
+		return
+	}
+	if text != "" && callback.OnText != nil {
+		callback.OnText(text, true)
+	}
 }
 
 // extractEventType extracts the event type string from AWS Event Stream message headers.
