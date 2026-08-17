@@ -33,7 +33,7 @@ deploy/aws/
 ## CFN 自包含特性
 
 CFN 模板已把 `docker-compose.yml`、`Caddyfile`、QA 生命周期 payload 和
-`deploy/aws/stage0/tokenkey-prune-ghcr-app-tags.sh`（经 SSM 下 base64 参数）注入部署路径，EC2 不再外网拉这些文件，**仓库可保持 GitHub 私仓 / 不公开**。其中 `tokenkey-qa-boundary.sh` 是 default-free 小时生命周期 owner；`tokenkey-qa-stale-cleanup.sh` 是 finalize 前的 cutover drain only，不能在 finalize 后启用；`tokenkey-qa-export-orphan.py` 由当前阶段 owner 调用。
+`deploy/aws/stage0/tokenkey-prune-ghcr-app-tags.sh`（经 SSM 下 base64 参数）注入部署路径，EC2 不再外网拉这些文件，**仓库可保持 GitHub 私仓 / 不公开**。`tokenkey-qa-maintenance.sh` 是目标 lifecycle owner；`tokenkey-qa-boundary.sh` 只保留 single-owner 激活前的 provision transition，激活 receipt 存在后永久禁用。
 
 > **必须遵守的规则：** 编辑 `docker-compose.yml`、`Caddyfile`、任一 QA 生命周期 payload 或 `tokenkey-prune-ghcr-app-tags.sh` 之后，运行：
 >
@@ -687,6 +687,8 @@ bash ops/stage0/load_smoke_github_env.sh --check prod
 **首次启用前**必须按 §5 重新部署 `cicd-oidc.yaml` 并为 **`prod`** Environment 配置
 Required reviewers；否则 prod deploy 会在无人把关的情况下继续执行（GitHub 首次引用
 Environment 时会自动创建无门禁的同名 Env）。
+QA Bundle 的 dedicated OIDC role、CloudFormation service role 和 GitHub variable bootstrap 只在
+`ops/qa/README.md` 维护；不要在本部署手册复制第二套值。
 
 回滚也走 dispatch：
 

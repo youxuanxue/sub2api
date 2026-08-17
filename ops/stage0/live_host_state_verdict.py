@@ -15,7 +15,7 @@ WHY THIS EXISTS:
         CFN ImageTag parameter intentionally lags (changing it would REPLACE the
         instance — ImageTag is substituted into UserData);
       - prod-only env (SERVER_FRONTEND_URL, TOKENKEY_GHCR_KEEP_TAGS, the four
-        QA_CAPTURE_EXPORT_STORAGE_* vars) is sed-injected onto the host by
+        QA_BUNDLE_* vars) is injected onto the host by
         deploy_via_ssm.sh, NOT carried in the shared compose (avoids the edge
         14 KiB launch-script limit).
     The decoupling is by design and good — but until now NOTHING watched the live
@@ -26,7 +26,7 @@ WHY THIS EXISTS:
 
 Input (stdin): tagged, field-named JSON lines emitted by the probe:
     RUNIMAGE {"image":"ghcr.io/owner/sub2api:1.8.10"}
-    ENV      {"key":"QA_CAPTURE_EXPORT_STORAGE_DRIVER","value":"s3"}
+    ENV      {"key":"QA_BUNDLE_STORAGE_DRIVER","value":"s3"}
     ENV      {"key":"SERVER_FRONTEND_URL","value":"https://api.tokenkey.dev"}
     RETENTION {"value":"2"}
 (ENV lines are emitted only for keys actually present in the running container;
@@ -59,10 +59,12 @@ import sys
 # into the container, so it is deliberately NOT a container-env assertion here.
 DEFAULT_REQUIRED_ENV = [
     "SERVER_FRONTEND_URL",
-    "QA_CAPTURE_EXPORT_STORAGE_DRIVER",
-    "QA_CAPTURE_EXPORT_STORAGE_REGION",
-    "QA_CAPTURE_EXPORT_STORAGE_BUCKET",
-    "QA_CAPTURE_EXPORT_STORAGE_PREFIX",
+    "QA_BUNDLE_ENABLED",
+    "QA_BUNDLE_QUEUE_URL",
+    "QA_BUNDLE_STORAGE_DRIVER",
+    "QA_BUNDLE_STORAGE_REGION",
+    "QA_BUNDLE_STORAGE_BUCKET",
+    "QA_BUNDLE_STORAGE_PREFIX",
 ]
 
 
@@ -94,7 +96,7 @@ def parse_facts(lines):
     return {"image": image, "env": env, "retention": retention}
 
 
-def compute_drifts(facts, expected_tag=None, required_env=None):
+def compute_drifts(facts, expected_tag=None, required_env=None, expected_env=None):
     """Pure verdict: return a sorted list of human-readable drift strings."""
     required_env = required_env if required_env is not None else DEFAULT_REQUIRED_ENV
     drifts = []
@@ -115,12 +117,21 @@ def compute_drifts(facts, expected_tag=None, required_env=None):
         elif env[key] is None or str(env[key]).strip() == "":
             drifts.append(f"required env present but empty on host: {key}")
 
+    for key, expected in (expected_env or {}).items():
+        observed = env.get(key)
+        if observed is None:
+            drifts.append(f"missing required env on host: {key}")
+        elif str(observed) != expected:
+            drifts.append(
+                f"required env value differs on host: {key} expected={expected!r} observed={str(observed)!r}"
+            )
+
     return sorted(drifts)
 
 
-def _verdict(lines, expected_tag=None, required_env=None):
+def _verdict(lines, expected_tag=None, required_env=None, expected_env=None):
     facts = parse_facts(lines)
-    return compute_drifts(facts, expected_tag=expected_tag, required_env=required_env)
+    return compute_drifts(facts, expected_tag=expected_tag, required_env=required_env, expected_env=expected_env)
 
 
 def _selftest():
@@ -129,10 +140,12 @@ def _selftest():
     clean = [
         'RUNIMAGE {"image":"ghcr.io/o/sub2api:1.8.10"}',
         'ENV {"key":"SERVER_FRONTEND_URL","value":"https://api.tokenkey.dev"}',
-        'ENV {"key":"QA_CAPTURE_EXPORT_STORAGE_DRIVER","value":"s3"}',
-        'ENV {"key":"QA_CAPTURE_EXPORT_STORAGE_REGION","value":"us-east-1"}',
-        'ENV {"key":"QA_CAPTURE_EXPORT_STORAGE_BUCKET","value":"tokenkey-prod-qa-exports-682751977094"}',
-        'ENV {"key":"QA_CAPTURE_EXPORT_STORAGE_PREFIX","value":"traj-exports"}',
+        'ENV {"key":"QA_BUNDLE_ENABLED","value":"true"}',
+        'ENV {"key":"QA_BUNDLE_QUEUE_URL","value":"https://sqs.us-east-1.amazonaws.com/123/tokenkey-prod-qa-bundle"}',
+        'ENV {"key":"QA_BUNDLE_STORAGE_DRIVER","value":"s3"}',
+        'ENV {"key":"QA_BUNDLE_STORAGE_REGION","value":"us-east-1"}',
+        'ENV {"key":"QA_BUNDLE_STORAGE_BUCKET","value":"tokenkey-prod-qa-bundles-123"}',
+        'ENV {"key":"QA_BUNDLE_STORAGE_PREFIX","value":"user-qa"}',
         'RETENTION {"value":"2"}',
     ]
     cases.append(("clean post-deploy → no drift", _verdict(clean, expected_tag="1.8.10"), []))
@@ -143,12 +156,12 @@ def _selftest():
     got = _verdict(rolled, expected_tag="1.8.10")
     cases.append(("tag rollback → drift", bool(got) and "running image tag" in got[0], True))
 
-    # missing QA export env (the 3× incident class)
-    missing = [l for l in clean if "QA_CAPTURE_EXPORT_STORAGE_BUCKET" not in l]
+    # missing QA Bundle env (the 3× incident class)
+    missing = [l for l in clean if "QA_BUNDLE_STORAGE_BUCKET" not in l]
     got = _verdict(missing, expected_tag="1.8.10")
     cases.append((
-        "missing QA bucket env → drift",
-        any("QA_CAPTURE_EXPORT_STORAGE_BUCKET" in d for d in got),
+        "missing QA Bundle bucket env → drift",
+        any("QA_BUNDLE_STORAGE_BUCKET" in d for d in got),
         True,
     ))
 
@@ -182,6 +195,8 @@ def main():
     ap.add_argument("--expected-tag", default=None)
     ap.add_argument("--require-env", default=None,
                     help="comma-separated env keys (default: deploy_via_ssm injection set)")
+    ap.add_argument("--expect-env", default=None,
+                    help="comma-separated KEY=VALUE pairs that must match the running container")
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--print-required", action="store_true",
                     help="print the default required-env keys (one per line) — the "
@@ -201,7 +216,15 @@ def main():
     if args.require_env is not None:
         required_env = [k.strip() for k in args.require_env.split(",") if k.strip()]
 
-    drifts = _verdict(sys.stdin.readlines(), expected_tag=args.expected_tag, required_env=required_env)
+    expected_env = {}
+    if args.expect_env:
+        for item in args.expect_env.split(","):
+            key, separator, value = item.partition("=")
+            if not separator or not key.strip():
+                raise SystemExit(f"invalid --expect-env item: {item!r}")
+            expected_env[key.strip()] = value
+
+    drifts = _verdict(sys.stdin.readlines(), expected_tag=args.expected_tag, required_env=required_env, expected_env=expected_env)
     if not drifts:
         print("OK: live host matches intended state")
         return 0

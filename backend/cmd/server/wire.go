@@ -41,7 +41,10 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		// Business layer ProviderSets
 		repository.ProviderSet,
 		service.ProviderSet,
-		wire.NewSet(qaobs.NewService),
+		wire.NewSet(
+			qaobs.NewService,
+			wire.Bind(new(service.QACaptureHealthSource), new(*qaobs.Service)),
+		),
 		securityaudit.ProviderSet,
 		payment.ProviderSet,
 		middleware.ProviderSet,
@@ -434,12 +437,12 @@ func provideCleanup(
 				return nil
 			}},
 			{"ChannelMonitorV2Aggregator", func() error {
-			if channelMonitorV2Aggregator != nil {
-				channelMonitorV2Aggregator.Stop()
-			}
-			return nil
-		}},
-		{"ChannelMonitorRunner", func() error {
+				if channelMonitorV2Aggregator != nil {
+					channelMonitorV2Aggregator.Stop()
+				}
+				return nil
+			}},
+			{"ChannelMonitorRunner", func() error {
 				if channelMonitorRunner != nil {
 					channelMonitorRunner.Stop()
 				}

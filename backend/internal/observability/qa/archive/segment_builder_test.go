@@ -25,6 +25,9 @@ var segmentColumns = []string{
 	"platform", "provider", "requested_model", "upstream_model", "status_code", "success",
 	"duration_ms", "stream", "input_tokens", "output_tokens", "request_sha256", "response_sha256",
 	"blob_uri", "request_blob_uri", "response_blob_uri", "stream_blob_uri", "capture_status", "created_at",
+	"channel_type", "inbound_endpoint", "upstream_endpoint", "first_token_ms",
+	"tool_calls_present", "multimodal_present", "cached_tokens", "redaction_version", "tags_json",
+	"synth_session_id", "synth_role", "synth_engineer_level", "dialog_synth",
 }
 
 func TestBuildSegmentPaginatesToMode0600Files(t *testing.T) {
@@ -50,6 +53,9 @@ func TestBuildSegmentPaginatesToMode0600Files(t *testing.T) {
 			"req-1", nil, int64(1), nil, int64(2), nil, "anthropic", nil, "claude", nil,
 			200, true, int64(10), false, 1, 2, "a", "b",
 			nil, "file://"+requestBlob, "file://"+responseBlob, nil, "captured", windowStart.Add(time.Minute),
+			5, "/v1/messages", "https://upstream.example/v1/messages", int64(123),
+			true, false, 7, "logredact-v2", `["training"]`,
+			"session-1", "user-simulator", "senior", true,
 		))
 	mock.ExpectQuery(query).
 		WithArgs(windowStart, windowEnd, windowStart.Add(time.Minute), "req-1", 1).
@@ -57,6 +63,7 @@ func TestBuildSegmentPaginatesToMode0600Files(t *testing.T) {
 			"req-2", nil, int64(1), nil, int64(2), nil, "anthropic", nil, "claude", nil,
 			200, true, int64(20), false, 3, 4, "c", "d",
 			nil, nil, nil, nil, "captured", windowStart.Add(2*time.Minute),
+			nil, "", nil, nil, false, false, 0, "logredact-v2", `[]`, nil, nil, nil, false,
 		))
 	mock.ExpectQuery(query).
 		WithArgs(windowStart, windowEnd, windowStart.Add(2*time.Minute), "req-2", 1).
@@ -109,6 +116,17 @@ func TestBuildSegmentPaginatesToMode0600Files(t *testing.T) {
 	_ = recordFile.Close()
 	if n != 2 || rows[0].RequestID != "req-1" || rows[1].RequestID != "req-2" {
 		t.Fatalf("parquet rows=%+v n=%d", rows, n)
+	}
+	if rows[0].ChannelType == nil || *rows[0].ChannelType != 5 ||
+		rows[0].InboundEndpoint == nil || *rows[0].InboundEndpoint != "/v1/messages" || rows[0].UpstreamEndpoint == nil ||
+		*rows[0].UpstreamEndpoint != "https://upstream.example/v1/messages" ||
+		rows[0].FirstTokenMS == nil || *rows[0].FirstTokenMS != 123 ||
+		rows[0].ToolCallsPresent == nil || !*rows[0].ToolCallsPresent ||
+		rows[0].MultimodalPresent == nil || *rows[0].MultimodalPresent ||
+		rows[0].CachedTokens == nil || *rows[0].CachedTokens != 7 ||
+		rows[0].TagsJSON == nil || *rows[0].TagsJSON != `["training"]` || rows[0].SynthSessionID == nil ||
+		*rows[0].SynthSessionID != "session-1" || rows[0].DialogSynth == nil || !*rows[0].DialogSynth {
+		t.Fatalf("parquet detail projection=%+v", rows[0])
 	}
 
 	identityFile, err := os.Open(built.IdentityPath)
@@ -217,6 +235,7 @@ func TestBuildSegmentRejectsEvidencePathOutsideBlobRoot(t *testing.T) {
 			"req-escape", nil, int64(1), nil, int64(2), nil, "anthropic", nil, "claude", nil,
 			200, true, int64(10), false, 1, 2, "a", "b",
 			nil, "file://"+outside, nil, nil, "captured", start.Add(time.Minute),
+			nil, "", nil, nil, false, false, 0, "logredact-v2", `[]`, nil, nil, nil, false,
 		))
 	mock.ExpectQuery(regexp.QuoteMeta("FROM qa_records q")).
 		WithArgs(start, start.Add(time.Hour), start.Add(time.Minute), "req-escape", 100).
@@ -244,6 +263,7 @@ func TestBuildSegmentMissingEvidenceFailsAndRemovesScratch(t *testing.T) {
 			"req-missing", nil, int64(1), nil, int64(2), nil, "anthropic", nil, "claude", nil,
 			200, true, int64(10), false, 1, 2, "a", "b",
 			nil, "file:///does/not/exist", nil, nil, "captured", start.Add(time.Minute),
+			nil, "", nil, nil, false, false, 0, "logredact-v2", `[]`, nil, nil, nil, false,
 		))
 
 	scratch := t.TempDir()

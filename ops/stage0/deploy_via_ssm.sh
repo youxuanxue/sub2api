@@ -121,19 +121,21 @@ params_file="${OUTPUT_DIR}/ssm-params.json"
 stdout_file="${OUTPUT_DIR}/stdout.txt"
 stderr_file="${OUTPUT_DIR}/stderr.txt"
 
-# --- QA trajectory export → durable S3 (prod-only) ---------------------------
+# --- QA Bundle user surface (prod-only) --------------------------------------
 # Same mechanism as the SERVER_FRONTEND_URL backfill below: additive, guarded
 # (`grep -q`), idempotent .env + compose-mapping patches on a LIVE host, re-applied
-# on every deploy. The 4 QA_CAPTURE_EXPORT_STORAGE_* vars (~588 B) are deliberately
+# on every deploy. The QA Bundle runtime vars are deliberately
 # NOT in the shared stage0 compose — that file is also embedded in the edge
 # Lightsail launch script, which sits ~46 B under Lightsail's 16 KB user-data cap,
 # so adding them there breaks edge provisioning. Edges are pure cc-relay mirrors
 # that never capture/export QA trajectories, so they have no use for this config.
 # Gate on the prod signal (EC2 `i-*`; every edge is a Lightsail `mi-*`) → edges get
 # an empty array, i.e. a byte-identical command list to before this change.
-# Credentials stay EMPTY on purpose: the prod instance role + the qa-exports bucket
-# policy (Principal = prod InstanceRole ARN) grant s3:PutObject, so no static keys
-# ever land in .env. Values are env-overridable but default to the prod bucket.
+# Credentials stay EMPTY on purpose: the dedicated QA Bundle bucket policy names
+# the prod InstanceRole ARN, so no static keys ever land in .env. Bundle coordinates
+# are supplied only by the canonical deploy workflow from verified CloudFormation
+# outputs; this legacy path preserves host values and fails closed if an enabled
+# Bundle is incomplete.
 # Lifecycle owner: docs/approved/design-prod-qa-24h-s3-lifecycle.md.
 #
 # Compose insertion anchors on the tokenkey service's SERVER_FRONTEND_URL line, NOT
@@ -143,28 +145,39 @@ stderr_file="${OUTPUT_DIR}/stderr.txt"
 # 1.8.11 prod deploy did exactly that; the host compose was de-duplicated out of band.
 # SERVER_FRONTEND_URL is unique to the tokenkey service and is guaranteed present by
 # the SERVER_FRONTEND_URL backfill below, which runs earlier in this command list.
-qa_export_cmds='[]'
+qa_bundle_cmds='[]'
 if [[ "${INSTANCE_ID}" == i-* ]]; then
-  qa_export_cmds="$(jq -n \
+  qa_bundle_cmds="$(jq -n \
     --arg tag "${TAG}" \
-    --arg driver "${QA_CAPTURE_EXPORT_STORAGE_DRIVER:-s3}" \
-    --arg region "${QA_CAPTURE_EXPORT_STORAGE_REGION:-us-east-1}" \
-    --arg bucket "${QA_CAPTURE_EXPORT_STORAGE_BUCKET:-tokenkey-prod-qa-exports-682751977094}" \
-    --arg prefix "${QA_CAPTURE_EXPORT_STORAGE_PREFIX:-traj-exports}" '
+    --arg enabled "${QA_BUNDLE_ENABLED-}" \
+    --arg queue_url "${QA_BUNDLE_QUEUE_URL-}" \
+    --arg driver "${QA_BUNDLE_STORAGE_DRIVER-}" \
+    --arg region "${QA_BUNDLE_STORAGE_REGION-}" \
+    --arg bucket "${QA_BUNDLE_STORAGE_BUCKET-}" \
+    --arg prefix "${QA_BUNDLE_STORAGE_PREFIX-}" \
+    --argjson enabled_set "$([[ -n "${QA_BUNDLE_ENABLED+x}" ]] && echo true || echo false)" \
+    --argjson queue_url_set "$([[ -n "${QA_BUNDLE_QUEUE_URL+x}" ]] && echo true || echo false)" \
+    --argjson driver_set "$([[ -n "${QA_BUNDLE_STORAGE_DRIVER+x}" ]] && echo true || echo false)" \
+    --argjson region_set "$([[ -n "${QA_BUNDLE_STORAGE_REGION+x}" ]] && echo true || echo false)" \
+    --argjson bucket_set "$([[ -n "${QA_BUNDLE_STORAGE_BUCKET+x}" ]] && echo true || echo false)" \
+    --argjson prefix_set "$([[ -n "${QA_BUNDLE_STORAGE_PREFIX+x}" ]] && echo true || echo false)" '
     [
-      ( "qa_d=" + ($driver|@sh) + "; qa_r=" + ($region|@sh) + "; qa_b=" + ($bucket|@sh) + "; qa_p=" + ($prefix|@sh)
-        + "; for kv in \"DRIVER=$qa_d\" \"REGION=$qa_r\" \"BUCKET=$qa_b\" \"PREFIX=$qa_p\"; do"
-        + " key=\"QA_CAPTURE_EXPORT_STORAGE_${kv%%=*}\"; val=\"${kv#*=}\";"
-        + " if ! grep -q \"^${key}=\" /var/lib/tokenkey/.env; then echo \"${key}=${val}\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured ${key}\";"
-        + " else echo \"${key} already present\"; fi; done" ),
+      ( "qa_en=" + ($enabled|@sh) + "; qa_q=" + ($queue_url|@sh) + "; qa_d=" + ($driver|@sh) + "; qa_r=" + ($region|@sh) + "; qa_b=" + ($bucket|@sh) + "; qa_p=" + ($prefix|@sh)
+        + "; qa_en_set=" + ($enabled_set|tostring) + "; qa_q_set=" + ($queue_url_set|tostring) + "; qa_d_set=" + ($driver_set|tostring) + "; qa_r_set=" + ($region_set|tostring) + "; qa_b_set=" + ($bucket_set|tostring) + "; qa_p_set=" + ($prefix_set|tostring)
+        + "; for kv in \"ENABLED=$qa_en\" \"QUEUE_URL=$qa_q\" \"STORAGE_DRIVER=$qa_d\" \"STORAGE_REGION=$qa_r\" \"STORAGE_BUCKET=$qa_b\" \"STORAGE_PREFIX=$qa_p\"; do"
+        + " key=\"QA_BUNDLE_${kv%%=*}\"; val=\"${kv#*=}\";"
+        + " case \"$key\" in QA_BUNDLE_ENABLED) supplied=$qa_en_set;; QA_BUNDLE_QUEUE_URL) supplied=$qa_q_set;; QA_BUNDLE_STORAGE_DRIVER) supplied=$qa_d_set;; QA_BUNDLE_STORAGE_REGION) supplied=$qa_r_set;; QA_BUNDLE_STORAGE_BUCKET) supplied=$qa_b_set;; *) supplied=$qa_p_set;; esac;"
+        + " if [ \"$supplied\" = true ]; then if grep -q \"^${key}=\" /var/lib/tokenkey/.env; then sudo sed -i \"s|^${key}=.*|${key}=${val}|\" /var/lib/tokenkey/.env; else echo \"${key}=${val}\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; fi; echo \"applied desired ${key}\";"
+        + " else echo \"${key} not supplied; preserving existing host value\"; fi; done;"
+        + " if grep -q \"^QA_BUNDLE_ENABLED=true$\" /var/lib/tokenkey/.env; then for key in QA_BUNDLE_QUEUE_URL QA_BUNDLE_STORAGE_DRIVER QA_BUNDLE_STORAGE_REGION QA_BUNDLE_STORAGE_BUCKET QA_BUNDLE_STORAGE_PREFIX; do if ! grep -q \"^${key}=.\" /var/lib/tokenkey/.env; then echo \"${key} is required when QA_BUNDLE_ENABLED=true\" >&2; exit 1; fi; done; fi" ),
       ( "CF=/var/lib/tokenkey/docker-compose.yml; if [ -f \"$CF\" ]; then miss=0;"
-        + " for k in DRIVER REGION BUCKET PREFIX; do grep -q \"QA_CAPTURE_EXPORT_STORAGE_${k}=\" \"$CF\" || miss=1; done;"
-        + " if [ \"$miss\" = 1 ]; then sudo cp -a \"$CF\" \"$CF.qa-export-before-" + $tag + "\";"
-        + " for k in PREFIX BUCKET REGION DRIVER; do key=\"QA_CAPTURE_EXPORT_STORAGE_$k\";"
+        + " for k in ENABLED QUEUE_URL STORAGE_DRIVER STORAGE_REGION STORAGE_BUCKET STORAGE_PREFIX; do grep -q \"QA_BUNDLE_${k}=\" \"$CF\" || miss=1; done;"
+        + " if [ \"$miss\" = 1 ]; then sudo cp -a \"$CF\" \"$CF.qa-bundle-before-" + $tag + "\";"
+        + " for k in STORAGE_PREFIX STORAGE_BUCKET STORAGE_REGION STORAGE_DRIVER QUEUE_URL ENABLED; do key=\"QA_BUNDLE_$k\";"
         + " grep -q \"${key}=\" \"$CF\" || sudo sed -i '\''/^      - SERVER_FRONTEND_URL=/a\\      - '\''\"$key\"'\''=${'\''\"$key\"'\'':-}'\'' \"$CF\"; done;"
-        + " if grep -q QA_CAPTURE_EXPORT_STORAGE_DRIVER \"$CF\"; then echo ensured-compose-QA_CAPTURE_EXPORT_STORAGE-mappings;"
-        + " else echo '\''::warning::failed to insert compose QA_CAPTURE_EXPORT_STORAGE mappings'\''; fi;"
-        + " else echo compose-QA_CAPTURE_EXPORT_STORAGE-mappings-present; fi; fi" )
+        + " if grep -q QA_BUNDLE_STORAGE_DRIVER \"$CF\"; then echo ensured-compose-QA_BUNDLE-mappings;"
+        + " else echo '\''::warning::failed to insert compose QA_BUNDLE mappings'\''; fi;"
+        + " else echo compose-QA_BUNDLE-mappings-present; fi; fi" )
     ]')"
 fi
 
@@ -297,7 +310,7 @@ if [[ "${INSTANCE_ID}" == i-* ]]; then
     ]')"
 fi
 
-jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_export_cmds}" --argjson qa_archive_cmds "${qa_archive_cmds}" --argjson media_cmds "${media_storage_cmds}" --argjson ic_cmds "${image_concurrency_cmds}" --argjson edge_qa_cmds "${edge_qa_capture_cmds}" '{
+jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_bundle_cmds}" --argjson qa_archive_cmds "${qa_archive_cmds}" --argjson media_cmds "${media_storage_cmds}" --argjson ic_cmds "${image_concurrency_cmds}" --argjson edge_qa_cmds "${edge_qa_capture_cmds}" '{
   commands: ([
     "set -euo pipefail",
     ("echo === deploy stage0 to tag=" + $tag + " ==="),

@@ -144,16 +144,16 @@
       "path": "backend/internal/observability/qa/lifecycle/boundary.go",
       "must_contain": [
         "RunProvision(",
-        "DropExpiredHour(",
-        "RunBoundary(",
+        "DropCommittedHour(",
+        "ResumePendingHotCleanups(",
         "MaintenanceLockID",
-        "PersistBoundaryTerminalGap"
+        "InspectCatchupHourTx"
       ],
       "must_not_contain": [
         "RehomeDefaultMonthly",
         "_rehome_staging"
       ],
-      "rationale": "The *:00 QA lifecycle boundary owner provisions future hourly partitions, drops expired catalog bounds, and records terminal gaps before DROP. Rehome/staging symbols here would bypass the hourly-only steady-state contract."
+      "rationale": "The QA lifecycle library provisions future hourly partitions and exposes maintenance-only committed-hour DROP plus bounded post-DROP cleanup recovery. Rehome/staging or fixed-age boundary symbols here would bypass the capture-seal, raw-commit, restore-verification, and lock-time recheck contract."
     },
     {
       "path": "backend/internal/handler/admin/dashboard_snapshot_v2_handler.go",

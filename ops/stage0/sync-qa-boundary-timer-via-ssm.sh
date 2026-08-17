@@ -15,16 +15,12 @@ REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
 [[ "${DRAIN_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]] || { echo "QA_SYNC_DRAIN_TIMEOUT_SECONDS must be a positive integer" >&2; exit 1; }
 case "${TIMER_STATE}" in
   disabled)
-    owner_command="sudo systemctl disable --now tokenkey-qa-boundary.timer"
+    owner_command="qa_apply_requested_owner"
     boundary_active=inactive
     ;;
-  enabled)
-    owner_command="sudo bash -c 'set -euo pipefail; rollback() { local rc=\$?; trap - ERR; systemctl disable --now tokenkey-qa-stale-cleanup.timer || true; systemctl enable --now tokenkey-qa-boundary.timer || true; return \"\${rc}\"; }; trap rollback ERR; finalize_count=\$(docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 -c \"SELECT count(*) FROM qa_lifecycle_receipts f JOIN qa_lifecycle_receipts a ON a.t0_utc=f.t0_utc AND a.phase=concat(chr(97),chr(99),chr(116),chr(105),chr(118),chr(97),chr(116),chr(101)) WHERE f.phase=concat(chr(102),chr(105),chr(110),chr(97),chr(108),chr(105),chr(122),chr(101))\" | tr -d \"[:space:]\"); test \"\${finalize_count}\" = 1; systemctl disable --now tokenkey-qa-stale-cleanup.timer; systemctl enable --now tokenkey-qa-boundary.timer; test \"\$(systemctl is-enabled tokenkey-qa-boundary.timer)\" = enabled; test \"\$(systemctl is-active tokenkey-qa-boundary.timer)\" = active; test \"\$(systemctl is-enabled tokenkey-qa-stale-cleanup.timer)\" = disabled; test \"\$(systemctl is-active tokenkey-qa-stale-cleanup.timer)\" = inactive; trap - ERR'"
-    boundary_active=active
-    ;;
-  auto)
-    owner_command="sudo bash -c 'set -euo pipefail; counts=\$(docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -F : -v ON_ERROR_STOP=1 -c \"SELECT (SELECT count(*) FROM qa_lifecycle_receipts WHERE phase=concat(chr(97),chr(99),chr(116),chr(105),chr(118),chr(97),chr(116),chr(101))), (SELECT count(*) FROM qa_lifecycle_receipts f JOIN qa_lifecycle_receipts a ON a.t0_utc=f.t0_utc AND a.phase=concat(chr(97),chr(99),chr(116),chr(105),chr(118),chr(97),chr(116),chr(101)) WHERE f.phase=concat(chr(102),chr(105),chr(110),chr(97),chr(108),chr(105),chr(122),chr(101)))\" | tr -d \"[:space:]\"); case \"\${counts}\" in 0:0) systemctl disable --now tokenkey-qa-boundary.timer; test \"\$(systemctl is-enabled tokenkey-qa-boundary.timer)\" = disabled; test \"\$(systemctl is-active tokenkey-qa-boundary.timer)\" = inactive ;; 1:0) systemctl disable --now tokenkey-qa-boundary.timer; test \"\$(systemctl is-enabled tokenkey-qa-boundary.timer)\" = disabled; test \"\$(systemctl is-active tokenkey-qa-boundary.timer)\" = inactive; test \"\$(systemctl is-enabled tokenkey-qa-stale-cleanup.timer)\" = enabled; test \"\$(systemctl is-active tokenkey-qa-stale-cleanup.timer)\" = active ;; 1:1) systemctl disable --now tokenkey-qa-stale-cleanup.timer; systemctl enable --now tokenkey-qa-boundary.timer; test \"\$(systemctl is-enabled tokenkey-qa-boundary.timer)\" = enabled; test \"\$(systemctl is-active tokenkey-qa-boundary.timer)\" = active; test \"\$(systemctl is-enabled tokenkey-qa-stale-cleanup.timer)\" = disabled; test \"\$(systemctl is-active tokenkey-qa-stale-cleanup.timer)\" = inactive ;; *) echo \"invalid QA lifecycle receipt counts: \${counts}\" >&2; exit 1 ;; esac'"
-    boundary_active=auto
+  enabled|auto)
+    owner_command="qa_apply_requested_owner"
+    boundary_active=receipt-aware
     ;;
   *)
     echo "QA_BOUNDARY_TIMER_STATE must be disabled, enabled, or auto" >&2
@@ -39,14 +35,12 @@ else
   ARTIFACT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 fi
 BOUNDARY_SRC="${ARTIFACT_ROOT}/deploy/aws/stage0/tokenkey-qa-boundary.sh"
-HELPER_SRC="${ARTIFACT_ROOT}/deploy/aws/stage0/tokenkey-qa-export-orphan.py"
 RESOLVER_SRC="${ARTIFACT_ROOT}/ops/lib/resolve-app-container.sh"
-for source in "${BOUNDARY_SRC}" "${HELPER_SRC}" "${RESOLVER_SRC}"; do
+for source in "${BOUNDARY_SRC}" "${RESOLVER_SRC}"; do
   [[ -f "${source}" ]] || { echo "missing ${source}" >&2; exit 1; }
 done
 
 boundary_payload="$(gzip -9n -c "${BOUNDARY_SRC}" | base64 | tr -d '\n')"
-helper_payload="$(gzip -9n -c "${HELPER_SRC}" | base64 | tr -d '\n')"
 resolver_payload="$(gzip -9n -c "${RESOLVER_SRC}" | base64 | tr -d '\n')"
 artifact_sha="${QA_HOST_ARTIFACT_SHA:-${GITHUB_SHA:-local}}"
 mkdir -p "${OUTPUT_DIR}"
@@ -56,7 +50,6 @@ stderr="${OUTPUT_DIR}/stderr.txt"
 
 jq -n \
   --arg boundary "${boundary_payload}" \
-  --arg helper "${helper_payload}" \
   --arg resolver "${resolver_payload}" \
   --arg owner_command "${owner_command}" \
   --arg timer_state "${TIMER_STATE}" \
@@ -76,25 +69,24 @@ jq -n \
     );
   {commands:[
     "set -euo pipefail",
-    "qa_finalized=$(docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 -c \"SELECT count(*) FROM qa_lifecycle_receipts f JOIN qa_lifecycle_receipts a ON a.t0_utc=f.t0_utc AND a.phase=concat(chr(97),chr(99),chr(116),chr(105),chr(118),chr(97),chr(116),chr(101)) WHERE f.phase=concat(chr(102),chr(105),chr(110),chr(97),chr(108),chr(105),chr(122),chr(101))\" | tr -d \"[:space:]\"); case \"${qa_finalized}\" in 0|1) ;; *) echo \"invalid finalized receipt count: ${qa_finalized}\" >&2; exit 1 ;; esac; if sudo systemctl is-enabled --quiet tokenkey-qa-boundary.timer; then qa_boundary_enabled=1; else qa_boundary_enabled=0; fi; if sudo systemctl is-active --quiet tokenkey-qa-boundary.timer; then qa_boundary_active=1; else qa_boundary_active=0; fi; if sudo systemctl is-enabled --quiet tokenkey-qa-stale-cleanup.timer; then qa_legacy_enabled=1; else qa_legacy_enabled=0; fi; if sudo systemctl is-active --quiet tokenkey-qa-stale-cleanup.timer; then qa_legacy_active=1; else qa_legacy_active=0; fi; qa_sync_committed=0; qa_sync_restore() { qa_sync_rc=$?; trap - EXIT; if [ \"${qa_sync_committed}\" != 1 ]; then if [ \"${qa_finalized}\" = 1 ]; then sudo systemctl enable tokenkey-qa-boundary.timer >/dev/null 2>&1 || true; sudo systemctl start tokenkey-qa-boundary.timer >/dev/null 2>&1 || true; sudo systemctl disable tokenkey-qa-stale-cleanup.timer >/dev/null 2>&1 || true; sudo systemctl stop tokenkey-qa-stale-cleanup.timer >/dev/null 2>&1 || true; else if [ \"${qa_boundary_enabled}\" = 1 ]; then sudo systemctl enable tokenkey-qa-boundary.timer >/dev/null 2>&1 || true; else sudo systemctl disable tokenkey-qa-boundary.timer >/dev/null 2>&1 || true; fi; if [ \"${qa_boundary_active}\" = 1 ]; then sudo systemctl start tokenkey-qa-boundary.timer >/dev/null 2>&1 || true; else sudo systemctl stop tokenkey-qa-boundary.timer >/dev/null 2>&1 || true; fi; if [ \"${qa_legacy_enabled}\" = 1 ]; then sudo systemctl enable tokenkey-qa-stale-cleanup.timer >/dev/null 2>&1 || true; else sudo systemctl disable tokenkey-qa-stale-cleanup.timer >/dev/null 2>&1 || true; fi; if [ \"${qa_legacy_active}\" = 1 ]; then sudo systemctl start tokenkey-qa-stale-cleanup.timer >/dev/null 2>&1 || true; else sudo systemctl stop tokenkey-qa-stale-cleanup.timer >/dev/null 2>&1 || true; fi; fi; fi; exit \"${qa_sync_rc}\"; }; trap qa_sync_restore EXIT",
+    "sudo install -d -m 0755 /run/lock; exec 9>/run/lock/tokenkey-qa-lifecycle.lock; flock -x 9",
+    ("qa_requested_timer_state=" + ($timer_state | @sh) + "; qa_query_single_owner() { local active; if ! active=$(docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 -c \"SELECT count(*) FROM qa_lifecycle_receipts WHERE phase=concat(chr(115),chr(105),chr(110),chr(103),chr(108),chr(101),chr(95),chr(111),chr(119),chr(110),chr(101),chr(114),chr(95),chr(97),chr(99),chr(116),chr(105),chr(118),chr(97),chr(116),chr(101))\" | tr -d \"[:space:]\"); then echo \"single-owner activation receipt query failed\" >&2; return 1; fi; case \"${active}\" in 0|1) printf \"%s\\n\" \"${active}\" ;; *) echo \"invalid single-owner activation receipt count: ${active}\" >&2; return 1 ;; esac; }; qa_boundary_disabled_inactive() { local enabled active; if enabled=$(sudo systemctl is-enabled tokenkey-qa-boundary.timer 2>/dev/null); then :; else :; fi; if active=$(sudo systemctl is-active tokenkey-qa-boundary.timer 2>/dev/null); then :; else :; fi; [ \"${enabled}\" = disabled ] && [ \"${active}\" = inactive ]; }; qa_force_boundary_disabled() { if ! sudo systemctl disable --now tokenkey-qa-boundary.timer; then echo \"failed to disable QA boundary timer\" >&2; return 1; fi; if ! qa_boundary_disabled_inactive; then echo \"QA boundary timer is not verified disabled and inactive\" >&2; return 1; fi; }; qa_require_pre_activation() { local active; if ! active=$(qa_query_single_owner); then if qa_force_boundary_disabled; then :; else echo \"failed to force QA boundary disabled after receipt query failure\" >&2; fi; return 1; fi; if [ \"${active}\" != 0 ]; then if qa_force_boundary_disabled; then :; else echo \"failed to force activated QA boundary disabled\" >&2; fi; return 1; fi; }; qa_restore_enabled_state() { if ! qa_require_pre_activation; then return 1; fi; if [ \"${qa_boundary_enabled}\" = 1 ]; then if ! sudo systemctl enable tokenkey-qa-boundary.timer; then qa_force_boundary_disabled; return 1; fi; if ! sudo systemctl is-enabled --quiet tokenkey-qa-boundary.timer; then qa_force_boundary_disabled; return 1; fi; else if ! sudo systemctl disable tokenkey-qa-boundary.timer; then qa_force_boundary_disabled; return 1; fi; local enabled; if enabled=$(sudo systemctl is-enabled tokenkey-qa-boundary.timer 2>/dev/null); then :; else :; fi; if [ \"${enabled}\" != disabled ]; then qa_force_boundary_disabled; return 1; fi; fi; }; qa_restore_active_state() { if ! qa_require_pre_activation; then return 1; fi; if [ \"${qa_boundary_active}\" = 1 ]; then if ! sudo systemctl start tokenkey-qa-boundary.timer; then qa_force_boundary_disabled; return 1; fi; if ! sudo systemctl is-active --quiet tokenkey-qa-boundary.timer; then qa_force_boundary_disabled; return 1; fi; else if ! sudo systemctl stop tokenkey-qa-boundary.timer; then qa_force_boundary_disabled; return 1; fi; local active; if active=$(sudo systemctl is-active tokenkey-qa-boundary.timer 2>/dev/null); then :; else :; fi; if [ \"${active}\" != inactive ]; then qa_force_boundary_disabled; return 1; fi; fi; }; qa_apply_requested_owner() { local active; if ! active=$(qa_query_single_owner); then if qa_force_boundary_disabled; then :; else echo \"failed to force QA boundary disabled after owner query failure\" >&2; fi; return 1; fi; case \"${active}\" in 1) qa_force_boundary_disabled ;; 0) case \"${qa_requested_timer_state}\" in disabled) qa_force_boundary_disabled ;; enabled|auto) if ! sudo systemctl enable --now tokenkey-qa-boundary.timer; then qa_force_boundary_disabled; return 1; fi; if ! sudo systemctl is-enabled --quiet tokenkey-qa-boundary.timer || ! sudo systemctl is-active --quiet tokenkey-qa-boundary.timer; then qa_force_boundary_disabled; return 1; fi ;; esac ;; esac; }; if sudo systemctl is-enabled --quiet tokenkey-qa-boundary.timer; then qa_boundary_enabled=1; else qa_boundary_enabled=0; fi; if sudo systemctl is-active --quiet tokenkey-qa-boundary.timer; then qa_boundary_active=1; else qa_boundary_active=0; fi; if ! qa_single_owner_active=$(qa_query_single_owner); then if qa_force_boundary_disabled; then :; else echo \"failed to force QA boundary disabled after initial receipt query failure\" >&2; fi; exit 1; fi; if [ \"${qa_single_owner_active}\" = 1 ]; then qa_force_boundary_disabled; fi; qa_sync_committed=0; qa_sync_restore() { local qa_sync_rc=$?; trap - EXIT; if [ \"${qa_sync_committed}\" != 1 ]; then local active; if ! active=$(qa_query_single_owner); then if qa_force_boundary_disabled; then :; else echo \"failed to force QA boundary disabled during uncertain restore\" >&2; fi; exit 1; fi; if [ \"${active}\" = 1 ]; then if ! qa_force_boundary_disabled; then exit 1; fi; else if ! qa_restore_enabled_state || ! qa_restore_active_state; then exit 1; fi; fi; fi; exit \"${qa_sync_rc}\"; }; trap qa_sync_restore EXIT"),
     "if sudo systemctl list-unit-files tokenkey-qa-boundary.timer --no-legend 2>/dev/null | grep -q \"^tokenkey-qa-boundary[.]timer\"; then sudo systemctl disable --now tokenkey-qa-boundary.timer; fi",
     ("qa_sync_deadline=$(( $(date +%s) + " + ($drain_timeout | tostring) + " )); while sudo systemctl is-active --quiet tokenkey-qa-boundary.service; do if [ \"$(date +%s)\" -ge \"${qa_sync_deadline}\" ]; then echo \"timeout draining tokenkey-qa-boundary.service\" >&2; exit 1; fi; sleep 2; done"),
     "! sudo systemctl is-active --quiet tokenkey-qa-boundary.service",
     atomic_install($resolver; "/usr/local/lib/tokenkey/resolve-app-container.sh"; "0644"),
-    atomic_install($helper; "/usr/local/lib/tokenkey/qa-export-orphan.py"; "0755"),
     atomic_install($boundary; "/usr/local/bin/tokenkey-qa-boundary.sh"; "0755"),
     "sudo test -d /var/lib/tokenkey/app/qa_blobs",
     "sudo test -d /var/lib/tokenkey/app/qa_dlq",
-    "sudo test -d /var/lib/tokenkey/app/qa_exports_tmp",
     "sudo /usr/local/bin/tokenkey-qa-boundary.sh --install-units",
     "sudo systemctl daemon-reload",
     $owner_command,
-    (if $timer_state == "auto" then empty else
+    (if $timer_state == "disabled" then
       "test \"$(sudo systemctl is-enabled tokenkey-qa-boundary.timer)\" = \"" + $timer_state + "\""
-    end),
-    (if $timer_state == "auto" then empty else
+    else empty end),
+    (if $timer_state == "disabled" then
       "test \"$(sudo systemctl is-active tokenkey-qa-boundary.timer)\" = \"" + $boundary_active + "\""
-    end),
+    else empty end),
     "qa_sync_committed=1",
     "trap - EXIT",
     ("echo Live qa-boundary units now match deploy/aws@" + $artifact_sha + " timer=" + $timer_state + " on $(hostname)")

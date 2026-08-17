@@ -84,6 +84,19 @@ func TestQAHourlyCutoverFinalizeReceiptRequiresMatchingActivationT0(t *testing.T
 	require.NoError(t, err)
 }
 
+func TestQASingleOwnerActivationReceiptIsAppendOnly(t *testing.T) {
+	tx := testTx(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)
+
+	_, err := tx.ExecContext(ctx, `
+INSERT INTO qa_lifecycle_receipts (phase,plan_hash,t0_utc)
+VALUES ('single_owner_activate',$1,$2)`, strings.Repeat("b", 64), t0)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, `DELETE FROM qa_lifecycle_receipts WHERE phase='single_owner_activate'`)
+	require.Error(t, err)
+}
+
 func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	tx := testTx(t)
 

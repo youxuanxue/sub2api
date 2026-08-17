@@ -22,6 +22,9 @@ require_value APP_INSTANCE_ROLE_ARN "${APP_INSTANCE_ROLE_ARN:-}"
 require_value OPS_RECOVERY_PRINCIPAL_ARN "${OPS_RECOVERY_PRINCIPAL_ARN:-}"
 require_value QA_RAW_ARCHIVE_VPC_ID "${QA_RAW_ARCHIVE_VPC_ID:-}"
 require_value QA_RAW_ARCHIVE_ROUTE_TABLE_IDS "${QA_RAW_ARCHIVE_ROUTE_TABLE_IDS:-}"
+require_value QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS "${QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS:-}"
+require_value QA_BUNDLE_WORKER_IMAGE "${QA_BUNDLE_WORKER_IMAGE:-}"
+require_value QA_BUNDLE_BROWSER_ALLOWED_ORIGIN "${QA_BUNDLE_BROWSER_ALLOWED_ORIGIN:-}"
 
 role_pattern='^arn:[a-z0-9-]+:iam::[0-9]{12}:role/.+$'
 principal_pattern='^arn:[a-z0-9-]+:iam::[0-9]{12}:(user|role)/.+$'
@@ -37,6 +40,16 @@ if [[ ! "${QA_RAW_ARCHIVE_VPC_ID}" =~ ^vpc-[0-9a-f]+$ ]]; then
   echo "QA_RAW_ARCHIVE_VPC_ID is not a VPC ID" >&2
   exit 1
 fi
+image_pattern='^.+(@sha256:[a-f0-9]{64}|:[A-Za-z0-9][A-Za-z0-9._-]*)$'
+if [[ "${QA_BUNDLE_WORKER_IMAGE}" == *:latest || ! "${QA_BUNDLE_WORKER_IMAGE}" =~ ${image_pattern} ]]; then
+  echo "QA_BUNDLE_WORKER_IMAGE must be an immutable release tag or sha256 digest" >&2
+  exit 1
+fi
+origin_pattern='^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?$'
+if [[ ! "${QA_BUNDLE_BROWSER_ALLOWED_ORIGIN}" =~ ${origin_pattern} ]]; then
+  echo "QA_BUNDLE_BROWSER_ALLOWED_ORIGIN must be one exact HTTPS origin" >&2
+  exit 1
+fi
 IFS=',' read -r -a route_tables <<<"${QA_RAW_ARCHIVE_ROUTE_TABLE_IDS}"
 if [ "${#route_tables[@]}" -eq 0 ]; then
   echo "QA_RAW_ARCHIVE_ROUTE_TABLE_IDS is empty" >&2
@@ -48,11 +61,19 @@ for route_table in "${route_tables[@]}"; do
     exit 1
   fi
 done
+IFS=',' read -r -a worker_subnets <<<"${QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS}"
+for worker_subnet in "${worker_subnets[@]}"; do
+  if [[ ! "${worker_subnet}" =~ ^subnet-[0-9a-f]+$ ]]; then
+    echo "QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS contains invalid ID: ${worker_subnet}" >&2
+    exit 1
+  fi
+done
 account_id=$(aws sts get-caller-identity --query Account --output text)
 raw_bucket="${PROJECT}-${ENVIRONMENT}-qa-raw-archive-${account_id}"
 key_alias="alias/${PROJECT}-${ENVIRONMENT}-qa-raw-archive"
 trail_name="${PROJECT}-${ENVIRONMENT}-qa-raw-data-events"
 audit_bucket="${PROJECT}-${ENVIRONMENT}-qa-raw-audit-${account_id}"
+bundle_bucket="${PROJECT}-${ENVIRONMENT}-qa-bundles-${account_id}"
 
 change_type=UPDATE
 if recovery_role=$(aws cloudformation describe-stacks \
@@ -80,16 +101,19 @@ printf '  recovery_principal=%s recovery_role=%s\n' "${OPS_RECOVERY_PRINCIPAL_AR
 printf '  vpc=%s route_tables=%s\n' "${QA_RAW_ARCHIVE_VPC_ID}" "${QA_RAW_ARCHIVE_ROUTE_TABLE_IDS}"
 printf '  raw_bucket=%s kms_alias=%s\n' "${raw_bucket}" "${key_alias}"
 printf '  audit_bucket=%s trail=%s\n' "${audit_bucket}" "${trail_name}"
+printf '  bundle_bucket=%s worker_desired_count=%s\n' "${bundle_bucket}" "${QA_BUNDLE_WORKER_DESIRED_COUNT:-1}"
 printf '  iam_boundary=shared_ec2_instance_role_no_process_isolation\n'
 
 parameters=$(python3 - "${PROJECT}" "${ENVIRONMENT}" "${APP_INSTANCE_ROLE_ARN}" \
   "${OPS_RECOVERY_PRINCIPAL_ARN}" "${QA_RAW_ARCHIVE_VPC_ID}" \
-  "${QA_RAW_ARCHIVE_ROUTE_TABLE_IDS}" <<'PY'
+  "${QA_RAW_ARCHIVE_ROUTE_TABLE_IDS}" "${QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS}" \
+  "${QA_BUNDLE_WORKER_IMAGE}" "${QA_BUNDLE_WORKER_DESIRED_COUNT:-1}" "${QA_BUNDLE_BROWSER_ALLOWED_ORIGIN}" <<'PY'
 import json
 import sys
 names = (
     "ProjectName", "Environment", "AppInstanceRoleArn", "OpsRecoveryPrincipalArn",
-    "VpcId", "RouteTableIds",
+    "VpcId", "RouteTableIds", "BundleWorkerPublicSubnetIds",
+    "BundleWorkerImage", "BundleWorkerDesiredCount", "BundleBrowserAllowedOrigin",
 )
 print(json.dumps([
     {"ParameterKey": name, "ParameterValue": value}
@@ -98,16 +122,22 @@ print(json.dumps([
 PY
 )
 
-aws cloudformation create-change-set \
-  --region "${REGION}" \
-  --stack-name "${STACK}" \
-  --change-set-name "${CHANGE_SET}" \
-  --change-set-type "${change_type}" \
-  --description "TokenKey QA raw archive security closeout" \
-  --template-body "file://${TEMPLATE}" \
-  --parameters "${parameters}" \
-  --capabilities CAPABILITY_IAM \
-  --output json >/dev/null
+create_change_set() {
+  if [ -n "${QA_CLOUDFORMATION_SERVICE_ROLE_ARN:-}" ]; then
+    aws cloudformation create-change-set \
+      --region "${REGION}" --stack-name "${STACK}" --change-set-name "${CHANGE_SET}" \
+      --change-set-type "${change_type}" --description "TokenKey QA raw archive security closeout" \
+      --template-body "file://${TEMPLATE}" --parameters "${parameters}" \
+      --capabilities CAPABILITY_IAM --role-arn "${QA_CLOUDFORMATION_SERVICE_ROLE_ARN}" --output json >/dev/null
+  else
+    aws cloudformation create-change-set \
+      --region "${REGION}" --stack-name "${STACK}" --change-set-name "${CHANGE_SET}" \
+      --change-set-type "${change_type}" --description "TokenKey QA raw archive security closeout" \
+      --template-body "file://${TEMPLATE}" --parameters "${parameters}" \
+      --capabilities CAPABILITY_IAM --output json >/dev/null
+  fi
+}
+create_change_set
 
 for _ in $(seq 1 60); do
   status=$(aws cloudformation describe-change-set \

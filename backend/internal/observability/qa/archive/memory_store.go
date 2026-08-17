@@ -10,8 +10,9 @@ import (
 )
 
 type memoryObject struct {
-	body []byte
-	info ObjectInfo
+	body     []byte
+	info     ObjectInfo
+	metadata ObjectWriteOptions
 }
 
 // MemoryObjectStore is an in-memory ObjectStore for unit tests.
@@ -55,6 +56,10 @@ func (m *MemoryObjectStore) PutReader(_ context.Context, key string, body io.Rea
 }
 
 func (m *MemoryObjectStore) Create(_ context.Context, key string, body io.Reader, size int64, _ string) (ObjectInfo, error) {
+	return m.CreateWithOptions(context.Background(), key, body, size, ObjectWriteOptions{})
+}
+
+func (m *MemoryObjectStore) CreateWithOptions(_ context.Context, key string, body io.Reader, size int64, options ObjectWriteOptions) (ObjectInfo, error) {
 	data, err := readSizedBody(body, size)
 	if err != nil {
 		return ObjectInfo{}, err
@@ -65,8 +70,15 @@ func (m *MemoryObjectStore) Create(_ context.Context, key string, body io.Reader
 		return ObjectInfo{}, fmt.Errorf("%w: %s", ErrPreconditionFailed, key)
 	}
 	info := memoryObjectInfo(data)
-	m.objs[key] = memoryObject{body: data, info: info}
+	m.objs[key] = memoryObject{body: data, info: info, metadata: options}
 	return info, nil
+}
+
+func (m *MemoryObjectStore) Metadata(key string) (ObjectWriteOptions, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	object, ok := m.objs[key]
+	return object.metadata, ok
 }
 
 func (m *MemoryObjectStore) CompareAndSwap(_ context.Context, key, expectedETag string, body io.Reader, size int64, _ string) (ObjectInfo, error) {

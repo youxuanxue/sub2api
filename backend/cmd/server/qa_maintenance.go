@@ -15,32 +15,37 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/archive"
+	"github.com/Wei-Shaw/sub2api/internal/observability/qa/captureledger"
+	"github.com/Wei-Shaw/sub2api/internal/observability/qa/lifecycle"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pgpartition"
 	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
 const (
-	qaMaintenanceConfirmation      = "tokenkey-prod-qa-maintenance-v1"
-	qaMaintenanceReceiptVersion    = 2
-	qaMaintenanceReceiptMode       = "qa_maintenance_archive_only"
-	qaMaintenanceReceiptModeUpload = "qa_maintenance_archive"
-	qaMaintenanceJobName           = "qa-maintenance"
-	qaMaintenanceAdvisoryLockID    = archive.MaintenanceAdvisoryLockID
-	qaMaintenanceHeartbeatTimeout  = 5 * time.Second
-	qaMaintenanceSourceRetention   = 24 * time.Hour
+	qaMaintenanceConfirmation     = "tokenkey-prod-qa-maintenance-v1"
+	qaMaintenanceReceiptVersion   = 2
+	qaMaintenanceReceiptMode      = "qa_single_owner_lifecycle"
+	qaMaintenanceJobName          = "qa-maintenance"
+	qaMaintenanceAdvisoryLockID   = archive.MaintenanceAdvisoryLockID
+	qaMaintenanceHeartbeatTimeout = 5 * time.Second
 )
 
 type qaMaintenanceDeps struct {
-	loadConfig      func() (*config.Config, error)
-	openDB          func(driverName, dataSourceName string) (*sql.DB, error)
-	tryAdvisoryLock func(context.Context, *sql.Conn) (bool, error)
-	unlockAdvisory  func(context.Context, *sql.Conn) error
-	planShard       func(context.Context, *sql.Conn, time.Time, time.Time, string, bool) (qaMaintenancePlan, error)
-	reconcileShard  func(context.Context, *sql.Conn, archive.ObjectStore, archive.Window, string, string) (archive.ReconcileReceipt, error)
-	selectOldest    func(context.Context, *sql.Conn, archive.Window, time.Time) (archive.CatchupSelection, bool, error)
-	newObjectStore  func(context.Context, config.QACaptureStorageConfig) (archive.ObjectStore, error)
-	writeHeartbeat  func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error
-	now             func() time.Time
+	loadConfig        func() (*config.Config, error)
+	openDB            func(driverName, dataSourceName string) (*sql.DB, error)
+	tryAdvisoryLock   func(context.Context, *sql.Conn) (bool, error)
+	unlockAdvisory    func(context.Context, *sql.Conn) error
+	planShard         func(context.Context, *sql.Conn, time.Time, time.Time, string, bool) (qaMaintenancePlan, error)
+	reconcileShard    func(context.Context, *sql.Conn, archive.ObjectStore, archive.Window, string, string) (archive.ReconcileReceipt, error)
+	selectOldest      func(context.Context, *sql.Conn, archive.Window, time.Time) (archive.CatchupSelection, bool, error)
+	newObjectStore    func(context.Context, config.QACaptureStorageConfig) (archive.ObjectStore, error)
+	writeHeartbeat    func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error
+	provision         func(context.Context, *sql.Conn) (lifecycle.ProvisionResult, error)
+	singleOwnerActive func(context.Context, *sql.Conn) (bool, error)
+	dropArchivedHour  func(context.Context, *sql.Conn, archive.Window, time.Time) (lifecycle.ExpiryResult, error)
+	resumeHotCleanup  func(context.Context, *sql.Conn) ([]lifecycle.HotCleanupResult, error)
+	now               func() time.Time
 }
 
 type qaMaintenancePlan struct {
@@ -78,19 +83,87 @@ type qaMaintenanceCycleResult struct {
 }
 
 type qaMaintenanceCommandReceipt struct {
-	ReceiptVersion     int                `json:"receipt_version"`
-	Mode               string             `json:"mode"`
-	OK                 bool               `json:"ok"`
-	JobName            string             `json:"job_name"`
-	RunID              string             `json:"run_id"`
-	Trigger            string             `json:"trigger"`
-	CompletedAt        time.Time          `json:"completed_at"`
-	Plan               qaMaintenancePlan  `json:"plan"`
-	Compensation       *qaMaintenancePlan `json:"compensation,omitempty"`
-	FailureStage       string             `json:"failure_stage,omitempty"`
-	FailureCode        string             `json:"failure_code,omitempty"`
-	DeletionAuthorized bool               `json:"deletion_authorized"`
-	UploadAuthorized   bool               `json:"upload_authorized"`
+	ReceiptVersion     int                          `json:"receipt_version"`
+	Mode               string                       `json:"mode"`
+	OK                 bool                         `json:"ok"`
+	JobName            string                       `json:"job_name"`
+	RunID              string                       `json:"run_id"`
+	Trigger            string                       `json:"trigger"`
+	CompletedAt        time.Time                    `json:"completed_at"`
+	Plan               qaMaintenancePlan            `json:"plan"`
+	Compensation       *qaMaintenancePlan           `json:"compensation,omitempty"`
+	FailureStage       string                       `json:"failure_stage,omitempty"`
+	FailureCode        string                       `json:"failure_code,omitempty"`
+	DeletionAuthorized bool                         `json:"deletion_authorized"`
+	UploadAuthorized   bool                         `json:"upload_authorized"`
+	Provision          lifecycle.ProvisionResult    `json:"provision"`
+	NormalDrop         *lifecycle.ExpiryResult      `json:"normal_drop,omitempty"`
+	CompensationDrop   *lifecycle.ExpiryResult      `json:"compensation_drop,omitempty"`
+	CleanupResumed     []lifecycle.HotCleanupResult `json:"cleanup_resumed,omitempty"`
+}
+
+type qaMaintenanceDropPhaseDeps struct {
+	active func(context.Context) (bool, error)
+	drop   func(context.Context, archive.Window) (lifecycle.ExpiryResult, error)
+	resume func(context.Context) ([]lifecycle.HotCleanupResult, error)
+}
+
+type qaMaintenanceDropPhaseResult struct {
+	Active             bool
+	DeletionAuthorized bool
+	Normal             *lifecycle.ExpiryResult
+	Compensation       *lifecycle.ExpiryResult
+	CleanupResumed     []lifecycle.HotCleanupResult
+}
+
+func runQAMaintenanceDropPhase(
+	ctx context.Context,
+	normal qaMaintenancePlan,
+	compensation *qaMaintenancePlan,
+	deps qaMaintenanceDropPhaseDeps,
+) (qaMaintenanceDropPhaseResult, error) {
+	var result qaMaintenanceDropPhaseResult
+	if deps.active == nil || deps.drop == nil {
+		return result, errors.New("qa maintenance drop dependencies are incomplete")
+	}
+	active, err := deps.active(ctx)
+	if err != nil {
+		return result, fmt.Errorf("read single-owner activation: %w", err)
+	}
+	result.Active = active
+	if !active {
+		return result, nil
+	}
+	if deps.resume == nil {
+		return result, errors.New("qa maintenance cleanup resume dependency is incomplete")
+	}
+	if normal.State != archive.StateCommitted || !normal.RestoreVerified || !normal.WindowEnd.Equal(normal.WindowStart.Add(time.Hour)) {
+		return result, errors.New("qa maintenance normal hour is not committed and restore-verified")
+	}
+	normalDrop, err := deps.drop(ctx, archive.Window{Start: normal.WindowStart, End: normal.WindowEnd})
+	result.Normal = &normalDrop
+	result.DeletionAuthorized = !normalDrop.SourceDroppedAt.IsZero()
+	if err != nil {
+		return result, fmt.Errorf("drop normal archived hour: %w", err)
+	}
+	if compensation == nil {
+		result.CleanupResumed, err = deps.resume(ctx)
+		return result, err
+	}
+	if compensation.State != archive.StateCommitted || !compensation.RestoreVerified || !compensation.WindowEnd.Equal(compensation.WindowStart.Add(time.Hour)) {
+		return result, errors.New("qa maintenance compensation hour is not committed and restore-verified")
+	}
+	compensationDrop, err := deps.drop(ctx, archive.Window{Start: compensation.WindowStart, End: compensation.WindowEnd})
+	result.Compensation = &compensationDrop
+	result.DeletionAuthorized = result.DeletionAuthorized || !compensationDrop.SourceDroppedAt.IsZero()
+	if err != nil {
+		return result, fmt.Errorf("drop compensation archived hour: %w", err)
+	}
+	result.CleanupResumed, err = deps.resume(ctx)
+	if err != nil {
+		return result, fmt.Errorf("resume pending hot cleanup: %w", err)
+	}
+	return result, nil
 }
 
 func runQAMaintenanceArchiveCycle(
@@ -210,6 +283,24 @@ func defaultQAMaintenanceDeps() qaMaintenanceDeps {
 		writeHeartbeat: func(ctx context.Context, db *sql.DB, input *service.OpsUpsertJobHeartbeatInput) error {
 			return repository.NewOpsRepository(db).UpsertJobHeartbeat(ctx, input)
 		},
+		provision: func(ctx context.Context, conn *sql.Conn) (lifecycle.ProvisionResult, error) {
+			return lifecycle.RunProvision(ctx, conn, lifecycle.Options{HoursAhead: lifecycle.HourlyHorizon}, nil)
+		},
+		singleOwnerActive: func(ctx context.Context, conn *sql.Conn) (bool, error) {
+			var active bool
+			err := conn.QueryRowContext(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM qa_lifecycle_receipts WHERE phase = 'single_owner_activate'
+)`).Scan(&active)
+			return active, err
+		},
+		dropArchivedHour: defaultQAMaintenanceDropArchivedHour,
+		resumeHotCleanup: func(ctx context.Context, conn *sql.Conn) ([]lifecycle.HotCleanupResult, error) {
+			return lifecycle.ResumePendingHotCleanups(ctx, conn, lifecycle.NewSQLControlAdapter(archive.NewSQLControlStore()), lifecycle.Options{
+				BlobRoot: qaDataRoot(),
+				DLQRoot:  qaDataRoot(),
+			})
+		},
 		now: time.Now,
 	}
 }
@@ -243,10 +334,68 @@ func (d qaMaintenanceDeps) withDefaults() qaMaintenanceDeps {
 	if d.writeHeartbeat == nil {
 		d.writeHeartbeat = defaults.writeHeartbeat
 	}
+	if d.provision == nil {
+		d.provision = defaults.provision
+	}
+	if d.singleOwnerActive == nil {
+		d.singleOwnerActive = defaults.singleOwnerActive
+	}
+	if d.dropArchivedHour == nil {
+		d.dropArchivedHour = defaults.dropArchivedHour
+	}
+	if d.resumeHotCleanup == nil {
+		d.resumeHotCleanup = defaults.resumeHotCleanup
+	}
 	if d.now == nil {
 		d.now = defaults.now
 	}
 	return d
+}
+
+func defaultQAMaintenanceDropArchivedHour(
+	ctx context.Context,
+	conn *sql.Conn,
+	window archive.Window,
+	observedAt time.Time,
+) (lifecycle.ExpiryResult, error) {
+	children, err := pgpartition.ListChildPartitionBounds(ctx, conn, lifecycle.TableQARecords)
+	if err != nil {
+		return lifecycle.ExpiryResult{}, err
+	}
+	var child *pgpartition.ChildPartitionBound
+	for i := range children {
+		candidate := children[i]
+		if candidate.IsDefault || !candidate.Lower.Equal(window.Start) || !candidate.Upper.Equal(window.End) {
+			continue
+		}
+		child = &candidate
+		break
+	}
+	if child == nil {
+		return lifecycle.ResumeDroppedHourCleanup(ctx, conn, lifecycle.NewSQLControlAdapter(archive.NewSQLControlStore()), window.Start, lifecycle.Options{
+			BlobRoot: qaDataRoot(),
+			DLQRoot:  qaDataRoot(),
+		})
+	}
+	validateSeal := func() error {
+		_, err := captureledger.ValidateHourSeal(qaCaptureLedgerRoot(), window.Start, observedAt, captureledger.DefaultFreshness)
+		return err
+	}
+	control := lifecycle.NewSQLControlAdapter(archive.NewSQLControlStore())
+	result, err := lifecycle.DropCommittedHour(ctx, conn, control, *child, validateSeal, time.Now)
+	if err != nil {
+		return result, err
+	}
+	dataDir := qaDataRoot()
+	if err := lifecycle.CleanupHotFilesForHour(ctx, conn, control, window.Start, lifecycle.Options{
+		BlobRoot: dataDir,
+		DLQRoot:  dataDir,
+	}); err != nil {
+		result.Error = err.Error()
+		return result, err
+	}
+	result.HotFilesCleaned = true
+	return result, nil
 }
 
 func qaMaintenanceRequested(args []string) bool {
@@ -343,14 +492,25 @@ func runQAMaintenanceCommand(
 		return fmt.Errorf("qa maintenance advisory lock already held")
 	}
 	lockAcquired = true
+	provision, err := deps.provision(ctx, conn)
+	if err != nil {
+		failureLastResult = fmt.Sprintf(
+			"status=failed run_id=%s trigger=%s stage=provision error_code=partition_provision_failed normal_window=%s deletion_authorized=false upload_authorized=false",
+			runID, trigger, windowStart.Format(time.RFC3339),
+		)
+		return fmt.Errorf("provision qa hourly partitions: %w", err)
+	}
 	s3Prefix := archive.ShardPrefix(windowStart)
 	plan := qaMaintenancePlan{
 		WindowStart: windowStart, WindowEnd: windowEnd, S3Prefix: s3Prefix,
 		ArchiveEnabled: cfg.QaArchive.Enabled,
 	}
 	var compensationPlan *qaMaintenancePlan
+	var dropPhase qaMaintenanceDropPhaseResult
+	var compensationErr error
+	var compensationFailureStage string
+	var compensationFailureCode string
 	uploadAuthorized := false
-	mode := qaMaintenanceReceiptMode
 	if cfg.QaArchive.Enabled {
 		store, err := deps.newObjectStore(ctx, cfg.QaArchive.Storage)
 		if err != nil {
@@ -359,7 +519,7 @@ func runQAMaintenanceCommand(
 		cycle, cycleErr := runQAMaintenanceArchiveCycle(
 			ctx,
 			normalWindow,
-			startedAt.Add(-qaMaintenanceSourceRetention),
+			time.Time{},
 			qaMaintenanceCycleDeps{
 				reconcile: func(cycleCtx context.Context, window archive.Window) (archive.ReconcileReceipt, error) {
 					return deps.reconcileShard(cycleCtx, conn, store, window, qaBlobRoot(), qaArchiveScratchRoot())
@@ -395,24 +555,17 @@ func runQAMaintenanceCommand(
 				plan.State = archive.StateFailed
 				plan.VerificationErrorCode = cycle.FailureCode
 			}
-			failureLastResult = qaMaintenanceCycleLastResult("failed", runID, trigger, plan, compensationPlan, cycle.FailureStage, cycle.FailureCode)
-			if !cycle.Normal.WindowStart.IsZero() {
-				receipt := qaMaintenanceCommandReceipt{
-					ReceiptVersion: qaMaintenanceReceiptVersion,
-					Mode:           qaMaintenanceReceiptModeUpload,
-					OK:             false, JobName: qaMaintenanceJobName, RunID: runID, Trigger: trigger,
-					CompletedAt: deps.now().UTC(), Plan: plan, Compensation: compensationPlan,
-					FailureStage: cycle.FailureStage, FailureCode: cycle.FailureCode,
-					DeletionAuthorized: false, UploadAuthorized: true,
-				}
-				if encodeErr := json.NewEncoder(out).Encode(receipt); encodeErr != nil {
-					return fmt.Errorf("%w; encode qa maintenance failure receipt: %v", cycleErr, encodeErr)
-				}
+			if cycle.Normal.WindowStart.IsZero() {
+				failureLastResult = qaMaintenanceCycleLastResult("failed", runID, trigger, plan, compensationPlan, cycle.FailureStage, cycle.FailureCode, false)
+				return cycleErr
 			}
-			return cycleErr
+			compensationErr = cycleErr
+			compensationFailureStage = cycle.FailureStage
+			compensationFailureCode = cycle.FailureCode
+			uploadAuthorized = true
+		} else {
+			uploadAuthorized = true
 		}
-		uploadAuthorized = true
-		mode = qaMaintenanceReceiptModeUpload
 	} else {
 		plan, err = deps.planShard(ctx, conn, windowStart, windowEnd, s3Prefix, false)
 		if err != nil {
@@ -421,13 +574,73 @@ func runQAMaintenanceCommand(
 		plan.State = archive.StatePending
 	}
 
+	dropCompensation := compensationPlan
+	if compensationErr != nil {
+		dropCompensation = nil
+	}
+	dropPhase, err = runQAMaintenanceDropPhase(
+		ctx,
+		plan,
+		dropCompensation,
+		qaMaintenanceDropPhaseDeps{
+			active: func(dropCtx context.Context) (bool, error) {
+				return deps.singleOwnerActive(dropCtx, conn)
+			},
+			drop: func(dropCtx context.Context, window archive.Window) (lifecycle.ExpiryResult, error) {
+				return deps.dropArchivedHour(dropCtx, conn, window, deps.now().UTC())
+			},
+			resume: func(cleanupCtx context.Context) ([]lifecycle.HotCleanupResult, error) {
+				return deps.resumeHotCleanup(cleanupCtx, conn)
+			},
+		},
+	)
+	if err != nil {
+		failureLastResult = qaMaintenanceCycleLastResult(
+			"failed", runID, trigger, plan, compensationPlan,
+			"drop", "archive_gated_drop_failed", dropPhase.DeletionAuthorized,
+		)
+		receipt := qaMaintenanceCommandReceipt{
+			ReceiptVersion: qaMaintenanceReceiptVersion,
+			Mode:           qaMaintenanceReceiptMode,
+			OK:             false, JobName: qaMaintenanceJobName, RunID: runID, Trigger: trigger,
+			CompletedAt: deps.now().UTC(), Plan: plan, Compensation: compensationPlan,
+			FailureStage: "drop", FailureCode: "archive_gated_drop_failed",
+			DeletionAuthorized: dropPhase.DeletionAuthorized, UploadAuthorized: uploadAuthorized,
+			Provision: provision, NormalDrop: dropPhase.Normal, CompensationDrop: dropPhase.Compensation,
+			CleanupResumed: dropPhase.CleanupResumed,
+		}
+		if encodeErr := json.NewEncoder(out).Encode(receipt); encodeErr != nil {
+			return fmt.Errorf("%w; encode qa maintenance failure receipt: %v", err, encodeErr)
+		}
+		return err
+	}
+	if compensationErr != nil {
+		failureLastResult = qaMaintenanceCycleLastResult(
+			"failed", runID, trigger, plan, compensationPlan,
+			compensationFailureStage, compensationFailureCode, dropPhase.DeletionAuthorized,
+		)
+		receipt := qaMaintenanceCommandReceipt{
+			ReceiptVersion: qaMaintenanceReceiptVersion,
+			Mode:           qaMaintenanceReceiptMode,
+			OK:             false, JobName: qaMaintenanceJobName, RunID: runID, Trigger: trigger,
+			CompletedAt: deps.now().UTC(), Plan: plan, Compensation: compensationPlan,
+			FailureStage: compensationFailureStage, FailureCode: compensationFailureCode,
+			DeletionAuthorized: dropPhase.DeletionAuthorized, UploadAuthorized: uploadAuthorized,
+			Provision: provision, NormalDrop: dropPhase.Normal, CleanupResumed: dropPhase.CleanupResumed,
+		}
+		if encodeErr := json.NewEncoder(out).Encode(receipt); encodeErr != nil {
+			return fmt.Errorf("%w; encode qa maintenance failure receipt: %v", compensationErr, encodeErr)
+		}
+		return compensationErr
+	}
+
 	if err := deps.unlockAdvisory(ctx, conn); err != nil {
-		failureLastResult = qaMaintenanceCycleLastResult("failed", runID, trigger, plan, compensationPlan, "advisory_unlock", "advisory_unlock_failed")
+		failureLastResult = qaMaintenanceCycleLastResult("failed", runID, trigger, plan, compensationPlan, "advisory_unlock", "advisory_unlock_failed", dropPhase.DeletionAuthorized)
 		return fmt.Errorf("release qa maintenance advisory lock: %w", err)
 	}
 	lockAcquired = false
 	if err := conn.Close(); err != nil {
-		failureLastResult = qaMaintenanceCycleLastResult("failed", runID, trigger, plan, compensationPlan, "connection_release", "connection_release_failed")
+		failureLastResult = qaMaintenanceCycleLastResult("failed", runID, trigger, plan, compensationPlan, "connection_release", "connection_release_failed", dropPhase.DeletionAuthorized)
 		return fmt.Errorf("release qa maintenance connection: %w", err)
 	}
 	connReleased = true
@@ -442,8 +655,8 @@ func runQAMaintenanceCommand(
 	if !plan.ArchiveEnabled {
 		status = "planned"
 	}
-	lastResult := qaMaintenanceCycleLastResult(status, runID, trigger, plan, compensationPlan, "", "")
-	failureLastResult = qaMaintenanceCycleLastResult("failed", runID, trigger, plan, compensationPlan, "heartbeat_write", "heartbeat_write_failed")
+	lastResult := qaMaintenanceCycleLastResult(status, runID, trigger, plan, compensationPlan, "", "", dropPhase.DeletionAuthorized)
+	failureLastResult = qaMaintenanceCycleLastResult("failed", runID, trigger, plan, compensationPlan, "heartbeat_write", "heartbeat_write_failed", dropPhase.DeletionAuthorized)
 	heartbeatCtx, cancelHeartbeat := context.WithTimeout(context.Background(), qaMaintenanceHeartbeatTimeout)
 	defer cancelHeartbeat()
 	if err := deps.writeHeartbeat(heartbeatCtx, db, &service.OpsUpsertJobHeartbeatInput{
@@ -459,7 +672,7 @@ func runQAMaintenanceCommand(
 
 	receipt := qaMaintenanceCommandReceipt{
 		ReceiptVersion:     qaMaintenanceReceiptVersion,
-		Mode:               mode,
+		Mode:               qaMaintenanceReceiptMode,
 		OK:                 true,
 		JobName:            qaMaintenanceJobName,
 		RunID:              runID,
@@ -467,8 +680,12 @@ func runQAMaintenanceCommand(
 		CompletedAt:        completedAt,
 		Plan:               plan,
 		Compensation:       compensationPlan,
-		DeletionAuthorized: false,
+		DeletionAuthorized: dropPhase.DeletionAuthorized,
 		UploadAuthorized:   uploadAuthorized,
+		Provision:          provision,
+		NormalDrop:         dropPhase.Normal,
+		CompensationDrop:   dropPhase.Compensation,
+		CleanupResumed:     dropPhase.CleanupResumed,
 	}
 	if err := json.NewEncoder(out).Encode(receipt); err != nil {
 		return fmt.Errorf("encode qa maintenance receipt: %w", err)
@@ -560,7 +777,7 @@ func qaMaintenancePlanFromReceipt(receipt archive.ReconcileReceipt, archiveEnabl
 	}
 }
 
-func qaMaintenanceCycleLastResult(status, runID, trigger string, normal qaMaintenancePlan, compensation *qaMaintenancePlan, failureStage, failureCode string) string {
+func qaMaintenanceCycleLastResult(status, runID, trigger string, normal qaMaintenancePlan, compensation *qaMaintenancePlan, failureStage, failureCode string, deletionAuthorized bool) string {
 	parts := []string{
 		"status=" + status,
 		"run_id=" + runID,
@@ -600,7 +817,7 @@ func qaMaintenanceCycleLastResult(status, runID, trigger string, normal qaMainte
 	}
 	parts = append(parts,
 		"cleanup_eligible=false",
-		"deletion_authorized=false",
+		"deletion_authorized="+fmt.Sprintf("%t", deletionAuthorized),
 		"upload_authorized="+fmt.Sprintf("%t", normal.ArchiveEnabled),
 	)
 	return strings.Join(parts, " ")
@@ -633,19 +850,23 @@ func writeQAMaintenanceFailureHeartbeat(
 }
 
 func qaBlobRoot() string {
-	dataDir := strings.TrimSpace(os.Getenv("DATA_DIR"))
-	if dataDir == "" {
-		dataDir = "/app/data"
-	}
-	return filepath.Join(dataDir, "qa_blobs")
+	return filepath.Join(qaDataRoot(), "qa_blobs")
 }
 
 func qaArchiveScratchRoot() string {
+	return filepath.Join(qaDataRoot(), "qa_archive_tmp")
+}
+
+func qaCaptureLedgerRoot() string {
+	return filepath.Join(qaDataRoot(), "qa_capture_ledger")
+}
+
+func qaDataRoot() string {
 	dataDir := strings.TrimSpace(os.Getenv("DATA_DIR"))
 	if dataDir == "" {
 		dataDir = "/app/data"
 	}
-	return filepath.Join(dataDir, "qa_archive_tmp")
+	return dataDir
 }
 
 func truncateErr(err error) string {

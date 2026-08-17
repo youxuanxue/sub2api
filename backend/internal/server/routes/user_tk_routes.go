@@ -42,11 +42,7 @@ func registerTKUserRoutes(authenticated, user *gin.RouterGroup, h *handler.Handl
 // EitherAuth write the same AuthSubject{UserID} into context, so QA
 // service reads `WHERE user_id = subject.UserID` are unaffected.
 //
-// Endpoints (JWT OR API-key):
-//   - POST /api/v1/users/me/qa/traj/export — enqueue async traj export (returns job_id).
-//   - GET /api/v1/users/me/qa/traj/export/jobs — "my exports" panel feed (?api_key_id=).
-//   - GET /api/v1/users/me/qa/traj/export/jobs/:job_id — poll async export status.
-//   - GET /api/v1/users/me/qa/traj/exports/*key — traj localfs/proxied download.
+// Endpoints (JWT OR API-key) expose only scoped S3 QA Bundle jobs and URLs.
 func registerTKUserDualAuthRoutes(
 	v1 *gin.RouterGroup,
 	h *handler.Handlers,
@@ -57,9 +53,9 @@ func registerTKUserDualAuthRoutes(
 	dualAuth.Use(gin.HandlerFunc(eitherAuth))
 	dualAuth.Use(middleware.BackendModeUserGuard(settingService))
 	{
-		dualAuth.POST("/users/me/qa/traj/export", h.QA.ExportSelfTrajectory)
-		dualAuth.GET("/users/me/qa/traj/export/jobs", h.QA.ListSelfTrajectoryExports)
-		dualAuth.GET("/users/me/qa/traj/export/jobs/:job_id", h.QA.GetSelfTrajectoryExportJob)
-		dualAuth.GET("/users/me/qa/traj/exports/*key", h.QA.DownloadSelfTrajectoryExport)
+		dualAuth.POST("/users/me/qa/bundles", h.QA.CreateSelfQABundle)
+		dualAuth.GET("/users/me/qa/bundles/:job_id", h.QA.GetSelfQABundle)
+		dualAuth.POST("/users/me/qa/bundles/:job_id/export", h.QA.CreateSelfQABundleExport)
+		dualAuth.GET("/users/me/qa/bundle-exports/:job_id", h.QA.GetSelfQABundleExport)
 	}
 }

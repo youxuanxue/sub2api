@@ -112,93 +112,39 @@ func TestOpenQABoundaryDBAppliesTimeoutsToEveryPooledConnection(t *testing.T) {
 	}
 }
 
-func TestQABoundaryRequestedIncludesCutoverFinalizeCommands(t *testing.T) {
+func TestQABoundaryRequestedIncludesOnlyActiveModes(t *testing.T) {
 	for _, argument := range []string{
-		"--qa-cutover-provision-only", "--qa-cutover-finalize-plan", "--qa-cutover-finalize",
+		"--qa-boundary-once", "--qa-boundary-once=true", "--qa-boundary-once=false",
 	} {
 		if !qaBoundaryRequested([]string{argument}) {
 			t.Fatalf("qaBoundaryRequested(%q)=false", argument)
 		}
 	}
-}
-
-func TestQABoundaryCommandRejectsMultipleModes(t *testing.T) {
-	for _, args := range [][]string{
-		{"--qa-boundary-once", "--qa-cutover-inventory"},
-		{"--qa-cutover-plan", "--qa-cutover-finalize-plan"},
-		{"--qa-cutover-apply", "--qa-cutover-finalize"},
-		{"--qa-cutover-provision-only", "--qa-cutover-finalize-plan"},
+	for _, argument := range []string{
+		"--qa-cutover-provision-only", "--qa-cutover-provision-only=true", "--qa-cutover-provision-only=false",
+		"--qa-cutover-inventory", "--qa-cutover-plan", "--qa-cutover-apply",
+		"--qa-cutover-finalize-plan", "--qa-cutover-finalize",
 	} {
-		err := runQABoundaryCommand(context.Background(), args, &bytes.Buffer{}, qaBoundaryDeps{})
-		if err == nil || !strings.Contains(err.Error(), "exactly one mode") {
-			t.Fatalf("args=%v err=%v", args, err)
+		if qaBoundaryRequested([]string{argument}) {
+			t.Fatalf("qaBoundaryRequested(%q)=true for retired mode", argument)
 		}
 	}
 }
 
-func TestQABoundaryProvisionOnlyRequiresIndependentConfirmation(t *testing.T) {
-	err := runQABoundaryCommand(
-		context.Background(),
-		[]string{"--qa-cutover-provision-only", "--confirm", "wrong"},
-		&bytes.Buffer{},
-		qaBoundaryDeps{},
-	)
-	if err == nil || !strings.Contains(err.Error(), "provision confirmation mismatch") {
-		t.Fatalf("err=%v", err)
-	}
-}
-
-func TestQABoundaryProvisionOnlyRunsProvisionWithoutBoundaryCleanup(t *testing.T) {
-	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = db.Close() }()
-	mock.ExpectExec("SET lock_timeout = '100ms'").WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("SET statement_timeout = '120s'").WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectClose()
-	provisionCalls := 0
-	deps := qaBoundaryDeps{
-		loadConfig: func() (*config.Config, error) {
-			return &config.Config{
-				Timezone: "UTC",
-				Database: config.DatabaseConfig{Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable"},
-			}, nil
-		},
-		openDB:          func(string, string) (*sql.DB, error) { return db, nil },
-		tryAdvisoryLock: func(context.Context, *sql.Conn) (bool, error) { return true, nil },
-		unlockAdvisory:  func(context.Context, *sql.Conn) error { return nil },
-		runProvisionOnly: func(context.Context, lifecycle.DB, lifecycle.Options) (lifecycle.ProvisionResult, error) {
-			provisionCalls++
-			return lifecycle.ProvisionResult{HoursAhead: 72, RangesRequired: 72, RangesCovered: 72}, nil
-		},
-		runBoundary: func(context.Context, *sql.DB, lifecycle.ControlStore, lifecycle.Options) (lifecycle.BoundaryResult, error) {
-			t.Fatal("provision-only invoked full boundary cleanup")
-			return lifecycle.BoundaryResult{}, nil
-		},
-	}
-	out := &bytes.Buffer{}
-	err = runQABoundaryCommand(
-		context.Background(),
-		[]string{
-			"--qa-cutover-provision-only",
-			"--confirm", qaCutoverProvisionConfirmation,
-		},
-		out,
-		deps,
-	)
-	if err != nil || provisionCalls != 1 {
-		t.Fatalf("runQABoundaryCommand() err=%v provisionCalls=%d", err, provisionCalls)
-	}
-	var result lifecycle.ProvisionResult
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-		t.Fatal(err)
-	}
-	if result.RangesCovered != 72 || result.RangesRequired != 72 {
-		t.Fatalf("result=%+v", result)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
+func TestQABoundaryCommandRejectsRetiredCutoverModes(t *testing.T) {
+	for _, argument := range []string{
+		"--qa-cutover-provision-only",
+		"--qa-cutover-inventory", "--qa-cutover-plan", "--qa-cutover-apply",
+		"--qa-cutover-finalize-plan", "--qa-cutover-finalize",
+	} {
+		t.Run(argument, func(t *testing.T) {
+			err := runQABoundaryCommand(
+				context.Background(), []string{argument}, &bytes.Buffer{}, qaBoundaryDeps{},
+			)
+			if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
+				t.Fatalf("runQABoundaryCommand(%q) err=%v", argument, err)
+			}
+		})
 	}
 }
 
@@ -221,11 +167,12 @@ func TestQABoundaryHeartbeatReportsProvisionLockRetries(t *testing.T) {
 				Database: config.DatabaseConfig{Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable"},
 			}, nil
 		},
-		openDB:          func(string, string) (*sql.DB, error) { return db, nil },
-		tryAdvisoryLock: func(context.Context, *sql.Conn) (bool, error) { return true, nil },
-		unlockAdvisory:  func(context.Context, *sql.Conn) error { return nil },
-		runBoundary: func(context.Context, *sql.DB, lifecycle.ControlStore, lifecycle.Options) (lifecycle.BoundaryResult, error) {
-			return lifecycle.BoundaryResult{Provision: lifecycle.ProvisionResult{
+		openDB:            func(string, string) (*sql.DB, error) { return db, nil },
+		tryAdvisoryLock:   func(context.Context, *sql.Conn) (bool, error) { return true, nil },
+		unlockAdvisory:    func(context.Context, *sql.Conn) error { return nil },
+		singleOwnerActive: func(context.Context, *sql.DB) (bool, error) { return false, nil },
+		runTransitionBoundary: func(context.Context, *sql.DB, lifecycle.TransitionControlStore, lifecycle.Options) (lifecycle.TransitionBoundaryResult, error) {
+			return lifecycle.TransitionBoundaryResult{Provision: lifecycle.ProvisionResult{
 				HoursAhead: 72, RangesRequired: 72, RangesCovered: 72, Attempts: 3, LockRetries: 2,
 			}}, nil
 		},
@@ -253,10 +200,109 @@ func TestQABoundaryHeartbeatReportsProvisionLockRetries(t *testing.T) {
 	}
 }
 
+func TestQABoundaryRunsTransitionCleanupBeforeSingleOwnerActivation(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	mock.ExpectExec("SET lock_timeout = '100ms'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("SET statement_timeout = '120s'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectClose()
+
+	transitionCalls := 0
+	deps := qaBoundaryDeps{
+		loadConfig: func() (*config.Config, error) {
+			return &config.Config{
+				Timezone: "UTC",
+				Database: config.DatabaseConfig{Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable"},
+			}, nil
+		},
+		openDB:          func(string, string) (*sql.DB, error) { return db, nil },
+		tryAdvisoryLock: func(context.Context, *sql.Conn) (bool, error) { return true, nil },
+		unlockAdvisory:  func(context.Context, *sql.Conn) error { return nil },
+		singleOwnerActive: func(context.Context, *sql.DB) (bool, error) {
+			return false, nil
+		},
+		runTransitionBoundary: func(context.Context, *sql.DB, lifecycle.TransitionControlStore, lifecycle.Options) (lifecycle.TransitionBoundaryResult, error) {
+			transitionCalls++
+			return lifecycle.TransitionBoundaryResult{
+				Provision:          lifecycle.ProvisionResult{HoursAhead: 72, RangesRequired: 72, RangesCovered: 72},
+				DeletionAuthorized: true,
+			}, nil
+		},
+		writeHeartbeat: func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error { return nil },
+	}
+	out := &bytes.Buffer{}
+	err = runQABoundaryCommand(context.Background(), []string{
+		"--qa-boundary-once", "--confirm", qaBoundaryConfirmation,
+	}, out, deps)
+	if err != nil {
+		t.Fatalf("runQABoundaryCommand() err=%v", err)
+	}
+	if transitionCalls != 1 {
+		t.Fatalf("transitionCalls=%d", transitionCalls)
+	}
+	var receipt struct {
+		DeletionAuthorized bool `json:"deletion_authorized"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if !receipt.DeletionAuthorized {
+		t.Fatalf("receipt=%s", out.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestQABoundaryCommandRefusesAfterSingleOwnerActivation(t *testing.T) {
+	transitionCalls := 0
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectExec("SET lock_timeout = '100ms'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("SET statement_timeout = '120s'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectClose()
+	err = runQABoundaryCommand(
+		context.Background(),
+		[]string{"--qa-boundary-once", "--confirm", qaBoundaryConfirmation},
+		&bytes.Buffer{},
+		qaBoundaryDeps{
+			loadConfig: func() (*config.Config, error) {
+				return &config.Config{
+					Timezone: "UTC",
+					Database: config.DatabaseConfig{Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable"},
+				}, nil
+			},
+			openDB:            func(string, string) (*sql.DB, error) { return db, nil },
+			tryAdvisoryLock:   func(context.Context, *sql.Conn) (bool, error) { return true, nil },
+			unlockAdvisory:    func(context.Context, *sql.Conn) error { return nil },
+			singleOwnerActive: func(context.Context, *sql.DB) (bool, error) { return true, nil },
+			runTransitionBoundary: func(context.Context, *sql.DB, lifecycle.TransitionControlStore, lifecycle.Options) (lifecycle.TransitionBoundaryResult, error) {
+				transitionCalls++
+				return lifecycle.TransitionBoundaryResult{}, nil
+			},
+			writeHeartbeat: func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error { return nil },
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "single-owner") {
+		t.Fatalf("err=%v", err)
+	}
+	if transitionCalls != 0 {
+		t.Fatalf("transitionCalls=%d", transitionCalls)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestQABoundaryCommandRejectsCutoverPositionalArguments(t *testing.T) {
 	err := runQABoundaryCommand(
 		context.Background(),
-		[]string{"--qa-cutover-plan", "unexpected"},
+		[]string{"--qa-boundary-once", "unexpected"},
 		&bytes.Buffer{},
 		qaBoundaryDeps{},
 	)

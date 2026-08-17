@@ -9,30 +9,43 @@ import (
 
 // RecordRow is the parquet projection of qa_records metadata (design §8.2).
 type RecordRow struct {
-	RequestID       string  `parquet:"request_id"`
-	TrajectoryID    *string `parquet:"trajectory_id,optional"`
-	UserID          int64   `parquet:"user_id"`
-	GroupID         *int64  `parquet:"group_id,optional"`
-	APIKeyID        int64   `parquet:"api_key_id"`
-	AccountID       *int64  `parquet:"account_id,optional"`
-	Platform        string  `parquet:"platform"`
-	Provider        *string `parquet:"provider,optional"`
-	RequestedModel  string  `parquet:"requested_model"`
-	UpstreamModel   *string `parquet:"upstream_model,optional"`
-	StatusCode      int     `parquet:"status_code"`
-	Success         bool    `parquet:"success"`
-	DurationMS      int64   `parquet:"duration_ms"`
-	Stream          bool    `parquet:"stream"`
-	InputTokens     int     `parquet:"input_tokens"`
-	OutputTokens    int     `parquet:"output_tokens"`
-	RequestSHA256   string  `parquet:"request_sha256"`
-	ResponseSHA256  string  `parquet:"response_sha256"`
-	BlobURI         *string `parquet:"blob_uri,optional"`
-	RequestBlobURI  *string `parquet:"request_blob_uri,optional"`
-	ResponseBlobURI *string `parquet:"response_blob_uri,optional"`
-	StreamBlobURI   *string `parquet:"stream_blob_uri,optional"`
-	CaptureStatus   string  `parquet:"capture_status"`
-	CreatedAt       int64   `parquet:"created_at, timestamp(microsecond)"`
+	RequestID          string  `parquet:"request_id"`
+	TrajectoryID       *string `parquet:"trajectory_id,optional"`
+	UserID             int64   `parquet:"user_id"`
+	GroupID            *int64  `parquet:"group_id,optional"`
+	APIKeyID           int64   `parquet:"api_key_id"`
+	AccountID          *int64  `parquet:"account_id,optional"`
+	Platform           string  `parquet:"platform"`
+	Provider           *string `parquet:"provider,optional"`
+	RequestedModel     string  `parquet:"requested_model"`
+	UpstreamModel      *string `parquet:"upstream_model,optional"`
+	StatusCode         int     `parquet:"status_code"`
+	Success            bool    `parquet:"success"`
+	DurationMS         int64   `parquet:"duration_ms"`
+	Stream             bool    `parquet:"stream"`
+	InputTokens        int     `parquet:"input_tokens"`
+	OutputTokens       int     `parquet:"output_tokens"`
+	RequestSHA256      string  `parquet:"request_sha256"`
+	ResponseSHA256     string  `parquet:"response_sha256"`
+	BlobURI            *string `parquet:"blob_uri,optional"`
+	RequestBlobURI     *string `parquet:"request_blob_uri,optional"`
+	ResponseBlobURI    *string `parquet:"response_blob_uri,optional"`
+	StreamBlobURI      *string `parquet:"stream_blob_uri,optional"`
+	CaptureStatus      string  `parquet:"capture_status"`
+	CreatedAt          int64   `parquet:"created_at, timestamp(microsecond)"`
+	ChannelType        *int64  `parquet:"channel_type,optional"`
+	InboundEndpoint    *string `parquet:"inbound_endpoint,optional"`
+	UpstreamEndpoint   *string `parquet:"upstream_endpoint,optional"`
+	FirstTokenMS       *int64  `parquet:"first_token_ms,optional"`
+	ToolCallsPresent   *bool   `parquet:"tool_calls_present,optional"`
+	MultimodalPresent  *bool   `parquet:"multimodal_present,optional"`
+	CachedTokens       *int64  `parquet:"cached_tokens,optional"`
+	RedactionVersion   *string `parquet:"redaction_version,optional"`
+	TagsJSON           *string `parquet:"tags_json,optional"`
+	SynthSessionID     *string `parquet:"synth_session_id,optional"`
+	SynthRole          *string `parquet:"synth_role,optional"`
+	SynthEngineerLevel *string `parquet:"synth_engineer_level,optional"`
+	DialogSynth        *bool   `parquet:"dialog_synth,optional"`
 }
 
 type evidenceIndexLine struct {
@@ -107,5 +120,13 @@ func nullInt64Ptr(value sql.NullInt64) *int64 {
 		return nil
 	}
 	result := value.Int64
+	return &result
+}
+
+func nullBoolPtr(value sql.NullBool) *bool {
+	if !value.Valid {
+		return nil
+	}
+	result := value.Bool
 	return &result
 }

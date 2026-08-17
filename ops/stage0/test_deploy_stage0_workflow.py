@@ -2,13 +2,17 @@
 """Security and behavior contract tests for deploy-stage0 workflow modes."""
 from __future__ import annotations
 
+import os
 import pathlib
 import re
+import subprocess
+import tempfile
 import unittest
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "deploy-stage0.yml"
+BLUEGREEN_DEPLOY = REPO_ROOT / "ops" / "stage0" / "deploy_via_ssm_bluegreen.sh"
 
 
 def workflow_text() -> str:
@@ -24,6 +28,21 @@ def job_block(name: str) -> str:
     if match is None:
         raise AssertionError(f"job not found: {name}")
     return match.group(0)
+
+
+def step_run(name: str) -> str:
+    lines = workflow_text().splitlines()
+    marker = f"      - name: {name}"
+    start = lines.index(marker)
+    end = next(
+        (index for index in range(start + 1, len(lines)) if lines[index].startswith("      - ")),
+        len(lines),
+    )
+    run_start = lines.index("        run: |", start, end) + 1
+    return "\n".join(
+        line[10:] if line.startswith("          ") else ""
+        for line in lines[run_start:end]
+    )
 
 
 class DeployStage0WorkflowTest(unittest.TestCase):
@@ -87,6 +106,146 @@ class DeployStage0WorkflowTest(unittest.TestCase):
             ),
             2,
         )
+
+    def test_bundle_coordinates_come_from_verified_stack_outputs(self) -> None:
+        deploy = job_block("deploy")
+        fixed_desired = {
+            "QA_BUNDLE_ENABLED": "true",
+            "QA_BUNDLE_STORAGE_DRIVER": "s3",
+            "QA_BUNDLE_STORAGE_PREFIX": "user-qa",
+        }
+        for key, value in fixed_desired.items():
+            with self.subTest(key=key):
+                self.assertEqual(deploy.count(f"{key}: \"{value}\""), 1)
+
+        verify_step = deploy[
+            deploy.index("- name: Verify QA Bundle infrastructure"):
+            deploy.index("- name: Restore Stage0 deployment credentials via OIDC")
+        ]
+        self.assertIn("id: qa_bundle", verify_step)
+        self.assertIn("verify_qa_bundle_infra.sh", verify_step)
+
+        deploy_step = deploy[
+            deploy.index("- name: Deploy via SSM Run-Command"):
+            deploy.index("- name: External health check")
+        ]
+        desired = {
+            "QA_BUNDLE_ENABLED": "${{ env.QA_BUNDLE_ENABLED }}",
+            "QA_BUNDLE_QUEUE_URL": "${{ steps.qa_bundle.outputs.queue_url }}",
+            "QA_BUNDLE_STORAGE_DRIVER": "${{ env.QA_BUNDLE_STORAGE_DRIVER }}",
+            "QA_BUNDLE_STORAGE_REGION": "${{ env.AWS_REGION }}",
+            "QA_BUNDLE_STORAGE_BUCKET": "${{ steps.qa_bundle.outputs.bucket }}",
+            "QA_BUNDLE_STORAGE_PREFIX": "${{ env.QA_BUNDLE_STORAGE_PREFIX }}",
+        }
+        for key, value in desired.items():
+            with self.subTest(deploy_key=key):
+                self.assertIn(f"{key}: {value}", deploy_step)
+
+        assertion = deploy[deploy.index("- name: Assert live-host state (drift check)"):]
+        expect_env = ",".join(f"{key}={value}" for key, value in desired.items())
+        self.assertIn(f"EXPECT_ENV: {expect_env}", assertion)
+        self.assertIn("assert-live-host-state.sh", assertion)
+
+    def test_bundle_coordinates_are_not_hardcoded_in_deploy_owners(self) -> None:
+        forbidden = (
+            r"https://sqs\.[a-z0-9-]+\.amazonaws\.com/[0-9]{12}/[A-Za-z0-9_.-]+",
+            r"\btokenkey-[A-Za-z0-9-]*qa-bundles-[0-9]{12}\b",
+        )
+        for path in (WORKFLOW, BLUEGREEN_DEPLOY):
+            body = path.read_text(encoding="utf-8")
+            for pattern in forbidden:
+                with self.subTest(path=path.name, pattern=pattern):
+                    self.assertNotRegex(body, pattern)
+
+    def test_existing_qa_stack_query_fails_closed_except_for_not_found(self) -> None:
+        deploy = job_block("deploy")
+        qa_credentials = deploy.index("name: Configure QA infrastructure credentials via OIDC")
+        resolve = deploy.index("name: Resolve QA infrastructure deploy inputs")
+        infra = deploy.index("name: Deploy QA Bundle infrastructure")
+        self.assertLess(qa_credentials, resolve)
+        self.assertLess(resolve, infra)
+
+        block = deploy[resolve:infra]
+        self.assertIn("aws cloudformation describe-stacks", block)
+        self.assertIn("ValidationError", block)
+        self.assertIn("does not exist", block)
+        self.assertIn("exit 1", block)
+        self.assertNotIn("2>/dev/null || true", block)
+        self.assertNotRegex(block, r"describe-stacks[^\n]*\|\|\s*true")
+
+    def test_qa_stack_principal_resolution_only_bootstraps_when_stack_is_absent(self) -> None:
+        script = step_run("Resolve QA infrastructure deploy inputs")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = pathlib.Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_aws = fake_bin / "aws"
+            fake_aws.write_text(
+                """#!/usr/bin/env bash
+set -euo pipefail
+case "${AWS_SCENARIO}" in
+  existing)
+    printf '%s\n' '{"Stacks":[{"Parameters":[{"ParameterKey":"OpsRecoveryPrincipalArn","ParameterValue":"arn:existing"}]}]}'
+    ;;
+  missing)
+    echo 'An error occurred (ValidationError) when calling the DescribeStacks operation: Stack with id tokenkey-prod-qa-raw-archive does not exist' >&2
+    exit 255
+    ;;
+  denied)
+    echo 'An error occurred (AccessDenied) when calling the DescribeStacks operation' >&2
+    exit 254
+    ;;
+esac
+""",
+                encoding="utf-8",
+            )
+            fake_aws.chmod(0o755)
+            base_env = {
+                **os.environ,
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+                "QA_STACK_NAME": "tokenkey-prod-qa-raw-archive",
+                "CONFIGURED_OPS_RECOVERY_PRINCIPAL_ARN": "arn:bootstrap",
+            }
+
+            for scenario, expected in (("existing", "arn:existing"), ("missing", "arn:bootstrap")):
+                output = root / f"{scenario}-output"
+                proc = subprocess.run(
+                    ["bash", "-c", script],
+                    env={**base_env, "AWS_SCENARIO": scenario, "GITHUB_OUTPUT": str(output)},
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+                self.assertIn(f"ops_recovery_principal_arn={expected}\n", output.read_text())
+
+            denied_output = root / "denied-output"
+            denied = subprocess.run(
+                ["bash", "-c", script],
+                env={**base_env, "AWS_SCENARIO": "denied", "GITHUB_OUTPUT": str(denied_output)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(denied.returncode, 0)
+            self.assertIn("refusing bootstrap fallback", denied.stderr)
+            self.assertFalse(denied_output.exists())
+
+    def test_bundle_infrastructure_is_ready_before_app_image_swap(self) -> None:
+        deploy = job_block("deploy")
+        infra = deploy.index("name: Deploy QA Bundle infrastructure")
+        verify = deploy.index("name: Verify QA Bundle infrastructure")
+        image_mutation = deploy.index("name: Deploy via SSM Run-Command")
+        self.assertLess(infra, verify)
+        self.assertLess(verify, image_mutation)
+        pre_mutation = deploy[:image_mutation]
+        self.assertIn("QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}", pre_mutation)
+        self.assertIn("QA_BUNDLE_WORKER_DESIRED_COUNT: \"1\"", pre_mutation)
+        self.assertIn('browser_origin="https://${API_HOST#api.}"', pre_mutation)
+        self.assertIn('echo "browser_origin=$browser_origin" >> "$GITHUB_OUTPUT"', pre_mutation)
+        self.assertIn("QA_BUNDLE_BROWSER_ALLOWED_ORIGIN: ${{ steps.instance.outputs.browser_origin }}", pre_mutation)
+        self.assertIn("deploy_qa_raw_archive_cfn.sh", pre_mutation)
+        self.assertIn("verify_qa_bundle_infra.sh", pre_mutation)
 
     def test_smoke_only_job_is_read_only_and_uses_prod_environment(self) -> None:
         smoke = job_block("smoke-only")

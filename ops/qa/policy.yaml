@@ -2,18 +2,16 @@ schema_version: 1
 
 prod:
   capture_enabled: true
-  online_window_hours: 24
   maintenance_schedule_utc: "*:15"
 
   lifecycle:
-    owner: tokenkey-qa-boundary
-    boundary_schedule_utc: "*:00"
-    randomized_delay_minutes: 0
+    owner: tokenkey-qa-maintenance
     future_horizon_hours: 72
-    lock_timeout_ms: 100
+    drop_requires_raw_commit: true
+    drop_requires_restore_verified: true
+    drop_requires_capture_seal: true
     provision_lock_retry_sqlstate: "55P03"
     provision_lock_retry_backoff_ms: [250, 500, 1000, 2000, 4000, 8000]
-    host_receipt_path: /var/lib/tokenkey/qa-boundary-last-run.json
 
   archive:
     enabled: true
@@ -30,22 +28,19 @@ prod:
     container_scratch_dir: /app/data/qa_archive_tmp
     host_receipt_path: /var/lib/tokenkey/qa-maintenance-last-run.json
 
-  cleanup:
-    host_export_tmp_dir: /var/lib/tokenkey/app/qa_exports_tmp
-    container_export_tmp_dir: /app/data/qa_exports_tmp
-    export_tmp_owner: tokenkey-qa-boundary
-
-  user_export:
+  user_qa:
     entitlement: users.traj_export_enabled
-    source: s3_raw_archive
+    source: s3_qa_bundle
     compute: ecs_fargate
     download: direct_s3
+    job_registry: immutable_s3_spec
+    database_job_registry: false
     prod_fallback: forbidden
 
-  disk_emergency:
+  disk_monitor:
     used_percent: 80
     free_gib: 10
-    cleanup_target_percent: 70
+    automatic_cleanup: false
     pause_capture: false
 
 edge:
