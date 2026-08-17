@@ -65,6 +65,7 @@ prod:
     database_job_registry: retired
     bundle_infra_repository_state: ready
     bundle_infra_observed_state: not_verified
+    bundle_runtime_contract: phase3_v1
     bundle_worker_desired_count: 1
     bundle_readiness_verifier: ops/qa/verify_qa_bundle_infra.sh
     bundle_canary: ops/stage0/run-qa-bundle-canary-via-ssm.sh

@@ -4,18 +4,31 @@ set -euo pipefail
 
 STACK="${QA_RAW_ARCHIVE_STACK:-tokenkey-prod-qa-raw-archive}"
 REGION="${AWS_REGION:-us-east-1}"
+MODE="${QA_BUNDLE_VERIFY_MODE:-expected}"
 EXPECTED_IMAGE="${QA_BUNDLE_WORKER_IMAGE:-}"
 EXPECTED_DESIRED="${QA_BUNDLE_WORKER_DESIRED_COUNT:-1}"
 
 [[ "${EXPECTED_DESIRED}" =~ ^[1-9][0-9]*$ ]] || { echo "QA_BUNDLE_WORKER_DESIRED_COUNT must be positive" >&2; exit 1; }
+case "${MODE}" in
+  discovery | expected) ;;
+  *) echo "QA_BUNDLE_VERIFY_MODE must be discovery or expected" >&2; exit 1 ;;
+esac
+if [ "${MODE}" = expected ] && [ -z "${EXPECTED_IMAGE}" ]; then
+  echo "QA_BUNDLE_WORKER_IMAGE is required in expected mode" >&2
+  exit 1
+fi
 
 stack_json="$(aws cloudformation describe-stacks --region "${REGION}" --stack-name "${STACK}" --output json)"
 stack_status="$(jq -r '.Stacks[0].StackStatus // empty' <<<"${stack_json}")"
 [[ "${stack_status}" =~ _COMPLETE$ ]] || { echo "QA Bundle stack is not complete: ${stack_status}" >&2; exit 1; }
-if [ -z "${EXPECTED_IMAGE}" ]; then
-  EXPECTED_IMAGE="$(jq -r '.Stacks[0].Parameters[]? | select(.ParameterKey == "BundleWorkerImage") | .ParameterValue' <<<"${stack_json}")"
+stack_image="$(jq -r '.Stacks[0].Parameters[]? | select(.ParameterKey == "BundleWorkerImage") | .ParameterValue' <<<"${stack_json}")"
+[[ -n "${stack_image}" && "${stack_image}" != None ]] || { echo "QA Bundle stack image expectation is unavailable" >&2; exit 1; }
+if [ "${MODE}" = discovery ]; then
+  EXPECTED_IMAGE="${stack_image}"
+elif [ "${stack_image}" != "${EXPECTED_IMAGE}" ]; then
+  echo "QA Bundle stack image mismatch expected=${EXPECTED_IMAGE} parameter=${stack_image}" >&2
+  exit 1
 fi
-[[ -n "${EXPECTED_IMAGE}" && "${EXPECTED_IMAGE}" != None ]] || { echo "QA Bundle worker image expectation is unavailable" >&2; exit 1; }
 
 parameter() {
   local key="$1"
@@ -99,6 +112,7 @@ receipt="$(jq -n \
   --argjson desired "${desired}" --argjson running "${running}" --argjson dlq_depth "${dlq_depth}" \
   '{ok:true,stack:$stack,stack_status:$status,bucket:$bucket,browser_origin:$browser_origin,retention_days:$retention_days,queue_url:$queue_url,dlq_url:$dlq_url,cluster:$cluster,service:$service,image:$image,desired_count:$desired,running_count:$running,dlq_depth:$dlq_depth}')"
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-  printf 'bucket=%s\nqueue_url=%s\n' "${bucket}" "${queue_url}" >> "${GITHUB_OUTPUT}"
+  printf 'bucket=%s\nqueue_url=%s\nworker_image=%s\n' \
+    "${bucket}" "${queue_url}" "${actual_image}" >> "${GITHUB_OUTPUT}"
 fi
 printf '%s\n' "${receipt}"

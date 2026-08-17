@@ -40,7 +40,8 @@ REQUIRED = {
         "pause_capture: false",
         "resolved_worker_image",
         "legacy_rollback",
-        "原样保留已经部署的 Phase 3 maintenance/boundary runners",
+        "bundle_runtime_contract: phase3_v1",
+        "当前 release tree 的 Phase 3 runners",
     ),
     "ops/qa/README.md": (
         "only target lifecycle owner",
@@ -50,9 +51,10 @@ REQUIRED = {
         "App rollback does not imply QA control-plane rollback",
     ),
     "ops/qa/resolve_qa_bundle_worker_image.py": (
-        'PHASE3_MINIMUM_TAG = "1.8.156"',
+        'SUPPORTED_RUNTIME_CONTRACT = "phase3_v1"',
         '"mode": "phase3"',
         '"mode": "legacy_rollback"',
+        '"worker_source": "verified_live_worker"',
         'IMAGE_REPOSITORY = "ghcr.io/youxuanxue/sub2api"',
     ),
     ".github/workflows/deploy-stage0.yml": (
@@ -71,7 +73,7 @@ REQUIRED = {
         "S3 Bundle",
         "prod fallback",
         "Observed live: transitional",
-        "legacy app 保留 Phase 3 控制面",
+        "legacy app 只保留 fully verified live Worker",
     ),
     ".testing/user-stories/stories/US-045-qa-phase2-production-integrity.md": (
         "historical/superseded",
@@ -287,6 +289,19 @@ def scan(root: Path) -> list[str]:
         resolved_binding = "QA_BUNDLE_WORKER_IMAGE: ${{ steps.qa_infra.outputs.resolved_worker_image }}"
         if workflow_body.count(resolved_binding) != 2:
             failures.append("QA deploy and verifier must share exactly one resolved Worker image")
+        legacy_maintenance = workflow_body.find(
+            "name: Converge current QA maintenance runner before legacy app rollback"
+        )
+        legacy_boundary = workflow_body.find(
+            "name: Disable QA boundary before legacy app rollback"
+        )
+        app_mutation = workflow_body.find("name: Deploy via SSM Run-Command")
+        if not (0 <= legacy_maintenance < legacy_boundary < app_mutation):
+            failures.append("legacy host safety must converge before app mutation")
+        if "QA_BOUNDARY_TIMER_STATE: disabled" not in workflow_body:
+            failures.append("legacy rollback must force the QA boundary disabled")
+        if "QA_BUNDLE_VERIFY_MODE: discovery" not in workflow_body:
+            failures.append("legacy Worker fallback must come from full live discovery")
         if "QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}" in workflow_body:
             failures.append("QA Bundle Worker image must not be coupled directly to the app tag")
     for rel, needles in REQUIRED.items():
@@ -428,6 +443,7 @@ def scan(root: Path) -> list[str]:
             "database_job_registry": "retired",
             "bundle_infra_repository_state": "ready",
             "bundle_infra_observed_state": "not_verified",
+            "bundle_runtime_contract": "phase3_v1",
             "bundle_worker_desired_count": 1,
             "bundle_readiness_verifier": "ops/qa/verify_qa_bundle_infra.sh",
             "bundle_canary": "ops/stage0/run-qa-bundle-canary-via-ssm.sh",

@@ -21,11 +21,12 @@ This is the single operator entry for the IAM and GitHub configuration required 
 2. Set GitHub Actions variable `QA_INFRA_OIDC_ROLE_ARN` to stack output `QAInfraDeploymentRoleArn`. Keep `CICD_OIDC_STACK_NAME=tokenkey-cicd-oidc` unless the stack uses a non-default name.
 3. Set `QA_OPS_RECOVERY_PRINCIPAL_ARN` to the approved IAM user or role that may assume the raw-archive recovery role. It is required to create the QA stack; later deploys recover the durable value from the stack parameter.
 4. Optional non-default stack names use `QA_RAW_ARCHIVE_STACK`. The deploy workflow resolves all remaining VPC, subnet, route-table, app-role, image, and browser-origin inputs from the target Stage0 stack and release tag.
-5. Dispatching `deploy-stage0.yml` then deploys and verifies Bundle infrastructure before changing the prod app image. The verifier reads back the exact bucket CORS origin, AES256 encryption, job-surface lifecycle, running Fargate task/image, and queue/DLQ state; any missing or drifting prerequisite fails closed before the app mutation.
+5. Dispatch `deploy-stage0.yml` with `operation=qa-infra-check` to verify both OIDC outputs, exact variable binding, real deployment-role assumption, QA stack read access, and the Bundle-era CloudFormation service-role binding without mutation. Only a stack exposing the canonical raw-archive outputs is recognized; a matching legacy pre-Bundle stack reports `legacy_bootstrap_ready`, while an unrelated/malformed stack or Bundle-era service-role drift fails.
+6. Normal deploy then verifies Bundle infrastructure before changing the prod app image. Legacy rollback first runs the verifier in explicit discovery mode and accepts only its actual Worker image; post-update verification requires the resolved image explicitly.
 
 `QA_INFRA_OIDC_ROLE_ARN`, `QA_OPS_RECOVERY_PRINCIPAL_ARN`, `CICD_OIDC_STACK_NAME`, and `QA_RAW_ARCHIVE_STACK` are GitHub Actions variables, not secrets. No AWS long-lived credentials are added to GitHub.
 
-App rollback does not imply QA control-plane rollback. The deploy workflow resolves the Bundle Worker image independently; legacy app rollback preserves the compatible Worker and Phase 3 host runners, skips the unsupported Bundle canary, and reports a degraded state. The complete resolver and recovery contract has one normative source: `docs/approved/design-prod-qa-24h-s3-lifecycle.md` section 18.2.
+App rollback does not imply QA control-plane rollback. The target release tree explicitly declares `bundle_runtime_contract: phase3_v1`. Legacy app rollback preserves only a fully verified live Worker, converges the current Phase 3 maintenance runner, forces boundary disabled/inactive before the app switch, skips canary, pauses DROP, and reports a degraded state. The complete resolver and recovery contract has one normative source: `docs/approved/design-prod-qa-24h-s3-lifecycle.md` section 18.2.
 
 ## State and checks
 

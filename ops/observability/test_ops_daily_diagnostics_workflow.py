@@ -171,7 +171,10 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
 
     def test_qa_bundle_infra_and_real_canary_are_wired_for_prod(self) -> None:
         text = workflow_text()
-        self.assertIn("verify_qa_bundle_infra.sh", text)
+        self.assertIn(
+            "QA_BUNDLE_VERIFY_MODE=discovery bash ops/qa/verify_qa_bundle_infra.sh",
+            text,
+        )
         self.assertIn("run-qa-bundle-canary-via-ssm.sh", text)
         self.assertIn("qa-bundle-infra|$TARGET_ID", text)
         self.assertIn("qa-bundle-canary|$TARGET_ID", text)

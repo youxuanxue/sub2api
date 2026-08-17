@@ -1,91 +1,100 @@
 #!/usr/bin/env python3
-"""Resolve the QA Bundle Worker image independently from the app rollback tag."""
+"""Resolve QA Bundle rollout from an explicit release-tree capability contract."""
 from __future__ import annotations
 
 import argparse
 import json
 import re
 import sys
-from dataclasses import dataclass
+from pathlib import Path
+
+import yaml
 
 
 IMAGE_REPOSITORY = "ghcr.io/youxuanxue/sub2api"
-PHASE3_MINIMUM_TAG = "1.8.156"
+SUPPORTED_RUNTIME_CONTRACT = "phase3_v1"
 TAG_PATTERN = re.compile(
-    r"^(?P<major>0|[1-9][0-9]*)\."
-    r"(?P<minor>0|[1-9][0-9]*)\."
-    r"(?P<patch>0|[1-9][0-9]*)"
-    r"(?:-(?P<stage>beta|rc)\.(?P<number>0|[1-9][0-9]*))?$"
+    r"^(?:0|[1-9][0-9]*)\."
+    r"(?:0|[1-9][0-9]*)\."
+    r"(?:0|[1-9][0-9]*)"
+    r"(?:-(?:beta|rc)\.(?:0|[1-9][0-9]*))?$"
 )
+DIGEST_PATTERN = re.compile(r"^sha256:[a-f0-9]{64}$")
 
 
-@dataclass(frozen=True, order=True)
-class Version:
-    major: int
-    minor: int
-    patch: int
-    stage_rank: int
-    stage_number: int
-
-
-def parse_tag(tag: str) -> Version | None:
-    match = TAG_PATTERN.fullmatch(tag)
-    if match is None:
+def release_contract(path: Path) -> str | None:
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        user_export = payload["prod"]["user_export"]
+    except (OSError, KeyError, TypeError, yaml.YAMLError) as exc:
+        raise ValueError(f"target rollout manifest is invalid: {exc}") from exc
+    if not isinstance(user_export, dict):
+        raise ValueError("target rollout manifest prod.user_export must be a mapping")
+    contract = user_export.get("bundle_runtime_contract")
+    if contract is None:
         return None
-    stage = match.group("stage")
-    stage_rank = {"beta": 0, "rc": 1, None: 2}[stage]
-    return Version(
-        int(match.group("major")),
-        int(match.group("minor")),
-        int(match.group("patch")),
-        stage_rank,
-        int(match.group("number") or 0),
-    )
+    if contract != SUPPORTED_RUNTIME_CONTRACT:
+        raise ValueError(f"unsupported target Bundle runtime contract: {contract!r}")
+    return contract
 
 
-def existing_release(image: str) -> tuple[Version, str] | None:
-    prefix = f"{IMAGE_REPOSITORY}:"
-    if not image.startswith(prefix):
-        return None
-    tag = image.removeprefix(prefix)
-    version = parse_tag(tag)
-    if version is None:
-        return None
-    return version, image
+def verified_worker_image(image: str) -> str | None:
+    tag_prefix = f"{IMAGE_REPOSITORY}:"
+    digest_prefix = f"{IMAGE_REPOSITORY}@"
+    if image.startswith(tag_prefix):
+        tag = image.removeprefix(tag_prefix)
+        return image if TAG_PATTERN.fullmatch(tag) else None
+    if image.startswith(digest_prefix):
+        digest = image.removeprefix(digest_prefix)
+        return image if DIGEST_PATTERN.fullmatch(digest) else None
+    return None
 
 
-def resolve(target_tag: str, existing_image: str) -> dict[str, str]:
-    target = parse_tag(target_tag)
-    if target is None:
+def resolve(
+    target_tag: str,
+    target_rollout: Path,
+    verified_existing_image: str,
+) -> dict[str, str | bool]:
+    if TAG_PATTERN.fullmatch(target_tag) is None:
+        raise ValueError("target tag must match X.Y.Z (optionally -rc.N or -beta.N)")
+
+    contract = release_contract(target_rollout)
+    if contract == SUPPORTED_RUNTIME_CONTRACT:
+        return {
+            "mode": "phase3",
+            "resolved_worker_image": f"{IMAGE_REPOSITORY}:{target_tag}",
+            "worker_source": "target_release",
+            "run_canary": True,
+            "host_runtime_mode": "target_release",
+        }
+
+    existing = verified_worker_image(verified_existing_image)
+    if existing is None:
         raise ValueError(
-            "target tag must match X.Y.Z (optionally -rc.N or -beta.N)"
+            "legacy rollback requires a fully verified immutable QA Bundle Worker "
+            f"image from {IMAGE_REPOSITORY}"
         )
-
-    minimum = parse_tag(PHASE3_MINIMUM_TAG)
-    assert minimum is not None
-    current = existing_release(existing_image)
-
-    if target >= minimum:
-        target_image = f"{IMAGE_REPOSITORY}:{target_tag}"
-        if current is not None and current[0] >= minimum and current[0] > target:
-            target_image = current[1]
-        return {"mode": "phase3", "resolved_worker_image": target_image}
-
-    if current is None or current[0] < minimum:
-        raise ValueError(
-            "legacy rollback requires an existing compatible QA Bundle Worker "
-            f"image from {IMAGE_REPOSITORY} at or above {PHASE3_MINIMUM_TAG}"
-        )
-    return {"mode": "legacy_rollback", "resolved_worker_image": current[1]}
+    return {
+        "mode": "legacy_rollback",
+        "resolved_worker_image": existing,
+        "worker_source": "verified_live_worker",
+        "run_canary": False,
+        "host_runtime_mode": "current_safe_degraded",
+    }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--target-tag", required=True)
-    parser.add_argument("--existing-image", default="")
+    parser.add_argument("--target-rollout", type=Path, required=True)
+    parser.add_argument("--verified-existing-image", default="")
     args = parser.parse_args()
     try:
-        result = resolve(args.target_tag, args.existing_image)
+        result = resolve(
+            args.target_tag,
+            args.target_rollout,
+            args.verified_existing_image,
+        )
     except ValueError as exc:
         print(f"resolve QA Bundle Worker image: {exc}", file=sys.stderr)
         return 1

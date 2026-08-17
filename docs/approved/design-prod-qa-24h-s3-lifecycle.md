@@ -1,9 +1,9 @@
 ---
 title: Prod-only QA S3 用户面与小时归档生命周期
 status: approved
-approved_by: "user (conversation approvals, 2026-08-05 through 2026-08-17; S3-only user surface, capture-sealed archive-gated hourly DROP, fail-closed single maintenance owner, decoupled app/Bundle Worker rollback, no automatic emergency deletion)"
+approved_by: "user (conversation approvals, 2026-08-05 through 2026-08-15; S3-only user surface, capture-sealed archive-gated hourly DROP, fail-closed single maintenance owner, no automatic emergency deletion)"
 approved_at: 2026-08-05
-last_reviewed: 2026-08-17
+last_reviewed: 2026-08-16
 created: 2026-08-05
 authors: [agent]
 risk: high
@@ -534,7 +534,9 @@ PR 3 的代码发布不自动激活 DROP；生产激活仍需独立高风险批�
 
 任何步骤失败都停止推进，不通过手工触发 timer、DDL 或线上写入来伪造验证。
 
-### 18.2 首次 Bundle 发布与 app rollback 契约
+### 18.2 首次 Bundle 发布与 app rollback 契约（待本 PR 人工确认）
+
+> 本节是 PR #1688 的高风险修订，尚未扩展本文 frontmatter 中既有的审批范围；合并前必须经人工确认。
 
 Bundle 基础设施 bootstrap 与普通 app 发布分属两个权限边界。首次 Bundle-aware prod deploy 前必须同时满足：
 
@@ -549,27 +551,26 @@ Bundle 基础设施 bootstrap 与普通 app 发布分属两个权限边界。首
   Bundle outputs 不是 blocker，首次 deploy 可以在 app image 切换前更新它；OIDC outputs、IAM trust/policy 或
   GitHub variable 缺失则必须在任何 QA stack/app mutation 前失败。
 
-app image 与 Bundle Worker image 是两个发布生命周期，不能再用同一个 tag 隐式绑定。首个支持
-`--qa-bundle-worker` 的 release 是 `1.8.156`；这一版本下限与 CLI 的持续存在由 resolver 测试、现有 Worker
-测试和 QA sentinel 共同守卫，不新增 per-release capability marker。prod deploy 只调用一个确定性 resolver，
-由它输出 `mode` 与唯一 `resolved_worker_image`：
+app image 与 Bundle Worker image 是两个发布生命周期，不能再用同一个 tag 隐式绑定。能力由目标 release
+tree 的 `ops/qa/deploy_rollout.yaml` 显式声明 `bundle_runtime_contract: phase3_v1`，不得根据尚未发布的 semver
+下限猜测。prod deploy 只调用一个确定性 resolver，由它输出 `mode`、唯一 `resolved_worker_image`、
+`worker_source`、`run_canary` 与 `host_runtime_mode`：
 
-1. 目标 app tag 不低于 `1.8.156` 时，`mode=phase3`；Worker image 只允许从现有兼容版本前进到目标版本，
-   不得因 app rollback 降级。首次建栈使用目标 release image；
-2. 目标 app tag 低于 `1.8.156` 时，`mode=legacy_rollback`；必须已有不低于该下限的
-   `BundleWorkerImage`，并原样保留；
-3. 首次建栈既没有现有兼容 Worker，又请求 legacy app tag 时，必须在 CloudFormation mutation 前失败；
-4. 无法证明现有 image 为本仓库不可变兼容 release 时，不得把它当作 rollback fallback；
-5. infra deploy 与 readiness verifier 必须消费同一个 `resolved_worker_image`，并在 summary 同时报告 app image、
-   Worker image 与 mode，禁止再声称任意 previous tag 都会同时成为可运行 Worker。
+1. 目标 release tree 声明受支持 contract 时，`mode=phase3`，Worker 使用同一目标 release image；
+2. contract 缺失时，`mode=legacy_rollback`，只接受完整 read-only readiness verifier 已证明正在运行的本仓库
+   immutable release tag/digest；未知或 malformed contract 一律 fail closed；
+3. 没有 verified live Worker 的 legacy rollback 必须在 CloudFormation/app mutation 前失败；
+4. discovery 必须先验证 stack complete、CORS、AES256、lifecycle、queue/DLQ、ECS capacity 与实际 task image
+   精确等于 stack parameter，不能把 parameter 本身当成运行证明；
+5. infra deploy 与 post-update verifier 必须消费同一个 `resolved_worker_image`，并在 summary 同时报告 app image、
+   Worker image/source、mode 与 host runtime mode。
 
 回滚到 Phase 3 之前的 app 只用于恢复 gateway 服务，不撤销已经建立的 Bundle 基础设施，也不把 Worker
-降级到不支持其命令的 binary。`mode=phase3` 才 checkout/sync target-tag host runners 并执行 post-deploy
-Bundle canary；`mode=legacy_rollback` 必须原样保留已经部署的 Phase 3 maintenance/boundary runners，避免旧
-runner 恢复退役状态机或第二删除 owner，同时因旧 app 不支持 canary 命令而明确跳过 canary。此时 workflow
-warning 与 summary 必须标记 `QA Phase 3 degraded`；旧 app 最多让后续 archive-gated DROP 暂停，不能改变 durable
-activation receipt 或恢复 boundary owner。恢复 gateway 后应尽快发布兼容 Phase 3 的 app，而不是把旧 tag
-当作长期 QA 运行目标。
+降级到不支持其命令的 binary。`mode=phase3` checkout/sync target-tag host runners 并执行 post-deploy Bundle
+canary；`mode=legacy_rollback` 在 app switch 前用当前 release tree 的 Phase 3 runners 收敛 host：maintenance
+enabled，boundary disabled/inactive；不得安装 legacy target runner，也不得保留未经证明的 live runner 状态。
+此模式跳过 canary，标记 `QA Phase 3 degraded`，archive 可继续而 DROP 明确暂停；durable activation receipt 不变，
+恢复 compatible Phase 3 app 后才以 boundary `auto` 恢复唯一 owner。
 
 ## 19. 迁移完成后的唯一运行图
 

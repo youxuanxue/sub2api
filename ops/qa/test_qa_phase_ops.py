@@ -58,6 +58,7 @@ class TestQAPhaseOps(unittest.TestCase):
         self.assertEqual(user_export["phase3_worker_observed_state"], "transitional_in_prod")
         self.assertEqual(user_export["job_registry"], "immutable_s3_spec")
         self.assertEqual(user_export["database_job_registry"], "retired")
+        self.assertEqual(user_export["bundle_runtime_contract"], "phase3_v1")
         self.assertEqual(user_export["bundle_worker_desired_count"], 1)
 
     def test_maintenance_is_the_only_target_lifecycle_owner(self) -> None:
@@ -1032,6 +1033,7 @@ esac
                 "PATH": f"{fake_bin}:/usr/bin:/bin",
                 "AWS_CALLS": str(calls),
                 "GITHUB_OUTPUT": str(root / "github-output"),
+                "QA_BUNDLE_VERIFY_MODE": "expected",
                 "QA_BUNDLE_WORKER_IMAGE": "ghcr.io/youxuanxue/sub2api:1.8.156",
                 "QA_BUNDLE_WORKER_DESIRED_COUNT": "1",
             }
@@ -1047,7 +1049,11 @@ esac
             self.assertEqual(receipt["browser_origin"], "https://tokenkey.dev")
             self.assertEqual(
                 (root / "github-output").read_text(encoding="utf-8").splitlines(),
-                ["bucket=qa-bucket", "queue_url=https://sqs/queue"],
+                [
+                    "bucket=qa-bucket",
+                    "queue_url=https://sqs/queue",
+                    "worker_image=ghcr.io/youxuanxue/sub2api:1.8.156",
+                ],
             )
             observed = calls.read_text(encoding="utf-8")
             for expected in (
@@ -1061,6 +1067,45 @@ esac
                 "ecs describe-task-definition",
             ):
                 self.assertIn(expected, observed)
+
+            discovery_output = root / "github-output-discovery"
+            discovery = subprocess.run(
+                ["bash", str(script)],
+                env={
+                    key: value
+                    for key, value in base_env.items()
+                    if key != "QA_BUNDLE_WORKER_IMAGE"
+                }
+                | {
+                    "QA_BUNDLE_VERIFY_MODE": "discovery",
+                    "GITHUB_OUTPUT": str(discovery_output),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(discovery.returncode, 0, discovery.stderr)
+            self.assertIn(
+                "worker_image=ghcr.io/youxuanxue/sub2api:1.8.156",
+                discovery_output.read_text(encoding="utf-8").splitlines(),
+            )
+
+            missing_expected = subprocess.run(
+                ["bash", str(script)],
+                env={
+                    key: value
+                    for key, value in base_env.items()
+                    if key != "QA_BUNDLE_WORKER_IMAGE"
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(missing_expected.returncode, 0)
+            self.assertIn(
+                "QA_BUNDLE_WORKER_IMAGE is required in expected mode",
+                missing_expected.stderr,
+            )
 
             cors_drift = subprocess.run(
                 ["bash", str(script)],
