@@ -1,9 +1,9 @@
 ---
 title: Prod-only QA S3 用户面与小时归档生命周期
 status: approved
-approved_by: "user (conversation approvals, 2026-08-05 through 2026-08-15; S3-only user surface, capture-sealed archive-gated hourly DROP, fail-closed single maintenance owner, no automatic emergency deletion)"
+approved_by: "user (conversation approvals, 2026-08-05 through 2026-08-17; S3-only user surface, capture-sealed archive-gated hourly DROP, fail-closed single maintenance owner, no automatic emergency deletion, and PR #1688 Bundle bootstrap/app rollback contract)"
 approved_at: 2026-08-05
-last_reviewed: 2026-08-16
+last_reviewed: 2026-08-17
 created: 2026-08-05
 authors: [agent]
 risk: high
@@ -534,9 +534,9 @@ PR 3 的代码发布不自动激活 DROP；生产激活仍需独立高风险批�
 
 任何步骤失败都停止推进，不通过手工触发 timer、DDL 或线上写入来伪造验证。
 
-### 18.2 首次 Bundle 发布与 app rollback 契约（待本 PR 人工确认）
+### 18.2 首次 Bundle 发布与 app rollback 契约
 
-> 本节是 PR #1688 的高风险修订，尚未扩展本文 frontmatter 中既有的审批范围；合并前必须经人工确认。
+> 本节是 PR #1688 的高风险修订，由用户于 2026-08-17 明确批准；该批准不授权部署、生产 IAM/GitHub variable 变更、host timer 同步或 single-owner activation。
 
 Bundle 基础设施 bootstrap 与普通 app 发布分属两个权限边界。首次 Bundle-aware prod deploy 前必须同时满足：
 
