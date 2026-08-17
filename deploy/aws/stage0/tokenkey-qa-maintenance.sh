@@ -13,7 +13,7 @@ QA_MAINTENANCE_HOST_LEDGER_ROOT="${QA_MAINTENANCE_HOST_LEDGER_ROOT:-${QA_MAINTEN
 QA_MAINTENANCE_CONTAINER_SCRATCH="/app/data/qa_archive_tmp"
 QA_MAINTENANCE_RECEIPT="${QA_MAINTENANCE_RECEIPT:-/var/lib/tokenkey/qa-maintenance-last-run.json}"
 QA_MAINTENANCE_SYSTEMD_DIR="${QA_MAINTENANCE_SYSTEMD_DIR:-/etc/systemd/system}"
-QA_LIFECYCLE_LOCK_FILE="${QA_LIFECYCLE_LOCK_FILE:-/run/lock/tokenkey-qa-lifecycle.lock}"
+QA_LIFECYCLE_LOCK_FILE="${QA_LIFECYCLE_LOCK_FILE:-/var/lib/tokenkey/qa-lifecycle/host.lock}"
 QA_SINGLE_OWNER_ACTIVATION_DIR="${QA_SINGLE_OWNER_ACTIVATION_DIR:-${QA_MAINTENANCE_HOST_DATA_ROOT}/qa_single_owner_activation}"
 QA_SINGLE_OWNER_CONTAINER_DIR="/app/data/qa_single_owner_activation"
 QA_SINGLE_OWNER_DRAIN_TIMEOUT_SECONDS="${QA_SINGLE_OWNER_DRAIN_TIMEOUT_SECONDS:-300}"
@@ -82,6 +82,8 @@ ProtectSystem=strict
 ProtectHome=true
 RuntimeDirectory=tokenkey-qa-maintenance
 RuntimeDirectoryMode=0700
+StateDirectory=tokenkey/qa-lifecycle
+StateDirectoryMode=0755
 ReadWritePaths=/var/lib/tokenkey /run/tokenkey-qa-maintenance
 EOF
   [ "${QA_UNIT_INSTALL_CHANGED}" -eq 0 ] || changed=1

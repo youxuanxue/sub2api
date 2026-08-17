@@ -776,6 +776,8 @@ exit 9
                 "CPUQuota=20%",
                 "MemoryMax=1G",
                 "PrivateTmp=true",
+                "StateDirectory=tokenkey/qa-lifecycle",
+                "StateDirectoryMode=0755",
             ):
                 self.assertIn(line, service)
 

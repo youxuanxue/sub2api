@@ -907,10 +907,18 @@ esac
         lifecycle_lock = next(
             command
             for command in commands
-            if "/run/lock/tokenkey-qa-lifecycle.lock" in command
+            if "/var/lib/tokenkey/qa-lifecycle/host.lock" in command
         )
         self.assertIn("flock -x", lifecycle_lock)
         self.assertLess(commands.index(lifecycle_lock), commands.index(restore))
+
+        maintenance_runner = (
+            ROOT / "deploy/aws/stage0/tokenkey-qa-maintenance.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "QA_LIFECYCLE_LOCK_FILE:-/var/lib/tokenkey/qa-lifecycle/host.lock",
+            maintenance_runner,
+        )
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
