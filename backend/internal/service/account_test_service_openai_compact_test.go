@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -19,6 +20,14 @@ import (
 // output_item.done 携带 compaction item + response.completed。
 const compactProbeSSESuccessBody = "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"compaction\",\"id\":\"cmp_probe\",\"encrypted_content\":\"blob\"}}\n\n" +
 	"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_probe\",\"output\":[]}}\n\n"
+
+func requireOpenAICodexProbeHeaders(t *testing.T, header http.Header) {
+	t.Helper()
+	require.Equal(t, "responses=experimental", header.Get("OpenAI-Beta"))
+	require.Equal(t, openai.CodexDefaultOriginator, header.Get("Originator"))
+	require.Equal(t, codexCLIUserAgent, header.Get("User-Agent"))
+	require.Equal(t, codexCLIVersion, header.Get("Version"))
+}
 
 func TestAccountTestService_TestAccountConnection_OpenAICompactOAuthSuccessPersistsSupport(t *testing.T) {
 	gin.SetMode(gin.TestMode)

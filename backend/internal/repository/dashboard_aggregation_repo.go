@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pgpartition"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
@@ -307,13 +308,97 @@ func (r *dashboardAggregationRepository) CleanupUsageLogs(ctx context.Context, c
 		return err
 	}
 	if isPartitioned {
-		if err := r.dropUsageLogsPartitions(ctx, cutoff); err != nil {
+		if err := r.cleanupPartitionedUsageLogs(ctx, cutoff.UTC()); err != nil {
 			return err
 		}
 	} else if err := r.cleanupUsageLogsBatches(ctx, cutoff); err != nil {
 		return err
 	}
 	return r.SyncGroupUsageRollups(ctx, service.GroupUsageTodayStart(r.now()))
+}
+
+func (r *dashboardAggregationRepository) cleanupPartitionedUsageLogs(ctx context.Context, cutoff time.Time) error {
+	if err := r.dropUsageLogsPartitions(ctx, cutoff); err != nil {
+		return err
+	}
+	db, ok := r.sql.(pgpartition.DB)
+	if !ok {
+		return nil
+	}
+	if _, err := pgpartition.DropExpired(ctx, db, "usage_logs", cutoff); err != nil {
+		return err
+	}
+	straddling, err := pgpartition.ListStraddling(ctx, db, "usage_logs", "created_at", cutoff)
+	if err != nil {
+		return err
+	}
+	remaining := usageLogsStraddleReclaimMaxRowsPerRun
+	for _, child := range straddling {
+		if remaining <= 0 {
+			break
+		}
+		n, delErr := deleteOldUsageLogRowsByID(ctx, db, child, cutoff, usageLogsCleanupBatchSize, remaining)
+		if delErr != nil {
+			return delErr
+		}
+		remaining -= int(n)
+	}
+	return nil
+}
+
+func deleteOldUsageLogRowsByID(
+	ctx context.Context,
+	db pgpartition.DropExecutor,
+	table string,
+	cutoff time.Time,
+	batchSize int,
+	maxRows int,
+) (int64, error) {
+	if db == nil {
+		return 0, nil
+	}
+	if batchSize <= 0 {
+		batchSize = usageLogsCleanupBatchSize
+	}
+	qTable := pq.QuoteIdentifier(table)
+	q := fmt.Sprintf(`
+WITH batch AS (
+  SELECT id FROM %s
+  WHERE created_at < $1
+  ORDER BY id
+  LIMIT $2
+)
+DELETE FROM %s
+WHERE id IN (SELECT id FROM batch)
+`, qTable, qTable)
+
+	var total int64
+	for {
+		limit := batchSize
+		if maxRows > 0 {
+			remaining := maxRows - int(total)
+			if remaining <= 0 {
+				break
+			}
+			limit = min(limit, remaining)
+		}
+		res, err := db.ExecContext(ctx, q, cutoff, limit)
+		if err != nil {
+			return total, err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return total, err
+		}
+		total += affected
+		if affected == 0 {
+			break
+		}
+		if maxRows > 0 && total >= int64(maxRows) {
+			break
+		}
+	}
+	return total, nil
 }
 
 func (r *dashboardAggregationRepository) cleanupUsageLogsBatches(ctx context.Context, cutoff time.Time) error {
@@ -737,20 +822,6 @@ func dropUsageLogsPartitionWithRollupInvalidation(ctx context.Context, db *sql.D
 		return rollback(err)
 	}
 	return tx.Commit()
-}
-
-func (r *dashboardAggregationRepository) createUsageLogsPartition(ctx context.Context, month time.Time) error {
-	monthStart := truncateToMonthUTC(month)
-	nextMonth := monthStart.AddDate(0, 1, 0)
-	name := fmt.Sprintf("usage_logs_%s", monthStart.Format("200601"))
-	query := fmt.Sprintf(
-		"CREATE TABLE IF NOT EXISTS %s PARTITION OF usage_logs FOR VALUES FROM (%s) TO (%s)",
-		pq.QuoteIdentifier(name),
-		pq.QuoteLiteral(monthStart.Format("2006-01-02")),
-		pq.QuoteLiteral(nextMonth.Format("2006-01-02")),
-	)
-	_, err := r.sql.ExecContext(ctx, query)
-	return err
 }
 
 func truncateToMonthUTC(t time.Time) time.Time {

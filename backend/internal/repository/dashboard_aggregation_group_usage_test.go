@@ -151,10 +151,16 @@ func TestDashboardAggregationRepositoryRecomputeRangeRebuildsGroupRollupsBeforeC
 		`DELETE FROM usage_dashboard_hourly_users WHERE`,
 		`DELETE FROM usage_dashboard_daily WHERE`,
 		`DELETE FROM usage_dashboard_daily_users WHERE`,
+		`DELETE FROM usage_dashboard_user_platform_daily WHERE`,
+		`DELETE FROM usage_dashboard_group_daily WHERE`,
+		`DELETE FROM usage_dashboard_model_daily WHERE`,
 		`INSERT INTO usage_dashboard_hourly_users`,
 		`INSERT INTO usage_dashboard_daily_users`,
 		`INSERT INTO usage_dashboard_hourly`,
 		`INSERT INTO usage_dashboard_daily`,
+		`INSERT INTO usage_dashboard_user_platform_daily`,
+		`INSERT INTO usage_dashboard_group_daily`,
+		`INSERT INTO usage_dashboard_model_daily`,
 	} {
 		mock.ExpectExec(query).WillReturnResult(sqlmock.NewResult(0, 1))
 	}
@@ -249,6 +255,10 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsPartitionedSortsAndInvali
 			WillReturnResult(sqlmock.NewResult(0, 0))
 		mock.ExpectCommit()
 	}
+	mock.ExpectQuery(`SELECT n.nspname, c.relname`).
+		WillReturnRows(sqlmock.NewRows([]string{"nspname", "relname", "bound_expr", "upper_bound", "estimated_rows"}))
+	mock.ExpectQuery(`SELECT n.nspname, c.relname`).
+		WillReturnRows(sqlmock.NewRows([]string{"nspname", "relname", "bound_expr", "lower_unbounded", "lower_bound"}))
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).

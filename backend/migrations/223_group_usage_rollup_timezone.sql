@@ -1,6 +1,7 @@
 -- 让 /admin/groups 分组日汇总跟随服务端配置时区。
 -- 222 迁移生成的存量日桶均为北京时间，因此新增状态默认标记为 Asia/Shanghai；
 -- 服务启动后若当前 TZ 不同，后台同步会检测到不一致并重建日桶。
+-- bluegreen-safe-destructive-ok: ADD COLUMN IF NOT EXISTS with DEFAULT is expand-only; old app ignores the new column, existing singleton row gets Asia/Shanghai without a table rewrite.
 
 ALTER TABLE usage_group_rollup_state
     ADD COLUMN IF NOT EXISTS timezone_name TEXT NOT NULL DEFAULT 'Asia/Shanghai';
