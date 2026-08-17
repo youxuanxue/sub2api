@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ func TestBundleJobSpecRequiresExactlyTwentyFourContiguousCommits(t *testing.T) {
 	}
 }
 
-func TestExecuteBundleJobVerifiesEveryCommittedHourBeforePublishing(t *testing.T) {
+func TestExecuteBundleJobVerifiesEveryCommittedHourAndPublishes(t *testing.T) {
 	watermark := time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)
 	spec := NewBundleJobSpec(7, 11, watermark)
 	store := &recordingStore{}
@@ -64,6 +65,44 @@ func TestExecuteBundleJobVerifiesEveryCommittedHourBeforePublishing(t *testing.T
 	}
 	if _, ok := store.objects[spec.ReceiptKey]; !ok {
 		t.Fatalf("receipt %s was not published", spec.ReceiptKey)
+	}
+}
+
+func TestExecuteBundleJobRemovesPreviousRestoreBeforeVerifyingNextHour(t *testing.T) {
+	watermark := time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)
+	spec := NewBundleJobSpec(7, 11, watermark)
+	restoreRoot := t.TempDir()
+	verified := 0
+	var previousRestoreDir string
+
+	_, err := ExecuteJob(context.Background(), spec, panicReadOnlyStore{}, &recordingStore{}, ExecuteDeps{
+		RestoreRoot: restoreRoot,
+		VerifyCommit: func(_ context.Context, _ archive.ReadOnlyObjectStore, _ string, restoreDir string) (archive.VerifiedCommit, error) {
+			if previousRestoreDir != "" {
+				if _, err := os.Stat(previousRestoreDir); !os.IsNotExist(err) {
+					return archive.VerifiedCommit{}, fmt.Errorf("previous restore directory still exists: %s", previousRestoreDir)
+				}
+			}
+			if err := os.MkdirAll(restoreDir, 0o700); err != nil {
+				return archive.VerifiedCommit{}, err
+			}
+			expected := spec.DataFrom.Add(time.Duration(verified) * time.Hour)
+			verified++
+			previousRestoreDir = restoreDir
+			return archive.VerifiedCommit{Document: archive.CommitDocument{
+				WindowStart: expected,
+				WindowEnd:   expected.Add(time.Hour),
+			}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verified != len(spec.CommitKeys) {
+		t.Fatalf("verified=%d want=%d", verified, len(spec.CommitKeys))
+	}
+	if _, err := os.Stat(previousRestoreDir); !os.IsNotExist(err) {
+		t.Fatalf("final restore directory still exists: %s", previousRestoreDir)
 	}
 }
 
