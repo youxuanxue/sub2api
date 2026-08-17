@@ -1,9 +1,9 @@
 schema_version: 1
 # Deploy-time env injection defaults for Stage0 SSM deploy scripts.
 # Target runtime policy values: ops/qa/policy.yaml (SSOT).
-# Rollout gates keep deploy defaults conservative until the approved Phase 2 production-
-# integrity closeout is implemented and verified; document approval alone does not open the gate.
-# Repository states describe code/design readiness; observed_* fields are reconciled by live probes.
+# Rollout gates keep repository readiness separate from observed production state;
+# document approval alone does not prove deployment or activate the single owner.
+# observed_* fields are reconciled by live probes.
 
 prod:
   QA_ARCHIVE_ENABLED:
@@ -14,10 +14,9 @@ prod:
     repository_closeout_state: production_recloseout_verified
     observed_live_state: production_recloseout_verified
   tokenkey_qa_maintenance_timer:
-    repository_closeout_state: production_recloseout_verified
-    observed_live_state: production_recloseout_verified
-    closeout_deploy_state: enabled
-    policy_target_state: enabled
+    repository_closeout_state: single_owner_ready
+    observed_live_state: single_owner_not_activated
+    policy_target_state: sole_lifecycle_owner_after_activation
     host_artifact_sync_on_prod_deploy: required
     host_artifact_source: target_release_tag
     sync_active_service_policy: bounded_drain_then_replace
@@ -33,43 +32,42 @@ prod:
       - host_receipt
       - database_heartbeat
       - archive_control_rows
-  tokenkey_qa_stale_cleanup:
-    policy_target_state: disabled_after_finalize
-    lifecycle_role: cutover_drain_only
-    archive_independent: true
-    disable_after_receipt_phase: finalize
   tokenkey_qa_boundary:
-    repository_closeout_state: production_recloseout_verified
-    observed_live_state: production_recloseout_verified
-    policy_target_state: enabled_after_finalize
+    repository_closeout_state: pre_activation_fixed_age_transition
+    observed_live_state: single_owner_not_activated
+    policy_target_state: disabled_after_single_owner_activate
     host_artifact_sync_on_prod_deploy: required
     host_artifact_source: target_release_tag
     sync_active_service_policy: bounded_drain_then_replace
-    sync_failure_restore_policy: pre_finalize_snapshot_or_finalized_boundary
-    deploy_owner_restore_mode: durable_finalize_receipt
+    sync_failure_restore_policy: activation_receipt_forces_disabled
+    deploy_owner_restore_mode: durable_single_owner_activation_receipt
     schedule_utc: "*:00"
     randomized_delay_minutes: 0
     host_runner: /usr/local/bin/tokenkey-qa-boundary.sh
     host_receipt: /var/lib/tokenkey/qa-boundary-last-run.json
     database_heartbeat_job: qa-boundary
-    pre_finalize_provision_mode: qa-cutover-provision-only
-    pre_finalize_confirmation: tokenkey-prod-qa-cutover-provision-v1
-    pre_finalize_timer_state: disabled
-    finalize_legacy_monthly_policy: drop_empty_hash_bound_with_default
-    replaces_timer: tokenkey-qa-stale-cleanup.timer
-    owns_export_orphans: true
-    export_orphan_activation_marker: /var/lib/tokenkey/qa-export-orphan-cleanup-activated.json
+    pre_activation_role: provision_and_fixed_age_whole_partition_cleanup
+    pre_activation_retention_hours: 24
+    pre_activation_terminal_gap_policy: persist_before_drop
+    activation_receipt_phase: single_owner_activate
     health_evidence:
       - boundary_systemd
       - boundary_host_receipt
       - boundary_database_heartbeat
       - qa_records_catalog
   qa_records:
-    partition_owner_repository: qa_lifecycle_boundary
+    partition_owner_repository: tokenkey-qa-maintenance
     partition_owner_observed: qa_lifecycle_boundary
   user_export:
-    phase3_worker_repository_state: approved_fargate_worker
+    phase3_worker_repository_state: s3_bundle_ready
     phase3_worker_observed_state: transitional_in_prod
+    job_registry: immutable_s3_spec
+    database_job_registry: retired
+    bundle_infra_repository_state: ready
+    bundle_infra_observed_state: not_verified
+    bundle_worker_desired_count: 1
+    bundle_readiness_verifier: ops/qa/verify_qa_bundle_infra.sh
+    bundle_canary: ops/stage0/run-qa-bundle-canary-via-ssm.sh
   QA_CAPTURE_ENABLED:
     deploy_inject: edge_only_false
     policy_target: prod.capture_enabled

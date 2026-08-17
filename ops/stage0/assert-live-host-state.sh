@@ -7,8 +7,8 @@
 #   baseline and kept current by imperative healers — the image tag is hot-deployed
 #   via SSM (deploy_via_ssm.sh) so the CFN ImageTag param intentionally lags
 #   (changing it would REPLACE the instance), and prod-only env
-#   (SERVER_FRONTEND_URL, TOKENKEY_GHCR_KEEP_TAGS, the four QA_CAPTURE_EXPORT_STORAGE_*
-#   vars) is sed-injected onto the host, NOT carried in the shared compose (avoids
+#   (SERVER_FRONTEND_URL, TOKENKEY_GHCR_KEEP_TAGS, QA_BUNDLE_* vars) is injected
+#   onto the host, NOT carried in the shared compose (avoids
 #   the edge 14 KiB launch-script limit). The decoupling is by design — but until
 #   this check, NOTHING watched the live host, so every drift (a deploy-sed that
 #   wrote the wrong content, a manual host edit, a silent tag rollback) was caught
@@ -28,6 +28,7 @@
 #                                     active-color -> tokenkey-blue/green,
 #                                     fallback tokenkey)
 #   REQUIRE_ENV                       override the required-env list (comma-separated)
+#   EXPECT_ENV                        comma-separated KEY=VALUE values that must match
 #   SSM_TIMEOUT_SECONDS               invocation wait budget (default 120)
 #
 # Exit status: ALWAYS 0 except usage error (missing instance_id). Drift is surfaced
@@ -80,7 +81,7 @@ printf 'APPCONTAINER {"name":"%s"}\n' "\$app_container"
 img=\$(docker inspect "\$app_container" --format '{{.Config.Image}}' 2>/dev/null)
 printf 'RUNIMAGE {"image":"%s"}\n' "\$img"
 docker exec "\$app_container" printenv 2>/dev/null \
-  | grep -E '^(SERVER_FRONTEND_URL|QA_CAPTURE_EXPORT_STORAGE_(DRIVER|REGION|BUCKET|PREFIX))=' \
+  | grep -E '^(SERVER_FRONTEND_URL|QA_BUNDLE_(ENABLED|QUEUE_URL|STORAGE_(DRIVER|REGION|BUCKET|PREFIX)))=' \
   | while IFS='=' read -r k v; do printf 'ENV {"key":"%s","value":"%s"}\n' "\$k" "\$v"; done
 PROBE
 
@@ -124,9 +125,10 @@ fi
 verdict_args=()
 [[ -n "${EXPECTED_TAG}" ]] && verdict_args+=(--expected-tag "${EXPECTED_TAG}")
 [[ -n "${REQUIRE_ENV:-}" ]] && verdict_args+=(--require-env "${REQUIRE_ENV}")
+[[ -n "${EXPECT_ENV:-}" ]] && verdict_args+=(--expect-env "${EXPECT_ENV}")
 
 set +e
-if [[ -n "${EXPECTED_TAG}" || -n "${REQUIRE_ENV:-}" ]]; then
+if [[ -n "${EXPECTED_TAG}" || -n "${REQUIRE_ENV:-}" || -n "${EXPECT_ENV:-}" ]]; then
   verdict_out="$(printf '%s\n' "${probe_out}" | python3 "${SCRIPT_DIR}/live_host_state_verdict.py" "${verdict_args[@]}")"
 else
   verdict_out="$(printf '%s\n' "${probe_out}" | python3 "${SCRIPT_DIR}/live_host_state_verdict.py")"

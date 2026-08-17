@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Tests for the prod-only QA-export injection in ops/stage0/deploy_via_ssm.sh.
+"""Tests for the prod-only QA Bundle injection in ops/stage0/deploy_via_ssm.sh.
 
-deploy_via_ssm.sh self-heals the QA trajectory export config (the 4
-QA_CAPTURE_EXPORT_STORAGE_* env vars) onto a LIVE prod host on every deploy,
+deploy_via_ssm.sh preserves or applies the 6 QA_BUNDLE_* env vars on a LIVE
+prod host on every deploy,
 mirroring the SERVER_FRONTEND_URL backfill. The vars are deliberately NOT in the
 shared stage0 compose because that file is also embedded in the edge Lightsail
 launch script, which sits ~46 B under Lightsail's 16 KB user-data cap. Edges are
@@ -13,7 +13,7 @@ The script exposes a STAGE0_RENDER_ONLY seam: it writes the SSM command document
 and exits before any AWS call, so the rendered command list can be asserted with
 no live infra. On Linux (= CI, GNU sed) we additionally execute the two injected
 commands against a fake .env + compose and assert the resulting files, proving the
-guarded, idempotent .env append + the `/^      - TZ=/a\\` compose insertion.
+guarded, idempotent .env update + the tokenkey-only compose insertion.
 
 stdlib-only; no AWS, no network.
 """
@@ -54,7 +54,7 @@ def _render(instance_id: str, tag: str = "1.8.99", env_extra: dict | None = None
 
 
 def _qa_cmds(commands: list[str]) -> list[str]:
-    return [c for c in commands if "QA_CAPTURE_EXPORT_STORAGE" in c]
+    return [c for c in commands if "QA_BUNDLE_" in c]
 
 
 class QAExportInjectionRenderTest(unittest.TestCase):
@@ -65,12 +65,21 @@ class QAExportInjectionRenderTest(unittest.TestCase):
         self.assertEqual(len(qa), 2, msg=f"expected 2 QA cmds, got {len(qa)}: {qa}")
 
         env_cmd = next(c for c in qa if "/var/lib/tokenkey/.env" in c and "docker-compose" not in c)
-        # default prod values, supplied via @sh-quoted shell vars
-        self.assertIn("qa_d='s3'", env_cmd)
-        self.assertIn("qa_r='us-east-1'", env_cmd)
-        self.assertIn("qa_b='tokenkey-prod-qa-exports-682751977094'", env_cmd)
-        self.assertIn("qa_p='traj-exports'", env_cmd)
-        # guarded + additive (must not clobber an existing value)
+        # Unset deploy inputs preserve host state and never synthesize Bundle
+        # coordinates. CloudFormation outputs remain the only coordinate owner.
+        self.assertIn("qa_d=''", env_cmd)
+        self.assertIn("qa_r=''", env_cmd)
+        self.assertIn("qa_en=''", env_cmd)
+        self.assertIn("qa_q=''", env_cmd)
+        self.assertIn("qa_b=''", env_cmd)
+        self.assertIn("qa_p=''", env_cmd)
+        self.assertIn("qa_d_set=false", env_cmd)
+        self.assertIn("qa_p_set=false", env_cmd)
+        self.assertNotIn("https://sqs.", env_cmd)
+        self.assertNotIn("qa-bundles-682751977094", env_cmd)
+        self.assertIn("preserving existing host value", env_cmd)
+        self.assertIn("is required when QA_BUNDLE_ENABLED=true", env_cmd)
+        # Guarded update: only an explicit deploy input can replace an existing value.
         self.assertIn('grep -q "^${key}=" /var/lib/tokenkey/.env', env_cmd)
         self.assertIn("tee -a /var/lib/tokenkey/.env", env_cmd)
         # credentials are NEVER written to .env (instance role + bucket policy)
@@ -82,7 +91,7 @@ class QAExportInjectionRenderTest(unittest.TestCase):
         # TZ line (every service has a TZ line → TZ anchor injected once per service).
         self.assertIn("/^      - SERVER_FRONTEND_URL=/a\\", compose_cmd)
         self.assertNotIn("/^      - TZ=/a\\", compose_cmd)
-        self.assertIn("qa-export-before-1.8.99", compose_cmd)    # tagged backup ($CF.qa-export-before-<tag>)
+        self.assertIn("qa-bundle-before-1.8.99", compose_cmd)
         self.assertIn('grep -q "${key}=" "$CF"', compose_cmd)    # guarded insertion
 
     def test_edge_gets_no_qa_injection(self) -> None:
@@ -107,7 +116,7 @@ class QAExportInjectionRenderTest(unittest.TestCase):
         _, edge = _render(_EDGE_IID, env_extra={"EDGE_ID": "us2"})
         injected = sum(
             1 for c in prod
-            if "QA_CAPTURE_EXPORT_STORAGE" in c or "QA_ARCHIVE_" in c
+            if "QA_BUNDLE_" in c or "QA_ARCHIVE_" in c
             or "MEDIA_STORAGE_" in c
             or "GATEWAY_IMAGE_CONCURRENCY" in c
         )
@@ -118,13 +127,15 @@ class QAExportInjectionRenderTest(unittest.TestCase):
 
     def test_values_are_env_overridable(self) -> None:
         proc, commands = _render(_PROD_IID, env_extra={
-            "QA_CAPTURE_EXPORT_STORAGE_BUCKET": "custom-bucket",
-            "QA_CAPTURE_EXPORT_STORAGE_PREFIX": "custom/prefix",
+            "QA_BUNDLE_STORAGE_BUCKET": "custom-bucket",
+            "QA_BUNDLE_STORAGE_PREFIX": "custom/prefix",
         })
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         env_cmd = next(c for c in _qa_cmds(commands) if "tee -a" in c)
         self.assertIn("qa_b='custom-bucket'", env_cmd)
         self.assertIn("qa_p='custom/prefix'", env_cmd)
+        self.assertIn("qa_b_set=true", env_cmd)
+        self.assertIn("qa_p_set=true", env_cmd)
 
 
 @unittest.skipUnless(
@@ -134,17 +145,27 @@ class QAExportInjectionRenderTest(unittest.TestCase):
 class QAExportInjectionExecuteTest(unittest.TestCase):
     """Execute the two prod commands against a fake host and assert the result."""
 
-    def _run_prod_cmds_against(self, host: pathlib.Path) -> None:
-        _, commands = _render(_PROD_IID)
+    def _run_prod_cmds_against(
+        self,
+        host: pathlib.Path,
+        env_extra: dict | None = None,
+        *,
+        check: bool = True,
+    ) -> subprocess.CompletedProcess:
+        _, commands = _render(_PROD_IID, env_extra=env_extra)
         script = "\n".join(_qa_cmds(commands))
         # retarget the hardcoded host paths into the temp dir; drop sudo
         script = script.replace("/var/lib/tokenkey", str(host)).replace("sudo ", "")
-        subprocess.run(["bash", "-e", "-c", script], check=True,
-                       capture_output=True, text=True)
+        return subprocess.run(
+            ["bash", "-e", "-c", script],
+            check=check,
+            capture_output=True,
+            text=True,
+        )
 
     @staticmethod
     def _qa_mapping_count(lines: list[str]) -> int:
-        return sum(1 for ln in lines if "- QA_CAPTURE_EXPORT_STORAGE_" in ln)
+        return sum(1 for ln in lines if "- QA_BUNDLE_" in ln)
 
     @staticmethod
     def _service_block(lines: list[str], name: str) -> list[str]:
@@ -185,29 +206,47 @@ class QAExportInjectionExecuteTest(unittest.TestCase):
         self._run_prod_cmds_against(host)
 
         env_txt = (host / ".env").read_text()
-        for k, v in (
-            ("DRIVER", "s3"), ("REGION", "us-east-1"),
-            ("BUCKET", "tokenkey-prod-qa-exports-682751977094"), ("PREFIX", "traj-exports"),
-        ):
-            self.assertIn(f"QA_CAPTURE_EXPORT_STORAGE_{k}={v}\n", env_txt)
+        self.assertNotIn("QA_BUNDLE_", env_txt)
 
         lines = (host / "docker-compose.yml").read_text().splitlines()
-        # exactly 4 mappings total — ALL in the tokenkey block, none leaked to the
+        # Exactly 6 mappings total, all in the tokenkey block and none leaked to the
         # other TZ-bearing services (the exact regression the anchor change fixes).
-        self.assertEqual(self._qa_mapping_count(lines), 4)
-        self.assertEqual(self._qa_mapping_count(self._service_block(lines, "tokenkey")), 4)
+        self.assertEqual(self._qa_mapping_count(lines), 6)
+        self.assertEqual(self._qa_mapping_count(self._service_block(lines, "tokenkey")), 6)
         for svc in ("caddy", "postgres", "redis"):
             self.assertEqual(self._qa_mapping_count(self._service_block(lines, svc)), 0,
                              msg=f"QA mappings leaked into {svc}")
-        self.assertTrue(list(host.glob("docker-compose.yml.qa-export-before-*")))
+        self.assertTrue(list(host.glob("docker-compose.yml.qa-bundle-before-*")))
 
-        # idempotent: a second deploy adds nothing (still 4 compose mappings + 4 .env lines).
+        # Idempotent: a second deploy adds neither mappings nor coordinates.
         self._run_prod_cmds_against(host)
         self.assertEqual(
-            self._qa_mapping_count((host / "docker-compose.yml").read_text().splitlines()), 4)
+            self._qa_mapping_count((host / "docker-compose.yml").read_text().splitlines()), 6)
         self.assertEqual(
             sum(1 for ln in (host / ".env").read_text().splitlines()
-                if "QA_CAPTURE_EXPORT_STORAGE_" in ln), 4)
+                if "QA_BUNDLE_" in ln), 0)
+
+    def test_enabling_bundle_without_complete_coordinates_fails_closed(self) -> None:
+        host = pathlib.Path(tempfile.mkdtemp(prefix="qa-export-incomplete-"))
+        (host / ".env").write_text("APP_ENV=prod\n")
+        (host / "docker-compose.yml").write_text(
+            "services:\n"
+            "  tokenkey:\n"
+            "    environment:\n"
+            "      - SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}\n"
+        )
+
+        proc = self._run_prod_cmds_against(
+            host,
+            {"QA_BUNDLE_ENABLED": "true"},
+            check=False,
+        )
+
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn(
+            "QA_BUNDLE_QUEUE_URL is required when QA_BUNDLE_ENABLED=true",
+            proc.stderr,
+        )
 
 
 if __name__ == "__main__":

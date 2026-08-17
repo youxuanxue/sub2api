@@ -57,7 +57,7 @@ class EdgeQACaptureDisableRenderTest(unittest.TestCase):
         prod_only = sum(
             1
             for c in prod
-            if "QA_CAPTURE_EXPORT_STORAGE" in c
+            if "QA_BUNDLE_" in c
             or "QA_ARCHIVE_" in c
             or "MEDIA_STORAGE_" in c
             or "GATEWAY_IMAGE_CONCURRENCY" in c

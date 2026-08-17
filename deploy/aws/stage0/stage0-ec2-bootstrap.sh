@@ -171,7 +171,6 @@ fi
 install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app
 install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app/qa_blobs
 install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app/qa_dlq
-install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app/qa_exports_tmp
 install -d -m 0700 /var/lib/tokenkey/postgres
 install -d -m 0755 /var/lib/tokenkey/redis
 install -d -m 0755 /var/lib/tokenkey/pgdump
@@ -227,18 +226,7 @@ render_prod_caddyfile() {
 render_prod_caddyfile caddy/Caddyfile.template caddy/Caddyfile
 
 install -d -m 0755 /etc/tokenkey
-rm -f /etc/tokenkey/qa-stale-retention.env
-QA_B64_PARAM_PREFIX="${STAGE0_PREFIX}/qa-stale-cleanup.gzip.b64"
-RAW="$(aws ssm get-parameter --name "${QA_B64_PARAM_PREFIX}.part1" --region "${REGION}" --query Parameter.Value --output text)"
-RAW+="$(aws ssm get-parameter --name "${QA_B64_PARAM_PREFIX}.part2" --region "${REGION}" --query Parameter.Value --output text)"
-printf '%s' "${RAW}" | base64 -d | gunzip > /usr/local/bin/tokenkey-qa-stale-cleanup.sh
-chmod +x /usr/local/bin/tokenkey-qa-stale-cleanup.sh
-QA_EXPORT_ORPHAN_B64_PARAM_PREFIX="${STAGE0_PREFIX}/qa-export-orphan.gzip.b64"
-RAW="$(aws ssm get-parameter --name "${QA_EXPORT_ORPHAN_B64_PARAM_PREFIX}.part1" --region "${REGION}" --query Parameter.Value --output text)"
-RAW+="$(aws ssm get-parameter --name "${QA_EXPORT_ORPHAN_B64_PARAM_PREFIX}.part2" --region "${REGION}" --query Parameter.Value --output text)"
 install -d -m 0755 /usr/local/lib/tokenkey
-printf '%s' "${RAW}" | base64 -d | gunzip > /usr/local/lib/tokenkey/qa-export-orphan.py
-chmod 0755 /usr/local/lib/tokenkey/qa-export-orphan.py
 QA_BOUNDARY_B64_PARAM_PREFIX="${STAGE0_PREFIX}/qa-boundary.gzip.b64"
 RAW="$(aws ssm get-parameter --name "${QA_BOUNDARY_B64_PARAM_PREFIX}.part1" --region "${REGION}" --query Parameter.Value --output text)"
 RAW+="$(aws ssm get-parameter --name "${QA_BOUNDARY_B64_PARAM_PREFIX}.part2" --region "${REGION}" --query Parameter.Value --output text)"
@@ -498,7 +486,6 @@ RandomizedDelaySec=2min
 WantedBy=timers.target
 PTEOF
 
-/usr/local/bin/tokenkey-qa-stale-cleanup.sh --install-units /etc/systemd/system
 /usr/local/bin/tokenkey-qa-boundary.sh --install-units
 
 # --- 7. CloudWatch Agent ------------------------------------------------
@@ -530,7 +517,6 @@ systemctl daemon-reload
 systemctl enable --now tokenkey.service
 systemctl enable --now tokenkey-pgdump.timer
 systemctl enable --now tokenkey-disk-metrics.timer
-systemctl disable --now tokenkey-qa-stale-cleanup.timer
 systemctl disable --now tokenkey-qa-boundary.timer
 systemctl enable --now tokenkey-ghcr-prune-daily.timer
 if [ -x /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then

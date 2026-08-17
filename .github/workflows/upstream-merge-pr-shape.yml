@@ -62,9 +62,8 @@ name: Upstream Merge PR Shape
 #   9. The Engine Spine facade contract stays aligned: key dispatch paths must
 #      keep routing bridge eligibility through the shared engine facade so
 #      provider selection truth does not drift back into hotspot service files.
-#  10. The exported QA evidence dataset contract stays aligned: the standalone
-#      validator plus its focused regression tests must keep H1/H2/H3/D1 and
-#      structural acceptance gates executable after the merge.
+#  10. The S3 QA Bundle contract stays aligned: service/worker tests and the
+#      US-044 authorization anchor must remain executable after the merge.
 #  11. The pricing-availability tap contract stays intact: TK call sites registered
 #      in `scripts/sentinels/pricing-availability.json` must survive the merge so
 #      passive availability does not silently go dark (preflight parity).
@@ -477,28 +476,15 @@ jobs:
             exit 1
           fi
 
-      - name: Check 10 — QA evidence dataset validator stays executable after merge
+      - name: Check 10 — QA Bundle service and worker contract stays executable after merge
         run: |
-          # Single source of truth: scripts/checks/qa-evidence-dataset.py plus the focused
-          # TestUS077_QAEvidenceDatasetCheck_* regressions. Same target that
-          # scripts/preflight.sh runs locally, so a green local preflight implies
-          # a green Check 10 here. Failure means the export artifact or standalone
-          # validator drifted and the H1/H2/H3/D1 / structural contract is no
-          # longer mechanically enforced.
-          # `go test -run <regex>` exits 0 when the regex matches ZERO tests, so a
-          # rename/move of TestUS077_QAEvidenceDatasetCheck_* would make this check
-          # pass vacuously (the one fail-open check among 4-13). Assert ≥1 match
-          # first via -list, then run the focused tests.
-          # grep -c exits 1 on a zero count, and GHA bash runs set -e -o pipefail,
-          # so the trailing fallback below lets the count reach MATCHED before the
-          # explicit assertion can report a clean "matched ZERO tests" error.
-          MATCHED=$(cd backend && go test -tags=unit ./internal/observability/qa -list 'TestUS077_QAEvidenceDatasetCheck_' 2>/dev/null | grep -c '^TestUS077_QAEvidenceDatasetCheck_' || true)  # preflight-allow: swallow
+          # Same active packages and US-044 zero-match guard as scripts/preflight.sh.
+          MATCHED=$(cd backend && go test -tags=unit ./internal/observability/qa -list 'TestUS044_QABundle' 2>/dev/null | grep -c '^TestUS044_QABundle' || true)  # preflight-allow: swallow
           if [ "${MATCHED:-0}" -lt 1 ]; then
-            echo "::error::-run 'TestUS077_QAEvidenceDatasetCheck_' matched ZERO tests (renamed / moved / deleted?)."
-            echo "::error::go test -run with no matches exits 0; this assertion stops that fail-open."
+            echo "::error::TestUS044_QABundle matched ZERO tests (renamed / moved / deleted?)."
             exit 1
           fi
-          (cd backend && go test -tags=unit ./internal/observability/qa -run 'TestUS077_QAEvidenceDatasetCheck_' -count=1)
+          (cd backend && go test -tags=unit ./internal/observability/qa/bundle ./internal/observability/qa -count=1)
 
       - name: Check 11 — pricing-availability sentinels still intact after merge
         run: |

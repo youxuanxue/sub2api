@@ -8,6 +8,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,8 +17,192 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/archive"
+	"github.com/Wei-Shaw/sub2api/internal/observability/qa/lifecycle"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
+
+func qaMaintenanceTestProvision(context.Context, *sql.Conn) (lifecycle.ProvisionResult, error) {
+	return lifecycle.ProvisionResult{RangesCovered: lifecycle.HourlyHorizon, RangesRequired: lifecycle.HourlyHorizon}, nil
+}
+
+func qaMaintenanceTestInactive(context.Context, *sql.Conn) (bool, error) {
+	return false, nil
+}
+
+func TestQAMaintenanceDropPhaseDoesNothingBeforeSingleOwnerActivation(t *testing.T) {
+	dropCalls := 0
+	result, err := runQAMaintenanceDropPhase(
+		context.Background(),
+		qaMaintenancePlan{WindowStart: time.Date(2026, 8, 15, 9, 0, 0, 0, time.UTC), State: archive.StateCommitted, RestoreVerified: true},
+		nil,
+		qaMaintenanceDropPhaseDeps{
+			active: func(context.Context) (bool, error) { return false, nil },
+			drop: func(context.Context, archive.Window) (lifecycle.ExpiryResult, error) {
+				dropCalls++
+				return lifecycle.ExpiryResult{}, nil
+			},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Active || result.DeletionAuthorized || dropCalls != 0 {
+		t.Fatalf("result=%+v dropCalls=%d", result, dropCalls)
+	}
+}
+
+func TestQAMaintenanceDropPhaseDropsNormalThenCompensation(t *testing.T) {
+	normalStart := time.Date(2026, 8, 15, 9, 0, 0, 0, time.UTC)
+	compensationStart := normalStart.Add(-time.Hour)
+	var dropped []time.Time
+	resumeCalls := 0
+	result, err := runQAMaintenanceDropPhase(
+		context.Background(),
+		qaMaintenancePlan{WindowStart: normalStart, WindowEnd: normalStart.Add(time.Hour), State: archive.StateCommitted, RestoreVerified: true},
+		&qaMaintenancePlan{WindowStart: compensationStart, WindowEnd: compensationStart.Add(time.Hour), State: archive.StateCommitted, RestoreVerified: true},
+		qaMaintenanceDropPhaseDeps{
+			active: func(context.Context) (bool, error) { return true, nil },
+			drop: func(_ context.Context, window archive.Window) (lifecycle.ExpiryResult, error) {
+				dropped = append(dropped, window.Start)
+				return lifecycle.ExpiryResult{PartitionName: "qa_hour", SourceDroppedAt: window.End}, nil
+			},
+			resume: func(context.Context) ([]lifecycle.HotCleanupResult, error) {
+				resumeCalls++
+				return []lifecycle.HotCleanupResult{{ShardID: 9, WindowStart: compensationStart.Add(-time.Hour), Cleaned: true}}, nil
+			},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Active || !result.DeletionAuthorized || result.Normal == nil || result.Compensation == nil || len(result.CleanupResumed) != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	if resumeCalls != 1 {
+		t.Fatalf("resumeCalls=%d", resumeCalls)
+	}
+	if len(dropped) != 2 || !dropped[0].Equal(normalStart) || !dropped[1].Equal(compensationStart) {
+		t.Fatalf("dropped=%v", dropped)
+	}
+}
+
+func TestQAMaintenanceDropPhaseStopsWhenNormalDropFails(t *testing.T) {
+	dropCalls := 0
+	normalStart := time.Date(2026, 8, 15, 9, 0, 0, 0, time.UTC)
+	_, err := runQAMaintenanceDropPhase(
+		context.Background(),
+		qaMaintenancePlan{WindowStart: normalStart, WindowEnd: normalStart.Add(time.Hour), State: archive.StateCommitted, RestoreVerified: true},
+		&qaMaintenancePlan{WindowStart: normalStart.Add(-time.Hour), WindowEnd: normalStart, State: archive.StateCommitted, RestoreVerified: true},
+		qaMaintenanceDropPhaseDeps{
+			active: func(context.Context) (bool, error) { return true, nil },
+			drop: func(context.Context, archive.Window) (lifecycle.ExpiryResult, error) {
+				dropCalls++
+				return lifecycle.ExpiryResult{}, errors.New("seal changed")
+			},
+			resume: func(context.Context) ([]lifecycle.HotCleanupResult, error) {
+				t.Fatal("cleanup resume must not run after normal DROP failure")
+				return nil, nil
+			},
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "normal") || dropCalls != 1 {
+		t.Fatalf("err=%v dropCalls=%d", err, dropCalls)
+	}
+}
+
+func TestQAMaintenanceDropPhasePreservesCommittedNormalDropOnCleanupError(t *testing.T) {
+	normalStart := time.Date(2026, 8, 15, 9, 0, 0, 0, time.UTC)
+	result, err := runQAMaintenanceDropPhase(
+		context.Background(),
+		qaMaintenancePlan{WindowStart: normalStart, WindowEnd: normalStart.Add(time.Hour), State: archive.StateCommitted, RestoreVerified: true},
+		nil,
+		qaMaintenanceDropPhaseDeps{
+			active: func(context.Context) (bool, error) { return true, nil },
+			drop: func(context.Context, archive.Window) (lifecycle.ExpiryResult, error) {
+				return lifecycle.ExpiryResult{
+					PartitionName: "qa_records_20260815_09", SourceDroppedAt: normalStart.Add(time.Hour),
+				}, errors.New("hot cleanup unavailable")
+			},
+			resume: func(context.Context) ([]lifecycle.HotCleanupResult, error) {
+				t.Fatal("cleanup resume must not run after the normal drop call returned an error")
+				return nil, nil
+			},
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "hot cleanup unavailable") {
+		t.Fatalf("err=%v", err)
+	}
+	if !result.DeletionAuthorized || result.Normal == nil || result.Normal.PartitionName != "qa_records_20260815_09" || result.Normal.SourceDroppedAt.IsZero() {
+		t.Fatalf("result lost committed DROP facts: %+v", result)
+	}
+}
+
+func TestQAMaintenanceDropArchivedHourResumesCleanupAfterCommittedDrop(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	hour := time.Date(2026, 8, 15, 9, 0, 0, 0, time.UTC)
+	droppedAt := hour.Add(75 * time.Minute)
+	dataRoot := t.TempDir()
+	t.Setenv("DATA_DIR", dataRoot)
+	for _, rel := range []string{
+		"qa_blobs/2026/08/15/09/re/request.json.zst",
+		"qa_dlq/2026/08/15/09/failed.json.zst",
+	} {
+		path := filepath.Join(dataRoot, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("fixture"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mock.ExpectQuery("FROM pg_inherits").
+		WithArgs(lifecycle.TableQARecords).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"nspname", "relname", "bound_expr", "lower_unbounded", "upper_unbounded", "is_default", "lower_bound", "upper_bound",
+		}))
+	mock.ExpectQuery("SELECT id, source_partition_name, source_dropped_at, hot_files_cleaned_at").
+		WithArgs(hour).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "source_partition_name", "source_dropped_at", "hot_files_cleaned_at"}).
+			AddRow(int64(44), "qa_records_20260815_09", droppedAt, nil))
+	mock.ExpectExec("UPDATE qa_archive_shards SET").
+		WithArgs(int64(44), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	result, err := defaultQAMaintenanceDropArchivedHour(
+		context.Background(),
+		conn,
+		archive.Window{Start: hour, End: hour.Add(time.Hour)},
+		hour.Add(2*time.Hour),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.SourceDroppedAt.Equal(droppedAt) || !result.HotFilesCleaned {
+		t.Fatalf("result=%+v", result)
+	}
+	for _, dir := range []string{
+		"qa_blobs/2026/08/15/09",
+		"qa_dlq/2026/08/15/09",
+	} {
+		if _, err := os.Stat(filepath.Join(dataRoot, filepath.FromSlash(dir))); !os.IsNotExist(err) {
+			t.Fatalf("cleanup left %s: %v", dir, err)
+		}
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestQAMaintenanceRejectsWrongConfirmationBeforeDependencies(t *testing.T) {
 	loadCalled := false
@@ -111,7 +297,9 @@ func TestQAMaintenanceSuccessUsesArchiveOnlyPath(t *testing.T) {
 			heartbeat = input
 			return nil
 		},
-		now: func() time.Time { return fixedNow },
+		provision:         qaMaintenanceTestProvision,
+		singleOwnerActive: qaMaintenanceTestInactive,
+		now:               func() time.Time { return fixedNow },
 	}
 
 	out := &bytes.Buffer{}
@@ -155,7 +343,7 @@ func TestQAMaintenanceSuccessUsesArchiveOnlyPath(t *testing.T) {
 		t.Fatalf("decode output %q: %v", out.String(), err)
 	}
 	if receipt.ReceiptVersion != qaMaintenanceReceiptVersion ||
-		receipt.Mode != qaMaintenanceReceiptMode ||
+		receipt.Mode != "qa_single_owner_lifecycle" ||
 		receipt.UploadAuthorized ||
 		receipt.DeletionAuthorized ||
 		receipt.Plan.RecordCount != 42 ||
@@ -217,13 +405,15 @@ func TestQAMaintenanceUploadPathWhenArchiveEnabled(t *testing.T) {
 			}, nil
 		},
 		selectOldest: func(_ context.Context, _ *sql.Conn, normal archive.Window, cutoff time.Time) (archive.CatchupSelection, bool, error) {
-			if normal.Start != windowStart || normal.End != windowEnd || !cutoff.Equal(windowEnd.Add(15*time.Minute-qaMaintenanceSourceRetention)) {
+			if normal.Start != windowStart || normal.End != windowEnd || !cutoff.IsZero() {
 				t.Fatalf("select normal=%+v cutoff=%s", normal, cutoff)
 			}
 			return archive.CatchupSelection{}, false, nil
 		},
-		writeHeartbeat: func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error { return nil },
-		now:            func() time.Time { return windowEnd.Add(15 * time.Minute) },
+		writeHeartbeat:    func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error { return nil },
+		provision:         qaMaintenanceTestProvision,
+		singleOwnerActive: qaMaintenanceTestInactive,
+		now:               func() time.Time { return windowEnd.Add(15 * time.Minute) },
 	}
 
 	out := &bytes.Buffer{}
@@ -251,7 +441,7 @@ func TestQAMaintenanceUploadPathWhenArchiveEnabled(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
 		t.Fatalf("decode receipt: %v", err)
 	}
-	if receipt.Mode != qaMaintenanceReceiptModeUpload || !receipt.UploadAuthorized || !receipt.Plan.Uploaded ||
+	if receipt.Mode != "qa_single_owner_lifecycle" || !receipt.UploadAuthorized || !receipt.Plan.Uploaded ||
 		receipt.Plan.SegmentCount != 2 || receipt.Plan.RecordCount != 42 || receipt.Plan.CommitETag != "etag-v2" {
 		t.Fatalf("receipt=%+v", receipt)
 	}
@@ -294,7 +484,8 @@ func TestQAMaintenanceReconcileFailureWritesFailureHeartbeat(t *testing.T) {
 			heartbeat = input
 			return nil
 		},
-		now: func() time.Time { return fixedNow },
+		provision: qaMaintenanceTestProvision,
+		now:       func() time.Time { return fixedNow },
 	}
 
 	err = runQAMaintenanceCommand(context.Background(), []string{

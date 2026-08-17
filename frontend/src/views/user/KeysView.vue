@@ -412,15 +412,15 @@
                 <Icon v-else name="checkCircle" size="sm" />
                 <span class="text-xs">{{ row.status === 'active' ? t('keys.disable') : t('keys.enable') }}</span>
               </button>
-              <!-- Export Conversations Button (admin-granted per-user switch; projectable platforms only — server-driven allowlist from /auth/me, no hardcoded platform here) -->
+              <!-- QA Bundle Button -->
               <button
                 v-if="canExportTraj && trajExportPlatforms.includes(row.group?.platform ?? '')"
                 @click="openExportPanel(row)"
                 :title="t('keys.exportTooltip')"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-400"
               >
-                <Icon name="download" size="sm" />
-                <span class="text-xs">{{ t('keys.export') }}</span>
+                <Icon name="chat" size="sm" />
+                <span class="text-xs">QA</span>
               </button>
               <!-- Edit Button -->
               <button
@@ -1034,8 +1034,7 @@
       @cancel="showResetRateLimitDialog = false"
     />
 
-    <!-- Export Conversations Panel (per-key recent exports + export-now) -->
-    <ExportPanel
+    <QABundlePanel
       :show="showExportPanel"
       :api-key-id="exportPanelKey?.id ?? null"
       :api-key-name="exportPanelKey?.name"
@@ -1216,7 +1215,7 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import Select from '@/components/common/Select.vue'
 	import SearchInput from '@/components/common/SearchInput.vue'
 	import Icon from '@/components/icons/Icon.vue'
-	import ExportPanel from '@/components/keys/ExportPanel.vue'
+	import QABundlePanel from '@/components/keys/QABundlePanel.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
@@ -2008,11 +2007,7 @@ const handleCcsAppSelect = (ccsApp: CcSwitchApp) => {
   pendingCcsRow.value = null
 }
 
-// Export this key's captured conversation records (qa traj v2). The card button
-// now opens the Export Panel modal, which lists the key's recent exports
-// (downloadable within their 24h TTL) and owns the enqueue + poll + download
-// flow (composables/useTkExportPanel.ts) — the panel keeps progress state, not
-// this view.
+// Open the S3-only QA Bundle surface for this key.
 const openExportPanel = (row: ApiKey) => {
   exportPanelKey.value = row
   showExportPanel.value = true

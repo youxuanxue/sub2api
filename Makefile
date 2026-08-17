@@ -14,7 +14,8 @@ FRONTEND_CRITICAL_VITEST := \
 	src/views/admin/__tests__/DashboardView.spec.ts \
 	src/views/admin/__tests__/UsageView.spec.ts \
 	src/views/user/__tests__/UsageView.spec.ts \
-	src/composables/__tests__/useTkExportPanel.spec.ts
+	src/api/__tests__/qaBundle.spec.ts \
+	src/composables/__tests__/useTkQABundle.spec.ts
 
 # 一键编译前后端
 build: build-frontend build-backend

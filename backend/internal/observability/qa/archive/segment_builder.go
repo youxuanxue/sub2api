@@ -383,7 +383,11 @@ func loadRecordPage(
 		       q.duration_ms, q.stream, q.input_tokens, q.output_tokens,
 		       q.request_sha256, q.response_sha256,
 		       q.blob_uri, q.request_blob_uri, q.response_blob_uri, q.stream_blob_uri,
-		       q.capture_status, q.created_at
+		       q.capture_status, q.created_at,
+		       q.channel_type, q.inbound_endpoint, q.upstream_endpoint, q.first_token_ms,
+		       q.tool_calls_present, q.multimodal_present, q.cached_tokens,
+		       q.redaction_version, COALESCE(q.tags::text, '[]'),
+		       q.synth_session_id, q.synth_role, q.synth_engineer_level, q.dialog_synth
 		  FROM qa_records q
 		 WHERE q.created_at >= $1 AND q.created_at < $2
 		   AND (q.created_at, q.request_id) > ($3, $4)` + exclusion + `
@@ -401,8 +405,12 @@ func loadRecordPage(
 	for rows.Next() {
 		var row RecordRow
 		var trajectory, provider, upstreamModel sql.NullString
-		var groupID, accountID sql.NullInt64
+		var groupID, accountID, channelType, firstTokenMS sql.NullInt64
 		var blobURI, reqBlob, respBlob, streamBlob sql.NullString
+		var inboundEndpoint, upstreamEndpoint, redactionVersion, tagsJSON sql.NullString
+		var synthSessionID, synthRole, synthEngineerLevel sql.NullString
+		var toolCallsPresent, multimodalPresent, dialogSynth sql.NullBool
+		var cachedTokens sql.NullInt64
 		var createdAt time.Time
 		if err := rows.Scan(
 			&row.RequestID, &trajectory, &row.UserID, &groupID, &row.APIKeyID, &accountID,
@@ -410,6 +418,9 @@ func loadRecordPage(
 			&row.DurationMS, &row.Stream, &row.InputTokens, &row.OutputTokens,
 			&row.RequestSHA256, &row.ResponseSHA256,
 			&blobURI, &reqBlob, &respBlob, &streamBlob, &row.CaptureStatus, &createdAt,
+			&channelType, &inboundEndpoint, &upstreamEndpoint, &firstTokenMS,
+			&toolCallsPresent, &multimodalPresent, &cachedTokens, &redactionVersion, &tagsJSON,
+			&synthSessionID, &synthRole, &synthEngineerLevel, &dialogSynth,
 		); err != nil {
 			return nil, time.Time{}, "", fmt.Errorf("scan qa_record: %w", err)
 		}
@@ -423,6 +434,19 @@ func loadRecordPage(
 		row.ResponseBlobURI = nullStringPtr(respBlob)
 		row.StreamBlobURI = nullStringPtr(streamBlob)
 		row.CreatedAt = createdAt.UTC().UnixMicro()
+		row.ChannelType = nullInt64Ptr(channelType)
+		row.InboundEndpoint = nullStringPtr(inboundEndpoint)
+		row.UpstreamEndpoint = nullStringPtr(upstreamEndpoint)
+		row.FirstTokenMS = nullInt64Ptr(firstTokenMS)
+		row.ToolCallsPresent = nullBoolPtr(toolCallsPresent)
+		row.MultimodalPresent = nullBoolPtr(multimodalPresent)
+		row.CachedTokens = nullInt64Ptr(cachedTokens)
+		row.RedactionVersion = nullStringPtr(redactionVersion)
+		row.TagsJSON = nullStringPtr(tagsJSON)
+		row.SynthSessionID = nullStringPtr(synthSessionID)
+		row.SynthRole = nullStringPtr(synthRole)
+		row.SynthEngineerLevel = nullStringPtr(synthEngineerLevel)
+		row.DialogSynth = nullBoolPtr(dialogSynth)
 		page = append(page, row)
 		lastTime, lastRequestID = createdAt.UTC(), row.RequestID
 	}

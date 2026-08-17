@@ -68,10 +68,9 @@
 #   QA lifecycle SSOT gate      — prevents retired QA archive/purge/self-export
 #        owners from returning and keeps generic data-layer tooling usage/ops-only.
 #        Driven by `scripts/checks/qa-lifecycle-ssot.py`.
-#   QA evidence dataset validator — guards the exported QA evidence dataset contract:
-#        exported `trajectory.jsonl` artifacts must keep H1/H2/H3/D1 and structural
-#        acceptance semantics reachable through the standalone validator script,
-#        so projection/export drift is caught mechanically instead of by eyeballing.
+#   QA Bundle contract gate      — runs the active S3 Bundle service/worker package
+#        tests and requires the US-044 authorization anchor to prevent zero-match
+#        false greens after an upstream merge.
 #   Node version alignment       — CI frontend jobs must setup-node the same
 #        major as the release Dockerfile (ARG NODE_IMAGE). Driven by
 #        `scripts/checks/node-version-align.py`.
@@ -206,11 +205,11 @@ export PREFLIGHT_BASE="${template_base:-origin/main}"
 # section positions below. Spawn guards mirror each section's prerequisite
 # checks; a missing prerequisite leaves the job unspawned and the section
 # falls back to its serial FAIL/skip path.
-_qa_evidence_gate_run() {
-    cd backend && go test -tags=unit -v ./internal/observability/qa -run 'TestUS077_QAEvidenceDatasetCheck_'
+_qa_bundle_gate_run() {
+    cd backend && go test -tags=unit -v ./internal/observability/qa/bundle ./internal/observability/qa
 }
 if command -v python3 >/dev/null 2>&1 && command -v go >/dev/null 2>&1; then
-    _bg_spawn qa_evidence _qa_evidence_gate_run
+    _bg_spawn qa_bundle _qa_bundle_gate_run
 fi
 if command -v python3 >/dev/null 2>&1; then
     _bg_spawn anthropic_unittest \
@@ -1235,7 +1234,7 @@ if ! command -v python3 >/dev/null 2>&1; then
 elif ! python3 ./scripts/checks/qa-lifecycle-ssot.py --self-test >/dev/null; then
     echo "  FAIL: QA lifecycle SSOT sentinel self-test failed"
     errors=$((errors + 1))
-elif ! python3 ./scripts/checks/qa-lifecycle-ssot.py --quiet; then
+elif ! python3 ./scripts/checks/qa-lifecycle-ssot.py; then
     errors=$((errors + 1))
 else
     echo "  ok: one approved QA lifecycle owner; retired conflicts remain absent"
@@ -1296,35 +1295,27 @@ else
     echo "  ok: Phase 1 closeout + Phase 2 baseline artifacts compile and regression tests pass"
 fi
 
-# ---- sub2api: QA evidence dataset validator ----------------------------------------
-# Source of truth: scripts/checks/qa-evidence-dataset.py. Verifies that the standalone
-# QA evidence dataset gate remains executable from repo root and the regression
-# tests covering pass/fail fixtures stay green, so projection/export acceptance
-# thresholds remain mechanically enforced.
+# ---- sub2api: QA Bundle service/worker contract ------------------------------------
+# Runs the active S3 Bundle service and worker packages, then requires one US-044
+# authorization test in verbose output so a rename/deletion cannot pass vacuously.
 echo ""
-echo "=== sub2api: QA evidence dataset validator ==="
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required to run check-qa-evidence-dataset.py)"
+echo "=== sub2api: QA Bundle service/worker contract ==="
+if ! command -v go >/dev/null 2>&1; then
+    echo "  FAIL: go not on PATH (required to run QA Bundle contract tests)"
     errors=$((errors + 1))
-elif ! command -v go >/dev/null 2>&1; then
-    echo "  FAIL: go not on PATH (required to run QA evidence dataset regression tests)"
-    errors=$((errors + 1))
-elif ! _bg_spawned qa_evidence; then
-    echo "  FAIL: QA evidence gate background job was not spawned (internal preflight bug)"
+elif ! _bg_spawned qa_bundle; then
+    echo "  FAIL: QA Bundle gate background job was not spawned (internal preflight bug)"
     errors=$((errors + 1))
 else
-    _bg_join qa_evidence
+    _bg_join qa_bundle
     if [ "$_bg_rc" -ne 0 ]; then
-        tail -40 "$_preflight_bg_dir/qa_evidence.out" | sed 's/^/    /'
+        tail -40 "$_preflight_bg_dir/qa_bundle.out" | sed 's/^/    /'
         errors=$((errors + 1))
-    elif ! grep -q -- '--- PASS: TestUS077_QAEvidenceDatasetCheck_' "$_preflight_bg_dir/qa_evidence.out"; then
-        # `go test -run <regex>` exits 0 on ZERO matches — a rename/move would pass
-        # vacuously. The -v output (replayed verbatim on cached runs too) must show
-        # at least one matching top-level test PASS.
-        echo "  FAIL: -run 'TestUS077_QAEvidenceDatasetCheck_' matched ZERO tests (renamed/moved?); go test -run exits 0 on no match"
+    elif ! grep -q -- '--- PASS: TestUS044_QABundle' "$_preflight_bg_dir/qa_bundle.out"; then
+        echo "  FAIL: QA Bundle packages passed without the US-044 authorization anchor (renamed/moved?)"
         errors=$((errors + 1))
     else
-        echo "  ok: QA evidence dataset validator accepts/rejects covered fixtures as expected"
+        echo "  ok: QA Bundle service/worker tests and US-044 authorization anchor pass"
     fi
 fi
 

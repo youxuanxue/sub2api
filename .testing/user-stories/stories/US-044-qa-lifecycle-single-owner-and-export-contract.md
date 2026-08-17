@@ -1,70 +1,70 @@
 # US-044-qa-lifecycle-single-owner-and-export-contract
 
 - ID: US-044
-- Title: QA 生命周期单一 owner 与唯一用户导出契约
-- Priority: P0（生产数据生命周期、授权与磁盘安全）
-- As a / I want / So that:
-  作为 **TokenKey 用户与生产运维者**，我希望 **QA 生命周期只由一个 approved SSOT 管理，用户只通过受授权的 API-key trajectory export 导出最近 24 小时数据**，**以便** 旧 archive/purge/self-export 路径不能绕过授权、扩大窗口、在 prod 执行无界操作或重新制造多套 retention 语义。
-- Trace:
-  - 设计锚点：`docs/approved/design-prod-qa-24h-s3-lifecycle.md`
-  - 唯一用户导出：`/api/v1/users/me/qa/traj/*`
-  - 机械门禁：`scripts/checks/qa-lifecycle-ssot.py`
+- Title: QA S3 Bundle 用户面与单一生命周期 owner
+- Priority: P0
+- As a / I want / So that: 作为 TokenKey 用户与生产运维者，我希望 QA 用户面只读取 S3 Bundle，且 hot lifecycle 只由 maintenance 拥有，以便 prod 数据库、旧 export worker 和固定时龄清理不能成为回退路径。
+- Trace: `docs/approved/design-prod-qa-24h-s3-lifecycle.md`
 - Risk Focus:
-  - 逻辑错误：per-key 导出重新读取全部 retained history，或通用 data-layer 工具重新接管 QA。
-  - 行为回归：普通 `/users/me/qa/export`、daily auto-export 或 destructive purge 被重新注册。
-  - 安全问题：仅靠 UI 隐藏，伪造请求绕过 `traj_export_enabled`、key ownership 或 projectable-platform 检查。
-  - 运行时问题：在 prod 构建/下载大文件的临时兼容路径被扩展；本 Story 只收窄当前路径，Phase 3 再原子迁往 Fargate。
+  - 逻辑错误：prod fallback 或第二 lifecycle owner 被重新引入。
+  - 安全问题：Bundle entitlement 或 API-key ownership 被绕过。
 
 ## Acceptance Criteria
 
-1. **AC-001（唯一用户 surface）**：Given 用户 QA 路由注册，When 枚举 dual-auth routes，Then 只保留 `/users/me/qa/traj/*`；普通 self-export 与其下载路由不存在。
-2. **AC-002（完整服务端授权）**：Given enqueue/list/get/download 请求，When `traj_export_enabled=false`，Then 服务端返回 403；enqueue 还必须拒绝 missing、foreign、deleted、no-group 或 unprojectable API key，且不创建 job。
-3. **AC-003（固定 per-key 24h）**：Given caller 传入更宽的内部时间范围且同 key 同时有当前与 30 小时前记录，When enqueue，Then service 覆盖 caller 窗口并只导出最近 24 小时 source records；空 key fail closed。
-4. **AC-004（删除冲突能力）**：Given 当前仓库，When运行 QA lifecycle sentinel，Then旧方案文档、US-033、destructive purge、普通 self-export、daily auto-export 和 auto/manual wire/UI 语义均不能重新出现。
-5. **AC-005（generic data-layer 分权）**：Given usage/ops archive rehearsal 与 retention inventory，When输入或扫描 QA dataset，Then rehearsal 拒绝 QA，inventory 不查询 `qa_records`、不读取 QA retention 参数或 Blob filesystem。
-6. **AC-006（迁移兼容受限）**：Given Phase 1/2/3/4 替代物尚未全部上线，When审查仍存在的 Edge stale cleanup、只读 dump、in-prod trajectory worker 与 prod stale timer，Then它们只出现在 approved 退役矩阵中，带明确 Phase/删除门禁且不具备第二 SSOT 权限。
-
-## Assertions
-
-- `traj_export_enabled` 只控制用户 trajectory export，不过滤 capture、raw archive 或 cleanup。
-- projectable platform allowlist 直接读取 `engine.TrajProjectablePlatforms()`，不得复制列表。
-- synth 字段继续 capture/project，但不能作为绕过 24 小时窗口的导出 selector。
-- 用户 ZIP bucket、raw QA bucket、generic usage/ops archive bucket 与 pgdump bucket边界分离。
-- 本 Story 不启用 AWS 资源、不部署、不清理线上 QA；后续 Phase 仍需各自审批和验证。
+1. S3 Bundle list/detail/export 重复校验 entitlement、API-key ownership 与 committed artifact。
+2. Immutable S3 `spec.json` 是 Bundle/ZIP job registry；篡改失败、过期即不存在，且不创建或读取数据库 job row。
+3. prod trajectory/self-export worker、gateway download proxy 与 `qa_exports_tmp` orphan cleaner 不存在。
+4. lifecycle sentinel 拒绝 prod fallback、第二目标 deletion owner、transition 之外的固定时龄 DROP 与 export-orphan runtime。
+5. Bundle infra readiness 真实回读 bucket CORS/AES256 encryption/job-surface lifecycle、queue/DLQ、
+   Fargate capacity 与 worker image；raw-S3-to-Fargate canary 是发布/日常健康门禁；Worker 以单记录/单页有界内存
+   从 verified segments 发布 Bundle，ZIP immutable 校验只读对象流。
+6. rollout 将 repository readiness 与 `single_owner_not_activated` observed state 分开记录。
+7. single-owner activation 在锁内拒绝最近 24 个已完成小时及当前到未来 72 小时的 catalog 缺口和非精确 UTC-hour bounds；
+   首次 Bundle 部署所需 IAM bootstrap 有唯一运维入口且 app image 切换前 fail closed。
 
 ## Linked Tests
 
-- `backend/internal/server/routes/user_tk_routes_test.go`::`TestUS044_RegisterTKUserDualAuthRoutes_OnlyTrajectoryExportRemains`
-- `backend/internal/handler/qa_handler_test.go`::`TestUS044_ExportSelfTrajectory_RejectsForeignAPIKey`
-- `backend/internal/handler/qa_handler_test.go`::`TestUS044_ExportSelfTrajectory_RejectsUnprojectablePlatform`
-- `backend/internal/handler/qa_handler_test.go`::`TestUS044_ExportSelfTrajectory_RejectsNoGroupOrDeletedAPIKey`
-- `backend/internal/handler/qa_handler_test.go`::`TestUS044_TrajectoryExportReadSurfaces_ForbiddenWhenSwitchOff`
-- `backend/internal/observability/qa/service_traj_export_job_test.go`::`TestUS044_EnqueueExport_RejectsMissingAPIKey`
-- `backend/internal/observability/qa/service_traj_export_job_test.go`::`TestUS044_EnqueueExport_ClampsTo24HoursAndSurvivesRestart`
-- `ops/archive/test_data_layer_archive_rehearsal.py`::`DataLayerArchiveRehearsalTest.test_us044_qa_dataset_is_rejected_by_generic_data_layer_rehearsal`
-- `ops/observability/test_data_layer_retention_inventory.py`::`DataLayerRetentionInventorySafetyTest.test_probe_is_read_only_and_whitelist_bounded`
+- `backend/internal/handler/qa_handler_bundle_test.go`::`TestQABundleHandlersCreateAndReadScopedPendingJob`
+- `backend/internal/observability/qa/service_bundle_test.go`::`TestUS044_QABundleReadsCommittedManifestAndRejectsCrossUser`
+- `backend/internal/observability/qa/service_bundle_test.go`::`TestGetUserBundleRejectsTamperedS3RegistrySpec`
+- `backend/internal/observability/qa/service_bundle_test.go`::`TestGetUserBundleTreatsExpiredS3RegistrySpecAsMissing`
+- `backend/internal/observability/qa/service_bundle_test.go`::`TestCreateUserBundleExportRequiresReadyBundleAndSignsWorkerArtifact`
+- `ops/qa/test_qa_phase_ops.py`::`TestQAPhaseOps.test_qa_bundle_infra_verifier_checks_live_capacity_image_and_dlq`
+- `ops/qa/test_qa_phase_ops.py`::`TestQAPhaseOps.test_qa_bundle_canary_ssm_wrapper_requires_canonical_receipt`
+- `ops/qa/test_qa_phase_ops.py`::`TestQAPhaseOps.test_qa_lifecycle_ssot_check_passes`
+- `backend/cmd/server/qa_single_owner_activation_test.go`::`TestQASingleOwnerActivationPlanRejectsMissingRecentCompletedHour`
+- `backend/cmd/server/qa_single_owner_activation_test.go`::`TestQASingleOwnerActivationPlanRejectsMissingCurrentOrFutureHour`
+- `backend/cmd/server/qa_single_owner_activation_test.go`::`TestQASingleOwnerActivationPlanRejectsMalformedCurrentOrFutureHour`
+- `backend/internal/observability/qa/bundle/projector_test.go`::`TestPublishVerifiedCommitsStreamsPagesBeforeLateProjectionFailure`
+- `backend/internal/observability/qa/bundle/projector_test.go`::`TestVisitVerifiedSegmentsMergesDeterministically`
+- `backend/internal/observability/qa/bundle/publisher_test.go`::`TestPublishBoundsCompressibleRecordsByUncompressedPageBytes`
+- `backend/internal/observability/qa/bundle/publisher_test.go`::`TestBuildExportZipReadsOnlyCommittedBundlePages`
+- `deploy/aws/cloudformation/test_stage0_qa_bundle_contract.py`::`Stage0QABundleContractTest.test_qa_cloudformation_service_role_covers_managed_resource_lifecycles`
+- `deploy/aws/cloudformation/test_stage0_qa_bundle_contract.py`::`Stage0QABundleContractTest.test_qa_bundle_verifier_roles_have_scoped_bucket_readback`
+- `frontend/e2e/qa-bundle.e2e.ts`::`QA Bundle list, detail, watermark and ZIP export stay on Bundle/S3 paths`
+- `frontend/e2e/qa-bundle.e2e.ts`::`QA Bundle entitlement denial removes the entry and never starts a job`
+- `frontend/e2e/qa-bundle.e2e.ts`::`temporary unavailability is recoverable from the visible retry action`
 
 运行命令：
 
 ```bash
-cd backend
-go test -tags=unit -count=1 ./internal/observability/qa ./internal/handler ./internal/server/routes
-cd ..
-python3 scripts/checks/qa-lifecycle-ssot.py --self-test
-python3 scripts/checks/qa-lifecycle-ssot.py
-python3 ops/archive/test_data_layer_archive_rehearsal.py
-python3 ops/observability/test_data_layer_retention_inventory.py
-cd frontend
-pnpm typecheck
-pnpm exec vitest run src/api/__tests__/qaTraj.spec.ts src/composables/__tests__/useTkExportPanel.spec.ts
+cd backend && go test -tags=unit ./internal/handler ./internal/observability/qa
+cd .. && python3 scripts/checks/qa-lifecycle-ssot.py
+cd frontend && pnpm exec playwright test e2e/qa-bundle.e2e.ts --project=chromium
 ```
+
+## Assertions
+
+- User QA never falls back to prod DB/export workers.
+- Maintenance is the only target deletion owner.
+- Bundle projection and ZIP verification stay bounded by one record/page or an object stream, never one full 24-hour result.
 
 ## Evidence
 
-- focused Go、Python、frontend typecheck/API/composable tests 与完整 preflight 在本分支实际运行。
-- `UseKeyModal.spec.ts` 的既有 4 个失败不涉及本次修改的 `ExportPanel.vue`；直接相关 frontend tests 单独通过。
-- 公共契约删除提交必须包含 `contract-deletion-notice`。
+- Repository: S3 Bundle contract and retired prod export code are present in this worktree.
+- Local verification (2026-08-15): repository preflight passed and the real Chromium QA Bundle journey passed all 3 scenarios.
+- Observed live: transitional; no deployment or activation is claimed.
 
 ## Status
 
-- [x] Done — 当前收敛范围已由行为测试、SSOT sentinel 和 preflight 验证；后续生产 Phase 仍按 approved 设计独立审批。
+- [x] Done — repository contract, focused behavior tests, real-browser journey, and full preflight are complete; production rollout remains a separate approved operation.

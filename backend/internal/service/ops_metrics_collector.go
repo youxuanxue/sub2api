@@ -43,6 +43,10 @@ type opsSchedulableAccountLoadRepository interface {
 	ListSchedulableAccountLoads(ctx context.Context) ([]AccountWithConcurrency, error)
 }
 
+type QACaptureHealthSource interface {
+	QACaptureHealth() (status string, result string, err error)
+}
+
 type OpsMetricsCollector struct {
 	opsRepo     OpsRepository
 	settingRepo SettingRepository
@@ -51,9 +55,10 @@ type OpsMetricsCollector struct {
 	accountRepo        AccountRepository
 	concurrencyService *ConcurrencyService
 
-	db          *sql.DB
-	redisClient *redis.Client
-	instanceID  string
+	db              *sql.DB
+	redisClient     *redis.Client
+	instanceID      string
+	qaCaptureHealth QACaptureHealthSource
 
 	lastCgroupCPUUsageNanos uint64
 	lastCgroupCPUSampleAt   time.Time
@@ -191,6 +196,7 @@ func (c *OpsMetricsCollector) collectOnce() {
 	startedAt := time.Now().UTC()
 	err := c.collectAndPersist(ctx)
 	finishedAt := time.Now().UTC()
+	c.mirrorQACaptureHealth(ctx, finishedAt)
 
 	durationMs := finishedAt.Sub(startedAt).Milliseconds()
 	dur := durationMs
@@ -221,6 +227,34 @@ func (c *OpsMetricsCollector) collectOnce() {
 		LastSuccessAt:  &successAt,
 		LastDurationMs: &dur,
 	})
+}
+
+func (c *OpsMetricsCollector) mirrorQACaptureHealth(ctx context.Context, runAt time.Time) {
+	if c == nil || c.opsRepo == nil || c.qaCaptureHealth == nil {
+		return
+	}
+	status, result, healthErr := c.qaCaptureHealth.QACaptureHealth()
+	status = strings.TrimSpace(status)
+	result = strings.TrimSpace(result)
+	input := &OpsUpsertJobHeartbeatInput{
+		JobName:   "qa_capture",
+		LastRunAt: &runAt,
+	}
+	if result != "" {
+		input.LastResult = &result
+	}
+	if healthErr != nil {
+		message := truncateString(healthErr.Error(), 2048)
+		input.LastErrorAt = &runAt
+		input.LastError = &message
+	} else if status == "failed" {
+		message := status
+		input.LastErrorAt = &runAt
+		input.LastError = &message
+	} else {
+		input.LastSuccessAt = &runAt
+	}
+	_ = c.opsRepo.UpsertJobHeartbeat(ctx, input)
 }
 
 func (c *OpsMetricsCollector) isMonitoringEnabled(ctx context.Context) bool {

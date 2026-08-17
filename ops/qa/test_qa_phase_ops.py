@@ -35,25 +35,16 @@ def _load_closeout_module():
 
 
 class TestQAPhaseOps(unittest.TestCase):
-    def test_prod_rollout_records_verified_phase2_owners(self) -> None:
+    def test_prod_rollout_separates_repository_readiness_from_live_activation(self) -> None:
         import yaml
 
         rollout = yaml.safe_load(
             (ROOT / "ops/qa/deploy_rollout.yaml").read_text(encoding="utf-8")
         )["prod"]
-        for owner in (
-            "QA_ARCHIVE_ENABLED",
-            "tokenkey_qa_maintenance_timer",
-            "tokenkey_qa_boundary",
-        ):
-            self.assertEqual(
-                rollout[owner]["repository_closeout_state"],
-                "production_recloseout_verified",
-            )
-            self.assertEqual(
-                rollout[owner]["observed_live_state"],
-                "production_recloseout_verified",
-            )
+        self.assertEqual(rollout["tokenkey_qa_maintenance_timer"]["repository_closeout_state"], "single_owner_ready")
+        self.assertEqual(rollout["tokenkey_qa_boundary"]["repository_closeout_state"], "pre_activation_fixed_age_transition")
+        for owner in ("tokenkey_qa_maintenance_timer", "tokenkey_qa_boundary"):
+            self.assertEqual(rollout[owner]["observed_live_state"], "single_owner_not_activated")
         self.assertEqual(
             rollout["qa_records"]["partition_owner_observed"],
             "qa_lifecycle_boundary",
@@ -62,68 +53,54 @@ class TestQAPhaseOps(unittest.TestCase):
             rollout["raw_archive_recovery"]["observed_iam_state"],
             "applied",
         )
+        user_export = rollout["user_export"]
+        self.assertEqual(user_export["phase3_worker_repository_state"], "s3_bundle_ready")
+        self.assertEqual(user_export["phase3_worker_observed_state"], "transitional_in_prod")
+        self.assertEqual(user_export["job_registry"], "immutable_s3_spec")
+        self.assertEqual(user_export["database_job_registry"], "retired")
+        self.assertEqual(user_export["bundle_worker_desired_count"], 1)
 
-    def test_hourly_boundary_is_the_steady_state_cleanup_owner(self) -> None:
+    def test_maintenance_is_the_only_target_lifecycle_owner(self) -> None:
         import yaml
 
         policy = yaml.safe_load((ROOT / "ops/qa/policy.yaml").read_text(encoding="utf-8"))
         lifecycle = policy["prod"]["lifecycle"]
-        self.assertEqual(lifecycle["owner"], "tokenkey-qa-boundary")
-        self.assertEqual(lifecycle["boundary_schedule_utc"], "*:00")
-        self.assertEqual(lifecycle["randomized_delay_minutes"], 0)
+        self.assertEqual(lifecycle["owner"], "tokenkey-qa-maintenance")
         self.assertEqual(lifecycle["future_horizon_hours"], 72)
-        self.assertEqual(
-            lifecycle["host_receipt_path"],
-            "/var/lib/tokenkey/qa-boundary-last-run.json",
-        )
-        self.assertEqual(
-            policy["prod"]["cleanup"]["export_tmp_owner"],
-            "tokenkey-qa-boundary",
-        )
-        for retired in (
-            "cleanup_schedule_utc",
-            "cleanup_randomized_delay_minutes",
-            "cleanup_batch_size",
-            "physical_cleanup_max_lag_minutes",
-        ):
-            self.assertNotIn(retired, policy["prod"])
+        self.assertTrue(lifecycle["drop_requires_raw_commit"])
+        self.assertTrue(lifecycle["drop_requires_restore_verified"])
+        self.assertTrue(lifecycle["drop_requires_capture_seal"])
+        self.assertNotIn("cleanup", policy["prod"])
+        self.assertEqual(policy["prod"]["user_qa"], {
+            "entitlement": "users.traj_export_enabled",
+            "source": "s3_qa_bundle",
+            "compute": "ecs_fargate",
+            "download": "direct_s3",
+            "job_registry": "immutable_s3_spec",
+            "database_job_registry": False,
+            "prod_fallback": "forbidden",
+        })
 
         rollout = yaml.safe_load(
             (ROOT / "ops/qa/deploy_rollout.yaml").read_text(encoding="utf-8")
         )["prod"]
         self.assertEqual(
             rollout["tokenkey_qa_boundary"]["policy_target_state"],
-            "enabled_after_finalize",
+            "disabled_after_single_owner_activate",
         )
         self.assertEqual(
             rollout["tokenkey_qa_boundary"]["host_runner"],
             "/usr/local/bin/tokenkey-qa-boundary.sh",
         )
         self.assertEqual(
-            rollout["tokenkey_qa_boundary"]["pre_finalize_provision_mode"],
-            "qa-cutover-provision-only",
+            rollout["tokenkey_qa_boundary"]["pre_activation_role"],
+            "provision_and_fixed_age_whole_partition_cleanup",
         )
+        self.assertEqual(rollout["tokenkey_qa_boundary"]["pre_activation_retention_hours"], 24)
         self.assertEqual(
-            rollout["tokenkey_qa_boundary"]["pre_finalize_confirmation"],
-            "tokenkey-prod-qa-cutover-provision-v1",
+            rollout["tokenkey_qa_boundary"]["pre_activation_terminal_gap_policy"],
+            "persist_before_drop",
         )
-        self.assertEqual(
-            rollout["tokenkey_qa_boundary"]["pre_finalize_timer_state"],
-            "disabled",
-        )
-        self.assertEqual(
-            rollout["tokenkey_qa_boundary"]["finalize_legacy_monthly_policy"],
-            "drop_empty_hash_bound_with_default",
-        )
-        self.assertEqual(
-            rollout["tokenkey_qa_stale_cleanup"]["policy_target_state"],
-            "disabled_after_finalize",
-        )
-        self.assertEqual(
-            rollout["tokenkey_qa_stale_cleanup"]["lifecycle_role"],
-            "cutover_drain_only",
-        )
-
         boundary = (ROOT / "deploy/aws/stage0/tokenkey-qa-boundary.sh").read_text(
             encoding="utf-8"
         )
@@ -131,7 +108,10 @@ class TestQAPhaseOps(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("OnCalendar=*-*-* *:00:00", boundary)
-        self.assertIn("--qa-cutover-provision-only", boundary)
+        self.assertIn("--qa-boundary-once", boundary)
+        self.assertNotIn("--qa-cutover-provision-only", boundary)
+        self.assertNotIn("--qa-cutover-finalize", boundary)
+        self.assertNotIn("qa_exports_tmp", boundary)
         self.assertNotIn("RandomizedDelaySec", boundary)
         self.assertIn("OnCalendar=*-*-* *:15:00", archive)
         self.assertNotIn("RandomizedDelaySec", archive)
@@ -189,273 +169,6 @@ class TestQAPhaseOps(unittest.TestCase):
         self.assertIn("kms:GenerateDataKey*", body)
         self.assertIn("kms:ViaService", body)
         self.assertIn("AllowOpsRecoveryRoleReadViaS3", body)
-
-    def test_qa_stale_cleanup_has_read_only_plan_and_exact_cutoff_apply(self) -> None:
-        body = (ROOT / "deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("--plan", body)
-        self.assertIn("--apply-first", body)
-        self.assertIn("--resume-first", body)
-        self.assertIn("flock -n 9", body)
-        self.assertIn("tokenkey-prod-qa-retention-apply-v1:", body)
-        self.assertIn("created_at < TIMESTAMPTZ", body)
-        self.assertIn('TOKENKEY_ROOT="${TOKENKEY_ROOT:-/var/lib/tokenkey}"', body)
-        self.assertIn("app/qa_blobs", body)
-        self.assertIn("app/qa_dlq", body)
-        self.assertIn("expected-active-image", body)
-        self.assertIn("pg_try_advisory_xact_lock(1363234113)", body)
-        self.assertIn("first-run cleanup is incomplete", body)
-        self.assertNotIn('rm -f "${FIRST_PLAN_MARKER}"', body)
-        self.assertNotIn("TOKENKEY_QA_STALE_RETENTION_DAYS", body)
-
-    def test_qa_stale_cleanup_plan_is_read_only_behaviorally(self) -> None:
-        script = ROOT / "deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh"
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            fake_bin = root / "bin"
-            fake_bin.mkdir()
-            calls = root / "calls.log"
-            (fake_bin / "docker").write_text(
-                """#!/usr/bin/env bash
-printf 'docker %s\n' "$*" >> "$CALLS"
-if [ "$1" = ps ]; then echo tokenkey-postgres; exit 0; fi
-if [ "$1" = inspect ]; then
-  if [[ "$*" == *--format* ]]; then
-    echo ghcr.io/youxuanxue/sub2api:1.8.140
-  else
-    printf '[{"Config":{"Image":"ghcr.io/youxuanxue/sub2api:1.8.140","Env":[]},"Mounts":[{"Type":"bind","Source":"%s/app","Destination":"/app/data","RW":true}]}]\n' "$TOKENKEY_ROOT"
-  fi
-  exit 0
-fi
-if [ "$1" = exec ]; then
-  if [[ "$*" == *qa_lifecycle_receipts* ]]; then
-    echo 1
-  else
-    echo '{"server_clock":"2026-08-07T12:00:00.000000Z","cutoff":"2026-08-06T12:00:00.000000Z","candidate_rows":42,"oldest_created_at":"2026-08-04T04:00:00.000000Z","newest_created_at":"2026-08-06T11:59:00.000000Z","export_jobs":{"total_rows":0,"expired_rows":0,"status_counts":{},"done_without_storage_key":0,"non_done_with_storage_key":0}}'
-  fi
-  exit 0
-fi
-exit 9
-""",
-                encoding="utf-8",
-            )
-            (fake_bin / "find").write_text(
-                """#!/usr/bin/env bash
-printf 'find %s\n' "$*" >> "$CALLS"
-case "$1" in *qa_blobs) printf 'a\nb\n';; *qa_dlq) printf 'c\n';; esac
-""",
-                encoding="utf-8",
-            )
-            for name in ("docker", "find"):
-                (fake_bin / name).chmod(0o755)
-            (root / "active-color").write_text("blue\n", encoding="utf-8")
-            (root / "proc").mkdir()
-            (fake_bin / "install").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-            (fake_bin / "install").chmod(0o755)
-            proc = subprocess.run(
-                ["bash", str(script), "--plan"],
-                env={
-                    "PATH": f"{fake_bin}:/opt/homebrew/bin:/usr/bin:/bin",
-                    "CALLS": str(calls),
-                    "TOKENKEY_ROOT": str(root),
-                    "QA_STALE_PROC_ROOT": str(root / "proc"),
-                    "EXPORT_ORPHAN_HELPER": str(
-                        ROOT / "deploy/aws/stage0/tokenkey-qa-export-orphan.py"
-                    ),
-                },
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            self.assertEqual(proc.returncode, 0, proc.stderr)
-            payload = json.loads(proc.stdout)
-            call_text = calls.read_text(encoding="utf-8")
-        self.assertEqual(payload["candidate_rows"], 42)
-        self.assertEqual(payload["active_image"], "ghcr.io/youxuanxue/sub2api:1.8.140")
-        self.assertEqual(payload["candidate_blob_files"], 2)
-        self.assertEqual(payload["candidate_dlq_files"], 1)
-        self.assertFalse(payload["deletion_authorized"])
-        self.assertNotIn("DELETE FROM", call_text)
-        self.assertNotIn("-delete", call_text)
-
-    def test_qa_stale_cleanup_delete_batches_are_bounded_and_locked(self) -> None:
-        body = (ROOT / "deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh").read_text(
-            encoding="utf-8"
-        )
-        start = body.index("delete_rows_before() {")
-        end = body.index("\n}\n\nbind_first_plan()", start) + 3
-        function = body[start:end]
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            sequence = root / "sequence"
-            sql_log = root / "sql.log"
-            sequence.write_text("5000\n2\n0\n", encoding="utf-8")
-            harness = f"""{function}
-psql_value() {{
-  printf '%s\\n' "$1" >> {shlex.quote(str(sql_log))}
-  head -1 {shlex.quote(str(sequence))}
-  tail -n +2 {shlex.quote(str(sequence))} > {shlex.quote(str(sequence))}.next
-  mv {shlex.quote(str(sequence))}.next {shlex.quote(str(sequence))}
-}}
-fail() {{ printf '%s\\n' "$*" >&2; return 2; }}
-DELETE_BATCH_SIZE=5000
-delete_rows_before 2026-08-06T12:00:00.000000Z
-"""
-            proc = subprocess.run(
-                ["bash"], input=harness, capture_output=True, text=True, check=False
-            )
-            sql = sql_log.read_text(encoding="utf-8")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(proc.stdout.strip(), "5002")
-        self.assertEqual(sql.count("pg_try_advisory_xact_lock(1363234113)"), 3)
-        self.assertEqual(sql.count("LIMIT 5000"), 3)
-
-    def test_qa_stale_cleanup_service_is_bounded_and_disabled_by_default(self) -> None:
-        bootstrap = (ROOT / "deploy/aws/stage0/stage0-ec2-bootstrap.sh").read_text(
-            encoding="utf-8"
-        )
-        owner = (ROOT / "deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn(
-            "tokenkey-qa-stale-cleanup.sh --install-units /etc/systemd/system",
-            bootstrap,
-        )
-        self.assertNotIn("QASVEOF", bootstrap)
-        for needle in (
-            "Nice=15",
-            "IOSchedulingClass=idle",
-            "CPUQuota=20%",
-            "MemoryMax=1G",
-            "TasksMax=128",
-            "TimeoutStartSec=30min",
-        ):
-            self.assertIn(needle, owner)
-        self.assertIn("systemctl disable --now tokenkey-qa-stale-cleanup.timer", bootstrap)
-        self.assertNotIn("EnvironmentFile=-/etc/tokenkey/qa-stale-retention.env", owner)
-        self.assertIn("OnCalendar=*-*-* *:45:00", owner)
-        self.assertIn("RandomizedDelaySec=15min", owner)
-        self.assertNotIn("OnCalendar=*-*-* 04:15:00", owner)
-
-    def test_qa_stale_timer_enable_requires_first_apply_receipt_before_aws(self) -> None:
-        script = ROOT / "ops/stage0/sync-qa-stale-cleanup-timer-via-ssm.sh"
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            fake_bin = root / "bin"
-            fake_bin.mkdir()
-            aws_log = root / "aws.log"
-            (fake_bin / "aws").write_text(
-                '#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$AWS_LOG"\nexit 99\n',
-                encoding="utf-8",
-            )
-            (fake_bin / "aws").chmod(0o755)
-            proc = subprocess.run(
-                ["bash", str(script), "i-0123456789abcdef0"],
-                env={
-                    "PATH": f"{fake_bin}:/opt/homebrew/bin:/usr/bin:/bin",
-                    "AWS_LOG": str(aws_log),
-                    "QA_STALE_TIMER_STATE": "enabled",
-                },
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            self.assertNotEqual(proc.returncode, 0)
-            self.assertIn("QA_STALE_ACTIVATION_RECEIPT is required", proc.stderr)
-            self.assertFalse(aws_log.exists())
-        sync_body = script.read_text(encoding="utf-8")
-        self.assertIn("qa-stale-first-plan.json", sync_body)
-        self.assertIn('test -f \\"\\${marker}\\"', sync_body)
-        self.assertIn('rm -f \\"\\${marker}\\"', sync_body)
-        self.assertIn("systemctl is-enabled tokenkey-qa-stale-cleanup.timer", sync_body)
-        self.assertIn("qa_lifecycle_receipts", sync_body)
-        self.assertIn("systemctl disable --now tokenkey-qa-stale-cleanup.timer", sync_body)
-        self.assertNotIn(".activating", sync_body)
-
-    def test_qa_stale_timer_enable_renders_marker_bound_shell(self) -> None:
-        script = ROOT / "ops/stage0/sync-qa-stale-cleanup-timer-via-ssm.sh"
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            fake_bin = root / "bin"
-            fake_bin.mkdir()
-            (fake_bin / "aws").write_text("#!/usr/bin/env bash\nexit 99\n", encoding="utf-8")
-            (fake_bin / "aws").chmod(0o755)
-            now = dt.datetime.now(dt.timezone.utc)
-            receipt = root / "receipt.json"
-            receipt.write_text(
-                json.dumps(
-                    {
-                        "mode": "prod_qa_age_retention_first_apply",
-                        "instance_id": "i-0123456789abcdef0",
-                        "deletion_authorized": True,
-                        "cutoff": "2026-08-06T12:00:00.000000Z",
-                        "applied_at": now.isoformat().replace("+00:00", "Z"),
-                        "authorization_expires_at": (now + dt.timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
-                        "planned_rows": 42,
-                        "remaining_rows": 0,
-                        "remaining_blob_files": 0,
-                        "remaining_dlq_files": 0,
-                        "marker_sha256": "a" * 64,
-                    }
-                ),
-                encoding="utf-8",
-            )
-            output = root / "output"
-            proc = subprocess.run(
-                ["bash", str(script), "i-0123456789abcdef0"],
-                env={
-                    "PATH": f"{fake_bin}:/opt/homebrew/bin:/usr/bin:/bin",
-                    "QA_STALE_TIMER_STATE": "enabled",
-                    "QA_STALE_ACTIVATION_RECEIPT": str(receipt),
-                    "STAGE0_SSM_OUTPUT_DIR": str(output),
-                },
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            self.assertEqual(proc.returncode, 99, (proc.stdout, proc.stderr))
-            params = json.loads((output / "ssm-params.json").read_text(encoding="utf-8"))
-        timer_command = next(command for command in params["commands"] if "verify_marker" in command)
-        self.assertIn("verify_marker", timer_command)
-        self.assertIn("sha256sum", timer_command)
-        self.assertIn("a" * 64, timer_command)
-        helper_index, helper_command = next(
-            (index, command)
-            for index, command in enumerate(params["commands"])
-            if "qa-export-orphan.py" in command and "printf %s" in command
-        )
-        runner_index, runner_command = next(
-            (index, command)
-            for index, command in enumerate(params["commands"])
-            if "tokenkey-qa-stale-cleanup.sh" in command and "printf %s" in command
-        )
-        self.assertLess(helper_index, runner_index)
-        helper_parts = shlex.split(helper_command)
-        runner_parts = shlex.split(runner_command)
-        self.assertEqual(helper_parts[:3], ["sudo", "bash", "-c"])
-        self.assertEqual(runner_parts[:3], ["sudo", "bash", "-c"])
-        helper_install = helper_parts[3]
-        runner_install = runner_parts[3]
-        for install, destination in (
-            (helper_install, "/usr/local/lib/tokenkey/qa-export-orphan.py"),
-            (runner_install, "/usr/local/bin/tokenkey-qa-stale-cleanup.sh"),
-        ):
-            self.assertIn('directory=$(dirname "$destination")', install)
-            self.assertIn('temporary=$(mktemp "$directory/.${destination##*/}.XXXXXX")', install)
-            self.assertIn('chmod 0755 "$temporary"', install)
-            self.assertIn('mv -f "$temporary" "$destination"', install)
-            self.assertIn(destination, install)
-        payload = re.search(r"printf %s '([^']+)'", helper_install)
-        self.assertIsNotNone(payload)
-        assert payload is not None
-        self.assertEqual(
-            gzip.decompress(base64.b64decode(payload.group(1))),
-            (ROOT / "deploy/aws/stage0/tokenkey-qa-export-orphan.py").read_bytes(),
-        )
-        for command in params["commands"]:
-            parsed = subprocess.run(["bash", "-n"], input=command, text=True, capture_output=True)
-            self.assertEqual(parsed.returncode, 0, parsed.stderr)
 
     def test_qa_maintenance_host_script_runs_archive_only(self) -> None:
         body = (ROOT / "deploy/aws/stage0/tokenkey-qa-maintenance.sh").read_text(
@@ -1001,6 +714,19 @@ exit 0
             commands.index(scratch_prepare),
             commands.index("sudo /usr/local/bin/tokenkey-qa-maintenance.sh --selftest"),
         )
+        for directory in ("qa_blobs", "qa_dlq", "qa_capture_ledger"):
+            prepare = (
+                f"sudo test -e /var/lib/tokenkey/app/{directory} || "
+                f"sudo install -d -m 0700 -o 1000 -g 1000 /var/lib/tokenkey/app/{directory}"
+            )
+            self.assertIn(prepare, commands)
+        self.assertNotIn("sudo systemctl daemon-reload", commands)
+        conditional_reload = next(
+            command for command in commands if "unit_install_changed" in command
+        )
+        self.assertIn("--install-units", conditional_reload)
+        self.assertIn("systemctl daemon-reload", conditional_reload)
+        self.assertIn('= "true"', conditional_reload)
         self.assertFalse(
             any("/var/lib/tokenkey/data/qa_archive_tmp" in command for command in commands)
         )
@@ -1052,7 +778,93 @@ exit 0
             payload["commands"],
         )
 
-    def test_qa_boundary_sync_auto_derives_owner_from_finalize_receipt(self) -> None:
+    def test_qa_maintenance_sync_validates_install_unit_result_before_timer_state(self) -> None:
+        script = ROOT / "ops/stage0/sync-qa-maintenance-timer-via-ssm.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            output = root / "output"
+            fake_bin.mkdir()
+            output.mkdir()
+            (fake_bin / "aws").write_text(
+                """#!/usr/bin/env bash
+if [[ "$*" == *"ssm send-command"* ]]; then echo cmd-test; exit 0; fi
+if [[ "$*" == *"--query Status"* ]]; then echo Success; exit 0; fi
+if [[ "$*" == *"--query ResponseCode"* ]]; then echo 0; exit 0; fi
+exit 0
+""",
+                encoding="utf-8",
+            )
+            (fake_bin / "aws").chmod(0o755)
+            payload_env = {
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+                "STAGE0_SSM_OUTPUT_DIR": str(output),
+                "STAGE0_SSM_TIMEOUT_SECONDS": "10",
+            }
+            payload_proc = subprocess.run(
+                ["bash", str(script), "i-0123456789abcdef0"],
+                env=payload_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(payload_proc.returncode, 0, payload_proc.stderr)
+            commands = json.loads((output / "ssm-params.json").read_text(encoding="utf-8"))["commands"]
+            install_result = next(command for command in commands if "unit_install_result" in command)
+            timer_command = next(
+                command
+                for command in commands
+                if command == "sudo systemctl disable --now tokenkey-qa-maintenance.timer"
+            )
+
+            calls = root / "calls"
+            runner = root / "tokenkey-qa-maintenance.sh"
+            runner.write_text(
+                "#!/usr/bin/env bash\nprintf '%s\\n' \"${INSTALL_RESULT}\"\n",
+                encoding="utf-8",
+            )
+            runner.chmod(0o755)
+            (fake_bin / "sudo").write_text("#!/usr/bin/env bash\nexec \"$@\"\n", encoding="utf-8")
+            (fake_bin / "sudo").chmod(0o755)
+            (fake_bin / "systemctl").write_text(
+                "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"${CALLS}\"\n",
+                encoding="utf-8",
+            )
+            (fake_bin / "systemctl").chmod(0o755)
+
+            execution = install_result.replace(
+                "/usr/local/bin/tokenkey-qa-maintenance.sh", str(runner)
+            )
+            for install_output, should_reload, should_reach_timer in (
+                ('{"changed":false}', False, True),
+                ('{"changed":true}', True, True),
+                ('{"changed":false,"extra":true}', False, False),
+                ('{"changed":"false"}', False, False),
+                ("[]", False, False),
+                ("{", False, False),
+            ):
+                calls.unlink(missing_ok=True)
+                proc = subprocess.run(
+                    ["bash", "-c", f"{execution}; {timer_command}"],
+                    env={
+                        "PATH": f"{fake_bin}:/usr/bin:/bin",
+                        "CALLS": str(calls),
+                        "INSTALL_RESULT": install_output,
+                        "PYTHONOPTIMIZE": "1",
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(proc.returncode, 0 if should_reach_timer else 1, proc.stderr)
+                observed_calls = calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
+                self.assertEqual("daemon-reload" in observed_calls, should_reload)
+                self.assertEqual(
+                    "disable --now tokenkey-qa-maintenance.timer" in observed_calls,
+                    should_reach_timer,
+                )
+
+    def test_qa_boundary_sync_activation_receipt_forces_disabled_on_success_and_rollback(self) -> None:
         script = ROOT / "ops/stage0/sync-qa-boundary-timer-via-ssm.sh"
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1077,7 +889,7 @@ esac
                 env={
                     **os.environ,
                     "PATH": f"{fake_bin}:/opt/homebrew/bin:/usr/bin:/bin",
-                    "QA_BOUNDARY_TIMER_STATE": "auto",
+                    "QA_BOUNDARY_TIMER_STATE": "enabled",
                     "STAGE0_SSM_OUTPUT_DIR": str(output),
                 },
                 capture_output=True,
@@ -1087,49 +899,247 @@ esac
             self.assertEqual(proc.returncode, 0, (proc.stdout, proc.stderr))
             payload = json.loads((output / "ssm-params.json").read_text(encoding="utf-8"))
 
-        owner = next(
-            command
-            for command in payload["commands"]
-            if "invalid QA lifecycle receipt counts" in command
-        )
-        self.assertIn("qa_lifecycle_receipts", owner)
-        self.assertIn("f.phase=concat", owner)
-        self.assertIn('case "${counts}" in 0:0)', owner)
-        self.assertIn("1:0)", owner)
-        self.assertIn("1:1)", owner)
-        self.assertNotIn("systemctl enable --now tokenkey-qa-stale-cleanup.timer", owner)
-        self.assertIn("systemctl is-enabled tokenkey-qa-stale-cleanup.timer", owner)
-        self.assertIn("systemctl disable --now tokenkey-qa-stale-cleanup.timer", owner)
-        self.assertIn("systemctl enable --now tokenkey-qa-boundary.timer", owner)
         commands = payload["commands"]
         restore = next(command for command in commands if "qa_sync_restore" in command)
-        self.assertIn("trap qa_sync_restore EXIT", restore)
-        for state in (
-            "qa_boundary_enabled",
-            "qa_boundary_active",
-            "qa_legacy_enabled",
-            "qa_legacy_active",
-            "qa_finalized",
-        ):
-            self.assertIn(state, restore)
-        finalized_restore = restore[restore.index('if [ "${qa_finalized}" = 1 ]'):]
-        self.assertIn("enable tokenkey-qa-boundary.timer", finalized_restore)
-        self.assertIn("start tokenkey-qa-boundary.timer", finalized_restore)
-        self.assertIn("disable tokenkey-qa-stale-cleanup.timer", finalized_restore)
-        self.assertIn("stop tokenkey-qa-stale-cleanup.timer", finalized_restore)
-        drain = next(
+        owner = commands[commands.index("qa_sync_committed=1") - 1]
+
+        lifecycle_lock = next(
             command
             for command in commands
-            if "timeout draining tokenkey-qa-boundary.service" in command
+            if "/run/lock/tokenkey-qa-lifecycle.lock" in command
         )
-        self.assertIn(
-            "while sudo systemctl is-active --quiet tokenkey-qa-boundary.service",
-            drain,
-        )
-        self.assertGreater(commands.index("qa_sync_committed=1"), commands.index(owner))
+        self.assertIn("flock -x", lifecycle_lock)
+        self.assertLess(commands.index(lifecycle_lock), commands.index(restore))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            calls = root / "calls"
+            enabled = root / "enabled"
+            active = root / "active"
+            receipt_responses = root / "receipt-responses"
+            enabled.write_text("enabled\n", encoding="utf-8")
+            active.write_text("active\n", encoding="utf-8")
+            (fake_bin / "docker").write_text(
+                """#!/usr/bin/env bash
+response="$(head -n 1 "${RECEIPT_RESPONSES}")"
+tail -n +2 "${RECEIPT_RESPONSES}" > "${RECEIPT_RESPONSES}.next"
+mv "${RECEIPT_RESPONSES}.next" "${RECEIPT_RESPONSES}"
+if [[ "${response}" == FAIL ]]; then exit 7; fi
+printf '%s\n' "${response}"
+""",
+                encoding="utf-8",
+            )
+            (fake_bin / "sudo").write_text("#!/bin/sh\nexec \"$@\"\n", encoding="utf-8")
+            (fake_bin / "systemctl").write_text(
+                """#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${CALLS}"
+action="$1"
+shift
+now=false
+if [[ "${1:-}" == "--now" ]]; then now=true; shift; fi
+case "${action}" in
+  enable) printf 'enabled\n' > "${ENABLED}"; if [[ "${now}" == true ]]; then printf 'active\n' > "${ACTIVE}"; fi ;;
+  disable) printf 'disabled\n' > "${ENABLED}"; if [[ "${now}" == true ]]; then printf 'inactive\n' > "${ACTIVE}"; fi ;;
+  start) printf 'active\n' > "${ACTIVE}" ;;
+  stop) printf 'inactive\n' > "${ACTIVE}" ;;
+  is-enabled) cat "${ENABLED}" ;;
+  is-active) cat "${ACTIVE}" ;;
+esac
+""",
+                encoding="utf-8",
+            )
+            for executable in fake_bin.iterdir():
+                executable.chmod(0o755)
+            env = {
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+                "CALLS": str(calls),
+                "ENABLED": str(enabled),
+                "ACTIVE": str(active),
+                "RECEIPT_RESPONSES": str(receipt_responses),
+            }
+            for name, command, responses in (
+                ("success", f"{restore}; {owner}; qa_sync_committed=1; trap - EXIT", "1\n1\n"),
+                ("rollback-transition", f"{restore}; false", "0\n0\n1\n"),
+                ("rollback-query-uncertain", f"{restore}; false", "0\n0\nFAIL\n"),
+            ):
+                enabled.write_text("enabled\n", encoding="utf-8")
+                active.write_text("active\n", encoding="utf-8")
+                receipt_responses.write_text(responses, encoding="utf-8")
+                calls.unlink(missing_ok=True)
+                proc = subprocess.run(["bash", "-c", command], env=env, capture_output=True, text=True)
+                if name == "success":
+                    self.assertEqual(proc.returncode, 0, proc.stderr)
+                else:
+                    self.assertNotEqual(proc.returncode, 0)
+                self.assertEqual(enabled.read_text(encoding="utf-8").strip(), "disabled")
+                self.assertEqual(active.read_text(encoding="utf-8").strip(), "inactive")
+                observed = calls.read_text(encoding="utf-8")
+                self.assertNotIn("enable tokenkey-qa-boundary.timer", observed)
+                self.assertNotIn("start tokenkey-qa-boundary.timer", observed)
         for command in commands:
             parsed = subprocess.run(["bash", "-n"], input=command, text=True, capture_output=True)
             self.assertEqual(parsed.returncode, 0, (command, parsed.stderr))
+
+    def test_qa_bundle_infra_verifier_checks_live_capacity_image_and_dlq(self) -> None:
+        script = ROOT / "ops/qa/verify_qa_bundle_infra.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            calls = root / "aws-calls"
+            fake_aws = fake_bin / "aws"
+            fake_aws.write_text(
+                """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "${AWS_CALLS}"
+case "$*" in
+  *"cloudformation describe-stacks"*)
+    cat <<'JSON'
+{"Stacks":[{"StackStatus":"UPDATE_COMPLETE","Parameters":[{"ParameterKey":"BundleWorkerImage","ParameterValue":"ghcr.io/youxuanxue/sub2api:1.8.156"},{"ParameterKey":"BundleBrowserAllowedOrigin","ParameterValue":"https://tokenkey.dev"},{"ParameterKey":"BundleRetentionDays","ParameterValue":"2"}],"Outputs":[{"OutputKey":"QaBundleBucketName","OutputValue":"qa-bucket"},{"OutputKey":"QaBundleQueueUrl","OutputValue":"https://sqs/queue"},{"OutputKey":"QaBundleDeadLetterQueueUrl","OutputValue":"https://sqs/dlq"},{"OutputKey":"QaBundleWorkerClusterName","OutputValue":"qa-cluster"},{"OutputKey":"QaBundleWorkerServiceName","OutputValue":"qa-service"}]}]}
+JSON
+    ;;
+  *"s3api head-bucket"*) ;;
+  *"s3api get-bucket-cors"*)
+    printf '{"CORSRules":[{"AllowedHeaders":["*"],"AllowedMethods":["GET","HEAD"],"AllowedOrigins":["%s"],"ExposeHeaders":["ETag","Content-Encoding","Content-Length"],"MaxAgeSeconds":300}]}\n' "${ACTUAL_CORS_ORIGIN:-https://tokenkey.dev}"
+    ;;
+  *"s3api get-bucket-encryption"*)
+    printf '%s\n' '{"ServerSideEncryptionConfiguration":{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}}'
+    ;;
+  *"s3api get-bucket-lifecycle-configuration"*)
+    printf '%s\n' '{"Rules":[{"ID":"expire-qa-bundle-job-surfaces","Status":"Enabled","Filter":{"Prefix":"user-qa/qa-bundles/v1/jobs/"},"Expiration":{"Days":2}}]}'
+    ;;
+  *"sqs get-queue-attributes"*"https://sqs/dlq"*)
+    printf '{"Attributes":{"QueueArn":"arn:dlq","ApproximateNumberOfMessages":"%s"}}\n' "${DLQ_DEPTH:-0}"
+    ;;
+  *"sqs get-queue-attributes"*"https://sqs/queue"*)
+    printf '%s\n' '{"Attributes":{"QueueArn":"arn:queue","ApproximateNumberOfMessages":"0","ApproximateNumberOfMessagesNotVisible":"0"}}'
+    ;;
+  *"ecs describe-services"*)
+    printf '%s\n' '{"failures":[],"services":[{"status":"ACTIVE","desiredCount":1,"runningCount":1,"taskDefinition":"arn:task:1"}]}'
+    ;;
+  *"ecs describe-task-definition"*)
+    printf '%s\n' '{"taskDefinition":{"containerDefinitions":[{"name":"qa-bundle-worker","image":"ghcr.io/youxuanxue/sub2api:1.8.156"}]}}'
+    ;;
+  *) echo "unexpected aws call: $*" >&2; exit 90 ;;
+esac
+""",
+                encoding="utf-8",
+            )
+            fake_aws.chmod(0o755)
+            base_env = {
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+                "AWS_CALLS": str(calls),
+                "GITHUB_OUTPUT": str(root / "github-output"),
+                "QA_BUNDLE_WORKER_IMAGE": "ghcr.io/youxuanxue/sub2api:1.8.156",
+                "QA_BUNDLE_WORKER_DESIRED_COUNT": "1",
+            }
+            healthy = subprocess.run(
+                ["bash", str(script)], env=base_env, capture_output=True, text=True, check=False
+            )
+            self.assertEqual(healthy.returncode, 0, healthy.stderr)
+            receipt = json.loads(healthy.stdout)
+            self.assertTrue(receipt["ok"])
+            self.assertEqual(receipt["image"], base_env["QA_BUNDLE_WORKER_IMAGE"])
+            self.assertEqual(receipt["desired_count"], 1)
+            self.assertEqual(receipt["running_count"], 1)
+            self.assertEqual(receipt["browser_origin"], "https://tokenkey.dev")
+            self.assertEqual(
+                (root / "github-output").read_text(encoding="utf-8").splitlines(),
+                ["bucket=qa-bucket", "queue_url=https://sqs/queue"],
+            )
+            observed = calls.read_text(encoding="utf-8")
+            for expected in (
+                "cloudformation describe-stacks",
+                "s3api head-bucket",
+                "s3api get-bucket-cors",
+                "s3api get-bucket-encryption",
+                "s3api get-bucket-lifecycle-configuration",
+                "sqs get-queue-attributes",
+                "ecs describe-services",
+                "ecs describe-task-definition",
+            ):
+                self.assertIn(expected, observed)
+
+            cors_drift = subprocess.run(
+                ["bash", str(script)],
+                env={**base_env, "ACTUAL_CORS_ORIGIN": "https://api.tokenkey.dev"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(cors_drift.returncode, 0)
+            self.assertIn("QA Bundle bucket CORS drift", cors_drift.stderr)
+
+            unhealthy = subprocess.run(
+                ["bash", str(script)],
+                env={**base_env, "DLQ_DEPTH": "2"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(unhealthy.returncode, 0)
+            self.assertIn("QA Bundle DLQ is not empty: 2", unhealthy.stderr)
+
+    def test_qa_bundle_canary_ssm_wrapper_requires_canonical_receipt(self) -> None:
+        script = ROOT / "ops/stage0/run-qa-bundle-canary-via-ssm.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_aws = fake_bin / "aws"
+            fake_aws.write_text(
+                """#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+  *"ssm send-command"*) printf '%s\n' command-canary ;;
+  *"--query Status"*) printf '%s\n' Success ;;
+  *"--query StandardOutputContent"*)
+    printf '{"schema_version":"qa-bundle-canary-v1","ok":true,"commit_count":%s,"record_count":0,"job_id":"%064d"}\n' "${CANARY_COMMIT_COUNT:-24}" 0
+    ;;
+  *"--query StandardErrorContent"*) ;;
+  *"--query ResponseCode"*) printf '%s\n' 0 ;;
+  *) echo "unexpected aws call: $*" >&2; exit 90 ;;
+esac
+""",
+                encoding="utf-8",
+            )
+            fake_aws.chmod(0o755)
+            base_env = {
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+                "STAGE0_SSM_TIMEOUT_SECONDS": "10",
+            }
+
+            healthy_output = root / "healthy"
+            healthy = subprocess.run(
+                ["bash", str(script), "i-0123456789abcdef0"],
+                env={**base_env, "STAGE0_SSM_OUTPUT_DIR": str(healthy_output)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(healthy.returncode, 0, healthy.stderr)
+            payload = json.loads((healthy_output / "ssm-params.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                payload["commands"],
+                ["set -euo pipefail", "sudo /usr/local/bin/tokenkey-qa-maintenance.sh --qa-bundle-canary"],
+            )
+
+            invalid_output = root / "invalid"
+            invalid = subprocess.run(
+                ["bash", str(script), "i-0123456789abcdef0"],
+                env={
+                    **base_env,
+                    "STAGE0_SSM_OUTPUT_DIR": str(invalid_output),
+                    "CANARY_COMMIT_COUNT": "23",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(invalid.returncode, 0)
+            self.assertIn("invalid QA Bundle canary receipt", invalid.stderr)
 
     def test_raw_archive_cfn_keeps_app_and_recovery_permissions_separate(self) -> None:
         body = (ROOT / "deploy/aws/cloudformation/stage0-qa-raw-archive.yaml").read_text(
@@ -1250,6 +1260,9 @@ exit 1
                     "OPS_RECOVERY_PRINCIPAL_ARN": "arn:aws:iam::123456789012:user/operator",
                     "QA_RAW_ARCHIVE_VPC_ID": "vpc-1234",
                     "QA_RAW_ARCHIVE_ROUTE_TABLE_IDS": "rtb-1234",
+                    "QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS": "subnet-1234",
+                    "QA_BUNDLE_WORKER_IMAGE": "ghcr.io/youxuanxue/sub2api:1.8.156",
+                    "QA_BUNDLE_BROWSER_ALLOWED_ORIGIN": "https://api.tokenkey.dev",
                     "QA_RAW_ARCHIVE_CONFIRM": "yes",
                     "EXECUTE_MARKER": str(marker),
                 },

@@ -29,8 +29,8 @@ if [ -z "${qa_cap}" ]; then
 fi
 [ -n "${qa_cap}" ] || qa_cap=missing
 qa_archive=$(sudo docker exec "${app_container}" printenv QA_ARCHIVE_ENABLED 2>/dev/null || echo missing)
-export_driver=$(sudo docker exec "${app_container}" printenv QA_CAPTURE_EXPORT_STORAGE_DRIVER 2>/dev/null || echo missing)
-export_bucket=$(sudo docker exec "${app_container}" printenv QA_CAPTURE_EXPORT_STORAGE_BUCKET 2>/dev/null || echo missing)
+export_driver=$(sudo docker exec "${app_container}" printenv QA_BUNDLE_STORAGE_DRIVER 2>/dev/null || echo missing)
+export_bucket=$(sudo docker exec "${app_container}" printenv QA_BUNDLE_STORAGE_BUCKET 2>/dev/null || echo missing)
 rec_count=0
 rec_oldest=
 rec_newest=

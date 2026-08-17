@@ -3,12 +3,13 @@ package qa
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,6 +22,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/engine"
+	"github.com/Wei-Shaw/sub2api/internal/observability/qa/bundle"
+	"github.com/Wei-Shaw/sub2api/internal/observability/qa/captureledger"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/lifecycle"
 	"github.com/Wei-Shaw/sub2api/internal/observability/trajectory"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -29,6 +32,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"github.com/alitto/pond/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/klauspost/compress/zstd"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
@@ -42,21 +46,32 @@ type Service struct {
 	bodyMaxBytes      int
 	optInBodyMaxBytes int
 	dlqDir            string
+	now               func() time.Time
+	captureLedger     captureLedger
+	ledgerInitErr     error
+	ledgerStop        chan struct{}
+	ledgerStopOnce    sync.Once
+	ledgerWG          sync.WaitGroup
 	hourlyCutover     atomic.Pointer[time.Time]
 
-	// Trajectory export runs off the request path on its own single-worker pool
-	// (NOT the capture pool) so a heavy export can never contend with live
-	// capture or the gateway. Job status is persisted in qa_export_jobs (durable
-	// across restart/redeploy — the in-memory map was wiped on every deploy,
-	// orphaning the download; see #792 follow-up). The pool itself is in-process;
-	// a startup reconciler fails any job left running by the previous process.
-	exportPool   pond.Pool
-	exportPoolMu sync.Mutex
-	// exportStore is where the finished export ZIP lives. It defaults to `store`
-	// (capture localfs) but can be pointed at S3 via qa_capture.export_storage so
-	// the large archive leaves the Postgres-shared data volume; capture blobs
-	// still go to `store`.
+	// exportStore signs scoped Bundle pages and ZIPs. It is configured only from
+	// qa_bundle.storage; prod never proxies or materializes these artifacts.
 	exportStore BlobStore
+
+	bundleStore     bundle.Store
+	bundleQueue     bundle.JobQueue
+	bundleWatermark func(context.Context) (time.Time, error)
+	bundleAuthorize func(context.Context, int64, int64) (bool, error)
+}
+
+type captureLedger interface {
+	Begin(captureledger.CaptureIdentity) error
+	Start(captureledger.CaptureIdentity) error
+	Complete(captureledger.CaptureIdentity, captureledger.Outcome) error
+	Snapshot() error
+	SealHour(time.Time) (captureledger.HourSeal, error)
+	Drain() error
+	Health() (captureledger.Health, error)
 }
 
 var (
@@ -97,25 +112,13 @@ func NewServiceForTest(client *ent.Client, store BlobStore) *Service {
 	}
 }
 
-func NewService(cfg *config.Config, client *ent.Client) (*Service, error) {
+func NewService(cfg *config.Config, client *ent.Client, sqlDB *sql.DB) (*Service, error) {
 	if cfg == nil || client == nil {
 		return &Service{}, nil
 	}
 	store, err := newBlobStore(cfg.QACapture)
 	if err != nil {
 		return nil, err
-	}
-	// Export ZIP store: separate destination (typically S3) so the large archive
-	// leaves the Postgres-shared data volume. Falls back to the capture store
-	// (localfs) when export_storage is unconfigured — preserving current behavior
-	// with no infra dependency.
-	exportStore := store
-	if strings.TrimSpace(cfg.QACapture.ExportStorage.Driver) != "" {
-		es, eerr := newBlobStore(config.QACaptureConfig{Storage: cfg.QACapture.ExportStorage})
-		if eerr != nil {
-			return nil, eerr
-		}
-		exportStore = es
 	}
 	dataDir := strings.TrimSpace(os.Getenv("DATA_DIR"))
 	if dataDir == "" {
@@ -125,20 +128,25 @@ func NewService(cfg *config.Config, client *ent.Client) (*Service, error) {
 		client:            client,
 		cfg:               cfg.QACapture,
 		store:             store,
-		exportStore:       exportStore,
 		bodyMaxBytes:      cfg.QACapture.BodyMaxBytes,
 		optInBodyMaxBytes: cfg.QACapture.OptInBodyMaxBytes,
 		dlqDir:            filepath.Join(dataDir, "qa_dlq"),
 	}
-	svc.pool = pond.NewPool(cfg.QACapture.WorkerCount, pond.WithQueueSize(cfg.QACapture.QueueSize))
-	// Single-worker export pool: at most one trajectory export materializes at a
-	// time, so bulk export can never fan out and starve the gateway.
-	svc.exportPool = pond.NewPool(1, pond.WithQueueSize(exportQueueSize))
-	// Fail any export left "running"/"pending" by a previous process — the
-	// in-process worker that owned it is gone, so it will never complete.
-	if rcErr := svc.ReconcileOrphanedExports(context.Background()); rcErr != nil {
-		logger.L().Warn("qa export: orphan reconcile failed", zap.Error(rcErr))
+	if err := svc.configureBundle(context.Background(), cfg, sqlDB); err != nil {
+		return nil, err
 	}
+	svc.captureLedger, svc.ledgerInitErr = captureledger.Open(
+		filepath.Join(dataDir, "qa_capture_ledger"),
+		uuid.NewString(),
+		svc.captureNow(),
+		svc.captureNow,
+	)
+	if svc.ledgerInitErr != nil {
+		logger.L().Warn("qa capture ledger unavailable", zap.Error(svc.ledgerInitErr))
+	} else {
+		svc.startCaptureLedgerLoop()
+	}
+	svc.pool = pond.NewPool(cfg.QACapture.WorkerCount, pond.WithQueueSize(cfg.QACapture.QueueSize))
 	return svc, nil
 }
 
@@ -146,12 +154,68 @@ func (s *Service) Stop() {
 	if s == nil {
 		return
 	}
+	if s.ledgerStop != nil {
+		s.ledgerStopOnce.Do(func() { close(s.ledgerStop) })
+		s.ledgerWG.Wait()
+	}
 	if s.pool != nil {
 		s.pool.StopAndWait()
 	}
-	if s.exportPool != nil {
-		s.exportPool.StopAndWait()
+	if s.captureLedger != nil {
+		if err := s.captureLedger.Drain(); err != nil {
+			logger.L().Warn("qa capture ledger drain failed", zap.Error(err))
+		}
 	}
+}
+
+func (s *Service) startCaptureLedgerLoop() {
+	if s == nil || s.captureLedger == nil || s.ledgerStop != nil {
+		return
+	}
+	s.ledgerStop = make(chan struct{})
+	s.ledgerWG.Add(1)
+	go func() {
+		defer s.ledgerWG.Done()
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				s.captureLedgerTick()
+			case <-s.ledgerStop:
+				return
+			}
+		}
+	}()
+}
+
+func (s *Service) captureLedgerTick() {
+	if s == nil || s.captureLedger == nil {
+		return
+	}
+	if err := s.captureLedger.Snapshot(); err != nil {
+		logger.L().Warn("qa capture ledger snapshot failed", zap.Error(err))
+		return
+	}
+	previousHour := s.captureNow().Truncate(time.Hour).Add(-time.Hour)
+	if _, err := s.captureLedger.SealHour(previousHour); err != nil && !errors.Is(err, captureledger.ErrHourUnsealed) {
+		logger.L().Warn("qa capture ledger seal failed", zap.Time("source_hour", previousHour), zap.Error(err))
+	}
+}
+
+func (s *Service) QACaptureHealth() (string, string, error) {
+	if s == nil || s.captureLedger == nil || s.ledgerInitErr != nil {
+		return string(captureledger.HealthFailed), `{"status":"failed","reason":"ledger_unavailable"}`, errors.New("qa capture ledger unavailable")
+	}
+	health, err := s.captureLedger.Health()
+	if err != nil {
+		return string(captureledger.HealthFailed), `{"status":"failed","reason":"ledger_unreadable"}`, errors.New("qa capture ledger unreadable")
+	}
+	body, err := json.Marshal(health)
+	if err != nil {
+		return string(captureledger.HealthFailed), `{"status":"failed","reason":"ledger_unreadable"}`, errors.New("qa capture health serialization failed")
+	}
+	return string(health.Status), string(body), nil
 }
 
 func (s *Service) Middleware() gin.HandlerFunc {
@@ -185,8 +249,12 @@ func (s *Service) Submit(input CaptureInput) {
 	if !s.Enabled() || strings.TrimSpace(input.RequestID) == "" {
 		return
 	}
-	if input.CreatedAt.IsZero() {
-		input.CreatedAt = time.Now().UTC()
+	input.CreatedAt = s.captureNow()
+	identity := captureledger.CaptureIdentity{RequestID: input.RequestID, CapturedAt: input.CreatedAt}
+	if s.captureLedger != nil {
+		if err := s.captureLedger.Begin(identity); err != nil {
+			logger.L().Warn("qa capture ledger begin failed", zap.String("request_id", input.RequestID), zap.Error(err))
+		}
 	}
 	qaCaptureSubmittedCount.Add(1)
 	if s.pool != nil {
@@ -200,6 +268,13 @@ func (s *Service) Submit(input CaptureInput) {
 	}
 	qaCaptureSyncFallbackCount.Add(1)
 	s.persistCaptureWithObservability(context.Background(), input, qaCapturePersistModeSyncFallback)
+}
+
+func (s *Service) captureNow() time.Time {
+	if s != nil && s.now != nil {
+		return s.now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 func (s *Service) CaptureFromContext(c *gin.Context) {
@@ -309,12 +384,28 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 }
 
 func (s *Service) persistCaptureWithObservability(ctx context.Context, input CaptureInput, mode string) {
-	err := s.persistCapture(ctx, input)
+	identity := captureledger.CaptureIdentity{RequestID: input.RequestID, CapturedAt: input.CreatedAt}
+	if s.captureLedger != nil {
+		if err := s.captureLedger.Start(identity); err != nil {
+			logger.L().Warn("qa capture ledger start failed", zap.String("request_id", input.RequestID), zap.Error(err))
+		}
+	}
+	outcome, err := s.persistCaptureOutcome(ctx, input)
 	if err == nil {
 		qaCapturePersistedCount.Add(1)
+		if s.captureLedger != nil {
+			if ledgerErr := s.captureLedger.Complete(identity, outcome); ledgerErr != nil {
+				logger.L().Warn("qa capture ledger completion failed", zap.String("request_id", input.RequestID), zap.Error(ledgerErr))
+			}
+		}
 		return
 	}
 	qaCapturePersistFailedCount.Add(1)
+	if s.captureLedger != nil {
+		if ledgerErr := s.captureLedger.Complete(identity, captureledger.OutcomePersistFailed); ledgerErr != nil {
+			logger.L().Warn("qa capture ledger failure receipt failed", zap.String("request_id", input.RequestID), zap.Error(ledgerErr))
+		}
+	}
 	logger.L().Warn("qa capture persist failed",
 		zap.String("request_id", strings.TrimSpace(input.RequestID)),
 		zap.String("trajectory_id", strings.TrimSpace(input.TrajectoryID)),
@@ -327,15 +418,15 @@ func isDLQBlobURI(blobURI string) bool {
 	return strings.HasPrefix(strings.TrimSpace(blobURI), "dlq://")
 }
 
-func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error {
+func (s *Service) persistCaptureOutcome(ctx context.Context, input CaptureInput) (captureledger.Outcome, error) {
 	cutover, err := s.hourlyStorageCutover(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	hourlyStorage := lifecycle.UsesHourlyStorage(cutover, input.CreatedAt)
 	payload, requestSHA, responseSHA, tags, err := s.buildBlob(input)
 	if err != nil {
-		return err
+		return "", err
 	}
 	key := trajectory.BlobKey(input.CreatedAt.Year(), int(input.CreatedAt.Month()), input.CreatedAt.Day(), input.RequestID)
 	var writeLayout *trajectory.WriteLayout
@@ -345,11 +436,13 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 	}
 	blobURI, err := trajectory.NewWriter(s.store, s.dlqDir).Write(ctx, key, payload, input.RequestID, writeLayout)
 	if err != nil {
-		return err
+		return "", err
 	}
+	outcome := captureledger.OutcomePersisted
 	if isDLQBlobURI(blobURI) && strings.TrimSpace(input.CaptureStatus) == captureStatusCaptured {
 		input.CaptureStatus = qaCaptureStatusCapturedToDLQ
 		qaCaptureDegradedDLQCount.Add(1)
+		outcome = captureledger.OutcomeDegraded
 	}
 	requestBlobURI := captureDefault(input.RequestBlobURI, blobURI)
 	responseBlobURI := captureDefault(input.ResponseBlobURI, blobURI)
@@ -436,7 +529,7 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 		create = create.SetDialogSynth(true)
 	}
 	_, err = create.Save(ctx)
-	return err
+	return outcome, err
 }
 
 func (s *Service) hourlyStorageCutover(ctx context.Context) (time.Time, error) {
@@ -464,23 +557,6 @@ func (s *Service) hourlyStorageCutover(ctx context.Context) (time.Time, error) {
 }
 
 const presignedURLTTL = 24 * time.Hour
-
-func hasUnsafePathSegment(path string) bool {
-	for _, segment := range strings.Split(path, "/") {
-		if segment == "" || segment == "." || segment == ".." {
-			return true
-		}
-	}
-	return false
-}
-
-func exportKeyExpired(key string, now time.Time) bool {
-	stamp := strings.TrimSuffix(filepath.Base(key), ".zip")
-	if nanos, err := strconv.ParseInt(stamp, 10, 64); err == nil {
-		return !now.Before(time.Unix(0, nanos).UTC().Add(presignedURLTTL))
-	}
-	return false
-}
 
 func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []string, error) {
 	// traj-opt-in 的 Anthropic 记录：保留 thinking 块的 signature（仅 thinking 块，
@@ -547,19 +623,6 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 	requestSHA := trajectory.SHA256Hex(requestValue)
 	responseSHA := trajectory.SHA256Hex(responseValue)
 	return compressed, requestSHA, responseSHA, dedupeTags(input.Tags), nil
-}
-
-func (s *Service) keyFromBlobURI(blobURI string) string {
-	switch {
-	case strings.HasPrefix(blobURI, "s3://"):
-		parts := strings.SplitN(strings.TrimPrefix(blobURI, "s3://"), "/", 2)
-		if len(parts) == 2 {
-			return parts[1]
-		}
-	case strings.HasPrefix(blobURI, "file://"):
-		return strings.TrimPrefix(blobURI, "file://")
-	}
-	return ""
 }
 
 func sanitizeQABytes(raw []byte, maxBytes int) any {

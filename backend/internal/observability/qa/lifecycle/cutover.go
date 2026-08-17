@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+const HourlyStorageCutoverSettingKey = "qa_hourly_storage_cutover_utc"
+
 // ParseHourlyCutoverUTCStrict parses T0 and rejects malformed non-empty values.
 func ParseHourlyCutoverUTCStrict(raw string) (time.Time, error) {
 	raw = strings.TrimSpace(raw)

@@ -46,50 +46,32 @@
       "rationale": "pre-flight stash of the final upstream request body on the native anthropic path; an upstream merge dropping this call disables both ops_error_logs body context and traj divergence capture"
     },
     {
-      "source": "backend/internal/handler/qa_handler_traj.go",
+      "source": "backend/internal/handler/qa_handler_bundle.go",
       "must_contain": [
-        "UserTrajExportEnabled"
+        "requireTrajectoryExportEnabled",
+        "CreateSelfQABundle",
+        "CreateSelfQABundleExport"
       ],
-      "rationale": "Per-key conversation-record (traj) export must keep the admin-granted per-user switch (UserTrajExportEnabled -> 403). An upstream merge or refactor dropping it silently re-opens export to unauthorized users. (The former anthropic-only Platform pin was removed when the projector became multi-platform; see the projection_v2.go and engine/provider.go anchors below for the wire-shape dispatch + projectable-platform single source.)"
+      "rationale": "Every QA Bundle create/read/export handler must retain the admin-granted entitlement check before reaching S3 Bundle job state. An upstream merge dropping this guard would expose archived QA data to accounts without the entitlement."
     },
     {
-      "source": "backend/internal/observability/qa/service_traj_export.go",
+      "source": "backend/internal/observability/qa/service_bundle.go",
       "must_contain": [
         "func (s *Service) UserTrajExportEnabled",
         "func (s *Service) UserMayExportAPIKey",
         "engine.TrajProjectablePlatforms()",
-        "qarecord.APIKeyIDEQ",
-        "trajectory.RequestContinues"
+        "apikey.UserIDEQ",
+        "bundle.NewBundleJobSpec",
+        "latestCompleteBundleWatermark"
       ],
-      "rationale": "The entitlement helper, owned-key/projectable-platform authorization backstop, per-key record predicate, and shape-aware streaming continuation must all remain. Losing one reopens export, broadens scope, diverges from the engine allowlist, or mis-folds non-anthropic conversations."
-    },
-    {
-      "source": "backend/internal/observability/trajectory/projection_v2.go",
-      "must_contain": [
-        "func buildSessionForShape",
-        "case WireOpenAIChat:",
-        "case WireOpenAIResponses:",
-        "case WireGemini:"
-      ],
-      "rationale": "The traj v2 projector dispatches reconstruction by wire shape so openai / gemini / antigravity / kiro / newapi export faithfully (not just anthropic). An upstream merge collapsing buildSessionForShape back to an anthropic-only projection silently regresses every non-anthropic key's export to empty/garbage; these case anchors make that revert fail CI."
-    },
-    {
-      "source": "backend/internal/observability/trajectory/wire_shape.go",
-      "must_contain": [
-        "func WireShapeForRecord",
-        "WireAnthropicMessages",
-        "WireOpenAIChat",
-        "WireOpenAIResponses",
-        "WireGemini"
-      ],
-      "rationale": "WireShapeForRecord is the single dispatch axis keyed on (platform, inbound_endpoint). Losing a shape constant or the mapping silently drops a platform from projectable export."
+      "rationale": "The Bundle service repeats entitlement, API-key ownership, and eligible-platform authorization, derives only continuous restore-verified archive windows, and creates deterministic S3 job specs. It must never query prod QA records as a fallback."
     },
     {
       "source": "backend/internal/engine/provider.go",
       "must_contain": [
         "func TrajProjectablePlatforms"
       ],
-      "rationale": "Single source for the platforms whose captured wire the projector reconstructs; surfaced to the frontend export chip via /auth/me traj_export_platforms. Removing it would orphan the chip's server-driven allowlist."
+      "rationale": "Single source for platforms eligible for the per-key QA Bundle entry; surfaced through /auth/me and rechecked by the Bundle service. Removing it would split frontend gating from backend authorization."
     }
   ],
   "semantic_route_contracts": [

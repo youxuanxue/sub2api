@@ -15,6 +15,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/archive"
+	"github.com/Wei-Shaw/sub2api/internal/observability/qa/lifecycle"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -339,8 +340,15 @@ func TestUS045_QAMaintenanceCommandFailsClosedOnTerminalCatchupGap(t *testing.T)
 	terminal := us045Window(1)
 	now := normal.End.Add(15 * time.Minute)
 	reconcileCalls := 0
+	var dropped []time.Time
 	var heartbeat *service.OpsUpsertJobHeartbeatInput
 	deps := us045CommandDeps(db, now)
+	deps.singleOwnerActive = func(context.Context, *sql.Conn) (bool, error) { return true, nil }
+	deps.dropArchivedHour = func(_ context.Context, _ *sql.Conn, window archive.Window, _ time.Time) (lifecycle.ExpiryResult, error) {
+		dropped = append(dropped, window.Start)
+		return lifecycle.ExpiryResult{PartitionName: "qa_normal", SourceDroppedAt: window.End}, nil
+	}
+	deps.resumeHotCleanup = func(context.Context, *sql.Conn) ([]lifecycle.HotCleanupResult, error) { return nil, nil }
 	deps.reconcileShard = func(_ context.Context, _ *sql.Conn, _ archive.ObjectStore, window archive.Window, _, _ string) (archive.ReconcileReceipt, error) {
 		reconcileCalls++
 		if window != normal {
@@ -373,23 +381,30 @@ func TestUS045_QAMaintenanceCommandFailsClosedOnTerminalCatchupGap(t *testing.T)
 	if reconcileCalls != 1 {
 		t.Fatalf("reconcileCalls=%d", reconcileCalls)
 	}
+	if len(dropped) != 1 || !dropped[0].Equal(normal.Start) {
+		t.Fatalf("dropped=%v", dropped)
+	}
 	if heartbeat == nil || heartbeat.LastResult == nil || !strings.Contains(*heartbeat.LastResult, "status=failed") {
 		t.Fatalf("heartbeat=%+v", heartbeat)
 	}
 	if !strings.Contains(*heartbeat.LastResult, "compensation_error_code="+archive.IntegritySourceUnavailableAfterRetention) {
 		t.Fatalf("heartbeat result %q missing terminal compensation fact", *heartbeat.LastResult)
 	}
-	if !strings.Contains(*heartbeat.LastResult, "normal_commit_etag=normal-etag") {
-		t.Fatalf("heartbeat result %q missing normal success fact", *heartbeat.LastResult)
+	for _, fact := range []string{"normal_commit_etag=normal-etag", "deletion_authorized=true"} {
+		if !strings.Contains(*heartbeat.LastResult, fact) {
+			t.Fatalf("heartbeat result %q missing %q", *heartbeat.LastResult, fact)
+		}
 	}
 	var failureReceipt struct {
-		OK           bool              `json:"ok"`
-		RunID        string            `json:"run_id"`
-		Trigger      string            `json:"trigger"`
-		Plan         qaMaintenancePlan `json:"plan"`
-		Compensation qaMaintenancePlan `json:"compensation"`
-		FailureStage string            `json:"failure_stage"`
-		FailureCode  string            `json:"failure_code"`
+		OK                 bool                    `json:"ok"`
+		RunID              string                  `json:"run_id"`
+		Trigger            string                  `json:"trigger"`
+		Plan               qaMaintenancePlan       `json:"plan"`
+		Compensation       qaMaintenancePlan       `json:"compensation"`
+		FailureStage       string                  `json:"failure_stage"`
+		FailureCode        string                  `json:"failure_code"`
+		DeletionAuthorized bool                    `json:"deletion_authorized"`
+		NormalDrop         *lifecycle.ExpiryResult `json:"normal_drop"`
 	}
 	if decodeErr := json.Unmarshal(out.Bytes(), &failureReceipt); decodeErr != nil {
 		t.Fatalf("decode failure receipt: %v; output=%s", decodeErr, out.String())
@@ -408,6 +423,9 @@ func TestUS045_QAMaintenanceCommandFailsClosedOnTerminalCatchupGap(t *testing.T)
 		failureReceipt.FailureCode != archive.IntegritySourceUnavailableAfterRetention {
 		t.Fatalf("failure receipt code=%+v", failureReceipt)
 	}
+	if !failureReceipt.DeletionAuthorized || failureReceipt.NormalDrop == nil || failureReceipt.NormalDrop.PartitionName != "qa_normal" {
+		t.Fatalf("failure receipt lost normal DROP: %+v", failureReceipt)
+	}
 	if err := mockDB.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
@@ -422,6 +440,7 @@ func TestUS045_QAMaintenanceCommandFailureHeartbeatPreservesNormalSuccess(t *tes
 		name            string
 		selectOldest    func(context.Context, *sql.Conn, archive.Window, time.Time) (archive.CatchupSelection, bool, error)
 		compensationErr error
+		invalidReceipt  bool
 		wantFacts       []string
 	}{
 		{
@@ -444,6 +463,19 @@ func TestUS045_QAMaintenanceCommandFailureHeartbeatPreservesNormalSuccess(t *tes
 				"compensation_error_code=" + archive.IntegrityCorruptArtifact,
 			},
 		},
+		{
+			name: "compensation validation failure",
+			selectOldest: func(context.Context, *sql.Conn, archive.Window, time.Time) (archive.CatchupSelection, bool, error) {
+				return archive.CatchupSelection{Window: compensation, ShardID: 46, Disposition: archive.CatchupDispositionReconcile}, true, nil
+			},
+			invalidReceipt: true,
+			wantFacts: []string{
+				"stage=compensation_validate",
+				"error_code=invalid_reconcile_receipt",
+				"compensation_state=" + archive.StateFailed,
+				"compensation_error_code=invalid_reconcile_receipt",
+			},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			db, mockDB, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
@@ -458,7 +490,14 @@ func TestUS045_QAMaintenanceCommandFailureHeartbeatPreservesNormalSuccess(t *tes
 
 			var heartbeat *service.OpsUpsertJobHeartbeatInput
 			unlocked := false
+			var dropped []time.Time
 			deps := us045CommandDeps(db, normal.End.Add(15*time.Minute))
+			deps.singleOwnerActive = func(context.Context, *sql.Conn) (bool, error) { return true, nil }
+			deps.dropArchivedHour = func(_ context.Context, _ *sql.Conn, window archive.Window, _ time.Time) (lifecycle.ExpiryResult, error) {
+				dropped = append(dropped, window.Start)
+				return lifecycle.ExpiryResult{PartitionName: "qa_normal", SourceDroppedAt: window.End}, nil
+			}
+			deps.resumeHotCleanup = func(context.Context, *sql.Conn) ([]lifecycle.HotCleanupResult, error) { return nil, nil }
 			deps.unlockAdvisory = func(context.Context, *sql.Conn) error {
 				unlocked = true
 				return nil
@@ -469,6 +508,9 @@ func TestUS045_QAMaintenanceCommandFailureHeartbeatPreservesNormalSuccess(t *tes
 					receipt := us045Receipt(normal, "normal-etag")
 					receipt.RecordCount = 42
 					return receipt, nil
+				}
+				if test.invalidReceipt {
+					return archive.ReconcileReceipt{WindowStart: compensation.Start, WindowEnd: compensation.End}, nil
 				}
 				return archive.ReconcileReceipt{}, test.compensationErr
 			}
@@ -489,6 +531,9 @@ func TestUS045_QAMaintenanceCommandFailureHeartbeatPreservesNormalSuccess(t *tes
 			if heartbeat == nil || heartbeat.LastErrorAt == nil || heartbeat.LastSuccessAt != nil || heartbeat.LastResult == nil {
 				t.Fatalf("heartbeat=%+v", heartbeat)
 			}
+			if len(dropped) != 1 || !dropped[0].Equal(normal.Start) {
+				t.Fatalf("dropped=%v", dropped)
+			}
 			for _, fact := range append([]string{
 				"status=failed",
 				"run_id=run-failure-045",
@@ -496,7 +541,7 @@ func TestUS045_QAMaintenanceCommandFailureHeartbeatPreservesNormalSuccess(t *tes
 				"normal_commit_etag=normal-etag",
 				"normal_restore_verified=true",
 				"normal_aggregate_record_count=42",
-				"deletion_authorized=false",
+				"deletion_authorized=true",
 				"upload_authorized=true",
 			}, test.wantFacts...) {
 				if !strings.Contains(*heartbeat.LastResult, fact) {
@@ -507,6 +552,68 @@ func TestUS045_QAMaintenanceCommandFailureHeartbeatPreservesNormalSuccess(t *tes
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestUS045_QAMaintenanceCommandDropFailureHeartbeatPreservesCommittedDeletion(t *testing.T) {
+	t.Setenv("QA_MAINTENANCE_RUN_ID", "run-drop-failure-045")
+	t.Setenv("QA_MAINTENANCE_TRIGGER", "timer")
+	db, mockDB, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	mockDB.ExpectPing()
+	mockDB.ExpectExec("SET lock_timeout = '100ms'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mockDB.ExpectExec("SET statement_timeout = '120s'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mockDB.ExpectClose()
+
+	normal := us045Window(3)
+	var heartbeat *service.OpsUpsertJobHeartbeatInput
+	deps := us045CommandDeps(db, normal.End.Add(15*time.Minute))
+	deps.reconcileShard = func(_ context.Context, _ *sql.Conn, _ archive.ObjectStore, window archive.Window, _, _ string) (archive.ReconcileReceipt, error) {
+		return us045Receipt(window, "normal-etag"), nil
+	}
+	deps.selectOldest = func(context.Context, *sql.Conn, archive.Window, time.Time) (archive.CatchupSelection, bool, error) {
+		return archive.CatchupSelection{}, false, nil
+	}
+	deps.singleOwnerActive = func(context.Context, *sql.Conn) (bool, error) { return true, nil }
+	deps.dropArchivedHour = func(_ context.Context, _ *sql.Conn, window archive.Window, _ time.Time) (lifecycle.ExpiryResult, error) {
+		return lifecycle.ExpiryResult{PartitionName: "qa_normal", SourceDroppedAt: window.End}, nil
+	}
+	deps.resumeHotCleanup = func(context.Context, *sql.Conn) ([]lifecycle.HotCleanupResult, error) {
+		return []lifecycle.HotCleanupResult{{ShardID: 44, WindowStart: normal.Start.Add(-time.Hour), Cleaned: true}}, errors.New("cleanup unavailable")
+	}
+	deps.writeHeartbeat = func(_ context.Context, _ *sql.DB, input *service.OpsUpsertJobHeartbeatInput) error {
+		heartbeat = input
+		return nil
+	}
+
+	out := &bytes.Buffer{}
+	err = runQAMaintenanceCommand(context.Background(), []string{
+		"--qa-maintenance-once", "--confirm", qaMaintenanceConfirmation,
+	}, out, deps)
+	if err == nil || !strings.Contains(err.Error(), "cleanup unavailable") {
+		t.Fatalf("err=%v", err)
+	}
+	if heartbeat == nil || heartbeat.LastResult == nil || !strings.Contains(*heartbeat.LastResult, "deletion_authorized=true") {
+		t.Fatalf("heartbeat=%+v", heartbeat)
+	}
+	var failureReceipt qaMaintenanceCommandReceipt
+	if decodeErr := json.Unmarshal(out.Bytes(), &failureReceipt); decodeErr != nil {
+		t.Fatalf("decode failure receipt: %v; output=%s", decodeErr, out.String())
+	}
+	if failureReceipt.OK || !failureReceipt.DeletionAuthorized || failureReceipt.FailureStage != "drop" || failureReceipt.FailureCode != "archive_gated_drop_failed" {
+		t.Fatalf("failure receipt=%+v", failureReceipt)
+	}
+	if failureReceipt.NormalDrop == nil || failureReceipt.NormalDrop.PartitionName != "qa_normal" || failureReceipt.NormalDrop.SourceDroppedAt.IsZero() {
+		t.Fatalf("failure receipt lost committed normal DROP: %+v", failureReceipt)
+	}
+	if len(failureReceipt.CleanupResumed) != 1 || failureReceipt.CleanupResumed[0].ShardID != 44 || !failureReceipt.CleanupResumed[0].Cleaned {
+		t.Fatalf("failure receipt lost resumed cleanup: %+v", failureReceipt)
+	}
+	if err := mockDB.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -588,7 +695,9 @@ func us045CommandDeps(db *sql.DB, now time.Time) qaMaintenanceDeps {
 		newObjectStore: func(context.Context, config.QACaptureStorageConfig) (archive.ObjectStore, error) {
 			return archive.NewMemoryObjectStore(), nil
 		},
-		now: func() time.Time { return now },
+		provision:         qaMaintenanceTestProvision,
+		singleOwnerActive: qaMaintenanceTestInactive,
+		now:               func() time.Time { return now },
 	}
 }
 

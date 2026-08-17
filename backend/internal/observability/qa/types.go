@@ -56,24 +56,3 @@ type CaptureInput struct {
 	SynthEngineerLevel string
 	DialogSynth        bool
 }
-
-type ExportResult struct {
-	DownloadURL string    `json:"download_url"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	RecordCount int       `json:"record_count"`
-	StorageKey  string    `json:"-"`
-}
-
-// ExportFilter narrows the qa_records covered by an API-key trajectory export.
-type ExportFilter struct {
-	// Since / Until are inclusive bounds on created_at.
-	Since time.Time
-	Until time.Time
-	// APIKeyID restricts the export to records produced by one API key. It is
-	// combined with the user_id scope, so a foreign key id yields zero rows.
-	APIKeyID *int64
-	// Format selects the export shape: "" / "v1" = legacy per-message
-	// ExportRow JSONL; "v2" = richer session/turns (traj v2, .examples-aligned,
-	// one TrajSessionV2 object per line, carries thinking/signature/usage).
-	Format string
-}

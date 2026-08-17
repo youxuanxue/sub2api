@@ -178,29 +178,6 @@ Resources:
             Condition:
               ArnEquals:
                 'aws:PrincipalArn': !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid'
-          # Same direct-role-ARN principal pattern as the pgdump grant above — a
-          # same-account resource-based grant is sufficient on its own, so the prod
-          # instance stack is never touched. The app writes export ZIPs (PutObject),
-          # signs presigned download URLs + reads them server-side (GetObject), and
-          # prunes terminal/expired exports (DeleteObject). This bucket is
-          # single-purpose (QA exports only), so object actions are granted
-          # bucket-wide rather than pinned to the env-overridable
-          # QA_CAPTURE_EXPORT_STORAGE_PREFIX (default traj-exports/).
-          - Sid: AllowAppInstanceRolePutGetDelete
-            Effect: Allow
-            Principal:
-              AWS: !Ref AppInstanceRoleArn
-            Action:
-              - 's3:PutObject'
-              - 's3:GetObject'
-              - 's3:DeleteObject'
-            Resource: !Sub '${QaExportsBucket.Arn}/*'
-          - Sid: AllowAppInstanceRoleListQaExports
-            Effect: Allow
-            Principal:
-              AWS: !Ref AppInstanceRoleArn
-            Action: 's3:ListBucket'
-            Resource: !GetAtt QaExportsBucket.Arn
 
   MediaBucket:
     Type: AWS::S3::Bucket
@@ -283,13 +260,11 @@ Outputs:
     Value: !Sub 's3://${PgdumpBackupBucket}/${Environment}/pgdump'
   QaExportsBucketName:
     Description: >
-      User-requested trajectory ZIP artifact bucket; never the raw QA archive.
-      Matches the transitional QA_CAPTURE_EXPORT_STORAGE_BUCKET prod default.
+      Retained legacy trajectory ZIP artifact bucket; it is not an active QA runtime surface.
     Value: !Ref QaExportsBucket
   QaExportsS3Uri:
     Description: >
-      s3:// base for user trajectory ZIP artifacts only; objects land under
-      QA_CAPTURE_EXPORT_STORAGE_PREFIX and are reaped by the artifact lifecycle.
+      Retained legacy artifact location; active user QA uses the dedicated Bundle stack.
     Value: !Sub 's3://${QaExportsBucket}'
   EnvSecretsSsmParam:
     Description: Set this as TOKENKEY_ENV_SECRETS_SSM in /var/lib/tokenkey/.env; SecureString holding the off-box .env secrets.
