@@ -409,7 +409,7 @@ const en: LocaleOverlay = {
   "keys": {
     "export": "Export",
     "exporting": "Exporting…",
-    "exportTooltip": "Export this key's conversation records (training-ready JSONL)",
+    "exportTooltip": "Open archived QA history and export a Bundle ZIP",
     "exportSuccess": "Exported {count} conversation records",
     "exportEmpty": "No conversation records captured for this key yet",
     "exportFailed": "Export failed, please try again",
@@ -1364,7 +1364,7 @@ const zh: LocaleOverlay = {
   "keys": {
     "export": "导出",
     "exporting": "导出中…",
-    "exportTooltip": "导出该 Key 的对话记录（训练就绪 JSONL）",
+    "exportTooltip": "查看归档 QA 记录并导出 Bundle ZIP",
     "exportSuccess": "已导出 {count} 条对话记录",
     "exportEmpty": "该 Key 暂无可导出的对话记录",
     "exportFailed": "导出失败，请重试",
