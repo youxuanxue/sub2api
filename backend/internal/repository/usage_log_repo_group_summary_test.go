@@ -19,7 +19,7 @@ func TestUsageLogRepositoryGetAllGroupUsageSummaryUsesRollupTail(t *testing.T) {
 	todayStart := time.Date(2026, 3, 9, 4, 0, 0, 0, time.UTC)
 	yesterdayStart := time.Date(2026, 3, 8, 5, 0, 0, 0, time.UTC)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM usage_dashboard_group_daily WHERE group_id = 0 AND bucket_date = DATE '1970-01-01'\)`).
+	mock.ExpectQuery(`(?s)pg_catalog\.pg_class.*usage_dashboard_group_daily`).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectQuery(`(?s)usage_group_rollup_state.*usage_group_daily_rollups.*created_at >= state\.tail_start`).
 		WithArgs(todayStart, yesterdayStart, "America/New_York", "2026-03-09", "2026-03-08").
@@ -43,6 +43,8 @@ func TestUsageLogRepositoryGetAllGroupUsageSummaryUsesTKRollupWhenBackfilled(t *
 	serverTodayDate := todayStart.Format("2006-01-02")
 	serverYesterdayDate := todayStart.AddDate(0, 0, -1).Format("2006-01-02")
 
+	mock.ExpectQuery(`(?s)pg_catalog\.pg_class.*usage_dashboard_group_daily`).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM usage_dashboard_group_daily WHERE group_id = 0 AND bucket_date = DATE '1970-01-01'\)`).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(`(?s)FROM usage_dashboard_group_daily.*bucket_date < \$1::date.*bucket_date = \$4::date`).

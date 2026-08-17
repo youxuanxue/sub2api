@@ -28,7 +28,27 @@ import (
 //
 // The rollup buckets by SERVER-TZ day; today_cost keeps the caller-supplied
 // todayStart (Groups page now normalizes it to the server timezone).
+func groupDailyCostRollupVisibleQuery() string {
+	// Probe pg_catalog instead of selecting from the rollup table. A missing
+	// relation would abort an open test/admin transaction and then poison the
+	// upstream fallback query in the same tx.
+	return `
+		SELECT EXISTS(
+			SELECT 1
+			FROM pg_catalog.pg_class c
+			JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+			WHERE c.relkind IN ('r', 'p')
+			  AND c.relname = 'usage_dashboard_group_daily'
+			  AND n.nspname = ANY (current_schemas(false))
+		)
+	`
+}
+
 func (r *usageLogRepository) groupUsageSummaryFromRollup(ctx context.Context, todayStart time.Time) ([]usagestats.GroupUsageSummary, bool, error) {
+	var visible bool
+	if err := scanSingleRow(ctx, r.sql, groupDailyCostRollupVisibleQuery(), nil, &visible); err != nil || !visible {
+		return nil, false, nil
+	}
 	var done bool
 	if err := scanSingleRow(ctx, r.sql,
 		"SELECT EXISTS(SELECT 1 FROM usage_dashboard_group_daily WHERE group_id = 0 AND bucket_date = DATE '"+groupDailyBackfillMarkerDate+"')",
