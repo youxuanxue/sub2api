@@ -24,7 +24,6 @@ type dashboardAggregationRepoTestStub struct {
 	cleanupDedupErr      error
 	lastUsageCutoff      time.Time
 	lastDedupCutoff      time.Time
-	ensurePartitionErr   error
 	aggregateCtx         context.Context
 	events               *[]string
 }

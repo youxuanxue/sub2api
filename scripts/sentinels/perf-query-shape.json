@@ -19,6 +19,13 @@
       "rationale": "GetAllGroupUsageSummary feeds the admin Groups page usage-summary on every load, and GetGroupStatsWithFilters feeds Dashboard/Usage group distribution. They MUST route through usage_dashboard_group_daily rollup helpers before falling back to raw usage_logs scans: groupUsageSummaryFromRollup for all-time cost summary, getGroupStatsFromRollup for completed-day requests/tokens/cost distribution plus raw head/tail. Dropping either call silently restores a 2.4M-row or wide-window scan with byte-identical results and green tests, so this sentinel is the mechanical guard."
     },
     {
+      "path": "backend/internal/repository/usage_log_repo_trend.go",
+      "must_contain": [
+        "groupUsageSummaryFromRollup"
+      ],
+      "rationale": "GetAllGroupUsageSummary must call the TK usage_dashboard_group_daily helper before the upstream usage_group_daily_rollups path. An upstream merge can replace the function body with a direct getAllGroupUsageSummaryFromRollups call, leaving the TK helper unused and dropping the Groups-page fast path on deployments that already backfilled usage_dashboard_group_daily."
+    },
+    {
       "path": "backend/internal/repository/usage_log_repo_stats.go",
       "must_contain": [
         "switch strings.TrimSpace(filters.EndpointStatsSource)",

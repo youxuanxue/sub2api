@@ -21,12 +21,13 @@ import (
 // Exact-semantics decomposition (counts every usage_logs row exactly once toward
 // total_cost, for ANY user timezone):
 //
-//	total_cost[g] = SUM(rollup.actual_cost WHERE bucket_date < serverToday)   -- completed server-TZ days
-//	              + SUM(raw.actual_cost    WHERE created_at  >= serverToday)   -- the remainder not yet rolled up
-//	today_cost[g] = SUM(raw.actual_cost    WHERE created_at  >= serverTodayStart)
+//	total_cost[g]     = SUM(rollup.actual_cost WHERE bucket_date < serverToday)
+//	                  + SUM(raw.actual_cost    WHERE created_at  >= serverToday)
+//	today_cost[g]     = SUM(raw.actual_cost    WHERE created_at  >= todayStart)
+//	yesterday_cost[g] = SUM(rollup.actual_cost WHERE bucket_date = serverYesterday)
 //
-// The rollup buckets by SERVER-TZ day; today_cost uses the same server-TZ
-// day boundary as accounts today-stats and admin list surfaces.
+// The rollup buckets by SERVER-TZ day; today_cost keeps the caller-supplied
+// todayStart (Groups page now normalizes it to the server timezone).
 func (r *usageLogRepository) groupUsageSummaryFromRollup(ctx context.Context, todayStart time.Time) ([]usagestats.GroupUsageSummary, bool, error) {
 	var done bool
 	if err := scanSingleRow(ctx, r.sql,
@@ -43,15 +44,18 @@ func (r *usageLogRepository) groupUsageSummaryFromRollup(ctx context.Context, to
 
 	serverTodayStart := timezone.StartOfDay(timezone.Now())
 	serverTodayDate := serverTodayStart.Format("2006-01-02")
+	serverYesterdayDate := serverTodayStart.AddDate(0, 0, -1).Format("2006-01-02")
 
 	// $1 = server-TZ today date (rollup completed-day boundary)
 	// $2 = server-TZ start-of-today instant (raw remainder boundary for total_cost)
-	// $3 = server-TZ start-of-today instant (today_cost boundary; same as accounts today-stats)
+	// $3 = caller todayStart (today_cost boundary; Groups page normalizes to server TZ)
+	// $4 = server-TZ yesterday date (completed-day yesterday_cost from rollup)
 	query := `
 		SELECT
 			g.id,
 			COALESCE(rb.rollup_total, 0) + COALESCE(rr.raw_remainder, 0) AS total_cost,
-			COALESCE(rr.today_cost, 0) AS today_cost
+			COALESCE(rr.today_cost, 0) AS today_cost,
+			COALESCE(ry.yesterday_cost, 0) AS yesterday_cost
 		FROM groups g
 		LEFT JOIN (
 			SELECT group_id, COALESCE(SUM(actual_cost), 0) AS rollup_total
@@ -68,8 +72,14 @@ func (r *usageLogRepository) groupUsageSummaryFromRollup(ctx context.Context, to
 			WHERE group_id IS NOT NULL AND created_at >= LEAST($2, $3)
 			GROUP BY group_id
 		) rr ON rr.group_id = g.id
+		LEFT JOIN (
+			SELECT group_id, COALESCE(SUM(actual_cost), 0) AS yesterday_cost
+			FROM usage_dashboard_group_daily
+			WHERE group_id > 0 AND bucket_date = $4::date
+			GROUP BY group_id
+		) ry ON ry.group_id = g.id
 	`
-	rows, err := r.sql.QueryContext(ctx, query, serverTodayDate, serverTodayStart, todayStart)
+	rows, err := r.sql.QueryContext(ctx, query, serverTodayDate, serverTodayStart, todayStart, serverYesterdayDate)
 	if err != nil {
 		return nil, false, err
 	}
@@ -78,7 +88,7 @@ func (r *usageLogRepository) groupUsageSummaryFromRollup(ctx context.Context, to
 	results := make([]usagestats.GroupUsageSummary, 0)
 	for rows.Next() {
 		var row usagestats.GroupUsageSummary
-		if err := rows.Scan(&row.GroupID, &row.TotalCost, &row.TodayCost); err != nil {
+		if err := rows.Scan(&row.GroupID, &row.TotalCost, &row.TodayCost, &row.YesterdayCost); err != nil {
 			return nil, false, err
 		}
 		results = append(results, row)
