@@ -688,13 +688,18 @@ bash ops/stage0/load_smoke_github_env.sh --check prod
 Required reviewers；否则 prod deploy 会在无人把关的情况下继续执行（GitHub 首次引用
 Environment 时会自动创建无门禁的同名 Env）。
 QA Bundle 的 dedicated OIDC role、CloudFormation service role 和 GitHub variable bootstrap 只在
-`ops/qa/README.md` 维护；不要在本部署手册复制第二套值。
+`ops/qa/README.md` 维护；不要在本部署手册复制第二套值。bootstrap 后 dispatch
+`deploy-stage0.yml` 的 `operation=qa-infra-check` 做只读验收；它真实 assume dedicated role，
+并检查 recognized legacy raw-archive stack 或 Bundle-era service-role binding，不创建 change set、
+不发 SSM、不改 app/Worker/host。
 
 回滚也走 dispatch：
 
 ```bash
 gh workflow run deploy-stage0.yml -f tag=<上一版本>
 ```
+
+这只把输入解释为 app tag；QA Worker 与 host runners 不随 legacy app 一起降级。具体模式、失败边界和 degraded 验收只以 `ops/qa/README.md` 链接的 QA SSOT 为准。
 
 ### 生产升级 SOP（备用：纯手工 SSM）
 

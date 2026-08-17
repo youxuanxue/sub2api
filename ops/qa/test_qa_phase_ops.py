@@ -58,6 +58,7 @@ class TestQAPhaseOps(unittest.TestCase):
         self.assertEqual(user_export["phase3_worker_observed_state"], "transitional_in_prod")
         self.assertEqual(user_export["job_registry"], "immutable_s3_spec")
         self.assertEqual(user_export["database_job_registry"], "retired")
+        self.assertEqual(user_export["bundle_runtime_contract"], "phase3_v1")
         self.assertEqual(user_export["bundle_worker_desired_count"], 1)
 
     def test_maintenance_is_the_only_target_lifecycle_owner(self) -> None:
@@ -1011,13 +1012,19 @@ JSON
     printf '%s\n' '{"Rules":[{"ID":"expire-qa-bundle-job-surfaces","Status":"Enabled","Filter":{"Prefix":"user-qa/qa-bundles/v1/jobs/"},"Expiration":{"Days":2}}]}'
     ;;
   *"sqs get-queue-attributes"*"https://sqs/dlq"*)
-    printf '{"Attributes":{"QueueArn":"arn:dlq","ApproximateNumberOfMessages":"%s"}}\n' "${DLQ_DEPTH:-0}"
+    printf '{"Attributes":{"QueueArn":"arn:dlq","SqsManagedSseEnabled":"%s","ApproximateNumberOfMessages":"%s"}}\n' "${DLQ_SSE_ENABLED:-true}" "${DLQ_DEPTH:-0}"
     ;;
   *"sqs get-queue-attributes"*"https://sqs/queue"*)
-    printf '%s\n' '{"Attributes":{"QueueArn":"arn:queue","ApproximateNumberOfMessages":"0","ApproximateNumberOfMessagesNotVisible":"0"}}'
+    jq -cn --arg dlq "${REDRIVE_DLQ_ARN:-arn:dlq}" --arg sse "${QUEUE_SSE_ENABLED:-true}" '{Attributes:{QueueArn:"arn:queue",RedrivePolicy:({deadLetterTargetArn:$dlq,maxReceiveCount:"3"}|tojson),SqsManagedSseEnabled:$sse,ApproximateNumberOfMessages:"0",ApproximateNumberOfMessagesNotVisible:"0"}}'
     ;;
   *"ecs describe-services"*)
-    printf '%s\n' '{"failures":[],"services":[{"status":"ACTIVE","desiredCount":1,"runningCount":1,"taskDefinition":"arn:task:1"}]}'
+    printf '%s\n' '{"failures":[],"services":[{"status":"ACTIVE","desiredCount":1,"runningCount":1,"taskDefinition":"arn:task-def:1"}]}'
+    ;;
+  *"ecs list-tasks"*)
+    printf '%s\n' '{"taskArns":["arn:task/1"]}'
+    ;;
+  *"ecs describe-tasks"*)
+    printf '{"failures":[],"tasks":[{"taskArn":"arn:task/1","lastStatus":"RUNNING","taskDefinitionArn":"%s","containers":[{"name":"qa-bundle-worker","image":"%s"}]}]}\n' "${RUNNING_TASK_DEFINITION:-arn:task-def:1}" "${RUNNING_TASK_IMAGE:-ghcr.io/youxuanxue/sub2api:1.8.156}"
     ;;
   *"ecs describe-task-definition"*)
     printf '%s\n' '{"taskDefinition":{"containerDefinitions":[{"name":"qa-bundle-worker","image":"ghcr.io/youxuanxue/sub2api:1.8.156"}]}}'
@@ -1032,6 +1039,7 @@ esac
                 "PATH": f"{fake_bin}:/usr/bin:/bin",
                 "AWS_CALLS": str(calls),
                 "GITHUB_OUTPUT": str(root / "github-output"),
+                "QA_BUNDLE_VERIFY_MODE": "expected",
                 "QA_BUNDLE_WORKER_IMAGE": "ghcr.io/youxuanxue/sub2api:1.8.156",
                 "QA_BUNDLE_WORKER_DESIRED_COUNT": "1",
             }
@@ -1047,7 +1055,11 @@ esac
             self.assertEqual(receipt["browser_origin"], "https://tokenkey.dev")
             self.assertEqual(
                 (root / "github-output").read_text(encoding="utf-8").splitlines(),
-                ["bucket=qa-bucket", "queue_url=https://sqs/queue"],
+                [
+                    "bucket=qa-bucket",
+                    "queue_url=https://sqs/queue",
+                    "worker_image=ghcr.io/youxuanxue/sub2api:1.8.156",
+                ],
             )
             observed = calls.read_text(encoding="utf-8")
             for expected in (
@@ -1058,9 +1070,49 @@ esac
                 "s3api get-bucket-lifecycle-configuration",
                 "sqs get-queue-attributes",
                 "ecs describe-services",
-                "ecs describe-task-definition",
+                "ecs list-tasks",
+                "ecs describe-tasks",
             ):
                 self.assertIn(expected, observed)
+
+            discovery_output = root / "github-output-discovery"
+            discovery = subprocess.run(
+                ["bash", str(script)],
+                env={
+                    key: value
+                    for key, value in base_env.items()
+                    if key != "QA_BUNDLE_WORKER_IMAGE"
+                }
+                | {
+                    "QA_BUNDLE_VERIFY_MODE": "discovery",
+                    "GITHUB_OUTPUT": str(discovery_output),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(discovery.returncode, 0, discovery.stderr)
+            self.assertIn(
+                "worker_image=ghcr.io/youxuanxue/sub2api:1.8.156",
+                discovery_output.read_text(encoding="utf-8").splitlines(),
+            )
+
+            missing_expected = subprocess.run(
+                ["bash", str(script)],
+                env={
+                    key: value
+                    for key, value in base_env.items()
+                    if key != "QA_BUNDLE_WORKER_IMAGE"
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(missing_expected.returncode, 0)
+            self.assertIn(
+                "QA_BUNDLE_WORKER_IMAGE is required in expected mode",
+                missing_expected.stderr,
+            )
 
             cors_drift = subprocess.run(
                 ["bash", str(script)],
@@ -1081,6 +1133,39 @@ esac
             )
             self.assertNotEqual(unhealthy.returncode, 0)
             self.assertIn("QA Bundle DLQ is not empty: 2", unhealthy.stderr)
+
+            stale_task = subprocess.run(
+                ["bash", str(script)],
+                env={
+                    **base_env,
+                    "RUNNING_TASK_IMAGE": "ghcr.io/youxuanxue/sub2api:1.8.155",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(stale_task.returncode, 0)
+            self.assertIn("running task contract drift", stale_task.stderr)
+
+            redrive_drift = subprocess.run(
+                ["bash", str(script)],
+                env={**base_env, "REDRIVE_DLQ_ARN": "arn:wrong-dlq"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(redrive_drift.returncode, 0)
+            self.assertIn("QA Bundle queue redrive drift", redrive_drift.stderr)
+
+            queue_sse_drift = subprocess.run(
+                ["bash", str(script)],
+                env={**base_env, "QUEUE_SSE_ENABLED": "false"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(queue_sse_drift.returncode, 0)
+            self.assertIn("QA Bundle queue encryption drift", queue_sse_drift.stderr)
 
     def test_qa_bundle_canary_ssm_wrapper_requires_canonical_receipt(self) -> None:
         script = ROOT / "ops/stage0/run-qa-bundle-canary-via-ssm.sh"

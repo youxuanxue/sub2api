@@ -358,7 +358,7 @@ jobs:
               add_finding "qa_phase2_live_health" "warning" "warning" "QA Phase 2 live probe warning ($TARGET_ID)" "$PHASE2_WARNING" "qa-phase2-live-warning|$TARGET_ID|$PHASE2_WARNING"
             done < <(printf '%s' "$PHASE2_VERDICT" | jq -r '.warnings[]?')
 
-            if QA_BUNDLE_INFRA="$(bash ops/qa/verify_qa_bundle_infra.sh 2>>"$STDERR")"; then
+            if QA_BUNDLE_INFRA="$(QA_BUNDLE_VERIFY_MODE=discovery bash ops/qa/verify_qa_bundle_infra.sh 2>>"$STDERR")"; then
               printf 'qa_bundle_infra: %s\n' "$QA_BUNDLE_INFRA" >> "$STDOUT"
               add_finding "qa_bundle_infra" "ok" "info" "QA Bundle infrastructure passed ($TARGET_ID)" "Stack, bucket, queues, ECS capacity, DLQ, and worker image are ready." "qa-bundle-infra|$TARGET_ID"
             else

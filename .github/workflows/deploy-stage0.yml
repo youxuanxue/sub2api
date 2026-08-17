@@ -8,15 +8,16 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: "deploy changes the active prod image; smoke-only only runs canonical prod acceptance probes."
+        description: "deploy changes prod; smoke-only probes the API; qa-infra-check verifies QA OIDC/IAM readiness without mutation."
         required: true
         type: choice
         options:
           - deploy
           - smoke-only
+          - qa-infra-check
         default: deploy
       tag:
-        description: "Released image tag without leading v (e.g. 1.6.0). In smoke-only mode this is an audit label; no image is changed."
+        description: "Released image tag without leading v (e.g. 1.6.0). In smoke-only and qa-infra-check modes this is an audit label; no image is changed."
         required: true
         type: string
       simple_release_override:
@@ -120,24 +121,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"
-
-      - name: Checkout target-tag QA host artifacts
-        uses: actions/checkout@v6
-        with:
-          ref: v${{ inputs.tag }}
-          path: qa-host-runtime
-          fetch-depth: 1
-
-      - name: Verify target-tag QA host artifacts
-        id: qa_host_artifacts
-        run: |
-          set -euo pipefail
-          test "$(git -C qa-host-runtime describe --tags --exact-match)" = "v${INPUT_TAG}"
-          test -f qa-host-runtime/deploy/aws/stage0/tokenkey-qa-maintenance.sh
-          test -f qa-host-runtime/deploy/aws/stage0/tokenkey-qa-boundary.sh
-          SHA="$(git -C qa-host-runtime rev-parse HEAD)"
-          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
-          echo "QA host artifacts resolved from v${INPUT_TAG}@${SHA}"
 
       - name: Blue/green migration safety gate
         # The target app can apply migrations while the old app is still serving
@@ -247,17 +230,51 @@ jobs:
           echo "qa_cfn_service_role_arn=$SERVICE_ROLE_ARN" >> "$GITHUB_OUTPUT"
           echo "deploying ${INPUT_TAG} to instance=$ID api=$API_URL (env=prod stack=$STACK_NAME)"
 
+      - name: Checkout target-tag QA contract and host artifacts
+        uses: actions/checkout@v6
+        with:
+          ref: v${{ inputs.tag }}
+          path: qa-target-release
+          fetch-depth: 1
+
+      - name: Verify target-tag QA release tree
+        id: qa_target
+        run: |
+          set -euo pipefail
+          test "$(git -C qa-target-release describe --tags --exact-match)" = "v${INPUT_TAG}"
+          SHA="$(git -C qa-target-release rev-parse HEAD)"
+          ROLLOUT=qa-target-release/ops/qa/deploy_rollout.yaml
+          if [ ! -f "$ROLLOUT" ]; then
+            ROLLOUT="$(mktemp)"
+            printf 'prod:\n  user_export:\n    marker: legacy_release\n' > "$ROLLOUT"
+          fi
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "rollout=${ROLLOUT}" >> "$GITHUB_OUTPUT"
+
       - name: Configure QA infrastructure credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ env.QA_INFRA_OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Discover existing QA Bundle Worker (read-only)
+        id: qa_worker_discovery
+        # Phase 3 bootstrap legitimately has no existing Bundle stack; legacy mode
+        # still fails closed when the resolver receives no verified image.
+        continue-on-error: true  # preflight-allow: swallow
+        env:
+          QA_RAW_ARCHIVE_STACK: ${{ vars.QA_RAW_ARCHIVE_STACK || 'tokenkey-prod-qa-raw-archive' }}
+          QA_BUNDLE_VERIFY_MODE: discovery
+          QA_BUNDLE_WORKER_DESIRED_COUNT: "1"
+        run: bash ops/qa/verify_qa_bundle_infra.sh
+
       - name: Resolve QA infrastructure deploy inputs
         id: qa_infra
         env:
           QA_STACK_NAME: ${{ vars.QA_RAW_ARCHIVE_STACK || 'tokenkey-prod-qa-raw-archive' }}
           CONFIGURED_OPS_RECOVERY_PRINCIPAL_ARN: ${{ vars.QA_OPS_RECOVERY_PRINCIPAL_ARN }}
+          VERIFIED_EXISTING_WORKER_IMAGE: ${{ steps.qa_worker_discovery.outputs.worker_image }}
+          TARGET_ROLLOUT: ${{ steps.qa_target.outputs.rollout }}
         run: |
           set -euo pipefail
           STACK_ERROR="$(mktemp)"
@@ -283,8 +300,52 @@ jobs:
               exit "$describe_rc"
             fi
           fi
+          RESOLUTION="$(python3 ops/qa/resolve_qa_bundle_worker_image.py \
+            --target-tag "$INPUT_TAG" --target-rollout "$TARGET_ROLLOUT" \
+            --verified-existing-image "$VERIFIED_EXISTING_WORKER_IMAGE")"
+          MODE="$(jq -er '.mode' <<<"$RESOLUTION")"
+          RESOLVED_WORKER_IMAGE="$(jq -er '.resolved_worker_image' <<<"$RESOLUTION")"
           echo "qa_stack_name=$QA_STACK_NAME" >> "$GITHUB_OUTPUT"
           echo "ops_recovery_principal_arn=$OPS_RECOVERY_PRINCIPAL_ARN" >> "$GITHUB_OUTPUT"
+          jq -r 'to_entries[] | "\(.key)=\(.value)"' <<<"$RESOLUTION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify target-tag Phase 3 host artifacts
+        if: steps.qa_infra.outputs.mode == 'phase3'
+        run: |
+          set -euo pipefail
+          test -f qa-target-release/deploy/aws/stage0/tokenkey-qa-maintenance.sh
+          test -f qa-target-release/deploy/aws/stage0/tokenkey-qa-boundary.sh
+
+      - name: Configure Stage0 credentials for legacy host safety
+        if: steps.qa_infra.outputs.mode == 'legacy_rollback'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Converge current QA maintenance runner before legacy app rollback
+        if: steps.qa_infra.outputs.mode == 'legacy_rollback'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          QA_MAINTENANCE_TIMER_STATE: enabled
+          QA_HOST_ARTIFACT_SHA: ${{ github.sha }}
+          STAGE0_SSM_OUTPUT_DIR: .qa-maintenance-legacy-safety
+        run: bash ops/stage0/sync-qa-maintenance-timer-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 legacy safety maintenance"
+
+      - name: Disable QA boundary before legacy app rollback
+        if: steps.qa_infra.outputs.mode == 'legacy_rollback'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          QA_BOUNDARY_TIMER_STATE: disabled
+          QA_HOST_ARTIFACT_SHA: ${{ github.sha }}
+          STAGE0_SSM_OUTPUT_DIR: .qa-boundary-legacy-safety
+        run: bash ops/stage0/sync-qa-boundary-timer-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 legacy safety boundary"
+
+      - name: Restore QA infrastructure credentials before mutation
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.QA_INFRA_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Deploy QA Bundle infrastructure
         env:
@@ -294,7 +355,7 @@ jobs:
           QA_RAW_ARCHIVE_VPC_ID: ${{ steps.instance.outputs.vpc_id }}
           QA_RAW_ARCHIVE_ROUTE_TABLE_IDS: ${{ steps.instance.outputs.route_table_id }}
           QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS: ${{ steps.instance.outputs.subnet_id }}
-          QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}
+          QA_BUNDLE_WORKER_IMAGE: ${{ steps.qa_infra.outputs.resolved_worker_image }}
           QA_BUNDLE_WORKER_DESIRED_COUNT: "1"
           QA_BUNDLE_BROWSER_ALLOWED_ORIGIN: ${{ steps.instance.outputs.browser_origin }}
           QA_CLOUDFORMATION_SERVICE_ROLE_ARN: ${{ steps.instance.outputs.qa_cfn_service_role_arn }}
@@ -305,8 +366,9 @@ jobs:
         id: qa_bundle
         env:
           QA_RAW_ARCHIVE_STACK: ${{ steps.qa_infra.outputs.qa_stack_name }}
-          QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}
+          QA_BUNDLE_WORKER_IMAGE: ${{ steps.qa_infra.outputs.resolved_worker_image }}
           QA_BUNDLE_WORKER_DESIRED_COUNT: "1"
+          QA_BUNDLE_VERIFY_MODE: expected
         run: bash ops/qa/verify_qa_bundle_infra.sh
 
       - name: Restore Stage0 deployment credentials via OIDC
@@ -334,28 +396,36 @@ jobs:
         run: bash ops/stage0/external_health.sh "$API_URL"
 
       - name: Sync QA maintenance host runner
+        if: steps.qa_infra.outputs.mode == 'phase3'
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           QA_MAINTENANCE_TIMER_STATE: enabled
-          QA_HOST_ARTIFACT_ROOT: qa-host-runtime
-          QA_HOST_ARTIFACT_SHA: ${{ steps.qa_host_artifacts.outputs.sha }}
+          QA_HOST_ARTIFACT_ROOT: qa-target-release
+          QA_HOST_ARTIFACT_SHA: ${{ steps.qa_target.outputs.sha }}
           STAGE0_SSM_OUTPUT_DIR: .qa-maintenance-sync
         run: bash ops/stage0/sync-qa-maintenance-timer-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-maintenance host artifact"
 
       - name: Sync QA boundary host runner and restore durable owner
+        if: steps.qa_infra.outputs.mode == 'phase3'
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           QA_BOUNDARY_TIMER_STATE: auto
-          QA_HOST_ARTIFACT_ROOT: qa-host-runtime
-          QA_HOST_ARTIFACT_SHA: ${{ steps.qa_host_artifacts.outputs.sha }}
+          QA_HOST_ARTIFACT_ROOT: qa-target-release
+          QA_HOST_ARTIFACT_SHA: ${{ steps.qa_target.outputs.sha }}
           STAGE0_SSM_OUTPUT_DIR: .qa-boundary-sync
         run: bash ops/stage0/sync-qa-boundary-timer-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-boundary host artifact"
 
       - name: Post-deploy QA Bundle canary
+        if: steps.qa_infra.outputs.run_canary == 'true'
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           STAGE0_SSM_OUTPUT_DIR: .qa-bundle-canary
         run: bash ops/stage0/run-qa-bundle-canary-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-bundle canary"
+
+      - name: Report legacy QA rollback degradation
+        if: steps.qa_infra.outputs.mode == 'legacy_rollback'
+        run: |
+          echo "::warning::QA Phase 3 degraded: the app was rolled back to legacy mode; the verified Worker was preserved, current maintenance was enabled, boundary was forced disabled, Bundle canary was skipped, and DROP is paused until a Phase 3 app is restored."
 
       - name: Audit pricing registry runtime (read-only)
         # Price publication is owned only by pricing-registry-publish.yml after a
@@ -460,21 +530,138 @@ jobs:
           STACK_NAME: ${{ steps.stack.outputs.name }}
           CMD_ID: ${{ steps.ssm.outputs.command_id }}
           INPUT_TAG: ${{ inputs.tag }}
+          QA_MODE: ${{ steps.qa_infra.outputs.mode }}
+          QA_WORKER_IMAGE: ${{ steps.qa_infra.outputs.resolved_worker_image }}
+          QA_WORKER_SOURCE: ${{ steps.qa_infra.outputs.worker_source }}
+          QA_HOST_RUNTIME_MODE: ${{ steps.qa_infra.outputs.host_runtime_mode }}
         run: |
           {
             echo "## deploy-stage0"
             echo "- environment: \`prod\`"
-            echo "- tag: \`$INPUT_TAG\`"
+            echo "- app image: \`ghcr.io/youxuanxue/sub2api:$INPUT_TAG\`"
+            echo "- QA mode: \`${QA_MODE:-not-resolved}\`"
+            echo "- QA Bundle Worker image: \`${QA_WORKER_IMAGE:-not-resolved}\`"
+            echo "- QA Bundle Worker source: \`${QA_WORKER_SOURCE:-not-resolved}\`"
+            echo "- QA host runtime mode: \`${QA_HOST_RUNTIME_MODE:-not-resolved}\`"
             echo "- stack: \`$STACK_NAME\`"
             echo "- instance: \`$INSTANCE_ID\`"
             echo "- api: $API_URL"
             echo "- ssm command id: \`${CMD_ID:-none}\`"
             echo
-            echo "Rollback: re-dispatch this workflow with the previous tag."
+            if [ "$QA_MODE" = legacy_rollback ]; then
+              echo "**QA Phase 3 degraded:** legacy rollback preserved the verified Worker, converged current maintenance, forced boundary disabled, skipped Bundle canary, and paused DROP."
+              echo
+            fi
+            echo "Rollback: re-dispatch with a previous app tag. Legacy mode requires a verified live Worker, installs the current safe host runners, and pauses DROP until Phase 3 is restored."
             echo
             echo '```bash'
             echo "gh workflow run deploy-stage0.yml -f tag=<previous>"
             echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  qa-infra-check:
+    if: inputs.operation == 'qa-infra-check'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: prod
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      QA_INFRA_OIDC_ROLE_ARN: ${{ vars.QA_INFRA_OIDC_ROLE_ARN }}
+      CICD_OIDC_STACK_NAME: ${{ vars.CICD_OIDC_STACK_NAME || 'tokenkey-cicd-oidc' }}
+      QA_STACK_NAME: ${{ vars.QA_RAW_ARCHIVE_STACK || 'tokenkey-prod-qa-raw-archive' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Validate QA infrastructure check inputs
+        run: |
+          set -euo pipefail
+          test -n "${OIDC_ROLE_ARN:-}" || { echo "::error::AWS_OIDC_ROLE_ARN is unset"; exit 1; }
+          test -n "${QA_INFRA_OIDC_ROLE_ARN:-}" || { echo "::error::QA_INFRA_OIDC_ROLE_ARN is unset"; exit 1; }
+
+      - name: Configure Stage0 read credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify QA role outputs and configured variable
+        id: qa_roles
+        run: |
+          set -euo pipefail
+          OUTPUTS="$(aws cloudformation describe-stacks --stack-name "$CICD_OIDC_STACK_NAME" --query 'Stacks[0].Outputs' --output json)"
+          DEPLOYMENT_ROLE="$(jq -r '.[] | select(.OutputKey == "QAInfraDeploymentRoleArn") | .OutputValue' <<<"$OUTPUTS")"
+          SERVICE_ROLE="$(jq -r '.[] | select(.OutputKey == "QAInfraCloudFormationServiceRoleArn") | .OutputValue' <<<"$OUTPUTS")"
+          for value in "$DEPLOYMENT_ROLE" "$SERVICE_ROLE"; do
+            test -n "$value" && test "$value" != None || { echo "::error::QA OIDC stack outputs are incomplete"; exit 1; }
+          done
+          test "$QA_INFRA_OIDC_ROLE_ARN" = "$DEPLOYMENT_ROLE" || {
+            echo "::error::QA_INFRA_OIDC_ROLE_ARN does not match QAInfraDeploymentRoleArn"
+            exit 1
+          }
+          echo "deployment_role=$DEPLOYMENT_ROLE" >> "$GITHUB_OUTPUT"
+          echo "service_role=$SERVICE_ROLE" >> "$GITHUB_OUTPUT"
+
+      - name: Assume QA deployment role
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ steps.qa_roles.outputs.deployment_role }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify QA role access and stack service role
+        id: qa_access
+        env:
+          EXPECTED_SERVICE_ROLE: ${{ steps.qa_roles.outputs.service_role }}
+        run: |
+          set -euo pipefail
+          CALLER_ARN="$(aws sts get-caller-identity --query Arn --output text)"
+          STACK="$(aws cloudformation describe-stacks --stack-name "$QA_STACK_NAME" --output json)"
+          STATUS="$(jq -r '.Stacks[0].StackStatus' <<<"$STACK")"
+          ROLE_ARN="$(jq -r '.Stacks[0].RoleARN // empty' <<<"$STACK")"
+          BUNDLE_IMAGE="$(jq -r '.Stacks[0].Parameters[]? | select(.ParameterKey == "BundleWorkerImage") | .ParameterValue' <<<"$STACK")"
+          OUTPUT_KEYS="$(jq -c '[.Stacks[0].Outputs[]?.OutputKey]' <<<"$STACK")"
+          [[ "$STATUS" =~ _COMPLETE$ ]] || { echo "::error::QA stack is not complete: $STATUS"; exit 1; }
+          LEGACY_REQUIRED_OUTPUTS='["QaRawArchiveBucketName","QaRawArchiveRecoveryRoleArn"]'
+          if ! jq -e --argjson required "$LEGACY_REQUIRED_OUTPUTS" '($required - .) | length == 0' <<<"$OUTPUT_KEYS" >/dev/null; then
+            echo "::error::QA stack does not match the recognized raw-archive contract"
+            exit 1
+          fi
+          if [ -n "$BUNDLE_IMAGE" ] && [ "$BUNDLE_IMAGE" != None ]; then
+            test "$ROLE_ARN" = "$EXPECTED_SERVICE_ROLE" || {
+              echo "::error::Bundle-era QA stack is not bound to the expected CloudFormation service role"
+              exit 1
+            }
+            READINESS=bundle_ready
+          else
+            test -z "$ROLE_ARN" || test "$ROLE_ARN" = "$EXPECTED_SERVICE_ROLE" || {
+              echo "::error::legacy QA stack has an unexpected CloudFormation service role"
+              exit 1
+            }
+            READINESS=legacy_bootstrap_ready
+          fi
+          echo "caller_arn=$CALLER_ARN" >> "$GITHUB_OUTPUT"
+          echo "stack_status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "readiness=$READINESS" >> "$GITHUB_OUTPUT"
+
+      - name: Job summary
+        env:
+          CALLER_ARN: ${{ steps.qa_access.outputs.caller_arn }}
+          STACK_STATUS: ${{ steps.qa_access.outputs.stack_status }}
+          READINESS: ${{ steps.qa_access.outputs.readiness }}
+        run: |
+          {
+            echo "## QA infrastructure OIDC check"
+            echo "- deployment role: \`${{ steps.qa_roles.outputs.deployment_role }}\`"
+            echo "- service role: \`${{ steps.qa_roles.outputs.service_role }}\`"
+            echo "- assumed caller: \`${CALLER_ARN}\`"
+            echo "- QA stack: \`${QA_STACK_NAME}\` (${STACK_STATUS})"
+            echo "- readiness: \`${READINESS}\`"
+            echo "- safety: read-only; no change set, SSM command, host sync, canary, or app mutation"
           } >> "$GITHUB_STEP_SUMMARY"
 
   smoke-only:

@@ -2,11 +2,8 @@
 """Security and behavior contract tests for deploy-stage0 workflow modes."""
 from __future__ import annotations
 
-import os
 import pathlib
 import re
-import subprocess
-import tempfile
 import unittest
 
 
@@ -57,7 +54,7 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertIn("type: choice", body)
         self.assertIn("required: true", body)
         self.assertIn("default: deploy", body)
-        self.assertRegex(body, r"(?ms)options:\s*\n\s*- deploy\s*\n\s*- smoke-only\s*$")
+        self.assertRegex(body, r"(?ms)options:\s*\n\s*- deploy\s*\n\s*- smoke-only\s*\n\s*- qa-infra-check\s*$")
 
     def test_focused_ssot_input_is_optional_and_defaults_empty(self) -> None:
         text = workflow_text()
@@ -88,24 +85,25 @@ class DeployStage0WorkflowTest(unittest.TestCase):
             deploy,
         )
 
-    def test_qa_host_artifacts_are_bound_to_target_tag_before_prod_mutation(self) -> None:
+    def test_target_release_contract_is_bound_before_prod_mutation(self) -> None:
         deploy = job_block("deploy")
-        target_checkout = deploy.index("name: Checkout target-tag QA host artifacts")
+        target_checkout = deploy.index("name: Checkout target-tag QA contract and host artifacts")
+        target_verify = deploy.index("name: Verify target-tag QA release tree")
+        resolve = deploy.index("name: Resolve QA infrastructure deploy inputs")
+        infra_mutation = deploy.index("name: Deploy QA Bundle infrastructure")
         image_mutation = deploy.index("name: Deploy via SSM Run-Command")
 
-        self.assertLess(target_checkout, image_mutation)
-        target_block = deploy[target_checkout:image_mutation]
-        self.assertIn("ref: v${{ inputs.tag }}", target_block)
-        self.assertIn("path: qa-host-runtime", target_block)
-        self.assertIn("id: qa_host_artifacts", target_block)
-        self.assertIn("git -C qa-host-runtime rev-parse HEAD", target_block)
-        self.assertEqual(deploy.count("QA_HOST_ARTIFACT_ROOT: qa-host-runtime"), 2)
-        self.assertEqual(
-            deploy.count(
-                "QA_HOST_ARTIFACT_SHA: ${{ steps.qa_host_artifacts.outputs.sha }}"
-            ),
-            2,
-        )
+        self.assertLess(target_checkout, target_verify)
+        self.assertLess(target_verify, resolve)
+        self.assertLess(resolve, infra_mutation)
+        self.assertLess(infra_mutation, image_mutation)
+        self.assertIn("qa-target-release/ops/qa/deploy_rollout.yaml", deploy)
+        self.assertIn("marker: legacy_release", deploy)
+        self.assertIn("rollout=${ROLLOUT}", deploy)
+        self.assertIn("TARGET_ROLLOUT: ${{ steps.qa_target.outputs.rollout }}", deploy)
+        self.assertIn('--target-rollout "$TARGET_ROLLOUT"', deploy)
+        self.assertIn("ref: v${{ inputs.tag }}", deploy)
+        self.assertEqual(deploy.count("QA_HOST_ARTIFACT_ROOT: qa-target-release"), 2)
 
     def test_bundle_coordinates_come_from_verified_stack_outputs(self) -> None:
         deploy = job_block("deploy")
@@ -173,63 +171,24 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertNotIn("2>/dev/null || true", block)
         self.assertNotRegex(block, r"describe-stacks[^\n]*\|\|\s*true")
 
-    def test_qa_stack_principal_resolution_only_bootstraps_when_stack_is_absent(self) -> None:
-        script = step_run("Resolve QA infrastructure deploy inputs")
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = pathlib.Path(temp_dir)
-            fake_bin = root / "bin"
-            fake_bin.mkdir()
-            fake_aws = fake_bin / "aws"
-            fake_aws.write_text(
-                """#!/usr/bin/env bash
-set -euo pipefail
-case "${AWS_SCENARIO}" in
-  existing)
-    printf '%s\n' '{"Stacks":[{"Parameters":[{"ParameterKey":"OpsRecoveryPrincipalArn","ParameterValue":"arn:existing"}]}]}'
-    ;;
-  missing)
-    echo 'An error occurred (ValidationError) when calling the DescribeStacks operation: Stack with id tokenkey-prod-qa-raw-archive does not exist' >&2
-    exit 255
-    ;;
-  denied)
-    echo 'An error occurred (AccessDenied) when calling the DescribeStacks operation' >&2
-    exit 254
-    ;;
-esac
-""",
-                encoding="utf-8",
-            )
-            fake_aws.chmod(0o755)
-            base_env = {
-                **os.environ,
-                "PATH": f"{fake_bin}:/usr/bin:/bin",
-                "QA_STACK_NAME": "tokenkey-prod-qa-raw-archive",
-                "CONFIGURED_OPS_RECOVERY_PRINCIPAL_ARN": "arn:bootstrap",
-            }
-
-            for scenario, expected in (("existing", "arn:existing"), ("missing", "arn:bootstrap")):
-                output = root / f"{scenario}-output"
-                proc = subprocess.run(
-                    ["bash", "-c", script],
-                    env={**base_env, "AWS_SCENARIO": scenario, "GITHUB_OUTPUT": str(output)},
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-                self.assertIn(f"ops_recovery_principal_arn={expected}\n", output.read_text())
-
-            denied_output = root / "denied-output"
-            denied = subprocess.run(
-                ["bash", "-c", script],
-                env={**base_env, "AWS_SCENARIO": "denied", "GITHUB_OUTPUT": str(denied_output)},
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            self.assertNotEqual(denied.returncode, 0)
-            self.assertIn("refusing bootstrap fallback", denied.stderr)
-            self.assertFalse(denied_output.exists())
+    def test_legacy_worker_discovery_precedes_resolution_and_all_mutation(self) -> None:
+        deploy = job_block("deploy")
+        discovery = deploy.index("name: Discover existing QA Bundle Worker (read-only)")
+        resolve = deploy.index("name: Resolve QA infrastructure deploy inputs")
+        host_safety = deploy.index("name: Converge current QA maintenance runner before legacy app rollback")
+        infra_mutation = deploy.index("name: Deploy QA Bundle infrastructure")
+        image_mutation = deploy.index("name: Deploy via SSM Run-Command")
+        self.assertLess(discovery, resolve)
+        self.assertLess(resolve, host_safety)
+        self.assertLess(host_safety, infra_mutation)
+        self.assertLess(infra_mutation, image_mutation)
+        pre_mutation = deploy[:infra_mutation]
+        self.assertIn("QA_BUNDLE_VERIFY_MODE: discovery", pre_mutation)
+        self.assertIn("steps.qa_worker_discovery.outputs.worker_image", pre_mutation)
+        self.assertIn(
+            '--verified-existing-image "$VERIFIED_EXISTING_WORKER_IMAGE"',
+            pre_mutation,
+        )
 
     def test_bundle_infrastructure_is_ready_before_app_image_swap(self) -> None:
         deploy = job_block("deploy")
@@ -239,13 +198,57 @@ esac
         self.assertLess(infra, verify)
         self.assertLess(verify, image_mutation)
         pre_mutation = deploy[:image_mutation]
-        self.assertIn("QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}", pre_mutation)
+        resolved_image = "${{ steps.qa_infra.outputs.resolved_worker_image }}"
+        self.assertEqual(pre_mutation.count(f"QA_BUNDLE_WORKER_IMAGE: {resolved_image}"), 2)
+        self.assertNotIn("QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}", pre_mutation)
         self.assertIn("QA_BUNDLE_WORKER_DESIRED_COUNT: \"1\"", pre_mutation)
         self.assertIn('browser_origin="https://${API_HOST#api.}"', pre_mutation)
         self.assertIn('echo "browser_origin=$browser_origin" >> "$GITHUB_OUTPUT"', pre_mutation)
         self.assertIn("QA_BUNDLE_BROWSER_ALLOWED_ORIGIN: ${{ steps.instance.outputs.browser_origin }}", pre_mutation)
         self.assertIn("deploy_qa_raw_archive_cfn.sh", pre_mutation)
         self.assertIn("verify_qa_bundle_infra.sh", pre_mutation)
+
+    def test_legacy_rollback_converges_safe_control_plane_before_app_mutation(self) -> None:
+        deploy = job_block("deploy")
+        maintenance = deploy.index("name: Converge current QA maintenance runner before legacy app rollback")
+        boundary = deploy.index("name: Disable QA boundary before legacy app rollback")
+        app_mutation = deploy.index("name: Deploy via SSM Run-Command")
+        self.assertLess(maintenance, boundary)
+        self.assertLess(boundary, app_mutation)
+        safety = deploy[maintenance:app_mutation]
+        self.assertIn("QA_MAINTENANCE_TIMER_STATE: enabled", safety)
+        self.assertIn("QA_BOUNDARY_TIMER_STATE: disabled", safety)
+        self.assertNotIn("QA_HOST_ARTIFACT_ROOT: qa-target-release", safety)
+
+        canary = deploy[deploy.index("- name: Post-deploy QA Bundle canary"):]
+        self.assertIn("if: steps.qa_infra.outputs.run_canary == 'true'", canary)
+        warning = deploy[deploy.index("- name: Report legacy QA rollback degradation"):]
+        self.assertIn("QA Phase 3 degraded", warning)
+        self.assertIn("boundary was forced disabled", warning)
+        self.assertIn("DROP is paused", warning)
+
+    def test_qa_infra_check_is_read_only_and_verifies_oidc_binding(self) -> None:
+        job = job_block("qa-infra-check")
+        self.assertIn("if: inputs.operation == 'qa-infra-check'", job)
+        self.assertIn("environment: prod", job)
+        self.assertIn("contents: read", job)
+        self.assertIn("id-token: write", job)
+        self.assertIn("QAInfraDeploymentRoleArn", job)
+        self.assertIn("QAInfraCloudFormationServiceRoleArn", job)
+        self.assertIn("QA_INFRA_OIDC_ROLE_ARN", job)
+        self.assertIn("aws sts get-caller-identity", job)
+        self.assertIn(".Stacks[0].RoleARN", job)
+        self.assertIn("QaRawArchiveBucketName", job)
+        self.assertIn("QaRawArchiveRecoveryRoleArn", job)
+        self.assertIn("recognized raw-archive contract", job)
+        self.assertIn("legacy_bootstrap_ready", job)
+        self.assertIn("Bundle-era QA stack is not bound", job)
+        for forbidden in (
+            "create-change-set", "execute-change-set", "aws ssm",
+            "deploy_via_ssm", "sync-qa-", "run-qa-bundle-canary",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, job.lower())
 
     def test_smoke_only_job_is_read_only_and_uses_prod_environment(self) -> None:
         smoke = job_block("smoke-only")
