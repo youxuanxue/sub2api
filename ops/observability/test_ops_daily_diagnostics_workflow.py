@@ -15,10 +15,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import yaml
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ops-daily-diagnostics.yml"
 REPAIR_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ops-repair-draft.yml"
 ISSUE_LIFECYCLE_NOW = dt.datetime(2026, 7, 23, 9, 0, tzinfo=dt.timezone.utc)
+GITHUB_ACTIONS_MAX_EXPRESSION_CHARS = 21_000
 
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -121,6 +124,26 @@ def run_issue_lifecycle(
 
 
 class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
+    def test_expression_interpolated_run_blocks_fit_github_limit(self) -> None:
+        workflow = yaml.safe_load(workflow_text())
+        oversized: list[str] = []
+
+        for job_name, job in workflow["jobs"].items():
+            for step in job.get("steps", []):
+                run = step.get("run")
+                if not isinstance(run, str) or "${{" not in run:
+                    continue
+                if len(run) >= GITHUB_ACTIONS_MAX_EXPRESSION_CHARS:
+                    oversized.append(
+                        f"{job_name}/{step.get('name', '<unnamed>')}={len(run)}"
+                    )
+
+        self.assertEqual(
+            oversized,
+            [],
+            "GitHub rejects expression-interpolated run blocks at 21000 characters",
+        )
+
     def test_data_layer_safety_is_independent_from_capacity(self) -> None:
         text = workflow_text()
         self.assertIn("probe-data-layer-safety.sh", text)
