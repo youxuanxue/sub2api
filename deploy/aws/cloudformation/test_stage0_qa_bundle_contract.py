@@ -159,6 +159,17 @@ class Stage0QABundleContractTest(unittest.TestCase):
             with self.subTest(sid=sid):
                 self.assertTrue(actions <= statements[sid], actions - statements[sid])
 
+        manage_roles = next(
+            statement
+            for policy in policies
+            for statement in policy["PolicyDocument"]["Statement"]
+            if statement["Sid"] == "ManageQaRoles"
+        )
+        self.assertEqual(
+            manage_roles["Resource"],
+            "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-prod-qa-raw-arch*",
+        )
+
         service_linked_role = next(
             statement
             for policy in policies
