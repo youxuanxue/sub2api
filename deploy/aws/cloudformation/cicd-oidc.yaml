@@ -174,7 +174,8 @@ Resources:
                 Effect: Allow
                 Action:
                   - ecs:DescribeServices
-                  - ecs:DescribeTaskDefinition
+                  - ecs:DescribeTasks
+                  - ecs:ListTasks
                   - sqs:GetQueueAttributes
                 Resource: "*"
               - Sid: ReadQaBundleBucketState
@@ -397,7 +398,8 @@ Resources:
                 Effect: Allow
                 Action:
                   - ecs:DescribeServices
-                  - ecs:DescribeTaskDefinition
+                  - ecs:DescribeTasks
+                  - ecs:ListTasks
                   - sqs:GetQueueAttributes
                 Resource: "*"
               - Sid: ReadQaBundleBucketState

@@ -1012,13 +1012,19 @@ JSON
     printf '%s\n' '{"Rules":[{"ID":"expire-qa-bundle-job-surfaces","Status":"Enabled","Filter":{"Prefix":"user-qa/qa-bundles/v1/jobs/"},"Expiration":{"Days":2}}]}'
     ;;
   *"sqs get-queue-attributes"*"https://sqs/dlq"*)
-    printf '{"Attributes":{"QueueArn":"arn:dlq","ApproximateNumberOfMessages":"%s"}}\n' "${DLQ_DEPTH:-0}"
+    printf '{"Attributes":{"QueueArn":"arn:dlq","SqsManagedSseEnabled":"%s","ApproximateNumberOfMessages":"%s"}}\n' "${DLQ_SSE_ENABLED:-true}" "${DLQ_DEPTH:-0}"
     ;;
   *"sqs get-queue-attributes"*"https://sqs/queue"*)
-    printf '%s\n' '{"Attributes":{"QueueArn":"arn:queue","ApproximateNumberOfMessages":"0","ApproximateNumberOfMessagesNotVisible":"0"}}'
+    jq -cn --arg dlq "${REDRIVE_DLQ_ARN:-arn:dlq}" --arg sse "${QUEUE_SSE_ENABLED:-true}" '{Attributes:{QueueArn:"arn:queue",RedrivePolicy:({deadLetterTargetArn:$dlq,maxReceiveCount:"3"}|tojson),SqsManagedSseEnabled:$sse,ApproximateNumberOfMessages:"0",ApproximateNumberOfMessagesNotVisible:"0"}}'
     ;;
   *"ecs describe-services"*)
-    printf '%s\n' '{"failures":[],"services":[{"status":"ACTIVE","desiredCount":1,"runningCount":1,"taskDefinition":"arn:task:1"}]}'
+    printf '%s\n' '{"failures":[],"services":[{"status":"ACTIVE","desiredCount":1,"runningCount":1,"taskDefinition":"arn:task-def:1"}]}'
+    ;;
+  *"ecs list-tasks"*)
+    printf '%s\n' '{"taskArns":["arn:task/1"]}'
+    ;;
+  *"ecs describe-tasks"*)
+    printf '{"failures":[],"tasks":[{"taskArn":"arn:task/1","lastStatus":"RUNNING","taskDefinitionArn":"%s","containers":[{"name":"qa-bundle-worker","image":"%s"}]}]}\n' "${RUNNING_TASK_DEFINITION:-arn:task-def:1}" "${RUNNING_TASK_IMAGE:-ghcr.io/youxuanxue/sub2api:1.8.156}"
     ;;
   *"ecs describe-task-definition"*)
     printf '%s\n' '{"taskDefinition":{"containerDefinitions":[{"name":"qa-bundle-worker","image":"ghcr.io/youxuanxue/sub2api:1.8.156"}]}}'
@@ -1064,7 +1070,8 @@ esac
                 "s3api get-bucket-lifecycle-configuration",
                 "sqs get-queue-attributes",
                 "ecs describe-services",
-                "ecs describe-task-definition",
+                "ecs list-tasks",
+                "ecs describe-tasks",
             ):
                 self.assertIn(expected, observed)
 
@@ -1126,6 +1133,39 @@ esac
             )
             self.assertNotEqual(unhealthy.returncode, 0)
             self.assertIn("QA Bundle DLQ is not empty: 2", unhealthy.stderr)
+
+            stale_task = subprocess.run(
+                ["bash", str(script)],
+                env={
+                    **base_env,
+                    "RUNNING_TASK_IMAGE": "ghcr.io/youxuanxue/sub2api:1.8.155",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(stale_task.returncode, 0)
+            self.assertIn("running task contract drift", stale_task.stderr)
+
+            redrive_drift = subprocess.run(
+                ["bash", str(script)],
+                env={**base_env, "REDRIVE_DLQ_ARN": "arn:wrong-dlq"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(redrive_drift.returncode, 0)
+            self.assertIn("QA Bundle queue redrive drift", redrive_drift.stderr)
+
+            queue_sse_drift = subprocess.run(
+                ["bash", str(script)],
+                env={**base_env, "QUEUE_SSE_ENABLED": "false"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(queue_sse_drift.returncode, 0)
+            self.assertIn("QA Bundle queue encryption drift", queue_sse_drift.stderr)
 
     def test_qa_bundle_canary_ssm_wrapper_requires_canonical_receipt(self) -> None:
         script = ROOT / "ops/stage0/run-qa-bundle-canary-via-ssm.sh"

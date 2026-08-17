@@ -80,8 +80,23 @@ jq -e --argjson retention_days "${retention_days}" '
   $rules[0].Expiration.Days == $retention_days
 ' <<<"${lifecycle_json}" >/dev/null || { echo "QA Bundle bucket lifecycle drift" >&2; exit 1; }
 
-queue_attrs="$(aws sqs get-queue-attributes --region "${REGION}" --queue-url "${queue_url}" --attribute-names QueueArn ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible --output json)"
-dlq_attrs="$(aws sqs get-queue-attributes --region "${REGION}" --queue-url "${dlq_url}" --attribute-names QueueArn ApproximateNumberOfMessages --output json)"
+queue_attrs="$(aws sqs get-queue-attributes --region "${REGION}" --queue-url "${queue_url}" --attribute-names QueueArn RedrivePolicy SqsManagedSseEnabled ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible --output json)"
+dlq_attrs="$(aws sqs get-queue-attributes --region "${REGION}" --queue-url "${dlq_url}" --attribute-names QueueArn SqsManagedSseEnabled ApproximateNumberOfMessages --output json)"
+queue_arn="$(jq -r '.Attributes.QueueArn // empty' <<<"${queue_attrs}")"
+dlq_arn="$(jq -r '.Attributes.QueueArn // empty' <<<"${dlq_attrs}")"
+[[ -n "${queue_arn}" && -n "${dlq_arn}" ]] || { echo "QA Bundle queue identity is incomplete" >&2; exit 1; }
+[[ "$(jq -r '.Attributes.SqsManagedSseEnabled // "false"' <<<"${queue_attrs}")" = true ]] || {
+  echo "QA Bundle queue encryption drift" >&2
+  exit 1
+}
+[[ "$(jq -r '.Attributes.SqsManagedSseEnabled // "false"' <<<"${dlq_attrs}")" = true ]] || {
+  echo "QA Bundle DLQ encryption drift" >&2
+  exit 1
+}
+redrive_policy="$(jq -r '.Attributes.RedrivePolicy // empty' <<<"${queue_attrs}")"
+jq -e --arg dlq_arn "${dlq_arn}" '
+  .deadLetterTargetArn == $dlq_arn and (.maxReceiveCount | tostring) == "3"
+' <<<"${redrive_policy}" >/dev/null || { echo "QA Bundle queue redrive drift" >&2; exit 1; }
 dlq_depth="$(jq -r '.Attributes.ApproximateNumberOfMessages // "0"' <<<"${dlq_attrs}")"
 [[ "${dlq_depth}" = 0 ]] || { echo "QA Bundle DLQ is not empty: ${dlq_depth}" >&2; exit 1; }
 
@@ -97,12 +112,29 @@ task_definition="$(jq -r '.services[0].taskDefinition // empty' <<<"${service_js
   exit 1
 }
 
-task_json="$(aws ecs describe-task-definition --region "${REGION}" --task-definition "${task_definition}" --output json)"
-actual_image="$(jq -r '.taskDefinition.containerDefinitions[] | select(.name == "qa-bundle-worker") | .image' <<<"${task_json}")"
-[[ "${actual_image}" = "${EXPECTED_IMAGE}" ]] || {
-  echo "QA Bundle worker image mismatch expected=${EXPECTED_IMAGE} actual=${actual_image}" >&2
+task_list_json="$(aws ecs list-tasks --region "${REGION}" --cluster "${cluster}" --service-name "${service}" --desired-status RUNNING --output json)"
+task_arns=()
+while IFS= read -r task_arn; do
+  [[ -n "${task_arn}" ]] && task_arns+=("${task_arn}")
+done < <(jq -r '.taskArns[]?' <<<"${task_list_json}")
+if (( ${#task_arns[@]} < EXPECTED_DESIRED )); then
+  echo "QA Bundle running task count mismatch listed=${#task_arns[@]} expected=${EXPECTED_DESIRED}" >&2
+  exit 1
+fi
+task_json="$(aws ecs describe-tasks --region "${REGION}" --cluster "${cluster}" --tasks "${task_arns[@]}" --output json)"
+jq -e --arg expected_image "${EXPECTED_IMAGE}" --arg task_definition "${task_definition}" --argjson expected_count "${EXPECTED_DESIRED}" '
+  (.failures | length) == 0 and
+  (.tasks | length) >= $expected_count and
+  all(.tasks[];
+    .lastStatus == "RUNNING" and
+    .taskDefinitionArn == $task_definition and
+    ([.containers[] | select(.name == "qa-bundle-worker") | .image] == [$expected_image])
+  )
+' <<<"${task_json}" >/dev/null || {
+  echo "QA Bundle running task contract drift expected_image=${EXPECTED_IMAGE} task_definition=${task_definition}" >&2
   exit 1
 }
+actual_image="${EXPECTED_IMAGE}"
 
 receipt="$(jq -n \
   --arg stack "${STACK}" --arg status "${stack_status}" --arg bucket "${bucket}" \

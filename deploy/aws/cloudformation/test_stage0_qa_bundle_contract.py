@@ -194,6 +194,28 @@ class Stage0QABundleContractTest(unittest.TestCase):
                 self.assertEqual(set(statement["Action"]), expected_actions)
                 self.assertEqual(statement["Resource"], expected_resource)
 
+    def test_qa_verifier_roles_can_read_running_worker_tasks(self) -> None:
+        oidc = _load_oidc_template()
+        expected = {
+            "ecs:DescribeServices",
+            "ecs:DescribeTasks",
+            "ecs:ListTasks",
+            "sqs:GetQueueAttributes",
+        }
+        for role_name, sid in (
+            ("ClusteringRole", "ReadQaBundleRuntimeForDiagnostics"),
+            ("QAInfraDeploymentRole", "VerifyQaBundleRuntime"),
+        ):
+            with self.subTest(role_name=role_name):
+                policies = oidc["Resources"][role_name]["Properties"]["Policies"]
+                statement = next(
+                    statement
+                    for policy in policies
+                    for statement in policy["PolicyDocument"]["Statement"]
+                    if isinstance(statement, dict) and statement.get("Sid") == sid
+                )
+                self.assertEqual(set(statement["Action"]), expected)
+
     def assert_worker_contract(self, template: dict) -> None:
         parameters = template["Parameters"]
         self.assertEqual(parameters["BundleWorkerDesiredCount"]["Default"], 1)
