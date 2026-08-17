@@ -275,7 +275,7 @@ Resources:
                   - iam:UpdateAssumeRolePolicy
                   - iam:UpdateRole
                   - iam:UpdateRoleDescription
-                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-prod-qa-raw-archive-*"
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-prod-qa-raw-arch*"
               - Sid: CreateEcsServiceLinkedRole
                 Effect: Allow
                 Action: iam:CreateServiceLinkedRole
