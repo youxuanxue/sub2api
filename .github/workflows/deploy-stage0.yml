@@ -259,7 +259,9 @@ jobs:
 
       - name: Discover existing QA Bundle Worker (read-only)
         id: qa_worker_discovery
-        continue-on-error: true
+        # Phase 3 bootstrap legitimately has no existing Bundle stack; legacy mode
+        # still fails closed when the resolver receives no verified image.
+        continue-on-error: true  # preflight-allow: swallow
         env:
           QA_RAW_ARCHIVE_STACK: ${{ vars.QA_RAW_ARCHIVE_STACK || 'tokenkey-prod-qa-raw-archive' }}
           QA_BUNDLE_VERIFY_MODE: discovery
