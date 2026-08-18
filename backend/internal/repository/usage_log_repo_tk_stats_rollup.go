@@ -17,8 +17,11 @@ type usageStatsRollupAgg struct {
 	TotalCost           float64
 	TotalActualCost     float64
 	totalAccountCost    float64
-	AverageDurationMs   float64
-	totalDurationMillis int64
+	AverageDurationMs         float64
+	AverageGatewayLatencyMs   float64
+	totalDurationMillis       int64
+	totalGatewayLatencyMillis int64
+	gatewayLatencySamples     int64
 }
 
 func shouldUseUsageStatsHourlyRollup(filters usagestats.UsageLogFilters) bool {
@@ -109,6 +112,9 @@ func (r *usageLogRepository) getStatsWithFiltersFromHourlyRollup(
 	if agg.TotalRequests > 0 {
 		agg.AverageDurationMs = float64(agg.totalDurationMillis) / float64(agg.TotalRequests)
 	}
+	if agg.gatewayLatencySamples > 0 {
+		agg.AverageGatewayLatencyMs = float64(agg.totalGatewayLatencyMillis) / float64(agg.gatewayLatencySamples)
+	}
 	return agg, true, nil
 }
 
@@ -133,7 +139,9 @@ func (r *usageLogRepository) addUsageStatsHourlyRollup(ctx context.Context, agg 
 			COALESCE(SUM(total_cost), 0),
 			COALESCE(SUM(actual_cost), 0),
 			COALESCE(SUM(account_cost), 0),
-			COALESCE(SUM(total_duration_ms), 0)
+			COALESCE(SUM(total_duration_ms), 0),
+			COALESCE(SUM(total_gateway_latency_ms), 0),
+			COALESCE(SUM(gateway_latency_samples), 0)
 		FROM usage_dashboard_hourly
 		WHERE bucket_start >= $1 AND bucket_start < $2
 	`
@@ -151,6 +159,8 @@ func (r *usageLogRepository) addUsageStatsHourlyRollup(ctx context.Context, agg 
 		&row.TotalActualCost,
 		&row.totalAccountCost,
 		&row.totalDurationMillis,
+		&row.totalGatewayLatencyMillis,
+		&row.gatewayLatencySamples,
 	); err != nil {
 		return err
 	}
@@ -171,7 +181,9 @@ func (r *usageLogRepository) addUsageStatsRawSpan(ctx context.Context, agg *usag
 			COALESCE(SUM(total_cost), 0),
 			COALESCE(SUM(actual_cost), 0),
 			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0),
-			COALESCE(SUM(COALESCE(duration_ms, 0)), 0)
+			COALESCE(SUM(COALESCE(duration_ms, 0)), 0),
+			COALESCE(SUM(gateway_latency_ms) FILTER (WHERE gateway_latency_ms IS NOT NULL), 0),
+			COUNT(gateway_latency_ms) FILTER (WHERE gateway_latency_ms IS NOT NULL)
 		FROM usage_logs
 		WHERE created_at >= $1 AND created_at < $2
 	`
@@ -189,6 +201,8 @@ func (r *usageLogRepository) addUsageStatsRawSpan(ctx context.Context, agg *usag
 		&row.TotalActualCost,
 		&row.totalAccountCost,
 		&row.totalDurationMillis,
+		&row.totalGatewayLatencyMillis,
+		&row.gatewayLatencySamples,
 	); err != nil {
 		return err
 	}
@@ -205,4 +219,6 @@ func mergeUsageStatsAgg(dst, src *usageStatsRollupAgg) {
 	dst.TotalActualCost += src.TotalActualCost
 	dst.totalAccountCost += src.totalAccountCost
 	dst.totalDurationMillis += src.totalDurationMillis
+	dst.totalGatewayLatencyMillis += src.totalGatewayLatencyMillis
+	dst.gatewayLatencySamples += src.gatewayLatencySamples
 }

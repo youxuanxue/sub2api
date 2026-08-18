@@ -6225,6 +6225,20 @@
       "rationale": "Messages auth stage timing injection must stay before user-slot acquisition; upstream merges that rewrite Messages() can drop it without a compile error while dashboard latency loses the auth component."
     },
     {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "Per-attempt routing clock"
+      ],
+      "rationale": "OpenAI Responses/Messages routing clocks must restart inside the failover loop. A loop-level start includes prior upstream attempts and writes multi-second gateway_latency_ms."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "Per-attempt routing clock"
+      ],
+      "rationale": "OpenAI chat-completions routing clocks must restart inside the failover loop so dashboard gateway_latency_ms stays auth+routing of the successful attempt."
+    },
+    {
       "path": "backend/internal/handler/admin/dashboard_handler.go",
       "must_contain": [
         "\"average_gateway_latency_ms\": stats.AverageGatewayLatencyMs"
@@ -6232,12 +6246,27 @@
       "rationale": "Admin dashboard API exposes gateway transfer latency separately from end-to-end average_duration_ms; losing this field silently reverts the card binding even when usage_logs.gateway_latency_ms is populated."
     },
     {
+      "path": "backend/internal/repository/usage_log_repo_stats.go",
+      "must_contain": [
+        "COALESCE(AVG(gateway_latency_ms) FILTER (WHERE gateway_latency_ms IS NOT NULL), 0) as avg_gateway_latency_ms",
+        "&stats.AverageGatewayLatencyMs"
+      ],
+      "rationale": "User and admin /usage/stats must average selected-range gateway_latency_ms (NULL-filtered) separately from duration_ms. Losing this column leaves average_gateway_latency_ms at 0 while the UI card still claims gateway transfer latency."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_stats_gateway_latency_test.go",
+      "must_contain": [
+        "TestGetStatsWithFilters_AverageGatewayLatencyMsIgnoresNullSamples"
+      ],
+      "rationale": "Usage stats must keep end-to-end duration and gateway transfer latency as distinct averages so /usage cannot regress to showing 10s+ LLM time on the gateway card."
+    },
+    {
       "path": "backend/internal/repository/usage_log_repo_dashboard_gateway_latency_test.go",
       "must_contain": [
         "TestFillDashboardUsageStatsFromUsageLogs_AverageGatewayLatencyMs",
-        "TestFillDashboardUsageStatsAggregated_AverageGatewayLatencyMs"
+        "TestFillDashboardUsageStatsAggregated_AverageGatewayLatencyMsUsesTodayNotAllTime"
       ],
-      "rationale": "Dashboard mean must divide by gateway_latency_samples (non-NULL rows only), not total_requests; this regression guards the SQL aggregation wiring."
+      "rationale": "Dashboard gateway card must average today's samples only (not all-time daily totals that still contain pre-Plan-A body-pump pollution) and divide by non-NULL samples, not total_requests."
     },
     {
       "path": "backend/internal/service/data_lifecycle_policy_tk.go",
