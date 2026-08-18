@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "family": "claude",
+      "prefixes": [
+        "claude-"
+      ]
+    },
+    {
+      "family": "gpt",
+      "prefixes": [
+        "gpt-",
+        "o1",
+        "o3",
+        "o4"
+      ]
+    },
+    {
+      "family": "gemini",
+      "prefixes": [
+        "gemini-"
+      ]
+    },
+    {
+      "family": "grok",
+      "prefixes": [
+        "grok-"
+      ]
+    },
+    {
+      "family": "deepseek",
+      "prefixes": [
+        "deepseek-"
+      ]
+    },
+    {
+      "family": "qwen",
+      "prefixes": [
+        "qwen"
+      ]
+    },
+    {
+      "family": "glm",
+      "prefixes": [
+        "glm-"
+      ]
+    },
+    {
+      "family": "minimax",
+      "prefixes": [
+        "minimax-"
+      ]
+    }
+  ],
+  "checksum_sha256": "adfa1be40268020420de2cb9f420a1bfa3ad6abc77052f7917c1de47d5522fdf"
+}

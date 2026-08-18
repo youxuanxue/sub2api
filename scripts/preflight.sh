@@ -781,6 +781,22 @@ else
     echo "  ok: model-surface bundle matches the Go owner"
 fi
 
+# ---- sub2api: model-family alert artifact drift ----------------------------
+# The evaluator consumes a checked-in JSON artifact. Generate it from the Go
+# classification owner so alert grouping cannot drift into a second rule set.
+echo ""
+echo "=== sub2api: model-family alert artifact drift ==="
+if ! command -v go >/dev/null 2>&1; then
+    echo "  FAIL: go not on PATH (required for model-family artifact drift check)"
+    errors=$((errors + 1))
+elif ! bash ./scripts/sentinels/check-model-family-rules.sh; then
+    echo "  FAIL: model-family-rules.json drifted from the Go owner"
+    echo "        — run: cd backend && go run ./cmd/model-family-rules --output ../ops/observability/generated/model-family-rules.json"
+    errors=$((errors + 1))
+else
+    echo "  ok: model-family alert artifact matches the Go owner"
+fi
+
 # ---- sub2api: frontend TK sentinel registry ---------------------------------
 # Source of truth: scripts/sentinels/frontend-tk.json. Verifies that load-bearing
 # TokenKey-only frontend surfaces (sidebar geometry, fluid table mode, sticky
