@@ -1538,8 +1538,20 @@ elif ! python3 ./ops/migration/test_data_layer_partition_maintenance.py >/dev/nu
     echo "  FAIL: fixed partition maintenance controller contracts"
     echo "        - run: python3 ops/migration/test_data_layer_partition_maintenance.py"
     errors=$((errors + 1))
+elif ! python3 ./ops/migration/test_usage_logs_daily_partition.py >/dev/null 2>&1; then
+    echo "  FAIL: Fleet usage_logs daily partition operator contracts"
+    echo "        - run: python3 ops/migration/test_usage_logs_daily_partition.py"
+    errors=$((errors + 1))
+elif ! python3 ./ops/stage0/test_pgdump_restore_canary.py >/dev/null 2>&1; then
+    echo "  FAIL: Fleet pg_dump restore canary contracts"
+    echo "        - run: python3 ops/stage0/test_pgdump_restore_canary.py"
+    errors=$((errors + 1))
+elif ! python3 ./ops/stage0/test_pgdump_restore_canary_workflow.py >/dev/null 2>&1; then
+    echo "  FAIL: Fleet pg_dump restore canary workflow contracts"
+    echo "        - run: python3 ops/stage0/test_pgdump_restore_canary_workflow.py"
+    errors=$((errors + 1))
 else
-    echo "  ok: fail-closed probes + fixed partition repair controller"
+    echo "  ok: fail-closed probes + Fleet restore and partition operators"
 fi
 
 # ---- sub2api: single app-container resolver owner --------------------------
