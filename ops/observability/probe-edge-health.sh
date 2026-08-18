@@ -127,7 +127,18 @@ WITH bounds AS (
   SELECT date_bin(INTERVAL '5 minutes', bucket_start, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS bucket_start,
          COUNT(DISTINCT bucket_start)::int AS heartbeat_minutes,
          COUNT(DISTINCT producer_epoch)::int AS producer_epochs,
-         BOOL_AND(complete AND seen_count = persisted_count AND drop_count = 0)::boolean AS all_complete
+         (
+           BOOL_AND(
+             complete
+             AND process_started_at <= bucket_start
+             AND closed_at >= bucket_start + INTERVAL '1 minute'
+             AND seen_count = persisted_count
+             AND drop_count = 0
+             AND flush_failure_count = 0
+           )
+           AND COUNT(DISTINCT flush_sequence) = 5
+           AND MAX(flush_sequence) - MIN(flush_sequence) = 4
+         )::boolean AS all_complete
   FROM channel_monitor_v2_terminal_ingestion_health_1m, bounds
   WHERE bucket_start >= closed_through - INTERVAL '55 minutes'
     AND bucket_start < closed_through + INTERVAL '5 minutes'

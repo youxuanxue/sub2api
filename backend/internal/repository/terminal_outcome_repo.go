@@ -37,8 +37,9 @@ func (r *TerminalOutcomeRepository) FlushMinute(ctx context.Context, flush servi
 	}
 	health := flush.Health
 	if _, err = tx.ExecContext(ctx, terminalOutcomeHealthUpsertSQL,
-		health.BucketStart, health.ProducerEpoch, health.SeenCount, health.PersistedCount,
-		health.DropCount, health.FlushFailureCount, health.Complete,
+		health.BucketStart, health.ProducerEpoch, health.ProcessStartedAt, health.FlushSequence,
+		health.ClosedAt, health.SeenCount, health.PersistedCount, health.DropCount,
+		health.FlushFailureCount, health.Complete,
 	); err != nil {
 		return fmt.Errorf("upsert terminal outcome health: %w", err)
 	}
@@ -61,10 +62,13 @@ ON CONFLICT (bucket_start, group_id, requested_model, producer_epoch) DO UPDATE 
 
 const terminalOutcomeHealthUpsertSQL = `
 INSERT INTO channel_monitor_v2_terminal_ingestion_health_1m (
-  bucket_start, producer_epoch, seen_count, persisted_count,
-  drop_count, flush_failure_count, complete, heartbeat_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+  bucket_start, producer_epoch, process_started_at, flush_sequence, closed_at,
+  seen_count, persisted_count, drop_count, flush_failure_count, complete, heartbeat_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
 ON CONFLICT (bucket_start, producer_epoch) DO UPDATE SET
+  process_started_at = EXCLUDED.process_started_at,
+  flush_sequence = EXCLUDED.flush_sequence,
+  closed_at = EXCLUDED.closed_at,
   seen_count = EXCLUDED.seen_count,
   persisted_count = EXCLUDED.persisted_count,
   drop_count = EXCLUDED.drop_count,

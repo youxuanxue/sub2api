@@ -18,6 +18,9 @@ CREATE INDEX IF NOT EXISTS idx_channel_monitor_terminal_outcomes_model_time
 CREATE TABLE IF NOT EXISTS channel_monitor_v2_terminal_ingestion_health_1m (
     bucket_start TIMESTAMPTZ NOT NULL,
     producer_epoch TEXT NOT NULL,
+    process_started_at TIMESTAMPTZ NOT NULL,
+    flush_sequence BIGINT NOT NULL CHECK (flush_sequence > 0),
+    closed_at TIMESTAMPTZ NOT NULL,
     seen_count BIGINT NOT NULL DEFAULT 0 CHECK (seen_count >= 0),
     persisted_count BIGINT NOT NULL DEFAULT 0 CHECK (persisted_count >= 0),
     drop_count BIGINT NOT NULL DEFAULT 0 CHECK (drop_count >= 0),
@@ -36,7 +39,13 @@ WITH health AS (
         date_bin(INTERVAL '5 minutes', bucket_start, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS bucket_start,
         COUNT(DISTINCT bucket_start) AS heartbeat_minutes,
         COUNT(DISTINCT producer_epoch) AS producer_epochs,
-        BOOL_AND(complete) AS all_complete,
+        BOOL_AND(
+            complete
+            AND process_started_at <= bucket_start
+            AND closed_at >= bucket_start + INTERVAL '1 minute'
+        )
+            AND COUNT(DISTINCT flush_sequence) = 5
+            AND MAX(flush_sequence) - MIN(flush_sequence) = 4 AS all_complete,
         MAX(heartbeat_at) AS watermark
     FROM channel_monitor_v2_terminal_ingestion_health_1m
     GROUP BY 1

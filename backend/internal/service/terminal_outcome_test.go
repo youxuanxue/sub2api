@@ -28,7 +28,7 @@ func (s *terminalOutcomeRepoStub) FlushMinute(_ context.Context, flush TerminalO
 }
 
 func TestTerminalOutcomeRecorderConservesAcceptedEvents(t *testing.T) {
-	now := time.Date(2026, 8, 18, 12, 0, 10, 0, time.UTC)
+	now := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
 	repo := &terminalOutcomeRepoStub{}
 	recorder := newTerminalOutcomeRecorder(repo, 4, func() time.Time { return now }, "epoch-a")
 
@@ -51,6 +51,23 @@ func TestTerminalOutcomeRecorderConservesAcceptedEvents(t *testing.T) {
 		SuccessCount:      1,
 		EmptyPool429Count: 1,
 	}}, flush.Facts)
+}
+
+func TestTerminalOutcomeRecorderMarksStartupPartialMinuteIncomplete(t *testing.T) {
+	now := time.Date(2026, 8, 18, 12, 0, 10, 0, time.UTC)
+	startedAt := now
+	repo := &terminalOutcomeRepoStub{}
+	recorder := newTerminalOutcomeRecorder(repo, 1, func() time.Time { return now }, "epoch-a")
+	require.True(t, recorder.Record(TerminalOutcomeEvent{At: now, RequestedModel: "gpt-5.4", Kind: TerminalOutcomeSuccess}))
+	now = now.Add(2 * time.Minute)
+
+	require.NoError(t, recorder.flushReadyMinutes(context.Background()))
+	require.Len(t, repo.flushes, 1)
+	health := repo.flushes[0].Health
+	require.False(t, health.Complete)
+	require.Equal(t, startedAt, health.ProcessStartedAt)
+	require.Equal(t, now, health.ClosedAt)
+	require.Equal(t, int64(1), health.FlushSequence)
 }
 
 func TestTerminalOutcomeRecorderMarksDroppedMinuteIncomplete(t *testing.T) {
@@ -88,7 +105,7 @@ func TestTerminalOutcomeRecorderRetriesCumulativeSnapshotWithoutDoubleCount(t *t
 }
 
 func TestTerminalOutcomeRecorderWritesZeroHeartbeat(t *testing.T) {
-	now := time.Date(2026, 8, 18, 12, 0, 10, 0, time.UTC)
+	now := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
 	repo := &terminalOutcomeRepoStub{}
 	recorder := newTerminalOutcomeRecorder(repo, 2, func() time.Time { return now }, "epoch-a")
 	now = now.Add(2 * time.Minute)

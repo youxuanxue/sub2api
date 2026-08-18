@@ -40,6 +40,9 @@ type TerminalOutcomeFact struct {
 type TerminalOutcomeHealth struct {
 	BucketStart       time.Time
 	ProducerEpoch     string
+	ProcessStartedAt  time.Time
+	FlushSequence     int64
+	ClosedAt          time.Time
 	SeenCount         int64
 	PersistedCount    int64
 	DropCount         int64
@@ -79,14 +82,16 @@ type terminalOutcomeMinute struct {
 }
 
 type TerminalOutcomeRecorder struct {
-	repo  TerminalOutcomeRepository
-	queue chan TerminalOutcomeEvent
-	now   func() time.Time
-	epoch string
+	repo      TerminalOutcomeRepository
+	queue     chan TerminalOutcomeEvent
+	now       func() time.Time
+	epoch     string
+	startedAt time.Time
 
-	mu              sync.Mutex
-	minutes         map[time.Time]*terminalOutcomeMinute
-	nextHeartbeatAt time.Time
+	mu                sync.Mutex
+	minutes           map[time.Time]*terminalOutcomeMinute
+	nextHeartbeatAt   time.Time
+	nextFlushSequence int64
 
 	startOnce sync.Once
 	stopOnce  sync.Once
@@ -108,15 +113,17 @@ func newTerminalOutcomeRecorder(repo TerminalOutcomeRepository, capacity int, no
 	if capacity < 1 {
 		capacity = 1
 	}
-	startedAt := now().UTC().Truncate(time.Minute)
+	startedAt := now().UTC()
 	return &TerminalOutcomeRecorder{
-		repo:            repo,
-		queue:           make(chan TerminalOutcomeEvent, capacity),
-		now:             now,
-		epoch:           epoch,
-		minutes:         make(map[time.Time]*terminalOutcomeMinute),
-		nextHeartbeatAt: startedAt,
-		done:            make(chan struct{}),
+		repo:              repo,
+		queue:             make(chan TerminalOutcomeEvent, capacity),
+		now:               now,
+		epoch:             epoch,
+		startedAt:         startedAt,
+		minutes:           make(map[time.Time]*terminalOutcomeMinute),
+		nextHeartbeatAt:   startedAt.Truncate(time.Minute),
+		nextFlushSequence: 1,
+		done:              make(chan struct{}),
 	}
 }
 
@@ -194,7 +201,8 @@ func (r *TerminalOutcomeRecorder) run(ctx context.Context) {
 
 func (r *TerminalOutcomeRecorder) flushReadyMinutes(ctx context.Context) error {
 	r.drainQueue()
-	closeBefore := r.now().UTC().Truncate(time.Minute).Add(-time.Minute)
+	closedAt := r.now().UTC()
+	closeBefore := closedAt.Truncate(time.Minute).Add(-time.Minute)
 	for {
 		r.mu.Lock()
 		bucket := r.nextHeartbeatAt
@@ -203,7 +211,7 @@ func (r *TerminalOutcomeRecorder) flushReadyMinutes(ctx context.Context) error {
 			return nil
 		}
 		minute := r.minuteLocked(bucket)
-		flush := r.snapshotLocked(bucket, minute)
+		flush := r.snapshotLocked(bucket, minute, closedAt)
 		r.mu.Unlock()
 
 		if err := r.repo.FlushMinute(ctx, flush); err != nil {
@@ -216,6 +224,7 @@ func (r *TerminalOutcomeRecorder) flushReadyMinutes(ctx context.Context) error {
 		r.mu.Lock()
 		delete(r.minutes, bucket)
 		r.nextHeartbeatAt = bucket.Add(time.Minute)
+		r.nextFlushSequence++
 		r.mu.Unlock()
 	}
 }
@@ -258,7 +267,7 @@ func (r *TerminalOutcomeRecorder) minuteLocked(bucket time.Time) *terminalOutcom
 	return minute
 }
 
-func (r *TerminalOutcomeRecorder) snapshotLocked(bucket time.Time, minute *terminalOutcomeMinute) TerminalOutcomeMinuteFlush {
+func (r *TerminalOutcomeRecorder) snapshotLocked(bucket time.Time, minute *terminalOutcomeMinute, closedAt time.Time) TerminalOutcomeMinuteFlush {
 	facts := make([]TerminalOutcomeFact, 0, len(minute.facts))
 	var persisted int64
 	for key, counts := range minute.facts {
@@ -284,11 +293,14 @@ func (r *TerminalOutcomeRecorder) snapshotLocked(bucket time.Time, minute *termi
 		Health: TerminalOutcomeHealth{
 			BucketStart:       bucket,
 			ProducerEpoch:     r.epoch,
+			ProcessStartedAt:  r.startedAt,
+			FlushSequence:     r.nextFlushSequence,
+			ClosedAt:          closedAt,
 			SeenCount:         minute.seen,
 			PersistedCount:    persisted,
 			DropCount:         minute.dropped,
 			FlushFailureCount: minute.flushFailures,
-			Complete:          minute.seen == persisted && minute.dropped == 0 && minute.flushFailures == 0,
+			Complete:          !r.startedAt.After(bucket) && !closedAt.Before(bucket.Add(time.Minute)) && minute.seen == persisted && minute.dropped == 0 && minute.flushFailures == 0,
 		},
 	}
 }
