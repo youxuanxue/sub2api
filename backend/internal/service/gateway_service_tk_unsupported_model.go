@@ -56,22 +56,13 @@ func TkUnsupportedModelMessage(model string) string {
 // selection was caused PURELY by "no account serves this model name", as opposed
 // to a transient capacity gap.
 //
-// It is true only when every online, platform-matched candidate was rejected
-// solely because it does not support the requested model, and there is NO:
-//   - account that supports the model but is currently model-rate-limited
-//     (ModelRateLimited) — that would be capacity, retry later; and no
-//   - account that is currently unschedulable (Unschedulable) — those are
-//     filtered BEFORE the model check (see diagnoseSelectionFailure ordering),
-//     so any of them might support the model once it recovers.
-//
-// Any such noise → return false so the caller falls back to the original
-// ErrNoAvailableAccounts/429 path (no misclassification, no regression). Eligible
-// is 0 by construction at the failure point; asserted for safety.
+// It is true only when at least one platform-matched candidate lacks the model
+// and every account is either model-unsupported or filtered for another
+// platform. Any current or future availability category leaves the total
+// unmatched, so the caller conservatively falls back to ErrNoAvailableAccounts.
 func tkSelectionFailedDueToUnsupportedModel(stats selectionFailureStats) bool {
 	return stats.ModelUnsupported > 0 &&
-		stats.ModelRateLimited == 0 &&
-		stats.Unschedulable == 0 &&
-		stats.Eligible == 0
+		stats.ModelUnsupported+stats.PlatformFiltered == stats.Total
 }
 
 // tkWrapSelectionFailure classifies terminal account-selection failures. It returns:

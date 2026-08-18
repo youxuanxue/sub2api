@@ -41,6 +41,36 @@ func TestTkSelectionFailedDueToUnsupportedModel(t *testing.T) {
 			want:  true,
 		},
 		{
+			name:  "unclassified candidate prevents unsupported verdict",
+			stats: selectionFailureStats{Total: 2, ModelUnsupported: 1},
+			want:  false,
+		},
+		{
+			name:  "platform-filtered accounts do not affect matched pool verdict",
+			stats: selectionFailureStats{Total: 3, PlatformFiltered: 2, ModelUnsupported: 1},
+			want:  true,
+		},
+		{
+			name:  "unsupported plus excluded failover candidates -> false",
+			stats: selectionFailureStats{Total: 4, ModelUnsupported: 1, Excluded: 3},
+			want:  false,
+		},
+		{
+			name:  "unsupported plus runtime-blocked candidate -> false",
+			stats: selectionFailureStats{Total: 2, ModelUnsupported: 1, RuntimeBlocked: 1},
+			want:  false,
+		},
+		{
+			name:  "unsupported plus profit-threshold veto -> false",
+			stats: selectionFailureStats{Total: 2, ModelUnsupported: 1, ProfitThreshold: 1},
+			want:  false,
+		},
+		{
+			name:  "unsupported plus invalid-rate profit veto -> false",
+			stats: selectionFailureStats{Total: 2, ModelUnsupported: 1, ProfitInvalidRate: 1},
+			want:  false,
+		},
+		{
 			name:  "unsupported plus a model-rate-limited candidate -> false (capacity)",
 			stats: selectionFailureStats{Total: 5, ModelUnsupported: 4, ModelRateLimited: 1},
 			want:  false,
@@ -49,11 +79,6 @@ func TestTkSelectionFailedDueToUnsupportedModel(t *testing.T) {
 			name:  "unsupported plus an unschedulable supporting candidate -> false (capacity after recovery)",
 			stats: selectionFailureStats{Total: 5, ModelUnsupported: 4, Unschedulable: 1},
 			want:  false,
-		},
-		{
-			name:  "unsupported candidates stay unsupported even when some are unschedulable",
-			stats: selectionFailureStats{Total: 5, ModelUnsupported: 5},
-			want:  true,
 		},
 		{
 			name:  "an eligible candidate exists -> false",
