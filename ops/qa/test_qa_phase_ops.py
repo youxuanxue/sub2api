@@ -224,8 +224,8 @@ class TestQAPhaseOps(unittest.TestCase):
             "tokenkey-prod-qa-raw-archive-123456789012": statements(
                 "tokenkey-prod-qa-raw-archive-123456789012"
             ),
-            "tokenkey-prod-qa-exports-123456789012": statements(
-                "tokenkey-prod-qa-exports-123456789012"
+            "tokenkey-prod-qa-bundles-123456789012": statements(
+                "tokenkey-prod-qa-bundles-123456789012"
             ),
         }
         verdict = iam_contract.evaluate_edge_qa_boundary(
@@ -243,7 +243,7 @@ class TestQAPhaseOps(unittest.TestCase):
         edge_role = (
             f"arn:aws:iam::{account_id}:role/tokenkey-lightsail-ssm-hybrid"
         )
-        bucket = "tokenkey-prod-qa-exports-123456789012"
+        bucket = "tokenkey-prod-qa-bundles-123456789012"
         verdict = iam_contract.evaluate_edge_qa_boundary(
             account_id=account_id,
             buckets={
@@ -310,7 +310,7 @@ class TestQAPhaseOps(unittest.TestCase):
             output_calls.append((stack, key))
             return {
                 (iam_contract.RAW_ARCHIVE_STACK, "QaRawArchiveBucketName"): "raw-bucket",
-                (iam_contract.BACKUPS_STACK, "QaExportsBucketName"): "exports-bucket",
+                (iam_contract.RAW_ARCHIVE_STACK, "QaBundleBucketName"): "bundle-bucket",
             }[(stack, key)]
 
         def fake_policy(bucket: str) -> list[dict]:
@@ -344,10 +344,10 @@ class TestQAPhaseOps(unittest.TestCase):
             output_calls,
             [
                 (iam_contract.RAW_ARCHIVE_STACK, "QaRawArchiveBucketName"),
-                (iam_contract.BACKUPS_STACK, "QaExportsBucketName"),
+                (iam_contract.RAW_ARCHIVE_STACK, "QaBundleBucketName"),
             ],
         )
-        self.assertEqual(policy_calls, ["raw-bucket", "exports-bucket"])
+        self.assertEqual(policy_calls, ["raw-bucket", "bundle-bucket"])
 
     def test_verify_raw_archive_iam_contract_flags_missing_s3_gateway_route(self) -> None:
         iam_contract = _load_module(

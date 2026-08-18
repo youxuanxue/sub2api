@@ -153,7 +153,46 @@ func applyKiroInternalThinkingBlocks(c *gin.Context, blocks []string) {
 	if prior, ok := existing.([]string); ok && len(prior) > 0 {
 		blocks = append(append([]string{}, prior...), blocks...)
 	}
+	blocks = consolidateKiroInternalThinkingBlocks(blocks)
+	if len(blocks) == 0 {
+		return
+	}
 	c.Set(kiroInternalThinkingGinKey, blocks)
+}
+
+// consolidateKiroInternalThinkingBlocks merges multiple Anthropic-shaped thinking
+// blocks (e.g. mirror-hop side channel replays or split reasoning frames) into one
+// block so QA/traj always see thinking text and signature together.
+func consolidateKiroInternalThinkingBlocks(blocks []string) []string {
+	if len(blocks) == 0 {
+		return nil
+	}
+	var thinkingParts []string
+	signature := ""
+	for _, raw := range blocks {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(trimmed), &obj); err != nil {
+			continue
+		}
+		if strings.TrimSpace(anyString(obj["type"])) != "thinking" {
+			continue
+		}
+		if t := strings.TrimSpace(anyString(obj["thinking"])); t != "" {
+			thinkingParts = append(thinkingParts, t)
+		}
+		if sig := strings.TrimSpace(anyString(obj["signature"])); sig != "" && signature == "" {
+			signature = sig
+		}
+	}
+	merged := kiroInternalThinkingBlockJSON(strings.Join(thinkingParts, ""), signature)
+	if merged == "" {
+		return nil
+	}
+	return []string{merged}
 }
 
 func writeKiroInternalThinkingResponseHeader(hdr http.Header, thinking, signature string) {

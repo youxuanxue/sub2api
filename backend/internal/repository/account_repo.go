@@ -974,10 +974,10 @@ func (r *accountRepository) Delete(ctx context.Context, id int64) error {
 }
 
 func (r *accountRepository) List(ctx context.Context, params pagination.PaginationParams) ([]service.Account, *pagination.PaginationResult, error) {
-	return r.ListWithFilters(ctx, params, "", "", "", "", 0, "")
+	return r.ListWithFilters(ctx, params, "", "", "", "", 0, "", 0)
 }
 
-func (r *accountRepository) accountListFilteredQuery(platform, accountType, status, search string, groupID int64, privacyMode string) *dbent.AccountQuery {
+func (r *accountRepository) accountListFilteredQuery(platform, accountType, status, search string, groupID int64, privacyMode string, channelType int) *dbent.AccountQuery {
 	q := r.client.Account.Query()
 
 	if platform == service.AccountListPlatformKiroStubFilter {
@@ -989,8 +989,18 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 				accountKiroRelayStubPredicate(),
 			),
 		)
+	} else if platform == service.PlatformAnthropic {
+		q = q.Where(
+			dbaccount.And(
+				dbaccount.PlatformEQ(service.PlatformAnthropic),
+				dbaccount.Not(accountKiroRelayStubPredicate()),
+			),
+		)
 	} else if platform != "" {
 		q = q.Where(dbaccount.PlatformEQ(platform))
+	}
+	if channelType > 0 {
+		q = q.Where(dbaccount.ChannelTypeEQ(channelType))
 	}
 	if accountType != "" {
 		q = q.Where(dbaccount.TypeEQ(accountType))
@@ -1082,8 +1092,8 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 	return q
 }
 
-func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
-	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode)
+func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int) ([]service.Account, *pagination.PaginationResult, error) {
+	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode, channelType)
 	// Clone before Count so interceptor-appended predicates (SoftDeleteMixin's
 	// deleted_at IS NULL) don't accumulate on the shared builder and pollute the
 	// subsequent list query. Same pattern used in group_repo/promo_code_repo/user_repo
@@ -1123,8 +1133,8 @@ func accountKiroRelayStubPredicate() dbpredicate.Account {
 	)
 }
 
-func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
-	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode).All(ctx)
+func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int) ([]service.Account, error) {
+	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode, channelType).All(ctx)
 	if err != nil {
 		return nil, err
 	}

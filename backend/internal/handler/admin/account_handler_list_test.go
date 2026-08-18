@@ -22,6 +22,73 @@ func setupAccountListRouter() (*gin.Engine, *stubAdminService) {
 	return router, adminSvc
 }
 
+func TestAccountHandlerListForwardsChannelTypeFilter(t *testing.T) {
+	router, adminSvc := setupAccountListRouter()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?platform=newapi&channel_type=17", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "newapi", adminSvc.lastListAccounts.platform)
+	require.Equal(t, 17, adminSvc.lastListAccounts.channelType)
+}
+
+func TestAccountHandlerListRejectsInvalidChannelTypeFilter(t *testing.T) {
+	router, _ := setupAccountListRouter()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?platform=newapi&channel_type=not-a-number", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestParseAccountListChannelTypeQuery(t *testing.T) {
+	got, err := parseAccountListChannelTypeQuery("")
+	require.NoError(t, err)
+	require.Equal(t, 0, got)
+
+	got, err = parseAccountListChannelTypeQuery(" 14 ")
+	require.NoError(t, err)
+	require.Equal(t, 14, got)
+
+	_, err = parseAccountListChannelTypeQuery("-1")
+	require.Error(t, err)
+
+	_, err = parseAccountListChannelTypeQuery("abc")
+	require.Error(t, err)
+}
+
+func TestAccountListChannelTypeFilterUnmarshalJSON(t *testing.T) {
+	cases := []struct {
+		name    string
+		raw     string
+		want    accountListChannelTypeFilter
+		wantErr bool
+	}{
+		{name: "empty_string", raw: `""`, want: 0},
+		{name: "null", raw: `null`, want: 0},
+		{name: "number", raw: `17`, want: 17},
+		{name: "quoted_number", raw: `"14"`, want: 14},
+		{name: "invalid", raw: `"abc"`, wantErr: true},
+		{name: "negative", raw: `-1`, wantErr: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got accountListChannelTypeFilter
+			err := json.Unmarshal([]byte(tc.raw), &got)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestAccountHandlerListIncludesCreatedAt(t *testing.T) {
 	router, adminSvc := setupAccountListRouter()
 
