@@ -156,6 +156,10 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
             item for item in addon_statements if item.get("Sid") == "SsmManagedInstanceCommand"
         )
         self.assertIn("ssm:UpdateManagedInstanceRole", managed["Action"])
+        self.assertIn(
+            "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid-*",
+            managed["Resource"],
+        )
 
         provision = PROVISION_SCRIPT.read_text(encoding="utf-8")
         self.assertIn('--iam-role "$SSM_HYBRID_ROLE_NAME"', provision)
