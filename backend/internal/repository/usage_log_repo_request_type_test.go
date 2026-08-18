@@ -487,7 +487,8 @@ func TestUsageLogRepositoryGetStatsWithFiltersRequestedModelSource(t *testing.T)
 			"total_actual_cost",
 			"total_account_cost",
 			"avg_duration_ms",
-		}).AddRow(int64(1), int64(2), int64(3), int64(4), int64(1), int64(3), 1.2, 1.0, 1.2, 20.0))
+			"avg_gateway_latency_ms",
+		}).AddRow(int64(1), int64(2), int64(3), int64(4), int64(1), int64(3), 1.2, 1.0, 1.2, 20.0, 0.0))
 	mock.ExpectQuery("SELECT COALESCE\\(NULLIF\\(TRIM\\(inbound_endpoint\\), ''\\), 'unknown'\\) AS endpoint").
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "gpt-5").
 		WillReturnRows(sqlmock.NewRows([]string{"endpoint", "requests", "total_tokens", "cost", "actual_cost"}))
@@ -528,7 +529,8 @@ func TestUsageLogRepositoryGetStatsWithFiltersRequestTypePriority(t *testing.T) 
 			"total_actual_cost",
 			"total_account_cost",
 			"avg_duration_ms",
-		}).AddRow(int64(1), int64(2), int64(3), int64(4), int64(1), int64(3), 1.2, 1.0, 1.2, 20.0))
+			"avg_gateway_latency_ms",
+		}).AddRow(int64(1), int64(2), int64(3), int64(4), int64(1), int64(3), 1.2, 1.0, 1.2, 20.0, 0.0))
 	mock.ExpectQuery("SELECT COALESCE\\(NULLIF\\(TRIM\\(inbound_endpoint\\), ''\\), 'unknown'\\) AS endpoint").
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), requestType).
 		WillReturnRows(sqlmock.NewRows([]string{"endpoint", "requests", "total_tokens", "cost", "actual_cost"}))
@@ -813,8 +815,8 @@ func TestUsageLogRepositoryGetStatsWithFiltersAlwaysReturnsAccountCost(t *testin
 			"total_requests", "total_input_tokens", "total_output_tokens",
 			"total_cache_tokens", "total_cache_creation_tokens", "total_cache_read_tokens",
 			"total_cost", "total_actual_cost",
-			"total_account_cost", "avg_duration_ms",
-		}).AddRow(int64(50), int64(1000), int64(2000), int64(100), int64(60), int64(40), 15.0, 12.5, 11.0, 100.0))
+			"total_account_cost", "avg_duration_ms", "avg_gateway_latency_ms",
+		}).AddRow(int64(50), int64(1000), int64(2000), int64(100), int64(60), int64(40), 15.0, 12.5, 11.0, 100.0, 0.0))
 	mock.ExpectQuery("SELECT COALESCE\\(NULLIF\\(TRIM\\(inbound_endpoint\\)").
 		WillReturnRows(sqlmock.NewRows([]string{"endpoint", "requests", "total_tokens", "cost", "actual_cost"}))
 	mock.ExpectQuery("SELECT COALESCE\\(NULLIF\\(TRIM\\(upstream_endpoint\\)").
@@ -840,8 +842,8 @@ func TestUsageLogRepositoryGetStatsWithFiltersCanSkipEndpointStats(t *testing.T)
 			"total_requests", "total_input_tokens", "total_output_tokens",
 			"total_cache_tokens", "total_cache_creation_tokens", "total_cache_read_tokens",
 			"total_cost", "total_actual_cost",
-			"total_account_cost", "avg_duration_ms",
-		}).AddRow(int64(50), int64(1000), int64(2000), int64(100), int64(60), int64(40), 15.0, 12.5, 11.0, 100.0))
+			"total_account_cost", "avg_duration_ms", "avg_gateway_latency_ms",
+		}).AddRow(int64(50), int64(1000), int64(2000), int64(100), int64(60), int64(40), 15.0, 12.5, 11.0, 100.0, 0.0))
 
 	stats, err := repo.GetStatsWithFilters(context.Background(), filters)
 	require.NoError(t, err)
@@ -916,21 +918,24 @@ func TestUsageLogRepositoryGetStatsWithFiltersUsesHourlyRollupForUnfilteredSumma
 		WillReturnRows(sqlmock.NewRows([]string{
 			"total_requests", "total_input_tokens", "total_output_tokens", "total_cache_tokens",
 			"total_cost", "total_actual_cost", "total_account_cost", "total_duration_ms",
-		}).AddRow(int64(100), int64(1000), int64(2000), int64(300), 10.0, 8.0, 7.0, int64(50000)))
+			"total_gateway_latency_ms", "gateway_latency_samples",
+		}).AddRow(int64(100), int64(1000), int64(2000), int64(300), 10.0, 8.0, 7.0, int64(50000), int64(2800), int64(100)))
 
 	mock.ExpectQuery("FROM usage_logs\\s+WHERE created_at >= \\$1 AND created_at < \\$2").
 		WithArgs(start, time.Date(2026, 6, 22, 1, 0, 0, 0, time.UTC)).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"total_requests", "total_input_tokens", "total_output_tokens", "total_cache_tokens",
 			"total_cost", "total_actual_cost", "total_account_cost", "total_duration_ms",
-		}).AddRow(int64(2), int64(10), int64(20), int64(3), 0.2, 0.15, 0.1, int64(1000)))
+			"total_gateway_latency_ms", "gateway_latency_samples",
+		}).AddRow(int64(2), int64(10), int64(20), int64(3), 0.2, 0.15, 0.1, int64(1000), int64(56), int64(2)))
 
 	mock.ExpectQuery("FROM usage_logs\\s+WHERE created_at >= \\$1 AND created_at < \\$2").
 		WithArgs(time.Date(2026, 6, 23, 8, 0, 0, 0, time.UTC), end).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"total_requests", "total_input_tokens", "total_output_tokens", "total_cache_tokens",
 			"total_cost", "total_actual_cost", "total_account_cost", "total_duration_ms",
-		}).AddRow(int64(3), int64(30), int64(40), int64(7), 0.3, 0.25, 0.2, int64(1500)))
+			"total_gateway_latency_ms", "gateway_latency_samples",
+		}).AddRow(int64(3), int64(30), int64(40), int64(7), 0.3, 0.25, 0.2, int64(1500), int64(84), int64(3)))
 
 	stats, err := repo.GetStatsWithFilters(context.Background(), filters)
 	require.NoError(t, err)
@@ -943,6 +948,7 @@ func TestUsageLogRepositoryGetStatsWithFiltersUsesHourlyRollupForUnfilteredSumma
 	require.NotNil(t, stats.TotalAccountCost)
 	require.InDelta(t, 7.3, *stats.TotalAccountCost, 1e-9)
 	require.InDelta(t, float64(52500)/105, stats.AverageDurationMs, 1e-9)
+	require.InDelta(t, 28.0, stats.AverageGatewayLatencyMs, 1e-9)
 	require.Empty(t, stats.Endpoints)
 	require.Empty(t, stats.UpstreamEndpoints)
 	require.Empty(t, stats.EndpointPaths)
@@ -969,21 +975,24 @@ func TestUsageLogRepositoryGetStatsWithFiltersHourlyRollupFloorKeepsPreFloorRaw(
 		WillReturnRows(sqlmock.NewRows([]string{
 			"total_requests", "total_input_tokens", "total_output_tokens", "total_cache_tokens",
 			"total_cost", "total_actual_cost", "total_account_cost", "total_duration_ms",
-		}).AddRow(int64(30), int64(300), int64(400), int64(50), 3.0, 2.0, 1.5, int64(15000)))
+			"total_gateway_latency_ms", "gateway_latency_samples",
+		}).AddRow(int64(30), int64(300), int64(400), int64(50), 3.0, 2.0, 1.5, int64(15000), int64(0), int64(0)))
 
 	mock.ExpectQuery("FROM usage_logs\\s+WHERE created_at >= \\$1 AND created_at < \\$2").
 		WithArgs(start, time.Date(2026, 6, 22, 3, 0, 0, 0, time.UTC)).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"total_requests", "total_input_tokens", "total_output_tokens", "total_cache_tokens",
 			"total_cost", "total_actual_cost", "total_account_cost", "total_duration_ms",
-		}).AddRow(int64(7), int64(70), int64(80), int64(9), 0.7, 0.6, 0.5, int64(3500)))
+			"total_gateway_latency_ms", "gateway_latency_samples",
+		}).AddRow(int64(7), int64(70), int64(80), int64(9), 0.7, 0.6, 0.5, int64(3500), int64(0), int64(0)))
 
 	mock.ExpectQuery("FROM usage_logs\\s+WHERE created_at >= \\$1 AND created_at < \\$2").
 		WithArgs(time.Date(2026, 6, 22, 6, 0, 0, 0, time.UTC), end).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"total_requests", "total_input_tokens", "total_output_tokens", "total_cache_tokens",
 			"total_cost", "total_actual_cost", "total_account_cost", "total_duration_ms",
-		}).AddRow(int64(2), int64(20), int64(30), int64(4), 0.2, 0.1, 0.05, int64(1000)))
+			"total_gateway_latency_ms", "gateway_latency_samples",
+		}).AddRow(int64(2), int64(20), int64(30), int64(4), 0.2, 0.1, 0.05, int64(1000), int64(0), int64(0)))
 
 	stats, err := repo.GetStatsWithFilters(context.Background(), filters)
 	require.NoError(t, err)
@@ -1013,8 +1022,8 @@ func TestUsageLogRepositoryGetStatsWithFiltersFilteredSummaryFallsBackToRaw(t *t
 			"total_requests", "total_input_tokens", "total_output_tokens",
 			"total_cache_tokens", "total_cache_creation_tokens", "total_cache_read_tokens",
 			"total_cost", "total_actual_cost",
-			"total_account_cost", "avg_duration_ms",
-		}).AddRow(int64(4), int64(40), int64(50), int64(6), int64(4), int64(2), 0.4, 0.3, 0.2, 123.0))
+			"total_account_cost", "avg_duration_ms", "avg_gateway_latency_ms",
+		}).AddRow(int64(4), int64(40), int64(50), int64(6), int64(4), int64(2), 0.4, 0.3, 0.2, 123.0, 0.0))
 
 	stats, err := repo.GetStatsWithFilters(context.Background(), filters)
 	require.NoError(t, err)

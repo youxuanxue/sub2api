@@ -1906,6 +1906,17 @@
         "o.servedModalities.has(modality)"
       ],
       "rationale": "The shared modality key picker accepts explicit capability modalities for automatic keys while preserving catalog inference for direct keys. Without this branch Studio can select a key solely because public pricing classifies a same-named model as media-capable."
+    },
+    {
+      "path": "frontend/src/components/admin/usage/UsageStatsCards.vue",
+      "must_contain": [
+        "t('usage.avgGatewayLatency')",
+        "formatDuration(stats?.average_gateway_latency_ms || 0)"
+      ],
+      "must_not_contain": [
+        "t('usage.avgDuration')"
+      ],
+      "rationale": "User and admin /usage summary cards share UsageStatsCards. The card must bind selected-range gateway transfer latency, not end-to-end average_duration_ms, or the page again shows 10s+ LLM time as if it were gateway delay."
     }
   ]
 }
