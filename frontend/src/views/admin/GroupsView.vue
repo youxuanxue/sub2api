@@ -313,8 +313,16 @@
 
           <template #cell-usage="{ row }">
             <div v-if="usageLoading" class="text-xs text-gray-400">—</div>
-            <div v-else class="space-y-0.5 text-xs">
-              <div class="text-gray-500 dark:text-gray-400">
+            <div
+              v-else
+              class="space-y-0.5 text-xs"
+              data-testid="group-usage-summary"
+              :data-group-id="row.id"
+            >
+              <div
+                class="text-gray-500 dark:text-gray-400"
+                data-testid="group-usage-today"
+              >
                 <span class="text-gray-400 dark:text-gray-500">{{
                   t("admin.groups.usageToday")
                 }}</span>
@@ -324,7 +332,10 @@
                   }}</span
                 >
               </div>
-              <div class="text-gray-500 dark:text-gray-400">
+              <div
+                class="text-gray-500 dark:text-gray-400"
+                data-testid="group-usage-yesterday"
+              >
                 <span class="text-gray-400 dark:text-gray-500">{{
                   t("admin.groups.usageYesterday")
                 }}</span>
@@ -334,7 +345,10 @@
                   }}</span
                 >
               </div>
-              <div class="text-gray-500 dark:text-gray-400">
+              <div
+                class="text-gray-500 dark:text-gray-400"
+                data-testid="group-usage-total"
+              >
                 <span class="text-gray-400 dark:text-gray-500">{{
                   t("admin.groups.usageTotal")
                 }}</span>

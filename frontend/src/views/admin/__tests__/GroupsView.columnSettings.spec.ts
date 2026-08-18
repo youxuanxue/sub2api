@@ -60,6 +60,7 @@ vi.mock('@/api/admin', () => ({
       getModelsListCandidates,
       getUsageSummary,
       getCapacitySummary,
+      getLiveCapability,
       create: createGroupApi,
       update: vi.fn(),
       delete: vi.fn(),
@@ -240,6 +241,7 @@ describe('admin GroupsView column settings', () => {
     createGroupApi.mockReset()
     getUsageSummary.mockReset()
     getCapacitySummary.mockReset()
+    getLiveCapability.mockReset()
     listAccounts.mockReset()
     showError.mockReset()
     showSuccess.mockReset()
