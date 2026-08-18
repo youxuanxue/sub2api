@@ -58,6 +58,9 @@ func TkUnsupportedModelMessage(model string) string {
 //
 // It is true only when every online, platform-matched candidate was rejected
 // solely because it does not support the requested model, and there is NO:
+//   - account excluded for this request (Excluded); an excluded account was a
+//     viable earlier attempt, so terminal reselection cannot prove the model is
+//     unsupported; and no
 //   - account that supports the model but is currently model-rate-limited
 //     (ModelRateLimited) — that would be capacity, retry later; and no
 //   - account that is currently unschedulable (Unschedulable) — those are
@@ -69,6 +72,7 @@ func TkUnsupportedModelMessage(model string) string {
 // is 0 by construction at the failure point; asserted for safety.
 func tkSelectionFailedDueToUnsupportedModel(stats selectionFailureStats) bool {
 	return stats.ModelUnsupported > 0 &&
+		stats.Excluded == 0 &&
 		stats.ModelRateLimited == 0 &&
 		stats.Unschedulable == 0 &&
 		stats.Eligible == 0

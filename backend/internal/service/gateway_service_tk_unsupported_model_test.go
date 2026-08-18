@@ -41,6 +41,11 @@ func TestTkSelectionFailedDueToUnsupportedModel(t *testing.T) {
 			want:  true,
 		},
 		{
+			name:  "unsupported plus excluded failover candidates -> false",
+			stats: selectionFailureStats{Total: 4, ModelUnsupported: 1, Excluded: 3},
+			want:  false,
+		},
+		{
 			name:  "unsupported plus a model-rate-limited candidate -> false (capacity)",
 			stats: selectionFailureStats{Total: 5, ModelUnsupported: 4, ModelRateLimited: 1},
 			want:  false,
