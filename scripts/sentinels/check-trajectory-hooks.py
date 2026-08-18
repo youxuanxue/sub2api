@@ -88,7 +88,10 @@ def check_route_contracts(contracts: list[dict[str, object]]) -> list[str]:
                 failures.append(f"route contract {name} in {source} has invalid args")
                 continue
             receiver, method = name.split(".", 1) if "." in name else ("", name)
-            literal_args = ",".join(json.dumps(arg, ensure_ascii=False) for arg in args)
+            literal_args = ",".join(
+                arg.removeprefix("raw:") if arg.startswith("raw:") else json.dumps(arg, ensure_ascii=False)
+                for arg in args
+            )
             needle = f"{receiver}.{method}({literal_args}"
             if needle not in compact:
                 failures.append(f"missing route contract in {source}: {name}({', '.join(args)})")

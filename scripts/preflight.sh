@@ -781,6 +781,22 @@ else
     echo "  ok: model-surface bundle matches the Go owner"
 fi
 
+# ---- sub2api: model-family alert artifact drift ----------------------------
+# The evaluator consumes a checked-in JSON artifact. Generate it from the Go
+# classification owner so alert grouping cannot drift into a second rule set.
+echo ""
+echo "=== sub2api: model-family alert artifact drift ==="
+if ! command -v go >/dev/null 2>&1; then
+    echo "  FAIL: go not on PATH (required for model-family artifact drift check)"
+    errors=$((errors + 1))
+elif ! bash ./scripts/sentinels/check-model-family-rules.sh; then
+    echo "  FAIL: model-family-rules.json drifted from the Go owner"
+    echo "        — run: cd backend && go run ./cmd/model-family-rules --output ../ops/observability/generated/model-family-rules.json"
+    errors=$((errors + 1))
+else
+    echo "  ok: model-family alert artifact matches the Go owner"
+fi
+
 # ---- sub2api: frontend TK sentinel registry ---------------------------------
 # Source of truth: scripts/sentinels/frontend-tk.json. Verifies that load-bearing
 # TokenKey-only frontend surfaces (sidebar geometry, fluid table mode, sticky
@@ -815,6 +831,21 @@ elif ! python3 ./scripts/sentinels/check-gateway-tk.py --quiet; then
     errors=$((errors + 1))
 else
     echo "  ok: all gateway TK sentinels intact"
+fi
+
+# ---- sub2api: gateway terminal route policy contract -----------------------
+echo ""
+echo "=== sub2api: gateway terminal route policy contract ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for terminal route policy contract)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-terminal-route-policies.py --selftest >/dev/null; then
+    echo "  FAIL: terminal route policy sentinel selftest"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-terminal-route-policies.py; then
+    errors=$((errors + 1))
+else
+    echo "  ok: every gateway route declares one terminal policy"
 fi
 
 # ---- sub2api: handler DI/Wire sentinel registry ----------------------------
@@ -1668,6 +1699,21 @@ else
     echo "  ok: edge-health alert decision/dedup fixtures pass"
 fi
 
+# Complete terminal buckets drive model-family and dynamic exact-model alerts.
+# Unknown models only become candidates after a real final empty-pool 429.
+echo ""
+echo "=== sub2api: edge model-unit health alert tests ==="
+if ! python3 -m unittest \
+    ops.observability.test_edge_model_health_alert \
+    ops.observability.test_edge_health_delivery \
+    ops.observability.test_probe_edge_health >/dev/null 2>&1; then
+    echo "  FAIL: edge model-unit alert or structured delivery tests"
+    echo "        — run: python3 -m unittest ops.observability.test_edge_model_health_alert ops.observability.test_edge_health_delivery ops.observability.test_probe_edge_health"
+    errors=$((errors + 1))
+else
+    echo "  ok: terminal thresholds, dynamic models, state, and delivery fixtures pass"
+fi
+
 # ---- sub2api: edge HTTPS health probe selftest -----------------------------
 # External /health resolver+probe (scan-edge-health.sh leading signal for host
 # hang / blackhole). Pure unit fixtures — no network.
@@ -1697,7 +1743,7 @@ else
 fi
 
 # Delivery owns the alert acknowledgment boundary: rejected/missing Feishu
-# delivery must never advance the cached actionable key.
+# delivery must never advance the cached structured state.
 echo ""
 echo "=== sub2api: edge-health delivery selftest ==="
 if ! python3 ./ops/observability/edge_health_delivery.py --selftest >/dev/null 2>&1; then
