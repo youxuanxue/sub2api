@@ -299,7 +299,8 @@ def _transition_message(transition: dict) -> list[str]:
     if unit["kind"] == "family" and transition.get("top_models"):
         lines.append("  Top 受影响模型:")
         lines.extend(
-            f"    {item['model']}  {item['empty_pool_429']}" for item in transition["top_models"]
+            f"    {_safe_display(item['model'])}  {item['empty_pool_429']}"
+            for item in transition["top_models"]
         )
     lines.append("  处置: 补充可承载该模型单元的健康账号，或从该 Edge 摘除对应路由")
     return lines
@@ -481,6 +482,20 @@ def evaluate(scan_rows: list, previous_state: object, rules: dict, *, evaluated_
     }
 
 
+def load_previous_state(path: pathlib.Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return validate_state(value)
+    except (json.JSONDecodeError, AlertContractError) as exc:
+        print(
+            f"edge-model-health-alert: cached state is invalid; rebuilding from complete buckets ({exc})",
+            file=sys.stderr,
+        )
+        return {}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scan", type=pathlib.Path, required=True)
@@ -493,7 +508,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         rows = [json.loads(line) for line in args.scan.read_text(encoding="utf-8").splitlines() if line.strip()]
-        previous = json.loads(args.state_file.read_text(encoding="utf-8")) if args.state_file.exists() else {}
+        previous = load_previous_state(args.state_file)
         decision = evaluate(rows, previous, load_family_rules(args.rules))
     except (OSError, json.JSONDecodeError, AlertContractError) as exc:
         print(f"edge-model-health-alert: {exc}", file=sys.stderr)

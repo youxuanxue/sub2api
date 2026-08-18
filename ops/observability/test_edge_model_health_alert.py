@@ -1,8 +1,11 @@
 import datetime as dt
+import contextlib
+import io
 import pathlib
+import tempfile
 import unittest
 
-from ops.observability.edge_model_health_alert import evaluate, load_family_rules
+from ops.observability.edge_model_health_alert import evaluate, load_family_rules, load_previous_state
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -217,6 +220,22 @@ class EdgeModelHealthAlertTest(unittest.TestCase):
         self.assertEqual("impact_changed", changed["transitions"][0]["reason"])
         self.assertIn("claude-b", changed["message"])
 
+    def test_family_top_model_display_escapes_controls_and_bounds_length(self):
+        malicious = "claude-a\n" + "x" * 100
+        decision = evaluate(
+            [edge(
+                bucket("2026-08-18T12:05:00Z", fact(malicious, 40, 10)),
+                bucket("2026-08-18T12:10:00Z", fact(malicious, 40, 10)),
+            )],
+            {},
+            RULES,
+            evaluated_at=NOW,
+        )
+        self.assertNotIn(malicious, decision["message"])
+        self.assertIn("claude-a?", decision["message"])
+        self.assertIn("...", decision["message"])
+        self.assertEqual(malicious, state_units(decision)[0]["last_notified_top_models"][0]["model"])
+
     def test_unavailable_never_downgrades_and_same_bucket_is_idempotent(self):
         unavailable = {
             "schema_version": 1,
@@ -326,6 +345,16 @@ class EdgeModelHealthAlertTest(unittest.TestCase):
         )
         self.assertFalse(later["should_alert"])
         self.assertEqual(1, len(later["state"]["telemetry"][0]["failure_slots"]))
+
+    def test_corrupt_previous_state_rebuilds_with_an_explicit_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "state.json"
+            for payload in ("not-json", '{"schema_version":99}'):
+                path.write_text(payload, encoding="utf-8")
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    self.assertEqual({}, load_previous_state(path))
+                self.assertIn("rebuilding", stderr.getvalue())
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ OWNERS = (
     ROOT / "backend/internal/server/routes/gateway.go",
     ROOT / "backend/internal/server/routes/gateway_tk_openai_compat_handlers.go",
 )
+GEMINI_ACTION_OWNER = ROOT / "backend/internal/handler/gemini_v1beta_handler.go"
 DIRECT_VERB = re.compile(r"\.(?:GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD|Any)\s*\(")
 METHOD = re.compile(r"^http\.Method(?:Get|Post|Put|Patch|Delete|Options|Head)$")
 PATH = re.compile(r'^"(?:[^"\\]|\\.)*"$')
@@ -145,6 +146,14 @@ def main() -> int:
     errors: list[str] = []
     for path in OWNERS:
         errors.extend(check_source(path, path.read_text(encoding="utf-8")))
+    gemini_source = GEMINI_ACTION_OWNER.read_text(encoding="utf-8")
+    if not re.search(
+        r'if\s+action\s*==\s*"countTokens"\s*\{\s*ExcludeTerminalOutcome\(c\)',
+        gemini_source,
+    ):
+        errors.append(
+            "backend/internal/handler/gemini_v1beta_handler.go: countTokens must be terminal-excluded"
+        )
     if errors:
         for error in errors:
             print(f"terminal-route-policy: {error}", file=sys.stderr)

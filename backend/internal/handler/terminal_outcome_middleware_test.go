@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -96,6 +97,24 @@ func TestTerminalOutcomeMiddlewareSkipsExcludedMissingModelAndNilSink(t *testing
 	})
 }
 
+func TestTerminalOutcomeMiddlewareSkipsDynamicallyExcludedAndCanceledRequests(t *testing.T) {
+	sink := &terminalOutcomeSinkStub{}
+	require.Empty(t, runTerminalOutcomeMiddleware(t, sink, TerminalOutcomeStreamInference, func(c *gin.Context) {
+		setOpsRequestContext(c, "gemini-3.1-pro", false)
+		ExcludeTerminalOutcome(c)
+		c.Status(http.StatusOK)
+	}))
+
+	sink = &terminalOutcomeSinkStub{}
+	require.Empty(t, runTerminalOutcomeMiddleware(t, sink, TerminalOutcomeStreamInference, func(c *gin.Context) {
+		ctx, cancel := context.WithCancel(c.Request.Context())
+		c.Request = c.Request.WithContext(ctx)
+		setOpsRequestContext(c, "gpt-5.4", true)
+		cancel()
+		c.Status(http.StatusOK)
+	}))
+}
+
 func TestRecordWebSocketTerminalOutcomeRecordsPerTurn(t *testing.T) {
 	sink := &terminalOutcomeSinkStub{}
 	events := runTerminalOutcomeMiddleware(t, sink, TerminalOutcomeWebSocketTurn, func(c *gin.Context) {
@@ -106,6 +125,15 @@ func TestRecordWebSocketTerminalOutcomeRecordsPerTurn(t *testing.T) {
 	require.Len(t, events, 2)
 	require.Equal(t, service.TerminalOutcomeSuccess, events[0].Kind)
 	require.Equal(t, service.TerminalOutcomeFinalEmptyPool429, events[1].Kind)
+}
+
+func TestRecordWebSocketTerminalOutcomeSkipsCanceledTurn(t *testing.T) {
+	sink := &terminalOutcomeSinkStub{}
+	events := runTerminalOutcomeMiddleware(t, sink, TerminalOutcomeWebSocketTurn, func(c *gin.Context) {
+		RecordWebSocketTerminalOutcome(c, "gpt-5.4", context.Canceled, false)
+		c.Status(http.StatusSwitchingProtocols)
+	})
+	require.Empty(t, events)
 }
 
 func withoutTerminalTimes(events []service.TerminalOutcomeEvent) []service.TerminalOutcomeEvent {

@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -12,7 +14,10 @@ import (
 
 type TerminalOutcomePolicy string
 
-const terminalOutcomeWebSocketSinkKey = "terminal_outcome_websocket_sink"
+const (
+	terminalOutcomeWebSocketSinkKey = "terminal_outcome_websocket_sink"
+	terminalOutcomeExcludedKey      = "terminal_outcome_excluded"
+)
 
 const (
 	TerminalOutcomeSyncInference   TerminalOutcomePolicy = "sync_inference"
@@ -31,6 +36,9 @@ func TerminalOutcomeMiddleware(sink service.TerminalOutcomeSink, policy Terminal
 		if sink == nil || policy == TerminalOutcomeExcluded || policy == TerminalOutcomeWebSocketTurn {
 			return
 		}
+		if excluded, _ := c.Get(terminalOutcomeExcludedKey); excluded == true || terminalRequestCanceled(c) {
+			return
+		}
 		model := terminalRequestedModel(c)
 		if model == "" {
 			return
@@ -44,8 +52,14 @@ func TerminalOutcomeMiddleware(sink service.TerminalOutcomeSink, policy Terminal
 	}
 }
 
+func ExcludeTerminalOutcome(c *gin.Context) {
+	if c != nil {
+		c.Set(terminalOutcomeExcludedKey, true)
+	}
+}
+
 func RecordWebSocketTerminalOutcome(c *gin.Context, model string, turnErr error, resultPresent bool) {
-	if c == nil || strings.TrimSpace(model) == "" {
+	if c == nil || strings.TrimSpace(model) == "" || errors.Is(turnErr, context.Canceled) {
 		return
 	}
 	value, ok := c.Get(terminalOutcomeWebSocketSinkKey)
@@ -68,6 +82,10 @@ func RecordWebSocketTerminalOutcome(c *gin.Context, model string, turnErr error,
 		RequestedModel: strings.TrimSpace(model),
 		Kind:           kind,
 	})
+}
+
+func terminalRequestCanceled(c *gin.Context) bool {
+	return c != nil && c.Request != nil && errors.Is(c.Request.Context().Err(), context.Canceled)
 }
 
 func terminalHTTPOutcomeKind(c *gin.Context, policy TerminalOutcomePolicy) service.TerminalOutcomeKind {
