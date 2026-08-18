@@ -231,6 +231,11 @@ describe('UseKeyModal — preserved snippet correctness', () => {
 
 describe('UseKeyGuide — tool-first Quickstart contracts', () => {
   it('generates current Qwen Code settings with the key isolated in .env', async () => {
+    getAPIKeyCapabilities.mockResolvedValue({
+      api_key_id: 42,
+      routing_mode: 'universal',
+      models: [{ id: 'qwen3-coder-plus', protocols: ['anthropic'], modalities: ['chat'], routes: [] }],
+    })
     const wrapper = mountQuickstartGuide({ selectedClient: 'qwen-code', selectedProtocol: 'anthropic' })
     await flushPromises()
     const files = wrapper.findAll('pre code').map((code) => code.text())
@@ -246,6 +251,11 @@ describe('UseKeyGuide — tool-first Quickstart contracts', () => {
   })
 
   it('switches Qwen Code to OpenAI Chat Completions provider without claiming Responses', async () => {
+    getAPIKeyCapabilities.mockResolvedValue({
+      api_key_id: 42,
+      routing_mode: 'universal',
+      models: [{ id: 'qwen3-coder-plus', protocols: ['openai'], modalities: ['chat'], routes: [] }],
+    })
     const wrapper = mountQuickstartGuide({ selectedClient: 'qwen-code', selectedProtocol: 'openai' })
     await flushPromises()
     const settings = JSON.parse(wrapper.findAll('pre code')[1].text())
@@ -267,6 +277,11 @@ describe('UseKeyGuide — tool-first Quickstart contracts', () => {
   })
 
   it('renders exact Cline OpenAI Compatible fields without an OS selector or client tabs', async () => {
+    getAPIKeyCapabilities.mockResolvedValue({
+      api_key_id: 42,
+      routing_mode: 'universal',
+      models: [{ id: 'gpt-5.5', protocols: ['openai'], modalities: ['chat'], routes: [] }],
+    })
     const wrapper = mountQuickstartGuide({ selectedClient: 'cline' })
     await flushPromises()
     const fields = wrapper.find('pre code').text()
@@ -331,6 +346,11 @@ describe('UseKeyGuide — tool-first Quickstart contracts', () => {
   })
 
   it('renders Dify Tool Call config and TokenKey ceilings without claiming streaming validation', async () => {
+    getAPIKeyCapabilities.mockResolvedValue({
+      api_key_id: 42,
+      routing_mode: 'universal',
+      models: [{ id: 'gpt-5.5', protocols: ['openai'], modalities: ['chat'], routes: [] }],
+    })
     const wrapper = mountQuickstartGuide({
       selectedClient: 'dify',
       keyQuota: 100,
@@ -543,6 +563,40 @@ describe('UseKeyModal — universal keys', () => {
 
     expect(wrapper.text()).toContain('keys.useKeyModal.modelsEmpty')
     expect(wrapper.find('[data-tk="use-key-model-select"]').exists()).toBe(true)
+  })
+
+  it('blocks invented model actions and retries a failed automatic-routing menu', async () => {
+    getAPIKeyCapabilities
+      .mockRejectedValueOnce(new Error('capability unavailable'))
+      .mockResolvedValueOnce({
+        api_key_id: 42,
+        routing_mode: 'universal',
+        models: [{
+          id: 'claude-opus-4-8',
+          protocols: ['anthropic'],
+          modalities: ['chat'],
+          routes: [],
+        }],
+      })
+
+    const wrapper = mountQuickstartGuide({ selectedClient: 'claude-code' })
+    await flushPromises()
+
+    const select = wrapper.get('[data-tk="use-key-model-select"]')
+    expect(select.findAll('option')).toHaveLength(0)
+    expect(select.attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-tk="use-key-test"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('pre code')).toHaveLength(0)
+    expect(wrapper.get('[data-tk="use-key-models-error"]').text()).toContain('keys.useKeyModal.modelsLoadError')
+    expect(wrapper.emitted('modelChange')?.at(-1)).toEqual([''])
+
+    await wrapper.get('[data-tk="use-key-models-retry"]').trigger('click')
+    await flushPromises()
+
+    expect(getAPIKeyCapabilities).toHaveBeenCalledTimes(2)
+    expect(select.findAll('option').map((option) => option.text())).toEqual(['claude-opus-4-8'])
+    expect(wrapper.get('[data-tk="use-key-test"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.findAll('pre code').length).toBeGreaterThan(0)
   })
 })
 

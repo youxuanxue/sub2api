@@ -198,6 +198,12 @@ test.describe('US-046 automatic-routing capability discovery', () => {
     await page.goto('/quickstart?client=claude-code')
     await expect(page.locator('[data-tk="use-key-models-error"]')).toBeVisible({ timeout: 30_000 })
     await expect(page.locator('[data-tk="use-key-models-empty"]')).toHaveCount(0)
+    await expect(page.locator('[data-tk="use-key-model-select"] option')).toHaveCount(0)
+    await expect(page.locator('[data-tk="quickstart-send-test"]')).toHaveCount(0)
+    await expect(page.locator('pre code')).toHaveCount(0)
+    await page.locator('[data-tk="use-key-models-retry"]').click()
+    await expect.poll(() => requests.filter((url) =>
+      url.includes(`/me/api-keys/${AUTOMATIC_KEY.id}/capabilities`)).length).toBe(2)
 
     await page.goto('/studio')
     await expect(page.locator('[data-testid="studio-load-error"]')).toContainText('capability unavailable', {

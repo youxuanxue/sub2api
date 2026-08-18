@@ -296,8 +296,8 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     })
   }
 
-  /** Currently effective model for a flavor: explicit pick → first servable of
-   * that flavor → hardcoded fallback. Never empty, so snippets always render. */
+  /** Currently effective model for a flavor. Automatic-routing keys may only
+   * use capability-backed ids; direct keys retain the legacy fallback. */
   function effectiveModel(
     flavor: UseKeyFlavor,
     protocol: UseKeyDiscoveryProtocol = flavor,
@@ -305,6 +305,7 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     const picked = selectedByFlavor.value[flavor]
     if (picked && modelsForFlavor(flavor, protocol).some((model) => model.id === picked)) return picked
     const first = modelsForFlavor(flavor, protocol)[0]
+    if (args.routingMode?.value === 'universal') return first?.id ?? ''
     return first?.id ?? FLAVOR_DEFAULT_MODEL[flavor]
   }
 

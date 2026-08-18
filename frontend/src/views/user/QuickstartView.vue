@@ -208,6 +208,7 @@
                 <QuickstartConnectionHealth
                   layout="inline"
                   :test-state="connectionTestState"
+                  :setup-blocked="!selectedModel"
                   @run-test="runConnectionTest"
                   @change-key="openAdvancedKeyOptions"
                 />

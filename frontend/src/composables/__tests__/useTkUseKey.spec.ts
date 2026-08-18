@@ -97,7 +97,23 @@ describe('useTkUseKey model loading', () => {
 
 		expect(tk.modelsError.value).toBe('capability unavailable')
 		expect(tk.modelsLoaded.value).toBe(false)
+		expect(tk.effectiveModel('openai')).toBe('')
 		expect(tk.shouldWarnModelsEmpty('openai')).toBe(false)
+	})
+
+	it('does not invent a model for an automatic-routing business empty set', async () => {
+		getAPIKeyCapabilitiesMock.mockResolvedValue({
+			api_key_id: 42,
+			routing_mode: 'universal',
+			models: [],
+		})
+		const tk = createUseKey(ref(42), ref('universal'))
+
+		await tk.loadModels()
+
+		expect(tk.modelsLoaded.value).toBe(true)
+		expect(tk.modelsError.value).toBe('')
+		expect(tk.effectiveModel('openai')).toBe('')
 	})
 
   it('applies a deep-linked model from the selected key live menu', async () => {
