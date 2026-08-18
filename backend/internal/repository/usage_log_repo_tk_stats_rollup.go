@@ -10,13 +10,13 @@ import (
 )
 
 type usageStatsRollupAgg struct {
-	TotalRequests       int64
-	TotalInputTokens    int64
-	TotalOutputTokens   int64
-	TotalCacheTokens    int64
-	TotalCost           float64
-	TotalActualCost     float64
-	totalAccountCost    float64
+	TotalRequests             int64
+	TotalInputTokens          int64
+	TotalOutputTokens         int64
+	TotalCacheTokens          int64
+	TotalCost                 float64
+	TotalActualCost           float64
+	totalAccountCost          float64
 	AverageDurationMs         float64
 	AverageGatewayLatencyMs   float64
 	totalDurationMillis       int64
