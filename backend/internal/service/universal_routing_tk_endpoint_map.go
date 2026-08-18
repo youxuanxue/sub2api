@@ -61,10 +61,9 @@ func UniversalShapeForRequest(fullPath, method string) UniversalShape {
 	case strings.Contains(p, "/images/generations"):
 		return ShapeOpenAIImages
 	case strings.Contains(p, "/video/generations"), strings.Contains(p, "/videos"):
-		// submit(POST) 与 poll(GET /…/:task_id) 都要落到 openai-compat 处理器 —— 视频派发器
-		// (tkOpenAICompatVideoFetchHandler)按 getGroupPlatform(c) 路由,GET 也必须解析出一个
-		// openai-compat 后端组,否则 404。GET poll 无模型(resolver 以空模型按确定规则挑组);
-		// 解析只在用户已授权的跨度内挑组,poll 不产生实质计费,故不存在误拒/串费。
+		// Submit requests resolve by model. Registry-owned vt_ polls are filtered
+		// before this mapper because they reuse the submit-time pinned route; native
+		// provider status IDs still resolve here for their platform-specific handler.
 		return ShapeOpenAIVideo
 	case strings.Contains(p, "/v1beta/models"):
 		if !isPost {

@@ -103,10 +103,12 @@ func captureMiddlewareStructuredLog(t *testing.T) (*middlewareInMemoryLogSink, f
 
 type stubSpanLister struct {
 	groups []service.Group
+	calls  int
 	err    error
 }
 
 func (s *stubSpanLister) GetAvailableGroups(_ context.Context, _ int64) ([]service.Group, error) {
+	s.calls++
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -566,20 +568,41 @@ func TestMaybeResolveUniversal_ImageEditMultipartRoutesByModel(t *testing.T) {
 	require.Equal(t, body, rest, "downstream image-edit handler must see original multipart body after peek")
 }
 
-// The GET poll path carries no body and no model — it must NOT attempt to read a
-// body (poll uses the VideoTaskCache's submit-time pinned upstream route, not a
-// fresh selection), and any openai-compat group satisfies the route-layer platform
-// gate. Asserts poll resolves model-lessly without erroring.
-func TestMaybeResolveUniversal_VideoPollNoBodyResolves(t *testing.T) {
-	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(30, service.PlatformNewAPI)}})
+// A TokenKey vt_ poll reads the route pinned by VideoTaskCache at submit time.
+// Re-resolving a backing group is both unnecessary and incorrect: a model-less
+// GET can land on OpenAI even though the registry says the task belongs to
+// NewAPI, preventing the handler from polling or issuing a terminal refund.
+func TestMaybeResolveUniversal_TokenKeyVideoPollKeepsRegistryRouteAuthoritative(t *testing.T) {
+	lister := &stubSpanLister{groups: []service.Group{
+		activeGroup(20, service.PlatformOpenAI),
+		activeGroup(30, service.PlatformNewAPI),
+	}}
+	resolver := service.NewUniversalRoutingResolver(lister)
 	c, _ := newTestCtx(http.MethodGet, "/v1/video/generations/vt_abc", "")
 	apiKey := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
 
 	if handled := MaybeResolveUniversal(c, apiKey, resolver); handled {
-		t.Fatalf("video poll resolve should succeed model-lessly")
+		t.Fatalf("registry-owned video poll should continue authentication")
 	}
-	if apiKey.GroupID == nil || *apiKey.GroupID != 30 {
-		t.Fatalf("video poll should route to the only eligible newapi group, got %v", apiKey.GroupID)
+	if lister.calls != 0 {
+		t.Fatalf("registry-owned video poll must not select a fresh backing group; calls=%d", lister.calls)
+	}
+	if apiKey.GroupID != nil || apiKey.Group != nil {
+		t.Fatalf("registry-owned video poll must leave universal key group unset, got %v", apiKey.GroupID)
+	}
+}
+
+func TestMaybeResolveUniversal_NativeVideoPollStillResolvesPlatform(t *testing.T) {
+	lister := &stubSpanLister{groups: []service.Group{activeGroup(30, service.PlatformNewAPI)}}
+	resolver := service.NewUniversalRoutingResolver(lister)
+	c, _ := newTestCtx(http.MethodGet, "/v1/videos/request-native", "")
+	apiKey := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); handled {
+		t.Fatalf("native video poll should resolve model-lessly")
+	}
+	if lister.calls != 1 || apiKey.GroupID == nil || *apiKey.GroupID != 30 {
+		t.Fatalf("native video poll must retain platform resolution, calls=%d group=%v", lister.calls, apiKey.GroupID)
 	}
 }
 

@@ -3,11 +3,13 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -186,6 +188,11 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Selected account's channel_type does not support video generation")
 		return
 	}
+	if videoDurationBelowProviderMinimum(account, body) {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error",
+			fmt.Sprintf("duration must be at least %d seconds for this video provider", newapiintegration.XRTokenVideoMinDurationSeconds))
+		return
+	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	openAIMarkAffinitySelected(c, groupName, account.ID)
 
@@ -200,11 +207,12 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	publicTaskID := generateVideoTaskID()
 
 	TkSetBridgeGinAuth(c, subject.UserID, groupName)
+	writerSizeBeforeForward := c.Writer.Size()
 	outcome, err := h.gatewayService.ForwardAsVideoSubmitDispatched(c.Request.Context(), c, account, publicTaskID, body)
 	tkRecordForwardResponseTail(c, forwardStart)
 
 	if err != nil {
-		if TkTryWriteNewAPIRelayErrorJSON(c, err, false, 0) {
+		if TkTryWriteNewAPIRelayErrorJSON(c, err, false, writerSizeBeforeForward) {
 			reqLog.Warn("openai_video_submit.forward_failed", zap.Error(err))
 			return
 		}
@@ -323,16 +331,16 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 // clients that poll after that will see 404.
 //
 // Authorization model:
-//   - Route layer (tkOpenAICompatVideoFetchHandler) gates on the caller's
-//     group.platform being OpenAI-compatible (openai or newapi). Anthropic /
-//     Gemini / Antigravity callers never reach this handler.
+//   - Route layer sends registry-owned vt_ ids here regardless of the temporary
+//     backing platform selected by a model-less universal-key GET. Non-vt_ ids
+//     retain the platform-specific route gate.
 //   - Handler enforces ownership: record.UserID must equal the caller's
 //     subject.UserID. A leaked or guessed task_id from another user surfaces
 //     as 404 (deliberately indistinguishable from "expired" — we do not leak
 //     existence). This is the same invariant the rest of the gateway uses
 //     for per-user resources.
 func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
-	publicTaskID := strings.TrimSpace(c.Param("task_id"))
+	publicTaskID := videoTaskParam(c)
 	if publicTaskID == "" {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "task_id is required")
 		return
@@ -376,9 +384,10 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		Platform:  rec.Platform,
 		AccountID: rec.AccountID,
 	}
+	writerSizeBeforeForward := c.Writer.Size()
 	out, err := h.gatewayService.ForwardAsVideoFetchDispatched(c.Request.Context(), c, in)
 	if err != nil {
-		if TkTryWriteNewAPIRelayErrorJSON(c, err, false, 0) {
+		if TkTryWriteNewAPIRelayErrorJSON(c, err, false, writerSizeBeforeForward) {
 			return
 		}
 		h.errorResponse(c, http.StatusBadGateway, "api_error", "Video fetch failed")
@@ -418,6 +427,22 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		// logs are the audit trail.
 		h.scheduleVideoRefundAttempt(c.Request.Context(), rec, 0)
 	}
+}
+
+func videoTaskParam(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	if taskID := strings.TrimSpace(c.Param("task_id")); taskID != "" {
+		return taskID
+	}
+	return strings.TrimSpace(c.Param("request_id"))
+}
+
+func videoDurationBelowProviderMinimum(account *service.Account, body []byte) bool {
+	return account != nil &&
+		newapiintegration.IsXRTokenBaseURL(account.ChannelType, account.GetBaseURL()) &&
+		videoRequestedSeconds(body) < newapiintegration.XRTokenVideoMinDurationSeconds
 }
 
 // videoRefund* bound the terminal-failure refund re-attempt. The submit-time

@@ -2761,9 +2761,10 @@
         "RefundVideoUsageOnFailure",
         "videoSubmitHasVideoInput",
         "videoTerminalOutcome",
-        "TkVideoModelUnpriced"
+        "TkVideoModelUnpriced",
+        "videoDurationBelowProviderMinimum"
       ],
-      "rationale": "Per-second video billing: VideoSubmitBillingParamsFromBody resolves resolution/audio/image-input once and the explicit ForwardResult assignments carry those exact dimensions into settlement; dropping any one silently flattens tier billing even when submit still succeeds. videoRequestedSeconds anchors duration, RefundVideoUsageOnFailure anchors terminal-failed refund, and videoSubmitHasVideoInput anchors the unpriced video-input reject guard."
+      "rationale": "Per-second video billing: VideoSubmitBillingParamsFromBody resolves resolution/audio/image-input once and the explicit ForwardResult assignments carry those exact dimensions into settlement; dropping any one silently flattens tier billing even when submit still succeeds. videoRequestedSeconds anchors duration, RefundVideoUsageOnFailure anchors terminal-failed refund, and videoSubmitHasVideoInput anchors the unpriced video-input reject guard. videoDurationBelowProviderMinimum keeps XRToken's four-second floor local and before paid upstream dispatch."
     },
     {
       "path": "backend/internal/service/billing_service_tk_video_test.go",
@@ -5184,9 +5185,25 @@
         "func MaybeResolveUniversal(",
         "apiKey.Group = backing",
         "apiKey.GroupID = &backing.ID",
-        "c.Request.Body = io.NopCloser(bytes.NewReader(raw))"
+        "c.Request.Body = io.NopCloser(bytes.NewReader(raw))",
+        "isTokenKeyVideoTaskRead"
       ],
-      "rationale": "Universal Key auth-time glue: peeks the model (restoring the EXACT original body + headers so the handler is byte-identical), resolves the backing group, and presents the request as a normal key bound to that group (swap apiKey.Group/GroupID). It deliberately does NOT set ForcePlatform (so anthropic+antigravity mixed scheduling and other per-group semantics are preserved) and only READS ForcePlatform to constrain candidates on /antigravity. Removing the body-restore line corrupts every universal-key request body; removing the swap disables the feature."
+      "rationale": "Universal Key auth-time glue: peeks the model (restoring the EXACT original body + headers so the handler is byte-identical), resolves the backing group, and presents the request as a normal key bound to that group (swap apiKey.Group/GroupID). It deliberately does NOT set ForcePlatform (so anthropic+antigravity mixed scheduling and other per-group semantics are preserved) and only READS ForcePlatform to constrain candidates on /antigravity. Registry-owned vt_ video polls are the exception: isTokenKeyVideoTaskRead must bypass fresh model-less group resolution so VideoFetch can consume the submit-time pinned route. Removing the body-restore line corrupts every universal-key request body; removing the swap or poll bypass disables the corresponding feature."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway_tk_openai_compat_handlers.go",
+      "must_contain": [
+        "strings.HasPrefix(videoTaskRouteID(c), \"vt_\")",
+        "h.OpenAIGateway.VideoFetch(c)"
+      ],
+      "rationale": "Registry-owned vt_ status reads must reach VideoFetch before Grok/composite/native platform gates because the model-less GET's temporary platform cannot identify the submit route. Non-vt_ provider request IDs continue through their native status handlers."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway_test.go",
+      "must_contain": [
+        "TestGatewayRoutesTokenKeyVideoPollBypassesTemporaryPlatformGate"
+      ],
+      "rationale": "Route-level regression spans canonical and xAI-shaped aliases across OpenAI, Grok, and composite temporary platforms, proving every TokenKey vt_ id reaches the registry owner without weakening native provider status routing."
     },
     {
       "path": "backend/internal/server/middleware/api_key_auth.go",

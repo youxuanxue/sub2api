@@ -7,12 +7,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
+	newapitypes "github.com/QuantumNous/new-api/types"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 )
 
 // TestVideoFetch_CrossUser_Returns404 enforces the per-user authorization
@@ -107,6 +112,130 @@ func TestVideoFetch_MissingTaskID_Returns400(t *testing.T) {
 	h.VideoFetch(c)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestVideoFetch_FailedTerminalDeletesTaskAndSchedulesRefund(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || !strings.Contains(r.URL.Path, "/api/v3/contents/generations/tasks/upstream-failed") {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"upstream-failed","status":"failed","error":{"message":"generation failed"}}`))
+	}))
+	defer upstream.Close()
+
+	cache := repository.NewVideoTaskCache(nil)
+	record := &service.VideoTaskRecord{
+		PublicTaskID:   "vt_failed",
+		UpstreamTaskID: "upstream-failed",
+		UserID:         1,
+		ChannelType:    newapiconstant.ChannelTypeVolcEngine,
+		BaseURL:        upstream.URL,
+		APIKey:         "test-key",
+	}
+	if err := cache.Save(context.Background(), record); err != nil {
+		t.Fatalf("seed registry: %v", err)
+	}
+
+	gatewayService := service.NewOpenAIGatewayService(
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+	)
+	h := &OpenAIGatewayHandler{gatewayService: gatewayService}
+	h.SetVideoTaskCache(cache)
+	logSink, restore := captureHandlerStructuredLog(t)
+	defer restore()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/vt_failed", nil)
+	c.Params = gin.Params{{Key: "task_id", Value: "vt_failed"}}
+	c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1})
+
+	h.VideoFetch(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("failed terminal status should be returned to the owner, got %d body=%s", w.Code, w.Body.String())
+	}
+	if _, ok := cache.Lookup(context.Background(), "vt_failed"); ok {
+		t.Fatal("failed terminal task must be deleted from the registry")
+	}
+	require.True(t, logSink.ContainsMessageAtLevel("openai_video_refund.skipped_no_billing_request_id", "warn"),
+		"failed terminal fetch must schedule the refund path")
+}
+
+func TestVideoFetch_RequestIDAliasReadsTokenKeyTask(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := repository.NewVideoTaskCache(nil)
+	if err := cache.Save(context.Background(), &service.VideoTaskRecord{
+		PublicTaskID: "vt_alias_owned",
+		UserID:       1,
+	}); err != nil {
+		t.Fatalf("seed registry: %v", err)
+	}
+
+	h := &OpenAIGatewayHandler{}
+	h.SetVideoTaskCache(cache)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/generations/vt_alias_owned", nil)
+	c.Params = gin.Params{{Key: "request_id", Value: "vt_alias_owned"}}
+	c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 2})
+
+	h.VideoFetch(c)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("request_id alias must reach the same ownership check, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestVideoDurationBelowProviderMinimum(t *testing.T) {
+	xrToken := &service.Account{
+		Platform:    service.PlatformNewAPI,
+		Type:        service.AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeDoubaoVideo,
+		Credentials: map[string]any{"base_url": newapiintegration.XRTokenBaseURL},
+	}
+	nonXRToken := &service.Account{
+		Platform:    service.PlatformNewAPI,
+		Type:        service.AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeDoubaoVideo,
+		Credentials: map[string]any{"base_url": "https://ark.cn-beijing.volces.com"},
+	}
+
+	if !videoDurationBelowProviderMinimum(xrToken, []byte(`{"seconds":1}`)) {
+		t.Fatal("XRToken one-second request must be rejected before dispatch")
+	}
+	if videoDurationBelowProviderMinimum(xrToken, []byte(`{"seconds":4}`)) {
+		t.Fatal("XRToken four-second request must satisfy local validation")
+	}
+	if videoDurationBelowProviderMinimum(nonXRToken, []byte(`{"seconds":1}`)) {
+		t.Fatal("provider-specific minimum must not affect non-XRToken accounts")
+	}
+}
+
+func TestTryWriteVideoRelayErrorUsesUnwrittenWriterBaseline(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	before := c.Writer.Size()
+	err := &service.NewAPIRelayError{Err: newapitypes.NewErrorWithStatusCode(
+		http.ErrAbortHandler,
+		newapitypes.ErrorCodeInvalidRequest,
+		http.StatusBadRequest,
+		newapitypes.ErrOptionWithSkipRetry(),
+	)}
+
+	if !TkTryWriteNewAPIRelayErrorJSON(c, err, false, before) {
+		t.Fatal("relay error must be recognized")
+	}
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("upstream 400 must render as client 400, got %d body=%s", w.Code, w.Body.String())
+	}
+	if w.Body.Len() == 0 {
+		t.Fatal("upstream 400 must render a JSON error body")
 	}
 }
 

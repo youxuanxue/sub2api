@@ -148,9 +148,10 @@
       "path": "backend/internal/relay/bridge/video_relay_test.go",
       "must_contain": [
         "TestNormalizeVideoSubmitBodyForTaskAdaptor_TopLevelTiersOverrideMetadata",
-        "TestNormalizeVideoSubmitBodyForTaskAdaptor_NormalizesSizeAndMetadataAudio"
+        "TestNormalizeVideoSubmitBodyForTaskAdaptor_NormalizesSizeAndMetadataAudio",
+        "TestDispatchVideoSubmit_PreservesUpstreamStatusAndBoundsErrorBody"
       ],
-      "rationale": "Focused bridge regressions prove that public resolution/size/audio dimensions become the exact adaptor metadata values used upstream, including conflict precedence and metadata-only audio aliases."
+      "rationale": "Focused bridge regressions prove that public resolution/size/audio dimensions become the exact adaptor metadata values used upstream, including conflict precedence and metadata-only audio aliases. The non-2xx regression also pins upstream status preservation and bounded error-body reads so provider 400 responses cannot collapse into an empty client 200 or an unbounded allocation."
     },
     {
       "path": "backend/internal/relay/bridge/embedding_relay.go",
@@ -668,9 +669,10 @@
         "XRTokenVideoVendorPrefix",
         "XRTokenUpstreamVideoModel",
         "volcengine/",
-        "XRTokenClientFacingVideoModel"
+        "XRTokenClientFacingVideoModel",
+        "XRTokenVideoMinDurationSeconds"
       ],
-      "rationale": "XRToken base-url detection for ch54 (DoubaoVideo) accounts — an ARK-compatible reseller whose task paths differ from official Ark by one middle segment (/v1/ vs /api/v3/). Without it the bridge selects the upstream doubao adaptor and every submit/poll 404s. NormalizeXRTokenBaseURL collapses the SDK-documented '.../v1' spelling so the wrapper cannot emit /v1/v1/contents/...; the ChannelTypeDoubaoVideo scope keeps a ch45 account on the same host from being treated as XRToken (that channel additionally exposes chat/embeddings/images paths XRToken does not serve). XRTokenVideoVendorPrefix / XRTokenUpstreamVideoModel encode the one wire fact that XRToken publishes every Ark video SKU as `volcengine/<ark-id>` and rejects the bare Ark id. It lives here (applied by the task adaptor) and NOT as a credentials.model_mapping target because the compiled mapping floor can only express identity mappings, so a prefixed target is both unrepresentable in the SSOT and reverted to identity by the next routine apply-accounts. Dropping these makes every XRToken seedance submit fail upstream while the account still looks correctly provisioned. The vendor-namespace pair is the wire contract for XRToken video: XRTokenUpstreamVideoModel adds `volcengine/` on submit (XRToken rejects the bare Ark id) and XRTokenClientFacingVideoModel removes it from the verbatim-passthrough poll body, so one task never reports two model ids across POST and GET. Encoding the rule here rather than in credentials.model_mapping is load-bearing: the mapping SSOT can only express identity targets (accountModelMappingForAccount -> identityModelMapping), so a prefixed target is unrepresentable AND would be reverted to identity by the next routine apply-accounts."
+      "rationale": "XRToken base-url detection for ch54 (DoubaoVideo) accounts — an ARK-compatible reseller whose task paths differ from official Ark by one middle segment (/v1/ vs /api/v3/). Without it the bridge selects the upstream doubao adaptor and every submit/poll 404s. NormalizeXRTokenBaseURL collapses the SDK-documented '.../v1' spelling so the wrapper cannot emit /v1/v1/contents/...; the ChannelTypeDoubaoVideo scope keeps a ch45 account on the same host from being treated as XRToken (that channel additionally exposes chat/embeddings/images paths XRToken does not serve). XRTokenVideoVendorPrefix / XRTokenUpstreamVideoModel encode the one wire fact that XRToken publishes every Ark video SKU as `volcengine/<ark-id>` and rejects the bare Ark id. It lives here (applied by the task adaptor) and NOT as a credentials.model_mapping target because the compiled mapping floor can only express identity mappings, so a prefixed target is both unrepresentable in the SSOT and reverted to identity by the next routine apply-accounts. Dropping these makes every XRToken seedance submit fail upstream while the account still looks correctly provisioned. The vendor-namespace pair is the wire contract for XRToken video: XRTokenUpstreamVideoModel adds `volcengine/` on submit (XRToken rejects the bare Ark id) and XRTokenClientFacingVideoModel removes it from the verbatim-passthrough poll body, so one task never reports two model ids across POST and GET. XRTokenVideoMinDurationSeconds is the provider's four-second submit floor consumed by the handler's local pre-dispatch validation. Encoding these rules here rather than in credentials.model_mapping is load-bearing: the mapping SSOT can only express identity targets (accountModelMappingForAccount -> identityModelMapping), so a prefixed target is unrepresentable AND would be reverted to identity by the next routine apply-accounts."
     },
     {
       "path": "backend/internal/integration/newapi/xrtoken_test.go",

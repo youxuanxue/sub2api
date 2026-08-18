@@ -27,7 +27,7 @@ func skipsBillingEnforcement(method, path string) bool {
 	if path == "/v1/sub2api/billing" {
 		return true
 	}
-	if isAsyncImageTaskRead(method, path) {
+	if isAsyncImageTaskRead(method, path) || isTokenKeyVideoTaskRead(method, path) {
 		return true
 	}
 	if method != http.MethodGet {
@@ -483,4 +483,28 @@ func isAsyncImageTaskRead(method, path string) bool {
 		return false
 	}
 	return strings.HasPrefix(path, "/v1/images/tasks/") || strings.HasPrefix(path, "/images/tasks/")
+}
+
+// isTokenKeyVideoTaskRead identifies registry-owned video status reads. The
+// public vt_ id is sufficient because VideoFetch performs the authoritative
+// registry existence and user-ownership checks before using the pinned route.
+func isTokenKeyVideoTaskRead(method, path string) bool {
+	if !strings.EqualFold(method, http.MethodGet) {
+		return false
+	}
+	for _, root := range []string{
+		"/video/generations/",
+		"/videos/generations/",
+		"/videos/edits/",
+		"/videos/extensions/",
+		"/videos/",
+	} {
+		for _, prefix := range []string{root, "/v1" + root} {
+			if taskID, ok := strings.CutPrefix(path, prefix); ok {
+				taskID = strings.TrimSpace(taskID)
+				return !strings.Contains(taskID, "/") && strings.HasPrefix(taskID, "vt_")
+			}
+		}
+	}
+	return false
 }

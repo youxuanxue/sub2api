@@ -280,6 +280,37 @@ func TestGatewayRoutesCompositeChatCompletionsWithGrokModelUsesOpenAIGateway(t *
 	}
 }
 
+func TestGatewayRoutesTokenKeyVideoPollBypassesTemporaryPlatformGate(t *testing.T) {
+	for _, platform := range []string{
+		service.PlatformOpenAI,
+		service.PlatformGrok,
+		service.PlatformComposite,
+	} {
+		for _, path := range []string{
+			"/v1/video/generations/vt_123",
+			"/video/generations/vt_123",
+			"/v1/videos/vt_123",
+			"/videos/vt_123",
+			"/v1/videos/generations/vt_123",
+			"/videos/generations/vt_123",
+			"/v1/videos/edits/vt_123",
+			"/videos/edits/vt_123",
+			"/v1/videos/extensions/vt_123",
+			"/videos/extensions/vt_123",
+		} {
+			router := newGatewayRoutesTestRouter(platform)
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			w := httptest.NewRecorder()
+
+			router.ServeHTTP(w, req)
+
+			require.Equal(t, http.StatusServiceUnavailable, w.Code,
+				"platform=%s path=%s should reach registry-owned VideoFetch", platform, path)
+			require.NotContains(t, w.Body.String(), "Videos API is not supported for this platform")
+		}
+	}
+}
+
 func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
 

@@ -43,8 +43,18 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 		fullPath = c.Request.URL.Path
 	}
 	method := http.MethodGet
+	requestPath := fullPath
 	if c.Request != nil {
 		method = c.Request.Method
+		if c.Request.URL != nil {
+			requestPath = c.Request.URL.Path
+		}
+	}
+	if isTokenKeyVideoTaskRead(method, requestPath) {
+		// A vt_ poll is a read of an existing registry-owned resource, not a new
+		// scheduling decision. VideoFetch authorizes the user and consumes the
+		// submit-time pinned upstream route.
+		return false
 	}
 
 	shape := service.UniversalShapeForRequest(fullPath, method)
