@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -137,6 +138,52 @@ func TestOpenAICompatNoCandidateError_ExcludedFailoverDoesNotPopulateUnsupported
 		false,
 		accounts,
 		excludedIDs,
+		&openAICompatNoCandidateEval{
+			ctx:                ctx,
+			svc:                svc,
+			groupID:            &groupID,
+			platform:           PlatformOpenAI,
+			requiredCapability: OpenAIEndpointCapabilityResponses,
+		},
+	)
+
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.NotErrorIs(t, err, ErrUnsupportedModel)
+	require.False(t, cache.get(groupID, model))
+}
+
+func TestOpenAICompatNoCandidateError_RuntimeBlockedDoesNotPopulateUnsupportedCache(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(2)
+	const model = "gpt-5.6-sol"
+	accounts := []Account{
+		{
+			ID:          69,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Credentials: map[string]any{"model_mapping": map[string]any{"gpt-other": "gpt-other"}},
+		},
+		{
+			ID:          68,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Credentials: map[string]any{"model_mapping": map[string]any{model: model}},
+		},
+	}
+	cache := newTkGroupUnsupportedModelNegativeCache()
+	svc := &OpenAIGatewayService{tkGroupUnsupportedCache: cache}
+	svc.BlockAccountScheduling(&accounts[1], time.Now().Add(time.Minute), "test")
+
+	err := openAICompatNoCandidateError(
+		model,
+		PlatformOpenAI,
+		false,
+		accounts,
+		nil,
 		&openAICompatNoCandidateEval{
 			ctx:                ctx,
 			svc:                svc,

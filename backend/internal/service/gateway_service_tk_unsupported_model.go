@@ -65,7 +65,9 @@ func TkUnsupportedModelMessage(model string) string {
 //     (ModelRateLimited) — that would be capacity, retry later; and no
 //   - account that is currently unschedulable (Unschedulable) — those are
 //     filtered BEFORE the model check (see diagnoseSelectionFailure ordering),
-//     so any of them might support the model once it recovers.
+//     so any of them might support the model once it recovers; and no
+//   - account rejected by a runtime block or profit-control veto — those
+//     accounts support the model but are unavailable for another reason.
 //
 // Any such noise → return false so the caller falls back to the original
 // ErrNoAvailableAccounts/429 path (no misclassification, no regression). Eligible
@@ -75,6 +77,9 @@ func tkSelectionFailedDueToUnsupportedModel(stats selectionFailureStats) bool {
 		stats.Excluded == 0 &&
 		stats.ModelRateLimited == 0 &&
 		stats.Unschedulable == 0 &&
+		stats.RuntimeBlocked == 0 &&
+		stats.ProfitThreshold == 0 &&
+		stats.ProfitInvalidRate == 0 &&
 		stats.Eligible == 0
 }
 

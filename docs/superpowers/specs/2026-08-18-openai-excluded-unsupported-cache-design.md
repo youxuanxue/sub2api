@@ -8,7 +8,7 @@ The unsupported-model predicate currently ignores `Excluded`. A pool containing 
 
 ## Decision
 
-Treat any excluded account as evidence that the terminal selection failure is not a pure unsupported-model failure. `tkSelectionFailedDueToUnsupportedModel` must require `Excluded == 0`, in addition to its existing rate-limit, unschedulable, and eligible guards.
+Treat any excluded account as evidence that the terminal selection failure is not a pure unsupported-model failure. `tkSelectionFailedDueToUnsupportedModel` must require `Excluded == 0`, in addition to its rate-limit, unschedulable, runtime-blocked, profit-veto, and eligible guards. Any model-supporting account rejected for a non-model reason prevents deterministic unsupported-model classification.
 
 Keep the fix at the shared predicate so all OpenAI-compatible selection exits use the same classification. Do not add retry-specific cache exceptions or duplicate the rule at call sites.
 
@@ -36,9 +36,10 @@ The service-level event was skipped during the incident because the incorrect un
 Use TDD with these regression layers:
 
 1. Predicate: `ModelUnsupported=1` and `Excluded=3` returns false.
-2. Predicate compatibility: a pool rejected purely because every candidate lacks the model still returns true, preserving the existing unsupported-model 400 path.
-3. Request-aware classification and cache: three supporting excluded accounts plus one unsupported account returns the no-available family and leaves the negative cache empty.
-4. Handler/router failover loop: supporting accounts return upstream 502 responses and are added to the request exclusion set; terminal reselection must preserve the last upstream 502 and leave the negative cache empty. After the upstream fixture recovers, a subsequent same-group request without exclusions must select a supporting account successfully.
+2. Predicate: mixed model-unsupported plus runtime-blocked or profit-vetoed candidates returns false.
+3. Predicate compatibility: a pool rejected purely because every candidate lacks the model still returns true, preserving the existing unsupported-model 400 path.
+4. Request-aware classification and cache: supporting accounts excluded or runtime-blocked alongside an unsupported account return the no-available family and leave the negative cache empty.
+5. Handler/router failover loop: supporting accounts return upstream 502 responses and are added to the request exclusion set; terminal reselection must preserve the last upstream 502 and leave the negative cache empty. After the upstream fixture recovers, a subsequent same-group request without exclusions must select a supporting account successfully.
 
 Run focused unit tests, the affected service package test suite, agent-contract checks, and `./scripts/preflight.sh` before commit and push.
 

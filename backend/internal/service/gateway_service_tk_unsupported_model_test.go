@@ -46,6 +46,21 @@ func TestTkSelectionFailedDueToUnsupportedModel(t *testing.T) {
 			want:  false,
 		},
 		{
+			name:  "unsupported plus runtime-blocked candidate -> false",
+			stats: selectionFailureStats{Total: 2, ModelUnsupported: 1, RuntimeBlocked: 1},
+			want:  false,
+		},
+		{
+			name:  "unsupported plus profit-threshold veto -> false",
+			stats: selectionFailureStats{Total: 2, ModelUnsupported: 1, ProfitThreshold: 1},
+			want:  false,
+		},
+		{
+			name:  "unsupported plus invalid-rate profit veto -> false",
+			stats: selectionFailureStats{Total: 2, ModelUnsupported: 1, ProfitInvalidRate: 1},
+			want:  false,
+		},
+		{
 			name:  "unsupported plus a model-rate-limited candidate -> false (capacity)",
 			stats: selectionFailureStats{Total: 5, ModelUnsupported: 4, ModelRateLimited: 1},
 			want:  false,
