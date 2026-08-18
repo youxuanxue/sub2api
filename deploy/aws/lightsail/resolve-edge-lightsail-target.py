@@ -92,6 +92,7 @@ def resolve_target(
         "blueprint_id": target["blueprint_id"],
         "monthly_budget_usd": budget,
         "ssm_prefix": target["ssm_prefix"],
+        "ssm_hybrid_role_name": f"tokenkey-lightsail-ssm-hybrid-{edge_id}",
         "purpose": target.get("purpose", ""),
     }
 

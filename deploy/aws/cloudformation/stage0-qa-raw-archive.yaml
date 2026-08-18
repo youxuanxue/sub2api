@@ -218,8 +218,10 @@ Resources:
               - !GetAtt QaRawArchiveBucket.Arn
               - !Sub '${QaRawArchiveBucket.Arn}/*'
             Condition:
-              ArnEquals:
-                'aws:PrincipalArn': !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid'
+              ArnLike:
+                'aws:PrincipalArn':
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid'
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid-*'
           - Sid: AllowAppInstanceRoleWriteRaw
             Effect: Allow
             Principal:
@@ -429,8 +431,10 @@ Resources:
               - !GetAtt QaBundleBucket.Arn
               - !Sub '${QaBundleBucket.Arn}/*'
             Condition:
-              ArnEquals:
-                'aws:PrincipalArn': !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid'
+              ArnLike:
+                'aws:PrincipalArn':
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid'
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid-*'
           - Sid: AllowAppInstanceRoleCreateScopedBundleJobs
             Effect: Allow
             Principal:

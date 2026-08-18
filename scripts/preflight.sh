@@ -1550,6 +1550,18 @@ elif ! python3 ./ops/stage0/test_pgdump_restore_canary_workflow.py >/dev/null 2>
     echo "  FAIL: Fleet pg_dump restore canary workflow contracts"
     echo "        - run: python3 ops/stage0/test_pgdump_restore_canary_workflow.py"
     errors=$((errors + 1))
+elif ! python3 ./ops/observability/test_pgdump_restore_canary_verdict.py >/dev/null 2>&1; then
+    echo "  FAIL: Fleet pg_dump restore canary receipt contracts"
+    echo "        - run: python3 ops/observability/test_pgdump_restore_canary_verdict.py"
+    errors=$((errors + 1))
+elif ! python3 ./ops/observability/test_pgdump_restore_canary_alert.py >/dev/null 2>&1; then
+    echo "  FAIL: Fleet pg_dump restore canary alert contracts"
+    echo "        - run: python3 ops/observability/test_pgdump_restore_canary_alert.py"
+    errors=$((errors + 1))
+elif ! python3 ./ops/observability/test_ops_daily_diagnostics_workflow.py >/dev/null 2>&1; then
+    echo "  FAIL: Fleet pg_dump restore canary daily diagnostics contracts"
+    echo "        - run: python3 ops/observability/test_ops_daily_diagnostics_workflow.py"
+    errors=$((errors + 1))
 else
     echo "  ok: fail-closed probes + Fleet restore and partition operators"
 fi

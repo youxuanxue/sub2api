@@ -40,11 +40,28 @@ aws cloudformation deploy \
 # (us-east-1 + eu-west-2); override only when adding new region-scoped roles.
 ```
 
-The addon also grants the shared Hybrid role access only to
-`/tokenkey/edge/*/stage0/env-secrets-backup`. Every Edge workflow run writes the
-three `.env.secret` values to its own SecureString and verifies the readback. On a
-replacement instance, bootstrap restores that value before PostgreSQL starts. Only
-`ParameterNotFound` permits first-provision generation; IAM/network errors fail closed.
+The addon creates one Hybrid role per deployable Edge. Each role can access only
+its own `/tokenkey/edge/<id>/stage0/env-secrets-backup` SecureString and
+`edge/<id>/pgdump/` S3 prefix. Before replacing an existing host, the workflow
+switches its managed-instance registration to that role and verifies an off-box
+secret backup before any delete call. Bootstrap generates secrets only for an
+explicitly identified first provision; `ParameterNotFound` alone is not authority
+to rotate credentials.
+
+### 迁移现有 SSM Hybrid 注册并退役共享数据权限
+
+部署 addon 后，按以下顺序执行一次；前两步只读，最后一步会切换 live `mi-*`
+角色，并且仅在所有 Edge 回读成功后删除共享 role 上的手工 inline policy
+`EdgePgdumpPutOnly`：
+
+```bash
+bash ops/lightsail/migrate-edge-ssm-roles.sh --dry-run
+bash ops/lightsail/migrate-edge-ssm-roles.sh --check
+bash ops/lightsail/migrate-edge-ssm-roles.sh --apply
+```
+
+现有注册尚未迁移时，`--check` 失败是预期门禁；确认 dry-run 目标无误后运行
+`--apply`。仓库合并或 CloudFormation 部署本身不会删除线上手工 policy。
 
 ### 2) 各 Edge region 写入 GHCR PAT
 

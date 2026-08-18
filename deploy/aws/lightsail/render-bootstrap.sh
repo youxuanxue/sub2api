@@ -48,6 +48,12 @@ echo "LIGHTSAIL_BOOTSTRAP_START $(date -u +%FT%TZ)"
 : "${SSM_ACTIVATION_CODE:?SSM_ACTIVATION_CODE required}"
 : "${GHCR_PAT_SSM_NAME:=}"
 : "${GHCR_PULL_USER:=}"
+: "${ALLOW_SECRET_GENERATE:=false}"
+
+case "${ALLOW_SECRET_GENERATE}" in
+  true|false) ;;
+  *) echo "BOOTSTRAP_FAIL: ALLOW_SECRET_GENERATE must be true or false" >&2; exit 1 ;;
+esac
 
 if command -v hostnamectl >/dev/null 2>&1; then
   hostnamectl set-hostname "${INSTANCE_NAME}" || true
@@ -88,9 +94,6 @@ if ! rpm -q amazon-ssm-agent >/dev/null 2>&1; then
   fi
 fi
 systemctl enable amazon-ssm-agent
-# Register against SSM Hybrid Activation. Fail fast on misconfigured activation —
-# silent || true here would mean provision waits 10 minutes before reporting,
-# while Lightsail clock + Static IP are already billing.
 if ! /usr/bin/amazon-ssm-agent -register -y \
       -id "${SSM_ACTIVATION_ID}" \
       -code "${SSM_ACTIVATION_CODE}" \
@@ -144,9 +147,15 @@ printf '%s' "$RESTORE_SECRETS_B64" | base64 -d | gunzip > /usr/local/bin/tokenke
 chmod 0755 /usr/local/bin/tokenkey-restore-edge-env-secrets.sh
 
 SECRET_FILE=/var/lib/tokenkey/.env.secret
-AWS_REGION="${LIGHTSAIL_REGION}" /usr/local/bin/tokenkey-restore-edge-env-secrets.sh \
+restore_secret_args=(
   --parameter "/tokenkey/edge/${EDGE_ID}/stage0/env-secrets-backup" \
   --output "$SECRET_FILE"
+)
+if [ "${ALLOW_SECRET_GENERATE}" = true ]; then
+  restore_secret_args+=(--allow-generate)
+fi
+AWS_REGION="${LIGHTSAIL_REGION}" /usr/local/bin/tokenkey-restore-edge-env-secrets.sh \
+  "${restore_secret_args[@]}"
 set -a; . "$SECRET_FILE"; set +a
 
 cat > /var/lib/tokenkey/.env <<ENVEOF
@@ -176,14 +185,12 @@ ENVEOF
 chmod 0600 /var/lib/tokenkey/.env
 
 if [ -n "${GHCR_PAT_SSM_NAME:-}" ]; then
-  # Private-image path: PAT from SSM SecureString.
   GHCR_PAT="$(aws --region "${LIGHTSAIL_REGION}" ssm get-parameter \
     --name "${GHCR_PAT_SSM_NAME}" --with-decryption \
     --query Parameter.Value --output text)"
   echo "${GHCR_PAT}" | docker login ghcr.io -u "${GHCR_PULL_USER}" --password-stdin
   unset GHCR_PAT
 else
-  # Public-image path (default): anonymous pull, no docker login.
   echo "GHCR_PAT_SSM_NAME unset; relying on anonymous pull for public image ${TOKENKEY_IMAGE}"
 fi
 

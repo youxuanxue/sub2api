@@ -424,6 +424,9 @@ jobs:
               "echo ===INTERNAL_HEALTH===",
               "if [ -z \"$APP_CONTAINER\" ]; then echo internal_health_status=failed exit=127; elif sudo docker exec \"$APP_CONTAINER\" wget -qO- http://localhost:8080/health/live; then echo; echo internal_health_status=ok; else rc=$?; echo internal_health_status=failed exit=$rc; fi",
               "echo ===END_INTERNAL_HEALTH===",
+              "echo ===PGDUMP_RESTORE_CANARY_RECEIPT===",
+              "sudo cat /var/lib/tokenkey/pgdump-canary/latest.json 2>/dev/null || true",  # preflight-allow: swallow (missing receipt becomes an actionable verdict)
+              "echo ===END_PGDUMP_RESTORE_CANARY_RECEIPT===",
               "SIG_OUT=$(mktemp -d /tmp/prod-ops-runtime-signals.XXXXXX)",
               "if [ -n \"$APP_CONTAINER\" ]; then sudo docker logs \"$APP_CONTAINER\" --since " + quoted_since + " > \"$SIG_OUT/tokenkey.log\" 2>&1 || true; else : > \"$SIG_OUT/tokenkey.log\"; fi",
               "sudo docker logs tokenkey-caddy --since " + quoted_since + " > \"$SIG_OUT/caddy.log\" 2>&1 || true",
@@ -463,6 +466,16 @@ jobs:
               aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardErrorContent' --output text > "$OUT/runtime-stderr.txt" 2>>"$STDERR" || true
               tail -c 8192 "$OUT/runtime-stdout.txt" >> "$STDOUT" || true
               tail -c 4096 "$OUT/runtime-stderr.txt" >> "$STDERR" || true
+              awk '/^===PGDUMP_RESTORE_CANARY_RECEIPT===$/{f=1;next} /^===END_PGDUMP_RESTORE_CANARY_RECEIPT===$/{f=0} f' \
+                "$OUT/runtime-stdout.txt" > "$OUT/pgdump-restore-canary-receipt.json"
+              PROBE_TARGET=prod
+              if [ "$TARGET_KIND" = edge ]; then PROBE_TARGET="edge:$EDGE_ID"; fi
+              if ! python3 ops/observability/pgdump_restore_canary_verdict.py \
+                --receipt "$OUT/pgdump-restore-canary-receipt.json" \
+                --expected-target "$PROBE_TARGET" \
+                --target-id "$TARGET_ID" >> "$FINDINGS" 2>>"$STDERR"; then
+                add_finding "pgdump_restore_canary" "issue_candidate" "error" "pg_dump restore canary verdict failed for $TARGET_ID" "The host receipt could not be classified." "pgdump-restore-canary|$TARGET_ID|verdict-failed"
+              fi
               if grep -q '^internal_health_status=failed' "$OUT/runtime-stdout.txt"; then
                 INTERNAL_HEALTH_SUMMARY="$(grep '^internal_health_status=failed' "$OUT/runtime-stdout.txt" | tail -1)"
                 add_finding "internal_health" "warning" "warning" "Internal container health probe failed for $TARGET_ID" "The in-container /health probe reported ${INTERNAL_HEALTH_SUMMARY}; runtime log signal collection continued." "internal-health|$TARGET_ID"

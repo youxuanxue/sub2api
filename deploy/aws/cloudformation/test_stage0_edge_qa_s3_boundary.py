@@ -4,7 +4,6 @@ from __future__ import annotations
 import copy
 import json
 import pathlib
-import re
 import unittest
 
 import yaml
@@ -22,6 +21,7 @@ EDGE_ROLE_NAME = "tokenkey-lightsail-ssm-hybrid"
 EDGE_ROLE_ARN = (
     "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/" + EDGE_ROLE_NAME
 )
+EDGE_ROLE_PREFIX = EDGE_ROLE_NAME + "-"
 EDGE_DENY_SID = "DenyLightsailEdgeRole"
 
 
@@ -54,7 +54,7 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
         self.backups = _load_template(BACKUPS_TEMPLATE)
         self.addon = _load_template(ADDON_TEMPLATE)
 
-    def test_deployable_fleet_uses_the_one_shared_ssm_hybrid_role(self) -> None:
+    def deployable_edges(self) -> dict[str, dict]:
         matrix = json.loads(EDGE_TARGETS.read_text(encoding="utf-8"))
         deployable = {
             edge_id: target
@@ -65,22 +65,100 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
         self.assertTrue(
             all(target["profile"] == matrix["default_profile"] for target in deployable.values())
         )
+        return deployable
 
-        role = self.addon["Resources"]["LightsailSsmHybridRole"]["Properties"]
-        self.assertEqual(role["RoleName"], EDGE_ROLE_NAME)
+    def test_deployable_fleet_has_one_isolated_ssm_hybrid_role_per_edge(self) -> None:
+        deployable = self.deployable_edges()
+        roles = {
+            resource["Properties"]["RoleName"]: resource["Properties"]
+            for resource in self.addon["Resources"].values()
+            if resource.get("Type") == "AWS::IAM::Role"
+        }
+        expected_names = {EDGE_ROLE_NAME} | {
+            f"{EDGE_ROLE_PREFIX}{edge_id}" for edge_id in deployable
+        }
+        self.assertEqual(set(roles), expected_names)
+
+        shared = roles[EDGE_ROLE_NAME]
+        self.assertEqual(
+            shared["ManagedPolicyArns"],
+            ["arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"],
+        )
+        self.assertNotIn("Policies", shared)
+
+        for edge_id in deployable:
+            with self.subTest(edge_id=edge_id):
+                role = roles[f"{EDGE_ROLE_PREFIX}{edge_id}"]
+                self.assertEqual(
+                    role["ManagedPolicyArns"],
+                    ["arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"],
+                )
+                self.assertEqual(
+                    role["Policies"],
+                    [
+                        {
+                            "PolicyName": "EdgeRecoveryData",
+                            "PolicyDocument": {
+                                "Version": "2012-10-17",
+                                "Statement": [
+                                    {
+                                        "Sid": "ReadWriteOwnEnvSecrets",
+                                        "Effect": "Allow",
+                                        "Action": ["ssm:GetParameter", "ssm:PutParameter"],
+                                        "Resource": (
+                                            "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:"
+                                            f"parameter/tokenkey/edge/{edge_id}/stage0/env-secrets-backup"
+                                        ),
+                                    },
+                                    {
+                                        "Sid": "ReadWriteOwnPgdumpObjects",
+                                        "Effect": "Allow",
+                                        "Action": ["s3:GetObject", "s3:PutObject"],
+                                        "Resource": (
+                                            "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-"
+                                            f"${{AWS::AccountId}}/edge/{edge_id}/pgdump/*"
+                                        ),
+                                    },
+                                    {
+                                        "Sid": "ListOwnPgdumpPrefix",
+                                        "Effect": "Allow",
+                                        "Action": "s3:ListBucket",
+                                        "Resource": (
+                                            "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-"
+                                            "${AWS::AccountId}"
+                                        ),
+                                        "Condition": {
+                                            "StringLike": {
+                                                "s3:prefix": [
+                                                    f"edge/{edge_id}/pgdump",
+                                                    f"edge/{edge_id}/pgdump/*",
+                                                ]
+                                            }
+                                        },
+                                    },
+                                ],
+                            },
+                        }
+                    ],
+                )
+
+        addon_statements = self.addon["Resources"]["LightsailEdgeAddonPolicy"][
+            "Properties"
+        ]["PolicyDocument"]["Statement"]
+        pass_role = next(
+            item for item in addon_statements if item.get("Sid") == "PassSsmHybridRoleToActivation"
+        )
+        self.assertEqual(
+            pass_role["Resource"],
+            "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid-*",
+        )
+        managed = next(
+            item for item in addon_statements if item.get("Sid") == "SsmManagedInstanceCommand"
+        )
+        self.assertIn("ssm:UpdateManagedInstanceRole", managed["Action"])
 
         provision = PROVISION_SCRIPT.read_text(encoding="utf-8")
-        self.assertIn(
-            f'SSM_HYBRID_ROLE_NAME="${{16:-${{SSM_HYBRID_ROLE_NAME:-{EDGE_ROLE_NAME}}}}}"',
-            provision,
-        )
         self.assertIn('--iam-role "$SSM_HYBRID_ROLE_NAME"', provision)
-
-        workflow = EDGE_WORKFLOW.read_text(encoding="utf-8")
-        call = workflow[workflow.index("bash deploy/aws/lightsail/provision-edge.sh") :]
-        call = call[: call.index("\n\n")]
-        self.assertEqual(len(re.findall(r'^\s+"', call, flags=re.MULTILINE)), 14)
-        self.assertNotIn("SSM_HYBRID_ROLE_NAME", workflow)
 
     def assert_qa_bucket_deny(
         self,
@@ -101,7 +179,9 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
                 "Action": "s3:*",
                 "Resource": [bucket_arn, object_arn],
                 "Condition": {
-                    "ArnEquals": {"aws:PrincipalArn": EDGE_ROLE_ARN}
+                    "ArnLike": {
+                        "aws:PrincipalArn": [EDGE_ROLE_ARN, EDGE_ROLE_ARN + "-*"]
+                    }
                 },
             },
         )
@@ -110,7 +190,7 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
                 continue
             self.assertNotIn(EDGE_ROLE_NAME, json.dumps(statement, sort_keys=True))
 
-    def test_both_qa_bucket_policies_deny_only_the_shared_edge_role(self) -> None:
+    def test_both_qa_bucket_policies_deny_shared_and_per_edge_roles(self) -> None:
         cases = (
             (
                 self.raw,
@@ -146,7 +226,12 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
         broadened = copy.deepcopy(self.raw)
         statements = _statements(broadened, "QaRawArchiveBucketPolicy")
         deny = next(item for item in statements if item.get("Sid") == EDGE_DENY_SID)
-        deny["Condition"]["ArnEquals"]["aws:PrincipalArn"] = "arn:aws:iam::*:role/*"
+        deny["Condition"] = {
+            "ArnLike": {
+                "aws:PrincipalArn": [EDGE_ROLE_ARN, EDGE_ROLE_ARN + "-*"]
+            }
+        }
+        deny["Condition"]["ArnLike"]["aws:PrincipalArn"] = "arn:aws:iam::*:role/*"
         deny["Resource"].append("arn:aws:s3:::*")
 
         with self.assertRaises(AssertionError):
@@ -157,26 +242,7 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
                 "${QaRawArchiveBucket.Arn}/*",
             )
 
-    def test_edge_role_and_deploy_workflow_own_off_box_env_secrets(self) -> None:
-        role = self.addon["Resources"]["LightsailSsmHybridRole"]["Properties"]
-        policies = role.get("Policies", [])
-        backup = [
-            item for item in policies if item.get("PolicyName") == "EdgeEnvSecretsBackup"
-        ]
-        self.assertEqual(len(backup), 1)
-        statements = backup[0]["PolicyDocument"]["Statement"]
-        self.assertEqual(
-            statements,
-            [
-                {
-                    "Sid": "ReadWriteOwnFleetEnvSecrets",
-                    "Effect": "Allow",
-                    "Action": ["ssm:GetParameter", "ssm:PutParameter"],
-                    "Resource": "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/stage0/env-secrets-backup",
-                }
-            ],
-        )
-
+    def test_deploy_workflow_backs_up_to_the_resolved_edge_parameter(self) -> None:
         workflow = yaml.safe_load(EDGE_WORKFLOW.read_text(encoding="utf-8"))
         steps = workflow["jobs"]["edge"]["steps"]
         step = next(item for item in steps if item.get("name") == "Backup Edge env secrets off-box")

@@ -78,6 +78,15 @@ for K in POSTGRES_PASSWORD JWT_SECRET TOTP_ENCRYPTION_KEY; do
     echo "::error::expected exactly one \${K} assignment in \$SOURCE" >&2
     exit 1
   fi
+  V=\$(awk -F= -v key="\$K" '\$1 == key { print substr(\$0, length(key) + 2) }' "\$T")
+  EXPECTED_LENGTH=64
+  [ "\$K" = POSTGRES_PASSWORD ] && EXPECTED_LENGTH=48
+  if [[ ! "\$V" =~ ^[0-9a-f]+$ ]] || [ "\${#V}" -ne "\$EXPECTED_LENGTH" ]; then
+    echo "::error::invalid secret value for \${K}" >&2
+    unset V
+    exit 1
+  fi
+  unset V
 done
 if aws ssm get-parameter --name "\$PARAM" --with-decryption --query Parameter.Value --output text > "\$C" 2>/dev/null \
     && cmp -s "\$T" "\$C"; then

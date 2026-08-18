@@ -190,9 +190,8 @@ class TestQAPhaseOps(unittest.TestCase):
             "verify_raw_archive_iam_contract", "ops/qa/verify_raw_archive_iam_contract.py"
         )
         account_id = "123456789012"
-        edge_role = (
-            f"arn:aws:iam::{account_id}:role/tokenkey-lightsail-ssm-hybrid"
-        )
+        edge_role = f"arn:aws:iam::{account_id}:role/tokenkey-lightsail-ssm-hybrid"
+        edge_role_family = f"{edge_role}-*"
 
         def statements(bucket: str) -> list[dict]:
             return [
@@ -206,7 +205,9 @@ class TestQAPhaseOps(unittest.TestCase):
                         f"arn:aws:s3:::{bucket}/*",
                     ],
                     "Condition": {
-                        "ArnEquals": {"aws:PrincipalArn": edge_role}
+                        "ArnLike": {
+                            "aws:PrincipalArn": [edge_role, edge_role_family]
+                        }
                     },
                 },
                 {
@@ -234,6 +235,37 @@ class TestQAPhaseOps(unittest.TestCase):
         self.assertTrue(verdict["ok"], verdict)
         self.assertEqual(verdict["status"], "applied")
         self.assertEqual(verdict["edge_role_arn"], edge_role)
+        self.assertEqual(verdict["edge_role_arns"], [edge_role, edge_role_family])
+
+    def test_verify_edge_qa_boundary_rejects_shared_role_only_deny(self) -> None:
+        iam_contract = _load_module(
+            "verify_raw_archive_iam_contract", "ops/qa/verify_raw_archive_iam_contract.py"
+        )
+        account_id = "123456789012"
+        bucket = "tokenkey-prod-qa-raw-archive-123456789012"
+        shared_role = f"arn:aws:iam::{account_id}:role/tokenkey-lightsail-ssm-hybrid"
+        verdict = iam_contract.evaluate_edge_qa_boundary(
+            account_id=account_id,
+            buckets={
+                bucket: [
+                    {
+                        "Sid": "DenyLightsailEdgeRole",
+                        "Effect": "Deny",
+                        "Principal": "*",
+                        "Action": "s3:*",
+                        "Resource": [
+                            f"arn:aws:s3:::{bucket}",
+                            f"arn:aws:s3:::{bucket}/*",
+                        ],
+                        "Condition": {
+                            "ArnEquals": {"aws:PrincipalArn": shared_role}
+                        },
+                    }
+                ]
+            },
+        )
+        self.assertFalse(verdict["ok"])
+        self.assertIn(f"{bucket}:edge_deny_condition", verdict["failures"])
 
     def test_verify_edge_qa_boundary_rejects_missing_deny_and_edge_allow(self) -> None:
         iam_contract = _load_module(
@@ -315,9 +347,7 @@ class TestQAPhaseOps(unittest.TestCase):
 
         def fake_policy(bucket: str) -> list[dict]:
             policy_calls.append(bucket)
-            edge_role = (
-                "arn:aws:iam::123456789012:role/tokenkey-lightsail-ssm-hybrid"
-            )
+            edge_role = "arn:aws:iam::123456789012:role/tokenkey-lightsail-ssm-hybrid"
             return [
                 {
                     "Sid": "DenyLightsailEdgeRole",
@@ -329,7 +359,9 @@ class TestQAPhaseOps(unittest.TestCase):
                         f"arn:aws:s3:::{bucket}/*",
                     ],
                     "Condition": {
-                        "ArnEquals": {"aws:PrincipalArn": edge_role}
+                        "ArnLike": {
+                            "aws:PrincipalArn": [edge_role, f"{edge_role}-*"]
+                        }
                     },
                 }
             ]

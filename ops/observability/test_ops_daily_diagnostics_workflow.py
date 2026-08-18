@@ -124,6 +124,20 @@ def run_issue_lifecycle(
 
 
 class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
+    def test_restore_canary_receipt_uses_existing_runtime_probe(self) -> None:
+        commands = extract_runtime_params_commands()
+        self.assertIn("echo ===PGDUMP_RESTORE_CANARY_RECEIPT===", commands)
+        self.assertIn("sudo cat /var/lib/tokenkey/pgdump-canary/latest.json 2>/dev/null || true", commands)  # preflight-allow: swallow (asserts actionable missing-receipt path)
+        self.assertIn("echo ===END_PGDUMP_RESTORE_CANARY_RECEIPT===", commands)
+
+        text = workflow_text()
+        self.assertIn("pgdump_restore_canary_verdict.py", text)
+        self.assertIn("pgdump-restore-canary|$TARGET_ID", text)
+        runtime_start = text.index('python3 - <<\'PY\' > "$OUT/runtime-params.json"')
+        runtime_end = text.index("if [ \"$INCLUDE_ERROR_CLUSTERING\"", runtime_start)
+        runtime_block = text[runtime_start:runtime_end]
+        self.assertNotIn("run-probe.sh", runtime_block)
+
     def test_expression_interpolated_run_blocks_fit_github_limit(self) -> None:
         workflow = yaml.safe_load(workflow_text())
         oversized: list[str] = []

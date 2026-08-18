@@ -19,6 +19,27 @@ BOUND_COMMENT_PREFIX = "tokenkey-usage-partition-upper-v1:"
 QUERY_INDEX = "idx_usage_logs_request_api_key_partition"
 UPPER_RE = re.compile(r"20[0-9]{2}-[0-9]{2}-[0-9]{2}T00:00:00Z")
 KNOWN_INCOMING_FK_TABLES = {"billing_usage_entries"}
+BILLING_DEDUP_READY_SQL = """
+EXISTS (
+  SELECT 1
+  FROM pg_index i
+  WHERE i.indrelid = to_regclass('public.usage_billing_dedup')
+    AND i.indisunique
+    AND i.indisvalid
+    AND i.indisready
+    AND i.indpred IS NULL
+    AND i.indexprs IS NULL
+    AND i.indnkeyatts = 2
+    AND (
+      SELECT array_agg(a.attname ORDER BY key_column.ordinality)
+      FROM unnest(i.indkey::smallint[]) WITH ORDINALITY
+        AS key_column(attnum, ordinality)
+      JOIN pg_attribute a
+        ON a.attrelid = i.indrelid AND a.attnum = key_column.attnum
+      WHERE key_column.ordinality <= i.indnkeyatts
+    ) = ARRAY['request_id'::name, 'api_key_id'::name]
+)
+""".strip()
 
 
 class UsagePartitionError(RuntimeError):
@@ -190,9 +211,10 @@ def prepare(target: str, confirmation: str) -> dict[str, Any]:
             ).strip()
         )
     inventory = _query_json(
-        """
+        f"""
 SELECT row_to_json(v) FROM (
   SELECT
+    ({BILLING_DEDUP_READY_SQL}) AS billing_dedup_ready,
     COALESCE((
       SELECT json_agg(json_build_object('name', ci.relname, 'primary', i.indisprimary))
       FROM pg_index i
@@ -213,6 +235,10 @@ SELECT row_to_json(v) FROM (
         for item in incoming
     ):
         raise UsagePartitionError("usage_logs has an unapproved incoming foreign key")
+    if inventory.get("billing_dedup_ready") is not True:
+        raise UsagePartitionError(
+            "usage billing dedup unique key is absent or invalid"
+        )
 
     _psql(
         f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {QUERY_INDEX} ON usage_logs (request_id, api_key_id)",
@@ -337,6 +363,9 @@ BEGIN
       AND obj_description(oid, 'pg_constraint') = '{BOUND_COMMENT_PREFIX}{upper}'
   ) THEN
     RAISE EXCEPTION 'fixed upper CHECK is absent, stale, or unvalidated';
+  END IF;
+  IF NOT ({BILLING_DEDUP_READY_SQL}) THEN
+    RAISE EXCEPTION 'usage billing dedup unique key is absent or invalid';
   END IF;
   SELECT string_agg(c.conrelid::regclass::text || '.' || c.conname, ',') INTO unexpected
   FROM pg_constraint c
@@ -518,6 +547,10 @@ COMMIT;
 # This generator is executed end-to-end on local PostgreSQL 16, including its
 # catalog rewrite, by UsageLogsDailyPartitionPostgresTest instead.
 SELF_CHECK_EXEMPT: dict[str, str] = {
+    "BILLING_DEDUP_READY_SQL": (
+        "executed by ops/migration/test_usage_logs_daily_partition.py::"
+        "UsageLogsDailyPartitionPostgresTest during prepare and cutover"
+    ),
     "build_cutover_sql": (
         "covered by ops/migration/test_usage_logs_daily_partition.py::"
         "UsageLogsDailyPartitionPostgresTest"
@@ -545,7 +578,21 @@ SELECT row_to_json(v) FROM (
       WHERE inhparent = to_regclass('public.usage_logs')
         AND inhrelid = to_regclass('public.usage_logs_legacy')
     ) AS legacy_attached,
-    to_regclass('public.usage_logs_' || to_char(TIMESTAMPTZ '{upper}', 'YYYYMMDD')) IS NOT NULL AS first_daily_partition_exists,
+    NOT EXISTS (
+      SELECT 1
+      FROM generate_series(0, 7) AS expected(day_offset)
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM pg_inherits
+        WHERE inhparent = to_regclass('public.usage_logs')
+          AND inhrelid = to_regclass(
+            'public.usage_logs_' || to_char(
+              TIMESTAMPTZ '{upper}' + expected.day_offset * interval '1 day',
+              'YYYYMMDD'
+            )
+          )
+      )
+    ) AS daily_partitions_attached,
     NOT EXISTS (
       SELECT 1 FROM pg_index i
       WHERE i.indrelid = to_regclass('public.usage_logs') AND i.indisunique
@@ -575,7 +622,7 @@ SELECT row_to_json(v) FROM (
     required = (
         "partitioned",
         "legacy_attached",
-        "first_daily_partition_exists",
+        "daily_partitions_attached",
         "no_parent_global_unique",
         "no_incoming_legacy_fk",
         "constraints_preserved",

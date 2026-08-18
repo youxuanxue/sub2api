@@ -44,6 +44,7 @@ printf '%s\n' \
 run_restore() {
   local result="$1"
   local output="$2"
+  shift 2
   PATH="${fake_bin}:${PATH}" \
     FAKE_AWS_LOG="${tmp}/aws.log" \
     FAKE_AWS_RESULT="${result}" \
@@ -51,7 +52,8 @@ run_restore() {
     AWS_REGION=us-east-2 \
     bash "${SCRIPT}" \
       --parameter /tokenkey/edge/us3/stage0/env-secrets-backup \
-      --output "${output}"
+      --output "${output}" \
+      "$@"
 }
 
 # A valid off-box value is restored exactly and locked to owner-only access.
@@ -67,9 +69,18 @@ run_restore denied "${restored}" >"${tmp}/existing.out"
 test ! -s "${tmp}/aws.log"
 cmp -s "${expected_restored}" "${restored}"
 
-# Only ParameterNotFound authorizes first-boot generation.
+# ParameterNotFound cannot authorize generation for an existing Edge identity.
+missing_required="${tmp}/missing-required.secret"
+if run_restore notfound "${missing_required}" >"${tmp}/missing-required.out" 2>"${tmp}/missing-required.err"; then
+  echo 'FAIL: ParameterNotFound without --allow-generate must fail closed' >&2
+  exit 1
+fi
+test ! -e "${missing_required}"
+grep -F 'generation is not authorized' "${tmp}/missing-required.err" >/dev/null
+
+# Explicit first-provision authority permits generation.
 generated="${tmp}/generated.secret"
-run_restore notfound "${generated}" >"${tmp}/generated.out"
+run_restore notfound "${generated}" --allow-generate >"${tmp}/generated.out"
 grep -F 'edge env secrets generated for first provision' "${tmp}/generated.out" >/dev/null
 grep -Eq '^JWT_SECRET=[0-9a-f]{64}$' "${generated}"
 grep -Eq '^POSTGRES_PASSWORD=[0-9a-f]{48}$' "${generated}"
