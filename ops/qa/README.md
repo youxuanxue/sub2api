@@ -32,6 +32,20 @@ App rollback does not imply QA control-plane rollback. The target release tree e
 
 The repository may be `single_owner_ready` while observed live state remains `single_owner_not_activated`. Editing rollout metadata never proves deployment.
 
+The production handoff has one local SSM entry. `plan` is read-only and prints the
+current immutable plan hash. `activate` requires that exact hash and confirmation;
+the host runner still owns drain, lock, receipt, and boundary retirement.
+
+```bash
+bash ops/stage0/activate-qa-single-owner-via-ssm.sh plan <prod-instance-id>
+bash ops/stage0/activate-qa-single-owner-via-ssm.sh activate <prod-instance-id> \
+  --plan-hash=<sha256> \
+  --confirm=tokenkey-prod-qa-single-owner-activate-v1:<sha256>
+```
+
+Plan failure is a hard stop. In particular, missing capture seals must age naturally
+out of the approved 24-hour horizon; operators must not fabricate or backfill them.
+
 ```bash
 python3 scripts/checks/qa-lifecycle-ssot.py --self-test
 python3 scripts/checks/qa-lifecycle-ssot.py

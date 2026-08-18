@@ -255,6 +255,16 @@ jobs:
           STAGE0_SSM_OUTPUT_DIR: .
         run: bash ops/stage0/sync-edge-host-units-via-ssm.sh "$INSTANCE_ID" "edge-host-units edge=${{ steps.edge.outputs.edge_id }}"
 
+      - name: Backup Edge env secrets off-box
+        if: inputs.operation == 'provision' || inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
+          AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
+          TK_ENV_SECRETS_SOURCE: /var/lib/tokenkey/.env.secret
+          TK_ENV_SECRETS_PARAM: /tokenkey/edge/${{ steps.edge.outputs.edge_id }}/stage0/env-secrets-backup
+          STAGE0_SSM_OUTPUT_DIR: .edge-env-secrets-backup
+        run: bash ops/stage0/backup-env-secrets-via-ssm.sh "$INSTANCE_ID" "edge-env-secrets-backup edge=${{ steps.edge.outputs.edge_id }}"
+
       - name: Edge smoke
         if: inputs.operation == 'smoke' || inputs.operation == 'upgrade' || inputs.operation == 'rollback'
         env:

@@ -81,6 +81,30 @@ func TestGrokRealtimeEventHasAudio(t *testing.T) {
 	require.True(t, grokRealtimeEventHasAudio([]byte(`{"type":"response.output_audio.delta","audio":"abc"}`)))
 }
 
+func TestObserveGrokRealtimeTurnRecordsEachDeliveredTerminalEvent(t *testing.T) {
+	type outcome struct {
+		err     error
+		present bool
+	}
+	var outcomes []outcome
+	observe := func(err error, present bool) {
+		outcomes = append(outcomes, outcome{err: err, present: present})
+	}
+	observed := make(map[string]struct{})
+
+	observeGrokRealtimeTurn([]byte(`{"type":"response.audio.delta","delta":"abc"}`), observed, observe)
+	observeGrokRealtimeTurn([]byte(`{"type":"response.done","response":{"id":"resp_1","status":"completed"}}`), observed, observe)
+	observeGrokRealtimeTurn([]byte(`{"type":"response.completed","response":{"id":"resp_1","status":"completed"}}`), observed, observe)
+	observeGrokRealtimeTurn([]byte(`{"type":"response.completed","response":{"id":"resp_2","status":"failed","error":{"message":"upstream failed"}}}`), observed, observe)
+	observeGrokRealtimeTurn([]byte(`{"type":"response.done","response":{"status":"completed"}}`), observed, observe)
+
+	require.Len(t, outcomes, 2)
+	require.NoError(t, outcomes[0].err)
+	require.True(t, outcomes[0].present)
+	require.Error(t, outcomes[1].err)
+	require.False(t, outcomes[1].present)
+}
+
 func TestForwardGrokVoice_RejectsUnknownEndpoint(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	_, err := svc.ForwardGrokVoice(context.Background(), nil, &Account{Platform: PlatformGrok}, "unknown", []byte(`{}`), "application/json")

@@ -13,6 +13,13 @@ output_dir="${tmp}/output"
 work_dir="${tmp}/work"
 mkdir -p "${local_bin}" "${remote_bin}" "${output_dir}" "${work_dir}"
 
+secret_file="${tmp}/env.secret"
+cat >"${secret_file}" <<'EOF'
+TOTP_ENCRYPTION_KEY=totp-test-secret
+POSTGRES_PASSWORD=postgres-test-secret
+JWT_SECRET=jwt-test-secret
+EOF
+
 cat >"${local_bin}/aws" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -38,6 +45,8 @@ chmod +x "${local_bin}/aws"
 
 PATH="${local_bin}:${PATH}" \
   STAGE0_SSM_OUTPUT_DIR="${output_dir}" \
+  TK_ENV_SECRETS_SOURCE="${secret_file}" \
+  TK_ENV_SECRETS_PARAM="/tokenkey/edge/us3/stage0/env-secrets-backup" \
   AWS_REGION=us-east-2 \
   bash "${SCRIPT}" mi-test rendered-payload-test >"${tmp}/outer.out"
 
@@ -47,19 +56,15 @@ host_rendered="${tmp}/host-rendered.sh"
 host_script="${tmp}/host-under-test.sh"
 printf '%s' "${host_b64}" | base64 -d >"${host_rendered}"
 
-secret_file="${tmp}/env.secret"
-cat >"${secret_file}" <<'EOF'
-TOTP_ENCRYPTION_KEY=totp-test-secret
-POSTGRES_PASSWORD=postgres-test-secret
-JWT_SECRET=jwt-test-secret
-EOF
 expected_parameter="${tmp}/expected.parameter"
 printf '%s\n%s\n%s' \
   'JWT_SECRET=jwt-test-secret' \
   'POSTGRES_PASSWORD=postgres-test-secret' \
   'TOTP_ENCRYPTION_KEY=totp-test-secret' >"${expected_parameter}"
-sed "s#/var/lib/tokenkey/.env#${secret_file}#g" \
-  "${host_rendered}" >"${host_script}"
+cp "${host_rendered}" "${host_script}"
+
+grep -F "SOURCE=\"${secret_file}\"" "${host_script}" >/dev/null
+grep -F 'PARAM="/tokenkey/edge/us3/stage0/env-secrets-backup"' "${host_script}" >/dev/null
 
 cat >"${remote_bin}/aws" <<'EOF'
 #!/usr/bin/env bash

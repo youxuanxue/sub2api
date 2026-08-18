@@ -102,6 +102,8 @@ var ProviderSet = wire.NewSet(
 	NewChannelRepository,
 	NewChannelMonitorRepository,
 	NewChannelMonitorV2Repository,
+	NewTerminalOutcomeRepository,
+	wire.Bind(new(service.TerminalOutcomeRepository), new(*TerminalOutcomeRepository)),
 	NewChannelMonitorRequestTemplateRepository,
 	NewContentModerationRepository,
 	NewAffiliateRepository,
