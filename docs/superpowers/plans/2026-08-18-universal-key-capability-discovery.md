@@ -82,3 +82,29 @@
 4. Run `./scripts/preflight.sh`; fix and rerun until green.
 5. Use `requesting-code-review`, then `verification-before-completion` and `finishing-a-development-branch`.
 6. Commit with the approval anchor and web-impact evidence, push to `origin`, create a Chinese PR body containing every commit SHA/subject and the current HEAD freshness anchor.
+
+## Task 7: R-010 authenticated pricing selector parity
+
+**Files:**
+- Modify: `backend/internal/service/me_pricing_catalog_tk_test.go`
+- Modify: `backend/internal/service/me_pricing_catalog_tk.go`
+- Modify: `backend/internal/handler/me_pricing_catalog_handler_tk_test.go`
+- Modify: `backend/internal/handler/me_pricing_catalog_handler_tk.go`
+- Modify: `frontend/src/api/me-pricing.ts`
+- Modify: `frontend/src/views/PricingView.vue`
+- Modify: `frontend/src/views/__tests__/PricingView.spec.ts`
+- Modify: `frontend/src/i18n/tk/legacyMissing.tk.ts`
+- Modify: `docs/approved/universal-key-capability-discovery.md`
+- Modify: `.testing/user-stories/stories/US-046-universal-key-capability-discovery.md`
+
+**Interfaces:**
+- Consumes: an owned active `service.APIKey` with `RoutingModeUniversal` and no `GroupID`, plus the caller's accessible groups.
+- Produces: `GET /api/v1/me/pricing-catalog?api_key_id=<id>` with `target_group: null`, a stable de-duplicated union in `models`, and the existing `authorized_groups_by_model` group provenance. Direct-key and explicit-group selectors keep their current group-scoped contract.
+
+1. Add a service test proving an owned automatic-routing key returns the union of its owner's accessible group menus, keeps duplicate model IDs once, marks no group as current, and leaves `TargetGroup` nil.
+2. Run the focused service test and verify it fails with `ErrMePricingAPIKeyNotFound`.
+3. Add a handler serialization test proving the successful universal response emits JSON `target_group: null`; keep the existing foreign/missing-key 404 test.
+4. Change target selection to distinguish a user-wide key scope from a group scope, aggregate group rows deterministically for the former, and preserve the existing default/direct behavior.
+5. Update the Go and TypeScript DTOs so `target_group` and picker `group_id` are nullable, keep universal keys in `my_keys`, and render a distinct automatic-routing scope in PricingView.
+6. Run focused service, handler, and PricingView tests until green.
+7. Add the omitted pricing projection and acceptance criterion to the approved design and US-046, run the linked Story verification, then run full preflight.

@@ -89,7 +89,9 @@ const en: LocaleOverlay = {
       "search": "Search",
       "activePublic": "Viewing all groups",
       "activeGroup": "Viewing {group} group catalog",
-      "activeKeyGroup": "Viewing {key} · {group}"
+      "activeKeyGroup": "Viewing {key} · {group}",
+      "automaticRouting": "Automatic routing",
+      "activeAutomaticKey": "Viewing {key} · Automatic routing"
     },
     "ctaBonus": "Register — get {amount} trial credit",
     "ctaBonusHint": "Shown when signup bonus is enabled for this site.",
@@ -1045,7 +1047,9 @@ const zh: LocaleOverlay = {
       "search": "搜索",
       "activePublic": "正在查看所有分组",
       "activeGroup": "正在查看 {group} 的分组目录",
-      "activeKeyGroup": "正在查看 {key} · {group}"
+      "activeKeyGroup": "正在查看 {key} · {group}",
+      "automaticRouting": "自动选择服务",
+      "activeAutomaticKey": "正在查看 {key} · 自动选择服务"
     },
     "ctaBonus": "立即注册 · 获赠 {amount} 试用额度",
     "ctaBonusHint": "当本站开启注册赠额时显示此提示。",

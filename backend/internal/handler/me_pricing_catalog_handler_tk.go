@@ -53,11 +53,12 @@ func NewMePricingCatalogHandler(svc *service.MePricingCatalogService) *MePricing
 //
 // Query params (both optional, mutually exclusive when referring to
 // different groups):
-//   - api_key_id — show menu for the group of this key
+//   - api_key_id — show the bound group menu for a direct key, or the user's
+//     accessible-group union for a universal key
 //   - group_id   — show menu for this group ("explore other group" mode)
 //
-// When both are absent, default to the user's first active key's group;
-// when the user has no key, default to their first accessible group.
+// When both are absent, default to the user's first usable active key scope;
+// when the user has no usable key, default to their first accessible group.
 func (h *MePricingCatalogHandler) Get(c *gin.Context) {
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
 	if !ok {

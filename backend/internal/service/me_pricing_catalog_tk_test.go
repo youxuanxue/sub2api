@@ -493,6 +493,59 @@ func TestMePricingCatalog_APIKeyNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, ErrMePricingAPIKeyNotFound)
 }
 
+func TestUS046_MePricingCatalog_UniversalKeyReturnsUserAuthorizationUnion(t *testing.T) {
+	gOpenAI := mkGroupForMe(10, "OpenAI", "openai", 1.0)
+	gAnthropic := mkGroupForMe(20, "Anthropic", "anthropic", 1.0)
+	kUniversal := mkKeyForMe(7, 42, "automatic", nil)
+	kUniversal.RoutingMode = RoutingModeUniversal
+
+	openAIChannel := mkChannelWithModel(
+		100,
+		"openai",
+		[]AvailableGroupRef{{ID: gOpenAI.ID, Platform: gOpenAI.Platform}},
+		[]SupportedModel{
+			mkSupportedModel("gpt-5", "openai", mkPricing(0.001, 0.002, 0)),
+			mkSupportedModel("shared-model", "openai", mkPricing(0.003, 0.004, 0)),
+		},
+	)
+	anthropicChannel := mkChannelWithModel(
+		200,
+		"anthropic",
+		[]AvailableGroupRef{{ID: gAnthropic.ID, Platform: gAnthropic.Platform}},
+		[]SupportedModel{
+			mkSupportedModel("claude-sonnet", "anthropic", mkPricing(0.005, 0.006, 0)),
+			mkSupportedModel("shared-model", "anthropic", mkPricing(0.007, 0.008, 0)),
+		},
+	)
+	svc := newService(
+		&fakeKeyAccess{groups: []Group{gOpenAI, gAnthropic}, keys: []APIKey{kUniversal}},
+		&fakeChannelLister{channels: []AvailableChannel{openAIChannel, anthropicChannel}},
+		&fakeCatalogProvider{},
+	)
+	keyID := kUniversal.ID
+
+	resp, err := svc.BuildForUser(context.Background(), 42, MePricingCatalogOptions{APIKeyID: &keyID})
+
+	require.NoError(t, err)
+	assert.Empty(t, resp.TargetGroup, "an automatic-routing key must not pretend to target one group")
+	assert.Equal(t, []string{"claude-sonnet", "gpt-5", "shared-model"}, modelIDsOf(resp.Models))
+	require.Len(t, resp.MyKeys, 1, "the selected automatic-routing key must remain available in the pricing picker")
+	assert.Nil(t, resp.MyKeys[0].GroupID)
+	assert.Equal(t, RoutingModeUniversal, resp.MyKeys[0].RoutingMode)
+	require.Len(t, resp.AuthorizedGroupsByModel["shared-model"], 2)
+	for _, group := range resp.AuthorizedGroupsByModel["shared-model"] {
+		assert.False(t, group.IsCurrentForKey)
+	}
+	for _, group := range resp.AccessibleGroups {
+		assert.False(t, group.IsCurrentForKey)
+	}
+
+	defaultResp, err := svc.BuildForUser(context.Background(), 42, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	assert.Nil(t, defaultResp.TargetGroup, "the first automatic-routing key must default to user-wide scope")
+	assert.Equal(t, modelIDsOf(resp.Models), modelIDsOf(defaultResp.Models))
+}
+
 func TestMePricingCatalog_KeyWithoutGroupSkippedInPicker(t *testing.T) {
 	gPro := mkGroupForMe(10, "Pro", "newapi", 1.0)
 	k1 := mkKeyForMe(1, 7, "default", ptrI(10))

@@ -104,6 +104,8 @@ vi.mock('vue-i18n', async () => {
     'pricing.filters.activePublic': 'Viewing all groups',
     'pricing.filters.activeGroup': 'Viewing {group} group catalog',
     'pricing.filters.activeKeyGroup': 'Viewing {key} · {group}',
+    'pricing.filters.automaticRouting': 'Automatic routing',
+    'pricing.filters.activeAutomaticKey': 'Viewing {key} · Automatic routing',
     'common.loading': 'Loading',
     'pricing.my.tabMy': 'Group Catalog',
     'pricing.my.tabPublic': 'All groups',
@@ -226,8 +228,8 @@ function meCatalog(overrides: Partial<MePricingCatalogResponse> = {}): MePricing
       },
     ],
     my_keys: [
-      { id: 1, name: 'default', group_id: 10, group_name: 'Pro' },
-      { id: 2, name: 'batch', group_id: 20, group_name: 'Batch' },
+      { id: 1, name: 'default', group_id: 10, group_name: 'Pro', routing_mode: 'direct' },
+      { id: 2, name: 'batch', group_id: 20, group_name: 'Batch', routing_mode: 'direct' },
     ],
     accessible_groups: [
       {
@@ -484,7 +486,7 @@ describe('PricingView', () => {
       .mockResolvedValueOnce(meCatalog())
       .mockResolvedValueOnce(meCatalog({
         target_group: {
-          ...meCatalog().target_group,
+          ...meCatalog().target_group!,
           id: 20,
           name: 'Batch',
         },
@@ -497,7 +499,7 @@ describe('PricingView', () => {
       }))
       .mockResolvedValueOnce(meCatalog({
         target_group: {
-          ...meCatalog().target_group,
+          ...meCatalog().target_group!,
           id: 20,
           name: 'Batch',
         },
@@ -533,6 +535,41 @@ describe('PricingView', () => {
     expect(wrapper.text()).toContain('public-model')
     expect(wrapper.find('[data-tk="pricing-filter-key"]').exists()).toBe(true)
     expect(wrapper.find('[data-tk="pricing-filter-group"]').exists()).toBe(true)
+  })
+
+  it('keeps automatic-routing keys selectable and labels their user-wide scope', async () => {
+    authState.isAuthenticated = true
+    localStorage.setItem('auth_token', 'token')
+    const automaticKey = {
+      id: 7,
+      name: 'automatic',
+      group_id: null,
+      group_name: '',
+      routing_mode: 'universal' as const,
+    }
+    getMePricingCatalog
+      .mockResolvedValueOnce(meCatalog({
+        my_keys: [...meCatalog().my_keys, automaticKey],
+      }))
+      .mockResolvedValueOnce(meCatalog({
+        target_group: null,
+        my_keys: [...meCatalog().my_keys, automaticKey],
+        models: [{
+          ...meCatalog().models[0],
+          model_id: 'automatic-union-model',
+        }],
+      }))
+
+    const wrapper = mountPricingView()
+    await flushPromises()
+
+    await wrapper.get('[data-tk="pricing-filter-key"]').setValue('7')
+    await flushPromises()
+
+    expect(getMePricingCatalog).toHaveBeenLastCalledWith({ apiKeyId: 7 })
+    expect(wrapper.get<HTMLSelectElement>('[data-tk="pricing-filter-group"]').element.value).toBe('automatic')
+    expect(wrapper.text()).toContain('Viewing automatic · Automatic routing')
+    expect(wrapper.text()).toContain('automatic-union-model')
   })
 
   it('shows authorized groups on the public catalog when logged in', async () => {

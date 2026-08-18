@@ -20,6 +20,7 @@
 5. AC-005 (安全): Given 已登录用户请求另一个用户的 key capability，When 调用站内 capability API，Then 返回 404 且不泄露目标 key 元数据。
 6. AC-006 (UI): Given 用户打开 Quickstart 或 Studio 并选择自动路由 key，When 页面加载菜单，Then 浏览器只请求 capability SSOT 并按协议/模态展示；加载失败显示错误而不是空菜单。
 7. AC-007 (回归): Given direct key 与已有实际推理请求，When 执行回归测试，Then direct key 仍限制到绑定组，实际请求的解析、计费与调度行为不变。
+8. AC-008 (站内价目): Given 用户选择自己的自动路由 key，When 请求 `me/pricing-catalog?api_key_id=`，Then 返回用户授权组价目的稳定并集、`target_group: null` 与逐模型授权组索引；未知或其他用户的 key 仍返回 404。
 
 ## Assertions
 
@@ -43,6 +44,9 @@
 - `backend/internal/handler/us046_universal_discovery_test.go`::`TestUS046_CapabilityEndpointRejectsForeignKey`
 - `backend/internal/handler/us046_universal_discovery_test.go`::`TestUS046_CodexDiscoveryPathsUseAuthorizedOpenAIGroup`
 - `backend/internal/handler/us046_universal_discovery_test.go`::`TestUS046_CodexDiscoveryReturnsNativeEmptyManifestWithoutCapability`
+- `backend/internal/service/me_pricing_catalog_tk_test.go`::`TestUS046_MePricingCatalog_UniversalKeyReturnsUserAuthorizationUnion`
+- `backend/internal/handler/me_pricing_catalog_handler_tk_test.go`::`TestUS046_MePricingHandler_UniversalScopeSerializesNullTargetGroup`
+- `frontend/src/views/__tests__/PricingView.spec.ts`::`keeps automatic-routing keys selectable and labels their user-wide scope`
 - `frontend/src/composables/__tests__/useTkUseKey.spec.ts`::`uses only the key capability SSOT for automatic routing and filters by protocol metadata`
 - `frontend/src/views/user/studio/__tests__/MediaStudioView.spec.ts`::`uses capability modalities instead of public pricing to select and scope automatic keys`
 - `frontend/e2e/us046-universal-capability-discovery.e2e.ts`::`US046 automatic routing key uses the capability menu`

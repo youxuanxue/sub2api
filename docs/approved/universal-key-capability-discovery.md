@@ -41,6 +41,7 @@ related_stories: [.testing/user-stories/stories/US-046-universal-key-capability-
 - Codex `/models` 与 `/backend-api/codex/models`：先为自动路由 key 选择支持 Codex/Responses 的 OpenAI 授权组，再复用现有 manifest 获取和过滤路径。
 - `GET /antigravity/models`：仅返回授权且可调用的 Antigravity 子集。
 - `GET /api/v1/me/api-keys/:id/capabilities`：JWT 鉴权并校验 key ownership，返回站内菜单需要的完整能力投影；Quickstart、Studio 与后续菜单统一消费它。
+- `GET /api/v1/me/pricing-catalog?api_key_id=`：direct key 保持单组价目；自动路由 key 保留在 Key picker 中并返回用户授权组价目的稳定并集、`target_group: null` 与逐模型授权组索引，界面明确显示“自动选择服务”scope，不再把无绑定组误判为 key 不存在或公共目录。
 
 ## Error And Security Semantics
 
