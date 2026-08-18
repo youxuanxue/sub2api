@@ -3,6 +3,8 @@
 -- Runtime default is already device when the extra key is missing. This write
 -- makes the choice visible in admin extra and keeps explicit off/session/full.
 -- Idempotent: only fills missing, empty, or invalid values.
+-- Numbered tk_086 so it does not collide with shipped
+-- tk_085_channel_monitor_terminal_outcomes.sql.
 
 UPDATE accounts
 SET extra = jsonb_set(
