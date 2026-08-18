@@ -1,5 +1,12 @@
 {
   "schema_version": 1,
+  "provider_qualifiers": [
+    "amazon.",
+    "anthropic.",
+    "google.",
+    "openai.",
+    "xai."
+  ],
   "rules": [
     {
       "family": "claude",
@@ -53,5 +60,5 @@
       ]
     }
   ],
-  "checksum_sha256": "adfa1be40268020420de2cb9f420a1bfa3ad6abc77052f7917c1de47d5522fdf"
+  "checksum_sha256": "0309c2e39e7306c0232263e8c9448e6a98fa93857de3a6f9bc6704c70f3bd20e"
 }

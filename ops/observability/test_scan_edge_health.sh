@@ -24,7 +24,10 @@ else:
 PY
 cat > "${TMPDIR_SCAN}/run-probe" <<'SH'
 #!/usr/bin/env bash
-printf '%s\n' called >> "${MOCK_RUN_PROBE_MARKER}"
+printf '%s\n' "$*" >> "${MOCK_RUN_PROBE_MARKER}"
+if [ "${MOCK_SSM_MODE:-success}" = "failure" ]; then
+  exit 3
+fi
 if [ "${MOCK_TERMINAL_MODE:-valid}" = "malformed" ]; then
   printf '%s\n' 'TERMINAL_META not-json'
   exit 0
@@ -64,6 +67,7 @@ run_alert_scan() {
   MOCK_RUN_PROBE_MARKER="${TMPDIR_SCAN}/run-probe.called" \
   MOCK_HTTPS_MODE="$1" \
   MOCK_TERMINAL_MODE="${2:-valid}" \
+  MOCK_SSM_MODE="${MOCK_SSM_MODE:-success}" \
     bash "${HERE}/scan-edge-health.sh" --edges us6 --alert-json "${@:3}"
 }
 
@@ -76,6 +80,7 @@ rm -f "${TMPDIR_SCAN}/run-probe.called"
 out="$(run_scan http503)"
 grep -q '"verdict": "healthy"' <<< "${out}"
 test -s "${TMPDIR_SCAN}/run-probe.called"
+! grep -q 'TERMINAL_ONLY=1' "${TMPDIR_SCAN}/run-probe.called"
 
 for mode in invalid failure; do
   rm -f "${TMPDIR_SCAN}/run-probe.called"
@@ -94,6 +99,7 @@ if EDGE_HEALTH_RESOLVE="${TMPDIR_SCAN}/resolve-failure" \
 fi
 
 out="$(run_alert_scan http503)"
+grep -q -- '--env TERMINAL_ONLY=1' "${TMPDIR_SCAN}/run-probe.called"
 python3 -c '
 import json, sys
 rows = [json.loads(line) for line in sys.stdin]
@@ -116,6 +122,20 @@ if out="$(run_alert_scan http503 malformed 2>/dev/null)"; then
   exit 1
 fi
 grep -q '"reason":"parse_error"' <<< "${out}"
+
+out="$(MOCK_SSM_MODE=failure run_alert_scan http503)"
+python3 -c '
+import json, sys
+row = json.load(sys.stdin)
+assert row == {
+    "edge": "us6",
+    "reachable": True,
+    "reason": "ssm_unreachable",
+    "schema_version": 1,
+    "telemetry_status": "unavailable",
+    "buckets": [],
+}
+' <<< "${out}"
 
 out="$(run_alert_scan http503 valid --with-prod)"
 python3 -c '

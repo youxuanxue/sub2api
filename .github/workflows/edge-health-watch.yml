@@ -1,23 +1,15 @@
 name: Edge Health Watch
 
-# Frequent, read-only fleet edge-health watch that turns scan-edge-health.sh (#640)
-# from "someone has to remember to run it" into "Feishu shouts the moment an edge
-# dies". Born from the 2026-06-07 incident: 4 edges went to 0 schedulable accounts
-# and the one healthy multi-account edge buckled under concentrated failover load;
-# ~3445 clients ate 429s across two spikes — with ZERO alerts, because the only
-# truth signal was a manual scan.
+# Read-only fleet watch for host reachability and complete model-unit terminal facts.
 #
 # Restored after 2026-08-03 edge-us6: guest hang (SSM ConnectionLost, NetworkOut=0)
 # for ~16h with ZERO Feishu pages — app-local alerts cannot fire when the host is
 # wedged, and prod failover masks single-edge death. scan-edge-health.sh now does
 # external HTTPS /health BEFORE SSM so blackhole hosts page as unreachable quickly.
 #
-# Read-only: GHA -> HTTPS /health + AWS STS (OIDC) -> SSM `docker logs` + `psql SELECT`
-# via scan-edge-health.sh. Never deploys, writes config, edits secrets, or mutates AWS.
-# The ONLY outbound side effect is a Feishu text post when the actionable edge set
-# (degraded / active-down / unreachable / parse-error) CHANGES vs the previous run.
-# Leading `down` (pool empty, zero 429 yet) is not paged. Posture (thin/no-accounts) is
-# not paged; recovery posts a green all-clear.
+# Read-only: GHA -> HTTPS /health + AWS STS (OIDC) -> SSM `psql SELECT` via
+# scan-edge-health.sh. Account posture remains a manual diagnostic and does not
+# participate in automatic capacity alerts.
 #
 # Cadence caveat: GitHub scheduled workflows are best-effort and can run late or skip
 # under load — this is detection-latency insurance, not a hard SLA. If a tighter SLA
@@ -25,7 +17,7 @@ name: Edge Health Watch
 
 on:
   schedule:
-    - cron: "7,22,37,52 * * * *" # ~every 15 min, off the :00 mark (GHA best-effort)
+    - cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -34,10 +26,6 @@ on:
         default: "false"
         type: choice
         options: ["false", "true"]
-      since:
-        description: "Traffic window for the scan (docker logs --since)"
-        required: false
-        default: "2h"
 
 permissions:
   contents: read
@@ -56,7 +44,6 @@ jobs:
     env:
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-      SINCE: ${{ inputs.since || '2h' }}
       DRY_RUN: ${{ inputs.dry_run || 'false' }}
       SCAN_PROBE_TIMEOUT: "60"
       SCAN_HTTPS_TIMEOUT: "8"
@@ -96,11 +83,11 @@ jobs:
           set -uo pipefail
           mkdir -p .edge-health-state
           scan_status=0
-          bash ops/observability/scan-edge-health.sh --with-prod --since "$SINCE" \
+          bash ops/observability/scan-edge-health.sh --with-prod \
             --timeout-seconds "$SCAN_PROBE_TIMEOUT" \
             --https-timeout-seconds "$SCAN_HTTPS_TIMEOUT" \
-            --json > verdicts.jsonl 2> scan.stderr || scan_status=$?
-          echo "---- verdicts ----"; cat verdicts.jsonl
+            --alert-json > terminal-buckets.jsonl 2> scan.stderr || scan_status=$?
+          echo "---- terminal buckets ----"; cat terminal-buckets.jsonl
           echo "---- scan stderr (tail) ----"; tail -20 scan.stderr
           if [ "$scan_status" -ne 0 ]; then
             echo "::error::edge-health scan failed or produced an incomplete result set."
@@ -110,16 +97,16 @@ jobs:
       - name: Decide + post alert
         run: |
           set -euo pipefail
-          KEYFILE=.edge-health-state/key
-          python3 ops/observability/edge-health-alert.py --window "$SINCE" \
-            --prev-key-file "$KEYFILE" < verdicts.jsonl > decision.json
+          STATEFILE=.edge-health-state/state.json
+          python3 ops/observability/edge_model_health_alert.py \
+            --scan terminal-buckets.jsonl --state-file "$STATEFILE" > decision.json
           cat decision.json
           if [ "$DRY_RUN" = "true" ]; then
             python3 ops/observability/edge_health_delivery.py \
-              --decision decision.json --key-file "$KEYFILE" --dry-run
+              --decision decision.json --state-file "$STATEFILE" --dry-run
           else
             python3 ops/observability/edge_health_delivery.py \
-              --decision decision.json --key-file "$KEYFILE"
+              --decision decision.json --state-file "$STATEFILE"
           fi
 
       - name: Save state key

@@ -123,6 +123,7 @@ for tgt in "${TARGETS[@]}"; do
   fi
   if out="$(bash "$RUN_PROBE" --target "$tgt" --script "$PROBE" \
               --env "PLATFORM=anthropic" --env "SINCE=$SINCE" \
+              --env "TERMINAL_ONLY=$ALERT_JSON" \
               --timeout-seconds "$PROBE_TIMEOUT" 2>/dev/null)"; then
     if [ "$ALERT_JSON" = "1" ]; then
       terminal_json=""
@@ -147,7 +148,7 @@ for tgt in "${TARGETS[@]}"; do
     fi
   else
     if [ "$ALERT_JSON" = "1" ]; then
-      printf '{"edge":"%s","reachable":false,"reason":"ssm_unreachable","schema_version":1}\n' "$label" >> "$RESULTS"
+      printf '{"edge":"%s","reachable":true,"reason":"ssm_unreachable","schema_version":1,"telemetry_status":"unavailable","buckets":[]}\n' "$label" >> "$RESULTS"
     else
       printf '{"edge":"%s","verdict":"unreachable","reason":"ssm_unreachable"}\n' "$label" >> "$RESULTS"
     fi
@@ -175,7 +176,7 @@ if alert_json == "1":
     for row in rows:
         if not isinstance(row, dict) or row.get("schema_version") != 1 or not isinstance(row.get("reachable"), bool):
             raise SystemExit(f"invalid terminal row: {row!r}")
-        if row["reachable"] and (not isinstance(row.get("buckets"), list) or row.get("telemetry_status") not in {"fresh", "stale"}):
+        if row["reachable"] and (not isinstance(row.get("buckets"), list) or row.get("telemetry_status") not in {"fresh", "stale", "unavailable"}):
             raise SystemExit(f"invalid reachable terminal row: {row!r}")
 else:
     if any(not isinstance(row, dict) or row.get("verdict") not in valid_verdicts for row in rows):

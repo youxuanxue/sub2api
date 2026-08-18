@@ -1675,6 +1675,21 @@ else
     echo "  ok: edge-health alert decision/dedup fixtures pass"
 fi
 
+# Complete terminal buckets drive model-family and dynamic exact-model alerts.
+# Unknown models only become candidates after a real final empty-pool 429.
+echo ""
+echo "=== sub2api: edge model-unit health alert tests ==="
+if ! python3 -m unittest \
+    ops.observability.test_edge_model_health_alert \
+    ops.observability.test_edge_health_delivery \
+    ops.observability.test_probe_edge_health >/dev/null 2>&1; then
+    echo "  FAIL: edge model-unit alert or structured delivery tests"
+    echo "        — run: python3 -m unittest ops.observability.test_edge_model_health_alert ops.observability.test_edge_health_delivery ops.observability.test_probe_edge_health"
+    errors=$((errors + 1))
+else
+    echo "  ok: terminal thresholds, dynamic models, state, and delivery fixtures pass"
+fi
+
 # ---- sub2api: edge HTTPS health probe selftest -----------------------------
 # External /health resolver+probe (scan-edge-health.sh leading signal for host
 # hang / blackhole). Pure unit fixtures — no network.
@@ -1704,7 +1719,7 @@ else
 fi
 
 # Delivery owns the alert acknowledgment boundary: rejected/missing Feishu
-# delivery must never advance the cached actionable key.
+# delivery must never advance the cached structured state.
 echo ""
 echo "=== sub2api: edge-health delivery selftest ==="
 if ! python3 ./ops/observability/edge_health_delivery.py --selftest >/dev/null 2>&1; then

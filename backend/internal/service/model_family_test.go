@@ -32,6 +32,7 @@ func TestDetectModelFamily(t *testing.T) {
 func TestModelFamilyArtifactIsStableAndSelfVerifying(t *testing.T) {
 	artifact := ExportModelFamilyRules()
 	require.Equal(t, 1, artifact.SchemaVersion)
+	require.Equal(t, []string{"amazon.", "anthropic.", "google.", "openai.", "xai."}, artifact.ProviderQualifiers)
 	require.Equal(t, []ModelFamilyRule{
 		{Family: "claude", Prefixes: []string{"claude-"}},
 		{Family: "gpt", Prefixes: []string{"gpt-", "o1", "o3", "o4"}},

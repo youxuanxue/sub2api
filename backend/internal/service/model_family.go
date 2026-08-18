@@ -17,9 +17,10 @@ type ModelFamilyRule struct {
 }
 
 type ModelFamilyRulesArtifact struct {
-	SchemaVersion int               `json:"schema_version"`
-	Rules         []ModelFamilyRule `json:"rules"`
-	Checksum      string            `json:"checksum_sha256"`
+	SchemaVersion      int               `json:"schema_version"`
+	ProviderQualifiers []string          `json:"provider_qualifiers"`
+	Rules              []ModelFamilyRule `json:"rules"`
+	Checksum           string            `json:"checksum_sha256"`
 }
 
 var modelFamilyRules = []ModelFamilyRule{
@@ -61,10 +62,11 @@ func DetectModelFamily(model string) ModelFamily {
 
 func ExportModelFamilyRules() ModelFamilyRulesArtifact {
 	artifact := ModelFamilyRulesArtifact{
-		SchemaVersion: modelFamilyRulesSchemaVersion,
-		Rules:         cloneModelFamilyRules(modelFamilyRules),
+		SchemaVersion:      modelFamilyRulesSchemaVersion,
+		ProviderQualifiers: append([]string(nil), modelProviderQualifiers...),
+		Rules:              cloneModelFamilyRules(modelFamilyRules),
 	}
-	artifact.Checksum = modelFamilyRulesChecksum(artifact.SchemaVersion, artifact.Rules)
+	artifact.Checksum = modelFamilyRulesChecksum(artifact.SchemaVersion, artifact.ProviderQualifiers, artifact.Rules)
 	return artifact
 }
 
@@ -76,14 +78,15 @@ func VerifyModelFamilyRulesArtifact(data []byte) bool {
 	if artifact.SchemaVersion != modelFamilyRulesSchemaVersion || len(artifact.Rules) == 0 {
 		return false
 	}
-	return artifact.Checksum == modelFamilyRulesChecksum(artifact.SchemaVersion, artifact.Rules)
+	return len(artifact.ProviderQualifiers) > 0 && artifact.Checksum == modelFamilyRulesChecksum(artifact.SchemaVersion, artifact.ProviderQualifiers, artifact.Rules)
 }
 
-func modelFamilyRulesChecksum(schemaVersion int, rules []ModelFamilyRule) string {
+func modelFamilyRulesChecksum(schemaVersion int, providerQualifiers []string, rules []ModelFamilyRule) string {
 	payload, err := json.Marshal(struct {
-		SchemaVersion int               `json:"schema_version"`
-		Rules         []ModelFamilyRule `json:"rules"`
-	}{SchemaVersion: schemaVersion, Rules: rules})
+		SchemaVersion      int               `json:"schema_version"`
+		ProviderQualifiers []string          `json:"provider_qualifiers"`
+		Rules              []ModelFamilyRule `json:"rules"`
+	}{SchemaVersion: schemaVersion, ProviderQualifiers: providerQualifiers, Rules: rules})
 	if err != nil {
 		return ""
 	}
