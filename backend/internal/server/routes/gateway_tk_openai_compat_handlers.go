@@ -2,6 +2,7 @@ package routes
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -93,6 +94,16 @@ func isGrokNativeVideoStatusRoute(c *gin.Context) bool {
 	default:
 		return false
 	}
+}
+
+func videoTaskRouteID(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	if taskID := strings.TrimSpace(c.Param("task_id")); taskID != "" {
+		return taskID
+	}
+	return strings.TrimSpace(c.Param("request_id"))
 }
 
 func isGrokNativeVideoContentRoute(c *gin.Context) bool {
@@ -206,6 +217,14 @@ func tkOpenAICompatVideoSubmitHandler(h *handler.Handlers) gin.HandlerFunc {
 func tkOpenAICompatVideoFetchHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		platform := getGroupPlatform(c)
+		// TokenKey task IDs are resolved and authorized by VideoFetch's registry
+		// lookup. A status GET has no request model, so its temporary group cannot
+		// identify the submit platform. Route vt_ first even for Grok/composite
+		// callers; non-TokenKey IDs retain their platform-specific handlers.
+		if strings.HasPrefix(videoTaskRouteID(c), "vt_") {
+			h.OpenAIGateway.VideoFetch(c)
+			return
+		}
 		if (platform == service.PlatformGrok || platform == service.PlatformComposite) && isGrokNativeVideoStatusRoute(c) {
 			h.OpenAIGateway.GrokVideoStatus(c)
 			return

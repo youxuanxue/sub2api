@@ -35,6 +35,11 @@ import (
 // task adaptor registered via relay.GetTaskAdaptor("54").
 const XRTokenBaseURL = "https://api.xrtoken.net"
 
+// XRTokenVideoMinDurationSeconds is the provider's submit-time lower bound.
+// Validate it before dispatch so an invalid request cannot become a paid task
+// attempt or depend on upstream error-shape handling.
+const XRTokenVideoMinDurationSeconds = 4
+
 // IsXRTokenBaseURL reports whether channelType/base resolve to the XRToken
 // ARK-compatible endpoint.
 //

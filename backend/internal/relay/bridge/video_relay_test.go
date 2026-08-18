@@ -190,10 +190,10 @@ func TestDispatchVideoSubmit_MissingModel(t *testing.T) {
 	}
 }
 
-func TestDispatchVideoSubmit_BoundsUpstreamErrorBody(t *testing.T) {
+func TestDispatchVideoSubmit_PreservesUpstreamStatusAndBoundsErrorBody(t *testing.T) {
 	const marker = "must-not-reach-error"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusBadGateway)
+		w.WriteHeader(http.StatusBadRequest)
 		_, _ = io.CopyN(w, strings.NewReader(strings.Repeat("x", int(videoSubmitErrorBodyMaxBytes))), videoSubmitErrorBodyMaxBytes)
 		_, _ = w.Write([]byte(marker))
 	}))
@@ -208,6 +208,9 @@ func TestDispatchVideoSubmit_BoundsUpstreamErrorBody(t *testing.T) {
 	_, apiErr := DispatchVideoSubmit(context.Background(), c, in, "vt_error", body)
 	if apiErr == nil {
 		t.Fatal("expected upstream status error, got nil")
+	}
+	if apiErr.StatusCode != http.StatusBadRequest {
+		t.Fatalf("upstream status = %d, want %d", apiErr.StatusCode, http.StatusBadRequest)
 	}
 	if strings.Contains(apiErr.Error(), marker) {
 		t.Fatalf("error body exceeded %d-byte bound", videoSubmitErrorBodyMaxBytes)
