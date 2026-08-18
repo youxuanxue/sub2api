@@ -3,6 +3,9 @@
 -- 服务启动后若当前 TZ 不同，后台同步会检测到不一致并重建日桶。
 -- bluegreen-safe-destructive-ok: ADD COLUMN IF NOT EXISTS with DEFAULT is expand-only; old app ignores the new column, existing singleton row gets Asia/Shanghai without a table rewrite.
 
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '10min';
+
 ALTER TABLE usage_group_rollup_state
     ADD COLUMN IF NOT EXISTS timezone_name TEXT NOT NULL DEFAULT 'Asia/Shanghai';
 

@@ -73,13 +73,11 @@ func (r *dashboardAggregationRepository) AggregateRange(ctx context.Context, sta
 	if r == nil || r.sql == nil {
 		return nil
 	}
-	// TK: one-time historical backfill of the per-(group, day) rollup. The
-	// watermark-driven incremental feeder below only moves forward, so the Groups
-	// all-time usage-summary would never see pre-deploy history without this. Runs
-	// once (guarded by emptiness); best-effort — on failure the read path keeps
-	// the raw scan and the next cycle retries, so it never blocks aggregation.
+	// TK: one-time historical backfill for Dashboard/Usage group distribution.
+	// The incremental feeder only moves forward, so completed pre-deploy days need
+	// this best-effort backfill before the distribution read path trusts the rollup.
 	if err := r.backfillGroupDailyAllOnce(ctx); err != nil {
-		log.Printf("[DashboardAggregation] group daily rollup backfill failed (read path falls back to raw scan): %v", err)
+		log.Printf("[DashboardAggregation] group daily rollup backfill failed (group distribution falls back to raw scan): %v", err)
 	}
 	if err := r.backfillGroupDailyMetricsAllOnce(ctx); err != nil {
 		log.Printf("[DashboardAggregation] group daily metrics backfill failed (group distribution falls back to raw scan): %v", err)
@@ -410,7 +408,8 @@ func (r *dashboardAggregationRepository) cleanupUsageLogsBatches(ctx context.Con
 			if err != nil {
 				return err
 			}
-			if affected < usageLogsCleanupBatchSize {
+			total += affected
+			if affected < usageLogsCleanupBatchSize || total >= usageLogsCleanupMaxRowsPerRun {
 				return nil
 			}
 			continue
@@ -454,44 +453,32 @@ func cleanupUsageLogsBatchWithRollupInvalidation(ctx context.Context, db *sql.DB
 	if err := lockGroupUsageRollupState(ctx, tx); err != nil {
 		return rollback(err)
 	}
-	rows, err := tx.QueryContext(ctx, `
+	row := tx.QueryRowContext(ctx, `
 		WITH victims AS (
 			SELECT ctid
 			FROM usage_logs
 			WHERE created_at < $1
 			ORDER BY created_at ASC, id ASC
 			LIMIT $2
+		), deleted AS (
+			DELETE FROM usage_logs
+			WHERE ctid IN (SELECT ctid FROM victims)
+			RETURNING created_at
 		)
-		DELETE FROM usage_logs
-		WHERE ctid IN (SELECT ctid FROM victims)
-		RETURNING created_at
+		SELECT COUNT(*) AS affected, MIN(created_at) AS earliest_deleted_at
+		FROM deleted
 	`, cutoff.UTC(), usageLogsCleanupBatchSize)
-	if err != nil {
-		return rollback(err)
-	}
 
 	var affected int64
-	var earliestDeletedAt time.Time
-	for rows.Next() {
-		var deletedAt time.Time
-		if err := rows.Scan(&deletedAt); err != nil {
-			_ = rows.Close()
-			return rollback(err)
-		}
-		affected++
-		if earliestDeletedAt.IsZero() || deletedAt.Before(earliestDeletedAt) {
-			earliestDeletedAt = deletedAt
-		}
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return rollback(err)
-	}
-	if err := rows.Close(); err != nil {
+	var earliestDeletedAt sql.NullTime
+	if err := row.Scan(&affected, &earliestDeletedAt); err != nil {
 		return rollback(err)
 	}
 	if affected > 0 {
-		if err := invalidateGroupUsageRollupsAt(ctx, tx, earliestDeletedAt); err != nil {
+		if !earliestDeletedAt.Valid {
+			return rollback(fmt.Errorf("cleanup deleted %d usage logs without an earliest timestamp", affected))
+		}
+		if err := invalidateGroupUsageRollupsAt(ctx, tx, earliestDeletedAt.Time); err != nil {
 			return rollback(err)
 		}
 	}

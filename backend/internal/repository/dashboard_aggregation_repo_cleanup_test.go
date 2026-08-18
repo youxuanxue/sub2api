@@ -93,13 +93,10 @@ func TestCleanupUsageLogs_NonPartitionedContinuesUntilShortBatch(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT id FROM usage_group_rollup_state.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	fullRows := sqlmock.NewRows([]string{"created_at"})
-	for i := 0; i < usageLogsCleanupBatchSize; i++ {
-		fullRows.AddRow(fullBatchAt)
-	}
-	mock.ExpectQuery(`(?s)DELETE FROM usage_logs.*RETURNING created_at`).
+	mock.ExpectQuery(`(?s)DELETE FROM usage_logs.*RETURNING created_at.*SELECT COUNT\(\*\) AS affected, MIN\(created_at\) AS earliest_deleted_at`).
 		WithArgs(cutoff, usageLogsCleanupBatchSize).
-		WillReturnRows(fullRows)
+		WillReturnRows(sqlmock.NewRows([]string{"affected", "earliest_deleted_at"}).
+			AddRow(usageLogsCleanupBatchSize, fullBatchAt))
 	mock.ExpectExec(`UPDATE usage_group_rollup_state`).
 		WithArgs(fullBatchAt, "Asia/Shanghai").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -107,13 +104,48 @@ func TestCleanupUsageLogs_NonPartitionedContinuesUntilShortBatch(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT id FROM usage_group_rollup_state.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	mock.ExpectQuery(`(?s)DELETE FROM usage_logs.*RETURNING created_at`).
+	mock.ExpectQuery(`(?s)DELETE FROM usage_logs.*RETURNING created_at.*SELECT COUNT\(\*\) AS affected, MIN\(created_at\) AS earliest_deleted_at`).
 		WithArgs(cutoff, usageLogsCleanupBatchSize).
-		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(shortBatchAt))
+		WillReturnRows(sqlmock.NewRows([]string{"affected", "earliest_deleted_at"}).AddRow(1, shortBatchAt))
 	mock.ExpectExec(`UPDATE usage_group_rollup_state`).
 		WithArgs(shortBatchAt, "Asia/Shanghai").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
+		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
+			AddRow(service.GroupUsageDate(todayStart), time.Unix(0, 0).UTC(), "Asia/Shanghai"))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.CleanupUsageLogs(context.Background(), cutoff))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCleanupUsageLogs_NonPartitionedStopsAtPerRunCapAndSyncs(t *testing.T) {
+	setGroupUsageRollupTestTimezone(t)
+	db, mock := newSQLMock(t)
+	repo := newDashboardAggregationRepositoryWithSQL(db)
+	cutoff := time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)
+	deletedAt := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	fixedNow := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
+	repo.clock = func() time.Time { return fixedNow }
+	todayStart := service.GroupUsageTodayStart(fixedNow)
+
+	mock.ExpectQuery("pg_partitioned_table").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	for i := 0; i < usageLogsCleanupMaxRowsPerRun/usageLogsCleanupBatchSize; i++ {
+		mock.ExpectBegin()
+		mock.ExpectQuery(`SELECT id FROM usage_group_rollup_state.*FOR UPDATE`).
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+		mock.ExpectQuery(`(?s)DELETE FROM usage_logs.*RETURNING created_at.*SELECT COUNT\(\*\) AS affected, MIN\(created_at\) AS earliest_deleted_at`).
+			WithArgs(cutoff, usageLogsCleanupBatchSize).
+			WillReturnRows(sqlmock.NewRows([]string{"affected", "earliest_deleted_at"}).
+				AddRow(usageLogsCleanupBatchSize, deletedAt))
+		mock.ExpectExec(`UPDATE usage_group_rollup_state`).
+			WithArgs(deletedAt, "Asia/Shanghai").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit()
+	}
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT closed_before::text, retained_from.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"closed_before", "retained_from", "timezone_name"}).
@@ -160,9 +192,9 @@ func TestCleanupUsageLogs_NonPartitionedUsesChunkedDelete(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT id FROM usage_group_rollup_state.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	mock.ExpectQuery(`(?s)DELETE FROM usage_logs.*RETURNING created_at`).
+	mock.ExpectQuery(`(?s)DELETE FROM usage_logs.*RETURNING created_at.*SELECT COUNT\(\*\) AS affected, MIN\(created_at\) AS earliest_deleted_at`).
 		WithArgs(cutoff, usageLogsCleanupBatchSize).
-		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(deletedAt).AddRow(deletedAt))
+		WillReturnRows(sqlmock.NewRows([]string{"affected", "earliest_deleted_at"}).AddRow(2, deletedAt))
 	mock.ExpectExec(`UPDATE usage_group_rollup_state`).
 		WithArgs(deletedAt, "Asia/Shanghai").
 		WillReturnResult(sqlmock.NewResult(0, 1))

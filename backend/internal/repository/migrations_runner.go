@@ -198,20 +198,23 @@ func applyMigrationsFS(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 	}
 	defer func() { _ = conn.Close() }()
 
-	return applyMigrationsSession(ctx, conn, fsys)
+	return applyMigrationsInUTCSession(ctx, conn, fsys)
 }
 
-func applyMigrationsSession(ctx context.Context, db migrationDB, fsys fs.FS) error {
-
+func applyMigrationsSession(ctx context.Context, db migrationDB, fsys fs.FS) (retErr error) {
 	// 获取分布式锁，确保多实例部署时只有一个实例执行迁移。
 	// 这是 PostgreSQL 特有的 Advisory Lock 机制。
 	if err := pgAdvisoryLock(ctx, db); err != nil {
 		return err
 	}
 	defer func() {
-		// 无论迁移是否成功，都要释放锁。
-		// 使用 context.Background() 确保即使原 ctx 已取消也能释放锁。
-		_ = pgAdvisoryUnlock(context.Background(), db)
+		// 无论迁移是否成功，都要释放锁。使用独立的短超时，避免原 ctx
+		// 已取消时跳过清理，也避免异常连接让启动永久卡在 unlock。
+		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := pgAdvisoryUnlock(unlockCtx, db); err != nil {
+			retErr = errors.Join(retErr, &migrationSessionCleanupError{err: err})
+		}
 	}()
 
 	// 创建迁移记录表（如果不存在）。

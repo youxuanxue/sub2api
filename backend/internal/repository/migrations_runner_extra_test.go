@@ -27,9 +27,17 @@ func TestApplyMigrations_DelegatesToApplyMigrationsFS(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
+	mock.ExpectQuery("SHOW TIME ZONE").
+		WillReturnRows(sqlmock.NewRows([]string{"TimeZone"}).AddRow("Asia/Shanghai"))
+	mock.ExpectExec("SELECT set_config\\('TimeZone', \\$1, false\\)").
+		WithArgs(migrationSessionTimezone).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery("SELECT pg_try_advisory_lock\\(\\$1\\)").
 		WithArgs(migrationsAdvisoryLockID).
 		WillReturnError(errors.New("lock failed"))
+	mock.ExpectExec("SELECT set_config\\('TimeZone', \\$1, false\\)").
+		WithArgs("Asia/Shanghai").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = ApplyMigrations(context.Background(), db)
 	require.Error(t, err)
@@ -267,7 +275,7 @@ func TestApplyMigrationsFS_ChecksumMismatchRejected(t *testing.T) {
 	fsys := fstest.MapFS{
 		"001_init.sql": &fstest.MapFile{Data: []byte("CREATE TABLE t(id int);")},
 	}
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "checksum mismatch")
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -289,7 +297,7 @@ func TestApplyMigrationsFS_CheckMigrationQueryError(t *testing.T) {
 	fsys := fstest.MapFS{
 		"001_err.sql": &fstest.MapFile{Data: []byte("SELECT 1;")},
 	}
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "check migration 001_err.sql")
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -315,7 +323,7 @@ func TestApplyMigrationsFS_SkipEmptyAndAlreadyApplied(t *testing.T) {
 		"000_empty.sql":   &fstest.MapFile{Data: []byte("   \n\t ")},
 		"001_already.sql": &fstest.MapFile{Data: []byte(alreadySQL)},
 	}
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -347,7 +355,7 @@ func TestApplyMigrationsFS_RecordsTk041WithoutExecutionWhenOpsTablesAlreadyParti
 			Data: []byte("CREATE TABLE should_not_execute(id int);"),
 		},
 	}
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -383,7 +391,7 @@ func TestApplyMigrationsFS_ExecutesTk041WhenOpsTablesAreNotBothPartitioned(t *te
 			Data: []byte("CREATE TABLE tk041_probe(id int);"),
 		},
 	}
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -401,7 +409,7 @@ func TestApplyMigrationsFS_ReadMigrationError(t *testing.T) {
 	fsys := fstest.MapFS{
 		"001_bad.sql": &fstest.MapFile{Mode: fs.ModeDir},
 	}
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "read migration 001_bad.sql")
 	require.NoError(t, mock.ExpectationsWereMet())

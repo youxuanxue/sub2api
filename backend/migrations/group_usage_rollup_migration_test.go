@@ -13,6 +13,8 @@ func TestMigration222CreatesGroupUsageRollups(t *testing.T) {
 	require.NoError(t, err)
 
 	sql := string(content)
+	require.Contains(t, sql, "SET LOCAL lock_timeout = '5s'")
+	require.Contains(t, sql, "SET LOCAL statement_timeout = '10min'")
 	require.Contains(t, sql, "CREATE TABLE IF NOT EXISTS usage_group_daily_rollups")
 	require.Contains(t, sql, "actual_cost DECIMAL(20, 10)")
 	require.Contains(t, sql, "PRIMARY KEY (bucket_date, group_id)")
@@ -44,6 +46,8 @@ func TestMigration223TracksConfiguredTimezone(t *testing.T) {
 	require.NoError(t, err)
 
 	sql := string(content)
+	require.Contains(t, sql, "SET LOCAL lock_timeout = '5s'")
+	require.Contains(t, sql, "SET LOCAL statement_timeout = '10min'")
 	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS timezone_name TEXT")
 	require.Contains(t, sql, "DEFAULT 'Asia/Shanghai'")
 	require.Contains(t, sql, "current_setting('TimeZone')")

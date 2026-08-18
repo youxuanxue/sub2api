@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -400,6 +401,82 @@ func TestGroupUsageSummaryUsesConfiguredDSTBoundaries(t *testing.T) {
 	require.InDelta(t, 112, result[0].TotalCost, 0.0000001)
 	require.InDelta(t, 5, result[0].TodayCost, 0.0000001)
 	require.InDelta(t, 7, result[0].YesterdayCost, 0.0000001)
+}
+
+func TestMigration222LockTimeoutRollsBackAllArtifacts(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	schema := fmt.Sprintf("group_usage_rollup_lock_%d", time.Now().UnixNano())
+	quotedSchema := pq.QuoteIdentifier(schema)
+	_, err := integrationDB.ExecContext(ctx, "CREATE SCHEMA "+quotedSchema)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DROP SCHEMA IF EXISTS "+quotedSchema+" CASCADE")
+	})
+
+	_, err = integrationDB.ExecContext(ctx, `
+		CREATE TABLE `+quotedSchema+`.users (id BIGINT PRIMARY KEY);
+		CREATE TABLE `+quotedSchema+`.groups (id BIGINT PRIMARY KEY);
+		CREATE TABLE `+quotedSchema+`.usage_logs (
+			id BIGINT PRIMARY KEY,
+			user_id BIGINT NOT NULL REFERENCES `+quotedSchema+`.users(id) ON DELETE CASCADE,
+			group_id BIGINT REFERENCES `+quotedSchema+`.groups(id) ON DELETE SET NULL,
+			actual_cost NUMERIC(20, 10) NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL
+		);
+	`)
+	require.NoError(t, err)
+
+	lockTx, err := integrationDB.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = lockTx.Rollback() }()
+	_, err = lockTx.ExecContext(ctx, "LOCK TABLE "+quotedSchema+`.usage_logs IN SHARE ROW EXCLUSIVE MODE`)
+	require.NoError(t, err)
+
+	migrationSQL, err := migrations.FS.ReadFile("222_group_usage_daily_rollups.sql")
+	require.NoError(t, err)
+	migrationTx, err := integrationDB.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.NoError(t, setGroupUsageRollupTriggerSearchPath(ctx, migrationTx, quotedSchema))
+
+	startedAt := time.Now()
+	_, execErr := migrationTx.ExecContext(ctx, string(migrationSQL))
+	elapsed := time.Since(startedAt)
+	require.Error(t, execErr)
+	var pqErr *pq.Error
+	require.True(t, errors.As(execErr, &pqErr), "expected PostgreSQL lock error, got %T: %v", execErr, execErr)
+	require.Equal(t, pq.ErrorCode("55P03"), pqErr.Code)
+	require.GreaterOrEqual(t, elapsed, 4*time.Second)
+	require.Less(t, elapsed, 10*time.Second)
+	require.NoError(t, migrationTx.Rollback())
+	require.NoError(t, lockTx.Rollback())
+
+	var tableCount, functionCount, triggerCount int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM information_schema.tables
+		WHERE table_schema = $1
+		  AND table_name IN ('usage_group_daily_rollups', 'usage_group_rollup_state')
+	`, schema).Scan(&tableCount))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM pg_proc p
+		JOIN pg_namespace n ON n.oid = p.pronamespace
+		WHERE n.nspname = $1
+		  AND p.proname IN ('invalidate_group_usage_rollup_state', 'invalidate_group_usage_rollup_state_after_insert')
+	`, schema).Scan(&functionCount))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM pg_trigger trigger
+		JOIN pg_class relation ON relation.oid = trigger.tgrelid
+		JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+		WHERE namespace.nspname = $1
+		  AND trigger.tgname LIKE 'usage_logs_group_rollup_invalidate_%'
+	`, schema).Scan(&triggerCount))
+	require.Zero(t, tableCount)
+	require.Zero(t, functionCount)
+	require.Zero(t, triggerCount)
 }
 
 func createGroupUsageRollupTriggerTestSchema(t *testing.T, ctx context.Context, partitioned bool) string {
