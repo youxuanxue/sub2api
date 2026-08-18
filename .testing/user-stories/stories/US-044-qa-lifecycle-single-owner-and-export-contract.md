@@ -21,6 +21,7 @@
 6. rollout 将 repository readiness 与 `single_owner_not_activated` observed state 分开记录。
 7. single-owner activation 在锁内拒绝最近 24 个已完成小时及当前到未来 72 小时的 catalog 缺口和非精确 UTC-hour bounds；
    首次 Bundle 部署所需 IAM bootstrap 有唯一运维入口且 app image 切换前 fail closed。
+8. app rollback 与 Bundle Worker/host runners 解耦：目标 release tree 显式声明 Bundle runtime contract；legacy app 只保留 fully verified live Worker，在 app mutation 前收敛当前 maintenance 并禁用 boundary，跳过 canary、暂停 DROP、明确报告 degraded；无 verified Worker 则在任何 mutation 前失败。
 
 ## Linked Tests
 
@@ -41,6 +42,12 @@
 - `backend/internal/observability/qa/bundle/publisher_test.go`::`TestBuildExportZipReadsOnlyCommittedBundlePages`
 - `deploy/aws/cloudformation/test_stage0_qa_bundle_contract.py`::`Stage0QABundleContractTest.test_qa_cloudformation_service_role_covers_managed_resource_lifecycles`
 - `deploy/aws/cloudformation/test_stage0_qa_bundle_contract.py`::`Stage0QABundleContractTest.test_qa_bundle_verifier_roles_have_scoped_bucket_readback`
+- `ops/qa/test_resolve_qa_bundle_worker_image.py`::`ResolveQABundleWorkerImageTest.test_phase3_contract_uses_target_release_image`
+- `ops/qa/test_resolve_qa_bundle_worker_image.py`::`ResolveQABundleWorkerImageTest.test_missing_contract_is_legacy_and_preserves_verified_tag`
+- `ops/qa/test_resolve_qa_bundle_worker_image.py`::`ResolveQABundleWorkerImageTest.test_legacy_without_verified_worker_fails_closed`
+- `ops/stage0/test_deploy_stage0_workflow.py`::`DeployStage0WorkflowTest.test_legacy_worker_discovery_precedes_resolution_and_all_mutation`
+- `ops/stage0/test_deploy_stage0_workflow.py`::`DeployStage0WorkflowTest.test_legacy_rollback_converges_safe_control_plane_before_app_mutation`
+- `ops/stage0/test_deploy_stage0_workflow.py`::`DeployStage0WorkflowTest.test_qa_infra_check_is_read_only_and_verifies_oidc_binding`
 - `frontend/e2e/qa-bundle.e2e.ts`::`QA Bundle list, detail, watermark and ZIP export stay on Bundle/S3 paths`
 - `frontend/e2e/qa-bundle.e2e.ts`::`QA Bundle entitlement denial removes the entry and never starts a job`
 - `frontend/e2e/qa-bundle.e2e.ts`::`temporary unavailability is recoverable from the visible retry action`
@@ -50,6 +57,7 @@
 ```bash
 cd backend && go test -tags=unit ./internal/handler ./internal/observability/qa
 cd .. && python3 scripts/checks/qa-lifecycle-ssot.py
+python3 -m unittest ops.qa.test_resolve_qa_bundle_worker_image ops.stage0.test_deploy_stage0_workflow
 cd frontend && pnpm exec playwright test e2e/qa-bundle.e2e.ts --project=chromium
 ```
 

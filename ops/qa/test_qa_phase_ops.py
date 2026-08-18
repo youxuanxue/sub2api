@@ -58,6 +58,7 @@ class TestQAPhaseOps(unittest.TestCase):
         self.assertEqual(user_export["phase3_worker_observed_state"], "transitional_in_prod")
         self.assertEqual(user_export["job_registry"], "immutable_s3_spec")
         self.assertEqual(user_export["database_job_registry"], "retired")
+        self.assertEqual(user_export["bundle_runtime_contract"], "phase3_v1")
         self.assertEqual(user_export["bundle_worker_desired_count"], 1)
 
     def test_maintenance_is_the_only_target_lifecycle_owner(self) -> None:
@@ -906,10 +907,18 @@ esac
         lifecycle_lock = next(
             command
             for command in commands
-            if "/run/lock/tokenkey-qa-lifecycle.lock" in command
+            if "/var/lib/tokenkey/qa-lifecycle/host.lock" in command
         )
         self.assertIn("flock -x", lifecycle_lock)
         self.assertLess(commands.index(lifecycle_lock), commands.index(restore))
+
+        maintenance_runner = (
+            ROOT / "deploy/aws/stage0/tokenkey-qa-maintenance.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "QA_LIFECYCLE_LOCK_FILE:-/var/lib/tokenkey/qa-lifecycle/host.lock",
+            maintenance_runner,
+        )
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1011,13 +1020,19 @@ JSON
     printf '%s\n' '{"Rules":[{"ID":"expire-qa-bundle-job-surfaces","Status":"Enabled","Filter":{"Prefix":"user-qa/qa-bundles/v1/jobs/"},"Expiration":{"Days":2}}]}'
     ;;
   *"sqs get-queue-attributes"*"https://sqs/dlq"*)
-    printf '{"Attributes":{"QueueArn":"arn:dlq","ApproximateNumberOfMessages":"%s"}}\n' "${DLQ_DEPTH:-0}"
+    printf '{"Attributes":{"QueueArn":"arn:dlq","SqsManagedSseEnabled":"%s","ApproximateNumberOfMessages":"%s"}}\n' "${DLQ_SSE_ENABLED:-true}" "${DLQ_DEPTH:-0}"
     ;;
   *"sqs get-queue-attributes"*"https://sqs/queue"*)
-    printf '%s\n' '{"Attributes":{"QueueArn":"arn:queue","ApproximateNumberOfMessages":"0","ApproximateNumberOfMessagesNotVisible":"0"}}'
+    jq -cn --arg dlq "${REDRIVE_DLQ_ARN:-arn:dlq}" --arg sse "${QUEUE_SSE_ENABLED:-true}" '{Attributes:{QueueArn:"arn:queue",RedrivePolicy:({deadLetterTargetArn:$dlq,maxReceiveCount:"3"}|tojson),SqsManagedSseEnabled:$sse,ApproximateNumberOfMessages:"0",ApproximateNumberOfMessagesNotVisible:"0"}}'
     ;;
   *"ecs describe-services"*)
-    printf '%s\n' '{"failures":[],"services":[{"status":"ACTIVE","desiredCount":1,"runningCount":1,"taskDefinition":"arn:task:1"}]}'
+    printf '%s\n' '{"failures":[],"services":[{"status":"ACTIVE","desiredCount":1,"runningCount":1,"taskDefinition":"arn:task-def:1"}]}'
+    ;;
+  *"ecs list-tasks"*)
+    printf '%s\n' '{"taskArns":["arn:task/1"]}'
+    ;;
+  *"ecs describe-tasks"*)
+    printf '{"failures":[],"tasks":[{"taskArn":"arn:task/1","lastStatus":"RUNNING","taskDefinitionArn":"%s","containers":[{"name":"qa-bundle-worker","image":"%s"}]}]}\n' "${RUNNING_TASK_DEFINITION:-arn:task-def:1}" "${RUNNING_TASK_IMAGE:-ghcr.io/youxuanxue/sub2api:1.8.156}"
     ;;
   *"ecs describe-task-definition"*)
     printf '%s\n' '{"taskDefinition":{"containerDefinitions":[{"name":"qa-bundle-worker","image":"ghcr.io/youxuanxue/sub2api:1.8.156"}]}}'
@@ -1032,6 +1047,7 @@ esac
                 "PATH": f"{fake_bin}:/usr/bin:/bin",
                 "AWS_CALLS": str(calls),
                 "GITHUB_OUTPUT": str(root / "github-output"),
+                "QA_BUNDLE_VERIFY_MODE": "expected",
                 "QA_BUNDLE_WORKER_IMAGE": "ghcr.io/youxuanxue/sub2api:1.8.156",
                 "QA_BUNDLE_WORKER_DESIRED_COUNT": "1",
             }
@@ -1047,7 +1063,11 @@ esac
             self.assertEqual(receipt["browser_origin"], "https://tokenkey.dev")
             self.assertEqual(
                 (root / "github-output").read_text(encoding="utf-8").splitlines(),
-                ["bucket=qa-bucket", "queue_url=https://sqs/queue"],
+                [
+                    "bucket=qa-bucket",
+                    "queue_url=https://sqs/queue",
+                    "worker_image=ghcr.io/youxuanxue/sub2api:1.8.156",
+                ],
             )
             observed = calls.read_text(encoding="utf-8")
             for expected in (
@@ -1058,9 +1078,49 @@ esac
                 "s3api get-bucket-lifecycle-configuration",
                 "sqs get-queue-attributes",
                 "ecs describe-services",
-                "ecs describe-task-definition",
+                "ecs list-tasks",
+                "ecs describe-tasks",
             ):
                 self.assertIn(expected, observed)
+
+            discovery_output = root / "github-output-discovery"
+            discovery = subprocess.run(
+                ["bash", str(script)],
+                env={
+                    key: value
+                    for key, value in base_env.items()
+                    if key != "QA_BUNDLE_WORKER_IMAGE"
+                }
+                | {
+                    "QA_BUNDLE_VERIFY_MODE": "discovery",
+                    "GITHUB_OUTPUT": str(discovery_output),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(discovery.returncode, 0, discovery.stderr)
+            self.assertIn(
+                "worker_image=ghcr.io/youxuanxue/sub2api:1.8.156",
+                discovery_output.read_text(encoding="utf-8").splitlines(),
+            )
+
+            missing_expected = subprocess.run(
+                ["bash", str(script)],
+                env={
+                    key: value
+                    for key, value in base_env.items()
+                    if key != "QA_BUNDLE_WORKER_IMAGE"
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(missing_expected.returncode, 0)
+            self.assertIn(
+                "QA_BUNDLE_WORKER_IMAGE is required in expected mode",
+                missing_expected.stderr,
+            )
 
             cors_drift = subprocess.run(
                 ["bash", str(script)],
@@ -1081,6 +1141,39 @@ esac
             )
             self.assertNotEqual(unhealthy.returncode, 0)
             self.assertIn("QA Bundle DLQ is not empty: 2", unhealthy.stderr)
+
+            stale_task = subprocess.run(
+                ["bash", str(script)],
+                env={
+                    **base_env,
+                    "RUNNING_TASK_IMAGE": "ghcr.io/youxuanxue/sub2api:1.8.155",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(stale_task.returncode, 0)
+            self.assertIn("running task contract drift", stale_task.stderr)
+
+            redrive_drift = subprocess.run(
+                ["bash", str(script)],
+                env={**base_env, "REDRIVE_DLQ_ARN": "arn:wrong-dlq"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(redrive_drift.returncode, 0)
+            self.assertIn("QA Bundle queue redrive drift", redrive_drift.stderr)
+
+            queue_sse_drift = subprocess.run(
+                ["bash", str(script)],
+                env={**base_env, "QUEUE_SSE_ENABLED": "false"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(queue_sse_drift.returncode, 0)
+            self.assertIn("QA Bundle queue encryption drift", queue_sse_drift.stderr)
 
     def test_qa_bundle_canary_ssm_wrapper_requires_canonical_receipt(self) -> None:
         script = ROOT / "ops/stage0/run-qa-bundle-canary-via-ssm.sh"
@@ -1276,6 +1369,124 @@ exit 1
         self.assertIn("unsafe CloudFormation change set", proc.stderr)
         self.assertIn("replacement=Conditional", proc.stderr)
         self.assertFalse(execute_called)
+
+    def test_raw_archive_deploy_allows_bundle_worker_image_task_definition_replacement(
+        self,
+    ) -> None:
+        script = ROOT / "ops/qa/deploy_qa_raw_archive_cfn.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            marker = root / "execute-called"
+            fake_aws = fake_bin / "aws"
+            fake_aws.write_text(
+                """#!/usr/bin/env bash
+if [[ "$*" == *"sts get-caller-identity"* ]]; then echo 123456789012; exit 0; fi
+if [[ "$*" == *"cloudformation describe-stacks"* ]]; then echo arn:aws:iam::123456789012:role/generated-existing-role; exit 0; fi
+if [[ "$*" == *"cloudformation create-change-set"* ]]; then exit 0; fi
+if [[ "$*" == *"cloudformation describe-change-set"* && "$*" == *"--query Status"* ]]; then
+  echo CREATE_COMPLETE
+  exit 0
+fi
+if [[ "$*" == *"cloudformation describe-change-set"* && "$*" == *"--output json"* ]]; then
+  cat <<'JSON'
+{"Changes":[{"Type":"Resource","ResourceChange":{"Action":"Modify","LogicalResourceId":"QaBundleWorkerService","ResourceType":"AWS::ECS::Service","Replacement":"False","Scope":["Properties"],"Details":[{"Target":{"Attribute":"Properties","Name":"TaskDefinition","RequiresRecreation":"Never"},"Evaluation":"Static","ChangeSource":"ResourceReference","CausingEntity":"QaBundleWorkerTaskDefinition"}]}},{"Type":"Resource","ResourceChange":{"PolicyAction":"ReplaceAndDelete","Action":"Modify","LogicalResourceId":"QaBundleWorkerTaskDefinition","ResourceType":"AWS::ECS::TaskDefinition","Replacement":"True","Scope":["Properties"],"Details":[{"Target":{"Attribute":"Properties","Name":"ContainerDefinitions","RequiresRecreation":"Always"},"Evaluation":"Dynamic","ChangeSource":"DirectModification"},{"Target":{"Attribute":"Properties","Name":"ContainerDefinitions","RequiresRecreation":"Always"},"Evaluation":"Static","ChangeSource":"ParameterReference","CausingEntity":"BundleWorkerImage"}]}}]}
+JSON
+  exit 0
+fi
+if [[ "$*" == *"cloudformation execute-change-set"* ]]; then touch "$EXECUTE_MARKER"; exit 0; fi
+if [[ "$*" == *"cloudformation wait stack-update-complete"* ]]; then exit 0; fi
+exit 1
+""",
+                encoding="utf-8",
+            )
+            fake_aws.chmod(0o755)
+            proc = subprocess.run(
+                ["bash", str(script)],
+                env={
+                    "PATH": f"{fake_bin}:/usr/bin:/bin",
+                    "APP_INSTANCE_ROLE_ARN": "arn:aws:iam::123456789012:role/app",
+                    "OPS_RECOVERY_PRINCIPAL_ARN": "arn:aws:iam::123456789012:user/operator",
+                    "QA_RAW_ARCHIVE_VPC_ID": "vpc-1234",
+                    "QA_RAW_ARCHIVE_ROUTE_TABLE_IDS": "rtb-1234",
+                    "QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS": "subnet-1234",
+                    "QA_BUNDLE_WORKER_IMAGE": "ghcr.io/youxuanxue/sub2api:1.8.158",
+                    "QA_BUNDLE_BROWSER_ALLOWED_ORIGIN": "https://api.tokenkey.dev",
+                    "QA_RAW_ARCHIVE_CONFIRM": "yes",
+                    "EXECUTE_MARKER": str(marker),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            execute_called = marker.exists()
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(execute_called)
+
+    def test_raw_archive_deploy_rejects_other_task_definition_replacement_details(
+        self,
+    ) -> None:
+        script = ROOT / "ops/qa/deploy_qa_raw_archive_cfn.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_aws = fake_bin / "aws"
+            fake_aws.write_text(
+                """#!/usr/bin/env bash
+if [[ "$*" == *"sts get-caller-identity"* ]]; then echo 123456789012; exit 0; fi
+if [[ "$*" == *"cloudformation describe-stacks"* ]]; then echo arn:aws:iam::123456789012:role/generated-existing-role; exit 0; fi
+if [[ "$*" == *"cloudformation create-change-set"* ]]; then exit 0; fi
+if [[ "$*" == *"cloudformation describe-change-set"* && "$*" == *"--query Status"* ]]; then
+  echo CREATE_COMPLETE
+  exit 0
+fi
+if [[ "$*" == *"cloudformation describe-change-set"* && "$*" == *"--output json"* ]]; then
+  cat <<JSON
+{"Changes":[{"Type":"Resource","ResourceChange":{"Action":"Modify","LogicalResourceId":"QaBundleWorkerTaskDefinition","ResourceType":"AWS::ECS::TaskDefinition","Replacement":"True","Scope":["Properties"],"Details":[{"Target":{"Attribute":"Properties","Name":"${TASKDEF_PROPERTY}","RequiresRecreation":"Always"},"Evaluation":"Static","ChangeSource":"DirectModification"},{"Target":{"Attribute":"Properties","Name":"${TASKDEF_PROPERTY}","RequiresRecreation":"Always"},"Evaluation":"Static","ChangeSource":"ParameterReference","CausingEntity":"${TASKDEF_PARAMETER}"}]}}]}
+JSON
+  exit 0
+fi
+if [[ "$*" == *"cloudformation execute-change-set"* ]]; then touch "$EXECUTE_MARKER"; exit 0; fi
+exit 1
+""",
+                encoding="utf-8",
+            )
+            fake_aws.chmod(0o755)
+            cases = (
+                ("Memory", "BundleWorkerMemory"),
+                ("ContainerDefinitions", "BundleWorkerMemory"),
+            )
+            for index, (property_name, parameter_name) in enumerate(cases):
+                with self.subTest(property=property_name, parameter=parameter_name):
+                    marker = root / f"execute-called-{index}"
+                    proc = subprocess.run(
+                        ["bash", str(script)],
+                        env={
+                            "PATH": f"{fake_bin}:/usr/bin:/bin",
+                            "APP_INSTANCE_ROLE_ARN": "arn:aws:iam::123456789012:role/app",
+                            "OPS_RECOVERY_PRINCIPAL_ARN": "arn:aws:iam::123456789012:user/operator",
+                            "QA_RAW_ARCHIVE_VPC_ID": "vpc-1234",
+                            "QA_RAW_ARCHIVE_ROUTE_TABLE_IDS": "rtb-1234",
+                            "QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS": "subnet-1234",
+                            "QA_BUNDLE_WORKER_IMAGE": "ghcr.io/youxuanxue/sub2api:1.8.158",
+                            "QA_BUNDLE_BROWSER_ALLOWED_ORIGIN": "https://api.tokenkey.dev",
+                            "QA_RAW_ARCHIVE_CONFIRM": "yes",
+                            "EXECUTE_MARKER": str(marker),
+                            "TASKDEF_PROPERTY": property_name,
+                            "TASKDEF_PARAMETER": parameter_name,
+                        },
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+
+                    self.assertNotEqual(proc.returncode, 0)
+                    self.assertIn("unsafe CloudFormation change set", proc.stderr)
+                    self.assertIn("QaBundleWorkerTaskDefinition", proc.stderr)
+                    self.assertFalse(marker.exists())
 
     def test_release_images_include_qa_archive_binary(self) -> None:
         for rel in ("Dockerfile", "deploy/Dockerfile", "backend/Dockerfile"):

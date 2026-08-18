@@ -174,7 +174,8 @@ Resources:
                 Effect: Allow
                 Action:
                   - ecs:DescribeServices
-                  - ecs:DescribeTaskDefinition
+                  - ecs:DescribeTasks
+                  - ecs:ListTasks
                   - sqs:GetQueueAttributes
                 Resource: "*"
               - Sid: ReadQaBundleBucketState
@@ -227,7 +228,7 @@ Resources:
                   - s3:GetBucketPolicy
                   - s3:PutBucketPolicy
                   - s3:PutBucketPublicAccessBlock
-                  - s3:PutBucketEncryption
+                  - s3:PutEncryptionConfiguration
                   - s3:PutBucketVersioning
                   - s3:PutLifecycleConfiguration
                   - s3:PutBucketCORS
@@ -274,7 +275,7 @@ Resources:
                   - iam:UpdateAssumeRolePolicy
                   - iam:UpdateRole
                   - iam:UpdateRoleDescription
-                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-prod-qa-raw-archive-*"
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-prod-qa-raw-arch*"
               - Sid: CreateEcsServiceLinkedRole
                 Effect: Allow
                 Action: iam:CreateServiceLinkedRole
@@ -313,6 +314,7 @@ Resources:
                   - logs:CreateLogGroup
                   - logs:DeleteLogGroup
                   - logs:DescribeLogGroups
+                  - logs:DescribeIndexPolicies
                   - logs:ListTagsForResource
                   - logs:PutRetentionPolicy
                   - logs:TagResource
@@ -397,7 +399,8 @@ Resources:
                 Effect: Allow
                 Action:
                   - ecs:DescribeServices
-                  - ecs:DescribeTaskDefinition
+                  - ecs:DescribeTasks
+                  - ecs:ListTasks
                   - sqs:GetQueueAttributes
                 Resource: "*"
               - Sid: ReadQaBundleBucketState
