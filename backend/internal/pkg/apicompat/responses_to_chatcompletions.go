@@ -51,11 +51,7 @@ func ResponsesToChatCompletions(resp *ResponsesResponse, model string) *ChatComp
 				},
 			})
 		case "reasoning":
-			for _, s := range item.Summary {
-				if s.Type == "summary_text" && s.Text != "" {
-					reasoningText += s.Text
-				}
-			}
+			reasoningText += extractResponsesOutputReasoningText(&item)
 		case "web_search_call":
 			// silently consumed — results already incorporated into text output
 		}
@@ -126,6 +122,8 @@ type ResponsesEventToChatState struct {
 	OutputIndexToToolIndex map[int]int // Responses output_index → Chat tool_calls index
 	IncludeUsage           bool
 	Usage                  *ChatUsage
+	// ReasoningTextEmitted 避免 output_item.done 在已有 delta 时重复抄 reasoning_content。
+	ReasoningTextEmitted bool
 }
 
 // NewResponsesEventToChatState returns an initialised stream state.
@@ -157,6 +155,8 @@ func ResponsesEventToChatChunks(evt *ResponsesStreamEvent, state *ResponsesEvent
 		// 与 reasoning summary 一样映射为 reasoning_content。
 		"response.reasoning_text.delta":
 		return resToChatHandleReasoningDelta(evt, state)
+	case "response.output_item.done":
+		return resToChatHandleOutputItemDone(evt, state)
 	case "response.reasoning_summary_text.done":
 		return nil
 	// response.done 是 Realtime/WS 与项目透传路径使用的终止别名；
@@ -286,8 +286,21 @@ func resToChatHandleReasoningDelta(evt *ResponsesStreamEvent, state *ResponsesEv
 	if evt.Delta == "" {
 		return nil
 	}
+	state.ReasoningTextEmitted = true
 	reasoning := evt.Delta
 	return []ChatCompletionsChunk{makeChatDeltaChunk(state, ChatDelta{ReasoningContent: &reasoning})}
+}
+
+func resToChatHandleOutputItemDone(evt *ResponsesStreamEvent, state *ResponsesEventToChatState) []ChatCompletionsChunk {
+	if state.ReasoningTextEmitted || evt.Item == nil || evt.Item.Type != "reasoning" {
+		return nil
+	}
+	text := extractResponsesOutputReasoningText(evt.Item)
+	if text == "" {
+		return nil
+	}
+	state.ReasoningTextEmitted = true
+	return []ChatCompletionsChunk{makeChatDeltaChunk(state, ChatDelta{ReasoningContent: &text})}
 }
 
 func resToChatHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventToChatState) []ChatCompletionsChunk {

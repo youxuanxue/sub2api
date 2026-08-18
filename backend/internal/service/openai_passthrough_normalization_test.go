@@ -86,6 +86,26 @@ func TestNormalizeOpenAIPassthroughOAuthBody_ArrayInputUnchanged(t *testing.T) {
 	require.Equal(t, "message", input.Array()[0].Get("type").String())
 }
 
+func TestNormalizeOpenAIPassthroughOAuthBody_SetsReasoningSummaryAuto(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.4-mini","input":[{"type":"message","role":"user","content":"hi"}]}`)
+
+	normalized, changed, err := normalizeOpenAIPassthroughOAuthBody(body, false)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, "auto", gjson.GetBytes(normalized, "reasoning.summary").String())
+
+	already := []byte(`{"model":"gpt-5.4-mini","input":[{"type":"message","role":"user","content":"hi"}],"reasoning":{"effort":"medium","summary":"concise"}}`)
+	normalized, _, err = normalizeOpenAIPassthroughOAuthBody(already, false)
+	require.NoError(t, err)
+	require.Equal(t, "auto", gjson.GetBytes(normalized, "reasoning.summary").String())
+	require.Equal(t, "medium", gjson.GetBytes(normalized, "reasoning.effort").String())
+
+	compact := []byte(`{"model":"gpt-5.4-mini","input":[{"type":"message","role":"user","content":"hi"}]}`)
+	normalized, _, err = normalizeOpenAIPassthroughOAuthBody(compact, true)
+	require.NoError(t, err)
+	require.False(t, gjson.GetBytes(normalized, "reasoning.summary").Exists(), "compact 不强制 reasoning.summary")
+}
+
 func TestDetectOpenAIPassthroughInstructionsRejectReason(t *testing.T) {
 	for _, tt := range []struct {
 		name string

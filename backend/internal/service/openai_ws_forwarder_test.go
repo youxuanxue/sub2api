@@ -4,6 +4,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -12,6 +13,18 @@ import (
 // 重点验证终止事件（response.completed / response.done）不再被当作 token event，
 // 否则当上游没有可识别的 delta 时，firstTokenMs 会被填到终止时刻，
 // 等于把"总耗时"误报为"首 token 延迟"（issue #2651）。
+func TestBuildOpenAIWSCreatePayload_OAuthSetsReasoningSummaryAuto(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{}}
+	account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	payload := svc.buildOpenAIWSCreatePayload(map[string]any{
+		"model": "gpt-5.4-mini",
+		"input": "hello",
+	}, account)
+	reasoning, ok := payload["reasoning"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "auto", reasoning["summary"])
+}
+
 func TestIsOpenAIWSTokenEvent_TerminalEventsExcluded(t *testing.T) {
 	cases := []struct {
 		name      string

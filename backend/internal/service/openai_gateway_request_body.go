@@ -837,6 +837,14 @@ func normalizeOpenAIPassthroughOAuthBody(body []byte, compact bool) ([]byte, boo
 			normalized = next
 			changed = true
 		}
+		if summary := gjson.GetBytes(normalized, "reasoning.summary"); !summary.Exists() || summary.String() != "auto" {
+			next, err := sjson.SetBytes(normalized, "reasoning.summary", "auto")
+			if err != nil {
+				return body, false, fmt.Errorf("normalize passthrough body reasoning.summary=auto: %w", err)
+			}
+			normalized = next
+			changed = true
+		}
 	}
 
 	return normalized, changed, nil

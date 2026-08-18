@@ -7,6 +7,39 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestEnsureCodexReasoningSummaryAuto(t *testing.T) {
+	body := map[string]any{"model": "gpt-5.4-mini"}
+	require.True(t, ensureCodexReasoningSummaryAuto(body))
+	reasoning, ok := body["reasoning"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "auto", reasoning["summary"])
+	require.False(t, ensureCodexReasoningSummaryAuto(body))
+
+	body2 := map[string]any{"reasoning": map[string]any{"effort": "medium"}}
+	require.True(t, ensureCodexReasoningSummaryAuto(body2))
+	require.Equal(t, "medium", body2["reasoning"].(map[string]any)["effort"])
+	require.Equal(t, "auto", body2["reasoning"].(map[string]any)["summary"])
+
+	body3 := map[string]any{"reasoning": map[string]any{"effort": "high", "summary": "concise"}}
+	require.True(t, ensureCodexReasoningSummaryAuto(body3))
+	require.Equal(t, "auto", body3["reasoning"].(map[string]any)["summary"])
+}
+
+func TestApplyCodexOAuthTransform_AlwaysSetsReasoningSummaryAuto(t *testing.T) {
+	reqBody := map[string]any{"model": "gpt-5.4-mini", "input": "hello"}
+	result := applyCodexOAuthTransform(reqBody, false, false)
+	require.True(t, result.Modified)
+	reasoning, ok := reqBody["reasoning"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "auto", reasoning["summary"])
+	require.Equal(t, []any{"reasoning.encrypted_content"}, reqBody["include"])
+
+	compact := map[string]any{"model": "gpt-5.4-mini", "input": "hello"}
+	applyCodexOAuthTransform(compact, false, true)
+	_, hasReasoning := compact["reasoning"]
+	require.False(t, hasReasoning, "compact 端点形态不同，不强制 reasoning.summary")
+}
+
 // ensureCodexReasoningInclude：带 reasoning 时补齐 include，幂等且保留既有项。
 func TestEnsureCodexReasoningInclude(t *testing.T) {
 	// reasoning 存在、include 缺失 → 注入
