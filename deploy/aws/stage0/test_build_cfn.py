@@ -6,6 +6,7 @@ import gzip
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -112,28 +113,31 @@ class BuildCfnSizeTest(unittest.TestCase):
         self.assertEqual(runner_bytes, (STAGE0 / "tokenkey-qa-boundary.sh").read_bytes())
 
     def test_build_cfn_check_detects_source_drift(self) -> None:
-        # Negative path: the content-based --check must FAIL when a source script
-        # changes but its embedded CFN blob is not regenerated — that drift gate is
-        # the whole point of --check. (Decodes the committed blob and compares to the
-        # now-tampered source, so it stays robust to gzip/zlib *version* differences.)
-        src = STAGE0 / "tokenkey-pgdump.sh"
-        original = src.read_bytes()
-        try:
-            src.write_bytes(original + b"\n# build-cfn drift sentinel\n")
+        # Keep the negative-path mutation inside a private Stage 0 fixture so parallel
+        # preflight suites never observe a temporarily tampered canonical source.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture_root = pathlib.Path(temp_dir)
+            stage0_copy = fixture_root / "deploy/aws/stage0"
+            cfn_copy = fixture_root / "deploy/aws/cloudformation/stage0-single-ec2.yaml"
+            shutil.copytree(STAGE0, stage0_copy)
+            cfn_copy.parent.mkdir(parents=True)
+            shutil.copy2(CFN_MAIN, cfn_copy)
+
+            src = stage0_copy / "tokenkey-pgdump.sh"
+            src.write_bytes(src.read_bytes() + b"\n# build-cfn drift sentinel\n")
             proc = subprocess.run(
-                ["bash", str(STAGE0 / "build-cfn.sh"), "--check"],
-                cwd=_REPO,
+                ["bash", str(stage0_copy / "build-cfn.sh"), "--check"],
+                cwd=fixture_root,
+                env={**os.environ, "CFN_FILE": str(cfn_copy)},
                 capture_output=True,
                 text=True,
                 check=False,
             )
-            self.assertNotEqual(
-                proc.returncode,
-                0,
-                msg="build-cfn --check passed despite a tampered source; the drift gate is broken",
-            )
-        finally:
-            src.write_bytes(original)
+        self.assertNotEqual(
+            proc.returncode,
+            0,
+            msg="build-cfn --check passed despite a tampered source; the drift gate is broken",
+        )
 
     def test_cfn_has_bootstrap_ssm_markers(self) -> None:
         text = CFN_MAIN.read_text()

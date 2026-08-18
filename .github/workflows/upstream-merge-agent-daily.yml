@@ -674,7 +674,12 @@ jobs:
           fi
 
           next=$((current + 1))
-          gh workflow run upstream-merge-agent-daily.yml --ref main \
+          # Pin --repo to this repository. Without it, a token whose default
+          # remote is Wei-Shaw/sub2api (or an `upstream` remote) 404s the
+          # TokenKey-only workflow and kills the recoverable-failure retry.
+          gh workflow run upstream-merge-agent-daily.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
             -f resume_run_id="$GITHUB_RUN_ID" \
             -f auto_retry_count="$next"
 

@@ -40,17 +40,18 @@ type dashboardStatsCacheEntry struct {
 
 // DashboardService 提供管理员仪表盘统计服务。
 type DashboardService struct {
-	usageRepo      UsageLogRepository
-	aggRepo        DashboardAggregationRepository
-	cache          DashboardStatsCache
-	cacheFreshTTL  time.Duration
-	cacheTTL       time.Duration
-	refreshTimeout time.Duration
-	refreshing     int32
-	aggEnabled     bool
-	aggInterval    time.Duration
-	aggLookback    time.Duration
-	aggUsageDays   int
+	usageRepo          UsageLogRepository
+	aggRepo            DashboardAggregationRepository
+	cache              DashboardStatsCache
+	cacheFreshTTL      time.Duration
+	cacheTTL           time.Duration
+	refreshTimeout     time.Duration
+	refreshing         int32
+	aggEnabled         bool
+	aggInterval        time.Duration
+	aggLookback        time.Duration
+	aggUsageDays       int
+	usageRetentionDays int
 }
 
 func NewDashboardService(usageRepo UsageLogRepository, aggRepo DashboardAggregationRepository, cache DashboardStatsCache, cfg *config.Config) *DashboardService {
@@ -89,17 +90,26 @@ func NewDashboardService(usageRepo UsageLogRepository, aggRepo DashboardAggregat
 		aggEnabled = false
 	}
 	return &DashboardService{
-		usageRepo:      usageRepo,
-		aggRepo:        aggRepo,
-		cache:          cache,
-		cacheFreshTTL:  freshTTL,
-		cacheTTL:       cacheTTL,
-		refreshTimeout: refreshTimeout,
-		aggEnabled:     aggEnabled,
-		aggInterval:    aggInterval,
-		aggLookback:    aggLookback,
-		aggUsageDays:   aggUsageDays,
+		usageRepo:          usageRepo,
+		aggRepo:            aggRepo,
+		cache:              cache,
+		cacheFreshTTL:      freshTTL,
+		cacheTTL:           cacheTTL,
+		refreshTimeout:     refreshTimeout,
+		aggEnabled:         aggEnabled,
+		aggInterval:        aggInterval,
+		aggLookback:        aggLookback,
+		aggUsageDays:       aggUsageDays,
+		usageRetentionDays: UsageLogRetentionDays(cfg),
 	}
+}
+
+// UsageLogRetentionDays 返回当前节点 Groups 累计列对应的有效保留天数。
+func (s *DashboardService) UsageLogRetentionDays() int {
+	if s == nil || s.usageRetentionDays <= 0 {
+		return prodUsageLogRetentionDays
+	}
+	return s.usageRetentionDays
 }
 
 func (s *DashboardService) GetDashboardStats(ctx context.Context) (*usagestats.DashboardStats, error) {
@@ -212,7 +222,7 @@ func (s *DashboardService) GetGroupStatsWithUsageFilters(ctx context.Context, st
 	return s.GetGroupStatsWithFilters(ctx, startTime, endTime, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.RequestType, filters.Stream, filters.BillingType)
 }
 
-// GetGroupUsageSummary returns today's and cumulative cost for all groups.
+// GetGroupUsageSummary returns today's, yesterday's, and retained-window cost for all groups.
 func (s *DashboardService) GetGroupUsageSummary(ctx context.Context, todayStart time.Time) ([]usagestats.GroupUsageSummary, error) {
 	results, err := s.usageRepo.GetAllGroupUsageSummary(ctx, todayStart)
 	if err != nil {

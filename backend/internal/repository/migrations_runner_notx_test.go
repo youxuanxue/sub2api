@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 	"testing/fstest"
 
@@ -87,7 +88,7 @@ func TestApplyMigrationsFS_NonTransactionalMigration(t *testing.T) {
 		},
 	}
 
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -123,7 +124,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_b ON t(b);
 		},
 	}
 
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -162,7 +163,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usage_logs_api_key_latest_ip
 		},
 	}
 
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -198,7 +199,7 @@ func TestApplyMigrationsFS_UsersEmailAliasIndexDropsInvalidIndexBeforeRetry(t *t
 		},
 	}
 
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -230,7 +231,7 @@ DROP INDEX CONCURRENTLY IF EXISTS paymentorder_out_trade_no;
 		},
 	}
 
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "duplicate out_trade_no")
 	require.Contains(t, err.Error(), "dup-out-trade-no")
@@ -276,7 +277,7 @@ DROP INDEX CONCURRENTLY IF EXISTS paymentorder_out_trade_no;
 		},
 	}
 
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -314,7 +315,7 @@ CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_scheduler_outbox_pending_dedu
 		},
 	}
 
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -349,7 +350,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ops_system_logs_api_key_id_created_a
 		},
 	}
 
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -415,7 +416,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ops_system_logs_host_created_at
 		},
 	}
 
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -471,7 +472,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usage_logs_upstream_model_mismatch_c
 		},
 	}
 
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -511,7 +512,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ops_system_logs_host_created_at
 		},
 	}
 
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -545,8 +546,38 @@ func TestApplyMigrationsFS_TransactionalMigration(t *testing.T) {
 		},
 	}
 
-	err = applyMigrationsFS(context.Background(), db, fsys)
+	err = applyMigrationsSession(context.Background(), db, fsys)
 	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_TransactionalMigrationRollsBackExecFailureWithoutRecording(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	db.SetMaxOpenConns(1)
+
+	execErr := errors.New("lock timeout")
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs("222_group_usage_daily_rollups.sql").
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectBegin()
+	mock.ExpectExec("SET LOCAL lock_timeout").WillReturnError(execErr)
+	mock.ExpectRollback()
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		"222_group_usage_daily_rollups.sql": &fstest.MapFile{
+			Data: []byte("SET LOCAL lock_timeout = '5s'; CREATE TRIGGER blocked;"),
+		},
+	}
+
+	err = applyMigrationsSession(context.Background(), db, fsys)
+	require.ErrorIs(t, err, execErr)
+	require.Contains(t, err.Error(), "apply migration 222_group_usage_daily_rollups.sql")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

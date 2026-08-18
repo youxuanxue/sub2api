@@ -1873,6 +1873,9 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	// 环境变量支持
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	// TK: 容器 TZ 只服务 OS/Postgres/日志。业务日界认 TIMEZONE / config.yaml /
+	// 默认 Asia/Shanghai。Stage0 固定 TZ=UTC，若用它覆盖 timezone，今日/昨日/
+	// cleanup/Groups 日桶会静默切到 UTC。
 	if err := viper.BindEnv("server.enable_server_timing", "ENABLE_SERVER_TIMING"); err != nil {
 		return nil, fmt.Errorf("bind ENABLE_SERVER_TIMING: %w", err)
 	}
