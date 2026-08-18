@@ -26,7 +26,7 @@ const edgeAccountsMaxPageSize = 1000
 // edge's own /admin/accounts page. The prod overview must mirror that page's
 // full inventory, so it reuses the exact same lister the admin page uses.
 type edgeAccountsLister interface {
-	ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode, sortBy, sortOrder string) ([]service.Account, int64, error)
+	ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode, sortBy, sortOrder string, channelType int) ([]service.Account, int64, error)
 }
 
 // edgeAccountsAllPlatforms is the sentinel that returns every platform's
@@ -319,7 +319,7 @@ func (h *EdgeAccountsHandler) ListAccounts(c *gin.Context) {
 	// status="" → all statuses (active/disabled/errored), matching the edge's own
 	// /admin/accounts page. priority asc mirrors the admin default ordering.
 	// platform="all" → "" filter (every platform); a concrete platform narrows.
-	accounts, _, err := h.accounts.ListAccounts(ctx, 1, edgeAccountsMaxPageSize, edgeAccountsListFilter(platform), "", "", "", groupID, "", "priority", "asc")
+	accounts, _, err := h.accounts.ListAccounts(ctx, 1, edgeAccountsMaxPageSize, edgeAccountsListFilter(platform), "", "", "", groupID, "", "priority", "asc", 0)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "failed to list accounts")
 		return

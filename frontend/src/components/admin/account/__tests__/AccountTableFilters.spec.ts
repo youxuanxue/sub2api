@@ -3,6 +3,8 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import AccountTableFilters from '../AccountTableFilters.vue'
 
+const loadChannelTypes = vi.fn().mockResolvedValue(undefined)
+
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return {
@@ -12,6 +14,20 @@ vi.mock('vue-i18n', async () => {
     })
   }
 })
+
+vi.mock('@/composables/useNewApiChannelTypes', () => ({
+  useNewApiChannelTypes: () => ({
+    types: {
+      value: [
+        { channel_type: 17, name: 'Ali', api_type: 0, has_adaptor: true, base_url: '' },
+        { channel_type: 14, name: 'DeepSeek', api_type: 0, has_adaptor: true, base_url: '' }
+      ]
+    },
+    loading: { value: false },
+    error: { value: null },
+    load: loadChannelTypes
+  })
+}))
 
 const SelectStub = defineComponent({
   name: 'SelectStub',
@@ -44,7 +60,7 @@ const SearchInputStub = defineComponent({
   template: '<input :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" @change="$emit(\'search\')" />'
 })
 
-function mountFilters() {
+function mountFilters(filters: Record<string, unknown> = {}) {
   return mount(AccountTableFilters, {
     props: {
       searchQuery: '',
@@ -53,7 +69,9 @@ function mountFilters() {
         type: '',
         status: '',
         privacy_mode: '',
-        group: ''
+        group: '',
+        channel_type: '',
+        ...filters
       },
       groups: []
     },
@@ -67,18 +85,39 @@ function mountFilters() {
 }
 
 describe('AccountTableFilters', () => {
-  it('offers a virtual Kiro stub platform filter and emits the sentinel value', async () => {
+  it('does not offer the retired Kiro stub or group-only composite platform filters', () => {
     const wrapper = mountFilters()
 
-    const kiroStubOption = wrapper.find('[data-value="__kiro_stub__"]')
-    expect(kiroStubOption.exists()).toBe(true)
-    expect(kiroStubOption.text()).toBe('admin.accounts.kiroStubPlatform')
+    expect(wrapper.find('[data-value="__kiro_stub__"]').exists()).toBe(false)
+    expect(wrapper.find('[data-value="composite"]').exists()).toBe(false)
+    expect(wrapper.find('[data-value="kiro"]').exists()).toBe(true)
+    expect(wrapper.find('[data-value="newapi"]').exists()).toBe(true)
+  })
 
-    await kiroStubOption.trigger('click')
+  it('shows channel type options only for Extension Engine and emits the selected type', async () => {
+    const hidden = mountFilters()
+    expect(hidden.find('[data-value="17"]').exists()).toBe(false)
 
+    const wrapper = mountFilters({ platform: 'newapi' })
+    expect(loadChannelTypes).toHaveBeenCalled()
+    expect(wrapper.find('[data-value="17"]').exists()).toBe(true)
+    expect(wrapper.find('[data-value="14"]').text()).toBe('DeepSeek')
+
+    await wrapper.find('[data-value="17"]').trigger('click')
     expect(wrapper.emitted('update:filters')?.[0]?.[0]).toMatchObject({
-      platform: '__kiro_stub__'
+      platform: 'newapi',
+      channel_type: '17'
     })
     expect(wrapper.emitted('change')).toBeTruthy()
+  })
+
+  it('clears channel_type when leaving Extension Engine', async () => {
+    const wrapper = mountFilters({ platform: 'newapi', channel_type: '17' })
+
+    await wrapper.find('[data-value="anthropic"]').trigger('click')
+    expect(wrapper.emitted('update:filters')?.[0]?.[0]).toMatchObject({
+      platform: 'anthropic',
+      channel_type: ''
+    })
   })
 })

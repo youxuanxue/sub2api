@@ -243,6 +243,9 @@ func mustCreateAccount(t *testing.T, client *dbent.Client, a *service.Account) *
 	if a.QuotaDimension != "" {
 		create.SetQuotaDimension(dbaccount.QuotaDimension(a.QuotaDimension))
 	}
+	if a.ChannelType > 0 {
+		create.SetChannelType(a.ChannelType)
+	}
 
 	created, err := create.Save(ctx)
 	require.NoError(t, err, "create account")
