@@ -555,6 +555,7 @@ watch(selectedKey, () => {
 
 watch([selectedKey, baseUrl], ([key, url]) => {
   if (!key?.key || !url) return
+  if (isUniversalKey(key)) return
   void gatewayWarmupConnection(key.key, url)
 })
 

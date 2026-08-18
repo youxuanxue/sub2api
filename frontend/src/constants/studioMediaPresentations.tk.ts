@@ -97,6 +97,8 @@ export interface ModalityKeyOption {
   isTrial: boolean
   /** Model ids exposed by this key's group, or universal entitlement ids. */
   availableIds: ReadonlySet<string>
+  /** Explicit key capability truth. Omitted for direct keys that use legacy catalog inference. */
+  servedModalities?: ReadonlySet<PickerModality>
 }
 
 /**
@@ -122,7 +124,11 @@ export function pickModalityKey(
   catalogBilling: CatalogBillingIndex
 ): number | null {
   if (options.length === 0) return currentId
-  const serving = options.filter((o) => groupServes(modality, o.availableIds, catalogBilling))
+	const serving = options.filter((o) => (
+		o.servedModalities
+			? o.servedModalities.has(modality)
+			: groupServes(modality, o.availableIds, catalogBilling)
+	))
   if (currentId != null && serving.some((o) => o.id === currentId)) return currentId
   const pickServing = serving.find((o) => o.isTrial) ?? serving[0]
   if (pickServing) return pickServing.id

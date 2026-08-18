@@ -96,59 +96,13 @@ func (gatewayModelsSubscriptionRepoStub) ListActiveByUserID(context.Context, int
 	return nil, nil
 }
 
-func TestGatewayModels_UniversalKeyListsEntitledGroupUnion(t *testing.T) {
+func TestGatewayModels_UniversalKeyListsCallableOpenAIProjection(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-
-	openAIGroupID := int64(31)
-	geminiGroupID := int64(32)
-	unentitledGroupID := int64(99)
-	h := newGatewayModelsHandlerForTest(
-		&gatewayModelsAccountRepoStub{
-			byGroup: map[int64][]service.Account{
-				openAIGroupID: {
-					{ID: 1, Platform: service.PlatformOpenAI},
-				},
-				geminiGroupID: {
-					{ID: 2, Platform: service.PlatformGemini},
-				},
-				unentitledGroupID: {
-					{
-						ID:       3,
-						Platform: service.PlatformOpenAI,
-						Credentials: map[string]any{
-							"model_mapping": map[string]any{
-								"leaked-global-model": "leaked-global-model",
-							},
-						},
-					},
-				},
-			},
-			all: []service.Account{
-				{
-					ID:       3,
-					Platform: service.PlatformOpenAI,
-					Credentials: map[string]any{
-						"model_mapping": map[string]any{
-							"leaked-global-model": "leaked-global-model",
-						},
-					},
-				},
-			},
+	h := &GatewayHandler{tkCapabilities: &us046CapabilitySource{byProtocol: map[service.UniversalProtocol][]service.UniversalCapability{
+		service.UniversalProtocolOpenAI: {
+			{ID: "gpt-callable", Modalities: []service.UniversalModality{service.UniversalModalityChat}},
 		},
-	)
-	h.apiKeyService = service.NewAPIKeyService(
-		nil,
-		gatewayModelsUserRepoStub{user: &service.User{ID: 16, Status: service.StatusActive, AllowedGroups: []int64{openAIGroupID, geminiGroupID}}},
-		gatewayModelsGroupRepoStub{groups: []service.Group{
-			{ID: openAIGroupID, Name: "gpt", Platform: service.PlatformOpenAI, IsExclusive: true, Status: service.StatusActive},
-			{ID: geminiGroupID, Name: "google", Platform: service.PlatformGemini, IsExclusive: true, Status: service.StatusActive},
-			{ID: unentitledGroupID, Name: "other", Platform: service.PlatformOpenAI, IsExclusive: true, Status: service.StatusActive},
-		}},
-		gatewayModelsSubscriptionRepoStub{},
-		nil,
-		nil,
-		nil,
-	)
+	}}}
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -165,11 +119,8 @@ func TestGatewayModels_UniversalKeyListsEntitledGroupUnion(t *testing.T) {
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	ids := modelIDsForTest(got.Data)
-	require.ElementsMatch(t, gatewayModelsSSOTUnionForTest(
-		service.ServableClientFacingIDs(context.Background(), service.PlatformOpenAI, nil, nil),
-		service.ServableClientFacingIDs(context.Background(), service.PlatformGemini, nil, nil),
-	), ids, "universal list must be exactly the entitled OpenAI+Gemini SSOT union and must not scan the global schedulable pool")
+	require.Equal(t, []string{"gpt-callable"}, modelIDsForTest(got.Data))
+	require.Equal(t, "openai", got.Data[0].OwnedBy)
 }
 
 func TestDefaultModelIDsForCompositeIncludesAntigravityDefaults(t *testing.T) {

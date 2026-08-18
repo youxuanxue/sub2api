@@ -8,10 +8,11 @@
  * clients (~414/wk) — are all eliminated here by making the error-prone fields
  * impossible to mistype:
  *
- *   1. The model is chosen from the key's LIVE servable menu
- *      (GET /me/pricing-catalog), never typed. Retired / bare / unsupported
- *      names simply do not appear. The chosen id is injected into every
- *      snippet, so all client tabs stay in lock-step with a real model.
+ *   1. The model is chosen from the key's live servable menu: the capability
+ *      SSOT for automatic routing, or the bound-group pricing catalog for a
+ *      direct key. Retired / bare / unsupported names simply do not appear.
+ *      The chosen id is injected into every snippet, so all client tabs stay
+ *      in lock-step with a real model.
  *   2. A "Test key" action fires the user's own key against the gateway with a
  *      canonical-correct body and surfaces the verbatim 200/4xx inline — the
  *      same response they would otherwise only see after wiring a client and
@@ -24,10 +25,13 @@
 import { computed, ref, type Ref } from 'vue'
 import { resolveBrowserGatewayFetchBaseUrl, gatewayWarmupConnection } from '@/api/playground'
 import { getMePricingCatalog, type MePricingModel } from '@/api/me-pricing'
-import { getPublicPricing } from '@/api/pricing'
+import {
+  getAPIKeyCapabilities,
+  type APIKeyCapabilityModel,
+  type APIKeyCapabilityProtocol,
+} from '@/api/api-key-capabilities'
 import type { GroupPlatform, KeyRoutingMode } from '@/types'
 import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI } from '@/constants/gatewayPlatforms'
-import { servableModelsFromUniversalEntitlement } from '@/utils/studioUniversalKey.tk'
 
 /**
  * A snippet "flavor" is the single-model protocol a given client tab speaks.
@@ -35,10 +39,16 @@ import { servableModelsFromUniversalEntitlement } from '@/utils/studioUniversalK
  * is what scopes the model picker and the test request.
  */
 export type UseKeyFlavor = 'anthropic' | 'openai' | 'gemini'
+export type UseKeyDiscoveryProtocol = Extract<
+  APIKeyCapabilityProtocol,
+  'anthropic' | 'openai' | 'gemini' | 'codex'
+>
 
 export interface UseKeyServableModel {
   id: string
   capabilities: string[]
+  protocols?: APIKeyCapabilityProtocol[]
+  modalities?: string[]
   contextWindow?: number
   maxOutput?: number
 }
@@ -218,10 +228,20 @@ function mapMePricingModels(models: MePricingModel[]): UseKeyServableModel[] {
   }))
 }
 
+function mapCapabilityModels(models: APIKeyCapabilityModel[]): UseKeyServableModel[] {
+  return models.map((model) => ({
+    id: model.id,
+    capabilities: [],
+    protocols: model.protocols,
+    modalities: model.modalities,
+  }))
+}
+
 export function useTkUseKey(args: UseTkUseKeyArgs) {
   const servableModels = ref<UseKeyServableModel[]>([])
   const modelsLoading = ref(false)
   const modelsLoaded = ref(false)
+  const modelsError = ref('')
   /** chosen model id per flavor; persists across tab switches within a session */
   const selectedByFlavor = ref<Record<UseKeyFlavor, string>>({
     anthropic: '',
@@ -237,6 +257,7 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     const id = args.apiKeyId.value
     servableModels.value = []
     modelsLoaded.value = false
+    modelsError.value = ''
     selectedByFlavor.value = { anthropic: '', openai: '', gemini: '' }
     if (id == null) {
       modelsLoading.value = false
@@ -246,8 +267,8 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     try {
       let nextModels: UseKeyServableModel[]
       if (args.routingMode?.value === 'universal') {
-        const [meCatalog, publicCatalog] = await Promise.all([getMePricingCatalog(), getPublicPricing()])
-        nextModels = servableModelsFromUniversalEntitlement(meCatalog, publicCatalog.data ?? [])
+        const capabilities = await getAPIKeyCapabilities(id)
+        nextModels = mapCapabilityModels(capabilities.models ?? [])
       } else {
         const res = await getMePricingCatalog({ apiKeyId: id })
         nextModels = mapMePricingModels(res.models ?? [])
@@ -255,26 +276,34 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
       if (epoch !== modelLoadEpoch || id !== args.apiKeyId.value) return
       servableModels.value = nextModels
       modelsLoaded.value = true
-    } catch {
+    } catch (error) {
       if (epoch !== modelLoadEpoch || id !== args.apiKeyId.value) return
-      // Load failure leaves servableModels empty; the modal then shows its
-      // "couldn't load — type manually" hint and snippets use the fallback id.
       servableModels.value = []
+      modelsError.value = error instanceof Error ? error.message : String(error)
     } finally {
       if (epoch === modelLoadEpoch) modelsLoading.value = false
     }
   }
 
-  function modelsForFlavor(flavor: UseKeyFlavor): UseKeyServableModel[] {
-    return servableModels.value.filter((m) => flavorOfModel(m.id) === flavor)
+  function modelsForFlavor(
+    flavor: UseKeyFlavor,
+    protocol: UseKeyDiscoveryProtocol = flavor,
+  ): UseKeyServableModel[] {
+    return servableModels.value.filter((model) => {
+      if (!model.protocols?.length) return flavorOfModel(model.id) === flavor
+      return model.protocols.includes(protocol)
+    })
   }
 
   /** Currently effective model for a flavor: explicit pick → first servable of
    * that flavor → hardcoded fallback. Never empty, so snippets always render. */
-  function effectiveModel(flavor: UseKeyFlavor): string {
+  function effectiveModel(
+    flavor: UseKeyFlavor,
+    protocol: UseKeyDiscoveryProtocol = flavor,
+  ): string {
     const picked = selectedByFlavor.value[flavor]
-    if (picked) return picked
-    const first = modelsForFlavor(flavor)[0]
+    if (picked && modelsForFlavor(flavor, protocol).some((model) => model.id === picked)) return picked
+    const first = modelsForFlavor(flavor, protocol)[0]
     return first?.id ?? FLAVOR_DEFAULT_MODEL[flavor]
   }
 
@@ -285,18 +314,25 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
   }
 
   /** Pre-select a model from a deep link only when the current key can serve it. */
-  function applyInitialModel(modelId: string | null | undefined): UseKeyFlavor | null {
+  function applyInitialModel(
+    modelId: string | null | undefined,
+    protocol?: UseKeyDiscoveryProtocol,
+  ): UseKeyFlavor | null {
     const id = modelId?.trim()
     if (!id) return null
-    if (!servableModels.value.some((model) => model.id === id)) return null
     const flavor = flavorOfModel(id)
+    if (!modelsForFlavor(flavor, protocol ?? flavor).some((model) => model.id === id)) return null
     setModel(flavor, id)
     return flavor
   }
 
-  function shouldWarnModelsEmpty(flavor: UseKeyFlavor): boolean {
+  function shouldWarnModelsEmpty(
+    flavor: UseKeyFlavor,
+    protocol: UseKeyDiscoveryProtocol = flavor,
+  ): boolean {
+    if (modelsError.value || !modelsLoaded.value) return false
     if (selectedByFlavor.value[flavor]) return false
-    return modelsForFlavor(flavor).length === 0
+    return modelsForFlavor(flavor, protocol).length === 0
   }
 
   const isClaudeCodeOnly = computed(
@@ -482,6 +518,7 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     servableModels,
     modelsLoading,
     modelsLoaded,
+    modelsError,
     testState,
     isClaudeCodeOnly,
     loadModels,

@@ -6375,6 +6375,61 @@
         "TestUpstreamBillingProbeCloudwiseRelaySetEnabledRejects"
       ],
       "rationale": "Regression: CloudWise relay accounts must not probe or enable upstream billing probe."
+    },
+    {
+      "path": "backend/internal/service/universal_capability_tk.go",
+      "must_contain": [
+        "type UniversalCapabilityService struct",
+        "func (s *UniversalCapabilityService) List(",
+        "UniversalGroupSupportsRequestStrict",
+        "FilterClientFacingStrict",
+        "ids = append(ids, fallbackIDs...)"
+      ],
+      "rationale": "Single backend owner for per-key callable capability truth. It must enumerate entitled groups, union explicit mappings with native passthrough candidates, apply strict availability filtering, and confirm every model/protocol shape against direct-scheduler semantics. Losing this owner or one of these calls silently restores an authorization catalog that is broader than what the key can invoke."
+    },
+    {
+      "path": "backend/internal/service/model_list_filter_tk.go",
+      "must_contain": [
+        "func (f *ModelListFilter) FilterClientFacingStrict(",
+        "func (f *ModelListFilter) ServableClientFacingIDsStrict(",
+        "f.availability.GetAvailability(ctx, platform, id)"
+      ],
+      "rationale": "Capability discovery must fail explicitly when the availability repository cannot answer. Runtime forwarding keeps the legacy fail-open filter, while these discovery-only strict entrypoints prevent a repository outage from being presented as a truthful callable menu."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_model_list.go",
+      "must_contain": [
+        "func (h *GatewayHandler) SetUniversalCapabilityService(",
+        "func capabilityModelIDs(",
+        "func geminiModelsForCapabilityIDs(",
+        "func antigravityModelsForCapabilityIDs("
+      ],
+      "rationale": "Native discovery projection helpers consume the capability owner without resolving an automatic key to one backing group. These anchors preserve the OpenAI/Anthropic, Gemini, and Antigravity schema adapters and their capability-service injection seam."
+    },
+    {
+      "path": "backend/internal/handler/openai_codex_models_handler.go",
+      "must_contain": [
+        "allowedModelIDs, err := h.resolveCodexDiscoveryAPIKey",
+        "func filterCodexModelsManifest(",
+        "envelope[\"models\"] = encodedModels"
+      ],
+      "rationale": "Codex discovery may reuse an upstream manifest only as a schema template. Automatic keys must filter models[] to capability-authorized slugs while preserving unknown manifest fields; removing this projection advertises every upstream model regardless of key entitlement."
+    },
+    {
+      "path": "backend/internal/handler/api_key_capability_handler_tk.go",
+      "must_contain": [
+        "type APIKeyCapabilitiesResponse struct",
+        "func (h *APIKeyHandler) GetCapabilities(",
+        "h.capabilities.List(c.Request.Context(), key, protocol)"
+      ],
+      "rationale": "Authenticated website capability endpoint. Ownership validation and the shared service call keep Quickstart and Studio on the same truth as native discovery rather than rebuilding entitlement logic in the browser."
+    },
+    {
+      "path": "backend/internal/server/routes/user_tk_routes.go",
+      "must_contain": [
+        "authenticated.GET(\"/me/api-keys/:id/capabilities\", h.APIKey.GetCapabilities)"
+      ],
+      "rationale": "The per-key capability API must remain under authenticated user routes. Losing the route leaves website discovery unable to query automatic keys even though gateway discovery still works."
     }
   ]
 }

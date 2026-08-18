@@ -1,6 +1,9 @@
 package service
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // Self-healing per-platform candidate model IDs — the single source of truth
 // behind BOTH the admin model-whitelist selector (admin_service
@@ -98,4 +101,32 @@ func ServableClientFacingIDs(ctx context.Context, platform string, availability 
 		}
 	}
 	return out
+}
+
+func servableClientFacingIDsStrict(ctx context.Context, platform string, availability MePricingAvailability, pricing *PricingCatalogService) ([]string, error) {
+	ids := tkServableCandidateIDs(ctx, platform, nil)
+	if availability != nil {
+		kept := make([]string, 0, len(ids))
+		for _, id := range ids {
+			state, err := availability.GetAvailability(ctx, platform, id)
+			if err != nil {
+				return nil, fmt.Errorf("read model availability for %s/%s: %w", platform, id, err)
+			}
+			if tkAvailabilityStructurallyGone(state) {
+				continue
+			}
+			kept = append(kept, id)
+		}
+		ids = kept
+	}
+	if pricing == nil || len(ids) == 0 {
+		return ids, nil
+	}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if pricing.IsModelPriced(id, platform) {
+			out = append(out, id)
+		}
+	}
+	return out, nil
 }

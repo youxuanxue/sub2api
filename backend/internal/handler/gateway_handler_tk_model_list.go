@@ -11,6 +11,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
 )
 
 // SetModelListFilter wires the optional client model-list filter into
@@ -24,6 +25,90 @@ func (h *GatewayHandler) SetModelListFilter(f *service.ModelListFilter) {
 	if h != nil {
 		h.tkModelListFilter = f
 	}
+}
+
+func (h *GatewayHandler) SetUniversalCapabilityService(capabilities *service.UniversalCapabilityService) {
+	if h != nil {
+		h.tkCapabilities = capabilities
+	}
+}
+
+func (h *OpenAIGatewayHandler) SetUniversalCapabilityService(capabilities *service.UniversalCapabilityService) {
+	if h != nil {
+		h.tkCapabilities = capabilities
+	}
+}
+
+func (h *GatewayHandler) universalCapabilities(ctx context.Context, apiKey *service.APIKey, protocol service.UniversalProtocol) ([]service.UniversalCapability, error) {
+	if h == nil || h.tkCapabilities == nil {
+		return nil, service.ErrUniversalCapabilityUnavailable
+	}
+	return h.tkCapabilities.List(ctx, apiKey, protocol)
+}
+
+func isAnthropicModelsRequest(c *gin.Context) bool {
+	if c == nil || c.Request == nil {
+		return false
+	}
+	return strings.TrimSpace(c.GetHeader("anthropic-version")) != "" ||
+		(strings.TrimSpace(c.GetHeader("x-api-key")) != "" && strings.TrimSpace(c.GetHeader("Authorization")) == "")
+}
+
+func capabilityModelIDs(capabilities []service.UniversalCapability, modality service.UniversalModality) []string {
+	ids := make([]string, 0, len(capabilities))
+	for i := range capabilities {
+		if modality != "" {
+			matched := false
+			for _, value := range capabilities[i].Modalities {
+				if value == modality {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		ids = append(ids, capabilities[i].ID)
+	}
+	return ids
+}
+
+func geminiModelsForCapabilityIDs(ids []string) gemini.ModelsListResponse {
+	defaults := gemini.DefaultModels()
+	byID := make(map[string]gemini.Model, len(defaults))
+	for _, model := range defaults {
+		byID[strings.TrimPrefix(model.Name, "models/")] = model
+	}
+	models := make([]gemini.Model, 0, len(ids))
+	for _, id := range ids {
+		if model, ok := byID[id]; ok {
+			models = append(models, model)
+			continue
+		}
+		models = append(models, gemini.Model{
+			Name:                       "models/" + id,
+			SupportedGenerationMethods: []string{"generateContent", "streamGenerateContent"},
+		})
+	}
+	return gemini.ModelsListResponse{Models: models}
+}
+
+func antigravityModelsForCapabilityIDs(ids []string) []antigravity.ClaudeModel {
+	defaults := antigravity.DefaultModels()
+	byID := make(map[string]antigravity.ClaudeModel, len(defaults))
+	for _, model := range defaults {
+		byID[model.ID] = model
+	}
+	models := make([]antigravity.ClaudeModel, 0, len(ids))
+	for _, id := range ids {
+		if model, ok := byID[id]; ok {
+			models = append(models, model)
+			continue
+		}
+		models = append(models, antigravity.ClaudeModel{ID: id, Type: "model", DisplayName: id})
+	}
+	return models
 }
 
 // HasModelListFilter returns true once the model-list filter is wired. Used

@@ -166,7 +166,7 @@ const en: LocaleOverlay = {
     "keyNoModality": "no models for this mode",
     "saveReminderTitle": "Download your results now",
     "saveReminder": "Stored only in this browser (~7 days). Clearing cache, private mode, or switching devices removes previews — download files to keep them.",
-    "universalKeyBadge": "Universal key",
+    "universalKeyBadge": "Automatic routing",
     "playback": {
       "inlineLocal": "Local cache · preview survives reload (~7 days)",
       "upstreamCorsOk": "Upstream URL · CORS fetch OK · download anyway",
@@ -445,9 +445,9 @@ const en: LocaleOverlay = {
       },
       "close": "Close"
     },
-    "universalLabel": "Universal key (all platforms)",
-    "universalHint": "One key works across every platform, model and modality you are entitled to. Turn off to lock this key to a single group.",
-    "universalBadge": "Universal",
+    "universalLabel": "Automatic routing",
+    "universalHint": "Automatically choose an authorized service for each protocol and model. Turn off to restrict this key to one service group.",
+    "universalBadge": "Automatic",
     "useKeyModal": {
       "modelLabel": "Model",
       "baseUrlLabel": "Base URL",
@@ -459,6 +459,7 @@ const en: LocaleOverlay = {
       "testModelOk": "Key and model endpoint available",
       "testKeyValid": "Key valid; client connection not yet verified",
       "modelsLoading": "Loading the models this key can serve…",
+      "modelsLoadError": "The callable model menu could not be loaded. Retry before choosing a model.",
       "modelsEmpty": "Could not load the servable model list; you can type a model name manually in the config below",
       "ccOnlyWarning": "This group only accepts Claude Code clients (claude-cli) and only /v1/messages. curl / Python / OpenCode and the like are rejected by the gateway with 403.",
       "cliTabs": {
@@ -913,7 +914,7 @@ const en: LocaleOverlay = {
     "environment": "Operating system",
     "transportHttp": "HTTP (recommended)",
     "transportWebSocket": "WebSocket",
-    "websocketUnavailable": "WebSocket is only available for universal or OpenAI keys.",
+    "websocketUnavailable": "WebSocket is only available for automatic-routing or OpenAI keys.",
     "unavailableNoGroup": "Assign this key to a group before using this client.",
     "unavailableClaudeCodeOnly": "This key is explicitly restricted to Claude Code.",
     "unavailableProtocol": "This key does not provide the protocol required by this client.",
@@ -1121,7 +1122,7 @@ const zh: LocaleOverlay = {
     "keyNoModality": "此模式无可用模型",
     "saveReminderTitle": "请立即下载保存",
     "saveReminder": "生成结果只存在本机浏览器（约 7 天）。清缓存、无痕模式或换设备后预览会丢失——请下载到本地留存。",
-    "universalKeyBadge": "全能 Key",
+    "universalKeyBadge": "自动路由",
     "playback": {
       "inlineLocal": "本机缓存 · 刷新后仍可预览（约 7 天）",
       "upstreamCorsOk": "上游直链 · 已探测可缓存 · 仍请下载",
@@ -1400,9 +1401,9 @@ const zh: LocaleOverlay = {
       },
       "close": "关闭"
     },
-    "universalLabel": "全能 Key（全平台）",
-    "universalHint": "一把 key 通你被授权的所有平台、模型与模态。关闭则把这把 key 锁定到单个分组。",
-    "universalBadge": "全能",
+    "universalLabel": "自动选择服务",
+    "universalHint": "系统会按协议和模型自动选择已授权服务。关闭后，这把 Key 将限制到一个服务组。",
+    "universalBadge": "自动路由",
     "useKeyModal": {
       "modelLabel": "模型",
       "baseUrlLabel": "地址",
@@ -1414,6 +1415,7 @@ const zh: LocaleOverlay = {
       "testModelOk": "Key 与模型端点可用",
       "testKeyValid": "Key 有效，尚未验证客户端连接",
       "modelsLoading": "正在加载该密钥可服务的模型…",
+      "modelsLoadError": "可调用模型菜单加载失败，请重试后再选择模型。",
       "modelsEmpty": "未能加载可服务模型清单，可在下方配置中手动填写模型名",
       "ccOnlyWarning": "此分组仅允许 Claude Code 客户端（claude-cli），且仅 /v1/messages。curl / Python / OpenCode 等会被网关以 403 拒绝。",
       "cliTabs": {
@@ -1868,7 +1870,7 @@ const zh: LocaleOverlay = {
     "environment": "操作系统",
     "transportHttp": "HTTP（推荐）",
     "transportWebSocket": "WebSocket",
-    "websocketUnavailable": "WebSocket 仅支持全能 Key 或 OpenAI 分组。",
+    "websocketUnavailable": "WebSocket 仅支持自动路由 Key 或 OpenAI 分组。",
     "unavailableNoGroup": "请先为这把 Key 分配分组，再连接此客户端。",
     "unavailableClaudeCodeOnly": "这把 Key 被明确限制为仅供 Claude Code 使用。",
     "unavailableProtocol": "这把 Key 未提供该客户端需要的协议。",

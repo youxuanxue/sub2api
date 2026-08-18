@@ -56,6 +56,11 @@
           </div>
           <p v-if="activeFlavor && tkModelsLoading" class="text-xs text-gray-400 pl-[4.25rem]">{{ t('keys.useKeyModal.modelsLoading') }}</p>
           <p
+            v-else-if="activeFlavor && tkModelsError"
+            data-tk="use-key-models-error"
+            class="text-xs text-red-600 dark:text-red-400 pl-[4.25rem]"
+          >{{ t('keys.useKeyModal.modelsLoadError') }}</p>
+          <p
             v-else-if="activeFlavor && showModelsCatalogEmpty"
             data-tk="use-key-models-empty"
             class="text-xs text-amber-600 dark:text-amber-400 pl-[4.25rem]"
@@ -247,6 +252,7 @@ import {
   flavorOfModel,
   formatProbeLatencyDetail,
   type UseKeyFlavor,
+  type UseKeyDiscoveryProtocol,
   type UseKeyServableModel,
   type TestState,
 } from '@/composables/useTkUseKey'
@@ -391,6 +397,18 @@ const activeFlavor = computed<UseKeyFlavor | null>(() => {
   }
 })
 
+const activeDiscoveryProtocol = computed<UseKeyDiscoveryProtocol | null>(() => {
+  const flavor = activeFlavor.value
+  if (!flavor) return null
+  if (props.routingMode === 'universal') {
+    const tab = activeClientTab.value
+    if (tab === 'codex' || tab === 'codex-ws' || selectedClientEntry.value?.guideId === 'codex') {
+      return 'codex'
+    }
+  }
+  return flavor
+})
+
 const tk = useTkUseKey({
   apiKeyId: toRef(props, 'apiKeyId'),
   apiKey: toRef(props, 'apiKey'),
@@ -424,7 +442,7 @@ watch(
 )
 
 function applyInitialModelSelection(initialModel: string | null | undefined): void {
-  const flavor = tk.applyInitialModel(initialModel)
+  const flavor = tk.applyInitialModel(initialModel, activeDiscoveryProtocol.value ?? undefined)
   if (!props.selectedClient) {
     if (flavor === 'anthropic') activeClientTab.value = 'claude'
     else if (flavor === 'gemini') activeClientTab.value = 'gemini'
@@ -434,6 +452,7 @@ function applyInitialModelSelection(initialModel: string | null | undefined): vo
 
 // Template-facing refs (top-level so they auto-unwrap in the template).
 const tkModelsLoading = tk.modelsLoading
+const tkModelsError = tk.modelsError
 const tkTestState = tk.testState
 watch(tkTestState, (state) => {
   emit('testStateChange', { ...state })
@@ -441,13 +460,23 @@ watch(tkTestState, (state) => {
 const tkIsCCOnly = tk.isClaudeCodeOnly
 
 // Models offered in the picker for the current flavor.
-const pickerModels = computed(() => (activeFlavor.value ? tk.modelsForFlavor(activeFlavor.value) : []))
-const selectedModel = computed(() => (activeFlavor.value ? tk.effectiveModel(activeFlavor.value) : ''))
+const pickerModels = computed(() => (
+  activeFlavor.value && activeDiscoveryProtocol.value
+    ? tk.modelsForFlavor(activeFlavor.value, activeDiscoveryProtocol.value)
+    : []
+))
+const selectedModel = computed(() => (
+  activeFlavor.value && activeDiscoveryProtocol.value
+    ? tk.effectiveModel(activeFlavor.value, activeDiscoveryProtocol.value)
+    : ''
+))
 watch([selectedModel, tkModelsLoading], ([model, loading]) => {
   if (model && !loading) emit('modelChange', model)
 })
 const showModelsCatalogEmpty = computed(() =>
-  activeFlavor.value ? tk.shouldWarnModelsEmpty(activeFlavor.value) : false,
+  activeFlavor.value && activeDiscoveryProtocol.value
+    ? tk.shouldWarnModelsEmpty(activeFlavor.value, activeDiscoveryProtocol.value)
+    : false,
 )
 const currentModelMeta = computed(() =>
   pickerModels.value.find((m) => m.id === selectedModel.value),

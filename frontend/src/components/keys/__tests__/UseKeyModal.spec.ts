@@ -18,11 +18,15 @@ vi.mock('@/composables/useClipboard', () => ({
 // keeping the partial vue-i18n mock above sufficient.
 const getMePricingCatalog = vi.fn()
 const getPublicPricing = vi.fn()
+const getAPIKeyCapabilities = vi.fn()
 vi.mock('@/api/me-pricing', () => ({
   getMePricingCatalog: (...args: unknown[]) => getMePricingCatalog(...args)
 }))
 vi.mock('@/api/pricing', () => ({
   getPublicPricing: (...args: unknown[]) => getPublicPricing(...args)
+}))
+vi.mock('@/api/api-key-capabilities', () => ({
+  getAPIKeyCapabilities: (...args: unknown[]) => getAPIKeyCapabilities(...args)
 }))
 
 import UseKeyModal from '../UseKeyModal.vue'
@@ -58,8 +62,10 @@ function mountQuickstartGuide(props: Record<string, unknown>) {
 beforeEach(() => {
   getMePricingCatalog.mockReset()
   getPublicPricing.mockReset()
+  getAPIKeyCapabilities.mockReset()
   getMePricingCatalog.mockResolvedValue({ models: [] })
   getPublicPricing.mockResolvedValue({ data: [] })
+  getAPIKeyCapabilities.mockResolvedValue({ api_key_id: 42, routing_mode: 'universal', models: [] })
 })
 
 describe('UseKeyModal — preserved snippet correctness', () => {
@@ -500,21 +506,16 @@ describe('UseKeyModal — universal keys', () => {
     expect(wrapper.text()).toContain('keys.useKeyModal.cliTabs.codexCli')
   })
 
-  it('loads cross-group model menu via entitlement index instead of per-key catalog', async () => {
-    getMePricingCatalog.mockResolvedValue({
-      authorized_groups_by_model: {
-        'claude-opus-4-8': [{ id: 1, name: 'anthropic' }],
-      },
-      models: [],
-    })
-    getPublicPricing.mockResolvedValue({
-      data: [
-        {
-          model_id: 'claude-opus-4-8',
-          capabilities: ['thinking'],
-          context_window: 200000,
-        },
-      ],
+  it('loads the automatic-routing model menu from the per-key capability SSOT', async () => {
+    getAPIKeyCapabilities.mockResolvedValue({
+      api_key_id: 42,
+      routing_mode: 'universal',
+      models: [{
+        id: 'claude-opus-4-8',
+        protocols: ['anthropic'],
+        modalities: ['chat'],
+        routes: [],
+      }],
     })
 
     const wrapper = mountModal({
@@ -524,16 +525,15 @@ describe('UseKeyModal — universal keys', () => {
     })
     await flushPromises()
 
-    expect(getMePricingCatalog).toHaveBeenCalledWith()
-    expect(getMePricingCatalog).not.toHaveBeenCalledWith(expect.objectContaining({ apiKeyId: 42 }))
-    expect(getPublicPricing).toHaveBeenCalled()
+    expect(getAPIKeyCapabilities).toHaveBeenCalledWith(42)
+    expect(getMePricingCatalog).not.toHaveBeenCalled()
+    expect(getPublicPricing).not.toHaveBeenCalled()
     expect(wrapper.text()).not.toContain('keys.useKeyModal.modelsEmpty')
     expect(wrapper.find('select').findAll('option').some((o) => o.text().includes('claude-opus-4-8'))).toBe(true)
   })
 
   it('rejects a deep-linked model outside the live catalog', async () => {
-    getMePricingCatalog.mockResolvedValue({ authorized_groups_by_model: {}, models: [] })
-    getPublicPricing.mockResolvedValue({ data: [] })
+    getAPIKeyCapabilities.mockResolvedValue({ api_key_id: 42, routing_mode: 'universal', models: [] })
 
     const wrapper = mountModal({
       platform: null,
