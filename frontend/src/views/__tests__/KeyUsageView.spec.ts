@@ -231,4 +231,22 @@ describe('KeyUsageView daily detail', () => {
 
     wrapper.unmount()
   })
+
+  it('uses the TokenKey logo fallback when no site_logo is configured', () => {
+    const wrapper = mount(KeyUsageView, {
+      global: {
+        stubs: {
+          RouterLink: { template: '<a><slot /></a>' },
+          LocaleSwitcher: true,
+          Icon: true,
+        },
+      },
+    })
+
+    const logo = wrapper.find('header img')
+    expect(logo.attributes('src')).toBe('/logo.png')
+    expect(logo.attributes('src')).not.toBe('/logo.svg')
+
+    wrapper.unmount()
+  })
 })
