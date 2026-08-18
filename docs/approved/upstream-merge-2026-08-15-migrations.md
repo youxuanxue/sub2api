@@ -1,16 +1,17 @@
 ---
 title: Upstream Merge 2026-08-15 Migration Approval Anchor
-status: pending
-approved_by: pending
+status: shipped
+approved_by: xuejiao (PR #1684 merge)
+approved_at: 2026-08-18
 authors: [tk-upstream-agent]
 created: 2026-08-17
-related_prs: []
-related_commits: []
+related_prs: [1684]
+related_commits: [58d021df4c15572e6cde0f3065116e618b4876ab]
 ---
 
 # Upstream Merge 2026-08-15: Migration Approval Anchor
 
-This is the pending human approval anchor for migrations imported by PR #1684 from the dated upstream snapshot `baeac1f3`. It records mechanical evidence and the rollout boundary; it is not an approval.
+This is the shipped approval anchor for migrations imported by PR #1684 from the dated upstream snapshot `baeac1f3`. Merge of #1684 is the named human approval.
 
 ## Migrations
 
@@ -119,6 +120,6 @@ Rollback boundary:
 
 ## Human Approval
 
-Keep this document `pending` until a named human approves the hot-table trigger design, the maintenance window, and the rollback boundary. At that point, update `status`, `approved_by`, `approved_at`, `related_prs`, and `related_commits` with the actual approval evidence.
+Approved by merging PR #1684 onto `main` (`58d021df4`). The hot-table trigger design, maintenance window, and rollback boundary above remain the rollout contract.
 
 high-risk-anchor: upstream-merge-2026-08-15
