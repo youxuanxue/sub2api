@@ -50,6 +50,1220 @@
 
         <div v-show="activeTab === 'gateway'" class="space-y-6">
           <GatewayPanel ref="gatewayPanelRef" />
+          <!-- Overload Cooldown (529) Settings -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.overloadCooldown.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.overloadCooldown.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div
+                v-if="overloadCooldownLoading"
+                class="flex items-center gap-2 text-gray-500"
+              >
+                <div
+                  class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
+                ></div>
+                {{ t("common.loading") }}
+              </div>
+
+              <template v-else>
+                <div class="flex items-center justify-between">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">{{
+                      t("admin.settings.overloadCooldown.enabled")
+                    }}</label>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.overloadCooldown.enabledHint") }}
+                    </p>
+                  </div>
+                  <Toggle v-model="overloadCooldownForm.enabled" />
+                </div>
+
+                <div
+                  v-if="overloadCooldownForm.enabled"
+                  class="space-y-4 border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.overloadCooldown.cooldownMinutes") }}
+                    </label>
+                    <input
+                      v-model.number="overloadCooldownForm.cooldown_minutes"
+                      type="number"
+                      min="1"
+                      max="120"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{
+                        t("admin.settings.overloadCooldown.cooldownMinutesHint")
+                      }}
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <button
+                    type="button"
+                    @click="saveOverloadCooldownSettings"
+                    :disabled="overloadCooldownSaving"
+                    class="btn btn-primary btn-sm"
+                  >
+                    <svg
+                      v-if="overloadCooldownSaving"
+                      class="mr-1 h-4 w-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        class="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        stroke-width="4"
+                      ></circle>
+                      <path
+                        class="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    {{
+                      overloadCooldownSaving
+                        ? t("common.saving")
+                        : t("common.save")
+                    }}
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Rate Limit Cooldown (429) Settings -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.rateLimit429Cooldown.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.rateLimit429Cooldown.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div
+                v-if="rateLimit429CooldownLoading"
+                class="flex items-center gap-2 text-gray-500"
+              >
+                <div
+                  class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
+                ></div>
+                {{ t("common.loading") }}
+              </div>
+
+              <template v-else>
+                <div class="flex items-center justify-between">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">{{
+                      t("admin.settings.rateLimit429Cooldown.enabled")
+                    }}</label>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.rateLimit429Cooldown.enabledHint") }}
+                    </p>
+                  </div>
+                  <Toggle v-model="rateLimit429CooldownForm.enabled" />
+                </div>
+
+                <div
+                  v-if="rateLimit429CooldownForm.enabled"
+                  class="space-y-4 border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{
+                        t(
+                          "admin.settings.rateLimit429Cooldown.cooldownSeconds",
+                        )
+                      }}
+                    </label>
+                    <input
+                      v-model.number="rateLimit429CooldownForm.cooldown_seconds"
+                      type="number"
+                      min="1"
+                      max="7200"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{
+                        t(
+                          "admin.settings.rateLimit429Cooldown.cooldownSecondsHint",
+                        )
+                      }}
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <button
+                    type="button"
+                    @click="saveRateLimit429CooldownSettings"
+                    :disabled="rateLimit429CooldownSaving"
+                    class="btn btn-primary btn-sm"
+                  >
+                    <svg
+                      v-if="rateLimit429CooldownSaving"
+                      class="mr-1 h-4 w-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        class="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        stroke-width="4"
+                      ></circle>
+                      <path
+                        class="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    {{
+                      rateLimit429CooldownSaving
+                        ? t("common.saving")
+                        : t("common.save")
+                    }}
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Stream Timeout Settings -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.streamTimeout.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.streamTimeout.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <!-- Loading State -->
+              <div
+                v-if="streamTimeoutLoading"
+                class="flex items-center gap-2 text-gray-500"
+              >
+                <div
+                  class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
+                ></div>
+                {{ t("common.loading") }}
+              </div>
+
+              <template v-else>
+                <!-- Enable Stream Timeout -->
+                <div class="flex items-center justify-between">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">{{
+                      t("admin.settings.streamTimeout.enabled")
+                    }}</label>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.streamTimeout.enabledHint") }}
+                    </p>
+                  </div>
+                  <Toggle v-model="streamTimeoutForm.enabled" />
+                </div>
+
+                <!-- Settings - Only show when enabled -->
+                <div
+                  v-if="streamTimeoutForm.enabled"
+                  class="space-y-4 border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <!-- Action -->
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.streamTimeout.action") }}
+                    </label>
+                    <select
+                      v-model="streamTimeoutForm.action"
+                      class="input w-64"
+                    >
+                      <option value="temp_unsched">
+                        {{
+                          t("admin.settings.streamTimeout.actionTempUnsched")
+                        }}
+                      </option>
+                      <option value="error">
+                        {{ t("admin.settings.streamTimeout.actionError") }}
+                      </option>
+                      <option value="none">
+                        {{ t("admin.settings.streamTimeout.actionNone") }}
+                      </option>
+                    </select>
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.streamTimeout.actionHint") }}
+                    </p>
+                  </div>
+
+                  <!-- Temp Unsched Minutes (only show when action is temp_unsched) -->
+                  <div v-if="streamTimeoutForm.action === 'temp_unsched'">
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.streamTimeout.tempUnschedMinutes") }}
+                    </label>
+                    <input
+                      v-model.number="streamTimeoutForm.temp_unsched_minutes"
+                      type="number"
+                      min="1"
+                      max="60"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{
+                        t("admin.settings.streamTimeout.tempUnschedMinutesHint")
+                      }}
+                    </p>
+                  </div>
+
+                  <!-- Threshold Count -->
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.streamTimeout.thresholdCount") }}
+                    </label>
+                    <input
+                      v-model.number="streamTimeoutForm.threshold_count"
+                      type="number"
+                      min="1"
+                      max="10"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.streamTimeout.thresholdCountHint") }}
+                    </p>
+                  </div>
+
+                  <!-- Threshold Window Minutes -->
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{
+                        t("admin.settings.streamTimeout.thresholdWindowMinutes")
+                      }}
+                    </label>
+                    <input
+                      v-model.number="
+                        streamTimeoutForm.threshold_window_minutes
+                      "
+                      type="number"
+                      min="1"
+                      max="60"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{
+                        t(
+                          "admin.settings.streamTimeout.thresholdWindowMinutesHint",
+                        )
+                      }}
+                    </p>
+                  </div>
+                </div>
+
+                <!-- Save Button -->
+                <div
+                  class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <button
+                    type="button"
+                    @click="saveStreamTimeoutSettings"
+                    :disabled="streamTimeoutSaving"
+                    class="btn btn-primary btn-sm"
+                  >
+                    <svg
+                      v-if="streamTimeoutSaving"
+                      class="mr-1 h-4 w-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        class="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        stroke-width="4"
+                      ></circle>
+                      <path
+                        class="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    {{
+                      streamTimeoutSaving
+                        ? t("common.saving")
+                        : t("common.save")
+                    }}
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Request Rectifier Settings -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.rectifier.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.rectifier.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <!-- Loading State -->
+              <div
+                v-if="rectifierLoading"
+                class="flex items-center gap-2 text-gray-500"
+              >
+                <div
+                  class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
+                ></div>
+                {{ t("common.loading") }}
+              </div>
+
+              <template v-else>
+                <!-- Master Toggle -->
+                <div class="flex items-center justify-between">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">{{
+                      t("admin.settings.rectifier.enabled")
+                    }}</label>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.rectifier.enabledHint") }}
+                    </p>
+                  </div>
+                  <Toggle v-model="rectifierForm.enabled" />
+                </div>
+
+                <!-- Sub-toggles (only show when master is enabled) -->
+                <div
+                  v-if="rectifierForm.enabled"
+                  class="space-y-4 border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <!-- Thinking Signature Rectifier -->
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <label
+                        class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                        >{{
+                          t("admin.settings.rectifier.thinkingSignature")
+                        }}</label
+                      >
+                      <p class="text-xs text-gray-500 dark:text-gray-400">
+                        {{
+                          t("admin.settings.rectifier.thinkingSignatureHint")
+                        }}
+                      </p>
+                    </div>
+                    <Toggle
+                      v-model="rectifierForm.thinking_signature_enabled"
+                    />
+                  </div>
+
+                  <!-- Thinking Budget Rectifier -->
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <label
+                        class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                        >{{
+                          t("admin.settings.rectifier.thinkingBudget")
+                        }}</label
+                      >
+                      <p class="text-xs text-gray-500 dark:text-gray-400">
+                        {{ t("admin.settings.rectifier.thinkingBudgetHint") }}
+                      </p>
+                    </div>
+                    <Toggle v-model="rectifierForm.thinking_budget_enabled" />
+                  </div>
+
+                  <!-- API Key Signature Rectifier -->
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <label
+                        class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                        >{{
+                          t("admin.settings.rectifier.apikeySignature")
+                        }}</label
+                      >
+                      <p class="text-xs text-gray-500 dark:text-gray-400">
+                        {{ t("admin.settings.rectifier.apikeySignatureHint") }}
+                      </p>
+                    </div>
+                    <Toggle v-model="rectifierForm.apikey_signature_enabled" />
+                  </div>
+
+                  <!-- Custom Patterns (only when apikey_signature_enabled) -->
+                  <div
+                    v-if="rectifierForm.apikey_signature_enabled"
+                    class="ml-4 space-y-3 border-l-2 border-gray-200 pl-4 dark:border-dark-600"
+                  >
+                    <div>
+                      <label
+                        class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                        >{{
+                          t("admin.settings.rectifier.apikeyPatterns")
+                        }}</label
+                      >
+                      <p class="text-xs text-gray-500 dark:text-gray-400">
+                        {{ t("admin.settings.rectifier.apikeyPatternsHint") }}
+                      </p>
+                    </div>
+                    <div
+                      v-for="(
+                        _, index
+                      ) in rectifierForm.apikey_signature_patterns"
+                      :key="index"
+                      class="flex items-center gap-2"
+                    >
+                      <input
+                        v-model="rectifierForm.apikey_signature_patterns[index]"
+                        type="text"
+                        class="input input-sm flex-1"
+                        :placeholder="
+                          t('admin.settings.rectifier.apikeyPatternPlaceholder')
+                        "
+                      />
+                      <button
+                        type="button"
+                        @click="
+                          rectifierForm.apikey_signature_patterns.splice(
+                            index,
+                            1,
+                          )
+                        "
+                        class="btn btn-ghost btn-xs text-red-500 hover:text-red-700"
+                      >
+                        <svg
+                          class="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      @click="rectifierForm.apikey_signature_patterns.push('')"
+                      class="btn btn-ghost btn-xs text-primary-600 dark:text-primary-400"
+                    >
+                      + {{ t("admin.settings.rectifier.addPattern") }}
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Save Button -->
+                <div
+                  class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <button
+                    type="button"
+                    @click="saveRectifierSettings"
+                    :disabled="rectifierSaving"
+                    class="btn btn-primary btn-sm"
+                  >
+                    <svg
+                      v-if="rectifierSaving"
+                      class="mr-1 h-4 w-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        class="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        stroke-width="4"
+                      ></circle>
+                      <path
+                        class="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    {{
+                      rectifierSaving ? t("common.saving") : t("common.save")
+                    }}
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+          <!-- Beta Policy Settings -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.betaPolicy.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.betaPolicy.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <!-- Loading State -->
+              <div
+                v-if="betaPolicyLoading"
+                class="flex items-center gap-2 text-gray-500"
+              >
+                <div
+                  class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
+                ></div>
+                {{ t("common.loading") }}
+              </div>
+
+              <template v-else>
+                <!-- Rule Cards -->
+                <div
+                  v-for="rule in betaPolicyForm.rules"
+                  :key="rule.beta_token"
+                  class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"
+                >
+                  <div class="mb-3 flex items-center gap-2">
+                    <span
+                      class="text-sm font-medium text-gray-900 dark:text-white"
+                    >
+                      {{ getBetaDisplayName(rule.beta_token) }}
+                    </span>
+                    <span
+                      class="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-dark-700 dark:text-gray-400"
+                    >
+                      {{ rule.beta_token }}
+                    </span>
+                  </div>
+
+                  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <!-- Action -->
+                    <div>
+                      <label
+                        class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                      >
+                        {{ t("admin.settings.betaPolicy.action") }}
+                      </label>
+                      <Select
+                        :modelValue="rule.action"
+                        @update:modelValue="rule.action = $event as any"
+                        :options="betaPolicyActionOptions"
+                      />
+                    </div>
+
+                    <!-- Scope -->
+                    <div>
+                      <label
+                        class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                      >
+                        {{ t("admin.settings.betaPolicy.scope") }}
+                      </label>
+                      <Select
+                        :modelValue="rule.scope"
+                        @update:modelValue="rule.scope = $event as any"
+                        :options="betaPolicyScopeOptions"
+                      />
+                    </div>
+                  </div>
+
+                  <!-- Error Message (only when action=block) -->
+                  <div v-if="rule.action === 'block'" class="mt-3">
+                    <label
+                      class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                    >
+                      {{ t("admin.settings.betaPolicy.errorMessage") }}
+                    </label>
+                    <input
+                      v-model="rule.error_message"
+                      type="text"
+                      class="input"
+                      :placeholder="
+                        t('admin.settings.betaPolicy.errorMessagePlaceholder')
+                      "
+                    />
+                    <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                      {{ t("admin.settings.betaPolicy.errorMessageHint") }}
+                    </p>
+                  </div>
+
+                  <!-- Quick Presets (only for tokens with presets) -->
+                  <div v-if="betaPresets[rule.beta_token]?.length" class="mt-3">
+                    <label
+                      class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                    >
+                      {{ t("admin.settings.betaPolicy.quickPresets") }}
+                    </label>
+                    <div class="flex flex-wrap gap-2">
+                      <button
+                        v-for="preset in betaPresets[rule.beta_token]"
+                        :key="preset.label"
+                        type="button"
+                        class="inline-flex items-center gap-1 rounded-md border border-primary-200 bg-primary-50 px-2.5 py-1 text-xs font-medium text-primary-700 transition-colors hover:bg-primary-100 dark:border-primary-800 dark:bg-primary-900/30 dark:text-primary-300 dark:hover:bg-primary-900/50"
+                        @click="applyBetaPreset(rule, preset)"
+                        :title="preset.description"
+                      >
+                        {{ preset.label }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Model Whitelist -->
+                  <div class="mt-3">
+                    <label
+                      class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                    >
+                      {{ t("admin.settings.betaPolicy.modelWhitelist") }}
+                    </label>
+                    <p class="mb-2 text-xs text-gray-400 dark:text-gray-500">
+                      {{ t("admin.settings.betaPolicy.modelWhitelistHint") }}
+                    </p>
+                    <!-- Existing patterns -->
+                    <div
+                      v-for="(_, index) in rule.model_whitelist || []"
+                      :key="index"
+                      class="mb-1.5 flex items-center gap-2"
+                    >
+                      <input
+                        v-model="rule.model_whitelist![index]"
+                        type="text"
+                        class="input input-sm flex-1"
+                        :placeholder="
+                          t('admin.settings.betaPolicy.modelPatternPlaceholder')
+                        "
+                      />
+                      <button
+                        type="button"
+                        @click="rule.model_whitelist!.splice(index, 1)"
+                        class="shrink-0 rounded p-1 text-red-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
+                      >
+                        <svg
+                          class="h-4 w-4"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          stroke-width="2"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="M6 18L18 6M6 6l12 12"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    <!-- Add pattern button -->
+                    <button
+                      type="button"
+                      @click="
+                        if (!rule.model_whitelist) rule.model_whitelist = [];
+                        rule.model_whitelist.push('');
+                      "
+                      class="mb-2 inline-flex items-center gap-1 text-xs text-primary-600 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+                    >
+                      <svg
+                        class="h-3.5 w-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M12 4v16m8-8H4"
+                        />
+                      </svg>
+                      {{ t("admin.settings.betaPolicy.addModelPattern") }}
+                    </button>
+                    <!-- Common pattern chips -->
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <span class="text-xs text-gray-400 dark:text-gray-500"
+                        >{{
+                          t("admin.settings.betaPolicy.commonPatterns")
+                        }}:</span
+                      >
+                      <button
+                        v-for="pattern in commonModelPatterns"
+                        :key="pattern"
+                        type="button"
+                        class="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 transition-colors hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 dark:border-dark-600 dark:text-gray-400 dark:hover:border-primary-700 dark:hover:bg-primary-900/30 dark:hover:text-primary-300"
+                        @click="addQuickPattern(rule, pattern)"
+                      >
+                        {{ pattern }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Fallback Action (only when model_whitelist is non-empty) -->
+                  <div
+                    v-if="
+                      rule.model_whitelist && rule.model_whitelist.length > 0
+                    "
+                    class="mt-3"
+                  >
+                    <label
+                      class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                    >
+                      {{ t("admin.settings.betaPolicy.fallbackAction") }}
+                    </label>
+                    <Select
+                      :modelValue="rule.fallback_action || 'pass'"
+                      @update:modelValue="rule.fallback_action = $event as any"
+                      :options="betaPolicyActionOptions"
+                    />
+                    <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                      {{ t("admin.settings.betaPolicy.fallbackActionHint") }}
+                    </p>
+                    <!-- Fallback Error Message (only when fallback_action=block) -->
+                    <div v-if="rule.fallback_action === 'block'" class="mt-2">
+                      <input
+                        v-model="rule.fallback_error_message"
+                        type="text"
+                        class="input"
+                        :placeholder="
+                          t(
+                            'admin.settings.betaPolicy.fallbackErrorMessagePlaceholder',
+                          )
+                        "
+                      />
+                      <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                        {{ t("admin.settings.betaPolicy.errorMessageHint") }}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Save Button -->
+                <div
+                  class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <button
+                    type="button"
+                    @click="saveBetaPolicySettings"
+                    :disabled="betaPolicySaving"
+                    class="btn btn-primary btn-sm"
+                  >
+                    <svg
+                      v-if="betaPolicySaving"
+                      class="mr-1 h-4 w-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        class="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        stroke-width="4"
+                      ></circle>
+                      <path
+                        class="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    {{
+                      betaPolicySaving ? t("common.saving") : t("common.save")
+                    }}
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+          <!-- OpenAI Fast/Flex Policy Settings -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.openaiFastPolicy.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.openaiFastPolicy.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <!-- Empty state -->
+              <div
+                v-if="openaiFastPolicyForm.rules.length === 0"
+                class="rounded-lg border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500 dark:border-dark-600 dark:text-gray-400"
+              >
+                {{ t("admin.settings.openaiFastPolicy.empty") }}
+              </div>
+
+              <!-- Rule Cards -->
+              <div
+                v-for="(rule, ruleIndex) in openaiFastPolicyForm.rules"
+                :key="ruleIndex"
+                class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"
+              >
+                <div class="mb-3 flex items-center justify-between">
+                  <span
+                    class="text-sm font-medium text-gray-900 dark:text-white"
+                  >
+                    {{
+                      t("admin.settings.openaiFastPolicy.ruleHeader", {
+                        index: ruleIndex + 1,
+                      })
+                    }}
+                  </span>
+                  <button
+                    type="button"
+                    @click="removeOpenAIFastPolicyRule(ruleIndex)"
+                    class="rounded p-1 text-red-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
+                    :title="t('admin.settings.openaiFastPolicy.removeRule')"
+                  >
+                    <svg
+                      class="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                </div>
+
+                <div
+                  class="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-gray-400"
+                  :data-testid="`openai-fast-policy-summary-${ruleIndex}`"
+                >
+                  <span class="font-medium text-gray-700 dark:text-gray-300">
+                    {{
+                      t(
+                        hasOpenAIFastPolicyTargetModels(rule)
+                          ? "admin.settings.openaiFastPolicy.summaryTargetModels"
+                          : "admin.settings.openaiFastPolicy.summaryAllModels",
+                      )
+                    }}
+                  </span>
+                  <span aria-hidden="true">→</span>
+                  <span
+                    class="inline-flex items-center rounded bg-primary-50 px-2 py-0.5 font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
+                  >
+                    {{ openaiFastPolicyActionSummary(rule.action) }}
+                  </span>
+                  <template v-if="hasOpenAIFastPolicyTargetModels(rule)">
+                    <span aria-hidden="true">·</span>
+                    <span class="font-medium text-gray-700 dark:text-gray-300">
+                      {{
+                        t(
+                          "admin.settings.openaiFastPolicy.summaryOtherModels",
+                        )
+                      }}
+                    </span>
+                    <span aria-hidden="true">→</span>
+                    <span
+                      class="inline-flex items-center rounded bg-gray-100 px-2 py-0.5 font-medium text-gray-700 dark:bg-dark-600 dark:text-gray-300"
+                    >
+                      {{
+                        openaiFastPolicyActionSummary(
+                          rule.fallback_action || "pass",
+                        )
+                      }}
+                    </span>
+                  </template>
+                </div>
+
+                <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <!-- Service Tier -->
+                  <div>
+                    <label
+                      class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                    >
+                      {{ t("admin.settings.openaiFastPolicy.serviceTier") }}
+                    </label>
+                    <Select
+                      :modelValue="rule.service_tier"
+                      @update:modelValue="
+                        rule.service_tier = $event as
+                          | 'all'
+                          | 'priority'
+                          | 'flex'
+                      "
+                      :options="openaiFastPolicyTierOptions"
+                    />
+                  </div>
+
+                  <!-- Action -->
+                  <div>
+                    <label
+                      class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                    >
+                      {{ t("admin.settings.openaiFastPolicy.action") }}
+                    </label>
+                    <Select
+                      :modelValue="rule.action"
+                      @update:modelValue="
+                        rule.action = $event as
+                          | 'pass'
+                          | 'filter'
+                          | 'block'
+                          | 'force_priority'
+                      "
+                      :options="openaiFastPolicyActionOptions"
+                    />
+                  </div>
+
+                  <!-- Scope -->
+                  <div>
+                    <label
+                      class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                    >
+                      {{ t("admin.settings.openaiFastPolicy.scope") }}
+                    </label>
+                    <Select
+                      :modelValue="rule.scope"
+                      @update:modelValue="
+                        rule.scope = $event as
+                          | 'all'
+                          | 'oauth'
+                          | 'apikey'
+                          | 'bedrock'
+                      "
+                      :options="openaiFastPolicyScopeOptions"
+                    />
+                  </div>
+                </div>
+
+                <!-- User Scope -->
+                <div class="mt-3">
+                  <label
+                    class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                  >
+                    {{ t("admin.settings.openaiFastPolicy.userIds") }}
+                  </label>
+                  <p class="mb-2 text-xs text-gray-400 dark:text-gray-500">
+                    {{ t("admin.settings.openaiFastPolicy.userIdsHint") }}
+                  </p>
+                  <OpenAIFastPolicyUserSelector
+                    :model-value="rule.user_ids || []"
+                    @update:model-value="rule.user_ids = $event"
+                  />
+                </div>
+
+                <!-- Error Message (only when action=block) -->
+                <div v-if="rule.action === 'block'" class="mt-3">
+                  <label
+                    class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                  >
+                    {{ t("admin.settings.openaiFastPolicy.errorMessage") }}
+                  </label>
+                  <input
+                    v-model="rule.error_message"
+                    type="text"
+                    class="input"
+                    :placeholder="
+                      t(
+                        'admin.settings.openaiFastPolicy.errorMessagePlaceholder',
+                      )
+                    "
+                  />
+                  <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                    {{ t("admin.settings.openaiFastPolicy.errorMessageHint") }}
+                  </p>
+                </div>
+
+                <!-- Target Models -->
+                <div
+                  class="mt-3"
+                  role="group"
+                  :aria-labelledby="`openai-fast-policy-models-label-${ruleIndex}`"
+                  :aria-describedby="`openai-fast-policy-models-hint-${ruleIndex}`"
+                >
+                  <label
+                    :id="`openai-fast-policy-models-label-${ruleIndex}`"
+                    class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                  >
+                    {{ t("admin.settings.openaiFastPolicy.modelWhitelist") }}
+                  </label>
+                  <p
+                    :id="`openai-fast-policy-models-hint-${ruleIndex}`"
+                    class="mb-2 text-xs text-gray-400 dark:text-gray-500"
+                  >
+                    {{
+                      t("admin.settings.openaiFastPolicy.modelWhitelistHint")
+                    }}
+                  </p>
+                  <div
+                    v-for="(_, patternIdx) in rule.model_whitelist || []"
+                    :key="patternIdx"
+                    class="mb-1.5 flex items-center gap-2"
+                  >
+                    <input
+                      v-model="rule.model_whitelist![patternIdx]"
+                      type="text"
+                      class="input input-sm flex-1"
+                      :placeholder="
+                        t(
+                          'admin.settings.openaiFastPolicy.modelPatternPlaceholder',
+                        )
+                      "
+                    />
+                    <button
+                      type="button"
+                      @click="
+                        removeOpenAIFastPolicyModelPattern(rule, patternIdx)
+                      "
+                      class="shrink-0 rounded p-1 text-red-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
+                    >
+                      <svg
+                        class="h-4 w-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    @click="addOpenAIFastPolicyModelPattern(rule)"
+                    class="mb-2 inline-flex items-center gap-1 text-xs text-primary-600 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+                  >
+                    <svg
+                      class="h-3.5 w-3.5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M12 4v16m8-8H4"
+                      />
+                    </svg>
+                    {{ t("admin.settings.openaiFastPolicy.addModelPattern") }}
+                  </button>
+                </div>
+
+                <!-- Other Models Action (only when target models are non-empty) -->
+                <div
+                  v-if="hasOpenAIFastPolicyTargetModels(rule)"
+                  class="mt-3"
+                >
+                  <label
+                    class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                  >
+                    {{ t("admin.settings.openaiFastPolicy.fallbackAction") }}
+                  </label>
+                  <Select
+                    :modelValue="rule.fallback_action || 'pass'"
+                    @update:modelValue="
+                      rule.fallback_action = $event as
+                        | 'pass'
+                        | 'filter'
+                        | 'block'
+                        | 'force_priority'
+                    "
+                    :options="openaiFastPolicyActionOptions"
+                  />
+                  <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                    {{
+                      t("admin.settings.openaiFastPolicy.fallbackActionHint")
+                    }}
+                  </p>
+                  <div v-if="rule.fallback_action === 'block'" class="mt-2">
+                    <input
+                      v-model="rule.fallback_error_message"
+                      type="text"
+                      class="input"
+                      :placeholder="
+                        t(
+                          'admin.settings.openaiFastPolicy.fallbackErrorMessagePlaceholder',
+                        )
+                      "
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Add Rule Button -->
+              <div>
+                <button
+                  type="button"
+                  @click="addOpenAIFastPolicyRule"
+                  class="btn btn-secondary btn-sm inline-flex items-center gap-1"
+                >
+                  <svg
+                    class="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M12 4v16m8-8H4"
+                    />
+                  </svg>
+                  {{ t("admin.settings.openaiFastPolicy.addRule") }}
+                </button>
+                <p class="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                  {{ t("admin.settings.openaiFastPolicy.saveHint") }}
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
 
@@ -68,6 +1282,123 @@
 
         <div v-show="activeTab === 'features'" class="space-y-6">
           <FeaturesPanel />
+
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.features.channelMonitor.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.features.channelMonitor.description') }}
+            </p>
+            <p class="mt-1.5 text-xs">
+              <router-link
+                to="/admin/channels/monitor"
+                class="inline-flex items-center gap-1 text-primary-600 hover:underline dark:text-primary-400"
+              >
+                {{ t('admin.settings.features.channelMonitor.configureLink') }}
+                <span aria-hidden="true">→</span>
+              </router-link>
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.channelMonitor.enabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.channelMonitor.enabledHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.channel_monitor_enabled" />
+            </div>
+
+            <div v-if="form.channel_monitor_enabled" class="space-y-5">
+              <div>
+                <label class="input-label">
+                  {{ t('admin.settings.features.channelMonitor.mode') }}
+                </label>
+                <div class="mt-1.5 inline-flex w-full max-w-md rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-dark-600 dark:bg-dark-900/40">
+                  <button
+                    type="button"
+                    class="inline-flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition"
+                    :class="
+                      form.channel_monitor_mode === 'v2'
+                        ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
+                        : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+                    "
+                    @click="form.channel_monitor_mode = 'v2'"
+                  >
+                    {{ t('admin.settings.features.channelMonitor.modeV2') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition"
+                    :class="
+                      form.channel_monitor_mode === 'v1'
+                        ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
+                        : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+                    "
+                    @click="form.channel_monitor_mode = 'v1'"
+                  >
+                    {{ t('admin.settings.features.channelMonitor.modeV1') }}
+                  </button>
+                </div>
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{
+                    form.channel_monitor_mode === 'v1'
+                      ? t('admin.settings.features.channelMonitor.modeV1Hint')
+                      : t('admin.settings.features.channelMonitor.modeV2Hint')
+                  }}
+                </p>
+                <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                  {{ t('admin.settings.features.channelMonitor.modeHint') }}
+                </p>
+              </div>
+
+              <div v-if="form.channel_monitor_mode === 'v1'">
+                <label class="input-label">
+                  {{ t('admin.settings.features.channelMonitor.defaultInterval') }}
+                  <span class="text-red-500">*</span>
+                </label>
+                <input
+                  v-model.number="form.channel_monitor_default_interval_seconds"
+                  type="number"
+                  min="15"
+                  max="3600"
+                  class="input"
+                />
+                <p class="mt-1 text-xs text-gray-400">
+                  {{ t('admin.settings.features.channelMonitor.defaultIntervalHint') }}
+                </p>
+              </div>
+
+              <div v-if="form.channel_monitor_mode === 'v2'" class="flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ t('admin.settings.features.channelMonitor.hideThroughput') }}
+                  </p>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.settings.features.channelMonitor.hideThroughputHint') }}
+                  </p>
+                </div>
+                <Toggle v-model="form.channel_monitor_hide_throughput" />
+              </div>
+
+              <div v-if="form.channel_monitor_mode === 'v1'" class="flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ t('admin.settings.features.channelMonitor.showQuota') }}
+                  </p>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.settings.features.channelMonitor.showQuotaHint') }}
+                  </p>
+                </div>
+                <Toggle v-model="form.channel_monitor_show_quota" />
+              </div>
+            </div>
+          </div>
         </div>
 
 
@@ -360,6 +1691,495 @@ function findDuplicateDefaultSubscription(
 
 // ── Auth Source Defaults ──
 
+type SettingsForm = Omit<
+  SystemSettings,
+  | "wechat_connect_open_enabled"
+  | "wechat_connect_mp_enabled"
+  | "wechat_connect_mobile_enabled"
+> & {
+  /** Form always binds a concrete boolean (SystemSettings marks this optional). */
+  channel_monitor_hide_throughput: boolean;
+  channel_monitor_show_quota: boolean;
+  smtp_password: string;
+  turnstile_secret_key: string;
+  tencent_captcha_app_secret_key: string;
+  tencent_captcha_cloud_secret_id: string;
+  tencent_captcha_cloud_secret_key: string;
+  aliyun_captcha_access_key_secret: string;
+  linuxdo_connect_client_secret: string;
+  dingtalk_connect_client_secret: string;
+  wechat_connect_app_secret: string;
+  wechat_connect_open_app_secret: string;
+  wechat_connect_mp_app_secret: string;
+  wechat_connect_mobile_app_secret: string;
+  wechat_connect_open_enabled: boolean;
+  wechat_connect_mp_enabled: boolean;
+  wechat_connect_mobile_enabled: boolean;
+  oidc_connect_client_secret: string;
+  github_oauth_client_secret: string;
+  google_oauth_client_secret: string;
+  force_email_on_third_party_signup: boolean;
+  openai_low_upstream_rate_priority_enabled: boolean;
+  openai_oauth_scheduling_rate_multiplier: number;
+  openai_advanced_scheduler_enabled: boolean;
+  openai_advanced_scheduler_sticky_weighted_enabled: boolean;
+  openai_advanced_scheduler_subscription_priority_enabled: boolean;
+  openai_advanced_scheduler_lb_top_k: string;
+  openai_advanced_scheduler_weight_priority: string;
+  openai_advanced_scheduler_weight_load: string;
+  openai_advanced_scheduler_weight_queue: string;
+  openai_advanced_scheduler_weight_error_rate: string;
+  openai_advanced_scheduler_weight_ttft: string;
+  openai_advanced_scheduler_weight_reset: string;
+  openai_advanced_scheduler_weight_quota_headroom: string;
+  openai_advanced_scheduler_weight_upstream_cost: string;
+  openai_advanced_scheduler_weight_previous_response: string;
+  openai_advanced_scheduler_weight_session_sticky: string;
+  // 系统全局平台限额 map；form 内始终归一化为全 4 平台对象（模板非空绑定依赖此不变量）
+  default_platform_quotas: DefaultPlatformQuotasMap;
+  account_scheduling_thresholds: ReturnType<typeof normalizeAccountSchedulingThresholdsMap>;
+};
+
+const schedulingThresholdPlatforms = SCHEDULING_THRESHOLD_PLATFORMS;
+
+const form = reactive<SettingsForm>({
+  registration_enabled: true,
+  email_verify_enabled: false,
+  registration_email_suffix_whitelist: [],
+  registration_email_domain_quota_enabled: false,
+  promo_code_enabled: true,
+  invitation_code_enabled: false,
+  password_reset_enabled: false,
+  totp_enabled: false,
+  totp_encryption_key_configured: false,
+  passkey_enabled: false,
+  passkey_configured: false,
+  passkey_rp_id: "",
+  passkey_rp_origins: [],
+  session_binding_enabled: false,
+  step_up_enabled: false,
+  audit_log_retention_days: 180,
+  login_agreement_enabled: false,
+  login_agreement_mode: "modal",
+  login_agreement_updated_at: "2026-03-31",
+  login_agreement_documents: defaultLoginAgreementDocuments(),
+  default_balance: 0,
+  default_platform_quotas: normalizePlatformQuotasMap() as DefaultPlatformQuotasMap,
+  account_scheduling_thresholds: normalizeAccountSchedulingThresholdsMap(),
+  affiliate_rebate_rate: 20,
+  affiliate_rebate_freeze_hours: 0,
+  affiliate_rebate_duration_days: 0,
+  affiliate_rebate_per_invitee_cap: 0,
+  affiliate_admin_recharge_enabled: false,
+  default_concurrency: 1,
+  default_subscriptions: [],
+  force_email_on_third_party_signup: false,
+  default_user_rpm_limit: 0,
+  site_name: "Sub2API",
+  site_logo: "",
+  site_subtitle: "Subscription to API Conversion Platform",
+  api_base_url: "",
+  contact_info: "",
+  doc_url: "",
+  home_content: "",
+  compact_home_enabled: false,
+  backend_mode_enabled: false,
+  hide_ccs_import_button: false,
+  payment_enabled: false,
+  risk_control_enabled: false,
+  cyber_session_block_enabled: false,
+  cyber_session_block_ttl_seconds: 3600,
+  payment_min_amount: 1,
+  payment_max_amount: 10000,
+  payment_daily_limit: 50000,
+  payment_max_pending_orders: 3,
+  payment_order_timeout_minutes: 30,
+  payment_balance_disabled: false,
+  payment_balance_recharge_multiplier: 1,
+  payment_subscription_usd_to_cny_rate: 0,
+  payment_recharge_fee_rate: 0,
+  payment_enabled_types: [],
+  payment_help_image_url: "",
+  payment_help_text: "",
+  payment_product_name_prefix: "",
+  payment_product_name_suffix: "",
+  payment_load_balance_strategy: "round-robin",
+  payment_cancel_rate_limit_enabled: false,
+  payment_cancel_rate_limit_max: 10,
+  payment_cancel_rate_limit_window: 1,
+  payment_cancel_rate_limit_unit: "day",
+  payment_cancel_rate_limit_window_mode: "rolling",
+  payment_alipay_force_qrcode: false,
+  payment_alipay_mobile_precreate_deep_link: false,
+  table_default_page_size: tablePageSizeDefault,
+  table_page_size_options: [10, 20, 50, 100],
+  custom_menu_items: [] as Array<{
+    id: string;
+    label: string;
+    icon_svg: string;
+    url: string;
+    visibility: "user" | "admin";
+    sort_order: number;
+  }>,
+  custom_endpoints: [] as Array<{
+    name: string;
+    endpoint: string;
+    description: string;
+  }>,
+  frontend_url: "",
+  smtp_host: "",
+  smtp_port: 587,
+  smtp_username: "",
+  smtp_password: "",
+  smtp_password_configured: false,
+  smtp_from_email: "",
+  smtp_from_name: "",
+  smtp_use_tls: true,
+  // Cloudflare Turnstile
+  turnstile_enabled: false,
+  turnstile_site_key: "",
+  turnstile_secret_key: "",
+  turnstile_secret_key_configured: false,
+  tencent_captcha_enabled: false,
+  tencent_captcha_app_id: "",
+  tencent_captcha_app_secret_key: "",
+  tencent_captcha_app_secret_key_configured: false,
+  tencent_captcha_cloud_secret_id: "",
+  tencent_captcha_cloud_secret_id_configured: false,
+  tencent_captcha_cloud_secret_key: "",
+  tencent_captcha_cloud_secret_key_configured: false,
+  tencent_captcha_region: "cn",
+  aliyun_captcha_enabled: false,
+  aliyun_captcha_access_key_id: "",
+  aliyun_captcha_access_key_secret: "",
+  aliyun_captcha_access_key_secret_configured: false,
+  aliyun_captcha_scene_id: "",
+  aliyun_captcha_prefix: "",
+  aliyun_captcha_region: "cn",
+  api_key_acl_trust_forwarded_ip: true,
+  forwarded_client_ip_headers: [],
+  // LinuxDo Connect OAuth 登录
+  linuxdo_connect_enabled: false,
+  linuxdo_connect_client_id: "",
+  linuxdo_connect_client_secret: "",
+  linuxdo_connect_client_secret_configured: false,
+  linuxdo_connect_redirect_url: "",
+  // DingTalk Connect OAuth 登录
+  dingtalk_connect_enabled: false,
+  dingtalk_connect_client_id: "",
+  dingtalk_connect_client_secret: "",
+  dingtalk_connect_client_secret_configured: false,
+  dingtalk_connect_redirect_url: "",
+  dingtalk_connect_corp_restriction_policy: "none",
+  dingtalk_connect_internal_corp_id: "",
+  dingtalk_connect_bypass_registration: false,
+  dingtalk_connect_sync_corp_email: false,
+  dingtalk_connect_sync_display_name: false,
+  dingtalk_connect_sync_dept: false,
+  dingtalk_connect_sync_corp_email_attr_key: "dingtalk_email",
+  dingtalk_connect_sync_display_name_attr_key: "dingtalk_name",
+  dingtalk_connect_sync_dept_attr_key: "dingtalk_department",
+  dingtalk_connect_sync_corp_email_attr_name: localText("钉钉企业邮箱", "DingTalk Corporate Email"),
+  dingtalk_connect_sync_display_name_attr_name: localText("钉钉姓名", "DingTalk Name"),
+  dingtalk_connect_sync_dept_attr_name: localText("钉钉部门", "DingTalk Department"),
+  wechat_connect_enabled: false,
+  wechat_connect_app_id: "",
+  wechat_connect_app_secret: "",
+  wechat_connect_app_secret_configured: false,
+  wechat_connect_open_app_id: "",
+  wechat_connect_open_app_secret: "",
+  wechat_connect_open_app_secret_configured: false,
+  wechat_connect_mp_app_id: "",
+  wechat_connect_mp_app_secret: "",
+  wechat_connect_mp_app_secret_configured: false,
+  wechat_connect_mobile_app_id: "",
+  wechat_connect_mobile_app_secret: "",
+  wechat_connect_mobile_app_secret_configured: false,
+  wechat_connect_open_enabled: false,
+  wechat_connect_mp_enabled: false,
+  wechat_connect_mobile_enabled: false,
+  wechat_connect_mode: "open",
+  wechat_connect_scopes: "snsapi_login",
+  wechat_connect_redirect_url: "",
+  wechat_connect_frontend_redirect_url: "/auth/wechat/callback",
+  // Generic OIDC OAuth 登录
+  oidc_connect_enabled: false,
+  oidc_connect_provider_name: "OIDC",
+  oidc_connect_client_id: "",
+  oidc_connect_client_secret: "",
+  oidc_connect_client_secret_configured: false,
+  oidc_connect_issuer_url: "",
+  oidc_connect_discovery_url: "",
+  oidc_connect_authorize_url: "",
+  oidc_connect_token_url: "",
+  oidc_connect_userinfo_url: "",
+  oidc_connect_jwks_url: "",
+  oidc_connect_scopes: "openid email profile",
+  oidc_connect_redirect_url: "",
+  oidc_connect_frontend_redirect_url: "/auth/oidc/callback",
+  oidc_connect_token_auth_method: "client_secret_post",
+  oidc_connect_use_pkce: false,
+  oidc_connect_validate_id_token: false,
+  oidc_connect_allowed_signing_algs: "RS256,ES256,PS256",
+  oidc_connect_clock_skew_seconds: 120,
+  oidc_connect_require_email_verified: false,
+  oidc_connect_userinfo_email_path: "",
+  oidc_connect_userinfo_id_path: "",
+  oidc_connect_userinfo_username_path: "",
+  // GitHub / Google 邮箱快捷登录
+  github_oauth_enabled: false,
+  github_oauth_client_id: "",
+  github_oauth_client_secret: "",
+  github_oauth_client_secret_configured: false,
+  github_oauth_redirect_url: "",
+  github_oauth_frontend_redirect_url: "/auth/oauth/callback",
+  google_oauth_enabled: false,
+  google_oauth_client_id: "",
+  google_oauth_client_secret: "",
+  google_oauth_client_secret_configured: false,
+  google_oauth_redirect_url: "",
+  google_oauth_frontend_redirect_url: "/auth/oauth/callback",
+  // Model fallback
+  enable_model_fallback: false,
+  fallback_model_anthropic: "claude-3-5-sonnet-20241022",
+  fallback_model_openai: "gpt-4o",
+  fallback_model_gemini: "gemini-2.5-pro",
+  fallback_model_antigravity: "gemini-2.5-pro",
+  grok_default_text_model: "grok-4.5",
+  grok_cross_client_model_map_enabled: false,
+  grok_default_base_url_mode: "cli",
+  // Identity patch (Claude -> Gemini)
+  enable_identity_patch: true,
+  identity_patch_prompt: "",
+  // Ops monitoring (vNext)
+  ops_monitoring_enabled: true,
+  ops_realtime_monitoring_enabled: true,
+  ops_query_mode_default: "auto",
+  ops_metrics_interval_seconds: 60,
+  // Claude Code version check
+  min_claude_code_version: "",
+  max_claude_code_version: "",
+  // 分组隔离
+  allow_ungrouped_key_scheduling: false,
+  openai_low_upstream_rate_priority_enabled: false,
+  openai_oauth_scheduling_rate_multiplier: 1,
+  openai_advanced_scheduler_enabled: false,
+  openai_advanced_scheduler_sticky_weighted_enabled: false,
+  openai_advanced_scheduler_subscription_priority_enabled: false,
+  openai_advanced_scheduler_lb_top_k: "",
+  openai_advanced_scheduler_weight_priority: "",
+  openai_advanced_scheduler_weight_load: "",
+  openai_advanced_scheduler_weight_queue: "",
+  openai_advanced_scheduler_weight_error_rate: "",
+  openai_advanced_scheduler_weight_ttft: "",
+  openai_advanced_scheduler_weight_reset: "",
+  openai_advanced_scheduler_weight_quota_headroom: "",
+  openai_advanced_scheduler_weight_upstream_cost: "",
+  openai_advanced_scheduler_weight_previous_response: "",
+  openai_advanced_scheduler_weight_session_sticky: "",
+  // Gateway forwarding behavior
+  enable_fingerprint_unification: true,
+  enable_metadata_passthrough: false,
+  enable_cch_signing: false,
+  enable_claude_oauth_system_prompt_injection: true,
+  claude_oauth_system_prompt: "",
+  claude_oauth_system_prompt_blocks: defaultClaudeOAuthSystemPromptBlocks,
+  enable_anthropic_cache_ttl_1h_injection: false,
+  rewrite_message_cache_control: false,
+  enable_client_dateline_normalization: true,
+  antigravity_user_agent_version: "",
+  openai_codex_user_agent: "",
+  openai_codex_client_version: "",
+  // 只读展示：自动同步任务写入的官方最新稳定版，不参与提交（提交载荷按字段显式构造）
+  openai_codex_client_version_synced: "",
+  openai_codex_version_auto_sync_enabled: true,
+  // codex_cli_only 加固
+  min_codex_version: "",
+  max_codex_version: "",
+  codex_cli_only_blacklist: "",
+  codex_cli_only_whitelist: "",
+  codex_cli_only_allow_app_server_clients: false,
+  codex_cli_only_engine_fingerprint_signals: "",
+  // 余额、订阅到期与账号限额通知
+  balance_low_notify_enabled: false,
+  balance_low_notify_threshold: 0,
+  balance_low_notify_recharge_url: "",
+  subscription_expiry_notify_enabled: true,
+  account_quota_notify_enabled: false,
+  account_quota_notify_emails: [] as NotifyEmailEntry[],
+  // Channel Monitor feature switch
+  channel_monitor_enabled: true,
+  channel_monitor_mode: 'v1' as 'v1' | 'v2',
+  channel_monitor_default_interval_seconds: 60,
+  channel_monitor_hide_throughput: false,
+  channel_monitor_show_quota: false,
+  // Available Channels feature switch
+  available_channels_enabled: false,
+  // Model Plaza feature switches + description
+  model_plaza_enabled: false,
+  model_plaza_require_auth: false,
+  model_plaza_description: '',
+  // Affiliate (邀请返利) feature switch
+  affiliate_enabled: false,
+  // Allow user view error requests
+  allow_user_view_error_requests: false,
+});
+
+// 人机验证 UI 状态：单卡片「总开关 + 服务商单选」，落库仍是三个独立
+// enabled 键（与上游一致），由下面的映射保证同一时间至多一家启用。
+type CaptchaProviderSelection = "turnstile" | "tencent" | "aliyun";
+
+const captchaProviderSelection = ref<CaptchaProviderSelection>("turnstile");
+
+function applyCaptchaSelection(provider: CaptchaProviderSelection | null): void {
+  form.turnstile_enabled = provider === "turnstile";
+  form.tencent_captcha_enabled = provider === "tencent";
+  form.aliyun_captcha_enabled = provider === "aliyun";
+}
+
+const captchaMasterEnabled = computed({
+  get: () =>
+    form.turnstile_enabled ||
+    form.tencent_captcha_enabled ||
+    form.aliyun_captcha_enabled,
+  set: (enabled: boolean) =>
+    applyCaptchaSelection(enabled ? captchaProviderSelection.value : null),
+});
+
+function selectCaptchaProvider(provider: CaptchaProviderSelection): void {
+  captchaProviderSelection.value = provider;
+  applyCaptchaSelection(provider);
+}
+
+// 天御中国站与国际站是两套独立账号体系，控制台与文档入口不通用，
+// 按当前选择的站点给出对应链接，避免管理员在错误的控制台里找不到 CaptchaAppId。
+const tencentCaptchaLinks = computed(() =>
+  form.tencent_captcha_region === "intl"
+    ? {
+        console: "https://console.tencentcloud.com/captcha/graphical",
+        cloudKeys: "https://console.tencentcloud.com/cam/capi",
+        webDocs: "https://www.tencentcloud.com/document/product/1159/49680",
+      }
+    : {
+        console: "https://console.cloud.tencent.com/captcha",
+        cloudKeys: "https://console.cloud.tencent.com/cam/capi",
+        webDocs: "https://cloud.tencent.com/document/product/1110/36841",
+      },
+);
+
+function syncCaptchaProviderSelection(): void {
+  if (form.tencent_captcha_enabled) {
+    captchaProviderSelection.value = "tencent";
+  } else if (form.aliyun_captcha_enabled) {
+    captchaProviderSelection.value = "aliyun";
+  } else if (form.turnstile_enabled) {
+    captchaProviderSelection.value = "turnstile";
+  }
+}
+
+type OpenAIAdvancedSchedulerOverrideKey =
+  | "openai_advanced_scheduler_lb_top_k"
+  | "openai_advanced_scheduler_weight_priority"
+  | "openai_advanced_scheduler_weight_load"
+  | "openai_advanced_scheduler_weight_queue"
+  | "openai_advanced_scheduler_weight_error_rate"
+  | "openai_advanced_scheduler_weight_ttft"
+  | "openai_advanced_scheduler_weight_reset"
+  | "openai_advanced_scheduler_weight_quota_headroom"
+  | "openai_advanced_scheduler_weight_upstream_cost"
+  | "openai_advanced_scheduler_weight_previous_response"
+  | "openai_advanced_scheduler_weight_session_sticky";
+
+type OpenAIAdvancedSchedulerEffectiveKey =
+  | "openai_advanced_scheduler_effective_lb_top_k"
+  | "openai_advanced_scheduler_effective_weight_priority"
+  | "openai_advanced_scheduler_effective_weight_load"
+  | "openai_advanced_scheduler_effective_weight_queue"
+  | "openai_advanced_scheduler_effective_weight_error_rate"
+  | "openai_advanced_scheduler_effective_weight_ttft"
+  | "openai_advanced_scheduler_effective_weight_reset"
+  | "openai_advanced_scheduler_effective_weight_quota_headroom"
+  | "openai_advanced_scheduler_effective_weight_upstream_cost"
+  | "openai_advanced_scheduler_effective_weight_previous_response"
+  | "openai_advanced_scheduler_effective_weight_session_sticky";
+
+const openAIAdvancedSchedulerWeightFields = computed<
+  Array<{
+    key: OpenAIAdvancedSchedulerOverrideKey;
+    label: string;
+    placeholder: string;
+  }>
+>(() => {
+  const placeholder = (
+    effectiveKey: OpenAIAdvancedSchedulerEffectiveKey,
+    fallbackValue: string,
+  ) => {
+    const effectiveValue = String(
+      (form as Record<string, unknown>)[effectiveKey] ?? "",
+    ).trim();
+    return t("admin.settings.openaiExperimentalScheduler.defaultPlaceholder", {
+      value: effectiveValue || fallbackValue,
+    });
+  };
+
+  return [
+    {
+      key: "openai_advanced_scheduler_lb_top_k",
+      label: t("admin.settings.openaiExperimentalScheduler.topKLabel"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_lb_top_k", "7"),
+    },
+    {
+      key: "openai_advanced_scheduler_weight_priority",
+      label: t("admin.settings.openaiExperimentalScheduler.priorityWeight"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_priority", "1"),
+    },
+    {
+      key: "openai_advanced_scheduler_weight_load",
+      label: t("admin.settings.openaiExperimentalScheduler.loadWeight"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_load", "1"),
+    },
+    {
+      key: "openai_advanced_scheduler_weight_queue",
+      label: t("admin.settings.openaiExperimentalScheduler.queueWeight"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_queue", "0.7"),
+    },
+    {
+      key: "openai_advanced_scheduler_weight_error_rate",
+      label: t("admin.settings.openaiExperimentalScheduler.errorRateWeight"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_error_rate", "0.8"),
+    },
+    {
+      key: "openai_advanced_scheduler_weight_ttft",
+      label: t("admin.settings.openaiExperimentalScheduler.ttftWeight"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_ttft", "0.5"),
+    },
+    {
+      key: "openai_advanced_scheduler_weight_reset",
+      label: t("admin.settings.openaiExperimentalScheduler.resetWeight"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_reset", "0"),
+    },
+    {
+      key: "openai_advanced_scheduler_weight_quota_headroom",
+      label: t("admin.settings.openaiExperimentalScheduler.quotaHeadroomWeight"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_quota_headroom", "0"),
+    },
+    {
+      key: "openai_advanced_scheduler_weight_upstream_cost",
+      label: t("admin.settings.openaiExperimentalScheduler.upstreamCostWeight"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_upstream_cost", "0"),
+    },
+    {
+      key: "openai_advanced_scheduler_weight_previous_response",
+      label: t("admin.settings.openaiExperimentalScheduler.previousResponseWeight"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_previous_response", "5"),
+    },
+    {
+      key: "openai_advanced_scheduler_weight_session_sticky",
+      label: t("admin.settings.openaiExperimentalScheduler.sessionStickyWeight"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_session_sticky", "3"),
+    },
+  ];
+});
 
 const authSourceDefaults = reactive<AuthSourceDefaultsState>(
   buildAuthSourceDefaultsState({}),
@@ -770,6 +2590,9 @@ async function loadSettings() {
       settings.channel_monitor_mode === "v2" ? "v2" : "v1";
     form.channel_monitor_hide_throughput = Boolean(
       settings.channel_monitor_hide_throughput
+    );
+    form.channel_monitor_show_quota = Boolean(
+      settings.channel_monitor_show_quota
     );
     form.login_agreement_updated_at =
       settings.login_agreement_updated_at || "2026-03-31";
@@ -1374,6 +3197,9 @@ async function saveSettings() {
       channel_monitor_mode: form.channel_monitor_mode === 'v1' ? 'v1' : 'v2',
       channel_monitor_default_interval_seconds:
         Number(form.channel_monitor_default_interval_seconds) || 60,
+      channel_monitor_hide_throughput: Boolean(form.channel_monitor_hide_throughput),
+      channel_monitor_show_quota: Boolean(form.channel_monitor_show_quota),
+      // Available Channels feature switch
       available_channels_enabled: form.available_channels_enabled,
 
       // Model Plaza feature switches + description
@@ -1511,6 +3337,903 @@ async function saveSettings() {
 
 // ── Lifecycle ──
 
+async function sendTestEmail() {
+  if (!testEmailAddress.value) {
+    appStore.showError(t("admin.settings.testEmail.enterRecipientHint"));
+    return;
+  }
+
+  sendingTestEmail.value = true;
+  try {
+    const smtpPasswordForSend = smtpPasswordManuallyEdited.value
+      ? form.smtp_password
+      : "";
+    const result = await adminAPI.settings.sendTestEmail({
+      email: testEmailAddress.value,
+      smtp_host: form.smtp_host,
+      smtp_port: form.smtp_port,
+      smtp_username: form.smtp_username,
+      smtp_password: smtpPasswordForSend,
+      smtp_from_email: form.smtp_from_email,
+      smtp_from_name: form.smtp_from_name,
+      smtp_use_tls: form.smtp_use_tls,
+    });
+    // API returns { message: "..." } on success, errors are thrown as exceptions
+    appStore.showSuccess(result.message || t("admin.settings.testEmailSent"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(error, t("admin.settings.failedToSendTestEmail")),
+    );
+  } finally {
+    sendingTestEmail.value = false;
+  }
+}
+
+// Admin API Key 方法
+async function loadAdminApiKey() {
+  adminApiKeyLoading.value = true;
+  try {
+    const status = await adminAPI.settings.getAdminApiKey();
+    adminApiKeyExists.value = status.exists;
+    adminApiKeyMasked.value = status.masked_key;
+  } catch (_error: unknown) {
+    // Silent fail - admin API key status is non-critical
+  } finally {
+    adminApiKeyLoading.value = false;
+  }
+}
+
+async function createAdminApiKey() {
+  adminApiKeyOperating.value = true;
+  try {
+    const result = await adminAPI.settings.regenerateAdminApiKey();
+    newAdminApiKey.value = result.key;
+    adminApiKeyExists.value = true;
+    adminApiKeyMasked.value =
+      result.key.substring(0, 10) + "..." + result.key.slice(-4);
+    appStore.showSuccess(t("admin.settings.adminApiKey.keyGenerated"));
+  } catch (error: unknown) {
+    appStore.showError(extractApiErrorMessage(error, t("common.error")));
+  } finally {
+    adminApiKeyOperating.value = false;
+  }
+}
+
+async function regenerateAdminApiKey() {
+  if (!confirm(t("admin.settings.adminApiKey.regenerateConfirm"))) return;
+  await createAdminApiKey();
+}
+
+async function deleteAdminApiKey() {
+  if (!confirm(t("admin.settings.adminApiKey.deleteConfirm"))) return;
+  adminApiKeyOperating.value = true;
+  try {
+    await adminAPI.settings.deleteAdminApiKey();
+    adminApiKeyExists.value = false;
+    adminApiKeyMasked.value = "";
+    newAdminApiKey.value = "";
+    appStore.showSuccess(t("admin.settings.adminApiKey.keyDeleted"));
+  } catch (error: unknown) {
+    appStore.showError(extractApiErrorMessage(error, t("common.error")));
+  } finally {
+    adminApiKeyOperating.value = false;
+  }
+}
+
+function copyNewKey() {
+  navigator.clipboard
+    .writeText(newAdminApiKey.value)
+    .then(() => {
+      appStore.showSuccess(t("admin.settings.adminApiKey.keyCopied"));
+    })
+    .catch(() => {
+      appStore.showError(t("common.copyFailed"));
+    });
+}
+
+async function loadUpstreamBillingProbeSettings() {
+  upstreamBillingProbeLoading.value = true;
+  try {
+    Object.assign(
+      upstreamBillingProbeForm,
+      await adminAPI.accounts.getUpstreamBillingProbeSettings(),
+    );
+  } catch (_error: unknown) {
+    // Keep defaults when this optional setting cannot be loaded.
+  } finally {
+    upstreamBillingProbeLoading.value = false;
+  }
+}
+
+async function saveUpstreamBillingProbeSettings() {
+  upstreamBillingProbeSaving.value = true;
+  try {
+    const updated = await adminAPI.accounts.updateUpstreamBillingProbeSettings({
+      ...upstreamBillingProbeForm,
+    });
+    Object.assign(upstreamBillingProbeForm, updated);
+    appStore.showSuccess(t("admin.settings.upstreamBillingProbe.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.upstreamBillingProbe.saveFailed"),
+      ),
+    );
+  } finally {
+    upstreamBillingProbeSaving.value = false;
+  }
+}
+
+async function loadOllamaCloudUsageSettings() {
+  ollamaCloudUsageLoading.value = true;
+  try {
+    Object.assign(
+      ollamaCloudUsageForm,
+      await adminAPI.accounts.getOllamaCloudUsageSettings(),
+    );
+  } catch (_error: unknown) {
+    // Keep the fail-safe disabled defaults when this optional setting cannot be loaded.
+  } finally {
+    ollamaCloudUsageLoading.value = false;
+  }
+}
+
+async function saveOllamaCloudUsageSettings() {
+  ollamaCloudUsageSaving.value = true;
+  try {
+    const updated = await adminAPI.accounts.updateOllamaCloudUsageSettings({
+      ...ollamaCloudUsageForm,
+    });
+    Object.assign(ollamaCloudUsageForm, updated);
+    appStore.showSuccess(t("admin.settings.ollamaCloudUsage.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(error, t("admin.settings.ollamaCloudUsage.saveFailed")),
+    );
+  } finally {
+    ollamaCloudUsageSaving.value = false;
+  }
+}
+
+// Overload Cooldown 方法
+async function loadOverloadCooldownSettings() {
+  overloadCooldownLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getOverloadCooldownSettings();
+    Object.assign(overloadCooldownForm, settings);
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    overloadCooldownLoading.value = false;
+  }
+}
+
+async function saveOverloadCooldownSettings() {
+  overloadCooldownSaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updateOverloadCooldownSettings({
+      enabled: overloadCooldownForm.enabled,
+      cooldown_minutes: overloadCooldownForm.cooldown_minutes,
+    });
+    Object.assign(overloadCooldownForm, updated);
+    appStore.showSuccess(t("admin.settings.overloadCooldown.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.overloadCooldown.saveFailed"),
+      ),
+    );
+  } finally {
+    overloadCooldownSaving.value = false;
+  }
+}
+
+// Panel API Rate Limit 方法
+async function loadPanelRateLimitSettings() {
+  panelRateLimitLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getPanelRateLimitSettings();
+    Object.assign(panelRateLimitForm, settings);
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    panelRateLimitLoading.value = false;
+  }
+}
+
+async function savePanelRateLimitSettings() {
+  panelRateLimitSaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updatePanelRateLimitSettings({
+      enabled: panelRateLimitForm.enabled,
+      user_rpm: panelRateLimitForm.user_rpm,
+      heavy_rpm: panelRateLimitForm.heavy_rpm,
+      exempt_admin: panelRateLimitForm.exempt_admin,
+      public_ip_rpm: panelRateLimitForm.public_ip_rpm,
+    });
+    Object.assign(panelRateLimitForm, updated);
+    appStore.showSuccess(t("admin.settings.panelRateLimit.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.panelRateLimit.saveFailed"),
+      ),
+    );
+  } finally {
+    panelRateLimitSaving.value = false;
+  }
+}
+
+// Rate Limit Cooldown (429) 方法
+async function loadRateLimit429CooldownSettings() {
+  rateLimit429CooldownLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getRateLimit429CooldownSettings();
+    Object.assign(rateLimit429CooldownForm, settings);
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    rateLimit429CooldownLoading.value = false;
+  }
+}
+
+async function saveRateLimit429CooldownSettings() {
+  rateLimit429CooldownSaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updateRateLimit429CooldownSettings({
+      enabled: rateLimit429CooldownForm.enabled,
+      cooldown_seconds: rateLimit429CooldownForm.cooldown_seconds,
+    });
+    Object.assign(rateLimit429CooldownForm, updated);
+    appStore.showSuccess(t("admin.settings.rateLimit429Cooldown.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.rateLimit429Cooldown.saveFailed"),
+      ),
+    );
+  } finally {
+    rateLimit429CooldownSaving.value = false;
+  }
+}
+
+// Stream Timeout 方法
+async function loadStreamTimeoutSettings() {
+  streamTimeoutLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getStreamTimeoutSettings();
+    Object.assign(streamTimeoutForm, settings);
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    streamTimeoutLoading.value = false;
+  }
+}
+
+async function saveStreamTimeoutSettings() {
+  streamTimeoutSaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updateStreamTimeoutSettings({
+      enabled: streamTimeoutForm.enabled,
+      action: streamTimeoutForm.action,
+      temp_unsched_minutes: streamTimeoutForm.temp_unsched_minutes,
+      threshold_count: streamTimeoutForm.threshold_count,
+      threshold_window_minutes: streamTimeoutForm.threshold_window_minutes,
+    });
+    Object.assign(streamTimeoutForm, updated);
+    appStore.showSuccess(t("admin.settings.streamTimeout.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.streamTimeout.saveFailed"),
+      ),
+    );
+  } finally {
+    streamTimeoutSaving.value = false;
+  }
+}
+
+// Rectifier 方法
+async function loadRectifierSettings() {
+  rectifierLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getRectifierSettings();
+    Object.assign(rectifierForm, settings);
+    // 确保 patterns 是数组（旧数据可能为 null）
+    if (!Array.isArray(rectifierForm.apikey_signature_patterns)) {
+      rectifierForm.apikey_signature_patterns = [];
+    }
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    rectifierLoading.value = false;
+  }
+}
+
+async function saveRectifierSettings() {
+  rectifierSaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updateRectifierSettings({
+      enabled: rectifierForm.enabled,
+      thinking_signature_enabled: rectifierForm.thinking_signature_enabled,
+      thinking_budget_enabled: rectifierForm.thinking_budget_enabled,
+      apikey_signature_enabled: rectifierForm.apikey_signature_enabled,
+      apikey_signature_patterns: rectifierForm.apikey_signature_patterns.filter(
+        (p) => p.trim() !== "",
+      ),
+    });
+    Object.assign(rectifierForm, updated);
+    if (!Array.isArray(rectifierForm.apikey_signature_patterns)) {
+      rectifierForm.apikey_signature_patterns = [];
+    }
+    appStore.showSuccess(t("admin.settings.rectifier.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(error, t("admin.settings.rectifier.saveFailed")),
+    );
+  } finally {
+    rectifierSaving.value = false;
+  }
+}
+
+const betaPolicyActionOptions = computed(() => [
+  { value: "pass", label: t("admin.settings.betaPolicy.actionPass") },
+  { value: "filter", label: t("admin.settings.betaPolicy.actionFilter") },
+  { value: "block", label: t("admin.settings.betaPolicy.actionBlock") },
+]);
+
+const betaPolicyScopeOptions = computed(() => [
+  { value: "all", label: t("admin.settings.betaPolicy.scopeAll") },
+  { value: "oauth", label: t("admin.settings.betaPolicy.scopeOAuth") },
+  { value: "apikey", label: t("admin.settings.betaPolicy.scopeAPIKey") },
+  { value: "bedrock", label: t("admin.settings.betaPolicy.scopeBedrock") },
+]);
+
+// Beta Policy 方法
+const betaDisplayNames: Record<string, string> = {
+  "fast-mode-2026-02-01": "Fast Mode",
+  "context-1m-2025-08-07": "Context 1M",
+};
+
+// 快捷预设：按 beta_token 定义预设方案
+const betaPresets: Record<
+  string,
+  Array<{
+    label: string;
+    description: string;
+    action: "pass" | "filter" | "block";
+    model_whitelist: string[];
+    fallback_action: "pass" | "filter" | "block";
+  }>
+> = {
+  "context-1m-2025-08-07": [
+    {
+      label: t("admin.settings.betaPolicy.presetOpusOnly"),
+      description: t("admin.settings.betaPolicy.presetOpusOnlyDesc"),
+      action: "pass",
+      model_whitelist: ["claude-opus-4-6"],
+      fallback_action: "filter",
+    },
+  ],
+};
+
+// 常用模型模式（具体 ID + 通配符示例）
+const commonModelPatterns = [
+  "claude-opus-4-6",
+  "claude-sonnet-4-6",
+  "claude-opus-*",
+  "claude-sonnet-*",
+];
+
+function getBetaDisplayName(token: string): string {
+  return betaDisplayNames[token] || token;
+}
+
+function applyBetaPreset(
+  rule: (typeof betaPolicyForm.rules)[number],
+  preset: {
+    action: "pass" | "filter" | "block";
+    model_whitelist: string[];
+    fallback_action: "pass" | "filter" | "block";
+  },
+) {
+  rule.action = preset.action;
+  rule.model_whitelist = [...preset.model_whitelist];
+  rule.fallback_action = preset.fallback_action;
+}
+
+function addQuickPattern(
+  rule: (typeof betaPolicyForm.rules)[number],
+  pattern: string,
+) {
+  if (!rule.model_whitelist) rule.model_whitelist = [];
+  if (!rule.model_whitelist.includes(pattern)) {
+    rule.model_whitelist.push(pattern);
+  }
+}
+
+async function loadBetaPolicySettings() {
+  betaPolicyLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getBetaPolicySettings();
+    betaPolicyForm.rules = settings.rules;
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    betaPolicyLoading.value = false;
+  }
+}
+
+// ==================== OpenAI Fast/Flex Policy ====================
+
+const openaiFastPolicyTierOptions = computed(() => [
+  { value: "all", label: t("admin.settings.openaiFastPolicy.tierAll") },
+  {
+    value: "priority",
+    label: t("admin.settings.openaiFastPolicy.tierPriority"),
+  },
+  { value: "flex", label: t("admin.settings.openaiFastPolicy.tierFlex") },
+]);
+
+const openaiFastPolicyActionOptions = computed(() => [
+  { value: "pass", label: t("admin.settings.openaiFastPolicy.actionPass") },
+  { value: "filter", label: t("admin.settings.openaiFastPolicy.actionFilter") },
+  {
+    value: "force_priority",
+    label: t("admin.settings.openaiFastPolicy.actionForcePriority"),
+  },
+  { value: "block", label: t("admin.settings.openaiFastPolicy.actionBlock") },
+]);
+
+function openaiFastPolicyActionSummary(
+  action: OpenAIFastPolicyRule["action"],
+) {
+  return t(`admin.settings.openaiFastPolicy.summaryAction.${action}`);
+}
+
+function hasOpenAIFastPolicyTargetModels(rule: OpenAIFastPolicyRule) {
+  return Boolean(rule.model_whitelist?.some((pattern) => pattern.trim() !== ""));
+}
+
+const openaiFastPolicyScopeOptions = computed(() => [
+  { value: "all", label: t("admin.settings.openaiFastPolicy.scopeAll") },
+  { value: "oauth", label: t("admin.settings.openaiFastPolicy.scopeOAuth") },
+  { value: "apikey", label: t("admin.settings.openaiFastPolicy.scopeAPIKey") },
+  {
+    value: "bedrock",
+    label: t("admin.settings.openaiFastPolicy.scopeBedrock"),
+  },
+]);
+
+function addOpenAIFastPolicyRule() {
+  openaiFastPolicyForm.rules.push({
+    service_tier: "priority",
+    action: "filter",
+    scope: "all",
+    user_ids: [],
+    error_message: "",
+    model_whitelist: [],
+    fallback_action: "pass",
+    fallback_error_message: "",
+  });
+}
+
+function removeOpenAIFastPolicyRule(index: number) {
+  openaiFastPolicyForm.rules.splice(index, 1);
+}
+
+function addOpenAIFastPolicyModelPattern(rule: OpenAIFastPolicyRule) {
+  if (!rule.model_whitelist) rule.model_whitelist = [];
+  rule.model_whitelist.push("");
+}
+
+function removeOpenAIFastPolicyModelPattern(
+  rule: OpenAIFastPolicyRule,
+  idx: number,
+) {
+  rule.model_whitelist?.splice(idx, 1);
+}
+
+async function saveBetaPolicySettings() {
+  betaPolicySaving.value = true;
+  try {
+    // Clean up empty patterns before saving
+    const cleanedRules = betaPolicyForm.rules.map((rule) => {
+      const whitelist = rule.model_whitelist?.filter((p) => p.trim() !== "");
+      const hasWhitelist = whitelist && whitelist.length > 0;
+      return {
+        beta_token: rule.beta_token,
+        action: rule.action,
+        scope: rule.scope,
+        error_message: rule.error_message,
+        model_whitelist: hasWhitelist ? whitelist : undefined,
+        fallback_action: hasWhitelist
+          ? rule.fallback_action || "pass"
+          : undefined,
+        fallback_error_message:
+          hasWhitelist && rule.fallback_action === "block"
+            ? rule.fallback_error_message
+            : undefined,
+      };
+    });
+    const updated = await adminAPI.settings.updateBetaPolicySettings({
+      rules: cleanedRules,
+    });
+    betaPolicyForm.rules = updated.rules;
+    appStore.showSuccess(t("admin.settings.betaPolicy.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(error, t("admin.settings.betaPolicy.saveFailed")),
+    );
+  } finally {
+    betaPolicySaving.value = false;
+  }
+}
+
+// ==================== Provider Management ====================
+
+const allPaymentTypes = computed(() => [
+  { value: "easypay", label: t("payment.methods.easypay") },
+  { value: "alipay", label: t("payment.methods.alipay") },
+  { value: "wxpay", label: t("payment.methods.wxpay") },
+  { value: "stripe", label: t("payment.methods.stripe") },
+  { value: "airwallex", label: t("payment.methods.airwallex") },
+]);
+
+function isPaymentTypeEnabled(type: string): boolean {
+  return form.payment_enabled_types.includes(type);
+}
+
+const hasAnyPaymentTypeEnabled = computed(
+  () => form.payment_enabled_types.length > 0,
+);
+
+function togglePaymentType(type: string) {
+  if (form.payment_enabled_types.includes(type)) {
+    form.payment_enabled_types = form.payment_enabled_types.filter(
+      (t) => t !== type,
+    );
+    // Disable all provider instances matching this type
+    disableProvidersByType(type);
+  } else {
+    form.payment_enabled_types = [...form.payment_enabled_types, type];
+  }
+}
+
+async function disableProvidersByType(type: string) {
+  const matching = providers.value.filter(
+    (p) => p.provider_key === type && p.enabled,
+  );
+  for (const p of matching) {
+    try {
+      await adminAPI.payment.updateProvider(p.id, { enabled: false });
+      p.enabled = false;
+    } catch (err: unknown) {
+      slog("disable provider failed", p.id, err);
+    }
+  }
+}
+
+function slog(...args: unknown[]) {
+  console.warn("[payment]", ...args);
+}
+
+const providersLoading = ref(false);
+const providerSaving = ref(false);
+const providers = ref<ProviderInstance[]>([]);
+const showProviderDialog = ref(false);
+const showDeleteProviderDialog = ref(false);
+const editingProvider = ref<ProviderInstance | null>(null);
+const deletingProviderId = ref<number | null>(null);
+const providerDialogRef = ref<InstanceType<
+  typeof PaymentProviderDialog
+> | null>(null);
+
+const providerKeyOptions = computed(() => [
+  { value: "easypay", label: t("admin.settings.payment.providerEasypay") },
+  { value: "alipay", label: t("admin.settings.payment.providerAlipay") },
+  { value: "wxpay", label: t("admin.settings.payment.providerWxpay") },
+  { value: "stripe", label: t("admin.settings.payment.providerStripe") },
+  { value: "airwallex", label: t("admin.settings.payment.providerAirwallex") },
+]);
+
+const enabledProviderKeyOptions = computed(() => {
+  const enabled = form.payment_enabled_types;
+  return providerKeyOptions.value.filter((opt) => enabled.includes(opt.value));
+});
+
+const loadBalanceOptions = computed(() => [
+  {
+    value: "round-robin",
+    label: t("admin.settings.payment.strategyRoundRobin"),
+  },
+  {
+    value: "least-amount",
+    label: t("admin.settings.payment.strategyLeastAmount"),
+  },
+]);
+
+const cancelRateLimitUnitOptions = computed(() => [
+  {
+    value: "minute",
+    label: t("admin.settings.payment.cancelRateLimitUnitMinute"),
+  },
+  { value: "hour", label: t("admin.settings.payment.cancelRateLimitUnitHour") },
+  { value: "day", label: t("admin.settings.payment.cancelRateLimitUnitDay") },
+]);
+
+const cancelRateLimitModeOptions = computed(() => [
+  {
+    value: "rolling",
+    label: t("admin.settings.payment.cancelRateLimitWindowModeRolling"),
+  },
+  {
+    value: "fixed",
+    label: t("admin.settings.payment.cancelRateLimitWindowModeFixed"),
+  },
+]);
+
+type ProviderEnablementCandidate = Pick<
+  ProviderInstance,
+  "id" | "provider_key" | "supported_types" | "enabled" | "name"
+>;
+
+function getProviderVisibleMethods(
+  provider: ProviderEnablementCandidate,
+): Array<"alipay" | "wxpay"> {
+  if (!provider.enabled) {
+    return [];
+  }
+
+  const supportedTypes = Array.isArray(provider.supported_types)
+    ? provider.supported_types
+    : [];
+  const methods = new Set<"alipay" | "wxpay">();
+  const addMethod = (type: string) => {
+    const method = normalizeVisibleMethod(type);
+    if (method === "alipay" || method === "wxpay") {
+      methods.add(method);
+    }
+  };
+
+  if (provider.provider_key === "alipay") {
+    if (supportedTypes.length === 0) {
+      methods.add("alipay");
+    } else {
+      supportedTypes.forEach((type) => {
+        if (normalizeVisibleMethod(type) === "alipay") {
+          methods.add("alipay");
+        }
+      });
+    }
+  } else if (provider.provider_key === "wxpay") {
+    if (supportedTypes.length === 0) {
+      methods.add("wxpay");
+    } else {
+      supportedTypes.forEach((type) => {
+        if (normalizeVisibleMethod(type) === "wxpay") {
+          methods.add("wxpay");
+        }
+      });
+    }
+  } else if (provider.provider_key === "easypay") {
+    supportedTypes.forEach(addMethod);
+  }
+
+  return Array.from(methods);
+}
+
+function findProviderEnablementConflict(
+  candidate: ProviderEnablementCandidate,
+): { method: "alipay" | "wxpay"; conflicting: ProviderInstance } | null {
+  const claimedMethods = getProviderVisibleMethods(candidate);
+  if (claimedMethods.length === 0) {
+    return null;
+  }
+
+  for (const other of providers.value) {
+    if (other.id === candidate.id || !other.enabled) {
+      continue;
+    }
+
+    const otherMethods = getProviderVisibleMethods(other);
+    const matchedMethod = claimedMethods.find((method) =>
+      otherMethods.includes(method),
+    );
+    if (matchedMethod) {
+      return {
+        method: matchedMethod,
+        conflicting: other,
+      };
+    }
+  }
+
+  return null;
+}
+
+function showProviderEnablementConflict(
+  conflict: { method: "alipay" | "wxpay"; conflicting: ProviderInstance },
+) {
+  appStore.showError(
+    t("admin.settings.payment.enableConflict", {
+      method: t(`payment.methods.${conflict.method}`),
+      provider: conflict.conflicting.name,
+    }),
+  );
+}
+
+async function loadProviders() {
+  providersLoading.value = true;
+  try {
+    const res = await adminAPI.payment.getProviders();
+    // Normalize supported_types: backend returns null when the list is empty
+    // (Go nil slice → JSON null). Without this, ProviderCard's isSelected()
+    // throws TypeError on null.includes(), causing the card to vanish.
+    providers.value = (res.data || []).map((p) => ({
+      ...p,
+      supported_types: Array.isArray(p.supported_types)
+        ? p.supported_types
+        : [],
+    }));
+  } catch (err: unknown) {
+    appStore.showError(extractI18nErrorMessage(err, t, "payment.errors", t("common.error")));
+  } finally {
+    providersLoading.value = false;
+  }
+}
+
+function openCreateProvider() {
+  editingProvider.value = null;
+  providerDialogRef.value?.reset(
+    enabledProviderKeyOptions.value[0]?.value || "easypay",
+  );
+  showProviderDialog.value = true;
+}
+
+function openEditProvider(provider: ProviderInstance) {
+  editingProvider.value = provider;
+  providerDialogRef.value?.loadProvider(provider);
+  showProviderDialog.value = true;
+}
+
+async function handleSaveProvider(payload: Partial<ProviderInstance>) {
+  providerSaving.value = true;
+  try {
+    const candidate: ProviderEnablementCandidate = {
+      id: editingProvider.value?.id ?? 0,
+      provider_key:
+        payload.provider_key ?? editingProvider.value?.provider_key ?? "",
+      supported_types:
+        payload.supported_types ?? editingProvider.value?.supported_types ?? [],
+      enabled: payload.enabled ?? editingProvider.value?.enabled ?? false,
+      name: payload.name ?? editingProvider.value?.name ?? "",
+    };
+    const conflict = findProviderEnablementConflict(candidate);
+    if (conflict) {
+      showProviderEnablementConflict(conflict);
+      return;
+    }
+
+    if (editingProvider.value) {
+      await adminAPI.payment.updateProvider(editingProvider.value.id, payload);
+    } else {
+      await adminAPI.payment.createProvider(payload);
+    }
+    showProviderDialog.value = false;
+    // Reload full list (API returns decrypted/formatted data with correct sort order)
+    await loadProviders();
+    // Auto-save settings so provider changes take effect immediately
+    await saveSettings();
+  } catch (err: unknown) {
+    appStore.showError(extractI18nErrorMessage(err, t, "payment.errors", t("common.error")));
+  } finally {
+    providerSaving.value = false;
+  }
+}
+
+async function handleToggleField(
+  provider: ProviderInstance,
+  field: "enabled" | "refund_enabled" | "allow_user_refund",
+) {
+  let newValue: boolean;
+  if (field === "enabled") newValue = !provider.enabled;
+  else if (field === "refund_enabled") newValue = !provider.refund_enabled;
+  else newValue = !provider.allow_user_refund;
+
+  if (field === "enabled" && newValue) {
+    const conflict = findProviderEnablementConflict({
+      id: provider.id,
+      provider_key: provider.provider_key,
+      supported_types: provider.supported_types,
+      enabled: true,
+      name: provider.name,
+    });
+    if (conflict) {
+      showProviderEnablementConflict(conflict);
+      return;
+    }
+  }
+
+  const payload: Record<string, boolean> = { [field]: newValue };
+  // Cascade: turning off refund_enabled also turns off allow_user_refund
+  if (field === "refund_enabled" && !newValue) {
+    payload.allow_user_refund = false;
+  }
+  try {
+    await adminAPI.payment.updateProvider(provider.id, payload);
+    await loadProviders();
+  } catch (err: unknown) {
+    appStore.showError(extractI18nErrorMessage(err, t, "payment.errors", t("common.error")));
+  }
+}
+
+async function handleToggleType(provider: ProviderInstance, type: string) {
+  const currentTypes = Array.isArray(provider.supported_types)
+    ? provider.supported_types
+    : [];
+  const updated = currentTypes.includes(type)
+    ? currentTypes.filter((t) => t !== type)
+    : [...currentTypes, type];
+  const conflict = findProviderEnablementConflict({
+    id: provider.id,
+    provider_key: provider.provider_key,
+    supported_types: updated,
+    enabled: provider.enabled,
+    name: provider.name,
+  });
+  if (conflict) {
+    showProviderEnablementConflict(conflict);
+    return;
+  }
+  try {
+    await adminAPI.payment.updateProvider(provider.id, {
+      supported_types: updated,
+    } as any);
+    await loadProviders();
+  } catch (err: unknown) {
+    appStore.showError(extractI18nErrorMessage(err, t, "payment.errors", t("common.error")));
+  }
+}
+
+function confirmDeleteProvider(provider: ProviderInstance) {
+  deletingProviderId.value = provider.id;
+  showDeleteProviderDialog.value = true;
+}
+
+async function handleReorderProviders(
+  updates: { id: number; sort_order: number }[],
+) {
+  try {
+    await Promise.all(
+      updates.map((u) =>
+        adminAPI.payment.updateProvider(u.id, {
+          sort_order: u.sort_order,
+        } as Partial<ProviderInstance>),
+      ),
+    );
+    await loadProviders();
+  } catch (err: unknown) {
+    appStore.showError(extractI18nErrorMessage(err, t, "payment.errors", t("common.error")));
+    loadProviders();
+  }
+}
+
+async function handleDeleteProvider() {
+  if (!deletingProviderId.value) return;
+  try {
+    await adminAPI.payment.deleteProvider(deletingProviderId.value);
+    appStore.showSuccess(t("common.deleted"));
+    showDeleteProviderDialog.value = false;
+    loadProviders();
+  } catch (err: unknown) {
+    appStore.showError(extractI18nErrorMessage(err, t, "payment.errors", t("common.error")));
+  }
+}
 
 onMounted(() => {
   loadSettings();

@@ -446,6 +446,7 @@
                   :key="idx"
                   :entry="entry"
                   :platform="section.platform"
+                  enable-time-pricing
                   @update="updatePricingEntry(sIdx, idx, $event)"
                   @remove="removePricingEntry(sIdx, idx)"
                 />
@@ -632,7 +633,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
 import type { Channel, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule } from '@/api/admin/channels'
 import type { PricingFormEntry } from '@/components/admin/channel/types'
-import { mTokToPerToken, perTokenToMTok, apiIntervalsToForm, formIntervalsToAPI, findModelConflict, validateIntervals } from '@/components/admin/channel/types'
+import { apiIntervalsToForm, apiTimePricingToForm, createDefaultTimePricingForm, findModelConflict, formIntervalsToAPI, formTimePricingToAPI, mTokToPerToken, perTokenToMTok, validateIntervals, validateTimePricing } from '@/components/admin/channel/types'
 import type { AdminGroup, GroupPlatform } from '@/types'
 import type { Column } from '@/components/common/types'
 import { platformTextClass, platformBadgeLightClass } from '@/utils/platformColors'
@@ -759,6 +760,10 @@ let abortController: AbortController | null = null
 // A previous 4-element hardcoded array silently dropped newapi data on the
 // API → form → API round-trip (see docs/approved/admin-ui-newapi-platform-end-to-end.md §1.5).
 const platformOrder: readonly GroupPlatform[] = GATEWAY_PLATFORMS
+const platformOrder: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek']
+// composite 分组仅覆盖主平台（与后端 isConcreteRequestPlatform / composite-routes target_platform 一致），
+// 不含国产供应商平台。
+const compositePlatforms: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok']
 
 // ── Helpers ──
 function formatDate(value: string): string {
@@ -811,6 +816,9 @@ const groupsByPlatform = computed(() => {
 
 function getGroupsForPlatform(platform: GroupPlatform): AdminGroup[] {
   return groupsByPlatform.value.get(platform) ?? []
+  return allGroups.value.filter(
+    g => g.platform === platform || (g.platform === 'composite' && compositePlatforms.includes(platform))
+  )
 }
 
 // ── Group helpers ──
@@ -869,7 +877,8 @@ function addPricingEntry(sectionIdx: number) {
     image_input_price: null,
     image_output_price: null,
     per_request_price: null,
-    intervals: []
+    intervals: [],
+    time_pricing: createDefaultTimePricingForm()
   })
 }
 
@@ -902,7 +911,8 @@ async function syncLatestModels(sectionIdx: number) {
       image_input_price: null,
       image_output_price: null,
       per_request_price: null,
-      intervals: []
+      intervals: [],
+      time_pricing: createDefaultTimePricingForm()
     })
     appStore.showSuccess(t('admin.channels.form.syncModelsSuccess', { count: newModels.length }))
   } catch (error) {
@@ -967,7 +977,8 @@ function addRulePricingEntry(sectionIdx: number, ruleIndex: number) {
     image_input_price: null,
     image_output_price: null,
     per_request_price: null,
-    intervals: []
+    intervals: [],
+    time_pricing: createDefaultTimePricingForm()
   })
 }
 
@@ -1083,7 +1094,8 @@ function accountStatsRulesToAPI(): AccountStatsPricingRule[] {
             image_input_price: mTokToPerToken(p.image_input_price),
             image_output_price: mTokToPerToken(p.image_output_price),
             per_request_price: p.per_request_price != null && p.per_request_price !== '' ? Number(p.per_request_price) : null,
-            intervals: formIntervalsToAPI(p.intervals || [])
+            intervals: formIntervalsToAPI(p.intervals || []),
+            time_pricing: null
           }))
       })
     }
@@ -1105,6 +1117,164 @@ function formToAPI() {
 
 function apiToForm(channel: Channel): PlatformSection[] {
   return apiToFormSections(channel, allGroups.value, platformOrder)
+function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[], model_mapping: Record<string, Record<string, string>>, features_config: Record<string, unknown> } {
+  const group_ids: number[] = []
+  const model_pricing: ChannelModelPricing[] = []
+  const model_mapping: Record<string, Record<string, string>> = {}
+  // Preserve existing features_config fields not managed by the form
+  const featuresConfig: Record<string, unknown> = editingChannel.value?.features_config
+    ? { ...editingChannel.value.features_config }
+    : {}
+
+  for (const section of form.platforms) {
+    if (!section.enabled) continue
+    group_ids.push(...section.group_ids)
+
+    // Model mapping per platform
+    if (Object.keys(section.model_mapping).length > 0) {
+      model_mapping[section.platform] = { ...section.model_mapping }
+    }
+
+    // Model pricing with platform tag
+    for (const entry of section.model_pricing) {
+      if (entry.models.length === 0) continue
+      model_pricing.push({
+        platform: section.platform,
+        models: entry.models,
+        billing_mode: entry.billing_mode,
+        input_price: mTokToPerToken(entry.input_price),
+        output_price: mTokToPerToken(entry.output_price),
+        cache_write_price: mTokToPerToken(entry.cache_write_price),
+        cache_read_price: mTokToPerToken(entry.cache_read_price),
+        image_input_price: mTokToPerToken(entry.image_input_price),
+        image_output_price: mTokToPerToken(entry.image_output_price),
+        per_request_price: entry.per_request_price != null && entry.per_request_price !== '' ? Number(entry.per_request_price) : null,
+        intervals: formIntervalsToAPI(entry.intervals || []),
+        time_pricing: formTimePricingToAPI(entry.time_pricing)
+      })
+    }
+  }
+  const uniqueGroupIds = Array.from(new Set(group_ids))
+
+  // Collect web_search_emulation (only anthropic platform supports it)
+  // Always write the key so that disabling in the UI correctly sets platform to false,
+  // rather than leaving a stale true value from the cloned features_config.
+  const wsEmulation: Record<string, boolean> = {}
+  for (const section of form.platforms) {
+    if (!section.enabled) continue
+    if (section.platform === 'anthropic') {
+      wsEmulation[section.platform] = !!section.web_search_emulation
+    }
+  }
+  if (Object.keys(wsEmulation).length > 0) {
+    featuresConfig.web_search_emulation = wsEmulation
+  } else {
+    delete featuresConfig.web_search_emulation
+  }
+
+  const codexImageGenerationBridge: Record<string, boolean> = {}
+  for (const section of form.platforms) {
+    if (!section.enabled) continue
+    if (section.platform === 'openai') {
+      codexImageGenerationBridge[section.platform] = !!section.codex_image_generation_bridge
+    }
+  }
+  if (Object.keys(codexImageGenerationBridge).length > 0) {
+    featuresConfig.codex_image_generation_bridge = codexImageGenerationBridge
+  } else {
+    delete featuresConfig.codex_image_generation_bridge
+  }
+
+  const bedrockCCCompat: Record<string, boolean> = {}
+  for (const section of form.platforms) {
+    if (!section.enabled) continue
+    if (section.platform === 'anthropic') {
+      bedrockCCCompat[section.platform] = !!section.bedrock_cc_compat
+    }
+  }
+  if (Object.keys(bedrockCCCompat).length > 0) {
+    featuresConfig.bedrock_cc_compat = bedrockCCCompat
+  } else {
+    delete featuresConfig.bedrock_cc_compat
+  }
+
+  return { group_ids: uniqueGroupIds, model_pricing, model_mapping, features_config: featuresConfig }
+}
+
+function apiToForm(channel: Channel): PlatformSection[] {
+  // Build a map: groupID → platform
+  const groupPlatformMap = new Map<number, GroupPlatform>()
+  for (const g of allGroups.value) {
+    groupPlatformMap.set(g.id, g.platform)
+  }
+
+  // Determine which platforms are active (from groups + pricing + mapping)
+  const activePlatforms = new Set<GroupPlatform>()
+  for (const gid of channel.group_ids || []) {
+    const p = groupPlatformMap.get(gid)
+    if (p === 'composite') {
+      compositePlatforms.forEach(platform => activePlatforms.add(platform))
+    } else if (p) {
+      activePlatforms.add(p)
+    }
+  }
+  for (const p of channel.model_pricing || []) {
+    if (p.platform) activePlatforms.add(p.platform as GroupPlatform)
+  }
+  for (const p of Object.keys(channel.model_mapping || {})) {
+    if (platformOrder.includes(p as GroupPlatform)) activePlatforms.add(p as GroupPlatform)
+  }
+
+  // Build sections in platform order
+  const sections: PlatformSection[] = []
+  for (const platform of platformOrder) {
+    if (!activePlatforms.has(platform)) continue
+
+    const groupIds = (channel.group_ids || []).filter(gid => {
+      const groupPlatform = groupPlatformMap.get(gid)
+      return groupPlatform === platform ||
+        (groupPlatform === 'composite' && compositePlatforms.includes(platform))
+    })
+    const mapping = (channel.model_mapping || {})[platform] || {}
+    const pricing = (channel.model_pricing || [])
+      .filter(p => (p.platform || 'anthropic') === platform)
+      .map(p => ({
+        models: p.models || [],
+        billing_mode: p.billing_mode,
+        input_price: perTokenToMTok(p.input_price),
+        output_price: perTokenToMTok(p.output_price),
+        cache_write_price: perTokenToMTok(p.cache_write_price),
+        cache_read_price: perTokenToMTok(p.cache_read_price),
+        image_input_price: perTokenToMTok(p.image_input_price),
+        image_output_price: perTokenToMTok(p.image_output_price),
+        per_request_price: p.per_request_price,
+        intervals: apiIntervalsToForm(p.intervals || []),
+        time_pricing: apiTimePricingToForm(p.time_pricing)
+      } as PricingFormEntry))
+
+    // Read web_search_emulation from features_config
+    const fc = channel.features_config
+    const wsEmulation = fc?.web_search_emulation as Record<string, boolean> | undefined
+    const webSearchEnabled = wsEmulation?.[platform] === true
+    const codexImageGenerationBridge = fc?.codex_image_generation_bridge as Record<string, boolean> | undefined
+    const codexImageGenerationBridgeEnabled = codexImageGenerationBridge?.[platform] === true
+    const bedrockCCCompatEnabled = fc?.bedrock_cc_compat === true
+
+    sections.push({
+      platform,
+      enabled: true,
+      collapsed: false,
+      group_ids: groupIds,
+      model_mapping: { ...mapping },
+      model_pricing: pricing,
+      web_search_emulation: webSearchEnabled,
+      codex_image_generation_bridge: codexImageGenerationBridgeEnabled,
+      bedrock_cc_compat: bedrockCCCompatEnabled,
+      account_stats_pricing_rules: [],
+    })
+  }
+
+  return sections
 }
 
 // ── Load data ──
@@ -1268,7 +1438,8 @@ function distributeRulesToPlatforms(apiRules: AccountStatsPricingRule[]) {
         image_input_price: perTokenToMTok(p.image_input_price),
         image_output_price: perTokenToMTok(p.image_output_price),
         per_request_price: p.per_request_price,
-        intervals: apiIntervalsToForm(p.intervals || [])
+        intervals: apiIntervalsToForm(p.intervals || []),
+        time_pricing: createDefaultTimePricingForm()
       } as PricingFormEntry))
     }
     section.account_stats_pricing_rules.push(formRule)
@@ -1396,6 +1567,18 @@ async function handleSubmit() {
   const riskyBillingSource = form.billing_model_source === 'requested' || form.billing_model_source === 'upstream'
   if (riskyBillingSource && !window.confirm(t('admin.channels.form.billingModelSourceConfirm', '将「计费基准」设为按请求模型 / 最终模型计费，可能导致计费用的模型名与价格闸判定的不一致而产生 $0 漏计。确认继续吗？'))) {
     return
+  // 校验时间段定价，并切换到对应平台便于修正
+  for (const section of form.platforms.filter(s => s.enabled)) {
+    for (const entry of section.model_pricing) {
+      const timePricingError = validateTimePricing(entry.time_pricing, t)
+      if (timePricingError) {
+        const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
+        const modelLabel = entry.models.join(', ') || t('admin.channels.form.unnamed')
+        appStore.showError(`${platformLabel} - ${modelLabel}: ${timePricingError}`)
+        activeTab.value = section.platform
+        return
+      }
+    }
   }
 
   const { group_ids, model_pricing, model_mapping, features_config } = formToAPI()

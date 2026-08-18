@@ -32,6 +32,47 @@ export interface PlatformQuotaLimits {
 export type DefaultPlatformQuotasMap = Partial<Record<PlatformType, PlatformQuotaLimits>>
 
 /** 归一化为全平台 × 3 窗口（缺失填 null），供模板非空绑定 */
+const PLATFORMS: PlatformType[] = ["anthropic", "openai", "gemini", "antigravity", "grok"]
+
+export type SchedulingThresholdPlatformType =
+  | "openai"
+  | "anthropic"
+  | "grok"
+  | "kimi"
+  | "zhipu"
+
+export type AccountSchedulingThresholdsMap = Record<SchedulingThresholdPlatformType, number>
+
+// 与后端 AllowedSchedulingThresholdPlatforms 保持一致（deepseek 为余额型，
+// 走余额检测而非用量阈值）。
+export const SCHEDULING_THRESHOLD_PLATFORMS: SchedulingThresholdPlatformType[] = [
+  "openai",
+  "anthropic",
+  "grok",
+  "kimi",
+  "zhipu",
+]
+
+export function normalizeAccountSchedulingThresholdsMap(
+  input?: Partial<Record<SchedulingThresholdPlatformType, number>> | null,
+): AccountSchedulingThresholdsMap {
+  const result = {} as AccountSchedulingThresholdsMap
+  for (const platform of SCHEDULING_THRESHOLD_PLATFORMS) {
+    const value = input?.[platform]
+    result[platform] = typeof value === "number" && Number.isFinite(value)
+      ? Math.min(100, Math.max(1, Math.trunc(value)))
+      : 100
+  }
+  return result
+}
+
+export function sanitizeAccountSchedulingThresholdsMap(
+  input?: Partial<Record<SchedulingThresholdPlatformType, number>> | null,
+): AccountSchedulingThresholdsMap {
+  return normalizeAccountSchedulingThresholdsMap(input)
+}
+
+/** 归一化为全 4 平台 × 3 窗口（缺失填 null），供模板非空绑定 */
 export function normalizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | null): DefaultPlatformQuotasMap {
   const result: DefaultPlatformQuotasMap = {}
   for (const p of ALLOWED_QUOTA_PLATFORMS) {
@@ -730,6 +771,7 @@ export interface SystemSettings {
   channel_monitor_mode?: 'v1' | 'v2';
   channel_monitor_default_interval_seconds: number;
   channel_monitor_hide_throughput?: boolean;
+  channel_monitor_show_quota?: boolean;
 
   // Available Channels feature switch
   available_channels_enabled: boolean;
@@ -1038,6 +1080,7 @@ export interface UpdateSettingsRequest {
   channel_monitor_mode?: 'v1' | 'v2';
   channel_monitor_default_interval_seconds?: number;
   channel_monitor_hide_throughput?: boolean;
+  channel_monitor_show_quota?: boolean;
 
   // Available Channels feature switch
   available_channels_enabled?: boolean;
