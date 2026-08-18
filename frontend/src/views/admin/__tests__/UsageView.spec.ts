@@ -226,7 +226,7 @@ describe('admin UsageView route filters', () => {
       total_tokens: 0,
       total_cost: 0,
       total_actual_cost: 0,
-      average_duration_ms: 0,
+      average_duration_ms: 0, average_gateway_latency_ms: 0,
     })
     getSnapshotV2.mockReset().mockResolvedValue({ trend: [], models: [], groups: [] })
     getModelStats.mockReset().mockResolvedValue({ models: [] })
@@ -333,7 +333,7 @@ describe('admin UsageView distribution metric toggles', () => {
       total_tokens: 0,
       total_cost: 0,
       total_actual_cost: 0,
-      average_duration_ms: 0,
+      average_duration_ms: 0, average_gateway_latency_ms: 0,
     })
     getSnapshotV2.mockResolvedValue({
       trend: [],
@@ -600,7 +600,7 @@ describe('admin UsageView request ID column visibility', () => {
     list.mockReset().mockResolvedValue({ items: [], total: 0, pages: 0 })
     getStats.mockReset().mockResolvedValue({
       total_requests: 0, total_input_tokens: 0, total_output_tokens: 0,
-      total_cache_tokens: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, average_duration_ms: 0,
+      total_cache_tokens: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, average_duration_ms: 0, average_gateway_latency_ms: 0,
     })
     getSnapshotV2.mockReset().mockResolvedValue({ trend: [], models: [], groups: [] })
     getModelStats.mockReset().mockResolvedValue({ models: [] })
@@ -668,7 +668,7 @@ describe('admin UsageView handleUserClick', () => {
     list.mockResolvedValue({ items: [], total: 0, pages: 0 })
     getStats.mockResolvedValue({
       total_requests: 0, total_input_tokens: 0, total_output_tokens: 0,
-      total_cache_tokens: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, average_duration_ms: 0,
+      total_cache_tokens: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, average_duration_ms: 0, average_gateway_latency_ms: 0,
     })
     getSnapshotV2.mockResolvedValue({ trend: [], models: [], groups: [] })
   })
@@ -727,7 +727,7 @@ describe('admin UsageView errors tab filter forwarding', () => {
     list.mockResolvedValue({ items: [], total: 0, pages: 0 })
     getStats.mockResolvedValue({
       total_requests: 0, total_input_tokens: 0, total_output_tokens: 0,
-      total_cache_tokens: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, average_duration_ms: 0,
+      total_cache_tokens: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, average_duration_ms: 0, average_gateway_latency_ms: 0,
     })
     getSnapshotV2.mockResolvedValue({ trend: [], models: [], groups: [] })
     getModelStats.mockResolvedValue({ models: [] })
@@ -784,7 +784,7 @@ describe('admin UsageView ranking tab', () => {
     list.mockResolvedValue({ items: [], total: 0, pages: 0 })
     getStats.mockResolvedValue({
       total_requests: 0, total_input_tokens: 0, total_output_tokens: 0,
-      total_cache_tokens: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, average_duration_ms: 0,
+      total_cache_tokens: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, average_duration_ms: 0, average_gateway_latency_ms: 0,
     })
     getSnapshotV2.mockResolvedValue({ trend: [], models: [], groups: [] })
     getModelStats.mockResolvedValue({ models: [] })
@@ -852,7 +852,7 @@ describe('admin UsageView model audit export', () => {
 		})
 		getStats.mockReset().mockResolvedValue({
 			total_requests: 0, total_input_tokens: 0, total_output_tokens: 0,
-			total_cache_tokens: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, average_duration_ms: 0,
+			total_cache_tokens: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, average_duration_ms: 0, average_gateway_latency_ms: 0,
 		})
 		getSnapshotV2.mockReset().mockResolvedValue({ trend: [], models: [], groups: [] })
 		getModelStats.mockReset().mockResolvedValue({ models: [] })

@@ -291,6 +291,7 @@ export default {
     resetPending: 'Pending refresh',
     accountMultiplier: 'Account rate',
     avgDuration: 'Avg Duration',
+    avgGatewayLatency: 'Gateway transfer latency',
     inSelectedRange: 'in selected range',
     perRequest: 'per request',
     apiKeyFilter: 'API Key',

@@ -203,6 +203,7 @@ describe('user UsageView', () => {
       total_cost: 0.1,
       total_actual_cost: 0.08,
       average_duration_ms: 12,
+      average_gateway_latency_ms: 28,
       endpoints: [],
       upstream_endpoints: [],
       endpoint_paths: [],

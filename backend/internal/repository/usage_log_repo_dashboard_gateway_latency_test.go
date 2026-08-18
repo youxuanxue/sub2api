@@ -28,7 +28,7 @@ func TestFillDashboardUsageStatsFromUsageLogs_AverageGatewayLatencyMs(t *testing
 			"total_requests", "total_input_tokens", "total_output_tokens",
 			"total_cache_creation_tokens", "total_cache_read_tokens",
 			"total_cost", "total_actual_cost", "total_account_cost", "total_duration_ms",
-			"total_gateway_latency_ms", "gateway_latency_samples",
+			"today_gateway_latency_ms", "today_gateway_latency_samples",
 			"today_requests", "today_input_tokens", "today_output_tokens",
 			"today_cache_creation_tokens", "today_cache_read_tokens",
 			"today_cost", "today_actual_cost", "today_account_cost",
@@ -72,7 +72,7 @@ func TestFillDashboardUsageStatsFromUsageLogs_AverageGatewayLatencyMsIgnoresNull
 			"total_requests", "total_input_tokens", "total_output_tokens",
 			"total_cache_creation_tokens", "total_cache_read_tokens",
 			"total_cost", "total_actual_cost", "total_account_cost", "total_duration_ms",
-			"total_gateway_latency_ms", "gateway_latency_samples",
+			"today_gateway_latency_ms", "today_gateway_latency_samples",
 			"today_requests", "today_input_tokens", "today_output_tokens",
 			"today_cache_creation_tokens", "today_cache_read_tokens",
 			"today_cost", "today_actual_cost", "today_account_cost",
@@ -97,7 +97,7 @@ func TestFillDashboardUsageStatsFromUsageLogs_AverageGatewayLatencyMsIgnoresNull
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestFillDashboardUsageStatsAggregated_AverageGatewayLatencyMs(t *testing.T) {
+func TestFillDashboardUsageStatsAggregated_AverageGatewayLatencyMsUsesTodayNotAllTime(t *testing.T) {
 	require.NoError(t, timezone.Init("UTC"))
 
 	db, mock := newSQLMock(t)
@@ -111,11 +111,9 @@ func TestFillDashboardUsageStatsAggregated_AverageGatewayLatencyMs(t *testing.T)
 			"total_requests", "total_input_tokens", "total_output_tokens",
 			"total_cache_creation_tokens", "total_cache_read_tokens",
 			"total_cost", "total_actual_cost", "total_account_cost", "total_duration_ms",
-			"total_gateway_latency_ms", "gateway_latency_samples",
 		}).AddRow(
 			int64(5), int64(0), int64(0), int64(0), int64(0),
 			0.0, 0.0, 0.0, int64(5000),
-			int64(1000), int64(5),
 		))
 
 	mock.ExpectQuery("WHERE bucket_date = \\$1").
@@ -124,7 +122,8 @@ func TestFillDashboardUsageStatsAggregated_AverageGatewayLatencyMs(t *testing.T)
 			"today_requests", "today_input_tokens", "today_output_tokens",
 			"today_cache_creation_tokens", "today_cache_read_tokens",
 			"today_cost", "today_actual_cost", "today_account_cost", "active_users",
-		}).AddRow(int64(1), int64(0), int64(0), int64(0), int64(0), 0.0, 0.0, 0.0, int64(1)))
+			"today_gateway_latency_ms", "today_gateway_latency_samples",
+		}).AddRow(int64(1), int64(0), int64(0), int64(0), int64(0), 0.0, 0.0, 0.0, int64(1), int64(56), int64(2)))
 
 	hourStart := now.UTC().Truncate(time.Hour)
 	mock.ExpectQuery("FROM usage_dashboard_hourly").
@@ -134,6 +133,46 @@ func TestFillDashboardUsageStatsAggregated_AverageGatewayLatencyMs(t *testing.T)
 	stats := &DashboardStats{}
 	err := repo.fillDashboardUsageStatsAggregated(context.Background(), stats, todayUTC, now)
 	require.NoError(t, err)
-	require.InDelta(t, 200.0, stats.AverageGatewayLatencyMs, 1e-9)
+	require.InDelta(t, 28.0, stats.AverageGatewayLatencyMs, 1e-9)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestFillDashboardUsageStatsAggregated_AverageGatewayLatencyMsIgnoresEmptyToday(t *testing.T) {
+	require.NoError(t, timezone.Init("UTC"))
+
+	db, mock := newSQLMock(t)
+	repo := &usageLogRepository{sql: db, db: db}
+
+	todayUTC := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery("FROM usage_dashboard_daily").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"total_requests", "total_input_tokens", "total_output_tokens",
+			"total_cache_creation_tokens", "total_cache_read_tokens",
+			"total_cost", "total_actual_cost", "total_account_cost", "total_duration_ms",
+		}).AddRow(
+			int64(5), int64(0), int64(0), int64(0), int64(0),
+			0.0, 0.0, 0.0, int64(5000),
+		))
+
+	mock.ExpectQuery("WHERE bucket_date = \\$1").
+		WithArgs(todayUTC).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"today_requests", "today_input_tokens", "today_output_tokens",
+			"today_cache_creation_tokens", "today_cache_read_tokens",
+			"today_cost", "today_actual_cost", "today_account_cost", "active_users",
+			"today_gateway_latency_ms", "today_gateway_latency_samples",
+		}).AddRow(int64(0), int64(0), int64(0), int64(0), int64(0), 0.0, 0.0, 0.0, int64(0), int64(0), int64(0)))
+
+	hourStart := now.UTC().Truncate(time.Hour)
+	mock.ExpectQuery("FROM usage_dashboard_hourly").
+		WithArgs(hourStart).
+		WillReturnRows(sqlmock.NewRows([]string{"hourly_active_users"}).AddRow(int64(0)))
+
+	stats := &DashboardStats{}
+	err := repo.fillDashboardUsageStatsAggregated(context.Background(), stats, todayUTC, now)
+	require.NoError(t, err)
+	require.Zero(t, stats.AverageGatewayLatencyMs)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
