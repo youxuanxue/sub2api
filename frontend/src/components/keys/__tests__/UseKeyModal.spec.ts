@@ -466,11 +466,9 @@ describe('UseKeyModal — redesign (picker / test / CC-only / raw tabs)', () => 
 
   it('Test key button verifies the key live and shows the verbatim error', async () => {
     getMePricingCatalog.mockResolvedValue({ models: [{ model_id: 'gpt-5.5', capabilities: [] }] })
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 401,
-      text: () => Promise.resolve('{"error":{"message":"Invalid API key"}}')
-    })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: 'gpt-5.5' }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"error":{"message":"Invalid API key"}}', { status: 401 }))
     vi.stubGlobal('fetch', fetchMock)
 
     const wrapper = mountModal({ platform: 'openai', apiKeyId: 3 })
@@ -483,9 +481,9 @@ describe('UseKeyModal — redesign (picker / test / CC-only / raw tabs)', () => 
     await flushPromises()
     await nextTick()
 
-    expect(fetchMock).toHaveBeenCalled()
-    const calledUrl = fetchMock.mock.calls[0][0] as string
-    expect(calledUrl).toContain('/v1/chat/completions')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0][0] as string).toContain('/v1/models')
+    expect(fetchMock.mock.calls[1][0] as string).toContain('/v1/chat/completions')
     expect(wrapper.text()).toContain('Invalid API key')
 
     vi.unstubAllGlobals()

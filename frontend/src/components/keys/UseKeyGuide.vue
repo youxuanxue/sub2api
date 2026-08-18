@@ -520,7 +520,10 @@ function isCollapsible(file: FileConfig): boolean {
 
 function onTest(): void {
   if (activeFlavor.value) {
-    void tk.runTest(activeFlavor.value, { requireToolCall: requiresToolCallTest.value })
+    void tk.runTest(activeFlavor.value, {
+      requireToolCall: requiresToolCallTest.value,
+      protocol: activeDiscoveryProtocol.value ?? undefined,
+    })
   }
 }
 

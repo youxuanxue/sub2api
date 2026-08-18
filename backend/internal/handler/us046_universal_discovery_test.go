@@ -136,7 +136,9 @@ func TestUS046_DiscoveryEndpointsUseNativeSchemas(t *testing.T) {
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 		ids := make([]string, 0, len(body.Data))
 		for _, model := range body.Data {
-			ids = append(ids, model["id"].(string))
+			id, ok := model["id"].(string)
+			require.True(t, ok)
+			ids = append(ids, id)
 		}
 		require.ElementsMatch(t, []string{"gpt-5", "text-embedding-3-large", "gpt-image-1", "sora-2"}, ids)
 		require.Equal(t, "openai", body.Data[0]["owned_by"])
@@ -273,6 +275,31 @@ func TestUS046_CodexDiscoverySelectsAuthorizedOpenAIGroup(t *testing.T) {
 	require.Equal(t, group.ID, resolved.Group.ID)
 	require.Equal(t, service.PlatformOpenAI, resolved.Group.Platform)
 	require.Equal(t, map[string]struct{}{"gpt-5-codex": {}}, allowedModelIDs)
+}
+
+func TestUS046_CodexDiscoveryReturnsNativeEmptyManifestWithoutCapability(t *testing.T) {
+	for _, path := range []string{
+		"/v1/models?client_version=0.144.0",
+		"/backend-api/codex/models?client_version=0.144.0",
+	} {
+		t.Run(path, func(t *testing.T) {
+			h := &OpenAIGatewayHandler{tkCapabilities: &us046CapabilitySource{}}
+			key := &service.APIKey{ID: 7, UserID: 42, RoutingMode: service.RoutingModeUniversal}
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodGet, path, nil)
+			c.Set(string(middleware.ContextKeyAPIKey), key)
+
+			h.CodexModels(c)
+
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			var body struct {
+				Models []json.RawMessage `json:"models"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			require.Empty(t, body.Models)
+		})
+	}
 }
 
 func TestUS046_CodexDiscoveryPathsUseAuthorizedOpenAIGroup(t *testing.T) {

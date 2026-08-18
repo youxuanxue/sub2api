@@ -68,34 +68,6 @@ func newGatewayModelsHandlerForTest(repo service.AccountRepository) *GatewayHand
 	}
 }
 
-type gatewayModelsUserRepoStub struct {
-	service.UserRepository
-	user *service.User
-}
-
-func (s gatewayModelsUserRepoStub) GetByID(context.Context, int64) (*service.User, error) {
-	return s.user, nil
-}
-
-type gatewayModelsGroupRepoStub struct {
-	service.GroupRepository
-	groups []service.Group
-}
-
-func (s gatewayModelsGroupRepoStub) ListActive(context.Context) ([]service.Group, error) {
-	out := make([]service.Group, len(s.groups))
-	copy(out, s.groups)
-	return out, nil
-}
-
-type gatewayModelsSubscriptionRepoStub struct {
-	service.UserSubscriptionRepository
-}
-
-func (gatewayModelsSubscriptionRepoStub) ListActiveByUserID(context.Context, int64) ([]service.UserSubscription, error) {
-	return nil, nil
-}
-
 func TestGatewayModels_UniversalKeyListsCallableOpenAIProjection(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := &GatewayHandler{tkCapabilities: &us046CapabilitySource{byProtocol: map[service.UniversalProtocol][]service.UniversalCapability{
@@ -785,20 +757,6 @@ func modelIDsForTest(models []gatewayModelItemForTest) []string {
 		ids = append(ids, model.ID)
 	}
 	return ids
-}
-
-func gatewayModelsSSOTUnionForTest(groups ...[]string) []string {
-	seen := make(map[string]struct{})
-	for _, group := range groups {
-		for _, id := range group {
-			seen[id] = struct{}{}
-		}
-	}
-	out := make([]string, 0, len(seen))
-	for id := range seen {
-		out = append(out, id)
-	}
-	return out
 }
 
 func firstNSSOTIDsForGatewayModelsTest(t *testing.T, platform string, n int) []string {

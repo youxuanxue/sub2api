@@ -36,10 +36,13 @@
 - `backend/internal/service/us046_universal_capability_test.go`::`TestUS046_CapabilitiesPropagateAvailabilityFailure`
 - `backend/internal/service/us046_universal_capability_test.go`::`TestUS046_CapabilitiesUnionMappedAndPassthroughCandidates`
 - `backend/internal/service/us046_universal_capability_test.go`::`TestUS046_DirectKeyCapabilitiesStayGroupBound`
+- `backend/internal/service/us046_universal_capability_test.go`::`TestUS046_DirectKeyCapabilitiesRespectProtocolPlatform`
+- `backend/internal/service/us046_universal_capability_test.go`::`TestUS046_CapabilitiesRejectUnsupportedUnhintedModel`
 - `backend/internal/handler/us046_universal_discovery_test.go`::`TestUS046_DiscoveryEndpointsUseNativeSchemas`
 - `backend/internal/handler/us046_universal_discovery_test.go`::`TestUS046_UniversalDiscoveryFailureIs500NotEmptyList`
 - `backend/internal/handler/us046_universal_discovery_test.go`::`TestUS046_CapabilityEndpointRejectsForeignKey`
 - `backend/internal/handler/us046_universal_discovery_test.go`::`TestUS046_CodexDiscoveryPathsUseAuthorizedOpenAIGroup`
+- `backend/internal/handler/us046_universal_discovery_test.go`::`TestUS046_CodexDiscoveryReturnsNativeEmptyManifestWithoutCapability`
 - `frontend/src/composables/__tests__/useTkUseKey.spec.ts`::`uses only the key capability SSOT for automatic routing and filters by protocol metadata`
 - `frontend/src/views/user/studio/__tests__/MediaStudioView.spec.ts`::`uses capability modalities instead of public pricing to select and scope automatic keys`
 - `frontend/e2e/us046-universal-capability-discovery.e2e.ts`::`US046 automatic routing key uses the capability menu`

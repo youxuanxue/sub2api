@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"sort"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -140,48 +139,6 @@ func (h *GatewayHandler) servableIDs(ctx context.Context, platform string) []str
 		return service.ServableClientFacingIDs(ctx, platform, nil, nil)
 	}
 	return h.tkModelListFilter.ServableClientFacingIDs(ctx, platform)
-}
-
-// tkUniversalModelIDs returns the metadata model list for a universal API key.
-// Universal request routing is model-driven, so GET /v1/models deliberately skips
-// the resolver and has no single backing group. The list must therefore be the
-// union of the key owner's entitled groups, not GatewayService.GetAvailableModels
-// with groupID=nil (that is the global schedulable account pool).
-func (h *GatewayHandler) tkUniversalModelIDs(ctx context.Context, apiKey *service.APIKey, forcedPlatform string) ([]string, bool) {
-	if h == nil || h.apiKeyService == nil || h.gatewayService == nil || apiKey == nil || !apiKey.IsUniversal() {
-		return nil, false
-	}
-	groups, err := h.apiKeyService.GetAvailableGroups(ctx, apiKey.UserID)
-	if err != nil {
-		return nil, true
-	}
-	modelSet := make(map[string]struct{})
-	for _, group := range groups {
-		if strings.HasPrefix(group.Name, "__tk_probe_") {
-			continue
-		}
-		if forcedPlatform != "" && group.Platform != forcedPlatform {
-			continue
-		}
-		groupID := group.ID
-		ids := h.gatewayService.GetAvailableModels(ctx, &groupID, group.Platform)
-		ids = h.tkFilterModelIDs(ctx, group.Platform, ids)
-		if len(ids) == 0 {
-			ids = h.servableIDs(ctx, group.Platform)
-		}
-		for _, id := range ids {
-			id = strings.TrimSpace(id)
-			if id != "" {
-				modelSet[id] = struct{}{}
-			}
-		}
-	}
-	out := make([]string, 0, len(modelSet))
-	for id := range modelSet {
-		out = append(out, id)
-	}
-	sort.Strings(out)
-	return out, true
 }
 
 // tkOpenAIDefaultModelIDs returns the /v1/models fallback for OpenAI-compat

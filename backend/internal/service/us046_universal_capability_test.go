@@ -127,6 +127,28 @@ func TestUS046_CapabilitiesOnlyListCallableModelsForProtocol(t *testing.T) {
 	}, got)
 }
 
+func TestUS046_CapabilitiesRejectUnsupportedUnhintedModel(t *testing.T) {
+	group := us046ActiveGroup(10, PlatformOpenAI, false)
+	svc := newUniversalCapabilityService(
+		&us046EntitlementStub{groups: []Group{group}},
+		func(context.Context, int64, string) ([]string, bool, error) {
+			return []string{"custom-unsupported-model"}, false, nil
+		},
+		func(context.Context, int64, string, string, UniversalShape) (bool, error) {
+			return false, nil
+		},
+		nil,
+	)
+
+	models, err := svc.List(
+		context.Background(),
+		&APIKey{UserID: 9, RoutingMode: RoutingModeUniversal},
+		UniversalProtocolOpenAI,
+	)
+	require.NoError(t, err)
+	require.Empty(t, models)
+}
+
 func TestUS046_CapabilitiesPropagateEntitlementFailure(t *testing.T) {
 	wantErr := errors.New("entitlements database unavailable")
 	svc := newUniversalCapabilityService(
@@ -235,6 +257,56 @@ func TestUS046_DirectKeyCapabilitiesStayGroupBound(t *testing.T) {
 	require.Equal(t, []UniversalProtocol{UniversalProtocolOpenAI}, models[0].Protocols)
 }
 
+func TestUS046_DirectKeyCapabilitiesRespectProtocolPlatform(t *testing.T) {
+	tests := []struct {
+		name     string
+		platform string
+		protocol UniversalProtocol
+		shape    UniversalShape
+		model    string
+	}{
+		{
+			name:     "codex requires an OpenAI group",
+			platform: PlatformNewAPI,
+			protocol: UniversalProtocolCodex,
+			shape:    ShapeOpenAIChat,
+			model:    "gpt-direct",
+		},
+		{
+			name:     "Gemini protocol requires a Gemini-compatible group",
+			platform: PlatformAnthropic,
+			protocol: UniversalProtocolGemini,
+			shape:    ShapeGemini,
+			model:    "claude-direct",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			group := us046ActiveGroup(10, tt.platform, false)
+			svc := newUniversalCapabilityService(
+				&us046EntitlementStub{err: errors.New("direct key must not load user entitlements")},
+				func(context.Context, int64, string) ([]string, bool, error) {
+					return []string{tt.model}, false, nil
+				},
+				func(_ context.Context, _ int64, _ string, model string, shape UniversalShape) (bool, error) {
+					return model == tt.model && shape == tt.shape, nil
+				},
+				nil,
+			)
+
+			models, err := svc.List(context.Background(), &APIKey{
+				UserID:      9,
+				RoutingMode: RoutingModeDirect,
+				GroupID:     &group.ID,
+				Group:       &group,
+			}, tt.protocol)
+			require.NoError(t, err)
+			require.Empty(t, models)
+		})
+	}
+}
+
 func TestUS046_CapabilityRequestReadsEachGroupAccountSnapshotOnce(t *testing.T) {
 	group := us046ActiveGroup(10, PlatformOpenAI, false)
 	repo := &us046AccountRepoStub{accounts: []Account{{
@@ -311,6 +383,43 @@ func TestUS046_DiscoveryCandidatesDistinguishPassthroughEmptyPoolAndFailure(t *t
 		require.NoError(t, err)
 		require.Equal(t, []string{"mapped-model"}, ids)
 		require.True(t, passthrough)
+	})
+
+	t.Run("mixed scheduling accounts contribute candidates", func(t *testing.T) {
+		repo := &modelsListAccountRepoStub{byGroup: map[int64][]Account{
+			groupID: {{
+				ID:       1,
+				Platform: PlatformAntigravity,
+				Extra:    map[string]any{"mixed_scheduling": true},
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"claude-mixed": "claude-mixed"},
+				},
+			}},
+		}}
+		svc := &GatewayService{accountRepo: repo}
+
+		ids, catalogFallback, err := svc.GetAvailableModelsForDiscovery(context.Background(), groupID, PlatformAnthropic)
+		require.NoError(t, err)
+		require.Equal(t, []string{"claude-mixed"}, ids)
+		require.False(t, catalogFallback)
+	})
+
+	t.Run("wildcard mappings expand from the client-facing catalog", func(t *testing.T) {
+		repo := &modelsListAccountRepoStub{byGroup: map[int64][]Account{
+			groupID: {{
+				ID:       1,
+				Platform: PlatformNewAPI,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"qwen-*": "upstream-model"},
+				},
+			}},
+		}}
+		svc := &GatewayService{accountRepo: repo}
+
+		ids, catalogFallback, err := svc.GetAvailableModelsForDiscovery(context.Background(), groupID, PlatformNewAPI)
+		require.NoError(t, err)
+		require.Empty(t, ids, "wildcard patterns are not client-callable model IDs")
+		require.True(t, catalogFallback)
 	})
 
 	t.Run("repository failure is explicit", func(t *testing.T) {

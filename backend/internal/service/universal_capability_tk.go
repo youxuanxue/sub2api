@@ -51,7 +51,7 @@ type UniversalCapability struct {
 
 var ErrUniversalCapabilityUnavailable = errors.New("api key capability discovery unavailable")
 
-type universalCapabilityCandidates func(ctx context.Context, groupID int64, platform string) (ids []string, passthrough bool, err error)
+type universalCapabilityCandidates func(ctx context.Context, groupID int64, platform string) (ids []string, catalogFallback bool, err error)
 type universalCapabilitySupports func(ctx context.Context, groupID int64, platform, model string, shape UniversalShape) (bool, error)
 type universalCapabilityFallback func(ctx context.Context, platform string) ([]string, error)
 
@@ -147,11 +147,11 @@ func (s *UniversalCapabilityService) List(ctx context.Context, apiKey *APIKey, p
 	modelSet := make(map[string]struct{})
 	for i := range groups {
 		group := groups[i]
-		ids, passthrough, candidateErr := s.candidates(ctx, group.ID, group.Platform)
+		ids, catalogFallback, candidateErr := s.candidates(ctx, group.ID, group.Platform)
 		if candidateErr != nil {
 			return nil, fmt.Errorf("list capability candidates for group %d: %w", group.ID, candidateErr)
 		}
-		if passthrough && s.fallback != nil {
+		if catalogFallback && s.fallback != nil {
 			fallbackIDs, fallbackErr := s.fallback(ctx, group.Platform)
 			if fallbackErr != nil {
 				return nil, fmt.Errorf("list capability fallback candidates for group %d: %w", group.ID, fallbackErr)
@@ -280,22 +280,22 @@ func (s *UniversalCapabilityService) resolveModelShape(
 	spec universalCapabilityShape,
 ) (*Group, error) {
 	supportByGroup := make(map[int64]bool, len(groups))
+	supportedGroups := make([]Group, 0, len(groups))
 	for i := range groups {
 		supported, err := s.supports(ctx, groups[i].ID, groups[i].Platform, model, spec.shape)
 		if err != nil {
 			return nil, fmt.Errorf("check capability support for group %d: %w", groups[i].ID, err)
 		}
 		supportByGroup[groups[i].ID] = supported
-	}
-
-	if !apiKey.IsUniversal() {
-		if len(groups) == 1 && supportByGroup[groups[0].ID] {
-			return &groups[0], nil
+		if supported {
+			supportedGroups = append(supportedGroups, groups[i])
 		}
+	}
+	if len(supportedGroups) == 0 {
 		return nil, nil
 	}
 
-	resolver := NewUniversalRoutingResolver(&fixedCapabilityGroups{groups: groups})
+	resolver := NewUniversalRoutingResolver(&fixedCapabilityGroups{groups: supportedGroups})
 	resolver.SetModelSupportProvider(func(_ context.Context, groupID *int64, _ string, _ string, _ UniversalShape) (bool, bool) {
 		if groupID == nil {
 			return false, true
@@ -321,8 +321,8 @@ func (s *fixedCapabilityGroups) GetAvailableGroups(context.Context, int64) ([]Gr
 }
 
 // GetAvailableModelsForDiscovery preserves the distinction that the legacy
-// []string API cannot express: a native account with an empty mapping is a valid
-// passthrough source, while an empty pool is not a source at all.
+// []string API cannot express: native passthrough and wildcard mappings require
+// expansion against the client-facing catalog, while an empty pool does not.
 func (s *GatewayService) GetAvailableModelsForDiscovery(ctx context.Context, groupID int64, platform string) ([]string, bool, error) {
 	if s == nil || s.accountRepo == nil {
 		return nil, false, ErrUniversalCapabilityUnavailable
@@ -332,8 +332,9 @@ func (s *GatewayService) GetAvailableModelsForDiscovery(ctx context.Context, gro
 		return nil, false, err
 	}
 	filtered := make([]Account, 0, len(accounts))
+	useMixed := platform == PlatformAnthropic || platform == PlatformGemini
 	for i := range accounts {
-		if accounts[i].Platform == platform {
+		if s.isAccountAllowedForPlatform(&accounts[i], platform, useMixed) {
 			filtered = append(filtered, accounts[i])
 		}
 	}
@@ -342,27 +343,34 @@ func (s *GatewayService) GetAvailableModelsForDiscovery(ctx context.Context, gro
 	}
 
 	modelSet := make(map[string]struct{})
-	hasPassthrough := false
+	needsCatalogFallback := false
 	for i := range filtered {
 		mapping := filtered[i].GetModelMapping()
 		if len(mapping) == 0 {
 			if platform != PlatformNewAPI {
-				hasPassthrough = true
+				needsCatalogFallback = true
 			}
 			continue
 		}
 		for model := range mapping {
-			modelSet[model] = struct{}{}
+			model = strings.TrimSpace(model)
+			if strings.HasSuffix(model, "*") {
+				needsCatalogFallback = true
+				continue
+			}
+			if model != "" {
+				modelSet[model] = struct{}{}
+			}
 		}
 	}
 	mergeGrokNativeCatalogModels(platform, modelSet)
 	if len(modelSet) == 0 {
-		return []string{}, hasPassthrough, nil
+		return []string{}, needsCatalogFallback, nil
 	}
 	ids := make([]string, 0, len(modelSet))
 	for model := range modelSet {
 		ids = append(ids, model)
 	}
 	sort.Strings(ids)
-	return ids, hasPassthrough, nil
+	return ids, needsCatalogFallback, nil
 }

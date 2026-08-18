@@ -42,6 +42,10 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 		h.errorResponse(c, status, "upstream_error", message)
 		return
 	}
+	if allowedModelIDs != nil && len(allowedModelIDs) == 0 {
+		c.JSON(http.StatusOK, gin.H{"models": []any{}})
+		return
+	}
 	c.Set(string(middleware2.ContextKeyAPIKey), apiKey)
 	if apiKey.Group == nil {
 		h.errorResponse(c, http.StatusUnauthorized, "invalid_request_error", "API key group is required")
@@ -151,7 +155,7 @@ func (h *OpenAIGatewayHandler) resolveCodexDiscoveryAPIKey(ctx context.Context, 
 		}
 	}
 	if selectedGroup == nil {
-		return nil, nil, service.ErrUniversalNoEntitledGroup
+		return apiKey, allowedModelIDs, nil
 	}
 	return cloneAPIKeyWithGroup(apiKey, selectedGroup), allowedModelIDs, nil
 }

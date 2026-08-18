@@ -75,6 +75,7 @@ export interface TestState {
 
 export interface RunTestOptions {
   requireToolCall?: boolean
+  protocol?: UseKeyDiscoveryProtocol
 }
 
 /** Build human-readable latency fragments for Quickstart / Use Key test banners. */
@@ -358,7 +359,7 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     cancelTest()
     const root = stripTrailingSlashes(resolveBrowserGatewayFetchBaseUrl(args.baseRoot.value))
     const key = args.apiKey.value
-    const model = effectiveModel(flavor)
+    const model = effectiveModel(flavor, options.protocol ?? flavor)
     const ctrl = new AbortController()
     testController = ctrl
     const timer = setTimeout(() => ctrl.abort(), 15_000)

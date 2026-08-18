@@ -197,6 +197,30 @@ describe('formatProbeLatencyDetail', () => {
 })
 
 describe('useTkUseKey tool-call probe', () => {
+	it('tests the model from the active Codex capability subset', async () => {
+		getAPIKeyCapabilitiesMock.mockResolvedValue({
+			api_key_id: 42,
+			routing_mode: 'universal',
+			models: [
+				{ id: 'openai-only', protocols: ['openai'], modalities: ['chat'], routes: [] },
+				{ id: 'codex-model', protocols: ['openai', 'codex'], modalities: ['chat'], routes: [] },
+			],
+		})
+		const fetchMock = vi.fn()
+			.mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }))
+			.mockResolvedValueOnce(new Response(JSON.stringify({
+				choices: [{ message: { content: 'pong' } }],
+			}), { status: 200 }))
+		vi.stubGlobal('fetch', fetchMock)
+		const tk = createUseKey(ref(42), ref('universal'))
+		await tk.loadModels()
+
+		await tk.runTest('openai', { protocol: 'codex' })
+
+		const [, init] = fetchMock.mock.calls[1] as [string, RequestInit]
+		expect(JSON.parse(String(init.body)).model).toBe('codex-model')
+	})
+
   it('forces a side-effect-free function and verifies the returned tool call', async () => {
     vi.stubGlobal('window', { location: { origin: 'https://api.tokenkey.test', href: 'https://api.tokenkey.test/' } })
     const fetchMock = vi.fn()

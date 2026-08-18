@@ -1285,7 +1285,12 @@
         "UseKeyGuide",
         ":routing-mode=\"routingMode\""
       ],
-      "rationale": "Thin dialog wrapper delegating to UseKeyGuide.vue (quickstart SSOT). An upstream merge restoring a monolithic UseKeyModal would drop the shared guide and fork maintenance again; these anchors ensure the wrapper still forwards routingMode and embeds UseKeyGuide."
+      "must_not_contain": [
+        "const clientTabs = computed",
+        "const currentFiles = computed",
+        "function generateOpenCodeFile("
+      ],
+      "rationale": "Thin dialog wrapper delegating to UseKeyGuide.vue (quickstart SSOT). An upstream merge restoring a monolithic UseKeyModal can retain the shared guide while also restoring the legacy duplicate, so the negative anchors reject the old client-tab and snippet state machine as well as the positive anchors requiring routingMode forwarding."
     },
     {
       "path": "frontend/src/views/user/QuickstartView.vue",
@@ -1869,7 +1874,8 @@
         "export type UseKeyDiscoveryProtocol",
         "const capabilities = await getAPIKeyCapabilities(id)",
         "function modelsForFlavor(",
-        "return model.protocols.includes(protocol)"
+        "return model.protocols.includes(protocol)",
+        "const model = effectiveModel(flavor, options.protocol ?? flavor)"
       ],
       "rationale": "Quickstart automatic-key menus consume the capability SSOT and keep Codex discovery distinct from raw OpenAI protocol discovery. Removing the explicit protocol filter leaks Codex-only models into OpenAI clients and OpenAI-only models into Codex."
     },
@@ -1878,7 +1884,8 @@
       "must_contain": [
         "const activeDiscoveryProtocol = computed<UseKeyDiscoveryProtocol | null>",
         "tk.modelsForFlavor(activeFlavor.value, activeDiscoveryProtocol.value)",
-        "tk.effectiveModel(activeFlavor.value, activeDiscoveryProtocol.value)"
+        "tk.effectiveModel(activeFlavor.value, activeDiscoveryProtocol.value)",
+        "protocol: activeDiscoveryProtocol.value ?? undefined"
       ],
       "rationale": "Client selection must drive the discovery protocol passed to the shared Quickstart owner. The wire flavor remains OpenAI-compatible for snippets, but Codex tabs require the Codex capability subset."
     },
