@@ -117,3 +117,15 @@ func TestRestoreThinkingSignatureInChunk_NoOpForOtherDeltas(t *testing.T) {
 		t.Errorf("non-signature chunk altered:\n got: %s\nwant: %s", out, redacted)
 	}
 }
+
+func TestRestoreInternalThinkingBlockJSON(t *testing.T) {
+	original := `{"type":"thinking","thinking":"qa-only reasoning","signature":"REAL_SIG_123"}`
+	redacted := logredact.RedactText(original)
+	if gjson.Get(redacted, "signature").String() != "***" {
+		t.Fatalf("precondition: signature should be redacted first")
+	}
+	out := restoreInternalThinkingBlockJSON(redacted, []byte(original))
+	if got := gjson.Get(out, "signature").String(); got != "REAL_SIG_123" {
+		t.Fatalf("internal thinking signature not restored: got %q", got)
+	}
+}
