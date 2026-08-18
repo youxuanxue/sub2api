@@ -190,7 +190,7 @@ describe('GroupsView duplicate action', () => {
       status: 'inactive'
     })
     getModelsListCandidates.mockResolvedValue([])
-    getUsageSummary.mockResolvedValue([])
+    getUsageSummary.mockResolvedValue({ retained_days: 90, groups: [] })
     getCapacitySummary.mockResolvedValue([])
     getLiveCapability.mockResolvedValue({ supported: false })
   })

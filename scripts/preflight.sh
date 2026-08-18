@@ -127,8 +127,8 @@ fi
 # the dockerized Caddyfile adapt) are independent of every other section, so
 # they are spawned in the background right after the dev-rules template returns
 # and joined at their original section position. Wall-clock for the expensive
-# block becomes max(job) instead of sum(job) while output/FAIL semantics stay
-# byte-equivalent per section.
+# block becomes max(job) instead of sum(job); successful sections stay quiet,
+# while selected failed sections replay their captured diagnostics in place.
 _bg_spawn() {  # _bg_spawn <key> <cmd...>
     local key="$1"; shift
     (
@@ -139,15 +139,19 @@ _bg_spawn() {  # _bg_spawn <key> <cmd...>
     ) &
     echo "$!" >"$_preflight_bg_dir/$key.pid"
 }
-_bg_join() {  # _bg_join <key> → sets _bg_rc to the captured exit code; output in $_preflight_bg_dir/<key>.out
+_bg_join() {  # _bg_join <key> [replay-on-failure] → sets _bg_rc; output in $_preflight_bg_dir/<key>.out
     # Must run in the MAIN shell (never inside $(...)): `wait` can only reap
     # children of the shell that spawned them.
     local key="$1"
+    local output_mode="${2:-silent}"
     wait "$(cat "$_preflight_bg_dir/$key.pid")" 2>/dev/null || true  # preflight-allow: swallow (use captured <key>.rc)
     if [ -f "$_preflight_bg_dir/$key.rc" ]; then
         _bg_rc="$(cat "$_preflight_bg_dir/$key.rc")"
     else
         _bg_rc=1
+    fi
+    if [ "$_bg_rc" -ne 0 ] && [ "$output_mode" = "replay-on-failure" ] && [ -f "$_preflight_bg_dir/$key.out" ]; then
+        cat "$_preflight_bg_dir/$key.out"
     fi
     return 0
 }
@@ -2406,7 +2410,7 @@ else
         _det_key="det_$(echo "$_det_dir" | tr '/' '_')"
         _bg_rc=1
         if _bg_spawned "$_det_key"; then
-            _bg_join "$_det_key"
+            _bg_join "$_det_key" replay-on-failure
         fi
         if [ "$_bg_rc" -ne 0 ]; then
             echo "  FAIL: $_det_dir unittest failed (re-run: env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE python3 -m unittest discover -s $_det_dir -p 'test_*.py' -t $_det_dir -v)"

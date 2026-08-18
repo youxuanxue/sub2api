@@ -5771,9 +5771,57 @@
         "partitionedIndexExpr: \"host, created_at DESC\"",
         "createPartitionedIndexConcurrently(ctx, db, policy)",
         "applyNonTransactionalMigration(ctx, db, name, content)",
-        "return dropInvalidIndexIfPresent(ctx, db, policy.indexName)"
+        "return dropInvalidIndexIfPresent(ctx, db, policy.indexName)",
+        "return applyMigrationsInUTCSession(ctx, conn, fsys)",
+        "migrationSessionCleanupError{err: err}"
       ],
-      "rationale": "The upstream-shared migration runner owns only the declarative 175a policy and one thin call site. The TokenKey online partition-index implementation stays in a companion file to minimize upstream conflict surface while retaining invalid-index cleanup for non-partitioned deployments."
+      "rationale": "The upstream-shared migration runner owns only declarative policies and thin TokenKey call sites. The online partition-index implementation and UTC migration-session lifecycle stay in companion files to minimize upstream conflict surface. Every caller must execute partition-bound migrations on the pinned connection in UTC, surface advisory-unlock failure, and restore the original application timezone before the connection returns to the pool."
+    },
+    {
+      "path": "backend/internal/repository/migrations_runner_tk_session.go",
+      "must_contain": [
+        "SHOW TIME ZONE",
+        "SELECT set_config('TimeZone', $1, false)",
+        "return applyMigrationsSession(ctx, conn, fsys)",
+        "driver.ErrBadConn"
+      ],
+      "rationale": "Single owner for migration timezone isolation: capture the caller's session timezone, execute the complete advisory-lock/migration lifecycle in UTC, restore the exact original value, and discard sessions whose unlock or restore failed instead of leaking unknown state into business queries."
+    },
+    {
+      "path": "backend/internal/repository/migrations_runner_tk_session_test.go",
+      "must_contain": [
+        "TestApplyMigrationsFS_UTCSessionRestoresOriginalTimezone",
+        "TestApplyMigrationsFS_UTCSessionRestoresAfterMigrationFailure",
+        "TestApplyMigrationsFS_UTCSessionCleanupFailuresAreVisible"
+      ],
+      "rationale": "Ordered sqlmock regressions prove timezone setup precedes advisory locking and exact restoration follows unlock on success, migration failure, lock failure, and cleanup failure paths."
+    },
+    {
+      "path": "backend/migrations/tk_080_ops_partition_utc_boundary_repair.sql",
+      "must_contain": [
+        "SET LOCAL TIME ZONE 'UTC'",
+        "SET LOCAL lock_timeout = '2s'",
+        "state text NOT NULL CHECK (state IN ('shifted', 'canonical'))",
+        "WHERE state = 'shifted'",
+        "VALIDATE CONSTRAINT",
+        "DETACH PARTITION"
+      ],
+      "rationale": "Forward-only repair for nodes where historical tk_035/tk_037 ran in a non-UTC application session before tk_081 completed. It must classify the catalog fail-closed, replace only exact empty shifted future children, preserve canonical UTC children for tk_081, validate the current-writer proof before the short parent lock, and keep the current relation/index OIDs while correcting its UTC upper bound."
+    },
+    {
+      "path": "backend/internal/repository/migrations_runner_tk_session_integration_test.go",
+      "must_contain": [
+        "TestMigrationRunnerUTCSession_AsiaShanghaiFreshOpsChain",
+        "TestMigrationRunnerUTCSession_RepairsAsiaShanghaiUpgradeOpsChain",
+        "TestMigrationRunnerUTCSession_RepairRejectsNonEmptyShiftedFutureAtomically",
+        "TestMigrationRunnerUTCSession_RepairIsStrictNoopAfterDailyCutover",
+        "tk_035_partition_ops_system_logs.sql",
+        "tk_037_partition_ops_error_logs.sql",
+        "tk_080_ops_partition_utc_boundary_repair.sql",
+        "tk_081_ops_daily_partition_cutover.sql",
+        "Asia/Shanghai"
+      ],
+      "rationale": "Real PostgreSQL regressions cover both failure topologies: fresh installs replay historical ops migrations under the UTC session owner, while upgrades repair already-shifted Asia/Shanghai catalog bounds before tk_081. The suite also proves non-empty future children fail atomically, completed daily topologies are strict no-ops, current writer/index OIDs and data survive, and the application session returns to Asia/Shanghai."
     },
     {
       "path": "backend/internal/repository/migrations_runner_notx_test.go",
