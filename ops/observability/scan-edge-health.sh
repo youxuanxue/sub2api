@@ -41,6 +41,7 @@ SINCE="2h"
 WITH_PROD=0
 EDGES_CSV=""
 JSON=0
+ALERT_JSON=0
 PROBE_TIMEOUT=150 # per-edge SSM timeout (s); the watch lowers it to bound total wall-clock
 HTTPS_TIMEOUT=8
 SKIP_HTTPS=0
@@ -50,6 +51,7 @@ while [ $# -gt 0 ]; do
     --with-prod) WITH_PROD=1; shift ;;
     --edges) EDGES_CSV="$2"; shift 2 ;;
     --json) JSON=1; shift ;;
+    --alert-json) ALERT_JSON=1; shift ;;
     --timeout-seconds) PROBE_TIMEOUT="$2"; shift 2 ;;
     --https-timeout-seconds) HTTPS_TIMEOUT="$2"; shift 2 ;;
     --skip-https) SKIP_HTTPS=1; shift ;;
@@ -111,13 +113,28 @@ for tgt in "${TARGETS[@]}"; do
       ORCHESTRATION_ERRORS=$((ORCHESTRATION_ERRORS + 1))
     elif [ "$https_transport_ok" != "1" ]; then
       echo "    https transport failure — marking unreachable (skip SSM)" >&2
-      printf '{"edge":"%s","verdict":"unreachable","reason":"https_unreachable"}\n' "$label" >> "$RESULTS"
+      if [ "$ALERT_JSON" = "1" ]; then
+        printf '{"edge":"%s","reachable":false,"reason":"https_unreachable","schema_version":1}\n' "$label" >> "$RESULTS"
+      else
+        printf '{"edge":"%s","verdict":"unreachable","reason":"https_unreachable"}\n' "$label" >> "$RESULTS"
+      fi
       continue
     fi
   fi
   if out="$(bash "$RUN_PROBE" --target "$tgt" --script "$PROBE" \
               --env "PLATFORM=anthropic" --env "SINCE=$SINCE" \
               --timeout-seconds "$PROBE_TIMEOUT" 2>/dev/null)"; then
+    if [ "$ALERT_JSON" = "1" ]; then
+      terminal_json=""
+      if ! terminal_json="$(printf '%s\n' "$out" | python3 "$HERE/edge_terminal_probe.py" --label "$label" 2>/dev/null)"; then
+        echo "    terminal parser failed — scan will fail" >&2
+        ORCHESTRATION_ERRORS=$((ORCHESTRATION_ERRORS + 1))
+        printf '{"edge":"%s","reachable":false,"reason":"parse_error","schema_version":1}\n' "$label" >> "$RESULTS"
+      else
+        printf '%s\n' "$terminal_json" >> "$RESULTS"
+      fi
+      continue
+    fi
     verdict_json=""
     if ! verdict_json="$(printf '%s\n' "$out" | python3 "$VERDICT" --label "$label" 2>/dev/null)"; then
       echo "    verdict helper failed — scan will fail" >&2
@@ -129,18 +146,22 @@ for tgt in "${TARGETS[@]}"; do
       printf '{"edge":"%s","verdict":"parse-error"}\n' "$label" >> "$RESULTS"
     fi
   else
-    printf '{"edge":"%s","verdict":"unreachable","reason":"ssm_unreachable"}\n' "$label" >> "$RESULTS"
+    if [ "$ALERT_JSON" = "1" ]; then
+      printf '{"edge":"%s","reachable":false,"reason":"ssm_unreachable","schema_version":1}\n' "$label" >> "$RESULTS"
+    else
+      printf '{"edge":"%s","verdict":"unreachable","reason":"ssm_unreachable"}\n' "$label" >> "$RESULTS"
+    fi
   fi
 done
 
 # One valid, unique verdict per intended target is required before a caller may
 # compare the actionable set with prior state. Partial scans can otherwise look
 # like recoveries and incorrectly advance the dedup key.
-if ! python3 - "$RESULTS" "${TARGETS[@]}" <<'PY'
+if ! python3 - "$RESULTS" "$ALERT_JSON" "${TARGETS[@]}" <<'PY'
 import json
 import sys
 
-result_path, *targets = sys.argv[1:]
+result_path, alert_json, *targets = sys.argv[1:]
 expected = [target[5:] if target.startswith("edge:") else target for target in targets]
 valid_verdicts = {
     "down", "unreachable", "parse-error", "degraded", "thin", "no-accounts",
@@ -150,8 +171,15 @@ rows = []
 with open(result_path, encoding="utf-8") as fh:
     for line in fh:
         rows.append(json.loads(line))
-if any(not isinstance(row, dict) or row.get("verdict") not in valid_verdicts for row in rows):
-    raise SystemExit(f"invalid verdict row: {rows!r}")
+if alert_json == "1":
+    for row in rows:
+        if not isinstance(row, dict) or row.get("schema_version") != 1 or not isinstance(row.get("reachable"), bool):
+            raise SystemExit(f"invalid terminal row: {row!r}")
+        if row["reachable"] and (not isinstance(row.get("buckets"), list) or row.get("telemetry_status") not in {"fresh", "stale"}):
+            raise SystemExit(f"invalid reachable terminal row: {row!r}")
+else:
+    if any(not isinstance(row, dict) or row.get("verdict") not in valid_verdicts for row in rows):
+        raise SystemExit(f"invalid verdict row: {rows!r}")
 actual = [row.get("edge") for row in rows]
 if len(actual) != len(expected) or len(set(actual)) != len(actual) or set(actual) != set(expected):
     raise SystemExit(f"incomplete verdict set: expected={expected!r} actual={actual!r}")
@@ -163,7 +191,7 @@ fi
 
 # --json: emit the per-edge verdict JSON lines verbatim (machine-readable, for
 # edge-health-alert.py manual triage) and skip the human table.
-if [ "$JSON" = "1" ]; then
+if [ "$JSON" = "1" ] || [ "$ALERT_JSON" = "1" ]; then
   cat "$RESULTS"
   [ "$ORCHESTRATION_ERRORS" -eq 0 ] && exit 0
   exit 1

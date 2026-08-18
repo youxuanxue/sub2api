@@ -105,3 +105,51 @@ rm -f "$LOGF"
 
 printf 'TRAFFIC {"since":"%s","served_200":%s,"all_429":%s,"no_available_429":%s,"wait_timeout":%s,"client_cancel":%s,"total_completed":%s}\n' \
   "$SINCE" "${SERVED_200:-0}" "${ALL_429:-0}" "${NO_AVAIL:-0}" "${WAIT_TIMEOUT:-0}" "${CLIENT_CANCEL:-0}" "${TOTAL_COMPLETED:-0}"
+
+echo "=== TERMINAL outcomes (closed 5m buckets; field names embedded) ==="
+$PSQL -tAc "
+SELECT 'TERMINAL_META '||row_to_json(t)::text FROM (
+  SELECT 1 AS schema_version, MAX(heartbeat_at) AS watermark
+  FROM channel_monitor_v2_terminal_ingestion_health_1m
+) t;
+
+WITH bounds AS (
+  SELECT date_bin(INTERVAL '5 minutes', NOW(), TIMESTAMPTZ '2000-01-01 00:00:00+00') - INTERVAL '5 minutes' AS closed_through
+), expected AS (
+  SELECT generate_series(closed_through - INTERVAL '55 minutes', closed_through, INTERVAL '5 minutes') AS bucket_start
+  FROM bounds
+), health AS (
+  SELECT date_bin(INTERVAL '5 minutes', bucket_start, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS bucket_start,
+         COUNT(DISTINCT bucket_start)::int AS heartbeat_minutes,
+         COUNT(DISTINCT producer_epoch)::int AS producer_epochs,
+         BOOL_AND(complete AND seen_count = persisted_count AND drop_count = 0)::boolean AS all_complete
+  FROM channel_monitor_v2_terminal_ingestion_health_1m, bounds
+  WHERE bucket_start >= closed_through - INTERVAL '55 minutes'
+    AND bucket_start < closed_through + INTERVAL '5 minutes'
+  GROUP BY 1
+)
+SELECT 'TERMINAL_WINDOW '||row_to_json(t)::text FROM (
+  SELECT e.bucket_start,
+         COALESCE(h.heartbeat_minutes, 0) AS heartbeat_minutes,
+         COALESCE(h.producer_epochs, 0) AS producer_epochs,
+         COALESCE(h.all_complete, FALSE) AS all_complete
+  FROM expected e LEFT JOIN health h USING (bucket_start)
+  ORDER BY e.bucket_start
+) t;
+
+WITH bounds AS (
+  SELECT date_bin(INTERVAL '5 minutes', NOW(), TIMESTAMPTZ '2000-01-01 00:00:00+00') - INTERVAL '5 minutes' AS closed_through
+)
+SELECT 'TERMINAL_FACT '||row_to_json(t)::text FROM (
+  SELECT date_bin(INTERVAL '5 minutes', bucket_start, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS bucket_start,
+         group_id, requested_model,
+         SUM(success_count)::bigint AS success,
+         SUM(final_empty_pool_429_count)::bigint AS final_empty_pool_429,
+         SUM(other_error_count)::bigint AS other_error
+  FROM channel_monitor_v2_terminal_outcomes_1m, bounds
+  WHERE bucket_start >= closed_through - INTERVAL '55 minutes'
+    AND bucket_start < closed_through + INTERVAL '5 minutes'
+  GROUP BY 1, 2, 3
+  ORDER BY 1, 2, 3
+) t;
+" 2>&1
