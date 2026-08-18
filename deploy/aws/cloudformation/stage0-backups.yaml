@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  tokenkey (sub2api fork) Stage 0 standalone S3 stack — does NOT modify the live
+  tokenkey (sub2api fork) Stage 0 standalone S3 stack - does NOT modify the live
   prod instance stack: each bucket policy grants the existing app InstanceRole
   directly (same-account resource-based grant), so no update-stack on
   tokenkey-prod-stage0. Holds two buckets, both using the direct-role-ARN pattern:
@@ -8,7 +8,7 @@ Description: >
   (2) generated-media offload (media_storage): OPT-IN image offload only (set
   MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED=true), plus re-presign of legacy
   already-offloaded video records. By default NEITHER image nor video rehosts
-  fresh results — they pass through inline (the gateway is not a media CDN).
+  fresh results - they pass through inline (the gateway is not a media CDN).
   media/ prefix, MediaRetentionDays (default 1). No versioning (keys are unique).
 
 Parameters:
@@ -92,10 +92,10 @@ Resources:
               Bool:
                 'aws:SecureTransport': 'false'
           # Grant the app instance role write (and read-for-restore) on the
-          # prod/pgdump/* prefix. The role ARN is named DIRECTLY as Principal —
+          # prod/pgdump/* prefix. The role ARN is named DIRECTLY as Principal -
           # same-account resource-based grant is then sufficient on its own, so we
           # never touch the prod instance stack. (An account-root principal is only
-          # a delegation and would ALSO require an identity policy — verified the
+          # a delegation and would ALSO require an identity policy - verified the
           # hard way: it AccessDenied'd s3:PutObject on first activation.)
           - Sid: AllowAppInstanceRolePutGet
             Effect: Allow
@@ -158,7 +158,7 @@ Resources:
             Condition:
               Bool:
                 'aws:SecureTransport': 'false'
-          # Same direct-role-ARN principal pattern as above — same-account
+          # Same direct-role-ARN principal pattern as above - same-account
           # resource-based grant, so the prod instance stack is never touched. The
           # app writes generated image media (PutObject) and signs/serves
           # presigned GET URLs (GetObject). Legacy video objects may still be
@@ -173,16 +173,16 @@ Resources:
               - 's3:GetObject'
             Resource: !Sub '${MediaBucket.Arn}/media/*'
 
-  # NOTE — the .env SECRETS off-box (SSM SecureString, a DIFFERENT blast radius than this
+  # NOTE - the .env SECRETS off-box (SSM SecureString, a DIFFERENT blast radius than this
   # dump bucket so the decryption keys are not co-located with the ciphertext) needs an
-  # IDENTITY grant (ssm:PutParameter), because SSM Parameters have no resource policy — a
+  # IDENTITY grant (ssm:PutParameter), because SSM Parameters have no resource policy - a
   # bucket-style same-account either/or grant is impossible. That grant therefore canNOT
   # live in this standalone stack without an iam:CreatePolicy capability no available
   # principal has. Its DURABLE home is the prod InstanceRole in stage0-single-ec2.yaml
   # (ssm:PutParameter on .../stage0/env-secrets-backup), applied on the next prod CFN
   # update; until then it is mirrored as a manual inline policy (EnvSecretsBackup) added
   # on the role via the IAM console. See ops/stage0/backup-env-secrets-via-ssm.sh +
-  # RUNBOOK §4.4. The EnvSecretsSsmParam output below documents the param name to wire.
+  # RUNBOOK section 4.4. The EnvSecretsSsmParam output below documents the param name to wire.
 
 Outputs:
   BucketName:
@@ -200,7 +200,7 @@ Outputs:
       + MEDIA_STORAGE_REGION=<region> in the app env to enable legacy video re-presign;
       add MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED=true to additionally opt back into image
       S3 offload (off by default = images pass through inline). Credentials come from the
-      instance role — leave MEDIA_STORAGE_ACCESS_KEY_ID unset.
+      instance role - leave MEDIA_STORAGE_ACCESS_KEY_ID unset.
     Value: !Ref MediaBucket
   MediaS3Uri:
     Description: s3:// base for generated media; objects land under media/ (reaped by expire-generated-media).
