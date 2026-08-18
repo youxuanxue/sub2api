@@ -1130,6 +1130,7 @@ const {
     status: '',
     privacy_mode: '',
     group: '',
+    channel_type: '',
     search: '',
     include_scheduler_score: shouldIncludeSchedulerScore() ? '1' : '0',
     sort_by: sortState.sort_by,
@@ -2124,7 +2125,7 @@ const handleBulkToggleSchedulable = async (schedulable: boolean) => {
 const buildBulkEditFilterSnapshot = () => {
   const rawParams = toRaw(params) as Record<string, unknown>
   const sortOrder: AccountSortOrder = rawParams.sort_order === 'desc' ? 'desc' : 'asc'
-  return {
+  const snapshot: Record<string, string> = {
     platform: typeof rawParams.platform === 'string' ? rawParams.platform : '',
     type: typeof rawParams.type === 'string' ? rawParams.type : '',
     status: typeof rawParams.status === 'string' ? rawParams.status : '',
@@ -2134,6 +2135,10 @@ const buildBulkEditFilterSnapshot = () => {
     sort_by: typeof rawParams.sort_by === 'string' ? rawParams.sort_by : '',
     sort_order: sortOrder
   }
+  if (rawParams.channel_type != null && rawParams.channel_type !== '') {
+    snapshot.channel_type = String(rawParams.channel_type)
+  }
+  return snapshot
 }
 
 const handleSelectAllResults = async () => {
@@ -2207,6 +2212,7 @@ const buildAccountQueryFilters = () => ({
   status: params.status || '',
   group: params.group || '',
   privacy_mode: params.privacy_mode || '',
+  channel_type: params.channel_type == null || params.channel_type === '' ? '' : String(params.channel_type),
   search: params.search || '',
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order
@@ -2214,6 +2220,10 @@ const buildAccountQueryFilters = () => ({
 const accountMatchesCurrentFilters = (account: Account) => {
   const filters = buildAccountQueryFilters()
   if (!accountMatchesPlatformFilter(account, filters.platform)) return false
+  if (filters.channel_type) {
+    const wanted = Number(filters.channel_type)
+    if (!Number.isFinite(wanted) || wanted <= 0 || account.channel_type !== wanted) return false
+  }
   if (filters.type && account.type !== filters.type) return false
   if (filters.status) {
     const now = Date.now()
