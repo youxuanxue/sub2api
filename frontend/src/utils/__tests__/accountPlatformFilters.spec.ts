@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  ACCOUNT_KIRO_STUB_PLATFORM_FILTER,
-  accountMatchesPlatformFilter,
-  isKiroRelayStubAccount
-} from '../accountPlatformFilters'
+import { accountMatchesPlatformFilter, isKiroRelayStubAccount } from '../accountPlatformFilters'
 import type { Account } from '@/types'
 
 const account = (overrides: Partial<Account>): Account => ({
@@ -54,7 +50,7 @@ describe('account platform filters', () => {
     expect(accountMatchesPlatformFilter(kiroNonEdgeMirror, 'kiro')).toBe(false)
   })
 
-  it('keeps the virtual Kiro stub filter narrowed to relay stubs only', () => {
+  it('excludes Kiro relay stubs from the Anthropic platform filter', () => {
     const nativeKiro = account({ platform: 'kiro', type: 'oauth' })
     const kiroStub = account({
       platform: 'anthropic',
@@ -64,9 +60,14 @@ describe('account platform filters', () => {
         mirror_platform: 'kiro'
       }
     })
+    const plainAnthropic = account({
+      platform: 'anthropic',
+      type: 'oauth'
+    })
 
     expect(isKiroRelayStubAccount(kiroStub)).toBe(true)
-    expect(accountMatchesPlatformFilter(kiroStub, ACCOUNT_KIRO_STUB_PLATFORM_FILTER)).toBe(true)
-    expect(accountMatchesPlatformFilter(nativeKiro, ACCOUNT_KIRO_STUB_PLATFORM_FILTER)).toBe(false)
+    expect(accountMatchesPlatformFilter(kiroStub, 'anthropic')).toBe(false)
+    expect(accountMatchesPlatformFilter(plainAnthropic, 'anthropic')).toBe(true)
+    expect(accountMatchesPlatformFilter(nativeKiro, 'anthropic')).toBe(false)
   })
 })
