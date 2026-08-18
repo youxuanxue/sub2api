@@ -157,6 +157,36 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
                 "${QaRawArchiveBucket.Arn}/*",
             )
 
+    def test_edge_role_and_deploy_workflow_own_off_box_env_secrets(self) -> None:
+        role = self.addon["Resources"]["LightsailSsmHybridRole"]["Properties"]
+        policies = role.get("Policies", [])
+        backup = [
+            item for item in policies if item.get("PolicyName") == "EdgeEnvSecretsBackup"
+        ]
+        self.assertEqual(len(backup), 1)
+        statements = backup[0]["PolicyDocument"]["Statement"]
+        self.assertEqual(
+            statements,
+            [
+                {
+                    "Sid": "ReadWriteOwnFleetEnvSecrets",
+                    "Effect": "Allow",
+                    "Action": ["ssm:GetParameter", "ssm:PutParameter"],
+                    "Resource": "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/stage0/env-secrets-backup",
+                }
+            ],
+        )
+
+        workflow = yaml.safe_load(EDGE_WORKFLOW.read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["edge"]["steps"]
+        step = next(item for item in steps if item.get("name") == "Backup Edge env secrets off-box")
+        self.assertEqual(step["env"]["TK_ENV_SECRETS_SOURCE"], "/var/lib/tokenkey/.env.secret")
+        self.assertEqual(
+            step["env"]["TK_ENV_SECRETS_PARAM"],
+            "/tokenkey/edge/${{ steps.edge.outputs.edge_id }}/stage0/env-secrets-backup",
+        )
+        self.assertIn("backup-env-secrets-via-ssm.sh", step["run"])
+
 
 if __name__ == "__main__":
     unittest.main()

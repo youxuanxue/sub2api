@@ -1716,12 +1716,22 @@ else
 fi
 
 echo "=== sub2api: env secret backup fail-closed contract ==="
-if ! bash ./ops/stage0/test_backup_env_secrets_via_ssm.sh >/dev/null 2>&1; then
+if ! bash ./ops/stage0/test_backup_env_secrets_via_ssm.sh >/dev/null 2>&1 || \
+   ! bash ./deploy/aws/lightsail/test_restore_edge_env_secrets.sh >/dev/null 2>&1; then
     echo "  FAIL: env secret backup fail-closed contract test"
-    echo "        — run: bash ops/stage0/test_backup_env_secrets_via_ssm.sh"
+    echo "        — run: bash ops/stage0/test_backup_env_secrets_via_ssm.sh && bash deploy/aws/lightsail/test_restore_edge_env_secrets.sh"
     errors=$((errors + 1))
 else
-    echo "  ok: rejected writes fail and verified backups succeed"
+    echo "  ok: rejected writes fail and verified backup/restore succeeds"
+fi
+
+echo "=== sub2api: QA single-owner SSM operator contract ==="
+if ! bash ./ops/stage0/test_activate_qa_single_owner_via_ssm.sh >/dev/null 2>&1; then
+    echo "  FAIL: QA single-owner SSM operator contract test"
+    echo "        — run: bash ops/stage0/test_activate_qa_single_owner_via_ssm.sh"
+    errors=$((errors + 1))
+else
+    echo "  ok: QA activation confirmation is fail-closed"
 fi
 
 echo "=== sub2api: ghcr-prune-daily timer contract ==="

@@ -40,6 +40,12 @@ aws cloudformation deploy \
 # (us-east-1 + eu-west-2); override only when adding new region-scoped roles.
 ```
 
+The addon also grants the shared Hybrid role access only to
+`/tokenkey/edge/*/stage0/env-secrets-backup`. Every Edge workflow run writes the
+three `.env.secret` values to its own SecureString and verifies the readback. On a
+replacement instance, bootstrap restores that value before PostgreSQL starts. Only
+`ParameterNotFound` permits first-provision generation; IAM/network errors fail closed.
+
 ### 2) 各 Edge region 写入 GHCR PAT
 
 路径默认：`/tokenkey/lightsail/<edge_id>/ghcr/pat`（与 EC2 Edge 的 `/tokenkey/edge/<id>/ghcr/pat` 分开）。
