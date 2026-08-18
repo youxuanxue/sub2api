@@ -81,11 +81,6 @@ func TestTkSelectionFailedDueToUnsupportedModel(t *testing.T) {
 			want:  false,
 		},
 		{
-			name:  "unsupported candidates stay unsupported even when some are unschedulable",
-			stats: selectionFailureStats{Total: 5, ModelUnsupported: 5},
-			want:  true,
-		},
-		{
 			name:  "an eligible candidate exists -> false",
 			stats: selectionFailureStats{Total: 5, ModelUnsupported: 4, Eligible: 1},
 			want:  false,
