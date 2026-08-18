@@ -155,8 +155,9 @@ type KiroPayload struct {
 		} `json:"currentMessage"`
 		History []KiroHistoryMessage `json:"history,omitempty"`
 	} `json:"conversationState"`
-	ProfileArn      string           `json:"profileArn,omitempty"`
-	InferenceConfig *InferenceConfig `json:"inferenceConfig,omitempty"`
+	ProfileArn                   string                        `json:"profileArn,omitempty"`
+	InferenceConfig              *InferenceConfig              `json:"inferenceConfig,omitempty"`
+	AdditionalModelRequestFields *AdditionalModelRequestFields `json:"additionalModelRequestFields,omitempty"`
 
 	// ToolNameMap maps sanitized tool names (sent to Kiro) back to the
 	// original names supplied by the client. Used to restore original names
@@ -168,6 +169,24 @@ type KiroPayload struct {
 	// positively identified as Claude Code and whose tool list contains the
 	// transport-private completion signal. It is service-side state only.
 	ClaudeCodeCompletionProtocol bool `json:"-"`
+}
+
+// AdditionalModelRequestFields carries Kiro adaptive-thinking controls that
+// must be sent on the wire (ThinkingModePrompt alone does not yield
+// reasoningContentEvent.signature on live upstream).
+type AdditionalModelRequestFields struct {
+	OutputConfig *KiroOutputConfig    `json:"output_config,omitempty"`
+	Thinking     *KiroThinkingRequest `json:"thinking,omitempty"`
+	MaxTokens    int                  `json:"max_tokens,omitempty"`
+}
+
+type KiroOutputConfig struct {
+	Effort string `json:"effort,omitempty"`
+}
+
+type KiroThinkingRequest struct {
+	Type    string `json:"type,omitempty"`
+	Display string `json:"display,omitempty"`
 }
 
 type KiroUserInputMessage struct {

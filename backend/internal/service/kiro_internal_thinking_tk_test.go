@@ -55,7 +55,20 @@ func TestStashKiroInternalThinkingBlocks_GinContext(t *testing.T) {
 	require.True(t, ok)
 	blocks, ok := raw.([]string)
 	require.True(t, ok)
-	require.Len(t, blocks, 2)
+	require.Len(t, blocks, 1)
+	require.Contains(t, blocks[0], "first")
+	require.Contains(t, blocks[0], "second")
+	require.Contains(t, blocks[0], "SIG1")
+}
+
+func TestConsolidateKiroInternalThinkingBlocks_MergesSplitFrames(t *testing.T) {
+	blocks := consolidateKiroInternalThinkingBlocks([]string{
+		`{"type":"thinking","thinking":"long chain"}`,
+		`{"type":"thinking","signature":"UPSTREAM_SIG"}`,
+	})
+	require.Len(t, blocks, 1)
+	require.Contains(t, blocks[0], "long chain")
+	require.Contains(t, blocks[0], "UPSTREAM_SIG")
 }
 
 func TestWriteKiroInternalThinkingResponseHeader(t *testing.T) {
