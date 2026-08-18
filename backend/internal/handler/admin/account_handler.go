@@ -178,14 +178,41 @@ type BulkUpdateAccountsRequest struct {
 	ConfirmMixedChannelRisk *bool                     `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 }
 
+// accountListChannelTypeFilter accepts JSON number, string, empty, or null so
+// the account page can reuse the same filter snapshot for list query params
+// and bulk-update bodies.
+type accountListChannelTypeFilter int
+
+func (v *accountListChannelTypeFilter) UnmarshalJSON(data []byte) error {
+	raw := strings.TrimSpace(string(data))
+	switch raw {
+	case "", "null", `""`:
+		*v = 0
+		return nil
+	}
+	if len(raw) >= 2 && raw[0] == '"' {
+		unquoted, err := strconv.Unquote(raw)
+		if err != nil {
+			return infraerrors.BadRequest("INVALID_CHANNEL_TYPE_FILTER", "invalid channel_type filter")
+		}
+		raw = unquoted
+	}
+	parsed, err := parseAccountListChannelTypeQuery(raw)
+	if err != nil {
+		return err
+	}
+	*v = accountListChannelTypeFilter(parsed)
+	return nil
+}
+
 type BulkUpdateAccountFilters struct {
-	Platform    string `json:"platform"`
-	Type        string `json:"type"`
-	Status      string `json:"status"`
-	Group       string `json:"group"`
-	Search      string `json:"search"`
-	PrivacyMode string `json:"privacy_mode"`
-	ChannelType int    `json:"channel_type"`
+	Platform    string                       `json:"platform"`
+	Type        string                       `json:"type"`
+	Status      string                       `json:"status"`
+	Group       string                       `json:"group"`
+	Search      string                       `json:"search"`
+	PrivacyMode string                       `json:"privacy_mode"`
+	ChannelType accountListChannelTypeFilter `json:"channel_type"`
 }
 
 // CheckMixedChannelRequest represents check mixed channel risk request
@@ -2222,7 +2249,7 @@ func toServiceBulkUpdateAccountFilters(filters *BulkUpdateAccountFilters) *servi
 		Group:       filters.Group,
 		Search:      filters.Search,
 		PrivacyMode: filters.PrivacyMode,
-		ChannelType: filters.ChannelType,
+		ChannelType: int(filters.ChannelType),
 	}
 }
 

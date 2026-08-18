@@ -838,6 +838,25 @@
       "rationale": "Admin account platform filtering keeps native Kiro and Anthropic Kiro-mirror stubs under the Kiro option, and excludes those stubs from Anthropic. Losing this helper either hides live Kiro relay stubs from the Kiro filter or mixes them back into Anthropic after upstream-shaped account-filter UI rewrites."
     },
     {
+      "path": "frontend/src/components/admin/account/AccountTableFilters.vue",
+      "must_contain": [
+        "useNewApiChannelTypes",
+        "isNewApiPlatform",
+        "channel_type",
+        "PLATFORM_NEWAPI"
+      ],
+      "rationale": "Admin account list keeps the Extension Engine channel_type dropdown on the upstream-shaped filter bar. Losing this Select mixes Qwen/DeepSeek/Vertex into one newapi list after an upstream filter rewrite."
+    },
+    {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": [
+        "accountKiroRelayStubPredicate",
+        "PlatformAnthropic",
+        "ChannelTypeEQ"
+      ],
+      "rationale": "Account list filtering must keep native Kiro plus Anthropic Kiro-mirror stubs under Kiro, exclude those stubs from Anthropic, and apply channel_type for Extension Engine. An upstream rewrite of accountListFilteredQuery can drop either predicate while compile and unrelated sentinels still pass."
+    },
+    {
       "path": "frontend/src/constants/mirrorPlatformOptions.tk.ts",
       "must_contain": [
         "MIRROR_PLATFORM_OPTIONS",

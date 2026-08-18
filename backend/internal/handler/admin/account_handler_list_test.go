@@ -60,6 +60,35 @@ func TestParseAccountListChannelTypeQuery(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestAccountListChannelTypeFilterUnmarshalJSON(t *testing.T) {
+	cases := []struct {
+		name    string
+		raw     string
+		want    accountListChannelTypeFilter
+		wantErr bool
+	}{
+		{name: "empty_string", raw: `""`, want: 0},
+		{name: "null", raw: `null`, want: 0},
+		{name: "number", raw: `17`, want: 17},
+		{name: "quoted_number", raw: `"14"`, want: 14},
+		{name: "invalid", raw: `"abc"`, wantErr: true},
+		{name: "negative", raw: `-1`, wantErr: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got accountListChannelTypeFilter
+			err := json.Unmarshal([]byte(tc.raw), &got)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestAccountHandlerListIncludesCreatedAt(t *testing.T) {
 	router, adminSvc := setupAccountListRouter()
 

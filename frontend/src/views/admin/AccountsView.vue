@@ -2125,17 +2125,20 @@ const handleBulkToggleSchedulable = async (schedulable: boolean) => {
 const buildBulkEditFilterSnapshot = () => {
   const rawParams = toRaw(params) as Record<string, unknown>
   const sortOrder: AccountSortOrder = rawParams.sort_order === 'desc' ? 'desc' : 'asc'
-  return {
+  const snapshot: Record<string, string> = {
     platform: typeof rawParams.platform === 'string' ? rawParams.platform : '',
     type: typeof rawParams.type === 'string' ? rawParams.type : '',
     status: typeof rawParams.status === 'string' ? rawParams.status : '',
     group: typeof rawParams.group === 'string' ? rawParams.group : '',
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
-    channel_type: rawParams.channel_type == null || rawParams.channel_type === '' ? '' : String(rawParams.channel_type),
     sort_by: typeof rawParams.sort_by === 'string' ? rawParams.sort_by : '',
     sort_order: sortOrder
   }
+  if (rawParams.channel_type != null && rawParams.channel_type !== '') {
+    snapshot.channel_type = String(rawParams.channel_type)
+  }
+  return snapshot
 }
 
 const handleSelectAllResults = async () => {

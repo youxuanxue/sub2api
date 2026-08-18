@@ -39,9 +39,11 @@ const channelTypeFilterValue = computed(() => {
   return String(raw)
 })
 const updatePlatform = (value: string | number | boolean | null) => {
-  const next = { ...props.filters, platform: value }
-  if (value !== PLATFORM_NEWAPI) next.channel_type = ''
-  emit('update:filters', next)
+  emit('update:filters', {
+    ...props.filters,
+    platform: value,
+    ...(value === PLATFORM_NEWAPI ? {} : { channel_type: '' })
+  })
 }
 const updateChannelType = (value: string | number | boolean | null) => {
   emit('update:filters', { ...props.filters, channel_type: value == null ? '' : String(value) })

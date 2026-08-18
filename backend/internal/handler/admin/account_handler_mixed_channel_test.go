@@ -245,6 +245,44 @@ func TestBulkUpdateAcceptsFilterTargetRequest(t *testing.T) {
 	require.Equal(t, float64(0), resp["code"])
 }
 
+func TestBulkUpdateAcceptsStringChannelTypeFilter(t *testing.T) {
+	adminSvc := newStubAdminService()
+	router := setupAccountMixedChannelRouter(adminSvc)
+
+	body, _ := json.Marshal(map[string]any{
+		"filters": map[string]any{
+			"platform":     "newapi",
+			"channel_type": "",
+		},
+		"schedulable": true,
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/bulk-update", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, adminSvc.lastBulkUpdateAccountInput)
+	require.NotNil(t, adminSvc.lastBulkUpdateAccountInput.Filters)
+	require.Equal(t, 0, adminSvc.lastBulkUpdateAccountInput.Filters.ChannelType)
+
+	body, _ = json.Marshal(map[string]any{
+		"filters": map[string]any{
+			"platform":     "newapi",
+			"channel_type": "17",
+		},
+		"schedulable": true,
+	})
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/bulk-update", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, adminSvc.lastBulkUpdateAccountInput.Filters)
+	require.Equal(t, 17, adminSvc.lastBulkUpdateAccountInput.Filters.ChannelType)
+}
+
 func TestBulkUpdateAcceptsDedicatedUpstreamBillingProbeSetting(t *testing.T) {
 	adminSvc := newStubAdminService()
 	router := setupAccountMixedChannelRouter(adminSvc)
