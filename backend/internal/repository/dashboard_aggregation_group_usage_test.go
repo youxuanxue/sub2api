@@ -199,11 +199,9 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsNonPartitionedInvalidates
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT id FROM usage_group_rollup_state.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	mock.ExpectQuery(`(?s)DELETE FROM usage_logs.*RETURNING created_at`).
+	mock.ExpectQuery(`(?s)DELETE FROM usage_logs.*RETURNING created_at.*SELECT COUNT\(\*\) AS affected, MIN\(created_at\) AS earliest_deleted_at`).
 		WithArgs(cutoff, usageLogsCleanupBatchSize).
-		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).
-			AddRow(earliestDeletedAt.Add(time.Hour)).
-			AddRow(earliestDeletedAt))
+		WillReturnRows(sqlmock.NewRows([]string{"affected", "earliest_deleted_at"}).AddRow(2, earliestDeletedAt))
 	mock.ExpectExec(`UPDATE usage_group_rollup_state`).
 		WithArgs(earliestDeletedAt, "Asia/Shanghai").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -281,9 +279,9 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsNonPartitionedFailureRoll
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT id FROM usage_group_rollup_state.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	mock.ExpectQuery(`(?s)SELECT ctid.*ORDER BY created_at ASC, id ASC.*DELETE FROM usage_logs.*RETURNING created_at`).
+	mock.ExpectQuery(`(?s)SELECT ctid.*ORDER BY created_at ASC, id ASC.*DELETE FROM usage_logs.*RETURNING created_at.*SELECT COUNT\(\*\) AS affected, MIN\(created_at\) AS earliest_deleted_at`).
 		WithArgs(cutoff, usageLogsCleanupBatchSize).
-		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(deletedAt))
+		WillReturnRows(sqlmock.NewRows([]string{"affected", "earliest_deleted_at"}).AddRow(1, deletedAt))
 	mock.ExpectExec(`UPDATE usage_group_rollup_state`).
 		WithArgs(deletedAt, "Asia/Shanghai").
 		WillReturnError(sql.ErrConnDone)

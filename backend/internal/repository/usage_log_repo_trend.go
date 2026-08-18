@@ -674,14 +674,8 @@ func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTim
 }
 
 // GetAllGroupUsageSummary 返回所有分组在服务端配置时区内的今日、昨日与当前保留记录累计金额。
-// Prefer the TK usage_dashboard_group_daily helper when that rollup is
-// backfilled; otherwise use the upstream usage_group_daily_rollups path.
+// usage_group_daily_rollups owns this user-visible summary and its retention lifecycle.
 func (r *usageLogRepository) GetAllGroupUsageSummary(ctx context.Context, todayStart time.Time) ([]usagestats.GroupUsageSummary, error) {
-	if rollupResults, ok, err := r.groupUsageSummaryFromRollup(ctx, todayStart); err != nil {
-		return nil, err
-	} else if ok {
-		return rollupResults, nil
-	}
 	return r.getAllGroupUsageSummaryFromRollups(ctx, todayStart)
 }
 
