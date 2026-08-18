@@ -656,10 +656,6 @@ func isBlankChatContent(raw json.RawMessage) bool {
 	return chatMessageContentText(raw) == ""
 }
 
-// extractResponsesReasoningText pulls the reasoning text out of a Responses
-// reasoning item. The Chat→Responses bridge writes the upstream reasoning_content
-// verbatim into the summary_text parts (see closeChatReasoningItem), so codex
-// round-trips it there; prefer summary[].text and fall back to content.
 // extractResponsesOutputReasoningText pulls visible reasoning from a typed
 // Responses output item. Prefer summary (short plaintext) then content[].reasoning_text
 // (full text when upstream only ships it on output_item.done).
@@ -684,6 +680,10 @@ func extractResponsesOutputReasoningText(item *ResponsesOutput) string {
 	return strings.Join(parts, "")
 }
 
+// extractResponsesReasoningText pulls the reasoning text out of a Responses
+// reasoning item. The Chat→Responses bridge writes the upstream reasoning_content
+// verbatim into the summary_text parts (see closeChatReasoningItem), so codex
+// round-trips it there; prefer summary[].text and fall back to content.
 func extractResponsesReasoningText(item map[string]json.RawMessage) string {
 	var parts []string
 	collect := func(raw json.RawMessage) {

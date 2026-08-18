@@ -23,6 +23,7 @@ func TestBuildOpenAIWSCreatePayload_OAuthSetsReasoningSummaryAuto(t *testing.T) 
 	reasoning, ok := payload["reasoning"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "auto", reasoning["summary"])
+	require.Equal(t, []any{"reasoning.encrypted_content"}, payload["include"])
 }
 
 func TestIsOpenAIWSTokenEvent_TerminalEventsExcluded(t *testing.T) {

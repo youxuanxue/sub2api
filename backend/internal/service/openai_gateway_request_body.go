@@ -845,9 +845,42 @@ func normalizeOpenAIPassthroughOAuthBody(body []byte, compact bool) ([]byte, boo
 			normalized = next
 			changed = true
 		}
+		next, includeChanged, err := ensureOpenAIPassthroughReasoningInclude(normalized)
+		if err != nil {
+			return body, false, err
+		}
+		if includeChanged {
+			normalized = next
+			changed = true
+		}
 	}
 
 	return normalized, changed, nil
+}
+
+func ensureOpenAIPassthroughReasoningInclude(body []byte) ([]byte, bool, error) {
+	const encrypted = "reasoning.encrypted_content"
+	include := gjson.GetBytes(body, "include")
+	if !include.Exists() {
+		next, err := sjson.SetBytes(body, "include", []string{encrypted})
+		if err != nil {
+			return body, false, fmt.Errorf("normalize passthrough body include: %w", err)
+		}
+		return next, true, nil
+	}
+	if !include.IsArray() {
+		return body, false, nil
+	}
+	for _, item := range include.Array() {
+		if item.String() == encrypted {
+			return body, false, nil
+		}
+	}
+	next, err := sjson.SetBytes(body, "include.-1", encrypted)
+	if err != nil {
+		return body, false, fmt.Errorf("normalize passthrough body append include: %w", err)
+	}
+	return next, true, nil
 }
 
 func normalizeOpenAIPassthroughAPIKeyBody(body []byte) ([]byte, bool, error) {
