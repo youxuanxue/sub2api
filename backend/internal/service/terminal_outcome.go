@@ -56,6 +56,10 @@ type TerminalOutcomeRepository interface {
 	FlushMinute(context.Context, TerminalOutcomeMinuteFlush) error
 }
 
+type TerminalOutcomeSink interface {
+	Record(TerminalOutcomeEvent) bool
+}
+
 type terminalOutcomeFactKey struct {
 	groupID int64
 	model   string

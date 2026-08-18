@@ -833,6 +833,21 @@ else
     echo "  ok: all gateway TK sentinels intact"
 fi
 
+# ---- sub2api: gateway terminal route policy contract -----------------------
+echo ""
+echo "=== sub2api: gateway terminal route policy contract ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for terminal route policy contract)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-terminal-route-policies.py --selftest >/dev/null; then
+    echo "  FAIL: terminal route policy sentinel selftest"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-terminal-route-policies.py; then
+    errors=$((errors + 1))
+else
+    echo "  ok: every gateway route declares one terminal policy"
+fi
+
 # ---- sub2api: handler DI/Wire sentinel registry ----------------------------
 # Source of truth: scripts/sentinels/handler-di-wire.json. Verifies that TK
 # handler struct fields (in handler.go) and Wire provider functions (in wire.go)

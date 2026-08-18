@@ -1,8 +1,14 @@
+---
+title: Edge Model Unit 429 Health Alert
+status: approved
+approved_by: "feng (conversation approval 2026-08-18)"
+date: 2026-08-18
+last_reviewed: 2026-08-18
+supersedes: null
+related: []
+---
+
 # Edge 模型单元 429 健康告警设计
-
-状态：书面 spec 已按复审意见修订，待用户复核。
-
-日期：2026-08-18
 
 ## 背景
 

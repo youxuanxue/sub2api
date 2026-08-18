@@ -60,6 +60,10 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 		service.PlatformGrok,
 	)
 	if err != nil || selection == nil || selection.Account == nil {
+		if err == nil {
+			err = service.ErrNoAvailableAccounts
+		}
+		RecordWebSocketTerminalOutcome(c, "grok-voice-latest", err, false)
 		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "No available Grok accounts")
 		return
 	}
@@ -91,6 +95,11 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 	started := time.Now()
 	audioObserved, proxyErr := h.gatewayService.ProxyGrokRealtime(c.Request.Context(), c, conn, selection.Account, token, model)
 	elapsed := time.Since(started)
+	terminalErr := proxyErr
+	if isExpectedGrokRealtimeClose(proxyErr) {
+		terminalErr = nil
+	}
+	RecordWebSocketTerminalOutcome(c, model, terminalErr, audioObserved)
 	if proxyErr != nil {
 		reqLog.Info("grok_realtime.proxy_failed", zap.Error(proxyErr))
 		if !isExpectedGrokRealtimeClose(proxyErr) {
