@@ -17,12 +17,16 @@ func TestEnsureCodexReasoningSummaryAuto(t *testing.T) {
 
 	body2 := map[string]any{"reasoning": map[string]any{"effort": "medium"}}
 	require.True(t, ensureCodexReasoningSummaryAuto(body2))
-	require.Equal(t, "medium", body2["reasoning"].(map[string]any)["effort"])
-	require.Equal(t, "auto", body2["reasoning"].(map[string]any)["summary"])
+	reasoning2, ok := body2["reasoning"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "medium", reasoning2["effort"])
+	require.Equal(t, "auto", reasoning2["summary"])
 
 	body3 := map[string]any{"reasoning": map[string]any{"effort": "high", "summary": "concise"}}
 	require.True(t, ensureCodexReasoningSummaryAuto(body3))
-	require.Equal(t, "auto", body3["reasoning"].(map[string]any)["summary"])
+	reasoning3, ok := body3["reasoning"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "auto", reasoning3["summary"])
 }
 
 func TestApplyCodexOAuthTransform_AlwaysSetsReasoningSummaryAuto(t *testing.T) {
