@@ -47,6 +47,9 @@ type CaptureInput struct {
 	Tags                       []string
 	CreatedAt                  time.Time
 	InternalThinkingBlocksJSON []string
+	// EncryptedReasoningJSON 记录 OpenAI OAuth reasoning.encrypted_content
+	//（完整推理密文）。键名不用 signature，避免 logredact 打成 ***。
+	EncryptedReasoningJSON []string
 
 	// issue #59 Gap 2: synthetic-pipeline tagging headers.
 	// X-Synth-Pipeline is only used to compute DialogSynth (no schema

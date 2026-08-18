@@ -8,12 +8,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
 
-// TK: per-(group, day) rollup feeder. Backs the admin Groups page usage-summary
-// widget (GET /api/v1/admin/groups/usage-summary), whose legacy query SUMs
-// actual_cost over the ENTIRE usage_logs table on every load, and the admin
-// Dashboard/Usage group-distribution chart. The live read paths sum completed
-// days from this rollup and read only partial/today slices from raw usage_logs,
-// so wide windows are served without a full raw scan.
+// TK: per-(group, day) rollup feeder for the admin Dashboard/Usage group-
+// distribution chart. The read path combines completed days from this rollup
+// with partial boundary days from raw usage_logs, so wide windows retain request,
+// token, and cost detail without a full raw scan.
 //
 // bucket_date is computed in the configured server timezone (timezone.Name()) so
 // the rollup/today split in the read path lines up exactly with the rollup grain.
@@ -24,8 +22,7 @@ import (
 // is complete, and ON CONFLICT replaces (not adds) so re-running a day is
 // idempotent. Rows with NULL group_id are stored under group_id=0 so the
 // Dashboard/Usage group-distribution chart preserves the legacy
-// COALESCE(ul.group_id, 0) bucket. The Groups usage-summary read path filters
-// back down to real group ids.
+// COALESCE(ul.group_id, 0) bucket.
 func (r *dashboardAggregationRepository) upsertGroupDailyAggregates(ctx context.Context, dayStart, dayEnd time.Time) error {
 	tzName := timezone.Name()
 	query := `
@@ -92,18 +89,16 @@ const groupDailyBackfillMarkerDate = "1970-01-01"
 const groupDailyMetricsBackfillMarkerDate = "1970-01-02"
 
 // backfillGroupDailyAllOnce does a ONE-TIME full-history aggregation of the
-// per-(group, day) rollup, in the runtime server timezone. This is required
-// because the watermark-driven incremental feeder only ever moves forward and
-// never backfills pre-deploy days — so without this the all-time Groups total
-// would forever exclude historical cost (or force the read path to keep
-// raw-scanning the whole table).
+// per-(group, day) Dashboard distribution rollup in the runtime server timezone.
+// The watermark-driven incremental feeder only moves forward, so this backfill
+// makes pre-deploy requests, tokens, and costs available to wide-window charts.
 //
 // It is guarded by a sentinel marker row rather than by table-emptiness: a
 // deployment that has usage_logs but zero *grouped* usage would leave the rollup
 // empty forever, and an emptiness guard would then re-run the full-table backfill
 // scan every aggregation cycle. The marker decouples "backfill done" from "table
-// has data". The read path falls back to a raw scan until the marker is set, so
-// timing is not critical and a transient failure simply retries next cycle.
+// has data". The Dashboard distribution read path falls back to a raw scan until
+// the marker is set, so timing is not critical and a transient failure retries.
 func (r *dashboardAggregationRepository) backfillGroupDailyAllOnce(ctx context.Context) error {
 	var done bool
 	if err := scanSingleRow(ctx, r.sql,
