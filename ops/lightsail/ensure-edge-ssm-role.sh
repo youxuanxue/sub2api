@@ -4,7 +4,7 @@ set -euo pipefail
 EDGE_ID="${1:-${EDGE_ID:-}}"
 INSTANCE_ID="${2:-${INSTANCE_ID:-}}"
 REGION="${3:-${AWS_REGION:-${AWS_DEFAULT_REGION:-}}}"
-TIMEOUT_SECONDS="${EDGE_SSM_ROLE_TIMEOUT_SECONDS:-60}"
+TIMEOUT_SECONDS="${EDGE_SSM_ROLE_TIMEOUT_SECONDS:-300}"
 POLL_SECONDS="${EDGE_SSM_ROLE_POLL_SECONDS:-2}"
 MODE="${4:-}"
 
@@ -39,35 +39,94 @@ read_role() {
     --output text
 }
 
+read_remote_identity() {
+  local command_id status
+  if ! command_id="$(aws ssm send-command \
+    --region "${REGION}" \
+    --instance-ids "${INSTANCE_ID}" \
+    --document-name AWS-RunShellScript \
+    --comment "verify Edge SSM role credentials for ${EDGE_ID}" \
+    --parameters 'commands=["aws sts get-caller-identity --query Arn --output text"]' \
+    --query 'Command.CommandId' \
+    --output text)"; then
+    return 1
+  fi
+
+  while true; do
+    if ! status="$(aws ssm get-command-invocation \
+      --region "${REGION}" \
+      --command-id "${command_id}" \
+      --instance-id "${INSTANCE_ID}" \
+      --query 'Status' \
+      --output text 2>/dev/null)"; then
+      status=InProgress
+    fi
+    case "${status}" in
+      Success) break ;;
+      Failed|TimedOut|Cancelled|Cancelling) return 1 ;;
+    esac
+    [[ $(date +%s) -ge ${deadline} ]] && return 1
+    sleep "${POLL_SECONDS}"
+  done
+
+  aws ssm get-command-invocation \
+    --region "${REGION}" \
+    --command-id "${command_id}" \
+    --instance-id "${INSTANCE_ID}" \
+    --query 'StandardOutputContent' \
+    --output text | tr -d '\r' | awk 'NF { value=$0 } END { print value }'
+}
+
 current_role="$(read_role)"
-if [[ "${current_role}" == "${desired_role}" ]]; then
-  echo "managed instance ${INSTANCE_ID} role already correct: ${desired_role}"
-  exit 0
-fi
 if [[ -z "${current_role}" || "${current_role}" == None || "${current_role}" == null ]]; then
   echo "ensure_edge_ssm_role: managed instance ${INSTANCE_ID} not found" >&2
   exit 1
 fi
 if [[ "${MODE}" == --check ]]; then
+  if [[ "${current_role}" == "${desired_role}" ]]; then
+    echo "managed instance ${INSTANCE_ID} role already correct: ${desired_role}"
+    exit 0
+  fi
   echo "ensure_edge_ssm_role: role mismatch for ${INSTANCE_ID}; got ${current_role}, expected ${desired_role}" >&2
   exit 1
 fi
 
-aws ssm update-managed-instance-role \
-  --region "${REGION}" \
-  --instance-id "${INSTANCE_ID}" \
-  --iam-role "${desired_role}" >/dev/null
+if [[ "${current_role}" != "${desired_role}" ]]; then
+  aws ssm update-managed-instance-role \
+    --region "${REGION}" \
+    --instance-id "${INSTANCE_ID}" \
+    --iam-role "${desired_role}" >/dev/null
+else
+  echo "managed instance ${INSTANCE_ID} control-plane role already correct: ${desired_role}"
+fi
 
 deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
 while true; do
   current_role="$(read_role)"
   if [[ "${current_role}" == "${desired_role}" ]]; then
-    echo "managed instance ${INSTANCE_ID} role verified: ${desired_role}"
-    exit 0
+    break
   fi
   [[ $(date +%s) -ge ${deadline} ]] && break
   sleep "${POLL_SECONDS}"
 done
 
-echo "ensure_edge_ssm_role: role update not observed for ${INSTANCE_ID}; got ${current_role}, expected ${desired_role}" >&2
+if [[ "${current_role}" != "${desired_role}" ]]; then
+  echo "ensure_edge_ssm_role: role update not observed for ${INSTANCE_ID}; got ${current_role}, expected ${desired_role}" >&2
+  exit 1
+fi
+
+last_remote_arn="<probe failed>"
+while true; do
+  if remote_arn="$(read_remote_identity)"; then
+    last_remote_arn="${remote_arn}"
+    if [[ "${remote_arn}" == *":assumed-role/${desired_role}/"* ]]; then
+      echo "managed instance ${INSTANCE_ID} role credentials verified: ${desired_role}"
+      exit 0
+    fi
+  fi
+  [[ $(date +%s) -ge ${deadline} ]] && break
+  sleep "${POLL_SECONDS}"
+done
+
+echo "ensure_edge_ssm_role: role credentials not observed for ${INSTANCE_ID}; got ${last_remote_arn}, expected assumed-role/${desired_role}/" >&2
 exit 1

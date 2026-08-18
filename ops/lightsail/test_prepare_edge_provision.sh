@@ -19,7 +19,11 @@ case "$*" in
   *"ssm get-parameter"*"/ssm_managed_instance_id"*) echo mi-0123456789abcdef0 ;;
   *"ssm list-tags-for-resource"*) echo us3 ;;
   *"ssm describe-instance-information"*) echo tokenkey-lightsail-ssm-hybrid-us3 ;;
-  *"ssm send-command"*) echo cmd-1 ;;
+  *"ssm send-command"*"verify Edge SSM role credentials"*) echo role-cmd ;;
+  *"ssm send-command"*) echo backup-cmd ;;
+  *"ssm get-command-invocation"*"role-cmd"*"StandardOutputContent"*)
+    echo 'arn:aws:sts::123456789012:assumed-role/tokenkey-lightsail-ssm-hybrid-us3/mi-0123456789abcdef0' ;;
+  *"ssm get-command-invocation"*"role-cmd"*"Status"*) echo Success ;;
   *"ssm get-command-invocation"*"StandardOutputContent"*) echo 'verify: 3 secret line(s)' ;;
   *"ssm get-command-invocation"*"StandardErrorContent"*) : ;;
   *"ssm get-command-invocation"*) echo "${FAKE_BACKUP_STATUS}" ;;
@@ -52,9 +56,11 @@ grep -Fx 'RECREATE_BACKUP_VERIFIED=false' "${tmp}/first/github.env" >/dev/null
 run_prepare recreate true true true Success >"${tmp}/recreate.out"
 grep -Fx 'ALLOW_SECRET_GENERATE=false' "${tmp}/recreate/github.env" >/dev/null
 grep -Fx 'RECREATE_BACKUP_VERIFIED=true' "${tmp}/recreate/github.env" >/dev/null
-describe_line="$(grep -n 'describe-instance-information' "${tmp}/recreate/aws.log" | cut -d: -f1)"
-backup_line="$(grep -n 'send-command' "${tmp}/recreate/aws.log" | cut -d: -f1)"
-test "${describe_line}" -lt "${backup_line}"
+describe_line="$(grep -n 'describe-instance-information' "${tmp}/recreate/aws.log" | tail -1 | cut -d: -f1)"
+credentials_line="$(grep -n 'get-command-invocation.*role-cmd.*StandardOutputContent' "${tmp}/recreate/aws.log" | cut -d: -f1)"
+backup_line="$(grep -n 'send-command.*pre-recreate' "${tmp}/recreate/aws.log" | cut -d: -f1)"
+test "${describe_line}" -lt "${credentials_line}"
+test "${credentials_line}" -lt "${backup_line}"
 
 if run_prepare backup-fails true true true Failed >"${tmp}/fail.out" 2>"${tmp}/fail.err"; then
   echo 'FAIL: failed backup must abort preparation' >&2

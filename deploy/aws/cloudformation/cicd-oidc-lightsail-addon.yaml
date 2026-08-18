@@ -272,6 +272,7 @@ Resources:
             Resource:
               - !Sub "arn:aws:ssm:*:${AWS::AccountId}:managed-instance/*"
               - !Sub "arn:aws:ssm:*::document/AWS-RunShellScript"
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid-*"
           - Sid: SsmLightsailStateParams
             Effect: Allow
             Action:

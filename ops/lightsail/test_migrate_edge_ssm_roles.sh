@@ -71,6 +71,11 @@ case "$*" in
     instance="$(arg_after --instance-id "$@")"; edge="${instance#mi-}"
     if [[ "${FAKE_FAIL_EDGE:-}" == "${edge}" ]]; then exit 77; fi
     touch "${FAKE_STATE_DIR}/${edge}" ;;
+  *"ssm send-command"*) edge="$(edge_from_text "$@")"; echo "cmd-role-${edge}" ;;
+  *"ssm get-command-invocation"*"StandardOutputContent"*)
+    edge="$(edge_from_text "$@")"
+    echo "arn:aws:sts::123456789012:assumed-role/tokenkey-lightsail-ssm-hybrid-${edge}/mi-${edge}" ;;
+  *"ssm get-command-invocation"*"Status"*) echo Success ;;
   *"iam list-role-policies"*)
     if [[ -f "${FAKE_STATE_DIR}/deleted" ]]; then echo None; else echo EdgePgdumpPutOnly; fi ;;
   *"iam list-attached-role-policies"*) echo arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore ;;
@@ -163,9 +168,11 @@ for edge in us3 us4 us5 us6; do
   grep -F "probe_args --target edge:${edge} --expected-instance-id mi-${edge}" "${tmp}/success/actions.log" >/dev/null
   grep -F -- "--env CANARY_CREATE_DUMP=1" "${tmp}/success/actions.log" >/dev/null
   role_action_line="$(grep -n "aws ssm describe-instance-information.*mi-${edge}" "${tmp}/success/actions.log" | tail -1 | cut -d: -f1)"
+  credentials_line="$(grep -n "aws ssm get-command-invocation.*cmd-role-${edge}.*StandardOutputContent" "${tmp}/success/actions.log" | cut -d: -f1)"
   backup_line="$(grep -n "backup ${edge} mi-${edge}" "${tmp}/success/actions.log" | cut -d: -f1)"
   recovery_line="$(grep -n "recovery ${edge} mi-${edge}" "${tmp}/success/actions.log" | cut -d: -f1)"
   test "${role_action_line}" -lt "${backup_line}"
+  test "${credentials_line}" -lt "${backup_line}"
   test "${backup_line}" -lt "${recovery_line}"
   test "${recovery_line}" -lt "$(grep -n 'aws iam delete-role-policy' "${tmp}/success/actions.log" | cut -d: -f1)"
 done
