@@ -59,28 +59,38 @@ def _run_remote(
     arguments: list[str],
     *,
     timeout_seconds: int,
+    expected_instance_id: str | None = None,
 ) -> dict[str, Any]:
     target = remote._target(target)
+    command_line = [
+        "bash",
+        str(RUN_PROBE),
+        "--target",
+        target,
+        "--script",
+        str(REMOTE_WRAPPER),
+        "--with",
+        str(REMOTE),
+        "--timeout-seconds",
+        str(timeout_seconds),
+    ]
+    if expected_instance_id is not None:
+        if INSTANCE_RE.fullmatch(expected_instance_id) is None:
+            raise UsagePartitionControlError("expected instance id is invalid")
+        command_line.extend(["--expected-instance-id", expected_instance_id])
+    command_line.extend(
+        [
+            "--env",
+            f"REMOTE_COMMAND={command}",
+            "--env",
+            f"REMOTE_TARGET={target}",
+            "--env",
+            f"REMOTE_ARGS_JSON={_canonical_json(arguments)}",
+        ]
+    )
     try:
         completed = subprocess.run(
-            [
-                "bash",
-                str(RUN_PROBE),
-                "--target",
-                target,
-                "--script",
-                str(REMOTE_WRAPPER),
-                "--with",
-                str(REMOTE),
-                "--timeout-seconds",
-                str(timeout_seconds),
-                "--env",
-                f"REMOTE_COMMAND={command}",
-                "--env",
-                f"REMOTE_TARGET={target}",
-                "--env",
-                f"REMOTE_ARGS_JSON={_canonical_json(arguments)}",
-            ],
+            command_line,
             capture_output=True,
             text=True,
             timeout=timeout_seconds + 30,
@@ -229,6 +239,7 @@ def cutover(
             confirmation,
         ],
         timeout_seconds=900,
+        expected_instance_id=prepared["instance_id"],
     )
     if payload.get("instance_id") != prepared["instance_id"]:
         raise UsagePartitionControlError("cutover reached a different production instance")
@@ -260,6 +271,7 @@ def verify(
             str(prepared["row_count_before"]),
         ],
         timeout_seconds=900,
+        expected_instance_id=prepared["instance_id"],
     )
     if payload.get("instance_id") != prepared["instance_id"]:
         raise UsagePartitionControlError("verify reached a different production instance")

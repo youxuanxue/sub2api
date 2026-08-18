@@ -210,6 +210,50 @@ class UsageLogsDailyPartitionTest(unittest.TestCase):
                 6_000_100,
             )
 
+    def test_cutover_guards_instance_before_remote_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            prepare_path = root / "prepare.json"
+            prepare_path.write_text(json.dumps(_prepare_receipt()), encoding="utf-8")
+
+            def guarded_run_remote(
+                target: str,
+                command: str,
+                arguments: list[str],
+                *,
+                timeout_seconds: int,
+                expected_instance_id: str,
+            ) -> dict:
+                self.assertEqual(expected_instance_id, _INSTANCE)
+                return {
+                    "mode": "usage_logs_daily_partition_cutover",
+                    "target": target,
+                    "instance_id": expected_instance_id,
+                    "legacy_upper_exclusive": _UPPER,
+                    "source_rows_copied": False,
+                    "deletion_authorized": False,
+                    "verification": {
+                        "partitioned": True,
+                        "legacy_attached": True,
+                        "daily_partitions_attached": True,
+                        "no_parent_global_unique": True,
+                        "no_incoming_legacy_fk": True,
+                        "constraints_preserved": True,
+                        "legacy_row_count": 6_000_000,
+                        "parent_row_count": 6_000_000,
+                    },
+                }
+
+            with mock.patch.object(control, "_run_remote", side_effect=guarded_run_remote):
+                result = control.cutover(
+                    _TARGET,
+                    prepare_path,
+                    root / "cutover.json",
+                    _CONFIRM,
+                )
+
+        self.assertEqual(result["instance_id"], _INSTANCE)
+
     def test_cutover_refuses_legacy_count_below_prepare_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp)

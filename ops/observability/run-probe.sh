@@ -17,6 +17,7 @@
 #       [--with PATH ...]   upload additional local files to /tmp/<basename> on remote
 #       [--remote-path /tmp/script-name.sh] \
 #       [--comment "free text"] \
+#       [--expected-instance-id i-*|mi-*] \
 #       [--timeout-seconds 120]
 #
 # Endpoint route-gate matrix (group.platform × gateway path, prod):
@@ -70,6 +71,7 @@ SCRIPT_PATH=""
 REMOTE_PATH=""
 COMMENT="run-probe wrapper"
 TIMEOUT_SECONDS=120
+EXPECTED_INSTANCE_ID=""
 declare -a ENVS=()
 declare -a WITH_FILES=()
 
@@ -82,6 +84,7 @@ while [ "$#" -gt 0 ]; do
     --with) WITH_FILES+=("${2:-}"); shift 2 ;;
     --remote-path) REMOTE_PATH="${2:-}"; shift 2 ;;
     --comment) COMMENT="${2:-}"; shift 2 ;;
+    --expected-instance-id) EXPECTED_INSTANCE_ID="${2:-}"; shift 2 ;;
     --timeout-seconds) TIMEOUT_SECONDS="${2:-}"; shift 2 ;;
     *) echo "[run-probe] ERROR: unknown arg: $1" >&2; usage >&2; exit 1 ;;
   esac
@@ -230,6 +233,16 @@ fi
 if [ -z "${INSTANCE_ID:-}" ] || [ "$INSTANCE_ID" = "None" ]; then
   echo "[run-probe] ERROR: could not resolve instance id for target $TARGET" >&2
   exit 2
+fi
+if [ -n "$EXPECTED_INSTANCE_ID" ]; then
+  if [[ ! "$EXPECTED_INSTANCE_ID" =~ ^(i|mi)-[0-9a-f]{17}$ ]]; then
+    echo "[run-probe] ERROR: --expected-instance-id must be an EC2 or SSM managed instance id" >&2
+    exit 1
+  fi
+  if [ "$INSTANCE_ID" != "$EXPECTED_INSTANCE_ID" ]; then
+    echo "[run-probe] ERROR: resolved instance does not match --expected-instance-id for target $TARGET" >&2
+    exit 1
+  fi
 fi
 
 # Build env prefix (e.g. "PLATFORM=anthropic ERR_HOURS=2")
