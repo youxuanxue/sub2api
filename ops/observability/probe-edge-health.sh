@@ -28,6 +28,9 @@
 #               (For a past burst post-mortem pass e.g. SINCE=15h, then read the
 #                counts as "since N hours ago" — this probe does not slice to an
 #                exact UTC window; for that use parse-access-log.py on a pull.)
+#   TERMINAL_ONLY
+#               Set to 1 for the scheduled model-unit alert path. Skips app
+#               container resolution, account roster, and Docker log parsing.
 #   CONTAINER   gateway container name. Default auto. auto resolves
 #               /var/lib/tokenkey/active-color to tokenkey-blue/green and
 #               falls back to the legacy tokenkey container.
@@ -43,30 +46,31 @@ SINCE="${SINCE:-2h}"
 CONTAINER_INPUT="${CONTAINER:-auto}"
 PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
 
-# Canonical app-container resolver (ops/lib/resolve-app-container.sh) is the sole
-# owner of active-color + running-candidate logic. run-probe.sh ships it next to
-# this probe; the second path covers running straight from the repo.
-_tk_resolver=""
-for _cand in "${TK_LIB_DIR:-$(dirname "$0")}/resolve-app-container.sh" \
-             "$(dirname "$0")/../lib/resolve-app-container.sh"; do
-  if [ -f "$_cand" ]; then _tk_resolver="$_cand"; break; fi
-done
-if [ -z "$_tk_resolver" ]; then
-  echo "canonical app-container resolver not found (ops/lib/resolve-app-container.sh)" >&2
-  exit 1
-fi
-# shellcheck source=../lib/resolve-app-container.sh
-. "$_tk_resolver"
+if [ "${TERMINAL_ONLY:-0}" != "1" ]; then
+  # Canonical app-container resolver (ops/lib/resolve-app-container.sh) is the sole
+  # owner of active-color + running-candidate logic. run-probe.sh ships it next to
+  # this probe; the second path covers running straight from the repo.
+  _tk_resolver=""
+  for _cand in "${TK_LIB_DIR:-$(dirname "$0")}/resolve-app-container.sh" \
+               "$(dirname "$0")/../lib/resolve-app-container.sh"; do
+    if [ -f "$_cand" ]; then _tk_resolver="$_cand"; break; fi
+  done
+  if [ -z "$_tk_resolver" ]; then
+    echo "canonical app-container resolver not found (ops/lib/resolve-app-container.sh)" >&2
+    exit 1
+  fi
+  # shellcheck source=../lib/resolve-app-container.sh
+  . "$_tk_resolver"
 
 # Unresolved must fail the probe rather than emit zeroed TRAFFIC. `docker logs ""`
 # returns nothing, which the verdict reads as `idle` — a BENIGN verdict. A dead or
 # mis-resolved edge would then be indistinguishable from a quiet one, which is the
 # exact ambiguity this probe exists to remove. Exiting non-zero makes
 # scan-edge-health.sh record `unreachable` (fail closed) instead.
-if ! CONTAINER="$(tk_resolve_app_container "$CONTAINER_INPUT")"; then
-  echo "probe-edge-health: app container unresolved (no single running candidate); refusing to report an idle window" >&2
-  exit 3
-fi
+  if ! CONTAINER="$(tk_resolve_app_container "$CONTAINER_INPUT")"; then
+    echo "probe-edge-health: app container unresolved (no single running candidate); refusing to report an idle window" >&2
+    exit 3
+  fi
 
 echo "=== docker ps (tokenkey stack) ==="
 docker ps --filter name=tokenkey --format '{{.Names}}\t{{.Status}}' 2>/dev/null || true  # preflight-allow: swallow — diagnostic header only
@@ -103,5 +107,65 @@ WAIT_TIMEOUT="$(grep -cF 'wait timeout' "$LOGF" 2>/dev/null || true)"  # preflig
 CLIENT_CANCEL="$(grep -cF 'context canceled' "$LOGF" 2>/dev/null || true)"  # preflight-allow: swallow — zero-match => 0
 rm -f "$LOGF"
 
-printf 'TRAFFIC {"since":"%s","served_200":%s,"all_429":%s,"no_available_429":%s,"wait_timeout":%s,"client_cancel":%s,"total_completed":%s}\n' \
-  "$SINCE" "${SERVED_200:-0}" "${ALL_429:-0}" "${NO_AVAIL:-0}" "${WAIT_TIMEOUT:-0}" "${CLIENT_CANCEL:-0}" "${TOTAL_COMPLETED:-0}"
+  printf 'TRAFFIC {"since":"%s","served_200":%s,"all_429":%s,"no_available_429":%s,"wait_timeout":%s,"client_cancel":%s,"total_completed":%s}\n' \
+    "$SINCE" "${SERVED_200:-0}" "${ALL_429:-0}" "${NO_AVAIL:-0}" "${WAIT_TIMEOUT:-0}" "${CLIENT_CANCEL:-0}" "${TOTAL_COMPLETED:-0}"
+fi
+
+echo "=== TERMINAL outcomes (closed 5m buckets; field names embedded) ==="
+$PSQL -tAc "
+SELECT 'TERMINAL_META '||row_to_json(t)::text FROM (
+  SELECT 1 AS schema_version, MAX(heartbeat_at) AS watermark
+  FROM channel_monitor_v2_terminal_ingestion_health_1m
+) t;
+
+WITH bounds AS (
+  SELECT date_bin(INTERVAL '5 minutes', NOW(), TIMESTAMPTZ '2000-01-01 00:00:00+00') - INTERVAL '5 minutes' AS closed_through
+), expected AS (
+  SELECT generate_series(closed_through - INTERVAL '55 minutes', closed_through, INTERVAL '5 minutes') AS bucket_start
+  FROM bounds
+), health AS (
+  SELECT date_bin(INTERVAL '5 minutes', bucket_start, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS bucket_start,
+         COUNT(DISTINCT bucket_start)::int AS heartbeat_minutes,
+         COUNT(DISTINCT producer_epoch)::int AS producer_epochs,
+         (
+           BOOL_AND(
+             complete
+             AND process_started_at <= bucket_start
+             AND closed_at >= bucket_start + INTERVAL '1 minute'
+             AND seen_count = persisted_count
+             AND drop_count = 0
+             AND flush_failure_count = 0
+           )
+           AND COUNT(DISTINCT flush_sequence) = 5
+           AND MAX(flush_sequence) - MIN(flush_sequence) = 4
+         )::boolean AS all_complete
+  FROM channel_monitor_v2_terminal_ingestion_health_1m, bounds
+  WHERE bucket_start >= closed_through - INTERVAL '55 minutes'
+    AND bucket_start < closed_through + INTERVAL '5 minutes'
+  GROUP BY 1
+)
+SELECT 'TERMINAL_WINDOW '||row_to_json(t)::text FROM (
+  SELECT e.bucket_start,
+         COALESCE(h.heartbeat_minutes, 0) AS heartbeat_minutes,
+         COALESCE(h.producer_epochs, 0) AS producer_epochs,
+         COALESCE(h.all_complete, FALSE) AS all_complete
+  FROM expected e LEFT JOIN health h USING (bucket_start)
+  ORDER BY e.bucket_start
+) t;
+
+WITH bounds AS (
+  SELECT date_bin(INTERVAL '5 minutes', NOW(), TIMESTAMPTZ '2000-01-01 00:00:00+00') - INTERVAL '5 minutes' AS closed_through
+)
+SELECT 'TERMINAL_FACT '||row_to_json(t)::text FROM (
+  SELECT date_bin(INTERVAL '5 minutes', bucket_start, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS bucket_start,
+         group_id, requested_model,
+         SUM(success_count)::bigint AS success,
+         SUM(final_empty_pool_429_count)::bigint AS final_empty_pool_429,
+         SUM(other_error_count)::bigint AS other_error
+  FROM channel_monitor_v2_terminal_outcomes_1m, bounds
+  WHERE bucket_start >= closed_through - INTERVAL '55 minutes'
+    AND bucket_start < closed_through + INTERVAL '5 minutes'
+  GROUP BY 1, 2, 3
+  ORDER BY 1, 2, 3
+) t;
+" 2>&1

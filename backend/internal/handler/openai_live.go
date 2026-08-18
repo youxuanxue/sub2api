@@ -43,6 +43,7 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		return
 	}
 	model := strings.TrimSpace(gjson.GetBytes(request.Session, "model").String())
+	setOpsRequestContext(c, model, false)
 	reqLog := requestLogger(
 		c,
 		"handler.openai_gateway.live",

@@ -118,7 +118,15 @@ func (s *OpenAIGatewayService) ForwardGrokVoice(ctx context.Context, c *gin.Cont
 // ProxyGrokRealtime relays JSON Realtime events to xAI's native Voice WS.
 // Audio is carried as base64 inside JSON events, so preserving the JSON bytes
 // is sufficient and avoids translating protocol event types.
-func (s *OpenAIGatewayService) ProxyGrokRealtime(ctx context.Context, c *gin.Context, client *coderws.Conn, account *Account, token, model string) (bool, error) {
+func (s *OpenAIGatewayService) ProxyGrokRealtime(
+	ctx context.Context,
+	c *gin.Context,
+	client *coderws.Conn,
+	account *Account,
+	token string,
+	model string,
+	onTurn func(turnErr error, resultPresent bool),
+) (bool, error) {
 	if s == nil || client == nil || account == nil {
 		return false, fmt.Errorf("realtime service, client, and account are required")
 	}
@@ -159,6 +167,7 @@ func (s *OpenAIGatewayService) ProxyGrokRealtime(ctx context.Context, c *gin.Con
 	defer cancel()
 	errCh := make(chan error, 2)
 	var audioObserved atomic.Bool
+	observedTurns := make(map[string]struct{})
 
 	// Upstream → client
 	go func() {
@@ -175,6 +184,7 @@ func (s *OpenAIGatewayService) ProxyGrokRealtime(ctx context.Context, c *gin.Con
 				errCh <- writeErr
 				return
 			}
+			observeGrokRealtimeTurn(msg, observedTurns, onTurn)
 		}
 	}()
 
@@ -205,6 +215,32 @@ func (s *OpenAIGatewayService) ProxyGrokRealtime(ctx context.Context, c *gin.Con
 	}()
 
 	return awaitGrokRealtimeAudioObserved(errCh, &audioObserved)
+}
+
+func observeGrokRealtimeTurn(msg []byte, observed map[string]struct{}, onTurn func(error, bool)) {
+	if onTurn == nil || !gjson.ValidBytes(msg) {
+		return
+	}
+	eventType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(msg, "type").String()))
+	if eventType != "response.done" && eventType != "response.completed" {
+		return
+	}
+	responseID := strings.TrimSpace(gjson.GetBytes(msg, "response.id").String())
+	if responseID == "" || observed == nil {
+		return
+	}
+	if _, duplicate := observed[responseID]; duplicate {
+		return
+	}
+	observed[responseID] = struct{}{}
+	status := strings.ToLower(strings.TrimSpace(gjson.GetBytes(msg, "response.status").String()))
+	failed := status == "failed" || status == "incomplete" || status == "cancelled" ||
+		gjson.GetBytes(msg, "response.error").Exists() || gjson.GetBytes(msg, "error").Exists()
+	if failed {
+		onTurn(fmt.Errorf("grok realtime turn ended with status %s", firstNonEmpty(status, "error")), false)
+		return
+	}
+	onTurn(nil, true)
 }
 
 func awaitGrokRealtimeAudioObserved(errCh <-chan error, audioObserved *atomic.Bool) (bool, error) {

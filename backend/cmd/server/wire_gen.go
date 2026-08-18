@@ -352,7 +352,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	eitherAuthMiddleware := middleware.NewEitherAuthMiddleware(jwtAuthMiddleware, apiKeyAuthMiddleware)
 	auditLogMiddleware := middleware.NewAuditLogMiddleware(auditLogService)
 	stepUpAuthMiddleware := middleware.NewStepUpAuthMiddleware(totpService, userService, settingService)
-	engine := server.ProvideRouter(configConfig, handlers, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, eitherAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, userService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient)
+	terminalOutcomeRepository := repository.NewTerminalOutcomeRepository(db)
+	terminalOutcomeRecorder := service.ProvideTerminalOutcomeRecorder(terminalOutcomeRepository)
+	engine := server.ProvideRouter(configConfig, handlers, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, eitherAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, userService, subscriptionService, opsService, settingService, compositeRouteResolver, terminalOutcomeRecorder, redisClient)
 	httpServer := server.ProvideHTTPServer(configConfig, engine)
 	opsMetricsCollector := service.ProvideOpsMetricsCollector(opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, configConfig, qaService)
 	opsAggregationService := service.ProvideOpsAggregationService(opsRepository, settingRepository, db, redisClient, configConfig)
@@ -396,7 +398,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	tkGroupUnsupportedModelCacheReady := service.ProvideTKGroupUnsupportedModelCache(gatewayService, openAIGatewayService, channelService)
 	userPlatformQuotaUsageFlusher := service.ProvideUserPlatformQuotaUsageFlusher(configConfig, billingCache, serviceUserPlatformQuotaRepository, timingWheelService)
 	telemetryArchiveHealth := service.ProvideTelemetryArchiveHealth(shadow, opsRepository)
-	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, schedulerRateLimitReaper, anthropicConfigReconciler, upstreamBalanceSentinel, tokenRefreshService, accountExpiryService, openAICodexVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, holdReconcilerService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, qaService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, tkAccountIncidentNotifier, tkPricingMissingNotifier, tkAuthServiceColdStartReady, tkGatewayPricingAvailabilityReady, tkPricingOverlayRuntimeReady, tkGatewayAnthropicSigPreemptReady, tkAnthropicSaturationReady, tkOpenAISaturationReady, tkAntigravitySaturationReady, tkGatewayHandlerModelListReady, tkUniversalModelsProviderReady, tkGroupUnsupportedModelCacheReady, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, auditLogService, promptService, shadow, telemetryArchiveHealth)
+	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, schedulerRateLimitReaper, anthropicConfigReconciler, upstreamBalanceSentinel, tokenRefreshService, accountExpiryService, openAICodexVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, holdReconcilerService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, qaService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, terminalOutcomeRecorder, tkAccountIncidentNotifier, tkPricingMissingNotifier, tkAuthServiceColdStartReady, tkGatewayPricingAvailabilityReady, tkPricingOverlayRuntimeReady, tkGatewayAnthropicSigPreemptReady, tkAnthropicSaturationReady, tkOpenAISaturationReady, tkAntigravitySaturationReady, tkGatewayHandlerModelListReady, tkUniversalModelsProviderReady, tkGroupUnsupportedModelCacheReady, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, auditLogService, promptService, shadow, telemetryArchiveHealth)
 	application := &Application{
 		Server:      httpServer,
 		PromptAudit: promptService,
@@ -471,6 +473,7 @@ func provideCleanup(
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	channelMonitorRunner *service.ChannelMonitorRunner,
 	channelMonitorV2Aggregator *service.ChannelMonitorV2Aggregator,
+	terminalOutcomeRecorder *service.TerminalOutcomeRecorder,
 
 	accountIncidentNotifier *service.TKAccountIncidentNotifier,
 
@@ -750,6 +753,12 @@ func provideCleanup(
 			{"ChannelMonitorV2Aggregator", func() error {
 				if channelMonitorV2Aggregator != nil {
 					channelMonitorV2Aggregator.Stop()
+				}
+				return nil
+			}},
+			{"TerminalOutcomeRecorder", func() error {
+				if terminalOutcomeRecorder != nil {
+					terminalOutcomeRecorder.Stop()
 				}
 				return nil
 			}},

@@ -11,7 +11,7 @@
     "gemini.Use(trajectoryID)",
     "gemini.Use(qaCapture)",
     "trajectoryID, qaCapture",
-    "registerTKOpenAICompatVideoRoutesNoPrefix(r, h, bodyLimit, clientRequestID, trajectoryID, qaCapture",
+    "registerTKOpenAICompatVideoRoutesNoPrefix(rootRoutes, h, bodyLimit, clientRequestID, trajectoryID, qaCapture",
     "antigravityV1.Use(trajectoryID)",
     "antigravityV1.Use(qaCapture)",
     "antigravityV1Beta.Use(trajectoryID)",
@@ -78,13 +78,13 @@
     {
       "source": "backend/internal/server/routes/gateway.go",
       "required_calls": [
-        { "name": "gateway.POST", "args": ["/messages"] },
-        { "name": "gateway.POST", "args": ["/chat/completions"] },
-        { "name": "gateway.POST", "args": ["/responses"] },
-        { "name": "gemini.POST", "args": ["/models/*modelAction"] },
-        { "name": "codexDirect.POST", "args": ["/responses"] },
-        { "name": "antigravityV1.POST", "args": ["/messages"] },
-        { "name": "antigravityV1Beta.POST", "args": ["/models/*modelAction"] }
+        { "name": "gatewayRoutes.Register", "args": ["raw:http.MethodPost", "/messages"] },
+        { "name": "gatewayRoutes.Register", "args": ["raw:http.MethodPost", "/chat/completions"] },
+        { "name": "gatewayRoutes.Register", "args": ["raw:http.MethodPost", "/responses"] },
+        { "name": "geminiRoutes.Register", "args": ["raw:http.MethodPost", "/models/*modelAction"] },
+        { "name": "codexRoutes.Register", "args": ["raw:http.MethodPost", "/responses"] },
+        { "name": "antigravityV1Routes.Register", "args": ["raw:http.MethodPost", "/messages"] },
+        { "name": "antigravityV1BetaRoutes.Register", "args": ["raw:http.MethodPost", "/models/*modelAction"] }
       ]
     }
   ]

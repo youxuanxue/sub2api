@@ -19,7 +19,7 @@ import (
 
 func TestEveryGatewayPOSTRouteIsClassifiedForPromptAuditCoverage(t *testing.T) {
 	actual := map[string]struct{}{}
-	pattern := regexp.MustCompile(`(?:gateway|gemini|r|codexDirect|antigravityV1|antigravityV1Beta|group)\.POST\("([^"]+)"`)
+	pattern := regexp.MustCompile(`\.Register\(http\.MethodPost,\s*"([^"]+)"`)
 	for _, filename := range []string{"gateway.go", "gateway_tk_openai_compat_handlers.go"} {
 		routeSource, err := os.ReadFile(filename)
 		require.NoError(t, err)
@@ -94,7 +94,7 @@ func TestEveryGatewayPOSTRouteIsClassifiedForPromptAuditCoverage(t *testing.T) {
 func TestResponsesWebSocketHasFirstAndSubsequentTurnPromptGates(t *testing.T) {
 	routeSource, err := os.ReadFile("gateway.go")
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, strings.Count(string(routeSource), `.GET("/responses"`), 2)
+	require.GreaterOrEqual(t, strings.Count(string(routeSource), `.Register(http.MethodGet, "/responses"`), 2)
 	handlerSource, err := os.ReadFile(filepath.Join("..", "..", "handler", "openai_gateway_handler.go"))
 	require.NoError(t, err)
 	require.Contains(t, string(handlerSource), `checkSecurityAuditStage`)

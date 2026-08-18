@@ -2004,6 +2004,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
+			RecordWebSocketTerminalOutcome(c, reqModel, err, false)
 			if lastFailoverErr != nil {
 				closeOpenAIWSFailoverExhausted(wsConn, lastFailoverErr)
 			} else {
@@ -2012,6 +2013,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			return
 		}
 		if selection == nil || selection.Account == nil {
+			RecordWebSocketTerminalOutcome(c, reqModel, service.ErrNoAvailableAccounts, false)
 			if lastFailoverErr != nil {
 				closeOpenAIWSFailoverExhausted(wsConn, lastFailoverErr)
 			} else {
@@ -2244,6 +2246,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if result != nil {
 					turnUpstreamModel = strings.TrimSpace(result.UpstreamModel)
 				}
+				RecordWebSocketTerminalOutcome(c, turnRequestedModel, turnErr, result != nil)
 				var turnMapping service.ChannelMappingResult
 				if snapshot := turnChannelMapping.Load(); snapshot != nil && snapshot.turn == turn {
 					turnMapping = snapshot.mapping

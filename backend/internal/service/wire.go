@@ -1007,6 +1007,7 @@ var ProviderSet = wire.NewSet(
 	ProvideChannelMonitorRunner,
 	ProvideChannelMonitorV2Service,
 	ProvideChannelMonitorV2Aggregator,
+	ProvideTerminalOutcomeRecorder,
 	NewChannelMonitorRequestTemplateService,
 	// TokenKey: cold-start binding (US-029 / US-030) — wires the trial-key
 	// issuer onto AuthService post-construction. The returned sentinel is
