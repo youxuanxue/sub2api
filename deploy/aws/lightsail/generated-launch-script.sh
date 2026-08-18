@@ -13,13 +13,9 @@ echo "LIGHTSAIL_BOOTSTRAP_START $(date -u +%FT%TZ)"
 : "${LIGHTSAIL_REGION:?LIGHTSAIL_REGION required}"
 : "${SSM_ACTIVATION_ID:?SSM_ACTIVATION_ID required}"
 : "${SSM_ACTIVATION_CODE:?SSM_ACTIVATION_CODE required}"
-# GHCR auth is OPTIONAL: empty GHCR_PAT_SSM_NAME -> anonymous pull (public
-# ghcr.io image). Set it to an SSM SecureString name if the image goes private.
 : "${GHCR_PAT_SSM_NAME:=}"
 : "${GHCR_PULL_USER:=}"
 
-# Align kernel hostname with Lightsail instance name so SSM ComputerName-based
-# discovery matches provision-edge.sh fallbacks (AL2023 default is often a dhcp name).
 if command -v hostnamectl >/dev/null 2>&1; then
   hostnamectl set-hostname "${INSTANCE_NAME}" || true
 else
@@ -43,8 +39,6 @@ if ! docker compose version >/dev/null 2>&1; then
   chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 fi
 
-# Swap (2 GiB): micro Lightsail bundles have no swap by default; without this,
-# memory spikes can hang the VM.
 SWAP_SIZE_GIB="${SWAP_SIZE_GIB:-2}"
 if [ "${SWAP_SIZE_GIB}" -gt 0 ] && [ ! -f /swapfile ]; then
   fallocate -l "${SWAP_SIZE_GIB}G" /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=$((SWAP_SIZE_GIB * 1024)) status=progress
@@ -88,6 +82,7 @@ install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app
 COMPOSE_GZB64='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'
 CADDY_GZB64='H4sIAAAAAAACA61VbW8TRxD+bP+KUcIHqLB9jhOEqFBxQwBLAaIkFe2nY323trc531539xyMFSkgEghNRIoCKi8SrXgroPJSUZEmRkj9KdRnO5/yFzp7F9s4pagfKiW2d3b2mZlnZp8dBMVnqDtDq/DnG8iemYIxu0hhShH8NLRtlNh2tcAcGh+EUYf7diLnMgW+pBKoW5F+XioocAF7atmJnHn09Mls7tTcfr0cPTlmjuFyHJfEtRFgT03vmsez02Nnst+Y2fHx02fGjpqjuaOTc0mYpA6pgkdUSQIRFFyuwPPzDrN0OIHhlMB9zlwlkzodKpTUWzA9PpXIjk+cShhp2MtdGB7O7PscTkxPT2gLk2AzSfIOtSFPLaJPqBKFcVYsKUmYg1gFJugscRyYodSTnbAeFwoOGmA5XFI7GY/X4jFaxhP95cVjg0CsMjUtAiWlPHkoldLrhEQemVtMVIyhJPFY0qFKUtcSVU8luSimbIxqKS6q8bk4JhFy73tSCUrKIF3meVRt1283l+abd5eCayuNzfvBlZfdnh06aGByrduXIO9wawaChVeNjWftd7ca6/ONzbdbCyutt8+368sIvXXhXbCwAmdL2AiHwhEslc9S2xSa87MQXF+GAtryBGE6TrU53Fi91Np83bz6IIIMXtTbl1836xdbjzf/mr+IwM21PzDg1uXl4OUr/N3YWGyso/NTiEC263c8we3eGEFw56fG+kZw7alGRL9uvVENzd9+bq390ilex9irZsyO0z7ADghaoUJSE4HPVXeRgduxguPLkolTQkWFOJBIo20QggsPg403zfvzzXsPW7/ebN14GKwuQ39yyDWxFKtQaP/+ElIlShxV2q5fsQVhboLM4lRu15c0oxpxKnf8q6nJNLxfvN7xPTxiZKD9/EkECTtgrWffB1c2m1ev9opt/vDj1q0HyI6NRVMR4kUQVokiDZqDHcyUozF2GhhmEkaMDoKgOGRCaZ6JlNoTqW0/fxAijhhDqRFjGCto3lhoXrrWWF8JVp+hOfN+fg3/WquLrbVX7ReP2o8v/IOKpfajxdadm62791pPNpp37+lexGJRTqYvWCe/nrFL+YjsGRUrU+4ryGhbAe+OafuCKIbXNHQrk3OmNkvQffLd6FjVxLKUL3UJ+D+MW07exPvfO50xZM/aDZ3eCW1TgVMDXycmES+Rm4CaoGWuqFniUs3t8jnGBfbWprb+9R89JwRXHGoS+1Wm/+52AkGg1oFSgrgyVBWtE+G0xmxGnC5LISUxLUIkbHt6yOi3mAxvlWlx15VwQNMSs3jZwymQmhNeKKAJI81pRemTZB0MtYfbFM5LZUPxPPPi8dgRzTNKnU5FSy+kcIxQplKfdQ0OL/Kk5xa7hgKpMMwgiR860k7l0IH6YpQgKYlRjnrNHRiIxHQ/YKcT+K4czqRHMgcMw9gPrFz2lRbmAcxE4QiEWWhiLY4rtKSTQ9FXBneYlD7G0dIaUfdRLdaMhmpvao5Nq4S6Rt0i7RCDNYeqZ0YvTa/wSvqDolkZU/2QhQqzKd+9Dh1CyD5B/R9AYztDyLxPvppR9I+qepgEK4fT9oGE9p/YzQQOksddGwaofotE90XWj6iWGsEsRe0BGDYyfUCfiiXodz4eNfPcjpLSV16y8zjdhnHyy8gJhyzcw0vg4T3ACcVfWjG4KBMF30ru6tuO0u9A7tSx09GI/w1OHHzNwAgAAA=='
 PRUNE_B64='H4sIAAAAAAACA7VV627iRhT+76c48WYDSdfYRKutlgSkKCUpSpasAq3abio02Mcwwh67M2MSmiD1IfqEfZKe8YXAhk2bVisZCc+cy/d95+JXO+6YC3fM1NR6BcNkhuICFzDQbIIe/PXHn5DKTCBEic8iOP/+9BpYmgKP6R7ISAELNUpA5k/BT+I0UQhpFkVQ50LQhfIlT/V+g6IPUM4xgFAmMQwGH6DRaLiTqS+dPEVj/O4t1AkIvnu7f0QJWUDuTIObKenm+XOo2mCc4aLwcvIABMkxYBo5ixC1P0VCJgLAO/QV6ClXEPIIG3CBmJoDhDhRGiT6KDRcdLsfR/2C0HhR0juVyDQB1jzGN5BGmQKco1xQCjKEMJF5nMKYwAguJsAFySA044a8XYG1ib9RIMmkjy0IMI2Shctulatypf+JVV4JiaFE+j/nbEuEccajwPFDQeZG7atU80SwqAXDq4tu/6L788iUb5RTHZ6cDwxUd85IWz5e5XcbKOZQDzBkWaSh6VHlLIUaHMwSSHlKFzyyrEKwtr17/4XoLafpLW2r2/9xdNa77Lbt7alsy+IhfIIdcEKgaJX90oZfj4y8wgJAf5o8arlNohbEXCmj/0aIzt6hcb/jGjwr5BbJoqYYRdQe/gwCrtg4wvbgtOm99wqWzGpswsiPv2ElTOd3WKfc+3By3m05Lwa7GQAwTvViC9rr7ser9pN8r1sHBGsNjjEzEODhgc4eD9pPsb4YqZ9kUQAi0ZAySaMtMU2KCd4MvA39D/1+r38+6n3XtnO8QeLPaCi4UCn6GqrE0HEDnLvCLI3Dzl5zhW89wG79M29ql9r9faNnhm+5rK2i7dt5cpVIGl3jF8806UvHM5r8cONES5ZCTcZl7xU+JBH9z42Xdg26P/WGlnU7peVB5FkAjjSDeERsCGJZAjow+u/t5bPPRYZ059Mqq+5o1A5qxyIR2Kkd7K+s4OgIUDHfWJst82We5S4yTMuQh2uyUeHzYtaa77/1HK9Jz9DzWvnzS42YAnAePKPiM4G1zDCPkEouNNm/Vje6/AnjlCO3K297lzLZVkBU4RiOVwlNndRaczoO7c+Y1rvJf01dpbhO5GK5bNH7kE0MoG1I4IagPMDl6ejk8rJ9CqZo4GiKXK8A3miiDM6s+aYpobNWWMtq5e9lcauy9s4G7SfuVa1HPtEyFTcKblb9nk6L4f+s8sVsipztqocru0+lRMV4bt6vWr8azkLTzjpooA9ZKe8GtRdxGf17MjNaAUK3vRUvtTYfG5BLy936rQ9OlMOrzEzxwAmgBrX9ggEUq6rwMf0wMcNyX3xXKhhjQj4rEu/AhHYPOGd3vz222ir+Wqf8fw2/5pj/RyblFMmYPzOl67S+wuRZVrnc/wZ6n3lINAoAAA=='
+RESTORE_SECRETS_B64='H4sIAAAAAAACA7VXXVPiSBR9z6+4IquiGwNoze7KhilrxKnZnVEKcJ0px6FacoGUSSd2d1BXmd++tzsJRMHBeVgflG5un3vu1+l2fc1JpHCufO4gn8AVk2NLogIbkwhiP8Yh8wPLah92Dj+1eq2OWypZp2e99llPf+q03n84PXFL5YfD824/XR3Y6eqodXx49rE3251OS5Z1O/YDhAsolddLYI8UVOGyAV5kAQyYRNqvlcDntASw7ZgJFqJCUYECgfJDndBKDZBjf6igDo1GZh8lKk5UBXKCL1luVwAH4whKAqWKBNrojegXn9gSBwKVPICEX/PolgMToyRErkATa27UG4B3voL9aoqFkg0sL+JoWRc6qocZz2kJ3O/wzVHRNfJrvHe0D+eC2f9W7T/syx1HKjbCqlPwal+xwXUSl+HyEh4f4UHjr6Dp8wkLfA/0NzBLl2GqT6dUrWlGLs2LZgbOdu5lpQ92JaMgUQhpesmNGoPAm8QX6D1NSgOMK5trb2nhydtrHVHXEO7Ij/gP4C0TMFPYT8/1h9RRWxWTrSAasMDwc3Uj0Q5xGWouek8zgY0N2lsD++OTXaJHUIngUDOHSuUtdnsNm62TI+IdC58a4KQDO9Su0835yQr1MN7A3gJCSoSqDoMoobPEOUGKIsaBQq8fIB+pMdkNI2GsfA7t027vfafV7bcPu93z084R/HXe63db7zqtHvROe+1+6+Rd50u7Rznt/936kk0NpB7cjLF97II90Zi6++kPhbdZroHrGj8Ufep7q1ytQDNf0FcVCq5GsRq0nR2YQjH2NIrF8A0B01rGYprmo7aQD0gz8EqWuVeZXEkliOqvz4jWK8t4+MOUSornLskoSY0aI39eCHf/d2qxQC5UyH2z34Chn0ZpsE0Y2Whf0CAze3i5YwbWNBZZrOcmOhO0fga5pN2MfAA1ZZ4anYq17+B821oI4XHeFI9LmqJSdjR4ocZ/urNVLa/xFfPc2qzCZrZoC95SeQ/IoJhakg7L5NXGJwJiYrjIxmi+m+bXMuVeGNInppm+rVY4oieVz0eQ7oBB8mWufLnU5WKnEzrVt8k4jDyovqlWi25nimr0Ul94mR9ggUDm3VPnodRyTxo0jqQq5SpatagPLFJYTIfN8wUnsS2CUxv6nFQ9CMD2wA6h+lvqPT1F3hWGsT4cXutPha+c3RxmfX3bme5+Nj8aEYWIhEnfqw4a88Lxp2nQhyn3uitnsERrECDjSZyJKJV7EIUh456eUTkmFYam4+HE4QmFVm9u1GZlhux7O3kZnk7MT+vODzNNfoENmFE04KtNqShTSwkWQxYEtD5/6JmeZbeSngTZfVK8jqQMYYRq/rqAr5Z+PeT1LF7htn3rq7HtUZfcx0ojpbY3CYp7aOcIu/8Ygc9fIKDwTkFzTrzefEZ95aBkB189Jt3up+yWodkIWUA3S4gL01HPpiOcLCS2MCI/OzsZKw+GIgo1E2rbgCowEhiToN3A5ixRJ5E6ppvC24SXEnJQyBstzU0wJITnSuj+Ir9yDbMVxcilDECYlh3jHdT36WZuLsWZ6+ePAPbqLwIsUd2fRHpFyVeWe4QcBWF4cwET+EQT80fTXuN/qPjcvX7BDH0h6VkoookvaUR09c0Av6ZnteqC/h8DvQYthoksaL2IFNNDl7exIjuwB1Cr1vcXZKb45N3Xav0fg5oDEdsMAAA='
 printf '%s' "$COMPOSE_GZB64" | base64 -d | gunzip > /var/lib/tokenkey/docker-compose.yml
 printf '%s' "$CADDY_GZB64" | base64 -d | gunzip > /var/lib/tokenkey/caddy/Caddyfile.template
 envsubst '${API_DOMAIN} ${ACME_EMAIL} ${MAIN_GATEWAY_ALLOWED_CIDR}' \
@@ -96,18 +91,13 @@ envsubst '${API_DOMAIN} ${ACME_EMAIL} ${MAIN_GATEWAY_ALLOWED_CIDR}' \
 printf '%s' "$PRUNE_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
 chmod +x /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
 
+printf '%s' "$RESTORE_SECRETS_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-restore-edge-env-secrets.sh
+chmod 0755 /usr/local/bin/tokenkey-restore-edge-env-secrets.sh
+
 SECRET_FILE=/var/lib/tokenkey/.env.secret
-if [ ! -f "$SECRET_FILE" ]; then
-  umask 077
-  gen_secret() { openssl rand -hex 32; }
-  gen_pwd() { openssl rand -hex 24; }
-  cat > "$SECRET_FILE" <<SECEOF
-POSTGRES_PASSWORD=$(gen_pwd)
-JWT_SECRET=$(gen_secret)
-TOTP_ENCRYPTION_KEY=$(gen_secret)
-SECEOF
-  chmod 0600 "$SECRET_FILE"
-fi
+AWS_REGION="${LIGHTSAIL_REGION}" /usr/local/bin/tokenkey-restore-edge-env-secrets.sh \
+  --parameter "/tokenkey/edge/${EDGE_ID}/stage0/env-secrets-backup" \
+  --output "$SECRET_FILE"
 set -a; . "$SECRET_FILE"; set +a
 
 cat > /var/lib/tokenkey/.env <<ENVEOF

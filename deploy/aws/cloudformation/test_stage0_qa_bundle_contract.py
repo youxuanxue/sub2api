@@ -309,6 +309,12 @@ class Stage0QABundleContractTest(unittest.TestCase):
             with self.subTest(surface=surface):
                 self.assertNotIn("QA_CAPTURE_EXPORT_STORAGE", surface.read_text(encoding="utf-8"))
 
+    def test_backups_template_is_ascii_for_cloudformation_round_trip(self) -> None:
+        backups_text = (
+            ROOT / "deploy/aws/cloudformation/stage0-backups.yaml"
+        ).read_text(encoding="utf-8")
+        self.assertTrue(backups_text.isascii())
+
     def test_backups_template_has_no_legacy_export_owner(self) -> None:
         backups = yaml.load(
             (ROOT / "deploy/aws/cloudformation/stage0-backups.yaml").read_text(encoding="utf-8"),

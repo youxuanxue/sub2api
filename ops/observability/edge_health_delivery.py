@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deliver an edge-health decision and commit its dedup key after success."""
+"""Deliver an edge-health decision and atomically commit structured state."""
 from __future__ import annotations
 
 import argparse
@@ -13,6 +13,11 @@ import sys
 import tempfile
 import time
 import urllib.request
+
+try:
+    from .edge_model_health_alert import AlertContractError, validate_state
+except ImportError:  # Direct script execution from the repository root.
+    from edge_model_health_alert import AlertContractError, validate_state
 
 
 class DeliveryError(RuntimeError):
@@ -91,7 +96,7 @@ def post_feishu(
 def apply_decision(
     decision: dict,
     *,
-    key_file: pathlib.Path,
+    state_file: pathlib.Path,
     dry_run: bool,
     webhook_url: str,
     signing_secret: str,
@@ -99,10 +104,13 @@ def apply_decision(
 ) -> str:
     """Apply one decision without acknowledging an undelivered alert."""
     should_alert = decision.get("should_alert")
-    key = decision.get("key")
     message = decision.get("message")
-    if not isinstance(should_alert, bool) or not isinstance(key, str) or not isinstance(message, str):
-        raise DeliveryError("decision must contain boolean should_alert and string key/message")
+    if decision.get("schema_version") != 1 or not isinstance(should_alert, bool) or not isinstance(message, str):
+        raise DeliveryError("decision must contain schema_version, boolean should_alert, and string message")
+    try:
+        state = validate_state(decision.get("state"))
+    except AlertContractError as exc:
+        raise DeliveryError(f"invalid decision state: {exc}") from exc
 
     if dry_run:
         if should_alert:
@@ -119,7 +127,10 @@ def apply_decision(
             opener=opener,
         )
 
-    _atomic_write(key_file, key)
+    canonical_state = json.dumps(
+        state, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    ) + "\n"
+    _atomic_write(state_file, canonical_state)
     return "delivered" if should_alert else "unchanged"
 
 
@@ -158,16 +169,17 @@ def _selftest() -> int:
             print(f"  FAIL: {name}", file=sys.stderr)
             failures += 1
 
-    decision = {"should_alert": True, "key": "a:unreachable:us6", "message": "page us6"}
+    state = {"schema_version": 1, "model_units": [], "hosts": [], "telemetry": []}
+    decision = {"schema_version": 1, "should_alert": True, "state": state, "message": "page us6"}
     with tempfile.TemporaryDirectory() as tmp:
-        key_file = pathlib.Path(tmp) / "state" / "key"
-        key_file.parent.mkdir()
-        key_file.write_text("old-key", encoding="utf-8")
+        state_file = pathlib.Path(tmp) / "state" / "state.json"
+        state_file.parent.mkdir()
+        state_file.write_text('{"old":true}\n', encoding="utf-8")
 
         try:
             apply_decision(
                 decision,
-                key_file=key_file,
+                state_file=state_file,
                 dry_run=False,
                 webhook_url="https://example.test/hook",
                 signing_secret="secret",
@@ -177,52 +189,52 @@ def _selftest() -> int:
         except DeliveryError:
             check("rejected delivery raises", True)
         check(
-            "rejected delivery keeps previous key",
-            key_file.read_text(encoding="utf-8") == "old-key",
+            "rejected delivery keeps previous state",
+            state_file.read_text(encoding="utf-8") == '{"old":true}\n',
         )
 
         result = apply_decision(
             decision,
-            key_file=key_file,
+            state_file=state_file,
             dry_run=True,
             webhook_url="",
             signing_secret="",
         )
         check(
-            "dry-run does not advance key",
-            result == "dry-run" and key_file.read_text(encoding="utf-8") == "old-key",
+            "dry-run does not advance state",
+            result == "dry-run" and state_file.read_text(encoding="utf-8") == '{"old":true}\n',
         )
 
         result = apply_decision(
             decision,
-            key_file=key_file,
+            state_file=state_file,
             dry_run=False,
             webhook_url="https://example.test/hook",
             signing_secret="secret",
             opener=opener_for({"code": 0}),
         )
         check(
-            "confirmed delivery advances key",
+            "confirmed delivery advances state",
             result == "delivered"
-            and key_file.read_text(encoding="utf-8") == "a:unreachable:us6",
+            and json.loads(state_file.read_text(encoding="utf-8")) == state,
         )
 
         result = apply_decision(
-            {"should_alert": False, "key": "", "message": ""},
-            key_file=key_file,
+            {"schema_version": 1, "should_alert": False, "state": state, "message": ""},
+            state_file=state_file,
             dry_run=False,
             webhook_url="",
             signing_secret="",
         )
         check(
-            "unchanged decision canonicalizes key",
-            result == "unchanged" and key_file.read_text(encoding="utf-8") == "",
+            "unchanged decision persists successful evaluation",
+            result == "unchanged" and json.loads(state_file.read_text(encoding="utf-8")) == state,
         )
 
         try:
             apply_decision(
                 decision,
-                key_file=key_file,
+                state_file=state_file,
                 dry_run=False,
                 webhook_url="",
                 signing_secret="",
@@ -241,21 +253,21 @@ def _selftest() -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--decision", type=pathlib.Path)
-    parser.add_argument("--key-file", type=pathlib.Path)
+    parser.add_argument("--state-file", type=pathlib.Path)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--selftest", action="store_true")
     args = parser.parse_args(argv)
 
     if args.selftest:
         return _selftest()
-    if args.decision is None or args.key_file is None:
-        parser.error("--decision and --key-file are required unless --selftest")
+    if args.decision is None or args.state_file is None:
+        parser.error("--decision and --state-file are required unless --selftest")
 
     try:
         decision = json.loads(args.decision.read_text(encoding="utf-8"))
         result = apply_decision(
             decision,
-            key_file=args.key_file,
+            state_file=args.state_file,
             dry_run=args.dry_run,
             webhook_url=os.environ.get("FEISHU_WEBHOOK_URL", ""),
             signing_secret=os.environ.get("FEISHU_SIGNING_SECRET", ""),

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Operator CLI for the explicit production usage_logs daily partition cutover."""
+"""Operator CLI for explicit Fleet usage_logs daily partition cutovers."""
 
 from __future__ import annotations
 
@@ -22,9 +22,9 @@ REPO = HERE.parents[1]
 RUN_PROBE = REPO / "ops" / "observability" / "run-probe.sh"
 REMOTE = HERE / "usage_logs_daily_partition_remote.py"
 REMOTE_WRAPPER = HERE / "usage_logs_daily_partition_remote.sh"
-INSTANCE_RE = re.compile(r"i-[0-9a-f]{17}")
+INSTANCE_RE = re.compile(r"(?:i|mi)-[0-9a-f]{17}")
 RESOLVED_INSTANCE_RE = re.compile(
-    r"\[run-probe\] resolved region=\S+ instance_id=(i-[0-9a-f]{17})"
+    r"\[run-probe\] resolved region=\S+ instance_id=((?:i|mi)-[0-9a-f]{17})"
 )
 
 
@@ -53,14 +53,21 @@ def _atomic_json(path: pathlib.Path, value: dict[str, Any]) -> None:
         raise
 
 
-def _run_remote(command: str, arguments: list[str], *, timeout_seconds: int) -> dict[str, Any]:
+def _run_remote(
+    target: str,
+    command: str,
+    arguments: list[str],
+    *,
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    target = remote._target(target)
     try:
         completed = subprocess.run(
             [
                 "bash",
                 str(RUN_PROBE),
                 "--target",
-                "prod",
+                target,
                 "--script",
                 str(REMOTE_WRAPPER),
                 "--with",
@@ -70,6 +77,8 @@ def _run_remote(command: str, arguments: list[str], *, timeout_seconds: int) -> 
                 "--env",
                 f"REMOTE_COMMAND={command}",
                 "--env",
+                f"REMOTE_TARGET={target}",
+                "--env",
                 f"REMOTE_ARGS_JSON={_canonical_json(arguments)}",
             ],
             capture_output=True,
@@ -78,31 +87,38 @@ def _run_remote(command: str, arguments: list[str], *, timeout_seconds: int) -> 
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise UsagePartitionControlError("production usage partition command could not run") from exc
+        raise UsagePartitionControlError("usage partition command could not run") from exc
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or "probe failed").strip()
-        raise UsagePartitionControlError(f"production usage partition command failed: {detail[:600]}")
+        raise UsagePartitionControlError(f"usage partition command failed: {detail[:600]}")
     instance_match = RESOLVED_INSTANCE_RE.search(completed.stderr)
     if not instance_match:
-        raise UsagePartitionControlError("production usage partition command did not prove its instance")
+        raise UsagePartitionControlError("usage partition command did not prove its instance")
     try:
         payload = json.loads([line for line in completed.stdout.splitlines() if line.strip()][-1])
     except (IndexError, json.JSONDecodeError) as exc:
-        raise UsagePartitionControlError("production usage partition receipt is invalid") from exc
-    if not isinstance(payload, dict) or payload.get("deletion_authorized") is not False:
-        raise UsagePartitionControlError("production usage partition receipt failed safety validation")
+        raise UsagePartitionControlError("usage partition receipt is invalid") from exc
+    if (
+        not isinstance(payload, dict)
+        or payload.get("target") != target
+        or payload.get("deletion_authorized") is not False
+    ):
+        raise UsagePartitionControlError("usage partition receipt failed safety validation")
     return {**payload, "instance_id": instance_match.group(1)}
 
 
-def _load_prepare_receipt(path: str | os.PathLike[str]) -> dict[str, Any]:
+def _load_prepare_receipt(
+    path: str | os.PathLike[str], target: str
+) -> dict[str, Any]:
+    target = remote._target(target)
     try:
         value = json.loads(pathlib.Path(path).expanduser().resolve().read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise UsagePartitionControlError("usage partition prepare receipt cannot be read") from exc
     if (
         not isinstance(value, dict)
-        or value.get("mode") != "prod_usage_logs_daily_partition_prepare"
-        or value.get("environment") != "prod"
+        or value.get("mode") != "usage_logs_daily_partition_prepare"
+        or value.get("target") != target
         or value.get("bound_validated") is not True
         or value.get("source_rows_copied") is not False
         or value.get("deletion_authorized") is not False
@@ -111,34 +127,41 @@ def _load_prepare_receipt(path: str | os.PathLike[str]) -> dict[str, Any]:
         or value.get("row_count_before") < 0
         or INSTANCE_RE.fullmatch(str(value.get("instance_id", ""))) is None
         or value.get("required_cutover_confirmation")
-        != remote.CUTOVER_CONFIRMATION_PREFIX + str(value.get("legacy_upper_exclusive"))
+        != remote.cutover_confirmation_prefix(target)
+        + str(value.get("legacy_upper_exclusive"))
     ):
         raise UsagePartitionControlError("usage partition prepare receipt failed validation")
     remote._upper(str(value["legacy_upper_exclusive"]))
     return value
 
 
-def prepare(receipt_path: str | os.PathLike[str], confirmation: str) -> dict[str, Any]:
+def prepare(
+    target: str, receipt_path: str | os.PathLike[str], confirmation: str
+) -> dict[str, Any]:
+    target = remote._target(target)
     payload = _run_remote(
-        "prepare", ["--confirm", confirmation], timeout_seconds=1200
+        target, "prepare", ["--confirm", confirmation], timeout_seconds=1200
     )
-    if payload.get("mode") != "prod_usage_logs_daily_partition_prepare":
+    if payload.get("mode") != "usage_logs_daily_partition_prepare":
         raise UsagePartitionControlError("remote prepare returned the wrong receipt mode")
     _atomic_json(pathlib.Path(receipt_path), payload)
     return payload
 
 
 def abort(
+    target: str,
     receipt_path: str | os.PathLike[str],
     upper: str,
     confirmation: str,
 ) -> dict[str, Any]:
+    target = remote._target(target)
     upper = remote._upper(upper)
-    if confirmation != remote.ABORT_CONFIRMATION_PREFIX + upper:
+    if confirmation != remote.abort_confirmation_prefix(target) + upper:
         raise UsagePartitionControlError(
             "abort confirmation must exactly match the partition upper bound"
         )
     payload = _run_remote(
+        target,
         "abort",
         [
             "--legacy-upper-exclusive",
@@ -149,7 +172,7 @@ def abort(
         timeout_seconds=120,
     )
     if (
-        payload.get("mode") != "prod_usage_logs_daily_partition_abort"
+        payload.get("mode") != "usage_logs_daily_partition_abort"
         or payload.get("legacy_upper_exclusive") != upper
         or payload.get("bound_removed") is not True
         or payload.get("source_rows_copied") is not False
@@ -160,15 +183,18 @@ def abort(
 
 
 def cutover(
+    target: str,
     prepare_receipt_path: str | os.PathLike[str],
     cutover_receipt_path: str | os.PathLike[str],
     confirmation: str,
 ) -> dict[str, Any]:
-    prepared = _load_prepare_receipt(prepare_receipt_path)
+    target = remote._target(target)
+    prepared = _load_prepare_receipt(prepare_receipt_path, target)
     if confirmation != prepared["required_cutover_confirmation"]:
         raise UsagePartitionControlError("cutover confirmation must exactly match the prepare receipt")
     upper = prepared["legacy_upper_exclusive"]
     payload = _run_remote(
+        target,
         "cutover",
         [
             "--legacy-upper-exclusive",
@@ -184,7 +210,7 @@ def cutover(
         raise UsagePartitionControlError("cutover reached a different production instance")
     verification = payload.get("verification")
     if (
-        payload.get("mode") != "prod_usage_logs_daily_partition_cutover"
+        payload.get("mode") != "usage_logs_daily_partition_cutover"
         or not isinstance(verification, dict)
         or verification.get("partitioned") is not True
         or verification.get("legacy_attached") is not True
@@ -211,19 +237,24 @@ def cutover(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("status")
+    status_parser = commands.add_parser("status")
+    status_parser.add_argument("--target", required=True)
     prepare_parser = commands.add_parser("prepare")
+    prepare_parser.add_argument("--target", required=True)
     prepare_parser.add_argument("--receipt", required=True)
     prepare_parser.add_argument("--confirm", required=True)
     abort_parser = commands.add_parser("abort")
+    abort_parser.add_argument("--target", required=True)
     abort_parser.add_argument("--receipt", required=True)
     abort_parser.add_argument("--legacy-upper-exclusive", required=True)
     abort_parser.add_argument("--confirm", required=True)
     cutover_parser = commands.add_parser("cutover")
+    cutover_parser.add_argument("--target", required=True)
     cutover_parser.add_argument("--prepare-receipt", required=True)
     cutover_parser.add_argument("--cutover-receipt", required=True)
     cutover_parser.add_argument("--confirm", required=True)
     verify_parser = commands.add_parser("verify")
+    verify_parser.add_argument("--target", required=True)
     verify_parser.add_argument("--prepare-receipt", required=True)
     return parser
 
@@ -232,24 +263,27 @@ def main(argv: Iterable[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "status":
-            payload = _run_remote("status", [], timeout_seconds=120)
+            payload = _run_remote(args.target, "status", [], timeout_seconds=120)
         elif args.command == "prepare":
-            payload = prepare(args.receipt, args.confirm)
+            payload = prepare(args.target, args.receipt, args.confirm)
         elif args.command == "abort":
             payload = abort(
+                args.target,
                 args.receipt,
                 args.legacy_upper_exclusive,
                 args.confirm,
             )
         elif args.command == "cutover":
             payload = cutover(
+                args.target,
                 args.prepare_receipt,
                 args.cutover_receipt,
                 args.confirm,
             )
         elif args.command == "verify":
-            prepared = _load_prepare_receipt(args.prepare_receipt)
+            prepared = _load_prepare_receipt(args.prepare_receipt, args.target)
             payload = _run_remote(
+                args.target,
                 "verify",
                 [
                     "--legacy-upper-exclusive",

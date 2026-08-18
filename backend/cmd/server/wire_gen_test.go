@@ -98,6 +98,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil,                                   // paymentOrderExpiry
 		nil,                                   // channelMonitorRunner
 		nil,                                   // channelMonitorV2Aggregator
+		nil,                                   // terminalOutcomeRecorder
 		nil,                                   // accountIncidentNotifier
 		nil,                                   // pricingMissingNotifier
 		service.TKAuthServiceColdStartReady{}, // TK: forces SetTrialKeyIssuer wiring

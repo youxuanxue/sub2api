@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -46,6 +47,26 @@ func TestParseLiveCallRequestJSONPreservesSessionWithoutDelegation(t *testing.T)
 	require.NoError(t, err)
 	require.NotContains(t, string(parsed.Session), "delegation")
 	require.Equal(t, "standalone", jsonPathString(t, parsed.Session, "instructions"))
+}
+
+func TestLiveParseBoundaryFeedsTerminalRecorder(t *testing.T) {
+	sink := &terminalOutcomeSinkStub{}
+	events := runTerminalOutcomeMiddleware(t, sink, TerminalOutcomeAsyncSubmission, func(c *gin.Context) {
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/live", bytes.NewBufferString(
+			`{"sdp":"v=0\\r\\n","session":{"model":"gpt-live-test"}}`,
+		))
+		c.Request.Header.Set("Content-Type", "application/json")
+		groupID := int64(7)
+		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+			ID: 9, UserID: 7, GroupID: &groupID,
+			Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI, AllowLive: true},
+		})
+		c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 7, Concurrency: 2})
+		(&OpenAIGatewayHandler{}).Live(c)
+	})
+	require.Equal(t, []service.TerminalOutcomeEvent{{
+		GroupID: 7, RequestedModel: "gpt-live-test", Kind: service.TerminalOutcomeOtherError,
+	}}, withoutTerminalTimes(events))
 }
 
 func TestParseLiveCallRequestRejectsInvalidJSONShape(t *testing.T) {

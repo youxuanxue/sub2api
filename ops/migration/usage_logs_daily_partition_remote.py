@@ -13,9 +13,7 @@ from collections.abc import Iterable
 from typing import Any
 
 
-PREPARE_CONFIRMATION = "tokenkey-prod-usage-daily-prepare-v1"
-CUTOVER_CONFIRMATION_PREFIX = "tokenkey-prod-usage-daily-cutover-v1:"
-ABORT_CONFIRMATION_PREFIX = "tokenkey-prod-usage-daily-abort-v1:"
+TARGET_RE = re.compile(r"(?:prod|edge:[a-z][a-z0-9]{1,15})")
 BOUND_CONSTRAINT = "usage_logs_partition_upper"
 BOUND_COMMENT_PREFIX = "tokenkey-usage-partition-upper-v1:"
 QUERY_INDEX = "idx_usage_logs_request_api_key_partition"
@@ -29,6 +27,28 @@ class UsagePartitionError(RuntimeError):
 
 def _canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+
+
+def _target(value: str) -> str:
+    if TARGET_RE.fullmatch(value) is None:
+        raise UsagePartitionError("target must be prod or edge:<id>")
+    return value
+
+
+def _target_token(target: str) -> str:
+    return _target(target).replace(":", "-")
+
+
+def prepare_confirmation(target: str) -> str:
+    return f"tokenkey-{_target_token(target)}-usage-daily-prepare-v1"
+
+
+def cutover_confirmation_prefix(target: str) -> str:
+    return f"tokenkey-{_target_token(target)}-usage-daily-cutover-v1:"
+
+
+def abort_confirmation_prefix(target: str) -> str:
+    return f"tokenkey-{_target_token(target)}-usage-daily-abort-v1:"
 
 
 def _upper(value: str) -> str:
@@ -146,8 +166,9 @@ SELECT row_to_json(v) FROM (
     )
 
 
-def prepare(confirmation: str) -> dict[str, Any]:
-    if confirmation != PREPARE_CONFIRMATION:
+def prepare(target: str, confirmation: str) -> dict[str, Any]:
+    target = _target(target)
+    if confirmation != prepare_confirmation(target):
         raise UsagePartitionError("usage partition prepare confirmation is invalid")
     before = status()
     if before.get("partitioned") is True:
@@ -227,23 +248,24 @@ ALTER TABLE usage_logs VALIDATE CONSTRAINT {BOUND_CONSTRAINT};
     ):
         raise UsagePartitionError("usage_logs fixed upper CHECK was not validated")
     return {
-        "mode": "prod_usage_logs_daily_partition_prepare",
-        "environment": "prod",
+        "mode": "usage_logs_daily_partition_prepare",
+        "target": target,
         "legacy_upper_exclusive": upper,
         "row_count_before": _row_count(before.get("row_count")),
         "bound_constraint": BOUND_CONSTRAINT,
         "bound_validated": True,
         "query_index": QUERY_INDEX,
         "inventory": inventory,
-        "required_cutover_confirmation": CUTOVER_CONFIRMATION_PREFIX + upper,
+        "required_cutover_confirmation": cutover_confirmation_prefix(target) + upper,
         "source_rows_copied": False,
         "deletion_authorized": False,
     }
 
 
-def abort(upper: str, confirmation: str) -> dict[str, Any]:
+def abort(target: str, upper: str, confirmation: str) -> dict[str, Any]:
+    target = _target(target)
     upper = _upper(upper)
-    if confirmation != ABORT_CONFIRMATION_PREFIX + upper:
+    if confirmation != abort_confirmation_prefix(target) + upper:
         raise UsagePartitionError("usage partition abort confirmation is invalid")
     _psql(
         f"""
@@ -278,8 +300,8 @@ COMMIT;
     if after.get("partitioned") is True or after.get("bound_exists") is True:
         raise UsagePartitionError("usage_logs partition prepare abort verification failed")
     return {
-        "mode": "prod_usage_logs_daily_partition_abort",
-        "environment": "prod",
+        "mode": "usage_logs_daily_partition_abort",
+        "target": target,
         "legacy_upper_exclusive": upper,
         "bound_constraint": BOUND_CONSTRAINT,
         "bound_removed": True,
@@ -572,19 +594,20 @@ SELECT row_to_json(v) FROM (
 
 
 def cutover(
-    upper: str, minimum_legacy_row_count: int, confirmation: str
+    target: str, upper: str, minimum_legacy_row_count: int, confirmation: str
 ) -> dict[str, Any]:
+    target = _target(target)
     upper = _upper(upper)
     minimum_legacy_row_count = _row_count(minimum_legacy_row_count)
-    if confirmation != CUTOVER_CONFIRMATION_PREFIX + upper:
+    if confirmation != cutover_confirmation_prefix(target) + upper:
         raise UsagePartitionError("usage partition cutover confirmation is invalid")
     _psql(
         build_cutover_sql(upper, minimum_legacy_row_count), timeout_seconds=120
     )
     result = verify(upper, minimum_legacy_row_count)
     return {
-        "mode": "prod_usage_logs_daily_partition_cutover",
-        "environment": "prod",
+        "mode": "usage_logs_daily_partition_cutover",
+        "target": target,
         "legacy_upper_exclusive": upper,
         "verification": result,
         "source_rows_copied": False,
@@ -595,16 +618,21 @@ def cutover(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("status")
+    status_parser = commands.add_parser("status")
+    status_parser.add_argument("--target", required=True)
     prepare_parser = commands.add_parser("prepare")
+    prepare_parser.add_argument("--target", required=True)
     prepare_parser.add_argument("--confirm", required=True)
     abort_parser = commands.add_parser("abort")
+    abort_parser.add_argument("--target", required=True)
     abort_parser.add_argument("--legacy-upper-exclusive", required=True)
     abort_parser.add_argument("--confirm", required=True)
     verify_parser = commands.add_parser("verify")
+    verify_parser.add_argument("--target", required=True)
     verify_parser.add_argument("--legacy-upper-exclusive", required=True)
     verify_parser.add_argument("--minimum-legacy-row-count", type=int, required=True)
     cutover_parser = commands.add_parser("cutover")
+    cutover_parser.add_argument("--target", required=True)
     cutover_parser.add_argument("--legacy-upper-exclusive", required=True)
     cutover_parser.add_argument("--minimum-legacy-row-count", type=int, required=True)
     cutover_parser.add_argument("--confirm", required=True)
@@ -614,15 +642,22 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Iterable[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        target = _target(args.target)
         if args.command == "status":
-            payload = {"mode": "prod_usage_logs_daily_partition_status", **status(), "deletion_authorized": False}
+            payload = {
+                "mode": "usage_logs_daily_partition_status",
+                "target": target,
+                **status(),
+                "deletion_authorized": False,
+            }
         elif args.command == "prepare":
-            payload = prepare(args.confirm)
+            payload = prepare(target, args.confirm)
         elif args.command == "abort":
-            payload = abort(args.legacy_upper_exclusive, args.confirm)
+            payload = abort(target, args.legacy_upper_exclusive, args.confirm)
         elif args.command == "verify":
             payload = {
-                "mode": "prod_usage_logs_daily_partition_verify",
+                "mode": "usage_logs_daily_partition_verify",
+                "target": target,
                 **verify(
                     args.legacy_upper_exclusive, args.minimum_legacy_row_count
                 ),
@@ -630,6 +665,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             }
         elif args.command == "cutover":
             payload = cutover(
+                target,
                 args.legacy_upper_exclusive,
                 args.minimum_legacy_row_count,
                 args.confirm,
