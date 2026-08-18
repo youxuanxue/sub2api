@@ -105,17 +105,17 @@ func runBundleCanary(
 	defer ticker.Stop()
 	for {
 		failed, err := store.Head(ctx, spec.FailureKey)
-		if err != nil {
+		if err != nil && !errors.Is(err, archive.ErrAccessDenied) {
 			return result, err
 		}
-		if failed {
+		if err == nil && failed {
 			return result, errors.New("qa bundle canary worker reported failure")
 		}
 		ready, err := store.Head(ctx, spec.ReceiptKey)
-		if err != nil {
+		if err != nil && !errors.Is(err, archive.ErrAccessDenied) {
 			return result, err
 		}
-		if ready {
+		if err == nil && ready {
 			return validateBundleCanaryResult(ctx, store, spec, opts.Now().UTC())
 		}
 		select {
