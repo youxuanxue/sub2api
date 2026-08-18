@@ -41,6 +41,16 @@ func TestTkSelectionFailedDueToUnsupportedModel(t *testing.T) {
 			want:  true,
 		},
 		{
+			name:  "unclassified candidate prevents unsupported verdict",
+			stats: selectionFailureStats{Total: 2, ModelUnsupported: 1},
+			want:  false,
+		},
+		{
+			name:  "platform-filtered accounts do not affect matched pool verdict",
+			stats: selectionFailureStats{Total: 3, PlatformFiltered: 2, ModelUnsupported: 1},
+			want:  true,
+		},
+		{
 			name:  "unsupported plus excluded failover candidates -> false",
 			stats: selectionFailureStats{Total: 4, ModelUnsupported: 1, Excluded: 3},
 			want:  false,
