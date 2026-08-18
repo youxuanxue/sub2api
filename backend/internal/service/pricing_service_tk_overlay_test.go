@@ -44,18 +44,60 @@ func TestTKPricingOverlay_FillsDeepseekV4(t *testing.T) {
 
 	flash := data["deepseek-v4-flash"]
 	require.NotNil(t, flash, "overlay must inject deepseek-v4-flash")
-	require.InDelta(t, 1.4e-7, flash.InputCostPerToken, 1e-15)
-	require.InDelta(t, 2.8e-7, flash.OutputCostPerToken, 1e-15)
-	require.InDelta(t, 2.8e-9, flash.CacheReadInputTokenCost, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1.5), flash.InputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4.5), flash.OutputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.05), flash.CacheReadInputTokenCost, 1e-15)
 	require.True(t, flash.SupportsPromptCaching)
 	require.Equal(t, "deepseek", flash.LiteLLMProvider)
 	require.Equal(t, "chat", flash.Mode)
 
 	pro := data["deepseek-v4-pro"]
 	require.NotNil(t, pro, "overlay must inject deepseek-v4-pro")
-	require.InDelta(t, 4.35e-7, pro.InputCostPerToken, 1e-15)
-	require.InDelta(t, 8.7e-7, pro.OutputCostPerToken, 1e-15)
-	require.InDelta(t, 3.625e-9, pro.CacheReadInputTokenCost, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4.5), pro.InputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(13.5), pro.OutputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.15), pro.CacheReadInputTokenCost, 1e-15)
+}
+
+func TestTKPricingOverlay_DeepSeekOfficialIdleSSOTAndAliases(t *testing.T) {
+	overlay := loadTKPricingOverlay()
+
+	flash := overlay["deepseek-v4-flash"]
+	require.NotNil(t, flash)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1.5), flash.InputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4.5), flash.OutputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.05), flash.CacheReadInputTokenCost, 1e-15)
+	require.Equal(t, 1_000_000, flash.MaxInputTokens)
+	require.Equal(t, 384_000, flash.MaxOutputTokens)
+
+	pro := overlay["deepseek-v4-pro"]
+	require.NotNil(t, pro)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4.5), pro.InputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(13.5), pro.OutputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.15), pro.CacheReadInputTokenCost, 1e-15)
+	require.Equal(t, 1_000_000, pro.MaxInputTokens)
+	require.Equal(t, 384_000, pro.MaxOutputTokens)
+
+	for _, alias := range []string{"deepseek-chat", "deepseek-reasoner"} {
+		entry := overlay[alias]
+		require.NotNil(t, entry, alias)
+		require.InDelta(t, flash.InputCostPerToken, entry.InputCostPerToken, 1e-15, alias)
+		require.InDelta(t, flash.OutputCostPerToken, entry.OutputCostPerToken, 1e-15, alias)
+		require.InDelta(t, flash.CacheReadInputTokenCost, entry.CacheReadInputTokenCost, 1e-15, alias)
+		require.Equal(t, flash.MaxInputTokens, entry.MaxInputTokens, alias)
+		require.Equal(t, flash.MaxOutputTokens, entry.MaxOutputTokens, alias)
+	}
+
+	qianfanFlash := overlay["deepseek-v4-flash.qianfan"]
+	require.NotNil(t, qianfanFlash)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1), qianfanFlash.InputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(2), qianfanFlash.OutputCostPerToken, 1e-15)
+	require.NotEqual(t, flash.InputCostPerToken, qianfanFlash.InputCostPerToken)
+
+	qianfanPro := overlay["deepseek-v4-pro.qianfan"]
+	require.NotNil(t, qianfanPro)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(12), qianfanPro.InputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(24), qianfanPro.OutputCostPerToken, 1e-15)
+	require.NotEqual(t, pro.InputCostPerToken, qianfanPro.InputCostPerToken)
 }
 
 func TestTKPricingOverlay_FillsMoonshotChinaModels(t *testing.T) {
@@ -141,8 +183,8 @@ func TestUS043_RegistryWinsOverNonZeroProviderPrice(t *testing.T) {
 
 	flash := data["deepseek-v4-flash"]
 	require.NotNil(t, flash)
-	require.InDelta(t, 1.4e-7, flash.InputCostPerToken, 1e-15, "registry must replace provider value")
-	require.InDelta(t, 2.8e-7, flash.OutputCostPerToken, 1e-15, "registry must replace provider value")
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1.5), flash.InputCostPerToken, 1e-15, "registry must replace provider value")
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4.5), flash.OutputCostPerToken, 1e-15, "registry must replace provider value")
 }
 
 // TestTKPricingOverlay_FillsAntigravityGeminiThinking verifies the Antigravity
@@ -252,10 +294,10 @@ func TestTKPricingOverlay_ZeroPlaceholderIsReplaced(t *testing.T) {
 
 	pro := data["deepseek-v4-pro"]
 	require.NotNil(t, pro)
-	require.InDelta(t, 4.35e-7, pro.InputCostPerToken, 1e-15,
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4.5), pro.InputCostPerToken, 1e-15,
 		"zero placeholder must be replaced by the overlay deepseek-v4-pro price")
-	require.InDelta(t, 8.7e-7, pro.OutputCostPerToken, 1e-15)
-	require.InDelta(t, 3.625e-9, pro.CacheReadInputTokenCost, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(13.5), pro.OutputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.15), pro.CacheReadInputTokenCost, 1e-15)
 }
 
 func TestApplyTKPricingOverlay_GLMAuthoritativeOverLitellm(t *testing.T) {

@@ -132,16 +132,21 @@ func MapModel(model string) string {
 // ==================== Claude API 类型 ====================
 
 type ClaudeRequest struct {
-	Model       string                `json:"model"`
-	Messages    []ClaudeMessage       `json:"messages"`
-	MaxTokens   int                   `json:"max_tokens"`
-	Temperature float64               `json:"temperature,omitempty"`
-	TopP        float64               `json:"top_p,omitempty"`
-	Stream      bool                  `json:"stream,omitempty"`
-	System      interface{}           `json:"system,omitempty"` // string or []SystemBlock
-	Thinking    *ClaudeThinkingConfig `json:"thinking,omitempty"`
-	Tools       []ClaudeTool          `json:"tools,omitempty"`
-	ToolChoice  interface{}           `json:"tool_choice,omitempty"`
+	Model        string                `json:"model"`
+	Messages     []ClaudeMessage       `json:"messages"`
+	MaxTokens    int                   `json:"max_tokens"`
+	Temperature  float64               `json:"temperature,omitempty"`
+	TopP         float64               `json:"top_p,omitempty"`
+	Stream       bool                  `json:"stream,omitempty"`
+	System       interface{}           `json:"system,omitempty"` // string or []SystemBlock
+	Thinking     *ClaudeThinkingConfig `json:"thinking,omitempty"`
+	OutputConfig *ClaudeOutputConfig   `json:"output_config,omitempty"`
+	Tools        []ClaudeTool          `json:"tools,omitempty"`
+	ToolChoice   interface{}           `json:"tool_choice,omitempty"`
+}
+
+type ClaudeOutputConfig struct {
+	Effort string `json:"effort,omitempty"`
 }
 
 type ClaudeThinkingConfig struct {
@@ -362,9 +367,56 @@ func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
 		}
 	}
 
+	if thinking {
+		payload.AdditionalModelRequestFields = buildAdditionalModelRequestFields(req)
+	}
+
 	truncatePayloadToLimit(payload, systemPrompt != "")
 
 	return payload
+}
+
+// buildAdditionalModelRequestFields maps Claude thinking requests onto Kiro
+// additionalModelRequestFields (adaptive + output_config.effort).
+func buildAdditionalModelRequestFields(req *ClaudeRequest) *AdditionalModelRequestFields {
+	thinkingType := "adaptive"
+	display := "summarized"
+	maxTokens := 32000
+	if req != nil {
+		if req.MaxTokens > 0 {
+			maxTokens = req.MaxTokens
+		}
+		if req.Thinking != nil {
+			switch strings.ToLower(strings.TrimSpace(req.Thinking.Type)) {
+			case "adaptive", "enabled":
+				thinkingType = "adaptive"
+			default:
+				if kind := strings.TrimSpace(req.Thinking.Type); kind != "" {
+					thinkingType = kind
+				}
+			}
+			if d := strings.TrimSpace(req.Thinking.Display); d != "" {
+				display = d
+			}
+		}
+	}
+	fields := &AdditionalModelRequestFields{
+		Thinking:  &KiroThinkingRequest{Type: thinkingType, Display: display},
+		MaxTokens: maxTokens,
+	}
+	if effort := resolveKiroOutputEffort(req); effort != "" {
+		fields.OutputConfig = &KiroOutputConfig{Effort: effort}
+	}
+	return fields
+}
+
+func resolveKiroOutputEffort(req *ClaudeRequest) string {
+	if req != nil && req.OutputConfig != nil {
+		if effort := strings.TrimSpace(req.OutputConfig.Effort); effort != "" {
+			return effort
+		}
+	}
+	return "high"
 }
 
 func buildClaudeSystemPrompt(system interface{}, thinking bool) string {

@@ -907,10 +907,18 @@ esac
         lifecycle_lock = next(
             command
             for command in commands
-            if "/run/lock/tokenkey-qa-lifecycle.lock" in command
+            if "/var/lib/tokenkey/qa-lifecycle/host.lock" in command
         )
         self.assertIn("flock -x", lifecycle_lock)
         self.assertLess(commands.index(lifecycle_lock), commands.index(restore))
+
+        maintenance_runner = (
+            ROOT / "deploy/aws/stage0/tokenkey-qa-maintenance.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "QA_LIFECYCLE_LOCK_FILE:-/var/lib/tokenkey/qa-lifecycle/host.lock",
+            maintenance_runner,
+        )
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1361,6 +1369,124 @@ exit 1
         self.assertIn("unsafe CloudFormation change set", proc.stderr)
         self.assertIn("replacement=Conditional", proc.stderr)
         self.assertFalse(execute_called)
+
+    def test_raw_archive_deploy_allows_bundle_worker_image_task_definition_replacement(
+        self,
+    ) -> None:
+        script = ROOT / "ops/qa/deploy_qa_raw_archive_cfn.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            marker = root / "execute-called"
+            fake_aws = fake_bin / "aws"
+            fake_aws.write_text(
+                """#!/usr/bin/env bash
+if [[ "$*" == *"sts get-caller-identity"* ]]; then echo 123456789012; exit 0; fi
+if [[ "$*" == *"cloudformation describe-stacks"* ]]; then echo arn:aws:iam::123456789012:role/generated-existing-role; exit 0; fi
+if [[ "$*" == *"cloudformation create-change-set"* ]]; then exit 0; fi
+if [[ "$*" == *"cloudformation describe-change-set"* && "$*" == *"--query Status"* ]]; then
+  echo CREATE_COMPLETE
+  exit 0
+fi
+if [[ "$*" == *"cloudformation describe-change-set"* && "$*" == *"--output json"* ]]; then
+  cat <<'JSON'
+{"Changes":[{"Type":"Resource","ResourceChange":{"Action":"Modify","LogicalResourceId":"QaBundleWorkerService","ResourceType":"AWS::ECS::Service","Replacement":"False","Scope":["Properties"],"Details":[{"Target":{"Attribute":"Properties","Name":"TaskDefinition","RequiresRecreation":"Never"},"Evaluation":"Static","ChangeSource":"ResourceReference","CausingEntity":"QaBundleWorkerTaskDefinition"}]}},{"Type":"Resource","ResourceChange":{"PolicyAction":"ReplaceAndDelete","Action":"Modify","LogicalResourceId":"QaBundleWorkerTaskDefinition","ResourceType":"AWS::ECS::TaskDefinition","Replacement":"True","Scope":["Properties"],"Details":[{"Target":{"Attribute":"Properties","Name":"ContainerDefinitions","RequiresRecreation":"Always"},"Evaluation":"Dynamic","ChangeSource":"DirectModification"},{"Target":{"Attribute":"Properties","Name":"ContainerDefinitions","RequiresRecreation":"Always"},"Evaluation":"Static","ChangeSource":"ParameterReference","CausingEntity":"BundleWorkerImage"}]}}]}
+JSON
+  exit 0
+fi
+if [[ "$*" == *"cloudformation execute-change-set"* ]]; then touch "$EXECUTE_MARKER"; exit 0; fi
+if [[ "$*" == *"cloudformation wait stack-update-complete"* ]]; then exit 0; fi
+exit 1
+""",
+                encoding="utf-8",
+            )
+            fake_aws.chmod(0o755)
+            proc = subprocess.run(
+                ["bash", str(script)],
+                env={
+                    "PATH": f"{fake_bin}:/usr/bin:/bin",
+                    "APP_INSTANCE_ROLE_ARN": "arn:aws:iam::123456789012:role/app",
+                    "OPS_RECOVERY_PRINCIPAL_ARN": "arn:aws:iam::123456789012:user/operator",
+                    "QA_RAW_ARCHIVE_VPC_ID": "vpc-1234",
+                    "QA_RAW_ARCHIVE_ROUTE_TABLE_IDS": "rtb-1234",
+                    "QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS": "subnet-1234",
+                    "QA_BUNDLE_WORKER_IMAGE": "ghcr.io/youxuanxue/sub2api:1.8.158",
+                    "QA_BUNDLE_BROWSER_ALLOWED_ORIGIN": "https://api.tokenkey.dev",
+                    "QA_RAW_ARCHIVE_CONFIRM": "yes",
+                    "EXECUTE_MARKER": str(marker),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            execute_called = marker.exists()
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(execute_called)
+
+    def test_raw_archive_deploy_rejects_other_task_definition_replacement_details(
+        self,
+    ) -> None:
+        script = ROOT / "ops/qa/deploy_qa_raw_archive_cfn.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_aws = fake_bin / "aws"
+            fake_aws.write_text(
+                """#!/usr/bin/env bash
+if [[ "$*" == *"sts get-caller-identity"* ]]; then echo 123456789012; exit 0; fi
+if [[ "$*" == *"cloudformation describe-stacks"* ]]; then echo arn:aws:iam::123456789012:role/generated-existing-role; exit 0; fi
+if [[ "$*" == *"cloudformation create-change-set"* ]]; then exit 0; fi
+if [[ "$*" == *"cloudformation describe-change-set"* && "$*" == *"--query Status"* ]]; then
+  echo CREATE_COMPLETE
+  exit 0
+fi
+if [[ "$*" == *"cloudformation describe-change-set"* && "$*" == *"--output json"* ]]; then
+  cat <<JSON
+{"Changes":[{"Type":"Resource","ResourceChange":{"Action":"Modify","LogicalResourceId":"QaBundleWorkerTaskDefinition","ResourceType":"AWS::ECS::TaskDefinition","Replacement":"True","Scope":["Properties"],"Details":[{"Target":{"Attribute":"Properties","Name":"${TASKDEF_PROPERTY}","RequiresRecreation":"Always"},"Evaluation":"Static","ChangeSource":"DirectModification"},{"Target":{"Attribute":"Properties","Name":"${TASKDEF_PROPERTY}","RequiresRecreation":"Always"},"Evaluation":"Static","ChangeSource":"ParameterReference","CausingEntity":"${TASKDEF_PARAMETER}"}]}}]}
+JSON
+  exit 0
+fi
+if [[ "$*" == *"cloudformation execute-change-set"* ]]; then touch "$EXECUTE_MARKER"; exit 0; fi
+exit 1
+""",
+                encoding="utf-8",
+            )
+            fake_aws.chmod(0o755)
+            cases = (
+                ("Memory", "BundleWorkerMemory"),
+                ("ContainerDefinitions", "BundleWorkerMemory"),
+            )
+            for index, (property_name, parameter_name) in enumerate(cases):
+                with self.subTest(property=property_name, parameter=parameter_name):
+                    marker = root / f"execute-called-{index}"
+                    proc = subprocess.run(
+                        ["bash", str(script)],
+                        env={
+                            "PATH": f"{fake_bin}:/usr/bin:/bin",
+                            "APP_INSTANCE_ROLE_ARN": "arn:aws:iam::123456789012:role/app",
+                            "OPS_RECOVERY_PRINCIPAL_ARN": "arn:aws:iam::123456789012:user/operator",
+                            "QA_RAW_ARCHIVE_VPC_ID": "vpc-1234",
+                            "QA_RAW_ARCHIVE_ROUTE_TABLE_IDS": "rtb-1234",
+                            "QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS": "subnet-1234",
+                            "QA_BUNDLE_WORKER_IMAGE": "ghcr.io/youxuanxue/sub2api:1.8.158",
+                            "QA_BUNDLE_BROWSER_ALLOWED_ORIGIN": "https://api.tokenkey.dev",
+                            "QA_RAW_ARCHIVE_CONFIRM": "yes",
+                            "EXECUTE_MARKER": str(marker),
+                            "TASKDEF_PROPERTY": property_name,
+                            "TASKDEF_PARAMETER": parameter_name,
+                        },
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+
+                    self.assertNotEqual(proc.returncode, 0)
+                    self.assertIn("unsafe CloudFormation change set", proc.stderr)
+                    self.assertIn("QaBundleWorkerTaskDefinition", proc.stderr)
+                    self.assertFalse(marker.exists())
 
     def test_release_images_include_qa_archive_binary(self) -> None:
         for rel in ("Dockerfile", "deploy/Dockerfile", "backend/Dockerfile"):

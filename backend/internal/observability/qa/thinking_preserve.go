@@ -50,6 +50,27 @@ func restoreThinkingSignatures(redacted string, original []byte) string {
 	return out
 }
 
+// restoreInternalThinkingBlockJSON preserves the real thinking-block signature on
+// QA-only internal_thinking_blocks entries (single Anthropic-shaped block JSON).
+func restoreInternalThinkingBlockJSON(redacted string, original []byte) string {
+	if redacted == "" || len(original) == 0 {
+		return redacted
+	}
+	orig := gjson.ParseBytes(original)
+	if orig.Get("type").String() != "thinking" {
+		return redacted
+	}
+	sig := orig.Get("signature").String()
+	if sig == "" {
+		return redacted
+	}
+	out, err := sjson.Set(redacted, "signature", sig)
+	if err != nil {
+		return redacted
+	}
+	return out
+}
+
 // restoreSignaturesInContentArray 遍历 content 数组，仅对 type=="thinking" 且原始
 // signature 非空的块，在 redacted 的同一路径写回真实 signature。
 func restoreSignaturesInContentArray(redacted, prefix string, content gjson.Result) string {

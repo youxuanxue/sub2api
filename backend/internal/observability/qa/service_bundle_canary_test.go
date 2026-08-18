@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -21,6 +22,23 @@ type canaryBundleQueue struct {
 
 func (q canaryBundleQueue) Enqueue(ctx context.Context, key string) error {
 	return q.enqueue(ctx, key)
+}
+
+type canaryHeadFaultStore struct {
+	bundle.Store
+	accessDeniedRemaining int
+	headError             error
+}
+
+func (s *canaryHeadFaultStore) Head(ctx context.Context, key string) (bool, error) {
+	if s.headError != nil {
+		return false, s.headError
+	}
+	if s.accessDeniedRemaining > 0 {
+		s.accessDeniedRemaining--
+		return false, fmt.Errorf("head archive object %s: %w", key, archive.ErrAccessDenied)
+	}
+	return s.Store.Head(ctx, key)
 }
 
 func TestRunBundleCanaryTraversesSpecQueueWorkerReceiptAndManifest(t *testing.T) {
@@ -82,4 +100,64 @@ func TestRunBundleCanaryCreatesANewJobForSameSecondRetries(t *testing.T) {
 	}
 	require.Len(t, keys, 2)
 	require.NotEqual(t, keys[0], keys[1])
+}
+
+func TestRunBundleCanaryRetriesTransientHeadAccessDenied(t *testing.T) {
+	objects := archive.NewMemoryObjectStore()
+	baseStore := bundle.NewArchiveStore(objects)
+	store := &canaryHeadFaultStore{Store: baseStore, accessDeniedRemaining: 3}
+	watermark := time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)
+	now := watermark.Add(17 * time.Minute)
+	queue := canaryBundleQueue{enqueue: func(ctx context.Context, key string) error {
+		specBody, err := store.Read(ctx, key)
+		require.NoError(t, err)
+		spec, err := bundle.ParseJobSpec(specBody)
+		require.NoError(t, err)
+		manifest, err := bundle.Publish(ctx, store, bundle.PublishInput{
+			Prefix: spec.GenerationPrefix, DataFrom: spec.DataFrom, DataUntil: spec.DataUntil,
+			ArchiveWatermark: spec.ArchiveWatermark,
+		})
+		require.NoError(t, err)
+		receipt := bundle.JobReceipt{
+			SchemaVersion: bundle.JobSchemaVersion, Kind: bundle.JobKindBundle, JobID: spec.JobID,
+			ManifestKey: manifest.ManifestKey, DataFrom: spec.DataFrom, DataUntil: spec.DataUntil,
+			ArchiveWatermark: spec.ArchiveWatermark, RecordCount: 0, CompletedAt: now,
+		}
+		body, err := json.Marshal(receipt)
+		require.NoError(t, err)
+		_, err = objects.Create(ctx, spec.ReceiptKey, bytes.NewReader(body), int64(len(body)), "application/json")
+		return err
+	}}
+
+	receipt, err := runBundleCanary(context.Background(), store, queue, func(context.Context) (time.Time, error) {
+		return watermark, nil
+	}, bundleCanaryOptions{Now: func() time.Time { return now }, Timeout: time.Second, PollInterval: time.Millisecond})
+	require.NoError(t, err)
+	require.True(t, receipt.OK)
+	require.Zero(t, store.accessDeniedRemaining)
+}
+
+func TestRunBundleCanaryTimesOutWhenHeadAccessDeniedPersists(t *testing.T) {
+	baseStore := bundle.NewArchiveStore(archive.NewMemoryObjectStore())
+	store := &canaryHeadFaultStore{Store: baseStore, accessDeniedRemaining: 1_000}
+	watermark := time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)
+	queue := canaryBundleQueue{enqueue: func(context.Context, string) error { return nil }}
+
+	_, err := runBundleCanary(context.Background(), store, queue, func(context.Context) (time.Time, error) {
+		return watermark, nil
+	}, bundleCanaryOptions{Now: func() time.Time { return watermark }, Timeout: 20 * time.Millisecond, PollInterval: time.Millisecond})
+	require.EqualError(t, err, "qa bundle canary timed out")
+}
+
+func TestRunBundleCanaryFailsImmediatelyForOtherHeadErrors(t *testing.T) {
+	headErr := errors.New("head archive object: transport unavailable")
+	baseStore := bundle.NewArchiveStore(archive.NewMemoryObjectStore())
+	store := &canaryHeadFaultStore{Store: baseStore, headError: headErr}
+	watermark := time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)
+	queue := canaryBundleQueue{enqueue: func(context.Context, string) error { return nil }}
+
+	_, err := runBundleCanary(context.Background(), store, queue, func(context.Context) (time.Time, error) {
+		return watermark, nil
+	}, bundleCanaryOptions{Now: func() time.Time { return watermark }, Timeout: time.Second, PollInterval: time.Millisecond})
+	require.ErrorIs(t, err, headErr)
 }
