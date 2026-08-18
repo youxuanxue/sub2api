@@ -17,6 +17,7 @@ const messages: Record<string, string> = {
   'usage.accountCost': 'Cost',
   'usage.standardCost': 'Standard',
   'usage.avgDuration': 'Avg Duration',
+  'usage.avgGatewayLatency': 'Gateway transfer latency',
 }
 
 vi.mock('vue-i18n', async () => {
@@ -40,7 +41,8 @@ const stats = {
   total_cost: 0.001,
   total_actual_cost: 0.001,
   total_account_cost: 0.001,
-  average_duration_ms: 250,
+  average_duration_ms: 10580,
+  average_gateway_latency_ms: 28,
 }
 
 describe('UsageStatsCards', () => {
@@ -81,5 +83,24 @@ describe('UsageStatsCards', () => {
 
     expect(wrapper.text()).toContain('Total Cost')
     expect(wrapper.text()).not.toContain('Standard')
+  })
+
+  it('shows selected-range gateway transfer latency instead of end-to-end duration', () => {
+    const wrapper = mount(UsageStatsCards, {
+      props: {
+        stats,
+      },
+      global: {
+        stubs: {
+          Icon: true,
+        },
+      },
+    })
+
+    const text = wrapper.text()
+    expect(text).toContain('Gateway transfer latency')
+    expect(text).toContain('28ms')
+    expect(text).not.toContain('Avg Duration')
+    expect(text).not.toContain('10.58s')
   })
 })

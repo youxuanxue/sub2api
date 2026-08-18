@@ -52,6 +52,7 @@ type UsageStats struct {
 	TotalCost                float64 `json:"total_cost"`
 	TotalActualCost          float64 `json:"total_actual_cost"`
 	AverageDurationMs        float64 `json:"average_duration_ms"`
+	AverageGatewayLatencyMs  float64 `json:"average_gateway_latency_ms"`
 }
 
 // UsageService 使用统计服务
@@ -202,6 +203,7 @@ func (s *UsageService) GetStatsByUser(ctx context.Context, userID int64, startTi
 		TotalCost:                stats.TotalCost,
 		TotalActualCost:          stats.TotalActualCost,
 		AverageDurationMs:        stats.AverageDurationMs,
+		AverageGatewayLatencyMs:  stats.AverageGatewayLatencyMs,
 	}, nil
 }
 
@@ -223,6 +225,7 @@ func (s *UsageService) GetStatsByAPIKey(ctx context.Context, apiKeyID int64, sta
 		TotalCost:                stats.TotalCost,
 		TotalActualCost:          stats.TotalActualCost,
 		AverageDurationMs:        stats.AverageDurationMs,
+		AverageGatewayLatencyMs:  stats.AverageGatewayLatencyMs,
 	}, nil
 }
 
@@ -244,6 +247,7 @@ func (s *UsageService) GetStatsByAccount(ctx context.Context, accountID int64, s
 		TotalCost:                stats.TotalCost,
 		TotalActualCost:          stats.TotalActualCost,
 		AverageDurationMs:        stats.AverageDurationMs,
+		AverageGatewayLatencyMs:  stats.AverageGatewayLatencyMs,
 	}, nil
 }
 
@@ -265,6 +269,7 @@ func (s *UsageService) GetStatsByModel(ctx context.Context, modelName string, st
 		TotalCost:                stats.TotalCost,
 		TotalActualCost:          stats.TotalActualCost,
 		AverageDurationMs:        stats.AverageDurationMs,
+		AverageGatewayLatencyMs:  stats.AverageGatewayLatencyMs,
 	}, nil
 }
 

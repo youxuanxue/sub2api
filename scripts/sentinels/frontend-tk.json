@@ -1853,6 +1853,17 @@
         "'peak_input_per_1M'"
       ],
       "rationale": "The admin pricing CSV is what sales quotes from, so it must not disagree with /pricing. Bracket bounds come from formatTokenBound in the shared owner (a label change lands in the sheet and the UI together) and each bracket carries its own cache-read price — omitting it implied the flat first-tier cache price applied at every context length."
+    },
+    {
+      "path": "frontend/src/components/admin/usage/UsageStatsCards.vue",
+      "must_contain": [
+        "t('usage.avgGatewayLatency')",
+        "formatDuration(stats?.average_gateway_latency_ms || 0)"
+      ],
+      "must_not_contain": [
+        "t('usage.avgDuration')"
+      ],
+      "rationale": "User and admin /usage summary cards share UsageStatsCards. The card must bind selected-range gateway transfer latency, not end-to-end average_duration_ms, or the page again shows 10s+ LLM time as if it were gateway delay."
     }
   ]
 }

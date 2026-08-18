@@ -56,6 +56,36 @@ SELECT row_to_json(t) FROM (
 ) t;
 "
 
+echo '=== dashboard_daily_today_gateway ==='
+psql_q "
+SELECT row_to_json(t) FROM (
+  SELECT
+    bucket_date,
+    COALESCE(total_gateway_latency_ms,0) AS sum_gateway_ms,
+    COALESCE(gateway_latency_samples,0) AS samples,
+    CASE WHEN COALESCE(gateway_latency_samples,0) > 0
+      THEN ROUND(COALESCE(total_gateway_latency_ms,0)::numeric / gateway_latency_samples)
+      ELSE NULL END AS avg_today_ms,
+    COALESCE(total_requests,0) AS today_requests
+  FROM usage_dashboard_daily
+  WHERE bucket_date = (timezone('Asia/Shanghai', now()))::date
+) t;
+"
+
+echo '=== user_16_last_24h ==='
+psql_q "
+SELECT row_to_json(t) FROM (
+  SELECT
+    COUNT(*) AS total_requests,
+    COUNT(*) FILTER (WHERE gateway_latency_ms IS NOT NULL) AS gateway_samples,
+    ROUND(AVG(duration_ms) FILTER (WHERE duration_ms IS NOT NULL)) AS avg_duration_ms,
+    ROUND(AVG(gateway_latency_ms) FILTER (WHERE gateway_latency_ms IS NOT NULL)) AS avg_gateway_ms
+  FROM usage_logs
+  WHERE user_id = 16
+    AND created_at >= NOW() - INTERVAL '24 hours'
+) t;
+"
+
 echo '=== sample_outliers_last_6h ==='
 psql_q "
 SELECT row_to_json(t) FROM (
