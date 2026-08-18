@@ -17,7 +17,8 @@ fi
 for f in \
   "${STAGE0}/docker-compose.yml" \
   "${STAGE0}/Caddyfile.edge" \
-  "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh"; do
+  "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh" \
+  "${HERE}/restore-edge-env-secrets.sh"; do
   [[ -f "$f" ]] || { echo "missing $f" >&2; exit 1; }
 done
 
@@ -27,6 +28,7 @@ done
 compose_b64="$(gzip -9n -c "${STAGE0}/docker-compose.yml" | base64 | tr -d '\n')"
 caddy_b64="$(gzip -9n -c "${STAGE0}/Caddyfile.edge" | base64 | tr -d '\n')"
 prune_b64="$(gzip -9n -c "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh" | base64 | tr -d '\n')"
+restore_secrets_b64="$(gzip -9n -c "${HERE}/restore-edge-env-secrets.sh" | base64 | tr -d '\n')"
 
 cat >"${OUT}.tmp" <<'LAUNCH_HEAD'
 #!/bin/bash
@@ -44,13 +46,9 @@ echo "LIGHTSAIL_BOOTSTRAP_START $(date -u +%FT%TZ)"
 : "${LIGHTSAIL_REGION:?LIGHTSAIL_REGION required}"
 : "${SSM_ACTIVATION_ID:?SSM_ACTIVATION_ID required}"
 : "${SSM_ACTIVATION_CODE:?SSM_ACTIVATION_CODE required}"
-# GHCR auth is OPTIONAL: empty GHCR_PAT_SSM_NAME -> anonymous pull (public
-# ghcr.io image). Set it to an SSM SecureString name if the image goes private.
 : "${GHCR_PAT_SSM_NAME:=}"
 : "${GHCR_PULL_USER:=}"
 
-# Align kernel hostname with Lightsail instance name so SSM ComputerName-based
-# discovery matches provision-edge.sh fallbacks (AL2023 default is often a dhcp name).
 if command -v hostnamectl >/dev/null 2>&1; then
   hostnamectl set-hostname "${INSTANCE_NAME}" || true
 else
@@ -74,8 +72,6 @@ if ! docker compose version >/dev/null 2>&1; then
   chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 fi
 
-# Swap (2 GiB): micro Lightsail bundles have no swap by default; without this,
-# memory spikes can hang the VM.
 SWAP_SIZE_GIB="${SWAP_SIZE_GIB:-2}"
 if [ "${SWAP_SIZE_GIB}" -gt 0 ] && [ ! -f /swapfile ]; then
   fallocate -l "${SWAP_SIZE_GIB}G" /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=$((SWAP_SIZE_GIB * 1024)) status=progress
@@ -122,6 +118,7 @@ cat >>"${OUT}.tmp" <<LAUNCH_EMBED
 COMPOSE_GZB64='${compose_b64}'
 CADDY_GZB64='${caddy_b64}'
 PRUNE_B64='${prune_b64}'
+RESTORE_SECRETS_B64='${restore_secrets_b64}'
 LAUNCH_EMBED
 
 # Renderer-side notes (kept OUT of the embedded artifact — Lightsail user-data
@@ -143,18 +140,13 @@ envsubst '${API_DOMAIN} ${ACME_EMAIL} ${MAIN_GATEWAY_ALLOWED_CIDR}' \
 printf '%s' "$PRUNE_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
 chmod +x /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
 
+printf '%s' "$RESTORE_SECRETS_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-restore-edge-env-secrets.sh
+chmod 0755 /usr/local/bin/tokenkey-restore-edge-env-secrets.sh
+
 SECRET_FILE=/var/lib/tokenkey/.env.secret
-if [ ! -f "$SECRET_FILE" ]; then
-  umask 077
-  gen_secret() { openssl rand -hex 32; }
-  gen_pwd() { openssl rand -hex 24; }
-  cat > "$SECRET_FILE" <<SECEOF
-POSTGRES_PASSWORD=$(gen_pwd)
-JWT_SECRET=$(gen_secret)
-TOTP_ENCRYPTION_KEY=$(gen_secret)
-SECEOF
-  chmod 0600 "$SECRET_FILE"
-fi
+AWS_REGION="${LIGHTSAIL_REGION}" /usr/local/bin/tokenkey-restore-edge-env-secrets.sh \
+  --parameter "/tokenkey/edge/${EDGE_ID}/stage0/env-secrets-backup" \
+  --output "$SECRET_FILE"
 set -a; . "$SECRET_FILE"; set +a
 
 cat > /var/lib/tokenkey/.env <<ENVEOF
