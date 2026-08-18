@@ -65,68 +65,49 @@ func (s *UsageLogRepoSuite) rollupParityCreateKiroLog(user *service.User, apiKey
 	s.Require().NoError(err)
 }
 
-// TestGroupRollupParity_EqualsLegacyRawScan is the load-bearing equality test for
-// the per-(group, day) rollup that backs GetAllGroupUsageSummary. It builds a
-// fixture spanning two groups over completed past days + today, then asserts:
-//
-//  1. BEFORE aggregation (no backfill marker) the legacy raw full-table scan path
-//     serves correct totals — this is the self-healing fallback.
-//  2. AFTER AggregateRange (which runs the one-time backfill + sets the marker)
-//     the rollup-backed path returns byte-identical totals (completed days from
-//     the rollup + today's partial day from raw), proving the structural rewrite
-//     did not change the numbers.
-func (s *UsageLogRepoSuite) TestGroupRollupParity_EqualsLegacyRawScan() {
+// TestGroupUsageSummaryIgnoresDashboardDistributionRows pins the ownership
+// boundary between the two group rollups. usage_dashboard_group_daily may contain
+// fully backfilled Dashboard metrics, but Groups Today/Yesterday/Total must only
+// follow usage_group_daily_rollups and its publication state.
+func (s *UsageLogRepoSuite) TestGroupUsageSummaryIgnoresDashboardDistributionRows() {
 	now := time.Now()
 	today := timezone.Today()
-	day5 := today.Add(-5 * 24 * time.Hour).Add(9 * time.Hour)
-	day2 := today.Add(-2 * 24 * time.Hour).Add(14 * time.Hour)
+	pastPoint := today.Add(-2 * 24 * time.Hour).Add(14 * time.Hour)
 	todayPoint := today.Add(3 * time.Hour)
 	if todayPoint.After(now) {
 		todayPoint = now.Add(-time.Minute)
 	}
 
-	user := mustCreateUser(s.T(), s.client, &service.User{Email: "grp-rollup@test.com"})
-	key := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-grp-rollup", Name: "k"})
-	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "grp-rollup-acc", Platform: service.PlatformAnthropic})
-	grpA := mustCreateGroup(s.T(), s.client, &service.Group{Name: "grp-rollup-A", Platform: service.PlatformAnthropic})
-	grpB := mustCreateGroup(s.T(), s.client, &service.Group{Name: "grp-rollup-B", Platform: service.PlatformOpenAI})
+	user := mustCreateUser(s.T(), s.client, &service.User{Email: "grp-summary-owner@test.com"})
+	key := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-grp-summary-owner", Name: "k"})
+	acc := mustCreateAccount(s.T(), s.client, &service.Account{Name: "grp-summary-owner-acc", Platform: service.PlatformAnthropic})
+	grp := mustCreateGroup(s.T(), s.client, &service.Group{Name: "grp-summary-owner", Platform: service.PlatformAnthropic})
 
-	// group A: day5 0.50, day2 0.30, today 0.10 -> total 0.90, today 0.10
-	s.rollupParityCreateLog(user, key, acc, grpA.ID, 10, 20, 0, 0, 0.50, day5)
-	s.rollupParityCreateLog(user, key, acc, grpA.ID, 10, 20, 0, 0, 0.30, day2)
-	s.rollupParityCreateLog(user, key, acc, grpA.ID, 10, 20, 0, 0, 0.10, todayPoint)
-	// group B: day2 0.70, today 0.20 -> total 0.90, today 0.20
-	s.rollupParityCreateLog(user, key, acc, grpB.ID, 10, 20, 0, 0, 0.70, day2)
-	s.rollupParityCreateLog(user, key, acc, grpB.ID, 10, 20, 0, 0, 0.20, todayPoint)
+	s.rollupParityCreateLog(user, key, acc, grp.ID, 10, 20, 0, 0, 0.70, pastPoint)
+	s.rollupParityCreateLog(user, key, acc, grp.ID, 10, 20, 0, 0, 0.20, todayPoint)
 
-	// (1) Fallback path: before aggregation the marker is absent, so the legacy
-	// raw scan serves it.
-	pre, err := s.repo.GetAllGroupUsageSummary(s.ctx, today)
+	before, err := s.repo.GetAllGroupUsageSummary(s.ctx, today)
 	s.Require().NoError(err)
-	preIdx := indexByGroup(pre)
-	s.InDelta(0.90, preIdx[grpA.ID].TotalCost, 1e-9, "fallback raw scan: group A total")
-	s.InDelta(0.10, preIdx[grpA.ID].TodayCost, 1e-9)
-	s.InDelta(0.90, preIdx[grpB.ID].TotalCost, 1e-9)
-	s.InDelta(0.20, preIdx[grpB.ID].TodayCost, 1e-9)
+	beforeRow := indexByGroup(before)[grp.ID]
+	s.InDelta(0.90, beforeRow.TotalCost, 1e-9)
+	s.InDelta(0.20, beforeRow.TodayCost, 1e-9)
 
-	// Populate the rollup + set the backfill marker via the aggregation driver.
-	aggRepo := newDashboardAggregationRepositoryWithSQL(s.tx)
-	s.Require().NoError(aggRepo.AggregateRange(s.ctx, today.Add(-30*24*time.Hour), today), "AggregateRange")
-
-	// (2) Rollup path: same totals, now served from rollup(completed days)+raw(today).
-	post, err := s.repo.GetAllGroupUsageSummary(s.ctx, today)
+	_, err = s.tx.ExecContext(s.ctx, `
+		INSERT INTO usage_dashboard_group_daily (bucket_date, group_id, actual_cost, computed_at)
+		VALUES
+			($1::date, $2, 999, NOW()),
+			(DATE '`+groupDailyBackfillMarkerDate+`', 0, 0, NOW()),
+			(DATE '`+groupDailyMetricsBackfillMarkerDate+`', 0, 0, NOW())
+		ON CONFLICT (bucket_date, group_id) DO UPDATE SET
+			actual_cost = EXCLUDED.actual_cost,
+			computed_at = EXCLUDED.computed_at
+	`, pastPoint.Format("2006-01-02"), grp.ID)
 	s.Require().NoError(err)
-	postIdx := indexByGroup(post)
-	s.InDelta(0.90, postIdx[grpA.ID].TotalCost, 1e-9, "rollup path: group A total from rollup(day5+day2)+raw(today)")
-	s.InDelta(0.10, postIdx[grpA.ID].TodayCost, 1e-9)
-	s.InDelta(0.90, postIdx[grpB.ID].TotalCost, 1e-9)
-	s.InDelta(0.20, postIdx[grpB.ID].TodayCost, 1e-9)
 
-	// Parity: rollup path equals the legacy raw path element-for-element.
-	s.InDelta(preIdx[grpA.ID].TotalCost, postIdx[grpA.ID].TotalCost, 1e-9)
-	s.InDelta(preIdx[grpA.ID].TodayCost, postIdx[grpA.ID].TodayCost, 1e-9)
-	s.InDelta(preIdx[grpB.ID].TotalCost, postIdx[grpB.ID].TotalCost, 1e-9)
-	s.InDelta(preIdx[grpB.ID].TodayCost, postIdx[grpB.ID].TodayCost, 1e-9)
+	after, err := s.repo.GetAllGroupUsageSummary(s.ctx, today)
+	s.Require().NoError(err)
+	afterRow := indexByGroup(after)[grp.ID]
+	s.Equal(beforeRow, afterRow, "Dashboard distribution rows must not own Groups summary amounts")
 }
 
 // TestGroupStatsRollupParity_EqualsLegacyRawScanWithUngrouped is the equality

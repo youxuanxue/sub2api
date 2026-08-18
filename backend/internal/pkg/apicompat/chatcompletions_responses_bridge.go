@@ -656,6 +656,30 @@ func isBlankChatContent(raw json.RawMessage) bool {
 	return chatMessageContentText(raw) == ""
 }
 
+// extractResponsesOutputReasoningText pulls visible reasoning from a typed
+// Responses output item. Prefer summary (short plaintext) then content[].reasoning_text
+// (full text when upstream only ships it on output_item.done).
+func extractResponsesOutputReasoningText(item *ResponsesOutput) string {
+	if item == nil {
+		return ""
+	}
+	var parts []string
+	for _, s := range item.Summary {
+		if s.Text != "" {
+			parts = append(parts, s.Text)
+		}
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, "")
+	}
+	for _, p := range item.Content {
+		if p.Type == "reasoning_text" && p.Text != "" {
+			parts = append(parts, p.Text)
+		}
+	}
+	return strings.Join(parts, "")
+}
+
 // extractResponsesReasoningText pulls the reasoning text out of a Responses
 // reasoning item. The Chat→Responses bridge writes the upstream reasoning_content
 // verbatim into the summary_text parts (see closeChatReasoningItem), so codex

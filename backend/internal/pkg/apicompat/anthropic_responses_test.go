@@ -420,6 +420,109 @@ func TestResponsesToAnthropic_Reasoning(t *testing.T) {
 	assert.Equal(t, "42", anth.Content[1].Text)
 }
 
+func TestResponsesToAnthropic_ReasoningTextFromContent(t *testing.T) {
+	anth := ResponsesToAnthropic(&ResponsesResponse{
+		ID:     "resp_cot",
+		Model:  "gpt-5.4-mini",
+		Status: "completed",
+		Output: []ResponsesOutput{
+			{
+				Type:             "reasoning",
+				EncryptedContent: "enc-content-only",
+				Content: []ResponsesContentPart{
+					{Type: "reasoning_text", Text: "content-only thought"},
+				},
+			},
+			{
+				Type: "message",
+				Content: []ResponsesContentPart{
+					{Type: "output_text", Text: "ok"},
+				},
+			},
+		},
+	}, "claude-opus-4-6")
+	require.Len(t, anth.Content, 2)
+	assert.Equal(t, "thinking", anth.Content[0].Type)
+	assert.Equal(t, "content-only thought", anth.Content[0].Thinking)
+	assert.Equal(t, "enc-content-only", anth.Content[0].Signature)
+}
+
+func TestResponsesEventToAnthropic_OutputItemDoneBackfillsReasoningText(t *testing.T) {
+	state := NewResponsesEventToAnthropicState()
+	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:     "response.created",
+		Response: &ResponsesResponse{ID: "resp_done_only", Model: "gpt-5.4-mini"},
+	}, state)
+
+	events := ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:        "response.output_item.done",
+		OutputIndex: 0,
+		Item: &ResponsesOutput{
+			Type:             "reasoning",
+			EncryptedContent: "enc-done-only",
+			Content: []ResponsesContentPart{
+				{Type: "reasoning_text", Text: "done-only thought"},
+			},
+			Summary: []ResponsesSummary{
+				{Type: "summary_text", Text: "short summary"},
+			},
+		},
+	}, state)
+
+	var thinking string
+	var signature string
+	var sawStart, sawStop bool
+	for _, evt := range events {
+		switch evt.Type {
+		case "content_block_start":
+			if evt.ContentBlock != nil && evt.ContentBlock.Type == "thinking" {
+				sawStart = true
+			}
+		case "content_block_delta":
+			if evt.Delta != nil && evt.Delta.Type == "thinking_delta" {
+				thinking += evt.Delta.Thinking
+			}
+			if evt.Delta != nil && evt.Delta.Type == "signature_delta" {
+				signature = evt.Delta.Signature
+			}
+		case "content_block_stop":
+			sawStop = true
+		}
+	}
+	require.True(t, sawStart)
+	require.True(t, sawStop)
+	assert.Equal(t, "short summary", thinking)
+	assert.Equal(t, "enc-done-only", signature)
+}
+
+func TestResponsesEventToAnthropic_OutputItemDoneDoesNotDuplicateReasoningDelta(t *testing.T) {
+	state := NewResponsesEventToAnthropicState()
+	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:     "response.created",
+		Response: &ResponsesResponse{ID: "resp_dup", Model: "gpt-5.4-mini"},
+	}, state)
+	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:        "response.reasoning_summary_text.delta",
+		OutputIndex: 0,
+		Delta:       "already streamed",
+	}, state)
+
+	events := ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:        "response.output_item.done",
+		OutputIndex: 0,
+		Item: &ResponsesOutput{
+			Type:             "reasoning",
+			EncryptedContent: "enc-dup",
+			Summary: []ResponsesSummary{
+				{Type: "summary_text", Text: "already streamed"},
+			},
+		},
+	}, state)
+	require.Len(t, events, 2)
+	assert.Equal(t, "signature_delta", events[0].Delta.Type)
+	assert.Equal(t, "content_block_stop", events[1].Type)
+}
+
 func TestResponsesToAnthropic_StreamEmitsThinkingSignature(t *testing.T) {
 	state := NewResponsesEventToAnthropicState()
 	var all []AnthropicStreamEvent

@@ -78,6 +78,33 @@ func TestResolveDataLifecyclePolicyFixesBillingDedupAtOneYear(t *testing.T) {
 	}
 }
 
+func TestUsageLogRetentionDaysUsesResolvedPolicy(t *testing.T) {
+	require.Equal(t, 90, UsageLogRetentionDays(nil))
+	require.Equal(t, 90, UsageLogRetentionDays(&config.Config{
+		Server: config.ServerConfig{FrontendURL: "https://api.tokenkey.dev"},
+		DashboardAgg: config.DashboardAggregationConfig{
+			Retention: config.DashboardAggregationRetentionConfig{UsageLogsDays: 180},
+		},
+	}))
+	require.Equal(t, 7, UsageLogRetentionDays(&config.Config{
+		Server: config.ServerConfig{FrontendURL: "https://api-us1.tokenkey.dev"},
+		DashboardAgg: config.DashboardAggregationConfig{
+			Retention: config.DashboardAggregationRetentionConfig{UsageLogsDays: 90},
+		},
+	}))
+	require.Equal(t, 2, UsageLogRetentionDays(&config.Config{
+		Server: config.ServerConfig{FrontendURL: "https://api-us1.tokenkey.dev"},
+		DashboardAgg: config.DashboardAggregationConfig{
+			Retention: config.DashboardAggregationRetentionConfig{UsageLogsDays: 2},
+		},
+	}))
+	require.Equal(t, 90, UsageLogRetentionDays(&config.Config{
+		DashboardAgg: config.DashboardAggregationConfig{
+			Retention: config.DashboardAggregationRetentionConfig{UsageLogsDays: 0},
+		},
+	}))
+}
+
 func TestDataLifecycleRoleKnown(t *testing.T) {
 	require.True(t, dataLifecycleRoleKnown("https://api.tokenkey.dev"))
 	require.True(t, dataLifecycleRoleKnown("https://api-jp1.tokenkey.dev"))

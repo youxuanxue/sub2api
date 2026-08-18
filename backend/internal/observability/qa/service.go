@@ -375,6 +375,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		Tags:                       captureTags(requestBody, responseBody, status, responseTruncated),
 		CreatedAt:                  time.Now().UTC(),
 		InternalThinkingBlocksJSON: captureInternalThinkingBlocks(c),
+		EncryptedReasoningJSON:     captureEncryptedReasoning(c),
 		SynthSessionID:             synthSession,
 		SynthRole:                  synthRole,
 		SynthEngineerLevel:         synthLevel,
@@ -609,6 +610,11 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 	if len(input.InternalThinkingBlocksJSON) > 0 {
 		if resp, ok := payload["response"].(map[string]any); ok {
 			resp["internal_thinking_blocks"] = input.InternalThinkingBlocksJSON
+		}
+	}
+	if len(input.EncryptedReasoningJSON) > 0 {
+		if resp, ok := payload["response"].(map[string]any); ok {
+			resp["encrypted_reasoning"] = input.EncryptedReasoningJSON
 		}
 	}
 	raw, err := json.Marshal(payload)
@@ -1010,6 +1016,10 @@ func captureInternalThinkingBlocks(c *gin.Context) []string {
 		return nil
 	}
 	return out
+}
+
+func captureEncryptedReasoning(c *gin.Context) []string {
+	return captureInternalThinkingBlocksFromKey(c, "ops_openai_encrypted_reasoning")
 }
 
 func captureInternalThinkingBlocksFromKey(c *gin.Context, key string) []string {
