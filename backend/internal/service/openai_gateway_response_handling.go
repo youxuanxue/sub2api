@@ -1216,8 +1216,12 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	}
 	if bodyHasSSEFraming(body) {
 		observeOpenAISSEBody(observer, string(body))
+		forEachOpenAISSEDataPayload(string(body), func(data []byte) {
+			stashOpenAIEncryptedReasoningFromSSE(c, data)
+		})
 	} else {
 		observer.ObserveOpenAI(body, strings.TrimSpace(gjson.GetBytes(body, "type").String()))
+		stashOpenAIEncryptedReasoningFromSSE(c, body)
 	}
 
 	// Detect SSE responses for ALL account types via Content-Type header.
@@ -1316,6 +1320,9 @@ func bodyHasSSEFraming(body []byte) bool {
 
 func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Context, body []byte, originalModel, mappedModel string) (*openaiNonStreamingResult, error) {
 	bodyText := string(body)
+	forEachOpenAISSEDataPayload(bodyText, func(data []byte) {
+		stashOpenAIEncryptedReasoningFromSSE(c, data)
+	})
 	finalResponse, ok := extractCodexFinalResponse(bodyText)
 
 	usage := &OpenAIUsage{}

@@ -57,6 +57,73 @@ func TestResponsesEventToChatChunks_ReasoningTextDelta(t *testing.T) {
 	assert.Equal(t, "thinking step", *chunks[0].Choices[0].Delta.ReasoningContent)
 }
 
+func TestResponsesEventToChatChunks_OutputItemDoneBackfillsReasoningText(t *testing.T) {
+	state := NewResponsesEventToChatState()
+	state.Model = "gpt-5.4-mini"
+	state.SentRole = true
+
+	chunks := ResponsesEventToChatChunks(&ResponsesStreamEvent{
+		Type:        "response.output_item.done",
+		OutputIndex: 0,
+		Item: &ResponsesOutput{
+			Type: "reasoning",
+			Content: []ResponsesContentPart{
+				{Type: "reasoning_text", Text: "full chain of thought"},
+			},
+		},
+	}, state)
+	require.Len(t, chunks, 1)
+	require.NotNil(t, chunks[0].Choices[0].Delta.ReasoningContent)
+	assert.Equal(t, "full chain of thought", *chunks[0].Choices[0].Delta.ReasoningContent)
+}
+
+func TestResponsesEventToChatChunks_OutputItemDoneDoesNotDuplicateReasoningDelta(t *testing.T) {
+	state := NewResponsesEventToChatState()
+	state.Model = "gpt-5.4-mini"
+	state.SentRole = true
+
+	chunks := ResponsesEventToChatChunks(&ResponsesStreamEvent{
+		Type:  "response.reasoning_text.delta",
+		Delta: "already streamed",
+	}, state)
+	require.Len(t, chunks, 1)
+
+	chunks = ResponsesEventToChatChunks(&ResponsesStreamEvent{
+		Type:        "response.output_item.done",
+		OutputIndex: 0,
+		Item: &ResponsesOutput{
+			Type: "reasoning",
+			Content: []ResponsesContentPart{
+				{Type: "reasoning_text", Text: "already streamed"},
+			},
+		},
+	}, state)
+	require.Empty(t, chunks)
+}
+
+func TestResponsesToChatCompletions_ReasoningTextFromContent(t *testing.T) {
+	chat := ResponsesToChatCompletions(&ResponsesResponse{
+		ID:     "resp_cot",
+		Status: "completed",
+		Output: []ResponsesOutput{
+			{
+				Type: "reasoning",
+				Content: []ResponsesContentPart{
+					{Type: "reasoning_text", Text: "content-only thought"},
+				},
+			},
+			{
+				Type: "message",
+				Content: []ResponsesContentPart{
+					{Type: "output_text", Text: "ok"},
+				},
+			},
+		},
+	}, "gpt-5.4-mini")
+	require.Len(t, chat.Choices, 1)
+	assert.Equal(t, "content-only thought", chat.Choices[0].Message.ReasoningContent)
+}
+
 // 缓冲（非流式）累加器同样需识别两类新事件。
 func TestBufferedResponseAccumulator_CodexEvents(t *testing.T) {
 	acc := NewBufferedResponseAccumulator()
