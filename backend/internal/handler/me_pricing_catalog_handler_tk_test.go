@@ -57,7 +57,7 @@ func TestMePricingHandler_RequiresAuth(t *testing.T) {
 
 func TestMePricingHandler_OK(t *testing.T) {
 	svc := &fakeMePricingSvc{resp: &service.MePricingCatalogResponse{
-		TargetGroup: service.MePricingTargetGroup{ID: 10, Name: "Pro", Platform: "newapi", RateMultiplier: 1.0, ListMultiplier: 1.0},
+		TargetGroup: &service.MePricingTargetGroup{ID: 10, Name: "Pro", Platform: "newapi", RateMultiplier: 1.0, ListMultiplier: 1.0},
 		Models:      []service.MePricingModel{{ModelID: "gpt-4o", Capabilities: []string{"vision"}}},
 		MyKeys:      []service.MePricingKeyRef{},
 		AccessibleGroups: []service.MePricingGroupRef{
@@ -79,6 +79,32 @@ func TestMePricingHandler_OK(t *testing.T) {
 	require.Len(t, resp.Data.Models, 1)
 	assert.Equal(t, "gpt-4o", resp.Data.Models[0].ModelID)
 	assert.Equal(t, int64(42), svc.seenUID)
+}
+
+func TestUS046_MePricingHandler_UniversalScopeSerializesNullTargetGroup(t *testing.T) {
+	svc := &fakeMePricingSvc{resp: &service.MePricingCatalogResponse{
+		TargetGroup: nil,
+		Models:      []service.MePricingModel{{ModelID: "gpt-5"}, {ModelID: "claude-sonnet"}},
+	}}
+	r := newMePricingRouter(t, svc, true)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me/pricing-catalog?api_key_id=7", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var payload struct {
+		Data struct {
+			TargetGroup json.RawMessage          `json:"target_group"`
+			Models      []service.MePricingModel `json:"models"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	assert.JSONEq(t, "null", string(payload.Data.TargetGroup))
+	assert.Equal(t, []string{"gpt-5", "claude-sonnet"}, []string{
+		payload.Data.Models[0].ModelID,
+		payload.Data.Models[1].ModelID,
+	})
 }
 
 func TestMePricingHandler_ParsesAPIKeyAndGroupParams(t *testing.T) {

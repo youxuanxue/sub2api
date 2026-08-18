@@ -132,7 +132,7 @@
           </template>
 
           <template #cell-group="{ row }">
-            <!-- 全能 Key:展示「全能」徽标,不走改组选择器(它跨所有授权平台) -->
+            <!-- 自动路由 Key 不绑定单一服务组。 -->
             <span
               v-if="row.routing_mode === 'universal'"
               class="inline-flex items-center gap-1 rounded-md bg-primary-50 px-2 py-1 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
@@ -484,7 +484,7 @@
           />
         </div>
 
-        <!-- 全能 Key 开关：默认开,一把 key 通所有授权平台/模型/模态 -->
+        <!-- 自动路由默认开启；关闭后才绑定单一服务组。 -->
         <div class="space-y-2">
           <div class="flex items-center justify-between">
             <label class="input-label mb-0">{{ t('keys.universalLabel') }}</label>
@@ -1426,7 +1426,7 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
 
 const formData = ref({
   name: '',
-  // 全能 Key：默认开启。开 → 不绑分组、跨所有授权平台；关 → 绑定下方所选分组（旧行为）。
+  // 自动路由默认开启；关闭后才绑定下方所选服务组。
   universal: true,
   group_id: null as number | null,
   status: 'active' as 'active' | 'inactive',
@@ -1756,7 +1756,7 @@ const confirmDelete = (key: ApiKey) => {
 }
 
 const handleSubmit = async () => {
-  // 全能 Key 不绑分组;仅 direct(关闭全能)时才要求选分组。
+  // 自动路由不绑分组；仅 direct 模式要求选择服务组。
   const routingMode: 'direct' | 'universal' = formData.value.universal ? 'universal' : 'direct'
   const effectiveGroupId = formData.value.universal ? null : formData.value.group_id
   if (!formData.value.universal && formData.value.group_id === null) {

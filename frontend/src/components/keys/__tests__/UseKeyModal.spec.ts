@@ -18,11 +18,15 @@ vi.mock('@/composables/useClipboard', () => ({
 // keeping the partial vue-i18n mock above sufficient.
 const getMePricingCatalog = vi.fn()
 const getPublicPricing = vi.fn()
+const getAPIKeyCapabilities = vi.fn()
 vi.mock('@/api/me-pricing', () => ({
   getMePricingCatalog: (...args: unknown[]) => getMePricingCatalog(...args)
 }))
 vi.mock('@/api/pricing', () => ({
   getPublicPricing: (...args: unknown[]) => getPublicPricing(...args)
+}))
+vi.mock('@/api/api-key-capabilities', () => ({
+  getAPIKeyCapabilities: (...args: unknown[]) => getAPIKeyCapabilities(...args)
 }))
 
 import UseKeyModal from '../UseKeyModal.vue'
@@ -58,8 +62,10 @@ function mountQuickstartGuide(props: Record<string, unknown>) {
 beforeEach(() => {
   getMePricingCatalog.mockReset()
   getPublicPricing.mockReset()
+  getAPIKeyCapabilities.mockReset()
   getMePricingCatalog.mockResolvedValue({ models: [] })
   getPublicPricing.mockResolvedValue({ data: [] })
+  getAPIKeyCapabilities.mockResolvedValue({ api_key_id: 42, routing_mode: 'universal', models: [] })
 })
 
 describe('UseKeyModal — preserved snippet correctness', () => {
@@ -225,6 +231,11 @@ describe('UseKeyModal — preserved snippet correctness', () => {
 
 describe('UseKeyGuide — tool-first Quickstart contracts', () => {
   it('generates current Qwen Code settings with the key isolated in .env', async () => {
+    getAPIKeyCapabilities.mockResolvedValue({
+      api_key_id: 42,
+      routing_mode: 'universal',
+      models: [{ id: 'qwen3-coder-plus', protocols: ['anthropic'], modalities: ['chat'], routes: [] }],
+    })
     const wrapper = mountQuickstartGuide({ selectedClient: 'qwen-code', selectedProtocol: 'anthropic' })
     await flushPromises()
     const files = wrapper.findAll('pre code').map((code) => code.text())
@@ -240,6 +251,11 @@ describe('UseKeyGuide — tool-first Quickstart contracts', () => {
   })
 
   it('switches Qwen Code to OpenAI Chat Completions provider without claiming Responses', async () => {
+    getAPIKeyCapabilities.mockResolvedValue({
+      api_key_id: 42,
+      routing_mode: 'universal',
+      models: [{ id: 'qwen3-coder-plus', protocols: ['openai'], modalities: ['chat'], routes: [] }],
+    })
     const wrapper = mountQuickstartGuide({ selectedClient: 'qwen-code', selectedProtocol: 'openai' })
     await flushPromises()
     const settings = JSON.parse(wrapper.findAll('pre code')[1].text())
@@ -261,6 +277,11 @@ describe('UseKeyGuide — tool-first Quickstart contracts', () => {
   })
 
   it('renders exact Cline OpenAI Compatible fields without an OS selector or client tabs', async () => {
+    getAPIKeyCapabilities.mockResolvedValue({
+      api_key_id: 42,
+      routing_mode: 'universal',
+      models: [{ id: 'gpt-5.5', protocols: ['openai'], modalities: ['chat'], routes: [] }],
+    })
     const wrapper = mountQuickstartGuide({ selectedClient: 'cline' })
     await flushPromises()
     const fields = wrapper.find('pre code').text()
@@ -325,6 +346,11 @@ describe('UseKeyGuide — tool-first Quickstart contracts', () => {
   })
 
   it('renders Dify Tool Call config and TokenKey ceilings without claiming streaming validation', async () => {
+    getAPIKeyCapabilities.mockResolvedValue({
+      api_key_id: 42,
+      routing_mode: 'universal',
+      models: [{ id: 'gpt-5.5', protocols: ['openai'], modalities: ['chat'], routes: [] }],
+    })
     const wrapper = mountQuickstartGuide({
       selectedClient: 'dify',
       keyQuota: 100,
@@ -460,11 +486,9 @@ describe('UseKeyModal — redesign (picker / test / CC-only / raw tabs)', () => 
 
   it('Test key button verifies the key live and shows the verbatim error', async () => {
     getMePricingCatalog.mockResolvedValue({ models: [{ model_id: 'gpt-5.5', capabilities: [] }] })
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 401,
-      text: () => Promise.resolve('{"error":{"message":"Invalid API key"}}')
-    })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: 'gpt-5.5' }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"error":{"message":"Invalid API key"}}', { status: 401 }))
     vi.stubGlobal('fetch', fetchMock)
 
     const wrapper = mountModal({ platform: 'openai', apiKeyId: 3 })
@@ -477,9 +501,9 @@ describe('UseKeyModal — redesign (picker / test / CC-only / raw tabs)', () => 
     await flushPromises()
     await nextTick()
 
-    expect(fetchMock).toHaveBeenCalled()
-    const calledUrl = fetchMock.mock.calls[0][0] as string
-    expect(calledUrl).toContain('/v1/chat/completions')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0][0] as string).toContain('/v1/models')
+    expect(fetchMock.mock.calls[1][0] as string).toContain('/v1/chat/completions')
     expect(wrapper.text()).toContain('Invalid API key')
 
     vi.unstubAllGlobals()
@@ -500,21 +524,16 @@ describe('UseKeyModal — universal keys', () => {
     expect(wrapper.text()).toContain('keys.useKeyModal.cliTabs.codexCli')
   })
 
-  it('loads cross-group model menu via entitlement index instead of per-key catalog', async () => {
-    getMePricingCatalog.mockResolvedValue({
-      authorized_groups_by_model: {
-        'claude-opus-4-8': [{ id: 1, name: 'anthropic' }],
-      },
-      models: [],
-    })
-    getPublicPricing.mockResolvedValue({
-      data: [
-        {
-          model_id: 'claude-opus-4-8',
-          capabilities: ['thinking'],
-          context_window: 200000,
-        },
-      ],
+  it('loads the automatic-routing model menu from the per-key capability SSOT', async () => {
+    getAPIKeyCapabilities.mockResolvedValue({
+      api_key_id: 42,
+      routing_mode: 'universal',
+      models: [{
+        id: 'claude-opus-4-8',
+        protocols: ['anthropic'],
+        modalities: ['chat'],
+        routes: [],
+      }],
     })
 
     const wrapper = mountModal({
@@ -524,16 +543,15 @@ describe('UseKeyModal — universal keys', () => {
     })
     await flushPromises()
 
-    expect(getMePricingCatalog).toHaveBeenCalledWith()
-    expect(getMePricingCatalog).not.toHaveBeenCalledWith(expect.objectContaining({ apiKeyId: 42 }))
-    expect(getPublicPricing).toHaveBeenCalled()
+    expect(getAPIKeyCapabilities).toHaveBeenCalledWith(42)
+    expect(getMePricingCatalog).not.toHaveBeenCalled()
+    expect(getPublicPricing).not.toHaveBeenCalled()
     expect(wrapper.text()).not.toContain('keys.useKeyModal.modelsEmpty')
     expect(wrapper.find('select').findAll('option').some((o) => o.text().includes('claude-opus-4-8'))).toBe(true)
   })
 
   it('rejects a deep-linked model outside the live catalog', async () => {
-    getMePricingCatalog.mockResolvedValue({ authorized_groups_by_model: {}, models: [] })
-    getPublicPricing.mockResolvedValue({ data: [] })
+    getAPIKeyCapabilities.mockResolvedValue({ api_key_id: 42, routing_mode: 'universal', models: [] })
 
     const wrapper = mountModal({
       platform: null,
@@ -545,6 +563,40 @@ describe('UseKeyModal — universal keys', () => {
 
     expect(wrapper.text()).toContain('keys.useKeyModal.modelsEmpty')
     expect(wrapper.find('[data-tk="use-key-model-select"]').exists()).toBe(true)
+  })
+
+  it('blocks invented model actions and retries a failed automatic-routing menu', async () => {
+    getAPIKeyCapabilities
+      .mockRejectedValueOnce(new Error('capability unavailable'))
+      .mockResolvedValueOnce({
+        api_key_id: 42,
+        routing_mode: 'universal',
+        models: [{
+          id: 'claude-opus-4-8',
+          protocols: ['anthropic'],
+          modalities: ['chat'],
+          routes: [],
+        }],
+      })
+
+    const wrapper = mountQuickstartGuide({ selectedClient: 'claude-code' })
+    await flushPromises()
+
+    const select = wrapper.get('[data-tk="use-key-model-select"]')
+    expect(select.findAll('option')).toHaveLength(0)
+    expect(select.attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-tk="use-key-test"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('pre code')).toHaveLength(0)
+    expect(wrapper.get('[data-tk="use-key-models-error"]').text()).toContain('keys.useKeyModal.modelsLoadError')
+    expect(wrapper.emitted('modelChange')?.at(-1)).toEqual([''])
+
+    await wrapper.get('[data-tk="use-key-models-retry"]').trigger('click')
+    await flushPromises()
+
+    expect(getAPIKeyCapabilities).toHaveBeenCalledTimes(2)
+    expect(select.findAll('option').map((option) => option.text())).toEqual(['claude-opus-4-8'])
+    expect(wrapper.get('[data-tk="use-key-test"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.findAll('pre code').length).toBeGreaterThan(0)
   })
 })
 

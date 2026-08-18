@@ -3,7 +3,8 @@
  *
  * Backed by GET /api/v1/me/pricing-catalog
  * (handler/me_pricing_catalog_handler_tk.go). Returns the model menu for
- * the group of the user's selected API key, at OFFICIAL list prices —
+ * the group of a direct API key, or the accessible-group union for an
+ * automatic-routing key, at OFFICIAL list prices —
  * decoupled from the group/override rate (TK pricing-display policy; see
  * me_pricing_catalog_tk.go header). The same endpoint serves the "explore
  * other group" comparison view when `group_id` is supplied.
@@ -126,8 +127,9 @@ export interface MePricingTargetGroup {
 export interface MePricingKeyRef {
   id: number
   name: string
-  group_id: number
-  group_name: string
+  group_id: number | null
+  group_name?: string
+  routing_mode: 'direct' | 'universal'
 }
 
 export interface MePricingGroupRef {
@@ -141,7 +143,8 @@ export interface MePricingGroupRef {
 }
 
 export interface MePricingCatalogResponse {
-  target_group: MePricingTargetGroup
+  /** Null when apiKeyId selects an automatic-routing key with user-wide scope. */
+  target_group: MePricingTargetGroup | null
   models: MePricingModel[]
   my_keys: MePricingKeyRef[]
   accessible_groups: MePricingGroupRef[]
@@ -158,8 +161,9 @@ export interface GetMePricingCatalogParams {
 /**
  * Fetch the per-user pricing catalog.
  *
- * - With neither param: defaults to the user's first active key's group.
- * - With `apiKeyId`: shows the menu for that key's group.
+ * - With neither param: defaults to the user's first usable active key scope.
+ * - With `apiKeyId`: shows a direct key's group menu or an automatic key's
+ *   user-level authorized union.
  * - With `groupId`: "explore other group" mode (must be in user's
  *   accessible set, otherwise 403).
  * - With BOTH and they refer to different groups: 400 (the API client

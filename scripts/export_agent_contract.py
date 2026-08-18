@@ -1,30 +1,10 @@
 #!/usr/bin/env python3
-"""Audit the agent-facing HTTP contract for sub2api.
+"""Generate and audit the agent-facing contract for sub2api.
 
 Required by `dev-rules/agent-contract-enforcement.mdc` and the
 `docs/approved/newapi-as-fifth-platform.md` §5.3 acceptance gate.
 
-# Why this is an *audit* tool, not a *generator* (yet)
-
-`docs/agent_integration.md` claims to be "Generated from live Gin route
-registrations". A naive literal-path extractor over `routes/*.go` works
-for routes registered on the top-level `r`, but Gin's nested
-`router.Group("/admin").Group("/accounts")` pattern means many endpoints
-appear in source as bare paths like `/:id` — a generator that does not
-resolve group prefixes would *replace* the existing curated paths with
-truncated ones, regressing the doc.
-
-Doing prefix resolution properly requires either:
-
-  1. A Go AST walker that follows `<grp> := <parent>.Group("/x")` chains
-     across helper functions (`registerXxxRoutes(admin, h)`); or
-  2. A runtime route dump from `gin.Engine.Routes()` after wiring the
-     real handlers — needs Wire DI + stubs for every dependency.
-
-Both are larger tasks than this script is scoped for; if route churn makes
-the soft count warning noisy, implement a Go AST walker or runtime route dump.
-
-# What this script DOES enforce today
+# What this script enforces
 
 Four cheap, high-signal contract guards that catch the regressions we
 have actually seen:
@@ -35,17 +15,14 @@ have actually seen:
      the test that catches "we shipped a fifth platform but forgot to
      tell agents about it".
 
-  B) **Live CLI projection**: import the argparse parser factories for the
+  B) **Live HTTP projection**: run the standard-library Go AST helper to
+     resolve Gin group prefixes and helper-function router parameters, then
+     generate the complete route inventory and hard-fail on drift.
+
+  C) **Live CLI projection**: import the argparse parser factories for the
      modelops and account-model-mapping manager entrypoints, render their
      commands/options into the `## CLI` section, and hard-fail `--check` on
      drift.
-
-  C) **Route-count drift sanity**: count the literal `<ident>.METHOD(`
-     registrations under `backend/internal/server/routes/*.go` and
-     compare against the count of bulleted lines in the existing doc. Any large delta (default ±10%) prints a warning so
-     the next maintainer regenerates the doc by hand. This is a
-     soft signal, not a hard fail — the prefix-resolution debt makes
-     hard-fail premature.
 
   D) **Retired-route tombstones**: security-sensitive contract removals are
      registered once with their source literal and replacement. Generation
@@ -57,18 +34,17 @@ Usage::
     python3 scripts/export_agent_contract.py            # refresh CLI section
     python3 scripts/export_agent_contract.py --check    # CI drift gate
 
-`--check` exits 1 on Notes coverage, generated projection drift, or retired
-route resurrection; the count
-warning (C) never blocks. This is intentional: route docs lag by a
-few PRs in healthy projects, and we do not want the gate so strict that
-it becomes the thing devs route around. We reserve hard-fail for "doc
-forgot a whole platform".
+`--check` exits 1 on HTTP/CLI projection drift, Notes coverage, or retired
+route resurrection.
 """
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import importlib.util
+import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Iterable
@@ -76,14 +52,9 @@ from typing import Iterable
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ROUTES_DIR = REPO_ROOT / "backend" / "internal" / "server" / "routes"
 DOC_PATH = REPO_ROOT / "docs" / "agent_integration.md"
+ROUTE_EXPORTER = REPO_ROOT / "scripts" / "export_agent_contract_routes.go"
 
 HTTP_VERBS = ("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS")
-ROUTE_PATTERN = re.compile(
-    r"\b\w+\.(?:" + "|".join(HTTP_VERBS) + r")\("
-)
-HANDLE_PATTERN = re.compile(
-    r'\b\w+\.Handle\(\s*"(?:' + "|".join(HTTP_VERBS) + r')"\s*,'
-)
 DOC_BULLET = re.compile(r"^- `(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS) ", re.MULTILINE)
 DOC_ROUTE_BULLET = re.compile(
     r"^- `(?P<method>GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS) "
@@ -91,6 +62,7 @@ DOC_ROUTE_BULLET = re.compile(
     re.MULTILINE,
 )
 NOTES_MARKER = "# Agent Contract Notes"
+HTTP_START_MARKER = "## HTTP Routes"
 CLI_START_MARKER = "## CLI"
 CLI_END_MARKER = "## MCP"
 
@@ -166,18 +138,74 @@ RETIRED_HTTP_ROUTES = (
     },
 )
 
-COUNT_TOLERANCE = 0.10  # ±10% considered noise
+@dataclass(frozen=True, order=True)
+class HTTPRoute:
+    path: str
+    method: str
+    source: str
 
 
-def count_source_registrations() -> int:
-    n = 0
-    for go_file in sorted(ROUTES_DIR.rglob("*.go")):
-        if go_file.name.endswith("_test.go"):
-            continue
-        text = go_file.read_text(encoding="utf-8")
-        n += len(ROUTE_PATTERN.findall(text))
-        n += len(HANDLE_PATTERN.findall(text))
-    return n
+def _repo_root_for_routes(routes_dir: Path) -> Path:
+    resolved = routes_dir.resolve()
+    suffix = Path("backend/internal/server/routes").parts
+    if resolved.parts[-len(suffix):] != suffix:
+        raise RuntimeError(f"routes directory must end with backend/internal/server/routes: {resolved}")
+    return resolved.parents[len(suffix) - 1]
+
+
+def collect_http_routes(routes_dir: Path = ROUTES_DIR) -> list[HTTPRoute]:
+    repo_root = _repo_root_for_routes(routes_dir)
+    result = subprocess.run(
+        [
+            "go",
+            "run",
+            str(ROUTE_EXPORTER),
+            "--routes-dir",
+            str(routes_dir.resolve()),
+            "--repo-root",
+            str(repo_root),
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"HTTP route extraction failed: {detail}")
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"HTTP route extraction returned invalid JSON: {exc}") from exc
+    return sorted(
+        HTTPRoute(path=item["path"], method=item["method"], source=item["source"])
+        for item in payload
+    )
+
+
+def render_http_contract(routes: Iterable[HTTPRoute]) -> str:
+    lines = [
+        HTTP_START_MARKER,
+        "",
+        "Generated from live Gin route registrations; do not edit this section.",
+        "",
+    ]
+    lines.extend(
+        f"- `{route.method} {route.path}` from `{route.source}`"
+        for route in routes
+    )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def replace_http_contract(doc: str, http_contract: str) -> str:
+    start = doc.find(HTTP_START_MARKER)
+    end = doc.find(CLI_START_MARKER, start + len(HTTP_START_MARKER))
+    if start < 0 or end < 0:
+        raise RuntimeError(
+            f"{DOC_PATH.relative_to(REPO_ROOT)} must contain "
+            f"{HTTP_START_MARKER!r} before {CLI_START_MARKER!r}"
+        )
+    return doc[:start] + http_contract + "\n" + doc[end:]
 
 
 def count_doc_bullets(doc: str) -> int:
@@ -376,7 +404,7 @@ def main() -> int:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="exit 1 on Notes coverage or generated CLI contract drift",
+        help="exit 1 on generated HTTP/CLI contract drift or Notes coverage",
     )
     args = parser.parse_args()
 
@@ -396,7 +424,10 @@ def main() -> int:
         return 1
     try:
         expected_doc = prune_retired_route_bullets(
-            replace_cli_contract(doc, render_cli_contract())
+            replace_cli_contract(
+                replace_http_contract(doc, render_http_contract(collect_http_routes())),
+                render_cli_contract(),
+            )
         )
     except RuntimeError as e:
         sys.stderr.write(f"FAIL: {e}\n")
@@ -412,24 +443,10 @@ def main() -> int:
         DOC_PATH.write_text(expected_doc, encoding="utf-8")
         doc = expected_doc
         print("updated docs/agent_integration.md generated contract")
-    src_count = count_source_registrations()
     doc_count = count_doc_bullets(doc)
     missing = check_notes_coverage(doc, REQUIRED_PLATFORMS)
 
     print(f"agent_integration.md  : {doc_count} HTTP route bullets")
-    print(f"routes/*.go (source)  : {src_count} <ident>.METHOD(...) registrations")
-    if doc_count == 0:
-        delta_pct = 100.0
-    else:
-        delta_pct = abs(doc_count - src_count) / max(doc_count, 1) * 100
-    if delta_pct > COUNT_TOLERANCE * 100:
-        sys.stderr.write(
-            f"WARN: doc/source route-count drift = {delta_pct:.1f}% "
-            f"(>{COUNT_TOLERANCE*100:.0f}% tolerance). The Go-AST or runtime "
-            f"route-dump generator follow-up "
-            f"would resolve this — for now, audit by hand if you added or "
-            f"removed routes.\n"
-        )
 
     if missing:
         sys.stderr.write(

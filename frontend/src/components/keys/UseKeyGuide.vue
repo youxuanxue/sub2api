@@ -42,7 +42,6 @@
               :disabled="tkModelsLoading || !pickerModels.length"
               class="flex-1 min-w-[14rem] rounded-lg border border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-900 px-3 py-1.5 text-sm font-mono text-gray-900 dark:text-gray-100 disabled:opacity-60"
             >
-              <option v-if="!pickerModels.length" :value="selectedModel">{{ selectedModel }}</option>
               <option v-for="m in pickerModels" :key="m.id" :value="m.id">{{ m.id }}</option>
             </select>
             <div v-if="currentModelMeta" class="flex items-center gap-1.5 flex-wrap text-xs text-gray-500 dark:text-gray-400">
@@ -55,6 +54,19 @@
             </div>
           </div>
           <p v-if="activeFlavor && tkModelsLoading" class="text-xs text-gray-400 pl-[4.25rem]">{{ t('keys.useKeyModal.modelsLoading') }}</p>
+          <div
+            v-else-if="activeFlavor && tkModelsError"
+            data-tk="use-key-models-error"
+            class="flex items-center gap-2 pl-[4.25rem] text-xs text-red-600 dark:text-red-400"
+          >
+            <span>{{ t('keys.useKeyModal.modelsLoadError') }}</span>
+            <button
+              type="button"
+              data-tk="use-key-models-retry"
+              class="font-medium underline underline-offset-2 hover:no-underline"
+              @click="retryModels"
+            >{{ t('common.retry') }}</button>
+          </div>
           <p
             v-else-if="activeFlavor && showModelsCatalogEmpty"
             data-tk="use-key-models-empty"
@@ -97,8 +109,9 @@
           <!-- Live test (single-model tabs only) -->
           <div v-if="activeFlavor && !hideInlineTest" class="flex items-center gap-3 flex-wrap pt-1">
             <button
+              data-tk="use-key-test"
               @click="onTest"
-              :disabled="tkTestState.status === 'running'"
+              :disabled="tkTestState.status === 'running' || !selectedModel"
               class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-60 transition-colors"
             >
               <Icon v-if="tkTestState.status === 'running'" name="refresh" size="sm" class="animate-spin" />
@@ -247,6 +260,7 @@ import {
   flavorOfModel,
   formatProbeLatencyDetail,
   type UseKeyFlavor,
+  type UseKeyDiscoveryProtocol,
   type UseKeyServableModel,
   type TestState,
 } from '@/composables/useTkUseKey'
@@ -391,6 +405,18 @@ const activeFlavor = computed<UseKeyFlavor | null>(() => {
   }
 })
 
+const activeDiscoveryProtocol = computed<UseKeyDiscoveryProtocol | null>(() => {
+  const flavor = activeFlavor.value
+  if (!flavor) return null
+  if (props.routingMode === 'universal') {
+    const tab = activeClientTab.value
+    if (tab === 'codex' || tab === 'codex-ws' || selectedClientEntry.value?.guideId === 'codex') {
+      return 'codex'
+    }
+  }
+  return flavor
+})
+
 const tk = useTkUseKey({
   apiKeyId: toRef(props, 'apiKeyId'),
   apiKey: toRef(props, 'apiKey'),
@@ -424,7 +450,7 @@ watch(
 )
 
 function applyInitialModelSelection(initialModel: string | null | undefined): void {
-  const flavor = tk.applyInitialModel(initialModel)
+  const flavor = tk.applyInitialModel(initialModel, activeDiscoveryProtocol.value ?? undefined)
   if (!props.selectedClient) {
     if (flavor === 'anthropic') activeClientTab.value = 'claude'
     else if (flavor === 'gemini') activeClientTab.value = 'gemini'
@@ -434,6 +460,7 @@ function applyInitialModelSelection(initialModel: string | null | undefined): vo
 
 // Template-facing refs (top-level so they auto-unwrap in the template).
 const tkModelsLoading = tk.modelsLoading
+const tkModelsError = tk.modelsError
 const tkTestState = tk.testState
 watch(tkTestState, (state) => {
   emit('testStateChange', { ...state })
@@ -441,13 +468,23 @@ watch(tkTestState, (state) => {
 const tkIsCCOnly = tk.isClaudeCodeOnly
 
 // Models offered in the picker for the current flavor.
-const pickerModels = computed(() => (activeFlavor.value ? tk.modelsForFlavor(activeFlavor.value) : []))
-const selectedModel = computed(() => (activeFlavor.value ? tk.effectiveModel(activeFlavor.value) : ''))
+const pickerModels = computed(() => (
+  activeFlavor.value && activeDiscoveryProtocol.value
+    ? tk.modelsForFlavor(activeFlavor.value, activeDiscoveryProtocol.value)
+    : []
+))
+const selectedModel = computed(() => (
+  activeFlavor.value && activeDiscoveryProtocol.value
+    ? tk.effectiveModel(activeFlavor.value, activeDiscoveryProtocol.value)
+    : ''
+))
 watch([selectedModel, tkModelsLoading], ([model, loading]) => {
-  if (model && !loading) emit('modelChange', model)
+  if (!loading) emit('modelChange', model)
 })
 const showModelsCatalogEmpty = computed(() =>
-  activeFlavor.value ? tk.shouldWarnModelsEmpty(activeFlavor.value) : false,
+  activeFlavor.value && activeDiscoveryProtocol.value
+    ? tk.shouldWarnModelsEmpty(activeFlavor.value, activeDiscoveryProtocol.value)
+    : false,
 )
 const currentModelMeta = computed(() =>
   pickerModels.value.find((m) => m.id === selectedModel.value),
@@ -490,9 +527,17 @@ function isCollapsible(file: FileConfig): boolean {
 }
 
 function onTest(): void {
-  if (activeFlavor.value) {
-    void tk.runTest(activeFlavor.value, { requireToolCall: requiresToolCallTest.value })
+  if (activeFlavor.value && selectedModel.value) {
+    void tk.runTest(activeFlavor.value, {
+      requireToolCall: requiresToolCallTest.value,
+      protocol: activeDiscoveryProtocol.value ?? undefined,
+    })
   }
+}
+
+async function retryModels(): Promise<void> {
+  await tk.loadModels()
+  applyInitialModelSelection(props.initialModel)
 }
 
 defineExpose({
@@ -815,6 +860,10 @@ const string = (value: string) => wrapToken('text-amber-200', value)
 // Syntax highlighting helpers
 // Generate file configs based on platform and active tab
 const currentFiles = computed((): FileConfig[] => {
+  if (props.routingMode === 'universal') {
+    if (!tk.modelsLoaded.value) return []
+    if (activeFlavor.value ? !selectedModel.value : tk.servableModels.value.length === 0) return []
+  }
   const baseUrl = props.baseUrl || window.location.origin
   const apiKey = props.apiKey
   const baseRoot = baseUrl.replace(/\/v1\/?$/, '').replace(/\/+$/, '')
