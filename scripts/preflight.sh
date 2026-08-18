@@ -1791,9 +1791,11 @@ fi
 
 echo "=== sub2api: env secret backup fail-closed contract ==="
 if ! bash ./ops/stage0/test_backup_env_secrets_via_ssm.sh >/dev/null 2>&1 || \
-   ! bash ./deploy/aws/lightsail/test_restore_edge_env_secrets.sh >/dev/null 2>&1; then
+   ! bash ./deploy/aws/lightsail/test_restore_edge_env_secrets.sh >/dev/null 2>&1 || \
+   ! bash ./ops/lightsail/test_ensure_edge_ssm_role.sh >/dev/null 2>&1 || \
+   ! bash ./ops/lightsail/test_migrate_edge_ssm_roles.sh >/dev/null 2>&1; then
     echo "  FAIL: env secret backup fail-closed contract test"
-    echo "        — run: bash ops/stage0/test_backup_env_secrets_via_ssm.sh && bash deploy/aws/lightsail/test_restore_edge_env_secrets.sh"
+    echo "        — run: bash ops/stage0/test_backup_env_secrets_via_ssm.sh && bash deploy/aws/lightsail/test_restore_edge_env_secrets.sh && bash ops/lightsail/test_ensure_edge_ssm_role.sh && bash ops/lightsail/test_migrate_edge_ssm_roles.sh"
     errors=$((errors + 1))
 else
     echo "  ok: rejected writes fail and verified backup/restore succeeds"

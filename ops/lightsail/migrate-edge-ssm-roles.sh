@@ -12,6 +12,14 @@ MATRIX="${EDGE_LIGHTSAIL_MATRIX:-${ROOT}/deploy/aws/lightsail/edge-targets-light
 SHARED_ROLE=tokenkey-lightsail-ssm-hybrid
 LEGACY_POLICY=EdgePgdumpPutOnly
 CORE_POLICY_ARN=arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+BACKUP_ENV_SCRIPT="${EDGE_BACKUP_ENV_SCRIPT:-${ROOT}/ops/stage0/backup-env-secrets-via-ssm.sh}"
+RUN_PROBE_SCRIPT="${EDGE_RUN_PROBE_SCRIPT:-${ROOT}/ops/observability/run-probe.sh}"
+RECOVERY_OUTPUT_ROOT="${EDGE_RECOVERY_OUTPUT_ROOT:-}"
+RECOVERY_TIMEOUT_SECONDS="${EDGE_RECOVERY_TIMEOUT_SECONDS:-3600}"
+[[ "${RECOVERY_TIMEOUT_SECONDS}" =~ ^[0-9]+$ ]] || {
+  echo "migrate_edge_ssm_roles: invalid recovery timeout" >&2
+  exit 1
+}
 
 targets="$(python3 - "${MATRIX}" <<'PY'
 import json
@@ -26,6 +34,11 @@ PY
 )"
 [[ -n "${targets}" ]] || { echo "migrate_edge_ssm_roles: no deployable Lightsail targets" >&2; exit 1; }
 
+if [[ "${MODE}" == --apply && -z "${RECOVERY_OUTPUT_ROOT}" ]]; then
+  RECOVERY_OUTPUT_ROOT="$(mktemp -d)"
+  trap 'rm -rf -- "${RECOVERY_OUTPUT_ROOT}"' EXIT
+fi
+
 while IFS=$'\t' read -r edge_id region ssm_prefix; do
   managed_id="$(bash "${ROOT}/ops/lightsail/resolve_ssm_instance_id.sh" "${ssm_prefix}" "${region}")"
   if [[ "${MODE}" == --dry-run ]]; then
@@ -34,6 +47,44 @@ while IFS=$'\t' read -r edge_id region ssm_prefix; do
     bash "${ROOT}/ops/lightsail/ensure-edge-ssm-role.sh" "${edge_id}" "${managed_id}" "${region}" --check
   else
     bash "${ROOT}/ops/lightsail/ensure-edge-ssm-role.sh" "${edge_id}" "${managed_id}" "${region}"
+    output_dir="${RECOVERY_OUTPUT_ROOT}/${edge_id}"
+    mkdir -p "${output_dir}"
+    TK_ENV_SECRETS_PARAM="/tokenkey/edge/${edge_id}/stage0/env-secrets-backup" \
+      AWS_REGION="${region}" \
+      STAGE0_SSM_OUTPUT_DIR="${output_dir}/env-secrets" \
+      bash "${BACKUP_ENV_SCRIPT}" "${managed_id}" "migrate-${edge_id}-env-secrets"
+    receipt="$(bash "${RUN_PROBE_SCRIPT}" \
+      --target "edge:${edge_id}" \
+      --expected-instance-id "${managed_id}" \
+      --script "${ROOT}/ops/stage0/pgdump_restore_canary_remote.sh" \
+      --with "${ROOT}/ops/stage0/pgdump_restore_canary.py" \
+      --with "${ROOT}/ops/stage0/pgdump_restore_canary_contract.py" \
+      --env "CANARY_TARGET=edge:${edge_id}" \
+      --env CANARY_CREATE_DUMP=1 \
+      --comment "migrate-${edge_id}-recovery-gate" \
+      --timeout-seconds "${RECOVERY_TIMEOUT_SECONDS}")"
+    python3 - "${edge_id}" "${receipt}" <<'PY'
+import json
+import re
+import sys
+
+edge_id, raw = sys.argv[1:]
+try:
+    receipt = json.loads(raw)
+except json.JSONDecodeError as exc:
+    raise SystemExit(f"migrate_edge_ssm_roles: invalid recovery receipt for {edge_id}: {exc}")
+digest = receipt.get("artifact_sha256")
+valid = (
+    receipt.get("target") == f"edge:{edge_id}"
+    and receipt.get("s3_round_trip_verified") is True
+    and isinstance(digest, str)
+    and re.fullmatch(r"[0-9a-f]{64}", digest) is not None
+    and receipt.get("source_local_sha256") == digest
+)
+if not valid:
+    raise SystemExit(f"migrate_edge_ssm_roles: recovery receipt failed validation for {edge_id}")
+PY
+    echo "recovery path verified: edge=${edge_id} instance=${managed_id}"
   fi
 done <<<"${targets}"
 
@@ -67,7 +118,7 @@ done
 }
 
 if [[ "${MODE}" == --check ]]; then
-  echo "check complete; all Edge roles verified and shared role is ready for legacy policy deletion"
+  echo "check complete; Edge roles and shared-role policy shape verified; --apply runs recovery gates before deletion"
   exit 0
 fi
 

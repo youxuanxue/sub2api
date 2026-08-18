@@ -44,6 +44,8 @@ class FakeCommands:
         *,
         objects: list[dict] | None = None,
         downloaded: bytes | None = None,
+        dump_dir: pathlib.Path | None = None,
+        dump_bytes: bytes | None = None,
         rm_fails: bool = False,
         run_times_out: bool = False,
     ) -> None:
@@ -57,6 +59,8 @@ class FakeCommands:
         ]
         sql = b"CREATE TABLE users(id bigint);\n" + b"INSERT INTO users VALUES (1);\n" * 200
         self.downloaded = downloaded if downloaded is not None else gzip.compress(sql)
+        self.dump_dir = dump_dir
+        self.dump_bytes = dump_bytes if dump_bytes is not None else self.downloaded
         if self.objects and self.objects[0].get("Size") == 0:
             self.objects[0]["Size"] = len(self.downloaded)
         self.rm_fails = rm_fails
@@ -70,7 +74,12 @@ class FakeCommands:
         stdout = ""
         returncode = 0
         stderr = ""
-        if args[:3] == ["aws", "s3api", "list-objects-v2"]:
+        if args == ["/usr/local/bin/tokenkey-pgdump.sh"]:
+            if self.dump_dir is None:
+                raise AssertionError("fresh dump command was not expected")
+            self.dump_dir.mkdir(parents=True, exist_ok=True)
+            (self.dump_dir / "tokenkey-20260818T070000Z.sql.gz").write_bytes(self.dump_bytes)
+        elif args[:3] == ["aws", "s3api", "list-objects-v2"]:
             stdout = json.dumps({"Contents": self.objects})
         elif args[:3] == ["aws", "s3", "cp"]:
             pathlib.Path(args[4]).write_bytes(self.downloaded)
@@ -208,6 +217,59 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
         fake.objects[0]["Size"] = len(fake.downloaded) + 1
         with self.assertRaisesRegex(canary.CanaryError, "size mismatch"):
             self.run_case(fake)
+        self.assertFalse(any(call[:2] == ["docker", "run"] for call in fake.calls))
+
+    def test_fresh_dump_mode_proves_the_new_local_dump_round_trip_before_restore(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = pathlib.Path(raw)
+            dump_dir = root / "pgdump"
+            dump_dir.mkdir()
+            env_path = root / "host.env"
+            env_path.write_text(
+                "TOKENKEY_PGDUMP_S3_URI=s3://bucket/edge/us3/pgdump\n",
+                encoding="utf-8",
+            )
+            fake = FakeCommands(dump_dir=dump_dir)
+
+            receipt = canary.run_fresh_dump_canary(
+                "edge:us3",
+                receipt_root=root / "canary",
+                env_path=env_path,
+                dump_dir=dump_dir,
+                run=fake,
+                sleep=lambda _: None,
+                now=lambda: NOW,
+                disk_usage=lambda _: shutil._ntuple_diskusage(10**10, 0, 10**10),
+            )
+
+        self.assertEqual(fake.calls[0], ["/usr/local/bin/tokenkey-pgdump.sh"])
+        self.assertTrue(receipt["s3_round_trip_verified"])
+        self.assertEqual(receipt["source_local_sha256"], receipt["artifact_sha256"])
+
+    def test_expected_fresh_dump_sha_mismatch_aborts_before_restore(self) -> None:
+        fake = FakeCommands()
+        with tempfile.TemporaryDirectory() as raw:
+            root = pathlib.Path(raw)
+            env_path = root / "host.env"
+            env_path.write_text(
+                "TOKENKEY_PGDUMP_S3_URI=s3://bucket/edge/us3/pgdump\n",
+                encoding="utf-8",
+            )
+            local_dump = root / "tokenkey-20260818T070000Z.sql.gz"
+            altered = bytearray(fake.downloaded)
+            altered[-1] ^= 1
+            local_dump.write_bytes(altered)
+            with self.assertRaisesRegex(canary.CanaryError, "SHA-256"):
+                canary.run_canary(
+                    "edge:us3",
+                    receipt_root=root / "canary",
+                    env_path=env_path,
+                    expected_source_path=local_dump,
+                    run=fake,
+                    sleep=lambda _: None,
+                    now=lambda: NOW,
+                    disk_usage=lambda _: shutil._ntuple_diskusage(10**10, 0, 10**10),
+                )
         self.assertFalse(any(call[:2] == ["docker", "run"] for call in fake.calls))
 
     def test_container_cleanup_failure_keeps_previous_receipt(self) -> None:

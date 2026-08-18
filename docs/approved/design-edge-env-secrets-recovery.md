@@ -66,11 +66,12 @@ must restore the validated SecureString before PostgreSQL starts.
 ## Rollout and verification
 
 Deploy the IAM addon first. For each deployable Edge, update the existing `mi-*`
-registration to the per-Edge role without recreating the host, then run the
-backup/readback and smoke paths. Upgrade, rollback, smoke, backup, and restore
-workflows all verify the target role before operating. Only after every live
-registration has moved may `EdgePgdumpPutOnly` be deleted and the shared role be
-retired.
+registration to the per-Edge role without recreating the host, write and read
+back the env-secret backup, create a real pg_dump, verify that exact dump through
+an S3 download and SHA-256 comparison, and restore it in the isolated canary.
+Upgrade, rollback, smoke, backup, and restore workflows all verify the target
+role before operating. Only after every live registration and recovery path has
+passed may `EdgePgdumpPutOnly` be deleted and the shared role be retired.
 
 Behavior tests must prove cross-Edge IAM denial, shared-role loss of secret and
 pg_dump access, first-provision generation, existing-identity fail-closed

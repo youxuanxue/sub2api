@@ -271,6 +271,7 @@ def run_canary(
     *,
     receipt_root: pathlib.Path = pathlib.Path("/var/lib/tokenkey/pgdump-canary"),
     env_path: pathlib.Path = pathlib.Path("/var/lib/tokenkey/.env"),
+    expected_source_path: pathlib.Path | None = None,
     run: RunCommand = _default_run,
     sleep: Callable[[float], None] = time.sleep,
     now: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.timezone.utc),
@@ -279,6 +280,12 @@ def run_canary(
     if TARGET_RE.fullmatch(target) is None:
         raise CanaryError("target must be prod or edge:<id>")
     bucket, prefix = _s3_location(target, env_path)
+    if expected_source_path is not None:
+        expected_source_path = expected_source_path.expanduser().resolve()
+        if OBJECT_RE.fullmatch(expected_source_path.name) is None:
+            raise CanaryError("expected local dump name is invalid")
+        if not expected_source_path.is_file():
+            raise CanaryError("expected local dump does not exist")
     current_time = now()
     if current_time.tzinfo is None:
         raise CanaryError("current time must be timezone-aware")
@@ -303,6 +310,10 @@ def run_canary(
             key, last_modified, compressed_bytes = _select_object(
                 run, bucket=bucket, prefix=prefix, current_time=current_time
             )
+            if expected_source_path is not None:
+                expected_key = f"{prefix}/{expected_source_path.name}"
+                if key != expected_key:
+                    raise CanaryError(f"newest S3 object is not the expected fresh dump: {expected_key}")
             temporary = pathlib.Path(tempfile.mkdtemp(prefix=".restore-", dir=receipt_root))
             temporary.chmod(0o700)
             dump_path = temporary / pathlib.PurePosixPath(key).name
@@ -313,6 +324,18 @@ def run_canary(
                 raise CanaryError(
                     f"S3 size mismatch: metadata={compressed_bytes} downloaded={observed_bytes}"
                 )
+            artifact_sha256 = _sha256(dump_path)
+            source_local_sha256: str | None = None
+            if expected_source_path is not None:
+                source_local_bytes = expected_source_path.stat().st_size
+                if source_local_bytes != observed_bytes:
+                    raise CanaryError(
+                        "S3 round-trip size mismatch: "
+                        f"local={source_local_bytes} downloaded={observed_bytes}"
+                    )
+                source_local_sha256 = _sha256(expected_source_path)
+                if source_local_sha256 != artifact_sha256:
+                    raise CanaryError("S3 round-trip SHA-256 mismatch")
             uncompressed_bytes = _uncompressed_size(dump_path)
             required_free_bytes = compressed_bytes + (2 * uncompressed_bytes) + CAPACITY_HEADROOM_BYTES
             observed_free_bytes = int(disk_usage(receipt_root).free)
@@ -369,7 +392,7 @@ def run_canary(
                 "uncompressed_bytes": uncompressed_bytes,
                 "required_free_bytes": required_free_bytes,
                 "observed_free_bytes": observed_free_bytes,
-                "artifact_sha256": _sha256(dump_path),
+                "artifact_sha256": artifact_sha256,
                 "restore_image": image,
                 "live_counts": live_counts,
                 "restored_counts": restored_counts,
@@ -377,6 +400,13 @@ def run_canary(
                 "source_mutated": False,
                 "deletion_authorized": False,
             }
+            if source_local_sha256 is not None:
+                pending_receipt.update(
+                    {
+                        "source_local_sha256": source_local_sha256,
+                        "s3_round_trip_verified": True,
+                    }
+                )
         except CanaryError as exc:
             primary_error = exc
         except OSError as exc:
@@ -413,9 +443,63 @@ def run_canary(
         lock_handle.close()
 
 
+def run_fresh_dump_canary(
+    target: str,
+    *,
+    receipt_root: pathlib.Path = pathlib.Path("/var/lib/tokenkey/pgdump-canary"),
+    env_path: pathlib.Path = pathlib.Path("/var/lib/tokenkey/.env"),
+    dump_dir: pathlib.Path = pathlib.Path("/var/lib/tokenkey/pgdump"),
+    dump_script: pathlib.Path = pathlib.Path("/usr/local/bin/tokenkey-pgdump.sh"),
+    run: RunCommand = _default_run,
+    sleep: Callable[[float], None] = time.sleep,
+    now: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.timezone.utc),
+    disk_usage: Callable[[pathlib.Path], Any] = shutil.disk_usage,
+) -> dict[str, Any]:
+    if TARGET_RE.fullmatch(target) is None:
+        raise CanaryError("target must be prod or edge:<id>")
+    _s3_location(target, env_path)
+    dump_dir = dump_dir.expanduser().resolve()
+    if not dump_dir.is_dir():
+        raise CanaryError(f"pgdump directory does not exist: {dump_dir}")
+
+    def snapshot() -> dict[str, tuple[int, int, int]]:
+        result: dict[str, tuple[int, int, int]] = {}
+        for path in dump_dir.glob("tokenkey-*.sql.gz"):
+            if OBJECT_RE.fullmatch(path.name) is None or not path.is_file():
+                continue
+            stat = path.stat()
+            result[path.name] = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        return result
+
+    before = snapshot()
+    _run(run, [str(dump_script)], timeout=1200)
+    changed = [
+        dump_dir / name
+        for name, identity in snapshot().items()
+        if before.get(name) != identity
+    ]
+    if len(changed) != 1:
+        raise CanaryError(f"fresh pgdump did not produce exactly one identifiable file: {len(changed)}")
+    return run_canary(
+        target,
+        receipt_root=receipt_root,
+        env_path=env_path,
+        expected_source_path=changed[0],
+        run=run,
+        sleep=sleep,
+        now=now,
+        disk_usage=disk_usage,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", required=True)
+    parser.add_argument(
+        "--create-dump",
+        action="store_true",
+        help="create one real dump and prove its S3 round-trip before restoring it",
+    )
     parser.add_argument(
         "--receipt-root",
         default=os.environ.get("TOKENKEY_PGDUMP_CANARY_ROOT", "/var/lib/tokenkey/pgdump-canary"),
@@ -426,7 +510,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Iterable[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        receipt = run_canary(args.target, receipt_root=pathlib.Path(args.receipt_root))
+        runner = run_fresh_dump_canary if args.create_dump else run_canary
+        receipt = runner(args.target, receipt_root=pathlib.Path(args.receipt_root))
     except CanaryError as exc:
         print(f"pgdump restore canary failed: {exc}", file=sys.stderr)
         return 2

@@ -2,7 +2,8 @@
 # run-probe.sh — Deliver a local probe script to a remote TokenKey host via SSM
 # and return its StandardOutputContent. Wraps the base64+send-command+poll
 # pattern that previously lived as prose inside the troubleshooting / traffic-profile
-# skills. Read-only by convention: caller must not pass write-side scripts.
+# skills. Probes are read-only by default. A write-capable script must carry its own
+# explicit opt-in guard; migration recovery uses CANARY_CREATE_DUMP=1 for that purpose.
 #
 # Determinism contract (matches dev-rules-convention.mdc §"skill / command 确定性基线"):
 #   - Same script + same env + same target → same SSM CommandId-independent stdout

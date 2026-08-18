@@ -11,9 +11,11 @@ risk: high
 ## Goal and source of truth
 
 The weekly Fleet canary proves that the backup operators would use in a disaster
-is restorable. It never creates a fresh dump for its own test. On each prod or
-Edge host it reads `TOKENKEY_PGDUMP_S3_URI` from `/var/lib/tokenkey/.env`, lists
-that exact prefix, and selects the newest object whose basename matches
+is restorable. Scheduled runs never create a fresh dump for their own test. The
+one-time Edge role migration explicitly uses fresh-dump mode to prove Put/Get on
+the new role before removing shared access. On each prod or Edge host the canary
+reads `TOKENKEY_PGDUMP_S3_URI` from `/var/lib/tokenkey/.env`, lists that exact
+prefix, and selects the newest object whose basename matches
 `tokenkey-YYYYMMDDTHHMMSSZ.sql.gz`.
 
 The configured prefix must match the target identity: `prod/pgdump` for prod and
