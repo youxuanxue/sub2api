@@ -414,7 +414,7 @@ func TestBuildTrajSessionsV2_KiroInternalThinkingFromBlob(t *testing.T) {
 	blob.Request.Body = mustBody(t, req)
 	blob.Response.Body = mustBody(t, resp)
 	blob.Response.InternalThinkingBlocks = []any{
-		`{"type":"thinking","thinking":"kiro plain chain"}`,
+		`{"type":"thinking","thinking":"kiro plain chain","signature":"UPSTREAM_SIG_LIVE"}`,
 	}
 
 	sources := []SourceRecord{{
@@ -443,6 +443,9 @@ func TestBuildTrajSessionsV2_KiroInternalThinkingFromBlob(t *testing.T) {
 	tb, _ := a.Blocks[0].(map[string]any)
 	if tb["type"] != "thinking" || tb["thinking"] != "kiro plain chain" {
 		t.Errorf("thinking export wrong: %+v", tb)
+	}
+	if sig, _ := tb["signature"].(string); sig != "UPSTREAM_SIG_LIVE" {
+		t.Errorf("expected upstream thinking signature on Kiro internal block, got %+v", tb)
 	}
 	if a.CallMeta["thinking_source"] != "present" {
 		t.Errorf("thinking_source = %v", a.CallMeta["thinking_source"])

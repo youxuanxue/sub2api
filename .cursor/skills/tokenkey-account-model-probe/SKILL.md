@@ -74,6 +74,18 @@ bash ops/observability/run-probe.sh \
   --env 'MODELS=<control_model> <candidate_model>'
 ```
 
+To verify Kiro adaptive-thinking wire fields (`reasoningContentEvent` +
+`signature`) on a live edge OAuth account:
+
+```bash
+bash ops/observability/run-probe.sh \
+  --target edge:<edge_id> \
+  --script ops/stage0/probe_kiro_upstream_thinking_fields.sh \
+  --with ops/kiro/probe_upstream_thinking_fields.py \
+  --env ACCOUNT_ID=<account_id> \
+  --env MODEL=auto
+```
+
 For an Antigravity OAuth account, query its canonical upstream
 `fetchAvailableModels` result through the account service without modifying
 `model_mapping`:

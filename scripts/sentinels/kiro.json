@@ -111,6 +111,8 @@
       "path": "backend/internal/integration/kiro/translator.go",
       "must_contain": [
         "func ClaudeToKiro",
+        "buildAdditionalModelRequestFields",
+        "additionalModelRequestFields",
         "func KiroToClaudeResponse",
         "EnsureClaudeCodeCompletionGuard",
         "addClaudeCodeCompletionTool",
@@ -175,6 +177,10 @@
         "func CallKiroAPIWithDoerContext",
         "func callKiroAPIOnce",
         "ResetForRetry func() bool",
+        "OnReasoningContent func(text, signature string)",
+        "func dispatchKiroReasoningContent",
+        "case \"reasoningContentEvent\":",
+        "event[\"signature\"]",
         "OnStopReason",
         "OnStopMetadata",
         "KiroStopMetadata",
@@ -191,7 +197,7 @@
         "runtime.us-east-1.kiro.dev",
         "q.us-east-1.amazonaws.com"
       ],
-      "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries."
+      "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. OnReasoningContent plus dispatchKiroReasoningContent preserve upstream reasoningContentEvent text and signature for QA/traj export without forging client-wire redacted_thinking blocks. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries."
     },
     {
       "path": "backend/internal/integration/kiro/eventstream_test.go",
@@ -199,10 +205,12 @@
         "TestParseEventStream_MetadataStopReason",
         "TestParseEventStream_FrameAlignedEOFWithoutStopReasonFails",
         "TestParseEventStream_TerminalStopIgnoresTruncatedTrailingFrame",
+        "TestParseEventStream_ReasoningContentEventSignature",
+        "TestParseEventStream_ReasoningContentEventSignatureOnlyFrame",
         "KiroStopMetadata",
         "CONTENT_FILTERED"
       ],
-      "rationale": "Protocol-level evidence that metadataEvent.stopReason survives EventStream decoding. Without this callback the service cannot distinguish an upstream content-policy terminal outcome from a broken empty response."
+      "rationale": "Protocol-level evidence that metadataEvent.stopReason survives EventStream decoding and that reasoningContentEvent signature tokens survive EventStream decoding for QA/traj export. Without these callbacks the service cannot distinguish an upstream content-policy terminal outcome from a broken empty response, or silently drops upstream thinking signatures."
     },
     {
       "path": "backend/internal/integration/kiro/client_endpoints_test.go",
@@ -312,9 +320,11 @@
         "gateway.kiro_completion_protocol",
         "unsupported_stop_reason",
         "classifyAndRecordKiroForwardError",
+        "OnReasoningContent: func(text, signature string)",
+        "thinkingSigBuf",
         "publishKiroInternalThinkingSideChannel"
       ],
-      "rationale": "The sixth-platform forwarder translates /v1/messages onto Kiro EventStream and estimates usage because upstream reports credits only. The context-aware call and ResetForRetry callbacks protect retry integrity. The stop-reason mapper preserves Kiro's authoritative terminal outcome; for positively identified Claude Code payloads, the private completion signal and bounded continuation loop separate model END_TURN from agent completion. Continuation turns are transport-only wiring: default zero client-visible text; only ordinary client tools, non-completion terminal outcomes, and deduped short blocker questions may pass. shouldExposeClaudeCodeCompletionMessage and completionSignalTextDelta enforce turn>=2 complete silence plus isShortBlockerQuestion gating after continuationTextDelta dedupe. stripCompletionMarkdownPrefix accepts only explicit marker-plus-space decoration so semantic prefixes such as negative signs survive. flushContinuationText preserves text-before-tool ordering in SSE. Every private-tool consume/hide site is guarded by payload.ClaudeCodeCompletionProtocol so ordinary API clients retain same-name tools. billingTextBuf keeps hidden continuation output billable even when presentation is suppressed, while private completion input is counted exactly once through billingToolUses. Both stop/completion actions remain observable, and the visible-text-aware pre-content error guard keeps failures visible instead of returning an empty 200 stream. Losing these anchors silently regresses reliability, billing, response integrity, completion semantics, or incident diagnosability."
+      "rationale": "The sixth-platform forwarder translates /v1/messages onto Kiro EventStream and estimates usage because upstream reports credits only. OnReasoningContent plus thinkingSigBuf accumulate upstream reasoningContentEvent signatures into the internal QA side channel without exposing them on the client wire. The context-aware call and ResetForRetry callbacks protect retry integrity. The stop-reason mapper preserves Kiro's authoritative terminal outcome; for positively identified Claude Code payloads, the private completion signal and bounded continuation loop separate model END_TURN from agent completion. Continuation turns are transport-only wiring: default zero client-visible text; only ordinary client tools, non-completion terminal outcomes, and deduped short blocker questions may pass. shouldExposeClaudeCodeCompletionMessage and completionSignalTextDelta enforce turn>=2 complete silence plus isShortBlockerQuestion gating after continuationTextDelta dedupe. stripCompletionMarkdownPrefix accepts only explicit marker-plus-space decoration so semantic prefixes such as negative signs survive. flushContinuationText preserves text-before-tool ordering in SSE. Every private-tool consume/hide site is guarded by payload.ClaudeCodeCompletionProtocol so ordinary API clients retain same-name tools. billingTextBuf keeps hidden continuation output billable even when presentation is suppressed, while private completion input is counted exactly once through billingToolUses. Both stop/completion actions remain observable, and the visible-text-aware pre-content error guard keeps failures visible instead of returning an empty 200 stream. Losing these anchors silently regresses reliability, billing, response integrity, completion semantics, or incident diagnosability."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_test.go",
@@ -389,9 +399,10 @@
       "path": "backend/internal/service/kiro_sse_encoder_tk_thinking_redact_test.go",
       "must_contain": [
         "TestKiroGatewayService_Forward_Streaming_WithReasoningEvent",
+        "TestKiroGatewayService_Forward_Streaming_StashesReasoningSignature",
         "TestKiroGatewayService_Forward_Streaming_OmitsSplitInlineThinkingTags"
       ],
-      "rationale": "Client-wire compatibility guard for unsigned Kiro reasoning. Kiro reasoning is retained through the internal QA side channel but must not be forged into redacted_thinking blocks: the hash placeholder is not Anthropic-signed or replayable and breaks strict clients. These tests pin both explicit reasoning events and split inline thinking on the full streaming forward path so an upstream merge cannot silently restore the incompatible block."
+      "rationale": "Client-wire compatibility guard for unsigned Kiro reasoning plus forward-path evidence that upstream reasoningContentEvent signatures reach the internal QA stash. Kiro reasoning is retained through the internal side channel but must not be forged into redacted_thinking blocks: the hash placeholder is not Anthropic-signed or replayable and breaks strict clients. These tests pin explicit reasoning events, signature stash wiring, and split inline thinking on the full streaming forward path so an upstream merge cannot silently restore the incompatible block or drop signatures."
     },
     {
       "path": "backend/internal/integration/kiro/thinking_redact_test.go",
@@ -431,21 +442,27 @@
       "path": "backend/internal/service/kiro_internal_thinking_tk.go",
       "must_contain": [
         "func publishKiroInternalThinkingSideChannel",
+        "func kiroInternalThinkingBlockJSON(thinking, signature string)",
+        "kiroInternalThinkingBlocksFromCapture",
+        "block[\"signature\"]",
         "kiroInternalThinkingMirrorHopRequestHeader",
         "func setKiroInternalThinkingMirrorHopHeaderForAccount",
         "IsKiroMirrorStub()",
         "func setKiroInternalThinkingMirrorHopHeader",
         "func parseKiroInternalThinkingSSECommentLine"
       ],
-      "rationale": "Kiro plaintext-thinking side channel for prod mirror QA/traj export. setKiroInternalThinkingMirrorHopHeaderForAccount must gate on IsKiroMirrorStub(): only prod Anthropic API-key stubs with mirror_platform=kiro emit the hop header; native cc-us5/cc-us6 edge relays must omit it or edge treats Fable/Opus as Kiro-sidecar traffic and rejects. Edge emits the wire side channel only when the prod mirror hop header is present; direct edge clients get gin-context stash only. Losing publishKiroInternalThinkingSideChannel or the mirror-stub gate regresses to leaking plaintext thinking on edge direct SSE/headers or drops prod passthrough stash."
+      "rationale": "Kiro upstream thinking + signature side channel for prod mirror QA/traj export. Signature is included only when Kiro upstream sent it; synthetic placeholders are forbidden. setKiroInternalThinkingMirrorHopHeaderForAccount must gate on IsKiroMirrorStub(): only prod Anthropic API-key stubs with mirror_platform=kiro emit the hop header; native cc-us5/cc-us6 edge relays must omit it or edge treats Fable/Opus as Kiro-sidecar traffic and rejects. Edge emits the wire side channel only when the prod mirror hop header is present; direct edge clients get gin-context stash only. Losing publishKiroInternalThinkingSideChannel or the mirror-stub gate regresses to leaking plaintext thinking on edge direct SSE/headers or drops prod passthrough stash."
     },
     {
       "path": "backend/internal/service/kiro_internal_thinking_tk_test.go",
       "must_contain": [
         "TestPublishKiroInternalThinkingSideChannel_DirectEdgeOmitsWire",
-        "TestPublishKiroInternalThinkingSideChannel_MirrorHopEmitsWire"
+        "TestPublishKiroInternalThinkingSideChannel_MirrorHopEmitsWire",
+        "TestKiroInternalThinkingBlockJSON_OmitsSyntheticSignature",
+        "TestConsolidateKiroInternalThinkingBlocks_MergesSplitFrames",
+        "UPSTREAM_SIG_abc"
       ],
-      "rationale": "Regression guard for the mirror-hop gate: edge direct must not emit wire side channel; prod mirror hop must."
+      "rationale": "Regression guard for the mirror-hop gate and upstream signature capture: edge direct must not emit wire side channel; prod mirror hop must; blocks omit signature when upstream did not send one."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_apikey_passthrough_test.go",

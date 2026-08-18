@@ -51,42 +51,46 @@ func setKiroInternalThinkingMirrorHopHeaderForAccount(hdr http.Header, account *
 	setKiroInternalThinkingMirrorHopHeader(hdr)
 }
 
-// publishKiroInternalThinkingSideChannel stashes plaintext thinking for QA and,
+// publishKiroInternalThinkingSideChannel stashes upstream thinking + signature for QA and,
 // only on prod→edge mirror hops, emits the wire side channel (SSE comment or
 // response header) that prod passthrough reads and strips before the end client.
-func publishKiroInternalThinkingSideChannel(c *gin.Context, w io.Writer, hdr http.Header, thinking string) {
-	stashKiroInternalThinkingBlocks(c, thinking)
+func publishKiroInternalThinkingSideChannel(c *gin.Context, w io.Writer, hdr http.Header, thinking, signature string) {
+	stashKiroInternalThinkingBlocks(c, thinking, signature)
 	if !kiroInternalThinkingMirrorHopRequested(c) {
 		return
 	}
 	if w != nil {
-		_ = writeKiroInternalThinkingSSEComment(w, thinking)
+		_ = writeKiroInternalThinkingSSEComment(w, thinking, signature)
 	}
 	if hdr != nil {
-		writeKiroInternalThinkingResponseHeader(hdr, thinking)
+		writeKiroInternalThinkingResponseHeader(hdr, thinking, signature)
 	}
 }
 
 // kiroInternalThinkingBlockJSON returns one Anthropic-shaped thinking block JSON
-// string for QA/traj export. Kiro upstream has no signature token; only plaintext
-// thinking is stashed; unsigned Kiro reasoning stays off the client-facing wire.
-func kiroInternalThinkingBlockJSON(thinking string) string {
+// string for QA/traj export. Signature is included only when Kiro upstream sent it.
+func kiroInternalThinkingBlockJSON(thinking, signature string) string {
 	thinking = strings.TrimSpace(thinking)
-	if thinking == "" {
+	signature = strings.TrimSpace(signature)
+	if thinking == "" && signature == "" {
 		return ""
 	}
-	b, err := json.Marshal(map[string]any{
-		"type":     "thinking",
-		"thinking": thinking,
-	})
+	block := map[string]any{"type": "thinking"}
+	if thinking != "" {
+		block["thinking"] = thinking
+	}
+	if signature != "" {
+		block["signature"] = signature
+	}
+	b, err := json.Marshal(block)
 	if err != nil {
 		return ""
 	}
 	return string(b)
 }
 
-func kiroInternalThinkingBlocksFromPlaintext(thinking string) []string {
-	block := kiroInternalThinkingBlockJSON(thinking)
+func kiroInternalThinkingBlocksFromCapture(thinking, signature string) []string {
+	block := kiroInternalThinkingBlockJSON(thinking, signature)
 	if block == "" {
 		return nil
 	}
@@ -130,11 +134,11 @@ func decodeKiroInternalThinkingPayload(encoded string) []string {
 	return out
 }
 
-func stashKiroInternalThinkingBlocks(c *gin.Context, thinking string) {
+func stashKiroInternalThinkingBlocks(c *gin.Context, thinking, signature string) {
 	if c == nil {
 		return
 	}
-	blocks := kiroInternalThinkingBlocksFromPlaintext(thinking)
+	blocks := kiroInternalThinkingBlocksFromCapture(thinking, signature)
 	if len(blocks) == 0 {
 		return
 	}
@@ -149,22 +153,61 @@ func applyKiroInternalThinkingBlocks(c *gin.Context, blocks []string) {
 	if prior, ok := existing.([]string); ok && len(prior) > 0 {
 		blocks = append(append([]string{}, prior...), blocks...)
 	}
+	blocks = consolidateKiroInternalThinkingBlocks(blocks)
+	if len(blocks) == 0 {
+		return
+	}
 	c.Set(kiroInternalThinkingGinKey, blocks)
 }
 
-func writeKiroInternalThinkingResponseHeader(hdr http.Header, thinking string) {
+// consolidateKiroInternalThinkingBlocks merges multiple Anthropic-shaped thinking
+// blocks (e.g. mirror-hop side channel replays or split reasoning frames) into one
+// block so QA/traj always see thinking text and signature together.
+func consolidateKiroInternalThinkingBlocks(blocks []string) []string {
+	if len(blocks) == 0 {
+		return nil
+	}
+	var thinkingParts []string
+	signature := ""
+	for _, raw := range blocks {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(trimmed), &obj); err != nil {
+			continue
+		}
+		if strings.TrimSpace(anyString(obj["type"])) != "thinking" {
+			continue
+		}
+		if t := strings.TrimSpace(anyString(obj["thinking"])); t != "" {
+			thinkingParts = append(thinkingParts, t)
+		}
+		if sig := strings.TrimSpace(anyString(obj["signature"])); sig != "" && signature == "" {
+			signature = sig
+		}
+	}
+	merged := kiroInternalThinkingBlockJSON(strings.Join(thinkingParts, ""), signature)
+	if merged == "" {
+		return nil
+	}
+	return []string{merged}
+}
+
+func writeKiroInternalThinkingResponseHeader(hdr http.Header, thinking, signature string) {
 	if hdr == nil {
 		return
 	}
-	payload := encodeKiroInternalThinkingPayload(kiroInternalThinkingBlocksFromPlaintext(thinking))
+	payload := encodeKiroInternalThinkingPayload(kiroInternalThinkingBlocksFromCapture(thinking, signature))
 	if payload == "" {
 		return
 	}
 	hdr.Set(kiroInternalThinkingResponseHeader, payload)
 }
 
-func writeKiroInternalThinkingSSEComment(w io.Writer, thinking string) error {
-	payload := encodeKiroInternalThinkingPayload(kiroInternalThinkingBlocksFromPlaintext(thinking))
+func writeKiroInternalThinkingSSEComment(w io.Writer, thinking, signature string) error {
+	payload := encodeKiroInternalThinkingPayload(kiroInternalThinkingBlocksFromCapture(thinking, signature))
 	if payload == "" || w == nil {
 		return nil
 	}

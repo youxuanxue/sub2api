@@ -66,6 +66,14 @@ class Stage0QABundleContractTest(unittest.TestCase):
     def test_bundle_bucket_browser_surface_and_app_role_are_scoped(self) -> None:
         self.assert_bundle_bucket_contract(self.template)
 
+    def test_bundle_persistent_resources_clean_up_failed_first_create(self) -> None:
+        resources = self.template["Resources"]
+        for logical_id in ("QaBundleBucket", "QaBundleWorkerLogGroup"):
+            with self.subTest(logical_id=logical_id):
+                resource = resources[logical_id]
+                self.assertEqual(resource["DeletionPolicy"], "RetainExceptOnCreate")
+                self.assertEqual(resource["UpdateReplacePolicy"], "Retain")
+
     def assert_bundle_bucket_contract(self, template: dict) -> None:
         resources = template["Resources"]
         bucket = resources["QaBundleBucket"]["Properties"]
@@ -132,6 +140,7 @@ class Stage0QABundleContractTest(unittest.TestCase):
                 "s3:GetBucketVersioning",
                 "s3:GetEncryptionConfiguration",
                 "s3:GetLifecycleConfiguration",
+                "s3:PutEncryptionConfiguration",
             },
             "ManageQaKms": {"kms:CreateAlias", "kms:DeleteAlias", "kms:UntagResource"},
             "ManageQaRoles": {
@@ -145,6 +154,7 @@ class Stage0QABundleContractTest(unittest.TestCase):
                 "sqs:GetQueueUrl",
                 "sqs:ListQueueTags",
                 "sqs:UntagQueue",
+                "logs:DescribeIndexPolicies",
                 "logs:UntagResource",
                 "cloudtrail:DeleteTrail",
                 "cloudtrail:GetEventSelectors",
@@ -158,6 +168,17 @@ class Stage0QABundleContractTest(unittest.TestCase):
         for sid, actions in expected.items():
             with self.subTest(sid=sid):
                 self.assertTrue(actions <= statements[sid], actions - statements[sid])
+
+        manage_roles = next(
+            statement
+            for policy in policies
+            for statement in policy["PolicyDocument"]["Statement"]
+            if statement["Sid"] == "ManageQaRoles"
+        )
+        self.assertEqual(
+            manage_roles["Resource"],
+            "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-prod-qa-raw-arch*",
+        )
 
         service_linked_role = next(
             statement
@@ -193,6 +214,28 @@ class Stage0QABundleContractTest(unittest.TestCase):
                 )
                 self.assertEqual(set(statement["Action"]), expected_actions)
                 self.assertEqual(statement["Resource"], expected_resource)
+
+    def test_qa_verifier_roles_can_read_running_worker_tasks(self) -> None:
+        oidc = _load_oidc_template()
+        expected = {
+            "ecs:DescribeServices",
+            "ecs:DescribeTasks",
+            "ecs:ListTasks",
+            "sqs:GetQueueAttributes",
+        }
+        for role_name, sid in (
+            ("ClusteringRole", "ReadQaBundleRuntimeForDiagnostics"),
+            ("QAInfraDeploymentRole", "VerifyQaBundleRuntime"),
+        ):
+            with self.subTest(role_name=role_name):
+                policies = oidc["Resources"][role_name]["Properties"]["Policies"]
+                statement = next(
+                    statement
+                    for policy in policies
+                    for statement in policy["PolicyDocument"]["Statement"]
+                    if isinstance(statement, dict) and statement.get("Sid") == sid
+                )
+                self.assertEqual(set(statement["Action"]), expected)
 
     def assert_worker_contract(self, template: dict) -> None:
         parameters = template["Parameters"]

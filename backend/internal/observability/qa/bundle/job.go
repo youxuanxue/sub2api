@@ -242,26 +242,37 @@ func ExecuteJob(ctx context.Context, spec JobSpec, rawStore archive.ReadOnlyObje
 			return JobReceipt{}, err
 		}
 		defer func() { _ = os.RemoveAll(workDir) }()
-		var verified []archive.VerifiedCommit
-		for index, commitKey := range spec.CommitKeys {
-			commit, err := verify(ctx, rawStore, commitKey, filepath.Join(workDir, fmt.Sprintf("%02d", index)))
-			if err != nil {
-				closeVerifiedCommits(verified)
-				return JobReceipt{}, fmt.Errorf("verify qa raw commit %d: %w", index, err)
-			}
-			expected := spec.DataFrom.Add(time.Duration(index) * time.Hour)
-			if !commit.Document.WindowStart.Equal(expected) || !commit.Document.WindowEnd.Equal(expected.Add(time.Hour)) {
-				_ = commit.Close()
-				closeVerifiedCommits(verified)
-				return JobReceipt{}, errors.New("qa raw commit window does not match job spec")
-			}
-			verified = append(verified, commit)
-		}
-		defer closeVerifiedCommits(verified)
-		manifest, err := PublishVerifiedCommits(ctx, outputStore, PublishInput{
+		manifest, err := publishRecordSource(ctx, outputStore, PublishInput{
 			Prefix: spec.GenerationPrefix, DataFrom: spec.DataFrom, DataUntil: spec.DataUntil,
 			ArchiveWatermark: spec.ArchiveWatermark,
-		}, verified, spec.UserID, spec.APIKeyID)
+		}, func(yield func(Record) error) error {
+			for index, commitKey := range spec.CommitKeys {
+				commitDir := filepath.Join(workDir, fmt.Sprintf("%02d", index))
+				commit, err := verify(ctx, rawStore, commitKey, commitDir)
+				if err != nil {
+					return fmt.Errorf("verify qa raw commit %d: %w", index, err)
+				}
+				expected := spec.DataFrom.Add(time.Duration(index) * time.Hour)
+				if !commit.Document.WindowStart.Equal(expected) || !commit.Document.WindowEnd.Equal(expected.Add(time.Hour)) {
+					_ = commit.Close()
+					_ = os.RemoveAll(commitDir)
+					return errors.New("qa raw commit window does not match job spec")
+				}
+				projectErr := visitVerifiedSegments(commit.Segments, spec.UserID, spec.APIKeyID, yield)
+				closeErr := commit.Close()
+				removeErr := os.RemoveAll(commitDir)
+				if projectErr != nil {
+					return projectErr
+				}
+				if closeErr != nil {
+					return fmt.Errorf("close qa raw commit %d: %w", index, closeErr)
+				}
+				if removeErr != nil {
+					return fmt.Errorf("remove qa raw commit %d restore directory: %w", index, removeErr)
+				}
+			}
+			return nil
+		})
 		if err != nil {
 			return JobReceipt{}, err
 		}
@@ -294,10 +305,4 @@ func deterministicJobID(kind JobKind, userID, apiKeyID int64, watermark time.Tim
 
 func jobBase(jobID string) string {
 	return "qa-bundles/v1/jobs/" + jobID
-}
-
-func closeVerifiedCommits(commits []archive.VerifiedCommit) {
-	for index := range commits {
-		_ = commits[index].Close()
-	}
 }

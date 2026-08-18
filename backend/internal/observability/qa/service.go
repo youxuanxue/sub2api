@@ -1027,7 +1027,7 @@ func captureInternalThinkingBlocksFromKey(c *gin.Context, key string) []string {
 		if trimmed == "" {
 			continue
 		}
-		out = append(out, logredact.RedactText(trimmed))
+		out = append(out, restoreInternalThinkingBlockJSON(logredact.RedactText(trimmed), []byte(trimmed)))
 	}
 	return out
 }

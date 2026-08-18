@@ -98,3 +98,46 @@ func TestKiroToClaudeResponse_Basic(t *testing.T) {
 		t.Errorf("expected a text content block, got %+v", resp.Content)
 	}
 }
+
+func TestClaudeToKiro_AdaptiveThinkingEmitsAdditionalModelRequestFields(t *testing.T) {
+	req := &ClaudeRequest{
+		Model:     "claude-sonnet-4-6",
+		MaxTokens: 256,
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "hi"},
+		},
+		Thinking:     &ClaudeThinkingConfig{Type: "adaptive"},
+		OutputConfig: &ClaudeOutputConfig{Effort: "high"},
+	}
+
+	payload := ClaudeToKiro(req, true)
+	if payload == nil {
+		t.Fatal("ClaudeToKiro returned nil payload")
+	}
+	fields := payload.AdditionalModelRequestFields
+	if fields == nil {
+		t.Fatal("expected additionalModelRequestFields when thinking enabled")
+	}
+	if fields.Thinking == nil || fields.Thinking.Type != "adaptive" || fields.Thinking.Display != "summarized" {
+		t.Fatalf("unexpected thinking request fields: %+v", fields.Thinking)
+	}
+	if fields.OutputConfig == nil || fields.OutputConfig.Effort != "high" {
+		t.Fatalf("unexpected output_config: %+v", fields.OutputConfig)
+	}
+	if fields.MaxTokens != 256 {
+		t.Fatalf("expected max_tokens=256, got %d", fields.MaxTokens)
+	}
+}
+
+func TestClaudeToKiro_ThinkingDisabledOmitsAdditionalModelRequestFields(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-sonnet-4-6",
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "hi"},
+		},
+	}
+	payload := ClaudeToKiro(req, false)
+	if payload.AdditionalModelRequestFields != nil {
+		t.Fatalf("expected no additionalModelRequestFields, got %+v", payload.AdditionalModelRequestFields)
+	}
+}

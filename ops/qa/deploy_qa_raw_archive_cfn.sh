@@ -178,11 +178,50 @@ import sys
 
 payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 unsafe = []
+
+
+def is_bundle_worker_image_task_definition_replacement(resource):
+    if (
+        resource.get("Action") != "Modify"
+        or resource.get("LogicalResourceId") != "QaBundleWorkerTaskDefinition"
+        or resource.get("ResourceType") != "AWS::ECS::TaskDefinition"
+        or resource.get("Replacement") != "True"
+    ):
+        return False
+
+    details = resource.get("Details")
+    if not isinstance(details, list) or not details:
+        return False
+
+    bundle_worker_image_reference = False
+    for detail in details:
+        target = detail.get("Target", {})
+        if (
+            target.get("Attribute") != "Properties"
+            or target.get("Name") != "ContainerDefinitions"
+        ):
+            return False
+
+        change_source = detail.get("ChangeSource")
+        if change_source == "ParameterReference":
+            if detail.get("CausingEntity") != "BundleWorkerImage":
+                return False
+            bundle_worker_image_reference = True
+        elif change_source != "DirectModification":
+            return False
+
+    return bundle_worker_image_reference
+
+
 for change in payload.get("Changes", []):
     resource = change.get("ResourceChange", {})
     action = resource.get("Action")
     replacement = resource.get("Replacement")
-    if action == "Remove" or replacement in {"True", "Conditional"}:
+    replacement_is_unsafe = replacement == "Conditional" or (
+        replacement == "True"
+        and not is_bundle_worker_image_task_definition_replacement(resource)
+    )
+    if action == "Remove" or replacement_is_unsafe:
         unsafe.append(
             f"{resource.get('LogicalResourceId', '<unknown>')} "
             f"action={action} replacement={replacement}"

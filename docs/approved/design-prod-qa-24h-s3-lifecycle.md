@@ -1,9 +1,9 @@
 ---
 title: Prod-only QA S3 用户面与小时归档生命周期
 status: approved
-approved_by: "user (conversation approvals, 2026-08-05 through 2026-08-15; S3-only user surface, capture-sealed archive-gated hourly DROP, fail-closed single maintenance owner, no automatic emergency deletion)"
+approved_by: "user (conversation approvals, 2026-08-05 through 2026-08-17; S3-only user surface, capture-sealed archive-gated hourly DROP, fail-closed single maintenance owner, no automatic emergency deletion, and PR #1688 Bundle bootstrap/app rollback contract)"
 approved_at: 2026-08-05
-last_reviewed: 2026-08-16
+last_reviewed: 2026-08-17
 created: 2026-08-05
 authors: [agent]
 risk: high
@@ -533,6 +533,44 @@ PR 3 的代码发布不自动激活 DROP；生产激活仍需独立高风险批�
 7. rollout 才能把 repository/observed state 更新为 target verified。
 
 任何步骤失败都停止推进，不通过手工触发 timer、DDL 或线上写入来伪造验证。
+
+### 18.2 首次 Bundle 发布与 app rollback 契约
+
+> 本节是 PR #1688 的高风险修订，由用户于 2026-08-17 明确批准；该批准不授权部署、生产 IAM/GitHub variable 变更、host timer 同步或 single-owner activation。
+
+Bundle 基础设施 bootstrap 与普通 app 发布分属两个权限边界。首次 Bundle-aware prod deploy 前必须同时满足：
+
+- `tokenkey-cicd-oidc` 输出 `QAInfraDeploymentRoleArn` 与
+  `QAInfraCloudFormationServiceRoleArn`；
+- `prod` Environment variable `QA_INFRA_OIDC_ROLE_ARN` 精确等于
+  `QAInfraDeploymentRoleArn`；
+- deployment role 只信任 `repo:youxuanxue/sub2api:environment:prod` 的 GitHub OIDC subject，
+  CloudFormation service role 只信任 `cloudformation.amazonaws.com`，且 live policy 与当前模板一致；
+- bootstrap 后按 `ops/qa/README.md` 只读核对上述事实，普通 deploy 继续由现有 workflow 前置门禁验证 outputs、
+  variable、role assumption 与 CloudFormation 权限，不新增第二套 bootstrap workflow。旧 raw-archive stack 暂无
+  Bundle outputs 不是 blocker，首次 deploy 可以在 app image 切换前更新它；OIDC outputs、IAM trust/policy 或
+  GitHub variable 缺失则必须在任何 QA stack/app mutation 前失败。
+
+app image 与 Bundle Worker image 是两个发布生命周期，不能再用同一个 tag 隐式绑定。能力由目标 release
+tree 的 `ops/qa/deploy_rollout.yaml` 显式声明 `bundle_runtime_contract: phase3_v1`，不得根据尚未发布的 semver
+下限猜测。prod deploy 只调用一个确定性 resolver，由它输出 `mode`、唯一 `resolved_worker_image`、
+`worker_source`、`run_canary` 与 `host_runtime_mode`：
+
+1. 目标 release tree 声明受支持 contract 时，`mode=phase3`，Worker 使用同一目标 release image；
+2. contract 缺失时，`mode=legacy_rollback`，只接受完整 read-only readiness verifier 已证明正在运行的本仓库
+   immutable release tag/digest；未知或 malformed contract 一律 fail closed；
+3. 没有 verified live Worker 的 legacy rollback 必须在 CloudFormation/app mutation 前失败；
+4. discovery 必须先验证 stack complete、CORS、AES256、lifecycle、queue/DLQ、ECS capacity 与实际 task image
+   精确等于 stack parameter，不能把 parameter 本身当成运行证明；
+5. infra deploy 与 post-update verifier 必须消费同一个 `resolved_worker_image`，并在 summary 同时报告 app image、
+   Worker image/source、mode 与 host runtime mode。
+
+回滚到 Phase 3 之前的 app 只用于恢复 gateway 服务，不撤销已经建立的 Bundle 基础设施，也不把 Worker
+降级到不支持其命令的 binary。`mode=phase3` checkout/sync target-tag host runners 并执行 post-deploy Bundle
+canary；`mode=legacy_rollback` 在 app switch 前用当前 release tree 的 Phase 3 runners 收敛 host：maintenance
+enabled，boundary disabled/inactive；不得安装 legacy target runner，也不得保留未经证明的 live runner 状态。
+此模式跳过 canary，标记 `QA Phase 3 degraded`，archive 可继续而 DROP 明确暂停；durable activation receipt 不变，
+恢复 compatible Phase 3 app 后才以 boundary `auto` 恢复唯一 owner。
 
 ## 19. 迁移完成后的唯一运行图
 

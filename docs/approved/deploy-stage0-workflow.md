@@ -82,13 +82,14 @@ Inputs:
 
 | Name | Type | Default | Notes |
 |---|---|---|---|
-| `operation` | choice | `deploy` | `deploy` runs the existing image switch and acceptance path; `smoke-only` runs canonical acceptance probes without host mutation |
-| `tag` | string | required | image tag without leading `v`; must match `^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|-beta\.[0-9]+)?$`; in `smoke-only` it is an audit label only |
+| `operation` | choice | `deploy` | `deploy` runs the image switch and acceptance path; `smoke-only` runs canonical API acceptance probes; `qa-infra-check` validates the dedicated QA OIDC/IAM path and stack binding without mutation |
+| `tag` | string | required | image tag without leading `v`; must match `^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|-beta\.[0-9]+)?$`; in read-only modes it is an audit label only |
 | `simple_release_override` | bool | `false` | deploy-only; flip only when the target host is amd64 (default-deny against the §9.1 Graviton trap) |
 
-Both jobs bind GitHub Environment **`prod`**. Only the `deploy` job receives
-`id-token: write` and `packages: read`; `smoke-only` receives `contents: read`
-only and therefore cannot obtain AWS credentials.
+All jobs bind GitHub Environment **`prod`**. The `deploy` job receives
+`id-token: write` and `packages: read`; `qa-infra-check` receives only
+`contents: read` plus `id-token: write` so it can prove both OIDC role assumptions;
+`smoke-only` receives `contents: read` only and cannot obtain AWS credentials.
 
 Steps:
 
@@ -165,14 +166,23 @@ Steps:
    `claude-sonnet-4-6`), `TK_SMOKE_GEMINI_MODELS` (default empty; native
    Gemini Google One pool retired 2026-07-04), `TK_SMOKE_OPENAI_OAUTH_MODELS`
    (default `gpt-5.4`).
-11. **Job summary** — write the deployed tag, the SSM command id, and a
-   one-liner re-dispatch command for rollback. No auto-rollback (would
-   mask transient failures).
+11. **Job summary** — write app and QA Worker images, Worker source, rollout
+   mode, host runtime mode, the SSM command id, and a one-line app rollback
+   dispatch. Legacy rollback is explicitly degraded: it requires a fully
+   verified live Worker, converges the current maintenance runner, disables
+   boundary before app mutation, skips canary, and pauses DROP until a
+   Phase 3 app is restored. No auto-rollback (would mask transient failures).
+12. **Read-only QA infrastructure acceptance** — `operation=qa-infra-check`
+   validates both IAM stack outputs, exact `QA_INFRA_OIDC_ROLE_ARN` binding,
+   real deployment-role assumption, recognized raw-archive stack identity,
+   and Bundle-era CloudFormation service-role binding. It contains no change
+   set, SSM, host sync, canary, or image mutation.
 
 Concurrency `group: deploy-stage0-prod`, `cancel-in-progress: false` is shared
-by both operations. Workflow-level permission is `contents: read`; the `deploy`
-job adds `id-token: write` and `packages: read`, while `smoke-only` remains
-read-only. No job receives `contents: write`.
+by all operations. Workflow-level permission is `contents: read`; the `deploy`
+job adds `id-token: write` and `packages: read`, `qa-infra-check` adds only
+`id-token: write`, and `smoke-only` keeps the workflow default. No job receives
+`contents: write`.
 
 ## 5. Required pre-deploy operator setup
 
@@ -223,7 +233,9 @@ To stay focused on prod deploy automation and nothing else:
   upgrades **`prod` only**; smoke probes target that stack's `ApiUrl`.
 - **No post-cutover auto-rollback** — before Caddy reload, failures leave the
   old color untouched and serving; after Caddy reload, re-dispatch the workflow
-  with the previous tag so the rollback goes through the same health/smoke path.
+  with the previous app tag so the rollback goes through the same health/smoke
+  path. QA Worker/host-runner rollback is a separate lifecycle governed only by
+  `docs/approved/design-prod-qa-24h-s3-lifecycle.md` section 18.2.
 - **No CFN `ImageTag` parameter mutation** — drift between the CFN
   parameter and runtime `TOKENKEY_IMAGE` remains the accepted trade-off
   documented in `deploy/aws/README.md` §升级 / 发版.
@@ -245,6 +257,8 @@ If the workflow misbehaves after merge:
   `/var/lib/tokenkey/active-color`, per-color image env keys, and a blue/green
   `tokenkey.service`. To disable the workflow without rolling the host layout
   back, re-dispatch the previous known-good tag through the same workflow.
+  This is an app-image rollback; its QA control-plane behavior remains governed
+  by the QA lifecycle SSOT linked above.
 
 ## 8. Acceptance criteria
 

@@ -190,6 +190,46 @@ func TestUS043_DeepSeekResolvedRegistryPriceCarriesSnapshotPolicy(t *testing.T) 
 	require.InDelta(t, 8e-6, priced.OutputPricePerToken, 1e-15)
 }
 
+func TestCalculateCostUnified_DeepSeekOfficialIdleCNYAndPeakDouble(t *testing.T) {
+	billing := NewBillingService(&config.Config{}, &PricingService{useActiveRegistry: true})
+	resolver := NewModelPricingResolver(nil, billing)
+	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}
+
+	offPeak, err := billing.CalculateCostUnified(CostInput{
+		Model:          "deepseek-v4-flash",
+		Tokens:         tokens,
+		RateMultiplier: 1,
+		Resolver:       resolver,
+		BillingAt:      atBJ(t, 8, 0),
+	})
+	require.NoError(t, err)
+
+	tax := tkOfficialListBaseTaxMultiplier()
+	wantIdle := tax * (tkCNYPerMTokToUSDPerToken(1.5) + tkCNYPerMTokToUSDPerToken(4.5) + tkCNYPerMTokToUSDPerToken(0.05)) * 1_000_000
+	require.InDelta(t, wantIdle, offPeak.ActualCost, 1e-12)
+
+	peak, err := billing.CalculateCostUnified(CostInput{
+		Model:          "deepseek-v4-flash",
+		Tokens:         tokens,
+		RateMultiplier: 1,
+		Resolver:       resolver,
+		BillingAt:      atBJ(t, 10, 0),
+	})
+	require.NoError(t, err)
+	require.InDelta(t, offPeak.ActualCost*2, peak.ActualCost, 1e-12)
+
+	proOffPeak, err := billing.CalculateCostUnified(CostInput{
+		Model:          "deepseek-v4-pro",
+		Tokens:         tokens,
+		RateMultiplier: 1,
+		Resolver:       resolver,
+		BillingAt:      atBJ(t, 20, 0),
+	})
+	require.NoError(t, err)
+	wantProIdle := tax * (tkCNYPerMTokToUSDPerToken(4.5) + tkCNYPerMTokToUSDPerToken(13.5) + tkCNYPerMTokToUSDPerToken(0.15)) * 1_000_000
+	require.InDelta(t, wantProIdle, proOffPeak.ActualCost, 1e-12)
+}
+
 func TestAttachCatalogDeepSeekPeakValley(t *testing.T) {
 	resp := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{{

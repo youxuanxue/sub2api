@@ -1144,7 +1144,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StripsKiroInternalThinkingSSE
 	}
 
 	thinking := "prod-only mirror hop reasoning"
-	payload := encodeKiroInternalThinkingPayload(kiroInternalThinkingBlocksFromPlaintext(thinking))
+	payload := encodeKiroInternalThinkingPayload(kiroInternalThinkingBlocksFromCapture(thinking, "SIG_TEST"))
 	commentLine := kiroInternalThinkingSSECommentPfx + payload
 
 	resp := &http.Response{
