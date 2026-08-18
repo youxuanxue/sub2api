@@ -136,6 +136,17 @@ func TestRecordWebSocketTerminalOutcomeSkipsCanceledTurn(t *testing.T) {
 	require.Empty(t, events)
 }
 
+func TestRecordWebSocketHandshakeTerminalOutcomeUsesActualHTTPStatus(t *testing.T) {
+	sink := &terminalOutcomeSinkStub{}
+	events := runTerminalOutcomeMiddleware(t, sink, TerminalOutcomeWebSocketTurn, func(c *gin.Context) {
+		c.Status(http.StatusServiceUnavailable)
+		RecordWebSocketHandshakeTerminalOutcome(c, "grok-voice-latest")
+	})
+	require.Equal(t, []service.TerminalOutcomeEvent{{
+		GroupID: 7, RequestedModel: "grok-voice-latest", Kind: service.TerminalOutcomeOtherError,
+	}}, withoutTerminalTimes(events))
+}
+
 func withoutTerminalTimes(events []service.TerminalOutcomeEvent) []service.TerminalOutcomeEvent {
 	cloned := append([]service.TerminalOutcomeEvent(nil), events...)
 	for i := range cloned {

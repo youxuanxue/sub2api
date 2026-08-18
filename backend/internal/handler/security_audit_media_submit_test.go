@@ -146,7 +146,8 @@ func TestBatchImagePromptGuardRunsBeforePersistenceOrBilling(t *testing.T) {
 	openAI := &OpenAIGatewayHandler{securityAuditCoordinator: securityaudit.NewCoordinator(nil, engine)}
 	h := &BatchImageHandler{openAI: openAI}
 	router := gin.New()
-	router.Use(securityAuditMediaTestMiddleware)
+	sink := &terminalOutcomeSinkStub{}
+	router.Use(securityAuditMediaTestMiddleware, TerminalOutcomeMiddleware(sink, TerminalOutcomeAsyncSubmission))
 	router.POST("/v1/images/batches", h.Submit)
 	body := map[string]any{
 		"model": "gemini-image-test",
@@ -162,6 +163,9 @@ func TestBatchImagePromptGuardRunsBeforePersistenceOrBilling(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	require.NotPanics(t, func() { router.ServeHTTP(recorder, request) }, "nil service would panic if Submit were reached")
 	require.Equal(t, http.StatusForbidden, recorder.Code)
+	require.Equal(t, []service.TerminalOutcomeEvent{{
+		GroupID: 3, RequestedModel: "gemini-image-test", Kind: service.TerminalOutcomeOtherError,
+	}}, withoutTerminalTimes(sink.events))
 	evaluated, _, requests := engine.snapshot()
 	require.Equal(t, 1, evaluated)
 	require.Len(t, requests, 1)

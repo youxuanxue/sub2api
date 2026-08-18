@@ -56,6 +56,7 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 	}
 
 	router := gin.New()
+	sink := &terminalOutcomeSinkStub{}
 	router.Use(func(c *gin.Context) {
 		groupID := int64(3)
 		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
@@ -65,7 +66,7 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 			Group:   &service.Group{ID: groupID, Platform: service.PlatformOpenAI, AllowImageGeneration: true},
 		})
 		c.Next()
-	})
+	}, TerminalOutcomeMiddleware(sink, TerminalOutcomeAsyncSubmission))
 	router.POST("/v1/images/generations/async", h.Submit)
 	router.GET("/v1/images/tasks/:task_id", h.Get)
 
@@ -75,6 +76,9 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	require.Equal(t, http.StatusAccepted, w.Code)
+	require.Equal(t, []service.TerminalOutcomeEvent{{
+		GroupID: 3, RequestedModel: "gpt-image-1", Kind: service.TerminalOutcomeSuccess,
+	}}, withoutTerminalTimes(sink.events))
 	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
 	require.Equal(t, "3", w.Header().Get("Retry-After"))
 

@@ -62,6 +62,25 @@ func RecordWebSocketTerminalOutcome(c *gin.Context, model string, turnErr error,
 	if c == nil || strings.TrimSpace(model) == "" || errors.Is(turnErr, context.Canceled) {
 		return
 	}
+	kind := service.TerminalOutcomeOtherError
+	if turnErr == nil && resultPresent {
+		kind = service.TerminalOutcomeSuccess
+	} else if isOpsNoAvailableAccountError(turnErr) {
+		kind = service.TerminalOutcomeFinalEmptyPool429
+	}
+	recordWebSocketTerminalOutcomeKind(c, model, kind)
+}
+
+// RecordWebSocketHandshakeTerminalOutcome preserves the actual HTTP status when
+// a WebSocket route fails before protocol upgrade and no logical turn exists.
+func RecordWebSocketHandshakeTerminalOutcome(c *gin.Context, model string) {
+	if c == nil || strings.TrimSpace(model) == "" || terminalRequestCanceled(c) {
+		return
+	}
+	recordWebSocketTerminalOutcomeKind(c, model, terminalHTTPOutcomeKind(c, TerminalOutcomeSyncInference))
+}
+
+func recordWebSocketTerminalOutcomeKind(c *gin.Context, model string, kind service.TerminalOutcomeKind) {
 	value, ok := c.Get(terminalOutcomeWebSocketSinkKey)
 	if !ok {
 		return
@@ -69,12 +88,6 @@ func RecordWebSocketTerminalOutcome(c *gin.Context, model string, turnErr error,
 	sink, ok := value.(service.TerminalOutcomeSink)
 	if !ok || sink == nil {
 		return
-	}
-	kind := service.TerminalOutcomeOtherError
-	if turnErr == nil && resultPresent {
-		kind = service.TerminalOutcomeSuccess
-	} else if isOpsNoAvailableAccountError(turnErr) {
-		kind = service.TerminalOutcomeFinalEmptyPool429
 	}
 	sink.Record(service.TerminalOutcomeEvent{
 		At:             time.Now().UTC(),
