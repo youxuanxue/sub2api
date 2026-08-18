@@ -39,7 +39,41 @@ class PgdumpRestoreCanaryWorkflowTest(unittest.TestCase):
         self.assertIn("run-probe.sh", command)
         self.assertIn("pgdump_restore_canary_remote.sh", command)
         self.assertIn("pgdump_restore_canary.py", command)
-        self.assertNotIn("continue-on-error", restore)
+        self.assertIn("pgdump_restore_canary_contract.py", command)
+        canary_step = next(
+            step for step in restore["steps"]
+            if step.get("name") == "Run isolated pg_dump restore canary"
+        )
+        self.assertEqual(canary_step["continue-on-error"], "true")
+
+        names = [step.get("name", "") for step in restore["steps"]]
+        restore_state = names.index("Restore per-target alert state")
+        decide = names.index("Decide restore-canary alert")
+        deliver = names.index("Deliver restore-canary alert")
+        save_state = names.index("Save per-target alert state")
+        propagate = names.index("Propagate restore-canary failure")
+        self.assertLess(restore_state, names.index("Run isolated pg_dump restore canary"))
+        self.assertLess(decide, deliver)
+        self.assertLess(deliver, save_state)
+        self.assertLess(save_state, propagate)
+
+        restore_state_step = restore["steps"][restore_state]
+        self.assertIn("github.run_attempt", restore_state_step["with"]["key"])
+
+        decision_step = restore["steps"][decide]
+        self.assertEqual(decision_step["if"], "always()")
+        self.assertIn("pgdump_restore_canary_alert.py", decision_step["run"])
+        delivery_step = restore["steps"][deliver]
+        self.assertEqual(delivery_step["if"], "always()")
+        self.assertIn("edge_health_delivery.py", delivery_step["run"])
+        self.assertIn("TK_FEISHU_WEBHOOK_URL", str(delivery_step["env"]))
+        self.assertNotIn("TK_FEISHU_WEBHOOK_URL", command)
+
+        save_step = restore["steps"][save_state]
+        self.assertIn("actions/cache/save", save_step["uses"])
+        self.assertIn("TARGET_ID", str(save_step))
+        self.assertIn("github.run_attempt", save_step["with"]["key"])
+        self.assertIn("steps.canary.outcome", str(restore["steps"][propagate]))
 
 
 if __name__ == "__main__":

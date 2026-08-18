@@ -15,9 +15,9 @@ mkdir -p "${local_bin}" "${remote_bin}" "${output_dir}" "${work_dir}"
 
 secret_file="${tmp}/env.secret"
 cat >"${secret_file}" <<'EOF'
-TOTP_ENCRYPTION_KEY=totp-test-secret
-POSTGRES_PASSWORD=postgres-test-secret
-JWT_SECRET=jwt-test-secret
+TOTP_ENCRYPTION_KEY=3333333333333333333333333333333333333333333333333333333333333333
+POSTGRES_PASSWORD=222222222222222222222222222222222222222222222222
+JWT_SECRET=1111111111111111111111111111111111111111111111111111111111111111
 EOF
 
 cat >"${local_bin}/aws" <<'EOF'
@@ -58,9 +58,9 @@ printf '%s' "${host_b64}" | base64 -d >"${host_rendered}"
 
 expected_parameter="${tmp}/expected.parameter"
 printf '%s\n%s\n%s' \
-  'JWT_SECRET=jwt-test-secret' \
-  'POSTGRES_PASSWORD=postgres-test-secret' \
-  'TOTP_ENCRYPTION_KEY=totp-test-secret' >"${expected_parameter}"
+  'JWT_SECRET=1111111111111111111111111111111111111111111111111111111111111111' \
+  'POSTGRES_PASSWORD=222222222222222222222222222222222222222222222222' \
+  'TOTP_ENCRYPTION_KEY=3333333333333333333333333333333333333333333333333333333333333333' >"${expected_parameter}"
 cp "${host_rendered}" "${host_script}"
 
 grep -F "SOURCE=\"${secret_file}\"" "${host_script}" >/dev/null
@@ -164,7 +164,26 @@ grep -F 'secrets unchanged; no new SSM version written' "${tmp}/unchanged.out" >
 grep -F 'verify: 3 secret line(s)' "${tmp}/unchanged.out" >/dev/null
 assert_work_dir_empty
 
-if grep -R -F -e 'postgres-test-secret' -e 'jwt-test-secret' -e 'totp-test-secret' \
+# A malformed local source must fail before it can replace the recovery point.
+cat >"${secret_file}" <<'EOF'
+POSTGRES_PASSWORD=222222222222222222222222222222222222222222222222
+JWT_SECRET=not-hex;touch-/tmp/owned
+TOTP_ENCRYPTION_KEY=3333333333333333333333333333333333333333333333333333333333333333
+EOF
+rm -f "${state_file}" "${put_count_file}"
+if run_host malformed-source ok; then
+  echo "FAIL: malformed local secrets must be rejected before PutParameter" >&2
+  exit 1
+fi
+test ! -e "${state_file}"
+test ! -e "${put_count_file}"
+grep -F 'invalid secret value for JWT_SECRET' "${tmp}/malformed-source.err" >/dev/null
+assert_work_dir_empty
+
+if grep -R -F \
+    -e '1111111111111111111111111111111111111111111111111111111111111111' \
+    -e '222222222222222222222222222222222222222222222222' \
+    -e '3333333333333333333333333333333333333333333333333333333333333333' \
     "${tmp}"/*.out "${tmp}"/*.err >/dev/null; then
   echo "FAIL: command output leaked a secret value" >&2
   exit 1

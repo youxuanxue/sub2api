@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import contextlib
+import io
 import os
 import pathlib
 import shutil
@@ -70,7 +72,11 @@ class UsageLogsDailyPartitionTest(unittest.TestCase):
             **before,
             "bound_validated": True,
         }
-        inventory = {"unique_indexes": [], "incoming_foreign_keys": []}
+        inventory = {
+            "unique_indexes": [],
+            "incoming_foreign_keys": [],
+            "billing_dedup_ready": True,
+        }
         with mock.patch.object(remote, "status", side_effect=[before, after]), mock.patch.object(
             remote, "_query_json", return_value=inventory
         ), mock.patch.object(remote, "_psql", return_value="") as psql:
@@ -83,6 +89,28 @@ class UsageLogsDailyPartitionTest(unittest.TestCase):
         self.assertEqual(psql.call_count, 2)
         self.assertIn("CREATE INDEX CONCURRENTLY", psql.call_args_list[0].args[0])
         self.assertIn(_UPPER, psql.call_args_list[1].args[0])
+
+    def test_prepare_refuses_missing_billing_dedup_unique_key(self) -> None:
+        before = {
+            "partitioned": False,
+            "server_clock": "2026-08-03T00:00:00Z",
+            "bound_exists": True,
+            "bound_operator_owned": True,
+            "legacy_upper_exclusive": _UPPER,
+            "row_count": 6_000_000,
+        }
+        inventory = {
+            "unique_indexes": [],
+            "incoming_foreign_keys": [],
+            "billing_dedup_ready": False,
+        }
+        with mock.patch.object(remote, "status", return_value=before), mock.patch.object(
+            remote, "_query_json", return_value=inventory
+        ), mock.patch.object(remote, "_psql") as psql:
+            with self.assertRaisesRegex(remote.UsagePartitionError, "billing dedup"):
+                remote.prepare(_TARGET, remote.prepare_confirmation(_TARGET))
+
+        psql.assert_not_called()
 
     def test_abort_refuses_confirmation_not_bound_to_upper(self) -> None:
         with mock.patch.object(remote, "_psql") as psql:
@@ -164,6 +192,7 @@ class UsageLogsDailyPartitionTest(unittest.TestCase):
                 "verification": {
                     "partitioned": True,
                     "legacy_attached": True,
+                    "daily_partitions_attached": True,
                     "no_parent_global_unique": True,
                     "no_incoming_legacy_fk": True,
                     "constraints_preserved": True,
@@ -181,6 +210,50 @@ class UsageLogsDailyPartitionTest(unittest.TestCase):
                 6_000_100,
             )
 
+    def test_cutover_guards_instance_before_remote_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            prepare_path = root / "prepare.json"
+            prepare_path.write_text(json.dumps(_prepare_receipt()), encoding="utf-8")
+
+            def guarded_run_remote(
+                target: str,
+                command: str,
+                arguments: list[str],
+                *,
+                timeout_seconds: int,
+                expected_instance_id: str,
+            ) -> dict:
+                self.assertEqual(expected_instance_id, _INSTANCE)
+                return {
+                    "mode": "usage_logs_daily_partition_cutover",
+                    "target": target,
+                    "instance_id": expected_instance_id,
+                    "legacy_upper_exclusive": _UPPER,
+                    "source_rows_copied": False,
+                    "deletion_authorized": False,
+                    "verification": {
+                        "partitioned": True,
+                        "legacy_attached": True,
+                        "daily_partitions_attached": True,
+                        "no_parent_global_unique": True,
+                        "no_incoming_legacy_fk": True,
+                        "constraints_preserved": True,
+                        "legacy_row_count": 6_000_000,
+                        "parent_row_count": 6_000_000,
+                    },
+                }
+
+            with mock.patch.object(control, "_run_remote", side_effect=guarded_run_remote):
+                result = control.cutover(
+                    _TARGET,
+                    prepare_path,
+                    root / "cutover.json",
+                    _CONFIRM,
+                )
+
+        self.assertEqual(result["instance_id"], _INSTANCE)
+
     def test_cutover_refuses_legacy_count_below_prepare_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp)
@@ -196,6 +269,7 @@ class UsageLogsDailyPartitionTest(unittest.TestCase):
                 "verification": {
                     "partitioned": True,
                     "legacy_attached": True,
+                    "daily_partitions_attached": True,
                     "no_parent_global_unique": True,
                     "no_incoming_legacy_fk": True,
                     "constraints_preserved": True,
@@ -213,6 +287,73 @@ class UsageLogsDailyPartitionTest(unittest.TestCase):
                         root / "cutover.json",
                         _CONFIRM,
                     )
+
+    def test_verify_refuses_prepare_receipt_replay_on_a_different_instance(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            prepare_path = pathlib.Path(temp) / "prepare.json"
+            prepare_path.write_text(json.dumps(_prepare_receipt()), encoding="utf-8")
+            remote_result = {
+                "mode": "usage_logs_daily_partition_verify",
+                "target": _TARGET,
+                "instance_id": "mi-11111111111111111",
+                "deletion_authorized": False,
+                "partitioned": True,
+                "legacy_attached": True,
+                "daily_partitions_attached": True,
+                "no_parent_global_unique": True,
+                "no_incoming_legacy_fk": True,
+                "constraints_preserved": True,
+                "legacy_row_count": 6_000_100,
+                "parent_row_count": 6_000_100,
+            }
+            stderr = io.StringIO()
+            with mock.patch.object(control, "_run_remote", return_value=remote_result):
+                with contextlib.redirect_stderr(stderr):
+                    result = control.main(
+                        [
+                            "verify",
+                            "--target",
+                            _TARGET,
+                            "--prepare-receipt",
+                            str(prepare_path),
+                        ]
+                    )
+        self.assertEqual(result, 2)
+        self.assertIn("different production instance", stderr.getvalue())
+
+    def test_verify_refuses_name_only_partition_proof(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            prepare_path = pathlib.Path(temp) / "prepare.json"
+            prepare_path.write_text(json.dumps(_prepare_receipt()), encoding="utf-8")
+            remote_result = {
+                "mode": "usage_logs_daily_partition_verify",
+                "target": _TARGET,
+                "instance_id": _INSTANCE,
+                "deletion_authorized": False,
+                "partitioned": True,
+                "legacy_attached": True,
+                "first_daily_partition_exists": True,
+                "daily_partitions_attached": False,
+                "no_parent_global_unique": True,
+                "no_incoming_legacy_fk": True,
+                "constraints_preserved": True,
+                "legacy_row_count": 6_000_100,
+                "parent_row_count": 6_000_100,
+            }
+            stderr = io.StringIO()
+            with mock.patch.object(control, "_run_remote", return_value=remote_result):
+                with contextlib.redirect_stderr(stderr):
+                    result = control.main(
+                        [
+                            "verify",
+                            "--target",
+                            _TARGET,
+                            "--prepare-receipt",
+                            str(prepare_path),
+                        ]
+                    )
+        self.assertEqual(result, 2)
+        self.assertIn("complete verification", stderr.getvalue())
 
     def test_raw_usage_conflict_target_removed_but_billing_dedup_kept(self) -> None:
         repo = (_DIR.parents[1] / "backend" / "internal" / "repository" / "usage_log_repo_insert.go").read_text(encoding="utf-8")
@@ -347,6 +488,15 @@ CREATE INDEX idx_usage_logs_user_created ON usage_logs (user_id, created_at);
 CREATE INDEX idx_usage_logs_partial ON usage_logs (model) WHERE model <> 'unused';
 CREATE UNIQUE INDEX idx_usage_logs_request_id_api_key_unique
   ON usage_logs (request_id, api_key_id);
+CREATE TABLE usage_billing_dedup (
+  id bigserial PRIMARY KEY,
+  request_id varchar(255) NOT NULL,
+  api_key_id bigint NOT NULL,
+  request_fingerprint varchar(64) NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX idx_usage_billing_dedup_request_api_key
+  ON usage_billing_dedup (request_id, api_key_id);
 CREATE TABLE billing_usage_entries (
   id bigserial PRIMARY KEY,
   usage_log_id bigint NOT NULL REFERENCES usage_logs(id) ON DELETE CASCADE
@@ -372,6 +522,19 @@ INSERT INTO billing_usage_entries(usage_log_id) VALUES (1);
             prepared = remote.prepare(
                 "prod", remote.prepare_confirmation("prod")
             )
+            self._psql("DROP INDEX idx_usage_billing_dedup_request_api_key")
+            with self.assertRaisesRegex(remote.UsagePartitionError, "billing dedup"):
+                remote.cutover(
+                    "prod",
+                    prepared["legacy_upper_exclusive"],
+                    prepared["row_count_before"],
+                    remote.cutover_confirmation_prefix("prod")
+                    + prepared["legacy_upper_exclusive"],
+                )
+            self._psql(
+                "CREATE UNIQUE INDEX idx_usage_billing_dedup_request_api_key "
+                "ON usage_billing_dedup (request_id, api_key_id)"
+            )
             result = remote.cutover(
                 "prod",
                 prepared["legacy_upper_exclusive"],
@@ -386,6 +549,7 @@ INSERT INTO billing_usage_entries(usage_log_id) VALUES (1);
         self.assertEqual(verification["parent_row_count"], 1)
         self.assertTrue(verification["constraints_preserved"])
         self.assertTrue(verification["no_incoming_legacy_fk"])
+        self.assertTrue(verification["daily_partitions_attached"])
         upper = prepared["legacy_upper_exclusive"]
         self._psql(
             "INSERT INTO usage_logs"
@@ -413,6 +577,11 @@ INSERT INTO billing_usage_entries(usage_log_id) VALUES (1);
             )
         )
         self.assertEqual(counts, {"rows": 2, "legacy_rows": 1})
+        routed_table = self._psql(
+            "SELECT tableoid::regclass::text FROM usage_logs "
+            "WHERE request_id = 'req-2'"
+        )
+        self.assertEqual(routed_table, "usage_logs_" + upper[:10].replace("-", ""))
 
 
 if __name__ == "__main__":

@@ -40,25 +40,42 @@ aws cloudformation deploy \
 # (us-east-1 + eu-west-2); override only when adding new region-scoped roles.
 ```
 
-The addon also grants the shared Hybrid role access only to
-`/tokenkey/edge/*/stage0/env-secrets-backup`. Every Edge workflow run writes the
-three `.env.secret` values to its own SecureString and verifies the readback. On a
-replacement instance, bootstrap restores that value before PostgreSQL starts. Only
-`ParameterNotFound` permits first-provision generation; IAM/network errors fail closed.
+The addon creates one Hybrid role per deployable Edge. Each role can access only
+its own `/tokenkey/edge/<id>/stage0/env-secrets-backup` SecureString and
+`edge/<id>/pgdump/` S3 prefix. Before replacing an existing host, the workflow
+switches its managed-instance registration to that role and verifies an off-box
+secret backup before any delete call. Bootstrap generates secrets only for an
+explicitly identified first provision; `ParameterNotFound` alone is not authority
+to rotate credentials.
+
+### 迁移现有 SSM Hybrid 注册并退役共享数据权限
+
+部署 addon 后，按以下顺序执行一次；前两步只读，最后一步会逐台切换 live
+`mi-*` 角色，并验证密钥备份、真实 pg_dump 的 S3 写读与隔离恢复。只有所有
+Edge 都通过后，才删除共享 role 上的手工 inline policy `EdgePgdumpPutOnly`：
+
+```bash
+bash ops/lightsail/migrate-edge-ssm-roles.sh --dry-run
+bash ops/lightsail/migrate-edge-ssm-roles.sh --check
+bash ops/lightsail/migrate-edge-ssm-roles.sh --apply
+```
+
+现有注册尚未迁移时，`--check` 失败是预期门禁；确认 dry-run 目标无误后运行
+`--apply`。仓库合并或 CloudFormation 部署本身不会删除线上手工 policy。
 
 ### 2) 各 Edge region 写入 GHCR PAT
 
 路径默认：`/tokenkey/lightsail/<edge_id>/ghcr/pat`（与 EC2 Edge 的 `/tokenkey/edge/<id>/ghcr/pat` 分开）。
 
 ```bash
-aws ssm put-parameter --region eu-west-2 \
-  --name /tokenkey/lightsail/uk1/ghcr/pat --type SecureString \
+aws ssm put-parameter --region us-east-2 \
+  --name /tokenkey/lightsail/us3/ghcr/pat --type SecureString \
   --value 'ghp_...'
 ```
 
 ### 3) GitHub Environment
 
-复用 `edge-uk1` / `edge-us1`（与 EC2 workflow 相同 Environment 名，但 **不要** 对同一 edge 混跑两种 provision）。
+Environment 使用矩阵对应的 `edge-<edge_id>`，例如当前 `us3` 使用 `edge-us3`。
 
 Variables：`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR`、可选 `TK_SMOKE_EDGE_LOCAL_CHAT_MODELS`
 Secrets：`TK_SMOKE_API_KEY`
@@ -68,19 +85,19 @@ Secrets：`TK_SMOKE_API_KEY`
 ```bash
 TAG=X.Y.Z
 gh workflow run deploy-edge-lightsail-stage0.yml \
-  -f edge_id=uk1 \
+  -f edge_id=us3 \
   -f operation=provision \
   -f tag=$TAG \
-  -f confirm_instance=tokenkey-edge-uk1-ls
+  -f confirm_instance=tokenkey-edge-us-oh1-ls
 ```
 
 Workflow summary 会输出 Static IP → 手工配置 DNS A 记录 → 再 smoke：
 
 ```bash
 gh workflow run deploy-edge-lightsail-stage0.yml \
-  -f edge_id=uk1 \
+  -f edge_id=us3 \
   -f operation=smoke \
-  -f confirm_instance=tokenkey-edge-uk1-ls
+  -f confirm_instance=tokenkey-edge-us-oh1-ls
 ```
 
 ### 冒烟 / 本机 curl 对域名长期 `HTTP 000` 或 TCP 超时
@@ -106,7 +123,7 @@ Lightsail **实例控制台「Networking」防火墙**的硬化基线是**放行
 
 Lightsail Edge 启用后，沿用同一 **`edge_routing_matrix`/`edge_ssm_execution` 路由**：
 
-- **`python3 ops/stage0/edge_ssm_execution.py --repo-root . --edge-id uk1 [--format env|json]`**  
+- **`python3 ops/stage0/edge_ssm_execution.py --repo-root . --edge-id us3 [--format env|json]`**
   输出 SSM **`REGION`** + **`INSTANCE_ID`**（`mi-*` 来自 Parameter Store；EC2 为 `i-*`）。与 **`ops/stage0/edge_admin_resolve_target.py` auto** 规则一致。
 - **`ops/observability/run-probe.sh --target edge:<id>`**（默认 `ALLOW_PLANNED` 未设置）走上述脚本；若要探 **planned 仅 EC2 矩阵条目**，仍可设 **`ALLOW_PLANNED=1`** 走 **`resolve-edge-target.py` + CFN**。
 - **`ops/anthropic/manage-anthropic-config.py`**、**`rebalance-anthropic-priority.py`**、`snapshot`/`apply`/`check` **与 `check-edge-oauth-stability.py`**：**snapshot** / **护栏**在多矩阵下按 Lightsail **`deployable=true` 优先**解析实例（与 **`edge_routing_matrix.py`** 一致）。
@@ -116,10 +133,10 @@ Lightsail Edge 启用后，沿用同一 **`edge_routing_matrix`/`edge_ssm_execut
 
 ```bash
 gh workflow run deploy-edge-lightsail-stage0.yml \
-  -f edge_id=uk1 \
+  -f edge_id=us3 \
   -f operation=upgrade \
   -f tag=$TAG \
-  -f confirm_instance=tokenkey-edge-uk1-ls
+  -f confirm_instance=tokenkey-edge-us-oh1-ls
 ```
 
 ## 与 EC2 Edge 的关键差异

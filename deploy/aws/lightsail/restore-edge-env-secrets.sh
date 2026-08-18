@@ -4,11 +4,13 @@ set -euo pipefail
 PARAMETER=""
 OUTPUT=""
 REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+ALLOW_GENERATE=false
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --parameter) PARAMETER="${2:-}"; shift 2 ;;
     --output) OUTPUT="${2:-}"; shift 2 ;;
+    --allow-generate) ALLOW_GENERATE=true; shift ;;
     *) echo "restore-edge-env-secrets: unknown argument $1" >&2; exit 40 ;;
   esac
 done
@@ -70,6 +72,10 @@ if aws --region "${REGION}" ssm get-parameter \
   chmod 0600 "${OUTPUT}"
   echo "edge env secrets restored from SSM"
 elif grep -Fq 'ParameterNotFound' "${error_file}"; then
+  if [ "${ALLOW_GENERATE}" != true ]; then
+    echo "restore-edge-env-secrets: parameter is missing and generation is not authorized" >&2
+    exit 45
+  fi
   : >"${temp}"
   printf 'POSTGRES_PASSWORD=%s\n' "$(openssl rand -hex 24)" >>"${temp}"
   printf 'JWT_SECRET=%s\n' "$(openssl rand -hex 32)" >>"${temp}"

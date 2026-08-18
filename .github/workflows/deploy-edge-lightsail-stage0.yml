@@ -135,6 +135,19 @@ jobs:
           role-to-assume: ${{ env.OIDC_ROLE_ARN }}
           aws-region: ${{ steps.edge.outputs.lightsail_region }}
 
+      - name: Prepare safe Lightsail provision
+        if: inputs.operation == 'provision'
+        env:
+          RECREATE: ${{ inputs.recreate }}
+        run: |
+          set -euo pipefail
+          bash ops/lightsail/prepare-edge-provision.sh \
+            "${{ steps.edge.outputs.edge_id }}" \
+            "${{ steps.edge.outputs.instance_name }}" \
+            "${{ steps.edge.outputs.ssm_prefix }}" \
+            "${{ steps.edge.outputs.lightsail_region }}" \
+            "${{ steps.edge.outputs.ssm_hybrid_role_name }}"
+
       - name: Provision Lightsail Edge
         id: provision
         if: inputs.operation == 'provision'
@@ -145,6 +158,7 @@ jobs:
           GHCR_PAT_SSM_NAME_OVERRIDE: ${{ vars.EDGE_GHCR_PAT_SSM_NAME }}
           RECREATE: ${{ inputs.recreate }}
           SWAP_GIB: ${{ steps.edge.outputs.swap_gib }}
+          SSM_HYBRID_ROLE_NAME: ${{ steps.edge.outputs.ssm_hybrid_role_name }}
         run: |
           set -euo pipefail
           if [ -z "${ACME_EMAIL:-}" ]; then
@@ -214,6 +228,12 @@ jobs:
           fi
           echo "managed_instance_id=$MID" >> "$GITHUB_OUTPUT"
           echo "api_url=$API" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Edge SSM role
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
+          AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
+        run: bash ops/lightsail/ensure-edge-ssm-role.sh "${{ steps.edge.outputs.edge_id }}" "$INSTANCE_ID" "$AWS_REGION"
 
       - name: Upgrade or rollback via shared SSM deploy primitive
         id: ssm

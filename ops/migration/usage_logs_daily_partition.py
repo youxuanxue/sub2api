@@ -59,28 +59,38 @@ def _run_remote(
     arguments: list[str],
     *,
     timeout_seconds: int,
+    expected_instance_id: str | None = None,
 ) -> dict[str, Any]:
     target = remote._target(target)
+    command_line = [
+        "bash",
+        str(RUN_PROBE),
+        "--target",
+        target,
+        "--script",
+        str(REMOTE_WRAPPER),
+        "--with",
+        str(REMOTE),
+        "--timeout-seconds",
+        str(timeout_seconds),
+    ]
+    if expected_instance_id is not None:
+        if INSTANCE_RE.fullmatch(expected_instance_id) is None:
+            raise UsagePartitionControlError("expected instance id is invalid")
+        command_line.extend(["--expected-instance-id", expected_instance_id])
+    command_line.extend(
+        [
+            "--env",
+            f"REMOTE_COMMAND={command}",
+            "--env",
+            f"REMOTE_TARGET={target}",
+            "--env",
+            f"REMOTE_ARGS_JSON={_canonical_json(arguments)}",
+        ]
+    )
     try:
         completed = subprocess.run(
-            [
-                "bash",
-                str(RUN_PROBE),
-                "--target",
-                target,
-                "--script",
-                str(REMOTE_WRAPPER),
-                "--with",
-                str(REMOTE),
-                "--timeout-seconds",
-                str(timeout_seconds),
-                "--env",
-                f"REMOTE_COMMAND={command}",
-                "--env",
-                f"REMOTE_TARGET={target}",
-                "--env",
-                f"REMOTE_ARGS_JSON={_canonical_json(arguments)}",
-            ],
+            command_line,
             capture_output=True,
             text=True,
             timeout=timeout_seconds + 30,
@@ -182,6 +192,30 @@ def abort(
     return payload
 
 
+def _validate_verification(
+    verification: object, minimum_legacy_row_count: int
+) -> None:
+    if (
+        not isinstance(verification, dict)
+        or verification.get("partitioned") is not True
+        or verification.get("legacy_attached") is not True
+        or verification.get("daily_partitions_attached") is not True
+        or verification.get("no_parent_global_unique") is not True
+        or verification.get("no_incoming_legacy_fk") is not True
+        or verification.get("constraints_preserved") is not True
+        or isinstance(verification.get("legacy_row_count"), bool)
+        or not isinstance(verification.get("legacy_row_count"), int)
+        or verification.get("legacy_row_count") < minimum_legacy_row_count
+        or isinstance(verification.get("parent_row_count"), bool)
+        or not isinstance(verification.get("parent_row_count"), int)
+        or verification.get("parent_row_count")
+        < verification.get("legacy_row_count", 0)
+    ):
+        raise UsagePartitionControlError(
+            "usage partition did not return complete verification"
+        )
+
+
 def cutover(
     target: str,
     prepare_receipt_path: str | os.PathLike[str],
@@ -205,26 +239,14 @@ def cutover(
             confirmation,
         ],
         timeout_seconds=900,
+        expected_instance_id=prepared["instance_id"],
     )
     if payload.get("instance_id") != prepared["instance_id"]:
         raise UsagePartitionControlError("cutover reached a different production instance")
     verification = payload.get("verification")
-    if (
-        payload.get("mode") != "usage_logs_daily_partition_cutover"
-        or not isinstance(verification, dict)
-        or verification.get("partitioned") is not True
-        or verification.get("legacy_attached") is not True
-        or verification.get("no_parent_global_unique") is not True
-        or verification.get("no_incoming_legacy_fk") is not True
-        or verification.get("constraints_preserved") is not True
-        or isinstance(verification.get("legacy_row_count"), bool)
-        or not isinstance(verification.get("legacy_row_count"), int)
-        or verification.get("legacy_row_count") < prepared["row_count_before"]
-        or isinstance(verification.get("parent_row_count"), bool)
-        or not isinstance(verification.get("parent_row_count"), int)
-        or verification.get("parent_row_count") < verification.get("legacy_row_count", 0)
-    ):
-        raise UsagePartitionControlError("cutover did not return complete verification")
+    if payload.get("mode") != "usage_logs_daily_partition_cutover":
+        raise UsagePartitionControlError("cutover returned the wrong receipt mode")
+    _validate_verification(verification, prepared["row_count_before"])
     combined = {
         **payload,
         "prepare_receipt": str(pathlib.Path(prepare_receipt_path).expanduser().resolve()),
@@ -232,6 +254,31 @@ def cutover(
     }
     _atomic_json(pathlib.Path(cutover_receipt_path), combined)
     return combined
+
+
+def verify(
+    target: str, prepare_receipt_path: str | os.PathLike[str]
+) -> dict[str, Any]:
+    target = remote._target(target)
+    prepared = _load_prepare_receipt(prepare_receipt_path, target)
+    payload = _run_remote(
+        target,
+        "verify",
+        [
+            "--legacy-upper-exclusive",
+            prepared["legacy_upper_exclusive"],
+            "--minimum-legacy-row-count",
+            str(prepared["row_count_before"]),
+        ],
+        timeout_seconds=900,
+        expected_instance_id=prepared["instance_id"],
+    )
+    if payload.get("instance_id") != prepared["instance_id"]:
+        raise UsagePartitionControlError("verify reached a different production instance")
+    if payload.get("mode") != "usage_logs_daily_partition_verify":
+        raise UsagePartitionControlError("verify returned the wrong receipt mode")
+    _validate_verification(payload, prepared["row_count_before"])
+    return payload
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -281,18 +328,7 @@ def main(argv: Iterable[str] | None = None) -> int:
                 args.confirm,
             )
         elif args.command == "verify":
-            prepared = _load_prepare_receipt(args.prepare_receipt, args.target)
-            payload = _run_remote(
-                args.target,
-                "verify",
-                [
-                    "--legacy-upper-exclusive",
-                    prepared["legacy_upper_exclusive"],
-                    "--minimum-legacy-row-count",
-                    str(prepared["row_count_before"]),
-                ],
-                timeout_seconds=900,
-            )
+            payload = verify(args.target, args.prepare_receipt)
         else:  # pragma: no cover
             raise UsagePartitionControlError(f"unsupported command: {args.command}")
         print(_canonical_json(payload))

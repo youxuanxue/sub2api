@@ -1585,6 +1585,18 @@ elif ! python3 ./ops/stage0/test_pgdump_restore_canary_workflow.py >/dev/null 2>
     echo "  FAIL: Fleet pg_dump restore canary workflow contracts"
     echo "        - run: python3 ops/stage0/test_pgdump_restore_canary_workflow.py"
     errors=$((errors + 1))
+elif ! python3 ./ops/observability/test_pgdump_restore_canary_verdict.py >/dev/null 2>&1; then
+    echo "  FAIL: Fleet pg_dump restore canary receipt contracts"
+    echo "        - run: python3 ops/observability/test_pgdump_restore_canary_verdict.py"
+    errors=$((errors + 1))
+elif ! python3 ./ops/observability/test_pgdump_restore_canary_alert.py >/dev/null 2>&1; then
+    echo "  FAIL: Fleet pg_dump restore canary alert contracts"
+    echo "        - run: python3 ops/observability/test_pgdump_restore_canary_alert.py"
+    errors=$((errors + 1))
+elif ! python3 ./ops/observability/test_ops_daily_diagnostics_workflow.py >/dev/null 2>&1; then
+    echo "  FAIL: Fleet pg_dump restore canary daily diagnostics contracts"
+    echo "        - run: python3 ops/observability/test_ops_daily_diagnostics_workflow.py"
+    errors=$((errors + 1))
 else
     echo "  ok: fail-closed probes + Fleet restore and partition operators"
 fi
@@ -1779,9 +1791,11 @@ fi
 
 echo "=== sub2api: env secret backup fail-closed contract ==="
 if ! bash ./ops/stage0/test_backup_env_secrets_via_ssm.sh >/dev/null 2>&1 || \
-   ! bash ./deploy/aws/lightsail/test_restore_edge_env_secrets.sh >/dev/null 2>&1; then
+   ! bash ./deploy/aws/lightsail/test_restore_edge_env_secrets.sh >/dev/null 2>&1 || \
+   ! bash ./ops/lightsail/test_ensure_edge_ssm_role.sh >/dev/null 2>&1 || \
+   ! bash ./ops/lightsail/test_migrate_edge_ssm_roles.sh >/dev/null 2>&1; then
     echo "  FAIL: env secret backup fail-closed contract test"
-    echo "        — run: bash ops/stage0/test_backup_env_secrets_via_ssm.sh && bash deploy/aws/lightsail/test_restore_edge_env_secrets.sh"
+    echo "        — run: bash ops/stage0/test_backup_env_secrets_via_ssm.sh && bash deploy/aws/lightsail/test_restore_edge_env_secrets.sh && bash ops/lightsail/test_ensure_edge_ssm_role.sh && bash ops/lightsail/test_migrate_edge_ssm_roles.sh"
     errors=$((errors + 1))
 else
     echo "  ok: rejected writes fail and verified backup/restore succeeds"

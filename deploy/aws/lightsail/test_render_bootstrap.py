@@ -117,6 +117,9 @@ class RenderBootstrapTests(unittest.TestCase):
         self.assertIn(
             '"/tokenkey/edge/${EDGE_ID}/stage0/env-secrets-backup"', content
         )
+        self.assertIn('ALLOW_SECRET_GENERATE:=false', content)
+        self.assertIn('restore_secret_args+=(--allow-generate)', content)
+        self.assertIn('ALLOW_SECRET_GENERATE must be true or false', content)
 
 
 if __name__ == "__main__":
