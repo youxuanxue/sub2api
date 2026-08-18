@@ -119,10 +119,10 @@ class Stage0EdgeQaS3BoundaryTest(unittest.TestCase):
                 "${QaRawArchiveBucket.Arn}/*",
             ),
             (
-                self.backups,
-                "QaExportsBucketPolicy",
-                "QaExportsBucket.Arn",
-                "${QaExportsBucket.Arn}/*",
+                self.raw,
+                "QaBundleBucketPolicy",
+                "QaBundleBucket.Arn",
+                "${QaBundleBucket.Arn}/*",
             ),
         )
         for template, policy_name, bucket_arn, object_arn in cases:

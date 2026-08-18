@@ -31,7 +31,6 @@ ACTIVE_RUNTIME_SURFACES = DEPLOY_SURFACES + (
     ROOT / "ops/qa/prod_phase2_baseline.py",
     ROOT / "ops/qa/verify_raw_archive_iam_contract.py",
     ROOT / "ops/qa/test_qa_phase_ops.py",
-    ROOT / "deploy/aws/cloudformation/stage0-backups.yaml",
 )
 EDGE_ROLE_ARN = "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid"
 
@@ -305,17 +304,21 @@ class Stage0QABundleContractTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self.assert_worker_contract(broadened_worker)
 
-    def test_active_runtime_has_no_legacy_export_alias_or_app_role_grant(self) -> None:
+    def test_active_runtime_has_no_legacy_export_alias(self) -> None:
         for surface in ACTIVE_RUNTIME_SURFACES:
             with self.subTest(surface=surface):
                 self.assertNotIn("QA_CAPTURE_EXPORT_STORAGE", surface.read_text(encoding="utf-8"))
 
+    def test_backups_template_has_no_legacy_export_owner(self) -> None:
         backups = yaml.load(
             (ROOT / "deploy/aws/cloudformation/stage0-backups.yaml").read_text(encoding="utf-8"),
             Loader=CloudFormationLoader,
         )
-        statements = backups["Resources"]["QaExportsBucketPolicy"]["Properties"]["PolicyDocument"]["Statement"]
-        self.assertFalse(any(statement.get("Principal") == {"AWS": "AppInstanceRoleArn"} for statement in statements))
+        self.assertNotIn("QaExportsRetentionDays", backups["Parameters"])
+        self.assertNotIn("QaExportsBucket", backups["Resources"])
+        self.assertNotIn("QaExportsBucketPolicy", backups["Resources"])
+        self.assertNotIn("QaExportsBucketName", backups["Outputs"])
+        self.assertNotIn("QaExportsS3Uri", backups["Outputs"])
 
     def test_guarded_deploy_renders_bundle_parameters_and_runtime_surfaces_drop_export_aliases(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
