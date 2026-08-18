@@ -653,10 +653,13 @@ Root options:
 
 
 
+- `--target` (required):
+
 #### `usage_logs_daily_partition.py prepare`
 
 
 
+- `--target` (required):
 - `--receipt` (required):
 - `--confirm` (required):
 
@@ -664,6 +667,7 @@ Root options:
 
 
 
+- `--target` (required):
 - `--receipt` (required):
 - `--legacy-upper-exclusive` (required):
 - `--confirm` (required):
@@ -672,6 +676,7 @@ Root options:
 
 
 
+- `--target` (required):
 - `--prepare-receipt` (required):
 - `--cutover-receipt` (required):
 - `--confirm` (required):
@@ -680,6 +685,7 @@ Root options:
 
 
 
+- `--target` (required):
 - `--prepare-receipt` (required):
 
 ## MCP
