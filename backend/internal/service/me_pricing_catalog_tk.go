@@ -145,10 +145,10 @@ func (s *MePricingCatalogService) pruneStructurallyGoneIDs(ctx context.Context, 
 	return tkPruneStructurallyGoneIDs(ctx, platform, ids, s.availability)
 }
 
-// MePricingCatalogOptions selects which group the menu is built for.
-// APIKeyID and GroupID are mutually-exclusive selectors; when both are
-// nil the service defaults to the user's first active API-key's group,
-// falling back to the first accessible group.
+// MePricingCatalogOptions selects the menu scope. A direct APIKeyID or GroupID
+// selects one group; a universal APIKeyID selects the owner's accessible-group
+// union. When both are nil the service defaults to the first usable active
+// key's scope, falling back to the first accessible group.
 type MePricingCatalogOptions struct {
 	APIKeyID *int64
 	GroupID  *int64
@@ -160,11 +160,13 @@ type MePricingCatalogOptions struct {
 }
 
 // MePricingCatalogResponse is the top-level DTO returned to the user UI.
+// TargetGroup is nil when APIKeyID identifies a universal key, because that
+// key intentionally has no single backing group.
 type MePricingCatalogResponse struct {
-	TargetGroup      MePricingTargetGroup `json:"target_group"`
-	Models           []MePricingModel     `json:"models"`
-	MyKeys           []MePricingKeyRef    `json:"my_keys"`
-	AccessibleGroups []MePricingGroupRef  `json:"accessible_groups"`
+	TargetGroup      *MePricingTargetGroup `json:"target_group"`
+	Models           []MePricingModel      `json:"models"`
+	MyKeys           []MePricingKeyRef     `json:"my_keys"`
+	AccessibleGroups []MePricingGroupRef   `json:"accessible_groups"`
 	// AuthorizedGroupsByModel is the full model_id → accessible-groups index
 	// reused by the authenticated public-catalog view on /pricing (models[] only
 	// covers the target group's menu; the public catalog is wider). Same serving
@@ -348,13 +350,14 @@ func mePricingTiersFromCatalog(tiers []PublicCatalogTier) []MePricingTier {
 	return out
 }
 
-// MePricingKeyRef populates the key-picker dropdown. Only active keys
-// whose group is in the user's accessible set are listed.
+// MePricingKeyRef populates the key-picker dropdown. Universal keys have no
+// group binding; direct keys are included only when their group is accessible.
 type MePricingKeyRef struct {
-	ID        int64  `json:"id"`
-	Name      string `json:"name"`
-	GroupID   int64  `json:"group_id"`
-	GroupName string `json:"group_name"`
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	GroupID     *int64 `json:"group_id"`
+	GroupName   string `json:"group_name,omitempty"`
+	RoutingMode string `json:"routing_mode"`
 }
 
 // MePricingGroupRef populates the "explore other group" dropdown. The
@@ -378,8 +381,9 @@ var (
 	// and a friendly UI banner, not an error.
 	ErrMePricingNoAccessibleGroups = errors.New("me_pricing: user has no accessible groups")
 	// ErrMePricingAPIKeyNotFound means the api_key_id query param does not
-	// refer to a key owned by this user (or the key has no group binding).
-	ErrMePricingAPIKeyNotFound = errors.New("me_pricing: api key not found or not bound to a group")
+	// refer to a usable key owned by this user. Universal keys are usable
+	// without a group binding; an unbound direct key is not.
+	ErrMePricingAPIKeyNotFound = errors.New("me_pricing: api key not found or unusable")
 	// ErrMePricingGroupForbidden means the group_id query param is outside
 	// the user's accessible set.
 	ErrMePricingGroupForbidden = errors.New("me_pricing: group not accessible")
@@ -395,17 +399,15 @@ const keyListPageSize = 200
 
 // BuildForUser produces the per-user catalog DTO.
 //
-// Algorithm (mirrors plan in /Users/xuejiao/.claude/plans/bubbly-bouncing-sunbeam.md §"数据组装算法"):
+// Algorithm:
 //  1. Load accessibleGroups, userKeys (active only), userRates.
-//  2. Resolve targetGroupID from opts.APIKeyID > opts.GroupID > default.
-//  3. Compute effectiveRate = userRates[gid] when present else group.RateMultiplier.
-//  4. Walk channels, filter to active + mapped to target group, filter
-//     SupportedModels.Platform == targetGroup.Platform (cross-platform leak guard).
-//  5. Dedupe by model_id, keep the cheapest (input + output sum) row.
-//  6. Emit OFFICIAL prices (multiplier 1.0) — effectiveRate is computed but
+//  2. Resolve group scope or user-wide universal-key scope from the selectors.
+//  3. Build each accessible group's menu once, applying the cross-platform guard.
+//  4. For user-wide scope, merge group menus by model_id and keep the cheapest row.
+//  5. Emit OFFICIAL prices (multiplier 1.0) — the effective rate is computed but
 //     NOT applied to model prices (TK pricing-display policy; see file header).
-//  7. Join LiteLLM metadata for capabilities / context_window / max_output.
-//  8. Sort alpha by model_id.
+//  6. Join LiteLLM metadata for capabilities / context_window / max_output.
+//  7. Sort alpha by model_id and attach the accessible-group index.
 func (s *MePricingCatalogService) BuildForUser(
 	ctx context.Context,
 	userID int64,
@@ -444,6 +446,12 @@ func (s *MePricingCatalogService) BuildForUser(
 	myKeys := make([]MePricingKeyRef, 0, len(keysAll))
 	for i := range keysAll {
 		k := keysAll[i]
+		if k.IsUniversal() {
+			myKeys = append(myKeys, MePricingKeyRef{
+				ID: k.ID, Name: k.Name, RoutingMode: RoutingModeUniversal,
+			})
+			continue
+		}
 		if k.GroupID == nil {
 			continue
 		}
@@ -451,44 +459,67 @@ func (s *MePricingCatalogService) BuildForUser(
 		if !ok {
 			continue
 		}
+		groupID := g.ID
 		myKeys = append(myKeys, MePricingKeyRef{
-			ID: k.ID, Name: k.Name, GroupID: g.ID, GroupName: g.Name,
+			ID: k.ID, Name: k.Name, GroupID: &groupID, GroupName: g.Name, RoutingMode: RoutingModeDirect,
 		})
 	}
 
-	targetGroupID, err := resolveTargetGroupID(opts, keysAll, accessByID, myKeys, accessibleGroups)
+	targetGroupID, userScope, err := resolveTargetGroupID(opts, keysAll, accessByID, myKeys, accessibleGroups)
 	if err != nil {
 		return nil, err
-	}
-	targetGroup := accessByID[targetGroupID]
-
-	listMult := targetGroup.RateMultiplier
-	effective := listMult
-	hasOverride := false
-	if r, ok := userRates[targetGroupID]; ok {
-		effective = r
-		hasOverride = r != listMult
 	}
 
 	// TK: 模型价格一律按官方基础价（倍率 1.0）计算，不乘 effective/override。
 	// pricing 页是官方定价目录；真实计费在网关按 effective 倍率执行，不受此影响。
 	const officialRate = 1.0
-	models := s.buildModelsForGroup(ctx, targetGroup, officialRate)
+	modelsByGroup := make(map[int64][]MePricingModel, len(accessibleGroups))
+	for i := range accessibleGroups {
+		g := accessibleGroups[i]
+		modelsByGroup[g.ID] = s.buildModelsForGroup(ctx, g, officialRate)
+	}
+
+	models := modelsByGroup[targetGroupID]
+	if userScope {
+		models = mergeMePricingModels(modelsByGroup, accessibleGroups)
+	}
 
 	// 「授权分组」列：对每个模型标注该用户可访问分组中能服务它的分组集合，
 	// 方便用户看清该用什么 key/分组（前端可点击直达建 key）。
 	authByModel := s.buildAuthorizedGroupsIndex(
-		ctx, models, accessibleGroups, userRates, targetGroupID, opts.HideUserRateOverrides,
+		modelsByGroup, accessibleGroups, userRates, targetGroupID, opts.HideUserRateOverrides,
 	)
 	models = applyAuthorizedGroupsIndex(models, authByModel)
 
-	// HideUserRateOverrides：倍率提示字段回落到分组默认值（前端已不再渲染这些
-	// 字段——pricing 页与倍率彻底脱钩——但保留 #693 的口径以稳住 DTO 与测试）。
-	shownRate := effective
-	shownOverride := hasOverride
-	if opts.HideUserRateOverrides {
-		shownRate = listMult
-		shownOverride = false
+	var targetGroupRef *MePricingTargetGroup
+	if !userScope {
+		targetGroup := accessByID[targetGroupID]
+		listMult := targetGroup.RateMultiplier
+		effective := listMult
+		hasOverride := false
+		if r, ok := userRates[targetGroupID]; ok {
+			effective = r
+			hasOverride = r != listMult
+		}
+
+		// HideUserRateOverrides：倍率提示字段回落到分组默认值（前端已不再渲染这些
+		// 字段——pricing 页与倍率彻底脱钩——但保留 #693 的口径以稳住 DTO 与测试）。
+		shownRate := effective
+		shownOverride := hasOverride
+		if opts.HideUserRateOverrides {
+			shownRate = listMult
+			shownOverride = false
+		}
+		targetGroupRef = &MePricingTargetGroup{
+			ID:               targetGroup.ID,
+			Name:             targetGroup.Name,
+			Platform:         targetGroup.Platform,
+			RateMultiplier:   shownRate,
+			ListMultiplier:   listMult,
+			HasOverride:      shownOverride,
+			IsExclusive:      targetGroup.IsExclusive,
+			SubscriptionType: targetGroup.SubscriptionType,
+		}
 	}
 
 	// Build picker DTO for accessible_groups with effective rate per group.
@@ -511,16 +542,7 @@ func (s *MePricingCatalogService) BuildForUser(
 	}
 
 	return &MePricingCatalogResponse{
-		TargetGroup: MePricingTargetGroup{
-			ID:               targetGroup.ID,
-			Name:             targetGroup.Name,
-			Platform:         targetGroup.Platform,
-			RateMultiplier:   shownRate,
-			ListMultiplier:   listMult,
-			HasOverride:      shownOverride,
-			IsExclusive:      targetGroup.IsExclusive,
-			SubscriptionType: targetGroup.SubscriptionType,
-		},
+		TargetGroup:             targetGroupRef,
 		Models:                  models,
 		MyKeys:                  myKeys,
 		AccessibleGroups:        groupRefs,
@@ -530,15 +552,16 @@ func (s *MePricingCatalogService) BuildForUser(
 }
 
 // resolveTargetGroupID applies the selector precedence: explicit api_key_id
-// wins; explicit group_id second; otherwise default to the first user key's
-// group, then the first accessible group.
+// wins; explicit group_id second; otherwise default to the first direct key's
+// group, then the first accessible group. The bool result marks user-wide
+// scope for a universal API key.
 func resolveTargetGroupID(
 	opts MePricingCatalogOptions,
 	keysAll []APIKey,
 	accessByID map[int64]Group,
 	myKeys []MePricingKeyRef,
 	accessibleGroups []Group,
-) (int64, error) {
+) (int64, bool, error) {
 	switch {
 	case opts.APIKeyID != nil:
 		for i := range keysAll {
@@ -546,28 +569,58 @@ func resolveTargetGroupID(
 			if k.ID != *opts.APIKeyID {
 				continue
 			}
+			if k.IsUniversal() {
+				if opts.GroupID != nil {
+					return 0, false, ErrMePricingConflictingTargets
+				}
+				return 0, true, nil
+			}
 			if k.GroupID == nil {
-				return 0, ErrMePricingAPIKeyNotFound
+				return 0, false, ErrMePricingAPIKeyNotFound
 			}
 			if _, ok := accessByID[*k.GroupID]; !ok {
-				return 0, ErrMePricingAPIKeyNotFound
+				return 0, false, ErrMePricingAPIKeyNotFound
 			}
 			if opts.GroupID != nil && *opts.GroupID != *k.GroupID {
-				return 0, ErrMePricingConflictingTargets
+				return 0, false, ErrMePricingConflictingTargets
 			}
-			return *k.GroupID, nil
+			return *k.GroupID, false, nil
 		}
-		return 0, ErrMePricingAPIKeyNotFound
+		return 0, false, ErrMePricingAPIKeyNotFound
 	case opts.GroupID != nil:
 		if _, ok := accessByID[*opts.GroupID]; !ok {
-			return 0, ErrMePricingGroupForbidden
+			return 0, false, ErrMePricingGroupForbidden
 		}
-		return *opts.GroupID, nil
+		return *opts.GroupID, false, nil
 	case len(myKeys) > 0:
-		return myKeys[0].GroupID, nil
+		if myKeys[0].RoutingMode == RoutingModeUniversal {
+			return 0, true, nil
+		}
+		return *myKeys[0].GroupID, false, nil
 	default:
-		return accessibleGroups[0].ID, nil
+		return accessibleGroups[0].ID, false, nil
 	}
+}
+
+func mergeMePricingModels(modelsByGroup map[int64][]MePricingModel, groups []Group) []MePricingModel {
+	bestByModel := make(map[string]MePricingModel)
+	for i := range groups {
+		models := modelsByGroup[groups[i].ID]
+		for i := range models {
+			candidate := models[i]
+			if current, ok := bestByModel[candidate.ModelID]; ok {
+				bestByModel[candidate.ModelID] = pickCheaperModel(current, candidate)
+				continue
+			}
+			bestByModel[candidate.ModelID] = candidate
+		}
+	}
+	out := make([]MePricingModel, 0, len(bestByModel))
+	for _, model := range bestByModel {
+		out = append(out, model)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ModelID < out[j].ModelID })
+	return out
 }
 
 // buildModelsForGroup performs steps 4-8 of the algorithm. Returns an
@@ -690,13 +743,11 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 	return out
 }
 
-// buildAuthorizedGroupsIndex inverts buildModelsForGroup across every accessible
-// group into model_id → []group. Reuses the target group's already-built rows
-// instead of rebuilding them. The index powers both the per-row AuthorizedGroups
-// on the "my" view and the authenticated public-catalog column (wider model set).
+// buildAuthorizedGroupsIndex inverts the prebuilt rows for every accessible group
+// into model_id → []group. The index powers both the per-row AuthorizedGroups on
+// the "my" view and the authenticated public-catalog column (wider model set).
 func (s *MePricingCatalogService) buildAuthorizedGroupsIndex(
-	ctx context.Context,
-	targetModels []MePricingModel,
+	modelsByGroup map[int64][]MePricingModel,
 	accessibleGroups []Group,
 	userRates map[int64]float64,
 	targetGroupID int64,
@@ -721,13 +772,7 @@ func (s *MePricingCatalogService) buildAuthorizedGroupsIndex(
 			RateMultiplier:   rate,
 			SubscriptionType: g.SubscriptionType,
 		}
-		if g.ID == targetGroupID {
-			for j := range targetModels {
-				byModel[targetModels[j].ModelID] = append(byModel[targetModels[j].ModelID], ref)
-			}
-			continue
-		}
-		for _, m := range s.buildModelsForGroup(ctx, g, 1.0) {
+		for _, m := range modelsByGroup[g.ID] {
 			byModel[m.ModelID] = append(byModel[m.ModelID], ref)
 		}
 	}

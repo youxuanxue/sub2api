@@ -67,7 +67,8 @@ func RegisterGatewayRoutes(
 		}
 	}
 	modelsHandler := func(c *gin.Context) {
-		if isOpenAIGatewayPlatform(c) && c.Query("client_version") != "" {
+		apiKey, _ := middleware.GetAPIKeyFromContext(c)
+		if c.Query("client_version") != "" && (isOpenAIGatewayPlatform(c) || (apiKey != nil && apiKey.IsUniversal())) {
 			h.OpenAIGateway.CodexModels(c)
 			return
 		}

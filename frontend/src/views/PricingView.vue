@@ -72,7 +72,7 @@
                     :key="k.id"
                     :value="k.id"
                   >
-                    {{ k.name }} · {{ k.group_name }}
+                    {{ k.name }} · {{ k.routing_mode === 'universal' ? t('pricing.filters.automaticRouting') : k.group_name }}
                   </option>
                 </select>
               </label>
@@ -89,6 +89,9 @@
                   @change="onPickGroup"
                 >
                   <option value="public">{{ t('pricing.filters.publicCatalog') }}</option>
+                  <option v-if="viewingAutomaticScope" value="automatic" disabled>
+                    {{ t('pricing.filters.automaticRouting') }}
+                  </option>
                   <option
                     v-for="g in groupFilterOptions"
                     :key="g.id"
@@ -1015,8 +1018,32 @@ function groupFilterOptionLabel(g: MePricingGroupRef): string {
   return g.name
 }
 
+/**
+ * `displayKeyId` is the value the key-picker shows. Derived (never written
+ * back into selectedKeyId by the loader) to avoid the watch-loop where a
+ * post-load writeback fires another fetch. User picks are explicit via
+ * onPickKey — no implicit reactive ping-pong.
+ */
+const displayKeyId = computed<number>(() => {
+  if (viewMode.value === 'public' || selectedGroupId.value > 0) return 0
+  if (selectedKeyId.value > 0) return selectedKeyId.value
+  if (!myCatalog.value || selectableMyKeys.value.length === 0) return 0
+  const tgID = myCatalog.value.target_group?.id
+  if (!tgID) return selectableMyKeys.value[0].id
+  const match = selectableMyKeys.value.find((k) => k.group_id === tgID)
+  return match?.id ?? selectableMyKeys.value[0].id
+})
+
+const viewingAutomaticScope = computed(() => {
+  if (viewMode.value !== 'my' || myCatalog.value?.target_group != null) return false
+  return selectableMyKeys.value.some(
+    (key) => key.id === displayKeyId.value && key.routing_mode === 'universal'
+  )
+})
+
 const displayGroupValue = computed(() => {
   if (viewMode.value === 'public') return 'public'
+  if (viewingAutomaticScope.value) return 'automatic'
   const id = selectedGroupId.value > 0
     ? selectedGroupId.value
     : myCatalog.value?.target_group?.id
@@ -1025,9 +1052,12 @@ const displayGroupValue = computed(() => {
 
 const activeCatalogLabel = computed(() => {
   if (viewMode.value === 'public') return t('pricing.filters.activePublic')
+  const key = selectableMyKeys.value.find((item) => item.id === displayKeyId.value)
+  if (viewingAutomaticScope.value && key) {
+    return t('pricing.filters.activeAutomaticKey', { key: key.name })
+  }
   const group = myCatalog.value?.target_group?.name
   if (!group) return t('pricing.my.title')
-  const key = selectableMyKeys.value.find((k) => k.id === displayKeyId.value)
   return key
     ? t('pricing.filters.activeKeyGroup', { key: key.name, group })
     : t('pricing.filters.activeGroup', { group })
@@ -1167,21 +1197,6 @@ async function loadInitialCatalog(): Promise<void> {
     await loadPublicCatalog()
   }
 }
-
-/**
- * `displayKeyId` is the value the key-picker shows. Derived (never written
- * back into selectedKeyId by the loader) to avoid the watch-loop where a
- * post-load writeback fires another fetch. User picks are explicit via
- * onPickKey — no implicit reactive ping-pong.
- */
-const displayKeyId = computed<number>(() => {
-  if (viewMode.value === 'public' || selectedGroupId.value > 0) return 0
-  if (selectedKeyId.value > 0) return selectedKeyId.value
-  if (!myCatalog.value || selectableMyKeys.value.length === 0) return 0
-  const tgID = myCatalog.value.target_group.id
-  const match = selectableMyKeys.value.find((k) => k.group_id === tgID)
-  return match?.id ?? selectableMyKeys.value[0].id
-})
 
 function onPickKey(e: Event): void {
   const next = Number((e.target as HTMLSelectElement).value)

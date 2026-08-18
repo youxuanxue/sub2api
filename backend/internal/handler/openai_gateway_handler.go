@@ -45,6 +45,7 @@ type OpenAIGatewayHandler struct {
 	cfg                        *config.Config
 	videoTaskCache             service.VideoTaskCache // TK; wired via SetVideoTaskCache — see openai_gateway_tk_video.go.
 	mediaStore                 service.MediaStore     // TK; wired via SetMediaStore — image offload + legacy video S3 re-presign.
+	tkCapabilities             apiKeyCapabilitySource
 }
 
 type openAIWSTurnChannelMappingSnapshot struct {

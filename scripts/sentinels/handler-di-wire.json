@@ -47,6 +47,23 @@
         "// New-User Cold Start"
       ],
       "rationale": "TK setting fields for canonical OAuth hardening toggles (ingress strict + haiku mimicry) and the cold-start diff helper call site. These are woven into the upstream-shaped GetSettings/UpdateSettings response/request structs and the settings diff function — dropping them compiles cleanly but silently removes the admin UI's ability to toggle canonical OAuth guards and loses cold-start setting change audit trail."
+    },
+    {
+      "path": "backend/internal/handler/wire.go",
+      "must_contain": [
+        "capabilities *service.UniversalCapabilityService,",
+        "h.SetUniversalCapabilityService(capabilities)",
+        "openAI.SetUniversalCapabilityService(capabilities)"
+      ],
+      "rationale": "The generated server graph must inject one capability owner into both native gateway handlers. Losing either setter creates protocol-specific drift while the capability service and authenticated UI endpoint continue compiling."
+    },
+    {
+      "path": "backend/cmd/server/wire_gen.go",
+      "must_contain": [
+        "universalCapabilityService := service.NewUniversalCapabilityService(",
+        "handler.ProvideTKGatewayHandlerModelList(gatewayHandler, openAIGatewayHandler, modelListFilter, universalCapabilityService)"
+      ],
+      "rationale": "Generated production DI evidence for the UniversalCapabilityService and both gateway projections. Source providers alone do not prove the real server graph retained the post-construction injection."
     }
   ]
 }

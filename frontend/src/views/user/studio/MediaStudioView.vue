@@ -3,6 +3,7 @@
       <!-- No key: gate to /keys (login itself is enforced by the router guard). -->
       <div
         v-if="loadError"
+        data-testid="studio-load-error"
         class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100"
       >
         {{ loadError }}
@@ -151,11 +152,14 @@ import ImageStudio from '@/views/user/studio/ImageStudio.vue'
 import VideoStudio from '@/views/user/studio/VideoStudio.vue'
 import BakeOff from '@/views/user/studio/BakeOff.vue'
 import { keysAPI } from '@/api/keys'
+import {
+  getAPIKeyCapabilities,
+  type APIKeyCapabilityModality,
+} from '@/api/api-key-capabilities'
 import { gatewayListModels, resolveGatewayBaseUrl } from '@/api/playground'
 import { getMePricingCatalog } from '@/api/me-pricing'
-import { getPublicPricing } from '@/api/pricing'
+import { getPublicPricing, type PublicCatalogModel } from '@/api/pricing'
 import {
-  entitledModelIds,
   isUniversalKey,
   buildCatalogBillingIndex,
   priceMapFromPublicCatalog,
@@ -169,7 +173,6 @@ import {
   type PickerModality,
   type StudioModality,
   type MediaPrice,
-  type MediaPriceMap,
 } from '@/constants/studioMediaPresentations.tk'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
@@ -201,10 +204,9 @@ const gatewayBase = ref('')
 // group up front so the picker (and the dropdown annotations) can reason about
 // EVERY key's modality, not just the one currently selected.
 const groupModelSets = ref<Map<string, Set<string>>>(new Map())
+const groupCapabilityModalities = ref<Map<string, Map<string, Set<APIKeyCapabilityModality>>>>(new Map())
 const groupProbeReps = ref<Map<string, ApiKey>>(new Map())
-/** Cross-group entitlement index (me/pricing-catalog authorized_groups_by_model). */
-const userEntitledIds = ref<Set<string>>(new Set())
-const universalPriceMap = ref<MediaPriceMap>(new Map())
+const publicCatalogModels = ref<PublicCatalogModel[]>([])
 /** Public catalog billing_mode index — Studio media membership SSOT. */
 const catalogBillingIndex = ref<CatalogBillingIndex>(new Map())
 // Live per-model price for the SELECTED key's group (getMePricingCatalog) — the
@@ -233,19 +235,44 @@ function groupKeyOf(k: ApiKey): string {
   return k.group?.id != null ? `g${k.group.id}` : `k${k.id}`
 }
 function availableIdsOf(k: ApiKey): Set<string> {
-  if (isUniversalKey(k)) return userEntitledIds.value
   return groupModelSets.value.get(groupKeyOf(k)) ?? new Set<string>()
 }
 
+function capabilityModalitiesOf(k: ApiKey): Map<string, Set<APIKeyCapabilityModality>> | undefined {
+  return groupCapabilityModalities.value.get(groupKeyOf(k))
+}
+
+function servedModalitiesOf(k: ApiKey): Set<PickerModality> | undefined {
+  if (!isUniversalKey(k)) return undefined
+  const served = new Set<PickerModality>()
+  for (const modalities of capabilityModalitiesOf(k)?.values() ?? []) {
+    for (const modality of modalities) {
+      if (modality === 'chat' || modality === 'image' || modality === 'video') served.add(modality)
+    }
+  }
+  return served
+}
+
 function keyServesModality(k: ApiKey, modality: PickerModality): boolean {
+	const served = servedModalitiesOf(k)
+	if (served) return served.has(modality)
   return groupServes(modality, availableIdsOf(k), catalogBillingIndex.value)
 }
 
 // Model pool of the currently selected key — what the child studios resolve
 // tiers against.
-const availableIds = computed<Set<string>>(() =>
-  selectedKey.value ? availableIdsOf(selectedKey.value) : new Set<string>()
-)
+const availableIds = computed<Set<string>>(() => {
+  const key = selectedKey.value
+  if (!key) return new Set<string>()
+  const modality = pickerModality.value
+  const capabilityModalities = capabilityModalitiesOf(key)
+  if (!isUniversalKey(key) || !modality || !capabilityModalities) return availableIdsOf(key)
+  const ids = new Set<string>()
+  for (const [id, modalities] of capabilityModalities) {
+    if (modalities.has(modality)) ids.add(id)
+  }
+  return ids
+})
 
 const anyKeyServesVideo = computed(() => keys.value.some((k) => keyServesModality(k, 'video')))
 
@@ -261,6 +288,7 @@ function modalityOptions(): ModalityKeyOption[] {
     id: k.id,
     isTrial: k.name?.toLowerCase() === 'trial',
     availableIds: availableIdsOf(k),
+    servedModalities: servedModalitiesOf(k),
   }))
 }
 
@@ -274,17 +302,14 @@ function keyLabel(k: ApiKey): string {
   return base
 }
 
-async function loadUserEntitlement(): Promise<void> {
+async function loadPublicCatalog(): Promise<void> {
   try {
-    const [meCatalog, publicCatalog] = await Promise.all([getMePricingCatalog(), getPublicPricing()])
-    const entitled = entitledModelIds(meCatalog)
-    userEntitledIds.value = entitled
-    catalogBillingIndex.value = buildCatalogBillingIndex(publicCatalog.data || [])
-    universalPriceMap.value = priceMapFromPublicCatalog(publicCatalog.data || [], entitled)
+    const publicCatalog = await getPublicPricing()
+    publicCatalogModels.value = publicCatalog.data || []
+    catalogBillingIndex.value = buildCatalogBillingIndex(publicCatalogModels.value)
   } catch {
-    userEntitledIds.value = new Set()
+    publicCatalogModels.value = []
     catalogBillingIndex.value = new Map()
-    universalPriceMap.value = new Map()
   }
 }
 
@@ -306,28 +331,49 @@ function groupRepresentatives(keyList: ApiKey[]): Map<string, ApiKey> {
   return reps
 }
 
-function mergeGroupProbe(gk: string, ids: Iterable<string>): void {
+function mergeGroupProbe(
+  gk: string,
+  ids: Iterable<string>,
+  modalities?: Map<string, Set<APIKeyCapabilityModality>>,
+): void {
   const next = new Map(groupModelSets.value)
   next.set(gk, new Set(ids))
   groupModelSets.value = next
+  const nextModalities = new Map(groupCapabilityModalities.value)
+  if (modalities) nextModalities.set(gk, modalities)
+  else nextModalities.delete(gk)
+  groupCapabilityModalities.value = nextModalities
 }
 
-/** Probe the listed groups in parallel; returns true when at least one fetch succeeded. */
+/** Probe direct groups through the gateway and automatic-routing keys through the capability SSOT. */
 async function probeGroupEntries(entries: readonly [string, ApiKey][]): Promise<boolean> {
   if (entries.length === 0) return false
   const results = await Promise.allSettled(
-    entries.map(([, k]) => gatewayListModels(k.key, gatewayBase.value))
+    entries.map(async ([, k]) => {
+      if (isUniversalKey(k)) {
+        const capabilities = await getAPIKeyCapabilities(k.id)
+        return {
+          ids: capabilities.models.map((model) => model.id),
+          modalities: new Map(capabilities.models.map((model) => [model.id, new Set(model.modalities)])),
+        }
+      }
+      const response = await gatewayListModels(k.key, gatewayBase.value)
+		return { ids: (response.data || []).map((model) => model.id) }
+    })
   )
   let anyOk = false
+  let capabilityError: unknown
   results.forEach((r, i) => {
-    const gk = entries[i][0]
+    const [gk, key] = entries[i]
     if (r.status === 'fulfilled') {
       anyOk = true
-      mergeGroupProbe(gk, (r.value.data || []).map((m) => m.id))
+		mergeGroupProbe(gk, r.value.ids, r.value.modalities)
     } else {
       mergeGroupProbe(gk, [])
+      if (isUniversalKey(key) && capabilityError == null) capabilityError = r.reason
     }
   })
+  if (capabilityError != null) throw capabilityError
   return anyOk
 }
 
@@ -379,6 +425,10 @@ async function finishBackgroundProbe(
       if (gen !== backgroundProbeGen) return
       repickKeyForCurrentModality()
     }
+  } catch (e) {
+    if (gen === backgroundProbeGen) {
+      loadError.value = e instanceof Error ? e.message : t('studio.loadFailed')
+    }
   } finally {
     if (gen === backgroundProbeGen) modelsLoading.value = false
   }
@@ -392,7 +442,9 @@ async function finishBackgroundProbe(
 async function loadPriceMap(keyId: number): Promise<void> {
   const k = keys.value.find((x) => x.id === keyId)
   if (k && isUniversalKey(k)) {
-    priceMap.value = new Map(universalPriceMap.value)
+    priceMap.value = new Map(
+      priceMapFromPublicCatalog(publicCatalogModels.value, availableIdsOf(k))
+    )
     return
   }
   try {
@@ -408,9 +460,7 @@ let priceCatalogGen = 0
 /** Serialize price-catalog loads; media tabs must not show the empty state while this is in flight. */
 async function ensurePriceCatalog(keyId: number): Promise<void> {
   const gen = ++priceCatalogGen
-  const k = keys.value.find((x) => x.id === keyId)
-  const syncUniversal = !!(k && isUniversalKey(k) && universalPriceMap.value.size > 0)
-  if (!syncUniversal) priceCatalogReady.value = false
+  priceCatalogReady.value = false
   await loadPriceMap(keyId)
   if (gen === priceCatalogGen) priceCatalogReady.value = true
 }
@@ -458,7 +508,6 @@ async function bootstrap(): Promise<void> {
     const reps = groupRepresentatives(keys.value)
     groupProbeReps.value = reps
     const seedGk = groupKeyOf(seedKey)
-    const hasUniversal = keys.value.some(isUniversalKey)
     const landingView = view.value
     modelsLoading.value = true
 
@@ -467,11 +516,10 @@ async function bootstrap(): Promise<void> {
     // groups). Probe the seed group first, mount Chat, then finish the rest in
     // the background for key-picker annotations and tab switches.
     if (landingView === 'chat') {
-      const entitlementNow = hasUniversal ? loadUserEntitlement() : Promise.resolve()
-      const probeSeed = isUniversalKey(seedKey)
-        ? Promise.resolve(true)
-        : probeGroupEntries([[seedGk, seedKey]])
-      const [, anyOk] = await Promise.all([entitlementNow, probeSeed])
+      const [, anyOk] = await Promise.all([
+        loadPublicCatalog(),
+        probeGroupEntries([[seedGk, seedKey]]),
+      ])
       if (!anyOk && reps.size === 1) {
         loadError.value = t('studio.loadFailed')
         modelsLoading.value = false
@@ -481,7 +529,6 @@ async function bootstrap(): Promise<void> {
       probed.value = true
       if (selectedKeyId.value != null) void ensurePriceCatalog(selectedKeyId.value)
       void (async () => {
-        if (!hasUniversal) await loadUserEntitlement()
         await finishBackgroundProbe(reps, new Set([seedGk]))
         if (!anyOk && reps.size > 1 && ![...groupModelSets.value.values()].some((s) => s.size > 0)) {
           loadError.value = t('studio.loadFailed')
@@ -494,7 +541,7 @@ async function bootstrap(): Promise<void> {
     // studio mounts. Probe the seed group first, then batch the rest if needed.
     const ordered = orderedGroupEntries(reps, seedGk)
     const [, anyOk] = await Promise.all([
-      loadUserEntitlement(),
+      loadPublicCatalog(),
       probeGroupEntries(ordered.length ? [ordered[0]] : []),
     ])
 

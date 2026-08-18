@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 
-const { getMePricingCatalogMock, getPublicPricingMock } = vi.hoisted(() => ({
+const { getMePricingCatalogMock, getPublicPricingMock, getAPIKeyCapabilitiesMock } = vi.hoisted(() => ({
   getMePricingCatalogMock: vi.fn(),
   getPublicPricingMock: vi.fn(),
+	getAPIKeyCapabilitiesMock: vi.fn(),
 }))
 
 vi.mock('@/api/me-pricing', () => ({
@@ -14,14 +15,18 @@ vi.mock('@/api/pricing', () => ({
   getPublicPricing: (...args: unknown[]) => getPublicPricingMock(...args),
 }))
 
+vi.mock('@/api/api-key-capabilities', () => ({
+	getAPIKeyCapabilities: (...args: unknown[]) => getAPIKeyCapabilitiesMock(...args),
+}))
+
 import { useTkUseKey, anthropicEnvModel, openaiCompatContextWindowEnvModel, claudeCodeEnvModel, formatProbeLatencyDetail } from '@/composables/useTkUseKey'
 
-function createUseKey(apiKeyId = ref<number | null>(42)) {
+function createUseKey(apiKeyId = ref<number | null>(42), routingMode = ref<'direct' | 'universal'>('direct')) {
   return useTkUseKey({
     apiKeyId,
     apiKey: ref('sk-tool-probe'),
     platform: ref('openai'),
-    routingMode: ref('direct'),
+		routingMode,
     claudeCodeOnly: ref(false),
     baseRoot: ref('https://api.tokenkey.test'),
   })
@@ -31,6 +36,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
   getMePricingCatalogMock.mockReset()
   getPublicPricingMock.mockReset()
+	getAPIKeyCapabilitiesMock.mockReset()
 })
 
 describe('claudeCodeEnvModel helpers', () => {
@@ -54,6 +60,62 @@ describe('claudeCodeEnvModel helpers', () => {
 })
 
 describe('useTkUseKey model loading', () => {
+	it('uses only the key capability SSOT for automatic routing and filters by protocol metadata', async () => {
+		getAPIKeyCapabilitiesMock.mockResolvedValue({
+			api_key_id: 42,
+			routing_mode: 'universal',
+			models: [
+				{ id: 'qwen-through-messages', protocols: ['anthropic'], modalities: ['chat'], routes: [] },
+				{ id: 'gpt-openai-only', protocols: ['openai'], modalities: ['chat'], routes: [] },
+				{ id: 'gpt-codex-only', protocols: ['codex'], modalities: ['chat'], routes: [] },
+				{ id: 'gpt-openai-and-codex', protocols: ['openai', 'codex'], modalities: ['chat'], routes: [] },
+			],
+		})
+		const tk = createUseKey(ref(42), ref('universal'))
+
+		await tk.loadModels()
+
+		expect(getAPIKeyCapabilitiesMock).toHaveBeenCalledWith(42)
+		expect(getMePricingCatalogMock).not.toHaveBeenCalled()
+		expect(getPublicPricingMock).not.toHaveBeenCalled()
+		expect(tk.modelsForFlavor('anthropic').map((model) => model.id)).toEqual(['qwen-through-messages'])
+		expect(tk.modelsForFlavor('openai', 'openai').map((model) => model.id)).toEqual([
+			'gpt-openai-only',
+			'gpt-openai-and-codex',
+		])
+		expect(tk.modelsForFlavor('openai', 'codex').map((model) => model.id)).toEqual([
+			'gpt-codex-only',
+			'gpt-openai-and-codex',
+		])
+	})
+
+	it('preserves capability load failure as an error state instead of an empty menu', async () => {
+		getAPIKeyCapabilitiesMock.mockRejectedValue(new Error('capability unavailable'))
+		const tk = createUseKey(ref(42), ref('universal'))
+
+		await tk.loadModels()
+
+		expect(tk.modelsError.value).toBe('capability unavailable')
+		expect(tk.modelsLoaded.value).toBe(false)
+		expect(tk.effectiveModel('openai')).toBe('')
+		expect(tk.shouldWarnModelsEmpty('openai')).toBe(false)
+	})
+
+	it('does not invent a model for an automatic-routing business empty set', async () => {
+		getAPIKeyCapabilitiesMock.mockResolvedValue({
+			api_key_id: 42,
+			routing_mode: 'universal',
+			models: [],
+		})
+		const tk = createUseKey(ref(42), ref('universal'))
+
+		await tk.loadModels()
+
+		expect(tk.modelsLoaded.value).toBe(true)
+		expect(tk.modelsError.value).toBe('')
+		expect(tk.effectiveModel('openai')).toBe('')
+	})
+
   it('applies a deep-linked model from the selected key live menu', async () => {
     getMePricingCatalogMock.mockResolvedValue({
       models: [{ model_id: 'claude-sonnet-live', capabilities: ['tools'] }],
@@ -151,6 +213,30 @@ describe('formatProbeLatencyDetail', () => {
 })
 
 describe('useTkUseKey tool-call probe', () => {
+	it('tests the model from the active Codex capability subset', async () => {
+		getAPIKeyCapabilitiesMock.mockResolvedValue({
+			api_key_id: 42,
+			routing_mode: 'universal',
+			models: [
+				{ id: 'openai-only', protocols: ['openai'], modalities: ['chat'], routes: [] },
+				{ id: 'codex-model', protocols: ['openai', 'codex'], modalities: ['chat'], routes: [] },
+			],
+		})
+		const fetchMock = vi.fn()
+			.mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }))
+			.mockResolvedValueOnce(new Response(JSON.stringify({
+				choices: [{ message: { content: 'pong' } }],
+			}), { status: 200 }))
+		vi.stubGlobal('fetch', fetchMock)
+		const tk = createUseKey(ref(42), ref('universal'))
+		await tk.loadModels()
+
+		await tk.runTest('openai', { protocol: 'codex' })
+
+		const [, init] = fetchMock.mock.calls[1] as [string, RequestInit]
+		expect(JSON.parse(String(init.body)).model).toBe('codex-model')
+	})
+
   it('forces a side-effect-free function and verifies the returned tool call', async () => {
     vi.stubGlobal('window', { location: { origin: 'https://api.tokenkey.test', href: 'https://api.tokenkey.test/' } })
     const fetchMock = vi.fn()

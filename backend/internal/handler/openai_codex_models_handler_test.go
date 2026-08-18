@@ -50,6 +50,7 @@ type codexModelsFailoverHTTPUpstream struct {
 	firstErr    error
 	firstStatus int
 	firstBody   string
+	successBody string
 	statuses    map[int64]int
 }
 
@@ -86,11 +87,15 @@ func (u *codexModelsFailoverHTTPUpstream) Do(_ *http.Request, _ string, accountI
 			)),
 		}, nil
 	}
+	successBody := u.successBody
+	if successBody == "" {
+		successBody = `{"models":[{"slug":"gpt-5.6-sol"}]}`
+	}
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Status:     "200 OK",
 		Header:     make(http.Header),
-		Body:       io.NopCloser(strings.NewReader(`{"models":[{"slug":"gpt-5.6-sol"}]}`)),
+		Body:       io.NopCloser(strings.NewReader(successBody)),
 	}, nil
 }
 

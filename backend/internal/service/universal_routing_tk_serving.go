@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strings"
+	"sync"
 )
 
 // 全能 Key 解析的「组是否支持模型」真值过滤。
@@ -62,6 +63,77 @@ func (s *GatewayService) UniversalGroupSupportsRequest(ctx context.Context, grou
 	if err != nil {
 		return false, false
 	}
+	return s.universalAccountsSupportRequest(ctx, accounts, useMixed, platform, model, shape), true
+}
+
+// UniversalGroupSupportsRequestStrict is the discovery counterpart of the
+// resolver's fail-open provider. Discovery must surface repository failures
+// instead of turning them into a successful empty menu.
+func (s *GatewayService) UniversalGroupSupportsRequestStrict(ctx context.Context, groupID int64, platform, model string, shape UniversalShape) (bool, error) {
+	if s == nil || s.accountRepo == nil || platform == "" {
+		return false, ErrUniversalCapabilityUnavailable
+	}
+	accounts, useMixed, err := s.universalCapabilityAccounts(ctx, groupID, platform)
+	if err != nil {
+		return false, err
+	}
+	return s.universalAccountsSupportRequest(ctx, accounts, useMixed, platform, model, shape), nil
+}
+
+type universalCapabilityAccountCacheContextKey struct{}
+
+type universalCapabilityAccountCacheKey struct {
+	groupID  int64
+	platform string
+}
+
+type universalCapabilityAccountCacheEntry struct {
+	accounts []Account
+	useMixed bool
+	err      error
+}
+
+// Capability discovery evaluates many model/shape pairs against the same group.
+// Keep one scheduler-filtered account snapshot per group for this request only.
+type universalCapabilityAccountCache struct {
+	mu      sync.Mutex
+	entries map[universalCapabilityAccountCacheKey]universalCapabilityAccountCacheEntry
+}
+
+func withUniversalCapabilityAccountCache(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, ok := ctx.Value(universalCapabilityAccountCacheContextKey{}).(*universalCapabilityAccountCache); ok {
+		return ctx
+	}
+	return context.WithValue(ctx, universalCapabilityAccountCacheContextKey{}, &universalCapabilityAccountCache{
+		entries: make(map[universalCapabilityAccountCacheKey]universalCapabilityAccountCacheEntry),
+	})
+}
+
+func (s *GatewayService) universalCapabilityAccounts(ctx context.Context, groupID int64, platform string) ([]Account, bool, error) {
+	cache, _ := ctx.Value(universalCapabilityAccountCacheContextKey{}).(*universalCapabilityAccountCache)
+	if cache == nil {
+		return s.listSchedulableAccounts(ctx, &groupID, platform, false)
+	}
+
+	key := universalCapabilityAccountCacheKey{groupID: groupID, platform: platform}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if cached, ok := cache.entries[key]; ok {
+		return cached.accounts, cached.useMixed, cached.err
+	}
+	accounts, useMixed, err := s.listSchedulableAccounts(ctx, &groupID, platform, false)
+	cache.entries[key] = universalCapabilityAccountCacheEntry{
+		accounts: accounts,
+		useMixed: useMixed,
+		err:      err,
+	}
+	return accounts, useMixed, err
+}
+
+func (s *GatewayService) universalAccountsSupportRequest(ctx context.Context, accounts []Account, useMixed bool, platform, model string, shape UniversalShape) bool {
 	for i := range accounts {
 		acc := &accounts[i]
 		if IsOpenAICompatPlatform(platform) {
@@ -72,17 +144,17 @@ func (s *GatewayService) UniversalGroupSupportsRequest(ctx context.Context, grou
 				continue
 			}
 			if universalOpenAICompatAccountSupportsModel(ctx, s, acc, model, shape) {
-				return true, true
+				return true
 			}
 			continue
 		} else if !s.isAccountAllowedForPlatform(acc, platform, useMixed) {
 			continue
 		}
 		if s.isModelSupportedByAccountWithContext(ctx, acc, model) {
-			return true, true
+			return true
 		}
 	}
-	return false, true
+	return false
 }
 
 func universalOpenAICompatAccountSupportsModel(ctx context.Context, s *GatewayService, account *Account, model string, shape UniversalShape) bool {
