@@ -19,6 +19,7 @@ This is the pending human approval anchor for migrations imported by PR #1684 fr
 | `tk_080_ops_partition_utc_boundary_repair.sql` | Repair ops partition bounds created when historical migrations 035/037 ran in a non-UTC session, before migration 081 completed | Forward-only hot-table catalog repair. It validates the current writer before taking short `ACCESS EXCLUSIVE` parent locks, drops only exact empty shifted future children, and preserves current table/index OIDs and rows while correcting the writer's UTC upper bound. |
 | `222_group_usage_daily_rollups.sql` | Create `usage_group_daily_rollups` and singleton `usage_group_rollup_state`; install INSERT/DELETE/UPDATE invalidation triggers on `usage_logs` | Additive schema, but trigger creation takes a lock on the hot source table. Historical backfill remains a background job. |
 | `223_group_usage_rollup_timezone.sql` | Add `timezone_name` to the singleton state row and replace invalidation functions to use the configured PostgreSQL timezone | Expand-only state change. Existing Beijing-time buckets are rebuilt by the background sync when the configured timezone differs. |
+| `tk_085_openai_oauth_codex_fingerprint_device.sql` | Backfill missing/invalid `accounts.extra.codex_fingerprint_mode` to `device` for live OpenAI OAuth accounts | Idempotent JSONB merge. Explicit `off` / `session` / `full` / `device` rows are left unchanged. |
 
 Migrations 222 and 223 run in the migration runner's single transaction and set:
 

@@ -34,7 +34,8 @@ func TestLoadTimezonePrecedence(t *testing.T) {
 		{name: "default", want: "Asia/Shanghai"},
 		{name: "config_file", fileTimezone: "Europe/London", want: "Europe/London"},
 		{name: "timezone_env", fileTimezone: "Europe/London", timezoneEnv: "UTC", want: "UTC"},
-		{name: "tz_env", fileTimezone: "Europe/London", timezoneEnv: "UTC", tzEnv: "America/New_York", want: "America/New_York"},
+		{name: "tz_does_not_override_timezone_env", fileTimezone: "Europe/London", timezoneEnv: "UTC", tzEnv: "America/New_York", want: "UTC"},
+		{name: "tz_does_not_override_config", fileTimezone: "Asia/Shanghai", tzEnv: "UTC", want: "Asia/Shanghai"},
 	}
 
 	for _, tt := range tests {

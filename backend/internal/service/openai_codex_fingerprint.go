@@ -54,10 +54,11 @@ type codexFingerprintMode string
 
 const (
 	// codexFingerprintOff 不做任何收敛，原样透传客户端标识。
-	// 这是默认值：收敛是显式 opt-in 的（见 GetCodexFingerprintMode）。
+	// 仅当 extra 显式写 off 时生效；缺省不再走这条路径。
 	codexFingerprintOff codexFingerprintMode = "off"
 	// codexFingerprintDevice 仅收敛 installation_id 为账号级恒定值。
 	// 上游看到 1 台设备 + 多会话（每用户各自的 session）。
+	// TokenKey 默认：把设备数压到 1，同时不把多个 API Key 收成同一 session。
 	codexFingerprintDevice codexFingerprintMode = "device"
 	// codexFingerprintSession 收敛 installation_id + session_id，
 	// thread_id 按客户端原始 session-id 确定性派生（每个真实 Codex 会话一个独立线程）。
@@ -72,15 +73,12 @@ const codexFingerprintModeExtraKey = "codex_fingerprint_mode"
 
 // GetCodexFingerprintMode 从账号 extra JSON 读取指纹收敛模式。
 //
-// **收敛是显式 opt-in**：未设置、空值或非法值一律按 off 处理，只有管理员
-// 明确配置 device / session / full 才收敛。
+// TokenKey 默认 device：未设置、空值或非法值都按仅收敛 installation_id 处理。
+// 显式 off / session / full 仍按写入值生效。
 //
-// 历史：v0.1.175（#5553）把缺省值当作 session，导致升级后存量 OAuth 账号
-// （普遍没有这个 extra 键）的每个非透传请求都被静默改写 installation /
-// session / thread / turn / window 五类标识；#5555、#5556、#5582 报告的额度
-// 缩水都卡在该版本边界，并有"回退 v0.1.173 即恢复"与"新账号开收敛后降额"
-// 的 A/B 实测。上游的配额判定策略不可观测，因此这里取兼容安全的一侧：
-// 不显式 opt-in 就保持 v0.1.175 之前的客户端身份（#5610）。
+// 上游 #5610 把缺省改成 off，是为了避开 v0.1.175 默认 session 后的额度缩水报告。
+// TokenKey 的 OpenAI OAuth 号会挂多个用户 / API Key；off 会让上游按真实
+// installation 数设备。device 只统一设备身份，session-id 仍按客户端隔离。
 func (a *Account) GetCodexFingerprintMode() codexFingerprintMode {
 	if a == nil || !a.IsOpenAIOAuth() {
 		return codexFingerprintOff
@@ -90,7 +88,7 @@ func (a *Account) GetCodexFingerprintMode() codexFingerprintMode {
 	case codexFingerprintOff, codexFingerprintDevice, codexFingerprintSession, codexFingerprintFull:
 		return codexFingerprintMode(raw)
 	default:
-		return codexFingerprintOff
+		return codexFingerprintDevice
 	}
 }
 

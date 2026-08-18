@@ -761,7 +761,8 @@ func (h *GroupHandler) GetStats(c *gin.Context) {
 	_ = groupID // TODO: implement actual stats
 }
 
-// GetUsageSummary returns today's, yesterday's, and cumulative cost for all groups.
+// GetUsageSummary returns today's, yesterday's, and retained-window cost for all groups.
+// Response envelope: {retained_days, groups}. retained_days is the effective usage_logs window.
 // GET /api/v1/admin/groups/usage-summary
 func (h *GroupHandler) GetUsageSummary(c *gin.Context) {
 	todayStart := service.GroupUsageTodayStart(time.Now())
@@ -803,7 +804,10 @@ func (h *GroupHandler) writeGroupUsageSummary(c *gin.Context, entry snapshotCach
 		return
 	}
 
-	response.Success(c, results)
+	response.Success(c, gin.H{
+		"retained_days": h.dashboardService.UsageLogRetentionDays(),
+		"groups":        results,
+	})
 }
 
 // GetCapacitySummary returns aggregated capacity (concurrency/sessions/RPM) for all active groups.

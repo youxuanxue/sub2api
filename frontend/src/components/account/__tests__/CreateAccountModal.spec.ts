@@ -174,6 +174,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     expect(createAccountMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(false)
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra?.codex_fingerprint_mode).toBeUndefined()
   })
 
   // namespace 摊平是仅 OAuth 的兼容开关：API Key 走 chat completions 回退桥时由桥自行摊平
@@ -305,6 +306,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(importCodexSessionMock).toHaveBeenCalledTimes(1)
     expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBeUndefined()
+    expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra?.codex_fingerprint_mode).toBe('device')
   })
 
   it('leaves Codex PAT import billing ownership to the backend', async () => {
@@ -314,6 +316,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(createOpenAICodexPATMock).toHaveBeenCalledTimes(1)
     expect(createOpenAICodexPATMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBeUndefined()
+    expect(createOpenAICodexPATMock.mock.calls[0]?.[0]?.extra?.codex_fingerprint_mode).toBe('device')
   })
 
   it('sends explicit true for Codex session import after the toggle is enabled', async () => {
@@ -426,7 +429,7 @@ describe('CreateAccountModal Grok account contracts', () => {
   })
 
   it('applies upstream config on all Grok OAuth create paths', () => {
-    expect(createAccountModalSource.match(/validateGrokOAuthUpstreamConfig\(\)/g)?.length).toBe(4)
-    expect(createAccountModalSource.match(/applyGrokOAuthUpstreamConfig\(/g)?.length).toBe(4)
+    expect(createAccountModalSource.match(/validateGrokOAuthUpstreamConfig\(\)/g)?.length).toBe(5)
+    expect(createAccountModalSource.match(/applyGrokOAuthUpstreamConfig\(/g)?.length).toBe(5)
   })
 })

@@ -227,7 +227,7 @@
                   t("admin.groups.subscription.noLimit")
                 }}</span>
                 <div class="text-gray-400 dark:text-gray-500">
-                  {{ t("admin.groups.usageTotal") }}
+                  {{ t("admin.groups.usageTotal", { days: usageRetentionDays }) }}
                   <span class="ml-1 font-medium text-gray-600 dark:text-gray-300"
                     >{{
                       usageLoading
@@ -350,7 +350,7 @@
                 data-testid="group-usage-total"
               >
                 <span class="text-gray-400 dark:text-gray-500">{{
-                  t("admin.groups.usageTotal")
+                  t("admin.groups.usageTotal", { days: usageRetentionDays })
                 }}</span>
                 <span class="ml-1 font-medium text-gray-700 dark:text-gray-300"
                   >${{
@@ -5024,6 +5024,7 @@ type GroupUsageSummary = {
 
 const usageMap = ref<Map<number, GroupUsageSummary>>(new Map());
 const usageLoading = ref(false);
+const usageRetentionDays = ref(90);
 const capacityMap = ref<
   Map<
     number,
@@ -5869,8 +5870,11 @@ const loadUsageSummary = async () => {
   usageLoading.value = true;
   try {
     const data = await adminAPI.groups.getUsageSummary();
+    if (data.retained_days > 0) {
+      usageRetentionDays.value = data.retained_days;
+    }
     const map = new Map<number, GroupUsageSummary>();
-    for (const item of data) {
+    for (const item of data.groups ?? []) {
       map.set(item.group_id, {
         today_cost: item.today_cost,
         yesterday_cost: item.yesterday_cost,

@@ -823,7 +823,7 @@ export default {
       },
       usageToday: 'Today',
       usageYesterday: 'Yesterday',
-      usageTotal: 'Total',
+      usageTotal: '{days}-day total',
       accountsAvailable: 'Avail:',
       accountsRateLimited: 'Limited:',
       accountsTotal: 'Total:',

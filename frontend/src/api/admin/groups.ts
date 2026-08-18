@@ -445,16 +445,24 @@ export async function clearGroupRPMOverrides(id: number): Promise<{ message: str
   return data
 }
 
+export type GroupUsageSummary = {
+  group_id: number
+  today_cost: number
+  yesterday_cost: number
+  total_cost: number
+}
+
+export type GroupUsageSummaryResponse = {
+  retained_days: number
+  groups: GroupUsageSummary[]
+}
+
 /**
- * Get usage summary (today + yesterday + cumulative cost) for all groups
- * @returns Array of group usage summaries
+ * Get usage summary (today + yesterday + retained-window cost) for all groups.
+ * retained_days is the effective usage_logs window (prod ≤90, edge ≤7).
  */
-export async function getUsageSummary(): Promise<
-  { group_id: number; today_cost: number; yesterday_cost: number; total_cost: number }[]
-> {
-  const { data } = await apiClient.get<
-    { group_id: number; today_cost: number; yesterday_cost: number; total_cost: number }[]
-  >('/admin/groups/usage-summary')
+export async function getUsageSummary(): Promise<GroupUsageSummaryResponse> {
+  const { data } = await apiClient.get<GroupUsageSummaryResponse>('/admin/groups/usage-summary')
   return data
 }
 

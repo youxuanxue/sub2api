@@ -49,7 +49,7 @@ const messages: Record<string, string> = {
   'admin.groups.columns.actions': 'Actions',
   'admin.groups.usageToday': 'Today',
   'admin.groups.usageYesterday': 'Yesterday',
-  'admin.groups.usageTotal': 'Total',
+  'admin.groups.usageTotal': '{days}-day total',
 }
 
 vi.mock('@/api/admin', () => ({
@@ -91,7 +91,15 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => messages[key] ?? key,
+      t: (key: string, params?: Record<string, unknown>) => {
+        let msg = messages[key] ?? key
+        if (params) {
+          for (const [name, value] of Object.entries(params)) {
+            msg = msg.replaceAll(`{${name}}`, String(value))
+          }
+        }
+        return msg
+      },
     }),
   }
 })
@@ -258,7 +266,7 @@ describe('admin GroupsView column settings', () => {
     getAllGroups.mockResolvedValue([])
     getModelsListCandidates.mockResolvedValue([])
     createGroupApi.mockResolvedValue(createGroup())
-    getUsageSummary.mockResolvedValue([])
+    getUsageSummary.mockResolvedValue({ retained_days: 90, groups: [] })
     getCapacitySummary.mockResolvedValue([])
     getLiveCapability.mockResolvedValue({ supported: false })
     listAccounts.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
@@ -400,17 +408,30 @@ describe('admin GroupsView column settings', () => {
   })
 
   it('renders yesterday usage between today and total', async () => {
-    getUsageSummary.mockResolvedValue([
-      { group_id: 1, today_cost: 1.25, yesterday_cost: 2.5, total_cost: 9.75 },
-    ])
+    getUsageSummary.mockResolvedValue({
+      retained_days: 90,
+      groups: [
+        { group_id: 1, today_cost: 1.25, yesterday_cost: 2.5, total_cost: 9.75 },
+      ],
+    })
 
     const wrapper = await mountView()
     const text = wrapper.get('[data-test="usage-cell"]').text()
 
     expect(text).toContain('Today$1.25')
     expect(text).toContain('Yesterday$2.50')
-    expect(text).toContain('Total$9.75')
+    expect(text).toContain('90-day total$9.75')
     expect(text.indexOf('Today')).toBeLessThan(text.indexOf('Yesterday'))
-    expect(text.indexOf('Yesterday')).toBeLessThan(text.indexOf('Total'))
+    expect(text.indexOf('Yesterday')).toBeLessThan(text.indexOf('90-day total'))
+  })
+
+  it('renders the retained-day label from usage-summary metadata', async () => {
+    getUsageSummary.mockResolvedValue({
+      retained_days: 7,
+      groups: [{ group_id: 1, today_cost: 1, yesterday_cost: 2, total_cost: 3 }],
+    })
+
+    const wrapper = await mountView()
+    expect(wrapper.get('[data-test="usage-cell"]').text()).toContain('7-day total$3.00')
   })
 })

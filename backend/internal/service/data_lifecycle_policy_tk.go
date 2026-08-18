@@ -47,6 +47,16 @@ func capLifecycleRetention(configured, upperBound int) int {
 	return configured
 }
 
+// UsageLogRetentionDays 返回当前节点 usage_logs 的有效保留天数。
+// prod 上限 90，edge 上限 7；配置更短时用配置值。展示用，0 或负值回落到 prod 默认。
+func UsageLogRetentionDays(cfg *config.Config) int {
+	days := resolveDataLifecyclePolicy(cfg, config.OpsCleanupConfig{}).usageLogRetentionDays
+	if days <= 0 {
+		return prodUsageLogRetentionDays
+	}
+	return days
+}
+
 func dataLifecycleRoleKnown(frontendURL string) bool {
 	site := siteFromFrontendURL(frontendURL)
 	return site == "prod" || IsEdgeFrontendURL(frontendURL)

@@ -115,7 +115,7 @@ async function prepareGroupsPage(
 
     if (path === '/api/v1/admin/groups/usage-summary') {
       usageSummaryRequests += 1
-      await fulfillJSON(route, [USAGE_SUMMARY])
+      await fulfillJSON(route, { retained_days: 90, groups: [USAGE_SUMMARY] })
       return
     }
     if (path === '/api/v1/admin/groups/capacity-summary') {
@@ -156,7 +156,7 @@ async function assertCanonicalSummary(page: Page): Promise<void> {
   const expectedItems = [
     { testID: 'group-usage-today', label: 'Today', value: '$1.23' },
     { testID: 'group-usage-yesterday', label: 'Yesterday', value: '$45.67' },
-    { testID: 'group-usage-total', label: 'Total', value: '$890.1' },
+    { testID: 'group-usage-total', label: '90-day total', value: '$890.1' },
   ]
   const items = summary.locator(':scope > [data-testid]')
   await expect(items).toHaveCount(expectedItems.length)
