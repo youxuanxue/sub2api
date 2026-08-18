@@ -58,7 +58,7 @@ run_restore() {
 restored="${tmp}/restored.secret"
 run_restore success "${restored}" >"${tmp}/restore.out"
 cmp -s "${expected_restored}" "${restored}"
-test "$(stat -f '%Lp' "${restored}" 2>/dev/null || stat -c '%a' "${restored}")" = 600
+test "$(stat -c '%a' "${restored}" 2>/dev/null || stat -f '%Lp' "${restored}")" = 600
 grep -F 'edge env secrets restored from SSM' "${tmp}/restore.out" >/dev/null
 
 # Existing host state is authoritative and must not make a network call.
