@@ -133,7 +133,7 @@ func (h *AccountHandler) importAntigravityOAuthAccounts(ctx context.Context, req
 		Items: make([]AntigravityOAuthImportItem, 0, len(entries)),
 	}
 
-	existingAccounts, err := h.listAccountsFiltered(ctx, service.PlatformAntigravity, service.AccountTypeOAuth, "", "", 0, "", "created_at", "desc")
+	existingAccounts, err := h.listAccountsFiltered(ctx, service.PlatformAntigravity, service.AccountTypeOAuth, "", "", 0, "", "created_at", "desc", 0)
 	if err != nil {
 		return result, err
 	}

@@ -415,6 +415,7 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 		search      string
 		groupID     int64
 		privacyMode string
+		channelType int
 		wantCount   int
 		validate    func(accounts []service.Account)
 	}{
@@ -530,6 +531,74 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 					names = append(names, account.Name)
 				}
 				s.ElementsMatch([]string{"kiro-oauth", "kiro-stub"}, names)
+			},
+		},
+		{
+			name: "filter_by_anthropic_excludes_kiro_relay_stubs",
+			setup: func(client *dbent.Client) {
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:     "kiro-stub",
+					Platform: service.PlatformAnthropic,
+					Type:     service.AccountTypeAPIKey,
+					Credentials: map[string]any{
+						"api_key":         "tk-edge",
+						"base_url":        "https://api-us4.tokenkey.dev",
+						"mirror_platform": "kiro",
+					},
+				})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:     "plain-anthropic",
+					Platform: service.PlatformAnthropic,
+					Type:     service.AccountTypeOAuth,
+				})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:     "plain-anthropic-edge",
+					Platform: service.PlatformAnthropic,
+					Type:     service.AccountTypeAPIKey,
+					Credentials: map[string]any{
+						"api_key":         "tk-edge",
+						"base_url":        "https://api-us4.tokenkey.dev",
+						"mirror_platform": "anthropic",
+					},
+				})
+			},
+			platform:  service.PlatformAnthropic,
+			wantCount: 2,
+			validate: func(accounts []service.Account) {
+				names := make([]string, 0, len(accounts))
+				for _, account := range accounts {
+					names = append(names, account.Name)
+				}
+				s.ElementsMatch([]string{"plain-anthropic", "plain-anthropic-edge"}, names)
+			},
+		},
+		{
+			name: "filter_by_channel_type",
+			setup: func(client *dbent.Client) {
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:        "qwen-dashscope",
+					Platform:    service.PlatformNewAPI,
+					Type:        service.AccountTypeAPIKey,
+					ChannelType: 17,
+				})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:        "deepseek",
+					Platform:    service.PlatformNewAPI,
+					Type:        service.AccountTypeAPIKey,
+					ChannelType: 14,
+				})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:     "anthropic-oauth",
+					Platform: service.PlatformAnthropic,
+					Type:     service.AccountTypeOAuth,
+				})
+			},
+			platform:    service.PlatformNewAPI,
+			channelType: 17,
+			wantCount:   1,
+			validate: func(accounts []service.Account) {
+				s.Require().Equal("qwen-dashscope", accounts[0].Name)
+				s.Require().Equal(17, accounts[0].ChannelType)
 			},
 		},
 		{
@@ -716,7 +785,7 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 
 			tt.setup(client)
 
-			accounts, page, err := repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, tt.platform, tt.accType, tt.status, tt.search, tt.groupID, tt.privacyMode)
+			accounts, page, err := repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, tt.platform, tt.accType, tt.status, tt.search, tt.groupID, tt.privacyMode, tt.channelType)
 			s.Require().NoError(err)
 			s.Require().Len(accounts, tt.wantCount)
 			// Regression guard for issue #3601: when the whole result set fits on a single page,
@@ -788,7 +857,7 @@ func (s *AccountRepoSuite) TestPreload_And_VirtualFields() {
 	s.Require().Len(got.Groups, 1, "expected Groups to be populated")
 	s.Require().Equal(group.ID, got.Groups[0].ID)
 
-	accounts, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", "acc", 0, "")
+	accounts, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", "acc", 0, "", 0)
 	s.Require().NoError(err, "ListWithFilters")
 	s.Require().Equal(int64(1), page.Total)
 	s.Require().Len(accounts, 1)
@@ -832,7 +901,7 @@ func (s *AccountRepoSuite) TestPreload_SkipsDisabledProxy() {
 	s.Require().Equal(activeProxy.ID, gotActive.Proxy.ID)
 
 	// Same behavior on list paths.
-	accounts, _, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", "", 0, "")
+	accounts, _, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", "", 0, "", 0)
 	s.Require().NoError(err, "ListWithFilters")
 	byID := make(map[int64]service.Account, len(accounts))
 	for _, a := range accounts {

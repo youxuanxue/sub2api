@@ -27,7 +27,7 @@ type edgeAccountsListerStub struct {
 	lastGroupID  int64
 }
 
-func (s *edgeAccountsListerStub) ListAccounts(_ context.Context, _, _ int, platform, _, status, _ string, groupID int64, _, _, _ string) ([]service.Account, int64, error) {
+func (s *edgeAccountsListerStub) ListAccounts(_ context.Context, _, _ int, platform, _, status, _ string, groupID int64, _, _, _ string, _ int) ([]service.Account, int64, error) {
 	s.lastPlatform = platform
 	s.lastStatus = status
 	s.lastGroupID = groupID
