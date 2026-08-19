@@ -118,6 +118,19 @@ func TestDefaultAntigravityModelMapping_Gemini36TieredBoundary(t *testing.T) {
 	}
 }
 
+func TestDefaultAntigravityModelMapping_Gemini37MediumDefault(t *testing.T) {
+	t.Parallel()
+
+	if got := DefaultAntigravityModelMapping["gemini-3.7-flash"]; got != "gemini-3.7-flash-medium" {
+		t.Fatalf("gemini-3.7-flash must map to the live medium wire id, got %q", got)
+	}
+	for _, wire := range []string{"gemini-3.7-flash-low", "gemini-3.7-flash-medium", "gemini-3.7-flash-high"} {
+		if got := DefaultAntigravityModelMapping[wire]; got != wire {
+			t.Fatalf("%s must be an identity wire mapping, got %q", wire, got)
+		}
+	}
+}
+
 func TestDefaultAntigravityModelMapping_Gemini31ProAliases(t *testing.T) {
 	t.Parallel()
 
