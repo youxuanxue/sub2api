@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/google/uuid"
 )
 
 // codexUpstreamMinVersion 上游 /backend-api/codex 接受的最低 version 头：
@@ -38,6 +39,16 @@ func buildCodexCLIUserAgent(version string) string {
 		return codexCLIUserAgent
 	}
 	return openai.CodexDefaultOriginator + "/" + version + codexCLIUserAgentSuffix
+}
+
+// applyOpenAICodexProbeHeaders gives synthetic probes the same client identity
+// and engine marker as real Codex traffic.
+func applyOpenAICodexProbeHeaders(h http.Header) {
+	if h == nil {
+		return
+	}
+	ensureCodexIdentityHeaders(h)
+	h.Set("X-Codex-Window-ID", uuid.NewString())
 }
 
 // codexIdentityEnforcement 控制 enforceCodexIdentityHeaders 是否强制统一出站身份，

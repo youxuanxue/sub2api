@@ -1,7 +1,6 @@
-import type { BillingMode, PricingInterval } from '@/api/admin/channels'
+import type { BillingMode, ChannelTimePricing, PricingInterval } from '@/api/admin/channels'
 import { tkAdminPlatformSoftBadgeClass } from '@/constants/gatewayPlatforms'
 import { platformTextClass } from '@/utils/platformColors'
-import type { BillingMode, ChannelTimePricing, PricingInterval } from '@/api/admin/channels'
 
 type TranslateFn = (key: string, params?: Record<string, unknown>) => string
 

@@ -302,6 +302,7 @@ export type SettingsForm = {
   channel_monitor_mode: "v1" | "v2";
   channel_monitor_default_interval_seconds: number;
   channel_monitor_hide_throughput: boolean;
+  channel_monitor_show_quota: boolean;
   available_channels_enabled: boolean;
   model_plaza_enabled: boolean;
   model_plaza_require_auth: boolean;

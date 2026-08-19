@@ -10,6 +10,9 @@ export const PLATFORM_LABELS: Record<AccountPlatform, string> = {
   newapi: 'Extension Engine',
   kiro: 'Kiro',
   grok: 'Grok',
+  kimi: 'Kimi',
+  zhipu: 'Zhipu GLM',
+  deepseek: 'DeepSeek',
   composite: 'Composite',
 }
 

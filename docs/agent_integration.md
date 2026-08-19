@@ -151,6 +151,8 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /api/v1/admin/channels/aggregated-group-models` from `backend/internal/server/routes/admin_tk_channel_routes.go`
 - `GET /api/v1/admin/channels/model-pricing` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/channels/pricing/sync-models` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/cn-providers/accounts/:id/balance` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/cn-providers/accounts/:id/quota` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/compliance` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/compliance/accept` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/dashboard/aggregation/backfill` from `backend/internal/server/routes/admin.go`

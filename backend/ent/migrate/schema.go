@@ -660,7 +660,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "channel_monitors_channel_monitor_request_templates_request_template",
-				Columns:    []*schema.Column{ChannelMonitorsColumns[21]},
+				Columns:    []*schema.Column{ChannelMonitorsColumns[23]},
 				RefColumns: []*schema.Column{ChannelMonitorRequestTemplatesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -689,17 +689,17 @@ var (
 			{
 				Name:    "channelmonitor_template_id",
 				Unique:  false,
+				Columns: []*schema.Column{ChannelMonitorsColumns[23]},
+			},
+			{
+				Name:    "channelmonitor_kind",
+				Unique:  false,
 				Columns: []*schema.Column{ChannelMonitorsColumns[21]},
 			},
 			{
 				Name:    "channelmonitor_account_id",
 				Unique:  false,
 				Columns: []*schema.Column{ChannelMonitorsColumns[6]},
-			},
-			{
-				Name:    "channelmonitor_kind",
-				Unique:  false,
-				Columns: []*schema.Column{ChannelMonitorsColumns[19]},
 			},
 		},
 	}

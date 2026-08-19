@@ -1,6 +1,10 @@
 package service
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+)
 
 const (
 	defaultOpenAIMessagesDispatchOpusMappedModel   = "gpt-5.6-sol"

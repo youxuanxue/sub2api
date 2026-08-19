@@ -12,16 +12,6 @@
 import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
 
 export type Platform = (typeof GATEWAY_PLATFORMS)[number]
-export type Platform =
-  | 'anthropic'
-  | 'openai'
-  | 'antigravity'
-  | 'gemini'
-  | 'grok'
-  | 'kimi'
-  | 'zhipu'
-  | 'deepseek'
-  | 'composite'
 
 // ── Badge (bg + text + border, for inline badges with border) ───────
 const BADGE: Record<Platform, string> = {

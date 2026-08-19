@@ -124,7 +124,12 @@ func NewAdminAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCac
 
 // newAccountRepositoryWithSQL 是内部构造函数，支持依赖注入 SQL 执行器。
 // 这种设计便于单元测试时注入 mock 对象。
-func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedulerCache service.SchedulerCache, tierResolver service.TierExtraResolver) *accountRepository {
+
+func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedulerCache service.SchedulerCache, tierResolvers ...service.TierExtraResolver) *accountRepository {
+	var tierResolver service.TierExtraResolver
+	if len(tierResolvers) > 0 {
+		tierResolver = tierResolvers[0]
+	}
 	return &accountRepository{client: client, sql: sqlq, schedulerCache: schedulerCache, tierResolver: tierResolver}
 }
 

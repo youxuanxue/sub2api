@@ -23,8 +23,24 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
+
+func extractCCReasoningEffortFromBody(body []byte) *string {
+	raw := strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String())
+	if raw == "" {
+		raw = strings.TrimSpace(gjson.GetBytes(body, "reasoning_effort").String())
+	}
+	if raw == "" {
+		return nil
+	}
+	normalized := normalizeOpenAIReasoningEffort(raw)
+	if normalized == "" {
+		return nil
+	}
+	return &normalized
+}
 
 // forwardChatCompletionsViaNativeAnthropic serves OpenAI /v1/chat/completions
 // clients through a CN provider's native Anthropic endpoint.

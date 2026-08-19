@@ -31,9 +31,6 @@ export interface PlatformQuotaLimits {
 /** 全平台默认限额 map（key = PlatformType） */
 export type DefaultPlatformQuotasMap = Partial<Record<PlatformType, PlatformQuotaLimits>>
 
-/** 归一化为全平台 × 3 窗口（缺失填 null），供模板非空绑定 */
-const PLATFORMS: PlatformType[] = ["anthropic", "openai", "gemini", "antigravity", "grok"]
-
 export type SchedulingThresholdPlatformType =
   | "openai"
   | "anthropic"
@@ -95,46 +92,6 @@ export function sanitizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | nul
     result[p] = { daily: clean(src?.daily), weekly: clean(src?.weekly), monthly: clean(src?.monthly) }
   }
   return result
-}
-
-export type SchedulingThresholdPlatform = "openai" | "anthropic" | "grok";
-
-export const SCHEDULING_THRESHOLD_PLATFORMS: SchedulingThresholdPlatform[] = [
-  "openai",
-  "anthropic",
-  "grok",
-];
-
-export type AccountSchedulingThresholdsMap = Partial<
-  Record<SchedulingThresholdPlatform, number>
->;
-
-function clampSchedulingThresholdPercent(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return 100;
-  }
-  const rounded = Math.round(value);
-  if (rounded <= 0) return 1;
-  if (rounded >= 100) return 100;
-  return rounded;
-}
-
-/** Normalize to all supported platforms; missing → 100 (disabled). */
-export function normalizeAccountSchedulingThresholdsMap(
-  input?: AccountSchedulingThresholdsMap | null,
-): AccountSchedulingThresholdsMap {
-  const result: AccountSchedulingThresholdsMap = {};
-  for (const platform of SCHEDULING_THRESHOLD_PLATFORMS) {
-    result[platform] = clampSchedulingThresholdPercent(input?.[platform]);
-  }
-  return result;
-}
-
-/** Sanitize before submit; always returns all supported platforms. */
-export function sanitizeAccountSchedulingThresholdsMap(
-  input?: AccountSchedulingThresholdsMap | null,
-): AccountSchedulingThresholdsMap {
-  return normalizeAccountSchedulingThresholdsMap(input);
 }
 
 export type AuthSourceType =

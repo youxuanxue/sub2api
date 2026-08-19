@@ -17,11 +17,26 @@ const (
 	openAITeamLinkedErrorBlockReason   = "team_linked_error"
 )
 
+func accountIDForLog(account *Account) int64 {
+	if account == nil {
+		return 0
+	}
+	return account.ID
+}
+
 // maybeHandleOpenAITeamLinkedError 在 OpenAI OAuth 账户收到 402 deactivated_workspace
 // （ChatGPT Team 工作区被停用）时，把同一 Team（credentials.chatgpt_account_id 相同）
 // 的其余 active 账户一并置为 error 并立即熔断。触发账户自身不在 fan-out 范围内，
 // 仍由常规 402 处理标记。
 func (s *RateLimitService) maybeHandleOpenAITeamLinkedError(ctx context.Context, account *Account, statusCode int, responseBody []byte) {
+	// Team fan-out is a best-effort side effect. A partially implemented
+	// repository (or a legacy deployment) must never turn the original
+	// upstream response into a nil-interface panic.
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			slog.Warn("openai_team_linked_error_fanout_recovered", "account_id", accountIDForLog(account), "panic", recovered)
+		}
+	}()
 	if s == nil || s.accountRepo == nil || statusCode != http.StatusPaymentRequired || !isOpenAIOAuthAccount(account) {
 		return
 	}

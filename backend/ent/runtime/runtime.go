@@ -717,7 +717,7 @@ func init() {
 	// channelmonitor.BodyOverrideModeValidator is a validator for the "body_override_mode" field. It is called by the builders before save.
 	channelmonitor.BodyOverrideModeValidator = channelmonitorDescBodyOverrideMode.Validators[0].(func(string) error)
 	// channelmonitorDescSeedSource is the schema descriptor for seed_source field.
-	channelmonitorDescSeedSource := channelmonitorFields[18].Descriptor()
+	channelmonitorDescSeedSource := channelmonitorFields[20].Descriptor()
 	// channelmonitor.DefaultSeedSource holds the default value on creation for the seed_source field.
 	channelmonitor.DefaultSeedSource = channelmonitorDescSeedSource.Default.(string)
 	// channelmonitor.SeedSourceValidator is a validator for the "seed_source" field. It is called by the builders before save.

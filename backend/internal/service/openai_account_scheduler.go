@@ -378,7 +378,6 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	}
 
 	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
-	if previousResponseID != "" && req.GroupPlatform == PlatformOpenAI &&
 	if previousResponseID != "" && NormalizeOpenAICompatiblePlatform(req.Platform) == PlatformOpenAI &&
 		(!req.StickyWeighted || !req.PreviousResponseCanMove) {
 		selection, err := s.service.selectAccountByPreviousResponseIDForCapability(
@@ -552,7 +551,6 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		return nil, false, 0, nil
 	}
-	if shouldClearStickySession(account, req.RequestedModel) || !account.IsOpenAICompatPoolMember(req.GroupPlatform) || !account.IsSchedulable() {
 	if shouldClearStickySession(account, req.RequestedModel) || account.Platform != NormalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() || !account.IsSchedulable() {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		return nil, false, 0, nil
@@ -1445,6 +1443,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 
 	filtered := make([]*Account, 0, len(accounts))
 	loadReq := make([]AccountWithConcurrency, 0, len(accounts))
+	filterStats := openAISelectionFilterStats{pool: len(accounts)}
 	// TK window guard: accounts dropped PURELY by the codex 5h/7d window guard,
 	// retained for the never-empty-pool fallback below.
 	var windowDropped []*Account
@@ -1458,7 +1457,6 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		if !account.IsSchedulable() || !account.IsOpenAICompatPoolMember(poolPlatform) {
 			continue
 		}
-		if s.service.isOpenAIAccountRuntimeBlocked(account) {
 		if account.Platform != NormalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() {
 			filterStats.exclude("platform_mismatch")
 			continue

@@ -1077,7 +1077,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		if err != nil {
 			var sseErr *sseStreamErrorEventError
 			if errors.As(err, &sseErr) {
-				return nil, s.sseStreamErrorFailover(c, account, resp, sseErr)
 				// 上游 HTTP 200 + SSE 流体内出现 event:error 帧。
 				body := []byte(sseErr.RawData)
 				semanticStatus := http.StatusForbidden

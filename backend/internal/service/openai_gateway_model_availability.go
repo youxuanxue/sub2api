@@ -3,7 +3,13 @@ package service
 import (
 	"context"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
 )
+
+type modelAvailabilityCandidateLister interface {
+	ListModelAvailabilityCandidates(context.Context, *int64, []string, bool) ([]Account, error)
+}
 
 // DiagnoseModelAvailabilityForPlatform reports whether the requested model
 // is configured to be served by any OpenAI-compatible account in the group
@@ -35,7 +41,11 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 		queryGroupID = nil
 		includeGrouped = true
 	}
-	accounts, err := s.accountRepo.ListModelAvailabilityCandidates(
+	lister, ok := s.accountRepo.(modelAvailabilityCandidateLister)
+	if !ok {
+		return ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: true}
+	}
+	accounts, err := lister.ListModelAvailabilityCandidates(
 		ctx,
 		queryGroupID,
 		[]string{platform},

@@ -634,6 +634,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		}
 		// #5148 对齐：错误返回携带的部分 result（流中断前上游已计量的 usage）照常
 		// 入账；failover 错误恒定 result=nil，不会重复计费。
+		var tkHoldRequestID string
+		var gatewayLatencyMs *int
 		submitResponsesUsage := func(res *service.OpenAIForwardResult) {
 			if res == nil {
 				return
@@ -659,8 +661,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					IPAddress:          clientIP,
 					RequestPayloadHash: requestPayloadHash,
 					APIKeyService:      h.apiKeyService,
+					TkHoldRequestID:    tkHoldRequestID,
 					QuotaPlatform:      quotaPlatform,
 					SessionID:          sessionID,
+					GatewayLatencyMs:   gatewayLatencyMs,
 					ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, res.UpstreamModel),
 					PricingAt:          pricingAt,
 					CyberBlocked:       cyberBlocked,
@@ -816,40 +820,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		}
 
 		// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
-		tkHoldRequestID := hold.HandOffToSettlement()
-		cyberBlocked := service.GetOpsCyberPolicy(c) != nil
-		gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
-		h.submitOpenAIUsageRecordTask(c.Request.Context(), result, func(ctx context.Context) {
-			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
-				Result:             result,
-				APIKey:             apiKey,
-				User:               apiKey.User,
-				Account:            account,
-				Subscription:       subscription,
-				InboundEndpoint:    inboundEndpoint,
-				UpstreamEndpoint:   upstreamEndpoint,
-				UserAgent:          userAgent,
-				IPAddress:          clientIP,
-				RequestPayloadHash: requestPayloadHash,
-				APIKeyService:      h.apiKeyService,
-				TkHoldRequestID:    tkHoldRequestID,
-				QuotaPlatform:      quotaPlatform,
-				SessionID:          sessionID,
-				GatewayLatencyMs:   gatewayLatencyMs,
-				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
-				PricingAt:          pricingAt,
-				CyberBlocked:       cyberBlocked,
-			}); err != nil {
-				logger.L().With(
-					zap.String("component", "handler.openai_gateway.responses"),
-					zap.Int64("user_id", subject.UserID),
-					zap.Int64("api_key_id", apiKey.ID),
-					zap.Any("group_id", apiKey.GroupID),
-					zap.String("model", reqModel),
-					zap.Int64("account_id", account.ID),
-				).Error("openai.record_usage_failed", zap.Error(err))
-			}
-		})
+		tkHoldRequestID = hold.HandOffToSettlement()
+		gatewayLatencyMs = tkSnapshotGatewayTransferLatencyMs(c)
 		submitResponsesUsage(result)
 		reqLog.Debug("openai.request_completed",
 			zap.Int64("account_id", account.ID),

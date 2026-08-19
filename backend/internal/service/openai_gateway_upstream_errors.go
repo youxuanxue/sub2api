@@ -318,6 +318,9 @@ func (s *OpenAIGatewayService) readUpstreamErrorBody(resp *http.Response) []byte
 }
 
 func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account, responseBody []byte, requestedModel ...string) {
+	if resp != nil && resp.StatusCode == http.StatusTooManyRequests {
+		s.noteOpenAIOAuth429ForScheduling(ctx, account, resp.Header, responseBody, requestedModel...)
+	}
 	if len(requestedModel) > 0 {
 		s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody, requestedModel[0])
 	} else {

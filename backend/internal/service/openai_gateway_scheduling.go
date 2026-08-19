@@ -243,15 +243,6 @@ func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.C
 	return s.selectAccountForModelWithExclusions(ctx, groupID, s.resolveGroupPlatform(ctx, groupID), sessionHash, requestedModel, excludedIDs, false, 0, "", false)
 }
 
-// noAvailableOpenAISelectionError builds the standard "no account available" error
-// while preserving the legacy /responses/compact error when applicable.
-func normalizeOpenAICompatiblePlatform(platform string) string {
-	platform = strings.TrimSpace(platform)
-	if platform == "" {
-		return PlatformOpenAI
-	}
-	if IsOpenAICompatPlatform(platform) {
-		return platform
 // NormalizeOpenAICompatiblePlatform 保留 grok 与国产 OpenAI 兼容供应商（kimi/zhipu/
 // deepseek）的原值，其他值一律归一为 openai。调度器据此对账号与请求做精确平台匹配：
 // kimi 分组请求只命中 kimi 账号，语义与 openai/grok 一致。
@@ -266,12 +257,12 @@ func NormalizeOpenAICompatiblePlatform(platform string) string {
 	}
 }
 
-// details carries an optional machine-parseable exclusion summary appended in
-// parentheses. platform selects the human-readable pool label (P1-2 newapi vs openai).
-func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool, platform string, details string) error {
-	if err := tkDeprecatedOpenAISelectionFailure(requestedModel); err != nil {
-		return err
-	}
+// Keep the internal name for existing scheduler call sites while exposing the
+// canonical helper to handlers and registry tests.
+func normalizeOpenAICompatiblePlatform(platform string) string {
+	return NormalizeOpenAICompatiblePlatform(platform)
+}
+
 // noAvailableOpenAISelectionError builds the standard "no account available" error
 // while preserving the legacy /responses/compact error when applicable.
 // details carries an optional machine-parseable exclusion summary (e.g.
@@ -280,7 +271,13 @@ func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool,
 // never forward this error text to OpenAI-platform clients (they respond with
 // the generic classification message). Callers that must preserve the legacy
 // message pass "".
-func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool, details string) error {
+
+// noAvailableOpenAISelectionError builds the standard error for a specific
+// OpenAI-compatible platform and preserves TokenKey's deprecated-model guard.
+func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool, platform string, details string) error {
+	if err := tkDeprecatedOpenAISelectionFailure(requestedModel); err != nil {
+		return err
+	}
 	if compactBlocked {
 		return ErrNoAvailableCompactAccounts
 	}
@@ -350,8 +347,6 @@ func isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx context.Context
 }
 
 func openAICompatAccountMeetsSchedulingPrerequisites(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
-	platform = normalizeOpenAICompatiblePlatform(platform)
-	if account == nil || !account.IsOpenAICompatPoolMember(platform) || !account.IsOpenAICompatible() || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
 	platform = NormalizeOpenAICompatiblePlatform(platform)
 	if account == nil || account.Platform != platform || !account.IsOpenAICompatible() || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
 		return false
@@ -1086,38 +1081,6 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		requiredCapability: requiredCapability,
 	})
 	return nil, ErrNoAvailableAccounts
-}
-
-func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string) ([]Account, error) {
-	platform = NormalizeOpenAICompatiblePlatform(platform)
-	if s.schedulerSnapshot != nil {
-		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, false)
-		if err != nil {
-			return accounts, err
-		}
-		accounts = s.filterOpenAIAccountsBySchedulingThreshold(ctx, accounts)
-		if platform == PlatformGrok {
-			accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
-		}
-		return accounts, nil
-	}
-	var accounts []Account
-	var err error
-	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
-		accounts, err = s.accountRepo.ListSchedulableByPlatform(ctx, platform)
-	} else if groupID != nil {
-		accounts, err = s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, platform)
-	} else {
-		accounts, err = s.accountRepo.ListSchedulableUngroupedByPlatform(ctx, platform)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("query accounts failed: %w", err)
-	}
-	accounts = s.filterOpenAIAccountsBySchedulingThreshold(ctx, accounts)
-	if platform == PlatformGrok {
-		accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
-	}
-	return accounts, nil
 }
 
 func (s *OpenAIGatewayService) tryAcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {

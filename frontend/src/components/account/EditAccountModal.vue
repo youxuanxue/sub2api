@@ -3707,9 +3707,6 @@ const tempUnschedPresets = computed(() => [
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
-  if (props.account?.platform === PLATFORM_OPENAI) return 'https://api.openai.com'
-  if (props.account?.platform === PLATFORM_GEMINI) return 'https://generativelanguage.googleapis.com'
-  if (props.account?.platform === PLATFORM_GROK) return ''
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
@@ -4114,17 +4111,14 @@ const syncFormFromAccount = (newAccount: Account | null) => {
         editApiProtocol.value = 'chat_completions'
       }
     }
-    const platformDefaultUrl =
-      newAccount.platform === PLATFORM_OPENAI
-        ? 'https://api.openai.com'
-        : newAccount.platform === PLATFORM_GEMINI
-          ? 'https://generativelanguage.googleapis.com'
-          : newAccount.platform === PLATFORM_GROK
-            ? ''
-            : 'https://api.anthropic.com'
-          : newAccount.platform === 'grok'
-            ? 'https://api.x.ai/v1'
-            : newAccount.platform === 'kimi' ||
+	    const platformDefaultUrl =
+	      newAccount.platform === PLATFORM_OPENAI
+	        ? 'https://api.openai.com'
+	        : newAccount.platform === PLATFORM_GEMINI
+	          ? 'https://generativelanguage.googleapis.com'
+	          : newAccount.platform === PLATFORM_GROK
+	            ? 'https://api.x.ai/v1'
+	            : newAccount.platform === 'kimi' ||
                 newAccount.platform === 'zhipu' ||
                 newAccount.platform === 'deepseek'
               ? defaultCNBaseUrl(newAccount.platform, editAccountMode.value, editApiProtocol.value)
@@ -4858,11 +4852,10 @@ const handleSubmit = async () => {
       // （edit 模式下 api_key 留空表示保留现有密钥；非 newapi 路径下使用
       // credentials_status.has_api_key 判定是否已存在密钥，因为后端响应已脱敏，
       // currentCredentials.api_key 在新的 backend 上不再包含原文）。
-      let newCredentials: Record<string, unknown>
-      // Always update credentials for apikey type to handle model mapping changes
-      const newCredentials: Record<string, unknown> = {
-        ...currentCredentials,
-        base_url: newBaseUrl
+	      // Always update credentials for apikey type to handle model mapping changes.
+	      let newCredentials: Record<string, unknown> = {
+	        ...currentCredentials,
+	        base_url: editBaseUrl.value.trim()
       }
 
       // 国产供应商：模式与协议写入凭据（决定额度/余额探测与转发端点/格式）。

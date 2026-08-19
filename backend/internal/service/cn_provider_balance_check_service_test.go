@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -15,10 +16,13 @@ import (
 //   - 非激活账号完全跳过。
 
 type fakeCNQuotaProber struct {
+	mu     sync.Mutex
 	probed []int64
 }
 
 func (f *fakeCNQuotaProber) QueryUsage(ctx context.Context, accountID int64) (*CNProviderQuotaProbeResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.probed = append(f.probed, accountID)
 	return &CNProviderQuotaProbeResult{Success: true, Persisted: true}, nil
 }
@@ -57,7 +61,10 @@ func TestCNProviderBalanceCheckRunOnceProbesCodingPlanQuota(t *testing.T) {
 
 	svc.runOnce()
 
-	require.ElementsMatch(t, []int64{1, 2, 4}, prober.probed)
+	prober.mu.Lock()
+	probed := append([]int64(nil), prober.probed...)
+	prober.mu.Unlock()
+	require.ElementsMatch(t, []int64{1, 2, 4}, probed)
 }
 
 // runOnceZhipuQuota 在 quotaService 缺失时安全跳过（Start 门控不启动的老部署路径）。

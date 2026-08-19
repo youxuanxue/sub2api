@@ -113,14 +113,14 @@ func stripCodexFingerprintSeed(extra map[string]any) map[string]any {
 
 func codexFingerprintModeFromExtra(extra map[string]any) codexFingerprintMode {
 	if extra == nil {
-		return codexFingerprintOff
+		return codexFingerprintDevice
 	}
 	raw, _ := extra[codexFingerprintModeExtraKey].(string)
 	switch codexFingerprintMode(strings.TrimSpace(raw)) {
 	case codexFingerprintOff, codexFingerprintDevice, codexFingerprintSession, codexFingerprintFull:
 		return codexFingerprintMode(strings.TrimSpace(raw))
 	default:
-		return codexFingerprintOff
+		return codexFingerprintDevice
 	}
 }
 

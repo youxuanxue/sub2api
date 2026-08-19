@@ -34,9 +34,10 @@ func TestGroupResolveMessagesDispatchModel_GrokRequiresCrossClientMapping(t *tes
 	t.Cleanup(func() { xai.SetRuntimeModelMappingOptions(original) })
 	group := &Group{Platform: PlatformGrok}
 
-	require.Equal(t, defaultGrokMessagesDispatchSonnetMappedModel, group.ResolveMessagesDispatchModel("claude-sonnet-4-5"))
-	require.Equal(t, defaultGrokMessagesDispatchOpusMappedModel, group.ResolveMessagesDispatchModel("claude-opus-4-6"))
-	require.Equal(t, defaultGrokMessagesDispatchHaikuMappedModel, group.ResolveMessagesDispatchModel("claude-haiku-4-5"))
+	runtimeMapping := xai.ModelMappingWithOptions(xai.RuntimeModelMappingOptions())
+	require.Equal(t, runtimeMapping["claude-*"], group.ResolveMessagesDispatchModel("claude-sonnet-4-5"))
+	require.Equal(t, runtimeMapping["claude-*"], group.ResolveMessagesDispatchModel("claude-opus-4-6"))
+	require.Equal(t, runtimeMapping["claude-*"], group.ResolveMessagesDispatchModel("claude-haiku-4-5"))
 	require.Empty(t, group.ResolveMessagesDispatchModel("grok"))
 	require.Empty(t, group.ResolveMessagesDispatchModel("gpt-5.3-codex"))
 }
