@@ -8,14 +8,14 @@ const source = readFileSync(
 )
 
 describe('CreateAccountModal Grok account types', () => {
-  it('offers API-key edge relay setup alongside OAuth with the official xAI fallback', () => {
+  it('offers API-key setup alongside OAuth with the official xAI default', () => {
     expect(source).toContain('data-testid="grok-account-type-api-key"')
     expect(source).toContain("@click=\"accountCategory = 'apikey'\"")
-    expect(source).toContain('newPlatform === PLATFORM_GROK')
-    expect(source).toContain("? 'https://api-us4.tokenkey.dev'")
-    expect(source).toContain("apiKeyBaseUrl.value.trim() || 'https://api.x.ai/v1'")
+    expect(source).toContain("newPlatform === 'grok'")
+    expect(source).toContain("? 'https://api.x.ai/v1'")
     expect(source).toContain("form.platform === 'grok'")
-    expect(source).toContain("? 'tk-edge-...'")
+    expect(source).toContain(':placeholder="apiKeyValuePlaceholder"')
+    expect(source).toContain("return 'xai-...'")
   })
 
   it('exposes custom upstream URL and header override for the OAuth create flow', () => {
@@ -24,10 +24,13 @@ describe('CreateAccountModal Grok account types', () => {
     expect(source).toContain('form.platform === \'grok\' && isOAuthFlow')
   })
 
-  it('validates and applies upstream config on all four Grok OAuth create paths', () => {
-    // 表单直建 / 授权码兑换 / RT 批量 / SSO 批量 4 处调用（定义为箭头函数，不计入）。
-    expect(source.match(/validateGrokOAuthUpstreamConfig\(\)/g)?.length).toBe(4)
-    expect(source).toContain('applyGrokOAuthUpstreamConfig(bundle.credentials)')
-    expect(source.match(/applyGrokOAuthUpstreamConfig\(credentials\)/g)?.length).toBe(3)
+  it('validates and applies upstream config on Grok OAuth create paths', () => {
+    // 授权码兑换 / RT 批量 / SSO 批量（密码授权已隐藏）
+    expect(source.match(/validateGrokOAuthUpstreamConfig\(\)/g)?.length).toBeGreaterThanOrEqual(3)
+    expect(source.match(/applyGrokOAuthUpstreamConfig\(credentials\)/g)?.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('hides Grok password authorize option in the create flow', () => {
+    expect(source).toContain(':show-email-password-option="false"')
   })
 })

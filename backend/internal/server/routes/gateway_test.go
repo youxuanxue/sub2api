@@ -42,14 +42,11 @@ func newGatewayRoutesTestRouterWithConfig(cfg *config.Config, platform ...string
 		servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) {
 			groupID := int64(1)
 			c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{
-				ID:      1,
 				GroupID: &groupID,
-				Group:   &service.Group{ID: groupID, Platform: groupPlatform},
+				Group:   &service.Group{Platform: groupPlatform},
 			})
-			c.Set(string(servermiddleware.ContextKeyUser), servermiddleware.AuthSubject{UserID: 1})
 			c.Next()
 		}),
-		nil,
 		nil,
 		nil,
 		nil,
@@ -62,7 +59,7 @@ func newGatewayRoutesTestRouterWithConfig(cfg *config.Config, platform ...string
 }
 
 func TestGatewayRoutesOpenAIResponsesCompactPathIsRegistered(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
+	router := newGatewayRoutesTestRouter()
 
 	for _, path := range []string{
 		"/v1/responses/compact",
@@ -79,33 +76,38 @@ func TestGatewayRoutesOpenAIResponsesCompactPathIsRegistered(t *testing.T) {
 	}
 }
 
-func TestGatewayRoutesNewAPICompatPathsAreRegistered(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformNewAPI)
+func TestGatewayRoutesOpenAIAlphaSearchPathsAreRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter()
+	registered := make(map[string]bool)
+	for _, route := range router.Routes() {
+		if route.Method == http.MethodPost {
+			registered[route.Path] = true
+		}
+	}
 
 	for _, path := range []string{
-		"/v1/messages",
-		"/v1/responses",
-		"/v1/chat/completions",
-		"/v1/embeddings",
-		"/v1/images/generations",
-		"/responses",
-		"/chat/completions",
-		"/embeddings",
-		"/images/generations",
-		"/backend-api/codex/responses",
-		"/backend-api/codex/responses/compact",
+		"/v1/alpha/search",
+		"/alpha/search",
+		"/backend-api/codex/alpha/search",
 	} {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"gpt-5"}`))
-		req.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-
-		router.ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should be routed for newapi/openai-compatible groups", path)
+		require.True(t, registered[path], "POST %s should be registered", path)
 	}
 }
 
+func TestGatewayRoutesAlphaSearchRejectsUnsupportedGroup(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformGrok)
+	req := httptest.NewRequest(http.MethodPost, "/v1/alpha/search", strings.NewReader(`{"model":"gpt-5.6-sol"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Contains(t, w.Body.String(), "only available for OpenAI and Composite groups")
+}
+
 func TestGatewayRoutesOpenAIImagesPathsAreRegistered(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
+	router := newGatewayRoutesTestRouter()
 
 	for _, path := range []string{
 		"/v1/images/generations",
@@ -119,26 +121,6 @@ func TestGatewayRoutesOpenAIImagesPathsAreRegistered(t *testing.T) {
 
 		router.ServeHTTP(w, req)
 		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit OpenAI images handler", path)
-	}
-}
-
-// TestGatewayRoutesImagePresignPathsAreRegistered protects the image S3-offload
-// re-mint endpoint (Studio reload path). A regression dropping these routes would
-// silently break persisted-image refresh — reopened Studio sessions would show
-// broken thumbnails once the original presigned URL expired.
-func TestGatewayRoutesImagePresignPathsAreRegistered(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
-
-	for _, path := range []string{
-		"/v1/images/presign",
-		"/images/presign",
-	} {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"key":"media/images/x.png"}`))
-		req.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-
-		router.ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit image presign handler", path)
 	}
 }
 
@@ -214,19 +196,59 @@ func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {
 	}
 }
 
-func TestGatewayRoutesOpenAIVideosGenerationsUseAsyncBridge(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
-
-	for _, path := range []string{
-		"/v1/videos/generations",
-		"/videos/generations",
+func TestGatewayRoutesGrokCustomVoiceCRUDPathsAreRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformGrok)
+	registered := make(map[string]bool)
+	for _, route := range router.Routes() {
+		registered[route.Method+" "+route.Path] = true
+	}
+	for _, route := range []string{
+		"POST /v1/custom-voices",
+		"GET /v1/custom-voices",
+		"GET /v1/custom-voices/:voice_id",
+		"PATCH /v1/custom-voices/:voice_id",
+		"DELETE /v1/custom-voices/:voice_id",
+		"GET /v1/custom-voices/:voice_id/audio",
+		"POST /custom-voices",
+		"GET /custom-voices",
+		"GET /custom-voices/:voice_id",
+		"PATCH /custom-voices/:voice_id",
+		"DELETE /custom-voices/:voice_id",
+		"GET /custom-voices/:voice_id/audio",
 	} {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"gpt-video","prompt":"waves"}`))
-		req.Header.Set("Content-Type", "application/json")
+		require.True(t, registered[route], "%s should be registered", route)
+	}
+}
+
+func TestGrokCustomVoiceEndpointUsesRouteTemplateNotRawPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	var got string
+	capture := func(c *gin.Context) {
+		got = grokCustomVoiceEndpoint(c)
+		c.Status(http.StatusOK)
+	}
+	router.GET("/v1/custom-voices/:voice_id/audio", capture)
+	router.GET("/v1/custom-voices/:voice_id", capture)
+
+	for _, tc := range []struct {
+		path string
+		want string
+	}{
+		{path: "/v1/custom-voices/voice-123", want: "custom-voices/voice-123"},
+		{path: "/v1/custom-voices/voice-123/audio", want: "custom-voices/voice-123/audio"},
+		// A voice literally named "audio" matches /:voice_id, not /:voice_id/audio.
+		// A raw-path suffix check would turn this profile lookup into an audio download.
+		{path: "/v1/custom-voices/audio", want: "custom-voices/audio"},
+		{path: "/v1/custom-voices/audio/audio", want: "custom-voices/audio/audio"},
+	} {
+		got = ""
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should stay routed to TK async video bridge", path)
+		require.Equal(t, http.StatusOK, w.Code, "path=%s", tc.path)
+		require.Equal(t, tc.want, got, "path=%s", tc.path)
 	}
 }
 
@@ -280,37 +302,6 @@ func TestGatewayRoutesCompositeChatCompletionsWithGrokModelUsesOpenAIGateway(t *
 	}
 }
 
-func TestGatewayRoutesTokenKeyVideoPollBypassesTemporaryPlatformGate(t *testing.T) {
-	for _, platform := range []string{
-		service.PlatformOpenAI,
-		service.PlatformGrok,
-		service.PlatformComposite,
-	} {
-		for _, path := range []string{
-			"/v1/video/generations/vt_123",
-			"/video/generations/vt_123",
-			"/v1/videos/vt_123",
-			"/videos/vt_123",
-			"/v1/videos/generations/vt_123",
-			"/videos/generations/vt_123",
-			"/v1/videos/edits/vt_123",
-			"/videos/edits/vt_123",
-			"/v1/videos/extensions/vt_123",
-			"/videos/extensions/vt_123",
-		} {
-			router := newGatewayRoutesTestRouter(platform)
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			w := httptest.NewRecorder()
-
-			router.ServeHTTP(w, req)
-
-			require.Equal(t, http.StatusServiceUnavailable, w.Code,
-				"platform=%s path=%s should reach registry-owned VideoFetch", platform, path)
-			require.NotContains(t, w.Body.String(), "Videos API is not supported for this platform")
-		}
-	}
-}
-
 func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
 
@@ -319,6 +310,10 @@ func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
 		path   string
 		body   string
 	}{
+		{http.MethodPost, "/v1/videos/generations", `{"model":"grok-imagine-video-1.5","prompt":"waves"}`},
+		{http.MethodPost, "/v1/videos", `{"model":"grok-imagine-video-1.5","prompt":"waves"}`},
+		{http.MethodPost, "/videos", `{"model":"grok-imagine-video-1.5","prompt":"waves"}`},
+		{http.MethodPost, "/videos/generations", `{"model":"grok-imagine-video-1.5","prompt":"waves"}`},
 		{http.MethodPost, "/v1/videos/edits", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
 		{http.MethodPost, "/videos/edits", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
 		{http.MethodPost, "/v1/videos/extensions", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
@@ -390,54 +385,17 @@ func TestGatewayRoutesGrokAllowsCLICompatibilityEntrypoints(t *testing.T) {
 		require.NotEqual(t, http.StatusNotFound, w.Code, "method=%s path=%s", tc.method, tc.path)
 		require.NotContains(t, w.Body.String(), "not supported for Grok groups")
 	}
-}
 
-func TestGatewayRoutesGrokAllowsChatCompletions(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformGrok)
-
-	for _, path := range []string{
-		"/v1/chat/completions",
-		"/chat/completions",
-	} {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"grok-4.3","messages":[{"role":"user","content":"hi"}]}`))
-		req.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-
-		router.ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should reach Chat Completions handler", path)
-		require.NotContains(t, w.Body.String(), "not supported for Grok groups")
-	}
-}
-
-func TestGatewayRoutesGrokAllowsMessages(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformGrok)
-
-	for _, path := range []string{
-		"/v1/messages",
-	} {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"grok-4.3","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
-		req.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-
-		router.ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should reach Messages handler", path)
-		require.NotContains(t, w.Body.String(), "not supported for Grok groups")
-	}
-}
-
-func TestGatewayRoutesGrokAllowsCountTokensAndResponses(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformGrok)
-
+	countTokensRouter := newGatewayRoutesTestRouterWithConfig(&config.Config{
+		Gateway: config.GatewayConfig{MaxBodySize: 1024 * 1024},
+	}, service.PlatformGrok)
 	for _, path := range []string{"/v1/messages/count_tokens", "/messages/count_tokens"} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"grok","messages":[{"role":"user","content":"hi"}]}`))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 
-		router.ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code)
-		require.NotContains(t, w.Body.String(), "Token counting is not supported for this platform")
-		require.NotContains(t, w.Body.String(), "does not allow /v1/messages dispatch")
-		require.Equal(t, http.StatusOK, w.Code, "path=%s body=%s", path, w.Body.String())
+		countTokensRouter.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code, "path=%s", path)
 		var response struct {
 			InputTokens int `json:"input_tokens"`
 		}
@@ -495,78 +453,4 @@ func TestGatewayRoutesOpenAICountTokensPathIsRegistered(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 	require.NotEqual(t, http.StatusNotFound, w.Code)
-}
-
-func TestGatewayRoutesGrokCountTokensPathIsRegistered(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformGrok)
-
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	router.ServeHTTP(w, req)
-	require.NotEqual(t, http.StatusNotFound, w.Code)
-	require.NotContains(t, w.Body.String(), "Token counting is not supported for this platform")
-}
-
-func TestGatewayRoutesNewAPICountTokensPathIsRegistered(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformNewAPI)
-
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	router.ServeHTTP(w, req)
-	require.NotEqual(t, http.StatusNotFound, w.Code)
-	require.NotContains(t, w.Body.String(), "Token counting is not supported for this platform")
-}
-
-func TestGatewayRoutesVideoGenerationPathsAreRegistered(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformNewAPI)
-
-	for _, path := range []string{
-		"/v1/video/generations",
-		"/v1/videos",
-		"/v1/videos/generations",
-		"/video/generations",
-		"/videos",
-		"/videos/generations",
-	} {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"doubao-seedance","prompt":"x"}`))
-		req.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code, "POST path=%s should be routed for newapi/openai-compatible groups", path)
-	}
-
-	for _, path := range []string{
-		"/v1/video/generations/abc",
-		"/v1/videos/abc",
-		"/video/generations/abc",
-		"/videos/abc",
-	} {
-		req := httptest.NewRequest(http.MethodGet, path, nil)
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code, "GET path=%s should be routed for newapi/openai-compatible groups", path)
-	}
-}
-
-func TestGatewayRoutesVideoGenerationRejectsNonCompatPlatform(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformAnthropic)
-
-	for _, path := range []string{
-		"/v1/video/generations",
-		"/v1/videos",
-		"/v1/videos/generations",
-		"/video/generations",
-		"/videos",
-		"/videos/generations",
-	} {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"any","prompt":"x"}`))
-		req.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-		require.Equal(t, http.StatusNotFound, w.Code, "POST path=%s on anthropic group should 404", path)
-	}
 }

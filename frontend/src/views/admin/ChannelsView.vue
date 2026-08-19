@@ -1,4 +1,5 @@
 <template>
+  <AppLayout>
     <TablePageLayout>
       <template #filters>
         <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
@@ -621,29 +622,22 @@
       @confirm="confirmDelete"
       @cancel="showDeleteDialog = false"
     />
-  </template>
+  </AppLayout>
+</template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onActivated, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-
-defineOptions({ name: 'AdminChannelsView' })
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
-import type { Channel, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule } from '@/api/admin/channels'
+import type { Channel, ChannelModelPricing, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule } from '@/api/admin/channels'
 import type { PricingFormEntry } from '@/components/admin/channel/types'
-import { apiIntervalsToForm, createDefaultTimePricingForm, findModelConflict, formIntervalsToAPI, mTokToPerToken, perTokenToMTok, validateIntervals, validateTimePricing } from '@/components/admin/channel/types'
+import { apiIntervalsToForm, apiTimePricingToForm, createDefaultTimePricingForm, findModelConflict, formIntervalsToAPI, formTimePricingToAPI, mTokToPerToken, perTokenToMTok, validateIntervals, validateTimePricing } from '@/components/admin/channel/types'
 import type { AdminGroup, GroupPlatform } from '@/types'
 import type { Column } from '@/components/common/types'
 import { platformTextClass, platformBadgeLightClass } from '@/utils/platformColors'
-import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
-import { STATUS_ACTIVE, STATUS_DISABLED } from '@/constants/channel'
-import {
-  apiToFormSections,
-  formSectionsToApi,
-  type PlatformSection,
-} from '@/utils/channelFormConversion'
+import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -681,7 +675,19 @@ interface FormPricingRule {
   pricing: PricingFormEntry[]
 }
 
-// PlatformSection type lives in @/utils/channelFormConversion (reused by tests).
+// ── Platform Section type ──
+interface PlatformSection {
+  platform: GroupPlatform
+  enabled: boolean
+  collapsed: boolean
+  group_ids: number[]
+  model_mapping: Record<string, string>
+  model_pricing: PricingFormEntry[]
+  web_search_emulation: boolean
+  codex_image_generation_bridge: boolean
+  bedrock_cc_compat: boolean
+  account_stats_pricing_rules: FormPricingRule[]
+}
 
 // ── Table columns ──
 const columns = computed<Column[]>(() => [
@@ -756,10 +762,10 @@ const form = reactive({
 let abortController: AbortController | null = null
 
 // ── Platform config ──
-// Single source of truth: GATEWAY_PLATFORMS includes the fifth platform `newapi`.
-// A previous 4-element hardcoded array silently dropped newapi data on the
-// API → form → API round-trip (see docs/approved/admin-ui-newapi-platform-end-to-end.md §1.5).
-const platformOrder: readonly GroupPlatform[] = GATEWAY_PLATFORMS
+const platformOrder: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek']
+// Composite pricing/mapping may target every concrete schedulable provider.
+const compositePlatforms: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek']
+
 // ── Helpers ──
 function formatDate(value: string): string {
   if (!value) return '-'
@@ -796,21 +802,10 @@ function togglePlatform(platform: GroupPlatform) {
   }
 }
 
-// Memoized platform → groups partition. Built once per allGroups change so the
-// dialog's per-platform v-for (and per-group conflict rendering) reads O(1)
-// instead of re-filtering the whole allGroups array on every keystroke/render.
-const groupsByPlatform = computed(() => {
-  const map = new Map<GroupPlatform, AdminGroup[]>()
-  for (const g of allGroups.value) {
-    const bucket = map.get(g.platform)
-    if (bucket) bucket.push(g)
-    else map.set(g.platform, [g])
-  }
-  return map
-})
-
 function getGroupsForPlatform(platform: GroupPlatform): AdminGroup[] {
-  return groupsByPlatform.value.get(platform) ?? []
+  return allGroups.value.filter(
+    g => g.platform === platform || (g.platform === 'composite' && compositePlatforms.includes(platform))
+  )
 }
 
 // ── Group helpers ──
@@ -1096,19 +1091,164 @@ function accountStatsRulesToAPI(): AccountStatsPricingRule[] {
 }
 
 // ── Form ↔ API conversion ──
-// Pure converters live in @/utils/channelFormConversion so the round-trip can
-// be exercised by unit tests without mounting the view. Driving the canonical
-// platform order from GATEWAY_PLATFORMS (instead of a 4-element local array)
-// preserves `newapi` data through the round-trip. Upstream's inline form/api
-// converters were absorbed into the helpers — including new feature toggles
-// like `bedrock_cc_compat` — so the inline copy upstream still ships is not
-// needed in TokenKey.
-function formToAPI() {
-  return formSectionsToApi(form.platforms, editingChannel.value?.features_config)
+function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[], model_mapping: Record<string, Record<string, string>>, features_config: Record<string, unknown> } {
+  const group_ids: number[] = []
+  const model_pricing: ChannelModelPricing[] = []
+  const model_mapping: Record<string, Record<string, string>> = {}
+  // Preserve existing features_config fields not managed by the form
+  const featuresConfig: Record<string, unknown> = editingChannel.value?.features_config
+    ? { ...editingChannel.value.features_config }
+    : {}
+
+  for (const section of form.platforms) {
+    if (!section.enabled) continue
+    group_ids.push(...section.group_ids)
+
+    // Model mapping per platform
+    if (Object.keys(section.model_mapping).length > 0) {
+      model_mapping[section.platform] = { ...section.model_mapping }
+    }
+
+    // Model pricing with platform tag
+    for (const entry of section.model_pricing) {
+      if (entry.models.length === 0) continue
+      model_pricing.push({
+        platform: section.platform,
+        models: entry.models,
+        billing_mode: entry.billing_mode,
+        input_price: mTokToPerToken(entry.input_price),
+        output_price: mTokToPerToken(entry.output_price),
+        cache_write_price: mTokToPerToken(entry.cache_write_price),
+        cache_read_price: mTokToPerToken(entry.cache_read_price),
+        image_input_price: mTokToPerToken(entry.image_input_price),
+        image_output_price: mTokToPerToken(entry.image_output_price),
+        per_request_price: entry.per_request_price != null && entry.per_request_price !== '' ? Number(entry.per_request_price) : null,
+        intervals: formIntervalsToAPI(entry.intervals || []),
+        time_pricing: formTimePricingToAPI(entry.time_pricing)
+      })
+    }
+  }
+  const uniqueGroupIds = Array.from(new Set(group_ids))
+
+  // Collect web_search_emulation (only anthropic platform supports it)
+  // Always write the key so that disabling in the UI correctly sets platform to false,
+  // rather than leaving a stale true value from the cloned features_config.
+  const wsEmulation: Record<string, boolean> = {}
+  for (const section of form.platforms) {
+    if (!section.enabled) continue
+    if (section.platform === 'anthropic') {
+      wsEmulation[section.platform] = !!section.web_search_emulation
+    }
+  }
+  if (Object.keys(wsEmulation).length > 0) {
+    featuresConfig.web_search_emulation = wsEmulation
+  } else {
+    delete featuresConfig.web_search_emulation
+  }
+
+  const codexImageGenerationBridge: Record<string, boolean> = {}
+  for (const section of form.platforms) {
+    if (!section.enabled) continue
+    if (section.platform === 'openai') {
+      codexImageGenerationBridge[section.platform] = !!section.codex_image_generation_bridge
+    }
+  }
+  if (Object.keys(codexImageGenerationBridge).length > 0) {
+    featuresConfig.codex_image_generation_bridge = codexImageGenerationBridge
+  } else {
+    delete featuresConfig.codex_image_generation_bridge
+  }
+
+  const bedrockCCCompat: Record<string, boolean> = {}
+  for (const section of form.platforms) {
+    if (!section.enabled) continue
+    if (section.platform === 'anthropic') {
+      bedrockCCCompat[section.platform] = !!section.bedrock_cc_compat
+    }
+  }
+  if (Object.keys(bedrockCCCompat).length > 0) {
+    featuresConfig.bedrock_cc_compat = bedrockCCCompat
+  } else {
+    delete featuresConfig.bedrock_cc_compat
+  }
+
+  return { group_ids: uniqueGroupIds, model_pricing, model_mapping, features_config: featuresConfig }
 }
 
 function apiToForm(channel: Channel): PlatformSection[] {
-  return apiToFormSections(channel, allGroups.value, platformOrder)
+  // Build a map: groupID → platform
+  const groupPlatformMap = new Map<number, GroupPlatform>()
+  for (const g of allGroups.value) {
+    groupPlatformMap.set(g.id, g.platform)
+  }
+
+  // Determine which platforms are active (from groups + pricing + mapping)
+  const activePlatforms = new Set<GroupPlatform>()
+  for (const gid of channel.group_ids || []) {
+    const p = groupPlatformMap.get(gid)
+    if (p === 'composite') {
+      compositePlatforms.forEach(platform => activePlatforms.add(platform))
+    } else if (p) {
+      activePlatforms.add(p)
+    }
+  }
+  for (const p of channel.model_pricing || []) {
+    if (p.platform) activePlatforms.add(p.platform as GroupPlatform)
+  }
+  for (const p of Object.keys(channel.model_mapping || {})) {
+    if (platformOrder.includes(p as GroupPlatform)) activePlatforms.add(p as GroupPlatform)
+  }
+
+  // Build sections in platform order
+  const sections: PlatformSection[] = []
+  for (const platform of platformOrder) {
+    if (!activePlatforms.has(platform)) continue
+
+    const groupIds = (channel.group_ids || []).filter(gid => {
+      const groupPlatform = groupPlatformMap.get(gid)
+      return groupPlatform === platform ||
+        (groupPlatform === 'composite' && compositePlatforms.includes(platform))
+    })
+    const mapping = (channel.model_mapping || {})[platform] || {}
+    const pricing = (channel.model_pricing || [])
+      .filter(p => (p.platform || 'anthropic') === platform)
+      .map(p => ({
+        models: p.models || [],
+        billing_mode: p.billing_mode,
+        input_price: perTokenToMTok(p.input_price),
+        output_price: perTokenToMTok(p.output_price),
+        cache_write_price: perTokenToMTok(p.cache_write_price),
+        cache_read_price: perTokenToMTok(p.cache_read_price),
+        image_input_price: perTokenToMTok(p.image_input_price),
+        image_output_price: perTokenToMTok(p.image_output_price),
+        per_request_price: p.per_request_price,
+        intervals: apiIntervalsToForm(p.intervals || []),
+        time_pricing: apiTimePricingToForm(p.time_pricing)
+      } as PricingFormEntry))
+
+    // Read web_search_emulation from features_config
+    const fc = channel.features_config
+    const wsEmulation = fc?.web_search_emulation as Record<string, boolean> | undefined
+    const webSearchEnabled = wsEmulation?.[platform] === true
+    const codexImageGenerationBridge = fc?.codex_image_generation_bridge as Record<string, boolean> | undefined
+    const codexImageGenerationBridgeEnabled = codexImageGenerationBridge?.[platform] === true
+    const bedrockCCCompatEnabled = fc?.bedrock_cc_compat === true
+
+    sections.push({
+      platform,
+      enabled: true,
+      collapsed: false,
+      group_ids: groupIds,
+      model_mapping: { ...mapping },
+      model_pricing: pricing,
+      web_search_emulation: webSearchEnabled,
+      codex_image_generation_bridge: codexImageGenerationBridgeEnabled,
+      bedrock_cc_compat: bedrockCCCompatEnabled,
+      account_stats_pricing_rules: [],
+    })
+  }
+
+  return sections
 }
 
 // ── Load data ──
@@ -1396,12 +1536,6 @@ async function handleSubmit() {
     }
   }
 
-  // TK: 把计费基准拨到 requested/upstream 是影响计费的刻意动作（计费模型名可能与价格闸判定不一致而
-  // $0 漏计，见后端 B1 闸 docs/approved/priced-or-it-doesnt-ship.md），强制人类确认。
-  const riskyBillingSource = form.billing_model_source === 'requested' || form.billing_model_source === 'upstream'
-  if (riskyBillingSource && !window.confirm(t('admin.channels.form.billingModelSourceConfirm', '将「计费基准」设为按请求模型 / 最终模型计费，可能导致计费用的模型名与价格闸判定的不一致而产生 $0 漏计。确认继续吗？'))) {
-    return
-  }
   // 校验时间段定价，并切换到对应平台便于修正
   for (const section of form.platforms.filter(s => s.enabled)) {
     for (const entry of section.model_pricing) {
@@ -1429,7 +1563,6 @@ async function handleSubmit() {
         model_pricing,
         model_mapping: Object.keys(model_mapping).length > 0 ? model_mapping : {},
         billing_model_source: form.billing_model_source,
-        confirm_billing_model_source: riskyBillingSource,
         restrict_models: form.restrict_models,
         features_config,
         apply_pricing_to_account_stats: form.apply_pricing_to_account_stats,
@@ -1445,7 +1578,6 @@ async function handleSubmit() {
         model_pricing,
         model_mapping: Object.keys(model_mapping).length > 0 ? model_mapping : {},
         billing_model_source: form.billing_model_source,
-        confirm_billing_model_source: riskyBillingSource,
         restrict_models: form.restrict_models,
         features_config,
         apply_pricing_to_account_stats: form.apply_pricing_to_account_stats,
@@ -1467,7 +1599,7 @@ async function handleSubmit() {
 
 // ── Toggle status ──
 async function toggleChannelStatus(channel: Channel) {
-  const newStatus = channel.status === STATUS_ACTIVE ? STATUS_DISABLED : STATUS_ACTIVE
+  const newStatus = channel.status === 'active' ? 'disabled' : 'active'
   try {
     await adminAPI.channels.update(channel.id, { status: newStatus })
     if (filters.status && filters.status !== newStatus) {
@@ -1503,22 +1635,11 @@ async function confirmDelete() {
 }
 
 // ── Lifecycle ──
-let lastFetchedAt = 0
-const STALE_THRESHOLD_MS = 30_000
-
 onMounted(() => {
   loadChannels()
   loadGroups()
   loadWebSearchGlobalState()
   document.addEventListener('click', handleRuleAccountClickOutside)
-  lastFetchedAt = Date.now()
-})
-
-onActivated(() => {
-  if (Date.now() - lastFetchedAt > STALE_THRESHOLD_MS) {
-    loadChannels()
-    lastFetchedAt = Date.now()
-  }
 })
 
 onUnmounted(() => {

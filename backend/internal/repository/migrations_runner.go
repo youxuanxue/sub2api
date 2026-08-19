@@ -67,8 +67,11 @@ const opsSystemLogsHostIndexMigration = "175a_add_ops_system_logs_host_index_not
 const opsSystemLogsHostIndex = "idx_ops_system_logs_host_created_at"
 const usersEmailAliasDedupIndexMigration = "190_add_users_email_alias_dedup_index_notx.sql"
 const usersEmailAliasDedupIndex = "idx_users_email_dot_stripped"
-const upstreamModelMismatchIndexMigration = "195_add_usage_log_upstream_model_mismatch_index_notx.sql"
-const upstreamModelMismatchIndex = "idx_usage_logs_upstream_model_mismatch_created_at"
+const usageLogsUpstreamModelMismatchIndexMigration = "195_add_usage_log_upstream_model_mismatch_index_notx.sql"
+const usageLogsUpstreamModelMismatchIndex = "idx_usage_logs_upstream_model_mismatch_created_at"
+const usageLogsEffectiveModelIndexesMigration = "226_add_usage_log_effective_model_indexes_notx.sql"
+const usageLogsEffectiveRequestedModelIndex = "idx_usage_logs_effective_requested_model_created"
+const usageLogsEffectiveUpstreamModelIndex = "idx_usage_logs_effective_upstream_model_created"
 
 // migrationDB is the session-scoped database surface used by the migration
 // runner. Both *sql.DB and *sql.Conn satisfy it, but production migrations use a
@@ -109,11 +112,14 @@ var nonTransactionalIndexPolicies = map[string]nonTransactionalIndexPolicy{
 		partitionedTable:     "ops_system_logs",
 		partitionedIndexExpr: "host, created_at DESC",
 	},
-	upstreamModelMismatchIndexMigration: {
-		indexName:             upstreamModelMismatchIndex,
+	usageLogsUpstreamModelMismatchIndexMigration: {
+		indexName:             usageLogsUpstreamModelMismatchIndex,
 		partitionedTable:      "usage_logs",
 		partitionedIndexExpr:  "created_at DESC, id DESC",
 		partitionedIndexWhere: "upstream_model_mismatch IS TRUE",
+	},
+	usageLogsEffectiveModelIndexesMigration: {
+		indexName: usageLogsEffectiveRequestedModelIndex,
 	},
 }
 
@@ -393,6 +399,15 @@ func applyNonTransactionalMigration(ctx context.Context, db migrationDB, name, c
 func prepareNonTransactionalMigration(ctx context.Context, db migrationDB, name string) error {
 	if name == paymentOrdersOutTradeNoUniqueMigration {
 		return preparePaymentOrdersOutTradeNoUniqueMigration(ctx, db)
+	}
+	// Multi-index migration: needs two separate DROP INDEX operations.
+	if name == usageLogsEffectiveModelIndexesMigration {
+		for _, indexName := range []string{usageLogsEffectiveRequestedModelIndex, usageLogsEffectiveUpstreamModelIndex} {
+			if err := dropInvalidIndexIfPresent(ctx, db, indexName); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	policy, ok := nonTransactionalIndexPolicies[name]
 	if !ok || policy.indexName == "" {

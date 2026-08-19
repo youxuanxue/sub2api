@@ -1,4 +1,5 @@
 <template>
+  <AppLayout>
     <TablePageLayout>
       <template #filters>
         <div
@@ -137,7 +138,6 @@
             <span
               :class="[
                 'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium',
-                tkAdminGroupsPlatformTableCellClass(value),
                 value === 'anthropic'
                   ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
                   : value === 'openai'
@@ -242,7 +242,7 @@
                   t("admin.groups.subscription.noLimit")
                 }}</span>
                 <div class="text-gray-400 dark:text-gray-500">
-                  {{ t("admin.groups.usageTotal", { days: usageRetentionDays }) }}
+                  {{ t("admin.groups.usageTotal") }}
                   <span class="ml-1 font-medium text-gray-600 dark:text-gray-300"
                     >{{
                       usageLoading
@@ -328,16 +328,8 @@
 
           <template #cell-usage="{ row }">
             <div v-if="usageLoading" class="text-xs text-gray-400">—</div>
-            <div
-              v-else
-              class="space-y-0.5 text-xs"
-              data-testid="group-usage-summary"
-              :data-group-id="row.id"
-            >
-              <div
-                class="text-gray-500 dark:text-gray-400"
-                data-testid="group-usage-today"
-              >
+            <div v-else class="space-y-0.5 text-xs">
+              <div class="text-gray-500 dark:text-gray-400">
                 <span class="text-gray-400 dark:text-gray-500">{{
                   t("admin.groups.usageToday")
                 }}</span>
@@ -347,10 +339,7 @@
                   }}</span
                 >
               </div>
-              <div
-                class="text-gray-500 dark:text-gray-400"
-                data-testid="group-usage-yesterday"
-              >
+              <div class="text-gray-500 dark:text-gray-400">
                 <span class="text-gray-400 dark:text-gray-500">{{
                   t("admin.groups.usageYesterday")
                 }}</span>
@@ -360,12 +349,9 @@
                   }}</span
                 >
               </div>
-              <div
-                class="text-gray-500 dark:text-gray-400"
-                data-testid="group-usage-total"
-              >
+              <div class="text-gray-500 dark:text-gray-400">
                 <span class="text-gray-400 dark:text-gray-500">{{
-                  t("admin.groups.usageTotal", { days: usageRetentionDays })
+                  t("admin.groups.usageTotal")
                 }}</span>
                 <span class="ml-1 font-medium text-gray-700 dark:text-gray-300"
                   >${{
@@ -893,7 +879,7 @@
 
         <!-- 图片生成计费配置 -->
         <div
-          v-if="supportsGroupImagePricing(createForm.platform)"
+          v-if="supportsImagePricingPlatform(createForm.platform)"
           class="border-t pt-4"
         >
           <label
@@ -1054,7 +1040,7 @@
             {{ t(videoPricingI18nKey("title")) }}
           </label>
           <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-            {{ grokVideoPricingDescription(locale) }}
+            {{ t(videoPricingI18nKey("description")) }}
           </p>
           <div class="mb-4">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
@@ -1595,9 +1581,9 @@
             </div>
           </div>
         </div>
-        <!-- OpenAI Live 开关（仅 openai 平台） -->
+        <!-- Codex Live 开关（OpenAI 与 Composite 平台） -->
         <div
-          v-if="createForm.platform === 'openai'"
+          v-if="supportsLivePlatform(createForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -1668,59 +1654,6 @@
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {{ t("admin.groups.openaiMessages.allowDispatchHint") }}
           </p>
-
-          <div class="mt-4 rounded-xl border border-gray-200 p-4 dark:border-dark-600">
-            <div class="flex items-center justify-between">
-              <div>
-                <label class="text-sm text-gray-600 dark:text-gray-400">{{
-                  t("admin.groups.openaiMessages.compactionEnabled")
-                }}</label>
-                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  {{ t("admin.groups.openaiMessages.compactionEnabledHint") }}
-                </p>
-              </div>
-              <button
-                type="button"
-                @click="
-                  createForm.messages_compaction_enabled =
-                    !createForm.messages_compaction_enabled
-                "
-                class="relative inline-flex h-6 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
-                :class="
-                  createForm.messages_compaction_enabled
-                    ? 'bg-primary-500'
-                    : 'bg-gray-300 dark:bg-dark-600'
-                "
-              >
-                <span
-                  class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
-                  :class="
-                    createForm.messages_compaction_enabled
-                      ? 'translate-x-6'
-                      : 'translate-x-1'
-                  "
-                />
-              </button>
-            </div>
-            <div v-if="createForm.messages_compaction_enabled" class="mt-3">
-              <label class="input-label">{{
-                t("admin.groups.openaiMessages.compactionThreshold")
-              }}</label>
-              <input
-                v-model.number="createForm.messages_compaction_input_tokens_threshold"
-                type="number"
-                min="1"
-                step="1"
-                class="input"
-                :placeholder="
-                  t('admin.groups.openaiMessages.compactionThresholdPlaceholder')
-                "
-              />
-              <p class="input-hint">
-                {{ t("admin.groups.openaiMessages.compactionThresholdHint") }}
-              </p>
-            </div>
-          </div>
 
           <div v-if="createForm.allow_messages_dispatch" class="mt-3">
             <div
@@ -2672,7 +2605,7 @@
 
         <!-- 图片生成计费配置 -->
         <div
-          v-if="supportsGroupImagePricing(editForm.platform)"
+          v-if="supportsImagePricingPlatform(editForm.platform)"
           class="border-t pt-4"
         >
           <label
@@ -2833,7 +2766,7 @@
             {{ t(videoPricingI18nKey("title")) }}
           </label>
           <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-            {{ grokVideoPricingDescription(locale) }}
+            {{ t(videoPricingI18nKey("description")) }}
           </p>
           <div class="mb-4">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
@@ -3370,9 +3303,9 @@
             </div>
           </div>
         </div>
-        <!-- OpenAI Live 开关（仅 openai 平台） -->
+        <!-- Codex Live 开关（OpenAI 与 Composite 平台） -->
         <div
-          v-if="editForm.platform === 'openai'"
+          v-if="supportsLivePlatform(editForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -3443,59 +3376,6 @@
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {{ t("admin.groups.openaiMessages.allowDispatchHint") }}
           </p>
-
-          <div class="mt-4 rounded-xl border border-gray-200 p-4 dark:border-dark-600">
-            <div class="flex items-center justify-between">
-              <div>
-                <label class="text-sm text-gray-600 dark:text-gray-400">{{
-                  t("admin.groups.openaiMessages.compactionEnabled")
-                }}</label>
-                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  {{ t("admin.groups.openaiMessages.compactionEnabledHint") }}
-                </p>
-              </div>
-              <button
-                type="button"
-                @click="
-                  editForm.messages_compaction_enabled =
-                    !editForm.messages_compaction_enabled
-                "
-                class="relative inline-flex h-6 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
-                :class="
-                  editForm.messages_compaction_enabled
-                    ? 'bg-primary-500'
-                    : 'bg-gray-300 dark:bg-dark-600'
-                "
-              >
-                <span
-                  class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
-                  :class="
-                    editForm.messages_compaction_enabled
-                      ? 'translate-x-6'
-                      : 'translate-x-1'
-                  "
-                />
-              </button>
-            </div>
-            <div v-if="editForm.messages_compaction_enabled" class="mt-3">
-              <label class="input-label">{{
-                t("admin.groups.openaiMessages.compactionThreshold")
-              }}</label>
-              <input
-                v-model.number="editForm.messages_compaction_input_tokens_threshold"
-                type="number"
-                min="1"
-                step="1"
-                class="input"
-                :placeholder="
-                  t('admin.groups.openaiMessages.compactionThresholdPlaceholder')
-                "
-              />
-              <p class="input-hint">
-                {{ t("admin.groups.openaiMessages.compactionThresholdHint") }}
-              </p>
-            </div>
-          </div>
 
           <div v-if="editForm.allow_messages_dispatch" class="mt-3">
             <div
@@ -4523,6 +4403,7 @@
       @close="showRPMOverridesModal = false"
       @success="loadGroups"
     />
+  </AppLayout>
 </template>
 
 <script setup lang="ts">
@@ -4542,6 +4423,7 @@ import type {
   SubscriptionType,
 } from "@/types";
 import type { Column } from "@/components/common/types";
+import AppLayout from "@/components/layout/AppLayout.vue";
 import TablePageLayout from "@/components/layout/TablePageLayout.vue";
 import DataTable from "@/components/common/DataTable.vue";
 import Pagination from "@/components/common/Pagination.vue";
@@ -4571,11 +4453,6 @@ import { createStableObjectKeyResolver } from "@/utils/stableObjectKey";
 import { extractApiErrorMessage } from "@/utils/apiError";
 import { useKeyedDebouncedSearch } from "@/composables/useKeyedDebouncedSearch";
 import { getPersistedPageSize } from "@/composables/usePersistedPageSize";
-import {
-  hasMessagesDispatchConfig,
-  tkAdminGroupsPlatformTableCellClass,
-} from "@/constants/gatewayPlatforms";
-import { supportsGroupImagePricing } from "@/constants/groupImagePricing.tk";
 import {
   createDefaultMessagesDispatchFormState,
   messagesDispatchConfigToFormState,
@@ -4612,8 +4489,8 @@ import {
   getDefaultVideoPreviewPrice,
   getImagePricePlaceholder,
   getVideoPricePlaceholder,
-  grokVideoPricingDescription,
   imagePricingI18nKey,
+  supportsImagePricingPlatform,
   supportsVideoPricingPlatform,
   videoPricingI18nKey,
 } from "./groupsImagePricing";
@@ -4623,6 +4500,9 @@ import {
   serializeVideoModelPrices,
   videoModelPriceFamilyRows,
 } from "./groupsVideoModelPricing";
+
+const supportsLivePlatform = (platform: string): boolean =>
+  platform === "openai" || platform === "composite";
 
 const emptyGroupPricing = (): PricingFormEntry => ({
   models: [],
@@ -4682,7 +4562,7 @@ const groupPricingToAPI = (
       time_pricing: null,
     }));
 
-const { t, locale } = useI18n();
+const { t } = useI18n();
 const appStore = useAppStore();
 const onboardingStore = useOnboardingStore();
 
@@ -4891,6 +4771,9 @@ const compositeRoutePlatformOptions = computed(() => [
   { value: "gemini", label: "Gemini" },
   { value: "antigravity", label: "Antigravity" },
   { value: "grok", label: "Grok" },
+  { value: "kimi", label: "Kimi" },
+  { value: "zhipu", label: "Zhipu GLM" },
+  { value: "deepseek", label: "DeepSeek" },
 ]);
 
 const compositeRouteEndpointOptions = computed(() => [
@@ -5055,7 +4938,6 @@ type GroupUsageSummary = {
 
 const usageMap = ref<Map<number, GroupUsageSummary>>(new Map());
 const usageLoading = ref(false);
-const usageRetentionDays = ref(90);
 const capacityMap = ref<
   Map<
     number,
@@ -5218,8 +5100,6 @@ const createForm = reactive({
   sonnet_mapped_model: createMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: createMessagesDispatchDefaults.haiku_mapped_model,
   exact_model_mappings: [] as MessagesDispatchMappingRow[],
-  messages_compaction_enabled: false,
-  messages_compaction_input_tokens_threshold: null as number | null,
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
@@ -5582,8 +5462,6 @@ const editForm = reactive({
   sonnet_mapped_model: editMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: editMessagesDispatchDefaults.haiku_mapped_model,
   exact_model_mappings: [] as MessagesDispatchMappingRow[],
-  messages_compaction_enabled: false,
-  messages_compaction_input_tokens_threshold: null as number | null,
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
@@ -5901,11 +5779,8 @@ const loadUsageSummary = async () => {
   usageLoading.value = true;
   try {
     const data = await adminAPI.groups.getUsageSummary();
-    if (data.retained_days > 0) {
-      usageRetentionDays.value = data.retained_days;
-    }
     const map = new Map<number, GroupUsageSummary>();
-    for (const item of data.groups ?? []) {
+    for (const item of data) {
       map.set(item.group_id, {
         today_cost: item.today_cost,
         yesterday_cost: item.yesterday_cost,
@@ -6032,7 +5907,7 @@ const closeCreateModal = () => {
   createForm.claude_code_only = false;
   createForm.fallback_group_id = null;
   createForm.fallback_group_id_on_invalid_request = null;
-  resetMessagesDispatchFormState(createForm, createForm.platform, createForm.name);
+  resetMessagesDispatchFormState(createForm);
   createForm.allow_live = false;
   createForm.require_oauth_only = false;
   createForm.require_privacy_set = false;
@@ -6076,20 +5951,6 @@ const normalizeRateMultiplier = (
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1;
 };
 
-const normalizeCompactionThreshold = (
-  value: number | string | null | undefined,
-): number | null => {
-  if (value === null || value === undefined || value === "") {
-    return null;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return null;
-  }
-  const normalized = Math.trunc(parsed);
-  return normalized >= 1 ? normalized : null;
-};
-
 // 利润控制表单辅助（换算与校验逻辑见 groupsProfitControl.ts，便于单测）。
 const percentToDecimal = profitPercentToDecimal;
 const decimalToPercent = profitDecimalToPercent;
@@ -6113,15 +5974,6 @@ const handleCreateGroup = async () => {
     createReasoningEffortPolicyRef.value &&
     !createReasoningEffortPolicyRef.value.validate()
   ) {
-    return;
-  }
-  const compactionThreshold = normalizeCompactionThreshold(
-    createForm.messages_compaction_input_tokens_threshold,
-  );
-  if (createForm.messages_compaction_enabled && compactionThreshold === null) {
-    appStore.showError(
-      t("admin.groups.openaiMessages.compactionThresholdRequired"),
-    );
     return;
   }
   if (!validateProfitControlForm(createForm)) {
@@ -6164,7 +6016,7 @@ const handleCreateGroup = async () => {
         createForm.supported_model_scopes,
       ),
       messages_dispatch_model_config:
-        hasMessagesDispatchConfig(createForm.platform)
+        createForm.platform === "openai"
           ? messagesDispatchFormStateToConfig({
               allow_messages_dispatch: createForm.allow_messages_dispatch,
               opus_mapped_model: createForm.opus_mapped_model,
@@ -6173,14 +6025,6 @@ const handleCreateGroup = async () => {
               exact_model_mappings: createForm.exact_model_mappings,
             })
           : undefined,
-      messages_compaction_enabled: hasMessagesDispatchConfig(createForm.platform)
-        ? createForm.messages_compaction_enabled
-        : null,
-      messages_compaction_input_tokens_threshold:
-        hasMessagesDispatchConfig(createForm.platform) &&
-        createForm.messages_compaction_enabled
-          ? compactionThreshold
-          : null,
       reasoning_effort_mappings: reasoningEffortMappingsToAPI(
         createForm.reasoning_effort_mappings,
       ),
@@ -6317,23 +6161,16 @@ const handleEdit = async (group: AdminGroup) => {
     group.fallback_group_id_on_invalid_request;
   const messagesDispatchFormState = messagesDispatchConfigToFormState(
     group.messages_dispatch_model_config,
-    group.platform,
-    group.name,
   );
   editForm.allow_messages_dispatch =
     group.allow_messages_dispatch ||
     messagesDispatchFormState.allow_messages_dispatch;
   editForm.allow_live = group.allow_live ?? false;
-  editForm.default_mapped_model = group.default_mapped_model || "";
   editForm.opus_mapped_model = messagesDispatchFormState.opus_mapped_model;
   editForm.sonnet_mapped_model = messagesDispatchFormState.sonnet_mapped_model;
   editForm.haiku_mapped_model = messagesDispatchFormState.haiku_mapped_model;
   editForm.exact_model_mappings =
     messagesDispatchFormState.exact_model_mappings;
-  editForm.messages_compaction_enabled =
-    group.messages_compaction_enabled ?? false;
-  editForm.messages_compaction_input_tokens_threshold =
-    group.messages_compaction_input_tokens_threshold ?? null;
   editForm.require_oauth_only = group.require_oauth_only ?? false;
   editForm.require_privacy_set = group.require_privacy_set ?? false;
   editForm.model_routing_enabled = group.model_routing_enabled || false;
@@ -6390,7 +6227,11 @@ const closeEditModal = () => {
   editForm.long_context_pricing_enabled = true;
   editForm.model_pricing = [];
   editForm.web_search_price_per_call = null;
-  resetMessagesDispatchFormState(editForm, editForm.platform, editForm.name);
+  editForm.search_price_per_1k = null;
+  editForm.audio_realtime_price_per_min = null;
+  editForm.audio_tts_price_per_million_chars = null;
+  editForm.audio_stt_price_per_hour = null;
+  resetMessagesDispatchFormState(editForm);
   editForm.allow_live = false;
   resetModelsListState(editModelsListState);
 };
@@ -6406,15 +6247,6 @@ const handleUpdateGroup = async () => {
     editReasoningEffortPolicyRef.value &&
     !editReasoningEffortPolicyRef.value.validate()
   ) {
-    return;
-  }
-  const compactionThreshold = normalizeCompactionThreshold(
-    editForm.messages_compaction_input_tokens_threshold,
-  );
-  if (editForm.messages_compaction_enabled && compactionThreshold === null) {
-    appStore.showError(
-      t("admin.groups.openaiMessages.compactionThresholdRequired"),
-    );
     return;
   }
   if (!validateProfitControlForm(editForm)) {
@@ -6457,7 +6289,7 @@ const handleUpdateGroup = async () => {
         editForm.supported_model_scopes,
       ),
       messages_dispatch_model_config:
-        hasMessagesDispatchConfig(editForm.platform)
+        editForm.platform === "openai"
           ? messagesDispatchFormStateToConfig({
               allow_messages_dispatch: editForm.allow_messages_dispatch,
               opus_mapped_model: editForm.opus_mapped_model,
@@ -6466,14 +6298,6 @@ const handleUpdateGroup = async () => {
               exact_model_mappings: editForm.exact_model_mappings,
             })
           : undefined,
-      messages_compaction_enabled: hasMessagesDispatchConfig(editForm.platform)
-        ? editForm.messages_compaction_enabled
-        : null,
-      messages_compaction_input_tokens_threshold:
-        hasMessagesDispatchConfig(editForm.platform) &&
-        editForm.messages_compaction_enabled
-          ? compactionThreshold
-          : null,
       reasoning_effort_mappings: reasoningEffortMappingsToAPI(
         editForm.reasoning_effort_mappings,
       ),
@@ -6843,8 +6667,10 @@ watch(
     if (!["anthropic", "antigravity"].includes(newVal)) {
       createForm.fallback_group_id_on_invalid_request = null;
     }
-    if (!hasMessagesDispatchConfig(newVal)) {
-      resetMessagesDispatchFormState(createForm, newVal, createForm.name);
+    if (newVal !== "openai") {
+      resetMessagesDispatchFormState(createForm);
+    }
+    if (!supportsLivePlatform(newVal)) {
       createForm.allow_live = false;
     }
     if (!isProfitControlPlatform(newVal)) {
@@ -6891,8 +6717,10 @@ watch(
     if (!["anthropic", "antigravity"].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null;
     }
-    if (!hasMessagesDispatchConfig(newVal)) {
-      resetMessagesDispatchFormState(editForm, newVal, editForm.name);
+    if (newVal !== "openai") {
+      resetMessagesDispatchFormState(editForm);
+    }
+    if (!supportsLivePlatform(newVal)) {
       editForm.allow_live = false;
     }
     if (!isProfitControlPlatform(newVal)) {
@@ -6943,8 +6771,10 @@ watch(
     }
     if (newVal !== 'openai') {
       editForm.allow_messages_dispatch = false
-      editForm.allow_live = false
       editForm.default_mapped_model = ''
+    }
+    if (!supportsLivePlatform(newVal)) {
+      editForm.allow_live = false
     }
   }
 )
