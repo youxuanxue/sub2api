@@ -122,3 +122,63 @@ func TestForwardAsAnthropic_CloudwiseNonClaudeUsesChatFallback(t *testing.T) {
 	require.Equal(t, "MiniMax-M3", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Contains(t, rec.Body.String(), "OK")
 }
+
+// Prod account #95 has openai_responses_supported=true because the capability
+// probe treats HTTP 400 as "endpoint exists". CloudWise does not implement
+// /v1/responses for GLM/MiniMax (comment on IsOpenAICloudwiseRelay). Inbound
+// /v1/chat/completions must stay on raw chat, otherwise CloudWise returns
+// 400 "messages is invalid or missing" after CC→Responses conversion.
+func TestForwardAsChatCompletions_CloudwiseNonClaudeUsesRawChatEvenWhenResponsesFlagTrue(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"glm-5.3","max_tokens":8,"messages":[{"role":"user","content":"Reply OK only."}],"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_cw_glm53"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl-test","object":"chat.completion","model":"glm-5.3","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":1,"total_tokens":8}}`,
+		)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	account := cloudwiseNativeMessagesAccount()
+	account.Extra[openai_compat.ExtraKeyResponsesSupported] = true
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "https://api.cloudwise.ai/api/v1/chat/completions", upstream.lastReq.URL.String())
+	require.True(t, gjson.GetBytes(upstream.lastBody, "messages").Exists(),
+		"raw chat must keep messages; Responses conversion would drop them")
+	require.Equal(t, "glm-5.3", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Contains(t, rec.Body.String(), "OK")
+}
+
+func TestShouldForwardOpenAIResponsesViaRawChatCompletions_DualStackRelaysIgnoreResponsesFlag(t *testing.T) {
+	cloudwise := cloudwiseNativeMessagesAccount()
+	cloudwise.Extra[openai_compat.ExtraKeyResponsesSupported] = true
+	require.True(t, shouldForwardOpenAIResponsesViaRawChatCompletions(cloudwise))
+
+	tokensea := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://agent.tokensea.ai",
+		},
+		Extra: map[string]any{openai_compat.ExtraKeyResponsesSupported: true},
+	}
+	require.True(t, shouldForwardOpenAIResponsesViaRawChatCompletions(tokensea))
+
+	generic := rawChatCompletionsTestAccount()
+	generic.Extra = map[string]any{openai_compat.ExtraKeyResponsesSupported: true}
+	require.False(t, shouldForwardOpenAIResponsesViaRawChatCompletions(generic),
+		"ordinary OpenAI APIKey with a real Responses probe must keep the Responses path")
+}

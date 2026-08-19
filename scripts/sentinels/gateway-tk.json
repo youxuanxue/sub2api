@@ -1160,10 +1160,11 @@
         "TestOpenAICloudwiseRelayFloorUsesPrefixWildcards",
         "TestForwardAsAnthropic_CloudwiseNativeMessagesPassthrough",
         "TestForwardAsAnthropic_CloudwiseNonClaudeUsesChatFallback",
+        "TestForwardAsChatCompletions_CloudwiseNonClaudeUsesRawChatEvenWhenResponsesFlagTrue",
         "https://api.cloudwise.ai/api/v1/messages",
         "https://api.cloudwise.ai/api/v1/chat/completions"
       ],
-      "rationale": "Focused regressions for CloudWise MaaS relay (prod account #95): prefix wildcard model_mapping floor, native /v1/messages passthrough for claude-*, and chat fallback for MiniMax-M3."
+      "rationale": "Focused regressions for CloudWise MaaS relay (prod account #95): prefix wildcard model_mapping floor, native /v1/messages passthrough for claude-*, chat fallback for MiniMax-M3, and inbound /v1/chat/completions staying on raw chat even when openai_responses_supported is a false-positive true."
     },
     {
       "path": "backend/internal/service/gateway_tokensea_anthropic_relay_test.go",
