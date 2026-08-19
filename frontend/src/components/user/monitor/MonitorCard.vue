@@ -14,7 +14,7 @@
       </span>
       <div class="flex-1 min-w-0">
         <div class="text-base font-semibold truncate text-gray-900 dark:text-gray-100">
-          {{ item.name }}
+          {{ displayName }}
         </div>
         <div class="mt-0.5 flex items-center gap-1.5 min-w-0">
           <span
@@ -124,6 +124,12 @@ const displayProviderLabel = computed(() =>
   props.publicPlatformNames
     ? getPublicPlatformLabel(props.item.provider)
     : providerLabel(props.item.provider),
+)
+
+const displayName = computed(() =>
+  props.publicPlatformNames && getPublicPlatformLabel(props.item.provider) === 'Google'
+    ? 'Google'
+    : props.item.name,
 )
 
 const availabilityLabel = computed(() => {

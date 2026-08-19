@@ -3,6 +3,7 @@ import {
   expandPublicPlatforms,
   getPublicPlatformStyleKey,
   getPublicPlatformLabel,
+  mergePublicMonitorDetails,
   normalizePublicMonitorMatrixRows,
   normalizePublicMonitorViews,
   normalizePublicPlatformQuotas,
@@ -96,8 +97,55 @@ describe('public platform taxonomy', () => {
       { id: 2, name: 'Antigravity channel', provider: 'antigravity' as never, ...base, availability_7d: 97 },
     ])
     expect(rows).toHaveLength(1)
+    expect(rows[0].name).toBe('Google')
     expect(rows[0].provider).toBe('gemini')
     expect(rows[0].availability_7d).toBe(97)
+    expect(rows[0].source_monitor_ids).toEqual([1, 2])
+  })
+
+  it('merges every internal monitor detail before showing a public Google drill-down', () => {
+    const details = mergePublicMonitorDetails([
+      {
+        id: 1,
+        name: 'Gemini channel',
+        provider: 'gemini',
+        group_name: 'default',
+        models: [{
+          model: 'gemini-2.5-pro',
+          latest_status: 'operational',
+          latest_latency_ms: 10,
+          availability_7d: 99,
+          availability_15d: 98,
+          availability_30d: 97,
+          avg_latency_7d_ms: 12,
+        }],
+      },
+      {
+        id: 2,
+        name: 'Antigravity channel',
+        provider: 'antigravity' as never,
+        group_name: 'default',
+        models: [{
+          model: 'gemini-2.5-pro',
+          latest_status: 'degraded',
+          latest_latency_ms: 20,
+          availability_7d: 96,
+          availability_15d: 95,
+          availability_30d: 94,
+          avg_latency_7d_ms: 22,
+        }],
+      },
+    ])
+
+    expect(details.models).toEqual([{
+      model: 'gemini-2.5-pro',
+      latest_status: 'degraded',
+      latest_latency_ms: 20,
+      availability_7d: 96,
+      availability_15d: 95,
+      availability_30d: 94,
+      avg_latency_7d_ms: 22,
+    }])
   })
 
   it('merges Gemini and Antigravity dashboard metrics into Google', () => {

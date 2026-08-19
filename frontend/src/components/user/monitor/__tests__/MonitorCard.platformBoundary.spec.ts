@@ -16,7 +16,7 @@ describe('MonitorCard public platform boundary', () => {
         publicPlatformNames: true,
         item: {
           id: 1,
-          name: 'Google channel',
+          name: 'Antigravity channel',
           provider: 'antigravity',
           group_name: 'default',
           primary_model: 'gemini-2.5-pro',

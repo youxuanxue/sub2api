@@ -1,7 +1,13 @@
 import type { PlatformDashboardStats } from '@/types'
 import type { PlatformUsage } from '@/api/admin/dashboard'
 import type { PlatformQuotaItem } from '@/api/admin/users'
-import type { UserMonitorView, MonitorTimelinePoint, UserMonitorExtraModel } from '@/api/channelMonitor'
+import type {
+  UserMonitorDetail,
+  UserMonitorExtraModel,
+  UserMonitorModelDetail,
+  UserMonitorView,
+  MonitorTimelinePoint,
+} from '@/api/channelMonitor'
 import type {
   MonitorHealth,
   MonitorMatrixBucket,
@@ -192,19 +198,25 @@ export function normalizePublicMonitorModelRows(
   return result
 }
 
-/** Collapse legacy active-probe cards at the public boundary. The first
- * monitor id remains the drill-down target; visible availability/status data
- * is merged conservatively so a weaker internal source is never hidden. */
+export interface PublicUserMonitorView extends UserMonitorView {
+  source_monitor_ids: number[]
+}
+
+/** Collapse legacy active-probe cards at the public boundary. Preserve every
+ * internal monitor id for public drill-downs, while merging visible
+ * availability/status data conservatively so a weaker source is never hidden. */
 export function normalizePublicMonitorViews(
   items: readonly UserMonitorView[] | null | undefined,
-): UserMonitorView[] {
-  const result: UserMonitorView[] = []
+): PublicUserMonitorView[] {
+  const result: PublicUserMonitorView[] = []
   const index = new Map<string, number>()
   for (const source of items ?? []) {
     const row = {
       ...source,
+      name: getPublicPlatformLabel(source.provider) === 'Google' ? 'Google' : source.name,
       extra_models: [...(source.extra_models ?? [])],
       timeline: [...(source.timeline ?? [])],
+      source_monitor_ids: [source.id],
     }
     const key = `${normalizePublicPlatform(source.provider)}|${source.group_name ?? ''}|${source.primary_model}`
     const existingIndex = index.get(key)
@@ -214,6 +226,7 @@ export function normalizePublicMonitorViews(
       continue
     }
     const target = result[existingIndex]
+    if (!target.source_monitor_ids.includes(source.id)) target.source_monitor_ids.push(source.id)
     target.primary_status = worseMonitorStatus(target.primary_status, row.primary_status)
     target.primary_latency_ms = maxNullable(target.primary_latency_ms, row.primary_latency_ms)
     target.primary_ping_latency_ms = maxNullable(target.primary_ping_latency_ms, row.primary_ping_latency_ms)
@@ -222,6 +235,45 @@ export function normalizePublicMonitorViews(
     target.timeline = mergeTimelines(target.timeline, row.timeline)
   }
   return result
+}
+
+/** Merge every internal detail feeding one public monitor card. Values that
+ * communicate reliability use the conservative (least healthy) source. */
+export function mergePublicMonitorDetails(
+  details: readonly UserMonitorDetail[],
+): UserMonitorDetail {
+  const [first, ...rest] = details
+  if (!first) throw new Error('Expected at least one monitor detail')
+
+  const result: UserMonitorDetail = {
+    ...first,
+    models: first.models.map((model) => ({ ...model })),
+  }
+  const index = new Map(result.models.map((model, i) => [model.model, i]))
+  for (const detail of rest) {
+    for (const model of detail.models) {
+      const existingIndex = index.get(model.model)
+      if (existingIndex === undefined) {
+        index.set(model.model, result.models.length)
+        result.models.push({ ...model })
+        continue
+      }
+      mergePublicMonitorModelDetail(result.models[existingIndex], model)
+    }
+  }
+  return result
+}
+
+function mergePublicMonitorModelDetail(
+  target: UserMonitorModelDetail,
+  source: UserMonitorModelDetail,
+): void {
+  target.latest_status = worseMonitorStatus(target.latest_status, source.latest_status)
+  target.latest_latency_ms = maxNullable(target.latest_latency_ms, source.latest_latency_ms)
+  target.availability_7d = Math.min(target.availability_7d, source.availability_7d)
+  target.availability_15d = Math.min(target.availability_15d, source.availability_15d)
+  target.availability_30d = Math.min(target.availability_30d, source.availability_30d)
+  target.avg_latency_7d_ms = maxNullable(target.avg_latency_7d_ms, source.avg_latency_7d_ms)
 }
 
 function worseMonitorStatus(left: UserMonitorView['primary_status'], right: UserMonitorView['primary_status']): UserMonitorView['primary_status'] {
