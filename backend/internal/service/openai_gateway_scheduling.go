@@ -250,7 +250,7 @@ func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.C
 // handler 调度入口仍需导出，保持导出名。）
 func NormalizeOpenAICompatiblePlatform(platform string) string {
 	switch platform {
-	case PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek:
+	case PlatformNewAPI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek:
 		return platform
 	default:
 		return PlatformOpenAI
@@ -348,7 +348,7 @@ func isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx context.Context
 
 func openAICompatAccountMeetsSchedulingPrerequisites(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
 	platform = NormalizeOpenAICompatiblePlatform(platform)
-	if account == nil || account.Platform != platform || !account.IsOpenAICompatible() || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
+	if account == nil || !account.IsOpenAICompatPoolMember(platform) || !account.IsOpenAICompatible() || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
 		return false
 	}
 	if account.IsOpenAI() {

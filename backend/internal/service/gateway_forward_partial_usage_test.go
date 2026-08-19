@@ -291,7 +291,7 @@ func TestGatewayService_Forward_PostOutputSSEOverloadedErrorKeepsExistingStatus(
 
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
-	require.Equal(t, http.StatusForbidden, failoverErr.StatusCode)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
 	require.JSONEq(t, errorJSON, string(failoverErr.ResponseBody))
 	require.Zero(t, repo.tempCalls)
 	require.Contains(t, rec.Body.String(), "message_start")

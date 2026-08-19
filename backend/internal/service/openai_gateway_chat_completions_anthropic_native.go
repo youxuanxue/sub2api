@@ -290,6 +290,7 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if respBytes, err := json.Marshal(ccResp); err == nil {
 		respBytes = reverseToolNamesIfPresent(c, respBytes)
+		observeOpenAIResponsesEvent(c, respBytes)
 		c.Data(http.StatusOK, "application/json; charset=utf-8", respBytes)
 	} else {
 		c.JSON(http.StatusOK, ccResp)

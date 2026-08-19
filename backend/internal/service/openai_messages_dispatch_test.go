@@ -3,7 +3,6 @@ package service
 import (
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,15 +28,12 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 	}, cfg.ExactModelMappings)
 }
 
-func TestGroupResolveMessagesDispatchModel_GrokRequiresCrossClientMapping(t *testing.T) {
-	original := xai.RuntimeModelMappingOptions()
-	t.Cleanup(func() { xai.SetRuntimeModelMappingOptions(original) })
+func TestGroupResolveMessagesDispatchModel_GrokUsesTokenKeyTierDefaults(t *testing.T) {
 	group := &Group{Platform: PlatformGrok}
 
-	runtimeMapping := xai.ModelMappingWithOptions(xai.RuntimeModelMappingOptions())
-	require.Equal(t, runtimeMapping["claude-*"], group.ResolveMessagesDispatchModel("claude-sonnet-4-5"))
-	require.Equal(t, runtimeMapping["claude-*"], group.ResolveMessagesDispatchModel("claude-opus-4-6"))
-	require.Equal(t, runtimeMapping["claude-*"], group.ResolveMessagesDispatchModel("claude-haiku-4-5"))
+	require.Equal(t, defaultGrokMessagesDispatchSonnetMappedModel, group.ResolveMessagesDispatchModel("claude-sonnet-4-5"))
+	require.Equal(t, defaultGrokMessagesDispatchOpusMappedModel, group.ResolveMessagesDispatchModel("claude-opus-4-6"))
+	require.Equal(t, defaultGrokMessagesDispatchHaikuMappedModel, group.ResolveMessagesDispatchModel("claude-haiku-4-5"))
 	require.Empty(t, group.ResolveMessagesDispatchModel("grok"))
 	require.Empty(t, group.ResolveMessagesDispatchModel("gpt-5.3-codex"))
 }

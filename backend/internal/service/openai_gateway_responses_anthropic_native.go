@@ -280,6 +280,7 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 		if err != nil {
 			return nil, fmt.Errorf("restore responses client tools: %w", err)
 		}
+		observeOpenAIResponsesEvent(c, respBytes)
 		c.Data(http.StatusOK, "application/json; charset=utf-8", respBytes)
 	} else {
 		c.JSON(http.StatusOK, responsesResp)

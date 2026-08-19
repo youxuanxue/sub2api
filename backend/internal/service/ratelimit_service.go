@@ -1238,6 +1238,11 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	// 且 403 在 failover 状态集里会被逐账号重放——直接 SetError 会让一个坏请求/
 	// 一层坏代理连环永久禁用整组账号。走 HTML 豁免 + N 次累计 + 临时冷却。
 	if account.Platform == PlatformOpenAI || IsCNProvider(account.Platform) {
+		if IsCNProvider(account.Platform) && openAIIsHTMLBody(responseBody) {
+			// CN provider CDN/proxy HTML is request-level noise. Do not report
+			// it as an account failover/disable signal or mutate account state.
+			return false
+		}
 		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
 	}
 	if s.tkMaybeRefreshKiroInvalidBearer403(ctx, account, upstreamMsg, responseBody) {
