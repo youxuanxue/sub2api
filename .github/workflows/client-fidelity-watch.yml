@@ -7,7 +7,7 @@ name: Client Fidelity Watch
 
 on:
   schedule:
-    # 08:03 Asia/Shanghai (23:03 UTC). Sequential: release scan → registry-gate → prod-aggregate → edge-oauth-mimic.
+    # GitHub cron is UTC. Sequential: release scan → registry-gate → prod-aggregate → edge-oauth-mimic.
     - cron: "3 23 * * *"
   workflow_dispatch:
     inputs:

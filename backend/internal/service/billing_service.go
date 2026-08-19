@@ -323,6 +323,14 @@ func (s *BillingService) initFallbackPricing() {
 		CacheReadPricePerToken: 0.15e-6,
 		SupportsCacheBreakdown: false,
 	}
+	// Gemini 3.7 Flash introductory list (through 2026-12-31): $0.75 input /
+	// $3.75 output / $0.075 cached input per MTok.
+	s.fallbackPrices["gemini-3.7-flash"] = &ModelPricing{
+		InputPricePerToken:     0.75e-6,
+		OutputPricePerToken:    3.75e-6,
+		CacheReadPricePerToken: 0.075e-6,
+		SupportsCacheBreakdown: false,
+	}
 
 	// OpenAI GPT-5.4（业务指定价格）
 	s.fallbackPrices["gpt-5.4"] = &ModelPricing{
@@ -625,6 +633,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	if strings.Contains(modelLower, "gemini-3.1-pro") || strings.Contains(modelLower, "gemini-3-1-pro") {
 		return s.fallbackPrices["gemini-3.1-pro"]
 	}
+	if strings.Contains(modelLower, "gemini-3.7-flash") || strings.Contains(modelLower, "gemini-3-7-flash") {
+		return s.fallbackPrices["gemini-3.7-flash"]
+	}
 	if strings.Contains(modelLower, "gemini-3.6-flash") || strings.Contains(modelLower, "gemini-3-6-flash") {
 		return s.fallbackPrices["gemini-3.6-flash"]
 	}
@@ -663,6 +674,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 		if pricing := tkOverlayModelPricing(canonical); pricing != nil {
 			return pricing
 		}
+	}
+	if strings.Contains(modelLower, "glm-5.3") {
+		return tkOverlayModelPricing("glm-5.3")
 	}
 	if strings.Contains(modelLower, "glm-5.2") {
 		return tkOverlayModelPricing("glm-5.2")
