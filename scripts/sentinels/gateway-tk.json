@@ -6528,6 +6528,14 @@
         "authenticated.GET(\"/me/api-keys/:id/capabilities\", h.APIKey.GetCapabilities)"
       ],
       "rationale": "The per-key capability API must remain under authenticated user routes. Losing the route leaves website discovery unable to query automatic keys even though gateway discovery still works."
+    },
+    {
+      "path": "backend/internal/service/vertex_service_account.go",
+      "must_contain": [
+        "func vertexModelUsesGlobalLocation(model string) bool",
+        "\"gemini-3.5-flash-lite\", \"gemini-3.6-flash\", \"gemini-3.7-flash\""
+      ],
+      "rationale": "Gemini 3.5 Flash Lite / 3.6 Flash / 3.7 Flash are publisher-global-only on Vertex. vertexModelUsesGlobalLocation must keep these ids on the global endpoint; an upstream merge that drops the case or the 3.7 id sends traffic to the account default us-central1 and the publisher model 404s. Live extras can write vertex_model_locations, but the compiled owner is what survives the next release and empty extras."
     }
   ]
 }
