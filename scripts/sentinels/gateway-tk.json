@@ -370,6 +370,7 @@
         "maybeSendAlertNotifications",
         "feishu_sent",
         "effectiveOpsAlertPageSeverity",
+        "isEdgeOnlyAlertRule",
         "\"anthropic_cooldown_tier_escalation_count\"",
         "SetAnthropicUpstreamErrorCounterCache",
         "GetAnthropicCooldownTierEscalations",
@@ -386,6 +387,7 @@
         "opsAlertFeishuSeverityAllowed",
         "ruleSeverity == \"P0\" && eventSeverity == \"P0\"",
         "isEdgeNonUserFacingAlertRule",
+        "isEdgeUpstreamRatePageRule",
         "effectiveOpsAlertPageSeverity",
         "OpsAlertMetricClientVisibleFailureCount",
         "rule.NotifyEmail",
@@ -395,7 +397,7 @@
         "s.limiter.SetLimit(cfg.RateLimitPerHour)",
         "s.cfg.Server.FrontendURL"
       ],
-      "rationale": "TK companion that keeps Feishu alerting limited to P0 plus two explicit P1 exceptions: client_visible_failure_count on prod, and edge-demoted upstream_error_rate (P0 rule + P1 event) so a local provider 502 that prod failovers away from does not page as a user-visible P0 (us4 2026-08-19). Edge nodes suppress both user-visible P0 and client-visible P1 via isEdgeSuppressedAlertRule / isProdOnlyAlertRule. Tied to the existing external-notification opt-in, and protected by per-rule/dimension cooldown plus global hourly rate limiting. Paired green recovery cards must fire only after a delivered firing card (firedFeishuEventIDs) and use a separate recovery dedupe key so resolve notifications are not blocked by the firing cooldown. Dropping any anchor turns a low-noise OPC pager into either silence or chat noise. FrontendURL threads the per-node public base URL into the card so prod vs each edge is distinguishable; losing it silently regresses every card back to an unattributable 'overall'."
+      "rationale": "TK companion that keeps Feishu alerting limited to P0 plus two explicit P1 exceptions: client_visible_failure_count on prod, and the 20% upstream_error_rate edge page (isEdgeUpstreamRatePageRule, threshold >= 20) so a local provider 502 that prod failovers away from does not page as a user-visible P0 (us4 2026-08-19). The deleted 8% early-warning rule stays excluded. Edge nodes suppress both user-visible P0 and client-visible P1 via isEdgeSuppressedAlertRule / isProdOnlyAlertRule; prod suppresses leftover upstream_error_rate via isEdgeOnlyAlertRule. Tied to the existing external-notification opt-in, and protected by per-rule/dimension cooldown plus global hourly rate limiting. Paired green recovery cards must fire only after a delivered firing card (firedFeishuEventIDs) and use a separate recovery dedupe key so resolve notifications are not blocked by the firing cooldown. Dropping any anchor turns a low-noise OPC pager into either silence or chat noise. FrontendURL threads the per-node public base URL into the card so prod vs each edge is distinguishable; losing it silently regresses every card back to an unattributable 'overall'."
     },
     {
       "path": "backend/internal/repository/ops_repo_alerts.go",

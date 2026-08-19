@@ -383,7 +383,10 @@ func (s *OpsAlertEvaluatorService) shouldEvaluateAlertRuleOnNode(rule *OpsAlertR
 	if s == nil || rule == nil {
 		return true
 	}
-	return !s.isEdgeNode() || !isProdOnlyAlertRule(rule)
+	if s.isEdgeNode() {
+		return !isProdOnlyAlertRule(rule)
+	}
+	return !isEdgeOnlyAlertRule(rule)
 }
 
 func isProdOnlyAlertRule(rule *OpsAlertRule) bool {
@@ -396,6 +399,17 @@ func isProdOnlyAlertRule(rule *OpsAlertRule) bool {
 	default:
 		return false
 	}
+}
+
+// isEdgeOnlyAlertRule reports whether a rule is local provider-health noise on
+// prod (the user-facing terminus already pages via user_visible_failure_count).
+// After tk_087 the only remaining upstream_error_rate default is the 20% edge
+// P1; prod must not evaluate it.
+func isEdgeOnlyAlertRule(rule *OpsAlertRule) bool {
+	if rule == nil {
+		return false
+	}
+	return strings.TrimSpace(rule.MetricType) == "upstream_error_rate"
 }
 
 func (s *OpsAlertEvaluatorService) resolveActiveSkippedRule(ctx context.Context, rule *OpsAlertRule, now time.Time) bool {
