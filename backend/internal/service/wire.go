@@ -1030,6 +1030,11 @@ var ProviderSet = wire.NewSet(
 	// new model be priced + surfaced in /pricing without a release. Consumed by
 	// provideCleanup so wire forces evaluation.
 	ProvideTKPricingOverlayRuntime,
+	// TokenKey: runtime overlay for empty-mapping Antigravity serving — loads
+	// tk_account_model_mapping_runtime at boot and on settings_updated so edge
+	// empty AG accounts can hot-add models without writing credentials.
+	// Consumed by provideCleanup so wire forces evaluation.
+	ProvideTKAccountModelMappingRuntimeServing,
 	// TokenKey: client model-list filter (R-003 / Goal 2) — gates /v1/models
 	// /v1beta/models /antigravity/models to priced ∩ ¬unreachable.
 	NewModelListFilter,

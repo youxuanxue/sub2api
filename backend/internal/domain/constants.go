@@ -89,7 +89,8 @@ const (
 const AntigravityGemini31ProAgentModel = "gemini-pro-agent"
 
 // DefaultAntigravityModelMapping 是 Antigravity 平台的默认模型映射
-// 当账号未配置 model_mapping 时使用此默认值
+// 当账号未配置 model_mapping 时使用此默认值（serving 还会叠加
+// tk_account_model_mapping_runtime.platforms.antigravity）
 // 与前端 useModelWhitelist.ts 中的 antigravityDefaultMappings 保持一致
 var DefaultAntigravityModelMapping = map[string]string{
 	// Claude 白名单（2026-07-07 live fetchAvailableModels: only these two are exposed
@@ -128,6 +129,13 @@ var DefaultAntigravityModelMapping = map[string]string{
 	// Gemini 3.6 Flash public id routes to the tiered wire id returned by
 	// Antigravity on us3/us4 (2026-07-22 live account probes).
 	"gemini-3.6-flash": "gemini-3.6-flash-tiered",
+	// Gemini 3.7 Flash (2026-08-19 fetchAvailableModels on us3/us4/us6):
+	// upstream lists thinking-tier wire ids only; Google's default thinking
+	// level is medium, so the public id remaps there. No -tiered wire id yet.
+	"gemini-3.7-flash":        "gemini-3.7-flash-medium",
+	"gemini-3.7-flash-high":   "gemini-3.7-flash-high",
+	"gemini-3.7-flash-low":    "gemini-3.7-flash-low",
+	"gemini-3.7-flash-medium": "gemini-3.7-flash-medium",
 	// Gemini 3.1 Pro (High) 实测 wire id（gemini-3.1-pro-high 上游已废弃 → gemini-pro-agent）
 	"gemini-pro-agent": "gemini-pro-agent",
 }
