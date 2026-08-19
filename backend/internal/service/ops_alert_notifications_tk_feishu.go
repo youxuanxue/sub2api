@@ -83,6 +83,33 @@ func isEdgeSuppressedAlertRule(rule *OpsAlertRule) bool {
 	}
 }
 
+// isEdgeNonUserFacingAlertRule reports whether a P0 rule is local provider-health
+// noise on a mirror-relay edge: the edge recorded a final upstream failure, but
+// prod typically failovers to another edge and the end user still gets 200
+// (us4 2026-08-19 gpt-5.6-sol 502 → prod recovered-200). These still page, but
+// as P1 rather than paging-as-outage P0. The 8% early-warning P1 rule is not
+// this class — it is already P1 and stays off Feishu.
+func isEdgeNonUserFacingAlertRule(rule *OpsAlertRule) bool {
+	if rule == nil {
+		return false
+	}
+	return strings.TrimSpace(rule.MetricType) == "upstream_error_rate" &&
+		strings.EqualFold(strings.TrimSpace(rule.Severity), "P0")
+}
+
+// effectiveOpsAlertPageSeverity is the severity stored on the event and shown
+// on Feishu cards. Prod keeps the rule's configured severity. Edges demote
+// local-only provider-health P0s so they do not look like user-visible outages.
+func effectiveOpsAlertPageSeverity(rule *OpsAlertRule, isEdge bool) string {
+	if rule == nil {
+		return ""
+	}
+	if isEdge && isEdgeNonUserFacingAlertRule(rule) {
+		return "P1"
+	}
+	return strings.TrimSpace(rule.Severity)
+}
+
 // isEdgeNode reports whether this node is a prod→edge mirror-relay edge
 // (api-<id>.<domain>), derived from the configured frontend URL — the SAME source
 // the alert card's node label uses (deriveOpsNodeIdentity / siteFromFrontendURL),
@@ -271,6 +298,11 @@ func opsAlertFeishuSeverityAllowed(rule *OpsAlertRule, event *OpsAlertEvent) boo
 	ruleSeverity := strings.ToUpper(strings.TrimSpace(rule.Severity))
 	eventSeverity := strings.ToUpper(strings.TrimSpace(event.Severity))
 	if ruleSeverity == "P0" && eventSeverity == "P0" {
+		return true
+	}
+	// Edge remaps the 20% upstream_error_rate P0 to a P1 event so Feishu still
+	// delivers, but as orange P1. The 8% P1 early-warning rule stays excluded.
+	if ruleSeverity == "P0" && eventSeverity == "P1" && isEdgeNonUserFacingAlertRule(rule) {
 		return true
 	}
 	return ruleSeverity == "P1" &&

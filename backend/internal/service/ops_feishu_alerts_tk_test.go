@@ -274,6 +274,42 @@ func TestMaybeSendAlertFeishuP0AndClientVisibleP1Only(t *testing.T) {
 	}
 }
 
+func TestOpsAlertFeishuSeverityAllowedEdgeUpstreamErrorRateP1(t *testing.T) {
+	t.Parallel()
+
+	p0Upstream := &OpsAlertRule{Name: "上游错误率极高", MetricType: "upstream_error_rate", Severity: "P0", NotifyEmail: true}
+	p1Upstream := &OpsAlertRule{Name: "上游错误率偏高", MetricType: "upstream_error_rate", Severity: "P1", NotifyEmail: true}
+	p0Event := &OpsAlertEvent{Severity: "P0", Status: OpsAlertStatusFiring}
+	p1Event := &OpsAlertEvent{Severity: "P1", Status: OpsAlertStatusFiring}
+
+	require.True(t, opsAlertFeishuSeverityAllowed(p0Upstream, p0Event), "prod still pages the 20% rule as P0")
+	require.True(t, opsAlertFeishuSeverityAllowed(p0Upstream, p1Event), "edge-demoted 20% rule must still reach Feishu as P1")
+	require.False(t, opsAlertFeishuSeverityAllowed(p1Upstream, p1Event), "8% early-warning P1 must stay off Feishu")
+	require.False(t, opsAlertFeishuSeverityAllowed(p1Upstream, p0Event))
+}
+
+func TestMaybeSendAlertFeishuAllowsEdgeDemotedUpstreamErrorRateP1(t *testing.T) {
+	t.Parallel()
+
+	doer := &recordingFeishuHTTPDoer{body: `{"code":0}`}
+	svc := newOpsFeishuAlertEvaluatorForTest(t, OpsFeishuAlertConfig{Enabled: true, WebhookURL: "https://open.feishu.cn/open-apis/bot/v2/hook/token", RateLimitPerHour: 3, CooldownSeconds: 3600}, doer)
+	rule := testOpsFeishuRule()
+	rule.Name = "上游错误率极高"
+	rule.Severity = "P0"
+	rule.MetricType = "upstream_error_rate"
+	rule.Operator = ">"
+	rule.Threshold = 20
+	event := testOpsFeishuEvent(1)
+	event.Severity = "P1"
+	event.Dimensions = map[string]any{"top_cause": "gpt-5.6-sol ×28（upstream 502 / provider）"}
+
+	require.True(t, svc.maybeSendAlertFeishu(context.Background(), nil, rule, event))
+	require.Equal(t, 1, doer.calls)
+	require.Contains(t, doer.bodies[0], "TokenKey P1 告警")
+	require.Contains(t, doer.bodies[0], "orange")
+	require.NotContains(t, doer.bodies[0], "TokenKey P0 告警")
+}
+
 func TestMaybeSendAlertFeishuAllowsClientVisibleP1(t *testing.T) {
 	t.Parallel()
 

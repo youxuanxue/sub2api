@@ -325,11 +325,12 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 				}
 			}
 
+			pageSeverity := effectiveOpsAlertPageSeverity(rule, s.isEdgeNode())
 			firedEvent := &OpsAlertEvent{
 				RuleID:         rule.ID,
-				Severity:       strings.TrimSpace(rule.Severity),
+				Severity:       pageSeverity,
 				Status:         OpsAlertStatusFiring,
-				Title:          fmt.Sprintf("%s: %s", strings.TrimSpace(rule.Severity), strings.TrimSpace(rule.Name)),
+				Title:          fmt.Sprintf("%s: %s", pageSeverity, strings.TrimSpace(rule.Name)),
 				Description:    buildOpsAlertDescription(rule, metricValue, windowMinutes, scopePlatform, scopeGroupID),
 				MetricValue:    float64Ptr(metricValue),
 				ThresholdValue: float64Ptr(rule.Threshold),
