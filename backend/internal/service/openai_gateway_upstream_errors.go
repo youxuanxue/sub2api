@@ -220,10 +220,18 @@ func isOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
 			return true
 		}
 	}
+	// Plain-text upstream bodies still participate. A JSON Responses/SSE
+	// document must not: it can echo the caller's input or earlier model
+	// output, and a substring like "context window" + "exceed" would then
+	// pin a capacity 400 (servers are currently overloaded) as a terminal
+	// client error instead of failing over to a sibling account.
+	if gjson.ValidBytes(bytes.TrimSpace(upstreamBody)) {
+		return false
+	}
 	return match(string(upstreamBody))
 }
 
-func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool {
+func shouldFailoverOpenAIUpstreamStatus(statusCode int) bool {
 	switch statusCode {
 	case 401, 402, 403, 405, 429, 529:
 		return true
@@ -232,7 +240,21 @@ func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool 
 	}
 }
 
-func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool {
+	return shouldFailoverOpenAIUpstreamStatus(statusCode)
+}
+
+// shouldFailoverOpenAIUpstreamError is the single OpenAI failover decision.
+// HTTP callers pass the upstream status. SSE / buffered callers map the event
+// to a semantic status first (openAIStreamFailedEventSemanticStatus); they
+// must not re-implement transient / context-window / terminal-client rules.
+func shouldFailoverOpenAIUpstreamError(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	// Capacity 400s are request-scoped and must leave the current account
+	// before the context-window heuristic can false-positive on echoed body
+	// text and pin a terminal client 400.
+	if isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody) {
+		return true
+	}
 	if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
 		return false
 	}
@@ -244,10 +266,43 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 	if tkIsGrokEntitlement403(statusCode, upstreamBody) {
 		return false
 	}
-	if s.shouldFailoverUpstreamError(statusCode) {
-		return true
+	return shouldFailoverOpenAIUpstreamStatus(statusCode)
+}
+
+func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	return shouldFailoverOpenAIUpstreamError(statusCode, upstreamMsg, upstreamBody)
+}
+
+// isOpenAINonRetryableClientError reports caller-fault / policy rejections that
+// must not be replayed on a sibling account. Owned here so SSE semantic-status
+// mapping cannot drift from the marker list.
+func isOpenAINonRetryableClientError(upstreamMsg string, upstreamBody []byte) bool {
+	code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "response.error.code").String()))
+	if code == "" {
+		code = strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "error.code").String()))
 	}
-	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
+	errType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "response.error.type").String()))
+	if errType == "" {
+		errType = strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "error.type").String()))
+	}
+	combined := strings.ToLower(strings.TrimSpace(upstreamMsg + " " + code + " " + errType))
+	if combined == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"invalid_request",
+		"content_policy",
+		"policy",
+		"safety",
+		"high-risk cyber",
+		"not allowed",
+		"violat",
+	} {
+		if strings.Contains(combined, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // OpenAIRequestBodyTooLargeClientMessage is the fixed downstream message used

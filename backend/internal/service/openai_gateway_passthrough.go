@@ -1042,6 +1042,11 @@ func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
 		return http.StatusForbidden
 	case code == "server_is_overloaded" || code == "slow_down":
 		return http.StatusServiceUnavailable
+	case isOpenAINonRetryableClientError(message, payload):
+		// Policy / safety / "not allowed" events are caller-fault. Map them to
+		// 400 so the shared failover SSOT will not treat the transport 200/502
+		// as a retryable upstream outage.
+		return http.StatusBadRequest
 	default:
 		return http.StatusBadGateway
 	}
@@ -1133,45 +1138,14 @@ func applyOpenAIStreamFailedErrorPassthroughRule(
 }
 
 func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool {
-	if isOpenAIContextWindowError(message, payload) {
-		return false
-	}
-	// A response.failed event is transported over HTTP 200. Prefer its semantic
-	// rate-limit status over a generic/invalid_request error type so it can enter
-	// the same 429 retry policy as a regular upstream HTTP response.
-	if openAIStreamFailureStatus(payload, message) == http.StatusTooManyRequests {
-		return true
-	}
-	if isOpenAITransientProcessingError(http.StatusBadRequest, message, payload) {
-		return true
-	}
-	code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.code").String()))
-	if code == "" {
-		code = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.code").String()))
-	}
-	errType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.type").String()))
-	if errType == "" {
-		errType = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.type").String()))
-	}
-	combined := strings.ToLower(strings.TrimSpace(message + " " + code + " " + errType))
-	if combined == "" {
-		return true
-	}
-	nonRetryableMarkers := []string{
-		"invalid_request",
-		"content_policy",
-		"policy",
-		"safety",
-		"high-risk cyber",
-		"not allowed",
-		"violat",
-	}
-	for _, marker := range nonRetryableMarkers {
-		if strings.Contains(combined, marker) {
-			return false
-		}
-	}
-	return true
+	// Transport adapter only: response.failed arrives over HTTP 200, so map the
+	// event to a semantic status and reuse the HTTP failover SSOT. Do not add
+	// a second decision tree here.
+	return shouldFailoverOpenAIUpstreamError(
+		openAIStreamFailedEventSemanticStatus(payload, message),
+		message,
+		payload,
+	)
 }
 
 func openAIStreamFailedEventRetryableOnSameAccount(account *Account, payload []byte, message string) bool {

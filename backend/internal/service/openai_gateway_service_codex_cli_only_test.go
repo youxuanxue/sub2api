@@ -323,6 +323,14 @@ func TestIsOpenAIContextWindowError(t *testing.T) {
 		"context canceled",
 		nil,
 	))
+	require.True(t, isOpenAIContextWindowError(
+		"",
+		[]byte("Your input exceeds the context window of this model."),
+	), "plain-text upstream bodies still classify as context-window")
+	require.False(t, isOpenAIContextWindowError(
+		"Our servers are currently overloaded. Please try again later.",
+		[]byte(`{"type":"response.failed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"exceeded the context window"}]}],"error":{"message":"Our servers are currently overloaded. Please try again later."}}}`),
+	), "JSON Responses bodies must not classify on echoed output text")
 }
 
 func TestShouldFailoverOpenAIUpstreamResponseContextWindow502(t *testing.T) {
