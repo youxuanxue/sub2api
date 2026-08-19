@@ -36,7 +36,7 @@ const (
 	// OpenAI-compatible wire protocol, so grok is an OpenAI-compat pool member and
 	// reuses the OpenAI-compat routing/scheduling/forward path — it differs from
 	// the openai (Codex) platform only in its OAuth refresh endpoint and base URL.
-	PlatformGrok      = "grok"
+	PlatformGrok = "grok"
 	// 国产 OpenAI 兼容供应商（经 OpenAI 网关转发，按 Chat Completions 协议）。
 	PlatformKimi      = "kimi"     // Kimi (月之暗面 / Moonshot)
 	PlatformZhipu     = "zhipu"    // 智谱 GLM (bigmodel)

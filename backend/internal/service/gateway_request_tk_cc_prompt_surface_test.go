@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -32,6 +33,18 @@ func TestTkRewriteCCEnvironmentSection(t *testing.T) {
 	require.NotContains(t, out, "Proxy=")
 	require.Contains(t, out, "client@gmail.com")
 	require.Contains(t, out, "# currentDate")
+}
+
+func TestTkRewriteCCEnvironmentSectionRewritesEverySection(t *testing.T) {
+	require.NoError(t, timezone.Init("UTC"))
+	in := "# Environment\nTZ=Asia/Shanghai\nProxy=one\n# next\n# Environment\nTZ=Asia/Urumqi\nPWD=/work\n# done"
+	out, changed := tkRewriteCCEnvironmentSection(in)
+	require.True(t, changed)
+	require.Equal(t, 2, strings.Count(out, "TZ=UTC"))
+	require.NotContains(t, out, "Asia/Shanghai")
+	require.NotContains(t, out, "Asia/Urumqi")
+	require.NotContains(t, out, "Proxy=")
+	require.NotContains(t, out, "PWD=")
 }
 
 func TestTkNormalizeCCUserEmailLine_ReplaceWithOAuth(t *testing.T) {

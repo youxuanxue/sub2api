@@ -54,9 +54,6 @@ type accountRepoStubForBulkUpdate struct {
 	}
 }
 
-func (s *accountRepoStubForBulkUpdate) BulkUpdate(_ context.Context, ids []int64, update AccountBulkUpdate) (int64, error) {
-	s.bulkUpdateIDs = append([]int64{}, ids...)
-	s.lastBulkUpdate = update
 func (s *accountRepoStubForBulkUpdate) BulkUpdate(_ context.Context, ids []int64, updates AccountBulkUpdate) (int64, error) {
 	s.bulkUpdateCalls++
 	s.bulkUpdateIDs = append([]int64{}, ids...)
@@ -436,6 +433,8 @@ func TestBulkUpdateAccounts_SyncAnthropicOperatorConcurrency(t *testing.T) {
 	require.Equal(t, 1, result.Success)
 	require.Equal(t, 24, userRepo.lastVal)
 	require.Equal(t, []int64{AnthropicOperatorConcurrencyUserID}, userRepo.lastIDs)
+}
+
 func TestAdminServiceBulkUpdateAccounts_NormalizesOpenAISettings(t *testing.T) {
 	repo := &accountRepoStubForBulkUpdate{getByIDsAccounts: []*Account{
 		{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey},

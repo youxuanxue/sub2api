@@ -40,7 +40,7 @@ func (UserPlatformQuota) Fields() []ent.Field {
 			Validate(func(s string) error {
 				// Must match service.AllowedQuotaPlatforms and the DB CHECK constraint.
 				switch s {
-			case "anthropic", "openai", "gemini", "antigravity", "newapi", "kiro", "grok",
+				case "anthropic", "openai", "gemini", "antigravity", "newapi", "kiro", "grok",
 					"kimi", "zhipu", "deepseek":
 					return nil
 				default:

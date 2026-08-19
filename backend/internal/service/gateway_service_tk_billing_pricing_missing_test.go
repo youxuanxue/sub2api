@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
@@ -24,7 +25,7 @@ func TestCalculateTokenCost_PricingMissing_RecordsObservableZeroCost(t *testing.
 	result.Usage.OutputTokens = 50
 	apiKey := &APIKey{ID: 7, Group: &Group{ID: 3, Platform: PlatformAnthropic}}
 
-	cost := svc.calculateTokenCost(context.Background(), result, apiKey, "tk-nonexistent-model-zzz", 1.0, &recordUsageOpts{})
+	cost := svc.calculateTokenCost(context.Background(), result, apiKey, "tk-nonexistent-model-zzz", 1.0, time.Time{}, &recordUsageOpts{})
 
 	require.NotNil(t, cost)
 	require.Equal(t, 0.0, cost.ActualCost, "request is not blocked — records zero like the OpenAI path")
