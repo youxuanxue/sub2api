@@ -98,7 +98,7 @@ func (s *OpenAIGatewayService) tkHoldGatingDisabled() bool {
 // reservation outage must not deny service (availability wins, same regime as
 // unpriced-chat serve-and-alert), it only narrows the guarantee until resolved.
 func (s *OpenAIGatewayService) TkReserveTokenHold(ctx context.Context, requestID, model, serviceTier string, user *User, apiKey *APIKey, promptTokens, maxOutputTokens int) (held bool, reject bool) {
-	if s == nil || user == nil || apiKey == nil || requestID == "" || s.tkHoldGatingDisabled() {
+	if s == nil || s.billingService == nil || user == nil || apiKey == nil || requestID == "" || s.tkHoldGatingDisabled() {
 		return false, false
 	}
 	multiplier := s.tkHoldRateMultiplier(ctx, user, apiKey)
@@ -133,7 +133,7 @@ func (s *OpenAIGatewayService) TkReserveTokenHold(ctx context.Context, requestID
 // image-output tokens; the tier-max image estimate still collapses the
 // concurrent-overdraft amplification there, but is not a proven bound.
 func (s *OpenAIGatewayService) TkReserveImageHold(ctx context.Context, requestID, model string, user *User, apiKey *APIKey, n int) (held bool, reject bool) {
-	if s == nil || user == nil || apiKey == nil || requestID == "" || s.tkHoldGatingDisabled() {
+	if s == nil || s.billingService == nil || user == nil || apiKey == nil || requestID == "" || s.tkHoldGatingDisabled() {
 		return false, false
 	}
 	multiplier := resolveImageRateMultiplier(apiKey, s.tkHoldRateMultiplier(ctx, user, apiKey))
@@ -193,7 +193,7 @@ func (s *OpenAIGatewayService) tkEstimateImageHoldAmount(ctx context.Context, mo
 // TkReserveVideoHold reserves the exact cost the video submit path will bill.
 // Same fail-open posture as TkReserveTokenHold.
 func (s *OpenAIGatewayService) TkReserveVideoHold(ctx context.Context, requestID, model string, user *User, apiKey *APIKey, seconds int64, resolution string, opts *VideoBillingOptions) (held bool, reject bool) {
-	if s == nil || user == nil || apiKey == nil || requestID == "" || s.tkHoldGatingDisabled() {
+	if s == nil || s.billingService == nil || user == nil || apiKey == nil || requestID == "" || s.tkHoldGatingDisabled() {
 		return false, false
 	}
 	baseMultiplier := s.tkHoldRateMultiplier(ctx, user, apiKey)

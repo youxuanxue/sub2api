@@ -254,6 +254,23 @@ func TestTkReserveVideoHold_UsesChannelResolutionTier(t *testing.T) {
 	}
 }
 
+func TestTkReserveTokenHold_NilBillingServiceFailsOpen(t *testing.T) {
+	s := &OpenAIGatewayService{}
+	held, reject := s.TkReserveTokenHold(
+		context.Background(),
+		"generated:nil-billing",
+		"gpt-5.4",
+		"",
+		&User{ID: 1},
+		&APIKey{ID: 2},
+		32,
+		256,
+	)
+	if held || reject {
+		t.Fatalf("nil billingService must fail open: held=%v reject=%v", held, reject)
+	}
+}
+
 func TestMaxFloat(t *testing.T) {
 	cases := []struct {
 		in   []float64
