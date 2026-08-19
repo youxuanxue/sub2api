@@ -209,6 +209,9 @@ class DeployStage0WorkflowTest(unittest.TestCase):
             '--verified-existing-image "$VERIFIED_EXISTING_WORKER_IMAGE"',
             pre_mutation,
         )
+        self.assertIn("ops/qa/qa_bundle_release_surface.py", pre_mutation)
+        self.assertIn("--surface-json", pre_mutation)
+        self.assertIn("fail closed to target Worker + canary", pre_mutation)
 
     def test_bundle_infrastructure_is_ready_before_app_image_swap(self) -> None:
         deploy = job_block("deploy")

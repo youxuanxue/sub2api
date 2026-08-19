@@ -39,9 +39,12 @@ REQUIRED = {
         "prod_fallback: forbidden",
         "pause_capture: false",
         "resolved_worker_image",
+        "qa_bundle_release_surface.py",
         "legacy_rollback",
         "bundle_runtime_contract: phase3_v1",
         "当前 release tree 的 Phase 3 runners",
+        "按 resolver 的",
+        "`run_canary`",
     ),
     "ops/qa/README.md": (
         "only target lifecycle owner",
@@ -56,12 +59,21 @@ REQUIRED = {
         '"mode": "legacy_rollback"',
         '"worker_source": "verified_live_worker"',
         'IMAGE_REPOSITORY = "ghcr.io/youxuanxue/sub2api"',
+        "worker_surface_changed is False",
+    ),
+    "ops/qa/qa_bundle_release_surface.py": (
+        "WORKER_SURFACE_PATHS",
+        "PUBLISHER_SURFACE_PATHS",
+        "backend/internal/observability/qa/bundle/",
+        "ops/stage0/run-qa-bundle-canary-via-ssm.sh",
     ),
     ".github/workflows/deploy-stage0.yml": (
         "ops/qa/resolve_qa_bundle_worker_image.py",
+        "ops/qa/qa_bundle_release_surface.py",
         "steps.qa_infra.outputs.resolved_worker_image",
         "if: steps.qa_infra.outputs.mode == 'legacy_rollback'",
         "QA Phase 3 degraded",
+        "--surface-json",
     ),
     "docs/deploy/aws-us-openai-gateway-deployment.md": (
         "tokenkey-qa-maintenance.sh",
@@ -169,6 +181,7 @@ FORBIDDEN_TEXT = {
         "| export scratch |",
         "boundary orphan cleanup",
         "maintenance 过渡清理",
+        "并执行 post-deploy Bundle canary",
     ),
     "docs/approved/design-qa-phase2-archive-closeout.md": (
         "--qa-cutover-provision-only",
@@ -623,6 +636,16 @@ def self_test() -> int:
         if not any("aws-us-openai-gateway-deployment.md" in item for item in scan(fixture)):
             print("self-test failed to detect the retired deployment-guide owner")
             return 1
+        shutil.copy2(ROOT / "docs/deploy/aws-us-openai-gateway-deployment.md", deploy_doc)
+        design = fixture / "docs/approved/design-prod-qa-24h-s3-lifecycle.md"
+        design.write_text(
+            design.read_text(encoding="utf-8") + "\n并执行 post-deploy Bundle canary\n",
+            encoding="utf-8",
+        )
+        if not any("并执行 post-deploy Bundle canary" in item for item in scan(fixture)):
+            print("self-test failed to detect unconditional phase3 canary contract")
+            return 1
+        shutil.copy2(ROOT / "docs/approved/design-prod-qa-24h-s3-lifecycle.md", design)
         for rel, marker, label in (
             (
                 "backend/internal/server/routes/user_tk_routes.go",

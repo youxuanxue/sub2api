@@ -3,7 +3,7 @@ title: Prod-only QA S3 用户面与小时归档生命周期
 status: approved
 approved_by: "user (conversation approvals, 2026-08-05 through 2026-08-17; S3-only user surface, capture-sealed archive-gated hourly DROP, fail-closed single maintenance owner, no automatic emergency deletion, and PR #1688 Bundle bootstrap/app rollback contract)"
 approved_at: 2026-08-05
-last_reviewed: 2026-08-17
+last_reviewed: 2026-08-19
 created: 2026-08-05
 authors: [agent]
 risk: high
@@ -556,7 +556,11 @@ tree 的 `ops/qa/deploy_rollout.yaml` 显式声明 `bundle_runtime_contract: pha
 下限猜测。prod deploy 只调用一个确定性 resolver，由它输出 `mode`、唯一 `resolved_worker_image`、
 `worker_source`、`run_canary` 与 `host_runtime_mode`：
 
-1. 目标 release tree 声明受支持 contract 时，`mode=phase3`，Worker 使用同一目标 release image；
+1. 目标 release tree 声明受支持 contract 时，`mode=phase3`。app image 与 Worker 是两个发布生命周期：若
+   read-only discovery 已证明 live Worker 是本仓库 immutable release tag，且 `qa_bundle_release_surface.py`
+   判定相对目标 tag 的 Worker 表面无 diff，则复用 live Worker、不滚动 Fargate；否则 Worker 使用目标
+   release image。canary 只在 Worker 将滚动、app 侧 Bundle publisher/canary 表面有 diff、或表面分类失败
+   （fail closed）时执行；gateway-only 发版不得为了同一个 tag 再付一次 Fargate pull 和 24 小时 raw-S3 canary；
 2. contract 缺失时，`mode=legacy_rollback`，只接受完整 read-only readiness verifier 已证明正在运行的本仓库
    immutable release tag/digest；未知或 malformed contract 一律 fail closed；
 3. 没有 verified live Worker 的 legacy rollback 必须在 CloudFormation/app mutation 前失败；
@@ -566,8 +570,8 @@ tree 的 `ops/qa/deploy_rollout.yaml` 显式声明 `bundle_runtime_contract: pha
    Worker image/source、mode 与 host runtime mode。
 
 回滚到 Phase 3 之前的 app 只用于恢复 gateway 服务，不撤销已经建立的 Bundle 基础设施，也不把 Worker
-降级到不支持其命令的 binary。`mode=phase3` checkout/sync target-tag host runners 并执行 post-deploy Bundle
-canary；`mode=legacy_rollback` 在 app switch 前用当前 release tree 的 Phase 3 runners 收敛 host：maintenance
+降级到不支持其命令的 binary。`mode=phase3` checkout/sync target-tag host runners，并按 resolver 的
+`run_canary` 决定是否执行 post-deploy Bundle canary；`mode=legacy_rollback` 在 app switch 前用当前 release tree 的 Phase 3 runners 收敛 host：maintenance
 enabled，boundary disabled/inactive；不得安装 legacy target runner，也不得保留未经证明的 live runner 状态。
 此模式跳过 canary，标记 `QA Phase 3 degraded`，archive 可继续而 DROP 明确暂停；durable activation receipt 不变，
 恢复 compatible Phase 3 app 后才以 boundary `auto` 恢复唯一 owner。
