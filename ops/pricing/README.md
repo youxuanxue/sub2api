@@ -216,9 +216,10 @@ official SKU stay priced-only. Canonical wording:
 `docs/global/agent-reference.md` § Model serving SSOT.
 
 **Edge empty mapping is expected.** Traffic is `user → prod → edge relay → upstream`.
-Prod chooses the model and target edge; edge OAuth/native accounts therefore keep
-`credentials.model_mapping` empty (platform-level passthrough). Do not bulk-copy prod
-floors to edges or treat edge empty mappings as violations in routine gates. Add
+Do not bulk-copy prod floors to edges or treat edge empty mappings as violations
+in routine gates. Empty Antigravity accounts serve the compiled default plus
+`tk_account_model_mapping_runtime` overlay (`sync-runtime` hot-adds models there).
+Non-empty mappings stay authoritative and still need `apply-accounts`. Add
 `--include-edges` only for deliberate edge troubleshooting — not for release sign-off.
 Canonical wording: `docs/global/agent-reference.md` § Model serving SSOT.
 
