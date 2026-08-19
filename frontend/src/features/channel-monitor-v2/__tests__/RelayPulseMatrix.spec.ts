@@ -174,3 +174,41 @@ describe('RelayPulseMatrix axis range', () => {
     expect(wrapper.findAll('.pulse-cell')).toHaveLength(5)
   })
 })
+
+describe('RelayPulseMatrix platform boundary', () => {
+  const coverage = {
+    requested_start: '2026-08-01T00:00:00Z',
+    requested_end: '2026-08-01T00:01:00Z',
+    coverage_start: '2026-08-01T00:00:00Z',
+    data_through: '2026-08-01T00:01:00Z',
+    computed_at: '2026-08-01T00:01:00Z',
+    aggregation_lag_seconds: 0,
+    coverage_complete: true,
+    bucket_seconds: 60,
+  }
+
+  const row = {
+    platform: 'antigravity',
+    model: 'vertex-model',
+    metrics: metrics(10),
+    health,
+    buckets: [],
+  }
+
+  it('shows Google on public monitor rows', () => {
+    const wrapper = mount(RelayPulseMatrix, {
+      props: { rows: [row], coverage, healthMode: 'overall', publicPlatformNames: true },
+    })
+
+    expect(wrapper.find('.dimension-cell').text()).toContain('Google')
+    expect(wrapper.find('.dimension-cell').text()).not.toContain('antigravity')
+  })
+
+  it('keeps raw source names by default for admin diagnostics', () => {
+    const wrapper = mount(RelayPulseMatrix, {
+      props: { rows: [row], coverage, healthMode: 'overall' },
+    })
+
+    expect(wrapper.find('.dimension-cell').text()).toContain('antigravity')
+  })
+})

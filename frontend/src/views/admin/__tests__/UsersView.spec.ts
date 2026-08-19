@@ -8,12 +8,14 @@ const {
   listUsers,
   getAllGroups,
   getBatchUsersUsage,
+  getPlatformQuotas,
   listEnabledDefinitions,
   getBatchUserAttributes
 } = vi.hoisted(() => ({
   listUsers: vi.fn(),
   getAllGroups: vi.fn(),
   getBatchUsersUsage: vi.fn(),
+  getPlatformQuotas: vi.fn(),
   listEnabledDefinitions: vi.fn(),
   getBatchUserAttributes: vi.fn()
 }))
@@ -23,7 +25,8 @@ vi.mock('@/api/admin', () => ({
     users: {
       list: listUsers,
       toggleStatus: vi.fn(),
-      delete: vi.fn()
+      delete: vi.fn(),
+      getPlatformQuotas
     },
     groups: {
       getAll: getAllGroups
@@ -98,6 +101,9 @@ const DataTableStub = {
       </template>
       <div v-for="row in data" :key="row.id">
         <slot name="cell-last_used_at" :value="row.last_used_at" :row="row" />
+        <div :data-test="'usage-google-' + row.id">
+          <slot name="cell-usage_google" :row="row" />
+        </div>
       </div>
     </div>
   `
@@ -127,6 +133,7 @@ describe('admin UsersView', () => {
     listUsers.mockReset()
     getAllGroups.mockReset()
     getBatchUsersUsage.mockReset()
+    getPlatformQuotas.mockReset()
     listEnabledDefinitions.mockReset()
     getBatchUserAttributes.mockReset()
 
@@ -139,12 +146,73 @@ describe('admin UsersView', () => {
     })
     getAllGroups.mockResolvedValue([])
     getBatchUsersUsage.mockResolvedValue({ stats: {} })
+    getPlatformQuotas.mockResolvedValue([])
     listEnabledDefinitions.mockResolvedValue([])
     getBatchUserAttributes.mockResolvedValue({ values: {} })
   })
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('uses one Google usage column instead of source-channel columns', async () => {
+    vi.useFakeTimers()
+    localStorage.setItem('user-column-settings-version', '4')
+    localStorage.setItem('user-hidden-columns', JSON.stringify([]))
+    getBatchUsersUsage.mockResolvedValue({
+      stats: {
+        42: {
+          user_id: 42,
+          today_actual_cost: 4,
+          total_actual_cost: 6,
+          by_platform: [
+            { platform: 'gemini', today_actual_cost: 1, total_actual_cost: 2 },
+            { platform: 'antigravity', today_actual_cost: 3, total_actual_cost: 4 }
+          ]
+        }
+      }
+    })
+
+    const wrapper = mount(UsersView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: true,
+          ConfirmDialog: true,
+          EmptyState: true,
+          GroupBadge: true,
+          Select: true,
+          UserAttributesConfigModal: true,
+          UserConcurrencyCell: true,
+          UserCreateModal: true,
+          UserEditModal: true,
+          BulkEditUserModal: BulkEditUserModalStub,
+          UserPlatformQuotaModal: true,
+          UserApiKeysModal: true,
+          UserAllowedGroupsModal: true,
+          UserBalanceModal: true,
+          UserBalanceHistoryModal: true,
+          GroupReplaceModal: true,
+          Icon: true,
+          Teleport: true
+        }
+      }
+    })
+
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(50)
+    await flushPromises()
+
+    const columns = wrapper.get('[data-test="columns"]').text().split(',')
+    expect(columns).toContain('usage_google')
+    expect(columns).not.toContain('usage_gemini')
+    expect(columns).not.toContain('usage_antigravity')
+    expect(wrapper.get('[data-test="usage-google-42"]').text()).toContain('$4.0000')
+    expect(wrapper.get('[data-test="usage-google-42"]').text()).toContain('$6.0000')
   })
 
   it('shows active, used, and created activity columns in order and requests last_used_at sort', async () => {

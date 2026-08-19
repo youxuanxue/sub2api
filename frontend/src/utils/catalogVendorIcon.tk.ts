@@ -11,13 +11,13 @@ export function resolveCatalogVendorIconKey(vendor: string): string | null {
   if (
     raw === 'google'
     || raw === 'gemini'
+    || raw === 'antigravity'
     || raw === 'vertex_ai'
     || raw.startsWith('vertex_ai')
     || raw.includes('vertex')
   ) {
     return 'gemini'
   }
-  if (raw === 'antigravity') return 'antigravity'
   if (raw === 'xai' || raw.includes('grok')) return 'xai'
   if (raw === 'volcengine' || raw.includes('doubao') || raw.includes('bytedance')) return 'doubao'
   if (raw.includes('qwen') || raw.includes('alibaba') || raw.includes('dashscope')) return 'qwen'
@@ -47,6 +47,8 @@ export function resolveCatalogVendorIconKey(vendor: string): string | null {
 /** Same grouping rule as ModelMarketplaceCatalog.marketplaceVendor. */
 export function normalizeCatalogVendorSlug(vendor: string): string {
   const trimmed = vendor.trim() || 'Unknown'
+  const normalized = trimmed.toLowerCase()
+  if (normalized === 'gemini' || normalized === 'antigravity') return 'google'
   return trimmed === 'vertex_ai' || trimmed.startsWith('vertex_ai-') ? 'vertex_ai' : trimmed
 }
 
@@ -59,7 +61,6 @@ export function formatCatalogVendorLabel(vendor: string): string {
     volcengine: 'VolcEngine',
     xai: 'xAI',
     google: 'Google',
-    gemini: 'Gemini',
     qwen: 'Qwen',
     deepseek: 'DeepSeek',
     zhipu: 'Zhipu',
@@ -71,7 +72,6 @@ export function formatCatalogVendorLabel(vendor: string): string {
     hunyuan: 'Hunyuan',
     midjourney: 'Midjourney',
     perplexity: 'Perplexity',
-    antigravity: 'Antigravity',
     wenxin: 'Qianfan',
     qianfan: 'Qianfan',
     baidu: 'Qianfan',

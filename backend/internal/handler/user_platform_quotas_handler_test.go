@@ -90,6 +90,44 @@ func TestGetMyPlatformQuotas_D14_LazyZeroForExpiredWindow(t *testing.T) {
 	}
 }
 
+func TestGetMyPlatformQuotas_MergesGoogleSourcesIntoPublicGoogle(t *testing.T) {
+	dailyGemini := 10.0
+	dailyAntigravity := 20.0
+	records := []service.UserPlatformQuotaRecord{
+		{UserID: 42, Platform: "gemini", DailyLimitUSD: &dailyGemini, DailyUsageUSD: 3},
+		{UserID: 42, Platform: "antigravity", DailyLimitUSD: &dailyAntigravity, DailyUsageUSD: 4},
+	}
+	h := &UserHandler{userPlatformQuotaRepo: &fakeQuotaRepoForUserHandler{records: records}}
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/user/platform-quotas", nil)
+	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 42})
+	h.GetMyPlatformQuotas(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. body: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Data struct {
+			PlatformQuotas []map[string]any `json:"platform_quotas"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal error: %v, body: %s", err, w.Body.String())
+	}
+	if len(body.Data.PlatformQuotas) != 1 {
+		t.Fatalf("expected one public quota, got %d: %s", len(body.Data.PlatformQuotas), w.Body.String())
+	}
+	quota := body.Data.PlatformQuotas[0]
+	if quota["platform"] != "google" {
+		t.Fatalf("expected public platform google, got %#v", quota["platform"])
+	}
+	if quota["daily_limit_usd"] != 30.0 || quota["daily_usage_usd"] != 7.0 {
+		t.Fatalf("expected merged daily quota 7/30, got %#v", quota)
+	}
+}
+
 func TestGetMyPlatformQuotas_NilRepo_Returns200Empty(t *testing.T) {
 	h := &UserHandler{userPlatformQuotaRepo: nil}
 	gin.SetMode(gin.TestMode)

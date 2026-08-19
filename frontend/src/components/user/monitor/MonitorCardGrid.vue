@@ -42,6 +42,7 @@
         :window="window"
         :availability-value="resolveAvailability(item)"
         :countdown-seconds="countdownSeconds"
+        :public-platform-names="publicPlatformNames"
         @click="emit('cardClick', item)"
       />
     </div>
@@ -50,25 +51,27 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import type { UserMonitorView, UserMonitorDetail } from '@/api/channelMonitor'
+import type { UserMonitorDetail } from '@/api/channelMonitor'
+import type { PublicUserMonitorView } from '@/utils/publicPlatforms'
 import EmptyState from '@/components/common/EmptyState.vue'
 import MonitorCard from './MonitorCard.vue'
 
 const props = defineProps<{
-  items: UserMonitorView[]
+  items: PublicUserMonitorView[]
   window: '7d' | '15d' | '30d'
   countdownSeconds: number
   loading: boolean
   detailCache: Record<number, UserMonitorDetail>
+  publicPlatformNames?: boolean
 }>()
 
 const emit = defineEmits<{
-  (e: 'cardClick', item: UserMonitorView): void
+  (e: 'cardClick', item: PublicUserMonitorView): void
 }>()
 
 const { t } = useI18n()
 
-function resolveAvailability(item: UserMonitorView): number | null {
+function resolveAvailability(item: PublicUserMonitorView): number | null {
   if (props.window === '7d') {
     return item.availability_7d ?? null
   }

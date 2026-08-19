@@ -6,6 +6,7 @@ import { createPinia } from 'pinia'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import AvailableChannelsTable from '../AvailableChannelsTable.vue'
+import SupportedModelChip from '../SupportedModelChip.vue'
 import type { UserAvailableChannel } from '@/api/channels'
 
 vi.mock('vue-i18n', async () => {
@@ -110,6 +111,40 @@ function mountTable(props = {}) {
 }
 
 describe('AvailableChannelsTable responsive surfaces', () => {
+  it('hides Gemini and Antigravity source labels on the public surface', () => {
+    const wrapper = mountTable({
+      rows: [
+        {
+          name: 'Google channel',
+          description: '',
+          platforms: [
+            { platform: 'gemini', groups: [], supported_models: [] },
+            { platform: 'antigravity', groups: [], supported_models: [] },
+          ],
+        },
+      ],
+    })
+
+    expect(wrapper.text()).toContain('Google')
+    expect(wrapper.text()).not.toContain('gemini')
+    expect(wrapper.text()).not.toContain('antigravity')
+  })
+
+  it('normalizes source labels in supported model chips', () => {
+    const wrapper = mount(SupportedModelChip, {
+      props: {
+        model: { name: 'gemini-2.5-pro', platform: 'antigravity', pricing: null },
+        noPricingLabel: 'No pricing',
+      },
+      global: {
+        stubs: { PlatformIcon: { template: '<i data-platform-icon />' } },
+      },
+    })
+
+    expect(wrapper.text()).toContain('Google')
+    expect(wrapper.text()).not.toContain('antigravity')
+  })
+
   it('keeps the five-column table as the desktop-only surface', () => {
     const wrapper = mountTable()
     const desktop = wrapper.get('[data-testid="desktop-channels"]')
@@ -160,7 +195,7 @@ describe('AvailableChannelsTable responsive surfaces', () => {
     const mobile = wrapper.get('[data-testid="mobile-channels"]')
 
     expect(mobile.text()).toContain('Fallback channel')
-    expect(mobile.text()).toContain('openai')
+    expect(mobile.text()).toContain('OpenAI')
     expect(mobile.text()).toContain('No models')
     expect(mobile.findAll('dd')[0].text()).toBe('-')
   })

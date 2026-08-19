@@ -8,20 +8,20 @@
     <div class="flex items-start gap-3">
       <span
         class="w-9 h-9 rounded-xl ring-1 ring-black/5 dark:ring-white/10 grid place-items-center flex-shrink-0"
-        :class="[providerGradient(item.provider), providerTintClass]"
+        :class="[providerGradient(displayProvider), providerTintClass]"
       >
-        <ProviderIcon :provider="item.provider" :size="20" />
+        <ProviderIcon :provider="displayProvider" :size="20" />
       </span>
       <div class="flex-1 min-w-0">
         <div class="text-base font-semibold truncate text-gray-900 dark:text-gray-100">
-          {{ item.name }}
+          {{ displayName }}
         </div>
         <div class="mt-0.5 flex items-center gap-1.5 min-w-0">
           <span
             class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium flex-shrink-0"
-            :class="providerBadgeClass(item.provider)"
+            :class="providerBadgeClass(displayProvider)"
           >
-            {{ providerLabel(item.provider) }}
+            {{ displayProviderLabel }}
           </span>
           <span class="font-mono text-xs truncate text-gray-500 dark:text-gray-400">
             {{ item.primary_model }}
@@ -76,10 +76,8 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { UserMonitorView } from '@/api/channelMonitor'
-import {
-  useChannelMonitorFormat,
-  providerGradient,
-} from '@/composables/useChannelMonitorFormat'
+import { useChannelMonitorFormat, providerGradient } from '@/composables/useChannelMonitorFormat'
+import { getPublicPlatformLabel, getPublicPlatformStyleKey } from '@/utils/publicPlatforms'
 import ProviderIcon from './ProviderIcon.vue'
 import MonitorMetricPair from './MonitorMetricPair.vue'
 import MonitorAvailabilityRow from './MonitorAvailabilityRow.vue'
@@ -97,6 +95,7 @@ const props = defineProps<{
   window: '7d' | '15d' | '30d'
   availabilityValue: number | null
   countdownSeconds: number
+  publicPlatformNames?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -113,7 +112,24 @@ const {
 } = useChannelMonitorFormat()
 
 const providerTintClass = computed(() =>
-  PROVIDER_TINT[props.item.provider] ?? 'text-gray-500 dark:text-gray-300'
+  PROVIDER_TINT[displayProvider.value] ?? 'text-gray-500 dark:text-gray-300'
+)
+
+const displayProvider = computed(() =>
+  props.publicPlatformNames
+    ? getPublicPlatformStyleKey(props.item.provider)
+    : props.item.provider,
+)
+const displayProviderLabel = computed(() =>
+  props.publicPlatformNames
+    ? getPublicPlatformLabel(props.item.provider)
+    : providerLabel(props.item.provider),
+)
+
+const displayName = computed(() =>
+  props.publicPlatformNames && getPublicPlatformLabel(props.item.provider) === 'Google'
+    ? 'Google'
+    : props.item.name,
 )
 
 const availabilityLabel = computed(() => {

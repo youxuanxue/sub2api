@@ -285,6 +285,35 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 		}
 	}
 
+	return r.fillDashboardPlatformStatsAggregated(ctx, stats, todayUTC)
+}
+
+func (r *usageLogRepository) fillDashboardPlatformStatsAggregated(ctx context.Context, stats *DashboardStats, today time.Time) error {
+	query := `
+		SELECT
+			platform,
+			COALESCE(SUM(successful_requests), 0),
+			COALESCE(SUM(successful_input_tokens + successful_output_tokens + successful_cache_creation_tokens + successful_cache_read_tokens), 0),
+			COALESCE(SUM(actual_cost), 0),
+			COALESCE(SUM(successful_requests) FILTER (WHERE bucket_date = $1::date), 0),
+			COALESCE(SUM(successful_input_tokens + successful_output_tokens + successful_cache_creation_tokens + successful_cache_read_tokens) FILTER (WHERE bucket_date = $1::date), 0),
+			COALESCE(SUM(actual_cost) FILTER (WHERE bucket_date = $1::date), 0)
+		FROM usage_dashboard_user_platform_daily
+		WHERE platform <> ''
+		GROUP BY platform
+		ORDER BY 4 DESC
+	`
+	rows, err := r.sql.QueryContext(ctx, query, today)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+
+	items, err := scanPlatformDashboardStats(rows)
+	if err != nil {
+		return err
+	}
+	stats.ByPlatform = usagestats.NormalizePlatformDashboardStats(items)
 	return nil
 }
 
@@ -387,7 +416,65 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 		return err
 	}
 
+	return r.fillDashboardPlatformStatsFromUsageLogs(ctx, stats, startUTC, endUTC, todayUTC, todayEnd)
+}
+
+func (r *usageLogRepository) fillDashboardPlatformStatsFromUsageLogs(ctx context.Context, stats *DashboardStats, start, end, todayStart, todayEnd time.Time) error {
+	query := `
+		SELECT
+			` + usageLogEffectivePlatformExpr + ` AS platform,
+			COUNT(*) FILTER (WHERE ul.created_at >= $1 AND ul.created_at < $2),
+			COALESCE(SUM(ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens) FILTER (WHERE ul.created_at >= $1 AND ul.created_at < $2), 0),
+			COALESCE(SUM(ul.actual_cost) FILTER (WHERE ul.created_at >= $1 AND ul.created_at < $2), 0),
+			COUNT(*) FILTER (WHERE ul.created_at >= $3 AND ul.created_at < $4),
+			COALESCE(SUM(ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens) FILTER (WHERE ul.created_at >= $3 AND ul.created_at < $4), 0),
+			COALESCE(SUM(ul.actual_cost) FILTER (WHERE ul.created_at >= $3 AND ul.created_at < $4), 0)
+		FROM usage_logs ul
+		LEFT JOIN groups g ON g.id = ul.group_id
+		LEFT JOIN accounts a ON a.id = ul.account_id
+		WHERE ul.created_at >= LEAST($1, $3)
+		  AND ul.created_at < GREATEST($2, $4)
+		  AND ` + usageLogSuccessFilterUL + `
+		GROUP BY ` + usageLogEffectivePlatformExpr + `
+		HAVING ` + usageLogEffectivePlatformExpr + ` IS NOT NULL
+		   AND ` + usageLogEffectivePlatformExpr + ` <> ''
+		ORDER BY 4 DESC
+	`
+	rows, err := r.sql.QueryContext(ctx, query, start, end, todayStart, todayEnd)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+
+	items, err := scanPlatformDashboardStats(rows)
+	if err != nil {
+		return err
+	}
+	stats.ByPlatform = usagestats.NormalizePlatformDashboardStats(items)
 	return nil
+}
+
+func scanPlatformDashboardStats(rows *sql.Rows) ([]PlatformDashboardStats, error) {
+	items := make([]PlatformDashboardStats, 0)
+	for rows.Next() {
+		var item PlatformDashboardStats
+		if err := rows.Scan(
+			&item.Platform,
+			&item.TotalRequests,
+			&item.TotalTokens,
+			&item.TotalActualCost,
+			&item.TodayRequests,
+			&item.TodayTokens,
+			&item.TodayActualCost,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 // UserDashboardStats 用户仪表盘统计
@@ -543,6 +630,7 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	stats.ByPlatform = usagestats.NormalizePlatformDashboardStats(stats.ByPlatform)
 
 	return stats, nil
 }

@@ -555,7 +555,7 @@
             <select v-model.number="form.apiKeyId" class="input" :disabled="loadingKeys">
               <option :value="0">{{ loadingKeys ? t('batchImage.create.loadingKeys') : t('batchImage.create.selectKeyPlaceholder') }}</option>
               <option v-for="key in geminiApiKeys" :key="key.id" :value="key.id">
-                {{ key.name }} · {{ key.group?.name || 'Gemini' }}
+                {{ key.name }} · {{ key.group?.name || 'Google' }}
               </option>
             </select>
             <p v-if="!loadingKeys && geminiApiKeys.length === 0" class="input-hint text-amber-600 dark:text-amber-400">
@@ -1064,7 +1064,7 @@ function referenceImageLimitForModel(model: string) {
 
 const agentInstruction = computed(() => `---
 name: sub2api-batch-image
-description: 当用户希望用 Gemini/Vertex 批量生成图片、批量跑提示词、下载批量生图结果、重试失败图片时使用。
+description: 当用户希望用 Google/Vertex 批量生成图片、批量跑提示词、下载批量生图结果、重试失败图片时使用。
 ---
 
 你是 Codex 中的批量生图执行 Agent。用户不需要手动填写页面表单；你应从当前聊天、用户给的文件、目录或上下文中整理任务名称、prompt 列表和输出目录，只有缺少关键决策时才向用户提问。

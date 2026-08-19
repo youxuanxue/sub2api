@@ -1916,6 +1916,16 @@ export interface RedeemCodeRequest {
 
 // ==================== Dashboard & Statistics ====================
 
+export interface PlatformDashboardStats {
+  platform: string
+  total_requests: number
+  total_tokens: number
+  total_actual_cost: number
+  today_requests: number
+  today_tokens: number
+  today_actual_cost: number
+}
+
 export interface DashboardStats {
   // 用户统计
   total_users: number
@@ -1966,6 +1976,7 @@ export interface DashboardStats {
   // 性能指标
   rpm: number // 近5分钟平均每分钟请求数
   tpm: number // 近5分钟平均每分钟Token数
+  by_platform?: PlatformDashboardStats[]
 }
 
 export interface UsageStatsResponse {

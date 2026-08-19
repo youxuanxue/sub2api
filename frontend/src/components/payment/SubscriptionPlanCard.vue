@@ -123,27 +123,28 @@ import {
   platformIconClass,
   platformButtonClass,
   platformDiscountClass,
-  platformLabel,
 } from '@/utils/platformColors'
+import { getPublicPlatformLabel, getPublicPlatformStyleKey } from '@/utils/publicPlatforms'
 
 const props = defineProps<{ plan: SubscriptionPlan; activeSubscriptions?: UserSubscription[] }>()
 const emit = defineEmits<{ select: [plan: SubscriptionPlan] }>()
 const { t } = useI18n()
 
 const platform = computed(() => props.plan.group_platform || '')
+const stylePlatform = computed(() => getPublicPlatformStyleKey(platform.value))
 const isRenewal = computed(() =>
   props.activeSubscriptions?.some(s => s.group_id === props.plan.group_id && s.status === STATUS_ACTIVE) ?? false
 )
 
 // Derived color classes from central config
-const accentClass = computed(() => platformAccentBarClass(platform.value))
-const borderClass = computed(() => platformBorderClass(platform.value))
-const badgeLightClass = computed(() => platformBadgeLightClass(platform.value))
-const textClass = computed(() => platformTextClass(platform.value))
-const iconClass = computed(() => platformIconClass(platform.value))
-const btnClass = computed(() => platformButtonClass(platform.value))
-const discountClass = computed(() => platformDiscountClass(platform.value))
-const pLabel = computed(() => platformLabel(platform.value))
+const accentClass = computed(() => platformAccentBarClass(stylePlatform.value))
+const borderClass = computed(() => platformBorderClass(stylePlatform.value))
+const badgeLightClass = computed(() => platformBadgeLightClass(stylePlatform.value))
+const textClass = computed(() => platformTextClass(stylePlatform.value))
+const iconClass = computed(() => platformIconClass(stylePlatform.value))
+const btnClass = computed(() => platformButtonClass(stylePlatform.value))
+const discountClass = computed(() => platformDiscountClass(stylePlatform.value))
+const pLabel = computed(() => getPublicPlatformLabel(platform.value))
 
 const discountText = computed(() => {
   if (!props.plan.original_price || props.plan.original_price <= 0) return ''

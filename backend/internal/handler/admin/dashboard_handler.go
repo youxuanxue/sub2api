@@ -154,6 +154,9 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 		"hourly_active_users": stats.HourlyActiveUsers,
 		"stats_updated_at":    stats.StatsUpdatedAt,
 		"stats_stale":         stats.StatsStale,
+
+		// 公开平台统计（Gemini/Antigravity 统一归入 Google）
+		"by_platform": stats.ByPlatform,
 	})
 }
 

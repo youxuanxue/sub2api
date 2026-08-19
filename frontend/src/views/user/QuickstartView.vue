@@ -123,7 +123,7 @@
                       <GroupBadge
                         v-else-if="selectedKey.group"
                         :name="selectedKey.group.name"
-                        :platform="selectedKey.group.platform"
+                        :platform="getPublicPlatformStyleKey(selectedKey.group.platform) as GroupPlatform"
                         :subscription-type="selectedKey.group.subscription_type"
                         :rate-multiplier="selectedKey.group.rate_multiplier"
                         hide-rate-value
@@ -256,7 +256,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import * as keysAPI from '@/api/keys'
-import type { ApiKey } from '@/types'
+import type { ApiKey, GroupPlatform } from '@/types'
 import { filterUserSelectableApiKeys } from '@/utils/reservedProbeKey.tk'
 import { isUniversalKey } from '@/utils/studioUniversalKey.tk'
 import {
@@ -266,6 +266,7 @@ import {
 } from '@/utils/quickstartKeyMatch.tk'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
+import { getPublicPlatformStyleKey } from '@/utils/publicPlatforms'
 import Icon from '@/components/icons/Icon.vue'
 import QuickstartClientPicker, { type QuickstartClientGroup } from '@/components/keys/QuickstartClientPicker.vue'
 import QuickstartConnectionHealth from '@/components/keys/QuickstartConnectionHealth.vue'

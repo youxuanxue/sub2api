@@ -14,6 +14,12 @@ type GroupUsageRollupRepository interface {
 	SyncGroupUsageRollups(ctx context.Context, todayStart time.Time) error
 }
 
+// UserPlatformSuccessBackfillRepository repairs success metrics added after the
+// original user/platform daily rollup was deployed.
+type UserPlatformSuccessBackfillRepository interface {
+	BackfillUserPlatformDaily(ctx context.Context) error
+}
+
 // GroupUsageTimezoneName 返回服务端配置的时区名称。
 func GroupUsageTimezoneName() string {
 	return appTimezone.Location().String()

@@ -3,6 +3,7 @@
 package quotaview
 
 import (
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
@@ -33,6 +34,105 @@ func LazyZeroQuotaForResponse(r service.UserPlatformQuotaRecord, now time.Time, 
 		out["monthly_window_start"] = monthly.windowStart
 	}
 	return out
+}
+
+// PublicQuotaRecords returns the customer-facing quota view. Gemini and
+// Antigravity are independent enforcement buckets internally, but users see
+// one Google bucket whose usage/capacity is the sum of the two buckets.
+// Admin handlers must continue using LazyZeroQuotaForResponse directly so
+// operators can diagnose the individual source buckets.
+func PublicQuotaRecords(records []service.UserPlatformQuotaRecord, now time.Time) []map[string]any {
+	out := make([]map[string]any, 0, len(records))
+	index := make(map[string]int, len(records))
+	for _, record := range records {
+		view := LazyZeroQuotaForResponse(record, now, false)
+		platform := publicPlatform(record.Platform)
+		view["platform"] = platform
+		if existingIndex, ok := index[platform]; ok {
+			mergeQuotaView(out[existingIndex], view)
+			continue
+		}
+		index[platform] = len(out)
+		out = append(out, view)
+	}
+	return out
+}
+
+func publicPlatform(platform string) string {
+	switch strings.ToLower(strings.TrimSpace(platform)) {
+	case "gemini", "antigravity", "google":
+		return "google"
+	default:
+		return platform
+	}
+}
+
+func mergeQuotaView(dst, src map[string]any) {
+	for _, field := range []string{
+		"daily_usage_usd", "weekly_usage_usd", "monthly_usage_usd",
+	} {
+		dst[field] = numberValue(dst[field]) + numberValue(src[field])
+	}
+	for _, field := range []string{
+		"daily_limit_usd", "weekly_limit_usd", "monthly_limit_usd",
+	} {
+		// A nil limit means unlimited. The aggregate is unlimited whenever
+		// either internal source is unlimited; otherwise capacities add.
+		dstLimit, dstHasLimit := quotaNumber(dst[field])
+		srcLimit, srcHasLimit := quotaNumber(src[field])
+		if !dstHasLimit || !srcHasLimit {
+			dst[field] = nil
+			continue
+		}
+		dst[field] = dstLimit + srcLimit
+	}
+	for _, field := range []string{
+		"daily_window_resets_at", "weekly_window_resets_at", "monthly_window_resets_at",
+	} {
+		// A single reset timestamp is only meaningful when both buckets share
+		// the same window. Keep it for that common case; otherwise hide it.
+		dstReset, dstHasReset := quotaString(dst[field])
+		srcReset, srcHasReset := quotaString(src[field])
+		if !dstHasReset || !srcHasReset || dstReset != srcReset {
+			dst[field] = nil
+		}
+	}
+}
+
+func numberValue(value any) float64 {
+	if n, ok := value.(float64); ok {
+		return n
+	}
+	if n, ok := value.(*float64); ok && n != nil {
+		return *n
+	}
+	return 0
+}
+
+func quotaNumber(value any) (float64, bool) {
+	if value == nil {
+		return 0, false
+	}
+	if n, ok := value.(float64); ok {
+		return n, true
+	}
+	if n, ok := value.(*float64); ok && n != nil {
+		return *n, true
+	}
+	return 0, false
+}
+
+func quotaString(value any) (string, bool) {
+	if value == nil {
+		return "", false
+	}
+	if s, ok := value.(string); ok {
+		return s, true
+	}
+	if s, ok := value.(*string); ok && s != nil {
+		return *s, true
+	}
+	return "", false
 }
 
 type windowSlice struct {

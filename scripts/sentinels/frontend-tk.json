@@ -1940,6 +1940,27 @@
         "t('usage.avgDuration')"
       ],
       "rationale": "User and admin /usage summary cards share UsageStatsCards. The card must bind selected-range gateway transfer latency, not end-to-end average_duration_ms, or the page again shows 10s+ LLM time as if it were gateway delay."
+    },
+    {
+      "path": "frontend/src/utils/publicPlatforms.ts",
+      "must_contain": [
+        "export function normalizePublicPlatform(",
+        "export function getPublicPlatformLabel(",
+        "export function getPublicPlatformStyleKey(",
+        "export function normalizePlatformDashboardStats(",
+        "export function normalizePlatformUsage("
+      ],
+      "rationale": "Single frontend compatibility owner for the public platform taxonomy. Customer and business usage views must merge internal Gemini and Antigravity routing sources into Google; losing this module can restore source-specific labels during a staggered backend/frontend rollout even while all pages compile."
+    },
+    {
+      "path": "frontend/src/components/user/PlatformUsageCards.vue",
+      "must_contain": [
+        "normalizePlatformDashboardStats",
+        "getPublicPlatformLabel",
+        "data-testid=\"platform-usage-breakdown\"",
+        "quota.platform !== 'gemini' && quota.platform !== 'antigravity'"
+      ],
+      "rationale": "Shared per-platform usage presentation for both customer and admin dashboards. It consumes the public taxonomy owner and keeps raw source-specific quota channels out of customer-facing cards, so the two dashboards cannot drift back to separate platform state machines."
     }
   ]
 }
