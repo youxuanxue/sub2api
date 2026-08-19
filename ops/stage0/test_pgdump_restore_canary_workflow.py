@@ -65,7 +65,10 @@ class PgdumpRestoreCanaryWorkflowTest(unittest.TestCase):
         self.assertIn("pgdump_restore_canary_alert.py", decision_step["run"])
         delivery_step = restore["steps"][deliver]
         self.assertEqual(delivery_step["if"], "always()")
-        self.assertIn("edge_health_delivery.py", delivery_step["run"])
+        self.assertIn("pgdump_restore_canary_alert.py", delivery_step["run"])
+        self.assertIn("--deliver", delivery_step["run"])
+        self.assertIn("--key-file", delivery_step["run"])
+        self.assertNotIn("edge_health_delivery.py", delivery_step["run"])
         self.assertIn("TK_FEISHU_WEBHOOK_URL", str(delivery_step["env"]))
         self.assertNotIn("TK_FEISHU_WEBHOOK_URL", command)
 
