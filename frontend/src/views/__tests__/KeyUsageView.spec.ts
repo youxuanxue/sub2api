@@ -62,7 +62,7 @@ const messages: Record<string, string> = {
   'keyUsage.totalCacheCreation': 'Total Cache Creation',
   'keyUsage.totalCacheRead': 'Total Cache Read',
   'keyUsage.totalCost': 'Total Cost',
-  'keyUsage.avgDuration': 'Avg Duration',
+  'keyUsage.avgGatewayLatency': 'Gateway Latency',
   'keyUsage.querySuccess': 'Query successful',
   'keyUsage.queryFailed': 'Query failed',
   'keyUsage.queryFailedRetry': 'Query failed, please try again later',
@@ -141,6 +141,8 @@ describe('KeyUsageView daily detail', () => {
             total_tokens: 340,
             actual_cost: 0.12,
           },
+          average_duration_ms: 13680,
+          average_gateway_latency_ms: 42,
           rpm: 0,
           tpm: 0,
         },
@@ -203,6 +205,9 @@ describe('KeyUsageView daily detail', () => {
     expect(text).toContain('30')
     expect(text).toContain('10')
     expect(text).toContain('$0.12')
+    expect(text).toContain('Gateway Latency')
+    expect(text).toContain('42 ms')
+    expect(text).not.toContain('13680 ms')
 
     wrapper.unmount()
   })

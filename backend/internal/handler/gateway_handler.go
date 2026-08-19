@@ -1708,9 +1708,10 @@ func (h *GatewayHandler) buildUsageData(ctx context.Context, apiKeyID int64) gin
 			"cost":                  dashStats.TotalCost,
 			"actual_cost":           dashStats.TotalActualCost,
 		},
-		"average_duration_ms": dashStats.AverageDurationMs,
-		"rpm":                 dashStats.Rpm,
-		"tpm":                 dashStats.Tpm,
+		"average_duration_ms":        dashStats.AverageDurationMs,
+		"average_gateway_latency_ms": dashStats.AverageGatewayLatencyMs,
+		"rpm":                        dashStats.Rpm,
+		"tpm":                        dashStats.Tpm,
 	}
 }
 
