@@ -2,6 +2,8 @@
 -- billed-success metrics for dashboard platform cards. A single daily rollup
 -- row can contain both failed zero-cost placeholders and successful requests,
 -- so filtering the row by actual_cost is not sufficient.
+-- bluegreen-safe-destructive-ok: these additive columns use IF NOT EXISTS and
+-- DEFAULT 0, so old and new app binaries can read the same table during rollout.
 ALTER TABLE usage_dashboard_user_platform_daily
     ADD COLUMN IF NOT EXISTS successful_requests BIGINT NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS successful_input_tokens BIGINT NOT NULL DEFAULT 0,
