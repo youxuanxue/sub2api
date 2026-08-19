@@ -113,3 +113,32 @@ func TestCloudwiseRelayPrefixGateOverridesExplicitGPTMapping(t *testing.T) {
 	require.False(t, account.IsModelSupported("gpt-5.4"))
 	require.True(t, account.IsModelSupported("claude-sonnet-4-6"))
 }
+
+func TestGatewayService_CloudwiseRelayPassthroughEmptyMappingUsesPrefixGate(t *testing.T) {
+	svc := &GatewayService{}
+	for _, tc := range []struct {
+		name     string
+		platform string
+		baseURL  string
+	}{
+		{name: "openai_cn", platform: PlatformOpenAI, baseURL: "https://api.cloudwise.ai/api"},
+		{name: "anthropic_us", platform: PlatformAnthropic, baseURL: "https://api-us.cloudwise.ai/api/"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			account := &Account{
+				Platform: tc.platform,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"base_url": tc.baseURL,
+				},
+				Extra: map[string]any{"openai_passthrough": true},
+			}
+			for _, model := range []string{"claude-opus-4-8", "glm-5.3", "MiniMax-M3", "kimi-k3", "deepseek-v4-flash"} {
+				require.True(t, svc.isModelSupportedByAccount(account, model), model)
+			}
+			for _, model := range []string{"gpt-5.4", "gpt-5.4-mini", "gemini-3-pro-preview"} {
+				require.False(t, svc.isModelSupportedByAccount(account, model), model)
+			}
+		})
+	}
+}
