@@ -72,6 +72,27 @@
     {
       "path": "frontend/src/components/layout/AppSidebar.vue",
       "must_contain": [
+        "resolveSiteLogo"
+      ],
+      "must_not_contain": [
+        "/logo.svg"
+      ],
+      "rationale": "Logged-in pages including /dashboard render the sidebar logo from AppSidebar. Production site_logo is empty, so the fallback is the visible brand mark. resolveSiteLogo must keep the TokenKey PNG; an upstream merge that restores `|| '/logo.svg'` silently puts the Sub2API interlocking-S back on every console page."
+    },
+    {
+      "path": "frontend/src/utils/branding.ts",
+      "must_contain": [
+        "export const DEFAULT_SITE_LOGO = '/logo.png'",
+        "export function resolveSiteLogo"
+      ],
+      "must_not_contain": [
+        "DEFAULT_SITE_LOGO = '/logo.svg'"
+      ],
+      "rationale": "Single default-logo owner for every SPA surface. `/logo.png` is the TokenKey mark; `/logo.svg` is the upstream Sub2API asset left on disk to keep README/upstream merge surface small. Losing this helper lets page-local fallbacks drift back to /logo.svg."
+    },
+    {
+      "path": "frontend/src/components/layout/AppSidebar.vue",
+      "must_contain": [
         "t('nav.studio')"
       ],
       "rationale": "The Media Studio (/studio) user-nav entry. Without this anchor an upstream merge to the nav builder could silently drop the Studio link, hiding the image/video generation surface from users while everything still compiles."
