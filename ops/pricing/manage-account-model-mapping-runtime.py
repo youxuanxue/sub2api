@@ -8,9 +8,17 @@ The compiled floor lives in Go:
 
 This tool writes an optional runtime replacement layer to settings key
 ``tk_account_model_mapping_runtime`` across prod/deployable edges. A present
-scope REPLACES the compiled floor for that platform or newapi channel_type;
-absent scopes keep the compiled floor. Writing the setting does not mutate
-accounts. Use ``check-accounts`` to diff live accounts against a generated model
+scope REPLACES the compiled floor for that platform or newapi channel_type
+when generating apply-accounts / check-accounts desired mappings; absent
+scopes keep the compiled floor. Writing the setting does not mutate
+accounts.
+
+Empty-mapping Antigravity accounts (typical edge OAuth rows) honor
+``platforms.antigravity`` as a serving overlay on compiled
+``DefaultAntigravityModelMapping`` after settings fan-out. That is the
+hot-add path for group 21 / edge AG: ``sync-runtime`` is enough. Non-empty
+account mappings stay authoritative and still need ``apply-accounts``.
+Use ``check-accounts`` to diff live accounts against a generated model
 surface bundle, then
 ``apply-accounts --confirm ...`` when an operator has reviewed the diff and
 wants to overwrite persisted mappings.
@@ -20,11 +28,11 @@ check. It compares live prod account mappings to the selected release bundle's
 required floor and fails closed when prod is behind that model surface. It is not a
 generic binary deploy or rollback prerequisite. Live prod may be ahead for
 preheating or rollback, but forbidden keys/prefixes from the selected bundle
-still fail the check. Edge accounts keep empty ``model_mapping`` because traffic
-is user → prod → edge relay; prod already enforces the floor. Edge-specific
-troubleshooting belongs to ``check-accounts --include-edges``; ``release-gate``
-always checks prod only. See ``docs/global/agent-reference.md`` § Model serving
-SSOT.
+still fail the check. Edge accounts keep empty ``model_mapping`` and Antigravity
+empty rows serve the compiled default plus the runtime overlay. Do not
+bulk-apply prod floors to edges. Edge-specific troubleshooting belongs to
+``check-accounts --include-edges``; ``release-gate`` always checks prod only.
+See ``docs/global/agent-reference.md`` § Model serving SSOT.
 
 Compiled ``account_overrides`` take precedence over platform and newapi
 channel-type floors when an account's platform, channel type, and normalized
@@ -472,8 +480,9 @@ def _is_openai_tokensea_relay(row: dict[str, Any]) -> bool:
 
 
 def _is_openai_cloudwise_relay(row: dict[str, Any]) -> bool:
-    if str(row.get("platform") or "").strip().lower() != "openai":
-        return False
+    # Platform is not part of the identity: prod keeps a dual-stack pair
+    # (openai #95 + anthropic #94) on the same CloudWise base_url, and both
+    # must consume the openai_cloudwise_relay prefix floor.
     if str(row.get("type") or "") != "apikey":
         return False
     base = str(row.get("base_url") or "").strip().lower().rstrip("/")
@@ -1997,6 +2006,16 @@ def cmd_selftest(_args) -> int:
         },
         "forbidden_model_mapping_prefixes": {"antigravity": ["test-forbidden-prefix-"]},
     }
+    assert _account_scope({
+        "platform": "anthropic",
+        "type": "apikey",
+        "base_url": "https://api.cloudwise.ai/api",
+    }) == "openai_cloudwise_relay"
+    assert _account_scope({
+        "platform": "openai",
+        "type": "apikey",
+        "base_url": "https://api-us.cloudwise.ai/api/",
+    }) == "openai_cloudwise_relay"
     openai_plan = _account_plan(
         {
             "id": 2,

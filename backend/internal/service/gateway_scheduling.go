@@ -2282,6 +2282,12 @@ func (s *GatewayService) isModelSupportedByAccountWithContext(ctx context.Contex
 
 // isModelSupportedByAccount 根据账户平台检查模型支持（无 context，用于非 Antigravity 平台）
 func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedModel string) bool {
+	// CloudWise dual-stack relays must not use the OpenAI passthrough
+	// namespace filter: empty mapping + passthrough would allow gpt-* via
+	// tkIsForwardableOpenAIModelName and reject claude-/glm-.
+	if isCloudwiseRelayAccount(account) {
+		return account.IsModelSupported(requestedModel)
+	}
 	if account.Platform == PlatformAntigravity {
 		if strings.TrimSpace(requestedModel) == "" {
 			return true
@@ -2292,8 +2298,14 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 		_, ok := ResolveBedrockModelID(account, requestedModel)
 		return ok
 	}
-	if account.Platform == PlatformAnthropic && account.Type != AccountTypeServiceAccount && len(account.GetModelMapping()) == 0 {
-		if !tkIsForwardableAnthropicModelName(requestedModel) {
+	if account.Platform == PlatformAnthropic && account.Type != AccountTypeServiceAccount {
+		// Leak only when BOTH the request and the forwarded name are outside
+		// claude-*: empty mapping keeps the request name; gpt-4o→claude stays
+		// allowed; claude→vendor-wire-id stays allowed; glm-*→glm-* identity
+		// copies on official Anthropic accounts must not claim CloudWise
+		// prefixes now that ingress lets those names through.
+		mapped := account.GetMappedModel(requestedModel)
+		if !tkIsForwardableAnthropicModelName(requestedModel) && !tkIsForwardableAnthropicModelName(mapped) {
 			return false
 		}
 	}

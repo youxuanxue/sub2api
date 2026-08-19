@@ -20,7 +20,7 @@ const messages: Record<string, string> = {
   'dashboard.totalTokens': 'Total Tokens',
   'dashboard.performance': 'Performance',
   'dashboard.avgGatewayLatency': "Today's Average Gateway Latency",
-  'dashboard.gatewayAverageTime': 'Authentication and routing time',
+  'dashboard.gatewayAverageTime': 'Authentication and routing time'
   'dashboard.input': 'Input',
   'dashboard.output': 'Output',
   'dashboard.actual': 'Actual',
@@ -90,8 +90,12 @@ describe('UserDashboardStats', () => {
     const text = wrapper.text()
 
     // Gateway latency card must show the correct label and value
+<<<<<<< HEAD
     expect(text).toContain("Today's Average Gateway Latency")
     expect(text).toContain('Authentication and routing time')
+=======
+    expect(text).toContain('Avg Gateway Latency')
+>>>>>>> origin/main
     expect(text).toContain('42ms')
 
     // Must NOT render average_duration_ms (10.58s)

@@ -112,6 +112,10 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		return s.handleWebSearchEmulation(ctx, c, account, parsed)
 	}
 
+	if account != nil && shouldForwardCloudwiseAnthropicViaChatCompletions(account, parsed) {
+		return s.forwardCloudwiseAnthropicViaChatCompletions(ctx, c, account, parsed)
+	}
+
 	if account != nil && account.IsAnthropicAPIKeyPassthroughEnabled() {
 		passthroughBody := parsed.Body.Bytes()
 		passthroughModel := parsed.Model

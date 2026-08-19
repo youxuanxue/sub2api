@@ -78,10 +78,32 @@ describe('useModelWhitelist', () => {
     )
   })
 
-  it('whitelist 模式会忽略通配符条目', () => {
-    const mapping = buildModelMappingObject('whitelist', ['claude-*', 'gemini-3.1-flash-image'], [])
+  it('whitelist 模式会把合法通配符写成身份映射', () => {
+    const mapping = buildModelMappingObject(
+      'whitelist',
+      ['claude-*', 'glm-*', 'gemini-3.1-flash-image', 'cla*ude', '*gpt'],
+      []
+    )
     expect(mapping).toEqual({
+      'claude-*': 'claude-*',
+      'glm-*': 'glm-*',
       'gemini-3.1-flash-image': 'gemini-3.1-flash-image'
+    })
+  })
+
+  it('mapping 模式允许通配符身份映射，拒绝把目标改写成另一个通配符', () => {
+    const mapping = buildModelMappingObject(
+      'mapping',
+      [],
+      [
+        { from: 'claude-*', to: 'claude-*' },
+        { from: 'gpt-*', to: 'gpt-5.4' },
+        { from: 'glm-*', to: 'kimi-*' }
+      ]
+    )
+    expect(mapping).toEqual({
+      'claude-*': 'claude-*',
+      'gpt-*': 'gpt-5.4'
     })
   })
 
@@ -139,6 +161,7 @@ describe('useModelWhitelist', () => {
     )
 
     expect(mapping).toEqual({
+      'claude-*': 'claude-*',
       'gpt-5.4': 'gpt-5.4-mini',
       'gpt-latest': 'gpt-5.4'
     })
@@ -146,6 +169,7 @@ describe('useModelWhitelist', () => {
 
   it('splitModelMappingObject 会把身份映射还原成白名单，其余保留为映射', () => {
     const parsed = splitModelMappingObject({
+      'claude-*': 'claude-*',
       'gpt-5.4': 'gpt-5.4',
       'gpt-latest': 'gpt-5.4',
       ' ': 'gpt-empty',
@@ -153,7 +177,7 @@ describe('useModelWhitelist', () => {
     })
 
     expect(parsed).toEqual({
-      allowedModels: ['gpt-5.4'],
+      allowedModels: ['claude-*', 'gpt-5.4'],
       modelMappings: [{ from: 'gpt-latest', to: 'gpt-5.4' }]
     })
   })

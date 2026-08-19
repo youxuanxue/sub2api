@@ -536,12 +536,13 @@ export function buildModelMappingObject(
     for (const item of allowedModels) {
       const model = normalizeModelID(item)
       if (!model) continue
-      // whitelist 模式的本意是"精确模型列表"，如果用户输入了通配符（如 claude-*），
-      // 写入 model_mapping 会导致 GetMappedModel() 把真实模型映射成 "claude-*"，从而转发失败。
-      // 因此这里跳过包含通配符的条目。
-      if (!model.includes('*')) {
-        mapping[model] = model
+      // Identity wildcards (claude-* → claude-*) are valid whitelist entries.
+      // Backend resolveWildcardMappingTarget keeps the client's requested id
+      // when pattern == target; invalid mid-string stars are still dropped.
+      if (!isValidWildcardPattern(model)) {
+        continue
       }
+      mapping[model] = model
     }
   }
 
@@ -555,8 +556,9 @@ export function buildModelMappingObject(
         console.warn(`[buildModelMappingObject] 无效的通配符格式，跳过: ${from}`)
         continue
       }
-      // to 不允许包含通配符
-      if (to.includes('*')) {
+      // Rewrite targets cannot be a different wildcard. Identity wildcards
+      // (from == to) are allowed so CloudWise-style floors persist.
+      if (to.includes('*') && (to !== from || !isValidWildcardPattern(to))) {
         console.warn(`[buildModelMappingObject] 目标模型不能包含通配符，跳过: ${from} -> ${to}`)
         continue
       }

@@ -555,7 +555,7 @@ func stringMappingFromRaw(raw any) map[string]string {
 }
 
 func (a *Account) GetModelMapping() map[string]string {
-	runtimeVersion := xai.RuntimeModelMappingVersion()
+	runtimeVersion := modelMappingCacheRuntimeVersion()
 	credentialsPtr := mapPtr(a.Credentials)
 	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
 	rawPtr := mapPtr(rawMapping)
@@ -605,7 +605,7 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 	if a.Credentials == nil {
 		// Antigravity 平台使用默认映射
 		if a.Platform == domain.PlatformAntigravity {
-			return domain.DefaultAntigravityModelMapping
+			return antigravityEffectiveDefaultModelMapping()
 		}
 		if a.Platform == domain.PlatformGrok {
 			return defaultGrokAccountModelMapping()
@@ -616,7 +616,7 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 	if len(rawMapping) == 0 {
 		// Antigravity 平台使用默认映射
 		if a.Platform == domain.PlatformAntigravity {
-			return domain.DefaultAntigravityModelMapping
+			return antigravityEffectiveDefaultModelMapping()
 		}
 		if a.Platform == domain.PlatformGrok {
 			return defaultGrokAccountModelMapping()
@@ -636,7 +636,7 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 
 	// Antigravity 平台使用默认映射
 	if a.Platform == domain.PlatformAntigravity {
-		return domain.DefaultAntigravityModelMapping
+		return antigravityEffectiveDefaultModelMapping()
 	}
 	if a.Platform == domain.PlatformGrok {
 		return xai.DefaultModelMapping()
@@ -762,6 +762,13 @@ func sortedModelMappingKeys(mapping map[string]string) []string {
 // 请求卡死在该账号上、无法 failover 到真正支持该模型的 API Key 账号（#3662）。
 // 未知/自定义别名仍保持允许（兼容渠道级映射），见 isOpenAIOAuthServableModel。
 func (a *Account) IsModelSupported(requestedModel string) bool {
+	// CloudWise MaaS only serves the curated prefix families. This hard gate
+	// runs before passthrough / empty-mapping "allow all", otherwise a leftover
+	// empty model_mapping or openai_passthrough flag would leak gpt-* onto
+	// these dual-stack relay accounts.
+	if isCloudwiseRelayAccount(a) && !openAICloudwiseRelaySupportsRequestedModel(requestedModel) {
+		return false
+	}
 	// 透传模式仅替换认证、模型语义完全交由上游决定，因此放行所有模型。
 	// 该短路必须在 model_mapping 判定之前：账号从"白名单模式"切换到透传后，
 	// credentials 里常残留旧的非空 model_mapping，若不在此放行，透传账号会被

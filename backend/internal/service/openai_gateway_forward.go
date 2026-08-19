@@ -1087,9 +1087,17 @@ func openAIStreamFailoverBlockedByClientOutput(firstTokenMs *int) bool {
 }
 
 func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
-	return account != nil &&
-		account.Type == AccountTypeAPIKey &&
-		!openai_compat.ShouldUseResponsesAPI(account.Extra)
+	if account == nil || account.Type != AccountTypeAPIKey {
+		return false
+	}
+	// Dual-stack MaaS relays advertise /v1/responses (probe treats 400 as
+	// "endpoint exists") but only implement Chat + Anthropic Messages.
+	// Sending CC→Responses there drops `messages` and CloudWise returns
+	// 400 "messages is invalid or missing" (prod #95 glm-5.3, 2026-08-19).
+	if account.IsOpenAICloudwiseRelay() || account.IsOpenAITokenseaRelay() {
+		return true
+	}
+	return !openai_compat.ShouldUseResponsesAPI(account.Extra)
 }
 
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
