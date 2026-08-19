@@ -2298,8 +2298,12 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 		_, ok := ResolveBedrockModelID(account, requestedModel)
 		return ok
 	}
-	if account.Platform == PlatformAnthropic && account.Type != AccountTypeServiceAccount && len(account.GetModelMapping()) == 0 {
-		if !tkIsForwardableAnthropicModelName(requestedModel) {
+	if account.Platform == PlatformAnthropic && account.Type != AccountTypeServiceAccount {
+		// Judge the forwarded (mapped) name: empty mapping keeps the request
+		// name; gpt-4o→claude stays allowed; glm-*→glm-* identity copies on
+		// official Anthropic accounts must not claim CloudWise prefixes now
+		// that ingress lets those names through.
+		if !tkIsForwardableAnthropicModelName(account.GetMappedModel(requestedModel)) {
 			return false
 		}
 	}

@@ -392,3 +392,27 @@ func TestIsModelSupportedByAccount_TkGuardWithExplicitMapping(t *testing.T) {
 		t.Error("mapped account should not support a cross-vendor model absent from its mapping")
 	}
 }
+
+func TestIsModelSupportedByAccount_MappedCloudwisePrefixDoesNotLeakToOfficialAnthropic(t *testing.T) {
+	svc := &GatewayService{}
+	leaked := &Account{
+		ID:       11,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url":      "https://api.anthropic.com",
+			"model_mapping": modelMappingToAny(openAICloudwiseRelayWildcardModelMappingFloor()),
+		},
+	}
+	if isCloudwiseRelayAccount(leaked) {
+		t.Fatal("official Anthropic base_url must not be classified as CloudWise")
+	}
+	for _, model := range []string{"glm-5.2", "kimi-k3", "MiniMax-M3", "deepseek-v4-flash"} {
+		if svc.isModelSupportedByAccount(leaked, model) {
+			t.Errorf("non-CloudWise mapped anthropic must not claim %s after CloudWise ingress allow", model)
+		}
+	}
+	if !svc.isModelSupportedByAccount(leaked, "claude-sonnet-4-6") {
+		t.Error("non-CloudWise mapped anthropic must still serve its claude-* mapping")
+	}
+}
