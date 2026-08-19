@@ -25,10 +25,12 @@ set -euo pipefail
 # Usage:
 #   TK_FEISHU_WEBHOOK_URL=... [TK_FEISHU_SIGNING_SECRET=...] \
 #     bash ops/stage0/notify-feishu-release.sh <tag> <api_url> \
-#       [--run-url URL] [--notes TEXT] [--dry-run]
+#       --previous-tag TAG [--run-url URL] [--notes TEXT] [--dry-run]
 #
 #   <tag>      released image tag WITHOUT leading v (e.g. 1.7.83). A leading v is
 #              tolerated and stripped.
+#   --previous-tag  tag that was serving on prod immediately before this rollout;
+#                   required so the card's changelog has a trusted live baseline.
 #   <api_url>  prod gateway URL (e.g. https://api.tokenkey.dev).
 #   --run-url  link to the deploy workflow run (optional).
 #   --notes    release changelog (e.g. `gh release view` body) to inline under a
@@ -44,12 +46,13 @@ usage() {
 Usage:
   TK_FEISHU_WEBHOOK_URL=... [TK_FEISHU_SIGNING_SECRET=...] \
     bash ops/stage0/notify-feishu-release.sh <tag> <api_url> \
-      [--run-url URL] [--notes TEXT] [--dry-run]
+      --previous-tag TAG [--run-url URL] [--notes TEXT] [--dry-run]
 EOF
 }
 
 TAG=""
 API_URL=""
+PREVIOUS_TAG=""
 RUN_URL=""
 NOTES=""
 DRY_RUN=0
@@ -60,6 +63,8 @@ need_val() { [ "$2" -ge 2 ] || { echo "[error] $1 needs a value" >&2; usage; exi
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --previous-tag) need_val "$1" "$#"; PREVIOUS_TAG="$2"; shift 2 ;;
+    --previous-tag=*) PREVIOUS_TAG="${1#*=}"; shift ;;
     --run-url) need_val "$1" "$#"; RUN_URL="$2"; shift 2 ;;
     --run-url=*) RUN_URL="${1#*=}"; shift ;;
     --notes) need_val "$1" "$#"; NOTES="$2"; shift 2 ;;
@@ -84,9 +89,15 @@ if [ -z "$TAG" ] || [ -z "$API_URL" ]; then
   usage
   exit 2
 fi
+if [[ ! "$PREVIOUS_TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|-beta\.[0-9]+)?$ ]]; then
+  echo "[error] --previous-tag must be a Stage0 release tag" >&2
+  usage
+  exit 2
+fi
 
 # deploy-stage0 passes a bare tag, but tolerate a leading v just in case.
 TAG="${TAG#v}"
+PREVIOUS_TAG="${PREVIOUS_TAG#v}"
 
 WEBHOOK="${TK_FEISHU_WEBHOOK_URL:-}"
 SECRET="${TK_FEISHU_SIGNING_SECRET:-}"
@@ -102,6 +113,7 @@ fi
 # payload to stdout (sanitized when NF_DRY_RUN=1).
 PAYLOAD_JSON="$(
   NF_TAG="$TAG" \
+  NF_PREVIOUS_TAG="$PREVIOUS_TAG" \
   NF_API_URL="$API_URL" \
   NF_RUN_URL="$RUN_URL" \
   NF_NOTES="$NOTES" \
@@ -117,6 +129,7 @@ import os
 import time
 
 tag = os.environ["NF_TAG"]
+previous_tag = os.environ["NF_PREVIOUS_TAG"]
 api_url = os.environ["NF_API_URL"]
 run_url = os.environ.get("NF_RUN_URL", "").strip()
 notes = os.environ.get("NF_NOTES", "").strip()
@@ -131,6 +144,7 @@ when = f"{utc:%Y-%m-%d %H:%M} UTC · {cst:%Y-%m-%d %H:%M} CST"
 
 lines = [
     f"**版本**  v{tag}",
+    f"**线上基线**  v{previous_tag}",
     "**环境**  prod",
     f"**API**  {api_url}",
     f"**上线时间**  {when}",

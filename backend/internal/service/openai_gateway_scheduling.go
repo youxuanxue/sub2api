@@ -1079,7 +1079,6 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		requireCompact:     requireCompact,
 		requiredCapability: requiredCapability,
 	})
-	return nil, ErrNoAvailableAccounts
 }
 
 func (s *OpenAIGatewayService) tryAcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {

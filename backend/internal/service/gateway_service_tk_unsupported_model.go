@@ -108,6 +108,13 @@ func tkAnthropicCrossVendorSelectionFailure(requestedModel string) error {
 	if tkIsForwardableAnthropicModelName(requestedModel) {
 		return nil
 	}
+	// Dual-stack CloudWise anthropic accounts (#94) advertise glm/kimi/minimax/
+	// deepseek via model_mapping prefixes. Ingress must not 400 those names
+	// before selection; empty-mapping Anthropic OAuth still cannot claim them
+	// because isModelSupportedByAccount keeps the claude-* namespace guard.
+	if openAICloudwiseRelaySupportsRequestedModel(requestedModel) {
+		return nil
+	}
 	if normalized := claude.NormalizeModelID(requestedModel); normalized != "" && normalized != requestedModel {
 		if tkIsForwardableAnthropicModelName(normalized) {
 			return nil

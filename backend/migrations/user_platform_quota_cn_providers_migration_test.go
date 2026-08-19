@@ -20,3 +20,12 @@ func TestUserPlatformQuotasCNProvidersMigration(t *testing.T) {
 	require.Contains(t, sql,
 		"CHECK (platform IN ('anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek'))")
 }
+
+func TestUserPlatformQuotasLatestConstraintMigrationPreservesAllPlatforms(t *testing.T) {
+	content, err := FS.ReadFile("tk_087_user_platform_quotas_allow_all_served_platforms.sql")
+	require.NoError(t, err)
+
+	sql := strings.Join(strings.Fields(string(content)), " ")
+	require.Contains(t, sql,
+		"CHECK (platform IN ('anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'newapi', 'kiro'))")
+}

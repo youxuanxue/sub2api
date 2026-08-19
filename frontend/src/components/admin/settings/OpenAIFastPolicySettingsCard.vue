@@ -140,8 +140,13 @@
           </p>
         </div>
 
-        <div class="mt-3">
+        <div
+          class="mt-3"
+          role="group"
+          :aria-labelledby="`openai-fast-policy-models-label-${ruleIndex}`"
+        >
           <label
+            :id="`openai-fast-policy-models-label-${ruleIndex}`"
             class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
           >
             {{ t("admin.settings.openaiFastPolicy.modelWhitelist") }}

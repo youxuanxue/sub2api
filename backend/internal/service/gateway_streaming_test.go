@@ -571,7 +571,7 @@ func TestSSEStreamErrorFailover_Returns502NotForbidden(t *testing.T) {
 	raw := `{"type":"error","error":{"type":"overloaded_error","message":"upstream overloaded mid-stream"}}`
 	sseErr := &sseStreamErrorEventError{RawData: raw}
 
-	err := svc.sseStreamErrorFailover(c, &Account{ID: 1, Platform: PlatformAnthropic, Name: "acc1"}, resp, sseErr)
+	err := svc.sseStreamErrorFailover(c, &Account{ID: 1, Platform: PlatformAnthropic, Name: "acc1"}, resp, sseErr, http.StatusBadGateway)
 
 	var failoverErr *UpstreamFailoverError
 	require.True(t, errors.As(err, &failoverErr), "SSE event:error 必须包成 UpstreamFailoverError")

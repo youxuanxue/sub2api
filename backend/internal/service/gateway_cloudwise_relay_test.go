@@ -182,3 +182,19 @@ func TestShouldForwardOpenAIResponsesViaRawChatCompletions_DualStackRelaysIgnore
 	require.False(t, shouldForwardOpenAIResponsesViaRawChatCompletions(generic),
 		"ordinary OpenAI APIKey with a real Responses probe must keep the Responses path")
 }
+
+func TestShouldForwardCloudwiseAnthropicViaChatCompletions_PreservesModelSplit(t *testing.T) {
+	account := cloudwiseNativeMessagesAccount()
+	account.Platform = PlatformAnthropic
+	account.Extra[openai_compat.ExtraKeyNativeMessagesSupported] = true
+
+	claudeBody := NewRequestBodyRef([]byte(`{"model":"claude-sonnet-4-6","messages":[]}`))
+	claude, err := ParseGatewayRequest(claudeBody, PlatformAnthropic)
+	require.NoError(t, err)
+	require.False(t, shouldForwardCloudwiseAnthropicViaChatCompletions(account, claude))
+
+	nonClaudeBody := NewRequestBodyRef([]byte(`{"model":"glm-5.3","messages":[]}`))
+	nonClaude, err := ParseGatewayRequest(nonClaudeBody, PlatformAnthropic)
+	require.NoError(t, err)
+	require.True(t, shouldForwardCloudwiseAnthropicViaChatCompletions(account, nonClaude))
+}

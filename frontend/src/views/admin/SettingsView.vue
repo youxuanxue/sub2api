@@ -125,7 +125,7 @@
   </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from "vue";
+import { ref, reactive, computed, nextTick, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { adminAPI } from "@/api";
 import {
@@ -143,6 +143,7 @@ import {
 import type {
   AuthSourceDefaultsState,
   AuthSourceType,
+  OpenAIFastPolicyRule,
   UpdateSettingsRequest,
   DefaultSubscriptionSetting,
   DefaultPlatformQuotasMap,
@@ -262,6 +263,7 @@ const subscriptionGroups = ref<AdminGroup[]>([]);
 
 // GatewayPanel template ref (for exposed state in save/load)
 const gatewayPanelRef = ref<InstanceType<typeof GatewayPanel> | null>(null);
+const pendingOpenAIFastPolicyRules = ref<OpenAIFastPolicyRule[] | null>(null);
 
 
 const tablePageSizeMin = 5;
@@ -306,6 +308,24 @@ function findDuplicateLoginAgreementDocumentId(
 
 // Gateway panel-local state is now in GatewayPanel.vue;
 // the parent accesses it via gatewayPanelRef.value.* (defineExpose)
+
+function cloneOpenAIFastPolicyRules(rules: OpenAIFastPolicyRule[]): OpenAIFastPolicyRule[] {
+  return rules.map((rule) => ({
+    ...rule,
+    user_ids: rule.user_ids ? [...rule.user_ids] : [],
+    model_whitelist: rule.model_whitelist ? [...rule.model_whitelist] : [],
+  }));
+}
+
+function hydrateOpenAIFastPolicyRules(rules: OpenAIFastPolicyRule[] | null): boolean {
+  const gatewayPanel = gatewayPanelRef.value;
+  if (!rules || !gatewayPanel) {
+    return false;
+  }
+  gatewayPanel.openaiFastPolicyForm.rules = cloneOpenAIFastPolicyRules(rules);
+  gatewayPanel.openaiFastPolicyLoaded = true;
+  return true;
+}
 
 // ── Table page size helpers (needed by saveSettings) ──
 
@@ -877,22 +897,11 @@ async function loadSettings() {
     );
     form.oidc_connect_client_secret = "";
 
-    // OpenAI fast policy and web search are loaded/hydrated by GatewayPanel
-    if (
+    pendingOpenAIFastPolicyRules.value =
       settings.openai_fast_policy_settings &&
-      Array.isArray(settings.openai_fast_policy_settings.rules) &&
-      gatewayPanelRef.value
-    ) {
-      gatewayPanelRef.value.openaiFastPolicyForm.rules =
-        settings.openai_fast_policy_settings.rules.map((rule) => ({
-          ...rule,
-          user_ids: rule.user_ids ? [...rule.user_ids] : [],
-          model_whitelist: rule.model_whitelist
-            ? [...rule.model_whitelist]
-            : [],
-        }));
-      gatewayPanelRef.value.openaiFastPolicyLoaded = true;
-    }
+      Array.isArray(settings.openai_fast_policy_settings.rules)
+        ? cloneOpenAIFastPolicyRules(settings.openai_fast_policy_settings.rules)
+        : null;
   } catch (error: unknown) {
     loadFailed.value = true;
     appStore.showError(
@@ -900,6 +909,10 @@ async function loadSettings() {
     );
   } finally {
     loading.value = false;
+    await nextTick();
+    if (hydrateOpenAIFastPolicyRules(pendingOpenAIFastPolicyRules.value)) {
+      pendingOpenAIFastPolicyRules.value = null;
+    }
   }
 }
 
@@ -1488,15 +1501,7 @@ async function saveSettings() {
       Array.isArray(updated.openai_fast_policy_settings.rules) &&
       gw
     ) {
-      gw.openaiFastPolicyForm.rules =
-        updated.openai_fast_policy_settings.rules.map((rule) => ({
-          ...rule,
-          user_ids: rule.user_ids ? [...rule.user_ids] : [],
-          model_whitelist: rule.model_whitelist
-            ? [...rule.model_whitelist]
-            : [],
-        }));
-      gw.openaiFastPolicyLoaded = true;
+      hydrateOpenAIFastPolicyRules(updated.openai_fast_policy_settings.rules);
     }
     const wsOk = gw ? await gw.saveWebSearchConfig() : true;
     await appStore.fetchPublicSettings(true);

@@ -1,10 +1,6 @@
 package service
 
-import (
-	"strings"
-
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
-)
+import "strings"
 
 const (
 	defaultOpenAIMessagesDispatchOpusMappedModel   = "gpt-5.6-sol"
@@ -70,17 +66,6 @@ func (g *Group) ResolveMessagesDispatchModel(requestedModel string) string {
 	requestedModel = strings.TrimSpace(requestedModel)
 	if requestedModel == "" {
 		return ""
-	}
-
-	if g.Platform == PlatformGrok {
-		if claudeMessagesDispatchFamily(requestedModel) == "" {
-			return ""
-		}
-		opts := xai.RuntimeModelMappingOptions()
-		if !opts.EnableCrossClientMap {
-			return ""
-		}
-		return xai.ModelMappingWithOptions(opts)["claude-*"]
 	}
 
 	// 国产供应商分组:调度级模型映射不适用(其配置被 sanitize 置空,且下方的

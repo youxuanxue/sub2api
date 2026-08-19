@@ -33,6 +33,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
+	if !shouldForwardNativeAnthropicMessagesForModel(body) {
+		return nil, fmt.Errorf("native anthropic messages requires a Claude model")
+	}
 
 	originalModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	if originalModel == "" {
