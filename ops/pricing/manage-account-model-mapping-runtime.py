@@ -472,8 +472,9 @@ def _is_openai_tokensea_relay(row: dict[str, Any]) -> bool:
 
 
 def _is_openai_cloudwise_relay(row: dict[str, Any]) -> bool:
-    if str(row.get("platform") or "").strip().lower() != "openai":
-        return False
+    # Platform is not part of the identity: prod keeps a dual-stack pair
+    # (openai #95 + anthropic #94) on the same CloudWise base_url, and both
+    # must consume the openai_cloudwise_relay prefix floor.
     if str(row.get("type") or "") != "apikey":
         return False
     base = str(row.get("base_url") or "").strip().lower().rstrip("/")
@@ -1997,6 +1998,16 @@ def cmd_selftest(_args) -> int:
         },
         "forbidden_model_mapping_prefixes": {"antigravity": ["test-forbidden-prefix-"]},
     }
+    assert _account_scope({
+        "platform": "anthropic",
+        "type": "apikey",
+        "base_url": "https://api.cloudwise.ai/api",
+    }) == "openai_cloudwise_relay"
+    assert _account_scope({
+        "platform": "openai",
+        "type": "apikey",
+        "base_url": "https://api-us.cloudwise.ai/api/",
+    }) == "openai_cloudwise_relay"
     openai_plan = _account_plan(
         {
             "id": 2,
