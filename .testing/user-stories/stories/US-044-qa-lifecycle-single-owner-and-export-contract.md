@@ -16,7 +16,7 @@
 3. prod trajectory/self-export worker、gateway download proxy 与 `qa_exports_tmp` orphan cleaner 不存在。
 4. lifecycle sentinel 拒绝 prod fallback、第二目标 deletion owner、transition 之外的固定时龄 DROP 与 export-orphan runtime。
 5. Bundle infra readiness 真实回读 bucket CORS/AES256 encryption/job-surface lifecycle、queue/DLQ、
-   Fargate capacity 与 worker image；raw-S3-to-Fargate canary 是发布/日常健康门禁；Worker 以单记录/单页有界内存
+   Fargate capacity 与 worker image；raw-S3-to-Fargate canary 是 Bundle Worker/publisher 表面变更时的发布门禁，gateway-only 发版复用已验证 Worker；Worker 以单记录/单页有界内存
    从 verified segments 发布 Bundle，ZIP immutable 校验只读对象流。
 6. rollout 将 repository readiness 与 `single_owner_not_activated` observed state 分开记录。
 7. single-owner activation 在锁内拒绝最近 24 个已完成小时及当前到未来 72 小时的 catalog 缺口和非精确 UTC-hour bounds；
@@ -43,6 +43,8 @@
 - `deploy/aws/cloudformation/test_stage0_qa_bundle_contract.py`::`Stage0QABundleContractTest.test_qa_cloudformation_service_role_covers_managed_resource_lifecycles`
 - `deploy/aws/cloudformation/test_stage0_qa_bundle_contract.py`::`Stage0QABundleContractTest.test_qa_bundle_verifier_roles_have_scoped_bucket_readback`
 - `ops/qa/test_resolve_qa_bundle_worker_image.py`::`ResolveQABundleWorkerImageTest.test_phase3_contract_uses_target_release_image`
+- `ops/qa/test_resolve_qa_bundle_worker_image.py`::`ResolveQABundleWorkerImageTest.test_phase3_reuses_live_worker_when_worker_surface_is_unchanged`
+- `ops/qa/test_qa_bundle_release_surface.py`::`QABundleReleaseSurfaceTest.test_gateway_only_change_is_not_bundle_surface`
 - `ops/qa/test_resolve_qa_bundle_worker_image.py`::`ResolveQABundleWorkerImageTest.test_missing_contract_is_legacy_and_preserves_verified_tag`
 - `ops/qa/test_resolve_qa_bundle_worker_image.py`::`ResolveQABundleWorkerImageTest.test_legacy_without_verified_worker_fails_closed`
 - `ops/stage0/test_deploy_stage0_workflow.py`::`DeployStage0WorkflowTest.test_legacy_worker_discovery_precedes_resolution_and_all_mutation`
@@ -57,7 +59,7 @@
 ```bash
 cd backend && go test -tags=unit ./internal/handler ./internal/observability/qa
 cd .. && python3 scripts/checks/qa-lifecycle-ssot.py
-python3 -m unittest ops.qa.test_resolve_qa_bundle_worker_image ops.stage0.test_deploy_stage0_workflow
+python3 -m unittest ops.qa.test_resolve_qa_bundle_worker_image ops.qa.test_qa_bundle_release_surface ops.stage0.test_deploy_stage0_workflow
 cd frontend && pnpm exec playwright test e2e/qa-bundle.e2e.ts --project=chromium
 ```
 

@@ -54,16 +54,51 @@ def verified_worker_image(image: str) -> str | None:
     return None
 
 
+def _optional_bool(value: object) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    raise ValueError("surface change flags must be booleans")
+
+
+def parse_surface_json(raw: str) -> tuple[bool | None, bool | None]:
+    text = raw.strip()
+    if not text:
+        return None, None
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"surface JSON is invalid: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("surface JSON must be an object")
+    return (
+        _optional_bool(payload.get("worker_surface_changed")),
+        _optional_bool(payload.get("publisher_surface_changed")),
+    )
+
+
 def resolve(
     target_tag: str,
     target_rollout: Path,
     verified_existing_image: str,
+    worker_surface_changed: bool | None = None,
+    publisher_surface_changed: bool | None = None,
 ) -> dict[str, str | bool]:
     if TAG_PATTERN.fullmatch(target_tag) is None:
         raise ValueError("target tag must match X.Y.Z (optionally -rc.N or -beta.N)")
 
     contract = release_contract(target_rollout)
     if contract == SUPPORTED_RUNTIME_CONTRACT:
+        existing = verified_worker_image(verified_existing_image)
+        if existing is not None and worker_surface_changed is False:
+            return {
+                "mode": "phase3",
+                "resolved_worker_image": existing,
+                "worker_source": "verified_live_worker",
+                "run_canary": publisher_surface_changed is not False,
+                "host_runtime_mode": "target_release",
+            }
         return {
             "mode": "phase3",
             "resolved_worker_image": f"{IMAGE_REPOSITORY}:{target_tag}",
@@ -92,12 +127,16 @@ def main() -> int:
     parser.add_argument("--target-tag", required=True)
     parser.add_argument("--target-rollout", type=Path, required=True)
     parser.add_argument("--verified-existing-image", default="")
+    parser.add_argument("--surface-json", default="")
     args = parser.parse_args()
     try:
+        worker_changed, publisher_changed = parse_surface_json(args.surface_json)
         result = resolve(
             args.target_tag,
             args.target_rollout,
             args.verified_existing_image,
+            worker_surface_changed=worker_changed,
+            publisher_surface_changed=publisher_changed,
         )
     except ValueError as exc:
         print(f"resolve QA Bundle Worker image: {exc}", file=sys.stderr)

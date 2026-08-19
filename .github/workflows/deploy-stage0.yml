@@ -311,9 +311,33 @@ jobs:
               exit "$describe_rc"
             fi
           fi
+          SURFACE_JSON="{}"
+          FROM_TAG=""
+          if FROM_TAG="$(python3 ops/qa/qa_bundle_release_surface.py --from-image "$VERIFIED_EXISTING_WORKER_IMAGE" --print-tag)"; then
+            FETCH_OK=1
+            if [ "$FROM_TAG" != "$INPUT_TAG" ]; then
+              if ! git fetch --no-tags origin \
+                "refs/tags/v${FROM_TAG}:refs/tags/v${FROM_TAG}" \
+                "refs/tags/v${INPUT_TAG}:refs/tags/v${INPUT_TAG}"; then
+                echo "::warning::could not fetch v$FROM_TAG..v$INPUT_TAG; fail closed to target Worker + canary"
+                FETCH_OK=0
+              fi
+            fi
+            if [ "$FETCH_OK" = 1 ] && ! SURFACE_JSON="$(python3 ops/qa/qa_bundle_release_surface.py \
+              --from-image "$VERIFIED_EXISTING_WORKER_IMAGE" \
+              --to-tag "$INPUT_TAG" --json)"; then
+              echo "::warning::QA Bundle surface classify failed; fail closed to target Worker + canary"
+              SURFACE_JSON="{}"
+            fi
+          else
+            echo "QA Bundle surface classify skipped: live Worker is not a reusable release tag"
+          fi
           RESOLUTION="$(python3 ops/qa/resolve_qa_bundle_worker_image.py \
             --target-tag "$INPUT_TAG" --target-rollout "$TARGET_ROLLOUT" \
-            --verified-existing-image "$VERIFIED_EXISTING_WORKER_IMAGE")"
+            --verified-existing-image "$VERIFIED_EXISTING_WORKER_IMAGE" \
+            --surface-json "$SURFACE_JSON")"
+          echo "qa bundle surface: from=${FROM_TAG:-none} to=$INPUT_TAG $SURFACE_JSON"
+          echo "qa bundle resolution: $RESOLUTION"
           MODE="$(jq -er '.mode' <<<"$RESOLUTION")"
           RESOLVED_WORKER_IMAGE="$(jq -er '.resolved_worker_image' <<<"$RESOLUTION")"
           echo "qa_stack_name=$QA_STACK_NAME" >> "$GITHUB_OUTPUT"
