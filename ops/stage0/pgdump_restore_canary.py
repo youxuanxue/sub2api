@@ -405,7 +405,9 @@ def run_canary(
                     "--network=none", "--cpus=1.00", "--memory=1024m",
                     "--memory-swap=1536m", "--env", "POSTGRES_HOST_AUTH_METHOD=trust",
                     "--env", "POSTGRES_USER=tokenkey", "--env", "POSTGRES_DB=tokenkey",
-                    "--volume", f"{data_dir}:/var/lib/postgresql/data", image,
+                    # postgres:18+ official images refuse a bind mount on
+                    # /var/lib/postgresql/data and require one mount at the parent.
+                    "--volume", f"{data_dir}:/var/lib/postgresql", image,
                 ],
             )
             _wait_temporary_postgres(run, container, sleep)
