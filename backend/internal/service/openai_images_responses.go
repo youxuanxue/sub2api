@@ -1106,6 +1106,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 	}
 
 	var usage OpenAIUsage
+	observeOpenAIResponsesSSEBody(c, string(body))
 	forEachOpenAISSEDataPayload(string(body), func(data []byte) {
 		s.parseSSEUsageBytes(data, &usage)
 	})

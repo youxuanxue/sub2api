@@ -10,8 +10,29 @@ import (
 
 const openaiEncryptedReasoningGinKey = "ops_openai_encrypted_reasoning"
 
+// observeOpenAIResponsesEvent 是 QA encrypted_reasoning 的唯一生产入口。
+// 所有会把 OpenAI Responses JSON 事件写给客户端的路径都必须走这里，
+// 禁止在各转发循环里再手写 stash。
+func observeOpenAIResponsesEvent(c *gin.Context, data []byte) {
+	stashOpenAIEncryptedReasoningFromSSE(c, data)
+}
+
+func observeOpenAIResponsesSSEBody(c *gin.Context, body string) {
+	if strings.TrimSpace(body) == "" {
+		return
+	}
+	if bodyHasSSEFraming([]byte(body)) {
+		forEachOpenAISSEDataPayload(body, func(data []byte) {
+			observeOpenAIResponsesEvent(c, data)
+		})
+		return
+	}
+	observeOpenAIResponsesEvent(c, []byte(body))
+}
+
 // stashOpenAIEncryptedReasoningFromSSE 从 Responses SSE/JSON 抽出 reasoning.encrypted_content，
 // 写入 gin context 供 QA blob response.encrypted_reasoning 记录。
+// 生产代码必须走 observeOpenAIResponsesEvent，不要直接调用。
 func stashOpenAIEncryptedReasoningFromSSE(c *gin.Context, data []byte) {
 	if c == nil || len(data) == 0 || !gjson.ValidBytes(data) {
 		return

@@ -945,6 +945,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 		seenSSEData = true
 		fallbackBody.Reset()
 		fallbackBytes = 0
+		observeOpenAIResponsesEvent(c, dataBytes)
 		mergeOpenAIUsage(&usage, dataBytes)
 		imageCounter.AddSSEData(dataBytes)
 	}
