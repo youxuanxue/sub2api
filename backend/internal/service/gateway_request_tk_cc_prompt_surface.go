@@ -122,6 +122,7 @@ func tkRewriteCCEnvironmentSection(text string) (string, bool) {
 				flushTZ()
 			}
 			inEnv = true
+			wroteTZ = false
 			out = append(out, line)
 			continue
 		}

@@ -1,14 +1,20 @@
 import type { AccountPlatform } from '@/types'
 
 /** Ordered account/group platforms, including the independent fifth platform `newapi`. */
-export const GATEWAY_PLATFORMS = ['anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro', 'grok', 'composite'] as const satisfies readonly AccountPlatform[]
+export const GATEWAY_PLATFORMS = [
+  'anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro', 'grok',
+  'kimi', 'zhipu', 'deepseek', 'composite'
+] as const satisfies readonly AccountPlatform[]
 
 /**
  * Platforms that support per-user quota limits (daily/weekly/monthly).
  * Mirrors `service.AllowedQuotaPlatforms` in the Go backend
  * (`backend/internal/service/domain_constants.go`).
  */
-export const ALLOWED_QUOTA_PLATFORMS = ['anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro', 'grok'] as const satisfies readonly AccountPlatform[]
+export const ALLOWED_QUOTA_PLATFORMS = [
+  'anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro', 'grok',
+  'kimi', 'zhipu', 'deepseek'
+] as const satisfies readonly AccountPlatform[]
 export type QuotaPlatform = (typeof ALLOWED_QUOTA_PLATFORMS)[number]
 
 /**
@@ -22,7 +28,9 @@ export type QuotaPlatform = (typeof ALLOWED_QUOTA_PLATFORMS)[number]
  * "newapi compat-pool drift" catches the backend half; the frontend half is
  * covered by the `useModelWhitelist` and `usePlatformOptions` test suites.
  */
-export const OPENAI_COMPAT_PLATFORMS: readonly AccountPlatform[] = ['openai', 'newapi', 'grok'] as const
+export const OPENAI_COMPAT_PLATFORMS: readonly AccountPlatform[] = [
+  'openai', 'newapi', 'grok', 'kimi', 'zhipu', 'deepseek'
+] as const
 
 /** Predicate sibling of {@link OPENAI_COMPAT_PLATFORMS} — use whenever a UI branch is gated on "speaks OpenAI HTTP shape". */
 export function isOpenAICompatPlatform(platform: string | null | undefined): boolean {
@@ -45,7 +53,9 @@ export function isOpenAICompatPlatform(platform: string | null | undefined): boo
  * UI branches (e.g. /v1/chat/completions allowance). Those two questions
  * intentionally do not coincide for gemini.
  */
-export const GROUP_DISPATCH_CONFIG_PLATFORMS: readonly AccountPlatform[] = ['openai', 'newapi', 'gemini', 'grok'] as const
+export const GROUP_DISPATCH_CONFIG_PLATFORMS: readonly AccountPlatform[] = [
+  'openai', 'newapi', 'gemini', 'grok', 'kimi', 'zhipu', 'deepseek'
+] as const
 
 export function hasMessagesDispatchConfig(platform: string | null | undefined): boolean {
   if (!platform) return false
@@ -63,6 +73,9 @@ export const CREATE_ACCOUNT_PLATFORM_SEGMENT_ACTIVE: Record<AccountPlatform, str
   newapi: 'bg-white text-cyan-600 shadow-sm dark:bg-dark-600 dark:text-cyan-400',
   kiro: 'bg-white text-indigo-600 shadow-sm dark:bg-dark-600 dark:text-indigo-400',
   grok: 'bg-white text-slate-700 shadow-sm dark:bg-dark-600 dark:text-slate-300',
+  kimi: 'bg-white text-cyan-700 shadow-sm dark:bg-dark-600 dark:text-cyan-300',
+  zhipu: 'bg-white text-blue-700 shadow-sm dark:bg-dark-600 dark:text-blue-300',
+  deepseek: 'bg-white text-emerald-700 shadow-sm dark:bg-dark-600 dark:text-emerald-300',
   composite: 'bg-white text-cyan-700 shadow-sm dark:bg-dark-600 dark:text-cyan-300',
 }
 
@@ -81,6 +94,9 @@ export const PLATFORM_ANTIGRAVITY = 'antigravity' as const
 export const PLATFORM_NEWAPI = 'newapi' as const
 export const PLATFORM_KIRO = 'kiro' as const
 export const PLATFORM_GROK = 'grok' as const
+export const PLATFORM_KIMI = 'kimi' as const
+export const PLATFORM_ZHIPU = 'zhipu' as const
+export const PLATFORM_DEEPSEEK = 'deepseek' as const
 
 // --- Subscription type constants (use instead of inline literals) ------------
 
@@ -130,6 +146,9 @@ const SOFT_BADGE: Record<string, string> = {
   newapi: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300',
   kiro: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300',
   grok: 'bg-slate-200 text-slate-800 dark:bg-slate-700/40 dark:text-slate-200',
+  kimi: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300',
+  zhipu: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+  deepseek: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
 }
 
 const LABEL_TEXT: Record<string, string> = {
@@ -140,6 +159,9 @@ const LABEL_TEXT: Record<string, string> = {
   newapi: 'text-cyan-600 dark:text-cyan-400',
   kiro: 'text-indigo-600 dark:text-indigo-400',
   grok: 'text-slate-700 dark:text-slate-300',
+  kimi: 'text-cyan-700 dark:text-cyan-300',
+  zhipu: 'text-blue-700 dark:text-blue-300',
+  deepseek: 'text-emerald-700 dark:text-emerald-300',
 }
 
 const TABLE_CELL_BASE =

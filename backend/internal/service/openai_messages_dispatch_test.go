@@ -3,7 +3,6 @@ package service
 import (
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,9 +28,7 @@ func TestNormalizeOpenAIMessagesDispatchModelConfig(t *testing.T) {
 	}, cfg.ExactModelMappings)
 }
 
-func TestGroupResolveMessagesDispatchModel_GrokRequiresCrossClientMapping(t *testing.T) {
-	original := xai.RuntimeModelMappingOptions()
-	t.Cleanup(func() { xai.SetRuntimeModelMappingOptions(original) })
+func TestGroupResolveMessagesDispatchModel_GrokUsesTokenKeyTierDefaults(t *testing.T) {
 	group := &Group{Platform: PlatformGrok}
 
 	require.Equal(t, defaultGrokMessagesDispatchSonnetMappedModel, group.ResolveMessagesDispatchModel("claude-sonnet-4-5"))

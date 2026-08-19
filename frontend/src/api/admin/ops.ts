@@ -40,6 +40,7 @@ export interface OpsDashboardOverview {
   error_count_total: number
   error_count_sla: number
   request_count_total: number
+  request_count_sla?: number
 
   token_consumed: number
 

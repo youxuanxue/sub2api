@@ -446,6 +446,7 @@
                   :key="idx"
                   :entry="entry"
                   :platform="section.platform"
+                  enable-time-pricing
                   @update="updatePricingEntry(sIdx, idx, $event)"
                   @remove="removePricingEntry(sIdx, idx)"
                 />
@@ -632,7 +633,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
 import type { Channel, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule } from '@/api/admin/channels'
 import type { PricingFormEntry } from '@/components/admin/channel/types'
-import { mTokToPerToken, perTokenToMTok, apiIntervalsToForm, formIntervalsToAPI, findModelConflict, validateIntervals } from '@/components/admin/channel/types'
+import { apiIntervalsToForm, createDefaultTimePricingForm, findModelConflict, formIntervalsToAPI, mTokToPerToken, perTokenToMTok, validateIntervals, validateTimePricing } from '@/components/admin/channel/types'
 import type { AdminGroup, GroupPlatform } from '@/types'
 import type { Column } from '@/components/common/types'
 import { platformTextClass, platformBadgeLightClass } from '@/utils/platformColors'
@@ -759,7 +760,6 @@ let abortController: AbortController | null = null
 // A previous 4-element hardcoded array silently dropped newapi data on the
 // API → form → API round-trip (see docs/approved/admin-ui-newapi-platform-end-to-end.md §1.5).
 const platformOrder: readonly GroupPlatform[] = GATEWAY_PLATFORMS
-
 // ── Helpers ──
 function formatDate(value: string): string {
   if (!value) return '-'
@@ -869,7 +869,8 @@ function addPricingEntry(sectionIdx: number) {
     image_input_price: null,
     image_output_price: null,
     per_request_price: null,
-    intervals: []
+    intervals: [],
+    time_pricing: createDefaultTimePricingForm()
   })
 }
 
@@ -902,7 +903,8 @@ async function syncLatestModels(sectionIdx: number) {
       image_input_price: null,
       image_output_price: null,
       per_request_price: null,
-      intervals: []
+      intervals: [],
+      time_pricing: createDefaultTimePricingForm()
     })
     appStore.showSuccess(t('admin.channels.form.syncModelsSuccess', { count: newModels.length }))
   } catch (error) {
@@ -967,7 +969,8 @@ function addRulePricingEntry(sectionIdx: number, ruleIndex: number) {
     image_input_price: null,
     image_output_price: null,
     per_request_price: null,
-    intervals: []
+    intervals: [],
+    time_pricing: createDefaultTimePricingForm()
   })
 }
 
@@ -1083,7 +1086,8 @@ function accountStatsRulesToAPI(): AccountStatsPricingRule[] {
             image_input_price: mTokToPerToken(p.image_input_price),
             image_output_price: mTokToPerToken(p.image_output_price),
             per_request_price: p.per_request_price != null && p.per_request_price !== '' ? Number(p.per_request_price) : null,
-            intervals: formIntervalsToAPI(p.intervals || [])
+            intervals: formIntervalsToAPI(p.intervals || []),
+            time_pricing: null
           }))
       })
     }
@@ -1268,7 +1272,8 @@ function distributeRulesToPlatforms(apiRules: AccountStatsPricingRule[]) {
         image_input_price: perTokenToMTok(p.image_input_price),
         image_output_price: perTokenToMTok(p.image_output_price),
         per_request_price: p.per_request_price,
-        intervals: apiIntervalsToForm(p.intervals || [])
+        intervals: apiIntervalsToForm(p.intervals || []),
+        time_pricing: createDefaultTimePricingForm()
       } as PricingFormEntry))
     }
     section.account_stats_pricing_rules.push(formRule)
@@ -1396,6 +1401,19 @@ async function handleSubmit() {
   const riskyBillingSource = form.billing_model_source === 'requested' || form.billing_model_source === 'upstream'
   if (riskyBillingSource && !window.confirm(t('admin.channels.form.billingModelSourceConfirm', '将「计费基准」设为按请求模型 / 最终模型计费，可能导致计费用的模型名与价格闸判定的不一致而产生 $0 漏计。确认继续吗？'))) {
     return
+  }
+  // 校验时间段定价，并切换到对应平台便于修正
+  for (const section of form.platforms.filter(s => s.enabled)) {
+    for (const entry of section.model_pricing) {
+      const timePricingError = validateTimePricing(entry.time_pricing, t)
+      if (timePricingError) {
+        const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
+        const modelLabel = entry.models.join(', ') || t('admin.channels.form.unnamed')
+        appStore.showError(`${platformLabel} - ${modelLabel}: ${timePricingError}`)
+        activeTab.value = section.platform
+        return
+      }
+    }
   }
 
   const { group_ids, model_pricing, model_mapping, features_config } = formToAPI()

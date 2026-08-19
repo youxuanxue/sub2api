@@ -59,7 +59,7 @@
     {
       "path": "backend/internal/domain/constants.go",
       "must_contain": [
-        "PlatformGrok      = \"grok\""
+        "PlatformGrok = \"grok\""
       ],
       "rationale": "Identity constant for the seventh platform string `grok`. Removing it collapses every grok invariant (pool membership, account predicate, refresher gate)."
     },

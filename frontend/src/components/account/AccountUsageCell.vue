@@ -19,7 +19,14 @@ import GrokUsageCell from './usage-cells/GrokUsageCell.vue'
 import KiroUsageCell from './usage-cells/KiroUsageCell.vue'
 import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
 import { usesLocalUsageWindows } from '@/utils/accountUsageBatch.tk'
-import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI, PLATFORM_GROK, PLATFORM_KIRO, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
+import {
+  PLATFORM_ANTHROPIC,
+  PLATFORM_ANTIGRAVITY,
+  PLATFORM_GEMINI,
+  PLATFORM_GROK,
+  PLATFORM_KIRO,
+  PLATFORM_OPENAI,
+} from '@/constants/gatewayPlatforms'
 
 const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCellPropDefaults)
 
@@ -41,9 +48,7 @@ const activeCell = computed(() => {
     return AnthropicUsageCell
   }
 
-  // Local-window adapters reuse the generic 5h/7d usage display. They do not
-  // have a common upstream percentage-quota protocol, but the backend returns
-  // TokenKey account billing windows through the same passive endpoint.
+  // Local-window adapters reuse the generic 5h/7d usage display.
   if (
     (account.platform === PLATFORM_OPENAI && account.type === 'oauth') ||
     usesLocalUsageWindows(account)

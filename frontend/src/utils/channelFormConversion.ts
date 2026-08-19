@@ -24,7 +24,9 @@ import type {
 import type { PricingFormEntry } from '@/components/admin/channel/types'
 import {
   apiIntervalsToForm,
+  apiTimePricingToForm,
   formIntervalsToAPI,
+  formTimePricingToAPI,
   mTokToPerToken,
   perTokenToMTok,
 } from '@/components/admin/channel/types'
@@ -122,7 +124,8 @@ export function apiToFormSections(
             cache_read_price: perTokenToMTok(p.cache_read_price),
             image_output_price: perTokenToMTok(p.image_output_price),
             per_request_price: p.per_request_price,
-            intervals: apiIntervalsToForm(p.intervals || []),
+        intervals: apiIntervalsToForm(p.intervals || []),
+        time_pricing: apiTimePricingToForm(p.time_pricing),
           }) as PricingFormEntry,
       )
 
@@ -205,6 +208,7 @@ export function formSectionsToApi(
             ? Number(entry.per_request_price)
             : null,
         intervals: formIntervalsToAPI(entry.intervals || []),
+        time_pricing: formTimePricingToAPI(entry.time_pricing),
       })
     }
   }

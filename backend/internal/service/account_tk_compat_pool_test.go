@@ -89,6 +89,9 @@ func TestUS018_IsOpenAICompatPlatform_Truth(t *testing.T) {
 	}{
 		{PlatformOpenAI, true},
 		{PlatformNewAPI, true},
+		{PlatformKimi, true},
+		{PlatformZhipu, true},
+		{PlatformDeepseek, true},
 		{PlatformAnthropic, false},
 		{PlatformGemini, false},
 		{PlatformAntigravity, false},
@@ -105,9 +108,11 @@ func TestUS018_IsOpenAICompatPlatform_Truth(t *testing.T) {
 
 func TestOpenAICompatPlatforms_ListsCanonicals(t *testing.T) {
 	got := OpenAICompatPlatforms()
-	// openai (Codex OAuth) + newapi (apikey fifth platform) + grok (xAI OAuth
-	// seventh platform — OpenAI-wire compatible, so it rides the OpenAI-compat pool).
-	want := map[string]bool{PlatformOpenAI: false, PlatformNewAPI: false, PlatformGrok: false}
+	// OpenAI-wire compatible platforms share the OpenAI-compat pool.
+	want := map[string]bool{
+		PlatformOpenAI: false, PlatformNewAPI: false, PlatformGrok: false,
+		PlatformKimi: false, PlatformZhipu: false, PlatformDeepseek: false,
+	}
 	if len(got) != len(want) {
 		t.Fatalf("OpenAICompatPlatforms must list exactly %d platforms today, got %d: %v", len(want), len(got), got)
 	}

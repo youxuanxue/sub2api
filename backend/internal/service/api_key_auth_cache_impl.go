@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 19 // v19: restore compaction fields while retaining group profit control
+const apiKeyAuthSnapshotVersion = 20 // v20: group long-context and model pricing fields (force refresh of pre-fix snapshots)
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -427,6 +427,13 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			ProfitControlEnabled:                   apiKey.Group.ProfitControlEnabled,
 			ProfitMinMargin:                        apiKey.Group.ProfitMinMargin,
 			ProfitSafetyBuffer:                     apiKey.Group.ProfitSafetyBuffer,
+			VideoModelPrices:                       NormalizeVideoModelPrices(apiKey.Group.VideoModelPrices),
+			SearchPricePer1k:                       apiKey.Group.SearchPricePer1k,
+			AudioRealtimePricePerMin:               apiKey.Group.AudioRealtimePricePerMin,
+			AudioTTSPricePerMillionChars:           apiKey.Group.AudioTTSPricePerMillionChars,
+			AudioSTTPricePerHour:                   apiKey.Group.AudioSTTPricePerHour,
+			LongContextPricingEnabled:              apiKey.Group.LongContextPricingEnabled,
+			ModelPricing:                           apiKey.Group.ModelPricing,
 		}
 	}
 	return snapshot
@@ -521,6 +528,13 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			ProfitControlEnabled:                   snapshot.Group.ProfitControlEnabled,
 			ProfitMinMargin:                        snapshot.Group.ProfitMinMargin,
 			ProfitSafetyBuffer:                     snapshot.Group.ProfitSafetyBuffer,
+			VideoModelPrices:                       NormalizeVideoModelPrices(snapshot.Group.VideoModelPrices),
+			SearchPricePer1k:                       snapshot.Group.SearchPricePer1k,
+			AudioRealtimePricePerMin:               snapshot.Group.AudioRealtimePricePerMin,
+			AudioTTSPricePerMillionChars:           snapshot.Group.AudioTTSPricePerMillionChars,
+			AudioSTTPricePerHour:                   snapshot.Group.AudioSTTPricePerHour,
+			LongContextPricingEnabled:              snapshot.Group.LongContextPricingEnabled,
+			ModelPricing:                           snapshot.Group.ModelPricing,
 		}
 	}
 	s.compileAPIKeyIPRules(apiKey)

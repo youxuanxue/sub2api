@@ -171,7 +171,30 @@ const planIconName = computed<'bolt' | null>(() => {
 
 const platformClass = computed(() => tkAdminPlatformSoftBadgeClass(props.platform))
 
-const typeClass = computed(() => tkAdminPlatformSoftBadgeClass(props.platform))
+const typeClass = computed(() => {
+  if (props.platform === 'anthropic') {
+    return 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400'
+  }
+  if (props.platform === 'openai') {
+    return 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400'
+  }
+  if (props.platform === 'antigravity') {
+    return 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400'
+  }
+  if (props.platform === 'grok') {
+    return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
+  }
+  if (props.platform === 'kimi') {
+    return 'bg-pink-100 text-pink-600 dark:bg-pink-900/30 dark:text-pink-400'
+  }
+  if (props.platform === 'zhipu') {
+    return 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400'
+  }
+  if (props.platform === 'deepseek') {
+    return 'bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400'
+  }
+  return 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
+})
 
 const planBadgeClass = computed(() => {
   if (normalizedPlanType.value === 'abnormal') {

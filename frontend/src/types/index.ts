@@ -276,6 +276,8 @@ export interface PublicSettings {
   channel_monitor_default_interval_seconds: number
   /** When true, user monitor hides RPM/TPM so scale cannot be reverse-estimated. */
   channel_monitor_hide_throughput?: boolean
+  /** When true, user monitor shows account quota/balance snapshots (default off). */
+  channel_monitor_show_quota?: boolean
   available_channels_enabled: boolean
   risk_control_enabled?: boolean
   model_plaza_enabled: boolean
@@ -534,7 +536,7 @@ export interface PaginationConfig {
 
 // ==================== API Key & Group Types ====================
 
-export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok' | 'composite'
+export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok' | 'kimi' | 'zhipu' | 'deepseek' | 'composite'
 
 export type VideoModelPrices = Record<string, Record<string, number>>
 
@@ -910,7 +912,7 @@ export interface UpdateGroupRequest {
 
 // ==================== Account & Proxy Types ====================
 
-export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok' | 'composite'
+export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok' | 'kimi' | 'zhipu' | 'deepseek' | 'composite'
 export type AccountPlatformFilterValue = '' | AccountPlatform
 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
@@ -1411,6 +1413,23 @@ export interface AccountUsageInfo {
   grok_last_status_code?: number
   grok_free_token_limit?: number
   grok_local_usage?: WindowStats | null
+  grok_local_usage_24h?: WindowStats | null
+  grok_local_usage_7d?: WindowStats | null
+  grok_local_usage_monthly?: WindowStats | null
+  grok_billing?: {
+    period_type?: string
+    usage_percent?: number
+    used_percent?: number
+    period_end?: string | null
+    billing_period_end?: string | null
+    monthly_limit_cents?: number | null
+    used_cents?: number | null
+    monthly_limit?: number | null
+    monthly_used?: number | null
+    prepaid_balance?: number | null
+    plan?: string
+  } | null
+  subscription_tier?: string
   upstream_quota?: UpstreamQuotaInfo | null
   ai_credits?: Array<{
     credit_type?: string

@@ -48,6 +48,8 @@ type RateLimitService struct {
 	antigravitySaturationCounter AntigravitySaturationCounterCache
 	usageCacheMu                 sync.RWMutex
 	usageCache                   map[int64]*geminiUsageCacheEntry
+	openaiTeamLinkedMu           sync.Mutex
+	openaiTeamLinkedRecent       map[string]time.Time
 }
 
 type AccountRuntimeBlocker interface {
@@ -401,7 +403,13 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 // HandleUpstreamError 处理上游错误响应，标记账号状态
 // 返回是否应该停止该账号的调度
 func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
+	if s == nil || account == nil {
+		return false
+	}
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
+	// Team 联动熔断必须先于池模式/自定义错误码/临时不可调度的各类早退；
+	// 同请求内与 fastpath 调用点的重复触发由方法内去重吸收。
+	s.maybeHandleOpenAITeamLinkedError(ctx, account, statusCode, responseBody)
 	customErrorCodesEnabled := account.IsCustomErrorCodesEnabled()
 
 	if tkIsNewAPIAgentPlanOpenAIProviderMismatch(account, statusCode, responseBody) {
@@ -660,6 +668,13 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			shouldDisable = true
 		}
 	case 402:
+		// 国产供应商：余额不足是可恢复状态（充值/检测恢复后由周期任务自动解除），
+		// 不能走 handleAuthError 永久置 status=error。改为可恢复的临时停调。
+		if account.IsCNProvider() {
+			s.handleCNProviderInsufficientBalance(ctx, account, upstreamMsg)
+			shouldDisable = true
+			break
+		}
 		// OpenAI: deactivated_workspace 表示工作区已停用，直接标记 error
 		if account.Platform == PlatformOpenAI && gjson.GetBytes(responseBody, "detail.code").String() == "deactivated_workspace" {
 			msg := "Workspace deactivated (402): workspace has been deactivated"
@@ -1219,7 +1234,15 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	if account.Platform == PlatformAntigravity {
 		return s.handleAntigravity403(ctx, account, upstreamMsg, responseBody)
 	}
-	if account.Platform == PlatformOpenAI {
+	// 国产供应商与 openai 同口径:HTML 403(CDN/代理拦截页)不构成账号失效证据,
+	// 且 403 在 failover 状态集里会被逐账号重放——直接 SetError 会让一个坏请求/
+	// 一层坏代理连环永久禁用整组账号。走 HTML 豁免 + N 次累计 + 临时冷却。
+	if account.Platform == PlatformOpenAI || IsCNProvider(account.Platform) {
+		if IsCNProvider(account.Platform) && openAIIsHTMLBody(responseBody) {
+			// CN provider CDN/proxy HTML is request-level noise. Do not report
+			// it as an account failover/disable signal or mutate account state.
+			return false
+		}
 		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
 	}
 	if s.tkMaybeRefreshKiroInvalidBearer403(ctx, account, upstreamMsg, responseBody) {
@@ -1787,6 +1810,9 @@ func findAnthropicNotFoundModel(text string) string {
 // SetTempUnschedulable write is suppressed when the more authoritative
 // SetRateLimited has just landed.
 func (s *RateLimitService) handle429(ctx context.Context, account *Account, headers http.Header, responseBody []byte, requestedModel ...string) bool {
+	if s == nil || account == nil {
+		return false
+	}
 	// Spark 影子：限流/熔断状态 100% 由 QueryUsage(/wham/usage body 的 codex_bengalfox)驱动。
 	// /responses 的 429 携带的 x-codex-*/usage_limit_reached 是 global codex 道(plan/spec §8),
 	// 套到影子会把 spark 误耦合到 global 窗口——即便 spark 仍有配额也会被冷却到 global reset,
@@ -1794,6 +1820,13 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	// QueryUsage→persistOpenAICodexProbeSnapshot 维护,枯竭由调度守卫处理。
 	if account.IsShadow() {
 		return false
+	}
+	// 国产供应商（kimi/zhipu/deepseek）的 429 走专用可恢复路径：余额不足 → 临时停调，
+	// Coding Plan 窗口耗尽 → 冷却到快照重置点。未命中则继续默认 429 逻辑。
+	if account.IsCNProvider() {
+		if s.applyCNProviderReactive429(ctx, account, headers, responseBody) {
+			return true
+		}
 	}
 	// 1. OpenAI 平台：优先尝试解析 x-codex-* 响应头（用于 rate_limit_exceeded）
 	if account.Platform == PlatformOpenAI {

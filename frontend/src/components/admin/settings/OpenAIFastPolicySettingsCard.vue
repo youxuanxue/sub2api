@@ -51,6 +51,29 @@
           </button>
         </div>
 
+        <div
+          class="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-gray-400"
+          :data-testid="`openai-fast-policy-summary-${ruleIndex}`"
+        >
+          <span class="font-medium text-gray-700 dark:text-gray-300">
+            {{ t(hasTargetModels(rule) ? 'admin.settings.openaiFastPolicy.summaryTargetModels' : 'admin.settings.openaiFastPolicy.summaryAllModels') }}
+          </span>
+          <span aria-hidden="true">-&gt;</span>
+          <span class="inline-flex items-center rounded bg-primary-50 px-2 py-0.5 font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
+            {{ actionSummary(rule.action) }}
+          </span>
+          <template v-if="hasTargetModels(rule)">
+            <span aria-hidden="true">&#183;</span>
+            <span class="font-medium text-gray-700 dark:text-gray-300">
+              {{ t('admin.settings.openaiFastPolicy.summaryOtherModels') }}
+            </span>
+            <span aria-hidden="true">-&gt;</span>
+            <span class="inline-flex items-center rounded bg-gray-100 px-2 py-0.5 font-medium text-gray-700 dark:bg-dark-600 dark:text-gray-300">
+              {{ actionSummary(rule.fallback_action || 'pass') }}
+            </span>
+          </template>
+        </div>
+
         <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>
             <label
@@ -117,8 +140,13 @@
           </p>
         </div>
 
-        <div class="mt-3">
+        <div
+          class="mt-3"
+          role="group"
+          :aria-labelledby="`openai-fast-policy-models-label-${ruleIndex}`"
+        >
           <label
+            :id="`openai-fast-policy-models-label-${ruleIndex}`"
             class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
           >
             {{ t("admin.settings.openaiFastPolicy.modelWhitelist") }}
@@ -302,5 +330,13 @@ function addModelPattern(rule: OpenAIFastPolicyRule) {
 
 function removeModelPattern(rule: OpenAIFastPolicyRule, idx: number) {
   rule.model_whitelist?.splice(idx, 1);
+}
+
+function hasTargetModels(rule: OpenAIFastPolicyRule): boolean {
+  return Boolean(rule.model_whitelist?.some((pattern) => pattern.trim() !== ""));
+}
+
+function actionSummary(action: OpenAIFastPolicyRule["action"]): string {
+  return t(`admin.settings.openaiFastPolicy.summaryAction.${action}`);
 }
 </script>

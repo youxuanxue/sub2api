@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -106,6 +107,7 @@ func TestOpenAIGatewayService_CalculateRecordUsageCost_ImagenTokenPathUsesOverla
 		1.0, 1.0, 1.0, 1.0,
 		UsageTokens{InputTokens: 200, OutputTokens: 58},
 		"", boolPtr(false),
+		time.Time{},
 	)
 	require.NoError(t, err)
 	require.NotNil(t, cost)

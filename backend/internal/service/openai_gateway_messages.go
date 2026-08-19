@@ -38,21 +38,27 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 ) (*OpenAIForwardResult, error) {
 	beginUpstreamResponseModelObservation(c)
 
-	// 入口分流：APIKey 账号 + 上游原生 /v1/messages → 直转；否则不支持
-	// Responses 时走 CC 回退。缺少 native 分流时会将 /v1/messages 错误地转为
-	// Responses 或 CC，浪费双栈中继的原生 Anthropic 能力。
-	// 双栈 relay 的非 claude-* 模型（如 MiniMax-M3）走 chat 回退，与 /v1/responses
-	// fallback 一致，避免 native passthrough 在选号/转发链路上的不一致。
-	if account.Type == AccountTypeAPIKey {
-		if openai_compat.ShouldUseNativeAnthropicMessagesAPI(account.Extra) {
-			if shouldForwardNativeAnthropicMessagesForModel(body) {
-				return s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)
-			}
-			return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+	// 入口分流（国产供应商 Anthropic 协议）：上游为供应商原生 Anthropic 端点时，
+	// /v1/messages 请求零转换直通（仅模型名映射 + 少量 body 清洗），完整保留
+	// thinking / tool_use / cache 语义，适配 Claude Code 等原生客户端。
+	// 必须先于 ShouldUseResponsesAPI 分流：Anthropic 协议账号经 probe 落标
+	// openai_responses_supported=false，会先命中下方的 CC 直转分支。
+	if account.IsAnthropicProtocol() {
+		return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
+	}
+	if account.Type == AccountTypeAPIKey && openai_compat.ShouldUseNativeAnthropicMessagesAPI(account.Extra) {
+		if shouldForwardNativeAnthropicMessagesForModel(body) {
+			return s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)
 		}
-		if !openai_compat.ShouldUseResponsesAPI(account.Extra) {
-			return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
-		}
+		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+	}
+
+	// 入口分流：APIKey 账号 + 上游不支持 Responses API → 走 CC 直转（与
+	// ForwardAsChatCompletions 对称）。缺少此分流时，/v1/messages 入站请求
+	// 会被无条件转为 Responses 格式发往上游 /v1/responses，导致只支持
+	// /v1/chat/completions 的第三方 OpenAI 兼容上游全部 400。
+	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
+		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
 
 	startTime := time.Now()

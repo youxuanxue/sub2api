@@ -33,7 +33,8 @@
           <Toggle v-model="form.channel_monitor_enabled" />
         </div>
 
-        <div v-if="form.channel_monitor_enabled">
+        <div v-if="form.channel_monitor_enabled" class="space-y-5">
+          <div v-if="form.channel_monitor_mode === 'v1'">
           <label class="input-label">
             {{ t('admin.settings.features.channelMonitor.defaultInterval') }}
             <span class="text-red-500">*</span>
@@ -48,6 +49,31 @@
           <p class="mt-1 text-xs text-gray-400">
             {{ t('admin.settings.features.channelMonitor.defaultIntervalHint') }}
           </p>
+          </div>
+
+          <div v-if="form.channel_monitor_mode === 'v2'" class="flex items-start justify-between gap-4">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-gray-900 dark:text-white">
+                {{ t('admin.settings.features.channelMonitor.hideThroughput') }}
+              </p>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.features.channelMonitor.hideThroughputHint') }}
+              </p>
+            </div>
+            <Toggle v-model="form.channel_monitor_hide_throughput" />
+          </div>
+
+          <div v-if="form.channel_monitor_mode === 'v1'" class="flex items-start justify-between gap-4">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-gray-900 dark:text-white">
+                {{ t('admin.settings.features.channelMonitor.showQuota') }}
+              </p>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.features.channelMonitor.showQuotaHint') }}
+              </p>
+            </div>
+            <Toggle v-model="form.channel_monitor_show_quota" />
+          </div>
         </div>
       </div>
     </div>

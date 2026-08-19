@@ -275,6 +275,12 @@ func (a *Account) IsOpenAICompatible() bool {
 	return a != nil && IsOpenAICompatPlatform(a.Platform)
 }
 
+// IsCNProvider reports whether this account uses a mainland Chinese
+// OpenAI-compatible provider.
+func (a *Account) IsCNProvider() bool {
+	return a != nil && IsCNProvider(a.Platform)
+}
+
 func (a *Account) GeminiOAuthType() string {
 	if a.Platform != PlatformGemini || a.Type != AccountTypeOAuth {
 		return ""
@@ -1341,16 +1347,130 @@ func (a *Account) GetOpenAIBaseURL() string {
 	if a.IsGrokAPIKey() {
 		return a.GetCredential("base_url")
 	}
-	if !a.IsOpenAI() {
+	if !a.IsOpenAI() && !a.IsCNProvider() {
 		return ""
 	}
-	if a.Type == AccountTypeAPIKey {
-		baseURL := a.GetCredential("base_url")
-		if baseURL != "" {
+	if a.Type == AccountTypeAPIKey || a.Type == AccountTypeUpstream {
+		if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" {
 			return baseURL
 		}
 	}
-	return "https://api.openai.com"
+	switch a.Platform {
+	case PlatformKimi:
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultKimiCodingBaseURL
+		}
+		return DefaultKimiPayGBaseURL
+	case PlatformZhipu:
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultZhipuCodingBaseURL
+		}
+		return DefaultZhipuPayGBaseURL
+	case PlatformDeepseek:
+		return DefaultDeepseekBaseURL
+	default:
+		return "https://api.openai.com"
+	}
+}
+
+// GetAccountMode returns the CN provider access mode (payg or coding).
+func (a *Account) GetAccountMode() string {
+	if a == nil {
+		return ""
+	}
+	mode := strings.TrimSpace(a.GetCredential("account_mode"))
+	if mode == AccountModePayG || mode == AccountModeCoding {
+		return mode
+	}
+	return ""
+}
+
+func (a *Account) IsCodingPlan() bool { return a.GetAccountMode() == AccountModeCoding }
+
+// GetAPIProtocol returns the selected upstream protocol for CN providers.
+func (a *Account) GetAPIProtocol() string {
+	if a == nil || !a.IsCNProvider() {
+		return APIProtocolChatCompletions
+	}
+	switch strings.TrimSpace(a.GetCredential("api_protocol")) {
+	case APIProtocolAnthropic:
+		return APIProtocolAnthropic
+	case APIProtocolResponses:
+		if a.Platform == PlatformDeepseek {
+			return APIProtocolResponses
+		}
+	}
+	return APIProtocolChatCompletions
+}
+
+func (a *Account) IsAnthropicProtocol() bool { return a.GetAPIProtocol() == APIProtocolAnthropic }
+
+func (a *Account) GetAnthropicProtocolBaseURL() string {
+	if a == nil || !a.IsAnthropicProtocol() {
+		return ""
+	}
+	if a.Type == AccountTypeAPIKey || a.Type == AccountTypeUpstream {
+		if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" {
+			return baseURL
+		}
+	}
+	switch a.Platform {
+	case PlatformKimi:
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultKimiCodingAnthropicBaseURL
+		}
+		return DefaultKimiPayGAnthropicBaseURL
+	case PlatformZhipu:
+		return DefaultZhipuAnthropicBaseURL
+	case PlatformDeepseek:
+		return DefaultDeepseekAnthropicBaseURL
+	default:
+		return ""
+	}
+}
+
+func (a *Account) GetOpenAIFormatBaseURL() string {
+	if a == nil || !a.IsAnthropicProtocol() {
+		return a.GetOpenAIBaseURL()
+	}
+	switch a.Platform {
+	case PlatformKimi:
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultKimiCodingBaseURL
+		}
+		return DefaultKimiPayGBaseURL
+	case PlatformZhipu:
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultZhipuCodingBaseURL
+		}
+		return DefaultZhipuPayGBaseURL
+	case PlatformDeepseek:
+		return DefaultDeepseekBaseURL
+	default:
+		return a.GetOpenAIBaseURL()
+	}
+}
+
+func (a *Account) GetCNAPIKey() string {
+	if a == nil || !a.IsCNProvider() {
+		return ""
+	}
+	return a.GetCredential("api_key")
+}
+
+func (a *Account) GetCodingPlanProvider() string {
+	if a == nil || a.GetAccountMode() != AccountModeCoding {
+		return ""
+	}
+	baseURL := strings.ToLower(a.GetOpenAIBaseURL())
+	switch {
+	case strings.Contains(baseURL, "api.kimi.com/coding"):
+		return PlatformKimi
+	case strings.Contains(baseURL, "bigmodel.cn"), strings.Contains(baseURL, "api.z.ai"):
+		return PlatformZhipu
+	default:
+		return ""
+	}
 }
 
 func (a *Account) GetOpenAIAccessToken() string {
@@ -1467,6 +1587,18 @@ func (a *Account) GetOpenAIApiKey() string {
 		return ""
 	}
 	return a.GetCredential("api_key")
+}
+
+// GetOpenAIProtocolAPIKey returns the API key for any OpenAI-protocol account,
+// including CN-compatible providers and NewAPI API-key channels.
+func (a *Account) GetOpenAIProtocolAPIKey() string {
+	if a == nil {
+		return ""
+	}
+	if a.Type == AccountTypeAPIKey && (a.IsCNProvider() || a.Platform == PlatformNewAPI) {
+		return a.GetCredential("api_key")
+	}
+	return a.GetOpenAIApiKey()
 }
 
 func (a *Account) GetOpenAIUserAgent() string {

@@ -3115,6 +3115,13 @@
       "rationale": "Unified CC prompt-surface normalizer: geo-stego date lines + # Environment TZ rewrite to server timezone (strip Proxy/PWD) + client userEmail replace/strip (OAuth account email when scheduled). Classification is load-bearing: known CC system/reminder text may be rewritten; plain user/generic system text must stay untouched; unknown system-shaped drift is observed but not rewritten."
     },
     {
+      "path": "backend/internal/service/gateway_request_tk_cc_prompt_surface_test.go",
+      "must_contain": [
+        "TestTkRewriteCCEnvironmentSectionRewritesEverySection"
+      ],
+      "rationale": "Regression anchor for duplicate Claude Code environment blocks: every block must receive the outbound timezone rewrite, so an upstream merge cannot retain only the first block's TZ while silently dropping later blocks."
+    },
+    {
       "path": "backend/internal/service/gateway_anthropic_request_normalize_tk.go",
       "must_contain": [
         "func tkApplyAnthropicCCPromptSurfaceNormalize"
@@ -6053,7 +6060,7 @@
     {
       "path": "backend/internal/service/api_key_auth_cache_impl.go",
       "must_contain": [
-        "apiKeyAuthSnapshotVersion = 19",
+        "apiKeyAuthSnapshotVersion = 20",
         "apiKey.Group.StickyRoutingMode",
         "apiKey.Group.MessagesCompactionEnabled",
         "apiKey.Group.MessagesCompactionInputTokensThreshold",
@@ -6066,7 +6073,7 @@
     {
       "path": "backend/internal/service/admin_account.go",
       "must_contain": [
-        "needMixedChannelCheck || needPublicGroupAggregatorCheck || hasLongContextBillingUpdate"
+        "needMixedChannelCheck || needPublicGroupAggregatorCheck || openAISettings.any()"
       ],
       "rationale": "A group-only bulk edit with SkipMixedChannelCheck still needs hydrated target accounts for the public-group aggregator loop-prevention policy. Without this preload term accountByID stays empty, the policy loop skips every target, and forbidden OpenRouter/Coze/Submodel accounts enter public groups."
     },
