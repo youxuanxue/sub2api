@@ -98,6 +98,21 @@ func TestCloudwiseRelayEmptyMappingStillRejectsForeignFamilies(t *testing.T) {
 	}
 }
 
+func TestApplyOpenAICloudwiseRelayUpstreamModelID_AnthropicAccount(t *testing.T) {
+	anthropic := &Account{
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url":      "https://api.cloudwise.ai/api",
+			"model_mapping": modelMappingToAny(openAICloudwiseRelayWildcardModelMappingFloor()),
+		},
+	}
+	require.True(t, isCloudwiseRelayAccount(anthropic))
+	require.False(t, anthropic.IsOpenAICloudwiseRelay())
+	require.Equal(t, "MiniMax-M3", applyOpenAICloudwiseRelayUpstreamModelID(anthropic, "minimax-m3"))
+	require.Equal(t, "MiniMax-M3", anthropic.GetMappedModel("minimax-m3"))
+}
+
 func TestCloudwiseRelayPrefixGateOverridesExplicitGPTMapping(t *testing.T) {
 	account := &Account{
 		Platform: PlatformOpenAI,

@@ -45,7 +45,7 @@ func openAICloudwiseRelayUpstreamModelID(modelID string) string {
 }
 
 func applyOpenAICloudwiseRelayUpstreamModelID(account *Account, modelID string) string {
-	if account == nil || !account.IsOpenAICloudwiseRelay() {
+	if account == nil || !isCloudwiseRelayAccount(account) {
 		return modelID
 	}
 	return openAICloudwiseRelayUpstreamModelID(modelID)

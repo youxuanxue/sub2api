@@ -220,8 +220,20 @@ func TestTkIsAnthropicCrossVendorModelName(t *testing.T) {
 	if !TkIsAnthropicCrossVendorModelName("gpt") {
 		t.Fatal("gpt must be cross-vendor on anthropic ingress")
 	}
-	if !TkIsAnthropicCrossVendorModelName("deepseek-v4-flash") {
-		t.Fatal("deepseek must be cross-vendor on anthropic ingress")
+	if !TkIsAnthropicCrossVendorModelName("gemini-3-flash-preview") {
+		t.Fatal("gemini must stay cross-vendor; CloudWise whitelist does not include it")
+	}
+	if TkIsAnthropicCrossVendorModelName("deepseek-v4-flash") {
+		t.Fatal("CloudWise whitelist prefix deepseek-* must pass anthropic ingress")
+	}
+	if TkIsAnthropicCrossVendorModelName("glm-5.2") {
+		t.Fatal("CloudWise whitelist prefix glm-* must pass anthropic ingress")
+	}
+	if TkIsAnthropicCrossVendorModelName("kimi-k3") {
+		t.Fatal("CloudWise whitelist prefix kimi-* must pass anthropic ingress")
+	}
+	if TkIsAnthropicCrossVendorModelName("MiniMax-M3") {
+		t.Fatal("CloudWise whitelist prefix minimax-* must pass anthropic ingress")
 	}
 	if TkIsAnthropicCrossVendorModelName("claude-opus-4-8") {
 		t.Fatal("claude-opus-4-8 must not be cross-vendor")
