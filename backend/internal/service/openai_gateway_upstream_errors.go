@@ -159,16 +159,7 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 			strings.Contains(lower, "request id")
 	}
 
-	if match(upstreamMsg) {
-		return true
-	}
-	if len(upstreamBody) == 0 {
-		return false
-	}
-	if match(gjson.GetBytes(upstreamBody, "error.message").String()) {
-		return true
-	}
-	return match(string(upstreamBody))
+	return matchOpenAIUpstreamErrorFields(upstreamMsg, upstreamBody, match)
 }
 
 // IsOpenAIContextWindowError reports whether upstream text indicates the caller
@@ -202,6 +193,14 @@ func isOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
 			hasExceeded
 	}
 
+	return matchOpenAIUpstreamErrorFields(upstreamMsg, upstreamBody, match)
+}
+
+// matchOpenAIUpstreamErrorFields applies match to the extracted message and the
+// JSON error message/code fields only. A Responses/SSE document can echo the
+// caller's input or earlier model output; scanning the whole blob would let
+// those substrings flip capacity ↔ context-window classification.
+func matchOpenAIUpstreamErrorFields(upstreamMsg string, upstreamBody []byte, match func(string) bool) bool {
 	if match(upstreamMsg) {
 		return true
 	}
@@ -220,11 +219,6 @@ func isOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
 			return true
 		}
 	}
-	// Plain-text upstream bodies still participate. A JSON Responses/SSE
-	// document must not: it can echo the caller's input or earlier model
-	// output, and a substring like "context window" + "exceed" would then
-	// pin a capacity 400 (servers are currently overloaded) as a terminal
-	// client error instead of failing over to a sibling account.
 	if gjson.ValidBytes(bytes.TrimSpace(upstreamBody)) {
 		return false
 	}

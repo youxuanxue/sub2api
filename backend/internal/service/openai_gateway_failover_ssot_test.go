@@ -41,6 +41,14 @@ func TestShouldFailoverOpenAIUpstreamError_HTTPAndSSEShareDecision(t *testing.T)
 			want:       false,
 		},
 		{
+			name:       "context-window 400 with echoed overloaded text stays terminal",
+			status:     http.StatusBadRequest,
+			message:    contextWindowMsg,
+			body:       []byte(`{"type":"response.failed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"Our servers are currently overloaded. Please try again later."}]}],"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again."}}}`),
+			ssePayload: []byte(`{"type":"response.failed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"Our servers are currently overloaded. Please try again later."}]}],"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again."}}}`),
+			want:       false,
+		},
+		{
 			name:       "content_policy is caller-fault",
 			status:     http.StatusBadRequest,
 			message:    "request blocked by policy",
