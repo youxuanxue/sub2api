@@ -68,14 +68,6 @@ func accountModelMappingRuntimeServingPlatform(platform string) map[string]strin
 	return runtime.platforms[normalizeAccountModelMappingPresetPlatform(platform)]
 }
 
-func resetAccountModelMappingRuntimeServingForTest() {
-	accountModelMappingRuntimeServingMu.Lock()
-	defer accountModelMappingRuntimeServingMu.Unlock()
-	accountModelMappingRuntimeServing.Store(nil)
-	accountModelMappingRuntimeServingVer.Store(0)
-	accountModelMappingRuntimeServingHash.Store("")
-}
-
 func reloadAccountModelMappingRuntimeServing(ctx context.Context, getter func(context.Context) (string, bool)) error {
 	accountModelMappingRuntimeServingMu.Lock()
 	defer accountModelMappingRuntimeServingMu.Unlock()

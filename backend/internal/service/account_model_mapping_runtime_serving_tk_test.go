@@ -10,6 +10,14 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
+func resetAccountModelMappingRuntimeServingForTest() {
+	accountModelMappingRuntimeServingMu.Lock()
+	defer accountModelMappingRuntimeServingMu.Unlock()
+	accountModelMappingRuntimeServing.Store(nil)
+	accountModelMappingRuntimeServingVer.Store(0)
+	accountModelMappingRuntimeServingHash.Store("")
+}
+
 func TestAntigravityEffectiveDefaultModelMapping_EmptyRuntimeUsesCompiledDefault(t *testing.T) {
 	resetAccountModelMappingRuntimeServingForTest()
 	t.Cleanup(resetAccountModelMappingRuntimeServingForTest)
