@@ -415,4 +415,18 @@ func TestIsModelSupportedByAccount_MappedCloudwisePrefixDoesNotLeakToOfficialAnt
 	if !svc.isModelSupportedByAccount(leaked, "claude-sonnet-4-6") {
 		t.Error("non-CloudWise mapped anthropic must still serve its claude-* mapping")
 	}
+
+	// Existing scheduling fixtures map a claude request to a dummy wire ID
+	// ("x"). That is not a CloudWise leak: the client already asked for claude.
+	claudeToWire := &Account{
+		ID:       12,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"claude-3-5-sonnet-20241022": "x"},
+		},
+	}
+	if !svc.isModelSupportedByAccount(claudeToWire, "claude-3-5-sonnet-20241022") {
+		t.Error("claude request remapped to a vendor wire ID must still be selectable")
+	}
 }

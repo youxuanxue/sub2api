@@ -2299,11 +2299,13 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 		return ok
 	}
 	if account.Platform == PlatformAnthropic && account.Type != AccountTypeServiceAccount {
-		// Judge the forwarded (mapped) name: empty mapping keeps the request
-		// name; gpt-4o→claude stays allowed; glm-*→glm-* identity copies on
-		// official Anthropic accounts must not claim CloudWise prefixes now
-		// that ingress lets those names through.
-		if !tkIsForwardableAnthropicModelName(account.GetMappedModel(requestedModel)) {
+		// Leak only when BOTH the request and the forwarded name are outside
+		// claude-*: empty mapping keeps the request name; gpt-4o→claude stays
+		// allowed; claude→vendor-wire-id stays allowed; glm-*→glm-* identity
+		// copies on official Anthropic accounts must not claim CloudWise
+		// prefixes now that ingress lets those names through.
+		mapped := account.GetMappedModel(requestedModel)
+		if !tkIsForwardableAnthropicModelName(requestedModel) && !tkIsForwardableAnthropicModelName(mapped) {
 			return false
 		}
 	}

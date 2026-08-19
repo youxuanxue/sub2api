@@ -4651,9 +4651,9 @@
     {
       "path": "backend/internal/service/gateway_scheduling.go",
       "must_contain": [
-        "if !tkIsForwardableAnthropicModelName(account.GetMappedModel(requestedModel)) {"
+        "if !tkIsForwardableAnthropicModelName(requestedModel) && !tkIsForwardableAnthropicModelName(mapped) {"
       ],
-      "rationale": "TK fix (PR #806 / #1743): isModelSupportedByAccount must judge the forwarded (mapped) Anthropic model name, not only empty-mapping passthrough. After CloudWise prefixes pass anthropic ingress, a non-CloudWise account with glm-*/deepseek-* identity mapping would otherwise be selected and leak those names to api.anthropic.com. CloudWise accounts already return earlier via isCloudwiseRelayAccount. gpt-4o→claude mappings stay allowed because GetMappedModel is claude-*. Pairs with the predicate sentinel on gateway_service_tk_unsupported_model.go."
+      "rationale": "TK fix (PR #806 / #1743): isModelSupportedByAccount must reject official Anthropic only when BOTH the request and forwarded names are outside claude-*. After CloudWise prefixes pass anthropic ingress, glm-*→glm-* identity copies on official Anthropic must not be selected. gpt-4o→claude and claude→vendor-wire-id stay allowed (CI TestGatewayService_isModelSupportedByAccount maps claude to x). CloudWise accounts already return earlier via isCloudwiseRelayAccount. Pairs with the predicate sentinel on gateway_service_tk_unsupported_model.go."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_unsupported_model_test.go",
