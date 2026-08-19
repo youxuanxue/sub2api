@@ -375,7 +375,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		Tags:                       captureTags(requestBody, responseBody, status, responseTruncated),
 		CreatedAt:                  time.Now().UTC(),
 		InternalThinkingBlocksJSON: captureInternalThinkingBlocks(c),
-		EncryptedReasoningJSON:     captureEncryptedReasoning(c, streamChunks),
+		EncryptedReasoningJSON:     captureEncryptedReasoning(c),
 		SynthSessionID:             synthSession,
 		SynthRole:                  synthRole,
 		SynthEngineerLevel:         synthLevel,
@@ -1018,11 +1018,8 @@ func captureInternalThinkingBlocks(c *gin.Context) []string {
 	return out
 }
 
-func captureEncryptedReasoning(c *gin.Context, streamChunks []RawSSEChunk) []string {
-	return mergeUniqueStrings(
-		captureInternalThinkingBlocksFromKey(c, "ops_openai_encrypted_reasoning"),
-		extractEncryptedReasoningFromStreamChunks(streamChunks),
-	)
+func captureEncryptedReasoning(c *gin.Context) []string {
+	return captureInternalThinkingBlocksFromKey(c, "ops_openai_encrypted_reasoning")
 }
 
 func captureInternalThinkingBlocksFromKey(c *gin.Context, key string) []string {

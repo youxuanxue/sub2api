@@ -20,61 +20,11 @@ func TestCaptureEncryptedReasoning_PreservesCiphertext(t *testing.T) {
 		`{"item_id":"rs_1","encrypted_content":"gAAAA-REAL-CIPHER"}`,
 	})
 
-	got := captureEncryptedReasoning(c, nil)
+	got := captureEncryptedReasoning(c)
 	require.Len(t, got, 1)
 	require.Contains(t, got[0], `"item_id":"rs_1"`)
 	require.Contains(t, got[0], "gAAAA-REAL-CIPHER")
 	require.NotContains(t, got[0], "***")
-}
-
-func TestExtractEncryptedReasoningFromStreamChunks_OutputItemDone(t *testing.T) {
-	chunks := []RawSSEChunk{{
-		Bytes: []byte("data: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"rs_1\",\"type\":\"reasoning\",\"encrypted_content\":\"gAAAA-WS\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"plan\"}]}}\n\n"),
-	}}
-
-	got := extractEncryptedReasoningFromStreamChunks(chunks)
-	require.Len(t, got, 1)
-	require.Contains(t, got[0], `"item_id":"rs_1"`)
-	require.Contains(t, got[0], "gAAAA-WS")
-}
-
-func TestCaptureEncryptedReasoning_FallsBackToStreamWhenGinKeyEmpty(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	chunks := []RawSSEChunk{{
-		Bytes: []byte("data: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"rs_ws\",\"type\":\"reasoning\",\"encrypted_content\":\"gAAAA-STREAM\"}}\n\n"),
-	}}
-
-	got := captureEncryptedReasoning(c, chunks)
-	require.Len(t, got, 1)
-	require.Contains(t, got[0], `"item_id":"rs_ws"`)
-	require.Contains(t, got[0], "gAAAA-STREAM")
-}
-
-func TestCaptureEncryptedReasoning_IgnoresStreamWithoutCiphertext(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	chunks := []RawSSEChunk{{
-		Bytes: []byte("data: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"rs_1\",\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"plan\"}]}}\n\n"),
-	}}
-
-	got := captureEncryptedReasoning(c, chunks)
-	require.Empty(t, got)
-}
-
-func TestCaptureEncryptedReasoning_DedupesGinKeyAndStream(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Set("ops_openai_encrypted_reasoning", []string{
-		`{"encrypted_content":"gAAAA-DUP","item_id":"rs_1"}`,
-	})
-	chunks := []RawSSEChunk{{
-		Bytes: []byte("data: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"rs_1\",\"type\":\"reasoning\",\"encrypted_content\":\"gAAAA-DUP\"}}\n\n"),
-	}}
-
-	got := captureEncryptedReasoning(c, chunks)
-	require.Len(t, got, 1)
-	require.Contains(t, got[0], "gAAAA-DUP")
 }
 
 func TestBuildBlob_EncryptedReasoningField(t *testing.T) {
