@@ -21,6 +21,17 @@ type dashboardUsageRepoCacheProbe struct {
 	usersTrendCalls atomic.Int32
 }
 
+func (r *dashboardUsageRepoCacheProbe) GetDashboardStats(context.Context) (*usagestats.DashboardStats, error) {
+	return &usagestats.DashboardStats{
+		ByPlatform: []usagestats.PlatformDashboardStats{{
+			Platform:        "google",
+			TotalRequests:   8,
+			TotalTokens:     80,
+			TotalActualCost: 8,
+		}},
+	}, nil
+}
+
 func (r *dashboardUsageRepoCacheProbe) GetUsageTrendWithFilters(
 	ctx context.Context,
 	startTime, endTime time.Time,
@@ -178,4 +189,35 @@ func TestDashboardHandler_SnapshotV2GroupStatsIncludesCacheTelemetryFields(t *te
 	require.Equal(t, float64(5), group["cache_creation_tokens"])
 	require.Equal(t, float64(30), group["cache_read_tokens"])
 	require.Equal(t, float64(40), group["cache_telemetry_unavailable_input_tokens"])
+}
+
+func TestDashboardHandler_SnapshotV2IncludesPlatformBreakdown(t *testing.T) {
+	t.Cleanup(resetDashboardReadCachesForTest)
+	resetDashboardReadCachesForTest()
+
+	gin.SetMode(gin.TestMode)
+	dashboardSvc := service.NewDashboardService(&dashboardUsageRepoCacheProbe{}, nil, nil, nil)
+	handler := NewDashboardHandler(dashboardSvc, nil)
+	router := gin.New()
+	router.GET("/admin/dashboard/snapshot-v2", handler.GetSnapshotV2)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/dashboard/snapshot-v2?include_stats=true&include_trend=false&include_model_stats=false&include_group_stats=false", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var payload struct {
+		Data struct {
+			Stats struct {
+				ByPlatform []usagestats.PlatformDashboardStats `json:"by_platform"`
+			} `json:"stats"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.Equal(t, []usagestats.PlatformDashboardStats{{
+		Platform:        "google",
+		TotalRequests:   8,
+		TotalTokens:     80,
+		TotalActualCost: 8,
+	}}, payload.Data.Stats.ByPlatform)
 }

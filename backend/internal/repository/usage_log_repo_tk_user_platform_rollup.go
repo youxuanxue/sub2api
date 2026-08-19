@@ -315,6 +315,9 @@ func (r *usageLogRepository) getBatchUserUsageStatsRollup(ctx context.Context, u
 			})
 		}
 	}
+	for _, stats := range result {
+		stats.ByPlatform = usagestats.NormalizePlatformUsage(stats.ByPlatform)
+	}
 	return result, nil
 }
 

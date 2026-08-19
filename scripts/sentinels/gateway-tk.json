@@ -6528,6 +6528,16 @@
         "authenticated.GET(\"/me/api-keys/:id/capabilities\", h.APIKey.GetCapabilities)"
       ],
       "rationale": "The per-key capability API must remain under authenticated user routes. Losing the route leaves website discovery unable to query automatic keys even though gateway discovery still works."
+    },
+    {
+      "path": "backend/internal/pkg/usagestats/public_platform.go",
+      "must_contain": [
+        "func NormalizePublicPlatform(",
+        "case \"gemini\", \"antigravity\", PublicPlatformGoogle:",
+        "func NormalizePlatformDashboardStats(",
+        "func NormalizePlatformUsage("
+      ],
+      "rationale": "Single backend owner for the public usage-platform taxonomy. Dashboard and admin user-usage outputs must merge internal Gemini and Antigravity routing sources into Google while routing, quota enforcement, and ops retain their raw keys; removing this owner can silently expose source channels again without breaking database or API schemas."
     }
   ]
 }

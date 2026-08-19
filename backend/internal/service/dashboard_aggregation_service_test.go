@@ -30,10 +30,16 @@ type dashboardAggregationRepoTestStub struct {
 
 type dashboardAggregationRollupRepoTestStub struct {
 	*dashboardAggregationRepoTestStub
-	groupRollupCalls int
-	groupRollupAt    time.Time
-	groupRollupErr   error
-	groupRollupCtx   context.Context
+	groupRollupCalls          int
+	groupRollupAt             time.Time
+	groupRollupErr            error
+	groupRollupCtx            context.Context
+	userPlatformBackfillCalls int
+}
+
+func (s *dashboardAggregationRollupRepoTestStub) BackfillUserPlatformDaily(ctx context.Context) error {
+	s.userPlatformBackfillCalls++
+	return nil
 }
 
 func (s *dashboardAggregationRollupRepoTestStub) SyncGroupUsageRollups(ctx context.Context, todayStart time.Time) error {
@@ -204,6 +210,7 @@ func TestDashboardAggregationService_StartupGroupSyncUsesIndependentLongLivedLea
 	require.NotEqual(t, dashboardAggregationLeaderLockKey, cache.acquireKeys[0])
 	require.Len(t, cache.acquireTTLs, 1)
 	require.Greater(t, cache.acquireTTLs[0], defaultDashboardAggregationBackfillTimeout)
+	require.Equal(t, 1, repo.userPlatformBackfillCalls)
 	require.Equal(t, 1, repo.groupRollupCalls)
 }
 

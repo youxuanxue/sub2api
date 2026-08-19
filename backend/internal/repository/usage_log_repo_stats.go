@@ -547,6 +547,9 @@ func (r *usageLogRepository) GetBatchUserUsageStats(ctx context.Context, userIDs
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	for _, stats := range result {
+		stats.ByPlatform = usagestats.NormalizePlatformUsage(stats.ByPlatform)
+	}
 
 	return result, nil
 }

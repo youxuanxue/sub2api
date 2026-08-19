@@ -291,6 +291,11 @@ func (s *DashboardAggregationService) runStartupGroupUsageSync() {
 		return
 	}
 	defer release()
+	if repo, ok := s.repo.(UserPlatformSuccessBackfillRepository); ok {
+		if err := repo.BackfillUserPlatformDaily(ctx); err != nil {
+			logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] 用户平台成功指标回填失败: %v", err)
+		}
+	}
 	if err := s.syncGroupUsageRollups(ctx, time.Now().UTC()); err != nil {
 		logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] 启动分组用量回填失败: %v", err)
 	}

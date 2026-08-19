@@ -67,13 +67,13 @@
             <div class="flex flex-wrap items-center gap-1.5">
               <span class="font-medium text-gray-900 dark:text-white">{{ m.name }}</span>
               <span
-                v-if="platform && m.platform !== platform"
+                v-if="platform && normalizePublicPlatform(m.platform) !== normalizePublicPlatform(platform)"
                 :class="[
                   'inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium',
-                  platformBadgeLightClass(m.platform)
+                  platformBadgeLightClass(getPublicPlatformStyleKey(m.platform))
                 ]"
               >
-                {{ platformLabel(m.platform) }}
+                {{ getPublicPlatformLabel(m.platform) }}
               </span>
               <span
                 v-if="billingMode(m) !== BILLING_MODE_TOKEN"
@@ -212,7 +212,12 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatScaled } from '@/utils/pricing'
-import { platformAccentColor, platformBadgeLightClass, platformLabel } from '@/utils/platformColors'
+import { platformAccentColor, platformBadgeLightClass } from '@/utils/platformColors'
+import {
+  getPublicPlatformLabel,
+  getPublicPlatformStyleKey,
+  normalizePublicPlatform,
+} from '@/utils/publicPlatforms'
 import {
   BILLING_MODE_TOKEN,
   BILLING_MODE_IMAGE,
@@ -237,7 +242,9 @@ const props = defineProps<{
 const { t } = useI18n()
 
 /** 实付分区只从平台拿一个主色,浅底/标题/下划线全部由 scoped CSS 用 color-mix 派生。 */
-const accentStyle = computed(() => ({ '--plaza-accent': platformAccentColor(props.platform ?? '') }))
+const accentStyle = computed(() => ({
+  '--plaza-accent': platformAccentColor(getPublicPlatformStyleKey(props.platform)),
+}))
 
 const PER_MILLION = 1_000_000
 

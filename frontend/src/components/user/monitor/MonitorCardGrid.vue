@@ -42,6 +42,7 @@
         :window="window"
         :availability-value="resolveAvailability(item)"
         :countdown-seconds="countdownSeconds"
+        :public-platform-names="publicPlatformNames"
         @click="emit('cardClick', item)"
       />
     </div>
@@ -60,6 +61,7 @@ const props = defineProps<{
   countdownSeconds: number
   loading: boolean
   detailCache: Record<number, UserMonitorDetail>
+  publicPlatformNames?: boolean
 }>()
 
 const emit = defineEmits<{

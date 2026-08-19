@@ -28,7 +28,7 @@
           v-for="subscription in subscriptions"
           :key="subscription.id"
           class="overflow-hidden rounded-2xl border bg-white dark:bg-dark-800"
-          :class="platformBorderClass(subscription.group?.platform || '')"
+          :class="platformBorderClass(getPublicPlatformStyleKey(subscription.group?.platform))"
         >
           <!-- Header -->
           <div
@@ -41,8 +41,8 @@
                   <h3 class="font-semibold text-gray-900 dark:text-white">
                     {{ subscription.group?.name || `Group #${subscription.group_id}` }}
                   </h3>
-                  <span :class="['rounded-md border px-2 py-0.5 text-[11px] font-medium', platformBadgeClass(subscription.group?.platform || '')]">
-                    {{ platformLabel(subscription.group?.platform || '') }}
+                  <span :class="['rounded-md border px-2 py-0.5 text-[11px] font-medium', platformBadgeClass(getPublicPlatformStyleKey(subscription.group?.platform))]">
+                    {{ getPublicPlatformLabel(subscription.group?.platform) }}
                   </span>
                 </div>
                 <p v-if="subscription.group?.description" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
@@ -71,7 +71,7 @@
               </span>
               <button
                 v-if="subscription.status === 'active'"
-                :class="['rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors', platformButtonClass(subscription.group?.platform || '')]"
+                :class="['rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors', platformButtonClass(getPublicPlatformStyleKey(subscription.group?.platform))]"
                 @click="router.push({ path: '/purchase', query: { tab: 'subscription', group: String(subscription.group_id) } })"
               >
                 {{ t('payment.renewNow') }}
@@ -255,7 +255,8 @@ import type { UserSubscription } from '@/types'
 import Icon from '@/components/icons/Icon.vue'
 import { formatDateTimeToMinute } from '@/utils/format'
 import { hasPeakRate, formatPeakRateWindow, serverTimezoneLabel } from '@/utils/peak-rate'
-import { platformBorderClass, platformBadgeClass, platformButtonClass, platformLabel } from '@/utils/platformColors'
+import { platformBorderClass, platformBadgeClass, platformButtonClass } from '@/utils/platformColors'
+import { getPublicPlatformLabel, getPublicPlatformStyleKey, normalizePublicPlatform } from '@/utils/publicPlatforms'
 import {
   getExpirationDateRelation,
   getRemainingDurationParts,
@@ -264,11 +265,10 @@ import {
 } from '@/utils/subscriptionQuota'
 
 function platformAccentDotClass(p: string): string {
-  switch (p) {
+  switch (normalizePublicPlatform(p)) {
     case 'anthropic': return 'bg-orange-500'
     case 'openai': return 'bg-emerald-500'
-    case 'antigravity': return 'bg-purple-500'
-    case 'gemini': return 'bg-blue-500'
+    case 'google': return 'bg-blue-500'
     case 'newapi': return 'bg-cyan-500'
     default: return 'bg-gray-400'
   }

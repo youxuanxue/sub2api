@@ -91,6 +91,9 @@ type DashboardStats struct {
 	// 性能指标
 	Rpm int64 `json:"rpm"` // 近5分钟平均每分钟请求数
 	Tpm int64 `json:"tpm"` // 近5分钟平均每分钟Token数
+
+	// 按公开平台拆分；内部 Gemini/Antigravity 来源统一归入 Google。
+	ByPlatform []PlatformDashboardStats `json:"by_platform,omitempty"`
 }
 
 // TrendDataPoint represents a single point in trend data

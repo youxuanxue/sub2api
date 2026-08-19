@@ -215,6 +215,12 @@
           </div>
         </div>
 
+        <PlatformUsageCards
+          :by-platform="stats.by_platform"
+          :total-actual-cost="stats.total_actual_cost"
+          :today-actual-cost="stats.today_actual_cost"
+        />
+
         <!-- Row 3: observable prompt-cache performance by group -->
         <div class="card p-4" data-testid="prompt-cache-card">
           <div class="flex flex-col gap-4 lg:flex-row lg:items-start">
@@ -495,6 +501,7 @@ import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import Select from '@/components/common/Select.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
 import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
+import PlatformUsageCards from '@/components/user/PlatformUsageCards.vue'
 import { dashboardWindowParams, rollingWindowTs } from '@/utils/dashboardWindow.tk'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
 

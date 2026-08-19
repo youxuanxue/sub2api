@@ -15,20 +15,13 @@ import type {
   UsageRequestType,
   UserErrorRequest,
   UserErrorRequestDetail,
-  UserErrorListParams
+  UserErrorListParams,
+  PlatformDashboardStats
 } from '@/types'
 
 // ==================== Dashboard Types ====================
 
-export interface PlatformDashboardStats {
-  platform: string
-  total_requests: number
-  total_tokens: number
-  total_actual_cost: number
-  today_requests: number
-  today_tokens: number
-  today_actual_cost: number
-}
+export type { PlatformDashboardStats } from '@/types'
 
 export interface UserDashboardStats {
   total_api_keys: number

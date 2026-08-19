@@ -46,7 +46,7 @@
         <!-- Platform -->
         <div>
           <span class="font-medium text-gray-500 dark:text-dark-400">{{ t('usage.errors.platform') }}</span>
-          <p class="mt-0.5 text-gray-900 dark:text-dark-100">{{ detail.platform || '-' }}</p>
+          <p class="mt-0.5 text-gray-900 dark:text-dark-100">{{ getPublicPlatformLabel(detail.platform) }}</p>
         </div>
         <!-- Upstream status code -->
         <div v-if="detail.upstream_status_code != null">
@@ -75,6 +75,7 @@ import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import { getMyErrorDetail } from '@/api/usage'
+import { getPublicPlatformLabel } from '@/utils/publicPlatforms'
 import { formatDateTime } from '@/utils/format'
 import type { UserErrorRequestDetail } from '@/types'
 

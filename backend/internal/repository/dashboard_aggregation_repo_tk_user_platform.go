@@ -2,10 +2,103 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
+	"log"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
+
+const userPlatformSuccessMetricsVersion = 1
+
+// BackfillUserPlatformDaily rebuilds the daily user/platform rollup once after
+// success metrics are introduced. It deliberately uses the runtime timezone,
+// because migration sessions are pinned to UTC for partition safety.
+func (r *dashboardAggregationRepository) BackfillUserPlatformDaily(ctx context.Context) error {
+	return r.backfillUserPlatformDailyAllOnce(ctx)
+}
+
+func (r *dashboardAggregationRepository) backfillUserPlatformDailyAllOnce(ctx context.Context) error {
+	if r == nil || r.sql == nil {
+		return nil
+	}
+	var version int
+	var stateTimezone string
+	if err := scanSingleRow(ctx, r.sql, `
+		SELECT success_metrics_version, timezone_name
+		FROM usage_dashboard_user_platform_rollup_state
+		WHERE id = 1
+	`, nil, &version, &stateTimezone); err != nil {
+		return fmt.Errorf("读取用户平台成功指标回填状态: %w", err)
+	}
+	tzName := timezone.Name()
+	if version >= userPlatformSuccessMetricsVersion && stateTimezone == tzName {
+		return nil
+	}
+	var minCreated, maxCreated sql.NullTime
+	if err := scanSingleRow(ctx, r.sql,
+		"SELECT MIN(created_at), MAX(created_at) FROM usage_logs",
+		nil, &minCreated, &maxCreated); err != nil {
+		return fmt.Errorf("读取用户平台成功指标历史范围: %w", err)
+	}
+	if minCreated.Valid && maxCreated.Valid {
+		if _, err := r.sql.ExecContext(ctx, "DELETE FROM usage_dashboard_user_platform_daily"); err != nil {
+			return fmt.Errorf("清理用户平台日汇总: %w", err)
+		}
+		const query = `
+			WITH per_row AS (
+				SELECT
+					(ul.created_at AT TIME ZONE $3)::date AS bucket_date,
+					ul.user_id,
+					COALESCE(` + usageLogEffectivePlatformExpr + `, '') AS platform,
+					ul.input_tokens, ul.output_tokens,
+					ul.cache_creation_tokens, ul.cache_read_tokens, ul.actual_cost
+				FROM usage_logs ul
+				LEFT JOIN groups g ON g.id = ul.group_id
+				LEFT JOIN accounts a ON a.id = ul.account_id
+				WHERE ul.created_at >= $1 AND ul.created_at <= $2
+			), rolled AS (
+				SELECT bucket_date, user_id, platform,
+					COUNT(*) AS total_requests,
+					COALESCE(SUM(input_tokens), 0) AS input_tokens,
+					COALESCE(SUM(output_tokens), 0) AS output_tokens,
+					COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens,
+					COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+					COUNT(*) FILTER (WHERE actual_cost > 0) AS successful_requests,
+					COALESCE(SUM(input_tokens) FILTER (WHERE actual_cost > 0), 0) AS successful_input_tokens,
+					COALESCE(SUM(output_tokens) FILTER (WHERE actual_cost > 0), 0) AS successful_output_tokens,
+					COALESCE(SUM(cache_creation_tokens) FILTER (WHERE actual_cost > 0), 0) AS successful_cache_creation_tokens,
+					COALESCE(SUM(cache_read_tokens) FILTER (WHERE actual_cost > 0), 0) AS successful_cache_read_tokens,
+					COALESCE(SUM(actual_cost), 0) AS actual_cost
+				FROM per_row GROUP BY bucket_date, user_id, platform
+			)
+			INSERT INTO usage_dashboard_user_platform_daily (
+				bucket_date, user_id, platform, total_requests, input_tokens, output_tokens,
+				cache_creation_tokens, cache_read_tokens, successful_requests,
+				successful_input_tokens, successful_output_tokens,
+				successful_cache_creation_tokens, successful_cache_read_tokens, actual_cost, computed_at
+			)
+			SELECT bucket_date, user_id, platform, total_requests, input_tokens, output_tokens,
+				cache_creation_tokens, cache_read_tokens, successful_requests,
+				successful_input_tokens, successful_output_tokens,
+				successful_cache_creation_tokens, successful_cache_read_tokens, actual_cost, NOW()
+			FROM rolled
+		`
+		if _, err := r.sql.ExecContext(ctx, query, minCreated.Time, maxCreated.Time, tzName); err != nil {
+			return fmt.Errorf("重建用户平台日汇总: %w", err)
+		}
+	}
+	if _, err := r.sql.ExecContext(ctx, `
+		UPDATE usage_dashboard_user_platform_rollup_state
+		SET success_metrics_version = $1, timezone_name = $2, updated_at = NOW()
+		WHERE id = 1
+	`, userPlatformSuccessMetricsVersion, tzName); err != nil {
+		return fmt.Errorf("更新用户平台成功指标回填状态: %w", err)
+	}
+	log.Printf("[DashboardAggregation] user platform success metrics backfill complete (timezone=%s)", tzName)
+	return nil
+}
 
 // TK: per-(user, effective-platform, day) rollup feeder. Backs the two heaviest
 // admin-page aggregations (GetBatchUserUsageStats / GetUserSpendingRanking) by
@@ -59,6 +152,11 @@ func (r *dashboardAggregationRepository) upsertUserPlatformDailyAggregates(ctx c
 				COALESCE(SUM(output_tokens), 0) AS output_tokens,
 				COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens,
 				COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+				COUNT(*) FILTER (WHERE actual_cost > 0) AS successful_requests,
+				COALESCE(SUM(input_tokens) FILTER (WHERE actual_cost > 0), 0) AS successful_input_tokens,
+				COALESCE(SUM(output_tokens) FILTER (WHERE actual_cost > 0), 0) AS successful_output_tokens,
+				COALESCE(SUM(cache_creation_tokens) FILTER (WHERE actual_cost > 0), 0) AS successful_cache_creation_tokens,
+				COALESCE(SUM(cache_read_tokens) FILTER (WHERE actual_cost > 0), 0) AS successful_cache_read_tokens,
 				COALESCE(SUM(actual_cost), 0) AS actual_cost
 			FROM per_row
 			GROUP BY bucket_date, user_id, platform
@@ -72,6 +170,11 @@ func (r *dashboardAggregationRepository) upsertUserPlatformDailyAggregates(ctx c
 			output_tokens,
 			cache_creation_tokens,
 			cache_read_tokens,
+			successful_requests,
+			successful_input_tokens,
+			successful_output_tokens,
+			successful_cache_creation_tokens,
+			successful_cache_read_tokens,
 			actual_cost,
 			computed_at
 		)
@@ -84,6 +187,11 @@ func (r *dashboardAggregationRepository) upsertUserPlatformDailyAggregates(ctx c
 			output_tokens,
 			cache_creation_tokens,
 			cache_read_tokens,
+			successful_requests,
+			successful_input_tokens,
+			successful_output_tokens,
+			successful_cache_creation_tokens,
+			successful_cache_read_tokens,
 			actual_cost,
 			NOW()
 		FROM rolled
@@ -94,6 +202,11 @@ func (r *dashboardAggregationRepository) upsertUserPlatformDailyAggregates(ctx c
 			output_tokens = EXCLUDED.output_tokens,
 			cache_creation_tokens = EXCLUDED.cache_creation_tokens,
 			cache_read_tokens = EXCLUDED.cache_read_tokens,
+			successful_requests = EXCLUDED.successful_requests,
+			successful_input_tokens = EXCLUDED.successful_input_tokens,
+			successful_output_tokens = EXCLUDED.successful_output_tokens,
+			successful_cache_creation_tokens = EXCLUDED.successful_cache_creation_tokens,
+			successful_cache_read_tokens = EXCLUDED.successful_cache_read_tokens,
 			actual_cost = EXCLUDED.actual_cost,
 			computed_at = EXCLUDED.computed_at
 	`

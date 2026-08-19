@@ -100,7 +100,8 @@ const createDashboardStats = (): DashboardStats => ({
   average_gateway_latency_ms: 0,
   uptime: 0,
   rpm: 0,
-  tpm: 0
+  tpm: 0,
+  by_platform: []
 })
 
 const createGroupStat = (overrides: Partial<GroupStat>): GroupStat => ({
@@ -195,6 +196,37 @@ describe('admin DashboardView', () => {
 
     expect(getSnapshotV2).toHaveBeenCalledTimes(1)
     expect(getUserSpendingRanking).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows a canonical Google platform card without source-channel names', async () => {
+    getSnapshotV2.mockResolvedValue({
+      stats: {
+        ...createDashboardStats(),
+        total_actual_cost: 8,
+        today_actual_cost: 6,
+        by_platform: [{
+          platform: 'google',
+          total_requests: 8,
+          total_tokens: 80,
+          total_actual_cost: 8,
+          today_requests: 6,
+          today_tokens: 60,
+          today_actual_cost: 6
+        }]
+      },
+      trend: [],
+      models: [],
+      groups: []
+    })
+
+    const wrapper = mountDashboard()
+    await flushPromises()
+
+    const breakdown = wrapper.get('[data-testid="platform-usage-breakdown"]')
+    expect(breakdown.text()).toContain('Google')
+    expect(breakdown.text()).not.toContain('Gemini')
+    expect(breakdown.text()).not.toContain('Antigravity')
+    expect(breakdown.text()).toContain('$8.0000')
   })
 
   it('shows the observable rate and the five highest-impact groups', async () => {

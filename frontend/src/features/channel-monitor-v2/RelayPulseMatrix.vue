@@ -196,6 +196,7 @@ import {
   sliceByZoom,
   type ZoomState,
 } from '@/features/channel-monitor-v2/monitorZoom'
+import { getPublicPlatformLabel } from '@/utils/publicPlatforms'
 
 type HealthMode = 'overall' | 'success' | 'ttft' | 'cache'
 const { t, locale } = useI18n()
@@ -207,8 +208,10 @@ const props = withDefaults(
     healthMode: HealthMode
     /** When false, RPM/TPM are omitted from tooltips (user scale privacy). */
     showThroughput?: boolean
+    /** Public monitor views hide internal routing source names. */
+    publicPlatformNames?: boolean
   }>(),
-  { showThroughput: true },
+  { showThroughput: true, publicPlatformNames: false },
 )
 
 type AlignedSlot = { start: string; bucket?: MonitorMatrixBucket }
@@ -348,7 +351,7 @@ function cellClass(health: MonitorHealth, requestCount: number): string {
 }
 
 function rowLabel(row: MonitorMatrixRow): string {
-  const parts = [row.platform]
+  const parts = [props.publicPlatformNames ? getPublicPlatformLabel(row.platform) : row.platform]
   if (row.group_name || row.group_id) parts.push(row.group_name || `#${row.group_id}`)
   if (row.model) parts.push(row.model === '__other__' ? t('channelMonitorV2.otherModels') : row.model)
   return parts.join(' / ')

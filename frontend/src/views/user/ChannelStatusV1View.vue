@@ -15,6 +15,7 @@
       :countdown-seconds="countdown"
       :loading="loading"
       :detail-cache="detailCache"
+      public-platform-names
       @card-click="openDetail"
     />
 
