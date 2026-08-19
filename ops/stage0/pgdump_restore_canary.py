@@ -30,6 +30,8 @@ OBJECT_RE = re.compile(r"tokenkey-\d{8}T\d{6}Z\.sql\.gz")
 LIVE_POSTGRES = "tokenkey-postgres"
 FRESHNESS = dt.timedelta(hours=3)
 CAPACITY_HEADROOM_BYTES = 1024**3
+POSTGRES_READY_ATTEMPTS = 180
+POSTGRES_READY_SLEEP_SECONDS = 1
 RunCommand = Callable[..., subprocess.CompletedProcess[str]]
 
 
@@ -62,6 +64,46 @@ def _run(run: RunCommand, args: list[str], *, timeout: int = 120) -> str:
         detail = (completed.stderr or completed.stdout or "command failed").strip()
         raise CanaryError(f"command failed: {args[0]} {args[1]}: {detail[:400]}")
     return completed.stdout.strip()
+
+
+def _container_ready_diagnostics(run: RunCommand, container: str) -> str:
+    inspect = _raw_run(
+        run,
+        [
+            "docker",
+            "inspect",
+            "--format",
+            "status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}",
+            container,
+        ],
+        timeout=10,
+    )
+    logs = _raw_run(run, ["docker", "logs", "--tail", "40", container], timeout=15)
+    inspect_text = (inspect.stdout or inspect.stderr or "inspect-unavailable").strip()
+    log_text = (logs.stderr or logs.stdout or "logs-unavailable").strip()
+    return f"{inspect_text}; logs={log_text[-400:]}"
+
+
+def _wait_temporary_postgres(
+    run: RunCommand,
+    container: str,
+    sleep: Callable[[float], None],
+) -> None:
+    last_error = "pg_isready failed"
+    for attempt in range(POSTGRES_READY_ATTEMPTS):
+        try:
+            # Wait for postmaster listen only. Requiring -d tokenkey races CREATE DATABASE
+            # on 0.5–1 CPU ARM hosts and made the first fleet run fail in 60s.
+            _run(run, ["docker", "exec", container, "pg_isready"], timeout=10)
+            return
+        except CanaryError as exc:
+            last_error = str(exc)
+            if attempt == POSTGRES_READY_ATTEMPTS - 1:
+                raise CanaryError(
+                    "temporary PostgreSQL did not become ready: "
+                    f"{_container_ready_diagnostics(run, container)}; last={last_error[:200]}"
+                ) from exc
+            sleep(POSTGRES_READY_SLEEP_SECONDS)
 
 
 def _count_sql() -> str:
@@ -360,20 +402,13 @@ def run_canary(
                 run,
                 [
                     "docker", "run", "--detach", "--name", container, "--pull=never",
-                    "--network=none", "--cpus=0.50", "--memory=640m",
-                    "--memory-swap=1024m", "--env", "POSTGRES_HOST_AUTH_METHOD=trust",
+                    "--network=none", "--cpus=1.00", "--memory=1024m",
+                    "--memory-swap=1536m", "--env", "POSTGRES_HOST_AUTH_METHOD=trust",
                     "--env", "POSTGRES_USER=tokenkey", "--env", "POSTGRES_DB=tokenkey",
                     "--volume", f"{data_dir}:/var/lib/postgresql/data", image,
                 ],
             )
-            for attempt in range(60):
-                try:
-                    _run(run, ["docker", "exec", container, "pg_isready", "-U", "tokenkey", "-d", "tokenkey"], timeout=10)
-                    break
-                except CanaryError:
-                    if attempt == 59:
-                        raise CanaryError("temporary PostgreSQL did not become ready")
-                    sleep(1)
+            _wait_temporary_postgres(run, container, sleep)
 
             pipeline = (
                 f"gunzip -c -- {shlex.quote(str(dump_path))} | "

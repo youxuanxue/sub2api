@@ -128,7 +128,8 @@ jobs:
           FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
         run: |
           set -euo pipefail
-          python3 ops/observability/edge_health_delivery.py \
+          python3 ops/observability/pgdump_restore_canary_alert.py \
+            --deliver \
             --decision restore-canary-decision.json \
             --key-file ".pgdump-canary-state/$TARGET_ID/key"
 
