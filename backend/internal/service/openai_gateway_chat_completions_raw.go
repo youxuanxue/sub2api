@@ -340,6 +340,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			}
 			trimmedPayload := strings.TrimSpace(payload)
 			if trimmedPayload != "[DONE]" {
+				observeOpenAIResponsesEvent(c, []byte(payload))
 				observer.ObserveOpenAI([]byte(payload), strings.TrimSpace(gjson.Get(payload, "type").String()))
 				usageOnlyChunk := isOpenAIChatUsageOnlyStreamChunk(payload)
 				if u := extractCCStreamUsage(payload); u != nil {
@@ -481,6 +482,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
 	}
+	observeOpenAIResponsesEvent(c, respBody)
 	observer.ObserveOpenAI(respBody, strings.TrimSpace(gjson.GetBytes(respBody, "type").String()))
 
 	var usage OpenAIUsage

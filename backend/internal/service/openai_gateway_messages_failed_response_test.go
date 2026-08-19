@@ -155,6 +155,35 @@ func TestForwardAsAnthropic_StreamingBareErrorBeforeOutputFailsOver(t *testing.T
 	require.Empty(t, rec.Body.String(), "failover path must not commit downstream output")
 }
 
+func TestForwardAsAnthropic_StreamingResponseFailed_OverloadedFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.6","max_tokens":32,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	ssePayload := buildResponsesFailedSSEStream("invalid_request_error", "Our servers are currently overloaded. Please try again later.")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(ssePayload)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+
+	account := rawChatCompletionsTestAccount()
+	_, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
+
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.True(t, errors.As(err, &failoverErr), "stream capacity overloaded must failover even when typed invalid_request_error: %T: %v", err, err)
+	require.Empty(t, rec.Body.String(), "failover path must not commit downstream output")
+}
+
 func TestForwardAsAnthropic_BufferedResponseFailed_Failover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

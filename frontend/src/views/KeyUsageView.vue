@@ -421,6 +421,7 @@ import Icon from '@/components/icons/Icon.vue'
 import { buildGatewayUrl } from '@/api/client'
 import { STATUS_ACTIVE } from '@/constants/channel'
 import { formatDateLocalInput } from '@/utils/format'
+import { resolveSiteLogo } from '@/utils/branding'
 import { sanitizeUrl } from '@/utils/url'
 
 const { t, locale } = useI18n()
@@ -430,10 +431,7 @@ const appStore = useAppStore()
 
 const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'TokenKey')
 const siteLogo = computed(() =>
-  sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '', {
-    allowRelative: true,
-    allowDataUrl: true,
-  }) || '/logo.png',
+  resolveSiteLogo(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo),
 )
 const docUrl = computed(() =>
   sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl || '', {
@@ -807,7 +805,10 @@ const usageStatCells = computed<StatCell[]>(() => {
     { label: t('keyUsage.totalCacheCreation'), value: fmtNum(total.cache_creation_tokens) },
     { label: t('keyUsage.totalCacheRead'), value: fmtNum(total.cache_read_tokens) },
     { label: t('keyUsage.totalCost'), value: usd(total.actual_cost) },
-    { label: t('keyUsage.avgDuration'), value: usage.average_duration_ms ? `${Math.round(usage.average_duration_ms)} ms` : '-' },
+    {
+      label: t('keyUsage.avgGatewayLatency'),
+      value: usage.average_gateway_latency_ms ? `${Math.round(usage.average_gateway_latency_ms)} ms` : '-',
+    },
   ]
 })
 

@@ -38,3 +38,12 @@ func TestTkWriteUnsupportedAnthropicModelAtIngress_AllowsClaudeModel(t *testing.
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	require.False(t, h.tkWriteUnsupportedAnthropicModelAtIngress(c, "claude-opus-4-8", false, nil))
 }
+
+func TestTkWriteUnsupportedAnthropicModelAtIngress_AllowsCloudwiseWhitelistModels(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &GatewayHandler{}
+	for _, model := range []string{"glm-5.2", "glm-5.3", "kimi-k3", "MiniMax-M3", "deepseek-v4-pro"} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		require.False(t, h.tkWriteUnsupportedAnthropicModelAtIngress(c, model, false, nil), model)
+	}
+}

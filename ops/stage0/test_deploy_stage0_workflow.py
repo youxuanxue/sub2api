@@ -85,6 +85,26 @@ class DeployStage0WorkflowTest(unittest.TestCase):
             deploy,
         )
 
+    def test_feishu_rollout_uses_pre_mutation_runtime_baseline(self) -> None:
+        deploy = job_block("deploy")
+        baseline = deploy.index("name: Resolve previous prod runtime tag")
+        image_mutation = deploy.index("name: Deploy via SSM Run-Command")
+        notification = deploy.index("name: Notify Feishu (release rollout)")
+        smoke = deploy.index("name: Post-deploy gateway smoke (API + Claude paths)")
+
+        self.assertLess(baseline, image_mutation)
+        self.assertLess(smoke, notification)
+        block = deploy[baseline:image_mutation]
+        self.assertIn("resolve-prod-running-tag-via-ssm.sh", block)
+        self.assertIn('INSTANCE_ID: ${{ steps.instance.outputs.id }}', block)
+        self.assertIn('--instance-id "$INSTANCE_ID"', block)
+        self.assertIn("id: previous_runtime", block)
+        notice = deploy[notification:]
+        self.assertIn("steps.previous_runtime.outputs.tag", notice)
+        self.assertIn("--previous-tag", notice)
+        self.assertIn("collect-feishu-release-notes.sh", notice)
+        self.assertNotIn("git tag -l --format", notice)
+
     def test_target_release_contract_is_bound_before_prod_mutation(self) -> None:
         deploy = job_block("deploy")
         target_checkout = deploy.index("name: Checkout target-tag QA contract and host artifacts")

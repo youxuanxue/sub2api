@@ -369,6 +369,8 @@
       "must_contain": [
         "maybeSendAlertNotifications",
         "feishu_sent",
+        "effectiveOpsAlertPageSeverity",
+        "isEdgeOnlyAlertRule",
         "\"anthropic_cooldown_tier_escalation_count\"",
         "SetAnthropicUpstreamErrorCounterCache",
         "GetAnthropicCooldownTierEscalations",
@@ -384,6 +386,9 @@
         "markFiringDelivered",
         "opsAlertFeishuSeverityAllowed",
         "ruleSeverity == \"P0\" && eventSeverity == \"P0\"",
+        "isEdgeNonUserFacingAlertRule",
+        "isEdgeUpstreamRatePageRule",
+        "effectiveOpsAlertPageSeverity",
         "OpsAlertMetricClientVisibleFailureCount",
         "rule.NotifyEmail",
         "opsFeishuDedupeKey",
@@ -392,7 +397,7 @@
         "s.limiter.SetLimit(cfg.RateLimitPerHour)",
         "s.cfg.Server.FrontendURL"
       ],
-      "rationale": "TK companion that keeps Feishu alerting limited to P0 plus the explicit P1 client_visible_failure_count real-user failure exception on prod only (edge nodes suppress both user-visible P0 and client-visible P1 via isEdgeSuppressedAlertRule / isProdOnlyAlertRule), tied to the existing external-notification opt-in, and protected by per-rule/dimension cooldown plus global hourly rate limiting. Paired green recovery cards must fire only after a delivered firing card (firedFeishuEventIDs) and use a separate recovery dedupe key so resolve notifications are not blocked by the firing cooldown. Dropping any anchor turns a low-noise OPC pager into either silence or chat noise. FrontendURL threads the per-node public base URL into the card so prod vs each edge is distinguishable; losing it silently regresses every card back to an unattributable 'overall'."
+      "rationale": "TK companion that keeps Feishu alerting limited to P0 plus two explicit P1 exceptions: client_visible_failure_count on prod, and the 20% upstream_error_rate edge page (isEdgeUpstreamRatePageRule, threshold >= 20) so a local provider 502 that prod failovers away from does not page as a user-visible P0 (us4 2026-08-19). The deleted 8% early-warning rule stays excluded. Edge nodes suppress both user-visible P0 and client-visible P1 via isEdgeSuppressedAlertRule / isProdOnlyAlertRule; prod suppresses leftover upstream_error_rate via isEdgeOnlyAlertRule. Tied to the existing external-notification opt-in, and protected by per-rule/dimension cooldown plus global hourly rate limiting. Paired green recovery cards must fire only after a delivered firing card (firedFeishuEventIDs) and use a separate recovery dedupe key so resolve notifications are not blocked by the firing cooldown. Dropping any anchor turns a low-noise OPC pager into either silence or chat noise. FrontendURL threads the per-node public base URL into the card so prod vs each edge is distinguishable; losing it silently regresses every card back to an unattributable 'overall'."
     },
     {
       "path": "backend/internal/repository/ops_repo_alerts.go",
@@ -1149,9 +1154,37 @@
       "must_contain": [
         "openAICloudwiseRelayAllowedModelPrefixes",
         "openAICloudwiseRelayUpstreamModelID(",
-        "openAICloudwiseRelayWildcardModelMappingFloor("
+        "openAICloudwiseRelayWildcardModelMappingFloor(",
+        "func isCloudwiseRelayAccount(",
+        "func openAICloudwiseRelaySupportsRequestedModel(",
+        "if account == nil || !isCloudwiseRelayAccount(account)"
       ],
-      "rationale": "Single SSOT for CloudWise MaaS relay supported model families (kimi/claude/glm/minimax/deepseek prefix policy). Adjust only openAICloudwiseRelayAllowedModelPrefixes; wildcard model_mapping floor derives from it."
+      "rationale": "Single SSOT for CloudWise MaaS relay supported model families (kimi/claude/glm/minimax/deepseek prefix policy). Adjust only openAICloudwiseRelayAllowedModelPrefixes; wildcard model_mapping floor derives from it. isCloudwiseRelayAccount + openAICloudwiseRelaySupportsRequestedModel are the dual-stack prefix hard gate used before passthrough / empty-mapping allow-all."
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "isCloudwiseRelayAccount(a) && !openAICloudwiseRelaySupportsRequestedModel(requestedModel)"
+      ],
+      "rationale": "CloudWise family hard gate must stay at the top of upstream-shaped Account.IsModelSupported. Empty model_mapping or leftover openai_passthrough would otherwise allow gpt-* onto prod dual-stack relays #94/#95. The helper bodies live in openai_cloudwise_relay_tk.go; this pins the injection so an upstream merge cannot drop the call while leaving the companion compile-clean."
+    },
+    {
+      "path": "backend/internal/service/gateway_scheduling.go",
+      "must_contain": [
+        "if isCloudwiseRelayAccount(account) {",
+        "return account.IsModelSupported(requestedModel)"
+      ],
+      "rationale": "GatewayService.isModelSupportedByAccount must route CloudWise accounts through Account.IsModelSupported before the OpenAI passthrough namespace filter. Empty mapping + passthrough otherwise calls tkIsForwardableOpenAIModelName, which allows gpt-* and rejects claude-/glm- — the opposite of the CloudWise floor. Pin the early return so an upstream merge cannot restore that leak while Account.IsModelSupported tests stay green."
+    },
+    {
+      "path": "backend/internal/service/openai_cloudwise_relay_tk_test.go",
+      "must_contain": [
+        "TestCloudwiseRelayEmptyMappingStillRejectsForeignFamilies",
+        "TestCloudwiseRelayPrefixGateOverridesExplicitGPTMapping",
+        "TestGatewayService_CloudwiseRelayPassthroughEmptyMappingUsesPrefixGate",
+        "TestApplyOpenAICloudwiseRelayUpstreamModelID_AnthropicAccount"
+      ],
+      "rationale": "Focused regressions for the CloudWise prefix hard gate: empty mapping / leftover passthrough still reject gpt-* on both Account.IsModelSupported and GatewayService.isModelSupportedByAccount, and an explicit gpt mapping cannot override the family floor."
     },
     {
       "path": "backend/internal/service/gateway_cloudwise_relay_test.go",
@@ -1160,10 +1193,41 @@
         "TestOpenAICloudwiseRelayFloorUsesPrefixWildcards",
         "TestForwardAsAnthropic_CloudwiseNativeMessagesPassthrough",
         "TestForwardAsAnthropic_CloudwiseNonClaudeUsesChatFallback",
+        "TestForwardAsChatCompletions_CloudwiseNonClaudeUsesRawChatEvenWhenResponsesFlagTrue",
+        "TestGatewayService_Forward_CloudwiseAnthropicNonClaudeUsesChatFallback",
+        "TestGatewayService_Forward_CloudwiseAnthropicClaudeUsesNativeMessages",
+        "TestGatewayService_Forward_CloudwiseAnthropicRewritesMiniMaxCase",
         "https://api.cloudwise.ai/api/v1/messages",
         "https://api.cloudwise.ai/api/v1/chat/completions"
       ],
-      "rationale": "Focused regressions for CloudWise MaaS relay (prod account #95): prefix wildcard model_mapping floor, native /v1/messages passthrough for claude-*, and chat fallback for MiniMax-M3."
+      "rationale": "Focused regressions for CloudWise MaaS relays (#94 anthropic / #95 openai): prefix wildcard model_mapping floor, native /v1/messages passthrough for claude-*, chat fallback for MiniMax/glm/kimi/deepseek, MiniMax wire-id rewrite on anthropic accounts, and inbound /v1/chat/completions staying on raw chat even when openai_responses_supported is a false-positive true."
+    },
+    {
+      "path": "backend/internal/service/gateway_cloudwise_anthropic_chat_fallback_tk.go",
+      "must_contain": [
+        "func shouldForwardCloudwiseAnthropicViaChatCompletions(",
+        "func (s *GatewayService) forwardCloudwiseAnthropicViaChatCompletions(",
+        "forwardAnthropicViaRawChatCompletions",
+        "isCloudwiseRelayAccount(account)",
+        "shouldForwardNativeAnthropicMessagesForModel"
+      ],
+      "rationale": "Anthropic-platform CloudWise account #94 must reuse the OpenAI CloudWise chat fallback for non-claude whitelist models. Without this hook, GatewayService.Forward always posts /v1/messages, which CloudWise rejects for kimi-k3 / deepseek-v4-flash."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_request_body.go",
+      "must_contain": [
+        "isCloudwiseRelayAccount(account) {\n\t\treturn strings.TrimSpace(account.GetCredential(\"base_url\"))",
+        "isCloudwiseRelayAccount(account) {\n\t\treturn strings.TrimSpace(account.GetCredential(\"api_key\"))"
+      ],
+      "rationale": "nativeOpenAIBaseURLForAccount / nativeOpenAIApiKeyForAccount must read CloudWise credentials for any platform. GetOpenAIBaseURL/GetOpenAIApiKey are OpenAI-only, so anthropic #94 would otherwise resolve an empty chat fallback target."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward.go",
+      "must_contain": [
+        "shouldForwardCloudwiseAnthropicViaChatCompletions(account, parsed)",
+        "forwardCloudwiseAnthropicViaChatCompletions(ctx, c, account, parsed)"
+      ],
+      "rationale": "GatewayService.Forward must intercept CloudWise non-claude /v1/messages before anthropic APIKey passthrough, otherwise #94 glm/kimi/minimax/deepseek stay on native messages."
     },
     {
       "path": "backend/internal/service/gateway_tokensea_anthropic_relay_test.go",
@@ -3582,9 +3646,10 @@
         "tkDeprecatedAnthropicSelectionFailure(requestedModel)",
         "tkAnthropicCrossVendorSelectionFailure(requestedModel)",
         "platform == PlatformAnthropic",
-        "func TkIsAnthropicCrossVendorModelName"
+        "func TkIsAnthropicCrossVendorModelName",
+        "openAICloudwiseRelaySupportsRequestedModel(requestedModel)"
       ],
-      "rationale": "tkWrapSelectionFailure must short-circuit retired Anthropic model names to ErrDeprecatedAnthropicModel and, only when the resolved scheduling platform is anthropic, non-claude-* cross-vendor dirty names to ErrUnsupportedModel before empty-pool classification. The platform guard prevents an empty Gemini/Antigravity pool from misclassifying gemini-* as an Anthropic namespace error and populating the group unsupported-model negative cache; the Anthropic branch still prevents mixed model_unsupported + unschedulable stats or load-batch bare ErrNoAvailableAccounts from surfacing routing 429 for client-fault model names (prod 2026-07-07 user16 key121 model=gpt)."
+      "rationale": "tkWrapSelectionFailure must short-circuit retired Anthropic model names to ErrDeprecatedAnthropicModel and, only when the resolved scheduling platform is anthropic, non-claude-* cross-vendor dirty names to ErrUnsupportedModel before empty-pool classification. The platform guard prevents an empty Gemini/Antigravity pool from misclassifying gemini-* as an Anthropic namespace error and populating the group unsupported-model negative cache; the Anthropic branch still prevents mixed model_unsupported + unschedulable stats or load-batch bare ErrNoAvailableAccounts from surfacing routing 429 for client-fault model names (prod 2026-07-07 user16 key121 model=gpt). CloudWise prefix families (glm/kimi/minimax/deepseek) must pass this ingress check so anthropic-platform dual-stack account #94 can be selected; empty-mapping OAuth stays blocked by tkIsForwardableAnthropicModelName."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
@@ -4588,10 +4653,17 @@
     {
       "path": "backend/internal/service/gateway_scheduling.go",
       "must_contain": [
-        "len(account.GetModelMapping()) == 0",
-        "if !tkIsForwardableAnthropicModelName(requestedModel) {"
+        "if !tkIsForwardableAnthropicModelName(requestedModel) && !tkIsForwardableAnthropicModelName(mapped) {"
       ],
-      "rationale": "TK fix (PR #806): the injection point in isModelSupportedByAccount that routes a cross-vendor model name on a passthrough (empty model_mapping) anthropic direct account to the local Path A 400 instead of forwarding it to api.anthropic.com. Pinning the full guard expression also anchors the passthrough-only scope (len(GetModelMapping())==0) so a refactor cannot silently widen it to over-block mapped accounts or narrow it to re-open the leak. Pairs with the predicate sentinel on gateway_service_tk_unsupported_model.go."
+      "rationale": "TK fix (PR #806 / #1743): isModelSupportedByAccount must reject official Anthropic only when BOTH the request and forwarded names are outside claude-*. After CloudWise prefixes pass anthropic ingress, glm-*→glm-* identity copies on official Anthropic must not be selected. gpt-4o→claude and claude→vendor-wire-id stay allowed (CI TestGatewayService_isModelSupportedByAccount maps claude to x). CloudWise accounts already return earlier via isCloudwiseRelayAccount. Pairs with the predicate sentinel on gateway_service_tk_unsupported_model.go."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_unsupported_model_test.go",
+      "must_contain": [
+        "TestIsModelSupportedByAccount_MappedCloudwisePrefixDoesNotLeakToOfficialAnthropic",
+        "https://api.anthropic.com"
+      ],
+      "rationale": "Regression for PR #1743 R-001: a non-CloudWise anthropic APIKey that copies the CloudWise prefix floor must not be selected for glm/kimi/minimax/deepseek after ingress allows those names."
     },
     {
       "path": "backend/internal/service/universal_routing_tk_serving.go",

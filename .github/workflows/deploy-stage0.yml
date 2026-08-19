@@ -230,6 +230,17 @@ jobs:
           echo "qa_cfn_service_role_arn=$SERVICE_ROLE_ARN" >> "$GITHUB_OUTPUT"
           echo "deploying ${INPUT_TAG} to instance=$ID api=$API_URL (env=prod stack=$STACK_NAME)"
 
+      - name: Resolve previous prod runtime tag
+        id: previous_runtime
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: |
+          set -euo pipefail
+          PREVIOUS_TAG="$(bash ops/stage0/resolve-prod-running-tag-via-ssm.sh --instance-id "$INSTANCE_ID")"
+          test -n "$PREVIOUS_TAG"
+          echo "tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
+          echo "prod runtime baseline: $PREVIOUS_TAG"
+
       - name: Checkout target-tag QA contract and host artifacts
         uses: actions/checkout@v6
         with:
@@ -519,16 +530,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          # changelog 的唯一源是 tag 注解正文(release-tag.sh 自动生成,release.yml
-          # 也读它喂给 GitHub Release header)。直接读 tag body 而非渲染后的
-          # `gh release view` —— 后者还含 goreleaser 的 README 标语 header + 安装
-          # footer,会被 clean_changelog 倒进「其他」桶污染卡片。runner 默认浅克隆
-          # 无 tag,先 fetch。取不到 → NOTES 空 → 卡片降级为只留链接(best-effort,
-          # 无 set -e,失败不影响通知本身)。
-          git fetch origin "refs/tags/v${INPUT_TAG}:refs/tags/v${INPUT_TAG}" --force 2>/dev/null || true
-          NOTES="$(git tag -l --format='%(contents:body)' "v$INPUT_TAG" 2>/dev/null)"
+          # Feishu rollout notes describe what changed since the tag that was
+          # actually serving before this deploy. collect-feishu-release-notes.sh
+          # unshallows the fetch-depth:1 clone so git log A..B is walkable
+          # (fetching only the two tag tips is not enough). Empty notes omit
+          # 「本次更新」; do not inline git log here.
+          PREVIOUS_TAG="${{ steps.previous_runtime.outputs.tag }}"
+          NOTES="$(bash ops/stage0/collect-feishu-release-notes.sh "$PREVIOUS_TAG" "$INPUT_TAG")"
           bash ops/stage0/notify-feishu-release.sh "$INPUT_TAG" "$API_URL" \
-            --run-url "$RUN_URL" --notes "$NOTES"
+            --previous-tag "$PREVIOUS_TAG" --run-url "$RUN_URL" --notes "$NOTES"
 
       - name: Job summary
         if: always()

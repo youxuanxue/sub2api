@@ -48,6 +48,7 @@ class FakeCommands:
         dump_bytes: bytes | None = None,
         rm_fails: bool = False,
         run_times_out: bool = False,
+        pg_isready_fails: bool = False,
     ) -> None:
         self.calls: list[list[str]] = []
         self.objects = objects if objects is not None else [
@@ -65,6 +66,7 @@ class FakeCommands:
             self.objects[0]["Size"] = len(self.downloaded)
         self.rm_fails = rm_fails
         self.run_times_out = run_times_out
+        self.pg_isready_fails = pg_isready_fails
         self.container_present = False
 
     def __call__(self, args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -87,6 +89,8 @@ class FakeCommands:
             stdout = "true\n"
         elif args[:2] == ["docker", "inspect"] and "{{.Config.Image}}" in args:
             stdout = "postgres:18-alpine\n"
+        elif args[:2] == ["docker", "inspect"] and "{{.State.Status}}" in " ".join(args):
+            stdout = "status=exited exit=1 oom=false\n"
         elif args[:2] == ["docker", "inspect"]:
             returncode = 0 if self.container_present else 1
             stderr = "present" if self.container_present else "No such container"
@@ -95,8 +99,14 @@ class FakeCommands:
             if self.run_times_out:
                 raise subprocess.TimeoutExpired(args, 120)
             stdout = "canary-container-id\n"
+        elif args[:2] == ["docker", "logs"]:
+            stderr = "initdb: error: could not create directory\n"
         elif args[:3] == ["docker", "exec", args[2]] and "pg_isready" in args:
-            stdout = "accepting connections\n"
+            if self.pg_isready_fails:
+                returncode = 1
+                stderr = "no response"
+            else:
+                stdout = "accepting connections\n"
         elif args[:3] == ["docker", "exec", "tokenkey-postgres"] and "json_build_object" in joined:
             stdout = json.dumps(LIVE_COUNTS) + "\n"
         elif args[:2] == ["bash", "-o"] and "gunzip -c" in joined:
@@ -176,6 +186,12 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
         self.assertTrue(any("s3api list-objects-v2" in call for call in joined))
         self.assertTrue(any("s3 cp s3://tokenkey-prod-pgdump-123/edge/us3/pgdump/tokenkey-20260818T070000Z.sql.gz" in call for call in joined))
         self.assertTrue(any("gunzip -c" in call and "docker exec -i" in call and "ON_ERROR_STOP=1" in call for call in joined))
+        self.assertTrue(any("--cpus=1.00" in call and "--memory=1024m" in call for call in joined))
+        docker_run = next(call for call in fake.calls if call[:2] == ["docker", "run"])
+        self.assertTrue(any(arg.endswith(":/var/lib/postgresql") for arg in docker_run))
+        self.assertFalse(any(":/var/lib/postgresql/data" in arg for arg in docker_run))
+        self.assertTrue(any(call.endswith("pg_isready") for call in joined))
+        self.assertFalse(any("pg_isready -U tokenkey -d tokenkey" in call for call in joined))
         self.assertFalse(any("pg_dump" in call for call in joined))
 
     def test_receipt_completion_time_is_sampled_after_cleanup(self) -> None:
@@ -289,6 +305,21 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
                     disk_usage=lambda _: shutil._ntuple_diskusage(10**10, 0, 10**10),
                 )
             self.assertEqual(receipt.read_text(encoding="utf-8"), '{"previous":true}\n')
+
+    def test_postgres_ready_timeout_includes_container_diagnostics(self) -> None:
+        fake = FakeCommands(pg_isready_fails=True)
+        with self.assertRaisesRegex(canary.CanaryError, "did not become ready.*initdb"):
+            self.run_case(fake)
+        self.assertTrue(any(call[:2] == ["docker", "logs"] for call in fake.calls))
+        self.assertTrue(
+            any(
+                call[:2] == ["docker", "inspect"] and "{{.State.Status}}" in " ".join(call)
+                for call in fake.calls
+            )
+        )
+        pg_isready_calls = [call for call in fake.calls if "pg_isready" in call]
+        self.assertEqual(len(pg_isready_calls), canary.POSTGRES_READY_ATTEMPTS)
+        self.assertEqual(pg_isready_calls[0][-1], "pg_isready")
 
     def test_docker_run_timeout_removes_container_created_before_timeout(self) -> None:
         fake = FakeCommands(run_times_out=True)

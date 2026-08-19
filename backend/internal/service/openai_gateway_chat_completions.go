@@ -48,9 +48,11 @@ var cursorResponsesUnsupportedFields = []string{
 // 正确的，但 sub2api 接入 DeepSeek/Kimi/GLM 等第三方 OpenAI 兼容上游后假设破裂：
 // 这些上游普遍只支持 /v1/chat/completions，无 /v1/responses 端点。
 //
-// 当前路由策略（基于账号覆盖模式/探测标记，详见 openai_compat.ShouldUseResponsesAPI）：
+// 当前路由策略（shouldForwardOpenAIResponsesViaRawChatCompletions）：
 //   - APIKey 账号 + 强制或探测确认不支持 Responses → 走 forwardAsRawChatCompletions
 //     直转上游 /v1/chat/completions，不做协议转换
+//   - CloudWise / tokensea 双栈中继：即使 extra.openai_responses_supported=true
+//     也走 raw chat（这些上游没有可用的 /v1/responses，探测 400 是假阳性）
 //   - 其他所有情况（OAuth、APIKey 强制/探测确认支持、未探测）→ 走原有 CC→Responses
 //     转换路径（保留旧行为，存量未探测账号零兼容破坏）
 func (s *OpenAIGatewayService) ForwardAsChatCompletions(
@@ -90,7 +92,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		}
 		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
-	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
+	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
 
@@ -584,7 +586,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			return false
 		}
 		observer.ObserveOpenAI([]byte(payload), event.Type)
-		stashOpenAIEncryptedReasoningFromSSE(c, []byte(payload))
+		observeOpenAIResponsesEvent(c, []byte(payload))
 		refusalDetector.ObservePayload([]byte(payload))
 
 		// Nested evt.Response.Usage takes precedence over top-level evt.Usage:

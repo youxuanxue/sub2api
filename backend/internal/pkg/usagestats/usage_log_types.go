@@ -267,7 +267,8 @@ type UserDashboardStats struct {
 	TodayActualCost          float64 `json:"today_actual_cost"` // 今日实际扣除
 
 	// 性能统计
-	AverageDurationMs float64 `json:"average_duration_ms"`
+	AverageDurationMs       float64 `json:"average_duration_ms"`
+	AverageGatewayLatencyMs float64 `json:"average_gateway_latency_ms"`
 
 	// 性能指标
 	Rpm int64 `json:"rpm"` // 近5分钟平均每分钟请求数

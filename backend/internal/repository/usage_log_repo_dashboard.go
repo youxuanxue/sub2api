@@ -518,7 +518,8 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 			COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
+			COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
+			COALESCE(AVG(gateway_latency_ms) FILTER (WHERE created_at >= $2 AND gateway_latency_ms IS NOT NULL), 0) as avg_gateway_latency_ms
 		FROM usage_logs
 		WHERE user_id = $1
 	`
@@ -526,7 +527,7 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 		ctx,
 		r.sql,
 		totalStatsQuery,
-		[]any{userID},
+		[]any{userID, today},
 		&stats.TotalRequests,
 		&stats.TotalInputTokens,
 		&stats.TotalOutputTokens,
@@ -535,6 +536,7 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
+		&stats.AverageGatewayLatencyMs,
 	); err != nil {
 		return nil, err
 	}
@@ -671,7 +673,8 @@ func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKey
 			COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
+			COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
+			COALESCE(AVG(gateway_latency_ms) FILTER (WHERE created_at >= $2 AND gateway_latency_ms IS NOT NULL), 0) as avg_gateway_latency_ms
 		FROM usage_logs
 		WHERE api_key_id = $1
 	`
@@ -679,7 +682,7 @@ func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKey
 		ctx,
 		r.sql,
 		totalStatsQuery,
-		[]any{apiKeyID},
+		[]any{apiKeyID, today},
 		&stats.TotalRequests,
 		&stats.TotalInputTokens,
 		&stats.TotalOutputTokens,
@@ -688,6 +691,7 @@ func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKey
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
+		&stats.AverageGatewayLatencyMs,
 	); err != nil {
 		return nil, err
 	}

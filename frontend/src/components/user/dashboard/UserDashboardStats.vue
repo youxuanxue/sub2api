@@ -115,16 +115,16 @@
       </div>
     </div>
 
-    <!-- Avg Response Time -->
+    <!-- Gateway Latency -->
     <div class="card p-4">
       <div class="flex items-center gap-3">
         <div class="rounded-lg bg-rose-100 p-2 dark:bg-rose-900/30">
           <Icon name="clock" size="md" class="text-rose-600 dark:text-rose-400" :stroke-width="2" />
         </div>
         <div>
-          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.avgResponse') }}</p>
-          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatDuration(stats?.average_duration_ms || 0) }}</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.averageTime') }}</p>
+          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.avgGatewayLatency') }}</p>
+          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatDuration(stats?.average_gateway_latency_ms || 0) }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.gatewayAverageTime') }}</p>
         </div>
       </div>
     </div>

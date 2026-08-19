@@ -220,8 +220,20 @@ func TestTkIsAnthropicCrossVendorModelName(t *testing.T) {
 	if !TkIsAnthropicCrossVendorModelName("gpt") {
 		t.Fatal("gpt must be cross-vendor on anthropic ingress")
 	}
-	if !TkIsAnthropicCrossVendorModelName("deepseek-v4-flash") {
-		t.Fatal("deepseek must be cross-vendor on anthropic ingress")
+	if !TkIsAnthropicCrossVendorModelName("gemini-3-flash-preview") {
+		t.Fatal("gemini must stay cross-vendor; CloudWise whitelist does not include it")
+	}
+	if TkIsAnthropicCrossVendorModelName("deepseek-v4-flash") {
+		t.Fatal("CloudWise whitelist prefix deepseek-* must pass anthropic ingress")
+	}
+	if TkIsAnthropicCrossVendorModelName("glm-5.2") {
+		t.Fatal("CloudWise whitelist prefix glm-* must pass anthropic ingress")
+	}
+	if TkIsAnthropicCrossVendorModelName("kimi-k3") {
+		t.Fatal("CloudWise whitelist prefix kimi-* must pass anthropic ingress")
+	}
+	if TkIsAnthropicCrossVendorModelName("MiniMax-M3") {
+		t.Fatal("CloudWise whitelist prefix minimax-* must pass anthropic ingress")
 	}
 	if TkIsAnthropicCrossVendorModelName("claude-opus-4-8") {
 		t.Fatal("claude-opus-4-8 must not be cross-vendor")
@@ -378,5 +390,43 @@ func TestIsModelSupportedByAccount_TkGuardWithExplicitMapping(t *testing.T) {
 	// the allowlist) — unchanged behavior.
 	if svc.isModelSupportedByAccount(foreignToClaude, "deepseek-v4-flash") {
 		t.Error("mapped account should not support a cross-vendor model absent from its mapping")
+	}
+}
+
+func TestIsModelSupportedByAccount_MappedCloudwisePrefixDoesNotLeakToOfficialAnthropic(t *testing.T) {
+	svc := &GatewayService{}
+	leaked := &Account{
+		ID:       11,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url":      "https://api.anthropic.com",
+			"model_mapping": modelMappingToAny(openAICloudwiseRelayWildcardModelMappingFloor()),
+		},
+	}
+	if isCloudwiseRelayAccount(leaked) {
+		t.Fatal("official Anthropic base_url must not be classified as CloudWise")
+	}
+	for _, model := range []string{"glm-5.2", "kimi-k3", "MiniMax-M3", "deepseek-v4-flash"} {
+		if svc.isModelSupportedByAccount(leaked, model) {
+			t.Errorf("non-CloudWise mapped anthropic must not claim %s after CloudWise ingress allow", model)
+		}
+	}
+	if !svc.isModelSupportedByAccount(leaked, "claude-sonnet-4-6") {
+		t.Error("non-CloudWise mapped anthropic must still serve its claude-* mapping")
+	}
+
+	// Existing scheduling fixtures map a claude request to a dummy wire ID
+	// ("x"). That is not a CloudWise leak: the client already asked for claude.
+	claudeToWire := &Account{
+		ID:       12,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"claude-3-5-sonnet-20241022": "x"},
+		},
+	}
+	if !svc.isModelSupportedByAccount(claudeToWire, "claude-3-5-sonnet-20241022") {
+		t.Error("claude request remapped to a vendor wire ID must still be selectable")
 	}
 }

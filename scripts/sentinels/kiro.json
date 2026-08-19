@@ -55,7 +55,7 @@
         "KiroCLIUserAgent",
         "KiroCLIAmzUserAgent",
         "DefaultKiroAccountPriority",
-        "2.18.0",
+        "2.18.1",
         "app/AmazonQ-For-CLI"
       ],
       "rationale": "Single TK-owned Kiro CLI release and HTTP identity. The exact aws-sdk-rust User-Agent pair comes from real CLI wire capture rather than release inference; losing these constants or reintroducing a second builder makes Kiro egress drift from the only supported client identity. DefaultKiroAccountPriority remains the creation-time default for native Kiro accounts."
