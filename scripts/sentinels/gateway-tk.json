@@ -1149,9 +1149,35 @@
       "must_contain": [
         "openAICloudwiseRelayAllowedModelPrefixes",
         "openAICloudwiseRelayUpstreamModelID(",
-        "openAICloudwiseRelayWildcardModelMappingFloor("
+        "openAICloudwiseRelayWildcardModelMappingFloor(",
+        "func isCloudwiseRelayAccount(",
+        "func openAICloudwiseRelaySupportsRequestedModel("
       ],
-      "rationale": "Single SSOT for CloudWise MaaS relay supported model families (kimi/claude/glm/minimax/deepseek prefix policy). Adjust only openAICloudwiseRelayAllowedModelPrefixes; wildcard model_mapping floor derives from it."
+      "rationale": "Single SSOT for CloudWise MaaS relay supported model families (kimi/claude/glm/minimax/deepseek prefix policy). Adjust only openAICloudwiseRelayAllowedModelPrefixes; wildcard model_mapping floor derives from it. isCloudwiseRelayAccount + openAICloudwiseRelaySupportsRequestedModel are the dual-stack prefix hard gate used before passthrough / empty-mapping allow-all."
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "isCloudwiseRelayAccount(a) && !openAICloudwiseRelaySupportsRequestedModel(requestedModel)"
+      ],
+      "rationale": "CloudWise family hard gate must stay at the top of upstream-shaped Account.IsModelSupported. Empty model_mapping or leftover openai_passthrough would otherwise allow gpt-* onto prod dual-stack relays #94/#95. The helper bodies live in openai_cloudwise_relay_tk.go; this pins the injection so an upstream merge cannot drop the call while leaving the companion compile-clean."
+    },
+    {
+      "path": "backend/internal/service/gateway_scheduling.go",
+      "must_contain": [
+        "if isCloudwiseRelayAccount(account) {",
+        "return account.IsModelSupported(requestedModel)"
+      ],
+      "rationale": "GatewayService.isModelSupportedByAccount must route CloudWise accounts through Account.IsModelSupported before the OpenAI passthrough namespace filter. Empty mapping + passthrough otherwise calls tkIsForwardableOpenAIModelName, which allows gpt-* and rejects claude-/glm- — the opposite of the CloudWise floor. Pin the early return so an upstream merge cannot restore that leak while Account.IsModelSupported tests stay green."
+    },
+    {
+      "path": "backend/internal/service/openai_cloudwise_relay_tk_test.go",
+      "must_contain": [
+        "TestCloudwiseRelayEmptyMappingStillRejectsForeignFamilies",
+        "TestCloudwiseRelayPrefixGateOverridesExplicitGPTMapping",
+        "TestGatewayService_CloudwiseRelayPassthroughEmptyMappingUsesPrefixGate"
+      ],
+      "rationale": "Focused regressions for the CloudWise prefix hard gate: empty mapping / leftover passthrough still reject gpt-* on both Account.IsModelSupported and GatewayService.isModelSupportedByAccount, and an explicit gpt mapping cannot override the family floor."
     },
     {
       "path": "backend/internal/service/gateway_cloudwise_relay_test.go",
