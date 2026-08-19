@@ -610,7 +610,8 @@ func TestIsEdgeNode(t *testing.T) {
 // TestIsEdgeSuppressedAlertRule pins WHICH rules are silenced on a mirror-relay
 // edge. The retired routing-capacity rule stays defensively suppressed, and both
 // real-user experience rules (P0 user-visible + P1 client-visible) are prod-only.
-// Capacity/error signals that ARE meaningful on an edge must still page.
+// Capacity/error signals that ARE meaningful on an edge must still page;
+// upstream_error_rate is demoted to P1 rather than suppressed.
 func TestIsEdgeSuppressedAlertRule(t *testing.T) {
 	t.Parallel()
 	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "routing_capacity_rejection_count"}))
@@ -621,6 +622,31 @@ func TestIsEdgeSuppressedAlertRule(t *testing.T) {
 	require.False(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "upstream_error_rate"}))
 	require.False(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "group_available_accounts"}))
 	require.False(t, isEdgeSuppressedAlertRule(nil))
+}
+
+// TestEffectiveOpsAlertPageSeverity pins the us4-class demotion: an edge-local
+// P0 upstream_error_rate is not end-user visible (prod failovers to another
+// edge), so the stored/paged severity must be P1. Prod keeps P0 because it is
+// the user-facing terminus. The 8% early-warning P1 rule stays P1; other P0
+// rules on an edge are unchanged.
+func TestEffectiveOpsAlertPageSeverity(t *testing.T) {
+	t.Parallel()
+
+	p0Upstream := &OpsAlertRule{Name: "上游错误率极高", MetricType: "upstream_error_rate", Severity: "P0"}
+	p1Upstream := &OpsAlertRule{Name: "上游错误率偏高", MetricType: "upstream_error_rate", Severity: "P1"}
+	p0Pool := &OpsAlertRule{MetricType: "pool_load_rate", Severity: "P0"}
+
+	require.Equal(t, "P1", effectiveOpsAlertPageSeverity(p0Upstream, true))
+	require.Equal(t, "P0", effectiveOpsAlertPageSeverity(p0Upstream, false))
+	require.Equal(t, "P1", effectiveOpsAlertPageSeverity(p1Upstream, true))
+	require.Equal(t, "P1", effectiveOpsAlertPageSeverity(p1Upstream, false))
+	require.Equal(t, "P0", effectiveOpsAlertPageSeverity(p0Pool, true))
+	require.Equal(t, "P0", effectiveOpsAlertPageSeverity(p0Pool, false))
+	require.Equal(t, "", effectiveOpsAlertPageSeverity(nil, true))
+	require.True(t, isEdgeNonUserFacingAlertRule(p0Upstream))
+	require.False(t, isEdgeNonUserFacingAlertRule(p1Upstream))
+	require.False(t, isEdgeNonUserFacingAlertRule(p0Pool))
+	require.False(t, isEdgeNonUserFacingAlertRule(nil))
 }
 
 func TestShouldEvaluateAlertRuleOnNode(t *testing.T) {
