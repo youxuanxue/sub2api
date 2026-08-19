@@ -227,7 +227,7 @@
                   t("admin.groups.subscription.noLimit")
                 }}</span>
                 <div class="text-gray-400 dark:text-gray-500">
-                  {{ t("admin.groups.usageTotal") }}
+                  {{ t("admin.groups.usageTotal", { days: usageRetentionDays }) }}
                   <span class="ml-1 font-medium text-gray-600 dark:text-gray-300"
                     >{{
                       usageLoading
@@ -313,8 +313,16 @@
 
           <template #cell-usage="{ row }">
             <div v-if="usageLoading" class="text-xs text-gray-400">—</div>
-            <div v-else class="space-y-0.5 text-xs">
-              <div class="text-gray-500 dark:text-gray-400">
+            <div
+              v-else
+              class="space-y-0.5 text-xs"
+              data-testid="group-usage-summary"
+              :data-group-id="row.id"
+            >
+              <div
+                class="text-gray-500 dark:text-gray-400"
+                data-testid="group-usage-today"
+              >
                 <span class="text-gray-400 dark:text-gray-500">{{
                   t("admin.groups.usageToday")
                 }}</span>
@@ -324,9 +332,25 @@
                   }}</span
                 >
               </div>
-              <div class="text-gray-500 dark:text-gray-400">
+              <div
+                class="text-gray-500 dark:text-gray-400"
+                data-testid="group-usage-yesterday"
+              >
                 <span class="text-gray-400 dark:text-gray-500">{{
-                  t("admin.groups.usageTotal")
+                  t("admin.groups.usageYesterday")
+                }}</span>
+                <span class="ml-1 font-medium text-gray-700 dark:text-gray-300"
+                  >${{
+                    formatCost(usageMap.get(row.id)?.yesterday_cost ?? 0)
+                  }}</span
+                >
+              </div>
+              <div
+                class="text-gray-500 dark:text-gray-400"
+                data-testid="group-usage-total"
+              >
+                <span class="text-gray-400 dark:text-gray-500">{{
+                  t("admin.groups.usageTotal", { days: usageRetentionDays })
                 }}</span>
                 <span class="ml-1 font-medium text-gray-700 dark:text-gray-300"
                   >${{
@@ -4994,11 +5018,13 @@ const groups = ref<AdminGroup[]>([]);
 const loading = ref(false);
 type GroupUsageSummary = {
   today_cost: number;
+  yesterday_cost: number;
   total_cost: number;
 };
 
 const usageMap = ref<Map<number, GroupUsageSummary>>(new Map());
 const usageLoading = ref(false);
+const usageRetentionDays = ref(90);
 const capacityMap = ref<
   Map<
     number,
@@ -5843,12 +5869,15 @@ const loadUsageSummary = async () => {
   }
   usageLoading.value = true;
   try {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const data = await adminAPI.groups.getUsageSummary(tz);
+    const data = await adminAPI.groups.getUsageSummary();
+    if (data.retained_days > 0) {
+      usageRetentionDays.value = data.retained_days;
+    }
     const map = new Map<number, GroupUsageSummary>();
-    for (const item of data) {
+    for (const item of data.groups ?? []) {
       map.set(item.group_id, {
         today_cost: item.today_cost,
+        yesterday_cost: item.yesterday_cost,
         total_cost: item.total_cost,
       });
     }

@@ -2,6 +2,7 @@ package routes
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -93,6 +94,16 @@ func isGrokNativeVideoStatusRoute(c *gin.Context) bool {
 	default:
 		return false
 	}
+}
+
+func videoTaskRouteID(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	if taskID := strings.TrimSpace(c.Param("task_id")); taskID != "" {
+		return taskID
+	}
+	return strings.TrimSpace(c.Param("request_id"))
 }
 
 func isGrokNativeVideoContentRoute(c *gin.Context) bool {
@@ -206,6 +217,14 @@ func tkOpenAICompatVideoSubmitHandler(h *handler.Handlers) gin.HandlerFunc {
 func tkOpenAICompatVideoFetchHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		platform := getGroupPlatform(c)
+		// TokenKey task IDs are resolved and authorized by VideoFetch's registry
+		// lookup. A status GET has no request model, so its temporary group cannot
+		// identify the submit platform. Route vt_ first even for Grok/composite
+		// callers; non-TokenKey IDs retain their platform-specific handlers.
+		if strings.HasPrefix(videoTaskRouteID(c), "vt_") {
+			h.OpenAIGateway.VideoFetch(c)
+			return
+		}
 		if (platform == service.PlatformGrok || platform == service.PlatformComposite) && isGrokNativeVideoStatusRoute(c) {
 			h.OpenAIGateway.GrokVideoStatus(c)
 			return
@@ -292,14 +311,14 @@ func tkOpenAICompatVideoContentHandler(h *handler.Handlers) gin.HandlerFunc {
 // Supported channel types are auto-derived from `relay.GetTaskAdaptor`
 // (currently 45 = VolcEngine / Doubao Seedance, 54 = DoubaoVideo); adding a
 // new task adapter upstream lights up automatically — no route changes here.
-func registerTKOpenAICompatVideoRoutes(group *gin.RouterGroup, h *handler.Handlers) {
+func registerTKOpenAICompatVideoRoutes(routes terminalRouteRegistrar, h *handler.Handlers) {
 	submit := tkOpenAICompatVideoSubmitHandler(h)
 	fetch := tkOpenAICompatVideoFetchHandler(h)
-	group.POST("/video/generations", submit)
-	group.GET("/video/generations/:task_id", fetch)
-	group.POST("/videos", submit)
-	group.GET("/videos/:task_id", fetch)
-	group.GET("/videos/:task_id/content", tkOpenAICompatVideoContentHandler(h))
+	routes.Register(http.MethodPost, "/video/generations", AsyncSubmission, submit)
+	routes.Register(http.MethodGet, "/video/generations/:task_id", Excluded("status"), fetch)
+	routes.Register(http.MethodPost, "/videos", AsyncSubmission, submit)
+	routes.Register(http.MethodGet, "/videos/:task_id", Excluded("status"), fetch)
+	routes.Register(http.MethodGet, "/videos/:task_id/content", Excluded("content_fetch"), tkOpenAICompatVideoContentHandler(h))
 	// `/videos/generations` is xAI's exact video-submit path shape (grok's
 	// native arm POSTs `{base}/videos/generations`). Registering it makes the
 	// gateway accept that shape too, which is REQUIRED for the prod→edge grok
@@ -309,22 +328,22 @@ func registerTKOpenAICompatVideoRoutes(group *gin.RouterGroup, h *handler.Handle
 	// /chat/completions, /images/generations — already coincide with gateway
 	// routes; the video path did not). Same submit handler; GET fetch already
 	// matches `/videos/:task_id`, so no fetch alias is needed.
-	group.POST("/videos/generations", submit)
-	group.POST("/videos/edits", tkOpenAICompatGrokVideoEditHandler(h))
-	group.POST("/videos/extensions", tkOpenAICompatGrokVideoExtensionHandler(h))
-	group.GET("/videos/generations/:request_id", fetch)
-	group.GET("/videos/edits/:request_id", fetch)
-	group.GET("/videos/extensions/:request_id", fetch)
-	group.GET("/videos/generations/:request_id/content", tkOpenAICompatVideoContentHandler(h))
-	group.GET("/videos/edits/:request_id/content", tkOpenAICompatVideoContentHandler(h))
-	group.GET("/videos/extensions/:request_id/content", tkOpenAICompatVideoContentHandler(h))
+	routes.Register(http.MethodPost, "/videos/generations", AsyncSubmission, submit)
+	routes.Register(http.MethodPost, "/videos/edits", AsyncSubmission, tkOpenAICompatGrokVideoEditHandler(h))
+	routes.Register(http.MethodPost, "/videos/extensions", AsyncSubmission, tkOpenAICompatGrokVideoExtensionHandler(h))
+	routes.Register(http.MethodGet, "/videos/generations/:request_id", Excluded("status"), fetch)
+	routes.Register(http.MethodGet, "/videos/edits/:request_id", Excluded("status"), fetch)
+	routes.Register(http.MethodGet, "/videos/extensions/:request_id", Excluded("status"), fetch)
+	routes.Register(http.MethodGet, "/videos/generations/:request_id/content", Excluded("content_fetch"), tkOpenAICompatVideoContentHandler(h))
+	routes.Register(http.MethodGet, "/videos/edits/:request_id/content", Excluded("content_fetch"), tkOpenAICompatVideoContentHandler(h))
+	routes.Register(http.MethodGet, "/videos/extensions/:request_id/content", Excluded("content_fetch"), tkOpenAICompatVideoContentHandler(h))
 }
 
 // registerTKOpenAICompatVideoRoutesNoPrefix mirrors the above for the
 // no-/v1-prefix aliases registered directly on *gin.Engine. Same handler
 // pair, same middleware chain as the sibling unprefixed routes
 // (chat/completions, embeddings, images/generations).
-func registerTKOpenAICompatVideoRoutesNoPrefix(r *gin.Engine, h *handler.Handlers, mw ...gin.HandlerFunc) {
+func registerTKOpenAICompatVideoRoutesNoPrefix(routes terminalRouteRegistrar, h *handler.Handlers, mw ...gin.HandlerFunc) {
 	submit := tkOpenAICompatVideoSubmitHandler(h)
 	fetch := tkOpenAICompatVideoFetchHandler(h)
 	chain := func(handler gin.HandlerFunc) []gin.HandlerFunc {
@@ -333,20 +352,20 @@ func registerTKOpenAICompatVideoRoutesNoPrefix(r *gin.Engine, h *handler.Handler
 		out = append(out, handler)
 		return out
 	}
-	r.POST("/video/generations", chain(submit)...)
-	r.GET("/video/generations/:task_id", chain(fetch)...)
-	r.POST("/videos", chain(submit)...)
-	r.GET("/videos/:task_id", chain(fetch)...)
-	r.GET("/videos/:task_id/content", chain(tkOpenAICompatVideoContentHandler(h))...)
+	routes.Register(http.MethodPost, "/video/generations", AsyncSubmission, chain(submit)...)
+	routes.Register(http.MethodGet, "/video/generations/:task_id", Excluded("status"), chain(fetch)...)
+	routes.Register(http.MethodPost, "/videos", AsyncSubmission, chain(submit)...)
+	routes.Register(http.MethodGet, "/videos/:task_id", Excluded("status"), chain(fetch)...)
+	routes.Register(http.MethodGet, "/videos/:task_id/content", Excluded("content_fetch"), chain(tkOpenAICompatVideoContentHandler(h))...)
 	// xAI-shaped submit alias — see registerTKOpenAICompatVideoRoutes (required
 	// for the prod→edge grok video relay).
-	r.POST("/videos/generations", chain(submit)...)
-	r.POST("/videos/edits", chain(tkOpenAICompatGrokVideoEditHandler(h))...)
-	r.POST("/videos/extensions", chain(tkOpenAICompatGrokVideoExtensionHandler(h))...)
-	r.GET("/videos/generations/:request_id", chain(fetch)...)
-	r.GET("/videos/edits/:request_id", chain(fetch)...)
-	r.GET("/videos/extensions/:request_id", chain(fetch)...)
-	r.GET("/videos/generations/:request_id/content", chain(tkOpenAICompatVideoContentHandler(h))...)
-	r.GET("/videos/edits/:request_id/content", chain(tkOpenAICompatVideoContentHandler(h))...)
-	r.GET("/videos/extensions/:request_id/content", chain(tkOpenAICompatVideoContentHandler(h))...)
+	routes.Register(http.MethodPost, "/videos/generations", AsyncSubmission, chain(submit)...)
+	routes.Register(http.MethodPost, "/videos/edits", AsyncSubmission, chain(tkOpenAICompatGrokVideoEditHandler(h))...)
+	routes.Register(http.MethodPost, "/videos/extensions", AsyncSubmission, chain(tkOpenAICompatGrokVideoExtensionHandler(h))...)
+	routes.Register(http.MethodGet, "/videos/generations/:request_id", Excluded("status"), chain(fetch)...)
+	routes.Register(http.MethodGet, "/videos/edits/:request_id", Excluded("status"), chain(fetch)...)
+	routes.Register(http.MethodGet, "/videos/extensions/:request_id", Excluded("status"), chain(fetch)...)
+	routes.Register(http.MethodGet, "/videos/generations/:request_id/content", Excluded("content_fetch"), chain(tkOpenAICompatVideoContentHandler(h))...)
+	routes.Register(http.MethodGet, "/videos/edits/:request_id/content", Excluded("content_fetch"), chain(tkOpenAICompatVideoContentHandler(h))...)
+	routes.Register(http.MethodGet, "/videos/extensions/:request_id/content", Excluded("content_fetch"), chain(tkOpenAICompatVideoContentHandler(h))...)
 }

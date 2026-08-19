@@ -29,6 +29,9 @@ func registerTKUserRoutes(authenticated, user *gin.RouterGroup, h *handler.Handl
 	if h.MePricingCatalog != nil {
 		authenticated.GET("/me/pricing-catalog", h.MePricingCatalog.Get)
 	}
+	if h.APIKey != nil {
+		authenticated.GET("/me/api-keys/:id/capabilities", h.APIKey.GetCapabilities)
+	}
 }
 
 // registerTKUserDualAuthRoutes wires TokenKey user-side endpoints that

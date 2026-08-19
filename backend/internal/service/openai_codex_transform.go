@@ -188,8 +188,12 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 		}
 	}
 
-	// 请求带 reasoning 时补齐 include:["reasoning.encrypted_content"]，与真实 Codex 对齐
-	// （compact 端点形态不同，单独处理，此处跳过）。
+	// OAuth 出站一律打开 reasoning.summary=auto，才能拿到上游明文 summary；
+	// 同时 reasoning 非空后 complement include encrypted_content，供 QA 记录完整推理密文。
+	// compact 端点形态不同，单独处理，此处跳过。
+	if !opts.IsCompact && ensureCodexReasoningSummaryAuto(reqBody) {
+		result.Modified = true
+	}
 	if !opts.IsCompact && ensureCodexReasoningInclude(reqBody) {
 		result.Modified = true
 	}
@@ -1307,6 +1311,32 @@ func defaultCodexSynthInstructions(model string) string {
 		return instructions
 	}
 	return "You are a helpful coding assistant."
+}
+
+// ensureCodexReasoningSummaryAuto 为 OAuth 出站补齐 reasoning.summary=auto。
+//
+// ChatGPT Codex 只有请求 summary=auto 才会下发明文 reasoning summary；
+// 不带该字段时只有内部 reasoning_tokens，客户端/QA 都看不到摘要。
+// 加法式：无 reasoning 则创建；已有 map 则写入/覆盖 summary=auto，保留 effort 等其它键。
+func ensureCodexReasoningSummaryAuto(reqBody map[string]any) bool {
+	if reqBody == nil {
+		return false
+	}
+	const auto = "auto"
+	switch existing := reqBody["reasoning"].(type) {
+	case nil:
+		reqBody["reasoning"] = map[string]any{"summary": auto}
+		return true
+	case map[string]any:
+		if s, ok := existing["summary"].(string); ok && s == auto {
+			return false
+		}
+		existing["summary"] = auto
+		reqBody["reasoning"] = existing
+		return true
+	default:
+		return false
+	}
 }
 
 // ensureCodexReasoningInclude 在请求带 reasoning 时补齐 include:["reasoning.encrypted_content"]。

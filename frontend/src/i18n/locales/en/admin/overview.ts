@@ -822,7 +822,8 @@ export default {
         userStatus: 'Status'
       },
       usageToday: 'Today',
-      usageTotal: 'Total',
+      usageYesterday: 'Yesterday',
+      usageTotal: '{days}-day total',
       accountsAvailable: 'Avail:',
       accountsRateLimited: 'Limited:',
       accountsTotal: 'Total:',

@@ -1,8 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   tokenkey Stage 0 standalone QA raw archive bucket (Phase 2). Separate from
-  the retained legacy QaExportsBucket and generic data-layer archive. Active
-  user list, detail, and ZIP surfaces use QaBundleBucket in this stack.
+  the generic data-layer archive. Active user list, detail, and ZIP surfaces
+  use QaBundleBucket in this stack.
   Lifecycle owner: docs/approved/design-prod-qa-24h-s3-lifecycle.md section 8.1.
 
 Parameters:
@@ -218,8 +218,10 @@ Resources:
               - !GetAtt QaRawArchiveBucket.Arn
               - !Sub '${QaRawArchiveBucket.Arn}/*'
             Condition:
-              ArnEquals:
-                'aws:PrincipalArn': !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid'
+              ArnLike:
+                'aws:PrincipalArn':
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid'
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid-*'
           - Sid: AllowAppInstanceRoleWriteRaw
             Effect: Allow
             Principal:
@@ -429,8 +431,10 @@ Resources:
               - !GetAtt QaBundleBucket.Arn
               - !Sub '${QaBundleBucket.Arn}/*'
             Condition:
-              ArnEquals:
-                'aws:PrincipalArn': !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid'
+              ArnLike:
+                'aws:PrincipalArn':
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid'
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid-*'
           - Sid: AllowAppInstanceRoleCreateScopedBundleJobs
             Effect: Allow
             Principal:

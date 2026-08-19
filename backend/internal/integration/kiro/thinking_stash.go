@@ -33,7 +33,8 @@ func nonPlaceholderThinking(text string) string {
 }
 
 // ExtractTaglessThinking splits reasoning from a trailing short answer segment
-// in tagless Kiro assistant streams.
+// in tagless Kiro assistant streams. When the split heuristic does not match,
+// returns empty so QA stash stays sig-only rather than mis-labeling answer text.
 func ExtractTaglessThinking(content string) string {
 	content = strings.TrimSpace(content)
 	if content == "" {
@@ -51,5 +52,5 @@ func ExtractTaglessThinking(content string) string {
 			return head
 		}
 	}
-	return content
+	return ""
 }

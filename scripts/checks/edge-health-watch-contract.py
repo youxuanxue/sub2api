@@ -29,13 +29,20 @@ def main() -> int:
 
     checks = {
         "scheduled trigger": re.search(r"(?m)^\s+schedule:\s*$", text) is not None,
+        "five-minute cadence": 'cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"' in text,
         "OIDC credentials": "aws-actions/configure-aws-credentials@" in text,
         "fleet scan call site": "bash ops/observability/scan-edge-health.sh --with-prod" in text,
+        "structured terminal scan": "--alert-json > terminal-buckets.jsonl" in text,
         "scan status propagated": "|| scan_status=$?" in text and 'exit "$scan_status"' in text,
+        "model-unit evaluator call site": "python3 ops/observability/edge_model_health_alert.py" in text,
         "delivery owner call site": "python3 ops/observability/edge_health_delivery.py" in text,
+        "structured state path": "STATEFILE=.edge-health-state/state.json" in text,
+        "structured state delivery": '--state-file "$STATEFILE"' in text,
         "state restore": "actions/cache/restore@" in text,
         "state save": "actions/cache/save@" in text,
         "dry-run state guard": "inputs.dry_run != 'true'" in text,
+        "single-instance concurrency": "group: edge-health-watch" in text and "cancel-in-progress: false" in text,
+        "legacy account verdict removed": "edge-health-alert.py" not in text,
     }
     failures = [name for name, passed in checks.items() if not passed]
     if failures:
@@ -44,10 +51,11 @@ def main() -> int:
         return 1
 
     scan_pos = text.index("bash ops/observability/scan-edge-health.sh --with-prod")
+    evaluator_pos = text.index("python3 ops/observability/edge_model_health_alert.py")
     delivery_pos = text.index("python3 ops/observability/edge_health_delivery.py")
     save_pos = text.index("actions/cache/save@")
-    if not scan_pos < delivery_pos < save_pos:
-        print("FAIL: edge-health-watch order must be scan -> delivery -> state save", file=sys.stderr)
+    if not scan_pos < evaluator_pos < delivery_pos < save_pos:
+        print("FAIL: edge-health-watch order must be scan -> evaluator -> delivery -> state save", file=sys.stderr)
         return 1
 
     try:

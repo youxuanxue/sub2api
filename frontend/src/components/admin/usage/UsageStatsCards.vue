@@ -83,7 +83,7 @@
       <div class="rounded-lg bg-purple-100 p-2 dark:bg-purple-900/30 text-purple-600">
         <Icon name="clock" size="md" />
       </div>
-      <div><p class="text-xs font-medium text-gray-500">{{ t('usage.avgDuration') }}</p><p class="text-xl font-bold">{{ formatDuration(stats?.average_duration_ms || 0) }}</p></div>
+      <div><p class="text-xs font-medium text-gray-500">{{ t('usage.avgGatewayLatency') }}</p><p class="text-xl font-bold">{{ formatDuration(stats?.average_gateway_latency_ms || 0) }}</p></div>
     </div>
   </div>
 </template>

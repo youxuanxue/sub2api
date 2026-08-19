@@ -1,0 +1,138 @@
+package handler
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"strings"
+	"time"
+
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
+)
+
+type TerminalOutcomePolicy string
+
+const (
+	terminalOutcomeWebSocketSinkKey = "terminal_outcome_websocket_sink"
+	terminalOutcomeExcludedKey      = "terminal_outcome_excluded"
+)
+
+const (
+	TerminalOutcomeSyncInference   TerminalOutcomePolicy = "sync_inference"
+	TerminalOutcomeStreamInference TerminalOutcomePolicy = "stream_inference"
+	TerminalOutcomeWebSocketTurn   TerminalOutcomePolicy = "websocket_turn"
+	TerminalOutcomeAsyncSubmission TerminalOutcomePolicy = "async_submission"
+	TerminalOutcomeExcluded        TerminalOutcomePolicy = "excluded"
+)
+
+func TerminalOutcomeMiddleware(sink service.TerminalOutcomeSink, policy TerminalOutcomePolicy) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if sink != nil && policy == TerminalOutcomeWebSocketTurn {
+			c.Set(terminalOutcomeWebSocketSinkKey, sink)
+		}
+		c.Next()
+		if sink == nil || policy == TerminalOutcomeExcluded || policy == TerminalOutcomeWebSocketTurn {
+			return
+		}
+		if excluded, _ := c.Get(terminalOutcomeExcludedKey); excluded == true || terminalRequestCanceled(c) {
+			return
+		}
+		model := terminalRequestedModel(c)
+		if model == "" {
+			return
+		}
+		sink.Record(service.TerminalOutcomeEvent{
+			At:             time.Now().UTC(),
+			GroupID:        terminalGroupID(c),
+			RequestedModel: model,
+			Kind:           terminalHTTPOutcomeKind(c, policy),
+		})
+	}
+}
+
+func ExcludeTerminalOutcome(c *gin.Context) {
+	if c != nil {
+		c.Set(terminalOutcomeExcludedKey, true)
+	}
+}
+
+func RecordWebSocketTerminalOutcome(c *gin.Context, model string, turnErr error, resultPresent bool) {
+	if c == nil || strings.TrimSpace(model) == "" || errors.Is(turnErr, context.Canceled) {
+		return
+	}
+	kind := service.TerminalOutcomeOtherError
+	if turnErr == nil && resultPresent {
+		kind = service.TerminalOutcomeSuccess
+	} else if isOpsNoAvailableAccountError(turnErr) {
+		kind = service.TerminalOutcomeFinalEmptyPool429
+	}
+	recordWebSocketTerminalOutcomeKind(c, model, kind)
+}
+
+// RecordWebSocketHandshakeTerminalOutcome preserves the actual HTTP status when
+// a WebSocket route fails before protocol upgrade and no logical turn exists.
+func RecordWebSocketHandshakeTerminalOutcome(c *gin.Context, model string) {
+	if c == nil || strings.TrimSpace(model) == "" || terminalRequestCanceled(c) {
+		return
+	}
+	recordWebSocketTerminalOutcomeKind(c, model, terminalHTTPOutcomeKind(c, TerminalOutcomeSyncInference))
+}
+
+func recordWebSocketTerminalOutcomeKind(c *gin.Context, model string, kind service.TerminalOutcomeKind) {
+	value, ok := c.Get(terminalOutcomeWebSocketSinkKey)
+	if !ok {
+		return
+	}
+	sink, ok := value.(service.TerminalOutcomeSink)
+	if !ok || sink == nil {
+		return
+	}
+	sink.Record(service.TerminalOutcomeEvent{
+		At:             time.Now().UTC(),
+		GroupID:        terminalGroupID(c),
+		RequestedModel: strings.TrimSpace(model),
+		Kind:           kind,
+	})
+}
+
+func terminalRequestCanceled(c *gin.Context) bool {
+	return c != nil && c.Request != nil && errors.Is(c.Request.Context().Err(), context.Canceled)
+}
+
+func terminalHTTPOutcomeKind(c *gin.Context, policy TerminalOutcomePolicy) service.TerminalOutcomeKind {
+	status := c.Writer.Status()
+	if policy == TerminalOutcomeStreamInference {
+		if streamErr, ok := service.GetOpsStreamError(c); ok {
+			status = streamErr.IntendedStatus
+		}
+	}
+	if status == http.StatusTooManyRequests && isOpsRoutingCapacityLimited(c) {
+		return service.TerminalOutcomeFinalEmptyPool429
+	}
+	if status >= http.StatusOK && status < http.StatusMultipleChoices {
+		return service.TerminalOutcomeSuccess
+	}
+	return service.TerminalOutcomeOtherError
+}
+
+func terminalRequestedModel(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	value, ok := c.Get(service.OpsModelKey)
+	if !ok {
+		return ""
+	}
+	model, _ := value.(string)
+	return strings.TrimSpace(model)
+}
+
+func terminalGroupID(c *gin.Context) int64 {
+	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil || apiKey.GroupID == nil {
+		return 0
+	}
+	return *apiKey.GroupID
+}

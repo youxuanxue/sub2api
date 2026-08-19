@@ -13,7 +13,10 @@ package service
 // pricing is nil so that cold-start or degraded wiring never produces an
 // empty model-list that would break an SDK.
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // ModelListFilter gates client-visible model candidates against availability
 // and pricing data. Both fields are nil-safe; see FilterClientFacing.
@@ -56,6 +59,33 @@ func (f *ModelListFilter) FilterClientFacing(ctx context.Context, platform strin
 	return out
 }
 
+// FilterClientFacingStrict is the discovery-only counterpart of
+// FilterClientFacing. It preserves nil/degraded behavior, but once the
+// availability service is wired it propagates repository errors so discovery
+// cannot misrepresent an unknown state as a callable model.
+func (f *ModelListFilter) FilterClientFacingStrict(ctx context.Context, platform string, candidates []string) ([]string, error) {
+	if f == nil || f.pricing == nil || len(candidates) == 0 {
+		return candidates, nil
+	}
+	out := make([]string, 0, len(candidates))
+	for _, id := range candidates {
+		if !f.pricing.IsModelPriced(id, platform) {
+			continue
+		}
+		if f.availability != nil {
+			state, err := f.availability.GetAvailability(ctx, platform, id)
+			if err != nil {
+				return nil, fmt.Errorf("read model availability for %s/%s: %w", platform, id, err)
+			}
+			if state.Status == AvailabilityStatusUnreachable {
+				continue
+			}
+		}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
 // ServableClientFacingIDs returns the unified servable candidate IDs for a
 // platform — the single source the gateway /v1/models family FALLBACK shares with
 // the public /pricing catalog and the Your-Menu fallback. It is the empirical
@@ -81,4 +111,18 @@ func (f *ModelListFilter) ServableClientFacingIDs(ctx context.Context, platform 
 		pricing = f.pricing
 	}
 	return ServableClientFacingIDs(ctx, platform, avail, pricing)
+}
+
+// ServableClientFacingIDsStrict returns the same fallback candidate set as
+// ServableClientFacingIDs while surfacing availability lookup failures.
+func (f *ModelListFilter) ServableClientFacingIDsStrict(ctx context.Context, platform string) ([]string, error) {
+	var avail MePricingAvailability
+	var pricing *PricingCatalogService
+	if f != nil {
+		if f.availability != nil {
+			avail = f.availability
+		}
+		pricing = f.pricing
+	}
+	return servableClientFacingIDsStrict(ctx, platform, avail, pricing)
 }

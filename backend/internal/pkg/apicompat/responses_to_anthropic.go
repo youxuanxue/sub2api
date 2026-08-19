@@ -27,19 +27,14 @@ func ResponsesToAnthropic(resp *ResponsesResponse, model string) *AnthropicRespo
 	for _, item := range resp.Output {
 		switch item.Type {
 		case "reasoning":
-			summaryText := ""
-			for _, s := range item.Summary {
-				if s.Type == "summary_text" && s.Text != "" {
-					summaryText += s.Text
-				}
-			}
 			// Always surface encrypted_content as thinking.signature so Claude
 			// Code / multi-turn clients can send it back. Signature-only
 			// thinking blocks are valid when the model omits a visible summary.
-			if summaryText != "" || strings.TrimSpace(item.EncryptedContent) != "" {
+			thinkingText := extractResponsesOutputReasoningText(&item)
+			if thinkingText != "" || strings.TrimSpace(item.EncryptedContent) != "" {
 				blocks = append(blocks, AnthropicContentBlock{
 					Type:      "thinking",
-					Thinking:  summaryText,
+					Thinking:  thinkingText,
 					Signature: item.EncryptedContent,
 				})
 			}
@@ -197,6 +192,8 @@ type ResponsesEventToAnthropicState struct {
 	// PendingThinkingSignature is filled from reasoning.encrypted_content and
 	// emitted as signature_delta before the thinking block is closed.
 	PendingThinkingSignature string
+	// ReasoningTextEmitted 避免 output_item.done 在已有 delta 时重复抄 thinking。
+	ReasoningTextEmitted bool
 
 	// OutputIndexToBlockIdx maps Responses output_index → Anthropic content block index.
 	OutputIndexToBlockIdx map[int]int
@@ -603,6 +600,7 @@ func resToAnthHandleReasoningDelta(evt *ResponsesStreamEvent, state *ResponsesEv
 			Thinking: evt.Delta,
 		},
 	})
+	state.ReasoningTextEmitted = true
 	return events
 }
 
@@ -627,6 +625,24 @@ func resToAnthHandleOutputItemDone(evt *ResponsesStreamEvent, state *ResponsesEv
 	if evt.Item.Type == "reasoning" {
 		if sig := strings.TrimSpace(evt.Item.EncryptedContent); sig != "" {
 			state.PendingThinkingSignature = sig
+		}
+		if !state.ReasoningTextEmitted {
+			if text := extractResponsesOutputReasoningText(evt.Item); text != "" {
+				var events []AnthropicStreamEvent
+				events = append(events, resToAnthEnsureReasoningBlockOpen(state, evt.OutputIndex)...)
+				blockIdx := state.OutputIndexToBlockIdx[evt.OutputIndex]
+				events = append(events, AnthropicStreamEvent{
+					Type:  "content_block_delta",
+					Index: &blockIdx,
+					Delta: &AnthropicDelta{
+						Type:     "thinking_delta",
+						Thinking: text,
+					},
+				})
+				state.ReasoningTextEmitted = true
+				events = append(events, closeCurrentBlock(state)...)
+				return events
+			}
 		}
 	}
 

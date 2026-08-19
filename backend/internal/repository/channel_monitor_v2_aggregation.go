@@ -52,6 +52,8 @@ var channelMonitorV2RetentionRules = []channelMonitorV2RetentionRule{
 	{table: "channel_monitor_v2_metrics_1m", retention: channelMonitorV2RetentionMetrics1m},
 	{table: "channel_monitor_v2_error_metrics_1m", retention: channelMonitorV2RetentionError1m},
 	{table: "channel_monitor_v2_latency_histograms_1m", retention: channelMonitorV2RetentionHistogram1m},
+	{table: "channel_monitor_v2_terminal_outcomes_1m", retention: channelMonitorV2RetentionMetrics1m},
+	{table: "channel_monitor_v2_terminal_ingestion_health_1m", retention: channelMonitorV2RetentionMetrics1m},
 	{table: "channel_monitor_v2_metrics_rollup", retention: channelMonitorV2RetentionRollup5m, bucketSeconds: 300},
 	{table: "channel_monitor_v2_user_metrics_rollup", retention: channelMonitorV2RetentionRollup5m, bucketSeconds: 300},
 	{table: "channel_monitor_v2_error_metrics_rollup", retention: channelMonitorV2RetentionRollup5m, bucketSeconds: 300},

@@ -192,6 +192,11 @@ docs/*
 !docs/ASYNC_IMAGE_TASKS.md
 !docs/legal/
 !docs/legal/*.md
+# High-risk approval anchors must stay stageable. Without this exception the
+# daily upstream-merge agent can write docs/approved/* and still fail
+# check_high_risk_anchor (run 31906022248 / #1685).
+!docs/approved/
+!docs/approved/**
 # Dated public pricing captures are review evidence for the executable registry.
 !docs/evidence/
 !docs/evidence/pricing/

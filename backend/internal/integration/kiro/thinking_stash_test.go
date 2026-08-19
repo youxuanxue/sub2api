@@ -2,6 +2,20 @@ package kiro
 
 import "testing"
 
+func TestExtractTaglessThinking_NoReliableSplitReturnsEmpty(t *testing.T) {
+	got := ExtractTaglessThinking("short answer without separator")
+	if got != "" {
+		t.Fatalf("ExtractTaglessThinking() = %q, want empty", got)
+	}
+}
+
+func TestResolveStashThinking_NoReliableSplitReturnsEmpty(t *testing.T) {
+	got := ResolveStashThinking("short answer without separator", "...", "SIG")
+	if got != "" {
+		t.Fatalf("ResolveStashThinking() = %q, want empty", got)
+	}
+}
+
 func TestExtractTaglessThinking_SplitsTrailingAnswer(t *testing.T) {
 	raw := "17 × 23:\n\n17 × 20 = 340\n17 × 3 = 51\n340 + 51 = 391\n\n391"
 	got := ExtractTaglessThinking(raw)

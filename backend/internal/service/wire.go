@@ -1007,6 +1007,7 @@ var ProviderSet = wire.NewSet(
 	ProvideChannelMonitorRunner,
 	ProvideChannelMonitorV2Service,
 	ProvideChannelMonitorV2Aggregator,
+	ProvideTerminalOutcomeRecorder,
 	NewChannelMonitorRequestTemplateService,
 	// TokenKey: cold-start binding (US-029 / US-030) — wires the trial-key
 	// issuer onto AuthService post-construction. The returned sentinel is
@@ -1032,6 +1033,7 @@ var ProviderSet = wire.NewSet(
 	// TokenKey: client model-list filter (R-003 / Goal 2) — gates /v1/models
 	// /v1beta/models /antigravity/models to priced ∩ ¬unreachable.
 	NewModelListFilter,
+	NewUniversalCapabilityService,
 	// TokenKey: Anthropic signature_error preempt — wires the per-account
 	// thinking-block preempt cache onto GatewayService post-construction.
 	// Same shape as ProvideTKGatewayPricingAvailability; consumed by

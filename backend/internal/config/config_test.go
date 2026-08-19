@@ -14,6 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestMain(m *testing.M) {
+	if strings.TrimSpace(os.Getenv("TIMEZONE")) == "" && strings.TrimSpace(os.Getenv("TZ")) == "" {
+		_ = os.Setenv("TZ", "UTC")
+	}
+	os.Exit(m.Run())
+}
+
 func resetViperWithJWTSecret(t *testing.T) {
 	t.Helper()
 	viper.Reset()
@@ -21,6 +28,57 @@ func resetViperWithJWTSecret(t *testing.T) {
 	t.Setenv("CONFIG_FILE", "")
 	t.Setenv("DATA_DIR", "")
 	t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
+	if prev, ok := os.LookupEnv("TIMEZONE"); ok {
+		t.Cleanup(func() { _ = os.Setenv("TIMEZONE", prev) })
+	} else {
+		t.Cleanup(func() { _ = os.Unsetenv("TIMEZONE") })
+	}
+	_ = os.Unsetenv("TIMEZONE")
+	t.Setenv("TZ", "UTC")
+}
+
+func TestLoadTimezonePrecedence(t *testing.T) {
+	tests := []struct {
+		name         string
+		fileTimezone string
+		timezoneEnv  string
+		tzEnv        string
+		want         string
+	}{
+		{name: "tz_fallback", tzEnv: "UTC", want: "UTC"},
+		{name: "config_file", fileTimezone: "Europe/London", want: "Europe/London"},
+		{name: "timezone_env", fileTimezone: "Europe/London", timezoneEnv: "UTC", want: "UTC"},
+		{name: "tz_does_not_override_timezone_env", fileTimezone: "Europe/London", timezoneEnv: "UTC", tzEnv: "America/New_York", want: "UTC"},
+		{name: "tz_does_not_override_config", fileTimezone: "Asia/Shanghai", tzEnv: "UTC", want: "Asia/Shanghai"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetViperWithJWTSecret(t)
+			if tt.timezoneEnv != "" {
+				t.Setenv("TIMEZONE", tt.timezoneEnv)
+			}
+			t.Setenv("TZ", tt.tzEnv)
+			if tt.fileTimezone != "" {
+				configFile := filepath.Join(t.TempDir(), "config.yaml")
+				require.NoError(t, os.WriteFile(configFile, []byte("timezone: "+tt.fileTimezone+"\n"), 0o600))
+				t.Setenv("CONFIG_FILE", configFile)
+			}
+
+			cfg, err := Load()
+			require.NoError(t, err)
+			require.Equal(t, tt.want, cfg.Timezone)
+		})
+	}
+
+	t.Run("missing_timezone_errors", func(t *testing.T) {
+		resetViperWithJWTSecret(t)
+		t.Setenv("TIMEZONE", "")
+		t.Setenv("TZ", "")
+		_, err := Load()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "timezone is required")
+	})
 }
 
 func TestLoadServerTimingConfig(t *testing.T) {
@@ -1201,8 +1259,8 @@ func TestConfigAddressHelpers(t *testing.T) {
 		t.Fatalf("DatabaseConfig.DSNWithTimezone() should omit password when empty")
 	}
 
-	if !strings.Contains(dbCfg.DSNWithTimezone(""), "TimeZone=Asia/Shanghai") {
-		t.Fatalf("DatabaseConfig.DSNWithTimezone() should use default timezone")
+	if !strings.Contains(dbCfg.DSNWithTimezone(""), "TimeZone=UTC") {
+		t.Fatalf("DatabaseConfig.DSNWithTimezone() should not invent Asia/Shanghai")
 	}
 	if !strings.Contains(dbCfg.DSNWithTimezone("UTC"), "TimeZone=UTC") {
 		t.Fatalf("DatabaseConfig.DSNWithTimezone() should use provided timezone")

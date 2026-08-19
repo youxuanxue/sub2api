@@ -125,6 +125,15 @@ func ProvideGatewayHandler(
 	return h
 }
 
+func ProvideTKAPIKeyHandler(
+	apiKeyService *service.APIKeyService,
+	capabilities *service.UniversalCapabilityService,
+) *APIKeyHandler {
+	h := NewAPIKeyHandler(apiKeyService)
+	h.SetCapabilityService(apiKeyService, capabilities)
+	return h
+}
+
 func ProvideOpenAIGatewayHandler(
 	gatewayService *service.OpenAIGatewayService,
 	concurrencyService *service.ConcurrencyService,
@@ -196,10 +205,16 @@ type TKGatewayHandlerModelListReady struct{}
 // in shape; SetModelListFilter is nil-safe (degraded → fail-open).
 func ProvideTKGatewayHandlerModelList(
 	h *GatewayHandler,
+	openAI *OpenAIGatewayHandler,
 	f *service.ModelListFilter,
+	capabilities *service.UniversalCapabilityService,
 ) TKGatewayHandlerModelListReady {
 	if h != nil {
 		h.SetModelListFilter(f)
+		h.SetUniversalCapabilityService(capabilities)
+	}
+	if openAI != nil {
+		openAI.SetUniversalCapabilityService(capabilities)
 	}
 	return TKGatewayHandlerModelListReady{}
 }
@@ -384,7 +399,7 @@ var ProviderSet = wire.NewSet(
 	// Top-level handlers
 	NewAuthHandler,
 	NewUserHandler,
-	NewAPIKeyHandler,
+	ProvideTKAPIKeyHandler,
 	NewUsageHandler,
 	NewRedeemHandler,
 	NewSubscriptionHandler,

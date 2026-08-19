@@ -35,6 +35,12 @@ func TestInitInvalidTimezone(t *testing.T) {
 	}
 }
 
+func TestInitEmptyTimezone(t *testing.T) {
+	if err := Init(""); err == nil {
+		t.Fatal("Init should fail when timezone is empty")
+	}
+}
+
 func TestTimeNowAffected(t *testing.T) {
 	// Reset to UTC first
 	if err := Init("UTC"); err != nil {

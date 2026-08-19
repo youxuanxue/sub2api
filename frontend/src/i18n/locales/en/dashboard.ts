@@ -212,7 +212,7 @@ export default {
     ccsClientSelect: {
       title: 'Select Client',
       description: 'Please select the client type to import to CC-Switch:',
-      universalDescription: 'Universal keys work across platforms — pick which CC Switch app should receive this provider:',
+      universalDescription: 'Automatic routing works across protocols — choose which CC Switch app should receive this provider:',
       claudeCode: 'Claude Code',
       claudeCodeDesc: 'Import as Claude Code configuration',
       codexCli: 'Codex CLI',
@@ -291,6 +291,7 @@ export default {
     resetPending: 'Pending refresh',
     accountMultiplier: 'Account rate',
     avgDuration: 'Avg Duration',
+    avgGatewayLatency: 'Gateway transfer latency',
     inSelectedRange: 'in selected range',
     perRequest: 'per request',
     apiKeyFilter: 'API Key',

@@ -1,0 +1,161 @@
+name: Fleet pg_dump Restore Canary
+
+on:
+  schedule:
+    - cron: "37 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      target_selector:
+        description: "Target selector: all, prod, edge:*, or edge:<id>."
+        required: false
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fleet-pgdump-restore-canary
+  cancel-in-progress: false
+
+jobs:
+  discover-targets:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      has_targets: ${{ steps.matrix.outputs.has_targets }}
+    env:
+      TARGET_SELECTOR: ${{ inputs.target_selector || 'all' }}
+      PROD_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      PROD_STACK: ${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build restore-canary target matrix
+        id: matrix
+        run: |
+          set -euo pipefail
+          python3 deploy/aws/stage0/resolve-edge-target.py \
+            --prod-ops-matrix \
+            --target-selector "$TARGET_SELECTOR" \
+            --prod-region "$PROD_REGION" \
+            --prod-stack "$PROD_STACK" \
+            --github-output "$GITHUB_OUTPUT"
+
+  restore-canary:
+    needs: discover-targets
+    if: needs.discover-targets.outputs.has_targets == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discover-targets.outputs.matrix) }}
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      TARGET_KIND: ${{ matrix.target_kind }}
+      EDGE_ID: ${{ matrix.edge_id }}
+      TARGET_REGION: ${{ matrix.region }}
+      TARGET_ID: ${{ matrix.target_id }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Require OIDC role
+        run: |
+          set -euo pipefail
+          [ -n "${OIDC_ROLE_ARN:-}" ] || { echo "::error::AWS_OIDC_ROLE_ARN is required"; exit 1; }
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.TARGET_REGION }}
+
+      - name: Restore per-target alert state
+        uses: actions/cache/restore@v4
+        with:
+          path: .pgdump-canary-state/${{ env.TARGET_ID }}
+          key: pgdump-restore-canary-${{ env.TARGET_ID }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            pgdump-restore-canary-${{ env.TARGET_ID }}-
+
+      - name: Run isolated pg_dump restore canary
+        id: canary
+        continue-on-error: true # preflight-allow: swallow (alert first, then propagate failure)
+        run: |
+          set -euo pipefail
+          if [ "$TARGET_KIND" = prod ]; then
+            PROBE_TARGET=prod
+          else
+            PROBE_TARGET="edge:$EDGE_ID"
+          fi
+          bash ops/observability/run-probe.sh \
+            --target "$PROBE_TARGET" \
+            --script ops/stage0/pgdump_restore_canary_remote.sh \
+            --with ops/stage0/pgdump_restore_canary.py \
+            --with ops/stage0/pgdump_restore_canary_contract.py \
+            --timeout-seconds 1500 \
+            --comment "weekly pgdump restore canary target=$TARGET_ID" \
+            --env "CANARY_TARGET=$PROBE_TARGET" | tee restore-canary.json
+          jq -e '.mode == "pgdump_restore_canary" and .target == $target and .source_mutated == false and .deletion_authorized == false' \
+            --arg target "$PROBE_TARGET" restore-canary.json >/dev/null
+
+      - name: Decide restore-canary alert
+        if: always()
+        env:
+          CANARY_OUTCOME: ${{ steps.canary.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p ".pgdump-canary-state/$TARGET_ID"
+          if [ "$TARGET_KIND" = prod ]; then PROBE_TARGET=prod; else PROBE_TARGET="edge:$EDGE_ID"; fi
+          python3 ops/observability/pgdump_restore_canary_alert.py \
+            --target "$PROBE_TARGET" \
+            --outcome "$CANARY_OUTCOME" \
+            --receipt restore-canary.json \
+            --prev-key-file ".pgdump-canary-state/$TARGET_ID/key" \
+            --run-url "$RUN_URL" > restore-canary-decision.json
+          cat restore-canary-decision.json
+
+      - name: Deliver restore-canary alert
+        id: alert_delivery
+        if: always()
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+          FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+        run: |
+          set -euo pipefail
+          python3 ops/observability/edge_health_delivery.py \
+            --decision restore-canary-decision.json \
+            --key-file ".pgdump-canary-state/$TARGET_ID/key"
+
+      - name: Save per-target alert state
+        if: always() && steps.alert_delivery.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: .pgdump-canary-state/${{ env.TARGET_ID }}
+          key: pgdump-restore-canary-${{ env.TARGET_ID }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## pg_dump restore canary"
+            echo "- target: \`$TARGET_ID\`"
+            if [ -s restore-canary.json ]; then
+              echo "- completed: \`$(jq -r '.completed_at' restore-canary.json)\`"
+              echo "- compressed bytes: \`$(jq -r '.compressed_bytes' restore-canary.json)\`"
+              echo "- restored counts: \`$(jq -c '.restored_counts' restore-canary.json)\`"
+            else
+              echo "- result: failed before verified receipt"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Propagate restore-canary failure
+        if: always() && steps.canary.outcome != 'success'
+        run: |
+          echo "::error::restore canary failed for $TARGET_ID"
+          exit 1

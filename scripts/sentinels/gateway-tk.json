@@ -2761,9 +2761,10 @@
         "RefundVideoUsageOnFailure",
         "videoSubmitHasVideoInput",
         "videoTerminalOutcome",
-        "TkVideoModelUnpriced"
+        "TkVideoModelUnpriced",
+        "videoDurationBelowProviderMinimum"
       ],
-      "rationale": "Per-second video billing: VideoSubmitBillingParamsFromBody resolves resolution/audio/image-input once and the explicit ForwardResult assignments carry those exact dimensions into settlement; dropping any one silently flattens tier billing even when submit still succeeds. videoRequestedSeconds anchors duration, RefundVideoUsageOnFailure anchors terminal-failed refund, and videoSubmitHasVideoInput anchors the unpriced video-input reject guard."
+      "rationale": "Per-second video billing: VideoSubmitBillingParamsFromBody resolves resolution/audio/image-input once and the explicit ForwardResult assignments carry those exact dimensions into settlement; dropping any one silently flattens tier billing even when submit still succeeds. videoRequestedSeconds anchors duration, RefundVideoUsageOnFailure anchors terminal-failed refund, and videoSubmitHasVideoInput anchors the unpriced video-input reject guard. videoDurationBelowProviderMinimum keeps XRToken's four-second floor local and before paid upstream dispatch."
     },
     {
       "path": "backend/internal/service/billing_service_tk_video_test.go",
@@ -3042,12 +3043,12 @@
         "tkCCPromptSurfaceGenericUserText",
         "tkCCPromptSurfaceUnknownSystem",
         "func tkNormalizeAnthropicCCPromptSurface",
-        "func tkStripCCEnvironmentSection",
+        "func tkRewriteCCEnvironmentSection",
         "func tkNormalizeCCUserEmailLine",
         "tkNormalizeChangeCCEnvironmentStrip",
         "tkNormalizeChangeCCUserEmailReplaced"
       ],
-      "rationale": "Unified CC prompt-surface normalizer: geo-stego date lines + # Environment strip + client userEmail replace/strip (OAuth account email when scheduled). Classification is load-bearing: known CC system/reminder text may be rewritten; plain user/generic system text must stay untouched; unknown system-shaped drift is observed but not rewritten."
+      "rationale": "Unified CC prompt-surface normalizer: geo-stego date lines + # Environment TZ rewrite to server timezone (strip Proxy/PWD) + client userEmail replace/strip (OAuth account email when scheduled). Classification is load-bearing: known CC system/reminder text may be rewritten; plain user/generic system text must stay untouched; unknown system-shaped drift is observed but not rewritten."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_request_normalize_tk.go",
@@ -5184,9 +5185,25 @@
         "func MaybeResolveUniversal(",
         "apiKey.Group = backing",
         "apiKey.GroupID = &backing.ID",
-        "c.Request.Body = io.NopCloser(bytes.NewReader(raw))"
+        "c.Request.Body = io.NopCloser(bytes.NewReader(raw))",
+        "isTokenKeyVideoTaskRead"
       ],
-      "rationale": "Universal Key auth-time glue: peeks the model (restoring the EXACT original body + headers so the handler is byte-identical), resolves the backing group, and presents the request as a normal key bound to that group (swap apiKey.Group/GroupID). It deliberately does NOT set ForcePlatform (so anthropic+antigravity mixed scheduling and other per-group semantics are preserved) and only READS ForcePlatform to constrain candidates on /antigravity. Removing the body-restore line corrupts every universal-key request body; removing the swap disables the feature."
+      "rationale": "Universal Key auth-time glue: peeks the model (restoring the EXACT original body + headers so the handler is byte-identical), resolves the backing group, and presents the request as a normal key bound to that group (swap apiKey.Group/GroupID). It deliberately does NOT set ForcePlatform (so anthropic+antigravity mixed scheduling and other per-group semantics are preserved) and only READS ForcePlatform to constrain candidates on /antigravity. Registry-owned vt_ video polls are the exception: isTokenKeyVideoTaskRead must bypass fresh model-less group resolution so VideoFetch can consume the submit-time pinned route. Removing the body-restore line corrupts every universal-key request body; removing the swap or poll bypass disables the corresponding feature."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway_tk_openai_compat_handlers.go",
+      "must_contain": [
+        "strings.HasPrefix(videoTaskRouteID(c), \"vt_\")",
+        "h.OpenAIGateway.VideoFetch(c)"
+      ],
+      "rationale": "Registry-owned vt_ status reads must reach VideoFetch before Grok/composite/native platform gates because the model-less GET's temporary platform cannot identify the submit route. Non-vt_ provider request IDs continue through their native status handlers."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway_test.go",
+      "must_contain": [
+        "TestGatewayRoutesTokenKeyVideoPollBypassesTemporaryPlatformGate"
+      ],
+      "rationale": "Route-level regression spans canonical and xAI-shaped aliases across OpenAI, Grok, and composite temporary platforms, proving every TokenKey vt_ id reaches the registry owner without weakening native provider status routing."
     },
     {
       "path": "backend/internal/server/middleware/api_key_auth.go",
@@ -5771,9 +5788,57 @@
         "partitionedIndexExpr: \"host, created_at DESC\"",
         "createPartitionedIndexConcurrently(ctx, db, policy)",
         "applyNonTransactionalMigration(ctx, db, name, content)",
-        "return dropInvalidIndexIfPresent(ctx, db, policy.indexName)"
+        "return dropInvalidIndexIfPresent(ctx, db, policy.indexName)",
+        "return applyMigrationsInUTCSession(ctx, conn, fsys)",
+        "migrationSessionCleanupError{err: err}"
       ],
-      "rationale": "The upstream-shared migration runner owns only the declarative 175a policy and one thin call site. The TokenKey online partition-index implementation stays in a companion file to minimize upstream conflict surface while retaining invalid-index cleanup for non-partitioned deployments."
+      "rationale": "The upstream-shared migration runner owns only declarative policies and thin TokenKey call sites. The online partition-index implementation and UTC migration-session lifecycle stay in companion files to minimize upstream conflict surface. Every caller must execute partition-bound migrations on the pinned connection in UTC, surface advisory-unlock failure, and restore the original application timezone before the connection returns to the pool."
+    },
+    {
+      "path": "backend/internal/repository/migrations_runner_tk_session.go",
+      "must_contain": [
+        "SHOW TIME ZONE",
+        "SELECT set_config('TimeZone', $1, false)",
+        "return applyMigrationsSession(ctx, conn, fsys)",
+        "driver.ErrBadConn"
+      ],
+      "rationale": "Single owner for migration timezone isolation: capture the caller's session timezone, execute the complete advisory-lock/migration lifecycle in UTC, restore the exact original value, and discard sessions whose unlock or restore failed instead of leaking unknown state into business queries."
+    },
+    {
+      "path": "backend/internal/repository/migrations_runner_tk_session_test.go",
+      "must_contain": [
+        "TestApplyMigrationsFS_UTCSessionRestoresOriginalTimezone",
+        "TestApplyMigrationsFS_UTCSessionRestoresAfterMigrationFailure",
+        "TestApplyMigrationsFS_UTCSessionCleanupFailuresAreVisible"
+      ],
+      "rationale": "Ordered sqlmock regressions prove timezone setup precedes advisory locking and exact restoration follows unlock on success, migration failure, lock failure, and cleanup failure paths."
+    },
+    {
+      "path": "backend/migrations/tk_080_ops_partition_utc_boundary_repair.sql",
+      "must_contain": [
+        "SET LOCAL TIME ZONE 'UTC'",
+        "SET LOCAL lock_timeout = '2s'",
+        "state text NOT NULL CHECK (state IN ('shifted', 'canonical'))",
+        "WHERE state = 'shifted'",
+        "VALIDATE CONSTRAINT",
+        "DETACH PARTITION"
+      ],
+      "rationale": "Forward-only repair for nodes where historical tk_035/tk_037 ran in a non-UTC application session before tk_081 completed. It must classify the catalog fail-closed, replace only exact empty shifted future children, preserve canonical UTC children for tk_081, validate the current-writer proof before the short parent lock, and keep the current relation/index OIDs while correcting its UTC upper bound."
+    },
+    {
+      "path": "backend/internal/repository/migrations_runner_tk_session_integration_test.go",
+      "must_contain": [
+        "TestMigrationRunnerUTCSession_AsiaShanghaiFreshOpsChain",
+        "TestMigrationRunnerUTCSession_RepairsAsiaShanghaiUpgradeOpsChain",
+        "TestMigrationRunnerUTCSession_RepairRejectsNonEmptyShiftedFutureAtomically",
+        "TestMigrationRunnerUTCSession_RepairIsStrictNoopAfterDailyCutover",
+        "tk_035_partition_ops_system_logs.sql",
+        "tk_037_partition_ops_error_logs.sql",
+        "tk_080_ops_partition_utc_boundary_repair.sql",
+        "tk_081_ops_daily_partition_cutover.sql",
+        "Asia/Shanghai"
+      ],
+      "rationale": "Real PostgreSQL regressions cover both failure topologies: fresh installs replay historical ops migrations under the UTC session owner, while upgrades repair already-shifted Asia/Shanghai catalog bounds before tk_081. The suite also proves non-empty future children fail atomically, completed daily topologies are strict no-ops, current writer/index OIDs and data survive, and the application session returns to Asia/Shanghai."
     },
     {
       "path": "backend/internal/repository/migrations_runner_notx_test.go",
@@ -6225,6 +6290,20 @@
       "rationale": "Messages auth stage timing injection must stay before user-slot acquisition; upstream merges that rewrite Messages() can drop it without a compile error while dashboard latency loses the auth component."
     },
     {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "Per-attempt routing clock"
+      ],
+      "rationale": "OpenAI Responses/Messages routing clocks must restart inside the failover loop. A loop-level start includes prior upstream attempts and writes multi-second gateway_latency_ms."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "Per-attempt routing clock"
+      ],
+      "rationale": "OpenAI chat-completions routing clocks must restart inside the failover loop so dashboard gateway_latency_ms stays auth+routing of the successful attempt."
+    },
+    {
       "path": "backend/internal/handler/admin/dashboard_handler.go",
       "must_contain": [
         "\"average_gateway_latency_ms\": stats.AverageGatewayLatencyMs"
@@ -6232,12 +6311,27 @@
       "rationale": "Admin dashboard API exposes gateway transfer latency separately from end-to-end average_duration_ms; losing this field silently reverts the card binding even when usage_logs.gateway_latency_ms is populated."
     },
     {
+      "path": "backend/internal/repository/usage_log_repo_stats.go",
+      "must_contain": [
+        "COALESCE(AVG(gateway_latency_ms) FILTER (WHERE gateway_latency_ms IS NOT NULL), 0) as avg_gateway_latency_ms",
+        "&stats.AverageGatewayLatencyMs"
+      ],
+      "rationale": "User and admin /usage/stats must average selected-range gateway_latency_ms (NULL-filtered) separately from duration_ms. Losing this column leaves average_gateway_latency_ms at 0 while the UI card still claims gateway transfer latency."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_stats_gateway_latency_test.go",
+      "must_contain": [
+        "TestGetStatsWithFilters_AverageGatewayLatencyMsIgnoresNullSamples"
+      ],
+      "rationale": "Usage stats must keep end-to-end duration and gateway transfer latency as distinct averages so /usage cannot regress to showing 10s+ LLM time on the gateway card."
+    },
+    {
       "path": "backend/internal/repository/usage_log_repo_dashboard_gateway_latency_test.go",
       "must_contain": [
         "TestFillDashboardUsageStatsFromUsageLogs_AverageGatewayLatencyMs",
-        "TestFillDashboardUsageStatsAggregated_AverageGatewayLatencyMs"
+        "TestFillDashboardUsageStatsAggregated_AverageGatewayLatencyMsUsesTodayNotAllTime"
       ],
-      "rationale": "Dashboard mean must divide by gateway_latency_samples (non-NULL rows only), not total_requests; this regression guards the SQL aggregation wiring."
+      "rationale": "Dashboard gateway card must average today's samples only (not all-time daily totals that still contain pre-Plan-A body-pump pollution) and divide by non-NULL samples, not total_requests."
     },
     {
       "path": "backend/internal/service/data_lifecycle_policy_tk.go",
@@ -6375,6 +6469,65 @@
         "TestUpstreamBillingProbeCloudwiseRelaySetEnabledRejects"
       ],
       "rationale": "Regression: CloudWise relay accounts must not probe or enable upstream billing probe."
+    },
+    {
+      "path": "backend/internal/service/universal_capability_tk.go",
+      "must_contain": [
+        "type UniversalCapabilityService struct",
+        "func (s *UniversalCapabilityService) List(",
+        "UniversalGroupSupportsRequestStrict",
+        "FilterClientFacingStrict",
+        "ids = append(ids, fallbackIDs...)",
+        "supportedGroups := make([]Group, 0, len(groups))",
+        "s.isAccountAllowedForPlatform(&accounts[i], platform, useMixed)",
+        "strings.HasSuffix(model, \"*\")"
+      ],
+      "rationale": "Single backend owner for per-key callable capability truth. It must enumerate entitled groups, union exact mappings with native/wildcard catalog expansion and mixed-scheduling accounts, apply strict availability filtering, and shrink resolver input to groups confirmed by direct-scheduler semantics. Losing these calls can either advertise an unsupported custom model or hide a callable mixed/wildcard model."
+    },
+    {
+      "path": "backend/internal/service/model_list_filter_tk.go",
+      "must_contain": [
+        "func (f *ModelListFilter) FilterClientFacingStrict(",
+        "func (f *ModelListFilter) ServableClientFacingIDsStrict(",
+        "f.availability.GetAvailability(ctx, platform, id)"
+      ],
+      "rationale": "Capability discovery must fail explicitly when the availability repository cannot answer. Runtime forwarding keeps the legacy fail-open filter, while these discovery-only strict entrypoints prevent a repository outage from being presented as a truthful callable menu."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_model_list.go",
+      "must_contain": [
+        "func (h *GatewayHandler) SetUniversalCapabilityService(",
+        "func capabilityModelIDs(",
+        "func geminiModelsForCapabilityIDs(",
+        "func antigravityModelsForCapabilityIDs("
+      ],
+      "rationale": "Native discovery projection helpers consume the capability owner without resolving an automatic key to one backing group. These anchors preserve the OpenAI/Anthropic, Gemini, and Antigravity schema adapters and their capability-service injection seam."
+    },
+    {
+      "path": "backend/internal/handler/openai_codex_models_handler.go",
+      "must_contain": [
+        "allowedModelIDs, err := h.resolveCodexDiscoveryAPIKey",
+        "if allowedModelIDs != nil && len(allowedModelIDs) == 0",
+        "func filterCodexModelsManifest(",
+        "envelope[\"models\"] = encodedModels"
+      ],
+      "rationale": "Codex discovery may reuse an upstream manifest only as a schema template. Automatic keys must return a native empty manifest for a genuine no-capability set, otherwise filter models[] to capability-authorized slugs while preserving unknown manifest fields; removing either projection turns an empty business set into 503 or advertises every upstream model."
+    },
+    {
+      "path": "backend/internal/handler/api_key_capability_handler_tk.go",
+      "must_contain": [
+        "type APIKeyCapabilitiesResponse struct",
+        "func (h *APIKeyHandler) GetCapabilities(",
+        "h.capabilities.List(c.Request.Context(), key, protocol)"
+      ],
+      "rationale": "Authenticated website capability endpoint. Ownership validation and the shared service call keep Quickstart and Studio on the same truth as native discovery rather than rebuilding entitlement logic in the browser."
+    },
+    {
+      "path": "backend/internal/server/routes/user_tk_routes.go",
+      "must_contain": [
+        "authenticated.GET(\"/me/api-keys/:id/capabilities\", h.APIKey.GetCapabilities)"
+      ],
+      "rationale": "The per-key capability API must remain under authenticated user routes. Losing the route leaves website discovery unable to query automatic keys even though gateway discovery still works."
     }
   ]
 }

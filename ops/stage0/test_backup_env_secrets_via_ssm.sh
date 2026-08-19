@@ -13,6 +13,13 @@ output_dir="${tmp}/output"
 work_dir="${tmp}/work"
 mkdir -p "${local_bin}" "${remote_bin}" "${output_dir}" "${work_dir}"
 
+secret_file="${tmp}/env.secret"
+cat >"${secret_file}" <<'EOF'
+TOTP_ENCRYPTION_KEY=3333333333333333333333333333333333333333333333333333333333333333
+POSTGRES_PASSWORD=222222222222222222222222222222222222222222222222
+JWT_SECRET=1111111111111111111111111111111111111111111111111111111111111111
+EOF
+
 cat >"${local_bin}/aws" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -38,6 +45,8 @@ chmod +x "${local_bin}/aws"
 
 PATH="${local_bin}:${PATH}" \
   STAGE0_SSM_OUTPUT_DIR="${output_dir}" \
+  TK_ENV_SECRETS_SOURCE="${secret_file}" \
+  TK_ENV_SECRETS_PARAM="/tokenkey/edge/us3/stage0/env-secrets-backup" \
   AWS_REGION=us-east-2 \
   bash "${SCRIPT}" mi-test rendered-payload-test >"${tmp}/outer.out"
 
@@ -47,19 +56,15 @@ host_rendered="${tmp}/host-rendered.sh"
 host_script="${tmp}/host-under-test.sh"
 printf '%s' "${host_b64}" | base64 -d >"${host_rendered}"
 
-secret_file="${tmp}/env.secret"
-cat >"${secret_file}" <<'EOF'
-TOTP_ENCRYPTION_KEY=totp-test-secret
-POSTGRES_PASSWORD=postgres-test-secret
-JWT_SECRET=jwt-test-secret
-EOF
 expected_parameter="${tmp}/expected.parameter"
 printf '%s\n%s\n%s' \
-  'JWT_SECRET=jwt-test-secret' \
-  'POSTGRES_PASSWORD=postgres-test-secret' \
-  'TOTP_ENCRYPTION_KEY=totp-test-secret' >"${expected_parameter}"
-sed "s#/var/lib/tokenkey/.env#${secret_file}#g" \
-  "${host_rendered}" >"${host_script}"
+  'JWT_SECRET=1111111111111111111111111111111111111111111111111111111111111111' \
+  'POSTGRES_PASSWORD=222222222222222222222222222222222222222222222222' \
+  'TOTP_ENCRYPTION_KEY=3333333333333333333333333333333333333333333333333333333333333333' >"${expected_parameter}"
+cp "${host_rendered}" "${host_script}"
+
+grep -F "SOURCE=\"${secret_file}\"" "${host_script}" >/dev/null
+grep -F 'PARAM="/tokenkey/edge/us3/stage0/env-secrets-backup"' "${host_script}" >/dev/null
 
 cat >"${remote_bin}/aws" <<'EOF'
 #!/usr/bin/env bash
@@ -159,7 +164,26 @@ grep -F 'secrets unchanged; no new SSM version written' "${tmp}/unchanged.out" >
 grep -F 'verify: 3 secret line(s)' "${tmp}/unchanged.out" >/dev/null
 assert_work_dir_empty
 
-if grep -R -F -e 'postgres-test-secret' -e 'jwt-test-secret' -e 'totp-test-secret' \
+# A malformed local source must fail before it can replace the recovery point.
+cat >"${secret_file}" <<'EOF'
+POSTGRES_PASSWORD=222222222222222222222222222222222222222222222222
+JWT_SECRET=not-hex;touch-/tmp/owned
+TOTP_ENCRYPTION_KEY=3333333333333333333333333333333333333333333333333333333333333333
+EOF
+rm -f "${state_file}" "${put_count_file}"
+if run_host malformed-source ok; then
+  echo "FAIL: malformed local secrets must be rejected before PutParameter" >&2
+  exit 1
+fi
+test ! -e "${state_file}"
+test ! -e "${put_count_file}"
+grep -F 'invalid secret value for JWT_SECRET' "${tmp}/malformed-source.err" >/dev/null
+assert_work_dir_empty
+
+if grep -R -F \
+    -e '1111111111111111111111111111111111111111111111111111111111111111' \
+    -e '222222222222222222222222222222222222222222222222' \
+    -e '3333333333333333333333333333333333333333333333333333333333333333' \
     "${tmp}"/*.out "${tmp}"/*.err >/dev/null; then
   echo "FAIL: command output leaked a secret value" >&2
   exit 1

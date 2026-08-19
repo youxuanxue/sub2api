@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "provider_qualifiers": [
+    "amazon.",
+    "anthropic.",
+    "google.",
+    "openai.",
+    "xai."
+  ],
+  "rules": [
+    {
+      "family": "claude",
+      "prefixes": [
+        "claude-"
+      ]
+    },
+    {
+      "family": "gpt",
+      "prefixes": [
+        "gpt-",
+        "o1",
+        "o3",
+        "o4"
+      ]
+    },
+    {
+      "family": "gemini",
+      "prefixes": [
+        "gemini-"
+      ]
+    },
+    {
+      "family": "grok",
+      "prefixes": [
+        "grok-"
+      ]
+    },
+    {
+      "family": "deepseek",
+      "prefixes": [
+        "deepseek-"
+      ]
+    },
+    {
+      "family": "qwen",
+      "prefixes": [
+        "qwen"
+      ]
+    },
+    {
+      "family": "glm",
+      "prefixes": [
+        "glm-"
+      ]
+    },
+    {
+      "family": "minimax",
+      "prefixes": [
+        "minimax-"
+      ]
+    }
+  ],
+  "checksum_sha256": "0309c2e39e7306c0232263e8c9448e6a98fa93857de3a6f9bc6704c70f3bd20e"
+}

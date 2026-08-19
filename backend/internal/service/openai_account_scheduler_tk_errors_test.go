@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -98,6 +99,103 @@ func TestOpenAICompatNoCandidateError(t *testing.T) {
 		require.Error(t, err)
 		assert.False(t, errors.Is(err, ErrUnsupportedModel))
 	})
+}
+
+func TestOpenAICompatNoCandidateError_ExcludedFailoverDoesNotPopulateUnsupportedCache(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(2)
+	const model = "gpt-5.6-sol"
+
+	accountWithMapping := func(id int64, mappedModel string) Account {
+		return Account{
+			ID:          id,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Credentials: map[string]any{
+				"model_mapping": map[string]any{mappedModel: mappedModel},
+			},
+		}
+	}
+	accounts := []Account{
+		accountWithMapping(63, model),
+		accountWithMapping(64, model),
+		accountWithMapping(68, model),
+		accountWithMapping(69, "gpt-other"),
+	}
+	excludedIDs := map[int64]struct{}{
+		63: {},
+		64: {},
+		68: {},
+	}
+	cache := newTkGroupUnsupportedModelNegativeCache()
+	svc := &OpenAIGatewayService{tkGroupUnsupportedCache: cache}
+
+	err := openAICompatNoCandidateError(
+		model,
+		PlatformOpenAI,
+		false,
+		accounts,
+		excludedIDs,
+		&openAICompatNoCandidateEval{
+			ctx:                ctx,
+			svc:                svc,
+			groupID:            &groupID,
+			platform:           PlatformOpenAI,
+			requiredCapability: OpenAIEndpointCapabilityResponses,
+		},
+	)
+
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.NotErrorIs(t, err, ErrUnsupportedModel)
+	require.False(t, cache.get(groupID, model))
+}
+
+func TestOpenAICompatNoCandidateError_RuntimeBlockedDoesNotPopulateUnsupportedCache(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(2)
+	const model = "gpt-5.6-sol"
+	accounts := []Account{
+		{
+			ID:          69,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Credentials: map[string]any{"model_mapping": map[string]any{"gpt-other": "gpt-other"}},
+		},
+		{
+			ID:          68,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Credentials: map[string]any{"model_mapping": map[string]any{model: model}},
+		},
+	}
+	cache := newTkGroupUnsupportedModelNegativeCache()
+	svc := &OpenAIGatewayService{tkGroupUnsupportedCache: cache}
+	svc.BlockAccountScheduling(&accounts[1], time.Now().Add(time.Minute), "test")
+
+	err := openAICompatNoCandidateError(
+		model,
+		PlatformOpenAI,
+		false,
+		accounts,
+		nil,
+		&openAICompatNoCandidateEval{
+			ctx:                ctx,
+			svc:                svc,
+			groupID:            &groupID,
+			platform:           PlatformOpenAI,
+			requiredCapability: OpenAIEndpointCapabilityResponses,
+		},
+	)
+
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.NotErrorIs(t, err, ErrUnsupportedModel)
+	require.False(t, cache.get(groupID, model))
 }
 
 // TestCollectOpenAICompatSelectionFailureStats pins the categorization the

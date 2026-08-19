@@ -127,8 +127,8 @@ fi
 # the dockerized Caddyfile adapt) are independent of every other section, so
 # they are spawned in the background right after the dev-rules template returns
 # and joined at their original section position. Wall-clock for the expensive
-# block becomes max(job) instead of sum(job) while output/FAIL semantics stay
-# byte-equivalent per section.
+# block becomes max(job) instead of sum(job); successful sections stay quiet,
+# while selected failed sections replay their captured diagnostics in place.
 _bg_spawn() {  # _bg_spawn <key> <cmd...>
     local key="$1"; shift
     (
@@ -139,15 +139,19 @@ _bg_spawn() {  # _bg_spawn <key> <cmd...>
     ) &
     echo "$!" >"$_preflight_bg_dir/$key.pid"
 }
-_bg_join() {  # _bg_join <key> → sets _bg_rc to the captured exit code; output in $_preflight_bg_dir/<key>.out
+_bg_join() {  # _bg_join <key> [replay-on-failure] → sets _bg_rc; output in $_preflight_bg_dir/<key>.out
     # Must run in the MAIN shell (never inside $(...)): `wait` can only reap
     # children of the shell that spawned them.
     local key="$1"
+    local output_mode="${2:-silent}"
     wait "$(cat "$_preflight_bg_dir/$key.pid")" 2>/dev/null || true  # preflight-allow: swallow (use captured <key>.rc)
     if [ -f "$_preflight_bg_dir/$key.rc" ]; then
         _bg_rc="$(cat "$_preflight_bg_dir/$key.rc")"
     else
         _bg_rc=1
+    fi
+    if [ "$_bg_rc" -ne 0 ] && [ "$output_mode" = "replay-on-failure" ] && [ -f "$_preflight_bg_dir/$key.out" ]; then
+        cat "$_preflight_bg_dir/$key.out"
     fi
     return 0
 }
@@ -781,6 +785,22 @@ else
     echo "  ok: model-surface bundle matches the Go owner"
 fi
 
+# ---- sub2api: model-family alert artifact drift ----------------------------
+# The evaluator consumes a checked-in JSON artifact. Generate it from the Go
+# classification owner so alert grouping cannot drift into a second rule set.
+echo ""
+echo "=== sub2api: model-family alert artifact drift ==="
+if ! command -v go >/dev/null 2>&1; then
+    echo "  FAIL: go not on PATH (required for model-family artifact drift check)"
+    errors=$((errors + 1))
+elif ! bash ./scripts/sentinels/check-model-family-rules.sh; then
+    echo "  FAIL: model-family-rules.json drifted from the Go owner"
+    echo "        — run: cd backend && go run ./cmd/model-family-rules --output ../ops/observability/generated/model-family-rules.json"
+    errors=$((errors + 1))
+else
+    echo "  ok: model-family alert artifact matches the Go owner"
+fi
+
 # ---- sub2api: frontend TK sentinel registry ---------------------------------
 # Source of truth: scripts/sentinels/frontend-tk.json. Verifies that load-bearing
 # TokenKey-only frontend surfaces (sidebar geometry, fluid table mode, sticky
@@ -815,6 +835,21 @@ elif ! python3 ./scripts/sentinels/check-gateway-tk.py --quiet; then
     errors=$((errors + 1))
 else
     echo "  ok: all gateway TK sentinels intact"
+fi
+
+# ---- sub2api: gateway terminal route policy contract -----------------------
+echo ""
+echo "=== sub2api: gateway terminal route policy contract ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for terminal route policy contract)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-terminal-route-policies.py --selftest >/dev/null; then
+    echo "  FAIL: terminal route policy sentinel selftest"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-terminal-route-policies.py; then
+    errors=$((errors + 1))
+else
+    echo "  ok: every gateway route declares one terminal policy"
 fi
 
 # ---- sub2api: handler DI/Wire sentinel registry ----------------------------
@@ -1538,8 +1573,32 @@ elif ! python3 ./ops/migration/test_data_layer_partition_maintenance.py >/dev/nu
     echo "  FAIL: fixed partition maintenance controller contracts"
     echo "        - run: python3 ops/migration/test_data_layer_partition_maintenance.py"
     errors=$((errors + 1))
+elif ! python3 ./ops/migration/test_usage_logs_daily_partition.py >/dev/null 2>&1; then
+    echo "  FAIL: Fleet usage_logs daily partition operator contracts"
+    echo "        - run: python3 ops/migration/test_usage_logs_daily_partition.py"
+    errors=$((errors + 1))
+elif ! python3 ./ops/stage0/test_pgdump_restore_canary.py >/dev/null 2>&1; then
+    echo "  FAIL: Fleet pg_dump restore canary contracts"
+    echo "        - run: python3 ops/stage0/test_pgdump_restore_canary.py"
+    errors=$((errors + 1))
+elif ! python3 ./ops/stage0/test_pgdump_restore_canary_workflow.py >/dev/null 2>&1; then
+    echo "  FAIL: Fleet pg_dump restore canary workflow contracts"
+    echo "        - run: python3 ops/stage0/test_pgdump_restore_canary_workflow.py"
+    errors=$((errors + 1))
+elif ! python3 ./ops/observability/test_pgdump_restore_canary_verdict.py >/dev/null 2>&1; then
+    echo "  FAIL: Fleet pg_dump restore canary receipt contracts"
+    echo "        - run: python3 ops/observability/test_pgdump_restore_canary_verdict.py"
+    errors=$((errors + 1))
+elif ! python3 ./ops/observability/test_pgdump_restore_canary_alert.py >/dev/null 2>&1; then
+    echo "  FAIL: Fleet pg_dump restore canary alert contracts"
+    echo "        - run: python3 ops/observability/test_pgdump_restore_canary_alert.py"
+    errors=$((errors + 1))
+elif ! python3 ./ops/observability/test_ops_daily_diagnostics_workflow.py >/dev/null 2>&1; then
+    echo "  FAIL: Fleet pg_dump restore canary daily diagnostics contracts"
+    echo "        - run: python3 ops/observability/test_ops_daily_diagnostics_workflow.py"
+    errors=$((errors + 1))
 else
-    echo "  ok: fail-closed probes + fixed partition repair controller"
+    echo "  ok: fail-closed probes + Fleet restore and partition operators"
 fi
 
 # ---- sub2api: single app-container resolver owner --------------------------
@@ -1644,6 +1703,21 @@ else
     echo "  ok: edge-health alert decision/dedup fixtures pass"
 fi
 
+# Complete terminal buckets drive model-family and dynamic exact-model alerts.
+# Unknown models only become candidates after a real final empty-pool 429.
+echo ""
+echo "=== sub2api: edge model-unit health alert tests ==="
+if ! python3 -m unittest \
+    ops.observability.test_edge_model_health_alert \
+    ops.observability.test_edge_health_delivery \
+    ops.observability.test_probe_edge_health >/dev/null 2>&1; then
+    echo "  FAIL: edge model-unit alert or structured delivery tests"
+    echo "        — run: python3 -m unittest ops.observability.test_edge_model_health_alert ops.observability.test_edge_health_delivery ops.observability.test_probe_edge_health"
+    errors=$((errors + 1))
+else
+    echo "  ok: terminal thresholds, dynamic models, state, and delivery fixtures pass"
+fi
+
 # ---- sub2api: edge HTTPS health probe selftest -----------------------------
 # External /health resolver+probe (scan-edge-health.sh leading signal for host
 # hang / blackhole). Pure unit fixtures — no network.
@@ -1673,7 +1747,7 @@ else
 fi
 
 # Delivery owns the alert acknowledgment boundary: rejected/missing Feishu
-# delivery must never advance the cached actionable key.
+# delivery must never advance the cached structured state.
 echo ""
 echo "=== sub2api: edge-health delivery selftest ==="
 if ! python3 ./ops/observability/edge_health_delivery.py --selftest >/dev/null 2>&1; then
@@ -1716,12 +1790,24 @@ else
 fi
 
 echo "=== sub2api: env secret backup fail-closed contract ==="
-if ! bash ./ops/stage0/test_backup_env_secrets_via_ssm.sh >/dev/null 2>&1; then
+if ! bash ./ops/stage0/test_backup_env_secrets_via_ssm.sh >/dev/null 2>&1 || \
+   ! bash ./deploy/aws/lightsail/test_restore_edge_env_secrets.sh >/dev/null 2>&1 || \
+   ! bash ./ops/lightsail/test_ensure_edge_ssm_role.sh >/dev/null 2>&1 || \
+   ! bash ./ops/lightsail/test_migrate_edge_ssm_roles.sh >/dev/null 2>&1; then
     echo "  FAIL: env secret backup fail-closed contract test"
-    echo "        — run: bash ops/stage0/test_backup_env_secrets_via_ssm.sh"
+    echo "        — run: bash ops/stage0/test_backup_env_secrets_via_ssm.sh && bash deploy/aws/lightsail/test_restore_edge_env_secrets.sh && bash ops/lightsail/test_ensure_edge_ssm_role.sh && bash ops/lightsail/test_migrate_edge_ssm_roles.sh"
     errors=$((errors + 1))
 else
-    echo "  ok: rejected writes fail and verified backups succeed"
+    echo "  ok: rejected writes fail and verified backup/restore succeeds"
+fi
+
+echo "=== sub2api: QA single-owner SSM operator contract ==="
+if ! bash ./ops/stage0/test_activate_qa_single_owner_via_ssm.sh >/dev/null 2>&1; then
+    echo "  FAIL: QA single-owner SSM operator contract test"
+    echo "        — run: bash ops/stage0/test_activate_qa_single_owner_via_ssm.sh"
+    errors=$((errors + 1))
+else
+    echo "  ok: QA activation confirmation is fail-closed"
 fi
 
 echo "=== sub2api: ghcr-prune-daily timer contract ==="
@@ -2338,7 +2424,7 @@ else
         _det_key="det_$(echo "$_det_dir" | tr '/' '_')"
         _bg_rc=1
         if _bg_spawned "$_det_key"; then
-            _bg_join "$_det_key"
+            _bg_join "$_det_key" replay-on-failure
         fi
         if [ "$_bg_rc" -ne 0 ]; then
             echo "  FAIL: $_det_dir unittest failed (re-run: env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE python3 -m unittest discover -s $_det_dir -p 'test_*.py' -t $_det_dir -v)"

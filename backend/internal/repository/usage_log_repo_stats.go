@@ -29,7 +29,8 @@ func (r *usageLogRepository) GetUserStatsAggregated(ctx context.Context, userID 
 			COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
+			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms,
+			COALESCE(AVG(gateway_latency_ms) FILTER (WHERE gateway_latency_ms IS NOT NULL), 0) as avg_gateway_latency_ms
 		FROM usage_logs
 		WHERE user_id = $1 AND created_at >= $2 AND created_at < $3
 	`
@@ -49,6 +50,7 @@ func (r *usageLogRepository) GetUserStatsAggregated(ctx context.Context, userID 
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
+		&stats.AverageGatewayLatencyMs,
 	); err != nil {
 		return nil, err
 	}
@@ -709,7 +711,8 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
 			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as total_account_cost,
-			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
+			COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
+			COALESCE(AVG(gateway_latency_ms) FILTER (WHERE gateway_latency_ms IS NOT NULL), 0) as avg_gateway_latency_ms
 		FROM usage_logs
 		%s
 	`, buildWhere(conditions))
@@ -747,6 +750,7 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 				stats.TotalActualCost = rollup.TotalActualCost
 				totalAccountCost = rollup.totalAccountCost
 				stats.AverageDurationMs = rollup.AverageDurationMs
+				stats.AverageGatewayLatencyMs = rollup.AverageGatewayLatencyMs
 				return nil
 			}
 		}
@@ -762,6 +766,7 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 			&stats.TotalActualCost,
 			&totalAccountCost,
 			&stats.AverageDurationMs,
+			&stats.AverageGatewayLatencyMs,
 		)
 	}
 	// endpoint 明细:best-effort(失败 log + 返空),不致命。

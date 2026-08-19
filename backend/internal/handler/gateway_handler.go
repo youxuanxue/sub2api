@@ -61,6 +61,7 @@ type GatewayHandler struct {
 	// TK: client model-list filter — see gateway_handler_tk_model_list.go.
 	// Injected post-construction via SetModelListFilter; nil = fail-open.
 	tkModelListFilter *service.ModelListFilter
+	tkCapabilities    apiKeyCapabilitySource
 }
 
 // NewGatewayHandler creates a new GatewayHandler
@@ -1182,10 +1183,26 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	}
 
 	if apiKey != nil && apiKey.IsUniversal() && groupID == nil {
-		if models, ok := h.tkUniversalModelIDs(c.Request.Context(), apiKey, platform); ok {
-			writeModelsList(c, platform, models)
+		protocol := service.UniversalProtocolOpenAI
+		if isAnthropicModelsRequest(c) {
+			protocol = service.UniversalProtocolAnthropic
+		}
+		capabilities, err := h.universalCapabilities(c.Request.Context(), apiKey, protocol)
+		if err != nil {
+			if protocol == service.UniversalProtocolAnthropic {
+				h.errorResponse(c, http.StatusInternalServerError, "api_error", "Model discovery unavailable")
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "api_error", "message": "Model discovery unavailable"}})
+			}
 			return
 		}
+		ids := capabilityModelIDs(capabilities, "")
+		if protocol == service.UniversalProtocolAnthropic {
+			c.JSON(http.StatusOK, gin.H{"object": "list", "data": claude.ModelsForIDs(ids)})
+		} else {
+			c.JSON(http.StatusOK, gin.H{"object": "list", "data": openai.ModelsForIDs(ids)})
+		}
+		return
 	}
 
 	// Get available models from account configurations, filtered to the
@@ -1547,6 +1564,16 @@ func mergeModelIDs(primary, secondary []string) []string {
 // AntigravityModels 返回 Antigravity 支持的全部模型
 // GET /antigravity/models
 func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
+	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.IsUniversal() && apiKey.Group == nil {
+		capabilities, err := h.universalCapabilities(c.Request.Context(), apiKey, service.UniversalProtocolAntigravity)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "api_error", "message": "Model discovery unavailable"}})
+			return
+		}
+		models := antigravityModelsForCapabilityIDs(capabilityModelIDs(capabilities, ""))
+		c.JSON(http.StatusOK, gin.H{"object": "list", "data": models})
+		return
+	}
 	// TK: §5.x override-default — filter antigravity.DefaultModels() by pricing +
 	// availability. Candidate set is always the antigravity-specific list (not the
 	// full cross-platform catalog). Response shape is always []antigravity.ClaudeModel.

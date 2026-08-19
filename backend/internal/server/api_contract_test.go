@@ -516,20 +516,22 @@ func TestAPIContracts(t *testing.T) {
 						TotalCost:           0.5,
 						ActualCost:          0.5,
 						DurationMs:          ptr(100),
+						GatewayLatencyMs:    ptr(20),
 						CreatedAt:           deps.now,
 					},
 					{
-						ID:           2,
-						UserID:       1,
-						APIKeyID:     100,
-						AccountID:    200,
-						Model:        "claude-3",
-						InputTokens:  5,
-						OutputTokens: 15,
-						TotalCost:    0.25,
-						ActualCost:   0.25,
-						DurationMs:   ptr(300),
-						CreatedAt:    deps.now,
+						ID:               2,
+						UserID:           1,
+						APIKeyID:         100,
+						AccountID:        200,
+						Model:            "claude-3",
+						InputTokens:      5,
+						OutputTokens:     15,
+						TotalCost:        0.25,
+						ActualCost:       0.25,
+						DurationMs:       ptr(300),
+						GatewayLatencyMs: ptr(36),
+						CreatedAt:        deps.now,
 					},
 				})
 			},
@@ -549,7 +551,8 @@ func TestAPIContracts(t *testing.T) {
 					"total_tokens": 53,
 					"total_cost": 0.75,
 					"total_actual_cost": 0.75,
-					"average_duration_ms": 200
+					"average_duration_ms": 200,
+					"average_gateway_latency_ms": 28
 				}
 			}`,
 		},
@@ -1973,11 +1976,11 @@ func (s *stubAccountRepo) List(ctx context.Context, params pagination.Pagination
 	return nil, nil, errors.New("not implemented")
 }
 
-func (s *stubAccountRepo) ListAllWithFilters(context.Context, string, string, string, string, int64, string) ([]service.Account, error) {
+func (s *stubAccountRepo) ListAllWithFilters(context.Context, string, string, string, string, int64, string, int) ([]service.Account, error) {
 	return nil, nil
 }
 
-func (s *stubAccountRepo) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
+func (s *stubAccountRepo) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int) ([]service.Account, *pagination.PaginationResult, error) {
 	return nil, nil, errors.New("not implemented")
 }
 
@@ -2896,6 +2899,8 @@ func (r *stubUsageLogRepo) GetStatsWithFilters(ctx context.Context, filters usag
 	var totalActualCost float64
 	var totalDuration int64
 	var durationCount int64
+	var totalGatewayLatency int64
+	var gatewayLatencyCount int64
 
 	for _, log := range logs {
 		totalRequests++
@@ -2910,11 +2915,19 @@ func (r *stubUsageLogRepo) GetStatsWithFilters(ctx context.Context, filters usag
 			totalDuration += int64(*log.DurationMs)
 			durationCount++
 		}
+		if log.GatewayLatencyMs != nil {
+			totalGatewayLatency += int64(*log.GatewayLatencyMs)
+			gatewayLatencyCount++
+		}
 	}
 
 	var avgDuration float64
 	if durationCount > 0 {
 		avgDuration = float64(totalDuration) / float64(durationCount)
+	}
+	var avgGatewayLatency float64
+	if gatewayLatencyCount > 0 {
+		avgGatewayLatency = float64(totalGatewayLatency) / float64(gatewayLatencyCount)
 	}
 
 	return &usagestats.UsageStats{
@@ -2928,6 +2941,7 @@ func (r *stubUsageLogRepo) GetStatsWithFilters(ctx context.Context, filters usag
 		TotalCost:                totalCost,
 		TotalActualCost:          totalActualCost,
 		AverageDurationMs:        avgDuration,
+		AverageGatewayLatencyMs:  avgGatewayLatency,
 		Endpoints:                []usagestats.EndpointStat{},
 	}, nil
 }

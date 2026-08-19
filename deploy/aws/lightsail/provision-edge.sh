@@ -18,15 +18,51 @@ GHCR_OWNER="${12:-${GHCR_OWNER:-}}"
 GHCR_PAT_SSM_NAME="${13:-${GHCR_PAT_SSM_NAME:-}}"
 SSM_PREFIX="${14:-${SSM_PREFIX:-}}"
 ACTIVATION_NAME="${15:-${ACTIVATION_NAME:-tokenkey-ls-${EDGE_ID}}}"
-SSM_HYBRID_ROLE_NAME="${16:-${SSM_HYBRID_ROLE_NAME:-tokenkey-lightsail-ssm-hybrid}}"
+SSM_HYBRID_ROLE_NAME="${16:-${SSM_HYBRID_ROLE_NAME:-tokenkey-lightsail-ssm-hybrid-${EDGE_ID}}}"
 SWAP_GIB="${SWAP_GIB:-2}"
+ALLOW_SECRET_GENERATE="${ALLOW_SECRET_GENERATE:-false}"
+RECREATE_BACKUP_VERIFIED="${RECREATE_BACKUP_VERIFIED:-false}"
 
 if [[ -z "$EDGE_ID" || -z "$TAG" || -z "$LIGHTSAIL_REGION" || -z "$INSTANCE_NAME" ]]; then
   echo "provision-edge: missing required args" >&2
   exit 1
 fi
+[[ "${SSM_HYBRID_ROLE_NAME}" == "tokenkey-lightsail-ssm-hybrid-${EDGE_ID}" ]] || { echo "provision-edge: invalid per-Edge SSM role" >&2; exit 1; }
+[[ "${ALLOW_SECRET_GENERATE}" == true || "${ALLOW_SECRET_GENERATE}" == false ]] || { echo "provision-edge: ALLOW_SECRET_GENERATE must be true or false" >&2; exit 1; }
+[[ "${RECREATE_BACKUP_VERIFIED}" == true || "${RECREATE_BACKUP_VERIFIED}" == false ]] || { echo "provision-edge: RECREATE_BACKUP_VERIFIED must be true or false" >&2; exit 1; }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+
+identity_error="$(mktemp)"
+trap 'rm -f "${identity_error}"' EXIT
+existing=""
+if ! existing="$(aws lightsail get-instance --region "$LIGHTSAIL_REGION" --instance-name "$INSTANCE_NAME" 2>"${identity_error}")"; then
+  if ! grep -Fq 'NotFoundException' "${identity_error}"; then
+    cat "${identity_error}" >&2
+    echo "provision-edge: cannot determine Lightsail instance state" >&2
+    exit 1
+  fi
+  existing=""
+fi
+marker_exists=false
+if aws ssm get-parameter --region "$LIGHTSAIL_REGION" --name "${SSM_PREFIX}/instance_name" >/dev/null 2>"${identity_error}"; then
+  marker_exists=true
+elif ! grep -Fq 'ParameterNotFound' "${identity_error}"; then
+  cat "${identity_error}" >&2
+  echo "provision-edge: cannot determine persistent Edge identity" >&2
+  exit 1
+fi
+if [[ "${ALLOW_SECRET_GENERATE}" == true && ( -n "${existing}" || "${marker_exists}" == true ) ]]; then
+  echo "provision-edge: secret generation is forbidden for an existing Edge identity" >&2
+  exit 1
+fi
+if [[ -n "${existing}" && "${RECREATE:-false}" == true && "${RECREATE_BACKUP_VERIFIED}" != true ]]; then
+  echo "provision-edge: verified secret backup is required before recreate" >&2
+  exit 1
+fi
+rm -f "${identity_error}"
+trap - EXIT
+
 bash "${REPO_ROOT}/deploy/aws/lightsail/render-bootstrap.sh"
 
 TOKENKEY_IMAGE="ghcr.io/${GHCR_OWNER}/sub2api:${TAG}"
@@ -67,6 +103,7 @@ export SSM_ACTIVATION_CODE='${activation_code}'
 export ADMIN_EMAIL='admin@${API_DOMAIN}'
 export TZ_VALUE='UTC'
 export SWAP_SIZE_GIB='${SWAP_GIB}'
+export ALLOW_SECRET_GENERATE='${ALLOW_SECRET_GENERATE}'
 EOF
 
 launch_body="${REPO_ROOT}/deploy/aws/lightsail/generated-launch-script.sh"
@@ -78,9 +115,6 @@ trap 'rm -f "$launch_env_file" "$user_data_file"' EXIT
   cat "$launch_body"
 } >"$user_data_file"
 
-# preflight-allow: swallow — get-instance returns non-zero when instance is absent,
-# which is the success path here. We then branch on whether stdout is empty.
-existing="$(aws lightsail get-instance --region "$LIGHTSAIL_REGION" --instance-name "$INSTANCE_NAME" 2>/dev/null || true)"
 if [[ -n "$existing" ]]; then
   if [[ "${RECREATE:-false}" != "true" ]]; then
     echo "::error::instance ${INSTANCE_NAME} already exists in region ${LIGHTSAIL_REGION}." >&2

@@ -16,7 +16,7 @@
       "path": "backend/internal/service/gateway_request_tk_cc_prompt_surface.go",
       "must_contain": [
         "func tkNormalizeAnthropicCCPromptSurface",
-        "func tkStripCCEnvironmentSection",
+        "func tkRewriteCCEnvironmentSection",
         "func tkNormalizeCCUserEmailLine"
       ]
     },

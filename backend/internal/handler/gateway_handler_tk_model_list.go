@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"sort"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -11,6 +10,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
 )
 
 // SetModelListFilter wires the optional client model-list filter into
@@ -24,6 +24,90 @@ func (h *GatewayHandler) SetModelListFilter(f *service.ModelListFilter) {
 	if h != nil {
 		h.tkModelListFilter = f
 	}
+}
+
+func (h *GatewayHandler) SetUniversalCapabilityService(capabilities *service.UniversalCapabilityService) {
+	if h != nil {
+		h.tkCapabilities = capabilities
+	}
+}
+
+func (h *OpenAIGatewayHandler) SetUniversalCapabilityService(capabilities *service.UniversalCapabilityService) {
+	if h != nil {
+		h.tkCapabilities = capabilities
+	}
+}
+
+func (h *GatewayHandler) universalCapabilities(ctx context.Context, apiKey *service.APIKey, protocol service.UniversalProtocol) ([]service.UniversalCapability, error) {
+	if h == nil || h.tkCapabilities == nil {
+		return nil, service.ErrUniversalCapabilityUnavailable
+	}
+	return h.tkCapabilities.List(ctx, apiKey, protocol)
+}
+
+func isAnthropicModelsRequest(c *gin.Context) bool {
+	if c == nil || c.Request == nil {
+		return false
+	}
+	return strings.TrimSpace(c.GetHeader("anthropic-version")) != "" ||
+		(strings.TrimSpace(c.GetHeader("x-api-key")) != "" && strings.TrimSpace(c.GetHeader("Authorization")) == "")
+}
+
+func capabilityModelIDs(capabilities []service.UniversalCapability, modality service.UniversalModality) []string {
+	ids := make([]string, 0, len(capabilities))
+	for i := range capabilities {
+		if modality != "" {
+			matched := false
+			for _, value := range capabilities[i].Modalities {
+				if value == modality {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		ids = append(ids, capabilities[i].ID)
+	}
+	return ids
+}
+
+func geminiModelsForCapabilityIDs(ids []string) gemini.ModelsListResponse {
+	defaults := gemini.DefaultModels()
+	byID := make(map[string]gemini.Model, len(defaults))
+	for _, model := range defaults {
+		byID[strings.TrimPrefix(model.Name, "models/")] = model
+	}
+	models := make([]gemini.Model, 0, len(ids))
+	for _, id := range ids {
+		if model, ok := byID[id]; ok {
+			models = append(models, model)
+			continue
+		}
+		models = append(models, gemini.Model{
+			Name:                       "models/" + id,
+			SupportedGenerationMethods: []string{"generateContent", "streamGenerateContent"},
+		})
+	}
+	return gemini.ModelsListResponse{Models: models}
+}
+
+func antigravityModelsForCapabilityIDs(ids []string) []antigravity.ClaudeModel {
+	defaults := antigravity.DefaultModels()
+	byID := make(map[string]antigravity.ClaudeModel, len(defaults))
+	for _, model := range defaults {
+		byID[model.ID] = model
+	}
+	models := make([]antigravity.ClaudeModel, 0, len(ids))
+	for _, id := range ids {
+		if model, ok := byID[id]; ok {
+			models = append(models, model)
+			continue
+		}
+		models = append(models, antigravity.ClaudeModel{ID: id, Type: "model", DisplayName: id})
+	}
+	return models
 }
 
 // HasModelListFilter returns true once the model-list filter is wired. Used
@@ -55,48 +139,6 @@ func (h *GatewayHandler) servableIDs(ctx context.Context, platform string) []str
 		return service.ServableClientFacingIDs(ctx, platform, nil, nil)
 	}
 	return h.tkModelListFilter.ServableClientFacingIDs(ctx, platform)
-}
-
-// tkUniversalModelIDs returns the metadata model list for a universal API key.
-// Universal request routing is model-driven, so GET /v1/models deliberately skips
-// the resolver and has no single backing group. The list must therefore be the
-// union of the key owner's entitled groups, not GatewayService.GetAvailableModels
-// with groupID=nil (that is the global schedulable account pool).
-func (h *GatewayHandler) tkUniversalModelIDs(ctx context.Context, apiKey *service.APIKey, forcedPlatform string) ([]string, bool) {
-	if h == nil || h.apiKeyService == nil || h.gatewayService == nil || apiKey == nil || !apiKey.IsUniversal() {
-		return nil, false
-	}
-	groups, err := h.apiKeyService.GetAvailableGroups(ctx, apiKey.UserID)
-	if err != nil {
-		return nil, true
-	}
-	modelSet := make(map[string]struct{})
-	for _, group := range groups {
-		if strings.HasPrefix(group.Name, "__tk_probe_") {
-			continue
-		}
-		if forcedPlatform != "" && group.Platform != forcedPlatform {
-			continue
-		}
-		groupID := group.ID
-		ids := h.gatewayService.GetAvailableModels(ctx, &groupID, group.Platform)
-		ids = h.tkFilterModelIDs(ctx, group.Platform, ids)
-		if len(ids) == 0 {
-			ids = h.servableIDs(ctx, group.Platform)
-		}
-		for _, id := range ids {
-			id = strings.TrimSpace(id)
-			if id != "" {
-				modelSet[id] = struct{}{}
-			}
-		}
-	}
-	out := make([]string, 0, len(modelSet))
-	for id := range modelSet {
-		out = append(out, id)
-	}
-	sort.Strings(out)
-	return out, true
 }
 
 // tkOpenAIDefaultModelIDs returns the /v1/models fallback for OpenAI-compat

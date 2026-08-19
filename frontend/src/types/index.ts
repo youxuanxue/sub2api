@@ -911,7 +911,7 @@ export interface UpdateGroupRequest {
 // ==================== Account & Proxy Types ====================
 
 export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi' | 'kiro' | 'grok' | 'composite'
-export type AccountPlatformFilterValue = '' | AccountPlatform | '__kiro_stub__'
+export type AccountPlatformFilterValue = '' | AccountPlatform
 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'
@@ -1980,6 +1980,7 @@ export interface UsageStatsResponse {
   total_cost: number // 标准计费
   total_actual_cost: number // 实际扣除
   average_duration_ms: number
+  average_gateway_latency_ms: number
   models?: Record<string, number>
   endpoints?: EndpointStat[]
   upstream_endpoints?: EndpointStat[]

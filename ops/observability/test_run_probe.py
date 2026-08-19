@@ -196,6 +196,7 @@ class RunProbePollingTest(unittest.TestCase):
         *,
         timeout_seconds: int | str = 30,
         date_step: int = 1,
+        expected_instance_id: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.update(
@@ -208,15 +209,17 @@ class RunProbePollingTest(unittest.TestCase):
                 "FAKE_DATE_STEP": str(date_step),
             }
         )
-        return _run(
+        args = [
             "--target",
             "prod",
             "--script",
             str(self.probe),
             "--timeout-seconds",
             str(timeout_seconds),
-            env=env,
-        )
+        ]
+        if expected_instance_id is not None:
+            args.extend(["--expected-instance-id", expected_instance_id])
+        return _run(*args, env=env)
 
     def _aws_calls(self) -> list[tuple[str, str]]:
         calls: list[tuple[str, str]] = []
@@ -275,6 +278,17 @@ class RunProbePollingTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 3)
         self.assertIn("[run-probe] status=Failed", proc.stderr)
         self._assert_one_command(expected_gets=1)
+
+    def test_expected_instance_mismatch_stops_before_ssm_command(self) -> None:
+        proc = self._run_scenario(
+            "eventual-success",
+            expected_instance_id="i-0123456789abcdef0",
+        )
+
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("resolved instance does not match --expected-instance-id", proc.stderr)
+        operations = [operation for operation, _ in self._aws_calls()]
+        self.assertNotIn("ssm send-command", operations)
 
 
 if __name__ == "__main__":

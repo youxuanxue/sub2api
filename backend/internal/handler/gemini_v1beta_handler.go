@@ -39,6 +39,15 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		googleError(c, http.StatusUnauthorized, "Invalid API key")
 		return
 	}
+	if apiKey.IsUniversal() && apiKey.Group == nil {
+		capabilities, err := h.universalCapabilities(c.Request.Context(), apiKey, service.UniversalProtocolGemini)
+		if err != nil {
+			googleError(c, http.StatusInternalServerError, "Model discovery unavailable")
+			return
+		}
+		c.JSON(http.StatusOK, geminiModelsForCapabilityIDs(capabilityModelIDs(capabilities, service.UniversalModalityChat)))
+		return
+	}
 	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini/antigravity 分组
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
 	if !hasForcePlatform && !geminiV1BetaGroupPlatformAllowed(apiKey) {
@@ -177,6 +186,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	if err != nil {
 		googleError(c, http.StatusNotFound, err.Error())
 		return
+	}
+	if action == "countTokens" {
+		ExcludeTerminalOutcome(c)
 	}
 	// URL 里的模型名最终会被拼进上游 /v1beta/models/{model}:{action}，
 	// 先在入口校验片段合规性，见 service/upstream_path_guard.go。

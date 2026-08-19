@@ -54,6 +54,10 @@ class ResolveEdgeLightsailTargetTests(unittest.TestCase):
         self.assertEqual(resolved["instance_name"], expected)
         self.assertEqual(resolved["deployable"], "true")
         self.assertEqual(resolved["swap_gib"], "2")
+        self.assertEqual(
+            resolved["ssm_hybrid_role_name"],
+            f"tokenkey-lightsail-ssm-hybrid-{edge_id}",
+        )
 
     def test_planned_fails_without_allow_planned(self):
         if not self.planned_id:
@@ -72,6 +76,10 @@ class ResolveEdgeLightsailTargetTests(unittest.TestCase):
         resolved = run_resolver(self.planned_id, allow_planned=True)
         self.assertEqual(resolved["edge_id"], self.planned_id)
         self.assertEqual(resolved["deployable"], "false")
+        self.assertEqual(
+            resolved["ssm_hybrid_role_name"],
+            f"tokenkey-lightsail-ssm-hybrid-{self.planned_id}",
+        )
 
     def test_confirm_instance_mismatch_fails(self):
         # Pick any edge (deployable or planned); deployable preferred so we

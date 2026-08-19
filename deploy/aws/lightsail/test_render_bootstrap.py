@@ -111,6 +111,16 @@ class RenderBootstrapTests(unittest.TestCase):
             "PRUNE_B64 must be gzip-decoded; otherwise user-data bloats past 16KB",
         )
 
+    def test_generated_artifact_restores_platform_neutral_edge_secrets(self):
+        content = GENERATED.read_text(encoding="utf-8")
+        self.assertIn("/usr/local/bin/tokenkey-restore-edge-env-secrets.sh", content)
+        self.assertIn(
+            '"/tokenkey/edge/${EDGE_ID}/stage0/env-secrets-backup"', content
+        )
+        self.assertIn('ALLOW_SECRET_GENERATE:=false', content)
+        self.assertIn('restore_secret_args+=(--allow-generate)', content)
+        self.assertIn('ALLOW_SECRET_GENERATE must be true or false', content)
+
 
 if __name__ == "__main__":
     unittest.main()

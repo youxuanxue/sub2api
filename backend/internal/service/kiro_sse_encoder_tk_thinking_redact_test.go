@@ -188,7 +188,7 @@ func TestKiroGatewayService_Forward_Streaming_StashesTaglessThinkingWithSignatur
 
 	body := []byte{}
 	for _, content := range []string{
-		"17 × 23:\n\n17 × 20 = 340\n17 × 3 = 51\n340 + 51 = ",
+		"17 × 23:\n\n17 × 20 = 340\n17 × 3 = 51\n340 + 51 = 391\n\n",
 		"391",
 	} {
 		body = append(body, buildKiroEventStreamMessage("assistantResponseEvent",
@@ -225,4 +225,53 @@ func TestKiroGatewayService_Forward_Streaming_StashesTaglessThinkingWithSignatur
 	require.Len(t, blocks, 1)
 	require.Contains(t, blocks[0], "17 × 20 = 340")
 	require.Contains(t, blocks[0], "TAGLESS_UPSTREAM_SIG")
+}
+
+func TestKiroGatewayService_Forward_NonStreaming_StashesTaglessThinkingWithSignatureLiveOrder(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	body := []byte{}
+	for _, content := range []string{
+		"17 × 23:\n\n17 × 20 = 340\n17 × 3 = 51\n340 + 51 = 391\n\n",
+		"391",
+	} {
+		body = append(body, buildKiroEventStreamMessage("assistantResponseEvent",
+			[]byte(`{"content":`+strconv.Quote(content)+`}`))...)
+	}
+	reasoningFrame := buildKiroEventStreamMessage("reasoningContentEvent",
+		[]byte(`{"text":"...","signature":"TAGLESS_NS_SIG"}`))
+	body = append(body, reasoningFrame...)
+	body = appendKiroTerminalStop(body, "END_TURN")
+	upstream := &kiroFakeUpstream{body: body}
+
+	svc := NewKiroGatewayService(upstream, nil, nil)
+	reqBody, _ := json.Marshal(map[string]any{
+		"model":      "claude-sonnet-4-6",
+		"messages":   []map[string]any{{"role": "user", "content": "17*23"}},
+		"max_tokens": 32,
+		"stream":     false,
+		"thinking":   map[string]any{"type": "adaptive", "display": "omitted"},
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(reqBody), Model: "claude-sonnet-4-6", Stream: false}
+
+	_, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.NoError(t, err)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	content, ok := resp["content"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, content)
+	respBody, _ := json.Marshal(resp)
+	require.NotContains(t, string(respBody), "TAGLESS_NS_SIG")
+
+	raw, ok := c.Get(kiroInternalThinkingGinKey)
+	require.True(t, ok)
+	blocks, ok := raw.([]string)
+	require.True(t, ok)
+	require.Len(t, blocks, 1)
+	require.Contains(t, blocks[0], "17 × 20 = 340")
+	require.Contains(t, blocks[0], "TAGLESS_NS_SIG")
 }

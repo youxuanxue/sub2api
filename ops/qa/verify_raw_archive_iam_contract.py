@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import re
 import subprocess
@@ -13,10 +14,10 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 PROD_REGION = "us-east-1"
 RAW_ARCHIVE_STACK = "tokenkey-prod-qa-raw-archive"
-BACKUPS_STACK = "tokenkey-stage0-backups"
 STAGE0_STACK = "tokenkey-prod-stage0"
 STAGE0_PUBLIC_ROUTE_TABLE_LOGICAL = "PublicRouteTable"
 EDGE_ROLE_NAME = "tokenkey-lightsail-ssm-hybrid"
+EDGE_ROLE_FAMILY = f"{EDGE_ROLE_NAME}-*"
 EDGE_DENY_SID = "DenyLightsailEdgeRole"
 
 APP_WRITE_SID = "AllowAppInstanceRoleWriteRaw"
@@ -220,19 +221,27 @@ def _principal_arns(statement: dict[str, Any]) -> set[str]:
     return {str(value) for value in values if isinstance(value, str)}
 
 
-def _statement_names_principal(statement: dict[str, Any], principal_arn: str) -> bool:
-    if principal_arn in _principal_arns(statement):
-        return True
+def _statement_names_role_family(
+    statement: dict[str, Any], role_arns: list[str]
+) -> bool:
+    candidates = set(_principal_arns(statement))
     condition = statement.get("Condition")
-    if not isinstance(condition, dict):
-        return False
-    for operator in ("ArnEquals", "ArnLike", "StringEquals", "StringLike"):
-        clause = condition.get(operator)
-        if not isinstance(clause, dict):
+    if isinstance(condition, dict):
+        for operator in ("ArnEquals", "ArnLike", "StringEquals", "StringLike"):
+            clause = condition.get(operator)
+            if not isinstance(clause, dict):
+                continue
+            value = clause.get("aws:PrincipalArn")
+            values = value if isinstance(value, list) else [value]
+            candidates.update(str(item) for item in values if isinstance(item, str))
+    for candidate in candidates:
+        if candidate == "*":
             continue
-        value = clause.get("aws:PrincipalArn")
-        candidates = value if isinstance(value, list) else [value]
-        if principal_arn in {str(item) for item in candidates if isinstance(item, str)}:
+        if any(
+            fnmatch.fnmatchcase(candidate, role_arn)
+            or fnmatch.fnmatchcase(role_arn, candidate)
+            for role_arn in role_arns
+        ):
             return True
     return False
 
@@ -244,6 +253,7 @@ def evaluate_edge_qa_boundary(
     partition: str = "aws",
 ) -> dict[str, Any]:
     edge_role_arn = f"arn:{partition}:iam::{account_id}:role/{EDGE_ROLE_NAME}"
+    edge_role_arns = [edge_role_arn, f"arn:{partition}:iam::{account_id}:role/{EDGE_ROLE_FAMILY}"]
     failures: list[str] = []
     checked_buckets = sorted(buckets)
     for bucket, statements in sorted(buckets.items()):
@@ -270,7 +280,7 @@ def evaluate_edge_qa_boundary(
                 failures.append(f"{bucket}:edge_deny_resources")
             condition = deny.get("Condition")
             expected_condition = {
-                "ArnEquals": {"aws:PrincipalArn": edge_role_arn}
+                "ArnLike": {"aws:PrincipalArn": edge_role_arns}
             }
             if condition != expected_condition:
                 failures.append(f"{bucket}:edge_deny_condition")
@@ -278,7 +288,7 @@ def evaluate_edge_qa_boundary(
         for statement in statements:
             if statement.get("Effect") != "Allow":
                 continue
-            if _statement_names_principal(statement, edge_role_arn):
+            if _statement_names_role_family(statement, edge_role_arns):
                 sid = str(statement.get("Sid") or "missing")
                 failures.append(f"{bucket}:edge_role_allowed:{sid}")
 
@@ -286,6 +296,7 @@ def evaluate_edge_qa_boundary(
         "ok": not failures,
         "status": "applied" if not failures else "drift",
         "edge_role_arn": edge_role_arn,
+        "edge_role_arns": edge_role_arns,
         "buckets": checked_buckets,
         "failures": failures,
     }
@@ -294,16 +305,20 @@ def evaluate_edge_qa_boundary(
 def verify_live_edge_qa_boundary(account_id: str) -> dict[str, Any]:
     try:
         raw_bucket = _stack_output(RAW_ARCHIVE_STACK, "QaRawArchiveBucketName")
-        exports_bucket = _stack_output(BACKUPS_STACK, "QaExportsBucketName")
+        bundle_bucket = _stack_output(RAW_ARCHIVE_STACK, "QaBundleBucketName")
         buckets = {
             raw_bucket: _live_bucket_policy(raw_bucket),
-            exports_bucket: _live_bucket_policy(exports_bucket),
+            bundle_bucket: _live_bucket_policy(bundle_bucket),
         }
     except RuntimeError as exc:
         return {
             "ok": False,
             "status": "unknown",
             "edge_role_arn": f"arn:aws:iam::{account_id}:role/{EDGE_ROLE_NAME}",
+            "edge_role_arns": [
+                f"arn:aws:iam::{account_id}:role/{EDGE_ROLE_NAME}",
+                f"arn:aws:iam::{account_id}:role/{EDGE_ROLE_FAMILY}",
+            ],
             "buckets": [],
             "failures": [str(exc)],
         }
@@ -470,7 +485,7 @@ def main() -> int:
     parser.add_argument(
         "--edge-qa-boundary",
         action="store_true",
-        help="read both prod QA bucket policies and verify the shared edge-role deny",
+        help="read prod raw archive and QA Bundle policies and verify the shared edge-role deny",
     )
     args = parser.parse_args()
 

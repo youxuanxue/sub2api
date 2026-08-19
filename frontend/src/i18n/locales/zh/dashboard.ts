@@ -217,7 +217,7 @@ export default {
     ccsClientSelect: {
       title: '选择客户端',
       description: '请选择您要导入到 CC-Switch 的客户端类型：',
-      universalDescription: '全能 Key 跨平台可用 — 请选择 CC Switch 中要导入的目标应用：',
+      universalDescription: '自动路由 Key 可跨协议使用，请选择要导入到 CC Switch 的目标应用：',
       claudeCode: 'Claude Code',
       claudeCodeDesc: '导入为 Claude Code 配置',
       codexCli: 'Codex CLI',
@@ -296,6 +296,7 @@ export default {
     resetPending: '待刷新',
     accountMultiplier: '账号倍率',
     avgDuration: '平均耗时',
+    avgGatewayLatency: '网关中转延迟',
     inSelectedRange: '所选范围内',
     perRequest: '每次请求',
     apiKeyFilter: 'API 密钥',

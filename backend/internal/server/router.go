@@ -36,6 +36,7 @@ func SetupRouter(
 	opsService *service.OpsService,
 	settingService *service.SettingService,
 	compositeResolver *service.CompositeRouteResolver,
+	terminalOutcomeRecorder *service.TerminalOutcomeRecorder,
 	cfg *config.Config,
 	redisClient *redis.Client,
 ) *gin.Engine {
@@ -95,7 +96,7 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, eitherAuth, auditLog, stepUpAuth, apiKeyService, userService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
+	registerRoutes(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, eitherAuth, auditLog, stepUpAuth, apiKeyService, userService, subscriptionService, opsService, settingService, compositeResolver, terminalOutcomeRecorder, cfg, redisClient)
 
 	return r
 }
@@ -117,6 +118,7 @@ func registerRoutes(
 	opsService *service.OpsService,
 	settingService *service.SettingService,
 	compositeResolver *service.CompositeRouteResolver,
+	terminalOutcomeRecorder *service.TerminalOutcomeRecorder,
 	cfg *config.Config,
 	redisClient *redis.Client,
 ) {
@@ -138,7 +140,7 @@ func registerRoutes(
 	// TK: internal edge capacity read (surface C) — prod reconciler ↔ edge over HTTP.
 	// userService backs the admin-owner gate on the edge account WRITE ops subgroup.
 	routes.RegisterTKEdgeRoutes(v1, h, apiKeyService, userService)
-	routes.RegisterGatewayRoutes(r, h, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg)
+	routes.RegisterGatewayRoutes(r, h, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, terminalOutcomeRecorder, cfg)
 	routes.RegisterPaymentRoutes(v1, h.Payment, h.PaymentWebhook, h.Admin.Payment, jwtAuth, adminAuth, auditLog, settingService, panelRateLimiter)
 
 	handler.RegisterPageRoutes(v1, cfg.Pricing.DataDir, gin.HandlerFunc(jwtAuth), gin.HandlerFunc(adminAuth), settingService)

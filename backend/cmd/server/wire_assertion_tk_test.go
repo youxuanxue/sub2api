@@ -76,7 +76,7 @@ func TestProvideTKGatewayHandlerModelList_WiresModelListFilter(t *testing.T) {
 	require.False(t, gw.HasModelListFilter(), "baseline: no filter before wiring")
 
 	f := service.NewModelListFilter(nil, nil)
-	ready := handler.ProvideTKGatewayHandlerModelList(gw, f)
+	ready := handler.ProvideTKGatewayHandlerModelList(gw, nil, f, nil)
 	_ = ready
 
 	require.True(t, gw.HasModelListFilter(), "after wiring: filter must be set")
@@ -85,7 +85,7 @@ func TestProvideTKGatewayHandlerModelList_WiresModelListFilter(t *testing.T) {
 // TestProvideTKGatewayHandlerModelList_NilHandlerIsNoOp verifies nil-safety.
 func TestProvideTKGatewayHandlerModelList_NilHandlerIsNoOp(t *testing.T) {
 	require.NotPanics(t, func() {
-		_ = handler.ProvideTKGatewayHandlerModelList(nil, nil)
+		_ = handler.ProvideTKGatewayHandlerModelList(nil, nil, nil, nil)
 	})
 }
 

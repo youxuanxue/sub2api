@@ -19,6 +19,47 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+type openAIResponsesExcludedFailoverUpstream struct {
+	service.HTTPUpstream
+	mu         sync.Mutex
+	accountIDs []int64
+	healthy    bool
+}
+
+func (u *openAIResponsesExcludedFailoverUpstream) Do(_ *http.Request, _ string, accountID int64, _ int) (*http.Response, error) {
+	u.mu.Lock()
+	u.accountIDs = append(u.accountIDs, accountID)
+	healthy := u.healthy
+	u.mu.Unlock()
+
+	if !healthy {
+		return &http.Response{
+			StatusCode: http.StatusBadGateway,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(bytes.NewBufferString(`{"detail":"Not Found"}`)),
+		}, nil
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(bytes.NewBufferString(
+			`{"id":"resp_recovered","object":"response","model":"gpt-5.6-sol","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`,
+		)),
+	}, nil
+}
+
+func (u *openAIResponsesExcludedFailoverUpstream) setHealthy() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.healthy = true
+}
+
+func (u *openAIResponsesExcludedFailoverUpstream) calls() []int64 {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return append([]int64(nil), u.accountIDs...)
+}
+
 // openAIResponsesFailoverCancelUpstream 固定返回 HTTP 520，可在首次上游调用时
 // 触发回调（用于模拟“上游在途期间客户端断开”）。
 type openAIResponsesFailoverCancelUpstream struct {
@@ -142,6 +183,134 @@ func newOpenAIResponsesFailoverTestContext(t *testing.T, ctx context.Context) (*
 	})
 	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 100, Concurrency: 0})
 	return c, rec
+}
+
+func newOpenAIResponsesExcludedFailoverTestRouter(
+	t *testing.T,
+	upstream *openAIResponsesExcludedFailoverUpstream,
+) *gin.Engine {
+	t.Helper()
+	groupID := int64(2)
+	const model = "gpt-5.6-sol"
+
+	accounts := make([]service.Account, 0, 4)
+	for i, id := range []int64{63, 64, 68} {
+		accounts = append(accounts, service.Account{
+			ID:          id,
+			Name:        "responses-supporting",
+			Platform:    service.PlatformOpenAI,
+			Type:        service.AccountTypeOAuth,
+			Status:      service.StatusActive,
+			Schedulable: true,
+			Concurrency: 0,
+			Priority:    i,
+			Credentials: map[string]any{
+				"access_token":  "test-token",
+				"model_mapping": map[string]any{model: model},
+			},
+			Extra: map[string]any{"openai_compact_mode": service.OpenAICompactModeForceOn},
+		})
+	}
+	accounts = append(accounts, service.Account{
+		ID:          69,
+		Name:        "responses-unsupported",
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeOAuth,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		Concurrency: 0,
+		Priority:    3,
+		Credentials: map[string]any{
+			"access_token":  "test-token",
+			"model_mapping": map[string]any{"gpt-other": "gpt-other"},
+		},
+		Extra: map[string]any{"openai_compact_mode": service.OpenAICompactModeForceOn},
+	})
+
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	accountRepo := openAIImagesFailoverAccountRepo{accounts: accounts}
+	gatewayService := service.NewOpenAIGatewayService(
+		accountRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		cfg,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		upstream,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+	service.ProvideTKGroupUnsupportedModelCache(nil, gatewayService, nil)
+	billingService := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+	t.Cleanup(billingService.Stop)
+	handler := NewOpenAIGatewayHandler(
+		gatewayService,
+		service.NewConcurrencyService(nil),
+		billingService,
+		service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg),
+		nil,
+		nil,
+		nil,
+		nil,
+		cfg,
+	)
+	handler.maxAccountSwitches = 10
+
+	apiKey := &service.APIKey{
+		ID:      344,
+		GroupID: &groupID,
+		Group:   &service.Group{ID: groupID, Platform: service.PlatformOpenAI},
+		User:    &service.User{ID: 16},
+	}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware2.ContextKeyAPIKey), apiKey)
+		c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: apiKey.User.ID, Concurrency: 0})
+		c.Next()
+	})
+	router.POST("/v1/responses/*subpath", handler.Responses)
+	return router
+}
+
+func TestOpenAIGatewayHandlerResponses_ExcludedFailoverDoesNotPoisonUnsupportedCache(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &openAIResponsesExcludedFailoverUpstream{}
+	router := newOpenAIResponsesExcludedFailoverTestRouter(t, upstream)
+	request := func() *http.Request {
+		req := httptest.NewRequest(
+			http.MethodPost,
+			"/v1/responses/compact",
+			bytes.NewBufferString(`{"model":"gpt-5.6-sol","input":"hello","stream":false}`),
+		)
+		req.Header.Set("Content-Type", "application/json")
+		return req
+	}
+
+	first := httptest.NewRecorder()
+	router.ServeHTTP(first, request())
+	require.Equal(t, http.StatusBadGateway, first.Code, first.Body.String())
+	require.Equal(t, []int64{63, 64, 68}, upstream.calls())
+
+	upstream.setHealthy()
+	second := httptest.NewRecorder()
+	router.ServeHTTP(second, request())
+	require.Equal(t, http.StatusOK, second.Code, second.Body.String())
+	calls := upstream.calls()
+	require.Len(t, calls, 4)
+	require.Contains(t, []int64{63, 64, 68}, calls[3])
 }
 
 // TestOpenAIGatewayHandlerResponses_FailoverAbortsWhenClientDisconnected 复现

@@ -86,7 +86,7 @@ type DashboardStats struct {
 
 	// 系统运行统计
 	AverageDurationMs       float64 `json:"average_duration_ms"`        // 平均端到端响应时间
-	AverageGatewayLatencyMs float64 `json:"average_gateway_latency_ms"` // 平均网关中转延迟（auth+路由，不含上游/body/排队）
+	AverageGatewayLatencyMs float64 `json:"average_gateway_latency_ms"` // 今日平均网关中转延迟（auth+路由，不含上游/body/排队；不含历史污染样本）
 
 	// 性能指标
 	Rpm int64 `json:"rpm"` // 近5分钟平均每分钟请求数
@@ -129,11 +129,12 @@ type EndpointStat struct {
 	ActualCost  float64 `json:"actual_cost"` // 实际扣除
 }
 
-// GroupUsageSummary represents today's and cumulative cost for a single group.
+// GroupUsageSummary represents today's, yesterday's, and retained-window cost for a single group.
 type GroupUsageSummary struct {
-	GroupID   int64   `json:"group_id"`
-	TodayCost float64 `json:"today_cost"`
-	TotalCost float64 `json:"total_cost"`
+	GroupID       int64   `json:"group_id"`
+	TodayCost     float64 `json:"today_cost"`
+	YesterdayCost float64 `json:"yesterday_cost"`
+	TotalCost     float64 `json:"total_cost"`
 }
 
 // GroupStat represents usage statistics for a single group
@@ -325,6 +326,7 @@ type UsageStats struct {
 	TotalActualCost          float64        `json:"total_actual_cost"`
 	TotalAccountCost         *float64       `json:"total_account_cost,omitempty"`
 	AverageDurationMs        float64        `json:"average_duration_ms"`
+	AverageGatewayLatencyMs  float64        `json:"average_gateway_latency_ms"`
 	Endpoints                []EndpointStat `json:"endpoints,omitempty"`
 	UpstreamEndpoints        []EndpointStat `json:"upstream_endpoints,omitempty"`
 	EndpointPaths            []EndpointStat `json:"endpoint_paths,omitempty"`

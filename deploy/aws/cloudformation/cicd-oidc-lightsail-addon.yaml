@@ -1,13 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  Optional addon for TokenKey Edge Lightsail automation. Two resources:
-  (1) inline policy on the existing GitHub Actions OIDC role granting Lightsail
-  provision APIs, SSM Hybrid Activation, managed-instance SendCommand, iam:PassRole
-  on the Hybrid managed-instance role, and /tokenkey/lightsail/* Parameter Store
-  writes; (2) the SSM Hybrid managed-instance IAM role itself, which Lightsail
-  instances assume after `amazon-ssm-agent -register` so they can callback into
-  SSM (SendCommand stdout/stderr, parameter reads, etc.). Deploy once per
-  account; does not modify prod EC2 Edge stacks.
+  Optional addon for TokenKey Edge Lightsail automation. Owns the GitHub Actions
+  OIDC policy, a transition-only shared SSM Hybrid role, and one least-privilege
+  SSM Hybrid role per deployable Edge. Deploy once per account; does not modify
+  prod EC2 Edge stacks.
 
 Parameters:
   GitHubOidcRoleNames:
@@ -21,16 +17,8 @@ Parameters:
       list when adding new region-scoped OIDC roles in the future.
 
 Resources:
-  # SSM Hybrid managed-instance role: assumed by amazon-ssm-agent -register
-  # on the Lightsail instance. The trust policy is the AWS canonical one for
-  # Systems Manager Hybrid Activations. AmazonSSMManagedInstanceCore gives the
-  # minimum set of permissions for SendCommand callbacks + heartbeat + the
-  # parameter reads the bootstrap user-data does (GHCR_PAT only — public images
-  # need no auth, but the read path is in the bootstrap regardless).
-  #
-  # RoleName is hard-coded (NOT parameterized) on purpose: provision-edge.sh
-  # carries the same literal as its fallback. Single source of truth — any
-  # rename has to land in the same PR for both files, no silent drift.
+  # Transition-only role for already-registered managed instances. Data access
+  # deliberately lives only on the per-Edge roles below.
   LightsailSsmHybridRole:
     Type: AWS::IAM::Role
     Properties:
@@ -47,6 +35,170 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  LightsailSsmHybridRoleUs3:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tokenkey-lightsail-ssm-hybrid-us3
+      Description: SSM Hybrid role isolated to TokenKey Edge us3 recovery data.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: EdgeRecoveryData
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadWriteOwnEnvSecrets
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/us3/stage0/env-secrets-backup"
+              - Sid: ReadWriteOwnPgdumpObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}/edge/us3/pgdump/*"
+              - Sid: ListOwnPgdumpPrefix
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}"
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - edge/us3/pgdump
+                      - edge/us3/pgdump/*
+
+  LightsailSsmHybridRoleUs4:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tokenkey-lightsail-ssm-hybrid-us4
+      Description: SSM Hybrid role isolated to TokenKey Edge us4 recovery data.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: EdgeRecoveryData
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadWriteOwnEnvSecrets
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/us4/stage0/env-secrets-backup"
+              - Sid: ReadWriteOwnPgdumpObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}/edge/us4/pgdump/*"
+              - Sid: ListOwnPgdumpPrefix
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}"
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - edge/us4/pgdump
+                      - edge/us4/pgdump/*
+
+  LightsailSsmHybridRoleUs5:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tokenkey-lightsail-ssm-hybrid-us5
+      Description: SSM Hybrid role isolated to TokenKey Edge us5 recovery data.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: EdgeRecoveryData
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadWriteOwnEnvSecrets
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/us5/stage0/env-secrets-backup"
+              - Sid: ReadWriteOwnPgdumpObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}/edge/us5/pgdump/*"
+              - Sid: ListOwnPgdumpPrefix
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}"
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - edge/us5/pgdump
+                      - edge/us5/pgdump/*
+
+  LightsailSsmHybridRoleUs6:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tokenkey-lightsail-ssm-hybrid-us6
+      Description: SSM Hybrid role isolated to TokenKey Edge us6 recovery data.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: EdgeRecoveryData
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadWriteOwnEnvSecrets
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/us6/stage0/env-secrets-backup"
+              - Sid: ReadWriteOwnPgdumpObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}/edge/us6/pgdump/*"
+              - Sid: ListOwnPgdumpPrefix
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::tokenkey-prod-pgdump-${AWS::AccountId}"
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - edge/us6/pgdump
+                      - edge/us6/pgdump/*
 
   LightsailEdgeAddonPolicy:
     Type: AWS::IAM::Policy
@@ -102,7 +254,7 @@ Resources:
             # requires the caller to have iam:PassRole on that role.
             Effect: Allow
             Action: iam:PassRole
-            Resource: !GetAtt LightsailSsmHybridRole.Arn
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid-*"
             Condition:
               StringEquals:
                 iam:PassedToService: ssm.amazonaws.com
@@ -110,6 +262,7 @@ Resources:
             Effect: Allow
             Action:
               - ssm:SendCommand
+              - ssm:UpdateManagedInstanceRole
               # DeregisterManagedInstance: recreate provisioning deletes the old
               # Lightsail instance but its SSM managed-instance (mi-*) registration
               # lingers Online and stays tagged EdgeId=<id>; the next provision's
@@ -119,6 +272,7 @@ Resources:
             Resource:
               - !Sub "arn:aws:ssm:*:${AWS::AccountId}:managed-instance/*"
               - !Sub "arn:aws:ssm:*::document/AWS-RunShellScript"
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid-*"
           - Sid: SsmLightsailStateParams
             Effect: Allow
             Action:
@@ -137,5 +291,8 @@ Resources:
 
 Outputs:
   SsmHybridRoleName:
-    Description: Name of the SSM Hybrid managed-instance role; pass to `aws ssm create-activation --iam-role`.
+    Description: Transition-only shared role name; new activations use the per-Edge role prefix.
     Value: !Ref LightsailSsmHybridRole
+  SsmHybridRolePrefix:
+    Description: Prefix for per-Edge SSM Hybrid managed-instance roles.
+    Value: tokenkey-lightsail-ssm-hybrid-

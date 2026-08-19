@@ -1285,7 +1285,12 @@
         "UseKeyGuide",
         ":routing-mode=\"routingMode\""
       ],
-      "rationale": "Thin dialog wrapper delegating to UseKeyGuide.vue (quickstart SSOT). An upstream merge restoring a monolithic UseKeyModal would drop the shared guide and fork maintenance again; these anchors ensure the wrapper still forwards routingMode and embeds UseKeyGuide."
+      "must_not_contain": [
+        "const clientTabs = computed",
+        "const currentFiles = computed",
+        "function generateOpenCodeFile("
+      ],
+      "rationale": "Thin dialog wrapper delegating to UseKeyGuide.vue (quickstart SSOT). An upstream merge restoring a monolithic UseKeyModal can retain the shared guide while also restoring the legacy duplicate, so the negative anchors reject the old client-tab and snippet state machine as well as the positive anchors requiring routingMode forwarding."
     },
     {
       "path": "frontend/src/views/user/QuickstartView.vue",
@@ -1853,6 +1858,65 @@
         "'peak_input_per_1M'"
       ],
       "rationale": "The admin pricing CSV is what sales quotes from, so it must not disagree with /pricing. Bracket bounds come from formatTokenBound in the shared owner (a label change lands in the sheet and the UI together) and each bracket carries its own cache-read price — omitting it implied the flat first-tier cache price applied at every context length."
+    },
+    {
+      "path": "frontend/src/api/api-key-capabilities.ts",
+      "must_contain": [
+        "export interface APIKeyCapabilityModel",
+        "export async function getAPIKeyCapabilities(",
+        "`/me/api-keys/${apiKeyId}/capabilities`"
+      ],
+      "rationale": "Typed frontend owner for the authenticated per-key capability contract. Quickstart and Studio must consume this API instead of independently intersecting user entitlements with public pricing data."
+    },
+    {
+      "path": "frontend/src/composables/useTkUseKey.ts",
+      "must_contain": [
+        "export type UseKeyDiscoveryProtocol",
+        "const capabilities = await getAPIKeyCapabilities(id)",
+        "function modelsForFlavor(",
+        "return model.protocols.includes(protocol)",
+        "const model = effectiveModel(flavor, options.protocol ?? flavor)"
+      ],
+      "rationale": "Quickstart automatic-key menus consume the capability SSOT and keep Codex discovery distinct from raw OpenAI protocol discovery. Removing the explicit protocol filter leaks Codex-only models into OpenAI clients and OpenAI-only models into Codex."
+    },
+    {
+      "path": "frontend/src/components/keys/UseKeyGuide.vue",
+      "must_contain": [
+        "const activeDiscoveryProtocol = computed<UseKeyDiscoveryProtocol | null>",
+        "tk.modelsForFlavor(activeFlavor.value, activeDiscoveryProtocol.value)",
+        "tk.effectiveModel(activeFlavor.value, activeDiscoveryProtocol.value)",
+        "protocol: activeDiscoveryProtocol.value ?? undefined"
+      ],
+      "rationale": "Client selection must drive the discovery protocol passed to the shared Quickstart owner. The wire flavor remains OpenAI-compatible for snippets, but Codex tabs require the Codex capability subset."
+    },
+    {
+      "path": "frontend/src/views/user/studio/MediaStudioView.vue",
+      "must_contain": [
+        "const groupCapabilityModalities = ref<",
+        "function capabilityModalitiesOf(",
+        "const capabilities = await getAPIKeyCapabilities(k.id)",
+        "servedModalities: servedModalitiesOf(k)"
+      ],
+      "rationale": "Studio stores the automatic key's model modalities from the capability owner and uses them for key selection and per-tab model membership. Public pricing enriches cost metadata only; it must not re-infer whether a key can chat, generate images, or generate video."
+    },
+    {
+      "path": "frontend/src/constants/studioMediaPresentations.tk.ts",
+      "must_contain": [
+        "servedModalities?: ReadonlySet<PickerModality>",
+        "o.servedModalities.has(modality)"
+      ],
+      "rationale": "The shared modality key picker accepts explicit capability modalities for automatic keys while preserving catalog inference for direct keys. Without this branch Studio can select a key solely because public pricing classifies a same-named model as media-capable."
+    },
+    {
+      "path": "frontend/src/components/admin/usage/UsageStatsCards.vue",
+      "must_contain": [
+        "t('usage.avgGatewayLatency')",
+        "formatDuration(stats?.average_gateway_latency_ms || 0)"
+      ],
+      "must_not_contain": [
+        "t('usage.avgDuration')"
+      ],
+      "rationale": "User and admin /usage summary cards share UsageStatsCards. The card must bind selected-range gateway transfer latency, not end-to-end average_duration_ms, or the page again shows 10s+ LLM time as if it were gateway delay."
     }
   ]
 }

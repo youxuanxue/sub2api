@@ -121,6 +121,7 @@
       "must_contain": [
         "TestResolveStashThinking_IgnoresReasoningPlaceholder",
         "TestResolveStashThinking_NoSignatureNoTaglessFallback",
+        "TestResolveStashThinking_NoReliableSplitReturnsEmpty",
         "TestExtractTaglessThinking_SplitsTrailingAnswer"
       ],
       "rationale": "Unit evidence for tagless upstream reasoning extraction and placeholder suppression. Losing these tests lets sig-only QA blobs return when reasoningContentEvent.text is ... and assistantResponseEvent carries tagless reasoning."
@@ -348,7 +349,7 @@
         "classifyAndRecordKiroForwardError",
         "OnReasoningContent: func(text, signature string)",
         "thinkingSigBuf",
-        "rawAssistantBuf",
+        "sigTurnRawAssistant",
         "ResolveStashThinking",
         "publishKiroInternalThinkingSideChannel"
       ],
@@ -429,6 +430,7 @@
         "TestKiroGatewayService_Forward_Streaming_WithReasoningEvent",
         "TestKiroGatewayService_Forward_Streaming_StashesReasoningSignature",
         "TestKiroGatewayService_Forward_Streaming_StashesTaglessThinkingWithSignatureLiveOrder",
+        "TestKiroGatewayService_Forward_NonStreaming_StashesTaglessThinkingWithSignatureLiveOrder",
         "TestKiroGatewayService_Forward_Streaming_OmitsSplitInlineThinkingTags"
       ],
       "rationale": "Client-wire compatibility guard for unsigned Kiro reasoning plus forward-path evidence that upstream reasoningContentEvent signatures reach the internal QA stash. Kiro reasoning is retained through the internal side channel but must not be forged into redacted_thinking blocks: the hash placeholder is not Anthropic-signed or replayable and breaks strict clients. These tests pin explicit reasoning events, signature stash wiring, and split inline thinking on the full streaming forward path so an upstream merge cannot silently restore the incompatible block or drop signatures."
@@ -861,12 +863,32 @@
       "rationale": "Two Kiro account-edit anchors. (1) Surface-C mirror-stub pool selector: the operator's only no-SQL way to set credentials.mirror_platform=kiro on an existing edge stub (e.g. kiro-edge-us1). Losing it strands the live fix: the kiro stub keeps mirroring the anthropic Σ. (2) Kiro OAuth credential edit wiring: AccountKiroPlatformFields + populate/submit bundle let operators rotate access_token/refresh_token, region/auth_method, IdC client_id/client_secret, Profile ARN, and ToS acknowledgement without delete+recreate. An upstream merge that rewrites EditAccountModal must preserve this branch or live Kiro accounts become unrepairable from the UI."
     },
     {
+      "path": "frontend/src/utils/accountPlatformFilters.ts",
+      "must_contain": [
+        "isKiroRelayStubAccount",
+        "PLATFORM_KIRO",
+        "PLATFORM_ANTHROPIC"
+      ],
+      "rationale": "Admin account platform filtering keeps native Kiro and Anthropic Kiro-mirror stubs under the Kiro option, and excludes those stubs from Anthropic. Losing this helper either hides live Kiro relay stubs from the Kiro filter or mixes them back into Anthropic after upstream-shaped account-filter UI rewrites."
+    },
+    {
       "path": "frontend/src/components/admin/account/AccountTableFilters.vue",
       "must_contain": [
-        "__kiro_stub__",
-        "kiroStubPlatform"
+        "useNewApiChannelTypes",
+        "isNewApiPlatform",
+        "channel_type",
+        "PLATFORM_NEWAPI"
       ],
-      "rationale": "Admin account platform filtering must keep the first-class Kiro Stub virtual platform. Losing this option removes the no-SQL way to list prod anthropic API-key mirror stubs that target the edge Kiro pool (credentials.mirror_platform=kiro), making the live Kiro relay topology hard to audit after upstream-shaped account-filter UI rewrites."
+      "rationale": "Admin account list keeps the Extension Engine channel_type dropdown on the upstream-shaped filter bar. Losing this Select mixes Qwen/DeepSeek/Vertex into one newapi list after an upstream filter rewrite."
+    },
+    {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": [
+        "accountKiroRelayStubPredicate",
+        "PlatformAnthropic",
+        "ChannelTypeEQ"
+      ],
+      "rationale": "Account list filtering must keep native Kiro plus Anthropic Kiro-mirror stubs under Kiro, exclude those stubs from Anthropic, and apply channel_type for Extension Engine. An upstream rewrite of accountListFilteredQuery can drop either predicate while compile and unrelated sentinels still pass."
     },
     {
       "path": "frontend/src/constants/mirrorPlatformOptions.tk.ts",

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Off-box the prod .env SECRETS to an SSM SecureString (operator-run).
+# Off-box Stage0 .env secrets to an SSM SecureString (operator-run).
 #
 # Why a separate ops script (not in tokenkey-pgdump.sh): the secrets rotate rarely,
 # the dump script is already at the SSM Standard-tier embed-size limit, and we do NOT
@@ -24,6 +24,7 @@
 #   ops/stage0/backup-env-secrets-via-ssm.sh <instance_id> [comment]
 # Env:
 #   TK_ENV_SECRETS_PARAM   SSM param name (default /tokenkey/prod/stage0/env-secrets-backup)
+#   TK_ENV_SECRETS_SOURCE  source file (default /var/lib/tokenkey/.env)
 #   AWS_REGION / AWS_DEFAULT_REGION   region for SSM (optional)
 #   STAGE0_SSM_TIMEOUT_SECONDS        SSM poll timeout (default 180)
 #   STAGE0_SSM_OUTPUT_DIR             where to drop ssm-params/stdout/stderr (default .)
@@ -32,6 +33,7 @@ set -euo pipefail
 INSTANCE_ID="${1:-${INSTANCE_ID:-}}"
 COMMENT="${2:-${SSM_COMMENT:-backup-env-secrets}}"
 PARAM="${TK_ENV_SECRETS_PARAM:-/tokenkey/prod/stage0/env-secrets-backup}"
+SOURCE="${TK_ENV_SECRETS_SOURCE:-/var/lib/tokenkey/.env}"
 TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-180}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
 
@@ -39,6 +41,8 @@ if [[ -z "${INSTANCE_ID}" ]]; then
   echo "backup_env_secrets_via_ssm: instance id is required" >&2
   exit 1
 fi
+[[ "${PARAM}" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "backup_env_secrets_via_ssm: invalid parameter name" >&2; exit 1; }
+[[ "${SOURCE}" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "backup_env_secrets_via_ssm: invalid source path" >&2; exit 1; }
 
 ssm_region_args=()
 if [[ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
@@ -57,6 +61,7 @@ stderr_file="${OUTPUT_DIR}/stderr.txt"
 HOST_B64="$(base64 <<HOSTEOF | tr -d '\n'
 set -euo pipefail
 PARAM="${PARAM}"
+SOURCE="${SOURCE}"
 T=\$(mktemp); C=\$(mktemp); chmod 600 "\$T" "\$C"
 cleanup() {
   if command -v shred >/dev/null 2>&1; then
@@ -66,13 +71,22 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-grep -E '^(POSTGRES_PASSWORD|JWT_SECRET|TOTP_ENCRYPTION_KEY)=' /var/lib/tokenkey/.env | sort > "\$T" || true
+awk 'index(\$0, "POSTGRES_PASSWORD=") == 1 || index(\$0, "JWT_SECRET=") == 1 || index(\$0, "TOTP_ENCRYPTION_KEY=") == 1' "\$SOURCE" | sort > "\$T"
 for K in POSTGRES_PASSWORD JWT_SECRET TOTP_ENCRYPTION_KEY; do
   N=\$(awk -v key="\$K" 'index(\$0, key "=") == 1 { count++ } END { print count + 0 }' "\$T")
   if [ "\$N" -ne 1 ]; then
-    echo "::error::expected exactly one \${K} assignment in /var/lib/tokenkey/.env" >&2
+    echo "::error::expected exactly one \${K} assignment in \$SOURCE" >&2
     exit 1
   fi
+  V=\$(awk -F= -v key="\$K" '\$1 == key { print substr(\$0, length(key) + 2) }' "\$T")
+  EXPECTED_LENGTH=64
+  [ "\$K" = POSTGRES_PASSWORD ] && EXPECTED_LENGTH=48
+  if [[ ! "\$V" =~ ^[0-9a-f]+$ ]] || [ "\${#V}" -ne "\$EXPECTED_LENGTH" ]; then
+    echo "::error::invalid secret value for \${K}" >&2
+    unset V
+    exit 1
+  fi
+  unset V
 done
 if aws ssm get-parameter --name "\$PARAM" --with-decryption --query Parameter.Value --output text > "\$C" 2>/dev/null \
     && cmp -s "\$T" "\$C"; then
