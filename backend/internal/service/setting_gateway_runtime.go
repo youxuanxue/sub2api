@@ -146,7 +146,7 @@ const antigravityUserAgentVersionDBTimeout = 5 * time.Second
 // DefaultOpenAICodexVersion is the single source for the forged Codex client
 // version: UA, gateway version header, and usage probe header must all derive
 // from it.
-const DefaultOpenAICodexVersion = "0.147.0"
+const DefaultOpenAICodexVersion = "0.148.0"
 
 // DefaultOpenAICodexUserAgent is the compile-time fallback. Runtime sync may
 // replace its version, but the real CLI OS and terminal fingerprint stays fixed.
