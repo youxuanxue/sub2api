@@ -16,6 +16,24 @@ const userPlatformSuccessMetricsVersion = 1
 // success metrics are introduced. It deliberately uses the runtime timezone,
 // because migration sessions are pinned to UTC for partition safety.
 func (r *dashboardAggregationRepository) BackfillUserPlatformDaily(ctx context.Context) error {
+	if r == nil || r.sql == nil {
+		return nil
+	}
+	if db, ok := r.sql.(*sql.DB); ok {
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("开启用户平台成功指标回填事务: %w", err)
+		}
+		txRepo := newDashboardAggregationRepositoryWithSQL(tx)
+		if err := txRepo.backfillUserPlatformDailyAllOnce(ctx); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("提交用户平台成功指标回填事务: %w", err)
+		}
+		return nil
+	}
 	return r.backfillUserPlatformDailyAllOnce(ctx)
 }
 

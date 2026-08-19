@@ -139,6 +139,7 @@ func TestDashboardAggregationService_RunScheduledAggregationSyncsGroupUsageRollu
 	after := GroupUsageTodayStart(time.Now())
 
 	require.Equal(t, 1, repo.groupRollupCalls)
+	require.Equal(t, 1, repo.userPlatformBackfillCalls)
 	require.Contains(t, []time.Time{before, after}, repo.groupRollupAt)
 }
 
@@ -210,7 +211,7 @@ func TestDashboardAggregationService_StartupGroupSyncUsesIndependentLongLivedLea
 	require.NotEqual(t, dashboardAggregationLeaderLockKey, cache.acquireKeys[0])
 	require.Len(t, cache.acquireTTLs, 1)
 	require.Greater(t, cache.acquireTTLs[0], defaultDashboardAggregationBackfillTimeout)
-	require.Equal(t, 1, repo.userPlatformBackfillCalls)
+	require.Equal(t, 0, repo.userPlatformBackfillCalls)
 	require.Equal(t, 1, repo.groupRollupCalls)
 }
 
