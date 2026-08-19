@@ -475,6 +475,8 @@ import { isChannelMonitorThroughputHidden } from '@/utils/featureFlags'
 import {
   expandPublicPlatforms,
   getPublicPlatformLabel,
+  normalizePublicMonitorMatrixRows,
+  normalizePublicMonitorModelRows,
   normalizePublicPlatform,
 } from '@/utils/publicPlatforms'
 import * as api from '@/api/channelMonitorV2'
@@ -660,10 +662,10 @@ const bootstrapPercent = computed(() => {
 const matrixRows = computed(() => {
   const items = matrix.value?.items || []
   // platform_group views should only show real groups, never bare platform placeholders.
-  if (matrixGroupBy.value === 'platform_group' || matrixGroupBy.value === 'platform_group_model') {
-    return items.filter((row) => row.group_id != null && Number(row.group_id) > 0)
-  }
-  return items
+  const filtered = (matrixGroupBy.value === 'platform_group' || matrixGroupBy.value === 'platform_group_model')
+    ? items.filter((row) => row.group_id != null && Number(row.group_id) > 0)
+    : items
+  return isAdmin.value ? filtered : normalizePublicMonitorMatrixRows(filtered)
 })
 
 function csv(value: unknown) {
@@ -800,7 +802,8 @@ async function loadTab(signal?: AbortSignal, id = sequence) {
   const currentFilter = requestFilter()
   try {
     if (activeTab.value === 'models') {
-      modelRows.value = (await api.getModels(currentFilter, isAdmin.value, signal)).items || []
+      const items = (await api.getModels(currentFilter, isAdmin.value, signal)).items || []
+      modelRows.value = isAdmin.value ? items : normalizePublicMonitorModelRows(items)
     } else if (activeTab.value === 'errors') {
       errorRows.value = (await api.getErrors(currentFilter, isAdmin.value, signal)).items || []
     } else {

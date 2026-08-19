@@ -100,6 +100,7 @@ import {
   PUBLIC_PLATFORM_ORDER,
   getPublicPlatformLabel,
   normalizePlatformDashboardStats,
+  normalizePublicPlatformQuotas,
 } from '@/utils/publicPlatforms'
 
 interface PlatformCard extends PlatformDashboardStats {
@@ -120,17 +121,13 @@ const OTHER_THRESHOLD = 0.0001
 
 const cards = computed<PlatformCard[]>(() => {
   const stats = new Map(publicStats.value.map((item) => [item.platform, item]))
-  const quotas = new Map<string, PlatformQuotaItem>(
-    (props.platformQuotas ?? []).map((item) => [item.platform, item]),
-  )
+  const publicQuotas = normalizePublicPlatformQuotas(props.platformQuotas)
+    .filter((quota) => quota.platform !== 'gemini' && quota.platform !== 'antigravity')
+  const quotas = new Map<string, PlatformQuotaItem>(publicQuotas.map((item) => [item.platform, item]))
   const platforms = new Set(stats.keys())
 
-  // Raw Gemini/Antigravity quotas remain internal enforcement channels. Do not
-  // surface them as customer-facing cards or attach misleading combined limits.
-  for (const quota of props.platformQuotas ?? []) {
-    if (quota.platform !== 'gemini' && quota.platform !== 'antigravity') {
-      platforms.add(quota.platform)
-    }
+  for (const quota of publicQuotas) {
+    platforms.add(quota.platform)
   }
 
   const result = [...platforms].map<PlatformCard>((platform) => {

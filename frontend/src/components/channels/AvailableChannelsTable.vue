@@ -68,11 +68,11 @@
             <span
               :class="[
                 'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium uppercase',
-                platformBadgeClass(section.platform),
+                platformBadgeClass(getPublicPlatformStyleKey(section.platform)),
               ]"
             >
-              <PlatformIcon :platform="section.platform as GroupPlatform" size="xs" />
-              {{ section.platform }}
+              <PlatformIcon :platform="getPublicPlatformStyleKey(section.platform) as GroupPlatform" size="xs" />
+              {{ getPublicPlatformLabel(section.platform) }}
             </span>
           </td>
 
@@ -97,7 +97,7 @@
                 >
                   <GroupBadge
                     :name="g.name"
-                    :platform="g.platform as GroupPlatform"
+                    :platform="getPublicPlatformStyleKey(g.platform) as GroupPlatform"
                     :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                     :rate-multiplier="g.rate_multiplier"
                     :user-rate-multiplier="userGroupRates[g.id] ?? null"
@@ -132,7 +132,7 @@
                 >
                   <GroupBadge
                     :name="g.name"
-                    :platform="g.platform as GroupPlatform"
+                    :platform="getPublicPlatformStyleKey(g.platform) as GroupPlatform"
                     :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                     :rate-multiplier="g.rate_multiplier"
                     :user-rate-multiplier="userGroupRates[g.id] ?? null"
@@ -206,11 +206,11 @@
             <span
               :class="[
                 'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium uppercase',
-                platformBadgeClass(section.platform),
+                platformBadgeClass(getPublicPlatformStyleKey(section.platform)),
               ]"
             >
-              <PlatformIcon :platform="section.platform as GroupPlatform" size="xs" />
-              {{ section.platform }}
+              <PlatformIcon :platform="getPublicPlatformStyleKey(section.platform) as GroupPlatform" size="xs" />
+              {{ getPublicPlatformLabel(section.platform) }}
             </span>
 
             <dl class="mt-3 space-y-3">
@@ -238,7 +238,7 @@
                       <GroupBadge
                         class="max-w-full"
                         :name="g.name"
-                        :platform="g.platform as GroupPlatform"
+                        :platform="getPublicPlatformStyleKey(g.platform) as GroupPlatform"
                         :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                         :rate-multiplier="g.rate_multiplier"
                         :user-rate-multiplier="userGroupRates[g.id] ?? null"
@@ -273,7 +273,7 @@
                       <GroupBadge
                         class="max-w-full"
                         :name="g.name"
-                        :platform="g.platform as GroupPlatform"
+                        :platform="getPublicPlatformStyleKey(g.platform) as GroupPlatform"
                         :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                         :rate-multiplier="g.rate_multiplier"
                         :user-rate-multiplier="userGroupRates[g.id] ?? null"
@@ -330,6 +330,7 @@ import SupportedModelChip from './SupportedModelChip.vue'
 import type { UserAvailableChannel, UserAvailableGroup, UserChannelPlatformSection } from '@/api/channels'
 import type { GroupPlatform, SubscriptionType } from '@/types'
 import { platformBadgeClass } from '@/utils/platformColors'
+import { getPublicPlatformLabel, getPublicPlatformStyleKey } from '@/utils/publicPlatforms'
 import { useAppStore } from '@/stores/app'
 import { hasPeakRate as groupHasPeakRate, formatPeakRateWindow, serverTimezoneLabel } from '@/utils/peak-rate'
 

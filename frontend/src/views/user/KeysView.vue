@@ -153,7 +153,7 @@
                 <GroupBadge
                   v-if="row.group"
                   :name="row.group.name"
-                  :platform="row.group.platform"
+                  :platform="getPublicPlatformStyleKey(row.group.platform) as GroupPlatform"
                   :subscription-type="row.group.subscription_type"
                   :rate-multiplier="row.group.rate_multiplier"
                   :user-rate-multiplier="userGroupRates[row.group.id]"
@@ -522,7 +522,7 @@
               <GroupBadge
                 v-if="option"
                 :name="(option as unknown as GroupOption).label"
-                :platform="(option as unknown as GroupOption).platform"
+                :platform="getPublicPlatformStyleKey((option as unknown as GroupOption).platform) as GroupPlatform"
                 :subscription-type="(option as unknown as GroupOption).subscriptionType"
                 :rate-multiplier="(option as unknown as GroupOption).rate"
                 :user-rate-multiplier="(option as unknown as GroupOption).userRate"
@@ -537,7 +537,7 @@
             <template #option="{ option, selected }">
               <GroupOptionItem
                 :name="(option as unknown as GroupOption).label"
-                :platform="(option as unknown as GroupOption).platform"
+                :platform="getPublicPlatformStyleKey((option as unknown as GroupOption).platform) as GroupPlatform"
                 :subscription-type="(option as unknown as GroupOption).subscriptionType"
                 :rate-multiplier="(option as unknown as GroupOption).rate"
                 :user-rate-multiplier="(option as unknown as GroupOption).userRate"
@@ -1165,7 +1165,7 @@
           >
             <GroupOptionItem
               :name="option.label"
-              :platform="option.platform"
+              :platform="getPublicPlatformStyleKey(option.platform) as GroupPlatform"
               :subscription-type="option.subscriptionType"
               :rate-multiplier="option.rate"
               :user-rate-multiplier="option.userRate"
@@ -1232,6 +1232,7 @@ import { useCcSwitchImport } from '@/composables/useCcSwitchImport'
 import { isUniversalKey } from '@/utils/studioUniversalKey.tk'
 import { STATUS_ACTIVE } from '@/constants/channel'
 import { PLATFORM_ANTIGRAVITY } from '@/constants/gatewayPlatforms'
+import { getPublicPlatformStyleKey } from '@/utils/publicPlatforms'
 
 // Helper to format date for datetime-local input
 const formatDateTimeLocal = (isoDate: string): string => {

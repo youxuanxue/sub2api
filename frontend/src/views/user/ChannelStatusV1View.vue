@@ -46,6 +46,7 @@ import MonitorCardGrid from '@/components/user/monitor/MonitorCardGrid.vue'
 import MonitorDetailDialog from '@/components/user/MonitorDetailDialog.vue'
 import { DEFAULT_INTERVAL_SECONDS, STATUS_OPERATIONAL } from '@/constants/channelMonitor'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
+import { normalizePublicMonitorViews } from '@/utils/publicPlatforms'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -92,7 +93,7 @@ async function reload(silent = false) {
   try {
     const res = await listChannelMonitorViews({ signal: ctrl.signal })
     if (ctrl.signal.aborted || abortController !== ctrl) return
-    items.value = res.items || []
+    items.value = normalizePublicMonitorViews(res.items)
   } catch (err: unknown) {
     const e = err as { name?: string; code?: string }
     if (e?.name === 'AbortError' || e?.code === 'ERR_CANCELED') return
