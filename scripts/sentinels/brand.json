@@ -7,9 +7,10 @@
       "must_contain": [
         "<title>TokenKey",
         "href=\"https://tokenkey.dev/\"",
-        "content=\"https://tokenkey.dev\""
+        "content=\"https://tokenkey.dev\"",
+        "href=\"/logo.png\""
       ],
-      "rationale": "Default embedded SPA browser tab title before JS runs; regressing to Sub2API breaks the single-product narrative for every fresh load. Canonical/og:url must stay on the human apex host after apex-domain phase 2."
+      "rationale": "Default embedded SPA browser tab title before JS runs; regressing to Sub2API breaks the single-product narrative for every fresh load. Canonical/og:url must stay on the human apex host after apex-domain phase 2. The PNG favicon must stay on /logo.png (TokenKey mark); /logo.svg is the upstream Sub2API asset and must not become the default tab icon."
     },
     {
       "path": "frontend/src/router/title.ts",

@@ -24,6 +24,9 @@ func nativeOpenAIBaseURLForAccount(account *Account) string {
 	if account == nil {
 		return ""
 	}
+	if isCloudwiseRelayAccount(account) {
+		return strings.TrimSpace(account.GetCredential("base_url"))
+	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
 		return newapiintegration.NormalizeArkChannelBaseURL(account.ChannelType, account.GetBaseURL())
 	}
@@ -33,6 +36,9 @@ func nativeOpenAIBaseURLForAccount(account *Account) string {
 func nativeOpenAIApiKeyForAccount(account *Account) string {
 	if account == nil {
 		return ""
+	}
+	if isCloudwiseRelayAccount(account) {
+		return strings.TrimSpace(account.GetCredential("api_key"))
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
 		return strings.TrimSpace(account.GetCredential("api_key"))

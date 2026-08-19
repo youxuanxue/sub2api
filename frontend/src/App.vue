@@ -11,7 +11,7 @@ import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore, 
 import { getSetupStatus } from '@/api/setup'
 import { isNetworkError } from '@/api/client.tk'
 
-import { updateFavicon } from '@/utils/branding'
+import { DEFAULT_SITE_LOGO, updateFavicon } from '@/utils/branding'
 
 const router = useRouter()
 const route = useRoute()
@@ -34,7 +34,7 @@ function updateDocumentTitle() {
 watch(
   () => appStore.siteLogo,
   (newLogo) => {
-    updateFavicon(newLogo || '/favicon.ico')
+    updateFavicon(newLogo || DEFAULT_SITE_LOGO)
   },
   { immediate: true }
 )

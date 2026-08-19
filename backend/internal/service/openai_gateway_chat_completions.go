@@ -596,7 +596,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			return false
 		}
 		observer.ObserveOpenAI([]byte(payload), event.Type)
-		stashOpenAIEncryptedReasoningFromSSE(c, []byte(payload))
+		observeOpenAIResponsesEvent(c, []byte(payload))
 		refusalDetector.ObservePayload([]byte(payload))
 
 		// Nested evt.Response.Usage takes precedence over top-level evt.Usage:

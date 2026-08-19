@@ -610,7 +610,8 @@ func TestIsEdgeNode(t *testing.T) {
 // TestIsEdgeSuppressedAlertRule pins WHICH rules are silenced on a mirror-relay
 // edge. The retired routing-capacity rule stays defensively suppressed, and both
 // real-user experience rules (P0 user-visible + P1 client-visible) are prod-only.
-// Capacity/error signals that ARE meaningful on an edge must still page.
+// Capacity/error signals that ARE meaningful on an edge must still page;
+// upstream_error_rate is demoted to P1 rather than suppressed.
 func TestIsEdgeSuppressedAlertRule(t *testing.T) {
 	t.Parallel()
 	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "routing_capacity_rejection_count"}))
@@ -623,21 +624,52 @@ func TestIsEdgeSuppressedAlertRule(t *testing.T) {
 	require.False(t, isEdgeSuppressedAlertRule(nil))
 }
 
+// TestEffectiveOpsAlertPageSeverity pins the us4-class demotion: an edge-local
+// leftover P0 upstream_error_rate is not end-user visible (prod failovers to
+// another edge), so the stored/paged severity must be P1. tk_087 stores the
+// 20% rule as P1 already; a leftover P0 copy still remaps. Other P0 rules on
+// an edge are unchanged.
+func TestEffectiveOpsAlertPageSeverity(t *testing.T) {
+	t.Parallel()
+
+	p0Upstream := &OpsAlertRule{Name: "上游错误率极高", MetricType: "upstream_error_rate", Severity: "P0"}
+	p1Upstream := &OpsAlertRule{Name: "上游错误率偏高", MetricType: "upstream_error_rate", Severity: "P1"}
+	p0Pool := &OpsAlertRule{MetricType: "pool_load_rate", Severity: "P0"}
+
+	require.Equal(t, "P1", effectiveOpsAlertPageSeverity(p0Upstream, true))
+	require.Equal(t, "P0", effectiveOpsAlertPageSeverity(p0Upstream, false))
+	require.Equal(t, "P1", effectiveOpsAlertPageSeverity(p1Upstream, true))
+	require.Equal(t, "P1", effectiveOpsAlertPageSeverity(p1Upstream, false))
+	require.Equal(t, "P0", effectiveOpsAlertPageSeverity(p0Pool, true))
+	require.Equal(t, "P0", effectiveOpsAlertPageSeverity(p0Pool, false))
+	require.Equal(t, "", effectiveOpsAlertPageSeverity(nil, true))
+	require.True(t, isEdgeNonUserFacingAlertRule(p0Upstream))
+	require.False(t, isEdgeNonUserFacingAlertRule(p1Upstream))
+	require.False(t, isEdgeNonUserFacingAlertRule(p0Pool))
+	require.False(t, isEdgeNonUserFacingAlertRule(nil))
+}
+
 func TestShouldEvaluateAlertRuleOnNode(t *testing.T) {
 	t.Parallel()
 
 	userVisibleRule := &OpsAlertRule{MetricType: OpsAlertMetricUserVisibleFailureCount}
 	clientVisibleRule := &OpsAlertRule{MetricType: OpsAlertMetricClientVisibleFailureCount}
 	routingRule := &OpsAlertRule{MetricType: OpsAlertMetricRoutingCapacityRejectionCount}
+	upstreamRate := &OpsAlertRule{Name: "上游错误率极高", MetricType: "upstream_error_rate", Severity: "P1", Threshold: 20}
 
 	edge := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api-us6.tokenkey.dev"}}}
 	require.False(t, edge.shouldEvaluateAlertRuleOnNode(userVisibleRule), "user-visible P0 is prod-only")
 	require.False(t, edge.shouldEvaluateAlertRuleOnNode(clientVisibleRule), "client-visible P1 is prod-only")
 	require.True(t, edge.shouldEvaluateAlertRuleOnNode(routingRule), "retired routing rule is not changed at evaluator level")
+	require.True(t, edge.shouldEvaluateAlertRuleOnNode(upstreamRate), "20% upstream_error_rate is edge-only P1")
 
 	prod := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api.tokenkey.dev"}}}
 	require.True(t, prod.shouldEvaluateAlertRuleOnNode(userVisibleRule))
 	require.True(t, prod.shouldEvaluateAlertRuleOnNode(clientVisibleRule))
+	require.False(t, prod.shouldEvaluateAlertRuleOnNode(upstreamRate), "prod must not evaluate upstream_error_rate")
+	require.True(t, isEdgeOnlyAlertRule(upstreamRate))
+	require.False(t, isEdgeOnlyAlertRule(userVisibleRule))
+	require.False(t, isEdgeOnlyAlertRule(nil))
 }
 
 // TestMaybeSendAlertNotificationsEdgeSuppression verifies the composed gate: on an
@@ -651,6 +683,11 @@ func TestMaybeSendAlertNotificationsEdgeSuppression(t *testing.T) {
 	edge := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api-us6.tokenkey.dev"}}}
 	prod := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api.tokenkey.dev"}}}
 	require.True(t, edge.isEdgeNode())
+
+	upstreamRate := &OpsAlertRule{MetricType: "upstream_error_rate", Severity: "P1", Threshold: 20}
+	prodUpstream := prod.maybeSendAlertNotifications(context.Background(), nil, upstreamRate, &OpsAlertEvent{})
+	require.False(t, prodUpstream.EmailSent)
+	require.False(t, prodUpstream.FeishuSent, "prod must not page leftover upstream_error_rate events")
 
 	for _, metricType := range []string{
 		"routing_capacity_rejection_count",

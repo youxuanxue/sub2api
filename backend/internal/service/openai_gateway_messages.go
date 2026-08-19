@@ -1053,7 +1053,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			return false
 		}
 		observer.ObserveOpenAI([]byte(payload), event.Type)
-		stashOpenAIEncryptedReasoningFromSSE(c, []byte(payload))
+		observeOpenAIResponsesEvent(c, []byte(payload))
 
 		// 仅按兼容转换器支持的终止事件提取 usage，避免无意扩大事件语义。
 		switch event.Type {

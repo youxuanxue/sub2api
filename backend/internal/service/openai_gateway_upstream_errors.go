@@ -147,6 +147,13 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 		if strings.Contains(lower, "selected model is at capacity") {
 			return true
 		}
+		// Codex / ChatGPT often wrap capacity 400 as invalid_request_error with
+		// this message and no server_is_overloaded code. Treat it as transient so
+		// GPT 专线 can leave a saturated edge OAuth account for a sibling APIKey
+		// (e.g. tokensea) instead of returning a terminal client 400.
+		if strings.Contains(lower, "servers are currently overloaded") {
+			return true
+		}
 		return strings.Contains(lower, "you can retry your request") &&
 			strings.Contains(lower, "help.openai.com") &&
 			strings.Contains(lower, "request id")

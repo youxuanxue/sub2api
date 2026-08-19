@@ -282,6 +282,16 @@ func TestIsOpenAITransientProcessingError(t *testing.T) {
 	))
 
 	require.True(t, isOpenAITransientProcessingError(
+		http.StatusBadRequest,
+		"Our servers are currently overloaded. Please try again later.",
+		[]byte(`{"type":"response.failed","response":{"error":{"code":"invalid_request_error","type":"invalid_request_error","message":"Our servers are currently overloaded. Please try again later."}}}`),
+	))
+	require.True(t, openAIStreamFailedEventShouldFailover(
+		[]byte(`{"type":"response.failed","response":{"error":{"code":"invalid_request_error","type":"invalid_request_error","message":"Our servers are currently overloaded. Please try again later."}}}`),
+		"Our servers are currently overloaded. Please try again later.",
+	))
+
+	require.True(t, isOpenAITransientProcessingError(
 		http.StatusServiceUnavailable,
 		"",
 		[]byte(`{"error":{"code":"slow_down","message":"Please retry later."}}`),
