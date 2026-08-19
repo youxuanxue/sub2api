@@ -12,8 +12,9 @@ import (
 // TestSeededAlertRuleStateAfterMigrations pins the enabled-alert-rule contract
 // after all migrations apply: tk_060 seeds user-visible failure P0/P1, tk_061
 // retires routing_capacity_rejection_count (replaced by user_visible_failure_count),
-// tk_087 disables the leftover 20% upstream_error_rate Feishu P0, and tk_036
-// latency rules ship disabled — every enabled rule has a working path.
+// tk_087 deletes the 8% upstream_error_rate P1 and keeps the 20% rule as an
+// edge-only Feishu P1, and tk_036 latency rules ship disabled — every enabled
+// rule has a working path.
 func TestSeededAlertRuleStateAfterMigrations(t *testing.T) {
 	ctx := context.Background()
 
@@ -62,31 +63,38 @@ func TestSeededAlertRuleStateAfterMigrations(t *testing.T) {
 	require.True(t, enabledFor("client_visible_failure_count"),
 		"tk_060 client_visible_failure_count rule must be enabled")
 
-	// tk_087: the 20% upstream_error_rate Feishu P0 is retired. It double-paged
-	// the same provider terminal failures as user_visible_failure_count. The 8%
-	// P1 early-warning rule stays on; it does not send Feishu.
+	// tk_087: delete the 8% early-warning rate rule. Keep the 20% rule enabled
+	// as P1; the evaluator skips it on prod and pages it on edges.
 	type namedRule struct {
 		enabled    bool
 		severity   string
 		metricType string
+		threshold  float64
 	}
 	ruleByName := func(name string) namedRule {
 		var rule namedRule
 		err := integrationDB.QueryRowContext(ctx,
-			`SELECT enabled, severity, metric_type FROM ops_alert_rules WHERE name = $1`,
+			`SELECT enabled, severity, metric_type, threshold FROM ops_alert_rules WHERE name = $1`,
 			name,
-		).Scan(&rule.enabled, &rule.severity, &rule.metricType)
+		).Scan(&rule.enabled, &rule.severity, &rule.metricType, &rule.threshold)
 		require.NoError(t, err, "alert rule %q should be seeded", name)
 		return rule
 	}
-	retiredUpstreamP0 := ruleByName("上游错误率极高")
-	require.False(t, retiredUpstreamP0.enabled,
-		"tk_087 disables 上游错误率极高; user_visible_failure_count is the only prod UX P0")
-	require.Equal(t, "upstream_error_rate", retiredUpstreamP0.metricType)
-	elevatedUpstream := ruleByName("上游错误率偏高")
-	require.True(t, elevatedUpstream.enabled,
-		"8% upstream_error_rate P1 early warning stays enabled")
-	require.Equal(t, "P1", elevatedUpstream.severity)
+	absentByName := func(name string) {
+		var id int64
+		err := integrationDB.QueryRowContext(ctx,
+			`SELECT id FROM ops_alert_rules WHERE name = $1`,
+			name,
+		).Scan(&id)
+		require.Error(t, err, "alert rule %q should be removed", name)
+	}
+	absentByName("上游错误率偏高")
+	edgeUpstream := ruleByName("上游错误率极高")
+	require.True(t, edgeUpstream.enabled,
+		"tk_087 keeps 上游错误率极高 enabled for edge P1 paging")
+	require.Equal(t, "P1", edgeUpstream.severity)
+	require.Equal(t, "upstream_error_rate", edgeUpstream.metricType)
+	require.Equal(t, 20.0, edgeUpstream.threshold)
 
 	// tk_061: routing-capacity P0 retired to avoid double-paging the same incident.
 	absentFor("routing_capacity_rejection_count")

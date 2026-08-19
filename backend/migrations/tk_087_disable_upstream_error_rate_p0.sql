@@ -1,20 +1,20 @@
 -- tk_087_disable_upstream_error_rate_p0.sql
 --
--- Retire the Feishu P0 "上游错误率极高" (upstream_error_rate > 20%).
+-- Delete the 8% P1 "上游错误率偏高" rule on every node. It never sent Feishu
+-- and is leftover early-warning next to the 20% rule.
 --
--- After tk_060/tk_064, prod already pages real user-visible provider/platform
--- terminal failures via user_visible_failure_count ("真实用户体验受损", ≥50 / 5m).
--- The 20% rate rule double-pages the same provider 5xx class on busy windows,
--- and on quiet windows it can still P0 on a handful of failures (rateSampleFloor
--- is 20 requests). That leftover P0 is from tk_014, before the UX count rule
--- existed.
+-- Keep "上游错误率极高" (upstream_error_rate > 20%). Prod already pages real
+-- user-visible terminal failures via user_visible_failure_count, so the
+-- evaluator skips this rate rule on prod. Edges still evaluate it and page
+-- Feishu as P1 (rule severity is flipped here; leftover P0 copies are also
+-- demoted at runtime).
 --
--- Keep the 8% P1 "上游错误率偏高" rule as the single upstream-rate early warning.
--- It does not send Feishu (opsAlertFeishuSeverityAllowed only allows P0 plus
--- client_visible_failure_count).
+-- Remove the 8% default instead of leaving a second unused rate rule.
+-- Firing events are resolved first; silences are cleaned. Historical
+-- ops_alert_events stay; rule_id has no foreign key.
 --
--- Disable rather than delete: historical events keep their rule_id, and the
--- admin rule list shows the retired default. Idempotent: 0 rows on re-run.
+-- Idempotent: once the 8% row is gone each delete matches 0 rows; the 20%
+-- UPDATE is a no-op after the first apply.
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '5min';
@@ -26,20 +26,41 @@ UPDATE ops_alert_events
    AND rule_id IN (
        SELECT id
          FROM ops_alert_rules
+        WHERE name = '上游错误率偏高'
+          AND metric_type = 'upstream_error_rate'
+   );
+
+DO $$
+BEGIN
+    IF to_regclass('public.ops_alert_silences') IS NOT NULL THEN
+        DELETE FROM ops_alert_silences
+         WHERE rule_id IN (
+               SELECT id
+                 FROM ops_alert_rules
+                WHERE name = '上游错误率偏高'
+                  AND metric_type = 'upstream_error_rate'
+           );
+    END IF;
+END $$;
+
+DELETE FROM ops_alert_rules
+ WHERE name = '上游错误率偏高'
+   AND metric_type = 'upstream_error_rate';
+
+UPDATE ops_alert_events
+   SET severity = 'P1'
+ WHERE status = 'firing'
+   AND rule_id IN (
+       SELECT id
+         FROM ops_alert_rules
         WHERE name = '上游错误率极高'
           AND metric_type = 'upstream_error_rate'
    );
 
 UPDATE ops_alert_rules
-   SET enabled = false,
-       description = '已停用：与 prod「真实用户体验受损」(user_visible_failure_count) 飞书 P0 重复。用户侧终态失败只由该计数规则分页；上游比例预警保留「上游错误率偏高」(8%, P1, 不发飞书)。',
+   SET enabled = true,
+       severity = 'P1',
+       description = '仅 edge 评估：上游错误率（provider 端非 429/529 限流错误）超过 20% 且持续 5 分钟触发，飞书 P1。prod 不评估；用户侧终态失败由「真实用户体验受损」(user_visible_failure_count) 飞书 P0 覆盖。',
        updated_at = NOW()
  WHERE name = '上游错误率极高'
-   AND metric_type = 'upstream_error_rate'
-   AND enabled = true;
-
-UPDATE ops_alert_rules
-   SET description = '上游错误率（provider 端非 429/529 限流错误，已排除客户端/网关侧失败与限流）超过 8% 且持续 5 分钟触发。仅作早期预警，不发飞书；用户侧事故由「真实用户体验受损」P0 覆盖。',
-       updated_at = NOW()
- WHERE name = '上游错误率偏高'
    AND metric_type = 'upstream_error_rate';
