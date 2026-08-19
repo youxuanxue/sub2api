@@ -192,6 +192,28 @@ func TestGetModelPricing_GLM52UsesBigModelPriceWithBaseTax(t *testing.T) {
 	require.InDelta(t, glmCNYPerMTokWithTax(28), got.OutputPricePerToken, 1e-12)
 }
 
+// 2026-08-19 prod served_at_fallback: glm-5.3 被 glm-5 家族 floor（¥4/¥18）计费。
+// 官方 BigModel 按量价与 glm-5.2 同档（¥8/¥28/缓存命中 ¥2），必须走自己的 registry owner。
+func TestGetModelPricing_GLM53UsesBigModelPriceNotGLM5Floor(t *testing.T) {
+	svc := newTestBillingService()
+
+	got, err := svc.GetModelPricing("glm-5.3")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+
+	require.InDelta(t, glmCNYPerMTokWithTax(8), got.InputPricePerToken, 1e-12)
+	require.InDelta(t, glmCNYPerMTokWithTax(28), got.OutputPricePerToken, 1e-12)
+	require.InDelta(t, glmCNYPerMTokWithTax(2), got.CacheReadPricePerToken, 1e-12)
+
+	floor, err := svc.GetModelPricing("glm-5")
+	require.NoError(t, err)
+	require.NotNil(t, floor)
+	require.Greater(t, got.InputPricePerToken, floor.InputPricePerToken,
+		"glm-5.3 official list is above the glm-5 family floor; exact owner must win")
+	require.False(t, svc.IsServedViaFamilyFloor("glm-5.3"),
+		"exact overlay owner must stop served_at_fallback")
+}
+
 func TestGetModelPricing_UnknownClaudeModelFallsBackToSonnet(t *testing.T) {
 	svc := newTestBillingService()
 
@@ -527,6 +549,13 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 
 		// ---- 智谱 GLM（BigModel 人民币价 ÷6.7；内部 fallback 保存税前价）----
 		{
+			name:              "glm 5.3 flagship",
+			model:             "glm-5.3",
+			expectedInput:     glmCNYPerMTokPreTax(8),
+			expectedOutput:    floatPtr(glmCNYPerMTokPreTax(28)),
+			expectedCacheRead: floatPtr(glmCNYPerMTokPreTax(2)),
+		},
+		{
 			name:              "glm 5.2 flagship",
 			model:             "glm-5.2",
 			expectedInput:     glmCNYPerMTokPreTax(8),
@@ -613,7 +642,14 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 			model:            "glm-4.5-airx",
 			expectNilPricing: true,
 		},
-		// 关键：5.2 / 5.1 必须先于 5 匹配（避免被 glm-5 抢走）
+		// 关键：5.3 / 5.2 / 5.1 必须先于 5 匹配（避免被 glm-5 抢走）
+		{
+			name:              "glm 5.3 vs glm 5 ordering",
+			model:             "glm-5.3",
+			expectedInput:     glmCNYPerMTokPreTax(8), // = glm-5.3 价格，不是 glm-5 的 ¥4/M
+			expectedOutput:    floatPtr(glmCNYPerMTokPreTax(28)),
+			expectedCacheRead: floatPtr(glmCNYPerMTokPreTax(2)),
+		},
 		{
 			name:              "glm 5.2 vs glm 5 ordering",
 			model:             "glm-5.2",
