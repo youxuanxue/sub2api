@@ -2,6 +2,12 @@ import type { PlatformDashboardStats } from '@/types'
 import type { PlatformUsage } from '@/api/admin/dashboard'
 import type { PlatformQuotaItem } from '@/api/admin/users'
 import type {
+  UserAvailableChannel,
+  UserAvailableGroup,
+  UserChannelPlatformSection,
+  UserSupportedModel,
+} from '@/api/channels'
+import type {
   UserMonitorDetail,
   UserMonitorExtraModel,
   UserMonitorModelDetail,
@@ -136,6 +142,70 @@ export function normalizePublicPlatformQuotas(
       continue
     }
     mergePublicQuota(result[existingIndex], source)
+  }
+  return result
+}
+
+/** Merge user-facing available-channel sections by the public platform key.
+ * Gemini and Antigravity must never appear as separate Google sections. */
+export function normalizePublicAvailableChannels(
+  items: readonly UserAvailableChannel[] | null | undefined,
+): UserAvailableChannel[] {
+  return (items ?? []).map((channel) => {
+    const sections: UserChannelPlatformSection[] = []
+    const sectionIndex = new Map<string, number>()
+    for (const source of channel.platforms ?? []) {
+      const platform = normalizePublicPlatform(source.platform)
+      if (!platform) continue
+      const normalized: UserChannelPlatformSection = {
+        platform,
+        groups: source.groups.map((group) => ({ ...group, platform })),
+        supported_models: source.supported_models.map((model) => ({ ...model, platform })),
+      }
+      const existingIndex = sectionIndex.get(platform)
+      if (existingIndex === undefined) {
+        sectionIndex.set(platform, sections.length)
+        sections.push(normalized)
+        continue
+      }
+      const target = sections[existingIndex]
+      target.groups = mergePublicAvailableGroups(target.groups, normalized.groups)
+      target.supported_models = mergePublicSupportedModels(target.supported_models, normalized.supported_models)
+    }
+    return { ...channel, platforms: sections }
+  })
+}
+
+function mergePublicAvailableGroups(
+  left: UserAvailableGroup[],
+  right: UserAvailableGroup[],
+): UserAvailableGroup[] {
+  const result = left.map((group) => ({ ...group }))
+  const seen = new Set(result.map((group) => group.id))
+  for (const group of right) {
+    if (seen.has(group.id)) continue
+    seen.add(group.id)
+    result.push({ ...group })
+  }
+  return result
+}
+
+function mergePublicSupportedModels(
+  left: UserSupportedModel[],
+  right: UserSupportedModel[],
+): UserSupportedModel[] {
+  const result = left.map((model) => ({ ...model }))
+  const index = new Map(result.map((model, i) => [model.name, i]))
+  for (const model of right) {
+    const existingIndex = index.get(model.name)
+    if (existingIndex === undefined) {
+      index.set(model.name, result.length)
+      result.push({ ...model })
+      continue
+    }
+    if (result[existingIndex].pricing == null && model.pricing != null) {
+      result[existingIndex].pricing = model.pricing
+    }
   }
   return result
 }

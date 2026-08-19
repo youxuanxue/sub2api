@@ -4,12 +4,14 @@ import {
   getPublicPlatformStyleKey,
   getPublicPlatformLabel,
   mergePublicMonitorDetails,
+  normalizePublicAvailableChannels,
   normalizePublicMonitorMatrixRows,
   normalizePublicMonitorViews,
   normalizePublicPlatformQuotas,
   normalizePlatformDashboardStats,
   normalizePlatformUsage,
 } from '../publicPlatforms'
+import type { UserAvailableChannel } from '@/api/channels'
 import { platformAccentColor, platformBadgeClass, platformLabel } from '../platformColors'
 
 describe('public platform taxonomy', () => {
@@ -101,6 +103,31 @@ describe('public platform taxonomy', () => {
     expect(rows[0].provider).toBe('gemini')
     expect(rows[0].availability_7d).toBe(97)
     expect(rows[0].source_monitor_ids).toEqual([1, 2])
+  })
+
+  it('merges user available-channel sections into one public Google section', () => {
+    const channel: UserAvailableChannel = {
+      name: 'Primary channel',
+      description: '',
+      platforms: [
+        {
+          platform: 'gemini',
+          groups: [{ id: 1, name: 'Gemini group', platform: 'gemini', subscription_type: 'standard', rate_multiplier: 1, peak_rate_enabled: false, peak_start: '', peak_end: '', peak_rate_multiplier: 1, is_exclusive: false }],
+          supported_models: [{ name: 'gemini-2.5-pro', platform: 'gemini', pricing: null }],
+        },
+        {
+          platform: 'antigravity',
+          groups: [{ id: 2, name: 'Antigravity group', platform: 'antigravity', subscription_type: 'standard', rate_multiplier: 1, peak_rate_enabled: false, peak_start: '', peak_end: '', peak_rate_multiplier: 1, is_exclusive: false }],
+          supported_models: [{ name: 'gemini-2.5-pro', platform: 'antigravity', pricing: null }],
+        },
+      ],
+    }
+    const rows = normalizePublicAvailableChannels([channel])
+    expect(rows[0].platforms).toHaveLength(1)
+    expect(rows[0].platforms[0].platform).toBe('google')
+    expect(rows[0].platforms[0].groups.map((group) => group.id)).toEqual([1, 2])
+    expect(rows[0].platforms[0].supported_models).toHaveLength(1)
+    expect(rows[0].platforms[0].supported_models[0].platform).toBe('google')
   })
 
   it('merges every internal monitor detail before showing a public Google drill-down', () => {
