@@ -570,8 +570,8 @@ tree 的 `ops/qa/deploy_rollout.yaml` 显式声明 `bundle_runtime_contract: pha
    Worker image/source、mode 与 host runtime mode。
 
 回滚到 Phase 3 之前的 app 只用于恢复 gateway 服务，不撤销已经建立的 Bundle 基础设施，也不把 Worker
-降级到不支持其命令的 binary。`mode=phase3` checkout/sync target-tag host runners 并执行 post-deploy Bundle
-canary；`mode=legacy_rollback` 在 app switch 前用当前 release tree 的 Phase 3 runners 收敛 host：maintenance
+降级到不支持其命令的 binary。`mode=phase3` checkout/sync target-tag host runners，并按 resolver 的
+`run_canary` 决定是否执行 post-deploy Bundle canary；`mode=legacy_rollback` 在 app switch 前用当前 release tree 的 Phase 3 runners 收敛 host：maintenance
 enabled，boundary disabled/inactive；不得安装 legacy target runner，也不得保留未经证明的 live runner 状态。
 此模式跳过 canary，标记 `QA Phase 3 degraded`，archive 可继续而 DROP 明确暂停；durable activation receipt 不变，
 恢复 compatible Phase 3 app 后才以 boundary `auto` 恢复唯一 owner。

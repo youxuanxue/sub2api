@@ -43,6 +43,8 @@ REQUIRED = {
         "legacy_rollback",
         "bundle_runtime_contract: phase3_v1",
         "当前 release tree 的 Phase 3 runners",
+        "按 resolver 的",
+        "`run_canary`",
     ),
     "ops/qa/README.md": (
         "only target lifecycle owner",
@@ -179,6 +181,7 @@ FORBIDDEN_TEXT = {
         "| export scratch |",
         "boundary orphan cleanup",
         "maintenance 过渡清理",
+        "并执行 post-deploy Bundle canary",
     ),
     "docs/approved/design-qa-phase2-archive-closeout.md": (
         "--qa-cutover-provision-only",
@@ -633,6 +636,16 @@ def self_test() -> int:
         if not any("aws-us-openai-gateway-deployment.md" in item for item in scan(fixture)):
             print("self-test failed to detect the retired deployment-guide owner")
             return 1
+        shutil.copy2(ROOT / "docs/deploy/aws-us-openai-gateway-deployment.md", deploy_doc)
+        design = fixture / "docs/approved/design-prod-qa-24h-s3-lifecycle.md"
+        design.write_text(
+            design.read_text(encoding="utf-8") + "\n并执行 post-deploy Bundle canary\n",
+            encoding="utf-8",
+        )
+        if not any("并执行 post-deploy Bundle canary" in item for item in scan(fixture)):
+            print("self-test failed to detect unconditional phase3 canary contract")
+            return 1
+        shutil.copy2(ROOT / "docs/approved/design-prod-qa-24h-s3-lifecycle.md", design)
         for rel, marker, label in (
             (
                 "backend/internal/server/routes/user_tk_routes.go",
