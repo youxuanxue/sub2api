@@ -531,14 +531,12 @@ jobs:
         run: |
           set -uo pipefail
           # Feishu rollout notes describe what changed since the tag that was
-          # actually serving before this deploy. This intentionally differs from
-          # the tag-to-tag GitHub Release changelog when an image build failed
-          # before reaching prod.
+          # actually serving before this deploy. collect-feishu-release-notes.sh
+          # unshallows the fetch-depth:1 clone so git log A..B is walkable
+          # (fetching only the two tag tips is not enough). Empty notes omit
+          # 「本次更新」; do not inline git log here.
           PREVIOUS_TAG="${{ steps.previous_runtime.outputs.tag }}"
-          git fetch origin "refs/tags/v${INPUT_TAG}:refs/tags/v${INPUT_TAG}" \
-            "refs/tags/v${PREVIOUS_TAG}:refs/tags/v${PREVIOUS_TAG}" --force 2>/dev/null || true  # preflight-allow: swallow -- notification remains best-effort
-          NOTES="$(git log --first-parent --pretty=format='- %s' "v$PREVIOUS_TAG..v$INPUT_TAG" \
-            | grep -viE 'bump VERSION|sync.version.file' || true)"  # preflight-allow: swallow -- no matching noise commits is valid
+          NOTES="$(bash ops/stage0/collect-feishu-release-notes.sh "$PREVIOUS_TAG" "$INPUT_TAG")"
           bash ops/stage0/notify-feishu-release.sh "$INPUT_TAG" "$API_URL" \
             --previous-tag "$PREVIOUS_TAG" --run-url "$RUN_URL" --notes "$NOTES"
 

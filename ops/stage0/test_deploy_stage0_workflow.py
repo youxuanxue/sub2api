@@ -102,7 +102,7 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         notice = deploy[notification:]
         self.assertIn("steps.previous_runtime.outputs.tag", notice)
         self.assertIn("--previous-tag", notice)
-        self.assertIn("v$PREVIOUS_TAG..v$INPUT_TAG", notice)
+        self.assertIn("collect-feishu-release-notes.sh", notice)
         self.assertNotIn("git tag -l --format", notice)
 
     def test_target_release_contract_is_bound_before_prod_mutation(self) -> None:
