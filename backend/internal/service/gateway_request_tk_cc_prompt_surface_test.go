@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
 
 func TestAccountGetOAuthAccountEmail(t *testing.T) {
@@ -19,12 +21,15 @@ func TestAccountGetOAuthAccountEmail(t *testing.T) {
 	require.Equal(t, "edge@tokenkey.dev", acct.GetOAuthAccountEmail())
 }
 
-func TestTkStripCCEnvironmentSection(t *testing.T) {
+func TestTkRewriteCCEnvironmentSection(t *testing.T) {
+	require.NoError(t, timezone.Init("UTC"))
 	in := "<system-reminder>\n# Environment\nTZ=Asia/Shanghai\nProxy=http://127.0.0.1:7890\n\nThe user's email address is client@gmail.com.\n\n# currentDate\nToday's date is 2026/07/01.\n</system-reminder>"
-	out, changed := tkStripCCEnvironmentSection(in)
+	out, changed := tkRewriteCCEnvironmentSection(in)
 	require.True(t, changed)
-	require.NotContains(t, out, "# Environment")
+	require.Contains(t, out, "# Environment")
+	require.Contains(t, out, "TZ=UTC")
 	require.NotContains(t, out, "Asia/Shanghai")
+	require.NotContains(t, out, "Proxy=")
 	require.Contains(t, out, "client@gmail.com")
 	require.Contains(t, out, "# currentDate")
 }
@@ -92,11 +97,14 @@ func TestTkClassifyCCPromptSurfaceText(t *testing.T) {
 }
 
 func TestTkNormalizeAnthropicCCPromptSurfaceMessagesEnvironmentAndEmail(t *testing.T) {
+	require.NoError(t, timezone.Init("UTC"))
 	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>\n# Environment\nTZ=Asia/Shanghai\n\nThe user's email address is client@gmail.com.\n\n# currentDate\nToday\u2019s date is 2026/07/01.\n</system-reminder>"}]}]}`)
 	out, changed := tkNormalizeAnthropicCCPromptSurface(in, "edge-oauth@tokenkey.dev")
 	require.True(t, changed)
 	got := string(out)
-	require.NotContains(t, got, "# Environment")
+	require.Contains(t, got, "# Environment")
+	require.Contains(t, got, "TZ=UTC")
+	require.NotContains(t, got, "Asia/Shanghai")
 	require.Contains(t, got, "edge-oauth@tokenkey.dev")
 	require.Contains(t, got, "Today's date is 2026-07-01.")
 }
@@ -134,21 +142,26 @@ func TestTkNormalizeAnthropicCCPromptSurfaceLeavesQuotedReminderUserText(t *test
 }
 
 func TestTkNormalizeAnthropicCCPromptSurfaceNormalizesKnownSystemText(t *testing.T) {
+	require.NoError(t, timezone.Init("UTC"))
 	in := []byte(`{"system":[{"type":"text","text":"You are Claude Code, Anthropic's official CLI for Claude.\n# Environment\nTZ=Asia/Shanghai\nThe user's email address is client@gmail.com.\nToday's date is 2026/07/01."}]}`)
 	out, changed := tkNormalizeAnthropicCCPromptSurface(in, "edge-oauth@tokenkey.dev")
 	require.True(t, changed)
 	got := string(out)
-	require.NotContains(t, got, "# Environment")
+	require.Contains(t, got, "# Environment")
+	require.Contains(t, got, "TZ=UTC")
+	require.NotContains(t, got, "Asia/Shanghai")
 	require.Contains(t, got, "edge-oauth@tokenkey.dev")
 	require.Contains(t, got, "Today's date is 2026-07-01.")
 }
 
 func TestTkNormalizeAnthropicCCPromptSurfaceNormalizesInteractiveCLIToolSystemText(t *testing.T) {
+	require.NoError(t, timezone.Init("UTC"))
 	in := []byte(`{"system":[{"type":"text","text":"x-anthropic-billing-header: cc-session"},{"type":"text","text":"You are an interactive CLI tool that helps users safely and efficiently.\n# Environment\nTZ=Asia/Shanghai\nPWD=/work\n\nToday's date is 2026/07/01."}],"messages":[{"role":"user","content":"hi"}]}`)
 	out, changed := tkNormalizeAnthropicCCPromptSurface(in, "edge-oauth@tokenkey.dev")
 	require.True(t, changed)
 	got := string(out)
-	require.NotContains(t, got, "# Environment")
+	require.Contains(t, got, "# Environment")
+	require.Contains(t, got, "TZ=UTC")
 	require.NotContains(t, got, "Asia/Shanghai")
 	require.NotContains(t, got, "PWD=/work")
 	require.Contains(t, got, "Today's date is 2026-07-01.")

@@ -22,8 +22,8 @@ on:
       - 'scripts/anthropic/cc-issue-*.py'
       - '.github/workflows/anthropic-cc-issue-watchdog.yml'
   schedule:
-    # 06:37 Asia/Shanghai. GitHub cron is UTC. Off-minute and offset ~77 min after
-    # the Upstream Issue Watchdog (21:20 UTC) so the two watchdogs don't contend.
+    # GitHub cron is UTC. Off-minute and offset after the Upstream Issue Watchdog
+    # so the two watchdogs don't contend.
     - cron: '37 22 * * *'
   workflow_dispatch:
     inputs:
