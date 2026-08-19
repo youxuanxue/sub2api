@@ -229,6 +229,41 @@ func TestForwardAsChatCompletions_BufferedResponseFailedNonRetryableNoFailover(t
 	require.Contains(t, rec.Body.String(), "not allowed")
 }
 
+func TestForwardAsAnthropic_BufferedResponseFailedOverloadedFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"gpt-5.6","max_tokens":16,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	// Prod GPT 专线 / Codex edge 把容量 400 写成 invalid_request_error，而不是
+	// server_is_overloaded。这条必须换号，否则同组 tokensea 永远接不到。
+	upstreamBody := strings.Join([]string{
+		`event: response.failed`,
+		`data: {"type":"response.failed","response":{"id":"resp_failed","object":"response","model":"gpt-5.6","status":"failed","output":[],"error":{"code":"invalid_request_error","type":"invalid_request_error","message":"Our servers are currently overloaded. Please try again later."}}}`,
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid_messages_failed_overloaded"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+
+	svc := &OpenAIGatewayService{httpUpstream: upstream}
+	account := openAICompatTestOAuthAccount(63, "openai-us6")
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "gpt-5.6")
+	require.Error(t, err)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.True(t, errors.As(err, &failoverErr), "capacity overloaded must failover even when wrapped as invalid_request_error: %T: %v", err, err)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.False(t, c.Writer.Written(), "failover path must not commit a client 400")
+	require.Empty(t, rec.Body.String())
+}
+
 func TestForwardAsAnthropic_BufferedResponseFailedNonRetryableNoFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -204,17 +204,17 @@ func TestFailoverOpenAIUpstreamHTTPError_NilContextSkipsTempUnschedulablePolicy(
 			"temp_unschedulable_enabled": true,
 			"temp_unschedulable_rules": []any{map[string]any{
 				"error_code":       float64(http.StatusBadRequest),
-				"keywords":         []any{"servers are currently overloaded"},
+				"keywords":         []any{"custom account cooldown phrase"},
 				"duration_minutes": float64(1),
 			}},
 		},
 	}
-	body := []byte(`{"error":{"message":"Our servers are currently overloaded."}}`)
+	body := []byte(`{"error":{"message":"custom account cooldown phrase"}}`)
 	resp := &http.Response{StatusCode: http.StatusBadRequest, Header: http.Header{}}
 
 	got := svc.failoverOpenAIUpstreamHTTPError(
 		context.Background(), nil, account, resp, body,
-		"Our servers are currently overloaded.", "gpt-5.4",
+		"custom account cooldown phrase", "gpt-5.4",
 	)
 
 	require.Nil(t, got)
