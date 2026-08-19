@@ -180,7 +180,7 @@ export default {
     totalCacheCreation: 'Total Cache Creation',
     totalCacheRead: 'Total Cache Read',
     totalCost: 'Total Cost',
-    avgDuration: 'Avg Duration',
+    avgGatewayLatency: 'Gateway Latency',
     // Messages
     enterApiKey: 'Please enter an API Key',
     querySuccess: 'Query successful',

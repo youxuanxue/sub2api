@@ -807,7 +807,10 @@ const usageStatCells = computed<StatCell[]>(() => {
     { label: t('keyUsage.totalCacheCreation'), value: fmtNum(total.cache_creation_tokens) },
     { label: t('keyUsage.totalCacheRead'), value: fmtNum(total.cache_read_tokens) },
     { label: t('keyUsage.totalCost'), value: usd(total.actual_cost) },
-    { label: t('keyUsage.avgDuration'), value: usage.average_duration_ms ? `${Math.round(usage.average_duration_ms)} ms` : '-' },
+    {
+      label: t('keyUsage.avgGatewayLatency'),
+      value: usage.average_gateway_latency_ms ? `${Math.round(usage.average_gateway_latency_ms)} ms` : '-',
+    },
   ]
 })
 
