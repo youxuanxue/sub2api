@@ -129,6 +129,23 @@ func TestClaudeToKiro_AdaptiveThinkingEmitsAdditionalModelRequestFields(t *testi
 	}
 }
 
+func TestBuildAdditionalModelRequestFields_IgnoresClientDisplayOmitted(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-sonnet-4-6",
+		Thinking: &ClaudeThinkingConfig{
+			Type:    "adaptive",
+			Display: "omitted",
+		},
+	}
+	fields := buildAdditionalModelRequestFields(req)
+	if fields == nil || fields.Thinking == nil {
+		t.Fatal("expected thinking request fields")
+	}
+	if fields.Thinking.Display != "summarized" {
+		t.Fatalf("display = %q, want summarized", fields.Thinking.Display)
+	}
+}
+
 func TestClaudeToKiro_ThinkingDisabledOmitsAdditionalModelRequestFields(t *testing.T) {
 	req := &ClaudeRequest{
 		Model: "claude-sonnet-4-6",

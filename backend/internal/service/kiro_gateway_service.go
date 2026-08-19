@@ -535,6 +535,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		billingTextBuf   string // all model text, including hidden continuations
 		thinkingBuf      string
 		thinkingSigBuf   string
+		rawAssistantBuf  string // unredacted assistantResponseEvent content
 		clientToolUses   []kiroproto.KiroToolUse
 		billingToolUses  []kiroproto.KiroToolUse
 		mappedStopReason string
@@ -543,13 +544,14 @@ func (s *KiroGatewayService) forwardNonStreaming(
 
 	for turn := 1; turn <= maxClaudeCodeCompletionTurns; turn++ {
 		var (
-			turnText        string
-			turnThinking    string
-			turnThinkingSig string
-			turnToolUses    []kiroproto.KiroToolUse
-			callbackErr     error
-			stopReason      string
-			redactor        kiroproto.InlineThinkingRedactor
+			turnText         string
+			turnThinking     string
+			turnThinkingSig  string
+			turnRawAssistant string
+			turnToolUses     []kiroproto.KiroToolUse
+			callbackErr      error
+			stopReason       string
+			redactor         kiroproto.InlineThinkingRedactor
 		)
 
 		callback := &kiroproto.KiroStreamCallback{
@@ -566,6 +568,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 					turnThinking += text
 					return
 				}
+				turnRawAssistant += text
 				visible, inlineThinking := redactor.Push(text)
 				turnText += visible
 				turnThinking += inlineThinking
@@ -588,6 +591,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 				turnText = ""
 				turnThinking = ""
 				turnThinkingSig = ""
+				turnRawAssistant = ""
 				turnToolUses = nil
 				callbackErr = nil
 				stopReason = ""
@@ -632,6 +636,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 
 		textBuf += visibleTurnText
 		billingTextBuf += turnText
+		rawAssistantBuf += turnRawAssistant
 		thinkingBuf += turnThinking
 		if turnThinkingSig != "" && thinkingSigBuf == "" {
 			thinkingSigBuf = turnThinkingSig
@@ -676,7 +681,8 @@ func (s *KiroGatewayService) forwardNonStreaming(
 
 	if c != nil {
 		c.Header("x-request-id", requestID)
-		publishKiroInternalThinkingSideChannel(c, nil, c.Writer.Header(), thinkingBuf, thinkingSigBuf)
+		stashThinking := kiroproto.ResolveStashThinking(rawAssistantBuf, thinkingBuf, thinkingSigBuf)
+		publishKiroInternalThinkingSideChannel(c, nil, c.Writer.Header(), stashThinking, thinkingSigBuf)
 		c.JSON(http.StatusOK, resp)
 	}
 
@@ -739,6 +745,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		billingTextBuf   string // all model text, including hidden continuations
 		thinkingBuf      string
 		thinkingSigBuf   string
+		rawAssistantBuf  string // unredacted assistantResponseEvent content
 		clientToolUses   []kiroproto.KiroToolUse
 		billingToolUses  []kiroproto.KiroToolUse
 		mappedStopReason string
@@ -777,6 +784,7 @@ func (s *KiroGatewayService) forwardStreaming(
 			turnText            string
 			turnThinking        string
 			turnThinkingSig     string
+			turnRawAssistant    string
 			turnToolUses        []kiroproto.KiroToolUse
 			callbackErr         error
 			stopReason          string
@@ -821,6 +829,7 @@ func (s *KiroGatewayService) forwardStreaming(
 					turnThinking += text
 					return
 				}
+				turnRawAssistant += text
 				visible, inlineThinking := redactor.Push(text)
 				turnThinking += inlineThinking
 				if visible != "" {
@@ -869,6 +878,7 @@ func (s *KiroGatewayService) forwardStreaming(
 				turnText = ""
 				turnThinking = ""
 				turnThinkingSig = ""
+				turnRawAssistant = ""
 				turnToolUses = nil
 				callbackErr = nil
 				stopReason = ""
@@ -951,6 +961,7 @@ func (s *KiroGatewayService) forwardStreaming(
 
 		textBuf += visibleTurnText
 		billingTextBuf += turnText
+		rawAssistantBuf += turnRawAssistant
 		thinkingBuf += turnThinking
 		if turnThinkingSig != "" && thinkingSigBuf == "" {
 			thinkingSigBuf = turnThinkingSig
@@ -1008,7 +1019,8 @@ func (s *KiroGatewayService) forwardStreaming(
 	// usage into the same accumulator used for billing.
 	enc.writeMessageDelta(inputTokens, outputToks, mappedStopReason)
 	enc.writeMessageStop()
-	publishKiroInternalThinkingSideChannel(c, w, nil, thinkingBuf, thinkingSigBuf)
+	stashThinking := kiroproto.ResolveStashThinking(rawAssistantBuf, thinkingBuf, thinkingSigBuf)
+	publishKiroInternalThinkingSideChannel(c, w, nil, stashThinking, thinkingSigBuf)
 	flusher.Flush()
 
 	return &ForwardResult{
