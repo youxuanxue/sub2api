@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
 
 func TestTkExtractAnthropicPromptFingerprint_GeoStegoInReminder(t *testing.T) {
@@ -232,6 +234,7 @@ func TestTkNormalizeAnthropicRequestBody_FingerprintCanonicalAfterGeo(t *testing
 // ops/anthropic/probe_prompt_surfaces.py --check-gateway via
 // TOKENKEY_PROMPT_SURFACE_PROBE_JSONL=<capture.jsonl>.
 func TestTkProbePromptSurfaceGatewayCoverageJSONL(t *testing.T) {
+	require.NoError(t, timezone.Init("UTC"))
 	path := os.Getenv("TOKENKEY_PROMPT_SURFACE_PROBE_JSONL")
 	if path == "" {
 		path = os.Getenv("TOKENKEY_CC_GEO_PROBE_JSONL")

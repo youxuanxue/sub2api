@@ -6,6 +6,7 @@ package timezone
 import (
 	"fmt"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -20,8 +21,9 @@ var (
 // This should be called once at application startup.
 // Example timezone values: "Asia/Shanghai", "America/New_York", "UTC"
 func Init(tz string) error {
+	tz = strings.TrimSpace(tz)
 	if tz == "" {
-		tz = "Asia/Shanghai" // Default timezone
+		return fmt.Errorf("timezone is required")
 	}
 
 	loc, err := time.LoadLocation(tz)
