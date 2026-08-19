@@ -194,7 +194,7 @@
             </div>
           </div>
 
-          <!-- Gateway transfer latency -->
+          <!-- Gateway Latency -->
           <div class="card p-4">
             <div class="flex items-center gap-3">
               <div class="rounded-lg bg-rose-100 p-2 dark:bg-rose-900/30">

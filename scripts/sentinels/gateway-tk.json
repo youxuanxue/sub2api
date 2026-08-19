@@ -5134,9 +5134,51 @@
         "return strings.ToLower(strings.TrimSpace(model))",
         "if normalizeModelMappingLookupKey(key) == lookupKey",
         "matchNormalizedWildcardMappingResult(mapping, lookupKey, requestedModel)",
-        "applyOpenAICloudwiseRelayUpstreamModelID(a, mappedModel)"
+        "applyOpenAICloudwiseRelayUpstreamModelID(a, mappedModel)",
+        "runtimeVersion := modelMappingCacheRuntimeVersion()",
+        "return antigravityEffectiveDefaultModelMapping()"
       ],
-      "rationale": "Account-level model_mapping lookup must treat client model-name casing variants as the same upstream capability while preserving explicit exact-spelling priority. This is load-bearing for universal and direct OpenAI-compatible routing: DeepSeek-V4-Pro / deepSeek-v4-pro must hit account mappings keyed as deepseek-v4-pro instead of emptying the pool into client-visible 403/400. account.go is upstream-shaped, so pin the normalization fallback call site and normalized wildcard path to prevent an upstream merge from silently reverting to case-sensitive lookup while the admin-visible raw model_mapping remains unchanged."
+      "rationale": "Account-level model_mapping lookup must treat client model-name casing variants as the same upstream capability while preserving explicit exact-spelling priority. This is load-bearing for universal and direct OpenAI-compatible routing: DeepSeek-V4-Pro / deepSeek-v4-pro must hit account mappings keyed as deepseek-v4-pro instead of emptying the pool into client-visible 403/400. account.go is upstream-shaped, so pin the normalization fallback call site and normalized wildcard path to prevent an upstream merge from silently reverting to case-sensitive lookup while the admin-visible raw model_mapping remains unchanged. Empty Antigravity defaults must go through antigravityEffectiveDefaultModelMapping and the cache version must include the runtime overlay generation so settings fan-out can hot-add models without writing credentials."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_runtime_serving_tk.go",
+      "must_contain": [
+        "func antigravityEffectiveDefaultModelMapping()",
+        "func overlayAntigravityDefaultModelMapping(",
+        "func reloadAccountModelMappingRuntimeServing(",
+        "func subscribeAccountModelMappingRuntimeServing("
+      ],
+      "rationale": "Empty-mapping Antigravity serving must overlay tk_account_model_mapping_runtime onto compiled DefaultAntigravityModelMapping. Dropping these hooks returns edge OAuth rows to compile-time-only allowlists, so sync-runtime becomes a silent no-op until the next application release."
+    },
+    {
+      "path": "backend/internal/service/wire_tk.go",
+      "must_contain": [
+        "func ProvideTKAccountModelMappingRuntimeServing(",
+        "SettingKeyTKAccountModelMappingRuntime",
+        "subscribeAccountModelMappingRuntimeServing("
+      ],
+      "rationale": "Wire boundary for the Antigravity empty-mapping runtime overlay. The setting getter, initial reload, and settings_updated subscription must stay forced into the server graph; otherwise sync-runtime writes settings that no replica ever serves."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": [
+        "ProvideTKAccountModelMappingRuntimeServing,"
+      ],
+      "rationale": "ProviderSet registration for the Antigravity empty-mapping runtime overlay. Dropping this member lets wire skip the provider while the rest of the graph compiles, so sync-runtime again becomes a settings-only no-op."
+    },
+    {
+      "path": "backend/cmd/server/wire.go",
+      "must_contain": [
+        "_ service.TKAccountModelMappingRuntimeServingReady,"
+      ],
+      "rationale": "provideCleanup must keep the unused Ready parameter so wire evaluates ProvideTKAccountModelMappingRuntimeServing at boot. Losing this edge dead-codes the overlay reload."
+    },
+    {
+      "path": "backend/cmd/server/wire_gen.go",
+      "must_contain": [
+        "service.ProvideTKAccountModelMappingRuntimeServing(settingService, settingPubSub)"
+      ],
+      "rationale": "Generated production DI evidence for the Antigravity empty-mapping runtime overlay. Source providers alone do not prove the real server graph retained the boot reload and settings_updated subscription."
     },
     {
       "path": "backend/internal/service/wire_tk.go",

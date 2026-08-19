@@ -1170,12 +1170,14 @@
     {
       "path": "frontend/src/components/user/dashboard/UserDashboardStats.vue",
       "must_contain": [
-        "today_actual_cost"
+        "today_actual_cost",
+        "formatDuration(stats?.average_gateway_latency_ms || 0)"
       ],
       "must_not_contain": [
-        "dashboard.standard"
+        "dashboard.standard",
+        "average_duration_ms"
       ],
-      "rationale": "PR #718: user dashboard today/total spend cards show only actual cost — the '/ $standard' secondary span must not come back via upstream merge."
+      "rationale": "PR #718: user dashboard today/total spend cards show only actual cost — the '/ $standard' secondary span must not come back via upstream merge. The gateway latency card must bind average_gateway_latency_ms, not end-to-end average_duration_ms, or the page silently shows 10s+ LLM generation time as gateway delay."
     },
     {
       "path": "frontend/src/components/user/dashboard/UserDashboardRecentUsage.vue",

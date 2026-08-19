@@ -120,6 +120,32 @@ func ProvideTKPricingOverlayRuntime(
 	return TKPricingOverlayRuntimeReady{}
 }
 
+// TKAccountModelMappingRuntimeServingReady is a wire sentinel: holding it proves
+// the runtime mapping overlay (settings-blob getter + initial reload + pub/sub
+// subscribe) is wired at startup. provideCleanup consumes this type so wire
+// cannot dead-code the side-effect.
+type TKAccountModelMappingRuntimeServingReady struct{}
+
+// ProvideTKAccountModelMappingRuntimeServing loads tk_account_model_mapping_runtime
+// into the process-wide Antigravity empty-mapping overlay and reloads on
+// settings_updated. Nil-safe: missing settings/pubsub leaves compiled defaults.
+func ProvideTKAccountModelMappingRuntimeServing(
+	settingService *SettingService,
+	pubsub SettingPubSub,
+) TKAccountModelMappingRuntimeServingReady {
+	var getter func(ctx context.Context) (string, bool)
+	if settingService != nil {
+		getter = func(ctx context.Context) (string, bool) {
+			return settingService.GetRawSettingValue(ctx, SettingKeyTKAccountModelMappingRuntime)
+		}
+	}
+	if err := reloadAccountModelMappingRuntimeServing(context.Background(), getter); err != nil {
+		logger.LegacyPrintf("service.account_model_mapping", "[AccountModelMapping] runtime serving initial load failed: %v", err)
+	}
+	subscribeAccountModelMappingRuntimeServing(context.Background(), pubsub, getter)
+	return TKAccountModelMappingRuntimeServingReady{}
+}
+
 // TKGatewayAnthropicSigPreemptReady is a wire sentinel: holding it proves that
 // GatewayService.SetAnthropicSigPreemptCache has been called. provideCleanup
 // (cmd/server/wire.go) consumes this type as an unused parameter so wire forces

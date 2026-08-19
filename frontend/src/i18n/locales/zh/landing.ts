@@ -180,7 +180,7 @@ export default {
     totalCacheCreation: '累计缓存创建',
     totalCacheRead: '累计缓存读取',
     totalCost: '累计费用',
-    avgDuration: '平均耗时',
+    avgGatewayLatency: '网关延迟',
     // Messages
     enterApiKey: '请输入 API Key',
     querySuccess: '查询成功',
