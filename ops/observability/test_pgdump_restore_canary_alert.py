@@ -9,7 +9,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from ops.observability.pgdump_restore_canary_alert import build_decision
+from ops.observability.pgdump_restore_canary_alert import apply_key_decision, build_decision
 
 
 def valid_receipt(target: str = "edge:us3") -> dict:
@@ -59,6 +59,37 @@ class PgdumpRestoreCanaryAlertTest(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertNotIn("ModuleNotFoundError", completed.stderr)
+        self.assertIn("--deliver", completed.stdout)
+
+    def test_deliver_cli_writes_key_file(self) -> None:
+        import json
+        import tempfile
+
+        decision = build_decision("prod", "failure", None, "", "https://run/9")
+        with tempfile.TemporaryDirectory() as raw:
+            root = pathlib.Path(raw)
+            decision_path = root / "decision.json"
+            key_file = root / "key"
+            decision_path.write_text(json.dumps(decision), encoding="utf-8")
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "ops/observability/pgdump_restore_canary_alert.py"),
+                    "--deliver",
+                    "--decision",
+                    str(decision_path),
+                    "--key-file",
+                    str(key_file),
+                    "--dry-run",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("dry-run", completed.stdout)
+            self.assertFalse(key_file.exists())
 
     def test_first_failure_fires(self) -> None:
         decision = build_decision("edge:us3", "failure", None, "", "https://run/1")
@@ -125,6 +156,42 @@ class PgdumpRestoreCanaryAlertTest(unittest.TestCase):
         decision = build_decision("edge:us3", "success", None, "", "https://run/1")
         self.assertTrue(decision["should_alert"])
         self.assertIn(":firing:missing-receipt", decision["key"])
+
+    def test_deliver_persists_canary_key_without_edge_health_state(self) -> None:
+        import tempfile
+
+        decision = build_decision("edge:us3", "failure", None, "", "https://run/1")
+        with tempfile.TemporaryDirectory() as raw:
+            key_file = pathlib.Path(raw) / "key"
+            result = apply_key_decision(
+                decision,
+                key_file=key_file,
+                dry_run=True,
+            )
+            self.assertEqual(result, "dry-run")
+            self.assertFalse(key_file.exists())
+            result = apply_key_decision(
+                {**decision, "should_alert": False},
+                key_file=key_file,
+            )
+            self.assertEqual(result, "unchanged")
+            self.assertEqual(key_file.read_text(encoding="utf-8"), decision["key"] + "\n")
+
+    def test_deliver_rejects_edge_health_state_shape(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as raw:
+            key_file = pathlib.Path(raw) / "key"
+            with self.assertRaisesRegex(Exception, "key"):
+                apply_key_decision(
+                    {
+                        "schema_version": 1,
+                        "should_alert": False,
+                        "state": {"schema_version": 1},
+                        "message": "",
+                    },
+                    key_file=key_file,
+                )
 
 
 if __name__ == "__main__":

@@ -50,3 +50,23 @@ func applyOpenAICloudwiseRelayUpstreamModelID(account *Account, modelID string) 
 	}
 	return openAICloudwiseRelayUpstreamModelID(modelID)
 }
+
+func isCloudwiseRelayAccount(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	return isCloudwiseRelayBaseURL(account.GetCredential("base_url"))
+}
+
+func openAICloudwiseRelaySupportsRequestedModel(requestedModel string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(requestedModel))
+	if normalized == "" {
+		return false
+	}
+	for _, prefix := range openAICloudwiseRelayAllowedModelPrefixes {
+		if strings.HasPrefix(normalized, prefix) {
+			return true
+		}
+	}
+	return false
+}

@@ -25,7 +25,7 @@ THINKING_PREFIX = (
     "<thinking_mode>enabled</thinking_mode>\n"
     "<max_thinking_length>32000</max_thinking_length>\n\n"
 )
-DEFAULT_UA = "kiro-cli/2.18.0"
+DEFAULT_UA = "kiro-cli/2.18.1"
 DEFAULT_AMZ_UA = "aws-sdk-js/1.0.0 KiroIDE-0.0.0"
 
 

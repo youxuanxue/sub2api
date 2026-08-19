@@ -99,7 +99,7 @@ func (a *Account) VertexLocation(model string) string {
 func vertexModelUsesGlobalLocation(model string) bool {
 	model = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(model), "models/"))
 	switch model {
-	case "gemini-3.5-flash-lite", "gemini-3.6-flash":
+	case "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.7-flash":
 		return true
 	default:
 		return false

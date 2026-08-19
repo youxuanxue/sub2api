@@ -187,7 +187,11 @@ live prod 是否覆盖所选 release bundle 的 required floor，并允许预热
 source checkout。generic binary deploy 与
 rollback 不调用也不等待它。账号和 Antigravity group 的持久化写入只通过
 `apply-accounts --confirm yes-apply-account-model-mapping` 执行；服务进程启动、周期 tick
-和 `settings_updated` fan-out 都不会批量覆盖账号配置。该文件是 **scope replacement**，
+和 `settings_updated` fan-out 都不会批量覆盖账号配置。空 mapping 的 Antigravity
+账号（典型 edge OAuth）会在 fan-out 后把 `platforms.antigravity` **叠加**到编译期
+`DefaultAntigravityModelMapping` 上，所以后续新模型对 group 21 / edge AG 只需
+`sync-runtime`，不必再写 edge 账号。非空 mapping 仍以账号为准，要热更必须
+`apply-accounts`。该文件对 apply/check 仍是 **scope replacement**，
 不是增量 patch：写了某个平台或 newapi channel_type，就必须给出该 scope 的完整期望
 mapping；未出现的 scope 继续用编译期 floor。
 

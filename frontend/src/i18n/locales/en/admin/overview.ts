@@ -23,7 +23,7 @@ export default {
       cacheToday: 'Cache (Today)',
       performance: 'Performance',
       avgResponse: 'Avg Response',
-      avgGatewayLatency: 'Gateway transfer latency',
+      avgGatewayLatency: 'Gateway Latency',
       averageTime: 'Average Time',
       active: 'active',
       ok: 'ok',

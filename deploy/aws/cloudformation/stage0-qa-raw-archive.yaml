@@ -599,6 +599,8 @@ Resources:
             - --qa-bundle-worker
           Essential: true
           Environment:
+            - Name: TZ
+              Value: UTC
             - Name: QA_BUNDLE_ENABLED
               Value: 'true'
             - Name: QA_BUNDLE_QUEUE_URL

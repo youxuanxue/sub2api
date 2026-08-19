@@ -55,7 +55,7 @@
         "KiroCLIUserAgent",
         "KiroCLIAmzUserAgent",
         "DefaultKiroAccountPriority",
-        "2.18.0",
+        "2.18.1",
         "app/AmazonQ-For-CLI"
       ],
       "rationale": "Single TK-owned Kiro CLI release and HTTP identity. The exact aws-sdk-rust User-Agent pair comes from real CLI wire capture rather than release inference; losing these constants or reintroducing a second builder makes Kiro egress drift from the only supported client identity. DefaultKiroAccountPriority remains the creation-time default for native Kiro accounts."
@@ -108,10 +108,37 @@
       "rationale": "Provenance + re-vendor procedure for the MIT-licensed protocol layer. Deleting it severs the audit trail required to re-sync the vendored Kiro protocol when the upstream Kiro client changes."
     },
     {
+      "path": "backend/internal/integration/kiro/thinking_stash.go",
+      "must_contain": [
+        "func ResolveStashThinking",
+        "func ExtractTaglessThinking",
+        "kiroReasoningEventPlaceholder"
+      ],
+      "rationale": "Gateway QA stash owner for Kiro upstream reasoning. ResolveStashThinking must not depend on client thinking.display; it prefers explicit reasoning events, inline tags, then tagless raw assistant splits only when an upstream signature proves reasoning was emitted separately."
+    },
+    {
+      "path": "backend/internal/integration/kiro/thinking_stash_test.go",
+      "must_contain": [
+        "TestResolveStashThinking_IgnoresReasoningPlaceholder",
+        "TestResolveStashThinking_NoSignatureNoTaglessFallback",
+        "TestResolveStashThinking_NoReliableSplitReturnsEmpty",
+        "TestExtractTaglessThinking_SplitsTrailingAnswer"
+      ],
+      "rationale": "Unit evidence for tagless upstream reasoning extraction and placeholder suppression. Losing these tests lets sig-only QA blobs return when reasoningContentEvent.text is ... and assistantResponseEvent carries tagless reasoning."
+    },
+    {
+      "path": "backend/internal/integration/kiro/translator_test.go",
+      "must_contain": [
+        "TestBuildAdditionalModelRequestFields_IgnoresClientDisplayOmitted"
+      ],
+      "rationale": "Client thinking.display=omitted must not propagate to Kiro upstream wire; prod mirror QA depends on summarized upstream reasoning."
+    },
+    {
       "path": "backend/internal/integration/kiro/translator.go",
       "must_contain": [
         "func ClaudeToKiro",
         "buildAdditionalModelRequestFields",
+        "display := \"summarized\"",
         "additionalModelRequestFields",
         "func KiroToClaudeResponse",
         "EnsureClaudeCodeCompletionGuard",
@@ -322,6 +349,8 @@
         "classifyAndRecordKiroForwardError",
         "OnReasoningContent: func(text, signature string)",
         "thinkingSigBuf",
+        "sigTurnRawAssistant",
+        "ResolveStashThinking",
         "publishKiroInternalThinkingSideChannel"
       ],
       "rationale": "The sixth-platform forwarder translates /v1/messages onto Kiro EventStream and estimates usage because upstream reports credits only. OnReasoningContent plus thinkingSigBuf accumulate upstream reasoningContentEvent signatures into the internal QA side channel without exposing them on the client wire. The context-aware call and ResetForRetry callbacks protect retry integrity. The stop-reason mapper preserves Kiro's authoritative terminal outcome; for positively identified Claude Code payloads, the private completion signal and bounded continuation loop separate model END_TURN from agent completion. Continuation turns are transport-only wiring: default zero client-visible text; only ordinary client tools, non-completion terminal outcomes, and deduped short blocker questions may pass. shouldExposeClaudeCodeCompletionMessage and completionSignalTextDelta enforce turn>=2 complete silence plus isShortBlockerQuestion gating after continuationTextDelta dedupe. stripCompletionMarkdownPrefix accepts only explicit marker-plus-space decoration so semantic prefixes such as negative signs survive. flushContinuationText preserves text-before-tool ordering in SSE. Every private-tool consume/hide site is guarded by payload.ClaudeCodeCompletionProtocol so ordinary API clients retain same-name tools. billingTextBuf keeps hidden continuation output billable even when presentation is suppressed, while private completion input is counted exactly once through billingToolUses. Both stop/completion actions remain observable, and the visible-text-aware pre-content error guard keeps failures visible instead of returning an empty 200 stream. Losing these anchors silently regresses reliability, billing, response integrity, completion semantics, or incident diagnosability."
@@ -400,6 +429,8 @@
       "must_contain": [
         "TestKiroGatewayService_Forward_Streaming_WithReasoningEvent",
         "TestKiroGatewayService_Forward_Streaming_StashesReasoningSignature",
+        "TestKiroGatewayService_Forward_Streaming_StashesTaglessThinkingWithSignatureLiveOrder",
+        "TestKiroGatewayService_Forward_NonStreaming_StashesTaglessThinkingWithSignatureLiveOrder",
         "TestKiroGatewayService_Forward_Streaming_OmitsSplitInlineThinkingTags"
       ],
       "rationale": "Client-wire compatibility guard for unsigned Kiro reasoning plus forward-path evidence that upstream reasoningContentEvent signatures reach the internal QA stash. Kiro reasoning is retained through the internal side channel but must not be forged into redacted_thinking blocks: the hash placeholder is not Anthropic-signed or replayable and breaks strict clients. These tests pin explicit reasoning events, signature stash wiring, and split inline thinking on the full streaming forward path so an upstream merge cannot silently restore the incompatible block or drop signatures."

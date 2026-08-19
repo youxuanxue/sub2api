@@ -380,6 +380,9 @@ func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
 // additionalModelRequestFields (adaptive + output_config.effort).
 func buildAdditionalModelRequestFields(req *ClaudeRequest) *AdditionalModelRequestFields {
 	thinkingType := "adaptive"
+	// Always request summarized wire on Kiro upstream. Client thinking.display
+	// is Anthropic presentation metadata; prod mirror QA stash depends on
+	// separable reasoning, and omitted upstream wire drops thinking plaintext.
 	display := "summarized"
 	maxTokens := 32000
 	if req != nil {
@@ -394,9 +397,6 @@ func buildAdditionalModelRequestFields(req *ClaudeRequest) *AdditionalModelReque
 				if kind := strings.TrimSpace(req.Thinking.Type); kind != "" {
 					thinkingType = kind
 				}
-			}
-			if d := strings.TrimSpace(req.Thinking.Display); d != "" {
-				display = d
 			}
 		}
 	}

@@ -155,6 +155,10 @@ func provideCleanup(
 	// invalidator + pub/sub subscribe) is wired onto PricingService at startup.
 	// Without this edge wire would dead-code the post-construction setter.
 	_ service.TKPricingOverlayRuntimeReady,
+	// TokenKey: forces wire to evaluate ProvideTKAccountModelMappingRuntimeServing
+	// so empty-mapping Antigravity accounts honor the runtime overlay at boot
+	// and on settings_updated. Without this edge wire dead-codes the reload.
+	_ service.TKAccountModelMappingRuntimeServingReady,
 	// TokenKey: forces wire to evaluate ProvideTKGatewayAnthropicSigPreempt so
 	// GatewayService.SetAnthropicSigPreemptCache is called at startup. Without
 	// this dependency edge wire would dead-code the post-construction setter

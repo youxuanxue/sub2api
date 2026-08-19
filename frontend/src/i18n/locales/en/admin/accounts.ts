@@ -717,7 +717,7 @@ export default {
       modelRestriction: 'Model Restriction (Optional)',
       modelWhitelist: 'Model Whitelist',
       modelMapping: 'Model Mapping',
-      selectAllowedModels: 'Select allowed models. Leave empty to support all models.',
+      selectAllowedModels: 'Select allowed models. Leave empty to support all models. Prefix wildcards such as claude-* are saved as identity mappings.',
       mapRequestModels:
         'Map request models to actual models. Left is the requested model, right is the actual model sent to API.',
       selectedModels: 'Selected {count} model(s)',
