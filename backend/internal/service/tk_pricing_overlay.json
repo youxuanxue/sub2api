@@ -10158,5 +10158,13 @@
     "output_cost_per_token": 5.373134328358209e-06,
     "cache_read_input_token_cost": 1.7910447761194032e-06,
     "source": "Alibaba DashScope qwen3.8-max official China-mainland pricing https://help.aliyun.com/zh/model-studio/model-pricing, captured 2026-08-14: input ¥12/Mtok, output ¥36/Mtok; CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. Cache discount not separately listed, so cache-read conservatively equals input."
+  },
+  "glm-5.3": {
+    "litellm_provider": "zhipu",
+    "mode": "chat",
+    "input_cost_per_token": 0.0000011940298507462686,
+    "output_cost_per_token": 0.00000417910447761194,
+    "cache_read_input_token_cost": 0.00000029850746268656716,
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-08-19: GLM-5.3 input ¥8/Mtok, output ¥28/Mtok, cache-hit ¥2/Mtok, 1M context, no input-tier split; CNY/USD=6.7. Cross-checked Z.AI international https://docs.z.ai/guides/overview/pricing same day: GLM-5.3 $1.4/$0.26/$4.4 per 1M tokens (USD list; TokenKey GLM owner remains BigModel CNY÷6.7, matching glm-5.2). LiteLLM has no glm-5.3 row (lookup 2026-08-19). Pricing source only: serving remains the configured OpenAI-compat / DashScope path (runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Overlay stores pre-tax official list rates; TokenKey applies the official_list_base_tax zhipu multiplier at resolution/catalog time. Cache storage is listed as limited-time free."
   }
 }

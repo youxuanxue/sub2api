@@ -675,6 +675,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 			return pricing
 		}
 	}
+	if strings.Contains(modelLower, "glm-5.3") {
+		return tkOverlayModelPricing("glm-5.3")
+	}
 	if strings.Contains(modelLower, "glm-5.2") {
 		return tkOverlayModelPricing("glm-5.2")
 	}
