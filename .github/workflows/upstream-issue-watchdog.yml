@@ -22,7 +22,7 @@ on:
       - 'scripts/upstream/issue-*.py'
       - '.github/workflows/upstream-issue-watchdog.yml'
   schedule:
-    # 05:20 Asia/Shanghai. GitHub cron is UTC. Runs after the daily upstream merge agent.
+    # GitHub cron is UTC. Runs after the daily upstream merge agent.
     - cron: '20 21 * * *'
   workflow_dispatch:
     inputs:

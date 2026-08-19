@@ -15,8 +15,8 @@ import (
 //   - lab keyword in host → other apostrophe codepoints
 //
 // TokenKey cannot control the user's machine, but we can rewrite the wire body
-// to the first-party shape (ASCII apostrophe + dashed ISO date) so upstream
-// does not see "client says CN, egress says US". Observed in Agent SDK -p
+// to the first-party shape (ASCII apostrophe + dashed ISO date + egress TZ)
+// so upstream does not see "client says CN, egress says US". Observed in Agent SDK -p
 // traffic under messages[].content[].text <system-reminder> (#currentDate),
 // not in system[] billing blocks.
 //

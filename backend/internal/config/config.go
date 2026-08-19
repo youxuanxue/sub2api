@@ -1620,10 +1620,30 @@ func (d *DatabaseConfig) DSN() string {
 	)
 }
 
-// DSNWithTimezone returns DSN with timezone setting
+// resolveBusinessTimezone 解析业务日界。
+// 已配置的 timezone / TIMEZONE 优先；都空才用服务器 TZ；再空或非法则报错。
+func resolveBusinessTimezone(configured string) (string, error) {
+	if tz := strings.TrimSpace(configured); tz != "" {
+		if _, err := time.LoadLocation(tz); err != nil {
+			return "", fmt.Errorf("invalid timezone %q: %w", tz, err)
+		}
+		return tz, nil
+	}
+	if tz := strings.TrimSpace(os.Getenv("TZ")); tz != "" {
+		if _, err := time.LoadLocation(tz); err != nil {
+			return "", fmt.Errorf("invalid TZ %q: %w", tz, err)
+		}
+		return tz, nil
+	}
+	return "", fmt.Errorf("timezone is required: set config timezone, TIMEZONE, or TZ")
+}
+
+// DSNWithTimezone returns DSN with timezone setting.
+// tz should already be resolved; empty falls back to UTC, never Asia/Shanghai.
 func (d *DatabaseConfig) DSNWithTimezone(tz string) string {
+	tz = strings.TrimSpace(tz)
 	if tz == "" {
-		tz = "Asia/Shanghai"
+		tz = "UTC"
 	}
 	// 当密码为空时不包含 password 参数，避免 libpq 解析错误
 	if d.Password == "" {
@@ -1873,9 +1893,8 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	// 环境变量支持
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	// TK: 容器 TZ 只服务 OS/Postgres/日志。业务日界认 TIMEZONE / config.yaml /
-	// 默认 Asia/Shanghai。Stage0 固定 TZ=UTC，若用它覆盖 timezone，今日/昨日/
-	// cleanup/Groups 日桶会静默切到 UTC。
+	// TK: 业务日界认 config.yaml timezone / TIMEZONE，都空才回落容器 TZ。
+	// 没有可解析值就启动失败，不再暗默 Asia/Shanghai。TZ 不得覆盖已配置的 timezone。
 	if err := viper.BindEnv("server.enable_server_timing", "ENABLE_SERVER_TIMING"); err != nil {
 		return nil, fmt.Errorf("bind ENABLE_SERVER_TIMING: %w", err)
 	}
@@ -1905,6 +1924,11 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 		cfg.Security.ForwardedClientIPHeaders = normalizeStringSlice(strings.Split(forwardedClientIPHeadersEnv, ","))
 	}
 	cfg.Server.TrustedProxiesConfigured = trustedProxiesConfigured
+	resolvedTimezone, err := resolveBusinessTimezone(cfg.Timezone)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Timezone = resolvedTimezone
 	if cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs == 0 {
 		cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs = 15000
 	}
@@ -2398,9 +2422,6 @@ func setDefaults() {
 	viper.SetDefault("pricing.update_interval_hours", 24)
 	viper.SetDefault("pricing.hash_check_interval_minutes", 10)
 
-	// Timezone (default to Asia/Shanghai for Chinese users)
-	viper.SetDefault("timezone", "Asia/Shanghai")
-
 	// API Key auth cache
 	viper.SetDefault("api_key_auth_cache.l1_size", 65535)
 	viper.SetDefault("api_key_auth_cache.l1_ttl_seconds", 15)
@@ -2734,6 +2755,9 @@ func setDefaults() {
 // environment. Any subsystem that wants a richer default still applies it after
 // unmarshal, exactly as before.
 func setEnvReachableDefaults() {
+	// Empty default only makes TIMEZONE env-reachable. Resolution still
+	// requires config timezone, TIMEZONE, or TZ — never invent Asia/Shanghai.
+	viper.SetDefault("timezone", "")
 	viper.SetDefault("gateway.forced_codex_instructions_template_file", "")
 	viper.SetDefault("gateway.session_idle_timeout_minutes", 0)
 	viper.SetDefault("gateway.user_message_queue.mode", "")

@@ -8,7 +8,7 @@ name: Daily Upstream Merge Agent
 
 on:
   schedule:
-    # 04:00 Asia/Shanghai. GitHub cron is UTC.
+    # GitHub cron is UTC.
     - cron: '0 20 * * *'
   workflow_dispatch:
     inputs:
@@ -223,7 +223,7 @@ jobs:
 
           ## Daily automation task
 
-          Run the TokenKey upstream merge workflow unattended for the daily 04:00 Asia/Shanghai automation.
+          Run the TokenKey upstream merge workflow unattended for the daily scheduled automation.
 
           Required behavior:
           - Target branch: $BRANCH.

@@ -3043,12 +3043,12 @@
         "tkCCPromptSurfaceGenericUserText",
         "tkCCPromptSurfaceUnknownSystem",
         "func tkNormalizeAnthropicCCPromptSurface",
-        "func tkStripCCEnvironmentSection",
+        "func tkRewriteCCEnvironmentSection",
         "func tkNormalizeCCUserEmailLine",
         "tkNormalizeChangeCCEnvironmentStrip",
         "tkNormalizeChangeCCUserEmailReplaced"
       ],
-      "rationale": "Unified CC prompt-surface normalizer: geo-stego date lines + # Environment strip + client userEmail replace/strip (OAuth account email when scheduled). Classification is load-bearing: known CC system/reminder text may be rewritten; plain user/generic system text must stay untouched; unknown system-shaped drift is observed but not rewritten."
+      "rationale": "Unified CC prompt-surface normalizer: geo-stego date lines + # Environment TZ rewrite to server timezone (strip Proxy/PWD) + client userEmail replace/strip (OAuth account email when scheduled). Classification is load-bearing: known CC system/reminder text may be rewritten; plain user/generic system text must stay untouched; unknown system-shaped drift is observed but not rewritten."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_request_normalize_tk.go",

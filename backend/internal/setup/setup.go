@@ -460,10 +460,9 @@ func createAdminUser(cfg *SetupConfig) (bool, string, error) {
 }
 
 func writeConfigFile(cfg *SetupConfig) error {
-	// Ensure timezone has a default value
 	tz := cfg.Timezone
 	if tz == "" {
-		tz = "Asia/Shanghai"
+		return fmt.Errorf("timezone is required: set timezone in setup")
 	}
 
 	// Prepare config for YAML (exclude sensitive data and admin config)
@@ -568,10 +567,12 @@ func AutoSetupFromEnv() error {
 	logger.LegacyPrintf("setup", "%s", "Auto setup enabled, configuring from environment variables...")
 	logger.LegacyPrintf("setup", "Data directory: %s", GetDataDir())
 
-	// Get timezone from TZ or TIMEZONE env var (TZ is standard for Docker)
 	tz := getEnvOrDefault("TZ", "")
 	if tz == "" {
-		tz = getEnvOrDefault("TIMEZONE", "Asia/Shanghai")
+		tz = getEnvOrDefault("TIMEZONE", "")
+	}
+	if tz == "" {
+		return fmt.Errorf("timezone is required: set TZ or TIMEZONE")
 	}
 
 	// Build config from environment variables

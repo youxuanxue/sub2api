@@ -185,11 +185,22 @@ func TestSetupMigrationTimeout(t *testing.T) {
 	})
 }
 
+func TestWriteConfigFileRejectsMissingTimezone(t *testing.T) {
+	t.Setenv("DATA_DIR", t.TempDir())
+	err := writeConfigFile(&SetupConfig{})
+	if err == nil {
+		t.Fatal("writeConfigFile() should reject empty timezone")
+	}
+	if !strings.Contains(err.Error(), "timezone is required") {
+		t.Fatalf("writeConfigFile() error = %v", err)
+	}
+}
+
 func TestWriteConfigFileKeepsDefaultUserConcurrency(t *testing.T) {
 	t.Setenv("RUN_MODE", "simple")
 	t.Setenv("DATA_DIR", t.TempDir())
 
-	if err := writeConfigFile(&SetupConfig{}); err != nil {
+	if err := writeConfigFile(&SetupConfig{Timezone: "UTC"}); err != nil {
 		t.Fatalf("writeConfigFile() error = %v", err)
 	}
 
@@ -207,6 +218,7 @@ func TestWriteConfigFileIncludesRedisUsername(t *testing.T) {
 	t.Setenv("DATA_DIR", t.TempDir())
 
 	if err := writeConfigFile(&SetupConfig{
+		Timezone: "UTC",
 		Redis: RedisConfig{
 			Host:     "redis",
 			Port:     6379,

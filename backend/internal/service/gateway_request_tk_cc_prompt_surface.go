@@ -7,6 +7,8 @@ import (
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
 
 const (
@@ -35,7 +37,7 @@ func tkNormalizeCCPromptSurfaceText(text, oauthEmail string) (string, bool) {
 		return text, false
 	}
 	changed := false
-	if out, ok := tkStripCCEnvironmentSection(text); ok {
+	if out, ok := tkRewriteCCEnvironmentSection(text); ok {
 		text = out
 		changed = true
 	}
@@ -87,33 +89,77 @@ func tkCCPromptSurfaceClassTracksLeaks(cls tkCCPromptSurfaceClass) bool {
 	}
 }
 
-func tkStripCCEnvironmentSection(text string) (string, bool) {
+func tkOutboundTimezoneName() string {
+	name := strings.TrimSpace(timezone.Name())
+	if name == "" || strings.EqualFold(name, "Local") {
+		return ""
+	}
+	return name
+}
+
+func tkRewriteCCEnvironmentSection(text string) (string, bool) {
 	if !strings.Contains(text, "# Environment") {
 		return text, false
 	}
+	outboundTZ := tkOutboundTimezoneName()
 	lines := strings.Split(text, "\n")
 	out := make([]string, 0, len(lines))
-	skip := false
+	inEnv := false
 	changed := false
+	wroteTZ := false
+	flushTZ := func() {
+		if outboundTZ == "" || wroteTZ {
+			return
+		}
+		out = append(out, "TZ="+outboundTZ)
+		wroteTZ = true
+		changed = true
+	}
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "# Environment" {
-			skip = true
-			changed = true
+			if inEnv {
+				flushTZ()
+			}
+			inEnv = true
+			out = append(out, line)
 			continue
 		}
-		if skip {
+		if inEnv {
 			if strings.HasPrefix(trimmed, "# ") {
-				skip = false
+				flushTZ()
+				inEnv = false
 				out = append(out, line)
 				continue
 			}
-			if tkIsCCEnvironmentKVLine(trimmed) {
+			if strings.HasPrefix(trimmed, "TZ=") {
+				if outboundTZ == "" {
+					changed = true
+					continue
+				}
+				if trimmed != "TZ="+outboundTZ {
+					changed = true
+				}
+				if !wroteTZ {
+					out = append(out, "TZ="+outboundTZ)
+					wroteTZ = true
+				}
 				continue
 			}
-			skip = false
+			if tkIsCCEnvironmentLocalKVLine(trimmed) {
+				changed = true
+				continue
+			}
+			if trimmed == "" {
+				continue
+			}
+			flushTZ()
+			inEnv = false
 		}
 		out = append(out, line)
+	}
+	if inEnv {
+		flushTZ()
 	}
 	if !changed {
 		return text, false
@@ -121,11 +167,11 @@ func tkStripCCEnvironmentSection(text string) (string, bool) {
 	return strings.TrimSpace(strings.Join(out, "\n")), true
 }
 
-func tkIsCCEnvironmentKVLine(line string) bool {
+func tkIsCCEnvironmentLocalKVLine(line string) bool {
 	if line == "" {
 		return true
 	}
-	for _, prefix := range []string{"TZ=", "Proxy=", "proxy=", "PWD=", "cwd="} {
+	for _, prefix := range []string{"Proxy=", "proxy=", "PWD=", "cwd="} {
 		if strings.HasPrefix(line, prefix) {
 			return true
 		}
@@ -367,10 +413,22 @@ func tkCCPromptSurfaceTextUnknownSurfaces(text string) []string {
 	if dateClass != "NONE" && dateClass != "ISO_DASH_ASCII" {
 		surfaces = appendUniqueString(surfaces, "geo_stego_date_line")
 	}
-	if strings.Contains(text, "# Environment") || tkCCWireCNTimezoneRE.MatchString(text) {
+	if tkCCEnvironmentSectionLeaks(text) {
 		surfaces = appendUniqueString(surfaces, "cc_environment_section")
 	}
 	return surfaces
+}
+
+func tkCCEnvironmentSectionLeaks(text string) bool {
+	if tkCCWireCNTimezoneRE.MatchString(text) {
+		return true
+	}
+	for _, marker := range []string{"Proxy=", "proxy=", "PWD=", "cwd="} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func tkCCPromptSurfaceTextHasPromptSignal(text string) bool {
