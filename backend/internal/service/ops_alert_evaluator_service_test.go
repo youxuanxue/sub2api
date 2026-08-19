@@ -624,11 +624,12 @@ func TestIsEdgeSuppressedAlertRule(t *testing.T) {
 	require.False(t, isEdgeSuppressedAlertRule(nil))
 }
 
-// TestEffectiveOpsAlertPageSeverity pins the us4-class demotion: an edge-local
-// P0 upstream_error_rate is not end-user visible (prod failovers to another
-// edge), so the stored/paged severity must be P1. Prod keeps P0 because it is
-// the user-facing terminus. The 8% early-warning P1 rule stays P1; other P0
-// rules on an edge are unchanged.
+// TestEffectiveOpsAlertPageSeverity pins the leftover us4-class demotion if an
+// operator re-enables the retired 20% P0: an edge-local upstream_error_rate is
+// not end-user visible (prod failovers to another edge), so the stored/paged
+// severity must be P1. The seeded 20% rule is disabled by tk_087; this helper
+// only matters for a re-enabled copy. The 8% P1 stays P1; other P0 rules on an
+// edge are unchanged.
 func TestEffectiveOpsAlertPageSeverity(t *testing.T) {
 	t.Parallel()
 

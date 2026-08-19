@@ -282,8 +282,8 @@ func TestOpsAlertFeishuSeverityAllowedEdgeUpstreamErrorRateP1(t *testing.T) {
 	p0Event := &OpsAlertEvent{Severity: "P0", Status: OpsAlertStatusFiring}
 	p1Event := &OpsAlertEvent{Severity: "P1", Status: OpsAlertStatusFiring}
 
-	require.True(t, opsAlertFeishuSeverityAllowed(p0Upstream, p0Event), "prod still pages the 20% rule as P0")
-	require.True(t, opsAlertFeishuSeverityAllowed(p0Upstream, p1Event), "edge-demoted 20% rule must still reach Feishu as P1")
+	require.True(t, opsAlertFeishuSeverityAllowed(p0Upstream, p0Event), "if an operator re-enables the retired 20% P0, Feishu still accepts P0+P0")
+	require.True(t, opsAlertFeishuSeverityAllowed(p0Upstream, p1Event), "if the retired 20% rule is re-enabled on an edge, demoted P1 still reaches Feishu")
 	require.False(t, opsAlertFeishuSeverityAllowed(p1Upstream, p1Event), "8% early-warning P1 must stay off Feishu")
 	require.False(t, opsAlertFeishuSeverityAllowed(p1Upstream, p0Event))
 }
