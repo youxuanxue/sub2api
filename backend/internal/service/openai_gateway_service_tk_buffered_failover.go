@@ -46,11 +46,10 @@ func (s *OpenAIGatewayService) openAICompatBufferedMissingTerminalResult(
 }
 
 // openAICompatBufferedFailedResponseResult mirrors the streaming response.failed
-// policy. The streaming path only fails over when openAIStreamFailedEventShouldFailover
-// agrees (transient / capacity errors); a non-retryable failure (content_policy,
-// safety, invalid_request, …) is forwarded to the client instead of replayed on a
-// sibling account. The buffered path applies the same gate: retryable → failover,
-// non-retryable → surface the upstream message as a client error with no failover.
+// policy. Both paths call openAIStreamFailedEventShouldFailover, which is only a
+// semantic-status adapter over shouldFailoverOpenAIUpstreamError. Retryable
+// (transient / capacity) → failover; non-retryable (content_policy, safety,
+// invalid_request, …) → surface the upstream message with no sibling replay.
 // cyber_policy is handled by the caller before reaching here.
 func (s *OpenAIGatewayService) openAICompatBufferedFailedResponseResult(
 	c *gin.Context,
