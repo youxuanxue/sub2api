@@ -96,7 +96,10 @@ class Stage0QABundleContractTest(unittest.TestCase):
         self.assertEqual(policy["DenyLightsailEdgeRole"], {
             "Sid": "DenyLightsailEdgeRole", "Effect": "Deny", "Principal": "*", "Action": "s3:*",
             "Resource": ["QaBundleBucket.Arn", "${QaBundleBucket.Arn}/*"],
-            "Condition": {"ArnEquals": {"aws:PrincipalArn": EDGE_ROLE_ARN}},
+            "Condition": {"ArnLike": {"aws:PrincipalArn": [
+                EDGE_ROLE_ARN,
+                "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/tokenkey-lightsail-ssm-hybrid-*",
+            ]}},
         })
         create = policy["AllowAppInstanceRoleCreateScopedBundleJobs"]
         self.assertEqual(create["Action"], "s3:PutObject")
@@ -248,6 +251,7 @@ class Stage0QABundleContractTest(unittest.TestCase):
         self.assertEqual(container["Command"], ["--qa-bundle-worker"])
         environment = {item["Name"]: item["Value"] for item in container["Environment"]}
         self.assertEqual(environment, {
+            "TZ": "UTC",
             "QA_BUNDLE_ENABLED": "true",
             "QA_BUNDLE_QUEUE_URL": "QaBundleQueue",
             "QA_BUNDLE_STORAGE_DRIVER": "s3",
