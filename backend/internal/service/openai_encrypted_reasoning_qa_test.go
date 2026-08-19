@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
@@ -161,6 +164,94 @@ func TestStashOpenAIEncryptedReasoningFromSSE_IgnoresEmptyAndNonReasoning(t *tes
 
 	stashOpenAIEncryptedReasoningFromSSE(c, []byte(`{"type":"response.output_item.done","item":{"id":"msg_1","type":"message","encrypted_content":""}}`))
 	stashOpenAIEncryptedReasoningFromSSE(c, nil)
+	_, ok := c.Get(openaiEncryptedReasoningGinKey)
+	require.False(t, ok)
+}
+
+func TestHandleStreamingResponse_StashesEncryptedReasoning(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{
+			Gateway: config.GatewayConfig{
+				MaxLineSize: defaultMaxLineSize,
+			},
+		},
+		toolCorrector: NewCodexToolCorrector(),
+	}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"response.output_item.done","item":{"id":"rs_http_1","type":"reasoning","encrypted_content":"gAAAA-HTTP-STREAM"}}`,
+			"",
+			`data: {"type":"response.completed","response":{"id":"resp_http_enc","output":[{"id":"rs_http_1","type":"reasoning","summary":[{"type":"summary_text","text":"plan"}]}],"usage":{"input_tokens":2,"output_tokens":1}}}`,
+			"",
+		}, "\n"))),
+		Header: http.Header{"X-Request-Id": []string{"rid-http-enc"}},
+	}
+
+	result, err := svc.handleStreamingResponse(
+		c.Request.Context(),
+		resp,
+		c,
+		&Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Name: "acc"},
+		time.Now(),
+		"gpt-5.6-sol",
+		"gpt-5.6-sol",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Contains(t, rec.Body.String(), "gAAAA-HTTP-STREAM")
+
+	got, ok := c.Get(openaiEncryptedReasoningGinKey)
+	require.True(t, ok, "HTTP 非 passthrough 流式路径应把 item.encrypted_content 写入 QA gin key")
+	blocks, ok := got.([]string)
+	require.True(t, ok)
+	require.Len(t, blocks, 1)
+	require.Contains(t, blocks[0], `"item_id":"rs_http_1"`)
+	require.Contains(t, blocks[0], "gAAAA-HTTP-STREAM")
+}
+
+func TestHandleStreamingResponse_DoesNotStashWithoutCiphertext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{
+			Gateway: config.GatewayConfig{
+				MaxLineSize: defaultMaxLineSize,
+			},
+		},
+		toolCorrector: NewCodexToolCorrector(),
+	}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"response.output_item.done","item":{"id":"rs_http_2","type":"reasoning","summary":[{"type":"summary_text","text":"plan"}]}}`,
+			"",
+			`data: {"type":"response.completed","response":{"id":"resp_http_plain","usage":{"input_tokens":1,"output_tokens":1}}}`,
+			"",
+		}, "\n"))),
+	}
+
+	result, err := svc.handleStreamingResponse(
+		c.Request.Context(),
+		resp,
+		c,
+		&Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Name: "acc"},
+		time.Now(),
+		"gpt-5.6-sol",
+		"gpt-5.6-sol",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, result)
 	_, ok := c.Get(openaiEncryptedReasoningGinKey)
 	require.False(t, ok)
 }

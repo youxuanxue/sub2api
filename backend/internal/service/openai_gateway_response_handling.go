@@ -560,6 +560,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				data = string(sanitizedData)
 				line = "data: " + data
 			}
+			observeOpenAIResponsesEvent(c, dataBytes)
 			// Replace model in response if needed.
 			// Fast path: most events do not contain model field values.
 			if needModelReplace && mappedModel != "" && strings.Contains(line, mappedModel) {
@@ -1227,13 +1228,10 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	}
 	if bodyHasSSEFraming(body) {
 		observeOpenAISSEBody(observer, string(body))
-		forEachOpenAISSEDataPayload(string(body), func(data []byte) {
-			stashOpenAIEncryptedReasoningFromSSE(c, data)
-		})
 	} else {
 		observer.ObserveOpenAI(body, strings.TrimSpace(gjson.GetBytes(body, "type").String()))
-		stashOpenAIEncryptedReasoningFromSSE(c, body)
 	}
+	observeOpenAIResponsesSSEBody(c, string(body))
 
 	// Detect SSE responses for ALL account types via Content-Type header.
 	// Some OpenAI-compatible upstreams (including other sub2api instances)
@@ -1334,9 +1332,7 @@ func bodyHasSSEFraming(body []byte) bool {
 
 func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Context, account *Account, body []byte, originalModel, mappedModel string) (*openaiNonStreamingResult, error) {
 	bodyText := string(body)
-	forEachOpenAISSEDataPayload(bodyText, func(data []byte) {
-		stashOpenAIEncryptedReasoningFromSSE(c, data)
-	})
+	observeOpenAIResponsesSSEBody(c, bodyText)
 	finalResponse, ok := extractCodexFinalResponse(bodyText)
 
 	usage := &OpenAIUsage{}

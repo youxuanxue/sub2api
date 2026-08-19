@@ -500,7 +500,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		if eventType == "" {
 			continue
 		}
-		stashOpenAIEncryptedReasoningFromSSE(c, message)
+		observeOpenAIResponsesEvent(c, message)
 		responseModelObserver.ObserveOpenAI(message, eventType)
 		eventCount++
 		if firstEventType == "" {
