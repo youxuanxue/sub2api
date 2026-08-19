@@ -555,7 +555,7 @@ func stringMappingFromRaw(raw any) map[string]string {
 }
 
 func (a *Account) GetModelMapping() map[string]string {
-	runtimeVersion := xai.RuntimeModelMappingVersion()
+	runtimeVersion := modelMappingCacheRuntimeVersion()
 	credentialsPtr := mapPtr(a.Credentials)
 	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
 	rawPtr := mapPtr(rawMapping)
@@ -605,7 +605,7 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 	if a.Credentials == nil {
 		// Antigravity 平台使用默认映射
 		if a.Platform == domain.PlatformAntigravity {
-			return domain.DefaultAntigravityModelMapping
+			return antigravityEffectiveDefaultModelMapping()
 		}
 		if a.Platform == domain.PlatformGrok {
 			return defaultGrokAccountModelMapping()
@@ -616,7 +616,7 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 	if len(rawMapping) == 0 {
 		// Antigravity 平台使用默认映射
 		if a.Platform == domain.PlatformAntigravity {
-			return domain.DefaultAntigravityModelMapping
+			return antigravityEffectiveDefaultModelMapping()
 		}
 		if a.Platform == domain.PlatformGrok {
 			return defaultGrokAccountModelMapping()
@@ -636,7 +636,7 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 
 	// Antigravity 平台使用默认映射
 	if a.Platform == domain.PlatformAntigravity {
-		return domain.DefaultAntigravityModelMapping
+		return antigravityEffectiveDefaultModelMapping()
 	}
 	if a.Platform == domain.PlatformGrok {
 		return xai.DefaultModelMapping()
