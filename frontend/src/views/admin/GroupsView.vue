@@ -1,6 +1,5 @@
 <template>
-  <AppLayout>
-    <TablePageLayout>
+  <TablePageLayout>
       <template #filters>
         <div
           class="flex flex-col justify-between gap-4 lg:flex-row lg:items-start"
@@ -4403,7 +4402,7 @@
       @close="showRPMOverridesModal = false"
       @success="loadGroups"
     />
-  </AppLayout>
+  </TablePageLayout>
 </template>
 
 <script setup lang="ts">
@@ -4423,7 +4422,6 @@ import type {
   SubscriptionType,
 } from "@/types";
 import type { Column } from "@/components/common/types";
-import AppLayout from "@/components/layout/AppLayout.vue";
 import TablePageLayout from "@/components/layout/TablePageLayout.vue";
 import DataTable from "@/components/common/DataTable.vue";
 import Pagination from "@/components/common/Pagination.vue";
