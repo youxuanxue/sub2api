@@ -705,6 +705,7 @@ bash scripts/release-rollout-summary.sh --mode release
 | 发版后 tick 报 `No such container: tokenkey` | 先确认在用新版 `ops/observability/probe-post-release-tick.sh`；它默认 `CONTAINER=auto` 会解析 prod blue/green active container。不要手工猜 `tokenkey-green`；若仍失败，看 tick stdout 的 `container_resolution`。 |
 | `TK_SMOKE_GITHUB_ENV=prod` 报 `unexpected gh variables response` | 旧版 `load_smoke_github_env.py` 对单页 gh api 响应断言成 list 的 bug，已修；若复现先 `gh api repos/{owner}/{repo}/environments/prod/variables` 看原始形状。 |
 | prod `Deploy via SSM Run-Command` 报 `AccessDenied(ssm:SendCommand)` | 先核对 `tokenkey-cicd-oidc` 的 `TargetInstanceId` 是否等于 `tokenkey-prod-stage0` 当前 `InstanceId`；不一致先更新 OIDC 栈参数再重跑 deploy。 |
+| prod smoke `/v1/chat/completions` **400** + `not supported by Kiro` | universal key 打到 Kiro stub、上游 entitlement 拒 Claude；烟测应 soft-skip 并 defer 到 `/v1/messages`。**不要 rollback**。Kiro catalog 无 Claude 是上游问题，不是镜像回归。 |
 | prod smoke Gemini tools **429** + soft-skip + **`tk_post_deploy_smoke: OK`** | 运行时资源/cooldown，**不是** passthrough 路由回归；verdict green/yellow，不 rollback。若要 200 证据，cooldown 后重跑 deploy-stage0 smoke。 |
 | prod smoke Gemini tools **400** + Codex 账号文案 | 路由回归（#1168 类）；**red**，rollback `previous_tag` 并停 edge rollout。 |
 | prod smoke 报 configured smoke model not listed in GET /v1/models | 不是代码回归，改 **`prod`** Environment 对应的 **`TK_SMOKE_ANTHROPIC_MODELS` / `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS`** 为 `TK_SMOKE_API_KEY` 可见模型后重跑。 |

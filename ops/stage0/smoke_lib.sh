@@ -192,6 +192,26 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
             echo "tk_post_deploy_smoke: ${label} section soft-skipped (universal_no_entitled_group; /v1/messages probe is the canonical signal)"
             return 1
             ;;
+          *"not supported by Kiro"*)
+            # Universal key /v1/chat/completions is expected to hit Kiro
+            # mirror stubs first. When the selected Kiro profile has dropped
+            # Claude (ListAvailableModels has no Claude; INVALID_MODEL_ID),
+            # the gateway rewrites that into a terminal 400. That is upstream
+            # entitlement, not a control-plane shape regression. Defer to
+            # /v1/messages, which remains the canonical Anthropic probe.
+            if [[ "${label}" == "/v1/messages" ]]; then
+              echo "tk_post_deploy_smoke: ${label} failed" >&2
+              jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
+              exit 1
+            fi
+            echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} — Kiro rejected the model (upstream entitlement); deferring to /v1/messages probe." >&2
+            if [[ -n "${err_msg}" ]]; then
+              echo "  gateway message: ${err_msg}" >&2
+            fi
+            jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
+            echo "tk_post_deploy_smoke: ${label} section soft-skipped (kiro_invalid_model; /v1/messages probe is the canonical signal)"
+            return 1
+            ;;
           *"restricted to Claude Code clients"*|*"/v1/messages only"*)
             # claude_code_only group policy: the configured Anthropic key is
             # bound to a group that allows /v1/messages with a Claude Code UA
