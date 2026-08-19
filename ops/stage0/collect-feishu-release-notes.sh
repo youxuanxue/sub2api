@@ -58,10 +58,11 @@ NEW_REF="v$NEW"
 FILTER='bump VERSION|sync.version.file'
 
 filter_noise() {
-  grep -viE "$FILTER" || true
+  grep -viE "$FILTER" || true  # preflight-allow: swallow -- no matching noise commits is valid
 }
 
 notes_from_log() {
+  # preflight-allow: swallow -- unwalkable range falls through to tag body
   { git log --first-parent --pretty=format:'- %s' "$PREV_REF..$NEW_REF" || true; } \
     | filter_noise
 }
@@ -114,7 +115,7 @@ deepen_until_walkable() {
   local depth=64
   while [ "$depth" -le 1024 ]; do
     echo "[collect-feishu-release-notes] deepen=$depth" >&2
-    git fetch --deepen="$depth" origin || true
+    git fetch --deepen="$depth" origin || true  # preflight-allow: swallow -- next depth or tag-body fallback remains
     if range_walkable; then
       return 0
     fi
@@ -123,9 +124,9 @@ deepen_until_walkable() {
   return 1
 }
 
-fetch_tag_tips || true
+fetch_tag_tips || true  # preflight-allow: swallow -- notification remains best-effort
 if ! range_walkable; then
-  deepen_until_walkable || true
+  deepen_until_walkable || true  # preflight-allow: swallow -- empty notes omit 本次更新
 fi
 
 NOTES="$(notes_from_log | sed '/^[[:space:]]*$/d')"
@@ -140,7 +141,7 @@ fi
 
 LINE_COUNT=0
 if [ -n "$NOTES" ]; then
-  LINE_COUNT="$(printf '%s\n' "$NOTES" | grep -c . || true)"
+  LINE_COUNT="$(printf '%s\n' "$NOTES" | grep -c . || true)"  # preflight-allow: swallow -- zero lines is a valid count
 fi
 echo "[collect-feishu-release-notes] source=$SOURCE lines=$LINE_COUNT range=$PREV_REF..$NEW_REF" >&2
 
