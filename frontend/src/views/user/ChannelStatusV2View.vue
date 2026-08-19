@@ -259,6 +259,7 @@
           :coverage="matrix.coverage"
           :health-mode="healthMode"
           :show-throughput="showThroughput"
+          :public-platform-names="!isAdmin"
         />
         <div
           v-else-if="loading"
@@ -309,7 +310,7 @@
                     <div class="flex items-center gap-2">
                       <span :class="statusDot(row.health)" aria-hidden="true"></span>
                       <div>
-                        <span class="block text-xs text-gray-500 dark:text-dark-400">{{ row.platform }}</span>
+                        <span class="block text-xs text-gray-500 dark:text-dark-400">{{ displayPlatform(row.platform) }}</span>
                         <strong class="font-semibold text-gray-900 dark:text-white">
                           {{ row.model === '__other__' ? t('channelMonitorV2.otherModels') : row.model }}
                         </strong>
@@ -471,6 +472,13 @@ import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { isChannelMonitorThroughputHidden } from '@/utils/featureFlags'
+import {
+  expandPublicPlatforms,
+  getPublicPlatformLabel,
+  normalizePublicMonitorMatrixRows,
+  normalizePublicMonitorModelRows,
+  normalizePublicPlatform,
+} from '@/utils/publicPlatforms'
 import * as api from '@/api/channelMonitorV2'
 import type {
   HealthState,
@@ -536,7 +544,7 @@ const healthModeOptions = computed(() => [
 
 const filter = ref<MonitorFilter>({
   range: parseRange(route.query.range),
-  platforms: csv(route.query.platform),
+  platforms: publicPlatformSelection(csv(route.query.platform)),
   groupIds: csv(route.query.group).map(Number).filter(Boolean),
   models: csv(route.query.model),
 })
@@ -565,12 +573,20 @@ const hasDimensionFilter = computed(
 )
 // Full platform catalog (never pruned). Groups/models cascade by selected platforms
 // so choosing a platform narrows the other pickers without collapsing platforms.
-const platformOptions = computed(() =>
-  (dimensions.value.platforms || []).map((item) => ({
-    value: item.value,
-    label: item.label,
-  }))
-)
+const platformOptions = computed(() => {
+  const result: Array<{ value: string; label: string }> = []
+  const seen = new Set<string>()
+  for (const item of dimensions.value.platforms || []) {
+    const value = isAdmin.value ? item.value : normalizePublicPlatform(item.value)
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    result.push({
+      value,
+      label: isAdmin.value ? item.label : getPublicPlatformLabel(value),
+    })
+  }
+  return result
+})
 const selectedPlatforms = computed(() => new Set(filter.value.platforms))
 const groupOptions = computed(() =>
   (dimensions.value.groups || [])
@@ -578,11 +594,11 @@ const groupOptions = computed(() =>
       (item) =>
         selectedPlatforms.value.size === 0 ||
         !item.platform ||
-        selectedPlatforms.value.has(item.platform),
+        selectedPlatforms.value.has(displayPlatformValue(item.platform)),
     )
     .map((item) => ({
       value: String(item.id),
-      label: item.platform ? `${item.platform} / ${item.name || `#${item.id}`}` : item.name || `#${item.id}`,
+      label: item.platform ? `${displayPlatform(item.platform)} / ${item.name || `#${item.id}`}` : item.name || `#${item.id}`,
     }))
 )
 const modelOptions = computed(() =>
@@ -591,13 +607,13 @@ const modelOptions = computed(() =>
       (item) =>
         selectedPlatforms.value.size === 0 ||
         !item.platform ||
-        selectedPlatforms.value.has(item.platform),
+        selectedPlatforms.value.has(displayPlatformValue(item.platform)),
     )
     .map((item) => ({
       value: item.value,
       label:
         item.platform && !item.label.includes(item.platform)
-          ? `${item.platform} / ${item.label}`
+          ? `${displayPlatform(item.platform)} / ${item.label}`
           : item.label,
     }))
 )
@@ -646,14 +662,31 @@ const bootstrapPercent = computed(() => {
 const matrixRows = computed(() => {
   const items = matrix.value?.items || []
   // platform_group views should only show real groups, never bare platform placeholders.
-  if (matrixGroupBy.value === 'platform_group' || matrixGroupBy.value === 'platform_group_model') {
-    return items.filter((row) => row.group_id != null && Number(row.group_id) > 0)
-  }
-  return items
+  const filtered = (matrixGroupBy.value === 'platform_group' || matrixGroupBy.value === 'platform_group_model')
+    ? items.filter((row) => row.group_id != null && Number(row.group_id) > 0)
+    : items
+  return isAdmin.value ? filtered : normalizePublicMonitorMatrixRows(filtered)
 })
 
 function csv(value: unknown) {
   return typeof value === 'string' ? value.split(',').filter(Boolean) : []
+}
+function publicPlatformSelection(platforms: string[]): string[] {
+  if (isAdmin.value) return platforms
+  return [...new Set(platforms.map(normalizePublicPlatform).filter(Boolean))]
+}
+function displayPlatformValue(platform: string): string {
+  return isAdmin.value ? platform : normalizePublicPlatform(platform)
+}
+function displayPlatform(platform: string): string {
+  return isAdmin.value ? platform : getPublicPlatformLabel(platform)
+}
+function requestFilter(): MonitorFilter {
+  if (isAdmin.value) return filter.value
+  return {
+    ...filter.value,
+    platforms: expandPublicPlatforms(filter.value.platforms),
+  }
 }
 function parseRange(value: unknown): MonitorRange {
   return ['90m', '24h', '7d', '30d'].includes(String(value)) ? (value as MonitorRange) : '90m'
@@ -704,9 +737,10 @@ async function loadDimensions(signal?: AbortSignal, id = sequence) {
 }
 
 async function loadMetrics(signal?: AbortSignal, id = sequence) {
+  const currentFilter = requestFilter()
   const [nextSnapshot, nextMatrix] = await Promise.all([
-    api.getSnapshot(filter.value, isAdmin.value, signal),
-    api.getMatrix(filter.value, matrixGroupBy.value, isAdmin.value, signal),
+    api.getSnapshot(currentFilter, isAdmin.value, signal),
+    api.getMatrix(currentFilter, matrixGroupBy.value, isAdmin.value, signal),
   ])
   if (id !== sequence) return
   snapshot.value = nextSnapshot
@@ -765,13 +799,15 @@ async function reloadMetricsOnly(silent = true) {
 }
 async function loadTab(signal?: AbortSignal, id = sequence) {
   tabLoading.value = true
+  const currentFilter = requestFilter()
   try {
     if (activeTab.value === 'models') {
-      modelRows.value = (await api.getModels(filter.value, isAdmin.value, signal)).items || []
+      const items = (await api.getModels(currentFilter, isAdmin.value, signal)).items || []
+      modelRows.value = isAdmin.value ? items : normalizePublicMonitorModelRows(items)
     } else if (activeTab.value === 'errors') {
-      errorRows.value = (await api.getErrors(filter.value, isAdmin.value, signal)).items || []
+      errorRows.value = (await api.getErrors(currentFilter, isAdmin.value, signal)).items || []
     } else {
-      userRows.value = (await api.getUsers(filter.value, isAdmin.value, signal)).items || []
+      userRows.value = (await api.getUsers(currentFilter, isAdmin.value, signal)).items || []
     }
   } catch (error) {
     const e = error as { name?: string; code?: string }
@@ -809,7 +845,7 @@ function scheduleAutoRefresh() {
   }, Math.max(bootstrapActive.value ? 10 : 60, seconds) * 1000)
 }
 function drillModel(row: MonitorModelRow) {
-  filter.value.platforms = [row.platform]
+  filter.value.platforms = [displayPlatformValue(row.platform)]
   filter.value.models = [row.model]
 }
 function formatRate(value: number) {

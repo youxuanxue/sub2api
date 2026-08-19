@@ -311,9 +311,33 @@ jobs:
               exit "$describe_rc"
             fi
           fi
+          SURFACE_JSON="{}"
+          FROM_TAG=""
+          if FROM_TAG="$(python3 ops/qa/qa_bundle_release_surface.py --from-image "$VERIFIED_EXISTING_WORKER_IMAGE" --print-tag)"; then
+            FETCH_OK=1
+            if [ "$FROM_TAG" != "$INPUT_TAG" ]; then
+              if ! git fetch --no-tags origin \
+                "refs/tags/v${FROM_TAG}:refs/tags/v${FROM_TAG}" \
+                "refs/tags/v${INPUT_TAG}:refs/tags/v${INPUT_TAG}"; then
+                echo "::warning::could not fetch v$FROM_TAG..v$INPUT_TAG; fail closed to target Worker + canary"
+                FETCH_OK=0
+              fi
+            fi
+            if [ "$FETCH_OK" = 1 ] && ! SURFACE_JSON="$(python3 ops/qa/qa_bundle_release_surface.py \
+              --from-image "$VERIFIED_EXISTING_WORKER_IMAGE" \
+              --to-tag "$INPUT_TAG" --json)"; then
+              echo "::warning::QA Bundle surface classify failed; fail closed to target Worker + canary"
+              SURFACE_JSON="{}"
+            fi
+          else
+            echo "QA Bundle surface classify skipped: live Worker is not a reusable release tag"
+          fi
           RESOLUTION="$(python3 ops/qa/resolve_qa_bundle_worker_image.py \
             --target-tag "$INPUT_TAG" --target-rollout "$TARGET_ROLLOUT" \
-            --verified-existing-image "$VERIFIED_EXISTING_WORKER_IMAGE")"
+            --verified-existing-image "$VERIFIED_EXISTING_WORKER_IMAGE" \
+            --surface-json "$SURFACE_JSON")"
+          echo "qa bundle surface: from=${FROM_TAG:-none} to=$INPUT_TAG $SURFACE_JSON"
+          echo "qa bundle resolution: $RESOLUTION"
           MODE="$(jq -er '.mode' <<<"$RESOLUTION")"
           RESOLVED_WORKER_IMAGE="$(jq -er '.resolved_worker_image' <<<"$RESOLUTION")"
           echo "qa_stack_name=$QA_STACK_NAME" >> "$GITHUB_OUTPUT"
@@ -531,14 +555,12 @@ jobs:
         run: |
           set -uo pipefail
           # Feishu rollout notes describe what changed since the tag that was
-          # actually serving before this deploy. This intentionally differs from
-          # the tag-to-tag GitHub Release changelog when an image build failed
-          # before reaching prod.
+          # actually serving before this deploy. collect-feishu-release-notes.sh
+          # unshallows the fetch-depth:1 clone so git log A..B is walkable
+          # (fetching only the two tag tips is not enough). Empty notes omit
+          # 「本次更新」; do not inline git log here.
           PREVIOUS_TAG="${{ steps.previous_runtime.outputs.tag }}"
-          git fetch origin "refs/tags/v${INPUT_TAG}:refs/tags/v${INPUT_TAG}" \
-            "refs/tags/v${PREVIOUS_TAG}:refs/tags/v${PREVIOUS_TAG}" --force 2>/dev/null || true  # preflight-allow: swallow -- notification remains best-effort
-          NOTES="$(git log --first-parent --pretty=format='- %s' "v$PREVIOUS_TAG..v$INPUT_TAG" \
-            | grep -viE 'bump VERSION|sync.version.file' || true)"  # preflight-allow: swallow -- no matching noise commits is valid
+          NOTES="$(bash ops/stage0/collect-feishu-release-notes.sh "$PREVIOUS_TAG" "$INPUT_TAG")"
           bash ops/stage0/notify-feishu-release.sh "$INPUT_TAG" "$API_URL" \
             --previous-tag "$PREVIOUS_TAG" --run-url "$RUN_URL" --notes "$NOTES"
 

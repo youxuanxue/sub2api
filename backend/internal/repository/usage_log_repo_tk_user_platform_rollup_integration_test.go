@@ -307,3 +307,59 @@ func (s *UsageLogRepoSuite) TestRollupParity_EmptyEffectivePlatform() {
 		s.NotEqual("", p.Platform, "ByPlatform must not contain an empty-platform entry")
 	}
 }
+
+// TestUserPlatformSuccessMetricsBackfillUsesConfiguredTimezone locks the
+// upgrade path for deployments whose reporting day is not UTC. The historical
+// success metrics must land in the same local-date row as live aggregation.
+func (s *UsageLogRepoSuite) TestUserPlatformSuccessMetricsBackfillUsesConfiguredTimezone() {
+	s.Require().NoError(timezone.Init("Asia/Shanghai"))
+	s.T().Cleanup(func() { s.Require().NoError(timezone.Init("UTC")) })
+
+	user := mustCreateUser(s.T(), s.client, &service.User{Email: "rollup-success-backfill@test.com"})
+	key := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-rollup-success-backfill", Name: "k"})
+	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "rollup-success-backfill-account", Platform: service.PlatformGemini})
+	group := mustCreateGroup(s.T(), s.client, &service.Group{Name: "rollup-success-backfill-group", Platform: service.PlatformGemini})
+
+	// 16:30 UTC is 00:30 on the next reporting day in Asia/Shanghai.
+	createdAt := time.Date(2026, 8, 1, 16, 30, 0, 0, time.UTC)
+	s.rollupParityCreateLog(user, key, account, group.ID, 11, 13, 2, 3, 0.5, createdAt)
+
+	// Simulate a pre-tk_087 rollup row after the migration added zero-defaulted
+	// success columns. The one-time runtime backfill must repair this old day even
+	// when the normal incremental range points at a later day.
+	_, err := s.repo.sql.ExecContext(s.ctx, `
+		INSERT INTO usage_dashboard_user_platform_daily (
+			bucket_date, user_id, platform, total_requests,
+			input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
+			actual_cost
+		) VALUES (DATE '2026-08-02', $1, $2, 1, 11, 13, 2, 3, 0.5)
+	`, user.ID, service.PlatformGemini)
+	s.Require().NoError(err)
+
+	aggRepo := newDashboardAggregationRepositoryWithSQL(s.tx)
+	s.Require().NoError(aggRepo.BackfillUserPlatformDaily(s.ctx))
+	s.Require().NoError(aggRepo.AggregateRange(
+		s.ctx,
+		time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 8, 3, 1, 0, 0, 0, time.UTC),
+	))
+
+	var requests, tokens int64
+	s.Require().NoError(scanSingleRow(s.ctx, s.repo.sql, `
+		SELECT successful_requests,
+		       successful_input_tokens + successful_output_tokens +
+		       successful_cache_creation_tokens + successful_cache_read_tokens
+		FROM usage_dashboard_user_platform_daily
+		WHERE bucket_date = DATE '2026-08-02' AND user_id = $1 AND platform = $2
+	`, []any{user.ID, service.PlatformGemini}, &requests, &tokens))
+	s.Equal(int64(1), requests)
+	s.Equal(int64(29), tokens)
+
+	var wrongDayRows int64
+	s.Require().NoError(scanSingleRow(s.ctx, s.repo.sql, `
+		SELECT COUNT(*)
+		FROM usage_dashboard_user_platform_daily
+		WHERE bucket_date = DATE '2026-08-01' AND user_id = $1 AND platform = $2
+	`, []any{user.ID, service.PlatformGemini}, &wrongDayRows))
+	s.Zero(wrongDayRows)
+}

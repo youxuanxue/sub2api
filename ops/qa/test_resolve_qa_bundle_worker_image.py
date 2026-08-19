@@ -30,6 +30,7 @@ def resolve(
     target_tag: str,
     target_rollout: pathlib.Path,
     existing_image: str = "",
+    surface_json: str = "",
 ) -> subprocess.CompletedProcess[str]:
     command = [
         "python3",
@@ -41,6 +42,8 @@ def resolve(
     ]
     if existing_image:
         command.extend(("--verified-existing-image", existing_image))
+    if surface_json:
+        command.extend(("--surface-json", surface_json))
     return subprocess.run(command, capture_output=True, text=True, check=False)
 
 
@@ -56,8 +59,9 @@ class ResolveQABundleWorkerImageTest(unittest.TestCase):
         worker_source: str,
         run_canary: bool,
         host_runtime_mode: str,
+        surface_json: str = "",
     ) -> None:
-        proc = resolve(target_tag, target_rollout, existing_image)
+        proc = resolve(target_tag, target_rollout, existing_image, surface_json)
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertEqual(
             json.loads(proc.stdout),
@@ -82,6 +86,53 @@ class ResolveQABundleWorkerImageTest(unittest.TestCase):
                 worker_source="target_release",
                 run_canary=True,
                 host_runtime_mode="target_release",
+            )
+
+    def test_phase3_reuses_live_worker_when_worker_surface_is_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = rollout_manifest(pathlib.Path(temp_dir))
+            live = f"{IMAGE_REPOSITORY}:1.8.163"
+            self.assert_resolution(
+                "1.8.164",
+                manifest,
+                live,
+                mode="phase3",
+                image=live,
+                worker_source="verified_live_worker",
+                run_canary=False,
+                host_runtime_mode="target_release",
+                surface_json='{"worker_surface_changed":false,"publisher_surface_changed":false}',
+            )
+
+    def test_phase3_reused_worker_still_runs_canary_when_publisher_changed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = rollout_manifest(pathlib.Path(temp_dir))
+            live = f"{IMAGE_REPOSITORY}:1.8.163"
+            self.assert_resolution(
+                "1.8.164",
+                manifest,
+                live,
+                mode="phase3",
+                image=live,
+                worker_source="verified_live_worker",
+                run_canary=True,
+                host_runtime_mode="target_release",
+                surface_json='{"worker_surface_changed":false,"publisher_surface_changed":true}',
+            )
+
+    def test_phase3_unknown_surface_fails_closed_to_target_worker_and_canary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = rollout_manifest(pathlib.Path(temp_dir))
+            self.assert_resolution(
+                "1.8.164",
+                manifest,
+                f"{IMAGE_REPOSITORY}:1.8.163",
+                mode="phase3",
+                image=f"{IMAGE_REPOSITORY}:1.8.164",
+                worker_source="target_release",
+                run_canary=True,
+                host_runtime_mode="target_release",
+                surface_json="{}",
             )
 
     def test_missing_contract_is_legacy_and_preserves_verified_tag(self) -> None:
@@ -169,6 +220,33 @@ class ResolveQABundleWorkerImageTest(unittest.TestCase):
                         proc.stderr,
                         r"target rollout manifest|unsupported target Bundle runtime contract",
                     )
+
+    def test_phase3_worker_surface_change_uses_target_release_image(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = rollout_manifest(pathlib.Path(temp_dir))
+            self.assert_resolution(
+                "1.8.164",
+                manifest,
+                f"{IMAGE_REPOSITORY}:1.8.163",
+                mode="phase3",
+                image=f"{IMAGE_REPOSITORY}:1.8.164",
+                worker_source="target_release",
+                run_canary=True,
+                host_runtime_mode="target_release",
+                surface_json='{"worker_surface_changed":true,"publisher_surface_changed":false}',
+            )
+
+    def test_invalid_surface_json_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = rollout_manifest(pathlib.Path(temp_dir))
+            proc = resolve(
+                "1.8.164",
+                manifest,
+                f"{IMAGE_REPOSITORY}:1.8.163",
+                surface_json="[]",
+            )
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("surface JSON", proc.stderr)
 
     def test_invalid_target_tag_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

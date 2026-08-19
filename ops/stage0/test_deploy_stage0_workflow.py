@@ -102,7 +102,7 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         notice = deploy[notification:]
         self.assertIn("steps.previous_runtime.outputs.tag", notice)
         self.assertIn("--previous-tag", notice)
-        self.assertIn("v$PREVIOUS_TAG..v$INPUT_TAG", notice)
+        self.assertIn("collect-feishu-release-notes.sh", notice)
         self.assertNotIn("git tag -l --format", notice)
 
     def test_target_release_contract_is_bound_before_prod_mutation(self) -> None:
@@ -209,6 +209,9 @@ class DeployStage0WorkflowTest(unittest.TestCase):
             '--verified-existing-image "$VERIFIED_EXISTING_WORKER_IMAGE"',
             pre_mutation,
         )
+        self.assertIn("ops/qa/qa_bundle_release_surface.py", pre_mutation)
+        self.assertIn("--surface-json", pre_mutation)
+        self.assertIn("fail closed to target Worker + canary", pre_mutation)
 
     def test_bundle_infrastructure_is_ready_before_app_image_swap(self) -> None:
         deploy = job_block("deploy")

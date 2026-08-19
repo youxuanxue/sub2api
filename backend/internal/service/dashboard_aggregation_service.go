@@ -348,6 +348,15 @@ func (s *DashboardAggregationService) aggregateRange(ctx context.Context, start,
 	if !end.After(start) {
 		return nil
 	}
+	// Keep the one-time user/platform backfill inside the service's existing
+	// running gate. Startup group sync and recent-day recompute are launched in
+	// parallel, so doing this from the independent startup goroutine can race
+	// with AggregateRange/RecomputeRange while both mutate the same rollup.
+	if repo, ok := s.repo.(UserPlatformSuccessBackfillRepository); ok {
+		if err := repo.BackfillUserPlatformDaily(ctx); err != nil {
+			logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] 用户平台成功指标回填失败: %v", err)
+		}
+	}
 	return s.repo.AggregateRange(ctx, start, end)
 }
 

@@ -46,7 +46,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
-import { getPlatformLabel } from '@/composables/usePlatformOptions'
+import { getPublicPlatformLabel, normalizePlatformUsage } from '@/utils/publicPlatforms'
 import type { PlatformUsage } from '@/api/admin/dashboard'
 
 const props = defineProps<{
@@ -69,7 +69,7 @@ interface BreakdownRow {
 }
 
 const sortedBreakdown = computed<BreakdownRow[]>(() => {
-  const list = props.byPlatform ?? []
+  const list = normalizePlatformUsage(props.byPlatform)
   const rows: BreakdownRow[] = [...list]
     .sort((a, b) => b.total_actual_cost - a.total_actual_cost)
     .map((p) => ({ ...p }))
@@ -92,6 +92,6 @@ const sortedBreakdown = computed<BreakdownRow[]>(() => {
 const hasBreakdown = computed(() => sortedBreakdown.value.length > 0)
 
 function platformLabel(platform: string): string {
-  return getPlatformLabel(platform)
+  return getPublicPlatformLabel(platform)
 }
 </script>

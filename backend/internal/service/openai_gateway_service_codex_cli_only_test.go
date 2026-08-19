@@ -308,6 +308,18 @@ func TestIsOpenAITransientProcessingError(t *testing.T) {
 		"Missing required parameter: 'instructions'",
 		[]byte(`{"error":{"message":"Missing required parameter: 'instructions'"}}`),
 	))
+
+	require.True(t, isOpenAITransientProcessingError(
+		http.StatusBadRequest,
+		"",
+		[]byte(`{"type":"response.failed","response":{"error":{"message":"Our servers are currently overloaded. Please try again later."}}}`),
+	), "Responses JSON must classify overloaded from response.error.message without a separate extracted message")
+
+	require.False(t, isOpenAITransientProcessingError(
+		http.StatusBadRequest,
+		"Your input exceeds the context window of this model. Please adjust your input and try again.",
+		[]byte(`{"type":"response.failed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"Our servers are currently overloaded. Please try again later."}]}],"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again."}}}`),
+	), "JSON Responses bodies must not classify on echoed output text")
 }
 
 func TestIsOpenAIContextWindowError(t *testing.T) {
@@ -323,6 +335,14 @@ func TestIsOpenAIContextWindowError(t *testing.T) {
 		"context canceled",
 		nil,
 	))
+	require.True(t, isOpenAIContextWindowError(
+		"",
+		[]byte("Your input exceeds the context window of this model."),
+	), "plain-text upstream bodies still classify as context-window")
+	require.False(t, isOpenAIContextWindowError(
+		"Our servers are currently overloaded. Please try again later.",
+		[]byte(`{"type":"response.failed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"exceeded the context window"}]}],"error":{"message":"Our servers are currently overloaded. Please try again later."}}}`),
+	), "JSON Responses bodies must not classify on echoed output text")
 }
 
 func TestShouldFailoverOpenAIUpstreamResponseContextWindow502(t *testing.T) {

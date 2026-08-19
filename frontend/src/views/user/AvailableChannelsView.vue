@@ -56,6 +56,7 @@ import userChannelsAPI, { type UserAvailableChannel } from '@/api/channels'
 import userGroupsAPI from '@/api/groups'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
+import { normalizePublicAvailableChannels } from '@/utils/publicPlatforms'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -111,7 +112,7 @@ async function loadChannels() {
         return {} as Record<number, number>
       }),
     ])
-    channels.value = list
+    channels.value = normalizePublicAvailableChannels(list)
     userGroupRates.value = rates
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('common.error')))

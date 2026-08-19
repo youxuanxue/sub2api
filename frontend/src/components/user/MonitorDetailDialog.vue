@@ -70,10 +70,11 @@ import {
 } from '@/api/channelMonitor'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
+import { mergePublicMonitorDetails } from '@/utils/publicPlatforms'
 
 const props = defineProps<{
   show: boolean
-  monitorId: number | null
+  monitorIds: number[]
   title: string
 }>()
 
@@ -88,11 +89,12 @@ const { statusLabel, statusBadgeClass, formatLatency, formatPercent } = useChann
 const detail = ref<UserMonitorDetail | null>(null)
 const loading = ref(false)
 
-async function load(id: number) {
+async function load(ids: readonly number[]) {
   detail.value = null
   loading.value = true
   try {
-    detail.value = await fetchChannelMonitorDetail(id)
+    const details = await Promise.all(ids.map(fetchChannelMonitorDetail))
+    detail.value = mergePublicMonitorDetails(details)
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('channelStatus.detailLoadError')))
   } finally {
@@ -101,13 +103,13 @@ async function load(id: number) {
 }
 
 watch(
-  () => [props.show, props.monitorId] as const,
-  ([show, id]) => {
+  () => [props.show, props.monitorIds.join(',')] as const,
+  ([show]) => {
     if (!show) {
       detail.value = null
       return
     }
-    if (id != null) void load(id)
+    if (props.monitorIds.length > 0) void load(props.monitorIds)
   },
   { immediate: true },
 )

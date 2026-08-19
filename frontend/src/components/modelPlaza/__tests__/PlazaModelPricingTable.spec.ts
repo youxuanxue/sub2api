@@ -51,6 +51,19 @@ function mountTable(
 }
 
 describe('PlazaModelPricingTable', () => {
+  it('treats Gemini and Antigravity as the same public Google platform', () => {
+    const wrapper = mount(PlazaModelPricingTable, {
+      props: {
+        models: [tokenModel({ platform: 'gemini' })],
+        platform: 'antigravity',
+        rateMultiplier: 1,
+      },
+    })
+
+    expect(wrapper.text()).not.toContain('Google')
+    expect(wrapper.text()).not.toContain('Antigravity')
+  })
+
   it('倍率为 1 时展示渠道单价原值($/1M),价格保底 2 位小数', () => {
     const wrapper = mountTable([tokenModel()], 1)
     const text = wrapper.text()

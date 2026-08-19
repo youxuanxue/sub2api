@@ -1810,6 +1810,19 @@ else
     echo "  ok: QA activation confirmation is fail-closed"
 fi
 
+echo "=== sub2api: Feishu release notes collection ==="
+if ! python3 ./ops/stage0/test_collect_feishu_release_notes.py >/dev/null 2>&1; then
+    echo "  FAIL: Feishu release notes collection (shallow-clone changelog)"
+    echo "        — run: python3 ops/stage0/test_collect_feishu_release_notes.py"
+    errors=$((errors + 1))
+elif ! python3 ./ops/stage0/test_notify_feishu_release.py >/dev/null 2>&1; then
+    echo "  FAIL: Feishu release card contract"
+    echo "        — run: python3 ops/stage0/test_notify_feishu_release.py"
+    errors=$((errors + 1))
+else
+    echo "  ok: Feishu rollout notes survive fetch-depth:1 and render 本次更新"
+fi
+
 echo "=== sub2api: ghcr-prune-daily timer contract ==="
 if ! bash ./deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh --selftest >/dev/null 2>&1; then
     echo "  FAIL: tokenkey-ghcr-prune-daily.sh --selftest"

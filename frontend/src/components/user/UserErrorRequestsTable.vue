@@ -75,7 +75,7 @@
         </template>
 
         <template #cell-platform="{ row }">
-          <span class="text-sm text-gray-900 dark:text-white">{{ row.platform || '-' }}</span>
+          <span class="text-sm text-gray-900 dark:text-white">{{ getPublicPlatformLabel(row.platform) }}</span>
         </template>
 
         <template #cell-client_ip="{ row }">
@@ -130,6 +130,7 @@ import UserErrorDetailModal from '@/components/user/UserErrorDetailModal.vue'
 import IpGeoCell from '@/components/common/IpGeoCell.vue'
 import IpGeoBatchToolbar from '@/components/common/IpGeoBatchToolbar.vue'
 import { formatDateTime } from '@/utils/format'
+import { getPublicPlatformLabel } from '@/utils/publicPlatforms'
 import {
   mapErrorSortKey,
   numericRequestTypeKind,

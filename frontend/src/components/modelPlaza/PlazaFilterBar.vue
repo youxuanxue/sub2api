@@ -12,12 +12,12 @@
           type="button"
           class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40 disabled:grayscale"
           :class="p === 'all' ? chipClass(platform === 'all') : platform === p ? 'chip-tinted-active' : 'chip-tinted'"
-          :style="p === 'all' ? undefined : { '--chip-accent': platformAccentColor(p) }"
+          :style="p === 'all' ? undefined : { '--chip-accent': platformAccentColor(getPublicPlatformStyleKey(p)) }"
           :disabled="p !== 'all' && !platformEnabled(p)"
           @click="$emit('update:platform', p)"
         >
-          <PlatformIcon v-if="p !== 'all'" :platform="p as GroupPlatform" size="xs" />
-          {{ p === 'all' ? t('modelPlaza.filters.all') : p }}
+          <PlatformIcon v-if="p !== 'all'" :platform="getPublicPlatformStyleKey(p) as GroupPlatform" size="xs" />
+          {{ p === 'all' ? t('modelPlaza.filters.all') : getPublicPlatformLabel(p) }}
         </button>
       </div>
     </div>
@@ -42,7 +42,7 @@
           type="button"
           class="rounded-lg px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40 disabled:grayscale"
           :class="groupId === g.id ? 'chip-tinted-active' : 'chip-tinted'"
-          :style="{ '--chip-accent': platformAccentColor(g.platform) }"
+          :style="{ '--chip-accent': platformAccentColor(getPublicPlatformStyleKey(g.platform)) }"
           :disabled="!groupEnabled(g)"
           @click="$emit('update:groupId', g.id)"
         >
@@ -116,6 +116,7 @@ import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import { platformAccentColor } from '@/utils/platformColors'
 import type { GroupPlatform } from '@/types'
+import { getPublicPlatformLabel, getPublicPlatformStyleKey } from '@/utils/publicPlatforms'
 
 const props = defineProps<{
   /** 数据中出现的平台(去重排序后)。 */

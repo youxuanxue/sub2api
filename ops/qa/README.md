@@ -9,7 +9,7 @@ Machine-readable policy lives in `ops/qa/policy.yaml`; repository readiness and 
 
 `tokenkey-qa-boundary.timer` is transition-only. Before the append-only `single_owner_activate` receipt, its single timer path provisions future hours and preserves the existing 24-hour whole-partition cleanup. An expired hour without complete archive evidence is recorded as a terminal gap before DROP. Receipt existence permanently forces the boundary disabled/inactive, including sync rollback. There is no provision-only/manual cutover mode, export-orphan mode, or finalize mode.
 
-User list, detail, and ZIP jobs use immutable Bundle S3 `spec.json` objects as their only registry. The prod database is consulted only for entitlement and API-key ownership; `qa_export_jobs` is not a Bundle fallback. Bundle infrastructure must pass `verify_qa_bundle_infra.sh`, and the canonical canary must traverse raw S3, SQS, Fargate, receipt, and manifest before the user path is considered ready.
+User list, detail, and ZIP jobs use immutable Bundle S3 `spec.json` objects as their only registry. The prod database is consulted only for entitlement and API-key ownership; `qa_export_jobs` is not a Bundle fallback. Bundle infrastructure must pass `verify_qa_bundle_infra.sh`. The canonical canary still traverses raw S3, SQS, Fargate, receipt, and manifest whenever the Worker or publisher surface changed, or surface classification fails closed. Gateway-only deploys reuse a verified live Worker and skip a repeat canary.
 
 The stale-cleanup timer, prod stale operator, export-orphan helper, `qa_exports_tmp` mount, and export activation marker are retired and are not packaged or synchronized.
 
@@ -49,7 +49,7 @@ out of the approved 24-hour horizon; operators must not fabricate or backfill th
 ```bash
 python3 scripts/checks/qa-lifecycle-ssot.py --self-test
 python3 scripts/checks/qa-lifecycle-ssot.py
-python3 -m unittest ops.qa.test_resolve_qa_bundle_worker_image ops.stage0.test_deploy_stage0_workflow
+python3 -m unittest ops.qa.test_resolve_qa_bundle_worker_image ops.qa.test_qa_bundle_release_surface ops.stage0.test_deploy_stage0_workflow
 python3 -m unittest ops.qa.test_qa_phase_ops
 cd backend && go test -tags=unit ./internal/observability/qa/lifecycle ./cmd/server
 ```

@@ -10,6 +10,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func platformDashboardRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"platform", "total_requests", "total_tokens", "total_actual_cost",
+		"today_requests", "today_tokens", "today_actual_cost",
+	})
+}
+
+func expectRawPlatformDashboardQuery(mock sqlmock.Sqlmock, start, end, todayStart, todayEnd time.Time, rows *sqlmock.Rows) {
+	mock.ExpectQuery(`(?s)FROM usage_logs ul.*actual_cost > 0`).
+		WithArgs(start, end, todayStart, todayEnd).
+		WillReturnRows(rows)
+}
+
+func expectAggregatedPlatformDashboardQuery(mock sqlmock.Sqlmock, today time.Time, rows *sqlmock.Rows) {
+	mock.ExpectQuery(`(?s)successful_requests.*FROM usage_dashboard_user_platform_daily`).
+		WithArgs(today).
+		WillReturnRows(rows)
+}
+
 func TestFillDashboardUsageStatsFromUsageLogs_AverageGatewayLatencyMs(t *testing.T) {
 	require.NoError(t, timezone.Init("UTC"))
 
@@ -45,12 +64,19 @@ func TestFillDashboardUsageStatsFromUsageLogs_AverageGatewayLatencyMs(t *testing
 	mock.ExpectQuery("active_users").
 		WithArgs(todayUTC, todayEnd, hourStart, hourEnd).
 		WillReturnRows(sqlmock.NewRows([]string{"active_users", "hourly_active_users"}).AddRow(int64(1), int64(1)))
+	expectRawPlatformDashboardQuery(mock, startUTC, endUTC, todayUTC, todayEnd, platformDashboardRows().
+		AddRow("gemini", int64(2), int64(20), 2.0, int64(1), int64(10), 1.0).
+		AddRow("antigravity", int64(3), int64(30), 3.0, int64(2), int64(20), 2.0))
 
 	stats := &DashboardStats{}
 	err := repo.fillDashboardUsageStatsFromUsageLogs(context.Background(), stats, startUTC, endUTC, todayUTC, now)
 	require.NoError(t, err)
 	require.InDelta(t, 300.0, stats.AverageGatewayLatencyMs, 1e-9)
 	require.InDelta(t, 1000.0, stats.AverageDurationMs, 1e-9)
+	require.Equal(t, []PlatformDashboardStats{{
+		Platform: "google", TotalRequests: 5, TotalTokens: 50, TotalActualCost: 5,
+		TodayRequests: 3, TodayTokens: 30, TodayActualCost: 3,
+	}}, stats.ByPlatform)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -89,6 +115,7 @@ func TestFillDashboardUsageStatsFromUsageLogs_AverageGatewayLatencyMsIgnoresNull
 	mock.ExpectQuery("active_users").
 		WithArgs(todayUTC, todayEnd, hourStart, hourEnd).
 		WillReturnRows(sqlmock.NewRows([]string{"active_users", "hourly_active_users"}).AddRow(int64(0), int64(0)))
+	expectRawPlatformDashboardQuery(mock, startUTC, endUTC, todayUTC, todayEnd, platformDashboardRows())
 
 	stats := &DashboardStats{}
 	err := repo.fillDashboardUsageStatsFromUsageLogs(context.Background(), stats, startUTC, endUTC, todayUTC, now)
@@ -129,11 +156,16 @@ func TestFillDashboardUsageStatsAggregated_AverageGatewayLatencyMsUsesTodayNotAl
 	mock.ExpectQuery("FROM usage_dashboard_hourly").
 		WithArgs(hourStart).
 		WillReturnRows(sqlmock.NewRows([]string{"hourly_active_users"}).AddRow(int64(1)))
+	expectAggregatedPlatformDashboardQuery(mock, todayUTC, platformDashboardRows().
+		AddRow("gemini", int64(2), int64(20), 2.0, int64(1), int64(10), 1.0).
+		AddRow("antigravity", int64(3), int64(30), 3.0, int64(2), int64(20), 2.0))
 
 	stats := &DashboardStats{}
 	err := repo.fillDashboardUsageStatsAggregated(context.Background(), stats, todayUTC, now)
 	require.NoError(t, err)
 	require.InDelta(t, 28.0, stats.AverageGatewayLatencyMs, 1e-9)
+	require.Equal(t, "google", stats.ByPlatform[0].Platform)
+	require.Equal(t, int64(5), stats.ByPlatform[0].TotalRequests)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -169,6 +201,7 @@ func TestFillDashboardUsageStatsAggregated_AverageGatewayLatencyMsIgnoresEmptyTo
 	mock.ExpectQuery("FROM usage_dashboard_hourly").
 		WithArgs(hourStart).
 		WillReturnRows(sqlmock.NewRows([]string{"hourly_active_users"}).AddRow(int64(0)))
+	expectAggregatedPlatformDashboardQuery(mock, todayUTC, platformDashboardRows())
 
 	stats := &DashboardStats{}
 	err := repo.fillDashboardUsageStatsAggregated(context.Background(), stats, todayUTC, now)

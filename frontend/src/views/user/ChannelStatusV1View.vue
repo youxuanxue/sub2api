@@ -15,12 +15,13 @@
       :countdown-seconds="countdown"
       :loading="loading"
       :detail-cache="detailCache"
+      public-platform-names
       @card-click="openDetail"
     />
 
     <MonitorDetailDialog
       :show="showDetail"
-      :monitor-id="detailTarget?.id ?? null"
+      :monitor-ids="detailTarget?.source_monitor_ids ?? []"
       :title="detailTitle"
       @close="closeDetail"
     />
@@ -34,7 +35,6 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import {
   list as listChannelMonitorViews,
   status as fetchChannelMonitorDetail,
-  type UserMonitorView,
   type UserMonitorDetail,
 } from '@/api/channelMonitor'
 import MonitorHero, {
@@ -45,17 +45,22 @@ import MonitorCardGrid from '@/components/user/monitor/MonitorCardGrid.vue'
 import MonitorDetailDialog from '@/components/user/MonitorDetailDialog.vue'
 import { DEFAULT_INTERVAL_SECONDS, STATUS_OPERATIONAL } from '@/constants/channelMonitor'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
+import {
+  mergePublicMonitorDetails,
+  normalizePublicMonitorViews,
+  type PublicUserMonitorView,
+} from '@/utils/publicPlatforms'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 
 // ── State ──
-const items = ref<UserMonitorView[]>([])
+const items = ref<PublicUserMonitorView[]>([])
 const loading = ref(false)
 const currentWindow = ref<MonitorWindow>('7d')
 const detailCache = reactive<Record<number, UserMonitorDetail>>({})
 const showDetail = ref(false)
-const detailTarget = ref<UserMonitorView | null>(null)
+const detailTarget = ref<PublicUserMonitorView | null>(null)
 
 let abortController: AbortController | null = null
 
@@ -91,7 +96,8 @@ async function reload(silent = false) {
   try {
     const res = await listChannelMonitorViews({ signal: ctrl.signal })
     if (ctrl.signal.aborted || abortController !== ctrl) return
-    items.value = res.items || []
+    items.value = normalizePublicMonitorViews(res.items)
+    for (const key of Object.keys(detailCache)) delete detailCache[Number(key)]
   } catch (err: unknown) {
     const e = err as { name?: string; code?: string }
     if (e?.name === 'AbortError' || e?.code === 'ERR_CANCELED') return
@@ -110,14 +116,15 @@ async function manualReload() {
   // After base reload, refresh any cached detail records so non-7d availability
   // values stay in sync without forcing the user to switch tabs again.
   if (currentWindow.value !== '7d') {
-    await Promise.all(items.value.map(it => loadDetail(it.id, true)))
+    await Promise.all(items.value.map((item) => loadDetail(item, true)))
   }
 }
 
-async function loadDetail(id: number, force = false) {
-  if (!force && detailCache[id]) return
+async function loadDetail(item: PublicUserMonitorView, force = false) {
+  if (!force && detailCache[item.id]) return
   try {
-    detailCache[id] = await fetchChannelMonitorDetail(id)
+    const details = await Promise.all(item.source_monitor_ids.map(fetchChannelMonitorDetail))
+    detailCache[item.id] = mergePublicMonitorDetails(details)
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('channelStatus.detailLoadError')))
   }
@@ -125,7 +132,7 @@ async function loadDetail(id: number, force = false) {
 
 async function ensureDetailsForWindow() {
   if (currentWindow.value === '7d') return
-  await Promise.all(items.value.map(it => loadDetail(it.id)))
+  await Promise.all(items.value.map((item) => loadDetail(item)))
 }
 
 // ── Handlers ──
@@ -134,7 +141,7 @@ async function handleWindowChange(value: MonitorWindow) {
   await ensureDetailsForWindow()
 }
 
-function openDetail(row: UserMonitorView) {
+function openDetail(row: PublicUserMonitorView) {
   detailTarget.value = row
   showDetail.value = true
 }
