@@ -332,13 +332,13 @@ function buildOpenAISetupTokenAccount() {
   } as any
 }
 
-function mountModal(account = buildAccount()) {
+function mountModal(account = buildAccount(), groups: any[] = []) {
   return mount(EditAccountModal, {
     props: {
       show: true,
       account,
       proxies: [],
-      groups: []
+      groups
     },
     global: {
       stubs: {
@@ -492,6 +492,20 @@ describe('EditAccountModal', () => {
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_long_context_billing_enabled).toBe(false)
+  })
+
+  it('hides account long-context billing when every selected group owns the policy', async () => {
+    const account = buildAccount()
+    account.group_ids = [7]
+    const wrapper = mountModal(account, [
+      {
+        id: 7,
+        platform: 'openai',
+        long_context_pricing_enabled: true
+      }
+    ])
+
+    expect(wrapper.find('[data-testid="openai-long-context-billing-toggle"]').exists()).toBe(false)
   })
 
   it('loads and clears the OAuth-only Codex namespace flatten toggle', async () => {

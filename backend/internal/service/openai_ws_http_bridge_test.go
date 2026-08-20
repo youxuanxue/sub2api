@@ -170,6 +170,195 @@ func TestProxyOpenAIWSHTTPBridgeTurnAPIKeyRestoresClientToolsInResponseDone(t *t
 	require.Equal(t, "custom_tool_call", gjson.GetBytes(result.wsReplayInput[0], "type").String())
 }
 
+func TestProxyOpenAIWSHTTPBridgeTurnInheritsClientToolsAcrossTurns(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	firstSSE := "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_first\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n"
+	secondSSE := "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_second\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n"
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(firstSSE))},
+		{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(secondSSE))},
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := &Account{ID: 5765, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+
+	first := []byte(`{"type":"response.create","model":"gpt-5","tools":[{"type":"custom","name":"exec"}],"input":"run pwd"}`)
+	_, err := svc.proxyOpenAIWSHTTPBridgeTurn(
+		context.Background(), c, account, "sk-test", first, len(first),
+		"gpt-5", "", "", "", "", 1, func([]byte) error { return nil },
+	)
+	require.NoError(t, err)
+
+	second := []byte(`{"type":"response.create","model":"gpt-5","input":[{"type":"custom_tool_call_output","call_id":"call_1","output":"ok"}]}`)
+	_, err = svc.proxyOpenAIWSHTTPBridgeTurn(
+		context.Background(), c, account, "sk-test", second, len(second),
+		"gpt-5", "", "", "", "", 2, func([]byte) error { return nil },
+	)
+	require.NoError(t, err)
+
+	require.Len(t, upstream.bodies, 2)
+	require.Equal(t, "function", gjson.GetBytes(upstream.bodies[0], "tools.0.type").String())
+	require.Equal(t, "function", gjson.GetBytes(upstream.bodies[1], "tools.0.type").String())
+	require.Equal(t, "exec", gjson.GetBytes(upstream.bodies[1], "tools.0.name").String())
+}
+
+func TestProxyOpenAIWSHTTPBridgeTurnGrokPromotesToolSearchDiscovery(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	sse := "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_spawn\",\"output\":[{\"type\":\"function_call\",\"id\":\"item_spawn\",\"call_id\":\"call_spawn\",\"name\":\"multi_agent_v1__spawn_agent\",\"arguments\":\"{}\"}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n"
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(sse)),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := &Account{
+		ID: 5766, Platform: PlatformGrok, Type: AccountTypeOAuth, Concurrency: 1,
+		Credentials: map[string]any{"base_url": xai.DefaultCLIBaseURL},
+	}
+	payload := []byte(`{
+		"type":"response.create","model":"grok-4.5","tools":[{"type":"tool_search"}],
+		"input":[{"type":"tool_search_output","call_id":"call_search","tools":[
+			{"type":"namespace","name":"multi_agent_v1","tools":[{"type":"function","name":"spawn_agent","parameters":{"type":"object"}}]}
+		]}]
+	}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	var events [][]byte
+
+	_, err := svc.proxyOpenAIWSHTTPBridgeTurn(
+		context.Background(), c, account, "access-token", payload, len(payload),
+		"grok-4.5", "", "", "", "grok-ws-cache", 1,
+		func(message []byte) error {
+			events = append(events, append([]byte(nil), message...))
+			return nil
+		},
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, "multi_agent_v1__spawn_agent", gjson.GetBytes(upstream.lastBody, "tools.1.name").String())
+	require.Equal(t, "function_call_output", gjson.GetBytes(upstream.lastBody, "input.0.type").String())
+	require.Len(t, events, 1)
+	require.Equal(t, "spawn_agent", gjson.GetBytes(events[0], "response.output.0.name").String())
+	require.Equal(t, "multi_agent_v1", gjson.GetBytes(events[0], "response.output.0.namespace").String())
+}
+
+func TestProxyOpenAIWSHTTPBridgeTurnStagesMetadataBeforeCapacityFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := strings.Join([]string{
+		`data: {"type":"response.created","response":{"id":"resp_shed"}}`,
+		"",
+		`data: {"type":"response.in_progress","response":{"id":"resp_shed"}}`,
+		"",
+		`data: {"type":"response.failed","response":{"id":"resp_shed","status":"failed","error":{"message":"Our servers are currently overloaded. Please try again later."}}}`,
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"X-Request-Id": []string{"rid-ws-bridge-capacity"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := &Account{ID: 12, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	payload := []byte(`{"type":"response.create","model":"gpt-5","input":"hi"}`)
+	var writes [][]byte
+
+	result, err := svc.proxyOpenAIWSHTTPBridgeTurn(
+		context.Background(), c, account, "sk-test", payload, len(payload),
+		"gpt-5", "", "", "", "", 1,
+		func(message []byte) error {
+			writes = append(writes, append([]byte(nil), message...))
+			return nil
+		},
+	)
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.True(t, failoverErr.RequestScopedTransient)
+	require.Empty(t, writes)
+}
+
+func TestProxyOpenAIWSHTTPBridgeTurnTransportErrorFailsOverBeforeClientWrite(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &httpUpstreamRecorder{err: io.EOF}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := &Account{ID: 13, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	payload := []byte(`{"type":"response.create","model":"gpt-5","input":"hi"}`)
+	var writes [][]byte
+
+	result, err := svc.proxyOpenAIWSHTTPBridgeTurn(
+		context.Background(), c, account, "sk-test", payload, len(payload),
+		"gpt-5", "", "", "", "", 1,
+		func(message []byte) error {
+			writes = append(writes, append([]byte(nil), message...))
+			return nil
+		},
+	)
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.Empty(t, writes)
+}
+
+func TestProxyOpenAIWSHTTPBridgeTurnReturnsObservedResponseModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	sse := "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_model\",\"model\":\"gpt-5-mini\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n"
+	upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(sse))}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := &Account{ID: 14, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	payload := []byte(`{"type":"response.create","model":"gpt-5","input":"hi"}`)
+
+	result, err := svc.proxyOpenAIWSHTTPBridgeTurn(
+		context.Background(), c, account, "sk-test", payload, len(payload),
+		"gpt-5", "", "", "", "", 1, func([]byte) error { return nil },
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, "gpt-5-mini", result.UpstreamResponseModel)
+	require.False(t, result.UpstreamResponseModelConflict)
+}
+
+func TestProxyOpenAIWSHTTPBridgeTurnNormalizesCompletedImageStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	sse := "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_image\",\"output\":[{\"type\":\"image_generation_call\",\"status\":\"in_progress\",\"result\":\"image-data\"}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n"
+	upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(sse))}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := &Account{ID: 15, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	payload := []byte(`{"type":"response.create","model":"gpt-5","input":"draw"}`)
+	var events [][]byte
+
+	_, err := svc.proxyOpenAIWSHTTPBridgeTurn(
+		context.Background(), c, account, "sk-test", payload, len(payload),
+		"gpt-5", "", "", "", "", 1,
+		func(message []byte) error {
+			events = append(events, append([]byte(nil), message...))
+			return nil
+		},
+	)
+
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, "completed", gjson.GetBytes(events[0], "response.output.0.status").String())
+}
+
 func TestOpenAIWSHTTPBridgeDecisionKeepsSmallFramesOnWS(t *testing.T) {
 	svc := &OpenAIGatewayService{
 		cfg: &config.Config{
@@ -591,11 +780,13 @@ func TestProxyOpenAIWSHTTPBridgeTurnPromotesCodexAdditionalToolsForMixedCache(t 
 	require.Len(t, events, 2)
 	require.False(t, gjson.GetBytes(upstream.lastBody, `input.#(type=="additional_tools")`).Exists())
 	tools := gjson.GetBytes(upstream.lastBody, "tools").Array()
-	require.Len(t, tools, 3)
+	require.Len(t, tools, 4)
 	require.Equal(t, "function", tools[0].Get("type").String())
 	require.Equal(t, "lookup", tools[0].Get("name").String())
 	require.Equal(t, "web_search", tools[1].Get("type").String())
-	require.Equal(t, "x_search", tools[2].Get("type").String())
+	require.Equal(t, "function", tools[2].Get("type").String())
+	require.Equal(t, "apply_patch", tools[2].Get("name").String())
+	require.Equal(t, "x_search", tools[3].Get("type").String())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "tool_choice").Exists())
 	require.False(t, gjson.GetBytes(upstream.lastBody, `tools.#(type=="custom")`).Exists())
 	require.False(t, gjson.GetBytes(upstream.lastBody, `tools.#(type=="namespace")`).Exists())

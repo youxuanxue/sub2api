@@ -122,6 +122,8 @@ export function apiToFormSections(
             output_price: perTokenToMTok(p.output_price),
             cache_write_price: perTokenToMTok(p.cache_write_price),
             cache_read_price: perTokenToMTok(p.cache_read_price),
+            fast_multiplier: p.fast_multiplier,
+            flex_multiplier: p.flex_multiplier,
             image_output_price: perTokenToMTok(p.image_output_price),
             per_request_price: p.per_request_price,
         intervals: apiIntervalsToForm(p.intervals || []),
@@ -201,6 +203,14 @@ export function formSectionsToApi(
         output_price: mTokToPerToken(entry.output_price),
         cache_write_price: mTokToPerToken(entry.cache_write_price),
         cache_read_price: mTokToPerToken(entry.cache_read_price),
+        fast_multiplier:
+          entry.fast_multiplier != null && entry.fast_multiplier !== ''
+            ? Number(entry.fast_multiplier)
+            : null,
+        flex_multiplier:
+          entry.flex_multiplier != null && entry.flex_multiplier !== ''
+            ? Number(entry.flex_multiplier)
+            : null,
         image_input_price: mTokToPerToken(entry.image_input_price),
         image_output_price: mTokToPerToken(entry.image_output_price),
         per_request_price:
