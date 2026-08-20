@@ -154,13 +154,69 @@ var supportedOpenAIAinzyRelayCatalogModels = map[string]struct{}{
 	"gpt-5.5":      {},
 }
 
-// supportedOpenAITokenseaRelayCatalogModels — Claude IDs kept in the compiled
-// model_mapping floor for prod account 92 (agent.tokensea.ai). Derived from
-// upstream GET /v1/models on 2026-08-12; claude-opus-4-5-20251101 is listed but
-// may return model_not_found when the upstream channel pool is empty.
+// supportedOpenAITokenseaRelayCatalogModels — upstream GET /v1/models owner for
+// prod account 92 (agent.tokensea.ai OpenAI relay) on 2026-08-20. The compiled
+// account floor is this set intersected with public priced+displayable+servable
+// SSOT; listing here does not add public catalog/menu rows.
 var supportedOpenAITokenseaRelayCatalogModels = map[string]struct{}{
+	"byteplus/dreamina-seedance-2-0-260128":      {},
+	"byteplus/dreamina-seedance-2-0-fast-260128": {},
+	"byteplus/dreamina-seedance-2-0-mini-260615": {},
+	"claude-fable-5":                 {},
+	"claude-haiku-4-5-20251001":      {},
+	"claude-opus-4-5-20251101":       {},
+	"claude-opus-4-6":                {},
+	"claude-opus-4-7":                {},
+	"claude-opus-4-8":                {},
+	"claude-opus-5":                  {},
+	"claude-sonnet-4-6":              {},
+	"claude-sonnet-5":                {},
+	"deepseek-v3.2":                  {},
+	"deepseek-v4-flash":              {},
+	"deepseek-v4-pro":                {},
+	"doubao-seedance-2-0-250428":     {},
+	"doubao-seedance-2.0":            {},
+	"gemini-3-pro-image":             {},
+	"gemini-3-pro-image-preview":     {},
+	"gemini-3.1-flash-image":         {},
+	"gemini-3.1-flash-image-preview": {},
+	"gemini-omni-flash-preview":      {},
+	"generate_video_seedance_v2_0":   {},
+	"glm-5":                          {},
+	"glm-5.1":                        {},
+	"glm-5.2":                        {},
+	"gpt-4o-2024-05-13":              {},
+	"gpt-5.4":                        {},
+	"gpt-5.4-mini":                   {},
+	"gpt-5.5":                        {},
+	"gpt-5.6-luna":                   {},
+	"gpt-5.6-sol":                    {},
+	"gpt-5.6-terra":                  {},
+	"gpt-image-2":                    {},
+	"kimi-k2.5":                      {},
+	"kimi-k2.6":                      {},
+	"kimi-k2.7-code":                 {},
+	"kimi-k3":                        {},
+	"kimi/kimi-k3":                   {},
+	"minimax-m2.7":                   {},
+	"qwen3.6-plus":                   {},
+	"qwen3.7-max":                    {},
+	"qwen3.7-plus":                   {},
+	"us.anthropic.claude-opus-4-7":   {},
+	"us.anthropic.claude-opus-5":     {},
+	"us.anthropic.claude-sonnet-4-6": {},
+	"us.anthropic.claude-sonnet-5":   {},
+}
+
+// supportedAnthropicTokenseaRelayCatalogModels — Claude short-name aliases for
+// prod account 93. The live floor is tokenseaRelayCorePublicFloorIDs (same
+// SSOT set as account 92) plus these shorts; wire IDs stay in
+// anthropicTokenseaRelayModelMappingFloor.
+var supportedAnthropicTokenseaRelayCatalogModels = map[string]struct{}{
 	"claude-fable-5":            {},
+	"claude-haiku-4-5":          {},
 	"claude-haiku-4-5-20251001": {},
+	"claude-opus-4-5":           {},
 	"claude-opus-4-5-20251101":  {},
 	"claude-opus-4-6":           {},
 	"claude-opus-4-7":           {},
@@ -168,22 +224,6 @@ var supportedOpenAITokenseaRelayCatalogModels = map[string]struct{}{
 	"claude-opus-5":             {},
 	"claude-sonnet-4-6":         {},
 	"claude-sonnet-5":           {},
-}
-
-// supportedAnthropicTokenseaRelayCatalogModels — client-facing Claude IDs for
-// prod account 93 (agent.tokensea.ai Anthropic relay). Wire IDs are mapped in
-// anthropicTokenseaRelayModelMappingFloor; claude-opus-4-5 may 503 when the
-// upstream channel pool is empty.
-var supportedAnthropicTokenseaRelayCatalogModels = map[string]struct{}{
-	"claude-fable-5":    {},
-	"claude-haiku-4-5":  {},
-	"claude-opus-4-5":   {},
-	"claude-opus-4-6":   {},
-	"claude-opus-4-7":   {},
-	"claude-opus-4-8":   {},
-	"claude-opus-5":     {},
-	"claude-sonnet-4-6": {},
-	"claude-sonnet-5":   {},
 }
 
 // CloudWise relay model families: openai_cloudwise_relay_tk.go (openAICloudwiseRelayAllowedModelPrefixes).

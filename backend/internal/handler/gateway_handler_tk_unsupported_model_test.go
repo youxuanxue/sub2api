@@ -47,3 +47,13 @@ func TestTkWriteUnsupportedAnthropicModelAtIngress_AllowsCloudwiseWhitelistModel
 		require.False(t, h.tkWriteUnsupportedAnthropicModelAtIngress(c, model, false, nil), model)
 	}
 }
+
+func TestTkWriteUnsupportedAnthropicModelAtIngress_AllowsTokenseaPublicSSOTModels(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &GatewayHandler{}
+	// Boundary samples from the tokensea public SSOT floor, not a copied catalog.
+	for _, model := range []string{"gpt-5.4", "qwen3.7-max"} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		require.False(t, h.tkWriteUnsupportedAnthropicModelAtIngress(c, model, false, nil), model)
+	}
+}

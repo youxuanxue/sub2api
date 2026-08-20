@@ -27,9 +27,19 @@ func TestAnthropicTokenseaRelayFloorMapsShortNamesToWireIDs(t *testing.T) {
 	t.Parallel()
 	mapping := anthropicTokenseaRelayModelMappingFloor()
 	require.Equal(t, "claude-haiku-4-5-20251001", mapping["claude-haiku-4-5"])
+	require.Equal(t, "claude-haiku-4-5-20251001", mapping["claude-haiku-4-5-20251001"])
 	require.Equal(t, "claude-opus-4-5-20251101", mapping["claude-opus-4-5"])
-	require.Equal(t, "claude-opus-5", mapping["claude-opus-5"])
-	require.Len(t, mapping, len(supportedAnthropicTokenseaRelayCatalogModels))
+	require.Equal(t, "claude-opus-4-5-20251101", mapping["claude-opus-4-5-20251101"])
+	require.Equal(t, "claude-sonnet-4-6", mapping["claude-sonnet-4-6"])
+	require.Equal(t, "gpt-5.4", mapping["gpt-5.4"])
+	require.Equal(t, "qwen3.7-max", mapping["qwen3.7-max"])
+	for _, id := range tokenseaRelayCorePublicFloorIDs() {
+		require.Contains(t, mapping, id, "93 floor must include every 92 live SSOT key")
+	}
+	require.GreaterOrEqual(t, len(mapping), len(tokenseaRelayCorePublicFloorIDs()))
+	if !tokenseaRelayMeetsPublicSSOT("claude-opus-5") {
+		require.NotContains(t, mapping, "claude-opus-5")
+	}
 }
 
 func TestBuildAnthropicCompatUpstreamRequest_PassthroughUsesTokenseaMessagesURL(t *testing.T) {
@@ -93,6 +103,20 @@ func TestForwardAsChatCompletions_AnthropicTokenseaPassthroughMapsHaikuWireID(t 
 	require.NoError(t, err)
 	require.Equal(t, "claude-haiku-4-5-20251001", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Equal(t, "https://agent.tokensea.ai/v1/messages?beta=true", upstream.lastReq.URL.String())
+}
+
+func TestIsModelSupportedByAccount_AnthropicTokenseaUsesMapping(t *testing.T) {
+	t.Parallel()
+	svc := &GatewayService{}
+	account := tokenseaAnthropicRelayAccount()
+	require.True(t, account.IsAnthropicTokenseaRelay())
+
+	for _, id := range tokenseaRelayCorePublicFloorIDs() {
+		require.True(t, svc.isModelSupportedByAccount(account, id), id)
+	}
+	require.True(t, svc.isModelSupportedByAccount(account, "claude-haiku-4-5"))
+	require.False(t, svc.isModelSupportedByAccount(account, "gpt-not-in-tokensea-ssot"))
+	require.False(t, svc.isModelSupportedByAccount(account, "gpt"))
 }
 
 func TestBuildAnthropicCompatUpstreamRequest_OAuthPassthroughUsesBearerAuth(t *testing.T) {

@@ -351,6 +351,12 @@ func accountModelMappingForbiddenKeysByScope() map[string][]string {
 			domain.AntigravityStructuralDeadModelMappingKeys(),
 			domain.AntigravityUnpricedModelMappingKeys()...,
 		),
+		accountModelMappingPlatformOpenAITokenseaRelay: tokenseaRelayForbiddenUpstreamIDs(
+			supportedOpenAITokenseaRelayCatalogModels,
+		),
+		accountModelMappingPlatformAnthropicTokenseaRelay: tokenseaRelayForbiddenUpstreamIDs(
+			supportedAnthropicTokenseaRelayCatalogModels,
+		),
 	}
 }
 
@@ -439,7 +445,10 @@ func openAIAinzyRelayAccountModelMappingFloor(ctx context.Context, pricing *Pric
 }
 
 func openAITokenseaRelayAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
-	ids := supportedCatalogModelIDsFromMap(supportedOpenAITokenseaRelayCatalogModels)
+	_ = ctx
+	_ = pricing
+	_ = availability
+	ids := tokenseaRelayCorePublicFloorIDs()
 	if len(ids) == 0 {
 		return nil
 	}
@@ -454,31 +463,138 @@ func openAICloudwiseRelayAccountModelMappingFloor(ctx context.Context, pricing *
 }
 
 func anthropicTokenseaRelayModelMappingFloor() map[string]string {
-	ids := supportedCatalogModelIDsFromMap(supportedAnthropicTokenseaRelayCatalogModels)
+	ids := tokenseaRelayPublicSSOTIDs(append(
+		append([]string{}, tokenseaRelayCorePublicFloorIDs()...),
+		supportedCatalogModelIDsFromMap(supportedAnthropicTokenseaRelayCatalogModels)...,
+	))
 	if len(ids) == 0 {
 		return nil
 	}
 	out := make(map[string]string, len(ids))
 	for _, id := range ids {
-		wire, ok := anthropicTokenseaRelayWireModelMapping[id]
-		if !ok {
+		if wire, ok := anthropicTokenseaRelayWireModelMapping[id]; ok {
+			out[id] = wire
 			continue
 		}
-		out[id] = wire
+		out[id] = id
 	}
 	return out
 }
 
+// tokenseaRelaySharedExtraSSOTIDs are public priced+displayable models already
+// served on prod account 92 but absent from the 47-id upstream snapshot.
+var tokenseaRelaySharedExtraSSOTIDs = []string{
+	"codex-auto-review",
+	"gpt-5.3-codex-spark",
+	"gpt-5.6",
+}
+
+func tokenseaRelaySupportsRequestedModel(requestedModel string) bool {
+	normalized := strings.TrimSpace(requestedModel)
+	if normalized == "" {
+		return false
+	}
+	for _, id := range tokenseaRelayCorePublicFloorIDs() {
+		if strings.EqualFold(id, normalized) {
+			return true
+		}
+	}
+	return false
+}
+
+// tokenseaRelayCorePublicFloorIDs is the shared 92/93 live floor: upstream 47
+// intersect public SSOT, plus the extras 92 already serves.
+func tokenseaRelayCorePublicFloorIDs() []string {
+	return tokenseaRelayPublicSSOTIDs(append(
+		supportedCatalogModelIDsFromMap(supportedOpenAITokenseaRelayCatalogModels),
+		tokenseaRelaySharedExtraSSOTIDs...,
+	))
+}
+
+// tokenseaRelayPublicSSOTIDs keeps only upstream-listed IDs that already satisfy
+// the public serving triple: displayable catalog/menu, priced, and servable.
+func tokenseaRelayPublicSSOTIDs(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if !tokenseaRelayMeetsPublicSSOT(id) {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func tokenseaRelayMeetsPublicSSOT(id string) bool {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false
+	}
+	if tokenseaRelayIsClientFacing(id) && tokenseaRelayIsPriced(id) {
+		return true
+	}
+	// Official dated wire IDs stay first-class when they alias a client-facing SSOT row.
+	for short, wire := range anthropicTokenseaRelayWireModelMapping {
+		if wire == id && tokenseaRelayIsClientFacing(short) && tokenseaRelayIsPriced(short) {
+			return true
+		}
+	}
+	return false
+}
+
+func tokenseaRelayIsClientFacing(id string) bool {
+	if _, ok := supportedOpenAICatalogModels[id]; ok {
+		return true
+	}
+	if _, ok := supportedClaudeCatalogModels[id]; ok {
+		return true
+	}
+	if _, ok := supportedGeminiCatalogModels[id]; ok {
+		return true
+	}
+	if _, ok := supportedAntigravityCatalogModels[id]; ok {
+		return true
+	}
+	return isTkCuratedNewAPIModelDisplayed(id)
+}
+
+func tokenseaRelayIsPriced(id string) bool {
+	if snap := loadTKPricingOverlaySnapshot(); snap != nil {
+		if pricing := snap.Models[id]; pricing != nil {
+			return true
+		}
+	}
+	return isTkCuratedNewAPIModelListed(id)
+}
+
+func tokenseaRelayForbiddenUpstreamIDs(upstream map[string]struct{}) []string {
+	out := make([]string, 0)
+	for id := range upstream {
+		if !tokenseaRelayMeetsPublicSSOT(id) {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 var anthropicTokenseaRelayWireModelMapping = map[string]string{
-	"claude-fable-5":    "claude-fable-5",
-	"claude-haiku-4-5":  "claude-haiku-4-5-20251001",
-	"claude-opus-4-5":   "claude-opus-4-5-20251101",
-	"claude-opus-4-6":   "claude-opus-4-6",
-	"claude-opus-4-7":   "claude-opus-4-7",
-	"claude-opus-4-8":   "claude-opus-4-8",
-	"claude-opus-5":     "claude-opus-5",
-	"claude-sonnet-4-6": "claude-sonnet-4-6",
-	"claude-sonnet-5":   "claude-sonnet-5",
+	"claude-fable-5":            "claude-fable-5",
+	"claude-haiku-4-5":          "claude-haiku-4-5-20251001",
+	"claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",
+	"claude-opus-4-5":           "claude-opus-4-5-20251101",
+	"claude-opus-4-5-20251101":  "claude-opus-4-5-20251101",
+	"claude-opus-4-6":           "claude-opus-4-6",
+	"claude-opus-4-7":           "claude-opus-4-7",
+	"claude-opus-4-8":           "claude-opus-4-8",
+	"claude-opus-5":             "claude-opus-5",
+	"claude-sonnet-4-6":         "claude-sonnet-4-6",
+	"claude-sonnet-5":           "claude-sonnet-5",
 }
 
 func supportedCatalogModelIDsFromMap(src map[string]struct{}) []string {

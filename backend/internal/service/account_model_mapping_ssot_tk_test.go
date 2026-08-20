@@ -87,7 +87,24 @@ func TestAccount_IsAnthropicTokenseaRelay(t *testing.T) {
 func TestOpenAITokenseaRelayFloorIsProbeCuratedOnly(t *testing.T) {
 	t.Parallel()
 	mapping := openAITokenseaRelayAccountModelMappingFloor(context.Background(), nil, nil)
-	requireIdentityMappingForIDs(t, mapping, supportedCatalogModelIDsFromMap(supportedOpenAITokenseaRelayCatalogModels))
+	requireIdentityMappingForIDs(t, mapping, tokenseaRelayCorePublicFloorIDs())
+	require.NotEmpty(t, mapping)
+	require.Contains(t, mapping, "gpt-5.4")
+	require.Contains(t, mapping, "claude-sonnet-4-6")
+	require.Contains(t, mapping, "gpt-5.6")
+	require.NotContains(t, mapping, "byteplus/dreamina-seedance-2-0-260128", "non-SSOT upstream id is a boundary sample, not an owner copy")
+}
+
+func TestAnthropicTokenseaRelayFloorCoversSharedOpenAILiveKeys(t *testing.T) {
+	t.Parallel()
+	openaiFloor := openAITokenseaRelayAccountModelMappingFloor(context.Background(), nil, nil)
+	anthropicFloor := anthropicTokenseaRelayModelMappingFloor()
+	require.NotEmpty(t, openaiFloor)
+	for id := range openaiFloor {
+		require.Contains(t, anthropicFloor, id, "account 93 floor must include every account 92 live key")
+	}
+	require.Contains(t, anthropicFloor, "claude-haiku-4-5")
+	require.Equal(t, "claude-haiku-4-5-20251001", anthropicFloor["claude-haiku-4-5"])
 }
 
 func TestOpenAIAinzyRelayFloorIsProbeCuratedOnly(t *testing.T) {
@@ -136,7 +153,7 @@ func TestAccountModelMappingFloorForOps_ExportsAinzyRelayScope(t *testing.T) {
 	requireIdentityMappingForIDs(t, ainzy, supportedCatalogModelIDsFromMap(supportedOpenAIAinzyRelayCatalogModels))
 	tokensea, ok := doc.Platforms[accountModelMappingPlatformOpenAITokenseaRelay]
 	require.True(t, ok)
-	requireIdentityMappingForIDs(t, tokensea, supportedCatalogModelIDsFromMap(supportedOpenAITokenseaRelayCatalogModels))
+	requireIdentityMappingForIDs(t, tokensea, tokenseaRelayCorePublicFloorIDs())
 	cloudwise, ok := doc.Platforms[accountModelMappingPlatformOpenAICloudwiseRelay]
 	require.True(t, ok)
 	require.Equal(t, openAICloudwiseRelayWildcardModelMappingFloor(), cloudwise)
@@ -176,6 +193,17 @@ func TestAccountModelMappingFloorForOps_ExportsPolicyMetadata(t *testing.T) {
 	require.ElementsMatch(t, kiroExclusiveModelIDs(), doc.ForbiddenModelMappingKeys[PlatformAnthropic])
 	require.Contains(t, doc.ForbiddenModelMappingKeys[PlatformAnthropic], "claude-opus-5")
 	require.Contains(t, doc.ForbiddenModelMappingPrefixes[PlatformAntigravity], "gpt-oss-")
+	require.ElementsMatch(
+		t,
+		tokenseaRelayForbiddenUpstreamIDs(supportedOpenAITokenseaRelayCatalogModels),
+		doc.ForbiddenModelMappingKeys[accountModelMappingPlatformOpenAITokenseaRelay],
+	)
+	require.Contains(
+		t,
+		doc.ForbiddenModelMappingKeys[accountModelMappingPlatformOpenAITokenseaRelay],
+		"byteplus/dreamina-seedance-2-0-260128",
+		"non-SSOT upstream id is a boundary sample, not an owner copy",
+	)
 }
 
 func TestAccountModelMappingFloorForOps_ExportsAccountOverrides(t *testing.T) {

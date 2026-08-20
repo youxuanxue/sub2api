@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "9bf2140bc735a76864ea08812438a094c67f76f1d093b7d39d8dbf2770025ba1",
+  "floor_sha256": "eda3ce2d107230e44efc6917159b35fc2b84362b2eef57075aeb6c760be2064c",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -18,13 +18,40 @@
       "anthropic_tokensea_relay": {
         "claude-fable-5": "claude-fable-5",
         "claude-haiku-4-5": "claude-haiku-4-5-20251001",
+        "claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",
         "claude-opus-4-5": "claude-opus-4-5-20251101",
+        "claude-opus-4-5-20251101": "claude-opus-4-5-20251101",
         "claude-opus-4-6": "claude-opus-4-6",
         "claude-opus-4-7": "claude-opus-4-7",
         "claude-opus-4-8": "claude-opus-4-8",
         "claude-opus-5": "claude-opus-5",
         "claude-sonnet-4-6": "claude-sonnet-4-6",
-        "claude-sonnet-5": "claude-sonnet-5"
+        "claude-sonnet-5": "claude-sonnet-5",
+        "codex-auto-review": "codex-auto-review",
+        "deepseek-v3.2": "deepseek-v3.2",
+        "deepseek-v4-flash": "deepseek-v4-flash",
+        "deepseek-v4-pro": "deepseek-v4-pro",
+        "gemini-3-pro-image": "gemini-3-pro-image",
+        "gemini-3.1-flash-image": "gemini-3.1-flash-image",
+        "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image-preview",
+        "glm-5": "glm-5",
+        "glm-5.1": "glm-5.1",
+        "glm-5.2": "glm-5.2",
+        "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
+        "gpt-5.4": "gpt-5.4",
+        "gpt-5.4-mini": "gpt-5.4-mini",
+        "gpt-5.5": "gpt-5.5",
+        "gpt-5.6": "gpt-5.6",
+        "gpt-5.6-luna": "gpt-5.6-luna",
+        "gpt-5.6-sol": "gpt-5.6-sol",
+        "gpt-5.6-terra": "gpt-5.6-terra",
+        "kimi-k2.5": "kimi-k2.5",
+        "kimi-k2.6": "kimi-k2.6",
+        "kimi-k2.7-code": "kimi-k2.7-code",
+        "kimi-k3": "kimi-k3",
+        "minimax-m2.7": "minimax-m2.7",
+        "qwen3.7-max": "qwen3.7-max",
+        "qwen3.7-plus": "qwen3.7-plus"
       },
       "antigravity": {
         "claude-opus-4-6": "claude-opus-4-6-thinking",
@@ -221,7 +248,32 @@
         "claude-opus-4-8": "claude-opus-4-8",
         "claude-opus-5": "claude-opus-5",
         "claude-sonnet-4-6": "claude-sonnet-4-6",
-        "claude-sonnet-5": "claude-sonnet-5"
+        "claude-sonnet-5": "claude-sonnet-5",
+        "codex-auto-review": "codex-auto-review",
+        "deepseek-v3.2": "deepseek-v3.2",
+        "deepseek-v4-flash": "deepseek-v4-flash",
+        "deepseek-v4-pro": "deepseek-v4-pro",
+        "gemini-3-pro-image": "gemini-3-pro-image",
+        "gemini-3.1-flash-image": "gemini-3.1-flash-image",
+        "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image-preview",
+        "glm-5": "glm-5",
+        "glm-5.1": "glm-5.1",
+        "glm-5.2": "glm-5.2",
+        "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
+        "gpt-5.4": "gpt-5.4",
+        "gpt-5.4-mini": "gpt-5.4-mini",
+        "gpt-5.5": "gpt-5.5",
+        "gpt-5.6": "gpt-5.6",
+        "gpt-5.6-luna": "gpt-5.6-luna",
+        "gpt-5.6-sol": "gpt-5.6-sol",
+        "gpt-5.6-terra": "gpt-5.6-terra",
+        "kimi-k2.5": "kimi-k2.5",
+        "kimi-k2.6": "kimi-k2.6",
+        "kimi-k2.7-code": "kimi-k2.7-code",
+        "kimi-k3": "kimi-k3",
+        "minimax-m2.7": "minimax-m2.7",
+        "qwen3.7-max": "qwen3.7-max",
+        "qwen3.7-plus": "qwen3.7-plus"
       }
     },
     "newapi_channel_types": {
@@ -440,6 +492,7 @@
       "anthropic": [
         "claude-opus-5"
       ],
+      "anthropic_tokensea_relay": [],
       "antigravity": [
         "gemini-2.5-flash-image-preview",
         "gemini-3-flash-preview",
@@ -450,6 +503,24 @@
         "gemini-3.1-pro-high",
         "gemini-3.1-pro-preview",
         "tab_flash_lite_preview"
+      ],
+      "openai_tokensea_relay": [
+        "byteplus/dreamina-seedance-2-0-260128",
+        "byteplus/dreamina-seedance-2-0-fast-260128",
+        "byteplus/dreamina-seedance-2-0-mini-260615",
+        "doubao-seedance-2-0-250428",
+        "doubao-seedance-2.0",
+        "gemini-3-pro-image-preview",
+        "gemini-omni-flash-preview",
+        "generate_video_seedance_v2_0",
+        "gpt-4o-2024-05-13",
+        "gpt-image-2",
+        "kimi/kimi-k3",
+        "qwen3.6-plus",
+        "us.anthropic.claude-opus-4-7",
+        "us.anthropic.claude-opus-5",
+        "us.anthropic.claude-sonnet-4-6",
+        "us.anthropic.claude-sonnet-5"
       ]
     },
     "forbidden_model_mapping_prefixes": {
