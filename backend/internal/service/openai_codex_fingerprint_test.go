@@ -102,6 +102,37 @@ func TestResolveConvergedInstallationID_DifferentSeeds(t *testing.T) {
 	assert.NotEqual(t, a, b)
 }
 
+func TestResolveCodexFingerprintIDs_DeviceModeInstallationIsSessionStable(t *testing.T) {
+	account := newTestOAuthAccount(5786, map[string]any{codexFingerprintModeExtraKey: "device"})
+	first := resolveCodexFingerprintIDs(account, "sess-aaa", codexFingerprintDevice)
+	other := resolveCodexFingerprintIDs(account, "sess-bbb", codexFingerprintDevice)
+	again := resolveCodexFingerprintIDs(account, "sess-aaa", codexFingerprintDevice)
+	require.NotNil(t, first)
+	require.NotNil(t, other)
+	require.NotNil(t, again)
+	assert.NotEqual(t, first.installationID, other.installationID, "不同客户端 session 不得共享同一 installation")
+	assert.Equal(t, first.installationID, again.installationID, "同一 session 必须稳定")
+	assert.Empty(t, first.sessionID, "device 模式不得折叠 session")
+}
+
+func TestResolveCodexFingerprintIDs_DeviceModeWithoutSessionKeepsAccountInstall(t *testing.T) {
+	account := newTestOAuthAccount(5786, map[string]any{codexFingerprintModeExtraKey: "device"})
+	a := resolveCodexFingerprintIDs(account, "", codexFingerprintDevice)
+	b := resolveCodexFingerprintIDs(account, "", codexFingerprintDevice)
+	require.NotNil(t, a)
+	require.NotNil(t, b)
+	assert.Equal(t, a.installationID, b.installationID)
+}
+
+func TestResolveCodexFingerprintIDs_SessionModeKeepsAccountInstall(t *testing.T) {
+	account := newTestOAuthAccount(5786, map[string]any{codexFingerprintModeExtraKey: "session"})
+	a := resolveCodexFingerprintIDs(account, "sess-aaa", codexFingerprintSession)
+	b := resolveCodexFingerprintIDs(account, "sess-bbb", codexFingerprintSession)
+	require.NotNil(t, a)
+	require.NotNil(t, b)
+	assert.Equal(t, a.installationID, b.installationID, "session/full 仍保持账号级 installation")
+}
+
 // --- resolveConvergedThreadID ---
 
 func TestResolveConvergedThreadID_PerClientSession(t *testing.T) {

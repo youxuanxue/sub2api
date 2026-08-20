@@ -509,6 +509,8 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			msg := "Identity verification required (400): " + upstreamMsg
 			s.handleAuthError(ctx, account, msg)
 			shouldDisable = true
+		} else if account.Platform == PlatformOpenAI && isOpenAIImageCapabilityLoss400(statusCode, responseBody) {
+			_ = s.HandleOpenAIImageCapabilityLoss400(ctx, account, statusCode, responseBody)
 		} else if account.Platform == PlatformAnthropic && tkIsAnthropicClientInducedBadRequest(responseBody) {
 			// TK (upstream#2608): client-induced invalid_request_error is caller-side;
 			// atypical 400s are also out of stub-health fuse scope (see

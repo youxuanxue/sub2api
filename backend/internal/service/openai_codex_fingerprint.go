@@ -67,9 +67,9 @@ const (
 	// codexFingerprintOff 不做任何收敛，原样透传客户端标识。
 	// 仅当 extra 显式写 off 时生效；缺省不再走这条路径。
 	codexFingerprintOff codexFingerprintMode = "off"
-	// codexFingerprintDevice 仅收敛 installation_id 为账号级恒定值。
-	// 上游看到 1 台设备 + 多会话（每用户各自的 session）。
-	// TokenKey 默认：把设备数压到 1，同时不把多个 API Key 收成同一 session。
+	// codexFingerprintDevice 收敛 installation_id。有客户端 session 时按
+	// (seed, session) 派生，避免多用户共享一台“设备”导致额度缩水（#5786）；
+	// 无 session 时仍回退账号级种子。session-id / thread 本身不折叠。
 	codexFingerprintDevice codexFingerprintMode = "device"
 	// codexFingerprintSession 收敛 installation_id + session_id，
 	// thread_id 按客户端原始 session-id 确定性派生（每个真实 Codex 会话一个独立线程）。
@@ -222,9 +222,10 @@ func deriveStableUUIDv4(seed string) string {
 		b[10:16])
 }
 
-// resolveConvergedInstallationID 返回账号级恒定的 installation_id。
-// 优先使用管理员配置的真实 device_id，无则从系统管理的账号随机种子确定性派生。
-func resolveConvergedInstallationID(account *Account, seed string) string {
+// resolveConvergedInstallationID 返回收敛后的 installation_id。
+// 优先使用管理员配置的真实 device_id；否则从账号随机种子派生。
+// 传入 clientSessionID 时按 (seed, session) 派生，保证同会话稳定、跨会话隔离。
+func resolveConvergedInstallationID(account *Account, seed string, clientSessionID ...string) string {
 	if account == nil {
 		return ""
 	}
@@ -233,6 +234,9 @@ func resolveConvergedInstallationID(account *Account, seed string) string {
 	}
 	if seed == "" {
 		return ""
+	}
+	if len(clientSessionID) > 0 && clientSessionID[0] != "" {
+		return deriveStableUUIDv4("sub2api:codex-install-id:v3:session:" + seed + ":" + clientSessionID[0])
 	}
 	return deriveStableUUIDv4("sub2api:codex-install-id:v2:" + seed)
 }
@@ -292,7 +296,11 @@ func resolveCodexFingerprintIDs(account *Account, clientSessionID string, mode c
 		turnStartedAtUnixMs: time.Now().UnixMilli(),
 	}
 
-	ids.installationID = resolveConvergedInstallationID(account, seed)
+	if mode == codexFingerprintDevice {
+		ids.installationID = resolveConvergedInstallationID(account, seed, clientSessionID)
+	} else {
+		ids.installationID = resolveConvergedInstallationID(account, seed)
+	}
 	if ids.installationID == "" {
 		return nil
 	}

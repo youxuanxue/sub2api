@@ -1025,7 +1025,7 @@ func TestResolveAntigravityForwardBaseURL_DefaultDaily(t *testing.T) {
 	dailyURL := "https://daily.test"
 	antigravity.BaseURLs = []string{dailyURL, prodURL}
 
-	resolved := resolveAntigravityForwardBaseURL()
+	resolved := resolveAntigravityForwardBaseURL(nil)
 	require.Equal(t, dailyURL, resolved)
 }
 

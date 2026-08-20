@@ -54,26 +54,49 @@ type antigravityRetryLoopResult struct {
 
 // resolveAntigravityForwardBaseURL 解析转发用 base URL。
 //
-// 默认使用生产端点 cloudcode-pa.googleapis.com（antigravity.BaseURLs 的首个地址，
-// 与账号 OAuth 登录/测试连接所用的 antigravity.BaseURL 一致）。
+// 默认使用生产端点 cloudcode-pa.googleapis.com（antigravity.BaseURLs 的首个地址）。
+// Google AI Pro / Ultra（g1-pro-tier / g1-ultra-tier）走官方 daily 端点，
+// 与 Antigravity IDE 一致；免费档仍走 prod，避免再回归 #3611 / #2962
+// （生产 token 打 daily → Invalid bearer）。
 //
-// 历史上这里改用 ForwardBaseURLs()（把 daily/sandbox 排到首位）并默认取首个地址，
-// 导致网关把带生产 OAuth token 的请求发到 daily-cloudcode-pa.sandbox.googleapis.com，
-// 上游拒绝 → 账号被 401「Invalid bearer token」/502 打入临时不可调度且无法恢复
-// （见 #3611 / #2962）。后台「测试连接」用的是生产端点，所以「测试成功但网关 401」。
-//
-// daily/sandbox 端点仅供内部联调，需显式设置
-// GATEWAY_ANTIGRAVITY_FORWARD_BASE_URL=daily（或 sandbox）才启用。
-func resolveAntigravityForwardBaseURL() string {
+// GATEWAY_ANTIGRAVITY_FORWARD_BASE_URL=daily|sandbox|prod 可强制覆盖。
+func resolveAntigravityForwardBaseURL(account *Account) string {
 	baseURLs := antigravity.BaseURLs
 	if len(baseURLs) == 0 {
 		return ""
 	}
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv(antigravityForwardBaseURLEnv)))
-	if (mode == "daily" || mode == "sandbox") && len(baseURLs) > 1 {
-		return baseURLs[1]
+	prod := baseURLs[0]
+	daily := prod
+	if len(baseURLs) > 1 {
+		daily = baseURLs[1]
 	}
-	return baseURLs[0]
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv(antigravityForwardBaseURLEnv)))
+	switch mode {
+	case "daily", "sandbox":
+		return daily
+	case "prod":
+		return prod
+	}
+	if tkAntigravityPaidTierUsesDaily(account) {
+		return daily
+	}
+	return prod
+}
+
+func tkAntigravityPaidTierUsesDaily(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	plan := strings.ToLower(strings.TrimSpace(account.GetCredential("plan_type")))
+	if plan == "" {
+		plan = strings.ToLower(strings.TrimSpace(account.GetExtraString("plan_type")))
+	}
+	switch plan {
+	case "pro", "ultra", "g1-pro-tier", "g1-ultra-tier":
+		return true
+	default:
+		return false
+	}
 }
 
 // smartRetryAction 智能重试的处理结果
@@ -494,7 +517,7 @@ func (s *AntigravityGatewayService) antigravityRetryLoop(p antigravityRetryLoopP
 		}
 	}
 
-	baseURL := resolveAntigravityForwardBaseURL()
+	baseURL := resolveAntigravityForwardBaseURL(p.account)
 	if baseURL == "" {
 		return nil, errors.New("no antigravity forward base url configured")
 	}
