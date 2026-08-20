@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
@@ -333,4 +334,44 @@ func TestAdvancedSchedulerVideoSkipsUnsupportedStickyAccount(t *testing.T) {
 	require.NotNil(t, selection.Account)
 	require.Equal(t, int64(81102), selection.Account.ID, "sticky video routing must not reuse a non-video account")
 	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
+}
+
+// Production Select() leaves Platform empty and only fills GroupPlatform.
+// Empty Platform normalizes to openai, so previous_response_id sticky must
+// key off schedulePlatform() or a leftover OpenAI WS binding can pin an
+// OpenAI account into a newapi group.
+func TestSelect_NewAPIGroupIgnoresOpenAIPreviousResponseSticky(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(80021)
+	const prevResp = "resp_should_not_pin_newapi"
+	newapi := newAPIAccount(82101, 14)
+	openaiBound := openAIAccount(82102, 0)
+	openaiBound.Type = AccountTypeAPIKey
+	openaiBound.Extra = map[string]any{
+		"openai_apikey_responses_websockets_v2_enabled": true,
+	}
+
+	svc, sched := newAPISchedFixture(t, groupID, PlatformNewAPI, []*Account{newapi, openaiBound})
+	svc.cfg.Gateway.OpenAIWS.Enabled = true
+	svc.cfg.Gateway.OpenAIWS.APIKeyEnabled = true
+	svc.cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
+	svc.cfg.Gateway.OpenAIWS.StickyResponseIDTTLSeconds = 3600
+	svc.cache = &schedulerTestGatewayCache{}
+
+	store := svc.getOpenAIWSStateStore()
+	require.NoError(t, store.BindResponseAccount(ctx, groupID, prevResp, openaiBound.ID, time.Hour))
+
+	selection, decision, err := sched.Select(ctx, OpenAIAccountScheduleRequest{
+		GroupID:            &groupID,
+		GroupPlatform:      PlatformNewAPI,
+		PreviousResponseID: prevResp,
+		RequestedModel:     "qwen-max",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, newapi.ID, selection.Account.ID, "newapi group must not inherit OpenAI previous_response_id sticky")
+	require.Equal(t, PlatformNewAPI, selection.Account.Platform)
+	require.NotEqual(t, openAIAccountScheduleLayerPreviousResponse, decision.Layer)
+	require.False(t, decision.StickyPreviousHit)
 }

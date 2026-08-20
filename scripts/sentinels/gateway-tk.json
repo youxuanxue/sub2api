@@ -3122,6 +3122,35 @@
       "rationale": "Regression anchor for duplicate Claude Code environment blocks: every block must receive the outbound timezone rewrite, so an upstream merge cannot retain only the first block's TZ while silently dropping later blocks."
     },
     {
+      "path": "backend/internal/service/openai_account_scheduler.go",
+      "must_contain": [
+        "req.schedulePlatform() == PlatformOpenAI"
+      ],
+      "rationale": "previous_response_id sticky must key off schedulePlatform() (GroupPlatform first). Production Select() never sets req.Platform; empty Platform normalizes to openai and would let leftover OpenAI WS bindings pin an OpenAI account into newapi/grok/CN groups."
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler_tk_newapi_test.go",
+      "must_contain": [
+        "TestSelect_NewAPIGroupIgnoresOpenAIPreviousResponseSticky"
+      ],
+      "rationale": "Focused regression: a newapi group with an empty Platform field and a leftover OpenAI previous_response_id binding must stay on the newapi pool, not the OpenAI sticky layer."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "if platform == PlatformOpenAI && acc.IsOpenAIPassthroughEnabled() {",
+        "Skip them while collecting; sibling mapped accounts still own the"
+      ],
+      "rationale": "OpenAI passthrough accounts must be skipped while collecting /v1/models mappings. Returning nil on the first passthrough account wipes TokenKey curated model_mapping from sibling accounts and collapses mixed Codex-passthrough + mapped groups onto the default catalog."
+    },
+    {
+      "path": "backend/internal/service/gateway_hotpath_optimization_test.go",
+      "must_contain": [
+        "mixed mapped account keeps whitelist when sibling is passthrough"
+      ],
+      "rationale": "GetAvailableModels mixed-group contract: a leftover openai_passthrough sibling cannot erase the curated mapping whitelist. Upstream #5581 returned nil for the whole group; TokenKey serving SSOT keeps the non-passthrough union."
+    },
+    {
       "path": "backend/internal/service/gateway_anthropic_request_normalize_tk.go",
       "must_contain": [
         "func tkApplyAnthropicCCPromptSurfaceNormalize"
