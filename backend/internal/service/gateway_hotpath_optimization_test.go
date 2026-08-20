@@ -381,7 +381,7 @@ func TestGetAvailableModels_OpenAIPassthroughUsesDefaultFallback(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "passthrough wins over ordinary account mapping",
+			name: "mixed mapped account keeps whitelist when sibling is passthrough",
 			accounts: []Account{
 				{
 					ID:          2,
@@ -395,7 +395,7 @@ func TestGetAvailableModels_OpenAIPassthroughUsesDefaultFallback(t *testing.T) {
 					Extra:       map[string]any{"openai_passthrough": true},
 				},
 			},
-			want: nil,
+			want: []string{"configured-model"},
 		},
 		{
 			name: "ordinary accounts preserve mapped whitelist",
