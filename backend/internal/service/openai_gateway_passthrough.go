@@ -928,6 +928,41 @@ type openaiNonStreamingResultPassthrough struct {
 	imageOutputSizes []string
 }
 
+const openAIStreamKeepaliveBytesKey = "openai_stream_keepalive_bytes"
+
+func recordOpenAIStreamKeepaliveBytes(c *gin.Context, written int) {
+	if c == nil || written <= 0 {
+		return
+	}
+	current := 0
+	if value, ok := c.Get(openAIStreamKeepaliveBytesKey); ok {
+		current, _ = value.(int)
+	}
+	c.Set(openAIStreamKeepaliveBytesKey, current+written)
+}
+
+func logOpenAICapacityFailoverSuppressed(ctx context.Context, account *Account, path, upstreamRequestID, eventType string) {
+	fields := []zap.Field{
+		zap.String("path", path),
+		zap.String("event_type", strings.TrimSpace(eventType)),
+		zap.String("upstream_request_id", strings.TrimSpace(upstreamRequestID)),
+	}
+	if account != nil {
+		fields = append(fields, zap.Int64("account_id", account.ID), zap.String("platform", account.Platform))
+	}
+	logger.FromContext(ctx).Warn("gateway.failover_suppressed_after_semantic_output", fields...)
+}
+
+func openAIStreamErrorEventShouldFailover(payload []byte, message string) bool {
+	if strings.TrimSpace(gjson.GetBytes(payload, "type").String()) != "error" {
+		return false
+	}
+	if isOpenAIContextWindowError(message, payload) {
+		return false
+	}
+	return isOpenAITransientProcessingError(http.StatusBadRequest, message, payload)
+}
+
 func openAIStreamClientOutputStarted(c *gin.Context, localStarted bool) bool {
 	if localStarted {
 		return true

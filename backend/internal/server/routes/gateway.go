@@ -410,7 +410,13 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 			return
 		}
 
-		model := compositeRequestModelFromBody(c.GetHeader("Content-Type"), body)
+		model, modelPath := compositeJSONRequestModel(body), ""
+		if model == "" {
+			model = compositeMultipartModelFromBody(c.GetHeader("Content-Type"), body)
+		}
+		if modelPath == "" {
+			_, modelPath = compositeJSONRequestModelWithPath(body)
+		}
 		if model != "" {
 			decision, err := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, compositeRouteEndpointForPath(c.Request.URL.Path))
 			if err != nil {
@@ -421,8 +427,10 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 			if decision.Matched {
 				c.Request = c.Request.WithContext(service.WithCompositeRouteDecision(c.Request.Context(), decision))
 				if upstreamModel := strings.TrimSpace(decision.UpstreamModel); upstreamModel != "" && upstreamModel != model && gjson.ValidBytes(body) {
-					if rewritten, rewriteErr := sjson.SetBytes(body, "model", upstreamModel); rewriteErr == nil {
-						body = rewritten
+					if modelPath != "" {
+						if rewritten, rewriteErr := sjson.SetBytes(body, modelPath, upstreamModel); rewriteErr == nil {
+							body = rewritten
+						}
 					}
 				}
 			}
@@ -433,10 +441,25 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 }
 
 func compositeRequestModelFromBody(contentType string, body []byte) string {
-	if model := strings.TrimSpace(gjson.GetBytes(body, "model").String()); model != "" {
+	if model, _ := compositeJSONRequestModelWithPath(body); model != "" {
 		return model
 	}
 	return compositeMultipartModelFromBody(contentType, body)
+}
+
+func compositeJSONRequestModel(body []byte) string {
+	model, _ := compositeJSONRequestModelWithPath(body)
+	return model
+}
+
+func compositeJSONRequestModelWithPath(body []byte) (string, string) {
+	for _, path := range []string{"model", "session.model"} {
+		value := gjson.GetBytes(body, path)
+		if value.Type == gjson.String && strings.TrimSpace(value.String()) != "" {
+			return strings.TrimSpace(value.String()), path
+		}
+	}
+	return "", ""
 }
 
 func compositeMultipartModelFromBody(contentType string, body []byte) string {
@@ -540,7 +563,10 @@ func compositeRouteEndpointForPath(path string) string {
 		return service.CompositeRouteEndpointCountTokens
 	case strings.Contains(path, "/messages"):
 		return service.CompositeRouteEndpointMessages
-	case strings.Contains(path, "/responses"):
+	case strings.Contains(path, "/responses"),
+		strings.Contains(path, "/alpha/search"),
+		strings.Contains(path, "/realtime/calls"),
+		strings.HasSuffix(strings.TrimRight(path, "/"), "/live"):
 		return service.CompositeRouteEndpointResponses
 	case strings.Contains(path, "/chat/completions"):
 		return service.CompositeRouteEndpointChatCompletions
