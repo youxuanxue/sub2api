@@ -37,8 +37,11 @@ func TestSkipRawPeakScan(t *testing.T) {
 	if skipRawPeakScan(end.Add(-time.Hour), end) {
 		t.Fatalf("1h window should still use the raw minute-bucket peak scan")
 	}
-	if skipRawPeakScan(end.Add(-2*time.Hour), end) {
-		t.Fatalf("exactly 2h should still use the raw minute-bucket peak scan")
+	if skipRawPeakScan(end.Add(-6*time.Hour), end) {
+		t.Fatalf("6h toolbar preset should still use the raw minute-bucket peak scan")
+	}
+	if skipRawPeakScan(end.Add(-24*time.Hour), end) {
+		t.Fatalf("exactly 24h toolbar preset should still use the raw minute-bucket peak scan")
 	}
 	if !skipRawPeakScan(end.Add(-30*24*time.Hour), end) {
 		t.Fatalf("30d custom window must skip the raw peak scan")

@@ -15,10 +15,9 @@ import (
 const (
 	opsRawLatencyQueryTimeout = 2 * time.Second
 	opsRawPeakQueryTimeout    = 1500 * time.Millisecond
-	// Minute-bucket peak over a multi-hour window is too expensive on raw
-	// usage_logs and trips the local timeout (then 500'd before timeout
-	// classification recognized lib/pq's cancel). Skip the raw scan.
-	opsRawPeakMaxWindow = 2 * time.Hour
+	// Toolbar presets top out at 24h. Longer custom windows (e.g. 30d) make
+	// the minute-bucket peak scan miss the local timeout; skip those only.
+	opsRawPeakMaxWindow = 24 * time.Hour
 )
 
 func (r *opsRepository) GetDashboardOverview(ctx context.Context, filter *service.OpsDashboardFilter) (*service.OpsDashboardOverview, error) {
