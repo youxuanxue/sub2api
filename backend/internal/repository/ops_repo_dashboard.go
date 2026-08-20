@@ -15,6 +15,9 @@ import (
 const (
 	opsRawLatencyQueryTimeout = 2 * time.Second
 	opsRawPeakQueryTimeout    = 1500 * time.Millisecond
+	// Toolbar presets top out at 24h. Longer custom windows (e.g. 30d) make
+	// the minute-bucket peak scan miss the local timeout; skip those only.
+	opsRawPeakMaxWindow = 24 * time.Hour
 )
 
 func (r *opsRepository) GetDashboardOverview(ctx context.Context, filter *service.OpsDashboardFilter) (*service.OpsDashboardOverview, error) {
@@ -93,15 +96,12 @@ func (r *opsRepository) getDashboardOverviewRaw(ctx context.Context, filter *ser
 		}
 	}
 
-	peakCtx, cancelPeak := context.WithTimeout(ctx, opsRawPeakQueryTimeout)
-	qpsPeak, tpsPeak, err := r.queryPeakRates(peakCtx, filter, start, end)
-	cancelPeak()
+	qpsPeak, tpsPeak, peakDegraded, err := r.queryPeakRatesAllowSkip(ctx, filter, start, end)
 	if err != nil {
-		if isQueryTimeoutErr(err) {
-			degraded = true
-		} else {
-			return nil, err
-		}
+		return nil, err
+	}
+	if peakDegraded {
+		degraded = true
 	}
 
 	qpsAvg := roundTo1DP(float64(requestCountTotal) / windowSeconds)
@@ -269,15 +269,12 @@ func (r *opsRepository) getDashboardOverviewPreaggregated(ctx context.Context, f
 		}
 	}
 
-	peakCtx, cancelPeak := context.WithTimeout(ctx, opsRawPeakQueryTimeout)
-	qpsPeak, tpsPeak, err := r.queryPeakRates(peakCtx, filter, start, end)
-	cancelPeak()
+	qpsPeak, tpsPeak, peakDegraded, err := r.queryPeakRatesAllowSkip(ctx, filter, start, end)
 	if err != nil {
-		if isQueryTimeoutErr(err) {
-			degraded = true
-		} else {
-			return nil, err
-		}
+		return nil, err
+	}
+	if peakDegraded {
+		degraded = true
 	}
 
 	qpsAvg := roundTo1DP(float64(requestCountTotal) / windowSeconds)
@@ -900,6 +897,22 @@ func (r *opsRepository) queryCurrentRates(ctx context.Context, filter *service.O
 	return qpsCurrent, tpsCurrent, nil
 }
 
+func (r *opsRepository) queryPeakRatesAllowSkip(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) (qpsPeak float64, tpsPeak float64, degraded bool, err error) {
+	if skipRawPeakScan(start, end) {
+		return 0, 0, true, nil
+	}
+	peakCtx, cancelPeak := context.WithTimeout(ctx, opsRawPeakQueryTimeout)
+	defer cancelPeak()
+	qpsPeak, tpsPeak, err = r.queryPeakRates(peakCtx, filter, start, end)
+	if err != nil {
+		if isQueryTimeoutErr(err) {
+			return 0, 0, true, nil
+		}
+		return 0, 0, false, err
+	}
+	return qpsPeak, tpsPeak, false, nil
+}
+
 func (r *opsRepository) queryPeakRates(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) (qpsPeak float64, tpsPeak float64, err error) {
 	usageJoin, usageWhere, usageArgs, next := buildUsageWhere(filter, start, end, 1)
 	errorWhere, errorArgs, _ := buildErrorWhere(filter, start, end, next)
@@ -949,8 +962,24 @@ FROM combined`
 	return qpsPeak, tpsPeak, nil
 }
 
+func skipRawPeakScan(start, end time.Time) bool {
+	if start.IsZero() || end.IsZero() {
+		return false
+	}
+	return end.Sub(start) > opsRawPeakMaxWindow
+}
+
 func isQueryTimeoutErr(err error) bool {
-	return errors.Is(err, context.DeadlineExceeded)
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	// lib/pq reports a canceled query as PostgreSQL 57014 instead of wrapping
+	// context.DeadlineExceeded. The local peak/latency timeouts then look like
+	// a fatal error and the ops dashboard returns 500 "internal error".
+	return strings.Contains(strings.ToLower(err.Error()), "canceling statement due to user request")
 }
 
 func buildUsageWhere(filter *service.OpsDashboardFilter, start, end time.Time, startIndex int) (join string, where string, args []any, nextIndex int) {
