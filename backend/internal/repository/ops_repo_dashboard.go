@@ -15,6 +15,10 @@ import (
 const (
 	opsRawLatencyQueryTimeout = 2 * time.Second
 	opsRawPeakQueryTimeout    = 1500 * time.Millisecond
+	// Minute-bucket peak over a multi-hour window is too expensive on raw
+	// usage_logs and trips the local timeout (then 500'd before timeout
+	// classification recognized lib/pq's cancel). Skip the raw scan.
+	opsRawPeakMaxWindow = 2 * time.Hour
 )
 
 func (r *opsRepository) GetDashboardOverview(ctx context.Context, filter *service.OpsDashboardFilter) (*service.OpsDashboardOverview, error) {
@@ -901,6 +905,9 @@ func (r *opsRepository) queryCurrentRates(ctx context.Context, filter *service.O
 }
 
 func (r *opsRepository) queryPeakRates(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) (qpsPeak float64, tpsPeak float64, err error) {
+	if skipRawPeakScan(start, end) {
+		return 0, 0, context.DeadlineExceeded
+	}
 	usageJoin, usageWhere, usageArgs, next := buildUsageWhere(filter, start, end, 1)
 	errorWhere, errorArgs, _ := buildErrorWhere(filter, start, end, next)
 
@@ -949,8 +956,24 @@ FROM combined`
 	return qpsPeak, tpsPeak, nil
 }
 
+func skipRawPeakScan(start, end time.Time) bool {
+	if start.IsZero() || end.IsZero() {
+		return false
+	}
+	return end.Sub(start) > opsRawPeakMaxWindow
+}
+
 func isQueryTimeoutErr(err error) bool {
-	return errors.Is(err, context.DeadlineExceeded)
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	// lib/pq reports a canceled query as PostgreSQL 57014 instead of wrapping
+	// context.DeadlineExceeded. The local peak/latency timeouts then look like
+	// a fatal error and the ops dashboard returns 500 "internal error".
+	return strings.Contains(strings.ToLower(err.Error()), "canceling statement due to user request")
 }
 
 func buildUsageWhere(filter *service.OpsDashboardFilter, start, end time.Time, startIndex int) (join string, where string, args []any, nextIndex int) {
