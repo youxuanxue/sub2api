@@ -412,9 +412,11 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	s.maybeHandleOpenAITeamLinkedError(ctx, account, statusCode, responseBody)
 	customErrorCodesEnabled := account.IsCustomErrorCodesEnabled()
 
-	if tkIsNewAPIAgentPlanOpenAIProviderMismatch(account, statusCode, responseBody) {
-		slog.Error("newapi_agent_plan_provider_mismatch_skip_penalty",
+	if IsForeignCredentialOfficialOpenAIReject(account, statusCode, responseBody) {
+		slog.Error("foreign_credential_official_openai_reject_skip_penalty",
 			"account_id", account.ID,
+			"platform", account.Platform,
+			"channel_type", account.ChannelType,
 			"status_code", statusCode,
 			"expected_base_url", nativeOpenAIBaseURLForAccount(account))
 		return false

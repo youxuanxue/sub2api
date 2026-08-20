@@ -775,15 +775,18 @@
     {
       "path": "backend/internal/service/openai_gateway_count_tokens.go",
       "must_contain": [
+        "AccountShouldLocalEstimateCountTokens(account)",
+        "AccountUsesOfficialOpenAIUpstream(account)",
         "nativeOpenAIBaseURLForAccount(account)",
         "buildOpenAIResponsesInputTokensURL(validatedURL)"
       ],
-      "rationale": "Anthropic-compatible count_tokens can select property-scoped Agent Plan accounts. It must reuse the native OpenAI-compatible base resolver so Ark credentials go to /api/plan/v3/responses/input_tokens instead of falling through to api.openai.com and producing a false credential failure."
+      "rationale": "Anthropic-compatible count_tokens must consult the official-OpenAI-host SSOT before any HTTP. Foreign credentials (newapi Ali/Qwen, CN providers, empty native URL) local-estimate. Agent Plan still uses nativeOpenAIBaseURLForAccount so Ark credentials go to /api/plan/v3/responses/input_tokens instead of api.openai.com."
     },
     {
       "path": "backend/internal/service/openai_gateway_count_tokens_fallback.go",
       "must_contain": [
         "isNewAPIVolcEngineAgentPlanInputTokensUnsupported(account, statusCode, upstreamMsg, body)",
+        "AccountUsesOfficialOpenAIUpstream(account)",
         "code == \"invalidaction\"",
         "isNewAPIVolcEngineAgentPlanAccount(account)",
         "openAIInputTokensFallbackPreparedEstimate",
@@ -793,21 +796,24 @@
       "rationale": "Ark Agent Plan serves chat/completions and responses but returns 404 InvalidAction for responses/input_tokens. The property-scoped classifier must convert that capability gap to the prepared Responses tokenizer estimate before account penalties, with the Anthropic rune heuristic only as a last-resort fallback, without masking invalid-model errors or changing ordinary VolcEngine accounts."
     },
     {
-      "path": "backend/internal/service/ratelimit_service_tk_provider_mismatch.go",
+      "path": "backend/internal/service/openai_official_upstream_tk.go",
       "must_contain": [
-        "tkIsNewAPIAgentPlanOpenAIProviderMismatch",
-        "platform.openai.com/account/api-keys",
-        "isNewAPIVolcEngineAgentPlanAccount(account)"
+        "func AccountUsesOfficialOpenAIUpstream",
+        "func AccountShouldLocalEstimateCountTokens",
+        "func IsOfficialOpenAIAPIKeyHelpText",
+        "func IsForeignCredentialOfficialOpenAIReject",
+        "isOfficialOpenAIModelsBaseURL",
+        "platform.openai.com/account/api-keys"
       ],
-      "rationale": "A property-scoped Agent Plan account receiving OpenAI's official API-key help text proves provider misrouting, not an invalid Ark credential. This classifier is the account-health safety interlock that prevents such routing defects from permanently disabling the account."
+      "rationale": "Official OpenAI host decisions are a single owner. NewAPI channels, CN providers, CloudWise/tokensea, and any future platform default to foreign. Adding another vendor-specific 401 exception instead of this SSOT is the leak that permanently disabled Qwen #60/#72."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
-        "tkIsNewAPIAgentPlanOpenAIProviderMismatch(account, statusCode, responseBody)",
-        "newapi_agent_plan_provider_mismatch_skip_penalty"
+        "IsForeignCredentialOfficialOpenAIReject(account, statusCode, responseBody)",
+        "foreign_credential_official_openai_reject_skip_penalty"
       ],
-      "rationale": "HandleUpstreamError must consult the Agent Plan provider-mismatch interlock before generic 401 handling. Removing this call silently restores SetError plus the false permanent-auth Feishu alert even if the classifier file still compiles."
+      "rationale": "HandleUpstreamError must consult the official-OpenAI-host SSOT before generic 401 handling. Removing this call silently restores SetError plus the false permanent-auth Feishu alert even if the classifier file still compiles."
     }
   ]
 }

@@ -38,7 +38,7 @@ func TestRateLimitService_AgentPlanGenuineArk401StillPermanentlyDisables(t *test
 	require.Equal(t, 1, repo.setErrorCalls, "a genuine Agent Plan credential failure must retain the auth guard")
 }
 
-func TestRateLimitService_VolcEnginePayAsYouGoOpenAI401StillPermanentlyDisables(t *testing.T) {
+func TestRateLimitService_VolcEnginePayAsYouGoOpenAI401SkipsPermanentDisable(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	svc := &RateLimitService{accountRepo: repo}
 	account := newAgentPlanRateLimitAccountForTest("https://ark.cn-beijing.volces.com/api/v3")
@@ -47,8 +47,8 @@ func TestRateLimitService_VolcEnginePayAsYouGoOpenAI401StillPermanentlyDisables(
 	shouldDisable := svc.HandleUpstreamError(
 		context.Background(), account, http.StatusUnauthorized, http.Header{}, body)
 
-	require.True(t, shouldDisable)
-	require.Equal(t, 1, repo.setErrorCalls, "the exception must require the Agent Plan base_url property")
+	require.False(t, shouldDisable)
+	require.Zero(t, repo.setErrorCalls, "official OpenAI help text on a foreign VolcEngine credential is a routing defect")
 }
 
 func newAgentPlanRateLimitAccountForTest(baseURL string) *Account {

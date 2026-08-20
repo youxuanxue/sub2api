@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strings"
 
-	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -30,14 +29,7 @@ func shouldEstimateOpenAIInputTokensForAuthError(account *Account, err error) bo
 	if account == nil || err == nil {
 		return false
 	}
-	msg := strings.ToLower(err.Error())
-	if account.Platform == PlatformNewAPI {
-		if account.Type == AccountTypeServiceAccount && account.ChannelType == newapiconstant.ChannelTypeVertexAi {
-			return true
-		}
-		return strings.Contains(msg, "api_key not found")
-	}
-	return false
+	return !AccountUsesOfficialOpenAIUpstream(account)
 }
 
 func classifyOpenAIInputTokensFallback(account *Account, statusCode int, body []byte) openAIInputTokensFallbackDecision {
@@ -54,7 +46,7 @@ func classifyOpenAIInputTokensFallback(account *Account, statusCode int, body []
 	if isOpenAICompatInputTokensCapabilityGap(account, statusCode, upstreamMsg, body) {
 		return openAIInputTokensFallbackDecision{Kind: openAIInputTokensFallbackAnthropicEstimate, UpstreamMessage: upstreamMsg}
 	}
-	if isMaaSRelayInputTokensAuthGap(account, statusCode) {
+	if statusCode == http.StatusUnauthorized && !AccountUsesOfficialOpenAIUpstream(account) {
 		return openAIInputTokensFallbackDecision{Kind: openAIInputTokensFallbackAnthropicEstimate, UpstreamMessage: upstreamMsg}
 	}
 	if isOpenAIAPIKeyInputTokensTransientFailure(account, statusCode) {
@@ -77,17 +69,6 @@ func isOpenAIAPIKeyInputTokensTransientFailure(account *Account, statusCode int)
 	default:
 		return false
 	}
-}
-
-// isMaaSRelayInputTokensAuthGap reports CloudWise/tokensea dual-stack relays that
-// reject OpenAI /v1/responses/input_tokens with 401 even while chat/messages
-// remain healthy. count_tokens must local-estimate instead of permanently
-// disabling the apikey account (prod #95 incident 2026-08-13).
-func isMaaSRelayInputTokensAuthGap(account *Account, statusCode int) bool {
-	if account == nil || account.Type != AccountTypeAPIKey || statusCode != http.StatusUnauthorized {
-		return false
-	}
-	return account.IsOpenAICloudwiseRelay() || account.IsOpenAITokenseaRelay()
 }
 
 func isOpenAIInputTokensUnsupported(statusCode int, body []byte) bool {

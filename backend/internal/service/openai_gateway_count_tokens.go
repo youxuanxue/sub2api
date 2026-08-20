@@ -90,21 +90,21 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 		return fmt.Errorf("count_tokens: missing account")
 	}
 
-	// 国产供应商（全部协议，含 anthropic）：一律本地估算，不发上游请求。
-	// 依据（2026-08 核实）：三家的 Anthropic 兼容层均未提供
-	// /v1/messages/count_tokens——DeepSeek 官方 anthropic_api 文档无此端点
-	// （且注明 anthropic-version 头被忽略），聚合网关 OpenModel 明确标注
-	// count_tokens 为 "Anthropic only"，Kimi/智谱亦无任何文档承诺。转发上游
-	// 只会常态 404，且错误还会流入账号处置逻辑误伤整账号调度；Claude Code
-	// 高频调用此端点，本地 tiktoken 估算是与 Grok 一致的既有方案。
-	if account.IsCNProvider() {
+	// Foreign credentials must not default to api.openai.com. Owner:
+	// AccountShouldLocalEstimateCountTokens (derived from
+	// AccountUsesOfficialOpenAIUpstream). Covers CN providers, newapi
+	// channels without a dedicated native URL, and any future platform
+	// that is not official OpenAI.
+	if AccountShouldLocalEstimateCountTokens(account) {
 		estimated, err := estimateAnthropicCountTokensLocally(body)
 		if err != nil {
 			writeAnthropicCountTokensError(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
-			return fmt.Errorf("count_tokens: estimate cn provider input tokens: %w", err)
+			return fmt.Errorf("count_tokens: estimate foreign-credential input tokens: %w", err)
 		}
-		logger.L().Debug("openai count_tokens: cn provider local estimate",
+		logger.L().Debug("openai count_tokens: foreign credential local estimate",
 			zap.Int64("account_id", account.ID),
+			zap.String("platform", account.Platform),
+			zap.Int("channel_type", account.ChannelType),
 			zap.Int("estimated_input_tokens", estimated),
 		)
 		c.JSON(http.StatusOK, gin.H{
@@ -274,7 +274,14 @@ func (s *OpenAIGatewayService) buildInputTokensUpstreamRequest(
 	body []byte,
 	token string,
 ) (*http.Request, error) {
+	if AccountShouldLocalEstimateCountTokens(account) {
+		return nil, fmt.Errorf("count_tokens: refusing official OpenAI fallback for account %d", account.ID)
+	}
+
 	targetURL := openaiPlatformAPIInputTokensURL
+	if !AccountUsesOfficialOpenAIUpstream(account) && account.Platform != PlatformGrok {
+		targetURL = ""
+	}
 	switch {
 	case account.Platform == PlatformGrok:
 		grokURL, err := s.resolveGrokInputTokensUpstream(account)
@@ -290,6 +297,9 @@ func (s *OpenAIGatewayService) buildInputTokensUpstreamRequest(
 			}
 			targetURL = buildOpenAIResponsesInputTokensURL(validatedURL)
 		}
+	}
+	if strings.TrimSpace(targetURL) == "" {
+		return nil, fmt.Errorf("count_tokens: no native input_tokens URL for foreign credential account %d", account.ID)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
