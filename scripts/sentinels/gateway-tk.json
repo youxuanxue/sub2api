@@ -5031,9 +5031,9 @@
       "path": "backend/internal/handler/ops_error_logger.go",
       "must_contain": [
         "clientRequestRejected := hasOpsClientRequestRejected(c)",
-        "if clientRequestRejected && !upstreamError && !routingCapacityLimited {"
+        "if clientRequestRejected && !effectiveUpstreamError && !routingCapacityLimited {"
       ],
-      "rationale": "Injection point in classifyOpsErrorLog that owns a LOCAL pre-forward client request rejection (unservable model 400) to the client (phase=request -> owner=client) regardless of the response envelope. Sits alongside the existing clientInducedUpstream / clientCanceledUpstream hooks; an upstream merge that rewrites the phase-override ladder must keep this line or the /responses unservable-model 400 silently regresses to owner=platform and re-pollutes the gateway error rate."
+      "rationale": "Injection point in classifyOpsErrorLog that owns a LOCAL pre-forward client request rejection (unservable model 400) to the client (phase=request -> owner=client) regardless of the response envelope. effectiveUpstreamError excludes local model-configuration failures from stale upstream evidence before this branch runs. An upstream merge that rewrites the phase-override ladder must keep this line or the /responses unservable-model 400 silently regresses to owner=platform and re-pollutes the gateway error rate."
     },
     {
       "path": "backend/internal/handler/gateway_handler_responses.go",
