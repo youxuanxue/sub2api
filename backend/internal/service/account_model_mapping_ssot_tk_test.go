@@ -91,6 +91,15 @@ func TestAccount_IsAnthropicTokenseaRelay(t *testing.T) {
 		},
 	}
 	require.True(t, tokensea.IsAnthropicTokenseaRelay())
+
+	tokenseaV1 := &Account{
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://agent.tokensea.ai/v1",
+		},
+	}
+	require.True(t, tokenseaV1.IsAnthropicTokenseaRelay(), "base_url /v1 suffix is a stored-URL boundary sample, not an owner copy")
 }
 
 func TestOpenAITokenseaRelayFloorIsProbeCuratedOnly(t *testing.T) {

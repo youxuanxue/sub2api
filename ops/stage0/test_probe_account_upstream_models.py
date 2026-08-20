@@ -171,6 +171,56 @@ class ProbeAccountUpstreamModelsTest(unittest.TestCase):
             "https://ark.cn-beijing.volces.com/api/plan/v3",
         )
 
+    def test_tokensea_v1_suffix_keeps_relay_scope(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                payload = {"data": {"models": ["gpt-5.4"]}}
+                body = json.dumps(payload).encode()
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                pass
+
+        # /v1 suffix is a stored-URL boundary sample, not an owner copy of live #92/#93.
+        cases = [
+            (
+                {
+                    "name": "tokensea",
+                    "platform": "openai",
+                    "type": "apikey",
+                    "channel_type": 0,
+                    "mirror_platform": "",
+                    "base_url": "https://agent.tokensea.ai/v1",
+                },
+                "openai_tokensea_relay",
+            ),
+            (
+                {
+                    "name": "tokensea-cc",
+                    "platform": "anthropic",
+                    "type": "apikey",
+                    "channel_type": 0,
+                    "mirror_platform": "",
+                    "base_url": "https://agent.tokensea.ai/v1/",
+                },
+                "anthropic_tokensea_relay",
+            ),
+        ]
+        for account, scope in cases:
+            with self.subTest(scope=scope):
+                with _Server(Handler) as server:
+                    got = self.run_probe(
+                        base_url=server.base_url,
+                        targets="gpt-5.4",
+                        account_id="92",
+                        account=account,
+                    )
+                self.assertEqual(got["account_scope"], scope)
+
     def test_volcengine_payg_scope_stays_channel_floor(self):
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):
