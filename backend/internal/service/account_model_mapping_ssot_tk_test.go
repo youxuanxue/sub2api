@@ -60,6 +60,15 @@ func TestAccount_IsOpenAITokenseaRelay(t *testing.T) {
 	}
 	require.True(t, tokensea.IsOpenAITokenseaRelay())
 
+	tokenseaV1 := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://agent.tokensea.ai/v1",
+		},
+	}
+	require.True(t, tokenseaV1.IsOpenAITokenseaRelay(), "base_url /v1 suffix is a stored-URL boundary sample, not an owner copy")
+
 	other := &Account{
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeAPIKey,
@@ -82,6 +91,15 @@ func TestAccount_IsAnthropicTokenseaRelay(t *testing.T) {
 		},
 	}
 	require.True(t, tokensea.IsAnthropicTokenseaRelay())
+
+	tokenseaV1 := &Account{
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://agent.tokensea.ai/v1",
+		},
+	}
+	require.True(t, tokenseaV1.IsAnthropicTokenseaRelay(), "base_url /v1 suffix is a stored-URL boundary sample, not an owner copy")
 }
 
 func TestOpenAITokenseaRelayFloorIsProbeCuratedOnly(t *testing.T) {
@@ -93,6 +111,11 @@ func TestOpenAITokenseaRelayFloorIsProbeCuratedOnly(t *testing.T) {
 	require.Contains(t, mapping, "claude-sonnet-4-6")
 	require.Contains(t, mapping, "gpt-5.6")
 	require.NotContains(t, mapping, "byteplus/dreamina-seedance-2-0-260128", "non-SSOT upstream id is a boundary sample, not an owner copy")
+	// Live 2026-08-20 account 92 raw chat: listed DeepSeek/Qwen/GLM/Kimi IDs
+	// returned 400 openai_error; dated flash-0731 is not even listed.
+	require.NotContains(t, mapping, "deepseek-v3.2", "tokensea-listed but chat-400 newapi id is a boundary sample, not an owner copy")
+	require.NotContains(t, mapping, "qwen3.7-max", "tokensea-listed but chat-400 newapi id is a boundary sample, not an owner copy")
+	require.NotContains(t, mapping, "deepseek-v4-flash-0731", "qianfan-dated flash SKU is a boundary sample, not an owner copy")
 }
 
 func TestAnthropicTokenseaRelayFloorCoversSharedOpenAILiveKeys(t *testing.T) {

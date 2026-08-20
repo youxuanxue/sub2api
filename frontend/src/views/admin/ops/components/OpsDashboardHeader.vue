@@ -13,6 +13,7 @@ import { useAdminSettingsStore } from '@/stores'
 import { formatNumber } from '@/utils/format'
 import { formatMemorySizeMB } from '../utils/opsFormatters'
 import { datetimeLocalToISO, resolveOpsCustomTimeRange, toDatetimeLocalValue } from '../utils/opsTimeRange'
+import { resolveOpsSlaPercent } from '../utils/opsSla'
 
 type RealtimeWindow = '1min' | '5min' | '30min' | '1h'
 
@@ -399,12 +400,7 @@ const tpsAvgLabel = computed(() => {
   return v.toFixed(1)
 })
 
-const slaPercent = computed(() => {
-  const v = overview.value?.sla
-  if (typeof v !== 'number') return null
-  if ((overview.value?.request_count_sla ?? 0) <= 0) return null
-  return v * 100
-})
+const slaPercent = computed(() => resolveOpsSlaPercent(overview.value))
 
 const errorRatePercent = computed(() => {
   const v = overview.value?.error_rate
@@ -942,7 +938,6 @@ function handleToolbarRefresh() {
           v-if="!props.fullscreen"
           type="button"
           class="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-100 text-gray-500 transition-colors hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600"
-          :disabled="loading"
           :title="t('common.refresh')"
           @click="handleToolbarRefresh"
         >
@@ -1282,7 +1277,7 @@ function handleToolbarRefresh() {
             <div class="flex justify-between">
               <span class="text-gray-500">{{ t('admin.ops.exceptions') }}:</span>
               <span class="font-bold text-red-600 dark:text-red-400">{{ formatNumber(overview.error_count_sla ?? 0) }}</span>
-              <span class="font-bold text-gray-900 dark:text-white">{{ formatNumber((overview.request_count_sla ?? 0) - (overview.success_count ?? 0)) }}</span>
+              <span class="font-bold text-gray-900 dark:text-white">{{ formatNumber((overview.request_count_total ?? 0) - (overview.success_count ?? 0)) }}</span>
             </div>
           </div>
         </div>

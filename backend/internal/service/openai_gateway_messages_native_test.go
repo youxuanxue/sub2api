@@ -86,3 +86,77 @@ func TestForwardAsAnthropic_NativeMessagesPreferredOverChatFallback(t *testing.T
 	require.NotContains(t, upstream.lastReq.URL.String(), "chat/completions")
 	require.Contains(t, upstream.lastReq.URL.String(), "/v1/messages")
 }
+
+func tokenseaOpenAIRelayWithStaleNativeFlag() *Account {
+	account := rawChatCompletionsTestAccount()
+	account.Credentials["base_url"] = "https://agent.tokensea.ai"
+	account.Extra = map[string]any{
+		// Live 2026-08-20 account 92: GPT /v1/messages probe timed out, so
+		// extra.openai_native_messages_supported=false while
+		// openai_responses_supported=true. Direct upstream Claude
+		// /v1/messages still returned 200.
+		openai_compat.ExtraKeyResponsesSupported:      true,
+		openai_compat.ExtraKeyNativeMessagesSupported: false,
+	}
+	return account
+}
+
+func TestForwardAsAnthropic_TokenseaClaudeUsesNativeMessagesEvenWhenExtraFlagFalse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"claude-sonnet-4-6","max_tokens":8,"messages":[{"role":"user","content":"Reply OK only."}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"type":"message","model":"claude-sonnet-4-6","role":"assistant","content":[{"type":"text","text":"OK"}],"usage":{"input_tokens":7,"output_tokens":1}}`,
+		)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, tokenseaOpenAIRelayWithStaleNativeFlag(), body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "https://agent.tokensea.ai/v1/messages", upstream.lastReq.URL.String(),
+		"92 Claude /v1/messages must passthrough even when extra.native_messages=false")
+	require.NotContains(t, upstream.lastReq.URL.String(), "/responses")
+	require.Contains(t, rec.Body.String(), "OK")
+}
+
+func TestForwardAsAnthropic_TokenseaGPTKeepsResponsesWhenFlagTrue(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.4","max_tokens":16,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	upstreamBody := strings.Join([]string{
+		`data: {"type":"response.completed","response":{"id":"resp_native","object":"response","model":"gpt-5.4","status":"completed","output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, tokenseaOpenAIRelayWithStaleNativeFlag(), body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, strings.HasSuffix(upstream.lastReq.URL.Path, "/responses"),
+		"92 GPT /v1/messages must stay on Responses when extra.responses=true, got %s", upstream.lastReq.URL.String())
+}

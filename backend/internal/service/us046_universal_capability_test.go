@@ -44,6 +44,32 @@ func (s *us046AccountRepoStub) ListSchedulableByGroupIDAndPlatform(context.Conte
 	return append([]Account(nil), s.accounts...), nil
 }
 
+func (s *us046AccountRepoStub) ListAllWithFilters(_ context.Context, platform, _, status string, _ string, groupID int64, _ string, _ int) ([]Account, error) {
+	var out []Account
+	for _, acc := range s.accounts {
+		if platform != "" && acc.Platform != platform {
+			continue
+		}
+		if status != "" && acc.Status != status {
+			continue
+		}
+		if groupID > 0 && len(acc.GroupIDs) > 0 {
+			matched := false
+			for _, id := range acc.GroupIDs {
+				if id == groupID {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		out = append(out, acc)
+	}
+	return out, nil
+}
+
 func (s *us046EntitlementStub) GetAvailableGroups(context.Context, int64) ([]Group, error) {
 	return s.groups, s.err
 }

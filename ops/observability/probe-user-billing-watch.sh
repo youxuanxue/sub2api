@@ -1,28 +1,45 @@
 #!/usr/bin/env bash
-# probe-user-billing-watch.sh — read-only per-user 盯盘 for a set of user_ids:
+# probe-user-billing-watch.sh — read-only per-user 盯盘 for active user_ids:
 # requests, errors, metering/billing, plus an image/video breakout — all in one
 # SSM round-trip. Runs INSIDE the TokenKey host (prod or edge) via run-probe.sh.
 # Output is row_to_json so parsing is field-named, not column-index.
 #
 #   bash ops/observability/run-probe.sh --target prod \
 #     --script ops/observability/probe-user-billing-watch.sh \
-#     --env USER_IDS=1,16 [--env WINDOW_MINUTES=30]
+#     --env WINDOW_MINUTES=30 [--env USER_IDS=1,6,16,38]
 #
-# USER_IDS        comma-separated integer user ids (default 1,16)
+# USER_IDS        optional comma-separated integer user ids override
 # WINDOW_MINUTES  look-back window in minutes (default 30; matches report cadence)
 #
 # image/video discriminators reuse probe-image-video-billing.sh's proven predicates.
 set -u
 
-USER_IDS="${USER_IDS:-1,16}"
+USER_IDS_OVERRIDE="${USER_IDS:-}"
 WINDOW_MINUTES="${WINDOW_MINUTES:-30}"
 # Validate: digits and commas only (SQL IN-list interpolation guard).
-case "$USER_IDS" in ''|*[!0-9,]*) echo "bad USER_IDS (want comma-separated ints)" >&2; exit 2;; esac
+case "$USER_IDS_OVERRIDE" in ''|*[!0-9,]*) [ -n "$USER_IDS_OVERRIDE" ] && { echo "bad USER_IDS (want comma-separated ints)" >&2; exit 2; } ;;
+esac
 case "$WINDOW_MINUTES" in ''|*[!0-9]*) echo "bad WINDOW_MINUTES (want integer)" >&2; exit 2;; esac
 
 PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
 W="interval '${WINDOW_MINUTES} minutes'"
-IDS="$USER_IDS"
+
+if [ -n "$USER_IDS_OVERRIDE" ]; then
+  IDS="$USER_IDS_OVERRIDE"
+else
+  DISCOVERY_SQL="SELECT COALESCE(string_agg(id::text, ',' ORDER BY id), '') FROM users WHERE status = 'active' AND deleted_at IS NULL;"
+  if ! ACTIVE_USER_IDS="$($PSQL -c "$DISCOVERY_SQL")"; then
+    echo "active-user discovery failed" >&2
+    exit 1
+  fi
+  IDS="$(printf '%s' "$ACTIVE_USER_IDS" | tr -d '[:space:]')"
+fi
+if [ -z "$IDS" ]; then
+  echo "no active users found" >&2
+  exit 3
+fi
+# Validate after discovery/override: digits and commas only (SQL IN-list interpolation guard).
+case "$IDS" in ''|*[!0-9,]*) echo "bad USER_IDS (want comma-separated ints)" >&2; exit 2;; esac
 
 # usage_logs image/video predicates
 IMG_U="(billing_mode = 'image' OR COALESCE(image_count,0) > 0 OR inbound_endpoint ILIKE '%image%')"
@@ -35,11 +52,16 @@ echo "=== meta ==="
 $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   now() AT TIME ZONE 'UTC'           AS now_utc,
   now() AT TIME ZONE 'Asia/Shanghai' AS now_cst,
-  '${USER_IDS}'::text                AS user_ids,
+  '${IDS}'::text                     AS user_ids,
   ${WINDOW_MINUTES}::int             AS window_minutes) t;" 2>&1
 
 echo
-echo "=== users ==="
+echo "=== active users (discovery) ==="
+$PSQL -c "SELECT row_to_json(t) FROM (SELECT
+  id, email, username, status FROM users WHERE status = 'active' AND deleted_at IS NULL ORDER BY id) t;" 2>&1
+
+echo
+echo "=== selected users ==="
 $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   id, email, username, status FROM users WHERE id IN (${IDS}) AND deleted_at IS NULL ORDER BY id) t;" 2>&1
 

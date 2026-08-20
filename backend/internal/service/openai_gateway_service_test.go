@@ -91,6 +91,23 @@ func (r stubOpenAIAccountRepo) GetByIDs(ctx context.Context, ids []int64) ([]*Ac
 	return out, nil
 }
 
+func (r stubOpenAIAccountRepo) ListAllWithFilters(_ context.Context, platform, _, status string, _ string, groupID int64, _ string, _ int) ([]Account, error) {
+	var result []Account
+	for _, acc := range r.accounts {
+		if platform != "" && acc.Platform != platform {
+			continue
+		}
+		if status != "" && acc.Status != status {
+			continue
+		}
+		if groupID > 0 && len(acc.GroupIDs) > 0 && !openAIStickyAccountMatchesGroup(&acc, &groupID) {
+			continue
+		}
+		result = append(result, acc)
+	}
+	return result, nil
+}
+
 func (r stubOpenAIAccountRepo) ListSchedulableByGroupIDAndPlatform(ctx context.Context, groupID int64, platform string) ([]Account, error) {
 	var result []Account
 	for _, acc := range r.accounts {

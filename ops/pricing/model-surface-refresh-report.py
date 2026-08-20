@@ -153,12 +153,12 @@ def _account_shared_scope(row: dict[str, Any], floor: dict[str, Any]) -> str:
     if platform == "openai" and account_type == "apikey":
         if base_url in {"https://api.ainzy.net", "https://api.ainzy.net/v1"}:
             return "openai_ainzy_relay"
-        if base_url == "https://agent.tokensea.ai":
+        if base_url in {"https://agent.tokensea.ai", "https://agent.tokensea.ai/v1"}:
             return "openai_tokensea_relay"
         if base_url in {"https://api.cloudwise.ai/api", "https://api-us.cloudwise.ai/api"}:
             return "openai_cloudwise_relay"
     if platform == "anthropic" and account_type == "apikey":
-        if base_url == "https://agent.tokensea.ai":
+        if base_url in {"https://agent.tokensea.ai", "https://agent.tokensea.ai/v1"}:
             return "anthropic_tokensea_relay"
         if _clean_scope(row.get("mirror_platform")) == "kiro":
             return "kiro"
@@ -800,6 +800,16 @@ def _selftest() -> int:
             "base_url": "https://api.cloudwise.ai/api",
             "status": "active", "schedulable": True,
         },
+        {
+            "id": 92, "platform": "openai", "type": "apikey",
+            "base_url": "https://agent.tokensea.ai/v1",
+            "status": "active", "schedulable": True,
+        },
+        {
+            "id": 93, "platform": "anthropic", "type": "apikey",
+            "base_url": "https://agent.tokensea.ai/v1/",
+            "status": "active", "schedulable": True,
+        },
         {"id": 47, "platform": "newapi", "channel_type": 41, "status": "active", "schedulable": True},
         {"id": 57, "platform": "newapi", "channel_type": 41, "status": "active", "schedulable": True},
     ]}
@@ -855,6 +865,13 @@ def _selftest() -> int:
     assert _normalize_row_scope(
         {"scope": "different-scope", "account_id": 3}, account_by_id,
     ) == "different-scope"
+    # /v1 suffix is a stored-URL boundary sample, not an owner copy of live #92/#93.
+    assert account_by_id["92"]["shared_scope"] == "openai_tokensea_relay"
+    assert account_by_id["93"]["shared_scope"] == "anthropic_tokensea_relay"
+    assert _account_shared_scope(
+        {"platform": "openai", "type": "apikey", "base_url": "https://agent.tokensea.ai"},
+        bundle_floor,
+    ) == "openai_tokensea_relay"
 
     wildcard_floor = dict(bundle_floor)
     wildcard_floor["platforms"] = {"openai": {"glm-*": "glm-*"}}

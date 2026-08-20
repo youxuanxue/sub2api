@@ -170,6 +170,7 @@ import {
 } from '@/api/admin/ops'
 import { useAdminSettingsStore, useAppStore } from '@/stores'
 import { resolveOpsCustomTimeRange } from './utils/opsTimeRange'
+import { shouldFillHeaderOverview } from './utils/opsSla'
 import OpsDashboardHeader from './components/OpsDashboardHeader.vue'
 import OpsDashboardSkeleton from './components/OpsDashboardSkeleton.vue'
 import OpsConcurrencyCard from './components/OpsConcurrencyCard.vue'
@@ -579,15 +580,21 @@ function buildSwitchTrendParams() {
   return params
 }
 
-async function refreshOverviewWithCancel(fetchSeq: number, signal: AbortSignal) {
+const OPS_HEADER_FILL_MS = 800
+
+async function refreshOverviewWithCancel(
+  fetchSeq: number,
+  signal: AbortSignal,
+  onApplied?: () => void
+) {
   if (!opsEnabled.value) return
   try {
     const data = await opsAPI.getDashboardOverview(buildApiParams(), { signal })
     if (fetchSeq !== dashboardFetchSeq) return
     overview.value = data
+    onApplied?.()
   } catch (err: any) {
     if (fetchSeq !== dashboardFetchSeq || isCanceledRequest(err)) return
-    overview.value = null
     appStore.showError(err?.message || t('admin.ops.failedToLoadOverview'))
   }
 }
@@ -628,7 +635,11 @@ async function refreshThroughputTrendWithCancel(fetchSeq: number, signal: AbortS
   }
 }
 
-async function refreshCoreSnapshotWithCancel(fetchSeq: number, signal: AbortSignal) {
+async function refreshCoreSnapshotWithCancel(
+  fetchSeq: number,
+  signal: AbortSignal,
+  onOverviewApplied?: () => void
+) {
   if (!opsEnabled.value) return
   loadingTrend.value = true
   loadingErrorTrend.value = true
@@ -636,13 +647,13 @@ async function refreshCoreSnapshotWithCancel(fetchSeq: number, signal: AbortSign
     const data = await opsAPI.getDashboardSnapshotV2(buildApiParams(), { signal })
     if (fetchSeq !== dashboardFetchSeq) return
     overview.value = data.overview
+    onOverviewApplied?.()
     throughputTrend.value = data.throughput_trend
     errorTrend.value = data.error_trend
   } catch (err: any) {
     if (fetchSeq !== dashboardFetchSeq || isCanceledRequest(err)) return
-    // Fallback to legacy split endpoints when snapshot endpoint is unavailable.
     await Promise.all([
-      refreshOverviewWithCancel(fetchSeq, signal),
+      refreshOverviewWithCancel(fetchSeq, signal, onOverviewApplied),
       refreshThroughputTrendWithCancel(fetchSeq, signal),
       refreshErrorTrendWithCancel(fetchSeq, signal)
     ])
@@ -752,9 +763,34 @@ async function fetchData() {
   loading.value = true
   errorMessage.value = ''
   try {
+    const signal = dashboardFetchController.signal
+    let snapshotDone = false
+    let overviewApplied = false
+    const markOverviewApplied = () => {
+      overviewApplied = true
+    }
+    const snapshotP = refreshCoreSnapshotWithCancel(fetchSeq, signal, markOverviewApplied).finally(() => {
+      snapshotDone = true
+    })
+    const headerFillP = (async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, OPS_HEADER_FILL_MS))
+      if (fetchSeq !== dashboardFetchSeq) return
+      if (!shouldFillHeaderOverview(snapshotDone, overviewApplied)) return
+      await refreshOverviewWithCancel(fetchSeq, signal, markOverviewApplied)
+    })()
+
+    await Promise.race([snapshotP, headerFillP])
+    if (fetchSeq !== dashboardFetchSeq) return
+    if (overview.value != null || snapshotDone) {
+      loading.value = false
+      hasLoadedOnce.value = true
+      lastUpdated.value = new Date()
+    }
+
     await Promise.all([
-      refreshCoreSnapshotWithCancel(fetchSeq, dashboardFetchController.signal),
-      refreshSwitchTrendWithCancel(fetchSeq, dashboardFetchController.signal),
+      snapshotP,
+      headerFillP,
+      refreshSwitchTrendWithCancel(fetchSeq, signal),
     ])
     if (fetchSeq !== dashboardFetchSeq) return
 
@@ -769,7 +805,7 @@ async function fetchData() {
     }
 
     // Defer non-core visual panels to reduce initial blocking.
-    void refreshDeferredPanels(fetchSeq, dashboardFetchController.signal)
+    void refreshDeferredPanels(fetchSeq, signal)
   } catch (err) {
     if (!isOpsDisabledError(err)) {
       console.error('[ops] failed to fetch dashboard data', err)

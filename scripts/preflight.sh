@@ -1054,6 +1054,20 @@ else
     echo "  ok: oauth mimic edge watch tooling"
 fi
 
+# ---- sub2api: user billing watch probe ------------------------------------
+echo ""
+echo "=== sub2api: user billing watch probe ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for user billing watch probe tests)"
+    errors=$((errors + 1))
+elif ! python3 -m unittest ops.observability.test_probe_user_billing_watch -q; then
+    echo "  FAIL: user billing watch probe tests"
+    echo "        — run: python3 -m unittest ops.observability.test_probe_user_billing_watch"
+    errors=$((errors + 1))
+else
+    echo "  ok: active-user discovery / override / failure reporting"
+fi
+
 # ---- sub2api: codex fingerprint pin consistency -----------------------------
 # The Codex (OpenAI-platform) client version has one service source:
 # DefaultOpenAICodexVersion. The UA default, gateway `version` header, and
