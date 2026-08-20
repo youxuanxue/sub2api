@@ -4897,6 +4897,48 @@
       "rationale": "TK tokensea relay guard: skips group messages-dispatch claude→gpt body rewrite for API-key accounts with native /v1/messages and/or CC-only upstream (openai_responses_supported=false). Without this companion, /v1/responses would rewrite Claude wire IDs to gpt dispatch models before forwardResponsesViaRawChatCompletions, breaking agent.tokensea.ai relays. Pairs with openai_gateway_handler.go per-account dispatch injection sentinel."
     },
     {
+      "path": "backend/internal/handler/openai_gateway_handler_tk_dispatch_select.go",
+      "must_contain": [
+        "func tkOpenAIDispatchSelectionFallbackModel(",
+        "func tkOpenAIDispatchSelectionAllowsFallback(",
+        "ErrNoAvailableCompactAccounts"
+      ],
+      "rationale": "TK companion for GPT专线-style messages-dispatch: after native Claude relays empty the pool, selection retries the group opus/sonnet/haiku mapped GPT id. Prod 2026-08-20 user 6 hit routing 429s on claude-opus-4-8 because selection kept the client model name after cloudwise 402 and tokensea 'not implemented'. Dropping this helper silently restores empty-pool 429s. Pairs with Messages/ChatCompletions/CountTokens injection sentinels."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler_tk_dispatch_select_test.go",
+      "must_contain": [
+        "TestTkOpenAIDispatchSelectionFallbackModel",
+        "empty pool after excluding claude relay falls back to opus mapped model",
+        "compact-only exhaustion does not fall back"
+      ],
+      "rationale": "Positive and negative regressions for dispatch selection fallback: empty-pool and unsupported-model retry onto opus_mapped_model; success/blank/same-id/compact/unrelated errors must not fall back."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "if fallbackModel, ok := tkOpenAIDispatchSelectionFallbackModel(preferredMappedModel, currentRoutingModel, err); ok {",
+        "openai_messages.dispatch_selection_fallback"
+      ],
+      "rationale": "Injection that retries /v1/messages account selection with the group messages-dispatch mapped model after the client Claude name empties the OpenAI-compat pool. An upstream merge that restores select-on-client-model-only reopens the 2026-08-20 GPT专线 opus 429. Pairs with openai_gateway_handler_tk_dispatch_select.go."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "if fallbackModel, ok := tkOpenAIDispatchSelectionFallbackModel(dispatchMappedModel, currentRoutingModel, err); ok {",
+        "openai_chat_completions.dispatch_selection_fallback"
+      ],
+      "rationale": "Same dispatch-selection fallback on /v1/chat/completions. Without this hook, chat-shaped Claude names on messages-dispatch groups 429 after native relays die even though opus_mapped_model is configured."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_count_tokens.go",
+      "must_contain": [
+        "if fallbackModel, ok := tkOpenAIDispatchSelectionFallbackModel(preferredMappedModel, currentRoutingModel, err); ok {",
+        "openai_count_tokens.dispatch_selection_fallback"
+      ],
+      "rationale": "Same dispatch-selection fallback on count_tokens so token-count requests do not 429 independently of the messages path after Claude relays empty."
+    },
+    {
       "path": "backend/internal/service/gateway_service_tk_kiro_mirror_scheduling.go",
       "must_contain": [
         "func tkShouldClearStickyForKiroMirrorModelMismatch(",

@@ -165,6 +165,30 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 		false,
 		openAICompatibleRequestPlatform(c.Request.Context(), apiKey),
 	)
+	if fallbackModel, ok := tkOpenAIDispatchSelectionFallbackModel(preferredMappedModel, currentRoutingModel, err); ok {
+		reqLog.Info("openai_count_tokens.dispatch_selection_fallback",
+			zap.String("from_model", currentRoutingModel),
+			zap.String("to_model", fallbackModel),
+			zap.Error(err),
+		)
+		selection, _, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
+			c.Request.Context(),
+			apiKey.GroupID,
+			"",
+			sessionHash,
+			fallbackModel,
+			nil,
+			service.OpenAIUpstreamTransportAny,
+			service.OpenAIEndpointCapabilityChatCompletions,
+			false,
+			false,
+			false,
+			openAICompatibleRequestPlatform(c.Request.Context(), apiKey),
+		)
+		if err == nil {
+			currentRoutingModel = fallbackModel
+		}
+	}
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	if err != nil {
 		requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
