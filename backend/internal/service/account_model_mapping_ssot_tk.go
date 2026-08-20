@@ -565,7 +565,11 @@ func tokenseaRelayIsClientFacing(id string) bool {
 	if _, ok := supportedAntigravityCatalogModels[id]; ok {
 		return true
 	}
-	return isTkCuratedNewAPIModelDisplayed(id)
+	// Curated newapi rows (Qianfan DeepSeek, DashScope Qwen, etc.) stay on
+	// their vendor accounts. Tokensea GET /v1/models listing them is not
+	// enough to put them on the GPT 专线 floor — that misroutes universal
+	// keys and converts chat to /v1/responses (prod 2026-08-20 user16).
+	return false
 }
 
 func tokenseaRelayIsPriced(id string) bool {

@@ -63,6 +63,7 @@ func (s *GatewayService) UniversalGroupSupportsRequest(ctx context.Context, grou
 	if err != nil {
 		return false, false
 	}
+	accounts = append(accounts, s.listErrorAccountsForUniversalEntitlement(ctx, groupID, platform)...)
 	return s.universalAccountsSupportRequest(ctx, accounts, useMixed, platform, model, shape), true
 }
 
@@ -115,7 +116,11 @@ func withUniversalCapabilityAccountCache(ctx context.Context) context.Context {
 func (s *GatewayService) universalCapabilityAccounts(ctx context.Context, groupID int64, platform string) ([]Account, bool, error) {
 	cache, _ := ctx.Value(universalCapabilityAccountCacheContextKey{}).(*universalCapabilityAccountCache)
 	if cache == nil {
-		return s.listSchedulableAccounts(ctx, &groupID, platform, false)
+		accounts, useMixed, err := s.listSchedulableAccounts(ctx, &groupID, platform, false)
+		if err != nil {
+			return accounts, useMixed, err
+		}
+		return append(accounts, s.listErrorAccountsForUniversalEntitlement(ctx, &groupID, platform)...), useMixed, nil
 	}
 
 	key := universalCapabilityAccountCacheKey{groupID: groupID, platform: platform}
@@ -125,12 +130,26 @@ func (s *GatewayService) universalCapabilityAccounts(ctx context.Context, groupI
 		return cached.accounts, cached.useMixed, cached.err
 	}
 	accounts, useMixed, err := s.listSchedulableAccounts(ctx, &groupID, platform, false)
+	if err == nil {
+		accounts = append(accounts, s.listErrorAccountsForUniversalEntitlement(ctx, &groupID, platform)...)
+	}
 	cache.entries[key] = universalCapabilityAccountCacheEntry{
 		accounts: accounts,
 		useMixed: useMixed,
 		err:      err,
 	}
 	return accounts, useMixed, err
+}
+
+func (s *GatewayService) listErrorAccountsForUniversalEntitlement(ctx context.Context, groupID *int64, platform string) []Account {
+	if s == nil || s.accountRepo == nil || groupID == nil || *groupID <= 0 || strings.TrimSpace(platform) == "" {
+		return nil
+	}
+	accounts, err := s.accountRepo.ListAllWithFilters(ctx, platform, "", StatusError, "", *groupID, "", 0)
+	if err != nil || len(accounts) == 0 {
+		return nil
+	}
+	return accounts
 }
 
 func (s *GatewayService) universalAccountsSupportRequest(ctx context.Context, accounts []Account, useMixed bool, platform, model string, shape UniversalShape) bool {
@@ -168,11 +187,11 @@ func universalOpenAICompatAccountSupportsModel(ctx context.Context, s *GatewaySe
 	mapping := account.GetModelMapping()
 	if len(mapping) > 0 {
 		if mappingSupportsRequestedModel(mapping, model) {
-			return true
+			return universalOpenAICompatMappingHonorsPlatformHint(account, model, shape)
 		}
 		if norm := normalizeRequestedModelForLookup(account.Platform, model); norm != model {
 			if mappingSupportsRequestedModel(mapping, norm) {
-				return true
+				return universalOpenAICompatMappingHonorsPlatformHint(account, model, shape)
 			}
 		}
 		return account.Platform == PlatformGrok && grokGroupServesNativeCatalogModel(model)
@@ -190,6 +209,20 @@ func universalOpenAICompatAccountSupportsModel(ctx context.Context, s *GatewaySe
 		return true
 	}
 	return false
+}
+
+func universalOpenAICompatMappingHonorsPlatformHint(account *Account, model string, shape UniversalShape) bool {
+	if account == nil {
+		return false
+	}
+	hint := universalRequestPlatformHint(shape, model)
+	if hint == "" || hint == account.Platform {
+		return true
+	}
+	// GPT 专线 / tokensea / ainzy explicit mappings must not steal curated
+	// newapi vendor models (deepseek/qwen/glm/kimi). Those stay on newapi
+	// groups even when a relay lists them in GET /v1/models.
+	return !(account.Platform == PlatformOpenAI && hint == PlatformNewAPI)
 }
 
 func universalOpenAICompatAccountSupportsShape(account *Account, shape UniversalShape) bool {

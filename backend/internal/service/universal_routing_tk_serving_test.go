@@ -953,3 +953,153 @@ func TestValidateNewapiAccountModelMapping(t *testing.T) {
 		t.Fatalf("openai 空映射应放行, got %v", err)
 	}
 }
+
+func TestUniversalOpenAICompatAccountSupportsModel_TokenseaMappingDoesNotStealNewAPIHint(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://agent.tokensea.ai",
+			"model_mapping": map[string]any{
+				"deepseek-v3.2": "deepseek-v3.2",
+				"gpt-5.4":       "gpt-5.4",
+			},
+		},
+	}
+	if universalOpenAICompatAccountSupportsModel(context.Background(), nil, account, "deepseek-v3.2", ShapeOpenAIChat) {
+		t.Fatal("tokensea mapping must not claim curated newapi model deepseek-v3.2")
+	}
+	if !universalOpenAICompatAccountSupportsModel(context.Background(), nil, account, "gpt-5.4", ShapeOpenAIChat) {
+		t.Fatal("tokensea mapping should still claim its own GPT floor id")
+	}
+}
+
+// entitlementAwareStubAccountRepo mirrors prod ListSchedulable (active+schedulable
+// only) and ListAllWithFilters(status=error) so overdue Qianfan rows stay visible
+// to universal entitlement without being dispatchable.
+type entitlementAwareStubAccountRepo struct {
+	stubOpenAIAccountRepo
+}
+
+func (r entitlementAwareStubAccountRepo) ListSchedulableByGroupIDAndPlatform(_ context.Context, groupID int64, platform string) ([]Account, error) {
+	var result []Account
+	for _, acc := range r.accounts {
+		if acc.Platform != platform || !acc.IsSchedulable() {
+			continue
+		}
+		if openAIStickyAccountMatchesGroup(&acc, &groupID) {
+			result = append(result, acc)
+		}
+	}
+	return result, nil
+}
+
+func (r entitlementAwareStubAccountRepo) ListAllWithFilters(_ context.Context, platform, _, status string, _ string, groupID int64, _ string, _ int) ([]Account, error) {
+	var result []Account
+	for _, acc := range r.accounts {
+		if platform != "" && acc.Platform != platform {
+			continue
+		}
+		if status != "" && acc.Status != status {
+			continue
+		}
+		if groupID > 0 && !openAIStickyAccountMatchesGroup(&acc, &groupID) {
+			continue
+		}
+		result = append(result, acc)
+	}
+	return result, nil
+}
+
+func TestResolve_User16DeepseekV32StaysOnQianfanWhenTokenseaAlsoMapsIt(t *testing.T) {
+	ctx := context.Background()
+	span := append(user16Span(), dispatchGrp(19, PlatformNewAPI, 0, true))
+	svc := &GatewayService{
+		accountRepo: entitlementAwareStubAccountRepo{stubOpenAIAccountRepo{accounts: []Account{
+			{
+				ID:          92,
+				GroupIDs:    []int64{2},
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusActive,
+				Schedulable: true,
+				Credentials: map[string]any{
+					"base_url": "https://agent.tokensea.ai",
+					"model_mapping": map[string]any{
+						"deepseek-v3.2": "deepseek-v3.2",
+						"gpt-5.4":       "gpt-5.4",
+					},
+				},
+			},
+			{
+				ID:          90,
+				GroupIDs:    []int64{19},
+				Platform:    PlatformNewAPI,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusError,
+				Schedulable: false,
+				ChannelType: 46,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{
+						"deepseek-v3.2":          "deepseek-v3.2",
+						"deepseek-v4-flash-0731": "deepseek-v4-flash-0731",
+					},
+				},
+			},
+		}}},
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetModelSupportProvider(svc.UniversalGroupSupportsRequest)
+
+	g, err := r.Resolve(ctx, universalKey(16), ShapeOpenAIChat, "deepseek-v3.2", "")
+	if err != nil || g == nil || g.ID != 19 {
+		t.Fatalf("deepseek-v3.2 must stay on qianfan gid=19 even when tokensea maps it and account 90 is error, got=%v err=%v", g, err)
+	}
+}
+
+func TestResolve_User38QianfanDatedFlashDoesNot403WhenOnlyErrorAccountHasMapping(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		dispatchGrp(2, PlatformOpenAI, 0, true),
+		dispatchGrp(19, PlatformNewAPI, 0, true),
+	}
+	svc := &GatewayService{
+		accountRepo: entitlementAwareStubAccountRepo{stubOpenAIAccountRepo{accounts: []Account{
+			{
+				ID:          92,
+				GroupIDs:    []int64{2},
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusActive,
+				Schedulable: true,
+				Credentials: map[string]any{
+					"base_url":      "https://agent.tokensea.ai",
+					"model_mapping": map[string]any{"gpt-5.4": "gpt-5.4"},
+				},
+			},
+			{
+				ID:          90,
+				GroupIDs:    []int64{19},
+				Platform:    PlatformNewAPI,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusError,
+				Schedulable: false,
+				ChannelType: 46,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{
+						"deepseek-v4-flash-0731": "deepseek-v4-flash-0731",
+					},
+				},
+			},
+		}}},
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetModelSupportProvider(svc.UniversalGroupSupportsRequest)
+
+	g, err := r.Resolve(ctx, universalKey(38), ShapeOpenAIChat, "deepseek-v4-flash-0731", "")
+	if err != nil || g == nil || g.ID != 19 {
+		t.Fatalf("qianfan-only dated flash must resolve to gid=19 (empty-pool 429 later), not 403, got=%v err=%v", g, err)
+	}
+}
