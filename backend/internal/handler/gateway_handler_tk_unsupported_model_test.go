@@ -52,8 +52,20 @@ func TestTkWriteUnsupportedAnthropicModelAtIngress_AllowsTokenseaPublicSSOTModel
 	gin.SetMode(gin.TestMode)
 	h := &GatewayHandler{}
 	// Boundary samples from the tokensea public SSOT floor, not a copied catalog.
-	for _, model := range []string{"gpt-5.4", "qwen3.7-max"} {
+	for _, model := range []string{"gpt-5.4", "gemini-3-pro-image"} {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		require.False(t, h.tkWriteUnsupportedAnthropicModelAtIngress(c, model, false, nil), model)
 	}
+}
+
+func TestTkWriteUnsupportedAnthropicModelAtIngress_RejectsTokenseaListedButUnservedQwen(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &GatewayHandler{}
+	// qwen3.7-max is listed on tokensea GET /v1/models but raw chat 400; it is
+	// also outside CloudWise prefixes, so Anthropic ingress must 400 it.
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	require.True(t, h.tkWriteUnsupportedAnthropicModelAtIngress(c, "qwen3.7-max", false, nil))
+	require.Equal(t, http.StatusBadRequest, w.Code)
 }
