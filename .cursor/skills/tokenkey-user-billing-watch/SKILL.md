@@ -1,12 +1,12 @@
 ---
 name: tokenkey-user-billing-watch
 description: >-
-  Read-only TokenKey production user billing/usage/error watch. Use for 盯盘, billing watch, user 1/16 monitoring, 30-minute reporting loops, anomaly notification, or distinguishing client noise from real metering/system issues.
+  Read-only TokenKey production user billing/usage/error watch. Use for active-user monitoring, 盯盘, 30-minute reporting loops, anomaly notification, or distinguishing client noise from real metering/system issues.
 ---
 
 # TokenKey：按用户用量/计费/错误盯盘（新会话一键启动）
 
-把"每 30 分钟盯 user 1/16 的请求、用量、错误并按需推送"固定成稳定的**只读**流程，让任何新会话敲 `/tokenkey-user-billing-watch` 即可起盘，无需手敲整段 spec。
+把"先快速查当前活跃用户清单，再盯这些用户的请求、用量、错误并按需推送"固定成稳定的**只读**流程，让任何新会话敲 `/tokenkey-user-billing-watch` 即可起盘，无需手敲整段 spec。
 
 权威纪律以仓库根 `CLAUDE.md` 为准。本 skill **只读**：只经 `run-probe.sh` 下发纯 SELECT 的 probe 脚本。任何写配置、改限额、重启、部署都必须另行显式确认。
 
@@ -14,10 +14,12 @@ description: >-
 
 按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审：
 
-- **机械化（脚本承载，prompt 不重写）**：取数、字段解析、image/video 判别、窗口/用户参数化、SQL 注入守卫——全在 `ops/observability/probe-user-billing-watch.sh`。倍率与环比算术也是机械的：倍率按 `actual_cost / total_cost`；环比按上一窗读数相减。
+- **机械化（脚本承载，prompt 不重写）**：活跃用户发现、取数、字段解析、image/video 判别、窗口/用户参数化、SQL 注入守卫——全在 `ops/observability/probe-user-billing-watch.sh`。倍率与环比算术也是机械的：倍率按 `actual_cost / total_cost`；环比按上一窗读数相减。
 - **真判断（留给 prompt / 本 skill）**：一条错误是客户端侧噪声还是系统异常（§4 判别法）、是否触发推送（§3）。仅此二者。
 
 ## §1 启动（每次起盘跑这一条）
+
+先快速查活跃用户清单，再用这份清单跑 billing watch；默认以当前 `users.status = 'active' AND deleted_at IS NULL` 的整份清单为准。若你要盯一个固定子集，才手动传 `USER_IDS=...` 覆盖。
 
 在仓库根（或当前 worktree 根）运行：
 
@@ -25,12 +27,12 @@ description: >-
 bash ops/observability/run-probe.sh \
   --target prod \
   --script ops/observability/probe-user-billing-watch.sh \
-  --env USER_IDS=1,16 \
   --env WINDOW_MINUTES=30 \
-  --comment "user 1,16 30min billing watch"
+  --comment "active-user billing watch"
 ```
 
-- `USER_IDS` / `WINDOW_MINUTES` 可改（脚本默认 `1,16` / `30`）。user 1 = `admin@tokenkey.dev`，user 16 = `compute@tk.com`（计算所）。
+- `probe-user-billing-watch.sh` 会先读当前活跃用户清单，再继续请求 / 用量 / 错误统计；若活跃用户为空，直接报空窗。
+- 需要盯固定子集时，才额外传 `--env USER_IDS=1,6,16,38` 覆盖默认活跃清单。
 - 若 `run-probe.sh` 在本机 `aws/pyexpat` 启动阶段就失败（macOS/Homebrew 常见），先运行：`python3 scripts/checks/check-local-aws-pyexpat.py --apply`，再重试本命令。
 - **失败如实报告，绝不编数**：`status!=Success` / 非零退出 / SSM 传输错误时，直接报失败与原因，不臆造任何数字。
 
