@@ -46,6 +46,16 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if account.IsAnthropicProtocol() {
 		return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
 	}
+	// Tokensea OpenAI relay (#92): extra.openai_native_messages_supported can
+	// be a false-negative. The probe uses selectResponsesProbeModel (first
+	// mapping id, often GPT); live 2026-08-20 GPT /v1/messages timed out so
+	// extra.native_messages=false while extra.responses=true. Direct Claude
+	// /v1/messages is 200; Claude /v1/responses returns "not implemented".
+	// Route Claude here without waiting for the extra flag. GPT stays on
+	// Responses below.
+	if account.IsOpenAITokenseaRelay() && shouldForwardNativeAnthropicMessagesForModel(body) {
+		return s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)
+	}
 	if account.Type == AccountTypeAPIKey && openai_compat.ShouldUseNativeAnthropicMessagesAPI(account.Extra) {
 		if shouldForwardNativeAnthropicMessagesForModel(body) {
 			return s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)

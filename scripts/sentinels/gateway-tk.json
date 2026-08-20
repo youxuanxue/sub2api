@@ -1132,11 +1132,12 @@
         "Wei-Shaw/sub2api#1322",
         "\"response.cancelled\", \"response.canceled\"",
         "ShouldUseNativeAnthropicMessagesAPI",
-        "shouldForwardNativeAnthropicMessagesForModel",
+        "if shouldForwardNativeAnthropicMessagesForModel(body)",
         "forwardAnthropicViaNativeMessages",
-        "forwardAnthropicViaRawChatCompletions"
+        "forwardAnthropicViaRawChatCompletions",
+        "IsOpenAITokenseaRelay() && shouldForwardNativeAnthropicMessagesForModel"
       ],
-      "rationale": "Non-stream /v1/messages uses the same buffered Responses SSE -> JSON conversion root cause as /v1/chat/completions; it must also override Content-Type after WriteFilteredHeaders so JSON bodies are not labeled text/event-stream. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530). isOpenAICompatResponsesTerminalEvent — used by both the Messages and Chat Completions streaming handlers — must keep response.cancelled / response.canceled in its terminal set so legitimate upstream cancellations close the stream cleanly instead of degenerating to 'stream usage incomplete: missing terminal event' (upstream #1322). OpenAI APIKey dual-stack relays (tokensea/cloudwise) branch to native /v1/messages passthrough only for claude-* models when extra.openai_native_messages_supported is true; non-Claude models (MiniMax-M3, glm-5) must fall back to raw chat completions like /v1/responses."
+      "rationale": "Non-stream /v1/messages uses the same buffered Responses SSE -> JSON conversion root cause as /v1/chat/completions; it must also override Content-Type after WriteFilteredHeaders so JSON bodies are not labeled text/event-stream. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530). isOpenAICompatResponsesTerminalEvent — used by both the Messages and Chat Completions streaming handlers — must keep response.cancelled / response.canceled in its terminal set so legitimate upstream cancellations close the stream cleanly instead of degenerating to 'stream usage incomplete: missing terminal event' (upstream #1322). OpenAI APIKey dual-stack relays (tokensea/cloudwise) branch to native /v1/messages passthrough for claude-* models; tokensea #92 must do this even when extra.openai_native_messages_supported is a false-negative (GPT probe timeout). Non-Claude models (MiniMax-M3, glm-5) must fall back to raw chat completions like /v1/responses."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_native.go",
@@ -1148,6 +1149,15 @@
         "tkIsForwardableAnthropicModelName"
       ],
       "rationale": "Native Anthropic Messages passthrough for OpenAI-platform dual-stack relays (agent.tokensea.ai, cloudwise). Must forward claude-* /v1/messages directly with API key Bearer auth; non-Claude models stay on chat fallback."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_native_test.go",
+      "must_contain": [
+        "TestForwardAsAnthropic_TokenseaClaudeUsesNativeMessagesEvenWhenExtraFlagFalse",
+        "TestForwardAsAnthropic_TokenseaGPTKeepsResponsesWhenFlagTrue",
+        "https://agent.tokensea.ai/v1/messages"
+      ],
+      "rationale": "Live 2026-08-20 account 92: extra.native_messages=false and extra.responses=true because the GPT /v1/messages probe timed out. Claude /v1/messages must still passthrough; GPT /v1/messages must stay on Responses. Losing these regressions restores 502 not implemented on 92 Claude messages."
     },
     {
       "path": "backend/internal/service/openai_cloudwise_relay_tk.go",
