@@ -502,6 +502,11 @@ func tokenseaRelaySupportsRequestedModel(requestedModel string) bool {
 	return false
 }
 
+func tokenseaRelayAccountSupportsRequestedModel(requestedModel string) bool {
+	return tokenseaRelaySupportsRequestedModel(requestedModel) ||
+		tkIsForwardableAnthropicModelName(requestedModel)
+}
+
 // tokenseaRelayCorePublicFloorIDs is the shared 92/93 live floor: upstream 47
 // intersect public SSOT, plus the extras 92 already serves.
 func tokenseaRelayCorePublicFloorIDs() []string {

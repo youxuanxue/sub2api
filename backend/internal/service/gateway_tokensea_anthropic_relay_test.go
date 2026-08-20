@@ -119,6 +119,40 @@ func TestIsModelSupportedByAccount_AnthropicTokenseaUsesMapping(t *testing.T) {
 	require.False(t, svc.isModelSupportedByAccount(account, "gpt"))
 }
 
+func TestIsModelSupportedByAccount_AnthropicTokenseaEmptyMappingUsesSSOTGate(t *testing.T) {
+	t.Parallel()
+	svc := &GatewayService{}
+	account := &Account{
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://agent.tokensea.ai",
+		},
+	}
+	require.True(t, account.IsAnthropicTokenseaRelay())
+	require.Empty(t, account.GetModelMapping())
+
+	for _, id := range tokenseaRelayNonClaudePublicIDs(t) {
+		require.True(t, account.IsModelSupported(id), id)
+		require.True(t, svc.isModelSupportedByAccount(account, id), id)
+	}
+	require.True(t, svc.isModelSupportedByAccount(account, "claude-haiku-4-5"))
+	require.False(t, account.IsModelSupported("gpt-not-in-tokensea-ssot"))
+	require.False(t, svc.isModelSupportedByAccount(account, "gpt-not-in-tokensea-ssot"))
+	require.False(t, svc.isModelSupportedByAccount(account, "gpt"))
+}
+
+func TestIsModelSupported_AnthropicTokenseaGateOverridesExplicitForbiddenMapping(t *testing.T) {
+	t.Parallel()
+	account := tokenseaAnthropicRelayAccount()
+	account.Credentials["model_mapping"] = map[string]any{
+		"gpt-5.4":                  "gpt-5.4",
+		"gpt-not-in-tokensea-ssot": "gpt-not-in-tokensea-ssot",
+	}
+	require.True(t, account.IsModelSupported("gpt-5.4"))
+	require.False(t, account.IsModelSupported("gpt-not-in-tokensea-ssot"))
+}
+
 func TestBuildAnthropicCompatUpstreamRequest_OAuthPassthroughUsesBearerAuth(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
