@@ -12,6 +12,7 @@ import type { OpsRequestDetailsPreset } from './OpsRequestDetailsModal.vue'
 import { useAdminSettingsStore } from '@/stores'
 import { formatNumber } from '@/utils/format'
 import { formatMemorySizeMB } from '../utils/opsFormatters'
+import { datetimeLocalToISO, resolveOpsCustomTimeRange, toDatetimeLocalValue } from '../utils/opsTimeRange'
 
 type RealtimeWindow = '1min' | '5min' | '30min' | '1h'
 
@@ -36,7 +37,7 @@ interface Emits {
   (e: 'update:group', value: number | null): void
   (e: 'update:timeRange', value: string): void
   (e: 'update:queryMode', value: string): void
-  (e: 'update:customTimeRange', startTime: string, endTime: string): void
+  (e: 'update:customTimeRange', startTime: string, endTime: string, clamped?: boolean): void
   (e: 'refresh'): void
   (e: 'openRequestDetails', preset?: OpsRequestDetailsPreset): void
   (e: 'openErrorDetails', kind: 'request' | 'upstream'): void
@@ -92,6 +93,7 @@ watch(
 const showCustomTimeRangeDialog = ref(false)
 const customStartTimeInput = ref('')
 const customEndTimeInput = ref('')
+const customRangeError = ref('')
 
 function formatCustomTimeRangeLabel(startTime: string, endTime: string): string {
   const start = new Date(startTime)
@@ -176,11 +178,13 @@ function handleGroupChange(val: string | number | boolean | null) {
 function handleTimeRangeChange(val: string | number | boolean | null) {
   const newValue = String(val || '1h')
   if (newValue === 'custom') {
-    // 初始化为最近1小时
     const now = new Date()
     const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000)
-    customStartTimeInput.value = oneHourAgo.toISOString().slice(0, 16)
-    customEndTimeInput.value = now.toISOString().slice(0, 16)
+    const start = props.customStartTime ? new Date(props.customStartTime) : oneHourAgo
+    const end = props.customEndTime ? new Date(props.customEndTime) : now
+    customStartTimeInput.value = toDatetimeLocalValue(Number.isNaN(start.getTime()) ? oneHourAgo : start)
+    customEndTimeInput.value = toDatetimeLocalValue(Number.isNaN(end.getTime()) ? now : end)
+    customRangeError.value = ''
     showCustomTimeRangeDialog.value = true
   } else {
     emit('update:timeRange', newValue)
@@ -189,11 +193,17 @@ function handleTimeRangeChange(val: string | number | boolean | null) {
 
 function handleCustomTimeRangeConfirm() {
   if (!customStartTimeInput.value || !customEndTimeInput.value) return
-  const startTime = new Date(customStartTimeInput.value).toISOString()
-  const endTime = new Date(customEndTimeInput.value).toISOString()
-  // Emit custom time range first so the parent can build correct API params
-  // when it reacts to timeRange switching to "custom".
-  emit('update:customTimeRange', startTime, endTime)
+  const startTime = datetimeLocalToISO(customStartTimeInput.value)
+  const endTime = datetimeLocalToISO(customEndTimeInput.value)
+  const resolved = resolveOpsCustomTimeRange(startTime, endTime)
+  if (!resolved.ok) {
+    customRangeError.value = t(`admin.ops.customTimeRange.${resolved.error}`)
+    return
+  }
+  customRangeError.value = ''
+  // Emit the resolved window (possibly clamped to 30d) so the parent queries
+  // the platform max instead of sending a range the backend will reject.
+  emit('update:customTimeRange', resolved.startISO, resolved.endISO, resolved.clamped)
   emit('update:timeRange', 'custom')
   showCustomTimeRangeDialog.value = false
 }
@@ -1607,6 +1617,8 @@ function handleToolbarRefresh() {
             class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-dark-600 dark:bg-dark-800 dark:text-white"
           />
         </div>
+        <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.ops.customTimeRange.hint') }}</p>
+        <p v-if="customRangeError" class="text-sm text-rose-600 dark:text-rose-400">{{ customRangeError }}</p>
         <div class="flex justify-end gap-3 pt-2">
           <button
             type="button"

@@ -151,7 +151,11 @@ export default {
       },
       customTimeRange: {
         startTime: 'Start Time',
-        endTime: 'End Time'
+        endTime: 'End Time',
+        hint: 'Maximum 30 days; longer ranges query the latest 30 days',
+        invalid: 'Invalid time',
+        inverted: 'Start time must be earlier than end time',
+        clamped: 'The selected range exceeds the 30-day maximum. Showing the latest 30 days.'
       },
       openaiTokenStats: {
         title: 'OpenAI Token Request Stats',

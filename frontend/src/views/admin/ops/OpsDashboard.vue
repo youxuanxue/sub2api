@@ -7,6 +7,12 @@
       >
         {{ errorMessage }}
       </div>
+      <div
+        v-else-if="timeRangeHint"
+        class="rounded-2xl bg-amber-50 p-4 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-200"
+      >
+        {{ timeRangeHint }}
+      </div>
 
       <OpsDashboardSkeleton v-if="loading && !hasLoadedOnce" :fullscreen="isFullscreen" />
 
@@ -163,6 +169,7 @@ import {
   type OpsMetricThresholds
 } from '@/api/admin/ops'
 import { useAdminSettingsStore, useAppStore } from '@/stores'
+import { resolveOpsCustomTimeRange } from './utils/opsTimeRange'
 import OpsDashboardHeader from './components/OpsDashboardHeader.vue'
 import OpsDashboardSkeleton from './components/OpsDashboardSkeleton.vue'
 import OpsConcurrencyCard from './components/OpsConcurrencyCard.vue'
@@ -198,6 +205,7 @@ const allowedQueryModes = new Set<QueryMode>(['auto', 'raw', 'preagg'])
 const loading = ref(true)
 const hasLoadedOnce = ref(false)
 const errorMessage = ref('')
+const timeRangeHint = ref('')
 const lastUpdated = ref<Date | null>(new Date())
 
 const timeRange = ref<TimeRange>('1h')
@@ -480,11 +488,16 @@ function onTimeRangeChange(v: string | number | boolean | null) {
   if (typeof v !== 'string') return
   if (!allowedTimeRanges.has(v as TimeRange)) return
   timeRange.value = v as TimeRange
+  if (v !== 'custom') timeRangeHint.value = ''
 }
 
-function onCustomTimeRangeChange(startTime: string, endTime: string) {
+function onCustomTimeRangeChange(startTime: string, endTime: string, clamped = false) {
   customStartTime.value = startTime
   customEndTime.value = endTime
+  timeRangeHint.value = clamped ? t('admin.ops.customTimeRange.clamped') : ''
+  if (clamped) {
+    appStore.showInfo(t('admin.ops.customTimeRange.clamped'))
+  }
 }
 
 async function onSettingsSaved() {
@@ -535,8 +548,13 @@ function buildApiParams() {
 
   if (timeRange.value === 'custom') {
     if (customStartTime.value && customEndTime.value) {
-      params.start_time = customStartTime.value
-      params.end_time = customEndTime.value
+      const resolved = resolveOpsCustomTimeRange(customStartTime.value, customEndTime.value)
+      if (resolved.ok) {
+        params.start_time = resolved.startISO
+        params.end_time = resolved.endISO
+      } else {
+        params.time_range = '1h'
+      }
     } else {
       // Safety fallback: avoid sending time_range=custom (backend may not support it)
       params.time_range = '1h'
@@ -711,6 +729,21 @@ function isOpsDisabledError(err: unknown): boolean {
 async function fetchData() {
   if (!opsEnabled.value) return
 
+  if (timeRange.value === 'custom' && customStartTime.value && customEndTime.value) {
+    const resolved = resolveOpsCustomTimeRange(customStartTime.value, customEndTime.value)
+    if (!resolved.ok) {
+      abortDashboardFetch()
+      errorMessage.value = t(`admin.ops.customTimeRange.${resolved.error}`)
+      timeRangeHint.value = ''
+      loading.value = false
+      hasLoadedOnce.value = true
+      return
+    }
+    if (resolved.clamped) {
+      timeRangeHint.value = t('admin.ops.customTimeRange.clamped')
+    }
+  }
+
   abortDashboardFetch()
   dashboardFetchSeq += 1
   const fetchSeq = dashboardFetchSeq
@@ -751,7 +784,7 @@ async function fetchData() {
 }
 
 watch(
-  () => [timeRange.value, platform.value, groupId.value, queryMode.value] as const,
+  () => [timeRange.value, platform.value, groupId.value, queryMode.value, customStartTime.value, customEndTime.value] as const,
   () => {
     if (isApplyingRouteQuery.value) return
     if (opsEnabled.value) {
