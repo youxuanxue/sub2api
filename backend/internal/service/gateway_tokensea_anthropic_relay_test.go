@@ -32,7 +32,7 @@ func TestAnthropicTokenseaRelayFloorMapsShortNamesToWireIDs(t *testing.T) {
 	require.Equal(t, "claude-opus-4-5-20251101", mapping["claude-opus-4-5-20251101"])
 	require.Equal(t, "claude-sonnet-4-6", mapping["claude-sonnet-4-6"])
 	require.Equal(t, "gpt-5.4", mapping["gpt-5.4"])
-	require.Equal(t, "qwen3.7-max", mapping["qwen3.7-max"])
+	require.NotContains(t, mapping, "qwen3.7-max", "curated newapi id is a boundary sample, not an owner copy")
 	for _, id := range tokenseaRelayCorePublicFloorIDs() {
 		require.Contains(t, mapping, id, "93 floor must include every 92 live SSOT key")
 	}

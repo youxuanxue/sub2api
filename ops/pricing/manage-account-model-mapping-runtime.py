@@ -470,13 +470,19 @@ def _is_openai_ainzy_relay(row: dict[str, Any]) -> bool:
     return base in {"https://api.ainzy.net/v1", "https://api.ainzy.net"}
 
 
+_TOKENSEA_RELAY_BASE_URLS = {
+    "https://agent.tokensea.ai",
+    "https://agent.tokensea.ai/v1",
+}
+
+
 def _is_openai_tokensea_relay(row: dict[str, Any]) -> bool:
     if str(row.get("platform") or "").strip().lower() != "openai":
         return False
     if str(row.get("type") or "") != "apikey":
         return False
     base = str(row.get("base_url") or "").strip().lower().rstrip("/")
-    return base == "https://agent.tokensea.ai"
+    return base in _TOKENSEA_RELAY_BASE_URLS
 
 
 def _is_openai_cloudwise_relay(row: dict[str, Any]) -> bool:
@@ -495,7 +501,7 @@ def _is_anthropic_tokensea_relay(row: dict[str, Any]) -> bool:
     if str(row.get("type") or "") != "apikey":
         return False
     base = str(row.get("base_url") or "").strip().lower().rstrip("/")
-    return base == "https://agent.tokensea.ai"
+    return base in _TOKENSEA_RELAY_BASE_URLS
 
 
 def _account_scope(row: dict[str, Any]) -> str:
@@ -2319,6 +2325,37 @@ def cmd_selftest(_args) -> int:
         "platform": "openai",
         "type": "apikey",
         "base_url": "https://api.openai.com/v1",
+    })
+    # /v1 suffix is a stored-URL boundary sample, not an owner copy of live #92/#93.
+    assert _is_openai_tokensea_relay({
+        "platform": "openai",
+        "type": "apikey",
+        "base_url": "https://agent.tokensea.ai",
+    })
+    assert _is_openai_tokensea_relay({
+        "platform": "openai",
+        "type": "apikey",
+        "base_url": "https://agent.tokensea.ai/v1",
+    })
+    assert _account_scope({
+        "platform": "openai",
+        "type": "apikey",
+        "base_url": "https://agent.tokensea.ai/v1/",
+    }) == "openai_tokensea_relay"
+    assert _is_anthropic_tokensea_relay({
+        "platform": "anthropic",
+        "type": "apikey",
+        "base_url": "https://agent.tokensea.ai/v1",
+    })
+    assert _account_scope({
+        "platform": "anthropic",
+        "type": "apikey",
+        "base_url": "https://agent.tokensea.ai/v1",
+    }) == "anthropic_tokensea_relay"
+    assert not _is_openai_tokensea_relay({
+        "platform": "openai",
+        "type": "apikey",
+        "base_url": "https://relay.example.com/v1",
     })
     original_load_matrix = _ROUTING.load_matrix
     original_load_lightsail_targets = _ROUTING.load_lightsail_targets

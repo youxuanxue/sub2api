@@ -1320,7 +1320,12 @@ func (a *Account) IsAnthropicTokenseaRelay() bool {
 
 func isTokenseaRelayBaseURL(raw string) bool {
 	base := strings.ToLower(strings.TrimSpace(strings.TrimSuffix(raw, "/")))
-	return base == "https://agent.tokensea.ai"
+	switch base {
+	case "https://agent.tokensea.ai", "https://agent.tokensea.ai/v1":
+		return true
+	default:
+		return false
+	}
 }
 
 // IsOpenAICloudwiseRelay reports prod OpenAI apikey accounts whose upstream is
