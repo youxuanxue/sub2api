@@ -1493,6 +1493,11 @@ func (s *OpenAIGatewayService) fallbackAnthropicToGrokChatCompletions(
 	if err != nil {
 		return nil, fmt.Errorf("fallback convert anthropic to chat completions: %w", err)
 	}
+	if strippedBody, stripErr := stripRedundantGrokChatViewImageTool(chatBody); stripErr != nil {
+		return nil, fmt.Errorf("fallback strip redundant Grok Chat view_image tool: %w", stripErr)
+	} else {
+		chatBody = strippedBody
+	}
 	targetURL, err := s.resolveGrokChatCompletionsUpstream(account)
 	if err != nil {
 		return nil, err

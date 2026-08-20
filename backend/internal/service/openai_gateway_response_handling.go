@@ -367,7 +367,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		if sawTerminalEvent && !sawFailedEvent {
 			s.clearOpenAIProxyStreamDisconnect(account)
 		}
-		if !sawTerminalEvent && !openAIStreamClientOutputStarted(c, clientOutputStarted) && !eventShouldFlush {
+		if !sawTerminalEvent && !openAIStreamClientOutputStarted(c, clientOutputStarted) && !eventShouldFlush && !responsesSemanticOutputSeen {
 			return resultWithUsage(), s.newOpenAIStreamFailoverError(
 				c,
 				account,
@@ -432,7 +432,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			sendErrorEvent("response_too_large")
 			return resultWithUsage(), scanErr, true
 		}
-		if !openAIStreamClientOutputStarted(c, clientOutputStarted) && !eventShouldFlush {
+		if !openAIStreamClientOutputStarted(c, clientOutputStarted) && !eventShouldFlush && !responsesSemanticOutputSeen {
 			msg := "OpenAI stream disconnected before completion"
 			if errText := strings.TrimSpace(scanErr.Error()); errText != "" {
 				msg += ": " + errText
@@ -595,6 +595,16 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if needModelReplace && mappedModel != "" && strings.Contains(line, mappedModel) {
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
 			}
+			reasoningProgress := false
+			if isOpenAIWSReasoningProgressEvent(eventType, dataBytes) {
+				switch eventType {
+				case "response.output_item.added", "response.output_item.done":
+					item := gjson.GetBytes(dataBytes, "item")
+					reasoningProgress = strings.TrimSpace(item.Get("status").String()) != "" || item.Get("encrypted_content").String() != ""
+				default:
+					reasoningProgress = strings.TrimSpace(gjson.GetBytes(dataBytes, "delta").String()) != ""
+				}
+			}
 			startsClientOutput := forceFlushFailedEvent || openAIStreamDataStartsClientOutput(data, eventType)
 			startsVisibleOutput := openAIStreamDataStartsVisibleOutput(data, eventType)
 			if stageFirstOutput {
@@ -602,6 +612,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				eventStartsVisibleOutput = eventStartsVisibleOutput || startsVisibleOutput
 				if startsClientOutput {
 					firstOutputScanGuard.Store(false)
+				}
+				if reasoningProgress {
+					firstOutputScanGuard.Store(false)
+					firstOutputProgressObserved = true
+					stopFirstOutputTimer()
 				}
 			}
 			if startsClientOutput && !openAIStreamEventTypeIsTerminal(eventType) {

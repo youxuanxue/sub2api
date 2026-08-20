@@ -57,6 +57,9 @@ func AllSchedulingPlatforms() []string {
 		domain.PlatformNewAPI,
 		domain.PlatformKiro,
 		domain.PlatformGrok,
+		domain.PlatformKimi,
+		domain.PlatformZhipu,
+		domain.PlatformDeepseek,
 	}
 }
 
@@ -65,10 +68,10 @@ func AllSchedulingPlatforms() []string {
 // have NO background OAuth token to renew. They must be subtracted from
 // AllSchedulingPlatforms() to obtain the OAuth-refresh set.
 //
-// newapi is the lone member: its accounts carry a channel api key (channel_type
-// > 0), not an OAuth refresh_token, so the background refresh ticker skips them.
+// newapi and the concrete CN providers carry static channel credentials, not
+// OAuth refresh tokens, so the background refresh ticker skips them.
 func apiKeyOnlySchedulingPlatforms() []string {
-	return []string{domain.PlatformNewAPI}
+	return []string{domain.PlatformNewAPI, domain.PlatformKimi, domain.PlatformZhipu, domain.PlatformDeepseek}
 }
 
 // OAuthRefreshPlatforms is the SINGLE Go source of truth for which platforms the
