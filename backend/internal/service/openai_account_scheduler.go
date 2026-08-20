@@ -378,7 +378,10 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	}
 
 	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
-	if previousResponseID != "" && NormalizeOpenAICompatiblePlatform(req.Platform) == PlatformOpenAI &&
+	// Production Select() only sets GroupPlatform. Empty req.Platform normalizes
+	// to openai, so the gate must use schedulePlatform() — the same SSOT as
+	// sticky/load-balance — or newapi/grok/CN groups inherit OpenAI response sticky.
+	if previousResponseID != "" && req.schedulePlatform() == PlatformOpenAI &&
 		(!req.StickyWeighted || !req.PreviousResponseCanMove) {
 		selection, err := s.service.selectAccountByPreviousResponseIDForCapability(
 			ctx,
