@@ -111,6 +111,18 @@ func TestClassifyOpenAIInputTokensFallback(t *testing.T) {
 			want:       openAIInputTokensFallbackAnthropicEstimate,
 		},
 		{
+			name: "newapi_ali_401_uses_anthropic_estimate",
+			account: &Account{
+				Type:        AccountTypeAPIKey,
+				Platform:    PlatformNewAPI,
+				ChannelType: newapiconstant.ChannelTypeAli,
+				Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://dashscope.aliyuncs.com"},
+			},
+			statusCode: http.StatusUnauthorized,
+			body:       `{"error":{"message":"Incorrect API key provided: sk-test. You can find your API key at https://platform.openai.com/account/api-keys."}}`,
+			want:       openAIInputTokensFallbackAnthropicEstimate,
+		},
+		{
 			name: "plain_openai_apikey_401_stays_upstream_error",
 			account: &Account{
 				Type:        AccountTypeAPIKey,
