@@ -115,6 +115,14 @@ func tkAnthropicCrossVendorSelectionFailure(requestedModel string) error {
 	if openAICloudwiseRelaySupportsRequestedModel(requestedModel) {
 		return nil
 	}
+	// Dual-stack tokensea anthropic accounts (#93) advertise the public
+	// priced+servable subset of agent.tokensea.ai via model_mapping. Ingress
+	// must not 400 those exact IDs before selection; official Anthropic
+	// OAuth/APIKey still cannot claim them because isModelSupportedByAccount
+	// keeps the claude-* namespace guard unless IsAnthropicTokenseaRelay.
+	if tokenseaRelaySupportsRequestedModel(requestedModel) {
+		return nil
+	}
 	if normalized := claude.NormalizeModelID(requestedModel); normalized != "" && normalized != requestedModel {
 		if tkIsForwardableAnthropicModelName(normalized) {
 			return nil

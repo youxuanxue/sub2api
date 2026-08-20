@@ -144,6 +144,20 @@ func TestTkWrapSelectionFailure(t *testing.T) {
 		}
 	})
 
+	t.Run("tokensea public SSOT does not beat capacity 429", func(t *testing.T) {
+		err := tkWrapSelectionFailure(PlatformAnthropic, "gpt-5.4", selectionFailureStats{
+			Total:            5,
+			ModelUnsupported: 4,
+			Unschedulable:    1,
+		})
+		if !errors.Is(err, ErrNoAvailableAccounts) {
+			t.Fatalf("want capacity ErrNoAvailableAccounts for tokensea SSOT id, got %v", err)
+		}
+		if errors.Is(err, ErrUnsupportedModel) {
+			t.Fatalf("tokensea public SSOT must not be classified as cross-vendor: %v", err)
+		}
+	})
+
 	t.Run("cross-vendor model beats mixed stats routing 429", func(t *testing.T) {
 		stats := selectionFailureStats{
 			Total:            5,
@@ -428,5 +442,67 @@ func TestIsModelSupportedByAccount_MappedCloudwisePrefixDoesNotLeakToOfficialAnt
 	}
 	if !svc.isModelSupportedByAccount(claudeToWire, "claude-3-5-sonnet-20241022") {
 		t.Error("claude request remapped to a vendor wire ID must still be selectable")
+	}
+}
+
+func tokenseaRelayNonClaudePublicIDs(t *testing.T) []string {
+	t.Helper()
+	out := make([]string, 0)
+	for _, id := range tokenseaRelayCorePublicFloorIDs() {
+		if !tkIsForwardableAnthropicModelName(id) {
+			out = append(out, id)
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("tokensea public floor must include at least one non-claude id")
+	}
+	return out
+}
+
+func TestTkAnthropicCrossVendorSelectionFailure_AllowsTokenseaPublicSSOT(t *testing.T) {
+	for _, id := range tokenseaRelayNonClaudePublicIDs(t) {
+		if err := tkAnthropicCrossVendorSelectionFailure(id); err != nil {
+			t.Fatalf("tokensea public SSOT id %q must pass Anthropic ingress, got %v", id, err)
+		}
+		if TkIsAnthropicCrossVendorModelName(id) {
+			t.Fatalf("TkIsAnthropicCrossVendorModelName(%q) = true, want false", id)
+		}
+	}
+}
+
+func TestTkAnthropicCrossVendorSelectionFailure_StillRejectsBareAndUnknownGPT(t *testing.T) {
+	for _, id := range []string{"gpt", "gpt-not-in-tokensea-ssot"} {
+		if err := tkAnthropicCrossVendorSelectionFailure(id); err == nil {
+			t.Fatalf("%q must stay an Anthropic cross-vendor reject", id)
+		}
+		if !TkIsAnthropicCrossVendorModelName(id) {
+			t.Fatalf("TkIsAnthropicCrossVendorModelName(%q) = false, want true", id)
+		}
+	}
+}
+
+func TestIsModelSupportedByAccount_MappedTokenseaGPTDoesNotLeakToOfficialAnthropic(t *testing.T) {
+	svc := &GatewayService{}
+	sample := tokenseaRelayNonClaudePublicIDs(t)[0]
+	leaked := &Account{
+		ID:       13,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://api.anthropic.com",
+			"model_mapping": map[string]any{
+				sample:              sample,
+				"claude-sonnet-4-6": "claude-sonnet-4-6",
+			},
+		},
+	}
+	if leaked.IsAnthropicTokenseaRelay() {
+		t.Fatal("official Anthropic base_url must not be classified as tokensea")
+	}
+	if svc.isModelSupportedByAccount(leaked, sample) {
+		t.Fatalf("non-tokensea mapped anthropic must not claim %s after tokensea ingress allow", sample)
+	}
+	if !svc.isModelSupportedByAccount(leaked, "claude-sonnet-4-6") {
+		t.Fatal("non-tokensea mapped anthropic must still serve its claude-* mapping")
 	}
 }

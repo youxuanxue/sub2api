@@ -775,6 +775,9 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 	if isCloudwiseRelayAccount(a) && !openAICloudwiseRelaySupportsRequestedModel(requestedModel) {
 		return false
 	}
+	if a.IsAnthropicTokenseaRelay() && !tokenseaRelayAccountSupportsRequestedModel(requestedModel) {
+		return false
+	}
 	// 透传模式仅替换认证、模型语义完全交由上游决定，因此放行所有模型。
 	// 该短路必须在 model_mapping 判定之前：账号从"白名单模式"切换到透传后，
 	// credentials 里常残留旧的非空 model_mapping，若不在此放行，透传账号会被

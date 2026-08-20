@@ -1177,6 +1177,30 @@
       "rationale": "GatewayService.isModelSupportedByAccount must route CloudWise accounts through Account.IsModelSupported before the OpenAI passthrough namespace filter. Empty mapping + passthrough otherwise calls tkIsForwardableOpenAIModelName, which allows gpt-* and rejects claude-/glm- — the opposite of the CloudWise floor. Pin the early return so an upstream merge cannot restore that leak while Account.IsModelSupported tests stay green."
     },
     {
+      "path": "backend/internal/service/gateway_scheduling.go",
+      "must_contain": [
+        "if account.IsAnthropicTokenseaRelay() {",
+        "return account.IsModelSupported(requestedModel)"
+      ],
+      "rationale": "GatewayService.isModelSupportedByAccount must route tokensea anthropic #93 through Account.IsModelSupported before the claude-* namespace guard. Without this early return, gpt/qwen public SSOT IDs that now pass Anthropic ingress still cannot select #93. Pin the short-circuit so an upstream merge cannot restore the 400-before-selection leak."
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "a.IsAnthropicTokenseaRelay() && !tokenseaRelayAccountSupportsRequestedModel(requestedModel)"
+      ],
+      "rationale": "Tokensea anthropic hard gate must stay at the top of upstream-shaped Account.IsModelSupported. Empty model_mapping would otherwise allow any model onto #93 after the scheduling short-circuit. The helper body lives in account_model_mapping_ssot_tk.go; this pins the injection so an upstream merge cannot drop the call while leaving the companion compile-clean."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
+      "must_contain": [
+        "func tokenseaRelaySupportsRequestedModel(",
+        "func tokenseaRelayAccountSupportsRequestedModel(",
+        "func tokenseaRelayCorePublicFloorIDs("
+      ],
+      "rationale": "Exact-ID public SSOT allowlist for tokensea anthropic ingress and #93 selection. Prefix gpt-* is forbidden; official Anthropic accounts stay on the claude-* guard. Losing these helpers silently reopens Unsupported model 400 on group 1 GPT or lets empty-mapping #93 claim arbitrary names."
+    },
+    {
       "path": "backend/internal/service/openai_cloudwise_relay_tk_test.go",
       "must_contain": [
         "TestCloudwiseRelayEmptyMappingStillRejectsForeignFamilies",
@@ -1235,7 +1259,10 @@
         "TestAnthropicTokenseaRelayFloorMapsShortNamesToWireIDs",
         "TestBuildAnthropicCompatUpstreamRequest_PassthroughUsesTokenseaMessagesURL",
         "TestBuildAnthropicCompatUpstreamRequest_OAuthPassthroughUsesBearerAuth",
-        "TestForwardAsChatCompletions_AnthropicTokenseaPassthroughMapsHaikuWireID"
+        "TestForwardAsChatCompletions_AnthropicTokenseaPassthroughMapsHaikuWireID",
+        "TestIsModelSupportedByAccount_AnthropicTokenseaUsesMapping",
+        "TestIsModelSupportedByAccount_AnthropicTokenseaEmptyMappingUsesSSOTGate",
+        "TestIsModelSupported_AnthropicTokenseaGateOverridesExplicitForbiddenMapping"
       ],
       "rationale": "Focused regressions for tokensea-cc model_mapping floor (short name→dated wire id) and buildAnthropicCompatUpstreamRequest passthrough auth for API Key and OAuth accounts."
     },
@@ -4682,7 +4709,8 @@
       "path": "backend/internal/service/gateway_service_tk_unsupported_model.go",
       "must_contain": [
         "func tkIsForwardableAnthropicModelName(model string) bool {",
-        "return strings.HasPrefix(m, \"claude-\")"
+        "return strings.HasPrefix(m, \"claude-\")",
+        "tokenseaRelaySupportsRequestedModel(requestedModel)"
       ],
       "rationale": "TK fix (PR #806): tkIsForwardableAnthropicModelName is the namespace-prefix predicate that keeps cross-vendor model names (deepseek-/gpt-/gemini- …) from being forwarded to api.anthropic.com on a passthrough anthropic account — they 404 upstream AND are an abuse-detection fingerprint anomaly (prod 2026-06-16 edge us3 oh1-ls-b ID 4 was OAuth-revoked; it had sent deepseek-v4-flash). must_contain pins both the function and the claude- prefix rule so an upstream merge or refactor that deletes the predicate (re-opening the leak) fails the sentinel check."
     },
@@ -4697,6 +4725,8 @@
       "path": "backend/internal/service/gateway_service_tk_unsupported_model_test.go",
       "must_contain": [
         "TestIsModelSupportedByAccount_MappedCloudwisePrefixDoesNotLeakToOfficialAnthropic",
+        "TestIsModelSupportedByAccount_MappedTokenseaGPTDoesNotLeakToOfficialAnthropic",
+        "TestTkAnthropicCrossVendorSelectionFailure_AllowsTokenseaPublicSSOT",
         "https://api.anthropic.com"
       ],
       "rationale": "Regression for PR #1743 R-001: a non-CloudWise anthropic APIKey that copies the CloudWise prefix floor must not be selected for glm/kimi/minimax/deepseek after ingress allows those names."
