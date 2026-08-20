@@ -24,11 +24,15 @@ case "$WINDOW_MINUTES" in ''|*[!0-9]*) echo "bad WINDOW_MINUTES (want integer)" 
 PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
 W="interval '${WINDOW_MINUTES} minutes'"
 
-ACTIVE_USER_IDS="$($PSQL -c "SELECT COALESCE(string_agg(id::text, ',' ORDER BY id), '') FROM users WHERE status = 'active' AND deleted_at IS NULL;" 2>/dev/null | tr -d '[:space:]')"
 if [ -n "$USER_IDS_OVERRIDE" ]; then
   IDS="$USER_IDS_OVERRIDE"
 else
-  IDS="$ACTIVE_USER_IDS"
+  DISCOVERY_SQL="SELECT COALESCE(string_agg(id::text, ',' ORDER BY id), '') FROM users WHERE status = 'active' AND deleted_at IS NULL;"
+  if ! ACTIVE_USER_IDS="$($PSQL -c "$DISCOVERY_SQL")"; then
+    echo "active-user discovery failed" >&2
+    exit 1
+  fi
+  IDS="$(printf '%s' "$ACTIVE_USER_IDS" | tr -d '[:space:]')"
 fi
 if [ -z "$IDS" ]; then
   echo "no active users found" >&2
