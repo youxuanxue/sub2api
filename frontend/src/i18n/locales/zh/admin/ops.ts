@@ -171,7 +171,11 @@ export default {
       },
       customTimeRange: {
         startTime: '开始时间',
-        endTime: '结束时间'
+        endTime: '结束时间',
+        hint: '最长 30 天，超出将自动按最近 30 天查询',
+        invalid: '时间无效',
+        inverted: '开始时间必须早于结束时间',
+        clamped: '所选时间超过平台最大窗口（30 天），已按最近 30 天查询。'
       },
       fullscreen: {
         enter: '进入全屏'

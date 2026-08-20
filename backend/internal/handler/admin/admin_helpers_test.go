@@ -172,6 +172,27 @@ func TestParseOpsTimeRange(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestParseOpsTimeRangeRejectsWindowOver30Days(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	end := time.Date(2026, 8, 20, 5, 37, 0, 0, time.UTC)
+	overLimit := end.Add(-30*24*time.Hour - time.Millisecond)
+	exactLimit := end.Add(-30 * 24 * time.Hour)
+
+	cOver, _ := gin.CreateTestContext(w)
+	cOver.Request = httptest.NewRequest(http.MethodGet, "/?start_time="+overLimit.Format(time.RFC3339Nano)+"&end_time="+end.Format(time.RFC3339Nano), nil)
+	_, _, err := parseOpsTimeRange(cOver, "1h")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "max window is 30 days")
+
+	cExact, _ := gin.CreateTestContext(w)
+	cExact.Request = httptest.NewRequest(http.MethodGet, "/?start_time="+exactLimit.Format(time.RFC3339Nano)+"&end_time="+end.Format(time.RFC3339Nano), nil)
+	start, gotEnd, err := parseOpsTimeRange(cExact, "1h")
+	require.NoError(t, err)
+	require.True(t, start.Equal(exactLimit))
+	require.True(t, gotEnd.Equal(end))
+}
+
 func TestParseOpsRealtimeWindow(t *testing.T) {
 	dur, label, ok := parseOpsRealtimeWindow("5m")
 	require.True(t, ok)

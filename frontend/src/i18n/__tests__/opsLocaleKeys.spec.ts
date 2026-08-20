@@ -21,6 +21,10 @@ describe('ops locale key completeness', () => {
     'admin.ops.timeRange.custom',
     'admin.ops.customTimeRange.startTime',
     'admin.ops.customTimeRange.endTime',
+    'admin.ops.customTimeRange.hint',
+    'admin.ops.customTimeRange.invalid',
+    'admin.ops.customTimeRange.inverted',
+    'admin.ops.customTimeRange.clamped',
   ]
 
   for (const key of requiredKeys) {
