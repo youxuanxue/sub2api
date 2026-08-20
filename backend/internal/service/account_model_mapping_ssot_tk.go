@@ -565,10 +565,13 @@ func tokenseaRelayIsClientFacing(id string) bool {
 	if _, ok := supportedAntigravityCatalogModels[id]; ok {
 		return true
 	}
-	// Curated newapi rows (Qianfan DeepSeek, DashScope Qwen, etc.) stay on
-	// their vendor accounts. Tokensea GET /v1/models listing them is not
-	// enough to put them on the GPT 专线 floor — that misroutes universal
-	// keys and converts chat to /v1/responses (prod 2026-08-20 user16).
+	// Listing on tokensea GET /v1/models is not serving. Prod account 92
+	// raw POST /v1/chat/completions on 2026-08-20: gpt-5.4/claude-fable-5
+	// returned 200; deepseek-v3.2, qwen3.7-max, glm-5, glm-5.2, kimi-k2.5,
+	// kimi-k3, deepseek-v4-flash, deepseek-v4-pro returned 400 openai_error
+	// (same body as user16); minimax-m2.7 returned 410 EOL;
+	// deepseek-v4-flash-0731 returned 503 model_not_found. Keep them off
+	// the GPT 专线 floor so universal keys stay on vendor newapi accounts.
 	return false
 }
 

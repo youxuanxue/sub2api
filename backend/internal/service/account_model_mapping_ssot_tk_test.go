@@ -102,10 +102,10 @@ func TestOpenAITokenseaRelayFloorIsProbeCuratedOnly(t *testing.T) {
 	require.Contains(t, mapping, "claude-sonnet-4-6")
 	require.Contains(t, mapping, "gpt-5.6")
 	require.NotContains(t, mapping, "byteplus/dreamina-seedance-2-0-260128", "non-SSOT upstream id is a boundary sample, not an owner copy")
-	// Qianfan-canonical DeepSeek SKUs are curated newapi rows. Tokensea listing
-	// them in GET /v1/models must not put them on the GPT 专线 floor — prod
-	// 2026-08-20 user16 then landed account 92 and got /v1/responses 400.
-	require.NotContains(t, mapping, "deepseek-v3.2", "qianfan-canonical newapi id is a boundary sample, not an owner copy")
+	// Live 2026-08-20 account 92 raw chat: listed DeepSeek/Qwen/GLM/Kimi IDs
+	// returned 400 openai_error; dated flash-0731 is not even listed.
+	require.NotContains(t, mapping, "deepseek-v3.2", "tokensea-listed but chat-400 newapi id is a boundary sample, not an owner copy")
+	require.NotContains(t, mapping, "qwen3.7-max", "tokensea-listed but chat-400 newapi id is a boundary sample, not an owner copy")
 	require.NotContains(t, mapping, "deepseek-v4-flash-0731", "qianfan-dated flash SKU is a boundary sample, not an owner copy")
 }
 
