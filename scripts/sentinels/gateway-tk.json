@@ -4903,7 +4903,7 @@
         "func tkOpenAIDispatchSelectionAllowsFallback(",
         "ErrNoAvailableCompactAccounts"
       ],
-      "rationale": "TK companion for GPT专线-style messages-dispatch: after native Claude relays empty the pool, selection retries the group opus/sonnet/haiku mapped GPT id. Prod 2026-08-20 user 6 hit routing 429s on claude-opus-4-8 because selection kept the client model name after cloudwise 402 and tokensea 'not implemented'. Dropping this helper silently restores empty-pool 429s. Pairs with Messages/ChatCompletions/CountTokens injection sentinels."
+      "rationale": "TK companion for GPT专线-style messages-dispatch: after native Claude relays empty the pool, selection retries the group opus/sonnet/haiku mapped GPT id. Prod 2026-08-20 user 6 hit routing 429s on claude-opus-4-8 because selection kept the client model name after cloudwise 402 and tokensea 'not implemented'. Dropping this helper silently restores empty-pool 429s. Pairs with Messages/ChatCompletions/CountTokens/Responses injection sentinels."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler_tk_dispatch_select_test.go",
@@ -4937,6 +4937,14 @@
         "openai_count_tokens.dispatch_selection_fallback"
       ],
       "rationale": "Same dispatch-selection fallback on count_tokens so token-count requests do not 429 independently of the messages path after Claude relays empty."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "if fallbackModel, ok := tkOpenAIDispatchSelectionFallbackModel(dispatchMappedModel, currentRoutingModel, err); ok {",
+        "openai_responses.dispatch_selection_fallback"
+      ],
+      "rationale": "Same dispatch-selection fallback on /v1/responses. The entry already rewrites Claude names at forward time via tkApplyResponsesDispatchModelMapping; without this hook, GPT/Codex accounts stay model_unsupported after native Claude relays empty and the request 429s before that rewrite can run."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_kiro_mirror_scheduling.go",
