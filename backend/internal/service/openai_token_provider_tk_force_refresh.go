@@ -58,8 +58,18 @@ func (p *OpenAITokenProvider) ForceRefresh(ctx context.Context, account *Account
 	return account, nil
 }
 
+// tkIsPermanentOpenAIAuth401 是 OpenAI 永久认证失败的单一判定。
+// HandleUpstreamError 与请求内 RefreshNow 必须共用，避免一边刷新一边停号。
+func tkIsPermanentOpenAIAuth401(body []byte) bool {
+	switch strings.ToLower(strings.TrimSpace(extractUpstreamErrorCode(body))) {
+	case "token_invalidated", "token_revoked":
+		return true
+	}
+	return gjson.GetBytes(body, "detail").String() == "Unauthorized"
+}
+
 // tkIsRecoverableOpenAI401 识别「当前 access_token 被拒、但 refresh_token 仍可能救活」的 401。
-// 能力缺失 / 永久吊销 / Unauthorized 细节必须继续走既有惩罚路径。
+// 能力缺失 / 永久吊销必须继续走既有惩罚路径。
 func tkIsRecoverableOpenAI401(statusCode int, body []byte) bool {
 	if statusCode != http.StatusUnauthorized {
 		return false
@@ -67,12 +77,5 @@ func tkIsRecoverableOpenAI401(statusCode int, body []byte) bool {
 	if tkIsCapabilityScope401(statusCode, body) {
 		return false
 	}
-	code := strings.ToLower(strings.TrimSpace(extractUpstreamErrorCode(body)))
-	if code == "token_invalidated" || code == "token_revoked" {
-		return false
-	}
-	if gjson.GetBytes(body, "detail").String() == "Unauthorized" {
-		return false
-	}
-	return true
+	return !tkIsPermanentOpenAIAuth401(body)
 }

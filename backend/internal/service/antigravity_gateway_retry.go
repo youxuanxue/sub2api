@@ -87,16 +87,11 @@ func tkAntigravityPaidTierUsesDaily(account *Account) bool {
 	if account == nil {
 		return false
 	}
-	plan := strings.ToLower(strings.TrimSpace(account.GetCredential("plan_type")))
+	plan := strings.TrimSpace(account.GetCredential("plan_type"))
 	if plan == "" {
-		plan = strings.ToLower(strings.TrimSpace(account.GetExtraString("plan_type")))
+		plan = strings.TrimSpace(account.GetExtraString("plan_type"))
 	}
-	switch plan {
-	case "pro", "ultra", "g1-pro-tier", "g1-ultra-tier":
-		return true
-	default:
-		return false
-	}
+	return antigravity.IsPaidPlanType(plan)
 }
 
 // smartRetryAction 智能重试的处理结果

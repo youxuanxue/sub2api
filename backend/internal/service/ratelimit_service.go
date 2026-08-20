@@ -567,22 +567,20 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		if resolved, rerr := resolveCredentialAccount(ctx, s.accountRepo, account); rerr == nil && resolved != nil {
 			authAccount = resolved
 		}
-		// OpenAI: token_invalidated / token_revoked 表示 token 被永久作废（非过期），直接标记 error
-		openai401Code := extractUpstreamErrorCode(responseBody)
-		if authAccount.Platform == PlatformOpenAI && (openai401Code == "token_invalidated" || openai401Code == "token_revoked") {
-			msg := "Token revoked (401): account authentication permanently revoked"
-			if upstreamMsg != "" {
-				msg = "Token revoked (401): " + upstreamMsg
-			}
-			s.handleAuthError(ctx, authAccount, msg)
-			shouldDisable = true
-			break
-		}
-		// OpenAI: {"detail":"Unauthorized"} 表示 token 完全无效（非标准 OpenAI 错误格式），直接标记 error
-		if authAccount.Platform == PlatformOpenAI && gjson.GetBytes(responseBody, "detail").String() == "Unauthorized" {
+		// OpenAI: 永久认证失败（token_invalidated / token_revoked / detail=Unauthorized）
+		// 判定只在 tkIsPermanentOpenAIAuth401，这里只负责文案。
+		if authAccount.Platform == PlatformOpenAI && tkIsPermanentOpenAIAuth401(responseBody) {
+			openai401Code := extractUpstreamErrorCode(responseBody)
 			msg := "Unauthorized (401): account authentication failed permanently"
+			if openai401Code == "token_invalidated" || openai401Code == "token_revoked" {
+				msg = "Token revoked (401): account authentication permanently revoked"
+			}
 			if upstreamMsg != "" {
-				msg = "Unauthorized (401): " + upstreamMsg
+				if openai401Code == "token_invalidated" || openai401Code == "token_revoked" {
+					msg = "Token revoked (401): " + upstreamMsg
+				} else {
+					msg = "Unauthorized (401): " + upstreamMsg
+				}
 			}
 			s.handleAuthError(ctx, authAccount, msg)
 			shouldDisable = true

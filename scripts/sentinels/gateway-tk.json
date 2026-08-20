@@ -6786,6 +6786,82 @@
         "\"gemini-3.5-flash-lite\", \"gemini-3.6-flash\", \"gemini-3.7-flash\""
       ],
       "rationale": "Gemini 3.5 Flash Lite / 3.6 Flash / 3.7 Flash are publisher-global-only on Vertex. vertexModelUsesGlobalLocation must keep these ids on the global endpoint; an upstream merge that drops the case or the 3.7 id sends traffic to the account default us-central1 and the publisher model 404s. Live extras can write vertex_model_locations, but the compiled owner is what survives the next release and empty extras."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_forward.go",
+      "must_contain": [
+        "if newToken, ok := s.tryRefreshOpenAI401Token(ctx, account, respBody); ok {"
+      ],
+      "rationale": "OpenAI OAuth recoverable 401 must RefreshNow and retry once on the same request. Dropping this injection cools the whole group to 502/503 before the token provider can recover."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "must_contain": [
+        "if newToken, ok := s.tryRefreshOpenAI401Token(ctx, account, probeBody); ok {"
+      ],
+      "rationale": "Passthrough /v1/responses must share the same in-request OpenAI 401 refresh owner as the non-passthrough forward loop."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_tk_oauth401_refresh.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) tryRefreshOpenAI401Token(ctx context.Context, account *Account, respBody []byte) (string, bool)",
+        "s.openAITokenProvider.ForceRefresh(ctx, account)"
+      ],
+      "rationale": "TokenKey companion that owns the OpenAI OAuth 401 force-refresh seam. The classifier lives with ForceRefresh so permanent-auth 401s never refresh."
+    },
+    {
+      "path": "backend/internal/service/openai_token_provider_tk_force_refresh.go",
+      "must_contain": [
+        "func tkIsPermanentOpenAIAuth401(body []byte) bool",
+        "func tkIsRecoverableOpenAI401(statusCode int, body []byte) bool"
+      ],
+      "rationale": "Single classifier for permanent vs recoverable OpenAI 401. HandleUpstreamError and the in-request retry must not maintain a second copy of token_revoked / Unauthorized."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "tkIsPermanentOpenAIAuth401(responseBody)",
+        "HandleOpenAIImageCapabilityLoss400(ctx, account, statusCode, responseBody)"
+      ],
+      "rationale": "Upstream-shaped injection: permanent OpenAI 401 and account-level image-capability 400 must keep calling the TokenKey owners. Losing either hook restores whole-account disable or reschedules dead image capability."
+    },
+    {
+      "path": "backend/internal/service/openai_account_runtime_block_fastpath.go",
+      "must_contain": [
+        "HandleOpenAIImageCapabilityLoss400(stateCtx, account, statusCode, responseBody)"
+      ],
+      "rationale": "Gateway error fastpath must cool openai:image_generation on capability-loss 400 without blocking the whole account."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_account_capability_400.go",
+      "must_contain": [
+        "func isOpenAIImageCapabilityLoss400(statusCode int, body []byte) bool",
+        "openAIImageGenerationRateLimitKey"
+      ],
+      "rationale": "Account-level image capability 400 owner. Reuses the existing image-generation rate-limit key so scheduling has one skip signal."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_retry.go",
+      "must_contain": [
+        "func resolveAntigravityForwardBaseURL(account *Account) string",
+        "antigravity.IsPaidPlanType(plan)"
+      ],
+      "rationale": "Paid Antigravity accounts must resolve daily from the antigravity plan-type owner. A local Pro/Ultra list would drift from TierIDToPlanType."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_fingerprint.go",
+      "must_contain": [
+        "sub2api:codex-install-id:v3:session:",
+        "ids.installationID = resolveConvergedInstallationID(account, seed, clientSessionID)"
+      ],
+      "rationale": "Device-mode Codex installation is session-stable and account-isolated. An upstream merge that restores account-wide installation reintroduces shared-device quota shrink."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_fingerprint_test.go",
+      "must_contain": [
+        "func TestResolveCodexFingerprintIDs_DeviceModeInstallationIsSessionStable(t *testing.T)"
+      ],
+      "rationale": "Focused regression: different Codex client sessions must not share a device-mode installation_id."
     }
   ]
 }

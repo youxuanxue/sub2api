@@ -89,6 +89,16 @@ func TestGetClientSecret_环境变量有前后空格(t *testing.T) {
 // ForwardBaseURLs
 // ---------------------------------------------------------------------------
 
+func TestDailyHost_DerivedFromDailyBaseURL(t *testing.T) {
+	parsed, err := url.Parse(DailyBaseURL())
+	if err != nil {
+		t.Fatalf("DailyBaseURL 必须是合法 URL: %v", err)
+	}
+	if got := DailyHost(); got != parsed.Host {
+		t.Errorf("DailyHost() = %q, want %q from DailyBaseURL", got, parsed.Host)
+	}
+}
+
 func TestForwardBaseURLs_Daily优先(t *testing.T) {
 	urls := ForwardBaseURLs()
 	if len(urls) == 0 {

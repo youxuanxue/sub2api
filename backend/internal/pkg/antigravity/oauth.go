@@ -59,6 +59,19 @@ const (
 	antigravityDailyBaseURL = "https://daily-cloudcode-pa.googleapis.com"
 )
 
+// DailyBaseURL / ProdBaseURL 是网关与隐私请求共用的端点 owner。
+func DailyBaseURL() string { return antigravityDailyBaseURL }
+func ProdBaseURL() string  { return antigravityProdBaseURL }
+
+// DailyHost 从 DailyBaseURL 解析 Host，禁止第二份 hostname 字面量。
+func DailyHost() string {
+	parsed, err := url.Parse(antigravityDailyBaseURL)
+	if err != nil {
+		return ""
+	}
+	return parsed.Host
+}
+
 var userAgentVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
 // UserAgentVersionResolver 提供运行时 User-Agent 版本号覆盖能力。
