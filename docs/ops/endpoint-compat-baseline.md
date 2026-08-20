@@ -24,9 +24,9 @@ stable probe conclusions, reproducible commands, and the next probe focus.
 
 | Field | Value |
 |---|---|
-| Baseline date | 2026-08-19 |
+| Baseline date | 2026-08-20 |
 | Target | prod (`https://tokenkey.dev`; `https://api.tokenkey.dev` redirects control-plane paths with HTTP 301) |
-| Runtime code anchor | `v1.8.165` release (`backend/cmd/server/VERSION`); last live deploy `v1.8.164`. v1.8.142 image built but canary deploy failed (duplicate route panic, #1611); v1.8.143 pending prod deploy. The 2026-07-05 focused Anthropic closeout also includes the live config remediation that set edge default Anthropic group `id=1` to `claude_code_only=false` on `us3/us4/us5/us6`. |
+| Runtime code anchor | `v1.8.166` release (`backend/cmd/server/VERSION`); last live deploy `v1.8.165`. v1.8.142 image built but canary deploy failed (duplicate route panic, #1611); v1.8.143 pending prod deploy. The 2026-07-05 focused Anthropic closeout also includes the live config remediation that set edge default Anthropic group `id=1` to `claude_code_only=false` on `us3/us4/us5/us6`. |
 | Latest universal smoke | `v1.8.161`, canonical host: control `models`/`usage` 200; Anthropic messages + count_tokens, OpenAI chat + responses, newapi chat, and Grok chat passed; Gemini native and Antigravity were `429` empty-pool skips; OpenAI embeddings was an entitlement `403` skip; Kiro direct row was not run because no direct Kiro key; paid media was intentionally skipped. Summary: `PASS=9 SKIP=9 FAIL=0` (recorded in PR #1719). |
 | Paid media probes | approved and rerun post-`v1.8.80` / #1207 for Imagen, Veo, and Grok media SSOT display gate plus direct-vs-universal parity; latest full displayed+priced paid media gate on 2026-07-05 returned `DISPLAY_KEEP=19 DISPLAY_BLOCK=0 REPROBE_REQUIRED=0 FAIL=0`. |
 | Direct route-gate command | `bash ops/observability/endpoint-compat-audit.sh --direct-route-gate` |
