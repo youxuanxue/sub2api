@@ -97,15 +97,12 @@ func (r *opsRepository) getDashboardOverviewRaw(ctx context.Context, filter *ser
 		}
 	}
 
-	peakCtx, cancelPeak := context.WithTimeout(ctx, opsRawPeakQueryTimeout)
-	qpsPeak, tpsPeak, err := r.queryPeakRates(peakCtx, filter, start, end)
-	cancelPeak()
+	qpsPeak, tpsPeak, peakDegraded, err := r.queryPeakRatesAllowSkip(ctx, filter, start, end)
 	if err != nil {
-		if isQueryTimeoutErr(err) {
-			degraded = true
-		} else {
-			return nil, err
-		}
+		return nil, err
+	}
+	if peakDegraded {
+		degraded = true
 	}
 
 	qpsAvg := roundTo1DP(float64(requestCountTotal) / windowSeconds)
@@ -273,15 +270,12 @@ func (r *opsRepository) getDashboardOverviewPreaggregated(ctx context.Context, f
 		}
 	}
 
-	peakCtx, cancelPeak := context.WithTimeout(ctx, opsRawPeakQueryTimeout)
-	qpsPeak, tpsPeak, err := r.queryPeakRates(peakCtx, filter, start, end)
-	cancelPeak()
+	qpsPeak, tpsPeak, peakDegraded, err := r.queryPeakRatesAllowSkip(ctx, filter, start, end)
 	if err != nil {
-		if isQueryTimeoutErr(err) {
-			degraded = true
-		} else {
-			return nil, err
-		}
+		return nil, err
+	}
+	if peakDegraded {
+		degraded = true
 	}
 
 	qpsAvg := roundTo1DP(float64(requestCountTotal) / windowSeconds)
@@ -904,10 +898,23 @@ func (r *opsRepository) queryCurrentRates(ctx context.Context, filter *service.O
 	return qpsCurrent, tpsCurrent, nil
 }
 
-func (r *opsRepository) queryPeakRates(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) (qpsPeak float64, tpsPeak float64, err error) {
+func (r *opsRepository) queryPeakRatesAllowSkip(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) (qpsPeak float64, tpsPeak float64, degraded bool, err error) {
 	if skipRawPeakScan(start, end) {
-		return 0, 0, context.DeadlineExceeded
+		return 0, 0, true, nil
 	}
+	peakCtx, cancelPeak := context.WithTimeout(ctx, opsRawPeakQueryTimeout)
+	defer cancelPeak()
+	qpsPeak, tpsPeak, err = r.queryPeakRates(peakCtx, filter, start, end)
+	if err != nil {
+		if isQueryTimeoutErr(err) {
+			return 0, 0, true, nil
+		}
+		return 0, 0, false, err
+	}
+	return qpsPeak, tpsPeak, false, nil
+}
+
+func (r *opsRepository) queryPeakRates(ctx context.Context, filter *service.OpsDashboardFilter, start, end time.Time) (qpsPeak float64, tpsPeak float64, err error) {
 	usageJoin, usageWhere, usageArgs, next := buildUsageWhere(filter, start, end, 1)
 	errorWhere, errorArgs, _ := buildErrorWhere(filter, start, end, next)
 

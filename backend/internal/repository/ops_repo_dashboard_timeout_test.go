@@ -44,3 +44,18 @@ func TestSkipRawPeakScan(t *testing.T) {
 		t.Fatalf("30d custom window must skip the raw peak scan")
 	}
 }
+
+func TestQueryPeakRatesAllowSkip_WideWindowDoesNotFakeDeadline(t *testing.T) {
+	end := time.Date(2026, 8, 20, 15, 31, 0, 0, time.UTC)
+	r := &opsRepository{}
+	qps, tps, degraded, err := r.queryPeakRatesAllowSkip(context.Background(), nil, end.Add(-30*24*time.Hour), end)
+	if err != nil {
+		t.Fatalf("wide window should skip without error, got %v", err)
+	}
+	if !degraded {
+		t.Fatalf("wide window should mark peak as degraded")
+	}
+	if qps != 0 || tps != 0 {
+		t.Fatalf("skipped peak should be zero so caller can fill from avg/current, got qps=%v tps=%v", qps, tps)
+	}
+}
