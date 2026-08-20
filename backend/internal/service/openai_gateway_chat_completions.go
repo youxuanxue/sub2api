@@ -93,6 +93,35 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		}
 		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
+
+	// Adaptive CN accounts use the provider-native endpoint matching the
+	// inbound shape. DeepSeek supports native Responses; Kimi/Zhipu require a
+	// Responses-shaped request to be converted back to Chat Completions.
+	isResponsesShape := !gjson.GetBytes(body, "messages").Exists() && gjson.GetBytes(body, "input").Exists()
+	if account.IsAdaptiveAPIProtocol() {
+		if !isResponsesShape {
+			return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+		}
+		if account.Platform != PlatformDeepseek {
+			var responsesReq apicompat.ResponsesRequest
+			if err := json.Unmarshal(body, &responsesReq); err != nil {
+				return nil, fmt.Errorf("parse responses-shaped chat completions request: %w", err)
+			}
+			chatReq, err := apicompat.ResponsesToChatCompletionsRequestWithOptions(
+				&responsesReq,
+				&apicompat.ResponsesToChatOptions{ReasoningContentByID: s.reasoningContentByID},
+			)
+			if err != nil {
+				return nil, fmt.Errorf("convert responses-shaped chat completions request: %w", err)
+			}
+			chatBody, err := json.Marshal(chatReq)
+			if err != nil {
+				return nil, fmt.Errorf("marshal converted chat completions request: %w", err)
+			}
+			return s.forwardAsRawChatCompletions(ctx, c, account, chatBody, defaultMappedModel)
+		}
+		// DeepSeek native Responses requests continue through the Responses path.
+	}
 	// 入口分流（国产供应商 Anthropic 协议）：上游为供应商原生 Anthropic 端点，
 	// CC 入站请求经 CC→Responses→Anthropic 转换链直通该端点。必须先于
 	// ShouldUseResponsesAPI 分流：该类账号经 probe 落标
@@ -141,8 +170,6 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	// Detect that shape and forward the raw body as-is, only rewriting `model`
 	// to the resolved upstream model. The downstream codex OAuth transform will
 	// still normalize store/stream/instructions/etc.
-	isResponsesShape := !gjson.GetBytes(body, "messages").Exists() && gjson.GetBytes(body, "input").Exists()
-
 	var (
 		responsesReq  *apicompat.ResponsesRequest
 		responsesBody []byte

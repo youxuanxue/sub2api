@@ -63,6 +63,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	startTime := time.Now()
 	// 固定渠道映射后的请求级 canonical body；账号 normalize/strip 不得改写跨 failover hint。
 	canonicalImageIntentBody := body
+	nativeDeepSeekResponses := account != nil && account.Platform == PlatformDeepseek &&
+		(account.GetAPIProtocol() == APIProtocolResponses || account.IsAdaptiveAPIProtocol())
 
 	if err := s.enforceCodexClientRestriction(ctx, c, account, body); err != nil {
 		return nil, err
@@ -141,6 +143,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	// 不能落到下面的 raw-CC 分支——其 URL 构造会把 anthropic base 当 CC base 用。
 	if account.IsAnthropicProtocol() {
 		return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, reqModel)
+	}
+	if account.IsAdaptiveAPIProtocol() &&
+		(account.Platform != PlatformDeepseek || isOpenAIResponsesCompactPath(c)) {
+		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
 	}
 
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
@@ -313,7 +319,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 	instructions := gjson.GetBytes(body, "instructions")
 	instructionsEmpty := !instructions.Exists() || instructions.Type != gjson.String || strings.TrimSpace(instructions.String()) == ""
-	if instructionsEmpty && !compatMessagesBridge {
+	if instructionsEmpty && !compatMessagesBridge && !nativeDeepSeekResponses {
 		markPatchSet("instructions", defaultCodexSynthInstructions(reqModel))
 	}
 
@@ -491,7 +497,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		maxOutputTokens := gjson.GetBytes(body, "max_output_tokens")
 		if maxOutputTokens.Exists() {
 			switch account.Platform {
-			case PlatformOpenAI:
+			case PlatformOpenAI, PlatformDeepseek:
 				// Preserve Responses-native output limits unless the selected upstream
 				// explicitly rejects the field in the bounded HTTP retry loop below.
 			case PlatformAnthropic:
@@ -1101,6 +1107,16 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
 	}
+	if account.IsCNProvider() {
+		switch account.GetAPIProtocol() {
+		case APIProtocolChatCompletions:
+			return true
+		case APIProtocolAdaptive:
+			return account.Platform != PlatformDeepseek
+		case APIProtocolResponses, APIProtocolAnthropic:
+			return false
+		}
+	}
 	// Dual-stack MaaS relays advertise /v1/responses (probe treats 400 as
 	// "endpoint exists") but only implement Chat + Anthropic Messages.
 	// Sending CC→Responses there drops `messages` and CloudWise returns
@@ -1121,6 +1137,10 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	case AccountTypeAPIKey:
 		// API Key accounts use Platform API or custom base URL
 		baseURL := nativeOpenAIBaseURLForAccount(account)
+		if account.Platform == PlatformDeepseek &&
+			(account.GetAPIProtocol() == APIProtocolResponses || account.IsAdaptiveAPIProtocol()) {
+			baseURL = account.GetCNProtocolBaseURL(APIProtocolResponses)
+		}
 		if baseURL == "" {
 			if account.IsGrokAPIKey() {
 				return nil, fmt.Errorf("grok relay account %d missing base_url", account.ID)
