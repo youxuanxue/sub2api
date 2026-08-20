@@ -976,6 +976,50 @@ func TestUniversalOpenAICompatAccountSupportsModel_TokenseaMappingDoesNotStealNe
 	}
 }
 
+func TestUniversalOpenAICompatAccountSupportsModel_CloudwiseMappingStillClaimsNewAPIHint(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://api.cloudwise.ai/api",
+			"model_mapping": map[string]any{
+				"glm-*":      "glm-*",
+				"deepseek-*": "deepseek-*",
+				"kimi-*":     "kimi-*",
+			},
+		},
+	}
+	for _, model := range []string{"glm-5.2", "deepseek-v4-flash", "kimi-k3"} {
+		if !universalOpenAICompatAccountSupportsModel(context.Background(), nil, account, model, ShapeOpenAIChat) {
+			t.Fatalf("cloudwise mapping must still claim designed newapi-family model %q", model)
+		}
+	}
+}
+
+func TestUniversalOpenAICompatAccountSupportsModel_AinzyMappingDoesNotStealNewAPIHint(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://api.ainzy.net/v1",
+			"model_mapping": map[string]any{
+				"deepseek-v3.2": "deepseek-v3.2",
+				"gpt-5.4":       "gpt-5.4",
+			},
+		},
+	}
+	if universalOpenAICompatAccountSupportsModel(context.Background(), nil, account, "deepseek-v3.2", ShapeOpenAIChat) {
+		t.Fatal("ainzy mapping must not claim curated newapi model deepseek-v3.2")
+	}
+	if !universalOpenAICompatAccountSupportsModel(context.Background(), nil, account, "gpt-5.4", ShapeOpenAIChat) {
+		t.Fatal("ainzy mapping should still claim its own GPT floor id")
+	}
+}
+
 // entitlementAwareStubAccountRepo mirrors prod ListSchedulable (active+schedulable
 // only) and ListAllWithFilters(status=error) so overdue Qianfan rows stay visible
 // to universal entitlement without being dispatchable.

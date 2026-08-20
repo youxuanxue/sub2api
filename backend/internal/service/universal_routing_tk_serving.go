@@ -219,10 +219,13 @@ func universalOpenAICompatMappingHonorsPlatformHint(account *Account, model stri
 	if hint == "" || hint == account.Platform {
 		return true
 	}
-	// GPT 专线 / tokensea / ainzy explicit mappings must not steal curated
-	// newapi vendor models (deepseek/qwen/glm/kimi). Those stay on newapi
-	// groups even when a relay lists them in GET /v1/models.
-	return !(account.Platform == PlatformOpenAI && hint == PlatformNewAPI)
+	// Listing-only OpenAI relays (tokensea / ainzy / official GPT 专线 leftovers)
+	// must not steal curated newapi vendor models. CloudWise is the exception:
+	// its openai apikey floor is explicitly glm-*/deepseek-*/kimi-*/minimax-*.
+	if account.Platform == PlatformOpenAI && hint == PlatformNewAPI {
+		return isCloudwiseRelayAccount(account)
+	}
+	return true
 }
 
 func universalOpenAICompatAccountSupportsShape(account *Account, shape UniversalShape) bool {
