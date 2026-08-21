@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"regexp"
 	"testing"
 	"testing/fstest"
 
@@ -213,6 +214,9 @@ func TestApplyMigrationsFS_NonTransactionalMigration_EffectiveModelIndexesDropIn
 	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
 		WithArgs(usageLogsEffectiveModelIndexesMigration).
 		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("pg_partitioned_table").
+		WithArgs("usage_logs").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	for _, indexName := range []string{usageLogsEffectiveRequestedModelIndex, usageLogsEffectiveUpstreamModelIndex} {
 		mock.ExpectQuery("SELECT EXISTS \\(").
 			WithArgs(indexName).
@@ -241,6 +245,74 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usage_logs_effective_upstream_model_
 	}
 
 	err = applyMigrationsSession(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_EffectiveModelIndexes_BuildsPartitionIndexesConcurrently(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(usageLogsEffectiveModelIndexesMigration).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("pg_partitioned_table").
+		WithArgs("usage_logs").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	expectPartitionedIndex := func(indexName, expression string) {
+		childIndex := indexName + "_p61001"
+		mock.ExpectQuery("SELECT i.indisvalid").
+			WithArgs("public", indexName).
+			WillReturnError(sql.ErrNoRows)
+		mock.ExpectQuery("SELECT child_ns.nspname, child.relname, child.oid").
+			WithArgs("usage_logs").
+			WillReturnRows(sqlmock.NewRows([]string{"nspname", "relname", "oid"}).
+				AddRow("public", "usage_logs_202608", 61001))
+		mock.ExpectQuery("SELECT i.indisvalid").
+			WithArgs("public", childIndex).
+			WillReturnError(sql.ErrNoRows)
+		mock.ExpectExec(regexp.QuoteMeta(
+			`CREATE INDEX CONCURRENTLY IF NOT EXISTS "` + childIndex + `" ON "public"."usage_logs_202608" (` + expression + `)`,
+		)).WillReturnResult(sqlmock.NewResult(0, 0))
+		mock.ExpectExec(regexp.QuoteMeta(
+			`CREATE INDEX IF NOT EXISTS "` + indexName + `" ON ONLY "usage_logs" (` + expression + `)`,
+		)).WillReturnResult(sqlmock.NewResult(0, 0))
+		mock.ExpectQuery("SELECT EXISTS \\(").
+			WithArgs(indexName, childIndex).
+			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+		mock.ExpectExec(regexp.QuoteMeta(
+			`ALTER INDEX "` + indexName + `" ATTACH PARTITION "public"."` + childIndex + `"`,
+		)).WillReturnResult(sqlmock.NewResult(0, 0))
+		mock.ExpectQuery("SELECT i.indisvalid").
+			WithArgs("public", indexName).
+			WillReturnRows(sqlmock.NewRows([]string{"indisvalid"}).AddRow(true))
+	}
+
+	expectPartitionedIndex(
+		usageLogsEffectiveRequestedModelIndex,
+		"(COALESCE(NULLIF(BTRIM(requested_model), ''), model)), created_at DESC, id DESC",
+	)
+	expectPartitionedIndex(
+		usageLogsEffectiveUpstreamModelIndex,
+		"(COALESCE(NULLIF(BTRIM(upstream_model), ''), model)), created_at DESC, id DESC",
+	)
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(usageLogsEffectiveModelIndexesMigration, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	content, err := migrations.FS.ReadFile(usageLogsEffectiveModelIndexesMigration)
+	require.NoError(t, err)
+	fSys := fstest.MapFS{
+		usageLogsEffectiveModelIndexesMigration: &fstest.MapFile{Data: content},
+	}
+
+	err = applyMigrationsSession(context.Background(), db, fSys)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

@@ -6028,11 +6028,14 @@
         "partitionedIndexExpr: \"host, created_at DESC\"",
         "createPartitionedIndexConcurrently(ctx, db, policy)",
         "applyNonTransactionalMigration(ctx, db, name, content)",
-        "return dropInvalidIndexIfPresent(ctx, db, policy.indexName)",
+        "usePartitionedPath := len(policies) > 0",
+        "partitionedIndexExpr: \"(COALESCE(NULLIF(BTRIM(requested_model), ''), model)), created_at DESC, id DESC\"",
+        "for _, policy := range nonTransactionalIndexPolicies[name] {",
+        "if err := dropInvalidIndexIfPresent(ctx, db, policy.indexName); err != nil {",
         "return applyMigrationsInUTCSession(ctx, conn, fsys)",
         "migrationSessionCleanupError{err: err}"
       ],
-      "rationale": "The upstream-shared migration runner owns only declarative policies and thin TokenKey call sites. The online partition-index implementation and UTC migration-session lifecycle stay in companion files to minimize upstream conflict surface. Every caller must execute partition-bound migrations on the pinned connection in UTC, surface advisory-unlock failure, and restore the original application timezone before the connection returns to the pool."
+      "rationale": "The upstream-shared migration runner owns only declarative policies and thin TokenKey call sites. A migration may own multiple index policies: migration 226 must keep both effective-model expression indexes on the partition-aware child-index/parent-attach path, and non-partitioned retries must prepare every registered index. The online partition-index implementation and UTC migration-session lifecycle stay in companion files to minimize upstream conflict surface. Every caller must execute partition-bound migrations on the pinned connection in UTC, surface advisory-unlock failure, and restore the original application timezone before the connection returns to the pool."
     },
     {
       "path": "backend/internal/repository/migrations_runner_tk_session.go",

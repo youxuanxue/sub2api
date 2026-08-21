@@ -152,6 +152,72 @@ func TestCreatePartitionedIndexConcurrently_PartialIndexWhereClause(t *testing.T
 	require.Equal(t, tablePartitions, indexPartitions)
 }
 
+func TestCreatePartitionedIndexConcurrently_EffectiveModelExpressions(t *testing.T) {
+	ctx := context.Background()
+	table := "pgpart_itest_effective_models"
+	qTable := pq.QuoteIdentifier(table)
+	_, _ = integrationDB.ExecContext(ctx, "DROP TABLE IF EXISTS "+qTable+" CASCADE")
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DROP TABLE IF EXISTS "+qTable+" CASCADE")
+	})
+
+	_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(`
+		CREATE TABLE %s (
+			id BIGSERIAL,
+			created_at TIMESTAMPTZ NOT NULL,
+			model TEXT NOT NULL,
+			requested_model TEXT,
+			upstream_model TEXT
+		) PARTITION BY RANGE (created_at);
+		CREATE TABLE %s PARTITION OF %s FOR VALUES FROM ('2026-01-01') TO ('2026-02-01');
+		CREATE TABLE %s PARTITION OF %s FOR VALUES FROM ('2026-02-01') TO ('2026-03-01');
+		INSERT INTO %s (created_at, model, requested_model, upstream_model) VALUES
+			('2026-01-15', 'fallback-a', 'requested-a', 'upstream-a'),
+			('2026-02-15', 'fallback-b', '', NULL);`,
+		qTable,
+		pq.QuoteIdentifier(table+"_p1"), qTable,
+		pq.QuoteIdentifier(table+"_p2"), qTable,
+		qTable,
+	))
+	require.NoError(t, err)
+
+	policies := append([]nonTransactionalIndexPolicy(nil), nonTransactionalIndexPolicies[usageLogsEffectiveModelIndexesMigration]...)
+	require.Len(t, policies, 2)
+	parentIndexes := []string{
+		"idx_pgpart_itest_effective_requested",
+		"idx_pgpart_itest_effective_upstream",
+	}
+	for i := range policies {
+		policies[i].partitionedTable = table
+		policies[i].indexName = parentIndexes[i]
+		require.NoError(t, createPartitionedIndexConcurrently(ctx, integrationDB, policies[i]))
+		require.NoError(t, createPartitionedIndexConcurrently(ctx, integrationDB, policies[i]))
+	}
+
+	var tablePartitions int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT count(*) FROM pg_inherits i
+		JOIN pg_class parent ON parent.oid = i.inhparent
+		WHERE parent.relname = $1`, table).Scan(&tablePartitions))
+	require.Equal(t, 2, tablePartitions)
+
+	for _, parentIndex := range parentIndexes {
+		var valid bool
+		require.NoError(t, integrationDB.QueryRowContext(ctx, `
+			SELECT i.indisvalid
+			FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+			WHERE c.relname = $1`, parentIndex).Scan(&valid))
+		require.True(t, valid)
+
+		var indexPartitions int
+		require.NoError(t, integrationDB.QueryRowContext(ctx, `
+			SELECT count(*) FROM pg_inherits i
+			JOIN pg_class parent ON parent.oid = i.inhparent
+			WHERE parent.relname = $1`, parentIndex).Scan(&indexPartitions))
+		require.Equal(t, tablePartitions, indexPartitions)
+	}
+}
+
 // TestPgPartition_EnsureMonthlySkipsLegacyOverlap mirrors the post-conversion state: a
 // wide legacy partition covers everything up to next month, so EnsureMonthly's current
 // month overlaps it (42P17) and must be skipped while future months are still created.

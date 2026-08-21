@@ -93,34 +93,55 @@ type nonTransactionalIndexPolicy struct {
 	partitionedIndexWhere  string
 }
 
-var nonTransactionalIndexPolicies = map[string]nonTransactionalIndexPolicy{
+var nonTransactionalIndexPolicies = map[string][]nonTransactionalIndexPolicy{
 	schedulerOutboxPendingDedupKeyMigration: {
-		indexName: schedulerOutboxPendingDedupKeyIndex,
+		{
+			indexName: schedulerOutboxPendingDedupKeyIndex,
+		},
 	},
 	opsSystemLogsAPIKeyIDIndexMigration: {
-		indexName:              opsSystemLogsAPIKeyIDIndex,
-		partitionedTable:       "ops_system_logs",
-		partitionedFallbackDDL: opsSystemLogsAPIKeyIDIndexDDL,
+		{
+			indexName:              opsSystemLogsAPIKeyIDIndex,
+			partitionedTable:       "ops_system_logs",
+			partitionedFallbackDDL: opsSystemLogsAPIKeyIDIndexDDL,
+		},
 	},
 	latestAPIKeyIPIndexMigration: {
-		indexName: latestAPIKeyIPIndex,
+		{
+			indexName: latestAPIKeyIPIndex,
+		},
 	},
 	usersEmailAliasDedupIndexMigration: {
-		indexName: usersEmailAliasDedupIndex,
+		{
+			indexName: usersEmailAliasDedupIndex,
+		},
 	},
 	opsSystemLogsHostIndexMigration: {
-		indexName:            opsSystemLogsHostIndex,
-		partitionedTable:     "ops_system_logs",
-		partitionedIndexExpr: "host, created_at DESC",
+		{
+			indexName:            opsSystemLogsHostIndex,
+			partitionedTable:     "ops_system_logs",
+			partitionedIndexExpr: "host, created_at DESC",
+		},
 	},
 	upstreamModelMismatchIndexMigration: {
-		indexName:             upstreamModelMismatchIndex,
-		partitionedTable:      "usage_logs",
-		partitionedIndexExpr:  "created_at DESC, id DESC",
-		partitionedIndexWhere: "upstream_model_mismatch IS TRUE",
+		{
+			indexName:             upstreamModelMismatchIndex,
+			partitionedTable:      "usage_logs",
+			partitionedIndexExpr:  "created_at DESC, id DESC",
+			partitionedIndexWhere: "upstream_model_mismatch IS TRUE",
+		},
 	},
 	usageLogsEffectiveModelIndexesMigration: {
-		indexName: usageLogsEffectiveRequestedModelIndex,
+		{
+			indexName:            usageLogsEffectiveRequestedModelIndex,
+			partitionedTable:     "usage_logs",
+			partitionedIndexExpr: "(COALESCE(NULLIF(BTRIM(requested_model), ''), model)), created_at DESC, id DESC",
+		},
+		{
+			indexName:            usageLogsEffectiveUpstreamModelIndex,
+			partitionedTable:     "usage_logs",
+			partitionedIndexExpr: "(COALESCE(NULLIF(BTRIM(upstream_model), ''), model)), created_at DESC, id DESC",
+		},
 	},
 }
 
@@ -366,24 +387,44 @@ func shouldRecordMigrationWithoutExecution(ctx context.Context, db migrationDB, 
 }
 
 func applyNonTransactionalMigration(ctx context.Context, db migrationDB, name, content string) error {
-	policy, hasPolicy := nonTransactionalIndexPolicies[name]
-	if hasPolicy && policy.partitionedTable != "" {
-		partitioned, err := pgpartition.IsPartitioned(ctx, db, policy.partitionedTable)
-		if err != nil {
-			return fmt.Errorf("check %s partition state for migration %s: %w", policy.partitionedTable, name, err)
+	policies := nonTransactionalIndexPolicies[name]
+	usePartitionedPath := len(policies) > 0
+	partitionStates := make(map[string]bool)
+	for _, policy := range policies {
+		if policy.partitionedTable == "" {
+			usePartitionedPath = false
+			break
 		}
-		if partitioned {
+		partitioned, ok := partitionStates[policy.partitionedTable]
+		if !ok {
+			var err error
+			partitioned, err = pgpartition.IsPartitioned(ctx, db, policy.partitionedTable)
+			if err != nil {
+				return fmt.Errorf("check %s partition state for migration %s: %w", policy.partitionedTable, name, err)
+			}
+			partitionStates[policy.partitionedTable] = partitioned
+		}
+		if !partitioned {
+			usePartitionedPath = false
+			break
+		}
+	}
+	if usePartitionedPath {
+		for _, policy := range policies {
 			if policy.partitionedIndexExpr != "" {
 				if err := createPartitionedIndexConcurrently(ctx, db, policy); err != nil {
 					return fmt.Errorf("apply migration %s (partitioned online index): %w", name, err)
 				}
-				return nil
+				continue
+			}
+			if policy.partitionedFallbackDDL == "" {
+				return fmt.Errorf("apply migration %s: partitioned index policy %s has no DDL", name, policy.indexName)
 			}
 			if _, err := db.ExecContext(ctx, policy.partitionedFallbackDDL); err != nil {
 				return fmt.Errorf("apply migration %s (partitioned fallback): %w", name, err)
 			}
-			return nil
 		}
+		return nil
 	}
 
 	if err := prepareNonTransactionalMigration(ctx, db, name); err != nil {
@@ -405,22 +446,18 @@ func applyNonTransactionalMigration(ctx context.Context, db migrationDB, name, c
 }
 
 func prepareNonTransactionalMigration(ctx context.Context, db migrationDB, name string) error {
-	if name == usageLogsEffectiveModelIndexesMigration {
-		for _, indexName := range []string{usageLogsEffectiveRequestedModelIndex, usageLogsEffectiveUpstreamModelIndex} {
-			if err := dropInvalidIndexIfPresent(ctx, db, indexName); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
 	if name == paymentOrdersOutTradeNoUniqueMigration {
 		return preparePaymentOrdersOutTradeNoUniqueMigration(ctx, db)
 	}
-	policy, ok := nonTransactionalIndexPolicies[name]
-	if !ok || policy.indexName == "" {
-		return nil
+	for _, policy := range nonTransactionalIndexPolicies[name] {
+		if policy.indexName == "" {
+			continue
+		}
+		if err := dropInvalidIndexIfPresent(ctx, db, policy.indexName); err != nil {
+			return err
+		}
 	}
-	return dropInvalidIndexIfPresent(ctx, db, policy.indexName)
+	return nil
 }
 
 func preparePaymentOrdersOutTradeNoUniqueMigration(ctx context.Context, db migrationDB) error {
