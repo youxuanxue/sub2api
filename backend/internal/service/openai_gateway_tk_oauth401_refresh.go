@@ -41,3 +41,28 @@ func (s *OpenAIGatewayService) tryRefreshOpenAI401Token(ctx context.Context, acc
 	slog.Info("openai_oauth_401_force_refresh_retry", "account_id", account.ID)
 	return token, true
 }
+
+// recoverOpenAIWS401AccessToken 是 WS 握手 401 的唯一注入。它复用
+// tryRefreshOpenAI401Token，并把新 token 写回 Authorization，避免 HTTP / WS
+// 各写一份刷新逻辑。
+func (s *OpenAIGatewayService) recoverOpenAIWS401AccessToken(
+	ctx context.Context,
+	account *Account,
+	statusCode int,
+	respBody []byte,
+	headers http.Header,
+) (http.Header, string, bool) {
+	if statusCode != http.StatusUnauthorized {
+		return headers, "", false
+	}
+	token, ok := s.tryRefreshOpenAI401Token(ctx, account, respBody)
+	if !ok {
+		return headers, "", false
+	}
+	refreshed := cloneHeader(headers)
+	if refreshed == nil {
+		refreshed = make(http.Header)
+	}
+	refreshed.Set("Authorization", "Bearer "+token)
+	return refreshed, token, true
+}

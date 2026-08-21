@@ -6805,17 +6805,42 @@
       "path": "backend/internal/service/openai_gateway_tk_oauth401_refresh.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) tryRefreshOpenAI401Token(ctx context.Context, account *Account, respBody []byte) (string, bool)",
-        "s.openAITokenProvider.ForceRefresh(ctx, account)"
+        "func (s *OpenAIGatewayService) recoverOpenAIWS401AccessToken(",
+        "s.openAITokenProvider.ForceRefresh(ctx, account)",
+        "s.tryRefreshOpenAI401Token(ctx, account, respBody)"
       ],
-      "rationale": "TokenKey companion that owns the OpenAI OAuth 401 force-refresh seam. The classifier lives with ForceRefresh so permanent-auth 401s never refresh."
+      "rationale": "TokenKey companion that owns the OpenAI OAuth 401 force-refresh seam. HTTP calls tryRefresh; WS handshake must go through recoverOpenAIWS401AccessToken so it cannot grow a second refresh owner."
     },
     {
       "path": "backend/internal/service/openai_token_provider_tk_force_refresh.go",
       "must_contain": [
         "func tkIsPermanentOpenAIAuth401(body []byte) bool",
-        "func tkIsRecoverableOpenAI401(statusCode int, body []byte) bool"
+        "func tkIsRecoverableOpenAI401(statusCode int, body []byte) bool",
+        "func (p *OpenAITokenProvider) awaitForceRefreshWinner(ctx context.Context, account *Account) (*Account, error)",
+        "if result.LockHeld {"
       ],
-      "rationale": "Single classifier for permanent vs recoverable OpenAI 401. HandleUpstreamError and the in-request retry must not maintain a second copy of token_revoked / Unauthorized."
+      "rationale": "Single classifier for permanent vs recoverable OpenAI 401, and LockHeld must wait for the in-flight RefreshNow winner instead of returning a refresh failure that SetError can take as a permanent disable."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_v2_passthrough_adapter.go",
+      "must_contain": [
+        "s.recoverOpenAIWS401AccessToken(ctx, account, statusCode, responseBody, headers)"
+      ],
+      "rationale": "WS passthrough handshake 401 must share tryRefresh via recoverOpenAIWS401AccessToken. Dropping this hook leaves Codex WS users on the stale token while HTTP already recovered."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder_v2.go",
+      "must_contain": [
+        "s.recoverOpenAIWS401AccessToken(ctx, account, statusCode, responseBody, wsHeaders)"
+      ],
+      "rationale": "HTTP-to-WS v2 acquire 401 must retry with the same 401 refresh owner. This is the Codex responses websocket pool path."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder_ingress.go",
+      "must_contain": [
+        "s.recoverOpenAIWS401AccessToken(ctx, account, statusCode, responseBody, baseAcquireReq.Headers)"
+      ],
+      "rationale": "Native WS ingress acquire 401 must update baseAcquireReq.Headers from the same recover owner so later turns do not keep the rejected token."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",

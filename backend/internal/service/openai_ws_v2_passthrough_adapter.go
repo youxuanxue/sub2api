@@ -838,6 +838,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 
 	agentTaskRecoveryTried := false
+	oauth401RefreshTried := false
 	var upstreamConn openAIWSClientConn
 	statusCode := 0
 	var handshakeHeaders http.Header
@@ -864,6 +865,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				return fmt.Errorf("agent identity task recovery failed: %w", recoveryErr)
 			}
 			continue
+		}
+		if !oauth401RefreshTried {
+			if newHeaders, _, ok := s.recoverOpenAIWS401AccessToken(ctx, account, statusCode, responseBody, headers); ok {
+				oauth401RefreshTried = true
+				headers = newHeaders
+				continue
+			}
 		}
 		logOpenAIWSV2Passthrough(
 			"relay_dial_failed account_id=%d status_code=%d err=%s",
