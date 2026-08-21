@@ -6844,6 +6844,8 @@
       "path": "backend/internal/service/antigravity_gateway_retry.go",
       "must_contain": [
         "func resolveAntigravityForwardBaseURL(account *Account) string",
+        "antigravity.ProdBaseURL()",
+        "antigravity.DailyBaseURL()",
         "antigravity.IsPaidPlanType(plan)"
       ],
       "rationale": "Paid Antigravity accounts must resolve daily from the antigravity plan-type owner. A local Pro/Ultra list would drift from TierIDToPlanType."

@@ -111,19 +111,16 @@ func (s *stubAntigravityAccountRepo) UpdateExtra(ctx context.Context, id int64, 
 func TestAntigravityRetryLoop_NoURLFallback_UsesConfiguredBaseURL(t *testing.T) {
 	t.Setenv(antigravityForwardBaseURLEnv, "")
 
-	oldBaseURLs := append([]string(nil), antigravity.BaseURLs...)
 	oldAvailability := antigravity.DefaultURLAvailability
 	defer func() {
-		antigravity.BaseURLs = oldBaseURLs
 		antigravity.DefaultURLAvailability = oldAvailability
 	}()
 
-	base1 := "https://ag-1.test"
-	base2 := "https://ag-2.test"
-	antigravity.BaseURLs = []string{base1, base2}
+	prod := antigravity.ProdBaseURL()
+	daily := antigravity.DailyBaseURL()
 	antigravity.DefaultURLAvailability = antigravity.NewURLAvailability(time.Minute)
 
-	upstream := &stubAntigravityUpstream{firstBase: base1, secondBase: base2}
+	upstream := &stubAntigravityUpstream{firstBase: prod, secondBase: daily}
 	account := &Account{
 		ID:          1,
 		Name:        "acc-1",
@@ -159,12 +156,12 @@ func TestAntigravityRetryLoop_NoURLFallback_UsesConfiguredBaseURL(t *testing.T) 
 	require.True(t, handleErrorCalled)
 	require.Len(t, upstream.calls, antigravityMaxRetries)
 	for _, callURL := range upstream.calls {
-		require.True(t, strings.HasPrefix(callURL, base1))
+		require.True(t, strings.HasPrefix(callURL, prod))
 	}
 
 	available := antigravity.DefaultURLAvailability.GetAvailableURLs()
 	require.NotEmpty(t, available)
-	require.Equal(t, base1, available[0])
+	require.Contains(t, available, prod)
 }
 
 // TestHandleUpstreamError_429_ModelRateLimit 测试 429 模型限流场景
@@ -1013,7 +1010,7 @@ func TestIsAntigravityAccountSwitchError(t *testing.T) {
 	}
 }
 
-func TestResolveAntigravityForwardBaseURL_DefaultDaily(t *testing.T) {
+func TestResolveAntigravityForwardBaseURL_IgnoresBaseURLsOrder(t *testing.T) {
 	t.Setenv(antigravityForwardBaseURLEnv, "")
 
 	oldBaseURLs := append([]string(nil), antigravity.BaseURLs...)
@@ -1021,12 +1018,9 @@ func TestResolveAntigravityForwardBaseURL_DefaultDaily(t *testing.T) {
 		antigravity.BaseURLs = oldBaseURLs
 	}()
 
-	prodURL := "https://prod.test"
-	dailyURL := "https://daily.test"
-	antigravity.BaseURLs = []string{dailyURL, prodURL}
-
-	resolved := resolveAntigravityForwardBaseURL(nil)
-	require.Equal(t, dailyURL, resolved)
+	antigravity.BaseURLs = []string{"https://daily.test", "https://prod.test"}
+	require.Equal(t, antigravity.ProdBaseURL(), resolveAntigravityForwardBaseURL(nil),
+		"打乱 BaseURLs 顺序不得把默认可调度端点改成 daily")
 }
 
 func TestAntigravityAccountSwitchError_Error(t *testing.T) {

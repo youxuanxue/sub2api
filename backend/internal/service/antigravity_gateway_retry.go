@@ -54,22 +54,15 @@ type antigravityRetryLoopResult struct {
 
 // resolveAntigravityForwardBaseURL 解析转发用 base URL。
 //
-// 默认使用生产端点 cloudcode-pa.googleapis.com（antigravity.BaseURLs 的首个地址）。
-// Google AI Pro / Ultra（g1-pro-tier / g1-ultra-tier）走官方 daily 端点，
-// 与 Antigravity IDE 一致；免费档仍走 prod，避免再回归 #3611 / #2962
-// （生产 token 打 daily → Invalid bearer）。
+// 默认使用 ProdBaseURL()（cloudcode-pa.googleapis.com）。
+// Google AI Pro / Ultra 走 DailyBaseURL()，与 Antigravity IDE 一致；
+// 免费档仍走 prod，避免再回归 #3611 / #2962（生产 token 打 daily → Invalid bearer）。
+// 端点字符串只读这两个 owner，不从 BaseURLs 下标推断。
 //
 // GATEWAY_ANTIGRAVITY_FORWARD_BASE_URL=daily|sandbox|prod 可强制覆盖。
 func resolveAntigravityForwardBaseURL(account *Account) string {
-	baseURLs := antigravity.BaseURLs
-	if len(baseURLs) == 0 {
-		return ""
-	}
-	prod := baseURLs[0]
-	daily := prod
-	if len(baseURLs) > 1 {
-		daily = baseURLs[1]
-	}
+	prod := antigravity.ProdBaseURL()
+	daily := antigravity.DailyBaseURL()
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv(antigravityForwardBaseURLEnv)))
 	switch mode {
 	case "daily", "sandbox":
