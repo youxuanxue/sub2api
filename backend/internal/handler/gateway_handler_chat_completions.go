@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
@@ -46,7 +47,11 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	// Read request body
 	body, err := readLenientJSONRequestBodyWithPrealloc(c.Request, h.cfg)
 	if err != nil {
-		writeReadRequestBodyError(c, err, h.chatCompletionsErrorResponse)
+		if maxErr, ok := extractMaxBytesError(err); ok {
+			h.chatCompletionsErrorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+			return
+		}
+		h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
 		return
 	}
 
@@ -62,12 +67,6 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		logRequestBodyParseFailure(reqLog, body, nil)
 		h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
-	}
-
-	if h.settingService != nil {
-		if normalized, _, changed, err := h.settingService.NormalizeOpenRouterProviderChatBody(c.Request.Context(), apiKey.ID, subject.UserID, body); err == nil && changed {
-			body = normalized
-		}
 	}
 
 	// Extract model and stream
@@ -93,7 +92,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
 
-	setOpsRequestModelAndBody(c, reqModel, reqStream, body)
+	setOpsRequestContext(c, reqModel, reqStream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 	pricingCtx, pricingAt := service.WithGatewayTokenRequestPricing(c.Request.Context())
 	c.Request = c.Request.WithContext(pricingCtx)
@@ -101,24 +100,11 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 
-	// Claude Code only restriction.
-	// TK: when a CC-only group declares a valid fallback_group_id, route non-CC
-	// OpenAI-compat traffic to that fallback group instead of hard-403'ing (see
-	// gateway_handler_tk_cc_only_fallback.go). No/invalid fallback keeps the 403.
+	// Claude Code only restriction
 	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
-		writeForbidden := func() {
-			h.chatCompletionsErrorResponse(c, http.StatusForbidden, "permission_error", tkCCOnlyForbiddenMessage)
-		}
-		writeBillingError := func(status int, code, message string) {
-			h.chatCompletionsErrorResponse(c, status, code, message)
-		}
-		fallbackAPIKey, handled := h.tkResolveCCOnlyFallback(c, apiKey, reqLog, writeForbidden, writeBillingError)
-		if handled {
-			return
-		}
-		apiKey = fallbackAPIKey
-		// Re-resolve channel-level model mapping against the fallback group.
-		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+		h.chatCompletionsErrorResponse(c, http.StatusForbidden, "permission_error",
+			"This group is restricted to Claude Code clients (/v1/messages only)")
+		return
 	}
 
 	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIChat, reqModel, body); decision != nil && !decision.AllowNextStage {
@@ -163,46 +149,43 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	if parsedReq == nil {
 		parsedReq = &service.ParsedRequest{Model: reqModel, Stream: reqStream, Body: bodyRef}
 	}
-	reasoningEffort := service.ExtractChatCompletionsReasoningEffortFromBody(body)
-	if service.OpenAIReasoningEnablesThinking(reasoningEffort, body) {
-		parsedReq.ThinkingEnabled = true
+	parsedReq.SessionContext = &service.SessionContext{
+		ClientIP:  ip.GetClientIP(c),
+		UserAgent: c.GetHeader("User-Agent"),
+		APIKeyID:  apiKey.ID,
 	}
-	c.Request = c.Request.WithContext(service.WithThinkingEnabled(
-		c.Request.Context(), parsedReq.ThinkingEnabled, h.metadataBridgeEnabled(),
-	))
-	TkPrepareParsedRequestSessionInputs(c, apiKey, parsedReq)
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
 	groupPlatform := effectiveAPIKeyPlatform(c, apiKey)
-	groupUsesGeminiCompat := service.UsesGeminiNativeOpenAICompat(groupPlatform, reqModel)
 	selectionSessionHash := sessionHash
-	if groupUsesGeminiCompat && selectionSessionHash != "" {
+	if groupPlatform == service.PlatformGemini && selectionSessionHash != "" {
 		selectionSessionHash = "gemini:" + selectionSessionHash
 	}
 	// 3. Account selection + failover loop
 	fs := NewFailoverState(h.maxAccountSwitches, false)
-	if groupUsesGeminiCompat {
+	if groupPlatform == service.PlatformGemini {
 		fs = NewFailoverState(h.maxAccountSwitchesGemini, false)
 	}
 
 	for {
-		routingStart := time.Now()
 		if c.Request.Context().Err() != nil {
 			return
 		}
 		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, selectionSessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
 		if err != nil {
 			if len(fs.FailedAccountIDs) == 0 {
-				// TK: an unservable model NAME (e.g. "gpt"/"opus" to an anthropic group)
-				// surfaces service.ErrUnsupportedModel → 400 invalid_request_error, not an
-				// empty-pool 429 retry signal that SDKs retry-storm (no_available_accounts_tk.go).
-				// Converges this anthropic-platform compat entry point with OpenAIGateway and the
-				// native /v1/messages path; empty-pool stays 429 (#575 parity), real faults 503.
-				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, reqModel)
-				h.chatCompletionsErrorResponse(c, tkStatus, tkType, tkMsg)
+				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, groupPlatform)
+				cls = classifySelectionFailureError(err, cls)
+				if !cls.ModelNotFound {
+					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+				}
+				message := cls.Message
+				if !cls.ModelNotFound {
+					message = "No available accounts: " + err.Error()
+				}
+				h.chatCompletionsErrorResponse(c, cls.Status, cls.ErrType, message)
 				return
 			}
-			action := fs.HandleSelectionExhausted(c.Request.Context(), errors.Is(err, service.ErrThinPoolAllExcluded))
+			action := fs.HandleSelectionExhausted(c.Request.Context())
 			switch action {
 			case FailoverContinue:
 				continue
@@ -213,8 +196,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				if fs.LastFailoverErr != nil {
 					h.handleCCFailoverExhausted(c, fs.LastFailoverErr, streamStarted)
 				} else {
-					h.chatCompletionsErrorResponse(c, http.StatusBadGateway, "server_error",
-						service.GatewayFailoverClientMessage(http.StatusBadGateway))
+					h.chatCompletionsErrorResponse(c, http.StatusBadGateway, "server_error", "All available accounts exhausted")
 				}
 				return
 			}
@@ -227,7 +209,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		if !selection.Acquired {
 			if selection.WaitPlan == nil {
 				markOpsRoutingCapacityLimited(c)
-				h.chatCompletionsErrorResponse(c, tkNoAvailableAccounts(c), "api_error", "No available accounts")
+				h.chatCompletionsErrorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
 				return
 			}
 			accountReleaseFunc, err = h.concurrencyHelper.AcquireAccountSlotWithWaitTimeout(
@@ -275,26 +257,16 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			fs.FailedAccountIDs[account.ID] = struct{}{}
 			continue
 		}
-		if groupPlatform == service.PlatformAntigravity && account.Platform != service.PlatformAntigravity {
-			if accountReleaseFunc != nil {
-				accountReleaseFunc()
-			}
-			fs.FailedAccountIDs[account.ID] = struct{}{}
-			continue
-		}
-
-		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 
 		// 5. Forward request
 		writerSizeBeforeForward := c.Writer.Size()
-		forwardStart := time.Now()
 		forwardBody := body
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
 		var result *service.ForwardResult
 		setActualUpstreamEndpoint(c, "")
-		if service.UsesGeminiNativeOpenAICompat(account.Platform, reqModel) {
+		if account.Platform == service.PlatformGemini {
 			if h.geminiCompatService == nil {
 				h.chatCompletionsErrorResponse(c, http.StatusBadGateway, "upstream_error", "Gemini compatibility service is not configured")
 				if accountReleaseFunc != nil {
@@ -316,7 +288,6 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		} else {
 			result, err = h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
 		}
-		tkRecordForwardResponseTail(c, forwardStart)
 
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
@@ -352,14 +323,10 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				zap.Bool("upstream_error_response_already_written", upstreamErrorAlreadyCommunicated),
 				zap.Error(err),
 			)
-			// TK: passive availability failure tap (R-004 — extracts upstream HTTP status from UpstreamFailoverError)
-			TkRecordFailureFromErr(h.gatewayService, c.Request.Context(), account.Platform, reqModel, account.ID, err)
 			return
 		}
 
 		// 6. Record usage
-		setOpsClaudeUsageContext(c, result.Usage)
-		setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
 		requestPayloadHash := service.HashUsageRequestPayload(body)
@@ -368,7 +335,6 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		sessionID := service.ExtractClientSessionID(c)
-		gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 				Result:             result,
@@ -385,7 +351,6 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				RequestPayloadHash: requestPayloadHash,
 				APIKeyService:      h.apiKeyService,
 				SessionID:          sessionID,
-				GatewayLatencyMs:   gatewayLatencyMs,
 				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
 			}); err != nil {
 				reqLog.Error("gateway.cc.record_usage_failed",
@@ -421,6 +386,14 @@ func (h *GatewayHandler) handleCCFailoverExhausted(c *gin.Context, lastErr *serv
 		h.chatCompletionsErrorResponse(c, status, "server_error", message)
 		return
 	}
+	if lastErr != nil && lastErr.IsOpenAICapacityShed() && strings.TrimSpace(lastErr.ClientMessage) != "" {
+		status := lastErr.ClientStatusCode
+		if status <= 0 {
+			status = http.StatusServiceUnavailable
+		}
+		h.chatCompletionsErrorResponse(c, status, "server_error", lastErr.ClientMessage)
+		return
+	}
 	statusCode := http.StatusBadGateway
 	if lastErr != nil && lastErr.StatusCode > 0 {
 		statusCode = lastErr.StatusCode
@@ -430,12 +403,5 @@ func (h *GatewayHandler) handleCCFailoverExhausted(c *gin.Context, lastErr *serv
 		h.chatCompletionsErrorResponse(c, http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage())
 		return
 	}
-	message := service.GatewayFailoverClientMessage(statusCode)
-	if lastErr != nil && lastErr.ClientStatusCode > 0 {
-		statusCode = lastErr.ClientStatusCode
-		if lastErr.ClientMessage != "" {
-			message = lastErr.ClientMessage
-		}
-	}
-	h.chatCompletionsErrorResponse(c, statusCode, "server_error", message)
+	h.chatCompletionsErrorResponse(c, statusCode, "server_error", "All available accounts exhausted")
 }

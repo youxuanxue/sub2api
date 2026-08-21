@@ -36,7 +36,7 @@ func tkApplyResponsesDispatchModelMapping(
 		return forwardBody
 	}
 	currentModel := gjson.GetBytes(forwardBody, "model").String()
-	mapped := resolveOpenAIMessagesDispatchMappedModel(apiKey, currentModel)
+	mapped := resolveOpenAIMessagesDispatchMappedModel(nil, apiKey, currentModel)
 	if mapped == "" || mapped == currentModel {
 		return forwardBody
 	}

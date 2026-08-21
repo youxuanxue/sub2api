@@ -115,18 +115,4 @@ func filterOpenAICompatPoolMembers(accounts []Account, groupPlatform string) []A
 	return filtered
 }
 
-// listSchedulableAccounts is the legacy entrypoint preserved for callers that
-// have not (yet) been threaded with groupPlatform. New code paths SHOULD call
-// listOpenAICompatSchedulableAccounts directly with the resolved platform —
-// see docs/approved/newapi-as-fifth-platform.md §3.1 U1 / §3.2.
-func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, groupPlatform string) ([]Account, error) {
-	accounts, err := s.listOpenAICompatSchedulableAccounts(ctx, groupID, groupPlatform)
-	if err != nil {
-		return nil, fmt.Errorf("query accounts failed: %w", err)
-	}
-	accounts = s.filterOpenAIAccountsBySchedulingThreshold(ctx, accounts)
-	if groupPlatform == PlatformGrok {
-		accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
-	}
-	return accounts, nil
-}
+

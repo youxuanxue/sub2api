@@ -84,6 +84,24 @@ func TestIsGrokContentPolicyRejection(t *testing.T) {
 			want:   true,
 		},
 		{
+			name:   "permission-denied usage guidelines is request scoped",
+			status: http.StatusForbidden,
+			body:   `{"code":"permission-denied","error":"Content violates usage guidelines. "}`,
+			want:   true,
+		},
+		{
+			name:   "permission-denied entitlement stays on the account path",
+			status: http.StatusForbidden,
+			body:   `{"code":"permission-denied","error":"Access to the chat endpoint is denied"}`,
+			want:   false,
+		},
+		{
+			name:   "structured account code overrides usage guidelines phrase",
+			status: http.StatusForbidden,
+			body:   `{"error":{"code":"account_suspended","message":"Content violates usage guidelines."}}`,
+			want:   false,
+		},
+		{
 			name:   "wrong status",
 			status: http.StatusBadRequest,
 			body:   `{"error":{"code":"new_sensitive"}}`,
@@ -279,26 +297,36 @@ func TestGrokContentPolicySSEErrorDoesNotMutateOrFailover(t *testing.T) {
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
 
-func TestShouldFailoverGrokUpstreamErrorEntitlement403Terminal(t *testing.T) {
-	svc := &OpenAIGatewayService{}
-	body := []byte(`{"code":"forbidden","error":"You have either run out of available resources or do not have an active Grok subscription."}`)
+func TestGrokPermissionDeniedContentRefusalDoesNotMutateOrFailover(t *testing.T) {
+	repo := &grokQuotaAccountRepo{}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	account := &Account{ID: 4785, Platform: PlatformGrok, Type: AccountTypeOAuth}
+	body := []byte(`{"code":"permission-denied","error":"Content violates usage guidelines. "}`)
+
+	svc.handleGrokAccountUpstreamError(context.Background(), account, http.StatusForbidden, nil, body)
+
+	require.Zero(t, repo.tempUnschedCalls)
+	require.Zero(t, repo.rateLimitedCalls)
+	require.Zero(t, repo.updateCalls)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 	require.False(t, svc.shouldFailoverGrokUpstreamError(http.StatusForbidden, body))
 }
 
-func TestHandleGrokAccountUpstreamErrorEntitlement403QuarantinesAccount(t *testing.T) {
+func TestHandleGrokAccountUpstreamErrorEntitlement403KeepsDefaultCooldown(t *testing.T) {
 	repo := &grokQuotaAccountRepo{}
 	svc := &OpenAIGatewayService{accountRepo: repo}
 	account := &Account{ID: 4716, Platform: PlatformGrok, Type: AccountTypeOAuth}
 	before := time.Now()
-	body := []byte(`{"code":"forbidden","error":"You have either run out of available resources or do not have an active Grok subscription."}`)
 
-	svc.handleGrokAccountUpstreamError(context.Background(), account, http.StatusForbidden, nil, body)
+	svc.handleGrokAccountUpstreamError(
+		context.Background(), account, http.StatusForbidden, nil,
+		[]byte(`{"error":{"message":"subscription required"}}`),
+	)
 
 	require.Equal(t, 1, repo.tempUnschedCalls)
 	require.Equal(t, "grok access or entitlement denied", repo.lastTempUnschedReason)
-	require.Greater(t, repo.lastTempUnschedUntil, before.Add(23*time.Hour))
-	require.Less(t, repo.lastTempUnschedUntil, before.Add(25*time.Hour))
-	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Greater(t, repo.lastTempUnschedUntil, before.Add(29*time.Minute))
+	require.Less(t, repo.lastTempUnschedUntil, before.Add(31*time.Minute))
 }
 
 func TestHandleGrokAccountUpstreamErrorDefaultCooldownsRespectPoolMode(t *testing.T) {

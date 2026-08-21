@@ -221,6 +221,49 @@ func normalizeOpenAIWSTerminalEvent(eventType string) string {
 	}
 }
 
+// markOpenAIWSClientVisibleFailure records only terminal/error protocol events
+// that were delivered to the client. Callers invoke it only after any hidden
+// failover/recovery decision and a successful downstream write.
+func markOpenAIWSClientVisibleFailure(c *gin.Context, eventType string, payload []byte) {
+	eventType = strings.TrimSpace(eventType)
+	if eventType != "error" && eventType != "response.failed" {
+		return
+	}
+	prefix := "error"
+	if eventType == "response.failed" {
+		prefix = "response.error"
+	}
+	code := strings.TrimSpace(gjson.GetBytes(payload, prefix+".code").String())
+	errType := strings.TrimSpace(gjson.GetBytes(payload, prefix+".type").String())
+	message := strings.TrimSpace(gjson.GetBytes(payload, prefix+".message").String())
+	if eventType == "response.failed" && code == "" && errType == "" && message == "" {
+		prefix = "error"
+		code = strings.TrimSpace(gjson.GetBytes(payload, prefix+".code").String())
+		errType = strings.TrimSpace(gjson.GetBytes(payload, prefix+".type").String())
+		message = strings.TrimSpace(gjson.GetBytes(payload, prefix+".message").String())
+	}
+	status := int(gjson.GetBytes(payload, prefix+".status_code").Int())
+	if status == 0 {
+		status = int(gjson.GetBytes(payload, prefix+".status").Int())
+	}
+	if status == 0 && eventType == "error" {
+		status = int(gjson.GetBytes(payload, "status").Int())
+	}
+	if status == 0 {
+		status = openAIWSErrorHTTPStatusFromRaw(code, errType)
+	}
+	if errType == "" {
+		errType = "upstream_error"
+	}
+	if code == "" {
+		code = strings.ReplaceAll(eventType, ".", "_")
+	}
+	if message == "" {
+		message = "upstream websocket request failed"
+	}
+	MarkOpsStreamFailure(c, errType, code, message, status)
+}
+
 func openAIWSPayloadTransientStatus(payload []byte) int {
 	if len(payload) == 0 {
 		return 0
@@ -270,10 +313,7 @@ func (s *OpenAIGatewayService) handleOpenAIWSTerminalTransientFailure(ctx contex
 	if terminalEvent != "response.failed" {
 		return terminalEvent
 	}
-	status := openAIWSPayloadTransientStatus(payload)
-	if status != 0 {
-		s.handleOpenAIAccountUpstreamError(ctx, account, status, headers, payload, canonicalModel)
-	}
+	s.handleOpenAIWSFailureAccountSideEffects(ctx, account, canonicalModel, headers, payload)
 	return terminalEvent
 }
 
@@ -286,6 +326,32 @@ func (s *OpenAIGatewayService) handleOpenAIWSErrorEventTransientFailure(ctx cont
 	if status != 0 {
 		s.handleOpenAIAccountUpstreamError(ctx, account, status, headers, payload, canonicalModel)
 	}
+}
+
+// handleOpenAIWSFailureAccountSideEffects applies both structured credential
+// failures and transient failures. Its return value lets stream callers avoid
+// applying the same transition twice for an error/response.failed pair.
+func (s *OpenAIGatewayService) handleOpenAIWSFailureAccountSideEffects(ctx context.Context, account *Account, canonicalModel string, headers http.Header, payload []byte) bool {
+	message := extractOpenAISSEErrorMessage(payload)
+	status := openAIStreamFailureStatus(payload, message)
+	switch status {
+	case http.StatusUnauthorized, http.StatusTooManyRequests, 529:
+		s.handleOpenAIStreamTerminalAccountSideEffects(nil, account, payload, message, headers)
+		return true
+	case http.StatusForbidden:
+		if !openAIStream403AccountFailure(payload, message) {
+			return false
+		}
+		s.handleOpenAIStreamTerminalAccountSideEffects(nil, account, payload, message, headers)
+		return true
+	}
+
+	status = openAIWSPayloadTransientStatus(payload)
+	if status == 0 {
+		return false
+	}
+	s.handleOpenAIAccountUpstreamError(ctx, account, status, headers, payload, canonicalModel)
+	return true
 }
 
 func (s *OpenAIGatewayService) handleOpenAIWSDialTransientFailure(ctx context.Context, account *Account, canonicalModel string, err error) {
@@ -318,47 +384,6 @@ func isOpenAIWSTokenEvent(eventType string) bool {
 	// 不能把它们当作 token event，否则当上游没有可识别的 delta 时，
 	// firstTokenMs 会被填到终止时刻，等于把"总耗时"误报为"首 token 延迟"。
 	return false
-}
-
-// isOpenAIWSReasoningProgressEvent reports client-visible reasoning progress that
-// is not necessarily a billable/answer token event. Structure frames such as
-// output_item.added(type=reasoning) and reasoning_summary_part.* must reach the
-// client immediately so UIs do not stall during long upstream thinking.
-func isOpenAIWSReasoningProgressEvent(eventType string, message []byte) bool {
-	eventType = strings.TrimSpace(eventType)
-	if eventType == "" {
-		return false
-	}
-	switch {
-	case strings.HasPrefix(eventType, "response.reasoning_summary"),
-		strings.HasPrefix(eventType, "response.reasoning_text"),
-		strings.HasPrefix(eventType, "response.reasoning."):
-		return true
-	case eventType == "response.output_item.added", eventType == "response.output_item.done":
-		return strings.TrimSpace(gjson.GetBytes(message, "item.type").String()) == "reasoning"
-	default:
-		return false
-	}
-}
-
-// openAIWSShouldBufferPreTokenStreamEvent keeps only the early preamble buffered
-// before the first client-visible progress so early-disconnect failover stays
-// transparent. Reasoning structure frames and token/terminal events flush.
-func openAIWSShouldBufferPreTokenStreamEvent(eventType string, message []byte, firstTokenMs *int, isTokenEvent, isTerminalEvent bool) bool {
-	if firstTokenMs != nil || isTokenEvent || isTerminalEvent {
-		return false
-	}
-	if isOpenAIWSReasoningProgressEvent(eventType, message) {
-		return false
-	}
-	return true
-}
-
-// openAIWSMarksClientVisibleProgress is true for the first downstream-visible
-// semantic progress used by TTFT / first-output disarm. Structure-only
-// reasoning frames count; they are not billed as answer tokens.
-func openAIWSMarksClientVisibleProgress(eventType string, message []byte) bool {
-	return isOpenAIWSTokenEvent(eventType) || isOpenAIWSReasoningProgressEvent(eventType, message)
 }
 
 func replaceOpenAIWSMessageModel(message []byte, fromModel, toModel string) []byte {
@@ -527,9 +552,11 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 		return 0, nil, "", nil
 	}
-	// 非 WSv2 场景（如 force_http/全局关闭）不应使用 previous_response_id 粘连，
-	// 以保持“回滚到 HTTP”后的历史行为一致性。
-	if s.getOpenAIWSProtocolResolver().Resolve(account).Transport != OpenAIUpstreamTransportResponsesWebsocketV2 {
+	// OAuth/SetupToken continuation state lives on the WSv2 session and cannot
+	// survive an HTTP fallback. Official API-key Responses HTTP requests are
+	// different: previous_response_id is supported by the provider and scoped to
+	// the selected key/project, so the response-id binding must retain that key.
+	if !account.IsOpenAIApiKey() && s.getOpenAIWSProtocolResolver().Resolve(account).Transport != OpenAIUpstreamTransportResponsesWebsocketV2 {
 		return 0, nil, "", nil
 	}
 	if shouldClearStickySession(account, requestedModel) || !account.IsOpenAI() || !account.IsSchedulable() {
@@ -544,9 +571,6 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 		return 0, nil, "", nil
 	}
 	if !account.SupportsOpenAIEndpointCapability(requiredCapability) {
-		return 0, nil, "", nil
-	}
-	if !s.isAccountSchedulableForOpenAIWindow(ctx, account, true) {
 		return 0, nil, "", nil
 	}
 	// Quota auto-pause must also gate the previous_response_id sticky path; otherwise an
@@ -580,9 +604,6 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 			return 0, nil, "", nil
 		}
 		if !latest.SupportsOpenAIEndpointCapability(requiredCapability) {
-			return 0, nil, "", nil
-		}
-		if !s.isAccountSchedulableForOpenAIWindow(ctx, latest, true) {
 			return 0, nil, "", nil
 		}
 		if paused, _ := shouldAutoPauseOpenAIAccountByQuota(ctx, latest); paused {
@@ -656,26 +677,26 @@ func isOpenAIWSRateLimitError(codeRaw, errTypeRaw, msgRaw string) bool {
 	return false
 }
 
-func (s *OpenAIGatewayService) persistOpenAIWSRateLimitSignal(ctx context.Context, account *Account, headers http.Header, responseBody []byte, codeRaw, errTypeRaw, msgRaw string, requestedModel ...string) {
+func (s *OpenAIGatewayService) persistOpenAIWSRateLimitSignal(ctx context.Context, account *Account, headers http.Header, responseBody []byte, codeRaw, errTypeRaw, msgRaw string) {
 	if s == nil || s.rateLimitService == nil || account == nil || account.Platform != PlatformOpenAI {
 		return
 	}
 	if !isOpenAIWSRateLimitError(codeRaw, errTypeRaw, msgRaw) {
 		return
 	}
-	if len(requestedModel) > 0 && strings.TrimSpace(requestedModel[0]) != "" {
-		s.handleOpenAIAccountUpstreamError(ctx, account, http.StatusTooManyRequests, headers, responseBody, requestedModel[0])
-		return
-	}
 	s.handleOpenAIAccountUpstreamError(ctx, account, http.StatusTooManyRequests, headers, responseBody)
 }
 
-func openAIWSUpstreamModelForRateLimit(account *Account, requestModel string) string {
-	model := strings.TrimSpace(requestModel)
-	if account == nil || model == "" {
-		return model
-	}
-	return account.GetMappedModel(model)
+func (s *OpenAIGatewayService) newOpenAIWSRateLimitFailoverError(account *Account, headers http.Header, responseBody []byte, message string) *UpstreamFailoverError {
+	return s.newOpenAIAccountFailoverError(
+		account,
+		http.StatusTooManyRequests,
+		headers,
+		responseBody,
+		strings.TrimSpace(message),
+		false,
+		false,
+	)
 }
 
 func classifyOpenAIWSErrorEventFromRaw(codeRaw, errTypeRaw, msgRaw string) (string, bool) {

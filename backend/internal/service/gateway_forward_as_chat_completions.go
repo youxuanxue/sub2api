@@ -43,9 +43,6 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	originalModel := ccReq.Model
 	clientStream := ccReq.Stream
 	includeUsage := ccReq.StreamOptions != nil && ccReq.StreamOptions.IncludeUsage
-	if failoverErr := antigravityOpenAICompatMessagesRelayFailover(account); failoverErr != nil {
-		return nil, failoverErr
-	}
 
 	// 2. Convert CC → Responses → Anthropic (chained conversion)
 	responsesReq, err := apicompat.ChatCompletionsToResponses(&ccReq)
@@ -58,18 +55,9 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
 	}
 
-	// 3. Upstream streaming shape. Native Anthropic upstreams are forced to SSE
-	// even for non-streaming CC clients so handleCCBufferedFromAnthropic can
-	// assemble the response. Kiro (native + prod mirror stubs relaying to edge)
-	// and Bedrock must preserve stream=false — forced SSE on multi-turn agent
-	// payloads was timing out (~32s) with upstream 502 before any content arrived;
-	// Bedrock non-stream invoke returns JSON directly.
-	reqStream := clientStream
-	anthropicReq.Stream = clientStream
-	if !tkCCPreservesKiroUpstreamStream(account, clientStream) && !account.IsBedrock() {
-		anthropicReq.Stream = true
-		reqStream = true
-	}
+	// 3. Force upstream streaming
+	anthropicReq.Stream = true
+	reqStream := true
 
 	// 4. Model mapping
 	mappedModel := originalModel
@@ -86,24 +74,8 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		if normalized != originalModel {
 			mappedModel = normalized
 		}
-	} else if mappedModel == originalModel && account.IsKiro() {
-		normalized := claude.NormalizeModelID(originalModel)
-		if normalized != originalModel {
-			mappedModel = normalized
-		}
 	}
 	anthropicReq.Model = mappedModel
-
-	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
-	// unpriced models with a 404 BEFORE forward / stream start (SSE pre-flight).
-	// OpenAI /v1/chat/completions ingress (against an anthropic account) → OPENAI
-	// 404 envelope (BLOCKER4). Judge originalModel — billing records on
-	// result.Model=originalModel here, so the gate must use billing's exact key
-	// (BLOCKER1). No-op unless account.Platform is in the enabled set. See
-	// gateway_priced_serving_gate_tk.go.
-	if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, originalModel, originalModel) {
-		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
-	}
 
 	logger.L().Debug("gateway forward_as_chat_completions: model mapping applied",
 		zap.Int64("account_id", account.ID),
@@ -124,7 +96,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	// 否则会被 Anthropic 判为第三方应用并扣 extra usage。
 	// 见 applyClaudeCodeOAuthMimicryToBody 的 godoc。
 	isClaudeCode := false
-	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode && !account.IsKiro() && !account.IsAnthropicOAuthPassthroughEnabled()
+	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode
 
 	if shouldMimicClaudeCode {
 		anthropicBody = s.applyClaudeCodeOAuthMimicryToBody(ctx, c, account, anthropicBody, anthropicReq.System, mappedModel)
@@ -132,26 +104,6 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	// 7. Enforce cache_control block limit
 	anthropicBody = enforceCacheControlLimit(anthropicBody)
-	anthropicBody = tkApplyAnthropicRequestCompatibilityRules(account, anthropicBody)
-
-	// TK: thread gemini-native image aspect ratio (extra_body.google.image_config.
-	// aspect_ratio) from the raw CC body onto the relayed Anthropic body; the antigravity
-	// Gemini transform consumes it downstream. No-op for non-image / ratio-less requests.
-	anthropicBody = tkInjectGeminiImageAspectRatio(body, anthropicBody)
-
-	if account.IsKiro() {
-		return s.forwardAsChatCompletionsViaKiro(
-			ctx, c, account, body, originalModel, mappedModel, anthropicBody,
-			clientStream, includeUsage, startTime,
-		)
-	}
-
-	if account.IsBedrock() {
-		return s.forwardAsChatCompletionsViaBedrock(
-			ctx, c, account, body, originalModel, mappedModel, anthropicBody,
-			clientStream, includeUsage, startTime,
-		)
-	}
 
 	// 8. Get access token
 	token, tokenType, err := s.GetAccessToken(ctx, account)
@@ -167,14 +119,14 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	// 10. Build upstream request
 	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
-	upstreamReq, _, err := s.buildAnthropicCompatUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
+	upstreamReq, _, err := s.buildUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
 	releaseUpstreamCtx()
 	if err != nil {
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 
 	// 11. Send request
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, resolveOpsTLSFingerprintProfile(c, s.tlsFPProfileService, account))
+	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
@@ -196,19 +148,9 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	// 12. Handle error response with failover
 	if resp.StatusCode >= 400 {
-		if IsKiroContentFilteredRelayResponse(account, resp.Header) {
-			_ = resp.Body.Close()
-			MarkOpsClientContentFiltered(c)
-			writeGatewayCCError(c, http.StatusBadRequest, "content_filter_error", KiroContentFilteredClientMessage())
-			return nil, &KiroContentFilteredError{}
-		}
 		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
-		if resp.StatusCode == http.StatusBadRequest {
-			tkRecordAnthropicSamplingParamRuleFrom400(account, mappedModel, anthropicBody, resp.StatusCode, respBody)
-			tkRecordAnthropicThinkingRuleFrom400(account, mappedModel, anthropicBody, resp.StatusCode, respBody)
-		}
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
@@ -223,23 +165,15 @@ func (s *GatewayService) ForwardAsChatCompletions(
 				Kind:               "failover",
 				Message:            upstreamMsg,
 			})
+			shouldDisable := false
 			if s.rateLimitService != nil {
-				if !s.rateLimitService.handleAntigravityRelayCapacity(
-					ctx,
-					account,
-					resp.StatusCode,
-					respBody,
-					originalModel,
-				) {
-					s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
-				}
+				shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
 			}
-			return nil, newUpstreamFailoverErrorWithTKCapacity(
-				account,
-				resp.StatusCode,
-				resp.Header,
-				respBody,
-			)
+			return nil, &UpstreamFailoverError{
+				StatusCode:             resp.StatusCode,
+				ResponseBody:           respBody,
+				RetryableOnSameAccount: !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+			}
 		}
 
 		writeGatewayCCError(c, mapUpstreamStatusCode(resp.StatusCode), "server_error", upstreamMsg)
@@ -247,7 +181,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	}
 
 	// 13. Extract reasoning effort from CC request body
-	reasoningEffort := ExtractChatCompletionsReasoningEffortFromBody(body)
+	reasoningEffort := extractCCReasoningEffortFromBody(body, mappedModel, originalModel)
 	// 国产模型默认 effort 补充：本路径是客户端 CC 请求 → Anthropic 上游，
 	// 如果上游是 passback-required 国产模型 (Kimi-anthropic / GLM-anthropic / MiniMax)
 	// 且客户端在 body 里传了 thinking.type=enabled，补中默认 effort。
@@ -259,8 +193,6 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	var handleErr error
 	if clientStream {
 		result, handleErr = s.handleCCStreamingFromAnthropic(resp, c, originalModel, mappedModel, reasoningEffort, startTime, includeUsage)
-	} else if isAnthropicMessagesJSONResponse(resp) {
-		result, handleErr = s.handleCCBufferedFromAnthropicJSON(resp, c, originalModel, mappedModel, reasoningEffort, startTime)
 	} else {
 		result, handleErr = s.handleCCBufferedFromAnthropic(resp, c, originalModel, mappedModel, reasoningEffort, startTime)
 	}
@@ -268,10 +200,10 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	return result, handleErr
 }
 
-// ExtractChatCompletionsReasoningEffortFromBody reads reasoning effort from a Chat Completions
+// extractCCReasoningEffortFromBody reads reasoning effort from a Chat Completions
 // request body. It checks both nested (reasoning.effort) and flat (reasoning_effort)
 // formats used by OpenAI-compatible clients.
-func ExtractChatCompletionsReasoningEffortFromBody(body []byte) *string {
+func extractCCReasoningEffortFromBody(body []byte, modelCandidates ...string) *string {
 	raw := strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String())
 	if raw == "" {
 		raw = strings.TrimSpace(gjson.GetBytes(body, "reasoning_effort").String())
@@ -279,7 +211,11 @@ func ExtractChatCompletionsReasoningEffortFromBody(body []byte) *string {
 	if raw == "" {
 		return nil
 	}
-	normalized := normalizeOpenAIReasoningEffort(raw)
+	model := firstNonEmpty(modelCandidates...)
+	if model == "" {
+		model = strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	}
+	normalized := normalizeOpenAIReasoningEffortForModel(raw, model)
 	if normalized == "" {
 		return nil
 	}
@@ -310,18 +246,19 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !strings.HasPrefix(line, "event: ") {
+		// SSE 规范允许 `event:xxx`（冒号后无空格）：Kimi 等 Anthropic 兼容上游
+		// 返回紧凑格式，严格匹配 "event: " 会丢弃全部事件（#4653 同根因）。
+		if _, ok := extractOpenAISSEEventLine(line); !ok {
 			continue
 		}
 
 		if !scanner.Scan() {
 			break
 		}
-		dataLine := scanner.Text()
-		if !strings.HasPrefix(dataLine, "data: ") {
+		payload, ok := extractOpenAISSEDataLine(scanner.Text())
+		if !ok {
 			continue
 		}
-		payload := dataLine[6:]
 
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
@@ -385,66 +322,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		}
 	}
 
-	return s.emitChatCompletionsFromAnthropicResponse(
-		c, resp, finalResp, originalModel, mappedModel, reasoningEffort, requestID, usage, startTime,
-	)
-}
-
-func isAnthropicMessagesJSONResponse(resp *http.Response) bool {
-	if resp == nil {
-		return false
-	}
-	return strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "application/json")
-}
-
-// handleCCBufferedFromAnthropicJSON converts a non-streaming Anthropic Messages
-// JSON body (e.g. Kiro forwardNonStreaming or edge /v1/messages stream=false)
-// into Chat Completions for the downstream client.
-func (s *GatewayService) handleCCBufferedFromAnthropicJSON(
-	resp *http.Response,
-	c *gin.Context,
-	originalModel string,
-	mappedModel string,
-	reasoningEffort *string,
-	startTime time.Time,
-) (*ForwardResult, error) {
-	requestID := resp.Header.Get("x-request-id")
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		writeGatewayCCError(c, http.StatusBadGateway, "server_error", "Upstream response read failed")
-		return nil, fmt.Errorf("read anthropic json response: %w", err)
-	}
-
-	var finalResp apicompat.AnthropicResponse
-	if err := json.Unmarshal(body, &finalResp); err != nil {
-		writeGatewayCCError(c, http.StatusBadGateway, "server_error", "Upstream returned invalid JSON")
-		return nil, fmt.Errorf("parse anthropic json response: %w", err)
-	}
-	if requestID == "" {
-		requestID = finalResp.ID
-	}
-
-	usage := ClaudeUsage{
-		InputTokens:              finalResp.Usage.InputTokens,
-		OutputTokens:             finalResp.Usage.OutputTokens,
-		CacheCreationInputTokens: finalResp.Usage.CacheCreationInputTokens,
-		CacheReadInputTokens:     finalResp.Usage.CacheReadInputTokens,
-	}
-	return s.emitChatCompletionsFromAnthropicResponse(
-		c, resp, &finalResp, originalModel, mappedModel, reasoningEffort, requestID, usage, startTime,
-	)
-}
-
-func (s *GatewayService) emitChatCompletionsFromAnthropicResponse(
-	c *gin.Context,
-	resp *http.Response,
-	finalResp *apicompat.AnthropicResponse,
-	originalModel, mappedModel string,
-	reasoningEffort *string,
-	requestID string,
-	usage ClaudeUsage,
-	startTime time.Time,
-) (*ForwardResult, error) {
+	// Chain: Anthropic → Responses → Chat Completions
 	responsesResp := apicompat.AnthropicToResponsesResponse(finalResp)
 	ccResp := apicompat.ResponsesToChatCompletions(responsesResp, originalModel)
 
@@ -455,8 +333,10 @@ func (s *GatewayService) emitChatCompletionsFromAnthropicResponse(
 	// Content-Type: text/event-stream，经 WriteFilteredHeaders 透传后会污染
 	// 响应头；而 c.Data/c.JSON 走 Gin 的 writeContentType（仅当头不存在时才设置），
 	// 无法覆盖已存在的 SSE 头。这里显式 Set 强制改回 JSON，避免下游中间层
-	// （如 new-api）按 Content-Type 误判为流式。Wei-Shaw/sub2api#1311
+	// （如 new-api）按 Content-Type 误判为流式。
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+	// Marshal then bytes-replace so tool name mapping is reversed at byte level
+	// (parity with Parrot non-stream flow that marshals → restore → emit).
 	if respBytes, err := json.Marshal(ccResp); err == nil {
 		respBytes = reverseToolNamesIfPresent(c, respBytes)
 		c.Data(http.StatusOK, "application/json; charset=utf-8", respBytes)
@@ -574,18 +454,18 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !strings.HasPrefix(line, "event: ") {
+		// 与缓冲路径一致：接受 SSE 紧凑格式（冒号后无空格，#4653 同根因）。
+		if _, ok := extractOpenAISSEEventLine(line); !ok {
 			continue
 		}
 
 		if !scanner.Scan() {
 			break
 		}
-		dataLine := scanner.Text()
-		if !strings.HasPrefix(dataLine, "data: ") {
+		payload, ok := extractOpenAISSEDataLine(scanner.Text())
+		if !ok {
 			continue
 		}
-		payload := dataLine[6:]
 
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
