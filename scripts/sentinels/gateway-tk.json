@@ -6030,6 +6030,7 @@
         "applyNonTransactionalMigration(ctx, db, name, content)",
         "usePartitionedPath := len(policies) > 0",
         "partitionedIndexExpr: \"(COALESCE(NULLIF(BTRIM(requested_model), ''), model)), created_at DESC, id DESC\"",
+        "partitionedIndexExpr: \"(COALESCE(NULLIF(BTRIM(upstream_model), ''), model)), created_at DESC, id DESC\"",
         "for _, policy := range nonTransactionalIndexPolicies[name] {",
         "if err := dropInvalidIndexIfPresent(ctx, db, policy.indexName); err != nil {",
         "return applyMigrationsInUTCSession(ctx, conn, fsys)",
@@ -6087,18 +6088,21 @@
       "path": "backend/internal/repository/migrations_runner_notx_test.go",
       "must_contain": [
         "TestApplyMigrationsFS_OpsSystemLogsHostIndex_BuildsPartitionIndexesConcurrently",
-        "TestApplyMigrationsFS_OpsSystemLogsHostIndex_DropsInvalidIndexBeforeNonPartitionedRetry"
+        "TestApplyMigrationsFS_OpsSystemLogsHostIndex_DropsInvalidIndexBeforeNonPartitionedRetry",
+        "TestApplyMigrationsFS_NonTransactionalMigration_EffectiveModelIndexesDropInvalidIndexesBeforeRetry",
+        "TestApplyMigrationsFS_EffectiveModelIndexes_BuildsPartitionIndexesConcurrently"
       ],
-      "rationale": "Behavioral regression coverage for both live shapes: TokenKey prod partitioned ops_system_logs parent must use the online child-build/attach path, and a non-partitioned interrupted concurrent build must remove an invalid index before retrying."
+      "rationale": "Behavioral regression coverage for both live shapes: TokenKey prod partitioned parents must use the online child-build/attach path, migration 226 must dispatch both effective-model indexes through that path, and a non-partitioned interrupted concurrent build must remove every invalid index before retrying."
     },
     {
       "path": "backend/internal/repository/pgpartition_integration_test.go",
       "must_contain": [
         "TestCreatePartitionedIndexConcurrently_AttachesEveryPartitionAndRetries",
+        "TestCreatePartitionedIndexConcurrently_EffectiveModelExpressions",
         "createPartitionedIndexConcurrently(ctx, integrationDB, policy)",
         "require.Equal(t, tablePartitions, indexPartitions)"
       ],
-      "rationale": "Real PostgreSQL coverage proves the online partition-index sequence produces a valid parent, attaches one index per table partition, and remains idempotent on retry; sqlmock alone cannot validate PostgreSQL partitioned-index state transitions."
+      "rationale": "Real PostgreSQL coverage proves the online partition-index sequence produces valid parents, attaches one index per table partition, handles migration 226's effective-model expressions, and remains idempotent on retry; sqlmock alone cannot validate PostgreSQL partitioned-index state transitions."
     },
     {
       "path": "backend/internal/repository/migrations_runner_tk_partitioned_index.go",
