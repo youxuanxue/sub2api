@@ -1358,6 +1358,13 @@ func (a *Account) GetOpenAIBaseURL() string {
 	if !a.IsOpenAI() && !a.IsCNProvider() {
 		return ""
 	}
+	if a.IsCNProvider() && a.IsAdaptiveAPIProtocol() {
+		if baseURLs, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
+			if baseURL, ok := baseURLs[APIProtocolChatCompletions].(string); ok && strings.TrimSpace(baseURL) != "" {
+				return strings.TrimSpace(baseURL)
+			}
+		}
+	}
 	if a.Type == AccountTypeAPIKey || a.Type == AccountTypeUpstream {
 		if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" {
 			return baseURL
@@ -1401,6 +1408,8 @@ func (a *Account) GetAPIProtocol() string {
 		return APIProtocolChatCompletions
 	}
 	switch strings.TrimSpace(a.GetCredential("api_protocol")) {
+	case APIProtocolAdaptive:
+		return APIProtocolAdaptive
 	case APIProtocolAnthropic:
 		return APIProtocolAnthropic
 	case APIProtocolResponses:
@@ -1411,11 +1420,80 @@ func (a *Account) GetAPIProtocol() string {
 	return APIProtocolChatCompletions
 }
 
+// IsAdaptiveAPIProtocol reports whether a CN account chooses its native endpoint
+// based on the inbound protocol.
+func (a *Account) IsAdaptiveAPIProtocol() bool {
+	return a.GetAPIProtocol() == APIProtocolAdaptive
+}
+
+// GetCNProtocolBaseURL returns the upstream base URL for a protocol-specific CN
+// provider endpoint. Adaptive accounts may override each endpoint in
+// credentials.api_base_urls; base_url remains the Chat Completions fallback.
+func (a *Account) GetCNProtocolBaseURL(protocol string) string {
+	if a == nil || !a.IsCNProvider() {
+		return ""
+	}
+	if a.Type == AccountTypeAPIKey || a.Type == AccountTypeUpstream {
+		if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" && !a.IsAdaptiveAPIProtocol() {
+			return baseURL
+		}
+	}
+	if a.IsAdaptiveAPIProtocol() {
+		if baseURLs, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
+			if baseURL, ok := baseURLs[protocol].(string); ok && strings.TrimSpace(baseURL) != "" {
+				return strings.TrimSpace(baseURL)
+			}
+		}
+		if protocol == APIProtocolChatCompletions {
+			if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" {
+				return baseURL
+			}
+		}
+	}
+	return a.defaultCNProtocolBaseURL(protocol)
+}
+
+func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
+	switch protocol {
+	case APIProtocolAnthropic:
+		switch a.Platform {
+		case PlatformKimi:
+			if a.GetAccountMode() == AccountModeCoding {
+				return DefaultKimiCodingAnthropicBaseURL
+			}
+			return DefaultKimiPayGAnthropicBaseURL
+		case PlatformZhipu:
+			return DefaultZhipuAnthropicBaseURL
+		case PlatformDeepseek:
+			return DefaultDeepseekAnthropicBaseURL
+		}
+	case APIProtocolChatCompletions, APIProtocolResponses:
+		switch a.Platform {
+		case PlatformKimi:
+			if a.GetAccountMode() == AccountModeCoding {
+				return DefaultKimiCodingBaseURL
+			}
+			return DefaultKimiPayGBaseURL
+		case PlatformZhipu:
+			if a.GetAccountMode() == AccountModeCoding {
+				return DefaultZhipuCodingBaseURL
+			}
+			return DefaultZhipuPayGBaseURL
+		case PlatformDeepseek:
+			return DefaultDeepseekBaseURL
+		}
+	}
+	return ""
+}
+
 func (a *Account) IsAnthropicProtocol() bool { return a.GetAPIProtocol() == APIProtocolAnthropic }
 
 func (a *Account) GetAnthropicProtocolBaseURL() string {
-	if a == nil || !a.IsAnthropicProtocol() {
+	if a == nil || (!a.IsAnthropicProtocol() && !a.IsAdaptiveAPIProtocol()) {
 		return ""
+	}
+	if a.IsAdaptiveAPIProtocol() {
+		return a.GetCNProtocolBaseURL(APIProtocolAnthropic)
 	}
 	if a.Type == AccountTypeAPIKey || a.Type == AccountTypeUpstream {
 		if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" {

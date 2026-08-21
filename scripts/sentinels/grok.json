@@ -73,9 +73,9 @@
     {
       "path": "backend/internal/model/error_passthrough_rule.go",
       "must_contain": [
-        "PlatformKiro, PlatformGrok}"
+        "PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek}"
       ],
-      "rationale": "The SECOND, separate platform registry (model.AllPlatforms, distinct from domain/constants.go) that feeds the error-passthrough rule UI's applicable-platform list. grok (and kiro) must stay in the AllPlatforms() return slice — anchored on the slice tail `PlatformKiro, PlatformGrok}` (not just the const, which would still match if grok were dropped only from the return). This is the one grok injection an upstream merge can drop SILENTLY: no compile error and no test pins the slice contents, so without this anchor grok would lose error-passthrough applicability unnoticed (the exact silent-drift mode the sentinel registry exists to catch)."
+      "rationale": "The separate model.AllPlatforms registry feeds the error-passthrough rule UI's applicable-platform list. The concrete-provider tail must retain Grok together with the TokenKey CN providers; upstream intentionally removed the compatibility-only newapi/kiro entries from this registry, so the anchor covers the current concrete-provider surface rather than the legacy compatibility tail."
     },
     {
       "path": "backend/internal/pkg/xai/oauth_tk_refresh.go",

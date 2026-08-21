@@ -224,13 +224,13 @@ func expandPricingToCache(cache *channelCache, ch *Channel, gid int64, platform 
 		gpKey := channelGroupPlatformKey{groupID: gid, platform: pricingPlatform}
 		for _, model := range pricing.Models {
 			if strings.HasSuffix(model, "*") {
-				prefix := strings.ToLower(strings.TrimSuffix(model, "*"))
+				prefix := normalizeChannelPricingModelName(strings.TrimSuffix(model, "*"))
 				cache.wildcardByGroupPlatform[gpKey] = append(cache.wildcardByGroupPlatform[gpKey], &wildcardPricingEntry{
 					prefix:  prefix,
 					pricing: pricing,
 				})
 			} else {
-				key := channelModelKey{groupID: gid, platform: pricingPlatform, model: strings.ToLower(model)}
+				key := channelModelKey{groupID: gid, platform: pricingPlatform, model: normalizeChannelPricingModelName(model)}
 				cache.pricingByGroupModel[key] = pricing
 			}
 		}
@@ -343,12 +343,18 @@ func populateChannelCache(channels []Channel, groupPlatforms map[int64]string) *
 // 所有 group 平台（antigravity / anthropic / gemini / openai / newapi）严格
 // 独立，不跨平台匹配。
 func isPlatformPricingMatch(groupPlatform, pricingPlatform string) bool {
+	if groupPlatform == PlatformComposite {
+		return isConcreteRequestPlatform(pricingPlatform)
+	}
 	return groupPlatform == pricingPlatform
 }
 
 // matchingPlatforms 返回分组平台对应的可匹配平台列表。
 // 各平台严格独立，只返回自身。
 func matchingPlatforms(groupPlatform string) []string {
+	if groupPlatform == PlatformComposite {
+		return []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek}
+	}
 	return []string{groupPlatform}
 }
 
@@ -426,6 +432,7 @@ func (c *channelCache) matchWildcardMapping(groupID int64, platform, modelLower 
 // lookupPricingAcrossPlatforms 在分组平台内查找模型定价。
 // 各平台严格独立，只在本平台内查找（先精确匹配，再通配符）。
 func lookupPricingAcrossPlatforms(cache *channelCache, groupID int64, groupPlatform, modelLower string) *ChannelModelPricing {
+	modelLower = normalizeChannelPricingModelName(modelLower)
 	for _, p := range matchingPlatforms(groupPlatform) {
 		key := channelModelKey{groupID: groupID, platform: p, model: modelLower}
 		if pricing, ok := cache.pricingByGroupModel[key]; ok {
@@ -444,6 +451,7 @@ func lookupPricingAcrossPlatforms(cache *channelCache, groupID int64, groupPlatf
 // lookupMappingAcrossPlatforms 在分组平台内查找模型映射。
 // 逻辑与 lookupPricingAcrossPlatforms 相同：先精确查找，再通配符。
 func lookupMappingAcrossPlatforms(cache *channelCache, groupID int64, groupPlatform, modelLower string) string {
+	modelLower = normalizeChannelPricingModelName(modelLower)
 	for _, p := range matchingPlatforms(groupPlatform) {
 		key := channelModelKey{groupID: groupID, platform: p, model: modelLower}
 		if mapped, ok := cache.mappingByGroupModel[key]; ok {
@@ -732,12 +740,21 @@ func checkPricesNotNegative(p ChannelModelPricing) error {
 		{"output_price", p.OutputPrice},
 		{"cache_write_price", p.CacheWritePrice},
 		{"cache_read_price", p.CacheReadPrice},
+		{"image_input_price", p.ImageInputPrice},
 		{"image_output_price", p.ImageOutputPrice},
 		{"per_request_price", p.PerRequestPrice},
 	}
 	for _, c := range checks {
 		if c.val != nil && *c.val < 0 {
 			return infraerrors.BadRequest("NEGATIVE_PRICE", fmt.Sprintf("%s must be >= 0", c.field))
+		}
+	}
+	for _, c := range []struct {
+		field string
+		val   *float64
+	}{{"fast_multiplier", p.FastMultiplier}, {"flex_multiplier", p.FlexMultiplier}} {
+		if c.val != nil && *c.val <= 0 {
+			return infraerrors.BadRequest("INVALID_MULTIPLIER", fmt.Sprintf("%s must be > 0", c.field))
 		}
 	}
 	return nil
@@ -747,7 +764,8 @@ func checkIntervalsHavePrices(p ChannelModelPricing) error {
 	for _, iv := range p.Intervals {
 		if iv.InputPrice == nil && iv.OutputPrice == nil &&
 			iv.CacheWritePrice == nil && iv.CacheReadPrice == nil &&
-			iv.PerRequestPrice == nil {
+			iv.PerRequestPrice == nil && iv.InputMultiplier == nil && iv.OutputMultiplier == nil &&
+			iv.CacheWriteMultiplier == nil && iv.CacheReadMultiplier == nil {
 			return infraerrors.BadRequest(
 				"INTERVAL_MISSING_PRICE",
 				fmt.Sprintf("interval [%d, %s] has no price fields set for model %v",

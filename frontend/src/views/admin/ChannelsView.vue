@@ -447,6 +447,7 @@
                   :entry="entry"
                   :platform="section.platform"
                   enable-time-pricing
+                  enable-tier-multipliers
                   @update="updatePricingEntry(sIdx, idx, $event)"
                   @remove="removePricingEntry(sIdx, idx)"
                 />

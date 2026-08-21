@@ -255,9 +255,93 @@ func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupI
 // tkApplyChannelFlatOverridesAsFallback in
 // model_pricing_resolver_tk_channel_flat_fallback.go.
 func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricing, resolved *ResolvedPricing) {
+	if resolved.BasePricing == nil {
+		resolved.BasePricing = &ModelPricing{}
+	} else {
+		cloned := *resolved.BasePricing
+		resolved.BasePricing = &cloned
+	}
 	resolved.channelPricing = chPricing
 	resolved.Intervals = filterValidIntervals(chPricing.Intervals)
 	tkApplyChannelFlatOverridesAsFallback(chPricing, resolved)
+	applyChannelTokenPriceOverrides(resolved.BasePricing, chPricing)
+	resolved.BasePricing.FastMultiplier = chPricing.FastMultiplier
+	resolved.BasePricing.FlexMultiplier = chPricing.FlexMultiplier
+	if chPricing.ImageOutputPrice != nil {
+		resolved.BasePricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
+	} else {
+		resolved.BasePricing.ImageOutputPricePerToken = 0
+	}
+	resolved.BasePricing.ImageOutputPriceExplicit = true
+	applyChannelImageInputPrice(chPricing, resolved.BasePricing)
+}
+
+func applyChannelImageInputPrice(chPricing *ChannelModelPricing, pricing *ModelPricing) {
+	if pricing == nil {
+		return
+	}
+	if chPricing != nil && chPricing.ImageInputPrice != nil {
+		pricing.ImageInputPricePerToken = *chPricing.ImageInputPrice
+	} else {
+		pricing.ImageInputPricePerToken = 0
+	}
+}
+
+func intervalToModelPricing(iv *PricingInterval, base *ModelPricing, chPricing *ChannelModelPricing) *ModelPricing {
+	pricing := &ModelPricing{}
+	if base != nil {
+		*pricing = *base
+	}
+	if iv == nil {
+		return pricing
+	}
+	mul := func(v float64, m *float64) float64 {
+		if m != nil {
+			return v * *m
+		}
+		return v
+	}
+	if iv.InputPrice != nil {
+		pricing.InputPricePerTokenPriority = channelTierOverridePrice(pricing.InputPricePerToken, pricing.InputPricePerTokenPriority, *iv.InputPrice)
+		pricing.InputPricePerToken = *iv.InputPrice
+	} else if iv.InputMultiplier != nil {
+		pricing.InputPricePerToken = mul(pricing.InputPricePerToken, iv.InputMultiplier)
+		pricing.InputPricePerTokenPriority = mul(pricing.InputPricePerTokenPriority, iv.InputMultiplier)
+	}
+	if iv.OutputPrice != nil {
+		pricing.OutputPricePerTokenPriority = channelTierOverridePrice(pricing.OutputPricePerToken, pricing.OutputPricePerTokenPriority, *iv.OutputPrice)
+		pricing.OutputPricePerToken = *iv.OutputPrice
+	} else if iv.OutputMultiplier != nil {
+		pricing.OutputPricePerToken = mul(pricing.OutputPricePerToken, iv.OutputMultiplier)
+		pricing.OutputPricePerTokenPriority = mul(pricing.OutputPricePerTokenPriority, iv.OutputMultiplier)
+	}
+	if iv.CacheWritePrice != nil {
+		pricing.CacheCreationPricePerTokenPriority = channelTierOverridePrice(pricing.CacheCreationPricePerToken, pricing.CacheCreationPricePerTokenPriority, *iv.CacheWritePrice)
+		pricing.CacheCreationPricePerToken = *iv.CacheWritePrice
+		pricing.CacheCreationPriceExplicit = true
+		pricing.CacheCreation5mPrice = *iv.CacheWritePrice
+		pricing.CacheCreation1hPrice = *iv.CacheWritePrice
+	} else if iv.CacheWriteMultiplier != nil {
+		pricing.CacheCreationPricePerToken = mul(pricing.CacheCreationPricePerToken, iv.CacheWriteMultiplier)
+		pricing.CacheCreationPricePerTokenPriority = mul(pricing.CacheCreationPricePerTokenPriority, iv.CacheWriteMultiplier)
+		pricing.CacheCreation5mPrice = mul(pricing.CacheCreation5mPrice, iv.CacheWriteMultiplier)
+		pricing.CacheCreation1hPrice = mul(pricing.CacheCreation1hPrice, iv.CacheWriteMultiplier)
+	}
+	if iv.CacheReadPrice != nil {
+		pricing.CacheReadPricePerTokenPriority = channelTierOverridePrice(pricing.CacheReadPricePerToken, pricing.CacheReadPricePerTokenPriority, *iv.CacheReadPrice)
+		pricing.CacheReadPricePerToken = *iv.CacheReadPrice
+	} else if iv.CacheReadMultiplier != nil {
+		pricing.CacheReadPricePerToken = mul(pricing.CacheReadPricePerToken, iv.CacheReadMultiplier)
+		pricing.CacheReadPricePerTokenPriority = mul(pricing.CacheReadPricePerTokenPriority, iv.CacheReadMultiplier)
+	}
+	if chPricing != nil {
+		pricing.ImageOutputPriceExplicit = true
+		if chPricing.ImageOutputPrice != nil {
+			pricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
+		}
+		applyChannelImageInputPrice(chPricing, pricing)
+	}
+	return pricing
 }
 
 // applyRequestTierOverrides 应用按次/图片模式的渠道覆盖
@@ -275,7 +359,9 @@ func filterValidIntervals(intervals []PricingInterval) []PricingInterval {
 	for _, iv := range intervals {
 		if iv.InputPrice != nil || iv.OutputPrice != nil ||
 			iv.CacheWritePrice != nil || iv.CacheReadPrice != nil ||
-			iv.PerRequestPrice != nil {
+			iv.PerRequestPrice != nil || iv.InputMultiplier != nil ||
+			iv.OutputMultiplier != nil || iv.CacheWriteMultiplier != nil ||
+			iv.CacheReadMultiplier != nil {
 			valid = append(valid, iv)
 		}
 	}

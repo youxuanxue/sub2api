@@ -1012,6 +1012,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			}
 			applyOpsLatencyFieldsFromContext(c, entry)
 			applyOpsUpstreamFieldsFromContext(c, entry)
+			suppressOpsUpstreamAttributionForLocalModelConfiguration(c, entry)
 
 			if apiKey != nil {
 				entry.APIKeyID = &apiKey.ID
@@ -1152,60 +1153,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		}
 		applyOpsLatencyFieldsFromContext(c, entry)
 		applyOpsUpstreamFieldsFromContext(c, entry)
-
-		// Capture upstream error context set by gateway services (if present).
-		// This does NOT affect the client response; it enriches Ops troubleshooting data.
-		{
-			if v, ok := c.Get(service.OpsUpstreamStatusCodeKey); ok {
-				switch t := v.(type) {
-				case int:
-					if t > 0 {
-						code := t
-						entry.UpstreamStatusCode = &code
-					}
-				case int64:
-					if t > 0 {
-						code := int(t)
-						entry.UpstreamStatusCode = &code
-					}
-				}
-			}
-			if v, ok := c.Get(service.OpsUpstreamErrorMessageKey); ok {
-				if s, ok := v.(string); ok {
-					if msg := strings.TrimSpace(s); msg != "" {
-						entry.UpstreamErrorMessage = &msg
-					}
-				}
-			}
-			if v, ok := c.Get(service.OpsUpstreamErrorDetailKey); ok {
-				if s, ok := v.(string); ok {
-					if detail := strings.TrimSpace(s); detail != "" {
-						entry.UpstreamErrorDetail = &detail
-					}
-				}
-			}
-			if v, ok := c.Get(service.OpsUpstreamErrorsKey); ok {
-				if events, ok := v.([]*service.OpsUpstreamErrorEvent); ok && len(events) > 0 {
-					entry.UpstreamErrors = events
-					// Best-effort backfill the single upstream fields from the last event when missing.
-					last := events[len(events)-1]
-					if last != nil {
-						if entry.UpstreamStatusCode == nil && last.UpstreamStatusCode > 0 {
-							code := last.UpstreamStatusCode
-							entry.UpstreamStatusCode = &code
-						}
-						if entry.UpstreamErrorMessage == nil && strings.TrimSpace(last.Message) != "" {
-							msg := strings.TrimSpace(last.Message)
-							entry.UpstreamErrorMessage = &msg
-						}
-						if entry.UpstreamErrorDetail == nil && strings.TrimSpace(last.Detail) != "" {
-							detail := strings.TrimSpace(last.Detail)
-							entry.UpstreamErrorDetail = &detail
-						}
-					}
-				}
-			}
-		}
+		suppressOpsUpstreamAttributionForLocalModelConfiguration(c, entry)
 
 		appendOpsInternalErrorDetail(c, entry)
 
@@ -1358,6 +1306,7 @@ func logOpsStreamError(c *gin.Context, ops *service.OpsService, wireStatus int) 
 	}
 	applyOpsLatencyFieldsFromContext(c, entry)
 	applyOpsUpstreamFieldsFromContext(c, entry)
+	suppressOpsUpstreamAttributionForLocalModelConfiguration(c, entry)
 
 	if apiKey != nil {
 		entry.APIKeyID = &apiKey.ID
@@ -1385,7 +1334,11 @@ func isCountTokensRequest(c *gin.Context) bool {
 	if c == nil || c.Request == nil || c.Request.URL == nil {
 		return false
 	}
-	return strings.Contains(c.Request.URL.Path, "/count_tokens")
+	return isTokenCountRequestPath(c.Request.URL.Path)
+}
+
+func isTokenCountRequestPath(path string) bool {
+	return strings.Contains(path, "/count_tokens") || strings.Contains(path, "/responses/input_tokens")
 }
 
 func applyOpsLatencyFieldsFromContext(c *gin.Context, entry *service.OpsInsertErrorLogInput) {
@@ -1397,6 +1350,19 @@ func applyOpsLatencyFieldsFromContext(c *gin.Context, entry *service.OpsInsertEr
 	entry.UpstreamLatencyMs = getContextLatencyMs(c, service.OpsUpstreamLatencyMsKey)
 	entry.ResponseLatencyMs = getContextLatencyMs(c, service.OpsResponseLatencyMsKey)
 	entry.TimeToFirstTokenMs = getContextLatencyMs(c, service.OpsTimeToFirstTokenMsKey)
+}
+
+func suppressOpsUpstreamAttributionForLocalModelConfiguration(c *gin.Context, entry *service.OpsInsertErrorLogInput) {
+	if entry == nil || !service.HasOpsClientBusinessLimited(c) || service.OpsClientBusinessLimitedReason(c) != service.OpsClientBusinessLimitedReasonLocalModelConfiguration {
+		return
+	}
+	entry.AccountID = nil
+	entry.UpstreamEndpoint = ""
+	entry.UpstreamModel = ""
+	entry.UpstreamStatusCode = nil
+	entry.UpstreamErrorMessage = nil
+	entry.UpstreamErrorDetail = nil
+	entry.UpstreamErrors = nil
 }
 
 func getContextLatencyMs(c *gin.Context, key string) *int64 {
@@ -1632,12 +1598,17 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	routingCapacityLimited := isOpsRoutingCapacityLimited(c) || (upstreamError && tkUpstreamDownstreamCapacity(c))
 	accountAuthFailure := hasOpsAccountAuthFailure(c)
 	clientPolicyDenied := service.HasOpsClientPolicyDenied(c)
+	clientBusinessLimited := service.HasOpsClientBusinessLimited(c)
+	localModelConfiguration := clientBusinessLimited && service.OpsClientBusinessLimitedReason(c) == service.OpsClientBusinessLimitedReasonLocalModelConfiguration
 	clientContentFiltered := service.HasOpsClientContentFiltered(c)
 	clientClosedRequest := service.HasOpsClientClosedRequest(c)
 	clientInducedUpstream := upstreamError && tkUpstreamClientInducedRejection(c, errType)
 	clientCanceledUpstream := upstreamError && tkUpstreamClientCanceled(c)
 	clientRequestRejected := hasOpsClientRequestRejected(c)
-	if accountAuthFailure && !routingCapacityLimited {
+	effectiveUpstreamError := upstreamError && !localModelConfiguration
+	if localModelConfiguration {
+		phase = "routing"
+	} else if accountAuthFailure && !routingCapacityLimited {
 		phase = "account_auth"
 	} else if upstreamError && !routingCapacityLimited && !clientInducedUpstream && !clientCanceledUpstream {
 		phase = "upstream"
@@ -1645,10 +1616,10 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	if (clientInducedUpstream || clientCanceledUpstream) && !routingCapacityLimited {
 		phase = "request"
 	}
-	if clientPolicyDenied && !upstreamError && !routingCapacityLimited {
+	if (clientPolicyDenied || clientBusinessLimited) && !effectiveUpstreamError && !routingCapacityLimited && !localModelConfiguration {
 		phase = "auth"
 	}
-	if clientRequestRejected && !upstreamError && !routingCapacityLimited {
+	if clientRequestRejected && !effectiveUpstreamError && !routingCapacityLimited {
 		phase = "request"
 	}
 	// A final 499 is definitive caller cancellation even when earlier attempts
@@ -1667,21 +1638,38 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 		phase = "request"
 	}
 	msg := strings.ToLower(message)
-	if !upstreamError {
+	if !effectiveUpstreamError {
 		if isOpsClientAuthError(code, msg) {
 			phase = "auth"
 		} else if isOpsLocalClientLimitError(code, msg) || phase == "billing" || phase == "concurrency" {
 			phase = "request"
 		}
 	}
-	phase = tkOpsClassifyFinalClientValidationPhase(phase, upstreamError, routingCapacityLimited, errType, message, code, status)
+	phase = tkOpsClassifyFinalClientValidationPhase(phase, effectiveUpstreamError, routingCapacityLimited, errType, message, code, status)
 	errorOwner = classifyOpsErrorOwner(phase, message)
 	errorSource = classifyOpsErrorSource(phase, message)
-	localClientAuthError := !upstreamError && phase == "auth" && isOpsClientAuthError(code, msg)
-	isBusinessLimited = routingCapacityLimited ||
-		(service.HasOpsClientBusinessLimited(c) && !upstreamError) ||
-		(!upstreamError && localClientAuthError)
+	localClientAuthError := !effectiveUpstreamError && phase == "auth" && isOpsClientAuthError(code, msg)
+	localBusinessLimited := !effectiveUpstreamError && classifyOpsIsBusinessLimited(errType, phase, code, status, message, localClientAuthError)
+	isBusinessLimited = localModelConfiguration || routingCapacityLimited ||
+		(clientBusinessLimited && !effectiveUpstreamError) || localBusinessLimited
 	return phase, isBusinessLimited, errorOwner, errorSource
+}
+
+func classifyOpsIsBusinessLimited(errType, phase, code string, status int, message string, localClientAuthError ...bool) bool {
+	if len(localClientAuthError) > 0 && localClientAuthError[0] {
+		return true
+	}
+	if isOpsLocalClientLimitError(code, strings.ToLower(message)) {
+		return true
+	}
+	if phase == "billing" || phase == "concurrency" {
+		return true
+	}
+	if errType == "rate_limit_error" && strings.Contains(strings.ToLower(message), "upstream") {
+		return false
+	}
+	_ = status
+	return false
 }
 
 func isOpsClientAuthError(code string, msg string) bool {
@@ -1920,7 +1908,7 @@ func shouldSkipOpsErrorLog(ctx context.Context, ops *service.OpsService, message
 	bodyLower := strings.ToLower(body)
 
 	// Check if count_tokens errors should be ignored
-	if settings.IgnoreCountTokensErrors && strings.Contains(requestPath, "/count_tokens") {
+	if settings.IgnoreCountTokensErrors && isTokenCountRequestPath(requestPath) {
 		return true
 	}
 

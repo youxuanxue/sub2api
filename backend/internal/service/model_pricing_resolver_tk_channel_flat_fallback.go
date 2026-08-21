@@ -90,23 +90,37 @@ func tkOverlayIntervalOntoBasePricing(base *ModelPricing, iv *PricingInterval, s
 		return &out
 	}
 	if iv.InputPrice != nil {
+		out.InputPricePerTokenPriority = channelTierOverridePrice(out.InputPricePerToken, out.InputPricePerTokenPriority, *iv.InputPrice)
 		out.InputPricePerToken = *iv.InputPrice
-		out.InputPricePerTokenPriority = *iv.InputPrice
+	} else if iv.InputMultiplier != nil {
+		out.InputPricePerToken *= *iv.InputMultiplier
+		out.InputPricePerTokenPriority *= *iv.InputMultiplier
 	}
 	if iv.OutputPrice != nil {
+		out.OutputPricePerTokenPriority = channelTierOverridePrice(out.OutputPricePerToken, out.OutputPricePerTokenPriority, *iv.OutputPrice)
 		out.OutputPricePerToken = *iv.OutputPrice
-		out.OutputPricePerTokenPriority = *iv.OutputPrice
+	} else if iv.OutputMultiplier != nil {
+		out.OutputPricePerToken *= *iv.OutputMultiplier
+		out.OutputPricePerTokenPriority *= *iv.OutputMultiplier
 	}
 	if iv.CacheWritePrice != nil {
+		out.CacheCreationPricePerTokenPriority = channelTierOverridePrice(out.CacheCreationPricePerToken, out.CacheCreationPricePerTokenPriority, *iv.CacheWritePrice)
 		out.CacheCreationPricePerToken = *iv.CacheWritePrice
-		out.CacheCreationPricePerTokenPriority = *iv.CacheWritePrice
 		out.CacheCreationPriceExplicit = true
 		out.CacheCreation5mPrice = *iv.CacheWritePrice
 		out.CacheCreation1hPrice = *iv.CacheWritePrice
+	} else if iv.CacheWriteMultiplier != nil {
+		out.CacheCreationPricePerToken *= *iv.CacheWriteMultiplier
+		out.CacheCreationPricePerTokenPriority *= *iv.CacheWriteMultiplier
+		out.CacheCreation5mPrice *= *iv.CacheWriteMultiplier
+		out.CacheCreation1hPrice *= *iv.CacheWriteMultiplier
 	}
 	if iv.CacheReadPrice != nil {
+		out.CacheReadPricePerTokenPriority = channelTierOverridePrice(out.CacheReadPricePerToken, out.CacheReadPricePerTokenPriority, *iv.CacheReadPrice)
 		out.CacheReadPricePerToken = *iv.CacheReadPrice
-		out.CacheReadPricePerTokenPriority = *iv.CacheReadPrice
+	} else if iv.CacheReadMultiplier != nil {
+		out.CacheReadPricePerToken *= *iv.CacheReadMultiplier
+		out.CacheReadPricePerTokenPriority *= *iv.CacheReadMultiplier
 	}
 	return &out
 }

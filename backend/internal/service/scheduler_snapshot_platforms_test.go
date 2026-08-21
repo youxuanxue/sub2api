@@ -23,6 +23,9 @@ func TestAllSchedulingPlatforms_IncludesNewAPI(t *testing.T) {
 		PlatformNewAPI:      false,
 		PlatformKiro:        false,
 		PlatformGrok:        false,
+		PlatformKimi:        false,
+		PlatformZhipu:       false,
+		PlatformDeepseek:    false,
 	}
 	for _, p := range got {
 		if _, ok := want[p]; !ok {

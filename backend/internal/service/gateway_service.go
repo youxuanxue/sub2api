@@ -454,6 +454,10 @@ var allowedHeaders = map[string]bool{
 // cache implementation (e.g. redis.Nil), mirroring ErrRefreshTokenNotFound.
 var ErrStickySessionNotFound = errors.New("sticky session not found")
 
+// ErrReasoningContentNotFound is returned when the Responses bridge has no
+// cached reasoning content for an item ID.
+var ErrReasoningContentNotFound = errors.New("reasoning content not found")
+
 // GatewayCache 定义网关服务的缓存操作接口。
 // 提供粘性会话（Sticky Session）的存储、查询、刷新和删除功能。
 //
@@ -488,6 +492,9 @@ type GatewayCache interface {
 	ClaimGrokVideoBilled(ctx context.Context, key string, ttl time.Duration) (bool, error)
 	// ReleaseGrokVideoBilled clears a claim so a failed RecordUsage can retry billing.
 	ReleaseGrokVideoBilled(ctx context.Context, key string) error
+
+	SetReasoningContent(ctx context.Context, itemID string, content string, ttl time.Duration) error
+	GetReasoningContent(ctx context.Context, itemID string) (string, error)
 }
 
 // derefGroupID safely dereferences *int64 to int64, returning 0 if nil
@@ -610,7 +617,10 @@ type ForwardResult struct {
 	FirstTokenMs                  *int // 首字时间（流式请求）
 	ClientDisconnect              bool // 客户端是否在流式传输过程中断开
 	ReasoningEffort               *string
-	BillingTier                   string
+	// ServiceTier records the billable request tier. OpenAI uses service_tier;
+	// Anthropic speed=fast is normalized to "fast".
+	ServiceTier *string
+	BillingTier string
 
 	// 图片生成计费字段（图片生成模型使用）
 	ImageCount         int    // 生成的图片数量

@@ -16,22 +16,23 @@ import (
 // ──────────────────────────────────────────────────────────
 
 const (
-	EndpointMessages          = apipath.Messages
-	EndpointChatCompletions   = apipath.ChatCompletions
-	EndpointEmbeddings        = apipath.Embeddings
-	EndpointAlphaSearch       = "/v1/alpha/search"
-	EndpointResponses         = apipath.Responses
-	EndpointResponsesCompact  = apipath.ResponsesCompact
-	EndpointImagesGenerations = apipath.ImagesGenerations
-	EndpointImagesEdits       = apipath.ImagesEdits
-	EndpointImageTasks        = "/v1/images/tasks"
-	EndpointVideoGenerations  = apipath.VideoGenerations
-	EndpointVideosGenerations = apipath.VideosGenerations
-	EndpointVideosEdits       = "/v1/videos/edits"
-	EndpointVideosExtensions  = "/v1/videos/extensions"
-	EndpointVideos            = apipath.Videos
-	EndpointGeminiModels      = apipath.GeminiModels
-	EndpointModels            = apipath.Models
+	EndpointMessages             = apipath.Messages
+	EndpointChatCompletions      = apipath.ChatCompletions
+	EndpointEmbeddings           = apipath.Embeddings
+	EndpointAlphaSearch          = "/v1/alpha/search"
+	EndpointResponses            = apipath.Responses
+	EndpointResponsesCompact     = apipath.ResponsesCompact
+	EndpointResponsesInputTokens = "/v1/responses/input_tokens"
+	EndpointImagesGenerations    = apipath.ImagesGenerations
+	EndpointImagesEdits          = apipath.ImagesEdits
+	EndpointImageTasks           = "/v1/images/tasks"
+	EndpointVideoGenerations     = apipath.VideoGenerations
+	EndpointVideosGenerations    = apipath.VideosGenerations
+	EndpointVideosEdits          = "/v1/videos/edits"
+	EndpointVideosExtensions     = "/v1/videos/extensions"
+	EndpointVideos               = apipath.Videos
+	EndpointGeminiModels         = apipath.GeminiModels
+	EndpointModels               = apipath.Models
 )
 
 const EndpointAntigravityGenerateContent = "/v1internal:streamGenerateContent"
@@ -86,6 +87,8 @@ func NormalizeInboundEndpoint(path string) string {
 		return normalized
 	}
 	switch {
+	case strings.Contains(path, EndpointResponsesInputTokens) || isResponsesInputTokensAliasPath(path):
+		return EndpointResponsesInputTokens
 	case strings.Contains(path, EndpointEmbeddings):
 		return EndpointEmbeddings
 	case strings.Contains(path, EndpointAlphaSearch) || isBareOrSubpathOf(strings.TrimRight(path, "/"), "/alpha/search") || isBareOrSubpathOf(strings.TrimRight(path, "/"), "/backend-api/codex/alpha/search"):
@@ -119,6 +122,11 @@ func NormalizeInboundEndpoint(path string) string {
 	default:
 		return path
 	}
+}
+
+func isResponsesInputTokensAliasPath(path string) bool {
+	trimmed := strings.TrimRight(strings.TrimSpace(path), "/")
+	return trimmed == "/responses/input_tokens" || trimmed == "/backend-api/codex/responses/input_tokens"
 }
 
 // isResponsesCompactAliasPath reports whether path is the bare/alias

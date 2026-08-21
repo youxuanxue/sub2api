@@ -77,6 +77,39 @@ const PER_TOKEN_3_USD_PER_MTOK = 0.000003
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe('channelFormConversion (US-017 — round-trip preserves all 5 gateway platforms)', () => {
+  it('round-trips Fast and Flex channel multipliers without erasing stored billing policy', () => {
+    const channel = makeChannel({
+      group_ids: [2],
+      model_pricing: [
+        {
+          platform: 'openai',
+          models: ['gpt-5.4'],
+          billing_mode: 'token',
+          input_price: 0.000002,
+          output_price: 0.000008,
+          cache_write_price: null,
+          cache_read_price: null,
+          fast_multiplier: 1.5,
+          flex_multiplier: 0.6,
+          image_input_price: null,
+          image_output_price: null,
+          per_request_price: null,
+          intervals: [],
+          time_pricing: null,
+        },
+      ],
+    })
+
+    const sections = apiToFormSections(channel, ALL_GROUPS)
+    const entry = sections[0].model_pricing[0]
+    expect(entry.fast_multiplier).toBe(1.5)
+    expect(entry.flex_multiplier).toBe(0.6)
+
+    const payload = formSectionsToApi(sections, channel.features_config)
+    expect(payload.model_pricing[0].fast_multiplier).toBe(1.5)
+    expect(payload.model_pricing[0].flex_multiplier).toBe(0.6)
+  })
+
   it('round-trips a channel that mixes anthropic + newapi without dropping newapi data (the data-loss bug we are fixing)', () => {
     // Reproduces the latent bug discovered during deep review of ChannelsView:
     // the previous in-component apiToForm filtered model_mapping keys by a

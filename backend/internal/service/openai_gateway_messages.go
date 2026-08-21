@@ -46,6 +46,12 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if account.IsAnthropicProtocol() {
 		return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
 	}
+	if account.IsAdaptiveAPIProtocol() {
+		return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
+	}
+	if account.IsCNProvider() && account.GetAPIProtocol() == APIProtocolChatCompletions {
+		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+	}
 	// Tokensea OpenAI relay (#92): extra.openai_native_messages_supported can
 	// be a false-negative. The probe uses selectResponsesProbeModel (first
 	// mapping id, often GPT); live 2026-08-20 GPT /v1/messages timed out so
@@ -56,7 +62,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if account.IsOpenAITokenseaRelay() && shouldForwardNativeAnthropicMessagesForModel(body) {
 		return s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)
 	}
-	if account.Type == AccountTypeAPIKey && openai_compat.ShouldUseNativeAnthropicMessagesAPI(account.Extra) {
+	if account.Type == AccountTypeAPIKey && !account.IsCNProvider() && openai_compat.ShouldUseNativeAnthropicMessagesAPI(account.Extra) {
 		if shouldForwardNativeAnthropicMessagesForModel(body) {
 			return s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)
 		}
@@ -67,7 +73,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// ForwardAsChatCompletions 对称）。缺少此分流时，/v1/messages 入站请求
 	// 会被无条件转为 Responses 格式发往上游 /v1/responses，导致只支持
 	// /v1/chat/completions 的第三方 OpenAI 兼容上游全部 400。
-	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
+	if account.Type == AccountTypeAPIKey && !account.IsCNProvider() && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
 		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
 
@@ -703,6 +709,10 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 
 	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, "openai messages buffered", requestID)
 	if err != nil {
+		var readErr *openAICompatBufferedReadError
+		if errors.As(err, &readErr) && readErr != nil {
+			return nil, readErr.cause
+		}
 		return nil, err
 	}
 
@@ -819,6 +829,15 @@ func isOpenAICompatDoneSentinelLine(line string) bool {
 	return ok && strings.TrimSpace(payload) == "[DONE]"
 }
 
+// openAICompatBufferedReadError 只标记错误发生在上游响应体读取阶段；
+// 具体端点自行决定是否允许重放请求，避免共享读取器扩大重试范围。
+type openAICompatBufferedReadError struct {
+	cause error
+}
+
+func (e *openAICompatBufferedReadError) Error() string { return e.cause.Error() }
+func (e *openAICompatBufferedReadError) Unwrap() error { return e.cause }
+
 func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 	resp *http.Response,
 	logPrefix string,
@@ -927,7 +946,7 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 						zap.String("request_id", requestID),
 					)
 				}
-				return nil, usage, acc, ev.err
+				return nil, usage, acc, &openAICompatBufferedReadError{cause: ev.err}
 			}
 
 			if isOpenAICompatDoneSentinelLine(ev.line) {
@@ -1489,6 +1508,11 @@ func (s *OpenAIGatewayService) fallbackAnthropicToGrokChatCompletions(
 	chatBody, err := anthropicToChatCompletionsBody(anthropicReq, upstreamModel)
 	if err != nil {
 		return nil, fmt.Errorf("fallback convert anthropic to chat completions: %w", err)
+	}
+	if strippedBody, stripErr := stripRedundantGrokChatViewImageTool(chatBody); stripErr != nil {
+		return nil, fmt.Errorf("fallback strip redundant Grok Chat view_image tool: %w", stripErr)
+	} else {
+		chatBody = strippedBody
 	}
 	targetURL, err := s.resolveGrokChatCompletionsUpstream(account)
 	if err != nil {
