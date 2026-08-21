@@ -6853,17 +6853,19 @@
     {
       "path": "backend/internal/service/openai_codex_fingerprint.go",
       "must_contain": [
-        "sub2api:codex-install-id:v3:session:",
-        "ids.installationID = resolveConvergedInstallationID(account, seed, clientSessionID)"
+        "codexDeviceModeInstallationLimit = 3",
+        "sub2api:codex-install-id:v3:bucket:",
+        "ids.installationID = resolveDeviceModeInstallationID(account, seed, clientSessionID)"
       ],
-      "rationale": "Device-mode Codex installation is session-stable and account-isolated. An upstream merge that restores account-wide installation reintroduces shared-device quota shrink."
+      "rationale": "Device-mode Codex installation is session-stable and hard-capped at 3 buckets per OAuth account. Restoring per-session installation reintroduces one-account-many-devices risk; restoring a single account-wide installation reintroduces shared-device quota shrink."
     },
     {
       "path": "backend/internal/service/openai_codex_fingerprint_test.go",
       "must_contain": [
-        "func TestResolveCodexFingerprintIDs_DeviceModeInstallationIsSessionStable(t *testing.T)"
+        "func TestResolveCodexFingerprintIDs_DeviceModeInstallationIsSessionStable(t *testing.T)",
+        "func TestResolveCodexFingerprintIDs_DeviceModeInstallationCappedAt3(t *testing.T)"
       ],
-      "rationale": "Focused regression: different Codex client sessions must not share a device-mode installation_id."
+      "rationale": "Focused regression: same session stays in one bucket, and one OAuth account cannot emit more than 3 device-mode installation IDs."
     }
   ]
 }
