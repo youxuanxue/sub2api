@@ -38,7 +38,7 @@ bash ops/observability/run-probe.sh \
 
 ## §2 报告格式（固定）
 
-表格优先、中文、精简。每个 user 一行，含：
+表格优先、中文、精简。**只报告监控窗口内有请求或有用量的用户**；`reqs=0` 且 `total_cost=actual_cost=0` 的 active 用户不进表，除非它命中了 §3 的“流量归零”告警条件。每个入表 user 一行，含：
 
 - 成功请求数（`reqs` / `billed_reqs` / `zero_cost_reqs`）。
 - 计费 `total_cost` vs 实际 `actual_cost`，标注倍率 `actual_cost / total_cost`（`total_cost=0` 时写 `N/A`，不要反向用 `total/actual`）。
@@ -50,7 +50,7 @@ bash ops/observability/run-probe.sh \
 
 ## §3 推送判据（仅这四类才 PushNotification）
 
-1. 某用户**流量归零**：窗口内 0 成功，且 `last_success_utc` / `last_error_utc` 仍在近期（上一窗或最近几个窗还能看到活动）。`status=active` 但长期无 last-seen 的空闲账号，只在表里记 0，不推送。
+1. 某用户**流量归零**：窗口内 0 成功，且 `last_success_utc` / `last_error_utc` 仍在近期（上一窗或最近几个窗还能看到活动）。这类用户即使本窗无请求/无用量，也要作为例外单独报出并按异常判断是否推送。`status=active` 但长期无 last-seen 的空闲账号不进表、不推送；若需要说明，只在表后一句带过即可。
 2. **错误率明显突升**（注意：总量骤降导致的比率被动抬高、而错误绝对量没涨，**不算**突升）。
 3. **成本异常飙升**（区分真实高价模型消费 vs 异常；前者不推）。
 4. **新出现的错误类型**（§4 三条规则都覆盖不到的新指纹）。
