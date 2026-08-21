@@ -243,6 +243,17 @@ func TierIDToPlanType(tierID string) string {
 	}
 }
 
+// IsPaidPlanType 判断 plan_type 或 raw tier ID 是否为付费档（Pro / Ultra）。
+// 付费集合只在 TierIDToPlanType 维护：这里只看规范化后的套餐名。
+func IsPaidPlanType(planOrTier string) bool {
+	switch strings.ToLower(strings.TrimSpace(TierIDToPlanType(planOrTier))) {
+	case "pro", "ultra":
+		return true
+	default:
+		return false
+	}
+}
+
 // Client Antigravity API 客户端
 type Client struct {
 	httpClient *http.Client
@@ -842,7 +853,7 @@ func (c *Client) SetUserSettings(ctx context.Context, accessToken string) (*SetU
 	// 2026-06-13 真机 on-wire 抓包（IDE 2.0.11，setUserSettings/fetchUserInfo @ daily-cloudcode-pa）
 	// 确认真实客户端在这两个隐私端点上【不发】X-Goog-Api-Client(gl-node) 头——此前钉死的
 	// gl-node/22.21.1 是多发的指纹噪声，移除以对齐。
-	req.Host = "daily-cloudcode-pa.googleapis.com"
+	req.Host = DailyHost()
 
 	resp, err := servertiming.Do(c.httpClient, req)
 	if err != nil {
@@ -885,7 +896,7 @@ func (c *Client) FetchUserInfo(ctx context.Context, accessToken, projectID strin
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("User-Agent", GetUserAgentForContext(ctx))
 	// 2026-06-13 真机抓包确认 fetchUserInfo 不发 X-Goog-Api-Client(gl-node)，移除对齐（同 setUserSettings）。
-	req.Host = "daily-cloudcode-pa.googleapis.com"
+	req.Host = DailyHost()
 
 	resp, err := servertiming.Do(c.httpClient, req)
 	if err != nil {

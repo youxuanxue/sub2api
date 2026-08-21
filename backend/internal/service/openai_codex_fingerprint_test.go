@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -100,6 +101,68 @@ func TestResolveConvergedInstallationID_DifferentSeeds(t *testing.T) {
 	a := resolveConvergedInstallationID(account, testCodexFingerprintSeed)
 	b := resolveConvergedInstallationID(account, "22222222-2222-4222-8222-222222222222")
 	assert.NotEqual(t, a, b)
+}
+
+func TestResolveCodexFingerprintIDs_DeviceModeInstallationIsSessionStable(t *testing.T) {
+	account := newTestOAuthAccount(5786, map[string]any{codexFingerprintModeExtraKey: "device"})
+	first := resolveCodexFingerprintIDs(account, "sess-aaa", codexFingerprintDevice)
+	again := resolveCodexFingerprintIDs(account, "sess-aaa", codexFingerprintDevice)
+	require.NotNil(t, first)
+	require.NotNil(t, again)
+	assert.Equal(t, first.installationID, again.installationID, "同一 session 必须稳定落在同一桶")
+	assert.Empty(t, first.sessionID, "device 模式不得折叠 session")
+}
+
+func TestResolveCodexFingerprintIDs_DeviceModeWithoutSessionKeepsAccountInstall(t *testing.T) {
+	account := newTestOAuthAccount(5786, map[string]any{codexFingerprintModeExtraKey: "device"})
+	a := resolveCodexFingerprintIDs(account, "", codexFingerprintDevice)
+	b := resolveCodexFingerprintIDs(account, "", codexFingerprintDevice)
+	require.NotNil(t, a)
+	require.NotNil(t, b)
+	assert.Equal(t, a.installationID, b.installationID)
+	assert.Equal(t, resolveDeviceModeInstallationID(account, testCodexFingerprintSeed, ""), a.installationID)
+}
+
+func TestCodexDeviceModeInstallationBucket_CoversThreeSlots(t *testing.T) {
+	t.Parallel()
+	seen := map[int]struct{}{}
+	for i := 0; i < 200 && len(seen) < codexDeviceModeInstallationLimit; i++ {
+		seen[codexDeviceModeInstallationBucket(fmt.Sprintf("sess-%d", i))] = struct{}{}
+	}
+	require.Len(t, seen, codexDeviceModeInstallationLimit)
+}
+
+func TestResolveCodexFingerprintIDs_DeviceModeInstallationCappedAt3(t *testing.T) {
+	account := newTestOAuthAccount(5786, map[string]any{codexFingerprintModeExtraKey: "device"})
+	seen := map[string]struct{}{}
+	for i := 0; i < 64; i++ {
+		ids := resolveCodexFingerprintIDs(account, fmt.Sprintf("sess-%d", i), codexFingerprintDevice)
+		require.NotNil(t, ids)
+		seen[ids.installationID] = struct{}{}
+	}
+	empty := resolveCodexFingerprintIDs(account, "", codexFingerprintDevice)
+	require.NotNil(t, empty)
+	seen[empty.installationID] = struct{}{}
+	require.Equal(t, 3, codexDeviceModeInstallationLimit)
+	require.LessOrEqual(t, len(seen), codexDeviceModeInstallationLimit)
+	require.GreaterOrEqual(t, len(seen), 2, "64 个 session 应至少打到两个桶，否则额度仍被摊成一台设备")
+}
+
+func TestResolveDeviceModeInstallationID_AdminDeviceIDStaysSingle(t *testing.T) {
+	account := newTestOAuthAccount(1, map[string]any{"openai_device_id": "real-device-id"})
+	a := resolveDeviceModeInstallationID(account, testCodexFingerprintSeed, "sess-a")
+	b := resolveDeviceModeInstallationID(account, testCodexFingerprintSeed, "sess-b")
+	assert.Equal(t, "real-device-id", a)
+	assert.Equal(t, a, b, "管理员 device_id 覆盖时仍只能冒出 1 个 installation")
+}
+
+func TestResolveCodexFingerprintIDs_SessionModeKeepsAccountInstall(t *testing.T) {
+	account := newTestOAuthAccount(5786, map[string]any{codexFingerprintModeExtraKey: "session"})
+	a := resolveCodexFingerprintIDs(account, "sess-aaa", codexFingerprintSession)
+	b := resolveCodexFingerprintIDs(account, "sess-bbb", codexFingerprintSession)
+	require.NotNil(t, a)
+	require.NotNil(t, b)
+	assert.Equal(t, a.installationID, b.installationID, "session/full 仍保持账号级 installation")
 }
 
 // --- resolveConvergedThreadID ---

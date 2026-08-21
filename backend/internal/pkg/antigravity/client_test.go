@@ -272,6 +272,16 @@ func TestTierIDToPlanType(t *testing.T) {
 	}
 }
 
+func TestIsPaidPlanType_DerivedFromTierIDToPlanType(t *testing.T) {
+	for _, id := range []string{"free-tier", "g1-pro-tier", "g1-ultra-tier", "", "unknown-tier", "Pro", "Ultra", "Free"} {
+		plan := TierIDToPlanType(id)
+		want := strings.EqualFold(plan, "Pro") || strings.EqualFold(plan, "Ultra")
+		if got := IsPaidPlanType(id); got != want {
+			t.Errorf("IsPaidPlanType(%q) = %v, want %v (via TierIDToPlanType=%q)", id, got, want, plan)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // NewClient
 // ---------------------------------------------------------------------------

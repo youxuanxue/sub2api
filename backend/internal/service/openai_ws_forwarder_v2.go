@@ -185,26 +185,30 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		account.ProxyID != nil && account.Proxy != nil,
 	)
 
-	acquireCtx, acquireCancel := context.WithTimeout(ctx, s.openAIWSAcquireTimeout())
-	defer acquireCancel()
-
-	lease, err := s.getOpenAIWSConnPool().Acquire(acquireCtx, openAIWSAcquireRequest{
-		Account: account,
-		WSURL:   wsURL,
-		Headers: wsHeaders,
-		HeadersFactory: func(factoryCtx context.Context, headers http.Header) (http.Header, error) {
-			return s.refreshOpenAIAgentIdentityHeaders(factoryCtx, account, headers)
-		},
-		PreferredConnID: preferredConnID,
-		ForceNewConn:    forceNewConn,
-		ProxyURL: func() string {
-			if account.ProxyID != nil && account.Proxy != nil {
-				return account.Proxy.URL()
-			}
-			return ""
-		}(),
-	})
-	if err != nil {
+	oauth401RefreshTried := false
+	var lease *openAIWSConnLease
+	for {
+		acquireCtx, acquireCancel := context.WithTimeout(ctx, s.openAIWSAcquireTimeout())
+		lease, err = s.getOpenAIWSConnPool().Acquire(acquireCtx, openAIWSAcquireRequest{
+			Account: account,
+			WSURL:   wsURL,
+			Headers: wsHeaders,
+			HeadersFactory: func(factoryCtx context.Context, headers http.Header) (http.Header, error) {
+				return s.refreshOpenAIAgentIdentityHeaders(factoryCtx, account, headers)
+			},
+			PreferredConnID: preferredConnID,
+			ForceNewConn:    forceNewConn,
+			ProxyURL: func() string {
+				if account.ProxyID != nil && account.Proxy != nil {
+					return account.Proxy.URL()
+				}
+				return ""
+			}(),
+		})
+		acquireCancel()
+		if err == nil {
+			break
+		}
 		var agentDialErr *openAIWSDialError
 		if s.isAgentIdentityAccount(ctx, account) && errors.As(err, &agentDialErr) && isAgentIdentityTaskInvalidWSDialError(agentDialErr) && agentTaskRecoveryTried != nil && !*agentTaskRecoveryTried {
 			*agentTaskRecoveryTried = true
@@ -212,6 +216,21 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 				return nil, fmt.Errorf("agent identity task recovery failed: %w", recoveryErr)
 			}
 			return nil, &agentIdentityTaskRecoveredError{}
+		}
+		if !oauth401RefreshTried {
+			var dialErr *openAIWSDialError
+			statusCode := 0
+			var responseBody []byte
+			if errors.As(err, &dialErr) && dialErr != nil {
+				statusCode = dialErr.StatusCode
+				responseBody = dialErr.ResponseBody
+			}
+			if newHeaders, _, ok := s.recoverOpenAIWS401AccessToken(ctx, account, statusCode, responseBody, wsHeaders); ok {
+				oauth401RefreshTried = true
+				wsHeaders = newHeaders
+				forceNewConn = true
+				continue
+			}
 		}
 		dialStatus, dialClass, dialCloseStatus, dialCloseReason, dialRespServer, dialRespVia, dialRespCFRay, dialRespReqID := summarizeOpenAIWSDialError(err)
 		logOpenAIWSModeInfo(

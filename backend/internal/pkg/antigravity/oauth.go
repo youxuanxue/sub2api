@@ -56,8 +56,21 @@ const (
 
 	// Antigravity API 端点
 	antigravityProdBaseURL  = "https://cloudcode-pa.googleapis.com"
-	antigravityDailyBaseURL = "https://daily-cloudcode-pa.sandbox.googleapis.com"
+	antigravityDailyBaseURL = "https://daily-cloudcode-pa.googleapis.com"
 )
+
+// DailyBaseURL / ProdBaseURL 是网关与隐私请求共用的端点 owner。
+func DailyBaseURL() string { return antigravityDailyBaseURL }
+func ProdBaseURL() string  { return antigravityProdBaseURL }
+
+// DailyHost 从 DailyBaseURL 解析 Host，禁止第二份 hostname 字面量。
+func DailyHost() string {
+	parsed, err := url.Parse(antigravityDailyBaseURL)
+	if err != nil {
+		return ""
+	}
+	return parsed.Host
+}
 
 var userAgentVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
@@ -153,7 +166,7 @@ func getClientSecret() (string, error) {
 // BaseURLs 定义 Antigravity API 端点（与 Antigravity-Manager 保持一致）
 var BaseURLs = []string{
 	antigravityProdBaseURL,  // prod (优先)
-	antigravityDailyBaseURL, // daily sandbox (备用)
+	antigravityDailyBaseURL, // official daily（付费档网关转发）
 }
 
 // BaseURL 默认 URL（保持向后兼容）

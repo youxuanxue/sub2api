@@ -67,9 +67,9 @@ const (
 	// codexFingerprintOff 不做任何收敛，原样透传客户端标识。
 	// 仅当 extra 显式写 off 时生效；缺省不再走这条路径。
 	codexFingerprintOff codexFingerprintMode = "off"
-	// codexFingerprintDevice 仅收敛 installation_id 为账号级恒定值。
-	// 上游看到 1 台设备 + 多会话（每用户各自的 session）。
-	// TokenKey 默认：把设备数压到 1，同时不把多个 API Key 收成同一 session。
+	// codexFingerprintDevice 收敛 installation_id。客户端 session 稳定映射到
+	// 至多 codexDeviceModeInstallationLimit 个桶，避免一号多机，同时不让
+	// 多人完全共享一台设备额度（#5786）。session-id / thread 本身不折叠。
 	codexFingerprintDevice codexFingerprintMode = "device"
 	// codexFingerprintSession 收敛 installation_id + session_id，
 	// thread_id 按客户端原始 session-id 确定性派生（每个真实 Codex 会话一个独立线程）。
@@ -83,6 +83,9 @@ const (
 const (
 	codexFingerprintModeExtraKey = "codex_fingerprint_mode"
 	codexFingerprintSeedExtraKey = "codex_fingerprint_seed"
+	// codexDeviceModeInstallationLimit 是单个 OpenAI OAuth 号在 device 模式下
+	// 允许冒出的 installation 上限。超过此数会像设备农场，触发上游风控。
+	codexDeviceModeInstallationLimit = 3
 )
 
 func canonicalCodexFingerprintSeed(value any) (string, bool) {
@@ -199,7 +202,7 @@ func ShouldEnsureCodexFingerprintSeedForExtraUpdates(updates map[string]any) boo
 //
 // 上游 #5610 把缺省改成 off，是为了避开 v0.1.175 默认 session 后的额度缩水报告。
 // TokenKey 的 OpenAI OAuth 号会挂多个用户 / API Key；off 会让上游按真实
-// installation 数设备。device 只统一设备身份，session-id 仍按客户端隔离。
+// installation 数设备。device 把设备身份收到最多 3 个桶，session-id 仍按客户端隔离。
 func (a *Account) GetCodexFingerprintMode() codexFingerprintMode {
 	if a == nil || !a.IsOpenAIOAuth() {
 		return codexFingerprintOff
@@ -223,7 +226,7 @@ func deriveStableUUIDv4(seed string) string {
 }
 
 // resolveConvergedInstallationID 返回账号级恒定的 installation_id。
-// 优先使用管理员配置的真实 device_id，无则从系统管理的账号随机种子确定性派生。
+// 优先使用管理员配置的真实 device_id，无则从系统管理的账号随机种子派生。
 func resolveConvergedInstallationID(account *Account, seed string) string {
 	if account == nil {
 		return ""
@@ -235,6 +238,29 @@ func resolveConvergedInstallationID(account *Account, seed string) string {
 		return ""
 	}
 	return deriveStableUUIDv4("sub2api:codex-install-id:v2:" + seed)
+}
+
+// codexDeviceModeInstallationBucket 把任意 session 稳定映射到 [0, limit) 个桶。
+// 空 session 也进桶，避免「无 session 的 v2 + 三个 session 桶」变成 4 个身份。
+func codexDeviceModeInstallationBucket(clientSessionID string) int {
+	h := sha256.Sum256([]byte(clientSessionID))
+	return int(binary.BigEndian.Uint32(h[:4]) % uint32(codexDeviceModeInstallationLimit))
+}
+
+// resolveDeviceModeInstallationID 在 device 模式下派生 installation_id。
+// 管理员 device_id 仍覆盖为 1 个身份；否则同一 OAuth 号最多 3 个桶。
+func resolveDeviceModeInstallationID(account *Account, seed, clientSessionID string) string {
+	if account == nil {
+		return ""
+	}
+	if deviceID := account.GetOpenAIDeviceID(); deviceID != "" {
+		return deviceID
+	}
+	if seed == "" {
+		return ""
+	}
+	bucket := codexDeviceModeInstallationBucket(clientSessionID)
+	return deriveStableUUIDv4(fmt.Sprintf("sub2api:codex-install-id:v3:bucket:%s:%d", seed, bucket))
 }
 
 // resolveConvergedSessionID 返回账号级恒定的 session_id。
@@ -292,7 +318,11 @@ func resolveCodexFingerprintIDs(account *Account, clientSessionID string, mode c
 		turnStartedAtUnixMs: time.Now().UnixMilli(),
 	}
 
-	ids.installationID = resolveConvergedInstallationID(account, seed)
+	if mode == codexFingerprintDevice {
+		ids.installationID = resolveDeviceModeInstallationID(account, seed, clientSessionID)
+	} else {
+		ids.installationID = resolveConvergedInstallationID(account, seed)
+	}
 	if ids.installationID == "" {
 		return nil
 	}

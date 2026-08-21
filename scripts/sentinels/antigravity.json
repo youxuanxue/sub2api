@@ -10,6 +10,26 @@
       "rationale": "On-wire-confirmed: the real Antigravity IDE UA carries a `/hub/` subclient segment (`antigravity/hub/<ver> ...`). Upstream's BuildUserAgent emits `antigravity/%s windows/amd64` (no subclient). An upstream merge reverting to that silently de-aligns every Antigravity request's UA fingerprint."
     },
     {
+      "path": "backend/internal/pkg/antigravity/oauth.go",
+      "must_contain": [
+        "antigravityDailyBaseURL = \"https://daily-cloudcode-pa.googleapis.com\"",
+        "func DailyBaseURL() string",
+        "func DailyHost() string"
+      ],
+      "rationale": "Official daily hostname is the single owner for paid-tier gateway forward and privacy Host. Restoring sandbox.googleapis.com or a second hostname literal sends Pro/Ultra traffic to the wrong host again."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/client.go",
+      "must_contain": [
+        "func IsPaidPlanType(planOrTier string) bool",
+        "req.Host = DailyHost()"
+      ],
+      "must_not_contain": [
+        "req.Host = \"daily-cloudcode-pa.googleapis.com\""
+      ],
+      "rationale": "Paid-tier membership and privacy Host must stay derived from TierIDToPlanType / DailyBaseURL. A second hardcoded Host or paid-tier list will drift from the official daily owner."
+    },
+    {
       "path": "backend/internal/pkg/antigravity/client.go",
       "must_not_contain": [
         "Header.Set(\"X-Goog-Api-Client\""
