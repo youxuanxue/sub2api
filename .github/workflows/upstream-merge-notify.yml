@@ -27,7 +27,10 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          persist-credentials: false
+          # Keep default checkout credentials. This repo is private;
+          # check-drift.sh and the next step both `git fetch origin main`.
+          # Dropping the token makes that fetch 403 and the job never
+          # opens an issue. This workflow never git-push.
 
       - name: Fetch origin/main and upstream/main
         run: |

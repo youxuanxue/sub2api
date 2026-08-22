@@ -29,6 +29,10 @@ FORBIDDEN_WORKFLOW_NEEDLES = (
     "claude -p",
     "UPSTREAM_MERGE_GH_TOKEN",
     "merge-state.sh",
+    # Private-repo origin fetch needs the checkout token. The old daily
+    # agent rewrote origin with a PAT after persist-credentials: false;
+    # this workflow has no PAT and must not drop credentials.
+    "persist-credentials: false",
 )
 
 
