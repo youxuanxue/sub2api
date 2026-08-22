@@ -5263,9 +5263,11 @@
         "func (r *UniversalRoutingResolver) Resolve(",
         "var ErrUniversalNoEntitledGroup",
         "func pickUniversalBackingGroup(",
+        "func (r *UniversalRoutingResolver) pickUsableBackingGroup(",
+        "supportProvider  groupModelSupportProvider",
+        "subscriptionGate subscriptionGroupUsability",
         "universalShapeRequiresImageGenerationEnabled",
         "filterGroupsAllowImageGeneration",
-        "supportProvider groupModelSupportProvider",
         "supportProvider(ctx, &gid, eligible[i].Platform, model, shape)",
         "else if hint := universalRequestPlatformHint(shape, model); hint != \"\"",
         "收敛为空且模型有平台 hint → ErrUniversalNoEntitledGroup(403)"
@@ -5357,9 +5359,27 @@
       "must_contain": [
         "ProvideTKUniversalModelsProvider(",
         "api.SetUniversalModelSupportProvider(gw.UniversalGroupSupportsRequest)",
-        "api.SetUniversalAvailableModelsProvider(gw.GetAvailableModels)"
+        "api.SetUniversalAvailableModelsProvider(gw.GetAvailableModels)",
+        "api.SetUniversalSubscriptionUsability(subs)"
       ],
-      "rationale": "ProvideTKUniversalModelsProvider is the runtime injection point for universal-key model+protocol routing truth. The direct-scheduler support provider must be wired alongside GetAvailableModels; tests can call SetUniversalModelSupportProvider directly and still pass if an upstream merge drops this wire call, leaving production on the old lossy fallback. Pin both setter calls so the app cannot silently boot without direct-key parity."
+      "rationale": "ProvideTKUniversalModelsProvider is the runtime injection point for universal-key model+protocol routing truth and subscription fallback. The direct-scheduler support provider must be wired alongside GetAvailableModels; the subscription usability gate must be wired so expired/quota-full subscriptions fall back to exclusive balance groups. Tests can call setters directly and still pass if an upstream merge drops this wire call, leaving production on the old lossy fallback. Pin the setter calls so the app cannot silently boot without them."
+    },
+    {
+      "path": "backend/cmd/server/wire_gen.go",
+      "must_contain": [
+        "service.ProvideTKUniversalModelsProvider(apiKeyService, gatewayService, subscriptionService)"
+      ],
+      "rationale": "Generated production DI evidence that the universal-key resolver receives SubscriptionService. Source providers alone do not prove the real server graph retained the subscription-usability fallback."
+    },
+    {
+      "path": "backend/internal/service/universal_routing_tk_resolver_test.go",
+      "must_contain": [
+        "TestResolve_UnusableSubscriptionFallsBackToStandardExclusive",
+        "TestResolve_UsableSubscriptionStillPreferred",
+        "TestResolve_UnusableSubscriptionWithoutFallbackIsNoEntitled",
+        "TestResolve_NilSubscriptionGateKeepsSubscriptionPreference"
+      ],
+      "rationale": "Universal-key subscription fallback: quota-full or expired subscription groups must yield to exclusive balance groups; a still-usable subscription must keep winning; no remaining entitled group must stay 403; unwired resolvers keep the old preference."
     },
     {
       "path": "backend/internal/service/universal_routing_tk_serving_test.go",

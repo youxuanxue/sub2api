@@ -397,6 +397,16 @@ func (s *APIKeyService) SetUniversalModelSupportProvider(p groupModelSupportProv
 	s.universalResolver.SetModelSupportProvider(p)
 }
 
+// SetUniversalSubscriptionUsability 后期绑定订阅可用性闸，供全能 key 在订阅
+// 到期/额度满时回退到余额专属组。构造期 SubscriptionService 已存在，但仍走
+// setter，避免 NewAPIKeyService 签名膨胀。
+func (s *APIKeyService) SetUniversalSubscriptionUsability(g subscriptionGroupUsability) {
+	if s == nil || s.universalResolver == nil {
+		return
+	}
+	s.universalResolver.SetSubscriptionUsability(g)
+}
+
 // SetRateLimitCacheInvalidator sets the optional rate limit cache invalidator.
 // Called after construction (e.g. in wire) to avoid circular dependencies.
 func (s *APIKeyService) SetRateLimitCacheInvalidator(inv RateLimitCacheInvalidator) {

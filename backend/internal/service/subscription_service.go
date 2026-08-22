@@ -418,21 +418,29 @@ func (s *SubscriptionService) createSubscription(ctx context.Context, input *Ass
 	}
 
 	now := time.Now()
+	if s.now != nil {
+		now = s.now()
+	}
 	expiresAt := now.AddDate(0, 0, validityDays)
 	if expiresAt.After(MaxExpiresAt) {
 		expiresAt = MaxExpiresAt
 	}
 
+	dailyWindowStart := timezone.StartOfDay(now)
+	periodicWindowStart := now
 	sub := &UserSubscription{
-		UserID:     input.UserID,
-		GroupID:    input.GroupID,
-		StartsAt:   now,
-		ExpiresAt:  expiresAt,
-		Status:     SubscriptionStatusActive,
-		AssignedAt: now,
-		Notes:      input.Notes,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		UserID:             input.UserID,
+		GroupID:            input.GroupID,
+		StartsAt:           now,
+		ExpiresAt:          expiresAt,
+		Status:             SubscriptionStatusActive,
+		DailyWindowStart:   &dailyWindowStart,
+		WeeklyWindowStart:  &periodicWindowStart,
+		MonthlyWindowStart: &periodicWindowStart,
+		AssignedAt:         now,
+		Notes:              input.Notes,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 	// 只有当 AssignedBy > 0 时才设置（0 表示系统分配，如兑换码）
 	if input.AssignedBy > 0 {
@@ -908,8 +916,8 @@ func (s *SubscriptionService) CheckAndResetWindows(ctx context.Context, sub *Use
 		needsInvalidateCache = true
 	}
 
-	// 周窗口重置（7天）
-	if windowStart, ok := sub.automaticWindowStartAt(sub.WeeklyWindowStart, 7*24*time.Hour, now); ok {
+	// 周窗口重置（7天，含 StartsAt 对齐回退，见 automaticWeeklyWindowStartAt）
+	if windowStart, ok := sub.automaticWeeklyWindowStartAt(now); ok {
 		expectedWindowStart := sub.WeeklyWindowStart
 		if err := s.userSubRepo.ResetWeeklyUsage(ctx, sub.ID, expectedWindowStart, windowStart); err != nil {
 			return err
@@ -980,6 +988,28 @@ func (s *SubscriptionService) CheckUsageLimits(ctx context.Context, sub *UserSub
 		return ErrMonthlyLimitExceeded
 	}
 	return nil
+}
+
+// SubscriptionGroupUsable 判断用户此刻能否用该订阅组接请求。
+// 到期、停用、找不到有效订阅、日/周/月额度满都返回 false。
+// 窗口该滚动时先做与鉴权中间件相同的维护，避免把可续期的订阅误判成不可用。
+func (s *SubscriptionService) SubscriptionGroupUsable(ctx context.Context, userID int64, group *Group) bool {
+	if s == nil || group == nil || !group.IsSubscriptionType() {
+		return group != nil && !group.IsSubscriptionType()
+	}
+	sub, err := s.GetActiveSubscription(ctx, userID, group.ID)
+	if err != nil || sub == nil {
+		return false
+	}
+	needsMaintenance, err := s.ValidateAndCheckLimits(sub, group)
+	if needsMaintenance {
+		refreshed, merr := s.EnsureWindowMaintenance(ctx, sub)
+		if merr != nil {
+			return false
+		}
+		_, err = s.ValidateAndCheckLimits(refreshed, group)
+	}
+	return err == nil
 }
 
 // ValidateAndCheckLimits 合并验证+限额检查（中间件热路径专用）

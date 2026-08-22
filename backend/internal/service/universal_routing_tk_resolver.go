@@ -17,7 +17,7 @@ import (
 //  1. 取 key 主人的权限跨度（GetAvailableGroups，带短 TTL 缓存，热路径命中 0 次 DB）；
 //  2. 按入口端点形状（+ /antigravity 的 forcedPlatform）得到候选平台集合；
 //  3. 跨度 ∩ 候选平台 → 候选后端组；用模型平台提示偏向、再按确定规则挑一个
-//     （持订阅优先 → group.sort_order → id）。
+//     （可用的持订阅优先 → group.sort_order → id；订阅到期/额度满则改走余额组）。
 //
 // 解析成功后，调用方（middleware.MaybeResolveUniversal）把请求“伪装”成绑定该后端组的
 // 普通 key（替换 apiKey.Group/GroupID），下游调度/计费/转发零改动。
@@ -33,8 +33,15 @@ type UniversalRoutingResolver struct {
 	// 经 APIKeyService.SetUniversalAvailableModelsProvider 在 GatewayService 构造后绑定
 	// (避免构造期环)。受 mu 保护。nil = 未接线/降级 → Resolve 退回平台级现状(安全兜底)。
 	// 见 universal_routing_tk_serving.go。
-	modelsProvider  availableModelsProvider
-	supportProvider groupModelSupportProvider
+	modelsProvider   availableModelsProvider
+	supportProvider  groupModelSupportProvider
+	subscriptionGate subscriptionGroupUsability
+}
+
+// subscriptionGroupUsability 判断订阅型后端组此刻能否接请求。
+// 到期、停用、日/周/月额度满都算不可用，解析器随后改走余额专属组。
+type subscriptionGroupUsability interface {
+	SubscriptionGroupUsable(ctx context.Context, userID int64, group *Group) bool
 }
 
 // availableGroupsLister 由 *APIKeyService 满足，给出某用户当前有权绑定的全部分组
@@ -88,6 +95,17 @@ func (r *UniversalRoutingResolver) SetModelSupportProvider(p groupModelSupportPr
 	}
 	r.mu.Lock()
 	r.supportProvider = p
+	r.mu.Unlock()
+}
+
+// SetSubscriptionUsability 后期注入订阅可用性闸（SubscriptionService）。
+// nil = 不检查，保持「持订阅优先」的旧行为（测试/未接线）。
+func (r *UniversalRoutingResolver) SetSubscriptionUsability(g subscriptionGroupUsability) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.subscriptionGate = g
 	r.mu.Unlock()
 }
 
@@ -219,7 +237,40 @@ func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, 
 		eligible = imageEligible
 	}
 
-	return pickUniversalBackingGroup(eligible), nil
+	return r.pickUsableBackingGroup(ctx, apiKey.UserID, eligible)
+}
+
+func (r *UniversalRoutingResolver) pickUsableBackingGroup(ctx context.Context, userID int64, eligible []Group) (*Group, error) {
+	for len(eligible) > 0 {
+		picked := pickUniversalBackingGroup(eligible)
+		if picked == nil {
+			break
+		}
+		if r.subscriptionGroupUsable(ctx, userID, picked) {
+			return picked, nil
+		}
+		filtered := eligible[:0]
+		for i := range eligible {
+			if eligible[i].ID != picked.ID {
+				filtered = append(filtered, eligible[i])
+			}
+		}
+		eligible = filtered
+	}
+	return nil, ErrUniversalNoEntitledGroup
+}
+
+func (r *UniversalRoutingResolver) subscriptionGroupUsable(ctx context.Context, userID int64, group *Group) bool {
+	if group == nil || !group.IsSubscriptionType() {
+		return group != nil
+	}
+	r.mu.RLock()
+	gate := r.subscriptionGate
+	r.mu.RUnlock()
+	if gate == nil {
+		return true
+	}
+	return gate.SubscriptionGroupUsable(ctx, userID, group)
 }
 
 func universalShapeRequiresImageGenerationEnabled(shape UniversalShape) bool {
@@ -363,8 +414,9 @@ func isUniversalProbeGroup(g Group) bool {
 	return strings.HasPrefix(g.Name, "__tk_probe_")
 }
 
-// pickUniversalBackingGroup 在候选后端组里按确定规则挑一个：持订阅优先 → sort_order → id。
-// （跨度里的订阅型组都是“已持有订阅”的，因为 GetAvailableGroups 已过滤掉未持有的订阅组。）
+// pickUniversalBackingGroup 在候选后端组里按确定规则挑一个：可用订阅优先 → sort_order → id。
+// （跨度里的订阅型组都是“已持有订阅”的，因为 GetAvailableGroups 已过滤掉未持有的订阅组。
+// 到期/额度满由 pickUsableBackingGroup 再滤一层，改走余额专属组。）
 func pickUniversalBackingGroup(eligible []Group) *Group {
 	if len(eligible) == 0 {
 		return nil

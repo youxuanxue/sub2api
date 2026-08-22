@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -89,6 +90,16 @@ func NewErrorResponse(code, message string) ErrorResponse {
 func AbortWithError(c *gin.Context, statusCode int, code, message string) {
 	c.JSON(statusCode, NewErrorResponse(code, message))
 	c.Abort()
+}
+
+func clientFacingAppErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	if msg := infraerrors.Message(err); msg != "" {
+		return msg
+	}
+	return err.Error()
 }
 
 // abortWithOpenAIQuotaError writes the OpenAI-compatible insufficient quota response.

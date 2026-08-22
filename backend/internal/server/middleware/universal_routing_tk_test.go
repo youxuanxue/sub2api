@@ -402,6 +402,36 @@ func TestMaybeResolveUniversal_SwapsToSubscriptionGroupForBilling(t *testing.T) 
 	}
 }
 
+func TestMaybeResolveUniversal_UnusableSubscriptionFallsBackToBalanceGroup(t *testing.T) {
+	c, _ := newTestCtx(http.MethodPost, "/v1/chat/completions", `{"model":"gpt-5"}`)
+	subGroup := activeGroup(22, service.PlatformOpenAI)
+	subGroup.SubscriptionType = service.SubscriptionTypeSubscription
+	subGroup.SortOrder = 90
+	balanceGroup := activeGroup(2, service.PlatformOpenAI)
+	balanceGroup.IsExclusive = true
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{subGroup, balanceGroup}})
+	resolver.SetSubscriptionUsability(unusableSubscriptionGate{ids: map[int64]bool{22: true}})
+	apiKey := &service.APIKey{ID: 1, UserID: 31, RoutingMode: service.RoutingModeUniversal}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); handled {
+		t.Fatalf("fallback resolve should succeed")
+	}
+	if apiKey.Group == nil || apiKey.Group.ID != 2 || apiKey.Group.IsSubscriptionType() {
+		t.Fatalf("unusable subscription must swap to exclusive balance group 2; got %+v", apiKey.Group)
+	}
+}
+
+type unusableSubscriptionGate struct {
+	ids map[int64]bool
+}
+
+func (g unusableSubscriptionGate) SubscriptionGroupUsable(_ context.Context, _ int64, group *service.Group) bool {
+	if group == nil {
+		return true
+	}
+	return !g.ids[group.ID]
+}
+
 // R-002 regression: a span-load/internal failure must surface as 500 (retryable),
 // NOT a 403 "no platform in your plan" (which would mislabel a server error as an
 // entitlement problem).

@@ -184,18 +184,18 @@ func TestUniversalCandidatePlatforms(t *testing.T) {
 
 func TestUniversalModelPlatformHint(t *testing.T) {
 	cases := map[string]string{
-		"claude-opus-4-8":        PlatformAnthropic,
-		"grok-4":                 PlatformGrok,
-		"gpt-5":                  PlatformOpenAI,
-		"o3-mini":                PlatformOpenAI,
-		"gemini-3-pro":           PlatformGemini,
-		"gemini-3.1-flash-image": PlatformAntigravity,
-		"doubao-seedream-4":      PlatformNewAPI,
-		"deepseek-chat":          PlatformNewAPI,
+		"claude-opus-4-8":            PlatformAnthropic,
+		"grok-4":                     PlatformGrok,
+		"gpt-5":                      PlatformOpenAI,
+		"o3-mini":                    PlatformOpenAI,
+		"gemini-3-pro":               PlatformGemini,
+		"gemini-3.1-flash-image":     PlatformAntigravity,
+		"doubao-seedream-4":          PlatformNewAPI,
+		"deepseek-chat":              PlatformNewAPI,
 		"tokenkey/claude-sonnet-4-6": PlatformAnthropic,
 		"tokenkey/gpt-5.4":           PlatformOpenAI,
-		"some-unknown-model-xyz": "",
-		"":                       "",
+		"some-unknown-model-xyz":     "",
+		"":                           "",
 	}
 	for model, want := range cases {
 		if got := universalModelPlatformHint(model); got != want {
@@ -431,5 +431,71 @@ func TestResolve_ProbeMessagesDispatchDoesNotOpenOpenAICompatGate(t *testing.T) 
 	g, err := r.Resolve(context.Background(), universalKey(1), ShapeAnthropicMessages, "gpt-5", "")
 	if err != nil || g == nil || g.ID != regular.ID {
 		t.Fatalf("probe dispatch group must not open messages dispatch gate, got %v err %v", g, err)
+	}
+}
+
+type stubSubscriptionGate struct {
+	unusable map[int64]bool
+	calls    []int64
+}
+
+func (s *stubSubscriptionGate) SubscriptionGroupUsable(_ context.Context, _ int64, group *Group) bool {
+	if group == nil {
+		return true
+	}
+	s.calls = append(s.calls, group.ID)
+	return !s.unusable[group.ID]
+}
+
+func TestResolve_UnusableSubscriptionFallsBackToStandardExclusive(t *testing.T) {
+	// user 31 shape: invite-trial subscription + GPT专线 exclusive balance group.
+	sub := grp(22, PlatformOpenAI, 90, true)
+	balance := grp(2, PlatformOpenAI, 0, false)
+	balance.IsExclusive = true
+	gate := &stubSubscriptionGate{unusable: map[int64]bool{22: true}}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: []Group{sub, balance}})
+	r.SetSubscriptionUsability(gate)
+
+	g, err := r.Resolve(context.Background(), universalKey(31), ShapeOpenAIChat, "gpt-5", "")
+	if err != nil || g == nil || g.ID != 2 {
+		t.Fatalf("unusable subscription must fall back to exclusive balance group 2, got %+v err %v", g, err)
+	}
+	if g.IsSubscriptionType() {
+		t.Fatalf("fallback group must bill against balance, got subscription-type")
+	}
+}
+
+func TestResolve_UsableSubscriptionStillPreferred(t *testing.T) {
+	sub := grp(22, PlatformOpenAI, 90, true)
+	balance := grp(2, PlatformOpenAI, 0, false)
+	gate := &stubSubscriptionGate{}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: []Group{sub, balance}})
+	r.SetSubscriptionUsability(gate)
+
+	g, err := r.Resolve(context.Background(), universalKey(31), ShapeOpenAIChat, "gpt-5", "")
+	if err != nil || g == nil || g.ID != 22 {
+		t.Fatalf("usable subscription must still win, got %+v err %v", g, err)
+	}
+}
+
+func TestResolve_UnusableSubscriptionWithoutFallbackIsNoEntitled(t *testing.T) {
+	sub := grp(22, PlatformOpenAI, 90, true)
+	gate := &stubSubscriptionGate{unusable: map[int64]bool{22: true}}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: []Group{sub}})
+	r.SetSubscriptionUsability(gate)
+
+	if _, err := r.Resolve(context.Background(), universalKey(31), ShapeOpenAIChat, "gpt-5", ""); err != ErrUniversalNoEntitledGroup {
+		t.Fatalf("unusable subscription with no balance fallback must be no-entitled, got %v", err)
+	}
+}
+
+func TestResolve_NilSubscriptionGateKeepsSubscriptionPreference(t *testing.T) {
+	sub := grp(22, PlatformOpenAI, 90, true)
+	balance := grp(2, PlatformOpenAI, 0, false)
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: []Group{sub, balance}})
+
+	g, err := r.Resolve(context.Background(), universalKey(31), ShapeOpenAIChat, "gpt-5", "")
+	if err != nil || g == nil || g.ID != 22 {
+		t.Fatalf("unwired resolver must keep subscription preference, got %+v err %v", g, err)
 	}
 }
