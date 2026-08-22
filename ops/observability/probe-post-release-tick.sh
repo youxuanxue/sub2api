@@ -1,11 +1,10 @@
 #!/bin/bash
 # probe-post-release-tick.sh — post-release follow-up tick probe (read-only).
 #
-# Ships to prod/edge via run-probe.sh on each follow-up tick of the
-# tokenkey-stage0-release-rollout skill. The generic signals (traffic volume,
-# per-path mix, 5xx, panic) are fixed here; the release-specific "new-code
-# hook" greps are supplied per release via HOOK_PATTERNS — the model names the
-# hooks (judgment), this script counts them (mechanical).
+# Ships to prod via run-post-release-check.sh (the +5min live→new PR check).
+# Generic signals (traffic volume, per-path mix, 5xx, panic) are fixed here;
+# HOOK_PATTERNS come from scripts/release_post_check.py plan — do not invent
+# them in prompt prose. This script only counts the supplied fixed strings.
 #
 # Env (consumed inside the remote shell):
 #   SINCE          docker logs --since window (default 6m)
@@ -16,9 +15,8 @@
 #   ACTIVE_COLOR_FILE
 #                  active-color file path for CONTAINER=auto
 #                  (default /var/lib/tokenkey/active-color; test seam).
-#   HOOK_PATTERNS  comma-separated FIXED strings (grep -F semantics), one per
-#                  release hook, e.g.:
-#                  HOOK_PATTERNS='stripped explicit thinking.type=disabled,pricing_missing'
+#   HOOK_PATTERNS  comma-separated FIXED strings from release_post_check.py
+#                  hook-patterns (grep -F). Example: Status=424,WEEKLY_LIMIT_EXCEEDED
 #                  Empty → hooks section reports none configured.
 #
 # Output: stable `=== section ===` markers; the traffic section is JSON

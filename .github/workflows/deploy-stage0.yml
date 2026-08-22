@@ -45,6 +45,8 @@ jobs:
   deploy:
     if: inputs.operation == 'deploy'
     runs-on: ubuntu-latest
+    outputs:
+      previous_tag: ${{ steps.previous_runtime.outputs.tag }}
     permissions:
       contents: read
       id-token: write
@@ -599,6 +601,102 @@ jobs:
             echo '```bash'
             echo "gh workflow run deploy-stage0.yml -f tag=<previous>"
             echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  post-release-check:
+    # +5min live check: every product PR between the tag that was serving and
+    # this deploy is planned from git, then scored against prod logs. Failure
+    # here does not roll back the already-switched color; it fails the workflow
+    # so the regression is visible.
+    needs: deploy
+    if: ${{ needs.deploy.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: prod
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      INPUT_TAG: ${{ inputs.tag }}
+      LIVE_TAG: ${{ needs.deploy.outputs.previous_tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Plan checks from live→new PRs
+        id: plan
+        run: |
+          set -euo pipefail
+          test -n "${LIVE_TAG:-}" || { echo "::error::previous prod runtime tag is empty"; exit 1; }
+          OUT_DIR="${RUNNER_TEMP}/post-release-check"
+          mkdir -p "$OUT_DIR"
+          python3 scripts/release_post_check.py plan --live "$LIVE_TAG" --new "$INPUT_TAG" > "$OUT_DIR/plan.json"
+          COUNT="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("changes") or []))' "$OUT_DIR/plan.json")"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "out_dir=$OUT_DIR" >> "$GITHUB_OUTPUT"
+          echo "planned $COUNT product change(s) in ${LIVE_TAG}..${INPUT_TAG}"
+          if [ "$COUNT" = "0" ]; then
+            python3 -c 'import json,sys; json.dump({"verdict":"skip","reason":"no product commits","range":{"live":sys.argv[1],"new":sys.argv[2]},"changes":[],"checks":[]}, open(sys.argv[3],"w"), indent=2)' \
+              "$LIVE_TAG" "$INPUT_TAG" "$OUT_DIR/evaluate.json"
+          fi
+
+      - name: Wait 5 minutes for live traffic
+        if: steps.plan.outputs.count != '0'
+        run: sleep 300
+
+      - name: Configure Stage0 read credentials via OIDC
+        if: steps.plan.outputs.count != '0'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check live→new PRs against prod
+        if: steps.plan.outputs.count != '0'
+        id: check
+        env:
+          OUT_DIR: ${{ steps.plan.outputs.out_dir }}
+        run: |
+          set -euo pipefail
+          bash ops/observability/run-post-release-check.sh \
+            --live "$LIVE_TAG" \
+            --new "$INPUT_TAG" \
+            --target prod \
+            --out-dir "$OUT_DIR"
+
+      - name: Job summary
+        if: always()
+        env:
+          OUT_DIR: ${{ steps.plan.outputs.out_dir }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## post-release-check"
+            echo "- live (was serving): \`${LIVE_TAG}\`"
+            echo "- new: \`${INPUT_TAG}\`"
+            if [ -f "${OUT_DIR}/evaluate.json" ]; then
+              python3 - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ["OUT_DIR"]) / "evaluate.json"
+          data = json.loads(p.read_text())
+          print(f"- verdict: \`{data.get('verdict')}\`")
+          print("")
+          print("### Changes")
+          for change in data.get("changes") or []:
+              pr = f"#{change['pr']}" if change.get("pr") else change.get("sha", "")[:12]
+              print(f"- {pr} {change.get('subject', '')}")
+          print("")
+          print("### Checks")
+          for item in data.get("checks") or []:
+              print(f"- \`{item.get('verdict')}\` {item.get('id')} observed={item.get('observed')}")
+          PY
+            else
+              echo "- evaluate.json missing (job failed before scoring)"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   qa-infra-check:

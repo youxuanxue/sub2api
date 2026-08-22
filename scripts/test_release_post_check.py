@@ -1,0 +1,352 @@
+#!/usr/bin/env python3
+"""Tests for scripts/release_post_check.py — plan from live→new PRs, evaluate live ticks.
+
+The +5min post-release check must be derived from the commits/PRs between the
+tag that was actually serving and the tag just deployed. Model-invented hook
+strings are not a valid plan.
+"""
+from __future__ import annotations
+
+import json
+import os
+import pathlib
+import subprocess
+import sys
+import tempfile
+import unittest
+
+_ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT / "scripts"))
+
+import release_post_check as rpc  # noqa: E402
+
+
+def _clean_env() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+
+def _git(cwd: pathlib.Path, *args: str) -> str:
+    proc = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        env=_clean_env(),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return proc.stdout
+
+
+class ReleasePostCheckPlanTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = pathlib.Path(self._tmp.name) / "repo"
+        self.repo.mkdir()
+        _git(self.repo, "init", "-q", "-b", "main")
+        _git(self.repo, "config", "user.email", "test@example.com")
+        _git(self.repo, "config", "user.name", "Test")
+        (self.repo / "README.md").write_text("base\n")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "base")
+        _git(self.repo, "tag", "-a", "v1.8.169", "-m", "Release 1.8.169")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _commit(self, files: dict[str, str], msg: str) -> str:
+        for relpath, content in files.items():
+            target = self.repo / relpath
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists() and content == "":
+                target.unlink()
+            else:
+                target.write_text(content)
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", msg)
+        return _git(self.repo, "rev-parse", "--short", "HEAD").strip()
+
+    def test_plan_lists_prs_and_skips_version_bump(self) -> None:
+        self._commit(
+            {"backend/internal/service/gateway_forward.go": "package service\n"},
+            "fix(gateway): failover CloudWise-class 424 (#1780)",
+        )
+        self._commit(
+            {"backend/internal/service/subscription_service.go": "package service\n"},
+            "fix(gateway): 订阅不可用时回退到余额专属组 (#1781)",
+        )
+        self._commit({"backend/cmd/server/VERSION": "1.8.170\n"}, "chore: bump VERSION to 1.8.170")
+        _git(self.repo, "tag", "-a", "v1.8.170", "-m", "Release 1.8.170")
+
+        plan = rpc.build_plan(self.repo, "v1.8.169", "v1.8.170")
+        prs = [c["pr"] for c in plan["changes"]]
+        self.assertEqual(prs, [1780, 1781])
+        self.assertTrue(all("bump VERSION" not in c["subject"] for c in plan["changes"]))
+        self.assertEqual(plan["range"], {"live": "v1.8.169", "new": "v1.8.170"})
+
+    def test_plan_derives_added_failover_status(self) -> None:
+        old = (
+            "package service\n"
+            "func shouldFailover(statusCode int) bool {\n"
+            "\tswitch statusCode {\n"
+            "\tcase 401, 403, 429, 529:\n"
+            "\t\treturn true\n"
+            "\t}\n"
+            "\treturn false\n"
+            "}\n"
+        )
+        new = old.replace("case 401, 403, 429, 529:", "case 401, 403, 424, 429, 529:")
+        self._commit({"backend/internal/service/gateway_forward.go": old}, "base forward")
+        _git(self.repo, "tag", "-d", "v1.8.169")
+        _git(self.repo, "tag", "-a", "v1.8.169", "-m", "Release 1.8.169")
+        self._commit(
+            {"backend/internal/service/gateway_forward.go": new},
+            "fix(gateway): failover CloudWise-class 424 (#1780)",
+        )
+        _git(self.repo, "tag", "-a", "v1.8.170", "-m", "Release 1.8.170")
+
+        plan = rpc.build_plan(self.repo, "v1.8.169", "v1.8.170")
+        patterns = {c["pattern"] for c in plan["checks"] if c["kind"] == "failover_status"}
+        self.assertEqual(patterns, {"Status=424"})
+        self.assertNotIn("Status=429", patterns)
+
+    def test_plan_ignores_status_codes_only_mentioned_in_tests(self) -> None:
+        old = (
+            "package service\n"
+            "func shouldFailover(statusCode int) bool {\n"
+            "\tswitch statusCode {\n"
+            "\tcase 401, 403, 429, 529:\n"
+            "\t\treturn true\n"
+            "\t}\n"
+            "\treturn false\n"
+            "}\n"
+        )
+        new = old.replace("case 401, 403, 429, 529:", "case 401, 403, 424, 429, 529:")
+        self._commit({"backend/internal/service/gateway_forward.go": old}, "base forward")
+        _git(self.repo, "tag", "-d", "v1.8.169")
+        _git(self.repo, "tag", "-a", "v1.8.169", "-m", "Release 1.8.169")
+        self._commit(
+            {
+                "backend/internal/service/gateway_forward.go": new,
+                "backend/internal/service/gateway_forward_failover_status_test.go": (
+                    "package service\n"
+                    "func TestNotFailover() {\n"
+                    "\t_ = []int{400, 404, 408, 422}\n"
+                    "}\n"
+                ),
+            },
+            "fix(gateway): failover CloudWise-class 424 (#1780)",
+        )
+        _git(self.repo, "tag", "-a", "v1.8.170", "-m", "Release 1.8.170")
+
+        plan = rpc.build_plan(self.repo, "v1.8.169", "v1.8.170")
+        patterns = {c["pattern"] for c in plan["checks"] if c["kind"] == "failover_status"}
+        self.assertEqual(patterns, {"Status=424"})
+        self.assertNotIn("Status=400", patterns)
+
+    def test_plan_derives_subscription_error_checks_from_path(self) -> None:
+        self._commit(
+            {
+                "backend/internal/service/subscription_service.go": "package service\nfunc SubscriptionGroupUsable() {}\n",
+                "backend/internal/service/universal_routing_tk_resolver.go": "package service\nfunc pickUsableBackingGroup() {}\n",
+            },
+            "fix(gateway): fall back when subscription cannot serve (#1781)",
+        )
+        _git(self.repo, "tag", "-a", "v1.8.170", "-m", "Release 1.8.170")
+
+        plan = rpc.build_plan(self.repo, "v1.8.169", "v1.8.170")
+        by_id = {c["id"]: c for c in plan["checks"]}
+        self.assertIn("pr-1781-WEEKLY_LIMIT_EXCEEDED", by_id)
+        self.assertEqual(by_id["pr-1781-WEEKLY_LIMIT_EXCEEDED"]["kind"], "error_absent")
+        self.assertEqual(by_id["pr-1781-WEEKLY_LIMIT_EXCEEDED"]["source"], "#1781")
+
+    def test_hook_patterns_come_from_plan_not_empty(self) -> None:
+        self._commit(
+            {"backend/internal/service/subscription_service.go": "package service\n"},
+            "fix(gateway): subscription fallback (#1781)",
+        )
+        _git(self.repo, "tag", "-a", "v1.8.170", "-m", "Release 1.8.170")
+        plan = rpc.build_plan(self.repo, "v1.8.169", "v1.8.170")
+        patterns = rpc.hook_patterns(plan)
+        self.assertIn("WEEKLY_LIMIT_EXCEEDED", patterns)
+        self.assertTrue(patterns)
+
+    def test_real_v1_8_169_to_v1_8_170_lists_prs_and_only_new_424(self) -> None:
+        try:
+            plan = rpc.build_plan(_ROOT, "v1.8.169", "v1.8.170")
+        except RuntimeError as exc:
+            self.skipTest(f"release tags unavailable: {exc}")
+        self.assertEqual([c["pr"] for c in plan["changes"]], [1780, 1781])
+        failover = {c["pattern"] for c in plan["checks"] if c["kind"] == "failover_status"}
+        self.assertEqual(failover, {"Status=424"})
+        sources = {c["source"] for c in plan["checks"]}
+        self.assertIn("#1780", sources)
+        self.assertIn("#1781", sources)
+
+
+class ReleasePostCheckEvaluateTest(unittest.TestCase):
+    def _plan(self) -> dict:
+        return {
+            "range": {"live": "v1.8.169", "new": "v1.8.170"},
+            "changes": [
+                {"pr": 1780, "subject": "fix 424 (#1780)", "files": ["backend/internal/service/gateway_forward.go"]},
+                {"pr": 1781, "subject": "fix sub (#1781)", "files": ["backend/internal/service/subscription_service.go"]},
+            ],
+            "checks": [
+                {
+                    "id": "pr-1780-Status=424",
+                    "source": "#1780",
+                    "kind": "failover_status",
+                    "pattern": "Status=424",
+                    "expect": "failover_if_present",
+                },
+                {
+                    "id": "pr-1781-WEEKLY_LIMIT_EXCEEDED",
+                    "source": "#1781",
+                    "kind": "error_absent",
+                    "pattern": "WEEKLY_LIMIT_EXCEEDED",
+                    "expect": "not_storming",
+                },
+            ],
+        }
+
+    def test_evaluate_inconclusive_when_new_path_has_no_traffic(self) -> None:
+        tick = {
+            "hooks": {"Status=424": 0, "WEEKLY_LIMIT_EXCEEDED": 0, "[Forward] Upstream error (failover)": 0},
+            "panic": 0,
+            "status_5xx": {},
+            "completed_total": 20,
+        }
+        result = rpc.evaluate(self._plan(), tick, control_plane_ok=True)
+        self.assertEqual(result["verdict"], "green")
+        by_id = {c["id"]: c for c in result["checks"]}
+        self.assertEqual(by_id["pr-1780-Status=424"]["verdict"], "inconclusive")
+        self.assertEqual(by_id["pr-1781-WEEKLY_LIMIT_EXCEEDED"]["verdict"], "pass")
+
+    def test_evaluate_red_when_424_is_terminal_without_failover(self) -> None:
+        tick = {
+            "hooks": {"Status=424": 4, "[Forward] Upstream error (failover)": 0},
+            "panic": 0,
+            "status_5xx": {},
+            "completed_total": 20,
+        }
+        result = rpc.evaluate(self._plan(), tick, control_plane_ok=True)
+        self.assertEqual(result["verdict"], "red")
+        by_id = {c["id"]: c for c in result["checks"]}
+        self.assertEqual(by_id["pr-1780-Status=424"]["verdict"], "fail")
+
+    def test_evaluate_red_on_weekly_limit_storm(self) -> None:
+        tick = {
+            "hooks": {"WEEKLY_LIMIT_EXCEEDED": 12, "Status=424": 0},
+            "panic": 0,
+            "status_5xx": {},
+            "completed_total": 20,
+        }
+        result = rpc.evaluate(self._plan(), tick, control_plane_ok=True)
+        self.assertEqual(result["verdict"], "red")
+
+    def test_evaluate_red_on_panic_or_5xx_or_control_plane(self) -> None:
+        tick = {"hooks": {}, "panic": 1, "status_5xx": {}, "completed_total": 1}
+        self.assertEqual(rpc.evaluate(self._plan(), tick, control_plane_ok=True)["verdict"], "red")
+        tick = {"hooks": {}, "panic": 0, "status_5xx": {"500": 2}, "completed_total": 1}
+        self.assertEqual(rpc.evaluate(self._plan(), tick, control_plane_ok=True)["verdict"], "red")
+        tick = {"hooks": {}, "panic": 0, "status_5xx": {}, "completed_total": 1}
+        self.assertEqual(rpc.evaluate(self._plan(), tick, control_plane_ok=False)["verdict"], "red")
+
+    def test_parse_tick_stdout(self) -> None:
+        stdout = """
+=== meta ===
+{"container": "tokenkey-blue", "log_lines": 10}
+=== hooks ===
+{"pattern": "Status=424", "count": 2}
+{"pattern": "WEEKLY_LIMIT_EXCEEDED", "count": 0}
+=== panic ===
+{"count": 0}
+=== traffic ===
+{"completed_total": 9, "top_paths": [{"path": "/v1/messages", "n": 9}], "status_5xx": {}}
+"""
+        parsed = rpc.parse_tick_stdout(stdout)
+        self.assertEqual(parsed["hooks"]["Status=424"], 2)
+        self.assertEqual(parsed["completed_total"], 9)
+        self.assertEqual(parsed["panic"], 0)
+
+
+class DeployStage0PostReleaseJobTest(unittest.TestCase):
+    def test_workflow_has_post_release_check_job(self) -> None:
+        text = (_ROOT / ".github/workflows/deploy-stage0.yml").read_text(encoding="utf-8")
+        self.assertIn("post-release-check:", text)
+        self.assertIn("run-post-release-check.sh", text)
+        self.assertIn("release_post_check.py plan", text)
+        self.assertIn("needs: deploy", text)
+        self.assertIn("sleep 300", text)
+        self.assertIn("previous_tag: ${{ steps.previous_runtime.outputs.tag }}", text)
+        self.assertIn("LIVE_TAG: ${{ needs.deploy.outputs.previous_tag }}", text)
+        self.assertNotIn("HOOK_PATTERNS=<hook", text)
+
+    def test_skill_forbids_model_invented_hooks(self) -> None:
+        text = (
+            _ROOT / ".cursor/skills/tokenkey-stage0-release-rollout/SKILL.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("run-post-release-check.sh", text)
+        self.assertIn("release_post_check.py", text)
+        self.assertNotIn("HOOK_PATTERNS=<hook1>", text)
+        self.assertNotIn("关键词由模型按 hook 命名", text)
+        self.assertNotIn("模型按 Step A 命名", text)
+
+    def test_wrapper_evaluates_skip_probe_tick(self) -> None:
+        wrapper = _ROOT / "ops/observability/run-post-release-check.sh"
+        self.assertTrue(os.access(wrapper, os.X_OK), f"{wrapper} must be executable")
+        with tempfile.TemporaryDirectory() as raw:
+            repo = pathlib.Path(raw) / "repo"
+            repo.mkdir()
+            _git(repo, "init", "-q", "-b", "main")
+            _git(repo, "config", "user.email", "test@example.com")
+            _git(repo, "config", "user.name", "Test")
+            (repo / "README.md").write_text("base\n")
+            _git(repo, "add", "-A")
+            _git(repo, "commit", "-q", "-m", "base")
+            _git(repo, "tag", "-a", "v1.8.169", "-m", "Release 1.8.169")
+            target = repo / "backend/internal/service/subscription_service.go"
+            target.parent.mkdir(parents=True)
+            target.write_text("package service\n")
+            _git(repo, "add", "-A")
+            _git(repo, "commit", "-q", "-m", "fix(gateway): fallback (#1781)")
+            _git(repo, "tag", "-a", "v1.8.170", "-m", "Release 1.8.170")
+            tick = {
+                "hooks": {"WEEKLY_LIMIT_EXCEEDED": 0},
+                "panic": 0,
+                "status_5xx": {},
+                "completed_total": 4,
+            }
+            tick_path = pathlib.Path(raw) / "tick.json"
+            out_dir = pathlib.Path(raw) / "out"
+            tick_path.write_text(json.dumps(tick), encoding="utf-8")
+            proc = subprocess.run(
+                [
+                    "bash",
+                    str(wrapper),
+                    "--live",
+                    "1.8.169",
+                    "--new",
+                    "1.8.170",
+                    "--repo",
+                    str(repo),
+                    "--skip-probe",
+                    "--tick-file",
+                    str(tick_path),
+                    "--out-dir",
+                    str(out_dir),
+                ],
+                cwd=_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            result = json.loads((out_dir / "evaluate.json").read_text(encoding="utf-8"))
+            self.assertEqual(result["verdict"], "green")
+            self.assertEqual(result["changes"][0]["pr"], 1781)
+
+
+if __name__ == "__main__":
+    unittest.main()
