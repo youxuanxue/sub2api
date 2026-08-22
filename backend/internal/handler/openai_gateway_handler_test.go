@@ -17,6 +17,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	coderws "github.com/coder/websocket"
@@ -475,63 +476,6 @@ func TestShouldLogOpenAIForwardFailureAsWarn(t *testing.T) {
 	})
 }
 
-func TestRejectDeprecatedOpenAICompatModel(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	t.Run("codex_auto_review_not_blocked", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(rec)
-		c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-		h := &OpenAIGatewayHandler{}
-		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
-
-		require.False(t, h.rejectDeprecatedOpenAICompatModel(c, apiKey, "codex-auto-review", false))
-		require.Empty(t, rec.Body.String())
-		require.False(t, hasOpsClientRequestRejected(c))
-	})
-
-	t.Run("retired_gpt_5_2_openai_shape", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(rec)
-		c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-		h := &OpenAIGatewayHandler{}
-		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
-
-		require.True(t, h.rejectDeprecatedOpenAICompatModel(c, apiKey, "gpt-5.2", false))
-		require.Equal(t, http.StatusBadRequest, rec.Code)
-		require.Equal(t, service.TkDeprecatedOpenAIErrorType, gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
-		require.Contains(t, gjson.GetBytes(rec.Body.Bytes(), "error.message").String(), "gpt-5.5")
-		require.True(t, hasOpsClientRequestRejected(c))
-	})
-
-	t.Run("anthropic_messages_shape", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(rec)
-		c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-		h := &OpenAIGatewayHandler{}
-		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
-
-		require.True(t, h.rejectDeprecatedOpenAICompatModel(c, apiKey, "gpt-5.2", true))
-		require.Equal(t, http.StatusBadRequest, rec.Code)
-		require.Equal(t, "error", gjson.GetBytes(rec.Body.Bytes(), "type").String())
-		require.Equal(t, service.TkDeprecatedOpenAIErrorType, gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
-		require.Contains(t, gjson.GetBytes(rec.Body.Bytes(), "error.message").String(), "gpt-5.5")
-		require.True(t, hasOpsClientRequestRejected(c))
-	})
-
-	t.Run("grok_platform_ignored", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(rec)
-		c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-		h := &OpenAIGatewayHandler{}
-		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformGrok}}
-
-		require.False(t, h.rejectDeprecatedOpenAICompatModel(c, apiKey, "gpt-5.2", false))
-		require.Empty(t, rec.Body.String())
-		require.False(t, hasOpsClientRequestRejected(c))
-	})
-}
-
 func TestOpenAIRecoverResponsesPanic_WritesFallbackResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -691,80 +635,55 @@ func TestOpenAIEnsureResponsesDependencies(t *testing.T) {
 
 func TestResolveOpenAIMessagesDispatchMappedModel(t *testing.T) {
 	t.Run("exact_claude_model_override_wins", func(t *testing.T) {
-		openaiDefaults, ok := service.TkMessagesDispatchPlatformDefaults(service.PlatformOpenAI)
-		require.True(t, ok)
 		apiKey := &service.APIKey{
 			Group: &service.Group{
 				MessagesDispatchModelConfig: service.OpenAIMessagesDispatchModelConfig{
 					SonnetMappedModel: "gpt-5.2",
 					ExactModelMappings: map[string]string{
 						"claude-sonnet-4-5-20250929": "gpt-5.4-mini-high",
-						"claude-fable-5":             openaiDefaults.OpusMappedModel,
+						"claude-fable-5":             "gpt-5.6-sol",
 					},
 				},
 			},
 		}
-		require.Equal(t, "gpt-5.4-mini", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
-		require.Equal(t, openaiDefaults.OpusMappedModel, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-fable-5"))
+		require.Equal(t, "gpt-5.4-mini", resolveOpenAIMessagesDispatchMappedModel( apiKey, "claude-sonnet-4-5-20250929"))
+		require.Equal(t, "gpt-5.6-sol", resolveOpenAIMessagesDispatchMappedModel( apiKey, "claude-fable-5"))
 	})
 
-	t.Run("uses_openai_family_default_when_platform_openai", func(t *testing.T) {
-		openaiDefaults, ok := service.TkMessagesDispatchPlatformDefaults(service.PlatformOpenAI)
-		require.True(t, ok)
-		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
-		require.Equal(t, openaiDefaults.OpusMappedModel, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-opus-4-6"))
-		require.Equal(t, openaiDefaults.SonnetMappedModel, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
-		require.Equal(t, openaiDefaults.HaikuMappedModel, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-haiku-4-5-20251001"))
-	})
-
-	t.Run("returns_empty_when_platform_unknown_and_no_registry", func(t *testing.T) {
+	t.Run("uses_family_default_when_no_override", func(t *testing.T) {
 		apiKey := &service.APIKey{Group: &service.Group{}}
-		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-opus-4-6"))
-		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
-		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-haiku-4-5-20251001"))
+		require.Equal(t, "gpt-5.4", resolveOpenAIMessagesDispatchMappedModel( apiKey, "claude-opus-4-6"))
+		require.Equal(t, "gpt-5.3-codex", resolveOpenAIMessagesDispatchMappedModel( apiKey, "claude-sonnet-4-5-20250929"))
+		require.Equal(t, "gpt-5.4-mini", resolveOpenAIMessagesDispatchMappedModel( apiKey, "claude-haiku-4-5-20251001"))
 	})
 
 	t.Run("returns_empty_for_non_claude_or_missing_group", func(t *testing.T) {
-		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(nil, "claude-sonnet-4-5-20250929"))
-		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(&service.APIKey{}, "claude-sonnet-4-5-20250929"))
-		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(&service.APIKey{Group: &service.Group{}}, "gpt-5.4"))
+		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel( nil, "claude-sonnet-4-5-20250929"))
+		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel( &service.APIKey{}, "claude-sonnet-4-5-20250929"))
+		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel( &service.APIKey{Group: &service.Group{}}, "gpt-5.4"))
 	})
 
 	t.Run("grok_group_maps_claude_cli_model_to_grok_default", func(t *testing.T) {
-		grokDefaults, ok := service.TkMessagesDispatchPlatformDefaults(service.PlatformGrok)
-		require.True(t, ok)
+		original := xai.RuntimeModelMappingOptions()
+		t.Cleanup(func() { xai.SetRuntimeModelMappingOptions(original) })
+		xai.SetRuntimeModelMappingOptions(xai.ModelMappingOptions{EnableCrossClientMap: true})
 		apiKey := &service.APIKey{
 			Group: &service.Group{
 				Platform: service.PlatformGrok,
 			},
 		}
-		require.Equal(t, grokDefaults.SonnetMappedModel, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5"))
-		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "grok"))
-	})
-
-	t.Run("grok_group_keeps_native_sku_without_dispatch_remap", func(t *testing.T) {
-		apiKey := &service.APIKey{
-			Group: &service.Group{
-				Platform: service.PlatformGrok,
-			},
-		}
-		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "grok-4.20-0309-non-reasoning"))
-		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "grok-4.20-0309-reasoning"))
-		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "grok-build-0.1"))
-		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "grok-code-fast-1"))
+		require.Equal(t, "grok-4.6", resolveOpenAIMessagesDispatchMappedModel( apiKey, "claude-sonnet-4-5"))
+		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel( apiKey, "grok"))
 	})
 
 	t.Run("does_not_fall_back_to_group_default_mapped_model", func(t *testing.T) {
-		openaiDefaults, ok := service.TkMessagesDispatchPlatformDefaults(service.PlatformOpenAI)
-		require.True(t, ok)
 		apiKey := &service.APIKey{
 			Group: &service.Group{
-				Platform:           service.PlatformOpenAI,
 				DefaultMappedModel: "gpt-5.4",
 			},
 		}
-		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "gpt-5.4"))
-		require.Equal(t, openaiDefaults.SonnetMappedModel, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
+		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel( apiKey, "gpt-5.4"))
+		require.Equal(t, "gpt-5.3-codex", resolveOpenAIMessagesDispatchMappedModel( apiKey, "claude-sonnet-4-5-20250929"))
 	})
 }
 
@@ -936,7 +855,7 @@ func TestOpenAIResponses_RejectsMessageIDAsPreviousResponseID(t *testing.T) {
 	require.Contains(t, w.Body.String(), "previous_response_id must be a response.id")
 }
 
-func TestOpenAIResponses_RejectsHTTPContinuationPreviousResponseID(t *testing.T) {
+func TestOpenAIResponses_AcceptsHTTPContinuationPreviousResponseIDBeforeRouting(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	w := httptest.NewRecorder()
@@ -958,11 +877,59 @@ func TestOpenAIResponses_RejectsHTTPContinuationPreviousResponseID(t *testing.T)
 	})
 
 	h := newOpenAIHandlerForPreviousResponseIDValidation(t, nil)
+	require.NoError(t, h.gatewayService.BindOpenAIHTTPResponseOwner(context.Background(), groupID, "resp_123456", 1, 101))
+	h.Responses(c)
+
+	require.NotEqual(t, http.StatusBadRequest, w.Code)
+	require.NotContains(t, w.Body.String(), "Responses WebSocket v2")
+}
+
+func TestOpenAIResponses_RejectsHTTPContinuationOwnedByAnotherUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", strings.NewReader(
+		`{"model":"gpt-5.1","stream":false,"previous_response_id":"resp_other_tenant","input":"hello"}`,
+	))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	groupID := int64(2)
+	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
+		ID:      202,
+		UserID:  2,
+		GroupID: &groupID,
+		User:    &service.User{ID: 2},
+	})
+	c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 2, Concurrency: 1})
+
+	h := newOpenAIHandlerForPreviousResponseIDValidation(t, nil)
+	require.NoError(t, h.gatewayService.BindOpenAIHTTPResponseOwner(context.Background(), groupID, "resp_other_tenant", 1, 101))
 	h.Responses(c)
 
 	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), "Responses WebSocket v2")
-	require.Contains(t, w.Body.String(), "previous_response_id")
+	require.Contains(t, w.Body.String(), "previous_response_id is not available for this user")
+}
+
+func TestOpenAIResponses_RejectsUnownedHTTPContinuation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", strings.NewReader(
+		`{"model":"gpt-5.1","stream":false,"previous_response_id":"resp_unknown","input":"hello"}`,
+	))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	groupID := int64(2)
+	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{ID: 101, UserID: 1, GroupID: &groupID, User: &service.User{ID: 1}})
+	c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1, Concurrency: 1})
+
+	h := newOpenAIHandlerForPreviousResponseIDValidation(t, nil)
+	h.Responses(c)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "previous_response_id is not available for this user")
 }
 
 func TestOpenAIResponses_FunctionCallOutputHTTPGuidanceDoesNotSuggestPreviousResponseReuse(t *testing.T) {
@@ -1476,19 +1443,6 @@ func TestOpenAIResponsesWebSocket_PassthroughUsageLogLeavesUserAgentNilWhenMissi
 	require.Equal(t, "medium", *got.log.ReasoningEffort)
 }
 
-var openAIResponsesWSUsageLogTurnTokens = service.UsageTokens{
-	InputTokens:  2,
-	OutputTokens: 1,
-}
-
-func openAIGPT56WSUsageLogExpectedTotalCost(t *testing.T, model string) float64 {
-	t.Helper()
-	billingSvc := service.NewBillingService(&config.Config{}, nil)
-	cost, err := billingSvc.CalculateCost(model, openAIResponsesWSUsageLogTurnTokens, 1)
-	require.NoError(t, err)
-	return cost.ActualCost
-}
-
 func TestOpenAIResponsesWebSocket_PassthroughTracksModelPerTurn(t *testing.T) {
 	got := runOpenAIResponsesWebSocketUsageLogCase(t, openAIResponsesWSUsageLogCase{
 		firstPayload:  `{"type":"response.create","model":"sol","stream":false}`,
@@ -1506,8 +1460,8 @@ func TestOpenAIResponsesWebSocket_PassthroughTracksModelPerTurn(t *testing.T) {
 	})
 
 	require.Len(t, got.upstreamPayloads, 2)
-	require.Equal(t, "gpt-5.6-sol", gjson.GetBytes(got.upstreamPayloads[0], "model").String())
-	require.Equal(t, "gpt-5.6-terra", gjson.GetBytes(got.upstreamPayloads[1], "model").String())
+	require.Equal(t, "sol-channel", gjson.GetBytes(got.upstreamPayloads[0], "model").String())
+	require.Equal(t, "terra-channel", gjson.GetBytes(got.upstreamPayloads[1], "model").String())
 	require.Len(t, got.clientEvents, 2)
 	require.Equal(t, "sol", gjson.GetBytes(got.clientEvents[0], "response.model").String())
 	require.Equal(t, "terra", gjson.GetBytes(got.clientEvents[1], "response.model").String())
@@ -1516,16 +1470,16 @@ func TestOpenAIResponsesWebSocket_PassthroughTracksModelPerTurn(t *testing.T) {
 	require.Equal(t, "sol", got.logs[0].Model)
 	require.Equal(t, "sol", got.logs[0].RequestedModel)
 	require.NotNil(t, got.logs[0].UpstreamModel)
-	require.Equal(t, "gpt-5.6-sol", *got.logs[0].UpstreamModel)
+	require.Equal(t, "sol-channel", *got.logs[0].UpstreamModel)
 	require.NotNil(t, got.logs[0].ModelMappingChain)
-	require.Equal(t, "sol→sol-channel→gpt-5.6-sol", *got.logs[0].ModelMappingChain)
+	require.Equal(t, "sol→sol-channel", *got.logs[0].ModelMappingChain)
 
 	require.Equal(t, "terra", got.logs[1].Model)
 	require.Equal(t, "terra", got.logs[1].RequestedModel)
 	require.NotNil(t, got.logs[1].UpstreamModel)
-	require.Equal(t, "gpt-5.6-terra", *got.logs[1].UpstreamModel)
+	require.Equal(t, "terra-channel", *got.logs[1].UpstreamModel)
 	require.NotNil(t, got.logs[1].ModelMappingChain)
-	require.Equal(t, "terra→terra-channel→gpt-5.6-terra", *got.logs[1].ModelMappingChain)
+	require.Equal(t, "terra→terra-channel", *got.logs[1].ModelMappingChain)
 	require.InDelta(t, got.logs[1].TotalCost*2.5, got.logs[0].TotalCost, 1e-12,
 		"each turn must be billed with its own channel-mapped model")
 }
@@ -1588,7 +1542,7 @@ func TestOpenAIResponsesWebSocket_PassthroughKeepsTurnMappingSnapshot(t *testing
 	require.Equal(t, "gpt-5.6-sol", *got.logs[0].UpstreamModel)
 	require.NotNil(t, got.logs[0].ModelMappingChain)
 	require.Equal(t, "sol→gpt-5.6-sol", *got.logs[0].ModelMappingChain)
-	require.InDelta(t, openAIGPT56WSUsageLogExpectedTotalCost(t, "gpt-5.6-sol"), got.logs[0].TotalCost, 1e-12,
+	require.InDelta(t, 40e-6, got.logs[0].TotalCost, 1e-12,
 		"the in-flight turn must retain the channel-mapped billing model used when it was sent")
 
 	require.Equal(t, "sol", got.logs[1].Model)
@@ -1621,7 +1575,7 @@ func TestOpenAIResponsesWebSocket_CtxPoolAppliesPerTurnMappingAndPreservesReques
 	require.Len(t, got.logs, 2)
 	require.Equal(t, "gpt-5.6-sol", got.logs[0].RequestedModel)
 	require.Nil(t, got.logs[0].ModelMappingChain)
-	require.InDelta(t, openAIGPT56WSUsageLogExpectedTotalCost(t, "gpt-5.6-sol"), got.logs[0].TotalCost, 1e-12)
+	require.InDelta(t, 40e-6, got.logs[0].TotalCost, 1e-12)
 	require.Equal(t, "gpt-5.6-terra", got.logs[1].RequestedModel)
 	require.NotNil(t, got.logs[1].ModelMappingChain)
 	require.Equal(t, "gpt-5.6-terra→gpt-5.6-sol", *got.logs[1].ModelMappingChain)
@@ -1685,6 +1639,29 @@ func TestOpenAIWSTurnBillingModelPreservesImagePricingModel(t *testing.T) {
 			require.Equal(t, tt.wantBillingModel, openAIWSTurnBillingModel(result, tt.mapping, tt.requestedModel, tt.upstreamModel))
 		})
 	}
+}
+
+func TestOpenAIAccountScheduleModelUsesActualOrSharedResolver(t *testing.T) {
+	account := &service.Account{
+		Platform: service.PlatformOpenAI,
+		Type:     service.AccountTypeOAuth,
+		Credentials: map[string]any{
+			"model_mapping":         map[string]any{"public": "billing"},
+			"compact_model_mapping": map[string]any{"public": "compact-actual"},
+		},
+	}
+
+	reported := &service.OpenAIForwardResult{UpstreamModel: "observed-actual"}
+	require.Equal(t, "observed-actual", openAIAccountScheduleModel(nil, account, "public", true, reported))
+	require.Equal(t, "compact-actual", openAIAccountScheduleModel(nil, account, "public", true, nil))
+	require.Equal(t, "billing", openAIAccountScheduleModel(nil, account, "public", false, nil))
+
+	c, _ := gin.CreateTestContext(nil)
+	service.SetOpsUpstreamModel(c, "attempt-actual")
+	require.Equal(t, "attempt-actual", openAIAccountScheduleModel(c, account, "public", true, nil))
+
+	setOpsSelectedAccount(c, account.ID, account.Platform)
+	require.Equal(t, "attempt-actual", openAIAccountScheduleModel(c, account, "public", true, nil))
 }
 
 func TestShouldReportOpenAIWSProxyAccountFailure(t *testing.T) {
@@ -1945,7 +1922,7 @@ func (u *openAIHTTPPassthroughAuthFailoverUpstream) Do(_ *http.Request, _ string
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"id":"resp_healthy","object":"response","model":"gpt-5.4","status":"completed","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"id":"resp_healthy","object":"response","model":"gpt-5.2","status":"completed","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`)),
 		}, nil
 	}
 	return &http.Response{
@@ -2178,7 +2155,7 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", strings.NewReader(`{"model":"gpt-5.4","input":"hello","stream":false}`))
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", strings.NewReader(`{"model":"gpt-5.2","input":"hello","stream":false}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
 		ID: 1803, GroupID: &groupID,
@@ -2279,7 +2256,7 @@ func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHe
 
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
-			c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", strings.NewReader(`{"model":"gpt-5.4","input":"hello","stream":false}`))
+			c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", strings.NewReader(`{"model":"gpt-5.2","input":"hello","stream":false}`))
 			c.Request.Header.Set("Content-Type", "application/json")
 			c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
 				ID: 1803, GroupID: &groupID,
@@ -3029,34 +3006,6 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 
 func testStringPtr(v string) *string {
 	return &v
-}
-
-// TestOpenAIGatewayEnsureForwardErrorResponse_SkipsAfterBusinessLimited 回归
-// upstream Wei-Shaw/sub2api#3014 的修复：service 层 codex_cli_only 拒绝已写出干净
-// 403 并打业务限流标记后，handler 兜底不得再追加错误帧，否则 403 body 会被污染成
-// `{"error":...}event: response.failed...`（gin 不阻止 commit 之后的写入）。
-func TestOpenAIGatewayEnsureForwardErrorResponse_SkipsAfterBusinessLimited(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-
-	service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonLocalPolicyDenied)
-	c.JSON(http.StatusForbidden, gin.H{"error": gin.H{
-		"type":    "forbidden_error",
-		"message": "This account only allows Codex official clients",
-	}})
-
-	h := &OpenAIGatewayHandler{}
-	wrote := h.ensureForwardErrorResponse(c, false)
-
-	require.False(t, wrote)
-	require.Equal(t, http.StatusForbidden, w.Code)
-	require.NotContains(t, w.Body.String(), "response.failed")
-	require.NotContains(t, w.Body.String(), "event: error")
-	require.NotContains(t, w.Body.String(), "Upstream request failed")
-	var parsed map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &parsed))
 }
 
 func TestOpenAIForwardErrorAlreadyCommunicated(t *testing.T) {

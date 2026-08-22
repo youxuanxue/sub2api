@@ -368,8 +368,6 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 
 	action := "generate"
 	if parsed.IsEdits() {
-		// TK: See upstream Wei-Shaw/sub2api#2232 — OAuth /v1/images/edits bridges to Responses
-		// image_generation with action=edit (multipart/JSON input + optional mask), not native passthrough.
 		action = "edit"
 	}
 	tool := []byte(`{"type":"image_generation","action":"","model":""}`)
@@ -904,8 +902,18 @@ func (s *OpenAIGatewayService) handleOpenAIImagesErrorResponse(
 		modelForCooldown = strings.TrimSpace(requestedModel[0])
 	}
 	shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, modelForCooldown)
+	failoverErr := s.newOpenAIAccountFailoverError(
+		account,
+		resp.StatusCode,
+		resp.Header,
+		body,
+		upstreamMsg,
+		shouldDisable,
+		false,
+	)
+	shouldFailover := shouldDisable || (account.IsOpenAIOAuthLike() && resp.StatusCode == http.StatusTooManyRequests && failoverErr.RetryableOnSameAccount)
 	kind := "http_error"
-	if shouldDisable {
+	if shouldFailover {
 		kind = "failover"
 	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -918,20 +926,10 @@ func (s *OpenAIGatewayService) handleOpenAIImagesErrorResponse(
 		Message:            upstreamMsg,
 		Detail:             upstreamDetail,
 	})
-	if shouldDisable {
-		return nil, &UpstreamFailoverError{
-			StatusCode:             resp.StatusCode,
-			ResponseBody:           body,
-			RetryableOnSameAccount: tkOpenAICompatRetryableOnSameAccount(account, resp.StatusCode, upstreamMsg, body, false),
-		}
+	if shouldFailover {
+		return nil, failoverErr
 	}
 
-	// TK (prod P0 2026-06-13, GPT专线): a capability/scope-level 401 (the serving
-	// OAuth token is missing the image-generation scope, e.g. Missing scopes:
-	// api.model.images.request) is a per-request capability gap, not an account-side
-	// auth failure — surface it as a 400 invalid_request. The no-cooldown guard in
-	// HandleUpstreamError already kept the account schedulable for every other model.
-	// See ratelimit_service_tk_capability_scope_401.go.
 	if tkIsCapabilityScope401(resp.StatusCode, body) {
 		upErr := &OpenAIImagesUpstreamError{
 			StatusCode:        http.StatusBadRequest,
@@ -1091,6 +1089,165 @@ func (s *OpenAIGatewayService) tryWriteOpenAIImagesStreamEvent(
 	return true
 }
 
+func (s *OpenAIGatewayService) parseOpenAIImagesSSEUsageBytes(data []byte, usage *OpenAIUsage) {
+	s.parseSSEUsageBytes(data, usage)
+	if usage == nil || !gjson.ValidBytes(data) || gjson.GetBytes(data, "type").String() != "response.completed" {
+		return
+	}
+	if toolUsage, ok := openAIImagesToolUsageFromGJSON(gjson.GetBytes(data, "response.tool_usage.image_gen")); ok {
+		*usage = toolUsage
+	}
+}
+
+func openAIImagesToolUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
+	if !value.Exists() || !value.IsObject() {
+		return OpenAIUsage{}, false
+	}
+	inputTokens, inputOK := boundedJSONNonNegativeInt(value.Get("input_tokens"))
+	outputTokens, outputOK := boundedJSONNonNegativeInt(value.Get("output_tokens"))
+	imageOutputTokens, imageOutputOK := boundedJSONNonNegativeInt(value.Get("output_tokens_details.image_tokens"))
+	if !inputOK || !outputOK || !imageOutputOK {
+		return OpenAIUsage{}, false
+	}
+	return OpenAIUsage{
+		InputTokens:       inputTokens,
+		OutputTokens:      outputTokens,
+		ImageOutputTokens: imageOutputTokens,
+	}, true
+}
+
+// boundedJSONNonNegativeInt parses integral JSON exponent notation without
+// invoking an arbitrary-precision parser on an upstream-controlled exponent.
+func boundedJSONNonNegativeInt(value gjson.Result) (int, bool) {
+	if !value.Exists() || value.Type != gjson.Number {
+		return 0, false
+	}
+	raw := value.Raw
+	if len(raw) == 0 || len(raw) > 64 || raw[0] == '-' {
+		return 0, false
+	}
+
+	mantissaEnd := len(raw)
+	for i, c := range raw {
+		if c != 'e' && c != 'E' {
+			continue
+		}
+		mantissaEnd = i
+		break
+	}
+
+	digits := raw[:mantissaEnd]
+	fractionDigits := 0
+	digitCount := 0
+	dotSeen := false
+	mantissaIsZero := true
+	for _, c := range digits {
+		switch {
+		case c == '.' && !dotSeen:
+			dotSeen = true
+		case c >= '0' && c <= '9':
+			digitCount++
+			mantissaIsZero = mantissaIsZero && c == '0'
+			if dotSeen {
+				fractionDigits++
+			}
+		default:
+			return 0, false
+		}
+	}
+
+	exponent := 0
+	if mantissaEnd < len(raw) {
+		exponentRaw := raw[mantissaEnd+1:]
+		negative := false
+		if len(exponentRaw) > 0 && (exponentRaw[0] == '+' || exponentRaw[0] == '-') {
+			negative = exponentRaw[0] == '-'
+			exponentRaw = exponentRaw[1:]
+		}
+		if len(exponentRaw) == 0 {
+			return 0, false
+		}
+		for len(exponentRaw) > 1 && exponentRaw[0] == '0' {
+			exponentRaw = exponentRaw[1:]
+		}
+		for _, digit := range exponentRaw {
+			if digit < '0' || digit > '9' {
+				return 0, false
+			}
+		}
+		if mantissaIsZero {
+			return 0, true
+		}
+		if len(exponentRaw) > 3 {
+			return 0, false
+		}
+		for _, digit := range exponentRaw {
+			exponent = exponent*10 + int(digit-'0')
+		}
+		if exponent > 100 {
+			return 0, false
+		}
+		if negative {
+			exponent = -exponent
+		}
+	}
+
+	trailingZeros := exponent - fractionDigits
+	scaleReduction := 0
+	if trailingZeros < 0 {
+		scaleReduction = -trailingZeros
+		remaining := scaleReduction
+		allZeros := true
+		for i := len(digits) - 1; i >= 0; i-- {
+			if digits[i] == '.' {
+				continue
+			}
+			if digits[i] != '0' {
+				allZeros = false
+				if remaining > 0 {
+					return 0, false
+				}
+			}
+			if remaining > 0 {
+				remaining--
+			}
+		}
+		if remaining > 0 {
+			if allZeros {
+				return 0, true
+			}
+			return 0, false
+		}
+	}
+
+	maxInt := int(^uint(0) >> 1)
+	parsed := 0
+	digitsToAccumulate := digitCount - scaleReduction
+	for _, c := range digits {
+		if c == '.' {
+			continue
+		}
+		if digitsToAccumulate <= 0 {
+			break
+		}
+		if parsed > (maxInt-int(c-'0'))/10 {
+			return 0, false
+		}
+		parsed = parsed*10 + int(c-'0')
+		digitsToAccumulate--
+	}
+	if trailingZeros < 0 {
+		return parsed, true
+	}
+	for ; trailingZeros > 0; trailingZeros-- {
+		if parsed > maxInt/10 {
+			return 0, false
+		}
+		parsed *= 10
+	}
+	return parsed, true
+}
+
 func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 	resp *http.Response,
 	c *gin.Context,
@@ -1106,9 +1263,8 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 	}
 
 	var usage OpenAIUsage
-	observeOpenAIResponsesSSEBody(c, string(body))
 	forEachOpenAISSEDataPayload(string(body), func(data []byte) {
-		s.parseSSEUsageBytes(data, &usage)
+		s.parseOpenAIImagesSSEUsageBytes(data, &usage)
 	})
 	results, createdAt, usageRaw, firstMeta, _, err := collectOpenAIImagesFromResponsesBody(body)
 	if err != nil {
@@ -1163,15 +1319,8 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 		return OpenAIUsage{}, 0, nil, err
 	}
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
-	// Upstream is OpenAI Responses SSE; this handler buffered it and converted
-	// to a single OpenAI Images API JSON body. gin's c.Data won't overwrite the
-	// upstream `Content-Type: text/event-stream` propagated by
-	// WriteFilteredHeaders (render.writeContentType only writes when empty),
-	// so without this explicit override the client sees a JSON body labeled as
-	// SSE. Same root cause as upstream Wei-Shaw/sub2api#1311.
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-	// TK: offload inline-base64 images to S3 and serve a presigned URL — runs
-	// automatically (honours explicit response_format=b64_json) — see openai_images_s3_tk.go.
+	// TK: offload inline-base64 images to S3. Wei-Shaw/sub2api#1311
 	responseBody = s.tkMaybeOffloadImagesToS3(c.Request.Context(), responseBody, responseFormat)
 	c.Data(resp.StatusCode, "application/json; charset=utf-8", responseBody)
 	return usage, len(results), openAIResponsesImageResultSizes(results), nil
@@ -1225,7 +1374,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
 		}
-		s.parseSSEUsageBytes(dataBytes, &usage)
+		s.parseOpenAIImagesSSEUsageBytes(dataBytes, &usage)
 		if !gjson.ValidBytes(dataBytes) {
 			return
 		}
@@ -1557,9 +1706,6 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	if err := validateOpenAIImagesModel(requestModel); err != nil {
 		return nil, err
 	}
-	// codex_cli_only 同样覆盖图片 OAuth 入口：受限账号的图片生成/编辑请求也只允许
-	// 官方客户端，避免经 /v1/images/* 绕过 /responses 上的限制。见
-	// upstream Wei-Shaw/sub2api#3014。未开启策略的账号是零成本 no-op。
 	if err := s.enforceCodexClientRestriction(ctx, c, account, nil); err != nil {
 		return nil, err
 	}
@@ -1636,12 +1782,16 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 				Kind:               "failover",
 				Message:            upstreamMsg,
 			})
-			s.handleFailoverSideEffects(upstreamCtx, resp, account, respBody, requestModel)
-			return nil, &UpstreamFailoverError{
-				StatusCode:             resp.StatusCode,
-				ResponseBody:           respBody,
-				RetryableOnSameAccount: tkOpenAICompatRetryableOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody, false),
-			}
+			shouldDisable := s.handleFailoverSideEffects(upstreamCtx, resp, account, respBody, requestModel)
+			return nil, s.newOpenAIAccountFailoverError(
+				account,
+				resp.StatusCode,
+				resp.Header,
+				respBody,
+				upstreamMsg,
+				shouldDisable,
+				!shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+			)
 		}
 		return s.handleOpenAIImagesErrorResponse(upstreamCtx, resp, c, account, requestModel)
 	}
@@ -1756,8 +1906,15 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthResponseError(
 		}
 		responseBody := []byte(fmt.Sprintf(`{"error":{"type":"upstream_error","code":%q,"message":%q}}`, code, message))
 		shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, statusCode, headers, responseBody, requestedModel)
-		return &UpstreamFailoverError{StatusCode: statusCode, ResponseBody: responseBody, ResponseHeaders: headers,
-			RetryableOnSameAccount: !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode)}
+		return s.newOpenAIAccountFailoverError(
+			account,
+			statusCode,
+			headers,
+			responseBody,
+			message,
+			shouldDisable,
+			!shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode),
+		)
 	}
 	var upstreamErr *OpenAIImagesUpstreamError
 	if !errors.As(err, &upstreamErr) {
@@ -1797,11 +1954,14 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthResponseError(
 	}
 
 	responseBody := openAIImagesUpstreamErrorResponseBody(upstreamErr)
-	s.handleOpenAIAccountUpstreamError(ctx, account, upstreamErr.StatusCode, headers, responseBody, requestedModel)
-	return &UpstreamFailoverError{
-		StatusCode:             upstreamErr.StatusCode,
-		ResponseBody:           responseBody,
-		ResponseHeaders:        headers,
-		RetryableOnSameAccount: tkOpenAICompatRetryableOnSameAccount(account, upstreamErr.StatusCode, "", responseBody, false),
-	}
+	shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, upstreamErr.StatusCode, headers, responseBody, requestedModel)
+	return s.newOpenAIAccountFailoverError(
+		account,
+		upstreamErr.StatusCode,
+		headers,
+		responseBody,
+		upstreamErr.clientMessage(),
+		shouldDisable,
+		!shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstreamErr.StatusCode),
+	)
 }

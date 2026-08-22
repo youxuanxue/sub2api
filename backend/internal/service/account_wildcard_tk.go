@@ -24,24 +24,20 @@ func matchWildcardMappingResult(mapping map[string]string, requestedModel string
 		target  string
 	}
 	var matches []patternMatch
-
 	for pattern, target := range mapping {
 		if matchWildcard(pattern, requestedModel) {
-			matches = append(matches, patternMatch{pattern, target})
+			matches = append(matches, patternMatch{pattern: pattern, target: target})
 		}
 	}
-
 	if len(matches) == 0 {
 		return requestedModel, false
 	}
-
 	sort.Slice(matches, func(i, j int) bool {
 		if len(matches[i].pattern) != len(matches[j].pattern) {
 			return len(matches[i].pattern) > len(matches[j].pattern)
 		}
 		return matches[i].pattern < matches[j].pattern
 	})
-
 	return resolveWildcardMappingTarget(matches[0].pattern, matches[0].target, requestedModel), true
 }
 

@@ -742,7 +742,7 @@ func TestOpenAIGatewayService_OAuthPassthrough_NamespaceNonStreamingResponse(t *
 	setOpenAIResponsesNamespaceNames(c, names)
 
 	result, err := (&OpenAIGatewayService{cfg: &config.Config{}}).handleNonStreamingResponsePassthrough(
-		context.Background(), resp, c, "gpt-5.5", "",
+		context.Background(), resp, c, &Account{ID: 91}, "gpt-5.5", "",
 	)
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -1648,6 +1648,10 @@ func (r *passthroughTempUnschedRepo) SetModelRateLimit(_ context.Context, _ int6
 	if len(reason) > 0 {
 		r.modelRateLimitReasons = append(r.modelRateLimitReasons, reason[0])
 	}
+	return nil
+}
+
+func (r *passthroughTempUnschedRepo) SetError(_ context.Context, _ int64, _ string) error {
 	return nil
 }
 

@@ -28,9 +28,6 @@ vendor/
 # Go 编译缓存
 backend/.gocache/
 
-# Local preflight Python venv (scripts/bootstrap-local-python.sh)
-.venv/
-
 # ===================
 # Node.js / Vue 前端
 # ===================
@@ -47,7 +44,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-.pnpm-store/
 
 # ===================
 # 环境配置
@@ -57,11 +53,6 @@ pnpm-debug.log*
 .env.*.local
 *.env
 !.env.example
-# .cursor/cloud-agent.env declares the cloud-agent runtime CONTRACT
-# (tool names, secret names, gateway URL) — not secret values themselves.
-# Per dev-rules/templates/cloud-agent.env.example it is meant to be
-# committed so cloud + local sessions resolve the same contract.
-!.cursor/cloud-agent.env
 docker-compose.override.yml
 
 # ===================
@@ -93,22 +84,8 @@ temp/
 *.log
 *.bak
 .cache/
-# Whitelisted: upstream-issue triage cache (refreshed by upstream-issue-watchdog.yml
-# and read by CI; lives under .cache/ to signal "regenerated data, not source code").
-!.cache/upstream/
-!.cache/upstream/**
-# Whitelisted: anthropics/claude-code issue triage cache (refreshed by
-# anthropic-cc-issue-watchdog.yml and read by CI). Only cc-*.json live under
-# .cache/anthropic/; the watchdog scratch dir is the sibling
-# .cache/anthropic-cc-issue-watchdog/ (stays ignored).
-!.cache/anthropic/
-!.cache/anthropic/**
 .dev/
 .serena/
-
-# Python（仓库内脚本偶尔用 python 运行）
-__pycache__/
-*.py[cod]
 
 # ===================
 # 构建产物
@@ -124,25 +101,9 @@ backend/internal/web/dist/
 !backend/internal/web/dist/
 backend/internal/web/dist/*
 !backend/internal/web/dist/.keep
-!backend/internal/web/dist/frontend-source.json
 
 # 后端运行时缓存数据
 backend/data/
-
-# Cloud Agent 拉取的 prod 运行时数据（包含真实日志行 / 错误聚合，禁止入库）
-# 由 ops/prod/fetch-logs.sh 与 ops/prod/fetch-error-clusters.sh 生成
-.prod-logs/
-.prod-logs-*/
-.error-clusters/
-.error-clusters-*/
-
-# 本地/机器生成数据（原 docs/auto-reports/ 已迁至仓库根 .auto-reports/）
-.auto-reports/
-.tls_list/
-.dump_qa/
-.dump_trajs/
-# 审查工件（/user:review 和 /user:calibrate 的输出，本地调试用，不进 git）
-.reviews/
 
 # ===================
 # 本地配置文件（包含敏感信息）
@@ -155,36 +116,21 @@ backend/.installed
 # 其他
 # ===================
 tests
-# Ignore local Claude Code state; `.claude/skills` is a tracked symlink → `.cursor/skills`.
-# `.claude/hooks/` and `.claude/settings.json` are tracked so Claude Code on the
-# web (and any cloned local agent) gets the SessionStart bootstrap automatically.
-.claude/*
-!.claude/skills
-!.claude/hooks
-!.claude/settings.json
-.codex
-# Antigravity CLI workspace skills symlink (.agents/skills → ../.cursor/skills),
-# generated locally by dev-rules/sync.sh; local-only like .codex.
-.agents
-# docs/ — keep fully tracked (no subtree ignore here). Generated or local-only
-# material belongs under paths already ignored (.auto-reports/, output/, etc.).
-#
-# scripts/ — keep fully tracked (CI, preflight, contracts, sentinels). One-off or
-# machine-local helpers do not belong in this directory; use a path outside the repo.
-#
-# CLAUDE.md at repo root is tracked (do not add a *.md or CLAUDE rule that drops it).
+!deploy/tests/
+!deploy/tests/**
+CLAUDE.md
+.claude
+scripts
+!backend/scripts/
+!backend/scripts/resolve-version.sh
 .code-review-state
 #openspec/
 code-reviews/
-# AGENTS.md is tracked navigation for agent-facing docs when present.
-# Do not ignore it; generated contract inventories belong in docs/agent_integration.md.
-#AGENTS.md
+AGENTS.md
 backend/cmd/server/server
 deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
-# TK: upstream ignores docs/* (keeps only payment/legal docs); TokenKey tracks
-# docs/ as planning + approved-design source of truth, so that rule is not adopted.
 docs/*
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
@@ -192,45 +138,12 @@ docs/*
 !docs/ASYNC_IMAGE_TASKS.md
 !docs/legal/
 !docs/legal/*.md
-# High-risk approval anchors must stay stageable. Without this exception the
-# daily upstream-merge agent can write docs/approved/* and still fail
-# check_high_risk_anchor (run 31906022248 / #1685).
-!docs/approved/
-!docs/approved/**
-# Dated public pricing captures are review evidence for the executable registry.
-!docs/evidence/
-!docs/evidence/pricing/
-!docs/evidence/pricing/**
-# Release bump syncs docs/ops/endpoint-compat-baseline.md (release-bump-and-tag.sh);
-# must remain stageable despite upstream-shaped docs/* ignore above.
-!docs/ops/
-!docs/ops/**
 .serena/
 .codex/
 frontend/coverage/
-# Playwright e2e run outputs (TK Media Studio acceptance). Only the *.e2e.ts
-# sources + playwright.config.ts are tracked; screenshots/video/trace/report are
-# local-only (real-upstream runs, large binaries).
-frontend/e2e/artifacts/
-frontend/e2e/report/
-frontend/test-results/
-frontend/playwright-report/
 aicodex
 output/
-exports/
+.codegraph/
 
-# Kiro fingerprint capture artifacts (pcap/bundle), parallel to .tls_list/
-.kiro_tls/
-
-# Antigravity fingerprint capture artifacts (mitm log/bundle), parallel to .kiro_tls/
-.antigravity_fp/
-
-# Stray ops/stage0 SSM run-command artifacts — ops/stage0/*_via_ssm.sh write
-# ssm-params.json / stdout.txt / stderr.txt to OUTPUT_DIR (defaults to ".",
-# i.e. repo root when run from there). Root-anchored so subdir files unaffected.
-/ssm-params.json
-/stdout.txt
-/stderr.txt
-
-# Operator-held production recovery evidence (privacy + hash-bound approval); not repo SSOT.
-.testing/user-stories/attachments/us045-workstation-recovery-*/
+# Vitest / Vite cache at repo root
+.vite/
