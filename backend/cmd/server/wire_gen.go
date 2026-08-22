@@ -401,7 +401,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	antigravitySaturationCounterCache := repository.NewAntigravitySaturationCounterCache(redisClient)
 	tkAntigravitySaturationReady := service.ProvideTKAntigravitySaturation(rateLimitService, antigravitySaturationCounterCache)
 	tkGatewayHandlerModelListReady := handler.ProvideTKGatewayHandlerModelList(gatewayHandler, openAIGatewayHandler, modelListFilter, universalCapabilityService)
-	tkUniversalModelsProviderReady := service.ProvideTKUniversalModelsProvider(apiKeyService, gatewayService)
+	tkUniversalModelsProviderReady := service.ProvideTKUniversalModelsProvider(apiKeyService, gatewayService, subscriptionService)
 	tkGroupUnsupportedModelCacheReady := service.ProvideTKGroupUnsupportedModelCache(gatewayService, openAIGatewayService, channelService)
 	userPlatformQuotaUsageFlusher := service.ProvideUserPlatformQuotaUsageFlusher(configConfig, billingCache, serviceUserPlatformQuotaRepository, timingWheelService)
 	telemetryArchiveHealth := service.ProvideTelemetryArchiveHealth(shadow, opsRepository)

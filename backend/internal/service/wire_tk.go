@@ -61,19 +61,25 @@ func ProvideTKGatewayPricingAvailability(
 type TKUniversalModelsProviderReady struct{}
 
 // ProvideTKUniversalModelsProvider wires the universal-key resolver's model
-// support truth source post-construction. APIKeyService constructs the resolver
-// before GatewayService exists, so this late binding avoids the construction
-// cycle. Mirrors ProvideTKGatewayPricingAvailability in shape.
+// support truth source and subscription-usability gate post-construction.
+// APIKeyService constructs the resolver before GatewayService exists, so this
+// late binding avoids the construction cycle. Mirrors
+// ProvideTKGatewayPricingAvailability in shape.
 //
-// Setter is nil-safe; if either dep is nil the resolver keeps its safe
-// platform-level fallback. See docs/approved/universal-key-routing.md.
+// Setter is nil-safe; if gw is nil the resolver keeps its safe platform-level
+// fallback; if subs is nil, unusable subscriptions are not filtered.
+// See docs/approved/universal-key-routing.md.
 func ProvideTKUniversalModelsProvider(
 	api *APIKeyService,
 	gw *GatewayService,
+	subs *SubscriptionService,
 ) TKUniversalModelsProviderReady {
 	if api != nil && gw != nil {
 		api.SetUniversalModelSupportProvider(gw.UniversalGroupSupportsRequest)
 		api.SetUniversalAvailableModelsProvider(gw.GetAvailableModels)
+	}
+	if api != nil && subs != nil {
+		api.SetUniversalSubscriptionUsability(subs)
 	}
 	return TKUniversalModelsProviderReady{}
 }

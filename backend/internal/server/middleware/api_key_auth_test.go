@@ -267,6 +267,8 @@ func TestSimpleModeBypassesQuotaCheck(t *testing.T) {
 
 		require.Equal(t, http.StatusTooManyRequests, w.Code)
 		require.Contains(t, w.Body.String(), "USAGE_LIMIT_EXCEEDED")
+		require.Contains(t, w.Body.String(), "daily usage limit exceeded")
+		require.NotContains(t, w.Body.String(), "error: code=")
 	})
 }
 
