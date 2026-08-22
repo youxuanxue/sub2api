@@ -3,6 +3,9 @@
 package service
 
 import (
+	"bytes"
+	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,8 +13,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestExtractCCReasoningEffortFromBody(t *testing.T) {
@@ -200,4 +206,156 @@ func TestHandleCCStreamingFromAnthropic_PreservesMessageStartCacheUsageAndReason
 	require.NotNil(t, result.ReasoningEffort)
 	require.Equal(t, "medium", *result.ReasoningEffort)
 	require.Contains(t, rec.Body.String(), `[DONE]`)
+}
+
+type kiroCCUpstreamRecorder struct {
+	lastReq *http.Request
+}
+
+func (u *kiroCCUpstreamRecorder) Do(*http.Request, string, int64, int) (*http.Response, error) {
+	return nil, fmt.Errorf("unexpected Do call")
+}
+
+func (u *kiroCCUpstreamRecorder) DoWithTLS(req *http.Request, _ string, _ int64, _ int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	u.lastReq = req
+	frame := buildKiroEventStreamMessage("assistantResponseEvent",
+		[]byte(`{"content":"KIRO-CC-OK","inputTokens":4,"outputTokens":5}`))
+	frame = appendKiroTerminalStop(frame, "END_TURN")
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(bytes.NewReader(frame)),
+	}, nil
+}
+
+func (u *kiroCCUpstreamRecorder) lastReqBody() []byte {
+	if u.lastReq == nil || u.lastReq.Body == nil {
+		return nil
+	}
+	body, err := io.ReadAll(u.lastReq.Body)
+	if err != nil {
+		return nil
+	}
+	u.lastReq.Body = io.NopCloser(bytes.NewReader(body))
+	return body
+}
+
+type relayHTTPUpstream struct {
+	client *http.Client
+}
+
+func (u *relayHTTPUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	return u.client.Do(req)
+}
+
+func (u *relayHTTPUpstream) DoWithTLS(req *http.Request, _ string, _ int64, _ int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	return u.client.Do(req)
+}
+
+func TestForwardAsChatCompletions_KiroAccountBridgesViaKiroGateway(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}],"max_tokens":32,"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &kiroCCUpstreamRecorder{}
+	kiroGW := NewKiroGatewayService(upstream, nil, nil)
+	svc := &GatewayService{
+		cfg:          &config.Config{},
+		httpUpstream: upstream,
+		kiroGateway:  kiroGW,
+	}
+	account := newKiroAccountForTest()
+	account.ID = 15
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "claude-sonnet-4-5", result.Model)
+	require.False(t, result.Stream)
+	require.Equal(t, "kiro-estimated", result.BillingTier)
+	require.Positive(t, result.Usage.InputTokens)
+	require.Positive(t, result.Usage.OutputTokens)
+
+	require.NotNil(t, upstream.lastReq)
+	require.Contains(t, upstream.lastReq.URL.String(), "generateAssistantResponse")
+	require.NotContains(t, upstream.lastReq.URL.Host, "anthropic.com")
+	require.True(t, gjson.GetBytes(upstream.lastReqBody(), "conversationState").Exists())
+	require.True(t, gjson.GetBytes(upstream.lastReqBody(), "profileArn").Exists())
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "chat.completion", gjson.GetBytes(rec.Body.Bytes(), "object").String())
+	require.Equal(t, "claude-sonnet-4-5", gjson.GetBytes(rec.Body.Bytes(), "model").String())
+	require.Equal(t, "KIRO-CC-OK", gjson.GetBytes(rec.Body.Bytes(), "choices.0.message.content").String())
+	require.Equal(t, "stop", gjson.GetBytes(rec.Body.Bytes(), "choices.0.finish_reason").String())
+	require.True(t, gjson.GetBytes(rec.Body.Bytes(), "usage").Exists())
+}
+
+func TestTkCCPreservesKiroUpstreamStream(t *testing.T) {
+	t.Parallel()
+
+	kiro := &Account{Platform: PlatformKiro}
+	stub := &Account{
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"mirror_platform": PlatformKiro},
+	}
+	oauth := &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth}
+
+	require.True(t, tkCCPreservesKiroUpstreamStream(kiro, false))
+	require.True(t, tkCCPreservesKiroUpstreamStream(stub, false))
+	require.False(t, tkCCPreservesKiroUpstreamStream(oauth, false))
+	require.True(t, tkCCPreservesKiroUpstreamStream(oauth, true))
+}
+
+func TestForwardAsChatCompletions_KiroMirrorStub_NonStreamingPreservesUpstreamStream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.False(t, gjson.GetBytes(body, "stream").Bool())
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("x-request-id", "msg_mirror")
+		_, _ = w.Write([]byte(`{
+			"id":"msg_mirror",
+			"type":"message",
+			"role":"assistant",
+			"content":[{"type":"text","text":"MIRROR-OK"}],
+			"model":"claude-sonnet-4-5",
+			"stop_reason":"end_turn",
+			"usage":{"input_tokens":4,"output_tokens":5}
+		}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}],"max_tokens":32,"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	svc := &GatewayService{
+		cfg:          &config.Config{},
+		httpUpstream: &relayHTTPUpstream{client: upstream.Client()},
+	}
+	account := &Account{
+		ID:       66,
+		Name:     "kiro-us6",
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":         "relay-key",
+			"base_url":        upstream.URL,
+			"mirror_platform": PlatformKiro,
+		},
+	}
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "MIRROR-OK", gjson.GetBytes(rec.Body.Bytes(), "choices.0.message.content").String())
 }

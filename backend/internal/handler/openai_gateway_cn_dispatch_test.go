@@ -72,6 +72,6 @@ func TestResolveOpenAIMessagesDispatchMappedModel_CompositeCNTargetsSkipGroupMap
 		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformComposite}}
 		ensureCompositeTargetPlatform(c, apiKey, model)
 
-		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(c, apiKey, "claude-sonnet-4-5-20250929"), "model=%s", model)
+		require.Empty(t, resolveOpenAIMessagesDispatchMappedModelForContext(c, apiKey, "claude-sonnet-4-5-20250929"), "model=%s", model)
 	}
 }

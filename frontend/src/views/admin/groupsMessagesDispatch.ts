@@ -1,4 +1,15 @@
 import type { OpenAIMessagesDispatchModelConfig } from "@/types";
+import { PLATFORM_GROK } from '@/constants/gatewayPlatforms'
+import { messagesDispatchTierDefaultsForGroup } from "@/constants/messagesDispatchFamilyRegistry.tk";
+
+export function supportsMessagesDispatchPlatform(platform: string): boolean {
+  return (
+    platform === "openai" ||
+    platform === "composite" ||
+    platform === "grok" ||
+    platform === "newapi"
+  );
+}
 
 export interface MessagesDispatchMappingRow {
   claude_model: string;
@@ -11,26 +22,67 @@ export interface MessagesDispatchFormState {
   sonnet_mapped_model: string;
   haiku_mapped_model: string;
   exact_model_mappings: MessagesDispatchMappingRow[];
+  messages_compaction_enabled?: boolean;
+  messages_compaction_input_tokens_threshold?: number | null;
 }
 
-export function supportsMessagesDispatchPlatform(platform: string): boolean {
-  return platform === "openai" || platform === "composite";
+export const OPENAI_MESSAGES_DISPATCH_DEFAULTS = {
+  opus_mapped_model: "gpt-5.6-sol",
+  sonnet_mapped_model: "gpt-5.6-terra",
+  haiku_mapped_model: "gpt-5.6-luna",
+} as const;
+
+export const GROK_MESSAGES_DISPATCH_DEFAULTS = {
+  opus_mapped_model: "grok-4.6",
+  sonnet_mapped_model: "grok-4.5",
+  haiku_mapped_model: "grok-code-fast-1",
+} as const;
+
+const EMPTY_MESSAGES_DISPATCH_DEFAULTS = {
+  opus_mapped_model: "",
+  sonnet_mapped_model: "",
+  haiku_mapped_model: "",
+} as const;
+
+export function messagesDispatchDefaultsForPlatform(
+  platform?: string | null,
+  groupName?: string | null,
+): Pick<
+  MessagesDispatchFormState,
+  "opus_mapped_model" | "sonnet_mapped_model" | "haiku_mapped_model"
+> {
+  const fromRegistry = messagesDispatchTierDefaultsForGroup(groupName, platform);
+  if (fromRegistry) {
+    return fromRegistry;
+  }
+  if (platform === PLATFORM_GROK) {
+    return { ...GROK_MESSAGES_DISPATCH_DEFAULTS };
+  }
+  if (platform === "openai") {
+    return { ...OPENAI_MESSAGES_DISPATCH_DEFAULTS };
+  }
+  return { ...EMPTY_MESSAGES_DISPATCH_DEFAULTS };
 }
 
-export function createDefaultMessagesDispatchFormState(): MessagesDispatchFormState {
+export function createDefaultMessagesDispatchFormState(
+  platform?: string | null,
+  groupName?: string | null,
+): MessagesDispatchFormState {
   return {
     allow_messages_dispatch: false,
-    opus_mapped_model: "gpt-5.4",
-    sonnet_mapped_model: "gpt-5.3-codex",
-    haiku_mapped_model: "gpt-5.4-mini",
+    ...messagesDispatchDefaultsForPlatform(platform, groupName),
     exact_model_mappings: [],
+    messages_compaction_enabled: false,
+    messages_compaction_input_tokens_threshold: null,
   };
 }
 
 export function messagesDispatchConfigToFormState(
   config?: OpenAIMessagesDispatchModelConfig | null,
+  platform?: string | null,
+  groupName?: string | null,
 ): MessagesDispatchFormState {
-  const defaults = createDefaultMessagesDispatchFormState();
+  const defaults = createDefaultMessagesDispatchFormState(platform, groupName);
   const exactMappings = Object.entries(config?.exact_model_mappings || {})
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([claude_model, target_model]) => ({ claude_model, target_model }));
@@ -44,6 +96,9 @@ export function messagesDispatchConfigToFormState(
     haiku_mapped_model:
       config?.haiku_mapped_model?.trim() || defaults.haiku_mapped_model,
     exact_model_mappings: exactMappings,
+    messages_compaction_enabled: defaults.messages_compaction_enabled,
+    messages_compaction_input_tokens_threshold:
+      defaults.messages_compaction_input_tokens_threshold,
   };
 }
 
@@ -66,11 +121,16 @@ export function messagesDispatchFormStateToConfig(
 
 export function resetMessagesDispatchFormState(
   target: MessagesDispatchFormState,
+  platform?: string | null,
+  groupName?: string | null,
 ): void {
-  const defaults = createDefaultMessagesDispatchFormState();
+  const defaults = createDefaultMessagesDispatchFormState(platform, groupName);
   target.allow_messages_dispatch = defaults.allow_messages_dispatch;
   target.opus_mapped_model = defaults.opus_mapped_model;
   target.sonnet_mapped_model = defaults.sonnet_mapped_model;
   target.haiku_mapped_model = defaults.haiku_mapped_model;
   target.exact_model_mappings = [];
+  target.messages_compaction_enabled = defaults.messages_compaction_enabled;
+  target.messages_compaction_input_tokens_threshold =
+    defaults.messages_compaction_input_tokens_threshold;
 }

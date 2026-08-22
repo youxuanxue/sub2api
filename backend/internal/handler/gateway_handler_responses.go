@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -47,11 +48,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	// Read request body
 	body, err := readLenientJSONRequestBodyWithPrealloc(c.Request, h.cfg)
 	if err != nil {
-		if maxErr, ok := extractMaxBytesError(err); ok {
-			h.responsesErrorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
-			return
-		}
-		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+		writeReadRequestBodyError(c, err, h.responsesErrorResponse)
 		return
 	}
 
@@ -88,7 +85,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	}
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
 
-	setOpsRequestContext(c, reqModel, reqStream)
+	setOpsRequestModelAndBody(c, reqModel, reqStream, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 	requestCtx := c.Request.Context()
 	// 定价上下文无条件装配：/v1/responses 是 token 计费端点，声明生图工具的
@@ -101,19 +98,41 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	}
 	c.Request = c.Request.WithContext(requestCtx)
 
+	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
+	if h.cfg != nil {
+		if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformAnthropic, reqModel, len(body)); reject {
+			h.responsesErrorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", msg)
+			return
+		}
+	}
+
+	if h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog) {
+		return
+	}
+	if h.tkWriteUnsupportedAnthropicModelAtIngress(c, reqModel, reqStream, reqLog) {
+		return
+	}
+
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(requestCtx, apiKey.GroupID, reqModel)
 
 	// Claude Code only restriction:
 	// /v1/responses is never a Claude Code endpoint.
-	// When claude_code_only is enabled, this endpoint is rejected.
-	// The existing service-layer checkClaudeCodeRestriction handles degradation
-	// to fallback groups when the Forward path calls SelectAccountForModelWithExclusions.
-	// Here we just reject at handler level since /v1/responses clients can't be Claude Code.
+	// TK: when a CC-only group declares a valid fallback_group_id, route non-CC
+	// OpenAI-compat traffic to that fallback group instead of hard-403'ing.
 	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
-		h.responsesErrorResponse(c, http.StatusForbidden, "permission_error",
-			"This group is restricted to Claude Code clients (/v1/messages only)")
-		return
+		writeForbidden := func() {
+			h.responsesErrorResponse(c, http.StatusForbidden, "permission_error", tkCCOnlyForbiddenMessage)
+		}
+		writeBillingError := func(status int, code, message string) {
+			h.responsesErrorResponse(c, status, code, message)
+		}
+		fallbackAPIKey, handled := h.tkResolveCCOnlyFallback(c, apiKey, reqLog, writeForbidden, writeBillingError)
+		if handled {
+			return
+		}
+		apiKey = fallbackAPIKey
+		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(requestCtx, apiKey.GroupID, reqModel)
 	}
 
 	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, body); decision != nil && !decision.AllowNextStage {
@@ -158,36 +177,46 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	if parsedReq == nil {
 		parsedReq = &service.ParsedRequest{Model: reqModel, Stream: reqStream, Body: bodyRef}
 	}
-	parsedReq.SessionContext = &service.SessionContext{
-		ClientIP:  ip.GetClientIP(c),
-		UserAgent: c.GetHeader("User-Agent"),
-		APIKeyID:  apiKey.ID,
+	reasoningEffort := service.ExtractResponsesReasoningEffortFromBody(body)
+	if service.OpenAIReasoningEnablesThinking(reasoningEffort, body) {
+		parsedReq.ThinkingEnabled = true
 	}
+	requestCtx = service.WithThinkingEnabled(
+		requestCtx, parsedReq.ThinkingEnabled, h.metadataBridgeEnabled(),
+	)
+	c.Request = c.Request.WithContext(requestCtx)
+	TkPrepareParsedRequestSessionInputs(c, apiKey, parsedReq)
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
+	groupPlatform := ""
+	if apiKey.Group != nil {
+		groupPlatform = apiKey.Group.Platform
+	}
+	groupUsesGeminiCompat := service.UsesGeminiNativeOpenAICompat(groupPlatform, reqModel)
+	selectionSessionHash := sessionHash
+	if groupUsesGeminiCompat && selectionSessionHash != "" {
+		selectionSessionHash = "gemini:" + selectionSessionHash
+	}
 
 	// 3. Account selection + failover loop
 	fs := NewFailoverState(h.maxAccountSwitches, false)
+	if groupUsesGeminiCompat {
+		fs = NewFailoverState(h.maxAccountSwitchesGemini, false)
+	}
 
 	for {
+		routingStart := time.Now()
 		if requestCtx.Err() != nil {
 			return
 		}
-		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(requestCtx, apiKey.GroupID, sessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
+		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(requestCtx, apiKey.GroupID, selectionSessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
 		if err != nil {
 			if len(fs.FailedAccountIDs) == 0 {
-				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, effectiveAPIKeyPlatform(c, apiKey))
-				cls = classifySelectionFailureError(err, cls)
-				if !cls.ModelNotFound {
-					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				}
-				message := cls.Message
-				if !cls.ModelNotFound {
-					message = "No available accounts: " + err.Error()
-				}
-				h.responsesErrorResponse(c, cls.Status, cls.ErrType, message)
+				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+				tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, reqModel)
+				h.responsesErrorResponse(c, tkStatus, tkType, tkMsg)
 				return
 			}
-			action := fs.HandleSelectionExhausted(requestCtx)
+			action := fs.HandleSelectionExhausted(requestCtx, errors.Is(err, service.ErrThinPoolAllExcluded))
 			switch action {
 			case FailoverContinue:
 				continue
@@ -198,7 +227,8 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				if fs.LastFailoverErr != nil {
 					h.handleResponsesFailoverExhausted(c, fs.LastFailoverErr, streamStarted)
 				} else {
-					h.responsesErrorResponse(c, http.StatusBadGateway, "server_error", "All available accounts exhausted")
+					h.responsesErrorResponse(c, http.StatusBadGateway, "server_error",
+						service.GatewayFailoverClientMessage(http.StatusBadGateway))
 				}
 				return
 			}
@@ -211,7 +241,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		if !selection.Acquired {
 			if selection.WaitPlan == nil {
 				markOpsRoutingCapacityLimited(c)
-				h.responsesErrorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
+				h.responsesErrorResponse(c, tkNoAvailableAccounts(c), "api_error", "No available accounts")
 				return
 			}
 			accountReleaseFunc, err = h.concurrencyHelper.AcquireAccountSlotWithWaitTimeout(
@@ -254,15 +284,42 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		}
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
+		if groupPlatform == service.PlatformGemini && account.Platform != service.PlatformGemini {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			fs.FailedAccountIDs[account.ID] = struct{}{}
+			continue
+		}
+		if groupPlatform == service.PlatformAntigravity && account.Platform != service.PlatformAntigravity {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			fs.FailedAccountIDs[account.ID] = struct{}{}
+			continue
+		}
+
+		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
+
 		// 5. Forward request
 		writerSizeBeforeForward := c.Writer.Size()
+		forwardStart := time.Now()
 		forwardBody := body
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
 		var result *service.ForwardResult
 		setActualUpstreamEndpoint(c, "")
-		if shouldUseAntigravityCompat(account) {
+		if service.UsesGeminiNativeOpenAICompat(account.Platform, reqModel) {
+			if h.geminiCompatService == nil {
+				h.responsesErrorResponse(c, http.StatusBadGateway, "upstream_error", "Gemini compatibility service is not configured")
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				return
+			}
+			result, err = h.geminiCompatService.ForwardAsResponses(requestCtx, c, account, forwardBody)
+		} else if shouldUseAntigravityCompat(account) {
 			if h.antigravityGatewayService == nil {
 				h.responsesErrorResponse(c, http.StatusBadGateway, "upstream_error", "Antigravity compatibility service is not configured")
 				if accountReleaseFunc != nil {
@@ -275,6 +332,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		} else {
 			result, err = h.gatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
 		}
+		tkRecordForwardResponseTail(c, forwardStart)
 
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
@@ -311,10 +369,13 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				zap.Bool("upstream_error_response_already_written", upstreamErrorAlreadyCommunicated),
 				zap.Error(err),
 			)
+			TkRecordFailureFromErr(h.gatewayService, c.Request.Context(), account.Platform, reqModel, account.ID, err)
 			return
 		}
 
 		// 6. Record usage
+		setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
+		setOpsClaudeUsageContext(c, result.Usage)
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
 		requestPayloadHash := service.HashUsageRequestPayload(body)
@@ -323,6 +384,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		sessionID := service.ExtractClientSessionID(c)
+		gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 				Result:             result,
@@ -339,6 +401,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				RequestPayloadHash: requestPayloadHash,
 				APIKeyService:      h.apiKeyService,
 				SessionID:          sessionID,
+				GatewayLatencyMs:   gatewayLatencyMs,
 				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
 			}); err != nil {
 				reqLog.Error("gateway.responses.record_usage_failed",
@@ -370,7 +433,8 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 	if lastErr != nil && lastErr.StatusCode > 0 {
 		statusCode = lastErr.StatusCode
 	}
-	status, code, message := statusCode, "server_error", "All available accounts exhausted"
+	message := service.GatewayFailoverClientMessage(statusCode)
+	status, code := statusCode, "server_error"
 	if lastErr != nil && lastErr.IsCredentialFailure() {
 		status, message = credentialFailoverClientResponse(lastErr)
 	} else if lastErr != nil && lastErr.IsOpenAICapacityShed() && strings.TrimSpace(lastErr.ClientMessage) != "" {
@@ -384,6 +448,13 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 		status, code, message = http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage()
 	} else if lastErr != nil && statusCode == http.StatusTooManyRequests {
 		status, code, message = http.StatusTooManyRequests, "rate_limit_error", "All available accounts are currently rate-limited. Please retry later."
+	}
+	if lastErr != nil && lastErr.ClientStatusCode > 0 {
+		statusCode = lastErr.ClientStatusCode
+		status = lastErr.ClientStatusCode
+		if lastErr.ClientMessage != "" {
+			message = lastErr.ClientMessage
+		}
 	}
 	if streamStarted {
 		// A slot-wait heartbeat commits HTTP 200 before any upstream response.

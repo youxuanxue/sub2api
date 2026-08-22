@@ -57,6 +57,12 @@ type Account struct {
 	SessionWindowEnd    *time.Time
 	SessionWindowStatus string
 
+	ChannelType int // New API channel type (>0 means use New API adaptor bridge)
+
+	// TierID 绑定的 anthropic-oauth 稳定性档位 id（tiers 表）；nil = 未绑定。
+	// 运行时由 TierExtraResolver 在账号加载边界按此解析 per-tier 配置 overlay 进 Extra。
+	TierID *int64
+
 	ParentAccountID *int64 // non-nil → 影子账号（不持凭据，透传母账号凭据）
 	QuotaDimension  string // 用量维度："" / "global" / "spark"
 
@@ -290,11 +296,9 @@ func (a *Account) IsCNProvider() bool {
 }
 
 // IsOpenAICompatible 报告账号是否走 OpenAI 网关（OpenAI 协议族）。
-// openai/grok 原生走 OpenAI 网关；kimi/zhipu/deepseek 同为 OpenAI Chat Completions
-// 兼容上游，也经 OpenAI 网关转发。
+// 必须走 engine.OpenAICompatPlatforms（含 newapi），不能手写 openai/grok/CN 列表。
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok ||
-		a.Platform == PlatformKimi || a.Platform == PlatformZhipu || a.Platform == PlatformDeepseek)
+	return a != nil && IsOpenAICompatPlatform(a.Platform)
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -577,7 +581,7 @@ func stringMappingFromRaw(raw any) map[string]string {
 }
 
 func (a *Account) GetModelMapping() map[string]string {
-	runtimeVersion := xai.RuntimeModelMappingVersion()
+	runtimeVersion := modelMappingCacheRuntimeVersion()
 	credentialsPtr := mapPtr(a.Credentials)
 	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
 	rawPtr := mapPtr(rawMapping)
@@ -598,6 +602,7 @@ func (a *Account) GetModelMapping() map[string]string {
 	}
 
 	mapping := a.resolveModelMapping(rawMapping)
+
 	if !rawSigReady {
 		rawSig = modelMappingSignature(rawMapping)
 	}
@@ -612,14 +617,25 @@ func (a *Account) GetModelMapping() map[string]string {
 	return mapping
 }
 
+func defaultGrokAccountModelMapping() map[string]string {
+	mapping := xai.DefaultModelMapping()
+	if !xai.RuntimeModelMappingOptions().EnableCrossClientMap {
+		return mapping
+	}
+	mapping["claude-opus-*"] = defaultMessagesDispatchMappedModelForPlatform(PlatformGrok, "opus")
+	mapping["claude-sonnet-*"] = defaultMessagesDispatchMappedModelForPlatform(PlatformGrok, "sonnet")
+	mapping["claude-haiku-*"] = defaultMessagesDispatchMappedModelForPlatform(PlatformGrok, "haiku")
+	return mapping
+}
+
 func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]string {
 	if a.Credentials == nil {
 		// Antigravity 平台使用默认映射
 		if a.Platform == domain.PlatformAntigravity {
-			return domain.DefaultAntigravityModelMapping
+			return antigravityEffectiveDefaultModelMapping()
 		}
 		if a.Platform == domain.PlatformGrok {
-			return xai.DefaultModelMapping()
+			return defaultGrokAccountModelMapping()
 		}
 		// Bedrock 默认映射由 forwardBedrock 统一处理（需配合 region prefix 调整）
 		return nil
@@ -627,10 +643,10 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 	if len(rawMapping) == 0 {
 		// Antigravity 平台使用默认映射
 		if a.Platform == domain.PlatformAntigravity {
-			return domain.DefaultAntigravityModelMapping
+			return antigravityEffectiveDefaultModelMapping()
 		}
 		if a.Platform == domain.PlatformGrok {
-			return xai.DefaultModelMapping()
+			return defaultGrokAccountModelMapping()
 		}
 		return nil
 	}
@@ -660,10 +676,10 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 
 	// Antigravity 平台使用默认映射
 	if a.Platform == domain.PlatformAntigravity {
-		return domain.DefaultAntigravityModelMapping
+		return antigravityEffectiveDefaultModelMapping()
 	}
 	if a.Platform == domain.PlatformGrok {
-		return xai.DefaultModelMapping()
+		return defaultGrokAccountModelMapping()
 	}
 	return nil
 }
@@ -759,10 +775,11 @@ func applyAntigravityGemini31ProAliases(mapping map[string]string) {
 			}
 			continue
 		}
+		// TokenKey: an absent alias stays unset. Upstream used to invent
+		// gemini-3.1-pro → agent-model here, which hid curated overrides.
 		if mappingHasWildcardForModel(mapping, alias.model) {
 			continue
 		}
-		mapping[alias.model] = target
 	}
 }
 
@@ -790,28 +807,52 @@ func normalizeRequestedModelForLookup(platform, requestedModel string) string {
 }
 
 func mappingSupportsRequestedModel(mapping map[string]string, requestedModel string) bool {
-	if requestedModel == "" {
-		return false
-	}
-	if _, exists := mapping[requestedModel]; exists {
-		return true
-	}
-	for pattern := range mapping {
-		if matchWildcard(pattern, requestedModel) {
-			return true
-		}
-	}
-	return false
+	_, matched := resolveRequestedModelInMapping(mapping, requestedModel)
+	return matched
 }
 
 func resolveRequestedModelInMapping(mapping map[string]string, requestedModel string) (mappedModel string, matched bool) {
+	requestedModel = strings.TrimSpace(requestedModel)
 	if requestedModel == "" {
 		return "", false
 	}
 	if mappedModel, exists := mapping[requestedModel]; exists {
 		return mappedModel, true
 	}
-	return matchWildcardMappingResult(mapping, requestedModel)
+	lookupKey := normalizeModelMappingLookupKey(requestedModel)
+	if lookupKey != "" && lookupKey != requestedModel {
+		if mappedModel, exists := mapping[lookupKey]; exists {
+			return mappedModel, true
+		}
+	}
+	if lookupKey != "" {
+		for _, key := range sortedModelMappingKeys(mapping) {
+			if key == requestedModel || key == lookupKey {
+				continue
+			}
+			if normalizeModelMappingLookupKey(key) == lookupKey {
+				return mapping[key], true
+			}
+		}
+	}
+	if mappedModel, matched := matchWildcardMappingResult(mapping, requestedModel); matched {
+		return mappedModel, true
+	}
+	if lookupKey != "" && lookupKey != requestedModel {
+		if mappedModel, matched := matchNormalizedWildcardMappingResult(mapping, lookupKey, requestedModel); matched {
+			return mappedModel, true
+		}
+	}
+	return requestedModel, false
+}
+
+func sortedModelMappingKeys(mapping map[string]string) []string {
+	keys := make([]string, 0, len(mapping))
+	for key := range mapping {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // IsModelSupported 检查模型是否在 model_mapping 中（支持通配符）
@@ -823,11 +864,27 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 // 请求卡死在该账号上、无法 failover 到真正支持该模型的 API Key 账号（#3662）。
 // 未知/自定义别名仍保持允许（兼容渠道级映射），见 isOpenAIOAuthServableModel。
 func (a *Account) IsModelSupported(requestedModel string) bool {
+	// CloudWise MaaS only serves the curated prefix families. This hard gate
+	// runs before passthrough / empty-mapping "allow all", otherwise a leftover
+	// empty model_mapping or openai_passthrough flag would leak gpt-* onto
+	// these dual-stack relay accounts.
+	if isCloudwiseRelayAccount(a) && !openAICloudwiseRelaySupportsRequestedModel(requestedModel) {
+		return false
+	}
+	if a.IsAnthropicTokenseaRelay() && !tokenseaRelayAccountSupportsRequestedModel(requestedModel) {
+		return false
+	}
 	// 透传模式仅替换认证、模型语义完全交由上游决定，因此放行所有模型。
 	// 该短路必须在 model_mapping 判定之前：账号从"白名单模式"切换到透传后，
 	// credentials 里常残留旧的非空 model_mapping，若不在此放行，透传账号会被
 	// model_mapping 白名单错误排除出候选集，导致 no available accounts / 404（issue #4936）。
 	if a.IsOpenAIPassthroughEnabled() {
+		return true
+	}
+	if a.IsKiroMirrorStub() || a.IsKiro() {
+		return kiroMirrorStubSupportsModel(requestedModel)
+	}
+	if grokAccountServesNativeCatalogModel(a, requestedModel) {
 		return true
 	}
 	mapping := a.GetModelMapping()
@@ -859,12 +916,12 @@ func (a *Account) ResolveMappedModel(requestedModel string) (mappedModel string,
 		return requestedModel, false
 	}
 	if mappedModel, matched := resolveRequestedModelInMapping(mapping, requestedModel); matched {
-		return mappedModel, true
+		return applyOpenAICloudwiseRelayUpstreamModelID(a, mappedModel), true
 	}
 	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
 	if normalized != requestedModel {
 		if mappedModel, matched := resolveRequestedModelInMapping(mapping, normalized); matched {
-			return mappedModel, true
+			return applyOpenAICloudwiseRelayUpstreamModelID(a, mappedModel), true
 		}
 	}
 	return requestedModel, false
@@ -947,7 +1004,10 @@ func (a *Account) GetBaseURL() string {
 	}
 	baseURL := a.GetCredential("base_url")
 	if baseURL == "" {
-		return "https://api.anthropic.com"
+		if a.Platform == PlatformAnthropic || a.Platform == "" {
+			return "https://api.anthropic.com"
+		}
+		return ""
 	}
 	if a.Platform == PlatformAntigravity {
 		return strings.TrimRight(baseURL, "/") + "/antigravity"
@@ -1012,33 +1072,8 @@ func matchWildcard(pattern, str string) bool {
 	return matchAntigravityWildcard(pattern, str)
 }
 
-func matchWildcardMappingResult(mapping map[string]string, requestedModel string) (string, bool) {
-	// 收集所有匹配的 pattern，按长度降序排序（最长优先）
-	type patternMatch struct {
-		pattern string
-		target  string
-	}
-	var matches []patternMatch
-
-	for pattern, target := range mapping {
-		if matchWildcard(pattern, requestedModel) {
-			matches = append(matches, patternMatch{pattern, target})
-		}
-	}
-
-	if len(matches) == 0 {
-		return requestedModel, false // 无匹配，返回原始模型名
-	}
-
-	// 按 pattern 长度降序排序
-	sort.Slice(matches, func(i, j int) bool {
-		if len(matches[i].pattern) != len(matches[j].pattern) {
-			return len(matches[i].pattern) > len(matches[j].pattern)
-		}
-		return matches[i].pattern < matches[j].pattern
-	})
-
-	return resolveWildcardMappingTarget(matches[0].pattern, matches[0].target, requestedModel), true
+func normalizeModelMappingLookupKey(model string) string {
+	return strings.ToLower(strings.TrimSpace(model))
 }
 
 func (a *Account) IsCustomErrorCodesEnabled() bool {
@@ -1263,6 +1298,67 @@ func (a *Account) IsOpenAI() bool {
 	return a.Platform == PlatformOpenAI
 }
 
+// IsOpenAIAinzyRelay reports the single prod api.ainzy.net/v1 OpenAI apikey
+// account (id=76). Its servable set is probe-curated and must not inherit the
+// canonical OAuth-oriented OpenAI floor.
+func (a *Account) IsOpenAIAinzyRelay() bool {
+	if a == nil || !a.IsOpenAI() || a.Type != AccountTypeAPIKey {
+		return false
+	}
+	base := strings.ToLower(strings.TrimSpace(strings.TrimSuffix(a.GetCredential("base_url"), "/")))
+	return base == "https://api.ainzy.net/v1" || base == "https://api.ainzy.net"
+}
+
+// IsOpenAITokenseaRelay reports prod OpenAI apikey accounts whose upstream is
+// agent.tokensea.ai. They expose Claude models through dual-stack OpenAI Chat
+// and Anthropic Messages endpoints but not /v1/responses.
+func (a *Account) IsOpenAITokenseaRelay() bool {
+	if a == nil || !a.IsOpenAI() || a.Type != AccountTypeAPIKey {
+		return false
+	}
+	return isTokenseaRelayBaseURL(a.GetCredential("base_url"))
+}
+
+// IsAnthropicTokenseaRelay reports prod Anthropic apikey accounts whose upstream
+// is agent.tokensea.ai. Clients use short Claude IDs; upstream wire IDs may carry
+// date suffixes (see anthropicTokenseaRelayModelMappingFloor).
+func (a *Account) IsAnthropicTokenseaRelay() bool {
+	if a == nil || a.Platform != PlatformAnthropic || a.Type != AccountTypeAPIKey {
+		return false
+	}
+	return isTokenseaRelayBaseURL(a.GetCredential("base_url"))
+}
+
+func isTokenseaRelayBaseURL(raw string) bool {
+	base := strings.ToLower(strings.TrimSpace(strings.TrimSuffix(raw, "/")))
+	switch base {
+	case "https://agent.tokensea.ai", "https://agent.tokensea.ai/v1":
+		return true
+	default:
+		return false
+	}
+}
+
+// IsOpenAICloudwiseRelay reports prod OpenAI apikey accounts whose upstream is
+// CloudWise MaaS (api.cloudwise.ai or api-us.cloudwise.ai). They expose a
+// dual-stack OpenAI Chat + Anthropic Messages gateway but not /v1/responses.
+func (a *Account) IsOpenAICloudwiseRelay() bool {
+	if a == nil || !a.IsOpenAI() || a.Type != AccountTypeAPIKey {
+		return false
+	}
+	return isCloudwiseRelayBaseURL(a.GetCredential("base_url"))
+}
+
+func isCloudwiseRelayBaseURL(raw string) bool {
+	base := strings.ToLower(strings.TrimSpace(strings.TrimSuffix(raw, "/")))
+	switch base {
+	case "https://api.cloudwise.ai/api", "https://api-us.cloudwise.ai/api":
+		return true
+	default:
+		return false
+	}
+}
+
 func (a *Account) IsOpenAILongContextBillingEnabled() bool {
 	if a == nil || !a.IsOpenAI() || a.Extra == nil {
 		return false
@@ -1320,6 +1416,15 @@ func (a *Account) IsOpenAIApiKey() bool {
 // 适用 openai 与国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）；grok 走 GetGrokBaseURL，
 // 此处对 grok 返回 "" 以保持原有行为。
 func (a *Account) GetOpenAIBaseURL() string {
+	if a == nil {
+		return ""
+	}
+	// Grok API-key relays store the edge OpenAI-compat host in credentials.base_url.
+	// They are not OpenAI/CN accounts, so the platform filter below would otherwise
+	// hide the relay URL and every /v1/* builder would report "missing base_url".
+	if a.IsGrokAPIKey() {
+		return strings.TrimSpace(a.GetCredential("base_url"))
+	}
 	if !a.IsOpenAI() && !a.IsCNProvider() {
 		return ""
 	}
@@ -1459,6 +1564,17 @@ func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
 // （/v1/messages 直通，适配 Claude Code 等客户端）。
 func (a *Account) IsAnthropicProtocol() bool {
 	return a.GetAPIProtocol() == APIProtocolAnthropic
+}
+
+// IsAnthropicOAuthPassthroughEnabled 返回 Anthropic OAuth/setup-token 账号是否启用
+// 「自动透传（仅替换认证）」：跳过 fingerprint / mimic / canonical 等改写，仅替换
+// Authorization。字段：accounts.extra.anthropic_oauth_passthrough。
+func (a *Account) IsAnthropicOAuthPassthroughEnabled() bool {
+	if a == nil || a.Platform != PlatformAnthropic || !a.IsOAuth() || a.Extra == nil {
+		return false
+	}
+	enabled, ok := a.Extra["anthropic_oauth_passthrough"].(bool)
+	return ok && enabled
 }
 
 // GetAnthropicProtocolBaseURL 返回 Anthropic 协议账号的上游 base_url
@@ -2280,6 +2396,10 @@ func (a *Account) IsAnthropicOAuthOrSetupToken() bool {
 // 仅适用于 Anthropic OAuth/SetupToken 类型账号
 // 启用后将模拟 Claude Code (Node.js) 客户端的 TLS 握手特征
 func (a *Account) IsTLSFingerprintEnabled() bool {
+	// Kiro：默认开启，按名解析 tk_canonical_kiro_cli（详见 isKiroTLSFingerprintEnabled）
+	if a.IsKiro() {
+		return a.isKiroTLSFingerprintEnabled()
+	}
 	// 仅支持 Anthropic OAuth/SetupToken 账号
 	if !a.IsAnthropicOAuthOrSetupToken() {
 		return false
@@ -3033,28 +3153,28 @@ func (a *Account) GetRPMStickyBuffer() int {
 }
 
 // CheckRPMSchedulability 根据当前 RPM 计数检查调度状态
-// 复用 WindowCostSchedulability 三态：Schedulable / StickyOnly / NotSchedulable
-func (a *Account) CheckRPMSchedulability(currentRPM int) WindowCostSchedulability {
+// 复用 WindowUtilSchedulability 三态：Schedulable / StickyOnly / NotSchedulable
+func (a *Account) CheckRPMSchedulability(currentRPM int) WindowUtilSchedulability {
 	baseRPM := a.GetBaseRPM()
 	if baseRPM <= 0 {
-		return WindowCostSchedulable
+		return WindowUtilSchedulable
 	}
 
 	if currentRPM < baseRPM {
-		return WindowCostSchedulable
+		return WindowUtilSchedulable
 	}
 
 	strategy := a.GetRPMStrategy()
 	if strategy == "sticky_exempt" {
-		return WindowCostStickyOnly // 粘性豁免无红区
+		return WindowUtilStickyOnly // 粘性豁免无红区
 	}
 
 	// tiered: 黄区 + 红区
 	buffer := a.GetRPMStickyBuffer()
 	if currentRPM < baseRPM+buffer {
-		return WindowCostStickyOnly
+		return WindowUtilStickyOnly
 	}
-	return WindowCostNotSchedulable
+	return WindowUtilNotSchedulable
 }
 
 // CheckWindowCostSchedulability 根据当前窗口费用检查调度状态

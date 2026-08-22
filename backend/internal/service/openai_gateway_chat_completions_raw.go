@@ -241,15 +241,29 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 }
 
 func (s *OpenAIGatewayService) rawChatCompletionsURL(account *Account) (string, error) {
-	if account.Platform == PlatformGrok {
+	if account == nil {
+		return "", fmt.Errorf("account is required")
+	}
+	switch {
+	case account.IsGrokAPIKey():
+		baseURL := strings.TrimSpace(account.GetOpenAIBaseURL())
+		if baseURL == "" {
+			return "", fmt.Errorf("grok relay account %d missing base_url", account.ID)
+		}
+		validatedURL, err := s.validateUpstreamBaseURLForAccount(account, baseURL)
+		if err != nil {
+			return "", fmt.Errorf("invalid grok base_url: %w", err)
+		}
+		return buildOpenAIChatCompletionsURL(validatedURL), nil
+	case account.IsGrokOAuth():
 		targetURL, err := buildGrokChatCompletionsURL(account, s.cfg, s.settingService)
 		if err != nil {
 			return "", fmt.Errorf("invalid grok base_url: %w", err)
 		}
 		return targetURL, nil
+	default:
+		return s.openAIChatCompletionsTargetURL(account)
 	}
-
-	return s.openAIChatCompletionsTargetURL(account)
 }
 
 // streamRawChatCompletions 透传上游 CC SSE 流到客户端，并提取 usage（包括
@@ -281,6 +295,8 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	var usage OpenAIUsage
 	var firstTokenMs *int
 	clientDisconnected := false
+	// TK silent-refusal observer (post-stream ops event): see Wei-Shaw/sub2api#2556.
+	var refusalObs chatRawStreamObservations
 	clientOutputStarted := false
 	pendingLines := make([]string, 0, 8)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
@@ -321,6 +337,11 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		line := scanner.Text()
 		refusalDetector.ObserveSSELine(line)
 		if payload, ok := extractOpenAISSEDataLine(line); ok {
+			// TK fix for upstream Wei-Shaw/sub2api#2298: drop empty / whitespace-only
+			// `data:` SSE frames before forwarding. See openAISSEDataPayloadIsEmpty
+			if openAISSEDataPayloadIsEmpty(payload) {
+				continue
+			}
 			trimmedPayload := strings.TrimSpace(payload)
 			if trimmedPayload != "[DONE]" {
 				observer.ObserveOpenAI([]byte(payload), strings.TrimSpace(gjson.Get(payload, "type").String()))
@@ -332,6 +353,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 					elapsed := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &elapsed
 				}
+				refusalObs.Observe(payload)
 			}
 		}
 
@@ -375,6 +397,15 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 				clientOutputStarted = true
 			}
 		}
+	}
+
+	if refusalObs.IsSilentRefusal(usage) {
+		logger.L().Warn("openai chat_completions raw: silent refusal detected",
+			zap.String("request_id", requestID),
+			zap.Int64("account_id", account.ID),
+			zap.String("upstream_model", upstreamModel),
+		)
+		recordOpenAIChatRawSilentRefusal(c, account, requestID)
 	}
 
 	return &OpenAIForwardResult{
@@ -459,6 +490,16 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	var usage OpenAIUsage
 	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
 		usage = parsedUsage
+	}
+	var refusalObs chatRawStreamObservations
+	refusalObs.ObserveBufferedResponse(respBody)
+	if refusalObs.IsSilentRefusal(usage) {
+		logger.L().Warn("openai chat_completions raw: silent refusal detected",
+			zap.String("request_id", requestID),
+			zap.Int64("account_id", account.ID),
+			zap.String("upstream_model", upstreamModel),
+		)
+		recordOpenAIChatRawSilentRefusal(c, account, requestID)
 	}
 	responseModel := gjson.GetBytes(respBody, "model").String()
 	if requiresBillableGrokChatUsage(account, billingModel, upstreamModel, responseModel) && !hasBillableGrokChatUsage(usage) {

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -914,6 +915,32 @@ func TestBuildUpstreamRequestOpenAIPassthrough_OffModeKeepsIsolatedSession(t *te
 	assert.NotEmpty(t, req.Header.Get("session_id"))
 	assert.NotEqual(t, resolveConvergedSessionID(testCodexFingerprintSeed), req.Header.Get("session_id"), "off 模式不得收敛 session_id")
 	assert.Empty(t, req.Header.Get("x-codex-window-id"))
+}
+
+func TestResolveCodexFingerprintIDs_DeviceModeInstallationIsSessionStable(t *testing.T) {
+	account := newTestOAuthAccount(5786, map[string]any{codexFingerprintModeExtraKey: "device"})
+	first := resolveCodexFingerprintIDs(account, "sess-aaa", codexFingerprintDevice)
+	again := resolveCodexFingerprintIDs(account, "sess-aaa", codexFingerprintDevice)
+	require.NotNil(t, first)
+	require.NotNil(t, again)
+	assert.Equal(t, first.installationID, again.installationID, "同一 session 必须稳定落在同一桶")
+	assert.Empty(t, first.sessionID, "device 模式不得折叠 session")
+}
+
+func TestResolveCodexFingerprintIDs_DeviceModeInstallationCappedAt3(t *testing.T) {
+	account := newTestOAuthAccount(5786, map[string]any{codexFingerprintModeExtraKey: "device"})
+	seen := map[string]struct{}{}
+	for i := 0; i < 64; i++ {
+		ids := resolveCodexFingerprintIDs(account, fmt.Sprintf("sess-%d", i), codexFingerprintDevice)
+		require.NotNil(t, ids)
+		seen[ids.installationID] = struct{}{}
+	}
+	empty := resolveCodexFingerprintIDs(account, "", codexFingerprintDevice)
+	require.NotNil(t, empty)
+	seen[empty.installationID] = struct{}{}
+	require.Equal(t, 3, codexDeviceModeInstallationLimit)
+	require.LessOrEqual(t, len(seen), codexDeviceModeInstallationLimit)
+	require.GreaterOrEqual(t, len(seen), 2, "64 个 session 应至少打到两个桶，否则额度仍被摊成一台设备")
 }
 
 func TestApplyCodexFingerprintClientMetadataRaw_NonObjectBodyUntouched(t *testing.T) {

@@ -28,13 +28,16 @@ import (
 // The normal Chat Completions → Responses conversion path is unaffected
 // because ChatCompletionsRequest has no fields for these parameters — unknown
 // fields are dropped naturally by json.Unmarshal. Kept semantically in sync
-// with the list in openai_gateway_service.go:2034 used by the /v1/responses
-// passthrough path.
+// with the unsupportedFields list in openai_gateway_service.go used by the
+// /v1/responses passthrough path. `user` is included per upstream
+// Wei-Shaw/sub2api#1264 — Cursor-like clients that POST Responses-shape bodies
+// to /v1/chat/completions can carry `user`, which the Responses upstream rejects.
 var cursorResponsesUnsupportedFields = []string{
 	"prompt_cache_retention",
 	"safety_identifier",
 	"metadata",
 	"stream_options",
+	"user",
 }
 
 // ForwardAsChatCompletions accepts a Chat Completions request body, converts it
@@ -62,17 +65,8 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	beginUpstreamResponseModelObservation(c)
 	setCodexToolNameReverse(c, nil)
 
-	restrictionResult := s.detectCodexClientRestriction(c, account, body)
-	logCodexCLIOnlyDetection(ctx, c, account, getAPIKeyIDFromContext(c), restrictionResult, body)
-	if restrictionResult.Enabled && !restrictionResult.Matched {
-		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": gin.H{
-				"type":    "forbidden_error",
-				"message": "This account only allows Codex official clients",
-			},
-		})
-		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
+	if err := s.enforceCodexClientRestriction(ctx, c, account, body); err != nil {
+		return nil, err
 	}
 
 	if account.Platform == PlatformGrok {
@@ -153,7 +147,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 
 	promptCacheKey = strings.TrimSpace(promptCacheKey)
 	compatPromptCacheInjected := false
-	if promptCacheKey == "" && account.UsesOpenAICodexProtocol() && shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
+	if promptCacheKey == "" && account.IsOpenAIOAuth() && shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
 		promptCacheKey = deriveCompatPromptCacheKey(&chatReq, upstreamModel)
 		compatPromptCacheInjected = promptCacheKey != ""
 	}
@@ -234,7 +228,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	}
 	logger.L().Debug("openai chat_completions: model mapping applied", logFields...)
 
-	if account.UsesOpenAICodexProtocol() {
+	if account.IsOpenAIOAuth() {
 		var reqBody map[string]any
 		if err := json.Unmarshal(responsesBody, &reqBody); err != nil {
 			return nil, fmt.Errorf("unmarshal for codex transform: %w", err)
@@ -339,7 +333,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		}
 		if account.Type == AccountTypeAPIKey &&
 			openai_compat.ResolveResponsesSupport(account.Extra) == openai_compat.ResponsesSupportUnknown &&
-			!isResponsesEndpointSupportedByStatus(resp.StatusCode) {
+			!openai_compat.ResponsesEndpointSupportedByStatus(resp.StatusCode) {
 			logger.L().Info("openai chat_completions: /responses unsupported, falling back to raw chat completions",
 				zap.Int64("account_id", account.ID),
 				zap.Int("upstream_status", resp.StatusCode),
@@ -533,11 +527,12 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
+	// Wei-Shaw/sub2api#1311
 	// 非流式响应必须为标准 JSON。上游被强制流式，其响应头 Content-Type 为
 	// text/event-stream，会经 WriteFilteredHeaders 透传进来；而 c.JSON 走 Gin 的
 	// writeContentType 仅在头不存在时才设置，无法覆盖。这里显式 Set 强制改回 JSON，
 	// 否则下游"看头判流式"的中间层（如 new-api）会把本应聚合的 JSON 当成 SSE 处理。
-	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+	c.Writer.Header().Set("Content-Type", "application/json")
 	c.JSON(http.StatusOK, chatResp)
 
 	result := &OpenAIForwardResult{
@@ -754,7 +749,8 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				return true
 			}
 			message = s.recordOpenAIStreamUpstreamError(c, account, false, requestID, "http_error", payloadBytes, message)
-			defaultStatus, defaultErrType, defaultMsg := http.StatusBadGateway, "upstream_error", message
+			defaultStatus, defaultErrType := openAIStreamFailedClientResponse(payloadBytes, message, "upstream_error")
+			defaultMsg := message
 			// 统一走语义状态推断 + body 归一化（与 /v1/responses 路径一致），
 			// 使按错误码配置的透传规则可命中。
 			if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(

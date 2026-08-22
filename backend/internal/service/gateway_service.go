@@ -81,8 +81,9 @@ type forceCacheBillingKeyType struct{}
 
 // accountWithLoad 账号与负载信息的组合，用于负载感知调度
 type accountWithLoad struct {
-	account  *Account
-	loadInfo *AccountLoadInfo
+	account           *Account
+	loadInfo          *AccountLoadInfo
+	saturationPenalty int
 }
 
 var ForceCacheBillingContextKey = forceCacheBillingKeyType{}
@@ -622,6 +623,7 @@ type ForwardResult struct {
 	// ServiceTier records the billable request tier. OpenAI uses service_tier;
 	// Anthropic speed=fast is normalized to "fast".
 	ServiceTier *string
+	BillingTier string
 
 	// 图片生成计费字段（图片生成模型使用）
 	ImageCount         int    // 生成的图片数量
@@ -783,6 +785,17 @@ type GatewayService struct {
 	tlsFPProfileService   *TLSFingerprintProfileService
 	balanceNotifyService  *BalanceNotifyService
 	userPlatformQuotaRepo UserPlatformQuotaRepository
+	// TK: passive availability observability (see docs/approved/pricing-availability-source-of-truth.md).
+	// Injected via GatewayService.SetPricingAvailabilityService so the upstream
+	// constructor shape remains thin.
+	tkPricingAvailability        *PricingAvailabilityService
+	tkAnthropicSigPreemptCache   AnthropicSignaturePreemptCache
+	tkAnthropicSaturationCounter AnthropicSaturationCounterCache
+	tkPricingMissingNotifier     PricingMissingNotifier
+	tkPricingCatalog             *PricingCatalogService
+	kiroGateway                  *KiroGatewayService
+	tkModelNotFoundCache         *tkModelNotFoundNegativeCache
+	tkGroupUnsupportedCache      *tkGroupUnsupportedModelNegativeCache
 }
 
 // NewGatewayService creates a new GatewayService
@@ -815,6 +828,7 @@ func NewGatewayService(
 	compositeResolver *CompositeRouteResolver,
 	balanceNotifyService *BalanceNotifyService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	kiroGateway *KiroGatewayService,
 ) *GatewayService {
 	userGroupRateTTL := resolveUserGroupRateCacheTTL(cfg)
 	modelsListTTL := resolveModelsListCacheTTL(cfg)
@@ -852,6 +866,8 @@ func NewGatewayService(
 		compositeResolver:     compositeResolver,
 		balanceNotifyService:  balanceNotifyService,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
+		kiroGateway:           kiroGateway,
+		tkModelNotFoundCache:  newTkModelNotFoundNegativeCache(),
 	}
 	svc.userGroupRateResolver = newUserGroupRateResolver(
 		userGroupRateRepo,
@@ -874,6 +890,15 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 		return ""
 	}
 
+	recordStickyHashSource := func(source string, sessionHash string) {
+		logger.WriteSinkEvent("info", "http.access.sticky", "sticky.hash_source", map[string]any{
+			"request_id":         parsed.RequestID,
+			"client_request_id":  parsed.ClientRequestID,
+			"source":             source,
+			"session_hash_short": shortSessionHash(sessionHash),
+		})
+	}
+
 	// 1. 最高优先级：从 metadata.user_id 提取 session_xxx
 	if parsed.MetadataUserID != "" {
 		uid := ParseMetadataUserID(parsed.MetadataUserID)
@@ -884,12 +909,33 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 				"device_id", uid.DeviceID,
 				"is_new_format", uid.IsNewFormat,
 			)
+			recordStickyHashSource("metadata_user_id", uid.SessionID)
 			return uid.SessionID
 		}
 		slog.Info("sticky.hash_metadata_parse_failed",
 			"metadata_user_id", parsed.MetadataUserID,
 			"parsed_nil", uid == nil,
 		)
+	}
+
+	if seed := strings.TrimSpace(parsed.ExplicitStickyKey.Value); seed != "" {
+		hash := DeriveSessionHashFromSeed(seed)
+		slog.Info("sticky.hash_source",
+			"source", parsed.ExplicitStickyKey.Source,
+			"hash", hash,
+		)
+		recordStickyHashSource(parsed.ExplicitStickyKey.Source, hash)
+		return hash
+	}
+
+	if seed := strings.TrimSpace(parsed.PromptCacheKey); seed != "" {
+		hash := DeriveSessionHashFromSeed(seed)
+		slog.Info("sticky.hash_source",
+			"source", StickyKeySourceClientPromptCacheKey,
+			"hash", hash,
+		)
+		recordStickyHashSource(StickyKeySourceClientPromptCacheKey, hash)
+		return hash
 	}
 
 	// 2. 提取带 cache_control: {type: "ephemeral"} 的内容
@@ -900,6 +946,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 			"source", "cacheable_content",
 			"hash", hash,
 		)
+		recordStickyHashSource("cacheable_content", hash)
 		return hash
 	}
 
@@ -929,6 +976,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 			"hash", hash,
 			"content_len", combined.Len(),
 		)
+		recordStickyHashSource("message_content_fallback", hash)
 		return hash
 	}
 
@@ -1399,15 +1447,12 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	hasAnyMapping := false
 
 	for _, acc := range accounts {
-		// Passthrough routing accepts models independently of model_mapping. A stale
-		// mapping on any eligible passthrough account therefore cannot define the
-		// public whitelist; return nil so the handler uses its default model set.
+		// Passthrough accounts accept models independently of model_mapping, so
+		// their (often stale) mapping must not define the public whitelist.
+		// Skip them while collecting; sibling mapped accounts still own the
+		// curated set. Passthrough-only groups fall through to nil / default.
 		if platform == PlatformOpenAI && acc.IsOpenAIPassthroughEnabled() {
-			if s.modelsListCache != nil {
-				s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
-				modelsListCacheStoreTotal.Add(1)
-			}
-			return nil
+			continue
 		}
 
 		mapping := acc.GetModelMapping()
@@ -1418,6 +1463,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 			}
 		}
 	}
+	mergeGrokNativeCatalogModels(platform, modelSet)
 
 	// If no account has model_mapping, return nil (use default)
 	if !hasAnyMapping {

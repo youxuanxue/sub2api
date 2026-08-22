@@ -83,9 +83,10 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 	}
 
-	mappedModel := req.Model
-	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
-		mappedModel = account.GetMappedModel(req.Model)
+	mappedModel, requestModel := resolveGeminiForwardModels(account, req.Model)
+
+	if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, originalModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
 	}
 
 	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody)
@@ -107,6 +108,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	buildReq, requestIDHeader := s.buildGeminiChatCompletionsUpstreamRequestFunc(
 		account,
 		mappedModel,
+		requestModel,
 		geminiReq,
 		clientStream,
 		useUpstreamStream,
@@ -123,7 +125,9 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		}
 		requestIDHeader = idHeader
 
+		hwka := s.beginSSECommentHeaderWaitKeepalive(c, clientStream)
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+		hwka.stop()
 		if err != nil {
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -258,7 +262,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
 	} else if useUpstreamStream {
-		collected, usageObj, err := collectGeminiSSE(resp.Body, account.Type == AccountTypeOAuth)
+		collected, usageObj, _, err := collectGeminiSSE(resp.Body, account.Type == AccountTypeOAuth)
 		if err != nil {
 			return nil, s.writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
 		}
@@ -307,10 +311,14 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestFunc(
 	account *Account,
 	mappedModel string,
+	requestModel string,
 	geminiReq []byte,
 	clientStream bool,
 	useUpstreamStream bool,
 ) (func(context.Context) (*http.Request, string, error), string) {
+	if strings.TrimSpace(requestModel) == "" {
+		requestModel = mappedModel
+	}
 	switch account.Type {
 	case AccountTypeAPIKey:
 		return func(ctx context.Context) (*http.Request, string, error) {
@@ -329,7 +337,8 @@ func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestF
 			if clientStream {
 				action = "streamGenerateContent"
 			}
-			fullURL, err := buildGeminiAIStudioModelActionURL(normalizedBaseURL, mappedModel, action, clientStream)
+			// hop URL uses requestModel: strings.TrimRight(normalizedBaseURL, "/"), requestModel, action
+			fullURL, err := buildGeminiAIStudioModelActionURL(normalizedBaseURL, requestModel, action, clientStream)
 			if err != nil {
 				return nil, "", err
 			}
@@ -396,7 +405,7 @@ func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestF
 				return nil, "", err
 			}
 
-			fullURL, err := buildGeminiAIStudioModelActionURL(normalizedBaseURL, mappedModel, action, useUpstreamStream)
+			fullURL, err := buildGeminiAIStudioModelActionURL(normalizedBaseURL, requestModel, action, useUpstreamStream)
 			if err != nil {
 				return nil, "", err
 			}

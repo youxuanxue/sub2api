@@ -6,17 +6,29 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 )
 
 // Gin context keys used by Ops error logger for capturing upstream error details.
 // These keys are set by gateway services and consumed by handler/ops_error_logger.go.
 const (
+	// OpsModelKey / OpsRequestBodyKey mirror the unexported constants in
+	// handler/ops_error_logger.go so service-layer code can read the request
+	// body size + model stashed at handler entry without a service→handler cycle.
+	OpsModelKey       = "ops_model"
+	OpsRequestBodyKey = "ops_request_body"
+
 	OpsUpstreamStatusCodeKey   = "ops_upstream_status_code"
 	OpsUpstreamErrorMessageKey = "ops_upstream_error_message"
 	OpsUpstreamErrorDetailKey  = "ops_upstream_error_detail"
 	OpsUpstreamErrorsKey       = "ops_upstream_errors"
 	OpsUpstreamModelKey        = "ops_upstream_model"
+
+	// OpsUpstreamKindRequestNormalized marks Anthropic request-body normalize audit
+	// events (change-kind list in Message). Recovered-200 ops logging must ignore
+	// these; gateway.anthropic_request_normalized slog is the canonical audit path.
+	OpsUpstreamKindRequestNormalized = "request_normalized"
 
 	// Optional stage latencies (milliseconds) for troubleshooting and alerting.
 	OpsAuthLatencyMsKey      = "ops_auth_latency_ms"
@@ -56,6 +68,37 @@ const (
 	OpsClientBusinessLimitedReasonLocalFeatureGate        = "local_feature_gate"
 	OpsClientBusinessLimitedReasonLocalPolicyDenied       = "local_policy_denied"
 	OpsClientBusinessLimitedReasonLocalModelConfiguration = "local_model_configuration"
+
+	// TK aliases kept after upstream renamed policy-denied → business-limited.
+	OpsClientPolicyDeniedKey                          = OpsClientBusinessLimitedKey
+	OpsClientPolicyDeniedReasonKey                    = OpsClientBusinessLimitedReasonKey
+	OpsClientPolicyDeniedReasonIPRestriction          = OpsClientBusinessLimitedReasonIPRestriction
+	OpsClientPolicyDeniedReasonAPIKeyGroupUnavailable = OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable
+	OpsClientPolicyDeniedReasonAPIKeyGroupUnassigned  = OpsClientBusinessLimitedReasonAPIKeyGroupUnassigned
+	OpsClientPolicyDeniedReasonLocalFeatureGate       = OpsClientBusinessLimitedReasonLocalFeatureGate
+	OpsClientPolicyDeniedReasonLocalPolicyDenied      = OpsClientBusinessLimitedReasonLocalPolicyDenied
+
+	// OpsInternalErrorDetailKey carries a sanitized, truncated detail string for
+	// internal-phase errors that bubble up as 5xx from middleware.
+	OpsInternalErrorDetailKey = "ops_internal_error_detail"
+
+	// OpsClientClosedRequestKey marks local failures caused by the caller closing
+	// the inbound request context before gateway auth/body handling completed.
+	OpsClientClosedRequestKey = "ops_client_closed_request"
+
+	// Best-effort capture of the current upstream request body so ops can
+	// retry the specific upstream attempt (not just the client request).
+	OpsUpstreamRequestBodyKey = "ops_upstream_request_body"
+
+	OpsTLSFingerprintProfileIDKey   = "ops_tls_fingerprint_profile_id"
+	OpsTLSFingerprintProfileNameKey = "ops_tls_fingerprint_profile_name"
+	OpsClientContentFilteredKey     = "ops_client_content_filtered"
+	OpsGatewayQueueWaitMsKey        = "ops_gateway_queue_wait_ms"
+
+	// OpsUpstreamKindClientToolContextCorrupt marks a local Anthropic request
+	// rejection before any upstream call because user/tool_result context no
+	// longer matches the required immediately preceding assistant/tool_use turn.
+	OpsUpstreamKindClientToolContextCorrupt = "client_tool_context_corrupt"
 )
 
 func MarkResponseCommitted(c *gin.Context) { c.Set(ResponseCommittedKey, true) }
@@ -74,6 +117,18 @@ func SetOpsLatencyMs(c *gin.Context, key string, value int64) {
 		return
 	}
 	c.Set(key, value)
+}
+
+func AddOpsLatencyMs(c *gin.Context, key string, delta int64) {
+	if c == nil || strings.TrimSpace(key) == "" || delta <= 0 {
+		return
+	}
+	existing, _ := contextLatencyMs(c, key)
+	SetOpsLatencyMs(c, key, existing+delta)
+}
+
+func AddOpsGatewayQueueWaitMs(c *gin.Context, waitMs int64) {
+	AddOpsLatencyMs(c, OpsGatewayQueueWaitMsKey, waitMs)
 }
 
 // SetOpsUpstreamModel stores only the effective model slug for final Ops
@@ -104,6 +159,80 @@ func MarkOpsClientBusinessLimited(c *gin.Context, reason string) {
 	if reason = strings.TrimSpace(reason); reason != "" {
 		c.Set(OpsClientBusinessLimitedReasonKey, reason)
 	}
+}
+
+func MarkOpsClientPolicyDenied(c *gin.Context, reason string) {
+	MarkOpsClientBusinessLimited(c, reason)
+}
+
+func setOpsUpstreamRequestBody(c *gin.Context, body []byte) {
+	if c == nil || len(body) == 0 {
+		return
+	}
+	c.Set(OpsUpstreamRequestBodyKey, body)
+}
+
+func setOpsTLSFingerprintProfile(c *gin.Context, account *Account, profile *tlsfingerprint.Profile) {
+	if c == nil || account == nil || profile == nil {
+		return
+	}
+	if id := account.GetTLSFingerprintProfileID(); id > 0 {
+		c.Set(OpsTLSFingerprintProfileIDKey, id)
+	}
+	if name := strings.TrimSpace(profile.Name); name != "" {
+		c.Set(OpsTLSFingerprintProfileNameKey, name)
+	}
+}
+
+func resolveOpsTLSFingerprintProfile(c *gin.Context, svc *TLSFingerprintProfileService, account *Account) *tlsfingerprint.Profile {
+	if svc == nil {
+		return nil
+	}
+	profile := svc.ResolveTLSProfile(account)
+	setOpsTLSFingerprintProfile(c, account, profile)
+	return profile
+}
+
+func MarkOpsClientContentFiltered(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	c.Set(OpsClientContentFilteredKey, true)
+}
+
+func HasOpsClientContentFiltered(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	v, ok := c.Get(OpsClientContentFilteredKey)
+	if !ok {
+		return false
+	}
+	marked, _ := v.(bool)
+	return marked
+}
+
+func MarkOpsClientClosedRequest(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	c.Set(OpsClientClosedRequestKey, true)
+}
+
+func HasOpsClientClosedRequest(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	v, ok := c.Get(OpsClientClosedRequestKey)
+	if !ok {
+		return false
+	}
+	marked, _ := v.(bool)
+	return marked
+}
+
+func HasOpsClientPolicyDenied(c *gin.Context) bool {
+	return HasOpsClientBusinessLimited(c)
 }
 
 func HasOpsClientBusinessLimited(c *gin.Context) bool {
@@ -361,9 +490,11 @@ type OpsUpstreamErrorEvent struct {
 	Passthrough bool `json:"passthrough,omitempty"`
 
 	// Context
-	Platform    string `json:"platform,omitempty"`
-	AccountID   int64  `json:"account_id,omitempty"`
-	AccountName string `json:"account_name,omitempty"`
+	Platform                  string `json:"platform,omitempty"`
+	AccountID                 int64  `json:"account_id,omitempty"`
+	AccountName               string `json:"account_name,omitempty"`
+	TLSFingerprintProfileID   int64  `json:"tls_fingerprint_profile_id,omitempty"`
+	TLSFingerprintProfileName string `json:"tls_fingerprint_profile_name,omitempty"`
 
 	// Outcome
 	UpstreamStatusCode int    `json:"upstream_status_code,omitempty"`
@@ -372,6 +503,11 @@ type OpsUpstreamErrorEvent struct {
 	// UpstreamURL is the actual upstream URL that was called (host + path, query/fragment stripped).
 	// Helps debug 404/routing errors by showing which endpoint was targeted.
 	UpstreamURL string `json:"upstream_url,omitempty"`
+
+	// Best-effort upstream request capture (sanitized+trimmed).
+	UpstreamRequestBody string `json:"upstream_request_body,omitempty"`
+	// RequestBodyTruncated indicates UpstreamRequestBody was truncated for storage.
+	RequestBodyTruncated bool `json:"request_body_truncated,omitempty"`
 
 	// Best-effort upstream response capture (sanitized+trimmed).
 	UpstreamResponseBody string `json:"upstream_response_body,omitempty"`
@@ -402,7 +538,28 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 		ev.AtUnixMs = time.Now().UnixMilli()
 	}
 	ev.Platform = strings.TrimSpace(ev.Platform)
+	ev.TLSFingerprintProfileName = strings.TrimSpace(ev.TLSFingerprintProfileName)
+	if ev.TLSFingerprintProfileID <= 0 {
+		if v, ok := c.Get(OpsTLSFingerprintProfileIDKey); ok {
+			switch t := v.(type) {
+			case int64:
+				ev.TLSFingerprintProfileID = t
+			case int:
+				ev.TLSFingerprintProfileID = int64(t)
+			case float64:
+				ev.TLSFingerprintProfileID = int64(t)
+			}
+		}
+	}
+	if ev.TLSFingerprintProfileName == "" {
+		if v, ok := c.Get(OpsTLSFingerprintProfileNameKey); ok {
+			if s, ok := v.(string); ok {
+				ev.TLSFingerprintProfileName = strings.TrimSpace(s)
+			}
+		}
+	}
 	ev.UpstreamRequestID = strings.TrimSpace(ev.UpstreamRequestID)
+	ev.UpstreamRequestBody = strings.TrimSpace(ev.UpstreamRequestBody)
 	ev.UpstreamResponseBody = strings.TrimSpace(ev.UpstreamResponseBody)
 	ev.Kind = strings.TrimSpace(ev.Kind)
 	ev.Stage = strings.TrimSpace(ev.Stage)
@@ -413,6 +570,17 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 	ev.Detail = strings.TrimSpace(ev.Detail)
 	if ev.Message != "" {
 		ev.Message = sanitizeUpstreamErrorMessage(ev.Message)
+	}
+
+	if ev.UpstreamRequestBody == "" {
+		if v, ok := c.Get(OpsUpstreamRequestBodyKey); ok {
+			switch raw := v.(type) {
+			case string:
+				ev.UpstreamRequestBody = strings.TrimSpace(raw)
+			case []byte:
+				ev.UpstreamRequestBody = strings.TrimSpace(string(raw))
+			}
+		}
 	}
 
 	var existing []*OpsUpstreamErrorEvent

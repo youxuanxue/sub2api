@@ -17,6 +17,43 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+var errCodexClientRestricted = errors.New("codex_cli_only restriction: only codex official clients are allowed")
+
+func isOfficialOpenAICodexUserAgent(ua string) bool {
+	ua = strings.TrimSpace(ua)
+	if ua == "" {
+		return false
+	}
+	return openai.IsCodexCLIRequest(ua) || openai.IsCodexOfficialClientRequest(ua)
+}
+
+func resolveOpenAICodexUserAgent(ctx context.Context, s *OpenAIGatewayService, account *Account, inboundUserAgent string) string {
+	if s != nil && s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
+		return codexCLIUserAgent
+	}
+	if account != nil {
+		if customUA := strings.TrimSpace(account.GetOpenAIUserAgent()); customUA != "" {
+			return customUA
+		}
+	}
+	if isOfficialOpenAICodexUserAgent(inboundUserAgent) {
+		return strings.TrimSpace(inboundUserAgent)
+	}
+	if s != nil && s.settingService != nil {
+		if ua := strings.TrimSpace(s.settingService.GetOpenAICodexUserAgent(ctx)); ua != "" {
+			return ua
+		}
+	}
+	return codexCLIUserAgent
+}
+
+func (s *OpenAIGatewayService) applyOpenAICodexUserAgent(ctx context.Context, req *http.Request, account *Account, inboundUserAgent string) {
+	if req == nil || account == nil || !account.IsOpenAIOAuth() {
+		return
+	}
+	req.Header.Set("user-agent", resolveOpenAICodexUserAgent(ctx, s, account, inboundUserAgent))
+}
+
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
 	beginUpstreamResponseModelObservation(c)
@@ -28,18 +65,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	// 固定渠道映射后的请求级 canonical body；账号 normalize/strip 不得改写跨 failover hint。
 	canonicalImageIntentBody := body
 
-	restrictionResult := s.detectCodexClientRestriction(c, account, body)
-	apiKeyID := getAPIKeyIDFromContext(c)
-	logCodexCLIOnlyDetection(ctx, c, account, apiKeyID, restrictionResult, body)
-	if restrictionResult.Enabled && !restrictionResult.Matched {
-		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": gin.H{
-				"type":    "forbidden_error",
-				"message": CodexClientRestrictionMessage(restrictionResult),
-			},
-		})
-		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
+	if err := s.enforceCodexClientRestriction(ctx, c, account, body); err != nil {
+		return nil, err
 	}
 
 	normalizedBody, normalized, err := normalizeOpenAICodexCompactReasoningEffortForAccount(c, account, body)
@@ -534,7 +561,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		if gjson.GetBytes(body, "max_completion_tokens").Exists() && (account.Type == AccountTypeAPIKey || account.Platform != PlatformOpenAI) {
 			markPatchDelete("max_completion_tokens")
 		}
-		for _, unsupportedField := range []string{"prompt_cache_retention", "safety_identifier", "prompt_cache_options"} {
+		for _, unsupportedField := range []string{"user", "prompt_cache_retention", "safety_identifier", "prompt_cache_options"} {
 			if gjson.GetBytes(body, unsupportedField).Exists() {
 				markPatchDelete(unsupportedField)
 			}
@@ -899,6 +926,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	httpInvalidEncryptedContentRetryTried := false
 	compactModelFallbackRetried := false
 	agentTaskRecoveryTried := false
+	oauth401RefreshTried := false
 	rejectedFieldRetryState := openAIResponsesRejectedFieldRetryStateForRequest(c, body)
 	for {
 		// Build upstream request
@@ -927,8 +955,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 
 		// Send request
+		hwka := s.beginHeaderWaitKeepalive(c, reqStream)
 		upstreamStart := time.Now()
 		resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+		hwka.stop()
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 		if headerGuard != nil && headerGuard.stopHeaderWait() {
 			if resp != nil && resp.Body != nil {
@@ -965,6 +995,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 			upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 			upstreamCode := extractUpstreamErrorCode(respBody)
+			if resp.StatusCode == http.StatusUnauthorized && !oauth401RefreshTried {
+				if newToken, ok := s.tryRefreshOpenAI401Token(ctx, account, respBody); ok {
+					token = newToken
+					oauth401RefreshTried = true
+					continue
+				}
+			}
 			if !agentTaskRecoveryTried && s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidHTTPResponse(resp.StatusCode, respBody) {
 				agentTaskRecoveryTried = true
 				expectedTaskID := account.GetCredential("task_id")
@@ -1180,6 +1217,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 }
 
+func openAIStreamFailoverBlockedByClientOutput(firstTokenMs *int) bool {
+	return firstTokenMs != nil
+}
+
 func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
@@ -1192,11 +1233,35 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 			return true
 		case APIProtocolAdaptive:
 			return account.Platform != PlatformDeepseek
+		case APIProtocolResponses, APIProtocolAnthropic:
+			return false
 		default:
 			return false
 		}
 	}
+	// Dual-stack MaaS relays advertise /v1/responses (probe treats 400 as
+	// "endpoint exists") but only implement Chat + Anthropic Messages.
+	if account.IsOpenAICloudwiseRelay() || account.IsOpenAITokenseaRelay() {
+		return true
+	}
 	return !openai_compat.ShouldUseResponsesAPI(account.Extra)
+}
+
+func (s *OpenAIGatewayService) enforceCodexClientRestriction(ctx context.Context, c *gin.Context, account *Account, body []byte) error {
+	restrictionResult := s.detectCodexClientRestriction(c, account, body)
+	apiKeyID := getAPIKeyIDFromContext(c)
+	logCodexCLIOnlyDetection(ctx, c, account, apiKeyID, restrictionResult, body)
+	if restrictionResult.Enabled && !restrictionResult.Matched {
+		MarkOpsClientPolicyDenied(c, OpsClientPolicyDeniedReasonLocalPolicyDenied)
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": gin.H{
+				"type":    "forbidden_error",
+				"message": CodexClientRestrictionMessage(restrictionResult),
+			},
+		})
+		return errCodexClientRestricted
+	}
+	return nil
 }
 
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
@@ -1332,6 +1397,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	if account.UsesOpenAICodexProtocol() {
 		enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))
 	}
+	s.applyOpenAICodexUserAgent(ctx, req, account, c.GetHeader("User-Agent"))
 
 	// Ensure required headers exist
 	if req.Header.Get("content-type") == "" {

@@ -58,6 +58,9 @@ func (s *GatewayService) ForwardAsResponses(
 	}
 	originalModel := responsesReq.Model
 	clientStream := responsesReq.Stream
+	if failoverErr := antigravityOpenAICompatMessagesRelayFailover(account); failoverErr != nil {
+		return nil, failoverErr
+	}
 
 	// 3. Convert Responses → Anthropic
 	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(&responsesReq)
@@ -90,6 +93,10 @@ func (s *GatewayService) ForwardAsResponses(
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
 	anthropicReq.Model = mappedModel
 
+	if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, originalModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
+	}
+
 	logger.L().Debug("gateway forward_as_responses: model mapping applied",
 		zap.Int64("account_id", account.ID),
 		zap.String("original_model", originalModel),
@@ -109,7 +116,7 @@ func (s *GatewayService) ForwardAsResponses(
 	// 否则会被 Anthropic 判为第三方应用并扣 extra usage。
 	// 见 applyClaudeCodeOAuthMimicryToBody 的 godoc。
 	isClaudeCode := false
-	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode
+	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode && !account.IsAnthropicOAuthPassthroughEnabled()
 
 	if shouldMimicClaudeCode {
 		anthropicBody = s.applyClaudeCodeOAuthMimicryToBody(ctx, c, account, anthropicBody, anthropicReq.System, mappedModel)
@@ -117,6 +124,7 @@ func (s *GatewayService) ForwardAsResponses(
 
 	// 7. Enforce cache_control block limit
 	anthropicBody = enforceCacheControlLimit(anthropicBody)
+	anthropicBody = tkApplyAnthropicRequestCompatibilityRules(account, anthropicBody)
 
 	// 8. Get access token
 	token, tokenType, err := s.GetAccessToken(ctx, account)
@@ -132,14 +140,14 @@ func (s *GatewayService) ForwardAsResponses(
 
 	// 10. Build upstream request
 	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
-	upstreamReq, _, err := s.buildUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
+	upstreamReq, _, err := s.buildAnthropicCompatUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
 	releaseUpstreamCtx()
 	if err != nil {
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 
 	// 11. Send request
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, resolveOpsTLSFingerprintProfile(c, s.tlsFPProfileService, account))
 	if err != nil {
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
@@ -161,6 +169,12 @@ func (s *GatewayService) ForwardAsResponses(
 
 	// 12. Handle error response with failover
 	if resp.StatusCode >= 400 {
+		if IsKiroContentFilteredRelayResponse(account, resp.Header) {
+			_ = resp.Body.Close()
+			MarkOpsClientContentFiltered(c)
+			writeResponsesError(c, http.StatusBadRequest, "content_filter", KiroContentFilteredClientMessage())
+			return nil, &KiroContentFilteredError{}
+		}
 		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
@@ -432,7 +446,7 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	// Content-Type: text/event-stream，经 WriteFilteredHeaders 透传后会污染
 	// 响应头；而 c.Data/c.JSON 走 Gin 的 writeContentType（仅当头不存在时才设置），
 	// 无法覆盖已存在的 SSE 头。这里显式 Set 强制改回 JSON，避免下游中间层
-	// （如 new-api）按 Content-Type 误判为流式。
+	// （如 new-api）按 Content-Type 误判为流式。Wei-Shaw/sub2api#1311
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if respBytes, err := json.Marshal(responsesResp); err == nil {
 		respBytes = reverseToolNamesIfPresent(c, respBytes)

@@ -241,13 +241,44 @@ func isOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
 	return !gjson.ValidBytes(upstreamBody) && match(string(upstreamBody))
 }
 
+// IsOpenAIContextWindowError reports whether upstream text indicates the caller
+// exceeded the model context window. Shared by the OpenAI gateway (failover /
+// passthrough) and ops error classification so upstream_error_rate cannot drift.
+func IsOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
+	return isOpenAIContextWindowError(upstreamMsg, upstreamBody)
+}
+
 func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool {
+	return shouldFailoverOpenAIUpstreamStatus(statusCode)
+}
+
+func shouldFailoverOpenAIUpstreamStatus(statusCode int) bool {
 	switch statusCode {
 	case 401, 402, 403, 405, 429, 529:
 		return true
 	default:
 		return statusCode >= 500
 	}
+}
+
+// shouldFailoverOpenAIUpstreamError is the single OpenAI failover decision.
+// HTTP callers pass the upstream status. SSE / buffered callers map the event
+// to a semantic status first; they must not re-implement transient /
+// context-window / terminal-client rules.
+func shouldFailoverOpenAIUpstreamError(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	if isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody) {
+		return true
+	}
+	if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
+		return false
+	}
+	if tkIsCapabilityScope401(statusCode, upstreamBody) {
+		return false
+	}
+	if tkIsGrokEntitlement403(statusCode, upstreamBody) {
+		return false
+	}
+	return shouldFailoverOpenAIUpstreamStatus(statusCode)
 }
 
 func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
@@ -457,10 +488,14 @@ func (s *OpenAIGatewayService) readUpstreamErrorBody(resp *http.Response) []byte
 }
 
 func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account, responseBody []byte, canonicalModel ...string) bool {
+	var shouldDisable bool
 	if len(canonicalModel) > 0 {
-		return s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody, canonicalModel[0])
+		shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody, canonicalModel[0])
+	} else {
+		shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody)
 	}
-	return s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody)
+	s.tkApplyImplicitThrottleCooldown(ctx, account, resp.StatusCode)
+	return shouldDisable
 }
 
 func (s *OpenAIGatewayService) handleErrorResponse(
@@ -522,6 +557,16 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 	}
 	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 	logOpenAIInstructionsRequiredDebug(ctx, c, account, resp.StatusCode, upstreamMsg, requestBody, body)
+	if account != nil && account.IsGrok() && tkIsGrokEntitlement403(resp.StatusCode, body) {
+		MarkResponseCommitted(c)
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": gin.H{
+				"type":    "permission_error",
+				"message": tkGrokEntitlement403ClientMessage(upstreamMsg),
+			},
+		})
+		return nil, fmt.Errorf("upstream error: %d (grok entitlement 403)", resp.StatusCode)
+	}
 
 	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
 		logger.LegacyPrintf("service.openai_gateway",
@@ -657,6 +702,16 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		return nil, fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
 	}
 
+	// TK: after failover, pass caller-fault 422 and model-not-found 404 through on
+	// the native /v1/responses path. Ops misconfig 404 (Unknown URL) stays 502 below.
+	if tkShouldPassthroughOpenAINativeClientError(resp.StatusCode, upstreamMsg, body) {
+		tkWriteOpenAINativeClientError(c, resp.StatusCode, body, upstreamMsg)
+		if upstreamMsg == "" {
+			return nil, fmt.Errorf("upstream error: %d", resp.StatusCode)
+		}
+		return nil, fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
+	}
+
 	// Return appropriate error response
 	var errType, errMsg string
 	var statusCode int
@@ -685,6 +740,8 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 	}
 	if isOpenAIContextWindowError(upstreamMsg, body) && upstreamMsg != "" {
 		errMsg = upstreamMsg
+		statusCode = http.StatusBadRequest
+		errType = "invalid_request_error"
 	}
 
 	c.JSON(statusCode, gin.H{

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
@@ -94,9 +95,10 @@ type ModelPricing struct {
 	InputPricePerToken                 float64  // 每token输入价格 (USD)
 	InputPricePerTokenPriority         float64  // priority service tier 下每token输入价格 (USD)
 	ImageInputPricePerToken            float64  // 图片输入 token 价格 (USD)，用于多模态 embedding 等图文不同价场景；为 0 时回退到 InputPricePerToken
-	OutputPricePerToken                float64  // 每token输出价格 (USD)
-	OutputPricePerTokenPriority        float64  // priority service tier 下每token输出价格 (USD)
-	CacheCreationPricePerToken         float64  // 缓存创建每token价格 (USD)
+	OutputPricePerToken                float64           // 每token输出价格 (USD)
+	OutputPricePerTokenPriority        float64           // priority service tier 下每token输出价格 (USD)
+	ThinkingOutputPricePerToken        float64           // 思考模式下每token输出价格 (USD)；0 = 该模型无思考溢价
+	CacheCreationPricePerToken         float64           // 缓存创建每token价格 (USD)
 	CacheCreationPricePerTokenPriority float64  // priority service tier 下缓存创建每token价格 (USD)
 	CacheCreationPriceExplicit         bool     // 是否由渠道/区间定价显式设定（为 true 时即使 == 0 也不回退）
 	CacheReadPricePerToken             float64  // 缓存读取每token价格 (USD)
@@ -110,8 +112,11 @@ type ModelPricing struct {
 	LongContextThresholdInclusive      bool     // 达到阈值即应用（xAI）；默认保持严格大于以兼容既有模型
 	LongContextInputMultiplier         float64  // 长上下文整次会话输入倍率
 	LongContextOutputMultiplier        float64  // 长上下文整次会话输出倍率
-	ImageOutputPricePerToken           float64  // 图片输出 token 价格 (USD)
-	ImageOutputPriceExplicit           bool     // 是否由渠道定价显式设定（为 true 时即使 == 0 也不回退）
+	ImageOutputPricePerToken           float64           // 图片输出 token 价格 (USD)
+	ImageOutputPriceExplicit           bool              // 是否由渠道定价显式设定（为 true 时即使 == 0 也不回退）
+	Intervals                          []PricingInterval // 输入-token 区间分档（来自 active registry；空 = 扁平）
+	registryOwner                      string            // non-empty only when dimensions were materialized from the active registry
+	registrySnapshot                   *tkPricingOverlaySnapshot
 }
 
 const (
@@ -231,9 +236,10 @@ var ErrModelPricingUnavailable = errors.New("pricing not found")
 
 // BillingService 计费服务
 type BillingService struct {
-	cfg            *config.Config
-	pricingService *PricingService
-	fallbackPrices map[string]*ModelPricing // 硬编码回退价格
+	cfg                      *config.Config
+	pricingService           *PricingService
+	fallbackPrices           map[string]*ModelPricing // 硬编码回退价格
+	useActiveRegistryAliases bool                     // constructor instances re-read alias owners from the live registry
 
 	// fallbackWarnSeen 记录已打过 fallback 警告日志的(已小写化)模型名,
 	// 让 "[Billing] Using fallback pricing" 每个模型每进程最多打一条,
@@ -244,9 +250,10 @@ type BillingService struct {
 // NewBillingService 创建计费服务实例
 func NewBillingService(cfg *config.Config, pricingService *PricingService) *BillingService {
 	s := &BillingService{
-		cfg:            cfg,
-		pricingService: pricingService,
-		fallbackPrices: make(map[string]*ModelPricing),
+		cfg:                      cfg,
+		pricingService:           pricingService,
+		fallbackPrices:           make(map[string]*ModelPricing),
+		useActiveRegistryAliases: true,
 	}
 
 	// 初始化硬编码回退价格（当动态价格不可用时使用）
@@ -966,6 +973,61 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	return nil
 }
 
+func tkModelPricingFromLiteLLM(p *LiteLLMModelPricing) *ModelPricing {
+	if p == nil || p.TokenPricingAbsent || tkIsEffectivelyUnpriced(p) {
+		return nil
+	}
+	price5m := p.CacheCreationInputTokenCost
+	price1h := p.CacheCreationInputTokenCostAbove1hr
+	return &ModelPricing{
+		InputPricePerToken:                 p.InputCostPerToken,
+		InputPricePerTokenPriority:         p.InputCostPerTokenPriority,
+		OutputPricePerToken:                p.OutputCostPerToken,
+		OutputPricePerTokenPriority:        p.OutputCostPerTokenPriority,
+		ThinkingOutputPricePerToken:        p.ThinkingOutputCostPerToken,
+		CacheCreationPricePerToken:         p.CacheCreationInputTokenCost,
+		CacheCreationPricePerTokenPriority: p.CacheCreationInputTokenCostPriority,
+		CacheReadPricePerToken:             p.CacheReadInputTokenCost,
+		CacheReadPricePerTokenPriority:     p.CacheReadInputTokenCostPriority,
+		CacheCreation5mPrice:               price5m,
+		CacheCreation1hPrice:               price1h,
+		SupportsCacheBreakdown:             price1h > 0 && price1h > price5m,
+		LongContextInputThreshold:          p.LongContextInputTokenThreshold,
+		LongContextThresholdInclusive:      p.LongContextThresholdInclusive,
+		LongContextInputMultiplier:         p.LongContextInputCostMultiplier,
+		LongContextOutputMultiplier:        p.LongContextOutputCostMultiplier,
+		ImageInputPricePerToken:            p.InputCostPerImageToken,
+		ImageOutputPricePerToken:           p.OutputCostPerImageToken,
+		Intervals:                          p.Intervals,
+		registrySnapshot:                   p.registrySnapshot,
+	}
+}
+
+func tkOverlayModelPricing(model string) *ModelPricing {
+	owner := strings.ToLower(strings.TrimSpace(model))
+	pricing := tkModelPricingFromLiteLLM(loadTKPricingOverlay()[owner])
+	if pricing != nil {
+		pricing.registryOwner = owner
+	}
+	return pricing
+}
+
+// IsServedViaFamilyFloor reports whether `model` has no direct active-registry owner but resolves
+// through a compatibility alias to another registry owner. It is retained as the convergence
+// signal for served_at_fallback alerts; the returned dimensions are still registry-owned, never
+// read from the legacy numeric matcher. Channel pricing is not consulted here because channel-
+// priced callers skip this classification.
+func (s *BillingService) IsServedViaFamilyFloor(model string) bool {
+	if s == nil || s.pricingService == nil {
+		return false
+	}
+	lower := strings.ToLower(model)
+	if real := s.pricingService.GetModelPricing(lower); real != nil && !tkIsEffectivelyUnpriced(real) {
+		return false
+	}
+	return s.getRegistryAliasPricing(lower) != nil
+}
+
 func (s *BillingService) grokUnknownTextFamilyFallback(model string) *ModelPricing {
 	if s == nil || !isGrokUnknownTextFamilyModel(model) {
 		return nil
@@ -1168,9 +1230,13 @@ type CostInput struct {
 	RateMultiplier            float64
 	PricingAt                 time.Time             // 渠道分时定价使用的计费时刻
 	ServiceTier               string                // "priority","flex","" 等
+	EnableThinking            bool                  // 本次请求是否处于思考模式（含默认开启）；仅对带 ThinkingOutputPricePerToken 的模型改变输出价
 	Resolver                  *ModelPricingResolver // 定价解析器
 	Resolved                  *ResolvedPricing      // 可选：预解析的定价结果（避免重复 Resolve 调用）
 	LongContextBillingEnabled *bool
+	// BillingAt is the wall-clock instant used for provider time-of-day pricing
+	// (DeepSeek peak-valley). Zero → timezone.Now() at billing time.
+	BillingAt time.Time
 }
 
 // CalculateCostUnified 统一计费入口，支持三种计费模式。
@@ -1245,12 +1311,17 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 		return nil, fmt.Errorf("no pricing available for model: %s: %w", input.Model, ErrModelPricingUnavailable)
 	}
 
+	at := input.BillingAt
+	if at.IsZero() {
+		at = timezone.Now()
+	}
 	pricing = s.applyModelSpecificPricingPolicy(input.Model, pricing)
+	pricing = tkApplyDeepSeekPeakValleyPricing(input.Model, pricing, at, resolved.Source)
 
 	// 官方长上下文阶梯仅在无区间定价时应用（区间定价已包含上下文分层）。
 	applyLongCtx := len(resolved.Intervals) == 0 && contextTierPricingEnabled
 
-	breakdown := s.computeTokenBreakdown(pricing, input.Tokens, input.RateMultiplier, input.ServiceTier, applyLongCtx)
+	breakdown := s.computeTokenBreakdown(pricing, input.Tokens, input.RateMultiplier, input.ServiceTier, input.EnableThinking, applyLongCtx)
 	applyCostBreakdownMultiplier(breakdown, resolvedChannelTimeMultiplier(resolved, input.PricingAt))
 	return breakdown, nil
 }
@@ -1260,8 +1331,16 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 func (s *BillingService) computeTokenBreakdown(
 	pricing *ModelPricing, tokens UsageTokens,
 	rateMultiplier float64, serviceTier string,
-	applyLongCtx bool,
+	flags ...bool,
 ) *CostBreakdown {
+	// Upstream's tier-multiplier tests use the historical five-argument form;
+	// TokenKey's thinking-mode path passes both enableThinking and applyLongCtx.
+	enableThinking, applyLongCtx := false, false
+	if len(flags) == 1 {
+		applyLongCtx = flags[0]
+	} else if len(flags) >= 2 {
+		enableThinking, applyLongCtx = flags[0], flags[1]
+	}
 	// 保存时强制 > 0；若仍有负数泄漏，按 0 处理避免按 1x 误扣。
 	if rateMultiplier < 0 {
 		rateMultiplier = 0
@@ -1269,6 +1348,9 @@ func (s *BillingService) computeTokenBreakdown(
 
 	inputPrice := pricing.InputPricePerToken
 	outputPrice := pricing.OutputPricePerToken
+	if enableThinking && pricing.ThinkingOutputPricePerToken > 0 {
+		outputPrice = pricing.ThinkingOutputPricePerToken
+	}
 	cacheReadPrice := pricing.CacheReadPricePerToken
 	cacheCreationPrice := pricing.CacheCreationPricePerToken
 	cacheCreationMultiplier := 1.0
@@ -1458,7 +1540,16 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 		return nil, err
 	}
 
-	return s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, longContextBillingEnabled), nil
+	source := PricingSourceLiteLLM
+	if channelPricing != nil {
+		source = PricingSourceChannel
+	}
+	pricing = s.applyModelSpecificPricingPolicy(model, pricing)
+	pricing = tkApplyDeepSeekPeakValleyPricing(model, pricing, timezone.Now(), source)
+
+	// 旧路径始终检查长上下文定价（无区间定价概念）。该路径不携带 enable_thinking
+	// （仅 CalculateCostUnified/CostInput 链路透传思考模式），故按非思考计费。
+	return s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, false, longContextBillingEnabled), nil
 }
 
 func (s *BillingService) applyModelSpecificPricingPolicy(model string, pricing *ModelPricing) *ModelPricing {
@@ -1843,14 +1934,22 @@ func (s *BillingService) CalculateImageCost(model string, imageSize string, imag
 // durationSeconds: 单个视频时长（秒），<=0 时按上游默认时长计
 // groupConfig: 分组配置的每秒价格（可能为 nil，表示使用默认值）
 // rateMultiplier: 费率倍数
-func (s *BillingService) CalculateVideoCost(model string, resolution string, videoCount int, durationSeconds int, groupConfig *VideoPriceConfig, rateMultiplier float64) *CostBreakdown {
+func (s *BillingService) CalculateVideoCost(model string, resolution string, videoCount int, durationSeconds int, groupConfig *VideoPriceConfig, rateMultiplier float64, opts *VideoBillingOptions) *CostBreakdown {
 	if videoCount <= 0 {
 		return &CostBreakdown{}
 	}
-	resolution = NormalizeVideoBillingResolutionOrDefault(resolution)
-	durationSeconds = NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds)
+	resolution = NormalizeVideoBillingResolutionForModel(model, resolution)
+	if durationSeconds <= 0 {
+		if tkIsGrokImagineVideoModel(model) {
+			durationSeconds = NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds)
+		} else {
+			durationSeconds = 1
+		}
+	} else {
+		durationSeconds = NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds)
+	}
 
-	perSecondPrice := s.getVideoUnitPrice(model, resolution, groupConfig)
+	perSecondPrice := s.getVideoUnitPrice(model, resolution, groupConfig, opts)
 	totalCost := perSecondPrice * float64(durationSeconds) * float64(videoCount)
 
 	if rateMultiplier < 0 {
@@ -1889,8 +1988,8 @@ func (s *BillingService) getImageUnitPrice(model string, imageSize string, group
 	return s.getDefaultImagePrice(model, imageSize)
 }
 
-func (s *BillingService) getVideoUnitPrice(model string, resolution string, groupConfig *VideoPriceConfig) float64 {
-	// Order: (a) per-model map (b) flat group video_price_* (c) model-aware code defaults.
+func (s *BillingService) getVideoUnitPrice(model string, resolution string, groupConfig *VideoPriceConfig, opts *VideoBillingOptions) float64 {
+	// Order: (a) per-model map (b) flat group video_price_* (c) registry/code defaults.
 	if groupConfig != nil {
 		if price := LookupVideoModelPrice(groupConfig.ModelPrices, model, resolution); price != nil {
 			return *price
@@ -1909,6 +2008,10 @@ func (s *BillingService) getVideoUnitPrice(model string, resolution string, grou
 				return *groupConfig.Price1080P
 			}
 		}
+	}
+
+	if price, ok := tkVideoUnitPriceUSD(model, resolution, opts); ok && price > 0 {
+		return price
 	}
 
 	return s.getDefaultVideoPrice(model, resolution)

@@ -799,6 +799,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 
 	agentTaskRecoveryTried := false
+	oauth401RefreshTried := false
 	var acquireTurnLease func(int, string, bool) (*openAIWSConnLease, error)
 	acquireTurnLease = func(turn int, preferred string, forcePreferredConn bool) (*openAIWSConnLease, error) {
 		req := cloneOpenAIWSAcquireRequest(baseAcquireReq)
@@ -816,6 +817,19 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				return nil, fmt.Errorf("agent identity task recovery failed: %w", recoveryErr)
 			}
 			return acquireTurnLease(turn, preferred, forcePreferredConn)
+		}
+		if acquireErr != nil && !oauth401RefreshTried {
+			statusCode := 0
+			var responseBody []byte
+			if errors.As(acquireErr, &dialErr) && dialErr != nil {
+				statusCode = dialErr.StatusCode
+				responseBody = dialErr.ResponseBody
+			}
+			if newHeaders, _, ok := s.recoverOpenAIWS401AccessToken(ctx, account, statusCode, responseBody, baseAcquireReq.Headers); ok {
+				oauth401RefreshTried = true
+				baseAcquireReq.Headers = newHeaders
+				return acquireTurnLease(turn, preferred, forcePreferredConn)
+			}
 		}
 		if acquireErr != nil {
 			if isOpenAIWSSessionPreempted(ctx) {

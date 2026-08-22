@@ -715,7 +715,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 			ImageOutputSizes: imageOutputSizes,
 		}, nil
 	} else {
-		nonStreamUsage, nonStreamCount, nonStreamSizes, err := s.handleOpenAIImagesNonStreamingResponse(resp, c)
+		nonStreamUsage, nonStreamCount, nonStreamSizes, err := s.handleOpenAIImagesNonStreamingResponse(resp, c, parsed.ResponseFormat)
 		if err != nil {
 			return nil, err
 		}
@@ -886,7 +886,7 @@ func cloneMultipartHeader(src textproto.MIMEHeader) textproto.MIMEHeader {
 	return dst
 }
 
-func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http.Response, c *gin.Context) (OpenAIUsage, int, []string, error) {
+func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http.Response, c *gin.Context, responseFormat string) (OpenAIUsage, int, []string, error) {
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
 		return OpenAIUsage{}, 0, nil, err
@@ -898,10 +898,12 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http
 			contentType = upstreamType
 		}
 	}
-	c.Data(resp.StatusCode, contentType, body)
-
 	usage, _ := extractOpenAIUsageFromJSONBytes(body)
-	return usage, extractOpenAIImageCountFromJSONBytes(body), collectOpenAIResponseImageOutputSizesFromJSONBytes(body), nil
+	imageCount := extractOpenAIImageCountFromJSONBytes(body)
+	imageSizes := collectOpenAIResponseImageOutputSizesFromJSONBytes(body)
+	body = s.tkMaybeOffloadImagesToS3(c.Request.Context(), body, responseFormat)
+	c.Data(resp.StatusCode, contentType, body)
+	return usage, imageCount, imageSizes, nil
 }
 
 func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(

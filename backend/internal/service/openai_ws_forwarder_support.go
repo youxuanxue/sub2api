@@ -362,6 +362,47 @@ func (s *OpenAIGatewayService) handleOpenAIWSDialTransientFailure(ctx context.Co
 	s.handleOpenAIAccountUpstreamError(ctx, account, dialErr.StatusCode, dialErr.ResponseHeaders, dialErr.ResponseBody, canonicalModel)
 }
 
+// isOpenAIWSReasoningProgressEvent reports client-visible reasoning progress that
+// is not necessarily a billable/answer token event. Structure frames such as
+// output_item.added(type=reasoning) and reasoning_summary_part.* must reach the
+// client immediately so UIs do not stall during long upstream thinking.
+func isOpenAIWSReasoningProgressEvent(eventType string, message []byte) bool {
+	eventType = strings.TrimSpace(eventType)
+	if eventType == "" {
+		return false
+	}
+	switch {
+	case strings.HasPrefix(eventType, "response.reasoning_summary"),
+		strings.HasPrefix(eventType, "response.reasoning_text"),
+		strings.HasPrefix(eventType, "response.reasoning."):
+		return true
+	case eventType == "response.output_item.added", eventType == "response.output_item.done":
+		return strings.TrimSpace(gjson.GetBytes(message, "item.type").String()) == "reasoning"
+	default:
+		return false
+	}
+}
+
+// openAIWSShouldBufferPreTokenStreamEvent keeps only the early preamble buffered
+// before the first client-visible progress so early-disconnect failover stays
+// transparent. Reasoning structure frames and token/terminal events flush.
+func openAIWSShouldBufferPreTokenStreamEvent(eventType string, message []byte, firstTokenMs *int, isTokenEvent, isTerminalEvent bool) bool {
+	if firstTokenMs != nil || isTokenEvent || isTerminalEvent {
+		return false
+	}
+	if isOpenAIWSReasoningProgressEvent(eventType, message) {
+		return false
+	}
+	return true
+}
+
+// openAIWSMarksClientVisibleProgress is true for the first downstream-visible
+// semantic progress used by TTFT / first-output disarm. Structure-only
+// reasoning frames count; they are not billed as answer tokens.
+func openAIWSMarksClientVisibleProgress(eventType string, message []byte) bool {
+	return isOpenAIWSTokenEvent(eventType) || isOpenAIWSReasoningProgressEvent(eventType, message)
+}
+
 func isOpenAIWSTokenEvent(eventType string) bool {
 	eventType = strings.TrimSpace(eventType)
 	if eventType == "" {
@@ -573,6 +614,9 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 	if !account.SupportsOpenAIEndpointCapability(requiredCapability) {
 		return 0, nil, "", nil
 	}
+	if !s.isAccountSchedulableForOpenAIWindow(ctx, account, true) {
+		return 0, nil, "", nil
+	}
 	// Quota auto-pause must also gate the previous_response_id sticky path; otherwise an
 	// account over its 5h/7d threshold keeps serving the same response chain even though
 	// normal scheduling skips it. Pause is transient, so fall through to normal scheduling
@@ -604,6 +648,9 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 			return 0, nil, "", nil
 		}
 		if !latest.SupportsOpenAIEndpointCapability(requiredCapability) {
+			return 0, nil, "", nil
+		}
+		if !s.isAccountSchedulableForOpenAIWindow(ctx, latest, true) {
 			return 0, nil, "", nil
 		}
 		if paused, _ := shouldAutoPauseOpenAIAccountByQuota(ctx, latest); paused {
@@ -677,14 +724,26 @@ func isOpenAIWSRateLimitError(codeRaw, errTypeRaw, msgRaw string) bool {
 	return false
 }
 
-func (s *OpenAIGatewayService) persistOpenAIWSRateLimitSignal(ctx context.Context, account *Account, headers http.Header, responseBody []byte, codeRaw, errTypeRaw, msgRaw string) {
+func (s *OpenAIGatewayService) persistOpenAIWSRateLimitSignal(ctx context.Context, account *Account, headers http.Header, responseBody []byte, codeRaw, errTypeRaw, msgRaw string, requestedModel ...string) {
 	if s == nil || s.rateLimitService == nil || account == nil || account.Platform != PlatformOpenAI {
 		return
 	}
 	if !isOpenAIWSRateLimitError(codeRaw, errTypeRaw, msgRaw) {
 		return
 	}
+	if len(requestedModel) > 0 && strings.TrimSpace(requestedModel[0]) != "" {
+		s.handleOpenAIAccountUpstreamError(ctx, account, http.StatusTooManyRequests, headers, responseBody, requestedModel[0])
+		return
+	}
 	s.handleOpenAIAccountUpstreamError(ctx, account, http.StatusTooManyRequests, headers, responseBody)
+}
+
+func openAIWSUpstreamModelForRateLimit(account *Account, requestModel string) string {
+	model := strings.TrimSpace(requestModel)
+	if account == nil || model == "" {
+		return model
+	}
+	return account.GetMappedModel(model)
 }
 
 func (s *OpenAIGatewayService) newOpenAIWSRateLimitFailoverError(account *Account, headers http.Header, responseBody []byte, message string) *UpstreamFailoverError {

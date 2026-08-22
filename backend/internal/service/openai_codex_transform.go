@@ -94,6 +94,13 @@ const (
 )
 
 func normalizeCodexCallID(id string) string {
+	if strings.HasPrefix(id, "call_") {
+		// Wei-Shaw/sub2api#2500
+		fixed := "fc_" + strings.TrimPrefix(id, "call_")
+		if len(fixed) <= codexCallIDMaxLength {
+			return "fc_" + strings.TrimPrefix(id, "call_")
+		}
+	}
 	return normalizeCodexCallIDForItemType("function_call", id)
 }
 
@@ -1216,9 +1223,25 @@ func normalizeOpenAIResponsesImageOnlyModel(reqBody map[string]any) bool {
 	return modified
 }
 
+// chatGPTOAuthUpstreamModelNames maps internal canonical model names to the
+// identifiers accepted by the ChatGPT OAuth backend (chatgpt.com). The map is
+// deliberately EMPTY — it is the zero-cost seam for the next ChatGPT OAuth
+// model-name contract flip.
+var chatGPTOAuthUpstreamModelNames = map[string]string{}
+
 func normalizeOpenAIModelForUpstream(account *Account, model string) string {
-	if account == nil || account.UsesOpenAICodexProtocol() {
-		return normalizeCodexModel(model)
+	if account != nil && account.IsGrok() {
+		return strings.TrimSpace(model)
+	}
+	if aliased, ok := applyOpenAICompatContextWindowModelAlias(model); ok {
+		model = aliased
+	}
+	if account == nil || account.Type == AccountTypeOAuth || account.UsesOpenAICodexProtocol() {
+		normalized := normalizeCodexModel(model)
+		if upstream, ok := chatGPTOAuthUpstreamModelNames[normalized]; ok {
+			return upstream
+		}
+		return normalized
 	}
 	return strings.TrimSpace(model)
 }
@@ -1399,6 +1422,28 @@ func defaultCodexSynthInstructions(model string) string {
 		return instructions
 	}
 	return "You are a helpful coding assistant."
+}
+
+// ChatGPT Codex 只有请求 summary=auto 才会下发明文 reasoning summary。
+func ensureCodexReasoningSummaryAuto(reqBody map[string]any) bool {
+	if reqBody == nil {
+		return false
+	}
+	const auto = "auto"
+	switch existing := reqBody["reasoning"].(type) {
+	case nil:
+		reqBody["reasoning"] = map[string]any{"summary": auto}
+		return true
+	case map[string]any:
+		if s, ok := existing["summary"].(string); ok && s == auto {
+			return false
+		}
+		existing["summary"] = auto
+		reqBody["reasoning"] = existing
+		return true
+	default:
+		return false
+	}
 }
 
 // ensureCodexReasoningInclude 在请求带 reasoning 时补齐 include:["reasoning.encrypted_content"]。

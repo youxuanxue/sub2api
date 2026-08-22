@@ -5,17 +5,14 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -291,11 +288,19 @@ func (s *OpenAIGatewayService) SelectAccountForTokenCount(
 // handler 调度入口仍需导出，保持导出名。）
 func NormalizeOpenAICompatiblePlatform(platform string) string {
 	switch platform {
-	case PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek:
+	case PlatformNewAPI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek:
 		return platform
 	default:
 		return PlatformOpenAI
 	}
+}
+
+func normalizeOpenAICompatiblePlatform(platform string) string {
+	return NormalizeOpenAICompatiblePlatform(platform)
+}
+
+func openAICompatAccountMeetsSchedulingPrerequisites(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
+	return isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx, account, platform, requestedModel, requireCompact, requiredCapability)
 }
 
 // noAvailableOpenAISelectionError builds the standard "no account available" error
@@ -306,13 +311,20 @@ func NormalizeOpenAICompatiblePlatform(platform string) string {
 // never forward this error text to OpenAI-platform clients (they respond with
 // the generic classification message). Callers that must preserve the legacy
 // message pass "".
-func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool, details string) error {
+func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool, platform string, details string) error {
+	if err := tkDeprecatedOpenAISelectionFailure(requestedModel); err != nil {
+		return err
+	}
 	if compactBlocked {
 		return ErrNoAvailableCompactAccounts
 	}
-	message := "no available OpenAI accounts"
+	label := "OpenAI"
+	if p := strings.TrimSpace(platform); p != "" && p != PlatformOpenAI {
+		label = openAICompatErrorPlatformLabel(p)
+	}
+	message := fmt.Sprintf("no available %s accounts", label)
 	if requestedModel != "" {
-		message = fmt.Sprintf("no available OpenAI accounts supporting model: %s", requestedModel)
+		message = fmt.Sprintf("no available %s accounts supporting model: %s", label, requestedModel)
 	}
 	if details != "" {
 		message += " (" + details + ")"
@@ -376,7 +388,7 @@ func isOpenAICompatibleAccountEligibleForRequest(ctx context.Context, account *A
 // profit veto so earlier failures retain their actual reason.
 func isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
 	platform = NormalizeOpenAICompatiblePlatform(platform)
-	if account == nil || account.Platform != platform || !account.IsOpenAICompatible() || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
+	if account == nil || !account.IsOpenAICompatPoolMember(platform) || !account.IsOpenAICompatible() || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
 		return false
 	}
 	if account.IsOpenAI() {
@@ -647,7 +659,7 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 	selected, compactBlocked, filterStats := s.selectBestAccount(ctx, groupID, platform, accounts, requestedModel, excludedIDs, requireCompact, requiredCapability, preferLowUpstreamRate)
 
 	if selected == nil {
-		return nil, noAvailableOpenAISelectionError(requestedModel, compactBlocked, filterStats.summary(""))
+		return nil, noAvailableOpenAISelectionError(requestedModel, compactBlocked, "", filterStats.summary(""))
 	}
 
 	hydrated, err := s.hydrateSelectedAccount(ctx, selected)
@@ -747,6 +759,7 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 	needsUpstreamCheck := s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
 	eligible := make([]*Account, 0, len(accounts))
 	compactTiers := make(map[int64]int, len(accounts))
+	var windowDropped []*Account
 
 	for i := range accounts {
 		acc := &accounts[i]
@@ -785,12 +798,19 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 				continue
 			}
 		}
+		if !s.isAccountSchedulableForOpenAIWindow(ctx, fresh, false) {
+			windowDropped = append(windowDropped, fresh)
+			continue
+		}
 
 		eligible = append(eligible, fresh)
 		compactTiers[fresh.ID] = compactTier
 	}
 
 	if len(eligible) == 0 {
+		if len(windowDropped) > 0 {
+			return leastUtilizedOpenAIAccount(windowDropped, time.Now()), compactBlocked, filterStats
+		}
 		return nil, compactBlocked, filterStats
 	}
 	rateOrder := openAILegacyUpstreamRateOrder{}

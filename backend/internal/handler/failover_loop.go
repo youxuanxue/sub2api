@@ -2,10 +2,13 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -31,9 +34,6 @@ const (
 )
 
 const (
-	// maxSameAccountRetries 同账号重试次数默认上限（针对 RetryableOnSameAccount 错误）。
-	// 生产调用方通常传入账号级配置 account.GetPoolModeRetryCount()，该常量仅作兜底/测试默认值。
-	maxSameAccountRetries = 3
 	// sameAccountRetryDelay 同账号重试间隔
 	sameAccountRetryDelay = 500 * time.Millisecond
 	// maxRequestScopedRetryDelay 限制请求级瞬时错误的指数退避上限，避免高重试配置
@@ -195,7 +195,7 @@ func (s *FailoverState) HandleFailoverError(
 	gatewayService TempUnscheduler,
 	accountID int64,
 	platform string,
-	retryLimit int,
+	sameAccountRetryLimit int,
 	failoverErr *service.UpstreamFailoverError,
 ) FailoverAction {
 	// 客户端已断开：failover 只会用已取消的 context 重新选号并必然失败，
@@ -208,15 +208,30 @@ func (s *FailoverState) HandleFailoverError(
 		return FailoverExhausted
 	}
 
+	if failoverErr.StatusCode == http.StatusForbidden && !looksLikeStructuredErrorJSON(failoverErr.ResponseBody) {
+		if needForceCacheBilling(s.hasBoundSession, failoverErr, false) {
+			s.ForceCacheBilling = true
+		}
+		logger.FromContext(ctx).Warn("gateway.failover_forbidden_fail_fast",
+			zap.Int64("account_id", accountID),
+			zap.String("platform", platform),
+			zap.Int("upstream_status", failoverErr.StatusCode),
+			zap.Int("response_body_bytes", len(failoverErr.ResponseBody)),
+		)
+		s.FailedAccountIDs[accountID] = struct{}{}
+		return FailoverExhausted
+	}
+
 	// 同账号重试不算切换账号，粘性会话仅在实际切换时强制缓存计费。
 	retryCount := s.SameAccountRetryCount[accountID]
-	sameAccountRetry := sameAccountRetryAllowed(failoverErr, retryCount, retryLimit)
+	sameAccountRetry := sameAccountRetryAllowed(failoverErr, retryCount, sameAccountRetryLimit) &&
+		s.SameAccountRetryCount[accountID] < sameAccountRetryLimit
 	if needForceCacheBilling(s.hasBoundSession, failoverErr, sameAccountRetry) {
 		s.ForceCacheBilling = true
 	}
 
 	// 同账号重试：对 RetryableOnSameAccount 的临时性错误，先在同一账号上重试。
-	// 重试次数上限 retryLimit 由调用方传入（账号级 pool_mode_retry_count 配置）。
+	// 重试次数上限 sameAccountRetryLimit 由调用方传入（账号级 pool_mode_retry_count 配置）。
 	if sameAccountRetry {
 		s.SameAccountRetryCount[accountID]++
 		retryDelay := sameAccountRetryDelayFor(failoverErr, s.SameAccountRetryCount[accountID])
@@ -224,7 +239,7 @@ func (s *FailoverState) HandleFailoverError(
 			zap.Int64("account_id", accountID),
 			zap.Int("upstream_status", failoverErr.StatusCode),
 			zap.Int("same_account_retry_count", s.SameAccountRetryCount[accountID]),
-			zap.Int("same_account_retry_max", retryLimit),
+			zap.Int("same_account_retry_max", sameAccountRetryLimit),
 			zap.Duration("retry_delay", retryDelay),
 		)
 		if !sleepWithContext(ctx, retryDelay) {
@@ -273,16 +288,18 @@ func (s *FailoverState) HandleFailoverError(
 // 返回 FailoverContinue 时，调用方应设置 SingleAccountRetry context 并 continue。
 // 返回 FailoverExhausted 时，调用方应返回错误响应。
 // 返回 FailoverCanceled 时，调用方应直接 return。
-func (s *FailoverState) HandleSelectionExhausted(ctx context.Context) FailoverAction {
+func (s *FailoverState) HandleSelectionExhausted(ctx context.Context, thinPoolExcluded bool) FailoverAction {
 	// 客户端已断开时选号失败是 context canceled 的必然结果，
 	// 不代表账号耗尽，直接按取消终止。
-	if ctx.Err() != nil {
+	if ctx != nil && ctx.Err() != nil {
 		return FailoverCanceled
 	}
 
-	if s.LastFailoverErr != nil &&
-		s.LastFailoverErr.StatusCode == http.StatusServiceUnavailable &&
-		s.SwitchCount <= s.MaxSwitches {
+	classifiedCapacity := s.LastFailoverErr != nil &&
+		s.LastFailoverErr.Reason == service.AntigravityRelayCapacityReason
+	retryable := !classifiedCapacity && (thinPoolExcluded ||
+		(s.LastFailoverErr != nil && s.LastFailoverErr.StatusCode == http.StatusServiceUnavailable))
+	if retryable && s.SwitchCount <= s.MaxSwitches {
 
 		// 排除列表全由利润门否决贡献时，清空后会被原样恢复：退避重试拿不到
 		// 任何新候选，而利润否决不推进 SwitchCount，退避条件将永远成立。
@@ -296,6 +313,7 @@ func (s *FailoverState) HandleSelectionExhausted(ctx context.Context) FailoverAc
 		}
 
 		logger.FromContext(ctx).Warn("gateway.failover_single_account_backoff",
+			zap.Bool("thin_pool_excluded", thinPoolExcluded),
 			zap.Duration("backoff_delay", singleAccountBackoffDelay),
 			zap.Int("switch_count", s.SwitchCount),
 			zap.Int("max_switches", s.MaxSwitches),
@@ -304,6 +322,7 @@ func (s *FailoverState) HandleSelectionExhausted(ctx context.Context) FailoverAc
 			return FailoverCanceled
 		}
 		logger.FromContext(ctx).Warn("gateway.failover_single_account_retry",
+			zap.Bool("thin_pool_excluded", thinPoolExcluded),
 			zap.Int("switch_count", s.SwitchCount),
 			zap.Int("max_switches", s.MaxSwitches),
 		)
@@ -357,4 +376,20 @@ func sleepWithContext(ctx context.Context, d time.Duration) bool {
 	case <-time.After(d):
 		return true
 	}
+}
+
+// TokenKey middleware shape: {"code":"INSUFFICIENT_BALANCE","message":"..."}.
+func looksLikeStructuredErrorJSON(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	if !json.Valid(body) {
+		return false
+	}
+	if gjson.GetBytes(body, "error").IsObject() {
+		return true
+	}
+	code := strings.TrimSpace(gjson.GetBytes(body, "code").String())
+	msg := strings.TrimSpace(gjson.GetBytes(body, "message").String())
+	return code != "" && msg != ""
 }

@@ -5091,6 +5091,8 @@ const createForm = reactive({
   sonnet_mapped_model: createMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: createMessagesDispatchDefaults.haiku_mapped_model,
   exact_model_mappings: [] as MessagesDispatchMappingRow[],
+  messages_compaction_enabled: false,
+  messages_compaction_input_tokens_threshold: null as number | null,
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
@@ -5453,6 +5455,8 @@ const editForm = reactive({
   sonnet_mapped_model: editMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: editMessagesDispatchDefaults.haiku_mapped_model,
   exact_model_mappings: [] as MessagesDispatchMappingRow[],
+  messages_compaction_enabled: false,
+  messages_compaction_input_tokens_threshold: null as number | null,
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
@@ -5771,7 +5775,7 @@ const loadUsageSummary = async () => {
   try {
     const data = await adminAPI.groups.getUsageSummary();
     const map = new Map<number, GroupUsageSummary>();
-    for (const item of data) {
+    for (const item of data.groups ?? []) {
       map.set(item.group_id, {
         today_cost: item.today_cost,
         yesterday_cost: item.yesterday_cost,
@@ -5942,6 +5946,20 @@ const normalizeRateMultiplier = (
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1;
 };
 
+const normalizeCompactionThreshold = (
+  value: number | string | null | undefined,
+): number | null => {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  const normalized = Math.trunc(parsed);
+  return normalized >= 1 ? normalized : null;
+};
+
 // 利润控制表单辅助（换算与校验逻辑见 groupsProfitControl.ts，便于单测）。
 const percentToDecimal = profitPercentToDecimal;
 const decimalToPercent = profitDecimalToPercent;
@@ -5968,6 +5986,15 @@ const handleCreateGroup = async () => {
     return;
   }
   if (!validateProfitControlForm(createForm)) {
+    return;
+  }
+  const compactionThreshold = normalizeCompactionThreshold(
+    createForm.messages_compaction_input_tokens_threshold,
+  );
+  if (createForm.messages_compaction_enabled && compactionThreshold === null) {
+    appStore.showError(
+      t("admin.groups.openaiMessages.compactionThresholdRequired"),
+    );
     return;
   }
   submitting.value = true;
@@ -6152,16 +6179,23 @@ const handleEdit = async (group: AdminGroup) => {
     group.fallback_group_id_on_invalid_request;
   const messagesDispatchFormState = messagesDispatchConfigToFormState(
     group.messages_dispatch_model_config,
+    group.platform,
+    group.name,
   );
   editForm.allow_messages_dispatch =
     group.allow_messages_dispatch ||
     messagesDispatchFormState.allow_messages_dispatch;
   editForm.allow_live = group.allow_live ?? false;
+  editForm.default_mapped_model = group.default_mapped_model || "";
   editForm.opus_mapped_model = messagesDispatchFormState.opus_mapped_model;
   editForm.sonnet_mapped_model = messagesDispatchFormState.sonnet_mapped_model;
   editForm.haiku_mapped_model = messagesDispatchFormState.haiku_mapped_model;
   editForm.exact_model_mappings =
     messagesDispatchFormState.exact_model_mappings;
+  editForm.messages_compaction_enabled =
+    group.messages_compaction_enabled ?? false;
+  editForm.messages_compaction_input_tokens_threshold =
+    group.messages_compaction_input_tokens_threshold ?? null;
   editForm.require_oauth_only = group.require_oauth_only ?? false;
   editForm.require_privacy_set = group.require_privacy_set ?? false;
   editForm.model_routing_enabled = group.model_routing_enabled || false;
@@ -6241,6 +6275,15 @@ const handleUpdateGroup = async () => {
     return;
   }
   if (!validateProfitControlForm(editForm)) {
+    return;
+  }
+  const compactionThreshold = normalizeCompactionThreshold(
+    editForm.messages_compaction_input_tokens_threshold,
+  );
+  if (editForm.messages_compaction_enabled && compactionThreshold === null) {
+    appStore.showError(
+      t("admin.groups.openaiMessages.compactionThresholdRequired"),
+    );
     return;
   }
 

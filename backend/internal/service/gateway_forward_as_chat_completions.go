@@ -43,6 +43,9 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	originalModel := ccReq.Model
 	clientStream := ccReq.Stream
 	includeUsage := ccReq.StreamOptions != nil && ccReq.StreamOptions.IncludeUsage
+	if failoverErr := antigravityOpenAICompatMessagesRelayFailover(account); failoverErr != nil {
+		return nil, failoverErr
+	}
 
 	// 2. Convert CC → Responses → Anthropic (chained conversion)
 	responsesReq, err := apicompat.ChatCompletionsToResponses(&ccReq)
@@ -55,9 +58,18 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
 	}
 
-	// 3. Force upstream streaming
-	anthropicReq.Stream = true
-	reqStream := true
+	// 3. Upstream streaming shape. Native Anthropic upstreams are forced to SSE
+	// even for non-streaming CC clients so handleCCBufferedFromAnthropic can
+	// assemble the response. Kiro (native + prod mirror stubs relaying to edge)
+	// and Bedrock must preserve stream=false — forced SSE on multi-turn agent
+	// payloads was timing out (~32s) with upstream 502 before any content arrived;
+	// Bedrock non-stream invoke returns JSON directly.
+	reqStream := clientStream
+	anthropicReq.Stream = clientStream
+	if !tkCCPreservesKiroUpstreamStream(account, clientStream) && !account.IsBedrock() {
+		anthropicReq.Stream = true
+		reqStream = true
+	}
 
 	// 4. Model mapping
 	mappedModel := originalModel
@@ -74,8 +86,17 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		if normalized != originalModel {
 			mappedModel = normalized
 		}
+	} else if mappedModel == originalModel && account.IsKiro() {
+		normalized := claude.NormalizeModelID(originalModel)
+		if normalized != originalModel {
+			mappedModel = normalized
+		}
 	}
 	anthropicReq.Model = mappedModel
+
+	if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, originalModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
+	}
 
 	logger.L().Debug("gateway forward_as_chat_completions: model mapping applied",
 		zap.Int64("account_id", account.ID),
@@ -96,7 +117,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	// 否则会被 Anthropic 判为第三方应用并扣 extra usage。
 	// 见 applyClaudeCodeOAuthMimicryToBody 的 godoc。
 	isClaudeCode := false
-	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode
+	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode && !account.IsKiro() && !account.IsAnthropicOAuthPassthroughEnabled()
 
 	if shouldMimicClaudeCode {
 		anthropicBody = s.applyClaudeCodeOAuthMimicryToBody(ctx, c, account, anthropicBody, anthropicReq.System, mappedModel)
@@ -104,6 +125,22 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	// 7. Enforce cache_control block limit
 	anthropicBody = enforceCacheControlLimit(anthropicBody)
+	anthropicBody = tkApplyAnthropicRequestCompatibilityRules(account, anthropicBody)
+	anthropicBody = tkInjectGeminiImageAspectRatio(body, anthropicBody)
+
+	if account.IsKiro() {
+		return s.forwardAsChatCompletionsViaKiro(
+			ctx, c, account, body, originalModel, mappedModel, anthropicBody,
+			clientStream, includeUsage, startTime,
+		)
+	}
+
+	if account.IsBedrock() {
+		return s.forwardAsChatCompletionsViaBedrock(
+			ctx, c, account, body, originalModel, mappedModel, anthropicBody,
+			clientStream, includeUsage, startTime,
+		)
+	}
 
 	// 8. Get access token
 	token, tokenType, err := s.GetAccessToken(ctx, account)
@@ -119,7 +156,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	// 10. Build upstream request
 	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
-	upstreamReq, _, err := s.buildUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
+	upstreamReq, _, err := s.buildAnthropicCompatUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
 	releaseUpstreamCtx()
 	if err != nil {
 		return nil, fmt.Errorf("build upstream request: %w", err)
@@ -148,6 +185,12 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	// 12. Handle error response with failover
 	if resp.StatusCode >= 400 {
+		if IsKiroContentFilteredRelayResponse(account, resp.Header) {
+			_ = resp.Body.Close()
+			MarkOpsClientContentFiltered(c)
+			writeGatewayCCError(c, http.StatusBadRequest, "content_filter_error", KiroContentFilteredClientMessage())
+			return nil, &KiroContentFilteredError{}
+		}
 		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
@@ -203,6 +246,13 @@ func (s *GatewayService) ForwardAsChatCompletions(
 // extractCCReasoningEffortFromBody reads reasoning effort from a Chat Completions
 // request body. It checks both nested (reasoning.effort) and flat (reasoning_effort)
 // formats used by OpenAI-compatible clients.
+// ExtractChatCompletionsReasoningEffortFromBody is the TokenKey-exported wrapper
+// used by Antigravity OpenAI-compat ingress. It reuses the upstream-owned
+// extractor so model-aware effort normalization stays in one place.
+func ExtractChatCompletionsReasoningEffortFromBody(body []byte) *string {
+	return extractCCReasoningEffortFromBody(body)
+}
+
 func extractCCReasoningEffortFromBody(body []byte, modelCandidates ...string) *string {
 	raw := strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String())
 	if raw == "" {
@@ -333,13 +383,79 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	// Content-Type: text/event-stream，经 WriteFilteredHeaders 透传后会污染
 	// 响应头；而 c.Data/c.JSON 走 Gin 的 writeContentType（仅当头不存在时才设置），
 	// 无法覆盖已存在的 SSE 头。这里显式 Set 强制改回 JSON，避免下游中间层
-	// （如 new-api）按 Content-Type 误判为流式。
+	// （如 new-api）按 Content-Type 误判为流式。Wei-Shaw/sub2api#1311
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	// Marshal then bytes-replace so tool name mapping is reversed at byte level
 	// (parity with Parrot non-stream flow that marshals → restore → emit).
 	if respBytes, err := json.Marshal(ccResp); err == nil {
 		respBytes = reverseToolNamesIfPresent(c, respBytes)
-		c.Data(http.StatusOK, "application/json; charset=utf-8", respBytes)
+		c.Data(http.StatusOK, "application/json", respBytes)
+	} else {
+		c.JSON(http.StatusOK, ccResp)
+	}
+
+	return &ForwardResult{
+		RequestID:       requestID,
+		Usage:           usage,
+		Model:           originalModel,
+		UpstreamModel:   mappedModel,
+		ReasoningEffort: reasoningEffort,
+		Stream:          false,
+		Duration:        time.Since(startTime),
+	}, nil
+}
+
+func isAnthropicMessagesJSONResponse(resp *http.Response) bool {
+	if resp == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "application/json")
+}
+
+// handleCCBufferedFromAnthropicJSON converts a non-streaming Anthropic Messages
+// JSON body (e.g. Kiro forwardNonStreaming or Bedrock /v1/messages stream=false)
+// into Chat Completions for the downstream client.
+func (s *GatewayService) handleCCBufferedFromAnthropicJSON(
+	resp *http.Response,
+	c *gin.Context,
+	originalModel string,
+	mappedModel string,
+	reasoningEffort *string,
+	startTime time.Time,
+) (*ForwardResult, error) {
+	requestID := resp.Header.Get("x-request-id")
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeGatewayCCError(c, http.StatusBadGateway, "server_error", "Upstream response read failed")
+		return nil, fmt.Errorf("read anthropic json response: %w", err)
+	}
+
+	var finalResp apicompat.AnthropicResponse
+	if err := json.Unmarshal(body, &finalResp); err != nil {
+		writeGatewayCCError(c, http.StatusBadGateway, "server_error", "Upstream returned invalid JSON")
+		return nil, fmt.Errorf("parse anthropic json response: %w", err)
+	}
+	if requestID == "" {
+		requestID = finalResp.ID
+	}
+
+	usage := ClaudeUsage{
+		InputTokens:              finalResp.Usage.InputTokens,
+		OutputTokens:             finalResp.Usage.OutputTokens,
+		CacheCreationInputTokens: finalResp.Usage.CacheCreationInputTokens,
+		CacheReadInputTokens:     finalResp.Usage.CacheReadInputTokens,
+	}
+
+	responsesResp := apicompat.AnthropicToResponsesResponse(&finalResp)
+	ccResp := apicompat.ResponsesToChatCompletions(responsesResp, originalModel)
+
+	if s.responseHeaderFilter != nil {
+		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	}
+	c.Writer.Header().Set("Content-Type", "application/json")
+	if respBytes, err := json.Marshal(ccResp); err == nil {
+		respBytes = reverseToolNamesIfPresent(c, respBytes)
+		c.Data(http.StatusOK, "application/json", respBytes)
 	} else {
 		c.JSON(http.StatusOK, ccResp)
 	}

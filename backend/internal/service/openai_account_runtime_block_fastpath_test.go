@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -529,4 +530,69 @@ func TestShouldStopOpenAIOAuth429Failover_TracksOneGrokFollowupAttempt(t *testin
 	var state OpenAIOAuth429FailoverState
 	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 0, &state))
 	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(apiKeyAccount, http.StatusTooManyRequests, 2, &state))
+}
+
+func newOpenAIGatewayWithRateLimit(repo *rateLimitAccountRepoStub) (*OpenAIGatewayService, *RateLimitService) {
+	gateway := &OpenAIGatewayService{}
+	rls := newG4RateLimitService(repo)
+	rls.settingService = settingServiceWithMaxCooldown("")
+	rls.SetAccountRuntimeBlocker(gateway)
+	gateway.rateLimitService = rls
+	return gateway, rls
+}
+
+func codex7dExhaustedHeaders(reset7dSeconds int) http.Header {
+	h := codexGeneralWindowHeaders(1, 100)
+	h.Set("x-codex-secondary-reset-after-seconds", strconv.Itoa(reset7dSeconds))
+	return h
+}
+
+func TestHandleOpenAIAccountUpstreamError_7d429_RuntimeBlockMatchesClampedDB(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	gateway, _ := newOpenAIGatewayWithRateLimit(repo)
+	account := newOpenAICodexAccount(73, AccountTypeOAuth)
+	headers := codex7dExhaustedHeaders(562950)
+
+	before := time.Now()
+	shouldDisable := gateway.handleOpenAIAccountUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		headers,
+		[]byte(`{"error":{"type":"usage_limit_reached","message":"limit reached"}}`),
+		"gpt-5.4",
+	)
+
+	require.False(t, shouldDisable)
+	require.Equal(t, 1, repo.setRateLimitedCalls)
+	require.WithinDuration(t, time.Now().Add(5*time.Hour), repo.lastRateLimitedResetAt, 3*time.Second)
+
+	require.True(t, gateway.isOpenAIAccountRuntimeBlocked(account))
+	value, ok := gateway.openaiAccountRuntimeBlockUntil.Load(account.ID)
+	require.True(t, ok)
+	entry, ok := loadOpenAIAccountRuntimeBlockEntry(value)
+	require.True(t, ok)
+	require.Equal(t, "429", entry.Reason)
+	require.WithinDuration(t, repo.lastRateLimitedResetAt, entry.Until, time.Second)
+	require.Less(t, entry.Until.Sub(before), 6*time.Hour)
+}
+
+func TestReconcileOpenAIAccountRuntimeBlockWithDB_ClearsStale429Drift(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	pastReset := time.Now().Add(-time.Hour)
+	account := &Account{
+		ID:               73,
+		Platform:         PlatformOpenAI,
+		Type:             AccountTypeOAuth,
+		RateLimitResetAt: &pastReset,
+	}
+	driftUntil := time.Now().Add(7 * 24 * time.Hour)
+	svc.openaiAccountRuntimeBlockUntil.Store(account.ID, openAIAccountRuntimeBlockEntry{
+		Until:  driftUntil,
+		Reason: "429",
+	})
+
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	_, ok := svc.openaiAccountRuntimeBlockUntil.Load(account.ID)
+	require.False(t, ok)
 }

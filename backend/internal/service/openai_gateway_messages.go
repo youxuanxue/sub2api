@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -47,6 +48,16 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 
 	// 固定 chat_completions 的 CN 账号，以及不支持 Responses 的其他 APIKey
 	// 账号，均将 Messages 转为 CC；固定 responses 的 CN 账号不受探针旧值覆盖。
+	if account.IsOpenAITokenseaRelay() && shouldForwardNativeAnthropicMessagesForModel(body) {
+		return s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)
+	}
+	if account.Type == AccountTypeAPIKey && !account.IsCNProvider() && openai_compat.ShouldUseNativeAnthropicMessagesAPI(account.Extra) {
+		if shouldForwardNativeAnthropicMessagesForModel(body) {
+			return s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)
+		}
+		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+	}
+
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
@@ -113,7 +124,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// ChatGPT/Codex credentials rely on session_id + x-codex-turn-state; trimming to a
 	// sliding 12-message window makes the cached prefix stall at system/tools.
 	// Keep full replay there so upstream prompt caching can grow turn by turn.
-	if compatReplayGuardEnabled && !account.UsesOpenAICodexProtocol() && previousResponseID == "" && !compatContinuationDisabled {
+	if compatReplayGuardEnabled && !account.IsOpenAIOAuth() && previousResponseID == "" && !compatContinuationDisabled {
 		compatReplayTrimmed = applyAnthropicCompatFullReplayGuard(&anthropicReq)
 	}
 
@@ -141,7 +152,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		responsesReq.PreviousResponseID = previousResponseID
 		trimAnthropicCompatResponsesInputToLatestTurn(responsesReq)
 	}
-	if compatReplayGuardEnabled && !account.UsesOpenAICodexProtocol() {
+	if compatReplayGuardEnabled && !account.IsOpenAIOAuth() {
 		appendOpenAICompatClaudeCodeTodoGuard(responsesReq)
 	}
 
@@ -335,19 +346,27 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			upstreamReq.Header.Set("conversation_id", isolatedSessionID)
 		}
 	}
-	if account.UsesOpenAICodexProtocol() && account.Platform != PlatformGrok {
-		// buildUpstreamRequest 保留 Messages bridge 的 body/session 兼容行为，并会先
-		// 清除身份头。真正发送前恢复完整 Codex 身份，避免 ChatGPT Codex 上游因缺失
-		// originator/OpenAI-Beta 返回 404（issue #3901）。
+	if account.Type == AccountTypeOAuth && account.Platform != PlatformGrok {
+		// Anthropic Messages compatibility uses the ChatGPT Codex SSE endpoint.
+		// Match upstream request shape: the SSE endpoint does not need the
+		// Responses experimental beta header. compatMessagesBridge paths also
+		// strip originator in openai_gateway_forward.go so enforceCodexIdentityHeaders
+		// does not re-inject it on the Anthropic bridge.
+		upstreamReq.Header.Del("OpenAI-Beta")
 		ensureCodexIdentityHeaders(upstreamReq.Header)
 		enforceCodexIdentityHeaders(upstreamReq.Header)
+		// Messages bridge is not a ChatGPT-internal Codex client. ensure/enforce
+		// would re-inject originator=codex-tui and the experimental beta header
+		// after forward.go stripped them.
+		upstreamReq.Header.Del("originator")
+		upstreamReq.Header.Del("OpenAI-Beta")
 		logger.L().Debug("openai messages: upstream identity restored",
 			zap.Int64("account_id", account.ID),
 			zap.String("upstream_model", upstreamModel),
 			zap.Bool("compat_identity_restored", true),
 		)
 	}
-	if account.UsesOpenAICodexProtocol() && promptCacheKey != "" && strings.TrimSpace(c.GetHeader("conversation_id")) == "" {
+	if account.IsOpenAIOAuth() && promptCacheKey != "" && strings.TrimSpace(c.GetHeader("conversation_id")) == "" {
 		upstreamReq.Header.Del("conversation_id")
 	}
 	if compatTurnState != "" && upstreamReq.Header.Get("x-codex-turn-state") == "" {
@@ -458,7 +477,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		s.updateGrokUsageFromResponse(withGrokTeamRateLimitModel(ctx, upstreamModel), account, resp.Header, resp.StatusCode)
 	}
 
-	if account.UsesOpenAICodexProtocol() && promptCacheKey != "" {
+	if account.IsOpenAIOAuth() && promptCacheKey != "" {
 		if turnState := strings.TrimSpace(resp.Header.Get("x-codex-turn-state")); turnState != "" {
 			s.bindOpenAICompatSessionTurnState(ctx, c, account, promptCacheKey, turnState)
 		}
@@ -624,7 +643,8 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
-	c.Header("Content-Type", "application/json; charset=utf-8")
+	// overwrite an already-set Content-Type. See upstream Wei-Shaw/sub2api#1311
+	c.Writer.Header().Set("Content-Type", "application/json")
 	c.JSON(http.StatusOK, anthropicResp)
 
 	result := &OpenAIForwardResult{
@@ -652,7 +672,10 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 
 func isOpenAICompatResponsesTerminalEvent(eventType string) bool {
 	switch strings.TrimSpace(eventType) {
-	case "response.completed", "response.done", "response.incomplete", "response.failed", "response.cancelled", "response.canceled", "error":
+	// TK: align with openAIStreamEventIsTerminal so cancelled/canceled close
+	// the streaming loop instead of falling through. See Wei-Shaw/sub2api#1322.
+	case "response.completed", "response.done", "response.incomplete", "response.failed",
+		"response.cancelled", "response.canceled", "error":
 		return true
 	default:
 		return false
@@ -1028,7 +1051,8 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 					return true
 				}
 				message = s.recordOpenAIStreamUpstreamError(c, account, false, requestID, "http_error", payloadBytes, message)
-				errStatus, errType, errMsg := http.StatusBadGateway, "api_error", message
+				errStatus, errType := openAIStreamFailedClientResponse(payloadBytes, message, "api_error")
+				errMsg := message
 				// 统一走语义状态推断 + body 归一化（与 /v1/responses 路径一致），
 				// 使按错误码配置的透传规则可命中。
 				if status, et, em, matched := applyOpenAIStreamFailedErrorPassthroughRule(

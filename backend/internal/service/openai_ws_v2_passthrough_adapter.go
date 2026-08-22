@@ -772,6 +772,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, blocked.Message, blocked)
 	}
 	firstClientMessage = updatedFirst
+	bridged, bridgeErr := s.applyCodexImageBridgeToWSResponseCreate(ctx, c, account, firstClientMessage)
+	if bridgeErr != nil {
+		return fmt.Errorf("apply codex image bridge on first ws passthrough frame: %w", bridgeErr)
+	}
+	firstClientMessage = bridged
 
 	// 在 policy filter 之后再提取 service_tier / reasoning_effort 用于
 	// usage 上报：filter
@@ -849,6 +854,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 
 	agentTaskRecoveryTried := false
+	oauth401RefreshTried := false
 	var upstreamConn openAIWSClientConn
 	statusCode := 0
 	var handshakeHeaders http.Header
@@ -876,6 +882,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			}
 			continue
 		}
+		if !oauth401RefreshTried {
+			if newHeaders, _, ok := s.recoverOpenAIWS401AccessToken(ctx, account, statusCode, responseBody, headers); ok {
+				oauth401RefreshTried = true
+				headers = newHeaders
+				continue
+			}
+		}
 		logOpenAIWSV2Passthrough(
 			"relay_dial_failed account_id=%d status_code=%d err=%s",
 			account.ID,
@@ -884,7 +897,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		)
 		s.handleOpenAIWSDialTransientFailure(ctx, account, capturedSessionModel, dialErr)
 		if statusCode == http.StatusTooManyRequests {
-			s.persistOpenAIWSRateLimitSignal(ctx, account, handshakeHeaders, nil, "rate_limit_exceeded", "rate_limit_error", strings.TrimSpace(err.Error()))
+			s.persistOpenAIWSRateLimitSignal(ctx, account, handshakeHeaders, nil, "rate_limit_exceeded", "rate_limit_error", strings.TrimSpace(err.Error()), openAIWSUpstreamModelForRateLimit(account, requestModel))
 			return s.newOpenAIWSRateLimitFailoverError(account, handshakeHeaders, nil, err.Error())
 		}
 		return s.mapOpenAIWSPassthroughDialError(err, statusCode, handshakeHeaders)
@@ -1252,7 +1265,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				if wroteDownstream || !isOpenAIWSRateLimitError(errCodeRaw, errTypeRaw, errMsgRaw) {
 					return nil
 				}
-				s.persistOpenAIWSRateLimitSignal(ctx, account, handshakeHeaders, payload, errCodeRaw, errTypeRaw, errMsgRaw)
+				s.persistOpenAIWSRateLimitSignal(ctx, account, handshakeHeaders, payload, errCodeRaw, errTypeRaw, errMsgRaw, openAIWSUpstreamModelForRateLimit(account, requestModel))
 				logOpenAIWSV2Passthrough(
 					"relay_rate_limit_failover account_id=%d err_code=%s err_type=%s err_message=%s",
 					account.ID,

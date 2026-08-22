@@ -294,6 +294,32 @@ func (s *OpenAIGatewayService) ProbeGrokRealtime(ctx context.Context, account *A
 	return conn.Close()
 }
 
+func observeGrokRealtimeTurn(msg []byte, observed map[string]struct{}, onTurn func(error, bool)) {
+	if onTurn == nil || !gjson.ValidBytes(msg) {
+		return
+	}
+	eventType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(msg, "type").String()))
+	if eventType != "response.done" && eventType != "response.completed" {
+		return
+	}
+	responseID := strings.TrimSpace(gjson.GetBytes(msg, "response.id").String())
+	if responseID == "" || observed == nil {
+		return
+	}
+	if _, duplicate := observed[responseID]; duplicate {
+		return
+	}
+	observed[responseID] = struct{}{}
+	status := strings.ToLower(strings.TrimSpace(gjson.GetBytes(msg, "response.status").String()))
+	failed := status == "failed" || status == "incomplete" || status == "cancelled" ||
+		gjson.GetBytes(msg, "response.error").Exists() || gjson.GetBytes(msg, "error").Exists()
+	if failed {
+		onTurn(fmt.Errorf("grok realtime turn ended with status %s", firstNonEmpty(status, "error")), false)
+		return
+	}
+	onTurn(nil, true)
+}
+
 func awaitGrokRealtimeAudioObserved(errCh <-chan error, audioObserved *atomic.Bool) (bool, error) {
 	err := <-errCh
 	if audioObserved == nil {

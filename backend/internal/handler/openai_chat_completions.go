@@ -76,6 +76,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	if h.rejectDeprecatedOpenAICompatModel(c, apiKey, reqModel, false) {
+		return
+	}
+	routingModel := service.CanonicalizeOpenAICompatRoutingModel(reqModel)
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !openAICompatibleTextTargetAllowed(c, apiKey, reqModel) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
@@ -96,7 +100,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
 
-	setOpsRequestContext(c, reqModel, reqStream)
+	setOpsRequestModelAndBody(c, reqModel, reqStream, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 
 	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIChat, reqModel, body); decision != nil && !decision.AllowNextStage {
@@ -109,16 +113,29 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	if channelMapping.Mapped && h.rejectDeprecatedOpenAICompatMappedModel(c, apiKey, channelMapping.MappedModel, false) {
+		return
+	}
+	dispatchMappedModel := resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel)
+	if h.rejectDeprecatedOpenAICompatMappedModel(c, apiKey, dispatchMappedModel, false) {
+		return
+	}
 
 	if h.errorPassthroughService != nil {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+
+	hold, holdReject := h.tkApplyBalanceHold(c, apiKey, reqModel, body)
+	if holdReject {
+		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
+		return
+	}
+	defer hold.ReleaseUnlessSettling()
 	requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
-	routingStart := time.Now()
 
 	userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted, reqLog)
 	if !acquired {
@@ -154,16 +171,20 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	c.Request = c.Request.WithContext(ccPricingCtx)
 
 	for {
+		// Per-attempt routing clock: a loop-level start would include prior
+		// upstream failover time and inflate dashboard gateway_latency_ms.
+		routingStart := time.Now()
 		if failoverClientGone(c) {
 			return
 		}
 		reqLog.Debug("openai_chat_completions.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
+		currentRoutingModel := routingModel
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
 			c.Request.Context(),
 			apiKey.GroupID,
 			"",
 			sessionHash,
-			reqModel,
+			currentRoutingModel,
 			failedAccountIDs,
 			service.OpenAIUpstreamTransportAny,
 			service.OpenAIEndpointCapabilityChatCompletions,
@@ -172,6 +193,27 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			true,
 			requestPlatform,
 		)
+		if fallbackModel, ok := tkOpenAIDispatchSelectionFallbackModel(dispatchMappedModel, currentRoutingModel, err); ok {
+			reqLog.Info("openai_chat_completions.dispatch_selection_fallback",
+				zap.String("from_model", currentRoutingModel),
+				zap.String("to_model", fallbackModel),
+				zap.Error(err),
+			)
+			selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
+				c.Request.Context(),
+				apiKey.GroupID,
+				"",
+				sessionHash,
+				fallbackModel,
+				failedAccountIDs,
+				service.OpenAIUpstreamTransportAny,
+				service.OpenAIEndpointCapabilityChatCompletions,
+				false,
+				false,
+				true,
+				requestPlatform,
+			)
+		}
 		if err != nil {
 			if failoverClientGone(c) {
 				reqLog.Info("openai_chat_completions.account_select_aborted_client_disconnected", zap.Error(err))
@@ -182,12 +224,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
 			if len(failedAccountIDs) == 0 {
-				cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel)
-				cls = classifySelectionFailureError(err, cls)
-				if !cls.ModelNotFound {
-					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				}
-				h.handleStreamingAwareError(c, cls.Status, cls.ErrType, cls.Message, streamStarted)
+				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+				tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, reqModel)
+				h.handleStreamingAwareError(c, tkStatus, tkType, tkMsg, streamStarted)
 				return
 			} else {
 				if lastFailoverErr != nil {
@@ -233,13 +272,14 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
 		writerSizeBeforeForward := c.Writer.Size()
+		logOpenAIStudioChatImageRequestAudit(c, apiKey, subject.UserID, account, body, forwardBody)
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, promptCacheKey, "")
+			return h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, promptCacheKey, dispatchMappedModel)
 		}()
 		var cyberBlockBodyChat []byte
 		if service.GetOpsCyberPolicy(c) != nil {
@@ -269,6 +309,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			upstreamEndpoint := resolveOpenAIUpstreamEndpoint(c, account, res)
 			quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 			sessionID := service.ExtractClientSessionID(c)
+			tkHoldRequestID := hold.HandOffToSettlement()
 			cyberBlocked := service.GetOpsCyberPolicy(c) != nil
 			h.submitOpenAIUsageRecordTask(c.Request.Context(), res, func(ctx context.Context) {
 				if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
@@ -282,6 +323,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					UserAgent:          userAgent,
 					IPAddress:          clientIP,
 					APIKeyService:      h.apiKeyService,
+					TkHoldRequestID:    tkHoldRequestID,
 					QuotaPlatform:      quotaPlatform,
 					SessionID:          sessionID,
 					ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, res.UpstreamModel),
@@ -370,6 +412,22 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					continue
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, reqModel, false, nil), false, nil, err)
+				// Preserve upstream NewAPIRelayError detail for newapi accounts (mirrors
+				// the /v1/responses handler): without this branch the fallback below
+				// masks the adaptor's structured error (402 insufficient balance,
+				// 429 rate limit, …) as a generic 502 "Upstream request failed" —
+				// the 2026-06-11 DeepSeek prod incident shape. The sibling block
+				// further down (after the else) is only reachable on the
+				// image-partial-result path and never fires for plain chat errors.
+				if TkTryWriteNewAPIRelayErrorJSON(c, err, streamStarted, writerSizeBeforeForward) {
+					reqLog.Warn("openai_chat_completions.forward_failed",
+						zap.Int64("account_id", account.ID),
+						zap.Bool("fallback_error_response_written", false),
+						zap.Error(err),
+					)
+					submitChatUsage(result)
+					return
+				}
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false
 				if !upstreamErrorAlreadyCommunicated {

@@ -318,6 +318,15 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		}
 		errorEventSent = true
 		payload := `{"type":"error","sequence_number":0,"error":{"type":"upstream_error","message":` + strconv.Quote(reason) + `,"code":` + strconv.Quote(reason) + `}}`
+		// TK fix for upstream Wei-Shaw/sub2api#1471: close any unterminated
+		// upstream SSE event before writing the synthetic error event.
+		if eventInProgress {
+			if _, err := writePendingString("\n"); err != nil {
+				clientDisconnected = true
+				return
+			}
+			eventInProgress = false
+		}
 		if err := flushBuffered(); err != nil {
 			clientDisconnected = true
 			return
@@ -568,7 +577,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 							shouldFailover = openAIStreamFailedEventShouldFailover(dataBytes, failedMessage)
 						}
 					}
-					if shouldFailover {
+					if !openAIStreamFailoverBlockedByClientOutput(firstTokenMs) && shouldFailover {
 						sawFailedEvent = true
 						streamEarlyErr = s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, dataBytes, failedMessage, resp.Header)
 						return

@@ -39,6 +39,12 @@ type antigravityRetryLoopParams struct {
 	isStickySession bool   // 是否为粘性会话（用于账号切换时的缓存计费判断）
 	groupID         int64  // 用于模型级限流时清除粘性会话
 	sessionHash     string // 用于模型级限流时清除粘性会话
+	// clientStream gates pre-content keepalive. Upstream always uses
+	// streamGenerateContent, but non-stream clients must not receive SSE pings
+	// before a JSON body is written. keepaliveFrame preserves the client wire
+	// protocol for Anthropic, Gemini-native, and OpenAI-compatible ingresses.
+	clientStream   bool
+	keepaliveFrame string
 }
 
 // antigravityRetryLoopResult 重试循环的结果
@@ -56,34 +62,34 @@ type antigravityRetryLoopResult struct {
 // 上游拒绝 → 账号被 401「Invalid bearer token」/502 打入临时不可调度且无法恢复
 // （见 #3611 / #2962）。后台「测试连接」用的是生产端点，所以「测试成功但网关 401」。
 func resolveAntigravityForwardBaseURL(account *Account) string {
-	baseURLs := antigravity.BaseURLs
-	if len(baseURLs) == 0 {
-		return ""
-	}
+	prod := antigravity.ProdBaseURL()
+	daily := antigravity.DailyBaseURL()
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv(antigravityForwardBaseURLEnv)))
-	if (mode == "daily" || mode == "sandbox") && len(baseURLs) > 1 {
-		return baseURLs[1]
+	switch mode {
+	case "daily", "sandbox":
+		return daily
+	case "prod":
+		return prod
 	}
-	if mode == "" && accountHasAntigravityPaidTier(account) && len(baseURLs) > 1 {
-		return baseURLs[1]
+	if tkAntigravityPaidTierUsesDaily(account) {
+		return daily
 	}
-	return baseURLs[0]
+	return prod
+}
+
+func tkAntigravityPaidTierUsesDaily(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	plan := strings.TrimSpace(account.GetCredential("plan_type"))
+	if plan == "" {
+		plan = strings.TrimSpace(account.GetExtraString("plan_type"))
+	}
+	return antigravity.IsPaidPlanType(plan)
 }
 
 func accountHasAntigravityPaidTier(account *Account) bool {
-	if account == nil || account.Credentials == nil {
-		return false
-	}
-	planType, ok := account.Credentials["plan_type"].(string)
-	if !ok {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(planType)) {
-	case "pro", "ultra":
-		return true
-	default:
-		return false
-	}
+	return tkAntigravityPaidTierUsesDaily(account)
 }
 
 // smartRetryAction 智能重试的处理结果
@@ -541,7 +547,9 @@ urlFallbackLoop:
 				return nil, err
 			}
 
+			hwka := s.beginHeaderWaitKeepalive(p.c, p.clientStream, p.keepaliveFrame)
 			resp, err = p.httpUpstream.Do(upstreamReq, p.proxyURL, p.account.ID, p.account.Concurrency)
+			hwka.stop()
 			if err == nil && resp == nil {
 				err = errors.New("upstream returned nil response")
 			}

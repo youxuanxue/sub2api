@@ -13,7 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testSameAccountRetryLimit = 3
+const (
+	testSameAccountRetryLimit = 3
+	maxSameAccountRetries     = 3
+)
 
 // ---------------------------------------------------------------------------
 // Mock

@@ -214,6 +214,36 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 			}
 			return nil, &agentIdentityTaskRecoveredError{}
 		}
+		var dialErr *openAIWSDialError
+		statusCode := 0
+		var responseBody []byte
+		if errors.As(err, &dialErr) && dialErr != nil {
+			statusCode = dialErr.StatusCode
+			responseBody = dialErr.ResponseBody
+		}
+		if newHeaders, _, ok := s.recoverOpenAIWS401AccessToken(ctx, account, statusCode, responseBody, wsHeaders); ok {
+			wsHeaders = newHeaders
+			acquireCtx, acquireCancel = context.WithTimeout(ctx, s.openAIWSAcquireTimeout())
+			defer acquireCancel()
+			lease, err = s.getOpenAIWSConnPool().Acquire(acquireCtx, openAIWSAcquireRequest{
+				Account: account,
+				WSURL:   wsURL,
+				Headers: wsHeaders,
+				HeadersFactory: func(factoryCtx context.Context, headers http.Header) (http.Header, error) {
+					return s.refreshOpenAIAgentIdentityHeaders(factoryCtx, account, headers)
+				},
+				PreferredConnID: preferredConnID,
+				ForceNewConn:    true,
+				ProxyURL: func() string {
+					if account.ProxyID != nil && account.Proxy != nil {
+						return account.Proxy.URL()
+					}
+					return ""
+				}(),
+			})
+		}
+	}
+	if err != nil {
 		s.handleOpenAIWSDialTransientFailure(ctx, account, mappedModel, err)
 		dialStatus, dialClass, dialCloseStatus, dialCloseReason, dialRespServer, dialRespVia, dialRespCFRay, dialRespReqID := summarizeOpenAIWSDialError(err)
 		logOpenAIWSModeInfo(
@@ -545,7 +575,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		if isTerminalEvent {
 			terminalEventCount++
 		}
-		if firstTokenMs == nil && isTokenEvent {
+		if firstTokenMs == nil && openAIWSMarksClientVisibleProgress(eventType, message) {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
 		}
@@ -664,7 +694,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		if reqStream {
 			// 在首个 token 前先缓冲事件（如 response.created），
 			// 以便上游早期断连时仍可安全回退到 HTTP，不给下游发送半截流。
-			shouldBuffer := firstTokenMs == nil && !isTokenEvent && !isTerminalEvent
+			shouldBuffer := openAIWSShouldBufferPreTokenStreamEvent(
+				eventType, message, firstTokenMs, isTokenEvent, isTerminalEvent,
+			)
 			if shouldBuffer {
 				buffered := make([]byte, len(message))
 				copy(buffered, message)

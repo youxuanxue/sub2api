@@ -18,6 +18,9 @@ type openAISnapshotCacheStub struct {
 	SchedulerCache
 	snapshotAccounts []*Account
 	accountsByID     map[int64]*Account
+	// When non-empty, GetSnapshot only returns accounts matching this platform
+	// (mirrors real scheduler buckets). Leave empty for legacy mixed-pool tests.
+	filterPlatform string
 }
 
 type schedulerTestOpenAIAccountRepo struct {
@@ -299,6 +302,12 @@ func (s *openAISnapshotCacheStub) GetSnapshot(ctx context.Context, bucket Schedu
 	out := make([]*Account, 0, len(s.snapshotAccounts))
 	for _, account := range s.snapshotAccounts {
 		if account == nil {
+			continue
+		}
+		if s.filterPlatform != "" && account.Platform != s.filterPlatform {
+			continue
+		}
+		if bucket.Platform != "" && account.Platform != bucket.Platform {
 			continue
 		}
 		cloned := *account
@@ -2216,6 +2225,20 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionSticky(t *testin
 	if selection.ReleaseFunc != nil {
 		selection.ReleaseFunc()
 	}
+}
+
+// slotEscapeSettingRepo 是只为 #2859 escape 开关服务的 settingRepo 桩：仅对
+// SettingKeyStickySlotFullEscapeEnabled 返回配置值，其余 key 返回空（取默认）。
+type slotEscapeSettingRepo struct {
+	SettingRepository
+	val string
+}
+
+func (r *slotEscapeSettingRepo) GetValue(_ context.Context, key string) (string, error) {
+	if key == SettingKeyStickySlotFullEscapeEnabled {
+		return r.val, nil
+	}
+	return "", nil
 }
 
 func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusyKeepsSticky(t *testing.T) {

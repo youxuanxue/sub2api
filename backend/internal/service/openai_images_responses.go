@@ -930,6 +930,17 @@ func (s *OpenAIGatewayService) handleOpenAIImagesErrorResponse(
 		return nil, failoverErr
 	}
 
+	if tkIsCapabilityScope401(resp.StatusCode, body) {
+		upErr := &OpenAIImagesUpstreamError{
+			StatusCode:        http.StatusBadRequest,
+			ErrorType:         "invalid_request_error",
+			Message:           tkCapabilityScope401ClientMessage(upstreamMsg),
+			UpstreamRequestID: strings.TrimSpace(resp.Header.Get("x-request-id")),
+		}
+		writeOpenAIImagesUpstreamErrorResponse(c, upErr)
+		return nil, upErr
+	}
+
 	// Surface the real upstream error to the client.
 	upErr := openAIImagesUpstreamErrorFromHTTP(resp.StatusCode, resp.Header, body)
 	writeOpenAIImagesUpstreamErrorResponse(c, upErr)
@@ -1308,6 +1319,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 		return OpenAIUsage{}, 0, nil, err
 	}
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+	// TK: offload inline-base64 images to S3. Wei-Shaw/sub2api#1311
+	responseBody = s.tkMaybeOffloadImagesToS3(c.Request.Context(), responseBody, responseFormat)
 	c.Data(resp.StatusCode, "application/json; charset=utf-8", responseBody)
 	return usage, len(results), openAIResponsesImageResultSizes(results), nil
 }
@@ -1690,6 +1704,9 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		requestModel = "gpt-image-2"
 	}
 	if err := validateOpenAIImagesModel(requestModel); err != nil {
+		return nil, err
+	}
+	if err := s.enforceCodexClientRestriction(ctx, c, account, nil); err != nil {
 		return nil, err
 	}
 	logger.LegacyPrintf(

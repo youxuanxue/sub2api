@@ -201,6 +201,9 @@ func (s *OpenAIGatewayService) shouldFailoverGrokUpstreamError(statusCode int, r
 	if isGrokContentPolicyRejection(statusCode, responseBody) {
 		return false
 	}
+	if tkIsGrokEntitlement403(statusCode, responseBody) {
+		return false
+	}
 	// A 422 emitted by xAI's ModelInput decoder is account/runtime compatibility,
 	// not quota exhaustion. Another account may run a different upstream build,
 	// so fail over without applying an account cooldown.

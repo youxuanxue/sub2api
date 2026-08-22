@@ -1651,6 +1651,10 @@ func (r *passthroughTempUnschedRepo) SetModelRateLimit(_ context.Context, _ int6
 	return nil
 }
 
+func (r *passthroughTempUnschedRepo) SetError(_ context.Context, _ int64, _ string) error {
+	return nil
+}
+
 // TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover pins
 // the fix for upstream Wei-Shaw/sub2api#1318: when an OAuth account in
 // passthrough mode hits a configured temporary-unschedulable rule, the rate-

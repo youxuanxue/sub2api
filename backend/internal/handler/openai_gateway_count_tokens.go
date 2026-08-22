@@ -239,7 +239,7 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 		return
 	}
 	routingModel := service.NormalizeOpenAICompatRequestedModel(reqModel)
-	preferredMappedModel := resolveOpenAIMessagesDispatchMappedModel(c, apiKey, reqModel)
+	preferredMappedModel := resolveOpenAIMessagesDispatchMappedModelForContext(c, apiKey, reqModel)
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", parsedReq.Stream))
 
 	setOpsRequestContext(c, reqModel, false)
@@ -276,6 +276,26 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 		service.OpenAIEndpointCapabilityChatCompletions,
 		openAICompatibleRequestPlatform(c.Request.Context(), apiKey),
 	)
+	if err != nil {
+		if fallbackModel, ok := tkOpenAIDispatchSelectionFallbackModel(preferredMappedModel, currentRoutingModel, err); ok {
+			reqLog.Info("openai_count_tokens.dispatch_selection_fallback",
+				zap.String("from_model", currentRoutingModel),
+				zap.String("to_model", fallbackModel),
+				zap.Error(err),
+			)
+			account, err = h.gatewayService.SelectAccountForTokenCount(
+				c.Request.Context(),
+				apiKey.GroupID,
+				sessionHash,
+				fallbackModel,
+				service.OpenAIEndpointCapabilityChatCompletions,
+				openAICompatibleRequestPlatform(c.Request.Context(), apiKey),
+			)
+			if err == nil {
+				currentRoutingModel = fallbackModel
+			}
+		}
+	}
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	if err != nil {
 		requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)

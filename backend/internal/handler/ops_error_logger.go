@@ -27,6 +27,7 @@ import (
 
 const (
 	opsModelKey                  = "ops_model"
+	opsRequestBodyKey            = service.OpsRequestBodyKey
 	opsStreamKey                 = "ops_stream"
 	opsAccountIDKey              = "ops_account_id"
 	opsRoutingCapacityLimitedKey = "ops_routing_capacity_limited"
@@ -34,6 +35,9 @@ const (
 
 	opsUpstreamModelKey = service.OpsUpstreamModelKey
 	opsRequestTypeKey   = "ops_request_type"
+	opsInputTokensKey   = "ops_input_tokens"
+	opsOutputTokensKey  = "ops_output_tokens"
+	opsCachedTokensKey  = "ops_cached_tokens"
 
 	// 错误过滤匹配常量 — shouldSkipOpsErrorLog 和错误分类共用
 	opsErrContextCanceled            = "context canceled"
@@ -462,6 +466,39 @@ func setOpsEndpointContext(c *gin.Context, upstreamModel string, requestType int
 		c.Set(opsUpstreamModelKey, upstreamModel)
 	}
 	c.Set(opsRequestTypeKey, requestType)
+}
+
+func setOpsUpstreamModelContext(c *gin.Context, upstreamModel string) {
+	if c == nil {
+		return
+	}
+	if upstreamModel = strings.TrimSpace(upstreamModel); upstreamModel != "" {
+		c.Set(opsUpstreamModelKey, upstreamModel)
+	}
+}
+
+func setOpsForwardResultContext(c *gin.Context, upstreamModel, requestedModel string) {
+	if strings.TrimSpace(upstreamModel) == "" {
+		upstreamModel = requestedModel
+	}
+	setOpsUpstreamModelContext(c, upstreamModel)
+}
+
+func setOpsTokenUsageContext(c *gin.Context, inputTokens, outputTokens, cachedTokens int) {
+	if c == nil {
+		return
+	}
+	c.Set(opsInputTokensKey, inputTokens)
+	c.Set(opsOutputTokensKey, outputTokens)
+	c.Set(opsCachedTokensKey, cachedTokens)
+}
+
+func setOpsClaudeUsageContext(c *gin.Context, usage service.ClaudeUsage) {
+	setOpsTokenUsageContext(c, usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens)
+}
+
+func setOpsOpenAIUsageContext(c *gin.Context, usage service.OpenAIUsage) {
+	setOpsTokenUsageContext(c, usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens)
 }
 
 func setOpsSelectedAccount(c *gin.Context, accountID int64, platform ...string) {
@@ -1273,6 +1310,26 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 	}
 }
 
+// opsUpstreamEventsForRecoveredLogging drops normalize audit events from the
+// recovered-200 path. Those are intentional CC prompt-surface rewrites, not
+// upstream instability; they are audited via gateway.anthropic_request_normalized.
+func opsUpstreamEventsForRecoveredLogging(events []*service.OpsUpstreamErrorEvent) []*service.OpsUpstreamErrorEvent {
+	if len(events) == 0 {
+		return nil
+	}
+	out := make([]*service.OpsUpstreamErrorEvent, 0, len(events))
+	for _, ev := range events {
+		if ev == nil {
+			continue
+		}
+		if strings.TrimSpace(ev.Kind) == service.OpsUpstreamKindRequestNormalized {
+			continue
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
 func logOpsRecoveredUpstream(c *gin.Context, ops *service.OpsService, finalStatus int) {
 	if c == nil || ops == nil || finalStatus >= 400 {
 		return
@@ -1281,6 +1338,15 @@ func logOpsRecoveredUpstream(c *gin.Context, ops *service.OpsService, finalStatu
 	entry := &service.OpsInsertErrorLogInput{StatusCode: finalStatus}
 	applyOpsUpstreamFieldsFromContext(c, entry)
 	if len(entry.UpstreamErrors) > 0 {
+		filtered := opsUpstreamEventsForRecoveredLogging(entry.UpstreamErrors)
+		if len(filtered) == 0 {
+			entry.UpstreamErrors = nil
+			entry.UpstreamStatusCode = nil
+			entry.UpstreamErrorMessage = nil
+			entry.UpstreamErrorDetail = nil
+		} else {
+			applyOpsUpstreamErrorEvents(entry, filtered)
+		}
 		visibleEvents := make([]*service.OpsUpstreamErrorEvent, 0, len(entry.UpstreamErrors))
 		for _, event := range entry.UpstreamErrors {
 			if event != nil && !event.SkipMonitoring {
@@ -2100,6 +2166,7 @@ func guessPlatformFromPath(path string) string {
 func isKnownOpsErrorType(t string) bool {
 	switch t {
 	case "invalid_request_error",
+		"content_filter_error",
 		"authentication_error",
 		"permission_error",
 		"model_not_found",
@@ -2119,6 +2186,11 @@ func isKnownOpsErrorType(t string) bool {
 }
 
 func normalizeOpsErrorType(errType string, code string) string {
+	trimmedType := strings.TrimSpace(errType)
+	if (trimmedType == "" || strings.EqualFold(trimmedType, "api_error")) &&
+		strings.EqualFold(strings.TrimSpace(code), "content_filter") {
+		return "content_filter_error"
+	}
 	if errType != "" && isKnownOpsErrorType(errType) {
 		return errType
 	}
@@ -2186,31 +2258,58 @@ func classifyOpsSeverity(errType string, status int) string {
 
 func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status int) (phase string, isBusinessLimited bool, errorOwner string, errorSource string) {
 	phase = classifyOpsPhase(errType, message, code)
-	routingCapacityLimited := isOpsRoutingCapacityLimited(c)
+	upstreamError := hasOpsUpstreamErrorContext(c)
+	routingCapacityLimited := isOpsRoutingCapacityLimited(c) || (upstreamError && tkUpstreamDownstreamCapacity(c))
+	accountAuthFailure := hasOpsAccountAuthFailure(c)
+	clientPolicyDenied := service.HasOpsClientPolicyDenied(c)
 	clientBusinessLimited := service.HasOpsClientBusinessLimited(c)
 	localModelConfiguration := clientBusinessLimited && service.OpsClientBusinessLimitedReason(c) == service.OpsClientBusinessLimitedReasonLocalModelConfiguration
-	upstreamError := hasOpsUpstreamErrorContext(c)
-	accountAuthFailure := hasOpsAccountAuthFailure(c)
+	clientContentFiltered := service.HasOpsClientContentFiltered(c)
+	clientClosedRequest := service.HasOpsClientClosedRequest(c)
+	clientInducedUpstream := upstreamError && tkUpstreamClientInducedRejection(c, errType)
+	clientCanceledUpstream := upstreamError && tkUpstreamClientCanceled(c)
+	clientRequestRejected := hasOpsClientRequestRejected(c)
+	effectiveUpstreamError := upstreamError && !localModelConfiguration
 	if localModelConfiguration {
 		phase = "routing"
 	} else if accountAuthFailure && !routingCapacityLimited {
 		phase = "account_auth"
-	} else if upstreamError && !routingCapacityLimited {
+	} else if upstreamError && !routingCapacityLimited && !clientInducedUpstream && !clientCanceledUpstream {
 		phase = "upstream"
 	}
-	if clientBusinessLimited && !upstreamError && !routingCapacityLimited && !localModelConfiguration {
+	if (clientInducedUpstream || clientCanceledUpstream) && !routingCapacityLimited {
+		phase = "request"
+	}
+	if (clientPolicyDenied || clientBusinessLimited) && !effectiveUpstreamError && !routingCapacityLimited && !localModelConfiguration {
 		phase = "auth"
+	}
+	if clientRequestRejected && !effectiveUpstreamError && !routingCapacityLimited {
+		phase = "request"
+	}
+	if (status == statusClientClosedRequest || (clientClosedRequest && !upstreamError)) && !routingCapacityLimited {
+		phase = "request"
 	}
 	if routingCapacityLimited {
 		phase = "routing"
 	}
+	if clientContentFiltered {
+		phase = "request"
+	}
 	msg := strings.ToLower(message)
-	effectiveUpstreamError := upstreamError && !localModelConfiguration
-	localClientAuthError := !effectiveUpstreamError && phase == "auth" && isOpsClientAuthError(code, msg)
-	localBusinessLimited := !effectiveUpstreamError && classifyOpsIsBusinessLimited(errType, phase, code, status, message, localClientAuthError)
-	isBusinessLimited = localModelConfiguration || routingCapacityLimited || (clientBusinessLimited && !effectiveUpstreamError) || localBusinessLimited
+	if !effectiveUpstreamError {
+		if isOpsClientAuthError(code, msg) {
+			phase = "auth"
+		} else if isOpsLocalBusinessLimitError(code, msg) || phase == "billing" || phase == "concurrency" {
+			phase = "request"
+		}
+	}
+	phase = tkOpsClassifyFinalClientValidationPhase(phase, effectiveUpstreamError, routingCapacityLimited, errType, message, code, status)
 	errorOwner = classifyOpsErrorOwner(phase, message)
 	errorSource = classifyOpsErrorSource(phase, message)
+	localClientAuthError := !effectiveUpstreamError && phase == "auth" && isOpsClientAuthError(code, msg)
+	localBusinessLimited := !effectiveUpstreamError && classifyOpsIsBusinessLimited(errType, phase, code, status, message, localClientAuthError)
+	isBusinessLimited = localModelConfiguration || routingCapacityLimited ||
+		(clientBusinessLimited && !effectiveUpstreamError) || localBusinessLimited
 	return phase, isBusinessLimited, errorOwner, errorSource
 }
 
