@@ -38,12 +38,11 @@ on:
         description: "Optional Wei-Shaw/sub2api issue number to force-review/fix"
         required: false
         type: string
-  # NOTE: deliberately NO `workflow_run` trigger off "Daily Upstream Merge
-  # Agent". The cron above (21:20 UTC) is the single source of truth for the
-  # daily scan and runs ~80 min after the merge agent regardless of whether it
-  # ran. Chaining workflow_run on top of the cron made the scan double-fire
-  # every day (same paginated upstream fetch + duplicate force-push to the
-  # fixed cache branch). One trigger source only.
+  # NOTE: deliberately NO `workflow_run` trigger off the upstream-merge
+  # notify workflow. The cron above (21:20 UTC) is the single source of
+  # truth for the daily issue scan. Chaining workflow_run on top of the
+  # cron made the scan double-fire every day (same paginated upstream
+  # fetch + duplicate force-push to the fixed cache branch).
 
 permissions:
   contents: write

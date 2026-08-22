@@ -1,20 +1,31 @@
 #!/usr/bin/env python3
 """Regression tests for #1685 PREFLIGHT_FAIL on merge/upstream-2026-08-15.
 
-The daily agent failed because:
-1. high-risk migrations 222/223 had no docs/approved anchor, and docs/* hid
-   that directory so a newly written anchor could not be staged.
-2. auto-retry `gh workflow run` omitted --repo and 404'd on Wei-Shaw/sub2api.
+The retired daily merge agent failed because high-risk migrations 222/223 had
+no docs/approved anchor, and docs/* hid that directory so a newly written
+anchor could not be staged. The gitignore exception remains load-bearing for
+human-driven upstream merge PRs.
 """
 from __future__ import annotations
 
+import importlib.util
 import pathlib
 import subprocess
 import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
-WORKFLOW = REPO_ROOT / ".github/workflows/upstream-merge-agent-daily.yml"
+WORKFLOW = REPO_ROOT / ".github/workflows/upstream-merge-notify.yml"
+NOTIFY = REPO_ROOT / "scripts/upstream/notify-merge-needed.py"
 APPROVED_DOC = REPO_ROOT / "docs/approved/upstream-merge-2026-08-15-migrations.md"
+
+
+def _load_notify():
+    spec = importlib.util.spec_from_file_location("notify_merge_needed", NOTIFY)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {NOTIFY}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _check_ignore(relpath: str) -> int:
@@ -43,19 +54,24 @@ class ApprovedDocsGitignoreTest(unittest.TestCase):
         )
 
 
-class AutoRetryRepoPinTest(unittest.TestCase):
-    def test_workflow_dispatch_pins_this_repository(self) -> None:
-        text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("gh workflow run upstream-merge-agent-daily.yml", text)
-        self.assertIn('--repo "$GITHUB_REPOSITORY"', text)
+class NotifyWorkflowIsDetectionOnlyTest(unittest.TestCase):
+    def test_workflow_does_not_auto_merge(self) -> None:
+        self.assertTrue(WORKFLOW.is_file(), f"missing {WORKFLOW}")
+        _load_notify().assert_workflow_is_notify_only(WORKFLOW.read_text(encoding="utf-8"))
 
-    def test_workflow_run_is_not_repo_ambiguous(self) -> None:
-        text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertNotIn(
-            "gh workflow run upstream-merge-agent-daily.yml --ref main",
-            text,
-            "auto-retry must not call gh workflow run without --repo",
-        )
+    def test_no_workflow_runs_unattended_upstream_merge(self) -> None:
+        for path in sorted((REPO_ROOT / ".github/workflows").glob("*.yml")):
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn(
+                "name: Daily Upstream Merge Agent",
+                text,
+                f"{path.name} reintroduced the retired auto-merge agent",
+            )
+            self.assertNotIn(
+                "tk-upstream-agent[bot]",
+                text,
+                f"{path.name} still pushes as the retired auto-merge identity",
+            )
 
 
 if __name__ == "__main__":

@@ -21,12 +21,13 @@ description: >-
 | Commit 形状（Harness / Invariant / OPC 三类） | 判断 | prompt（架构区分） |
 | §3 决策清单 7 项 | 判断 | prompt（每条都需爆炸半径 + 兼容度判断） |
 | §7 Red flags | 判断 + 机械门禁 | prompt + sentinel workflow `upstream-merge-pr-shape.yml` |
+| 周期探测（behind → issue） | 机械 | `.github/workflows/upstream-merge-notify.yml` + `scripts/upstream/notify-merge-needed.py` |
 
-## 0. 流程心智（单入口）
+## 0. 流程心智
 
-upstream 融合采用单入口自动化：周期任务统一由 `upstream-merge-agent-daily.yml` 驱动；
-已同步（up-to-date）与需合并（need-merge）都属于同一执行流结果，不再拆分独立 drift-only 模式。
-人工仅在 PR review 门禁做判断，技术门禁由 `upstream-merge-pr-shape.yml` 强制执行。
+周期任务只做探测：`upstream-merge-notify.yml` 发现 `origin/main` 落后于 `upstream/main` 时，开或更新一条 `upstream-merge-needed` issue，等人决定是否 merge。
+
+真正的 merge 由人类按本 skill 在 `merge/upstream-YYYYMMDD` 上手动做；形状门禁仍由 `upstream-merge-pr-shape.yml` 强制。CI 不得 `git merge`、不得开 merge PR、不得派 headless agent。
 
 ## 1. 不可逾越原则
 
