@@ -248,7 +248,8 @@ func matchOpenAIUpstreamErrorFields(upstreamMsg string, upstreamBody []byte, mat
 
 func shouldFailoverOpenAIUpstreamStatus(statusCode int) bool {
 	switch statusCode {
-	case 401, 402, 403, 405, 429, 529:
+	case 401, 402, 403, 405, 424, 429, 529:
+		// 424: same CloudWise-class provider-outage envelope as anthropic #94.
 		return true
 	default:
 		return statusCode >= 500
