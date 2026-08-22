@@ -73,6 +73,13 @@ func TestShouldFailoverOpenAIUpstreamError_HTTPAndSSEShareDecision(t *testing.T)
 			want:       true,
 		},
 		{
+			name:    "cloudwise-style 424 provider error failovers",
+			status:  http.StatusFailedDependency,
+			message: "Provider error (request id: aitk-00000000-0000-0000-0000-000000000000)",
+			body:    []byte(`{"error":{"message":"Provider error (request id: aitk-00000000-0000-0000-0000-000000000000)","type":"server_error"}}`),
+			want:    true,
+		},
+		{
 			name:    "generic HTTP 400 without transient signal stays terminal",
 			status:  http.StatusBadRequest,
 			message: "Missing required parameter: 'instructions'",

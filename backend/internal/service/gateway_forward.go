@@ -46,7 +46,10 @@ func (s *GatewayService) shouldRetryUpstreamError(account *Account, statusCode i
 // shouldFailoverUpstreamError determines whether an upstream error should trigger account failover.
 func (s *GatewayService) shouldFailoverUpstreamError(statusCode int) bool {
 	switch statusCode {
-	case 401, 403, 429, 529:
+	case 401, 403, 424, 429, 529:
+		// 424: CloudWise-class relays wrap their upstream outage as Failed
+		// Dependency + server_error. Prod 2026-08-21 #94 returned terminal
+		// 424s while kiro still served after 429 failover.
 		return true
 	default:
 		return statusCode >= 500
