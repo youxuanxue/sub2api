@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -201,4 +202,41 @@ func TestSubscriptionGroupUsable_ActiveUnderLimit(t *testing.T) {
 	group := &Group{ID: 22, SubscriptionType: SubscriptionTypeSubscription, WeeklyLimitUSD: &limit}
 
 	require.True(t, svc.SubscriptionGroupUsable(context.Background(), 31, group))
+}
+
+func TestSubscriptionGroupUsable_LookupInfraErrorKeepsSubscription(t *testing.T) {
+	svc := NewSubscriptionService(groupRepoNoop{}, usableSubRepoStub{err: errors.New("db unavailable")}, nil, nil, nil)
+	group := &Group{ID: 22, SubscriptionType: SubscriptionTypeSubscription}
+
+	require.True(t, svc.SubscriptionGroupUsable(context.Background(), 31, group))
+}
+
+func TestSubscriptionGroupUsable_MaintenanceInfraErrorKeepsSubscription(t *testing.T) {
+	startsAt := time.Date(2026, 7, 24, 4, 31, 4, 81236000, time.UTC)
+	lateAnchor := time.Date(2026, 8, 18, 6, 22, 6, 0, time.UTC)
+	now := time.Date(2026, 8, 21, 7, 39, 34, 0, time.UTC)
+	sub := &UserSubscription{
+		ID:                5,
+		Status:            SubscriptionStatusActive,
+		UserID:            31,
+		GroupID:           22,
+		StartsAt:          startsAt,
+		ExpiresAt:         startsAt.Add(30 * 24 * time.Hour),
+		WeeklyWindowStart: &lateAnchor,
+		WeeklyUsageUSD:    50.06,
+	}
+	limit := 50.0
+	svc := NewSubscriptionService(groupRepoNoop{}, failingWeeklyResetRepo{usableSubRepoStub: usableSubRepoStub{sub: sub}}, nil, nil, nil)
+	svc.now = func() time.Time { return now }
+	group := &Group{ID: 22, SubscriptionType: SubscriptionTypeSubscription, WeeklyLimitUSD: &limit}
+
+	require.True(t, svc.SubscriptionGroupUsable(context.Background(), 31, group))
+}
+
+type failingWeeklyResetRepo struct {
+	usableSubRepoStub
+}
+
+func (r failingWeeklyResetRepo) ResetWeeklyUsage(context.Context, int64, *time.Time, time.Time) error {
+	return errors.New("reset failed")
 }

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand/v2"
@@ -991,25 +992,37 @@ func (s *SubscriptionService) CheckUsageLimits(ctx context.Context, sub *UserSub
 }
 
 // SubscriptionGroupUsable 判断用户此刻能否用该订阅组接请求。
-// 到期、停用、找不到有效订阅、日/周/月额度满都返回 false。
-// 窗口该滚动时先做与鉴权中间件相同的维护，避免把可续期的订阅误判成不可用。
+// 到期、停用、找不到有效订阅、日/周/月额度满都返回 false，全能 key 可改走余额组。
+// 读订阅或窗口维护的基础设施错误返回 true，让鉴权中间件按原路径 403/500，避免误扣钱包。
 func (s *SubscriptionService) SubscriptionGroupUsable(ctx context.Context, userID int64, group *Group) bool {
 	if s == nil || group == nil || !group.IsSubscriptionType() {
 		return group != nil && !group.IsSubscriptionType()
 	}
 	sub, err := s.GetActiveSubscription(ctx, userID, group.ID)
-	if err != nil || sub == nil {
+	if err != nil {
+		return !subscriptionBusinessUnusable(err)
+	}
+	if sub == nil {
 		return false
 	}
 	needsMaintenance, err := s.ValidateAndCheckLimits(sub, group)
 	if needsMaintenance {
 		refreshed, merr := s.EnsureWindowMaintenance(ctx, sub)
 		if merr != nil {
-			return false
+			return true
 		}
 		_, err = s.ValidateAndCheckLimits(refreshed, group)
 	}
 	return err == nil
+}
+
+func subscriptionBusinessUnusable(err error) bool {
+	return errors.Is(err, ErrSubscriptionNotFound) ||
+		errors.Is(err, ErrSubscriptionExpired) ||
+		errors.Is(err, ErrSubscriptionSuspended) ||
+		errors.Is(err, ErrDailyLimitExceeded) ||
+		errors.Is(err, ErrWeeklyLimitExceeded) ||
+		errors.Is(err, ErrMonthlyLimitExceeded)
 }
 
 // ValidateAndCheckLimits 合并验证+限额检查（中间件热路径专用）
