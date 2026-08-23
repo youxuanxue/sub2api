@@ -32,12 +32,15 @@ FORBIDDEN_WORKFLOW_NEEDLES = (
     "git merge --no-ff",
     "gh workflow run",
     "claude -p",
-    "UPSTREAM_MERGE_GH_TOKEN",
+    "git remote set-url origin",
     "merge-state.sh",
     # Private-repo origin fetch needs the checkout token. The old daily
     # agent rewrote origin with a PAT after persist-credentials: false;
-    # this workflow has no PAT and must not drop credentials.
+    # this workflow must not drop checkout credentials or reuse the PAT for git.
     "persist-credentials: false",
+)
+REQUIRED_WORKFLOW_NEEDLES = (
+    "secrets.UPSTREAM_MERGE_GH_TOKEN",
 )
 
 
@@ -442,6 +445,9 @@ def assert_workflow_is_notify_only(text: str) -> None:
     for needle in FORBIDDEN_WORKFLOW_NEEDLES:
         if needle in text:
             raise AssertionError(f"notify workflow must not contain {needle!r}")
+    for needle in REQUIRED_WORKFLOW_NEEDLES:
+        if needle not in text:
+            raise AssertionError(f"notify workflow must contain {needle!r}")
     if "notify-merge-needed.py" not in text:
         raise AssertionError("notify workflow must invoke notify-merge-needed.py")
     if "check-drift.sh" not in text:
