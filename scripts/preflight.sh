@@ -1611,6 +1611,10 @@ elif ! python3 ./ops/observability/test_ops_daily_diagnostics_workflow.py >/dev/
     echo "  FAIL: Fleet pg_dump restore canary daily diagnostics contracts"
     echo "        - run: python3 ops/observability/test_ops_daily_diagnostics_workflow.py"
     errors=$((errors + 1))
+elif ! python3 ./scripts/test_release_post_check.py >/dev/null 2>&1; then
+    echo "  FAIL: post-release live→new PR check contracts"
+    echo "        - run: python3 scripts/test_release_post_check.py"
+    errors=$((errors + 1))
 else
     echo "  ok: fail-closed probes + Fleet restore and partition operators"
 fi
