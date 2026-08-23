@@ -256,7 +256,10 @@ func TestUS045_GapDecisionPlanTransportRejectsOversizedExpansion(t *testing.T) {
 func gzipBase64(t *testing.T, raw []byte) string {
 	t.Helper()
 	var compressed bytes.Buffer
-	writer := gzip.NewWriter(&compressed)
+	writer, err := gzip.NewWriterLevel(&compressed, gzip.BestCompression)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := writer.Write(raw); err != nil {
 		t.Fatal(err)
 	}
