@@ -38,7 +38,7 @@ alwaysApply: true
 ~/.gemini/antigravity-cli/skills/<name>→ ~/.cursor/skills/<name>（逐个叠加，不动 Antigravity 自带 builtin）
 ```
 
-Codex 消费端要点：Codex 不读 `.cursor/rules/*.mdc`，行为规则经 `AGENTS.md` 的 dev-rules 受管块**指针化**到达（宪法 + 规则索引 + 技能索引 + 命令）；`~/.codex/rules/` 是 Codex 自己的命令审批策略（Starlark `.rules`），**dev-rules 永不写入**；代码审查是三端通用 skill `xj-review`（`.cursor/skills/`，三端自动加载）；`/twin` 仍是 Claude-Code-only 命令，在受管块内点名引用（Codex 自定义 prompt 已被 OpenAI deprecated，可复用工作流一律走 skill，不 symlink commands 到 `~/.codex/prompts/`）。
+Codex 消费端要点：Codex 不读 `.cursor/rules/*.mdc`，行为规则经 `AGENTS.md` 的 dev-rules 受管块**指针化**到达（宪法 + 规则索引 + 技能索引 + 全局工具）；`~/.codex/rules/` 是 Codex 自己的命令审批策略（Starlark `.rules`），**dev-rules 永不写入**；`xj-review` 与 `twin` 都是 `.cursor/skills/` 中的三端通用 skill，Claude Code、Codex 与 Antigravity 通过各自的 skill 加载位消费同一份 `SKILL.md`。Codex 自定义 prompt 已被 OpenAI deprecated，可复用工作流一律走 skill，不 symlink commands 到 `~/.codex/prompts/`。
 
 Antigravity CLI（Google `agy`）消费端要点：customization 模型与 Codex 同构，故复用同一管线。家目录 Global Customizations Root = `~/.gemini/antigravity-cli/`：全局规则读 `AGENTS.md`（symlink 同一宪法），技能自动发现 `skills/<name>/SKILL.md`（逐个 symlink）。工作区 Workspace Root = `<project>/.agents/`：技能读 `.agents/skills/<name>/`，**工作区规则复用项目根 `AGENTS.md` 的同一受管块**（与 Codex 同文件，零额外生成）。Antigravity 同样不自动加载 `.cursor/rules/*.mdc`，规则经 AGENTS.md 到达；不碰 `~/.gemini/GEMINI.md`（那是 gemini-cli 的根，非 antigravity-cli root）；可复用工作流走 skill，不 symlink commands。
 
@@ -96,7 +96,7 @@ fan-out 使用 `.registered-projects` 与 `.local-projects` 的并集：跨机�
 
 作者基线：
 
-- 新增或修改 skill / command 时，先列出其步骤里哪些是「可机械化」、哪些是「真判断」；可机械化的实现成脚本/工具并由 skill 调用，模型只消费其确定性输出（典型：`/twin` 把状态推进全塞进 `python3 -m scripts.twin` 子命令，模型逐字转发 stdout）。
+- 新增或修改 skill / command 时，先列出其步骤里哪些是「可机械化」、哪些是「真判断」；可机械化的实现成脚本/工具并由 skill 调用，模型只消费其确定性输出（典型：`twin` skill 把状态推进全交给 provider-neutral `twin` CLI，模型只处理 action payload 中的真实判断）。
 - 复用既有确定性工具，不重造：契约 / 分层 / Web surface / 高风险锚点 / 存在性测试 / approved frontmatter / 静默吞错等已由 `dev-rules/scripts/check_*.py` + `templates/preflight.sh` 覆盖；skill / command 应**调用** preflight 取 ground-truth，而非让模型重新肉眼判断（参见 `agent-skills/xj-review/SKILL.md` §0 机械门禁先行）。
 - 反复出现的机械化缺口按 `digital-clone-research.md §二` 落成会失败的脚本 / schema；纯创意步骤不强行工具化。
 
@@ -110,7 +110,7 @@ fan-out 使用 `.registered-projects` 与 `.local-projects` 的并集：跨机�
 
 普通交互式 Agent 需要新建、切换、修复或销毁 git worktree 时，必须使用 `$git-worktree-submodule`。尤其仓库含 submodule 时，不手写 `git worktree add` + `git submodule update --init`，不把 submodule 目录做 symlink；`add` / `switch` 后立即按 skill 输出的 `session-workdir` 切换当前 Agent 的 cwd / workdir，并在目标 worktree 内运行 `session-check` 后再读写文件。
 
-`/twin` 的 worker 隔离是例外：它由 `commands/twin.md`、`scripts/twin/worktree.py` 和 `templates/worktree-bootstrap.sh` 作为内部 harness 管理，失败会降级到共享 checkout。不要把 `templates/worktree-bootstrap.sh` 当成通用 worktree 入口；普通会话仍走 `$git-worktree-submodule`。
+`/twin` 的 worker 隔离是程序化调用场景：`scripts/twin/worktree.py` 只消费 `$git-worktree-submodule` 的 `wtree.py` JSON 契约，不另写 worktree/submodule 实现。创建、分支或 `session-check` 不满足契约时必须 fail closed，禁止降级到共享 checkout；`TWIN_WORKTREE_ISOLATION=0` 只允许明确的只读调试。人类仍走 `wts`，普通 Agent 会话仍加载 `$git-worktree-submodule` 并绑定其 `session-workdir`。
 
 ## 编辑与提交规则
 
