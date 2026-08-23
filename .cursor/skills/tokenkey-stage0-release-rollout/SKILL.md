@@ -33,7 +33,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | 发版前 smoke 模型校验 | 机械 | `python3 scripts/stage0/check_smoke_config.py`（`TK_SMOKE_ANTHROPIC_MODELS` / `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS` 均 ∈ `TK_SMOKE_API_KEY` 的 `/v1/models`）。**完整校验需要 smoke key，只在 CI 可跑**；本地降级为 `bash ops/stage0/load_smoke_github_env.sh --check prod`（只验 secret/vars 已配置） |
 | 发版后跟进档位（skip / single） | 机械 | `bash scripts/release-impact-files.sh PREV NEW` → `.followup.tier`（是否值得人工再跟；**实测检查不走这里**） |
 | 发版后控制面探活（prod + deployable edge） | 机械 | `bash ops/observability/probe-release-control-plane.sh`（prod `/health` + `/api/v1/settings/public`，deployable Edge `/health`，JSON lines + summary） |
-| **发版后 +5min 实测（live tag→本次 tag 的全部 PR）** | 机械 | `deploy-stage0.yml` job `post-release-check` → `ops/observability/run-post-release-check.sh`（plan 从 git 派生，禁止模型自造 `HOOK_PATTERNS`） |
+| **发版后 +5min 实测（live tag→本次 tag 的全部 PR）** | 机械 | `deploy-stage0.yml` 的 `deploy` job 在 smoke 后跑 `ops/observability/run-post-release-check.sh`（plan 从 git 派生，禁止模型自造 `HOOK_PATTERNS`；复用已批的 prod Environment，不再另开审批） |
 | **发版后 Anthropic OAuth 配置检查（snapshot → check）** | 机械 | `python3 ops/anthropic/manage-anthropic-config.py snapshot` + `check --snapshot`（见 §「发版后 Anthropic OAuth 配置检查」；canonical：`/tokenkey-anthropic-oauth-config`） |
 | **发版后 Account model_mapping 配置 diff** | 机械 | `python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json`（默认 prod only；期望 mapping 与 forbidden policy metadata 均来自 Go SSOT；edge 保持空 mapping 不纳入检查，见 §「发版后 Account model_mapping 配置检查」） |
 | rollout 摘要（git log / diff stat / sentinel / deletion） | 机械 | `bash scripts/release-rollout-summary.sh --mode release` |
@@ -307,7 +307,7 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
    ```
 
    脚本按 batch dispatch upgrade（`--smoke-phase infra`）→ watch → 验 `tk_edge_post_deploy_smoke: OK phase=infra`。**默认 `--parallel 1`（顺序）**；`N>1` 仅在可接受换容器窗口影响时用。批内失败则 fail-stop。
-8. **发版后 +5min 实测（CI 唯一源）**：watch 同一 `deploy-stage0` run 的 `post-release-check` job（`needs: deploy`，换镜像成功后等 5 分钟）。它用换镜像前的线上 tag → 本次 tag 列出全部产品 PR，再对照 prod 日志评分。摘要转述 job 的 `evaluate.json`，**不要**自造 `HOOK_PATTERNS`，也**不要**另开一轮 tick。CI 不可解析时才本地重跑 `ops/observability/run-post-release-check.sh`。
+8. **发版后 +5min 实测（CI 唯一源）**：watch 同一 `deploy-stage0` run 的 `deploy` job 在 smoke 之后的 post-release 步（换镜像成功后等 5 分钟，**不再**另开 `environment: prod` 审批）。它用换镜像前的线上 tag → 本次 tag 列出全部产品 PR，再对照 prod 日志评分。摘要转述 `evaluate.json`，**不要**自造 `HOOK_PATTERNS`，也**不要**另开一轮 tick。CI 不可解析时才本地重跑 `ops/observability/run-post-release-check.sh`。
 9. **只读配置检查（默认）**：先跑 §「发版后 Anthropic OAuth 配置检查」，再跑 §「发版后 Account model_mapping 配置检查」。violations 不触发 rollback，写入 rollout 摘要为 **yellow**；Anthropic violation 指向 `/tokenkey-anthropic-oauth-config`，model_mapping violation 指向 `/tokenkey-modelops-planner` 分支 D，先审 Go SSOT 派生的 diff，再按需 `apply-accounts --confirm yes-apply-account-model-mapping`。
 
 ## prod 真实测试
@@ -443,7 +443,7 @@ prod smoke 失败：停，优先 rollback prod；不要继续 Edge rollout。Edg
 
 ## 完成后：发版后 +5min 实测（live tag → 本次 tag）
 
-**一条路径**：`deploy-stage0.yml` 的 `post-release-check` job。范围是换镜像前线上正在跑的 tag（`resolve-prod-running-tag-via-ssm`），不是「上一个 git tag」猜测。job 用 `scripts/release_post_check.py` 列出该范围内全部产品 PR，再投递控制面 + tick，按 plan 评分。
+**一条路径**：`deploy-stage0.yml` 的 `deploy` job 在 smoke 之后的 post-release 步。范围是换镜像前线上正在跑的 tag（`resolve-prod-running-tag-via-ssm`），不是「上一个 git tag」猜测。脚本用 `scripts/release_post_check.py` 列出该范围内全部产品 PR，再投递控制面 + tick，按 plan 评分。检查留在同一 job，避免第二次 prod Environment 审批把 +5min 时钟推后。
 
 禁止：
 

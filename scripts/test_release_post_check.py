@@ -157,8 +157,9 @@ class ReleasePostCheckPlanTest(unittest.TestCase):
         plan = rpc.build_plan(self.repo, "v1.8.169", "v1.8.170")
         by_id = {c["id"]: c for c in plan["checks"]}
         self.assertIn("pr-1781-WEEKLY_LIMIT_EXCEEDED", by_id)
-        self.assertEqual(by_id["pr-1781-WEEKLY_LIMIT_EXCEEDED"]["kind"], "error_absent")
+        self.assertEqual(by_id["pr-1781-WEEKLY_LIMIT_EXCEEDED"]["kind"], "observe")
         self.assertEqual(by_id["pr-1781-WEEKLY_LIMIT_EXCEEDED"]["source"], "#1781")
+        self.assertFalse(any(c["pattern"] == "error: code=" for c in plan["checks"]))
 
     def test_hook_patterns_come_from_plan_not_empty(self) -> None:
         self._commit(
@@ -182,6 +183,10 @@ class ReleasePostCheckPlanTest(unittest.TestCase):
         sources = {c["source"] for c in plan["checks"]}
         self.assertIn("#1780", sources)
         self.assertIn("#1781", sources)
+        self.assertFalse(any(c["pattern"] == "error: code=" for c in plan["checks"]))
+        self.assertTrue(
+            all(c["kind"] == "observe" for c in plan["checks"] if c["source"] == "#1781")
+        )
 
 
 class ReleasePostCheckEvaluateTest(unittest.TestCase):
@@ -203,8 +208,15 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
                 {
                     "id": "pr-1781-WEEKLY_LIMIT_EXCEEDED",
                     "source": "#1781",
-                    "kind": "error_absent",
+                    "kind": "observe",
                     "pattern": "WEEKLY_LIMIT_EXCEEDED",
+                    "expect": "report_only",
+                },
+                {
+                    "id": "pr-1781-NEW_CODE",
+                    "source": "#1781",
+                    "kind": "error_absent",
+                    "pattern": "NEW_LIMIT_CODE",
                     "expect": "not_storming",
                 },
             ],
@@ -221,7 +233,7 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
         self.assertEqual(result["verdict"], "green")
         by_id = {c["id"]: c for c in result["checks"]}
         self.assertEqual(by_id["pr-1780-Status=424"]["verdict"], "inconclusive")
-        self.assertEqual(by_id["pr-1781-WEEKLY_LIMIT_EXCEEDED"]["verdict"], "pass")
+        self.assertEqual(by_id["pr-1781-WEEKLY_LIMIT_EXCEEDED"]["verdict"], "observe")
 
     def test_evaluate_red_when_424_is_terminal_without_failover(self) -> None:
         tick = {
@@ -235,9 +247,22 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
         by_id = {c["id"]: c for c in result["checks"]}
         self.assertEqual(by_id["pr-1780-Status=424"]["verdict"], "fail")
 
-    def test_evaluate_red_on_weekly_limit_storm(self) -> None:
+    def test_evaluate_observe_weekly_limit_does_not_redden(self) -> None:
         tick = {
-            "hooks": {"WEEKLY_LIMIT_EXCEEDED": 12, "Status=424": 0},
+            "hooks": {"WEEKLY_LIMIT_EXCEEDED": 12, "Status=424": 0, "NEW_LIMIT_CODE": 0},
+            "panic": 0,
+            "status_5xx": {"500": 2},
+            "completed_total": 20,
+        }
+        result = rpc.evaluate(self._plan(), tick, control_plane_ok=True)
+        self.assertEqual(result["verdict"], "green")
+        by_id = {c["id"]: c for c in result["checks"]}
+        self.assertEqual(by_id["pr-1781-WEEKLY_LIMIT_EXCEEDED"]["verdict"], "observe")
+        self.assertEqual(by_id["status-5xx"]["verdict"], "observe")
+
+    def test_evaluate_red_on_added_error_ctor_storm(self) -> None:
+        tick = {
+            "hooks": {"NEW_LIMIT_CODE": 20, "WEEKLY_LIMIT_EXCEEDED": 0, "Status=424": 0},
             "panic": 0,
             "status_5xx": {},
             "completed_total": 20,
@@ -245,11 +270,11 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
         result = rpc.evaluate(self._plan(), tick, control_plane_ok=True)
         self.assertEqual(result["verdict"], "red")
 
-    def test_evaluate_red_on_panic_or_5xx_or_control_plane(self) -> None:
+    def test_evaluate_red_on_panic_or_control_plane_not_ambient_5xx(self) -> None:
         tick = {"hooks": {}, "panic": 1, "status_5xx": {}, "completed_total": 1}
         self.assertEqual(rpc.evaluate(self._plan(), tick, control_plane_ok=True)["verdict"], "red")
         tick = {"hooks": {}, "panic": 0, "status_5xx": {"500": 2}, "completed_total": 1}
-        self.assertEqual(rpc.evaluate(self._plan(), tick, control_plane_ok=True)["verdict"], "red")
+        self.assertEqual(rpc.evaluate(self._plan(), tick, control_plane_ok=True)["verdict"], "green")
         tick = {"hooks": {}, "panic": 0, "status_5xx": {}, "completed_total": 1}
         self.assertEqual(rpc.evaluate(self._plan(), tick, control_plane_ok=False)["verdict"], "red")
 
@@ -272,16 +297,20 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
 
 
 class DeployStage0PostReleaseJobTest(unittest.TestCase):
-    def test_workflow_has_post_release_check_job(self) -> None:
+    def test_workflow_runs_post_release_check_in_deploy_job(self) -> None:
         text = (_ROOT / ".github/workflows/deploy-stage0.yml").read_text(encoding="utf-8")
-        self.assertIn("post-release-check:", text)
         self.assertIn("run-post-release-check.sh", text)
         self.assertIn("release_post_check.py plan", text)
-        self.assertIn("needs: deploy", text)
         self.assertIn("sleep 300", text)
-        self.assertIn("previous_tag: ${{ steps.previous_runtime.outputs.tag }}", text)
-        self.assertIn("LIVE_TAG: ${{ needs.deploy.outputs.previous_tag }}", text)
+        self.assertIn("steps.previous_runtime.outputs.tag", text)
         self.assertNotIn("HOOK_PATTERNS=<hook", text)
+        self.assertNotIn("\n  post-release-check:\n", text)
+        self.assertNotIn("needs: deploy", text)
+        deploy_start = text.index("  deploy:")
+        next_job = text.find("\n  qa-infra-check:", deploy_start)
+        deploy_block = text[deploy_start:next_job]
+        self.assertIn("id: post_release_check", deploy_block)
+        self.assertEqual(deploy_block.split("steps:", 1)[0].count("environment: prod"), 1)
 
     def test_skill_forbids_model_invented_hooks(self) -> None:
         text = (

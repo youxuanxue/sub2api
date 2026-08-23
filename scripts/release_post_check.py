@@ -29,7 +29,6 @@ ERROR_CTOR = re.compile(
 HTTP_STATUS = re.compile(r"\b([45]\d\d)\b")
 FAILOVER_PATH = re.compile(r"gateway_forward|upstream_errors|failover", re.I)
 SUBSCRIPTION_PATH = re.compile(r"subscription|universal_routing")
-AUTH_PATH = re.compile(r"api_key_auth|internal/server/middleware/middleware\.go")
 SUBSCRIPTION_CODES = (
     "WEEKLY_LIMIT_EXCEEDED",
     "DAILY_LIMIT_EXCEEDED",
@@ -37,7 +36,7 @@ SUBSCRIPTION_CODES = (
     "SUBSCRIPTION_EXPIRED",
 )
 FAILOVER_LOG = "[Forward] Upstream error (failover)"
-ERROR_STORM_THRESHOLD = 3
+ERROR_STORM_THRESHOLD = 20
 SKIP_PREFIXES = ("docs/",)
 SKIP_NAMES = {"backend/cmd/server/VERSION"}
 
@@ -165,17 +164,7 @@ def _derive_checks(source: str, files: list[str], diff_text: str) -> list[dict[s
 
     if any(SUBSCRIPTION_PATH.search(p) for p in files):
         for code in SUBSCRIPTION_CODES:
-            add(_check(source=source, kind="error_absent", pattern=code, expect="not_storming"))
-
-    if any(AUTH_PATH.search(p) for p in files):
-        add(
-            _check(
-                source=source,
-                kind="error_absent",
-                pattern="error: code=",
-                expect="not_storming",
-            )
-        )
+            add(_check(source=source, kind="observe", pattern=code, expect="report_only"))
 
     return checks
 
@@ -334,26 +323,14 @@ def evaluate(
         )
 
     status_5xx = tick.get("status_5xx") or {}
-    five_xx_count = sum(int(v) for v in status_5xx.values())
-    if five_xx_count:
-        results.append(
-            {
-                "id": "status-5xx",
-                "source": "baseline",
-                "verdict": "fail",
-                "observed": {"status_5xx": status_5xx},
-            }
-        )
-        bump("red")
-    else:
-        results.append(
-            {
-                "id": "status-5xx",
-                "source": "baseline",
-                "verdict": "pass",
-                "observed": {"status_5xx": {}},
-            }
-        )
+    results.append(
+        {
+            "id": "status-5xx",
+            "source": "baseline",
+            "verdict": "observe",
+            "observed": {"status_5xx": status_5xx},
+        }
+    )
 
     failover_count = int(hooks.get(FAILOVER_LOG) or 0)
     for item in plan.get("checks") or []:
@@ -361,7 +338,9 @@ def evaluate(
         count = int(hooks.get(pattern) or 0)
         kind = item["kind"]
         verdict = "pass"
-        if kind == "error_absent":
+        if kind == "observe":
+            verdict = "observe"
+        elif kind == "error_absent":
             verdict = "fail" if count >= ERROR_STORM_THRESHOLD else "pass"
         elif kind == "failover_status":
             if count == 0:

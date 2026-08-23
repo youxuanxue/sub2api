@@ -172,13 +172,14 @@ Steps:
    verified live Worker, converges the current maintenance runner, disables
    boundary before app mutation, skips canary, and pauses DROP until a
    Phase 3 app is restored. No auto-rollback (would mask transient failures).
-12. **Post-release live check** — after a successful `deploy` job, a dependent
-   `post-release-check` job waits 5 minutes, then scores every product PR
-   between the previously serving tag and this tag against prod logs
-   (`scripts/release_post_check.py` + `ops/observability/run-post-release-check.sh`).
-   Failure does not roll back the already-switched color; it fails the
-   workflow so the regression is visible. Empty product-commit ranges skip
-   the wait.
+12. **Post-release live check** — after smoke in the same `deploy` job, wait
+   5 minutes and score every product PR between the previously serving tag
+   and this tag against prod logs (`scripts/release_post_check.py` +
+   `ops/observability/run-post-release-check.sh`). It reuses the already
+   approved prod Environment/OIDC so the clock starts after cutover, not
+   after a second reviewer gate. Failure does not roll back the already
+   switched color; it fails the workflow so the regression is visible.
+   Empty product-commit ranges skip the wait.
 13. **Read-only QA infrastructure acceptance** — `operation=qa-infra-check`
    validates both IAM stack outputs, exact `QA_INFRA_OIDC_ROLE_ARN` binding,
    real deployment-role assumption, recognized raw-archive stack identity,
@@ -187,10 +188,11 @@ Steps:
 
 Concurrency `group: deploy-stage0-prod`, `cancel-in-progress: false` is shared
 by all operations. Workflow-level permission is `contents: read`; the `deploy`
-job adds `id-token: write` and `packages: read`, `post-release-check` and
-`qa-infra-check` add only `id-token: write`, and `smoke-only` keeps the
-workflow default. No job receives `contents: write`. `post-release-check`
-is read-only SSM plus git history; it does not mutate host colors.
+job adds `id-token: write` and `packages: read`, `qa-infra-check` adds only
+`id-token: write`, and `smoke-only` keeps the workflow default. No job
+receives `contents: write`. The post-release live check is a later step in
+`deploy`; it is read-only SSM plus git history and does not mutate host
+colors.
 
 ## 5. Required pre-deploy operator setup
 

@@ -45,8 +45,6 @@ jobs:
   deploy:
     if: inputs.operation == 'deploy'
     runs-on: ubuntu-latest
-    outputs:
-      previous_tag: ${{ steps.previous_runtime.outputs.tag }}
     permissions:
       contents: read
       id-token: write
@@ -54,7 +52,7 @@ jobs:
     # Bound well above a normal prod SSM upgrade (~5-10 min) but far below the
     # 6h GHA default, so a hung describe-stacks / health-poll can't hold the
     # cancel-in-progress:false prod concurrency lock for hours.
-    timeout-minutes: 30
+    timeout-minutes: 40
     # GitHub Environment binding for prod only:
     #   1. Adds environment:prod to the OIDC sub claim (IAM trust in cicd-oidc.yaml).
     #   2. Pauses for Required reviewers when configured on the prod Environment.
@@ -603,35 +601,18 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  post-release-check:
-    # +5min live check: every product PR between the tag that was serving and
-    # this deploy is planned from git, then scored against prod logs. Failure
-    # here does not roll back the already-switched color; it fails the workflow
-    # so the regression is visible.
-    needs: deploy
-    if: ${{ needs.deploy.result == 'success' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    environment: prod
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
-      INPUT_TAG: ${{ inputs.tag }}
-      LIVE_TAG: ${{ needs.deploy.outputs.previous_tag }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
+      # Same deploy job: reuse the already-approved prod Environment + OIDC.
+      # A second job with environment: prod would re-open Required reviewers
+      # and start the +5min clock after that gate, not after cutover.
       - name: Plan checks from live→new PRs
-        id: plan
+        id: post_release_plan
+        env:
+          LIVE_TAG: ${{ steps.previous_runtime.outputs.tag }}
         run: |
           set -euo pipefail
           test -n "${LIVE_TAG:-}" || { echo "::error::previous prod runtime tag is empty"; exit 1; }
+          git fetch --tags --force origin
+          git fetch --unshallow origin || true
           OUT_DIR="${RUNNER_TEMP}/post-release-check"
           mkdir -p "$OUT_DIR"
           python3 scripts/release_post_check.py plan --live "$LIVE_TAG" --new "$INPUT_TAG" > "$OUT_DIR/plan.json"
@@ -645,21 +626,15 @@ jobs:
           fi
 
       - name: Wait 5 minutes for live traffic
-        if: steps.plan.outputs.count != '0'
+        if: steps.post_release_plan.outputs.count != '0'
         run: sleep 300
 
-      - name: Configure Stage0 read credentials via OIDC
-        if: steps.plan.outputs.count != '0'
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
       - name: Check live→new PRs against prod
-        if: steps.plan.outputs.count != '0'
-        id: check
+        if: steps.post_release_plan.outputs.count != '0'
+        id: post_release_check
         env:
-          OUT_DIR: ${{ steps.plan.outputs.out_dir }}
+          LIVE_TAG: ${{ steps.previous_runtime.outputs.tag }}
+          OUT_DIR: ${{ steps.post_release_plan.outputs.out_dir }}
         run: |
           set -euo pipefail
           bash ops/observability/run-post-release-check.sh \
@@ -668,17 +643,18 @@ jobs:
             --target prod \
             --out-dir "$OUT_DIR"
 
-      - name: Job summary
-        if: always()
+      - name: Post-release check summary
+        if: always() && steps.post_release_plan.outcome != 'skipped'
         env:
-          OUT_DIR: ${{ steps.plan.outputs.out_dir }}
+          LIVE_TAG: ${{ steps.previous_runtime.outputs.tag }}
+          OUT_DIR: ${{ steps.post_release_plan.outputs.out_dir }}
         run: |
           set -euo pipefail
           {
             echo "## post-release-check"
             echo "- live (was serving): \`${LIVE_TAG}\`"
             echo "- new: \`${INPUT_TAG}\`"
-            if [ -f "${OUT_DIR}/evaluate.json" ]; then
+            if [ -n "${OUT_DIR:-}" ] && [ -f "${OUT_DIR}/evaluate.json" ]; then
               python3 - <<'PY'
           import json, os, pathlib
           p = pathlib.Path(os.environ["OUT_DIR"]) / "evaluate.json"
