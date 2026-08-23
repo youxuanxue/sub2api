@@ -588,5 +588,22 @@ class CaptureConfigClassificationTests(unittest.TestCase):
         self.assertEqual(["alpha", "beta"], mod.aggregate_system_anchors(records))
 
 
+class StaticVersionTests(unittest.TestCase):
+    def test_pinned_cc_version_matches_repo(self) -> None:
+        ver = mod.pinned_cc_version()
+        self.assertRegex(ver, r"^\d+\.\d+\.\d+$")
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        self.assertEqual(ver, baseline["canonical_http"]["default_version"])
+
+    def test_static_diff_aligned_when_versions_match(self) -> None:
+        pinned = mod.pinned_cc_version()
+        rows, installed = mod._static_diff_rows()
+        self.assertEqual("cc_version", rows[0].field)
+        if installed and installed == pinned:
+            self.assertEqual("match", rows[0].status)
+        elif not installed:
+            self.assertEqual("missing_capture", rows[0].status)
+
+
 if __name__ == "__main__":
     unittest.main()

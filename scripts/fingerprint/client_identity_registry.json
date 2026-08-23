@@ -22,12 +22,12 @@
         "symbol": "IdentityService.ApplyFingerprint",
         "override": "admin fingerprint plus runtime headers"
       },
-      "evidence_mode": "wire_tls_http",
+      "evidence_mode": "local_binary_static",
       "capture_tool": "ops/anthropic/capture-cc-fingerprint.sh",
       "production_observer": "ops/observability/probe-prompt-surface-fingerprints.sh",
       "companion_identity": null,
       "actionable": true,
-      "status_note": "",
+      "status_note": "Version ground truth = locally installed claude CLI (`claude --version`). TLS/HTTP beta drift still uses wire capture when needed.",
       "release_sources": [
         {"kind": "github_release", "label": "GitHub anthropics/claude-code", "repo": "anthropics/claude-code", "tag_prefix": "v"},
         {"kind": "npm", "label": "npm @anthropic-ai/claude-code", "package": "@anthropic-ai/claude-code"}
