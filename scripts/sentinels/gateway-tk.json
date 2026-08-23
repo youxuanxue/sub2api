@@ -3463,7 +3463,9 @@
       "must_contain": [
         "func (s *OpenAIGatewayService) collectOpenAICompatSelectionFailureStatsForRequest(",
         "openai_account_selection_failed",
-        "runtime_blocked"
+        "runtime_blocked",
+        "tkOpenAICompatSelectionFailureLogDedup",
+        "tkSelectionFailureLogDedup"
       ],
       "rationale": "Prod 2026-07-28 GPT-pro3/4 incident observability: when OpenAI-compat selection empties the pool, log openai_account_selection_failed with per-account rejection axes including runtime_blocked (in-memory block vs DB schedulable drift). collectOpenAICompatSelectionFailureStatsForRequest mirrors scheduler eligibility ordering so ops can distinguish client-fault unsupported model from whole-account runtime block without restart."
     },

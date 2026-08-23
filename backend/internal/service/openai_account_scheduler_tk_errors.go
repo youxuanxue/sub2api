@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -73,6 +74,17 @@ func tkOpenAICompatChannelPricingRestrictionError(requestedModel string) error {
 		return fmt.Errorf("%w (channel pricing restriction)", ErrUnsupportedModel)
 	}
 	return fmt.Errorf("%w: %s (channel pricing restriction)", ErrUnsupportedModel, requestedModel)
+}
+
+// OpenAICompatSelectionFailureOpsSystemLogRedundant reports whether a handler-level
+// account_select_failed warn would duplicate service-layer selection diagnostics.
+func OpenAICompatSelectionFailureOpsSystemLogRedundant(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, ErrUnsupportedModel) ||
+		errors.Is(err, ErrNoAvailableAccounts) ||
+		errors.Is(err, ErrNoAvailableCompactAccounts)
 }
 
 func openAICompatNoCandidateError(requestedModel, groupPlatform string, compactBlocked bool, accounts []Account, excludedIDs map[int64]struct{}, eval *openAICompatNoCandidateEval) error {

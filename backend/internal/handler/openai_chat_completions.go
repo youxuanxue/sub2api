@@ -236,8 +236,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				return
 			}
 			reqLog.Warn("openai_chat_completions.account_select_failed",
-				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
-				zap.Int("excluded_account_count", len(failedAccountIDs)),
+				tkSelectionFailureLogFields(err,
+					zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
+					zap.Int("excluded_account_count", len(failedAccountIDs)),
+				)...,
 			)
 			if len(failedAccountIDs) == 0 {
 				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)

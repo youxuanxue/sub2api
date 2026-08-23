@@ -146,8 +146,10 @@ func (h *OpenAIGatewayHandler) embeddings(c *gin.Context) {
 		)
 		if err != nil {
 			reqLog.Warn("openai_embeddings.account_select_failed",
-				zap.Error(err),
-				zap.Int("excluded_account_count", len(failedAccountIDs)),
+				tkSelectionFailureLogFields(err,
+					zap.Error(err),
+					zap.Int("excluded_account_count", len(failedAccountIDs)),
+				)...,
 			)
 			if len(failedAccountIDs) == 0 {
 				defaultModel := ""
@@ -468,8 +470,10 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 		)
 		if err != nil {
 			reqLog.Warn("openai_images_generations.account_select_failed",
-				zap.Error(err),
-				zap.Int("excluded_account_count", len(failedAccountIDs)),
+				tkSelectionFailureLogFields(err,
+					zap.Error(err),
+					zap.Int("excluded_account_count", len(failedAccountIDs)),
+				)...,
 			)
 			if len(failedAccountIDs) == 0 {
 				defaultModel := ""
