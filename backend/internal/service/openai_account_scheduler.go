@@ -430,7 +430,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 			compatible, _ := s.isAccountRequestCompatibleReason(ctx, selection.Account, req)
 			if !compatible ||
 				!s.isAccountTransportCompatible(selection.Account, req.RequiredTransport) ||
-				!s.service.openAIAccountBelongsToSchedulingGroup(ctx, req.GroupID, req.schedulePlatform(), selection.Account) {
+				!s.service.openAIAccountMatchesSchedulingGroup(ctx, selection.Account, req.GroupID, req.schedulePlatform()) {
 				if selection.ReleaseFunc != nil {
 					selection.ReleaseFunc()
 				}
