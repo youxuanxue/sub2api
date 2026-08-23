@@ -19,7 +19,12 @@ from typing import Any, Protocol
 LABEL = "upstream-merge-needed"
 LEGACY_LABEL = "upstream-merge-agent"
 AUTOMATED_LABEL = "automated"
+TITLE_PREFIX = "[upstream-merge]"
 COMMIT_LIMIT = 30
+LABEL_SPECS = (
+    (LABEL, "D93F0B", "TokenKey is behind Wei-Shaw/sub2api"),
+    (AUTOMATED_LABEL, "C5DEF5", "Automated signal"),
+)
 WORKFLOW_RELPATH = ".github/workflows/upstream-merge-notify.yml"
 FORBIDDEN_WORKFLOW_NEEDLES = (
     "run-headless-agent",
@@ -38,11 +43,28 @@ FORBIDDEN_WORKFLOW_NEEDLES = (
 
 class IssueHost(Protocol):
     def list_open(self, label: str) -> list[int]: ...
-    def create(self, title: str, body: str, labels: list[str]) -> int: ...
+    def list_open_tracking(self) -> list[int]: ...
+    def create(self, title: str, body: str) -> int: ...
     def update(self, number: int, title: str, body: str) -> None: ...
     def comment(self, number: int, body: str) -> None: ...
     def close(self, number: int, comment: str) -> None: ...
-    def ensure_label(self, name: str, color: str, description: str) -> None: ...
+    def attach_labels(self, number: int, specs: list[tuple[str, str, str]]) -> list[str]: ...
+
+
+def is_tracking_title(title: str) -> bool:
+    return str(title).startswith(TITLE_PREFIX)
+
+
+def label_is_ready(
+    *,
+    exists_before: bool,
+    create_ok: bool,
+    create_err: str,
+    exists_after: bool,
+) -> bool:
+    if exists_before or exists_after or create_ok:
+        return True
+    return "already exists" in (create_err or "").lower()
 
 
 def decide_action(*, behind: int, existing_open: bool) -> str:
@@ -55,7 +77,7 @@ def decide_action(*, behind: int, existing_open: bool) -> str:
 
 def render_title(behind: int) -> str:
     unit = "commit" if behind == 1 else "commits"
-    return f"[upstream-merge] Wei-Shaw/sub2api is {behind} {unit} ahead of TokenKey"
+    return f"{TITLE_PREFIX} Wei-Shaw/sub2api is {behind} {unit} ahead of TokenKey"
 
 
 def parse_merge_tree_conflicts(raw: str) -> list[str]:
@@ -175,12 +197,10 @@ def apply(
     if "behind" not in drift:
         raise ValueError("drift JSON missing 'behind'")
     behind = int(drift["behind"])
-    existing = host.list_open(LABEL)
+    existing = host.list_open_tracking()
     action = decide_action(behind=behind, existing_open=bool(existing))
     primary: int | None = existing[0] if existing else None
-
-    host.ensure_label(LABEL, "D93F0B", "TokenKey is behind Wei-Shaw/sub2api")
-    host.ensure_label(AUTOMATED_LABEL, "C5DEF5", "Automated signal")
+    label_warnings: list[str] = []
 
     if action in {"create", "update"}:
         title = render_title(behind)
@@ -192,13 +212,15 @@ def apply(
             run_url=run_url,
         )
         if action == "create":
-            primary = host.create(title, body, [LABEL, AUTOMATED_LABEL])
+            primary = host.create(title, body)
         else:
             assert primary is not None
             host.update(primary, title, body)
             host.comment(primary, f"Refreshed by {run_url}: still {behind} commit(s) behind.")
             for extra in existing[1:]:
                 host.close(extra, f"Duplicate of #{primary}.")
+        if primary is not None:
+            label_warnings = host.attach_labels(primary, list(LABEL_SPECS))
     elif action == "close":
         close_comment = (
             f"origin/main now contains upstream/main (`{drift.get('upstream_head') or ''}`). "
@@ -224,6 +246,7 @@ def apply(
         "action": action,
         "issue": primary,
         "closed_legacy": closed_legacy,
+        "label_warnings": label_warnings,
     }
 
 
@@ -250,7 +273,37 @@ class GhIssueHost:
         data = json.loads(raw or "[]")
         return [int(item) for item in data]
 
-    def create(self, title: str, body: str, labels: list[str]) -> int:
+    def list_open_tracking(self) -> list[int]:
+        raw = self._run(
+            [
+                "gh",
+                "issue",
+                "list",
+                "--state",
+                "open",
+                "--limit",
+                "100",
+                "--json",
+                "number,title",
+            ]
+        )
+        items = json.loads(raw or "[]")
+        by_title = [
+            int(item["number"])
+            for item in items
+            if is_tracking_title(str(item.get("title") or ""))
+        ]
+        try:
+            by_label = self.list_open(LABEL)
+        except RuntimeError:
+            by_label = []
+        seen: list[int] = []
+        for number in by_title + by_label:
+            if number not in seen:
+                seen.append(number)
+        return seen
+
+    def create(self, title: str, body: str) -> int:
         raw = self._run(
             [
                 "gh",
@@ -260,8 +313,6 @@ class GhIssueHost:
                 title,
                 "--body",
                 body,
-                "--label",
-                ",".join(labels),
             ]
         )
         match = re.search(r"/issues/(\d+)", raw)
@@ -278,20 +329,63 @@ class GhIssueHost:
     def close(self, number: int, comment: str) -> None:
         self._run(["gh", "issue", "close", str(number), "--comment", comment])
 
-    def ensure_label(self, name: str, color: str, description: str) -> None:
-        self._run(
+    def _label_exists(self, name: str) -> bool:
+        raw = self._run(
             [
                 "gh",
                 "label",
-                "create",
+                "list",
+                "--search",
                 name,
-                "--color",
-                color,
-                "--description",
-                description[:100],
-            ],
-            allow_failure=True,
+                "--limit",
+                "20",
+                "--json",
+                "name",
+            ]
         )
+        items = json.loads(raw or "[]")
+        return any(item.get("name") == name for item in items)
+
+    def ensure_label(self, name: str, color: str, description: str) -> bool:
+        exists_before = self._label_exists(name)
+        create_ok = True
+        create_err = ""
+        if not exists_before:
+            try:
+                self._run(
+                    [
+                        "gh",
+                        "label",
+                        "create",
+                        name,
+                        "--color",
+                        color,
+                        "--description",
+                        description[:100],
+                    ]
+                )
+            except RuntimeError as exc:
+                create_ok = False
+                create_err = str(exc)
+        exists_after = exists_before or self._label_exists(name)
+        return label_is_ready(
+            exists_before=exists_before,
+            create_ok=create_ok,
+            create_err=create_err,
+            exists_after=exists_after,
+        )
+
+    def attach_labels(self, number: int, specs: list[tuple[str, str, str]]) -> list[str]:
+        warnings: list[str] = []
+        for name, color, description in specs:
+            if not self.ensure_label(name, color, description):
+                warnings.append(f"could not ensure label {name!r}")
+                continue
+            try:
+                self._run(["gh", "issue", "edit", str(number), "--add-label", name])
+            except RuntimeError as exc:
+                warnings.append(str(exc))
+        return warnings
 
 
 def _run_gh(args: list[str], allow_failure: bool = False) -> str:
@@ -339,6 +433,8 @@ def cmd_apply(args: argparse.Namespace) -> int:
         host=GhIssueHost(),
     )
     print(json.dumps(result, ensure_ascii=False))
+    if result.get("label_warnings"):
+        print("WARN: " + "; ".join(result["label_warnings"]), file=sys.stderr)
     return 0
 
 
@@ -353,27 +449,45 @@ def assert_workflow_is_notify_only(text: str) -> None:
 
 
 class MemoryHost:
-    def __init__(self, open_issues: dict[str, list[int]] | None = None) -> None:
+    def __init__(
+        self,
+        open_issues: dict[str, list[int]] | None = None,
+        titles: dict[int, str] | None = None,
+        attach_fail: bool = False,
+    ) -> None:
         self.open_issues = {key: list(value) for key, value in (open_issues or {}).items()}
-        self.created: list[tuple[str, str, list[str]]] = []
+        self.titles = dict(titles or {})
+        for number in self.open_issues.get(LABEL, []):
+            self.titles.setdefault(number, f"{TITLE_PREFIX} seeded #{number}")
+        self.created: list[tuple[str, str]] = []
         self.updated: list[tuple[int, str, str]] = []
         self.comments: list[tuple[int, str]] = []
         self.closed: list[tuple[int, str]] = []
         self.labels: list[str] = []
+        self.attached: list[tuple[int, str]] = []
+        self.attach_fail = attach_fail
         self._next_number = 9000
 
     def list_open(self, label: str) -> list[int]:
         return list(self.open_issues.get(label, []))
 
-    def create(self, title: str, body: str, labels: list[str]) -> int:
+    def list_open_tracking(self) -> list[int]:
+        open_ids: set[int] = set()
+        for values in self.open_issues.values():
+            open_ids.update(values)
+        return [number for number in sorted(open_ids) if is_tracking_title(self.titles.get(number, ""))]
+
+    def create(self, title: str, body: str) -> int:
         self._next_number += 1
         number = self._next_number
-        self.created.append((title, body, labels))
+        self.created.append((title, body))
+        self.titles[number] = title
         self.open_issues.setdefault(LABEL, []).append(number)
         return number
 
     def update(self, number: int, title: str, body: str) -> None:
         self.updated.append((number, title, body))
+        self.titles[number] = title
 
     def comment(self, number: int, body: str) -> None:
         self.comments.append((number, body))
@@ -384,14 +498,22 @@ class MemoryHost:
             if number in values:
                 values.remove(number)
 
-    def ensure_label(self, name: str, color: str, description: str) -> None:
-        self.labels.append(name)
+    def attach_labels(self, number: int, specs: list[tuple[str, str, str]]) -> list[str]:
+        if self.attach_fail:
+            return [f"could not ensure label {name!r}" for name, _, _ in specs]
+        for name, _, _ in specs:
+            self.labels.append(name)
+            self.attached.append((number, name))
+        return []
 
 
 def run_selftest() -> int:
     failures: list[str] = []
+    expect_count = 0
 
     def expect(name: str, cond: bool) -> None:
+        nonlocal expect_count
+        expect_count += 1
         print(f"{'PASS' if cond else 'FAIL'} {name}")
         if not cond:
             failures.append(name)
@@ -499,6 +621,90 @@ def run_selftest() -> int:
         missing = True
     expect("apply_rejects_missing_behind", missing)
 
+    expect("title_is_tracking", is_tracking_title(render_title(4)))
+    expect("title_not_tracking", not is_tracking_title("Daily Upstream Merge Agent leftover"))
+    expect(
+        "label_ready_exists_before",
+        label_is_ready(exists_before=True, create_ok=False, create_err="denied", exists_after=False),
+    )
+    expect(
+        "label_ready_create_ok",
+        label_is_ready(exists_before=False, create_ok=True, create_err="", exists_after=False),
+    )
+    expect(
+        "label_ready_already_exists",
+        label_is_ready(
+            exists_before=False,
+            create_ok=False,
+            create_err="gh failed (1): label already exists",
+            exists_after=False,
+        ),
+    )
+    expect(
+        "label_ready_forbidden",
+        not label_is_ready(
+            exists_before=False,
+            create_ok=False,
+            create_err="could not add label: 'upstream-merge-needed' not found",
+            exists_after=False,
+        ),
+    )
+
+    unlabeled_host = MemoryHost(
+        open_issues={"other": [12]},
+        titles={12: render_title(9)},
+    )
+    unlabeled = apply(
+        drift={"behind": 2, "ahead": 0, "upstream_head": "up", "origin_head": "tk"},
+        commits=["c1"],
+        conflicts=[],
+        open_prs=[],
+        run_url="https://example.test/run/6",
+        host=unlabeled_host,
+    )
+    expect(
+        "apply_update_by_title_without_label",
+        unlabeled["action"] == "update" and unlabeled["issue"] == 12 and not unlabeled_host.created,
+    )
+
+    label_fail_host = MemoryHost(attach_fail=True)
+    label_fail = apply(
+        drift={"behind": 6, "ahead": 0, "upstream_head": "up", "origin_head": "tk"},
+        commits=["deadbeef feat"],
+        conflicts=[],
+        open_prs=[],
+        run_url="https://example.test/run/7",
+        host=label_fail_host,
+    )
+    expect(
+        "apply_create_survives_label_failure",
+        label_fail["action"] == "create" and label_fail["issue"] == 9001 and label_fail_host.created,
+    )
+    expect(
+        "apply_create_records_label_warnings",
+        bool(label_fail["label_warnings"]) and not label_fail_host.labels,
+    )
+
+    gh_calls: list[list[str]] = []
+
+    def fake_gh(args: list[str], allow_failure: bool = False) -> str:
+        gh_calls.append(list(args))
+        if args[:3] == ["gh", "issue", "create"]:
+            return "https://github.com/youxuanxue/sub2api/issues/42"
+        if args[:3] == ["gh", "issue", "list"]:
+            return "[]"
+        if args[:3] == ["gh", "label", "list"]:
+            return "[]"
+        raise RuntimeError("gh failed (1): HTTP 403: Resource not accessible by integration")
+
+    gh_host = GhIssueHost(runner=fake_gh)
+    created_number = gh_host.create(render_title(1), "body")
+    create_call = next(call for call in gh_calls if call[:3] == ["gh", "issue", "create"])
+    expect("gh_create_returns_number", created_number == 42)
+    expect("gh_create_omits_label_flag", "--label" not in create_call)
+    attach_warnings = gh_host.attach_labels(42, list(LABEL_SPECS))
+    expect("gh_attach_warns_when_label_create_denied", bool(attach_warnings))
+
     repo_root = Path(__file__).resolve().parents[2]
     workflow = repo_root / WORKFLOW_RELPATH
     expect("workflow_file_exists", workflow.is_file())
@@ -520,8 +726,8 @@ def run_selftest() -> int:
         "upstream-merge-agent-daily.yml" not in preflight,
     )
 
-    passed = 29 - len(failures)
-    print(f"notify-merge-needed self-test ({passed}/29 cases passed)")
+    passed = expect_count - len(failures)
+    print(f"notify-merge-needed self-test ({passed}/{expect_count} cases passed)")
     return 1 if failures else 0
 
 

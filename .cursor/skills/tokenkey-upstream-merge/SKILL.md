@@ -25,7 +25,7 @@ description: >-
 
 ## 0. 流程心智
 
-周期任务只做探测：`upstream-merge-notify.yml` 发现 `origin/main` 落后于 `upstream/main` 时，开或更新一条 `upstream-merge-needed` issue，等人决定是否 merge。
+周期任务只做探测：`upstream-merge-notify.yml` 发现 `origin/main` 落后于 `upstream/main` 时，开或更新一条标题以 `[upstream-merge]` 开头的跟踪 issue（label 尽力附加，不阻断建单），等人决定是否 merge。
 
 真正的 merge 由人类按本 skill 在 `merge/upstream-YYYYMMDD` 上手动做；形状门禁仍由 `upstream-merge-pr-shape.yml` 强制。CI 不得 `git merge`、不得开 merge PR、不得派 headless agent。
 
