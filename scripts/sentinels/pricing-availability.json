@@ -381,7 +381,8 @@
     {
       "path": "backend/internal/handler/admin/account_handler.go",
       "must_contain": [
-        "tkGeminiAdminModelsForMapping(c.Request.Context(), mapping)",
+        "tkGeminiAdminAvailableModels(c.Request.Context(), account)",
+        "func tkGeminiAdminAvailableModels(",
         "func tkGeminiAdminModelsForMapping(",
         "service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil)",
         "func tkAdminModelOptions[",
@@ -390,7 +391,7 @@
         "scheduleOpenAIAPIKeyCapabilityProbes",
         "scheduleOpenAINativeMessagesProbe"
       ],
-      "rationale": "Admin GET /admin/accounts/:id/models for Gemini must intersect credentials.model_mapping with the unified servable catalog (ServableClientFacingIDs), not return the raw mapping keys or re-inject the full Gemini default list for OAuth accounts. Every platform then projects package-specific metadata through tkAdminModelOptions into the same []dto.AccountModelOption HTTP contract; an upstream merge must not restore mixed OpenAI/Claude/Gemini/Grok response structs. Pins both the Gemini servability call and the cross-platform DTO projection. OpenAI APIKey create/update must schedule both Responses and native Anthropic Messages capability probes so dual-stack relays (tokensea) get correct extra flags without manual ops intervention."
+      "rationale": "Admin GET /admin/accounts/:id/models for Gemini routes through tkGeminiAdminAvailableModels (model_mapping SSOT). Non-Google-One accounts still intersect mapping with ServableClientFacingIDs via tkGeminiAdminModelsForMapping; Google One keeps the conservative whitelist from GetModelMapping without servable pruning. Every platform projects package-specific metadata through tkAdminModelOptions into the same []dto.AccountModelOption HTTP contract. OpenAI APIKey create/update must schedule both Responses and native Anthropic Messages capability probes."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_available_models_test.go",
