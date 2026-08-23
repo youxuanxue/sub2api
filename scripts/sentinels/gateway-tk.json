@@ -2164,9 +2164,9 @@
     {
       "path": "backend/internal/service/openai_account_scheduler.go",
       "must_contain": [
-        "openAIStickyAccountStillInGroupForRequest(ctx, req.GroupID, req.GroupPlatform, account)"
+        "openAIAccountBelongsToSchedulingGroup(ctx, req.GroupID, req.GroupPlatform, account)"
       ],
-      "rationale": "TK#1934: scheduler selectBySessionHash must apply the same group-membership guard as tryStickySessionHit, or the advanced scheduler path reopens the group-switch sticky leak."
+      "rationale": "TK#1934: scheduler selectBySessionHash must apply the same conservative group-membership guard as tryStickySessionHit via openAIAccountBelongsToSchedulingGroup (canonical owner in openai_gateway_service_tk_sticky_group.go), or the advanced scheduler path reopens the group-switch sticky leak."
     },
     {
       "path": "backend/internal/service/channel_monitor_checker.go",

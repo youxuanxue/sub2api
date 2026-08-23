@@ -79,6 +79,7 @@ type OpenAIAccountScheduleRequest struct {
 	StickyWeighted          bool
 	SubscriptionPriority    bool
 	PreserveStickyBinding   bool
+	RequirePrivacySet       bool
 	PreviousResponseID      string
 	PreviousResponseCanMove bool
 	UseUpstreamTokenCost    bool
@@ -89,9 +90,8 @@ type OpenAIAccountScheduleRequest struct {
 	RequiredVideoSupport    bool
 	// RequireCompact is only for legacy /responses/compact capability filtering
 	// and compact_model_mapping; native remote compaction v2 leaves it false.
-	RequireCompact    bool
-	RequirePrivacySet bool
-	ExcludedIDs       map[int64]struct{}
+	RequireCompact bool
+	ExcludedIDs    map[int64]struct{}
 }
 
 func (req OpenAIAccountScheduleRequest) schedulePlatform() string {
@@ -427,8 +427,10 @@ func (s *defaultOpenAIAccountScheduler) Select(
 			return nil, decision, err
 		}
 		if selection != nil && selection.Account != nil {
-			if !s.isAccountTransportCompatible(selection.Account, req.RequiredTransport) ||
-				!s.isAccountRequestCompatible(ctx, selection.Account, req) {
+			compatible, _ := s.isAccountRequestCompatibleReason(ctx, selection.Account, req)
+			if !compatible ||
+				!s.isAccountTransportCompatible(selection.Account, req.RequiredTransport) ||
+				!s.service.openAIAccountMatchesSchedulingGroup(ctx, selection.Account, req.GroupID, req.schedulePlatform()) {
 				if selection.ReleaseFunc != nil {
 					selection.ReleaseFunc()
 				}
@@ -605,7 +607,11 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		clearBinding()
 		return nil, false, 0, nil
 	}
-	if !s.service.openAIStickyAccountStillInGroupForRequest(ctx, req.GroupID, req.GroupPlatform, account) {
+	if !s.isAccountRequestCompatible(ctx, account, req) {
+		clearBinding()
+		return nil, false, 0, nil
+	}
+	if !s.service.openAIAccountBelongsToSchedulingGroup(ctx, req.GroupID, req.GroupPlatform, account) {
 		clearBinding()
 		return nil, false, 0, nil
 	}
@@ -1373,7 +1379,7 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 		if account == nil || !s.isAccountRequestCompatible(ctx, account, req) || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 			continue
 		}
-		if !s.service.openAIStickyAccountStillInGroupForRequest(ctx, req.GroupID, req.schedulePlatform(), account) {
+		if !s.service.openAIAccountBelongsToSchedulingGroup(ctx, req.GroupID, req.schedulePlatform(), account) {
 			if accountID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" {
 				_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, req.SessionHash)
 			}

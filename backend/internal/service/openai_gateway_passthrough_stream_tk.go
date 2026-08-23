@@ -1,14 +1,13 @@
 package service
 
 import (
-	"bytes"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
-// tkRestorePassthroughSSEPayload applies namespace restore and Codex tool-name
-// alias reversal for one passthrough SSE data payload.
+// tkRestorePassthroughSSEPayload applies the canonical Responses restore pipeline
+// to one passthrough SSE data payload.
 func tkRestorePassthroughSSEPayload(
 	c *gin.Context,
 	dataBytes []byte,
@@ -19,15 +18,6 @@ func tkRestorePassthroughSSEPayload(
 	if trimmedData == "[DONE]" {
 		return line, dataBytes, trimmedData, nil
 	}
-	restoredData, restoreErr := restoreOpenAIResponsesNamespacePayload(c, dataBytes)
-	if restoreErr != nil {
-		return line, dataBytes, trimmedData, restoreErr
-	}
-	restoredData = restoreCodexToolNamesFromSSEContext(c, restoredData, rawEventType)
-	if !bytes.Equal(restoredData, dataBytes) {
-		dataBytes = restoredData
-		trimmedData = strings.TrimSpace(string(restoredData))
-		line = "data: " + string(restoredData)
-	}
-	return line, dataBytes, trimmedData, nil
+	line, dataBytes, trimmedData, _, restoreErr := tkRestoreGatewayResponseSSELine(c, dataBytes, rawEventType, line)
+	return line, dataBytes, trimmedData, restoreErr
 }

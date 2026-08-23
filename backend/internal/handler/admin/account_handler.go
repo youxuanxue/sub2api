@@ -2680,14 +2680,9 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	// Handle Gemini accounts
+	// Handle Gemini accounts via runtime model_mapping SSOT (includes Google One defaults).
 	if account.IsGemini() {
-		mapping := account.GetModelMapping()
-		if len(mapping) == 0 {
-			response.Success(c, tkGeminiAdminDefaultModels(c.Request.Context()))
-			return
-		}
-		response.Success(c, tkGeminiAdminModelsForMapping(c.Request.Context(), mapping))
+		response.Success(c, tkGeminiAdminAvailableModels(c.Request.Context(), account))
 		return
 	}
 
@@ -2877,6 +2872,24 @@ func tkGeminiAdminDefaultModels(ctx context.Context) []dto.AccountModelOption {
 	return tkGeminiAdminModelsForIDs(
 		service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil),
 	)
+}
+
+func tkGeminiAdminAvailableModels(ctx context.Context, account *service.Account) []dto.AccountModelOption {
+	mapping := account.GetModelMapping()
+	if len(mapping) == 0 {
+		return tkGeminiAdminDefaultModels(ctx)
+	}
+	// Google One mapping is already a conservative whitelist; do not intersect
+	// with the global servable catalog (gemini-2.0-flash may be menu-hidden).
+	if account.IsGeminiGoogleOne() {
+		ids := make([]string, 0, len(mapping))
+		for requestedModel := range mapping {
+			ids = append(ids, requestedModel)
+		}
+		sort.Strings(ids)
+		return tkGeminiAdminModelsForIDs(ids)
+	}
+	return tkGeminiAdminModelsForMapping(ctx, mapping)
 }
 
 func tkGeminiAdminModelsForMapping(ctx context.Context, mapping map[string]string) []dto.AccountModelOption {
