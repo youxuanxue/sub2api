@@ -44,6 +44,16 @@ class PinReadersLiveRepoTest(unittest.TestCase):
         self.assertRegex(crw.read_pinned_kiro_cli(), r"^\d+\.\d+\.\d+")
 
 
+class ResolvedClientReleasePinsTest(unittest.TestCase):
+    """Regression locks for automated client-release issues resolved on main."""
+
+    def test_kiro_cli_pin_aligned_with_issue_1778(self) -> None:
+        self.assertEqual(crw.read_pinned_kiro_cli(), "2.19.1")
+
+    def test_gemini_cli_pin_aligned_with_issue_1755(self) -> None:
+        self.assertEqual(crw.read_pinned_gemini_cli(), "0.56.0")
+
+
 class ScanPlatformTest(unittest.TestCase):
     def test_offline_fixture_marks_drift(self) -> None:
         spec = next(p for p in crw.PLATFORM_SPECS if p.id == "codex")
