@@ -17,11 +17,6 @@ const (
 	anthropicUpstreamErrorThresholdDefault     = 3
 	anthropicUpstreamErrorWindowMinutesDefault = 1
 
-	// Cooldown escalation TTL: how long a prior cooldown trigger keeps the
-	// account at an elevated tier before falling back to the shortest tier
-	// (30s). Anything inside this window counts toward escalation.
-	anthropicCooldownTierTTLMinutes = 30
-
 	// Window owned by the global "tier >= 1" escalation counter that drives
 	// the anthropic_cooldown_tier_escalation_count ops_alert_evaluator
 	// metric. 60 min picks the smallest unit operators care about for the
@@ -69,25 +64,6 @@ func (s *RateLimitService) getAnthropicErrorWindowMinutes() int {
 		return s.cfg.RateLimit.AnthropicErrorWindowMinutes
 	}
 	return anthropicUpstreamErrorWindowMinutesDefault
-}
-
-// anthropicCooldownTierLadder picks an exponentially longer cooldown when
-// the same account repeatedly trips the 3/3 short-window threshold inside
-// anthropicCooldownTierTTLMinutes. Tier index = (recent cooldown count - 1)
-// clamped to len-1.
-//
-// Tier 0 (first hit in 30 min): 30s — transient upstream jitter
-// Tier 1 (second hit):           2 min — repeat suggests real problem
-// Tier 2+ (third+ hit):          10 min — persistent failure, back off hard
-//
-// Replaces the prior fixed 10-min cooldown which amplified single transient
-// bursts into 10-min group outages on single-member exclusive groups
-// (2026-05-21 cc-us1-oauth → cc-edges incident). The shortest tier is the
-// dominant case; the long tail still escalates to give upstream room.
-var anthropicCooldownTierLadder = []time.Duration{
-	30 * time.Second,
-	2 * time.Minute,
-	10 * time.Minute,
 }
 
 // anthropicCooldownEscalationSlotMaxSeconds is the placeholder TTL a threshold
@@ -391,4 +367,3 @@ func (s *RateLimitService) handle404(ctx context.Context, account *Account, upst
 		"requested_model", strings.TrimSpace(extractAnthropicNotFoundModel(responseBody, upstreamMsg)))
 	return false
 }
-

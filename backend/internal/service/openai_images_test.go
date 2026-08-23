@@ -490,7 +490,10 @@ func TestAccountSupportsOpenAIImageCapability_EmptyRequirementDoesNotRejectGrok(
 	}
 
 	require.True(t, account.SupportsOpenAIImageCapability(""))
-	require.False(t, account.SupportsOpenAIImageCapability(OpenAIImagesCapabilityBasic))
+	// TokenKey treats grok as an OpenAI-compat image platform (it ships
+	// grok-imagine-* models and IsOpenAICompatPlatform includes grok), so a grok
+	// OAuth account is NOT rejected for an explicit image capability either.
+	require.True(t, account.SupportsOpenAIImageCapability(OpenAIImagesCapabilityBasic))
 }
 
 func TestAccountSupportsOpenAIEndpointCapability(t *testing.T) {

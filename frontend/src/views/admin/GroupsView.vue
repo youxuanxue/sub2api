@@ -1,5 +1,4 @@
 <template>
-  <AppLayout>
     <TablePageLayout>
       <template #filters>
         <div
@@ -4414,7 +4413,6 @@
       @close="showRPMOverridesModal = false"
       @success="loadGroups"
     />
-  </AppLayout>
 </template>
 
 <script setup lang="ts">
@@ -4438,7 +4436,6 @@ import {
   GROUP_PLATFORM_OPTIONS,
 } from "@/constants/platforms";
 import type { Column } from "@/components/common/types";
-import AppLayout from "@/components/layout/AppLayout.vue";
 import TablePageLayout from "@/components/layout/TablePageLayout.vue";
 import DataTable from "@/components/common/DataTable.vue";
 import Pagination from "@/components/common/Pagination.vue";

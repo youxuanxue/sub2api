@@ -222,6 +222,7 @@ func (s *OpenAIGatewayService) buildOpenAIWSCreatePayload(reqBody map[string]any
 		payload["store"] = false
 		_ = ensureCodexReasoningSummaryAuto(payload)
 		_ = ensureCodexReasoningInclude(payload)
+		_ = ensureCodexReasoningContextAllTurns(payload)
 	}
 	return payload
 }

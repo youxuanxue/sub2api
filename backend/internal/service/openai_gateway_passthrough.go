@@ -183,6 +183,20 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			stageCodexFingerprintIDs(c, fpIDs)
 		}
 	}
+	if account != nil && account.Type == AccountTypeAPIKey {
+		normalizedBody, normalized, err := normalizeOpenAIPassthroughAPIKeyBody(body)
+		if err != nil {
+			return nil, err
+		}
+		if normalized {
+			body = normalizedBody
+		}
+		injectedBody, _, err := applyStickyToOpenAIResponsesBody(ctx, c, s.settingService, account, body, requestedModel)
+		if err != nil {
+			return nil, err
+		}
+		body = injectedBody
+	}
 	if account != nil && account.IsOpenAI() {
 		normalizedBody, normalized, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBody(body, account)
 		if normalizeErr != nil {
@@ -1091,8 +1105,8 @@ func openAIStreamAddedEventStartsClientOutput(payload []byte, eventType string) 
 			return false
 		case "message":
 			content := item.Get("content")
-			if !content.IsArray() {
-				return false
+			if !content.IsArray() || len(content.Array()) == 0 {
+				return true
 			}
 			for _, part := range content.Array() {
 				switch strings.TrimSpace(part.Get("type").String()) {
@@ -1352,7 +1366,7 @@ func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
 	switch {
 	case strings.Contains(combined, "rate_limit"):
 		return http.StatusTooManyRequests
-	case strings.Contains(errType, "invalid_request"):
+	case strings.Contains(errType, "invalid_request") || strings.Contains(code, "invalid_request"):
 		return http.StatusBadRequest
 	case strings.Contains(combined, "authentication") || strings.Contains(combined, "unauthorized") || strings.Contains(combined, "invalid_api_key"):
 		return http.StatusUnauthorized
@@ -1362,6 +1376,8 @@ func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
 		return http.StatusForbidden
 	case isOpenAIUpstreamCapacityShedEvent(payload):
 		return http.StatusServiceUnavailable
+	case isOpenAINonRetryableClientError(message, payload):
+		return http.StatusBadRequest
 	default:
 		return http.StatusBadGateway
 	}
@@ -1859,6 +1875,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		lineStartsClientOutput := false
 		forceFlushFailedEvent := false
 		if data, ok := extractOpenAISSEDataLine(line); ok {
+			if openAISSEDataPayloadIsEmpty(data) {
+				continue
+			}
 			dataBytes := []byte(data)
 			trimmedData := strings.TrimSpace(data)
 			rawEventType := effectiveOpenAISSEEventType(dataBytes, pendingSSEEventType)
@@ -2082,7 +2101,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] SSE line too long: account=%d max_size=%d error=%v", account.ID, maxLineSize, err)
 			return resultWithUsage(), err
 		}
-		if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+		if !openAIStreamClientOutputStarted(c, clientOutputStarted) && (!semanticOutputSeen || pendingBytes > 0) {
 			msg := "OpenAI stream disconnected before completion"
 			if errText := strings.TrimSpace(err.Error()); errText != "" {
 				msg += ": " + errText
@@ -2111,7 +2130,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			zap.Int64("account_id", account.ID),
 			zap.String("upstream_request_id", upstreamRequestID),
 		).Info("OpenAI passthrough 上游流在未收到 [DONE] 时结束，疑似断流")
-		if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+		if !openAIStreamClientOutputStarted(c, clientOutputStarted) && (!semanticOutputSeen || pendingBytes > 0) {
 			return resultWithUsage(),
 				s.newOpenAIStreamFailoverError(c, account, true, upstreamRequestID, nil, "OpenAI stream ended before a terminal event")
 		}

@@ -107,19 +107,16 @@ func (s *stubAntigravityAccountRepo) UpdateExtra(ctx context.Context, id int64, 
 func TestAntigravityRetryLoop_NoURLFallback_UsesConfiguredBaseURL(t *testing.T) {
 	t.Setenv(antigravityForwardBaseURLEnv, "")
 
-	oldBaseURLs := append([]string(nil), antigravity.BaseURLs...)
 	oldAvailability := antigravity.DefaultURLAvailability
 	defer func() {
-		antigravity.BaseURLs = oldBaseURLs
 		antigravity.DefaultURLAvailability = oldAvailability
 	}()
 
-	base1 := "https://ag-1.test"
-	base2 := "https://ag-2.test"
-	antigravity.BaseURLs = []string{base1, base2}
+	prod := antigravity.ProdBaseURL()
+	daily := antigravity.DailyBaseURL()
 	antigravity.DefaultURLAvailability = antigravity.NewURLAvailability(time.Minute)
 
-	upstream := &stubAntigravityUpstream{firstBase: base1, secondBase: base2}
+	upstream := &stubAntigravityUpstream{firstBase: prod, secondBase: daily}
 	account := &Account{
 		ID:          1,
 		Name:        "acc-1",
@@ -140,7 +137,7 @@ func TestAntigravityRetryLoop_NoURLFallback_UsesConfiguredBaseURL(t *testing.T) 
 		action:         "generateContent",
 		body:           []byte(`{"input":"test"}`),
 		httpUpstream:   upstream,
-		requestedModel: "claude-sonnet-4-5",
+		requestedModel: "claude-sonnet-4-6",
 		handleError: func(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, requestedModel string, groupID int64, sessionHash string, isStickySession bool) *handleModelRateLimitResult {
 			handleErrorCalled = true
 			return nil
@@ -155,12 +152,12 @@ func TestAntigravityRetryLoop_NoURLFallback_UsesConfiguredBaseURL(t *testing.T) 
 	require.True(t, handleErrorCalled)
 	require.Len(t, upstream.calls, antigravityMaxRetries)
 	for _, callURL := range upstream.calls {
-		require.True(t, strings.HasPrefix(callURL, base1))
+		require.True(t, strings.HasPrefix(callURL, prod))
 	}
 
 	available := antigravity.DefaultURLAvailability.GetAvailableURLs()
 	require.NotEmpty(t, available)
-	require.Equal(t, base1, available[0])
+	require.Contains(t, available, prod)
 }
 
 // TestHandleUpstreamError_429_ModelRateLimit 测试 429 模型限流场景
@@ -877,7 +874,7 @@ func TestAntigravityRetryLoop_PreCheck_SwitchesWhenRateLimited(t *testing.T) {
 		Concurrency: 1,
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
-				"claude-sonnet-4-5": map[string]any{
+				"claude-sonnet-4-6": map[string]any{
 					"rate_limit_reset_at": time.Now().Add(2 * time.Second).Format(time.RFC3339),
 				},
 			},
@@ -892,7 +889,7 @@ func TestAntigravityRetryLoop_PreCheck_SwitchesWhenRateLimited(t *testing.T) {
 		accessToken:     "token",
 		action:          "generateContent",
 		body:            []byte(`{"input":"test"}`),
-		requestedModel:  "claude-sonnet-4-5",
+		requestedModel:  "claude-sonnet-4-6",
 		httpUpstream:    upstream,
 		isStickySession: true,
 		handleError: func(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, requestedModel string, groupID int64, sessionHash string, isStickySession bool) *handleModelRateLimitResult {
@@ -904,7 +901,7 @@ func TestAntigravityRetryLoop_PreCheck_SwitchesWhenRateLimited(t *testing.T) {
 	var switchErr *AntigravityAccountSwitchError
 	require.ErrorAs(t, err, &switchErr)
 	require.Equal(t, account.ID, switchErr.OriginalAccountID)
-	require.Equal(t, "claude-sonnet-4-5", switchErr.RateLimitedModel)
+	require.Equal(t, "claude-sonnet-4-6", switchErr.RateLimitedModel)
 	require.True(t, switchErr.IsStickySession)
 	require.Equal(t, 0, upstream.calls, "should not call upstream when switching on pre-check")
 }
@@ -920,7 +917,7 @@ func TestAntigravityRetryLoop_PreCheck_SwitchesWhenRemainingLong(t *testing.T) {
 		Concurrency: 1,
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
-				"claude-sonnet-4-5": map[string]any{
+				"claude-sonnet-4-6": map[string]any{
 					"rate_limit_reset_at": time.Now().Add(11 * time.Second).Format(time.RFC3339),
 				},
 			},
@@ -935,7 +932,7 @@ func TestAntigravityRetryLoop_PreCheck_SwitchesWhenRemainingLong(t *testing.T) {
 		accessToken:     "token",
 		action:          "generateContent",
 		body:            []byte(`{"input":"test"}`),
-		requestedModel:  "claude-sonnet-4-5",
+		requestedModel:  "claude-sonnet-4-6",
 		httpUpstream:    upstream,
 		isStickySession: true,
 		handleError: func(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, requestedModel string, groupID int64, sessionHash string, isStickySession bool) *handleModelRateLimitResult {
@@ -947,7 +944,7 @@ func TestAntigravityRetryLoop_PreCheck_SwitchesWhenRemainingLong(t *testing.T) {
 	var switchErr *AntigravityAccountSwitchError
 	require.ErrorAs(t, err, &switchErr)
 	require.Equal(t, account.ID, switchErr.OriginalAccountID)
-	require.Equal(t, "claude-sonnet-4-5", switchErr.RateLimitedModel)
+	require.Equal(t, "claude-sonnet-4-6", switchErr.RateLimitedModel)
 	require.True(t, switchErr.IsStickySession)
 	require.Equal(t, 0, upstream.calls, "should not call upstream when switching on pre-check")
 }
@@ -1009,54 +1006,17 @@ func TestIsAntigravityAccountSwitchError(t *testing.T) {
 	}
 }
 
-func TestResolveAntigravityForwardBaseURL(t *testing.T) {
+func TestResolveAntigravityForwardBaseURL_IgnoresBaseURLsOrder(t *testing.T) {
+	t.Setenv(antigravityForwardBaseURLEnv, "")
+
 	oldBaseURLs := append([]string(nil), antigravity.BaseURLs...)
 	defer func() {
 		antigravity.BaseURLs = oldBaseURLs
 	}()
 
-	prodURL := "https://prod.test"
-	dailyURL := "https://daily.test"
-	antigravity.BaseURLs = []string{prodURL, dailyURL}
-
-	tests := []struct {
-		name    string
-		env     string
-		account *Account
-		want    string
-	}{
-		{
-			name: "pro defaults to daily", account: &Account{Credentials: map[string]any{"plan_type": " Pro "}},
-			want: dailyURL,
-		},
-		{
-			name: "ultra defaults to daily", account: &Account{Credentials: map[string]any{"plan_type": "ULTRA"}},
-			want: dailyURL,
-		},
-		{name: "free defaults to prod", account: &Account{Credentials: map[string]any{"plan_type": "free"}}, want: prodURL},
-		{name: "abnormal defaults to prod", account: &Account{Credentials: map[string]any{"plan_type": "Abnormal"}}, want: prodURL},
-		{name: "unknown defaults to prod", account: &Account{Credentials: map[string]any{"plan_type": "enterprise"}}, want: prodURL},
-		{name: "malformed defaults to prod", account: &Account{Credentials: map[string]any{"plan_type": map[string]any{"name": "pro"}}}, want: prodURL},
-		{name: "missing defaults to prod", account: &Account{Credentials: map[string]any{}}, want: prodURL},
-		{name: "nil account defaults to prod", account: nil, want: prodURL},
-		{
-			name: "daily override wins for free tier", env: " daily ",
-			account: &Account{Credentials: map[string]any{"plan_type": "free"}},
-			want:    dailyURL,
-		},
-		{
-			name: "prod override wins for paid tier", env: " PROD ",
-			account: &Account{Credentials: map[string]any{"plan_type": "pro"}},
-			want:    prodURL,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(antigravityForwardBaseURLEnv, tt.env)
-			require.Equal(t, tt.want, resolveAntigravityForwardBaseURL(tt.account))
-		})
-	}
+	antigravity.BaseURLs = []string{"https://daily.test", "https://prod.test"}
+	require.Equal(t, antigravity.ProdBaseURL(), resolveAntigravityForwardBaseURL(nil),
+		"打乱 BaseURLs 顺序不得把默认可调度端点改成 daily")
 }
 
 func TestAntigravityAccountSwitchError_Error(t *testing.T) {

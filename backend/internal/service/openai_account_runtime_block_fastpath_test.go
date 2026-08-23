@@ -83,9 +83,9 @@ func TestOpenAIStream429IgnoresSuccessfulQuotaSnapshotHeaders(t *testing.T) {
 	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
 	value, ok := svc.openaiAccountRuntimeBlockUntil.Load(account.ID)
 	require.True(t, ok)
-	blockedUntil, ok := value.(time.Time)
+	blockedUntil, ok := loadOpenAIAccountRuntimeBlockEntry(value)
 	require.True(t, ok)
-	require.Less(t, time.Until(blockedUntil), time.Minute, "stream 429 must not inherit the normal seven-day quota snapshot")
+	require.Less(t, time.Until(blockedUntil.Until), time.Minute, "stream 429 must not inherit the normal seven-day quota snapshot")
 	if !repo.lastRateLimitedUntil.IsZero() {
 		require.Less(t, time.Until(repo.lastRateLimitedUntil), time.Minute)
 	}
@@ -104,9 +104,9 @@ func TestOpenAIHTTP429StillUsesQuotaResetHeaders(t *testing.T) {
 
 	value, ok := svc.openaiAccountRuntimeBlockUntil.Load(account.ID)
 	require.True(t, ok)
-	blockedUntil, ok := value.(time.Time)
+	blockedUntil, ok := loadOpenAIAccountRuntimeBlockEntry(value)
 	require.True(t, ok)
-	require.Greater(t, time.Until(blockedUntil), 6*24*time.Hour, "real HTTP 429 must retain the upstream quota reset")
+	require.Greater(t, time.Until(blockedUntil.Until), 6*24*time.Hour, "real HTTP 429 must retain the upstream quota reset")
 }
 
 func TestOpenAI429RetryDelayHonorsBoundedRetryAfter(t *testing.T) {
@@ -471,9 +471,9 @@ func TestOpenAIRuntimeBlock_DoesNotShortenExistingBlock(t *testing.T) {
 
 	value, ok := svc.openaiAccountRuntimeBlockUntil.Load(account.ID)
 	require.True(t, ok)
-	actualUntil, ok := value.(time.Time)
+	actualUntil, ok := loadOpenAIAccountRuntimeBlockEntry(value)
 	require.True(t, ok)
-	require.WithinDuration(t, longUntil, actualUntil, time.Second)
+	require.WithinDuration(t, longUntil, actualUntil.Until, time.Second)
 }
 
 func TestOpenAIRuntimeBlock_ClearAccountSchedulingBlock(t *testing.T) {

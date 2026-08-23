@@ -11,48 +11,63 @@ import (
 )
 
 var codexModelMap = map[string]string{
-	"gpt-5.6-sol":          "gpt-5.6-sol",
-	"gpt-5.6-terra":        "gpt-5.6-terra",
-	"gpt-5.6-luna":         "gpt-5.6-luna",
-	"gpt-5.5":              "gpt-5.5",
-	"gpt-5.5-pro":          "gpt-5.5-pro",
-	"codex-auto-review":    "codex-auto-review",
-	"gpt-5.4":              "gpt-5.4",
-	"gpt-5.4-mini":         "gpt-5.4-mini",
-	"gpt-5.4-none":         "gpt-5.4",
-	"gpt-5.4-low":          "gpt-5.4",
-	"gpt-5.4-medium":       "gpt-5.4",
-	"gpt-5.4-high":         "gpt-5.4",
-	"gpt-5.4-xhigh":        "gpt-5.4",
-	"gpt-5.4-chat-latest":  "gpt-5.4",
-	"gpt-5.3":              "gpt-5.3-codex",
-	"gpt-5.3-none":         "gpt-5.3-codex",
-	"gpt-5.3-low":          "gpt-5.3-codex",
-	"gpt-5.3-medium":       "gpt-5.3-codex",
-	"gpt-5.3-high":         "gpt-5.3-codex",
-	"gpt-5.3-xhigh":        "gpt-5.3-codex",
-	"gpt-5.3-codex":        "gpt-5.3-codex",
-	"gpt-5.3-codex-spark":  "gpt-5.3-codex-spark",
-	"gpt-5.3-codex-low":    "gpt-5.3-codex",
-	"gpt-5.3-codex-medium": "gpt-5.3-codex",
-	"gpt-5.3-codex-high":   "gpt-5.3-codex",
-	"gpt-5.3-codex-xhigh":  "gpt-5.3-codex",
-	"gpt-5.2":              "gpt-5.2",
-	"gpt-5.2-none":         "gpt-5.2",
-	"gpt-5.2-low":          "gpt-5.2",
-	"gpt-5.2-medium":       "gpt-5.2",
-	"gpt-5.2-high":         "gpt-5.2",
-	"gpt-5.2-xhigh":        "gpt-5.2",
-	"gpt-5":                "gpt-5.4",
-	"gpt-5-mini":           "gpt-5.4",
-	"gpt-5-nano":           "gpt-5.4",
-	"gpt-5.1":              "gpt-5.4",
-	"gpt-5.1-codex":        "gpt-5.3-codex",
-	"gpt-5.1-codex-max":    "gpt-5.3-codex",
-	"gpt-5.1-codex-mini":   "gpt-5.3-codex",
-	"gpt-5.2-codex":        "gpt-5.2",
-	"codex-mini-latest":    "gpt-5.3-codex",
-	"gpt-5-codex":          "gpt-5.3-codex",
+	"gpt-5.6":                    "gpt-5.6-sol",
+	"gpt-5.6-sol":                "gpt-5.6-sol",
+	"gpt-5.6-terra":              "gpt-5.6-terra",
+	"gpt-5.6-luna":               "gpt-5.6-luna",
+	"gpt-5.6-chat-latest":        "gpt-5.6-chat-latest",
+	"gpt-5.5":                    "gpt-5.5",
+	"gpt-5.5-pro":                "gpt-5.5",
+	"codex-auto-review":          "codex-auto-review",
+	"gpt-5.4":                    "gpt-5.4",
+	"gpt-5.4-mini":               "gpt-5.4-mini",
+	"gpt-5.4-none":               "gpt-5.4",
+	"gpt-5.4-low":                "gpt-5.4",
+	"gpt-5.4-medium":             "gpt-5.4",
+	"gpt-5.4-high":               "gpt-5.4",
+	"gpt-5.4-xhigh":              "gpt-5.4",
+	"gpt-5.4-chat-latest":        "gpt-5.4",
+	"gpt-5.3":                    "gpt-5.3-codex-spark",
+	"gpt-5.3-none":               "gpt-5.3-codex-spark",
+	"gpt-5.3-low":                "gpt-5.3-codex-spark",
+	"gpt-5.3-medium":             "gpt-5.3-codex-spark",
+	"gpt-5.3-high":               "gpt-5.3-codex-spark",
+	"gpt-5.3-xhigh":              "gpt-5.3-codex-spark",
+	"gpt-5.3-codex":              "gpt-5.3-codex-spark",
+	"gpt-5.3-codex-none":         "gpt-5.3-codex-spark",
+	"gpt-5.3-codex-low":          "gpt-5.3-codex-spark",
+	"gpt-5.3-codex-medium":       "gpt-5.3-codex-spark",
+	"gpt-5.3-codex-high":         "gpt-5.3-codex-spark",
+	"gpt-5.3-codex-xhigh":        "gpt-5.3-codex-spark",
+	"gpt-5.3-codex-spark":        "gpt-5.3-codex-spark",
+	"gpt-5.3-codex-spark-low":    "gpt-5.3-codex-spark",
+	"gpt-5.3-codex-spark-medium": "gpt-5.3-codex-spark",
+	"gpt-5.3-codex-spark-high":   "gpt-5.3-codex-spark",
+	"gpt-5.3-codex-spark-xhigh":  "gpt-5.3-codex-spark",
+	"gpt-5.2":                    "gpt-5.2",
+	"gpt-5.2-none":               "gpt-5.2",
+	"gpt-5.2-low":                "gpt-5.2",
+	"gpt-5.2-medium":             "gpt-5.2",
+	"gpt-5.2-high":               "gpt-5.2",
+	"gpt-5.2-xhigh":              "gpt-5.2",
+	"gpt-5":                      "gpt-5.5",
+	"gpt-5-chat":                 "gpt-5.5",
+	"gpt-5-chat-latest":          "gpt-5.5",
+	"gpt-5-codex":                "gpt-5.3-codex-spark",
+	"gpt-5-codex-none":           "gpt-5.3-codex-spark",
+	"gpt-5-codex-low":            "gpt-5.3-codex-spark",
+	"gpt-5-codex-medium":         "gpt-5.3-codex-spark",
+	"gpt-5-codex-high":           "gpt-5.3-codex-spark",
+	"gpt-5-codex-xhigh":          "gpt-5.3-codex-spark",
+	"gpt-5-mini":                 "gpt-5.4",
+	"gpt-5-nano":                 "gpt-5.4",
+	"gpt-5.1":                    "gpt-5.4",
+	"gpt-5.1-codex":              "gpt-5.3-codex-spark",
+	"gpt-5.1-codex-max":          "gpt-5.3-codex-spark",
+	"gpt-5.1-codex-mini":         "gpt-5.3-codex-spark",
+	"gpt-5.2-codex":              "gpt-5.2",
+	"codex-mini-latest":          "gpt-5.3-codex-spark",
+	"gpt-5.3-chat-latest":        "gpt-5.3-codex-spark",
 }
 
 var codexVersionModelPrefixes = []struct {
@@ -63,10 +78,16 @@ var codexVersionModelPrefixes = []struct {
 	{prefix: "gpt-5.6-terra", target: "gpt-5.6-terra"},
 	{prefix: "gpt-5.6-luna", target: "gpt-5.6-luna"},
 	{prefix: "gpt-5.3-codex-spark", target: "gpt-5.3-codex-spark"},
-	{prefix: "gpt-5.3-codex", target: "gpt-5.3-codex"},
+	{prefix: "gpt-5.3-codex", target: "gpt-5.3-codex-spark"},
+	{prefix: "gpt-5-codex", target: "gpt-5.3-codex-spark"},
 	{prefix: "gpt-5.4-mini", target: "gpt-5.4-mini"},
 	{prefix: "gpt-5.4-nano", target: "gpt-5.4-nano"},
-	{prefix: "gpt-5.5-pro", target: "gpt-5.5-pro"},
+	{prefix: "gpt-5.6-luna", target: "gpt-5.6-luna"},
+	{prefix: "gpt-5.6-terra", target: "gpt-5.6-terra"},
+	{prefix: "gpt-5.6-sol", target: "gpt-5.6-sol"},
+	{prefix: "gpt-5.6-chat-latest", target: "gpt-5.6-chat-latest"},
+	{prefix: "gpt-5.6", target: "gpt-5.6-sol"},
+	{prefix: "gpt-5.5-pro", target: "gpt-5.5"},
 	{prefix: "gpt-5.5", target: "gpt-5.5"},
 	{prefix: "gpt-5.4", target: "gpt-5.4"},
 	{prefix: "gpt-5.2", target: "gpt-5.2"},
@@ -225,8 +246,12 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 		}
 	}
 
-	// 请求带 reasoning 时补齐 include:["reasoning.encrypted_content"]，与真实 Codex 对齐
-	// （compact 端点形态不同，单独处理，此处跳过）。
+	// OAuth 出站一律打开 reasoning.summary=auto，才能拿到上游明文 summary；
+	// 同时 reasoning 非空后 complement include encrypted_content，供 QA 记录完整推理密文。
+	// compact 端点形态不同，单独处理，此处跳过。
+	if !opts.IsCompact && ensureCodexReasoningSummaryAuto(reqBody) {
+		result.Modified = true
+	}
 	if !opts.IsCompact && ensureCodexReasoningInclude(reqBody) {
 		result.Modified = true
 	}
@@ -1444,6 +1469,22 @@ func ensureCodexReasoningSummaryAuto(reqBody map[string]any) bool {
 	default:
 		return false
 	}
+}
+
+// ensureCodexReasoningContextAllTurns normalizes Responses Lite reasoning replay
+// to the Codex wire contract. Clients may send current_turn, but Lite upstream
+// expects all_turns when reasoning is present.
+func ensureCodexReasoningContextAllTurns(reqBody map[string]any) bool {
+	reasoning, ok := reqBody["reasoning"].(map[string]any)
+	if !ok || len(reasoning) == 0 {
+		return false
+	}
+	if strings.TrimSpace(firstNonEmptyString(reasoning["context"])) == "all_turns" {
+		return false
+	}
+	reasoning["context"] = "all_turns"
+	reqBody["reasoning"] = reasoning
+	return true
 }
 
 // ensureCodexReasoningInclude 在请求带 reasoning 时补齐 include:["reasoning.encrypted_content"]。

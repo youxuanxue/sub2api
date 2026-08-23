@@ -194,7 +194,11 @@ func openAIStreamEventIsTerminalWithType(data, eventType string) bool {
 
 func openAIStreamEventTypeIsTerminal(eventType string) bool {
 	switch strings.TrimSpace(eventType) {
-	case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled", "error":
+	case "response.completed", "response.done", "response.failed":
+		return true
+	case "response.incomplete", "response.cancelled", "response.canceled":
+		return true
+	case "error":
 		return true
 	default:
 		return false
@@ -411,6 +415,7 @@ var (
 	// 注意：前缀之间不应存在包含关系，否则会导致冗余匹配
 	claudeCodePromptPrefixes = []string{
 		"You are Claude Code, Anthropic's official CLI for Claude",             // 标准版 & Agent SDK 版（含 running within...）
+		"You are an interactive CLI tool that helps users",                     // Claude Code CLI 主系统提示词变体
 		"You are a Claude agent, built on Anthropic's Claude Agent SDK",        // Agent SDK 变体
 		"You are a file search specialist for Claude Code",                     // Explore Agent 版
 		"You are a helpful AI assistant tasked with summarizing conversations", // Compact 版

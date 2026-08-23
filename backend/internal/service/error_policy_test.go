@@ -504,10 +504,10 @@ func TestApplyErrorPolicy_GeminiRateLimitBypassesCustomSkip(t *testing.T) {
 
 type errorPolicyRepoStub struct {
 	mockAccountRepoForGemini
-	tempCalls             int
-	setErrCalls           int
-	lastErrorMsg          string
-	modelRateLimitCalls   []rateLimitStubModelCall
+	tempCalls           int
+	setErrCalls         int
+	lastErrorMsg        string
+	modelRateLimitCalls []rateLimitStubModelCall
 }
 
 func (r *errorPolicyRepoStub) SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time, reason ...string) error {

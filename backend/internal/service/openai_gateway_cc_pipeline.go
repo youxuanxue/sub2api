@@ -132,13 +132,13 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 		respBody,
 		upstreamMsg,
 		shouldDisable,
-		!shouldDisable && account.IsPoolMode() && (account.IsPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody)),
+		!shouldDisable && tkOpenAICompatRetryableOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody, true),
 	)
 }
 
 // openAIChatCompletionsTargetURL 解析账号的（非 Grok）Chat Completions 上游端点。
 func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) (string, error) {
-	baseURL := account.GetOpenAIBaseURL()
+	baseURL := nativeOpenAIBaseURLForAccount(account)
 	if baseURL == "" {
 		baseURL = "https://api.openai.com"
 	}

@@ -943,14 +943,17 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_NoAvailableErrorReports
 		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
 	}
 
-	selection, decision, err := svc.SelectAccountWithScheduler(
+	selection, _, err := svc.SelectAccountWithScheduler(
 		ctx, &groupID, "", "", "gpt-5.4-mini", nil, OpenAIUpstreamTransportAny, false,
 	)
-	require.Error(t, err)
-	require.ErrorIs(t, err, ErrNoAvailableAccounts)
-	require.Nil(t, selection)
-	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
-	require.EqualError(t, err, "no available OpenAI accounts supporting model: gpt-5.4-mini (pool=1, filtered: quota_auto_pause_7d=1)")
+	// Auto-pause is retired in favor of window-sched; leftover 7d thresholds must not exclude.
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, int64(38101), selection.Account.ID)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
 }
 
 func TestOpenAIGatewayService_SelectAccountWithScheduler_NoAvailableErrorReportsModelNotSupported(t *testing.T) {
@@ -982,9 +985,9 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_NoAvailableErrorReports
 		ctx, &groupID, "", "", "grok-4.5", nil, OpenAIUpstreamTransportAny, false,
 	)
 	require.Error(t, err)
-	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.ErrorIs(t, err, ErrUnsupportedModel)
 	require.Nil(t, selection)
-	require.EqualError(t, err, "no available OpenAI accounts supporting model: grok-4.5 (pool=1, filtered: model_not_supported=1)")
+	require.Contains(t, err.Error(), "unsupported model: grok-4.5")
 }
 
 func TestOpenAIGatewayService_SelectAccountWithScheduler_NoAvailableErrorAggregatesReasonsDeterministically(t *testing.T) {
@@ -1035,11 +1038,14 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_NoAvailableErrorAggrega
 	selection, _, err := svc.SelectAccountWithScheduler(
 		ctx, &groupID, "", "", "gpt-5.4-mini", map[int64]struct{}{38123: {}}, OpenAIUpstreamTransportAny, false,
 	)
-	require.Error(t, err)
-	require.ErrorIs(t, err, ErrNoAvailableAccounts)
-	require.Nil(t, selection)
-	// Reasons are sorted lexicographically, so the message is deterministic.
-	require.EqualError(t, err, "no available OpenAI accounts supporting model: gpt-5.4-mini (pool=3, filtered: excluded=1 model_not_supported=1 quota_auto_pause_7d=1)")
+	// Auto-pause is retired; the 7d-threshold account remains eligible.
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, int64(38121), selection.Account.ID)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
 }
 
 func TestOpenAIGatewayService_SelectAccountWithScheduler_NoAvailableErrorReportsEmptyPool(t *testing.T) {
@@ -1061,7 +1067,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_NoAvailableErrorReports
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrNoAvailableAccounts)
 	require.Nil(t, selection)
-	require.EqualError(t, err, "no available OpenAI accounts supporting model: gpt-5.1 (pool=0)")
+	require.EqualError(t, err, "no available OpenAI accounts supporting model: gpt-5.4 (pool=0)")
 }
 
 func TestOpenAIGatewayService_SelectAccountWithScheduler_EnabledUsesAdvancedPreviousResponseRouting(t *testing.T) {
@@ -1645,7 +1651,8 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_AutoPauseBy5hT
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
 	require.NoError(t, err)
 	require.NotNil(t, account)
-	require.Equal(t, int64(35002), account.ID)
+	// Auto-pause is retired; 95% is below the shared 0.98 window guard, so priority wins.
+	require.Equal(t, int64(35001), account.ID)
 }
 
 func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_AllowsBelow5hThreshold(t *testing.T) {
@@ -1693,12 +1700,12 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_AutoPauseBy7dT
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
 	require.NoError(t, err)
 	require.NotNil(t, account)
-	require.Equal(t, int64(35202), account.ID)
+	require.Equal(t, int64(35201), account.ID)
 }
 
 func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_UnconfiguredThresholdKeepsLegacyBehavior(t *testing.T) {
 	ctx := context.Background()
-	primary := Account{ID: 35301, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, Extra: map[string]any{"codex_5h_used_percent": 99.0, "codex_7d_used_percent": 99.0}}
+	primary := Account{ID: 35301, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, Extra: map[string]any{"codex_5h_used_percent": 99.0, "codex_7d_used_percent": 99.0, "openai_window_guard_disabled": true}}
 	secondary := Account{ID: 35302, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
 	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
 
@@ -1710,6 +1717,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_UnconfiguredTh
 
 func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_UsesGlobalDefaultThreshold(t *testing.T) {
 	ctx := withOpenAIQuotaAutoPauseSettings(context.Background(), OpsOpenAIAccountQuotaAutoPauseSettings{DefaultThreshold5h: 0.95})
+	now := time.Now().Format(time.RFC3339)
 	primary := Account{
 		ID:          35401,
 		Platform:    PlatformOpenAI,
@@ -1719,7 +1727,8 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_UsesGlobalDefa
 		Concurrency: 1,
 		Priority:    0,
 		Extra: map[string]any{
-			"codex_5h_used_percent": 95.0,
+			"codex_5h_used_percent":  95.0,
+			"codex_usage_updated_at": now,
 		},
 	}
 	secondary := Account{ID: 35402, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
@@ -1728,7 +1737,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_UsesGlobalDefa
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
 	require.NoError(t, err)
 	require.NotNil(t, account)
-	require.Equal(t, int64(35402), account.ID)
+	require.Equal(t, int64(35401), account.ID)
 }
 
 // Regression: a per-account explicit-disable flag exempts the account from auto-pause
@@ -1748,8 +1757,9 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_PerAccountDisa
 		Concurrency: 1,
 		Priority:    0,
 		Extra: map[string]any{
-			"codex_5h_used_percent":  99.0,
-			"auto_pause_5h_disabled": true,
+			"codex_5h_used_percent":        99.0,
+			"auto_pause_5h_disabled":       true,
+			"openai_window_guard_disabled": true,
 		},
 	}
 	secondary := Account{ID: 35702, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
@@ -3133,8 +3143,8 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKExcludes
 			Concurrency: 1,
 			Priority:    0,
 			Extra: map[string]any{
-				"codex_5h_used_percent":   96.0,
-				"auto_pause_5h_threshold": 0.95,
+				"codex_5h_used_percent":  99.0,
+				"codex_usage_updated_at": time.Now().Format(time.RFC3339),
 			},
 		},
 		{

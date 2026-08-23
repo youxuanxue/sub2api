@@ -113,5 +113,3 @@ func filterOpenAICompatPoolMembers(accounts []Account, groupPlatform string) []A
 	}
 	return filtered
 }
-
-

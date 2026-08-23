@@ -11,11 +11,13 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -45,9 +47,16 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if account.IsAnthropicProtocol() || account.IsAdaptiveAPIProtocol() {
 		return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
 	}
-
-	// 固定 chat_completions 的 CN 账号，以及不支持 Responses 的其他 APIKey
-	// 账号，均将 Messages 转为 CC；固定 responses 的 CN 账号不受探针旧值覆盖。
+	if account.IsCNProvider() && account.GetAPIProtocol() == APIProtocolChatCompletions {
+		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+	}
+	// Tokensea OpenAI relay (#92): extra.openai_native_messages_supported can
+	// be a false-negative. The probe uses selectResponsesProbeModel (first
+	// mapping id, often GPT); live 2026-08-20 GPT /v1/messages timed out so
+	// extra.native_messages=false while extra.responses=true. Direct Claude
+	// /v1/messages is 200; Claude /v1/responses returns "not implemented".
+	// Route Claude here without waiting for the extra flag. GPT stays on
+	// Responses below.
 	if account.IsOpenAITokenseaRelay() && shouldForwardNativeAnthropicMessagesForModel(body) {
 		return s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)
 	}
@@ -58,7 +67,10 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
 
-	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+	// APIKey 账号 + 上游不支持 Responses API → 走 CC 直转（与
+	// ForwardAsChatCompletions 对称）。Tokensea/Cloudwise 在 extra.responses=true
+	// 时仍走 Responses，避免 GPT /v1/messages 被错误降级。
+	if account.Type == AccountTypeAPIKey && !account.IsCNProvider() && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
 		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
 
@@ -112,7 +124,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		compatPromptCacheInjected = promptCacheKey != ""
 	}
 	compatReplayTrimmed := false
+	compatReplayTrimmedByPolicy := false
 	compatReplayGuardEnabled := shouldAutoInjectPromptCacheKeyForCompat(upstreamModel)
+	compatCompactionPolicy := resolveOpenAICompatMessagesCompactionPolicy(account, apiKeyGroup(getAPIKeyFromContext(c)))
 	compatContinuationEnabled := openAICompatContinuationEnabled(account, upstreamModel)
 	previousResponseID := ""
 	if compatContinuationEnabled {
@@ -121,12 +135,17 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	compatContinuationDisabled := compatContinuationEnabled &&
 		s.isOpenAICompatSessionContinuationDisabled(ctx, c, account, promptCacheKey)
 	compatTurnState := ""
-	// ChatGPT/Codex credentials rely on session_id + x-codex-turn-state; trimming to a
-	// sliding 12-message window makes the cached prefix stall at system/tools.
-	// Keep full replay there so upstream prompt caching can grow turn by turn.
-	if compatReplayGuardEnabled && !account.IsOpenAIOAuth() && previousResponseID == "" && !compatContinuationDisabled {
-		compatReplayTrimmed = applyAnthropicCompatFullReplayGuard(&anthropicReq)
+	if compatReplayGuardEnabled && shouldEvaluateOpenAICompatMessagesCompactionForAccount(account, previousResponseID, compatContinuationDisabled) {
+		if shouldApplyOpenAICompatMessagesCompaction(compatCompactionPolicy, &anthropicReq) {
+			compatReplayTrimmed = applyOpenAICompatMessagesCompaction(account, &anthropicReq)
+			compatReplayTrimmedByPolicy = compatReplayTrimmed
+		}
 	}
+	SetOpenAICompatMessagesOpsContext(c, OpenAICompatMessagesOpsSnapshot{
+		PreviousResponseIDAttached: previousResponseID != "",
+		MessagesCompactionApplied:  compatReplayTrimmedByPolicy,
+		EstimatedInputTokens:       estimateAnthropicRequestInputTokens(&anthropicReq),
+	})
 
 	// 3. Convert Anthropic → Responses after compatibility-only replay guard.
 	responsesReq, err := apicompat.AnthropicToResponses(&anthropicReq)
@@ -150,9 +169,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 	if previousResponseID != "" {
 		responsesReq.PreviousResponseID = previousResponseID
-		trimAnthropicCompatResponsesInputToLatestTurn(responsesReq)
+		// Only trim for APIKey accounts: OpenAI Platform keeps full history in
+		// session state so only the new turn is needed. For OAuth (ChatGPT Codex),
+		// trimming strips the role=system item and breaks system-prompt delivery
+		// to the transform — keep full replay.
+		if openAICompatShouldTrimForContinuation(account) {
+			trimAnthropicCompatResponsesInputToLatestTurn(responsesReq)
+		}
 	}
-	if compatReplayGuardEnabled && !account.IsOpenAIOAuth() {
+	if compatReplayGuardEnabled && !account.IsOpenAIOAuthLike() {
 		appendOpenAICompatClaudeCodeTodoGuard(responsesReq)
 	}
 
@@ -176,6 +201,12 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			zap.Int("compat_messages_after_trim", len(anthropicReq.Messages)),
 		)
 	}
+	if compatReplayTrimmedByPolicy {
+		logFields = append(logFields,
+			zap.Bool("compat_messages_compaction_applied", true),
+			zap.Int("compat_messages_compaction_input_tokens_threshold", compatCompactionPolicy.inputTokenLimit),
+		)
+	}
 	if previousResponseID != "" {
 		logFields = append(logFields,
 			zap.Bool("compat_previous_response_id_attached", true),
@@ -187,13 +218,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 	logger.L().Debug("openai messages: model mapping applied", logFields...)
 
+	compactCandidate := openAICompatMessagesCompactCandidate(&anthropicReq)
+
 	// 4. Marshal Responses request body, then apply the ChatGPT/Codex transform.
 	responsesBody, err := json.Marshal(responsesReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal responses request: %w", err)
 	}
 
-	if account.UsesOpenAICodexProtocol() && account.Platform != PlatformGrok {
+	if account.IsOpenAIOAuthLike() && account.Platform != PlatformGrok {
 		var reqBody map[string]any
 		if err := json.Unmarshal(responsesBody, &reqBody); err != nil {
 			return nil, fmt.Errorf("unmarshal for codex transform: %w", err)
@@ -297,7 +330,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	grokCacheIdentity := ""
 	if account.Platform == PlatformGrok {
 		grokIntentBody := responsesBody
-		grokCacheIdentity = resolveGrokCacheIdentity(c, grokIntentBody, promptCacheKey, upstreamModel)
+		grokCacheIdentity = resolveGrokCacheIdentity(c, body, promptCacheKey, upstreamModel)
 		patchedBody, patchErr := patchGrokResponsesBody(grokIntentBody, upstreamModel)
 		if patchErr != nil {
 			return nil, patchErr
@@ -318,8 +351,32 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		return nil, fmt.Errorf("get access token: %w", err)
 	}
 
+	// Native-catalog Grok SKUs are provisioned on /v1/chat/completions; /v1/responses
+	// often returns opaque 400s. Skip the responses hop for SSOT / universal parity.
+	// Use the client-facing model id: mapped aliases like grok -> grok-4.6 still
+	// ride /v1/responses; only explicit catalog ids skip the hop.
+	if account.Platform == PlatformGrok && grokGroupServesNativeCatalogModel(normalizedModel) {
+		fallbackResult, fallbackErr := s.fallbackAnthropicToGrokChatCompletions(
+			ctx,
+			c,
+			account,
+			&anthropicReq,
+			clientStream,
+			originalModel,
+			billingModel,
+			upstreamModel,
+			token,
+			grokCacheIdentity,
+			startTime,
+		)
+		if fallbackResult != nil {
+			fallbackResult.CompactCandidate = compactCandidate
+		}
+		return fallbackResult, fallbackErr
+	}
+
 	// 6. Build upstream request
-	if account.UsesOpenAICodexProtocol() && account.Platform != PlatformGrok {
+	if account.IsOpenAIOAuthLike() && account.Platform != PlatformGrok {
 		// Messages 兼容桥即使 body 未带 todo-guard/prompt_cache_key 标记（如映射到非
 		// gpt-5/codex 模型），也必须让 buildUpstreamRequest 走 bridge 分支，以保留
 		// 既有 body/session/conversation 行为。身份头在 post-build 阶段统一恢复。
@@ -327,8 +384,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	var upstreamReq *http.Request
+	var grokTargetURL string
 	if account.Platform == PlatformGrok {
-		upstreamReq, err = buildGrokResponsesRequest(upstreamCtx, c, account, responsesBody, token, grokCacheIdentity, s.cfg, s.settingService)
+		var targetErr error
+		grokTargetURL, targetErr = s.resolveGrokResponsesUpstream(account)
+		if targetErr != nil {
+			releaseUpstreamCtx()
+			return nil, targetErr
+		}
+		upstreamReq, err = buildGrokResponsesRequestForAccount(upstreamCtx, c, account, grokTargetURL, responsesBody, token, grokCacheIdentity)
 	} else {
 		upstreamReq, err = s.buildUpstreamRequest(upstreamCtx, c, account, responsesBody, token, isStream, promptCacheKey, false)
 	}
@@ -346,27 +410,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			upstreamReq.Header.Set("conversation_id", isolatedSessionID)
 		}
 	}
-	if account.Type == AccountTypeOAuth && account.Platform != PlatformGrok {
+	if account.IsOpenAIOAuthLike() && account.Platform != PlatformGrok {
 		// Anthropic Messages compatibility uses the ChatGPT Codex SSE endpoint.
 		// Match upstream request shape: the SSE endpoint does not need the
 		// Responses experimental beta header. compatMessagesBridge paths also
 		// strip originator in openai_gateway_forward.go so enforceCodexIdentityHeaders
 		// does not re-inject it on the Anthropic bridge.
 		upstreamReq.Header.Del("OpenAI-Beta")
-		ensureCodexIdentityHeaders(upstreamReq.Header)
-		enforceCodexIdentityHeaders(upstreamReq.Header)
-		// Messages bridge is not a ChatGPT-internal Codex client. ensure/enforce
-		// would re-inject originator=codex-tui and the experimental beta header
-		// after forward.go stripped them.
-		upstreamReq.Header.Del("originator")
-		upstreamReq.Header.Del("OpenAI-Beta")
-		logger.L().Debug("openai messages: upstream identity restored",
-			zap.Int64("account_id", account.ID),
-			zap.String("upstream_model", upstreamModel),
-			zap.Bool("compat_identity_restored", true),
-		)
 	}
-	if account.IsOpenAIOAuth() && promptCacheKey != "" && strings.TrimSpace(c.GetHeader("conversation_id")) == "" {
+	if account.IsOpenAIOAuthLike() && promptCacheKey != "" && strings.TrimSpace(c.GetHeader("conversation_id")) == "" {
 		upstreamReq.Header.Del("conversation_id")
 	}
 	if compatTurnState != "" && upstreamReq.Header.Get("x-codex-turn-state") == "" {
@@ -388,7 +440,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 				break
 			}
 			upstreamCtxRetry, releaseRetry := detachUpstreamContext(ctx)
-			upstreamReq, err = buildGrokResponsesRequest(upstreamCtxRetry, c, account, responsesBody, token, grokCacheIdentity, s.cfg, s.settingService)
+			upstreamReq, err = buildGrokResponsesRequestForAccount(upstreamCtxRetry, c, account, grokTargetURL, responsesBody, token, grokCacheIdentity)
 			releaseRetry()
 			if err != nil {
 				return nil, fmt.Errorf("build grok retry request: %w", err)
@@ -442,16 +494,40 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			return s.ForwardAsAnthropic(markAgentIdentityTaskRecoveryTried(ctx), c, account, body, promptCacheKey, defaultMappedModel)
 		}
 		if previousResponseID != "" && (isOpenAICompatPreviousResponseNotFound(resp.StatusCode, upstreamMsg, respBody) || isOpenAICompatPreviousResponseUnsupported(resp.StatusCode, upstreamMsg, respBody)) {
-			if isOpenAICompatPreviousResponseUnsupported(resp.StatusCode, upstreamMsg, respBody) {
+			fallbackReason := "not_found"
+			continuationDisabledAfterFallback := false
+			continuationDisableReason := ""
+			previousResponseUnsupported := isOpenAICompatPreviousResponseUnsupported(resp.StatusCode, upstreamMsg, respBody)
+			if previousResponseUnsupported {
+				fallbackReason = "unsupported"
+				continuationDisableReason = "unsupported"
 				s.disableOpenAICompatSessionContinuation(ctx, c, account, promptCacheKey)
+				continuationDisabledAfterFallback = true
+			} else if openAICompatShouldDisableContinuationOnPreviousResponseNotFound(account) {
+				continuationDisableReason = "oauth_not_found_persistent"
+				s.disableOpenAICompatSessionContinuation(ctx, c, account, promptCacheKey)
+				continuationDisabledAfterFallback = true
 			} else {
 				s.deleteOpenAICompatSessionResponseID(ctx, c, account, promptCacheKey)
 			}
-			logger.L().Info("openai messages: previous_response_id unavailable, retrying without continuation",
+			logFields := []zap.Field{
 				zap.Int64("account_id", account.ID),
+				zap.String("account_type", account.Type),
 				zap.String("previous_response_id", truncateOpenAIWSLogValue(previousResponseID, openAIWSIDValueMaxLen)),
 				zap.String("upstream_model", upstreamModel),
-			)
+				zap.String("compat_previous_response_fallback_reason", fallbackReason),
+				zap.Bool("compat_turn_state_present", strings.TrimSpace(compatTurnState) != ""),
+				zap.Bool("compat_continuation_disabled_after_fallback", continuationDisabledAfterFallback),
+				zap.Bool("compat_previous_response_retry_without_continuation", true),
+				zap.Int("compat_retry_attempt", 1),
+			}
+			if continuationDisableReason != "" {
+				logFields = append(logFields, zap.String("compat_continuation_disable_reason", continuationDisableReason))
+			}
+			if promptCacheKey != "" {
+				logFields = append(logFields, zap.String("compat_prompt_cache_key_sha256", hashSensitiveValueForLog(promptCacheKey)))
+			}
+			logger.L().Info("openai messages: previous_response_id unavailable, retrying without continuation", logFields...)
 			return s.ForwardAsAnthropic(ctx, c, account, body, promptCacheKey, defaultMappedModel)
 		}
 		// Grok account-switched history often fails decrypt; strip encrypted
@@ -470,6 +546,30 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
+		if account.Platform == PlatformGrok && isGrokResponsesModelNotSupportedRetryable(resp.StatusCode, upstreamMsg, respBody) {
+			logger.L().Info("openai messages: grok responses model not supported, fallback to chat completions",
+				zap.Int64("account_id", account.ID),
+				zap.Int("upstream_status", resp.StatusCode),
+				zap.String("upstream_model", upstreamModel),
+			)
+			fallbackResult, fallbackErr := s.fallbackAnthropicToGrokChatCompletions(
+				ctx,
+				c,
+				account,
+				&anthropicReq,
+				clientStream,
+				originalModel,
+				billingModel,
+				upstreamModel,
+				token,
+				grokCacheIdentity,
+				startTime,
+			)
+			if fallbackResult != nil {
+				fallbackResult.CompactCandidate = compactCandidate
+			}
+			return fallbackResult, fallbackErr
+		}
 		// Non-failover error: return Anthropic-formatted error to client
 		return s.handleAnthropicErrorResponse(resp, c, account, billingModel)
 	}
@@ -477,7 +577,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		s.updateGrokUsageFromResponse(withGrokTeamRateLimitModel(ctx, upstreamModel), account, resp.Header, resp.StatusCode)
 	}
 
-	if account.IsOpenAIOAuth() && promptCacheKey != "" {
+	if account.IsOpenAIOAuthLike() && promptCacheKey != "" {
 		if turnState := strings.TrimSpace(resp.Header.Get("x-codex-turn-state")); turnState != "" {
 			s.bindOpenAICompatSessionTurnState(ctx, c, account, promptCacheKey, turnState)
 		}
@@ -492,6 +592,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	} else {
 		// Client wants JSON: buffer the streaming response and assemble a JSON reply.
 		result, handleErr = s.handleAnthropicBufferedStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime)
+	}
+	if result != nil {
+		result.CompactCandidate = compactCandidate
 	}
 
 	// cyber_policy：标记已设、error 已按 Anthropic 格式发给客户端。丢弃 result、返回哨兵，
@@ -583,8 +686,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	}
 
 	if finalResponse == nil {
-		writeAnthropicError(c, http.StatusBadGateway, "api_error", "Upstream stream ended without a terminal response event")
-		return nil, fmt.Errorf("upstream stream ended without terminal event")
+		return s.openAICompatBufferedMissingTerminalResult(c, account, requestID, acc, openAICompatBufferedRouteMessages)
 	}
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
@@ -610,25 +712,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 			writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", clientMsg)
 			return nil, fmt.Errorf("openai cyber_policy: %s", msg)
 		}
-		message := openAICompatFailedResponseMessage(finalResponse)
-		if openAIStreamFailedEventShouldFailover(payload, message) {
-			return nil, s.newOpenAIStreamFailoverError(c, account, false, requestID, payload, message, resp.Header)
-		}
-		message = s.recordOpenAIStreamUpstreamError(c, account, false, requestID, "http_error", payload, message)
-		// 统一走语义状态推断 + body 归一化（与 /v1/responses 路径一致），
-		// 使按错误码配置的透传规则可命中。
-		if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(
-			c, account.Platform, payload, message,
-		); matched {
-			if errMsg == "" {
-				errMsg = message
-			}
-			MarkResponseCommitted(c)
-			writeAnthropicError(c, status, errType, errMsg)
-			return nil, fmt.Errorf("upstream response failed (passthrough): %s", errMsg)
-		}
-		writeAnthropicError(c, http.StatusBadGateway, "api_error", message)
-		return nil, fmt.Errorf("upstream response failed: %s", message)
+		return s.openAICompatBufferedFailedResponseResult(c, account, requestID, finalResponse, openAICompatBufferedRouteMessages)
 	}
 	if strings.TrimSpace(finalResponse.Status) == "completed" {
 		logOpenAISuccessMissingUsage(c.Request.Context(), c, account, resp, &usage, "response.completed", false)
@@ -658,6 +742,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 		Stream:                        false,
 		Duration:                      time.Since(startTime),
+		ContentTextLen:                anthropicResponseContentTextLen(anthropicResp),
 	}
 	// Grok /v1/messages uses Responses upstream; count native search for surcharge.
 	if account != nil && account.IsGrok() && finalResponse != nil {
@@ -675,7 +760,7 @@ func isOpenAICompatResponsesTerminalEvent(eventType string) bool {
 	// TK: align with openAIStreamEventIsTerminal so cancelled/canceled close
 	// the streaming loop instead of falling through. See Wei-Shaw/sub2api#1322.
 	case "response.completed", "response.done", "response.incomplete", "response.failed",
-		"response.cancelled", "response.canceled", "error":
+		"response.cancelled", "response.canceled":
 		return true
 	default:
 		return false
@@ -920,6 +1005,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	state.Model = originalModel
 	var usage OpenAIUsage
 	responseID := ""
+	contentTextLen := 0
 	var firstTokenMs *int
 	firstChunk := true
 	clientDisconnected := false
@@ -965,6 +1051,9 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			Stream:                        true,
 			Duration:                      time.Since(startTime),
 			FirstTokenMs:                  firstTokenMs,
+			StopReason:                    state.StopReason,
+			IncompleteReason:              state.IncompleteReason,
+			ContentTextLen:                contentTextLen,
 			ClientDisconnect:              clientDisconnected,
 		}
 		if searchCount > 0 {
@@ -994,6 +1083,14 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			return false
 		}
 		observer.ObserveOpenAI([]byte(payload), event.Type)
+		observeOpenAIResponsesEvent(c, []byte(payload))
+
+		switch event.Type {
+		case "response.output_text.delta", "response.reasoning_summary_text.delta":
+			if event.Delta != "" {
+				contentTextLen += utf8.RuneCountInString(event.Delta)
+			}
+		}
 		s.parseSSEUsageBytesWithType([]byte(payload), event.Type, &usage)
 
 		eventType := strings.TrimSpace(event.Type)
@@ -1359,4 +1456,142 @@ func copyOpenAIUsageFromResponsesUsage(usage *apicompat.ResponsesUsage) OpenAIUs
 		result.CacheReadInputTokens = usage.InputTokensDetails.CachedTokens
 	}
 	return result
+}
+
+func isGrokResponsesModelNotSupportedRetryable(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	if statusCode != http.StatusBadRequest && statusCode != http.StatusNotFound && statusCode != http.StatusUnprocessableEntity {
+		return false
+	}
+	check := func(message string) bool {
+		lower := strings.ToLower(strings.TrimSpace(message))
+		if lower == "" {
+			return false
+		}
+		if strings.Contains(lower, "model_not_supported") || strings.Contains(lower, "unsupported_model") {
+			return true
+		}
+		if strings.Contains(lower, "model") && (strings.Contains(lower, "not supported") || strings.Contains(lower, "unsupported")) {
+			return true
+		}
+		if strings.Contains(lower, "responses") && strings.Contains(lower, "not support") {
+			return true
+		}
+		return false
+	}
+	if check(upstreamMsg) || check(string(upstreamBody)) {
+		return true
+	}
+	return check(gjson.GetBytes(upstreamBody, "error.code").String()) ||
+		check(gjson.GetBytes(upstreamBody, "error.message").String())
+}
+
+func (s *OpenAIGatewayService) fallbackAnthropicToGrokChatCompletions(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	anthropicReq *apicompat.AnthropicRequest,
+	clientStream bool,
+	originalModel string,
+	billingModel string,
+	upstreamModel string,
+	token string,
+	grokCacheIdentity string,
+	startTime time.Time,
+) (*OpenAIForwardResult, error) {
+	chatBody, err := anthropicToChatCompletionsBody(anthropicReq, upstreamModel)
+	if err != nil {
+		return nil, fmt.Errorf("fallback convert anthropic to chat completions: %w", err)
+	}
+	if strippedBody, stripErr := stripRedundantGrokChatViewImageTool(chatBody); stripErr != nil {
+		return nil, fmt.Errorf("fallback strip redundant Grok Chat view_image tool: %w", stripErr)
+	} else {
+		chatBody = strippedBody
+	}
+	targetURL, err := s.resolveGrokChatCompletionsUpstream(account)
+	if err != nil {
+		return nil, err
+	}
+	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+	upstreamReq, err := buildGrokChatCompletionsRequest(upstreamCtx, c, targetURL, chatBody, token)
+	releaseUpstreamCtx()
+	if err != nil {
+		return nil, fmt.Errorf("fallback build grok chat completions request: %w", err)
+	}
+	applyGrokCacheHeaders(upstreamReq.Header, grokCacheIdentity)
+
+	proxyURL := ""
+	if account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	if err != nil {
+		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	s.updateGrokUsageSnapshot(ctx, account, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
+	if resp.StatusCode >= 400 {
+		respBody := s.readUpstreamErrorBody(resp)
+		resp.Body = io.NopCloser(bytes.NewReader(respBody))
+		return s.handleAnthropicErrorResponse(resp, c, account, billingModel)
+	}
+
+	upstreamBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("fallback read grok chat completions body: %w", err)
+	}
+
+	buf := bytes.NewBuffer(upstreamBody)
+	if clientStream {
+		return convertBufferedChatCompletionsToAnthropicSSE(c, buf, originalModel, billingModel, upstreamModel, startTime)
+	}
+	return convertBufferedChatCompletionsToAnthropicJSON(c, buf, originalModel, billingModel, upstreamModel, startTime)
+}
+
+func (s *OpenAIGatewayService) resolveGrokChatCompletionsUpstream(account *Account) (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("openai gateway service is nil")
+	}
+	if account == nil {
+		return "", fmt.Errorf("grok chat completions: account is nil")
+	}
+	switch {
+	case account.IsGrokOAuth():
+		return buildOpenAIChatCompletionsURL(account.GetGrokBaseURL()), nil
+	case account.IsGrokAPIKey():
+		baseURL := account.GetOpenAIBaseURL()
+		if strings.TrimSpace(baseURL) == "" {
+			return "", fmt.Errorf("grok relay account %d missing base_url", account.ID)
+		}
+		validatedURL, err := s.validateUpstreamBaseURLForAccount(account, baseURL)
+		if err != nil {
+			return "", err
+		}
+		return buildOpenAIChatCompletionsURL(validatedURL), nil
+	default:
+		return "", fmt.Errorf("grok account type %s is not supported for chat completions fallback", account.Type)
+	}
+}
+
+func buildGrokChatCompletionsRequest(ctx context.Context, c *gin.Context, targetURL string, body []byte, token string) (*http.Request, error) {
+	if strings.TrimSpace(targetURL) == "" {
+		return nil, fmt.Errorf("grok chat completions target URL is empty")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	if c != nil {
+		if v := strings.TrimSpace(c.GetHeader("User-Agent")); v != "" {
+			req.Header.Set("User-Agent", v)
+		}
+		if v := strings.TrimSpace(c.GetHeader("OpenAI-Beta")); v != "" {
+			req.Header.Set("OpenAI-Beta", v)
+		}
+	}
+	applyGrokCLIHeaders(req.Header)
+	return req, nil
 }

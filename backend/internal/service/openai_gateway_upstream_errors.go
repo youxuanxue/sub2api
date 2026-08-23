@@ -281,6 +281,35 @@ func shouldFailoverOpenAIUpstreamError(statusCode int, upstreamMsg string, upstr
 	return shouldFailoverOpenAIUpstreamStatus(statusCode)
 }
 
+func isOpenAINonRetryableClientError(upstreamMsg string, upstreamBody []byte) bool {
+	code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "response.error.code").String()))
+	if code == "" {
+		code = strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "error.code").String()))
+	}
+	errType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "response.error.type").String()))
+	if errType == "" {
+		errType = strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "error.type").String()))
+	}
+	combined := strings.ToLower(strings.TrimSpace(upstreamMsg + " " + code + " " + errType))
+	if combined == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"invalid_request",
+		"content_policy",
+		"policy",
+		"safety",
+		"high-risk cyber",
+		"not allowed",
+		"violat",
+	} {
+		if strings.Contains(combined, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
 	// cyber_policy is request-scoped even when an intermediary wraps the
 	// provider response in a retryable 5xx status. Never punish or rotate the
@@ -289,6 +318,9 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 		return false
 	}
 	if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
+		return false
+	}
+	if tkIsCapabilityScope401(statusCode, upstreamBody) {
 		return false
 	}
 	if isOpenAIHTTPUpstreamAccessStateError(statusCode, upstreamMsg, upstreamBody) {

@@ -103,13 +103,10 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	if statusCode == http.StatusTooManyRequests {
 		s.noteOpenAIOAuth429ForScheduling(stateCtx, account, headers, responseBody, canonicalModel...)
 	}
-	if s.rateLimitService == nil {
-		return false
-	}
 	// Isolate a custom temporary-unschedulable match to the known upstream
 	// model before entering the generic account error path. This keeps the
 	// account available to other models and avoids the account runtime blocker.
-	if statusCode != http.StatusUnauthorized && len(canonicalModel) > 0 && strings.TrimSpace(canonicalModel[0]) != "" &&
+	if s.rateLimitService != nil && statusCode != http.StatusUnauthorized && len(canonicalModel) > 0 && strings.TrimSpace(canonicalModel[0]) != "" &&
 		s.rateLimitService.HandleTempUnschedulable(stateCtx, account, statusCode, responseBody, canonicalModel[0]) {
 		return true
 	}
@@ -121,9 +118,14 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		if upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(responseBody)); upstreamMsg != "" {
 			message = upstreamMsg
 		}
-		s.rateLimitService.handleAuthError(stateCtx, account, message)
+		if s.rateLimitService != nil {
+			s.rateLimitService.handleAuthError(stateCtx, account, message)
+		}
 		s.BlockAccountScheduling(account, time.Time{}, "openai_access_state")
 		return true
+	}
+	if s.rateLimitService == nil {
+		return false
 	}
 	shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody, canonicalModel...)
 	modelTempMatched := statusCode != http.StatusUnauthorized && tempUnschedulableModel(stateCtx, nil) != "" &&
@@ -184,16 +186,15 @@ func (s *OpenAIGatewayService) noteOpenAIOAuth429ForScheduling(ctx context.Conte
 	}
 	s.recordOpenAIOAuth429()
 	if s.rateLimitService != nil {
-		_ = s.openAIOAuth429RetryWindowActive(account)
 		return
 	}
-	s.BlockAccountScheduling(account, time.Now().Add(openAIOAuth429FallbackCooldown), "429")
+	s.openAIOAuth429RetryWindowActive(account)
 	_ = ctx
 }
 
 func (s *OpenAIGatewayService) markOpenAIOAuth429RateLimited(ctx context.Context, account *Account, headers http.Header, responseBody []byte) {
 	s.noteOpenAIOAuth429ForScheduling(ctx, account, headers, responseBody)
-	if s == nil || !isOpenAIOAuthAccount(account) || account.IsShadow() || s.rateLimitService != nil {
+	if s == nil || !isOpenAIOAuthAccount(account) || account.IsShadow() {
 		return
 	}
 	if s.openAIOAuth429RetryWindowActive(account) {
@@ -201,7 +202,9 @@ func (s *OpenAIGatewayService) markOpenAIOAuth429RateLimited(ctx context.Context
 	}
 
 	cooldownUntil := time.Now().Add(openAIOAuth429FallbackCooldown)
-	if s.rateLimitService != nil {
+	if resetAt := openAIOAuth429HTTPQuotaParkingResetTime(headers); resetAt != nil && resetAt.After(time.Now()) {
+		cooldownUntil = *resetAt
+	} else if s.rateLimitService != nil {
 		if resetAt := s.rateLimitService.calculateOpenAI429ResetTime(headers); resetAt != nil && resetAt.After(time.Now()) {
 			cooldownUntil = *resetAt
 		} else if resetUnix := parseOpenAIRateLimitResetTime(responseBody); resetUnix != nil {
@@ -241,6 +244,35 @@ func (s *OpenAIGatewayService) ShouldRetryOpenAIOAuth429(account *Account, heade
 		return false
 	}
 	return s.openAIOAuth429RetryWindowActive(account)
+}
+
+// openAIOAuth429HTTPQuotaParkingResetTime keeps authoritative Codex quota reset
+// windows on real HTTP 429 parking even when the snapshot is below the exhausted
+// threshold (burst inside a long window).
+func openAIOAuth429HTTPQuotaParkingResetTime(headers http.Header) *time.Time {
+	if resetAt := calculateOpenAI429ResetTime(headers); resetAt != nil {
+		return resetAt
+	}
+	snapshot := ParseCodexRateLimitHeaders(headers)
+	if snapshot == nil {
+		return nil
+	}
+	normalized := snapshot.Normalize()
+	if normalized == nil {
+		return nil
+	}
+	now := time.Now()
+	if normalized.Reset7dSeconds != nil && *normalized.Reset7dSeconds > 0 &&
+		codexNormalizedWindowActive(normalized.Window7dMinutes) {
+		resetAt := now.Add(time.Duration(*normalized.Reset7dSeconds) * time.Second)
+		return &resetAt
+	}
+	if normalized.Reset5hSeconds != nil && *normalized.Reset5hSeconds > 0 &&
+		codexNormalizedWindowActive(normalized.Window5hMinutes) {
+		resetAt := now.Add(time.Duration(*normalized.Reset5hSeconds) * time.Second)
+		return &resetAt
+	}
+	return nil
 }
 
 func (s *OpenAIGatewayService) openAIOAuth429RetryWindowActive(account *Account) bool {

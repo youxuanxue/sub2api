@@ -204,9 +204,6 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	if requestID == "" {
 		requestID = resp.Header.Get("x-goog-request-id")
 	}
-	if requestID != "" {
-		c.Header("x-request-id", requestID)
-	}
 
 	reasoningEffort := extractCCReasoningEffortFromBody(originalChatBody, mappedModel)
 	// 国产模型默认 effort 补充（本路径上游是 Gemini，不会命中 passback-required）。
@@ -250,6 +247,10 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 			})
 		}
 		return nil, s.writeGeminiChatCompletionsMappedError(c, account, resp.StatusCode, requestID, evBody)
+	}
+
+	if requestID != "" {
+		c.Header("x-request-id", requestID)
 	}
 
 	var usage *ClaudeUsage
@@ -483,6 +484,11 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsNonStreamingResponseF
 	}
 
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	// Wei-Shaw/sub2api#1311: WriteFilteredHeaders may have propagated the
+	// upstream SSE Content-Type. gin's c.JSON only sets Content-Type when
+	// the header is empty, so without this explicit override the client
+	// would see JSON body labeled text/event-stream.
+	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	c.JSON(http.StatusOK, chatResp)
 	return usage, nil
 }

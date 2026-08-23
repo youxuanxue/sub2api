@@ -658,19 +658,6 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 		}
 	}
 	if len(result) > 0 {
-		if a.Platform == domain.PlatformAntigravity {
-			ensureAntigravityDefaultPassthroughs(result, []string{
-				"gemini-3-flash",
-				"gemini-3.1-pro-high",
-				"gemini-3.1-pro-low",
-				"gemini-3.6-flash",
-				"gemini-3.6-flash-high",
-				"gemini-3.6-flash-low",
-				"gemini-3.6-flash-medium",
-				"gemini-3.6-flash-tiered",
-			})
-			applyAntigravityGemini31ProAliases(result)
-		}
 		return result
 	}
 
@@ -796,6 +783,17 @@ func normalizeRequestedModelForLookup(platform, requestedModel string) string {
 	trimmed := strings.TrimSpace(requestedModel)
 	if trimmed == "" {
 		return ""
+	}
+	if IsOpenAICompatPlatform(platform) {
+		if canonical := canonicalizeOpenAIModelAliasSpelling(trimmed); canonical != "" {
+			if alias := resolveOpenAICompatRoutingAlias(canonical); alias != "" {
+				return alias
+			}
+			return canonical
+		}
+	}
+	if canonical := normalizeGLMVolcengineDatedModelID(trimmed); canonical != "" {
+		return canonical
 	}
 	if platform != PlatformGemini && platform != PlatformAntigravity {
 		return trimmed
@@ -1219,11 +1217,14 @@ func (a *Account) GetPoolModeRetryStatusCodes() []int {
 }
 
 // IsPoolModeRetryableStatus 在账号上下文中判断给定状态码是否应触发同账号重试。
-// 若账号未配置 pool_mode_retry_status_codes，则回退到默认列表。
+// 若账号未配置 pool_mode_retry_status_codes，则回退到 TK 默认列表
+// （tkDefaultPoolModeRetryableStatusCodes = {401,403,429,503,529}，见
+// account_tk_pool_retry.go；在 upstream {401,403,429} 上追加转发 stub 需要的
+// 503/529）。显式配置仍然优先覆盖（显式空列表可关闭全部）。
 func (a *Account) IsPoolModeRetryableStatus(statusCode int) bool {
 	codes := a.GetPoolModeRetryStatusCodes()
 	if codes == nil {
-		return isPoolModeRetryableStatus(statusCode)
+		return tkIsPoolModeRetryableStatus(statusCode)
 	}
 	for _, c := range codes {
 		if c == statusCode {
@@ -1765,7 +1766,7 @@ func (a *Account) GetOpenAIIDToken() string {
 }
 
 func (a *Account) GetOpenAIApiKey() string {
-	if !a.IsOpenAIApiKey() {
+	if a == nil || (!a.IsOpenAIApiKey() && !a.IsGrokAPIKey()) {
 		return ""
 	}
 	return a.GetCredential("api_key")
@@ -1779,10 +1780,7 @@ func (a *Account) GetOpenAIProtocolAPIKey() string {
 	if a == nil {
 		return ""
 	}
-	if a.IsCNProvider() {
-		if a.Type != AccountTypeAPIKey {
-			return ""
-		}
+	if a.Type == AccountTypeAPIKey && (a.IsCNProvider() || a.Platform == PlatformNewAPI) {
 		return a.GetCredential("api_key")
 	}
 	return a.GetOpenAIApiKey()
@@ -2025,11 +2023,16 @@ func (a *Account) SupportsOpenAIImageCapability(capability OpenAIImagesCapabilit
 	if capability == "" {
 		return true
 	}
-	if !a.IsOpenAI() {
+	// openai / newapi / grok 走同一套 OpenAI 协议与 image 能力；用 compat-pool 平台
+	// 谓词作单一真值源（含 grok 第七平台），避免硬编码 openai||newapi 列表漏掉新平台。
+	if !IsOpenAICompatPlatform(a.Platform) {
 		return false
 	}
 	switch capability {
 	case OpenAIImagesCapabilityBasic, OpenAIImagesCapabilityNative:
+		if a.Platform == PlatformNewAPI && a.Type == AccountTypeServiceAccount {
+			return true
+		}
 		return a.Type == AccountTypeOAuth || a.Type == AccountTypeSetupToken || a.Type == AccountTypeAPIKey
 	default:
 		return true

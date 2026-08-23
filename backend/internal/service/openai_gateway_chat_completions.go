@@ -147,7 +147,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 
 	promptCacheKey = strings.TrimSpace(promptCacheKey)
 	compatPromptCacheInjected := false
-	if promptCacheKey == "" && account.IsOpenAIOAuth() && shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
+	if promptCacheKey == "" && account.IsOpenAIOAuthLike() && shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
 		promptCacheKey = deriveCompatPromptCacheKey(&chatReq, upstreamModel)
 		compatPromptCacheInjected = promptCacheKey != ""
 	}
@@ -228,7 +228,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	}
 	logger.L().Debug("openai chat_completions: model mapping applied", logFields...)
 
-	if account.IsOpenAIOAuth() {
+	if account.IsOpenAIOAuthLike() {
 		var reqBody map[string]any
 		if err := json.Unmarshal(responsesBody, &reqBody); err != nil {
 			return nil, fmt.Errorf("unmarshal for codex transform: %w", err)
@@ -461,8 +461,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	}
 
 	if finalResponse == nil {
-		writeChatCompletionsError(c, http.StatusBadGateway, "api_error", "Upstream stream ended without a terminal response event")
-		return nil, fmt.Errorf("upstream stream ended without terminal event")
+		return s.openAICompatBufferedMissingTerminalResult(c, account, requestID, acc, openAICompatBufferedRouteChat)
 	}
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
@@ -489,25 +488,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", clientMsg)
 			return nil, fmt.Errorf("openai cyber_policy: %s", msg)
 		}
-		message := openAICompatFailedResponseMessage(finalResponse)
-		if openAIStreamFailedEventShouldFailover(payload, message) {
-			return nil, s.newOpenAIStreamFailoverError(c, account, false, requestID, payload, message, resp.Header)
-		}
-		message = s.recordOpenAIStreamUpstreamError(c, account, false, requestID, "http_error", payload, message)
-		// response.failed 到达在 HTTP 200 SSE 流上，无真实 HTTP 错误码；统一走语义
-		// 状态推断 + body 归一化（与 /v1/responses 路径一致），使按错误码配置的规则可命中。
-		if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(
-			c, account.Platform, payload, message,
-		); matched {
-			if errMsg == "" {
-				errMsg = message
-			}
-			MarkResponseCommitted(c)
-			writeChatCompletionsError(c, status, errType, errMsg)
-			return nil, fmt.Errorf("upstream response failed (passthrough): %s", errMsg)
-		}
-		writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", message)
-		return nil, fmt.Errorf("upstream response failed: %s", message)
+		return s.openAICompatBufferedFailedResponseResult(c, account, requestID, finalResponse, openAICompatBufferedRouteChat)
 	}
 	if strings.TrimSpace(finalResponse.Status) == "completed" {
 		logOpenAISuccessMissingUsage(c.Request.Context(), c, account, resp, &usage, "response.completed", false)

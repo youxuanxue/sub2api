@@ -1943,7 +1943,10 @@ func (s *OpenAIGatewayService) handleGrokAccountUpstreamError(ctx context.Contex
 	// Capacity 429 is model pressure, not account quota exhaustion. Keep the
 	// snapshot for observability but do not install account-level rate limiting;
 	// the failover decision below applies a bounded model-scoped block instead.
-	s.updateGrokUsageSnapshotWithRateLimit(ctx, account, snapshot, decision.Class != GrokFailureModelCapacity)
+	// Headerless 429 stays on the TokenKey temp-unschedule path instead of a
+	// durable rate-limit window invented from the fallback cooldown.
+	installRateLimit := decision.Class != GrokFailureModelCapacity && !grok429ShouldUseTKTempUnscheduleFallback(snapshot)
+	s.updateGrokUsageSnapshotWithRateLimit(ctx, account, snapshot, installRateLimit)
 
 	// Body-first free-usage / empty / billing / capacity must run before the
 	// status switch so non-429 free-usage bodies still cool the account.
@@ -1976,6 +1979,9 @@ func (s *OpenAIGatewayService) handleGrokAccountUpstreamError(ctx context.Contex
 		return
 	}
 	if account.IsPoolMode() {
+		if statusCode == http.StatusTooManyRequests && s.tkHandleGrok429UpstreamError(ctx, account, headers, responseBody) {
+			return
+		}
 		slog.Info("grok_pool_mode_error_state_skipped", "account_id", account.ID, "status_code", statusCode)
 		return
 	}
@@ -1993,6 +1999,9 @@ func (s *OpenAIGatewayService) handleGrokAccountUpstreamError(ctx context.Contex
 		}
 		s.tempUnscheduleGrok(ctx, account, 30*time.Minute, "grok access or entitlement denied")
 	case http.StatusTooManyRequests:
+		if s.tkHandleGrok429UpstreamError(ctx, account, headers, responseBody) {
+			return
+		}
 		// updateGrokUsageSnapshot installs rate-limit state for non-pool accounts.
 		// Free-usage 429 was already cooled above via body classification.
 	default:

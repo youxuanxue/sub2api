@@ -21,6 +21,7 @@ const (
 // where a conflict flag makes billing fall back to the baseline model
 // (see responseModelBillingDeclaration).
 type upstreamResponseModelObserver struct {
+	c        *gin.Context
 	first    string
 	terminal string
 	conflict bool
@@ -57,6 +58,10 @@ func normalizeObservedUpstreamResponseModel(model string) string {
 }
 
 func (o *upstreamResponseModelObserver) ObserveOpenAI(payload []byte, eventType string) {
+	if o == nil {
+		return
+	}
+	observeOpenAIResponsesEvent(o.c, payload)
 	model := firstValidTrimmedGJSONModel(payload, "response.model", "model")
 	o.Observe(model, isUpstreamResponseModelTerminalEvent(eventType))
 }
@@ -93,7 +98,7 @@ func (o *upstreamResponseModelObserver) Conflict() bool {
 }
 
 func beginUpstreamResponseModelObservation(c *gin.Context) *upstreamResponseModelObserver {
-	observer := &upstreamResponseModelObserver{}
+	observer := &upstreamResponseModelObserver{c: c}
 	if c != nil {
 		c.Set(upstreamResponseModelObserverContextKey, observer)
 	}

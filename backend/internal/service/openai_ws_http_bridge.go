@@ -303,7 +303,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	if writeClientMessage == nil {
 		return nil, errors.New("client websocket writer is nil")
 	}
-	responseModelObserver := &upstreamResponseModelObserver{}
+	responseModelObserver := beginUpstreamResponseModelObservation(c)
 
 	body, err := prepareOpenAIWSHTTPBridgeBody(payload)
 	if err != nil {
@@ -677,6 +677,19 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 				} else {
 					shouldFailover = s.shouldFailoverGrokUpstreamError(statusCode, upstreamMessage)
 					s.handleGrokAccountUpstreamError(ctx, account, statusCode, resp.Header, upstreamMessage)
+				}
+			} else if eventType == "error" && shouldFailover && !requestScopedCapacity {
+				// Defer account side effects when response.failed or stream failover
+				// handlers will apply them once (avoid error + failed double penalty).
+				sideEffectsDeferred := officialOpenAIResponses ||
+					(!wroteDownstream && (turn == 1 || statusCode == http.StatusTooManyRequests))
+				if !sideEffectsDeferred {
+					accountStatus := statusCode
+					if transientStatus := openAIWSPayloadTransientStatus(upstreamMessage); transientStatus != 0 {
+						accountStatus = transientStatus
+					}
+					canonicalModel := canonicalOpenAIAccountSchedulingModel(account, originalModel)
+					s.handleOpenAIAccountUpstreamError(ctx, account, accountStatus, resp.Header, upstreamMessage, canonicalModel)
 				}
 			}
 			if !wroteDownstream && shouldFailover && (turn == 1 || statusCode == http.StatusTooManyRequests) {

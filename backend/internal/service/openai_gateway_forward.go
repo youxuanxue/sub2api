@@ -48,7 +48,7 @@ func resolveOpenAICodexUserAgent(ctx context.Context, s *OpenAIGatewayService, a
 }
 
 func (s *OpenAIGatewayService) applyOpenAICodexUserAgent(ctx context.Context, req *http.Request, account *Account, inboundUserAgent string) {
-	if req == nil || account == nil || !account.IsOpenAIOAuth() {
+	if req == nil || account == nil || !account.IsOpenAIOAuthLike() {
 		return
 	}
 	req.Header.Set("user-agent", resolveOpenAICodexUserAgent(ctx, s, account, inboundUserAgent))
@@ -362,6 +362,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if billingModel != requestedModel {
 		logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Model mapping applied: %s -> %s (account: %s, isCodexCLI: %v)", requestedModel, billingModel, account.Name, isCodexCLI)
 	}
+	// TK priced-serving gate: reject unpriced OpenAI/native models before
+	// building or streaming an upstream request.
+	if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, billingModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", billingModel, account.Platform)
+	}
 	reqModel = billingModel
 	if upstreamModel != requestedModel {
 		markPatchSet("model", upstreamModel)
@@ -660,6 +665,15 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		body = normalizedBody
 		requestView = newOpenAIRequestView(body)
 		reqBody = nil
+	}
+	if account.Type == AccountTypeAPIKey {
+		if injectedBody, stickyKey, injectErr := applyStickyToOpenAIResponsesBody(ctx, c, s.settingService, account, body, upstreamModel); injectErr != nil {
+			return nil, injectErr
+		} else if stickyKey != "" {
+			body = injectedBody
+			promptCacheKey = stickyKey
+			requestView = newOpenAIRequestView(body)
+		}
 	}
 	imageBillingModel := ""
 	imageSizeTier := ""
@@ -1084,7 +1098,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					respBody,
 					upstreamMsg,
 					shouldDisable,
-					!shouldDisable && account.IsPoolMode() && (account.IsPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody)),
+					!shouldDisable && tkOpenAICompatRetryableOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody, true),
 				)
 			}
 			return s.handleErrorResponse(ctx, resp, c, account, body, resolveOpenAIErrorSchedulingModel(billingModel, upstreamModel))
@@ -1134,7 +1148,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 						shouldDisable := s.handleFailoverSideEffects(ctx, compactResp, account, compactBody, upstreamModel)
 						return nil, s.newOpenAIAccountFailoverError(
 							account, compactResp.StatusCode, compactResp.Header, compactBody, signal.message, shouldDisable,
-							!shouldDisable && account.IsPoolMode() && (account.IsPoolModeRetryableStatus(compactResp.StatusCode) || isOpenAITransientProcessingError(compactResp.StatusCode, signal.message, compactBody)),
+							!shouldDisable && tkOpenAICompatRetryableOnSameAccount(account, compactResp.StatusCode, signal.message, compactBody, true),
 						)
 					}
 					return s.handleErrorResponse(ctx, compactResp, c, account, body, resolveOpenAIErrorSchedulingModel(billingModel, upstreamModel))
@@ -1279,14 +1293,17 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 		}
 	case AccountTypeAPIKey:
 		// API Key accounts use Platform API or custom base URL
-		baseURL := account.GetOpenAIBaseURL()
+		baseURL := nativeOpenAIBaseURLForAccount(account)
 		if account.Platform == PlatformDeepseek && account.IsAdaptiveAPIProtocol() {
 			baseURL = account.GetCNProtocolBaseURL(APIProtocolResponses)
 		}
 		if baseURL == "" {
+			if account.IsGrokAPIKey() {
+				return nil, fmt.Errorf("grok relay account %d missing base_url", account.ID)
+			}
 			targetURL = openaiPlatformAPIURL
 		} else {
-			validatedURL, err := s.validateUpstreamBaseURL(baseURL)
+			validatedURL, err := s.validateUpstreamBaseURLForAccount(account, baseURL)
 			if err != nil {
 				return nil, err
 			}
@@ -1363,6 +1380,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 			req.Header.Set("session_id", isolateOpenAISessionID(apiKeyID, compactSession))
 		} else {
 			req.Header.Set("accept", "text/event-stream")
+			if req.Header.Get("version") == "" {
+				req.Header.Set("version", codexCLIVersion)
+			}
 		}
 		if promptCacheKey != "" {
 			isolated := isolateOpenAISessionID(apiKeyID, promptCacheKey)
@@ -1378,9 +1398,17 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	}
 
 	// Apply custom User-Agent if configured
-	customUA := account.GetOpenAIUserAgent()
-	if customUA != "" {
-		req.Header.Set("user-agent", customUA)
+	if account.IsOpenAIOAuthLike() {
+		inboundUA := ""
+		if c != nil {
+			inboundUA = c.GetHeader("User-Agent")
+		}
+		s.applyOpenAICodexUserAgent(ctx, req, account, inboundUA)
+	} else {
+		customUA := account.GetOpenAIUserAgent()
+		if customUA != "" {
+			req.Header.Set("user-agent", customUA)
+		}
 	}
 
 	// 若开启 ForceCodexCLI，则强制将上游 User-Agent 伪装为规范 Codex 身份。
@@ -1394,10 +1422,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 
 	// 终态收口：强制统一 OAuth 出站身份（User-Agent / originator / version 同源自洽）。
 	// 客户端自报身份不参与构造，浏览器型 UA 也因此不会再到达上游（原浏览器 UA 兜底已被吸收）。
-	if account.UsesOpenAICodexProtocol() {
+	if account.IsOpenAIOAuthLike() {
 		enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))
 	}
-	s.applyOpenAICodexUserAgent(ctx, req, account, c.GetHeader("User-Agent"))
 
 	// Ensure required headers exist
 	if req.Header.Get("content-type") == "" {

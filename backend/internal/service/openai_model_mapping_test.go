@@ -347,7 +347,7 @@ func TestNormalizeCodexModel(t *testing.T) {
 		"gpt-5.3-codex-spark":       "gpt-5.3-codex-spark",
 		"gpt-5.3-codex-spark-high":  "gpt-5.3-codex-spark",
 		"gpt-5.3-codex-spark-xhigh": "gpt-5.3-codex-spark",
-		"gpt-5.3":                   "gpt-5.3-codex",
+		"gpt-5.3":                   "gpt-5.3-codex-spark",
 		"gpt-image-2":               "gpt-image-2",
 		"gpt-5.4-nano":              "gpt-5.4-nano",
 		"gpt-5.4-nano-high":         "gpt-5.4-nano",
@@ -400,10 +400,10 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			want:    "gpt-5.4",
 		},
 		{
-			name:    "oauth preserves GPT-5.5 Pro model",
+			name:    "oauth routes GPT-5.5 Pro alias to GPT-5.5",
 			account: &Account{Type: AccountTypeOAuth},
 			model:   "openai/gpt-5.5-pro",
-			want:    "gpt-5.5-pro",
+			want:    "gpt-5.5",
 		},
 		{
 			name:    "oauth preserves codex auto review model",
@@ -457,7 +457,7 @@ func TestUsageBillingModelCandidatesPreserveCodexAutoReviewModel(t *testing.T) {
 func TestUsageBillingModelCandidatesPreserveGPT55ProModel(t *testing.T) {
 	candidates := usageBillingModelCandidates("openai/gpt-5.5-pro")
 
-	expected := []string{"openai/gpt-5.5-pro", "gpt-5.5-pro"}
+	expected := []string{"openai/gpt-5.5-pro", "gpt-5.5-pro", "gpt-5.5"}
 	if len(candidates) != len(expected) {
 		t.Fatalf("usageBillingModelCandidates(openai/gpt-5.5-pro) = %#v, want %#v", candidates, expected)
 	}

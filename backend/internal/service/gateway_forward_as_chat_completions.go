@@ -236,6 +236,8 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	var handleErr error
 	if clientStream {
 		result, handleErr = s.handleCCStreamingFromAnthropic(resp, c, originalModel, mappedModel, reasoningEffort, startTime, includeUsage)
+	} else if isAnthropicMessagesJSONResponse(resp) {
+		result, handleErr = s.handleCCBufferedFromAnthropicJSON(resp, c, originalModel, mappedModel, reasoningEffort, startTime)
 	} else {
 		result, handleErr = s.handleCCBufferedFromAnthropic(resp, c, originalModel, mappedModel, reasoningEffort, startTime)
 	}
@@ -309,6 +311,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		if !ok {
 			continue
 		}
+		observeOpenAIResponsesEvent(c, []byte(payload))
 
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {

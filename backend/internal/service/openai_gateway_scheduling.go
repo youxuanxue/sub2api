@@ -5,6 +5,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -634,11 +635,12 @@ func resolveOpenAIErrorSchedulingModel(billingModel, upstreamModel string) strin
 
 func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, requiredCapability OpenAIEndpointCapability, preferLowUpstreamRate bool) (*Account, error) {
 	platform = NormalizeOpenAICompatiblePlatform(platform)
+	requestedModel = CanonicalizeOpenAICompatRoutingModel(requestedModel)
 	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
-		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
+		return nil, tkOpenAICompatChannelPricingRestrictionError(requestedModel)
 	}
 
 	// 1. 尝试粘性会话命中
@@ -659,7 +661,19 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 	selected, compactBlocked, filterStats := s.selectBestAccount(ctx, groupID, platform, accounts, requestedModel, excludedIDs, requireCompact, requiredCapability, preferLowUpstreamRate)
 
 	if selected == nil {
-		return nil, noAvailableOpenAISelectionError(requestedModel, compactBlocked, "", filterStats.summary(""))
+		if !gatewayProfitControlGateActive(ctx) && requestedModel != "" {
+			if compatErr := openAICompatNoCandidateError(requestedModel, platform, compactBlocked, accounts, excludedIDs, &openAICompatNoCandidateEval{
+				ctx:                ctx,
+				svc:                s,
+				groupID:            groupID,
+				platform:           platform,
+				requireCompact:     requireCompact,
+				requiredCapability: requiredCapability,
+			}); errors.Is(compatErr, ErrUnsupportedModel) {
+				return nil, compatErr
+			}
+		}
+		return nil, noAvailableOpenAISelectionError(requestedModel, compactBlocked, platform, filterStats.summary(""))
 	}
 
 	hydrated, err := s.hydrateSelectedAccount(ctx, selected)
@@ -702,13 +716,18 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 	}
 
 	account, err := s.getSchedulableAccount(ctx, accountID)
-	if err != nil {
+	if err != nil || account == nil {
+		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
 
 	// 检查账号是否需要清理粘性会话
 	// Check if sticky session should be cleared
 	if shouldClearStickySession(account, requestedModel) {
+		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+		return nil
+	}
+	if !account.IsOpenAICompatPoolMember(platform) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
@@ -727,7 +746,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 		return nil
 	}
 	account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, groupID, platform, requestedModel, requireCompact, requiredCapability)
-	if account == nil || !s.openAIAccountMatchesSchedulingGroup(account, groupID) {
+	if account == nil || !s.openAIStickyAccountStillInGroupForRequest(ctx, groupID, platform, account) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
@@ -869,16 +888,17 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 	// 分组利润控制：legacy 公共入口同样装门，保证不经
 	// selectAccountWithScheduler 的调用方也无法绕过利润准入。
 	ctx = s.withOpenAIProfitControlGate(ctx, groupID)
-	return s.selectAccountWithLoadAwareness(ctx, groupID, PlatformOpenAI, sessionHash, requestedModel, excludedIDs, false, "", true)
+	return s.selectAccountWithLoadAwareness(ctx, groupID, s.resolveGroupPlatform(ctx, groupID), sessionHash, requestedModel, excludedIDs, false, "", false)
 }
 
 func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability, useUpstreamTokenCost bool) (*AccountSelectionResult, error) {
 	platform = NormalizeOpenAICompatiblePlatform(platform)
+	requestedModel = CanonicalizeOpenAICompatRoutingModel(requestedModel)
 	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
-		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
+		return nil, tkOpenAICompatChannelPricingRestrictionError(requestedModel)
 	}
 
 	cfg := s.schedulingConfig()
@@ -923,7 +943,15 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		return nil, err
 	}
 	if len(accounts) == 0 {
-		return nil, ErrNoAvailableAccounts
+		evidence := s.listOpenAICompatSchedulableAccountEvidence(ctx, groupID, platform)
+		return nil, openAICompatNoCandidateError(requestedModel, platform, false, evidence, excludedIDs, &openAICompatNoCandidateEval{
+			ctx:                ctx,
+			svc:                s,
+			groupID:            groupID,
+			platform:           platform,
+			requireCompact:     requireCompact,
+			requiredCapability: requiredCapability,
+		})
 	}
 
 	isExcluded := func(accountID int64) bool {
@@ -939,8 +967,10 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		accountID := stickyAccountID
 		if accountID > 0 && !isExcluded(accountID) {
 			account, err := s.getSchedulableAccount(ctx, accountID)
-			if err == nil {
-				clearSticky := shouldClearStickySession(account, requestedModel)
+			if err != nil || account == nil {
+				_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+			} else {
+				clearSticky := shouldClearStickySession(account, requestedModel) || !account.IsOpenAICompatPoolMember(platform)
 				if clearSticky {
 					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 				}
@@ -948,7 +978,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 					account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, groupID, platform, requestedModel, requireCompact, requiredCapability)
 					if account == nil {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-					} else if !s.openAIAccountMatchesSchedulingGroup(account, groupID) {
+					} else if !s.openAIStickyAccountStillInGroupForRequest(ctx, groupID, platform, account) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else if s.isOpenAIAccountRequestRuntimeBlocked(account, requestedModel) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
@@ -1024,7 +1054,14 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	}
 
 	if len(candidates) == 0 {
-		return nil, ErrNoAvailableAccounts
+		return nil, openAICompatNoCandidateError(requestedModel, platform, false, accounts, excludedIDs, &openAICompatNoCandidateEval{
+			ctx:                ctx,
+			svc:                s,
+			groupID:            groupID,
+			platform:           platform,
+			requireCompact:     requireCompact,
+			requiredCapability: requiredCapability,
+		})
 	}
 	rateOrder := openAILegacyUpstreamRateOrder{}
 	if preferLowUpstreamRate {
@@ -1332,6 +1369,9 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 	}
 	platform = NormalizeOpenAICompatiblePlatform(platform)
 	if s.schedulerSnapshot == nil || s.accountRepo == nil {
+		if s.openAIGroupRequiresPrivacySet(ctx, groupID) && !account.IsPrivacySet() {
+			return nil
+		}
 		if !isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx, account, platform, requestedModel, requireCompact, requiredCapability) {
 			return nil
 		}
@@ -1351,7 +1391,11 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 	if err != nil || latest == nil {
 		return nil
 	}
-	if !s.openAIAccountMatchesSchedulingGroup(latest, groupID) {
+	if (s.cfg == nil || s.cfg.RunMode != config.RunModeSimple) &&
+		!s.openAIStickyAccountStillInGroupForRequest(ctx, groupID, platform, latest) {
+		return nil
+	}
+	if s.openAIGroupRequiresPrivacySet(ctx, groupID) && !latest.IsPrivacySet() {
 		return nil
 	}
 	if !isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx, latest, platform, requestedModel, requireCompact, requiredCapability) {

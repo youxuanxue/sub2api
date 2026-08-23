@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/tidwall/gjson"
 )
 
 // grok429ShouldUseTKTempUnscheduleFallback keeps headerless 429 on the TokenKey
@@ -18,6 +19,19 @@ func grok429ShouldUseTKTempUnscheduleFallback(snapshot *xai.QuotaSnapshot) bool 
 		snapshot.RetryAfterSeconds == nil &&
 		snapshot.Requests == nil &&
 		snapshot.Tokens == nil
+}
+
+func isGrokOpenAIStyleRateLimitBody(responseBody []byte) bool {
+	if len(responseBody) == 0 {
+		return false
+	}
+	errType := firstNonEmpty(
+		gjson.GetBytes(responseBody, "error.type").String(),
+		gjson.GetBytes(responseBody, "type").String(),
+	)
+	code := gjson.GetBytes(responseBody, "error.code").String()
+	msg := gjson.GetBytes(responseBody, "error.message").String()
+	return isOpenAIWSRateLimitError(code, errType, msg)
 }
 
 // tkHandleGrok429UpstreamError applies TokenKey fallback temp-unschedule when
@@ -36,6 +50,16 @@ func (s *OpenAIGatewayService) tkHandleGrok429UpstreamError(ctx context.Context,
 	snapshot := parseGrokQuotaSnapshot(headers, http.StatusTooManyRequests, now)
 	_, hasActiveLimit := grokRateLimitResetAtForAccount(account, snapshot, now)
 	if grok429ShouldUseTKTempUnscheduleFallback(snapshot) {
+		if isGrokOpenAIStyleRateLimitBody(responseBody) {
+			cooldown := grokRateLimitFallbackCooldown
+			if s.rateLimitService != nil {
+				if configured, ok := s.rateLimitService.get429FallbackCooldown(stateCtx, account); ok && configured > 0 {
+					cooldown = configured
+				}
+			}
+			s.rateLimitGrok(stateCtx, account, now.Add(cooldown))
+			return true
+		}
 		hasActiveLimit = false
 	}
 	if hasActiveLimit {
