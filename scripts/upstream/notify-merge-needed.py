@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -41,13 +43,14 @@ FORBIDDEN_WORKFLOW_NEEDLES = (
 )
 REQUIRED_WORKFLOW_NEEDLES = (
     "secrets.UPSTREAM_MERGE_GH_TOKEN",
+    "unset GITHUB_TOKEN",
 )
 
 
 class IssueHost(Protocol):
     def list_open(self, label: str) -> list[int]: ...
     def list_open_tracking(self) -> list[int]: ...
-    def create(self, title: str, body: str) -> int: ...
+    def create(self, title: str, body: str, labels: list[str] | None = None) -> int: ...
     def update(self, number: int, title: str, body: str) -> None: ...
     def comment(self, number: int, body: str) -> None: ...
     def close(self, number: int, comment: str) -> None: ...
@@ -215,7 +218,12 @@ def apply(
             run_url=run_url,
         )
         if action == "create":
-            primary = host.create(title, body)
+            create_labels: list[str] = []
+            if isinstance(host, GhIssueHost):
+                create_labels = host.labels_ready_for_create(list(LABEL_SPECS))
+            else:
+                create_labels = [name for name, _, _ in LABEL_SPECS]
+            primary = host.create(title, body, create_labels or None)
         else:
             assert primary is not None
             host.update(primary, title, body)
@@ -306,18 +314,31 @@ class GhIssueHost:
                 seen.append(number)
         return seen
 
-    def create(self, title: str, body: str) -> int:
-        raw = self._run(
-            [
+    def create(self, title: str, body: str, labels: list[str] | None = None) -> int:
+        body_path = ""
+        try:
+            with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as handle:
+                handle.write(body)
+                body_path = handle.name
+            args = [
                 "gh",
                 "issue",
                 "create",
                 "--title",
                 title,
-                "--body",
-                body,
+                "--body-file",
+                body_path,
             ]
-        )
+            repo = os.environ.get("GH_REPO") or os.environ.get("GITHUB_REPOSITORY") or ""
+            if repo.strip():
+                args.extend(["--repo", repo.strip()])
+            ready = [label for label in (labels or []) if label]
+            if ready:
+                args.extend(["--label", ",".join(ready)])
+            raw = self._run(args)
+        finally:
+            if body_path:
+                Path(body_path).unlink(missing_ok=True)
         match = re.search(r"/issues/(\d+)", raw)
         if not match:
             raise RuntimeError(f"gh issue create did not return an issue URL: {raw!r}")
@@ -389,6 +410,13 @@ class GhIssueHost:
             except RuntimeError as exc:
                 warnings.append(str(exc))
         return warnings
+
+    def labels_ready_for_create(self, specs: list[tuple[str, str, str]]) -> list[str]:
+        ready: list[str] = []
+        for name, color, description in specs:
+            if self.ensure_label(name, color, description):
+                ready.append(name)
+        return ready
 
 
 def _run_gh(args: list[str], allow_failure: bool = False) -> str:
@@ -483,10 +511,10 @@ class MemoryHost:
             open_ids.update(values)
         return [number for number in sorted(open_ids) if is_tracking_title(self.titles.get(number, ""))]
 
-    def create(self, title: str, body: str) -> int:
+    def create(self, title: str, body: str, labels: list[str] | None = None) -> int:
         self._next_number += 1
         number = self._next_number
-        self.created.append((title, body))
+        self.created.append((title, body, list(labels or [])))
         self.titles[number] = title
         self.open_issues.setdefault(LABEL, []).append(number)
         return number
@@ -707,7 +735,7 @@ def run_selftest() -> int:
     created_number = gh_host.create(render_title(1), "body")
     create_call = next(call for call in gh_calls if call[:3] == ["gh", "issue", "create"])
     expect("gh_create_returns_number", created_number == 42)
-    expect("gh_create_omits_label_flag", "--label" not in create_call)
+    expect("gh_create_uses_body_file", "--body-file" in create_call)
     attach_warnings = gh_host.attach_labels(42, list(LABEL_SPECS))
     expect("gh_attach_warns_when_label_create_denied", bool(attach_warnings))
 
