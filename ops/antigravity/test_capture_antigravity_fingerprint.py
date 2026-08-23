@@ -20,8 +20,8 @@ import capture_antigravity_fingerprint as eng  # noqa: E402
 
 def _synth_baseline() -> dict:
     return {
-        "ua_version": "1.23.2",
-        "ua_format": "antigravity/hub/%s windows/amd64",
+        "ua_version": "1.1.19",
+        "ua_format": "antigravity/cli/%s darwin/arm64",
         "client_id": "client-id",
         "redirect_uri": "http://localhost:8085/callback",
         "scopes": ["https://www.googleapis.com/auth/cloud-platform"],
@@ -35,10 +35,9 @@ def _synth_baseline() -> dict:
     }
 
 
-def _full_http(ua_version="1.23.2", os_arch="windows/amd64") -> dict:
-    # Real IDE UA carries the /hub/ subclient segment and sends NO gl-node header.
+def _full_http(ua_version="1.1.19", os_arch="darwin/arm64") -> dict:
     return {
-        "user_agent": f"antigravity/hub/{ua_version} {os_arch}",
+        "user_agent": f"antigravity/cli/{ua_version} {os_arch}",
         "body_user_agent": "antigravity",
         "ide_type": "ANTIGRAVITY",
         "ide_name": "antigravity",
@@ -59,22 +58,20 @@ class BaselineLoadTests(unittest.TestCase):
         # #756 removed X-Goog-Api-Client(gl-node) from the privacy endpoints; the
         # aligned state is absence. Guards against a silent gl-node re-introduction.
         self.assertEqual(b["x_goog_api_client"], "")
-        self.assertIn("/hub/", b["ua_format"])  # #756 UA subclient segment must persist
+        self.assertIn("/cli/", b["ua_format"])
         self.assertIn("https://www.googleapis.com/auth/cclog", b["scopes"])
         self.assertIn("https://www.googleapis.com/auth/experimentsandconfigs", b["scopes"])
         self.assertEqual(len(b["scopes"]), 5)
 
-    def test_expected_user_agent_renders_windows_amd64(self):
+    def test_expected_user_agent_renders_darwin_arm64(self):
         b = _synth_baseline()
-        self.assertEqual(eng.expected_user_agent(b), "antigravity/hub/1.23.2 windows/amd64")
+        self.assertEqual(eng.expected_user_agent(b), "antigravity/cli/1.1.19 darwin/arm64")
 
 
 class ParseUaTests(unittest.TestCase):
     def test_parses_version_and_os_arch(self):
-        # the /hub/ subclient segment is optional — accept both shapes
-        self.assertEqual(eng.parse_ua("antigravity/hub/2.0.11 windows/amd64"), ("2.0.11", "windows/amd64"))
-        self.assertEqual(eng.parse_ua("antigravity/hub/1.104.0 darwin/arm64"), ("1.104.0", "darwin/arm64"))
-        self.assertEqual(eng.parse_ua("antigravity/1.23.2 windows/amd64"), ("1.23.2", "windows/amd64"))
+        self.assertEqual(eng.parse_ua("antigravity/cli/2.0.11 darwin/arm64"), ("2.0.11", "darwin/arm64"))
+        self.assertEqual(eng.parse_ua("antigravity/cli/1.104.0 darwin/arm64"), ("1.104.0", "darwin/arm64"))
 
     def test_unparseable_returns_empty(self):
         self.assertEqual(eng.parse_ua("Mozilla/5.0"), ("", ""))
@@ -99,16 +96,15 @@ class DiffTests(unittest.TestCase):
         row = next(r for r in rows if r.field == "http.ua_version")
         self.assertEqual(row.status, "mismatch")
         self.assertEqual(row.captured, "1.24.0")
-        self.assertEqual(row.tokenkey, "1.23.2")
+        self.assertEqual(row.tokenkey, "1.1.19")
 
     def test_os_arch_difference_is_info_not_drift(self):
-        # Captured on a Mac: darwin/arm64 vs TokenKey's pinned windows/amd64 — NOT drift.
-        bundle = {"http": _full_http(os_arch="darwin/arm64"), "tls": {}}
+        bundle = {"http": _full_http(os_arch="windows/amd64"), "tls": {}}
         rows = eng.diff_bundle(bundle, _synth_baseline())
         self.assertFalse(eng.has_actionable_mismatch(rows))
         row = next(r for r in rows if r.field == "http.ua_os_arch")
         self.assertEqual(row.status, "info")
-        self.assertEqual(row.captured, "darwin/arm64")
+        self.assertEqual(row.captured, "windows/amd64")
 
     def test_gl_node_regression_is_actionable(self):
         # #756 removed gl-node; a captured gl-node means the real IDE sends it again
@@ -159,7 +155,7 @@ class HttpLogMergeTests(unittest.TestCase):
     def test_merges_fields_across_endpoint_lines(self):
         # streamGenerateContent carries UA+body, loadCodeAssist carries ideType, etc.
         lines = [
-            {"path": "/v1internal:streamGenerateContent", "user_agent": "antigravity/1.23.2 windows/amd64",
+            {"path": "/v1internal:streamGenerateContent", "user_agent": "antigravity/cli/1.1.19 darwin/arm64",
              "body_user_agent": "antigravity", "project": "proj-x", "model": "claude-sonnet-4-6"},
             {"path": "/v1internal:loadCodeAssist", "ide_type": "ANTIGRAVITY", "ide_name": "antigravity"},
             {"path": "/v1internal:setUserSettings", "x_goog_api_client": "gl-node/22.21.1"},
@@ -170,7 +166,7 @@ class HttpLogMergeTests(unittest.TestCase):
             path = Path(fh.name)
         merged = eng.parse_http_log(path)
         path.unlink()
-        self.assertEqual(merged["user_agent"], "antigravity/1.23.2 windows/amd64")
+        self.assertEqual(merged["user_agent"], "antigravity/cli/1.1.19 darwin/arm64")
         self.assertEqual(merged["ide_type"], "ANTIGRAVITY")
         self.assertEqual(merged["x_goog_api_client"], "gl-node/22.21.1")
         self.assertEqual(merged["project"], "proj-x")
@@ -233,22 +229,22 @@ class RedactionTest(unittest.TestCase):
 
     def test_redact_keeps_nonsecret_values(self):
         # the load-bearing fingerprint headers must survive verbatim
-        self.assertEqual(addon._redact("User-Agent", "antigravity/2.0.11 windows/amd64"),
-                         "antigravity/2.0.11 windows/amd64")
+        self.assertEqual(addon._redact("User-Agent", "antigravity/cli/2.0.11 darwin/arm64"),
+                         "antigravity/cli/2.0.11 darwin/arm64")
         self.assertEqual(addon._redact("X-Goog-Api-Client", "gl-node/22.21.1"), "gl-node/22.21.1")
         self.assertEqual(addon._redact("Content-Type", "application/json"), "application/json")
 
     def test_ordered_headers_preserves_order_and_redacts(self):
         hdrs = _FakeHeaders([
             ("Host", "daily-cloudcode-pa.googleapis.com"),
-            ("User-Agent", "antigravity/2.0.11 windows/amd64"),
+            ("User-Agent", "antigravity/cli/2.0.11 darwin/arm64"),
             ("Authorization", "Bearer aaa.bbb.ccc"),
             ("Content-Type", "application/json"),
         ])
         out = addon._ordered_headers(hdrs)
         self.assertEqual([n for n, _ in out],
                          ["Host", "User-Agent", "Authorization", "Content-Type"])
-        self.assertEqual(out[1][1], "antigravity/2.0.11 windows/amd64")  # UA verbatim
+        self.assertEqual(out[1][1], "antigravity/cli/2.0.11 darwin/arm64")  # UA verbatim
         self.assertTrue(out[2][1].startswith("<redacted:"))  # bearer masked
         self.assertNotIn("Bearer", out[2][1])
 

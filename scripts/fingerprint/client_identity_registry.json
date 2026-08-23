@@ -157,7 +157,7 @@
     },
     {
       "id": "antigravity",
-      "name": "Antigravity IDE",
+      "name": "Antigravity CLI",
       "skill": "tokenkey-antigravity-fingerprint-alignment",
       "pin_reader": "antigravity",
       "compile_owner": {
@@ -169,14 +169,14 @@
         "symbol": "GetUserAgentVersionForContext",
         "override": "admin setting then environment then compile fallback"
       },
-      "evidence_mode": "wire_http",
+      "evidence_mode": "local_binary_static",
       "capture_tool": "ops/antigravity/capture-antigravity-fingerprint.sh",
       "production_observer": null,
       "companion_identity": null,
       "actionable": true,
-      "status_note": "",
+      "status_note": "Ground truth = locally installed `agy` (`brew install --cask antigravity-cli`). Optional mitm wire capture for body/ideType regression only.",
       "release_sources": [
-        {"kind": "brew_cask", "label": "Homebrew cask antigravity", "cask": "antigravity"}
+        {"kind": "brew_cask", "label": "Homebrew cask antigravity-cli", "cask": "antigravity-cli"}
       ]
     },
     {

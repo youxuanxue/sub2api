@@ -273,7 +273,7 @@ class MainIntegrationTest(unittest.TestCase):
                 },
             },
             "antigravity": {
-                "Homebrew cask antigravity": {
+                "Homebrew cask antigravity-cli": {
                     "version": "1.0.0",
                     "url": "https://example.com/ag",
                     "raw_tag": "1.0.0",

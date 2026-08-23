@@ -288,8 +288,8 @@ PLATFORM_PLAYBOOKS: dict[str, dict[str, Any]] = {
         "umbrella_skill": "tokenkey-fingerprint-alignment-all",
         "first_commands": [
             "bash ops/antigravity/capture-antigravity-fingerprint.sh check env",
-            "bash ops/antigravity/capture-antigravity-fingerprint.sh capture --http",
             "bash ops/antigravity/capture-antigravity-fingerprint.sh check",
+            "bash ops/antigravity/capture-antigravity-fingerprint.sh emit-edits",
         ],
     },
     "kiro-cli": {

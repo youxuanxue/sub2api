@@ -5,7 +5,7 @@ TokenKey alignment.
 Sibling of ops/anthropic/capture_cc_fingerprint.py and ops/kiro/
 capture_kiro_fingerprint.py, but **inverted relative to kiro**: for Antigravity the
 load-bearing fingerprint is the HTTP layer (the impersonated client User-Agent
-*version* in `antigravity/hub/<ver> windows/amd64`, the body `userAgent` literal,
+*version* in `antigravity/cli/<ver> darwin/arm64`, the body `userAgent` literal,
 and the loadCodeAssist/onboardUser ideType metadata), NOT the TLS JA3. Note the
 privacy endpoints (setUserSettings/fetchUserInfo) deliberately send NO
 `X-Goog-Api-Client: gl-node/<ver>` header — #756 + the 2026-06-13 real-IDE capture
@@ -45,6 +45,8 @@ import argparse
 import hashlib
 import json
 import re
+import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -118,13 +120,10 @@ def _extract_struct_field(go_src: str, field: str, where: str) -> str:
 
 
 def _extract_ua_format(oauth_src: str) -> str:
-    """Pull the `antigravity/hub/%s windows/amd64` format string out of BuildUserAgent.
-    The `hub/` subclient_type segment was added in #756 to match the real IDE 2.0.11
-    on-wire UA; the pattern allows any literal between `antigravity/` and the `%s`
-    version placeholder so a future subclient rename does not silently fail to parse."""
+    """Pull the `antigravity/cli/%s darwin/arm64` format string out of BuildUserAgent."""
     m = re.search(r"fmt\.Sprintf\(\"(antigravity/[^\"]*%s[^\"]*)\"", oauth_src)
     if not m:
-        raise ValueError("BuildUserAgent fmt.Sprintf(\"antigravity/...%s... windows/amd64\") not found in oauth.go")
+        raise ValueError("BuildUserAgent fmt.Sprintf(\"antigravity/...%s... darwin/arm64\") not found in oauth.go")
     return m.group(1)
 
 
@@ -164,20 +163,19 @@ def load_antigravity_baseline() -> dict[str, Any]:
 
 def expected_user_agent(baseline: dict[str, Any]) -> str:
     """Render the HTTP User-Agent exactly as antigravity.BuildUserAgent does for the
-    default version (e.g. `antigravity/hub/2.0.11 windows/amd64`)."""
+    default version (e.g. `antigravity/cli/1.1.19 darwin/arm64`)."""
     return baseline["ua_format"].replace("%s", baseline["ua_version"], 1)
 
 
 # --------------------------------------------------------------------------- #
 # Captured-UA parsing.
 # --------------------------------------------------------------------------- #
-_UA_RE = re.compile(r"antigravity/(?:hub/)?(\d+\.\d+\.\d+)\s*(\S+)?")
+_UA_RE = re.compile(r"antigravity/cli/(\d+\.\d+\.\d+)\s*(\S+)?")
+_VER = r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?"
 
 
 def parse_ua(ua: str) -> tuple[str, str]:
-    """Return (version, os_arch) parsed from an `antigravity/hub/<ver> <os>/<arch>` UA
-    (the `hub/` subclient segment is optional for backward compatibility).
-    Empty strings when not parseable."""
+    """Return (version, os_arch) parsed from an `antigravity/cli/<ver> <os>/<arch>` UA."""
     m = _UA_RE.search(ua or "")
     if not m:
         return "", ""
@@ -316,14 +314,13 @@ def diff_bundle(bundle: dict[str, Any], baseline: dict[str, Any]) -> list[DiffRo
             "http.ua_version", base_ver, cap_ver,
             "match" if cap_ver == base_ver else "mismatch", critical=True,
         ))
-        # os/arch is informational only: TokenKey deliberately pins windows/amd64
-        # regardless of the host OS, so a darwin/arm64 capture on a Mac is expected
-        # and is NOT drift.
+        # os/arch is informational only: TokenKey deliberately pins darwin/arm64
+        # regardless of the host OS.
         _, base_os_arch = parse_ua(expected_user_agent(baseline))
         if cap_os_arch and cap_os_arch != base_os_arch:
             rows.append(DiffRow(
                 "http.ua_os_arch", base_os_arch, cap_os_arch, "info", critical=False,
-                note="TokenKey pins windows/amd64 by design; captured host OS differs — not drift.",
+                note="TokenKey pins darwin/arm64 by design; captured host OS differs — not drift.",
             ))
 
     # 2. body userAgent literal.
@@ -494,6 +491,93 @@ def cmd_show_baseline(args: argparse.Namespace) -> int:
     return 0
 
 
+def parse_agy_version(version_output: str) -> str:
+    m = re.search("(" + _VER + ")", version_output or "")
+    return m.group(1) if m else ""
+
+
+def installed_agy_version() -> tuple[str, str]:
+    exe = shutil.which("agy")
+    if not exe:
+        return "", ""
+    try:
+        out = subprocess.run(
+            [exe, "--version"], capture_output=True, text=True, timeout=20, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return exe, ""
+    version = parse_agy_version((out.stdout or "") + (out.stderr or ""))
+    return exe, version
+
+
+def cmd_check_env_static(args: argparse.Namespace) -> int:
+    exe, version = installed_agy_version()
+    if not exe:
+        print("  ✗ agy CLI not found (brew install --cask antigravity-cli)")
+        return 2
+    print(f"  ✓ agy CLI present ({exe})")
+    if not version:
+        print("  ✗ agy --version did not return a parseable semver")
+        return 2
+    print(f"  ✓ agy --version -> {version}")
+    return 0
+
+
+def _static_diff_rows() -> tuple[list[DiffRow], str]:
+    baseline = load_antigravity_baseline()
+    _, installed = installed_agy_version()
+    pinned = baseline["ua_version"]
+    rows = [
+        DiffRow(
+            "ua_version", pinned, installed or "(not installed)",
+            "match" if installed and pinned == installed else "mismatch" if installed else "missing_capture",
+            critical=True,
+        ),
+    ]
+    return rows, installed
+
+
+def cmd_diff_static(args: argparse.Namespace) -> int:
+    rows, installed = _static_diff_rows()
+    print(f"Antigravity CLI fingerprint diff (installed={installed or 'n/a'}):")
+    for r in rows:
+        sym = {"match": "✓", "mismatch": "✗", "missing_capture": "·"}.get(r.status, "?")
+        print(f"  {sym} {r.field.ljust(16)}  pinned={r.tokenkey}  installed={r.captured}  [{r.status}]")
+    if not installed:
+        print("\ninstall: brew install --cask antigravity-cli")
+        return 2
+    if any(r.status == "mismatch" for r in rows):
+        print("\nfollow skill: tokenkey-antigravity-fingerprint-alignment")
+        print("  bump DefaultUserAgentVersion in backend/internal/pkg/antigravity/oauth.go")
+        print("  bash ops/antigravity/capture-antigravity-fingerprint.sh emit-edits")
+        return 1
+    return 0
+
+
+def cmd_check_static(args: argparse.Namespace) -> int:
+    return cmd_diff_static(args)
+
+
+def cmd_emit_edits(args: argparse.Namespace) -> int:
+    target = (args.version or "").strip()
+    if not target:
+        _, installed = installed_agy_version()
+        target = installed
+    if not target:
+        print("error: agy not installed and --version not provided", file=sys.stderr)
+        return 2
+    baseline = load_antigravity_baseline()
+    pinned = baseline["ua_version"]
+    if pinned == target:
+        print(f"already aligned at {target}")
+        return 0
+    print(f"edits to align DefaultUserAgentVersion -> {target}:")
+    print(f"  {OAUTH_GO.relative_to(REPO_ROOT)}")
+    print(f"    - {pinned}")
+    print(f"    + {target}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -521,6 +605,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     sb = sub.add_parser("show-baseline", help="print the baseline rebuilt from the Go constants")
     sb.set_defaults(func=cmd_show_baseline)
+
+    ce = sub.add_parser("check-env", help="verify agy CLI is installed (static version owner)")
+    ce.set_defaults(func=cmd_check_env_static)
+
+    ds = sub.add_parser("diff-static", help="diff pinned UA version vs locally installed agy")
+    ds.set_defaults(func=cmd_diff_static)
+
+    cs = sub.add_parser("check-static", help="diff-static + exit 1 on version drift")
+    cs.set_defaults(func=cmd_check_static)
+
+    ee = sub.add_parser("emit-edits", help="print DefaultUserAgentVersion bump edits")
+    ee.add_argument("--version", default="")
+    ee.set_defaults(func=cmd_emit_edits)
 
     return p
 

@@ -559,12 +559,9 @@ fi
 # ---- sub2api: antigravity fingerprint sentinel registry ---------------------
 # Source of truth: scripts/sentinels/antigravity.json. Guards the TokenKey
 # divergences in the Antigravity (cloudcode-pa) client fingerprint that an
-# upstream merge would silently revert: the `/hub/` subclient segment in
-# BuildUserAgent (oauth.go) and the gl-node X-Goog-Api-Client removal on the
-# privacy calls (client.go). oauth.go/client.go are upstream-shaped, so a
-# `git merge upstream/main` can clobber these with a trivial, test-passing diff
-# — exactly the backward-drift this guard catches. Aligned to the real on-wire
-# IDE 2.0.11 capture (2026-06-13); see docs/antigravity-fingerprint-changelog.md.
+# upstream merge would silently revert: the `/cli/` segment in BuildUserAgent
+# (oauth.go) and the gl-node X-Goog-Api-Client removal on privacy calls
+# (client.go). Aligned to Antigravity CLI (`agy`); see docs/antigravity-fingerprint-changelog.md.
 echo ""
 echo "=== sub2api: antigravity fingerprint sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
