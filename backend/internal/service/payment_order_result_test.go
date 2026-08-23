@@ -9,6 +9,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/stretchr/testify/require"
 )
 
 func TestShouldUseAlipayMobilePrecreate(t *testing.T) {
@@ -391,12 +392,8 @@ func TestMaybeBuildWeChatOAuthRequiredResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp == nil {
-		t.Fatal("expected oauth_required response, got nil")
-	}
-	if resp.ResultType != payment.CreatePaymentResultOAuthRequired {
-		t.Fatalf("result type = %q, want %q", resp.ResultType, payment.CreatePaymentResultOAuthRequired)
-	}
+	require.NotNil(t, resp)
+	require.Equal(t, payment.CreatePaymentResultOAuthRequired, resp.ResultType)
 	if resp.OAuth == nil {
 		t.Fatal("expected oauth payload, got nil")
 	}
@@ -505,12 +502,8 @@ func TestMaybeBuildWeChatOAuthRequiredResponseFallsBackToConfiguredLegacySigning
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if resp == nil {
-		t.Fatal("expected oauth-required response, got nil")
-	}
-	if resp.ResultType != payment.CreatePaymentResultOAuthRequired {
-		t.Fatalf("result type = %q, want %q", resp.ResultType, payment.CreatePaymentResultOAuthRequired)
-	}
+	require.NotNil(t, resp)
+	require.Equal(t, payment.CreatePaymentResultOAuthRequired, resp.ResultType)
 	if resp.OAuth == nil || strings.TrimSpace(resp.OAuth.AuthorizeURL) == "" {
 		t.Fatalf("expected oauth redirect payload, got %+v", resp.OAuth)
 	}

@@ -2,6 +2,15 @@ import type { OpenAIMessagesDispatchModelConfig } from "@/types";
 import { PLATFORM_GROK } from '@/constants/gatewayPlatforms'
 import { messagesDispatchTierDefaultsForGroup } from "@/constants/messagesDispatchFamilyRegistry.tk";
 
+export function supportsMessagesDispatchPlatform(platform: string): boolean {
+  return (
+    platform === "openai" ||
+    platform === "composite" ||
+    platform === "grok" ||
+    platform === "newapi"
+  );
+}
+
 export interface MessagesDispatchMappingRow {
   claude_model: string;
   target_model: string;

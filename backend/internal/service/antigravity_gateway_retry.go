@@ -54,12 +54,13 @@ type antigravityRetryLoopResult struct {
 
 // resolveAntigravityForwardBaseURL 解析转发用 base URL。
 //
-// 默认使用 ProdBaseURL()（cloudcode-pa.googleapis.com）。
-// Google AI Pro / Ultra 走 DailyBaseURL()，与 Antigravity IDE 一致；
-// 免费档仍走 prod，避免再回归 #3611 / #2962（生产 token 打 daily → Invalid bearer）。
-// 端点字符串只读这两个 owner，不从 BaseURLs 下标推断。
+// 显式环境变量优先。未配置时，LoadCodeAssist 返回 paidTier 的付费账号使用
+// daily 端点，其他账号继续使用生产端点，避免免费账号的 OAuth token 出现 401。
 //
-// GATEWAY_ANTIGRAVITY_FORWARD_BASE_URL=daily|sandbox|prod 可强制覆盖。
+// 历史上这里改用 ForwardBaseURLs()（把 daily/sandbox 排到首位）并默认取首个地址，
+// 导致网关把带生产 OAuth token 的请求发到 daily-cloudcode-pa.sandbox.googleapis.com，
+// 上游拒绝 → 账号被 401「Invalid bearer token」/502 打入临时不可调度且无法恢复
+// （见 #3611 / #2962）。后台「测试连接」用的是生产端点，所以「测试成功但网关 401」。
 func resolveAntigravityForwardBaseURL(account *Account) string {
 	prod := antigravity.ProdBaseURL()
 	daily := antigravity.DailyBaseURL()

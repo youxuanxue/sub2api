@@ -195,7 +195,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 			fmt.Sprintf("duration must be at least %d seconds for this video provider", newapiintegration.XRTokenVideoMinDurationSeconds))
 		return
 	}
-	setOpsSelectedAccount(c, account.ID, account.Platform)
+	setOpsSelectedAccountFrom(c, account)
 	openAIMarkAffinitySelected(c, groupName, account.ID)
 
 	service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())

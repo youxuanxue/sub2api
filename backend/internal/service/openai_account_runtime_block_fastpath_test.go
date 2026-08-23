@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"testing"
@@ -13,40 +14,111 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newOpenAIGatewayWithRateLimit(repo *rateLimitAccountRepoStub) (*OpenAIGatewayService, *RateLimitService) {
-	gateway := &OpenAIGatewayService{}
-	rls := newG4RateLimitService(repo)
-	rls.settingService = settingServiceWithMaxCooldown("")
-	rls.SetAccountRuntimeBlocker(gateway)
-	gateway.rateLimitService = rls
-	return gateway, rls
+type oauth429RateLimitRepo struct {
+	AccountRepository
+	setRateLimitedCalls  int
+	lastRateLimitedUntil time.Time
 }
 
-func codex7dExhaustedHeaders(reset7dSeconds int) http.Header {
-	h := codexGeneralWindowHeaders(1, 100)
-	h.Set("x-codex-secondary-reset-after-seconds", strconv.Itoa(reset7dSeconds))
-	return h
+func (r *oauth429RateLimitRepo) SetRateLimited(_ context.Context, _ int64, until time.Time) error {
+	r.setRateLimitedCalls++
+	r.lastRateLimitedUntil = until
+	return nil
 }
 
-func TestOpenAI429FastPath_MarksOAuthAccountCoolingDown(t *testing.T) {
-	svc := &OpenAIGatewayService{}
+func TestOpenAI429FastPath_KeepsOAuthAccountSchedulableDuringRetryWindow(t *testing.T) {
+	repo := &oauth429RateLimitRepo{}
+	rateLimits := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc := &OpenAIGatewayService{rateLimitService: rateLimits}
+	rateLimits.SetAccountRuntimeBlocker(svc)
 	account := &Account{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 	apiKeyAccount := &Account{ID: 43, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	setupTokenAccount := &Account{ID: 44, Platform: PlatformOpenAI, Type: AccountTypeSetupToken}
+	grokOAuthAccount := &Account{ID: 45, Platform: PlatformGrok, Type: AccountTypeOAuth}
 
 	shouldDisable := svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, nil)
 	apiKeyShouldDisable := svc.handleOpenAIAccountUpstreamError(context.Background(), apiKeyAccount, http.StatusTooManyRequests, http.Header{}, nil)
 
 	require.False(t, shouldDisable)
 	require.False(t, apiKeyShouldDisable)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(apiKeyAccount), "API-key 429 keeps the existing scheduler cooldown behavior")
+	require.Equal(t, 1, repo.setRateLimitedCalls, "only the API-key 429 should persist a scheduler block")
+	require.True(t, svc.shouldRetryOpenAIOAuth429OnSameAccount(account, http.StatusTooManyRequests, false))
+	require.True(t, svc.shouldRetryOpenAIOAuth429OnSameAccount(setupTokenAccount, http.StatusTooManyRequests, false))
+	require.False(t, svc.shouldRetryOpenAIOAuth429OnSameAccount(apiKeyAccount, http.StatusTooManyRequests, false))
+	require.False(t, svc.shouldRetryOpenAIOAuth429OnSameAccount(grokOAuthAccount, http.StatusTooManyRequests, false))
+	require.WithinDuration(t, time.Now().Add(openAIOAuth429RetryWindow), svc.openAIOAuth429RetryDeadline(account), time.Second)
+	require.WithinDuration(t, time.Now().Add(openAIOAuth429RetryWindow), svc.openAIOAuth429RetryDeadline(setupTokenAccount), time.Second)
+}
+
+func TestOpenAI429FastPath_BlocksOAuthOnlyAfterRetryWindow(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	account := &Account{ID: 420, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	svc.openaiOAuth429RetryStartedAt.Store(account.ID, time.Now().Add(-openAIOAuth429RetryWindow-time.Second))
+
+	svc.markOpenAIOAuth429RateLimited(context.Background(), account, http.Header{}, nil)
+
 	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
-	require.False(t, svc.isOpenAIAccountRuntimeBlocked(apiKeyAccount))
+	require.False(t, svc.shouldRetryOpenAIOAuth429OnSameAccount(account, http.StatusTooManyRequests, false))
+}
+
+func TestOpenAIStream429IgnoresSuccessfulQuotaSnapshotHeaders(t *testing.T) {
+	repo := &oauth429RateLimitRepo{}
+	rateLimits := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc := &OpenAIGatewayService{rateLimitService: rateLimits}
+	rateLimits.SetAccountRuntimeBlocker(svc)
+	account := &Account{ID: 421, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	svc.openaiOAuth429RetryStartedAt.Store(account.ID, time.Now().Add(-openAIOAuth429RetryWindow-time.Second))
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "37")
+	headers.Set("x-codex-primary-reset-after-seconds", "604800")
+	headers.Set("x-codex-primary-window-minutes", "10080")
+	payload := []byte(`{"type":"error","error":{"type":"rate_limit_error","code":"rate_limit_exceeded","message":"slow down"}}`)
+
+	status, disabled := svc.handleOpenAIStreamTerminalAccountSideEffects(nil, account, payload, "slow down", headers)
+
+	require.Equal(t, http.StatusTooManyRequests, status)
+	require.False(t, disabled)
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	value, ok := svc.openaiAccountRuntimeBlockUntil.Load(account.ID)
+	require.True(t, ok)
+	blockedUntil, ok := loadOpenAIAccountRuntimeBlockEntry(value)
+	require.True(t, ok)
+	require.Less(t, time.Until(blockedUntil.Until), time.Minute, "stream 429 must not inherit the normal seven-day quota snapshot")
+	if !repo.lastRateLimitedUntil.IsZero() {
+		require.Less(t, time.Until(repo.lastRateLimitedUntil), time.Minute)
+	}
+}
+
+func TestOpenAIHTTP429StillUsesQuotaResetHeaders(t *testing.T) {
+	svc := &OpenAIGatewayService{rateLimitService: &RateLimitService{}}
+	account := &Account{ID: 422, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	svc.openaiOAuth429RetryStartedAt.Store(account.ID, time.Now().Add(-openAIOAuth429RetryWindow-time.Second))
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "37")
+	headers.Set("x-codex-primary-reset-after-seconds", "604800")
+	headers.Set("x-codex-primary-window-minutes", "10080")
+
+	svc.markOpenAIOAuth429RateLimited(context.Background(), account, headers, nil)
+
+	value, ok := svc.openaiAccountRuntimeBlockUntil.Load(account.ID)
+	require.True(t, ok)
+	blockedUntil, ok := loadOpenAIAccountRuntimeBlockEntry(value)
+	require.True(t, ok)
+	require.Greater(t, time.Until(blockedUntil.Until), 6*24*time.Hour, "real HTTP 429 must retain the upstream quota reset")
+}
+
+func TestOpenAI429RetryDelayHonorsBoundedRetryAfter(t *testing.T) {
+	deadline := time.Now().Add(openAIOAuth429RetryWindow)
+	require.Equal(t, openAIOAuth429RetryDelay, openAIOAuth429SameAccountRetryDelay(nil, deadline))
+	require.Equal(t, openAIOAuth429MaxRetryDelay, openAIOAuth429SameAccountRetryDelay(http.Header{"Retry-After": []string{"90"}}, deadline))
 }
 
 // TestOpenAI429FastPath_SkipsSparkShadow 外审第8轮 P1:spark 影子被选中后若 /responses 返回 429,
 // 不得按 global x-codex-* 信号写内存运行时熔断(否则 spark 被冷却到 global reset、单影子场景无可用账号)。
 func TestOpenAI429FastPath_SkipsSparkShadow(t *testing.T) {
-	repo := &rateLimitAccountRepoStub{}
-	gateway, _ := newOpenAIGatewayWithRateLimit(repo)
+	svc := &OpenAIGatewayService{}
 	parentID := int64(800)
 	shadow := &Account{
 		ID:              801,
@@ -62,11 +134,11 @@ func TestOpenAI429FastPath_SkipsSparkShadow(t *testing.T) {
 	headers.Set("x-codex-primary-reset-after-seconds", "18000")
 	headers.Set("x-codex-primary-window-minutes", "300")
 
-	gateway.handleOpenAIAccountUpstreamError(context.Background(), shadow, http.StatusTooManyRequests, headers, nil, "gpt-5.4")
-	gateway.handleOpenAIAccountUpstreamError(context.Background(), normal, http.StatusTooManyRequests, headers, nil, "gpt-5.4")
+	svc.markOpenAIOAuth429RateLimited(context.Background(), shadow, headers, nil)
+	svc.markOpenAIOAuth429RateLimited(context.Background(), normal, headers, nil)
 
-	require.False(t, gateway.isOpenAIAccountRuntimeBlocked(shadow), "spark shadow must not be runtime-blocked by /responses global 429")
-	require.True(t, gateway.isOpenAIAccountRuntimeBlocked(normal), "normal OpenAI OAuth account should still be runtime-blocked")
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(shadow), "spark shadow must not be runtime-blocked by /responses global 429")
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(normal), "normal OpenAI OAuth account stays schedulable during its retry window")
 }
 
 func TestOpenAIRuntimeBlock_AppliesToOpenAIAPIKeyWhenRateLimitServiceStopsScheduling(t *testing.T) {
@@ -263,6 +335,132 @@ func TestOpenAIModelNotFound_DoesNotRuntimeBlockWholeAccount(t *testing.T) {
 	require.Len(t, repo.modelRateLimitCalls, 1)
 }
 
+func TestOpenAIModelTempUnschedulable_DoesNotRuntimeBlockWholeAccount(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &OpenAIGatewayService{
+		rateLimitService: &RateLimitService{accountRepo: repo},
+	}
+	account := openAIModelNotFoundTempAccount()
+
+	shouldDisable := svc.handleOpenAIAccountUpstreamError(
+		context.Background(),
+		account,
+		http.StatusNotFound,
+		http.Header{},
+		[]byte(`{"error":{"message":"endpoint not found"}}`),
+		"gpt-5.4",
+	)
+
+	require.True(t, shouldDisable)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Zero(t, repo.tempCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, "gpt-5.4", repo.modelRateLimitCalls[0].scope)
+}
+
+func TestOpenAIModelTempUnschedulable_WriteFailureDoesNotRuntimeBlockWholeAccount(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{modelRateLimitErr: errors.New("write failed")}
+	svc := &OpenAIGatewayService{
+		rateLimitService: &RateLimitService{accountRepo: repo},
+	}
+	account := openAIModelNotFoundTempAccount()
+
+	shouldDisable := svc.handleOpenAIAccountUpstreamError(
+		context.Background(),
+		account,
+		http.StatusNotFound,
+		http.Header{},
+		[]byte(`{"error":{"message":"endpoint not found"}}`),
+		"gpt-5.4",
+	)
+
+	require.True(t, shouldDisable)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Zero(t, repo.tempCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+}
+
+func TestOpenAIOAuth429_MatchingModelTempRuleAvoidsAccountRuntimeBlock(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &OpenAIGatewayService{
+		rateLimitService: &RateLimitService{accountRepo: repo},
+	}
+	account := openAIModelNotFoundTempAccount()
+	account.Type = AccountTypeOAuth
+	account.Credentials["temp_unschedulable_rules"] = []any{
+		map[string]any{
+			"error_code":       float64(http.StatusTooManyRequests),
+			"keywords":         []any{"model quota"},
+			"duration_minutes": float64(10),
+		},
+	}
+
+	shouldDisable := svc.handleOpenAIAccountUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		http.Header{},
+		[]byte(`{"error":{"message":"model quota exhausted"}}`),
+		"gpt-5.4",
+	)
+
+	require.True(t, shouldDisable)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, "gpt-5.4", repo.modelRateLimitCalls[0].scope)
+}
+
+func TestOpenAIOAuth429_NonmatchingModelTempRuleKeepsAccountRuntimeBlock(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &OpenAIGatewayService{
+		rateLimitService: &RateLimitService{accountRepo: repo},
+	}
+	account := openAIModelNotFoundTempAccount()
+	account.Type = AccountTypeOAuth
+	account.Credentials["temp_unschedulable_rules"] = []any{
+		map[string]any{
+			"error_code":       float64(http.StatusTooManyRequests),
+			"keywords":         []any{"different marker"},
+			"duration_minutes": float64(10),
+		},
+	}
+
+	shouldDisable := svc.handleOpenAIAccountUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		http.Header{},
+		[]byte(`{"error":{"message":"global rate limit"}}`),
+		"gpt-5.4",
+	)
+
+	require.False(t, shouldDisable)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.True(t, svc.shouldRetryOpenAIOAuth429OnSameAccount(account, http.StatusTooManyRequests, false))
+	require.Empty(t, repo.modelRateLimitCalls)
+}
+
+func TestOpenAITempUnschedulable_UnknownModelKeepsAccountRuntimeBlock(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &OpenAIGatewayService{
+		rateLimitService: &RateLimitService{accountRepo: repo},
+	}
+	account := openAIModelNotFoundTempAccount()
+
+	shouldDisable := svc.handleOpenAIAccountUpstreamError(
+		context.Background(),
+		account,
+		http.StatusNotFound,
+		http.Header{},
+		[]byte(`{"error":{"message":"endpoint not found"}}`),
+	)
+
+	require.True(t, shouldDisable)
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Equal(t, 1, repo.tempCalls)
+	require.Empty(t, repo.modelRateLimitCalls)
+}
+
 func TestOpenAIRuntimeBlock_DoesNotShortenExistingBlock(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	account := &Account{ID: 46, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
@@ -273,9 +471,9 @@ func TestOpenAIRuntimeBlock_DoesNotShortenExistingBlock(t *testing.T) {
 
 	value, ok := svc.openaiAccountRuntimeBlockUntil.Load(account.ID)
 	require.True(t, ok)
-	actualEntry, ok := loadOpenAIAccountRuntimeBlockEntry(value)
+	actualUntil, ok := loadOpenAIAccountRuntimeBlockEntry(value)
 	require.True(t, ok)
-	require.WithinDuration(t, longUntil, actualEntry.Until, time.Second)
+	require.WithinDuration(t, longUntil, actualUntil.Until, time.Second)
 }
 
 func TestOpenAIRuntimeBlock_ClearAccountSchedulingBlock(t *testing.T) {
@@ -289,7 +487,7 @@ func TestOpenAIRuntimeBlock_ClearAccountSchedulingBlock(t *testing.T) {
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
 
-func TestShouldStopOpenAIOAuth429Failover_OnlyDuringStorm(t *testing.T) {
+func TestShouldStopOpenAIOAuth429Failover_AfterBoundedFullWindows(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	account := &Account{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 	apiKeyAccount := &Account{ID: 43, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
@@ -297,11 +495,9 @@ func TestShouldStopOpenAIOAuth429Failover_OnlyDuringStorm(t *testing.T) {
 
 	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 1, &state))
 
-	for i := 0; i < openAIOAuth429StormThreshold; i++ {
-		svc.recordOpenAIOAuth429()
-	}
-
-	require.True(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 1, &state))
+	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 1, &state))
+	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 2, &state))
+	require.True(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 3, &state))
 	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(apiKeyAccount, http.StatusTooManyRequests, 1, &state))
 	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusInternalServerError, 1, &state))
 	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 0, &state))
@@ -336,80 +532,21 @@ func TestShouldStopOpenAIOAuth429Failover_TracksOneGrokFollowupAttempt(t *testin
 	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(apiKeyAccount, http.StatusTooManyRequests, 2, &state))
 }
 
-// Prod incident 2026-07-06 (GPT-pro1): spark usage_limit_reached 429 with a healthy
-// account-wide codex window must model-scope — not whole-account runtime-block or
-// SetRateLimited — so gpt-5.4/5.5 keep scheduling on the same OAuth account.
-func TestHandleOpenAIAccountUpstreamError_Spark429HealthyWindow_ModelScopedOnly(t *testing.T) {
-	repo := &rateLimitAccountRepoStub{}
-	svc, _ := newOpenAIGatewayWithRateLimit(repo)
-	account := newOpenAICodexAccount(9, AccountTypeOAuth)
-	body := []byte(`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"pro","resets_at":1783336071,"resets_in_seconds":14903}}`)
-
-	shouldDisable := svc.handleOpenAIAccountUpstreamError(
-		context.Background(),
-		account,
-		http.StatusTooManyRequests,
-		codexGeneralWindowHeaders(4, 1),
-		body,
-		codexSparkModel,
-	)
-
-	require.False(t, shouldDisable)
-	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account), "spark sub-limit must not whole-account runtime-block")
-	require.Len(t, repo.modelRateLimitCalls, 1, "spark cooldown must be model-scoped")
-	require.Equal(t, codexSparkModel, repo.modelRateLimitCalls[0].scope)
-	require.Zero(t, repo.setRateLimitedCalls, "healthy general window must not SetRateLimited whole account")
+func newOpenAIGatewayWithRateLimit(repo *rateLimitAccountRepoStub) (*OpenAIGatewayService, *RateLimitService) {
+	gateway := &OpenAIGatewayService{}
+	rls := newG4RateLimitService(repo)
+	rls.settingService = settingServiceWithMaxCooldown("")
+	rls.SetAccountRuntimeBlocker(gateway)
+	gateway.rateLimitService = rls
+	return gateway, rls
 }
 
-func TestHandleOpenAIAccountUpstreamError_Spark429GeneralWindowExhausted_WholeAccount(t *testing.T) {
-	repo := &rateLimitAccountRepoStub{}
-	svc, _ := newOpenAIGatewayWithRateLimit(repo)
-	account := newOpenAICodexAccount(9, AccountTypeOAuth)
-	body := codexUsageLimitBody
-	headers := codexGeneralWindowHeaders(100, 1)
-	headers.Set("x-codex-primary-reset-after-seconds", "7620")
-
-	shouldDisable := svc.handleOpenAIAccountUpstreamError(
-		context.Background(),
-		account,
-		http.StatusTooManyRequests,
-		headers,
-		body,
-		codexSparkModel,
-	)
-
-	require.False(t, shouldDisable)
-	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account), "account-wide window exhaustion must runtime-block")
-	require.Empty(t, repo.modelRateLimitCalls)
-	require.Equal(t, 1, repo.setRateLimitedCalls)
+func codex7dExhaustedHeaders(reset7dSeconds int) http.Header {
+	h := codexGeneralWindowHeaders(1, 100)
+	h.Set("x-codex-secondary-reset-after-seconds", strconv.Itoa(reset7dSeconds))
+	return h
 }
 
-func TestPersistOpenAIWSRateLimitSignal_Spark429HealthyWindow_ModelScopedOnly(t *testing.T) {
-	repo := &rateLimitAccountRepoStub{}
-	svc, _ := newOpenAIGatewayWithRateLimit(repo)
-	account := newOpenAICodexAccount(9, AccountTypeOAuth)
-	body := []byte(`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"pro","resets_at":1783336071,"resets_in_seconds":14903}}`)
-
-	svc.persistOpenAIWSRateLimitSignal(
-		context.Background(),
-		account,
-		codexGeneralWindowHeaders(4, 1),
-		body,
-		"rate_limit_exceeded",
-		"usage_limit_reached",
-		"The usage limit has been reached",
-		codexSparkModel,
-	)
-
-	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account), "WS spark sub-limit must not whole-account runtime-block")
-	require.Len(t, repo.modelRateLimitCalls, 1, "WS spark cooldown must be model-scoped")
-	require.Equal(t, codexSparkModel, repo.modelRateLimitCalls[0].scope)
-	require.Zero(t, repo.setRateLimitedCalls, "healthy general window must not SetRateLimited whole account")
-}
-
-// Prod incident 2026-07-28 (GPT-pro3/4): unclamped 7d header reset written by the
-// fast-path outlived the clamped DB cooldown. Runtime blocks must follow the same
-// notifyAccountSchedulingBlocked funnel as SetRateLimited.
 func TestHandleOpenAIAccountUpstreamError_7d429_RuntimeBlockMatchesClampedDB(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	gateway, _ := newOpenAIGatewayWithRateLimit(repo)
@@ -458,22 +595,4 @@ func TestReconcileOpenAIAccountRuntimeBlockWithDB_ClearsStale429Drift(t *testing
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 	_, ok := svc.openaiAccountRuntimeBlockUntil.Load(account.ID)
 	require.False(t, ok)
-}
-
-func TestReconcileOpenAIAccountRuntimeBlockWithDB_PreservesShortOAuth401Block(t *testing.T) {
-	svc := &OpenAIGatewayService{}
-	pastReset := time.Now().Add(-time.Hour)
-	account := &Account{
-		ID:               73,
-		Platform:         PlatformOpenAI,
-		Type:             AccountTypeOAuth,
-		RateLimitResetAt: &pastReset,
-	}
-	oauthUntil := time.Now().Add(10 * time.Minute)
-	svc.openaiAccountRuntimeBlockUntil.Store(account.ID, openAIAccountRuntimeBlockEntry{
-		Until:  oauthUntil,
-		Reason: "oauth_401",
-	})
-
-	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }

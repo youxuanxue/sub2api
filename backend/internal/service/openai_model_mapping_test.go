@@ -103,7 +103,7 @@ func TestResolveOpenAIForwardModel(t *testing.T) {
 			expectedModel:  "gpt-5.5",
 		},
 		{
-			name: "preserves gpt-5.5-pro before upstream normalization",
+			name: "ordinary gpt-5.5-pro request keeps requested model",
 			account: &Account{
 				Credentials: map[string]any{},
 			},
@@ -142,15 +142,6 @@ func TestResolveOpenAIForwardModel(t *testing.T) {
 			requestedModel:              "gpt-5.5",
 			messagesDispatchMappedModel: "  ",
 			expectedModel:               "gpt-5.5",
-		},
-		{
-			name: "grok keeps native sku when default mapped model is set",
-			account: &Account{
-				Platform:    PlatformGrok,
-				Credentials: map[string]any{},
-			},
-			requestedModel: "grok-4.20-0309-reasoning",
-			expectedModel:  "grok-4.20-0309-reasoning",
 		},
 	}
 
@@ -231,24 +222,137 @@ func TestResolveOpenAICompactForwardModel(t *testing.T) {
 	}
 }
 
-// TestNormalizeCodexModel pins the algorithm branches (version-prefix suffix
-// stripping, image-generation passthrough, unknown-model passthrough) — NOT
-// the codexModelMap alias table itself, which TestNormalizeOpenAIModelForUpstream
-// already exercises through the OAuth path for the specific aliases that
-// matter (gpt-5.3, codex-mini-latest, ...). Duplicating those literal map
-// entries here would just mirror the SSOT table instead of testing behavior.
+func TestResolveOpenAIForwardMappedModels_CompactMappingPrecedence(t *testing.T) {
+	conflictingMappings := map[string]any{
+		"model_mapping":         map[string]any{"gpt-5.5": "gpt-5.4"},
+		"compact_model_mapping": map[string]any{"gpt-5.5": "gpt-5.5-openai-compact"},
+	}
+	mappedOnlyCompact := map[string]any{
+		"model_mapping":         map[string]any{"gpt-5.5": "gpt-5.4"},
+		"compact_model_mapping": map[string]any{"gpt-5.4": "gpt-5.4-openai-compact"},
+	}
+	tests := []struct {
+		name           string
+		account        *Account
+		requireCompact bool
+		wantBilling    string
+		wantUpstream   string
+	}{
+		{
+			name: "compact uses client-visible model before ordinary mapping",
+			account: &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+				Credentials: conflictingMappings},
+			requireCompact: true,
+			wantBilling:    "gpt-5.4",
+			wantUpstream:   "gpt-5.5-openai-compact",
+		},
+		{
+			name: "non-compact uses ordinary mapping",
+			account: &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+				Credentials: conflictingMappings},
+			wantBilling:  "gpt-5.4",
+			wantUpstream: "gpt-5.4",
+		},
+		{
+			name: "compact falls back to ordinary mapped model",
+			account: &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+				Credentials: mappedOnlyCompact},
+			requireCompact: true,
+			wantBilling:    "gpt-5.4",
+			wantUpstream:   "gpt-5.4-openai-compact",
+		},
+		{
+			name: "passthrough ignores ordinary mapping",
+			account: &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+				Credentials: conflictingMappings, Extra: map[string]any{"openai_passthrough": true}},
+			requireCompact: true,
+			wantBilling:    "gpt-5.5",
+			wantUpstream:   "gpt-5.5-openai-compact",
+		},
+		{
+			name: "raw chat fallback never applies compact mapping",
+			account: &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+				Credentials: conflictingMappings, Extra: map[string]any{"openai_responses_supported": false}},
+			requireCompact: true,
+			wantBilling:    "gpt-5.4",
+			wantUpstream:   "gpt-5.4",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			billing, upstream := resolveOpenAIForwardMappedModels(tt.account, "gpt-5.5", tt.requireCompact)
+			if billing != tt.wantBilling {
+				t.Fatalf("billing model = %q, want %q", billing, tt.wantBilling)
+			}
+			if upstream != tt.wantUpstream {
+				t.Fatalf("upstream model = %q, want %q", upstream, tt.wantUpstream)
+			}
+			if scheduler := resolveOpenAIAccountUpstreamModelForRequest(tt.account, "gpt-5.5", tt.requireCompact); scheduler != upstream {
+				t.Fatalf("scheduler model %q disagrees with Forward model %q", scheduler, upstream)
+			}
+		})
+	}
+}
+
+func TestCanonicalOpenAIAccountSchedulingModelMatchesForwardSemantics(t *testing.T) {
+	tests := []struct {
+		name    string
+		account *Account
+		model   string
+		want    string
+	}{
+		{
+			name:    "OpenAI OAuth applies Codex alias normalization",
+			account: &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth},
+			model:   "gpt-5.6",
+			want:    "gpt-5.6-sol",
+		},
+		{
+			name: "OpenAI passthrough ignores ordinary account mapping",
+			account: &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+				Credentials: map[string]any{"model_mapping": map[string]any{"public": "private"}},
+				Extra:       map[string]any{"openai_passthrough": true}},
+			model: "public",
+			want:  "public",
+		},
+		{
+			name:    "Grok OAuth does not inherit OpenAI Codex aliases",
+			account: &Account{Platform: PlatformGrok, Type: AccountTypeOAuth},
+			model:   "gpt-5.6",
+			want:    "gpt-5.6",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := canonicalOpenAIAccountSchedulingModel(tt.account, tt.model); got != tt.want {
+				t.Fatalf("canonical scheduling model = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveOpenAIErrorSchedulingModelPrefersActualUpstreamModel(t *testing.T) {
+	if got := resolveOpenAIErrorSchedulingModel("gpt-5.4", "gpt-5.5-openai-compact"); got != "gpt-5.5-openai-compact" {
+		t.Fatalf("error scheduling model = %q, want compact upstream model", got)
+	}
+	if got := resolveOpenAIErrorSchedulingModel("gpt-5.4", ""); got != "gpt-5.4" {
+		t.Fatalf("empty upstream fallback = %q, want billing model", got)
+	}
+}
+
 func TestNormalizeCodexModel(t *testing.T) {
 	cases := map[string]string{
-		"gpt-5.3-codex-spark":       "gpt-5.3-codex-spark", // exact prefix match
-		"gpt-5.3-codex-spark-high":  "gpt-5.3-codex-spark", // suffix stripped via codexVersionModelPrefixes
+		"gpt-5.3-codex-spark":       "gpt-5.3-codex-spark",
+		"gpt-5.3-codex-spark-high":  "gpt-5.3-codex-spark",
 		"gpt-5.3-codex-spark-xhigh": "gpt-5.3-codex-spark",
-		"gpt-5.3-codex":             "gpt-5.3-codex-spark", // non-display legacy alias
-		"gpt-5.3-codex-high":        "gpt-5.3-codex-spark",
-		"gpt-5-codex-xhigh":         "gpt-5.3-codex-spark",
-		"gpt-image-2":               "gpt-image-2",     // image-generation models pass through unmapped
-		"gpt-5.4-nano-high":         "gpt-5.4-nano",    // unknown reasoning-effort suffix stripped
-		"gpt6":                      "gpt6",            // unknown gpt model passes through unchanged
-		"claude-opus-4-6":           "claude-opus-4-6", // non-gpt model passes through unchanged
+		"gpt-5.3":                   "gpt-5.3-codex-spark",
+		"gpt-image-2":               "gpt-image-2",
+		"gpt-5.4-nano":              "gpt-5.4-nano",
+		"gpt-5.4-nano-high":         "gpt-5.4-nano",
+		"gpt6":                      "gpt6",
+		"claude-opus-4-6":           "claude-opus-4-6",
 	}
 
 	for input, expected := range cases {
@@ -308,34 +412,10 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			want:    "codex-auto-review",
 		},
 		{
-			name:    "oauth maps legacy gpt-5.3-codex alias to spark",
-			account: &Account{Type: AccountTypeOAuth},
-			model:   "gpt-5.3-codex",
-			want:    "gpt-5.3-codex-spark",
-		},
-		{
-			name:    "oauth maps bare gpt-5.3 alias to spark",
-			account: &Account{Type: AccountTypeOAuth},
-			model:   "gpt-5.3",
-			want:    "gpt-5.3-codex-spark",
-		},
-		{
-			name:    "oauth normalizes codex-mini-latest alias to spark via codexModelMap",
-			account: &Account{Type: AccountTypeOAuth},
-			model:   "codex-mini-latest",
-			want:    "gpt-5.3-codex-spark",
-		},
-		{
-			name:    "oauth routes gpt-5.3-chat-latest alias to spark",
-			account: &Account{Type: AccountTypeOAuth},
-			model:   "gpt-5.3-chat-latest",
-			want:    "gpt-5.3-codex-spark",
-		},
-		{
-			name:    "oauth spark model not remapped",
-			account: &Account{Type: AccountTypeOAuth},
-			model:   "gpt-5.3-codex-spark",
-			want:    "gpt-5.3-codex-spark",
+			name:    "apikey preserves official bare GPT-5.6 alias",
+			account: &Account{Type: AccountTypeAPIKey},
+			model:   "gpt-5.6",
+			want:    "gpt-5.6",
 		},
 		{
 			name:    "apikey preserves custom compatible model",
@@ -349,24 +429,6 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			model:   "gpt-4.1",
 			want:    "gpt-4.1",
 		},
-		{
-			name: "grok oauth keeps native sku unchanged",
-			account: &Account{
-				Platform: PlatformGrok,
-				Type:     AccountTypeOAuth,
-			},
-			model: "grok-build-0.1",
-			want:  "grok-build-0.1",
-		},
-		{
-			name: "grok apikey keeps native sku unchanged",
-			account: &Account{
-				Platform: PlatformGrok,
-				Type:     AccountTypeAPIKey,
-			},
-			model: "grok-code-fast-1",
-			want:  "grok-code-fast-1",
-		},
 	}
 
 	for _, tt := range tests {
@@ -375,15 +437,6 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 				t.Fatalf("normalizeOpenAIModelForUpstream(...) = %q, want %q", got, tt.want)
 			}
 		})
-	}
-}
-
-// The ChatGPT OAuth rewrite table must stay empty until the upstream contract
-// flips again (2026-06-10 prod probe): canonical names go upstream as-is so
-// clients see the real upstream 400 instead of a silently rewritten model.
-func TestChatGPTOAuthUpstreamModelNamesIsEmpty(t *testing.T) {
-	if len(chatGPTOAuthUpstreamModelNames) != 0 {
-		t.Fatalf("chatGPTOAuthUpstreamModelNames = %#v, want empty map (see contract timeline in openai_codex_transform.go)", chatGPTOAuthUpstreamModelNames)
 	}
 }
 
@@ -401,7 +454,7 @@ func TestUsageBillingModelCandidatesPreserveCodexAutoReviewModel(t *testing.T) {
 	}
 }
 
-func TestUsageBillingModelCandidatesRouteGPT55ProAlias(t *testing.T) {
+func TestUsageBillingModelCandidatesPreserveGPT55ProModel(t *testing.T) {
 	candidates := usageBillingModelCandidates("openai/gpt-5.5-pro")
 
 	expected := []string{"openai/gpt-5.5-pro", "gpt-5.5-pro", "gpt-5.5"}

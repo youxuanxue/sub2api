@@ -110,7 +110,9 @@ func sanitizeGroupMessagesDispatchFields(g *Group) {
 	if g == nil || tkGroupKeepsDispatchConfig(g) {
 		return
 	}
-	g.AllowMessagesDispatch = false
+	if g.Platform != PlatformComposite {
+		g.AllowMessagesDispatch = false
+	}
 	g.DefaultMappedModel = ""
 	g.MessagesDispatchModelConfig = OpenAIMessagesDispatchModelConfig{}
 }

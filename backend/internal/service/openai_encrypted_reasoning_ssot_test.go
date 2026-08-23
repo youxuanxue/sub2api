@@ -119,7 +119,7 @@ func collectCallNames(body *ast.BlockStmt) map[string]bool {
 }
 
 func callsObserver(calls map[string]bool) bool {
-	return calls[observeOpenAIResponsesEventName] || calls["observeOpenAIResponsesSSEBody"]
+	return calls[observeOpenAIResponsesEventName] || calls["observeOpenAIResponsesSSEBody"] || calls["ObserveOpenAI"]
 }
 
 func callsParser(calls map[string]bool) bool {

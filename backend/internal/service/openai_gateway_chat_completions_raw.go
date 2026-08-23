@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -76,6 +75,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	// 2. Resolve model mapping (same as ForwardAsChatCompletions)
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	SetOpsUpstreamModel(c, upstreamModel)
 	grokCacheIdentity := ""
 	if account.Platform == PlatformGrok {
 		// Resolve before image bridging or other body rewrites so the fallback is
@@ -100,7 +100,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if policyErr != nil {
 		var blocked *OpenAIFastBlockedError
 		if errors.As(policyErr, &blocked) {
-			MarkOpsClientPolicyDenied(c, OpsClientPolicyDeniedReasonLocalPolicyDenied)
+			MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
 			writeChatCompletionsError(c, http.StatusForbidden, "permission_error", blocked.Message)
 		}
 		return nil, policyErr
@@ -157,6 +157,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 			return nil, fmt.Errorf("normalize Grok chat reasoning effort: %w", err)
 		}
 	}
+	upstreamBody = applyOllamaCloudRawChatCompletionsRequest(account, upstreamBody)
 
 	logger.L().Debug("openai chat_completions raw: forwarding without protocol conversion",
 		zap.Int64("account_id", account.ID),
@@ -173,24 +174,14 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	}
 	SetActualOpenAIUpstreamEndpoint(c, grokChatRawEndpoint)
 	customUA := account.GetOpenAIUserAgent()
-	if customUA == "" && account.IsGrokOAuth() && c != nil {
-		customUA = strings.TrimSpace(c.GetHeader("User-Agent"))
-	}
 	if customUA == "" && account.IsGrokOAuth() {
-		customUA = grokUpstreamUserAgent
+		customUA = "sub2api-grok/1.0"
 	}
 	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, upstreamBody, clientStream, token, customUA, grokCacheIdentity)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-
-	// Grok (seventh platform): observe the xAI passive-quota rate-limit headers on
-	// every response (success or error) so the quota snapshot the admin panel /
-	// auto-pause path read stays fresh. No-op for non-grok accounts.
-	if account.IsGrok() {
-		s.updateGrokUsageFromResponse(ctx, account, resp.Header, resp.StatusCode)
-	}
 
 	// 7. Handle error response with failover
 	if resp.StatusCode >= 400 {
@@ -211,11 +202,16 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 			})
 			s.handleGrokAccountUpstreamError(withGrokTeamRateLimitModel(ctx, upstreamModel), account, resp.StatusCode, resp.Header, respBody)
 			if s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody) {
+				retryable, retryDelay, retryDeadline, retryMax := grokSameAccountRetryMetadata(account, resp.StatusCode, respBody)
 				return nil, &UpstreamFailoverError{
-					StatusCode:             resp.StatusCode,
-					ResponseBody:           respBody,
-					ResponseHeaders:        resp.Header.Clone(),
-					RetryableOnSameAccount: tkOpenAICompatRetryableOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody, false),
+					StatusCode:               resp.StatusCode,
+					ResponseBody:             respBody,
+					ResponseHeaders:          resp.Header.Clone(),
+					RetryableOnSameAccount:   retryable,
+					RequestScopedTransient:   retryable && resp.StatusCode == http.StatusTooManyRequests,
+					SameAccountRetryDelay:    retryDelay,
+					SameAccountRetryDeadline: retryDeadline,
+					SameAccountRetryMax:      retryMax,
 				}
 			}
 			return s.handleChatCompletionsErrorResponse(resp, c, account, billingModel)
@@ -224,6 +220,10 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 			return nil, foErr
 		}
 		return s.handleChatCompletionsErrorResponse(resp, c, account, billingModel)
+	}
+
+	if account.Platform == PlatformGrok {
+		s.updateGrokUsageFromResponse(withGrokTeamRateLimitModel(ctx, upstreamModel), account, resp.Header, resp.StatusCode)
 	}
 
 	// 8. Forward response
@@ -257,7 +257,11 @@ func (s *OpenAIGatewayService) rawChatCompletionsURL(account *Account) (string, 
 		}
 		return buildOpenAIChatCompletionsURL(validatedURL), nil
 	case account.IsGrokOAuth():
-		return buildGrokChatCompletionsURL(account, s.cfg)
+		targetURL, err := buildGrokChatCompletionsURL(account, s.cfg, s.settingService)
+		if err != nil {
+			return "", fmt.Errorf("invalid grok base_url: %w", err)
+		}
+		return targetURL, nil
 	default:
 		return s.openAIChatCompletionsTargetURL(account)
 	}
@@ -293,9 +297,6 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	var firstTokenMs *int
 	clientDisconnected := false
 	// TK silent-refusal observer (post-stream ops event): see Wei-Shaw/sub2api#2556.
-	// Coexists with the upstream pre-stream detector below; observer collects
-	// shape signals for the ops_error categorical event, detector drives the
-	// active buffering / failover decision.
 	var refusalObs chatRawStreamObservations
 	clientOutputStarted := false
 	pendingLines := make([]string, 0, 8)
@@ -338,16 +339,12 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		refusalDetector.ObserveSSELine(line)
 		if payload, ok := extractOpenAISSEDataLine(line); ok {
 			// TK fix for upstream Wei-Shaw/sub2api#2298: drop empty / whitespace-only
-			// `data:` SSE frames before forwarding. The OpenAI Python SDK crashes
-			// on json.loads("") for the chat completions raw passthrough path the
-			// same way it does for /v1/responses. See openAISSEDataPayloadIsEmpty
-			// for the canonical rationale.
+			// `data:` SSE frames before forwarding. See openAISSEDataPayloadIsEmpty
 			if openAISSEDataPayloadIsEmpty(payload) {
 				continue
 			}
 			trimmedPayload := strings.TrimSpace(payload)
 			if trimmedPayload != "[DONE]" {
-				observeOpenAIResponsesEvent(c, []byte(payload))
 				observer.ObserveOpenAI([]byte(payload), strings.TrimSpace(gjson.Get(payload, "type").String()))
 				usageOnlyChunk := isOpenAIChatUsageOnlyStreamChunk(payload)
 				if u := extractCCStreamUsage(payload); u != nil {
@@ -360,6 +357,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 				refusalObs.Observe(payload)
 			}
 		}
+		line = applyOllamaCloudRawChatCompletionsSSELine(account, line)
 
 		writeLine(line)
 		if line == "" {
@@ -489,31 +487,28 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
 	}
-	observeOpenAIResponsesEvent(c, respBody)
 	observer.ObserveOpenAI(respBody, strings.TrimSpace(gjson.GetBytes(respBody, "type").String()))
 
 	var usage OpenAIUsage
 	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
 		usage = parsedUsage
 	}
-	responseModel := gjson.GetBytes(respBody, "model").String()
-	if requiresBillableGrokChatUsage(account, billingModel, upstreamModel, responseModel) && !hasBillableGrokChatUsage(usage) {
-		upstreamRequestID := firstNonEmpty(requestID, resp.Header.Get("xai-request-id"))
-		return nil, newGrokMissingUsageFailoverError(c, account, upstreamRequestID)
-	}
-
-	// Silent-refusal detection on the non-streaming response shape.
-	// See upstream Wei-Shaw/sub2api#2556.
 	var refusalObs chatRawStreamObservations
 	refusalObs.ObserveBufferedResponse(respBody)
 	if refusalObs.IsSilentRefusal(usage) {
-		logger.L().Warn("openai chat_completions raw: silent refusal detected (buffered)",
+		logger.L().Warn("openai chat_completions raw: silent refusal detected",
 			zap.String("request_id", requestID),
 			zap.Int64("account_id", account.ID),
 			zap.String("upstream_model", upstreamModel),
 		)
 		recordOpenAIChatRawSilentRefusal(c, account, requestID)
 	}
+	responseModel := gjson.GetBytes(respBody, "model").String()
+	if requiresBillableGrokChatUsage(account, billingModel, upstreamModel, responseModel) && !hasBillableGrokChatUsage(usage) {
+		upstreamRequestID := firstNonEmpty(requestID, resp.Header.Get("xai-request-id"))
+		return nil, newGrokMissingUsageFailoverError(c, account, upstreamRequestID)
+	}
+	respBody = applyOllamaCloudRawChatCompletionsResponse(account, respBody)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -550,5 +545,5 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 //
 // 与 buildOpenAIResponsesURL 是姐妹函数。
 func buildOpenAIChatCompletionsURL(base string) string {
-	return buildOpenAIEndpointURL(base, apipath.ChatCompletions)
+	return buildOpenAIEndpointURL(base, "/v1/chat/completions")
 }

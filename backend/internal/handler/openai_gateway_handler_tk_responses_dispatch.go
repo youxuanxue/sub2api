@@ -42,3 +42,22 @@ func tkApplyResponsesDispatchModelMapping(
 	}
 	return replace(forwardBody, mapped)
 }
+
+// tkResponsesForwardDispatchBody applies group messages-dispatch model mapping and
+// failover reasoning stripping before a /v1/responses forward attempt.
+func tkResponsesForwardDispatchBody(
+	apiKey *service.APIKey,
+	account *service.Account,
+	forwardBody []byte,
+	failedAccountIDs map[int64]struct{},
+	replace openAIModelBodyReplaceFunc,
+) []byte {
+	dispatchBody := forwardBody
+	if tkShouldApplyMessagesDispatchBodyMapping(account) {
+		dispatchBody = tkApplyResponsesDispatchModelMapping(apiKey, forwardBody, replace)
+	}
+	if len(failedAccountIDs) > 0 {
+		dispatchBody = service.TkStripEncryptedReasoningForFailover(dispatchBody)
+	}
+	return dispatchBody
+}

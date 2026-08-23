@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"go.uber.org/zap"
 )
 
 // tkOpenAIDispatchSelectionFallbackModel returns the group-level
@@ -47,4 +49,81 @@ func tkOpenAIDispatchSelectionAllowsFallback(err error) bool {
 		return true
 	}
 	return isOpsNoAvailableAccountError(err)
+}
+
+type tkSchedulerCapabilitySelectArgs struct {
+	GroupID                    *int64
+	PreviousResponseID         string
+	SessionHash                string
+	FailedAccountIDs           map[int64]struct{}
+	Transport                  service.OpenAIUpstreamTransport
+	Capability                 service.OpenAIEndpointCapability
+	RequireCompact             bool
+	PreviousResponseCanMove    bool
+	ExcludeImageIntentAccounts bool
+	Platform                   string
+}
+
+func (h *OpenAIGatewayHandler) tkSelectAccountWithSchedulerDispatchFallback(
+	ctx context.Context,
+	reqLog *zap.Logger,
+	mappedModel string,
+	routingModel string,
+	logEvent string,
+	args tkSchedulerCapabilitySelectArgs,
+) (*service.AccountSelectionResult, service.OpenAIAccountScheduleDecision, string, error) {
+	selectFor := func(model string) (*service.AccountSelectionResult, service.OpenAIAccountScheduleDecision, error) {
+		return h.gatewayService.SelectAccountWithSchedulerForCapability(
+			ctx,
+			args.GroupID,
+			args.PreviousResponseID,
+			args.SessionHash,
+			model,
+			args.FailedAccountIDs,
+			args.Transport,
+			args.Capability,
+			args.RequireCompact,
+			args.PreviousResponseCanMove,
+			args.ExcludeImageIntentAccounts,
+			args.Platform,
+		)
+	}
+	selection, scheduleDecision, err := selectFor(routingModel)
+	effectiveRoutingModel := routingModel
+	if fallbackModel, ok := tkOpenAIDispatchSelectionFallbackModel(mappedModel, routingModel, err); ok {
+		reqLog.Info(logEvent,
+			zap.String("from_model", routingModel),
+			zap.String("to_model", fallbackModel),
+			zap.Error(err),
+		)
+		selection, scheduleDecision, err = selectFor(fallbackModel)
+		if err == nil {
+			effectiveRoutingModel = fallbackModel
+		}
+	}
+	return selection, scheduleDecision, effectiveRoutingModel, err
+}
+
+func (h *OpenAIGatewayHandler) tkSelectAccountForTokenCountWithDispatchFallback(
+	ctx context.Context,
+	reqLog *zap.Logger,
+	mappedModel string,
+	routingModel string,
+	logEvent string,
+	selectFn func(model string) (*service.Account, error),
+) (*service.Account, string, error) {
+	account, err := selectFn(routingModel)
+	effectiveRoutingModel := routingModel
+	if fallbackModel, ok := tkOpenAIDispatchSelectionFallbackModel(mappedModel, routingModel, err); ok {
+		reqLog.Info(logEvent,
+			zap.String("from_model", routingModel),
+			zap.String("to_model", fallbackModel),
+			zap.Error(err),
+		)
+		account, err = selectFn(fallbackModel)
+		if err == nil {
+			effectiveRoutingModel = fallbackModel
+		}
+	}
+	return account, effectiveRoutingModel, err
 }

@@ -180,8 +180,14 @@ func normalizeOpenAIResponsesLiteToolsPayload(body []byte) ([]byte, bool, error)
 		return body, false, fmt.Errorf("decode responses Lite request body: %w", err)
 	}
 	changed, err := normalizeOpenAIResponsesLiteTools(requestBody)
-	if err != nil || !changed {
+	if err != nil {
 		return body, false, err
+	}
+	if ensureCodexReasoningContextAllTurns(requestBody) {
+		changed = true
+	}
+	if !changed {
+		return body, false, nil
 	}
 	rebuilt, err := marshalOpenAIUpstreamJSON(requestBody)
 	if err != nil {

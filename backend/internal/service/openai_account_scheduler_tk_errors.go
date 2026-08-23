@@ -133,10 +133,10 @@ func openAICompatNoCandidateError(requestedModel, groupPlatform string, compactB
 			}
 			return err
 		}
-		return fmt.Errorf("no available accounts for platform %q", openAICompatErrorPlatformLabel(groupPlatform))
+		return fmt.Errorf("%w for platform %q", ErrNoAvailableAccounts, openAICompatErrorPlatformLabel(groupPlatform))
 	}
 	if groupPlatform != "" && groupPlatform != PlatformOpenAI {
-		return fmt.Errorf("no available accounts for platform %q", openAICompatErrorPlatformLabel(groupPlatform))
+		return fmt.Errorf("%w for platform %q", ErrNoAvailableAccounts, openAICompatErrorPlatformLabel(groupPlatform))
 	}
 	return noAvailableOpenAISelectionError(requestedModel, compactBlocked, groupPlatform, "")
 }

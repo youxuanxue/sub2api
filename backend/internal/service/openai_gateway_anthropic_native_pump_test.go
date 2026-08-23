@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 )
 
 func newNativeAnthropicHangTestService(intervalSec int) *OpenAIGatewayService {
@@ -231,14 +232,11 @@ func TestCCBufferedFromNativeAnthropic_HappyPathStillConverts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res == nil {
-		t.Fatalf("expected result")
-	}
+	require.NotNil(t, res)
 	body := rec.Body.String()
 	if !strings.Contains(body, "Hello") {
 		t.Fatalf("expected converted text in buffered response, got %q", body)
 	}
-	if res.Usage.InputTokens != 10 || res.Usage.OutputTokens != 5 {
-		t.Fatalf("expected usage 10/5, got %+v", res.Usage)
-	}
+	require.Equal(t, 10, res.Usage.InputTokens)
+	require.Equal(t, 5, res.Usage.OutputTokens)
 }

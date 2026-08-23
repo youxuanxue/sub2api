@@ -24,25 +24,41 @@ func TestExtractCCReasoningEffortFromBody(t *testing.T) {
 	t.Parallel()
 
 	t.Run("nested reasoning.effort", func(t *testing.T) {
-		got := ExtractChatCompletionsReasoningEffortFromBody([]byte(`{"reasoning":{"effort":"HIGH"}}`))
+		got := extractCCReasoningEffortFromBody([]byte(`{"reasoning":{"effort":"HIGH"}}`))
 		require.NotNil(t, got)
 		require.Equal(t, "high", *got)
 	})
 
 	t.Run("flat reasoning_effort", func(t *testing.T) {
-		got := ExtractChatCompletionsReasoningEffortFromBody([]byte(`{"reasoning_effort":"x-high"}`))
+		got := extractCCReasoningEffortFromBody([]byte(`{"reasoning_effort":"x-high"}`))
 		require.NotNil(t, got)
 		require.Equal(t, "xhigh", *got)
 	})
 
 	t.Run("DeepSeek max", func(t *testing.T) {
-		got := ExtractChatCompletionsReasoningEffortFromBody([]byte(`{"reasoning_effort":"Max"}`))
+		got := extractCCReasoningEffortFromBody([]byte(`{"model":"deepseek-v4-flash","reasoning_effort":"Max"}`))
+		require.NotNil(t, got)
+		require.Equal(t, "max", *got)
+	})
+
+	t.Run("mapped Kimi alias max", func(t *testing.T) {
+		got := extractCCReasoningEffortFromBody(
+			[]byte(`{"model":"public-alias","reasoning_effort":"max"}`),
+			"kimi-k3",
+			"public-alias",
+		)
+		require.NotNil(t, got)
+		require.Equal(t, "max", *got)
+	})
+
+	t.Run("legacy model max", func(t *testing.T) {
+		got := extractCCReasoningEffortFromBody([]byte(`{"model":"gpt-5.5","reasoning_effort":"max"}`))
 		require.NotNil(t, got)
 		require.Equal(t, "xhigh", *got)
 	})
 
 	t.Run("missing effort", func(t *testing.T) {
-		require.Nil(t, ExtractChatCompletionsReasoningEffortFromBody([]byte(`{"model":"gpt-5"}`)))
+		require.Nil(t, extractCCReasoningEffortFromBody([]byte(`{"model":"gpt-5"}`)))
 	})
 }
 
@@ -79,6 +95,78 @@ func TestHandleCCBufferedFromAnthropic_PreservesMessageStartCacheUsageAndReasoni
 	require.Equal(t, 3, result.Usage.CacheCreationInputTokens)
 	require.NotNil(t, result.ReasoningEffort)
 	require.Equal(t, "high", *result.ReasoningEffort)
+}
+
+// Kimi 等 Anthropic 兼容上游返回 SSE 紧凑格式（冒号后无空格），CC 桥此前按
+// "event: " / "data: " 严格匹配会丢弃全部事件，最终报 "Upstream stream ended
+// without a response"（#4653 同根因；#4657 只修了 /v1/responses 桥）。
+func TestHandleCCBufferedFromAnthropic_CompactSSEFormat(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	resp := &http.Response{
+		Header: http.Header{"x-request-id": []string{"rid_cc_buffered_compact"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`event:message_start`,
+			`data:{"type":"message_start","message":{"id":"msg_c1","type":"message","role":"assistant","content":[],"model":"k3","stop_reason":"","usage":{"input_tokens":15,"cache_read_input_tokens":5,"cache_creation_input_tokens":2}}}`,
+			``,
+			`event:content_block_start`,
+			`data:{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"OK"}}`,
+			``,
+			`event:message_delta`,
+			`data:{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}`,
+			``,
+		}, "\n"))),
+	}
+
+	svc := &GatewayService{}
+	result, err := svc.handleCCBufferedFromAnthropic(resp, c, "k3", "k3", nil, time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 15, result.Usage.InputTokens)
+	require.Equal(t, 3, result.Usage.OutputTokens)
+	require.Equal(t, 5, result.Usage.CacheReadInputTokens)
+	require.Equal(t, 2, result.Usage.CacheCreationInputTokens)
+	require.Contains(t, rec.Body.String(), `"OK"`, "紧凑格式事件必须被解析并产出响应内容")
+}
+
+func TestHandleCCStreamingFromAnthropic_CompactSSEFormat(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	resp := &http.Response{
+		Header: http.Header{"x-request-id": []string{"rid_cc_stream_compact"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`event:message_start`,
+			`data:{"type":"message_start","message":{"id":"msg_c2","type":"message","role":"assistant","content":[],"model":"k3","stop_reason":"","usage":{"input_tokens":21,"cache_read_input_tokens":6,"cache_creation_input_tokens":1}}}`,
+			``,
+			`event:content_block_start`,
+			`data:{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"OK"}}`,
+			``,
+			`event:message_delta`,
+			`data:{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":4}}`,
+			``,
+			`event:message_stop`,
+			`data:{"type":"message_stop"}`,
+			``,
+		}, "\n"))),
+	}
+
+	svc := &GatewayService{}
+	result, err := svc.handleCCStreamingFromAnthropic(resp, c, "k3", "k3", nil, time.Now(), true)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 21, result.Usage.InputTokens)
+	require.Equal(t, 4, result.Usage.OutputTokens)
+	require.Equal(t, 6, result.Usage.CacheReadInputTokens)
+	require.Equal(t, 1, result.Usage.CacheCreationInputTokens)
+	require.Contains(t, rec.Body.String(), `[DONE]`)
 }
 
 func TestHandleCCStreamingFromAnthropic_PreservesMessageStartCacheUsageAndReasoning(t *testing.T) {
@@ -120,78 +208,6 @@ func TestHandleCCStreamingFromAnthropic_PreservesMessageStartCacheUsageAndReason
 	require.Contains(t, rec.Body.String(), `[DONE]`)
 }
 
-func TestForwardAsChatCompletions_AnthropicAccountBridgesViaMessages(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}],"max_tokens":32,"stream":false}`)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	upstreamBody := `event: message_start
-data: {"type":"message_start","message":{"id":"msg_smoke","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[],"usage":{"input_tokens":4,"output_tokens":0}}}
-
-event: content_block_start
-data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
-
-event: content_block_delta
-data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"E2E-OPENAI-OK"}}
-
-event: content_block_stop
-data: {"type":"content_block_stop","index":0}
-
-event: message_delta
-data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}
-
-event: message_stop
-data: {"type":"message_stop"}
-
-`
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_chat_messages_bridge"}},
-		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
-	}}
-
-	svc := &GatewayService{
-		cfg:          &config.Config{},
-		httpUpstream: upstream,
-	}
-	account := &Account{
-		ID:          400,
-		Name:        "anthropic-smoke",
-		Platform:    PlatformAnthropic,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key": "sk-ant-smoke",
-		},
-	}
-
-	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, nil)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, "claude-sonnet-4-6", result.Model)
-	require.Equal(t, "claude-sonnet-4-6", result.UpstreamModel)
-	require.False(t, result.Stream)
-	require.Equal(t, 4, result.Usage.InputTokens)
-	require.Equal(t, 5, result.Usage.OutputTokens)
-
-	require.NotNil(t, upstream.lastReq)
-	require.Equal(t, "/v1/messages", upstream.lastReq.URL.Path)
-	require.Equal(t, "claude-sonnet-4-6", gjson.GetBytes(upstream.lastBody, "model").String())
-	require.True(t, gjson.GetBytes(upstream.lastBody, "messages").Exists())
-	require.False(t, gjson.GetBytes(upstream.lastBody, "choices").Exists())
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "chat.completion", gjson.GetBytes(rec.Body.Bytes(), "object").String())
-	require.Equal(t, "claude-sonnet-4-6", gjson.GetBytes(rec.Body.Bytes(), "model").String())
-	require.Equal(t, "E2E-OPENAI-OK", gjson.GetBytes(rec.Body.Bytes(), "choices.0.message.content").String())
-	require.Equal(t, "stop", gjson.GetBytes(rec.Body.Bytes(), "choices.0.finish_reason").String())
-	require.True(t, gjson.GetBytes(rec.Body.Bytes(), "usage").Exists())
-}
-
 type kiroCCUpstreamRecorder struct {
 	lastReq *http.Request
 }
@@ -210,6 +226,18 @@ func (u *kiroCCUpstreamRecorder) DoWithTLS(req *http.Request, _ string, _ int64,
 		Header:     make(http.Header),
 		Body:       io.NopCloser(bytes.NewReader(frame)),
 	}, nil
+}
+
+func (u *kiroCCUpstreamRecorder) lastReqBody() []byte {
+	if u.lastReq == nil || u.lastReq.Body == nil {
+		return nil
+	}
+	body, err := io.ReadAll(u.lastReq.Body)
+	if err != nil {
+		return nil
+	}
+	u.lastReq.Body = io.NopCloser(bytes.NewReader(body))
+	return body
 }
 
 type relayHTTPUpstream struct {
@@ -283,39 +311,6 @@ func TestTkCCPreservesKiroUpstreamStream(t *testing.T) {
 	require.True(t, tkCCPreservesKiroUpstreamStream(oauth, true))
 }
 
-func TestHandleCCBufferedFromAnthropicJSON_ConvertsToChatCompletion(t *testing.T) {
-	t.Parallel()
-	gin.SetMode(gin.TestMode)
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	resp := &http.Response{
-		Header: http.Header{
-			"Content-Type": []string{"application/json"},
-			"x-request-id": []string{"msg_json_cc"},
-		},
-		Body: io.NopCloser(strings.NewReader(`{
-			"id":"msg_json_cc",
-			"type":"message",
-			"role":"assistant",
-			"content":[{"type":"text","text":"json-ok"}],
-			"model":"claude-sonnet-4-5",
-			"stop_reason":"end_turn",
-			"usage":{"input_tokens":5,"output_tokens":6}
-		}`)),
-	}
-
-	svc := &GatewayService{}
-	result, err := svc.handleCCBufferedFromAnthropicJSON(resp, c, "claude-sonnet-4-5", "claude-sonnet-4-5", nil, time.Now())
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, 5, result.Usage.InputTokens)
-	require.Equal(t, 6, result.Usage.OutputTokens)
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
-	require.Equal(t, "json-ok", gjson.GetBytes(rec.Body.Bytes(), "choices.0.message.content").String())
-}
-
 func TestForwardAsChatCompletions_KiroMirrorStub_NonStreamingPreservesUpstreamStream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -363,16 +358,4 @@ func TestForwardAsChatCompletions_KiroMirrorStub_NonStreamingPreservesUpstreamSt
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, "MIRROR-OK", gjson.GetBytes(rec.Body.Bytes(), "choices.0.message.content").String())
-}
-
-func (u *kiroCCUpstreamRecorder) lastReqBody() []byte {
-	if u.lastReq == nil || u.lastReq.Body == nil {
-		return nil
-	}
-	body, err := io.ReadAll(u.lastReq.Body)
-	if err != nil {
-		return nil
-	}
-	u.lastReq.Body = io.NopCloser(bytes.NewReader(body))
-	return body
 }

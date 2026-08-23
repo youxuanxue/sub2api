@@ -1,14 +1,13 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -98,9 +97,6 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	c.Request = c.Request.WithContext(requestCtx)
 
 	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
-	// /v1/responses is an OpenAI-shape endpoint that this fork only serves for
-	// Anthropic platform groups (see function doc above) — forwarding goes to
-	// the Anthropic upstream, so guards match against PlatformAnthropic.
 	if h.cfg != nil {
 		if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformAnthropic, reqModel, len(body)); reject {
 			h.responsesErrorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", msg)
@@ -121,8 +117,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	// Claude Code only restriction:
 	// /v1/responses is never a Claude Code endpoint.
 	// TK: when a CC-only group declares a valid fallback_group_id, route non-CC
-	// OpenAI-compat traffic to that fallback group instead of hard-403'ing (see
-	// gateway_handler_tk_cc_only_fallback.go). No/invalid fallback keeps the 403.
+	// OpenAI-compat traffic to that fallback group instead of hard-403'ing.
 	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
 		writeForbidden := func() {
 			h.responsesErrorResponse(c, http.StatusForbidden, "permission_error", tkCCOnlyForbiddenMessage)
@@ -135,7 +130,6 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			return
 		}
 		apiKey = fallbackAPIKey
-		// Re-resolve channel-level model mapping against the fallback group.
 		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(requestCtx, apiKey.GroupID, reqModel)
 	}
 
@@ -215,11 +209,6 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(requestCtx, apiKey.GroupID, selectionSessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
 		if err != nil {
 			if len(fs.FailedAccountIDs) == 0 {
-				// TK: an unservable model NAME (e.g. "gpt"/"opus" to an anthropic group)
-				// surfaces service.ErrUnsupportedModel → 400 invalid_request_error, not an
-				// empty-pool 429 retry signal that SDKs retry-storm (no_available_accounts_tk.go).
-				// Converges this anthropic-platform compat entry point with OpenAIGateway and the
-				// native /v1/messages path; empty-pool stays 429 (#575 parity), real faults 503.
 				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, reqModel)
 				h.responsesErrorResponse(c, tkStatus, tkType, tkMsg)
@@ -243,7 +232,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			}
 		}
 		account := selection.Account
-		setOpsSelectedAccount(c, account.ID, account.Platform)
+		setOpsSelectedAccountFrom(c, account)
 
 		// 4. Acquire account concurrency slot
 		accountReleaseFunc := selection.ReleaseFunc
@@ -355,7 +344,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 					h.handleResponsesFailoverExhausted(c, failoverErr, true)
 					return
 				}
-				action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+				action := fs.HandleFailoverError(requestCtx, h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
 				switch action {
 				case FailoverContinue:
 					continue
@@ -378,7 +367,6 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				zap.Bool("upstream_error_response_already_written", upstreamErrorAlreadyCommunicated),
 				zap.Error(err),
 			)
-			// TK: passive availability failure tap (R-004 — extracts upstream HTTP status from UpstreamFailoverError)
 			TkRecordFailureFromErr(h.gatewayService, c.Request.Context(), account.Platform, reqModel, account.ID, err)
 			return
 		}
@@ -386,39 +374,18 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		// 6. Record usage
 		setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
 		setOpsClaudeUsageContext(c, result.Usage)
-		userAgent := c.GetHeader("User-Agent")
-		clientIP := ip.GetClientIP(c)
-		requestPayloadHash := service.HashUsageRequestPayload(body)
-		inboundEndpoint := GetInboundEndpoint(c)
-		upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
-
-		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-		sessionID := service.ExtractClientSessionID(c)
-		gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
-		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
-			if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
-				Result:             result,
-				QuotaPlatform:      quotaPlatform,
-				APIKey:             apiKey,
-				User:               apiKey.User,
-				Account:            account,
-				Subscription:       subscription,
-				PricingAt:          pricingAt,
-				InboundEndpoint:    inboundEndpoint,
-				UpstreamEndpoint:   upstreamEndpoint,
-				UserAgent:          userAgent,
-				IPAddress:          clientIP,
-				RequestPayloadHash: requestPayloadHash,
-				APIKeyService:      h.apiKeyService,
-				SessionID:          sessionID,
-				GatewayLatencyMs:   gatewayLatencyMs,
-				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
-			}); err != nil {
-				reqLog.Error("gateway.responses.record_usage_failed",
-					zap.Int64("account_id", account.ID),
-					zap.Error(err),
-				)
-			}
+		h.tkSubmitClaudeGatewayForwardUsage(tkClaudeGatewayForwardUsageInput{
+			C:                  c,
+			APIKey:             apiKey,
+			Account:            account,
+			Subscription:       subscription,
+			Result:             result,
+			ReqModel:           reqModel,
+			Body:               body,
+			PricingAt:          pricingAt,
+			ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
+			ReqLog:             reqLog,
+			LogFailedEvent:     "gateway.responses.record_usage_failed",
 		})
 		return
 	}
@@ -436,32 +403,48 @@ func (h *GatewayHandler) responsesErrorResponse(c *gin.Context, status int, code
 
 // handleResponsesFailoverExhausted writes a failover-exhausted error in Responses format.
 func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastErr *service.UpstreamFailoverError, streamStarted bool) {
-	if streamStarted {
-		return // Can't write error after stream started
-	}
 	if lastErr != nil {
 		copyFailoverRetryAfter(c, lastErr.ResponseHeaders)
-	}
-	if lastErr != nil && lastErr.IsCredentialFailure() {
-		status, message := credentialFailoverClientResponse(lastErr)
-		h.responsesErrorResponse(c, status, "server_error", message)
-		return
 	}
 	statusCode := http.StatusBadGateway
 	if lastErr != nil && lastErr.StatusCode > 0 {
 		statusCode = lastErr.StatusCode
 	}
-	if lastErr != nil && service.IsOpenAISilentRefusalErrorBody(lastErr.ResponseBody) {
-		service.SetOpsUpstreamError(c, statusCode, service.OpenAISilentRefusalClientMessage(), "")
-		h.responsesErrorResponse(c, http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage())
-		return
-	}
 	message := service.GatewayFailoverClientMessage(statusCode)
+	status, code := statusCode, "server_error"
+	if lastErr != nil && lastErr.IsCredentialFailure() {
+		status, message = credentialFailoverClientResponse(lastErr)
+	} else if lastErr != nil && lastErr.IsOpenAICapacityShed() && strings.TrimSpace(lastErr.ClientMessage) != "" {
+		status = lastErr.ClientStatusCode
+		if status <= 0 {
+			status = http.StatusServiceUnavailable
+		}
+		message = lastErr.ClientMessage
+	} else if lastErr != nil && service.IsOpenAISilentRefusalErrorBody(lastErr.ResponseBody) {
+		service.SetOpsUpstreamError(c, statusCode, service.OpenAISilentRefusalClientMessage(), "")
+		status, code, message = http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage()
+	} else if lastErr != nil && statusCode == http.StatusTooManyRequests {
+		status, code, message = http.StatusTooManyRequests, "rate_limit_error", "All available accounts are currently rate-limited. Please retry later."
+	}
 	if lastErr != nil && lastErr.ClientStatusCode > 0 {
 		statusCode = lastErr.ClientStatusCode
+		status = statusCode
 		if lastErr.ClientMessage != "" {
 			message = lastErr.ClientMessage
 		}
+	} else {
+		statusCode = status
 	}
-	h.responsesErrorResponse(c, statusCode, "server_error", message)
+	if streamStarted {
+		// A slot-wait heartbeat commits HTTP 200 before any upstream response.
+		// In that case a terminal frame is still required; once any semantic or
+		// official terminal bytes exist, preserve them without appending a second
+		// generic response.failed.
+		service.MarkOpsStreamError(c, code, message, status)
+		if c != nil && c.Writer != nil && (c.Writer.Size() <= 0 || gatewayStreamHasOnlyHeartbeats(c)) {
+			writeResponsesFailedSSE(c, code, message)
+		}
+		return
+	}
+	h.responsesErrorResponse(c, statusCode, code, message)
 }

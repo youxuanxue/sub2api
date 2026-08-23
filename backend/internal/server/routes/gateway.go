@@ -70,7 +70,7 @@ func RegisterGatewayRoutes(
 	}
 	modelsHandler := func(c *gin.Context) {
 		apiKey, _ := middleware.GetAPIKeyFromContext(c)
-		if c.Query("client_version") != "" && (isOpenAIGatewayPlatform(c) || (apiKey != nil && apiKey.IsUniversal())) {
+		if c.Query("client_version") != "" && (isOpenAIGatewayPlatform(c) || getGroupPlatform(c) == service.PlatformComposite || (apiKey != nil && apiKey.IsUniversal())) {
 			h.OpenAIGateway.CodexModels(c)
 			return
 		}
@@ -89,6 +89,10 @@ func RegisterGatewayRoutes(
 						"message": "Unsupported responses subpath",
 					},
 				})
+				return
+			}
+			if service.IsOpenAIResponsesInputTokensRequestPath(c) && isOpenAICompatPlatform(getGroupPlatform(c)) {
+				h.OpenAIGateway.ResponsesInputTokens(c)
 				return
 			}
 			next(c)
@@ -410,13 +414,7 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 			return
 		}
 
-		model, modelPath := compositeJSONRequestModel(body), ""
-		if model == "" {
-			model = compositeMultipartModelFromBody(c.GetHeader("Content-Type"), body)
-		}
-		if modelPath == "" {
-			_, modelPath = compositeJSONRequestModelWithPath(body)
-		}
+		model := compositeRequestModelFromBody(c.GetHeader("Content-Type"), body)
 		if model != "" {
 			decision, err := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, compositeRouteEndpointForPath(c.Request.URL.Path))
 			if err != nil {
@@ -427,7 +425,7 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 			if decision.Matched {
 				c.Request = c.Request.WithContext(service.WithCompositeRouteDecision(c.Request.Context(), decision))
 				if upstreamModel := strings.TrimSpace(decision.UpstreamModel); upstreamModel != "" && upstreamModel != model && gjson.ValidBytes(body) {
-					if modelPath != "" {
+					if _, modelPath := compositeJSONRequestModel(body); modelPath != "" {
 						if rewritten, rewriteErr := sjson.SetBytes(body, modelPath, upstreamModel); rewriteErr == nil {
 							body = rewritten
 						}
@@ -441,22 +439,20 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 }
 
 func compositeRequestModelFromBody(contentType string, body []byte) string {
-	if model, _ := compositeJSONRequestModelWithPath(body); model != "" {
+	if model, _ := compositeJSONRequestModel(body); model != "" {
 		return model
 	}
 	return compositeMultipartModelFromBody(contentType, body)
 }
 
-func compositeJSONRequestModel(body []byte) string {
-	model, _ := compositeJSONRequestModelWithPath(body)
-	return model
-}
-
-func compositeJSONRequestModelWithPath(body []byte) (string, string) {
+func compositeJSONRequestModel(body []byte) (string, string) {
 	for _, path := range []string{"model", "session.model"} {
-		value := gjson.GetBytes(body, path)
-		if value.Type == gjson.String && strings.TrimSpace(value.String()) != "" {
-			return strings.TrimSpace(value.String()), path
+		model := gjson.GetBytes(body, path)
+		if model.Type != gjson.String {
+			continue
+		}
+		if value := strings.TrimSpace(model.String()); value != "" {
+			return value, path
 		}
 	}
 	return "", ""
@@ -480,14 +476,22 @@ func compositeMultipartModelFromBody(contentType string, body []byte) string {
 		if err != nil {
 			return ""
 		}
-		if part.FormName() != "model" || part.FileName() != "" {
+		fieldName := part.FormName()
+		if part.FileName() != "" || (fieldName != "model" && fieldName != "session") {
 			continue
 		}
 		data, err := io.ReadAll(part)
 		if err != nil {
 			return ""
 		}
-		return strings.TrimSpace(string(data))
+		switch fieldName {
+		case "model":
+			return strings.TrimSpace(string(data))
+		case "session":
+			if model, _ := compositeJSONRequestModel(data); model != "" {
+				return model
+			}
+		}
 	}
 }
 

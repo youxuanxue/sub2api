@@ -16,7 +16,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -37,44 +36,10 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
 	beginUpstreamResponseModelObservation(c)
+	setCodexToolNameReverse(c, nil)
 
-	// 入口分流（国产供应商 Anthropic 协议）：上游为供应商原生 Anthropic 端点时，
-	// /v1/messages 请求零转换直通（仅模型名映射 + 少量 body 清洗），完整保留
-	// thinking / tool_use / cache 语义，适配 Claude Code 等原生客户端。
-	// 必须先于 ShouldUseResponsesAPI 分流：Anthropic 协议账号经 probe 落标
-	// openai_responses_supported=false，会先命中下方的 CC 直转分支。
-	if account.IsAnthropicProtocol() {
-		return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
-	}
-	if account.IsAdaptiveAPIProtocol() {
-		return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
-	}
-	if account.IsCNProvider() && account.GetAPIProtocol() == APIProtocolChatCompletions {
-		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
-	}
-	// Tokensea OpenAI relay (#92): extra.openai_native_messages_supported can
-	// be a false-negative. The probe uses selectResponsesProbeModel (first
-	// mapping id, often GPT); live 2026-08-20 GPT /v1/messages timed out so
-	// extra.native_messages=false while extra.responses=true. Direct Claude
-	// /v1/messages is 200; Claude /v1/responses returns "not implemented".
-	// Route Claude here without waiting for the extra flag. GPT stays on
-	// Responses below.
-	if account.IsOpenAITokenseaRelay() && shouldForwardNativeAnthropicMessagesForModel(body) {
-		return s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)
-	}
-	if account.Type == AccountTypeAPIKey && !account.IsCNProvider() && openai_compat.ShouldUseNativeAnthropicMessagesAPI(account.Extra) {
-		if shouldForwardNativeAnthropicMessagesForModel(body) {
-			return s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)
-		}
-		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
-	}
-
-	// 入口分流：APIKey 账号 + 上游不支持 Responses API → 走 CC 直转（与
-	// ForwardAsChatCompletions 对称）。缺少此分流时，/v1/messages 入站请求
-	// 会被无条件转为 Responses 格式发往上游 /v1/responses，导致只支持
-	// /v1/chat/completions 的第三方 OpenAI 兼容上游全部 400。
-	if account.Type == AccountTypeAPIKey && !account.IsCNProvider() && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
-		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+	if result, routed, err := s.tkTryRouteForwardAsAnthropic(ctx, c, account, body, defaultMappedModel); routed {
+		return result, err
 	}
 
 	startTime := time.Now()
@@ -98,6 +63,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	anthropicDigestChain := ""
 	anthropicMatchedDigestChain := ""
 	compatPromptCacheInjected := false
+	// Grok is outside the gpt-5/codex compat injector, but Claude Code still
+	// carries a stable session id. Prefer that as the Grok prompt-cache seed so
+	// multi-turn /v1/messages traffic can hit xAI's server-side cache.
+	if promptCacheKey == "" && account.Platform == PlatformGrok {
+		if seededKey, injected := tkResolveAnthropicCompatPromptCacheKey(c, account, body, &anthropicReq, upstreamModel, promptCacheKey); injected {
+			promptCacheKey = seededKey
+			compatPromptCacheInjected = true
+		}
+	}
 	if promptCacheKey == "" && shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
 		promptCacheKey = promptCacheKeyFromAnthropicMetadataSession(&anthropicReq)
 		if promptCacheKey == "" {
@@ -163,12 +137,12 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		// Only trim for APIKey accounts: OpenAI Platform keeps full history in
 		// session state so only the new turn is needed. For OAuth (ChatGPT Codex),
 		// trimming strips the role=system item and breaks system-prompt delivery
-		// to the transform — keep full replay (same rationale as line 111 above).
+		// to the transform — keep full replay.
 		if openAICompatShouldTrimForContinuation(account) {
 			trimAnthropicCompatResponsesInputToLatestTurn(responsesReq)
 		}
 	}
-	if compatReplayGuardEnabled && !account.IsOpenAIOAuth() {
+	if compatReplayGuardEnabled && !account.IsOpenAIOAuthLike() {
 		appendOpenAICompatClaudeCodeTodoGuard(responsesReq)
 	}
 
@@ -211,63 +185,25 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 
 	compactCandidate := openAICompatMessagesCompactCandidate(&anthropicReq)
 
-	// 4. Marshal Responses request body, then apply OAuth codex transform
+	// 4. Marshal Responses request body, then apply the ChatGPT/Codex transform.
 	responsesBody, err := json.Marshal(responsesReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal responses request: %w", err)
 	}
 
-	if account.Type == AccountTypeOAuth && account.Platform != PlatformGrok {
-		var reqBody map[string]any
-		if err := json.Unmarshal(responsesBody, &reqBody); err != nil {
-			return nil, fmt.Errorf("unmarshal for codex transform: %w", err)
-		}
-		codexResult := applyCodexOAuthTransformWithOptions(reqBody, codexOAuthTransformOptions{
-			SkipDefaultInstructions: true,
-			PreserveToolCallIDs:     true,
-		})
-		forcedTemplateText := ""
-		if s.cfg != nil {
-			forcedTemplateText = s.cfg.Gateway.ForcedCodexInstructionsTemplate
-		}
-		templateUpstreamModel := upstreamModel
-		if codexResult.NormalizedModel != "" {
-			templateUpstreamModel = codexResult.NormalizedModel
-		}
-		existingInstructions, _ := reqBody["instructions"].(string)
-		if strings.TrimSpace(existingInstructions) == "" {
-			existingInstructions = extractPromptLikeInstructionsFromInput(reqBody)
-		}
-		if _, err := applyForcedCodexInstructionsTemplate(reqBody, forcedTemplateText, forcedCodexInstructionsTemplateData{
-			ExistingInstructions: strings.TrimSpace(existingInstructions),
-			OriginalModel:        originalModel,
-			NormalizedModel:      normalizedModel,
-			BillingModel:         billingModel,
-			UpstreamModel:        templateUpstreamModel,
-		}); err != nil {
-			return nil, err
-		}
-		ensureCodexOAuthInstructionsField(reqBody)
-		if shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
-			appendOpenAICompatClaudeCodeTodoGuardToRequestBody(reqBody)
-		}
-		if codexResult.NormalizedModel != "" {
-			upstreamModel = codexResult.NormalizedModel
-		}
-		if codexResult.PromptCacheKey != "" {
-			promptCacheKey = codexResult.PromptCacheKey
-		}
-		delete(reqBody, "prompt_cache_key")
-		if shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
-			compatTurnState = s.getOpenAICompatSessionTurnState(ctx, c, account, promptCacheKey)
-		}
-		// OAuth codex transform forces stream=true upstream, so always use
-		// the streaming response handler regardless of what the client asked.
+	codexTransform, codexErr := s.tkApplyAnthropicCodexOAuthToResponsesBody(
+		ctx, c, account, responsesBody, upstreamModel, promptCacheKey, compatTurnState,
+		originalModel, normalizedModel, billingModel,
+	)
+	if codexErr != nil {
+		return nil, codexErr
+	}
+	responsesBody = codexTransform.responsesBody
+	upstreamModel = codexTransform.upstreamModel
+	promptCacheKey = codexTransform.promptCacheKey
+	compatTurnState = codexTransform.compatTurnState
+	if codexTransform.isStream {
 		isStream = true
-		responsesBody, err = json.Marshal(reqBody)
-		if err != nil {
-			return nil, fmt.Errorf("remarshal after codex transform: %w", err)
-		}
 	}
 
 	// For API key accounts (including OpenAI-compatible upstream gateways),
@@ -307,7 +243,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if policyErr != nil {
 		var blocked *OpenAIFastBlockedError
 		if errors.As(policyErr, &blocked) {
-			MarkOpsClientPolicyDenied(c, OpsClientPolicyDeniedReasonLocalPolicyDenied)
+			MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
 			writeAnthropicError(c, http.StatusForbidden, "forbidden_error", blocked.Message)
 		}
 		return nil, policyErr
@@ -339,7 +275,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 
 	// Native-catalog Grok SKUs are provisioned on /v1/chat/completions; /v1/responses
 	// often returns opaque 400s. Skip the responses hop for SSOT / universal parity.
-	if account.Platform == PlatformGrok && grokGroupServesNativeCatalogModel(upstreamModel) {
+	// Use the client-facing model id: mapped aliases like grok -> grok-4.6 still
+	// ride /v1/responses; only explicit catalog ids skip the hop.
+	if account.Platform == PlatformGrok && grokGroupServesNativeCatalogModel(normalizedModel) {
 		fallbackResult, fallbackErr := s.fallbackAnthropicToGrokChatCompletions(
 			ctx,
 			c,
@@ -360,7 +298,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 
 	// 6. Build upstream request
-	if account.Type == AccountTypeOAuth && account.Platform != PlatformGrok {
+	if account.IsOpenAIOAuthLike() && account.Platform != PlatformGrok {
 		// Messages 兼容桥即使 body 未带 todo-guard/prompt_cache_key 标记（如映射到非
 		// gpt-5/codex 模型），也必须让 buildUpstreamRequest 走 bridge 分支，以保留
 		// 既有 body/session/conversation 行为。身份头在 post-build 阶段统一恢复。
@@ -385,40 +323,16 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 
-	// Override session_id with a deterministic UUID derived from the isolated
-	// session key, ensuring different API keys produce different upstream sessions.
-	if account.Platform != PlatformGrok && promptCacheKey != "" {
-		isolatedSessionID := generateSessionUUID(isolateOpenAISessionID(apiKeyID, promptCacheKey))
-		upstreamReq.Header.Set("session_id", isolatedSessionID)
-		if upstreamReq.Header.Get("conversation_id") != "" {
-			upstreamReq.Header.Set("conversation_id", isolatedSessionID)
-		}
-	}
-	if account.Type == AccountTypeOAuth && account.Platform != PlatformGrok {
-		// Anthropic Messages compatibility uses the ChatGPT Codex SSE endpoint.
-		// Match upstream request shape: the SSE endpoint does not need the
-		// Responses experimental beta header. compatMessagesBridge paths also
-		// strip originator in openai_gateway_forward.go so enforceCodexIdentityHeaders
-		// does not re-inject it on the Anthropic bridge.
-		upstreamReq.Header.Del("OpenAI-Beta")
-	}
-	if account.IsOpenAIOAuth() && promptCacheKey != "" && strings.TrimSpace(c.GetHeader("conversation_id")) == "" {
-		upstreamReq.Header.Del("conversation_id")
-	}
-	// Note: OAuth accounts with continuation enabled may send BOTH
-	// previous_response_id (body) and x-codex-turn-state (header) simultaneously.
-	// If the upstream rejects the combination, isOpenAICompatPreviousResponseUnsupported
-	// (line ~308) catches the 400 and disableOpenAICompatSessionContinuation reverts
-	// the session to turn-state-only — one failed turn, then automatic recovery.
-	if compatTurnState != "" && upstreamReq.Header.Get("x-codex-turn-state") == "" {
-		upstreamReq.Header.Set("x-codex-turn-state", compatTurnState)
-	}
+	tkApplyAnthropicMessagesUpstreamHeaders(c, account, upstreamReq, promptCacheKey, apiKeyID, compatTurnState)
 
 	// 7. Send request
 	proxyURL := ""
 	if account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	// Grok may reject encrypted reasoning replayed under a different OAuth
+	// account/cache identity. Match forwardGrokResponses: one strip+retry before
+	// treating the 400 as a hard failure / failover trigger.
 	var resp *http.Response
 	for attempt := 0; ; attempt++ {
 		if attempt > 0 {
@@ -443,6 +357,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		if resp.Body != nil {
 			_ = resp.Body.Close()
 		}
+		// Prefer explicit decrypt errors; also strip once on any 400 when the
+		// outbound body still carries reasoning.encrypted_content (account
+		// switch often returns opaque "Upstream error: 400").
 		shouldStrip := isGrokInvalidEncryptedContentResponse(resp.StatusCode, respBody) ||
 			requestHasGrokEncryptedReasoning(responsesBody)
 		if !shouldStrip {
@@ -476,13 +393,11 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			}
 			return s.ForwardAsAnthropic(markAgentIdentityTaskRecoveryTried(ctx), c, account, body, promptCacheKey, defaultMappedModel)
 		}
-
-		previousResponseNotFound := isOpenAICompatPreviousResponseNotFound(resp.StatusCode, upstreamMsg, respBody)
-		previousResponseUnsupported := isOpenAICompatPreviousResponseUnsupported(resp.StatusCode, upstreamMsg, respBody)
-		if previousResponseID != "" && (previousResponseNotFound || previousResponseUnsupported) {
+		if previousResponseID != "" && (isOpenAICompatPreviousResponseNotFound(resp.StatusCode, upstreamMsg, respBody) || isOpenAICompatPreviousResponseUnsupported(resp.StatusCode, upstreamMsg, respBody)) {
 			fallbackReason := "not_found"
 			continuationDisabledAfterFallback := false
 			continuationDisableReason := ""
+			previousResponseUnsupported := isOpenAICompatPreviousResponseUnsupported(resp.StatusCode, upstreamMsg, respBody)
 			if previousResponseUnsupported {
 				fallbackReason = "unsupported"
 				continuationDisableReason = "unsupported"
@@ -515,6 +430,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			logger.L().Info("openai messages: previous_response_id unavailable, retrying without continuation", logFields...)
 			return s.ForwardAsAnthropic(ctx, c, account, body, promptCacheKey, defaultMappedModel)
 		}
+		// Grok account-switched history often fails decrypt; strip encrypted
+		// reasoning once at the client-body level so failover accounts can accept
+		// the multi-turn tool continuation instead of cascading 400s.
 		if account.Platform == PlatformGrok &&
 			isGrokInvalidEncryptedContentResponse(resp.StatusCode, respBody) &&
 			!grokEncryptedContentStripRetried(ctx) {
@@ -559,7 +477,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		s.updateGrokUsageFromResponse(withGrokTeamRateLimitModel(ctx, upstreamModel), account, resp.Header, resp.StatusCode)
 	}
 
-	if account.IsOpenAIOAuth() && promptCacheKey != "" {
+	if account.IsOpenAIOAuthLike() && promptCacheKey != "" {
 		if turnState := strings.TrimSpace(resp.Header.Get("x-codex-turn-state")); turnState != "" {
 			s.bindOpenAICompatSessionTurnState(ctx, c, account, promptCacheKey, turnState)
 		}
@@ -614,45 +532,6 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		}
 	}
 
-	// Access log for the OpenAI-compat → Anthropic Messages bridge. Surfaces
-	// the fields that are easy to read on prod (`docker logs tokenkey | grep
-	// openai_messages.completed`) but expensive to derive after the fact:
-	// stop_reason, incomplete_reason, reasoning_effort, output_tokens. Used to
-	// verify the stop_reason mapping and reasoning effort fixes.
-	if result != nil {
-		fields := []zap.Field{
-			zap.String("request_id", result.RequestID),
-			zap.Int64("account_id", account.ID),
-			zap.String("account_name", account.Name),
-			zap.String("platform", account.Platform),
-			zap.String("original_model", originalModel),
-			zap.String("billing_model", result.BillingModel),
-			zap.String("upstream_model", result.UpstreamModel),
-			zap.Bool("stream", result.Stream),
-			zap.Int("input_tokens", result.Usage.InputTokens),
-			zap.Int("output_tokens", result.Usage.OutputTokens),
-			zap.Int("cache_read_input_tokens", result.Usage.CacheReadInputTokens),
-			zap.String("stop_reason", result.StopReason),
-			zap.Int("content_text_len", result.ContentTextLen),
-			zap.Bool("compact_candidate", result.CompactCandidate),
-			zap.Int64("duration_ms", result.Duration.Milliseconds()),
-		}
-		// Emit optional fields only when non-empty so happy-path log lines stay compact.
-		if effort := derefOpenAIForwardString(result.ReasoningEffort); effort != "" {
-			fields = append(fields, zap.String("reasoning_effort", effort))
-		}
-		if result.IncompleteReason != "" {
-			fields = append(fields, zap.String("incomplete_reason", result.IncompleteReason))
-		}
-		if result.FirstTokenMs != nil {
-			fields = append(fields, zap.Int("first_token_ms", *result.FirstTokenMs))
-		}
-		if handleErr != nil {
-			fields = append(fields, zap.NamedError("handle_error", handleErr))
-		}
-		logger.L().Info("openai_messages.completed", fields...)
-	}
-
 	return result, handleErr
 }
 
@@ -669,16 +548,6 @@ func ensureCodexOAuthInstructionsField(reqBody map[string]any) {
 	}
 }
 
-// derefOpenAIForwardString returns the string pointed to by p, or "" if p is
-// nil. Used by the openai_messages.completed access log to render optional
-// pointer fields (ReasoningEffort, ServiceTier) without crashing on nil.
-func derefOpenAIForwardString(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
-}
-
 // handleAnthropicErrorResponse reads an upstream error and returns it in
 // Anthropic error format.
 func (s *OpenAIGatewayService) handleAnthropicErrorResponse(
@@ -691,9 +560,9 @@ func (s *OpenAIGatewayService) handleAnthropicErrorResponse(
 }
 
 // handleAnthropicBufferedStreamingResponse reads all Responses SSE events from
-// the upstream streaming response, finds the terminal event (the six-event
-// set in isOpenAICompatResponsesTerminalEvent), converts the complete response
-// to Anthropic Messages JSON format, and writes it to the client.
+// the upstream streaming response, finds the terminal event (response.completed
+// / response.incomplete / response.failed), converts the complete response to
+// Anthropic Messages JSON format, and writes it to the client.
 // This is used when the client requested stream=false but the upstream is always
 // streaming.
 func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
@@ -707,7 +576,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 
-	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, "openai messages buffered", requestID)
+	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, c, "openai messages buffered", requestID)
 	if err != nil {
 		var readErr *openAICompatBufferedReadError
 		if errors.As(err, &readErr) && readErr != nil {
@@ -745,6 +614,9 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 		}
 		return s.openAICompatBufferedFailedResponseResult(c, account, requestID, finalResponse, openAICompatBufferedRouteMessages)
 	}
+	if strings.TrimSpace(finalResponse.Status) == "completed" {
+		logOpenAISuccessMissingUsage(c.Request.Context(), c, account, resp, &usage, "response.completed", false)
+	}
 
 	// When the terminal event has an empty output array, reconstruct from
 	// accumulated delta events so the client receives the full content.
@@ -755,46 +627,38 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
-	// Same fix as the chat.completions buffered path: upstream is Responses SSE
-	// and we buffered into JSON; without this, the client would see a JSON body
-	// with `Content-Type: text/event-stream` because gin's c.JSON does not
 	// overwrite an already-set Content-Type. See upstream Wei-Shaw/sub2api#1311
-	// (reported for /v1/chat/completions but the same root cause applies to
-	// /v1/messages non-stream).
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.JSON(http.StatusOK, anthropicResp)
 
-	incompleteReason := ""
-	if finalResponse.IncompleteDetails != nil {
-		incompleteReason = finalResponse.IncompleteDetails.Reason
+	result := &OpenAIForwardResult{
+		RequestID:                     requestID,
+		ResponseID:                    finalResponse.ID,
+		Usage:                         usage,
+		Model:                         originalModel,
+		BillingModel:                  billingModel,
+		UpstreamModel:                 upstreamModel,
+		UpstreamResponseModel:         observedUpstreamResponseModel(c),
+		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+		Stream:                        false,
+		Duration:                      time.Since(startTime),
+		ContentTextLen:                anthropicResponseContentTextLen(anthropicResp),
 	}
-	stopReason := ""
-	if anthropicResp.StopReason != nil {
-		stopReason = *anthropicResp.StopReason
+	// Grok /v1/messages uses Responses upstream; count native search for surcharge.
+	if account != nil && account.IsGrok() && finalResponse != nil {
+		if body, err := json.Marshal(finalResponse); err == nil {
+			if n := countGrokNativeSearchCallsFromJSONBytes(body); n > 0 {
+				result.SearchCount = n
+			}
+		}
 	}
-
-	return &OpenAIForwardResult{
-		RequestID:        requestID,
-		ResponseID:       finalResponse.ID,
-		Usage:            usage,
-		Model:            originalModel,
-		BillingModel:     billingModel,
-		UpstreamModel:    upstreamModel,
-		Stream:           false,
-		Duration:         time.Since(startTime),
-		StopReason:       stopReason,
-		IncompleteReason: incompleteReason,
-		ContentTextLen:   anthropicResponseContentTextLen(anthropicResp),
-	}, nil
+	return result, nil
 }
 
 func isOpenAICompatResponsesTerminalEvent(eventType string) bool {
 	switch strings.TrimSpace(eventType) {
-	// TK: align with openAIStreamEventIsTerminal (gateway_service.go),
-	// openai_ws_forwarder.go, and openai_ws_v2/passthrough_relay.go so that
-	// upstream-emitted response.cancelled / response.canceled close the
-	// streaming loop cleanly instead of falling through to "stream usage
-	// incomplete: missing terminal event". See upstream Wei-Shaw/sub2api#1322.
+	// TK: align with openAIStreamEventIsTerminal so cancelled/canceled close
+	// the streaming loop instead of falling through. See Wei-Shaw/sub2api#1322.
 	case "response.completed", "response.done", "response.incomplete", "response.failed",
 		"response.cancelled", "response.canceled":
 		return true
@@ -838,8 +702,31 @@ type openAICompatBufferedReadError struct {
 func (e *openAICompatBufferedReadError) Error() string { return e.cause.Error() }
 func (e *openAICompatBufferedReadError) Unwrap() error { return e.cause }
 
+func openAICompatTerminalResponse(event *apicompat.ResponsesStreamEvent, payload []byte) *apicompat.ResponsesResponse {
+	if event == nil {
+		return nil
+	}
+	if event.Response != nil {
+		return event.Response
+	}
+	switch strings.TrimSpace(event.Type) {
+	case "response.failed", "error":
+		message := extractOpenAISSEErrorMessage(payload)
+		if message == "" {
+			message = "Upstream response failed"
+		}
+		return &apicompat.ResponsesResponse{
+			Status: "failed",
+			Error:  &apicompat.ResponsesError{Code: event.Code, Message: message},
+		}
+	default:
+		return nil
+	}
+}
+
 func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 	resp *http.Response,
+	c *gin.Context,
 	logPrefix string,
 	requestID string,
 ) (*apicompat.ResponsesResponse, OpenAIUsage, *apicompat.BufferedResponseAccumulator, error) {
@@ -919,20 +806,22 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 			if !ok {
 				if frame, ok := parser.Finish(); ok {
 					payload := openAICompatPayloadWithEventType(frame.Data, frame.EventType)
+					payload = string(restoreCodexToolNamesFromContext(c, []byte(payload)))
 					var event apicompat.ResponsesStreamEvent
 					if err := json.Unmarshal([]byte(payload), &event); err == nil {
+						s.parseSSEUsageBytesWithType([]byte(payload), event.Type, &usage)
 						acc.ProcessEvent(&event)
-						if isOpenAICompatResponsesTerminalEvent(event.Type) && event.Response != nil {
+						if response := openAICompatTerminalResponse(&event, []byte(payload)); isOpenAICompatResponsesTerminalEvent(event.Type) && response != nil {
 							if event.Usage != nil {
 								usage = copyOpenAIUsageFromResponsesUsage(event.Usage)
-								if event.Response.Usage == nil {
-									event.Response.Usage = event.Usage
+								if response.Usage == nil {
+									response.Usage = event.Usage
 								}
 							}
-							if event.Response.Usage != nil {
-								usage = copyOpenAIUsageFromResponsesUsage(event.Response.Usage)
+							if response.Usage != nil {
+								usage = copyOpenAIUsageFromResponsesUsage(response.Usage)
 							}
-							return event.Response, usage, acc, nil
+							return response, usage, acc, nil
 						}
 					}
 				}
@@ -957,6 +846,7 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 				continue
 			}
 			payload := openAICompatPayloadWithEventType(frame.Data, frame.EventType)
+			payload = string(restoreCodexToolNamesFromContext(c, []byte(payload)))
 
 			var event apicompat.ResponsesStreamEvent
 			if err := json.Unmarshal([]byte(payload), &event); err != nil {
@@ -966,20 +856,21 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 				)
 				continue
 			}
+			s.parseSSEUsageBytesWithType([]byte(payload), event.Type, &usage)
 
 			acc.ProcessEvent(&event)
 
-			if isOpenAICompatResponsesTerminalEvent(event.Type) && event.Response != nil {
+			if response := openAICompatTerminalResponse(&event, []byte(payload)); isOpenAICompatResponsesTerminalEvent(event.Type) && response != nil {
 				if event.Usage != nil {
 					usage = copyOpenAIUsageFromResponsesUsage(event.Usage)
-					if event.Response.Usage == nil {
-						event.Response.Usage = event.Usage
+					if response.Usage == nil {
+						response.Usage = event.Usage
 					}
 				}
-				if event.Response.Usage != nil {
-					usage = copyOpenAIUsageFromResponsesUsage(event.Response.Usage)
+				if response.Usage != nil {
+					usage = copyOpenAIUsageFromResponsesUsage(response.Usage)
 				}
-				return event.Response, usage, acc, nil
+				return response, usage, acc, nil
 			}
 
 		case <-timeoutCh:
@@ -1021,6 +912,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	clientOutputStarted := false
 	var streamFailoverErr error
 	var streamNonFailoverErr error
+	terminalEventType := ""
 	searchCount := 0
 	streamSearchSeen := make(map[string]struct{})
 	countSearch := account != nil && account.IsGrok()
@@ -1048,19 +940,21 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	// resultWithUsage builds the final result snapshot.
 	resultWithUsage := func() *OpenAIForwardResult {
 		out := &OpenAIForwardResult{
-			RequestID:        requestID,
-			ResponseID:       responseID,
-			Usage:            usage,
-			Model:            originalModel,
-			BillingModel:     billingModel,
-			UpstreamModel:    upstreamModel,
-			Stream:           true,
-			Duration:         time.Since(startTime),
-			FirstTokenMs:     firstTokenMs,
-			StopReason:       state.StopReason,
-			IncompleteReason: state.IncompleteReason,
-			ContentTextLen:   contentTextLen,
-			ClientDisconnect: clientDisconnected,
+			RequestID:                     requestID,
+			ResponseID:                    responseID,
+			Usage:                         usage,
+			Model:                         originalModel,
+			BillingModel:                  billingModel,
+			UpstreamModel:                 upstreamModel,
+			UpstreamResponseModel:         observedUpstreamResponseModel(c),
+			UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+			Stream:                        true,
+			Duration:                      time.Since(startTime),
+			FirstTokenMs:                  firstTokenMs,
+			StopReason:                    state.StopReason,
+			IncompleteReason:              state.IncompleteReason,
+			ContentTextLen:                contentTextLen,
+			ClientDisconnect:              clientDisconnected,
 		}
 		if searchCount > 0 {
 			out.SearchCount = searchCount
@@ -1070,6 +964,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 
 	// processDataLine handles a single "data: ..." SSE line from upstream.
 	processDataLine := func(payload string) bool {
+		payload = string(restoreCodexToolNamesFromContext(c, []byte(payload)))
 		if firstChunk {
 			firstChunk = false
 			ms := int(time.Since(startTime).Milliseconds())
@@ -1090,21 +985,19 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 		observer.ObserveOpenAI([]byte(payload), event.Type)
 		observeOpenAIResponsesEvent(c, []byte(payload))
 
-		// 仅按兼容转换器支持的终止事件提取 usage，避免无意扩大事件语义。
 		switch event.Type {
 		case "response.output_text.delta", "response.reasoning_summary_text.delta":
 			if event.Delta != "" {
 				contentTextLen += utf8.RuneCountInString(event.Delta)
 			}
 		}
+		s.parseSSEUsageBytesWithType([]byte(payload), event.Type, &usage)
 
-		// Nested evt.Response.Usage takes precedence over top-level evt.Usage:
-		// upstream's spec puts usage under response.usage; some compat upstreams
-		// duplicate it at the top level. When both are present, nested wins.
 		eventType := strings.TrimSpace(event.Type)
 		isBareErrorEvent := eventType == "error"
 		isTerminalEvent := isOpenAICompatResponsesTerminalEvent(eventType) || isBareErrorEvent
 		if isTerminalEvent {
+			terminalEventType = eventType
 			if event.Response != nil {
 				if id := strings.TrimSpace(event.Response.ID); id != "" {
 					responseID = id
@@ -1146,7 +1039,11 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				// Once Anthropic output has started, switching accounts would splice
 				// two model streams together. Surface a proper Anthropic error event
 				// instead of returning a failover error that the handler cannot retry.
-				if !clientOutputStarted && openAIStreamFailedEventShouldFailover(payloadBytes, message) {
+				shouldFailover := openAIStreamFailedEventShouldFailover(payloadBytes, message)
+				if isBareErrorEvent {
+					shouldFailover = openAIStreamErrorEventShouldFailover(payloadBytes, message)
+				}
+				if !clientOutputStarted && shouldFailover {
 					streamFailoverErr = s.newOpenAIStreamFailoverError(c, account, false, requestID, payloadBytes, message, resp.Header)
 					return true
 				}
@@ -1210,11 +1107,6 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	}
 
 	// finalizeStream sends any remaining Anthropic events and returns the result.
-	// US-027 safety net (empty-content schema firewall) lives one layer down in
-	// apicompat: resToAnthHandleCompleted and FinalizeResponsesAnthropicStream
-	// both call ensureContentBlockEmittedAsEmptyText to guarantee at least one
-	// content_block_start/_stop pair before message_delta/_stop. See
-	// docs/approved/openai-codex-as-claude-thinking-continuity.md §2.1.
 	finalizeStream := func() (*OpenAIForwardResult, error) {
 		if streamFailoverErr != nil {
 			return resultWithUsage(), streamFailoverErr
@@ -1242,6 +1134,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				c.Writer.Flush()
 			}
 		}
+		logOpenAISuccessMissingUsage(c.Request.Context(), c, account, resp, &usage, terminalEventType, clientDisconnected)
 		return resultWithUsage(), nil
 	}
 

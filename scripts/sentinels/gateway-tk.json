@@ -1130,14 +1130,22 @@
         "c.Writer.Header().Set(\"Content-Type\", \"application/json\")",
         "openAICompatSSEFrameParser",
         "Wei-Shaw/sub2api#1322",
-        "\"response.cancelled\", \"response.canceled\"",
+        "\"response.cancelled\", \"response.canceled\""
+      ],
+      "rationale": "Non-stream /v1/messages uses the same buffered Responses SSE -> JSON conversion root cause as /v1/chat/completions; it must also override Content-Type after WriteFilteredHeaders so JSON bodies are not labeled text/event-stream. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530). isOpenAICompatResponsesTerminalEvent — used by both the Messages and Chat Completions streaming handlers — must keep response.cancelled / response.canceled in its terminal set so legitimate upstream cancellations close the stream cleanly instead of degenerating to 'stream usage incomplete: missing terminal event' (upstream #1322)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_tk.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) tkTryRouteForwardAsAnthropic(",
         "ShouldUseNativeAnthropicMessagesAPI",
         "if shouldForwardNativeAnthropicMessagesForModel(body)",
         "forwardAnthropicViaNativeMessages",
         "forwardAnthropicViaRawChatCompletions",
-        "IsOpenAITokenseaRelay() && shouldForwardNativeAnthropicMessagesForModel"
+        "IsOpenAITokenseaRelay() && shouldForwardNativeAnthropicMessagesForModel",
+        "account.IsOpenAIOAuthLike() && promptCacheKey != \"\" && strings.TrimSpace(c.GetHeader(\"conversation_id\")) == \"\""
       ],
-      "rationale": "Non-stream /v1/messages uses the same buffered Responses SSE -> JSON conversion root cause as /v1/chat/completions; it must also override Content-Type after WriteFilteredHeaders so JSON bodies are not labeled text/event-stream. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530). isOpenAICompatResponsesTerminalEvent — used by both the Messages and Chat Completions streaming handlers — must keep response.cancelled / response.canceled in its terminal set so legitimate upstream cancellations close the stream cleanly instead of degenerating to 'stream usage incomplete: missing terminal event' (upstream #1322). OpenAI APIKey dual-stack relays (tokensea/cloudwise) branch to native /v1/messages passthrough for claude-* models; tokensea #92 must do this even when extra.openai_native_messages_supported is a false-negative (GPT probe timeout). Non-Claude models (MiniMax-M3, glm-5) must fall back to raw chat completions like /v1/responses."
+      "rationale": "TK /v1/messages entry routing (tokensea native /v1/messages, CC fallback, CN providers) and OAuth prompt-cache conversation_id cleanup extracted to companion. OpenAI APIKey dual-stack relays (tokensea/cloudwise) branch to native /v1/messages passthrough for claude-* models; tokensea #92 must do this even when extra.openai_native_messages_supported is a false-negative (GPT probe timeout). Non-Claude models (MiniMax-M3, glm-5) must fall back to raw chat completions like /v1/responses."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_native.go",
@@ -1946,12 +1954,19 @@
       "rationale": "Service-layer client-message enrichers. TkEnrichForbiddenMessage for upstream 403s. TkEnrichClaudeIncidentMessage adds status.claude.com context during upstream incidents (UX only; account penalties not suppressed)."
     },
     {
-      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "path": "backend/internal/handler/openai_gateway_handler_tk_failover.go",
       "must_contain": [
-        "service.TkEnrichClaudeIncidentMessage(",
+        "func (h *OpenAIGatewayHandler) tkAnthropicFailoverExhaustedDefaultResponse(",
+        "service.TkEnrichClaudeIncidentMessage("
+      ],
+      "rationale": "TkEnrichClaudeIncidentMessage in handleAnthropicFailoverExhausted surfaces upstream incident context to clients (companion-extracted from upstream-shaped handler)."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler_tk_responses_dispatch.go",
+      "must_contain": [
         "service.TkStripEncryptedReasoningForFailover("
       ],
-      "rationale": "TkEnrichClaudeIncidentMessage in handleAnthropicFailoverExhausted surfaces upstream incident context to clients. TkStripEncryptedReasoningForFailover strips encrypted reasoning at Responses failover boundary."
+      "rationale": "TkStripEncryptedReasoningForFailover strips encrypted reasoning at Responses failover boundary (companion-extracted from upstream-shaped handler)."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_canonical_http.go",
@@ -4569,10 +4584,9 @@
       "path": "backend/internal/handler/openai_chat_completions.go",
       "must_contain": [
         "hold, holdReject := h.tkApplyBalanceHold(c, apiKey, reqModel, body)",
-        "tkHoldRequestID := hold.HandOffToSettlement()",
-        "TkHoldRequestID:    tkHoldRequestID,"
+        "h.tkSubmitHTTPForwardUsage(res, tkHTTPForwardUsageSubmitInput{"
       ],
-      "rationale": "Pre-flight balance HOLD on /v1/chat/completions (PR #746 concurrent-overdraft fix): reserve before forward + hand refund ownership to the usage-record task. Dropping the reserve reopens unbounded concurrent overdraft on the busiest balance route; dropping the hand-off reopens the release-before-settle window (hold refunded while the bill is still queued). Logic lives in openai_gateway_handler_tk_hold.go; these are the thin hooks an upstream merge can silently revert."
+      "rationale": "Pre-flight balance HOLD on /v1/chat/completions (PR #746 concurrent-overdraft fix): reserve before forward + hand refund ownership to the usage-record task via tkSubmitHTTPForwardUsage companion. Dropping the reserve reopens unbounded concurrent overdraft on the busiest balance route; dropping the submit hook reopens the release-before-settle window."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
@@ -4580,28 +4594,34 @@
         "hold, holdReject := h.tkApplyBalanceHold(c, apiKey, reqModel, body)",
         "h.errorResponse(c, http.StatusForbidden, \"insufficient_balance\", tkInsufficientBalanceForHoldMsg)",
         "h.anthropicErrorResponse(c, http.StatusForbidden, \"insufficient_balance\", tkInsufficientBalanceForHoldMsg)",
-        "TkHoldRequestID:    tkHoldRequestID,"
+        "h.tkSubmitHTTPForwardUsage(res, tkHTTPForwardUsageSubmitInput{"
       ],
-      "rationale": "Pre-flight balance HOLD on /v1/responses (errorResponse-form rejection) and /v1/messages dispatch (anthropicErrorResponse-form rejection) — PR #746 overdraft fix. The two routes share the apply literal, so the per-route rejection lines are the anchors proving EACH injection survived an upstream merge, not just one of them."
+      "rationale": "Pre-flight balance HOLD on /v1/responses (errorResponse-form rejection) and /v1/messages dispatch (anthropicErrorResponse-form rejection) — PR #746 overdraft fix. Usage settlement hands off via tkSubmitHTTPForwardUsage companion."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
       "must_contain": [
-        "wsReserveTurnHold := func(model string, payload []byte) error {",
-        "if err := wsReserveTurnHold(reqModel, firstMessage); err != nil {",
-        "if err := wsReserveTurnHold(model, payload); err != nil {",
-        "tkHoldRequestID := turnHold.HandOffToSettlement()"
+        "wsTurnHold = h.tkNewWSResponsesTurnHold(c, apiKey)",
+        "h.tkWSBeforeTurn(ctx, tkWSBeforeTurnInput{",
+        "h.tkWSAfterTurnSubmitUsage(tkWSAfterTurnUsageInput{"
       ],
-      "rationale": "Per-turn balance HOLD on the Responses WebSocket ingress (PR #746 review R-002): turn 1 reserves pre-loop from firstMessage, later turns reserve in BeforeRequest, AfterTurn hands each turn's refund to its usage-record task. WS bills per turn on balance, so losing any of these silently reopens the overdraft bypass through the WS surface."
+      "rationale": "Per-turn balance HOLD on the Responses WebSocket ingress (PR #746 review R-002): turn reserves and usage settlement live in openai_gateway_handler_tk_responses_ws.go; upstream handler keeps thin hooks only."
     },
     {
       "path": "backend/internal/handler/openai_gateway_embeddings_images.go",
       "must_contain": [
-        "hold, holdReject := h.tkApplyBalanceHoldNoOutput(c, apiKey, reqModel, body)",
         "hold, holdReject := h.tkApplyImageHold(c, apiKey, reqModel, int(gjson.GetBytes(body, \"n\").Int()))",
-        "tkHoldRequestID := hold.HandOffToSettlement()"
+        "h.tkSubmitOpenAISimpleForwardUsage(tkOpenAISimpleUsageSubmitInput{"
       ],
-      "rationale": "Pre-flight balance HOLD on /v1/embeddings (no-output estimate — embeddings have no max_tokens, the 200k output fallback would over-reserve 1000x) and /v1/images/generations compat route (requested count at tier-max price). PR #746 overdraft fix; thin hooks into upstream-shaped handlers."
+      "rationale": "Pre-flight balance HOLD on /v1/images/generations compat route; usage submit via tkSubmitOpenAISimpleForwardUsage companion (PR #746 overdraft fix). Embeddings hold moved to openai_embeddings.go after upstream route split."
+    },
+    {
+      "path": "backend/internal/handler/openai_embeddings.go",
+      "must_contain": [
+        "TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformOpenAI, reqModel, len(body))",
+        "hold, holdReject := h.tkApplyBalanceHoldNoOutput(c, apiKey, reqModel, body)"
+      ],
+      "rationale": "Pre-flight body guard + balance HOLD on POST /v1/embeddings (canonical route after upstream split from openai_gateway_embeddings_images.go dead handler)."
     },
     {
       "path": "backend/internal/handler/openai_images.go",
@@ -4900,11 +4920,9 @@
       "path": "backend/internal/handler/openai_gateway_handler.go",
       "must_contain": [
         "selectionModel := service.CanonicalizeOpenAICompatRoutingModel(reqModel)",
-        "if tkShouldApplyMessagesDispatchBodyMapping(account) {",
-        "dispatchBody = tkApplyResponsesDispatchModelMapping(apiKey, forwardBody, h.gatewayService.ReplaceModelInBody)",
-        "// effectiveMappedModel is still passed to ForwardAsAnthropic"
+        "dispatchBody := tkResponsesForwardDispatchBody(apiKey, account, forwardBody, failedAccountIDs, h.gatewayService.ReplaceModelInBody)"
       ],
-      "rationale": "TK /v1/responses routing: account selection uses the client-requested model (parity with /v1/chat/completions) so tokensea relays whose model_mapping lists Claude wire IDs remain selectable. Per-account forward attempts apply tkApplyResponsesDispatchModelMapping only when tkShouldApplyMessagesDispatchBodyMapping(account) is true (OAuth/Codex paths); tokensea API-key relays skip the claude→gpt rewrite so CC fallback keeps Claude upstream IDs. An upstream merge that restores global pre-loop dispatch mapping or dispatch-mapped selection silently breaks tokensea #92 responses/messages. Pairs with openai_gateway_handler_tk_tokensea_routing.go and openai_gateway_handler_tk_responses_dispatch.go sentinels."
+      "rationale": "TK /v1/responses routing: account selection uses the client-requested model (parity with /v1/chat/completions) so tokensea relays whose model_mapping lists Claude wire IDs remain selectable. Per-account forward attempts apply dispatch body rewrite via tkResponsesForwardDispatchBody companion. Pairs with openai_gateway_handler_tk_tokensea_routing.go and openai_gateway_handler_tk_responses_dispatch.go sentinels."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler_tk_responses_dispatch.go",
@@ -4925,6 +4943,7 @@
     {
       "path": "backend/internal/handler/openai_gateway_handler_tk_dispatch_select.go",
       "must_contain": [
+        "func (h *OpenAIGatewayHandler) tkSelectAccountWithSchedulerDispatchFallback(",
         "func tkOpenAIDispatchSelectionFallbackModel(",
         "func tkOpenAIDispatchSelectionAllowsFallback(",
         "ErrNoAvailableCompactAccounts"
@@ -4943,7 +4962,7 @@
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
       "must_contain": [
-        "if fallbackModel, ok := tkOpenAIDispatchSelectionFallbackModel(preferredMappedModel, currentRoutingModel, err); ok {",
+        "h.tkSelectAccountWithSchedulerDispatchFallback(",
         "openai_messages.dispatch_selection_fallback"
       ],
       "rationale": "Injection that retries /v1/messages account selection with the group messages-dispatch mapped model after the client Claude name empties the OpenAI-compat pool. An upstream merge that restores select-on-client-model-only reopens the 2026-08-20 GPT专线 opus 429. Pairs with openai_gateway_handler_tk_dispatch_select.go."
@@ -4951,7 +4970,7 @@
     {
       "path": "backend/internal/handler/openai_chat_completions.go",
       "must_contain": [
-        "if fallbackModel, ok := tkOpenAIDispatchSelectionFallbackModel(dispatchMappedModel, currentRoutingModel, err); ok {",
+        "h.tkSelectAccountWithSchedulerDispatchFallback(",
         "openai_chat_completions.dispatch_selection_fallback"
       ],
       "rationale": "Same dispatch-selection fallback on /v1/chat/completions. Without this hook, chat-shaped Claude names on messages-dispatch groups 429 after native relays die even though opus_mapped_model is configured."
@@ -4959,7 +4978,7 @@
     {
       "path": "backend/internal/handler/openai_gateway_count_tokens.go",
       "must_contain": [
-        "if fallbackModel, ok := tkOpenAIDispatchSelectionFallbackModel(preferredMappedModel, currentRoutingModel, err); ok {",
+        "h.tkSelectAccountForTokenCountWithDispatchFallback(",
         "openai_count_tokens.dispatch_selection_fallback"
       ],
       "rationale": "Same dispatch-selection fallback on count_tokens so token-count requests do not 429 independently of the messages path after Claude relays empty."
@@ -4967,10 +4986,10 @@
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
       "must_contain": [
-        "if fallbackModel, ok := tkOpenAIDispatchSelectionFallbackModel(dispatchMappedModel, currentRoutingModel, err); ok {",
+        "h.tkSelectAccountWithSchedulerDispatchFallback(",
         "openai_responses.dispatch_selection_fallback"
       ],
-      "rationale": "Same dispatch-selection fallback on /v1/responses. The entry already rewrites Claude names at forward time via tkApplyResponsesDispatchModelMapping; without this hook, GPT/Codex accounts stay model_unsupported after native Claude relays empty and the request 429s before that rewrite can run."
+      "rationale": "Same dispatch-selection fallback on /v1/responses. Without this hook, GPT/Codex accounts stay model_unsupported after native Claude relays empty and the request 429s before forward-time body rewrite can run."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_kiro_mirror_scheduling.go",
@@ -5602,18 +5621,11 @@
       "rationale": "PR #902 coverage parity: the window-sched tri-state guard now gates the previous_response_id chain (SelectAccountByPreviousResponseID) too, replacing the retired auto-pause that used to gate this path. isSticky=true keeps a StickyOnly account's chain, only a NotSchedulable account yields. If an upstream merge drops this line the prev-response path loses window coverage silently. Anchor pins the injection."
     },
     {
-      "path": "backend/internal/service/openai_gateway_response_handling.go",
+      "path": "backend/internal/service/openai_gateway_codex_stream_tk.go",
       "must_contain": [
-        "openAIStreamFailoverBlockedByClientOutput(firstTokenMs)"
+        "openAIStreamFailoverBlockedByClientOutput(*in.firstTokenMs)"
       ],
-      "rationale": "PR #1001: OpenAI Responses stream failover on response.failed must gate only on real first-token timing (firstTokenMs), not structural SSE events like response.output_item.added. server_is_overloaded must stay in the transient/capacity classifier so pre-token capacity failures fail over instead of forwarding to the client. Upstream merges of openai_gateway_service.go can silently restore clientOutputStarted gating and drop the overload markers while older happy-path tests still pass."
-    },
-    {
-      "rationale": "PR #1001: OpenAI Responses stream failover on response.failed must gate only on real first-token timing (firstTokenMs), not structural SSE events like response.output_item.added. server_is_overloaded must stay in the transient/capacity classifier so pre-token capacity failures fail over instead of forwarding to the client. Upstream merges of openai_gateway_service.go can silently restore clientOutputStarted gating and drop the overload markers while older happy-path tests still pass.",
-      "path": "backend/internal/service/openai_gateway_passthrough.go",
-      "must_contain": [
-        "openAIStreamFailoverBlockedByClientOutput(firstTokenMs)"
-      ]
+      "rationale": "PR #1001: OpenAI Responses stream failover on response.failed must gate only on real first-token timing (firstTokenMs), not structural SSE events like response.output_item.added. Companion-extracted from openai_gateway_response_handling.go and openai_gateway_passthrough.go."
     },
     {
       "rationale": "PR #1001: OpenAI Responses stream failover on response.failed must gate only on real first-token timing (firstTokenMs), not structural SSE events like response.output_item.added. server_is_overloaded must stay in the transient/capacity classifier so pre-token capacity failures fail over instead of forwarding to the client. Upstream merges of openai_gateway_service.go can silently restore clientOutputStarted gating and drop the overload markers while older happy-path tests still pass.",
@@ -5694,11 +5706,11 @@
       "rationale": "Focused regressions pin runtime version propagation, account-level fingerprint preservation, rollback semantics, and idempotence for canonical Codex identity enforcement. These behaviors can be silently weakened at a shared helper while route smoke tests still succeed."
     },
     {
-      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "path": "backend/internal/service/openai_gateway_passthrough_tk.go",
       "must_contain": [
         "enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))"
       ],
-      "rationale": "OpenAI OAuth passthrough must use the same canonical User-Agent/originator/version terminal enforcement as the regular HTTP forward path. Losing this call creates two client identities for the same account depending on route mode and reintroduces upstream classification and load-shed drift."
+      "rationale": "OpenAI OAuth passthrough must use the same canonical User-Agent/originator/version terminal enforcement as the regular HTTP forward path (companion-extracted from upstream-shaped passthrough.go)."
     },
     {
       "path": "backend/internal/service/openai_alpha_search.go",
@@ -5713,13 +5725,6 @@
       "must_contain": [
         "openai.IsCodexOfficialClientOriginator(originator)"
       ]
-    },
-    {
-      "path": "backend/internal/service/openai_gateway_messages.go",
-      "must_contain": [
-        "strip originator in openai_gateway_forward.go"
-      ],
-      "rationale": "Anthropic Messages -> Codex SSE bridge must NOT carry OpenAI-Beta and must NOT re-inject originator on compat bridge paths. Upstream merge #5351 (2026-08) aligned with upstream: compatMessagesBridge deletes originator/OpenAI-Beta in openai_gateway_forward.go so enforceCodexIdentityHeaders stays no-op. Re-adding originator on bridge paths has proven TK<->upstream churn; this anchor ties the rationale comment to the forward-path Del. Paired regression: openai_compat_model_test.go requireOpenAIMessagesCodexIdentity asserts empty originator."
     },
     {
       "path": "backend/internal/service/openai_gateway_forward.go",
@@ -5939,37 +5944,30 @@
     {
       "path": "backend/internal/service/openai_gateway_messages.go",
       "must_contain": [
-        "compatReplayGuardEnabled && !account.IsOpenAIOAuth()"
+        "compatReplayGuardEnabled && !account.IsOpenAIOAuthLike()"
       ],
-      "rationale": "Compat replay guard in ForwardAsAnthropicMessages must gate on IsOpenAIOAuth: OAuth accounts already have native Codex session continuation and must NOT get the TodoGuard appended (it corrupts their continuation context). Losing this predicate applies the replay guard to OAuth sessions, breaking Codex continuation for OpenAI OAuth accounts."
+      "rationale": "Compat replay guard in ForwardAsAnthropicMessages must gate on IsOpenAIOAuthLike (OAuth + setup_token): those accounts already have native Codex session continuation and must NOT get the TodoGuard appended (it corrupts their continuation context). Losing this predicate applies the replay guard to OAuth sessions, breaking Codex continuation for OpenAI OAuth accounts."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages.go",
       "must_contain": [
-        "account.IsOpenAIOAuth() && promptCacheKey != \"\" && strings.TrimSpace(c.GetHeader(\"conversation_id\")) == \"\""
+        "if account.IsOpenAIOAuthLike() && promptCacheKey != \"\" {"
       ],
-      "rationale": "OAuth prompt-cache header cleanup in ForwardAsAnthropicMessages: when an OAuth account has a prompt cache key but no conversation_id header, the stale conversation_id must be removed from the upstream request so it does not collide with the session continuation state. Losing this predicate either leaks stale conversation_id upstream (corrupting continuation) or strips it when it should be preserved."
-    },
-    {
-      "path": "backend/internal/service/openai_gateway_messages.go",
-      "must_contain": [
-        "if account.IsOpenAIOAuth() && promptCacheKey != \"\" {"
-      ],
-      "rationale": "OAuth turn-state binding in ForwardAsAnthropicMessages response path: after a successful upstream response, the x-codex-turn-state header must be captured and bound to the prompt cache key for OAuth accounts so subsequent requests can restore session state. Losing this drops turn-state persistence for OpenAI OAuth sessions, breaking multi-turn Codex continuation."
+      "rationale": "OAuth/setup_token turn-state binding in ForwardAsAnthropicMessages response path: after a successful upstream response, the x-codex-turn-state header must be captured and bound to the prompt cache key for OAuth-like accounts so subsequent requests can restore session state. Losing this drops turn-state persistence for OpenAI OAuth sessions, breaking multi-turn Codex continuation."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions.go",
       "must_contain": [
-        "account.IsOpenAIOAuth() && shouldAutoInjectPromptCacheKeyForCompat(upstreamModel)"
+        "account.IsOpenAIOAuthLike() && shouldAutoInjectPromptCacheKeyForCompat(upstreamModel)"
       ],
-      "rationale": "Auto-inject prompt cache key for OAuth compat in ForwardAsChatCompletions: when an OAuth account has no explicit prompt cache key but the model supports it, a deterministic key is derived so the session gets continuation benefits automatically. Losing this predicate disables auto-injection, degrading first-turn latency and breaking implicit session caching for compat entry OAuth accounts."
+      "rationale": "Auto-inject prompt cache key for OAuth-like compat in ForwardAsChatCompletions: when an OAuth/setup_token account has no explicit prompt cache key but the model supports it, a deterministic key is derived so the session gets continuation benefits automatically. Losing this predicate disables auto-injection, degrading first-turn latency and breaking implicit session caching for compat entry OAuth accounts."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions.go",
       "must_contain": [
-        "if account.IsOpenAIOAuth() {\n\t\tvar reqBody map[string]any"
+        "if account.IsOpenAIOAuthLike() {\n\t\tvar reqBody map[string]any"
       ],
-      "rationale": "Codex OAuth transform in ForwardAsChatCompletions: OAuth accounts must have applyCodexOAuthTransformWithOptions applied to the request body, which normalizes instructions, system prompts, and other Codex-specific fields. Losing this gate sends raw non-Codex-shaped bodies upstream on OAuth accounts, causing classification mismatches and potential rejections."
+      "rationale": "Codex OAuth transform in ForwardAsChatCompletions: OAuth-like accounts (OAuth + setup_token) must have applyCodexOAuthTransformWithOptions applied to the request body, which normalizes instructions, system prompts, and other Codex-specific fields. Losing this gate sends raw non-Codex-shaped bodies upstream on OAuth accounts, causing classification mismatches and potential rejections."
     },
     {
       "path": "backend/internal/handler/auth_handler.go",

@@ -19,7 +19,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -29,8 +28,8 @@ import (
 )
 
 const (
-	openAIImagesGenerationsEndpoint = apipath.ImagesGenerations
-	openAIImagesEditsEndpoint       = apipath.ImagesEdits
+	openAIImagesGenerationsEndpoint = "/v1/images/generations"
+	openAIImagesEditsEndpoint       = "/v1/images/edits"
 
 	openAIImagesGenerationsURL = "https://api.openai.com/v1/images/generations"
 	openAIImagesEditsURL       = "https://api.openai.com/v1/images/edits"
@@ -563,7 +562,7 @@ func (s *OpenAIGatewayService) ForwardImages(
 	switch account.Type {
 	case AccountTypeAPIKey:
 		return s.forwardOpenAIImagesAPIKey(ctx, c, account, body, parsed, channelMappedModel)
-	case AccountTypeOAuth:
+	case AccountTypeOAuth, AccountTypeSetupToken:
 		return s.forwardOpenAIImagesOAuth(ctx, c, account, parsed, channelMappedModel)
 	default:
 		return nil, fmt.Errorf("unsupported account type: %s", account.Type)
@@ -590,6 +589,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	if err := validateOpenAIImagesModel(upstreamModel); err != nil {
 		return nil, err
 	}
+	SetOpsUpstreamModel(c, upstreamModel)
 	logger.LegacyPrintf(
 		"service.openai_gateway",
 		"[OpenAI] Images request routing request_model=%s upstream_model=%s endpoint=%s account_type=%s",
@@ -658,12 +658,15 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 				Kind:               "failover",
 				Message:            upstreamMsg,
 			})
-			s.handleFailoverSideEffects(upstreamCtx, resp, account, respBody, upstreamModel)
-			return nil, &UpstreamFailoverError{
-				StatusCode:             resp.StatusCode,
-				ResponseBody:           respBody,
-				RetryableOnSameAccount: tkOpenAICompatRetryableOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody, false),
+			shouldDisable := s.handleFailoverSideEffects(upstreamCtx, resp, account, respBody, upstreamModel)
+			retryableOnSameAccount := !shouldDisable && tkOpenAICompatRetryableOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody, false)
+			if account.IsOpenAIOAuthLike() && resp.StatusCode == http.StatusTooManyRequests {
+				return nil, s.newOpenAIAccountFailoverError(account, resp.StatusCode, resp.Header, respBody, upstreamMsg, shouldDisable, retryableOnSameAccount)
 			}
+			if isOpenAIHTTPUpstreamAccessStateError(resp.StatusCode, upstreamMsg, respBody) {
+				return nil, newOpenAIUpstreamFailoverError(resp.StatusCode, resp.Header, respBody, upstreamMsg, retryableOnSameAccount)
+			}
+			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody, RetryableOnSameAccount: retryableOnSameAccount}
 		}
 		return s.handleOpenAIImagesErrorResponse(upstreamCtx, resp, c, account, upstreamModel)
 	}
@@ -895,19 +898,11 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http
 			contentType = upstreamType
 		}
 	}
-	// Extract billing facts from the ORIGINAL body before any rewrite — count is by
-	// data-array length and sizes come from metadata fields, both preserved by the
-	// offload, but reading them here keeps billing independent of the transform.
 	usage, _ := extractOpenAIUsageFromJSONBytes(body)
 	imageCount := extractOpenAIImageCountFromJSONBytes(body)
 	imageSizes := collectOpenAIResponseImageOutputSizesFromJSONBytes(body)
-
-	// TK: offload inline-base64 images to S3 and serve a presigned URL instead of
-	// streaming a multi-MB body through the gateway. Runs automatically (no client
-	// opt-in); honours an explicit response_format=b64_json — see openai_images_s3_tk.go.
 	body = s.tkMaybeOffloadImagesToS3(c.Request.Context(), body, responseFormat)
 	c.Data(resp.StatusCode, contentType, body)
-
 	return usage, imageCount, imageSizes, nil
 }
 
@@ -1167,6 +1162,9 @@ func mergeOpenAIUsage(dst *OpenAIUsage, body []byte) {
 		}
 		if parsed.CacheReadInputTokens > 0 {
 			dst.CacheReadInputTokens = parsed.CacheReadInputTokens
+		}
+		if parsed.ImageInputTokens > 0 {
+			dst.ImageInputTokens = parsed.ImageInputTokens
 		}
 		if parsed.ImageOutputTokens > 0 {
 			dst.ImageOutputTokens = parsed.ImageOutputTokens

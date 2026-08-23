@@ -19,9 +19,19 @@ import (
 //   - sticky 满、全池也满、逃逸 ON → 回到 sticky WaitPlan（缓存仍热）
 //   - sticky 满、池里有空、逃逸 OFF → 在 sticky 上排队（今日行为）
 
-// slotEscapeSettingRepo（escape 开关 settingRepo 桩）定义在无 build-tag 的
-// openai_account_scheduler_test.go 中，以便 no-tag / unit / integration 三种
-// 构建下都可见——该 stub 被无 tag 的 SessionStickyBusyKeepsSticky 测试复用。
+// slotEscapeSettingRepo 是只为 #2859 escape 开关服务的 settingRepo 桩：仅对
+// SettingKeyStickySlotFullEscapeEnabled 返回配置值，其余 key 返回空（取默认）。
+type slotEscapeSettingRepo struct {
+	SettingRepository
+	val string
+}
+
+func (r *slotEscapeSettingRepo) GetValue(_ context.Context, key string) (string, error) {
+	if key == SettingKeyStickySlotFullEscapeEnabled {
+		return r.val, nil
+	}
+	return "", nil
+}
 
 // newSlotEscapeFixture 构建一个 OpenAIGatewayService，可控制每账号并发槽获取
 // 结果（acquireResults）与可选 settingService（驱动 escape 开关）。

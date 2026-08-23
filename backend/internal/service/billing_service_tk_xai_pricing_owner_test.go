@@ -54,8 +54,8 @@ func TestGrokPricingOwnersFollowRoutingSSOT(t *testing.T) {
 	}
 
 	required := map[string]string{
-		"grok-latest":       "grok-4.3",
-		"grok-build-latest": "grok-4.5",
+		"grok-latest":       xai.DefaultTextModel,
+		"grok-build-latest": "grok-build-0.1",
 		"grok-composer":     "grok-build-0.1",
 	}
 	for alias, expected := range required {
@@ -91,8 +91,8 @@ func TestGrokRegistryAliasesUseCanonicalOwners(t *testing.T) {
 	cases := map[string]string{
 		"grok-latest":             "grok-latest", // direct registry row remains the data owner
 		"grok-build-latest":       "grok-build-latest",
-		"xai/grok-latest":         "grok-4.3",
-		"x-ai/grok-build-latest":  "grok-4.5",
+		"xai/grok-latest":         xai.DefaultTextModel,
+		"x-ai/grok-build-latest":  "grok-build-0.1",
 		"grok/grok-composer":      "grok-build-0.1",
 		"grok-4.20-reasoning":     "grok-4.20-0309-reasoning",
 		"grok-4.20-non-reasoning": "grok-4.20-0309-non-reasoning",

@@ -47,7 +47,7 @@ func TestForwardAsAnthropic_BufferedResponseFailed_ReturnsError(t *testing.T) {
 
 	require.Error(t, err, "non-cyber response.failed must return an error, not swallow as 200")
 	require.Contains(t, err.Error(), "upstream response failed")
-	require.Equal(t, http.StatusBadRequest, rec.Code, "caller-fault content policy must be 400 so clients do not retry a 502")
+	require.Equal(t, http.StatusBadRequest, rec.Code, "invalid_request / content-policy failed response maps to 400")
 }
 
 func TestForwardAsAnthropic_StreamingResponseFailed_ReturnsError(t *testing.T) {
@@ -155,33 +155,31 @@ func TestForwardAsAnthropic_StreamingBareErrorBeforeOutputFailsOver(t *testing.T
 	require.Empty(t, rec.Body.String(), "failover path must not commit downstream output")
 }
 
-func TestForwardAsAnthropic_StreamingResponseFailed_OverloadedFailover(t *testing.T) {
+func TestForwardAsAnthropic_StreamingGenericBareErrorBeforeOutputIsNotHiddenByFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	body := []byte(`{"model":"gpt-5.6","max_tokens":32,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
+	body := []byte(`{"model":"gpt-5.4","max_tokens":32,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	ssePayload := buildResponsesFailedSSEStream("invalid_request_error", "Our servers are currently overloaded. Please try again later.")
+	ssePayload := "event: error\n" +
+		`data: {"type":"error","error":{"type":"server_error","code":"upstream_error","message":"mixed tools failed"}}` + "\n\n" +
+		"data: [DONE]\n\n"
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
 		Body:       io.NopCloser(strings.NewReader(ssePayload)),
 	}}
-	svc := &OpenAIGatewayService{
-		cfg:          rawChatCompletionsTestConfig(),
-		httpUpstream: upstream,
-	}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
 
-	account := rawChatCompletionsTestAccount()
-	_, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
+	_, err := svc.ForwardAsAnthropic(context.Background(), c, rawChatCompletionsTestAccount(), body, "", "")
 
 	require.Error(t, err)
 	var failoverErr *UpstreamFailoverError
-	require.True(t, errors.As(err, &failoverErr), "stream capacity overloaded must failover even when typed invalid_request_error: %T: %v", err, err)
-	require.Empty(t, rec.Body.String(), "failover path must not commit downstream output")
+	require.False(t, errors.As(err, &failoverErr))
+	require.Contains(t, rec.Body.String(), "mixed tools failed")
 }
 
 func TestForwardAsAnthropic_BufferedResponseFailed_Failover(t *testing.T) {

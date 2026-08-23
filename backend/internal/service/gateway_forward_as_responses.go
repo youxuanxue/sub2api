@@ -37,6 +37,14 @@ func (s *GatewayService) ForwardAsResponses(
 ) (*ForwardResult, error) {
 	startTime := time.Now()
 
+	normalizedBody, normalized, err := normalizeOpenAIResponsesLegacyIngress(body)
+	if err != nil {
+		return nil, err
+	}
+	if normalized {
+		body = normalizedBody
+	}
+
 	// 1. Lower Codex client-side tools to function tools understood by Anthropic.
 	adaptedBody, clientToolMapping, err := adaptResponsesClientToolsForAnthropic(body)
 	if err != nil {
@@ -66,7 +74,6 @@ func (s *GatewayService) ForwardAsResponses(
 
 	// 4. Model mapping
 	mappedModel := originalModel
-	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body)
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(originalModel)
 	}
@@ -81,17 +88,11 @@ func (s *GatewayService) ForwardAsResponses(
 			mappedModel = normalized
 		}
 	}
+	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body, mappedModel, originalModel)
 	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 mapping 完成之后。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
 	anthropicReq.Model = mappedModel
 
-	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
-	// unpriced models with a 404 BEFORE forward / stream start (SSE pre-flight).
-	// OpenAI /v1/responses ingress (against an anthropic account) → OPENAI 404
-	// envelope (BLOCKER4). Judge originalModel — billing records on
-	// result.Model=originalModel here, so the gate must use billing's exact key
-	// (BLOCKER1). No-op unless account.Platform is in the enabled set. See
-	// gateway_priced_serving_gate_tk.go.
 	if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, originalModel, originalModel) {
 		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
 	}
@@ -177,10 +178,6 @@ func (s *GatewayService) ForwardAsResponses(
 		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
-		if resp.StatusCode == http.StatusBadRequest {
-			tkRecordAnthropicSamplingParamRuleFrom400(account, mappedModel, anthropicBody, resp.StatusCode, respBody)
-			tkRecordAnthropicThinkingRuleFrom400(account, mappedModel, anthropicBody, resp.StatusCode, respBody)
-		}
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
@@ -195,23 +192,15 @@ func (s *GatewayService) ForwardAsResponses(
 				Kind:               "failover",
 				Message:            upstreamMsg,
 			})
+			shouldDisable := false
 			if s.rateLimitService != nil {
-				if !s.rateLimitService.handleAntigravityRelayCapacity(
-					ctx,
-					account,
-					resp.StatusCode,
-					respBody,
-					originalModel,
-				) {
-					s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
-				}
+				shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
 			}
-			return nil, newUpstreamFailoverErrorWithTKCapacity(
-				account,
-				resp.StatusCode,
-				resp.Header,
-				respBody,
-			)
+			return nil, &UpstreamFailoverError{
+				StatusCode:             resp.StatusCode,
+				ResponseBody:           respBody,
+				RetryableOnSameAccount: !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+			}
 		}
 
 		// Non-failover error: return Responses-formatted error to client
@@ -290,26 +279,20 @@ func liftResponsesAdditionalTools(requestBody map[string]any) (bool, error) {
 
 // ExtractResponsesReasoningEffortFromBody reads Responses API reasoning.effort
 // and normalizes it for usage logging.
-func ExtractResponsesReasoningEffortFromBody(body []byte) *string {
+func ExtractResponsesReasoningEffortFromBody(body []byte, modelCandidates ...string) *string {
 	raw := strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String())
 	if raw == "" {
 		return nil
 	}
-	normalized := normalizeOpenAIReasoningEffort(raw)
+	model := firstNonEmpty(modelCandidates...)
+	if model == "" {
+		model = strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	}
+	normalized := normalizeOpenAIReasoningEffortForModel(raw, model)
 	if normalized == "" {
 		return nil
 	}
 	return &normalized
-}
-
-// parseAnthropicSSEField parses an SSE field line in the form "field:value" or "field: value".
-// According to the SSE spec, the space after the colon is optional.
-func parseAnthropicSSEField(line, field string) (string, bool) {
-	prefix := field + ":"
-	if !strings.HasPrefix(line, prefix) {
-		return "", false
-	}
-	return strings.TrimSpace(strings.TrimPrefix(line, prefix)), true
 }
 
 func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
@@ -328,6 +311,17 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 	if src.CacheCreationInputTokens > 0 {
 		dst.CacheCreationInputTokens = src.CacheCreationInputTokens
 	}
+}
+
+// parseAnthropicSSEField parses an SSE field line in the form "field:value" or "field: value".
+// According to the SSE spec (https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation),
+// the space after the colon is optional. This function handles both formats.
+func parseAnthropicSSEField(line, field string) (string, bool) {
+	prefix := field + ":"
+	if !strings.HasPrefix(line, prefix) {
+		return "", false
+	}
+	return strings.TrimSpace(strings.TrimPrefix(line, prefix)), true
 }
 
 // handleResponsesBufferedStreamingResponse reads all Anthropic SSE events from
@@ -580,13 +574,6 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 
 	finalizeStream := func() (*ForwardResult, error) {
 		if finalEvents := apicompat.FinalizeAnthropicResponsesStream(state); len(finalEvents) > 0 {
-			// Non-empty finalize events mean the upstream stream ended without a
-			// terminal message_stop; FinalizeAnthropicResponsesStream synthesizes a
-			// response.incomplete terminal so the strict client is not left hanging.
-			// Surface it for ops: the turn is truncated, not a clean completion.
-			logger.L().Info("forward_as_responses stream: upstream ended without terminal event; emitted response.incomplete",
-				zap.String("request_id", requestID),
-			)
 			for _, evt := range finalEvents {
 				sse, err := apicompat.ResponsesEventToSSE(evt)
 				if err != nil {

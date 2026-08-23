@@ -1,6 +1,8 @@
 package service
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -65,9 +67,7 @@ var codexModelMap = map[string]string{
 	"gpt-5.1-codex-mini":         "gpt-5.3-codex-spark",
 	"gpt-5.2-codex":              "gpt-5.2",
 	"codex-mini-latest":          "gpt-5.3-codex-spark",
-	// TK 2026-07 SSOT audit: upstream rejected this official chat id for
-	// ChatGPT-account Codex; keep it as a non-display compatibility alias.
-	"gpt-5.3-chat-latest": "gpt-5.3-codex-spark",
+	"gpt-5.3-chat-latest":        "gpt-5.3-codex-spark",
 }
 
 var codexVersionModelPrefixes = []struct {
@@ -97,13 +97,66 @@ type codexTransformResult struct {
 	Modified        bool
 	NormalizedModel string
 	PromptCacheKey  string
+	ToolNameReverse map[string]string
+	Error           error
 }
 
 type codexOAuthTransformOptions struct {
-	IsCodexCLI              bool
-	IsCompact               bool
-	SkipDefaultInstructions bool
-	PreserveToolCallIDs     bool
+	IsCodexCLI                          bool
+	IsCompact                           bool
+	SkipDefaultInstructions             bool
+	PreserveToolCallIDs                 bool
+	OmitPromotedSystemMessagesFromInput bool
+}
+
+const (
+	codexCallIDMaxLength = 64
+	codexCallIDPrefix    = "fc_"
+)
+
+func normalizeCodexCallID(id string) string {
+	if strings.HasPrefix(id, "call_") {
+		// Wei-Shaw/sub2api#2500
+		fixed := "fc_" + strings.TrimPrefix(id, "call_")
+		if len(fixed) <= codexCallIDMaxLength {
+			return "fc_" + strings.TrimPrefix(id, "call_")
+		}
+	}
+	return normalizeCodexCallIDForItemType("function_call", id)
+}
+
+func normalizeCodexCallIDForItemType(itemType, id string) string {
+	prefix := openAIResponsesToolCallIDPrefix(itemType) + "_"
+	candidate := id
+	switch {
+	case id == "":
+		return ""
+	case strings.HasPrefix(id, strings.TrimSuffix(prefix, "_")):
+	case strings.HasPrefix(id, "call_"):
+		candidate = prefix + strings.TrimPrefix(id, "call_")
+	default:
+		candidate = prefix + trimOpenAIResponsesKnownCallIDPrefix(id)
+	}
+	if len(candidate) <= codexCallIDMaxLength {
+		return candidate
+	}
+	return compactCodexCallIDForItemType(itemType, candidate)
+}
+
+func compactCodexCallIDForItemType(itemType, id string) string {
+	prefix := openAIResponsesToolCallIDPrefix(itemType) + "_"
+	digest := sha256.Sum256([]byte("sub2api:codex-call-id:v1:" + id))
+	encoded := hex.EncodeToString(digest[:])
+	return prefix + encoded[:codexCallIDMaxLength-len(prefix)]
+}
+
+func trimOpenAIResponsesKnownCallIDPrefix(id string) string {
+	for _, prefix := range []string{"fc_", "ctc_", "tsc_"} {
+		if strings.HasPrefix(id, prefix) {
+			return strings.TrimPrefix(id, prefix)
+		}
+	}
+	return id
 }
 
 const codexImageGenerationFunctionToolName = "image_gen.imagegen"
@@ -113,15 +166,17 @@ const (
 	codexImageGenerationBridgeText   = codexImageGenerationBridgeMarker + "\nWhen the user asks for raster image generation or editing, use the OpenAI Responses native `image_generation` tool attached to this request. The local Codex client may not expose an `image_gen` namespace, but that does not mean image generation is unavailable. Do not ask the user to switch to CLI fallback solely because `image_gen` is absent.\n</sub2api-codex-image-generation>"
 	codexSparkImageUnsupportedMarker = "<sub2api-codex-spark-image-unsupported>"
 	codexSparkImageUnsupportedText   = codexSparkImageUnsupportedMarker + "\nThe current model is gpt-5.3-codex-spark, which does not support image generation, image editing, image input, the `image_generation` tool, or Codex `image_gen`/`$imagegen` workflows. If the user asks for image generation or image editing, clearly explain this model limitation and ask them to switch to a non-Spark Codex model such as gpt-5.3-codex or gpt-5.4. Do not claim that the local environment merely lacks image_gen tooling, and do not suggest CLI fallback as the primary fix while the model remains Spark.\n</sub2api-codex-spark-image-unsupported>"
-	codexJsonObjectInputHint         = "Respond with valid JSON."
 )
 
 var openAIChatGPTInternalUnsupportedFields = []string{
+	"chat_template_kwargs",
 	"user",
 	"metadata",
 	"prompt_cache_retention",
 	"safety_identifier",
 	"stream_options",
+	"truncation",
+	"stop_sequences",
 }
 
 var openAICodexOAuthUnsupportedFields = append([]string{
@@ -142,6 +197,9 @@ func applyCodexOAuthTransform(reqBody map[string]any, isCodexCLI bool, isCompact
 
 func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuthTransformOptions) codexTransformResult {
 	result := codexTransformResult{}
+	if normalizeOpenAIOAuthResponsesCompatibilityFields(reqBody) {
+		result.Modified = true
+	}
 	// 工具续链需求会影响存储策略与 input 过滤逻辑。
 	needsToolContinuation := NeedsToolContinuation(reqBody)
 
@@ -234,6 +292,18 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 	if normalizeCodexTools(reqBody) {
 		result.Modified = true
 	}
+	// Collect aliases only after prompt/functions/function_call compatibility
+	// has produced the final Responses protocol nodes. Otherwise references
+	// introduced by those migrations can retain the reserved name.
+	toolNameReverse, toolNamesChanged, err := aliasOpenAIOAuthReservedToolNames(reqBody)
+	if err != nil {
+		result.Error = err
+		return result
+	}
+	result.ToolNameReverse = toolNameReverse
+	if toolNamesChanged {
+		result.Modified = true
+	}
 	if normalizeCodexToolChoice(reqBody) {
 		result.Modified = true
 	}
@@ -247,9 +317,11 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 	}
 
 	// ChatGPT internal Codex endpoint does not accept role:"system".
-	// Keep the guidance in input as developer for Responses JSON mode, and
-	// also mirror it into instructions because Codex OAuth requires it.
-	if extractSystemMessagesFromInput(reqBody) {
+	// Mirror its text into instructions because Codex OAuth requires it. Some
+	// callers must also keep the guidance in input as developer (notably
+	// Responses JSON object mode), while Chat Completions compatibility can
+	// omit text-only messages after promoting them losslessly.
+	if extractSystemMessagesFromInput(reqBody, opts.OmitPromotedSystemMessagesFromInput) {
 		result.Modified = true
 	}
 
@@ -297,10 +369,6 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 		} else {
 			reqBody["input"] = []any{}
 		}
-		result.Modified = true
-	}
-
-	if ensureCodexJsonObjectInputHint(reqBody) {
 		result.Modified = true
 	}
 
@@ -559,9 +627,6 @@ func stringifyCodexContentText(value any) string {
 
 func normalizeCodexModel(model string) string {
 	model = strings.TrimSpace(model)
-	if bare, stripped := applyOpenAICompatContextWindowModelAlias(model); stripped {
-		model = bare
-	}
 	if model == "" {
 		return "gpt-5.4"
 	}
@@ -886,6 +951,124 @@ func normalizeOpenAIResponsesImageGenerationTools(reqBody map[string]any) bool {
 			delete(toolMap, "compression")
 			modified = true
 		}
+		imageModel := strings.ToLower(strings.TrimSpace(firstNonEmptyString(toolMap["model"])))
+		if strings.HasPrefix(imageModel, "gpt-image-2") {
+			if _, ok := toolMap["input_fidelity"]; ok {
+				delete(toolMap, "input_fidelity")
+				modified = true
+			}
+		}
+	}
+	return modified
+}
+
+func normalizeOpenAIResponseFormatSchemas(reqBody map[string]any) bool {
+	if reqBody == nil {
+		return false
+	}
+	modified := false
+	normalizeFormat := func(format map[string]any) {
+		if format == nil || strings.TrimSpace(firstNonEmptyString(format["type"])) != "json_schema" {
+			return
+		}
+		if schema, ok := format["schema"].(map[string]any); ok && normalizeOpenAIResponseJSONSchema(schema) {
+			modified = true
+		}
+		if jsonSchema, ok := format["json_schema"].(map[string]any); ok {
+			if schema, ok := jsonSchema["schema"].(map[string]any); ok && normalizeOpenAIResponseJSONSchema(schema) {
+				modified = true
+			}
+		}
+	}
+	if text, ok := reqBody["text"].(map[string]any); ok {
+		if format, ok := text["format"].(map[string]any); ok {
+			normalizeFormat(format)
+		}
+	}
+	if responseFormat, ok := reqBody["response_format"].(map[string]any); ok {
+		normalizeFormat(responseFormat)
+	}
+	return modified
+}
+
+func normalizeOpenAIResponseJSONSchema(schema map[string]any) bool {
+	if schema == nil {
+		return false
+	}
+	modified := false
+	for _, key := range []string{"uniqueItems", "minProperties"} {
+		if _, exists := schema[key]; exists {
+			delete(schema, key)
+			modified = true
+		}
+	}
+	if rawType, exists := schema["type"]; !exists || rawType == nil {
+		switch {
+		case schema["properties"] != nil:
+			schema["type"] = "object"
+			modified = true
+		case schema["items"] != nil:
+			schema["type"] = "array"
+			modified = true
+		}
+	}
+	if properties, ok := schema["properties"].(map[string]any); ok {
+		for _, raw := range properties {
+			if child, ok := raw.(map[string]any); ok && normalizeOpenAIResponseJSONSchema(child) {
+				modified = true
+			}
+		}
+	}
+	switch items := schema["items"].(type) {
+	case map[string]any:
+		if normalizeOpenAIResponseJSONSchema(items) {
+			modified = true
+		}
+	case []any:
+		for _, raw := range items {
+			if child, ok := raw.(map[string]any); ok && normalizeOpenAIResponseJSONSchema(child) {
+				modified = true
+			}
+		}
+	}
+	for _, key := range []string{
+		"additionalProperties",
+		"additionalItems",
+		"contains",
+		"not",
+		"if",
+		"then",
+		"else",
+		"propertyNames",
+		"unevaluatedProperties",
+		"unevaluatedItems",
+	} {
+		if child, ok := schema[key].(map[string]any); ok && normalizeOpenAIResponseJSONSchema(child) {
+			modified = true
+		}
+	}
+	for _, key := range []string{"anyOf", "oneOf", "allOf", "prefixItems"} {
+		children, _ := schema[key].([]any)
+		for _, raw := range children {
+			if child, ok := raw.(map[string]any); ok && normalizeOpenAIResponseJSONSchema(child) {
+				modified = true
+			}
+		}
+	}
+	for _, key := range []string{"$defs", "definitions", "patternProperties", "dependentSchemas"} {
+		children, _ := schema[key].(map[string]any)
+		for _, raw := range children {
+			if child, ok := raw.(map[string]any); ok && normalizeOpenAIResponseJSONSchema(child) {
+				modified = true
+			}
+		}
+	}
+	if dependencies, ok := schema["dependencies"].(map[string]any); ok {
+		for _, raw := range dependencies {
+			if child, ok := raw.(map[string]any); ok && normalizeOpenAIResponseJSONSchema(child) {
+				modified = true
+			}
+		}
 	}
 	return modified
 }
@@ -1067,33 +1250,18 @@ func normalizeOpenAIResponsesImageOnlyModel(reqBody map[string]any) bool {
 
 // chatGPTOAuthUpstreamModelNames maps internal canonical model names to the
 // identifiers accepted by the ChatGPT OAuth backend (chatgpt.com). The map is
-// deliberately EMPTY — it is NOT dead code: the lookup in
-// normalizeOpenAIModelForUpstream is the zero-cost seam for the next time the
-// ChatGPT OAuth backend flips its model-name contract (it already did once).
-//
-// Contract timeline:
-//   - Until 2026-05-28 the backend rejected bare "gpt-5.3-codex" and required
-//     "codex-mini-latest" — hence the former gpt-5.3-codex → codex-mini-latest
-//     entry here.
-//   - Since 2026-05-29 the contract REVERSED: the backend now rejects the
-//     rewrite target with the prod 400 literal (keep verbatim, grep anchor):
-//     The 'codex-mini-latest' model is not supported when using Codex with a ChatGPT account
-//   - 2026-06-10 prod probe (read-only, exact gateway header shape, OAuth
-//     accounts 9/GPT-pro1 + 48/GPT-pro2): both "gpt-5.3-codex" AND
-//     "codex-mini-latest" return that 400 on both accounts, while control
-//     "gpt-5.3-codex-spark" streams 200 — the OAuth backend currently serves
-//     a narrower model set than the platform API (not enumerated here).
-//
-// Bare "gpt-5.3-codex" is now normalized earlier as a non-display compatibility
-// alias to gpt-5.3-codex-spark. This seam remains for future ChatGPT OAuth
-// contract flips of the canonical names that survive normalization.
+// deliberately EMPTY — it is the zero-cost seam for the next ChatGPT OAuth
+// model-name contract flip.
 var chatGPTOAuthUpstreamModelNames = map[string]string{}
 
 func normalizeOpenAIModelForUpstream(account *Account, model string) string {
 	if account != nil && account.IsGrok() {
 		return strings.TrimSpace(model)
 	}
-	if account == nil || account.Type == AccountTypeOAuth {
+	if aliased, ok := applyOpenAICompatContextWindowModelAlias(model); ok {
+		model = aliased
+	}
+	if account == nil || account.Type == AccountTypeOAuth || account.UsesOpenAICodexProtocol() {
 		normalized := normalizeCodexModel(model)
 		if upstream, ok := chatGPTOAuthUpstreamModelNames[normalized]; ok {
 			return upstream
@@ -1163,31 +1331,46 @@ func extractTextFromContent(content any) string {
 	}
 }
 
-// extractSystemMessagesFromInput scans input for role=="system", maps those
-// items to developer, and mirrors their text into reqBody["instructions"].
-// It preserves the input items so Responses JSON mode can still see JSON
-// instructions in input messages.
-func extractSystemMessagesFromInput(reqBody map[string]any) bool {
+// extractSystemMessagesFromInput scans input for role=="system" and mirrors
+// their text into reqBody["instructions"]. By default it maps those items to
+// developer so Responses JSON mode can still see JSON instructions in input.
+// When omitPromoted is true, text-only items are removed after their content is
+// losslessly promoted; mixed or malformed content is retained as developer.
+func extractSystemMessagesFromInput(reqBody map[string]any, omitPromoted bool) bool {
 	input, ok := reqBody["input"].([]any)
 	if !ok || len(input) == 0 {
 		return false
 	}
 
 	var systemTexts []string
+	filteredInput := make([]any, 0, len(input))
 	modified := false
 	for _, item := range input {
 		m, ok := item.(map[string]any)
-		if !ok {
+		if !ok || m["role"] != "system" {
+			filteredInput = append(filteredInput, item)
 			continue
 		}
-		if role, _ := m["role"].(string); role != "system" {
-			continue
+
+		if omitPromoted {
+			if losslessText, lossless := extractLosslessTextFromContent(m["content"]); lossless {
+				if losslessText != "" {
+					systemTexts = append(systemTexts, losslessText)
+				}
+				modified = true
+				continue
+			}
 		}
-		m["role"] = "developer"
-		modified = true
+
 		if text := extractTextFromContent(m["content"]); text != "" {
 			systemTexts = append(systemTexts, text)
 		}
+		m["role"] = "developer"
+		filteredInput = append(filteredInput, item)
+		modified = true
+	}
+	if omitPromoted && len(filteredInput) != len(input) {
+		reqBody["input"] = filteredInput
 	}
 
 	if len(systemTexts) == 0 {
@@ -1203,80 +1386,33 @@ func extractSystemMessagesFromInput(reqBody map[string]any) bool {
 	return true
 }
 
-func isCodexJsonObjectResponseFormat(reqBody map[string]any) bool {
-	if text, ok := reqBody["text"].(map[string]any); ok {
-		if format, ok := text["format"].(map[string]any); ok {
-			if formatType, _ := format["type"].(string); strings.EqualFold(strings.TrimSpace(formatType), "json_object") {
-				return true
-			}
-		}
-	}
-	if responseFormat, ok := reqBody["response_format"].(map[string]any); ok {
-		if formatType, _ := responseFormat["type"].(string); strings.EqualFold(strings.TrimSpace(formatType), "json_object") {
-			return true
-		}
-	}
-	return false
-}
-
-func codexInputContainsJSONWord(reqBody map[string]any) bool {
-	switch input := reqBody["input"].(type) {
+// extractLosslessTextFromContent returns text only when the entire content can
+// be represented by an instructions string without dropping non-text parts.
+func extractLosslessTextFromContent(content any) (string, bool) {
+	switch v := content.(type) {
 	case string:
-		return strings.Contains(strings.ToLower(input), "json")
+		return v, true
 	case []any:
-		for _, item := range input {
-			if codexInputItemContainsJSONWord(item) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func codexInputItemContainsJSONWord(item any) bool {
-	m, ok := item.(map[string]any)
-	if !ok {
-		return false
-	}
-	if text, ok := m["text"].(string); ok && strings.Contains(strings.ToLower(text), "json") {
-		return true
-	}
-	if text := extractTextFromContent(m["content"]); strings.Contains(strings.ToLower(text), "json") {
-		return true
-	}
-	if summary, ok := m["summary"].([]any); ok {
-		for _, part := range summary {
-			partMap, ok := part.(map[string]any)
+		var b strings.Builder
+		for _, part := range v {
+			m, ok := part.(map[string]any)
 			if !ok {
-				continue
+				return "", false
 			}
-			if text, ok := partMap["text"].(string); ok && strings.Contains(strings.ToLower(text), "json") {
-				return true
+			typeName, ok := m["type"].(string)
+			if !ok || (typeName != "text" && typeName != "input_text" && typeName != "output_text") {
+				return "", false
 			}
+			text, ok := m["text"].(string)
+			if !ok {
+				return "", false
+			}
+			_, _ = b.WriteString(text)
 		}
+		return b.String(), true
+	default:
+		return "", false
 	}
-	return false
-}
-
-// ensureCodexJsonObjectInputHint prepends a minimal developer hint when a
-// Responses json_object request does not already mention JSON in input.
-// Upstream rejects instructions-only JSON guidance with HTTP 400.
-func ensureCodexJsonObjectInputHint(reqBody map[string]any) bool {
-	if len(reqBody) == 0 || !isCodexJsonObjectResponseFormat(reqBody) || codexInputContainsJSONWord(reqBody) {
-		return false
-	}
-
-	input, ok := reqBody["input"].([]any)
-	if !ok {
-		input = []any{}
-	}
-	reqBody["input"] = append([]any{
-		map[string]any{
-			"role":    "developer",
-			"content": codexJsonObjectInputHint,
-		},
-	}, input...)
-	return true
 }
 
 func extractPromptLikeInstructionsFromInput(reqBody map[string]any) string {
@@ -1313,11 +1449,7 @@ func defaultCodexSynthInstructions(model string) string {
 	return "You are a helpful coding assistant."
 }
 
-// ensureCodexReasoningSummaryAuto 为 OAuth 出站补齐 reasoning.summary=auto。
-//
-// ChatGPT Codex 只有请求 summary=auto 才会下发明文 reasoning summary；
-// 不带该字段时只有内部 reasoning_tokens，客户端/QA 都看不到摘要。
-// 加法式：无 reasoning 则创建；已有 map 则写入/覆盖 summary=auto，保留 effort 等其它键。
+// ChatGPT Codex 只有请求 summary=auto 才会下发明文 reasoning summary。
 func ensureCodexReasoningSummaryAuto(reqBody map[string]any) bool {
 	if reqBody == nil {
 		return false
@@ -1337,6 +1469,22 @@ func ensureCodexReasoningSummaryAuto(reqBody map[string]any) bool {
 	default:
 		return false
 	}
+}
+
+// ensureCodexReasoningContextAllTurns normalizes Responses Lite reasoning replay
+// to the Codex wire contract. Clients may send current_turn, but Lite upstream
+// expects all_turns when reasoning is present.
+func ensureCodexReasoningContextAllTurns(reqBody map[string]any) bool {
+	reasoning, ok := reqBody["reasoning"].(map[string]any)
+	if !ok || len(reasoning) == 0 {
+		return false
+	}
+	if strings.TrimSpace(firstNonEmptyString(reasoning["context"])) == "all_turns" {
+		return false
+	}
+	reasoning["context"] = "all_turns"
+	reqBody["reasoning"] = reasoning
+	return true
 }
 
 // ensureCodexReasoningInclude 在请求带 reasoning 时补齐 include:["reasoning.encrypted_content"]。
@@ -1448,8 +1596,77 @@ func filterCodexInput(input []any, preserveReferences bool) []any {
 	})
 }
 
+func normalizeCodexFilterCallID(itemType, id string, preserve bool) string {
+	if preserve && len(id) <= codexCallIDMaxLength {
+		return id
+	}
+	return normalizeCodexCallIDForItemType(itemType, id)
+}
+
+func codexItemReferenceIDMappings(input []any, preserveCallIDs bool) map[string]string {
+	mappings := make(map[string]string)
+	ambiguous := make(map[string]struct{})
+	for _, rawItem := range input {
+		item, ok := rawItem.(map[string]any)
+		if !ok {
+			continue
+		}
+		itemType := strings.TrimSpace(firstNonEmptyString(item["type"]))
+		if !isCodexToolCallItemType(itemType) {
+			continue
+		}
+		rawCallID := strings.TrimSpace(firstNonEmptyString(item["call_id"]))
+		if rawCallID == "" {
+			continue
+		}
+		normalized := normalizeCodexFilterCallID(itemType, rawCallID, preserveCallIDs)
+		if existing, exists := mappings[rawCallID]; exists && existing != normalized {
+			delete(mappings, rawCallID)
+			ambiguous[rawCallID] = struct{}{}
+			continue
+		}
+		if _, conflict := ambiguous[rawCallID]; !conflict {
+			mappings[rawCallID] = normalized
+		}
+	}
+	return mappings
+}
+
+func codexInputItemIDs(input []any) map[string]struct{} {
+	itemIDs := make(map[string]struct{})
+	for _, rawItem := range input {
+		item, ok := rawItem.(map[string]any)
+		if !ok || strings.TrimSpace(firstNonEmptyString(item["type"])) == "item_reference" {
+			continue
+		}
+		itemType := strings.TrimSpace(firstNonEmptyString(item["type"]))
+		id := strings.TrimSpace(firstNonEmptyString(item["id"]))
+		if id != "" && !shouldStripOpenAIResponsesInputItemID(itemType, id) {
+			itemIDs[id] = struct{}{}
+		}
+	}
+	return itemIDs
+}
+
+func codexInputCallIDs(input []any) map[string]struct{} {
+	callIDs := make(map[string]struct{})
+	for _, rawItem := range input {
+		item, ok := rawItem.(map[string]any)
+		if !ok || !isCodexToolCallItemType(strings.TrimSpace(firstNonEmptyString(item["type"]))) {
+			continue
+		}
+		if callID := strings.TrimSpace(firstNonEmptyString(item["call_id"])); callID != "" {
+			callIDs[callID] = struct{}{}
+		}
+	}
+	return callIDs
+}
+
 func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []any {
 	filtered := make([]any, 0, len(input))
+	referenceIDMappings := codexItemReferenceIDMappings(input, opts.PreserveCallIDs)
+	inputItemIDs := codexInputItemIDs(input)
+	inputCallIDs := codexInputCallIDs(input)
 	for _, item := range input {
 		m, ok := item.(map[string]any)
 		if !ok {
@@ -1482,7 +1699,7 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 		if typ == "reasoning" {
 			newItem := make(map[string]any, len(m))
 			for key, value := range m {
-				if key == "id" {
+				if key == "id" || key == "call_id" {
 					// rs_* id replayed under store=false 404s; strip it.
 					continue
 				}
@@ -1498,24 +1715,8 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 
 		// 仅修正真正的 tool/function call 标识，避免误改普通 message/reasoning id；
 		// 若 item_reference 指向 legacy call_* 标识，则仅修正该引用本身。
-		// fixCallIDPrefix normalizes tool-call ids to codex's `fc_<id>` form.
-		// The "call_" branch previously omitted the underscore, producing
-		// `fc<id>` which the chatgpt.com codex backend rejects with HTTP 400
-		// ("Expected an ID that contains letters, numbers, underscores, or
-		// dashes, but this value contained additional characters"). The
-		// fallback branch already uses `fc_`; this branch is aligned with it.
-		// See upstream Wei-Shaw/sub2api#2500.
 		fixCallIDPrefix := func(id string) string {
-			if opts.PreserveCallIDs {
-				return id
-			}
-			if id == "" || strings.HasPrefix(id, "fc") {
-				return id
-			}
-			if strings.HasPrefix(id, "call_") {
-				return "fc_" + strings.TrimPrefix(id, "call_")
-			}
-			return "fc_" + id
+			return normalizeCodexFilterCallID(typ, id, opts.PreserveCallIDs)
 		}
 
 		if typ == "item_reference" {
@@ -1526,8 +1727,18 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 			for key, value := range m {
 				newItem[key] = value
 			}
-			if id, ok := newItem["id"].(string); ok && strings.HasPrefix(id, "call_") {
-				newItem["id"] = fixCallIDPrefix(id)
+			if id, ok := newItem["id"].(string); ok && strings.HasPrefix(strings.TrimSpace(id), "call_") {
+				trimmedID := strings.TrimSpace(id)
+				_, referencesExistingItem := inputItemIDs[trimmedID]
+				if !referencesExistingItem {
+					if normalizedID, mapped := referenceIDMappings[trimmedID]; mapped {
+						newItem["id"] = normalizedID
+					} else if _, hasSameTurnCall := inputCallIDs[trimmedID]; !hasSameTurnCall {
+						// A bare call_* reference is a legacy function-call identifier.
+						// Normalize it even when its call item lives in an earlier turn.
+						newItem["id"] = normalizeCodexCallID(trimmedID)
+					}
+				}
 			}
 			filtered = append(filtered, newItem)
 			continue

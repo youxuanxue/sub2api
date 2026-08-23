@@ -6,13 +6,14 @@ import "context"
 // transport policy.
 type HTTPUpstreamProfile string
 
-// SSOT: platform values sourced from domain.Platform* via domain_constants.go.
 const (
 	HTTPUpstreamProfileDefault HTTPUpstreamProfile = ""
-	HTTPUpstreamProfileOpenAI  HTTPUpstreamProfile = PlatformOpenAI
+	HTTPUpstreamProfileOpenAI  HTTPUpstreamProfile = "openai"
+	HTTPUpstreamProfileGrok    HTTPUpstreamProfile = "grok"
 )
 
 type httpUpstreamProfileContextKey struct{}
+type httpUpstreamDisableRedirectsContextKey struct{}
 
 // WithHTTPUpstreamProfile injects an upstream transport profile into ctx.
 func WithHTTPUpstreamProfile(ctx context.Context, profile HTTPUpstreamProfile) context.Context {
@@ -35,14 +36,12 @@ func HTTPUpstreamProfileFromContext(ctx context.Context) HTTPUpstreamProfile {
 		return HTTPUpstreamProfileDefault
 	}
 	switch profile {
-	case HTTPUpstreamProfileOpenAI:
+	case HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileGrok:
 		return profile
 	default:
 		return HTTPUpstreamProfileDefault
 	}
 }
-
-type httpUpstreamDisableRedirectsContextKey struct{}
 
 // WithHTTPUpstreamRedirectsDisabled prevents credential-bearing probes from
 // following redirects through the shared upstream client.

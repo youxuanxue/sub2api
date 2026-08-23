@@ -69,7 +69,7 @@ func (h *GatewayHandler) forwardCountTokensWithFailover(
 			h.errorResponse(c, tkStatus, tkType, tkMsg)
 			return
 		}
-		setOpsSelectedAccount(c, account.ID, account.Platform)
+		setOpsSelectedAccountFrom(c, account)
 
 		err = h.gatewayService.ForwardCountTokens(c.Request.Context(), c, account, parsedReq)
 		if err == nil {

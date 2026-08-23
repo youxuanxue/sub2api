@@ -6,7 +6,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -333,95 +332,6 @@ func resolveOpenAIQuotaUtilization(extra map[string]any, window string, now time
 		return 0, false
 	}
 	return usedPercent / 100, true
-}
-
-// openAICodexSnapshotStaleForPause reports whether the Codex usage snapshot is stale
-// enough that it should no longer keep an account auto-paused. It anchors on
-// codex_usage_updated_at (always written by buildCodexUsageExtraUpdates). A missing or
-// unparseable timestamp returns false (treated as fresh, so the account stays paused) —
-// this is deliberate: it prevents any snapshot without a write time from silently escaping
-// auto-pause, and a genuinely-exhausted account that is actively served refreshes the
-// timestamp on every response so it never crosses the staleness bound.
-func openAICodexSnapshotStaleForPause(extra map[string]any, now time.Time) bool {
-	if len(extra) == 0 {
-		return false
-	}
-	updatedRaw, ok := extra["codex_usage_updated_at"]
-	if !ok {
-		return false
-	}
-	updatedAt, err := parseTime(fmt.Sprint(updatedRaw))
-	if err != nil {
-		return false
-	}
-	return now.Sub(updatedAt) >= openAICodexAutoPauseStaleAfter
-}
-
-// openAIQuotaWindowReset reports whether the Codex usage window's reset time has
-// already passed relative to now. It prefers the absolute codex_<window>_reset_at
-// timestamp and falls back to codex_<window>_reset_after_seconds anchored at
-// codex_usage_updated_at, mirroring AccountUsageService's window-progress logic.
-func openAIQuotaWindowReset(extra map[string]any, window string, now time.Time) bool {
-	if len(extra) == 0 {
-		return false
-	}
-	if resetAtRaw, ok := extra["codex_"+window+"_reset_at"]; ok {
-		if resetAt, err := parseTime(fmt.Sprint(resetAtRaw)); err == nil {
-			return !now.Before(resetAt)
-		}
-	}
-	resetAfter := parseExtraInt(extra["codex_"+window+"_reset_after_seconds"])
-	if resetAfter <= 0 {
-		return false
-	}
-	base := now
-	if updatedRaw, ok := extra["codex_usage_updated_at"]; ok {
-		if updatedAt, err := parseTime(fmt.Sprint(updatedRaw)); err == nil {
-			base = updatedAt
-		}
-	}
-	resetAt := base.Add(time.Duration(resetAfter) * time.Second)
-	return !now.Before(resetAt)
-}
-
-func readOpenAIQuotaUsedPercent(extra map[string]any, window string) float64 {
-	if len(extra) == 0 {
-		return 0
-	}
-	if value, ok := resolveAccountExtraNumber(extra, "codex_"+window+"_used_percent"); ok {
-		return value
-	}
-	return 0
-}
-
-type openAIQuotaAutoPauseDecision struct {
-	window      string
-	threshold   float64
-	utilization float64
-}
-
-type openAIQuotaAutoPauseCtxKey struct{}
-
-func withOpenAIQuotaAutoPauseSettings(ctx context.Context, settings OpsOpenAIAccountQuotaAutoPauseSettings) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return context.WithValue(ctx, openAIQuotaAutoPauseCtxKey{}, settings)
-}
-
-func openAIQuotaAutoPauseSettingsFromContext(ctx context.Context) OpsOpenAIAccountQuotaAutoPauseSettings {
-	if ctx == nil {
-		return OpsOpenAIAccountQuotaAutoPauseSettings{}
-	}
-	settings, _ := ctx.Value(openAIQuotaAutoPauseCtxKey{}).(OpsOpenAIAccountQuotaAutoPauseSettings)
-	return settings
-}
-
-func (s *OpenAIGatewayService) withOpenAIQuotaAutoPauseContext(ctx context.Context) context.Context {
-	if s == nil || s.settingService == nil {
-		return ctx
-	}
-	return withOpenAIQuotaAutoPauseSettings(ctx, s.settingService.GetOpenAIQuotaAutoPauseSettings(ctx))
 }
 
 const (

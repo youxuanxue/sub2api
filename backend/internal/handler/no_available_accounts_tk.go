@@ -94,6 +94,13 @@ func tkSelectFailureStatusMessage(c *gin.Context, err error, reqModel string) (i
 		return http.StatusBadRequest, service.TkUnsupportedModelErrType, service.TkUnsupportedModelMessage(reqModel)
 	}
 	if isOpsNoAvailableAccountError(err) {
+		if cls := classifySelectionFailureError(err, noAccountErrorClassification{
+			Status:  http.StatusServiceUnavailable,
+			ErrType: "api_error",
+			Message: "Service temporarily unavailable",
+		}); cls.Status == http.StatusTooManyRequests {
+			return cls.Status, cls.ErrType, cls.Message
+		}
 		if _, replacement, ok := service.TkLookupDeprecatedAnthropicModel(reqModel); ok {
 			markOpsClientRequestRejected(c)
 			return http.StatusBadRequest, service.TkDeprecatedAnthropicErrorType,

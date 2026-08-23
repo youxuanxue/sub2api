@@ -98,7 +98,7 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 		shouldFailover = s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody)
 	}
 	if account != nil && account.Platform == PlatformGrok {
-		s.handleGrokAccountUpstreamError(withGrokTeamRateLimitModel(ctx, upstreamModel), account, resp.StatusCode, resp.Header, respBody)
+		s.handleGrokAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 	}
 	if !shouldFailover {
 		return nil
@@ -125,17 +125,14 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	if account.Platform != PlatformGrok && !tempUnscheduled {
 		shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)
 	}
-	retryable := !shouldDisable && account.IsPoolMode() &&
-		(account.IsPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody))
-	if account != nil && account.Platform == PlatformGrok {
-		retryable = tkOpenAICompatRetryableOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody, true)
-	}
-	return newOpenAIUpstreamFailoverError(
+	return s.newOpenAIAccountFailoverError(
+		account,
 		resp.StatusCode,
 		resp.Header,
 		respBody,
 		upstreamMsg,
-		retryable,
+		shouldDisable,
+		!shouldDisable && tkOpenAICompatRetryableOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody, true),
 	)
 }
 
@@ -153,7 +150,7 @@ func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) 
 }
 
 // resolveCCFallbackTarget 解析两条 CC 回退路径共用的账号凭证与上游端点
-// （回退路径仅面向 APIKey 账号，凭证从账号的 api_key 字段读取）。
+// （回退路径仅面向 APIKey 账号，凭证恒为 openai api_key）。
 func (s *OpenAIGatewayService) resolveCCFallbackTarget(account *Account) (apiKey string, targetURL string, err error) {
 	apiKey = strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
 	if apiKey == "" {
@@ -207,14 +204,15 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 			}
 		}
 	}
+	if userAgent != "" {
+		upstreamReq.Header.Set("user-agent", userAgent)
+	}
+
 	if account.Platform == PlatformGrok {
 		if account.IsGrokOAuth() {
 			applyGrokCLIHeaders(upstreamReq.Header)
 		}
 		applyGrokCacheHeaders(upstreamReq.Header, grokCacheIdentity)
-	}
-	if userAgent != "" {
-		upstreamReq.Header.Set("user-agent", userAgent)
 	}
 	// 账号级请求头覆写：放在所有内置默认头（含 Grok CLI 身份头）之后应用，
 	// 使配置值获得除共享传输层强制头之外的最高优先级。
