@@ -46,8 +46,8 @@ Codex 不自动加载 `.cursor/rules/*.mdc`；需要时按下表路径读取对�
 - **tokenkey-upstream-merge** — TokenKey upstream merge workflow for importing Wei-Shaw/sub2api upstream/main. Use when merging or reviewing upstream drift, preparing an u…
 - **tokenkey-user-billing-watch** — Read-only TokenKey production user billing/usage/error watch. Use for active-user monitoring, 盯盘, 30-minute reporting loops, anomaly notifi…
 
-## 命令
-- `/twin <workspace>|status [workspace]|respond <text>` — 运行 xuejiao persona supervisor 驱动 worker；底层入口 `python3 -m scripts.twin`（见 `dev-rules/commands/twin.md`）。Claude-Code-only。
+## 全局技能与工具
+- `twin` supervisor 的三端宿主体验只由同源 `twin` skill 定义；运行时 CLI/action/schema 契约见 `dev-rules/docs/agent_integration.md`。不要在 AGENTS.md 复制命令面或状态机。
 - 代码审查走三端通用 skill `xj-review`（上面技能索引里）：先跑 `preflight.sh` 取 ground-truth，再按风险分级审；Codex 里描述"review 这个 diff/PR"即触发。
 
 <!-- dev-rules:codex END -->

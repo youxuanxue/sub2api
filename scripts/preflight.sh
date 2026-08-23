@@ -2863,6 +2863,23 @@ else
 fi
 
 echo ""
+echo "=== sub2api: upstream drift resolved regression (#1792) ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by test_upstream_drift_resolved)"
+    errors=$((errors + 1))
+elif ! git remote get-url upstream >/dev/null 2>&1; then
+    echo "  skip: no upstream remote (upstream drift regression)"
+elif ! git rev-parse --verify --quiet upstream/main >/dev/null 2>&1; then
+    echo "  skip: upstream/main not fetched (upstream drift regression)"
+elif ! python3 -m unittest scripts.test_upstream_drift_resolved -q; then
+    echo "  FAIL: upstream drift resolved regression (#1792) failed"
+    echo "        — run: python3 -m unittest scripts.test_upstream_drift_resolved -v"
+    errors=$((errors + 1))
+else
+    echo "  ok: upstream drift resolved regression (#1792)"
+fi
+
+echo ""
 echo "=== sub2api: merge-gate sentinel parity ==="
 # Keeps upstream-merge-pr-shape.yml checks 4-13 and preflight's sentinel set
 # mechanically coupled (manifest: scripts/sentinels/merge-gate-parity.json) so a
