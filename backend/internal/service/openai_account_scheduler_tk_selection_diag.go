@@ -118,12 +118,16 @@ func (s *OpenAIGatewayService) logOpenAICompatSelectionFailure(
 	if s == nil || eval == nil {
 		return
 	}
+	groupID := derefGroupID(eval.groupID)
 	platform := strings.TrimSpace(eval.platform)
 	if platform == "" {
 		platform = PlatformOpenAI
 	}
+	if !s.tkSelectionFailureLogDedup.shouldLog(groupID, platform, requestedModel, stats) {
+		return
+	}
 	slog.Warn("openai_account_selection_failed",
-		"group_id", derefGroupID(eval.groupID),
+		"group_id", groupID,
 		"model", requestedModel,
 		"platform", platform,
 		"total", stats.Total,

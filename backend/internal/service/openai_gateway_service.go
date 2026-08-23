@@ -322,6 +322,7 @@ type OpenAIGatewayService struct {
 	tkPricingMissingNotifier            PricingMissingNotifier
 	tkPricingCatalog                    *PricingCatalogService
 	tkGroupUnsupportedCache             *tkGroupUnsupportedModelNegativeCache
+	tkSelectionFailureLogDedup          *tkOpenAICompatSelectionFailureLogDedup
 	tkOpenAISaturationCounter           OpenAISaturationCounterCache
 	// openaiCodexTurnStateOrigins: 下游会话 seed → openAICodexTurnStateOrigin，
 	// 记录最近一次向该会话下发 x-codex-turn-state 的铸造账号，供出站守卫
@@ -381,22 +382,23 @@ func NewOpenAIGatewayService(
 			nil,
 			"service.openai_gateway",
 		),
-		httpUpstream:          httpUpstream,
-		deferredService:       deferredService,
-		openAITokenProvider:   openAITokenProvider,
-		grokTokenProvider:     grokTokenProvider,
-		toolCorrector:         NewCodexToolCorrector(),
-		openaiWSResolver:      NewOpenAIWSProtocolResolver(cfg),
-		resolver:              resolver,
-		channelService:        channelService,
-		balanceNotifyService:  balanceNotifyService,
-		settingService:        settingService,
-		userPlatformQuotaRepo: userPlatformQuotaRepo,
-		liveAttestation:       liveattestation.NewProvider(),
-		liveAttestationCipher: newLiveAttestationCipher(cfg),
-		responseHeaderFilter:  compileResponseHeaderFilter(cfg),
-		codexSnapshotThrottle: newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval),
-		openaiModelTransient:  newOpenAIAccountModelTransientState(openAIModelTransientDefaultMax),
+		httpUpstream:               httpUpstream,
+		deferredService:            deferredService,
+		openAITokenProvider:        openAITokenProvider,
+		grokTokenProvider:          grokTokenProvider,
+		toolCorrector:              NewCodexToolCorrector(),
+		openaiWSResolver:           NewOpenAIWSProtocolResolver(cfg),
+		resolver:                   resolver,
+		channelService:             channelService,
+		balanceNotifyService:       balanceNotifyService,
+		settingService:             settingService,
+		userPlatformQuotaRepo:      userPlatformQuotaRepo,
+		liveAttestation:            liveattestation.NewProvider(),
+		liveAttestationCipher:      newLiveAttestationCipher(cfg),
+		responseHeaderFilter:       compileResponseHeaderFilter(cfg),
+		codexSnapshotThrottle:      newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval),
+		openaiModelTransient:       newOpenAIAccountModelTransientState(openAIModelTransientDefaultMax),
+		tkSelectionFailureLogDedup: newTkOpenAICompatSelectionFailureLogDedup(),
 	}
 	if rateLimitService != nil {
 		rateLimitService.SetAccountRuntimeBlocker(svc)

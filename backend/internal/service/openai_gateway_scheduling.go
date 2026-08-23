@@ -5,7 +5,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -483,14 +482,15 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 
 	if selected == nil {
 		if !gatewayProfitControlGateActive(ctx) && requestedModel != "" {
-			if compatErr := openAICompatNoCandidateError(requestedModel, platform, compactBlocked, accounts, excludedIDs, &openAICompatNoCandidateEval{
+			compatErr := openAICompatNoCandidateError(requestedModel, platform, compactBlocked, accounts, excludedIDs, &openAICompatNoCandidateEval{
 				ctx:                ctx,
 				svc:                s,
 				groupID:            groupID,
 				platform:           platform,
 				requireCompact:     requireCompact,
 				requiredCapability: requiredCapability,
-			}); errors.Is(compatErr, ErrUnsupportedModel) {
+			})
+			if compatErr != nil {
 				return nil, compatErr
 			}
 		}

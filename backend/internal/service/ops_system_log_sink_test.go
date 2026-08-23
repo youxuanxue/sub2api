@@ -84,6 +84,14 @@ func TestOpsSystemLogSink_ShouldIndex(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "ops_system_log_skip field",
+			event: &logger.LogEvent{
+				Level:  "warn",
+				Fields: map[string]any{logger.OpsSystemLogSkipField: true},
+			},
+			want: false,
+		},
+		{
 			name:  "plain info",
 			event: &logger.LogEvent{Level: "info", Component: "app"},
 			want:  false,
