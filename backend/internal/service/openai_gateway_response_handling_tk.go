@@ -41,6 +41,10 @@ func tkRestoreGatewayResponseBody(c *gin.Context, body []byte) ([]byte, error) {
 	if restoreErr != nil {
 		return body, fmt.Errorf("restore Grok Responses client tool response: %w", restoreErr)
 	}
+	restoredBody, restoreErr = restoreOpenAIResponsesClientToolPayload(c, restoredBody)
+	if restoreErr != nil {
+		return body, fmt.Errorf("restore OpenAI Responses client tool response: %w", restoreErr)
+	}
 	restoredBody, restoreErr = restoreOpenAIResponsesNamespacePayload(c, restoredBody)
 	if restoreErr != nil {
 		return body, fmt.Errorf("restore OpenAI namespace response: %w", restoreErr)
