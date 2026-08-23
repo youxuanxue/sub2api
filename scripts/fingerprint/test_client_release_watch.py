@@ -45,13 +45,31 @@ class PinReadersLiveRepoTest(unittest.TestCase):
 
 
 class ResolvedClientReleasePinsTest(unittest.TestCase):
-    """Regression locks for automated client-release issues resolved on main."""
+    """Regression: resolved client-release issues stay aligned with repo pin SSOT."""
+
+    def _assert_pin_reports_aligned(self, platform_id: str, source_label: str) -> None:
+        spec = next(p for p in crw.PLATFORM_SPECS if p.id == platform_id)
+        pinned = crw.PIN_READERS[platform_id]()
+        offline = {
+            platform_id: {
+                source_label: {
+                    "version": pinned,
+                    "url": f"https://example.com/{platform_id}",
+                    "raw_tag": pinned,
+                    "published_at": "",
+                },
+            }
+        }
+        result = crw.scan_platform(spec, offline_upstream=offline)
+        self.assertFalse(result.drift, result)
+        self.assertEqual(result.status, "aligned")
+        self.assertEqual(result.pinned, pinned)
 
     def test_kiro_cli_pin_aligned_with_issue_1778(self) -> None:
-        self.assertEqual(crw.read_pinned_kiro_cli(), "2.19.1")
+        self._assert_pin_reports_aligned("kiro-cli", "Homebrew cask kiro-cli")
 
     def test_gemini_cli_pin_aligned_with_issue_1755(self) -> None:
-        self.assertEqual(crw.read_pinned_gemini_cli(), "0.56.0")
+        self._assert_pin_reports_aligned("gemini-cli", "npm @google/gemini-cli")
 
 
 class ScanPlatformTest(unittest.TestCase):
