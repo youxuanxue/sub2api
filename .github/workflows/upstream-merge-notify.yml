@@ -3,8 +3,8 @@ name: Upstream Merge Needed
 # Detection-only. When origin/main is behind Wei-Shaw/sub2api upstream/main,
 # open or refresh one `[upstream-merge]` tracking issue for a human to handle.
 # Labels are attached best-effort and must not block issue creation.
-# Issue create/update uses UPSTREAM_MERGE_GH_TOKEN: github.token cannot
-# create issues in this private repo (GraphQL createIssue denied).
+# Issue create/update uses UPSTREAM_MERGE_GH_TOKEN (same PAT as other
+# watchdogs). Unset GITHUB_TOKEN in the issue step so gh does not mix tokens.
 # This workflow never merges, never opens a PR, and never runs an agent.
 
 on:
@@ -86,6 +86,7 @@ jobs:
       - name: Open, update, or close tracking issue
         env:
           GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -93,6 +94,7 @@ jobs:
             echo "::error::Missing required secret UPSTREAM_MERGE_GH_TOKEN for issue create/update."
             exit 1
           fi
+          unset GITHUB_TOKEN
           python3 scripts/upstream/notify-merge-needed.py apply \
             --drift /tmp/upstream-merge-drift.json \
             --commits /tmp/upstream-merge-commits.txt \
