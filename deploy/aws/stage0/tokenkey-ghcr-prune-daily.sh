@@ -9,7 +9,7 @@ install_ghcr_prune_daily_units() {
   install -d -m 0755 "${systemd_dir}"
   cat >"${systemd_dir}/tokenkey-ghcr-prune-daily.service" <<'EOF'
 [Unit]
-Description=Daily GHCR app-tag prune and dangling Docker image cleanup
+Description=Daily GHCR app-tag prune and unused Docker image cleanup
 After=network-online.target tokenkey.service
 Wants=network-online.target
 
@@ -58,8 +58,11 @@ run_ghcr_prune_daily() {
     logger -t tokenkey-ghcr-prune-daily "no prune script installed"
     failures=$((failures + 1))
   fi
-  if ! docker image prune -f >/dev/null 2>&1; then
-    logger -t tokenkey-ghcr-prune-daily "docker image prune failed"
+  # Remove all images not referenced by a container (not only dangling layers).
+  # Matches remediate-edge-disk emergency cleanup; reclaims build/cache tags such as
+  # golang/postgres:16 while keeping the running stack (caddy/app/postgres/redis).
+  if ! docker image prune -af >/dev/null 2>&1; then
+    logger -t tokenkey-ghcr-prune-daily "docker image prune -af failed"
     failures=$((failures + 1))
   fi
   if [ "${failures}" -gt 0 ]; then
