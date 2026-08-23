@@ -2012,14 +2012,9 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if originalModel != "" && mappedModel != "" && originalModel != mappedModel {
 		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
 	}
-	body, err = restoreOpenAIResponsesNamespacePayload(c, body)
+	body, err = tkRestoreGatewayResponseBody(c, body)
 	if err != nil {
-		return nil, fmt.Errorf("restore OpenAI passthrough namespace response: %w", err)
-	}
-	body = restoreCodexToolNamesFromContext(c, body)
-	body, err = restoreOpenAIResponsesClientToolPayload(c, body)
-	if err != nil {
-		return nil, fmt.Errorf("restore OpenAI Responses client tools: %w", err)
+		return nil, err
 	}
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
 		c.Data(resp.StatusCode, contentType, body)
@@ -2073,12 +2068,11 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		}
 		// Correct tool calls in final response
 		body = s.correctToolCallsInResponseBody(body)
-		restoredBody, restoreErr := restoreOpenAIResponsesNamespacePayload(c, body)
+		var restoreErr error
+		body, restoreErr = tkRestoreGatewayResponseBody(c, body)
 		if restoreErr != nil {
-			return nil, fmt.Errorf("restore OpenAI passthrough namespace response: %w", restoreErr)
+			return nil, restoreErr
 		}
-		restoredBody = restoreCodexToolNamesFromContext(c, restoredBody)
-		body = restoredBody
 	} else {
 		if originalModel != "" && mappedModel != "" && originalModel != mappedModel {
 			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, originalModel)

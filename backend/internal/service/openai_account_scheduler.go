@@ -428,13 +428,9 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 		if selection != nil && selection.Account != nil {
 			compatible, _ := s.isAccountRequestCompatibleReason(ctx, selection.Account, req)
-			hasGroupMetadata := len(selection.Account.GroupIDs) > 0 || len(selection.Account.AccountGroups) > 0
-			groupCompatible := !hasGroupMetadata || openAIStickyAccountMatchesGroup(selection.Account, req.GroupID)
-			if hasGroupMetadata && s.service != nil {
-				groupCompatible = s.service.openAIAccountMatchesSchedulingGroup(selection.Account, req.GroupID)
-			}
-			if !groupCompatible ||
-				!compatible || !s.isAccountTransportCompatible(selection.Account, req.RequiredTransport) {
+			if !compatible ||
+				!s.isAccountTransportCompatible(selection.Account, req.RequiredTransport) ||
+				!s.service.openAIAccountBelongsToSchedulingGroup(ctx, req.GroupID, req.schedulePlatform(), selection.Account) {
 				if selection.ReleaseFunc != nil {
 					selection.ReleaseFunc()
 				}
@@ -615,7 +611,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		clearBinding()
 		return nil, false, 0, nil
 	}
-	if !s.service.openAIStickyAccountStillInGroupForRequest(ctx, req.GroupID, req.GroupPlatform, account) {
+	if !s.service.openAIAccountBelongsToSchedulingGroup(ctx, req.GroupID, req.GroupPlatform, account) {
 		clearBinding()
 		return nil, false, 0, nil
 	}
@@ -1383,7 +1379,7 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 		if account == nil || !s.isAccountRequestCompatible(ctx, account, req) || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 			continue
 		}
-		if !s.service.openAIStickyAccountStillInGroupForRequest(ctx, req.GroupID, req.schedulePlatform(), account) {
+		if !s.service.openAIAccountBelongsToSchedulingGroup(ctx, req.GroupID, req.schedulePlatform(), account) {
 			if accountID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" {
 				_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, req.SessionHash)
 			}

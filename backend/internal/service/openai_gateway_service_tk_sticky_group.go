@@ -84,7 +84,11 @@ func openaiStickyAccountGroupMembershipKnown(account *Account) bool {
 	return false
 }
 
-func (s *OpenAIGatewayService) openAIStickyAccountStillInGroupForRequest(ctx context.Context, groupID *int64, platform string, account *Account) bool {
+// openAIAccountBelongsToSchedulingGroup is the canonical sticky/previous-response
+// group membership check. It uses conservative semantics when account group
+// metadata is missing from scheduler snapshots and falls back to the group
+// schedulable pool before invalidating a binding.
+func (s *OpenAIGatewayService) openAIAccountBelongsToSchedulingGroup(ctx context.Context, groupID *int64, platform string, account *Account) bool {
 	if account == nil {
 		return false
 	}
