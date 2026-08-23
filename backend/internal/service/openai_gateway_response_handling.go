@@ -244,21 +244,17 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	clientDisconnected := false // 客户端断开后继续 drain 上游以收集 usage
 	sawTerminalEvent := false
 	sawFailedEvent := false
-	sawBareError := false
-	sawResponseFailed := false
 	terminalEventType := ""
 	responsesSemanticOutputSeen := false
 	capacityFailoverSuppressedLogged := false
 	failedMessage := ""
 	clientOutputStarted := false
-	codexFailureTerminal := account != nil && account.IsOpenAIOAuthLike()
+	codexState := newTkReasoningCodexStreamState(account)
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
 	var streamEarlyErr error
 	terminalFailurePending := false
 	failureDelivered := false
 	suppressCurrentEvent := false
-	var bareErrorPayload []byte
-	bareErrorAccountSideEffectsPending := false
 	pendingSSEEventType := ""
 	eventInProgress := false
 	eventStartsClientOutput := false
@@ -378,13 +374,10 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			// EOF dispatches the final SSE event even without a trailing blank line.
 			completeGuardedEvent(true)
 		}
-		if codexFailureTerminal && sawBareError && !sawResponseFailed && bareErrorAccountSideEffectsPending {
-			s.handleOpenAIStreamTerminalAccountSideEffects(c, account, bareErrorPayload, failedMessage, resp.Header)
-			bareErrorAccountSideEffectsPending = false
-		}
-		if codexFailureTerminal && sawBareError && !sawResponseFailed && !clientDisconnected {
+		codexState.finalizeBareErrorAtStreamEnd(s, c, account, resp.Header, failedMessage)
+		if codexState.enabled && codexState.sawBareError && !codexState.sawResponseFailed && !clientDisconnected {
 			applyAttemptResponseHeaders()
-			if _, err := writePendingString(buildOpenAIResponseFailedSSE(responseID, originalModel, bareErrorPayload, failedMessage)); err != nil {
+			if _, err := writePendingString(buildOpenAIResponseFailedSSE(responseID, originalModel, codexState.bareErrorPayload, failedMessage)); err != nil {
 				handlePendingWriteError(err)
 			} else {
 				failureDelivered = true
@@ -481,7 +474,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		if eventType, ok := extractOpenAISSEEventLine(line); ok {
 			pendingSSEEventType = eventType
 			eventType = strings.TrimSpace(eventType)
-			suppressCurrentEvent = codexFailureTerminal && (eventType == "error" || (sawBareError && !sawResponseFailed && eventType != "response.failed"))
+			codexState.onSSEEventLine(eventType)
+			suppressCurrentEvent = codexState.suppressCurrentEvent
 		}
 		// Extract data from SSE line (supports both "data: " and "data:" formats)
 		if data, ok := extractOpenAISSEDataLine(line); ok {
@@ -490,21 +484,14 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 			dataBytes := []byte(data)
 			eventType := effectiveOpenAISSEEventType(dataBytes, pendingSSEEventType)
-			if codexFailureTerminal && sawBareError && !sawResponseFailed &&
-				(eventType == "response.completed" || eventType == "response.done") {
-				// A later successful terminal is authoritative over a pending bare
-				// error. Keep its usage and terminal visible to the client.
-				sawBareError = false
+			if codexState.onSuccessfulTerminalWhileBareError(eventType) {
 				sawFailedEvent = false
 				terminalFailurePending = false
 				suppressCurrentEvent = false
-				bareErrorPayload = nil
-				bareErrorAccountSideEffectsPending = false
 				failedMessage = ""
 			}
-			if codexFailureTerminal && sawBareError && !sawResponseFailed && eventType != "response.failed" {
-				suppressCurrentEvent = true
-			}
+			codexState.afterPayloadRestore(eventType)
+			suppressCurrentEvent = codexState.suppressCurrentEvent
 			observer.ObserveOpenAI(dataBytes, eventType)
 			// 初始上游 data 的 type 只解析一次：原始值保持终止事件的精确匹配，规范化值供后续分支复用。
 			if openAIStreamEventIsTerminalWithType(data, eventType) {
@@ -518,95 +505,33 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				responseID = extractOpenAIResponseIDFromJSONBytes(dataBytes)
 			}
 			forceFlushFailedEvent := false
-			if !capacityFailoverSuppressedLogged && account != nil && account.Platform == PlatformOpenAI &&
-				(eventType == "error" || eventType == "response.failed") &&
-				openAIStreamClientOutputStarted(c, clientOutputStarted) &&
-				isOpenAIUpstreamCapacityShedEvent(dataBytes) {
-				logOpenAICapacityFailoverSuppressed(ctx, account, "native_sse", upstreamRequestID, eventType)
-				capacityFailoverSuppressedLogged = true
-			}
-			cyberHit := false
-			if eventType == "response.failed" || eventType == "error" {
-				if codexFailureTerminal && eventType == "error" {
-					sawBareError = true
-					bareErrorPayload = append(bareErrorPayload[:0], dataBytes...)
-					suppressCurrentEvent = true
-				} else if codexFailureTerminal && eventType == "response.failed" {
-					sawResponseFailed = true
+			if failureOut, handled := (tkReasoningStreamFailureInput{
+				s:                   s,
+				c:                   c,
+				account:             account,
+				codex:               codexState,
+				ctx:                 ctx,
+				upstreamRequestID:   upstreamRequestID,
+				respHeader:          resp.Header,
+				usage:               usage,
+				firstTokenMs:        &firstTokenMs,
+				clientOutputStarted: clientOutputStarted,
+				dataBytes:           dataBytes,
+				eventType:           eventType,
+			}).handleFailureEvent(capacityFailoverSuppressedLogged); handled {
+				if failureOut.logCapacityFailoverSuppress {
+					logOpenAICapacityFailoverSuppressed(ctx, account, "native_sse", upstreamRequestID, eventType)
+					capacityFailoverSuppressedLogged = true
 				}
-				failedMessage = extractOpenAISSEErrorMessage(dataBytes)
-				if failedMessage == "" {
-					failedMessage = "Upstream response failed"
+				failedMessage = failureOut.failedMessage
+				if failureOut.streamEarlyErr != nil {
+					sawFailedEvent = failureOut.sawFailedEvent
+					streamEarlyErr = failureOut.streamEarlyErr
+					return
 				}
-				// response.failed 自带上游已消耗的 usage（input token 通常已扣）；必须先解析
-				// 再打 cyber 标记，否则 mark 记到的是解析前的 0，导致流式 cyber 按 0 token 计费
-				// 而漏记真实用量。对齐 WS V2 / Chat 流式路径（均先解析 usage 再 Mark）。
-				s.parseSSEUsageBytesWithType(dataBytes, eventType, usage)
-				if hit, code, msg := detectOpenAICyberPolicy(dataBytes); hit {
-					cyberHit = true
-					MarkOpsCyberPolicy(c, CyberPolicyMark{
-						Code:           code,
-						Message:        msg,
-						Body:           truncateString(string(dataBytes), 4096),
-						UpstreamStatus: http.StatusOK,
-						UpstreamInTok:  usage.InputTokens,
-						UpstreamOutTok: usage.OutputTokens,
-					})
-				}
-				outputStarted := openAIStreamClientOutputStarted(c, clientOutputStarted)
-				if !outputStarted && !cyberHit {
-					if compactErr := newOpenAICompactFallbackSignal(c, dataBytes, failedMessage); compactErr != nil {
-						sawFailedEvent = true
-						streamEarlyErr = compactErr
-						return
-					}
-				}
-				if outputStarted && !cyberHit {
-					if codexFailureTerminal && eventType == "error" {
-						// OpenAI commonly follows a bare error with response.failed.
-						// Defer account health updates so the pair is applied once.
-						bareErrorAccountSideEffectsPending = true
-					} else {
-						s.handleOpenAIStreamTerminalAccountSideEffects(c, account, dataBytes, failedMessage, resp.Header)
-						bareErrorAccountSideEffectsPending = false
-					}
-				}
-				if !outputStarted || eventType == "response.failed" {
-					shouldFailover := false
-					if !cyberHit {
-						if eventType == "error" {
-							shouldFailover = openAIStreamErrorEventShouldFailover(dataBytes, failedMessage)
-						} else {
-							shouldFailover = openAIStreamFailedEventShouldFailover(dataBytes, failedMessage)
-						}
-					}
-					if !openAIStreamFailoverBlockedByClientOutput(firstTokenMs) && shouldFailover {
-						sawFailedEvent = true
-						streamEarlyErr = s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, dataBytes, failedMessage, resp.Header)
-						return
-					}
-					if !cyberHit && !sawBareError {
-						if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(c, account.Platform, dataBytes, failedMessage); matched {
-							sawFailedEvent = true
-							// 命中透传规则也要记录 ops 上游错误事件（对齐 CC/Messages 与
-							// antigravity 先例），否则透传命中的 failed 在监控中不可见。
-							s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "http_error", dataBytes, failedMessage)
-							MarkResponseCommitted(c)
-							c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-							c.JSON(status, gin.H{
-								"error": gin.H{
-									"type":    errType,
-									"message": errMsg,
-								},
-							})
-							streamEarlyErr = fmt.Errorf("upstream response failed: passthrough rule matched message=%s", errMsg)
-							return
-						}
-					}
-				}
-				forceFlushFailedEvent = true
-				sawFailedEvent = true
-				terminalFailurePending = !codexFailureTerminal || eventType == "response.failed"
+				forceFlushFailedEvent = failureOut.forceFlushFailedEvent
+				sawFailedEvent = failureOut.sawFailedEvent
+				terminalFailurePending = codexState.terminalFailurePending
 			}
 			if normalizedData, normalized := normalizeCompletedImageGenerationStatus(dataBytes); normalized {
 				dataBytes = normalizedData
@@ -638,22 +563,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				line = "data: " + data
 				eventType = effectiveOpenAISSEEventType(dataBytes, eventType)
 			}
-			restoredData, restoreErr := restoreGrokResponsesClientToolPayload(c, dataBytes)
+			var restoreErr error
+			line, dataBytes, data, eventType, restoreErr = tkRestoreGrokOpenAIResponsesSSEPayload(c, dataBytes, eventType, line)
 			if restoreErr != nil {
-				streamEarlyErr = fmt.Errorf("restore Grok Responses client tool response: %w", restoreErr)
+				streamEarlyErr = restoreErr
 				return
-			}
-			restoredData, restoreErr = restoreOpenAIResponsesNamespacePayload(c, restoredData)
-			if restoreErr != nil {
-				streamEarlyErr = fmt.Errorf("restore OpenAI namespace response: %w", restoreErr)
-				return
-			}
-			restoredData = restoreCodexToolNamesFromSSEContext(c, restoredData, eventType)
-			if !bytes.Equal(restoredData, dataBytes) {
-				dataBytes = restoredData
-				data = string(restoredData)
-				line = "data: " + data
-				eventType = effectiveOpenAISSEEventType(dataBytes, eventType)
 			}
 			if sanitizedData, sanitized := sanitizeOpenAIResponseFailedEventForClient(
 				dataBytes,
@@ -908,7 +822,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if time.Since(lastRead) < streamInterval {
 				continue
 			}
-			if codexFailureTerminal && sawBareError && !sawResponseFailed {
+			if codexState.enabled && codexState.sawBareError && !codexState.sawResponseFailed {
 				_ = resp.Body.Close()
 				return finalizeStream()
 			}
@@ -938,7 +852,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				stopFirstOutputTimer()
 				continue
 			}
-			if codexFailureTerminal && sawBareError && !sawResponseFailed && len(events) == 0 {
+			if codexState.shouldFinalizeBareError(len(events)) {
 				_ = resp.Body.Close()
 				return finalizeStream()
 			}
@@ -1637,15 +1551,10 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	if originalModel != mappedModel {
 		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
 	}
-	body, err = restoreGrokResponsesClientToolPayload(c, body)
+	body, err = tkRestoreGatewayResponseBody(c, body)
 	if err != nil {
-		return nil, fmt.Errorf("restore Grok Responses client tool response: %w", err)
+		return nil, err
 	}
-	body, err = restoreOpenAIResponsesNamespacePayload(c, body)
-	if err != nil {
-		return nil, fmt.Errorf("restore OpenAI namespace response: %w", err)
-	}
-	body = restoreCodexToolNamesFromContext(c, body)
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	// Codex 协议要求 /responses/compact JSON 响应携带 x-codex-turn-state
 	// （codex-api/src/endpoint/compact.rs 从响应头捕获），显式回传。
@@ -1730,16 +1639,11 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 		}
 		// Correct tool calls in final response
 		body = s.correctToolCallsInResponseBody(body)
-		restoredBody, restoreErr := restoreGrokResponsesClientToolPayload(c, body)
+		var restoreErr error
+		body, restoreErr = tkRestoreGatewayResponseBody(c, body)
 		if restoreErr != nil {
-			return nil, fmt.Errorf("restore Grok Responses client tool response: %w", restoreErr)
+			return nil, restoreErr
 		}
-		restoredBody, restoreErr = restoreOpenAIResponsesNamespacePayload(c, restoredBody)
-		if restoreErr != nil {
-			return nil, fmt.Errorf("restore OpenAI namespace response: %w", restoreErr)
-		}
-		restoredBody = restoreCodexToolNamesFromContext(c, restoredBody)
-		body = restoredBody
 	} else {
 		if originalModel != mappedModel {
 			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, originalModel)

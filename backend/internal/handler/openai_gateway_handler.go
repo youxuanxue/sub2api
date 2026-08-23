@@ -117,25 +117,6 @@ func openAIAccountScheduleModel(c *gin.Context, account *service.Account, forwar
 	return service.ResolveOpenAIAccountUpstreamModelForRequest(account, forwardModel, requireCompact)
 }
 
-func resolveOpenAIMessagesDispatchMappedModelForContext(c *gin.Context, apiKey *service.APIKey, requestedModel string) string {
-	if apiKey == nil || apiKey.Group == nil {
-		return ""
-	}
-	// composite 解析到 grok/CN 目标时调度级映射不适用（Group 级映射的 gpt-5.x
-	// 默认值是 openai 专属,发给这些上游必错）,模型改写交给账号级 model_mapping。
-	if apiKey.Group.Platform == service.PlatformComposite && c != nil && c.Request != nil {
-		if platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context()); ok &&
-			(platform == service.PlatformGrok || service.IsCNProvider(platform)) {
-			return ""
-		}
-	}
-	return strings.TrimSpace(apiKey.Group.ResolveMessagesDispatchModel(requestedModel))
-}
-
-func resolveOpenAIMessagesDispatchMappedModel(apiKey *service.APIKey, requestedModel string) string {
-	return resolveOpenAIMessagesDispatchMappedModelForContext(nil, apiKey, requestedModel)
-}
-
 type openAIModelBodyReplaceFunc func([]byte, string) []byte
 
 func openAIModelMappedBody(body []byte, mapped bool, mappedModel string, replace openAIModelBodyReplaceFunc) []byte {
@@ -219,31 +200,6 @@ func openAIResponsesRequiredCapabilityForRequest(imageIntent bool, needsResponse
 		return service.OpenAIEndpointCapabilityResponses
 	}
 	return openAIResponsesRequiredCapability(imageIntent, platform)
-}
-
-func allowOpenAICompatibleMessagesDispatch(c *gin.Context, apiKey *service.APIKey) bool {
-	if apiKey == nil || apiKey.Group == nil {
-		return true
-	}
-	if apiKey.Group.Platform == service.PlatformGrok {
-		return true
-	}
-	// 国产供应商分组与 grok 同语义:/v1/messages 就是其主要服务形态(anthropic
-	// 协议账号原生直通 Claude Code),无需 allow_messages_dispatch 开关授权——
-	// 该开关对非 openai/composite 平台恒被 sanitizeGroupMessagesDispatchFields 置 false,
-	// 若不豁免,CN 分组将永远 403。
-	if service.IsCNProvider(apiKey.Group.Platform) {
-		return true
-	}
-	// composite 分组解析到 grok/CN 目标时与对应独立分组同语义豁免；
-	// 解析到 openai 目标则受 composite 分组自身的可配置开关控制。
-	if apiKey.Group.Platform == service.PlatformComposite && c != nil && c.Request != nil {
-		if platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context()); ok &&
-			(platform == service.PlatformGrok || service.IsCNProvider(platform)) {
-			return true
-		}
-	}
-	return apiKey.Group.AllowMessagesDispatch
 }
 
 func openAICompatibleTextTargetAllowed(c *gin.Context, apiKey *service.APIKey, model string) bool {
@@ -562,7 +518,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// D 与计费高峰因子，选号、槽位终检与全部 failover 重入共用同一门与阈值。
 	// 生图意图只影响能力路由与图片计费，不关门：混合 /v1/responses 请求的
 	// token 计费部分仍受利润门保护，独立图片/视频端点才在门外。
-	pricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
+	pricingCtx, pricingAt := h.tkHTTPRequestPricingContext(c.Request.Context(), apiKey.GroupID)
 	c.Request = c.Request.WithContext(pricingCtx)
 
 	for {
@@ -578,41 +534,25 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// Select account supporting the requested model
 		reqLog.Debug("openai.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		currentRoutingModel := selectionModel
-		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
+		selection, scheduleDecision, _, err := h.tkSelectAccountWithSchedulerDispatchFallback(
 			c.Request.Context(),
-			apiKey.GroupID,
-			previousResponseID,
-			sessionHash,
+			reqLog,
+			dispatchMappedModel,
 			currentRoutingModel,
-			failedAccountIDs,
-			service.OpenAIUpstreamTransportAny,
-			requiredCapability,
-			requireCompact,
-			false,
-			!imageIntent,
-			requestPlatform,
+			"openai_responses.dispatch_selection_fallback",
+			tkSchedulerCapabilitySelectArgs{
+				GroupID:                    apiKey.GroupID,
+				PreviousResponseID:         previousResponseID,
+				SessionHash:                sessionHash,
+				FailedAccountIDs:           failedAccountIDs,
+				Transport:                  service.OpenAIUpstreamTransportAny,
+				Capability:                 requiredCapability,
+				RequireCompact:             requireCompact,
+				PreviousResponseCanMove:    false,
+				ExcludeImageIntentAccounts: !imageIntent,
+				Platform:                   requestPlatform,
+			},
 		)
-		if fallbackModel, ok := tkOpenAIDispatchSelectionFallbackModel(dispatchMappedModel, currentRoutingModel, err); ok {
-			reqLog.Info("openai_responses.dispatch_selection_fallback",
-				zap.String("from_model", currentRoutingModel),
-				zap.String("to_model", fallbackModel),
-				zap.Error(err),
-			)
-			selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
-				c.Request.Context(),
-				apiKey.GroupID,
-				previousResponseID,
-				sessionHash,
-				fallbackModel,
-				failedAccountIDs,
-				service.OpenAIUpstreamTransportAny,
-				requiredCapability,
-				requireCompact,
-				false,
-				!imageIntent,
-				requestPlatform,
-			)
-		}
 		if err != nil {
 			if failoverClientGone(c) {
 				reqLog.Info("openai.account_select_aborted_client_disconnected", zap.Error(err))
@@ -707,14 +647,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// 用扣除非语义心跳字节的口径快照：心跳注释不构成语义响应，
 		// 不能因心跳字节变化而放弃 failover 换号（#3887）。
 		writerSizeBeforeForward := service.OpenAICompactKeepaliveAdjustedWrittenSize(c)
-		dispatchBody := forwardBody
-		if tkShouldApplyMessagesDispatchBodyMapping(account) {
-			dispatchBody = tkApplyResponsesDispatchModelMapping(apiKey, forwardBody, h.gatewayService.ReplaceModelInBody)
-		}
-		// effectiveMappedModel is still passed to ForwardAsAnthropic
-		if len(failedAccountIDs) > 0 {
-			dispatchBody = service.TkStripEncryptedReasoningForFailover(dispatchBody)
-		}
+		dispatchBody := tkResponsesForwardDispatchBody(apiKey, account, forwardBody, failedAccountIDs, h.gatewayService.ReplaceModelInBody)
 		// 跨 passthrough 边界的 failover：从 Kiro 等透传账号切到 Bedrock 等非透传账号前，
 		// 从不可变的 canonical forwardBody 派生本次尝试 body 并整块剔除上游私有的加密
 		// reasoning item（含耦合的 id/summary），避免非透传上游 400 拒绝 Kiro reasoning 形态。
@@ -745,49 +678,19 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// #5148 对齐：错误返回携带的部分 result（流中断前上游已计量的 usage）照常
 		// 入账；failover 错误恒定 result=nil，不会重复计费。
 		submitResponsesUsage := func(res *service.OpenAIForwardResult) {
-			if res == nil {
-				return
-			}
-			userAgent := c.GetHeader("User-Agent")
-			clientIP := ip.GetClientIP(c)
-			requestPayloadHash := service.HashUsageRequestPayload(body)
-			inboundEndpoint := GetInboundEndpoint(c)
-			upstreamEndpoint := resolveOpenAIUpstreamEndpoint(c, account, res)
-			quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-			sessionID := service.ExtractClientSessionID(c)
-			tkHoldRequestID := hold.HandOffToSettlement()
-			cyberBlocked := service.GetOpsCyberPolicy(c) != nil
-			gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
-			h.submitOpenAIUsageRecordTask(c.Request.Context(), res, func(ctx context.Context) {
-				if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
-					Result:             res,
-					APIKey:             apiKey,
-					User:               apiKey.User,
-					Account:            account,
-					Subscription:       subscription,
-					InboundEndpoint:    inboundEndpoint,
-					UpstreamEndpoint:   upstreamEndpoint,
-					UserAgent:          userAgent,
-					IPAddress:          clientIP,
-					RequestPayloadHash: requestPayloadHash,
-					APIKeyService:      h.apiKeyService,
-					TkHoldRequestID:    tkHoldRequestID,
-					QuotaPlatform:      quotaPlatform,
-					SessionID:          sessionID,
-					GatewayLatencyMs:   gatewayLatencyMs,
-					ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, res.UpstreamModel),
-					PricingAt:          pricingAt,
-					CyberBlocked:       cyberBlocked,
-				}); err != nil {
-					logger.L().With(
-						zap.String("component", "handler.openai_gateway.responses"),
-						zap.Int64("user_id", subject.UserID),
-						zap.Int64("api_key_id", apiKey.ID),
-						zap.Any("group_id", apiKey.GroupID),
-						zap.String("model", reqModel),
-						zap.Int64("account_id", account.ID),
-					).Error("openai.record_usage_failed", zap.Error(err))
-				}
+			h.tkSubmitHTTPForwardUsage(res, tkHTTPForwardUsageSubmitInput{
+				C:                  c,
+				APIKey:             apiKey,
+				Account:            account,
+				Subscription:       subscription,
+				Subject:            subject,
+				Hold:               hold,
+				Body:               body,
+				ReqModel:           reqModel,
+				PricingAt:          pricingAt,
+				ChannelMapping:     channelMapping,
+				LogComponent:       "handler.openai_gateway.responses",
+				LogFailedEventName: "openai.record_usage_failed",
 			})
 		}
 		if err != nil {
@@ -1207,7 +1110,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	effectiveMappedModel := preferredMappedModel
 
 	// 分组利润控制：Messages 文本入口同样请求级装门并固定 pricingAt。
-	msgPricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
+	msgPricingCtx, pricingAt := h.tkHTTPRequestPricingContext(c.Request.Context(), apiKey.GroupID)
 	c.Request = c.Request.WithContext(msgPricingCtx)
 
 	for {
@@ -1219,44 +1122,22 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		}
 		currentRoutingModel := routingModel
 		reqLog.Debug("openai_messages.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
-		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
+		selection, scheduleDecision, currentRoutingModel, err := h.tkSelectAccountWithSchedulerDispatchFallback(
 			c.Request.Context(),
-			apiKey.GroupID,
-			"", // no previous_response_id
-			sessionHash,
+			reqLog,
+			preferredMappedModel,
 			currentRoutingModel,
-			failedAccountIDs,
-			service.OpenAIUpstreamTransportAny,
-			service.OpenAIEndpointCapabilityChatCompletions,
-			false,
-			false,
-			true,
-			requestPlatform,
+			"openai_messages.dispatch_selection_fallback",
+			tkSchedulerCapabilitySelectArgs{
+				GroupID:                    apiKey.GroupID,
+				SessionHash:                sessionHash,
+				FailedAccountIDs:           failedAccountIDs,
+				Transport:                  service.OpenAIUpstreamTransportAny,
+				Capability:                 service.OpenAIEndpointCapabilityChatCompletions,
+				ExcludeImageIntentAccounts: true,
+				Platform:                   requestPlatform,
+			},
 		)
-		if fallbackModel, ok := tkOpenAIDispatchSelectionFallbackModel(preferredMappedModel, currentRoutingModel, err); ok {
-			reqLog.Info("openai_messages.dispatch_selection_fallback",
-				zap.String("from_model", currentRoutingModel),
-				zap.String("to_model", fallbackModel),
-				zap.Error(err),
-			)
-			selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
-				c.Request.Context(),
-				apiKey.GroupID,
-				"",
-				sessionHash,
-				fallbackModel,
-				failedAccountIDs,
-				service.OpenAIUpstreamTransportAny,
-				service.OpenAIEndpointCapabilityChatCompletions,
-				false,
-				false,
-				true,
-				requestPlatform,
-			)
-			if err == nil {
-				currentRoutingModel = fallbackModel
-			}
-		}
 		if err != nil {
 			if failoverClientGone(c) {
 				reqLog.Info("openai_messages.account_select_aborted_client_disconnected", zap.Error(err))
@@ -1341,49 +1222,19 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		// usage 照常入账，避免上游已产生消耗的请求完全漏记（#5148，对齐 anthropic
 		// 网关同名修复）。failover 错误恒定 result=nil，不会重复计费。
 		submitMessagesUsage := func(res *service.OpenAIForwardResult) {
-			if res == nil {
-				return
-			}
-			userAgent := c.GetHeader("User-Agent")
-			clientIP := ip.GetClientIP(c)
-			requestPayloadHash := service.HashUsageRequestPayload(body)
-			inboundEndpoint := GetInboundEndpoint(c)
-			upstreamEndpoint := resolveOpenAIUpstreamEndpoint(c, account, res)
-			quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-			sessionID := service.ExtractClientSessionID(c)
-			tkHoldRequestID := hold.HandOffToSettlement()
-			cyberBlocked := service.GetOpsCyberPolicy(c) != nil
-			gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
-			h.submitOpenAIUsageRecordTask(c.Request.Context(), res, func(ctx context.Context) {
-				if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
-					Result:             res,
-					APIKey:             apiKey,
-					User:               apiKey.User,
-					Account:            account,
-					Subscription:       subscription,
-					InboundEndpoint:    inboundEndpoint,
-					UpstreamEndpoint:   upstreamEndpoint,
-					UserAgent:          userAgent,
-					IPAddress:          clientIP,
-					RequestPayloadHash: requestPayloadHash,
-					APIKeyService:      h.apiKeyService,
-					TkHoldRequestID:    tkHoldRequestID,
-					QuotaPlatform:      quotaPlatform,
-					SessionID:          sessionID,
-					GatewayLatencyMs:   gatewayLatencyMs,
-					ChannelUsageFields: clientRequestedUsageFields(c, channelMappingMsg, reqModel, res.UpstreamModel),
-					PricingAt:          pricingAt,
-					CyberBlocked:       cyberBlocked,
-				}); err != nil {
-					logger.L().With(
-						zap.String("component", "handler.openai_gateway.messages"),
-						zap.Int64("user_id", subject.UserID),
-						zap.Int64("api_key_id", apiKey.ID),
-						zap.Any("group_id", apiKey.GroupID),
-						zap.String("model", reqModel),
-						zap.Int64("account_id", account.ID),
-					).Error("openai_messages.record_usage_failed", zap.Error(err))
-				}
+			h.tkSubmitHTTPForwardUsage(res, tkHTTPForwardUsageSubmitInput{
+				C:                  c,
+				APIKey:             apiKey,
+				Account:            account,
+				Subscription:       subscription,
+				Subject:            subject,
+				Hold:               hold,
+				Body:               body,
+				ReqModel:           reqModel,
+				PricingAt:          pricingAt,
+				ChannelMapping:     channelMappingMsg,
+				LogComponent:       "handler.openai_gateway.messages",
+				LogFailedEventName: "openai_messages.record_usage_failed",
 			})
 		}
 		if err != nil {
@@ -1492,20 +1343,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	}
 }
 
-func resolveOpenAIMessagesMetadataSession(sessionHash, promptCacheKey, reqModel string, body []byte) (string, string) {
-	// Anthropic metadata.user_id 只作为账号粘性信号。上游 GPT/Codex 缓存键
-	// 交给 ForwardAsAnthropic 从 cache_control 或完整消息 digest 派生，避免
-	// 固定 metadata key 压住后续 turn 的缓存滚动。
-	if sessionHash != "" {
-		return sessionHash, promptCacheKey
-	}
-	if userID := strings.TrimSpace(gjson.GetBytes(body, "metadata.user_id").String()); userID != "" {
-		seed := reqModel + "-" + userID
-		sessionHash = service.DeriveSessionHashFromSeed(seed)
-	}
-	return sessionHash, promptCacheKey
-}
-
 // anthropicErrorResponse writes an error in Anthropic Messages API format.
 func (h *OpenAIGatewayHandler) anthropicErrorResponse(c *gin.Context, status int, errType, message string) {
 	c.JSON(status, gin.H{
@@ -1556,15 +1393,7 @@ func (h *OpenAIGatewayHandler) handleAnthropicFailoverExhausted(c *gin.Context, 
 		h.anthropicStreamingAwareError(c, status, "api_error", failoverErr.ClientMessage, streamStarted)
 		return
 	}
-	status, errType, errMsg := h.mapUpstreamError(failoverErr.StatusCode)
-	if msg := service.ExtractUpstreamErrorMessage(failoverErr.ResponseBody); msg != "" {
-		errMsg = msg
-	}
-	if failoverErr.StatusCode == http.StatusForbidden {
-		errMsg = service.TkEnrichForbiddenMessage(c, errMsg)
-	}
-	errMsg = service.TkEnrichClaudeIncidentMessage(errMsg, failoverErr.StatusCode)
-	h.anthropicStreamingAwareError(c, status, errType, errMsg, streamStarted)
+	h.tkAnthropicFailoverExhaustedDefaultResponse(c, failoverErr, streamStarted)
 }
 
 // ensureAnthropicErrorResponse writes a fallback Anthropic error if no response was written.
@@ -1639,34 +1468,6 @@ const (
 	// 后重新选号，全池耗尽由下一轮选号返回标准 no available accounts。
 	openAISlotAcquireProfitVetoed
 )
-
-// openAIWSTurnPricing 持有 WebSocket 连接内「当前 turn」的计费定价时刻。
-// 由 BeforeTurn 在每个 turn 开始时冻结，AfterTurn 的用量提交读取它；turn 在
-// 连接内串行推进，互斥锁只为跨用量提交 goroutine 的读取安全。
-//
-// ws_v2 passthrough ingress 没有 BeforeTurn，因此本值会保持零；AfterTurn 必须
-// 以 TurnStarted 已记录的所属 turn 开始时刻为回退，而不是用建连或记录时刻。
-// 这样每个 passthrough turn 都按自己的开始时刻计价，但不改变其仅在建连时执行
-// 准入门、没有 turn 级利润复核的既有行为。
-type openAIWSTurnPricing struct {
-	mu sync.Mutex
-	at time.Time
-}
-
-func (p *openAIWSTurnPricing) freeze(at time.Time) {
-	p.mu.Lock()
-	p.at = at
-	p.mu.Unlock()
-}
-
-func (p *openAIWSTurnPricing) currentOr(fallback time.Time) time.Time {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if !p.at.IsZero() {
-		return p.at
-	}
-	return fallback
-}
 
 // recordOpenAIProfitVeto 记录 OpenAI 侧选号循环的一次利润门终检否决：把账号
 // 加入本请求排除集并递增否决计数。返回 false 表示否决次数已达
@@ -2095,19 +1896,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return
 	}
 
-	var wsTurnHold *tkHoldHandle
+	var wsTurnHold *tkWSResponsesTurnHold
 	defer func() { wsTurnHold.ReleaseUnlessSettling() }()
-	wsHoldSeq := 0
-	wsReserveTurnHold := func(model string, payload []byte) error {
-		wsHoldSeq++
-		turnHold, holdReject := h.tkApplyWSTurnHold(c, apiKey, model, payload, wsHoldSeq)
-		if holdReject {
-			return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, tkInsufficientBalanceForHoldMsg, nil)
-		}
-		wsTurnHold = turnHold
-		return nil
-	}
-	if err := wsReserveTurnHold(reqModel, firstMessage); err != nil {
+	if err := func() error {
+		wsTurnHold = h.tkNewWSResponsesTurnHold(c, apiKey)
+		return wsTurnHold.Reserve(reqModel, firstMessage)
+	}(); err != nil {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, tkInsufficientBalanceForHoldMsg)
 		return
 	}
@@ -2201,8 +1995,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	// 并按最新门复核当前账号（准入与计费同源），峰前建连保活不能让后续 turn
 	// 继续按建连时刻的谷价计费。生图意图只影响能力路由与图片计费，不关门。
 	// 建连时刻只用于选号/准入，不作为任何 turn 的计费定价时刻。
-	wsPricingCtx, _ := h.gatewayService.WithOpenAIRequestPricingContext(ctx, apiKey.GroupID)
-	ctx = wsPricingCtx
+	pricingCtx, _ := h.tkHTTPRequestPricingContext(ctx, apiKey.GroupID)
+	ctx = pricingCtx
 
 	for {
 		if ctx.Err() != nil {
@@ -2397,8 +2191,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					writeSecurityAuditWSError(ctx, wsConn, decision)
 					return service.NewOpenAIWSClientCloseError(securityAuditWSCloseStatus(decision), securityAuditWSCloseReason(decision), nil)
 				}
-				if wsTurnHold == nil {
-					if err := wsReserveTurnHold(model, payload); err != nil {
+				if wsTurnHold == nil || !wsTurnHold.HasHold() {
+					if err := wsTurnHold.Reserve(model, payload); err != nil {
 						return err
 					}
 				}
@@ -2422,51 +2216,19 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return mapping.MappedModel, nil
 			},
 			BeforeTurn: func(turn int) error {
-				// turn==1 的会话屏蔽已由握手层检查覆盖；连接内 flag 只拦截后续 turn。
-				if cyberBlockedThisConn {
-					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, cyberSessionBlockedClientMsg, nil)
-				}
-				// 长连接跨峰谷/倍率刷新防护：每个 turn 按当前时刻重装门并复核
-				// 当前账号，越线即要求客户端重连重选（连接绑定单一上游账号，
-				// 无法中途换号）。本 turn 的准入与计费共用同一 pricingAt。
-				turnCtx, turnAt := h.gatewayService.WithOpenAITurnPricingContext(ctx, apiKey.GroupID)
-				if _, vetoed, reason := h.gatewayService.ProfitControlVetoLatest(turnCtx, account); vetoed {
-					reqLog.Info("openai.websocket_turn_profit_vetoed",
-						zap.Int("turn", turn),
-						zap.Int64("account_id", account.ID),
-						zap.String("reason", reason))
-					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "account is no longer eligible for this connection, please reconnect", nil)
-				}
-				turnPricing.freeze(turnAt)
-				if turn == 1 {
-					return nil
-				}
-				// 防御式清理：避免异常路径下旧槽位覆盖导致泄漏。
-				releaseTurnSlots()
-				// 非首轮 turn 需要重新抢占并发槽位，避免长连接空闲占槽。
-				userReleaseFunc, userAcquired, err := h.concurrencyHelper.TryAcquireUserSlotForAPIKey(ctx, subject.UserID, subject.Concurrency, apiKey.ID)
-				if err != nil {
-					return service.NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to acquire user concurrency slot", err)
-				}
-				if !userAcquired {
-					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "too many concurrent requests, please retry later", nil)
-				}
-				accountReleaseFunc, accountAcquired, err := h.concurrencyHelper.TryAcquireAccountSlot(ctx, account.ID, accountMaxConcurrency)
-				if err != nil {
-					if userReleaseFunc != nil {
-						userReleaseFunc()
-					}
-					return service.NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to acquire account concurrency slot", err)
-				}
-				if !accountAcquired {
-					if userReleaseFunc != nil {
-						userReleaseFunc()
-					}
-					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "account is busy, please retry later", nil)
-				}
-				currentUserRelease = wrapReleaseOnDone(ctx, userReleaseFunc)
-				currentAccountRelease = wrapReleaseOnDone(ctx, accountReleaseFunc)
-				return nil
+				return h.tkWSBeforeTurn(ctx, tkWSBeforeTurnInput{
+					Turn:                  turn,
+					CyberBlockedThisConn:  cyberBlockedThisConn,
+					APIKey:                apiKey,
+					Account:               account,
+					AccountMaxConcurrency: accountMaxConcurrency,
+					Subject:               subject,
+					ReqLog:                reqLog,
+					TurnPricing:           &turnPricing,
+					ReleaseTurnSlots:      releaseTurnSlots,
+					CurrentUserRelease:    &currentUserRelease,
+					CurrentAccountRelease: &currentAccountRelease,
+				})
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
 				turnStart := getTurnStart(turn)
@@ -2518,57 +2280,24 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if result == nil {
 					return
 				}
-				result.BillingModel = openAIWSTurnBillingModel(result, turnMapping, turnRequestedModel, turnUpstreamModel)
-				reqLog.Debug("openai.websocket_turn_billing",
-					zap.Int("turn", turn),
-					zap.String("turn_requested_model", turnRequestedModel),
-					zap.String("turn_upstream_model", turnUpstreamModel),
-					zap.String("billing_model", result.BillingModel),
-				)
-				// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
-				if account.Type == service.AccountTypeOAuth && !account.IsShadow() {
-					h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(ctx, account.ID, result.ResponseHeaders)
-				}
-				scheduleModel := turnUpstreamModel
-				if scheduleModel == "" {
-					scheduleModel = turnRequestedModel
-				}
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account, scheduleModel, openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
-				inboundEndpoint := GetInboundEndpoint(c)
-				upstreamEndpoint := resolveOpenAIUpstreamEndpoint(c, account, result)
-				turnHold := wsTurnHold
-				tkHoldRequestID := turnHold.HandOffToSettlement()
-				wsTurnHold = nil
-				quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-				sessionID := service.ExtractClientSessionID(c)
-				turnRecordPricingAt := turnPricing.currentOr(turnStart)
-				cyberBlocked := service.GetOpsCyberPolicy(c) != nil
-				h.submitOpenAIUsageRecordTask(ctx, result, func(taskCtx context.Context) {
-					if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
-						Result:             result,
-						APIKey:             apiKey,
-						User:               apiKey.User,
-						Account:            account,
-						Subscription:       subscription,
-						InboundEndpoint:    inboundEndpoint,
-						UpstreamEndpoint:   upstreamEndpoint,
-						UserAgent:          userAgent,
-						IPAddress:          clientIP,
-						RequestPayloadHash: requestPayloadHash,
-						APIKeyService:      h.apiKeyService,
-						TkHoldRequestID:    tkHoldRequestID,
-						QuotaPlatform:      quotaPlatform,
-						SessionID:          sessionID,
-						ChannelUsageFields: turnUsageFields,
-						PricingAt:          turnRecordPricingAt,
-						CyberBlocked:       cyberBlocked,
-					}); err != nil {
-						reqLog.Error("openai.websocket_record_usage_failed",
-							zap.Int64("account_id", account.ID),
-							zap.String("request_id", result.RequestID),
-							zap.Error(err),
-						)
-					}
+				h.tkWSAfterTurnSubmitUsage(tkWSAfterTurnUsageInput{
+					Ctx:                ctx,
+					C:                  c,
+					ReqLog:             reqLog,
+					APIKey:             apiKey,
+					Account:            account,
+					Subscription:       subscription,
+					TurnHold:           wsTurnHold,
+					TurnPricing:        &turnPricing,
+					Turn:               turn,
+					TurnStart:          turnStart,
+					Result:             result,
+					TurnMapping:        turnMapping,
+					TurnRequestedModel: turnRequestedModel,
+					TurnUpstreamModel:  turnUpstreamModel,
+					RequestPayloadHash: requestPayloadHash,
+					UserAgent:          userAgent,
+					ClientIP:           clientIP,
 				})
 			},
 		}

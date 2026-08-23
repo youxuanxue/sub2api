@@ -447,21 +447,8 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 
-	if req.GuardianParentAccountID > 0 {
-		parentReq := req
-		parentReq.StickyAccountID = req.GuardianParentAccountID
-		parentReq.PreserveStickyBinding = true
-		selection, _, _, err := s.selectBySessionHash(ctx, parentReq)
-		if err != nil {
-			return nil, decision, err
-		}
-		if selection != nil && selection.Account != nil {
-			decision.Layer = openAIAccountScheduleLayerGuardianParent
-			decision.StickySessionHit = true
-			decision.SelectedAccountID = selection.Account.ID
-			decision.SelectedAccountType = selection.Account.Type
-			return selection, decision, nil
-		}
+	if selection, decision, handled, err := s.tkTrySelectGuardianParent(ctx, req, decision); handled {
+		return selection, decision, err
 	}
 
 	markStickyHit := func(sel *AccountSelectionResult) {
@@ -2325,38 +2312,6 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	return s.selectAccountWithSchedulerOnce(withOpenAIProxyStreamQuarantineBypass(ctx), groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requiredVideoSupport, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
 }
 
-type openAIGroupPrivacyRequirementContextKey struct{}
-
-type openAIGroupPrivacyRequirement struct {
-	groupID  int64
-	required bool
-}
-
-func (s *OpenAIGatewayService) withOpenAIGroupPrivacyRequirement(ctx context.Context, groupID *int64) context.Context {
-	return context.WithValue(ctx, openAIGroupPrivacyRequirementContextKey{}, openAIGroupPrivacyRequirement{
-		groupID:  derefGroupID(groupID),
-		required: s.loadOpenAIGroupRequiresPrivacySet(ctx, groupID),
-	})
-}
-
-func (s *OpenAIGatewayService) openAIGroupRequiresPrivacySet(ctx context.Context, groupID *int64) bool {
-	if cached, ok := ctx.Value(openAIGroupPrivacyRequirementContextKey{}).(openAIGroupPrivacyRequirement); ok && cached.groupID == derefGroupID(groupID) {
-		return cached.required
-	}
-	return s.loadOpenAIGroupRequiresPrivacySet(ctx, groupID)
-}
-
-func (s *OpenAIGatewayService) loadOpenAIGroupRequiresPrivacySet(ctx context.Context, groupID *int64) bool {
-	if s == nil || groupID == nil || s.schedulerSnapshot == nil {
-		return false
-	}
-	group, err := s.schedulerSnapshot.GetGroupByID(ctx, *groupID)
-	if err != nil {
-		return true
-	}
-	return group != nil && group.RequirePrivacySet
-}
-
 func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	ctx context.Context,
 	groupID *int64,
@@ -2402,36 +2357,22 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	scheduler := s.getOpenAIAccountScheduler(ctx)
 	if scheduler == nil {
 		decision.Layer = openAIAccountScheduleLayerLoadBalance
-		if guardianParentAccountID > 0 {
-			if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
-				return nil, decision, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkOpenAICompatChannelPricingRestrictionError(requestedModel))
-			}
-			fallbackScheduler := &defaultOpenAIAccountScheduler{service: s, stats: newOpenAIAccountRuntimeStats()}
-			selection, _, _, err := fallbackScheduler.selectBySessionHash(ctx, OpenAIAccountScheduleRequest{
-				GroupID:                 groupID,
-				GroupPlatform:           groupPlatform,
-				SessionHash:             sessionHash,
-				StickyAccountID:         guardianParentAccountID,
-				PreserveStickyBinding:   true,
-				RequestedModel:          requestedModel,
-				RequiredTransport:       requiredTransport,
-				RequiredCapability:      requiredCapability,
-				RequiredImageCapability: requiredImageCapability,
-				RequiredVideoSupport:    requiredVideoSupport,
-				RequireCompact:          requireCompact,
-				RequirePrivacySet:       s.openAIGroupRequiresPrivacySet(ctx, groupID),
-				ExcludedIDs:             excludedIDs,
-			})
-			if err != nil {
-				return nil, decision, err
-			}
-			if selection != nil && selection.Account != nil {
-				decision.Layer = openAIAccountScheduleLayerGuardianParent
-				decision.StickySessionHit = true
-				decision.SelectedAccountID = selection.Account.ID
-				decision.SelectedAccountType = selection.Account.Type
-				return selection, decision, nil
-			}
+		if selection, decision, handled, err := s.tkTrySelectAccountByGuardianParentWhenSchedulerNil(
+			ctx,
+			guardianParentAccountID,
+			groupID,
+			groupPlatform,
+			sessionHash,
+			requestedModel,
+			excludedIDs,
+			requiredTransport,
+			requiredCapability,
+			requiredImageCapability,
+			requiredVideoSupport,
+			requireCompact,
+			decision,
+		); handled {
+			return selection, decision, err
 		}
 		legacySessionHash := sessionHash
 		if preserveGuardianParentBinding {

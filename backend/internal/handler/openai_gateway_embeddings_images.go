@@ -1,15 +1,12 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -293,42 +290,18 @@ func (h *OpenAIGatewayHandler) embeddings(c *gin.Context) {
 		}
 		openAIRecordAffinitySuccess(c, account.ID)
 
-		userAgent := c.GetHeader("User-Agent")
-		clientIP := ip.GetClientIP(c)
-
-		tkHoldRequestID := hold.HandOffToSettlement()
-		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-		gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
-		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
-			upstreamModelForUsage := ""
-			if result != nil {
-				upstreamModelForUsage = result.UpstreamModel
-			}
-			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
-				Result:             result,
-				APIKey:             apiKey,
-				User:               apiKey.User,
-				Account:            account,
-				Subscription:       subscription,
-				InboundEndpoint:    GetInboundEndpoint(c),
-				UpstreamEndpoint:   GetUpstreamEndpoint(c, account.Platform),
-				UserAgent:          userAgent,
-				IPAddress:          clientIP,
-				APIKeyService:      h.apiKeyService,
-				TkHoldRequestID:    tkHoldRequestID,
-				QuotaPlatform:      quotaPlatform,
-				GatewayLatencyMs:   gatewayLatencyMs,
-				ChannelUsageFields: channelMapping.ToUsageFields(reqModel, upstreamModelForUsage),
-			}); err != nil {
-				logger.L().With(
-					zap.String("component", "handler.openai_gateway.embeddings"),
-					zap.Int64("user_id", subject.UserID),
-					zap.Int64("api_key_id", apiKey.ID),
-					zap.Any("group_id", apiKey.GroupID),
-					zap.String("model", reqModel),
-					zap.Int64("account_id", account.ID),
-				).Error("openai_embeddings.record_usage_failed", zap.Error(err))
-			}
+		h.tkSubmitOpenAISimpleForwardUsage(tkOpenAISimpleUsageSubmitInput{
+			C:                  c,
+			APIKey:             apiKey,
+			Account:            account,
+			Subscription:       subscription,
+			Subject:            subject,
+			Hold:               hold,
+			Result:             result,
+			ReqModel:           reqModel,
+			ChannelMapping:     channelMapping,
+			LogComponent:       "handler.openai_gateway.embeddings",
+			LogFailedEventName: "openai_embeddings.record_usage_failed",
 		})
 		reqLog.Debug("openai_embeddings.request_completed",
 			zap.Int64("account_id", account.ID),
@@ -616,42 +589,18 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 		}
 		openAIRecordAffinitySuccess(c, account.ID)
 
-		userAgent := c.GetHeader("User-Agent")
-		clientIP := ip.GetClientIP(c)
-
-		tkHoldRequestID := hold.HandOffToSettlement()
-		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-		gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
-		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
-			upstreamModelForUsage := ""
-			if result != nil {
-				upstreamModelForUsage = result.UpstreamModel
-			}
-			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
-				Result:             result,
-				APIKey:             apiKey,
-				User:               apiKey.User,
-				Account:            account,
-				Subscription:       subscription,
-				InboundEndpoint:    GetInboundEndpoint(c),
-				UpstreamEndpoint:   GetUpstreamEndpoint(c, account.Platform),
-				UserAgent:          userAgent,
-				IPAddress:          clientIP,
-				APIKeyService:      h.apiKeyService,
-				TkHoldRequestID:    tkHoldRequestID,
-				QuotaPlatform:      quotaPlatform,
-				GatewayLatencyMs:   gatewayLatencyMs,
-				ChannelUsageFields: channelMapping.ToUsageFields(reqModel, upstreamModelForUsage),
-			}); err != nil {
-				logger.L().With(
-					zap.String("component", "handler.openai_gateway.images_generations"),
-					zap.Int64("user_id", subject.UserID),
-					zap.Int64("api_key_id", apiKey.ID),
-					zap.Any("group_id", apiKey.GroupID),
-					zap.String("model", reqModel),
-					zap.Int64("account_id", account.ID),
-				).Error("openai_images_generations.record_usage_failed", zap.Error(err))
-			}
+		h.tkSubmitOpenAISimpleForwardUsage(tkOpenAISimpleUsageSubmitInput{
+			C:                  c,
+			APIKey:             apiKey,
+			Account:            account,
+			Subscription:       subscription,
+			Subject:            subject,
+			Hold:               hold,
+			Result:             result,
+			ReqModel:           reqModel,
+			ChannelMapping:     channelMapping,
+			LogComponent:       "handler.openai_gateway.images_generations",
+			LogFailedEventName: "openai_images_generations.record_usage_failed",
 		})
 		reqLog.Debug("openai_images_generations.request_completed",
 			zap.Int64("account_id", account.ID),

@@ -1,14 +1,12 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -347,39 +345,18 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		// 6. Record usage
 		setOpsClaudeUsageContext(c, result.Usage)
 		setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
-		userAgent := c.GetHeader("User-Agent")
-		clientIP := ip.GetClientIP(c)
-		requestPayloadHash := service.HashUsageRequestPayload(body)
-		inboundEndpoint := GetInboundEndpoint(c)
-		upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
-
-		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-		sessionID := service.ExtractClientSessionID(c)
-		gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
-		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
-			if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
-				Result:             result,
-				QuotaPlatform:      quotaPlatform,
-				APIKey:             apiKey,
-				User:               apiKey.User,
-				Account:            account,
-				Subscription:       subscription,
-				PricingAt:          pricingAt,
-				InboundEndpoint:    inboundEndpoint,
-				UpstreamEndpoint:   upstreamEndpoint,
-				UserAgent:          userAgent,
-				IPAddress:          clientIP,
-				RequestPayloadHash: requestPayloadHash,
-				APIKeyService:      h.apiKeyService,
-				SessionID:          sessionID,
-				GatewayLatencyMs:   gatewayLatencyMs,
-				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
-			}); err != nil {
-				reqLog.Error("gateway.cc.record_usage_failed",
-					zap.Int64("account_id", account.ID),
-					zap.Error(err),
-				)
-			}
+		h.tkSubmitClaudeGatewayForwardUsage(tkClaudeGatewayForwardUsageInput{
+			C:                  c,
+			APIKey:             apiKey,
+			Account:            account,
+			Subscription:       subscription,
+			Result:             result,
+			ReqModel:           reqModel,
+			Body:               body,
+			PricingAt:          pricingAt,
+			ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
+			ReqLog:             reqLog,
+			LogFailedEvent:     "gateway.cc.record_usage_failed",
 		})
 		return
 	}

@@ -16,7 +16,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -39,39 +38,8 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	beginUpstreamResponseModelObservation(c)
 	setCodexToolNameReverse(c, nil)
 
-	// 入口分流（国产供应商 Anthropic 协议）：上游为供应商原生 Anthropic 端点时，
-	// /v1/messages 请求零转换直通（仅模型名映射 + 少量 body 清洗），完整保留
-	// thinking / tool_use / cache 语义，适配 Claude Code 等原生客户端。
-	// 必须先于 ShouldUseResponsesAPI 分流：Anthropic 协议账号经 probe 落标
-	// openai_responses_supported=false，会先命中下方的 CC 直转分支。
-	if account.IsAnthropicProtocol() || account.IsAdaptiveAPIProtocol() {
-		return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
-	}
-	if account.IsCNProvider() && account.GetAPIProtocol() == APIProtocolChatCompletions {
-		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
-	}
-	// Tokensea OpenAI relay (#92): extra.openai_native_messages_supported can
-	// be a false-negative. The probe uses selectResponsesProbeModel (first
-	// mapping id, often GPT); live 2026-08-20 GPT /v1/messages timed out so
-	// extra.native_messages=false while extra.responses=true. Direct Claude
-	// /v1/messages is 200; Claude /v1/responses returns "not implemented".
-	// Route Claude here without waiting for the extra flag. GPT stays on
-	// Responses below.
-	if account.IsOpenAITokenseaRelay() && shouldForwardNativeAnthropicMessagesForModel(body) {
-		return s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)
-	}
-	if account.Type == AccountTypeAPIKey && !account.IsCNProvider() && openai_compat.ShouldUseNativeAnthropicMessagesAPI(account.Extra) {
-		if shouldForwardNativeAnthropicMessagesForModel(body) {
-			return s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)
-		}
-		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
-	}
-
-	// APIKey 账号 + 上游不支持 Responses API → 走 CC 直转（与
-	// ForwardAsChatCompletions 对称）。Tokensea/Cloudwise 在 extra.responses=true
-	// 时仍走 Responses，避免 GPT /v1/messages 被错误降级。
-	if account.Type == AccountTypeAPIKey && !account.IsCNProvider() && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
-		return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+	if result, routed, err := s.tkTryRouteForwardAsAnthropic(ctx, c, account, body, defaultMappedModel); routed {
+		return result, err
 	}
 
 	startTime := time.Now()
@@ -99,11 +67,8 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// carries a stable session id. Prefer that as the Grok prompt-cache seed so
 	// multi-turn /v1/messages traffic can hit xAI's server-side cache.
 	if promptCacheKey == "" && account.Platform == PlatformGrok {
-		if sessionSeed := extractClaudeCodeSessionID(c, body); sessionSeed != "" {
-			promptCacheKey = sessionSeed
-			compatPromptCacheInjected = true
-		} else if sessionSeed := promptCacheKeyFromAnthropicMetadataSession(&anthropicReq); sessionSeed != "" {
-			promptCacheKey = sessionSeed
+		if seededKey, injected := tkResolveAnthropicCompatPromptCacheKey(c, account, body, &anthropicReq, upstreamModel, promptCacheKey); injected {
+			promptCacheKey = seededKey
 			compatPromptCacheInjected = true
 		}
 	}
@@ -226,62 +191,19 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		return nil, fmt.Errorf("marshal responses request: %w", err)
 	}
 
-	if account.IsOpenAIOAuthLike() && account.Platform != PlatformGrok {
-		var reqBody map[string]any
-		if err := json.Unmarshal(responsesBody, &reqBody); err != nil {
-			return nil, fmt.Errorf("unmarshal for codex transform: %w", err)
-		}
-		codexResult := applyCodexOAuthTransformWithOptions(reqBody, codexOAuthTransformOptions{
-			SkipDefaultInstructions: true,
-			PreserveToolCallIDs:     true,
-		})
-		if codexResult.Error != nil {
-			writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", codexResult.Error.Error())
-			return nil, codexResult.Error
-		}
-		setCodexToolNameReverse(c, codexResult.ToolNameReverse)
-		forcedTemplateText := ""
-		if s.cfg != nil {
-			forcedTemplateText = s.cfg.Gateway.ForcedCodexInstructionsTemplate
-		}
-		templateUpstreamModel := upstreamModel
-		if codexResult.NormalizedModel != "" {
-			templateUpstreamModel = codexResult.NormalizedModel
-		}
-		existingInstructions, _ := reqBody["instructions"].(string)
-		if strings.TrimSpace(existingInstructions) == "" {
-			existingInstructions = extractPromptLikeInstructionsFromInput(reqBody)
-		}
-		if _, err := applyForcedCodexInstructionsTemplate(reqBody, forcedTemplateText, forcedCodexInstructionsTemplateData{
-			ExistingInstructions: strings.TrimSpace(existingInstructions),
-			OriginalModel:        originalModel,
-			NormalizedModel:      normalizedModel,
-			BillingModel:         billingModel,
-			UpstreamModel:        templateUpstreamModel,
-		}); err != nil {
-			return nil, err
-		}
-		ensureCodexOAuthInstructionsField(reqBody)
-		if shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
-			appendOpenAICompatClaudeCodeTodoGuardToRequestBody(reqBody)
-		}
-		if codexResult.NormalizedModel != "" {
-			upstreamModel = codexResult.NormalizedModel
-		}
-		if codexResult.PromptCacheKey != "" {
-			promptCacheKey = codexResult.PromptCacheKey
-		}
-		delete(reqBody, "prompt_cache_key")
-		if shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
-			compatTurnState = s.getOpenAICompatSessionTurnState(ctx, c, account, promptCacheKey)
-		}
-		// OAuth codex transform forces stream=true upstream, so always use
-		// the streaming response handler regardless of what the client asked.
+	codexTransform, codexErr := s.tkApplyAnthropicCodexOAuthToResponsesBody(
+		ctx, c, account, responsesBody, upstreamModel, promptCacheKey, compatTurnState,
+		originalModel, normalizedModel, billingModel,
+	)
+	if codexErr != nil {
+		return nil, codexErr
+	}
+	responsesBody = codexTransform.responsesBody
+	upstreamModel = codexTransform.upstreamModel
+	promptCacheKey = codexTransform.promptCacheKey
+	compatTurnState = codexTransform.compatTurnState
+	if codexTransform.isStream {
 		isStream = true
-		responsesBody, err = json.Marshal(reqBody)
-		if err != nil {
-			return nil, fmt.Errorf("remarshal after codex transform: %w", err)
-		}
 	}
 
 	// For API key accounts (including OpenAI-compatible upstream gateways),
@@ -401,29 +323,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 
-	// Override session_id with a deterministic UUID derived from the isolated
-	// session key, ensuring different API keys produce different upstream sessions.
-	if account.Platform != PlatformGrok && promptCacheKey != "" {
-		isolatedSessionID := generateSessionUUID(isolateOpenAISessionID(apiKeyID, promptCacheKey))
-		upstreamReq.Header.Set("session_id", isolatedSessionID)
-		if upstreamReq.Header.Get("conversation_id") != "" {
-			upstreamReq.Header.Set("conversation_id", isolatedSessionID)
-		}
-	}
-	if account.IsOpenAIOAuthLike() && account.Platform != PlatformGrok {
-		// Anthropic Messages compatibility uses the ChatGPT Codex SSE endpoint.
-		// Match upstream request shape: the SSE endpoint does not need the
-		// Responses experimental beta header. compatMessagesBridge paths also
-		// strip originator in openai_gateway_forward.go so enforceCodexIdentityHeaders
-		// does not re-inject it on the Anthropic bridge.
-		upstreamReq.Header.Del("OpenAI-Beta")
-	}
-	if account.IsOpenAIOAuthLike() && promptCacheKey != "" && strings.TrimSpace(c.GetHeader("conversation_id")) == "" {
-		upstreamReq.Header.Del("conversation_id")
-	}
-	if compatTurnState != "" && upstreamReq.Header.Get("x-codex-turn-state") == "" {
-		upstreamReq.Header.Set("x-codex-turn-state", compatTurnState)
-	}
+	tkApplyAnthropicMessagesUpstreamHeaders(c, account, upstreamReq, promptCacheKey, apiKeyID, compatTurnState)
 
 	// 7. Send request
 	proxyURL := ""

@@ -1,15 +1,12 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -167,7 +164,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 
 	// 分组利润控制：chat completions 文本入口请求级装门并固定 pricingAt。
-	ccPricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
+	ccPricingCtx, pricingAt := h.tkHTTPRequestPricingContext(c.Request.Context(), apiKey.GroupID)
 	c.Request = c.Request.WithContext(ccPricingCtx)
 
 	for {
@@ -179,41 +176,22 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 		reqLog.Debug("openai_chat_completions.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		currentRoutingModel := routingModel
-		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
+		selection, scheduleDecision, _, err := h.tkSelectAccountWithSchedulerDispatchFallback(
 			c.Request.Context(),
-			apiKey.GroupID,
-			"",
-			sessionHash,
+			reqLog,
+			dispatchMappedModel,
 			currentRoutingModel,
-			failedAccountIDs,
-			service.OpenAIUpstreamTransportAny,
-			service.OpenAIEndpointCapabilityChatCompletions,
-			false,
-			false,
-			true,
-			requestPlatform,
+			"openai_chat_completions.dispatch_selection_fallback",
+			tkSchedulerCapabilitySelectArgs{
+				GroupID:                    apiKey.GroupID,
+				SessionHash:                sessionHash,
+				FailedAccountIDs:           failedAccountIDs,
+				Transport:                  service.OpenAIUpstreamTransportAny,
+				Capability:                 service.OpenAIEndpointCapabilityChatCompletions,
+				ExcludeImageIntentAccounts: true,
+				Platform:                   requestPlatform,
+			},
 		)
-		if fallbackModel, ok := tkOpenAIDispatchSelectionFallbackModel(dispatchMappedModel, currentRoutingModel, err); ok {
-			reqLog.Info("openai_chat_completions.dispatch_selection_fallback",
-				zap.String("from_model", currentRoutingModel),
-				zap.String("to_model", fallbackModel),
-				zap.Error(err),
-			)
-			selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
-				c.Request.Context(),
-				apiKey.GroupID,
-				"",
-				sessionHash,
-				fallbackModel,
-				failedAccountIDs,
-				service.OpenAIUpstreamTransportAny,
-				service.OpenAIEndpointCapabilityChatCompletions,
-				false,
-				false,
-				true,
-				requestPlatform,
-			)
-		}
 		if err != nil {
 			if failoverClientGone(c) {
 				reqLog.Info("openai_chat_completions.account_select_aborted_client_disconnected", zap.Error(err))
@@ -300,45 +278,19 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		// #5148 对齐：错误返回携带的部分 result（流中断前上游已计量的 usage）照常
 		// 入账；failover 错误恒定 result=nil，不会重复计费。
 		submitChatUsage := func(res *service.OpenAIForwardResult) {
-			if res == nil {
-				return
-			}
-			userAgent := c.GetHeader("User-Agent")
-			clientIP := ip.GetClientIP(c)
-			inboundEndpoint := GetInboundEndpoint(c)
-			upstreamEndpoint := resolveOpenAIUpstreamEndpoint(c, account, res)
-			quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-			sessionID := service.ExtractClientSessionID(c)
-			tkHoldRequestID := hold.HandOffToSettlement()
-			cyberBlocked := service.GetOpsCyberPolicy(c) != nil
-			h.submitOpenAIUsageRecordTask(c.Request.Context(), res, func(ctx context.Context) {
-				if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
-					Result:             res,
-					APIKey:             apiKey,
-					User:               apiKey.User,
-					Account:            account,
-					Subscription:       subscription,
-					InboundEndpoint:    inboundEndpoint,
-					UpstreamEndpoint:   upstreamEndpoint,
-					UserAgent:          userAgent,
-					IPAddress:          clientIP,
-					APIKeyService:      h.apiKeyService,
-					TkHoldRequestID:    tkHoldRequestID,
-					QuotaPlatform:      quotaPlatform,
-					SessionID:          sessionID,
-					ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, res.UpstreamModel),
-					PricingAt:          pricingAt,
-					CyberBlocked:       cyberBlocked,
-				}); err != nil {
-					logger.L().With(
-						zap.String("component", "handler.openai_gateway.chat_completions"),
-						zap.Int64("user_id", subject.UserID),
-						zap.Int64("api_key_id", apiKey.ID),
-						zap.Any("group_id", apiKey.GroupID),
-						zap.String("model", reqModel),
-						zap.Int64("account_id", account.ID),
-					).Error("openai_chat_completions.record_usage_failed", zap.Error(err))
-				}
+			h.tkSubmitHTTPForwardUsage(res, tkHTTPForwardUsageSubmitInput{
+				C:                  c,
+				APIKey:             apiKey,
+				Account:            account,
+				Subscription:       subscription,
+				Subject:            subject,
+				Hold:               hold,
+				Body:               body,
+				ReqModel:           reqModel,
+				PricingAt:          pricingAt,
+				ChannelMapping:     channelMapping,
+				LogComponent:       "handler.openai_gateway.chat_completions",
+				LogFailedEventName: "openai_chat_completions.record_usage_failed",
 			})
 		}
 		if err != nil {

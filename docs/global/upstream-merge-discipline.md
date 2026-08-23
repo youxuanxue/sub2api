@@ -50,3 +50,40 @@ Per dev-rules §"Hard Constraint Wiring" — every soft rule above MUST have an 
 5. **Out of scope for this pattern:** Ent schema + generated `ent/`, `wire_gen.go`, and migration SQL — follow schema-first rules; generated churn is expected.
 
 **Anti-patterns:** Duplicating the same `errors.As` + JSON response blocks across handlers; duplicating aggregated-admin API logic across large `.vue` files; registering many new routes inline in `admin.go` instead of a `registerTK…` helper.
+
+### Companion migration status (func-body insert reduction)
+
+Advisory: `python3 scripts/checks/upstream-insertion-invasiveness.py` (`func_body_insert` hunks inside upstream-shaped `*.go`, excluding `*_tk_*.go`).
+
+| File | baseline inserts | companion | status |
+| ---- | ----------------: | --------- | ------ |
+| `service/openai_gateway_passthrough.go` | 40 | `openai_gateway_passthrough_tk.go`, `openai_gateway_passthrough_stream_tk.go`, `openai_gateway_codex_stream_tk.go` | done — request prep, Codex upstream headers, SSE restore, shared codex failure stream state |
+| `handler/openai_gateway_handler.go` | 35 | `openai_gateway_handler_tk_messages_dispatch.go`, `openai_gateway_handler_tk_responses_dispatch.go` | done — dispatch helpers moved; Responses forward body consolidated |
+| `service/openai_gateway_response_handling.go` | 30 | `openai_gateway_response_handling_tk.go`, `openai_gateway_codex_stream_tk.go` | done — codex stream state, failure handler, body/SSE restore |
+| `service/openai_account_scheduler.go` | 26 | `openai_account_scheduler_tk_privacy.go`, `openai_account_scheduler_tk_guardian.go` | done — privacy context + guardian parent select |
+| `service/openai_ws_forwarder_ingress.go` | 18 | `openai_ws_forwarder_ingress_tk.go` | done — WS ingress reasoning/compat + Codex image bridge |
+| `service/openai_gateway_messages.go` | 18 | `openai_gateway_messages_tk.go` | done — Anthropic route, Codex OAuth transform, upstream headers, prompt cache |
+| `service/openai_gateway_messages_anthropic_native.go` | 6 | `openai_gateway_messages_anthropic_native_tk.go` | done — CN native Anthropic endpoint passthrough (file renamed) |
+| `handler/openai_gateway_handler.go` (ResponsesWebSocket) | 35 | `openai_gateway_handler_tk_responses_ws.go` | done — WS turn hold, BeforeTurn profit gate, AfterTurn billing |
+| `handler/openai_gateway_handler.go` (Responses/Messages HTTP) | — | `openai_gateway_handler_tk_forward_usage.go` | done — request pricing context + forward usage submit |
+| `handler/openai_chat_completions.go` | 5 | `openai_gateway_handler_tk_forward_usage.go` | done — pricing context + forward usage submit |
+| `handler/gateway_handler_responses.go` | 1 | `gateway_handler_tk_usage.go` | done — Claude gateway forward usage submit |
+| `handler/openai_gateway_handler_tk_dispatch_select.go` | — | dispatch fallback retry helpers | done — scheduler + token-count selection fallback |
+| `handler/openai_gateway_embeddings_images.go` | — | `openai_gateway_handler_tk_forward_usage.go` | done — embeddings/images simple usage submit |
+| `handler/openai_gateway_handler.go` (Anthropic failover) | — | `openai_gateway_handler_tk_failover.go` | done — forbidden/incident message enrichment on failover exhausted |
+
+Re-measure after each batch lands on the merge branch (companion files are excluded from the advisory totals).
+
+**Latest advisory delta** (`upstream/main` merge-base → companion batch WIP, 2026-08-23):
+
+| metric | before | after | Δ |
+| --- | ---: | ---: | ---: |
+| `func_body_insert` (all upstream-shared `.go`) | 1408 | 1383 | −25 |
+| `openai_gateway_handler.go` `func_body_insert` | 26 | 13 | −13 |
+| `openai_gateway_passthrough.go` `func_body_insert` | 12 | 11 | −1 |
+| `openai_gateway_messages.go` `func_body_insert` | 16 | 15 | −1 |
+| `openai_chat_completions.go` `func_body_insert` | 10 | 6 | −4 |
+| `gateway_handler_responses.go` `func_body_insert` | 13 | 10 | −3 |
+| `gateway_handler_chat_completions.go` `func_body_insert` | 10 | 7 | −3 |
+
+Measure locally: stage companion batch → `git commit-tree $(git write-tree) -p HEAD -m wip` → `python3 scripts/checks/upstream-insertion-invasiveness.py --base upstream/main --head <wip-sha>`.
