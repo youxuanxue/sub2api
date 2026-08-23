@@ -1486,7 +1486,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	}
 	if len(accounts) == 0 {
 		if poolPlatform != "" && poolPlatform != PlatformOpenAI {
-			return nil, 0, 0, 0, fmt.Errorf("no available accounts for platform %q", openAICompatErrorPlatformLabel(poolPlatform))
+			return nil, 0, 0, 0, fmt.Errorf("%w for platform %q", ErrNoAvailableAccounts, openAICompatErrorPlatformLabel(poolPlatform))
 		}
 		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, poolPlatform, openAISelectionFilterStats{}.summary(""))
 	}

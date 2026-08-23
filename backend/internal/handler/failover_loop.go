@@ -203,12 +203,13 @@ func (s *FailoverState) HandleFailoverError(
 	if ctx != nil && ctx.Err() != nil {
 		return FailoverCanceled
 	}
-	s.LastFailoverErr = failoverErr
 	if failoverErr == nil || !failoverErr.ShouldRetryNextAccount() {
+		s.LastFailoverErr = failoverErr
 		return FailoverExhausted
 	}
 
 	if failoverErr.StatusCode == http.StatusForbidden && !looksLikeStructuredErrorJSON(failoverErr.ResponseBody) {
+		s.LastFailoverErr = failoverErr
 		if needForceCacheBilling(s.hasBoundSession, failoverErr, false) {
 			s.ForceCacheBilling = true
 		}
@@ -234,20 +235,24 @@ func (s *FailoverState) HandleFailoverError(
 	// 同账号重试：对 RetryableOnSameAccount 的临时性错误，先在同一账号上重试。
 	// 重试次数上限 sameAccountRetryLimit 由调用方传入（账号级 pool_mode_retry_count 配置）。
 	if sameAccountRetry {
-		s.SameAccountRetryCount[accountID]++
-		retryDelay := sameAccountRetryDelayFor(failoverErr, s.SameAccountRetryCount[accountID])
+		nextAttempt := retryCount + 1
+		retryDelay := sameAccountRetryDelayFor(failoverErr, nextAttempt)
 		logger.FromContext(ctx).Warn("gateway.failover_same_account_retry",
 			zap.Int64("account_id", accountID),
 			zap.Int("upstream_status", failoverErr.StatusCode),
-			zap.Int("same_account_retry_count", s.SameAccountRetryCount[accountID]),
+			zap.Int("same_account_retry_count", nextAttempt),
 			zap.Int("same_account_retry_max", sameAccountRetryLimit),
 			zap.Duration("retry_delay", retryDelay),
 		)
 		if !sleepWithContext(ctx, retryDelay) {
 			return FailoverCanceled
 		}
+		s.SameAccountRetryCount[accountID]++
+		s.LastFailoverErr = failoverErr
 		return FailoverContinue
 	}
+
+	s.LastFailoverErr = failoverErr
 
 	// 同账号重试用尽，执行临时封禁
 	if failoverErr.RetryableOnSameAccount {

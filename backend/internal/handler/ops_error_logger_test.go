@@ -1577,13 +1577,13 @@ func TestClassifyOpsUpstreamAuthTextStillCountsForSLA(t *testing.T) {
 	}
 }
 
-func TestClassifyOpsUpstreamNoAvailableTextStillCountsForSLA(t *testing.T) {
+func TestClassifyOpsUpstreamNoAvailableTextCountsAsPlatformRoutingFault(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	service.SetOpsUpstreamError(c, http.StatusServiceUnavailable, "No available accounts", "")
 
-	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(
+	phase, _, errorOwner, _ := classifyOpsErrorLog(
 		c,
 		"api_error",
 		"No available accounts",
@@ -1591,10 +1591,8 @@ func TestClassifyOpsUpstreamNoAvailableTextStillCountsForSLA(t *testing.T) {
 		http.StatusServiceUnavailable,
 	)
 
-	require.Equal(t, "upstream", phase)
-	require.False(t, isBusinessLimited)
-	require.Equal(t, "provider", errorOwner)
-	require.Equal(t, "upstream_http", errorSource)
+	require.Equal(t, "routing", phase, "relayed downstream-capacity verdict is routing, not provider health")
+	require.Equal(t, "platform", errorOwner, "platform routing fault (SLA numerator), not provider upstream_error_rate")
 }
 
 func TestParseOpsErrorResponsePreservesNestedStringCode(t *testing.T) {
