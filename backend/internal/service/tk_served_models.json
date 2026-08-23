@@ -357,7 +357,7 @@
       "price_source": "overlay",
       "price_key": "qwen3.8-2.4t-a95b",
       "display": true,
-      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77,78 are static mapping evidence, not complete live pool membership. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14; account 78 exact-account gateway probes returned 200 on 2026-08-23."
+      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77,78 are static mapping evidence, not complete live pool membership. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14 (thinking/streaming only); account 78 exact-account gateway probes returned 200 on 2026-08-23 (thinking/streaming only). Non-thinking probe shape returns 400 (request-shape constraint, not upstream unavailability)."
     },
     "newapi/qwen3.8-max": {
       "platform": "newapi",
