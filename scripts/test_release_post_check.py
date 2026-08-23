@@ -310,6 +310,10 @@ class DeployStage0PostReleaseJobTest(unittest.TestCase):
         next_job = text.find("\n  qa-infra-check:", deploy_start)
         deploy_block = text[deploy_start:next_job]
         self.assertIn("id: post_release_check", deploy_block)
+        self.assertIn("--plan-file", deploy_block)
+        feishu_pos = deploy_block.index("name: Notify Feishu (release rollout)")
+        plan_pos = deploy_block.index("name: Plan checks from live→new PRs")
+        self.assertLess(plan_pos, feishu_pos)
         self.assertEqual(deploy_block.split("steps:", 1)[0].count("environment: prod"), 1)
 
     def test_skill_forbids_model_invented_hooks(self) -> None:
@@ -375,6 +379,80 @@ class DeployStage0PostReleaseJobTest(unittest.TestCase):
             result = json.loads((out_dir / "evaluate.json").read_text(encoding="utf-8"))
             self.assertEqual(result["verdict"], "green")
             self.assertEqual(result["changes"][0]["pr"], 1781)
+
+    def test_wrapper_reuses_existing_plan_file(self) -> None:
+        wrapper = _ROOT / "ops/observability/run-post-release-check.sh"
+        with tempfile.TemporaryDirectory() as raw:
+            repo = pathlib.Path(raw) / "repo"
+            repo.mkdir()
+            _git(repo, "init", "-q", "-b", "main")
+            _git(repo, "config", "user.email", "test@example.com")
+            _git(repo, "config", "user.name", "Test")
+            (repo / "README.md").write_text("base\n")
+            _git(repo, "add", "-A")
+            _git(repo, "commit", "-q", "-m", "base")
+            _git(repo, "tag", "-a", "v1.8.169", "-m", "Release 1.8.169")
+            target = repo / "backend/internal/service/subscription_service.go"
+            target.parent.mkdir(parents=True)
+            target.write_text("package service\n")
+            _git(repo, "add", "-A")
+            _git(repo, "commit", "-q", "-m", "fix(gateway): fallback (#1781)")
+            _git(repo, "tag", "-a", "v1.8.170", "-m", "Release 1.8.170")
+            out_dir = pathlib.Path(raw) / "out"
+            out_dir.mkdir()
+            plan_proc = subprocess.run(
+                [
+                    "python3",
+                    str(_ROOT / "scripts/release_post_check.py"),
+                    "plan",
+                    "--live",
+                    "1.8.169",
+                    "--new",
+                    "1.8.170",
+                    "--repo",
+                    str(repo),
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            plan_path = out_dir / "plan.json"
+            plan_path.write_text(plan_proc.stdout, encoding="utf-8")
+            tick = {
+                "hooks": {"WEEKLY_LIMIT_EXCEEDED": 0},
+                "panic": 0,
+                "status_5xx": {},
+                "completed_total": 4,
+            }
+            tick_path = pathlib.Path(raw) / "tick.json"
+            tick_path.write_text(json.dumps(tick), encoding="utf-8")
+            proc = subprocess.run(
+                [
+                    "bash",
+                    str(wrapper),
+                    "--live",
+                    "1.8.169",
+                    "--new",
+                    "1.8.170",
+                    "--repo",
+                    str(repo),
+                    "--skip-probe",
+                    "--tick-file",
+                    str(tick_path),
+                    "--plan-file",
+                    str(plan_path),
+                    "--out-dir",
+                    str(out_dir),
+                ],
+                cwd=_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("reusing existing plan", proc.stderr)
+            plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
+            self.assertEqual(plan_data["range"]["live"], "v1.8.169")
 
 
 if __name__ == "__main__":

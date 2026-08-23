@@ -166,21 +166,26 @@ Steps:
    `claude-sonnet-4-6`), `TK_SMOKE_GEMINI_MODELS` (default empty; native
    Gemini Google One pool retired 2026-07-04), `TK_SMOKE_OPENAI_OAUTH_MODELS`
    (default `gpt-5.4`).
-11. **Job summary** — write app and QA Worker images, Worker source, rollout
+11. **Post-release live check** — after smoke and the SSOT display gate in the
+   same `deploy` job, wait 5 minutes and score every product PR between the
+   previously serving tag and this tag against prod logs
+   (`scripts/release_post_check.py` +
+   `ops/observability/run-post-release-check.sh`). The workflow plans once and
+   passes `--plan-file` into the wrapper so check does not re-plan. It reuses
+   the already approved prod Environment/OIDC so the clock starts after
+   cutover, not after a second reviewer gate. Failure does not roll back the
+   already switched color; it fails the workflow so the regression is visible.
+   Empty product-commit ranges skip the wait.
+12. **Feishu release rollout notification** — best-effort rollout card after
+   smoke and post-release check (green or skip). Uses the pre-mutation runtime
+   tag baseline for release notes.
+13. **Job summary** — write app and QA Worker images, Worker source, rollout
    mode, host runtime mode, the SSM command id, and a one-line app rollback
    dispatch. Legacy rollback is explicitly degraded: it requires a fully
    verified live Worker, converges the current maintenance runner, disables
    boundary before app mutation, skips canary, and pauses DROP until a
    Phase 3 app is restored. No auto-rollback (would mask transient failures).
-12. **Post-release live check** — after smoke in the same `deploy` job, wait
-   5 minutes and score every product PR between the previously serving tag
-   and this tag against prod logs (`scripts/release_post_check.py` +
-   `ops/observability/run-post-release-check.sh`). It reuses the already
-   approved prod Environment/OIDC so the clock starts after cutover, not
-   after a second reviewer gate. Failure does not roll back the already
-   switched color; it fails the workflow so the regression is visible.
-   Empty product-commit ranges skip the wait.
-13. **Read-only QA infrastructure acceptance** — `operation=qa-infra-check`
+14. **Read-only QA infrastructure acceptance** — `operation=qa-infra-check`
    validates both IAM stack outputs, exact `QA_INFRA_OIDC_ROLE_ARN` binding,
    real deployment-role assumption, recognized raw-archive stack identity,
    and Bundle-era CloudFormation service-role binding. It contains no change

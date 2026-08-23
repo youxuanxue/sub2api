@@ -539,9 +539,85 @@ jobs:
           set -euo pipefail
           bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout
 
+      # Same deploy job: reuse the already-approved prod Environment + OIDC.
+      # A second job with environment: prod would re-open Required reviewers
+      # and start the +5min clock after that gate, not after cutover.
+      - name: Plan checks from live→new PRs
+        id: post_release_plan
+        env:
+          LIVE_TAG: ${{ steps.previous_runtime.outputs.tag }}
+        run: |
+          set -euo pipefail
+          test -n "${LIVE_TAG:-}" || { echo "::error::previous prod runtime tag is empty"; exit 1; }
+          git fetch --tags --force origin
+          git fetch --unshallow origin || true
+          OUT_DIR="${RUNNER_TEMP}/post-release-check"
+          mkdir -p "$OUT_DIR"
+          python3 scripts/release_post_check.py plan --live "$LIVE_TAG" --new "$INPUT_TAG" > "$OUT_DIR/plan.json"
+          COUNT="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("changes") or []))' "$OUT_DIR/plan.json")"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "out_dir=$OUT_DIR" >> "$GITHUB_OUTPUT"
+          echo "planned $COUNT product change(s) in ${LIVE_TAG}..${INPUT_TAG}"
+          if [ "$COUNT" = "0" ]; then
+            python3 -c 'import json,sys; json.dump({"verdict":"skip","reason":"no product commits","range":{"live":sys.argv[1],"new":sys.argv[2]},"changes":[],"checks":[]}, open(sys.argv[3],"w"), indent=2)' \
+              "$LIVE_TAG" "$INPUT_TAG" "$OUT_DIR/evaluate.json"
+          fi
+
+      - name: Wait 5 minutes for live traffic
+        if: steps.post_release_plan.outputs.count != '0'
+        run: sleep 300
+
+      - name: Check live→new PRs against prod
+        if: steps.post_release_plan.outputs.count != '0'
+        id: post_release_check
+        env:
+          LIVE_TAG: ${{ steps.previous_runtime.outputs.tag }}
+          OUT_DIR: ${{ steps.post_release_plan.outputs.out_dir }}
+        run: |
+          set -euo pipefail
+          bash ops/observability/run-post-release-check.sh \
+            --live "$LIVE_TAG" \
+            --new "$INPUT_TAG" \
+            --target prod \
+            --plan-file "$OUT_DIR/plan.json" \
+            --out-dir "$OUT_DIR"
+
+      - name: Post-release check summary
+        if: always() && steps.post_release_plan.outcome != 'skipped'
+        env:
+          LIVE_TAG: ${{ steps.previous_runtime.outputs.tag }}
+          OUT_DIR: ${{ steps.post_release_plan.outputs.out_dir }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## post-release-check"
+            echo "- live (was serving): \`${LIVE_TAG}\`"
+            echo "- new: \`${INPUT_TAG}\`"
+            if [ -n "${OUT_DIR:-}" ] && [ -f "${OUT_DIR}/evaluate.json" ]; then
+              python3 - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ["OUT_DIR"]) / "evaluate.json"
+          data = json.loads(p.read_text())
+          print(f"- verdict: \`{data.get('verdict')}\`")
+          print("")
+          print("### Changes")
+          for change in data.get("changes") or []:
+              pr = f"#{change['pr']}" if change.get("pr") else change.get("sha", "")[:12]
+              print(f"- {pr} {change.get('subject', '')}")
+          print("")
+          print("### Checks")
+          for item in data.get("checks") or []:
+              print(f"- \`{item.get('verdict')}\` {item.get('id')} observed={item.get('observed')}")
+          PY
+            else
+              echo "- evaluate.json missing (job failed before scoring)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Notify Feishu (release rollout)
-        # Best-effort 发版公告。默认 step gating 保证它只在 prod 换镜像 +
-        # External health + smoke 全绿后才跑 —— 卡片 == "该版本已上线且烟测通过"。
+        # Best-effort 发版公告。只在 prod 换镜像 + external health + smoke +
+        # +5min post-release（green 或 skip）之后才跑 —— 卡片 == 该版本已上线且
+        # 烟测与 live→new PR 实测均通过（或无可测产品提交）。
         # 标 continue-on-error 让 webhook 抽风不把成功的 prod deploy 标红(对齐
         # release.yml 的 Telegram 步)。脚本本身也始终 exit 0(双保险),失败时
         # 打 ::warning::,绝不打印 webhook/secret。
@@ -599,80 +675,6 @@ jobs:
             echo '```bash'
             echo "gh workflow run deploy-stage0.yml -f tag=<previous>"
             echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      # Same deploy job: reuse the already-approved prod Environment + OIDC.
-      # A second job with environment: prod would re-open Required reviewers
-      # and start the +5min clock after that gate, not after cutover.
-      - name: Plan checks from live→new PRs
-        id: post_release_plan
-        env:
-          LIVE_TAG: ${{ steps.previous_runtime.outputs.tag }}
-        run: |
-          set -euo pipefail
-          test -n "${LIVE_TAG:-}" || { echo "::error::previous prod runtime tag is empty"; exit 1; }
-          git fetch --tags --force origin
-          git fetch --unshallow origin || true
-          OUT_DIR="${RUNNER_TEMP}/post-release-check"
-          mkdir -p "$OUT_DIR"
-          python3 scripts/release_post_check.py plan --live "$LIVE_TAG" --new "$INPUT_TAG" > "$OUT_DIR/plan.json"
-          COUNT="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("changes") or []))' "$OUT_DIR/plan.json")"
-          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
-          echo "out_dir=$OUT_DIR" >> "$GITHUB_OUTPUT"
-          echo "planned $COUNT product change(s) in ${LIVE_TAG}..${INPUT_TAG}"
-          if [ "$COUNT" = "0" ]; then
-            python3 -c 'import json,sys; json.dump({"verdict":"skip","reason":"no product commits","range":{"live":sys.argv[1],"new":sys.argv[2]},"changes":[],"checks":[]}, open(sys.argv[3],"w"), indent=2)' \
-              "$LIVE_TAG" "$INPUT_TAG" "$OUT_DIR/evaluate.json"
-          fi
-
-      - name: Wait 5 minutes for live traffic
-        if: steps.post_release_plan.outputs.count != '0'
-        run: sleep 300
-
-      - name: Check live→new PRs against prod
-        if: steps.post_release_plan.outputs.count != '0'
-        id: post_release_check
-        env:
-          LIVE_TAG: ${{ steps.previous_runtime.outputs.tag }}
-          OUT_DIR: ${{ steps.post_release_plan.outputs.out_dir }}
-        run: |
-          set -euo pipefail
-          bash ops/observability/run-post-release-check.sh \
-            --live "$LIVE_TAG" \
-            --new "$INPUT_TAG" \
-            --target prod \
-            --out-dir "$OUT_DIR"
-
-      - name: Post-release check summary
-        if: always() && steps.post_release_plan.outcome != 'skipped'
-        env:
-          LIVE_TAG: ${{ steps.previous_runtime.outputs.tag }}
-          OUT_DIR: ${{ steps.post_release_plan.outputs.out_dir }}
-        run: |
-          set -euo pipefail
-          {
-            echo "## post-release-check"
-            echo "- live (was serving): \`${LIVE_TAG}\`"
-            echo "- new: \`${INPUT_TAG}\`"
-            if [ -n "${OUT_DIR:-}" ] && [ -f "${OUT_DIR}/evaluate.json" ]; then
-              python3 - <<'PY'
-          import json, os, pathlib
-          p = pathlib.Path(os.environ["OUT_DIR"]) / "evaluate.json"
-          data = json.loads(p.read_text())
-          print(f"- verdict: \`{data.get('verdict')}\`")
-          print("")
-          print("### Changes")
-          for change in data.get("changes") or []:
-              pr = f"#{change['pr']}" if change.get("pr") else change.get("sha", "")[:12]
-              print(f"- {pr} {change.get('subject', '')}")
-          print("")
-          print("### Checks")
-          for item in data.get("checks") or []:
-              print(f"- \`{item.get('verdict')}\` {item.get('id')} observed={item.get('observed')}")
-          PY
-            else
-              echo "- evaluate.json missing (job failed before scoring)"
-            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   qa-infra-check:

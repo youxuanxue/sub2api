@@ -14,6 +14,7 @@
 #       [--skip-probe] \
 #       [--tick-file PATH] \
 #       [--control-plane-ok true|false] \
+#       [--plan-file PATH] \
 #       [--out-dir DIR]
 #
 # Exit:
@@ -33,6 +34,7 @@ REPO="."
 SKIP_PROBE=0
 TICK_FILE=""
 CONTROL_PLANE_OK=""
+PLAN_FILE_ARG=""
 OUT_DIR=""
 
 while [ "$#" -gt 0 ]; do
@@ -44,6 +46,7 @@ while [ "$#" -gt 0 ]; do
     --skip-probe) SKIP_PROBE=1; shift ;;
     --tick-file) TICK_FILE="${2:-}"; shift 2 ;;
     --control-plane-ok) CONTROL_PLANE_OK="${2:-}"; shift 2 ;;
+    --plan-file) PLAN_FILE_ARG="${2:-}"; shift 2 ;;
     --out-dir) OUT_DIR="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "[run-post-release-check] unknown arg: $1" >&2; usage >&2; exit 1 ;;
@@ -67,11 +70,23 @@ if [ -z "$OUT_DIR" ]; then
   OUT_DIR="$(mktemp -d /tmp/tk-post-release-check.XXXXXX)"
 fi
 mkdir -p "$OUT_DIR"
-PLAN_FILE="$OUT_DIR/plan.json"
+if [ -n "$PLAN_FILE_ARG" ]; then
+  PLAN_FILE="$PLAN_FILE_ARG"
+  if [ ! -f "$PLAN_FILE" ]; then
+    echo "[run-post-release-check] --plan-file not found: $PLAN_FILE" >&2
+    exit 1
+  fi
+else
+  PLAN_FILE="$OUT_DIR/plan.json"
+fi
 TICK_OUT="$OUT_DIR/tick.txt"
 EVAL_FILE="$OUT_DIR/evaluate.json"
 
-python3 "$PLANNER" plan --live "$LIVE" --new "$NEW" --repo "$REPO" > "$PLAN_FILE"
+if [ -f "$PLAN_FILE" ]; then
+  echo "[run-post-release-check] reusing existing plan $PLAN_FILE" >&2
+else
+  python3 "$PLANNER" plan --live "$LIVE" --new "$NEW" --repo "$REPO" > "$PLAN_FILE"
+fi
 CHANGE_COUNT="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("changes") or []))' "$PLAN_FILE")"
 if [ "$CHANGE_COUNT" = "0" ]; then
   echo "[run-post-release-check] skip: no product commits in $LIVE..$NEW" >&2

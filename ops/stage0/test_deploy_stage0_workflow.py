@@ -93,7 +93,10 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         smoke = deploy.index("name: Post-deploy gateway smoke (API + Claude paths)")
 
         self.assertLess(baseline, image_mutation)
-        self.assertLess(smoke, notification)
+        post_release = deploy.index("name: Plan checks from live→new PRs")
+        post_release_check = deploy.index("name: Check live→new PRs against prod")
+        self.assertLess(smoke, post_release)
+        self.assertLess(post_release_check, notification)
         block = deploy[baseline:image_mutation]
         self.assertIn("resolve-prod-running-tag-via-ssm.sh", block)
         self.assertIn('INSTANCE_ID: ${{ steps.instance.outputs.id }}', block)
