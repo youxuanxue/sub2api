@@ -1,7 +1,8 @@
 name: Upstream Merge Needed
 
 # Detection-only. When origin/main is behind Wei-Shaw/sub2api upstream/main,
-# open or refresh one `upstream-merge-needed` issue for a human to handle.
+# open or refresh one `[upstream-merge]` tracking issue for a human to handle.
+# Labels are attached best-effort and must not block issue creation.
 # This workflow never merges, never opens a PR, and never runs an agent.
 
 on:
