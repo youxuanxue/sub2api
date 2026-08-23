@@ -3463,9 +3463,7 @@
       "must_contain": [
         "func (s *OpenAIGatewayService) collectOpenAICompatSelectionFailureStatsForRequest(",
         "openai_account_selection_failed",
-        "runtime_blocked",
-        "tkOpenAICompatSelectionFailureLogDedup",
-        "tkSelectionFailureLogDedup"
+        "runtime_blocked"
       ],
       "rationale": "Prod 2026-07-28 GPT-pro3/4 incident observability: when OpenAI-compat selection empties the pool, log openai_account_selection_failed with per-account rejection axes including runtime_blocked (in-memory block vs DB schedulable drift). collectOpenAICompatSelectionFailureStatsForRequest mirrors scheduler eligibility ordering so ops can distinguish client-fault unsupported model from whole-account runtime block without restart."
     },
@@ -3475,6 +3473,22 @@
         "TestCollectOpenAICompatSelectionFailureStatsForRequest_RuntimeBlocked"
       ],
       "rationale": "Regression: runtime-blocked OAuth accounts must count as runtime_blocked (not unschedulable) in selection failure stats so openai_account_selection_failed surfaces the prod GPT-pro3/4 drift signature."
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler_tk_selection_diag_log_dedup.go",
+      "must_contain": [
+        "type tkOpenAICompatSelectionFailureLogDedup",
+        "func (d *tkOpenAICompatSelectionFailureLogDedup) shouldLog(",
+        "selectionFailureStatsFingerprint"
+      ],
+      "rationale": "us6 2026-08-03 ops_system_logs storm: rate-limit openai_account_selection_failed diagnostics per group×platform×model×failure signature (60s TTL) without dropping the first observability row."
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler_tk_selection_diag_log_dedup_test.go",
+      "must_contain": [
+        "TestTkOpenAICompatSelectionFailureLogDedup_SuppressesRepeatsWithinTTL"
+      ],
+      "rationale": "Regression: repeated identical selection-failure signatures within TTL must not emit duplicate openai_account_selection_failed rows."
     },
     {
       "path": "backend/internal/service/openai_account_runtime_block_fastpath_test.go",
