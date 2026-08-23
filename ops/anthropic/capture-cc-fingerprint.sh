@@ -23,10 +23,12 @@ usage() {
 Usage:
   capture-cc-fingerprint.sh capture [--http] [--out-dir DIR]
   capture-cc-fingerprint.sh check env [--relax-desktop] [--skip-egress] [--json]
-  capture-cc-fingerprint.sh check --bundle PATH
+  capture-cc-fingerprint.sh check env --static   # claude CLI present (version owner)
+  capture-cc-fingerprint.sh check [--bundle PATH]  # bundle diff, or version-only when no --bundle
   capture-cc-fingerprint.sh check-tls --bundle PATH [--json]
   capture-cc-fingerprint.sh diff --bundle PATH [--check]
   capture-cc-fingerprint.sh show-baseline
+  capture-cc-fingerprint.sh emit-edits [--version X.Y.Z]
   capture-cc-fingerprint.sh daily-hook   # sessionStart: TLS capture + drift PR (internal)
   capture-cc-fingerprint.sh geo-stego [--out-dir DIR] [--fix]  # alias: prompt-surfaces align
   capture-cc-fingerprint.sh prompt-surfaces [--out-dir DIR] [--fix]
@@ -317,11 +319,21 @@ main() {
     check)
       if [[ "${1:-}" == "env" ]]; then
         shift
+        if [[ "${1:-}" == "--static" ]]; then
+          shift
+          require_cmd python3
+          exec python3 "$PY" check-env-static "$@"
+        fi
         cmd_check_env "$@"
         exit $?
       fi
+      if [[ "${1:-}" == "--bundle" ]]; then
+        shift
+        require_cmd python3
+        exec python3 "$PY" check --bundle "$@"
+      fi
       require_cmd python3
-      exec python3 "$PY" check "$@"
+      exec python3 "$PY" check-static "$@"
       ;;
     check-tls)
       require_cmd python3
@@ -334,6 +346,10 @@ main() {
     show-baseline)
       require_cmd python3
       exec python3 "$PY" show-baseline "$@"
+      ;;
+    emit-edits)
+      require_cmd python3
+      exec python3 "$PY" emit-edits "$@"
       ;;
     daily-hook)
       exec bash "$SCRIPT_DIR/cc_fingerprint_daily_hook.sh"

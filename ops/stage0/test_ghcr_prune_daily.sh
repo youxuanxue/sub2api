@@ -13,12 +13,27 @@ fail=0
 
 # Exported functions shadow host commands in the child bash, so this test never
 # reaches the developer machine's Docker daemon. Both missing tag-prune logic
-# and a failed dangling-image prune must propagate to systemd as nonzero.
-docker() { return 1; }
-logger() { :; }
-export -f docker logger
-if bash "${DAILY}"; then
-  echo "FAIL: daily prune returned success after cleanup dependencies failed" >&2
+# and a failed unused-image prune must propagate to systemd as nonzero.
+if ! bash -c '
+  docker_prune_calls=0
+  docker() {
+    if [ "$1" = "image" ] && [ "$2" = "prune" ]; then
+      docker_prune_calls=$((docker_prune_calls + 1))
+      return 1
+    fi
+    return 1
+  }
+  logger() { :; }
+  export -f docker logger
+  source "$1"
+  set +e
+  run_ghcr_prune_daily /nonexistent/prune-script
+  rc=$?
+  set -e
+  [ "$docker_prune_calls" -eq 1 ] || exit 9
+  [ "$rc" -eq 1 ] || exit 10
+' _ "${DAILY}"; then
+  echo "FAIL: daily prune did not attempt docker image prune -af on failure path" >&2
   fail=1
 fi
 
@@ -49,13 +64,29 @@ exit 0
 EOF
 chmod +x "${tmp}/prune-ok"
 if ! bash -c '
-  docker() { return 0; }
+  docker_prune_af=0
+  docker() {
+    if [ "$1" = "image" ] && [ "$2" = "prune" ] && [ "$3" = "-af" ]; then
+      docker_prune_af=1
+      return 0
+    fi
+    return 0
+  }
   logger() { :; }
   export -f docker logger
   source "$1"
+  set +e
   run_ghcr_prune_daily "$2"
+  rc=$?
+  set -e
+  [ "$docker_prune_af" -eq 1 ] || exit 9
+  [ "$rc" -eq 0 ] || exit 10
 ' _ "${DAILY}" "${tmp}/prune-ok"; then
-  echo "FAIL: daily prune success path did not execute the selected prune implementation" >&2
+  echo "FAIL: daily prune success path did not run docker image prune -af" >&2
+  fail=1
+fi
+if ! grep -q 'docker image prune -af' "${DAILY}"; then
+  echo "FAIL: daily script must prune all unused images with docker image prune -af" >&2
   fail=1
 fi
 

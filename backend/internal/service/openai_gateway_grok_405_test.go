@@ -17,7 +17,7 @@ func TestShouldFailoverUpstreamError_405IsFailoverEligible(t *testing.T) {
 func TestShouldFailoverUpstreamError_ExistingCodesStillWork(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 
-	failoverCodes := []int{401, 402, 403, 405, 429, 529, 500, 502, 503, 504}
+	failoverCodes := []int{401, 402, 403, 405, 424, 429, 529, 500, 502, 503, 504}
 	for _, code := range failoverCodes {
 		assert.True(t, svc.shouldFailoverUpstreamError(code), "status %d should trigger failover", code)
 	}

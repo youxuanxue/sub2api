@@ -1851,9 +1851,9 @@ func (rt *captureRT) RoundTrip(req *http.Request) (*http.Response, error) {
 	}, nil
 }
 
-// 锁定 2026-06-13 on-wire 对齐：setUserSettings/fetchUserInfo 不发 X-Goog-Api-Client(gl-node)，
-// 且 UA 用 `antigravity/hub/...` 形态——防 gl-node 被回填、防 UA 格式退回无 /hub/ 段。
-func TestPrivacyCalls_无GlNode且UA带hub(t *testing.T) {
+// 锁定 agy CLI on-wire 对齐：setUserSettings/fetchUserInfo 不发 X-Goog-Api-Client(gl-node)，
+// 且 UA 用 `antigravity/cli/...` 形态。
+func TestPrivacyCalls_无GlNode且UA带cli(t *testing.T) {
 	rt := &captureRT{}
 	c := &Client{httpClient: &http.Client{Transport: rt}}
 	ctx := context.Background()
@@ -1864,8 +1864,8 @@ func TestPrivacyCalls_无GlNode且UA带hub(t *testing.T) {
 	if v := rt.got.Header.Get("X-Goog-Api-Client"); v != "" {
 		t.Errorf("setUserSettings 不应发 X-Goog-Api-Client(gl-node)，got %q", v)
 	}
-	if ua := rt.got.Header.Get("User-Agent"); ua != GetUserAgent() || !strings.Contains(ua, "antigravity/hub/") {
-		t.Errorf("setUserSettings UA 应为 %q(含 /hub/)，got %q", GetUserAgent(), ua)
+	if ua := rt.got.Header.Get("User-Agent"); ua != GetUserAgent() || !strings.Contains(ua, "antigravity/cli/") {
+		t.Errorf("setUserSettings UA 应为 %q(含 /cli/)，got %q", GetUserAgent(), ua)
 	}
 
 	if _, err := c.FetchUserInfo(ctx, "tok", "proj"); err != nil {
@@ -1874,7 +1874,7 @@ func TestPrivacyCalls_无GlNode且UA带hub(t *testing.T) {
 	if v := rt.got.Header.Get("X-Goog-Api-Client"); v != "" {
 		t.Errorf("fetchUserInfo 不应发 X-Goog-Api-Client(gl-node)，got %q", v)
 	}
-	if ua := rt.got.Header.Get("User-Agent"); !strings.Contains(ua, "antigravity/hub/") {
-		t.Errorf("fetchUserInfo UA 应含 /hub/，got %q", ua)
+	if ua := rt.got.Header.Get("User-Agent"); !strings.Contains(ua, "antigravity/cli/") {
+		t.Errorf("fetchUserInfo UA 应含 /cli/，got %q", ua)
 	}
 }

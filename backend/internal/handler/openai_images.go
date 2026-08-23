@@ -192,8 +192,10 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				return
 			}
 			reqLog.Warn("openai.images.account_select_failed",
-				zap.Error(err),
-				zap.Int("excluded_account_count", len(failedAccountIDs)),
+				tkSelectionFailureLogFields(err,
+					zap.Error(err),
+					zap.Int("excluded_account_count", len(failedAccountIDs)),
+				)...,
 			)
 			if len(failedAccountIDs) == 0 {
 				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)

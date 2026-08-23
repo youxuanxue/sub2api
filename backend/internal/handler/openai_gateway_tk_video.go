@@ -163,7 +163,9 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		service.OpenAIUpstreamTransportAny,
 	)
 	if err != nil || selection == nil || selection.Account == nil {
-		reqLog.Warn("openai_video_submit.account_select_failed", zap.Error(err))
+		reqLog.Warn("openai_video_submit.account_select_failed",
+			tkSelectionFailureLogFields(err, zap.Error(err))...,
+		)
 		if err == nil {
 			// Scheduler returned no usable selection without an error → empty pool.
 			markOpsRoutingCapacityLimited(c)

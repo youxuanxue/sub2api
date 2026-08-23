@@ -195,7 +195,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 					errors.Is(err, service.ErrMonthlyLimitExceeded) {
 					status = 429
 				}
-				abortWithGoogleError(c, status, err.Error())
+				abortWithGoogleError(c, status, clientFacingAppErrorMessage(err))
 				return
 			}
 

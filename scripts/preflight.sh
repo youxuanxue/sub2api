@@ -559,12 +559,9 @@ fi
 # ---- sub2api: antigravity fingerprint sentinel registry ---------------------
 # Source of truth: scripts/sentinels/antigravity.json. Guards the TokenKey
 # divergences in the Antigravity (cloudcode-pa) client fingerprint that an
-# upstream merge would silently revert: the `/hub/` subclient segment in
-# BuildUserAgent (oauth.go) and the gl-node X-Goog-Api-Client removal on the
-# privacy calls (client.go). oauth.go/client.go are upstream-shaped, so a
-# `git merge upstream/main` can clobber these with a trivial, test-passing diff
-# — exactly the backward-drift this guard catches. Aligned to the real on-wire
-# IDE 2.0.11 capture (2026-06-13); see docs/antigravity-fingerprint-changelog.md.
+# upstream merge would silently revert: the `/cli/` segment in BuildUserAgent
+# (oauth.go) and the gl-node X-Goog-Api-Client removal on privacy calls
+# (client.go). Aligned to Antigravity CLI (`agy`); see docs/antigravity-fingerprint-changelog.md.
 echo ""
 echo "=== sub2api: antigravity fingerprint sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
@@ -1610,6 +1607,10 @@ elif ! python3 ./ops/observability/test_pgdump_restore_canary_alert.py >/dev/nul
 elif ! python3 ./ops/observability/test_ops_daily_diagnostics_workflow.py >/dev/null 2>&1; then
     echo "  FAIL: Fleet pg_dump restore canary daily diagnostics contracts"
     echo "        - run: python3 ops/observability/test_ops_daily_diagnostics_workflow.py"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/test_release_post_check.py >/dev/null 2>&1; then
+    echo "  FAIL: post-release live→new PR check contracts"
+    echo "        - run: python3 scripts/test_release_post_check.py"
     errors=$((errors + 1))
 else
     echo "  ok: fail-closed probes + Fleet restore and partition operators"
@@ -2687,7 +2688,7 @@ else
 fi
 
 # Headless agent stream redactor: scripts/agent/redact-stream.py sits between
-# `claude -p` and `tee` in upstream-merge-agent-daily.yml / pr-repair-agent.yml
+# `claude -p` and `tee` in pr-repair-agent.yml / upstream-issue-watchdog.yml
 # /agent-draft-pr/action.yml, scrubbing secrets out of the agent's stdout
 # before the bytes hit the artifact file. GitHub Actions live-log masking
 # does NOT apply to bytes a step writes to disk via tee, so the artifact
@@ -2722,7 +2723,7 @@ echo "=== sub2api: headless-agent composite sharing ==="
 # diagnostics stays deterministic; AI budget belongs to eligible repair work.
 _hac_action=".github/actions/run-headless-agent/action.yml"
 _hac_runner="scripts/agent/run-headless-claude.sh"
-_hac_files=".github/workflows/pr-repair-agent.yml .github/workflows/upstream-issue-watchdog.yml .github/workflows/upstream-merge-agent-daily.yml .github/workflows/ops-repair-draft.yml"
+_hac_files=".github/workflows/pr-repair-agent.yml .github/workflows/upstream-issue-watchdog.yml .github/workflows/ops-repair-draft.yml"
 _hac_daily=".github/workflows/ops-daily-diagnostics.yml"
 _hac_ok=1
 if [ ! -f "$_hac_action" ]; then
@@ -2843,6 +2844,22 @@ else
         fi
     done
     unset _fl_base _fl_ledger _fl_rc
+fi
+
+echo ""
+echo "=== sub2api: upstream merge notify (detect-only) ==="
+# The periodic upstream job may only open/refresh an issue. Reintroducing a
+# headless merge agent or `git merge --no-ff` into the notify workflow fails
+# this self-test (same needles as scripts/upstream/notify-merge-needed.py).
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by notify-merge-needed.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/upstream/notify-merge-needed.py --selftest >/dev/null; then
+    echo "  FAIL: notify-merge-needed.py self-test failed"
+    echo "        — run: python3 scripts/upstream/notify-merge-needed.py --selftest"
+    errors=$((errors + 1))
+else
+    echo "  ok: upstream merge notify is detect-only (no agent / no merge)"
 fi
 
 echo ""

@@ -320,13 +320,14 @@
       "served_on": [
         "60",
         "72",
-        "77"
+        "77",
+        "78"
       ],
       "channel_type": 17,
       "price_source": "overlay",
       "price_key": "qwen3.7-flash",
       "display": true,
-      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77 are static mapping evidence, not complete live pool membership. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14. Tiered (overlay intervals)."
+      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77,78 are static mapping evidence, not complete live pool membership. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14; account 78 exact-account gateway probes returned 200 on 2026-08-23. Tiered (overlay intervals)."
     },
     "newapi/qwen3.7-flash-2026-07-15": {
       "platform": "newapi",
@@ -334,13 +335,14 @@
       "served_on": [
         "60",
         "72",
-        "77"
+        "77",
+        "78"
       ],
       "channel_type": 17,
       "price_source": "overlay",
       "price_key": "qwen3.7-flash-2026-07-15",
       "display": true,
-      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77 are static mapping evidence, not complete live pool membership. Dated snapshot of qwen3.7-flash. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14. Tiered (overlay intervals)."
+      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77,78 are static mapping evidence, not complete live pool membership. Dated snapshot of qwen3.7-flash. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14; account 78 exact-account gateway probes returned 200 on 2026-08-23. Tiered (overlay intervals)."
     },
     "newapi/qwen3.8-2.4t-a95b": {
       "platform": "newapi",
@@ -348,13 +350,14 @@
       "served_on": [
         "60",
         "72",
-        "77"
+        "77",
+        "78"
       ],
       "channel_type": 17,
       "price_source": "overlay",
       "price_key": "qwen3.8-2.4t-a95b",
       "display": true,
-      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77 are static mapping evidence, not complete live pool membership. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14."
+      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77,78 are static mapping evidence, not complete live pool membership. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14 (thinking/streaming only); account 78 exact-account gateway probes returned 200 on 2026-08-23 (thinking/streaming only). Non-thinking probe shape returns 400 (request-shape constraint, not upstream unavailability)."
     },
     "newapi/qwen3.8-max": {
       "platform": "newapi",
@@ -362,13 +365,14 @@
       "served_on": [
         "60",
         "72",
-        "77"
+        "77",
+        "78"
       ],
       "channel_type": 17,
       "price_source": "overlay",
       "price_key": "qwen3.8-max",
       "display": true,
-      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77 are static mapping evidence, not complete live pool membership. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14."
+      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77,78 are static mapping evidence, not complete live pool membership. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14; account 78 exact-account gateway probes returned 200 on 2026-08-23."
     },
     "newapi/qwen3.6-flash": {
       "platform": "newapi",
@@ -886,13 +890,14 @@
       "served_on": [
         "60",
         "72",
-        "77"
+        "77",
+        "78"
       ],
       "channel_type": 17,
       "price_source": "overlay",
       "price_key": "glm-5.2-fast-preview",
       "display": true,
-      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on accounts 60,72,77 are static mapping-evidence anchors, while live account membership comes from runtime DB/admin config. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14. Overlay uses Alibaba DashScope official China-mainland pricing (https://help.aliyun.com/zh/model-studio/model-pricing, captured 2026-08-14; CNY/USD=6.7)."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on accounts 60,72,77,78 are static mapping-evidence anchors, while live account membership comes from runtime DB/admin config. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14; account 78 exact-account gateway probes returned 200 on 2026-08-23. Overlay uses Alibaba DashScope official China-mainland pricing (https://help.aliyun.com/zh/model-studio/model-pricing, captured 2026-08-14; CNY/USD=6.7)."
     },
     "newapi/glm-5.1": {
       "platform": "newapi",

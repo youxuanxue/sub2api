@@ -31,15 +31,14 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | prod 完整 smoke（CI 唯一验收源） | 机械 | `deploy-stage0.yml` job log 内 `tk_post_deploy_smoke: OK`（`GATEWAY_SMOKE_SUITE=full`） |
 | Edge smoke 分阶段（infra / edge-native-oauth / main-via-edge / full） | 机械 | `ops/stage0/edge_post_deploy_smoke.sh` + workflow `smoke_phase`；**upgrade/rollback 默认 infra**；canary 显式 **full**（infra + 容器内 per-account OAuth 拟真 `probe_account_model`）；`main-via-edge` 为可选 prod 中转链路 |
 | 发版前 smoke 模型校验 | 机械 | `python3 scripts/stage0/check_smoke_config.py`（`TK_SMOKE_ANTHROPIC_MODELS` / `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS` 均 ∈ `TK_SMOKE_API_KEY` 的 `/v1/models`）。**完整校验需要 smoke key，只在 CI 可跑**；本地降级为 `bash ops/stage0/load_smoke_github_env.sh --check prod`（只验 secret/vars 已配置） |
-| 发版后跟进档位（skip / single） | 机械 | `bash scripts/release-impact-files.sh PREV NEW` → `.followup.tier` |
+| 发版后跟进档位（skip / single） | 机械 | `bash scripts/release-impact-files.sh PREV NEW` → `.followup.tier`（是否值得人工再跟；**实测检查不走这里**） |
 | 发版后控制面探活（prod + deployable edge） | 机械 | `bash ops/observability/probe-release-control-plane.sh`（prod `/health` + `/api/v1/settings/public`，deployable Edge `/health`，JSON lines + summary） |
-| 发版后 tick 探针（hook 计数 + 流量/5xx/panic） | 机械 | `ops/observability/probe-post-release-tick.sh`（经 `run-probe.sh` 投递；默认 `CONTAINER=auto` 自动识别 prod blue/green active container；`HOOK_PATTERNS` 里的 hook 关键词由模型按 Step A 命名——命名是判断，计数是机械） |
+| **发版后 +5min 实测（live tag→本次 tag 的全部 PR）** | 机械 | `deploy-stage0.yml` 的 `deploy` job 在 smoke/SSOT gate 后、飞书发版公告前跑 `ops/observability/run-post-release-check.sh`（workflow 先 `plan` 再 `--plan-file` 传入 wrapper，禁止重复 plan 与模型自造 `HOOK_PATTERNS`；复用已批的 prod Environment） |
 | **发版后 Anthropic OAuth 配置检查（snapshot → check）** | 机械 | `python3 ops/anthropic/manage-anthropic-config.py snapshot` + `check --snapshot`（见 §「发版后 Anthropic OAuth 配置检查」；canonical：`/tokenkey-anthropic-oauth-config`） |
 | **发版后 Account model_mapping 配置 diff** | 机械 | `python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json`（默认 prod only；期望 mapping 与 forbidden policy metadata 均来自 Go SSOT；edge 保持空 mapping 不纳入检查，见 §「发版后 Account model_mapping 配置检查」） |
 | rollout 摘要（git log / diff stat / sentinel / deletion） | 机械 | `bash scripts/release-rollout-summary.sh --mode release` |
 | prod approval 时机、smoke 模型回退 | 判断 | prompt（爆炸半径、用户入口顺序） |
-| verdict 评级（green/yellow/red） | 判断 | prompt（错误聚类 vs 基线、流量趋势） |
-| Step A → 「重点观察 trace 关键词」语义命名 | 判断 | prompt（文件→hook 名映射；脚本只给文件桶） |
+| +5min 实测 verdict | 机械 | `release_post_check.py evaluate`（agent 只转述，禁止另编 hook / 另评 green） |
 | `simple_release=true` / `[skip ci]` 等 hard rules | 判断 + 机械门禁 | prompt + `scripts/release-tag.sh` / preflight |
 
 ## 调用参数
@@ -308,10 +307,8 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
    ```
 
    脚本按 batch dispatch upgrade（`--smoke-phase infra`）→ watch → 验 `tk_edge_post_deploy_smoke: OK phase=infra`。**默认 `--parallel 1`（顺序）**；`N>1` 仅在可接受换容器窗口影响时用。批内失败则 fail-stop。
-8. **发版后跟进（按 diff 档位，至多一次 tick）**：跑 `release-impact-files.sh` 读 `.followup.tier`：
-   - `skip` → 不跟进，直接 rollout summary。
-   - `single` → 仅 **+5min** 一次轻量诊断（含 gateway/schema/config 类变更；多轮 extended 档已下线，更长窗口仅人工显式发起）。
-9. **只读配置检查（默认，在 followup 之前）**：先跑 §「发版后 Anthropic OAuth 配置检查」，再跑 §「发版后 Account model_mapping 配置检查」。violations 不触发 rollback，写入 rollout 摘要为 **yellow**；Anthropic violation 指向 `/tokenkey-anthropic-oauth-config`，model_mapping violation 指向 `/tokenkey-modelops-planner` 分支 D，先审 Go SSOT 派生的 diff，再按需 `apply-accounts --confirm yes-apply-account-model-mapping`。
+8. **发版后 +5min 实测（CI 唯一源）**：watch 同一 `deploy-stage0` run 的 `deploy` job 在 smoke/SSOT gate 之后、飞书发版公告之前的 post-release 步（换镜像成功后等 5 分钟，**不再**另开 `environment: prod` 审批）。workflow 先写 `plan.json` 再 `--plan-file` 传入 wrapper，避免重复 plan。它用换镜像前的线上 tag → 本次 tag 列出全部产品 PR，再对照 prod 日志评分。摘要转述 `evaluate.json`，**不要**自造 `HOOK_PATTERNS`，也**不要**另开一轮 tick。CI 不可解析时才本地重跑 `ops/observability/run-post-release-check.sh`。
+9. **只读配置检查（默认）**：先跑 §「发版后 Anthropic OAuth 配置检查」，再跑 §「发版后 Account model_mapping 配置检查」。violations 不触发 rollback，写入 rollout 摘要为 **yellow**；Anthropic violation 指向 `/tokenkey-anthropic-oauth-config`，model_mapping violation 指向 `/tokenkey-modelops-planner` 分支 D，先审 Go SSOT 派生的 diff，再按需 `apply-accounts --confirm yes-apply-account-model-mapping`。
 
 ## prod 真实测试
 
@@ -444,114 +441,44 @@ prod smoke 失败：停，优先 rollback prod；不要继续 Edge rollout。Edg
 
 **自动 rollback 也救不回 → 切灾难恢复（单次救不回即切，不必等"反复 N 次"）**：`deploy-stage0.yml` 调的 `ops/stage0/deploy_via_ssm.sh` 已内置 rollback ERR trap（失败自动恢复上一镜像）。当它**也救不回**——SSM 日志出现 `::error::…node requires MANUAL intervention`——或 dispatch rollback 到 `previous_tag` 后 external_health / smoke 仍失败，说明这已不是镜像级问题（整机 / OS / 数据卷 / 迁移 checksum 钉死）。此时切到 `deploy/aws/RUNBOOK-disaster-recovery.md`，按其 **§Agent 协同契约** 执行（Agent 自主跑只读/可逆步骤、高风险步骤先 plan 再等人类批）——具体边界与命令以该 runbook 为唯一权威，本段不复述。
 
-## 完成后：发版后跟进（按 diff 档位）
+## 完成后：发版后 +5min 实测（live tag → 本次 tag）
 
-发版后跟进**至多一次 +5min tick**（多轮 extended 档已下线——一次 tick 足以暴露启动/hook 级回归，更长窗口仅人工显式发起）。先机械化分档：
+**一条路径**：`deploy-stage0.yml` 的 `deploy` job 在 smoke/SSOT gate 之后、飞书发版公告之前的 post-release 步。范围是换镜像前线上正在跑的 tag（`resolve-prod-running-tag-via-ssm`），不是「上一个 git tag」猜测。workflow 先 `plan` 写 `plan.json`，check 步用 `--plan-file` 复用；本地 wrapper 若 `out-dir/plan.json` 已存在也会复用。脚本用 `scripts/release_post_check.py` 列出该范围内全部产品 PR，再投递控制面 + tick，按 plan 评分。检查留在同一 job，避免第二次 prod Environment 审批把 +5min 时钟推后。
+
+禁止：
+
+- 模型按文件桶现场编 `HOOK_PATTERNS`
+- 用 `release-impact-files.sh` 的 `.followup.tier` 决定「查不查」（那只表示是否值得人工再跟）
+- smoke 通过后另开一轮手写 grep tick
+
+CI 已跑完：从同一 run 的 job summary / `evaluate.json` 转述 changes + checks + verdict。CI 不可解析时才本地重跑：
 
 ```bash
-PREV_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | sed -n '2p')
-NEW_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | head -1)
-bash scripts/release-impact-files.sh "${PREV_TAG}" "${NEW_TAG}"
-# 读 JSON .followup.tier → skip | single
+LIVE_TAG="${LIVE_TAG:?set to the tag that was serving before this deploy}"
+NEW_TAG="${NEW_TAG:?set to the tag just deployed}"
+bash ops/observability/run-post-release-check.sh \
+  --live "$LIVE_TAG" \
+  --new "$NEW_TAG" \
+  --target prod
 ```
 
-| tier | 动作 |
-|---|---|
-| `skip` | 不跟进；直接 rollout summary |
-| `single` | **仅 +5min** 一次轻量诊断 |
+wrapper 会自己 `plan` → 控制面 → `probe-post-release-tick.sh`（hooks 来自 plan）→ `evaluate`。`probe-post-release-tick.sh` 默认 `CONTAINER=auto`：读 `/var/lib/tokenkey/active-color` 转成 `tokenkey-blue` / `tokenkey-green`，找不到再回退 legacy `tokenkey`。不要因为 `No such container: tokenkey` 手工猜颜色。
 
-### Step A：重点观察变量（single 时）
-
-跟进基于本次 diff，不跑固定 metric 集。文件桶分类机械化（`release-impact-files.sh`），桶内 hook 名由模型按 release 内容命名（判断）。
-
-JSON 出来后，对每个非空 bucket，**模型**按下表把改动文件映射到「重点观察 trace 关键词」。脚本只给桶（机械），关键词由模型按 hook 命名（判断）：
-
-| 改动类型 | 重点观察的 trace 关键词 |
-|---|---|
-| 新背景 goroutine（如 `*_reaper.go`） | grep `XxxReaper` 启动日志、cycle 频率、Cleanup 退出消息 |
-| 新 gateway 路径 hook（如 `*_tk_signature_preempt.go`） | grep `applyXxxIfArmed` / `armXxxOnError` 触发次数、影响的 account_id 分布 |
-| 新错误处理分支（如 `*_silent_refusal.go`） | grep `silent_refusal` / 新增 `ops_error_logs.reason` 取值 |
-| Stream 行为改动（keepalive ticker、超时等） | 看 SSE 连接持续时间分布、`Gateway.StreamKeepaliveInterval` 是否实际启用 |
-| `wire.go` / `wire_gen.go` DI 变化 | 看启动日志 provider 顺序无 panic、新依赖构造无 nil |
-| `config.go` 新字段 | 在 prod / Edge `.env` 与 `.env.example` 对齐确认；进容器后只输出字段是否设置或 redacted 状态，不打印变量值 |
-| 数据库 schema / migrations | 新表/列的写入路径在 5 分钟窗口是否 surfacing 异常 |
-| 前端 frontend dist hash 变化 | embedded dist freshness + 关键页面 200 |
-
-把「重点观察变量」列在第一次跟进的开头，让 user 看到这一次跟进是按本次发版定制的，而非通用模板。
-
-### Step B：每次 tick 的内容
-
-1. **控制面探活（一条命令）**：不要手写 `curl`/`jq` loop；用统一脚本输出 JSON lines + summary：
-
-   ```bash
-   bash ops/observability/probe-release-control-plane.sh
-   # summary.status 期望 ok；EDGE_IDS=us3,us4 可缩小范围，EDGE_IDS=none 仅查 prod
-   ```
-
-2. **hook + 流量 + 5xx + panic（一条命令）**：Step A 命名的 hook 关键词作为 `HOOK_PATTERNS`（逗号分隔的固定字符串，grep -F 语义）传给入库探针——不要每次现场手写探针脚本：
-
-   ```bash
-   bash ops/observability/run-probe.sh --target prod \
-     --script ops/observability/probe-post-release-tick.sh \
-     --env SINCE=6m \
-     --env "HOOK_PATTERNS=<hook1>,<hook2>" \
-     --timeout-seconds 120
-   ```
-
-   `probe-post-release-tick.sh` 默认 `CONTAINER=auto`：prod blue/green deploy 后会读 `/var/lib/tokenkey/active-color` 自动转成 `tokenkey-blue` / `tokenkey-green`，找不到时回退 legacy `tokenkey`。不要因为 `No such container: tokenkey` 手工补救；若仍失败，记录 stdout 的 `container_resolution` 后再排查。
-
-3. **错误聚类**（tick 2 起，或任何 5xx/异常出现时）：`ops/observability/ops-error-triage.sh` 经 run-probe 投递，分钟窗用 `--env WINDOW_MINUTES=15`；更深排查转 `/tokenkey-online-log-troubleshooting`。
-4. **hook 触发语义**：没看到触发 = 正常（流量未触达该路径）；触发频次明显高于基线 = 异常；触发后立即 5xx 跟随 = 异常。
-
-### Step C：每次 tick 的固定输出形状
-
-每次跟进结束输出一段 5–12 行的简洁汇报，结构固定（占位符在执行时按 Step A 提取结果填实）：
+输出只转述 evaluate，不要另评：
 
 ```text
-[+Nmin post-release ${NEW_TAG}]
-control plane: api 200 ✓ | settings/public 200 ✓ | <each deployable edge> 200 ✓
-errors (last 5m): <cluster summary by reason/status_code/platform, or "none">
-traffic (last 5m): N total | chat=X messages=Y models=Z
-new-code hooks:
-  - <hook 1 from Step A>: <grep result, or "no fires">
-  - <hook 2 from Step A>: <grep result, or "no activity">
-  - ...
-verdict: green | yellow | red — <one-line reason>
+[+5min post-release ${NEW_TAG}]
+range: ${LIVE_TAG} → ${NEW_TAG}
+changes:
+  - #<pr> <subject>
+checks:
+  - <verdict> <id> observed=<n>
+verdict: green | skip | red — <evaluate reason>
 ```
 
-不要把上面模板照搬当输出：`new-code hooks` 的具体 hook 名由 Step A 的 diff 分析动态产出。纯前端 / 纯 chore release 没有 backend hook 时，直接写 `(no new backend hooks this release)`。
-
-`verdict` 判定原则：
-
-- **green**：control plane 全 200 + 错误聚类无新 cluster + 重点观察变量按预期触发或合理静默 + 流量量级与基线一致
-- **yellow**：control plane OK 但某条路径错误率上升 / 重点 hook 未按预期触发或频次异常 / 流量明显偏低或偏高 → 列出可疑 cluster + 建议是否需要人工触发更长窗口观察
-- **red**：control plane 任一点 fail / 错误聚类含 new type 且 rate 高于基线 2× / 重点 hook 触发后立即 5xx / 流量塌方 → **立即汇报，不再续 tick**，建议人工立即决定是否 rollback 到 `previous_tag`
-
-### Step D：tick 后的综合建议
-
-- **`single`**：+5min 一次 tick 后立即给综合建议（1 tick）。
-- **`skip`**：跳过本节。
-
-综合建议结构：
-
-```text
-=== Post-release follow-up summary (${NEW_TAG}, <N> tick(s)) ===
-重点变更：<列出 Step A 的关键 hook / 配置项>
-control plane：<N>/<N> ticks green | <or list any failure tick>
-错误聚类汇总：<去重的 cluster + 频次趋势>
-流量趋势：<是否与基线一致>
-重点观察变量结论：<逐项 hook 是否按预期>
-综合 verdict: green / yellow / red
-建议：
-  - <green>: 发版稳定，无 follow-up。
-  - <yellow>: 列出 1-3 条需要在 24h / 1week 内再观察或修复的事项；建议是否人工触发 +1h / +6h 跟进。
-  - <red>: 列出可疑回归点，建议立即 `gh workflow run deploy-stage0.yml -f tag=${PREVIOUS_TAG}` rollback；其余 Edge 暂不批准 prod approval。
-```
-
-### 调度纪律
-
-- **`single`**：最后一个 smoke 通过后 **+5min** 一次，green / yellow / red 都在这一次 tick 给结论，不自行加轮。
-- 更长窗口（+1h / +6h）仅人工显式发起；会话内不要自行无限延期。
+- **green / skip**：范围内 PR 未打出回归（无流量 = inconclusive，不 redden）；或没有产品提交。
+- **red**：control plane fail / panic / 5xx / 新增 failover 状态未伴随 failover 日志 / 新增 error code 风暴。立即汇报。job 失败**不会**自动 rollback 已切的颜色；是否 `gh workflow run deploy-stage0.yml -f tag=${LIVE_TAG}` 由人决定。
+- 更深排查转 `/tokenkey-online-log-troubleshooting`。更长窗口（+1h / +6h）仅人工显式发起。
 
 ## 发版后 Anthropic OAuth 配置检查（默认）
 
@@ -731,8 +658,10 @@ bash scripts/release-rollout-summary.sh --mode release
 - `scripts/stage0/pick_oauth_canary_edge.py` — 按 deployable 顺序选第一个有 native OAuth/Kiro 池的 Edge 作 canary full smoke。
 - `ops/stage0/edge_oauth_pool_probe.sh` — canary 选择用的 SSM 账号池计数探针（与 edge-native smoke 同 eligibility）。
 - `scripts/stage0/dispatch-edge-deploy.sh` — 单一 Edge deploy dispatch（edges 均为 Lightsail）。
+- `ops/observability/run-post-release-check.sh` — +5min 实测唯一入口（live→new PR plan + 控制面 + tick + evaluate）。
+- `scripts/release_post_check.py` — 从 live tag→new tag 派生 PR 检查与评分；禁止模型自造 hook。
 - `ops/observability/probe-release-control-plane.sh` — 发版后控制面探活（prod + deployable Edge，JSON lines + summary）。
-- `ops/observability/probe-post-release-tick.sh` — 发版后 tick 探针（blue/green active container auto + HOOK_PATTERNS 计数 + 流量/5xx/panic）。
+- `ops/observability/probe-post-release-tick.sh` — tick 探针（由 wrapper 投递；hooks 来自 plan，不是 prompt）。
 - `scripts/stage0/resolve-edge-deploy-route.py` — Edge → workflow + confirm 参数。
 - `.github/workflows/deploy-stage0.yml` — prod deploy。
 - `.github/workflows/deploy-edge-lightsail-stage0.yml` — Lightsail Edge deploy（edges 唯一路径）。

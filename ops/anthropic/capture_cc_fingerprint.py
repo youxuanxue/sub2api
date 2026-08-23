@@ -8,6 +8,9 @@ Subcommands:
   diff    Compare --bundle to TokenKey baseline; human report on stdout.
   check   Same as diff but exits 1 when actionable mismatches exist.
   check-env  Verify cc0-here / claude0-here launchers and proxy stack are up.
+  check-env-static  Verify claude CLI is installed (version-only owner).
+  check-static  Diff pinned cc_version vs locally installed claude --version.
+  emit-edits  Print cc_version bump edits (then run check-cc-version-sync --write).
   check-tls  Exit 1 when bundle TLS ja3 fields mismatch TokenKey baseline.
   write-drift-spec  Write docs/spec-delta/cc-tls-drift-*.md from a drift bundle.
   bundle-from-artifacts  Build bundle JSON from TLS capture + HTTP log files.
@@ -50,6 +53,7 @@ CONSTANTS_GO = REPO_ROOT / "backend/internal/pkg/claude/constants.go"
 IDENTITY_CANONICAL_GO = REPO_ROOT / "backend/internal/service/identity_service_tk_canonical_http.go"
 IDENTITY_GO = REPO_ROOT / "backend/internal/service/identity_service.go"
 TLS_PROFILE_JSON = REPO_ROOT / "deploy/aws/stage0/tk_canonical_cc_oauth.json"
+BASELINES_JSON = REPO_ROOT / "deploy/aws/stage0/anthropic-http-mimicry-baselines.json"
 # Single declared source for the CC system-prompt anchors (shared with the
 # guard scripts/sentinels/check-cc-system-prompt.py). Only the stable identity
 # anchors + billing prefix are tracked — the full prompt is dynamic.
@@ -1482,6 +1486,121 @@ def cmd_show_baseline(_args: argparse.Namespace) -> int:
     return 0
 
 
+def resolve_claude_bin() -> str:
+    if os.environ.get("CLAUDE_BIN"):
+        return os.environ["CLAUDE_BIN"]
+    local = Path.home() / ".local/bin/claude"
+    if local.is_file() and os.access(local, os.X_OK):
+        return str(local)
+    found = shutil.which("claude")
+    return found or ""
+
+
+def installed_claude_version(claude_bin: str = "") -> str:
+    exe = claude_bin or resolve_claude_bin()
+    if not exe:
+        return ""
+    try:
+        proc = subprocess.run(
+            [exe, "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    text = (proc.stdout or proc.stderr or "").strip()
+    m = re.search(r"(\d+\.\d+\.\d+)", text)
+    return m.group(1) if m else ""
+
+
+def pinned_cc_version() -> str:
+    data = json.loads(_read_text(BASELINES_JSON))
+    ver = str(data.get("cc_version") or "").strip()
+    if not re.fullmatch(r"\d+\.\d+\.\d+", ver):
+        raise ValueError(f"invalid cc_version in {BASELINES_JSON}")
+    return ver
+
+
+def _static_diff_rows() -> tuple[list[DiffRow], str]:
+    pinned = pinned_cc_version()
+    installed = installed_claude_version()
+    rows = [
+        DiffRow(
+            "cc_version",
+            pinned,
+            installed or "(not installed)",
+            "match"
+            if installed and pinned == installed
+            else "mismatch"
+            if installed
+            else "missing_capture",
+            critical=True,
+        ),
+    ]
+    return rows, installed
+
+
+def cmd_check_env_static(_args: argparse.Namespace) -> int:
+    exe = resolve_claude_bin()
+    if not exe:
+        print("  ✗ claude CLI NOT found (~/.local/bin/claude or CLAUDE_BIN)")
+        return 2
+    ver = installed_claude_version(exe)
+    print(f"  ✓ claude CLI present ({exe})")
+    print(f"  {'✓' if ver else '✗'} claude --version -> {ver or 'unparseable'}")
+    if not ver:
+        return 2
+    print("check env: ok")
+    return 0
+
+
+def cmd_diff_static(_args: argparse.Namespace) -> int:
+    rows, installed = _static_diff_rows()
+    print(f"Claude Code CLI version diff (installed={installed or 'n/a'}):")
+    for r in rows:
+        sym = {"match": "✓", "mismatch": "✗", "missing_capture": "·"}.get(r.status, "?")
+        print(
+            f"  {sym} {r.field.ljust(16)}  pinned={r.tokenkey}  "
+            f"installed={r.captured}  [{r.status}]"
+        )
+    if not installed:
+        print("\ninstall: claude update  OR  npm i -g @anthropic-ai/claude-code")
+        return 2
+    if any(r.status == "mismatch" for r in rows):
+        print("\nfollow skill: tokenkey-cc-fingerprint-alignment (version-only path)")
+        print("  edit cc_version in deploy/aws/stage0/anthropic-http-mimicry-baselines.json")
+        print("  python3 scripts/sentinels/check-cc-version-sync.py --write")
+        print("  bash ops/anthropic/capture-cc-fingerprint.sh emit-edits")
+        return 1
+    return 0
+
+
+def cmd_check_static(args: argparse.Namespace) -> int:
+    return cmd_diff_static(args)
+
+
+def cmd_emit_edits(args: argparse.Namespace) -> int:
+    target = (args.version or "").strip()
+    if not target:
+        target = installed_claude_version()
+    if not target:
+        print("error: claude not installed and --version not provided", file=sys.stderr)
+        return 2
+    pinned = pinned_cc_version()
+    if pinned == target:
+        print(f"already aligned at {target}")
+        return 0
+    rel = BASELINES_JSON.relative_to(REPO_ROOT)
+    print(f"edits to align cc_version -> {target}:")
+    print(f"  {rel}")
+    print(f"    - {pinned}")
+    print(f"    + {target}")
+    print("  then: python3 scripts/sentinels/check-cc-version-sync.py --write")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -1572,6 +1691,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     show = sub.add_parser("show-baseline", help="Print TokenKey baseline JSON")
     show.set_defaults(func=cmd_show_baseline)
+
+    ces = sub.add_parser("check-env-static", help="verify claude CLI is installed (version owner)")
+    ces.set_defaults(func=cmd_check_env_static)
+
+    ds = sub.add_parser("diff-static", help="diff pinned cc_version vs locally installed claude")
+    ds.set_defaults(func=cmd_diff_static)
+
+    cs = sub.add_parser("check-static", help="diff-static + exit 1 on version drift")
+    cs.set_defaults(func=cmd_check_static)
+
+    ee = sub.add_parser("emit-edits", help="print cc_version bump edits")
+    ee.add_argument("--version", default="")
+    ee.set_defaults(func=cmd_emit_edits)
     return p
 
 

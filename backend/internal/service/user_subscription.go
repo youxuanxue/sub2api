@@ -88,10 +88,7 @@ func (s *UserSubscription) NeedsWeeklyReset() bool {
 }
 
 func (s *UserSubscription) NeedsWeeklyResetAt(now time.Time) bool {
-	if s.WeeklyWindowStart == nil {
-		return false
-	}
-	return !now.Before(s.WeeklyWindowStart.Add(7 * 24 * time.Hour))
+	return s.canAutomaticallyResetWeeklyAt(now)
 }
 
 func (s *UserSubscription) NeedsMonthlyReset() bool {
@@ -129,8 +126,46 @@ func (s *UserSubscription) automaticDailyWindowStartAt(now time.Time) (time.Time
 }
 
 func (s *UserSubscription) canAutomaticallyResetWeeklyAt(now time.Time) bool {
-	_, ok := s.automaticWindowStartAt(s.WeeklyWindowStart, 7*24*time.Hour, now)
+	_, ok := s.automaticWeeklyWindowStartAt(now)
 	return ok
+}
+
+// automaticWeeklyWindowStartAt 计算周窗口当前应推进到的起点。
+// 先走期限对齐滚动窗口；若滚动下一窗会落在订阅到期之后，再回退到
+// StartsAt 对齐且已经开始的周边界，避免首次激活/手动重置把锚点推晚后
+// 用户在仍有剩余订阅天数时被 WEEKLY_LIMIT_EXCEEDED 卡死。
+func (s *UserSubscription) automaticWeeklyWindowStartAt(now time.Time) (time.Time, bool) {
+	if start, ok := s.automaticWindowStartAt(s.WeeklyWindowStart, 7*24*time.Hour, now); ok {
+		return start, true
+	}
+	return s.startsAtAlignedElapsedWeeklyPeriod(now)
+}
+
+func (s *UserSubscription) startsAtAlignedElapsedWeeklyPeriod(now time.Time) (time.Time, bool) {
+	const weeklyPeriod = 7 * 24 * time.Hour
+	if s.WeeklyWindowStart == nil || s.StartsAt.IsZero() {
+		return time.Time{}, false
+	}
+	if now.Before(s.StartsAt) || !now.Before(s.ExpiresAt) {
+		return time.Time{}, false
+	}
+	elapsed := now.Sub(s.StartsAt)
+	if elapsed < weeklyPeriod {
+		return time.Time{}, false
+	}
+	periods := elapsed / weeklyPeriod
+	lastPeriodBeforeExpiry := (s.ExpiresAt.Sub(s.StartsAt) - 1) / weeklyPeriod
+	if periods > lastPeriodBeforeExpiry {
+		periods = lastPeriodBeforeExpiry
+	}
+	if periods < 1 {
+		return time.Time{}, false
+	}
+	candidate := s.StartsAt.Add(periods * weeklyPeriod)
+	if !candidate.After(*s.WeeklyWindowStart) || !candidate.Before(s.ExpiresAt) {
+		return time.Time{}, false
+	}
+	return candidate, true
 }
 
 func (s *UserSubscription) canAutomaticallyResetMonthlyAt(now time.Time) bool {

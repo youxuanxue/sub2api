@@ -107,8 +107,8 @@ diagnostics role's expected actions so the split can't silently drift.
 
 ## Sibling backlog item: PAT → GitHub App (god-eye security lens, MEDIUM)
 
-Three agent workflows (`pr-repair-agent`, `upstream-issue-watchdog`,
-`upstream-merge-agent-daily`) share one long-lived PAT,
+Two agent workflows (`pr-repair-agent`, `upstream-issue-watchdog`) share one
+long-lived PAT,
 `UPSTREAM_MERGE_GH_TOKEN`, used as `GH_TOKEN` and embedded in the `origin` remote
 URL. One PAT is the whole write blast radius for scan/fix/merge/repair. Prefer a
 GitHub App with fine-grained, per-repo, short-TTL installation tokens minted per

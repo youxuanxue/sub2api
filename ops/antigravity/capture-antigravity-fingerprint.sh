@@ -1,19 +1,11 @@
 #!/usr/bin/env bash
-# Capture a real Antigravity IDE (Google cloudcode-pa) HTTP fingerprint via
-# mitmproxy and diff it against TokenKey repo constants.
+# Antigravity CLI (`agy`) fingerprint alignment for TokenKey.
 #
-# Why mitmproxy (vs cc's collector-redirect and kiro's passive pcap): for
-# Antigravity the load-bearing fingerprint is the HTTP layer (impersonated client
-# UA *version* incl. the /hub/ subclient segment, body `userAgent`, ideType
-# metadata; X-Goog-Api-Client gl-node is expected ABSENT post-#756, presence = drift),
-# NOT the TLS JA3 — TokenKey and the real IDE share a native Go/Node TLS stack, so
-# the ClientHello is same-origin and JA3 carries no signal. The cloudcode-pa
-# endpoint is hard-coded (cannot be redirected like cc), so the on-wire HTTP is
-# recovered by pointing the IDE through a mitmproxy whose CA it trusts. TLS is an
-# OPTIONAL, non-gating add-on (--tls, passive pcap) kept only for completeness.
+# Default path (version owner): read locally installed `agy --version` and diff
+# against `DefaultUserAgentVersion` — no IDE, no mitm (same class as Codex/Gemini).
 #
-# Deterministic parse / diff is delegated to capture_antigravity_fingerprint.py;
-# this shell only drives mitmdump (+ optional tcpdump/tshark) and shells out.
+# Optional wire path: mitmproxy + `agy --print` for HTTP body/ideType regression
+# checks. Go CLI trusts login keychain for mitm CA (see skill).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -31,58 +23,33 @@ AG_HOSTS="${TOKENKEY_AG_CAPTURE_HOSTS:-$AG_HOSTS_DEFAULT}"
 usage() {
   cat <<'EOF'
 Usage:
-  capture-antigravity-fingerprint.sh check env
+  capture-antigravity-fingerprint.sh check env          # agy CLI installed (static owner)
+  capture-antigravity-fingerprint.sh check              # static version diff (agy vs pin)
+  capture-antigravity-fingerprint.sh emit-edits         # print oauth.go version bump
   capture-antigravity-fingerprint.sh show-baseline
   capture-antigravity-fingerprint.sh capture [--http] [--tls] [--proxy-port N] [--seconds N] [--out-dir DIR]
   capture-antigravity-fingerprint.sh diff --bundle PATH [--check]
   capture-antigravity-fingerprint.sh check --bundle PATH
-  capture-antigravity-fingerprint.sh check-tls --bundle PATH      # informational only (JA3 non-load-bearing)
+  capture-antigravity-fingerprint.sh check-tls --bundle PATH
 
-capture flow (--http is the default, load-bearing path):
-  1. starts mitmdump on 127.0.0.1:<proxy-port> with the antigravity addon
-  2. prompts you to trigger ONE request from the real Antigravity IDE
-     (the IDE must egress through this proxy AND trust its CA — see below)
-  3. capture_antigravity_fingerprint.py assembles the bundle from the mitm log,
-     then diffs against the Go-constant baseline
-  --tls (optional): also run sudo tcpdump + tshark to record the JA3 (NON-gating;
-     antigravity JA3 is non-load-bearing).
+Static path (default for release-watch bumps):
+  bash ops/antigravity/capture-antigravity-fingerprint.sh check env
+  bash ops/antigravity/capture-antigravity-fingerprint.sh check
+  bash ops/antigravity/capture-antigravity-fingerprint.sh emit-edits
 
-Point the IDE at the proxy (one of):
-  - IDE setting  http.proxy = http://127.0.0.1:<port>  + http.proxyStrictSSL=false
-  - or launch with  HTTPS_PROXY=http://127.0.0.1:<port>  NODE_EXTRA_CA_CERTS=~/.mitmproxy/mitmproxy-ca-cert.pem
-Trust the mitmproxy CA (~/.mitmproxy/mitmproxy-ca-cert.pem) in the OS/Node trust store.
-
-Requires: python3, mitmdump (mitmproxy). --tls additionally needs tcpdump + tshark (sudo).
-Exit codes: 0 = aligned (or nothing captured), 1 = actionable HTTP drift (capture/check),
-            2 = usage/env error — matches the umbrella orchestrator's drift/error mapping.
+Optional wire capture (`agy` through mitmproxy; IDE not used):
+  1. Trust mitm CA in login keychain (Go binary — see skill)
+  2. mitmdump + agy --print in an empty directory with HTTP(S)_PROXY set
 EOF
 }
 
-# Exit-code contract (umbrella maps rc): 0 = aligned, 1 = drift, 2 = usage/env error.
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || { echo "error: required command not found: $1" >&2; exit 2; }
 }
 
 cmd_check_env() {
-  local ok=1
-  if command -v mitmdump >/dev/null 2>&1; then
-    echo "  ✓ mitmdump present ($(command -v mitmdump))"
-  else
-    echo "  ✗ mitmdump NOT found (install mitmproxy: pipx install mitmproxy)"; ok=0
-  fi
-  command -v python3 >/dev/null 2>&1 && echo "  ✓ python3 present" || { echo "  ✗ python3 NOT found"; ok=0; }
-  if [[ -f "$HOME/.mitmproxy/mitmproxy-ca-cert.pem" ]]; then
-    echo "  ✓ mitmproxy CA exists (~/.mitmproxy/mitmproxy-ca-cert.pem) — ensure the IDE/OS trusts it"
-  else
-    echo "  · mitmproxy CA not generated yet (runs once on first mitmdump start)"
-  fi
-  if pgrep -i antigravity >/dev/null 2>&1; then
-    echo "  ✓ an Antigravity process is running"
-  else
-    echo "  · no Antigravity process detected (install + log in to the IDE before capturing)"
-  fi
-  [[ "$ok" -eq 1 ]] || { echo "check env: missing prerequisites" >&2; exit 2; }
-  echo "check env: ok"
+  require_cmd python3
+  python3 "$PY" check-env
 }
 
 run_http_capture() {
@@ -94,30 +61,26 @@ run_http_capture() {
     mitmdump --listen-host 127.0.0.1 -p "$PROXY_PORT" -q -s "$MITM_ADDON" \
     >"$OUT_DIR/${stamp}-mitmdump.log" 2>&1 &
   local mitm_pid=$!
-  # Give mitmdump a moment to bind + generate its CA on first run.
   sleep 2
   echo
-  echo ">>> NOW trigger ONE request from the real Antigravity IDE (e.g. ask it anything)."
-  echo ">>> IDE must egress through http://127.0.0.1:${PROXY_PORT} and trust the mitmproxy CA."
+  echo ">>> NOW run agy through the proxy (empty cwd; see skill for login-keychain CA trust):"
+  echo ">>>   HTTP_PROXY=http://127.0.0.1:${PROXY_PORT} HTTPS_PROXY=http://127.0.0.1:${PROXY_PORT} \\"
+  echo ">>>     agy --print \"Reply with one word: pong\" --print-timeout 60s </dev/null"
   echo ">>> Waiting up to ${CAPTURE_SECONDS}s for v1internal requests ..."
   local waited=0
   while [[ "$waited" -lt "$CAPTURE_SECONDS" ]]; do
     sleep 3; waited=$((waited + 3))
-    # mitmdump dying early (port in use, broken python env, addon error) is NOT an
-    # IDE/proxy problem — detect it explicitly instead of blaming the IDE after a
-    # full silent window (same trap class as the cc engine's "empty mitm log").
     if ! kill -0 "$mitm_pid" 2>/dev/null; then
-      echo "  ! mitmdump exited prematurely — not an IDE/proxy issue. Its log tail:" >&2
-      tail -n 20 "$OUT_DIR/${stamp}-mitmdump.log" >&2 || true  # preflight-allow: swallow (log may be empty/missing; the error above already fails the run)
+      echo "  ! mitmdump exited prematurely. Log tail:" >&2
+      tail -n 20 "$OUT_DIR/${stamp}-mitmdump.log" >&2 || true
       exit 2
     fi
     [[ -s "$http_log" ]] && { echo "  captured $(wc -l <"$http_log" | tr -d ' ') request line(s)"; break; }
   done
-  kill "$mitm_pid" 2>/dev/null || true  # preflight-allow: swallow (mitmdump backgrounded; we stop it after the window)
-  wait "$mitm_pid" 2>/dev/null || true  # preflight-allow: swallow (killed above; exit status irrelevant)
+  kill "$mitm_pid" 2>/dev/null || true
+  wait "$mitm_pid" 2>/dev/null || true
   if [[ ! -s "$http_log" ]]; then
-    echo "  ! no v1internal request captured — the IDE is likely bypassing the proxy or rejecting the CA." >&2
-    echo "    (bundle will still be written; diff will report 'no HTTP capture'. See --tls fallback.)" >&2
+    echo "  ! no v1internal request captured — confirm agy trusts mitm CA and uses the proxy." >&2
   fi
 }
 
@@ -125,9 +88,9 @@ resolve_ips() {
   local host ip ips=""
   for host in $AG_HOSTS; do
     if command -v dig >/dev/null 2>&1; then
-      ip="$(dig +short "$host" A | grep -E '^[0-9.]+$' || true)"  # preflight-allow: swallow (no A -> empty, handled by caller)
+      ip="$(dig +short "$host" A | grep -E '^[0-9.]+$' || true)"
     else
-      ip="$(host "$host" 2>/dev/null | awk '/has address/ {print $4}' || true)"  # preflight-allow: swallow (host(1) absent -> empty)
+      ip="$(host "$host" 2>/dev/null | awk '/has address/ {print $4}' || true)"
     fi
     ips="$ips $ip"
   done
@@ -152,8 +115,8 @@ run_tls_capture() {
   sudo tcpdump ${iface_arg[@]+"${iface_arg[@]}"} -s 0 -w "$pcap" -G "$CAPTURE_SECONDS" -W 1 "$filter" \
     >/dev/null 2>"$OUT_DIR/${stamp}-tcpdump.err" &
   local tcpdump_pid=$!
-  echo ">>> trigger another Antigravity request now (TLS handshake, ${CAPTURE_SECONDS}s window) ..."
-  wait "$tcpdump_pid" 2>/dev/null || true  # preflight-allow: swallow (tcpdump exits via -G/-W; pcap content checked next)
+  echo ">>> trigger another agy request now (TLS handshake, ${CAPTURE_SECONDS}s window) ..."
+  wait "$tcpdump_pid" 2>/dev/null || true
   if [[ ! -s "$pcap" ]]; then echo "  ! empty pcap; skipping TLS (non-gating)." >&2; return 0; fi
   tshark -r "$pcap" \
     -Y "tls.handshake.type==1" \
@@ -164,7 +127,7 @@ run_tls_capture() {
     -e tls.handshake.extensions_supported_group \
     -e tls.handshake.extensions_ec_point_format \
     -e tls.handshake.extensions_server_name \
-    > "$tsv" 2>/dev/null || true  # preflight-allow: swallow (TLS is optional/non-gating; absent tsv handled downstream)
+    > "$tsv" 2>/dev/null || true
 }
 
 cmd_capture() {
@@ -190,7 +153,7 @@ cmd_capture() {
   [[ "$do_http" -eq 1 ]] && run_http_capture "$stamp" "$http_log"
   [[ "$do_tls" -eq 1 ]] && run_tls_capture "$stamp" "$tsv"
 
-  bundle_args=(--out "$bundle" --source "mitmproxy" \
+  bundle_args=(--out "$bundle" --source "mitmproxy-agy" \
     --captured-at "${stamp:0:4}-${stamp:4:2}-${stamp:6:2}T${stamp:9:2}:${stamp:11:2}:${stamp:13:2}Z")
   [[ -s "$http_log" ]] && bundle_args+=(--http-log "$http_log")
   [[ -s "$tsv" ]] && bundle_args+=(--tshark-tsv "$tsv")
@@ -198,21 +161,27 @@ cmd_capture() {
 
   echo
   echo "bundle=$bundle"
-  # --check: exit 1 on actionable HTTP drift so the umbrella orchestrator can map
-  # rc=1 -> drift (same contract as the cc engine's capture).
   python3 "$PY" diff --bundle "$bundle" --check
 }
 
 main() {
   local cmd="${1:-}"
-  shift || true  # preflight-allow: swallow (no-arg invocation -> nothing to shift)
+  shift || true
   case "$cmd" in
     check)
-      if [[ "${1:-}" == "env" ]]; then cmd_check_env; else require_cmd python3; exec python3 "$PY" check "$@"; fi ;;
+      if [[ "${1:-}" == "env" ]]; then
+        cmd_check_env
+      elif [[ "${1:-}" == "--bundle" ]]; then
+        shift
+        require_cmd python3; exec python3 "$PY" check --bundle "$@"
+      else
+        require_cmd python3; exec python3 "$PY" check-static "$@"
+      fi ;;
     capture) cmd_capture "$@" ;;
     diff) require_cmd python3; exec python3 "$PY" diff "$@" ;;
     check-tls) require_cmd python3; exec python3 "$PY" check-tls "$@" ;;
     show-baseline) require_cmd python3; exec python3 "$PY" show-baseline "$@" ;;
+    emit-edits) require_cmd python3; exec python3 "$PY" emit-edits "$@" ;;
     -h|--help|"") usage ;;
     *) echo "unknown command: $cmd" >&2; usage; exit 2 ;;
   esac

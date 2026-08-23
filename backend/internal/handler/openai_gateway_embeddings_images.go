@@ -70,6 +70,11 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 	setOpsRequestModelAndBody(c, reqModel, false, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(false, false)))
 
+	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIImages, reqModel, body); decision != nil && !decision.AllowNextStage {
+		h.openAISecurityAuditError(c, decision)
+		return
+	}
+
 	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
 	if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformOpenAI, reqModel, len(body)); reject {
 		h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", msg)
@@ -144,8 +149,10 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 		)
 		if err != nil {
 			reqLog.Warn("openai_images_generations.account_select_failed",
-				zap.Error(err),
-				zap.Int("excluded_account_count", len(failedAccountIDs)),
+				tkSelectionFailureLogFields(err,
+					zap.Error(err),
+					zap.Int("excluded_account_count", len(failedAccountIDs)),
+				)...,
 			)
 			if len(failedAccountIDs) == 0 {
 				defaultModel := ""

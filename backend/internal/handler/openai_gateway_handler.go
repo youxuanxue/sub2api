@@ -559,8 +559,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				return
 			}
 			reqLog.Warn("openai.account_select_failed",
-				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
-				zap.Int("excluded_account_count", len(failedAccountIDs)),
+				tkSelectionFailureLogFields(err,
+					zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
+					zap.Int("excluded_account_count", len(failedAccountIDs)),
+				)...,
 			)
 			if len(failedAccountIDs) == 0 {
 				if legacyCompact && errors.Is(err, service.ErrNoAvailableCompactAccounts) {
@@ -1144,8 +1146,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				return
 			}
 			reqLog.Warn("openai_messages.account_select_failed",
-				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
-				zap.Int("excluded_account_count", len(failedAccountIDs)),
+				tkSelectionFailureLogFields(err,
+					zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
+					zap.Int("excluded_account_count", len(failedAccountIDs)),
+				)...,
 			)
 			if len(failedAccountIDs) == 0 {
 				tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, currentRoutingModel)
@@ -2019,8 +2023,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		)
 		if err != nil {
 			reqLog.Warn("openai.websocket_account_select_failed",
-				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
-				zap.Int("excluded_account_count", len(failedAccountIDs)),
+				tkSelectionFailureLogFields(err,
+					zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
+					zap.Int("excluded_account_count", len(failedAccountIDs)),
+				)...,
 			)
 			if lastFailoverErr != nil {
 				closeOpenAIWSFailoverExhausted(c, wsConn, lastFailoverErr)

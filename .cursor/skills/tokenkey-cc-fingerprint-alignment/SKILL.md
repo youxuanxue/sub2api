@@ -1,7 +1,7 @@
 ---
 name: tokenkey-cc-fingerprint-alignment
 description: >-
-  Capture real Claude Code TLS/HTTP fingerprints and diff/fix TokenKey constants. Use after cc version changes, ingress UA cohort drift, OAuth mimicry/beta/stainless drift, CC geo-stego body drift (system/messages/system-reminder), or refreshing tk_canonical_cc_oauth alignment.
+  Align TokenKey Claude Code fingerprint to locally installed claude CLI version and wire capture when needed. Use after cc version changes, client-release-watch drift, OAuth mimicry/beta/stainless drift, or TLS/geo-stego body drift.
 ---
 
 # TokenKey：cc 指纹对齐（抓包 → diff → 修代码 → PR）
@@ -9,6 +9,24 @@ description: >-
 适用于本仓库（TokenKey fork of sub2api）。把 **真实 cc 流量** 当作 ground truth，**TokenKey 常量 + DB TLS profile** 当作待对齐对象。TLS 与 HTTP **分轨采集、分轨决策**——禁止从 UA 版本号推断 ja3 或 `X-Stainless-Package-Version`。
 
 **指纹范畴（OAuth mimic 路径）**：不仅是 `User-Agent` 版本。完整出站指纹 = **TLS JA3** + **HTTP 头**（`User-Agent`、`anthropic-beta` 全集、`x-stainless-*`、`x-app`）+ **system 表面**（`x-anthropic-billing-header` 块、identity anchor、geo-stego 类）。ingress `usage_logs.user_agent`（如 `OpenAI/Python`）≠ 上游所见；用 `gateway.anthropic_oauth_mimic_egress` 或 `probe-oauth-mimicry-chain.sh` 验证出站。见 `docs/spec-delta-cc-oauth-mimicry-fingerprint-scope.md`。
+
+**版本 ground truth** = 本机 **`claude` CLI**（`~/.local/bin/claude` 或 `claude update`）。`client-release-watch` 的 **仅版本漂移** 走静态对齐（类 Codex / Antigravity），**不需要** cc0-here / Claude Desktop / mitm。
+
+## 默认流程（版本 bump，无需 cc0/mitm）
+
+```bash
+claude update   # 或 npm i -g @anthropic-ai/claude-code@<ver>
+bash ops/anthropic/capture-cc-fingerprint.sh check env --static
+bash ops/anthropic/capture-cc-fingerprint.sh check
+bash ops/anthropic/capture-cc-fingerprint.sh emit-edits
+# 按 emit-edits 更新 deploy/aws/stage0/anthropic-http-mimicry-baselines.json cc_version
+python3 scripts/sentinels/check-cc-version-sync.py --write
+python3 scripts/sentinels/check-cc-version-sync.py --quiet
+python3 ops/anthropic/test_capture_cc_fingerprint.py StaticVersionTests
+./scripts/preflight.sh
+```
+
+`check env`（无 `--static`）与 `capture --http` 仍用于 **TLS / beta / system / geo-stego** 漂移；见下文 §1–§2。
 
 先机械分类证据 cohort，再比较对应 baseline：
 
@@ -73,6 +91,9 @@ TOKENKEY_CC_DAILY_DRY_RUN=1 bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.
 | 步骤 | 类型 | 承载 |
 |---|---|---|
 | cc0-here / claude0-here 代理栈就绪 | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh check env` |
+| claude CLI 已安装（版本 owner） | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh check env --static` |
+| pinned vs installed cc_version | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh check` |
+| cc_version bump 编辑提示 | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh emit-edits` → `check-cc-version-sync.py --write` |
 | 读取 TokenKey baseline | 机械 | `python3 ops/anthropic/capture_cc_fingerprint.py show-baseline` |
 | TLS collector 采集 ClientHello | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh capture` |
 | HTTP mitm 采集 `/v1/messages` headers | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh capture --http` |
@@ -88,7 +109,7 @@ TOKENKEY_CC_DAILY_DRY_RUN=1 bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.
 | OAuth mimicry chain (SDK ingress → egress headers+system) | 机械 | `ops/observability/probe-oauth-mimicry-chain.sh` on edge; log `gateway.anthropic_oauth_mimic_egress`; **日检** `client-fidelity-watch` → `edge-oauth-mimic-aggregate` |
 | ja3 变更 → TLS profile SQL apply | 机械 | `manage-anthropic-config.py plan/apply/verify` |
 | HTTP beta 漂移 → runtime manifest apply | 机械 | `plan-http-mimicry-sync` + `sync-runtime` 或 `cc_fingerprint_apply_http_runtime.sh` |
-| 仅 UA/版本漂移修复 | 机械 | 编辑 baselines.json `cc_version` → `check-cc-version-sync.py --write`（自动改 7 份副本，§4.1）|
+| 仅 UA/版本漂移修复 | 机械 | §4.1：`emit-edits` → 编辑 `cc_version` → `check-cc-version-sync.py --write` |
 | beta 集合漂移修复位点 | 判断 + 清单 | 本 skill §4.2（需抓包证据）|
 | merge 后是否立刻 sync-runtime | 判断 | HTTP drift PR merge 后**默认先 apply**（无发版）；compile default 跟下一班 release。前提：节点二进制含棘轮修复（见 §5 ⚠️，v1.7.72 及更早不含）——旧二进制节点会被 reconciler 一个 tick 回滚，只能等发版 |
 
@@ -115,7 +136,18 @@ bash ops/anthropic/capture-cc-fingerprint.sh geo-stego [--fix]
 # 等价：bash ops/anthropic/cc_geo_stego_align.sh run --fix
 ```
 
-## 1) 环境检查（必须先过）
+## 1) 环境检查
+
+### 1a) 版本 bump（静态，默认）
+
+```bash
+bash ops/anthropic/capture-cc-fingerprint.sh check env --static
+bash ops/anthropic/capture-cc-fingerprint.sh check
+```
+
+仅需 `claude` CLI 在 PATH（优先 `~/.local/bin/claude`）。JSON：`python3 ops/anthropic/capture_cc_fingerprint.py check-env-static`（无 `--json` 时人类可读）。
+
+### 1b) TLS / HTTP 抓包（cc0 栈）
 
 ```bash
 source ~/.config/cc0/env
@@ -301,10 +333,18 @@ python3 ops/anthropic/probe_cc_geo_stego.py .tls_list/geo-stego-*/capture.jsonl 
 
 ### 4.1 仅 UA / 版本漂移（最常见的 cc patch bump）
 
-单一真值源 + 守卫自动生成，**人手只碰 2 个文件**：
+**先跑静态门禁**（与 `client-release-watch` playbook 一致）：
 
-1. 编辑 `deploy/aws/stage0/anthropic-http-mimicry-baselines.json` 的 `cc_version`（唯一手改源）。
-2. 跑 `python3 scripts/sentinels/check-cc-version-sync.py --write` —— 自动重写全部 7 份副本：
+```bash
+bash ops/anthropic/capture-cc-fingerprint.sh check env --static
+bash ops/anthropic/capture-cc-fingerprint.sh check
+bash ops/anthropic/capture-cc-fingerprint.sh emit-edits
+```
+
+单一真值源 + 守卫自动生成，**人手只碰 1 个字段**：
+
+1. 按 `emit-edits` 更新 `deploy/aws/stage0/anthropic-http-mimicry-baselines.json` 的 `cc_version`（唯一手改源）。
+2. 跑 `python3 scripts/sentinels/check-cc-version-sync.py --write` —— 自动重写全部 8 份副本：
    - 4 个 Go 编译默认值：`constants.go` 的 `CLICurrentVersion` + `DefaultHeaders["User-Agent"]`、
      `identity_service.go` 的 `defaultFingerprint.UserAgent`、
      `identity_service_tk_canonical_http.go` 的 `DefaultClaudeCodeUserAgentVersion`。

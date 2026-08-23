@@ -77,8 +77,10 @@ GPT 请求按 GPT 组的价/倍率,每用户还能有自己的专属倍率。
     (direct handler 当前支持这两个平台;JSON/multipart 的 `model` 字段用于在两者间收敛)。
   - `/v1beta/models/*` POST → `[gemini, antigravity]`;GET 元数据(含 `/v1/models`)→ 跳过。
 - 解析器 `universal_routing_tk_resolver.go`:取(短 TTL 缓存的)权限跨度 `GetAvailableGroups` →
-  跨度 ∩ 候选平台(active)→ **「组已服务模型集」真值过滤(见下)** → **确定性挑选(持订阅优先
-  → `group.sort_order` → id)**。空 → 按入口协议形状写 403"该模型不在你的套餐内"。
+  跨度 ∩ 候选平台(active)→ **「组已服务模型集」真值过滤(见下)** → **确定性挑选(可用订阅优先
+  → `group.sort_order` → id)**。订阅到期、停用或日/周/月额度满视为不可用，从候选里拿掉后
+  再挑，落到同一跨度里的余额专属组(按该组扣钱包)。两边都空 → 按入口协议形状写 403
+  "该模型不在你的套餐内"。
 
   **模型/模态服务真值过滤(`universal_routing_tk_serving.go`)**:旧版仅用前缀 hint(best-effort
   偏好)选平台,对「某组账号到底服不服务这个模型」零可见 —— newapi 多 vendor 平台(deepseek/
