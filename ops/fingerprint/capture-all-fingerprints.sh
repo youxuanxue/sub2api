@@ -84,7 +84,7 @@ if [[ "$SKIP_KIRO" == "0" ]]; then
 fi
 
 if [[ "$SKIP_ANTIGRAVITY" == "0" ]]; then
-  echo "############ Antigravity IDE (antigravity) ############"
+  echo "############ Antigravity CLI (antigravity) ############"
   bash "$ANTIGRAVITY" capture ${ANTIGRAVITY_ARGS[@]+"${ANTIGRAVITY_ARGS[@]}"}
   ANTIGRAVITY_STATUS="$(record_status "$?")"
 fi

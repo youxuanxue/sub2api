@@ -249,9 +249,10 @@ PLATFORM_PLAYBOOKS: dict[str, dict[str, Any]] = {
         "skill": "tokenkey-cc-fingerprint-alignment",
         "umbrella_skill": "tokenkey-fingerprint-alignment-all",
         "first_commands": [
-            "bash ops/anthropic/capture-cc-fingerprint.sh check env",
-            "bash ops/anthropic/capture-cc-fingerprint.sh capture --http",
-            "python3 ops/anthropic/capture_cc_fingerprint.py diff --bundle <bundle>",
+            "bash ops/anthropic/capture-cc-fingerprint.sh check env --static",
+            "bash ops/anthropic/capture-cc-fingerprint.sh check",
+            "bash ops/anthropic/capture-cc-fingerprint.sh emit-edits",
+            "python3 scripts/sentinels/check-cc-version-sync.py --write",
         ],
     },
     "cc-stainless": {
@@ -288,8 +289,8 @@ PLATFORM_PLAYBOOKS: dict[str, dict[str, Any]] = {
         "umbrella_skill": "tokenkey-fingerprint-alignment-all",
         "first_commands": [
             "bash ops/antigravity/capture-antigravity-fingerprint.sh check env",
-            "bash ops/antigravity/capture-antigravity-fingerprint.sh capture --http",
             "bash ops/antigravity/capture-antigravity-fingerprint.sh check",
+            "bash ops/antigravity/capture-antigravity-fingerprint.sh emit-edits",
         ],
     },
     "kiro-cli": {

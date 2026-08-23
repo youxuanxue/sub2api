@@ -4,10 +4,10 @@ One line per alignment. The canonical truth is the Go constants in
 `backend/internal/pkg/antigravity/` (oauth.go / client.go / request_transformer.go) —
 this file is just the human-readable history of when each value moved and why.
 
-Capture tool: `ops/antigravity/capture-antigravity-fingerprint.sh` (mitmproxy of a
-real Antigravity IDE → diff against the Go constants). Antigravity's load-bearing
-fingerprint is HTTP (UA *version*, body `userAgent`, ideType metadata, gl-node
-`X-Goog-Api-Client`); JA3 is non-load-bearing and never gates.
+Capture tool: `ops/antigravity/capture-antigravity-fingerprint.sh` — default path reads
+locally installed `agy --version` (static owner, like Codex). Optional mitmproxy of
+`agy --print` for HTTP body/ideType regression. Antigravity's load-bearing fingerprint
+is HTTP (UA *version*, body `userAgent`, ideType metadata); JA3 is non-load-bearing.
 
 Drift-fix recipe (see the `tokenkey-antigravity-fingerprint-alignment` skill):
 - UA version bump (most common): edit `DefaultUserAgentVersion` in `oauth.go` +
@@ -31,3 +31,4 @@ Drift-fix recipe (see the `tokenkey-antigravity-fingerprint-alignment` skill):
 | 2026-08-12 | **2.7.1** | **package-validate** | `DefaultUserAgentVersion` 2.6.0 → 2.7.1 | Homebrew cask antigravity 2.7.1 per client-release-watch #1624; version-only bump from official cask metadata. HTTP UA format unchanged. Layer 2 on-wire capture pending. Closes #1624. |
 | 2026-08-13 | **2.8.0** | **spawn-validate** | `DefaultUserAgentVersion` 2.7.1 → 2.8.0 | Real Antigravity IDE 2.8.0 launched `language_server` with `--override_ide_version 2.8.0`, `--subclient_type hub`, and `--override_user_agent_name antigravity`. Version-only bump; established on-wire HTTP format and constants remain unchanged. |
 | 2026-08-19 | **2.8.1** | **spawn-validate** | `DefaultUserAgentVersion` 2.8.0 → 2.8.1 | Real Antigravity IDE 2.8.1 launched `language_server` with `--override_ide_version 2.8.1`, `--subclient_type hub`, and `--override_user_agent_name antigravity`. Version-only bump; established on-wire HTTP format and constants remain unchanged. Closes #1664. |
+| 2026-08-23 | **1.1.19** | **align (cli-only)** | UA `antigravity/hub/%s windows/amd64` → `antigravity/cli/%s darwin/arm64`; `DefaultUserAgentVersion` 2.8.1 → 1.1.19; remove IDE spawn-validate tooling | **Mimic target switched to Antigravity CLI (`agy`) only.** Release watch tracks `brew install --cask antigravity-cli`. Version owner = `agy --version`. IDE `language_server` / `validate-antigravity-spawn.sh` removed from alignment path. Closes #1772. |
