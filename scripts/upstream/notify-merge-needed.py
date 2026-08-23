@@ -40,7 +40,8 @@ FORBIDDEN_WORKFLOW_NEEDLES = (
     "persist-credentials: false",
 )
 REQUIRED_WORKFLOW_NEEDLES = (
-    "secrets.UPSTREAM_MERGE_GH_TOKEN",
+    "issues: write",
+    "GH_TOKEN: ${{ github.token }}",
 )
 
 
