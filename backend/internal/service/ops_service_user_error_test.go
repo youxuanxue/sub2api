@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/stretchr/testify/require"
 )
 
 type stubOpsRepoForUserErr struct {
@@ -119,12 +120,8 @@ func TestGetUserErrorRequestDetail_OwnershipEnforced(t *testing.T) {
 	if err2 != nil {
 		t.Fatalf("expected no error for legitimate access, got %v", err2)
 	}
-	if got2 == nil {
-		t.Fatal("expected non-nil detail for legitimate access")
-	}
-	if got2.ID != 42 {
-		t.Errorf("want ID=42, got %d", got2.ID)
-	}
+	require.NotNil(t, got2)
+	require.Equal(t, int64(42), got2.ID)
 	if got2.ErrorBody != `{"error":"upstream"}` {
 		t.Errorf("want ErrorBody=%q, got %q", `{"error":"upstream"}`, got2.ErrorBody)
 	}

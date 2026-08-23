@@ -232,7 +232,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			}
 		}
 		account := selection.Account
-		setOpsSelectedAccount(c, account.ID, account.Platform)
+		setOpsSelectedAccountFrom(c, account)
 
 		// 4. Acquire account concurrency slot
 		accountReleaseFunc := selection.ReleaseFunc
@@ -428,10 +428,12 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 	}
 	if lastErr != nil && lastErr.ClientStatusCode > 0 {
 		statusCode = lastErr.ClientStatusCode
-		status = lastErr.ClientStatusCode
+		status = statusCode
 		if lastErr.ClientMessage != "" {
 			message = lastErr.ClientMessage
 		}
+	} else {
+		statusCode = status
 	}
 	if streamStarted {
 		// A slot-wait heartbeat commits HTTP 200 before any upstream response.
@@ -444,5 +446,5 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 		}
 		return
 	}
-	h.responsesErrorResponse(c, status, code, message)
+	h.responsesErrorResponse(c, statusCode, code, message)
 }

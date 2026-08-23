@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCalculateAnthropic429ResetTime_Only5hExceeded(t *testing.T) {
@@ -193,12 +195,8 @@ func TestSelectAnthropicFableWindowLimit_RejectedStatus(t *testing.T) {
 	headers.Set("anthropic-ratelimit-unified-7d_oi-reset", strconv.FormatInt(reset.Unix(), 10))
 
 	limit := selectAnthropicFableWindowLimit(headers, now)
-	if limit == nil {
-		t.Fatal("expected non-nil limit")
-	}
-	if !limit.resetAt.Equal(reset) {
-		t.Errorf("expected resetAt=%v, got %v", reset, limit.resetAt)
-	}
+	require.NotNil(t, limit)
+	require.True(t, limit.resetAt.Equal(reset))
 	if limit.reason != anthropicFableWindowReason {
 		t.Errorf("expected reason=%q, got %q", anthropicFableWindowReason, limit.reason)
 	}
@@ -214,12 +212,8 @@ func TestSelectAnthropicFableWindowLimit_UtilizationOnly(t *testing.T) {
 	headers.Set("anthropic-ratelimit-unified-7d_oi-reset", strconv.FormatInt(reset.Unix(), 10))
 
 	limit := selectAnthropicFableWindowLimit(headers, now)
-	if limit == nil {
-		t.Fatal("expected non-nil limit")
-	}
-	if !limit.resetAt.Equal(reset) {
-		t.Errorf("expected resetAt=%v, got %v", reset, limit.resetAt)
-	}
+	require.NotNil(t, limit)
+	require.True(t, limit.resetAt.Equal(reset))
 }
 
 func TestSelectAnthropicFableWindowLimit_AllowedReturnsNil(t *testing.T) {
@@ -250,12 +244,8 @@ func TestSelectAnthropicFableWindowLimit_FallsBackToAggregateReset(t *testing.T)
 	headers.Set("anthropic-ratelimit-unified-reset", strconv.FormatInt(reset.Unix(), 10))
 
 	limit := selectAnthropicFableWindowLimit(headers, now)
-	if limit == nil {
-		t.Fatal("expected non-nil limit via aggregate reset fallback")
-	}
-	if !limit.resetAt.Equal(reset) {
-		t.Errorf("expected resetAt=%v, got %v", reset, limit.resetAt)
-	}
+	require.NotNil(t, limit)
+	require.True(t, limit.resetAt.Equal(reset))
 }
 
 func TestSelectAnthropicFableWindowLimit_RejectedWithoutAnyResetReturnsNil(t *testing.T) {
@@ -362,12 +352,8 @@ func TestCalculateAnthropic429ResetTime_Window(t *testing.T) {
 			headers.Set("anthropic-ratelimit-unified-7d-reset", "1771549200")
 
 			result := calculateAnthropic429ResetTime(headers)
-			if result == nil {
-				t.Fatal("expected non-nil result")
-			}
-			if result.window != c.wantWindow {
-				t.Errorf("window: want %q, got %q", c.wantWindow, result.window)
-			}
+			require.NotNil(t, result)
+			require.Equal(t, c.wantWindow, result.window)
 		})
 	}
 }

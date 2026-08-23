@@ -505,7 +505,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				responseID = extractOpenAIResponseIDFromJSONBytes(dataBytes)
 			}
 			forceFlushFailedEvent := false
-			if failureOut, handled := (tkReasoningStreamFailureInput{
+			if failureOut, handled := (tkCodexStreamFailureInput{
 				s:                   s,
 				c:                   c,
 				account:             account,
@@ -532,6 +532,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				forceFlushFailedEvent = failureOut.forceFlushFailedEvent
 				sawFailedEvent = failureOut.sawFailedEvent
 				terminalFailurePending = codexState.terminalFailurePending
+				suppressCurrentEvent = codexState.suppressCurrentEvent
 			}
 			if normalizedData, normalized := normalizeCompletedImageGenerationStatus(dataBytes); normalized {
 				dataBytes = normalizedData

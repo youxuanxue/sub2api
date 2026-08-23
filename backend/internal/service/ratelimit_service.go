@@ -1387,6 +1387,14 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 		}); ok && checker.ShouldRetryOpenAIOAuth429(account, headers, responseBody) {
 			return false
 		}
+		if calculateOpenAI429ResetTime(headers) == nil {
+			if marker, ok := s.runtimeBlocker.(interface {
+				markOpenAIOAuth429RateLimited(context.Context, *Account, http.Header, []byte)
+			}); ok {
+				marker.markOpenAIOAuth429RateLimited(ctx, account, headers, responseBody)
+				return true
+			}
+		}
 	}
 	// Spark 影子：限流/熔断状态 100% 由 QueryUsage(/wham/usage body 的 codex_bengalfox)驱动。
 	// /responses 的 429 携带的 x-codex-*/usage_limit_reached 是 global codex 道(plan/spec §8),

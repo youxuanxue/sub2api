@@ -4594,11 +4594,18 @@
     {
       "path": "backend/internal/handler/openai_gateway_embeddings_images.go",
       "must_contain": [
-        "hold, holdReject := h.tkApplyBalanceHoldNoOutput(c, apiKey, reqModel, body)",
         "hold, holdReject := h.tkApplyImageHold(c, apiKey, reqModel, int(gjson.GetBytes(body, \"n\").Int()))",
         "h.tkSubmitOpenAISimpleForwardUsage(tkOpenAISimpleUsageSubmitInput{"
       ],
-      "rationale": "Pre-flight balance HOLD on /v1/embeddings (no-output estimate) and /v1/images/generations compat route; usage submit via tkSubmitOpenAISimpleForwardUsage companion (PR #746 overdraft fix)."
+      "rationale": "Pre-flight balance HOLD on /v1/images/generations compat route; usage submit via tkSubmitOpenAISimpleForwardUsage companion (PR #746 overdraft fix). Embeddings hold moved to openai_embeddings.go after upstream route split."
+    },
+    {
+      "path": "backend/internal/handler/openai_embeddings.go",
+      "must_contain": [
+        "TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformOpenAI, reqModel, len(body))",
+        "hold, holdReject := h.tkApplyBalanceHoldNoOutput(c, apiKey, reqModel, body)"
+      ],
+      "rationale": "Pre-flight body guard + balance HOLD on POST /v1/embeddings (canonical route after upstream split from openai_gateway_embeddings_images.go dead handler)."
     },
     {
       "path": "backend/internal/handler/openai_images.go",

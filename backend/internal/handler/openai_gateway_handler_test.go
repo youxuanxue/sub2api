@@ -1684,7 +1684,7 @@ func TestOpenAIAccountScheduleModelUsesActualOrSharedResolver(t *testing.T) {
 	service.SetOpsUpstreamModel(c, "attempt-actual")
 	require.Equal(t, "attempt-actual", openAIAccountScheduleModel(c, account, "public", true, nil))
 
-	setOpsSelectedAccount(c, account.ID, account.Platform)
+	setOpsSelectedAccountFrom(c, account)
 	require.Equal(t, "attempt-actual", openAIAccountScheduleModel(c, account, "public", true, nil))
 }
 

@@ -979,17 +979,11 @@ func TestExtractGeminiUsage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := extractGeminiUsage([]byte(tt.input))
 			if tt.wantNil {
-				if got != nil {
-					t.Fatalf("期望返回 nil，实际返回 %+v", got)
-				}
+				require.Nil(t, got)
 				return
 			}
-			if got == nil {
-				t.Fatalf("期望返回非 nil，实际返回 nil")
-			}
-			if got.InputTokens != tt.wantUsage.InputTokens {
-				t.Errorf("InputTokens: 期望 %d，实际 %d", tt.wantUsage.InputTokens, got.InputTokens)
-			}
+			require.NotNil(t, got)
+			require.Equal(t, tt.wantUsage.InputTokens, got.InputTokens)
 			if got.OutputTokens != tt.wantUsage.OutputTokens {
 				t.Errorf("OutputTokens: 期望 %d，实际 %d", tt.wantUsage.OutputTokens, got.OutputTokens)
 			}

@@ -2237,20 +2237,6 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionSticky(t *testin
 	}
 }
 
-// slotEscapeSettingRepo 是只为 #2859 escape 开关服务的 settingRepo 桩：仅对
-// SettingKeyStickySlotFullEscapeEnabled 返回配置值，其余 key 返回空（取默认）。
-type slotEscapeSettingRepo struct {
-	SettingRepository
-	val string
-}
-
-func (r *slotEscapeSettingRepo) GetValue(_ context.Context, key string) (string, error) {
-	if key == SettingKeyStickySlotFullEscapeEnabled {
-		return r.val, nil
-	}
-	return "", nil
-}
-
 func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusyKeepsSticky(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(10100)

@@ -88,10 +88,6 @@ func tkAntigravityPaidTierUsesDaily(account *Account) bool {
 	return antigravity.IsPaidPlanType(plan)
 }
 
-func accountHasAntigravityPaidTier(account *Account) bool {
-	return tkAntigravityPaidTierUsesDaily(account)
-}
-
 // smartRetryAction 智能重试的处理结果
 type smartRetryAction int
 

@@ -1760,7 +1760,6 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			if codexState.onSuccessfulTerminalWhileBareError(eventType) {
 				sawFailedEvent = false
 				responseFailedPending = false
-				suppressCurrentEvent = false
 				failedMessage = ""
 			}
 			codexState.afterPayloadRestore(eventType)
@@ -1793,6 +1792,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				forceFlushFailedEvent = failureOut.forceFlushFailedEvent
 				sawFailedEvent = failureOut.sawFailedEvent
 				responseFailedPending = codexState.terminalFailurePending
+				suppressCurrentEvent = codexState.suppressCurrentEvent
 			}
 			if trimmedData == "[DONE]" {
 				sawDone = true

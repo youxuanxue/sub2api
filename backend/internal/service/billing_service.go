@@ -1829,15 +1829,6 @@ type VideoPriceConfig struct {
 }
 
 const (
-	defaultImageGenerationPrice = 0.134
-
-	defaultGrokImagineImagePrice1K        = 0.02
-	defaultGrokImagineImagePrice2K        = 0.02
-	defaultGrokImagineImageQualityPrice1K = 0.05
-	defaultGrokImagineImageQualityPrice2K = 0.07
-	defaultGrokImagineImage20Price1K      = 0.06 // default quality is Medium
-	defaultGrokImagineImage20Price2K      = 0.08
-
 	// 视频默认价为 xAI 官方**每秒**输出价格（USD/s），总价 = 每秒价 × 时长（秒）。
 	defaultGrokImagineVideoPrice480P    = 0.05
 	defaultGrokImagineVideoPrice720P    = 0.07
@@ -1867,6 +1858,9 @@ func (s *BillingService) CalculateWebSearchCost(callCount int, groupPrice *float
 		return &CostBreakdown{}
 	}
 	unitPrice := defaultWebSearchPricePerCall
+	if registryPrice := tkRegistryWebSearchPricePerCall(); registryPrice > 0 {
+		unitPrice = registryPrice
+	}
 	if groupPrice != nil && *groupPrice >= 0 {
 		unitPrice = *groupPrice
 	}
@@ -2134,43 +2128,6 @@ func (s *BillingService) getDefaultVideoPrice(model string, resolution string) f
 	}
 
 	return 0
-}
-
-func getDefaultGrokImagineImagePrice(model string, imageSize string) (float64, bool) {
-	model = strings.ToLower(strings.TrimSpace(model))
-	switch model {
-	case "grok-imagine-image-2.0":
-		return getGrokImagineImageTierPrice(
-			imageSize,
-			defaultGrokImagineImage20Price1K,
-			defaultGrokImagineImage20Price2K,
-		), true
-	case "grok-imagine-image-quality":
-		return getGrokImagineImageTierPrice(
-			imageSize,
-			defaultGrokImagineImageQualityPrice1K,
-			defaultGrokImagineImageQualityPrice2K,
-		), true
-	case "grok-imagine", "grok-imagine-image", "grok-imagine-edit":
-		return getGrokImagineImageTierPrice(
-			imageSize,
-			defaultGrokImagineImagePrice1K,
-			defaultGrokImagineImagePrice2K,
-		), true
-	default:
-		return 0, false
-	}
-}
-
-func getGrokImagineImageTierPrice(imageSize string, price1K float64, price2K float64) float64 {
-	switch NormalizeImageBillingTierOrDefault(imageSize) {
-	case ImageBillingSize1K:
-		return price1K
-	case ImageBillingSize2K, ImageBillingSize4K:
-		return price2K
-	default:
-		return price2K
-	}
 }
 
 func getDefaultGrokImagineVideoPrice(model string, resolution string) (float64, bool) {

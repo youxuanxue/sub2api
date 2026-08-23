@@ -74,6 +74,7 @@ func (st *tkCodexFailureStreamState) onFailureEvent(eventType string, dataBytes 
 		st.suppressCurrentEvent = true
 	case "response.failed":
 		st.sawResponseFailed = true
+		st.suppressCurrentEvent = false
 	}
 }
 
@@ -220,12 +221,6 @@ func (in tkCodexStreamFailureInput) handleFailureEvent(
 	return out, true
 }
 
-// Backward-compatible aliases for reasoning stream call sites.
-type tkReasoningCodexStreamState = tkCodexFailureStreamState
-
 func newTkReasoningCodexStreamState(account *Account) *tkCodexFailureStreamState {
 	return newTkCodexFailureStreamStateForReasoning(account)
 }
-
-type tkReasoningStreamFailureInput = tkCodexStreamFailureInput
-type tkReasoningStreamFailureResult = tkCodexStreamFailureResult

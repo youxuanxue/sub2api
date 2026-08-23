@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseCodexRateLimitHeaders_IgnoresBengalfoxActiveLimit(t *testing.T) {
@@ -64,23 +66,15 @@ func TestCodexResetAtRFC3339(t *testing.T) {
 	t.Run("positive seconds", func(t *testing.T) {
 		sec := 90
 		got := codexResetAtRFC3339(base, &sec)
-		if got == nil {
-			t.Fatal("expected non-nil")
-		}
-		if *got != "2026-02-16T10:01:30Z" {
-			t.Fatalf("got %s, want %s", *got, "2026-02-16T10:01:30Z")
-		}
+		require.NotNil(t, got)
+		require.Equal(t, "2026-02-16T10:01:30Z", *got)
 	})
 
 	t.Run("negative seconds clamp to base", func(t *testing.T) {
 		sec := -3
 		got := codexResetAtRFC3339(base, &sec)
-		if got == nil {
-			t.Fatal("expected non-nil")
-		}
-		if *got != "2026-02-16T10:00:00Z" {
-			t.Fatalf("got %s, want %s", *got, "2026-02-16T10:00:00Z")
-		}
+		require.NotNil(t, got)
+		require.Equal(t, "2026-02-16T10:00:00Z", *got)
 	})
 }
 
@@ -292,12 +286,9 @@ func TestNormalize_ProdLayoutUsedPercentPassthrough(t *testing.T) {
 			SecondaryWindowMinutes: &win7d, // 7d
 		}
 		n := snapshot.Normalize()
-		if n == nil {
-			t.Fatal("expected non-nil normalized")
-		}
-		if n.Used5hPercent == nil || *n.Used5hPercent != 1.0 {
-			t.Fatalf("Used5hPercent = %v, want 1 (consumed%%, no 100-raw inversion)", n.Used5hPercent)
-		}
+		require.NotNil(t, n)
+		require.NotNil(t, n.Used5hPercent)
+		require.Equal(t, 1.0, *n.Used5hPercent)
 		if n.Used7dPercent == nil || *n.Used7dPercent != 1.0 {
 			t.Fatalf("Used7dPercent = %v, want 1", n.Used7dPercent)
 		}
@@ -315,12 +306,9 @@ func TestNormalize_ProdLayoutUsedPercentPassthrough(t *testing.T) {
 			SecondaryWindowMinutes: &win7d, // 7d
 		}
 		n := snapshot.Normalize()
-		if n == nil {
-			t.Fatal("expected non-nil normalized")
-		}
-		if n.Used5hPercent == nil || *n.Used5hPercent != 0.0 {
-			t.Fatalf("Used5hPercent = %v, want 0 (must NOT invert to 100 / trip is5hExhausted)", n.Used5hPercent)
-		}
+		require.NotNil(t, n)
+		require.NotNil(t, n.Used5hPercent)
+		require.Equal(t, 0.0, *n.Used5hPercent)
 	})
 }
 
@@ -343,9 +331,7 @@ func TestNormalize_7dOnlyLayoutOmits5h(t *testing.T) {
 	}
 
 	n := snapshot.Normalize()
-	if n == nil {
-		t.Fatal("expected non-nil normalized")
-	}
+	require.NotNil(t, n)
 	if n.Used5hPercent != nil || n.Window5hMinutes != nil {
 		t.Fatalf("expected no 5h fields, got Used5hPercent=%v Window5hMinutes=%v", n.Used5hPercent, n.Window5hMinutes)
 	}

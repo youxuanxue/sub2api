@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 type accountUsageCodexProbeRepo struct {
@@ -276,12 +278,8 @@ func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 			"codex_5h_reset_at":     resetAt,
 		}
 		progress := buildCodexUsageProgressFromExtra(extra, "5h", now)
-		if progress == nil {
-			t.Fatal("expected non-nil progress")
-		}
-		if progress.Utilization != 42.0 {
-			t.Fatalf("expected Utilization=42, got %v", progress.Utilization)
-		}
+		require.NotNil(t, progress)
+		require.Equal(t, 42.0, progress.Utilization)
 	})
 
 	t.Run("expired 7d window drops stale upstream sample", func(t *testing.T) {

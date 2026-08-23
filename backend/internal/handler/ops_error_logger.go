@@ -26,10 +26,11 @@ import (
 )
 
 const (
-	opsModelKey                  = "ops_model"
+	opsModelKey                  = service.OpsModelKey
 	opsRequestBodyKey            = service.OpsRequestBodyKey
 	opsStreamKey                 = "ops_stream"
 	opsAccountIDKey              = "ops_account_id"
+	opsChannelTypeKey            = "ops_channel_type"
 	opsRoutingCapacityLimitedKey = "ops_routing_capacity_limited"
 	opsDedicatedErrorRecordedKey = "ops_dedicated_error_recorded"
 
@@ -501,14 +502,20 @@ func setOpsOpenAIUsageContext(c *gin.Context, usage service.OpenAIUsage) {
 	setOpsTokenUsageContext(c, usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens)
 }
 
-func setOpsSelectedAccount(c *gin.Context, accountID int64, platform ...string) {
+func setOpsSelectedAccountWithChannelType(c *gin.Context, accountID int64, channelType int, platform ...string) {
 	if c == nil || accountID <= 0 {
 		return
 	}
 	service.ClearOpsUpstreamModel(c)
 	c.Set(opsAccountIDKey, accountID)
+	if channelType > 0 {
+		c.Set(opsChannelTypeKey, channelType)
+	}
 	if c.Request != nil {
 		ctx := context.WithValue(c.Request.Context(), ctxkey.AccountID, accountID)
+		if channelType > 0 {
+			ctx = context.WithValue(ctx, ctxkey.ChannelType, channelType)
+		}
 		if len(platform) > 0 {
 			p := strings.TrimSpace(platform[0])
 			if p != "" {
@@ -517,6 +524,13 @@ func setOpsSelectedAccount(c *gin.Context, accountID int64, platform ...string) 
 		}
 		c.Request = c.Request.WithContext(ctx)
 	}
+}
+
+func setOpsSelectedAccountFrom(c *gin.Context, account *service.Account) {
+	if account == nil {
+		return
+	}
+	setOpsSelectedAccountWithChannelType(c, account.ID, account.ChannelType, account.Platform)
 }
 
 func markOpsRoutingCapacityLimited(c *gin.Context) {

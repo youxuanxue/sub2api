@@ -385,7 +385,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				}
 			}
 			account := selection.Account
-			setOpsSelectedAccount(c, account.ID, account.Platform)
+			setOpsSelectedAccountFrom(c, account)
 
 			// 检查请求拦截（预热请求、SUGGESTION MODE等）
 			if account.IsInterceptWarmupEnabled() {
@@ -708,7 +708,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				}
 			}
 			account := selection.Account
-			setOpsSelectedAccount(c, account.ID, account.Platform)
+			setOpsSelectedAccountFrom(c, account)
 
 			// 检查请求拦截（预热请求、SUGGESTION MODE等）
 			if account.IsInterceptWarmupEnabled() {
@@ -2388,7 +2388,7 @@ func detectInterceptType(body []byte, model string, maxTokens int, isClaudeCodeC
 // sendMockInterceptStream 发送流式 mock 响应（用于请求拦截）
 func sendMockInterceptStream(c *gin.Context, model string, interceptType InterceptType, account *service.Account) {
 	if account != nil {
-		setOpsSelectedAccount(c, account.ID, account.Platform)
+		setOpsSelectedAccountFrom(c, account)
 	}
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
@@ -2461,7 +2461,7 @@ func generateRealisticMsgID() string {
 // sendMockInterceptResponse 发送非流式 mock 响应（用于请求拦截）
 func sendMockInterceptResponse(c *gin.Context, model string, interceptType InterceptType, account *service.Account) {
 	if account != nil {
-		setOpsSelectedAccount(c, account.ID, account.Platform)
+		setOpsSelectedAccountFrom(c, account)
 	}
 	var msgID, text, stopReason string
 	var outputTokens int
