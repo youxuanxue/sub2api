@@ -348,6 +348,10 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	// Accumulate the final Anthropic response from streaming events
 	var finalResp *apicompat.AnthropicResponse
 	var usage ClaudeUsage
+	// TK: terminal Anthropic `error` events are not modelled by
+	// apicompat.AnthropicStreamEvent; capture them so the fallthrough below can
+	// attribute the failure upstream instead of to the gateway.
+	var upstreamErr *tkAnthropicBufferedUpstreamError
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -363,6 +367,11 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 		dataLine := scanner.Text()
 		payload, ok := parseAnthropicSSEField(dataLine, "data")
 		if !ok {
+			continue
+		}
+
+		if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload)); ok {
+			upstreamErr = parsed
 			continue
 		}
 
@@ -421,8 +430,9 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	}
 
 	if finalResp == nil {
-		writeResponsesError(c, http.StatusBadGateway, "server_error", "Upstream stream ended without a response")
-		return nil, fmt.Errorf("upstream stream ended without response")
+		status, errCode, message := tkAnthropicBufferedFailure(c, requestID, upstreamErr)
+		writeResponsesError(c, status, errCode, message)
+		return nil, fmt.Errorf("upstream stream ended without response: %s", message)
 	}
 
 	// Update usage from accumulated delta

@@ -163,6 +163,10 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 
 	var finalResp *apicompat.AnthropicResponse
 	var usage ClaudeUsage
+	// TK: terminal Anthropic `error` events are not modelled by
+	// apicompat.AnthropicStreamEvent; capture them so the fallthrough below can
+	// attribute the failure upstream instead of to the gateway.
+	var upstreamErr *tkAnthropicBufferedUpstreamError
 
 	// 读间隔上限：上游挂住 SSE 时中止组装（缓冲路径尚未提交响应头，可回 502）。
 	streamInterval := s.anthropicNativeStreamInterval()
@@ -215,6 +219,11 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 			continue
 		}
 
+		if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload)); ok {
+			upstreamErr = parsed
+			continue
+		}
+
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
@@ -251,8 +260,9 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 	}
 
 	if finalResp == nil {
-		writeChatCompletionsError(c, http.StatusBadGateway, "server_error", "Upstream stream ended without a response")
-		return nil, fmt.Errorf("upstream stream ended without response")
+		status, errType, message := tkAnthropicBufferedFailure(c, requestID, upstreamErr)
+		writeChatCompletionsError(c, status, errType, message)
+		return nil, fmt.Errorf("upstream stream ended without response: %s", message)
 	}
 
 	if usage.InputTokens > 0 || usage.OutputTokens > 0 {
