@@ -12,6 +12,7 @@ package service
 // error_phase=internal / error_owner=platform / error_source=gateway.
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,8 +24,43 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
-	"github.com/tidwall/gjson"
 )
+
+var errBufferedAnthropicTestRead = errors.New("buffered anthropic test read failure")
+
+type errAfterPayloadReadCloser struct {
+	reader *strings.Reader
+}
+
+func (r *errAfterPayloadReadCloser) Read(p []byte) (int, error) {
+	if r.reader.Len() == 0 {
+		return 0, errBufferedAnthropicTestRead
+	}
+	return r.reader.Read(p)
+}
+
+func (r *errAfterPayloadReadCloser) Close() error { return nil }
+
+func anthropicMessageStartOnlySSE() string {
+	return strings.Join([]string{
+		"event: message_start",
+		`data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-opus-4-8","usage":{"input_tokens":10}}}`,
+		"",
+		"",
+	}, "\n")
+}
+
+func anthropicMessageStartThenErrorSSE(errType, message string) string {
+	return strings.Join([]string{
+		"event: message_start",
+		`data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-opus-4-8","usage":{"input_tokens":10}}}`,
+		"",
+		"event: error",
+		`data: {"type":"error","error":{"type":"` + errType + `","message":"` + message + `"}}`,
+		"",
+		"",
+	}, "\n")
+}
 
 func anthropicErrorOnlySSE(errType, message string) string {
 	return strings.Join([]string{
@@ -41,6 +77,18 @@ func newBufferedErrorUpstreamResponse(body string) *http.Response {
 		Header:     http.Header{"x-request-id": []string{"rid_buffered_err"}},
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
+}
+
+func newBufferedReadErrorUpstreamResponse(body string) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"x-request-id": []string{"rid_buffered_read_err"}},
+		Body:       &errAfterPayloadReadCloser{reader: strings.NewReader(body)},
+	}
+}
+
+func bufferedAnthropicTestAccount(platform string) *Account {
+	return &Account{ID: 1805, Name: "buffered-anthropic-test", Platform: platform}
 }
 
 func requireUpstreamAttributed(t *testing.T, c *gin.Context, wantUpstreamStatus int) {
@@ -88,15 +136,17 @@ func TestTKAnthropicBufferedError_CCPathAttributesUpstream(t *testing.T) {
 	)
 
 	svc := &GatewayService{}
-	result, err := svc.handleCCBufferedFromAnthropic(resp, c, "gpt-5", "claude-opus-4-8", nil, time.Now())
+	account := bufferedAnthropicTestAccount(PlatformAnthropic)
+	result, err := svc.handleCCBufferedFromAnthropic(resp, c, account, "gpt-5", "claude-opus-4-8", nil, time.Now())
 	require.Error(t, err)
 	require.Nil(t, result)
 
-	// Client sees the upstream reason and a retryable status, not an opaque 502.
-	require.Equal(t, http.StatusTooManyRequests, rec.Code)
-	body := rec.Body.String()
-	require.Equal(t, "rate_limit_error", gjson.Get(body, "error.type").String())
-	require.Contains(t, gjson.Get(body, "error.message").String(), "concurrent connections")
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusTooManyRequests, failoverErr.StatusCode)
+	require.Equal(t, "rate_limit_error", failoverErr.ClientErrorType)
+	require.Contains(t, failoverErr.ClientMessage, "concurrent connections")
+	require.False(t, c.Writer.Written())
 
 	requireUpstreamAttributed(t, c, http.StatusTooManyRequests)
 }
@@ -111,14 +161,18 @@ func TestTKAnthropicBufferedError_ResponsesPathAttributesUpstream(t *testing.T) 
 	)
 
 	svc := &GatewayService{}
+	account := bufferedAnthropicTestAccount(PlatformAnthropic)
 	result, err := svc.handleResponsesBufferedStreamingResponse(
-		resp, c, "gpt-5", "claude-opus-4-8", nil, time.Now(), apicompat.ResponsesClientToolMapping{},
+		resp, c, account, "gpt-5", "claude-opus-4-8", nil, time.Now(), apicompat.ResponsesClientToolMapping{},
 	)
 	require.Error(t, err)
 	require.Nil(t, result)
 
-	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
-	require.Equal(t, "overloaded_error", gjson.Get(rec.Body.String(), "error.code").String())
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusServiceUnavailable, failoverErr.ClientStatusCode)
+	require.Equal(t, "overloaded_error", failoverErr.ClientErrorType)
+	require.False(t, c.Writer.Written())
 
 	requireUpstreamAttributed(t, c, statusAnthropicOverloaded)
 }
@@ -133,15 +187,18 @@ func TestTKAnthropicBufferedError_NativeCCPathAttributesUpstream(t *testing.T) {
 	)
 
 	svc := &OpenAIGatewayService{}
+	account := bufferedAnthropicTestAccount(PlatformOpenAI)
 	result, err := svc.handleCCBufferedFromNativeAnthropic(
-		resp, c, "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(),
+		resp, c, account, "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(),
 	)
 	require.Error(t, err)
 	require.Nil(t, result)
 
-	// A client-caused 400 stays a 400 rather than being inflated to 502.
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Equal(t, "invalid_request_error", gjson.Get(rec.Body.String(), "error.type").String())
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadRequest, failoverErr.ClientStatusCode)
+	require.Equal(t, "invalid_request_error", failoverErr.ClientErrorType)
+	require.False(t, c.Writer.Written())
 
 	requireUpstreamAttributed(t, c, http.StatusBadRequest)
 }
@@ -156,15 +213,18 @@ func TestTKAnthropicBufferedError_NativeResponsesPathAttributesUpstream(t *testi
 	)
 
 	svc := &OpenAIGatewayService{}
+	account := bufferedAnthropicTestAccount(PlatformOpenAI)
 	result, err := svc.handleResponsesBufferedFromNativeAnthropic(
-		resp, c, "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(), apicompat.ResponsesClientToolMapping{},
+		resp, c, account, "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(), apicompat.ResponsesClientToolMapping{},
 	)
 	require.Error(t, err)
 	require.Nil(t, result)
 
-	// Upstream credential faults must not surface as a client 401.
-	require.Equal(t, http.StatusBadGateway, rec.Code)
-	require.Equal(t, "upstream_error", gjson.Get(rec.Body.String(), "error.code").String())
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.ClientStatusCode)
+	require.Equal(t, "upstream_error", failoverErr.ClientErrorType)
+	require.False(t, c.Writer.Written())
 
 	requireUpstreamAttributed(t, c, http.StatusUnauthorized)
 }
@@ -179,12 +239,14 @@ func TestTKAnthropicBufferedError_EmptyStreamStillAttributedUpstream(t *testing.
 	resp := newBufferedErrorUpstreamResponse("event: ping\ndata: {\"type\":\"ping\"}\n\n")
 
 	svc := &GatewayService{}
-	_, err := svc.handleCCBufferedFromAnthropic(resp, c, "gpt-5", "claude-opus-4-8", nil, time.Now())
+	account := bufferedAnthropicTestAccount(PlatformAnthropic)
+	_, err := svc.handleCCBufferedFromAnthropic(resp, c, account, "gpt-5", "claude-opus-4-8", nil, time.Now())
 	require.Error(t, err)
 
-	require.Equal(t, http.StatusBadGateway, rec.Code)
-	// Message is preserved for operators who learned to grep for it.
-	require.Contains(t, rec.Body.String(), "Upstream stream ended without a response")
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.ClientStatusCode)
+	require.False(t, c.Writer.Written())
 
 	requireUpstreamAttributed(t, c, http.StatusBadGateway)
 
@@ -213,7 +275,7 @@ func TestTKAnthropicBufferedError_HappyPathRecordsNoUpstreamError(t *testing.T) 
 	}, "\n"))
 
 	svc := &GatewayService{}
-	result, err := svc.handleCCBufferedFromAnthropic(resp, c, "gpt-5", "claude-opus-4-8", nil, time.Now())
+	result, err := svc.handleCCBufferedFromAnthropic(resp, c, bufferedAnthropicTestAccount(PlatformAnthropic), "gpt-5", "claude-opus-4-8", nil, time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -269,7 +331,7 @@ func TestTKParseAnthropicBufferedSSEError_IgnoresNonErrorEvents(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "rate_limit_error", parsed.ErrType)
 	require.Equal(t, "slow down", parsed.Message)
-	require.False(t, parsed.EmptyStream)
+	require.Equal(t, "stream_error", parsed.Kind)
 
 	// A bare error event with no usable message still classifies.
 	parsed, ok = tkParseAnthropicBufferedSSEError([]byte(`{"type":"error"}`), nil)
@@ -333,7 +395,7 @@ func TestTKAnthropicBufferedError_PartialContentThenErrorIsAttributed(t *testing
 	}, "\n"))
 
 	svc := &GatewayService{}
-	result, err := svc.handleCCBufferedFromAnthropic(resp, c, "gpt-5", "claude-opus-4-8", nil, time.Now())
+	result, err := svc.handleCCBufferedFromAnthropic(resp, c, bufferedAnthropicTestAccount(PlatformAnthropic), "gpt-5", "claude-opus-4-8", nil, time.Now())
 
 	// The partial answer is preserved rather than discarded.
 	require.NoError(t, err)
@@ -376,7 +438,7 @@ func TestTKAnthropicBufferedError_NativePartialContentThenErrorIsAttributed(t *t
 
 	svc := &OpenAIGatewayService{}
 	result, err := svc.handleCCBufferedFromNativeAnthropic(
-		resp, c, "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(),
+		resp, c, bufferedAnthropicTestAccount(PlatformOpenAI), "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -389,4 +451,199 @@ func TestTKAnthropicBufferedError_NativePartialContentThenErrorIsAttributed(t *t
 	require.Equal(t, "stream_truncated", events[0].Kind)
 
 	requireTruncationCountsTowardsSLA(t, c, http.StatusTooManyRequests)
+}
+
+func TestUS047_MessageStartThenErrorReturnsFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	resp := newBufferedErrorUpstreamResponse(
+		anthropicMessageStartThenErrorSSE("rate_limit_error", "slow down"),
+	)
+
+	svc := &GatewayService{}
+	account := bufferedAnthropicTestAccount(PlatformAnthropic)
+	result, err := svc.handleCCBufferedFromAnthropic(resp, c, account, "gpt-5", "claude-opus-4-8", nil, time.Now())
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusTooManyRequests, failoverErr.StatusCode)
+	require.Equal(t, http.StatusTooManyRequests, failoverErr.ClientStatusCode)
+	require.False(t, c.Writer.Written(), "service must not commit a response before failover is exhausted")
+
+	raw, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	events := raw.([]*OpsUpstreamErrorEvent)
+	require.Len(t, events, 1)
+	require.Equal(t, account.Platform, events[0].Platform)
+	require.Equal(t, account.ID, events[0].AccountID)
+	require.Equal(t, account.Name, events[0].AccountName)
+}
+
+func TestUS047_PartialContentThenErrorPreservesResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	resp := newBufferedErrorUpstreamResponse(strings.Join([]string{
+		"event: message_start",
+		`data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-opus-4-8","usage":{"input_tokens":10}}}`,
+		"",
+		"event: content_block_start",
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":"partial"}}`,
+		"",
+		"event: error",
+		`data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`,
+		"",
+		"",
+	}, "\n"))
+
+	svc := &GatewayService{}
+	result, err := svc.handleCCBufferedFromAnthropic(resp, c, bufferedAnthropicTestAccount(PlatformAnthropic), "gpt-5", "claude-opus-4-8", nil, time.Now())
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "partial")
+	requireTruncationCountsTowardsSLA(t, c, http.StatusServiceUnavailable)
+}
+
+func TestUS047_IncompleteEOFRoutesByContentAvailability(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("message_start only fails over", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		resp := newBufferedErrorUpstreamResponse(anthropicMessageStartOnlySSE())
+
+		result, err := (&GatewayService{}).handleCCBufferedFromAnthropic(
+			resp, c, bufferedAnthropicTestAccount(PlatformAnthropic), "gpt-5", "claude-opus-4-8", nil, time.Now(),
+		)
+
+		require.Nil(t, result)
+		var failoverErr *UpstreamFailoverError
+		require.True(t, errors.As(err, &failoverErr))
+		require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+		require.False(t, c.Writer.Written())
+	})
+
+	t.Run("content before EOF is preserved and marked", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		resp := newBufferedErrorUpstreamResponse(strings.Join([]string{
+			"event: message_start",
+			`data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-opus-4-8","usage":{"input_tokens":10}}}`,
+			"",
+			"event: content_block_start",
+			`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":"partial"}}`,
+			"",
+			"",
+		}, "\n"))
+
+		result, err := (&GatewayService{}).handleCCBufferedFromAnthropic(
+			resp, c, bufferedAnthropicTestAccount(PlatformAnthropic), "gpt-5", "claude-opus-4-8", nil, time.Now(),
+		)
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Contains(t, rec.Body.String(), "partial")
+		requireTruncationCountsTowardsSLA(t, c, http.StatusBadGateway)
+	})
+}
+
+func TestUS047_ScannerReadErrorRoutesByContentAvailability(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("message_start only fails over", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		resp := newBufferedReadErrorUpstreamResponse(anthropicMessageStartOnlySSE())
+
+		result, err := (&GatewayService{}).handleCCBufferedFromAnthropic(
+			resp, c, bufferedAnthropicTestAccount(PlatformAnthropic), "gpt-5", "claude-opus-4-8", nil, time.Now(),
+		)
+
+		require.Nil(t, result)
+		var failoverErr *UpstreamFailoverError
+		require.ErrorAs(t, err, &failoverErr)
+		require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+		require.Contains(t, failoverErr.ClientMessage, "read failed")
+		require.False(t, c.Writer.Written())
+
+		raw, ok := c.Get(OpsUpstreamErrorsKey)
+		require.True(t, ok)
+		events := raw.([]*OpsUpstreamErrorEvent)
+		require.Len(t, events, 1)
+		require.Equal(t, "stream_read_error", events[0].Kind)
+	})
+
+	t.Run("content before read error is preserved and marked", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		resp := newBufferedReadErrorUpstreamResponse(strings.Join([]string{
+			"event: message_start",
+			`data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-opus-4-8","usage":{"input_tokens":10}}}`,
+			"",
+			"event: content_block_start",
+			`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":"partial"}}`,
+			"",
+			"",
+		}, "\n"))
+
+		result, err := (&GatewayService{}).handleCCBufferedFromAnthropic(
+			resp, c, bufferedAnthropicTestAccount(PlatformAnthropic), "gpt-5", "claude-opus-4-8", nil, time.Now(),
+		)
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Contains(t, rec.Body.String(), "partial")
+		requireTruncationCountsTowardsSLA(t, c, http.StatusBadGateway)
+
+		raw, ok := c.Get(OpsUpstreamErrorsKey)
+		require.True(t, ok)
+		events := raw.([]*OpsUpstreamErrorEvent)
+		require.Len(t, events, 1)
+		require.Equal(t, "stream_truncated", events[0].Kind)
+	})
+}
+
+func TestUS047_CompletionBeforeReadErrorRemainsSuccessful(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	resp := newBufferedReadErrorUpstreamResponse(strings.Join([]string{
+		"event: message_start",
+		`data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-opus-4-8","usage":{"input_tokens":10}}}`,
+		"",
+		"event: content_block_start",
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":"complete"}}`,
+		"",
+		"event: message_delta",
+		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":4}}`,
+		"",
+		"",
+	}, "\n"))
+
+	result, err := (&GatewayService{}).handleCCBufferedFromAnthropic(
+		resp, c, bufferedAnthropicTestAccount(PlatformAnthropic), "gpt-5", "claude-opus-4-8", nil, time.Now(),
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "complete")
+	require.Empty(t, GetOpsStreamErrors(c))
+	_, hasUpstreamEvents := c.Get(OpsUpstreamErrorsKey)
+	require.False(t, hasUpstreamEvents)
+}
+
+func TestUS047_ClientErrorTypeMapping(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "not_found_error", tkAnthropicBufferedClientErrType("not_found_error"))
+	require.Equal(t, "request_too_large", tkAnthropicBufferedClientErrType("request_too_large"))
 }

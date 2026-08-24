@@ -6,6 +6,7 @@ package service
 
 import (
 	"bufio"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -28,6 +29,19 @@ func newNativeAnthropicHangTestService(intervalSec int) *OpenAIGatewayService {
 			},
 		},
 	}
+}
+
+func nativeBufferedAnthropicTestAccount() *Account {
+	return &Account{ID: 1805, Name: "native-buffered-anthropic-test", Platform: PlatformOpenAI}
+}
+
+func requireNativeBufferedTruncationCountsTowardsSLA(t *testing.T, c *gin.Context, wantIntendedStatus int) {
+	t.Helper()
+	streamErrs := GetOpsStreamErrors(c)
+	require.Len(t, streamErrs, 1)
+	require.True(t, streamErrs[0].CountTowardsSLA)
+	require.Equal(t, wantIntendedStatus, streamErrs[0].IntendedStatus)
+	require.Equal(t, "upstream_stream_truncated", streamErrs[0].Code)
 }
 
 func newHangingUpstreamResponse() (*http.Response, *io.PipeReader, *io.PipeWriter) {
@@ -142,19 +156,19 @@ func TestCCBufferedFromNativeAnthropic_HangTimesOut(t *testing.T) {
 
 	resp, pr, pw := newHangingUpstreamResponse()
 	start := time.Now()
-	_, err := svc.handleCCBufferedFromNativeAnthropic(resp, c, "glm-4.7", "glm-4.7", "glm-4.7", nil, start)
+	result, err := svc.handleCCBufferedFromNativeAnthropic(resp, c, nativeBufferedAnthropicTestAccount(), "glm-4.7", "glm-4.7", "glm-4.7", nil, start)
 	_ = pw.Close()
 	_ = pr.Close()
 
-	if err == nil || !strings.Contains(err.Error(), "stream data interval timeout") {
-		t.Fatalf("expected stream timeout error, got %v", err)
-	}
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.Contains(t, failoverErr.ClientMessage, "stream data interval timeout")
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("handler did not respect interval bound: %v", elapsed)
 	}
-	if !strings.Contains(rec.Body.String(), "Upstream stream data interval timeout") {
-		t.Fatalf("expected 502 error body, got %q", rec.Body.String())
-	}
+	require.False(t, c.Writer.Written(), "no-content timeout must remain replayable")
 }
 
 func TestResponsesStreamingFromNativeAnthropic_HangTimesOut(t *testing.T) {
@@ -228,7 +242,7 @@ func TestCCBufferedFromNativeAnthropic_HappyPathStillConverts(t *testing.T) {
 	}()
 	defer func() { _ = pr.Close() }()
 
-	res, err := svc.handleCCBufferedFromNativeAnthropic(resp, c, "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now())
+	res, err := svc.handleCCBufferedFromNativeAnthropic(resp, c, nativeBufferedAnthropicTestAccount(), "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -239,4 +253,58 @@ func TestCCBufferedFromNativeAnthropic_HappyPathStillConverts(t *testing.T) {
 	}
 	require.Equal(t, 10, res.Usage.InputTokens)
 	require.Equal(t, 5, res.Usage.OutputTokens)
+}
+
+func TestUS047_NativeBufferedIdleRoutesByContentAvailability(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("no content returns failover without writing", func(t *testing.T) {
+		svc := newNativeAnthropicHangTestService(1)
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+		resp, pr, pw := newHangingUpstreamResponse()
+
+		result, err := svc.handleCCBufferedFromNativeAnthropic(
+			resp, c, nativeBufferedAnthropicTestAccount(), "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(),
+		)
+		_ = pw.Close()
+		_ = pr.Close()
+
+		require.Nil(t, result)
+		var failoverErr *UpstreamFailoverError
+		require.True(t, errors.As(err, &failoverErr))
+		require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+		require.False(t, c.Writer.Written())
+	})
+
+	t.Run("partial content returns 200 and marks truncation", func(t *testing.T) {
+		svc := newNativeAnthropicHangTestService(1)
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+		resp, pr, pw := newHangingUpstreamResponse()
+		go func() {
+			_, _ = pw.Write([]byte(strings.Join([]string{
+				"event: message_start",
+				`data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"glm-4.7","usage":{"input_tokens":10}}}`,
+				"",
+				"event: content_block_start",
+				`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":"partial"}}`,
+				"",
+			}, "\n")))
+		}()
+
+		result, err := svc.handleCCBufferedFromNativeAnthropic(
+			resp, c, nativeBufferedAnthropicTestAccount(), "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(),
+		)
+		_ = pw.Close()
+		_ = pr.Close()
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Contains(t, rec.Body.String(), "partial")
+		requireNativeBufferedTruncationCountsTowardsSLA(t, c, http.StatusBadGateway)
+	})
 }

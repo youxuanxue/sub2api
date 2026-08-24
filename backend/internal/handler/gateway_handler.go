@@ -1962,7 +1962,11 @@ func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *se
 		if message == "" {
 			message = service.GatewayFailoverClientMessage(failoverErr.ClientStatusCode)
 		}
-		h.handleStreamingAwareError(c, failoverErr.ClientStatusCode, "api_error", message, streamStarted)
+		errType := strings.TrimSpace(failoverErr.ClientErrorType)
+		if errType == "" {
+			errType = "api_error"
+		}
+		h.handleStreamingAwareError(c, failoverErr.ClientStatusCode, errType, message, streamStarted)
 		return
 	}
 

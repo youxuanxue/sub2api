@@ -6940,50 +6940,97 @@
       "path": "backend/internal/service/gateway_anthropic_buffered_error_tk.go",
       "must_contain": [
         "func tkParseAnthropicBufferedSSEError(payload []byte, cfg *config.Config) (*tkAnthropicBufferedUpstreamError, bool)",
+        "func tkAnthropicBufferedHasUsableContent(finalResp *apicompat.AnthropicResponse) bool",
+        "func tkAnthropicBufferedEventCompletesMessage(event *apicompat.AnthropicStreamEvent) bool",
         "func tkAnthropicBufferedFailure(",
+        "func (s *GatewayService) tkAnthropicBufferedFailoverError(",
+        "func (s *OpenAIGatewayService) tkAnthropicBufferedFailoverError(",
         "func tkAnthropicBufferedPartialFailure(",
         "func tkRecordAnthropicBufferedUpstreamError(",
         "setOpsUpstreamError(c, upstreamErr.UpstreamStatus, upstreamErr.Message, upstreamErr.Detail)",
-        "appendOpsUpstreamError(c, OpsUpstreamErrorEvent{",
+        "appendOpsUpstreamError(c, event)",
+        "event.AccountID = account.ID",
+        "ClientErrorType:   tkAnthropicBufferedClientErrType(upstreamErr.ErrType)",
         "MarkOpsStreamFailure("
       ],
-      "rationale": "Single owner for 'buffered Anthropic SSE assembly produced no message'. apicompat.AnthropicStreamEvent does not model terminal `error` events, so all four buffered assembly loops used to drop them, return a bare 502, and record no upstream context — classifyOpsErrorLog then booked the upstream fault as error_phase=internal / error_owner=platform / error_source=gateway (prod 2026-08-24: 124 rows). The setOpsUpstreamError + appendOpsUpstreamError pair is what flips attribution to provider; losing either one silently restores gateway-owned SLA pollution while still compiling. tkAnthropicBufferedPartialFailure additionally calls MarkOpsStreamFailure: upstream context alone on a sub-400 wire status routes to logOpsRecoveredUpstream, which deliberately keeps recovered attempts outside request SLA — correct for a retry that succeeded, wrong for a truncated answer. Dropping that call compiles clean and silently lets truncated responses escape SLA again."
+      "rationale": "Single owner for buffered Anthropic SSE completion and failure semantics. A HTTP 200 stream can still terminate through an error frame, read failure, idle timeout, or incomplete EOF. Before any content block this owner returns an account-aware UpstreamFailoverError without committing the response; after content it preserves the partial response and marks stream_truncated toward SLA to avoid replay and duplicate billing. Completion detection, client error type mapping, provider/account attribution, and both Gateway/OpenAI account-health wrappers must remain centralized or an upstream merge can silently restore empty 200s, gateway-owned SLA pollution, or missing failover."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
       "must_contain": [
         "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {",
-        "status, errType, message := tkAnthropicBufferedFailure(c, requestID, upstreamErr)",
-        "tkAnthropicBufferedPartialFailure(c, requestID, upstreamErr)"
+        "if tkAnthropicBufferedEventCompletesMessage(&event) {",
+        "streamCompleted = true\n\t\t\tbreak",
+        "if !tkAnthropicBufferedHasUsableContent(finalResp) {",
+        "s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, mappedModel, upstreamErr)",
+        "tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)"
       ],
-      "rationale": "Anthropic-platform CC buffered path must capture terminal upstream `error` events and attribute the no-message fallthrough upstream. This is the path that produced the prod incident. Dropping either hook compiles clean and reverts to an opaque 502 that clients retry against."
+      "rationale": "Anthropic-platform CC buffered path must capture every terminal failure, distinguish message_start-only from usable content, enter account failover before response commit, and preserve+mark partial content. Dropping a hook compiles cleanly but restores empty 200s, direct 502s, or replay of billable partial answers."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_responses.go",
       "must_contain": [
         "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {",
-        "status, errCode, message := tkAnthropicBufferedFailure(c, requestID, upstreamErr)",
-        "tkAnthropicBufferedPartialFailure(c, requestID, upstreamErr)"
+        "if tkAnthropicBufferedEventCompletesMessage(&event) {",
+        "streamCompleted = true\n\t\t\tbreak",
+        "if !tkAnthropicBufferedHasUsableContent(finalResp) {",
+        "s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, mappedModel, upstreamErr)",
+        "tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)"
       ],
-      "rationale": "Anthropic-platform Responses buffered path shares the buffered-assembly defect with the CC path; same silent-revert risk on upstream merge."
+      "rationale": "Anthropic-platform Responses buffered path shares the same completion, failover-before-write, and partial-truncation contract as Chat Completions."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_anthropic_native.go",
       "must_contain": [
         "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {",
-        "status, errType, message := tkAnthropicBufferedFailure(c, requestID, upstreamErr)",
-        "tkAnthropicBufferedPartialFailure(c, requestID, upstreamErr)"
+        "if tkAnthropicBufferedEventCompletesMessage(&event) {",
+        "streamCompleted = true\n\t\t\tbreak",
+        "if !tkAnthropicBufferedHasUsableContent(finalResp) {",
+        "s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, upstreamModel, upstreamErr)",
+        "tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)"
       ],
-      "rationale": "CN native-Anthropic CC buffered path (api_protocol=anthropic upstreams) shares the same assembly loop and the same misattribution risk."
+      "rationale": "Native-Anthropic CC buffered path shares the same completion, failover-before-write, and partial-truncation contract, including idle timeout handling."
     },
     {
       "path": "backend/internal/service/openai_gateway_responses_anthropic_native.go",
       "must_contain": [
         "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {",
-        "status, errCode, message := tkAnthropicBufferedFailure(c, requestID, upstreamErr)",
-        "tkAnthropicBufferedPartialFailure(c, requestID, upstreamErr)"
+        "if tkAnthropicBufferedEventCompletesMessage(&event) {",
+        "streamCompleted = true\n\t\t\tbreak",
+        "if !tkAnthropicBufferedHasUsableContent(finalResp) {",
+        "s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, upstreamModel, upstreamErr)",
+        "tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)"
       ],
-      "rationale": "CN native-Anthropic Responses buffered path shares the same assembly loop and the same misattribution risk."
+      "rationale": "Native-Anthropic Responses buffered path shares the same completion, failover-before-write, and partial-truncation contract, including idle timeout handling."
+    },
+    {
+      "path": "backend/internal/handler/gateway_anthropic_buffered_failover_tk_test.go",
+      "must_contain": [
+        "TestUS047_GatewayFailoverExhaustedPreservesClientErrorType",
+        "TestUS047_ResponsesFailoverExhaustedPreservesClientErrorType",
+        "TestUS047_OpenAIFailoverExhaustedPreservesClientErrorType",
+        "TestUS047_EmptyClientErrorTypeKeepsLegacyDefaults"
+      ],
+      "rationale": "Final exhausted handlers are separate protocol surfaces. These regressions pin 404 not_found_error and 413 request_too_large propagation while preserving the legacy default for older failover producers that do not set ClientErrorType."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_buffered_error_tk_test.go",
+      "must_contain": [
+        "TestUS047_MessageStartThenErrorReturnsFailover",
+        "TestUS047_PartialContentThenErrorPreservesResponse",
+        "TestUS047_IncompleteEOFRoutesByContentAvailability",
+        "TestUS047_ScannerReadErrorRoutesByContentAvailability",
+        "TestUS047_CompletionBeforeReadErrorRemainsSuccessful",
+        "TestUS047_ClientErrorTypeMapping"
+      ],
+      "rationale": "US-047 behavior anchors for error frames, message_start-only/incomplete EOF, partial-content truncation, account attribution, and final client error mapping."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_anthropic_native_pump_test.go",
+      "must_contain": [
+        "TestUS047_NativeBufferedIdleRoutesByContentAvailability"
+      ],
+      "rationale": "Native-Anthropic idle timeout must remain failover-safe before content and preserve+mark partial content after the first content block."
     }
   ]
 }

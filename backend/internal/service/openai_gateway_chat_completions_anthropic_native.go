@@ -138,7 +138,7 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 	if clientStream {
 		return s.handleCCStreamingFromNativeAnthropic(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, includeUsage)
 	}
-	return s.handleCCBufferedFromNativeAnthropic(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
+	return s.handleCCBufferedFromNativeAnthropic(resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
 }
 
 // handleCCBufferedFromNativeAnthropic reads Anthropic SSE events, assembles the
@@ -146,6 +146,7 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 	resp *http.Response,
 	c *gin.Context,
+	account *Account,
 	originalModel string,
 	billingModel string,
 	upstreamModel string,
@@ -163,6 +164,7 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 
 	var finalResp *apicompat.AnthropicResponse
 	var usage ClaudeUsage
+	streamCompleted := false
 	// TK: terminal Anthropic `error` events are not modelled by
 	// apicompat.AnthropicStreamEvent; capture them so the fallthrough below can
 	// attribute the failure upstream instead of to the gateway.
@@ -181,23 +183,20 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 			)
 		}
 	}
-	onIdle := func() (*OpenAIForwardResult, error) {
-		_ = resp.Body.Close()
-		logger.L().Warn("openai cc via native anthropic buffered: data interval timeout",
-			zap.String("request_id", requestID),
-			zap.Duration("interval", streamInterval),
-		)
-		writeChatCompletionsError(c, http.StatusBadGateway, "server_error", "Upstream stream data interval timeout")
-		return nil, fmt.Errorf("stream data interval timeout")
-	}
-
 	for {
 		line, rerr := pump.next()
 		if rerr != nil {
 			if errors.Is(rerr, errAnthropicNativeStreamIdle) {
-				return onIdle()
+				_ = resp.Body.Close()
+				logger.L().Warn("openai cc via native anthropic buffered: data interval timeout",
+					zap.String("request_id", requestID),
+					zap.Duration("interval", streamInterval),
+				)
+				upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_timeout", "Upstream stream data interval timeout")
+			} else if !errors.Is(rerr, io.EOF) {
+				logReadErr(rerr)
+				upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_read_error", "Upstream stream read failed before response completion")
 			}
-			logReadErr(rerr)
 			break
 		}
 		// SSE 规范允许 `event:xxx`（冒号后无空格）：Kimi 等 Anthropic 兼容上游
@@ -209,9 +208,16 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 		dataLine, rerr := pump.next()
 		if rerr != nil {
 			if errors.Is(rerr, errAnthropicNativeStreamIdle) {
-				return onIdle()
+				_ = resp.Body.Close()
+				logger.L().Warn("openai cc via native anthropic buffered: data interval timeout",
+					zap.String("request_id", requestID),
+					zap.Duration("interval", streamInterval),
+				)
+				upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_timeout", "Upstream stream data interval timeout")
+			} else if !errors.Is(rerr, io.EOF) {
+				logReadErr(rerr)
+				upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_read_error", "Upstream stream read failed before response completion")
 			}
-			logReadErr(rerr)
 			break
 		}
 		payload, ok := extractOpenAISSEDataLine(dataLine)
@@ -221,7 +227,7 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 
 		if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {
 			upstreamErr = parsed
-			continue
+			break
 		}
 
 		var event apicompat.AnthropicStreamEvent
@@ -241,6 +247,10 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 				finalResp.StopReason = apicompat.AnthropicStopReasonPtr(event.Delta.StopReason)
 			}
 		}
+		if tkAnthropicBufferedEventCompletesMessage(&event) {
+			streamCompleted = true
+			break
+		}
 		if event.Type == "content_block_start" && event.ContentBlock != nil && finalResp != nil {
 			finalResp.Content = append(finalResp.Content, *event.ContentBlock)
 		}
@@ -259,16 +269,18 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 		}
 	}
 
-	if finalResp == nil {
-		status, errType, message := tkAnthropicBufferedFailure(c, requestID, upstreamErr)
-		writeChatCompletionsError(c, status, errType, message)
-		return nil, fmt.Errorf("upstream stream ended without response: %s", message)
+	if !streamCompleted && upstreamErr == nil {
+		upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_incomplete", "Upstream stream ended before response completion")
 	}
-
-	// TK: upstream errored after partial content. Keep the tokens the client
-	// already paid for, but attribute the provider fault instead of reporting a
-	// clean success.
-	tkAnthropicBufferedPartialFailure(c, requestID, upstreamErr)
+	if upstreamErr != nil {
+		if !tkAnthropicBufferedHasUsableContent(finalResp) {
+			return nil, s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, upstreamModel, upstreamErr)
+		}
+		tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)
+	}
+	if finalResp == nil {
+		return nil, s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, upstreamModel, nil)
+	}
 
 	if usage.InputTokens > 0 || usage.OutputTokens > 0 {
 		finalResp.Usage = apicompat.AnthropicUsage{

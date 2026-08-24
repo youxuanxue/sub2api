@@ -58,7 +58,7 @@ func TestHandleCCBufferedFromAnthropic_NonStream_ReturnsApplicationJSONContentTy
 	svc := &GatewayService{
 		responseHeaderFilter: responseheaders.CompileHeaderFilter(config.ResponseHeaderConfig{}),
 	}
-	result, err := svc.handleCCBufferedFromAnthropic(resp, c, "claude-sonnet-4.5", "claude-sonnet-4.5", nil, time.Now())
+	result, err := svc.handleCCBufferedFromAnthropic(resp, c, nil, "claude-sonnet-4.5", "claude-sonnet-4.5", nil, time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.False(t, result.Stream, "non-stream request must produce non-stream result")

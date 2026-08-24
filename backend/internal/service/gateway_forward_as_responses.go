@@ -214,7 +214,7 @@ func (s *GatewayService) ForwardAsResponses(
 	if clientStream {
 		result, handleErr = s.handleResponsesStreamingResponse(resp, c, originalModel, mappedModel, reasoningEffort, startTime, clientToolMapping)
 	} else {
-		result, handleErr = s.handleResponsesBufferedStreamingResponse(resp, c, originalModel, mappedModel, reasoningEffort, startTime, clientToolMapping)
+		result, handleErr = s.handleResponsesBufferedStreamingResponse(resp, c, account, originalModel, mappedModel, reasoningEffort, startTime, clientToolMapping)
 	}
 
 	return result, handleErr
@@ -330,6 +330,7 @@ func parseAnthropicSSEField(line, field string) (string, bool) {
 func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	resp *http.Response,
 	c *gin.Context,
+	account *Account,
 	originalModel string,
 	mappedModel string,
 	reasoningEffort *string,
@@ -348,6 +349,7 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	// Accumulate the final Anthropic response from streaming events
 	var finalResp *apicompat.AnthropicResponse
 	var usage ClaudeUsage
+	streamCompleted := false
 	// TK: terminal Anthropic `error` events are not modelled by
 	// apicompat.AnthropicStreamEvent; capture them so the fallthrough below can
 	// attribute the failure upstream instead of to the gateway.
@@ -372,7 +374,7 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 
 		if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {
 			upstreamErr = parsed
-			continue
+			break
 		}
 
 		var event apicompat.AnthropicStreamEvent
@@ -399,6 +401,10 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 			if event.Delta != nil && event.Delta.StopReason != "" && finalResp != nil {
 				finalResp.StopReason = apicompat.AnthropicStopReasonPtr(event.Delta.StopReason)
 			}
+		}
+		if tkAnthropicBufferedEventCompletesMessage(&event) {
+			streamCompleted = true
+			break
 		}
 
 		// Accumulate content blocks
@@ -427,18 +433,23 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 				zap.String("request_id", requestID),
 			)
 		}
+		if upstreamErr == nil {
+			upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_read_error", "Upstream stream read failed before response completion")
+		}
 	}
 
+	if !streamCompleted && upstreamErr == nil {
+		upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_incomplete", "Upstream stream ended before response completion")
+	}
+	if upstreamErr != nil {
+		if !tkAnthropicBufferedHasUsableContent(finalResp) {
+			return nil, s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, mappedModel, upstreamErr)
+		}
+		tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)
+	}
 	if finalResp == nil {
-		status, errCode, message := tkAnthropicBufferedFailure(c, requestID, upstreamErr)
-		writeResponsesError(c, status, errCode, message)
-		return nil, fmt.Errorf("upstream stream ended without response: %s", message)
+		return nil, s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, mappedModel, nil)
 	}
-
-	// TK: upstream errored after partial content. Keep the tokens the client
-	// already paid for, but attribute the provider fault instead of reporting a
-	// clean success.
-	tkAnthropicBufferedPartialFailure(c, requestID, upstreamErr)
 
 	// Update usage from accumulated delta
 	if usage.InputTokens > 0 || usage.OutputTokens > 0 {
