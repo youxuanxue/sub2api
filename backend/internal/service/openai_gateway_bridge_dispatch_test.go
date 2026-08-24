@@ -50,6 +50,16 @@ func TestOpenAIShouldDispatchToNewAPIBridge(t *testing.T) {
 			want:     true,
 		},
 		{
+			name: "deepseek newapi chat endpoint",
+			account: &Account{
+				Type:        AccountTypeAPIKey,
+				ChannelType: newapiconstant.ChannelTypeDeepSeek,
+				Platform:    domain.PlatformNewAPI,
+			},
+			endpoint: BridgeEndpointChatCompletions,
+			want:     true,
+		},
+		{
 			name: "volcengine Agent Plan uses native OpenAI path",
 			account: &Account{
 				Type:        AccountTypeAPIKey,

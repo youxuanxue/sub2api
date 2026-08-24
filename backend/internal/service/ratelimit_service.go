@@ -392,6 +392,13 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		return true
 	}
 
+	// CloudWise model pools are independent. Handle their model-balance 402
+	// before pool-mode and custom-error-code early exits so every CloudWise
+	// account shape persists the same exact-model five-hour cooldown.
+	if s.tkTryCloudwiseModelBalanceCooldown(ctx, account, statusCode, responseBody, firstRequestedModel(requestedModel)) {
+		return true
+	}
+
 	// 池模式默认不标记本地账号状态；但管理员显式配置的临时不可调度规则优先。
 	// 401 保留现有认证错误语义，不在这里改变池模式的认证处理。
 	if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic {

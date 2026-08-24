@@ -10,7 +10,7 @@ import (
 // cooldown reasons only persist model_rate_limits and incident telemetry.
 func isWholeAccountRuntimeBlockReason(reason string) bool {
 	switch strings.TrimSpace(reason) {
-	case "429_codex_metered", "429_model_class", "429_mirror_class_downstream_empty", "429_openai_mirror_downstream_empty":
+	case "402_cloudwise_model_balance", "429_codex_metered", "429_model_class", "429_mirror_class_downstream_empty", "429_openai_mirror_downstream_empty":
 		return false
 	default:
 		return true

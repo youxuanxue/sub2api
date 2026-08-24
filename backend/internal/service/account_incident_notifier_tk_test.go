@@ -139,6 +139,16 @@ func TestClassifyIncident(t *testing.T) {
 	}
 }
 
+func TestClassifyIncident_CloudwiseModelBalance402IsModelScopedCooldown(t *testing.T) {
+	got := classifyIncident("402_cloudwise_model_balance", time.Now().Add(5*time.Hour), IncidentKindUnknown)
+
+	require.True(t, got.alert)
+	require.Equal(t, IncidentKindTemporaryCooldown, got.kind)
+	require.Equal(t, "402_cloudwise_model_balance", got.reasonClass)
+	require.Contains(t, got.kindZh, "模型")
+	require.Contains(t, got.advice, "其它模型")
+}
+
 func TestFormatAlertTime(t *testing.T) {
 	t.Parallel()
 	utc := time.Date(2026, 6, 5, 10, 31, 34, 0, time.UTC)
