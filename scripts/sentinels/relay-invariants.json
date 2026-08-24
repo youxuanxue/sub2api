@@ -3,6 +3,13 @@
   "rationale": "Relay-invariant test registry. Each entry pins a load-bearing, TokenKey-DELIBERATE relay behavior to the characterization test(s) that encode it. PR #835 (80 upstream commits) showed the recurring failure class this guards: an upstream rewrite silently deletes a TK behavior (G4 5h-window cooldown class, kiro/grok refresh candidates) or overrides a deliberate TK choice (SSE stream-error 502→403) with no merge conflict, no compile error, and a green CI — because the only proof of the TK choice was a test that got deleted/gutted in the same merge. This registry makes that mechanically impossible: `must_contain` anchors each test's FUNCTION DEFINITION (`func TestX(`), so an upstream merge that removes or renames the test fails this check (run by scripts/preflight.sh AND .github/workflows/upstream-merge-pr-shape.yml). The schema is the standard sentinels/path/must_contain form (not a bespoke one) so check-registry-update-gate.py also treats these test files as covered surfaces — deleting a pinned test then additionally trips the registry-update gate. Adding a new load-bearing TK relay behavior MUST add its characterization test AND an entry here in the same commit. Conversely, if you intentionally retire a behavior, you must edit this registry in the same PR (which is the human-review checkpoint, not a rubber stamp).",
   "sentinels": [
     {
+      "path": "backend/internal/service/openai_compat_model_test.go",
+      "must_contain": [
+        "func TestForwardAsAnthropic_DisablesAPIKeyContinuationWhenUpstreamRejectsHTTPContinuation("
+      ],
+      "rationale": "OpenAI API-key relay HTTP continuation fallback. An API-key account can route through an OAuth-backed edge that rejects previous_response_id on HTTP; the gateway must replay full history once and disable continuation for the sticky window instead of returning repeated 400s. The characterization test pins both the exact relay error classification and the subsequent no-continuation behavior so an upstream rewrite cannot silently remove the recovery path together with its test."
+    },
+    {
       "path": "backend/internal/service/ratelimit_service_tk_model_cooldown_test.go",
       "must_contain": [
         "func TestG4_OverallWindow429_CoolsAccountNotModelClass(",
