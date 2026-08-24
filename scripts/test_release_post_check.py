@@ -247,7 +247,7 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
         by_id = {c["id"]: c for c in result["checks"]}
         self.assertEqual(by_id["pr-1780-Status=424"]["verdict"], "fail")
 
-    def test_evaluate_observe_weekly_limit_does_not_redden(self) -> None:
+    def test_evaluate_observe_weekly_limit_and_sparse_5xx_do_not_redden(self) -> None:
         tick = {
             "hooks": {"WEEKLY_LIMIT_EXCEEDED": 12, "Status=424": 0, "NEW_LIMIT_CODE": 0},
             "panic": 0,
@@ -259,6 +259,36 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
         by_id = {c["id"]: c for c in result["checks"]}
         self.assertEqual(by_id["pr-1781-WEEKLY_LIMIT_EXCEEDED"]["verdict"], "observe")
         self.assertEqual(by_id["status-5xx"]["verdict"], "observe")
+        self.assertEqual(by_id["status-5xx"]["observed"]["total"], 2)
+
+    def test_evaluate_red_on_5xx_storm_seen_in_v1_8_171_release(self) -> None:
+        tick = {
+            "hooks": {},
+            "panic": 0,
+            "status_5xx": {"502": 21},
+            "completed_total": 125,
+        }
+        result = rpc.evaluate(self._plan(), tick, control_plane_ok=True)
+        self.assertEqual(result["verdict"], "red")
+        by_id = {c["id"]: c for c in result["checks"]}
+        self.assertEqual(by_id["status-5xx"]["verdict"], "fail")
+        self.assertEqual(by_id["status-5xx"]["observed"]["total"], 21)
+        self.assertEqual(
+            by_id["status-5xx"]["observed"]["storm_threshold"],
+            rpc.ERROR_STORM_THRESHOLD,
+        )
+
+    def test_evaluate_5xx_storm_threshold_is_inclusive_across_statuses(self) -> None:
+        tick = {
+            "hooks": {},
+            "panic": 0,
+            "status_5xx": {"500": 9, "502": 10, "503": 1},
+            "completed_total": 40,
+        }
+        result = rpc.evaluate(self._plan(), tick, control_plane_ok=True)
+        self.assertEqual(result["verdict"], "red")
+        by_id = {c["id"]: c for c in result["checks"]}
+        self.assertEqual(by_id["status-5xx"]["observed"]["total"], 20)
 
     def test_evaluate_red_on_added_error_ctor_storm(self) -> None:
         tick = {
@@ -270,7 +300,7 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
         result = rpc.evaluate(self._plan(), tick, control_plane_ok=True)
         self.assertEqual(result["verdict"], "red")
 
-    def test_evaluate_red_on_panic_or_control_plane_not_ambient_5xx(self) -> None:
+    def test_evaluate_red_on_panic_or_control_plane_not_sparse_5xx(self) -> None:
         tick = {"hooks": {}, "panic": 1, "status_5xx": {}, "completed_total": 1}
         self.assertEqual(rpc.evaluate(self._plan(), tick, control_plane_ok=True)["verdict"], "red")
         tick = {"hooks": {}, "panic": 0, "status_5xx": {"500": 2}, "completed_total": 1}
