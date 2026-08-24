@@ -105,7 +105,8 @@ if [ "$CHANGE_COUNT" = "0" ]; then
 fi
 
 HOOKS="$(python3 "$PLANNER" hook-patterns --plan-file "$PLAN_FILE")"
-echo "[run-post-release-check] phase=$PHASE since=$SINCE plan=$PLAN_FILE changes=$CHANGE_COUNT hooks=$HOOKS" >&2
+TRAFFIC_PATHS="$(python3 "$PLANNER" traffic-paths --plan-file "$PLAN_FILE")"
+echo "[run-post-release-check] phase=$PHASE since=$SINCE plan=$PLAN_FILE changes=$CHANGE_COUNT hooks=$HOOKS traffic_paths=$TRAFFIC_PATHS" >&2
 
 CP_OK="${CONTROL_PLANE_OK:-true}"
 if [ "$SKIP_PROBE" -eq 0 ]; then
@@ -129,6 +130,7 @@ print("ok" if any(r.get("summary")=="control_plane" and r.get("status")=="ok" fo
     --script "$ROOT/ops/observability/probe-post-release-tick.sh" \
     --env "SINCE=${SINCE}" \
     --env "HOOK_PATTERNS=${HOOKS}" \
+    --env "TRAFFIC_PATHS=${TRAFFIC_PATHS}" \
     --timeout-seconds 120 \
     | tee "$TICK_OUT"
   PROBE_RC=${PIPESTATUS[0]}

@@ -9,6 +9,7 @@ observables from the actual diff plus a path table.
 Subcommands:
   plan --live vX.Y.Z --new vA.B.C [--repo DIR]
   hook-patterns --plan-file PATH
+  traffic-paths --plan-file PATH
   evaluate --plan-file PATH --tick-file PATH [--phase immediate|delayed]
   wait --since RFC3339 [--minimum-seconds 300]
   summary --evaluation-file PATH --immediate-evaluation-file PATH
@@ -272,6 +273,16 @@ def hook_patterns(plan: dict[str, Any]) -> list[str]:
     return patterns
 
 
+def traffic_paths(plan: dict[str, Any]) -> list[str]:
+    paths: list[str] = []
+    for item in plan.get("checks") or []:
+        for path in item.get("traffic_paths") or []:
+            normalized = str(path).strip()
+            if normalized and normalized not in paths:
+                paths.append(normalized)
+    return paths
+
+
 def parse_tick_stdout(stdout: str) -> dict[str, Any]:
     hooks: dict[str, int] = {}
     panic = 0
@@ -281,6 +292,7 @@ def parse_tick_stdout(stdout: str) -> dict[str, Any]:
         "top_paths": [],
         "path_counts": {},
     }
+    traffic_present = False
     section = ""
     for raw in stdout.splitlines():
         line = raw.strip()
@@ -304,6 +316,7 @@ def parse_tick_stdout(stdout: str) -> dict[str, Any]:
                 "top_paths": obj.get("top_paths") or [],
                 "path_counts": obj.get("path_counts") or {},
             }
+            traffic_present = True
     return {
         "hooks": hooks,
         "panic": panic,
@@ -311,6 +324,7 @@ def parse_tick_stdout(stdout: str) -> dict[str, Any]:
         "completed_total": traffic["completed_total"],
         "top_paths": traffic["top_paths"],
         "path_counts": traffic["path_counts"],
+        "traffic_present": traffic_present,
     }
 
 
@@ -352,6 +366,17 @@ def evaluate(
                 "observed": {"ok": True},
             }
         )
+
+    if tick.get("traffic_present") is False:
+        results.append(
+            {
+                "id": "traffic-evidence",
+                "source": "baseline",
+                "verdict": "fail",
+                "observed": {"present": False},
+            }
+        )
+        bump("red")
 
     panic = int(tick.get("panic") or 0)
     if panic:
@@ -546,12 +571,16 @@ def _baseline_failures(evaluation: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _pr_evidence_counts(evaluation: dict[str, Any]) -> str:
-    counts = {"pass": 0, "inconclusive": 0, "fail": 0}
+    counts = {"pass": 0, "inconclusive": 0, "observe": 0, "fail": 0}
     for item in _pr_checks(evaluation):
         verdict = item.get("verdict")
         if verdict in counts:
             counts[verdict] += 1
-    return ", ".join(f"{verdict}={counts[verdict]}" for verdict in counts)
+    return ", ".join(
+        f"{verdict}={counts[verdict]}"
+        for verdict in counts
+        if verdict != "observe" or counts[verdict]
+    )
 
 
 def render_summary(
@@ -692,6 +721,9 @@ def main(argv: list[str] | None = None) -> int:
     p_hooks = sub.add_parser("hook-patterns")
     p_hooks.add_argument("--plan-file", required=True)
 
+    p_traffic = sub.add_parser("traffic-paths")
+    p_traffic.add_argument("--plan-file", required=True)
+
     p_eval = sub.add_parser("evaluate")
     p_eval.add_argument("--plan-file", required=True)
     p_eval.add_argument("--tick-file", required=True)
@@ -717,6 +749,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "hook-patterns":
         plan = _load_json(args.plan_file)
         print(",".join(hook_patterns(plan)))
+        return 0
+    if args.cmd == "traffic-paths":
+        plan = _load_json(args.plan_file)
+        print(",".join(traffic_paths(plan)))
         return 0
     if args.cmd == "wait":
         remaining = seconds_until_window(args.since, args.minimum_seconds)

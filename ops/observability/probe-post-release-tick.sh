@@ -18,6 +18,8 @@
 #   HOOK_PATTERNS  comma-separated FIXED strings from release_post_check.py
 #                  hook-patterns (grep -F). Example: Status=424,WEEKLY_LIMIT_EXCEEDED
 #                  Empty → hooks section reports none configured.
+#   TRAFFIC_PATHS  comma-separated paths from release_post_check.py whose exact
+#                  counts are needed for PR evidence. Empty → no exact counts.
 #
 # Output: stable `=== section ===` markers; the traffic section is JSON
 # (row_to_json-style) so downstream parsing never relies on column position.
@@ -29,6 +31,7 @@ SINCE="${SINCE:-6m}"
 CONTAINER="${CONTAINER:-auto}"
 ACTIVE_COLOR_FILE="${ACTIVE_COLOR_FILE:-/var/lib/tokenkey/active-color}"
 HOOK_PATTERNS="${HOOK_PATTERNS:-}"
+TRAFFIC_PATHS="${TRAFFIC_PATHS:-}"
 
 # Where the canonical resolver lives. run-probe.sh uploads
 # resolve_app_container.py next to this probe (/tmp); a repo checkout has it
@@ -38,14 +41,14 @@ export TK_LIB_DIR
 
 TK_PROBE_DIR="$(cd "$(dirname "$0")" && pwd)"
 export TK_PROBE_DIR
-python3 - "$SINCE" "$CONTAINER" "$HOOK_PATTERNS" "$ACTIVE_COLOR_FILE" <<'PY'
+python3 - "$SINCE" "$CONTAINER" "$HOOK_PATTERNS" "$ACTIVE_COLOR_FILE" "$TRAFFIC_PATHS" <<'PY'
 import json
 import pathlib
 import re
 import subprocess
 import sys
 
-since, container_arg, hook_patterns_raw, active_color_file = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+since, container_arg, hook_patterns_raw, active_color_file, traffic_paths_raw = sys.argv[1:6]
 
 
 
@@ -167,9 +170,12 @@ for ln in lines:
 
 print("=== traffic ===")
 top = sorted(by_path.items(), key=lambda kv: (-kv[1], kv[0]))[:10]
+requested_paths = list(dict.fromkeys(
+    path.strip() for path in traffic_paths_raw.split(",") if path.strip()
+))
 print(json.dumps({
     "completed_total": total,
-    "path_counts": by_path,
+    "path_counts": {path: by_path.get(path, 0) for path in requested_paths},
     "top_paths": [{"path": p, "n": n} for p, n in top],
     "status_5xx": status_5xx,
 }))

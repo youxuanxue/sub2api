@@ -91,7 +91,12 @@ log() {
 }
 
 record_cutover() {
+  local cutover_tmp
   CUTOVER_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  cutover_tmp="${ROOT}/.last-cutover-at.$$"
+  printf '%s\n' "${CUTOVER_AT}" | sudo tee "${cutover_tmp}" >/dev/null
+  sudo chmod 0644 "${cutover_tmp}"
+  sudo mv "${cutover_tmp}" "${ROOT}/last-cutover-at"
   echo "tk_stage0_cutover: timestamp=${CUTOVER_AT}"
 }
 
@@ -910,7 +915,34 @@ if [[ "${status}" != "Success" ]]; then
   exit 1
 fi
 
-cutover_at="$(sed -n 's/.*tk_stage0_cutover: timestamp=\([0-9T:Z-]*\).*/\1/p' "${stdout_file}" | tail -1)"
+cutover_cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
+  --instance-ids "${INSTANCE_ID}" \
+  --document-name AWS-RunShellScript \
+  --comment "${COMMENT} read cutover timestamp" \
+  --parameters 'commands=["sudo cat /var/lib/tokenkey/last-cutover-at"]' \
+  --query 'Command.CommandId' --output text)"
+cutover_deadline=$(( $(date +%s) + 30 ))
+cutover_status="InProgress"
+while true; do
+  cutover_status="$(aws "${ssm_region_args[@]}" ssm get-command-invocation \
+    --command-id "${cutover_cmd_id}" --instance-id "${INSTANCE_ID}" \
+    --query 'Status' --output text 2>/dev/null || echo InProgress)"
+  case "${cutover_status}" in
+    Success|Failed|TimedOut|Cancelled) break ;;
+  esac
+  if [[ $(date +%s) -ge ${cutover_deadline} ]]; then
+    cutover_status="TimedOut"
+    break
+  fi
+  sleep 1
+done
+if [[ "${cutover_status}" != "Success" ]]; then
+  echo "::error::could not read cutover timestamp: ssm command status=${cutover_status}" >&2
+  exit 1
+fi
+cutover_at="$(aws "${ssm_region_args[@]}" ssm get-command-invocation \
+  --command-id "${cutover_cmd_id}" --instance-id "${INSTANCE_ID}" \
+  --query 'StandardOutputContent' --output text | tr -d '[:space:]')"
 if [[ ! "${cutover_at}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
   echo "::error::successful blue/green deploy did not return a valid cutover timestamp" >&2
   exit 1

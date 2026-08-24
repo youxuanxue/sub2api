@@ -174,6 +174,19 @@ class ReleasePostCheckPlanTest(unittest.TestCase):
         self.assertIn("WEEKLY_LIMIT_EXCEEDED", patterns)
         self.assertTrue(patterns)
 
+    def test_traffic_paths_come_from_plan_and_are_deduplicated(self) -> None:
+        plan = {
+            "checks": [
+                {"traffic_paths": ["/v1/messages", "/v1/responses"]},
+                {"traffic_paths": ["/v1/messages", "/responses"]},
+            ]
+        }
+
+        self.assertEqual(
+            rpc.traffic_paths(plan),
+            ["/v1/messages", "/v1/responses", "/responses"],
+        )
+
     def test_real_v1_8_169_to_v1_8_170_lists_prs_and_only_new_424(self) -> None:
         try:
             plan = rpc.build_plan(_ROOT, "v1.8.169", "v1.8.170")
@@ -403,6 +416,29 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
         self.assertEqual(repeated["verdict"], "red")
         self.assertEqual(repeated["checks"][-1]["verdict"], "fail")
 
+    def test_missing_traffic_section_fails_closed(self) -> None:
+        truncated = """
+=== hooks ===
+{"pattern": "Incorrect API key provided", "count": 0}
+=== panic ===
+{"count": 0}
+=== traffic ===
+{"completed_total": 145, "status_5xx": {"502": 21}
+"""
+        tick = rpc.parse_tick_stdout(truncated)
+        plan = {
+            "range": {"live": "v1.8.170", "new": "v1.8.172"},
+            "changes": [],
+            "checks": [],
+        }
+
+        result = rpc.evaluate(plan, tick, control_plane_ok=True, phase="delayed")
+
+        self.assertFalse(tick["traffic_present"])
+        self.assertEqual(result["verdict"], "red")
+        by_id = {item["id"]: item for item in result["checks"]}
+        self.assertEqual(by_id["traffic-evidence"]["verdict"], "fail")
+
     def test_immediate_phase_scores_hooks_without_5xx_baseline(self) -> None:
         tick = {
             "hooks": {"Status=424": 0, "WEEKLY_LIMIT_EXCEEDED": 0, "NEW_LIMIT_CODE": 0},
@@ -457,6 +493,13 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
                     "verdict": "pass",
                     "observed": {"count": 0, "relevant_requests": 12},
                 },
+                {
+                    "id": "pr-1781-WEEKLY_LIMIT_EXCEEDED",
+                    "source": "#1781",
+                    "pattern": "WEEKLY_LIMIT_EXCEEDED",
+                    "verdict": "observe",
+                    "observed": {"count": 2},
+                },
             ],
             "traffic": {
                 "completed_total": 145,
@@ -475,7 +518,7 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
         self.assertIn("- 5xx: `2` (`502: 2`)", summary)
         self.assertIn("| `/responses` | 37 |", summary)
         self.assertIn("- immediate PR evidence: `pass=0, inconclusive=1, fail=0`", summary)
-        self.assertIn("- +5 min PR evidence: `pass=1, inconclusive=0, fail=0`", summary)
+        self.assertIn("- +5 min PR evidence: `pass=1, inconclusive=0, observe=1, fail=0`", summary)
         self.assertIn("| immediate | #1800 | `inconclusive`", summary)
         self.assertIn("| +5 min | #1800 | `pass`", summary)
 
