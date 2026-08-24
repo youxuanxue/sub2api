@@ -64,7 +64,7 @@ func TestHandleResponsesBufferedStreamingResponse_NonStream_ReturnsApplicationJS
 	svc := &GatewayService{
 		responseHeaderFilter: responseheaders.CompileHeaderFilter(config.ResponseHeaderConfig{}),
 	}
-	result, err := svc.handleResponsesBufferedStreamingResponse(resp, c, "claude-sonnet-4.5", "claude-sonnet-4.5", nil, time.Now(), apicompat.ResponsesClientToolMapping{})
+	result, err := svc.handleResponsesBufferedStreamingResponse(resp, c, nil, "claude-sonnet-4.5", "claude-sonnet-4.5", nil, time.Now(), apicompat.ResponsesClientToolMapping{})
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.False(t, result.Stream, "non-stream request must produce non-stream result")

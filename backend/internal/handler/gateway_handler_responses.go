@@ -429,6 +429,9 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 	if lastErr != nil && lastErr.ClientStatusCode > 0 {
 		statusCode = lastErr.ClientStatusCode
 		status = statusCode
+		if clientErrorType := strings.TrimSpace(lastErr.ClientErrorType); clientErrorType != "" {
+			code = clientErrorType
+		}
 		if lastErr.ClientMessage != "" {
 			message = lastErr.ClientMessage
 		}

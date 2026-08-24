@@ -2673,6 +2673,22 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 		h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage(), streamStarted)
 		return
 	}
+	if failoverErr.ClientStatusCode > 0 && strings.TrimSpace(failoverErr.ClientErrorType) != "" {
+		upstreamMsg := service.ExtractUpstreamErrorMessage(responseBody)
+		service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
+		message := strings.TrimSpace(failoverErr.ClientMessage)
+		if message == "" {
+			message = service.GatewayFailoverClientMessage(failoverErr.ClientStatusCode)
+		}
+		h.handleStreamingAwareError(
+			c,
+			failoverErr.ClientStatusCode,
+			strings.TrimSpace(failoverErr.ClientErrorType),
+			message,
+			streamStarted,
+		)
+		return
+	}
 
 	// 先检查透传规则
 	if h.errorPassthroughService != nil && len(responseBody) > 0 {

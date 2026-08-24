@@ -239,7 +239,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	} else if isAnthropicMessagesJSONResponse(resp) {
 		result, handleErr = s.handleCCBufferedFromAnthropicJSON(resp, c, originalModel, mappedModel, reasoningEffort, startTime)
 	} else {
-		result, handleErr = s.handleCCBufferedFromAnthropic(resp, c, originalModel, mappedModel, reasoningEffort, startTime)
+		result, handleErr = s.handleCCBufferedFromAnthropic(resp, c, account, originalModel, mappedModel, reasoningEffort, startTime)
 	}
 
 	return result, handleErr
@@ -279,6 +279,7 @@ func extractCCReasoningEffortFromBody(body []byte, modelCandidates ...string) *s
 func (s *GatewayService) handleCCBufferedFromAnthropic(
 	resp *http.Response,
 	c *gin.Context,
+	account *Account,
 	originalModel string,
 	mappedModel string,
 	reasoningEffort *string,
@@ -295,6 +296,11 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 
 	var finalResp *apicompat.AnthropicResponse
 	var usage ClaudeUsage
+	streamCompleted := false
+	// TK: terminal Anthropic `error` events are not modelled by
+	// apicompat.AnthropicStreamEvent; capture them so the fallthrough below can
+	// attribute the failure upstream instead of to the gateway.
+	var upstreamErr *tkAnthropicBufferedUpstreamError
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -312,6 +318,11 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 			continue
 		}
 		observeOpenAIResponsesEvent(c, []byte(payload))
+
+		if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {
+			upstreamErr = parsed
+			break
+		}
 
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
@@ -332,6 +343,10 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 			if event.Delta != nil && event.Delta.StopReason != "" && finalResp != nil {
 				finalResp.StopReason = apicompat.AnthropicStopReasonPtr(event.Delta.StopReason)
 			}
+		}
+		if tkAnthropicBufferedEventCompletesMessage(&event) {
+			streamCompleted = true
+			break
 		}
 		if event.Type == "content_block_start" && event.ContentBlock != nil && finalResp != nil {
 			finalResp.Content = append(finalResp.Content, *event.ContentBlock)
@@ -358,11 +373,22 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 				zap.String("request_id", requestID),
 			)
 		}
+		if upstreamErr == nil {
+			upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_read_error", "Upstream stream read failed before response completion")
+		}
 	}
 
+	if !streamCompleted && upstreamErr == nil {
+		upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_incomplete", "Upstream stream ended before response completion")
+	}
+	if upstreamErr != nil {
+		if !tkAnthropicBufferedHasUsableContent(finalResp) {
+			return nil, s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, mappedModel, upstreamErr)
+		}
+		tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)
+	}
 	if finalResp == nil {
-		writeGatewayCCError(c, http.StatusBadGateway, "server_error", "Upstream stream ended without a response")
-		return nil, fmt.Errorf("upstream stream ended without response")
+		return nil, s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, mappedModel, nil)
 	}
 
 	// Update usage from accumulated delta

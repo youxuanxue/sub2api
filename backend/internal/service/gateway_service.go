@@ -695,6 +695,7 @@ type UpstreamFailoverError struct {
 	Reason                   GatewayFailureReason
 	NextAccountAction        NextAccountAction
 	ClientStatusCode         int
+	ClientErrorType          string
 	ClientMessage            string
 }
 
