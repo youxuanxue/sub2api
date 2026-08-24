@@ -6939,8 +6939,10 @@
     {
       "path": "backend/internal/service/gateway_anthropic_buffered_error_tk.go",
       "must_contain": [
-        "func tkParseAnthropicBufferedSSEError(payload []byte) (*tkAnthropicBufferedUpstreamError, bool)",
+        "func tkParseAnthropicBufferedSSEError(payload []byte, cfg *config.Config) (*tkAnthropicBufferedUpstreamError, bool)",
         "func tkAnthropicBufferedFailure(",
+        "func tkAnthropicBufferedPartialFailure(",
+        "func tkRecordAnthropicBufferedUpstreamError(",
         "setOpsUpstreamError(c, upstreamErr.UpstreamStatus, upstreamErr.Message, upstreamErr.Detail)",
         "appendOpsUpstreamError(c, OpsUpstreamErrorEvent{"
       ],
@@ -6949,32 +6951,36 @@
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
       "must_contain": [
-        "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload)); ok {",
-        "status, errType, message := tkAnthropicBufferedFailure(c, requestID, upstreamErr)"
+        "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {",
+        "status, errType, message := tkAnthropicBufferedFailure(c, requestID, upstreamErr)",
+        "tkAnthropicBufferedPartialFailure(c, requestID, upstreamErr)"
       ],
       "rationale": "Anthropic-platform CC buffered path must capture terminal upstream `error` events and attribute the no-message fallthrough upstream. This is the path that produced the prod incident. Dropping either hook compiles clean and reverts to an opaque 502 that clients retry against."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_responses.go",
       "must_contain": [
-        "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload)); ok {",
-        "status, errCode, message := tkAnthropicBufferedFailure(c, requestID, upstreamErr)"
+        "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {",
+        "status, errCode, message := tkAnthropicBufferedFailure(c, requestID, upstreamErr)",
+        "tkAnthropicBufferedPartialFailure(c, requestID, upstreamErr)"
       ],
       "rationale": "Anthropic-platform Responses buffered path shares the buffered-assembly defect with the CC path; same silent-revert risk on upstream merge."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_anthropic_native.go",
       "must_contain": [
-        "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload)); ok {",
-        "status, errType, message := tkAnthropicBufferedFailure(c, requestID, upstreamErr)"
+        "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {",
+        "status, errType, message := tkAnthropicBufferedFailure(c, requestID, upstreamErr)",
+        "tkAnthropicBufferedPartialFailure(c, requestID, upstreamErr)"
       ],
       "rationale": "CN native-Anthropic CC buffered path (api_protocol=anthropic upstreams) shares the same assembly loop and the same misattribution risk."
     },
     {
       "path": "backend/internal/service/openai_gateway_responses_anthropic_native.go",
       "must_contain": [
-        "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload)); ok {",
-        "status, errCode, message := tkAnthropicBufferedFailure(c, requestID, upstreamErr)"
+        "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {",
+        "status, errCode, message := tkAnthropicBufferedFailure(c, requestID, upstreamErr)",
+        "tkAnthropicBufferedPartialFailure(c, requestID, upstreamErr)"
       ],
       "rationale": "CN native-Anthropic Responses buffered path shares the same assembly loop and the same misattribution risk."
     }

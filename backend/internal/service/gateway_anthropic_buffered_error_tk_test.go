@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -60,7 +61,7 @@ func requireUpstreamAttributed(t *testing.T, c *gin.Context, wantUpstreamStatus 
 	// Recording the status is what flips ops classification away from
 	// phase=internal / owner=platform. The classifier itself lives in package
 	// handler, so the end-to-end assertion is in
-	// handler/ops_error_logger_tk_anthropic_buffered_test.go.
+	// handler/ops_error_logger_tk_buffered_upstream_test.go.
 }
 
 func TestTKAnthropicBufferedError_CCPathAttributesUpstream(t *testing.T) {
@@ -219,10 +220,13 @@ func TestTKAnthropicErrorTypeUpstreamStatusMapping(t *testing.T) {
 		"not_found_error":       http.StatusNotFound,
 		"request_too_large":     http.StatusRequestEntityTooLarge,
 		"rate_limit_error":      http.StatusTooManyRequests,
-		"billing_error":         http.StatusPaymentRequired,
 		"overloaded_error":      statusAnthropicOverloaded,
 		"api_error":             http.StatusInternalServerError,
-		"something_unknown":     http.StatusInternalServerError,
+		// Types Anthropic does not put on the wire take the server-fault default
+		// rather than each getting a speculative mapping.
+		"billing_error":     http.StatusInternalServerError,
+		"model_not_found":   http.StatusInternalServerError,
+		"something_unknown": http.StatusInternalServerError,
 	} {
 		require.Equal(t, want, tkAnthropicErrorTypeUpstreamStatus(errType), errType)
 	}
@@ -237,12 +241,12 @@ func TestTKParseAnthropicBufferedSSEError_IgnoresNonErrorEvents(t *testing.T) {
 		`{"type":"ping"}`,
 		``,
 	} {
-		_, ok := tkParseAnthropicBufferedSSEError([]byte(payload))
+		_, ok := tkParseAnthropicBufferedSSEError([]byte(payload), nil)
 		require.False(t, ok, payload)
 	}
 
 	parsed, ok := tkParseAnthropicBufferedSSEError(
-		[]byte(`{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`),
+		[]byte(`{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`), nil,
 	)
 	require.True(t, ok)
 	require.Equal(t, "rate_limit_error", parsed.ErrType)
@@ -250,8 +254,114 @@ func TestTKParseAnthropicBufferedSSEError_IgnoresNonErrorEvents(t *testing.T) {
 	require.False(t, parsed.EmptyStream)
 
 	// A bare error event with no usable message still classifies.
-	parsed, ok = tkParseAnthropicBufferedSSEError([]byte(`{"type":"error"}`))
+	parsed, ok = tkParseAnthropicBufferedSSEError([]byte(`{"type":"error"}`), nil)
 	require.True(t, ok)
 	require.Equal(t, "api_error", parsed.ErrType)
 	require.NotEmpty(t, parsed.Message)
+}
+
+// R-002: raw upstream payload capture must honor the operator's
+// log_upstream_error_body setting, like every other appendOpsUpstreamError site.
+func TestTKAnthropicBufferedError_DetailRespectsUpstreamBodyLogging(t *testing.T) {
+	t.Parallel()
+
+	const payload = `{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`
+
+	t.Run("nil cfg captures nothing", func(t *testing.T) {
+		parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), nil)
+		require.True(t, ok)
+		require.Empty(t, parsed.Detail)
+	})
+
+	t.Run("disabled captures nothing", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Gateway.LogUpstreamErrorBody = false
+		parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), cfg)
+		require.True(t, ok)
+		require.Empty(t, parsed.Detail)
+	})
+
+	t.Run("enabled captures truncated payload", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Gateway.LogUpstreamErrorBody = true
+		cfg.Gateway.LogUpstreamErrorBodyMaxBytes = 16
+		parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), cfg)
+		require.True(t, ok)
+		require.Len(t, parsed.Detail, 16)
+		require.Equal(t, payload[:16], parsed.Detail)
+	})
+}
+
+// R-001: message_start (and content) followed by a terminal error event leaves
+// finalResp non-nil. The partial content is still returned — those tokens were
+// really produced — but the provider fault must reach ops instead of being
+// booked as a clean success.
+func TestTKAnthropicBufferedError_PartialContentThenErrorIsAttributed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	resp := newBufferedErrorUpstreamResponse(strings.Join([]string{
+		"event: message_start",
+		`data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-opus-4-8","usage":{"input_tokens":10}}}`,
+		"",
+		"event: content_block_start",
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":"partial"}}`,
+		"",
+		"event: error",
+		`data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`,
+		"",
+		"",
+	}, "\n"))
+
+	svc := &GatewayService{}
+	result, err := svc.handleCCBufferedFromAnthropic(resp, c, "gpt-5", "claude-opus-4-8", nil, time.Now())
+
+	// The partial answer is preserved rather than discarded.
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "partial")
+
+	// But the upstream fault is recorded, so ops does not see a clean success.
+	requireUpstreamAttributed(t, c, statusAnthropicOverloaded)
+
+	raw, _ := c.Get(OpsUpstreamErrorsKey)
+	events := raw.([]*OpsUpstreamErrorEvent)
+	require.Equal(t, "stream_truncated", events[0].Kind)
+	require.Equal(t, "overloaded_error", events[0].Reason)
+}
+
+// The same partial-then-error shape on the CN native-Anthropic CC path.
+func TestTKAnthropicBufferedError_NativePartialContentThenErrorIsAttributed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	resp := newBufferedErrorUpstreamResponse(strings.Join([]string{
+		"event: message_start",
+		`data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"glm-4.7","usage":{"input_tokens":10}}}`,
+		"",
+		"event: content_block_start",
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":"partial"}}`,
+		"",
+		"event: error",
+		`data: {"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`,
+		"",
+		"",
+	}, "\n"))
+
+	svc := &OpenAIGatewayService{}
+	result, err := svc.handleCCBufferedFromNativeAnthropic(
+		resp, c, "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	requireUpstreamAttributed(t, c, http.StatusTooManyRequests)
+
+	raw, _ := c.Get(OpsUpstreamErrorsKey)
+	events := raw.([]*OpsUpstreamErrorEvent)
+	require.Equal(t, "stream_truncated", events[0].Kind)
 }

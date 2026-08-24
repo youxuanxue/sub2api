@@ -1,47 +1,55 @@
 package service
 
-// TK: single owner for "buffered Anthropic SSE assembly produced no message".
+// TK: single owner for "buffered Anthropic SSE assembly hit a terminal error".
 //
 // The four buffered assembly loops (Anthropic platform CC/Responses and CN
 // native-Anthropic CC/Responses) all reduce an upstream SSE stream to one
 // *apicompat.AnthropicResponse. apicompat.AnthropicStreamEvent models only
 // message_start / message_delta / content_block_*, so a terminal Anthropic
 // `error` event unmarshals into a bare Type=="error" and is then skipped by
-// every branch. finalResp stays nil and the loop falls through to a generic
-// 502 "Upstream stream ended without a response".
+// every branch. Two outcomes follow, and both used to be misreported:
 //
-// Two things went wrong with that fallthrough:
+//  1. No message at all — finalResp stays nil and the loop falls through to a
+//     generic 502 "Upstream stream ended without a response". The real upstream
+//     reason (insufficient balance, rate limit, overloaded) never reached the
+//     client, which sees an opaque gateway 502 and retries. No upstream context
+//     was recorded either, so classifyOpsErrorLog saw errType api_error with no
+//     upstream status and produced error_phase=internal / error_owner=platform /
+//     error_source=gateway — an upstream fault booked against the gateway,
+//     polluting SLA and firing platform-side alerts.
 //
-//  1. The real upstream reason (insufficient balance, rate limit, overloaded)
-//     never reached the client, which sees an opaque gateway 502 and retries.
-//  2. No upstream context was recorded, so classifyOpsErrorLog saw errType
-//     api_error with no upstream status and produced
-//     error_phase=internal / error_owner=platform / error_source=gateway —
-//     an upstream fault booked against the gateway, polluting SLA and firing
-//     platform-side alerts.
+//  2. Partial message then error — message_start (and possibly content) arrived
+//     before the error event, so finalResp is non-nil. The loop returned the
+//     truncated content as a clean HTTP 200 and recorded nothing: the client
+//     could not tell the answer was cut short, and the provider fault was
+//     invisible to ops.
 //
-// This file owns both the parse and the attribution so the call sites stay two
-// lines each. It deliberately does NOT add failover: once an account is chosen
-// the buffered path has already consumed the upstream response, and retrying
-// here would change scheduling behavior. Failover on 200-with-error-event is
-// tracked separately.
+// This file owns the parse and the attribution so the call sites stay small.
+// It deliberately does NOT add failover: once an account is chosen the buffered
+// path has already consumed the upstream response, and retrying here would
+// change scheduling behavior. Failover on 200-with-error-event is tracked
+// separately.
 
 import (
 	"net/http"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"go.uber.org/zap"
 )
 
 // tkAnthropicBufferedUpstreamError is a normalized upstream failure recovered
-// from a buffered Anthropic SSE stream that never yielded a message.
+// from a buffered Anthropic SSE stream.
 type tkAnthropicBufferedUpstreamError struct {
 	// ErrType is the Anthropic error type (e.g. "rate_limit_error").
 	ErrType string
 	// Message is the client-facing upstream message, already sanitized.
 	Message string
-	// Detail is the raw event payload, retained only for ops logging.
+	// Detail is the raw event payload, retained only for ops logging and only
+	// when the operator enabled upstream error body logging.
 	Detail string
 	// UpstreamStatus is the HTTP status the error type corresponds to. It is
 	// always > 0 so that recording it flips ops classification to
@@ -54,7 +62,10 @@ type tkAnthropicBufferedUpstreamError struct {
 
 // tkParseAnthropicBufferedSSEError reports whether one SSE data payload is a
 // terminal Anthropic `error` event, and normalizes it when so.
-func tkParseAnthropicBufferedSSEError(payload []byte) (*tkAnthropicBufferedUpstreamError, bool) {
+//
+// cfg gates raw payload capture the same way every other appendOpsUpstreamError
+// call site in this package does (see gateway_count_tokens.go); it may be nil.
+func tkParseAnthropicBufferedSSEError(payload []byte, cfg *config.Config) (*tkAnthropicBufferedUpstreamError, bool) {
 	if len(payload) == 0 {
 		return nil, false
 	}
@@ -72,31 +83,43 @@ func tkParseAnthropicBufferedSSEError(payload []byte) (*tkAnthropicBufferedUpstr
 	return &tkAnthropicBufferedUpstreamError{
 		ErrType:        errType,
 		Message:        message,
-		Detail:         truncateString(string(payload), 2048),
+		Detail:         tkAnthropicBufferedErrorDetail(payload, cfg),
 		UpstreamStatus: tkAnthropicErrorTypeUpstreamStatus(errType),
 	}, true
 }
 
-// tkAnthropicErrorTypeUpstreamStatus maps an Anthropic error type to the HTTP
-// status it would have carried had upstream failed the request outright. The
-// mapping mirrors the status handling in gateway_upstream_response.go so a
-// 200-with-error-event and a real error status classify identically.
+// tkAnthropicBufferedErrorDetail returns the raw upstream payload for ops
+// logging only when the operator opted into upstream error body capture.
+func tkAnthropicBufferedErrorDetail(payload []byte, cfg *config.Config) string {
+	if cfg == nil || !cfg.Gateway.LogUpstreamErrorBody {
+		return ""
+	}
+	maxBytes := cfg.Gateway.LogUpstreamErrorBodyMaxBytes
+	if maxBytes <= 0 {
+		maxBytes = 2048
+	}
+	return truncateString(string(payload), maxBytes)
+}
+
+// tkAnthropicErrorTypeUpstreamStatus maps an Anthropic SSE error type to the
+// HTTP status it would have carried had upstream failed the request outright,
+// so a 200-with-error-event and a real error status classify identically. Only
+// types Anthropic actually puts on the wire are listed; anything else is a
+// server-side fault and takes the default.
 func tkAnthropicErrorTypeUpstreamStatus(errType string) int {
 	switch strings.TrimSpace(strings.ToLower(errType)) {
 	case "invalid_request_error":
 		return http.StatusBadRequest
 	case "authentication_error":
 		return http.StatusUnauthorized
-	case "permission_error", "forbidden_error":
+	case "permission_error":
 		return http.StatusForbidden
-	case "not_found_error", "model_not_found":
+	case "not_found_error":
 		return http.StatusNotFound
 	case "request_too_large":
 		return http.StatusRequestEntityTooLarge
 	case "rate_limit_error":
 		return http.StatusTooManyRequests
-	case "billing_error", "insufficient_quota":
-		return http.StatusPaymentRequired
 	case "overloaded_error":
 		return statusAnthropicOverloaded
 	default:
@@ -128,11 +151,55 @@ func tkAnthropicBufferedFailure(
 		}
 	}
 
-	setOpsUpstreamError(c, upstreamErr.UpstreamStatus, upstreamErr.Message, upstreamErr.Detail)
 	kind := "stream_error"
 	if upstreamErr.EmptyStream {
 		kind = "stream_incomplete"
 	}
+	tkRecordAnthropicBufferedUpstreamError(c, requestID, kind, upstreamErr)
+
+	return tkAnthropicBufferedClientStatus(upstreamErr.UpstreamStatus),
+		tkAnthropicBufferedClientErrType(upstreamErr.ErrType),
+		upstreamErr.Message
+}
+
+// tkAnthropicBufferedPartialFailure records upstream attribution when a
+// terminal error event arrived *after* the assembly already had a message.
+//
+// The caller still returns the partial content: the buffered path has consumed
+// the upstream response, the tokens were really produced, and discarding them
+// would turn a degraded answer into a hard failure. What must not happen is
+// booking it as a clean success — the provider fault has to reach ops, which is
+// the whole point of this file. The client-facing shape is intentionally left
+// alone here; surfacing truncation to clients needs its own contract decision
+// (Anthropic has no "upstream errored" stop_reason to map onto).
+func tkAnthropicBufferedPartialFailure(
+	c *gin.Context,
+	requestID string,
+	upstreamErr *tkAnthropicBufferedUpstreamError,
+) {
+	if upstreamErr == nil {
+		return
+	}
+	tkRecordAnthropicBufferedUpstreamError(c, requestID, "stream_truncated", upstreamErr)
+	logger.L().Warn("buffered anthropic assembly: upstream error after partial content",
+		zap.String("request_id", requestID),
+		zap.String("upstream_error_type", upstreamErr.ErrType),
+		zap.Int("upstream_status", upstreamErr.UpstreamStatus),
+	)
+}
+
+// tkRecordAnthropicBufferedUpstreamError is the single place that writes ops
+// upstream attribution for this family of failures. Both the status and the
+// event are required: setOpsUpstreamError is what classifyOpsErrorLog reads to
+// pick phase=upstream / owner=provider, and the event carries the per-attempt
+// detail operators triage from.
+func tkRecordAnthropicBufferedUpstreamError(
+	c *gin.Context,
+	requestID string,
+	kind string,
+	upstreamErr *tkAnthropicBufferedUpstreamError,
+) {
+	setOpsUpstreamError(c, upstreamErr.UpstreamStatus, upstreamErr.Message, upstreamErr.Detail)
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 		UpstreamStatusCode: upstreamErr.UpstreamStatus,
 		UpstreamRequestID:  requestID,
@@ -141,10 +208,6 @@ func tkAnthropicBufferedFailure(
 		Message:            upstreamErr.Message,
 		Detail:             upstreamErr.Detail,
 	})
-
-	return tkAnthropicBufferedClientStatus(upstreamErr.UpstreamStatus),
-		tkAnthropicBufferedClientErrType(upstreamErr.ErrType),
-		upstreamErr.Message
 }
 
 // tkAnthropicBufferedClientStatus maps the synthesized upstream status to a
@@ -171,7 +234,7 @@ func tkAnthropicBufferedClientErrType(errType string) string {
 		return "rate_limit_error"
 	case "overloaded_error":
 		return "overloaded_error"
-	case "authentication_error", "permission_error", "forbidden_error":
+	case "authentication_error", "permission_error":
 		return "upstream_error"
 	default:
 		return "server_error"

@@ -317,7 +317,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		}
 		observeOpenAIResponsesEvent(c, []byte(payload))
 
-		if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload)); ok {
+		if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {
 			upstreamErr = parsed
 			continue
 		}
@@ -374,6 +374,11 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		writeGatewayCCError(c, status, errType, message)
 		return nil, fmt.Errorf("upstream stream ended without response: %s", message)
 	}
+
+	// TK: upstream errored after partial content. Keep the tokens the client
+	// already paid for, but attribute the provider fault instead of reporting a
+	// clean success.
+	tkAnthropicBufferedPartialFailure(c, requestID, upstreamErr)
 
 	// Update usage from accumulated delta
 	if usage.InputTokens > 0 || usage.OutputTokens > 0 {
