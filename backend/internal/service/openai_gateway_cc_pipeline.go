@@ -140,6 +140,12 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) (string, error) {
 	baseURL := nativeOpenAIBaseURLForAccount(account)
 	if baseURL == "" {
+		// A foreign credential (newapi channel, relay, ...) must never be POSTed
+		// to the official OpenAI host: it returns "Incorrect API key provided",
+		// which reads as a dead credential instead of the routing defect it is.
+		if !OfficialOpenAIFallbackAllowed(account) {
+			return "", ErrForeignCredentialOfficialOpenAIFallback
+		}
 		baseURL = "https://api.openai.com"
 	}
 	validatedURL, err := s.validateUpstreamBaseURL(baseURL)

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 )
@@ -65,4 +66,20 @@ func IsOfficialOpenAIAPIKeyHelpText(statusCode int, body []byte) bool {
 func IsForeignCredentialOfficialOpenAIReject(account *Account, statusCode int, body []byte) bool {
 	return !AccountUsesOfficialOpenAIUpstream(account) &&
 		IsOfficialOpenAIAPIKeyHelpText(statusCode, body)
+}
+
+// ErrForeignCredentialOfficialOpenAIFallback is returned instead of silently
+// defaulting an unresolved upstream to api.openai.com. The native
+// OpenAI-compatible forwarders resolve their base URL from OpenAI-family
+// accessors, which return "" for foreign platforms (newapi channels, ...);
+// turning that "" into the official host POSTs a DashScope/Ark key to OpenAI
+// and yields "Incorrect API key provided" — a routing defect that also looks
+// like a dead credential. Fail closed instead.
+var ErrForeignCredentialOfficialOpenAIFallback = errors.New(
+	"refusing to send foreign account credential to api.openai.com: account has no resolved base_url")
+
+// OfficialOpenAIFallbackAllowed reports whether an unresolved (empty) base URL
+// may fall back to the official OpenAI host for this account.
+func OfficialOpenAIFallbackAllowed(account *Account) bool {
+	return AccountUsesOfficialOpenAIUpstream(account)
 }
