@@ -14,10 +14,17 @@ func TestGatewayShouldFailoverUpstreamError_424IsFailoverEligible(t *testing.T) 
 		"424 from CloudWise-class relays is a provider dependency failure and must leave the current account")
 }
 
+func TestGatewayShouldFailoverUpstreamError_402IsFailoverEligible(t *testing.T) {
+	svc := &GatewayService{}
+
+	assert.True(t, svc.shouldFailoverUpstreamError(http.StatusPaymentRequired),
+		"402 is an account-standing failure; the request must leave the exhausted account")
+}
+
 func TestGatewayShouldFailoverUpstreamError_ExistingCodesStillWork(t *testing.T) {
 	svc := &GatewayService{}
 
-	failoverCodes := []int{401, 403, 424, 429, 529, 500, 502, 503, 504}
+	failoverCodes := []int{401, 402, 403, 424, 429, 529, 500, 502, 503, 504}
 	for _, code := range failoverCodes {
 		assert.True(t, svc.shouldFailoverUpstreamError(code), "status %d should trigger failover", code)
 	}

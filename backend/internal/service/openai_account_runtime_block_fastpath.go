@@ -130,7 +130,9 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody, canonicalModel...)
 	modelTempMatched := statusCode != http.StatusUnauthorized && tempUnschedulableModel(stateCtx, nil) != "" &&
 		len(matchTempUnschedulableRules(account, statusCode, responseBody)) > 0
-	if shouldDisable && !modelTempMatched {
+	cloudwiseModelBalanceMatched := len(canonicalModel) > 0 &&
+		tkIsCloudwiseModelBalance402(account, statusCode, responseBody, canonicalModel[0])
+	if shouldDisable && !modelTempMatched && !cloudwiseModelBalanceMatched {
 		s.BlockAccountScheduling(account, time.Time{}, "upstream_disable")
 	}
 	// Pool-mode retryable upstream errors are already bounded by the request-local

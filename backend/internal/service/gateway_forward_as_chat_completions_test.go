@@ -5,6 +5,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,6 +20,25 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+type ccAnthropicSSEErrorUpstream struct {
+	body string
+}
+
+func (u *ccAnthropicSSEErrorUpstream) Do(*http.Request, string, int64, int) (*http.Response, error) {
+	return nil, fmt.Errorf("unexpected Do call")
+}
+
+func (u *ccAnthropicSSEErrorUpstream) DoWithTLS(*http.Request, string, int64, int, *tlsfingerprint.Profile) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+			"x-request-id": []string{"rid_cc_sse_error"},
+		},
+		Body: io.NopCloser(strings.NewReader(u.body)),
+	}, nil
+}
 
 func TestExtractCCReasoningEffortFromBody(t *testing.T) {
 	t.Parallel()
@@ -95,6 +115,73 @@ func TestHandleCCBufferedFromAnthropic_PreservesMessageStartCacheUsageAndReasoni
 	require.Equal(t, 3, result.Usage.CacheCreationInputTokens)
 	require.NotNil(t, result.ReasoningEffort)
 	require.Equal(t, "high", *result.ReasoningEffort)
+}
+
+func TestHandleCCBufferedFromAnthropic_EventErrorReturnsTypedFailure(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	upstreamBody := strings.Join([]string{
+		`event: error`,
+		`data: {"type":"error","error":{"type":"api_error","message":"Insufficient balance"}}`,
+		``,
+	}, "\n")
+	resp := &http.Response{
+		Header: http.Header{"x-request-id": []string{"rid_cc_buffered_error"}},
+		Body:   io.NopCloser(strings.NewReader(upstreamBody)),
+	}
+
+	svc := &GatewayService{}
+	result, err := svc.handleCCBufferedFromAnthropic(resp, c, "claude-opus-4-8", "claude-opus-4-8", nil, time.Now())
+	require.Nil(t, result)
+	var streamErr *sseStreamErrorEventError
+	require.ErrorAs(t, err, &streamErr)
+	require.Contains(t, streamErr.RawData, "Insufficient balance")
+	require.Empty(t, rec.Body.String(), "typed upstream failure must be handled by the failover loop, not committed as a final 502 here")
+}
+
+func TestForwardAsChatCompletions_BufferedBalanceSSEErrorBecomes402Failover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"hi"}],"max_tokens":32,"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &ccAnthropicSSEErrorUpstream{body: strings.Join([]string{
+		`event: error`,
+		`data: {"type":"error","error":{"type":"api_error","message":"Insufficient balance"}}`,
+		``,
+	}, "\n")}
+	svc := &GatewayService{
+		cfg:                 &config.Config{},
+		httpUpstream:        upstream,
+		tlsFPProfileService: &TLSFingerprintProfileService{},
+	}
+	account := &Account{
+		ID:          94,
+		Name:        "cloudwise",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "test-key",
+			"base_url": "https://cloudwise.example/api",
+		},
+	}
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, nil)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.True(t, errors.As(err, &failoverErr), "SSE event:error must re-enter the account failover loop")
+	require.Equal(t, http.StatusPaymentRequired, failoverErr.StatusCode)
+	require.Contains(t, string(failoverErr.ResponseBody), "Insufficient balance")
+	require.Empty(t, rec.Body.String(), "failover must remain uncommitted so a healthy account can serve the request")
 }
 
 // Kimi 等 Anthropic 兼容上游返回 SSE 紧凑格式（冒号后无空格），CC 桥此前按

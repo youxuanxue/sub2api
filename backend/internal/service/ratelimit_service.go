@@ -392,9 +392,19 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		return true
 	}
 
+	// CloudWise model pools are independent. Handle their model-balance 402
+	// before pool-mode and custom-error-code early exits so every CloudWise
+	// account shape persists the same exact-model five-hour cooldown. If the
+	// model scope cannot be persisted, bypass those early exits and retain the
+	// conservative account-level 402 fallback.
+	cloudwiseModelBalance402 := tkIsCloudwiseModelBalance402Response(account, statusCode, responseBody)
+	if cloudwiseModelBalance402 && s.tkTryCloudwiseModelBalanceCooldown(ctx, account, statusCode, responseBody, firstRequestedModel(requestedModel)) {
+		return true
+	}
+
 	// 池模式默认不标记本地账号状态；但管理员显式配置的临时不可调度规则优先。
 	// 401 保留现有认证错误语义，不在这里改变池模式的认证处理。
-	if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic {
+	if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic && !cloudwiseModelBalance402 {
 		if statusCode != http.StatusUnauthorized && s.tryTempUnschedulable(ctx, account, statusCode, responseBody) {
 			return true
 		}
@@ -405,7 +415,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	// apikey 类型账号：检查自定义错误码配置
 	// 如果启用且错误码不在列表中，则不处理（不停止调度、不标记限流/过载）
 	planGatedModel := isOpenAIOAuthAccount(account) && isOpenAICodexPlanGatedModelError(statusCode, responseBody)
-	if !planGatedModel && !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {
+	if !cloudwiseModelBalance402 && !planGatedModel && !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {
 		slog.Info("account_error_code_skipped", "account_id", account.ID, "status_code", statusCode)
 		return false
 	}

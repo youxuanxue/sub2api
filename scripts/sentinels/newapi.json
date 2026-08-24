@@ -573,6 +573,16 @@
       "rationale": "Chat-completions handler must preserve the NewAPIRelayError's real upstream status (402/429/...) to the client instead of masking it as 502 'Upstream request failed'. The load-bearing call lives INSIDE the non-failover error branch (mirroring the /v1/responses handler); the file contains a SECOND textually-identical call further down that is only reachable on the image-partial-result path, so a bare single-line needle would still pass after a merge dropped the reachable branch. The needle therefore pins the comment tail + if-line contiguous to the in-branch site; a merge that drops it reverts every newapi chat bridge error to an opaque 502 (the 2026-06-11 DeepSeek incident shape, 6946 masked 402s)."
     },
     {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "return h.gatewayService.ForwardAsChatCompletionsDispatched(c.Request.Context(), c, account, forwardBody, promptCacheKey, dispatchMappedModel)"
+      ],
+      "must_not_contain": [
+        "return h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, promptCacheKey, dispatchMappedModel)"
+      ],
+      "rationale": "The production /v1/chat/completions handler must enter the existing NewAPI bridge dispatcher. Calling the native forwarder directly bypasses channel_type-aware ownership and can send a DashScope/Vertex credential toward the official OpenAI path. This is the load-bearing call-site half of the account #72/#57 regression; service-level bridge tests alone cannot detect an unwired production entrypoint."
+    },
+    {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
         "s.notifyAccountSchedulingBlocked(account, time.Time{}, \"auth_error\", errorMsg)"

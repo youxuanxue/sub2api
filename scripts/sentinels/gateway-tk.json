@@ -491,9 +491,9 @@
         "SetTempUnschedulable(ctx, account.ID, until, reason)",
         ") ResetAnthropicUpstreamErrorCounter(",
         "ResetAnthropicCooldownTier",
-        "if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic {",
+        "if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic && !cloudwiseModelBalance402 {",
         "planGatedModel := isOpenAIOAuthAccount(account) && isOpenAICodexPlanGatedModelError(statusCode, responseBody)",
-        "if !planGatedModel && !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {",
+        "if !cloudwiseModelBalance402 && !planGatedModel && !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {",
         "s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)",
         "s.tkDisableIfOAuth401OnValidToken(ctx, authAccount, upstreamMsg)",
         "oauth_401_immediate_disable",
@@ -1275,6 +1275,13 @@
       "rationale": "GatewayService.Forward must intercept CloudWise non-claude /v1/messages before anthropic APIKey passthrough, otherwise #94 glm/kimi/minimax/deepseek stay on native messages."
     },
     {
+      "path": "backend/internal/service/gateway_forward.go",
+      "must_contain": [
+        "case 401, 402, 403, 424, 429, 529:"
+      ],
+      "rationale": "Gateway upstream failover status truth must include HTTP 402. A payment-required or exhausted-balance account is an account-standing failure, not a client request error; leaving 402 out keeps the dead account selected and turns every request into a final 502 instead of switching to a healthy account."
+    },
+    {
       "path": "backend/internal/service/gateway_tokensea_anthropic_relay_test.go",
       "must_contain": [
         "TestAnthropicTokenseaRelayFloorMapsShortNamesToWireIDs",
@@ -1314,6 +1321,16 @@
         "buildAnthropicCompatUpstreamRequest"
       ],
       "rationale": "Gateway Anthropic-backed /v1/chat/completions non-stream path (handleCCBufferedFromAnthropic) shares the upstream #1311 Content-Type leak root cause and must explicitly override Content-Type after WriteFilteredHeaders so the converted chat.completion JSON body is not labeled text/event-stream. Also the call site wiring the gemini-native image aspect-ratio injection (tkInjectGeminiImageAspectRatio, gateway_forward_as_chat_completions_tk_image.go) into the OpenAI-compat → Anthropic forward, after enforceCacheControlLimit and before buildUpstreamRequest — the companion compiling alone would not catch a dropped call site, so the one-line hook is anchored here separately. Anthropic passthrough relays must use buildAnthropicCompatUpstreamRequest for the upstream /v1/messages hop after CC→Anthropic conversion."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "must_contain": [
+        "if eventName == \"error\" {",
+        "return nil, &sseStreamErrorEventError{RawData: payload}",
+        "cnProviderResponseIndicatesInsufficientBalance(body)",
+        "s.sseStreamErrorFailover(c, account, resp, sseErr, semanticStatus)"
+      ],
+      "rationale": "The buffered Chat Completions → Anthropic SSE path must preserve upstream event:error frames as typed failover evidence. Without these anchors a balance-exhausted relay returns HTTP 200 plus event:error, the converter ignores it, and the user receives the misleading terminal 502 'Upstream stream ended without a response'. The balance semantic must map to 402 so existing account-standing policy can stop scheduling the exhausted account."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_responses_tk_content_type_test.go",
@@ -3060,6 +3077,7 @@
         "func (n *TKAccountIncidentNotifier) NotifyAccountIncident(",
         "func classifyIncident(",
         "case \"429_model_class\":",
+        "case \"402_cloudwise_model_balance\":",
         "func (n *TKAccountIncidentNotifier) NotifyAccountRecovered(",
         "func (n *TKAccountIncidentNotifier) trackActive(",
         "func (n *TKAccountIncidentNotifier) pruneStaleActive(",
@@ -3068,7 +3086,14 @@
         "func (n *TKAccountIncidentNotifier) temporaryDigestEnabled() bool",
         "cls.kind == IncidentKindTemporaryCooldown && !n.temporaryDigestEnabled()"
       ],
-      "rationale": "账号失效 → 飞书告警的核心实现（TK-only，无上游对应）。NotifyAccountIncident 按 classifyIncident 的派生形态分流：永久失效（status=error 终态）即时单条 P0；临时冷却（429/529/...自愈）写聚合 buffer 由后台 ticker flush 成低频摘要，保住信噪比不刷屏。classifyIncident 把底层 reason 字符串映射成 (形态, 去重类, 中文文案, 运营建议)。`case \"429_model_class\"` 是 G4(#600)模型维度 cooldown 的专属分类——缺它会落兜底\"账号临时冷却\"，把 opus-only 冷却误报成整账号下线。**恢复通知（事件驱动）**：trackActive 登记活跃事件台账；NotifyAccountRecovered 在真实清除事件(ClearRateLimit/RecoverAccountState)时对此前告警过的账号发即时绿卡（`green` header），永久+临时两类都发；pruneStaleActive 静默修剪纯定时器到期(无 clear 事件)的陈旧条目、**不发卡**(按设计:定时器到期不播报)。删掉任一 anchor 会让恢复链路断裂或模型类告警回到误报兜底。整文件易在大重构/上游合并中被整体误删——删掉等于告警链路断裂。**自愈摘要 opt-in 默认关（PR#730 起，gate 由 #730 修正）**：temporaryDigestEnabled + NotifyAccountIncident 里 `cls.kind == IncidentKindTemporaryCooldown && !n.temporaryDigestEnabled()` 的早返门把 529/429/temp 自愈类摘要改成默认静默。enable 现在看显式 bool `feishu.account_incident_digest_enabled`（默认 false）——绝不能复用 `account_incident_digest_seconds>0`，后者被 normalizeOpsFeishuAlertConfig 的 0→600 回填使其永不为 0，曾让 #730 的“默认关”被悄悄打开（gate 恒真）；seconds 现在只表示 flush 间隔。上游合并/重构若删掉该门会让自愈类摘要回到默认刷屏，淹没真故障 P0。"
+      "rationale": "账号失效 → 飞书告警的核心实现（TK-only，无上游对应）。NotifyAccountIncident 按 classifyIncident 的派生形态分流：永久失效（status=error 终态）即时单条 P0；临时冷却（429/529/...自愈）写聚合 buffer 由后台 ticker flush 成低频摘要，保住信噪比不刷屏。classifyIncident 把底层 reason 字符串映射成 (形态, 去重类, 中文文案, 运营建议)。`case \"429_model_class\"` 与 `case \"402_cloudwise_model_balance\"` 是模型维度 cooldown 的专属分类——缺失会落兜底\"账号临时冷却\"，把模型专属冷却误报成整账号下线。**恢复通知（事件驱动）**：trackActive 登记活跃事件台账；NotifyAccountRecovered 在真实清除事件(ClearRateLimit/RecoverAccountState)时对此前告警过的账号发即时绿卡（`green` header），永久+临时两类都发；pruneStaleActive 静默修剪纯定时器到期(无 clear 事件)的陈旧条目、**不发卡**(按设计:定时器到期不播报)。删掉任一 anchor 会让恢复链路断裂或模型类告警回到误报兜底。整文件易在大重构/上游合并中被整体误删——删掉等于告警链路断裂。**自愈摘要 opt-in 默认关（PR#730 起，gate 由 #730 修正）**：temporaryDigestEnabled + NotifyAccountIncident 里 `cls.kind == IncidentKindTemporaryCooldown && !n.temporaryDigestEnabled()` 的早返门把 529/429/temp 自愈类摘要改成默认静默。enable 现在看显式 bool `feishu.account_incident_digest_enabled`（默认 false）——绝不能复用 `account_incident_digest_seconds>0`，后者被 normalizeOpsFeishuAlertConfig 的 0→600 回填使其永不为 0，曾让 #730 的“默认关”被悄悄打开（gate 恒真）；seconds 现在只表示 flush 间隔。上游合并/重构若删掉该门会让自愈类摘要回到默认刷屏，淹没真故障 P0。"
+    },
+    {
+      "path": "backend/internal/service/account_incident_notifier_tk_test.go",
+      "must_contain": [
+        "TestClassifyIncident_CloudwiseModelBalance402IsModelScopedCooldown"
+      ],
+      "rationale": "CloudWise model-balance 402 must stay classified as a temporary model-scoped cooldown with sibling-model guidance, not the generic whole-account cooldown fallback."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_incident.go",
@@ -3076,7 +3101,8 @@
         "func (s *RateLimitService) SetAccountIncidentNotifier(",
         "func (s *RateLimitService) notifyAccountIncident(",
         "func (s *RateLimitService) notifyAccountRecovered(",
-        "func isWholeAccountRuntimeBlockReason(reason string) bool"
+        "func isWholeAccountRuntimeBlockReason(reason string) bool",
+        "402_cloudwise_model_balance"
       ],
       "rationale": "把 AccountIncidentNotifier 注入 RateLimitService 的 glue：wire ProvideTKAccountIncidentNotifier 在构造后调 SetAccountIncidentNotifier 回填，挂钩点（ratelimit_service.go）经 notifyAccountIncident 转发。notifyAccountRecovered 是恢复绿卡的转发包装，由 notifyAccountSchedulingBlockCleared(ClearRateLimit/RecoverAccountState 真实清除事件)调用。isWholeAccountRuntimeBlockReason is the SSOT predicate for whether notifyAccountSchedulingBlocked also writes the in-memory whole-account runtime blocker (model-scoped 429 reasons excluded).删掉会让挂钩行编译失败或静默 no-op，账号失效/恢复告警链路断裂。"
     },
@@ -3604,13 +3630,39 @@
       "rationale": "G4 model-dimension cooldown companion. Anthropic OAuth accounts share a unified 5h/7d window across model classes. The model-scoped cooldown is ONLY correct for a genuine per-class sub-bucket limit; an account-wide unified window (anthropic-ratelimit-unified-{5h,7d}-* with NO class suffix) is shared and blocks every class even when that class's own sub-bucket is allowed (direct upstream probe edge-us3 account a1, 2026-06-06: unified-7d-status=rejected returned 429 to a sonnet request while unified-7d_sonnet-status=allowed). The 'if result.window == anthropicUnifiedWindow5h || ...7d' guard makes tkTryAnthropicModelScopedCooldown DECLINE (return false -> caller does account-level SetRateLimited) for account-wide windows, so all classes are cooled; model-scoping survives only for window=='' (per-class sub-bucket). Losing that guard re-introduces the bug where a 7d-exhausted account leaves haiku falsely schedulable and unmarked. Losing tkTryAnthropicModelScopedCooldown / tkAnthropicModelClass on an upstream merge would silently re-introduce the original account-level amplification; this sentinel catches both. The same file also hosts the OpenAI/Codex analog tkTryOpenAICodexModelScopedCooldown: a ChatGPT account's per-model metered sub-window (e.g. gpt-5.3-codex-spark, the /wham/usage additional_rate_limits family) can hit 100% (429 usage_limit_reached) while the account-wide 5h/7d window is healthy; cooling the whole account there idles healthy capacity and empties the pool ('刷不出 codex 额度'). It narrows such a 429 to the mapped model scope (honored by modelRateLimitKeysForRequest's GetMappedModel key, no read-side change) when tkIsOpenAICodexMeteredModel; account-wide exhaustion is owned solely by calculateOpenAI429ResetTime (general window >=100% → whole account, the only fact-based account-wide signal — no inferred sub-100% threshold). Losing these on a merge reverts codex to account-level amplification."
     },
     {
+      "path": "backend/internal/service/ratelimit_service_tk_cloudwise_402.go",
+      "must_contain": [
+        "func tkIsCloudwiseModelBalance402Response(",
+        "func tkIsCloudwiseModelBalance402(",
+        "func (s *RateLimitService) tkTryCloudwiseModelBalanceCooldown(",
+        "tkCloudwiseModelBalanceCooldown       = 5 * time.Hour",
+        "SetModelRateLimit(ctx, account.ID, scopeKey, resetAt, tkCloudwiseModelBalanceCooldownReason)"
+      ],
+      "rationale": "CloudWise model-balance 402 owner. Prod account #94 proved the same API key could serve Sonnet/GLM/MiniMax while claude-opus-4-8 returned 402 insufficient_quota, so the failure is an independent model pool rather than whole-account standing. This helper narrowly matches CloudWise base URLs plus the observed balance markers, resolves the scheduler's exact mapped-model key, and persists a fixed 5h model_rate_limits cooldown. Removing it restores whole-account SetError amplification and unnecessarily idles healthy sibling models."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_cloudwise_402_test.go",
+      "must_contain": [
+        "TestRateLimitService_CloudwiseInsufficientBalance402_CoolsExactModelForFiveHours",
+        "TestOpenAIGateway_CloudwiseInsufficientBalance402_DoesNotRuntimeBlockWholeAccount",
+        "TestRateLimitService_CloudwisePoolMode402_StillCoolsExactModel",
+        "TestRateLimitService_Cloudwise402FallbackBypassesPoolAndCustomEarlyExits",
+        "TestRateLimitService_Cloudwise402WithoutModel_KeepsAccountLevelFallback"
+      ],
+      "rationale": "Regression coverage for CloudWise 402 isolation: exact model receives the 5h cooldown, sibling models stay schedulable, OpenAI-compatible runtime blocking remains model-scoped, pool/custom early exits cannot bypass either the model cooldown or its fail-closed account fallback, and absent model context keeps the conservative account-level fallback."
+    },
+    {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
+        "cloudwiseModelBalance402 := tkIsCloudwiseModelBalance402Response(",
+        "s.tkTryCloudwiseModelBalanceCooldown(ctx, account, statusCode, responseBody, firstRequestedModel(requestedModel))",
+        "account.Platform != PlatformAnthropic && !cloudwiseModelBalance402",
+        "if !cloudwiseModelBalance402 && !planGatedModel",
         "if len(requestedModel) > 0 && s.tkTryAnthropicModelScopedCooldown(ctx, account, requestedModel[0], result) {",
         "if len(requestedModel) > 0 && s.tkTryOpenAICodexModelScopedCooldown(ctx, account, requestedModel[0], resetTime) {",
         "rateLimitSet := s.handle429(ctx, account, headers, responseBody, requestedModel...)"
       ],
-      "rationale": "G4 injection point in the upstream-shaped handle429 / case-429 dispatch. The Anthropic per-window (5h/7d) branch must try the (account x model class) cooldown BEFORE the account-level SetRateLimited fallback, and the dispatch must thread requestedModel into handle429. The OpenAI/Codex body path (usage_limit_reached) must likewise try tkTryOpenAICodexModelScopedCooldown BEFORE the whole-account SetRateLimited so a spark per-model sub-limit 429 (account-wide window healthy) is narrowed to the model. An upstream merge that rewrites the 429 path or drops the requestedModel passthrough would silently revert both G4 (Anthropic) and the codex spark cooldown back to account-level amplification; this sentinel anchors both calls and the threading."
+      "rationale": "G4 injection point in the upstream-shaped error dispatch. CloudWise model-balance 402 must try the exact-model cooldown before pool/custom early exits, while a failed write or missing model bypasses those exits and reaches the conservative account-level 402 fallback. The Anthropic per-window (5h/7d) branch must try the (account x model class) cooldown BEFORE the account-level SetRateLimited fallback, and the dispatch must thread requestedModel into handle429. The OpenAI/Codex body path (usage_limit_reached) must likewise try tkTryOpenAICodexModelScopedCooldown BEFORE the whole-account SetRateLimited so a spark per-model sub-limit 429 (account-wide window healthy) is narrowed to the model. An upstream merge that rewrites these paths or drops the requestedModel passthrough would silently restore whole-account amplification or fail-open CloudWise scheduling; this sentinel anchors the calls, fallbacks, and threading."
     },
     {
       "path": "backend/internal/service/model_rate_limit.go",
@@ -6897,9 +6949,11 @@
     {
       "path": "backend/internal/service/openai_account_runtime_block_fastpath.go",
       "must_contain": [
-        "HandleOpenAIImageCapabilityLoss400(stateCtx, account, statusCode, responseBody)"
+        "HandleOpenAIImageCapabilityLoss400(stateCtx, account, statusCode, responseBody)",
+        "cloudwiseModelBalanceMatched := len(canonicalModel) > 0 &&",
+        "!modelTempMatched && !cloudwiseModelBalanceMatched"
       ],
-      "rationale": "Gateway error fastpath must cool openai:image_generation on capability-loss 400 without blocking the whole account."
+      "rationale": "Gateway error fastpath must cool openai:image_generation on capability-loss 400 without blocking the whole account. The same boundary must recognize a successfully persisted CloudWise model-balance 402 and skip the whole-account in-memory runtime block while still returning shouldDisable=true so the current request fails over. Losing that guard makes the durable model scope ineffective until process restart because healthy sibling models remain hidden behind an account-wide runtime block."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_account_capability_400.go",
