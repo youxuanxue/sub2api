@@ -229,6 +229,85 @@ func TestTKAnthropicBufferedError_NativeResponsesPathAttributesUpstream(t *testi
 	requireUpstreamAttributed(t, c, http.StatusUnauthorized)
 }
 
+func TestTKAnthropicBufferedError_CloudwiseGatewaySSEQuotaCoolsExactModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	repo := &rateLimitAccountRepoStub{}
+	rateLimits := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc := &GatewayService{rateLimitService: rateLimits}
+	account := &Account{
+		ID:          94,
+		Name:        "cloudwise-anthropic",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"base_url": "https://api.cloudwise.ai/api",
+		},
+	}
+	resp := newBufferedErrorUpstreamResponse(
+		anthropicErrorOnlySSE("insufficient_quota", "Quota exhausted"),
+	)
+
+	result, err := svc.handleCCBufferedFromAnthropic(
+		resp, c, account, "claude-opus-4-8", "claude-opus-4-8", nil, time.Now(),
+	)
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusPaymentRequired, failoverErr.StatusCode)
+	require.Zero(t, repo.setErrorCalls, "CloudWise model exhaustion must not disable the whole account")
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, "claude-opus-4-8", repo.modelRateLimitCalls[0].scope)
+	require.Equal(t, tkCloudwiseModelBalanceCooldownReason, repo.modelRateLimitCalls[0].reason)
+}
+
+func TestTKAnthropicBufferedError_CloudwiseOpenAISSEQuotaCoolsExactModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	repo := &rateLimitAccountRepoStub{}
+	rateLimits := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc := &OpenAIGatewayService{rateLimitService: rateLimits}
+	rateLimits.SetAccountRuntimeBlocker(svc)
+	account := &Account{
+		ID:          95,
+		Name:        "cloudwise-openai",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"base_url": "https://api.cloudwise.ai/api",
+		},
+	}
+	resp := newBufferedErrorUpstreamResponse(
+		anthropicErrorOnlySSE("insufficient_quota", "Quota exhausted"),
+	)
+
+	result, err := svc.handleCCBufferedFromNativeAnthropic(
+		resp, c, account, "claude-opus-4-8", "claude-opus-4-8", "claude-opus-4-8", nil, time.Now(),
+	)
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusPaymentRequired, failoverErr.StatusCode)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account),
+		"CloudWise exact-model cooldown must leave sibling models schedulable")
+	require.Zero(t, repo.setErrorCalls, "CloudWise model exhaustion must not disable the whole account")
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, "claude-opus-4-8", repo.modelRateLimitCalls[0].scope)
+	require.Equal(t, tkCloudwiseModelBalanceCooldownReason, repo.modelRateLimitCalls[0].reason)
+}
+
 // An empty-but-200 stream has no error event to parse. It is still an upstream
 // protocol fault, so it must not be booked as a gateway-internal error either.
 func TestTKAnthropicBufferedError_EmptyStreamStillAttributedUpstream(t *testing.T) {

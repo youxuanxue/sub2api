@@ -642,6 +642,13 @@ write_active_color() {
   log "active-color=${color}"
 }
 
+commit_cutover_state() {
+  local color="$1"
+  CUTOVER_COMMITTED=1
+  write_active_color "${color}"
+  record_cutover
+}
+
 read_active_color() {
   if [[ -r "${ACTIVE_FILE}" ]]; then
     sed -n '1p' "${ACTIVE_FILE}" | tr -d '[:space:]'
@@ -677,9 +684,7 @@ ensure_legacy_cutover() {
   wait_ready tokenkey-blue
 
   write_caddy_for_color blue
-  record_cutover
-  CUTOVER_COMMITTED=1
-  write_active_color blue
+  commit_cutover_state blue
   install_bluegreen_systemd_unit
 
   drain_container tokenkey
@@ -731,9 +736,7 @@ deploy_target_color() {
   fi
 
   write_caddy_for_color "${target}"
-  record_cutover
-  CUTOVER_COMMITTED=1
-  write_active_color "${target}"
+  commit_cutover_state "${target}"
   install_bluegreen_systemd_unit
 
   drain_container "${active_container}"

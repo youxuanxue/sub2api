@@ -138,6 +138,7 @@ func tkAnthropicBufferedFailure(
 			"Upstream stream ended without a response",
 		)
 	}
+	upstreamErr = tkNormalizeAnthropicBufferedUpstreamError(upstreamErr)
 	tkRecordAnthropicBufferedUpstreamError(c, account, requestID, upstreamErr.Kind, upstreamErr)
 
 	var headers http.Header
@@ -157,6 +158,17 @@ func tkAnthropicBufferedFailure(
 		ClientMessage:     upstreamErr.Message,
 		NextAccountAction: NextAccountRetry,
 	}
+}
+
+func tkNormalizeAnthropicBufferedUpstreamError(
+	upstreamErr *tkAnthropicBufferedUpstreamError,
+) *tkAnthropicBufferedUpstreamError {
+	if upstreamErr == nil || !cnProviderResponseIndicatesInsufficientBalance(upstreamErr.Payload) {
+		return upstreamErr
+	}
+	semanticErr := *upstreamErr
+	semanticErr.UpstreamStatus = http.StatusPaymentRequired
+	return &semanticErr
 }
 
 func (s *GatewayService) tkAnthropicBufferedFailoverError(

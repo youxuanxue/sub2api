@@ -117,7 +117,7 @@ func TestHandleCCBufferedFromAnthropic_PreservesMessageStartCacheUsageAndReasoni
 	require.Equal(t, "high", *result.ReasoningEffort)
 }
 
-func TestHandleCCBufferedFromAnthropic_EventErrorReturnsTypedFailure(t *testing.T) {
+func TestHandleCCBufferedFromAnthropic_InsufficientBalanceReturnsAttributed402Failover(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
@@ -132,14 +132,27 @@ func TestHandleCCBufferedFromAnthropic_EventErrorReturnsTypedFailure(t *testing.
 		Header: http.Header{"x-request-id": []string{"rid_cc_buffered_error"}},
 		Body:   io.NopCloser(strings.NewReader(upstreamBody)),
 	}
+	account := &Account{
+		ID:          93,
+		Name:        "anthropic-buffered-error",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"base_url": "https://cloudwise.example/api",
+		},
+	}
 
 	svc := &GatewayService{}
-	result, err := svc.handleCCBufferedFromAnthropic(resp, c, "claude-opus-4-8", "claude-opus-4-8", nil, time.Now())
+	result, err := svc.handleCCBufferedFromAnthropic(resp, c, account, "claude-opus-4-8", "claude-opus-4-8", nil, time.Now())
 	require.Nil(t, result)
-	var streamErr *sseStreamErrorEventError
-	require.ErrorAs(t, err, &streamErr)
-	require.Contains(t, streamErr.RawData, "Insufficient balance")
-	require.Empty(t, rec.Body.String(), "typed upstream failure must be handled by the failover loop, not committed as a final 502 here")
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusPaymentRequired, failoverErr.StatusCode)
+	require.Contains(t, string(failoverErr.ResponseBody), "Insufficient balance")
+	requireUpstreamAttributed(t, c, http.StatusPaymentRequired)
+	require.Empty(t, rec.Body.String(), "buffered upstream failure must remain uncommitted so a healthy account can serve the request")
 }
 
 func TestForwardAsChatCompletions_BufferedBalanceSSEErrorBecomes402Failover(t *testing.T) {

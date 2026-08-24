@@ -242,21 +242,6 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		result, handleErr = s.handleCCBufferedFromAnthropic(resp, c, account, originalModel, mappedModel, reasoningEffort, startTime)
 	}
 
-	if !clientStream && handleErr != nil {
-		var sseErr *sseStreamErrorEventError
-		if errors.As(handleErr, &sseErr) {
-			semanticStatus := http.StatusBadGateway
-			body := []byte(sseErr.RawData)
-			if cnProviderResponseIndicatesInsufficientBalance(body) {
-				semanticStatus = http.StatusPaymentRequired
-				if s.rateLimitService != nil {
-					s.rateLimitService.HandleUpstreamError(ctx, account, semanticStatus, resp.Header, body, mappedModel)
-				}
-			}
-			return nil, s.sseStreamErrorFailover(c, account, resp, sseErr, semanticStatus)
-		}
-	}
-
 	return result, handleErr
 }
 
@@ -321,8 +306,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		line := scanner.Text()
 		// SSE 规范允许 `event:xxx`（冒号后无空格）：Kimi 等 Anthropic 兼容上游
 		// 返回紧凑格式，严格匹配 "event: " 会丢弃全部事件（#4653 同根因）。
-		eventName, ok := extractOpenAISSEEventLine(line)
-		if !ok {
+		if _, ok := extractOpenAISSEEventLine(line); !ok {
 			continue
 		}
 
@@ -334,9 +318,6 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 			continue
 		}
 		observeOpenAIResponsesEvent(c, []byte(payload))
-		if eventName == "error" {
-			return nil, &sseStreamErrorEventError{RawData: payload}
-		}
 
 		if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {
 			upstreamErr = parsed
