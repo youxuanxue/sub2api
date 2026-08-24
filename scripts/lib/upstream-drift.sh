@@ -5,15 +5,16 @@ UPSTREAM_URL="${UPSTREAM_URL:-https://github.com/Wei-Shaw/sub2api.git}"
 is_upstream_drift_gate_required() {
   # Pull-request checkouts are detached, so prefer the PR head branch. Pushes
   # expose the target branch through GITHUB_REF_NAME; local runs fall back to
-  # the checked-out branch. Upstream freshness is a main/sync concern, not a
-  # reason to block unrelated feature and bugfix PRs.
+  # the checked-out branch. Freshness is enforced only while preparing an
+  # upstream-sync branch; existing upstream drift must not block main or an
+  # unrelated feature/bugfix PR.
   local branch="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"
   if [ -z "$branch" ]; then
     branch="$(git branch --show-current 2>/dev/null || true)"
   fi
 
   case "$branch" in
-    main|merge/upstream-*) return 0 ;;
+    merge/upstream-*) return 0 ;;
     *) return 1 ;;
   esac
 }

@@ -15,17 +15,21 @@ UPSTREAM_DRIFT_LIB = REPO_ROOT / "scripts/lib/upstream-drift.sh"
 
 def _gate_status(
     *,
-    head_ref: str = "",
-    ref_name: str = "",
+    head_ref: str | None = None,
+    ref_name: str | None = None,
     cwd: pathlib.Path = REPO_ROOT,
 ) -> int:
     env = os.environ.copy()
-    env.pop("GITHUB_HEAD_REF", None)
-    env.pop("GITHUB_REF_NAME", None)
-    if head_ref:
-        env["GITHUB_HEAD_REF"] = head_ref
-    if ref_name:
-        env["GITHUB_REF_NAME"] = ref_name
+    if head_ref is not None:
+        if head_ref:
+            env["GITHUB_HEAD_REF"] = head_ref
+        else:
+            env.pop("GITHUB_HEAD_REF", None)
+    if ref_name is not None:
+        if ref_name:
+            env["GITHUB_REF_NAME"] = ref_name
+        else:
+            env.pop("GITHUB_REF_NAME", None)
     proc = subprocess.run(
         [
             "bash",
@@ -65,8 +69,8 @@ class UpstreamDriftGateTest(unittest.TestCase):
     def test_sync_pr_branch_runs_gate(self) -> None:
         self.assertEqual(_gate_status(head_ref="merge/upstream-2026-08-24"), 0)
 
-    def test_main_push_runs_gate(self) -> None:
-        self.assertEqual(_gate_status(ref_name="main"), 0)
+    def test_main_push_skips_gate(self) -> None:
+        self.assertEqual(_gate_status(head_ref="", ref_name="main"), 1)
 
     def test_feature_pr_branch_skips_gate(self) -> None:
         self.assertEqual(
@@ -78,6 +82,29 @@ class UpstreamDriftGateTest(unittest.TestCase):
         env = os.environ.copy()
         env["GITHUB_HEAD_REF"] = "fix/openai-responses-lite-parallel-tools"
         env.pop("GITHUB_REF_NAME", None)
+        proc = subprocess.run(
+            [
+                "python3",
+                "-m",
+                "unittest",
+                "scripts.test_upstream_drift_resolved."
+                "UpstreamSyncRegressionTest.test_tokenkey_not_behind_upstream_main",
+                "-v",
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        combined = proc.stdout + proc.stderr
+        self.assertEqual(proc.returncode, 0, combined)
+        self.assertIn("skipped", combined)
+
+    def test_main_push_skips_freshness_regression(self) -> None:
+        env = os.environ.copy()
+        env.pop("GITHUB_HEAD_REF", None)
+        env["GITHUB_REF_NAME"] = "main"
         proc = subprocess.run(
             [
                 "python3",
@@ -115,7 +142,7 @@ class UpstreamDriftGateTest(unittest.TestCase):
                 cwd=temp_repo,
                 check=True,
             )
-            self.assertEqual(_gate_status(cwd=temp_repo), 1)
+            self.assertEqual(_gate_status(head_ref="", ref_name="", cwd=temp_repo), 1)
 
 
 if __name__ == "__main__":
