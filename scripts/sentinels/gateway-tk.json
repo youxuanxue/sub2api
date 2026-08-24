@@ -491,9 +491,9 @@
         "SetTempUnschedulable(ctx, account.ID, until, reason)",
         ") ResetAnthropicUpstreamErrorCounter(",
         "ResetAnthropicCooldownTier",
-        "if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic {",
+        "if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic && !cloudwiseModelBalance402 {",
         "planGatedModel := isOpenAIOAuthAccount(account) && isOpenAICodexPlanGatedModelError(statusCode, responseBody)",
-        "if !planGatedModel && !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {",
+        "if !cloudwiseModelBalance402 && !planGatedModel && !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {",
         "s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)",
         "s.tkDisableIfOAuth401OnValidToken(ctx, authAccount, upstreamMsg)",
         "oauth_401_immediate_disable",
@@ -3632,6 +3632,7 @@
     {
       "path": "backend/internal/service/ratelimit_service_tk_cloudwise_402.go",
       "must_contain": [
+        "func tkIsCloudwiseModelBalance402Response(",
         "func tkIsCloudwiseModelBalance402(",
         "func (s *RateLimitService) tkTryCloudwiseModelBalanceCooldown(",
         "tkCloudwiseModelBalanceCooldown       = 5 * time.Hour",
@@ -3645,19 +3646,23 @@
         "TestRateLimitService_CloudwiseInsufficientBalance402_CoolsExactModelForFiveHours",
         "TestOpenAIGateway_CloudwiseInsufficientBalance402_DoesNotRuntimeBlockWholeAccount",
         "TestRateLimitService_CloudwisePoolMode402_StillCoolsExactModel",
+        "TestRateLimitService_Cloudwise402FallbackBypassesPoolAndCustomEarlyExits",
         "TestRateLimitService_Cloudwise402WithoutModel_KeepsAccountLevelFallback"
       ],
-      "rationale": "Regression coverage for CloudWise 402 isolation: exact model receives the 5h cooldown, sibling models stay schedulable, OpenAI-compatible runtime blocking remains model-scoped, pool-mode cannot bypass the policy, and absent model context keeps the conservative account-level fallback."
+      "rationale": "Regression coverage for CloudWise 402 isolation: exact model receives the 5h cooldown, sibling models stay schedulable, OpenAI-compatible runtime blocking remains model-scoped, pool/custom early exits cannot bypass either the model cooldown or its fail-closed account fallback, and absent model context keeps the conservative account-level fallback."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
-        "if s.tkTryCloudwiseModelBalanceCooldown(ctx, account, statusCode, responseBody, firstRequestedModel(requestedModel)) {",
+        "cloudwiseModelBalance402 := tkIsCloudwiseModelBalance402Response(",
+        "s.tkTryCloudwiseModelBalanceCooldown(ctx, account, statusCode, responseBody, firstRequestedModel(requestedModel))",
+        "account.Platform != PlatformAnthropic && !cloudwiseModelBalance402",
+        "if !cloudwiseModelBalance402 && !planGatedModel",
         "if len(requestedModel) > 0 && s.tkTryAnthropicModelScopedCooldown(ctx, account, requestedModel[0], result) {",
         "if len(requestedModel) > 0 && s.tkTryOpenAICodexModelScopedCooldown(ctx, account, requestedModel[0], resetTime) {",
         "rateLimitSet := s.handle429(ctx, account, headers, responseBody, requestedModel...)"
       ],
-      "rationale": "G4 injection point in the upstream-shaped handle429 / case-429 dispatch. The Anthropic per-window (5h/7d) branch must try the (account x model class) cooldown BEFORE the account-level SetRateLimited fallback, and the dispatch must thread requestedModel into handle429. The OpenAI/Codex body path (usage_limit_reached) must likewise try tkTryOpenAICodexModelScopedCooldown BEFORE the whole-account SetRateLimited so a spark per-model sub-limit 429 (account-wide window healthy) is narrowed to the model. An upstream merge that rewrites the 429 path or drops the requestedModel passthrough would silently revert both G4 (Anthropic) and the codex spark cooldown back to account-level amplification; this sentinel anchors both calls and the threading."
+      "rationale": "G4 injection point in the upstream-shaped error dispatch. CloudWise model-balance 402 must try the exact-model cooldown before pool/custom early exits, while a failed write or missing model bypasses those exits and reaches the conservative account-level 402 fallback. The Anthropic per-window (5h/7d) branch must try the (account x model class) cooldown BEFORE the account-level SetRateLimited fallback, and the dispatch must thread requestedModel into handle429. The OpenAI/Codex body path (usage_limit_reached) must likewise try tkTryOpenAICodexModelScopedCooldown BEFORE the whole-account SetRateLimited so a spark per-model sub-limit 429 (account-wide window healthy) is narrowed to the model. An upstream merge that rewrites these paths or drops the requestedModel passthrough would silently restore whole-account amplification or fail-open CloudWise scheduling; this sentinel anchors the calls, fallbacks, and threading."
     },
     {
       "path": "backend/internal/service/model_rate_limit.go",

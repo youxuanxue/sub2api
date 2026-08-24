@@ -13,15 +13,17 @@ const (
 	tkCloudwiseModelBalanceCooldown       = 5 * time.Hour
 )
 
-func tkIsCloudwiseModelBalance402(account *Account, statusCode int, responseBody []byte, requestedModel string) bool {
+func tkIsCloudwiseModelBalance402Response(account *Account, statusCode int, responseBody []byte) bool {
 	if account == nil || statusCode != http.StatusPaymentRequired || !isCloudwiseRelayAccount(account) {
-		return false
-	}
-	if strings.TrimSpace(requestedModel) == "" {
 		return false
 	}
 	body := strings.ToLower(strings.TrimSpace(string(responseBody)))
 	return strings.Contains(body, "insufficient balance") || strings.Contains(body, "insufficient_quota")
+}
+
+func tkIsCloudwiseModelBalance402(account *Account, statusCode int, responseBody []byte, requestedModel string) bool {
+	return strings.TrimSpace(requestedModel) != "" &&
+		tkIsCloudwiseModelBalance402Response(account, statusCode, responseBody)
 }
 
 func (s *RateLimitService) tkTryCloudwiseModelBalanceCooldown(

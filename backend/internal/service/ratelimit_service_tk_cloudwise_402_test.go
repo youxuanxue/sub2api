@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -123,6 +124,82 @@ func TestRateLimitService_CloudwisePoolMode402_StillCoolsExactModel(t *testing.T
 	require.Zero(t, repo.setErrorCalls)
 	require.Len(t, repo.modelRateLimitCalls, 1)
 	require.Equal(t, "claude-opus-4-8", repo.modelRateLimitCalls[0].scope)
+}
+
+func TestRateLimitService_Cloudwise402FallbackBypassesPoolAndCustomEarlyExits(t *testing.T) {
+	tests := []struct {
+		name        string
+		credentials map[string]any
+		model       []string
+		writeErr    error
+		wantWrites  int
+	}{
+		{
+			name: "pool mode model cooldown write failure",
+			credentials: map[string]any{
+				"base_url":  "https://api.cloudwise.ai/api",
+				"pool_mode": true,
+			},
+			model:      []string{"claude-opus-4-8"},
+			writeErr:   errors.New("write failed"),
+			wantWrites: 1,
+		},
+		{
+			name: "custom error code miss after model cooldown write failure",
+			credentials: map[string]any{
+				"base_url":                   "https://api.cloudwise.ai/api",
+				"custom_error_codes_enabled": true,
+				"custom_error_codes":         []any{float64(http.StatusTooManyRequests)},
+			},
+			model:      []string{"claude-opus-4-8"},
+			writeErr:   errors.New("write failed"),
+			wantWrites: 1,
+		},
+		{
+			name: "pool mode without model context",
+			credentials: map[string]any{
+				"base_url":  "https://api.cloudwise.ai/api",
+				"pool_mode": true,
+			},
+		},
+		{
+			name: "custom error code miss without model context",
+			credentials: map[string]any{
+				"base_url":                   "https://api.cloudwise.ai/api",
+				"custom_error_codes_enabled": true,
+				"custom_error_codes":         []any{float64(http.StatusTooManyRequests)},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &rateLimitAccountRepoStub{modelRateLimitErr: tt.writeErr}
+			svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+			account := &Account{
+				ID:          100,
+				Name:        "cloudwise-fallback",
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusActive,
+				Schedulable: true,
+				Credentials: tt.credentials,
+			}
+
+			shouldDisable := svc.HandleUpstreamError(
+				context.Background(),
+				account,
+				http.StatusPaymentRequired,
+				http.Header{},
+				[]byte(`{"error":{"message":"Insufficient balance","type":"insufficient_quota"}}`),
+				tt.model...,
+			)
+
+			require.True(t, shouldDisable, "failed or impossible model cooldown must fail closed")
+			require.Len(t, repo.modelRateLimitCalls, tt.wantWrites)
+			require.Equal(t, 1, repo.setErrorCalls, "fallback must disable the whole account")
+		})
+	}
 }
 
 func TestRateLimitService_CloudwiseInsufficientBalance402_UsesMappedModelScope(t *testing.T) {
