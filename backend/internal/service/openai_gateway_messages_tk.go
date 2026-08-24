@@ -12,6 +12,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// newAPIBridgeOwnsAnthropicMessages reports whether inbound /v1/messages for
+// this account must relay through the NewAPI adaptor bridge.
+//
+// The OpenAI-shaped fallbacks below (native Anthropic endpoint / raw Chat
+// Completions) resolve their upstream from OpenAI-family accessors, which
+// return "" for platform=newapi — and every caller turns "" into
+// api.openai.com. A newapi channel credential (DashScope, Ark, ...) sent
+// there comes back as "Incorrect API key provided". Bridge-eligible newapi
+// accounts therefore stay on the adaptor, which reads the account's own
+// channel base URL and key.
+func (s *OpenAIGatewayService) newAPIBridgeOwnsAnthropicMessages(account *Account) bool {
+	if account == nil || account.Platform != PlatformNewAPI {
+		return false
+	}
+	return s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointChatCompletions)
+}
+
 // tkTryRouteForwardAsAnthropic handles TokenKey-specific /v1/messages entry
 // routing before the OpenAI Responses compat path.
 func (s *OpenAIGatewayService) tkTryRouteForwardAsAnthropic(
@@ -21,6 +38,12 @@ func (s *OpenAIGatewayService) tkTryRouteForwardAsAnthropic(
 	body []byte,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, bool, error) {
+	// Bridge-eligible newapi accounts are relayed by ForwardAsAnthropicDispatched;
+	// never claim them for an OpenAI-shaped fallback.
+	if s.newAPIBridgeOwnsAnthropicMessages(account) {
+		result, err := s.ForwardAsAnthropicDispatched(ctx, c, account, body, "", defaultMappedModel)
+		return result, true, err
+	}
 	if account.IsAnthropicProtocol() || account.IsAdaptiveAPIProtocol() {
 		result, err := s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
 		return result, true, err
