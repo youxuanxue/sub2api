@@ -1145,9 +1145,9 @@
         "base_url": "https://qianfan.baidubce.com"
       },
       "price_source": "overlay",
-      "price_key": "deepseek-v4-flash-0731",
+      "price_key": "deepseek-v4-flash",
       "display": true,
-      "notes": "Baidu Qianfan account 90 only (dated flash SKU). Probe 200 on 2026-08-07. Qianfan ¥0.001/¥0.002 per 1k; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Dated flash SKU. Probe 200 on 2026-08-07 via Baidu Qianfan account 90; also served by accounts 39/88 as an alias (tk_088). Bills from the deepseek-v4-flash official owner (the same upstream model, per the DeepSeek price page), so official peak windows apply. served-via-modelops-activation."
     },
     "newapi/deepseek-v3.2": {
       "platform": "newapi",

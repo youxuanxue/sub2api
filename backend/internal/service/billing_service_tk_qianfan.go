@@ -1,53 +1,24 @@
 package service
 
-import "strings"
-
-const tkQianfanOverlayPricingSuffix = ".qianfan"
-
-// tkDeepSeekPeakValleyExcludedModels are overlay owners on Baidu Qianfan list
-// pricing, not DeepSeek official direct-API peak-valley windows.
+// tkDeepSeekPeakValleyExcludedModels are registry owners priced from Baidu
+// Qianfan's published list rather than DeepSeek's direct API. Qianfan bills one
+// flat rate with no time-of-day component, so the DeepSeek peak-valley policy in
+// _config.deepseek_peak_valley must not double their output price during the
+// 09:00-12:00 / 14:00-18:00 Asia/Shanghai windows. Without this list they would
+// be caught by that policy's model_contains ["deepseek"] matcher and overbilled
+// 2x for half the working day.
+//
+// Membership rule: an id belongs here only when its sole registry owner IS a
+// Qianfan price. An id that bills from a DeepSeek official owner does NOT belong
+// here, even when Qianfan also serves it — that includes dated aliases such as
+// deepseek-v4-flash-0731, which resolves to the deepseek-v4-flash owner and is
+// therefore subject to the official peak windows.
+//
+// These three ids have no DeepSeek official equivalent (Qianfan-exclusive SKUs),
+// so the registry is their only legitimate global owner and this exclusion is
+// what keeps that owner's flat rate flat.
 var tkDeepSeekPeakValleyExcludedModels = map[string]struct{}{
-	"deepseek-v3.2":          {},
-	"deepseek-v3.2-think":    {},
-	"deepseek-v4-flash-0731": {},
-}
-
-// tkQianfanScopedOverlayModels are client-facing model ids that share a global
-// overlay owner but bill at Baidu Qianfan list rates when served from account 90.
-var tkQianfanScopedOverlayModels = map[string]struct{}{
-	"deepseek-v4-pro":   {},
-	"deepseek-v4-flash": {},
-	"glm-5":             {},
-	"glm-5.1":           {},
-	"glm-5.2":           {},
-	"kimi-k2.6":         {},
-}
-
-// tkQianfanScopedBillingModel maps billing to the Qianfan overlay owner when the
-// serving account is Baidu Qianfan (ch46). Public catalog and GetModelPricing
-// keep the global owner; only usage billing on account 90 switches keys.
-func tkQianfanScopedBillingModel(model string, account *Account) string {
-	model = strings.TrimSpace(model)
-	if model == "" || account == nil || !isNewAPIQianfanAccount(account) {
-		return model
-	}
-	if _, ok := tkQianfanScopedOverlayModels[model]; !ok {
-		return model
-	}
-	scoped := model + tkQianfanOverlayPricingSuffix
-	if tkOverlayModelPricing(scoped) != nil {
-		return scoped
-	}
-	return model
-}
-
-func tkMapQianfanScopedBillingModels(models []string, account *Account) []string {
-	if len(models) == 0 || account == nil {
-		return models
-	}
-	out := make([]string, len(models))
-	for i, model := range models {
-		out[i] = tkQianfanScopedBillingModel(model, account)
-	}
-	return out
+	"deepseek-v3.2":       {},
+	"deepseek-v3.2-think": {},
+	"deepseek-ocr":        {},
 }

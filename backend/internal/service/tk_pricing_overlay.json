@@ -1366,22 +1366,6 @@
     "supports_tool_choice": true,
     "supports_vision": false
   },
-  "deepseek-v4-flash.qianfan": {
-    "litellm_provider": "deepseek",
-    "mode": "chat",
-    "input_cost_per_token": 1.492537313432836e-07,
-    "output_cost_per_token": 2.985074626865672e-07,
-    "source": "Baidu Qianfan console 按量后付费, captured 2026-08-07: DeepSeek-V4-Flash ¥0.001/¥0.002 per 1k in/out; CNY/USD=6.7. Billing owner for Baidu Qianfan account 90 only (see billing_service_tk_qianfan.go).",
-    "supported_endpoints": [
-      "/v1/chat/completions"
-    ],
-    "supports_function_calling": true,
-    "supports_native_streaming": true,
-    "supports_reasoning": true,
-    "supports_system_messages": true,
-    "supports_tool_choice": true,
-    "supports_vision": false
-  },
   "deepseek-v3.2": {
     "litellm_provider": "deepseek",
     "mode": "chat",
@@ -1442,22 +1426,6 @@
       }
     ]
   },
-  "deepseek-v4-flash-0731": {
-    "litellm_provider": "deepseek",
-    "mode": "chat",
-    "input_cost_per_token": 1.492537313432836e-07,
-    "output_cost_per_token": 2.985074626865672e-07,
-    "source": "Baidu Qianfan console 按量后付费, captured 2026-08-07: DeepSeek-V4-Flash-0731 ¥0.001/¥0.002 per 1k in/out; CNY/USD=6.7. Serving via account 90 ch46 only.",
-    "supported_endpoints": [
-      "/v1/chat/completions"
-    ],
-    "supports_function_calling": true,
-    "supports_native_streaming": true,
-    "supports_reasoning": true,
-    "supports_system_messages": true,
-    "supports_tool_choice": true,
-    "supports_vision": false
-  },
   "deepseek-v4-pro": {
     "litellm_provider": "deepseek",
     "mode": "chat",
@@ -1480,22 +1448,6 @@
     "supports_parallel_function_calling": true,
     "supports_reasoning": true,
     "supports_response_schema": true,
-    "supports_system_messages": true,
-    "supports_tool_choice": true,
-    "supports_vision": false
-  },
-  "deepseek-v4-pro.qianfan": {
-    "litellm_provider": "deepseek",
-    "mode": "chat",
-    "input_cost_per_token": 1.791044776119403e-06,
-    "output_cost_per_token": 3.582089552238806e-06,
-    "source": "Baidu Qianfan console 按量后付费, captured 2026-08-07: DeepSeek-V4-Pro ¥0.012/¥0.024 per 1k in/out; CNY/USD=6.7. Billing owner for Baidu Qianfan account 90 only (see billing_service_tk_qianfan.go).",
-    "supported_endpoints": [
-      "/v1/chat/completions"
-    ],
-    "supports_function_calling": true,
-    "supports_native_streaming": true,
-    "supports_reasoning": true,
     "supports_system_messages": true,
     "supports_tool_choice": true,
     "supports_vision": false
@@ -9974,82 +9926,6 @@
         "output_cost_per_token": 2.686567164179104e-06
       }
     ]
-  },
-  "glm-5.qianfan": {
-    "litellm_provider": "zhipu",
-    "mode": "chat",
-    "input_cost_per_token": 5.970149253731343e-07,
-    "output_cost_per_token": 2.686567164179104e-06,
-    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: input ¥0.004–0.006 / output ¥0.018–0.022 per 1k (tiers ≤32k/>32k); overlay intervals by input tokens; CNY/USD=6.7. Billing owner for Baidu Qianfan account 90 only (see billing_service_tk_qianfan.go).",
-    "supported_endpoints": [
-      "/v1/chat/completions"
-    ],
-    "supports_reasoning": false,
-    "supports_vision": false,
-    "intervals": [
-      {
-        "min_tokens": 0,
-        "max_tokens": 32000,
-        "input_cost_per_token": 5.970149253731343e-07,
-        "output_cost_per_token": 2.686567164179104e-06
-      },
-      {
-        "min_tokens": 32000,
-        "max_tokens": null,
-        "input_cost_per_token": 8.955223880597015e-07,
-        "output_cost_per_token": 3.2835820895522387e-06
-      }
-    ]
-  },
-  "glm-5.1.qianfan": {
-    "litellm_provider": "zhipu",
-    "mode": "chat",
-    "input_cost_per_token": 8.955223880597015e-07,
-    "output_cost_per_token": 3.582089552238806e-06,
-    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: input ¥0.006–0.008 / output ¥0.024–0.028 per 1k (tiers ≤32k/>32k); overlay intervals by input tokens; CNY/USD=6.7. Billing owner for Baidu Qianfan account 90 only (see billing_service_tk_qianfan.go).",
-    "supported_endpoints": [
-      "/v1/chat/completions"
-    ],
-    "supports_reasoning": false,
-    "supports_vision": false,
-    "intervals": [
-      {
-        "min_tokens": 0,
-        "max_tokens": 32000,
-        "input_cost_per_token": 8.955223880597015e-07,
-        "output_cost_per_token": 3.582089552238806e-06
-      },
-      {
-        "min_tokens": 32000,
-        "max_tokens": null,
-        "input_cost_per_token": 1.1940298507462686e-06,
-        "output_cost_per_token": 4.17910447761194e-06
-      }
-    ]
-  },
-  "glm-5.2.qianfan": {
-    "litellm_provider": "zhipu",
-    "mode": "chat",
-    "input_cost_per_token": 1.1940298507462686e-06,
-    "output_cost_per_token": 4.17910447761194e-06,
-    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: ¥0.008/¥0.028 per 1k in/out; CNY/USD=6.7. Billing owner for Baidu Qianfan account 90 only (see billing_service_tk_qianfan.go).",
-    "supported_endpoints": [
-      "/v1/chat/completions"
-    ],
-    "supports_reasoning": false,
-    "supports_vision": false
-  },
-  "kimi-k2.6.qianfan": {
-    "litellm_provider": "moonshot",
-    "mode": "chat",
-    "input_cost_per_token": 9.701492537313432e-07,
-    "output_cost_per_token": 4.029850746268657e-06,
-    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: ¥0.0065/¥0.027 per 1k in/out; CNY/USD=6.7. Billing owner for Baidu Qianfan account 90 only (see billing_service_tk_qianfan.go).",
-    "supported_endpoints": [
-      "/v1/chat/completions"
-    ],
-    "supports_reasoning": false,
-    "supports_vision": true
   },
   "grok-4.6": {
     "litellm_provider": "xai",

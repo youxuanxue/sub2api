@@ -816,7 +816,6 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	// 通用兜底（与 OpenAI 路径的 usageBillingModelCandidates 语义对齐）：
 	// 选定模型查不到任何价格时回退到实际转发的具体模型。已定价流量不受影响。
 	billingModel = s.billableModelWithFallback(ctx, apiKey, billingModel, result.UpstreamModel, result.Model)
-	billingModel = tkQianfanScopedBillingModel(billingModel, account)
 
 	// 确定 RequestedModel（渠道映射前的原始模型）
 	requestedModel := result.Model
