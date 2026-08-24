@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -946,63 +947,80 @@ func TestForwardAsAnthropic_OAuthDisablesContinuationAfterPreviousResponseNotFou
 	require.False(t, gjson.GetBytes(upstream.bodies[2], "previous_response_id").Exists())
 }
 
-func TestForwardAsAnthropic_DisablesAPIKeyContinuationWhenUpstreamRequiresWebSocketV2(t *testing.T) {
+func TestForwardAsAnthropic_DisablesAPIKeyContinuationWhenUpstreamRejectsHTTPContinuation(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
-	upstream := &httpUpstreamRecorder{}
-	svc := &OpenAIGatewayService{
-		httpUpstream: upstream,
-		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
-	}
-	account := &Account{
-		ID:          1,
-		Name:        "openai-apikey",
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key":  "sk-test",
-			"base_url": "https://api.openai.com/v1",
-		},
-	}
-
-	svc.bindOpenAICompatSessionResponseID(context.Background(), nil, account, "stable-cache-key", "resp_http_unsupported")
-	body := []byte(`{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"first"},{"role":"assistant","content":"ok"},{"role":"user","content":"second"}],"stream":false}`)
-	upstream.responses = []*http.Response{
+	for _, tc := range []struct {
+		name    string
+		message string
+	}{
 		{
-			StatusCode: http.StatusBadRequest,
-			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_prev_http_unsupported"}},
-			Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"previous_response_id is only supported on Responses WebSocket v2","type":"invalid_request_error"}}`)),
+			name:    "websocket only upstream",
+			message: "previous_response_id is only supported on Responses WebSocket v2",
 		},
-		openAICompatSSECompletedResponse("resp_replayed", "gpt-5.5"),
-		openAICompatSSECompletedResponse("resp_later", "gpt-5.5"),
+		{
+			name:    "oauth edge behind api key relay",
+			message: "previous_response_id requires an OpenAI API-key account for HTTP requests",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := &httpUpstreamRecorder{}
+			svc := &OpenAIGatewayService{
+				httpUpstream: upstream,
+				cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+			}
+			account := &Account{
+				ID:          1,
+				Name:        "openai-apikey",
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Concurrency: 1,
+				Credentials: map[string]any{
+					"api_key":  "sk-test",
+					"base_url": "https://api.openai.com/v1",
+				},
+			}
+
+			svc.bindOpenAICompatSessionResponseID(context.Background(), nil, account, "stable-cache-key", "resp_http_unsupported")
+			body := []byte(`{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"first"},{"role":"assistant","content":"ok"},{"role":"user","content":"second"}],"stream":false}`)
+			upstream.responses = []*http.Response{
+				{
+					StatusCode: http.StatusBadRequest,
+					Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_prev_http_unsupported"}},
+					Body:       io.NopCloser(strings.NewReader(`{"error":{"message":` + strconv.Quote(tc.message) + `,"type":"invalid_request_error"}}`)),
+				},
+				openAICompatSSECompletedResponse("resp_replayed", "gpt-5.5"),
+				openAICompatSSECompletedResponse("resp_later", "gpt-5.5"),
+			}
+
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "stable-cache-key", "gpt-5.5")
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, "resp_replayed", result.ResponseID)
+			require.Len(t, upstream.requests, 2)
+			require.Equal(t, "resp_http_unsupported", gjson.GetBytes(upstream.bodies[0], "previous_response_id").String())
+			require.False(t, gjson.GetBytes(upstream.bodies[1], "previous_response_id").Exists())
+			require.Equal(t, int64(4), gjson.GetBytes(upstream.bodies[1], "input.#").Int())
+
+			laterRec := httptest.NewRecorder()
+			laterCtx, _ := gin.CreateTestContext(laterRec)
+			laterCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+			laterCtx.Request.Header.Set("Content-Type", "application/json")
+
+			laterResult, err := svc.ForwardAsAnthropic(context.Background(), laterCtx, account, body, "stable-cache-key", "gpt-5.5")
+			require.NoError(t, err)
+			require.NotNil(t, laterResult)
+			require.Equal(t, "resp_later", laterResult.ResponseID)
+			require.Len(t, upstream.requests, 3)
+			require.False(t, gjson.GetBytes(upstream.bodies[2], "previous_response_id").Exists())
+		})
 	}
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "stable-cache-key", "gpt-5.5")
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, "resp_replayed", result.ResponseID)
-	require.Len(t, upstream.requests, 2)
-	require.Equal(t, "resp_http_unsupported", gjson.GetBytes(upstream.bodies[0], "previous_response_id").String())
-	require.False(t, gjson.GetBytes(upstream.bodies[1], "previous_response_id").Exists())
-
-	laterRec := httptest.NewRecorder()
-	laterCtx, _ := gin.CreateTestContext(laterRec)
-	laterCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
-	laterCtx.Request.Header.Set("Content-Type", "application/json")
-
-	laterResult, err := svc.ForwardAsAnthropic(context.Background(), laterCtx, account, body, "stable-cache-key", "gpt-5.5")
-	require.NoError(t, err)
-	require.NotNil(t, laterResult)
-	require.Equal(t, "resp_later", laterResult.ResponseID)
-	require.Len(t, upstream.requests, 3)
-	require.False(t, gjson.GetBytes(upstream.bodies[2], "previous_response_id").Exists())
 }
 
 func TestForwardAsAnthropic_APIKeyMetadataSessionSurvivesChangingCacheControlAnchorAfterContinuationDisabled(t *testing.T) {
