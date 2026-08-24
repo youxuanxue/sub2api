@@ -169,6 +169,7 @@ print("=== traffic ===")
 top = sorted(by_path.items(), key=lambda kv: (-kv[1], kv[0]))[:10]
 print(json.dumps({
     "completed_total": total,
+    "path_counts": by_path,
     "top_paths": [{"path": p, "n": n} for p, n in top],
     "status_5xx": status_5xx,
 }))

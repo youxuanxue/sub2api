@@ -563,22 +563,52 @@ jobs:
               "$LIVE_TAG" "$INPUT_TAG" "$OUT_DIR/evaluate.json"
           fi
 
-      - name: Wait 5 minutes for live traffic
+      - name: Check PR hooks immediately
         if: steps.post_release_plan.outputs.count != '0'
-        run: sleep 300
-
-      - name: Check live→new PRs against prod
-        if: steps.post_release_plan.outputs.count != '0'
-        id: post_release_check
+        id: post_release_immediate
+        continue-on-error: true  # preflight-allow: swallow; final verdict gate runs after both phases
         env:
           LIVE_TAG: ${{ steps.previous_runtime.outputs.tag }}
           OUT_DIR: ${{ steps.post_release_plan.outputs.out_dir }}
+          OBSERVATION_SINCE: ${{ steps.ssm.outputs.cutover_at }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT_DIR/immediate"
+          bash ops/observability/run-post-release-check.sh \
+            --live "$LIVE_TAG" \
+            --new "$INPUT_TAG" \
+            --target prod \
+            --phase immediate \
+            --since "$OBSERVATION_SINCE" \
+            --plan-file "$OUT_DIR/plan.json" \
+            --out-dir "$OUT_DIR/immediate"
+
+      - name: Wait until 5 minutes after cutover
+        if: steps.post_release_plan.outputs.count != '0'
+        env:
+          OBSERVATION_SINCE: ${{ steps.ssm.outputs.cutover_at }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release_post_check.py wait \
+            --since "$OBSERVATION_SINCE" \
+            --minimum-seconds 300
+
+      - name: Check traffic and 5xx after 5 minutes
+        if: steps.post_release_plan.outputs.count != '0'
+        id: post_release_check
+        continue-on-error: true  # preflight-allow: swallow; final verdict gate runs after summary
+        env:
+          LIVE_TAG: ${{ steps.previous_runtime.outputs.tag }}
+          OUT_DIR: ${{ steps.post_release_plan.outputs.out_dir }}
+          OBSERVATION_SINCE: ${{ steps.ssm.outputs.cutover_at }}
         run: |
           set -euo pipefail
           bash ops/observability/run-post-release-check.sh \
             --live "$LIVE_TAG" \
             --new "$INPUT_TAG" \
             --target prod \
+            --phase delayed \
+            --since "$OBSERVATION_SINCE" \
             --plan-file "$OUT_DIR/plan.json" \
             --out-dir "$OUT_DIR"
 
@@ -589,35 +619,26 @@ jobs:
           OUT_DIR: ${{ steps.post_release_plan.outputs.out_dir }}
         run: |
           set -euo pipefail
-          {
-            echo "## post-release-check"
-            echo "- live (was serving): \`${LIVE_TAG}\`"
-            echo "- new: \`${INPUT_TAG}\`"
-            if [ -n "${OUT_DIR:-}" ] && [ -f "${OUT_DIR}/evaluate.json" ]; then
-              python3 - <<'PY'
-          import json, os, pathlib
-          p = pathlib.Path(os.environ["OUT_DIR"]) / "evaluate.json"
-          data = json.loads(p.read_text())
-          print(f"- verdict: \`{data.get('verdict')}\`")
-          print("")
-          print("### Changes")
-          for change in data.get("changes") or []:
-              pr = f"#{change['pr']}" if change.get("pr") else change.get("sha", "")[:12]
-              print(f"- {pr} {change.get('subject', '')}")
-          print("")
-          print("### Checks")
-          for item in data.get("checks") or []:
-              print(f"- \`{item.get('verdict')}\` {item.get('id')} observed={item.get('observed')}")
-          PY
-            else
-              echo "- evaluate.json missing (job failed before scoring)"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          EVIDENCE_DIR="${OUT_DIR:-${RUNNER_TEMP}/missing-post-release-check}"
+          python3 scripts/release_post_check.py summary \
+            --immediate-evaluation-file "$EVIDENCE_DIR/immediate/evaluate.json" \
+            --evaluation-file "$EVIDENCE_DIR/evaluate.json" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce post-release verdicts
+        if: always() && steps.post_release_plan.outputs.count != '0'
+        env:
+          OUT_DIR: ${{ steps.post_release_plan.outputs.out_dir }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release_post_check.py gate \
+            --immediate-evaluation-file "$OUT_DIR/immediate/evaluate.json" \
+            --evaluation-file "$OUT_DIR/evaluate.json"
 
       - name: Notify Feishu (release rollout)
         # Best-effort 发版公告。只在 prod 换镜像 + external health + smoke +
-        # +5min post-release（green 或 skip）之后才跑 —— 卡片 == 该版本已上线且
-        # 烟测与 live→new PR 实测均通过（或无可测产品提交）。
+        # immediate hooks +5min traffic post-release（green 或 skip）之后才跑 ——
+        # 卡片 == 该版本已上线且烟测与 live→new PR 实测均通过（或无可测产品提交）。
         # 标 continue-on-error 让 webhook 抽风不把成功的 prod deploy 标红(对齐
         # release.yml 的 Telegram 步)。脚本本身也始终 exit 0(双保险),失败时
         # 打 ::warning::,绝不打印 webhook/secret。

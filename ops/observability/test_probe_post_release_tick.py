@@ -109,6 +109,13 @@ class ProbePostReleaseTickTest(unittest.TestCase):
         self.assertIn("active-color=green", meta["container_resolution"])
         self.assertIn("tokenkey-green is running", meta["container_resolution"])
 
+        traffic = next(
+            json.loads(line)
+            for line in proc.stdout.splitlines()
+            if line.startswith("{") and '"completed_total"' in line
+        )
+        self.assertEqual(traffic["path_counts"], {"/v1/messages": 1})
+
     def test_auto_container_accepts_unique_running_candidate(self) -> None:
         proc = self.run_probe(states={"tokenkey": "running"}, active_color=None)
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)

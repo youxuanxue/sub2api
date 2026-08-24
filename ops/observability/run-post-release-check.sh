@@ -14,6 +14,8 @@
 #       [--skip-probe] \
 #       [--tick-file PATH] \
 #       [--control-plane-ok true|false] \
+#       [--phase immediate|delayed] \
+#       [--since DURATION_OR_TIMESTAMP] \
 #       [--plan-file PATH] \
 #       [--out-dir DIR]
 #
@@ -36,6 +38,8 @@ TICK_FILE=""
 CONTROL_PLANE_OK=""
 PLAN_FILE_ARG=""
 OUT_DIR=""
+PHASE="delayed"
+SINCE="6m"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -46,6 +50,8 @@ while [ "$#" -gt 0 ]; do
     --skip-probe) SKIP_PROBE=1; shift ;;
     --tick-file) TICK_FILE="${2:-}"; shift 2 ;;
     --control-plane-ok) CONTROL_PLANE_OK="${2:-}"; shift 2 ;;
+    --phase) PHASE="${2:-}"; shift 2 ;;
+    --since) SINCE="${2:-}"; shift 2 ;;
     --plan-file) PLAN_FILE_ARG="${2:-}"; shift 2 ;;
     --out-dir) OUT_DIR="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -58,6 +64,10 @@ if [ -z "$LIVE" ] || [ -z "$NEW" ]; then
   usage >&2
   exit 1
 fi
+case "$PHASE" in
+  immediate|delayed) ;;
+  *) echo "[run-post-release-check] --phase must be immediate|delayed" >&2; exit 1 ;;
+esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PLANNER="$ROOT/scripts/release_post_check.py"
@@ -95,7 +105,7 @@ if [ "$CHANGE_COUNT" = "0" ]; then
 fi
 
 HOOKS="$(python3 "$PLANNER" hook-patterns --plan-file "$PLAN_FILE")"
-echo "[run-post-release-check] plan=$PLAN_FILE changes=$CHANGE_COUNT hooks=$HOOKS" >&2
+echo "[run-post-release-check] phase=$PHASE since=$SINCE plan=$PLAN_FILE changes=$CHANGE_COUNT hooks=$HOOKS" >&2
 
 CP_OK="${CONTROL_PLANE_OK:-true}"
 if [ "$SKIP_PROBE" -eq 0 ]; then
@@ -117,7 +127,7 @@ print("ok" if any(r.get("summary")=="control_plane" and r.get("status")=="ok" fo
   set +e
   bash "$ROOT/ops/observability/run-probe.sh" --target "$TARGET" \
     --script "$ROOT/ops/observability/probe-post-release-tick.sh" \
-    --env SINCE=6m \
+    --env "SINCE=${SINCE}" \
     --env "HOOK_PATTERNS=${HOOKS}" \
     --timeout-seconds 120 \
     | tee "$TICK_OUT"
@@ -145,6 +155,7 @@ python3 "$PLANNER" evaluate \
   --plan-file "$PLAN_FILE" \
   --tick-file "$TICK_OUT" \
   --control-plane-ok "$CP_OK" \
+  --phase "$PHASE" \
   | tee "$EVAL_FILE"
 EVAL_RC=${PIPESTATUS[0]}
 set -e

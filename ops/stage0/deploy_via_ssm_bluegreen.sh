@@ -83,10 +83,16 @@ LIVE_CADDY="${CADDY_DIR}/Caddyfile"
 
 TARGET_CONTAINER=""
 CUTOVER_COMMITTED=0
+CUTOVER_AT=""
 ENV_BACKUP=""
 
 log() {
   echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"
+}
+
+record_cutover() {
+  CUTOVER_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "tk_stage0_cutover: timestamp=${CUTOVER_AT}"
 }
 
 die() {
@@ -666,6 +672,7 @@ ensure_legacy_cutover() {
   wait_ready tokenkey-blue
 
   write_caddy_for_color blue
+  record_cutover
   CUTOVER_COMMITTED=1
   write_active_color blue
   install_bluegreen_systemd_unit
@@ -719,6 +726,7 @@ deploy_target_color() {
   fi
 
   write_caddy_for_color "${target}"
+  record_cutover
   CUTOVER_COMMITTED=1
   write_active_color "${target}"
   install_bluegreen_systemd_unit
@@ -754,6 +762,8 @@ compose_bg ps
 active="$(read_active_color)"
 active_container="$(color_container "${active}")"
 sudo docker logs "${active_container}" --since 2m 2>&1 | tail -30 || true
+[[ -n "${CUTOVER_AT}" ]] || die "target cutover timestamp was not recorded"
+echo "tk_stage0_cutover: timestamp=${CUTOVER_AT}"
 REMOTE
 
 printf '%s\n' "${REMOTE_SCRIPT}" > "${remote_script_file}"
@@ -898,4 +908,14 @@ echo
 if [[ "${status}" != "Success" ]]; then
   echo "::error::ssm command status=${status}" >&2
   exit 1
+fi
+
+cutover_at="$(sed -n 's/.*tk_stage0_cutover: timestamp=\([0-9T:Z-]*\).*/\1/p' "${stdout_file}" | tail -1)"
+if [[ ! "${cutover_at}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+  echo "::error::successful blue/green deploy did not return a valid cutover timestamp" >&2
+  exit 1
+fi
+echo "cutover_at=${cutover_at}"
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  echo "cutover_at=${cutover_at}" >> "${GITHUB_OUTPUT}"
 fi

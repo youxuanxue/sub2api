@@ -33,12 +33,12 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | 发版前 smoke 模型校验 | 机械 | `python3 scripts/stage0/check_smoke_config.py`（`TK_SMOKE_ANTHROPIC_MODELS` / `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS` 均 ∈ `TK_SMOKE_API_KEY` 的 `/v1/models`）。**完整校验需要 smoke key，只在 CI 可跑**；本地降级为 `bash ops/stage0/load_smoke_github_env.sh --check prod`（只验 secret/vars 已配置） |
 | 发版后跟进档位（skip / single） | 机械 | `bash scripts/release-impact-files.sh PREV NEW` → `.followup.tier`（是否值得人工再跟；**实测检查不走这里**） |
 | 发版后控制面探活（prod + deployable edge） | 机械 | `bash ops/observability/probe-release-control-plane.sh`（prod `/health` + `/api/v1/settings/public`，deployable Edge `/health`，JSON lines + summary） |
-| **发版后 +5min 实测（live tag→本次 tag 的全部 PR）** | 机械 | `deploy-stage0.yml` 的 `deploy` job 在 smoke/SSOT gate 后、飞书发版公告前跑 `ops/observability/run-post-release-check.sh`（workflow 先 `plan` 再 `--plan-file` 传入 wrapper，禁止重复 plan 与模型自造 `HOOK_PATTERNS`；复用已批的 prod Environment） |
+| **发版后两阶段实测（live tag→本次 tag 的全部 PR）** | 机械 | `deploy-stage0.yml` 同一 `deploy` job：蓝绿脚本在 Caddy reload 成功的真实切流点输出 `cutover_at`；`Check PR hooks immediately` 查该时刻起的 PR observables，workflow 只补足到 `cutover_at + 300s`，再由 `Check traffic and 5xx after 5 minutes` 查累计流量/5xx；两阶段复用 `plan.json` 与已批的 prod Environment |
 | **发版后 Anthropic OAuth 配置检查（snapshot → check）** | 机械 | `python3 ops/anthropic/manage-anthropic-config.py snapshot` + `check --snapshot`（见 §「发版后 Anthropic OAuth 配置检查」；canonical：`/tokenkey-anthropic-oauth-config`） |
 | **发版后 Account model_mapping 配置 diff** | 机械 | `python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json`（默认 prod only；期望 mapping 与 forbidden policy metadata 均来自 Go SSOT；edge 保持空 mapping 不纳入检查，见 §「发版后 Account model_mapping 配置检查」） |
 | rollout 摘要（git log / diff stat / sentinel / deletion） | 机械 | `bash scripts/release-rollout-summary.sh --mode release` |
 | prod approval 时机、smoke 模型回退 | 判断 | prompt（爆炸半径、用户入口顺序） |
-| +5min 实测 verdict | 机械 | `release_post_check.py evaluate`（agent 只转述，禁止另编 hook / 另评 green） |
+| post-release verdict + Summary | 机械 | `release_post_check.py evaluate --phase immediate|delayed` + `summary` + `gate`（Summary 显式显示缺失/无效证据与 baseline failure；gate 只接受 phase 匹配且 verdict=`green`，agent 禁止另评） |
 | `simple_release=true` / `[skip ci]` 等 hard rules | 判断 + 机械门禁 | prompt + `scripts/release-tag.sh` / preflight |
 
 ## 调用参数
@@ -307,7 +307,7 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
    ```
 
    脚本按 batch dispatch upgrade（`--smoke-phase infra`）→ watch → 验 `tk_edge_post_deploy_smoke: OK phase=infra`。**默认 `--parallel 1`（顺序）**；`N>1` 仅在可接受换容器窗口影响时用。批内失败则 fail-stop。
-8. **发版后 +5min 实测（CI 唯一源）**：watch 同一 `deploy-stage0` run 的 `deploy` job 在 smoke/SSOT gate 之后、飞书发版公告之前的 post-release 步（换镜像成功后等 5 分钟，**不再**另开 `environment: prod` 审批）。workflow 先写 `plan.json` 再 `--plan-file` 传入 wrapper，避免重复 plan。它用换镜像前的线上 tag → 本次 tag 列出全部产品 PR，再对照 prod 日志评分。摘要转述 `evaluate.json`，**不要**自造 `HOOK_PATTERNS`，也**不要**另开一轮 tick。CI 不可解析时才本地重跑 `ops/observability/run-post-release-check.sh`。
+8. **发版后两阶段实测（CI 唯一源）**：watch 同一 `deploy-stage0` run 的 `deploy` job 在 smoke/SSOT gate 之后、飞书发版公告之前完成两个 canonical tick：蓝绿 primitive 在 Caddy reload 成功后输出真实 `cutover_at`；`Check PR hooks immediately` 查该时刻起的 PR observables；workflow 等到 `cutover_at + 300s`（已超过则不再固定睡 300 秒）后查 traffic / 5xx。两者复用一个 `plan.json`，不另开 `environment: prod` 审批。Summary 必须显式转述 `completed requests`、5xx 分布、`top paths`、两阶段 PR checks，以及缺失/无效证据和 baseline failure；最终 gate 只接受两个 artifact 的 phase 匹配且 verdict=`green`。**不要**自造 `HOOK_PATTERNS` 或自行增减 tick。CI 不可解析时才按后文命令本地重跑。
 9. **只读配置检查（默认）**：先跑 §「发版后 Anthropic OAuth 配置检查」，再跑 §「发版后 Account model_mapping 配置检查」。violations 不触发 rollback，写入 rollout 摘要为 **yellow**；Anthropic violation 指向 `/tokenkey-anthropic-oauth-config`，model_mapping violation 指向 `/tokenkey-modelops-planner` 分支 D，先审 Go SSOT 派生的 diff，再按需 `apply-accounts --confirm yes-apply-account-model-mapping`。
 
 ## prod 真实测试
@@ -441,42 +441,59 @@ prod smoke 失败：停，优先 rollback prod；不要继续 Edge rollout。Edg
 
 **自动 rollback 也救不回 → 切灾难恢复（单次救不回即切，不必等"反复 N 次"）**：`deploy-stage0.yml` 调的 `ops/stage0/deploy_via_ssm.sh` 已内置 rollback ERR trap（失败自动恢复上一镜像）。当它**也救不回**——SSM 日志出现 `::error::…node requires MANUAL intervention`——或 dispatch rollback 到 `previous_tag` 后 external_health / smoke 仍失败，说明这已不是镜像级问题（整机 / OS / 数据卷 / 迁移 checksum 钉死）。此时切到 `deploy/aws/RUNBOOK-disaster-recovery.md`，按其 **§Agent 协同契约** 执行（Agent 自主跑只读/可逆步骤、高风险步骤先 plan 再等人类批）——具体边界与命令以该 runbook 为唯一权威，本段不复述。
 
-## 完成后：发版后 +5min 实测（live tag → 本次 tag）
+## 完成后：发版后两阶段实测（live tag → 本次 tag）
 
-**一条路径**：`deploy-stage0.yml` 的 `deploy` job 在 smoke/SSOT gate 之后、飞书发版公告之前的 post-release 步。范围是换镜像前线上正在跑的 tag（`resolve-prod-running-tag-via-ssm`），不是「上一个 git tag」猜测。workflow 先 `plan` 写 `plan.json`，check 步用 `--plan-file` 复用；本地 wrapper 若 `out-dir/plan.json` 已存在也会复用。脚本用 `scripts/release_post_check.py` 列出该范围内全部产品 PR，再投递控制面 + tick，按 plan 评分。检查留在同一 job，避免第二次 prod Environment 审批把 +5min 时钟推后。
+`deploy_via_ssm_bluegreen.sh` 在 Caddy reload 成功、旧颜色 drain 之前记录并输出真实 `cutover_at`；成功却拿不到合法 RFC3339 锚点时 deploy step fail closed。smoke/SSOT gate 通过后，`Check PR hooks immediately` 从该锚点起查 PR observables，workflow 只等待到 `cutover_at + 300s`，再用相同起点累计流量并评分 5xx。范围是换镜像前线上正在跑的 tag（`resolve-prod-running-tag-via-ssm`）→ 本次 tag，不是「上一个 git tag」猜测。两阶段复用 `plan.json`，留在同一 job，避免第二次 prod Environment 审批推后时钟。
 
 禁止：
 
 - 模型按文件桶现场编 `HOOK_PATTERNS`
 - 用 `release-impact-files.sh` 的 `.followup.tier` 决定「查不查」（那只表示是否值得人工再跟）
-- smoke 通过后另开一轮手写 grep tick
+- 在 canonical immediate / +5min 之外再开手写 grep tick
 
-CI 已跑完：从同一 run 的 job summary / `evaluate.json` 转述 changes + checks + verdict。CI 不可解析时才本地重跑：
+CI 已跑完：从同一 run 的 Job Summary 转述 `Traffic / 5xx (+5 min)`（`completed requests`、5xx 分布、`top paths`）、两阶段 PR checks、changes 与 verdict。底层证据分别是 `immediate/evaluate.json` 和 `evaluate.json`；agent 不自行重算 verdict。CI 不可解析时才本地重跑：
 
 ```bash
 LIVE_TAG="${LIVE_TAG:?set to the tag that was serving before this deploy}"
 NEW_TAG="${NEW_TAG:?set to the tag just deployed}"
+OBSERVATION_SINCE="${OBSERVATION_SINCE:?set to the cutover RFC3339 timestamp}"
+OUT_DIR="${OUT_DIR:-/tmp/tk-post-release-check}"
+
+mkdir -p "$OUT_DIR/immediate"
+python3 scripts/release_post_check.py plan \
+  --live "$LIVE_TAG" --new "$NEW_TAG" > "$OUT_DIR/plan.json"
 bash ops/observability/run-post-release-check.sh \
-  --live "$LIVE_TAG" \
-  --new "$NEW_TAG" \
-  --target prod
+  --live "$LIVE_TAG" --new "$NEW_TAG" --target prod \
+  --phase immediate --since "$OBSERVATION_SINCE" \
+  --plan-file "$OUT_DIR/plan.json" --out-dir "$OUT_DIR/immediate"
+python3 scripts/release_post_check.py wait \
+  --since "$OBSERVATION_SINCE" --minimum-seconds 300
+bash ops/observability/run-post-release-check.sh \
+  --live "$LIVE_TAG" --new "$NEW_TAG" --target prod \
+  --phase delayed --since "$OBSERVATION_SINCE" \
+  --plan-file "$OUT_DIR/plan.json" --out-dir "$OUT_DIR"
+python3 scripts/release_post_check.py summary \
+  --immediate-evaluation-file "$OUT_DIR/immediate/evaluate.json" \
+  --evaluation-file "$OUT_DIR/evaluate.json"
+python3 scripts/release_post_check.py gate \
+  --immediate-evaluation-file "$OUT_DIR/immediate/evaluate.json" \
+  --evaluation-file "$OUT_DIR/evaluate.json"
 ```
 
-wrapper 会自己 `plan` → 控制面 → `probe-post-release-tick.sh`（hooks 来自 plan）→ `evaluate`。`probe-post-release-tick.sh` 默认 `CONTAINER=auto`：读 `/var/lib/tokenkey/active-color` 转成 `tokenkey-blue` / `tokenkey-green`，找不到再回退 legacy `tokenkey`。不要因为 `No such container: tokenkey` 手工猜颜色。
+wrapper 每个 phase 都跑控制面 → `probe-post-release-tick.sh`（hooks 来自 plan）→ `evaluate`；immediate 不用 5xx 判红，delayed 才评分累计 5xx。`probe-post-release-tick.sh` 默认 `CONTAINER=auto`：读 `/var/lib/tokenkey/active-color` 转成 `tokenkey-blue` / `tokenkey-green`，找不到再回退 legacy `tokenkey`。不要因为 `No such container: tokenkey` 手工猜颜色。
 
-输出只转述 evaluate，不要另评：
+Summary 的固定结构是；任一 artifact 缺失/无效时仍必须渲染现有证据并显式标 `invalid`，control-plane / panic / 5xx 等 baseline failure 不能只藏在 JSON：
 
 ```text
-[+5min post-release ${NEW_TAG}]
-range: ${LIVE_TAG} → ${NEW_TAG}
-changes:
-  - #<pr> <subject>
-checks:
-  - <verdict> <id> observed=<n>
-verdict: green | skip | red — <evaluate reason>
+post-release-check: immediate PR hooks + delayed traffic/errors verdict
+PR evidence counts per phase: pass + inconclusive + fail
+Traffic / 5xx (+5 min): completed requests + status distribution + top paths
+Baseline failures / Evidence problems: phase + cause + observed
+PR checks: phase + PR + verdict + pattern + observed
+Changes: #PR + subject
 ```
 
-- **green / skip**：范围内 PR 未打出回归（无流量 = inconclusive，不 redden）；或没有产品提交。
+- **green / skip**：范围内 PR 未打出回归；需要相关 path 流量的 check 在无流量时必须显示 `inconclusive`，不能写 pass，但不 redden；或没有产品提交。
 - **red**：control plane fail / panic / 5xx / 新增 failover 状态未伴随 failover 日志 / 新增 error code 风暴。立即汇报。job 失败**不会**自动 rollback 已切的颜色；是否 `gh workflow run deploy-stage0.yml -f tag=${LIVE_TAG}` 由人决定。
 - 更深排查转 `/tokenkey-online-log-troubleshooting`。更长窗口（+1h / +6h）仅人工显式发起。
 
@@ -658,8 +675,8 @@ bash scripts/release-rollout-summary.sh --mode release
 - `scripts/stage0/pick_oauth_canary_edge.py` — 按 deployable 顺序选第一个有 native OAuth/Kiro 池的 Edge 作 canary full smoke。
 - `ops/stage0/edge_oauth_pool_probe.sh` — canary 选择用的 SSM 账号池计数探针（与 edge-native smoke 同 eligibility）。
 - `scripts/stage0/dispatch-edge-deploy.sh` — 单一 Edge deploy dispatch（edges 均为 Lightsail）。
-- `ops/observability/run-post-release-check.sh` — +5min 实测唯一入口（live→new PR plan + 控制面 + tick + evaluate）。
-- `scripts/release_post_check.py` — 从 live tag→new tag 派生 PR 检查与评分；禁止模型自造 hook。
+- `ops/observability/run-post-release-check.sh` — 两阶段实测入口（`--phase immediate|delayed` + 同一 `--since` / plan）。
+- `scripts/release_post_check.py` — 从 live tag→new tag 派生 PR 检查、分阶段评分、等待 cutover 窗口、渲染 Summary 并 fail-closed gate；禁止模型自造 hook。
 - `ops/observability/probe-release-control-plane.sh` — 发版后控制面探活（prod + deployable Edge，JSON lines + summary）。
 - `ops/observability/probe-post-release-tick.sh` — tick 探针（由 wrapper 投递；hooks 来自 plan，不是 prompt）。
 - `scripts/stage0/resolve-edge-deploy-route.py` — Edge → workflow + confirm 参数。
