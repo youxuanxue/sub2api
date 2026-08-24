@@ -2864,7 +2864,13 @@ fi
 
 echo ""
 echo "=== sub2api: upstream drift resolved regression (#1792) ==="
-if ! command -v python3 >/dev/null 2>&1; then
+# Upstream freshness is enforced on main and dedicated merge/upstream-* PRs.
+# A pre-existing upstream drift must not fail unrelated feature/fix PRs.
+# shellcheck source=scripts/lib/upstream-drift.sh
+source "$REPO_ROOT/scripts/lib/upstream-drift.sh"
+if ! is_upstream_drift_gate_required; then
+    echo "  skip: upstream drift regression applies only to main and merge/upstream-* branches"
+elif ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by test_upstream_drift_resolved)"
     errors=$((errors + 1))
 elif ! git remote get-url upstream >/dev/null 2>&1; then

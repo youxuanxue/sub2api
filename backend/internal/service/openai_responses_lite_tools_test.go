@@ -176,6 +176,7 @@ func TestNormalizeOpenAIResponsesLiteToolsPayload_PreservesResponseCreateShape(t
 		"type":"response.create",
 		"model":"gpt-5.6-terra",
 		"client_metadata":{"ws_request_header_x_openai_internal_codex_responses_lite":"true"},
+		"parallel_tool_calls":true,
 		"input":[{"type":"message","role":"user","content":"hello"}],
 		"tools":[{"type":"namespace","name":"collaboration","tools":[{"type":"function","name":"spawn_agent"}]}],
 		"tool_choice":{"type":"namespace","name":"collaboration"}
@@ -186,9 +187,31 @@ func TestNormalizeOpenAIResponsesLiteToolsPayload_PreservesResponseCreateShape(t
 	require.NoError(t, err)
 	require.True(t, changed)
 	require.Equal(t, "response.create", gjson.GetBytes(updated, "type").String())
+	require.Equal(t, "false", gjson.GetBytes(updated, "parallel_tool_calls").Raw)
 	require.False(t, gjson.GetBytes(updated, "tools").Exists())
 	require.Equal(t, "collaboration", gjson.GetBytes(updated, `input.#(type=="additional_tools").tools.0.name`).String())
 	require.Equal(t, "namespace", gjson.GetBytes(updated, "tool_choice.type").String())
+}
+
+func TestNormalizeOpenAIResponsesLiteToolsPayload_ForcesParallelToolCallsFalse(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		body    string
+		changed bool
+	}{
+		{name: "missing", body: `{"model":"gpt-5.6-terra"}`, changed: true},
+		{name: "true", body: `{"model":"gpt-5.6-terra","parallel_tool_calls":true}`, changed: true},
+		{name: "null", body: `{"model":"gpt-5.6-terra","parallel_tool_calls":null}`, changed: true},
+		{name: "already false", body: `{"model":"gpt-5.6-terra","parallel_tool_calls":false}`, changed: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			updated, changed, err := normalizeOpenAIResponsesLiteToolsPayload([]byte(tt.body))
+
+			require.NoError(t, err)
+			require.Equal(t, tt.changed, changed)
+			require.Equal(t, "false", gjson.GetBytes(updated, "parallel_tool_calls").Raw)
+		})
+	}
 }
 
 func TestApplyCodexOAuthTransform_PreservesLiteNamespaceToolChoice(t *testing.T) {
@@ -239,7 +262,7 @@ func TestOpenAIGatewayServiceForward_NormalizesResponsesLiteToolsForOAuth(t *tes
 				Extra:       map[string]any{"openai_passthrough": passthrough},
 			}
 			body := []byte(`{
-				"model":"gpt-5.6-terra","stream":true,"instructions":"test",
+				"model":"gpt-5.6-terra","stream":true,"instructions":"test","parallel_tool_calls":true,
 				"tools":[
 					{"type":"function","name":"shell","parameters":{"type":"object"}},
 					{"type":"custom","name":"exec"},
@@ -255,6 +278,7 @@ func TestOpenAIGatewayServiceForward_NormalizesResponsesLiteToolsForOAuth(t *tes
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			require.Equal(t, "true", upstream.lastReq.Header.Get(responsesLiteHeader))
+			require.Equal(t, "false", gjson.GetBytes(upstream.lastBody, "parallel_tool_calls").Raw)
 			require.False(t, gjson.GetBytes(upstream.lastBody, `tools.#(type=="namespace")`).Exists())
 			require.Equal(t, "shell", gjson.GetBytes(upstream.lastBody, `tools.#(type=="function").name`).String())
 			require.Equal(t, "exec", gjson.GetBytes(upstream.lastBody, `tools.#(type=="custom").name`).String())
