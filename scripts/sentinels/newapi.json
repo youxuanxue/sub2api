@@ -834,6 +834,26 @@
         "ErrForeignCredentialOfficialOpenAIFallback"
       ],
       "rationale": "Behavior regressions for the Qwen credential-leak fix: inbound /v1/messages for a bridge-eligible newapi account is owned by the NewAPI adaptor (not an OpenAI-shaped fallback), a foreign credential with no OpenAI-resolvable base fails closed instead of reaching api.openai.com, and an OpenAI api-key account still resolves the official host. Deleting these tests would let an upstream merge restore either leak with a green build."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_tk_newapi_bridge.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) newAPIBridgeOwnsChatCompletions(account *Account) bool",
+        "func (s *OpenAIGatewayService) tkTryRouteChatCompletionsViaNewAPIBridge(",
+        "s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointChatCompletions)",
+        "s.ForwardAsChatCompletionsDispatched(ctx, c, account, body, promptCacheKey, defaultMappedModel)"
+      ],
+      "rationale": "Chat Completions counterpart of the #1800 /v1/messages leak fix. Every OpenAI-shaped forwarder under ForwardAsChatCompletions resolves its upstream via nativeOpenAIBaseURLForAccount, which returns \"\" for platform=newapi; before #1800 that \"\" became api.openai.com and leaked the channel credential, and after #1800 it fails closed with ErrForeignCredentialOfficialOpenAIFallback. Either outcome is wrong for a healthy account. Prod 2026-08-24 on 1.8.172: account 39 (channel_type=43 DeepSeek) failed 100% of chat requests in ~35ms with no request sent, emptying its group and producing 614 routing-429 in one 30-minute window. This predicate is what keeps bridge-eligible newapi accounts on the adaptor, which reads their own channel base URL and key."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_tk_newapi_bridge_test.go",
+      "must_contain": [
+        "TestNewAPIDeepSeekChatCompletionsWouldFailClosedWithoutBridge",
+        "TestNewAPIBridgeOwnsChatCompletionsForDeepSeek",
+        "TestNewAPIBridgeDoesNotClaimVolcEngineAgentPlan",
+        "ErrForeignCredentialOfficialOpenAIFallback"
+      ],
+      "rationale": "Regression tests pinning the prod-observed shape: the DeepSeek channel account fails closed without the bridge, the bridge claims it with the fix, and the VolcEngine Agent Plan carve-out is NOT claimed (its /api/plan/v3 endpoint must keep TokenKey's native path or the upstream adaptor appends its own /api/v3 suffix)."
     }
   ]
 }

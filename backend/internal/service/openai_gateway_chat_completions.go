@@ -69,6 +69,18 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		return nil, err
 	}
 
+	// TK: bridge-eligible newapi accounts are relayed by the adaptor, which reads
+	// the account's own channel base URL and key. This must stay ahead of every
+	// OpenAI-shaped fallback below: those resolve their upstream from
+	// OpenAI-family accessors that return "" for platform=newapi, which #1800's
+	// guard then refuses (ErrForeignCredentialOfficialOpenAIFallback) — a hard
+	// 502 for a perfectly healthy account. Mirrors tkTryRouteForwardAsAnthropic.
+	if result, handled, err := s.tkTryRouteChatCompletionsViaNewAPIBridge(
+		ctx, c, account, body, promptCacheKey, defaultMappedModel,
+	); handled {
+		return result, err
+	}
+
 	if account.Platform == PlatformGrok {
 		if account.IsGrokOAuth() {
 			if eligible, reason := grokChatResponsesBridgeEligibility(body); eligible {

@@ -6935,6 +6935,13 @@
         "func TestResolveCodexFingerprintIDs_DeviceModeInstallationCappedAt3(t *testing.T)"
       ],
       "rationale": "Focused regression: same session stays in one bucket, and one OAuth account cannot emit more than 3 device-mode installation IDs."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": [
+        "if result, handled, err := s.tkTryRouteChatCompletionsViaNewAPIBridge("
+      ],
+      "rationale": "Ordering anchor, mirroring the newAPIBridgeOwnsAnthropicMessages entry for openai_gateway_messages_tk.go. The newapi bridge claim must stay the FIRST routing branch in ForwardAsChatCompletions, ahead of the Grok / adaptive / Anthropic-protocol / raw-CC fallbacks. Any of those reached first resolves an empty upstream for platform=newapi and turns a healthy account into a hard 502. Position is the invariant here, not mere presence."
     }
   ]
 }
