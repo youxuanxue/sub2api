@@ -162,16 +162,25 @@ func tkAnthropicBufferedFailure(
 		upstreamErr.Message
 }
 
-// tkAnthropicBufferedPartialFailure records upstream attribution when a
-// terminal error event arrived *after* the assembly already had a message.
+// tkAnthropicBufferedPartialFailure records a truncated response when a terminal
+// error event arrived *after* the assembly already had a message.
 //
 // The caller still returns the partial content: the buffered path has consumed
 // the upstream response, the tokens were really produced, and discarding them
-// would turn a degraded answer into a hard failure. What must not happen is
-// booking it as a clean success — the provider fault has to reach ops, which is
-// the whole point of this file. The client-facing shape is intentionally left
-// alone here; surfacing truncation to clients needs its own contract decision
-// (Anthropic has no "upstream errored" stop_reason to map onto).
+// would turn a degraded answer into a hard failure. But a truncated answer is
+// NOT a success, and recording upstream context alone is not enough to say so —
+// with a sub-400 wire status the ops logger routes context-only requests to
+// logOpsRecoveredUpstream, which deliberately keeps recovered attempts outside
+// request SLA. That is correct for a retry that eventually succeeded and wrong
+// here: nothing recovered, the client got a cut-off answer.
+//
+// MarkOpsStreamFailure is the repo's primitive for exactly this shape — an
+// in-band failure on an already-committed HTTP 200 — and its CountTowardsSLA
+// flag makes the logger record IntendedStatus instead of the 200 wire status.
+//
+// The client-facing shape is intentionally left alone; surfacing truncation to
+// clients needs its own contract decision (Anthropic has no "upstream errored"
+// stop_reason to map onto).
 func tkAnthropicBufferedPartialFailure(
 	c *gin.Context,
 	requestID string,
@@ -181,6 +190,13 @@ func tkAnthropicBufferedPartialFailure(
 		return
 	}
 	tkRecordAnthropicBufferedUpstreamError(c, requestID, "stream_truncated", upstreamErr)
+	MarkOpsStreamFailure(
+		c,
+		"upstream_error",
+		"upstream_stream_truncated",
+		upstreamErr.Message,
+		tkAnthropicBufferedClientStatus(upstreamErr.UpstreamStatus),
+	)
 	logger.L().Warn("buffered anthropic assembly: upstream error after partial content",
 		zap.String("request_id", requestID),
 		zap.String("upstream_error_type", upstreamErr.ErrType),

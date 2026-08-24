@@ -64,6 +64,20 @@ func requireUpstreamAttributed(t *testing.T, c *gin.Context, wantUpstreamStatus 
 	// handler/ops_error_logger_tk_buffered_upstream_test.go.
 }
 
+// requireTruncationCountsTowardsSLA pins the half of the truncation fix that
+// upstream context cannot express on its own: with a 2xx wire status the ops
+// logger only counts a request against SLA when an in-band failure is marked.
+func requireTruncationCountsTowardsSLA(t *testing.T, c *gin.Context, wantIntendedStatus int) {
+	t.Helper()
+
+	streamErrs := GetOpsStreamErrors(c)
+	require.Len(t, streamErrs, 1, "a truncated 200 must be marked as an in-band failure")
+	require.True(t, streamErrs[0].CountTowardsSLA,
+		"without CountTowardsSLA the truncated response is logged as recovered and escapes SLA")
+	require.Equal(t, wantIntendedStatus, streamErrs[0].IntendedStatus)
+	require.Equal(t, "upstream_stream_truncated", streamErrs[0].Code)
+}
+
 func TestTKAnthropicBufferedError_CCPathAttributesUpstream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -208,6 +222,10 @@ func TestTKAnthropicBufferedError_HappyPathRecordsNoUpstreamError(t *testing.T) 
 	require.False(t, hasStatus)
 	_, hasEvents := c.Get(OpsUpstreamErrorsKey)
 	require.False(t, hasEvents)
+
+	// A complete stream must never be marked as a truncated in-band failure;
+	// otherwise the SLA assertions above could pass vacuously.
+	require.Empty(t, GetOpsStreamErrors(c))
 }
 
 func TestTKAnthropicErrorTypeUpstreamStatusMapping(t *testing.T) {
@@ -330,6 +348,11 @@ func TestTKAnthropicBufferedError_PartialContentThenErrorIsAttributed(t *testing
 	events := raw.([]*OpsUpstreamErrorEvent)
 	require.Equal(t, "stream_truncated", events[0].Kind)
 	require.Equal(t, "overloaded_error", events[0].Reason)
+
+	// Upstream context alone would land in logOpsRecoveredUpstream, which keeps
+	// recovered attempts out of request SLA. A truncated answer did not recover,
+	// so it must also be marked as an in-band failure that counts.
+	requireTruncationCountsTowardsSLA(t, c, http.StatusServiceUnavailable)
 }
 
 // The same partial-then-error shape on the CN native-Anthropic CC path.
@@ -364,4 +387,6 @@ func TestTKAnthropicBufferedError_NativePartialContentThenErrorIsAttributed(t *t
 	raw, _ := c.Get(OpsUpstreamErrorsKey)
 	events := raw.([]*OpsUpstreamErrorEvent)
 	require.Equal(t, "stream_truncated", events[0].Kind)
+
+	requireTruncationCountsTowardsSLA(t, c, http.StatusTooManyRequests)
 }
