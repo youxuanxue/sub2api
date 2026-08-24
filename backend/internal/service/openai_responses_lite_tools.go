@@ -186,6 +186,12 @@ func normalizeOpenAIResponsesLiteToolsPayload(body []byte) ([]byte, bool, error)
 	if ensureCodexReasoningContextAllTurns(requestBody) {
 		changed = true
 	}
+	// Responses Lite does not support parallel tool calls. The upstream
+	// contract requires the field to be explicitly false, including when the
+	// client omitted it or sent a non-boolean value.
+	if normalizeOpenAIResponsesLiteParallelToolCalls(requestBody) {
+		changed = true
+	}
 	if !changed {
 		return body, false, nil
 	}
@@ -194,4 +200,15 @@ func normalizeOpenAIResponsesLiteToolsPayload(body []byte) ([]byte, bool, error)
 		return body, false, fmt.Errorf("encode responses Lite request body: %w", err)
 	}
 	return rebuilt, true, nil
+}
+
+func normalizeOpenAIResponsesLiteParallelToolCalls(reqBody map[string]any) bool {
+	if reqBody == nil {
+		return false
+	}
+	if parallel, ok := reqBody["parallel_tool_calls"].(bool); ok && !parallel {
+		return false
+	}
+	reqBody["parallel_tool_calls"] = false
+	return true
 }
