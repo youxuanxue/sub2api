@@ -47,6 +47,72 @@ def _render(instance_id: str = _PROD_IID, tag: str = "1.8.99", env_extra: dict |
     return proc, params, remote
 
 
+def _run_with_fake_aws(
+    ssm_stdout: str,
+    *,
+    cutover_stdout: str = "",
+    cutover_statuses: tuple[str, ...] = ("Success",),
+) -> tuple[subprocess.CompletedProcess[str], str]:
+    with tempfile.TemporaryDirectory(prefix="bluegreen-aws-") as tmp:
+        root = pathlib.Path(tmp)
+        bin_dir = root / "bin"
+        out_dir = root / "out"
+        bin_dir.mkdir()
+        out_dir.mkdir()
+        stdout_fixture = root / "ssm-stdout.txt"
+        stdout_fixture.write_text(ssm_stdout)
+        cutover_fixture = root / "cutover-stdout.txt"
+        cutover_fixture.write_text(cutover_stdout)
+        cutover_status_fixture = root / "cutover-status.txt"
+        cutover_status_fixture.write_text("\n".join(cutover_statuses) + "\n")
+        send_count = root / "send-count.txt"
+        send_count.write_text("0\n")
+        github_output = root / "github-output.txt"
+        fake_aws = bin_dir / "aws"
+        fake_aws.write_text(
+            "#!/usr/bin/env bash\n"
+            "case \"$*\" in\n"
+            "  *'ssm send-command'*)\n"
+            "    n=$(cat \"$FAKE_SEND_COUNT\")\n"
+            "    n=$((n + 1))\n"
+            "    printf '%s\\n' \"$n\" > \"$FAKE_SEND_COUNT\"\n"
+            "    if [ \"$n\" -eq 1 ]; then echo deploy-command-id; else echo cutover-command-id; fi ;;\n"
+            "  *'--query Status'*)\n"
+            "    if [[ \"$*\" == *'cutover-command-id'* ]]; then\n"
+            "      status=$(sed -n '1p' \"$FAKE_CUTOVER_STATUS\")\n"
+            "      sed '1d' \"$FAKE_CUTOVER_STATUS\" > \"$FAKE_CUTOVER_STATUS.tmp\"\n"
+            "      mv \"$FAKE_CUTOVER_STATUS.tmp\" \"$FAKE_CUTOVER_STATUS\"\n"
+            "      echo \"${status:-Success}\"\n"
+            "    else echo Success; fi ;;\n"
+            "  *'--query StandardOutputContent'*)\n"
+            "    if [[ \"$*\" == *'cutover-command-id'* ]]; then cat \"$FAKE_CUTOVER_STDOUT\"; else cat \"$FAKE_SSM_STDOUT\"; fi ;;\n"
+            "  *'--query StandardErrorContent'*) : ;;\n"
+            "  *) echo \"unexpected aws call: $*\" >&2; exit 2 ;;\n"
+            "esac\n"
+        )
+        fake_aws.chmod(0o755)
+        env = {
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "FAKE_SSM_STDOUT": str(stdout_fixture),
+            "FAKE_CUTOVER_STDOUT": str(cutover_fixture),
+            "FAKE_CUTOVER_STATUS": str(cutover_status_fixture),
+            "FAKE_SEND_COUNT": str(send_count),
+            "AWS_REGION": "us-east-1",
+            "GITHUB_OUTPUT": str(github_output),
+            "STAGE0_SSM_OUTPUT_DIR": str(out_dir),
+        }
+        proc = subprocess.run(
+            ["bash", str(_SCRIPT), "1.8.99", _PROD_IID],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        output = github_output.read_text() if github_output.exists() else ""
+        return proc, output
+
+
 def _run_wait_healthy(remote: str, statuses: list[str]) -> tuple[int, int, str]:
     start = remote.index("wait_healthy() {")
     end = remote.index("\n}\n\nwait_ready()", start) + len("\n}\n")
@@ -198,6 +264,46 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertIn('compose_bg up -d --no-deps --force-recreate "${target_container}"', remote)
         self.assertIn('preserving target ${TARGET_CONTAINER} for retry', remote)
         self.assertNotIn('removed failed target ${TARGET_CONTAINER}', remote)
+        self.assertIn("last-cutover-at", remote)
+
+    def test_records_target_cutover_before_draining_previous_color(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert remote is not None
+        target_start = remote.index("deploy_target_color() {")
+        target_end = remote.index("\n}\n\nprune_images()", target_start)
+        target = remote[target_start:target_end]
+        caddy = target.index('write_caddy_for_color "${target}"')
+        cutover = target.index("record_cutover")
+        drain = target.index('drain_container "${active_container}"')
+        self.assertLess(caddy, cutover)
+        self.assertLess(cutover, drain)
+
+    def test_exports_remote_cutover_timestamp_to_github_output(self) -> None:
+        proc, github_output = _run_with_fake_aws(
+            "x" * 24000,
+            cutover_stdout="2026-08-24T07:00:11Z\n",
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        self.assertIn("cutover_at=2026-08-24T07:00:11Z\n", github_output)
+
+    def test_waits_for_cutover_timestamp_command(self) -> None:
+        proc, github_output = _run_with_fake_aws(
+            "x" * 24000,
+            cutover_stdout="2026-08-24T07:00:11Z\n",
+            cutover_statuses=("InProgress", "Success"),
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        self.assertIn("cutover_at=2026-08-24T07:00:11Z\n", github_output)
+
+    def test_success_without_cutover_timestamp_fails_closed(self) -> None:
+        proc, github_output = _run_with_fake_aws(
+            "deploy completed without marker\n",
+            cutover_stdout="missing\n",
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("cutover timestamp", proc.stderr)
+        self.assertNotIn("cutover_at=", github_output)
 
     def test_telemetry_enable_is_explicitly_delivered(self) -> None:
         proc, params, remote = _render(env_extra={"TELEMETRY_ARCHIVE_ENABLED": "true"})

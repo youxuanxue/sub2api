@@ -14,10 +14,12 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT / "scripts"))
+_SCRIPTS = str(_ROOT / "scripts")
+if _SCRIPTS not in sys.path:
+    sys.path.insert(0, _SCRIPTS)
 
 import release_post_check as rpc  # noqa: E402
 
@@ -172,6 +174,19 @@ class ReleasePostCheckPlanTest(unittest.TestCase):
         self.assertIn("WEEKLY_LIMIT_EXCEEDED", patterns)
         self.assertTrue(patterns)
 
+    def test_traffic_paths_come_from_plan_and_are_deduplicated(self) -> None:
+        plan = {
+            "checks": [
+                {"traffic_paths": ["/v1/messages", "/v1/responses"]},
+                {"traffic_paths": ["/v1/messages", "/responses"]},
+            ]
+        }
+
+        self.assertEqual(
+            rpc.traffic_paths(plan),
+            ["/v1/messages", "/v1/responses", "/responses"],
+        )
+
     def test_real_v1_8_169_to_v1_8_170_lists_prs_and_only_new_424(self) -> None:
         try:
             plan = rpc.build_plan(_ROOT, "v1.8.169", "v1.8.170")
@@ -187,6 +202,62 @@ class ReleasePostCheckPlanTest(unittest.TestCase):
         self.assertTrue(
             all(c["kind"] == "observe" for c in plan["checks"] if c["source"] == "#1781")
         )
+
+    def test_synthetic_v1_8_170_to_v1_8_172_derives_gateway_regression_checks(self) -> None:
+        _git(self.repo, "tag", "-a", "v1.8.170", "-m", "Release 1.8.170")
+        self._commit(
+            {
+                "backend/internal/service/openai_responses_lite_tools.go": (
+                    "package service\nfunc normalize() { _ = parallel_tool_calls }\n"
+                )
+            },
+            "fix(gateway): preserve Responses tool-call fields (#1799)",
+        )
+        self._commit(
+            {
+                "backend/internal/service/openai_gateway_cc_pipeline.go": (
+                    "package service\nfunc route() { _ = ErrForeignCredentialOfficialOpenAIFallback }\n"
+                )
+            },
+            "fix(gateway): keep Anthropic bridge credentials isolated (#1800)",
+        )
+        _git(self.repo, "tag", "-a", "v1.8.172", "-m", "Release 1.8.172")
+
+        plan = rpc.build_plan(self.repo, "v1.8.170", "v1.8.172")
+
+        by_source = {}
+        for check in plan["checks"]:
+            by_source.setdefault(check["source"], []).append(check)
+
+        self.assertEqual(
+            {(item["pattern"], tuple(item.get("traffic_paths") or [])) for item in by_source["#1799"]},
+            {("parallel_tool_calls", ("/responses", "/v1/responses"))},
+        )
+        self.assertEqual(
+            {(item["pattern"], tuple(item.get("traffic_paths") or [])) for item in by_source["#1800"]},
+            {("Incorrect API key provided", ("/v1/messages",))},
+        )
+        self.assertEqual(by_source["#1800"][0]["id"], "pr-1800-Incorrect_API_key_provided")
+
+    def test_real_v1_8_170_to_v1_8_172_matches_gateway_regression_history(self) -> None:
+        try:
+            plan = rpc.build_plan(_ROOT, "v1.8.170", "v1.8.172")
+        except RuntimeError as exc:
+            self.skipTest(f"release tags unavailable: {exc}")
+
+        by_source = {}
+        for check in plan["checks"]:
+            by_source.setdefault(check["source"], []).append(check)
+
+        self.assertEqual(
+            {(item["pattern"], tuple(item.get("traffic_paths") or [])) for item in by_source["#1799"]},
+            {("parallel_tool_calls", ("/responses", "/v1/responses"))},
+        )
+        self.assertEqual(
+            {(item["pattern"], tuple(item.get("traffic_paths") or [])) for item in by_source["#1800"]},
+            {("Incorrect API key provided", ("/v1/messages",))},
+        )
+        self.assertEqual(by_source["#1800"][0]["id"], "pr-1800-Incorrect_API_key_provided")
 
 
 class ReleasePostCheckEvaluateTest(unittest.TestCase):
@@ -300,6 +371,265 @@ class ReleasePostCheckEvaluateTest(unittest.TestCase):
         result = rpc.evaluate(self._plan(), tick, control_plane_ok=True)
         self.assertEqual(result["verdict"], "red")
 
+    def test_evaluate_regression_absent_requires_relevant_path_traffic(self) -> None:
+        plan = {
+            "range": {"live": "v1.8.170", "new": "v1.8.172"},
+            "changes": [],
+            "checks": [
+                {
+                    "id": "pr-1800-Incorrect_API_key_provided",
+                    "source": "#1800",
+                    "kind": "regression_absent",
+                    "pattern": "Incorrect API key provided",
+                    "expect": "absent_when_path_observed",
+                    "traffic_paths": ["/v1/messages"],
+                }
+            ],
+        }
+        base_tick = {
+            "hooks": {"Incorrect API key provided": 0},
+            "panic": 0,
+            "status_5xx": {},
+            "completed_total": 10,
+        }
+
+        no_path = rpc.evaluate(plan, {**base_tick, "top_paths": []}, control_plane_ok=True)
+        self.assertEqual(no_path["checks"][-1]["verdict"], "inconclusive")
+
+        observed = rpc.evaluate(
+            plan,
+            {**base_tick, "top_paths": [{"path": "/v1/messages", "n": 3}]},
+            control_plane_ok=True,
+        )
+        self.assertEqual(observed["checks"][-1]["verdict"], "pass")
+        self.assertEqual(observed["checks"][-1]["observed"]["relevant_requests"], 3)
+
+        repeated = rpc.evaluate(
+            plan,
+            {
+                **base_tick,
+                "hooks": {"Incorrect API key provided": 1},
+                "top_paths": [{"path": "/v1/messages", "n": 3}],
+            },
+            control_plane_ok=True,
+        )
+        self.assertEqual(repeated["verdict"], "red")
+        self.assertEqual(repeated["checks"][-1]["verdict"], "fail")
+
+    def test_missing_traffic_section_fails_closed(self) -> None:
+        truncated = """
+=== hooks ===
+{"pattern": "Incorrect API key provided", "count": 0}
+=== panic ===
+{"count": 0}
+=== traffic ===
+{"completed_total": 145, "status_5xx": {"502": 21}
+"""
+        tick = rpc.parse_tick_stdout(truncated)
+        plan = {
+            "range": {"live": "v1.8.170", "new": "v1.8.172"},
+            "changes": [],
+            "checks": [],
+        }
+
+        result = rpc.evaluate(plan, tick, control_plane_ok=True, phase="delayed")
+
+        self.assertFalse(tick["traffic_present"])
+        self.assertEqual(result["verdict"], "red")
+        by_id = {item["id"]: item for item in result["checks"]}
+        self.assertEqual(by_id["traffic-evidence"]["verdict"], "fail")
+
+    def test_immediate_phase_scores_hooks_without_5xx_baseline(self) -> None:
+        tick = {
+            "hooks": {"Status=424": 0, "WEEKLY_LIMIT_EXCEEDED": 0, "NEW_LIMIT_CODE": 0},
+            "panic": 0,
+            "status_5xx": {"502": 20},
+            "completed_total": 20,
+            "top_paths": [{"path": "/v1/messages", "n": 4}],
+        }
+
+        immediate = rpc.evaluate(self._plan(), tick, control_plane_ok=True, phase="immediate")
+        delayed = rpc.evaluate(self._plan(), tick, control_plane_ok=True, phase="delayed")
+
+        self.assertNotIn("status-5xx", {item["id"] for item in immediate["checks"]})
+        self.assertEqual(immediate["verdict"], "green")
+        self.assertEqual(delayed["verdict"], "red")
+
+    def test_summary_highlights_delayed_traffic_and_both_pr_check_phases(self) -> None:
+        immediate = {
+            "phase": "immediate",
+            "verdict": "green",
+            "range": {"live": "v1.8.170", "new": "v1.8.172"},
+            "changes": [],
+            "checks": [
+                {
+                    "id": "pr-1800-Incorrect_API_key_provided",
+                    "source": "#1800",
+                    "pattern": "Incorrect API key provided",
+                    "verdict": "inconclusive",
+                    "observed": {"count": 0, "relevant_requests": 0},
+                }
+            ],
+            "traffic": {"completed_total": 3, "status_5xx": {}, "top_paths": []},
+        }
+        delayed = {
+            "phase": "delayed",
+            "verdict": "green",
+            "range": {"live": "v1.8.170", "new": "v1.8.172"},
+            "changes": [
+                {"pr": 1800, "sha": "ad27e39f6b43", "subject": "fix newapi (#1800)"}
+            ],
+            "checks": [
+                {
+                    "id": "status-5xx",
+                    "source": "baseline",
+                    "verdict": "observe",
+                    "observed": {"total": 2, "status_5xx": {"502": 2}},
+                },
+                {
+                    "id": "pr-1800-Incorrect_API_key_provided",
+                    "source": "#1800",
+                    "pattern": "Incorrect API key provided",
+                    "verdict": "pass",
+                    "observed": {"count": 0, "relevant_requests": 12},
+                },
+                {
+                    "id": "pr-1781-WEEKLY_LIMIT_EXCEEDED",
+                    "source": "#1781",
+                    "pattern": "WEEKLY_LIMIT_EXCEEDED",
+                    "verdict": "observe",
+                    "observed": {"count": 2},
+                },
+            ],
+            "traffic": {
+                "completed_total": 145,
+                "status_5xx": {"502": 2},
+                "top_paths": [
+                    {"path": "/responses", "n": 37},
+                    {"path": "/v1/messages", "n": 12},
+                ],
+            },
+        }
+
+        summary = rpc.render_summary(delayed, immediate=immediate)
+
+        self.assertIn("### Traffic / 5xx (+5 min)", summary)
+        self.assertIn("- completed requests: `145`", summary)
+        self.assertIn("- 5xx: `2` (`502: 2`)", summary)
+        self.assertIn("| `/responses` | 37 |", summary)
+        self.assertIn("- immediate PR evidence: `pass=0, inconclusive=1, fail=0`", summary)
+        self.assertIn("- +5 min PR evidence: `pass=1, inconclusive=0, observe=1, fail=0`", summary)
+        self.assertIn("| immediate | #1800 | `inconclusive`", summary)
+        self.assertIn("| +5 min | #1800 | `pass`", summary)
+
+    def test_summary_surfaces_missing_phase_and_baseline_failure(self) -> None:
+        delayed = {
+            "phase": "delayed",
+            "verdict": "red",
+            "range": {"live": "v1.8.170", "new": "v1.8.172"},
+            "changes": [{"pr": 1800, "sha": "ad27e39f6b43", "subject": "fix newapi (#1800)"}],
+            "checks": [
+                {
+                    "id": "control-plane",
+                    "source": "baseline",
+                    "verdict": "fail",
+                    "observed": {"ok": False},
+                },
+                {
+                    "id": "panic",
+                    "source": "baseline",
+                    "verdict": "pass",
+                    "observed": {"count": 0},
+                },
+            ],
+            "traffic": {"completed_total": 0, "status_5xx": {}, "top_paths": []},
+        }
+
+        summary = rpc.render_summary(
+            delayed,
+            immediate=None,
+            evidence_errors={"immediate": "missing evaluation file"},
+        )
+
+        self.assertIn("- immediate PR hooks: `invalid`", summary)
+        self.assertIn("missing evaluation file", summary)
+        self.assertIn("### Baseline failures", summary)
+        self.assertIn("| +5 min | `control-plane` | `fail` |", summary)
+
+    def test_summary_cli_keeps_valid_phase_when_other_evidence_is_corrupt(self) -> None:
+        immediate = {
+            "phase": "immediate",
+            "verdict": "green",
+            "range": {"live": "v1.8.170", "new": "v1.8.172"},
+            "changes": [{"pr": 1800, "sha": "ad27e39f6b43", "subject": "fix newapi (#1800)"}],
+            "checks": [
+                {
+                    "id": "pr-1800-Incorrect_API_key_provided",
+                    "source": "#1800",
+                    "pattern": "Incorrect API key provided",
+                    "verdict": "inconclusive",
+                    "observed": {"count": 0, "relevant_requests": 0},
+                }
+            ],
+            "traffic": {"completed_total": 0, "status_5xx": {}, "top_paths": []},
+        }
+        with tempfile.TemporaryDirectory() as raw:
+            root = pathlib.Path(raw)
+            immediate_path = root / "immediate.json"
+            delayed_path = root / "delayed.json"
+            immediate_path.write_text(json.dumps(immediate), encoding="utf-8")
+            delayed_path.write_bytes(b"\xff\xfe")
+
+            proc = subprocess.run(
+                [
+                    "python3",
+                    str(_ROOT / "scripts/release_post_check.py"),
+                    "summary",
+                    "--immediate-evaluation-file",
+                    str(immediate_path),
+                    "--evaluation-file",
+                    str(delayed_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("- +5 min traffic / errors: `invalid`", proc.stdout)
+        self.assertIn("#1800", proc.stdout)
+        self.assertIn("unavailable", proc.stdout)
+
+    def test_gate_requires_expected_phases_and_green_verdicts(self) -> None:
+        immediate = {"phase": "immediate", "verdict": "green"}
+        delayed = {"phase": "delayed", "verdict": "green"}
+        self.assertEqual(rpc.evaluation_gate_errors(immediate, delayed), [])
+
+        self.assertTrue(rpc.evaluation_gate_errors({}, delayed))
+        self.assertTrue(
+            rpc.evaluation_gate_errors(
+                {"phase": "delayed", "verdict": "green"},
+                delayed,
+            )
+        )
+        self.assertTrue(
+            rpc.evaluation_gate_errors(
+                immediate,
+                {"phase": "delayed", "verdict": "unknown"},
+            )
+        )
+
+    def test_seconds_until_window_uses_cutover_timestamp(self) -> None:
+        now = datetime(2026, 8, 24, 7, 4, 10, tzinfo=timezone.utc)
+        self.assertEqual(
+            rpc.seconds_until_window("2026-08-24T07:00:00Z", 300, now=now),
+            50,
+        )
+        self.assertEqual(
+            rpc.seconds_until_window("2026-08-24T07:00:00Z", 300, now=datetime(2026, 8, 24, 7, 6, tzinfo=timezone.utc)),
+            0,
+        )
+
     def test_evaluate_red_on_panic_or_control_plane_not_sparse_5xx(self) -> None:
         tick = {"hooks": {}, "panic": 1, "status_5xx": {}, "completed_total": 1}
         self.assertEqual(rpc.evaluate(self._plan(), tick, control_plane_ok=True)["verdict"], "red")
@@ -331,7 +661,7 @@ class DeployStage0PostReleaseJobTest(unittest.TestCase):
         text = (_ROOT / ".github/workflows/deploy-stage0.yml").read_text(encoding="utf-8")
         self.assertIn("run-post-release-check.sh", text)
         self.assertIn("release_post_check.py plan", text)
-        self.assertIn("sleep 300", text)
+        self.assertNotIn("run: sleep 300", text)
         self.assertIn("steps.previous_runtime.outputs.tag", text)
         self.assertNotIn("HOOK_PATTERNS=<hook", text)
         self.assertNotIn("\n  post-release-check:\n", text)
@@ -341,6 +671,21 @@ class DeployStage0PostReleaseJobTest(unittest.TestCase):
         deploy_block = text[deploy_start:next_job]
         self.assertIn("id: post_release_check", deploy_block)
         self.assertIn("--plan-file", deploy_block)
+        immediate_pos = deploy_block.index("name: Check PR hooks immediately")
+        wait_pos = deploy_block.index("name: Wait until 5 minutes after cutover")
+        delayed_pos = deploy_block.index("name: Check traffic and 5xx after 5 minutes")
+        summary_pos = deploy_block.index("name: Post-release check summary")
+        self.assertLess(immediate_pos, wait_pos)
+        self.assertLess(wait_pos, delayed_pos)
+        self.assertLess(delayed_pos, summary_pos)
+        self.assertIn("--phase immediate", deploy_block)
+        self.assertIn("--phase delayed", deploy_block)
+        self.assertIn("--since \"$OBSERVATION_SINCE\"", deploy_block)
+        self.assertIn("steps.ssm.outputs.cutover_at", deploy_block)
+        self.assertIn("release_post_check.py wait", deploy_block)
+        self.assertIn("--minimum-seconds 300", deploy_block)
+        self.assertIn("release_post_check.py summary", deploy_block)
+        self.assertIn("release_post_check.py gate", deploy_block)
         feishu_pos = deploy_block.index("name: Notify Feishu (release rollout)")
         plan_pos = deploy_block.index("name: Plan checks from live→new PRs")
         self.assertLess(plan_pos, feishu_pos)
@@ -355,6 +700,19 @@ class DeployStage0PostReleaseJobTest(unittest.TestCase):
         self.assertNotIn("HOOK_PATTERNS=<hook1>", text)
         self.assertNotIn("关键词由模型按 hook 命名", text)
         self.assertNotIn("模型按 Step A 命名", text)
+
+    def test_skill_documents_two_phase_summary_contract(self) -> None:
+        text = (
+            _ROOT / ".cursor/skills/tokenkey-stage0-release-rollout/SKILL.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("Check PR hooks immediately", text)
+        self.assertIn("Check traffic and 5xx after 5 minutes", text)
+        self.assertIn("Traffic / 5xx (+5 min)", text)
+        self.assertIn("completed requests", text)
+        self.assertIn("top paths", text)
+        self.assertIn("--phase immediate", text)
+        self.assertIn("--phase delayed", text)
 
     def test_wrapper_evaluates_skip_probe_tick(self) -> None:
         wrapper = _ROOT / "ops/observability/run-post-release-check.sh"
@@ -378,7 +736,7 @@ class DeployStage0PostReleaseJobTest(unittest.TestCase):
             tick = {
                 "hooks": {"WEEKLY_LIMIT_EXCEEDED": 0},
                 "panic": 0,
-                "status_5xx": {},
+                "status_5xx": {"502": 20},
                 "completed_total": 4,
             }
             tick_path = pathlib.Path(raw) / "tick.json"
@@ -395,6 +753,10 @@ class DeployStage0PostReleaseJobTest(unittest.TestCase):
                     "--repo",
                     str(repo),
                     "--skip-probe",
+                    "--phase",
+                    "immediate",
+                    "--since",
+                    "2026-08-24T07:00:11Z",
                     "--tick-file",
                     str(tick_path),
                     "--out-dir",
@@ -408,6 +770,8 @@ class DeployStage0PostReleaseJobTest(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stderr)
             result = json.loads((out_dir / "evaluate.json").read_text(encoding="utf-8"))
             self.assertEqual(result["verdict"], "green")
+            self.assertEqual(result["phase"], "immediate")
+            self.assertNotIn("status-5xx", {item["id"] for item in result["checks"]})
             self.assertEqual(result["changes"][0]["pr"], 1781)
 
     def test_wrapper_reuses_existing_plan_file(self) -> None:

@@ -42,6 +42,7 @@ fi
 if [ "$1" = logs ]; then
   cat <<'LOGS'
 2026-06-24T05:00:00Z INFO http request completed {"request_id":"r1","path":"/v1/messages","status_code":200}
+2026-06-24T05:00:00Z INFO http request completed {"request_id":"r2","path":"/admin/users/42","status_code":200}
 2026-06-24T05:00:01Z INFO anthropic_downstream_kiro_oauth_403_skip_penalty
 LOGS
   exit 0
@@ -51,7 +52,13 @@ exit 2
 
 
 class ProbePostReleaseTickTest(unittest.TestCase):
-    def run_probe(self, *, states: dict[str, str], active_color: str | None) -> subprocess.CompletedProcess[str]:
+    def run_probe(
+        self,
+        *,
+        states: dict[str, str],
+        active_color: str | None,
+        traffic_paths: str = "/v1/messages",
+    ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as td:
             tmp = pathlib.Path(td)
             fakebin = tmp / "bin"
@@ -69,6 +76,7 @@ class ProbePostReleaseTickTest(unittest.TestCase):
                 "PATH": f"{fakebin}:{os.environ.get('PATH', '')}",
                 "ACTIVE_COLOR_FILE": str(active_file),
                 "HOOK_PATTERNS": "anthropic_downstream_kiro_oauth_403_skip_penalty",
+                "TRAFFIC_PATHS": traffic_paths,
             }
             for name, state in states.items():
                 env[f"STATE_{name.replace('-', '_').upper()}"] = state
@@ -108,6 +116,15 @@ class ProbePostReleaseTickTest(unittest.TestCase):
         assert meta is not None
         self.assertIn("active-color=green", meta["container_resolution"])
         self.assertIn("tokenkey-green is running", meta["container_resolution"])
+
+        traffic = next(
+            json.loads(line)
+            for line in proc.stdout.splitlines()
+            if line.startswith("{") and '"completed_total"' in line
+        )
+        self.assertEqual(traffic["completed_total"], 2)
+        self.assertEqual(traffic["path_counts"], {"/v1/messages": 1})
+        self.assertNotIn("/admin/users/42", traffic["path_counts"])
 
     def test_auto_container_accepts_unique_running_candidate(self) -> None:
         proc = self.run_probe(states={"tokenkey": "running"}, active_color=None)
