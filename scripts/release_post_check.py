@@ -323,14 +323,24 @@ def evaluate(
         )
 
     status_5xx = tick.get("status_5xx") or {}
+    status_5xx_total = sum(int(count or 0) for count in status_5xx.values())
+    status_5xx_verdict = (
+        "fail" if status_5xx_total >= ERROR_STORM_THRESHOLD else "observe"
+    )
     results.append(
         {
             "id": "status-5xx",
             "source": "baseline",
-            "verdict": "observe",
-            "observed": {"status_5xx": status_5xx},
+            "verdict": status_5xx_verdict,
+            "observed": {
+                "status_5xx": status_5xx,
+                "total": status_5xx_total,
+                "storm_threshold": ERROR_STORM_THRESHOLD,
+            },
         }
     )
+    if status_5xx_verdict == "fail":
+        bump("red")
 
     failover_count = int(hooks.get(FAILOVER_LOG) or 0)
     for item in plan.get("checks") or []:
