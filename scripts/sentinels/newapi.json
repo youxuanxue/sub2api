@@ -802,10 +802,12 @@
         "func AccountShouldLocalEstimateCountTokens",
         "func IsOfficialOpenAIAPIKeyHelpText",
         "func IsForeignCredentialOfficialOpenAIReject",
+        "func OfficialOpenAIFallbackAllowed",
+        "ErrForeignCredentialOfficialOpenAIFallback",
         "isOfficialOpenAIModelsBaseURL",
         "platform.openai.com/account/api-keys"
       ],
-      "rationale": "Official OpenAI host decisions are a single owner. NewAPI channels, CN providers, CloudWise/tokensea, and any future platform default to foreign. Adding another vendor-specific 401 exception instead of this SSOT is the leak that permanently disabled Qwen #60/#72."
+      "rationale": "Official OpenAI host decisions are a single owner. NewAPI channels, CN providers, CloudWise/tokensea, and any future platform default to foreign. Adding another vendor-specific 401 exception instead of this SSOT is the leak that permanently disabled Qwen #60/#72. OfficialOpenAIFallbackAllowed / ErrForeignCredentialOfficialOpenAIFallback are the write side of the same SSOT: native forwarders must fail closed instead of defaulting an unresolved base_url to api.openai.com, which POSTs a DashScope/Ark key to OpenAI and returns the 'Incorrect API key provided' shape this file already classifies as a routing defect (Qwen/Qwen-2/Qwen-4, 2026-08-24)."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
@@ -814,6 +816,24 @@
         "foreign_credential_official_openai_reject_skip_penalty"
       ],
       "rationale": "HandleUpstreamError must consult the official-OpenAI-host SSOT before generic 401 handling. Removing this call silently restores SetError plus the false permanent-auth Feishu alert even if the classifier file still compiles."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_cc_pipeline.go",
+      "must_contain": [
+        "if !OfficialOpenAIFallbackAllowed(account) {",
+        "return \"\", ErrForeignCredentialOfficialOpenAIFallback"
+      ],
+      "rationale": "openAIChatCompletionsTargetURL is the shared target resolver for both CC fallback paths (/v1/messages and /v1/responses). nativeOpenAIBaseURLForAccount returns \"\" for platform=newapi, so without this fail-closed guard the empty base defaults to https://api.openai.com while the same function still sends GetOpenAIProtocolAPIKey() — the real DashScope/Ark channel key. That is exactly how Qwen/Qwen-2/Qwen-4 returned upstream 'Incorrect API key provided' (2026-08-24). Restoring the bare api.openai.com default compiles clean and silently re-leaks foreign credentials to OpenAI."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_tk_newapi_leak_test.go",
+      "must_contain": [
+        "TestNewAPIBridgeOwnsAnthropicMessagesForQwen",
+        "TestChatCompletionsTargetFailsClosedForForeignCredential",
+        "TestNewAPIQwenCredentialIsWireBoundOnNativePath",
+        "ErrForeignCredentialOfficialOpenAIFallback"
+      ],
+      "rationale": "Behavior regressions for the Qwen credential-leak fix: inbound /v1/messages for a bridge-eligible newapi account is owned by the NewAPI adaptor (not an OpenAI-shaped fallback), a foreign credential with no OpenAI-resolvable base fails closed instead of reaching api.openai.com, and an OpenAI api-key account still resolves the official host. Deleting these tests would let an upstream merge restore either leak with a green build."
     }
   ]
 }

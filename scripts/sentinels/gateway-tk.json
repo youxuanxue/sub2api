@@ -1138,6 +1138,9 @@
       "path": "backend/internal/service/openai_gateway_messages_tk.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) tkTryRouteForwardAsAnthropic(",
+        "func (s *OpenAIGatewayService) newAPIBridgeOwnsAnthropicMessages(",
+        "if s.newAPIBridgeOwnsAnthropicMessages(account) {",
+        "s.ForwardAsAnthropicDispatched(ctx, c, account, body, \"\", defaultMappedModel)",
         "ShouldUseNativeAnthropicMessagesAPI",
         "if shouldForwardNativeAnthropicMessagesForModel(body)",
         "forwardAnthropicViaNativeMessages",
@@ -1145,7 +1148,7 @@
         "IsOpenAITokenseaRelay() && shouldForwardNativeAnthropicMessagesForModel",
         "account.IsOpenAIOAuthLike() && promptCacheKey != \"\" && strings.TrimSpace(c.GetHeader(\"conversation_id\")) == \"\""
       ],
-      "rationale": "TK /v1/messages entry routing (tokensea native /v1/messages, CC fallback, CN providers) and OAuth prompt-cache conversation_id cleanup extracted to companion. OpenAI APIKey dual-stack relays (tokensea/cloudwise) branch to native /v1/messages passthrough for claude-* models; tokensea #92 must do this even when extra.openai_native_messages_supported is a false-negative (GPT probe timeout). Non-Claude models (MiniMax-M3, glm-5) must fall back to raw chat completions like /v1/responses."
+      "rationale": "TK /v1/messages entry routing (tokensea native /v1/messages, CC fallback, CN providers) and OAuth prompt-cache conversation_id cleanup extracted to companion. OpenAI APIKey dual-stack relays (tokensea/cloudwise) branch to native /v1/messages passthrough for claude-* models; tokensea #92 must do this even when extra.openai_native_messages_supported is a false-negative (GPT probe timeout). Non-Claude models (MiniMax-M3, glm-5) must fall back to raw chat completions like /v1/responses. The newAPIBridgeOwnsAnthropicMessages guard MUST stay the FIRST branch: inbound /v1/messages reaches ForwardAsAnthropic directly from the handler, so without it a bridge-eligible newapi account falls through the last predicate into the OpenAI-shaped CC fallback, whose base URL resolves to \"\" for platform=newapi and defaults to api.openai.com while still sending the real channel key (Qwen/Qwen-2/Qwen-4, 2026-08-24). Dropping it compiles clean and silently re-leaks the credential."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_native.go",
