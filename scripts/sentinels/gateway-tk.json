@@ -1323,14 +1323,13 @@
       "rationale": "Gateway Anthropic-backed /v1/chat/completions non-stream path (handleCCBufferedFromAnthropic) shares the upstream #1311 Content-Type leak root cause and must explicitly override Content-Type after WriteFilteredHeaders so the converted chat.completion JSON body is not labeled text/event-stream. Also the call site wiring the gemini-native image aspect-ratio injection (tkInjectGeminiImageAspectRatio, gateway_forward_as_chat_completions_tk_image.go) into the OpenAI-compat → Anthropic forward, after enforceCacheControlLimit and before buildUpstreamRequest — the companion compiling alone would not catch a dropped call site, so the one-line hook is anchored here separately. Anthropic passthrough relays must use buildAnthropicCompatUpstreamRequest for the upstream /v1/messages hop after CC→Anthropic conversion."
     },
     {
-      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "path": "backend/internal/service/gateway_forward_as_chat_completions_test.go",
       "must_contain": [
-        "if eventName == \"error\" {",
-        "return nil, &sseStreamErrorEventError{RawData: payload}",
-        "cnProviderResponseIndicatesInsufficientBalance(body)",
-        "s.sseStreamErrorFailover(c, account, resp, sseErr, semanticStatus)"
+        "TestHandleCCBufferedFromAnthropic_InsufficientBalanceReturnsAttributed402Failover",
+        "TestForwardAsChatCompletions_BufferedBalanceSSEErrorBecomes402Failover",
+        "requireUpstreamAttributed(t, c, http.StatusPaymentRequired)"
       ],
-      "rationale": "The buffered Chat Completions → Anthropic SSE path must preserve upstream event:error frames as typed failover evidence. Without these anchors a balance-exhausted relay returns HTTP 200 plus event:error, the converter ignores it, and the user receives the misleading terminal 502 'Upstream stream ended without a response'. The balance semantic must map to 402 so existing account-standing policy can stop scheduling the exhausted account."
+      "rationale": "Merged regression for the buffered Chat Completions → Anthropic SSE path: an insufficient-balance error frame must enter the shared US-047 UpstreamFailoverError owner, retain provider/account attribution, map to semantic 402, and stay uncommitted so the handler can try another account. This pins the combined #1805/#1807 contract without restoring a second typed-error bypass around the shared buffered owner."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_responses_tk_content_type_test.go",
@@ -6997,8 +6996,12 @@
         "func tkAnthropicBufferedHasUsableContent(finalResp *apicompat.AnthropicResponse) bool",
         "func tkAnthropicBufferedEventCompletesMessage(event *apicompat.AnthropicStreamEvent) bool",
         "func tkAnthropicBufferedFailure(",
+        "upstreamErr = tkNormalizeAnthropicBufferedUpstreamError(upstreamErr)",
+        "func tkNormalizeAnthropicBufferedUpstreamError(",
         "func (s *GatewayService) tkAnthropicBufferedFailoverError(",
         "func (s *OpenAIGatewayService) tkAnthropicBufferedFailoverError(",
+        "cnProviderResponseIndicatesInsufficientBalance(upstreamErr.Payload)",
+        "semanticErr.UpstreamStatus = http.StatusPaymentRequired",
         "func tkAnthropicBufferedPartialFailure(",
         "func tkRecordAnthropicBufferedUpstreamError(",
         "setOpsUpstreamError(c, upstreamErr.UpstreamStatus, upstreamErr.Message, upstreamErr.Detail)",
@@ -7007,7 +7010,16 @@
         "ClientErrorType:   tkAnthropicBufferedClientErrType(upstreamErr.ErrType)",
         "MarkOpsStreamFailure("
       ],
-      "rationale": "Single owner for buffered Anthropic SSE completion and failure semantics. A HTTP 200 stream can still terminate through an error frame, read failure, idle timeout, or incomplete EOF. Before any content block this owner returns an account-aware UpstreamFailoverError without committing the response; after content it preserves the partial response and marks stream_truncated toward SLA to avoid replay and duplicate billing. Completion detection, client error type mapping, provider/account attribution, and both Gateway/OpenAI account-health wrappers must remain centralized or an upstream merge can silently restore empty 200s, gateway-owned SLA pollution, or missing failover."
+      "rationale": "Single owner for buffered Anthropic SSE completion and failure semantics. A HTTP 200 stream can still terminate through an error frame, read failure, idle timeout, or incomplete EOF. Before any content block this owner returns an account-aware UpstreamFailoverError without committing the response; after content it preserves the partial response and marks stream_truncated toward SLA to avoid replay and duplicate billing. Insufficient-balance payloads are normalized to semantic 402 inside the same owner so CloudWise can cool only the mapped model without reintroducing a parallel error path. Completion detection, client error type mapping, provider/account attribution, and both Gateway/OpenAI account-health wrappers must remain centralized or an upstream merge can silently restore empty 200s, gateway-owned SLA pollution, whole-account disablement, or missing failover."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_cn_providers.go",
+      "must_contain": [
+        "func cnProviderResponseIndicatesInsufficientBalance(body []byte) bool",
+        "strings.Contains(s, \"insufficient balance\")",
+        "strings.Contains(s, \"insufficient_quota\")"
+      ],
+      "rationale": "The shared insufficient-balance detector feeds buffered Anthropic semantic 402 normalization. Both human-readable balance messages and the OpenAI-compatible insufficient_quota code must remain recognized or CloudWise SSE failures fall back to 500 and skip exact-model cooldown."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
@@ -7075,9 +7087,11 @@
         "TestUS047_IncompleteEOFRoutesByContentAvailability",
         "TestUS047_ScannerReadErrorRoutesByContentAvailability",
         "TestUS047_CompletionBeforeReadErrorRemainsSuccessful",
-        "TestUS047_ClientErrorTypeMapping"
+        "TestUS047_ClientErrorTypeMapping",
+        "TestTKAnthropicBufferedError_CloudwiseGatewaySSEQuotaCoolsExactModel",
+        "TestTKAnthropicBufferedError_CloudwiseOpenAISSEQuotaCoolsExactModel"
       ],
-      "rationale": "US-047 behavior anchors for error frames, message_start-only/incomplete EOF, partial-content truncation, account attribution, and final client error mapping."
+      "rationale": "US-047 behavior anchors for error frames, message_start-only/incomplete EOF, partial-content truncation, account attribution, final client error mapping, and both Gateway/OpenAI CloudWise SSE paths reaching semantic 402 exact-model cooldown without whole-account disablement."
     },
     {
       "path": "backend/internal/service/openai_gateway_anthropic_native_pump_test.go",

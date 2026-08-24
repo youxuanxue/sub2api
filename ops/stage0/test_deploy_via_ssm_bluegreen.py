@@ -187,6 +187,88 @@ target_is_reusable tokenkey-green {shlex.quote(expected_image)}
     return proc.returncode, proc.stdout + proc.stderr
 
 
+def _extract_shell_function(remote: str, name: str) -> str:
+    start = remote.index(f"{name}() {{")
+    end = remote.index("\n}\n\n", start) + len("\n}\n")
+    return remote[start:end]
+
+
+def _run_commit_cutover_state(remote: str, color: str) -> subprocess.CompletedProcess[str]:
+    try:
+        function = _extract_shell_function(remote, "commit_cutover_state")
+    except ValueError:
+        return subprocess.CompletedProcess(
+            args=["bash"],
+            returncode=127,
+            stdout="",
+            stderr="commit_cutover_state is missing",
+        )
+    script = f"""{function}
+write_active_color() {{ printf 'active:%s:%s\\n' "$CUTOVER_COMMITTED" "$1"; }}
+record_cutover() {{ printf 'record:%s\\n' "$CUTOVER_COMMITTED"; }}
+CUTOVER_COMMITTED=0
+commit_cutover_state {shlex.quote(color)}
+printf 'final:%s\\n' "$CUTOVER_COMMITTED"
+"""
+    return subprocess.run(
+        ["bash"],
+        input=script,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _run_cutover_path(remote: str, function_name: str) -> subprocess.CompletedProcess[str]:
+    function = _extract_shell_function(remote, function_name)
+    common = """
+log() { :; }
+die() { printf 'die:%s\n' "$*"; return 1; }
+sudo() { return 0; }
+backup_env() { :; }
+env_set() { :; }
+write_bluegreen_compose() { :; }
+compose_bg() { :; }
+wait_healthy() { :; }
+wait_ready() { :; }
+install_bluegreen_systemd_unit() { :; }
+write_caddy_for_color() { printf 'caddy:%s\n' "$1"; }
+commit_cutover_state() { CUTOVER_COMMITTED=1; printf 'commit:%s\n' "$1"; }
+record_cutover() { printf 'raw-record\n'; }
+write_active_color() { printf 'raw-active:%s\n' "$1"; }
+drain_container() { printf 'drain:%s\n' "$1"; }
+TARGET_CONTAINER=""
+CUTOVER_COMMITTED=0
+"""
+    if function_name == "ensure_legacy_cutover":
+        setup = """
+read_active_color() { :; }
+container_image() { printf 'ghcr.io/youxuanxue/sub2api:1.8.98\n'; }
+env_get() { printf 'ghcr.io/youxuanxue/sub2api:1.8.98\n'; }
+ensure_legacy_cutover
+"""
+    else:
+        setup = """
+read_active_color() { printf 'blue\n'; }
+other_color() { printf 'green\n'; }
+color_container() { printf 'tokenkey-%s\n' "$1"; }
+container_image() { printf 'ghcr.io/youxuanxue/sub2api:1.8.98\n'; }
+image_repo() { printf 'ghcr.io/youxuanxue/sub2api\n'; }
+env_get() { printf 'ghcr.io/youxuanxue/sub2api:1.8.98\n'; }
+target_is_reusable() { return 0; }
+TAG=1.8.99
+TELEMETRY_ARCHIVE_ENABLED=""
+deploy_target_color
+"""
+    return subprocess.run(
+        ["bash"],
+        input=function + common + setup,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 class BlueGreenRenderTest(unittest.TestCase):
     def test_rejects_lightsail_edge_ids(self) -> None:
         proc, params, remote = _render(_EDGE_IID, env_extra={"EDGE_ID": "us2"})
@@ -266,18 +348,31 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertNotIn('removed failed target ${TARGET_CONTAINER}', remote)
         self.assertIn("last-cutover-at", remote)
 
-    def test_records_target_cutover_before_draining_previous_color(self) -> None:
+    def test_commit_cutover_state_persists_live_state_in_safe_order(self) -> None:
         proc, _, remote = _render()
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         assert remote is not None
-        target_start = remote.index("deploy_target_color() {")
-        target_end = remote.index("\n}\n\nprune_images()", target_start)
-        target = remote[target_start:target_end]
-        caddy = target.index('write_caddy_for_color "${target}"')
-        cutover = target.index("record_cutover")
-        drain = target.index('drain_container "${active_container}"')
-        self.assertLess(caddy, cutover)
-        self.assertLess(cutover, drain)
+        committed = _run_commit_cutover_state(remote, "green")
+        self.assertEqual(committed.returncode, 0, msg=committed.stderr)
+        self.assertEqual(
+            committed.stdout.splitlines(),
+            ["active:1:green", "record:1", "final:1"],
+        )
+
+    def test_legacy_and_regular_cutovers_share_committed_state_owner(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert remote is not None
+
+        cases = [
+            ("ensure_legacy_cutover", ["caddy:blue", "commit:blue", "drain:tokenkey"]),
+            ("deploy_target_color", ["caddy:green", "commit:green", "drain:tokenkey-blue"]),
+        ]
+        for function_name, expected in cases:
+            with self.subTest(function_name=function_name):
+                cutover = _run_cutover_path(remote, function_name)
+                self.assertEqual(cutover.returncode, 0, msg=cutover.stderr)
+                self.assertEqual(cutover.stdout.splitlines(), expected)
 
     def test_exports_remote_cutover_timestamp_to_github_output(self) -> None:
         proc, github_output = _run_with_fake_aws(

@@ -184,6 +184,7 @@ func TestCNProviderResponseIndicatesInsufficientBalance(t *testing.T) {
 		`{"error":{"message":"余额不足"}}`,
 		`{"error":{"message":"Insufficient balance"}}`,
 		`{"code":"insufficient_credit"}`,
+		`{"error":{"type":"insufficient_quota"}}`,
 		`"balance is not enough"`,
 		`"no enough balance"`,
 	}

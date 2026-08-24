@@ -44,6 +44,7 @@ func cnProviderResponseIndicatesInsufficientBalance(body []byte) bool {
 	return strings.Contains(s, "余额不足") ||
 		strings.Contains(s, "insufficient balance") ||
 		strings.Contains(s, "insufficient_credit") ||
+		strings.Contains(s, "insufficient_quota") ||
 		strings.Contains(s, "balance is not enough") ||
 		strings.Contains(s, "no enough balance")
 }
