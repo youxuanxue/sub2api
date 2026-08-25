@@ -122,7 +122,7 @@ func TestHandleSmartRetry_503_LongDelay_SingleAccountRetry_RetryInPlace(t *testi
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -186,7 +186,7 @@ func TestHandleSmartRetry_503_LongDelay_NoSingleAccountRetry_StillSwitches(t *te
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -245,7 +245,7 @@ func TestHandleSmartRetry_429_LongDelay_SingleAccountRetry_StillSwitches(t *test
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -327,7 +327,7 @@ func TestHandleSmartRetry_503_ShortDelay_SingleAccountRetry_NoRateLimit(t *testi
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -406,7 +406,7 @@ func TestHandleSmartRetry_503_ShortDelay_NoSingleAccountRetry_SetsRateLimit(t *t
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -459,7 +459,7 @@ func TestHandleSingleAccountRetryInPlace_Success(t *testing.T) {
 		httpUpstream: upstream,
 	}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSingleAccountRetryInPlace(params, resp, nil, "https://ag-1.test", 1*time.Second, "gemini-3-pro")
 
 	require.NotNil(t, result)
@@ -521,7 +521,13 @@ func TestHandleSingleAccountRetryInPlace_AllRetriesFail(t *testing.T) {
 		httpUpstream: upstream,
 	}
 
-	svc := &AntigravityGatewayService{}
+	var retryWaits []time.Duration
+	svc := &AntigravityGatewayService{
+		retryWait: func(_ context.Context, delay time.Duration) bool {
+			retryWaits = append(retryWaits, delay)
+			return true
+		},
+	}
 	result := svc.handleSingleAccountRetryInPlace(params, resp, origBody, "https://ag-1.test", 1*time.Second, "gemini-3-pro")
 
 	require.NotNil(t, result)
@@ -535,6 +541,7 @@ func TestHandleSingleAccountRetryInPlace_AllRetriesFail(t *testing.T) {
 	// 验证确实重试了指定次数
 	require.Len(t, upstream.calls, antigravitySingleAccountSmartRetryMaxAttempts,
 		"should have made exactly maxAttempts retry calls")
+	require.Equal(t, []time.Duration{time.Second, time.Second, time.Second}, retryWaits)
 }
 
 // TestHandleSingleAccountRetryInPlace_WaitDurationClamped 等待时间被限制在 [min, max] 范围
@@ -573,15 +580,21 @@ func TestHandleSingleAccountRetryInPlace_WaitDurationClamped(t *testing.T) {
 		httpUpstream: upstream,
 	}
 
-	svc := &AntigravityGatewayService{}
+	var retryWaits []time.Duration
+	svc := &AntigravityGatewayService{
+		retryWait: func(_ context.Context, delay time.Duration) bool {
+			retryWaits = append(retryWaits, delay)
+			return true
+		},
+	}
 
 	// waitDuration=0 会被 clamp 到 antigravitySmartRetryMinWait=1s。
-	// 首次重试即成功（200），总耗时 ~1s。
 	result := svc.handleSingleAccountRetryInPlace(params, resp, nil, "https://ag-1.test", 0, "gemini-3-pro")
 	require.NotNil(t, result)
 	require.Equal(t, smartRetryActionBreakWithResp, result.action)
 	require.NotNil(t, result.resp)
 	require.Equal(t, http.StatusOK, result.resp.StatusCode)
+	require.Equal(t, []time.Duration{antigravitySmartRetryMinWait}, retryWaits)
 }
 
 // TestHandleSingleAccountRetryInPlace_ContextCanceled context 取消时立即返回
@@ -664,7 +677,7 @@ func TestHandleSingleAccountRetryInPlace_NetworkError_ContinuesRetry(t *testing.
 		httpUpstream: upstream,
 	}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSingleAccountRetryInPlace(params, resp, nil, "https://ag-1.test", 1*time.Second, "gemini-3-pro")
 
 	require.NotNil(t, result)
@@ -700,7 +713,7 @@ func TestAntigravityRetryLoop_PreCheck_SingleAccountRetry_SkipsRateLimit(t *test
 		},
 	}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result, err := svc.antigravityRetryLoop(antigravityRetryLoopParams{
 		ctx:            ctxWithSingleAccountRetry(),
 		prefix:         "[test]",
@@ -744,7 +757,7 @@ func TestAntigravityRetryLoop_PreCheck_NoSingleAccountRetry_SwitchesOnRateLimit(
 		},
 	}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result, err := svc.antigravityRetryLoop(antigravityRetryLoopParams{
 		ctx:            context.Background(), // 无单账号标记
 		prefix:         "[test]",
@@ -828,7 +841,7 @@ func TestHandleSmartRetry_503_SingleAccount_RetryInPlace_ThenSuccess_E2E(t *test
 		httpUpstream: upstream,
 	}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSingleAccountRetryInPlace(params, resp, nil, "https://ag-1.test", 1*time.Second, "gemini-3-pro")
 
 	require.NotNil(t, result)
@@ -885,7 +898,7 @@ func TestAntigravityRetryLoop_503_SingleAccount_InPlaceRetryUsed_E2E(t *testing.
 		Concurrency: 1,
 	}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result, err := svc.antigravityRetryLoop(antigravityRetryLoopParams{
 		ctx:          ctxWithSingleAccountRetry(),
 		prefix:       "[test]",

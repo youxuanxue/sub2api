@@ -195,7 +195,7 @@ func TestHandleSmartRetry_RateLimited_DoesNotUseCredits(t *testing.T) {
 		},
 	}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, []string{"https://ag-1.test"})
 
 	require.NotNil(t, result)
