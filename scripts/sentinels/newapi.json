@@ -841,11 +841,12 @@
     {
       "path": "backend/internal/service/openai_gateway_forward.go",
       "must_contain": [
-        "plannedEndpoint := strings.TrimSpace(protocolExecutionEndpoint(ctx, \"\"))",
+        "targetURL := strings.TrimSpace(protocolExecutionEndpoint(ctx, \"\"))",
+        "case AccountTypeAPIKey, AccountTypeUpstream:",
         "!OfficialOpenAIFallbackAllowed(account)",
         "return nil, ErrForeignCredentialOfficialOpenAIFallback"
       ],
-      "rationale": "Responses execution must consume the immutable #1813 protocol-plan endpoint before consulting legacy base_url fallback. Without a plan, an unresolved foreign API-key account must fail closed instead of constructing api.openai.com/v1/responses with the foreign credential. Both halves are load-bearing: removing plan priority breaks protocol SSOT, while removing the guard restores the credential leak."
+      "rationale": "Responses execution must consume the immutable #1813 protocol-plan endpoint before consulting legacy account routing. Without a plan, only explicit custom endpoints or compile-time official profiles may proceed; foreign API-key, upstream, setup-token, OAuth, and unknown account types fail closed. Both halves are load-bearing: removing plan priority breaks protocol SSOT, while restoring an account-type default can leak a foreign credential to api.openai.com."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_native.go",
@@ -862,6 +863,7 @@
         "TestNewAPIBridgeOwnsAnthropicMessagesForQwen",
         "TestChatCompletionsTargetFailsClosedForForeignCredential",
         "TestResponsesTargetFailsClosedForForeignCredentialWithoutPlan",
+        "TestResponsesTargetRequiresPlanOrExplicitOfficialProfile",
         "TestNativeMessagesTargetFailsClosedForForeignCredentialWithoutPlan",
         "TestNewAPIQwenCredentialIsWireBoundOnNativePath",
         "ErrForeignCredentialOfficialOpenAIFallback"

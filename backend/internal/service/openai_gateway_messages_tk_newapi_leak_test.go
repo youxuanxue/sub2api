@@ -138,6 +138,93 @@ func TestResponsesTargetFailsClosedForForeignCredentialWithoutPlan(t *testing.T)
 		"an unresolved foreign Responses credential must fail before api.openai.com is selected")
 }
 
+func TestResponsesTargetRequiresPlanOrExplicitOfficialProfile(t *testing.T) {
+	body := []byte(`{"model":"gpt-5","input":"hello","stream":false}`)
+
+	tests := []struct {
+		name        string
+		account     *Account
+		wantErr     bool
+		wantURLPart string
+	}{
+		{
+			name: "foreign api key",
+			account: &Account{
+				Platform: PlatformNewAPI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"api_key":  "foreign-api-key",
+					"base_url": "https://foreign.example/v1",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "foreign upstream",
+			account: &Account{
+				Platform: PlatformAntigravity,
+				Type:     AccountTypeUpstream,
+				Credentials: map[string]any{
+					"api_key":  "foreign-upstream-key",
+					"base_url": "https://foreign.example/v1",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name:    "foreign setup token",
+			account: &Account{Platform: PlatformGrok, Type: AccountTypeSetupToken},
+			wantErr: true,
+		},
+		{
+			name:    "foreign oauth",
+			account: &Account{Platform: PlatformGrok, Type: AccountTypeOAuth},
+			wantErr: true,
+		},
+		{
+			name:        "official api key",
+			account:     &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey},
+			wantURLPart: "https://api.openai.com/v1/responses",
+		},
+		{
+			name:        "official oauth",
+			account:     &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth},
+			wantURLPart: chatgptCodexURL,
+		},
+		{
+			name:        "official setup token",
+			account:     &Account{Platform: PlatformOpenAI, Type: AccountTypeSetupToken},
+			wantURLPart: chatgptCodexURL,
+		},
+		{
+			name: "explicit openai upstream",
+			account: &Account{
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeUpstream,
+				Credentials: map[string]any{"base_url": "https://relay.example/v1"},
+			},
+			wantURLPart: "https://relay.example/v1/responses",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+
+			req, err := (&OpenAIGatewayService{}).buildUpstreamRequest(
+				context.Background(), c, tt.account, body, "credential", false, "", false,
+			)
+			if tt.wantErr {
+				require.ErrorIs(t, err, ErrForeignCredentialOfficialOpenAIFallback)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantURLPart, req.URL.String())
+		})
+	}
+}
+
 // The native Messages resolver is another legacy boundary. Without an
 // immutable protocol plan, an unresolved foreign credential must not inherit
 // the official OpenAI host and become /v1/messages there.
@@ -148,4 +235,11 @@ func TestNativeMessagesTargetFailsClosedForForeignCredentialWithoutPlan(t *testi
 	_, err := svc.nativeAnthropicMessagesTargetURL(account)
 	require.ErrorIs(t, err, ErrForeignCredentialOfficialOpenAIFallback,
 		"an unresolved foreign Messages credential must not default to api.openai.com")
+
+	officialURL, err := svc.nativeAnthropicMessagesTargetURL(&Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "https://api.openai.com/v1/messages", officialURL)
 }
