@@ -27,12 +27,14 @@ var (
 type GrokTokenCache = GeminiTokenCache
 
 type GrokTokenProvider struct {
-	accountRepo      AccountRepository
-	tokenCache       GrokTokenCache
-	refreshAPI       *OAuthRefreshAPI
-	executor         OAuthRefreshExecutor
-	refreshPolicy    ProviderRefreshPolicy
-	tempUnschedCache TempUnschedCache
+	accountRepo             AccountRepository
+	tokenCache              GrokTokenCache
+	refreshAPI              *OAuthRefreshAPI
+	executor                OAuthRefreshExecutor
+	refreshPolicy           ProviderRefreshPolicy
+	tempUnschedCache        TempUnschedCache
+	refreshLockWaitTimeout  time.Duration
+	refreshLockPollInterval time.Duration
 }
 
 func NewGrokTokenProvider(
@@ -231,7 +233,16 @@ func (p *GrokTokenProvider) GetAccessTokenForManualTest(ctx context.Context, acc
 }
 
 func (p *GrokTokenProvider) waitForRefreshedToken(ctx context.Context, account *Account, cacheKey string) (string, error) {
-	waitCtx, cancel := context.WithTimeout(ctx, grokRefreshLockWaitTimeout)
+	waitTimeout := p.refreshLockWaitTimeout
+	if waitTimeout <= 0 {
+		waitTimeout = grokRefreshLockWaitTimeout
+	}
+	pollInterval := p.refreshLockPollInterval
+	if pollInterval <= 0 {
+		pollInterval = grokRefreshLockPollInterval
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, waitTimeout)
 	defer cancel()
 
 	initialToken := strings.TrimSpace(account.GetGrokAccessToken())
@@ -239,7 +250,7 @@ func (p *GrokTokenProvider) waitForRefreshedToken(ctx context.Context, account *
 	selectedProxyID := cloneGrokProxyID(account.ProxyID)
 	sawAuthoritativeState := false
 	var lastAccountReadErr error
-	ticker := time.NewTicker(grokRefreshLockPollInterval)
+	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
 	for {

@@ -31,6 +31,12 @@ type httpUpstreamSequenceRecorder struct {
 	callCount int
 }
 
+func configureOpenAIWSFastRetryForTest(cfg *config.Config) {
+	cfg.Gateway.OpenAIWS.RetryBackoffInitialMS = 1
+	cfg.Gateway.OpenAIWS.RetryBackoffMaxMS = 2
+	cfg.Gateway.OpenAIWS.RetryJitterRatio = 0
+}
+
 func (u *httpUpstreamSequenceRecorder) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -750,6 +756,7 @@ func TestOpenAIGatewayService_Forward_WSv2StreamEarlyCloseFallbackHTTP(t *testin
 	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
 	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
 	cfg.Gateway.OpenAIWS.FallbackCooldownSeconds = 1
+	configureOpenAIWSFastRetryForTest(cfg)
 
 	svc := &OpenAIGatewayService{
 		cfg:              cfg,
@@ -832,6 +839,7 @@ func TestOpenAIGatewayService_Forward_WSv2RetryFiveTimesThenFallbackHTTP(t *test
 	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
 	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
 	cfg.Gateway.OpenAIWS.FallbackCooldownSeconds = 1
+	configureOpenAIWSFastRetryForTest(cfg)
 
 	svc := &OpenAIGatewayService{
 		cfg:              cfg,
@@ -910,9 +918,7 @@ func TestOpenAIGatewayService_Forward_WSv2PolicyViolationFastFallbackHTTP(t *tes
 	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
 	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
 	cfg.Gateway.OpenAIWS.FallbackCooldownSeconds = 1
-	cfg.Gateway.OpenAIWS.RetryBackoffInitialMS = 1
-	cfg.Gateway.OpenAIWS.RetryBackoffMaxMS = 2
-	cfg.Gateway.OpenAIWS.RetryJitterRatio = 0
+	configureOpenAIWSFastRetryForTest(cfg)
 
 	svc := &OpenAIGatewayService{
 		cfg:              cfg,
@@ -997,6 +1003,7 @@ func TestOpenAIGatewayService_Forward_WSv2ConnectionLimitReachedRetryThenFallbac
 	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
 	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
 	cfg.Gateway.OpenAIWS.FallbackCooldownSeconds = 1
+	configureOpenAIWSFastRetryForTest(cfg)
 
 	svc := &OpenAIGatewayService{
 		cfg:              cfg,

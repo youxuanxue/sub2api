@@ -566,7 +566,7 @@ urlFallbackLoop:
 				}
 				if attempt < antigravityMaxRetries {
 					logger.LegacyPrintf("service.antigravity_gateway", "%s status=request_failed retry=%d/%d error=%v", p.prefix, attempt, antigravityMaxRetries, err)
-					if !sleepAntigravityBackoffWithContext(p.ctx, attempt) {
+					if !s.waitRetryBackoff(p.ctx, attempt) {
 						logger.LegacyPrintf("service.antigravity_gateway", "%s status=context_canceled_during_backoff", p.prefix)
 						return nil, p.ctx.Err()
 					}
@@ -640,7 +640,7 @@ urlFallbackLoop:
 							Detail:             getUpstreamDetail(respBody),
 						})
 						logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d retry=%d/%d body=%s", p.prefix, resp.StatusCode, attempt, antigravityMaxRetries, truncateForLog(respBody, 200))
-						if !sleepAntigravityBackoffWithContext(p.ctx, attempt) {
+						if !s.waitRetryBackoff(p.ctx, attempt) {
 							logger.LegacyPrintf("service.antigravity_gateway", "%s status=context_canceled_during_backoff", p.prefix)
 							return nil, p.ctx.Err()
 						}
@@ -675,7 +675,7 @@ urlFallbackLoop:
 							Detail:             getUpstreamDetail(respBody),
 						})
 						logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d retry=%d/%d body=%s", p.prefix, resp.StatusCode, attempt, antigravityMaxRetries, truncateForLog(respBody, 500))
-						if !sleepAntigravityBackoffWithContext(p.ctx, attempt) {
+						if !s.waitRetryBackoff(p.ctx, attempt) {
 							logger.LegacyPrintf("service.antigravity_gateway", "%s status=context_canceled_during_backoff", p.prefix)
 							return nil, p.ctx.Err()
 						}

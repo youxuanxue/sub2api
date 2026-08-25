@@ -24,6 +24,8 @@ type TempUnscheduler interface {
 // FailoverAction 表示 failover 错误处理后的下一步动作
 type FailoverAction int
 
+type failoverSleeper func(context.Context, time.Duration) bool
+
 const (
 	// FailoverContinue 继续循环（同账号重试或切换账号，调用方统一 continue）
 	FailoverContinue FailoverAction = iota
@@ -130,6 +132,7 @@ type FailoverState struct {
 	LastFailoverErr       *service.UpstreamFailoverError
 	ForceCacheBilling     bool
 	hasBoundSession       bool
+	sleeper               failoverSleeper
 
 	// profitVetoedAccountIDs 记录被分组利润门终检否决的账号，是 FailedAccountIDs
 	// 的子集。之所以单独维护：HandleSelectionExhausted 的 503 退避分支会清空
@@ -143,13 +146,28 @@ type FailoverState struct {
 
 // NewFailoverState 创建 failover 状态
 func NewFailoverState(maxSwitches int, hasBoundSession bool) *FailoverState {
+	return newFailoverState(maxSwitches, hasBoundSession, sleepWithContext)
+}
+
+func newFailoverState(maxSwitches int, hasBoundSession bool, sleeper failoverSleeper) *FailoverState {
+	if sleeper == nil {
+		sleeper = sleepWithContext
+	}
 	return &FailoverState{
 		MaxSwitches:            maxSwitches,
 		FailedAccountIDs:       make(map[int64]struct{}),
 		SameAccountRetryCount:  make(map[int64]int),
 		hasBoundSession:        hasBoundSession,
+		sleeper:                sleeper,
 		profitVetoedAccountIDs: make(map[int64]struct{}),
 	}
+}
+
+func (s *FailoverState) sleep(ctx context.Context, delay time.Duration) bool {
+	if s.sleeper == nil {
+		return sleepWithContext(ctx, delay)
+	}
+	return s.sleeper(ctx, delay)
 }
 
 // RecordProfitVeto 记录一次分组利润门终检否决：把账号加入排除列表（同时登记到
@@ -244,7 +262,7 @@ func (s *FailoverState) HandleFailoverError(
 			zap.Int("same_account_retry_max", sameAccountRetryLimit),
 			zap.Duration("retry_delay", retryDelay),
 		)
-		if !sleepWithContext(ctx, retryDelay) {
+		if !s.sleep(ctx, retryDelay) {
 			return FailoverCanceled
 		}
 		s.SameAccountRetryCount[accountID]++
@@ -279,7 +297,7 @@ func (s *FailoverState) HandleFailoverError(
 	// Antigravity 平台换号线性递增延时
 	if platform == service.PlatformAntigravity {
 		delay := time.Duration(s.SwitchCount-1) * time.Second
-		if !sleepWithContext(ctx, delay) {
+		if !s.sleep(ctx, delay) {
 			return FailoverCanceled
 		}
 	}
@@ -324,7 +342,7 @@ func (s *FailoverState) HandleSelectionExhausted(ctx context.Context, thinPoolEx
 			zap.Int("switch_count", s.SwitchCount),
 			zap.Int("max_switches", s.MaxSwitches),
 		)
-		if !sleepWithContext(ctx, singleAccountBackoffDelay) {
+		if !s.sleep(ctx, singleAccountBackoffDelay) {
 			return FailoverCanceled
 		}
 		logger.FromContext(ctx).Warn("gateway.failover_single_account_retry",
