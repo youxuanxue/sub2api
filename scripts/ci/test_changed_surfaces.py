@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+"""Behavior tests for CI changed-surface classification."""
+
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+import unittest
+
+
+MODULE_PATH = Path(__file__).resolve().parent / "changed-surfaces.py"
+SPEC = importlib.util.spec_from_file_location("changed_surfaces", MODULE_PATH)
+assert SPEC and SPEC.loader
+changed_surfaces = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(changed_surfaces)
+
+
+class ChangedSurfacesTest(unittest.TestCase):
+    def test_backend_go_change_runs_backend_jobs_only(self) -> None:
+        self.assertEqual(
+            changed_surfaces.classify(["backend/internal/service/account_service.go"]),
+            {
+                "backend": True,
+                "frontend": False,
+                "deploy": False,
+                "ops": False,
+                "contracts": False,
+                "all": False,
+            },
+        )
+
+    def test_frontend_change_runs_frontend_jobs_only(self) -> None:
+        self.assertEqual(
+            changed_surfaces.classify(["frontend/src/views/admin/Accounts.vue"]),
+            {
+                "backend": False,
+                "frontend": True,
+                "deploy": False,
+                "ops": False,
+                "contracts": False,
+                "all": False,
+            },
+        )
+
+    def test_deploy_change_runs_deploy_jobs_only(self) -> None:
+        self.assertEqual(
+            changed_surfaces.classify(["deploy/tests/docker-runtime-resources-test.sh"]),
+            {
+                "backend": False,
+                "frontend": False,
+                "deploy": True,
+                "ops": False,
+                "contracts": False,
+                "all": False,
+            },
+        )
+
+    def test_route_change_runs_backend_and_contract_jobs(self) -> None:
+        self.assertEqual(
+            changed_surfaces.classify(["backend/internal/server/routes/user.go"]),
+            {
+                "backend": True,
+                "frontend": False,
+                "deploy": False,
+                "ops": False,
+                "contracts": True,
+                "all": False,
+            },
+        )
+
+    def test_ops_contract_change_runs_backend_and_ops_contracts(self) -> None:
+        self.assertEqual(
+            changed_surfaces.classify(["backend/internal/observability/qa/bundle/service.go"]),
+            {
+                "backend": True,
+                "frontend": False,
+                "deploy": False,
+                "ops": True,
+                "contracts": False,
+                "all": False,
+            },
+        )
+
+    def test_docs_only_change_keeps_expensive_jobs_off(self) -> None:
+        self.assertEqual(
+            changed_surfaces.classify(["docs/runbook.md"]),
+            {
+                "backend": False,
+                "frontend": False,
+                "deploy": False,
+                "ops": False,
+                "contracts": False,
+                "all": False,
+            },
+        )
+
+    def test_cache_snapshot_change_keeps_expensive_jobs_off(self) -> None:
+        self.assertEqual(
+            changed_surfaces.classify([".cache/anthropic/cc-triage.json"]),
+            {
+                "backend": False,
+                "frontend": False,
+                "deploy": False,
+                "ops": False,
+                "contracts": False,
+                "all": False,
+            },
+        )
+
+    def test_backend_sentinel_does_not_escalate_a_backend_change_to_all_surfaces(self) -> None:
+        self.assertEqual(
+            changed_surfaces.classify(
+                [
+                    "backend/internal/service/gateway_usage_billing.go",
+                    "scripts/sentinels/gateway-tk.json",
+                ]
+            ),
+            {
+                "backend": True,
+                "frontend": False,
+                "deploy": False,
+                "ops": False,
+                "contracts": False,
+                "all": False,
+            },
+        )
+
+    def test_mixed_change_combines_surfaces(self) -> None:
+        self.assertEqual(
+            changed_surfaces.classify(["backend/go.mod", "frontend/pnpm-lock.yaml"]),
+            {
+                "backend": True,
+                "frontend": True,
+                "deploy": False,
+                "ops": False,
+                "contracts": False,
+                "all": False,
+            },
+        )
+
+    def test_ci_infrastructure_change_runs_everything(self) -> None:
+        result = changed_surfaces.classify([".github/actions/go-rolling-cache/action.yml"])
+        self.assertEqual(
+            result,
+            {
+                "backend": False,
+                "frontend": False,
+                "deploy": False,
+                "ops": False,
+                "contracts": False,
+                "all": True,
+            },
+        )
+
+    def test_unknown_path_fails_safe_by_running_everything(self) -> None:
+        result = changed_surfaces.classify(["unexpected/new-surface.bin"])
+        self.assertEqual(
+            result,
+            {
+                "backend": False,
+                "frontend": False,
+                "deploy": False,
+                "ops": False,
+                "contracts": False,
+                "all": True,
+            },
+        )
+
+    def test_whitespace_in_a_git_path_is_not_normalized_into_a_known_surface(self) -> None:
+        result = changed_surfaces.classify([" backend/internal/service/account_service.go"])
+        self.assertEqual(
+            result,
+            {
+                "backend": False,
+                "frontend": False,
+                "deploy": False,
+                "ops": False,
+                "contracts": False,
+                "all": True,
+            },
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

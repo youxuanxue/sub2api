@@ -28,14 +28,34 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Go module cache
+    - name: Restore Go module cache (non-main writer)
+      if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-gomod-${{ hashFiles('backend/go.sum') }}
+        restore-keys: ${{ runner.os }}-gomod-
+
+    - name: Go module cache (main writer)
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: actions/cache@v4
       with:
         path: ~/go/pkg/mod
         key: ${{ runner.os }}-gomod-${{ hashFiles('backend/go.sum') }}
         restore-keys: ${{ runner.os }}-gomod-
 
-    - name: Go build/test cache (rolling, ${{ inputs.prefix }})
+    - name: Restore Go build/test cache (non-main writer, ${{ inputs.prefix }})
+      if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.cache/go-build
+        key: ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.sum') }}-${{ github.run_id }}
+        restore-keys: |
+          ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.sum') }}-
+          ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
+
+    - name: Go build/test cache (rolling main writer, ${{ inputs.prefix }})
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: actions/cache@v4
       with:
         path: ~/.cache/go-build

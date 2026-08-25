@@ -28,15 +28,15 @@ name: Main Ancestry Guard
 #      that commit is tagged. This is the v1.3.0 incident (CLAUDE.md §9.2)
 #      and the PR #312 re-occurrence pattern.
 #
-# Companion preflight check `scripts/checks/main-ancestry-anchor.py` runs
-# locally and in CI on every PR; together with this workflow they cover
-# both prevention (this gate, at PR-merge time) and detection (preflight,
-# at every commit / push). A green check here is a hard prerequisite for
-# merging — branch protection on `main` should require this status.
+# The PR job prevents an orphan merge. A separate push job below detects any
+# direct rewrite of main without forcing the heavyweight backend preflight to
+# deepen its shallow checkout by thousands of commits.
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    branches: [main]
+  push:
     branches: [main]
 
 permissions:
@@ -45,6 +45,7 @@ permissions:
 
 jobs:
   main-ancestry-guard:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       # fetch-depth: 0 ensures PR base is reachable locally — GitHub Actions
@@ -200,3 +201,14 @@ jobs:
             --title "$PR_TITLE" \
             --body "$PR_BODY" \
             --commits-range "$BASE..$HEAD"
+
+  main-ancestry-anchor:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Verify immutable main ancestry anchor
+        run: python3 scripts/checks/main-ancestry-anchor.py

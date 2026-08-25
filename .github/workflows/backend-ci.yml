@@ -34,7 +34,46 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.classify.outputs.backend }}
+      frontend: ${{ steps.classify.outputs.frontend }}
+      deploy: ${{ steps.classify.outputs.deploy }}
+      ops: ${{ steps.classify.outputs.ops }}
+      contracts: ${{ steps.classify.outputs.contracts }}
+      all: ${{ steps.classify.outputs.all }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 64
+      - name: Classify changed surfaces
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_REF: ${{ github.base_ref || 'main' }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "schedule" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            python3 scripts/ci/changed-surfaces.py --all --github-output "$GITHUB_OUTPUT" </dev/null
+          elif [ "$EVENT_NAME" = "push" ]; then
+            if [ -z "${BEFORE_SHA:-}" ] || [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+              python3 scripts/ci/changed-surfaces.py --all --github-output "$GITHUB_OUTPUT" </dev/null
+            else
+              git fetch --no-tags origin "$BEFORE_SHA" --depth=64
+              git diff --name-only -z "$BEFORE_SHA" HEAD |
+                python3 scripts/ci/changed-surfaces.py --null --github-output "$GITHUB_OUTPUT"
+            fi
+          else
+            git fetch --no-tags origin "${BASE_REF}:refs/remotes/origin/${BASE_REF}" --depth=64
+            git diff --name-only -z "origin/${BASE_REF}...HEAD" |
+              python3 scripts/ci/changed-surfaces.py --null --github-output "$GITHUB_OUTPUT"
+          fi
+
   shell:
+    needs: changes
+    if: needs.changes.outputs.all == 'true' || needs.changes.outputs.deploy == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
@@ -47,15 +86,29 @@ jobs:
           /bin/sh deploy/test-caddyfile-cache.sh
 
   preflight:
-    if: github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))
+    needs: changes
+    if: always() && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci')))
     # Mechanical gate for process / quality rules from dev-rules submodule.
     # See CLAUDE.md § 10 and dev-rules/rules/dev-rules-convention.mdc.
     runs-on: ubuntu-latest
     steps:
+      - name: Require changed-surface classification
+        if: needs.changes.result != 'success'
+        run: exit 1
       - uses: actions/checkout@v6
         with:
           fetch-depth: 64
           submodules: recursive
+      - name: CI orchestration contract tests
+        run: |
+          python3 -m unittest \
+            scripts.test_preflight_ci_lint_skip \
+            scripts.checks.test_release_cache_key_parity \
+            scripts.checks.test_go_rolling_cache_policy \
+            scripts.test_preflight_ci_handoffs \
+            scripts.test_ci_gate_handoffs \
+            scripts.ci.test_changed_surfaces \
+            scripts.test_backend_ci_routing
       # Preflight runs `go test` for QA evidence dataset validation; backend/go.mod
       # replaces new-api with ../../new-api — same sibling checkout as test/lint jobs.
       - uses: ./.github/actions/cache-and-checkout-new-api
@@ -78,6 +131,11 @@ jobs:
           # Keep local/full preflight strict, but avoid re-running that slow Go
           # fixture inside the CI preflight job on main pushes.
           PREFLIGHT_SKIP_PROMPT_FIXTURE_GATEWAY: "1"
+          # Keep the required preflight check authoritative: skip slow contracts
+          # only when the changed-surface classifier proves they are unrelated.
+          PREFLIGHT_SKIP_SLOW_OPS_CONTRACTS: ${{ needs.changes.outputs.all != 'true' && needs.changes.outputs.ops != 'true' && '1' || '0' }}
+          PREFLIGHT_SKIP_MAIN_ANCESTRY: "1"
+          PREFLIGHT_SKIP_AGENT_CONTRACT: ${{ needs.changes.outputs.all != 'true' && needs.changes.outputs.contracts != 'true' && '1' || '0' }}
         run: |
           if [ -x scripts/preflight.sh ]; then
             ./scripts/preflight.sh
@@ -135,7 +193,8 @@ jobs:
           echo "ssot-delta-gate: ok (no catalog-surface paths changed)"
 
   test-unit:
-    if: github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))
+    needs: changes
+    if: (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))) && (needs.changes.outputs.all == 'true' || needs.changes.outputs.backend == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -163,7 +222,8 @@ jobs:
         run: python3 ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway
 
   test-integration:
-    if: github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))
+    needs: changes
+    if: (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))) && (needs.changes.outputs.all == 'true' || needs.changes.outputs.backend == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -186,7 +246,8 @@ jobs:
         run: make test-integration
 
   frontend:
-    if: github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))
+    needs: changes
+    if: (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))) && (needs.changes.outputs.all == 'true' || needs.changes.outputs.frontend == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -209,7 +270,8 @@ jobs:
         run: make test-frontend
 
   golangci-lint:
-    if: github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))
+    needs: changes
+    if: (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))) && (needs.changes.outputs.all == 'true' || needs.changes.outputs.backend == 'true')
     permissions:
       contents: read
       pull-requests: read
@@ -243,7 +305,8 @@ jobs:
           only-new-issues: false
 
   backend-security:
-    if: github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'schedule' && github.event.schedule == '0 3 * * 1') || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'security'))
+    needs: changes
+    if: (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'schedule' && github.event.schedule == '0 3 * * 1') || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'security'))) && (needs.changes.outputs.all == 'true' || needs.changes.outputs.backend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -287,7 +350,8 @@ jobs:
           govulncheck ./...
 
   frontend-security:
-    if: github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'schedule' && github.event.schedule == '0 3 * * 1') || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'security'))
+    needs: changes
+    if: (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'schedule' && github.event.schedule == '0 3 * * 1') || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'security'))) && (needs.changes.outputs.all == 'true' || needs.changes.outputs.frontend == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -332,74 +396,6 @@ jobs:
         run: |
           CURRENT_PIN="$(tr -d '[:space:]' < .new-api-ref)"
           bash scripts/upstream/bump-new-api.sh "$CURRENT_PIN"
-
-  # Warm the cross-arch (amd64+arm64) Go build cache that release.yml consumes.
-  #
-  # WHY THIS JOB EXISTS: release.yml is triggered by `tag push`, so it runs on
-  # `refs/tags/vX.Y.Z`. GitHub Actions scopes cache restore to the current ref
-  # plus the DEFAULT BRANCH only — a cache saved on one tag ref is invisible to
-  # the next tag's run. The "rolling" cache release.yml saved on its own tag ref
-  # was therefore NEVER restored across releases (verified: every release logged
-  # `Cache not found for input keys: Linux-go-release-...`), so every release
-  # cold-compiled the full arm64 package set (~4m, ~79% of the GoReleaser step).
-  #
-  # Saving the same-keyed cache HERE — on `main`, the default branch — makes it
-  # readable from every tag-triggered release run. release.yml now restores it
-  # (restore-only) and only recompiles changed packages + relinks.
-  #
-  # Runs only on push to main (where the save lands on the default-branch ref);
-  # PR runs are pointless because their cache is PR-ref-scoped and release can't
-  # read it.
-  warm-release-cache:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/cache-and-checkout-new-api
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: backend/go.mod
-          check-latest: false
-          # The rolling cache below owns GOCACHE + GOMODCACHE; setup-go's
-          # go.sum-keyed cache is immutable and would never refresh the arm64
-          # cross-compile objects (same reasoning as release.yml).
-          cache: false
-      # Rolling cache: a run_id-unique SAVE key always re-saves at post-job; the
-      # restore-keys seed from the previous main warm cache so the build is
-      # incremental, not cold. Key prefix is IDENTICAL to release.yml's
-      # restore-keys so release restores exactly this entry. Go's cache is
-      # content-addressed, so a stale entry is unused, never wrong.
-      - name: Rolling Go build cache (amd64 + arm64 cross-compile)
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-release-${{ hashFiles('backend/go.sum') }}-${{ github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-go-release-${{ hashFiles('backend/go.sum') }}-
-            ${{ runner.os }}-go-release-
-      - name: Verify Go version
-        run: |
-          expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
-          go version | grep -Fq "go${expected}"
-      # Compile cmd/server for BOTH release arches to populate the cache.
-      # Flags mirror .goreleaser.yaml (CGO_ENABLED=0, linux) — but WITHOUT
-      # `-tags=embed`, so no frontend dist/ is required (embed_off.go satisfies
-      # `//go:build !embed`). The embed-gated files are a handful of tiny
-      # packages that recompile during release; deps + stdlib + all relay/
-      # service/handler objects — the ~79% bulk — are cached identically.
-      - name: Warm cross-arch Go build cache
-        working-directory: backend
-        env:
-          CGO_ENABLED: '0'
-          GOOS: linux
-        run: |
-          for arch in amd64 arm64; do
-            echo "::group::go build linux/${arch}"
-            GOARCH="${arch}" go build -o /dev/null ./cmd/server
-            echo "::endgroup::"
-          done
 
   compile-smoke:
     if: (github.event_name == 'schedule' && github.event.schedule == '17 9 * * TUE') || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'weekly-smoke'))
