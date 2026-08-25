@@ -75,7 +75,7 @@ jobs:
           aws-region: ${{ env.TARGET_REGION }}
 
       - name: Restore per-target alert state
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .pgdump-canary-state/${{ env.TARGET_ID }}
           key: pgdump-restore-canary-${{ env.TARGET_ID }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -135,7 +135,7 @@ jobs:
 
       - name: Save per-target alert state
         if: always() && steps.alert_delivery.outcome == 'success'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .pgdump-canary-state/${{ env.TARGET_ID }}
           key: pgdump-restore-canary-${{ env.TARGET_ID }}-${{ github.run_id }}-${{ github.run_attempt }}

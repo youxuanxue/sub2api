@@ -65,7 +65,7 @@ jobs:
           fi
 
       - name: Restore previous state key
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .edge-health-state
           key: edge-health-watch-state-${{ github.run_id }}
@@ -112,7 +112,7 @@ jobs:
       - name: Save state key
         # Not on dry-run: a dry-run must not advance the dedup state (see Decide step).
         if: inputs.dry_run != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .edge-health-state
           key: edge-health-watch-state-${{ github.run_id }}
