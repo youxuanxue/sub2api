@@ -139,8 +139,8 @@ func TestUS2859_SlotFullEscape_PoolAlsoFull_FallsBackToStickyWait(t *testing.T) 
 func TestUS2859_SlotFullEscape_Disabled_QueuesOnSticky(t *testing.T) {
 	ctx := context.Background()
 	// 重置进程内缓存，确保读到本测试 settingRepo 的值。
-	stickySlotFullEscapeCache.Store(&stickySlotFullEscapeCacheEntry{expiresAt: 0})
-	t.Cleanup(func() { stickySlotFullEscapeCache.Store(&stickySlotFullEscapeCacheEntry{expiresAt: 0}) })
+	stickySlotFullEscapeCache.Store(&tkOptOutFlagCacheEntry{expiresAt: 0})
+	t.Cleanup(func() { stickySlotFullEscapeCache.Store(&tkOptOutFlagCacheEntry{expiresAt: 0}) })
 
 	groupID := int64(85004)
 	sticky := openAIAccount(1, 7)
@@ -173,14 +173,14 @@ func TestIsStickySlotFullEscapeEnabled_Default(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			stickySlotFullEscapeCache.Store(&stickySlotFullEscapeCacheEntry{expiresAt: 0})
+			stickySlotFullEscapeCache.Store(&tkOptOutFlagCacheEntry{expiresAt: 0})
 			ss := &SettingService{settingRepo: &slotEscapeSettingRepo{val: tc.val}}
 			require.Equal(t, tc.want, ss.IsStickySlotFullEscapeEnabled(context.Background()))
 		})
 	}
 
 	// nil SettingService / nil repo → fail-open true。
-	stickySlotFullEscapeCache.Store(&stickySlotFullEscapeCacheEntry{expiresAt: 0})
+	stickySlotFullEscapeCache.Store(&tkOptOutFlagCacheEntry{expiresAt: 0})
 	var nilSvc *SettingService
 	require.True(t, nilSvc.IsStickySlotFullEscapeEnabled(context.Background()))
 }
