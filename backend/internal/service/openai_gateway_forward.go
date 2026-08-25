@@ -1331,10 +1331,15 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 			baseURL = account.GetCNProtocolBaseURL(APIProtocolResponses)
 		}
 		if baseURL == "" {
-			if account.IsGrokAPIKey() {
+			if plannedEndpoint := strings.TrimSpace(protocolExecutionEndpoint(ctx, "")); plannedEndpoint != "" {
+				targetURL = plannedEndpoint
+			} else if account.IsGrokAPIKey() {
 				return nil, fmt.Errorf("grok relay account %d missing base_url", account.ID)
+			} else if !OfficialOpenAIFallbackAllowed(account) {
+				return nil, ErrForeignCredentialOfficialOpenAIFallback
+			} else {
+				targetURL = openaiPlatformAPIURL
 			}
-			targetURL = openaiPlatformAPIURL
 		} else {
 			validatedURL, err := s.validateUpstreamBaseURLForAccount(account, baseURL)
 			if err != nil {

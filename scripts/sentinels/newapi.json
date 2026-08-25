@@ -839,14 +839,43 @@
       "rationale": "openAIChatCompletionsTargetURL is the shared target resolver for both CC fallback paths (/v1/messages and /v1/responses). nativeOpenAIBaseURLForAccount returns \"\" for platform=newapi, so without this fail-closed guard the empty base defaults to https://api.openai.com while the same function still sends GetOpenAIProtocolAPIKey() — the real DashScope/Ark channel key. That is exactly how Qwen/Qwen-2/Qwen-4 returned upstream 'Incorrect API key provided' (2026-08-24). Restoring the bare api.openai.com default compiles clean and silently re-leaks foreign credentials to OpenAI."
     },
     {
+      "path": "backend/internal/service/openai_gateway_forward.go",
+      "must_contain": [
+        "plannedEndpoint := strings.TrimSpace(protocolExecutionEndpoint(ctx, \"\"))",
+        "!OfficialOpenAIFallbackAllowed(account)",
+        "return nil, ErrForeignCredentialOfficialOpenAIFallback"
+      ],
+      "rationale": "Responses execution must consume the immutable #1813 protocol-plan endpoint before consulting legacy base_url fallback. Without a plan, an unresolved foreign API-key account must fail closed instead of constructing api.openai.com/v1/responses with the foreign credential. Both halves are load-bearing: removing plan priority breaks protocol SSOT, while removing the guard restores the credential leak."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_native.go",
+      "must_contain": [
+        "targetURL := strings.TrimSpace(protocolExecutionEndpoint(ctx, \"\"))",
+        "!OfficialOpenAIFallbackAllowed(account)",
+        "return \"\", ErrForeignCredentialOfficialOpenAIFallback"
+      ],
+      "rationale": "Native Messages execution must use the immutable #1813 protocol-plan endpoint when present and fail closed at the legacy resolver boundary otherwise. Defaulting an unresolved foreign credential to api.openai.com/v1/messages violates the same official-host SSOT as the Responses leak."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_messages_tk_newapi_leak_test.go",
       "must_contain": [
         "TestNewAPIBridgeOwnsAnthropicMessagesForQwen",
         "TestChatCompletionsTargetFailsClosedForForeignCredential",
+        "TestResponsesTargetFailsClosedForForeignCredentialWithoutPlan",
+        "TestNativeMessagesTargetFailsClosedForForeignCredentialWithoutPlan",
         "TestNewAPIQwenCredentialIsWireBoundOnNativePath",
         "ErrForeignCredentialOfficialOpenAIFallback"
       ],
-      "rationale": "Behavior regressions for the Qwen credential-leak fix: inbound /v1/messages for a bridge-eligible newapi account is owned by the NewAPI adaptor (not an OpenAI-shaped fallback), a foreign credential with no OpenAI-resolvable base fails closed instead of reaching api.openai.com, and an OpenAI api-key account still resolves the official host. Deleting these tests would let an upstream merge restore either leak with a green build."
+      "rationale": "Behavior regressions for the foreign-credential leak fixes: bridge-eligible legacy Messages requests stay on the NewAPI adaptor; unresolved Chat, Responses, and native Messages targets fail closed instead of reaching api.openai.com; and an official OpenAI API-key account retains its explicit allowlisted fallback. Deleting these tests would let an upstream merge restore a credential leak with a green build."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution_target_test.go",
+      "must_contain": [
+        "TestProtocolExecutionNewAPIResponsesUsesPlannedEndpoint",
+        "newapi plan endpoint",
+        "want newapi plan-selected Responses endpoint"
+      ],
+      "rationale": "Focused proof that a governed NewAPI Chat→Responses route uses the endpoint selected by protocolrouter rather than the legacy official-host fallback. This pins #1813 as the decision owner while the adjacent fail-closed tests cover the non-governed boundary."
     },
     {
       "path": "backend/internal/service/account_supported_protocols.go",

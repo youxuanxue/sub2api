@@ -261,6 +261,53 @@ func TestProtocolExecutionDoesNotFallbackProtocolOnSameAccount(t *testing.T) {
 	}
 }
 
+func TestProtocolExecutionNewAPIResponsesUsesPlannedEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"client-model","messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	upstream := &protocolTargetHTTPUpstream{responses: []*http.Response{
+		protocolRouteContractResponse(protocolRouteSpecByAdapter(t, protocolrouter.AdapterChatToResponses)),
+	}}
+	svc := protocolTargetTestService(upstream)
+	account := protocolTargetTestAccount(protocolrouter.ProtocolResponses)
+	account.Platform = PlatformNewAPI
+	account.ChannelType = newapiconstant.ChannelTypeOpenAI
+	account.Credentials["model_mapping"] = map[string]any{"client-model": "wire-model"}
+
+	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, body, account, func(
+		executionCtx context.Context,
+		plan protocolrouter.Plan,
+		_ protocolrouter.CanonicalRequest,
+	) (any, error) {
+		if strings.Contains(plan.Endpoint(), "api.openai.com") {
+			t.Fatalf("newapi plan endpoint = %q, must not use official OpenAI host", plan.Endpoint())
+		}
+		return svc.ForwardAsChatCompletions(executionCtx, c, account, body, "", "")
+	})
+	if err != nil {
+		t.Fatalf("ExecuteSelectedProtocol: %v", err)
+	}
+	if len(upstream.requests) != 1 {
+		t.Fatalf("upstream requests = %d, want 1", len(upstream.requests))
+	}
+	if got := upstream.requests[0].URL.String(); got != "http://upstream.example/v1/responses" {
+		t.Fatalf("upstream URL = %q, want newapi plan-selected Responses endpoint", got)
+	}
+}
+
+func protocolRouteSpecByAdapter(t *testing.T, adapterID protocolrouter.RouteAdapterID) protocolrouter.RouteSpec {
+	t.Helper()
+	for _, route := range protocolrouter.RouteSpecs() {
+		if route.AdapterID() == adapterID {
+			return route
+		}
+	}
+	t.Fatalf("route adapter %q not found", adapterID)
+	return protocolrouter.RouteSpec{}
+}
+
 func TestProtocolExecutionBindsPlanResolvedModelToUpstreamRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	canonicalBody := []byte(`{"model":"client-model","messages":[{"role":"user","content":"hello"}],"stream":false}`)
