@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 import unittest
 
 import yaml
@@ -19,7 +20,18 @@ class BackendCIRoutingTest(unittest.TestCase):
 
     def test_changes_job_exports_all_surface_decisions(self) -> None:
         outputs = self.jobs["changes"]["outputs"]
-        self.assertEqual(set(outputs), {"backend", "frontend", "deploy", "ops", "contracts", "all"})
+        self.assertEqual(
+            set(outputs),
+            {
+                "backend",
+                "frontend",
+                "deploy",
+                "ops",
+                "contracts",
+                "service_unit_cold",
+                "all",
+            },
+        )
 
     def test_expensive_jobs_depend_on_the_matching_surface(self) -> None:
         expected = {
@@ -67,6 +79,7 @@ class BackendCIRoutingTest(unittest.TestCase):
             "scripts.test_preflight_ci_handoffs",
             "scripts.test_ci_gate_handoffs",
             "scripts.ci.test_changed_surfaces",
+            "scripts.ci.test_unit_test_runner",
             "scripts.test_backend_ci_routing",
         }
         for module in expected_modules:
@@ -99,6 +112,61 @@ class BackendCIRoutingTest(unittest.TestCase):
         target = makefile.split("test-integration:\n", 1)[1].split("\n\n", 1)[0]
         self.assertIn("integration-packages.py", target)
         self.assertNotIn("go test -tags=integration ./...", target)
+
+    def test_unit_job_passes_the_service_cold_path_decision(self) -> None:
+        unit_step = next(
+            step
+            for step in self.jobs["test-unit"]["steps"]
+            if step.get("name") == "Unit tests"
+        )
+
+        self.assertIn(
+            "needs.changes.outputs.service_unit_cold",
+            unit_step["env"]["UNIT_TEST_SERVICE_SHARD"],
+        )
+
+    def test_unit_main_writer_uses_native_path_to_seed_result_cache(self) -> None:
+        unit_step = next(
+            step
+            for step in self.jobs["test-unit"]["steps"]
+            if step.get("name") == "Unit tests"
+        )
+
+        self.assertIn(
+            "github.event_name != 'push'",
+            unit_step["env"]["UNIT_TEST_SERVICE_SHARD"],
+        )
+
+    def test_unit_target_uses_go_cache_by_default(self) -> None:
+        result = subprocess.run(
+            ["make", "-n", "-C", str(BACKEND_MAKEFILE.parent), "test-unit"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("go test -tags=unit ./...", result.stdout)
+        self.assertNotIn("unit_test_runner.py", result.stdout)
+
+    def test_unit_target_uses_compile_once_shards_on_cold_path(self) -> None:
+        result = subprocess.run(
+            [
+                "make",
+                "-n",
+                "-C",
+                str(BACKEND_MAKEFILE.parent),
+                "UNIT_TEST_SERVICE_SHARD=1",
+                "test-unit",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("unit_test_runner.py", result.stdout)
+        self.assertNotIn("go test -tags=unit ./...", result.stdout)
 
 
 if __name__ == "__main__":

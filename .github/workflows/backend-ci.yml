@@ -42,6 +42,7 @@ jobs:
       deploy: ${{ steps.classify.outputs.deploy }}
       ops: ${{ steps.classify.outputs.ops }}
       contracts: ${{ steps.classify.outputs.contracts }}
+      service_unit_cold: ${{ steps.classify.outputs.service_unit_cold }}
       all: ${{ steps.classify.outputs.all }}
     steps:
       - uses: actions/checkout@v6
@@ -109,6 +110,7 @@ jobs:
             scripts.test_preflight_ci_handoffs \
             scripts.test_ci_gate_handoffs \
             scripts.ci.test_changed_surfaces \
+            scripts.ci.test_unit_test_runner \
             scripts.test_backend_ci_routing
       # Preflight runs `go test` for QA evidence dataset validation; backend/go.mod
       # replaces new-api with ../../new-api — same sibling checkout as test/lint jobs.
@@ -220,6 +222,8 @@ jobs:
           go version | grep -Fq "go${expected}"
       - name: Unit tests
         working-directory: backend
+        env:
+          UNIT_TEST_SERVICE_SHARD: ${{ github.event_name != 'push' && needs.changes.outputs.service_unit_cold == 'true' && '1' || '0' }}
         run: make test-unit
       - name: Anthropic prompt surface fixture gateway
         run: python3 ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway

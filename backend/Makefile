@@ -28,6 +28,7 @@ GOLANGCI_LINT_VERSION ?= v2.9.0
 GOLANGCI_LINT_CONCURRENCY ?= 4
 GOLANGCI_LINT_FAST_ARGS ?= --concurrency=$(GOLANGCI_LINT_CONCURRENCY)
 GOLANGCI_LINT_SECURITY_ARGS ?= --concurrency=$(GOLANGCI_LINT_CONCURRENCY)
+UNIT_TEST_SERVICE_SHARD ?= 0
 
 .PHONY: verify-toolchain
 verify-toolchain:
@@ -57,7 +58,11 @@ generate:
 test: test-unit lint
 
 test-unit:
+ifeq ($(UNIT_TEST_SERVICE_SHARD),1)
+	python3 ../scripts/ci/unit_test_runner.py --root .
+else
 	go test -tags=unit ./...
+endif
 
 test-integration:
 	@packages="$$(python3 ../scripts/ci/integration-packages.py --root .)" || exit $$?; \
