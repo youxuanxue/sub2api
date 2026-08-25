@@ -16,9 +16,11 @@ hot-apply, not a new source of truth. See the tokenkey-onboard-model skill §4.
 Subcommands
 -----------
   check      Read-only: print the account's current model_mapping keys + guard fields.
-  sync-live  Merge --add-identity / --add keys onto the account + scheduler_outbox +
-             BEFORE/AFTER verify. --dry-run previews (guard match + BEFORE + plan, no write).
-  --selftest Offline unit test of the additions/SQL building (no AWS).
+  sync-live   Merge --add-identity / --add keys onto the account + scheduler_outbox +
+              BEFORE/AFTER verify. --dry-run previews (guard match + BEFORE + plan, no write).
+  remove-live Remove --remove keys from the account + scheduler_outbox + fail-closed
+              BEFORE/AFTER verify. --dry-run previews without writing.
+  --selftest  Offline unit test of the additions/removals and SQL building (no AWS).
 
 SSM transport mirrors ops/pricing/manage-overlay-runtime.py: the shell is base64'd,
 written to a FILE on the host and bash'd from the file (NOT piped to `bash` via stdin),
@@ -55,10 +57,10 @@ _ssm_spec.loader.exec_module(_SSM)
 # quote/space that breaks the SQL literal or the jsonb key set (the audit's schema-gate,
 # applied at the one place that mutates model_mapping out-of-band).
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
-# guard-tuple name: a group/account display name (may be non-ASCII, e.g. "ds-官"); reject
-# single quotes — the only char that breaks a PG string literal under
-# standard_conforming_strings (the default), so this is sufficient SQL-literal safety.
-_NAME_RE = re.compile(r"^[^']+$")
+# guard-tuple name: a group/account display name (may be non-ASCII, e.g. "ds-官").
+# It is embedded in both a PG single-quoted literal and a remote shell double-quoted
+# argument, so reject the metacharacters that can break either layer.
+_NAME_RE = re.compile(r"^[^'\"`$\\\r\n]+$")
 # platform is a fixed enum-like token (newapi/anthropic/openai/gemini/antigravity/grok);
 # validate to a strict charset so it can never break the guard's SQL string literal.
 _PLATFORM_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -113,6 +115,15 @@ def build_removals(remove_keys: list[str]) -> list[str]:
     if not out:
         fail("no model_mapping removals (pass --remove MODEL)")
     return sorted(out)
+
+
+def validate_guard_fields(name: str, platform: str) -> None:
+    """Reject values that cannot be embedded in both SQL and the remote shell."""
+    if not _NAME_RE.fullmatch(name):
+        fail(f"--name {name!r} contains an SQL or shell literal breaker")
+    if not _PLATFORM_RE.fullmatch(platform):
+        fail(f"--platform {platform!r} must match {_PLATFORM_RE.pattern} "
+             f"(newapi/anthropic/openai/gemini/antigravity/grok)")
 
 
 def build_merge_sql(account_id: int, name: str, platform: str, channel_type: int,
@@ -170,6 +181,55 @@ def keys_array_sql(keys: list[str]) -> str:
     return "array[" + ", ".join("'" + k + "'" for k in sorted(keys)) + "]"
 
 
+def build_remove_live_shell(
+    account_id: int,
+    name: str,
+    platform: str,
+    channel_type: int,
+    keys: list[str],
+    sql_b64: str,
+    psql: str = PSQL,
+) -> str:
+    """Build the fail-closed remote shell for one guarded mapping removal."""
+    keys_arr = keys_array_sql(keys)
+    guard = (
+        f"id={account_id} AND name='{name}' AND platform='{platform}' "
+        f"AND channel_type={channel_type}"
+    )
+    return (
+        "set -euo pipefail\n"
+        f"PSQL='{psql}'\n"
+        "echo '=== guard match (exactly 1 row required) ==='\n"
+        f"guard_count=\"$($PSQL -c \"SELECT count(*) FROM accounts WHERE {guard} "
+        "AND deleted_at IS NULL;\" </dev/null)\"\n"
+        "if [ \"$guard_count\" != \"1\" ]; then\n"
+        "  echo \"ERROR: guard matched $guard_count accounts (expected 1)\" >&2\n"
+        "  exit 1\n"
+        "fi\n"
+        "echo '=== BEFORE: which of the target keys are present? ==='\n"
+        f"$PSQL -c \"SELECT string_agg(k, ', ' ORDER BY k) FROM "
+        f"(SELECT jsonb_object_keys(credentials->'model_mapping') k FROM accounts "
+        f"WHERE {guard} AND deleted_at IS NULL) s WHERE k = ANY({keys_arr});\" </dev/null\n"
+        "echo '=== APPLY (jsonb - text[] + scheduler_outbox) ==='\n"
+        f"echo {sql_b64} | base64 -d | $PSQL\n"
+        "echo '=== AFTER: any target key still present? (must be f) ==='\n"
+        f"after_present=\"$($PSQL -c \"SELECT coalesce((credentials->'model_mapping') ?| "
+        f"{keys_arr}, false) FROM accounts WHERE {guard} AND deleted_at IS NULL;\" </dev/null)\"\n"
+        "if [ \"$after_present\" != \"f\" ]; then\n"
+        "  echo \"ERROR: target keys remain after removal (value=$after_present)\" >&2\n"
+        "  exit 1\n"
+        "fi\n"
+        "echo '=== model_mapping keys now ==='\n"
+        f"$PSQL -c \"SELECT string_agg(k, ', ' ORDER BY k) FROM "
+        f"(SELECT jsonb_object_keys(credentials->'model_mapping') k FROM accounts "
+        f"WHERE {guard} AND deleted_at IS NULL) s;\" </dev/null\n"
+        "echo '=== scheduler_outbox account_changed (last 2 min) ==='\n"
+        f"$PSQL -c \"SELECT count(*) FROM scheduler_outbox WHERE account_id={account_id} "
+        "AND event_type='account_changed' AND created_at > now() - interval '2 min';\" </dev/null\n"
+        "echo APPLY_OK\n"
+    )
+
+
 # --- SQL self-check registry (ops-sql-coverage gate; doctrine: manage-anthropic-config.py)
 # Every *_sql generator must be enumerated here (so ops/anthropic/test_ops_sql_execute.py
 # runs it against a real Postgres) or exempted with a reason. No runner-shaped symbols here.
@@ -211,11 +271,7 @@ def cmd_check(args) -> int:
 
 
 def cmd_sync_live(args) -> int:
-    if not _NAME_RE.match(args.name):
-        fail(f"--name {args.name!r} must not contain a single quote (SQL literal safety)")
-    if not _PLATFORM_RE.match(args.platform):
-        fail(f"--platform {args.platform!r} must match {_PLATFORM_RE.pattern} "
-             f"(newapi/anthropic/openai/gemini/antigravity/grok)")
+    validate_guard_fields(args.name, args.platform)
     additions = build_additions(args.add_identity or [], args.add or [])
     additions_json = json.dumps(additions, ensure_ascii=False, separators=(",", ":"))
     additions_b64 = base64.b64encode(additions_json.encode()).decode()
@@ -287,11 +343,7 @@ def cmd_remove_live(args) -> int:
     fail-closes. The companion migration in git MUST be corrected in the same change,
     or the next release re-adds the key.
     """
-    if not _NAME_RE.match(args.name):
-        fail(f"--name {args.name!r} must not contain a single quote (SQL literal safety)")
-    if not _PLATFORM_RE.match(args.platform):
-        fail(f"--platform {args.platform!r} must match {_PLATFORM_RE.pattern} "
-             f"(newapi/anthropic/openai/gemini/antigravity/grok)")
+    validate_guard_fields(args.name, args.platform)
     keys = build_removals(args.remove or [])
     keys_arr = keys_array_sql(keys)
     print(f"account {args.account_id} ({args.name}, {args.platform}, ct={args.channel_type})"
@@ -321,22 +373,13 @@ def cmd_remove_live(args) -> int:
     remove_sql = build_remove_sql(args.account_id, args.name, args.platform,
                                   args.channel_type, keys)
     sql_b64 = base64.b64encode(remove_sql.encode()).decode()
-    shell = (
-        "set -uo pipefail\n"
-        f"PSQL='{PSQL}'\n"
-        + guard_and_before
-        + "echo '=== APPLY (jsonb - text[] + scheduler_outbox) ==='\n"
-        f"echo {sql_b64} | base64 -d | $PSQL && echo APPLY_OK\n"
-        "echo '=== AFTER: any target key still present? (expect f) ==='\n"
-        f"$PSQL -c \"SELECT coalesce((credentials->'model_mapping') ?| {keys_arr}, false) "
-        f"FROM accounts WHERE id={args.account_id} AND deleted_at IS NULL;\" </dev/null\n"
-        "echo '=== model_mapping keys now ==='\n"
-        f"$PSQL -c \"SELECT string_agg(k, ', ' ORDER BY k) FROM "
-        f"(SELECT jsonb_object_keys(credentials->'model_mapping') k FROM accounts "
-        f"WHERE id={args.account_id} AND deleted_at IS NULL) s;\" </dev/null\n"
-        "echo '=== scheduler_outbox account_changed (last 2 min) ==='\n"
-        f"$PSQL -c \"SELECT count(*) FROM scheduler_outbox WHERE account_id={args.account_id} "
-        f"AND event_type='account_changed' AND created_at > now() - interval '2 min';\" </dev/null\n"
+    shell = build_remove_live_shell(
+        args.account_id,
+        args.name,
+        args.platform,
+        args.channel_type,
+        keys,
+        sql_b64,
     )
     out = _SSM.run_shell_b64(inst, base64.b64encode(shell.encode()).decode(),
                              f"model_mapping remove-live acct {args.account_id}")
@@ -365,11 +408,12 @@ def _selftest() -> int:
     # keys array literal
     if keys_array_sql(["b", "a"]) != "array['a', 'b']":
         failures.append("keys_array_sql wrong/ordering")
-    # guard-field validation regexes reject the SQL-literal escape char (injection gate)
-    if _PLATFORM_RE.match("newapi'; DROP") or not _PLATFORM_RE.match("newapi"):
+    # Guard-field validation rejects both SQL and remote-shell literal breakers.
+    if _PLATFORM_RE.fullmatch("newapi'; DROP") or not _PLATFORM_RE.fullmatch("newapi"):
         failures.append("_PLATFORM_RE wrong (must reject quotes, accept newapi)")
-    if _NAME_RE.match("Qwen'; x") or not _NAME_RE.match("ds-官"):
-        failures.append("_NAME_RE wrong (must reject quotes, accept non-ASCII)")
+    if any(_NAME_RE.fullmatch(bad) for bad in ("Qwen'; x", 'Qwen"x', "Qwen$(id)", "Qwen`id`")) \
+            or not _NAME_RE.fullmatch("ds-官"):
+        failures.append("_NAME_RE wrong (must reject SQL/shell breakers, accept non-ASCII)")
     # merge SQL shape: guard tuple + jsonb || + scheduler_outbox + decode
     sql = build_merge_sql(60, "Qwen", "newapi", 17, "QQ==")
     for needle in ("id = 60", "name = 'Qwen'", "platform = 'newapi'", "channel_type = 17",
@@ -405,7 +449,7 @@ def _selftest() -> int:
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("selftest ok: additions / id-validation / keys-array / merge-SQL shape")
+    print("selftest ok: additions / removals / validation / keys-array / SQL shape")
     return 0
 
 

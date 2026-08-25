@@ -39,7 +39,7 @@
 -- CloudWise prefix floor in tk_082).
 --
 -- Idempotent: jsonb || re-applies the same single key and leaves every other
--- mapping entry untouched. Guarded on id + platform + channel_type + deleted_at
+-- mapping entry untouched. Guarded on id + name + platform + channel_type + deleted_at
 -- so a renumbered account cannot be hit by accident.
 
 SET LOCAL lock_timeout = '5s';
@@ -57,6 +57,7 @@ WITH upd AS (
     WHERE platform = 'newapi'
       AND deleted_at IS NULL
       AND id = 88
+      AND name = 'volcengine-agent-plan'
       AND channel_type = 45
     RETURNING id
 )
