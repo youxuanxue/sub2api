@@ -3507,9 +3507,12 @@
       "must_contain": [
         "func (s *OpenAIGatewayService) collectOpenAICompatSelectionFailureStatsForRequest(",
         "openai_account_selection_failed",
-        "runtime_blocked"
+        "runtime_blocked",
+        "stats.SampleUnschedulableReasons = appendSelectionFailureReasonSample(",
+        "\"sample_unschedulable\", stats.SampleUnschedulableReasons,",
+        "openAICompatEligibilityReason(ctx, acc, platform, requestedModel, requireCompact, requiredCapability)"
       ],
-      "rationale": "Prod 2026-07-28 GPT-pro3/4 incident observability: when OpenAI-compat selection empties the pool, log openai_account_selection_failed with per-account rejection axes including runtime_blocked (in-memory block vs DB schedulable drift). collectOpenAICompatSelectionFailureStatsForRequest mirrors scheduler eligibility ordering so ops can distinguish client-fault unsupported model from whole-account runtime block without restart."
+      "rationale": "Prod 2026-07-28 GPT-pro3/4 incident observability: when OpenAI-compat selection empties the pool, log openai_account_selection_failed with per-account rejection axes including runtime_blocked (in-memory block vs DB schedulable drift). collectOpenAICompatSelectionFailureStatsForRequest mirrors scheduler eligibility ordering so ops can distinguish client-fault unsupported model from whole-account runtime block without restart. Extended 2026-08-25: the unschedulable bucket must also carry per-account REASON samples (sample_unschedulable, fed by openAICompatEligibilityReason). Without them that bucket is a bare count over many independent gate branches, which is what made the edge us6 outage take a full day to attribute — every hypothesis had to be disproved by hand because the log could not say which gate fired."
     },
     {
       "path": "backend/internal/service/openai_account_scheduler_tk_selection_diag_test.go",
@@ -7224,6 +7227,26 @@
         "TestFirstSeenTitleFollowsReason"
       ],
       "rationale": "Focused regressions pinning that a served_at_fallback digest entry never prints '未计费', that reason is part of the aggregation key, and that title/header severity follow the buffer's actual content instead of a hardcoded P0 leak framing."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_scheduling_tk_eligibility_reason.go",
+      "must_contain": [
+        "func openAICompatEligibilityReason(",
+        "func tkProtocolRouteIllegalReason(",
+        "openAICompatIneligibleNoLegalRoute      = \"no_legal_protocol_route\"",
+        "openAICompatIneligibleQuotaAutoPause    = \"quota_auto_pause\""
+      ],
+      "rationale": "Names WHICH scheduling gate rejected an openai-compat account. The bool predicate isOpenAICompatibleAccountEligibleForRequestBeforeProfit delegates here, so this file owns the single copy of the gate order; dropping it collapses nine distinct rejection causes back into one bare 'unschedulable' count. That collapse is what made the 2026-08-25 edge us6 outage (five hours of 'total=1 eligible=0 unschedulable=1' on a healthy account, upstream quota/subscription/DB/redis all verified fine) cost a full day to attribute to ProtocolRouteLegal finding no legal route. tkProtocolRouteIllegalReason carries the router's error text verbatim, which is the only signal distinguishing 'account is broken' from 'this inbound shape has no preserving route to the protocols this account declares'."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_scheduling_tk_eligibility_reason_test.go",
+      "must_contain": [
+        "TestEligibilityReasonAgreesWithPredicate",
+        "TestEligibilityReasonNamesTheFailingGate",
+        "TestProtocolRouteIllegalReasonEmptyWhenUngoverned",
+        "TestAppendSelectionFailureReasonSampleIsCapped"
+      ],
+      "rationale": "Focused regressions for the ineligibility-reason plumbing: reason=='' must agree with the bool predicate for every input (otherwise the diagnostic log names a gate that did not fire, or stays silent about one that did), each gate must report its own reason code, an ungoverned account must yield no route reason, and the reason samples stay capped like the sibling buckets so one log line cannot be flooded by a large pool."
     }
   ]
 }
