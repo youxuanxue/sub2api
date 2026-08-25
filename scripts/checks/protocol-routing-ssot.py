@@ -310,8 +310,21 @@ def check(root: Path) -> list[str]:
         for body in bodies:
             if not contains_identifier(body, "ProtocolProbeCandidates"):
                 errors.append("admin account handler does not gate the canonical protocol candidate set")
-            if not contains_identifier(body, "ProbeAccountProtocolCapabilities"):
-                errors.append("admin account handler does not schedule the aggregate account probe job")
+            if not contains_identifier(body, "scheduleProtocolCapabilityProbeBatch"):
+                errors.append("admin account handler does not delegate to the bounded account probe batch")
+            for forbidden in (
+                "ProbeOpenAIAPIKeyChatCompletionsSupport",
+                "ProbeOpenAIAPIKeyResponsesSupport",
+                "ProbeOpenAIAPIKeyNativeMessagesSupport",
+            ):
+                if contains_identifier(body, forbidden):
+                    errors.append(f"admin account handler fans out per-protocol probe {forbidden}")
+        batch_bodies = function_bodies(source, "scheduleProtocolCapabilityProbeBatch")
+        if not batch_bodies:
+            errors.append("admin account handler is missing the bounded account probe batch")
+        for body in batch_bodies:
+            if not contains_identifier(body, "ProbeAccountProtocolCapabilitiesBatch"):
+                errors.append("admin account handler bypasses the bounded account probe batch")
             for forbidden in (
                 "ProbeOpenAIAPIKeyChatCompletionsSupport",
                 "ProbeOpenAIAPIKeyResponsesSupport",

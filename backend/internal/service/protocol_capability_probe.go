@@ -125,6 +125,12 @@ func (s *AccountTestService) ProbeAccountProtocolCapabilities(ctx context.Contex
 	}
 }
 
+// ProbeAccountProtocolCapabilitiesBatch probes accounts with the same bounded
+// concurrency used during startup preparation.
+func (s *AccountTestService) ProbeAccountProtocolCapabilitiesBatch(ctx context.Context, accountIDs []int64) {
+	probeProtocolRoutingAccounts(ctx, s, accountIDs)
+}
+
 func (s *AccountTestService) probeProtocolCapability(
 	ctx context.Context,
 	account *Account,
@@ -236,7 +242,11 @@ func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {
 	switch account.Type {
 	case AccountTypeAPIKey, AccountTypeUpstream:
 	default:
-		return nil
+		if account.Platform != PlatformAnthropic ||
+			!account.IsAnthropicOAuthOrSetupToken() ||
+			!account.IsCustomBaseURLEnabled() {
+			return nil
+		}
 	}
 	candidates := make([]protocolrouter.Protocol, 0, len(protocolrouter.AllProtocols()))
 	for _, protocol := range protocolrouter.AllProtocols() {

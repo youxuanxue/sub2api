@@ -247,8 +247,16 @@ func protocolAccountEndpoints(account *Account) (string, map[protocolrouter.Prot
 	if account == nil {
 		return "", nil, ""
 	}
-	if account.Platform == PlatformAnthropic && account.IsAnthropicOAuthOrSetupToken() && !account.IsCustomBaseURLEnabled() {
-		return "", nil, protocolrouter.OfficialEndpointAnthropic
+	if account.Platform == PlatformAnthropic && account.IsAnthropicOAuthOrSetupToken() {
+		if !account.IsCustomBaseURLEnabled() {
+			return "", nil, protocolrouter.OfficialEndpointAnthropic
+		}
+		if customBaseURL := strings.TrimSpace(account.GetCustomBaseURL()); customBaseURL != "" {
+			return "", map[protocolrouter.Protocol]string{
+				protocolrouter.ProtocolMessages: customBaseURL,
+			}, ""
+		}
+		return "", nil, ""
 	}
 	if account.Platform == PlatformOpenAI && account.IsOpenAIOAuthLike() {
 		return "", nil, protocolrouter.OfficialEndpointOpenAICodex

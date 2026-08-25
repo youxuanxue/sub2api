@@ -38,6 +38,10 @@ type OAuthHandler struct {
 	oauthService *service.OAuthService
 }
 
+type protocolCapabilityProbeScheduler interface {
+	ProbeAccountProtocolCapabilitiesBatch(ctx context.Context, accountIDs []int64)
+}
+
 // NewOAuthHandler creates a new OAuth handler
 func NewOAuthHandler(oauthService *service.OAuthService) *OAuthHandler {
 	return &OAuthHandler{
@@ -56,6 +60,7 @@ type AccountHandler struct {
 	rateLimitService        *service.RateLimitService
 	accountUsageService     *service.AccountUsageService
 	accountTestService      *service.AccountTestService
+	protocolProbeScheduler  protocolCapabilityProbeScheduler
 	concurrencyService      *service.ConcurrencyService
 	crsSyncService          *service.CRSSyncService
 	sessionLimitCache       service.SessionLimitCache
@@ -104,6 +109,7 @@ func NewAccountHandler(
 		rateLimitService:        rateLimitService,
 		accountUsageService:     accountUsageService,
 		accountTestService:      accountTestService,
+		protocolProbeScheduler:  accountTestService,
 		concurrencyService:      concurrencyService,
 		crsSyncService:          crsSyncService,
 		sessionLimitCache:       sessionLimitCache,
@@ -1056,10 +1062,9 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Capability-affecting edits are cheap to classify locally; the service
-	// probes only explicitly configured governed endpoints and preserves prior
-	// facts on inconclusive results.
-	h.scheduleProtocolCapabilityProbes(account)
+	if protocolCapabilityProbeRequiredForUpdate(req) {
+		h.scheduleProtocolCapabilityProbes(account)
+	}
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }
@@ -1068,21 +1073,44 @@ func (h *AccountHandler) scheduleProtocolCapabilityProbes(account *service.Accou
 	if account == nil {
 		return
 	}
-	if h.accountTestService == nil {
+	if h.protocolProbeScheduler == nil {
 		return
 	}
 	if len(service.ProtocolProbeCandidates(account)) == 0 {
 		return
 	}
-	accountID := account.ID
+	h.scheduleProtocolCapabilityProbeBatch([]int64{account.ID})
+}
+
+func (h *AccountHandler) scheduleProtocolCapabilityProbeBatch(accountIDs []int64) {
+	if h == nil || h.protocolProbeScheduler == nil || len(accountIDs) == 0 {
+		return
+	}
+	ids := append([]int64(nil), accountIDs...)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				slog.Error("protocol_capability_probe_panic", "account_id", accountID, "recover", r)
+				slog.Error("protocol_capability_probe_panic", "account_count", len(ids), "recover", r)
 			}
 		}()
-		h.accountTestService.ProbeAccountProtocolCapabilities(context.Background(), accountID)
+		h.protocolProbeScheduler.ProbeAccountProtocolCapabilitiesBatch(context.Background(), ids)
 	}()
+}
+
+func protocolCapabilityProbeRequiredForUpdate(req UpdateAccountRequest) bool {
+	if req.Type != "" || req.ChannelType != nil || len(req.Credentials) > 0 {
+		return true
+	}
+	return protocolCapabilityExtraChanged(req.Extra)
+}
+
+func protocolCapabilityExtraChanged(extra map[string]any) bool {
+	if len(extra) == 0 {
+		return false
+	}
+	_, customBaseURLChanged := extra["custom_base_url"]
+	_, customBaseURLEnabledChanged := extra["custom_base_url_enabled"]
+	return customBaseURLChanged || customBaseURLEnabledChanged
 }
 
 // Delete handles deleting an account
@@ -2207,6 +2235,9 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		}
 		response.ErrorFrom(c, err)
 		return
+	}
+	if (len(req.Credentials) > 0 || protocolCapabilityExtraChanged(req.Extra)) && result != nil {
+		h.scheduleProtocolCapabilityProbeBatch(result.SuccessIDs)
 	}
 
 	response.Success(c, result)

@@ -73,8 +73,9 @@ func (r *protocolProbeCASRepo) UpdateExtraIfUpdatedAt(
 }
 
 type protocolProbeSetUpstream struct {
-	mu    sync.Mutex
-	paths []string
+	mu             sync.Mutex
+	paths          []string
+	authorizations []string
 }
 
 type protocolProbeBarrierUpstream struct {
@@ -155,6 +156,7 @@ func (u *protocolProbeSetUpstream) DoWithTLS(
 ) (*http.Response, error) {
 	u.mu.Lock()
 	u.paths = append(u.paths, req.URL.Path)
+	u.authorizations = append(u.authorizations, getHeaderRaw(req.Header, "authorization"))
 	u.mu.Unlock()
 
 	body := `{"output":[{"type":"function_call","name":"probe_ping"}]}`
@@ -249,6 +251,21 @@ func TestProtocolProbeCandidatesCoverGovernedCustomAccountsOnly(t *testing.T) {
 			want: nil,
 		},
 		{
+			name: "custom anthropic oauth probes only its messages endpoint",
+			account: &Account{
+				Platform: PlatformAnthropic,
+				Type:     AccountTypeOAuth,
+				Credentials: map[string]any{
+					"access_token": "secret",
+				},
+				Extra: map[string]any{
+					"custom_base_url_enabled": true,
+					"custom_base_url":         "https://oauth-relay.example.test",
+				},
+			},
+			want: []protocolrouter.Protocol{protocolrouter.ProtocolMessages},
+		},
+		{
 			name: "ungoverned gemini is excluded",
 			account: &Account{Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{
 				"api_key": "secret", "base_url": "https://gemini.example.test",
@@ -262,6 +279,49 @@ func TestProtocolProbeCandidatesCoverGovernedCustomAccountsOnly(t *testing.T) {
 				t.Fatalf("ProtocolProbeCandidates = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestProbeAccountProtocolCapabilitiesSupportsCustomAnthropicOAuth(t *testing.T) {
+	account := &Account{
+		ID:          97,
+		Name:        "custom-anthropic-oauth",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{"access_token": "oauth-secret"},
+		Extra: map[string]any{
+			"custom_base_url_enabled": true,
+			"custom_base_url":         "https://oauth-relay.example.test",
+		},
+		UpdatedAt: time.Date(2026, 8, 25, 5, 0, 0, 0, time.UTC),
+	}
+	repo := &protocolProbeCASRepo{account: cloneProtocolProbeAccount(account)}
+	upstream := &protocolProbeSetUpstream{}
+	svc := &AccountTestService{
+		accountRepo:  repo,
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled: false,
+		}}},
+	}
+
+	svc.ProbeAccountProtocolCapabilities(context.Background(), account.ID)
+
+	got, err := repo.GetByID(context.Background(), account.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if want := []protocolrouter.Protocol{protocolrouter.ProtocolMessages}; !reflect.DeepEqual(got.SupportedProtocols(), want) {
+		t.Fatalf("supported protocols = %v, want %v", got.SupportedProtocols(), want)
+	}
+	upstream.mu.Lock()
+	defer upstream.mu.Unlock()
+	if want := []string{"/v1/messages"}; !reflect.DeepEqual(upstream.paths, want) {
+		t.Fatalf("probe paths = %v, want %v", upstream.paths, want)
+	}
+	if want := []string{"Bearer oauth-secret"}; !reflect.DeepEqual(upstream.authorizations, want) {
+		t.Fatalf("probe authorizations = %v, want %v", upstream.authorizations, want)
 	}
 }
 

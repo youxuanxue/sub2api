@@ -78,7 +78,8 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         account_handler = root / "backend/internal/handler/admin/account_handler.go"
         account_handler.write_text(
             "package fixture\n"
-            "func scheduleProtocolCapabilityProbes(){ service.ProtocolProbeCandidates(); service.ProbeAccountProtocolCapabilities() }\n",
+            "func scheduleProtocolCapabilityProbes(){ service.ProtocolProbeCandidates(); scheduleProtocolCapabilityProbeBatch() }\n"
+            "func scheduleProtocolCapabilityProbeBatch(){ service.ProbeAccountProtocolCapabilitiesBatch() }\n",
             encoding="utf-8",
         )
         probe_owner = root / "backend/internal/service/protocol_capability_probe.go"
@@ -180,12 +181,24 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         handler = root / "backend/internal/handler/admin/account_handler.go"
         handler.write_text(
             handler.read_text(encoding="utf-8").replace(
-                "service.ProbeAccountProtocolCapabilities()",
+                "service.ProbeAccountProtocolCapabilitiesBatch()",
                 "service.ProbeOpenAIAPIKeyResponsesSupport()",
             ),
             encoding="utf-8",
         )
         self.assertTrue(any("per-protocol probe" in error for error in MODULE.check(root)))
+
+    def test_rejects_handler_that_bypasses_bounded_account_probe_batch(self) -> None:
+        root = self.fixture()
+        handler = root / "backend/internal/handler/admin/account_handler.go"
+        handler.write_text(
+            handler.read_text(encoding="utf-8").replace(
+                "service.ProbeAccountProtocolCapabilitiesBatch()",
+                "service.ProbeAccountProtocolCapabilities()",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("bounded account probe batch" in error for error in MODULE.check(root)))
 
     def test_rejects_multiple_candidate_set_persistence_calls(self) -> None:
         root = self.fixture()

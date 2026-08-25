@@ -193,6 +193,44 @@ func TestProtocolAccountSnapshotUsesOfficialProfileForOpenAIOAuth(t *testing.T) 
 	}
 }
 
+func TestProtocolAccountSnapshotUsesExplicitMessagesEndpointForCustomAnthropicOAuth(t *testing.T) {
+	account := &Account{
+		ID:       79,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token": "oauth-secret",
+		},
+		Extra: map[string]any{
+			SupportedProtocolsExtraKey: []any{"messages"},
+			"custom_base_url_enabled":  true,
+			"custom_base_url":          "https://relay.example.test/v1",
+		},
+	}
+	snapshot, err := ProtocolAccountSnapshot(account, "claude-sonnet-4-6")
+	if err != nil {
+		t.Fatalf("ProtocolAccountSnapshot: %v", err)
+	}
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolMessages,
+		RequestedModel:  "claude-sonnet-4-6",
+		Profile: protocolrouter.RequestProfile{
+			ContentKinds: protocolrouter.ContentText,
+		},
+		Body: []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+	plan, err := NewProtocolRouter().Plan(request, snapshot)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if got, want := plan.Endpoint(), "https://relay.example.test/v1/messages"; got != want {
+		t.Fatalf("endpoint = %q, want %q", got, want)
+	}
+}
+
 func TestProtocolRouterRejectsResolvedModelOutsideOfficialRoutePolicy(t *testing.T) {
 	account := &Account{
 		ID:       78,
