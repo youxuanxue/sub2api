@@ -48,7 +48,8 @@ func TestOpenAIGatewayService_Forward_StripsUserFieldFromAPIKeyResponsesPassthro
 		Type:        AccountTypeAPIKey,
 		Concurrency: 1,
 		Credentials: map[string]any{
-			"api_key": "sk-test",
+			"api_key":  "sk-test",
+			"base_url": "https://api.openai.com",
 		},
 		Status:      StatusActive,
 		Schedulable: true,

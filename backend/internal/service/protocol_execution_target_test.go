@@ -221,6 +221,43 @@ func TestProtocolMessagesIdentityUsesNativeAnthropicCredentialContractForCNAccou
 	}
 }
 
+func TestProtocolMessagesIdentityUsesNewAPIProtocolCredential(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"client-model","max_tokens":8,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	upstream := &protocolTargetHTTPUpstream{responses: []*http.Response{protocolTargetAnthropicBufferedResponse()}}
+	svc := protocolTargetTestService(upstream)
+	account := protocolTargetTestAccount(protocolrouter.ProtocolMessages)
+	account.Platform = PlatformNewAPI
+	account.ChannelType = newapiconstant.ChannelTypeAli
+	account.Credentials["model_mapping"] = map[string]any{"client-model": "claude-sonnet-4-6"}
+
+	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolMessages, body, account, func(
+		executionCtx context.Context,
+		_ protocolrouter.Plan,
+		request protocolrouter.CanonicalRequest,
+	) (any, error) {
+		return svc.ForwardAsAnthropic(executionCtx, c, account, request.Body(), "", "")
+	})
+	if err != nil {
+		t.Fatalf("ExecuteSelectedProtocol: %v", err)
+	}
+	if len(upstream.requests) != 1 {
+		t.Fatalf("upstream requests = %d, want 1", len(upstream.requests))
+	}
+	request := upstream.requests[0]
+	if got := request.URL.String(); got != "http://upstream.example/v1/messages" {
+		t.Fatalf("upstream URL = %q, want plan-selected NewAPI Messages endpoint", got)
+	}
+	if got := request.Header.Get("Authorization"); got != "Bearer sk-protocol-target" {
+		t.Fatalf("authorization = %q, want NewAPI protocol credential", got)
+	}
+	if got := gjson.GetBytes(readProtocolTargetRequestBody(t, request), "model").String(); got != "claude-sonnet-4-6" {
+		t.Fatalf("upstream model = %q, want plan-resolved model", got)
+	}
+}
+
 func TestProtocolExecutionDoesNotFallbackProtocolOnSameAccount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"model":"client-model","messages":[{"role":"user","content":"hello"}],"stream":false}`)

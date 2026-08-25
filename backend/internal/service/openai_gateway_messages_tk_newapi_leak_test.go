@@ -111,11 +111,20 @@ func TestChatCompletionsTargetFailsClosedForForeignCredential(t *testing.T) {
 		ID:          76,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
-		Credentials: map[string]any{"api_key": "sk-openai"},
+		Credentials: map[string]any{"api_key": "sk-openai", "base_url": "https://api.openai.com"},
 	}
 	targetURL, err := svc.openAIChatCompletionsTargetURL(official)
 	require.NoError(t, err)
 	require.Contains(t, targetURL, "api.openai.com")
+
+	_, err = svc.openAIChatCompletionsTargetURL(&Account{
+		ID:          77,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "sk-openai"},
+	})
+	require.ErrorIs(t, err, ErrForeignCredentialOfficialOpenAIFallback,
+		"a configurable OpenAI API-key account must provide an explicit base_url")
 }
 
 // Defense in depth for the plan-aware Responses transport: a foreign API key
@@ -182,8 +191,19 @@ func TestResponsesTargetRequiresPlanOrExplicitOfficialProfile(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:        "official api key",
-			account:     &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey},
+			name:    "openai api key missing base url",
+			account: &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey},
+			wantErr: true,
+		},
+		{
+			name: "explicit official api key",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"base_url": "https://api.openai.com",
+				},
+			},
 			wantURLPart: "https://api.openai.com/v1/responses",
 		},
 		{
@@ -236,9 +256,19 @@ func TestNativeMessagesTargetFailsClosedForForeignCredentialWithoutPlan(t *testi
 	require.ErrorIs(t, err, ErrForeignCredentialOfficialOpenAIFallback,
 		"an unresolved foreign Messages credential must not default to api.openai.com")
 
+	_, err = svc.nativeAnthropicMessagesTargetURL(&Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+	})
+	require.ErrorIs(t, err, ErrForeignCredentialOfficialOpenAIFallback,
+		"a configurable OpenAI API-key account must provide an explicit base_url")
+
 	officialURL, err := svc.nativeAnthropicMessagesTargetURL(&Account{
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://api.openai.com",
+		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, "https://api.openai.com/v1/messages", officialURL)
