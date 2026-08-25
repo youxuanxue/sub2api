@@ -16,6 +16,7 @@ KEYS = (
     "deploy",
     "ops",
     "contracts",
+    "preflight_go",
     "service_unit_cold",
     "all",
 )
@@ -47,6 +48,15 @@ CONTRACT_FILES = {
     "ops/migration/usage_logs_daily_partition.py",
 }
 
+PREFLIGHT_GO_FILES = {
+    # Checked-in projections and their Go-backed drift gate must keep the
+    # preflight toolchain path even though they live outside backend/.
+    "ops/observability/generated/model-family-rules.json",
+    "ops/pricing/model-surface-bundle.json",
+    "scripts/preflight.sh",
+    "scripts/sentinels/check-model-family-rules.sh",
+}
+
 NEUTRAL_TOP_LEVEL = {
     ".gitignore",
     ".gitattributes",
@@ -69,6 +79,9 @@ def classify(paths: Iterable[str]) -> dict[str, bool]:
         path = raw_path.replace("\\", "/")
         if not path:
             continue
+
+        if path in PREFLIGHT_GO_FILES:
+            result["preflight_go"] = True
 
         if path in SERVICE_UNIT_COLD_FILES or (
             path.startswith("backend/") and path.endswith(".go")
@@ -141,6 +154,9 @@ def classify(paths: Iterable[str]) -> dict[str, bool]:
             continue
 
         result["all"] = True
+
+    if result["backend"] or result["ops"] or result["all"]:
+        result["preflight_go"] = True
 
     return result
 

@@ -28,6 +28,7 @@ class BackendCIRoutingTest(unittest.TestCase):
                 "deploy",
                 "ops",
                 "contracts",
+                "preflight_go",
                 "service_unit_cold",
                 "all",
             },
@@ -62,6 +63,35 @@ class BackendCIRoutingTest(unittest.TestCase):
         env = run_preflight["env"]
         self.assertIn("needs.changes.outputs.ops", env["PREFLIGHT_SKIP_SLOW_OPS_CONTRACTS"])
         self.assertIn("needs.changes.outputs.contracts", env["PREFLIGHT_SKIP_AGENT_CONTRACT"])
+
+    def test_preflight_go_bootstrap_uses_the_preflight_go_surface(self) -> None:
+        steps = self.jobs["preflight"]["steps"]
+        go_steps = [
+            next(
+                step
+                for step in steps
+                if step.get("uses") == "./.github/actions/cache-and-checkout-new-api"
+            ),
+            next(step for step in steps if step.get("uses") == "actions/setup-go@v6"),
+            next(step for step in steps if step.get("name") == "Unit runner contract tests"),
+            next(
+                step
+                for step in steps
+                if step.get("name") == "Integration package discovery contract tests"
+            ),
+            next(
+                step
+                for step in steps
+                if step.get("uses") == "./.github/actions/go-rolling-cache"
+            ),
+        ]
+
+        for step in go_steps:
+            with self.subTest(step=step.get("name", step.get("uses"))):
+                self.assertEqual(
+                    step.get("if"),
+                    "needs.changes.outputs.preflight_go == 'true'",
+                )
 
     def test_preflight_job_runs_ci_orchestration_contracts(self) -> None:
         matching_steps = [
