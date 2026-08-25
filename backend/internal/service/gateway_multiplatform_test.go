@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -2248,6 +2249,99 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 		require.NotNil(t, result)
 		require.NotNil(t, result.Account)
 		require.Equal(t, int64(1), result.Account.ID, "应选择优先级最高的账号")
+	})
+
+	t.Run("native Gemini Vertex requirement filters mixed newapi group", func(t *testing.T) {
+		groupID := int64(41)
+		model := "gemini-3.7-flash"
+		accounts := []Account{
+			{
+				ID:          1,
+				Platform:    PlatformNewAPI,
+				Type:        AccountTypeAPIKey,
+				ChannelType: 1,
+				Priority:    1,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 5,
+				Credentials: map[string]any{"model_mapping": map[string]any{model: model}},
+			},
+			{
+				ID:          2,
+				Platform:    PlatformNewAPI,
+				Type:        AccountTypeServiceAccount,
+				ChannelType: 41,
+				Priority:    2,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 5,
+				Credentials: map[string]any{"model_mapping": map[string]any{model: model}},
+			},
+		}
+		repo := &mockAccountRepoForPlatform{accounts: accounts, accountsByID: map[int64]*Account{}}
+		for i := range repo.accounts {
+			repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+		}
+		groupRepo := &mockGroupRepoForGateway{groups: map[int64]*Group{
+			groupID: {ID: groupID, Platform: PlatformNewAPI, Status: StatusActive, Hydrated: true},
+		}}
+
+		for _, loadBatchEnabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("load_batch=%t", loadBatchEnabled), func(t *testing.T) {
+				cfg := testConfig()
+				cfg.Gateway.Scheduling.LoadBatchEnabled = loadBatchEnabled
+				svc := &GatewayService{
+					accountRepo: repo,
+					groupRepo:   groupRepo,
+					cache:       &mockGatewayCacheForPlatform{},
+					cfg:         cfg,
+				}
+				if loadBatchEnabled {
+					svc.concurrencyService = NewConcurrencyService(&mockConcurrencyCache{})
+				}
+				ctx := WithNativeGeminiVertexAccountRequirement(context.Background())
+				result, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "", model, nil, "", 0)
+				require.NoError(t, err)
+				require.Equal(t, int64(2), result.Account.ID)
+			})
+		}
+	})
+
+	t.Run("native Gemini Vertex requirement rejects all non-Vertex candidates", func(t *testing.T) {
+		groupID := int64(42)
+		model := "gemini-3.7-flash"
+		repo := &mockAccountRepoForPlatform{
+			accounts: []Account{{
+				ID:          3,
+				Platform:    PlatformNewAPI,
+				Type:        AccountTypeAPIKey,
+				ChannelType: 1,
+				Priority:    1,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 5,
+				Credentials: map[string]any{"model_mapping": map[string]any{model: model}},
+			}},
+			accountsByID: map[int64]*Account{},
+		}
+		repo.accountsByID[3] = &repo.accounts[0]
+		groupRepo := &mockGroupRepoForGateway{groups: map[int64]*Group{
+			groupID: {ID: groupID, Platform: PlatformNewAPI, Status: StatusActive, Hydrated: true},
+		}}
+		cfg := testConfig()
+		cfg.Gateway.Scheduling.LoadBatchEnabled = true
+		svc := &GatewayService{
+			accountRepo:        repo,
+			groupRepo:          groupRepo,
+			cache:              &mockGatewayCacheForPlatform{},
+			cfg:                cfg,
+			concurrencyService: NewConcurrencyService(&mockConcurrencyCache{}),
+		}
+
+		ctx := WithNativeGeminiVertexAccountRequirement(context.Background())
+		result, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "", model, nil, "", 0)
+		require.ErrorIs(t, err, ErrNoAvailableAccounts)
+		require.Nil(t, result)
 	})
 
 	t.Run("模型路由-无ConcurrencyService也生效", func(t *testing.T) {

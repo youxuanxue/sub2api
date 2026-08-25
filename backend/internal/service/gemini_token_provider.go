@@ -53,8 +53,10 @@ func (p *GeminiTokenProvider) GetAccessToken(ctx context.Context, account *Accou
 	if account == nil {
 		return "", errors.New("account is nil")
 	}
-	if account.Platform != PlatformGemini || (account.Type != AccountTypeOAuth && account.Type != AccountTypeServiceAccount) {
-		return "", errors.New("not a gemini oauth or service account")
+	isGeminiAccount := account.Platform == PlatformGemini &&
+		(account.Type == AccountTypeOAuth || account.Type == AccountTypeServiceAccount)
+	if !isGeminiAccount && !account.IsNewAPIVertexServiceAccount() {
+		return "", errors.New("not a gemini oauth or Vertex service account")
 	}
 	if account.Type == AccountTypeServiceAccount {
 		return p.getServiceAccountAccessToken(ctx, account)
