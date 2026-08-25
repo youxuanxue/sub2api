@@ -1207,6 +1207,17 @@ func TestGeminiOAuthService_RefreshAccountToken_CodeAssist_NoProjectID_FailsEmpt
 
 	svc := NewGeminiOAuthService(&mockGeminiProxyRepo{}, client, codeAssist, nil, &config.Config{})
 	defer svc.Stop()
+	resolverCalls := 0
+	svc.resourceManagerProjectResolver = func(ctx context.Context, accessToken, proxyURL string) (string, error) {
+		resolverCalls++
+		if accessToken != "at" {
+			t.Fatalf("Resource Manager resolver access token 不匹配: got=%q", accessToken)
+		}
+		if proxyURL != "" {
+			t.Fatalf("Resource Manager resolver proxy URL 应为空: got=%q", proxyURL)
+		}
+		return "", fmt.Errorf("resource manager unavailable")
+	}
 
 	account := &Account{
 		Platform: PlatformGemini,
@@ -1223,6 +1234,9 @@ func TestGeminiOAuthService_RefreshAccountToken_CodeAssist_NoProjectID_FailsEmpt
 	}
 	if !strings.Contains(err.Error(), "project_id") {
 		t.Fatalf("错误信息应包含 project_id: got=%q", err.Error())
+	}
+	if resolverCalls != 1 {
+		t.Fatalf("Resource Manager resolver 应调用 1 次: got=%d", resolverCalls)
 	}
 }
 
