@@ -36,8 +36,9 @@ func openaiNativeMessagesProbePayload(modelID string) []byte {
 }
 
 // ProbeOpenAIAPIKeyNativeMessagesSupport probes whether an OpenAI APIKey account
-// upstream exposes Anthropic /v1/messages and persists the result to
-// accounts.extra.openai_native_messages_supported.
+// upstream exposes Anthropic /v1/messages, updates accounts.extra.supported_protocols
+// through the shared persistence path, and keeps openai_native_messages_supported
+// for legacy readers.
 func (s *AccountTestService) ProbeOpenAIAPIKeyNativeMessagesSupport(ctx context.Context, accountID int64) {
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
@@ -99,7 +100,7 @@ func (s *AccountTestService) probeOpenAIAPIKeyNativeMessagesSupport(
 	}
 
 	probeURL := buildOpenAIEndpointURL(normalizedBaseURL, apipath.Messages)
-	probeModel := selectResponsesProbeModel(account)
+	probeModel := selectProtocolProbeModel(account)
 
 	probeCtx, cancel := context.WithTimeout(ctx, openaiNativeMessagesProbeTimeout)
 	defer cancel()

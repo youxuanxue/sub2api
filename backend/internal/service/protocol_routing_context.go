@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
@@ -152,31 +151,6 @@ func protocolRoutingGovernsAccount(account *Account) bool {
 	default:
 		return false
 	}
-}
-
-func protocolRoutingAccountIsMediaOnly(account *Account) bool {
-	if account == nil {
-		return false
-	}
-	if isNewAPIXRTokenAccount(account) {
-		return true
-	}
-	mapping := account.GetModelMapping()
-	if len(mapping) == 0 {
-		return false
-	}
-	declared := 0
-	for _, model := range mapping {
-		model = strings.TrimSpace(model)
-		if model == "" {
-			continue
-		}
-		declared++
-		if !protocolProbeModelIsMedia(model) {
-			return false
-		}
-	}
-	return declared > 0
 }
 
 func attachProtocolPlan(

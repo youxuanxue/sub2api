@@ -135,6 +135,26 @@ func TestProtocolRoutingMediaOnlyClassificationKeepsTextWildcardAccounts(t *test
 	}
 }
 
+func TestProtocolRoutingMediaOnlyClassificationExcludesKnownImageAliases(t *testing.T) {
+	for _, model := range []string{
+		"grok-imagine",
+		"grok-imagine-edit",
+		"gemini-3.1-flash-image-preview",
+	} {
+		account := &Account{
+			Platform: PlatformNewAPI,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"model_mapping": map[string]any{model: model},
+			},
+		}
+
+		if !protocolRoutingAccountIsMediaOnly(account) {
+			t.Fatalf("model %q was not classified as media-only", model)
+		}
+	}
+}
+
 func TestProtocolRoutingMigrationReportRejectsCanonicalAccountWithoutLegalRoute(t *testing.T) {
 	repo := &protocolRoutingMigrationRepo{accounts: []Account{{
 		ID:       9,

@@ -10,7 +10,6 @@ import (
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/stretchr/testify/require"
@@ -226,9 +225,9 @@ func TestResponsesProbeBodyHasFunctionCall(t *testing.T) {
 	require.False(t, responsesProbeBodyHasFunctionCall([]byte(`garbage`)))
 }
 
-func TestSelectResponsesProbeModel(t *testing.T) {
+func TestSelectProtocolProbeModelUsesDeterministicTextFallback(t *testing.T) {
 	// No model_mapping -> fall back to DefaultTestModel (OpenAI official APIKey).
-	require.Equal(t, openai.DefaultTestModel, selectResponsesProbeModel(&Account{}))
+	require.Equal(t, openai.DefaultTestModel, selectProtocolProbeModel(&Account{}))
 
 	// model_mapping values are upstream models; pick first by sort for reproducibility.
 	acct := &Account{Credentials: map[string]any{
@@ -237,7 +236,7 @@ func TestSelectResponsesProbeModel(t *testing.T) {
 			"client-a": "alpha-model",
 		},
 	}}
-	require.Equal(t, "alpha-model", selectResponsesProbeModel(acct))
+	require.Equal(t, "alpha-model", selectProtocolProbeModel(acct))
 
 	// Wildcard / blank upstream values are skipped.
 	acctWild := &Account{Credentials: map[string]any{
@@ -247,16 +246,16 @@ func TestSelectResponsesProbeModel(t *testing.T) {
 			"c": "real-model",
 		},
 	}}
-	require.Equal(t, "real-model", selectResponsesProbeModel(acctWild))
+	require.Equal(t, "real-model", selectProtocolProbeModel(acctWild))
 
 	// Only wildcard mappings -> DefaultTestModel.
 	acctAllWild := &Account{Credentials: map[string]any{
 		"model_mapping": map[string]any{"a": "gpt-*"},
 	}}
-	require.Equal(t, openai.DefaultTestModel, selectResponsesProbeModel(acctAllWild))
+	require.Equal(t, openai.DefaultTestModel, selectProtocolProbeModel(acctAllWild))
 }
 
-func TestSelectProtocolProbeModelsExcludesMediaAndKeepsDeterministicTextFallbacks(t *testing.T) {
+func TestSelectProtocolProbeModelExcludesMediaAndUsesDeterministicTextFallback(t *testing.T) {
 	account := &Account{
 		Platform:    PlatformNewAPI,
 		Type:        AccountTypeAPIKey,
@@ -271,10 +270,10 @@ func TestSelectProtocolProbeModelsExcludesMediaAndKeepsDeterministicTextFallback
 		},
 	}
 
-	require.Equal(t, []string{"glm-4.5", "qwen-plus"}, selectProtocolProbeModels(account))
+	require.Equal(t, "glm-4.5", selectProtocolProbeModel(account))
 }
 
-func TestSelectProtocolProbeModelsPrefersAliNativeQwenFamily(t *testing.T) {
+func TestSelectProtocolProbeModelPrefersAliNativeQwenFamily(t *testing.T) {
 	account := &Account{
 		Platform:    PlatformNewAPI,
 		Type:        AccountTypeAPIKey,
@@ -287,21 +286,5 @@ func TestSelectProtocolProbeModelsPrefersAliNativeQwenFamily(t *testing.T) {
 		},
 	}
 
-	require.Equal(t, []string{"qwen-plus", "glm-4.5"}, selectProtocolProbeModels(account))
-}
-
-func TestSelectProtocolProbeModelsReturnsNoneForXRTokenVideoOnlyAccount(t *testing.T) {
-	account := &Account{
-		Platform:    PlatformNewAPI,
-		Type:        AccountTypeAPIKey,
-		ChannelType: newapiconstant.ChannelTypeDoubaoVideo,
-		Credentials: map[string]any{
-			"base_url": newapiintegration.XRTokenBaseURL,
-			"model_mapping": map[string]any{
-				"video": "doubao-seedance-2-0-260128",
-			},
-		},
-	}
-
-	require.Empty(t, selectProtocolProbeModels(account))
+	require.Equal(t, "qwen-plus", selectProtocolProbeModel(account))
 }

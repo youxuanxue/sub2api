@@ -916,22 +916,42 @@
     {
       "path": "backend/internal/service/openai_apikey_chat_completions_probe.go",
       "must_contain": [
+        "selectProtocolProbeModel(account)",
         "protocolExactEndpoint(account, protocolrouter.ProtocolChatCompletions, probeModel)",
         "chat_completions_resolve_endpoint_failed"
       ],
-      "rationale": "Chat Completions capability probes for NewAPI accounts must use the exact adaptor URL rather than appending /v1/chat/completions to base_url. Dropping this call marks DashScope ch17 unsupported after probing the wrong 404 endpoint."
+      "rationale": "Chat Completions capability probes must use the shared representative model and exact NewAPI adaptor URL rather than appending /v1/chat/completions to base_url. Dropping either call can probe a media/foreign model or mark DashScope ch17 unsupported after hitting the wrong 404 endpoint."
+    },
+    {
+      "path": "backend/internal/service/protocol_probe_model_tk.go",
+      "must_contain": [
+        "func selectProtocolProbeModel(account *Account) string",
+        "func protocolRoutingAccountIsMediaOnly(account *Account) bool",
+        "newapiconstant.ChannelTypeAli",
+        "isOpenAIImageGenerationModel(model)",
+        "isGrokVideoGenerationModel(model)",
+        "antigravity.IsImageModel(model)",
+        "return openai.DefaultTestModel"
+      ],
+      "rationale": "Single representative text-model owner shared by all protocol capability probes and text-governance classification. It deterministically prefers qwen-* for Ali channels, excludes canonical image/video families, and prevents media-only accounts from blocking SSOT cutover readiness."
     },
     {
       "path": "backend/internal/service/openai_apikey_responses_probe.go",
       "must_contain": [
-        "selectProtocolProbeModels(account)",
-        "protocolRoutingAccountIsMediaOnly(account)",
-        "newapiconstant.ChannelTypeAli",
-        "protocolProbeModelIsMedia",
+        "selectProtocolProbeModel(account)",
         "protocolExactEndpoint(account, protocolrouter.ProtocolResponses, probeModel)",
         "probe_resolve_endpoint_failed"
       ],
-      "rationale": "Responses capability probes for NewAPI accounts must use the exact adaptor URL and a representative native text model rather than a media model or arbitrary lexicographic first mapping. DashScope ch17 serves Responses under /api/v2/apps/protocols/compatible-mode/v1/responses and should prefer qwen-*; losing either rule produces false capability facts."
+      "rationale": "Responses capability probes for NewAPI accounts must use the shared representative model and exact adaptor URL. DashScope ch17 serves Responses under /api/v2/apps/protocols/compatible-mode/v1/responses; losing either owner produces false capability facts."
+    },
+    {
+      "path": "backend/internal/service/openai_apikey_native_messages_probe.go",
+      "must_contain": [
+        "selectProtocolProbeModel(account)",
+        "ProtocolMessages",
+        "openai_native_messages_supported"
+      ],
+      "rationale": "Native Messages capability probes share the same representative text-model owner and persist canonical protocol evidence while retaining the legacy compatibility field. Losing that call recreates per-protocol model selection drift."
     },
     {
       "path": "backend/internal/service/protocol_routing_context.go",
@@ -970,12 +990,12 @@
       "must_contain": [
         "TestProbeOpenAIAPIKeyResponsesSupportUsesNewAPIAdaptorEndpoint",
         "TestProbeOpenAIAPIKeyResponsesSupportPrefersChannelNativeTextModel",
-        "TestSelectProtocolProbeModelsExcludesMediaAndKeepsDeterministicTextFallbacks",
-        "TestSelectProtocolProbeModelsPrefersAliNativeQwenFamily",
-        "TestSelectProtocolProbeModelsReturnsNoneForXRTokenVideoOnlyAccount",
+        "TestSelectProtocolProbeModelUsesDeterministicTextFallback",
+        "TestSelectProtocolProbeModelExcludesMediaAndUsesDeterministicTextFallback",
+        "TestSelectProtocolProbeModelPrefersAliNativeQwenFamily",
         "https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1/responses"
       ],
-      "rationale": "Regression proof that the ch17 Responses probe follows the live adaptor endpoint, prefers qwen-* for Ali channels, and never treats XRToken/video mappings as text capability evidence."
+      "rationale": "Regression proof that the ch17 Responses probe follows the live adaptor endpoint, prefers qwen-* for Ali channels, filters media mappings, and chooses one deterministic representative model."
     },
     {
       "path": "backend/internal/handler/openai_chat_completions_legacy_protocol_fallback_test.go",
@@ -1021,6 +1041,7 @@
       "must_contain": [
         "TestMigrateProtocolRoutingSSOTExcludesVideoOnlyAccounts",
         "TestProtocolRoutingMediaOnlyClassificationKeepsTextWildcardAccounts",
+        "TestProtocolRoutingMediaOnlyClassificationExcludesKnownImageAliases",
         "TestProtocolRoutingMigrationUsesWildcardServedModelsForLegalRoute",
         "ProbeAttempts != 1 || ready.Report.ProbeResolved != 1",
         "ProbeAttempts != 1 || ready.Report.ProbeResolved != 0"
