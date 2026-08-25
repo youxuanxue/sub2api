@@ -1,10 +1,21 @@
 -- Migration: tk_088_deepseek_v4_flash_0731_alias
 --
--- Serve client id "deepseek-v4-flash-0731" from the two schedulable DeepSeek-capable
--- newapi accounts by REWRITING it onto the upstream id they actually serve:
+-- Serve client id "deepseek-v4-flash-0731" from the Ark Agent Plan account by
+-- REWRITING it onto the upstream id that account actually serves:
 --
---     account 39 "ds-官"                 (channel_type=43, api.deepseek.com)
 --     account 88 "volcengine-agent-plan" (channel_type=45, Ark /api/plan/v3)
+--
+-- Account 39 "ds-官" (channel_type=43, api.deepseek.com) is deliberately EXCLUDED.
+-- It advertises V4-Flash and would be the natural second home for this alias, but
+-- every DeepSeek request routed to it currently fails closed: 2026-08-25 00:40-01:20
+-- UTC it served 0 successes against 219 upstream 502s (upstream_status_code=null,
+-- "Upstream request failed"), the #1806 newapi CC-bridge bug. While it stayed in
+-- this alias, scheduler fan-out sent ~40% of user38's -0731 traffic to it and every
+-- one of those became a client-visible 502; the surviving ~60% on account 88 all
+-- succeeded. Adding an account here only helps if that account can serve the model,
+-- so 39 stays out until #1806 ships. The live key was removed out-of-band via
+-- ops/newapi/apply-model-mapping-live.py remove-live; this file is the source of
+-- truth that must not re-add it.
 --
 -- Why a rewrite and not an identity key: "-0731" is a Baidu-Qianfan-only dated SKU
 -- name. Probed 2026-08-24 via the admin fetch-upstream-models endpoint, DeepSeek
@@ -45,10 +56,8 @@ WITH upd AS (
         updated_at = NOW()
     WHERE platform = 'newapi'
       AND deleted_at IS NULL
-      AND (
-            (id = 39 AND channel_type = 43)
-         OR (id = 88 AND channel_type = 45)
-      )
+      AND id = 88
+      AND channel_type = 45
     RETURNING id
 )
 INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)

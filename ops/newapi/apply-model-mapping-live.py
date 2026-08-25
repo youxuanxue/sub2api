@@ -96,6 +96,25 @@ def build_additions(add_identity: list[str], add_pairs: list[str]) -> dict:
     return out
 
 
+def build_removals(remove_keys: list[str]) -> list[str]:
+    """Validated, de-duplicated, sorted model_mapping keys to DELETE.
+
+    Same _ID_RE gate as the additions path: a key this tool writes into the `- text[]`
+    literal can never carry a quote or space that breaks the SQL literal.
+    """
+    out: set[str] = set()
+    for m in remove_keys:
+        m = m.strip()
+        if not m:
+            continue
+        if not _ID_RE.match(m):
+            fail(f"--remove {m!r} is not a valid model id ({_ID_RE.pattern})")
+        out.add(m)
+    if not out:
+        fail("no model_mapping removals (pass --remove MODEL)")
+    return sorted(out)
+
+
 def build_merge_sql(account_id: int, name: str, platform: str, channel_type: int,
                     additions_b64: str) -> str:
     """Idempotent guard-protected jsonb || merge + scheduler_outbox, additions decoded in PG.
@@ -109,6 +128,33 @@ def build_merge_sql(account_id: int, name: str, platform: str, channel_type: int
         "  SET credentials = jsonb_set(credentials, '{model_mapping}',\n"
         "        COALESCE(credentials -> 'model_mapping', '{}'::jsonb)\n"
         f"        || convert_from(decode('{additions_b64}', 'base64'), 'UTF8')::jsonb),\n"
+        "      updated_at = NOW()\n"
+        f"  WHERE id = {account_id} AND name = '{name}' AND platform = '{platform}'\n"
+        f"    AND channel_type = {channel_type} AND deleted_at IS NULL\n"
+        "  RETURNING id\n"
+        ")\n"
+        "INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)\n"
+        "SELECT 'account_changed', id, NULL, NULL FROM upd;"
+    )
+
+
+def build_remove_sql(account_id: int, name: str, platform: str, channel_type: int,
+                     keys: list[str]) -> str:
+    """Idempotent guard-protected jsonb key DELETE + scheduler_outbox.
+
+    Mirrors build_merge_sql exactly but uses jsonb `- text[]` instead of `||`, so an
+    account that must STOP serving a model id can be corrected out-of-band with the same
+    guard tuple and the same hot-reload event. Idempotent: `-` on an absent key is a
+    no-op, and every other mapping entry is left untouched.
+
+    A SINGLE data-modifying-CTE statement (atomic on its own), same as the merge path.
+    """
+    return (
+        "WITH upd AS (\n"
+        "  UPDATE accounts\n"
+        "  SET credentials = jsonb_set(credentials, '{model_mapping}',\n"
+        "        COALESCE(credentials -> 'model_mapping', '{}'::jsonb)\n"
+        f"        - {keys_array_sql(keys)}::text[]),\n"
         "      updated_at = NOW()\n"
         f"  WHERE id = {account_id} AND name = '{name}' AND platform = '{platform}'\n"
         f"    AND channel_type = {channel_type} AND deleted_at IS NULL\n"
@@ -135,6 +181,7 @@ def iter_self_check_sql() -> list[tuple[str, str]]:
     sample_b64 = base64.b64encode(b'{"qwen3.6-27b":"qwen3.6-27b"}').decode()
     return [
         ("build_merge_sql", build_merge_sql(60, "Qwen", "newapi", 17, sample_b64)),
+        ("build_remove_sql", build_remove_sql(60, "Qwen", "newapi", 17, ["qwen3.6-27b"])),
         # keys_array_sql returns a text[] fragment; wrap it in a runnable presence check.
         ("keys_array_sql", "SELECT '{}'::jsonb ?& " + keys_array_sql(["qwen3.6-27b", "qwen3-8b"])),
     ]
@@ -232,6 +279,75 @@ def cmd_sync_live(args) -> int:
     return 0
 
 
+def cmd_remove_live(args) -> int:
+    """Hot-remove model_mapping keys from ONE newapi account (inverse of sync-live).
+
+    Use when an account must STOP being scheduled for a model id — e.g. an alias was
+    mapped onto an account whose upstream does not serve it, so every routed request
+    fail-closes. The companion migration in git MUST be corrected in the same change,
+    or the next release re-adds the key.
+    """
+    if not _NAME_RE.match(args.name):
+        fail(f"--name {args.name!r} must not contain a single quote (SQL literal safety)")
+    if not _PLATFORM_RE.match(args.platform):
+        fail(f"--platform {args.platform!r} must match {_PLATFORM_RE.pattern} "
+             f"(newapi/anthropic/openai/gemini/antigravity/grok)")
+    keys = build_removals(args.remove or [])
+    keys_arr = keys_array_sql(keys)
+    print(f"account {args.account_id} ({args.name}, {args.platform}, ct={args.channel_type})"
+          f"  remove: {', '.join(keys)}")
+
+    inst = _SSM.resolve_prod_instance()
+    guard_and_before = (
+        "echo '=== guard match (1 row expected; 0 = wrong id/name/platform/channel_type) ==='\n"
+        f"$PSQL -c \"SELECT id, name, platform, channel_type FROM accounts "
+        f"WHERE id={args.account_id} AND name='{args.name}' AND platform='{args.platform}' "
+        f"AND channel_type={args.channel_type} AND deleted_at IS NULL;\" </dev/null\n"
+        "echo '=== BEFORE: which of the target keys are present? ==='\n"
+        f"$PSQL -c \"SELECT string_agg(k, ', ' ORDER BY k) FROM "
+        f"(SELECT jsonb_object_keys(credentials->'model_mapping') k FROM accounts "
+        f"WHERE id={args.account_id} AND deleted_at IS NULL) s WHERE k = ANY({keys_arr});\" "
+        "</dev/null\n"
+    )
+
+    if args.dry_run:
+        print("DRY-RUN: would jsonb `- text[]` the above keys off credentials.model_mapping + "
+              "enqueue scheduler_outbox account_changed. No write.")
+        shell = "set -uo pipefail\n" f"PSQL='{PSQL}'\n" + guard_and_before
+        print(_SSM.run_shell_b64(inst, base64.b64encode(shell.encode()).decode(),
+                                 f"model_mapping remove dry-run acct {args.account_id}"))
+        return 0
+
+    remove_sql = build_remove_sql(args.account_id, args.name, args.platform,
+                                  args.channel_type, keys)
+    sql_b64 = base64.b64encode(remove_sql.encode()).decode()
+    shell = (
+        "set -uo pipefail\n"
+        f"PSQL='{PSQL}'\n"
+        + guard_and_before
+        + "echo '=== APPLY (jsonb - text[] + scheduler_outbox) ==='\n"
+        f"echo {sql_b64} | base64 -d | $PSQL && echo APPLY_OK\n"
+        "echo '=== AFTER: any target key still present? (expect f) ==='\n"
+        f"$PSQL -c \"SELECT coalesce((credentials->'model_mapping') ?| {keys_arr}, false) "
+        f"FROM accounts WHERE id={args.account_id} AND deleted_at IS NULL;\" </dev/null\n"
+        "echo '=== model_mapping keys now ==='\n"
+        f"$PSQL -c \"SELECT string_agg(k, ', ' ORDER BY k) FROM "
+        f"(SELECT jsonb_object_keys(credentials->'model_mapping') k FROM accounts "
+        f"WHERE id={args.account_id} AND deleted_at IS NULL) s;\" </dev/null\n"
+        "echo '=== scheduler_outbox account_changed (last 2 min) ==='\n"
+        f"$PSQL -c \"SELECT count(*) FROM scheduler_outbox WHERE account_id={args.account_id} "
+        f"AND event_type='account_changed' AND created_at > now() - interval '2 min';\" </dev/null\n"
+    )
+    out = _SSM.run_shell_b64(inst, base64.b64encode(shell.encode()).decode(),
+                             f"model_mapping remove-live acct {args.account_id}")
+    print(out)
+    if "APPLY_OK" not in out:
+        fail("APPLY did not report success — inspect the output above (guard match? psql error?)")
+    print("removed. Correct the companion tk_*.sql migration in git so the next release "
+          "does not re-add these keys.")
+    return 0
+
+
 def _selftest() -> int:
     failures: list[str] = []
     # additions building
@@ -261,6 +377,29 @@ def _selftest() -> int:
                    "scheduler_outbox", "account_changed"):
         if needle not in sql:
             failures.append(f"merge SQL missing {needle!r}")
+    # removals building: validated, de-duplicated, sorted
+    if build_removals(["b", "a", "b", " "]) != ["a", "b"]:
+        failures.append("build_removals wrong (want dedup+sort, blanks skipped)")
+    for bad in (["bad'id"], ["has space"]):
+        try:
+            build_removals(bad)
+            failures.append(f"invalid remove id {bad} not rejected")
+        except SystemExit:
+            pass
+    try:
+        build_removals([])
+        failures.append("empty removals not rejected")
+    except SystemExit:
+        pass
+    # remove SQL shape: same guard tuple, but jsonb `- text[]` instead of `||`
+    rsql = build_remove_sql(39, "ds-官", "newapi", 43, ["deepseek-v4-flash-0731"])
+    for needle in ("id = 39", "name = 'ds-官'", "platform = 'newapi'", "channel_type = 43",
+                   "deleted_at IS NULL", "- array['deepseek-v4-flash-0731']::text[]",
+                   "scheduler_outbox", "account_changed"):
+        if needle not in rsql:
+            failures.append(f"remove SQL missing {needle!r}")
+    if "||" in rsql:
+        failures.append("remove SQL must not contain a jsonb || merge")
     if failures:
         print("SELFTEST FAILED:")
         for f in failures:
@@ -293,6 +432,17 @@ def main() -> int:
                    help="add non-identity mapping (repeatable)")
     s.add_argument("--dry-run", action="store_true", help="preview guard match + BEFORE; no write")
     s.set_defaults(fn=cmd_sync_live)
+
+    r = sub.add_parser("remove-live",
+                       help="hot-remove model_mapping keys from prod (inverse of sync-live)")
+    r.add_argument("--account-id", type=int, required=True)
+    r.add_argument("--name", required=True, help="guard: accounts.name (must match exactly)")
+    r.add_argument("--channel-type", type=int, required=True, help="guard: accounts.channel_type")
+    r.add_argument("--platform", default="newapi", help="guard: accounts.platform (default newapi)")
+    r.add_argument("--remove", action="append", metavar="MODEL",
+                   help="model_mapping key to delete (repeatable)")
+    r.add_argument("--dry-run", action="store_true", help="preview guard match + BEFORE; no write")
+    r.set_defaults(fn=cmd_remove_live)
 
     args = ap.parse_args()
     if not getattr(args, "fn", None):
