@@ -2932,7 +2932,7 @@
       "must_contain": [
         "billableModelWithFallback(ctx, apiKey, billingModel, result.UpstreamModel, result.Model)"
       ],
-      "rationale": "Anthropic/generic RecordUsage funnel must keep the TK unpriced-alias fallback: a selected billing model with no registry price falls back to the concretely forwarded model instead of silently settling $0. (Per-account .qianfan remap removed 2026-08-24: a per-account commercial price is a scoped channel_model_pricing override, not a second global registry owner — see docs/approved/pricing-serving-single-source-of-truth.md.)"
+      "rationale": "Anthropic/generic RecordUsage funnel must keep the TK unpriced-alias fallback: a selected billing model with no registry price falls back to the concretely forwarded model instead of silently settling $0. (Per-account .qianfan remap removed: shared ids intentionally use one global user price regardless of serving account; provider-cost differences stay in profit reporting, and customer-scoped channel_model_pricing is not a serving-account substitute — see docs/approved/pricing-serving-single-source-of-truth.md §1.1.)"
     },
     {
       "path": "backend/internal/service/billing_service_tk_qianfan.go",
@@ -2951,7 +2951,7 @@
         "TestTkDeepSeekPeakValleyAppliesToDatedFlashAlias",
         "TestTkQianfanOnlyDeepSeekOwnersStayPeakExempt"
       ],
-      "rationale": "Focused regressions for the 2026-08-24 scoped-price removal: the .qianfan suffix owners stay out of the global registry, the dated flash alias resolves to the official owner (and is therefore subject to official peak windows), and Qianfan-exclusive owners keep their flat rate."
+      "rationale": "Focused regressions for the global-user-price decision: shared ids stay independent of the serving account and the .qianfan suffix owners stay out of the registry; the dated flash alias resolves to the official owner (and is therefore subject to official peak windows), while Qianfan-exclusive owners keep their flat rate."
     },
     {
       "path": "backend/internal/service/account_model_mapping_preset_tk_qianfan_test.go",

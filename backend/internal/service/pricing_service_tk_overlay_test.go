@@ -87,18 +87,19 @@ func TestTKPricingOverlay_DeepSeekOfficialIdleSSOTAndAliases(t *testing.T) {
 		require.Equal(t, flash.MaxOutputTokens, entry.MaxOutputTokens, alias)
 	}
 
-	// Baidu Qianfan scoped price variants were removed: a per-account commercial
-	// override is not a global-registry fact. Every account serving these client
-	// ids now bills from the single official owner above, and the official
-	// peak-valley policy applies uniformly. A future Qianfan-specific rate is a
-	// channel_model_pricing scope, never a suffixed registry key.
+	// Baidu Qianfan serving-account price variants were removed by policy: every
+	// account serving these shared client ids bills users from the single official
+	// owner above, and the official peak-valley policy applies uniformly. Upstream
+	// procurement differences belong to provider-cost/profit reporting. They must
+	// not return as suffixed registry keys or be approximated through the customer-
+	// scoped channel_model_pricing resolver.
 	for _, removed := range []string{
 		"deepseek-v4-flash.qianfan",
 		"deepseek-v4-pro.qianfan",
 		"deepseek-v4-flash-0731",
 	} {
 		require.Nil(t, overlay[removed],
-			"%s must not come back as a registry key; scoped overrides belong in channel_model_pricing", removed)
+			"%s must not come back: shared ids use one global user price across serving accounts", removed)
 	}
 }
 

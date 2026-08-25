@@ -9,8 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The `.qianfan` suffix owners are gone: a per-account commercial price is a
-// SCOPED override (channel_model_pricing), not a second global registry key.
+// The `.qianfan` suffix owners are gone: user-facing billing is intentionally
+// independent of the upstream account that serves the request. Shared client ids
+// use the single global owner; provider/account cost differences belong to profit
+// reporting, not ActualCost. channel_model_pricing remains a customer commercial
+// scope and must not be used as a proxy for a serving-account price.
 // See docs/approved/pricing-serving-single-source-of-truth.md §1.
 func TestTkQianfanScopedOverlayKeysAreRemoved(t *testing.T) {
 	t.Parallel()
@@ -24,7 +27,7 @@ func TestTkQianfanScopedOverlayKeysAreRemoved(t *testing.T) {
 		"kimi-k2.6.qianfan",
 	} {
 		require.Nil(t, overlay[key],
-			"%s must not exist: a per-account price belongs in channel_model_pricing, not the global registry", key)
+			"%s must not exist: shared ids use one global user price regardless of serving account", key)
 	}
 }
 
