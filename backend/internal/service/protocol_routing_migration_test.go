@@ -3,10 +3,33 @@ package service
 import (
 	"context"
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 )
+
+type protocolRoutingMigrationProber struct {
+	mu      sync.Mutex
+	account map[int64][]protocolrouter.Protocol
+	calls   []int64
+	repo    *protocolRoutingMigrationRepo
+}
+
+func (p *protocolRoutingMigrationProber) ProbeAccountProtocolCapabilities(_ context.Context, accountID int64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls = append(p.calls, accountID)
+	protocols := p.account[accountID]
+	if len(protocols) == 0 || p.repo == nil {
+		return
+	}
+	update, err := BuildSupportedProtocolsUpdate(protocols)
+	if err != nil {
+		return
+	}
+	_ = p.repo.UpdateExtra(context.Background(), accountID, update)
+}
 
 type protocolRoutingMigrationRepo struct {
 	accounts []Account
@@ -88,5 +111,64 @@ func TestProtocolRoutingMigrationReportRejectsCanonicalAccountWithoutLegalRoute(
 	}
 	if report.CutoverReady || len(report.Remediation) != 1 || report.Remediation[0].Reason != ProtocolRoutingRemediationNoLegalRoute {
 		t.Fatalf("report = %+v", report)
+	}
+}
+
+func TestPrepareProtocolRoutingSSOTProbesRemediationBeforeEnablingRouter(t *testing.T) {
+	repo := &protocolRoutingMigrationRepo{accounts: []Account{{
+		ID:       12,
+		Name:     "custom-openai",
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": "https://relay.example.test/v1",
+		},
+	}}}
+	prober := &protocolRoutingMigrationProber{
+		repo: repo,
+		account: map[int64][]protocolrouter.Protocol{
+			12: {protocolrouter.ProtocolChatCompletions},
+		},
+	}
+	router := NewProtocolRouter()
+
+	ready, err := prepareProtocolRoutingSSOT(context.Background(), repo, router, prober)
+	if err != nil {
+		t.Fatalf("prepareProtocolRoutingSSOT: %v", err)
+	}
+	if !ready.Report.CutoverReady || ready.EnabledRouter() != router {
+		t.Fatalf("ready = %+v router=%p, want cutover-ready router %p", ready.Report, ready.EnabledRouter(), router)
+	}
+	if !reflect.DeepEqual(prober.calls, []int64{12}) {
+		t.Fatalf("probe calls = %v, want [12]", prober.calls)
+	}
+	if got := repo.accounts[0].SupportedProtocols(); !reflect.DeepEqual(got, []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}) {
+		t.Fatalf("supported protocols = %v, want chat_completions", got)
+	}
+}
+
+func TestPrepareProtocolRoutingSSOTKeepsLegacyRoutingWhenRemediationRemains(t *testing.T) {
+	repo := &protocolRoutingMigrationRepo{accounts: []Account{{
+		ID:       13,
+		Name:     "unresolved-openai",
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": "https://relay.example.test/v1",
+		},
+	}}}
+	prober := &protocolRoutingMigrationProber{repo: repo, account: map[int64][]protocolrouter.Protocol{}}
+
+	ready, err := prepareProtocolRoutingSSOT(context.Background(), repo, NewProtocolRouter(), prober)
+	if err != nil {
+		t.Fatalf("prepareProtocolRoutingSSOT: %v", err)
+	}
+	if ready.Report.CutoverReady || ready.EnabledRouter() != nil {
+		t.Fatalf("ready = %+v router=%p, want remediation with legacy routing", ready.Report, ready.EnabledRouter())
+	}
+	if !reflect.DeepEqual(prober.calls, []int64{13}) {
+		t.Fatalf("probe calls = %v, want [13]", prober.calls)
 	}
 }

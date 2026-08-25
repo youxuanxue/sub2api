@@ -271,6 +271,11 @@ capability. The coordinator atomically writes the resulting complete set only
 if the configuration revision is still current. A new account with no
 conclusive positive verdict remains empty and ineligible.
 
+The protocols inside one account job may be probed concurrently, but the job
+still has one account identity, one configuration revision, and one atomic
+complete-set write. Startup preparation bounds account-level concurrency so a
+release cannot create an unbounded upstream burst.
+
 Results are never copied between accounts, even when base URLs match. The probe
 coordinator may coalesce only identical concurrent jobs; its key includes
 account identity and configuration revision, so coalescing suppresses duplicate
@@ -367,14 +372,21 @@ implemented.
 
 Rollout order:
 
-1. Add the canonical field writer, registry, probes, and migration in
-   non-routing mode.
-2. Seed official profiles, probe custom accounts per account, and resolve the
-   report of active accounts without legal routes.
-3. Deploy the router, scheduler hard gate, execution boundary, admin projection,
-   and mechanical guard together.
+1. The release image starts with the canonical field writer, registry, probes,
+   router, scheduler hard gate, execution boundary, admin projection, and
+   mechanical guard present together.
+2. Before constructing text gateway handlers, the image seeds official
+   profiles, probes every remediated custom account, and reruns the migration
+   report against the persisted results.
+3. Only `CutoverReady=true` exposes the router to handlers and activates the
+   scheduler hard gate. If any account remains unresolved, handlers receive no
+   router and the whole process keeps the legacy routing path; it must not
+   partially hard-cut only the already prepared accounts.
 4. Smoke each distinct normalized base URL and monitor no-route failures,
    selected protocols, actual hosts/paths, and failover.
+
+Preparation and hard cutover may therefore ship in the same image. The
+readiness result, rather than image composition, is the single cutover gate.
 
 Rollback is an application-image rollback. The additive JSON value and legacy
 fields remain, so rollback requires no destructive data change. No production
@@ -401,6 +413,9 @@ document.
   protocol capability read by production text routing after cutover.
 - CI tests the registry with mocks; real capability probes persist facts per
   account; per-base-URL smoke never copies capability between accounts.
+- A same-image rollout performs seed → per-account probe → revalidation before
+  enabling the router, and preserves legacy routing when revalidation is not
+  cutover-ready.
 - An independent policy-contract test protects identity-first and the fixed
   fallback order without duplicating the registry's adapter matrix.
 - An upstream merge that restores a competing decision path or removes the

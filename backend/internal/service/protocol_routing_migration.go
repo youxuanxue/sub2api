@@ -4,11 +4,18 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
+
+const protocolRoutingStartupProbeConcurrency = 4
+
+type protocolRoutingCapabilityProber interface {
+	ProbeAccountProtocolCapabilities(ctx context.Context, accountID int64)
+}
 
 type ProtocolRoutingRemediationReason string
 
@@ -27,6 +34,7 @@ type ProtocolRoutingRemediation struct {
 type ProtocolRoutingMigrationReport struct {
 	ActiveGoverned int
 	SeededOfficial int
+	ProbedAccounts int
 	CutoverReady   bool
 	Remediation    []ProtocolRoutingRemediation
 }
@@ -86,6 +94,74 @@ func MigrateProtocolRoutingSSOT(
 		return report.Remediation[i].AccountID < report.Remediation[j].AccountID
 	})
 	return report, nil
+}
+
+func prepareProtocolRoutingSSOT(
+	ctx context.Context,
+	repo protocolRoutingMigrationRepository,
+	router *protocolrouter.Router,
+	prober protocolRoutingCapabilityProber,
+) (ProtocolRoutingSSOTReady, error) {
+	initial, err := MigrateProtocolRoutingSSOT(ctx, repo, router)
+	if err != nil {
+		return ProtocolRoutingSSOTReady{Report: initial}, err
+	}
+	if initial.CutoverReady || prober == nil || len(initial.Remediation) == 0 {
+		return newProtocolRoutingSSOTReady(initial, router), nil
+	}
+
+	accountIDs := make([]int64, 0, len(initial.Remediation))
+	seen := make(map[int64]struct{}, len(initial.Remediation))
+	for _, remediation := range initial.Remediation {
+		if remediation.AccountID <= 0 {
+			continue
+		}
+		if _, exists := seen[remediation.AccountID]; exists {
+			continue
+		}
+		seen[remediation.AccountID] = struct{}{}
+		accountIDs = append(accountIDs, remediation.AccountID)
+	}
+	probeProtocolRoutingAccounts(ctx, prober, accountIDs)
+
+	final, err := MigrateProtocolRoutingSSOT(ctx, repo, router)
+	if err != nil {
+		final.SeededOfficial += initial.SeededOfficial
+		final.ProbedAccounts = len(accountIDs)
+		return ProtocolRoutingSSOTReady{Report: final}, err
+	}
+	final.SeededOfficial += initial.SeededOfficial
+	final.ProbedAccounts = len(accountIDs)
+	return newProtocolRoutingSSOTReady(final, router), nil
+}
+
+func probeProtocolRoutingAccounts(ctx context.Context, prober protocolRoutingCapabilityProber, accountIDs []int64) {
+	if prober == nil || len(accountIDs) == 0 {
+		return
+	}
+	workerCount := min(protocolRoutingStartupProbeConcurrency, len(accountIDs))
+	jobs := make(chan int64)
+	var workers sync.WaitGroup
+	workers.Add(workerCount)
+	for range workerCount {
+		go func() {
+			defer workers.Done()
+			for accountID := range jobs {
+				if ctx.Err() != nil {
+					continue
+				}
+				prober.ProbeAccountProtocolCapabilities(ctx, accountID)
+			}
+		}()
+	}
+	for _, accountID := range accountIDs {
+		if ctx.Err() != nil {
+			break
+		}
+		jobs <- accountID
+	}
+	close(jobs)
+	workers.Wait()
 }
 
 func officialSupportedProtocols(account *Account) []protocolrouter.Protocol {

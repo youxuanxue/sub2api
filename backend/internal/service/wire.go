@@ -38,24 +38,48 @@ type BuildInfo struct {
 
 type ProtocolRoutingSSOTReady struct {
 	Report ProtocolRoutingMigrationReport
+	router *protocolrouter.Router
 }
 
-func ProvideProtocolRoutingSSOTReady(accountRepo AccountRepository, router *protocolrouter.Router) ProtocolRoutingSSOTReady {
-	report, err := MigrateProtocolRoutingSSOT(context.Background(), accountRepo, router)
+func newProtocolRoutingSSOTReady(report ProtocolRoutingMigrationReport, router *protocolrouter.Router) ProtocolRoutingSSOTReady {
+	if !report.CutoverReady {
+		router = nil
+	}
+	return ProtocolRoutingSSOTReady{Report: report, router: router}
+}
+
+func (r ProtocolRoutingSSOTReady) EnabledRouter() *protocolrouter.Router {
+	return r.router
+}
+
+func ProvideProtocolRoutingSSOTReady(accountRepo AccountRepository, accountTestService *AccountTestService, router *protocolrouter.Router) ProtocolRoutingSSOTReady {
+	ready, err := prepareProtocolRoutingSSOT(context.Background(), accountRepo, router, accountTestService)
+	report := ready.Report
 	if err != nil {
 		report.CutoverReady = false
 		logger.LegacyPrintf("service.protocol_routing", "protocol SSOT migration/report failed: %v", err)
-		return ProtocolRoutingSSOTReady{Report: report}
+		return newProtocolRoutingSSOTReady(report, router)
 	}
 	logger.LegacyPrintf(
 		"service.protocol_routing",
-		"protocol SSOT migration/report: active_governed=%d seeded_official=%d cutover_ready=%t remediation=%d",
+		"protocol SSOT migration/report: active_governed=%d seeded_official=%d probed_accounts=%d cutover_ready=%t remediation=%d",
 		report.ActiveGoverned,
 		report.SeededOfficial,
+		report.ProbedAccounts,
 		report.CutoverReady,
 		len(report.Remediation),
 	)
-	return ProtocolRoutingSSOTReady{Report: report}
+	for _, remediation := range report.Remediation {
+		logger.LegacyPrintf(
+			"service.protocol_routing",
+			"protocol SSOT remediation: account_id=%d account_name=%q reason=%s models=%v",
+			remediation.AccountID,
+			remediation.Name,
+			remediation.Reason,
+			remediation.Models,
+		)
+	}
+	return ready
 }
 
 // ProvidePricingService creates and initializes PricingService

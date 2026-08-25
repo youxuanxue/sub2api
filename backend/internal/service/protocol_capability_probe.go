@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
@@ -87,13 +88,29 @@ func (s *AccountTestService) ProbeAccountProtocolCapabilities(ctx context.Contex
 		return
 	}
 	if err := s.protocolProbeCoordinator.Do(accountID, revision, candidates, func() error {
+		type probeResult struct {
+			observation protocolProbeObservation
+			observed    bool
+		}
+		results := make([]probeResult, len(candidates))
+		var probes sync.WaitGroup
+		probes.Add(len(candidates))
+		for i, protocol := range candidates {
+			go func(index int, candidate protocolrouter.Protocol) {
+				defer probes.Done()
+				accountSnapshot := *account
+				results[index].observation, results[index].observed = s.probeProtocolCapability(ctx, &accountSnapshot, revision, candidate)
+			}(i, protocol)
+		}
+		probes.Wait()
+
 		verdicts := make(map[protocolrouter.Protocol]ProtocolProbeVerdict, len(candidates))
 		legacyUpdates := make(map[string]any)
-		for _, protocol := range candidates {
-			observation, observed := s.probeProtocolCapability(ctx, account, revision, protocol)
-			if !observed {
+		for _, result := range results {
+			if !result.observed {
 				continue
 			}
+			observation := result.observation
 			verdicts[observation.protocol] = observation.verdict
 			for key, value := range observation.legacyUpdates {
 				legacyUpdates[key] = value

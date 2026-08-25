@@ -26,8 +26,10 @@ OWNER_FILES = (
     "backend/internal/service/protocol_execution_target_test.go",
     "backend/internal/service/protocol_routing_context.go",
     "backend/internal/service/protocol_routing_context_test.go",
+    "backend/internal/service/wire.go",
     "backend/internal/handler/protocol_request.go",
     "backend/internal/handler/protocol_request_test.go",
+    "backend/internal/handler/wire.go",
     "backend/internal/handler/openai_gateway_count_tokens.go",
     "backend/internal/handler/admin/account_handler.go",
 )
@@ -184,8 +186,8 @@ def inside_any_span(index: int, spans: list[tuple[int, int]]) -> bool:
     return any(start <= index < end for start, end in spans)
 
 
-def function_bodies(source: str, identifier: str) -> list[str]:
-    bodies: list[str] = []
+def function_definitions(source: str, identifier: str) -> list[str]:
+    definitions: list[str] = []
     pattern = re.compile(
         rf"\bfunc\s+(?:\([^)]*\)\s*)?{re.escape(identifier)}\s*\([^)]*\)[^{{]*{{"
     )
@@ -198,8 +200,16 @@ def function_bodies(source: str, identifier: str) -> list[str]:
             elif source[index] == "}":
                 depth -= 1
                 if depth == 0:
-                    bodies.append(source[open_brace + 1 : index])
+                    definitions.append(source[match.start() : index + 1])
                     break
+    return definitions
+
+
+def function_bodies(source: str, identifier: str) -> list[str]:
+    bodies: list[str] = []
+    for definition in function_definitions(source, identifier):
+        open_brace = definition.find("{")
+        bodies.append(definition[open_brace + 1 : -1])
     return bodies
 
 
@@ -322,6 +332,33 @@ def check(root: Path) -> list[str]:
                     errors.append(f"aggregate account probe job is missing {required}")
             if len(call_spans(body, "PersistProtocolProbeVerdicts")) != 1:
                 errors.append("aggregate account probe job must persist the complete candidate set exactly once")
+
+    service_wire = root / "backend/internal/service/wire.go"
+    if service_wire.is_file():
+        source = strip_go_comments_and_literals(service_wire.read_text(encoding="utf-8"))
+        definitions = function_definitions(source, "ProvideProtocolRoutingSSOTReady")
+        if not definitions or not all(
+            contains_identifier(definition, "prepareProtocolRoutingSSOT")
+            for definition in definitions
+        ):
+            errors.append("protocol routing startup preparation skips probe and revalidation")
+        ready_builders = function_bodies(source, "newProtocolRoutingSSOTReady")
+        if not ready_builders or not all(
+            contains_identifier(body, "CutoverReady") for body in ready_builders
+        ):
+            errors.append("protocol routing startup readiness is not gated by CutoverReady")
+
+    handler_wire = root / "backend/internal/handler/wire.go"
+    if handler_wire.is_file():
+        source = strip_go_comments_and_literals(handler_wire.read_text(encoding="utf-8"))
+        for provider in ("ProvideGatewayHandler", "ProvideOpenAIGatewayHandler"):
+            definitions = function_definitions(source, provider)
+            if not definitions or not all(
+                contains_identifier(definition, "ProtocolRoutingSSOTReady")
+                and contains_identifier(definition, "EnabledRouter")
+                for definition in definitions
+            ):
+                errors.append(f"{provider} bypasses protocol routing cutover readiness")
 
     count_tokens = root / "backend/internal/handler/openai_gateway_count_tokens.go"
     if count_tokens.is_file():

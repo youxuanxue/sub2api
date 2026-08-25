@@ -90,6 +90,22 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "func ProbeAccountProtocolCapabilities(){ ProtocolProbeCandidates(); protocolProbeCoordinator(); probeProtocolCapability(); PersistProtocolProbeVerdicts() }\n",
             encoding="utf-8",
         )
+        service_wire = root / "backend/internal/service/wire.go"
+        service_wire.write_text(
+            "package fixture\n"
+            "type ProtocolRoutingSSOTReady struct{}\n"
+            "func (r ProtocolRoutingSSOTReady) EnabledRouter(){}\n"
+            "func newProtocolRoutingSSOTReady(){ CutoverReady() }\n"
+            "func ProvideProtocolRoutingSSOTReady(){ prepareProtocolRoutingSSOT() }\n",
+            encoding="utf-8",
+        )
+        handler_wire = root / "backend/internal/handler/wire.go"
+        handler_wire.write_text(
+            "package fixture\n"
+            "func ProvideGatewayHandler(ready ProtocolRoutingSSOTReady){ SetProtocolRouter(ready.EnabledRouter()) }\n"
+            "func ProvideOpenAIGatewayHandler(ready ProtocolRoutingSSOTReady){ SetProtocolRouter(ready.EnabledRouter()) }\n",
+            encoding="utf-8",
+        )
         return root
 
     def test_accepts_complete_fixture_and_ignores_comments_and_strings(self) -> None:
@@ -182,6 +198,33 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertTrue(any("exactly once" in error for error in MODULE.check(root)))
+
+    def test_rejects_handler_wiring_that_bypasses_cutover_readiness(self) -> None:
+        root = self.fixture()
+        wire = root / "backend/internal/handler/wire.go"
+        wire.write_text(
+            wire.read_text(encoding="utf-8").replace(
+                "ready ProtocolRoutingSSOTReady",
+                "router *protocolrouter.Router",
+            ).replace(
+                "ready.EnabledRouter()",
+                "router",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("cutover readiness" in error for error in MODULE.check(root)))
+
+    def test_rejects_startup_wiring_that_skips_prepare_and_revalidation(self) -> None:
+        root = self.fixture()
+        wire = root / "backend/internal/service/wire.go"
+        wire.write_text(
+            wire.read_text(encoding="utf-8").replace(
+                "prepareProtocolRoutingSSOT()",
+                "MigrateProtocolRoutingSSOT()",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("startup preparation" in error for error in MODULE.check(root)))
 
 
 if __name__ == "__main__":

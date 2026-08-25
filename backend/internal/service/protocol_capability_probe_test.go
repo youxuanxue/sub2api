@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -74,6 +75,66 @@ func (r *protocolProbeCASRepo) UpdateExtraIfUpdatedAt(
 type protocolProbeSetUpstream struct {
 	mu    sync.Mutex
 	paths []string
+}
+
+type protocolProbeBarrierUpstream struct {
+	mu          sync.Mutex
+	inFlight    int
+	maxInFlight int
+	started     int
+	allStarted  chan struct{}
+	release     chan struct{}
+}
+
+func (u *protocolProbeBarrierUpstream) Do(
+	req *http.Request,
+	proxyURL string,
+	accountID int64,
+	accountConcurrency int,
+) (*http.Response, error) {
+	return u.DoWithTLS(req, proxyURL, accountID, accountConcurrency, nil)
+}
+
+func (u *protocolProbeBarrierUpstream) DoWithTLS(
+	req *http.Request,
+	_ string,
+	_ int64,
+	_ int,
+	_ *tlsfingerprint.Profile,
+) (*http.Response, error) {
+	u.mu.Lock()
+	u.inFlight++
+	if u.inFlight > u.maxInFlight {
+		u.maxInFlight = u.inFlight
+	}
+	u.started++
+	if u.started == len(protocolrouter.AllProtocols()) {
+		close(u.allStarted)
+	}
+	u.mu.Unlock()
+
+	select {
+	case <-u.release:
+	case <-req.Context().Done():
+		return nil, req.Context().Err()
+	}
+
+	u.mu.Lock()
+	u.inFlight--
+	u.mu.Unlock()
+
+	body := `{"output":[{"type":"function_call","name":"probe_ping"}]}`
+	switch req.URL.Path {
+	case "/v1/messages":
+		body = `{"type":"message","content":[{"type":"text","text":"OK"}]}`
+	case "/v1/chat/completions":
+		body = `{"choices":[{"message":{"role":"assistant","content":"OK"}}]}`
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}, nil
 }
 
 func (u *protocolProbeSetUpstream) Do(
@@ -341,8 +402,55 @@ func TestProbeAccountProtocolCapabilitiesEvaluatesCandidateSetAndPersistsOnce(t 
 	if repo.updateCalls != 1 {
 		t.Fatalf("complete-set persistence calls = %d, want 1", repo.updateCalls)
 	}
-	if want := []string{"/v1/messages", "/v1/chat/completions", "/v1/responses"}; !reflect.DeepEqual(upstream.paths, want) {
-		t.Fatalf("probe paths = %v, want %v", upstream.paths, want)
+	gotPaths := append([]string(nil), upstream.paths...)
+	wantPaths := []string{"/v1/messages", "/v1/chat/completions", "/v1/responses"}
+	slices.Sort(gotPaths)
+	slices.Sort(wantPaths)
+	if !reflect.DeepEqual(gotPaths, wantPaths) {
+		t.Fatalf("probe paths = %v, want %v", gotPaths, wantPaths)
+	}
+}
+
+func TestProbeAccountProtocolCapabilitiesProbesCandidateSetConcurrently(t *testing.T) {
+	account := protocolRoutingOpenAIAccount(91)
+	account.UpdatedAt = time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
+	repo := &protocolProbeCASRepo{account: cloneProtocolProbeAccount(account)}
+	upstream := &protocolProbeBarrierUpstream{
+		allStarted: make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	svc := &AccountTestService{
+		accountRepo:  repo,
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled: false,
+		}}},
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		svc.ProbeAccountProtocolCapabilities(context.Background(), account.ID)
+	}()
+
+	select {
+	case <-upstream.allStarted:
+		close(upstream.release)
+	case <-time.After(5 * time.Second):
+		close(upstream.release)
+		<-done
+		t.Fatal("candidate protocol probes did not overlap within one account job")
+	}
+	<-done
+
+	upstream.mu.Lock()
+	maxInFlight := upstream.maxInFlight
+	upstream.mu.Unlock()
+	if maxInFlight != len(protocolrouter.AllProtocols()) {
+		t.Fatalf("max concurrent protocol probes = %d, want %d", maxInFlight, len(protocolrouter.AllProtocols()))
+	}
+	if repo.updateCalls != 1 {
+		t.Fatalf("complete-set persistence calls = %d, want 1", repo.updateCalls)
 	}
 }
 
