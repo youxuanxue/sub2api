@@ -256,10 +256,10 @@
     {
       "path": "backend/internal/service/admin_account.go",
       "must_contain": [
-        "if err := resolveGrokTokenOnSave(ctx, account); err != nil {\n\t\treturn nil, err\n\t}\n\tif err := s.accountRepo.Create",
+        "if err := resolveGrokTokenOnSave(ctx, account); err != nil {\n\t\treturn nil, err\n\t}\n\tSeedOfficialSupportedProtocols(account)\n\tif err := s.accountRepo.Create",
         "if account.Platform == PlatformGrok &&\n\t\ttkInputHasNonEmptyCredential(input.Credentials, \"refresh_token\") {\n\t\tif err := resolveGrokTokenOnSave(ctx, account); err != nil {"
       ],
-      "rationale": "The Grok validate+prime hook must remain wired at both save boundaries: CreateAccount always validates a newly pasted token, while UpdateAccount revalidates only when that request explicitly supplies a non-empty refresh_token. The distinct surrounding blocks prevent a surviving create call from masking deletion of the update call, and prevent unrelated Grok edits from acquiring a live xAI dependency."
+      "rationale": "The Grok validate+prime hook must remain wired at both save boundaries: CreateAccount always validates a newly pasted token before conservative official-profile protocol seeding and persistence, while UpdateAccount revalidates only when that request explicitly supplies a non-empty refresh_token. The distinct surrounding blocks prevent a surviving create call from masking deletion of the update call, prevent protocol seeding from persisting an unvalidated account, and prevent unrelated Grok edits from acquiring a live xAI dependency."
     },
     {
       "path": "backend/internal/service/account_test_service.go",
@@ -630,6 +630,27 @@
         "grok:account:"
       ],
       "rationale": "Grok token cache-key namespace (grok:account:<id>). Relocated here from grok_token_refresher.go during the 2026-06-27 reconciliation; a drift in this prefix silently breaks grok token cache invalidation."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_count_tokens.go",
+      "must_contain": [
+        "ResponsesPathInputTokens",
+        "SelectProtocolAccountForTokenCount",
+        "ExecuteSelectedProtocol",
+        "ResponsesIdentity",
+        "request.Body()"
+      ],
+      "rationale": "Grok Claude Code token counting uses Responses input_tokens. The scheduler must select an account with an already-created native Responses plan, then execute the same canonical body without a second route decision; otherwise a merge can misroute input_tokens through Chat/Messages or select an account whose only legal path requires an unsupported conversion."
+    },
+    {
+      "path": "backend/internal/service/protocol_capability_probe.go",
+      "must_contain": [
+        "ProtocolProbeCandidates",
+        "protocolProbeConfigurationRevision",
+        "PersistProtocolProbeVerdicts",
+        "BuildSupportedProtocolsUpdate"
+      ],
+      "rationale": "Grok API-key relay capability is a per-account canonical fact even when several accounts share one edge base_url. Candidate discovery covers governed explicit endpoints, while revision-scoped CAS persistence prevents cross-account/base-url copying and stale probe writes."
     }
   ]
 }

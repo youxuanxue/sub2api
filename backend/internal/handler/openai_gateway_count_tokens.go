@@ -1,12 +1,14 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -90,18 +92,30 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 		routingModel = channelMapping.MappedModel
 		forwardBody = h.gatewayService.ReplaceModelInBody(body, routingModel)
 	}
+	canonicalRequest, err := newCanonicalProtocolRequest(
+		protocolrouter.ProtocolResponses,
+		protocolrouter.ResponsesPathInputTokens,
+		routingModel,
+		false,
+		forwardBody,
+	)
+	if err != nil {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+		return
+	}
+	c.Request = c.Request.WithContext(service.WithProtocolRouting(c.Request.Context(), h.protocolRouter, canonicalRequest))
 
 	// Token counting is not billed, so it must not be excluded by the profit gate.
 	c.Request = c.Request.WithContext(service.WithOpenAIProfitControlSuppressed(c.Request.Context()))
 	requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	requestStart := time.Now()
-	account, err := h.gatewayService.SelectAccountForTokenCount(
+	selection, err := h.gatewayService.SelectProtocolAccountForTokenCount(
 		c.Request.Context(),
 		apiKey.GroupID,
 		sessionHash,
 		routingModel,
-		service.OpenAIEndpointCapabilityChatCompletions,
+		service.OpenAIEndpointCapabilityResponses,
 		requestPlatform,
 	)
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
@@ -116,7 +130,7 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 		h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
 		return
 	}
-	if account == nil {
+	if selection == nil || selection.Account == nil {
 		cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, routingModel, reqModel)
 		if !cls.ModelNotFound {
 			markOpsRoutingCapacityLimited(c)
@@ -124,9 +138,26 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 		h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
 		return
 	}
+	account := selection.Account
 
 	setOpsSelectedAccountFrom(c, account)
-	if err := h.gatewayService.ForwardResponsesInputTokens(c.Request.Context(), c, account, forwardBody); err != nil {
+	_, err = service.ExecuteSelectedProtocol(
+		c.Request.Context(),
+		h.protocolRouter,
+		selection,
+		account,
+		h.gatewayService.ValidateProtocolEndpoint,
+		service.ProtocolExecutors{
+			ResponsesIdentity: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+				if plan.ResponsesPath() != protocolrouter.ResponsesPathInputTokens {
+					return nil, protocolrouter.ErrStalePlan
+				}
+				service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+				return nil, h.gatewayService.ForwardResponsesInputTokens(executionCtx, c, account, request.Body())
+			},
+		},
+	)
+	if err != nil {
 		reqLog.Error("openai_input_tokens.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 	}
 }

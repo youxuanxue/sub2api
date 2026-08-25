@@ -1915,12 +1915,15 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if req.RequestedModel != "" && !account.IsModelSupported(req.RequestedModel) {
 		return false, "model_not_supported"
 	}
+	if !ProtocolRouteLegal(ctx, account, req.RequestedModel) {
+		return false, "protocol_route_unavailable"
+	}
 	if req.GroupID != nil && s != nil && s.service != nil &&
 		s.service.needsUpstreamChannelRestrictionCheck(ctx, req.GroupID) &&
 		s.service.isUpstreamModelRestrictedByChannel(ctx, *req.GroupID, account, req.RequestedModel, req.RequireCompact) {
 		return false, "channel_upstream_restricted"
 	}
-	if !accountSupportsOpenAIRequestCapabilities(account, req.RequiredCapability, req.RequiredImageCapability, req.RequiredVideoSupport) {
+	if !accountSupportsOpenAIRequestCapabilitiesForContext(ctx, account, req.RequiredCapability, req.RequiredImageCapability, req.RequiredVideoSupport) {
 		return false, "capability_mismatch"
 	}
 	// 分组利润控制：不合格账号在候选过滤与抢槽后终检阶段即被排除，
@@ -2394,7 +2397,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 				if selection == nil || selection.Account == nil {
 					return selection, decision, nil
 				}
-				if accountSupportsOpenAIRequestCapabilities(selection.Account, requiredCapability, requiredImageCapability, requiredVideoSupport) {
+				if accountSupportsOpenAIRequestCapabilitiesForContext(ctx, selection.Account, requiredCapability, requiredImageCapability, requiredVideoSupport) {
 					return selection, decision, nil
 				}
 				if selection.ReleaseFunc != nil {
@@ -2420,7 +2423,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 				return selection, decision, nil
 			}
 			if s.isOpenAIAccountTransportCompatible(selection.Account, requiredTransport) &&
-				accountSupportsOpenAIRequestCapabilities(selection.Account, requiredCapability, requiredImageCapability, requiredVideoSupport) {
+				accountSupportsOpenAIRequestCapabilitiesForContext(ctx, selection.Account, requiredCapability, requiredImageCapability, requiredVideoSupport) {
 				return selection, decision, nil
 			}
 			if selection.ReleaseFunc != nil {
@@ -2456,7 +2459,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		stickyPreviousAccountID = s.ResolveAccountIDByPreviousResponseIDForScheduler(ctx, groupID, previousResponseID, requestedModel, excludedIDs, requiredCapability, requireCompact)
 	}
 
-	return scheduler.Select(ctx, OpenAIAccountScheduleRequest{
+	selection, decision, err := scheduler.Select(ctx, OpenAIAccountScheduleRequest{
 		GroupID:                 groupID,
 		GroupPlatform:           groupPlatform,
 		SessionHash:             sessionHash,
@@ -2478,6 +2481,11 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		RequirePrivacySet:       s.openAIGroupRequiresPrivacySet(ctx, groupID),
 		ExcludedIDs:             excludedIDs,
 	})
+	if err != nil {
+		return nil, decision, err
+	}
+	selection, err = attachProtocolPlan(ctx, selection)
+	return selection, decision, err
 }
 
 func accountSupportsOpenAIVideoCapability(account *Account) bool {
@@ -2503,6 +2511,26 @@ func accountSupportsOpenAIRequestCapabilities(
 		return false
 	}
 	return true
+}
+
+func accountSupportsOpenAIRequestCapabilitiesForContext(
+	ctx context.Context,
+	account *Account,
+	requiredCapability OpenAIEndpointCapability,
+	requiredImageCapability OpenAIImagesCapability,
+	requiredVideoSupport bool,
+) bool {
+	if protocolRoutingOwnsOpenAITextCapability(ctx, requiredCapability) {
+		return account != nil &&
+			account.SupportsOpenAIImageCapability(requiredImageCapability) &&
+			(!requiredVideoSupport || accountSupportsOpenAIVideoCapability(account))
+	}
+	return accountSupportsOpenAIRequestCapabilities(
+		account,
+		requiredCapability,
+		requiredImageCapability,
+		requiredVideoSupport,
+	)
 }
 
 func accountSupportsOpenAICapabilities(account *Account, requiredCapability OpenAIEndpointCapability, requiredImageCapability OpenAIImagesCapability) bool {

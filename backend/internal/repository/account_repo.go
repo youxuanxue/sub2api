@@ -2697,15 +2697,37 @@ func (r *accountRepository) AutoPauseExpiredAccounts(ctx context.Context, now ti
 }
 
 func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
+	_, err := r.updateExtra(ctx, id, nil, updates)
+	return err
+}
+
+// UpdateExtraIfUpdatedAt atomically merges extra only when the account still
+// has the revision read by the caller. A false result is a compare-and-swap
+// miss; no account or outbox row was changed.
+func (r *accountRepository) UpdateExtraIfUpdatedAt(
+	ctx context.Context,
+	id int64,
+	expectedUpdatedAt time.Time,
+	updates map[string]any,
+) (bool, error) {
+	return r.updateExtra(ctx, id, &expectedUpdatedAt, updates)
+}
+
+func (r *accountRepository) updateExtra(
+	ctx context.Context,
+	id int64,
+	expectedUpdatedAt *time.Time,
+	updates map[string]any,
+) (bool, error) {
 	updates = stripCodexFingerprintSeedFromExtraUpdate(updates)
 	if len(updates) == 0 {
-		return nil
+		return true, nil
 	}
 
 	// 使用 JSONB 合并操作实现原子更新，避免读-改-写的并发丢失更新问题
 	payload, err := json.Marshal(updates)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	clearProbeSnapshot := upstreamBillingProbeExplicitlyDisabled(updates) || upstreamBillingProbeSnapshotClearRequested(updates)
@@ -2718,7 +2740,7 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 		var txErr error
 		tx, txErr = r.client.Tx(ctx)
 		if txErr != nil && !errors.Is(txErr, dbent.ErrTxStarted) {
-			return txErr
+			return false, txErr
 		}
 		if tx != nil {
 			defer func() { _ = tx.Rollback() }()
@@ -2733,30 +2755,35 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 	if service.ShouldEnsureCodexFingerprintSeedForExtraUpdates(updates) {
 		extraExpression = ensureCodexFingerprintSeedSQL(extraExpression)
 	}
-	result, err := client.ExecContext(
-		ctx,
-		"UPDATE accounts SET extra = "+extraExpression+", updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL",
-		string(payload), id,
-	)
+	query := "UPDATE accounts SET extra = " + extraExpression + ", updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL"
+	args := []any{string(payload), id}
+	if expectedUpdatedAt != nil {
+		query += " AND updated_at = $3"
+		args = append(args, *expectedUpdatedAt)
+	}
+	result, err := client.ExecContext(ctx, query, args...)
 
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if affected == 0 {
-		return service.ErrAccountNotFound
+		if expectedUpdatedAt != nil {
+			return false, nil
+		}
+		return false, service.ErrAccountNotFound
 	}
 	if durableSchedulerChange {
 		if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
-			return err
+			return false, err
 		}
 		if tx != nil {
 			if err := tx.Commit(); err != nil {
-				return err
+				return false, err
 			}
 		}
 		if contextTx == nil {
@@ -2770,7 +2797,7 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 			r.syncSchedulerAccountSnapshot(ctx, id)
 		}
 	}
-	return nil
+	return true, nil
 }
 
 // UpdateUpstreamBillingProbeSnapshot stores a probe result only while the

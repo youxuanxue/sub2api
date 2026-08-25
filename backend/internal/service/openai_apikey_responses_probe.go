@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
@@ -19,7 +20,7 @@ import (
 
 // openaiResponsesProbeTimeout 是探测请求的超时时长。
 // 探测在后台 goroutine 中异步执行,不阻塞账号创建/更新;留出余量给推理型模型
-// 先思考再产出 function_call 的往返。超时则保持 unknown,不下结论。
+// 先思考再产出 function_call 的往返。超时属于 inconclusive，保留既有能力事实。
 const openaiResponsesProbeTimeout = 15 * time.Second
 
 // responsesProbeMaxBodyBytes 限制读取探测响应体的字节数,够判定 output 项类型即可。
@@ -106,8 +107,7 @@ func selectResponsesProbeModel(account *Account) string {
 //   - 上游 2xx → 端点存在,进一步看工具能力:响应含 function_call 输出项才写 true;
 //     仅 reasoning / 无 function_call(如火山方舟 coding/v3 × kimi-k2.6)写 false
 //   - 其他非 2xx（401/422/400/5xx 等）→ 端点存在但无法判定工具能力,保守写 true
-//   - 网络层失败（连接错误、超时）→ 不写标记，保持 unknown
-//     （后续请求仍按"现状即证据"默认走 Responses）
+//   - 网络层失败（连接错误、超时）→ 不写标记，保留既有能力事实
 //
 // 该方法是幂等的：重复调用会以最新探测结果覆盖标记。
 //
@@ -119,49 +119,60 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 		logger.LegacyPrintf("service.openai_probe", "probe_load_account_failed: account_id=%d err=%v", accountID, err)
 		return
 	}
-	if account.Type != AccountTypeAPIKey {
+	if !protocolProbeSupports(account, protocolrouter.ProtocolResponses) {
 		return
 	}
-	if account.IsCNProvider() {
-		// 国产 OpenAI 兼容上游（kimi/zhipu/deepseek）普遍仅支持 /v1/chat/completions，
-		// 不存在 /v1/responses 端点。直接落标 false 走 Chat Completions 直转，跳过网络探测。
-		// 例外：deepseek 的固定 responses 和 adaptive 账号使用官方原生 /responses
-		// 端点，落标 force_responses；其余协议显式重置为 auto，避免切换后残留强制模式。
-		if account.GetAPIProtocol() == APIProtocolResponses ||
-			(account.Platform == PlatformDeepseek && account.IsAdaptiveAPIProtocol()) {
-			_ = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
-				openai_compat.ExtraKeyResponsesMode:      string(openai_compat.ResponsesSupportModeForceResponses),
-				openai_compat.ExtraKeyResponsesSupported: true,
-			})
-			return
-		}
-		_ = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
-			openai_compat.ExtraKeyResponsesMode:      string(openai_compat.ResponsesSupportModeAuto),
-			openai_compat.ExtraKeyResponsesSupported: false,
-		})
+	revision, err := protocolProbeConfigurationRevision(account)
+	if err != nil {
+		logger.LegacyPrintf("service.openai_probe", "probe_revision_failed: account_id=%d err=%v", accountID, err)
 		return
 	}
-	if account.Platform != PlatformOpenAI {
-		// 仅 OpenAI APIKey 账号需要探测；其他账号类型无能力差异。
+	observation, observed := s.probeOpenAIAPIKeyResponsesSupport(ctx, account, revision)
+	if !observed {
 		return
+	}
+	if err := PersistProtocolProbeVerdicts(
+		ctx,
+		s.accountRepo,
+		accountID,
+		revision,
+		map[protocolrouter.Protocol]ProtocolProbeVerdict{observation.protocol: observation.verdict},
+		observation.legacyUpdates,
+	); err != nil {
+		logger.LegacyPrintf("service.openai_probe", "probe_persist_failed: account_id=%d err=%v", accountID, err)
+	}
+}
+
+func (s *AccountTestService) probeOpenAIAPIKeyResponsesSupport(
+	ctx context.Context,
+	account *Account,
+	_ string,
+) (protocolProbeObservation, bool) {
+	accountID := account.ID
+	if !protocolProbeSupports(account, protocolrouter.ProtocolResponses) {
+		return protocolProbeObservation{}, false
 	}
 
 	apiKey := account.GetOpenAIApiKey()
 	if apiKey == "" {
-		logger.LegacyPrintf("service.openai_probe", "probe_skip_no_apikey: account_id=%d", accountID)
-		return
+		apiKey = account.GetOpenAIProtocolAPIKey()
 	}
-	baseURL := account.GetOpenAIBaseURL()
+	if apiKey == "" {
+		logger.LegacyPrintf("service.openai_probe", "probe_skip_no_apikey: account_id=%d", accountID)
+		return protocolProbeObservation{}, false
+	}
+	baseURL := protocolProbeBaseURL(account, protocolrouter.ProtocolResponses)
 	if baseURL == "" {
-		baseURL = "https://api.openai.com"
+		logger.LegacyPrintf("service.openai_probe", "probe_skip_no_explicit_baseurl: account_id=%d", accountID)
+		return protocolProbeObservation{}, false
 	}
 	normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
 	if err != nil {
 		logger.LegacyPrintf("service.openai_probe", "probe_invalid_baseurl: account_id=%d base_url=%q err=%v", accountID, baseURL, err)
-		return
+		return protocolProbeObservation{}, false
 	}
 
-	probeURL := buildOpenAIResponsesURL(normalizedBaseURL)
+	probeURL := buildOpenAIResponsesURLForPlatform(account.Platform, normalizedBaseURL)
 	probeModel := selectResponsesProbeModel(account)
 
 	probeCtx, cancel := context.WithTimeout(ctx, openaiResponsesProbeTimeout)
@@ -170,7 +181,7 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 	req, err := http.NewRequestWithContext(probeCtx, http.MethodPost, probeURL, bytes.NewReader(openaiResponsesProbePayload(probeModel)))
 	if err != nil {
 		logger.LegacyPrintf("service.openai_probe", "probe_build_request_failed: account_id=%d err=%v", accountID, err)
-		return
+		return protocolProbeObservation{}, false
 	}
 	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
 	req.Header.Set("Content-Type", "application/json")
@@ -188,45 +199,44 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 
 	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
-		// 网络层失败：不写标记，保持 unknown，下次重试或由网关 fallback 处理
+		// 网络层失败：不写标记，保留既有能力事实。
 		logger.LegacyPrintf("service.openai_probe", "probe_request_failed: account_id=%d url=%s err=%v", accountID, probeURL, err)
-		return
+		return protocolProbeObservation{}, false
 	}
 	defer func() { _ = resp.Body.Close() }()
 	bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, responsesProbeMaxBodyBytes))
 	// 有界排空剩余响应体:既帮助连接复用,又避免行为异常的上游用超大响应体拖住探测。
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, responsesProbeMaxBodyBytes))
 	if readErr != nil {
-		// 响应体读取失败(部分读取/传输错误):按网络层失败处理,保持 unknown,
+		// 响应体读取失败(部分读取/传输错误):按网络层失败处理并保留既有能力事实，
 		// 不写标记——否则可能给一个 2xx 响应误写 supported=false。
 		logger.LegacyPrintf("service.openai_probe", "probe_read_body_failed: account_id=%d url=%s err=%v", accountID, probeURL, readErr)
-		return
+		return protocolProbeObservation{}, false
 	}
 
-	// 本次响应不足以下结论时保持 unknown，与网络层失败、响应体读取失败一致：
+	// 本次响应不足以下结论时保留既有能力事实，与网络层失败、响应体读取失败一致：
 	// 标记一旦写成 false 就会一直粘住（只有下次账号创建/更新才重探），网关会静默
 	// 改走 /v1/chat/completions —— 对 Codex 客户端意味着 prompt 缓存前缀被打散。
 	// 宁可不写，让请求继续走既有的 Responses 路径。
 	if !responsesProbeVerdictIsConclusive(resp.StatusCode, bodyBytes) {
 		logger.LegacyPrintf("service.openai_probe",
-			"probe_inconclusive_keep_unknown: account_id=%d base_url=%s probe_model=%s status=%d response_status=%s reason=%s",
+			"probe_inconclusive_preserve_prior: account_id=%d base_url=%s probe_model=%s status=%d response_status=%s reason=%s",
 			accountID, normalizedBaseURL, probeModel, resp.StatusCode,
 			gjson.GetBytes(bodyBytes, "status").String(),
 			gjson.GetBytes(bodyBytes, "incomplete_details.reason").String(),
 		)
-		return
+		return protocolProbeObservation{}, false
 	}
 
 	endpointSupported := openai_compat.ResponsesEndpointSupportedByStatus(resp.StatusCode)
 	supported := decideResponsesProbeSupport(endpointSupported, resp.StatusCode, bodyBytes)
 
-	if err := s.accountRepo.UpdateExtra(ctx, accountID, map[string]any{
-		openai_compat.ExtraKeyResponsesSupported: supported,
-	}); err != nil {
-		logger.LegacyPrintf("service.openai_probe", "probe_persist_failed: account_id=%d supported=%v err=%v", accountID, supported, err)
-		return
+	verdict := ProtocolProbeModelSpecific
+	if supported && resp.StatusCode >= 200 && resp.StatusCode < 300 && responsesProbeBodyHasFunctionCall(bodyBytes) {
+		verdict = ProtocolProbePositive
+	} else if !openai_compat.ResponsesEndpointSupportedByStatus(resp.StatusCode) || responsesProbeBodyIndicatesNotImplemented(bodyBytes) {
+		verdict = ProtocolProbeEndpointNegative
 	}
-
 	if !supported {
 		// 落标为不支持等于把该账号长期钉在 /v1/chat/completions 上，成本与缓存命中率
 		// 都会变化，且不会自动恢复。这条必须能被运维看到（#5371）。
@@ -244,6 +254,13 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 		"probe_done: account_id=%d base_url=%s probe_model=%s status=%d supported=%v",
 		accountID, normalizedBaseURL, probeModel, resp.StatusCode, supported,
 	)
+	return protocolProbeObservation{
+		protocol: protocolrouter.ProtocolResponses,
+		verdict:  verdict,
+		legacyUpdates: map[string]any{
+			openai_compat.ExtraKeyResponsesSupported: supported,
+		},
+	}, true
 }
 
 // responsesProbeVerdictIsConclusive 判断本次探测响应是否足以对「上游是否支持带工具的

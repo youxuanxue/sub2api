@@ -358,6 +358,20 @@ describe('EditAccountModal', () => {
     authIsSimpleMode.value = true
   })
 
+  it('shows the canonical native protocols as read-only capability chips', () => {
+    const account = {
+      ...buildAccount(),
+      supported_protocols: ['messages', 'responses']
+    }
+
+    const wrapper = mountModal(account)
+    const capabilities = wrapper.get('[data-testid="account-supported-protocols"]')
+
+    expect(capabilities.find('[data-protocol="messages"]').exists()).toBe(true)
+    expect(capabilities.find('[data-protocol="responses"]').exists()).toBe(true)
+    expect(capabilities.find('input, select, button').exists()).toBe(false)
+  })
+
   it('marks internal Anthropic edge stub pool mode as system-managed', async () => {
     const account = {
       ...buildAccount(),

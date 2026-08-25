@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 
+	newapitypes "github.com/QuantumNous/new-api/types"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/gin-gonic/gin"
@@ -41,6 +43,9 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	if target, planned := protocolExecutionTarget(ctx); planned && target != protocolrouter.ProtocolChatCompletions {
+		return s.ForwardAsChatCompletions(ctx, c, account, body, promptCacheKey, defaultMappedModel)
+	}
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointChatCompletions) {
 		return s.ForwardAsChatCompletions(ctx, c, account, body, promptCacheKey, defaultMappedModel)
 	}
@@ -49,10 +54,15 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	// inject prompt_cache_key into body AND set X-Session-Id header on the gin
 	// request so GLM-style adaptors can pick it up. See docs/approved/sticky-routing.md.
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
-	body = rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)
+	if !protocolExecutionBound(ctx) {
+		body = rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)
+	}
 	body = applyNewAPIQwenNonStreamingShape(gjson.GetBytes(body, "model").String(), body)
 	auth := bridgeAuthFromGin(c)
-	in := newAPIBridgeChannelInputForBody(account, auth.UserID, auth.GroupName, body)
+	body, in, err := bindProtocolPlanToNewAPIBridge(ctx, account, body, auth.UserID, auth.GroupName, newapitypes.RelayFormatOpenAI)
+	if err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
@@ -120,20 +130,28 @@ func (s *OpenAIGatewayService) ForwardAsResponsesDispatched(
 	account *Account,
 	body []byte,
 ) (*OpenAIForwardResult, error) {
+	if target, planned := protocolExecutionTarget(ctx); planned && target != protocolrouter.ProtocolResponses {
+		return s.Forward(ctx, c, account, body)
+	}
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointResponses) {
 		return s.Forward(ctx, c, account, body)
 	}
 	recordBridgeDispatch()
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
-	body = rewriteNewAPIBridgeBodyModel(account, body, "")
+	if !protocolExecutionBound(ctx) {
+		body = rewriteNewAPIBridgeBodyModel(account, body, "")
+	}
 	auth := bridgeAuthFromGin(c)
-	in := newAPIBridgeChannelInputForBody(account, auth.UserID, auth.GroupName, body)
+	body, in, err := bindProtocolPlanToNewAPIBridge(ctx, account, body, auth.UserID, auth.GroupName, newapitypes.RelayFormatOpenAIResponses)
+	if err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
 	requestedModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
-	if isNewAPIResponsesProactiveChatFallbackModel(requestedModel) {
+	if !protocolExecutionBound(ctx) && isNewAPIResponsesProactiveChatFallbackModel(requestedModel) {
 		logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", BridgeEndpointResponses),
 			zap.Int("channel_type", account.ChannelType),
@@ -145,7 +163,7 @@ func (s *OpenAIGatewayService) ForwardAsResponsesDispatched(
 	}
 	out, apiErr := dispatchNewAPIResponses(ctx, c, in, body)
 	if apiErr != nil {
-		if shouldFallbackNewAPIResponsesToChat(apiErr) {
+		if !protocolExecutionBound(ctx) && shouldFallbackNewAPIResponsesToChat(apiErr) {
 			logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 				zap.String("endpoint", BridgeEndpointResponses),
 				zap.Int("channel_type", account.ChannelType),

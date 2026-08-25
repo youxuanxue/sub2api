@@ -188,6 +188,10 @@ func provideCleanup(
 	// TokenKey: forces wire to evaluate ProvideTKGroupUnsupportedModelCache so
 	// the shared selection-time unsupported-model negative cache is wired at startup.
 	_ service.TKGroupUnsupportedModelCacheReady,
+	// Forces the additive, idempotent protocol capability migration/report to
+	// run at startup. Accounts that are not cutover-ready remain excluded by
+	// the scheduler hard gate and are emitted as remediation entries.
+	_ service.ProtocolRoutingSSOTReady,
 	quotaFlusher *service.UserPlatformQuotaUsageFlusher,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,

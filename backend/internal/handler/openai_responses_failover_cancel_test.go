@@ -116,6 +116,9 @@ func newOpenAIResponsesFailoverTestHandler(t *testing.T, upstream service.HTTPUp
 			Credentials: map[string]any{"access_token": "token-2"},
 		},
 	}
+	for i := range accounts {
+		require.True(t, service.SeedOfficialSupportedProtocols(&accounts[i]))
+	}
 	accountRepo := openAIImagesFailoverAccountRepo{accounts: accounts}
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	gatewayService := service.NewOpenAIGatewayService(
@@ -156,6 +159,7 @@ func newOpenAIResponsesFailoverTestHandler(t *testing.T, upstream service.HTTPUp
 		nil,
 		cfg,
 	)
+	handler.SetProtocolRouter(service.NewProtocolRouter())
 	handler.maxAccountSwitches = 10
 	return handler
 }
@@ -226,6 +230,9 @@ func newOpenAIResponsesExcludedFailoverTestRouter(
 		},
 		Extra: map[string]any{"openai_compact_mode": service.OpenAICompactModeForceOn},
 	})
+	for i := range accounts {
+		require.True(t, service.SeedOfficialSupportedProtocols(&accounts[i]))
+	}
 
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	accountRepo := openAIImagesFailoverAccountRepo{accounts: accounts}
@@ -267,6 +274,7 @@ func newOpenAIResponsesExcludedFailoverTestRouter(
 		nil,
 		cfg,
 	)
+	handler.SetProtocolRouter(service.NewProtocolRouter())
 	handler.maxAccountSwitches = 10
 
 	apiKey := &service.APIKey{

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -849,6 +850,7 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 			Credentials: map[string]any{
 				"access_token": "expired", "refresh_token": "revoked-refresh",
 				"expires_at": time.Now().Add(-time.Minute).UTC().Format(time.RFC3339),
+				"base_url":   xai.DefaultCLIBaseURL,
 			},
 			Extra: map[string]any{service.GrokMediaEligibleExtraKey: true},
 		},
@@ -858,6 +860,7 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 			Credentials: map[string]any{
 				"access_token": "healthy-access", "refresh_token": "healthy-refresh",
 				"expires_at": time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339),
+				"base_url":   xai.DefaultCLIBaseURL,
 			},
 			Extra: map[string]any{service.GrokMediaEligibleExtraKey: true},
 		},
@@ -872,6 +875,7 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 			Credentials: map[string]any{
 				"access_token": "untried-healthy-access", "refresh_token": "untried-healthy-refresh",
 				"expires_at": time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339),
+				"base_url":   xai.DefaultCLIBaseURL,
 			},
 			Extra: map[string]any{service.GrokMediaEligibleExtraKey: true},
 		})
@@ -882,6 +886,17 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 	}
 	if mode == "all_revoked" {
 		accounts[1].Credentials["expires_at"] = time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
+	}
+	for i := range accounts {
+		if service.SeedOfficialSupportedProtocols(&accounts[i]) {
+			continue
+		}
+		update, err := service.BuildSupportedProtocolsUpdate([]protocolrouter.Protocol{protocolrouter.ProtocolResponses})
+		require.NoError(t, err)
+		if accounts[i].Extra == nil {
+			accounts[i].Extra = make(map[string]any)
+		}
+		accounts[i].Extra[service.SupportedProtocolsExtraKey] = update[service.SupportedProtocolsExtraKey]
 	}
 	repo := &grokCredentialHandlerRepo{accounts: accounts, missingOnGet: map[int64]bool{}}
 	if mode == "missing_row" {
@@ -934,6 +949,7 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 		acquireAccountSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil },
 	}
 	h := NewOpenAIGatewayHandler(gateway, service.NewConcurrencyService(cache), billingCache, &service.APIKeyService{}, nil, nil, nil, nil, cfg)
+	h.SetProtocolRouter(service.NewProtocolRouter())
 	apiKey := &service.APIKey{
 		ID: 902, GroupID: &groupID,
 		User:  &service.User{ID: 903, Status: service.StatusActive},

@@ -388,10 +388,11 @@
         "func tkAdminModelOptions[",
         "[]dto.AccountModelOption",
         "tkClaudeAdminModelsForIDs(sortedModelMappingKeys(mapping))",
-        "scheduleOpenAIAPIKeyCapabilityProbes",
-        "scheduleOpenAINativeMessagesProbe"
+        "scheduleProtocolCapabilityProbes",
+        "service.ProtocolProbeCandidates(account)",
+        "ProbeAccountProtocolCapabilities"
       ],
-      "rationale": "Admin GET /admin/accounts/:id/models for Gemini routes through tkGeminiAdminAvailableModels (model_mapping SSOT). Non-Google-One accounts still intersect mapping with ServableClientFacingIDs via tkGeminiAdminModelsForMapping; Google One keeps the conservative whitelist from GetModelMapping without servable pruning. Every platform projects package-specific metadata through tkAdminModelOptions into the same []dto.AccountModelOption HTTP contract. OpenAI APIKey create/update must schedule both Responses and native Anthropic Messages capability probes."
+      "rationale": "Admin GET /admin/accounts/:id/models for Gemini routes through tkGeminiAdminAvailableModels (model_mapping SSOT). Non-Google-One accounts still intersect mapping with ServableClientFacingIDs via tkGeminiAdminModelsForMapping; Google One keeps the conservative whitelist from GetModelMapping without servable pruning. Every platform projects package-specific metadata through tkAdminModelOptions into the same []dto.AccountModelOption HTTP contract. Governed custom-account create/update/re-test lifecycle events must schedule one account+revision candidate-set probe job; that job evaluates Chat Completions, Responses, and native Anthropic Messages before one complete-set CAS write."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_available_models_test.go",

@@ -279,6 +279,18 @@ echo ""
 echo "=== sub2api: newapi compat-pool drift ==="
 errors=0
 
+echo ""
+echo "=== sub2api: protocol-routing SSOT ==="
+if ! python3 ./scripts/checks/test_protocol_routing_ssot.py >/dev/null; then
+    echo "  FAIL: protocol-routing SSOT checker self-tests"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/protocol-routing-ssot.py --quiet; then
+    echo "  FAIL: protocol-routing SSOT boundary drift"
+    errors=$((errors + 1))
+else
+    echo "  ok: protocol-routing owner, handler, and selected-plan boundaries"
+fi
+
 # Check A — candidate-pool fetch must go through the TK helper
 # (IsOpenAICompatPoolMember / OpenAICompatPlatforms). A new caller passing
 # PlatformOpenAI directly to ListSchedulableAccounts would silently exclude
@@ -3057,6 +3069,8 @@ fi
 echo ""
 echo "=== sub2api: Wire DI staleness ==="
 _wire_gen="backend/cmd/server/wire_gen.go"
+_backend_go_version="$(awk '/^go / { print $2; exit }' backend/go.mod 2>/dev/null)"
+_backend_go_toolchain="go${_backend_go_version}"
 if [ ! -f "$_wire_gen" ]; then
     echo "  FAIL: $_wire_gen does not exist — run 'go generate ./cmd/server' in backend/"
     errors=$((errors + 1))
@@ -3072,7 +3086,7 @@ else
     done
     if [ "$_wire_inputs_changed" -eq 1 ]; then
         _wire_rc=0
-        ( cd backend && go generate ./cmd/server ) >/dev/null 2>&1 || _wire_rc=$?
+        ( cd backend && GOTOOLCHAIN="$_backend_go_toolchain" go generate ./cmd/server ) >/dev/null 2>&1 || _wire_rc=$?
         if [ "$_wire_rc" -ne 0 ]; then
             echo "  FAIL: go generate ./cmd/server failed (exit $_wire_rc)"
             errors=$((errors + 1))
@@ -3105,7 +3119,7 @@ elif [ "$_preflight_fast" = "1" ] && [ "$_ent_schema_changed" = "0" ]; then
     echo "  skip: Ent generation staleness (preflight-fast; no backend/ent/schema changes)"
 else
     _ent_rc=0
-    ( cd backend && go generate ./ent ) >/dev/null 2>&1 || _ent_rc=$?
+    ( cd backend && GOTOOLCHAIN="$_backend_go_toolchain" go generate ./ent ) >/dev/null 2>&1 || _ent_rc=$?
     if [ "$_ent_rc" -ne 0 ]; then
         echo "  FAIL: go generate ./ent failed (exit $_ent_rc)"
         errors=$((errors + 1))

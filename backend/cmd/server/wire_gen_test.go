@@ -113,13 +113,14 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		handler.TKGatewayHandlerModelListReady{},           // TK: forces SetModelListFilter wiring
 		service.TKUniversalModelsProviderReady{},           // TK: forces universal-key models-provider wiring
 		service.TKGroupUnsupportedModelCacheReady{},        // TK: forces group unsupported negative cache wiring
-		nil, // quotaFlusher
-		nil, // upstreamBillingProbe
-		nil, // ollamaCloudUsage
-		nil, // auditLog
-		nil, // promptAudit
-		nil, // telemetryArchive
-		nil, // telemetryArchiveHealth
+		service.ProtocolRoutingSSOTReady{},                 // TK: forces protocol capability migration/report wiring
+		nil,                                                // quotaFlusher
+		nil,                                                // upstreamBillingProbe
+		nil,                                                // ollamaCloudUsage
+		nil,                                                // auditLog
+		nil,                                                // promptAudit
+		nil,                                                // telemetryArchive
+		nil,                                                // telemetryArchiveHealth
 	)
 
 	require.NotPanics(t, func() {

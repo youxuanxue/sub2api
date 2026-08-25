@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/apipath"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
@@ -42,23 +44,58 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyNativeMessagesSupport(ctx context.
 		logger.LegacyPrintf("service.openai_probe", "native_messages_load_account_failed: account_id=%d err=%v", accountID, err)
 		return
 	}
-	if account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
+	if !protocolProbeSupports(account, protocolrouter.ProtocolMessages) {
 		return
 	}
+	revision, err := protocolProbeConfigurationRevision(account)
+	if err != nil {
+		logger.LegacyPrintf("service.openai_probe", "native_messages_revision_failed: account_id=%d err=%v", accountID, err)
+		return
+	}
+	observation, observed := s.probeOpenAIAPIKeyNativeMessagesSupport(ctx, account, revision)
+	if !observed {
+		return
+	}
+	if err := PersistProtocolProbeVerdicts(
+		ctx,
+		s.accountRepo,
+		accountID,
+		revision,
+		map[protocolrouter.Protocol]ProtocolProbeVerdict{observation.protocol: observation.verdict},
+		observation.legacyUpdates,
+	); err != nil {
+		logger.LegacyPrintf("service.openai_probe", "native_messages_persist_failed: account_id=%d err=%v", accountID, err)
+	}
+}
 
-	apiKey := account.GetOpenAIApiKey()
-	if apiKey == "" {
-		logger.LegacyPrintf("service.openai_probe", "native_messages_skip_no_apikey: account_id=%d", accountID)
-		return
+func (s *AccountTestService) probeOpenAIAPIKeyNativeMessagesSupport(
+	ctx context.Context,
+	account *Account,
+	_ string,
+) (protocolProbeObservation, bool) {
+	accountID := account.ID
+	authToken := ""
+	if account.Platform == PlatformAnthropic && account.IsAnthropicOAuthOrSetupToken() {
+		authToken = account.GetCredential("access_token")
+	} else {
+		authToken = account.GetOpenAIProtocolAPIKey()
+		if authToken == "" {
+			authToken = account.GetCredential("api_key")
+		}
 	}
-	baseURL := account.GetOpenAIBaseURL()
+	if authToken == "" {
+		logger.LegacyPrintf("service.openai_probe", "native_messages_skip_no_auth: account_id=%d", accountID)
+		return protocolProbeObservation{}, false
+	}
+	baseURL := protocolProbeBaseURL(account, protocolrouter.ProtocolMessages)
 	if baseURL == "" {
-		baseURL = "https://api.openai.com"
+		logger.LegacyPrintf("service.openai_probe", "native_messages_skip_no_explicit_baseurl: account_id=%d", accountID)
+		return protocolProbeObservation{}, false
 	}
 	normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
 	if err != nil {
 		logger.LegacyPrintf("service.openai_probe", "native_messages_invalid_baseurl: account_id=%d base_url=%q err=%v", accountID, baseURL, err)
-		return
+		return protocolProbeObservation{}, false
 	}
 
 	probeURL := buildOpenAIEndpointURL(normalizedBaseURL, apipath.Messages)
@@ -70,11 +107,21 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyNativeMessagesSupport(ctx context.
 	req, err := http.NewRequestWithContext(probeCtx, http.MethodPost, probeURL, bytes.NewReader(openaiNativeMessagesProbePayload(probeModel)))
 	if err != nil {
 		logger.LegacyPrintf("service.openai_probe", "native_messages_build_request_failed: account_id=%d err=%v", accountID, err)
-		return
+		return protocolProbeObservation{}, false
 	}
 	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	if account.Platform == PlatformAnthropic {
+		req.Header.Set("anthropic-version", "2023-06-01")
+		req.Header.Set("anthropic-beta", claude.APIKeyBetaHeader)
+		if account.IsAnthropicOAuthOrSetupToken() {
+			setAnthropicOAuthPassthroughAuthHeader(req.Header, authToken)
+		} else {
+			setAnthropicAPIKeyAuthHeader(req.Header, account, authToken)
+		}
+	} else {
+		req.Header.Set("Authorization", "Bearer "+authToken)
+	}
 	req.Header.Set("Accept", "application/json")
 	account.ApplyHeaderOverrides(req.Header)
 
@@ -86,28 +133,34 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyNativeMessagesSupport(ctx context.
 	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		logger.LegacyPrintf("service.openai_probe", "native_messages_request_failed: account_id=%d url=%s err=%v", accountID, probeURL, err)
-		return
+		return protocolProbeObservation{}, false
 	}
 	defer func() { _ = resp.Body.Close() }()
 	bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, responsesProbeMaxBodyBytes))
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, responsesProbeMaxBodyBytes))
 	if readErr != nil {
 		logger.LegacyPrintf("service.openai_probe", "native_messages_read_body_failed: account_id=%d url=%s err=%v", accountID, probeURL, readErr)
-		return
+		return protocolProbeObservation{}, false
 	}
 
 	supported := nativeMessagesProbeSupported(resp.StatusCode, bodyBytes)
-	if err := s.accountRepo.UpdateExtra(ctx, accountID, map[string]any{
-		openai_compat.ExtraKeyNativeMessagesSupported: supported,
-	}); err != nil {
-		logger.LegacyPrintf("service.openai_probe", "native_messages_persist_failed: account_id=%d supported=%v err=%v", accountID, supported, err)
-		return
+	verdict := ProtocolProbeInconclusive
+	if supported {
+		verdict = ProtocolProbePositive
+	} else if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
+		verdict = ProtocolProbeEndpointNegative
 	}
-
 	logger.LegacyPrintf("service.openai_probe",
 		"native_messages_probe_done: account_id=%d base_url=%s probe_model=%s status=%d supported=%v",
 		accountID, normalizedBaseURL, probeModel, resp.StatusCode, supported,
 	)
+	return protocolProbeObservation{
+		protocol: protocolrouter.ProtocolMessages,
+		verdict:  verdict,
+		legacyUpdates: map[string]any{
+			openai_compat.ExtraKeyNativeMessagesSupported: supported,
+		},
+	}, true
 }
 
 func nativeMessagesProbeSupported(status int, body []byte) bool {

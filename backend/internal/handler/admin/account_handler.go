@@ -38,6 +38,10 @@ type OAuthHandler struct {
 	oauthService *service.OAuthService
 }
 
+type protocolCapabilityProbeScheduler interface {
+	ProbeAccountProtocolCapabilitiesBatch(ctx context.Context, accountIDs []int64)
+}
+
 // NewOAuthHandler creates a new OAuth handler
 func NewOAuthHandler(oauthService *service.OAuthService) *OAuthHandler {
 	return &OAuthHandler{
@@ -56,6 +60,7 @@ type AccountHandler struct {
 	rateLimitService        *service.RateLimitService
 	accountUsageService     *service.AccountUsageService
 	accountTestService      *service.AccountTestService
+	protocolProbeScheduler  protocolCapabilityProbeScheduler
 	concurrencyService      *service.ConcurrencyService
 	crsSyncService          *service.CRSSyncService
 	sessionLimitCache       service.SessionLimitCache
@@ -104,6 +109,7 @@ func NewAccountHandler(
 		rateLimitService:        rateLimitService,
 		accountUsageService:     accountUsageService,
 		accountTestService:      accountTestService,
+		protocolProbeScheduler:  accountTestService,
 		concurrencyService:      concurrencyService,
 		crsSyncService:          crsSyncService,
 		sessionLimitCache:       sessionLimitCache,
@@ -939,7 +945,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	}
 	// OpenAI APIKey 账号创建后异步探测上游 /v1/responses 能力。
 	// 探测失败不影响账号创建响应。
-	h.scheduleOpenAIAPIKeyCapabilityProbes(createdAccount)
+	h.scheduleProtocolCapabilityProbes(createdAccount)
 	h.scheduleGrokImportProbe(createdAccount)
 	response.Success(c, result.Data)
 }
@@ -1056,63 +1062,55 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// OpenAI APIKey: credentials 修改后重新探测上游能力（base_url/api_key 可能变更）。
-	// 异步执行，探测失败不影响账号更新响应。
-	if len(req.Credentials) > 0 {
-		h.scheduleOpenAIAPIKeyCapabilityProbes(account)
+	if protocolCapabilityProbeRequiredForUpdate(req) {
+		h.scheduleProtocolCapabilityProbes(account)
 	}
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }
 
-// scheduleOpenAIAPIKeyCapabilityProbes asynchronously probes OpenAI APIKey relay
-// upstream capabilities (Responses + native Anthropic Messages).
-func (h *AccountHandler) scheduleOpenAIAPIKeyCapabilityProbes(account *service.Account) {
-	h.scheduleOpenAIResponsesProbe(account)
-	h.scheduleOpenAINativeMessagesProbe(account)
+func (h *AccountHandler) scheduleProtocolCapabilityProbes(account *service.Account) {
+	if account == nil {
+		return
+	}
+	if h.protocolProbeScheduler == nil {
+		return
+	}
+	if len(service.ProtocolProbeCandidates(account)) == 0 {
+		return
+	}
+	h.scheduleProtocolCapabilityProbeBatch([]int64{account.ID})
 }
 
-// scheduleOpenAIResponsesProbe 异步触发 OpenAI APIKey 账号的 Responses API 能力探测。
-//
-// 仅对 platform=openai && type=apikey 账号生效；其他账号无操作。
-// 探测本身在 goroutine 中执行（会发一次 HTTP 请求到上游），不会阻塞
-// 当前请求。探测错误仅记录日志，不向上下文传播：探测失败时标记保持缺失，
-// 网关会按"现状即证据"默认走 Responses。
-func (h *AccountHandler) scheduleOpenAIResponsesProbe(account *service.Account) {
-	if account == nil || account.Type != service.AccountTypeAPIKey ||
-		(account.Platform != service.PlatformOpenAI && !service.IsCNProvider(account.Platform)) {
+func (h *AccountHandler) scheduleProtocolCapabilityProbeBatch(accountIDs []int64) {
+	if h == nil || h.protocolProbeScheduler == nil || len(accountIDs) == 0 {
 		return
 	}
-	if h.accountTestService == nil {
-		return
-	}
-	accountID := account.ID
+	ids := append([]int64(nil), accountIDs...)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				slog.Error("openai_responses_probe_panic", "account_id", accountID, "recover", r)
+				slog.Error("protocol_capability_probe_panic", "account_count", len(ids), "recover", r)
 			}
 		}()
-		h.accountTestService.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), accountID)
+		h.protocolProbeScheduler.ProbeAccountProtocolCapabilitiesBatch(context.Background(), ids)
 	}()
 }
 
-func (h *AccountHandler) scheduleOpenAINativeMessagesProbe(account *service.Account) {
-	if account == nil || account.Platform != service.PlatformOpenAI || account.Type != service.AccountTypeAPIKey {
-		return
+func protocolCapabilityProbeRequiredForUpdate(req UpdateAccountRequest) bool {
+	if req.Type != "" || req.ChannelType != nil || len(req.Credentials) > 0 {
+		return true
 	}
-	if h.accountTestService == nil {
-		return
+	return protocolCapabilityExtraChanged(req.Extra)
+}
+
+func protocolCapabilityExtraChanged(extra map[string]any) bool {
+	if len(extra) == 0 {
+		return false
 	}
-	accountID := account.ID
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("openai_native_messages_probe_panic", "account_id", accountID, "recover", r)
-			}
-		}()
-		h.accountTestService.ProbeOpenAIAPIKeyNativeMessagesSupport(context.Background(), accountID)
-	}()
+	_, customBaseURLChanged := extra["custom_base_url"]
+	_, customBaseURLEnabledChanged := extra["custom_base_url_enabled"]
+	return customBaseURLChanged || customBaseURLEnabledChanged
 }
 
 // Delete handles deleting an account
@@ -1186,6 +1184,9 @@ func (h *AccountHandler) Test(c *gin.Context) {
 		if _, err := h.rateLimitService.RecoverAccountAfterSuccessfulTest(c.Request.Context(), accountID); err != nil {
 			_ = c.Error(err)
 		}
+	}
+	if account, err := h.adminService.GetAccount(c.Request.Context(), accountID); err == nil {
+		h.scheduleProtocolCapabilityProbes(account)
 	}
 }
 
@@ -2022,7 +2023,7 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				}
 			}
 			// OpenAI APIKey 账号异步探测 /v1/responses 能力。
-			h.scheduleOpenAIAPIKeyCapabilityProbes(account)
+			h.scheduleProtocolCapabilityProbes(account)
 			h.scheduleGrokImportProbe(account)
 			success++
 			results = append(results, gin.H{
@@ -2234,6 +2235,9 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		}
 		response.ErrorFrom(c, err)
 		return
+	}
+	if (len(req.Credentials) > 0 || protocolCapabilityExtraChanged(req.Extra)) && result != nil {
+		h.scheduleProtocolCapabilityProbeBatch(result.SuccessIDs)
 	}
 
 	response.Success(c, result)

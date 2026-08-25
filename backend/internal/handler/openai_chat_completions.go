@@ -1,13 +1,14 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -165,6 +166,18 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 
 	// 分组利润控制：chat completions 文本入口请求级装门并固定 pricingAt。
 	ccPricingCtx, pricingAt := h.tkHTTPRequestPricingContext(c.Request.Context(), apiKey.GroupID)
+	canonicalRequest, err := newCanonicalProtocolRequest(
+		protocolrouter.ProtocolChatCompletions,
+		protocolrouter.ResponsesPathNone,
+		reqModel,
+		reqStream,
+		body,
+	)
+	if err != nil {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+		return
+	}
+	ccPricingCtx = service.WithProtocolRouting(ccPricingCtx, h.protocolRouter, canonicalRequest)
 	c.Request = c.Request.WithContext(ccPricingCtx)
 
 	for {
@@ -247,19 +260,50 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
 
-		forwardBody := body
-		if channelMapping.Mapped {
-			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
-		}
 		writerSizeBeforeForward := c.Writer.Size()
-		logOpenAIStudioChatImageRequestAudit(c, apiKey, subject.UserID, account, body, forwardBody)
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardAsChatCompletionsDispatched(c.Request.Context(), c, account, forwardBody, promptCacheKey, dispatchMappedModel)
+			prepareBody := func(request protocolrouter.CanonicalRequest) []byte {
+				forwardBody := request.Body()
+				if channelMapping.Mapped {
+					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
+				}
+				logOpenAIStudioChatImageRequestAudit(c, apiKey, subject.UserID, account, request.Body(), forwardBody)
+				return forwardBody
+			}
+			value, executeErr := service.ExecuteSelectedProtocol(
+				c.Request.Context(),
+				h.protocolRouter,
+				selection,
+				account,
+				h.gatewayService.ValidateProtocolEndpoint,
+				service.ProtocolExecutors{
+					NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, prepareBody(request), promptCacheKey, dispatchMappedModel)
+					},
+					ChatIdentity: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+						return h.gatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, prepareBody(request), promptCacheKey, dispatchMappedModel)
+					},
+					ChatToResponses: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+						return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, prepareBody(request), promptCacheKey, dispatchMappedModel)
+					},
+					ChatToMessages: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+						return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, prepareBody(request), promptCacheKey, dispatchMappedModel)
+					},
+				},
+			)
+			if value == nil {
+				return nil, executeErr
+			}
+			result, _ := value.(*service.OpenAIForwardResult)
+			return result, executeErr
 		}()
 		var cyberBlockBodyChat []byte
 		if service.GetOpsCyberPolicy(c) != nil {
@@ -422,16 +466,15 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 // forwarding paths that do not report their endpoint yet.
 func resolveOpenAIUpstreamEndpoint(c *gin.Context, account *service.Account, result *service.OpenAIForwardResult) string {
 	if result != nil {
+		if facts, ok := result.ProtocolRouteFacts(); ok {
+			return facts.UpstreamEndpoint()
+		}
 		if endpoint := strings.TrimSpace(result.UpstreamEndpoint); endpoint != "" {
 			return endpoint
 		}
 	}
 	if endpoint := service.GetActualOpenAIUpstreamEndpoint(c); endpoint != "" {
 		return endpoint
-	}
-	if account != nil && account.Type == service.AccountTypeAPIKey &&
-		!openai_compat.ShouldUseResponsesAPI(account.Extra) {
-		return EndpointChatCompletions
 	}
 	return GetUpstreamEndpoint(c, account.Platform)
 }

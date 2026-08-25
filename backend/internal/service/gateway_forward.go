@@ -404,6 +404,10 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			mappingSource = "prefix"
 		}
 	}
+	if plannedModel := protocolExecutionResolvedModel(ctx, mappedModel); plannedModel != mappedModel {
+		mappedModel = plannedModel
+		mappingSource = "protocol_plan"
+	}
 	if mappedModel != reqModel {
 		// 替换请求体中的模型名
 		if err := replaceBody(s.replaceModelInBody(body, mappedModel)); err != nil {

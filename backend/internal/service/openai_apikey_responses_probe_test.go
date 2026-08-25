@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -51,17 +52,16 @@ func TestProbeOpenAIAPIKeyResponsesSupportUsesCodexProbeHeaders(t *testing.T) {
 
 func TestProbeOpenAIAPIKeyResponsesSupportCNProviders(t *testing.T) {
 	tests := []struct {
-		name        string
-		id          int64
-		platform    string
-		protocol    string
-		wantSupport bool
-		wantMode    string
+		name     string
+		id       int64
+		platform string
+		protocol string
+		status   int
+		body     string
+		want     bool
 	}{
-		{name: "deepseek adaptive supports responses", id: 201, platform: PlatformDeepseek, protocol: APIProtocolAdaptive, wantSupport: true, wantMode: string(openai_compat.ResponsesSupportModeForceResponses)},
-		{name: "deepseek chat clears forced responses", id: 202, platform: PlatformDeepseek, protocol: APIProtocolChatCompletions, wantSupport: false, wantMode: string(openai_compat.ResponsesSupportModeAuto)},
-		{name: "kimi adaptive falls back to chat", id: 203, platform: PlatformKimi, protocol: APIProtocolAdaptive, wantSupport: false, wantMode: string(openai_compat.ResponsesSupportModeAuto)},
-		{name: "zhipu adaptive falls back to chat", id: 204, platform: PlatformZhipu, protocol: APIProtocolAdaptive, wantSupport: false, wantMode: string(openai_compat.ResponsesSupportModeAuto)},
+		{name: "deepseek adaptive does not imply responses", id: 201, platform: PlatformDeepseek, protocol: APIProtocolAdaptive, status: http.StatusNotFound, body: `{"error":{"message":"not found"}}`, want: false},
+		{name: "kimi chat setting does not deny a conclusive responses probe", id: 202, platform: PlatformKimi, protocol: APIProtocolChatCompletions, status: http.StatusOK, body: `{"status":"completed","output":[{"type":"function_call","name":"probe_ping"}]}`, want: true},
 	}
 
 	for _, tc := range tests {
@@ -69,7 +69,7 @@ func TestProbeOpenAIAPIKeyResponsesSupportCNProviders(t *testing.T) {
 			updateCalls := make(chan map[string]any, 1)
 			account := Account{
 				ID: tc.id, Platform: tc.platform, Type: AccountTypeAPIKey,
-				Credentials: map[string]any{"api_key": "sk-test", "api_protocol": tc.protocol},
+				Credentials: map[string]any{"api_key": "sk-test", "api_protocol": tc.protocol, "base_url": "https://cn.example"},
 				Extra: map[string]any{
 					openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceResponses),
 				},
@@ -78,13 +78,27 @@ func TestProbeOpenAIAPIKeyResponsesSupportCNProviders(t *testing.T) {
 				stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
 				updateExtraCalls:      updateCalls,
 			}
-			svc := &AccountTestService{accountRepo: repo}
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: tc.status,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(tc.body)),
+			}}
+			svc := &AccountTestService{
+				accountRepo:  repo,
+				httpUpstream: upstream,
+				cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+			}
 
 			svc.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), account.ID)
 
-			updates := <-updateCalls
-			require.Equal(t, tc.wantSupport, updates[openai_compat.ExtraKeyResponsesSupported])
-			require.Equal(t, tc.wantMode, updates[openai_compat.ExtraKeyResponsesMode])
+			var updates map[string]any
+			select {
+			case updates = <-updateCalls:
+			case <-time.After(time.Second):
+				t.Fatal("probe did not persist a conclusive verdict")
+			}
+			require.Equal(t, tc.want, updates[openai_compat.ExtraKeyResponsesSupported])
+			require.NotNil(t, upstream.lastReq, "capability must come from a real per-account probe")
 		})
 	}
 }

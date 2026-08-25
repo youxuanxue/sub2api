@@ -575,12 +575,14 @@
     {
       "path": "backend/internal/handler/openai_chat_completions.go",
       "must_contain": [
-        "return h.gatewayService.ForwardAsChatCompletionsDispatched(c.Request.Context(), c, account, forwardBody, promptCacheKey, dispatchMappedModel)"
+        "ChatIdentity: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest)",
+        "return h.gatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, prepareBody(request), promptCacheKey, dispatchMappedModel)"
       ],
       "must_not_contain": [
-        "return h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, promptCacheKey, dispatchMappedModel)"
+        "return h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, promptCacheKey, dispatchMappedModel)",
+        "if plan.TargetProtocol() == protocolrouter.ProtocolChatCompletions"
       ],
-      "rationale": "The production /v1/chat/completions handler must enter the existing NewAPI bridge dispatcher. Calling the native forwarder directly bypasses channel_type-aware ownership and can send a DashScope/Vertex credential toward the official OpenAI path. This is the load-bearing call-site half of the account #72/#57 regression; service-level bridge tests alone cannot detect an unwired production entrypoint."
+      "rationale": "The production /v1/chat/completions handler binds the ChatIdentity adapter directly to the NewAPI bridge dispatcher with the plan-bound execution context and canonical request. The handler must not inspect TargetProtocol again: restoring that old branch creates a second route owner and lets future merges misroute DashScope/Vertex credentials."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
@@ -844,6 +846,30 @@
         "ErrForeignCredentialOfficialOpenAIFallback"
       ],
       "rationale": "Behavior regressions for the Qwen credential-leak fix: inbound /v1/messages for a bridge-eligible newapi account is owned by the NewAPI adaptor (not an OpenAI-shaped fallback), a foreign credential with no OpenAI-resolvable base fails closed instead of reaching api.openai.com, and an OpenAI api-key account still resolves the official host. Deleting these tests would let an upstream merge restore either leak with a green build."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution.go",
+      "must_contain": [
+        "messagesToResponsesAdapter",
+        "messagesToChatAdapter",
+        "chatToResponsesAdapter",
+        "chatToMessagesAdapter",
+        "responsesToChatAdapter",
+        "responsesToMessagesAdapter",
+        "RouteFacts",
+        "ExecuteSelectedProtocol"
+      ],
+      "rationale": "Protocol routing is the single execution boundary for NewAPI text channels. Each inbound→target pair has a concrete adapter and immutable route facts; removing this owner or restoring a generic callback lets an upstream merge send a Messages body to a Chat/Responses endpoint while compilation and unrelated NewAPI bridge tests remain green."
+    },
+    {
+      "path": "backend/internal/service/protocol_routing_migration.go",
+      "must_contain": [
+        "MigrateProtocolRoutingSSOT",
+        "ProtocolRoutingRemediationProbeRequired",
+        "ProtocolRoutingRemediationNoLegalRoute",
+        "CutoverReady"
+      ],
+      "rationale": "NewAPI accounts are custom endpoints and must never inherit official protocol capabilities. The additive migration reports them for per-account probes and blocks cutover readiness when no legal route exists instead of inferring from channel_type/api_protocol."
     }
   ]
 }

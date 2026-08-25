@@ -59,7 +59,7 @@ func runResponsesProbe(t *testing.T, status int, body string) map[string]any {
 // issue #5371：账号一旦被落标为「不支持 Responses」，网关就长期改走
 // /v1/chat/completions，Codex 的 prompt 缓存前缀被打散；而探测只在账号创建/更新时
 // 跑一次，标记不会自动恢复。因此判据不成立的响应绝不能落标。
-func TestProbeOpenAIAPIKeyResponsesSupport_InconclusiveResponseKeepsUnknown(t *testing.T) {
+func TestProbeOpenAIAPIKeyResponsesSupport_InconclusiveResponsePreservesPrior(t *testing.T) {
 	cases := []struct {
 		name string
 		body string
@@ -81,7 +81,7 @@ func TestProbeOpenAIAPIKeyResponsesSupport_InconclusiveResponseKeepsUnknown(t *t
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Nil(t, runResponsesProbe(t, http.StatusOK, tc.body),
-				"判据不成立时必须保持 unknown，不得落标")
+				"判据不成立时必须保留既有事实，不得落标")
 		})
 	}
 }

@@ -92,6 +92,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 			mappedModel = normalized
 		}
 	}
+	mappedModel = protocolExecutionResolvedModel(ctx, mappedModel)
 	anthropicReq.Model = mappedModel
 
 	if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, originalModel, originalModel) {

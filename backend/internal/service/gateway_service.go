@@ -20,6 +20,7 @@ import (
 	"unsafe"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -580,10 +581,11 @@ type AccountWaitPlan struct {
 }
 
 type AccountSelectionResult struct {
-	Account     *Account
-	Acquired    bool
-	ReleaseFunc func()
-	WaitPlan    *AccountWaitPlan // nil means no wait allowed
+	Account      *Account
+	Acquired     bool
+	ReleaseFunc  func()
+	WaitPlan     *AccountWaitPlan // nil means no wait allowed
+	ProtocolPlan *protocolrouter.Plan
 	// profitGate 携带本次选号真实生效的利润门（无门为 nil）。门安装在调度栈的
 	// 局部 ctx 上，handler 必须经 ContextWithSelectionProfitGate 重放后才能在
 	// 调度栈之外做抢槽后终检与准入后粘性绑定。
@@ -643,6 +645,14 @@ type ForwardResult struct {
 	ImageSizeBreakdown map[string]int
 	SearchCount        int
 	AudioUsage         *AudioUsage
+	protocolRouteFacts RouteFacts
+}
+
+func (r *ForwardResult) ProtocolRouteFacts() (RouteFacts, bool) {
+	if r == nil || !r.protocolRouteFacts.valid() {
+		return RouteFacts{}, false
+	}
+	return r.protocolRouteFacts, true
 }
 
 // GatewayFailureStage identifies which request stage failed. The zero value is
