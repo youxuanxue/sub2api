@@ -155,19 +155,46 @@ def build_test_plan(
     service_package: str,
     min_shards: int,
     max_regex_bytes: int,
-) -> tuple[list[str], list[str], bool]:
+) -> tuple[list[str], list[str], list[str], bool]:
     other_packages, service_tests, has_test_main = discover_test_plan(
         root,
         service_package,
     )
     if has_test_main:
-        return other_packages, [], True
+        return other_packages, service_tests, [], True
     patterns = shard_service_tests(
         service_tests,
         min_shards,
         max_regex_bytes,
     )
-    return other_packages, patterns, False
+    return other_packages, service_tests, patterns, False
+
+
+def verify_binary_registry(
+    service_binary: Path,
+    service_dir: Path,
+    discovered_tests: list[str],
+) -> None:
+    output = _run_checked(
+        [str(service_binary), "-test.list", "^(Test|Fuzz|Example)"],
+        service_dir,
+    )
+    registered_tests = sorted(
+        {line.strip() for line in output.splitlines() if line.strip()}
+    )
+    discovered = set(discovered_tests)
+    registered = set(registered_tests)
+    if discovered == registered:
+        return
+
+    details = []
+    missing = sorted(registered - discovered)
+    unexpected = sorted(discovered - registered)
+    if missing:
+        details.append("missing from AST discovery: " + ", ".join(missing))
+    if unexpected:
+        details.append("missing from binary registry: " + ", ".join(unexpected))
+    raise RunnerError("service test registry mismatch; " + "; ".join(details))
 
 
 def build_commands(
@@ -210,6 +237,24 @@ def _last_summary(output: str) -> str:
     return lines[-1] if lines else "no output"
 
 
+def _terminate_processes(
+    running: list[tuple[Command, subprocess.Popen[bytes], Path, float]],
+) -> None:
+    for _, process, _, _ in running:
+        if process.poll() is not None:
+            continue
+        try:
+            process.terminate()
+        except ProcessLookupError:
+            continue
+    for _, process, _, _ in running:
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+
 def run_commands(commands: list[Command]) -> int:
     with tempfile.TemporaryDirectory(prefix="sub2api-unit-") as temporary:
         log_dir = Path(temporary)
@@ -239,11 +284,8 @@ def run_commands(commands: list[Command]) -> int:
             with ThreadPoolExecutor(max_workers=len(running)) as executor:
                 results = list(executor.map(wait_for_process, running))
             failed = any(returncode != 0 for _, returncode, _, _ in results)
-        except KeyboardInterrupt:
-            for _, process, _, _ in running:
-                process.terminate()
-            for _, process, _, _ in running:
-                process.wait()
+        except BaseException:
+            _terminate_processes(running)
             raise
         finally:
             for handle in handles:
@@ -271,7 +313,7 @@ def run_unit_tests(
     min_shards: int,
     max_regex_bytes: int,
 ) -> int:
-    other_packages, patterns, has_test_main = build_test_plan(
+    other_packages, service_tests, patterns, has_test_main = build_test_plan(
         root,
         service_package,
         min_shards,
@@ -298,6 +340,8 @@ def run_unit_tests(
             ],
             root,
         )
+        service_dir = root / service_package.removeprefix("./")
+        verify_binary_registry(service_binary, service_dir, service_tests)
         commands = build_commands(
             root,
             service_package,

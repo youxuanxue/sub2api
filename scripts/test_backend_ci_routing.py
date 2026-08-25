@@ -79,12 +79,34 @@ class BackendCIRoutingTest(unittest.TestCase):
             "scripts.test_preflight_ci_handoffs",
             "scripts.test_ci_gate_handoffs",
             "scripts.ci.test_changed_surfaces",
-            "scripts.ci.test_unit_test_runner",
             "scripts.test_backend_ci_routing",
         }
         for module in expected_modules:
             with self.subTest(module=module):
                 self.assertIn(module, command)
+
+    def test_go_dependent_unit_runner_contract_runs_after_pinned_setup(self) -> None:
+        steps = self.jobs["preflight"]["steps"]
+        orchestration = next(
+            step for step in steps if step.get("name") == "CI orchestration contract tests"
+        )
+        self.assertNotIn("scripts.ci.test_unit_test_runner", orchestration.get("run", ""))
+
+        setup_index = next(
+            index for index, step in enumerate(steps) if step.get("uses") == "actions/setup-go@v6"
+        )
+        contract_steps = [
+            (index, step)
+            for index, step in enumerate(steps)
+            if step.get("name") == "Unit runner contract tests"
+        ]
+        self.assertEqual(len(contract_steps), 1)
+        contract_index, contract_step = contract_steps[0]
+        self.assertGreater(contract_index, setup_index)
+        self.assertIn(
+            "scripts.ci.test_unit_test_runner",
+            contract_step.get("run", ""),
+        )
 
     def test_go_dependent_integration_contract_runs_after_pinned_setup(self) -> None:
         steps = self.jobs["preflight"]["steps"]

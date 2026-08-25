@@ -110,7 +110,6 @@ jobs:
             scripts.test_preflight_ci_handoffs \
             scripts.test_ci_gate_handoffs \
             scripts.ci.test_changed_surfaces \
-            scripts.ci.test_unit_test_runner \
             scripts.test_backend_ci_routing
       # Preflight runs `go test` for QA evidence dataset validation; backend/go.mod
       # replaces new-api with ../../new-api — same sibling checkout as test/lint jobs.
@@ -124,6 +123,8 @@ jobs:
           go-version-file: backend/go.mod
           check-latest: false
           cache: false
+      - name: Unit runner contract tests
+        run: python3 -m unittest scripts.ci.test_unit_test_runner
       - name: Integration package discovery contract tests
         run: python3 -m unittest scripts.ci.test_integration_packages
       - uses: ./.github/actions/go-rolling-cache
