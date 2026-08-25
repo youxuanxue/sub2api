@@ -63,8 +63,19 @@ func (s *GatewayService) UniversalGroupSupportsRequest(ctx context.Context, grou
 	if err != nil {
 		return false, false
 	}
-	accounts = append(accounts, s.listErrorAccountsForUniversalEntitlement(ctx, groupID, platform)...)
-	return s.universalAccountsSupportRequest(ctx, accounts, useMixed, platform, model, shape), true
+	// Native Gemini has multiple wire-compatible Google backends. Its resolver
+	// therefore needs current scheduler reachability so an error-only native pool
+	// cannot mask a healthy Vertex group through the Gemini platform hint. Other
+	// shapes retain error-account entitlement to prevent semantic cross-vendor
+	// misrouting (for example Qianfan-owned DeepSeek models).
+	return s.universalAccountsSupportRequest(
+		ctx,
+		s.accountsForUniversalRequestEntitlement(ctx, groupID, platform, shape, accounts),
+		useMixed,
+		platform,
+		model,
+		shape,
+	), true
 }
 
 // UniversalGroupSupportsRequestStrict is the discovery counterpart of the
@@ -78,6 +89,7 @@ func (s *GatewayService) UniversalGroupSupportsRequestStrict(ctx context.Context
 	if err != nil {
 		return false, err
 	}
+	accounts = s.accountsForUniversalRequestEntitlement(ctx, &groupID, platform, shape, accounts)
 	return s.universalAccountsSupportRequest(ctx, accounts, useMixed, platform, model, shape), nil
 }
 
@@ -116,11 +128,7 @@ func withUniversalCapabilityAccountCache(ctx context.Context) context.Context {
 func (s *GatewayService) universalCapabilityAccounts(ctx context.Context, groupID int64, platform string) ([]Account, bool, error) {
 	cache, _ := ctx.Value(universalCapabilityAccountCacheContextKey{}).(*universalCapabilityAccountCache)
 	if cache == nil {
-		accounts, useMixed, err := s.listSchedulableAccounts(ctx, &groupID, platform, false)
-		if err != nil {
-			return accounts, useMixed, err
-		}
-		return append(accounts, s.listErrorAccountsForUniversalEntitlement(ctx, &groupID, platform)...), useMixed, nil
+		return s.listSchedulableAccounts(ctx, &groupID, platform, false)
 	}
 
 	key := universalCapabilityAccountCacheKey{groupID: groupID, platform: platform}
@@ -130,15 +138,25 @@ func (s *GatewayService) universalCapabilityAccounts(ctx context.Context, groupI
 		return cached.accounts, cached.useMixed, cached.err
 	}
 	accounts, useMixed, err := s.listSchedulableAccounts(ctx, &groupID, platform, false)
-	if err == nil {
-		accounts = append(accounts, s.listErrorAccountsForUniversalEntitlement(ctx, &groupID, platform)...)
-	}
 	cache.entries[key] = universalCapabilityAccountCacheEntry{
 		accounts: accounts,
 		useMixed: useMixed,
 		err:      err,
 	}
 	return accounts, useMixed, err
+}
+
+func (s *GatewayService) accountsForUniversalRequestEntitlement(
+	ctx context.Context,
+	groupID *int64,
+	platform string,
+	shape UniversalShape,
+	accounts []Account,
+) []Account {
+	if shape == ShapeGemini {
+		return accounts
+	}
+	return append(accounts, s.listErrorAccountsForUniversalEntitlement(ctx, groupID, platform)...)
 }
 
 func (s *GatewayService) listErrorAccountsForUniversalEntitlement(ctx context.Context, groupID *int64, platform string) []Account {
@@ -155,6 +173,9 @@ func (s *GatewayService) listErrorAccountsForUniversalEntitlement(ctx context.Co
 func (s *GatewayService) universalAccountsSupportRequest(ctx context.Context, accounts []Account, useMixed bool, platform, model string, shape UniversalShape) bool {
 	for i := range accounts {
 		acc := &accounts[i]
+		if shape == ShapeGemini && !s.isAccountSchedulableForModelSelection(ctx, acc, model) {
+			continue
+		}
 		if IsOpenAICompatPlatform(platform) {
 			if !acc.IsOpenAICompatPoolMember(platform) {
 				continue
@@ -230,6 +251,8 @@ func universalOpenAICompatMappingHonorsPlatformHint(account *Account, model stri
 
 func universalOpenAICompatAccountSupportsShape(account *Account, shape UniversalShape) bool {
 	switch shape {
+	case ShapeGemini:
+		return account.IsNewAPIVertexServiceAccount()
 	case ShapeOpenAIEmbeddings:
 		return accountSupportsOpenAIRequestCapabilities(account, OpenAIEndpointCapabilityEmbeddings, "", false)
 	case ShapeOpenAIImages, ShapeOpenAIImagesEdit:

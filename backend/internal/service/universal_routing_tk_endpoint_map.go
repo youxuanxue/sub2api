@@ -158,7 +158,10 @@ func universalCandidatePlatforms(shape UniversalShape, forcedPlatform string, ha
 		}
 		return out
 	case ShapeGemini:
-		return []string{PlatformGemini, PlatformAntigravity}
+		// Native Gemini requests can also be served by Vertex service accounts
+		// represented as newapi ch41. Account-level shape/model checks below keep
+		// unrelated newapi vendors out of this candidate pool.
+		return []string{PlatformGemini, PlatformAntigravity, PlatformNewAPI}
 	default:
 		return nil
 	}
