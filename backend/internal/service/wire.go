@@ -9,6 +9,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
@@ -33,6 +34,28 @@ func ProvideGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthCli
 type BuildInfo struct {
 	Version   string
 	BuildType string
+}
+
+type ProtocolRoutingSSOTReady struct {
+	Report ProtocolRoutingMigrationReport
+}
+
+func ProvideProtocolRoutingSSOTReady(accountRepo AccountRepository, router *protocolrouter.Router) ProtocolRoutingSSOTReady {
+	report, err := MigrateProtocolRoutingSSOT(context.Background(), accountRepo, router)
+	if err != nil {
+		report.CutoverReady = false
+		logger.LegacyPrintf("service.protocol_routing", "protocol SSOT migration/report failed: %v", err)
+		return ProtocolRoutingSSOTReady{Report: report}
+	}
+	logger.LegacyPrintf(
+		"service.protocol_routing",
+		"protocol SSOT migration/report: active_governed=%d seeded_official=%d cutover_ready=%t remediation=%d",
+		report.ActiveGoverned,
+		report.SeededOfficial,
+		report.CutoverReady,
+		len(report.Remediation),
+	)
+	return ProtocolRoutingSSOTReady{Report: report}
 }
 
 // ProvidePricingService creates and initializes PricingService
@@ -940,6 +963,8 @@ var ProviderSet = wire.NewSet(
 	ProvideBillingCacheService,
 	NewAnnouncementService,
 	NewAdminService,
+	NewProtocolRouter,
+	ProvideProtocolRoutingSSOTReady,
 	NewGatewayService,
 	NewKiroGatewayService,
 	NewOpenAIGatewayService,

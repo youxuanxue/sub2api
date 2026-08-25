@@ -59,6 +59,9 @@ func (h *GatewayHandler) tkSubmitClaudeGatewayForwardUsage(in tkClaudeGatewayFor
 	requestPayloadHash := service.HashUsageRequestPayload(in.Body)
 	inboundEndpoint := GetInboundEndpoint(in.C)
 	upstreamEndpoint := GetUpstreamEndpoint(in.C, in.Account.Platform)
+	if facts, ok := in.Result.ProtocolRouteFacts(); ok {
+		upstreamEndpoint = facts.UpstreamEndpoint()
+	}
 	quotaPlatform := service.QuotaPlatform(in.C.Request.Context(), in.APIKey)
 	sessionID := service.ExtractClientSessionID(in.C)
 	gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(in.C)

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -182,6 +184,18 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	requestCtx = service.WithThinkingEnabled(
 		requestCtx, parsedReq.ThinkingEnabled, h.metadataBridgeEnabled(),
 	)
+	canonicalRequest, err := newCanonicalProtocolRequest(
+		protocolrouter.ProtocolResponses,
+		protocolrouter.ResponsesPathRoot,
+		reqModel,
+		reqStream,
+		body,
+	)
+	if err != nil {
+		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+		return
+	}
+	requestCtx = service.WithProtocolRouting(requestCtx, h.protocolRouter, canonicalRequest)
 	c.Request = c.Request.WithContext(requestCtx)
 	TkPrepareParsedRequestSessionInputs(c, apiKey, parsedReq)
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
@@ -302,33 +316,66 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		// 5. Forward request
 		writerSizeBeforeForward := c.Writer.Size()
 		forwardStart := time.Now()
-		forwardBody := body
-		if channelMapping.Mapped {
-			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
-		}
 		var result *service.ForwardResult
 		setActualUpstreamEndpoint(c, "")
-		if service.UsesGeminiNativeOpenAICompat(account.Platform, reqModel) {
-			if h.geminiCompatService == nil {
-				h.responsesErrorResponse(c, http.StatusBadGateway, "upstream_error", "Gemini compatibility service is not configured")
-				if accountReleaseFunc != nil {
-					accountReleaseFunc()
-				}
-				return
-			}
-			result, err = h.geminiCompatService.ForwardAsResponses(requestCtx, c, account, forwardBody)
-		} else if shouldUseAntigravityCompat(account) {
-			if h.antigravityGatewayService == nil {
-				h.responsesErrorResponse(c, http.StatusBadGateway, "upstream_error", "Antigravity compatibility service is not configured")
-				if accountReleaseFunc != nil {
-					accountReleaseFunc()
-				}
-				return
-			}
-			setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
-			result, err = h.antigravityGatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
-		} else {
-			result, err = h.gatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
+		value, executeErr := service.ExecuteSelectedProtocol(
+			requestCtx,
+			h.protocolRouter,
+			selection,
+			account,
+			h.gatewayService.ValidateProtocolEndpoint,
+			service.ProtocolExecutors{
+				NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					forwardBody := request.Body()
+					if channelMapping.Mapped {
+						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
+					}
+					if service.UsesGeminiNativeOpenAICompat(account.Platform, reqModel) {
+						if h.geminiCompatService == nil {
+							return nil, errors.New("gemini compatibility service is not configured")
+						}
+						return h.geminiCompatService.ForwardAsResponses(executionCtx, c, account, forwardBody)
+					}
+					if shouldUseAntigravityCompat(account) {
+						if h.antigravityGatewayService == nil {
+							return nil, errors.New("antigravity compatibility service is not configured")
+						}
+						setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
+						return h.antigravityGatewayService.ForwardAsResponses(executionCtx, c, account, forwardBody, parsedReq)
+					}
+					return h.gatewayService.ForwardAsResponses(executionCtx, c, account, forwardBody, parsedReq)
+				},
+				ResponsesIdentity: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					forwardBody := request.Body()
+					if channelMapping.Mapped {
+						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
+					}
+					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+					openAIResult, forwardErr := h.openAIGatewayService.ForwardAsResponsesDispatched(executionCtx, c, account, forwardBody)
+					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+				},
+				ResponsesToChat: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					forwardBody := request.Body()
+					if channelMapping.Mapped {
+						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
+					}
+					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+					openAIResult, forwardErr := h.openAIGatewayService.Forward(executionCtx, c, account, forwardBody)
+					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+				},
+				ResponsesToMessages: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					forwardBody := request.Body()
+					if channelMapping.Mapped {
+						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
+					}
+					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+					return h.gatewayService.ForwardAsResponses(executionCtx, c, account, forwardBody, parsedReq)
+				},
+			},
+		)
+		err = executeErr
+		if value != nil {
+			result, _ = value.(*service.ForwardResult)
 		}
 		tkRecordForwardResponseTail(c, forwardStart)
 

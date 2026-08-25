@@ -109,6 +109,7 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 			"nested":  map[string]any{"token": "source-token"},
 		},
 		Extra: map[string]any{
+			SupportedProtocolsExtraKey:        []any{"messages"},
 			"config":                          map[string]any{"region": "us-east-1"},
 			"items":                           []any{map[string]any{"enabled": true}},
 			"quota_limit":                     1000,

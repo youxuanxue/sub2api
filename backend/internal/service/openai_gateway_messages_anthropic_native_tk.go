@@ -50,6 +50,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	upstreamModel = protocolExecutionResolvedModel(ctx, upstreamModel)
 	if upstreamModel != originalModel {
 		rewritten, err := sjson.SetBytes(body, "model", upstreamModel)
 		if err != nil {
@@ -79,7 +80,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	if apiKey == "" {
 		return nil, fmt.Errorf("account %d missing api_key", account.ID)
 	}
-	targetURL, err := s.nativeAnthropicTargetURL(account)
+	targetURL, err := s.nativeAnthropicTargetURL(ctx, account)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +121,10 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 
 // nativeAnthropicTargetURL 组装国产供应商原生 Anthropic messages 端点。
 // 第三方端点保持朴素路径，不附加 ?beta=true。
-func (s *OpenAIGatewayService) nativeAnthropicTargetURL(account *Account) (string, error) {
+func (s *OpenAIGatewayService) nativeAnthropicTargetURL(ctx context.Context, account *Account) (string, error) {
+	if endpoint := protocolExecutionEndpoint(ctx, ""); endpoint != "" {
+		return endpoint, nil
+	}
 	baseURL := strings.TrimSpace(account.GetAnthropicProtocolBaseURL())
 	if baseURL == "" {
 		return "", fmt.Errorf("account %d has no anthropic protocol base url", account.ID)
@@ -140,6 +144,7 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 	apiKey string,
 	targetURL string,
 ) (*http.Request, []byte, error) {
+	targetURL = protocolExecutionEndpoint(ctx, targetURL)
 	// 能力维度 body sanitize：与 Anthropic 平台 passthrough 相同，按 beta
 	// header 决定是否保留 body 中的 beta 能力字段，避免客户端"body 带字段但
 	// header 忘带 token"的 bug 让第三方上游 400。
@@ -178,7 +183,7 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 	req.Header.Del("x-api-key")
 	req.Header.Del("x-goog-api-key")
 	req.Header.Del("cookie")
-	setAnthropicAPIKeyAuthHeader(req.Header, account, apiKey)
+	setProtocolMessagesAPIKeyAuthHeader(ctx, req.Header, account, apiKey)
 
 	if getHeaderRaw(req.Header, "content-type") == "" {
 		setHeaderRaw(req.Header, "content-type", "application/json")
@@ -191,6 +196,17 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 	account.ApplyHeaderOverrides(req.Header)
 
 	return req, body, nil
+}
+
+func setProtocolMessagesAPIKeyAuthHeader(ctx context.Context, header http.Header, account *Account, token string) {
+	if protocolExecutionBound(ctx) && account != nil {
+		switch account.Platform {
+		case PlatformOpenAI, PlatformGrok, PlatformNewAPI:
+			header.Set("Authorization", "Bearer "+token)
+			return
+		}
+	}
+	setAnthropicAPIKeyAuthHeader(header, account, token)
 }
 
 // handleNativeAnthropicBufferedResponse 处理非流式原生 Anthropic 响应：

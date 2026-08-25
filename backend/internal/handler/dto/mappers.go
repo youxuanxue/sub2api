@@ -246,6 +246,11 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 	if state := service.OllamaCloudUsageStateFromAccount(a); state.Eligible {
 		ollamaCloudUsage = state
 	}
+	supportedProtocolValues := a.SupportedProtocols()
+	supportedProtocols := make([]string, len(supportedProtocolValues))
+	for i, protocol := range supportedProtocolValues {
+		supportedProtocols[i] = string(protocol)
+	}
 	out := &Account{
 		ID:                      a.ID,
 		Name:                    a.Name,
@@ -255,6 +260,7 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		Credentials:             redactedCreds,
 		CredentialsStatus:       credsStatus,
 		Extra:                   extra,
+		SupportedProtocols:      supportedProtocols,
 		OllamaCloudUsage:        ollamaCloudUsage,
 		ProxyID:                 a.ProxyID,
 		ProxyFallbackOriginID:   a.ProxyFallbackOriginID,

@@ -33,7 +33,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
-	if !shouldForwardNativeAnthropicMessagesForModel(body) {
+	selectedModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	selectedModel = protocolExecutionResolvedModel(ctx, selectedModel)
+	if !tkIsForwardableAnthropicModelName(selectedModel) {
 		return nil, fmt.Errorf("native anthropic messages requires a Claude model")
 	}
 
@@ -46,6 +48,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	upstreamModel = protocolExecutionResolvedModel(ctx, upstreamModel)
 
 	upstreamBody := body
 	if upstreamModel != originalModel {
@@ -56,6 +59,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 	if err != nil {
 		return nil, err
 	}
+	targetURL = protocolExecutionEndpoint(ctx, targetURL)
 
 	apiKey := nativeOpenAIApiKeyForAccount(account)
 	if strings.TrimSpace(apiKey) == "" {

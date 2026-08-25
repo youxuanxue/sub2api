@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,9 +47,52 @@ func (r *tempUnschedulableOpenAIAccountRepo) SetModelRateLimit(_ context.Context
 type snapshotUpdateAccountRepo struct {
 	stubOpenAIAccountRepo
 	updateExtraCalls chan map[string]any
+	mu               sync.Mutex
 }
 
 func (r *snapshotUpdateAccountRepo) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.applyExtraUpdate(id, updates)
+}
+
+func (r *snapshotUpdateAccountRepo) UpdateExtraIfUpdatedAt(
+	_ context.Context,
+	id int64,
+	expectedUpdatedAt time.Time,
+	updates map[string]any,
+) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.accounts {
+		if r.accounts[i].ID != id {
+			continue
+		}
+		if !r.accounts[i].UpdatedAt.Equal(expectedUpdatedAt) {
+			return false, nil
+		}
+		if err := r.applyExtraUpdate(id, updates); err != nil {
+			return false, err
+		}
+		r.accounts[i].UpdatedAt = r.accounts[i].UpdatedAt.Add(time.Nanosecond)
+		return true, nil
+	}
+	return false, errors.New("account not found")
+}
+
+func (r *snapshotUpdateAccountRepo) applyExtraUpdate(id int64, updates map[string]any) error {
+	for i := range r.accounts {
+		if r.accounts[i].ID != id {
+			continue
+		}
+		if r.accounts[i].Extra == nil {
+			r.accounts[i].Extra = make(map[string]any)
+		}
+		for key, value := range updates {
+			r.accounts[i].Extra[key] = value
+		}
+		break
+	}
 	if r.updateExtraCalls != nil {
 		copied := make(map[string]any, len(updates))
 		for k, v := range updates {

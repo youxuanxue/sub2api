@@ -15,6 +15,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -62,6 +63,13 @@ type GatewayHandler struct {
 	// Injected post-construction via SetModelListFilter; nil = fail-open.
 	tkModelListFilter *service.ModelListFilter
 	tkCapabilities    apiKeyCapabilitySource
+	protocolRouter    *protocolrouter.Router
+}
+
+func (h *GatewayHandler) SetProtocolRouter(router *protocolrouter.Router) {
+	if h != nil {
+		h.protocolRouter = router
+	}
 }
 
 // NewGatewayHandler creates a new GatewayHandler
@@ -120,6 +128,32 @@ func NewGatewayHandler(
 		cfg:                       cfg,
 		settingService:            settingService,
 	}
+}
+
+func prepareGatewayMessagesExecution(
+	c *gin.Context,
+	gatewayService *service.GatewayService,
+	account *service.Account,
+	groupID *int64,
+	parsed *service.ParsedRequest,
+	mapping service.ChannelMappingResult,
+	request protocolrouter.CanonicalRequest,
+) (*service.ParsedRequest, []byte, error) {
+	executionParsed := *parsed
+	if err := executionParsed.ReplaceBody(request.Body()); err != nil {
+		return nil, nil, err
+	}
+	if mapping.Mapped {
+		executionParsed.Model = mapping.MappedModel
+		if err := executionParsed.ReplaceBody(gatewayService.ReplaceModelInBody(executionParsed.Body.Bytes(), mapping.MappedModel)); err != nil {
+			return nil, nil, err
+		}
+	}
+	if err := executionParsed.ReplaceBody(gatewayService.ApplyBedrockCCCompat(c, executionParsed.Body.Bytes(), executionParsed.Model, account, groupID)); err != nil {
+		return nil, nil, err
+	}
+	c.Set("parsed_request", &executionParsed)
+	return &executionParsed, executionParsed.Body.Bytes(), nil
 }
 
 // Messages handles Claude API compatible messages endpoint
@@ -213,6 +247,18 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return
 	}
+	canonicalRequest, err := newCanonicalProtocolRequest(
+		protocolrouter.ProtocolMessages,
+		protocolrouter.ResponsesPathNone,
+		reqModel,
+		reqStream,
+		body,
+	)
+	if err != nil {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+		return
+	}
+	c.Request = c.Request.WithContext(service.WithProtocolRouting(c.Request.Context(), h.protocolRouter, canonicalRequest))
 	if !compositeTargetPlatformResolved(c, apiKey, reqModel) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by composite groups")
 		return
@@ -858,25 +904,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			attemptParsedReq.OnUpstreamAccepted = queueRelease
 			// ===== 用户消息串行队列 END =====
 
-			// 渠道模型映射只作用于本次账号尝试，避免 failover 后污染原始 ParsedRequest。
-			if channelMapping.Mapped {
-				attemptParsedReq.Model = channelMapping.MappedModel
-				if err := attemptParsedReq.ReplaceBody(h.gatewayService.ReplaceModelInBody(attemptParsedReq.Body.Bytes(), channelMapping.MappedModel)); err != nil {
-					h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
-					return
-				}
-			}
-			// Bedrock CC 兼容：清理 body 专有字段 + 过滤 anthropic-beta header，适用于所有转发路径
-			if err := attemptParsedReq.ReplaceBody(h.gatewayService.ApplyBedrockCCCompat(c, attemptParsedReq.Body.Bytes(), attemptParsedReq.Model, account, apiKey.GroupID)); err != nil {
-				h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
-				return
-			}
-			attemptBody := attemptParsedReq.Body.Bytes()
-
 			tkRecordRoutingLatency(c, routingStart)
 
 			// 转发请求 - 根据账号平台分流
-			c.Set("parsed_request", attemptParsedReq)
 			var result *service.ForwardResult
 			requestCtx := c.Request.Context()
 			if fs.SwitchCount > 0 {
@@ -888,10 +918,54 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
 			forwardStart := time.Now()
-			if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
-				result, err = h.antigravityGatewayService.Forward(requestCtx, c, account, attemptBody, hasBoundSession)
-			} else {
-				result, err = h.gatewayService.Forward(requestCtx, c, account, attemptParsedReq)
+			value, executeErr := service.ExecuteSelectedProtocol(
+				requestCtx,
+				h.protocolRouter,
+				selection,
+				account,
+				h.gatewayService.ValidateProtocolEndpoint,
+				service.ProtocolExecutors{
+					NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						executionParsedReq, attemptBody, prepareErr := prepareGatewayMessagesExecution(c, h.gatewayService, account, apiKey.GroupID, attemptParsedReq, channelMapping, request)
+						if prepareErr != nil {
+							return nil, prepareErr
+						}
+						if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
+							return h.antigravityGatewayService.Forward(executionCtx, c, account, attemptBody, hasBoundSession)
+						}
+						return h.gatewayService.Forward(executionCtx, c, account, executionParsedReq)
+					},
+					MessagesIdentity: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						executionParsedReq, _, prepareErr := prepareGatewayMessagesExecution(c, h.gatewayService, account, apiKey.GroupID, attemptParsedReq, channelMapping, request)
+						if prepareErr != nil {
+							return nil, prepareErr
+						}
+						setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+						return h.gatewayService.Forward(executionCtx, c, account, executionParsedReq)
+					},
+					MessagesToResponses: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						_, attemptBody, prepareErr := prepareGatewayMessagesExecution(c, h.gatewayService, account, apiKey.GroupID, attemptParsedReq, channelMapping, request)
+						if prepareErr != nil {
+							return nil, prepareErr
+						}
+						setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+						openAIResult, forwardErr := h.openAIGatewayService.ForwardAsAnthropic(executionCtx, c, account, attemptBody, "", channelMapping.MappedModel)
+						return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+					},
+					MessagesToChat: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						_, attemptBody, prepareErr := prepareGatewayMessagesExecution(c, h.gatewayService, account, apiKey.GroupID, attemptParsedReq, channelMapping, request)
+						if prepareErr != nil {
+							return nil, prepareErr
+						}
+						setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+						openAIResult, forwardErr := h.openAIGatewayService.ForwardAsAnthropicDispatched(executionCtx, c, account, attemptBody, "", channelMapping.MappedModel)
+						return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+					},
+				},
+			)
+			err = executeErr
+			if value != nil {
+				result, _ = value.(*service.ForwardResult)
 			}
 			tkRecordForwardResponseTail(c, forwardStart)
 

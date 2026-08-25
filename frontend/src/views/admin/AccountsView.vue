@@ -347,6 +347,7 @@
               >
                 {{ platformTypeBadgesById[row.id].openaiCompactLabel }}
               </span>
+              <AccountProtocolCapabilities :protocols="row.supported_protocols || []" />
             </div>
           </template>
           <template #cell-capacity="{ row }">
@@ -603,6 +604,7 @@ const ScheduledTestsPanel = defineAsyncComponent(() => import('@/components/admi
 const AccountTierModal = defineAsyncComponent(() => import('@/components/admin/account/AccountTierModal.vue'))
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
+import AccountProtocolCapabilities from '@/components/account/AccountProtocolCapabilities.vue'
 const AccountUsageCell = defineAsyncComponent(() => import('@/components/account/AccountUsageCell.vue'))
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'

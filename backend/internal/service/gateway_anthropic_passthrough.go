@@ -466,6 +466,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 		}
 		targetURL = validatedURL + "/v1/messages?beta=true"
 	}
+	targetURL = protocolExecutionEndpoint(ctx, targetURL)
 
 	// 能力维度 body sanitize：透传路径上 anthropic-beta header 原样透传客户端值，
 	// 依此决定是否保留 body 中的 context_management。避免“客户端 body 带字段但

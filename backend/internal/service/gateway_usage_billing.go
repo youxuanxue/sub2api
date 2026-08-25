@@ -757,6 +757,10 @@ func logResponseModelBillingApplied(component string, account *Account, requestI
 // LongContextThreshold > 0 时 Token 计费回退走 CalculateCostWithLongContext。
 func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsageCoreInput, opts *recordUsageOpts) error {
 	result := input.Result
+	if facts, ok := result.ProtocolRouteFacts(); ok {
+		input.UpstreamEndpoint = facts.UpstreamEndpoint()
+		result.UpstreamModel = facts.ResolvedModel()
+	}
 	apiKey := input.APIKey
 	user := input.User
 	account := input.Account

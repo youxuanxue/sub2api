@@ -88,6 +88,7 @@ func (s *GatewayService) ForwardAsResponses(
 			mappedModel = normalized
 		}
 	}
+	mappedModel = protocolExecutionResolvedModel(ctx, mappedModel)
 	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body, mappedModel, originalModel)
 	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 mapping 完成之后。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)

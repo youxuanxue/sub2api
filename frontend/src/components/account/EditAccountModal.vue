@@ -15,6 +15,11 @@
         <label class="input-label">{{ t('common.name') }}</label>
         <input v-model="form.name" type="text" required class="input" data-tour="edit-account-form-name" />
       </div>
+      <div data-testid="account-supported-protocols">
+        <label class="input-label">{{ t('admin.accounts.supportedProtocols') }}</label>
+        <AccountProtocolCapabilities :protocols="account.supported_protocols || []" />
+        <p class="input-hint">{{ t('admin.accounts.supportedProtocolsHint') }}</p>
+      </div>
       <div>
         <label class="input-label">{{ t('admin.accounts.notes') }}</label>
         <textarea
@@ -2934,6 +2939,7 @@ import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
+import AccountProtocolCapabilities from './AccountProtocolCapabilities.vue'
 import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
 import { useTkAccountNewApiPlatform } from '@/composables/useTkAccountNewApiPlatform'
 import AccountKiroPlatformFields from './AccountKiroPlatformFields.vue'

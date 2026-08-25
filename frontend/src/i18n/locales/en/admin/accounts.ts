@@ -82,6 +82,8 @@ export default {
       notes: 'Notes',
       notesPlaceholder: 'Enter notes',
       notesHint: 'Notes are optional',
+      supportedProtocols: 'Native protocol capabilities',
+      supportedProtocolsHint: 'Read-only results from the account protocol test. Re-test the account to refresh them.',
       allPlatforms: 'All Platforms',
       allChannelTypes: 'All Channel Types',
       allTypes: 'All Types',

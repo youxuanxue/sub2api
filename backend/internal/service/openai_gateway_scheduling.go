@@ -281,6 +281,30 @@ func (s *OpenAIGatewayService) SelectAccountForTokenCount(
 	)
 }
 
+// SelectProtocolAccountForTokenCount returns the exact immutable protocol plan
+// created for the selected account without acquiring a generation slot.
+func (s *OpenAIGatewayService) SelectProtocolAccountForTokenCount(
+	ctx context.Context,
+	groupID *int64,
+	sessionHash string,
+	requestedModel string,
+	requiredCapability OpenAIEndpointCapability,
+	platform string,
+) (*AccountSelectionResult, error) {
+	account, err := s.SelectAccountForTokenCount(
+		ctx,
+		groupID,
+		sessionHash,
+		requestedModel,
+		requiredCapability,
+		platform,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return attachProtocolPlan(ctx, &AccountSelectionResult{Account: account})
+}
+
 // NormalizeOpenAICompatiblePlatform 保留 grok 与国产 OpenAI 兼容供应商（kimi/zhipu/
 // deepseek）的原值，其他值一律归一为 openai。调度器据此对账号与请求做精确平台匹配：
 // kimi 分组请求只命中 kimi 账号，语义与 openai/grok 一致。
@@ -418,7 +442,8 @@ func isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx context.Context
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
 		return false
 	}
-	if !account.SupportsOpenAIEndpointCapability(requiredCapability) {
+	if !protocolRoutingOwnsOpenAITextCapability(ctx, requiredCapability) &&
+		!account.SupportsOpenAIEndpointCapability(requiredCapability) {
 		if account.IsGrok() && requiredCapability == OpenAIEndpointCapabilityGrokMediaGeneration {
 			_, reason := account.GrokMediaGenerationEligibility()
 			slog.Debug("grok_media_account_ineligible", "account_id", account.ID, "reason", reason)
@@ -428,7 +453,7 @@ func isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx context.Context
 	if requireCompact && openAICompactSupportTier(account) == 0 {
 		return false
 	}
-	return true
+	return ProtocolRouteLegal(ctx, account, requestedModel)
 }
 
 type openAIQuotaAutoPauseDecision struct {
@@ -1502,20 +1527,17 @@ func (s *OpenAIGatewayService) newSelectionResult(ctx context.Context, account *
 	if err != nil {
 		return nil, err
 	}
-	return attachSelectionProfitGate(ctx, &AccountSelectionResult{
+	selection := attachSelectionProfitGate(ctx, &AccountSelectionResult{
 		Account:     hydrated,
 		Acquired:    acquired,
 		ReleaseFunc: release,
 		WaitPlan:    waitPlan,
-	}), nil
+	})
+	return attachProtocolPlan(ctx, selection)
 }
 
 func (s *OpenAIGatewayService) newAcquiredSelectionResult(ctx context.Context, account *Account, release func()) (*AccountSelectionResult, error) {
-	selection, err := s.newSelectionResult(ctx, account, true, release, nil)
-	if err != nil && release != nil {
-		release()
-	}
-	return selection, err
+	return s.newSelectionResult(ctx, account, true, release, nil)
 }
 
 func (s *OpenAIGatewayService) schedulingConfig() config.GatewaySchedulingConfig {

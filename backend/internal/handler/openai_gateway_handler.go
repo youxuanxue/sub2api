@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -46,6 +47,13 @@ type OpenAIGatewayHandler struct {
 	videoTaskCache             service.VideoTaskCache // TK; wired via SetVideoTaskCache — see openai_gateway_tk_video.go.
 	mediaStore                 service.MediaStore     // TK; wired via SetMediaStore — image offload + legacy video S3 re-presign.
 	tkCapabilities             apiKeyCapabilitySource
+	protocolRouter             *protocolrouter.Router
+}
+
+func (h *OpenAIGatewayHandler) SetProtocolRouter(router *protocolrouter.Router) {
+	if h != nil {
+		h.protocolRouter = router
+	}
 }
 
 type openAIWSTurnChannelMappingSnapshot struct {
@@ -356,6 +364,22 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
+	responsesPath := protocolrouter.ResponsesPathRoot
+	if legacyCompact {
+		responsesPath = protocolrouter.ResponsesPathCompact
+	}
+	canonicalRequest, err := newCanonicalProtocolRequest(
+		protocolrouter.ProtocolResponses,
+		responsesPath,
+		reqModel,
+		reqStream,
+		body,
+	)
+	if err != nil {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+		return
+	}
+	c.Request = c.Request.WithContext(service.WithProtocolRouting(c.Request.Context(), h.protocolRouter, canonicalRequest))
 	previousResponseID := strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String())
 	if previousResponseID != "" {
 		previousResponseIDKind := service.ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
@@ -423,7 +447,6 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
-	forwardBody := openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
 	seedOpenAIForwardImageIntentHint(c, channelMapping.Mapped, imageIntent)
 	forwardModel := reqModel
 	if channelMapping.Mapped {
@@ -649,18 +672,45 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// 用扣除非语义心跳字节的口径快照：心跳注释不构成语义响应，
 		// 不能因心跳字节变化而放弃 failover 换号（#3887）。
 		writerSizeBeforeForward := service.OpenAICompactKeepaliveAdjustedWrittenSize(c)
-		dispatchBody := tkResponsesForwardDispatchBody(apiKey, account, forwardBody, failedAccountIDs, h.gatewayService.ReplaceModelInBody)
-		// 跨 passthrough 边界的 failover：从 Kiro 等透传账号切到 Bedrock 等非透传账号前，
-		// 从不可变的 canonical forwardBody 派生本次尝试 body 并整块剔除上游私有的加密
-		// reasoning item（含耦合的 id/summary），避免非透传上游 400 拒绝 Kiro reasoning 形态。
-		attemptBody := h.deriveOpenAIForwardAttemptBody(reqLog, dispatchBody, account, &passthroughFailoverState)
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.Forward(c.Request.Context(), c, account, attemptBody)
+			prepareResponsesBody := func(request protocolrouter.CanonicalRequest) []byte {
+				dispatchBody := tkResponsesForwardDispatchBody(apiKey, account, request.Body(), failedAccountIDs, h.gatewayService.ReplaceModelInBody)
+				return h.deriveOpenAIForwardAttemptBody(reqLog, dispatchBody, account, &passthroughFailoverState)
+			}
+			value, executeErr := service.ExecuteSelectedProtocol(
+				c.Request.Context(),
+				h.protocolRouter,
+				selection,
+				account,
+				h.gatewayService.ValidateProtocolEndpoint,
+				service.ProtocolExecutors{
+					NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						return h.gatewayService.Forward(executionCtx, c, account, prepareResponsesBody(request))
+					},
+					ResponsesIdentity: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+						return h.gatewayService.ForwardAsResponsesDispatched(executionCtx, c, account, prepareResponsesBody(request))
+					},
+					ResponsesToChat: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+						return h.gatewayService.Forward(executionCtx, c, account, prepareResponsesBody(request))
+					},
+					ResponsesToMessages: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+						return h.gatewayService.Forward(executionCtx, c, account, prepareResponsesBody(request))
+					},
+				},
+			)
+			if value == nil {
+				return nil, executeErr
+			}
+			result, _ := value.(*service.OpenAIForwardResult)
+			return result, executeErr
 		}()
 		var cyberBlockBodyHTTP []byte
 		if service.GetOpsCyberPolicy(c) != nil {
@@ -1058,7 +1108,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMappingMsg, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
-	mappedBodyForMessages := newOpenAIModelMappedBodyCache(body, h.gatewayService.ReplaceModelInBody)
 
 	// 绑定错误透传服务，允许 service 层在非 failover 错误场景复用规则。
 	if h.errorPassthroughService != nil {
@@ -1196,8 +1245,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		forwardStart := time.Now()
 
 		defaultMappedModel := strings.TrimSpace(effectiveMappedModel)
-		// 应用渠道模型映射到请求体
-		forwardBody := mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
 		writerSizeBeforeForward := c.Writer.Size()
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
@@ -1205,7 +1252,42 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardAsAnthropic(c.Request.Context(), c, account, forwardBody, promptCacheKey, defaultMappedModel)
+			prepareMessagesBody := func(request protocolrouter.CanonicalRequest) []byte {
+				forwardBody := request.Body()
+				if channelMappingMsg.Mapped {
+					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMappingMsg.MappedModel)
+				}
+				return forwardBody
+			}
+			value, executeErr := service.ExecuteSelectedProtocol(
+				c.Request.Context(),
+				h.protocolRouter,
+				selection,
+				account,
+				h.gatewayService.ValidateProtocolEndpoint,
+				service.ProtocolExecutors{
+					NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						return h.gatewayService.ForwardAsAnthropic(executionCtx, c, account, prepareMessagesBody(request), promptCacheKey, defaultMappedModel)
+					},
+					MessagesIdentity: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+						return h.gatewayService.ForwardAsAnthropic(executionCtx, c, account, prepareMessagesBody(request), promptCacheKey, defaultMappedModel)
+					},
+					MessagesToResponses: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+						return h.gatewayService.ForwardAsAnthropic(executionCtx, c, account, prepareMessagesBody(request), promptCacheKey, defaultMappedModel)
+					},
+					MessagesToChat: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+						return h.gatewayService.ForwardAsAnthropicDispatched(executionCtx, c, account, prepareMessagesBody(request), promptCacheKey, defaultMappedModel)
+					},
+				},
+			)
+			if value == nil {
+				return nil, executeErr
+			}
+			result, _ := value.(*service.OpenAIForwardResult)
+			return result, executeErr
 		}()
 		var cyberBlockBodyMsg []byte
 		if service.GetOpsCyberPolicy(c) != nil {

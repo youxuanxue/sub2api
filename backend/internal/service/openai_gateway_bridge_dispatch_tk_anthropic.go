@@ -14,6 +14,7 @@ import (
 
 	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/apipath"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
@@ -33,6 +34,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	if target, planned := protocolExecutionTarget(ctx); planned && target != protocolrouter.ProtocolChatCompletions {
+		return s.ForwardAsAnthropic(ctx, c, account, body, promptCacheKey, defaultMappedModel)
+	}
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointChatCompletions) {
 		return s.ForwardAsAnthropic(ctx, c, account, body, promptCacheKey, defaultMappedModel)
 	}
@@ -53,6 +57,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 	// 2. Model mapping
 	billingModel := resolveOpenAIForwardModel(account, normalizedModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	upstreamModel = protocolExecutionResolvedModel(ctx, upstreamModel)
 
 	// 3. Convert Anthropic → Chat Completions body
 	chatBody, err := anthropicToChatCompletionsBody(&anthropicReq, upstreamModel)
@@ -63,7 +68,10 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 	// 4. Prepare bridge channel input
 	chatBody = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, chatBody, upstreamModel)
 	auth := bridgeAuthFromGin(c)
-	in := newAPIBridgeChannelInputForBody(account, auth.UserID, auth.GroupName, chatBody)
+	chatBody, in, err := bindProtocolPlanToNewAPIBridge(ctx, account, chatBody, auth.UserID, auth.GroupName, newapitypes.RelayFormatOpenAI)
+	if err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}

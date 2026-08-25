@@ -110,6 +110,7 @@ export function toAccountLike(s: EdgeAccountSummary): Account {
     type: s.type as Account['type'],
     channel_type: s.channel_type,
     credentials: edgeSubscriptionToCredentials(s.subscription),
+    supported_protocols: [],
     proxy_id: null,
     concurrency: s.concurrency,
     current_concurrency: s.current_concurrency,

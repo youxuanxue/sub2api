@@ -1,7 +1,7 @@
 ---
 title: Protocol Routing Single Source of Truth
-status: pending
-approved_by: pending
+status: approved
+approved_by: "feng (conversation approval, 2026-08-24)"
 authors: [codex]
 created: 2026-08-24
 related_stories: []

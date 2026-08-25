@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -37,6 +38,21 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 ) (*OpenAIForwardResult, error) {
 	beginUpstreamResponseModelObservation(c)
 	setCodexToolNameReverse(c, nil)
+	if target, planned := protocolExecutionTarget(ctx); planned {
+		switch target {
+		case protocolrouter.ProtocolMessages:
+			if account.IsCNProvider() {
+				return s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
+			}
+			return s.forwardAnthropicViaNativeMessages(ctx, c, account, body, defaultMappedModel)
+		case protocolrouter.ProtocolChatCompletions:
+			return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+		case protocolrouter.ProtocolResponses:
+			// Continue through the Responses converter/transport below.
+		default:
+			return nil, fmt.Errorf("unsupported selected protocol target %q", target)
+		}
+	}
 
 	if result, routed, err := s.tkTryRouteForwardAsAnthropic(ctx, c, account, body, defaultMappedModel); routed {
 		return result, err
@@ -58,6 +74,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// 2. Model mapping
 	billingModel := resolveOpenAIForwardModel(account, normalizedModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	upstreamModel = protocolExecutionResolvedModel(ctx, upstreamModel)
 	promptCacheKey = strings.TrimSpace(promptCacheKey)
 	apiKeyID := getAPIKeyIDFromContext(c)
 	anthropicDigestChain := ""
@@ -277,7 +294,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// often returns opaque 400s. Skip the responses hop for SSOT / universal parity.
 	// Use the client-facing model id: mapped aliases like grok -> grok-4.6 still
 	// ride /v1/responses; only explicit catalog ids skip the hop.
-	if account.Platform == PlatformGrok && grokGroupServesNativeCatalogModel(normalizedModel) {
+	if !protocolExecutionBound(ctx) && account.Platform == PlatformGrok && grokGroupServesNativeCatalogModel(normalizedModel) {
 		fallbackResult, fallbackErr := s.fallbackAnthropicToGrokChatCompletions(
 			ctx,
 			c,
@@ -446,7 +463,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
-		if account.Platform == PlatformGrok && isGrokResponsesModelNotSupportedRetryable(resp.StatusCode, upstreamMsg, respBody) {
+		if !protocolExecutionBound(ctx) && account.Platform == PlatformGrok && isGrokResponsesModelNotSupportedRetryable(resp.StatusCode, upstreamMsg, respBody) {
 			logger.L().Info("openai messages: grok responses model not supported, fallback to chat completions",
 				zap.Int64("account_id", account.ID),
 				zap.Int("upstream_status", resp.StatusCode),

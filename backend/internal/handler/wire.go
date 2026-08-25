@@ -3,6 +3,7 @@ package handler
 import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	qaobs "github.com/Wei-Shaw/sub2api/internal/observability/qa"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
@@ -119,11 +120,13 @@ func ProvideGatewayHandler(
 	cfg *config.Config,
 	settingService *service.SettingService,
 	coordinator *securityaudit.Coordinator,
+	protocolRouter *protocolrouter.Router,
 ) *GatewayHandler {
 	h := NewGatewayHandler(gatewayService, openAIGatewayService, geminiCompatService, antigravityGatewayService,
 		userService, concurrencyService, billingCacheService, usageService, apiKeyService, usageRecordWorkerPool,
 		errorPassthroughService, contentModerationService, userMsgQueueService, cfg, settingService)
 	h.securityAuditCoordinator = coordinator
+	h.SetProtocolRouter(protocolRouter)
 	return h
 }
 
@@ -150,6 +153,7 @@ func ProvideOpenAIGatewayHandler(
 	coordinator *securityaudit.Coordinator,
 	videoTaskCache service.VideoTaskCache,
 	mediaStore service.MediaStore,
+	protocolRouter *protocolrouter.Router,
 ) *OpenAIGatewayHandler {
 	h := NewOpenAIGatewayHandler(gatewayService, concurrencyService, billingCacheService, apiKeyService,
 		usageRecordWorkerPool, errorPassthroughService, contentModerationService, opsService, cfg)
@@ -157,6 +161,7 @@ func ProvideOpenAIGatewayHandler(
 	h.grokMediaEligibilityProber = grokQuotaService
 	h.SetVideoTaskCache(videoTaskCache)
 	h.SetMediaStore(mediaStore)
+	h.SetProtocolRouter(protocolRouter)
 	// The image offload runs at the service-layer write points (ForwardImages), so
 	// the OpenAI gateway service needs the same store the handler holds for video —
 	// see service/openai_images_s3_tk.go. nil ⇒ inline base64 passthrough.

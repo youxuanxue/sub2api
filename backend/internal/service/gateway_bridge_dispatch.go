@@ -9,6 +9,7 @@ import (
 
 	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/engine"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/gin-gonic/gin"
@@ -89,14 +90,22 @@ func (s *GatewayService) ForwardAsChatCompletionsDispatched(
 	body []byte,
 	parsed *ParsedRequest,
 ) (*ForwardResult, error) {
+	if target, planned := protocolExecutionTarget(ctx); planned && target != protocolrouter.ProtocolChatCompletions {
+		return s.ForwardAsChatCompletions(ctx, c, account, body, parsed)
+	}
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointChatCompletions) {
 		return s.ForwardAsChatCompletions(ctx, c, account, body, parsed)
 	}
 	recordBridgeDispatch()
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
-	body = rewriteNewAPIBridgeBodyModel(account, body, "")
+	if !protocolExecutionBound(ctx) {
+		body = rewriteNewAPIBridgeBodyModel(account, body, "")
+	}
 	auth := bridgeAuthFromGin(c)
-	in := newAPIBridgeChannelInputForBody(account, auth.UserID, auth.GroupName, body)
+	body, in, err := bindProtocolPlanToNewAPIBridge(ctx, account, body, auth.UserID, auth.GroupName, newapitypes.RelayFormatOpenAI)
+	if err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
@@ -141,14 +150,22 @@ func (s *GatewayService) ForwardAsResponsesDispatched(
 	body []byte,
 	parsed *ParsedRequest,
 ) (*ForwardResult, error) {
+	if target, planned := protocolExecutionTarget(ctx); planned && target != protocolrouter.ProtocolResponses {
+		return s.ForwardAsResponses(ctx, c, account, body, parsed)
+	}
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointResponses) {
 		return s.ForwardAsResponses(ctx, c, account, body, parsed)
 	}
 	recordBridgeDispatch()
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
-	body = rewriteNewAPIBridgeBodyModel(account, body, "")
+	if !protocolExecutionBound(ctx) {
+		body = rewriteNewAPIBridgeBodyModel(account, body, "")
+	}
 	auth := bridgeAuthFromGin(c)
-	in := newAPIBridgeChannelInputForBody(account, auth.UserID, auth.GroupName, body)
+	body, in, err := bindProtocolPlanToNewAPIBridge(ctx, account, body, auth.UserID, auth.GroupName, newapitypes.RelayFormatOpenAIResponses)
+	if err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}

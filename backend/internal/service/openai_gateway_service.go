@@ -173,6 +173,7 @@ type OpenAIForwardResult struct {
 	VideoCount            int
 	VideoResolution       string
 	VideoDurationSeconds  int
+	protocolRouteFacts    RouteFacts
 	VideoGenerateAudio    *bool
 	VideoHasInputImage    bool
 	WebSearchCalls        int
@@ -182,6 +183,13 @@ type OpenAIForwardResult struct {
 	wsReplayInput                []json.RawMessage
 	wsReplayInputExists          bool
 	wsAccountFailoverReplayInput []json.RawMessage
+}
+
+func (r *OpenAIForwardResult) ProtocolRouteFacts() (RouteFacts, bool) {
+	if r == nil || !r.protocolRouteFacts.valid() {
+		return RouteFacts{}, false
+	}
+	return r.protocolRouteFacts, true
 }
 
 // SucceededForScheduling reports whether this result is an upstream success

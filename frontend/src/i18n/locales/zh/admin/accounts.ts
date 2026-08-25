@@ -81,6 +81,8 @@ export default {
       notes: '备注',
       notesPlaceholder: '请输入备注',
       notesHint: '备注可选',
+      supportedProtocols: '原生协议能力',
+      supportedProtocolsHint: '由账号协议测试写入，只读展示；重新测试账号可刷新结果。',
       // Filter options
       allPlatforms: '全部平台',
       allChannelTypes: '全部渠道类型',

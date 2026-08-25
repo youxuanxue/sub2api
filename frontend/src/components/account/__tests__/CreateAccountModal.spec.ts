@@ -188,6 +188,16 @@ async function openCodexImportStep(toggleClicks = 0) {
   return wrapper
 }
 
+describe('CreateAccountModal protocol capabilities', () => {
+  it('shows the fail-closed capability state as read-only before account probing', () => {
+    const wrapper = mountModal()
+    const capabilities = wrapper.get('[data-testid="create-account-supported-protocols"]')
+
+    expect(capabilities.text()).toContain('未检测到可用文本协议')
+    expect(capabilities.find('input, select, button').exists()).toBe(false)
+  })
+})
+
 describe('CreateAccountModal OpenAI long-context billing', () => {
   beforeEach(() => {
     createAccountMock.mockReset().mockResolvedValue({ id: 42, platform: 'openai', type: 'apikey' })

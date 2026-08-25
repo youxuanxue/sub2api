@@ -1122,7 +1122,7 @@ func (s *GatewayService) isAccountSchedulableForModelSelection(ctx context.Conte
 	if account == nil {
 		return false
 	}
-	return account.IsSchedulableForModelWithContext(ctx, requestedModel)
+	return account.IsSchedulableForModelWithContext(ctx, requestedModel) && ProtocolRouteLegal(ctx, account, requestedModel)
 }
 
 // isAccountInGroup checks if the account belongs to the specified group.
@@ -1224,12 +1224,13 @@ func (s *GatewayService) newSelectionResult(ctx context.Context, account *Accoun
 	if err != nil {
 		return nil, err
 	}
-	return attachSelectionProfitGate(ctx, &AccountSelectionResult{
+	selection := attachSelectionProfitGate(ctx, &AccountSelectionResult{
 		Account:     hydrated,
 		Acquired:    acquired,
 		ReleaseFunc: release,
 		WaitPlan:    waitPlan,
-	}), nil
+	})
+	return attachProtocolPlan(ctx, selection)
 }
 
 // filterByMinPriority 过滤出优先级最小的账号集合

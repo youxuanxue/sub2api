@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
@@ -67,6 +68,19 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 
 	if err := s.enforceCodexClientRestriction(ctx, c, account, body); err != nil {
 		return nil, err
+	}
+
+	if target, planned := protocolExecutionTarget(ctx); planned {
+		switch target {
+		case protocolrouter.ProtocolChatCompletions:
+			return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+		case protocolrouter.ProtocolMessages:
+			return s.forwardChatCompletionsViaNativeAnthropic(ctx, c, account, body, defaultMappedModel)
+		case protocolrouter.ProtocolResponses:
+			// Continue through the Responses converter/transport below.
+		default:
+			return nil, fmt.Errorf("unsupported selected protocol target %q", target)
+		}
 	}
 
 	if account.Platform == PlatformGrok {
@@ -144,6 +158,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	// derive a stable seed from the final upstream model family.
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	upstreamModel = protocolExecutionResolvedModel(ctx, upstreamModel)
 
 	promptCacheKey = strings.TrimSpace(promptCacheKey)
 	compatPromptCacheInjected := false
@@ -331,7 +346,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 			}
 			return s.ForwardAsChatCompletions(markAgentIdentityTaskRecoveryTried(ctx), c, account, body, promptCacheKey, defaultMappedModel)
 		}
-		if account.Type == AccountTypeAPIKey &&
+		if !protocolExecutionBound(ctx) && account.Type == AccountTypeAPIKey &&
 			openai_compat.ResolveResponsesSupport(account.Extra) == openai_compat.ResponsesSupportUnknown &&
 			!openai_compat.ResponsesEndpointSupportedByStatus(resp.StatusCode) {
 			logger.L().Info("openai chat_completions: /responses unsupported, falling back to raw chat completions",
