@@ -271,14 +271,14 @@ func TestSelectionFailsClosedAndReleasesAcquiredSlotWhenHydratedPlanIsIllegal(t 
 		protocolRoutingTestRouter(),
 		protocolRoutingTestRequest(t, protocolrouter.ProtocolMessages),
 	)
-	released := false
+	releaseCalls := 0
 	svc := &OpenAIGatewayService{}
 
-	_, err := svc.newSelectionResult(ctx, protocolRoutingOpenAIAccount(7), true, func() { released = true }, nil)
+	_, err := svc.newAcquiredSelectionResult(ctx, protocolRoutingOpenAIAccount(7), func() { releaseCalls++ })
 	if !errors.Is(err, ErrProtocolRouteUnavailable) {
-		t.Fatalf("newSelectionResult error = %v, want ErrProtocolRouteUnavailable", err)
+		t.Fatalf("newAcquiredSelectionResult error = %v, want ErrProtocolRouteUnavailable", err)
 	}
-	if !released {
-		t.Fatal("acquired account slot was not released after protocol re-plan failure")
+	if releaseCalls != 1 {
+		t.Fatalf("expected acquired account slot release once after protocol re-plan failure, got %d", releaseCalls)
 	}
 }

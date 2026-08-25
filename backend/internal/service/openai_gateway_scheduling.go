@@ -1523,16 +1523,17 @@ func (s *OpenAIGatewayService) hydrateSelectedAccount(ctx context.Context, accou
 }
 
 func (s *OpenAIGatewayService) newSelectionResult(ctx context.Context, account *Account, acquired bool, release func(), waitPlan *AccountWaitPlan) (*AccountSelectionResult, error) {
-	hydrated, err := s.hydrateSelectedAccount(ctx, account)
-	if err != nil {
-		return nil, err
-	}
-	selection := attachSelectionProfitGate(ctx, &AccountSelectionResult{
-		Account:     hydrated,
+	selection := &AccountSelectionResult{
 		Acquired:    acquired,
 		ReleaseFunc: release,
 		WaitPlan:    waitPlan,
-	})
+	}
+	hydrated, err := s.hydrateSelectedAccount(ctx, account)
+	if err != nil {
+		return releaseProtocolSelectionOnPlanError(selection, err)
+	}
+	selection.Account = hydrated
+	selection = attachSelectionProfitGate(ctx, selection)
 	return attachProtocolPlan(ctx, selection)
 }
 

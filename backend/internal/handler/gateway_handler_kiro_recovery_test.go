@@ -144,6 +144,7 @@ func newGatewayHandlerForKiroRecoveryTest(
 		maxAccountSwitches:       1,
 		maxAccountSwitchesGemini: 1,
 	}
+	h.SetProtocolRouter(service.NewProtocolRouter())
 	return h, billingCacheSvc.Stop
 }
 

@@ -1162,6 +1162,18 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 	// 分组利润控制：Messages 文本入口同样请求级装门并固定 pricingAt。
 	msgPricingCtx, pricingAt := h.tkHTTPRequestPricingContext(c.Request.Context(), apiKey.GroupID)
+	canonicalRequest, err := newCanonicalProtocolRequest(
+		protocolrouter.ProtocolMessages,
+		protocolrouter.ResponsesPathNone,
+		reqModel,
+		reqStream,
+		body,
+	)
+	if err != nil {
+		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+		return
+	}
+	msgPricingCtx = service.WithProtocolRouting(msgPricingCtx, h.protocolRouter, canonicalRequest)
 	c.Request = c.Request.WithContext(msgPricingCtx)
 
 	for {
