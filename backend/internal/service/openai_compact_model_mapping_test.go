@@ -85,7 +85,7 @@ func TestOpenAIGatewayService_Forward_APIKeyCompactSanitizesStatelessReplayAfter
 	}
 	account := &Account{
 		ID: 7, Name: "azure-openai", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
-		Credentials: map[string]any{"api_key": "test-key"}, Status: StatusActive, Schedulable: true,
+		Credentials: map[string]any{"api_key": "test-key", "base_url": "https://api.openai.com"}, Status: StatusActive, Schedulable: true,
 	}
 
 	result, err := svc.Forward(context.Background(), c, account, body)

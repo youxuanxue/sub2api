@@ -10,11 +10,12 @@ import (
 // credential may be sent to api.openai.com native endpoints
 // (/v1/responses, /v1/responses/input_tokens, ...).
 //
-// This is the single owner for "official OpenAI host" decisions. Only
-// platform=openai credentials whose base_url is empty or api.openai.com
-// qualify. NewAPI channels, CN providers, CloudWise/tokensea relays, and
-// every other platform are foreign credentials — adding a platform or
-// channel type defaults to false (fail closed).
+// This is the legacy safety predicate for an explicitly configured official
+// OpenAI destination. Only platform=openai credentials whose stored base_url
+// names api.openai.com qualify. Configurable accounts with an empty URL,
+// NewAPI channels, CN providers, CloudWise/tokensea relays, and every other
+// platform default to false (fail closed). Governed routing remains owned by
+// protocolrouter's immutable plan and OfficialEndpointProfile.
 func AccountUsesOfficialOpenAIUpstream(account *Account) bool {
 	if account == nil || account.Platform != PlatformOpenAI {
 		return false
@@ -24,7 +25,7 @@ func AccountUsesOfficialOpenAIUpstream(account *Account) bool {
 		return true
 	case AccountTypeAPIKey:
 		baseURL := strings.TrimSpace(account.GetCredential("base_url"))
-		return baseURL == "" || isOfficialOpenAIModelsBaseURL(baseURL)
+		return baseURL != "" && isOfficialOpenAIModelsBaseURL(baseURL)
 	default:
 		return false
 	}
@@ -76,7 +77,7 @@ func IsForeignCredentialOfficialOpenAIReject(account *Account, statusCode int, b
 // and yields "Incorrect API key provided" — a routing defect that also looks
 // like a dead credential. Fail closed instead.
 var ErrForeignCredentialOfficialOpenAIFallback = errors.New(
-	"refusing to send foreign account credential to api.openai.com: account has no resolved base_url")
+	"refusing unresolved custom account fallback to api.openai.com: explicit base_url is required")
 
 // OfficialOpenAIFallbackAllowed reports whether an unresolved (empty) base URL
 // may fall back to the official OpenAI host for this account.

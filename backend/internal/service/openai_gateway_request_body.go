@@ -24,6 +24,15 @@ func nativeOpenAIBaseURLForAccount(account *Account) string {
 	if account == nil {
 		return ""
 	}
+	// OpenAI API-key/upstream accounts are configurable custom accounts. Keep
+	// an omitted stored URL unresolved so the legacy transport boundary can
+	// fail closed instead of inheriting GetOpenAIBaseURL's official-host
+	// compatibility default. Governed requests use the endpoint from the
+	// immutable protocol plan before consulting this accessor.
+	if account.Platform == PlatformOpenAI &&
+		(account.Type == AccountTypeAPIKey || account.Type == AccountTypeUpstream) {
+		return strings.TrimSpace(account.GetCredential("base_url"))
+	}
 	if isCloudwiseRelayAccount(account) {
 		return strings.TrimSpace(account.GetCredential("base_url"))
 	}
@@ -43,7 +52,7 @@ func nativeOpenAIApiKeyForAccount(account *Account) string {
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
 		return strings.TrimSpace(account.GetCredential("api_key"))
 	}
-	return account.GetOpenAIApiKey()
+	return account.GetOpenAIProtocolAPIKey()
 }
 
 func (s *OpenAIGatewayService) validateUpstreamBaseURL(raw string) (string, error) {

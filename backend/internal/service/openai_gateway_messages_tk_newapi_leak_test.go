@@ -3,9 +3,14 @@
 package service
 
 import (
+	"bytes"
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -106,9 +111,165 @@ func TestChatCompletionsTargetFailsClosedForForeignCredential(t *testing.T) {
 		ID:          76,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
-		Credentials: map[string]any{"api_key": "sk-openai"},
+		Credentials: map[string]any{"api_key": "sk-openai", "base_url": "https://api.openai.com"},
 	}
 	targetURL, err := svc.openAIChatCompletionsTargetURL(official)
 	require.NoError(t, err)
 	require.Contains(t, targetURL, "api.openai.com")
+
+	_, err = svc.openAIChatCompletionsTargetURL(&Account{
+		ID:          77,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "sk-openai"},
+	})
+	require.ErrorIs(t, err, ErrForeignCredentialOfficialOpenAIFallback,
+		"a configurable OpenAI API-key account must provide an explicit base_url")
+}
+
+// Defense in depth for the plan-aware Responses transport: a foreign API key
+// with no protocol plan must fail before buildUpstreamRequest can construct an
+// api.openai.com request. Governed traffic supplies an explicit plan endpoint;
+// this test covers the legacy/non-governed boundary where no such endpoint
+// exists.
+func TestResponsesTargetFailsClosedForForeignCredentialWithoutPlan(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	account := newapiQwenAccountForLeakTest("Qwen", 60)
+	body := []byte(`{"model":"qwen3-max","input":"hello","stream":false}`)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+
+	_, err := svc.buildUpstreamRequest(
+		context.Background(), c, account, body,
+		"sk-dashscope-not-an-openai-key", false, "", false,
+	)
+	require.ErrorIs(t, err, ErrForeignCredentialOfficialOpenAIFallback,
+		"an unresolved foreign Responses credential must fail before api.openai.com is selected")
+}
+
+func TestResponsesTargetRequiresPlanOrExplicitOfficialProfile(t *testing.T) {
+	body := []byte(`{"model":"gpt-5","input":"hello","stream":false}`)
+
+	tests := []struct {
+		name        string
+		account     *Account
+		wantErr     bool
+		wantURLPart string
+	}{
+		{
+			name: "foreign api key",
+			account: &Account{
+				Platform: PlatformNewAPI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"api_key":  "foreign-api-key",
+					"base_url": "https://foreign.example/v1",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "foreign upstream",
+			account: &Account{
+				Platform: PlatformAntigravity,
+				Type:     AccountTypeUpstream,
+				Credentials: map[string]any{
+					"api_key":  "foreign-upstream-key",
+					"base_url": "https://foreign.example/v1",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name:    "foreign setup token",
+			account: &Account{Platform: PlatformGrok, Type: AccountTypeSetupToken},
+			wantErr: true,
+		},
+		{
+			name:    "foreign oauth",
+			account: &Account{Platform: PlatformGrok, Type: AccountTypeOAuth},
+			wantErr: true,
+		},
+		{
+			name:    "openai api key missing base url",
+			account: &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey},
+			wantErr: true,
+		},
+		{
+			name: "explicit official api key",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"base_url": "https://api.openai.com",
+				},
+			},
+			wantURLPart: "https://api.openai.com/v1/responses",
+		},
+		{
+			name:        "official oauth",
+			account:     &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth},
+			wantURLPart: chatgptCodexURL,
+		},
+		{
+			name:        "official setup token",
+			account:     &Account{Platform: PlatformOpenAI, Type: AccountTypeSetupToken},
+			wantURLPart: chatgptCodexURL,
+		},
+		{
+			name: "explicit openai upstream",
+			account: &Account{
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeUpstream,
+				Credentials: map[string]any{"base_url": "https://relay.example/v1"},
+			},
+			wantURLPart: "https://relay.example/v1/responses",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+
+			req, err := (&OpenAIGatewayService{}).buildUpstreamRequest(
+				context.Background(), c, tt.account, body, "credential", false, "", false,
+			)
+			if tt.wantErr {
+				require.ErrorIs(t, err, ErrForeignCredentialOfficialOpenAIFallback)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantURLPart, req.URL.String())
+		})
+	}
+}
+
+// The native Messages resolver is another legacy boundary. Without an
+// immutable protocol plan, an unresolved foreign credential must not inherit
+// the official OpenAI host and become /v1/messages there.
+func TestNativeMessagesTargetFailsClosedForForeignCredentialWithoutPlan(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	account := newapiQwenAccountForLeakTest("Qwen", 60)
+
+	_, err := svc.nativeAnthropicMessagesTargetURL(account)
+	require.ErrorIs(t, err, ErrForeignCredentialOfficialOpenAIFallback,
+		"an unresolved foreign Messages credential must not default to api.openai.com")
+
+	_, err = svc.nativeAnthropicMessagesTargetURL(&Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+	})
+	require.ErrorIs(t, err, ErrForeignCredentialOfficialOpenAIFallback,
+		"a configurable OpenAI API-key account must provide an explicit base_url")
+
+	officialURL, err := svc.nativeAnthropicMessagesTargetURL(&Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://api.openai.com",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "https://api.openai.com/v1/messages", officialURL)
 }

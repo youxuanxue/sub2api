@@ -25,11 +25,7 @@ func TestAccountUsesOfficialOpenAIUpstream_DerivedInventory(t *testing.T) {
 	for _, platform := range officialOpenAIUpstreamPlatformInventory() {
 		account := &Account{Platform: platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "sk-test"}}
 		got := AccountUsesOfficialOpenAIUpstream(account)
-		if platform == PlatformOpenAI {
-			require.True(t, got, "empty-base openai apikey must be the official-host allowlist")
-			continue
-		}
-		require.False(t, got, "platform %s must not send credentials to api.openai.com", platform)
+		require.False(t, got, "platform %s without explicit base_url must not send credentials to api.openai.com", platform)
 	}
 
 	for ct := 1; ct < newapiconstant.ChannelTypeDummy; ct++ {
@@ -59,6 +55,10 @@ func TestAccountUsesOfficialOpenAIUpstream_OfficialAllowlistAndBoundaries(t *tes
 		Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://api.openai.com/v1"},
 	}))
+	require.False(t, AccountUsesOfficialOpenAIUpstream(&Account{
+		Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "sk-test"},
+	}))
 
 	// Boundary samples the owner cannot derive: OpenAI-platform relays with a foreign host.
 	require.False(t, AccountUsesOfficialOpenAIUpstream(&Account{
@@ -79,10 +79,6 @@ func TestAccountUsesOfficialOpenAIUpstream_OfficialAllowlistAndBoundaries(t *tes
 func TestAccountShouldLocalEstimateCountTokens_DerivedForeignAccounts(t *testing.T) {
 	for _, platform := range officialOpenAIUpstreamPlatformInventory() {
 		account := &Account{Platform: platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "sk-test"}}
-		if platform == PlatformOpenAI {
-			require.False(t, AccountShouldLocalEstimateCountTokens(account))
-			continue
-		}
 		if platform == PlatformGrok {
 			// Grok has its own count_tokens handler / native URL resolver.
 			continue
@@ -136,7 +132,7 @@ func TestHandleUpstreamError_OfficialOpenAIHelpTextStillDisablesOfficialAccount(
 	svc := &RateLimitService{accountRepo: repo}
 	account := &Account{
 		ID: 1, Name: "openai-official", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
-		Credentials: map[string]any{"api_key": "sk-test"},
+		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://api.openai.com"},
 		Status:      StatusActive, Schedulable: true,
 	}
 	shouldDisable := svc.HandleUpstreamError(

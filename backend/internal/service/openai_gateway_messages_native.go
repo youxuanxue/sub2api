@@ -55,11 +55,14 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 		upstreamBody = ReplaceModelInBody(body, upstreamModel)
 	}
 
-	targetURL, err := s.nativeAnthropicMessagesTargetURL(account)
-	if err != nil {
-		return nil, err
+	targetURL := strings.TrimSpace(protocolExecutionEndpoint(ctx, ""))
+	if targetURL == "" {
+		var err error
+		targetURL, err = s.nativeAnthropicMessagesTargetURL(account)
+		if err != nil {
+			return nil, err
+		}
 	}
-	targetURL = protocolExecutionEndpoint(ctx, targetURL)
 
 	apiKey := nativeOpenAIApiKeyForAccount(account)
 	if strings.TrimSpace(apiKey) == "" {
@@ -97,6 +100,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 func (s *OpenAIGatewayService) nativeAnthropicMessagesTargetURL(account *Account) (string, error) {
 	baseURL := nativeOpenAIBaseURLForAccount(account)
 	if baseURL == "" {
+		if !OfficialOpenAIFallbackAllowed(account) {
+			return "", ErrForeignCredentialOfficialOpenAIFallback
+		}
 		baseURL = "https://api.openai.com"
 	}
 	validatedURL, err := s.validateUpstreamBaseURL(baseURL)

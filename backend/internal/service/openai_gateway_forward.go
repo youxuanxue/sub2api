@@ -1312,41 +1312,48 @@ func (s *OpenAIGatewayService) enforceCodexClientRestriction(ctx context.Context
 }
 
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
-	// Determine target URL based on account type
-	var targetURL string
-	switch account.Type {
-	case AccountTypeOAuth:
-		// OAuth accounts use ChatGPT internal API
-		targetURL = chatgptCodexURL
-	case AccountTypeSetupToken:
-		if account.IsOpenAIOAuthLike() {
+	// A governed request executes the immutable endpoint selected by
+	// protocolrouter. Legacy/non-governed traffic may resolve an explicit
+	// account endpoint or a compile-time official profile, but never infer an
+	// official host for a foreign credential.
+	targetURL := strings.TrimSpace(protocolExecutionEndpoint(ctx, ""))
+	if targetURL == "" {
+		switch account.Type {
+		case AccountTypeOAuth:
+			if !AccountUsesOfficialOpenAIUpstream(account) {
+				return nil, ErrForeignCredentialOfficialOpenAIFallback
+			}
 			targetURL = chatgptCodexURL
-		} else {
-			targetURL = openaiPlatformAPIURL
-		}
-	case AccountTypeAPIKey:
-		// API Key accounts use Platform API or custom base URL
-		baseURL := nativeOpenAIBaseURLForAccount(account)
-		if account.Platform == PlatformDeepseek && account.IsAdaptiveAPIProtocol() {
-			baseURL = account.GetCNProtocolBaseURL(APIProtocolResponses)
-		}
-		if baseURL == "" {
-			if account.IsGrokAPIKey() {
-				return nil, fmt.Errorf("grok relay account %d missing base_url", account.ID)
+		case AccountTypeSetupToken:
+			if !account.IsOpenAIOAuthLike() {
+				return nil, ErrForeignCredentialOfficialOpenAIFallback
 			}
-			targetURL = openaiPlatformAPIURL
-		} else {
-			validatedURL, err := s.validateUpstreamBaseURLForAccount(account, baseURL)
-			if err != nil {
-				return nil, err
+			targetURL = chatgptCodexURL
+		case AccountTypeAPIKey, AccountTypeUpstream:
+			baseURL := nativeOpenAIBaseURLForAccount(account)
+			if account.Platform == PlatformDeepseek && account.IsAdaptiveAPIProtocol() {
+				baseURL = account.GetCNProtocolBaseURL(APIProtocolResponses)
 			}
-			targetURL = buildOpenAIResponsesURLForPlatform(account.Platform, validatedURL)
+			if baseURL == "" {
+				if account.IsGrokAPIKey() {
+					return nil, fmt.Errorf("grok relay account %d missing base_url", account.ID)
+				}
+				if !OfficialOpenAIFallbackAllowed(account) {
+					return nil, ErrForeignCredentialOfficialOpenAIFallback
+				}
+				targetURL = openaiPlatformAPIURL
+			} else {
+				validatedURL, err := s.validateUpstreamBaseURLForAccount(account, baseURL)
+				if err != nil {
+					return nil, err
+				}
+				targetURL = buildOpenAIResponsesURLForPlatform(account.Platform, validatedURL)
+			}
+		default:
+			return nil, ErrForeignCredentialOfficialOpenAIFallback
 		}
-	default:
-		targetURL = openaiPlatformAPIURL
+		targetURL = appendOpenAIResponsesRequestPathSuffix(targetURL, openAIResponsesRequestPathSuffix(c))
 	}
-	targetURL = appendOpenAIResponsesRequestPathSuffix(targetURL, openAIResponsesRequestPathSuffix(c))
-	targetURL = protocolExecutionEndpoint(ctx, targetURL)
 
 	// DeepSeek 原生 Responses 端点为无状态实现：强制 store=false、清除
 	// previous_response_id，避免携带状态字段被上游拒绝。

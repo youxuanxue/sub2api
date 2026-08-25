@@ -164,7 +164,8 @@ func TestForwardAsChatCompletions_APIKeyPropagatesPromptCacheKeyInResponsesBody(
 		Type:        AccountTypeAPIKey,
 		Concurrency: 1,
 		Credentials: map[string]any{
-			"api_key": "sk-compatible",
+			"api_key":  "sk-compatible",
+			"base_url": "https://api.openai.com",
 		},
 		Extra: map[string]any{
 			"openai_responses_supported": true,
