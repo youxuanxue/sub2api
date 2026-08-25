@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -81,20 +82,74 @@ func openaiResponsesProbePayload(modelID string) []byte {
 // 的上游模型(值),按字典序取首个具体(非通配符)模型以保证可复现;无映射时回退
 // DefaultTestModel(适配 OpenAI 官方 APIKey 账号)。
 func selectResponsesProbeModel(account *Account) string {
+	models := selectProtocolProbeModels(account)
+	if len(models) == 0 {
+		return openai.DefaultTestModel
+	}
+	return models[0]
+}
+
+func selectProtocolProbeModels(account *Account) []string {
+	if protocolRoutingAccountIsMediaOnly(account) {
+		return nil
+	}
 	mapping := account.GetModelMapping()
 	candidates := make([]string, 0, len(mapping))
 	for _, upstream := range mapping {
 		upstream = strings.TrimSpace(upstream)
-		if upstream == "" || strings.Contains(upstream, "*") {
+		if upstream == "" || strings.Contains(upstream, "*") || protocolProbeModelIsMedia(upstream) {
 			continue
 		}
 		candidates = append(candidates, upstream)
 	}
 	if len(candidates) == 0 {
-		return openai.DefaultTestModel
+		return []string{openai.DefaultTestModel}
 	}
 	sort.Strings(candidates)
-	return candidates[0]
+	return prioritizeProtocolProbeModels(account, compactSortedStrings(candidates))
+}
+
+func prioritizeProtocolProbeModels(account *Account, models []string) []string {
+	if account == nil || account.Platform != PlatformNewAPI || account.ChannelType != newapiconstant.ChannelTypeAli {
+		return models
+	}
+	preferred := make([]string, 0, len(models))
+	fallback := make([]string, 0, len(models))
+	for _, model := range models {
+		if strings.HasPrefix(strings.ToLower(model), "qwen") {
+			preferred = append(preferred, model)
+		} else {
+			fallback = append(fallback, model)
+		}
+	}
+	return append(preferred, fallback...)
+}
+
+func protocolProbeModelIsMedia(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(model, "seedance") ||
+		strings.Contains(model, "seedream") ||
+		strings.HasPrefix(model, "gpt-image-") ||
+		strings.HasPrefix(model, "dall-e") ||
+		strings.HasPrefix(model, "sora") ||
+		strings.HasPrefix(model, "veo-") ||
+		strings.HasPrefix(model, "imagen-") ||
+		strings.HasPrefix(model, "grok-imagine-image") ||
+		strings.HasPrefix(model, "grok-imagine-video") ||
+		strings.HasPrefix(model, "grok-video")
+}
+
+func compactSortedStrings(values []string) []string {
+	if len(values) < 2 {
+		return values
+	}
+	out := values[:1]
+	for _, value := range values[1:] {
+		if value != out[len(out)-1] {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 // ProbeOpenAIAPIKeyResponsesSupport 探测 OpenAI APIKey 账号上游是否支持

@@ -10,6 +10,7 @@ import (
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/stretchr/testify/require"
@@ -50,6 +51,46 @@ func TestProbeOpenAIAPIKeyResponsesSupportUsesNewAPIAdaptorEndpoint(t *testing.T
 
 	require.NotNil(t, upstream.lastReq)
 	require.Equal(t, "https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1/responses", upstream.lastReq.URL.String())
+	updates := <-updateCalls
+	require.Equal(t, []string{"responses"}, updates[SupportedProtocolsExtraKey])
+}
+
+func TestProbeOpenAIAPIKeyResponsesSupportPrefersChannelNativeTextModel(t *testing.T) {
+	updateCalls := make(chan map[string]any, 1)
+	account := Account{
+		ID:          78,
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeAli,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "dashscope-key",
+			"base_url": "https://dashscope.aliyuncs.com",
+			"model_mapping": map[string]any{
+				"glm-4.5":   "glm-4.5",
+				"qwen-plus": "qwen-plus",
+			},
+		},
+	}
+	repo := &snapshotUpdateAccountRepo{
+		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
+		updateExtraCalls:      updateCalls,
+	}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(`{"status":"completed","output":[{"type":"function_call","name":"probe_ping"}]}`)),
+	}}
+	svc := &AccountTestService{
+		accountRepo:  repo,
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+
+	svc.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), account.ID)
+
+	require.Len(t, upstream.bodies, 1)
+	require.Contains(t, string(upstream.bodies[0]), `"model":"qwen-plus"`)
 	updates := <-updateCalls
 	require.Equal(t, []string{"responses"}, updates[SupportedProtocolsExtraKey])
 }
@@ -213,4 +254,54 @@ func TestSelectResponsesProbeModel(t *testing.T) {
 		"model_mapping": map[string]any{"a": "gpt-*"},
 	}}
 	require.Equal(t, openai.DefaultTestModel, selectResponsesProbeModel(acctAllWild))
+}
+
+func TestSelectProtocolProbeModelsExcludesMediaAndKeepsDeterministicTextFallbacks(t *testing.T) {
+	account := &Account{
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeVolcEngine,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"video": "doubao-seedance-2-0-260128",
+				"later": "qwen-plus",
+				"first": "glm-4.5",
+				"image": "doubao-seedream-4-0-250828",
+			},
+		},
+	}
+
+	require.Equal(t, []string{"glm-4.5", "qwen-plus"}, selectProtocolProbeModels(account))
+}
+
+func TestSelectProtocolProbeModelsPrefersAliNativeQwenFamily(t *testing.T) {
+	account := &Account{
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeAli,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"glm":  "glm-4.5",
+				"qwen": "qwen-plus",
+			},
+		},
+	}
+
+	require.Equal(t, []string{"qwen-plus", "glm-4.5"}, selectProtocolProbeModels(account))
+}
+
+func TestSelectProtocolProbeModelsReturnsNoneForXRTokenVideoOnlyAccount(t *testing.T) {
+	account := &Account{
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeDoubaoVideo,
+		Credentials: map[string]any{
+			"base_url": newapiintegration.XRTokenBaseURL,
+			"model_mapping": map[string]any{
+				"video": "doubao-seedance-2-0-260128",
+			},
+		},
+	}
+
+	require.Empty(t, selectProtocolProbeModels(account))
 }

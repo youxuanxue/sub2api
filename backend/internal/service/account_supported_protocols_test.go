@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 )
 
 type supportedProtocolsUpdateRecorder struct {
@@ -228,6 +230,38 @@ func TestProtocolAccountSnapshotUsesExplicitMessagesEndpointForCustomAnthropicOA
 	}
 	if got, want := plan.Endpoint(), "https://relay.example.test/v1/messages"; got != want {
 		t.Fatalf("endpoint = %q, want %q", got, want)
+	}
+}
+
+func TestProtocolAccountSnapshotUsesCanonicalAgentPlanEndpoints(t *testing.T) {
+	account := &Account{
+		ID:          88,
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeVolcEngine,
+		Credentials: map[string]any{
+			"api_key":       "secret",
+			"base_url":      newapiintegration.VolcEngineAgentPlanBaseURL,
+			"model_mapping": map[string]any{"ark-code-latest": "ark-code-latest"},
+		},
+		Extra: map[string]any{
+			SupportedProtocolsExtraKey: []any{"chat_completions", "responses"},
+		},
+	}
+
+	chatEndpoint, err := protocolExactEndpoint(account, protocolrouter.ProtocolChatCompletions, "ark-code-latest")
+	if err != nil {
+		t.Fatalf("protocolExactEndpoint chat: %v", err)
+	}
+	if got, want := chatEndpoint, newapiintegration.VolcEngineAgentPlanBaseURL+"/chat/completions"; got != want {
+		t.Fatalf("chat endpoint = %q, want %q", got, want)
+	}
+	responsesEndpoint, err := protocolExactEndpoint(account, protocolrouter.ProtocolResponses, "ark-code-latest")
+	if err != nil {
+		t.Fatalf("protocolExactEndpoint responses: %v", err)
+	}
+	if got, want := responsesEndpoint, newapiintegration.VolcEngineAgentPlanBaseURL+"/responses"; got != want {
+		t.Fatalf("responses endpoint = %q, want %q", got, want)
 	}
 }
 

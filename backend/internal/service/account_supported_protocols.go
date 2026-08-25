@@ -11,6 +11,7 @@ import (
 
 	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 )
@@ -254,6 +255,13 @@ func protocolExactEndpoint(account *Account, protocol protocolrouter.Protocol, r
 		format = newapitypes.RelayFormatOpenAIResponses
 	default:
 		return "", nil
+	}
+	if isNewAPIVolcEngineAgentPlanAccount(account) {
+		base := strings.TrimRight(newapiintegration.VolcEngineAgentPlanBaseURL, "/")
+		if protocol == protocolrouter.ProtocolResponses {
+			return base + "/responses", nil
+		}
+		return base + "/chat/completions", nil
 	}
 	in := newAPIBridgeChannelInputForModel(account, 0, "", resolvedModel).WithoutModelMapping()
 	endpoint, err := bridge.ResolveTextEndpoint(in, format, resolvedModel)

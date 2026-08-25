@@ -62,10 +62,11 @@ func ProvideProtocolRoutingSSOTReady(accountRepo AccountRepository, accountTestS
 	}
 	logger.LegacyPrintf(
 		"service.protocol_routing",
-		"protocol SSOT migration/report: active_governed=%d seeded_official=%d probed_accounts=%d cutover_ready=%t remediation=%d",
+		"protocol SSOT migration/report: active_governed=%d seeded_official=%d probe_attempts=%d probe_resolved=%d cutover_ready=%t remediation=%d",
 		report.ActiveGoverned,
 		report.SeededOfficial,
-		report.ProbedAccounts,
+		report.ProbeAttempts,
+		report.ProbeResolved,
 		report.CutoverReady,
 		len(report.Remediation),
 	)
