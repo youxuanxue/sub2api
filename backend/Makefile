@@ -60,7 +60,9 @@ test-unit:
 	go test -tags=unit ./...
 
 test-integration:
-	go test -tags=integration ./...
+	@packages="$$(python3 ../scripts/ci/integration-packages.py --root .)" || exit $$?; \
+	printf 'integration packages:\n%s\n' "$$packages"; \
+	go test -tags=integration $$packages
 
 lint: ensure-golangci-lint
 	$(GOLANGCI_LINT) run ./... $(GOLANGCI_LINT_FAST_ARGS)

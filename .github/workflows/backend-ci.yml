@@ -122,6 +122,8 @@ jobs:
           go-version-file: backend/go.mod
           check-latest: false
           cache: false
+      - name: Integration package discovery contract tests
+        run: python3 -m unittest scripts.ci.test_integration_packages
       - uses: ./.github/actions/go-rolling-cache
         with:
           prefix: preflight

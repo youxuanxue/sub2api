@@ -10,6 +10,7 @@ import yaml
 
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "backend-ci.yml"
+BACKEND_MAKEFILE = Path(__file__).resolve().parents[1] / "backend" / "Makefile"
 
 
 class BackendCIRoutingTest(unittest.TestCase):
@@ -71,6 +72,33 @@ class BackendCIRoutingTest(unittest.TestCase):
         for module in expected_modules:
             with self.subTest(module=module):
                 self.assertIn(module, command)
+
+    def test_go_dependent_integration_contract_runs_after_pinned_setup(self) -> None:
+        steps = self.jobs["preflight"]["steps"]
+        orchestration = next(
+            step for step in steps if step.get("name") == "CI orchestration contract tests"
+        )
+        self.assertNotIn("scripts.ci.test_integration_packages", orchestration.get("run", ""))
+
+        setup_index = next(
+            index for index, step in enumerate(steps) if step.get("uses") == "actions/setup-go@v6"
+        )
+        contract_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Integration package discovery contract tests"
+        )
+        self.assertGreater(contract_index, setup_index)
+        self.assertIn(
+            "scripts.ci.test_integration_packages",
+            steps[contract_index].get("run", ""),
+        )
+
+    def test_integration_target_uses_discovered_owner_packages(self) -> None:
+        makefile = BACKEND_MAKEFILE.read_text(encoding="utf-8")
+        target = makefile.split("test-integration:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("integration-packages.py", target)
+        self.assertNotIn("go test -tags=integration ./...", target)
 
 
 if __name__ == "__main__":
