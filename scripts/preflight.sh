@@ -121,6 +121,14 @@ case "${PREFLIGHT_FAST:-}" in 1|true|yes|TRUE|YES) _preflight_fast=1 ;; esac
 if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && [ "${PREFLIGHT_FAST:-}" != "0" ]; then
     _preflight_fast=1
 fi
+_preflight_skip_slow_ops=0
+case "${PREFLIGHT_SKIP_SLOW_OPS_CONTRACTS:-}" in
+    1|true|yes|TRUE|YES) _preflight_skip_slow_ops=1 ;;
+esac
+_preflight_skip_main_ancestry=0
+case "${PREFLIGHT_SKIP_MAIN_ANCESTRY:-}" in
+    1|true|yes|TRUE|YES) _preflight_skip_main_ancestry=1 ;;
+esac
 
 # ---- TK: background-job helpers ----------------------------------------------
 # The most expensive sub2api gates (QA go test, the unittest-discover suites,
@@ -212,7 +220,7 @@ export PREFLIGHT_BASE="${template_base:-origin/main}"
 _qa_bundle_gate_run() {
     cd backend && go test -tags=unit -v ./internal/observability/qa/bundle ./internal/observability/qa
 }
-if command -v python3 >/dev/null 2>&1 && command -v go >/dev/null 2>&1; then
+if [ "$_preflight_skip_slow_ops" -ne 1 ] && command -v python3 >/dev/null 2>&1 && command -v go >/dev/null 2>&1; then
     _bg_spawn qa_bundle _qa_bundle_gate_run
 fi
 if command -v python3 >/dev/null 2>&1; then
@@ -247,11 +255,13 @@ _bg_spawn ssm_parse bash ./scripts/checks/check-stage0-ssm-host-parse.sh
 # deleted-ref base and scans colocated Python tests outside tests/ directories.
 _dev_preflight_template="./dev-rules/templates/preflight.sh"
 if ! grep -q 'check_deleted_file_refs.py --base' "$_dev_preflight_template" 2>/dev/null || \
-   ! grep -q 'check_existence_only_tests.py --glob' "$_dev_preflight_template" 2>/dev/null; then
+   ! grep -q 'check_existence_only_tests.py --glob' "$_dev_preflight_template" 2>/dev/null || \
+   [ "${PREFLIGHT_SKIP_AGENT_CONTRACT:-}" = "1" ]; then
     _dev_preflight_template="$(mktemp "${TMPDIR:-/tmp}/preflight-dev-rules.XXXXXX")"
     sed \
         -e 's|check_deleted_file_refs\.py >|check_deleted_file_refs.py --base "${PREFLIGHT_BASE:-origin/main}" >|' \
         -e 's|"$PYTHON_BIN" dev-rules/scripts/check_existence_only_tests\.py >|"$PYTHON_BIN" -W ignore::SyntaxWarning dev-rules/scripts/check_existence_only_tests.py --glob "test_*.py" --glob "*_test.py" --glob "**/test_*.py" --glob "**/*_test.py" >|' \
+        -e 's|^if \[ -f scripts/export_agent_contract\.py \]; then$|if [ "${PREFLIGHT_SKIP_AGENT_CONTRACT:-}" = "1" ]; then skip "unchanged CI surface; required preflight gate not needed"; elif [ -f scripts/export_agent_contract.py ]; then|' \
         ./dev-rules/templates/preflight.sh > "$_dev_preflight_template"
     chmod +x "$_dev_preflight_template"
 fi
@@ -1329,7 +1339,9 @@ fi
 # ---- sub2api: QA Phase 1 closeout + Phase 2 baseline ops -------------------
 echo ""
 echo "=== sub2api: QA Phase 1 closeout + Phase 2 baseline ==="
-if ! command -v python3 >/dev/null 2>&1; then
+if [ "$_preflight_skip_slow_ops" -eq 1 ]; then
+    echo "  skip: unchanged CI surface; required preflight gate not needed"
+elif ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by QA phase ops scripts)"
     errors=$((errors + 1))
 elif ! python3 -m py_compile ./ops/qa/edge_phase1_closeout.py ./ops/qa/prod_phase2_baseline.py; then
@@ -1346,7 +1358,9 @@ fi
 # authorization test in verbose output so a rename/deletion cannot pass vacuously.
 echo ""
 echo "=== sub2api: QA Bundle service/worker contract ==="
-if ! command -v go >/dev/null 2>&1; then
+if [ "$_preflight_skip_slow_ops" -eq 1 ]; then
+    echo "  skip: unchanged CI surface; required preflight gate not needed"
+elif ! command -v go >/dev/null 2>&1; then
     echo "  FAIL: go not on PATH (required to run QA Bundle contract tests)"
     errors=$((errors + 1))
 elif ! _bg_spawned qa_bundle; then
@@ -1636,7 +1650,9 @@ fi
 # ---- sub2api: nonprod archive/restore rehearsal ----------------------------
 echo ""
 echo "=== sub2api: nonprod archive/restore rehearsal ==="
-if ! command -v python3 >/dev/null 2>&1; then
+if [ "$_preflight_skip_slow_ops" -eq 1 ]; then
+    echo "  skip: unchanged CI surface; required preflight gate not needed"
+elif ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for archive rehearsal tests)"
     errors=$((errors + 1))
 elif ! python3 ./ops/archive/test_data_layer_archive_rehearsal.py >/dev/null 2>&1; then
@@ -1994,7 +2010,9 @@ fi
 # at PR-merge time (PR.base must be ancestor of PR.head).
 echo ""
 echo "=== sub2api: main ancestry anchor ==="
-if ! command -v python3 >/dev/null 2>&1; then
+if [ "$_preflight_skip_main_ancestry" -eq 1 ]; then
+    echo "  skip: owned by lightweight Main Ancestry Guard push job"
+elif ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read .main-ancestry-anchor)"
     errors=$((errors + 1))
 elif [ "$_preflight_fast" = "1" ]; then

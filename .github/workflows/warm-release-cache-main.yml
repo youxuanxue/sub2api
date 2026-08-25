@@ -1,0 +1,61 @@
+name: Warm Release Cache
+
+# Release tags can restore caches from the default branch, but not from older
+# tag refs. Keep the cross-arch cache warm on main only when backend build
+# inputs change; this is acceleration work, not a required CI correctness gate.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**/*.go'
+      - 'backend/go.mod'
+      - 'backend/go.sum'
+      - '.new-api-ref'
+      - '.goreleaser.yaml'
+      - '.github/workflows/warm-release-cache-main.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: warm-release-cache-main
+  cancel-in-progress: true
+
+jobs:
+  warm-release-cache:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/cache-and-checkout-new-api
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: false
+      - name: Rolling Go build cache (amd64 + arm64 cross-compile)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-release-${{ hashFiles('backend/go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-go-release-${{ hashFiles('backend/go.sum') }}-
+            ${{ runner.os }}-go-release-
+      - name: Verify Go version
+        run: |
+          expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
+          go version | grep -Fq "go${expected}"
+      - name: Warm cross-arch Go build cache
+        working-directory: backend
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+        run: |
+          for arch in amd64 arm64; do
+            echo "::group::go build linux/${arch}"
+            GOARCH="${arch}" go build -o /dev/null ./cmd/server
+            echo "::endgroup::"
+          done

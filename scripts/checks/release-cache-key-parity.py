@@ -6,8 +6,8 @@ files that MUST agree, or the optimization silently reverts (release goes back
 to cold-compiling arm64 ~4m every time, with NO error — exactly the failure
 mode that went unnoticed for weeks before #576):
 
-  * .github/workflows/backend-ci.yml  — `warm-release-cache` job SAVES the cache
-    on `main` (the default branch) with `actions/cache@v4`.
+  * .github/workflows/warm-release-cache-main.yml — `warm-release-cache` SAVES
+    the cache on `main` (the default branch) with `actions/cache@v4`.
   * .github/workflows/release.yml     — RESTORES it on the tag ref with
     `actions/cache/restore@v4` (restore-only; saving here would re-create the
     dead tag-scoped caches #576 removed).
@@ -34,7 +34,7 @@ import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
-BACKEND_CI = REPO_ROOT / ".github" / "workflows" / "backend-ci.yml"
+WARM_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "warm-release-cache-main.yml"
 RELEASE = REPO_ROOT / ".github" / "workflows" / "release.yml"
 
 # The shared cache-key prefix both files must agree on, verbatim (GitHub
@@ -83,7 +83,7 @@ def main() -> int:
 
     errors = 0
 
-    for path in (BACKEND_CI, RELEASE):
+    for path in (WARM_WORKFLOW, RELEASE):
         if not path.exists():
             _fail(args.quiet, f"{path.relative_to(REPO_ROOT)} not found")
             errors += 1
@@ -91,14 +91,14 @@ def main() -> int:
     if errors:
         return 1
 
-    ci_text = BACKEND_CI.read_text()
+    ci_text = WARM_WORKFLOW.read_text()
     rel_text = RELEASE.read_text()
 
     # Invariant 1: shared key prefix present in BOTH files.
     if SHARED_KEY_PREFIX not in ci_text:
         _fail(
             args.quiet,
-            f"backend-ci.yml missing the shared cache-key prefix '{SHARED_KEY_PREFIX}'. "
+            f"warm-release-cache-main.yml missing the shared cache-key prefix '{SHARED_KEY_PREFIX}'. "
             "The warm-release-cache job must key on it so release.yml can restore the entry.",
         )
         errors += 1
@@ -118,7 +118,7 @@ def main() -> int:
     if ci_action != SAVE_ACTION:
         _fail(
             args.quiet,
-            f"backend-ci.yml go-release cache step must use '{SAVE_ACTION}' (it SAVES the warm "
+            f"warm-release-cache-main.yml go-release cache step must use '{SAVE_ACTION}' (it SAVES the warm "
             f"cache on main); found '{ci_action}'.",
         )
         errors += 1
