@@ -228,19 +228,39 @@ func protocolExactEndpoints(account *Account, resolvedModel string) (map[protoco
 	if account == nil || account.Platform != PlatformNewAPI || account.ChannelType <= 0 {
 		return nil, nil
 	}
-	in := newAPIBridgeChannelInputForModel(account, 0, "", resolvedModel).WithoutModelMapping()
 	endpoints := make(map[protocolrouter.Protocol]string, 2)
-	for protocol, format := range map[protocolrouter.Protocol]newapitypes.RelayFormat{
-		protocolrouter.ProtocolChatCompletions: newapitypes.RelayFormatOpenAI,
-		protocolrouter.ProtocolResponses:       newapitypes.RelayFormatOpenAIResponses,
+	for _, protocol := range []protocolrouter.Protocol{
+		protocolrouter.ProtocolChatCompletions,
+		protocolrouter.ProtocolResponses,
 	} {
-		endpoint, err := bridge.ResolveTextEndpoint(in, format, resolvedModel)
+		endpoint, err := protocolExactEndpoint(account, protocol, resolvedModel)
 		if err != nil {
-			return nil, fmt.Errorf("resolve newapi %s endpoint: %w", protocol, err)
+			return nil, err
 		}
 		endpoints[protocol] = endpoint
 	}
 	return endpoints, nil
+}
+
+func protocolExactEndpoint(account *Account, protocol protocolrouter.Protocol, resolvedModel string) (string, error) {
+	if account == nil || account.Platform != PlatformNewAPI || account.ChannelType <= 0 {
+		return "", nil
+	}
+	var format newapitypes.RelayFormat
+	switch protocol {
+	case protocolrouter.ProtocolChatCompletions:
+		format = newapitypes.RelayFormatOpenAI
+	case protocolrouter.ProtocolResponses:
+		format = newapitypes.RelayFormatOpenAIResponses
+	default:
+		return "", nil
+	}
+	in := newAPIBridgeChannelInputForModel(account, 0, "", resolvedModel).WithoutModelMapping()
+	endpoint, err := bridge.ResolveTextEndpoint(in, format, resolvedModel)
+	if err != nil {
+		return "", fmt.Errorf("resolve newapi %s endpoint: %w", protocol, err)
+	}
+	return endpoint, nil
 }
 
 func protocolAccountEndpoints(account *Account) (string, map[protocolrouter.Protocol]string, protocolrouter.OfficialEndpointProfile) {

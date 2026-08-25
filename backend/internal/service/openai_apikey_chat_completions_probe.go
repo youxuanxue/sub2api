@@ -88,8 +88,18 @@ func (s *AccountTestService) probeOpenAIAPIKeyChatCompletionsSupport(
 		return protocolProbeObservation{}, false
 	}
 
-	probeURL := buildOpenAIEndpointURL(normalizedBaseURL, apipath.ChatCompletions)
 	probeModel := selectResponsesProbeModel(account)
+	probeURL := buildOpenAIEndpointURL(normalizedBaseURL, apipath.ChatCompletions)
+	if exactEndpoint, exactErr := protocolExactEndpoint(account, protocolrouter.ProtocolChatCompletions, probeModel); exactErr != nil {
+		logger.LegacyPrintf("service.openai_probe", "chat_completions_resolve_endpoint_failed: account_id=%d err=%v", accountID, exactErr)
+		return protocolProbeObservation{}, false
+	} else if exactEndpoint != "" {
+		probeURL, err = s.validateUpstreamBaseURL(exactEndpoint)
+		if err != nil {
+			logger.LegacyPrintf("service.openai_probe", "chat_completions_invalid_endpoint: account_id=%d endpoint=%q err=%v", accountID, exactEndpoint, err)
+			return protocolProbeObservation{}, false
+		}
+	}
 	probeCtx, cancel := context.WithTimeout(ctx, openaiChatCompletionsProbeTimeout)
 	defer cancel()
 

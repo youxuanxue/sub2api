@@ -71,9 +71,6 @@ func WithProtocolRouting(
 	router *protocolrouter.Router,
 	request protocolrouter.CanonicalRequest,
 ) context.Context {
-	if router == nil {
-		return ctx
-	}
 	return context.WithValue(ctx, protocolRoutingContextKey{}, protocolRoutingContextValue{
 		router:  router,
 		request: request,
@@ -89,6 +86,14 @@ func ProtocolRouteLegal(ctx context.Context, account *Account, requestedModel st
 func ProtocolRoutingRequest(ctx context.Context) (protocolrouter.CanonicalRequest, bool) {
 	routing, ok := ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue)
 	if !ok || routing.router == nil {
+		return protocolrouter.CanonicalRequest{}, false
+	}
+	return routing.request, true
+}
+
+func protocolRoutingCanonicalRequest(ctx context.Context) (protocolrouter.CanonicalRequest, bool) {
+	routing, ok := ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue)
+	if !ok {
 		return protocolrouter.CanonicalRequest{}, false
 	}
 	return routing.request, true

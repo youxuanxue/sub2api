@@ -7,10 +7,52 @@ import (
 	"strings"
 	"testing"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/stretchr/testify/require"
 )
+
+func TestProbeOpenAIAPIKeyChatCompletionsSupportUsesNewAPIAdaptorEndpoint(t *testing.T) {
+	updateCalls := make(chan map[string]any, 1)
+	account := Account{
+		ID:          60,
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeAli,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "dashscope-key",
+			"base_url": "https://dashscope.aliyuncs.com",
+			"model_mapping": map[string]any{
+				"qwen3.7-max": "qwen3.7-max",
+			},
+		},
+	}
+	repo := &snapshotUpdateAccountRepo{
+		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
+		updateExtraCalls:      updateCalls,
+	}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body: io.NopCloser(strings.NewReader(
+			`{"choices":[{"message":{"role":"assistant","content":"OK"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`,
+		)),
+	}}
+	svc := &AccountTestService{
+		accountRepo:  repo,
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+
+	svc.ProbeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account.ID)
+
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", upstream.lastReq.URL.String())
+	updates := <-updateCalls
+	require.Equal(t, []string{"chat_completions"}, updates[SupportedProtocolsExtraKey])
+}
 
 func TestProbeOpenAIAPIKeyChatCompletionsSupportPersistsPositiveCapability(t *testing.T) {
 	updateCalls := make(chan map[string]any, 1)
