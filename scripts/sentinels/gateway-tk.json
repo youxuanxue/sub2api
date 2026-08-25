@@ -3652,17 +3652,43 @@
       "rationale": "Regression coverage for CloudWise 402 isolation: exact model receives the 5h cooldown, sibling models stay schedulable, OpenAI-compatible runtime blocking remains model-scoped, pool/custom early exits cannot bypass either the model cooldown or its fail-closed account fallback, and absent model context keeps the conservative account-level fallback."
     },
     {
+      "path": "backend/internal/service/ratelimit_service_tk_cloudwise_424.go",
+      "must_contain": [
+        "tkCloudwiseProvider424Reason          = \"cloudwise_provider_error_424\"",
+        "tkCloudwiseProvider424ModelCooldown   = 15 * time.Minute",
+        "tkCloudwiseProvider424AccountCooldown = 30 * time.Minute",
+        "func tkIsCloudwiseProvider424Response(",
+        "func (s *RateLimitService) tkTryCloudwiseProvider424Cooldown(",
+        "SetModelRateLimit(ctx, account.ID, scopeKey, resetAt, tkCloudwiseProvider424Reason)",
+        "s.triggerTempUnschedulable("
+      ],
+      "rationale": "CloudWise 424 circuit-breaker owner. The observed Failed Dependency envelope is a provider-health signal, not a five-hour balance window: the mapped model is cooled for 15 minutes while the existing request failover selects another account. A second distinct active model cooldown escalates through the shared temp_unschedulable owner for 30 minutes, and missing model context or a failed model-cooldown write uses the same bounded account fallback. Losing this companion restores cross-request reselection of a known-bad CloudWise route."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_cloudwise_424_test.go",
+      "must_contain": [
+        "TestRateLimitService_CloudwiseProvider424_CoolsMappedModelForFifteenMinutes",
+        "TestRateLimitService_CloudwiseProvider424_SecondDistinctModelEscalatesAccountForThirtyMinutes",
+        "TestRateLimitService_CloudwiseProvider424_RepeatedSameModelDoesNotEscalateAccount",
+        "TestRateLimitService_CloudwiseProvider424_ModelCooldownWriteFailureUsesShortAccountCooldown",
+        "TestRateLimitService_NonCloudwiseOrNonProvider424_DoesNotCool",
+        "TestOpenAIGateway_CloudwiseProvider424_ModelCooldownDoesNotRuntimeBlockWholeAccount"
+      ],
+      "rationale": "Behavior guards for the CloudWise 424 breaker: exact mapped-model isolation, distinct-model account escalation, same-model non-escalation, fail-closed bounded fallback, narrow provider-error matching, and preservation of sibling-model OpenAI runtime scheduling."
+    },
+    {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
         "cloudwiseModelBalance402 := tkIsCloudwiseModelBalance402Response(",
         "s.tkTryCloudwiseModelBalanceCooldown(ctx, account, statusCode, responseBody, firstRequestedModel(requestedModel))",
+        "s.tkTryCloudwiseProvider424Cooldown(ctx, account, statusCode, responseBody, firstRequestedModel(requestedModel))",
         "account.Platform != PlatformAnthropic && !cloudwiseModelBalance402",
         "if !cloudwiseModelBalance402 && !planGatedModel",
         "if len(requestedModel) > 0 && s.tkTryAnthropicModelScopedCooldown(ctx, account, requestedModel[0], result) {",
         "if len(requestedModel) > 0 && s.tkTryOpenAICodexModelScopedCooldown(ctx, account, requestedModel[0], resetTime) {",
         "rateLimitSet := s.handle429(ctx, account, headers, responseBody, requestedModel...)"
       ],
-      "rationale": "G4 injection point in the upstream-shaped error dispatch. CloudWise model-balance 402 must try the exact-model cooldown before pool/custom early exits, while a failed write or missing model bypasses those exits and reaches the conservative account-level 402 fallback. The Anthropic per-window (5h/7d) branch must try the (account x model class) cooldown BEFORE the account-level SetRateLimited fallback, and the dispatch must thread requestedModel into handle429. The OpenAI/Codex body path (usage_limit_reached) must likewise try tkTryOpenAICodexModelScopedCooldown BEFORE the whole-account SetRateLimited so a spark per-model sub-limit 429 (account-wide window healthy) is narrowed to the model. An upstream merge that rewrites these paths or drops the requestedModel passthrough would silently restore whole-account amplification or fail-open CloudWise scheduling; this sentinel anchors the calls, fallbacks, and threading."
+      "rationale": "G4 injection point in the upstream-shaped error dispatch. CloudWise model-balance 402 must try the exact-model cooldown before pool/custom early exits, while a failed write or missing model bypasses those exits and reaches the conservative account-level 402 fallback. CloudWise Provider error 424 must likewise enter its bounded model/account breaker before those configurable exits. The Anthropic per-window (5h/7d) branch must try the (account x model class) cooldown BEFORE the account-level SetRateLimited fallback, and the dispatch must thread requestedModel into handle429. The OpenAI/Codex body path (usage_limit_reached) must likewise try tkTryOpenAICodexModelScopedCooldown BEFORE the whole-account SetRateLimited so a spark per-model sub-limit 429 (account-wide window healthy) is narrowed to the model. An upstream merge that rewrites these paths or drops the requestedModel passthrough would silently restore whole-account amplification or fail-open CloudWise scheduling; this sentinel anchors the calls, fallbacks, and threading."
     },
     {
       "path": "backend/internal/service/model_rate_limit.go",
@@ -6951,9 +6977,10 @@
       "must_contain": [
         "HandleOpenAIImageCapabilityLoss400(stateCtx, account, statusCode, responseBody)",
         "cloudwiseModelBalanceMatched := len(canonicalModel) > 0 &&",
-        "!modelTempMatched && !cloudwiseModelBalanceMatched"
+        "cloudwiseProvider424Matched := tkIsCloudwiseProvider424Response(account, statusCode, responseBody)",
+        "!modelTempMatched && !cloudwiseModelBalanceMatched && !cloudwiseProvider424Matched"
       ],
-      "rationale": "Gateway error fastpath must cool openai:image_generation on capability-loss 400 without blocking the whole account. The same boundary must recognize a successfully persisted CloudWise model-balance 402 and skip the whole-account in-memory runtime block while still returning shouldDisable=true so the current request fails over. Losing that guard makes the durable model scope ineffective until process restart because healthy sibling models remain hidden behind an account-wide runtime block."
+      "rationale": "Gateway error fastpath must cool openai:image_generation on capability-loss 400 without blocking the whole account. The same boundary must recognize CloudWise model-balance 402 and Provider error 424 breaker handling, skipping the generic permanent in-memory block while still returning shouldDisable=true so the current request fails over. A 424 account escalation already writes the bounded shared temp_unschedulable runtime block; losing this guard would overwrite model isolation or the finite account cooldown with an unbounded whole-account block."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_account_capability_400.go",
