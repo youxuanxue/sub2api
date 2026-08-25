@@ -129,6 +129,14 @@ type AntigravityGatewayService struct {
 	cache             GatewayCache // 用于模型级限流时清除粘性会话绑定
 	schedulerSnapshot *SchedulerSnapshotService
 	internal500Cache  Internal500CounterCache // INTERNAL 500 渐进惩罚计数器
+	retryBackoff      func(context.Context, int) bool
+}
+
+func (s *AntigravityGatewayService) waitRetryBackoff(ctx context.Context, attempt int) bool {
+	if s != nil && s.retryBackoff != nil {
+		return s.retryBackoff(ctx, attempt)
+	}
+	return sleepAntigravityBackoffWithContext(ctx, attempt)
 }
 
 func (s *AntigravityGatewayService) upstreamErrorBodyReadLimit() int64 {

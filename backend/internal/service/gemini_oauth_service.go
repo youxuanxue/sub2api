@@ -51,12 +51,13 @@ const (
 )
 
 type GeminiOAuthService struct {
-	sessionStore *geminicli.SessionStore
-	proxyRepo    ProxyRepository
-	oauthClient  GeminiOAuthClient
-	codeAssist   GeminiCliCodeAssistClient
-	driveClient  geminicli.DriveClient
-	cfg          *config.Config
+	sessionStore                   *geminicli.SessionStore
+	proxyRepo                      ProxyRepository
+	oauthClient                    GeminiOAuthClient
+	codeAssist                     GeminiCliCodeAssistClient
+	driveClient                    geminicli.DriveClient
+	resourceManagerProjectResolver func(context.Context, string, string) (string, error)
+	cfg                            *config.Config
 }
 
 type GeminiOAuthCapabilities struct {
@@ -72,12 +73,13 @@ func NewGeminiOAuthService(
 	cfg *config.Config,
 ) *GeminiOAuthService {
 	return &GeminiOAuthService{
-		sessionStore: geminicli.NewSessionStore(),
-		proxyRepo:    proxyRepo,
-		oauthClient:  oauthClient,
-		codeAssist:   codeAssist,
-		driveClient:  driveClient,
-		cfg:          cfg,
+		sessionStore:                   geminicli.NewSessionStore(),
+		proxyRepo:                      proxyRepo,
+		oauthClient:                    oauthClient,
+		codeAssist:                     codeAssist,
+		driveClient:                    driveClient,
+		resourceManagerProjectResolver: fetchProjectIDFromResourceManager,
+		cfg:                            cfg,
 	}
 }
 
@@ -962,7 +964,7 @@ func (s *GeminiOAuthService) fetchProjectID(ctx context.Context, accessToken, pr
 			logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] User has tier (%s) but no cloudaicompanionProject, trying Cloud Resource Manager...", registeredTierID)
 
 			// Try to get project from Cloud Resource Manager
-			fallback, fbErr := fetchProjectIDFromResourceManager(ctx, accessToken, proxyURL)
+			fallback, fbErr := s.resolveProjectIDFromResourceManager(ctx, accessToken, proxyURL)
 			if fbErr == nil && strings.TrimSpace(fallback) != "" {
 				logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] Found project from Cloud Resource Manager: %s", fallback)
 				return strings.TrimSpace(fallback), tierID, nil
@@ -991,7 +993,7 @@ func (s *GeminiOAuthService) fetchProjectID(ctx context.Context, accessToken, pr
 		resp, err := s.codeAssist.OnboardUser(ctx, accessToken, proxyURL, req)
 		if err != nil {
 			// If Code Assist onboarding fails (e.g. INVALID_ARGUMENT), fallback to Cloud Resource Manager projects.
-			fallback, fbErr := fetchProjectIDFromResourceManager(ctx, accessToken, proxyURL)
+			fallback, fbErr := s.resolveProjectIDFromResourceManager(ctx, accessToken, proxyURL)
 			if fbErr == nil && strings.TrimSpace(fallback) != "" {
 				return strings.TrimSpace(fallback), tierID, nil
 			}
@@ -1009,7 +1011,7 @@ func (s *GeminiOAuthService) fetchProjectID(ctx context.Context, accessToken, pr
 				}
 			}
 
-			fallback, fbErr := fetchProjectIDFromResourceManager(ctx, accessToken, proxyURL)
+			fallback, fbErr := s.resolveProjectIDFromResourceManager(ctx, accessToken, proxyURL)
 			if fbErr == nil && strings.TrimSpace(fallback) != "" {
 				return strings.TrimSpace(fallback), tierID, nil
 			}
@@ -1018,7 +1020,7 @@ func (s *GeminiOAuthService) fetchProjectID(ctx context.Context, accessToken, pr
 		time.Sleep(2 * time.Second)
 	}
 
-	fallback, fbErr := fetchProjectIDFromResourceManager(ctx, accessToken, proxyURL)
+	fallback, fbErr := s.resolveProjectIDFromResourceManager(ctx, accessToken, proxyURL)
 	if fbErr == nil && strings.TrimSpace(fallback) != "" {
 		return strings.TrimSpace(fallback), tierID, nil
 	}
@@ -1026,6 +1028,14 @@ func (s *GeminiOAuthService) fetchProjectID(ctx context.Context, accessToken, pr
 		return "", tierID, fmt.Errorf("loadCodeAssist failed (%v) and onboardUser timeout after %d attempts", loadErr, maxAttempts)
 	}
 	return "", tierID, fmt.Errorf("onboardUser timeout after %d attempts", maxAttempts)
+}
+
+func (s *GeminiOAuthService) resolveProjectIDFromResourceManager(ctx context.Context, accessToken, proxyURL string) (string, error) {
+	resolver := s.resourceManagerProjectResolver
+	if resolver == nil {
+		resolver = fetchProjectIDFromResourceManager
+	}
+	return resolver(ctx, accessToken, proxyURL)
 }
 
 type googleCloudProject struct {

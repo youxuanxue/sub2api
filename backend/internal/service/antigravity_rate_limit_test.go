@@ -127,7 +127,13 @@ func TestAntigravityRetryLoop_NoURLFallback_UsesConfiguredBaseURL(t *testing.T) 
 	}
 
 	var handleErrorCalled bool
-	svc := &AntigravityGatewayService{}
+	var backoffAttempts []int
+	svc := &AntigravityGatewayService{
+		retryBackoff: func(_ context.Context, attempt int) bool {
+			backoffAttempts = append(backoffAttempts, attempt)
+			return true
+		},
+	}
 	result, err := svc.antigravityRetryLoop(antigravityRetryLoopParams{
 		prefix:         "[test]",
 		ctx:            context.Background(),
@@ -151,6 +157,7 @@ func TestAntigravityRetryLoop_NoURLFallback_UsesConfiguredBaseURL(t *testing.T) 
 	require.Equal(t, http.StatusTooManyRequests, result.resp.StatusCode)
 	require.True(t, handleErrorCalled)
 	require.Len(t, upstream.calls, antigravityMaxRetries)
+	require.Equal(t, []int{1, 2}, backoffAttempts)
 	for _, callURL := range upstream.calls {
 		require.True(t, strings.HasPrefix(callURL, prod))
 	}

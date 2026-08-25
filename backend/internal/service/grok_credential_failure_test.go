@@ -1112,6 +1112,8 @@ func TestGetRequestCredentialLockHeldTimeoutDoesNotQuarantineAccount(t *testing.
 			repo := tt.buildRepo(account)
 			cache := &grokTokenCacheForProviderTest{lockResult: false}
 			provider := NewGrokTokenProvider(repo, cache)
+			provider.refreshLockWaitTimeout = 10 * time.Millisecond
+			provider.refreshLockPollInterval = time.Millisecond
 			provider.SetRefreshAPI(NewOAuthRefreshAPI(repo, cache), &tokenRefresherStub{})
 			svc := &OpenAIGatewayService{accountRepo: repo, grokTokenProvider: provider}
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
