@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // servedProvider 构造一个按 group id 返回显式服务集的 provider stub。
@@ -412,6 +413,152 @@ func TestResolve_ImagenPicksVertexNewapiGroup(t *testing.T) {
 	g, err := r.Resolve(ctx, universalKey(1), ShapeOpenAIImages, "imagen-4.0-fast-generate-001", "")
 	if err != nil || g == nil || g.ID != 16 {
 		t.Fatalf("imagen 应落 vertex newapi 组 gid=16, got=%v err=%v", g, err)
+	}
+}
+
+func TestResolve_GeminiNativePicksVertexNewapiGroup(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		grp(16, PlatformNewAPI, 10, false),
+	}
+	modelMapping := map[string]any{"gemini-3.7-flash": "gemini-3.7-flash"}
+	svc := &GatewayService{
+		accountRepo: groupAwareStubOpenAIAccountRepo{stubOpenAIAccountRepo{accounts: []Account{
+			{
+				ID:          47,
+				GroupIDs:    []int64{16},
+				Platform:    PlatformNewAPI,
+				Type:        AccountTypeServiceAccount,
+				Status:      StatusActive,
+				Schedulable: true,
+				ChannelType: 41,
+				Credentials: map[string]any{"model_mapping": modelMapping},
+			},
+		}}},
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetModelSupportProvider(svc.UniversalGroupSupportsRequest)
+
+	g, err := r.Resolve(ctx, universalKey(1), ShapeGemini, "gemini-3.7-flash", "")
+	if err != nil || g == nil || g.ID != 16 {
+		t.Fatalf("gemini-native universal must pick vertex gid=16, got=%v err=%v", g, err)
+	}
+}
+
+func TestResolve_GeminiNativeRejectsNonVertexNewapiGroup(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		grp(19, PlatformNewAPI, 10, false),
+	}
+	modelMapping := map[string]any{"gemini-3.7-flash": "gemini-3.7-flash"}
+	svc := &GatewayService{
+		accountRepo: groupAwareStubOpenAIAccountRepo{stubOpenAIAccountRepo{accounts: []Account{
+			{
+				ID:          90,
+				GroupIDs:    []int64{19},
+				Platform:    PlatformNewAPI,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusActive,
+				Schedulable: true,
+				ChannelType: 46,
+				Credentials: map[string]any{"model_mapping": modelMapping},
+			},
+		}}},
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetModelSupportProvider(svc.UniversalGroupSupportsRequest)
+
+	g, err := r.Resolve(ctx, universalKey(1), ShapeGemini, "gemini-3.7-flash", "")
+	if g != nil || err != ErrUniversalNoEntitledGroup {
+		t.Fatalf("gemini-native universal must reject non-Vertex newapi group, got=%v err=%v", g, err)
+	}
+}
+
+func TestResolve_GeminiNativeSkipsModelCooledGeminiAccountForSchedulableVertex(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		grp(8, PlatformGemini, 5, false),
+		grp(16, PlatformNewAPI, 10, false),
+	}
+	modelMapping := map[string]any{"gemini-3.7-flash": "gemini-3.7-flash"}
+	resetAt := time.Now().Add(time.Hour).Format(time.RFC3339)
+	svc := &GatewayService{
+		accountRepo: groupAwareStubOpenAIAccountRepo{stubOpenAIAccountRepo{accounts: []Account{
+			{
+				ID:          44,
+				GroupIDs:    []int64{8},
+				Platform:    PlatformGemini,
+				Type:        AccountTypeOAuth,
+				Status:      StatusActive,
+				Schedulable: true,
+				Credentials: map[string]any{"model_mapping": modelMapping},
+				Extra: map[string]any{
+					"model_rate_limits": map[string]any{
+						"gemini-3.7-flash": map[string]any{"rate_limit_reset_at": resetAt},
+					},
+				},
+			},
+			{
+				ID:          47,
+				GroupIDs:    []int64{16},
+				Platform:    PlatformNewAPI,
+				Type:        AccountTypeServiceAccount,
+				Status:      StatusActive,
+				Schedulable: true,
+				ChannelType: 41,
+				Credentials: map[string]any{"model_mapping": modelMapping},
+			},
+		}}},
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetModelSupportProvider(svc.UniversalGroupSupportsRequest)
+
+	g, err := r.Resolve(ctx, universalKey(1), ShapeGemini, "gemini-3.7-flash", "")
+	if err != nil || g == nil || g.ID != 16 {
+		t.Fatalf("gemini-native universal must skip model-cooled native account for Vertex gid=16, got=%v err=%v", g, err)
+	}
+}
+
+func TestResolve_GeminiNativeSkipsErrorGeminiAccountForSchedulableVertex(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		grp(8, PlatformGemini, 5, false),
+		grp(16, PlatformNewAPI, 10, false),
+	}
+	modelMapping := map[string]any{"gemini-3.7-flash": "gemini-3.7-flash"}
+	svc := &GatewayService{
+		accountRepo: entitlementAwareStubAccountRepo{
+			groupAwareStubOpenAIAccountRepo: groupAwareStubOpenAIAccountRepo{
+				stubOpenAIAccountRepo{accounts: []Account{
+					{
+						ID:          44,
+						GroupIDs:    []int64{8},
+						Platform:    PlatformGemini,
+						Type:        AccountTypeOAuth,
+						Status:      StatusError,
+						Schedulable: false,
+						Credentials: map[string]any{"model_mapping": modelMapping},
+					},
+					{
+						ID:          47,
+						GroupIDs:    []int64{16},
+						Platform:    PlatformNewAPI,
+						Type:        AccountTypeServiceAccount,
+						Status:      StatusActive,
+						Schedulable: true,
+						ChannelType: 41,
+						Credentials: map[string]any{"model_mapping": modelMapping},
+					},
+				}},
+			},
+		},
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetModelSupportProvider(svc.UniversalGroupSupportsRequest)
+
+	g, err := r.Resolve(ctx, universalKey(1), ShapeGemini, "gemini-3.7-flash", "")
+	if err != nil || g == nil || g.ID != 16 {
+		t.Fatalf("gemini-native universal must use currently schedulable Vertex gid=16, got=%v err=%v", g, err)
 	}
 }
 
@@ -1024,20 +1171,32 @@ func TestUniversalOpenAICompatAccountSupportsModel_AinzyMappingDoesNotStealNewAP
 // only) and ListAllWithFilters(status=error) so overdue Qianfan rows stay visible
 // to universal entitlement without being dispatchable.
 type entitlementAwareStubAccountRepo struct {
-	stubOpenAIAccountRepo
+	groupAwareStubOpenAIAccountRepo
 }
 
 func (r entitlementAwareStubAccountRepo) ListSchedulableByGroupIDAndPlatform(_ context.Context, groupID int64, platform string) ([]Account, error) {
+	return r.listSchedulableByGroupIDAndPlatforms(groupID, []string{platform}), nil
+}
+
+func (r entitlementAwareStubAccountRepo) ListSchedulableByGroupIDAndPlatforms(_ context.Context, groupID int64, platforms []string) ([]Account, error) {
+	return r.listSchedulableByGroupIDAndPlatforms(groupID, platforms), nil
+}
+
+func (r entitlementAwareStubAccountRepo) listSchedulableByGroupIDAndPlatforms(groupID int64, platforms []string) []Account {
+	allowed := make(map[string]struct{}, len(platforms))
+	for _, platform := range platforms {
+		allowed[platform] = struct{}{}
+	}
 	var result []Account
 	for _, acc := range r.accounts {
-		if acc.Platform != platform || !acc.IsSchedulable() {
+		if _, ok := allowed[acc.Platform]; !ok || !acc.IsSchedulable() {
 			continue
 		}
 		if openAIStickyAccountMatchesGroup(&acc, &groupID) {
 			result = append(result, acc)
 		}
 	}
-	return result, nil
+	return result
 }
 
 func (r entitlementAwareStubAccountRepo) ListAllWithFilters(_ context.Context, platform, _, status string, _ string, groupID int64, _ string, _ int) ([]Account, error) {
@@ -1061,7 +1220,7 @@ func TestResolve_User16DeepseekV32StaysOnQianfanWhenTokenseaAlsoMapsIt(t *testin
 	ctx := context.Background()
 	span := append(user16Span(), dispatchGrp(19, PlatformNewAPI, 0, true))
 	svc := &GatewayService{
-		accountRepo: entitlementAwareStubAccountRepo{stubOpenAIAccountRepo{accounts: []Account{
+		accountRepo: entitlementAwareStubAccountRepo{groupAwareStubOpenAIAccountRepo{stubOpenAIAccountRepo{accounts: []Account{
 			{
 				ID:          92,
 				GroupIDs:    []int64{2},
@@ -1092,7 +1251,7 @@ func TestResolve_User16DeepseekV32StaysOnQianfanWhenTokenseaAlsoMapsIt(t *testin
 					},
 				},
 			},
-		}}},
+		}}}},
 	}
 	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
 	r.SetModelSupportProvider(svc.UniversalGroupSupportsRequest)
@@ -1110,7 +1269,7 @@ func TestResolve_User38QianfanDatedFlashDoesNot403WhenOnlyErrorAccountHasMapping
 		dispatchGrp(19, PlatformNewAPI, 0, true),
 	}
 	svc := &GatewayService{
-		accountRepo: entitlementAwareStubAccountRepo{stubOpenAIAccountRepo{accounts: []Account{
+		accountRepo: entitlementAwareStubAccountRepo{groupAwareStubOpenAIAccountRepo{stubOpenAIAccountRepo{accounts: []Account{
 			{
 				ID:          92,
 				GroupIDs:    []int64{2},
@@ -1137,7 +1296,7 @@ func TestResolve_User38QianfanDatedFlashDoesNot403WhenOnlyErrorAccountHasMapping
 					},
 				},
 			},
-		}}},
+		}}}},
 	}
 	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
 	r.SetModelSupportProvider(svc.UniversalGroupSupportsRequest)

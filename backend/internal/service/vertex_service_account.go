@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyutil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
@@ -57,6 +58,17 @@ type vertexTokenResponse struct {
 
 func (a *Account) IsVertexServiceAccount() bool {
 	return a != nil && a.Type == AccountTypeServiceAccount
+}
+
+// IsNewAPIVertexServiceAccount identifies the exact persisted account shape
+// that may serve native Gemini requests through Vertex. Keeping channel and
+// platform checks here prevents unrelated newapi service accounts from gaining
+// Google credential or endpoint behavior.
+func (a *Account) IsNewAPIVertexServiceAccount() bool {
+	return a != nil &&
+		a.Platform == PlatformNewAPI &&
+		a.ChannelType == newapiconstant.ChannelTypeVertexAi &&
+		a.IsVertexServiceAccount()
 }
 
 func (a *Account) VertexProjectID() string {

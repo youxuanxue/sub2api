@@ -51,7 +51,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini/antigravity 分组
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
 	if !hasForcePlatform && !geminiV1BetaGroupPlatformAllowed(apiKey) {
-		googleError(c, http.StatusBadRequest, "API key group platform is not gemini or antigravity")
+		googleError(c, http.StatusBadRequest, "API key group cannot serve native Gemini requests")
 		return
 	}
 
@@ -100,7 +100,7 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini/antigravity 分组
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
 	if !hasForcePlatform && !geminiV1BetaGroupPlatformAllowed(apiKey) {
-		googleError(c, http.StatusBadRequest, "API key group platform is not gemini or antigravity")
+		googleError(c, http.StatusBadRequest, "API key group cannot serve native Gemini requests")
 		return
 	}
 
@@ -177,7 +177,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	// 检查平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则要求 gemini/antigravity 分组
 	if !middleware.HasForcePlatform(c) {
 		if !geminiV1BetaGroupPlatformAllowed(apiKey) {
-			googleError(c, http.StatusBadRequest, "API key group platform is not gemini or antigravity")
+			googleError(c, http.StatusBadRequest, "API key group cannot serve native Gemini requests")
 			return
 		}
 	}
@@ -375,6 +375,10 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	cleanedForUnknownBinding := false
 
 	fs := NewFailoverState(h.maxAccountSwitchesGemini, hasBoundSession)
+	if apiKey.IsUniversal() && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformNewAPI {
+		ctx := service.WithNativeGeminiVertexAccountRequirement(c.Request.Context())
+		c.Request = c.Request.WithContext(ctx)
+	}
 
 	// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设模型限流标记。
 	// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设 29s 限流，导致后续请求连续快速失败。
@@ -413,6 +417,17 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			}
 		}
 		account := selection.Account
+		if apiKey.IsUniversal() && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformNewAPI && !account.IsNewAPIVertexServiceAccount() {
+			if selection.ReleaseFunc != nil {
+				selection.ReleaseFunc()
+			}
+			reqLog.Error("gemini.universal_vertex_account_rejected",
+				zap.Int64("account_id", account.ID),
+				zap.Int("channel_type", account.ChannelType),
+			)
+			googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts")
+			return
+		}
 		setOpsSelectedAccountFrom(c, account)
 
 		// 检测账号切换：如果粘性会话绑定的账号与当前选择的账号不同，清除 thoughtSignature
@@ -637,6 +652,11 @@ func geminiV1BetaGroupPlatformAllowed(apiKey *service.APIKey) bool {
 	switch apiKey.Group.Platform {
 	case service.PlatformGemini, service.PlatformAntigravity:
 		return true
+	case service.PlatformNewAPI:
+		// Direct newapi keys remain outside the native Gemini surface. Universal
+		// routing has already proved exact Vertex account/model serviceability
+		// before replacing the key's backing group.
+		return apiKey.IsUniversal()
 	default:
 		return false
 	}

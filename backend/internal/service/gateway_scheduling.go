@@ -991,6 +991,7 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 	if s.schedulerSnapshot != nil {
 		accounts, useMixed, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, hasForcePlatform)
 		if err == nil {
+			accounts = filterAccountsForNativeGeminiVertexRequirement(ctx, accounts)
 			accounts = s.filterAccountsBySchedulingThreshold(ctx, accounts)
 			if platform == PlatformGrok || strings.EqualFold(platform, PlatformGrok) {
 				accounts = s.filterGrokFreeQuotaAccountsForGateway(ctx, accounts)
@@ -1040,6 +1041,7 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 			}
 			filtered = append(filtered, acc)
 		}
+		filtered = filterAccountsForNativeGeminiVertexRequirement(ctx, filtered)
 		slog.Debug("account_scheduling_list_mixed",
 			"group_id", derefGroupID(groupID),
 			"platform", platform,
@@ -1091,6 +1093,7 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 				"tls_fingerprint", acc.IsTLSFingerprintEnabled())
 		}
 	}
+	accounts = filterAccountsForNativeGeminiVertexRequirement(ctx, accounts)
 	accounts = s.filterAccountsBySchedulingThreshold(ctx, accounts)
 	if platform == PlatformGrok || strings.EqualFold(platform, PlatformGrok) {
 		accounts = s.filterGrokFreeQuotaAccountsForGateway(ctx, accounts)
@@ -1171,7 +1174,7 @@ func (s *GatewayService) getSchedulableAccount(ctx context.Context, accountID in
 	if err != nil || account == nil {
 		return account, err
 	}
-	if s.isAccountBlockedBySchedulingThreshold(ctx, account) {
+	if !accountSupportsNativeGeminiVertexRequirement(ctx, account) || s.isAccountBlockedBySchedulingThreshold(ctx, account) {
 		return nil, nil
 	}
 	// Sticky / non-list selection must honor free soft-gate (same as listSchedulableAccounts).

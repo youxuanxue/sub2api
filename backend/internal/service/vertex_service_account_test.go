@@ -30,6 +30,75 @@ func TestBuildVertexGeminiURLUsesGlobalEndpointHost(t *testing.T) {
 	require.Equal(t, "https://aiplatform.googleapis.com/v1/projects/my-project/locations/global/publishers/google/models/gemini-3-flash-preview:streamGenerateContent?alt=sse", got)
 }
 
+func TestIsNewAPIVertexServiceAccount(t *testing.T) {
+	tests := []struct {
+		name    string
+		account *Account
+		want    bool
+	}{
+		{
+			name: "newapi vertex service account",
+			account: &Account{
+				Platform:    PlatformNewAPI,
+				Type:        AccountTypeServiceAccount,
+				ChannelType: 41,
+			},
+			want: true,
+		},
+		{
+			name: "direct gemini service account",
+			account: &Account{
+				Platform:    PlatformGemini,
+				Type:        AccountTypeServiceAccount,
+				ChannelType: 41,
+			},
+		},
+		{
+			name: "other newapi service account",
+			account: &Account{
+				Platform:    PlatformNewAPI,
+				Type:        AccountTypeServiceAccount,
+				ChannelType: 46,
+			},
+		},
+		{
+			name: "vertex api key",
+			account: &Account{
+				Platform:    PlatformNewAPI,
+				Type:        AccountTypeAPIKey,
+				ChannelType: 41,
+			},
+		},
+		{name: "nil", account: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, tt.account.IsNewAPIVertexServiceAccount())
+		})
+	}
+}
+
+func TestGeminiTokenProviderRejectsUnrelatedNewAPIServiceAccountBeforeTokenExchange(t *testing.T) {
+	provider := &GeminiTokenProvider{}
+	_, err := provider.GetAccessToken(context.Background(), &Account{
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeServiceAccount,
+		ChannelType: 46,
+	})
+	require.EqualError(t, err, "not a gemini oauth or Vertex service account")
+}
+
+func TestGeminiTokenProviderAcceptsNewAPIVertexServiceAccount(t *testing.T) {
+	provider := &GeminiTokenProvider{}
+	_, err := provider.GetAccessToken(context.Background(), &Account{
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeServiceAccount,
+		ChannelType: 41,
+	})
+	require.EqualError(t, err, "service account credentials not configured")
+}
+
 func TestVertexLocationUsesGlobalForGlobalOnlyGeminiModels(t *testing.T) {
 	account := &Account{Credentials: map[string]any{"location": "us-central1"}}
 

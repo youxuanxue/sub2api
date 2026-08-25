@@ -5551,9 +5551,10 @@
         "engine.CapabilityForEndpoint(bridgeEndpoint)",
         "func universalModelPlatformHint(",
         "ShapeOpenAIEmbeddings",
-        "gemini-embedding"
+        "gemini-embedding",
+        "return []string{PlatformGemini, PlatformAntigravity, PlatformNewAPI}"
       ],
-      "rationale": "Universal Key endpoint-shape -> candidate-platforms map. Candidate sets are DERIVED from engine single-source (OpenAICompatPlatforms / engine.CapabilityForEndpoint) so a sixth compat platform flows through automatically and the preflight newapi compat-pool drift guard stays satisfied. count_tokens must stay anthropic/antigravity-only; the model->platform hint biases grok/openai/newapi within the openai-compat shape. gemini-embedding-* on /v1/embeddings must hint newapi (Google-Vertex ch41 bridge), matching imagen/veo on image/video shapes. An upstream refactor hardcoding platform slices here would silently break grok routing and trip the drift guard."
+      "rationale": "Universal Key endpoint-shape -> candidate-platforms map. Candidate sets are DERIVED from engine single-source (OpenAICompatPlatforms / engine.CapabilityForEndpoint) so a sixth compat platform flows through automatically and the preflight newapi compat-pool drift guard stays satisfied. Native Gemini must include newapi so account-level serviceability can admit only Vertex ch41 service accounts; gemini-embedding-* on /v1/embeddings likewise hints newapi. An upstream refactor that drops Vertex or hardcodes other compat slices would silently break Google fallback or vendor routing."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk.go",
@@ -6408,9 +6409,12 @@
       "must_contain": [
         "failoverErr.ClientStatusCode > 0",
         "copyFailoverRetryAfter(c, failoverErr.ResponseHeaders)",
-        "googleError(c, failoverErr.ClientStatusCode, message)"
+        "googleError(c, failoverErr.ClientStatusCode, message)",
+        "return apiKey.IsUniversal()",
+        "service.WithNativeGeminiVertexAccountRequirement(c.Request.Context())",
+        "!account.IsNewAPIVertexServiceAccount()"
       ],
-      "rationale": "Native Gemini terminal failover must emit the Google 429 envelope and safe Retry-After for classified relay capacity before generic provider-status mapping."
+      "rationale": "Native Gemini terminal failover must emit the Google 429 envelope and safe Retry-After for classified relay capacity. Universal keys may additionally enter through a resolver-proven newapi Vertex group, while direct newapi keys remain rejected. The handler carries the exact ch41 service-account requirement into every scheduler path and still revalidates the selected account before credentials or network I/O."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_antigravity_relay_capacity_test.go",
@@ -6902,12 +6906,40 @@
       "rationale": "Single backend owner for the public usage-platform taxonomy. Dashboard and admin user-usage outputs must merge internal Gemini and Antigravity routing sources into Google while routing, quota enforcement, and ops retain their raw keys; removing this owner can silently expose source channels again without breaking database or API schemas."
     },
     {
+      "path": "backend/internal/service/gateway_scheduling_tk_request_capability.go",
+      "must_contain": [
+        "func WithNativeGeminiVertexAccountRequirement(ctx context.Context) context.Context",
+        "return !nativeGeminiVertexAccountRequired(ctx) || account.IsNewAPIVertexServiceAccount()",
+        "func filterAccountsForNativeGeminiVertexRequirement(ctx context.Context, accounts []Account) []Account"
+      ],
+      "rationale": "Request-scoped scheduler capability owner for native Gemini Universal routing through newapi. Group-level serviceability requires an exact Vertex ch41 service account, so every legacy, sticky, model-routing, and load-aware selection path must filter the same way before choosing or binding an account."
+    },
+    {
+      "path": "backend/internal/service/gateway_scheduling.go",
+      "must_contain": [
+        "accounts = filterAccountsForNativeGeminiVertexRequirement(ctx, accounts)",
+        "filtered = filterAccountsForNativeGeminiVertexRequirement(ctx, filtered)",
+        "!accountSupportsNativeGeminiVertexRequirement(ctx, account)"
+      ],
+      "rationale": "Load-bearing scheduler wiring for request-scoped account capabilities. Filtering list/snapshot candidates plus direct sticky-account lookups keeps native Gemini Universal group admission and actual account selection on the same exact Vertex predicate across both legacy and load-aware paths."
+    },
+    {
+      "path": "backend/internal/service/gateway_multiplatform_test.go",
+      "must_contain": [
+        "native Gemini Vertex requirement filters mixed newapi group",
+        "native Gemini Vertex requirement rejects all non-Vertex candidates"
+      ],
+      "rationale": "Focused regressions prove a higher-priority unrelated newapi account cannot steal a native Gemini Universal request from a lower-priority Vertex ch41 service account, and an all-invalid pool terminates as no available accounts without handler retry loops."
+    },
+    {
       "path": "backend/internal/service/vertex_service_account.go",
       "must_contain": [
         "func vertexModelUsesGlobalLocation(model string) bool",
-        "\"gemini-3.5-flash-lite\", \"gemini-3.6-flash\", \"gemini-3.7-flash\""
+        "\"gemini-3.5-flash-lite\", \"gemini-3.6-flash\", \"gemini-3.7-flash\"",
+        "func (a *Account) IsNewAPIVertexServiceAccount() bool",
+        "a.ChannelType == newapiconstant.ChannelTypeVertexAi"
       ],
-      "rationale": "Gemini 3.5 Flash Lite / 3.6 Flash / 3.7 Flash are publisher-global-only on Vertex. vertexModelUsesGlobalLocation must keep these ids on the global endpoint; an upstream merge that drops the case or the 3.7 id sends traffic to the account default us-central1 and the publisher model 404s. Live extras can write vertex_model_locations, but the compiled owner is what survives the next release and empty extras."
+      "rationale": "Vertex native Gemini ownership has two load-bearing facts: global-only Gemini ids must use the publisher-global endpoint, and only newapi ch41 service-account rows may acquire Vertex tokens or claim native Gemini routing. Dropping either silently turns a valid Vertex route into a 404 or broadens Google credential behavior to unrelated newapi vendors."
     },
     {
       "path": "backend/internal/service/openai_gateway_forward.go",

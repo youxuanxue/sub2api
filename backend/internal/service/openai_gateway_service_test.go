@@ -288,9 +288,17 @@ type groupAwareStubOpenAIAccountRepo struct {
 }
 
 func (r groupAwareStubOpenAIAccountRepo) ListSchedulableByGroupIDAndPlatform(ctx context.Context, groupID int64, platform string) ([]Account, error) {
+	return r.ListSchedulableByGroupIDAndPlatforms(ctx, groupID, []string{platform})
+}
+
+func (r groupAwareStubOpenAIAccountRepo) ListSchedulableByGroupIDAndPlatforms(_ context.Context, groupID int64, platforms []string) ([]Account, error) {
+	allowed := make(map[string]struct{}, len(platforms))
+	for _, platform := range platforms {
+		allowed[platform] = struct{}{}
+	}
 	var result []Account
 	for _, acc := range r.accounts {
-		if acc.Platform == platform && openAIStickyAccountMatchesGroup(&acc, &groupID) {
+		if _, ok := allowed[acc.Platform]; ok && openAIStickyAccountMatchesGroup(&acc, &groupID) {
 			result = append(result, acc)
 		}
 	}

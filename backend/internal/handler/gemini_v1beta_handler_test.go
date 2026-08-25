@@ -109,6 +109,19 @@ func TestGeminiV1BetaGroupPlatformAllowed(t *testing.T) {
 			expected: true,
 		},
 		{
+			name: "universal vertex group",
+			apiKey: &service.APIKey{
+				RoutingMode: service.RoutingModeUniversal,
+				Group:       &service.Group{Platform: service.PlatformNewAPI},
+			},
+			expected: true,
+		},
+		{
+			name:     "direct newapi group",
+			apiKey:   &service.APIKey{Group: &service.Group{Platform: service.PlatformNewAPI}},
+			expected: false,
+		},
+		{
 			name:     "openai group",
 			apiKey:   &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}},
 			expected: false,
