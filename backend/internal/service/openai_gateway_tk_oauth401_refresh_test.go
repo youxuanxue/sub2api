@@ -496,8 +496,12 @@ func TestOpenAIGatewayService_PassthroughWS_OAuth401RefreshesOnce(t *testing.T) 
 	require.Equal(t, []string{"Bearer stale-token", "Bearer fresh-token"}, dialer.auths)
 	require.Zero(t, rateRepo.setErrorCalls)
 	select {
-	case <-serverErr:
+	case err := <-serverErr:
+		if err != nil {
+			require.ErrorIs(t, err, errOpenAIWSConnClosed)
+		}
 	case <-time.After(3 * time.Second):
+		t.Fatal("passthrough WS server did not stop after both connections closed")
 	}
 }
 
