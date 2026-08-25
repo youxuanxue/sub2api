@@ -17,13 +17,13 @@ NON_MAIN_IF = "github.event_name != 'push' || github.ref != 'refs/heads/main'"
 class GoRollingCachePolicyTest(unittest.TestCase):
     def test_only_main_push_steps_can_save_caches(self) -> None:
         steps = yaml.safe_load(ACTION.read_text(encoding="utf-8"))["runs"]["steps"]
-        saving = [step for step in steps if step.get("uses") == "actions/cache@v4"]
+        saving = [step for step in steps if step.get("uses") == "actions/cache@v6"]
         self.assertEqual(len(saving), 2)
         self.assertTrue(all(step.get("if") == MAIN_WRITER_IF for step in saving))
 
     def test_non_main_events_restore_but_never_save_both_cache_layers(self) -> None:
         steps = yaml.safe_load(ACTION.read_text(encoding="utf-8"))["runs"]["steps"]
-        restore_only = [step for step in steps if step.get("uses") == "actions/cache/restore@v4"]
+        restore_only = [step for step in steps if step.get("uses") == "actions/cache/restore@v6"]
         self.assertEqual(len(restore_only), 2)
         self.assertTrue(all(step.get("if") == NON_MAIN_IF for step in restore_only))
         restored_paths = {step["with"]["path"] for step in restore_only}

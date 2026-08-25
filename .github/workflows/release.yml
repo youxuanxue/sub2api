@@ -162,7 +162,7 @@ jobs:
       # Release runs on a tag ref (`refs/tags/vX.Y.Z`). GitHub Actions scopes
       # cache restore to the current ref + the DEFAULT BRANCH only, so a cache
       # SAVED here (on the tag ref) is invisible to the next tag's release — the
-      # old `actions/cache@v4` save was pure dead weight (every release logged
+      # the old cache saver was pure dead weight (every release logged
       # `Cache not found` and cold-compiled arm64 from scratch, ~4m). The warm
       # cache is now produced by the `warm-release-cache` job in backend-ci.yml
       # on push to `main` (the default branch), which IS readable from tag runs.
@@ -173,7 +173,7 @@ jobs:
       # stale entry (e.g. after a .new-api-ref bump) is simply unused, never
       # wrong — release recompiles only changed packages + relinks.
       - name: Restore cross-arch Go build cache (warmed on main)
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cache/go-build

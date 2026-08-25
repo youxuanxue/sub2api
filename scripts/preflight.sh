@@ -2933,6 +2933,17 @@ else
     echo "  ok: release/warm cache key prefix + directionality in sync"
 fi
 
+echo ""
+echo "=== sub2api: GitHub cache action Node runtime ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by cache action runtime contract)"
+    errors=$((errors + 1))
+elif ! python3 -m unittest scripts.checks.test_cache_action_runtime >/dev/null; then
+    errors=$((errors + 1))
+else
+    echo "  ok: all direct actions/cache references use the Node 24 runtime major"
+fi
+
 # ---- sub2api: pnpm audit owner contract -------------------------------------
 # Project installs stay on pnpm 9, while security audit uses a pinned pnpm 11
 # owner because npm retired the quick-audit endpoint used by pnpm 9/10.

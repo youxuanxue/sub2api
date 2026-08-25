@@ -7,9 +7,9 @@ to cold-compiling arm64 ~4m every time, with NO error — exactly the failure
 mode that went unnoticed for weeks before #576):
 
   * .github/workflows/warm-release-cache-main.yml — `warm-release-cache` SAVES
-    the cache on `main` (the default branch) with `actions/cache@v4`.
+    the cache on `main` (the default branch) with `actions/cache@v6`.
   * .github/workflows/release.yml     — RESTORES it on the tag ref with
-    `actions/cache/restore@v4` (restore-only; saving here would re-create the
+    `actions/cache/restore@v6` (restore-only; saving here would re-create the
     dead tag-scoped caches #576 removed).
 
 The two invariants that, if broken, silently kill the speed-up:
@@ -18,8 +18,8 @@ The two invariants that, if broken, silently kill the speed-up:
      `<runner.os>-go-release-<hashFiles(backend/go.sum)>`. Rename it in one file
      only and release's restore-keys never match the warm cache again.
   2. DIRECTIONALITY — backend-ci's go-release step uses the SAVING action
-     (`actions/cache@v4`); release's uses the RESTORE-ONLY action
-     (`actions/cache/restore@v4`). Re-adding a saver to release.yml resurrects
+     (`actions/cache@v6`); release's uses the RESTORE-ONLY action
+     (`actions/cache/restore@v6`). Re-adding a saver to release.yml resurrects
      the per-tag-ref dead caches.
 
 Same doctrine as scripts/checks/merge-gate-parity.py: a soft "keep these two in
@@ -44,8 +44,8 @@ SHARED_KEY_PREFIX = "${{ runner.os }}-go-release-${{ hashFiles('backend/go.sum')
 # Marker substring that identifies a go-release cache key line in either file.
 KEY_MARKER = "go-release"
 
-SAVE_ACTION = "actions/cache@v4"
-RESTORE_ACTION = "actions/cache/restore@v4"
+SAVE_ACTION = "actions/cache@v6"
+RESTORE_ACTION = "actions/cache/restore@v6"
 
 
 def _fail(quiet: bool, msg: str) -> None:
