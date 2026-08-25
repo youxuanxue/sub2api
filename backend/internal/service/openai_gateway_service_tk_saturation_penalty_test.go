@@ -76,5 +76,5 @@ func TestComputeOpenAISaturationPenalties_KillSwitchOff(t *testing.T) {
 }
 
 func resetOpenAISatCache() {
-	openaiSatDeprioritizeCache.Store((*openaiSatDeprioritizeCacheEntry)(nil))
+	openaiSatDeprioritizeCache.Store((*tkOptOutFlagCacheEntry)(nil))
 }

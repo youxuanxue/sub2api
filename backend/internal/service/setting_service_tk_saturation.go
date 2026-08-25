@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"log/slog"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -16,13 +14,12 @@ import (
 // singleflight to collapse concurrent DB reads, fail-OPEN to true on missing
 // key / DB error / unwired service. Default ON — an operator can disable the
 // feature (settings → false) to fall back to pure priority/load selection.
+//
+// The read path itself lives in setting_service_tk_optout_flag.go; a
+// never-written key resolves to the default without warning (see
+// tkResolveOptOutFlagValue).
 
-type satDeprioritizeCacheEntry struct {
-	enabled   bool
-	expiresAt int64 // UnixNano
-}
-
-var satDeprioritizeCache atomic.Value // *satDeprioritizeCacheEntry
+var satDeprioritizeCache atomic.Value // *tkOptOutFlagCacheEntry
 var satDeprioritizeSF singleflight.Group
 
 const satDeprioritizeCacheTTL = 60 * time.Second
@@ -35,38 +32,13 @@ func (s *SettingService) IsAnthropicSaturatedStubDeprioritizeEnabled(ctx context
 	if s == nil || s.settingRepo == nil {
 		return true
 	}
-	if cached, ok := satDeprioritizeCache.Load().(*satDeprioritizeCacheEntry); ok && cached != nil {
-		if time.Now().UnixNano() < cached.expiresAt {
-			return cached.enabled
-		}
-	}
-	val, _, _ := satDeprioritizeSF.Do(SettingKeyAnthropicSaturatedStubDeprioritizeEnabled, func() (any, error) {
-		if cached, ok := satDeprioritizeCache.Load().(*satDeprioritizeCacheEntry); ok && cached != nil {
-			if time.Now().UnixNano() < cached.expiresAt {
-				return cached.enabled, nil
-			}
-		}
-		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), satDeprioritizeDBTimeout)
-		defer cancel()
-		raw, err := s.settingRepo.GetValue(dbCtx, SettingKeyAnthropicSaturatedStubDeprioritizeEnabled)
-		if err != nil {
-			slog.Warn("failed to get anthropic saturated-stub deprioritize setting", "error", err)
-			satDeprioritizeCache.Store(&satDeprioritizeCacheEntry{
-				enabled:   true,
-				expiresAt: time.Now().Add(satDeprioritizeErrorTTL).UnixNano(),
-			})
-			return true, nil
-		}
-		// Empty string => never set => default true (opt-out, not opt-in).
-		enabled := strings.TrimSpace(raw) != "false"
-		satDeprioritizeCache.Store(&satDeprioritizeCacheEntry{
-			enabled:   enabled,
-			expiresAt: time.Now().Add(satDeprioritizeCacheTTL).UnixNano(),
-		})
-		return enabled, nil
+	return tkReadOptOutFlag(ctx, s.settingRepo, tkOptOutFlagSpec{
+		key:       SettingKeyAnthropicSaturatedStubDeprioritizeEnabled,
+		warnMsg:   "failed to get anthropic saturated-stub deprioritize setting",
+		cache:     &satDeprioritizeCache,
+		sf:        &satDeprioritizeSF,
+		okTTL:     satDeprioritizeCacheTTL,
+		errorTTL:  satDeprioritizeErrorTTL,
+		dbTimeout: satDeprioritizeDBTimeout,
 	})
-	if b, ok := val.(bool); ok {
-		return b
-	}
-	return true
 }

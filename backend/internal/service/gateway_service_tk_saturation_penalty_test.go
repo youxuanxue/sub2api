@@ -82,7 +82,7 @@ func anthropicAccWithLoad(id int64, priority int, loadRate int, lastUsed *time.T
 
 // resetSatCache clears the process-level kill-switch cache between subtests so a
 // prior subtest's cached decision does not leak.
-func resetSatCache() { satDeprioritizeCache.Store((*satDeprioritizeCacheEntry)(nil)) }
+func resetSatCache() { satDeprioritizeCache.Store((*tkOptOutFlagCacheEntry)(nil)) }
 
 // --- effectivePriority / filterByMinPriority ---
 

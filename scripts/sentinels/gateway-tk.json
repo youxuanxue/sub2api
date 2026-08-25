@@ -7100,6 +7100,27 @@
         "TestUS047_NativeBufferedIdleRoutesByContentAvailability"
       ],
       "rationale": "Native-Anthropic idle timeout must remain failover-safe before content and preserve+mark partial content after the first content block."
+    },
+    {
+      "path": "backend/internal/service/setting_service_tk_optout_flag.go",
+      "must_contain": [
+        "func tkResolveOptOutFlagValue(",
+        "errors.Is(err, ErrSettingNotFound)",
+        "return true, okTTL, false",
+        "func tkReadOptOutFlag(",
+        "slog.Warn(spec.warnMsg"
+      ],
+      "rationale": "Shared read path for every opt-out gateway kill-switch. The ErrSettingNotFound branch is load-bearing: settingRepo.GetValue returns that error for a never-written key, so without it a key that is simply absent (the normal steady state for a default-ON switch) is logged as a failure on EVERY read and cached for the short errorTTL instead of okTTL. On prod 1.8.173 that shape produced 603 of 869 warn/error rows (69%) for two absent keys, at 12x the intended read rate. Anchor the not-found branch, its okTTL return, and the warn call so a merge cannot silently restore the conflated 'if err != nil' shape; the warn must stay reachable for real storage faults."
+    },
+    {
+      "path": "backend/internal/service/setting_service_tk_optout_flag_test.go",
+      "must_contain": [
+        "TestResolveOptOutFlagValue_AbsentKeyIsNotAFailure",
+        "TestResolveOptOutFlagValue_RealDBErrorStillWarnsAndBacksOff",
+        "TestReadOptOutFlag_AbsentKeyIsCachedForOkTTL",
+        "TestAllOptOutAccessors_AbsentKeyDefaultsOnWithoutChurn"
+      ],
+      "rationale": "Regression tests for the absent-vs-broken distinction. They pin the two directions that matter: a never-written key resolves silently on the long TTL (no log churn, no 12x re-read), and a real DB error still warns and still backs off on the short errorTTL. TestAllOptOutAccessors_* sweeps all four flags so a newly added kill-switch written with the old 'if err != nil' shape fails here."
     }
   ]
 }
