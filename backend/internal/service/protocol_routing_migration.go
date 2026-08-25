@@ -34,7 +34,8 @@ type ProtocolRoutingRemediation struct {
 type ProtocolRoutingMigrationReport struct {
 	ActiveGoverned int
 	SeededOfficial int
-	ProbedAccounts int
+	ProbeAttempts  int
+	ProbeResolved  int
 	CutoverReady   bool
 	Remediation    []ProtocolRoutingRemediation
 }
@@ -125,14 +126,28 @@ func prepareProtocolRoutingSSOT(
 	probeProtocolRoutingAccounts(ctx, prober, accountIDs)
 
 	final, err := MigrateProtocolRoutingSSOT(ctx, repo, router)
+	final.ProbeAttempts = len(accountIDs)
+	final.ProbeResolved = protocolRoutingResolvedProbeCount(accountIDs, final.Remediation)
 	if err != nil {
 		final.SeededOfficial += initial.SeededOfficial
-		final.ProbedAccounts = len(accountIDs)
 		return ProtocolRoutingSSOTReady{Report: final}, err
 	}
 	final.SeededOfficial += initial.SeededOfficial
-	final.ProbedAccounts = len(accountIDs)
 	return newProtocolRoutingSSOTReady(final, router), nil
+}
+
+func protocolRoutingResolvedProbeCount(accountIDs []int64, remediation []ProtocolRoutingRemediation) int {
+	unresolved := make(map[int64]struct{}, len(remediation))
+	for _, item := range remediation {
+		unresolved[item.AccountID] = struct{}{}
+	}
+	resolved := 0
+	for _, accountID := range accountIDs {
+		if _, remains := unresolved[accountID]; !remains {
+			resolved++
+		}
+	}
+	return resolved
 }
 
 func probeProtocolRoutingAccounts(ctx context.Context, prober protocolRoutingCapabilityProber, accountIDs []int64) {
@@ -181,7 +196,7 @@ func protocolRoutingMigrationModels(account *Account) []string {
 	models := make([]string, 0, len(mapping))
 	for requested := range mapping {
 		requested = strings.TrimSpace(requested)
-		if requested == "" || strings.Contains(requested, "*") {
+		if requested == "" {
 			continue
 		}
 		models = append(models, requested)

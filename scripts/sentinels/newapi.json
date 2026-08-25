@@ -898,33 +898,69 @@
       "path": "backend/internal/service/account_supported_protocols.go",
       "must_contain": [
         "func protocolExactEndpoint(account *Account, protocol protocolrouter.Protocol, resolvedModel string) (string, error)",
+        "isNewAPIVolcEngineAgentPlanAccount(account)",
+        "newapiintegration.VolcEngineAgentPlanBaseURL",
         "endpoint, err := bridge.ResolveTextEndpoint(in, format, resolvedModel)"
       ],
-      "rationale": "Single NewAPI text-endpoint resolver shared by protocol planning and capability probes. Provider paths such as DashScope ch17 differ from generic /v1 endpoints; losing this owner recreates split path tables and lets probes persist false capability facts for otherwise healthy accounts."
+      "rationale": "Single NewAPI text-endpoint resolver shared by protocol planning and capability probes. Provider paths such as DashScope ch17 and VolcEngine Agent Plan differ from generic /v1 endpoints; losing this owner recreates split path tables and lets probes persist false capability facts for otherwise healthy accounts."
+    },
+    {
+      "path": "backend/internal/service/account_supported_protocols_test.go",
+      "must_contain": [
+        "TestProtocolAccountSnapshotUsesCanonicalAgentPlanEndpoints",
+        "VolcEngineAgentPlanBaseURL+\"/chat/completions\"",
+        "VolcEngineAgentPlanBaseURL+\"/responses\""
+      ],
+      "rationale": "Regression proof that Agent Plan account 88 resolves both governed text protocols under the canonical /api/plan/v3 base instead of probing or executing the generic VolcEngine paths that returned 404 during rollout preparation."
     },
     {
       "path": "backend/internal/service/openai_apikey_chat_completions_probe.go",
       "must_contain": [
+        "selectProtocolProbeModel(account)",
         "protocolExactEndpoint(account, protocolrouter.ProtocolChatCompletions, probeModel)",
         "chat_completions_resolve_endpoint_failed"
       ],
-      "rationale": "Chat Completions capability probes for NewAPI accounts must use the exact adaptor URL rather than appending /v1/chat/completions to base_url. Dropping this call marks DashScope ch17 unsupported after probing the wrong 404 endpoint."
+      "rationale": "Chat Completions capability probes must use the shared representative model and exact NewAPI adaptor URL rather than appending /v1/chat/completions to base_url. Dropping either call can probe a media/foreign model or mark DashScope ch17 unsupported after hitting the wrong 404 endpoint."
+    },
+    {
+      "path": "backend/internal/service/protocol_probe_model_tk.go",
+      "must_contain": [
+        "func selectProtocolProbeModel(account *Account) string",
+        "func protocolRoutingAccountIsMediaOnly(account *Account) bool",
+        "newapiconstant.ChannelTypeAli",
+        "isOpenAIImageGenerationModel(model)",
+        "isGrokVideoGenerationModel(model)",
+        "antigravity.IsImageModel(model)",
+        "return openai.DefaultTestModel"
+      ],
+      "rationale": "Single representative text-model owner shared by all protocol capability probes and text-governance classification. It deterministically prefers qwen-* for Ali channels, excludes canonical image/video families, and prevents media-only accounts from blocking SSOT cutover readiness."
     },
     {
       "path": "backend/internal/service/openai_apikey_responses_probe.go",
       "must_contain": [
+        "selectProtocolProbeModel(account)",
         "protocolExactEndpoint(account, protocolrouter.ProtocolResponses, probeModel)",
         "probe_resolve_endpoint_failed"
       ],
-      "rationale": "Responses capability probes for NewAPI accounts must use the exact adaptor URL rather than generic /v1/responses. DashScope ch17 serves Responses under /api/v2/apps/protocols/compatible-mode/v1/responses; probing the generic path produces a false negative and invalid routing facts."
+      "rationale": "Responses capability probes for NewAPI accounts must use the shared representative model and exact adaptor URL. DashScope ch17 serves Responses under /api/v2/apps/protocols/compatible-mode/v1/responses; losing either owner produces false capability facts."
+    },
+    {
+      "path": "backend/internal/service/openai_apikey_native_messages_probe.go",
+      "must_contain": [
+        "selectProtocolProbeModel(account)",
+        "ProtocolMessages",
+        "openai_native_messages_supported"
+      ],
+      "rationale": "Native Messages capability probes share the same representative text-model owner and persist canonical protocol evidence while retaining the legacy compatibility field. Losing that call recreates per-protocol model selection drift."
     },
     {
       "path": "backend/internal/service/protocol_routing_context.go",
       "must_contain": [
+        "protocolRoutingAccountIsMediaOnly(account)",
         "func protocolRoutingCanonicalRequest(ctx context.Context) (protocolrouter.CanonicalRequest, bool)",
         "if !ok || routing.router == nil {\n\t\treturn protocolrouter.CanonicalRequest{}, false"
       ],
-      "rationale": "Cutover-disabled requests retain the canonical body for legacy execution without making ProtocolRoutingRequest report routing enabled. Losing either half makes router=nil return an empty body or accidentally enables the scheduler hard gate before migration readiness."
+      "rationale": "Text protocol governance excludes media-only accounts before scheduling. Cutover-disabled text requests retain the canonical body for legacy execution without making ProtocolRoutingRequest report routing enabled. Losing either boundary can pull video-only accounts into remediation or enable the scheduler hard gate before migration readiness."
     },
     {
       "path": "backend/internal/service/protocol_execution.go",
@@ -953,9 +989,13 @@
       "path": "backend/internal/service/openai_apikey_responses_probe_test.go",
       "must_contain": [
         "TestProbeOpenAIAPIKeyResponsesSupportUsesNewAPIAdaptorEndpoint",
+        "TestProbeOpenAIAPIKeyResponsesSupportPrefersChannelNativeTextModel",
+        "TestSelectProtocolProbeModelUsesDeterministicTextFallback",
+        "TestSelectProtocolProbeModelExcludesMediaAndUsesDeterministicTextFallback",
+        "TestSelectProtocolProbeModelPrefersAliNativeQwenFamily",
         "https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1/responses"
       ],
-      "rationale": "Regression proof that the ch17 Responses probe follows the live adaptor endpoint instead of the generic 404 path."
+      "rationale": "Regression proof that the ch17 Responses probe follows the live adaptor endpoint, prefers qwen-* for Ali channels, filters media mappings, and chooses one deterministic representative model."
     },
     {
       "path": "backend/internal/handler/openai_chat_completions_legacy_protocol_fallback_test.go",
@@ -989,9 +1029,33 @@
         "MigrateProtocolRoutingSSOT",
         "ProtocolRoutingRemediationProbeRequired",
         "ProtocolRoutingRemediationNoLegalRoute",
+        "ProbeAttempts",
+        "ProbeResolved",
+        "protocolRoutingMigrationModels",
         "CutoverReady"
       ],
-      "rationale": "NewAPI accounts are custom endpoints and must never inherit official protocol capabilities. The additive migration reports them for per-account probes and blocks cutover readiness when no legal route exists instead of inferring from channel_type/api_protocol."
+      "rationale": "NewAPI accounts are custom endpoints and must never inherit official protocol capabilities. The additive migration reports them for per-account probes, preserves wildcard served-model rules when checking legal paths, distinguishes probe attempts from resolved accounts, and blocks cutover readiness when remediation remains."
+    },
+    {
+      "path": "backend/internal/service/protocol_routing_migration_test.go",
+      "must_contain": [
+        "TestMigrateProtocolRoutingSSOTExcludesVideoOnlyAccounts",
+        "TestProtocolRoutingMediaOnlyClassificationKeepsTextWildcardAccounts",
+        "TestProtocolRoutingMediaOnlyClassificationExcludesKnownImageAliases",
+        "TestProtocolRoutingMigrationUsesWildcardServedModelsForLegalRoute",
+        "ProbeAttempts != 1 || ready.Report.ProbeResolved != 1",
+        "ProbeAttempts != 1 || ready.Report.ProbeResolved != 0"
+      ],
+      "rationale": "Regression proof for the rollout-remediation fixes: XRToken video-only accounts stay outside text governance, mixed wildcard accounts stay governed, CloudWise wildcard mappings remain legal, and startup reporting no longer calls every attempted probe resolved."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": [
+        "probe_attempts=%d probe_resolved=%d",
+        "report.ProbeAttempts",
+        "report.ProbeResolved"
+      ],
+      "rationale": "Startup reporting must distinguish attempted capability probes from accounts whose remediation was actually cleared. Calling attempts probed_accounts made the release report look converged while the router remained disabled."
     }
   ]
 }

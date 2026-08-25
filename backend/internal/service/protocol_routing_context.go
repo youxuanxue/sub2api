@@ -136,6 +136,9 @@ func protocolRoutingGovernsAccount(account *Account) bool {
 	if account == nil || account.IsBedrock() || account.Type == AccountTypeServiceAccount {
 		return false
 	}
+	if protocolRoutingAccountIsMediaOnly(account) {
+		return false
+	}
 	switch account.Platform {
 	case PlatformAnthropic,
 		PlatformOpenAI,

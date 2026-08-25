@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -74,33 +73,12 @@ func openaiResponsesProbePayload(modelID string) []byte {
 	return body
 }
 
-// selectResponsesProbeModel 选出用于探测的上游模型。
-//
-// 工具能力探测必须用上游真实存在的模型——用占位模型(DefaultTestModel)打第三方
-// 上游只会拿到 400 model-not-found,无从判定工具能力。优先取账号 model_mapping
-// 的上游模型(值),按字典序取首个具体(非通配符)模型以保证可复现;无映射时回退
-// DefaultTestModel(适配 OpenAI 官方 APIKey 账号)。
-func selectResponsesProbeModel(account *Account) string {
-	mapping := account.GetModelMapping()
-	candidates := make([]string, 0, len(mapping))
-	for _, upstream := range mapping {
-		upstream = strings.TrimSpace(upstream)
-		if upstream == "" || strings.Contains(upstream, "*") {
-			continue
-		}
-		candidates = append(candidates, upstream)
-	}
-	if len(candidates) == 0 {
-		return openai.DefaultTestModel
-	}
-	sort.Strings(candidates)
-	return candidates[0]
-}
-
 // ProbeOpenAIAPIKeyResponsesSupport 探测 OpenAI APIKey 账号上游是否支持
-// /v1/responses 端点，并将结果持久化到 accounts.extra.openai_responses_supported。
+// /v1/responses 端点，并通过统一持久化入口更新 accounts.extra.supported_protocols；
+// 同时写入 openai_responses_supported 兼容旧读取方。
 //
-// 调用时机：账号创建/更新后，且仅当 platform=openai && type=apikey 时。
+// 调用时机：统一协议能力探测选出 Responses 候选后；适用于所有受治理的自定义
+// APIKey/Upstream 账号，不再由 platform 名称推断能力。
 //
 // 探测策略（参见包文档 internal/pkg/openai_compat）：
 //   - 上游 404 / 405 → 端点不存在,写 false
@@ -111,8 +89,8 @@ func selectResponsesProbeModel(account *Account) string {
 //
 // 该方法是幂等的：重复调用会以最新探测结果覆盖标记。
 //
-// 关于失败处理：探测本身的失败不应阻塞账号创建——账号能创建/更新成功就够了，
-// 探测结果只影响后续路由优化。所有错误都仅记录日志，不向调用方传播。
+// 关于失败处理：探测本身的失败不阻塞账号写入或启动准备；所有错误仅记录日志，
+// 未得出结论时保留既有能力事实。
 func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Context, accountID int64) {
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
@@ -172,7 +150,7 @@ func (s *AccountTestService) probeOpenAIAPIKeyResponsesSupport(
 		return protocolProbeObservation{}, false
 	}
 
-	probeModel := selectResponsesProbeModel(account)
+	probeModel := selectProtocolProbeModel(account)
 	probeURL := buildOpenAIResponsesURLForPlatform(account.Platform, normalizedBaseURL)
 	if exactEndpoint, exactErr := protocolExactEndpoint(account, protocolrouter.ProtocolResponses, probeModel); exactErr != nil {
 		logger.LegacyPrintf("service.openai_probe", "probe_resolve_endpoint_failed: account_id=%d err=%v", accountID, exactErr)

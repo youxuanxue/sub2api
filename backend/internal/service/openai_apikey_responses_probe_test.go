@@ -54,6 +54,46 @@ func TestProbeOpenAIAPIKeyResponsesSupportUsesNewAPIAdaptorEndpoint(t *testing.T
 	require.Equal(t, []string{"responses"}, updates[SupportedProtocolsExtraKey])
 }
 
+func TestProbeOpenAIAPIKeyResponsesSupportPrefersChannelNativeTextModel(t *testing.T) {
+	updateCalls := make(chan map[string]any, 1)
+	account := Account{
+		ID:          78,
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeAli,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "dashscope-key",
+			"base_url": "https://dashscope.aliyuncs.com",
+			"model_mapping": map[string]any{
+				"glm-4.5":   "glm-4.5",
+				"qwen-plus": "qwen-plus",
+			},
+		},
+	}
+	repo := &snapshotUpdateAccountRepo{
+		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
+		updateExtraCalls:      updateCalls,
+	}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(`{"status":"completed","output":[{"type":"function_call","name":"probe_ping"}]}`)),
+	}}
+	svc := &AccountTestService{
+		accountRepo:  repo,
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+
+	svc.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), account.ID)
+
+	require.Len(t, upstream.bodies, 1)
+	require.Contains(t, string(upstream.bodies[0]), `"model":"qwen-plus"`)
+	updates := <-updateCalls
+	require.Equal(t, []string{"responses"}, updates[SupportedProtocolsExtraKey])
+}
+
 func TestProbeOpenAIAPIKeyResponsesSupportUsesCodexProbeHeaders(t *testing.T) {
 	updateCalls := make(chan map[string]any, 1)
 	account := Account{
@@ -185,9 +225,9 @@ func TestResponsesProbeBodyHasFunctionCall(t *testing.T) {
 	require.False(t, responsesProbeBodyHasFunctionCall([]byte(`garbage`)))
 }
 
-func TestSelectResponsesProbeModel(t *testing.T) {
+func TestSelectProtocolProbeModelUsesDeterministicTextFallback(t *testing.T) {
 	// No model_mapping -> fall back to DefaultTestModel (OpenAI official APIKey).
-	require.Equal(t, openai.DefaultTestModel, selectResponsesProbeModel(&Account{}))
+	require.Equal(t, openai.DefaultTestModel, selectProtocolProbeModel(&Account{}))
 
 	// model_mapping values are upstream models; pick first by sort for reproducibility.
 	acct := &Account{Credentials: map[string]any{
@@ -196,7 +236,7 @@ func TestSelectResponsesProbeModel(t *testing.T) {
 			"client-a": "alpha-model",
 		},
 	}}
-	require.Equal(t, "alpha-model", selectResponsesProbeModel(acct))
+	require.Equal(t, "alpha-model", selectProtocolProbeModel(acct))
 
 	// Wildcard / blank upstream values are skipped.
 	acctWild := &Account{Credentials: map[string]any{
@@ -206,11 +246,45 @@ func TestSelectResponsesProbeModel(t *testing.T) {
 			"c": "real-model",
 		},
 	}}
-	require.Equal(t, "real-model", selectResponsesProbeModel(acctWild))
+	require.Equal(t, "real-model", selectProtocolProbeModel(acctWild))
 
 	// Only wildcard mappings -> DefaultTestModel.
 	acctAllWild := &Account{Credentials: map[string]any{
 		"model_mapping": map[string]any{"a": "gpt-*"},
 	}}
-	require.Equal(t, openai.DefaultTestModel, selectResponsesProbeModel(acctAllWild))
+	require.Equal(t, openai.DefaultTestModel, selectProtocolProbeModel(acctAllWild))
+}
+
+func TestSelectProtocolProbeModelExcludesMediaAndUsesDeterministicTextFallback(t *testing.T) {
+	account := &Account{
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeVolcEngine,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"video": "doubao-seedance-2-0-260128",
+				"later": "qwen-plus",
+				"first": "glm-4.5",
+				"image": "doubao-seedream-4-0-250828",
+			},
+		},
+	}
+
+	require.Equal(t, "glm-4.5", selectProtocolProbeModel(account))
+}
+
+func TestSelectProtocolProbeModelPrefersAliNativeQwenFamily(t *testing.T) {
+	account := &Account{
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeAli,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"glm":  "glm-4.5",
+				"qwen": "qwen-plus",
+			},
+		},
+	}
+
+	require.Equal(t, "qwen-plus", selectProtocolProbeModel(account))
 }
