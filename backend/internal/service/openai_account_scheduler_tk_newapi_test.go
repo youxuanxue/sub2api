@@ -136,6 +136,42 @@ func TestUS008_NewAPIGroup_Scheduler_PicksNewAPIAccount(t *testing.T) {
 	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
 }
 
+func TestQianfanDatedFlashAliasSelectsAgentPlanAndSkipsDeepSeekAccount(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(19)
+	const model = "deepseek-v4-flash-0731"
+
+	deepSeek := newAPIAccount(39, 43)
+	deepSeek.Type = AccountTypeAPIKey
+	deepSeek.Priority = 0
+	deepSeek.Credentials = map[string]any{
+		"model_mapping": map[string]any{
+			"deepseek-v4-flash": "deepseek-v4-flash",
+			"deepseek-v4-pro":   "deepseek-v4-pro",
+		},
+	}
+	agentPlan := newAPIAccount(88, 45)
+	agentPlan.Type = AccountTypeAPIKey
+	agentPlan.Priority = 10
+	agentPlan.Credentials = map[string]any{
+		"model_mapping": map[string]any{
+			model: "deepseek-v4-flash",
+		},
+	}
+
+	svc, _ := newAPISchedFixture(t, groupID, PlatformNewAPI, []*Account{deepSeek, agentPlan})
+	selection, _, err := svc.SelectAccountWithScheduler(
+		ctx, &groupID, "", "", model, nil, OpenAIUpstreamTransportAny, false,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, int64(88), selection.Account.ID,
+		"account 39 has higher priority but lacks the dated alias; only account 88 may receive it")
+	require.Equal(t, "deepseek-v4-flash", selection.Account.GetModelMapping()[model])
+}
+
 // US-008 AC-002 / US-012 AC-001 (scheduler tier): newapi group with an empty
 // candidate pool MUST return an error (no fallback to openai accounts).
 //

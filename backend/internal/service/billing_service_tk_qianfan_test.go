@@ -6,37 +6,102 @@ import (
 	"testing"
 	"time"
 
-	newapiconstant "github.com/QuantumNous/new-api/constant"
-	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/stretchr/testify/require"
 )
 
-func TestTkQianfanScopedBillingModel(t *testing.T) {
+// The `.qianfan` suffix owners are gone: user-facing billing is intentionally
+// independent of the upstream account that serves the request. Shared client ids
+// use the single global owner; provider/account cost differences belong to profit
+// reporting, not ActualCost. channel_model_pricing remains a customer commercial
+// scope and must not be used as a proxy for a serving-account price.
+// See docs/approved/pricing-serving-single-source-of-truth.md §1.
+func TestTkQianfanScopedOverlayKeysAreRemoved(t *testing.T) {
 	t.Parallel()
-	qianfan := &Account{
-		Platform:    PlatformNewAPI,
-		Type:        AccountTypeAPIKey,
-		ChannelType: newapiconstant.ChannelTypeBaiduV2,
-		Credentials: map[string]any{
-			"base_url": newapiintegration.QianfanBaseURL,
-		},
+	overlay := loadTKPricingOverlay()
+	for _, key := range []string{
+		"deepseek-v4-pro.qianfan",
+		"deepseek-v4-flash.qianfan",
+		"glm-5.qianfan",
+		"glm-5.1.qianfan",
+		"glm-5.2.qianfan",
+		"kimi-k2.6.qianfan",
+	} {
+		require.Nil(t, overlay[key],
+			"%s must not exist: shared ids use one global user price regardless of serving account", key)
 	}
-	official := &Account{
-		Platform:    PlatformNewAPI,
-		Type:        AccountTypeAPIKey,
-		ChannelType: newapiconstant.ChannelTypeDeepSeek,
-		Credentials: map[string]any{
-			"base_url": "https://api.deepseek.com",
-		},
+}
+
+// The dated Qianfan flash SKU is the same upstream model as the official
+// deepseek-v4-flash (the official price page itself names it V4-Flash-0731), so
+// it is an ALIAS, not an owner. It must resolve through the family matcher to
+// the official owner rather than carry a duplicate price row.
+func TestTkQianfanDatedFlashResolvesToOfficialFlashOwner(t *testing.T) {
+	t.Parallel()
+	overlay := loadTKPricingOverlay()
+	require.Nil(t, overlay["deepseek-v4-flash-0731"],
+		"dated SKU must not be its own registry owner")
+
+	svc := newTestBillingService()
+	dated, err := svc.GetModelPricing("deepseek-v4-flash-0731")
+	require.NoError(t, err, "dated alias must stay priced (else the priced-serving gate 404s it)")
+	official, err := svc.GetModelPricing("deepseek-v4-flash")
+	require.NoError(t, err)
+
+	require.InDelta(t, official.InputPricePerToken, dated.InputPricePerToken, 1e-15)
+	require.InDelta(t, official.OutputPricePerToken, dated.OutputPricePerToken, 1e-15)
+}
+
+// Peak-valley now applies to the dated alias exactly as it does to the official
+// owner it bills from: the alias no longer has a Qianfan price row to protect.
+func TestTkDeepSeekPeakValleyAppliesToDatedFlashAlias(t *testing.T) {
+	t.Parallel()
+	policy := loadTkDeepSeekPeakValleyPolicy()
+	require.NotNil(t, policy)
+
+	require.True(t, tkDeepSeekPeakValleyAppliesWithPolicy(policy, "deepseek-v4-flash-0731", PricingSourceLiteLLM),
+		"dated alias bills from the official owner, so official peak windows must apply")
+
+	// Windows are evaluated in the policy timezone (Asia/Shanghai), NOT the
+	// process timezone — build the instant there so the case is a real peak.
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	require.NoError(t, err)
+	peak := time.Date(2026, 7, 21, 10, 0, 0, 0, shanghai)
+	require.InDelta(t, policy.PeakMultiplier, tkDeepSeekPeakMultiplierAtWithPolicy(policy, peak), 1e-12,
+		"10:00 Asia/Shanghai must land inside the 09:00-12:00 window")
+
+	base := &ModelPricing{InputPricePerToken: 0.0015, OutputPricePerToken: 0.0045}
+	scaled := tkApplyDeepSeekPeakValleyPricing("deepseek-v4-flash-0731", base, peak, PricingSourceLiteLLM)
+	require.InDelta(t, base.InputPricePerToken*policy.PeakMultiplier, scaled.InputPricePerToken, 1e-12)
+	require.InDelta(t, base.OutputPricePerToken*policy.PeakMultiplier, scaled.OutputPricePerToken, 1e-12)
+}
+
+// Qianfan-ONLY owners (no official DeepSeek equivalent) keep their registry row
+// AND keep their peak-valley exemption: Qianfan list pricing has no peak window,
+// so applying the official 2x multiplier to them would overbill.
+func TestTkQianfanOnlyDeepSeekOwnersStayPeakExempt(t *testing.T) {
+	t.Parallel()
+	policy := loadTkDeepSeekPeakValleyPolicy()
+	require.NotNil(t, policy)
+	overlay := loadTKPricingOverlay()
+
+	for _, model := range []string{"deepseek-v3.2", "deepseek-v3.2-think", "deepseek-ocr"} {
+		require.NotNil(t, overlay[model], "%s is a Qianfan-only owner and must keep its row", model)
+		require.False(t, tkDeepSeekPeakValleyAppliesWithPolicy(policy, model, PricingSourceLiteLLM),
+			"%s is priced from the Qianfan list, which has no peak window", model)
 	}
 
-	require.Equal(t, "deepseek-v4-pro.qianfan", tkQianfanScopedBillingModel("deepseek-v4-pro", qianfan))
-	require.Equal(t, "deepseek-v4-flash.qianfan", tkQianfanScopedBillingModel("deepseek-v4-flash", qianfan))
-	require.Equal(t, "glm-5.2.qianfan", tkQianfanScopedBillingModel("glm-5.2", qianfan))
-	require.Equal(t, "kimi-k2.6.qianfan", tkQianfanScopedBillingModel("kimi-k2.6", qianfan))
-	require.Equal(t, "deepseek-v4-pro", tkQianfanScopedBillingModel("deepseek-v4-pro", official))
-	require.Equal(t, "deepseek-v3.2", tkQianfanScopedBillingModel("deepseek-v3.2", qianfan))
+	// A real in-window instant (policy timezone, not the process timezone), so
+	// "unchanged" proves the exemption rather than merely missing the window.
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	require.NoError(t, err)
+	at := time.Date(2026, 7, 21, 10, 0, 0, 0, shanghai)
+	require.InDelta(t, policy.PeakMultiplier, tkDeepSeekPeakMultiplierAtWithPolicy(policy, at), 1e-12,
+		"fixture instant must be inside a peak window for this exemption test to mean anything")
+
+	base := &ModelPricing{InputPricePerToken: 0.002, OutputPricePerToken: 0.003}
+	scaled := tkApplyDeepSeekPeakValleyPricing("deepseek-v3.2", base, at, PricingSourceLiteLLM)
+	require.InDelta(t, base.InputPricePerToken, scaled.InputPricePerToken, 1e-12)
+	require.InDelta(t, base.OutputPricePerToken, scaled.OutputPricePerToken, 1e-12)
 }
 
 func TestTkQianfanOverlay_DeepSeekV32UsesTieredIntervals(t *testing.T) {
@@ -62,34 +127,6 @@ func TestTkQianfanOverlay_ThinkSKUUsesIntervalOutputNotFlatThinkingRate(t *testi
 	require.InDelta(t, 8.955223880597015e-07, *entry.Intervals[1].OutputPrice, 1e-15)
 }
 
-func TestTkQianfanScopedBillingModel_UsesQianfanRatesInCost(t *testing.T) {
-	t.Parallel()
-	svc := newTestBillingService()
-	qianfan := &Account{
-		Platform:    PlatformNewAPI,
-		Type:        AccountTypeAPIKey,
-		ChannelType: newapiconstant.ChannelTypeBaiduV2,
-		Credentials: map[string]any{
-			"base_url": newapiintegration.QianfanBaseURL,
-		},
-	}
-	billingModel := tkQianfanScopedBillingModel("deepseek-v4-pro", qianfan)
-	require.Equal(t, "deepseek-v4-pro.qianfan", billingModel)
-
-	qianfanOwner := loadTKPricingOverlay()["deepseek-v4-pro.qianfan"]
-	officialOwner := loadTKPricingOverlay()["deepseek-v4-pro"]
-	require.NotNil(t, qianfanOwner)
-	require.NotNil(t, officialOwner)
-	require.Greater(t, qianfanOwner.InputCostPerToken, officialOwner.InputCostPerToken)
-	require.Greater(t, qianfanOwner.OutputCostPerToken, officialOwner.OutputCostPerToken)
-
-	pricing, err := svc.GetModelPricing(billingModel)
-	require.NoError(t, err)
-	officialPricing, err := svc.GetModelPricing("deepseek-v4-pro")
-	require.NoError(t, err)
-	require.Greater(t, pricing.InputPricePerToken, officialPricing.InputPricePerToken)
-}
-
 func TestTkQianfanOverlay_EmbeddingModelsUseEmbeddingMode(t *testing.T) {
 	t.Parallel()
 	for _, model := range []string{
@@ -108,18 +145,4 @@ func TestTkQianfanOverlay_EmbeddingModelsUseEmbeddingMode(t *testing.T) {
 			require.Zero(t, entry.OutputCostPerToken)
 		})
 	}
-}
-
-func TestTkQianfanScopedBillingModel_ExcludesDeepSeekPeakValley(t *testing.T) {
-	t.Parallel()
-	policy := loadTkDeepSeekPeakValleyPolicy()
-	require.NotNil(t, policy)
-	require.False(t, tkDeepSeekPeakValleyAppliesWithPolicy(policy, "deepseek-v4-pro.qianfan", PricingSourceLiteLLM))
-
-	at := time.Date(2026, 7, 21, 10, 0, 0, 0, timezone.Location())
-	base := &ModelPricing{InputPricePerToken: 0.012, OutputPricePerToken: 0.024}
-	scaled := tkApplyDeepSeekPeakValleyPricing("deepseek-v4-pro.qianfan", base, at, PricingSourceLiteLLM)
-	require.InDelta(t, base.InputPricePerToken, scaled.InputPricePerToken, 1e-12)
-	require.InDelta(t, base.OutputPricePerToken, scaled.OutputPricePerToken, 1e-12)
-	require.False(t, tkDeepSeekPeakValleyAppliesWithPolicy(policy, "deepseek-v3.2-think", PricingSourceLiteLLM))
 }
