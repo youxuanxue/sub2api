@@ -1136,6 +1136,8 @@
       "platform": "newapi",
       "model_id": "deepseek-v4-flash-0731",
       "served_on": [
+        "39",
+        "88",
         "90"
       ],
       "channel_type": 46,
