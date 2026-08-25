@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
+import subprocess
+import sys
 import unittest
 
 
@@ -25,6 +28,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "service_unit_cold": True,
                 "all": False,
             },
         )
@@ -38,6 +42,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "service_unit_cold": False,
                 "all": False,
             },
         )
@@ -51,6 +56,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": True,
                 "ops": False,
                 "contracts": False,
+                "service_unit_cold": False,
                 "all": False,
             },
         )
@@ -64,6 +70,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": True,
+                "service_unit_cold": True,
                 "all": False,
             },
         )
@@ -77,6 +84,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": True,
                 "contracts": False,
+                "service_unit_cold": True,
                 "all": False,
             },
         )
@@ -90,6 +98,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "service_unit_cold": False,
                 "all": False,
             },
         )
@@ -103,6 +112,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "service_unit_cold": False,
                 "all": False,
             },
         )
@@ -121,6 +131,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "service_unit_cold": True,
                 "all": False,
             },
         )
@@ -134,6 +145,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "service_unit_cold": True,
                 "all": False,
             },
         )
@@ -148,6 +160,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "service_unit_cold": False,
                 "all": True,
             },
         )
@@ -162,6 +175,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "service_unit_cold": False,
                 "all": True,
             },
         )
@@ -176,9 +190,52 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "service_unit_cold": False,
                 "all": True,
             },
         )
+
+    def test_backend_non_go_change_keeps_service_cache_path(self) -> None:
+        self.assertEqual(
+            changed_surfaces.classify(["backend/migrations/001.sql"]),
+            {
+                "backend": True,
+                "frontend": False,
+                "deploy": False,
+                "ops": False,
+                "contracts": False,
+                "service_unit_cold": False,
+                "all": False,
+            },
+        )
+
+    def test_unit_runner_and_ci_entrypoints_force_service_cold_path(self) -> None:
+        for path in (
+            ".new-api-ref",
+            "backend/go.mod",
+            "backend/go.sum",
+            "scripts/ci/list_go_tests.go",
+            "scripts/ci/unit_test_runner.py",
+            "scripts/ci/test_unit_test_runner.py",
+            "backend/Makefile",
+            ".github/workflows/backend-ci.yml",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(changed_surfaces.classify([path])["service_unit_cold"])
+
+    def test_all_mode_marks_service_cold_path(self) -> None:
+        completed = subprocess.run(
+            [sys.executable, str(MODULE_PATH), "--all"],
+            input="",
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        result = json.loads(completed.stdout)
+        self.assertEqual(set(result), set(changed_surfaces.KEYS))
+        self.assertTrue(all(result.values()))
 
 
 if __name__ == "__main__":

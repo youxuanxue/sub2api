@@ -270,7 +270,8 @@ func TestValidateCreateParams_CheckModeMatrix(t *testing.T) {
 			name: "probe requires api key",
 			params: ChannelMonitorCreateParams{
 				Provider: MonitorProviderOpenAI, CheckMode: MonitorCheckModeProbe,
-				Endpoint: "https://api.openai.com", IntervalSeconds: 60, PrimaryModel: "gpt-5",
+				// Use a public IP literal so this validation-order case never depends on external DNS.
+				Endpoint: "https://1.1.1.1", IntervalSeconds: 60, PrimaryModel: "gpt-5",
 			},
 			wantErr: ErrChannelMonitorMissingAPIKey,
 		},
@@ -330,7 +331,8 @@ func TestValidateCreateParams_CheckModeMatrix(t *testing.T) {
 			name: "quota_probe requires primary model",
 			params: ChannelMonitorCreateParams{
 				Provider: MonitorProviderKimi, CheckMode: MonitorCheckModeQuotaProbe,
-				Endpoint: "https://api.kimi.com", APIKey: "sk",
+				// Use a public IP literal so this validation-order case never depends on external DNS.
+				Endpoint: "https://1.1.1.1", APIKey: "sk",
 				IntervalSeconds: 60, AccountID: &accountID,
 			},
 			wantErr: ErrChannelMonitorMissingPrimaryModel,

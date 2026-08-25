@@ -10,7 +10,26 @@ import sys
 from typing import Iterable
 
 
-KEYS = ("backend", "frontend", "deploy", "ops", "contracts", "all")
+KEYS = (
+    "backend",
+    "frontend",
+    "deploy",
+    "ops",
+    "contracts",
+    "service_unit_cold",
+    "all",
+)
+
+SERVICE_UNIT_COLD_FILES = {
+    ".github/workflows/backend-ci.yml",
+    ".new-api-ref",
+    "backend/Makefile",
+    "backend/go.mod",
+    "backend/go.sum",
+    "scripts/ci/list_go_tests.go",
+    "scripts/ci/test_unit_test_runner.py",
+    "scripts/ci/unit_test_runner.py",
+}
 
 CONTRACT_FILES = {
     "backend/internal/domain/constants.go",
@@ -50,6 +69,11 @@ def classify(paths: Iterable[str]) -> dict[str, bool]:
         path = raw_path.replace("\\", "/")
         if not path:
             continue
+
+        if path in SERVICE_UNIT_COLD_FILES or (
+            path.startswith("backend/") and path.endswith(".go")
+        ):
+            result["service_unit_cold"] = True
 
         if path == ".github/workflows/backend-ci.yml" or _starts(
             path,
