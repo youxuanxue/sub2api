@@ -206,13 +206,9 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 			log.Printf("%s status=%d oauth_smart_retry attempt=%d/%d delay=%v model=%s account=%d",
 				p.prefix, resp.StatusCode, attempt, maxAttempts, waitDuration, modelName, p.account.ID)
 
-			timer := time.NewTimer(waitDuration)
-			select {
-			case <-p.ctx.Done():
-				timer.Stop()
+			if !s.waitRetryDelay(p.ctx, waitDuration) {
 				log.Printf("%s status=context_canceled_during_smart_retry", p.prefix)
 				return &smartRetryResult{action: smartRetryActionBreakWithResp, err: p.ctx.Err()}
-			case <-timer.C:
 			}
 
 			// 智能重试：创建新请求
@@ -388,13 +384,9 @@ func (s *AntigravityGatewayService) handleSingleAccountRetryInPlace(
 		logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d single_account_503_retry attempt=%d/%d delay=%v total_waited=%v model=%s account=%d",
 			p.prefix, resp.StatusCode, attempt, antigravitySingleAccountSmartRetryMaxAttempts, waitDuration, totalWaited, modelName, p.account.ID)
 
-		timer := time.NewTimer(waitDuration)
-		select {
-		case <-p.ctx.Done():
-			timer.Stop()
+		if !s.waitRetryDelay(p.ctx, waitDuration) {
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=context_canceled_during_single_account_retry", p.prefix)
 			return &smartRetryResult{action: smartRetryActionBreakWithResp, err: p.ctx.Err()}
-		case <-timer.C:
 		}
 		totalWaited += waitDuration
 

@@ -5,12 +5,14 @@ package service
 import (
 	"bytes"
 	"context"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
-	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/stretchr/testify/require"
 )
 
 // stubSmartRetryCache 用于 handleSmartRetry 测试的 GatewayCache mock
@@ -23,6 +25,10 @@ type stubSmartRetryCache struct {
 type deleteSessionCall struct {
 	groupID     int64
 	sessionHash string
+}
+
+func immediateAntigravityRetryWait(_ context.Context, _ time.Duration) bool {
+	return true
 }
 
 func (c *stubSmartRetryCache) DeleteSessionAccountID(_ context.Context, groupID int64, sessionHash string) error {
@@ -122,7 +128,7 @@ func TestHandleSmartRetry_URLLevelRateLimit(t *testing.T) {
 
 	availableURLs := []string{"https://ag-1.test", "https://ag-2.test"}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -174,7 +180,7 @@ func TestHandleSmartRetry_LongDelay_ReturnsSwitchError(t *testing.T) {
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -241,7 +247,13 @@ func TestHandleSmartRetry_ShortDelay_SmartRetrySuccess(t *testing.T) {
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{}
+	var retryWaits []time.Duration
+	svc := &AntigravityGatewayService{
+		retryWait: func(_ context.Context, delay time.Duration) bool {
+			retryWaits = append(retryWaits, delay)
+			return true
+		},
+	}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -251,6 +263,7 @@ func TestHandleSmartRetry_ShortDelay_SmartRetrySuccess(t *testing.T) {
 	require.Nil(t, result.err)
 	require.Nil(t, result.switchError, "should not return switchError on success")
 	require.Len(t, upstream.calls, 1, "should have made one retry call")
+	require.Equal(t, []time.Duration{time.Second}, retryWaits)
 }
 
 // TestHandleSmartRetry_ShortDelay_SmartRetryFailed_ReturnsSwitchError 测试智能重试失败后返回 switchError
@@ -316,7 +329,7 @@ func TestHandleSmartRetry_ShortDelay_SmartRetryFailed_ReturnsSwitchError(t *test
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -389,7 +402,7 @@ func TestHandleSmartRetry_503_ModelCapacityExhausted_RetrySuccess(t *testing.T) 
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -496,7 +509,7 @@ func TestHandleSmartRetry_NonAntigravityAccount_ContinuesDefaultLogic(t *testing
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -545,7 +558,7 @@ func TestHandleSmartRetry_NonModelRateLimit_ContinuesDefaultLogic(t *testing.T) 
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -596,7 +609,7 @@ func TestHandleSmartRetry_ExactlyAtThreshold_ReturnsSwitchError(t *testing.T) {
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -639,7 +652,7 @@ func TestAntigravityRetryLoop_HandleSmartRetry_SwitchError_Propagates(t *testing
 		Concurrency: 1,
 	}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result, err := svc.antigravityRetryLoop(antigravityRetryLoopParams{
 		ctx:             context.Background(),
 		prefix:          "[test]",
@@ -713,7 +726,7 @@ func TestHandleSmartRetry_NetworkError_ExhaustsRetry(t *testing.T) {
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -771,7 +784,7 @@ func TestHandleSmartRetry_NoRetryDelay_UsesDefaultRateLimit(t *testing.T) {
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -863,7 +876,7 @@ func TestHandleSmartRetry_ShortDelay_StickySession_FailedRetry_ClearsSession(t *
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{cache: cache}
+	svc := &AntigravityGatewayService{cache: cache, retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	// 验证返回 switchError
@@ -951,7 +964,7 @@ func TestHandleSmartRetry_ShortDelay_NonStickySession_FailedRetry_NoDeleteSessio
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{cache: cache}
+	svc := &AntigravityGatewayService{cache: cache, retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -1028,7 +1041,7 @@ func TestHandleSmartRetry_ShortDelay_StickySession_FailedRetry_NilCache_NoPanic(
 	availableURLs := []string{"https://ag-1.test"}
 
 	// cache 为 nil，不应 panic
-	svc := &AntigravityGatewayService{cache: nil}
+	svc := &AntigravityGatewayService{cache: nil, retryWait: immediateAntigravityRetryWait}
 	require.NotPanics(t, func() {
 		result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 		require.NotNil(t, result)
@@ -1092,7 +1105,7 @@ func TestHandleSmartRetry_ShortDelay_StickySession_SuccessRetry_NoDeleteSession(
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{cache: cache}
+	svc := &AntigravityGatewayService{cache: cache, retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -1151,7 +1164,7 @@ func TestHandleSmartRetry_LongDelay_StickySession_ClearsSession(t *testing.T) {
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{cache: cache}
+	svc := &AntigravityGatewayService{cache: cache, retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -1215,7 +1228,7 @@ func TestHandleSmartRetry_ShortDelay_NetworkError_StickySession_ClearsSession(t 
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{cache: cache}
+	svc := &AntigravityGatewayService{cache: cache, retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -1299,7 +1312,7 @@ func TestHandleSmartRetry_ShortDelay_503_StickySession_FailedRetry_ClearsSession
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{cache: cache}
+	svc := &AntigravityGatewayService{cache: cache, retryWait: immediateAntigravityRetryWait}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -1370,7 +1383,7 @@ func TestAntigravityRetryLoop_SmartRetryFailed_StickySession_SwitchErrorPropagat
 		Concurrency: 1,
 	}
 
-	svc := &AntigravityGatewayService{cache: cache}
+	svc := &AntigravityGatewayService{cache: cache, retryWait: immediateAntigravityRetryWait}
 	result, err := svc.antigravityRetryLoop(antigravityRetryLoopParams{
 		ctx:             context.Background(),
 		prefix:          "[test]",

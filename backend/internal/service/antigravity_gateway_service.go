@@ -130,6 +130,7 @@ type AntigravityGatewayService struct {
 	schedulerSnapshot *SchedulerSnapshotService
 	internal500Cache  Internal500CounterCache // INTERNAL 500 渐进惩罚计数器
 	retryBackoff      func(context.Context, int) bool
+	retryWait         func(context.Context, time.Duration) bool
 }
 
 func (s *AntigravityGatewayService) waitRetryBackoff(ctx context.Context, attempt int) bool {
@@ -137,6 +138,13 @@ func (s *AntigravityGatewayService) waitRetryBackoff(ctx context.Context, attemp
 		return s.retryBackoff(ctx, attempt)
 	}
 	return sleepAntigravityBackoffWithContext(ctx, attempt)
+}
+
+func (s *AntigravityGatewayService) waitRetryDelay(ctx context.Context, delay time.Duration) bool {
+	if s != nil && s.retryWait != nil {
+		return s.retryWait(ctx, delay)
+	}
+	return sleepWithContext(ctx, delay) == nil
 }
 
 func (s *AntigravityGatewayService) upstreamErrorBodyReadLimit() int64 {

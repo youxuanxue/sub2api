@@ -97,6 +97,7 @@ func TestOpenAIGatewayService_Forward_PreservePreviousResponseIDWhenWSEnabled(t 
 	cfg.Gateway.OpenAIWS.OAuthEnabled = true
 	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
 	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
+	configureOpenAIWSFastRetryForTest(cfg)
 
 	svc := &OpenAIGatewayService{
 		cfg:              cfg,
@@ -511,6 +512,7 @@ func TestOpenAIGatewayService_Forward_WSv2FallbackCoolingSkipWS(t *testing.T) {
 	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
 	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
 	cfg.Gateway.OpenAIWS.FallbackCooldownSeconds = 30
+	configureOpenAIWSFastRetryForTest(cfg)
 
 	svc := &OpenAIGatewayService{
 		cfg:              cfg,

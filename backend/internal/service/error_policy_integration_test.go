@@ -336,7 +336,14 @@ func TestRetryLoop_ErrorPolicy_NoPolicy_OriginalBehavior(t *testing.T) {
 	upstream := &epFixedUpstream{statusCode: 429, body: `{"error":"rate limited"}`}
 	repo := &epAccountRepo{}
 	rlSvc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
-	svc := &AntigravityGatewayService{rateLimitService: rlSvc}
+	var retryAttempts []int
+	svc := &AntigravityGatewayService{
+		rateLimitService: rlSvc,
+		retryBackoff: func(_ context.Context, attempt int) bool {
+			retryAttempts = append(retryAttempts, attempt)
+			return true
+		},
+	}
 
 	// Plain OAuth account with no error policy configured
 	account := &Account{
@@ -363,6 +370,7 @@ func TestRetryLoop_ErrorPolicy_NoPolicy_OriginalBehavior(t *testing.T) {
 
 	require.Equal(t, http.StatusTooManyRequests, result.resp.StatusCode)
 	require.Equal(t, antigravityMaxRetries, upstream.calls, "should exhaust all retries")
+	require.Equal(t, []int{1, 2}, retryAttempts, "should preserve the default retry schedule")
 	require.Equal(t, 1, handleErrorCount, "handleError should be called once after retries exhausted")
 }
 
