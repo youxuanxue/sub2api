@@ -186,7 +186,7 @@ func TestHandleSmartRetry_503_LongDelay_NoSingleAccountRetry_StillSwitches(t *te
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
+	svc := &AntigravityGatewayService{}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -245,7 +245,7 @@ func TestHandleSmartRetry_429_LongDelay_SingleAccountRetry_StillSwitches(t *test
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
+	svc := &AntigravityGatewayService{}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -546,55 +546,59 @@ func TestHandleSingleAccountRetryInPlace_AllRetriesFail(t *testing.T) {
 
 // TestHandleSingleAccountRetryInPlace_WaitDurationClamped 等待时间被限制在 [min, max] 范围
 func TestHandleSingleAccountRetryInPlace_WaitDurationClamped(t *testing.T) {
-	// 用短延迟的成功响应，只验证不 panic
-	successResp := &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{},
-		Body:       io.NopCloser(strings.NewReader(`{"result":"ok"}`)),
-	}
-	upstream := &mockSmartRetryUpstream{
-		responses: []*http.Response{successResp},
-		errors:    []error{nil},
+	tests := []struct {
+		name          string
+		waitDuration  time.Duration
+		expectedDelay time.Duration
+	}{
+		{name: "minimum", waitDuration: 0, expectedDelay: antigravitySmartRetryMinWait},
+		{name: "maximum", waitDuration: antigravitySingleAccountSmartRetryMaxWait + time.Second, expectedDelay: antigravitySingleAccountSmartRetryMaxWait},
 	}
 
-	account := &Account{
-		ID:          12,
-		Name:        "acc-clamp",
-		Type:        AccountTypeOAuth,
-		Platform:    PlatformAntigravity,
-		Concurrency: 1,
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := &mockSmartRetryUpstream{
+				responses: []*http.Response{{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{},
+					Body:       io.NopCloser(strings.NewReader(`{"result":"ok"}`)),
+				}},
+				errors: []error{nil},
+			}
+			account := &Account{
+				ID:          12,
+				Name:        "acc-clamp",
+				Type:        AccountTypeOAuth,
+				Platform:    PlatformAntigravity,
+				Concurrency: 1,
+			}
+			params := antigravityRetryLoopParams{
+				ctx:          ctxWithSingleAccountRetry(),
+				prefix:       "[test]",
+				account:      account,
+				accessToken:  "token",
+				action:       "generateContent",
+				body:         []byte(`{"input":"test"}`),
+				httpUpstream: upstream,
+			}
 
-	resp := &http.Response{
-		StatusCode: http.StatusServiceUnavailable,
-		Header:     http.Header{},
-	}
+			var retryWaits []time.Duration
+			svc := &AntigravityGatewayService{
+				retryWait: func(_ context.Context, delay time.Duration) bool {
+					retryWaits = append(retryWaits, delay)
+					return true
+				},
+			}
+			resp := &http.Response{StatusCode: http.StatusServiceUnavailable, Header: http.Header{}}
 
-	params := antigravityRetryLoopParams{
-		ctx:          ctxWithSingleAccountRetry(),
-		prefix:       "[test]",
-		account:      account,
-		accessToken:  "token",
-		action:       "generateContent",
-		body:         []byte(`{"input":"test"}`),
-		httpUpstream: upstream,
+			result := svc.handleSingleAccountRetryInPlace(params, resp, nil, "https://ag-1.test", tt.waitDuration, "gemini-3-pro")
+			require.NotNil(t, result)
+			require.Equal(t, smartRetryActionBreakWithResp, result.action)
+			require.NotNil(t, result.resp)
+			require.Equal(t, http.StatusOK, result.resp.StatusCode)
+			require.Equal(t, []time.Duration{tt.expectedDelay}, retryWaits)
+		})
 	}
-
-	var retryWaits []time.Duration
-	svc := &AntigravityGatewayService{
-		retryWait: func(_ context.Context, delay time.Duration) bool {
-			retryWaits = append(retryWaits, delay)
-			return true
-		},
-	}
-
-	// waitDuration=0 会被 clamp 到 antigravitySmartRetryMinWait=1s。
-	result := svc.handleSingleAccountRetryInPlace(params, resp, nil, "https://ag-1.test", 0, "gemini-3-pro")
-	require.NotNil(t, result)
-	require.Equal(t, smartRetryActionBreakWithResp, result.action)
-	require.NotNil(t, result.resp)
-	require.Equal(t, http.StatusOK, result.resp.StatusCode)
-	require.Equal(t, []time.Duration{antigravitySmartRetryMinWait}, retryWaits)
 }
 
 // TestHandleSingleAccountRetryInPlace_ContextCanceled context 取消时立即返回
@@ -713,7 +717,7 @@ func TestAntigravityRetryLoop_PreCheck_SingleAccountRetry_SkipsRateLimit(t *test
 		},
 	}
 
-	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
+	svc := &AntigravityGatewayService{}
 	result, err := svc.antigravityRetryLoop(antigravityRetryLoopParams{
 		ctx:            ctxWithSingleAccountRetry(),
 		prefix:         "[test]",
@@ -757,7 +761,7 @@ func TestAntigravityRetryLoop_PreCheck_NoSingleAccountRetry_SwitchesOnRateLimit(
 		},
 	}
 
-	svc := &AntigravityGatewayService{retryWait: immediateAntigravityRetryWait}
+	svc := &AntigravityGatewayService{}
 	result, err := svc.antigravityRetryLoop(antigravityRetryLoopParams{
 		ctx:            context.Background(), // 无单账号标记
 		prefix:         "[test]",
