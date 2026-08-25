@@ -921,6 +921,23 @@
       "rationale": "End-to-end handler regression for CutoverReady=false: a governed NewAPI account still reaches the provider adaptor path and never the native OpenAI upstream."
     },
     {
+      "path": "backend/internal/handler/openai_gateway_count_tokens.go",
+      "must_contain": [
+        "NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest)",
+        "ForwardResponsesInputTokens(executionCtx, c, account, request.Body())"
+      ],
+      "rationale": "Responses input-token requests must keep their legacy executor while CutoverReady=false. This call site is intentionally separate from generation handlers; losing its NonGoverned binding returns ErrProtocolExecutorMissing with an empty response even though the process-wide rollout gate says legacy routing remains active."
+    },
+    {
+      "path": "backend/internal/handler/openai_responses_input_tokens_legacy_protocol_fallback_test.go",
+      "must_contain": [
+        "TestResponsesInputTokensCutoverDisabledKeepsLegacyExecutor",
+        "Deliberately leave protocolRouter nil",
+        "gjson.GetBytes(recorder.Body.Bytes(), \"input_tokens\").Int()"
+      ],
+      "rationale": "Focused handler regression proving that the Responses input_tokens subresource still returns a real token count when the protocol router is withheld by the process-wide cutover gate."
+    },
+    {
       "path": "backend/internal/service/protocol_routing_migration.go",
       "must_contain": [
         "MigrateProtocolRoutingSSOT",
