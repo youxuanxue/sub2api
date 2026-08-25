@@ -16,9 +16,10 @@ import "strings"
 // `claude-3-5-sonnet` ($3/$15 instead of its own $2/$10).
 //
 // Declaring the alias here changes NO price — both paths resolve the identical
-// owner, which tkDeclaredRegistryAliasPriceIsStable asserts. What it changes is
-// classification: a declared alias is a settled decision and must not raise the
-// served_at_fallback convergence alert, while a substring-matched id still must.
+// owner, which TestDeclaredAliasKeepsOwnerPrice asserts through the real billing
+// resolver. What it changes is classification: a declared alias is a settled
+// decision and must not raise the served_at_fallback convergence alert, while a
+// substring-matched id still must.
 //
 // Membership rule: add an id here only when its price SHOULD equal the owner's
 // (a dated/prefixed SKU of the same model), the owner has a real registry row,

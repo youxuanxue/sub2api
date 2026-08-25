@@ -69,9 +69,15 @@ type PricingMissingEvent struct {
 	Tokens         int64 // 本次未计费计费单元估算（token 总量或图片张数）
 }
 
-// pricingMissingReasonUnpriced 是「倍率前成本为零」的显式 reason 码。事件里的空
-// Reason 向后兼容折叠到它（见 pricingMissingNormalizedReason）。
-const pricingMissingReasonUnpriced = "unpriced"
+// reason 码的唯一 owner。发射点（tkServedZeroCostReason）与本文件的分类/文案表
+// 都引用这两个常量，避免同一字符串在两处各写一遍后悄悄漂移。
+const (
+	// pricingMissingReasonUnpriced：倍率前成本为零。事件里的空 Reason 向后兼容
+	// 折叠到它（见 pricingMissingNormalizedReason）。
+	pricingMissingReasonUnpriced = "unpriced"
+	// pricingMissingReasonNegativeMultiplier：价格有效但被负倍率归零。
+	pricingMissingReasonNegativeMultiplier = "negative_multiplier"
+)
 
 // pricingMissingNormalizedReason 把事件 Reason 规范成聚合键用的稳定码：空字符串
 // （老调用方）折叠为 unpriced，其余原样。**聚合键必须含 reason** —— 四种 reason 的
@@ -93,7 +99,7 @@ func pricingMissingDigestHeadline(reason string) string {
 		return "未定价被闸拒绝（404、未服务客户）摘要："
 	case tkServedAtFallbackReason:
 		return "按家族兜底价(floor)计费、非真价（已计费、未漏 $0）摘要："
-	case "negative_multiplier":
+	case pricingMissingReasonNegativeMultiplier:
 		return "负倍率归零流量摘要："
 	default:
 		return "缺价模型零成本流量摘要："
@@ -119,7 +125,7 @@ func pricingMissingReasonRank(reason string) int {
 	switch reason {
 	case pricingMissingReasonUnpriced:
 		return 0
-	case "negative_multiplier":
+	case pricingMissingReasonNegativeMultiplier:
 		return 1
 	case tkPricedServingGateRejectReason:
 		return 2
@@ -133,7 +139,7 @@ func pricingMissingReasonRank(reason string) int {
 // pricingMissingRevenueLeaking 标出哪些 reason 是**真的**在漏收：只有价格为零而照常
 // 服务的两类。404 拒绝没有收入（也没有服务），floor 计费已经收到钱。
 func pricingMissingRevenueLeaking(reason string) bool {
-	return reason == pricingMissingReasonUnpriced || reason == "negative_multiplier"
+	return reason == pricingMissingReasonUnpriced || reason == pricingMissingReasonNegativeMultiplier
 }
 
 // pricingMissingDigestTitleSubject 按 buffer 实际内容取标题主语，避免把一批「已按
@@ -192,7 +198,7 @@ func pricingMissingFirstSeenTitleSubject(reason string) (subject, headerTemplate
 // pricingMissingReasonLabel 把 Reason 码翻成中文卡片文案；空/未知按无价处理。
 func pricingMissingReasonLabel(reason string) string {
 	switch reason {
-	case "negative_multiplier":
+	case pricingMissingReasonNegativeMultiplier:
 		return "负倍率归零（价格有效但被负费率倍率清零）"
 	case tkPricedServingGateRejectReason:
 		// 运行期价格闸拒绝：与「已服务零计费」不同——该请求被 404 拒掉、未服务客户，

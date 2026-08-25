@@ -1,3 +1,5 @@
+//go:build unit
+
 package service
 
 import (
@@ -34,6 +36,37 @@ func TestDeclaredAliasSuppressesFallbackAlertButKeepsPrice(t *testing.T) {
 	// resolve to nothing and the price would fall through to the matcher again.
 	require.NotNil(t, tkRegistryAliasOwnerPricing(owner),
 		"declared alias owner must be a real overlay owner")
+}
+
+// The predicate this PR actually changes is IsServedViaFamilyFloor — asserting
+// the lookup table alone would leave the behaviour change untested. Every
+// declared alias must read as NOT served-via-floor (it is a settled decision),
+// while a substring-only id in the same family must still read as true, and the
+// resolved price must be identical either way.
+func TestDeclaredAliasIsNotServedViaFamilyFloor(t *testing.T) {
+	// Empty registry: nothing has a direct owner here, so the verdict is decided
+	// by the declared-alias table and the substring matcher alone.
+	billing := newConsistencyBilling(t, []byte(`{}`))
+
+	for alias, owner := range tkDeclaredRegistryAliases {
+		require.False(t, billing.IsServedViaFamilyFloor(alias),
+			"declared alias %q must not raise served_at_fallback", alias)
+
+		// Price is unchanged by declaring it: both paths land on the same owner.
+		viaAlias := billing.getRegistryAliasPricing(alias)
+		viaOwner := tkRegistryAliasOwnerPricing(owner)
+		require.NotNil(t, viaAlias, "alias %q must still resolve a price", alias)
+		require.NotNil(t, viaOwner, "owner %q must resolve a price", owner)
+		require.Equal(t, viaOwner.InputPricePerToken, viaAlias.InputPricePerToken,
+			"alias %q input price must equal owner %q", alias, owner)
+		require.Equal(t, viaOwner.OutputPricePerToken, viaAlias.OutputPricePerToken,
+			"alias %q output price must equal owner %q", alias, owner)
+	}
+
+	// Same family, NOT declared: still surfaced, so the alert keeps catching
+	// accidental substring owners.
+	require.True(t, billing.IsServedViaFamilyFloor("deepseek-v4-flash-9999"),
+		"an undeclared substring match must still raise served_at_fallback")
 }
 
 // Every declared alias must point at a resolvable overlay owner, and must not
