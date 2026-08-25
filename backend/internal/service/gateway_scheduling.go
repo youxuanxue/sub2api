@@ -2087,6 +2087,12 @@ type selectionFailureStats struct {
 	SampleMappingIDs        []int64
 	SampleRateLimitIDs      []string
 	SampleRuntimeBlockedIDs []int64
+	// SampleUnschedulableReasons carries "<account_id>(<reason>)" samples for the
+	// unschedulable bucket. Without it that bucket is a bare count, and the
+	// scheduling gate has many independent branches that all land in it — which is
+	// exactly what made the 2026-08-25 edge us6 outage take a full day to
+	// attribute (see openai_gateway_scheduling_tk_eligibility_reason.go).
+	SampleUnschedulableReasons []string
 }
 
 type selectionFailureDiagnosis struct {
@@ -2234,6 +2240,24 @@ func appendSelectionFailureSampleID(samples []int64, id int64) []int64 {
 		return samples
 	}
 	return append(samples, id)
+}
+
+// appendSelectionFailureReasonSample records "<account_id>(<reason>)" for the
+// unschedulable bucket so the log line names the gate that rejected each
+// candidate instead of only counting them.
+// An empty reason records "unspecified" rather than dropping the sample: a
+// silently dropped sample makes the sample list disagree with the bucket count,
+// which is the same class of "the number is there but says nothing" defect this
+// whole reason plumbing exists to remove.
+func appendSelectionFailureReasonSample(samples []string, accountID int64, reason string) []string {
+	const limit = 5
+	if len(samples) >= limit {
+		return samples
+	}
+	if reason = strings.TrimSpace(reason); reason == "" {
+		reason = "unspecified"
+	}
+	return append(samples, fmt.Sprintf("%d(%s)", accountID, reason))
 }
 
 func appendSelectionFailureRateSample(samples []string, accountID int64, remaining time.Duration) []string {
