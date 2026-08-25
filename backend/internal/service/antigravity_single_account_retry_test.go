@@ -186,7 +186,7 @@ func TestHandleSmartRetry_503_LongDelay_NoSingleAccountRetry_StillSwitches(t *te
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: failOnAntigravityRetryWait(t)}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -245,7 +245,7 @@ func TestHandleSmartRetry_429_LongDelay_SingleAccountRetry_StillSwitches(t *test
 
 	availableURLs := []string{"https://ag-1.test"}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: failOnAntigravityRetryWait(t)}
 	result := svc.handleSmartRetry(params, resp, respBody, "https://ag-1.test", 0, availableURLs)
 
 	require.NotNil(t, result)
@@ -717,7 +717,7 @@ func TestAntigravityRetryLoop_PreCheck_SingleAccountRetry_SkipsRateLimit(t *test
 		},
 	}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: failOnAntigravityRetryWait(t)}
 	result, err := svc.antigravityRetryLoop(antigravityRetryLoopParams{
 		ctx:            ctxWithSingleAccountRetry(),
 		prefix:         "[test]",
@@ -761,7 +761,7 @@ func TestAntigravityRetryLoop_PreCheck_NoSingleAccountRetry_SwitchesOnRateLimit(
 		},
 	}
 
-	svc := &AntigravityGatewayService{}
+	svc := &AntigravityGatewayService{retryWait: failOnAntigravityRetryWait(t)}
 	result, err := svc.antigravityRetryLoop(antigravityRetryLoopParams{
 		ctx:            context.Background(), // 无单账号标记
 		prefix:         "[test]",
