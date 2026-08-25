@@ -220,6 +220,37 @@ func TestExecuteSelectedProtocolFailsClosedForGovernedAccountWithoutSelectedPlan
 	}
 }
 
+func TestExecuteSelectedProtocolUsesLegacyExecutorWhenCutoverRouterDisabled(t *testing.T) {
+	request := protocolRoutingTestRequest(t, protocolrouter.ProtocolChatCompletions)
+	ctx := WithProtocolRouting(context.Background(), nil, request)
+	account := protocolRoutingOpenAIAccount(60, "chat_completions")
+	account.Platform = PlatformNewAPI
+	selection := &AccountSelectionResult{Account: account}
+	calls := 0
+
+	value, err := ExecuteSelectedProtocol(
+		ctx,
+		nil,
+		selection,
+		account,
+		nil,
+		ProtocolExecutors{NonGoverned: func(_ context.Context, _ protocolrouter.Plan, got protocolrouter.CanonicalRequest) (any, error) {
+			calls++
+			if string(got.Body()) != string(request.Body()) {
+				t.Fatalf("legacy request body = %q, want %q", got.Body(), request.Body())
+			}
+			return "legacy", nil
+		}},
+	)
+
+	if err != nil {
+		t.Fatalf("ExecuteSelectedProtocol: %v", err)
+	}
+	if value != "legacy" || calls != 1 {
+		t.Fatalf("value=%v calls=%d, want legacy/1", value, calls)
+	}
+}
+
 func TestExecuteSelectedProtocolValidatesExactPlanEndpointBeforeExecutor(t *testing.T) {
 	router := NewProtocolRouter()
 	req := protocolRoutingTestRequest(t, protocolrouter.ProtocolMessages)

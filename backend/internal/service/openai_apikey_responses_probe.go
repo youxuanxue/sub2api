@@ -172,8 +172,18 @@ func (s *AccountTestService) probeOpenAIAPIKeyResponsesSupport(
 		return protocolProbeObservation{}, false
 	}
 
-	probeURL := buildOpenAIResponsesURLForPlatform(account.Platform, normalizedBaseURL)
 	probeModel := selectResponsesProbeModel(account)
+	probeURL := buildOpenAIResponsesURLForPlatform(account.Platform, normalizedBaseURL)
+	if exactEndpoint, exactErr := protocolExactEndpoint(account, protocolrouter.ProtocolResponses, probeModel); exactErr != nil {
+		logger.LegacyPrintf("service.openai_probe", "probe_resolve_endpoint_failed: account_id=%d err=%v", accountID, exactErr)
+		return protocolProbeObservation{}, false
+	} else if exactEndpoint != "" {
+		probeURL, err = s.validateUpstreamBaseURL(exactEndpoint)
+		if err != nil {
+			logger.LegacyPrintf("service.openai_probe", "probe_invalid_endpoint: account_id=%d endpoint=%q err=%v", accountID, exactEndpoint, err)
+			return protocolProbeObservation{}, false
+		}
+	}
 
 	probeCtx, cancel := context.WithTimeout(ctx, openaiResponsesProbeTimeout)
 	defer cancel()

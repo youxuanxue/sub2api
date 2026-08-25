@@ -575,6 +575,7 @@
     {
       "path": "backend/internal/handler/openai_chat_completions.go",
       "must_contain": [
+        "NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {\n\t\t\t\t\t\treturn h.gatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, prepareBody(request), promptCacheKey, dispatchMappedModel)",
         "ChatIdentity: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest)",
         "return h.gatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, prepareBody(request), promptCacheKey, dispatchMappedModel)"
       ],
@@ -582,7 +583,7 @@
         "return h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, promptCacheKey, dispatchMappedModel)",
         "if plan.TargetProtocol() == protocolrouter.ProtocolChatCompletions"
       ],
-      "rationale": "The production /v1/chat/completions handler binds the ChatIdentity adapter directly to the NewAPI bridge dispatcher with the plan-bound execution context and canonical request. The handler must not inspect TargetProtocol again: restoring that old branch creates a second route owner and lets future merges misroute DashScope/Vertex credentials."
+      "rationale": "The production /v1/chat/completions handler binds both the cutover-disabled legacy executor and the ChatIdentity adapter to the NewAPI bridge dispatcher. The legacy branch must preserve #1807 dispatch semantics while CutoverReady=false; reverting it to ForwardAsChatCompletions sends DashScope credentials through the native OpenAI path. The handler must not inspect TargetProtocol again: restoring that old branch creates a second route owner and lets future merges misroute DashScope/Vertex credentials."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
@@ -848,6 +849,38 @@
       "rationale": "Behavior regressions for the Qwen credential-leak fix: inbound /v1/messages for a bridge-eligible newapi account is owned by the NewAPI adaptor (not an OpenAI-shaped fallback), a foreign credential with no OpenAI-resolvable base fails closed instead of reaching api.openai.com, and an OpenAI api-key account still resolves the official host. Deleting these tests would let an upstream merge restore either leak with a green build."
     },
     {
+      "path": "backend/internal/service/account_supported_protocols.go",
+      "must_contain": [
+        "func protocolExactEndpoint(account *Account, protocol protocolrouter.Protocol, resolvedModel string) (string, error)",
+        "endpoint, err := bridge.ResolveTextEndpoint(in, format, resolvedModel)"
+      ],
+      "rationale": "Single NewAPI text-endpoint resolver shared by protocol planning and capability probes. Provider paths such as DashScope ch17 differ from generic /v1 endpoints; losing this owner recreates split path tables and lets probes persist false capability facts for otherwise healthy accounts."
+    },
+    {
+      "path": "backend/internal/service/openai_apikey_chat_completions_probe.go",
+      "must_contain": [
+        "protocolExactEndpoint(account, protocolrouter.ProtocolChatCompletions, probeModel)",
+        "chat_completions_resolve_endpoint_failed"
+      ],
+      "rationale": "Chat Completions capability probes for NewAPI accounts must use the exact adaptor URL rather than appending /v1/chat/completions to base_url. Dropping this call marks DashScope ch17 unsupported after probing the wrong 404 endpoint."
+    },
+    {
+      "path": "backend/internal/service/openai_apikey_responses_probe.go",
+      "must_contain": [
+        "protocolExactEndpoint(account, protocolrouter.ProtocolResponses, probeModel)",
+        "probe_resolve_endpoint_failed"
+      ],
+      "rationale": "Responses capability probes for NewAPI accounts must use the exact adaptor URL rather than generic /v1/responses. DashScope ch17 serves Responses under /api/v2/apps/protocols/compatible-mode/v1/responses; probing the generic path produces a false negative and invalid routing facts."
+    },
+    {
+      "path": "backend/internal/service/protocol_routing_context.go",
+      "must_contain": [
+        "func protocolRoutingCanonicalRequest(ctx context.Context) (protocolrouter.CanonicalRequest, bool)",
+        "if !ok || routing.router == nil {\n\t\treturn protocolrouter.CanonicalRequest{}, false"
+      ],
+      "rationale": "Cutover-disabled requests retain the canonical body for legacy execution without making ProtocolRoutingRequest report routing enabled. Losing either half makes router=nil return an empty body or accidentally enables the scheduler hard gate before migration readiness."
+    },
+    {
       "path": "backend/internal/service/protocol_execution.go",
       "must_contain": [
         "messagesToResponsesAdapter",
@@ -857,9 +890,52 @@
         "responsesToChatAdapter",
         "responsesToMessagesAdapter",
         "RouteFacts",
-        "ExecuteSelectedProtocol"
+        "ExecuteSelectedProtocol",
+        "if router == nil && canonical && !routed && !planned {"
       ],
-      "rationale": "Protocol routing is the single execution boundary for NewAPI text channels. Each inbound→target pair has a concrete adapter and immutable route facts; removing this owner or restoring a generic callback lets an upstream merge send a Messages body to a Chat/Responses endpoint while compilation and unrelated NewAPI bridge tests remain green."
+      "rationale": "Protocol routing is the single execution boundary for NewAPI text channels. Each inbound→target pair has a concrete adapter and immutable route facts. When CutoverReady=false, router=nil must explicitly use the legacy executor; router-enabled requests without a selected plan remain fail-closed. Removing either invariant can send a Messages body to a Chat/Responses endpoint or turn a guarded rollout into blanket 502s."
+    },
+    {
+      "path": "backend/internal/service/openai_apikey_chat_completions_probe_test.go",
+      "must_contain": [
+        "TestProbeOpenAIAPIKeyChatCompletionsSupportUsesNewAPIAdaptorEndpoint",
+        "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+      ],
+      "rationale": "Regression proof that the ch17 Chat Completions probe follows the live adaptor endpoint instead of the generic 404 path."
+    },
+    {
+      "path": "backend/internal/service/openai_apikey_responses_probe_test.go",
+      "must_contain": [
+        "TestProbeOpenAIAPIKeyResponsesSupportUsesNewAPIAdaptorEndpoint",
+        "https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1/responses"
+      ],
+      "rationale": "Regression proof that the ch17 Responses probe follows the live adaptor endpoint instead of the generic 404 path."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions_legacy_protocol_fallback_test.go",
+      "must_contain": [
+        "TestOpenAIChatCompletionsCutoverDisabledKeepsNewAPILegacyDispatcher",
+        "require.Equal(t, \"/compatible-mode/v1/chat/completions\", upstreamPath)",
+        "legacy fallback must not leak the NewAPI credential into the native OpenAI path"
+      ],
+      "rationale": "End-to-end handler regression for CutoverReady=false: a governed NewAPI account still reaches the provider adaptor path and never the native OpenAI upstream."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_count_tokens.go",
+      "must_contain": [
+        "NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest)",
+        "ForwardResponsesInputTokens(executionCtx, c, account, request.Body())"
+      ],
+      "rationale": "Responses input-token requests must keep their legacy executor while CutoverReady=false. This call site is intentionally separate from generation handlers; losing its NonGoverned binding returns ErrProtocolExecutorMissing with an empty response even though the process-wide rollout gate says legacy routing remains active."
+    },
+    {
+      "path": "backend/internal/handler/openai_responses_input_tokens_legacy_protocol_fallback_test.go",
+      "must_contain": [
+        "TestResponsesInputTokensCutoverDisabledKeepsLegacyExecutor",
+        "Deliberately leave protocolRouter nil",
+        "gjson.GetBytes(recorder.Body.Bytes(), \"input_tokens\").Int()"
+      ],
+      "rationale": "Focused handler regression proving that the Responses input_tokens subresource still returns a real token count when the protocol router is withheld by the process-wide cutover gate."
     },
     {
       "path": "backend/internal/service/protocol_routing_migration.go",

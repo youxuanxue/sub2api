@@ -283,7 +283,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				h.gatewayService.ValidateProtocolEndpoint,
 				service.ProtocolExecutors{
 					NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-						return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, prepareBody(request), promptCacheKey, dispatchMappedModel)
+						return h.gatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, prepareBody(request), promptCacheKey, dispatchMappedModel)
 					},
 					ChatIdentity: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))

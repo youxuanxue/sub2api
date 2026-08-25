@@ -230,9 +230,16 @@ func ExecuteSelectedProtocol(
 	validateEndpoint ProtocolEndpointValidator,
 	executors ProtocolExecutors,
 ) (any, error) {
-	request, routed := ProtocolRoutingRequest(ctx)
+	request, canonical := protocolRoutingCanonicalRequest(ctx)
+	_, routed := ProtocolRoutingRequest(ctx)
 	plan, planned := ProtocolPlanFromSelection(selection)
 	if !protocolRoutingGovernsAccount(account) {
+		if executors.NonGoverned == nil {
+			return nil, ErrProtocolExecutorMissing
+		}
+		return executors.NonGoverned(ctx, protocolrouter.Plan{}, request)
+	}
+	if router == nil && canonical && !routed && !planned {
 		if executors.NonGoverned == nil {
 			return nil, ErrProtocolExecutorMissing
 		}

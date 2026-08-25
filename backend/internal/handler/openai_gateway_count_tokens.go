@@ -148,6 +148,9 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 		account,
 		h.gatewayService.ValidateProtocolEndpoint,
 		service.ProtocolExecutors{
+			NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+				return nil, h.gatewayService.ForwardResponsesInputTokens(executionCtx, c, account, request.Body())
+			},
 			ResponsesIdentity: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 				if plan.ResponsesPath() != protocolrouter.ResponsesPathInputTokens {
 					return nil, protocolrouter.ErrStalePlan
