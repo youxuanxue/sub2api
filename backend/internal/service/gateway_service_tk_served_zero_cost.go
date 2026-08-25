@@ -25,10 +25,10 @@ func tkServedZeroCostReason(cost *CostBreakdown, billableUnits int64, multiplier
 		return "", false
 	}
 	if cost.TotalCost == 0 {
-		return "unpriced", true
+		return pricingMissingReasonUnpriced, true
 	}
 	if cost.ActualCost == 0 && (multiplier < 0 || accountRateMultiplier < 0) {
-		return "negative_multiplier", true
+		return pricingMissingReasonNegativeMultiplier, true
 	}
 	return "", false
 }

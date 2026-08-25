@@ -69,10 +69,136 @@ type PricingMissingEvent struct {
 	Tokens         int64 // 本次未计费计费单元估算（token 总量或图片张数）
 }
 
+// reason 码的唯一 owner。发射点（tkServedZeroCostReason）与本文件的分类/文案表
+// 都引用这两个常量，避免同一字符串在两处各写一遍后悄悄漂移。
+const (
+	// pricingMissingReasonUnpriced：倍率前成本为零。事件里的空 Reason 向后兼容
+	// 折叠到它（见 pricingMissingNormalizedReason）。
+	pricingMissingReasonUnpriced = "unpriced"
+	// pricingMissingReasonNegativeMultiplier：价格有效但被负倍率归零。
+	pricingMissingReasonNegativeMultiplier = "negative_multiplier"
+)
+
+// pricingMissingNormalizedReason 把事件 Reason 规范成聚合键用的稳定码：空字符串
+// （老调用方）折叠为 unpriced，其余原样。**聚合键必须含 reason** —— 四种 reason 的
+// 客户影响完全不同（$0 漏收 / 负倍率归零 / 404 拒绝 / floor 正常计费），混成一个
+// 条目会让「真漏收」和「已正常计费」印在同一行、无法分轻重（2026-08-25 实测误报）。
+func pricingMissingNormalizedReason(reason string) string {
+	if r := strings.TrimSpace(reason); r != "" {
+		return r
+	}
+	return pricingMissingReasonUnpriced
+}
+
+// pricingMissingDigestHeadline 是摘要里每个 reason 分段的标题。措辞必须与该 reason 的
+// 真实客户影响一致：只有 unpriced / negative_multiplier 才是「零计费」，
+// gate_rejected_unpriced 是 404 未服务，served_at_fallback 是**已按 floor 正常计费**。
+func pricingMissingDigestHeadline(reason string) string {
+	switch reason {
+	case tkPricedServingGateRejectReason:
+		return "未定价被闸拒绝（404、未服务客户）摘要："
+	case tkServedAtFallbackReason:
+		return "按家族兜底价(floor)计费、非真价（已计费、未漏 $0）摘要："
+	case pricingMissingReasonNegativeMultiplier:
+		return "负倍率归零流量摘要："
+	default:
+		return "缺价模型零成本流量摘要："
+	}
+}
+
+// pricingMissingDigestUnitLabel 是摘要行里计费单元的定语。served_at_fallback 的
+// 单元**已经计过费**，印成「未计费」是错的（这正是 2026-08-25 那张误报卡的成因）。
+func pricingMissingDigestUnitLabel(reason string) string {
+	switch reason {
+	case tkPricedServingGateRejectReason:
+		return "tokens 被拒"
+	case tkServedAtFallbackReason:
+		return "tokens 按 floor 计费"
+	default:
+		return "tokens 未计费"
+	}
+}
+
+// pricingMissingReasonRank 决定摘要里 reason 分段的先后：真漏收在前，已正常计费在后。
+// 运维从上往下读，最需要动手的排最前。
+func pricingMissingReasonRank(reason string) int {
+	switch reason {
+	case pricingMissingReasonUnpriced:
+		return 0
+	case pricingMissingReasonNegativeMultiplier:
+		return 1
+	case tkPricedServingGateRejectReason:
+		return 2
+	case tkServedAtFallbackReason:
+		return 3
+	default:
+		return 4
+	}
+}
+
+// pricingMissingRevenueLeaking 标出哪些 reason 是**真的**在漏收：只有价格为零而照常
+// 服务的两类。404 拒绝没有收入（也没有服务），floor 计费已经收到钱。
+func pricingMissingRevenueLeaking(reason string) bool {
+	return reason == pricingMissingReasonUnpriced || reason == pricingMissingReasonNegativeMultiplier
+}
+
+// pricingMissingDigestTitleSubject 按 buffer 实际内容取标题主语，避免把一批「已按
+// floor 正常计费」的条目印成「零计费」（2026-08-25 误报的第二处成因：标题硬编码）。
+func pricingMissingDigestTitleSubject(entries []*pricingMissingDigestEntry) string {
+	leaking, rejected, fallback := false, false, false
+	for _, e := range entries {
+		switch {
+		case pricingMissingRevenueLeaking(e.reason):
+			leaking = true
+		case e.reason == tkPricedServingGateRejectReason:
+			rejected = true
+		case e.reason == tkServedAtFallbackReason:
+			fallback = true
+		}
+	}
+	switch {
+	case leaking:
+		// 只要混有真漏收，标题就按最重的说（其余分段在正文里各自标注）。
+		return "已服务零计费摘要"
+	case rejected && fallback:
+		return "未定价拒绝 + 兜底价计费摘要"
+	case rejected:
+		return "未定价被闸拒绝摘要"
+	case fallback:
+		return "兜底价(floor)计费摘要"
+	default:
+		return "缺价观测摘要"
+	}
+}
+
+// pricingMissingDigestHeaderTemplate 按严重度取卡片头色：真漏收橙，其余（404 拒绝 /
+// floor 计费）是收敛类信号，用蓝，避免和真漏收抢注意力。
+func pricingMissingDigestHeaderTemplate(entries []*pricingMissingDigestEntry) string {
+	for _, e := range entries {
+		if pricingMissingRevenueLeaking(e.reason) {
+			return "orange"
+		}
+	}
+	return "blue"
+}
+
+// pricingMissingFirstSeenTitleSubject 是首见即时卡的标题主语。与 digest 同理：
+// served_at_fallback / gate_rejected 都不是「计费漏算」，不能共用 P0 漏算措辞。
+func pricingMissingFirstSeenTitleSubject(reason string) (subject, headerTemplate string) {
+	switch reason {
+	case tkPricedServingGateRejectReason:
+		return "未定价被闸拒绝（404、未服务）", "orange"
+	case tkServedAtFallbackReason:
+		return "按兜底价(floor)计费、非真价", "blue"
+	default:
+		return "P0 计费漏算：已服务但零计费", "red"
+	}
+}
+
 // pricingMissingReasonLabel 把 Reason 码翻成中文卡片文案；空/未知按无价处理。
 func pricingMissingReasonLabel(reason string) string {
 	switch reason {
-	case "negative_multiplier":
+	case pricingMissingReasonNegativeMultiplier:
 		return "负倍率归零（价格有效但被负费率倍率清零）"
 	case tkPricedServingGateRejectReason:
 		// 运行期价格闸拒绝：与「已服务零计费」不同——该请求被 404 拒掉、未服务客户，
@@ -92,8 +218,13 @@ type PricingMissingNotifier interface {
 	NotifyPricingMissing(ev PricingMissingEvent)
 }
 
-// pricingMissingDigestEntry 是聚合 buffer 的单个 (platform, model) 条目。
+// pricingMissingDigestEntry 是聚合 buffer 的单个 (reason, platform, model) 条目。
+//
+// reason 是聚合键的一部分而非仅展示字段：四种 reason 的客户影响完全不同
+// （$0 漏收 / 负倍率归零 / 404 拒绝未服务 / 按 floor 正常计费），把它们并进
+// 同一条会让摘要无法表达轻重——一条「已按 floor 正常计费」会被印成「未计费」。
 type pricingMissingDigestEntry struct {
+	reason         string
 	platform       string
 	billingModel   string
 	requestedModel string // 首个样例
@@ -174,13 +305,15 @@ func (n *TKPricingMissingNotifier) NotifyPricingMissing(ev PricingMissingEvent) 
 	if platform == "" {
 		platform = "unknown"
 	}
+	reason := pricingMissingNormalizedReason(ev.Reason)
 	now := n.currentTime()
-	key := platform + "\x1f" + strings.ToLower(model)
+	key := reason + "\x1f" + platform + "\x1f" + strings.ToLower(model)
 
 	n.mu.Lock()
 	entry := n.digest[key]
 	if entry == nil {
 		entry = &pricingMissingDigestEntry{
+			reason:         reason,
 			platform:       platform,
 			billingModel:   model,
 			requestedModel: strings.TrimSpace(ev.RequestedModel),
@@ -219,9 +352,10 @@ func (n *TKPricingMissingNotifier) NotifyPricingMissing(ev PricingMissingEvent) 
 	n.firstSentAt[dedupeKey] = now
 	n.mu.Unlock()
 
-	title := fmt.Sprintf("TokenKey P0 计费漏算：已服务但零计费 [%s]", n.siteID)
+	subject, headerTemplate := pricingMissingFirstSeenTitleSubject(reason)
+	title := fmt.Sprintf("TokenKey %s [%s]", subject, n.siteID)
 	body := buildPricingMissingFirstSeenText(n.siteID, ev, platform, model, now)
-	n.send(title, "red", body, fmt.Sprintf("reason=%s platform=%s model=%s", ev.Reason, platform, model))
+	n.send(title, headerTemplate, body, fmt.Sprintf("reason=%s platform=%s model=%s", reason, platform, model))
 }
 
 func (n *TKPricingMissingNotifier) digestLoop() {
@@ -278,15 +412,21 @@ func (n *TKPricingMissingNotifier) flushDigest() {
 	n.mu.Unlock()
 
 	sort.Slice(entries, func(i, j int) bool {
+		// reason 先排：摘要按 reason 分段渲染，同段内再按 platform/model 稳定排序。
+		if entries[i].reason != entries[j].reason {
+			return pricingMissingReasonRank(entries[i].reason) < pricingMissingReasonRank(entries[j].reason)
+		}
 		if entries[i].platform != entries[j].platform {
 			return entries[i].platform < entries[j].platform
 		}
 		return entries[i].billingModel < entries[j].billingModel
 	})
 	now := n.currentTime()
-	title := fmt.Sprintf("TokenKey 已服务零计费摘要 [%s]", n.siteID)
+	// 标题按实际内容取：只有真漏收（unpriced/negative_multiplier）才配「零计费」字样；
+	// 一批纯 served_at_fallback 的条目是**已正常计费**，标题写成零计费即是误报。
+	title := fmt.Sprintf("TokenKey %s [%s]", pricingMissingDigestTitleSubject(entries), n.siteID)
 	body := buildPricingMissingDigestText(n.siteID, entries, now)
-	n.send(title, "orange", body, "digest")
+	n.send(title, pricingMissingDigestHeaderTemplate(entries), body, "digest")
 }
 
 // pruneFirstSeen 修剪过期的首见去重台账（超出去重窗口的条目）。
@@ -401,11 +541,22 @@ func buildPricingMissingFirstSeenText(site string, ev PricingMissingEvent, platf
 	)
 }
 
+// buildPricingMissingDigestText 按 reason 分段渲染摘要。**必须分段**：一条
+// served_at_fallback（已按 floor 正常计费）和一条 unpriced（真漏 $0）如果共用
+// 「零成本流量摘要 / tokens 未计费」的措辞，运维就无法分辨哪条要紧——2026-08-25
+// 线上就发出过这样一张卡，把一次正常计费的 deepseek-v4-flash-0731 印成「未计费」。
 func buildPricingMissingDigestText(site string, entries []*pricingMissingDigestEntry, now time.Time) string {
-	lines := make([]string, 0, len(entries)+2)
-	lines = append(lines, fmt.Sprintf("**节点**：%s\n**时间**：%s\n\n缺价模型零成本流量摘要：",
+	lines := make([]string, 0, len(entries)+len(entries)/2+3)
+	lines = append(lines, fmt.Sprintf("**节点**：%s\n**时间**：%s",
 		escapeFeishuText(site), escapeFeishuText(formatAlertTime(now))))
+
+	lastReason := ""
 	for _, e := range entries {
+		reason := pricingMissingNormalizedReason(e.reason)
+		if reason != lastReason {
+			lines = append(lines, "\n"+pricingMissingDigestHeadline(reason))
+			lastReason = reason
+		}
 		samples := strings.Join(e.groupSamples, ", ")
 		if len(e.groupIDs) > len(e.groupSamples) {
 			samples += fmt.Sprintf(" 等共%d个", len(e.groupIDs))
@@ -413,11 +564,12 @@ func buildPricingMissingDigestText(site string, entries []*pricingMissingDigestE
 		if samples == "" {
 			samples = "-"
 		}
-		lines = append(lines, fmt.Sprintf("- **%s / %s**：%d 次 / 约 %s tokens 未计费 / %d 个 key / 组：%s",
+		lines = append(lines, fmt.Sprintf("- **%s / %s**：%d 次 / 约 %s %s / %d 个 key / 组：%s",
 			escapeFeishuText(e.platform),
 			escapeFeishuText(e.billingModel),
 			e.count,
 			formatPricingMissingTokens(e.tokens),
+			pricingMissingDigestUnitLabel(reason),
 			len(e.apiKeyIDs),
 			escapeFeishuText(samples)))
 	}
