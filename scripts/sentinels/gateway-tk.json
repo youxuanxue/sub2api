@@ -2923,34 +2923,35 @@
       "path": "backend/internal/service/openai_gateway_usage.go",
       "must_contain": [
         "isOpenAIVideoUsageResult(result)",
-        "tkTryCalculateOpenAIVideoUsageCost",
-        "tkMapQianfanScopedBillingModels(billingModels, account)"
+        "tkTryCalculateOpenAIVideoUsageCost"
       ],
-      "rationale": "Injection wiring from upstream-owned RecordUsage/calculateOpenAIRecordUsageCost into TK settlement companions. VideoSubmit billing must stay on the video path; Qianfan account 90 must remap shared DeepSeek overlay ids to .qianfan billing owners before candidate resolution."
+      "rationale": "Injection wiring from upstream-owned RecordUsage/calculateOpenAIRecordUsageCost into TK settlement companions. VideoSubmit billing must stay on the video path."
     },
     {
       "path": "backend/internal/service/gateway_usage_billing.go",
       "must_contain": [
-        "tkQianfanScopedBillingModel(billingModel, account)"
+        "billableModelWithFallback(ctx, apiKey, billingModel, result.UpstreamModel, result.Model)"
       ],
-      "rationale": "Anthropic/generic RecordUsage funnel must switch shared DeepSeek models to .qianfan overlay owners when served from Baidu Qianfan account 90; dropping the call site restores official DeepSeek list pricing on a Qianfan channel."
+      "rationale": "Anthropic/generic RecordUsage funnel must keep the TK unpriced-alias fallback: a selected billing model with no registry price falls back to the concretely forwarded model instead of silently settling $0. (Per-account .qianfan remap removed: shared ids intentionally use one global user price regardless of serving account; provider-cost differences stay in profit reporting, and customer-scoped channel_model_pricing is not a serving-account substitute — see docs/approved/pricing-serving-single-source-of-truth.md §1.1.)"
     },
     {
       "path": "backend/internal/service/billing_service_tk_qianfan.go",
       "must_contain": [
-        "tkQianfanScopedBillingModel",
-        "tkMapQianfanScopedBillingModels",
-        "tkQianfanOverlayPricingSuffix"
+        "var tkDeepSeekPeakValleyExcludedModels = map[string]struct{}{",
+        "\"deepseek-v3.2\"",
+        "\"deepseek-ocr\""
       ],
-      "rationale": "Per-account Qianfan billing key remap for deepseek-v4-pro/flash while public catalog keeps global DeepSeek owners. Companion isolates upstream gateway insertions to one-liners."
+      "rationale": "Qianfan-exclusive DeepSeek SKUs (no official equivalent) must stay exempt from _config.deepseek_peak_valley: Qianfan lists one flat rate, so the official 2x peak window would overbill them for half the working day. Dropping an id from this map silently doubles its output price 09:00-12:00 / 14:00-18:00 Asia/Shanghai."
     },
     {
       "path": "backend/internal/service/billing_service_tk_qianfan_test.go",
       "must_contain": [
-        "TestTkQianfanScopedBillingModel_UsesQianfanRatesInCost",
-        "TestTkQianfanScopedBillingModel_ExcludesDeepSeekPeakValley"
+        "TestTkQianfanScopedOverlayKeysAreRemoved",
+        "TestTkQianfanDatedFlashResolvesToOfficialFlashOwner",
+        "TestTkDeepSeekPeakValleyAppliesToDatedFlashAlias",
+        "TestTkQianfanOnlyDeepSeekOwnersStayPeakExempt"
       ],
-      "rationale": "Focused regressions: Qianfan account remap and guard against applying DeepSeek official peak-valley multiplier to .qianfan overlay billing keys."
+      "rationale": "Focused regressions for the global-user-price decision: shared ids stay independent of the serving account and the .qianfan suffix owners stay out of the registry; the dated flash alias resolves to the official owner (and is therefore subject to official peak windows), while Qianfan-exclusive owners keep their flat rate."
     },
     {
       "path": "backend/internal/service/account_model_mapping_preset_tk_qianfan_test.go",

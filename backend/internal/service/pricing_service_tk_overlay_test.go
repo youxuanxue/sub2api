@@ -87,17 +87,20 @@ func TestTKPricingOverlay_DeepSeekOfficialIdleSSOTAndAliases(t *testing.T) {
 		require.Equal(t, flash.MaxOutputTokens, entry.MaxOutputTokens, alias)
 	}
 
-	qianfanFlash := overlay["deepseek-v4-flash.qianfan"]
-	require.NotNil(t, qianfanFlash)
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1), qianfanFlash.InputCostPerToken, 1e-15)
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(2), qianfanFlash.OutputCostPerToken, 1e-15)
-	require.NotEqual(t, flash.InputCostPerToken, qianfanFlash.InputCostPerToken)
-
-	qianfanPro := overlay["deepseek-v4-pro.qianfan"]
-	require.NotNil(t, qianfanPro)
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(12), qianfanPro.InputCostPerToken, 1e-15)
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(24), qianfanPro.OutputCostPerToken, 1e-15)
-	require.NotEqual(t, pro.InputCostPerToken, qianfanPro.InputCostPerToken)
+	// Baidu Qianfan serving-account price variants were removed by policy: every
+	// account serving these shared client ids bills users from the single official
+	// owner above, and the official peak-valley policy applies uniformly. Upstream
+	// procurement differences belong to provider-cost/profit reporting. They must
+	// not return as suffixed registry keys or be approximated through the customer-
+	// scoped channel_model_pricing resolver.
+	for _, removed := range []string{
+		"deepseek-v4-flash.qianfan",
+		"deepseek-v4-pro.qianfan",
+		"deepseek-v4-flash-0731",
+	} {
+		require.Nil(t, overlay[removed],
+			"%s must not come back: shared ids use one global user price across serving accounts", removed)
+	}
 }
 
 func TestTKPricingOverlay_FillsMoonshotChinaModels(t *testing.T) {

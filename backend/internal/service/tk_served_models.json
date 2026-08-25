@@ -34,7 +34,7 @@
       "price_source": "overlay",
       "price_key": "deepseek-v4-pro",
       "display": true,
-      "notes": "ds-官 account 39. Mapped by tk_022 (identity whitelist). Priced in overlay from DeepSeek official list (https://api-docs.deepseek.com/quick_start/pricing, captured 2026-08-17). Baidu Qianfan account 90 bills via overlay owner deepseek-v4-pro.qianfan at runtime (¥0.012/¥0.024 per 1k). served-via-admin-ui (model_mapping predates the tk_*.sql era / set out-of-band; A3 downgraded to WARN). Also on VolcEngine Agent Plan account 88; mapped by tk_068; probe 200 on 2026-07-30. Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07. Account 90 mapping: served-via-modelops-activation."
+      "notes": "ds-官 account 39. Mapped by tk_022 (identity whitelist). Priced in overlay from DeepSeek official list (https://api-docs.deepseek.com/quick_start/pricing, captured 2026-08-17); every serving account, including Baidu Qianfan account 90, bills from the single deepseek-v4-pro owner and follows its peak-valley policy. served-via-admin-ui (model_mapping predates the tk_*.sql era / set out-of-band; A3 downgraded to WARN). Also on VolcEngine Agent Plan account 88; mapped by tk_068; probe 200 on 2026-07-30. Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07. Account 90 mapping: served-via-modelops-activation."
     },
     "newapi/deepseek-v4-flash": {
       "platform": "newapi",
@@ -53,7 +53,7 @@
       "price_source": "overlay",
       "price_key": "deepseek-v4-flash",
       "display": true,
-      "notes": "ds-官 account 39. Mapped by tk_022. Priced in overlay from DeepSeek official list (https://api-docs.deepseek.com/quick_start/pricing, captured 2026-08-17). Baidu Qianfan account 90 bills via overlay owner deepseek-v4-flash.qianfan at runtime (¥0.001/¥0.002 per 1k). served-via-admin-ui (model_mapping predates the tk_*.sql era / set out-of-band; A3 downgraded to WARN). Also on VolcEngine Agent Plan account 88; mapped by tk_068; probe 200 on 2026-07-30. Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07. Account 90 mapping: served-via-modelops-activation."
+      "notes": "ds-官 account 39. Mapped by tk_022. Priced in overlay from DeepSeek official list (https://api-docs.deepseek.com/quick_start/pricing, captured 2026-08-17); every serving account, including Baidu Qianfan account 90, bills from the single deepseek-v4-flash owner and follows its peak-valley policy. served-via-admin-ui (model_mapping predates the tk_*.sql era / set out-of-band; A3 downgraded to WARN). Also on VolcEngine Agent Plan account 88; mapped by tk_068; probe 200 on 2026-07-30. Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07. Account 90 mapping: served-via-modelops-activation."
     },
     "newapi/deepseek-chat": {
       "platform": "newapi",
@@ -1136,6 +1136,7 @@
       "platform": "newapi",
       "model_id": "deepseek-v4-flash-0731",
       "served_on": [
+        "88",
         "90"
       ],
       "channel_type": 46,
@@ -1145,9 +1146,9 @@
         "base_url": "https://qianfan.baidubce.com"
       },
       "price_source": "overlay",
-      "price_key": "deepseek-v4-flash-0731",
+      "price_key": "deepseek-v4-flash",
       "display": true,
-      "notes": "Baidu Qianfan account 90 only (dated flash SKU). Probe 200 on 2026-08-07. Qianfan ¥0.001/¥0.002 per 1k; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Dated flash SKU. Probe 200 on 2026-08-07 via Baidu Qianfan account 90; also served by account 88 as an alias (tk_088; account 39 excluded while its DeepSeek path fails closed, see #1806). Bills from the deepseek-v4-flash official owner (the same upstream model, per the DeepSeek price page), so official peak windows apply. served-via-modelops-activation."
     },
     "newapi/deepseek-v3.2": {
       "platform": "newapi",

@@ -41,6 +41,27 @@ There is one editable global owner. A channel row is not a second global writer:
 applies only when the resolver selects that commercial scope. Provider/LiteLLM files may
 produce a candidate diff, but no value from them participates in effective billing.
 
+### 1.1 User billing is independent of the serving account
+
+Approved clarification (2026-08-25): the price precedence above is evaluated in the
+**customer commercial scope**, not in the upstream account that happens to serve a
+request. `channel_model_pricing` is selected from the API key's group/channel context;
+it is not a serving-account price table.
+
+For client ids with a global owner, every serving account therefore produces the same
+user-facing `ActualCost`. Differences between an upstream account's procurement price
+and the global user price belong to provider-cost / profit reporting and must not rewrite
+the billing model or alter balance, subscription, API-key quota, or rate-limit deductions.
+In particular, Qianfan account 90 uses the global owners for shared ids such as
+`deepseek-v4-pro`, `deepseek-v4-flash`, `glm-5*`, and `kimi-k2.6`; the former
+`.qianfan` registry keys and serving-account remap are deliberately retired rather than
+moved into `channel_model_pricing`.
+
+Qianfan-only ids with no equivalent global/direct-provider SKU remain legitimate global
+owners. Reintroducing user prices that vary by serving account would be a new billing
+policy and requires a separately approved serving-account-scoped primitive; it must not
+be approximated with customer-channel pricing.
+
 **Serving owner is genuinely per-account.** `Account.IsModelSupported`
 (`backend/internal/service/account.go:639`) returns `true` on an **empty** mapping —
 "无映射 = 允许所有" — for every non-antigravity platform. A populated `model_mapping` is an
