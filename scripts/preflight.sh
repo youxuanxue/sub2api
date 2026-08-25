@@ -98,6 +98,15 @@ set -u
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Match every local Go gate and generator to the exact toolchain installed by
+# CI from backend/go.mod. GOTOOLCHAIN=auto never downgrades a newer ambient Go.
+_go_mod_version="$(awk '$1 == "go" { print $2; exit }' backend/go.mod)"
+if [ -z "$_go_mod_version" ]; then
+    echo "FAIL: cannot read Go version from backend/go.mod" >&2
+    exit 1
+fi
+export GOTOOLCHAIN="go$_go_mod_version"
+
 # ---- TK: clear worktree git-config debt before any submodule traversal -------
 # When this script runs inside a git worktree that contains nested submodules
 # (e.g. `dev-rules/`), `git submodule status` and similar walkers will silently
