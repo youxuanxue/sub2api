@@ -6,7 +6,7 @@
 # save race poisoned the others, so the test-result cache effectively never
 # restored and every run cold-compiled + re-ran all packages.
 #
-# Two caches, deliberately split:
+# Three caches, deliberately split:
 #   - module cache: identical across all jobs, only changes with go.sum, so one
 #     shared immutable entry is correct and avoids triplicating ~1GB of
 #     GOMODCACHE against the 10GB/repo budget.
@@ -14,6 +14,10 @@
 #     forward every run; restore-keys seeds from the previous run (incremental,
 #     not cold). Go's cache is content-addressed, so a stale entry is unused,
 #     never wrong.
+#   - golangci analysis cache: optional, lint-only, and rolling for the same
+#     reason. golangci-lint-action's interval key is immutable after the first
+#     save, so changed-package analysis cannot be written back until the interval
+#     changes. Main owns the rolling writer; PRs restore but never save.
 #
 # Set `cache: false` on the calling job's actions/setup-go step and call this
 # AFTER it (mirrors warm-release-cache in backend-ci.yml).
@@ -24,6 +28,10 @@ inputs:
   prefix:
     description: Per-job cache namespace (e.g. unit / integration / lint) — keeps build objects from colliding across build tags.
     required: true
+  golangci_cache:
+    description: Also roll ~/.cache/golangci-lint (enable only for the lint job).
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -63,3 +71,23 @@ runs:
         restore-keys: |
           ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.sum') }}-
           ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
+
+    - name: Restore golangci-lint analysis cache (non-main writer)
+      if: inputs.golangci_cache == 'true' && (github.event_name != 'push' || github.ref != 'refs/heads/main')
+      uses: actions/cache/restore@v6
+      with:
+        path: ~/.cache/golangci-lint
+        key: ${{ runner.os }}-golangci-${{ hashFiles('backend/go.sum', 'backend/.golangci.yml') }}-${{ github.run_id }}
+        restore-keys: |
+          ${{ runner.os }}-golangci-${{ hashFiles('backend/go.sum', 'backend/.golangci.yml') }}-
+          ${{ runner.os }}-golangci-
+
+    - name: golangci-lint analysis cache (rolling main writer)
+      if: inputs.golangci_cache == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/golangci-lint
+        key: ${{ runner.os }}-golangci-${{ hashFiles('backend/go.sum', 'backend/.golangci.yml') }}-${{ github.run_id }}
+        restore-keys: |
+          ${{ runner.os }}-golangci-${{ hashFiles('backend/go.sum', 'backend/.golangci.yml') }}-
+          ${{ runner.os }}-golangci-

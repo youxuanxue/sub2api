@@ -200,6 +200,23 @@ class BackendCIRoutingTest(unittest.TestCase):
             unit_step["env"]["UNIT_TEST_SERVICE_SHARD"],
         )
 
+    def test_lint_uses_rolling_analysis_cache_instead_of_action_cache(self) -> None:
+        steps = self.jobs["golangci-lint"]["steps"]
+        rolling_cache = next(
+            step
+            for step in steps
+            if step.get("uses") == "./.github/actions/go-rolling-cache"
+        )
+        self.assertEqual(rolling_cache["with"]["prefix"], "lint")
+        self.assertEqual(rolling_cache["with"]["golangci_cache"], "true")
+
+        lint_action = next(
+            step
+            for step in steps
+            if step.get("uses") == "golangci/golangci-lint-action@v9"
+        )
+        self.assertEqual(lint_action["with"]["skip-cache"], "true")
+
     def test_unit_target_uses_go_cache_by_default(self) -> None:
         result = subprocess.run(
             ["make", "-n", "-C", str(BACKEND_MAKEFILE.parent), "test-unit"],

@@ -296,8 +296,9 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
       # cache:false + ./.github/actions/go-rolling-cache — see test-unit above.
-      # golangci-lint-action manages its own analysis cache (~/.cache/golangci-lint)
-      # on top of the GOCACHE this rolls; the two are independent.
+      # The composite also rolls ~/.cache/golangci-lint from main. The action's
+      # built-in interval cache is immutable after its first save, so it cannot
+      # persist changed-package analysis again until the interval key changes.
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
@@ -306,6 +307,7 @@ jobs:
       - uses: ./.github/actions/go-rolling-cache
         with:
           prefix: lint
+          golangci_cache: "true"
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
@@ -319,6 +321,7 @@ jobs:
           args: --concurrency=4 --timeout=30m
           working-directory: backend
           only-new-issues: false
+          skip-cache: "true"
 
   backend-security:
     needs: changes
