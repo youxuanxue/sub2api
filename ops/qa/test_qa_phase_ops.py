@@ -34,6 +34,12 @@ def _load_closeout_module():
     return _load_module("prod_qa_archive_closeout", "ops/qa/prod_qa_archive_closeout.py")
 
 
+def _install_noop_sleep(bin_dir: Path) -> None:
+    sleep = bin_dir / "sleep"
+    sleep.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    sleep.chmod(0o755)
+
+
 class TestQAPhaseOps(unittest.TestCase):
     def test_prod_rollout_separates_repository_readiness_from_live_activation(self) -> None:
         import yaml
@@ -651,6 +657,7 @@ class TestQAPhaseOps(unittest.TestCase):
             output = root / "output"
             fake_bin.mkdir()
             output.mkdir()
+            _install_noop_sleep(fake_bin)
             fake_aws = fake_bin / "aws"
             fake_aws.write_text(
                 """#!/usr/bin/env bash
@@ -775,6 +782,7 @@ exit 0
             output = root / "output"
             fake_bin.mkdir()
             output.mkdir()
+            _install_noop_sleep(fake_bin)
             fake_aws = fake_bin / "aws"
             fake_aws.write_text(
                 """#!/usr/bin/env bash
@@ -819,6 +827,7 @@ exit 0
             output = root / "output"
             fake_bin.mkdir()
             output.mkdir()
+            _install_noop_sleep(fake_bin)
             (fake_bin / "aws").write_text(
                 """#!/usr/bin/env bash
 if [[ "$*" == *"ssm send-command"* ]]; then echo cmd-test; exit 0; fi
@@ -904,6 +913,7 @@ exit 0
             fake_bin = root / "bin"
             output = root / "output"
             fake_bin.mkdir()
+            _install_noop_sleep(fake_bin)
             fake_aws = fake_bin / "aws"
             fake_aws.write_text(
                 """#!/usr/bin/env bash
@@ -1213,6 +1223,7 @@ esac
             root = Path(temp_dir)
             fake_bin = root / "bin"
             fake_bin.mkdir()
+            _install_noop_sleep(fake_bin)
             fake_aws = fake_bin / "aws"
             fake_aws.write_text(
                 """#!/usr/bin/env bash

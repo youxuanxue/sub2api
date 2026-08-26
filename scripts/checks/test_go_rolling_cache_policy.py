@@ -49,6 +49,37 @@ class GoRollingCachePolicyTest(unittest.TestCase):
                 self.assertIn("backend/go.sum", step["with"]["key"])
                 self.assertIn("backend/.golangci.yml", step["with"]["key"])
 
+    def test_large_build_caches_refresh_weekly_instead_of_every_run(self) -> None:
+        action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
+        steps = action["runs"]["steps"]
+        epoch_step = next(step for step in steps if step.get("id") == "cache_epoch")
+        self.assertIn("date -u +%G-W%V", epoch_step["run"])
+
+        build_steps = [
+            step
+            for step in steps
+            if step.get("with", {}).get("path") == "~/.cache/go-build"
+        ]
+        self.assertEqual(len(build_steps), 2)
+        for step in build_steps:
+            with self.subTest(step=step["name"]):
+                cache_config = step["with"]
+                key = cache_config["key"]
+                self.assertIn("steps.cache_epoch.outputs.value", key)
+                self.assertNotIn("github.run_id", key)
+                self.assertIn("backend/go.mod", key)
+                self.assertIn("backend/go.sum", key)
+                self.assertIn(".new-api-ref", key)
+
+                restore_keys = cache_config["restore-keys"].splitlines()
+                self.assertEqual(
+                    restore_keys[0],
+                    "${{ runner.os }}-gobuild-${{ inputs.prefix }}-"
+                    "${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-",
+                )
+                self.assertNotIn("steps.cache_epoch.outputs.value", cache_config["restore-keys"])
+                self.assertNotIn("github.run_id", str(cache_config))
+
 
 if __name__ == "__main__":
     unittest.main()
