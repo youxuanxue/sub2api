@@ -233,7 +233,10 @@ func TestGatewayHandlerMessages_NonKiroRequestDoesNotConsumeKiroRecovery(t *test
 	account := &service.Account{
 		ID: 1003, Name: "ag-warmup", Platform: service.PlatformAntigravity, Type: service.AccountTypeOAuth,
 		Credentials: map[string]any{"access_token": "at", "intercept_warmup_requests": true},
-		Extra:       map[string]any{"mixed_scheduling": true},
+		Extra: map[string]any{
+			"mixed_scheduling":                 true,
+			service.SupportedProtocolsExtraKey: []any{"gemini_generate_content"},
+		},
 		Concurrency: 1, Priority: 1, Status: service.StatusActive, Schedulable: true,
 		AccountGroups: []service.AccountGroup{{AccountID: 1003, GroupID: group.ID}},
 	}
