@@ -76,6 +76,11 @@ type protocolProbeSetUpstream struct {
 	mu             sync.Mutex
 	paths          []string
 	authorizations []string
+	profiles       []HTTPUpstreamProfile
+	redirectsOff   []bool
+	grokVersions   []string
+	originators    []string
+	codexWindows   []string
 }
 
 type protocolProbeBarrierUpstream struct {
@@ -157,6 +162,11 @@ func (u *protocolProbeSetUpstream) DoWithTLS(
 	u.mu.Lock()
 	u.paths = append(u.paths, req.URL.Path)
 	u.authorizations = append(u.authorizations, getHeaderRaw(req.Header, "authorization"))
+	u.profiles = append(u.profiles, HTTPUpstreamProfileFromContext(req.Context()))
+	u.redirectsOff = append(u.redirectsOff, HTTPUpstreamRedirectsDisabled(req.Context()))
+	u.grokVersions = append(u.grokVersions, req.Header.Get("X-Grok-Client-Version"))
+	u.originators = append(u.originators, req.Header.Get("Originator"))
+	u.codexWindows = append(u.codexWindows, req.Header.Get("X-Codex-Window-ID"))
 	u.mu.Unlock()
 
 	body := `{"output":[{"type":"function_call","name":"probe_ping"}]}`
@@ -266,6 +276,13 @@ func TestProtocolProbeCandidatesCoverGovernedCustomAccountsOnly(t *testing.T) {
 			want: []protocolrouter.Protocol{protocolrouter.ProtocolMessages},
 		},
 		{
+			name: "grok oauth probes its explicit text endpoints",
+			account: &Account{Platform: PlatformGrok, Type: AccountTypeOAuth, Credentials: map[string]any{
+				"access_token": "oauth-secret", "base_url": "https://grok.example.test/v1",
+			}},
+			want: protocolrouter.AllProtocols(),
+		},
+		{
 			name: "ungoverned gemini is excluded",
 			account: &Account{Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{
 				"api_key": "secret", "base_url": "https://gemini.example.test",
@@ -279,6 +296,77 @@ func TestProtocolProbeCandidatesCoverGovernedCustomAccountsOnly(t *testing.T) {
 				t.Fatalf("ProtocolProbeCandidates = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestProbeAccountProtocolCapabilitiesSupportsGrokOAuth(t *testing.T) {
+	account := &Account{
+		ID:          198,
+		Name:        "grok-oauth",
+		Platform:    PlatformGrok,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token": "grok-oauth-secret",
+			"base_url":     "https://grok.example.test/v1",
+		},
+		UpdatedAt: time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC),
+	}
+	repo := &protocolProbeCASRepo{account: cloneProtocolProbeAccount(account)}
+	upstream := &protocolProbeSetUpstream{}
+	svc := &AccountTestService{
+		accountRepo:  repo,
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled: false,
+		}}},
+	}
+
+	svc.ProbeAccountProtocolCapabilities(context.Background(), account.ID)
+
+	got, err := repo.GetByID(context.Background(), account.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if want := protocolrouter.AllProtocols(); !reflect.DeepEqual(got.SupportedProtocols(), want) {
+		t.Fatalf("supported protocols = %v, want %v", got.SupportedProtocols(), want)
+	}
+	upstream.mu.Lock()
+	defer upstream.mu.Unlock()
+	wantPaths := []string{"/v1/chat/completions", "/v1/messages", "/v1/responses"}
+	gotPaths := append([]string(nil), upstream.paths...)
+	slices.Sort(gotPaths)
+	if !reflect.DeepEqual(gotPaths, wantPaths) {
+		t.Fatalf("probe paths = %v, want %v", gotPaths, wantPaths)
+	}
+	for _, authorization := range upstream.authorizations {
+		if authorization != "Bearer grok-oauth-secret" {
+			t.Fatalf("probe authorization = %q, want bearer Grok access token", authorization)
+		}
+	}
+	for _, profile := range upstream.profiles {
+		if profile != HTTPUpstreamProfileGrok {
+			t.Fatalf("probe HTTP profile = %q, want %q", profile, HTTPUpstreamProfileGrok)
+		}
+	}
+	for _, redirectsOff := range upstream.redirectsOff {
+		if !redirectsOff {
+			t.Fatal("credential-bearing Grok OAuth probe allowed HTTP redirects")
+		}
+	}
+	for _, version := range upstream.grokVersions {
+		if strings.TrimSpace(version) == "" {
+			t.Fatal("Grok OAuth probe omitted the pinned CLI identity headers")
+		}
+	}
+	for i := range upstream.originators {
+		if upstream.originators[i] != "" || upstream.codexWindows[i] != "" {
+			t.Fatalf(
+				"Grok OAuth probe leaked Codex identity headers: originator=%q window=%q",
+				upstream.originators[i],
+				upstream.codexWindows[i],
+			)
+		}
 	}
 }
 

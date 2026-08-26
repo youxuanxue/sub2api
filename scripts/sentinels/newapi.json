@@ -914,6 +914,30 @@
       "rationale": "Regression proof that Agent Plan account 88 resolves both governed text protocols under the canonical /api/plan/v3 base instead of probing or executing the generic VolcEngine paths that returned 404 during rollout preparation."
     },
     {
+      "path": "backend/internal/service/protocol_capability_probe.go",
+      "must_contain": [
+        "func protocolProbeAuthToken(account *Account) string",
+        "func applyProtocolProbeRequestIdentity(",
+        "case account.IsGrokOAuth():",
+        "HTTPUpstreamProfileGrok",
+        "applyGrokCLIHeaders(req.Header)",
+        "WithHTTPUpstreamRedirectsDisabled(reqCtx)"
+      ],
+      "rationale": "Protocol capability probes must share one credential and outbound-identity owner. Anthropic API-key mirrors use the generic api_key binding, while Grok OAuth uses its access token plus Grok HTTP/CLI identity; every credential-bearing probe disables redirects so validated endpoint boundaries cannot be bypassed. Removing these anchors recreates probe_skip_no_apikey, leaves governed Grok OAuth accounts permanently outside the candidate set, or risks forwarding probe credentials beyond the validated endpoint."
+    },
+    {
+      "path": "backend/internal/service/protocol_capability_probe_test.go",
+      "must_contain": [
+        "grok oauth probes its explicit text endpoints",
+        "TestProbeAccountProtocolCapabilitiesSupportsGrokOAuth",
+        "Bearer grok-oauth-secret",
+        "HTTPUpstreamProfileGrok",
+        "credential-bearing Grok OAuth probe allowed HTTP redirects",
+        "Grok OAuth probe leaked Codex identity headers"
+      ],
+      "rationale": "Behavior proof for the governed/probe parity boundary: Grok OAuth must probe all explicit text endpoints with its bearer access token and Grok identity, without following redirects or leaking Codex probe headers. This prevents a green unit suite from masking a startup remediation loop on us3/us4 or a credential-boundary regression."
+    },
+    {
       "path": "backend/internal/service/openai_apikey_chat_completions_probe.go",
       "must_contain": [
         "selectProtocolProbeModel(account)",
@@ -989,6 +1013,8 @@
       "path": "backend/internal/service/openai_apikey_responses_probe_test.go",
       "must_contain": [
         "TestProbeOpenAIAPIKeyResponsesSupportUsesNewAPIAdaptorEndpoint",
+        "TestProbeOpenAIAPIKeyResponsesSupportUsesGenericAPIKeyForAnthropicMirror",
+        "HTTPUpstreamRedirectsDisabled(upstream.lastReq.Context())",
         "TestProbeOpenAIAPIKeyResponsesSupportPrefersChannelNativeTextModel",
         "TestSelectProtocolProbeModelUsesDeterministicTextFallback",
         "TestSelectProtocolProbeModelExcludesMediaAndUsesDeterministicTextFallback",

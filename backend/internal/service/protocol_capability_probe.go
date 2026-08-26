@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -235,18 +236,62 @@ func protocolProbeBaseURL(account *Account, protocol protocolrouter.Protocol) st
 	return baseURL
 }
 
+// protocolProbeAuthToken is the single credential-binding owner for protocol
+// capability probes. It returns the bearer/API-key material used by the
+// protocol-specific request builder without inferring endpoint capability.
+func protocolProbeAuthToken(account *Account) string {
+	if account == nil {
+		return ""
+	}
+	if account.IsGrokOAuth() {
+		return account.GetGrokAccessToken()
+	}
+	if account.Platform == PlatformAnthropic && account.IsAnthropicOAuthOrSetupToken() {
+		return account.GetCredential("access_token")
+	}
+	if token := account.GetOpenAIProtocolAPIKey(); token != "" {
+		return token
+	}
+	return account.GetCredential("api_key")
+}
+
+func applyProtocolProbeRequestIdentity(
+	req *http.Request,
+	account *Account,
+	protocol protocolrouter.Protocol,
+) *http.Request {
+	if req == nil {
+		return nil
+	}
+	profile := HTTPUpstreamProfileOpenAI
+	if account != nil && account.IsGrok() {
+		profile = HTTPUpstreamProfileGrok
+	} else if protocol == protocolrouter.ProtocolResponses {
+		applyOpenAICodexProbeHeaders(req.Header)
+	}
+	reqCtx := WithHTTPUpstreamProfile(req.Context(), profile)
+	req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(reqCtx))
+	if account != nil && account.IsGrokOAuth() {
+		applyGrokCLIHeaders(req.Header)
+	}
+	if account != nil {
+		account.ApplyHeaderOverrides(req.Header)
+	}
+	return req
+}
+
 func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {
 	if !protocolRoutingGovernsAccount(account) || len(officialSupportedProtocols(account)) > 0 {
 		return nil
 	}
-	switch account.Type {
-	case AccountTypeAPIKey, AccountTypeUpstream:
+	switch {
+	case account.Type == AccountTypeAPIKey, account.Type == AccountTypeUpstream:
+	case account.IsGrokOAuth():
+	case account.Platform == PlatformAnthropic &&
+		account.IsAnthropicOAuthOrSetupToken() &&
+		account.IsCustomBaseURLEnabled():
 	default:
-		if account.Platform != PlatformAnthropic ||
-			!account.IsAnthropicOAuthOrSetupToken() ||
-			!account.IsCustomBaseURLEnabled() {
-			return nil
-		}
+		return nil
 	}
 	candidates := make([]protocolrouter.Protocol, 0, len(protocolrouter.AllProtocols()))
 	for _, protocol := range protocolrouter.AllProtocols() {
