@@ -234,9 +234,10 @@ jobs:
         working-directory: backend
         env:
           # PR service-cold runs prioritize the compile-once critical path.
-          # Main is the rolling-cache writer, so it always uses native go test
-          # to seed result entries before the weekly archive is saved.
-          UNIT_TEST_SERVICE_SHARD: ${{ github.event_name != 'push' && needs.changes.outputs.service_unit_cold == 'true' && '1' || '0' }}
+          # Main also uses shards: service tests inspect tracked source/fixture
+          # files at runtime, so checkout mtimes prevent cross-run result-cache
+          # hits even when the weekly Go build cache restores exactly.
+          UNIT_TEST_SERVICE_SHARD: ${{ (github.event_name == 'push' || needs.changes.outputs.service_unit_cold == 'true') && '1' || '0' }}
         run: make test-unit
       - name: Anthropic prompt surface fixture gateway
         run: python3 ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway
