@@ -586,8 +586,9 @@ func TestSanitizeOpenAIResponsesToolParameterTypes_RewriteCountIndependentOfHits
 		_, _, _ = sanitizeOpenAIResponsesToolParameterTypes(large)
 	})
 
-	// 命中切片扩容是对数级，留出充裕余量；线性写法在这里会是 2000 量级。
-	require.Less(t, largeAllocs, smallAllocs+40,
+	// 命中切片扩容是对数级；不同 OS/架构和分片进程的标准库分配基线会有
+	// 差异，因此保留有界余量。逐命中全量重写仍会达到 2000 量级。
+	require.Less(t, largeAllocs, smallAllocs+100,
 		"分配次数随命中数线性增长，说明退回了逐路径全量重写 (small=%v large=%v)", smallAllocs, largeAllocs)
 
 	// 同时确认大 body 的结果确实全部修好了。

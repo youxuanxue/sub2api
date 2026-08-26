@@ -188,7 +188,7 @@ class BackendCIRoutingTest(unittest.TestCase):
             unit_step["env"]["UNIT_TEST_SERVICE_SHARD"],
         )
 
-    def test_unit_main_push_seeds_native_result_cache(self) -> None:
+    def test_unit_main_push_uses_service_shards(self) -> None:
         unit_step = next(
             step
             for step in self.jobs["test-unit"]["steps"]
@@ -197,8 +197,8 @@ class BackendCIRoutingTest(unittest.TestCase):
 
         self.assertEqual(
             unit_step["env"]["UNIT_TEST_SERVICE_SHARD"],
-            "${{ github.event_name != 'push' && "
-            "needs.changes.outputs.service_unit_cold == 'true' && '1' || '0' }}",
+            "${{ (github.event_name == 'push' || "
+            "needs.changes.outputs.service_unit_cold == 'true') && '1' || '0' }}",
         )
 
     def test_lint_uses_rolling_analysis_cache_instead_of_action_cache(self) -> None:
