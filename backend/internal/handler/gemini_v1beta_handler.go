@@ -42,6 +42,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 	if apiKey.IsUniversal() && apiKey.Group == nil {
 		capabilities, err := h.universalCapabilities(c.Request.Context(), apiKey, service.UniversalProtocolGemini)
 		if err != nil {
+			requestLogger(c, "gateway.gemini_models", zap.String("protocol", string(service.UniversalProtocolGemini))).Warn("capability_discovery_failed", zap.Error(err))
 			googleError(c, http.StatusInternalServerError, "Model discovery unavailable")
 			return
 		}

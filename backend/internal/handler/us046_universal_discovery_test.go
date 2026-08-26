@@ -8,10 +8,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 type us046CapabilityKeySource struct {
@@ -217,36 +220,49 @@ func TestUS046_UniversalDiscoveryFailureIs500NotEmptyList(t *testing.T) {
 	})
 
 	t.Run("gemini", func(t *testing.T) {
-		h := &GatewayHandler{tkCapabilities: source}
+		core, logs := observer.New(zap.WarnLevel)
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+		c.Request = c.Request.WithContext(logger.IntoContext(c.Request.Context(), zap.New(core)))
 		c.Set(string(middleware.ContextKeyAPIKey), key)
 
+		h := &GatewayHandler{tkCapabilities: source}
 		h.GeminiV1BetaListModels(c)
 		require.Equal(t, http.StatusInternalServerError, w.Code)
 		require.NotContains(t, w.Body.String(), `"models":[]`)
+		entries := logs.FilterMessage("capability_discovery_failed").All()
+		require.Len(t, entries, 1)
+		require.Equal(t, "gateway.gemini_models", entries[0].ContextMap()["component"])
+		require.Equal(t, string(service.UniversalProtocolGemini), entries[0].ContextMap()["protocol"])
 	})
 
 	t.Run("antigravity", func(t *testing.T) {
-		h := &GatewayHandler{tkCapabilities: source}
+		core, logs := observer.New(zap.WarnLevel)
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest(http.MethodGet, "/antigravity/models", nil)
+		c.Request = c.Request.WithContext(logger.IntoContext(c.Request.Context(), zap.New(core)))
 		c.Set(string(middleware.ContextKeyAPIKey), key)
 
+		h := &GatewayHandler{tkCapabilities: source}
 		h.AntigravityModels(c)
 		require.Equal(t, http.StatusInternalServerError, w.Code)
 		require.NotContains(t, w.Body.String(), `"data":[]`)
+		entries := logs.FilterMessage("capability_discovery_failed").All()
+		require.Len(t, entries, 1)
+		require.Equal(t, "gateway.antigravity_models", entries[0].ContextMap()["component"])
+		require.Equal(t, string(service.UniversalProtocolAntigravity), entries[0].ContextMap()["protocol"])
+		require.Contains(t, entries[0].ContextMap()["error"], "database unavailable")
 	})
 
 	t.Run("codex", func(t *testing.T) {
-		h := &OpenAIGatewayHandler{tkCapabilities: source}
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest(http.MethodGet, "/backend-api/codex/models", nil)
 		c.Set(string(middleware.ContextKeyAPIKey), key)
 
+		h := &OpenAIGatewayHandler{tkCapabilities: source}
 		h.CodexModels(c)
 		require.Equal(t, http.StatusInternalServerError, w.Code)
 		require.NotContains(t, w.Body.String(), `"models":[]`)

@@ -6847,11 +6847,12 @@
         "UniversalGroupSupportsRequestStrict",
         "FilterClientFacingStrict",
         "ids = append(ids, fallbackIDs...)",
+        "groups = universalCapabilityGroupsForProtocol(groups, protocol)",
         "supportedGroups := make([]Group, 0, len(groups))",
         "s.isAccountAllowedForPlatform(&accounts[i], platform, useMixed)",
         "strings.HasSuffix(model, \"*\")"
       ],
-      "rationale": "Single backend owner for per-key callable capability truth. It must enumerate entitled groups, union exact mappings with native/wildcard catalog expansion and mixed-scheduling accounts, apply strict availability filtering, and shrink resolver input to groups confirmed by direct-scheduler semantics. Losing these calls can either advertise an unsupported custom model or hide a callable mixed/wildcard model."
+      "rationale": "Single backend owner for per-key callable capability truth. It must enumerate entitled groups, prune forced-platform protocols before provider reads, union exact mappings with native/wildcard catalog expansion and mixed-scheduling accounts, apply strict availability filtering, and shrink resolver input to groups confirmed by direct-scheduler semantics. Losing these calls can let an irrelevant provider outage break Codex discovery, advertise an unsupported custom model, or hide a callable mixed/wildcard model."
     },
     {
       "path": "backend/internal/service/model_list_filter_tk.go",
@@ -6881,6 +6882,39 @@
         "envelope[\"models\"] = encodedModels"
       ],
       "rationale": "Codex discovery may reuse an upstream manifest only as a schema template. Automatic keys must return a native empty manifest for a genuine no-capability set, otherwise filter models[] to capability-authorized slugs while preserving unknown manifest fields; removing either projection turns an empty business set into 503 or advertises every upstream model."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": [
+        "requestLogger(c, \"gateway.models\", zap.String(\"protocol\", string(protocol))).Warn(\"capability_discovery_failed\", zap.Error(err))",
+        "requestLogger(c, \"gateway.antigravity_models\", zap.String(\"protocol\", string(service.UniversalProtocolAntigravity))).Warn(\"capability_discovery_failed\", zap.Error(err))"
+      ],
+      "rationale": "Universal OpenAI/Anthropic and Antigravity discovery failures must preserve their internal provider cause in request-scoped structured warnings while returning sanitized client errors. These upstream-shaped handler call sites are easy to lose during merges without a compile failure, which would recreate unattributable intermittent /models 500s."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler.go",
+      "must_contain": [
+        "requestLogger(c, \"gateway.gemini_models\", zap.String(\"protocol\", string(service.UniversalProtocolGemini))).Warn(\"capability_discovery_failed\", zap.Error(err))"
+      ],
+      "rationale": "Universal Gemini discovery must keep the same internal-error observability contract as the other native model-list endpoints: request-scoped structured cause, sanitized client response. An upstream merge can drop this warning while all response tests remain green, leaving Gemini /v1beta/models 500s unattributable."
+    },
+    {
+      "path": "backend/internal/handler/us046_universal_discovery_test.go",
+      "must_contain": [
+        "logs.FilterMessage(\"capability_discovery_failed\")",
+        "gateway.antigravity_models",
+        "gateway.gemini_models"
+      ],
+      "rationale": "Focused handler regressions prove native universal discovery returns fail-hard 500s and emits one uniform component + protocol structured warning for Antigravity and Gemini instead of silently returning a generic error. Codex root-cause ownership is maintained by its dedicated ops error path."
+    },
+    {
+      "path": "backend/internal/service/us046_universal_capability_test.go",
+      "must_contain": [
+        "TestUS046_ForcedPlatformDiscoveryIgnoresUnrelatedProviderFailure",
+        "TestUS046_ForcedPlatformDiscoveryPropagatesRelevantProviderFailure",
+        "TestUS046_AntigravityDiscoveryIgnoresUnrelatedProviderFailure"
+      ],
+      "rationale": "Forced-platform discovery regressions must prove both owners: Codex/OpenAI and the multi-shape Antigravity protocol prune unrelated groups before candidate-provider reads, while relevant provider failures remain explicit."
     },
     {
       "path": "backend/internal/handler/api_key_capability_handler_tk.go",
