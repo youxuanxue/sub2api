@@ -140,6 +140,7 @@ func (s *UniversalCapabilityService) List(ctx context.Context, apiKey *APIKey, p
 	if err != nil {
 		return nil, err
 	}
+	groups = universalCapabilityGroupsForProtocol(groups, protocol)
 	if len(groups) == 0 {
 		return []UniversalCapability{}, nil
 	}
@@ -217,6 +218,26 @@ func activeCapabilityGroups(groups []Group) []Group {
 	out := make([]Group, 0, len(groups))
 	for i := range groups {
 		if groups[i].IsActive() && !isUniversalProbeGroup(groups[i]) {
+			out = append(out, groups[i])
+		}
+	}
+	return out
+}
+
+func universalCapabilityGroupsForProtocol(groups []Group, protocol UniversalProtocol) []Group {
+	forcedPlatform := ""
+	for _, spec := range universalCapabilityShapes {
+		if spec.protocol == protocol && spec.forcedPlatform != "" {
+			forcedPlatform = spec.forcedPlatform
+			break
+		}
+	}
+	if forcedPlatform == "" {
+		return groups
+	}
+	out := make([]Group, 0, len(groups))
+	for i := range groups {
+		if groups[i].Platform == forcedPlatform {
 			out = append(out, groups[i])
 		}
 	}

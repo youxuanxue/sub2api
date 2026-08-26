@@ -207,6 +207,57 @@ func TestUS046_CapabilitiesPropagateProviderFailureInsteadOfReturningEmpty(t *te
 	require.ErrorIs(t, err, wantErr)
 }
 
+func TestUS046_ForcedPlatformDiscoveryIgnoresUnrelatedProviderFailure(t *testing.T) {
+	openAIGroup := us046ActiveGroup(10, PlatformOpenAI, false)
+	anthropicGroup := us046ActiveGroup(20, PlatformAnthropic, false)
+	wantErr := errors.New("unrelated provider unavailable")
+	var candidateGroups []int64
+	svc := newUniversalCapabilityService(
+		&us046EntitlementStub{groups: []Group{anthropicGroup, openAIGroup}},
+		func(_ context.Context, groupID int64, _ string) ([]string, bool, error) {
+			candidateGroups = append(candidateGroups, groupID)
+			if groupID == anthropicGroup.ID {
+				return nil, false, wantErr
+			}
+			return []string{"gpt-codex"}, false, nil
+		},
+		func(_ context.Context, groupID int64, _ string, model string, shape UniversalShape) (bool, error) {
+			return groupID == openAIGroup.ID && model == "gpt-codex" && shape == ShapeOpenAIChat, nil
+		},
+		nil,
+	)
+
+	models, err := svc.List(
+		context.Background(),
+		&APIKey{UserID: 9, RoutingMode: RoutingModeUniversal},
+		UniversalProtocolCodex,
+	)
+	require.NoError(t, err)
+	require.Equal(t, []int64{openAIGroup.ID}, candidateGroups)
+	require.Len(t, models, 1)
+	require.Equal(t, openAIGroup.ID, models[0].SelectedGroup.ID)
+}
+
+func TestUS046_ForcedPlatformDiscoveryPropagatesRelevantProviderFailure(t *testing.T) {
+	openAIGroup := us046ActiveGroup(10, PlatformOpenAI, false)
+	wantErr := errors.New("openai provider unavailable")
+	svc := newUniversalCapabilityService(
+		&us046EntitlementStub{groups: []Group{openAIGroup}},
+		func(context.Context, int64, string) ([]string, bool, error) {
+			return nil, false, wantErr
+		},
+		nil,
+		nil,
+	)
+
+	_, err := svc.List(
+		context.Background(),
+		&APIKey{UserID: 9, RoutingMode: RoutingModeUniversal},
+		UniversalProtocolCodex,
+	)
+	require.ErrorIs(t, err, wantErr)
+}
+
 func TestUS046_CapabilitiesUnionMappedAndPassthroughCandidates(t *testing.T) {
 	group := us046ActiveGroup(10, PlatformOpenAI, false)
 	svc := newUniversalCapabilityService(
