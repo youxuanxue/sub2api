@@ -297,6 +297,25 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
 						return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, prepareBody(request), promptCacheKey, dispatchMappedModel)
 					},
+					ChatToGemini: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+						forwardBody := prepareBody(request)
+						return executeOpenAIGeminiRoute(
+							plan.GeminiProfile(),
+							func() (*service.ForwardResult, error) {
+								if h.antigravityGatewayService == nil {
+									return nil, service.ErrProtocolRouteUnavailable
+								}
+								return h.antigravityGatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, nil)
+							},
+							func() (*service.ForwardResult, error) {
+								if h.geminiCompatService == nil {
+									return nil, service.ErrProtocolRouteUnavailable
+								}
+								return h.geminiCompatService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody)
+							},
+						)
+					},
 				},
 			)
 			if value == nil {

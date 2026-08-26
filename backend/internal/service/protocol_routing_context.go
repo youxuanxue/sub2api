@@ -133,10 +133,19 @@ func protocolPlanForAccount(
 }
 
 func protocolRoutingGovernsAccount(account *Account) bool {
-	if account == nil || account.IsBedrock() || account.Type == AccountTypeServiceAccount {
+	if account == nil || account.IsBedrock() {
 		return false
 	}
-	if protocolRoutingAccountIsMediaOnly(account) {
+	if protocolRoutingAccountHasNoTextModels(account) {
+		return false
+	}
+	if account.IsNewAPIVertexServiceAccount() {
+		return true
+	}
+	if protocolRoutingSupportsAntigravityAccount(account) {
+		return true
+	}
+	if account.Type == AccountTypeServiceAccount {
 		return false
 	}
 	switch account.Platform {
@@ -151,6 +160,13 @@ func protocolRoutingGovernsAccount(account *Account) bool {
 	default:
 		return false
 	}
+}
+
+func protocolRoutingSupportsAntigravityAccount(account *Account) bool {
+	if account == nil || account.Platform != PlatformAntigravity {
+		return false
+	}
+	return account.Type == AccountTypeOAuth || tkIsAntigravityEdgeRelayStub(account)
 }
 
 func attachProtocolPlan(

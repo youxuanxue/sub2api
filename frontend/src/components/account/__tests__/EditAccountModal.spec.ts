@@ -2,20 +2,24 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { mount } from '@vue/test-utils'
 
-const { updateAccountMock, checkMixedChannelRiskMock, getWebSearchEmulationConfigMock, getSettingsMock, listTLSFingerprintProfilesMock, authIsSimpleMode } = vi.hoisted(() => ({
+const { updateAccountMock, probeProtocolsMock, checkMixedChannelRiskMock, getWebSearchEmulationConfigMock, getSettingsMock, listTLSFingerprintProfilesMock, showErrorMock, showInfoMock, showSuccessMock, authIsSimpleMode } = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
+  probeProtocolsMock: vi.fn(),
   checkMixedChannelRiskMock: vi.fn(),
   getWebSearchEmulationConfigMock: vi.fn(),
   getSettingsMock: vi.fn(),
   listTLSFingerprintProfilesMock: vi.fn(),
+  showErrorMock: vi.fn(),
+  showInfoMock: vi.fn(),
+  showSuccessMock: vi.fn(),
   authIsSimpleMode: { value: true }
 }))
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    showError: vi.fn(),
-    showSuccess: vi.fn(),
-    showInfo: vi.fn()
+    showError: showErrorMock,
+    showSuccess: showSuccessMock,
+    showInfo: showInfoMock
   })
 }))
 
@@ -31,6 +35,7 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
       update: updateAccountMock,
+      probeProtocols: probeProtocolsMock,
       checkMixedChannelRisk: checkMixedChannelRiskMock
     },
     settings: {
@@ -61,10 +66,14 @@ import EditAccountModal from '../EditAccountModal.vue'
 
 beforeEach(() => {
   updateAccountMock.mockReset()
+  probeProtocolsMock.mockReset()
   checkMixedChannelRiskMock.mockReset()
   getWebSearchEmulationConfigMock.mockReset()
   getSettingsMock.mockReset()
   listTLSFingerprintProfilesMock.mockReset()
+  showErrorMock.mockReset()
+  showInfoMock.mockReset()
+  showSuccessMock.mockReset()
 
   checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
   getWebSearchEmulationConfigMock.mockResolvedValue({ enabled: false, providers: [] })
@@ -358,18 +367,67 @@ describe('EditAccountModal', () => {
     authIsSimpleMode.value = true
   })
 
-  it('shows the canonical native protocols as read-only capability chips', () => {
+  it('re-probes canonical native protocols and emits the refreshed account', async () => {
     const account = {
       ...buildAccount(),
       supported_protocols: ['messages', 'responses']
     }
+	const refreshed = { ...account, supported_protocols: ['chat_completions'] }
+	probeProtocolsMock.mockResolvedValue({ outcome: 'updated', account: refreshed })
 
     const wrapper = mountModal(account)
     const capabilities = wrapper.get('[data-testid="account-supported-protocols"]')
 
     expect(capabilities.find('[data-protocol="messages"]').exists()).toBe(true)
     expect(capabilities.find('[data-protocol="responses"]').exists()).toBe(true)
-    expect(capabilities.find('input, select, button').exists()).toBe(false)
+    expect(capabilities.find('input, select').exists()).toBe(false)
+
+	await capabilities.get('[data-testid="protocol-probe-button"]').trigger('click')
+
+	expect(probeProtocolsMock).toHaveBeenCalledWith(account.id)
+	expect(wrapper.emitted('updated')?.at(-1)).toEqual([refreshed])
+	expect(showSuccessMock).toHaveBeenCalledWith('admin.accounts.protocolProbeUpdated')
+  })
+
+  it('reports an inconclusive re-probe without claiming that capabilities changed', async () => {
+    const account = {
+      ...buildAccount(),
+      supported_protocols: ['messages']
+    }
+    probeProtocolsMock.mockResolvedValue({ outcome: 'unchanged', account })
+
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="protocol-probe-button"]').trigger('click')
+
+    expect(wrapper.emitted('updated')?.at(-1)).toEqual([account])
+    expect(showSuccessMock).not.toHaveBeenCalled()
+    expect(showInfoMock).toHaveBeenCalledWith('admin.accounts.protocolProbeUnchanged')
+  })
+
+  it('reports when protocol probing does not apply to the account', async () => {
+    const account = buildAccount()
+    probeProtocolsMock.mockResolvedValue({ outcome: 'not_applicable', account })
+
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="protocol-probe-button"]').trigger('click')
+
+    expect(showSuccessMock).not.toHaveBeenCalled()
+    expect(showInfoMock).toHaveBeenCalledWith('admin.accounts.protocolProbeNotApplicable')
+  })
+
+  it('keeps the current protocol facts and reports a failed re-probe', async () => {
+    const account = {
+      ...buildAccount(),
+      supported_protocols: ['messages']
+    }
+    probeProtocolsMock.mockRejectedValue(new Error('probe unavailable'))
+
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="protocol-probe-button"]').trigger('click')
+
+    expect(wrapper.emitted('updated')).toBeUndefined()
+    expect(showErrorMock).toHaveBeenCalledWith('probe unavailable')
+    expect(wrapper.get('[data-protocol="messages"]').exists()).toBe(true)
   })
 
   it('marks internal Anthropic edge stub pool mode as system-managed', async () => {

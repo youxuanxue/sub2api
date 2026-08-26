@@ -17,7 +17,18 @@
       </div>
       <div data-testid="account-supported-protocols">
         <label class="input-label">{{ t('admin.accounts.supportedProtocols') }}</label>
-        <AccountProtocolCapabilities :protocols="account.supported_protocols || []" />
+        <div class="flex flex-wrap items-center gap-2">
+          <AccountProtocolCapabilities :protocols="account.supported_protocols || []" />
+          <button
+            type="button"
+            data-testid="protocol-probe-button"
+            class="btn-secondary px-2 py-1 text-xs"
+            :disabled="protocolProbeLoading"
+            @click="handleProtocolProbe"
+          >
+            {{ protocolProbeLoading ? t('admin.accounts.protocolProbeRunning') : t('admin.accounts.protocolProbeAction') }}
+          </button>
+        </div>
         <p class="input-hint">{{ t('admin.accounts.supportedProtocolsHint') }}</p>
       </div>
       <div>
@@ -3027,6 +3038,27 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const protocolProbeLoading = ref(false)
+
+const handleProtocolProbe = async () => {
+  if (!props.account || protocolProbeLoading.value) return
+  protocolProbeLoading.value = true
+  try {
+    const result = await adminAPI.accounts.probeProtocols(props.account.id)
+    emit('updated', result.account)
+    if (result.outcome === 'updated') {
+      appStore.showSuccess(t('admin.accounts.protocolProbeUpdated'))
+    } else if (result.outcome === 'not_applicable') {
+      appStore.showInfo(t('admin.accounts.protocolProbeNotApplicable'))
+    } else {
+      appStore.showInfo(t('admin.accounts.protocolProbeUnchanged'))
+    }
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.accounts.protocolProbeFailed'))
+  } finally {
+    protocolProbeLoading.value = false
+  }
+}
 
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
 // 故隐藏代理选择器。

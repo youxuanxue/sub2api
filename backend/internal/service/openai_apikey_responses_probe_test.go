@@ -324,3 +324,19 @@ func TestSelectProtocolProbeModelPrefersAliNativeQwenFamily(t *testing.T) {
 
 	require.Equal(t, "qwen-plus", selectProtocolProbeModel(account))
 }
+
+func TestSelectProtocolProbeModelSkipsEmbeddingModels(t *testing.T) {
+	account := &Account{
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeBaiduV2,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"embedding": "bge-large-en",
+				"chat":      "ernie-4.5-turbo-32k",
+			},
+		},
+	}
+
+	require.Equal(t, "ernie-4.5-turbo-32k", selectProtocolProbeModel(account))
+}

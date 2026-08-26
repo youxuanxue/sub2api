@@ -950,14 +950,27 @@
       "path": "backend/internal/service/protocol_probe_model_tk.go",
       "must_contain": [
         "func selectProtocolProbeModel(account *Account) string",
-        "func protocolRoutingAccountIsMediaOnly(account *Account) bool",
+        "func protocolRoutingAccountHasNoTextModels(account *Account) bool",
+        "func protocolProbeModelIsNonText(model string) bool",
+        "loadTKPricingOverlaySnapshot()",
+        "case \"embedding\", \"image\", \"video\", \"audio\", \"rerank\":",
         "newapiconstant.ChannelTypeAli",
         "isOpenAIImageGenerationModel(model)",
         "isGrokVideoGenerationModel(model)",
         "antigravity.IsImageModel(model)",
         "return openai.DefaultTestModel"
       ],
-      "rationale": "Single representative text-model owner shared by all protocol capability probes and text-governance classification. It deterministically prefers qwen-* for Ali channels, excludes canonical image/video families, and prevents media-only accounts from blocking SSOT cutover readiness."
+      "rationale": "Single representative text-model owner shared by all protocol capability probes and text-governance classification. It deterministically prefers qwen-* for Ali channels, excludes registry-classified embedding/image/video/audio/rerank models plus conservative private non-text aliases, and prevents non-text-only accounts from blocking SSOT cutover readiness."
+    },
+    {
+      "path": "backend/internal/service/protocol_capability_probe_test.go",
+      "must_contain": [
+        "func TestSelectProtocolProbeModelUsesRegistryModeForOpaqueNonTextModels(t *testing.T)",
+        "func TestProtocolProbeCandidatesUseRegistryModeForOpaqueNonTextAccounts(t *testing.T)",
+        "opaque-vector-v1",
+        "ProtocolProbeCandidates(nonTextOnly)"
+      ],
+      "rationale": "Behavioral regression guard proving that the pricing registry Mode, rather than model-name heuristics, excludes opaque non-text models from representative text probes and protocol-routing governance."
     },
     {
       "path": "backend/internal/service/openai_apikey_responses_probe.go",
@@ -980,11 +993,13 @@
     {
       "path": "backend/internal/service/protocol_routing_context.go",
       "must_contain": [
-        "protocolRoutingAccountIsMediaOnly(account)",
+        "protocolRoutingAccountHasNoTextModels(account)",
+        "func protocolRoutingSupportsAntigravityAccount(account *Account) bool",
+        "account.Type == AccountTypeOAuth || tkIsAntigravityEdgeRelayStub(account)",
         "func protocolRoutingCanonicalRequest(ctx context.Context) (protocolrouter.CanonicalRequest, bool)",
         "if !ok || routing.router == nil {\n\t\treturn protocolrouter.CanonicalRequest{}, false"
       ],
-      "rationale": "Text protocol governance excludes media-only accounts before scheduling. Cutover-disabled text requests retain the canonical body for legacy execution without making ProtocolRoutingRequest report routing enabled. Losing either boundary can pull video-only accounts into remediation or enable the scheduler hard gate before migration readiness."
+      "rationale": "Text protocol governance excludes non-text-only accounts before scheduling and admits only the two stable Antigravity shapes: native OAuth or an exact TokenKey edge relay stub. The latter keeps per-account generic protocol evidence for prod relay accounts such as us3/us4 without broadening governance to arbitrary Antigravity API-key URLs. Cutover-disabled text requests retain the canonical body for legacy execution without making ProtocolRoutingRequest report routing enabled."
     },
     {
       "path": "backend/internal/service/protocol_execution.go",
@@ -995,11 +1010,141 @@
         "chatToMessagesAdapter",
         "responsesToChatAdapter",
         "responsesToMessagesAdapter",
+        "messagesToGeminiAdapter",
+        "chatToGeminiAdapter",
+        "responsesToGeminiAdapter",
+        "geminiIdentityAdapter",
+        "func ExecuteGeminiProtocolProfile[T any](",
+        "func protocolExecutionURL(ctx context.Context, fallback string) string",
+        "func OpenAIForwardResultFromForward(result *ForwardResult) *OpenAIForwardResult",
         "RouteFacts",
         "ExecuteSelectedProtocol",
         "if router == nil && canonical && !routed && !planned {"
       ],
-      "rationale": "Protocol routing is the single execution boundary for NewAPI text channels. Each inbound→target pair has a concrete adapter and immutable route facts. When CutoverReady=false, router=nil must explicitly use the legacy executor; router-enabled requests without a selected plan remain fail-closed. Removing either invariant can send a Messages body to a Chat/Responses endpoint or turn a guarded rollout into blanket 502s."
+      "rationale": "Protocol routing is the single execution boundary for governed text channels. Every registered inbound→target pair, including Gemini, has a concrete adapter and immutable route facts; the service execution owner alone dispatches the plan-derived Gemini endpoint profile, while transports bind the selected endpoint and preserve transport-derived query semantics. The nil-router legacy branch remains only as a compatibility boundary for explicitly non-routed callers; production candidate images always inject the router and use readiness for traffic admission. Router-enabled requests without a selected plan remain fail-closed."
+    },
+    {
+      "path": "backend/internal/service/account_supported_protocols.go",
+      "must_contain": [
+        "func protocolGeminiEndpointProfile(account *Account) protocolrouter.GeminiEndpointProfile",
+        "protocolrouter.GeminiEndpointAntigravityCloudCode",
+        "account.IsNewAPIVertexServiceAccount()",
+        "protocolrouter.GeminiEndpointVertexServiceAccount",
+        "resolveAntigravityForwardBaseURL(account)",
+        "buildVertexGeminiURL(account.VertexProjectID(), account.VertexLocation(resolvedModel), resolvedModel, action, false)"
+      ],
+      "rationale": "One account-shape owner derives the non-persisted Gemini endpoint profile and exact plan endpoint. Antigravity follows the live production/daily base resolver; NewAPI Vertex requires the exact channel-41 service-account predicate and the canonical Vertex model/location URL builder. Losing these anchors can reintroduce account-class leakage or planner/transport host drift."
+    },
+    {
+      "path": "backend/internal/service/protocol_capability_probe.go",
+      "must_contain": [
+        "case protocolrouter.ProtocolGeminiGenerateContent:",
+        "return s.probeGeminiGenerateContentSupport(ctx, account)",
+        "return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}"
+      ],
+      "rationale": "The aggregate per-account probe job dispatches the fourth protocol only for provider-specific Gemini candidates. Removing the dispatch leaves supported_protocols permanently empty for repaired Antigravity/Vertex accounts even though the generic three-protocol probe suite remains green."
+    },
+    {
+      "path": "backend/internal/service/protocol_capability_probe_gemini.go",
+      "must_contain": [
+        "func classifyGeminiProtocolProbe(status int, body []byte, requestErr error) ProtocolProbeVerdict",
+        "func geminiProtocolProbeDocumentHasResponse(document map[string]any) bool",
+        "document[\"candidates\"]",
+        "document[\"promptFeedback\"]",
+        "status == http.StatusNotFound || status == http.StatusMethodNotAllowed",
+        "func classifyAntigravityGeminiProtocolProbe(result *TestConnectionResult, err error) ProtocolProbeVerdict",
+        "METHOD_NOT_SUPPORTED",
+        "UNSUPPORTED_METHOD",
+        "func (s *AccountTestService) probeGeminiGenerateContentSupport(",
+        "s.antigravityGatewayService.TestConnection(ctx, account, model)",
+        "s.buildGeminiServiceAccountRequest(ctx, account, model, payload)"
+      ],
+      "rationale": "Provider-specific Gemini probes reuse production Antigravity and Vertex auth/transport owners. A positive 2xx must carry a recognized Gemini response envelope rather than arbitrary JSON or an error object. Only a structured unsupported-method reason carried by HTTP 404/405 removes a prior capability; auth, other 4xx, raw 404/405, rate-limit, server, network, and malformed 2xx failures stay non-destructive."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution_target_test.go",
+      "must_contain": [
+        "func TestProtocolGeminiAntigravityPlanBindsExactWireEndpointAndBearer(t *testing.T)",
+        "func TestProtocolGeminiVertexPlanBindsExactWireEndpointAndBearer(t *testing.T)",
+        "want immutable plan endpoint",
+        "want Antigravity bearer",
+        "want Vertex bearer",
+        "account.Credentials[\"location\"] = \"europe-west1\""
+      ],
+      "rationale": "Behavioral wire contracts prove both Gemini profiles keep the immutable planner host/path even if mutable account inputs change after selection, preserve required stream query semantics, bind only the correct bearer credential, and exercise streaming plus non-streaming response paths."
+    },
+    {
+      "path": "backend/internal/handler/openai_gemini_protocol_execution.go",
+      "must_contain": [
+        "func executeOpenAIGeminiRoute(",
+        "service.ExecuteGeminiProtocolProfile(profile, antigravity, vertex)",
+        "service.OpenAIForwardResultFromForward(result)"
+      ],
+      "rationale": "The OpenAI-facing helper delegates profile dispatch to the service execution owner and performs only accounting-shape conversion. Responses, Chat Completions, and Messages handlers register callbacks but cannot independently invent profile or fallback policy."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "func (h *OpenAIGatewayHandler) SetGeminiProtocolServices(",
+        "ResponsesToGemini: func(",
+        "MessagesToGemini: func(",
+        "executeOpenAIGeminiRoute("
+      ],
+      "rationale": "The OpenAI Responses and Messages ingress paths must supply their registered Gemini executors. Without these callbacks the planner legally selects Gemini and execution fails with ErrProtocolExecutorMissing before reaching the already-wired provider transport."
+    },
+    {
+      "path": "backend/internal/handler/wire_protocol_ssot_tk.go",
+      "must_contain": [
+        "func ProvideProtocolRoutedOpenAIGatewayHandler(",
+        "ProvideOpenAIGatewayHandler(",
+        "h.SetGeminiProtocolServices(geminiCompatService, antigravityGatewayService)"
+      ],
+      "rationale": "The protocol-only Gemini dependencies are wired through a TK companion provider so the upstream-shaped OpenAI handler provider remains merge-stable. The companion must decorate that canonical provider rather than creating a second handler construction path."
+    },
+    {
+      "path": "backend/internal/handler/wire.go",
+      "must_contain": [
+        "ProvideProtocolRoutedOpenAIGatewayHandler,"
+      ],
+      "rationale": "Wire must select the protocol companion provider; otherwise its Gemini executor decoration is dead code even though the companion file and unit contracts remain present."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "ChatToGemini: func(",
+        "executeOpenAIGeminiRoute("
+      ],
+      "rationale": "The OpenAI Chat Completions ingress supplies the fourth-protocol executor through the same profile owner as the other OpenAI entry points."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": [
+        "func (r ProtocolRoutingSSOTReady) EnabledRouter() *protocolrouter.Router",
+        "func (r ProtocolRoutingSSOTReady) Ready() bool",
+        "return r.Report.CutoverReady",
+        "return ProtocolRoutingSSOTReady{Report: report, router: router}"
+      ],
+      "rationale": "Router availability and release readiness are separate facts: handlers always receive the SSOT router, while CutoverReady controls traffic admission. Reintroducing router=nil on an unready candidate silently restores legacy serving inside the new image."
+    },
+    {
+      "path": "backend/internal/server/routes/common.go",
+      "must_contain": [
+        "if !protocolRoutingReady {",
+        "gin.H{\"status\": \"not_ready\"}",
+        "http.StatusServiceUnavailable"
+      ],
+      "rationale": "The public readiness endpoint returns 503 for a protocol-SSOT candidate that has not completed probe/revalidation, while liveness remains independent. This is the deployment hard gate that replaces runtime legacy fallback."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler.go",
+      "must_contain": [
+        "protocolrouter.ProtocolGeminiGenerateContent",
+        "service.WithProtocolRouting(",
+        "service.ExecuteSelectedProtocol(",
+        "GeminiIdentity: func(",
+        "service.ExecuteGeminiProtocolProfile("
+      ],
+      "rationale": "Gemini generateContent and streamGenerateContent create the canonical fourth-protocol request before scheduling and execute only the selected identity plan; countTokens remains outside this generation router."
     },
     {
       "path": "backend/internal/service/openai_apikey_chat_completions_probe_test.go",

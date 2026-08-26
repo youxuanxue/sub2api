@@ -5,17 +5,19 @@ import AccountProtocolCapabilities from '../AccountProtocolCapabilities.vue'
 describe('AccountProtocolCapabilities', () => {
   it('renders canonical protocol chips in backend order', () => {
     const wrapper = mount(AccountProtocolCapabilities, {
-      props: { protocols: ['messages', 'chat_completions', 'responses'] }
+      props: { protocols: ['messages', 'chat_completions', 'responses', 'gemini_generate_content'] }
     })
 
     expect(wrapper.findAll('[data-protocol]').map((node) => node.attributes('data-protocol'))).toEqual([
       'messages',
       'chat_completions',
-      'responses'
+      'responses',
+      'gemini_generate_content'
     ])
     expect(wrapper.text()).toContain('Messages')
     expect(wrapper.text()).toContain('Chat Completions')
     expect(wrapper.text()).toContain('Responses')
+    expect(wrapper.text()).toContain('Gemini Generate Content')
   })
 
   it('renders a fail-closed empty state without editable controls', () => {

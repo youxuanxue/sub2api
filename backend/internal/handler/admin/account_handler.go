@@ -42,6 +42,10 @@ type protocolCapabilityProbeScheduler interface {
 	ProbeAccountProtocolCapabilitiesBatch(ctx context.Context, accountIDs []int64)
 }
 
+type protocolCapabilityProbeRunner interface {
+	ProbeAccountProtocolCapabilitiesNow(ctx context.Context, accountID int64) (service.ProtocolProbeRunResult, error)
+}
+
 // NewOAuthHandler creates a new OAuth handler
 func NewOAuthHandler(oauthService *service.OAuthService) *OAuthHandler {
 	return &OAuthHandler{
@@ -1190,6 +1194,56 @@ func (h *AccountHandler) Test(c *gin.Context) {
 	}
 }
 
+// ProbeProtocols synchronously re-tests the native text protocols for one
+// account and returns the refreshed account snapshot.
+// POST /api/v1/admin/accounts/:id/protocol-probe
+func (h *AccountHandler) ProbeProtocols(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if h.protocolProbeScheduler == nil {
+		response.ErrorWithDetails(c, http.StatusServiceUnavailable, "Protocol probe unavailable", "protocol_probe_unavailable", nil)
+		return
+	}
+	if len(service.ProtocolProbeCandidates(account)) == 0 {
+		response.Success(c, gin.H{
+			"account": h.buildAccountResponseWithRuntime(c.Request.Context(), account),
+			"outcome": service.ProtocolProbeRunNotApplicable,
+			"reason":  "no_protocol_probe_candidates",
+		})
+		return
+	}
+	runner, ok := h.protocolProbeScheduler.(protocolCapabilityProbeRunner)
+	if !ok {
+		response.ErrorWithDetails(c, http.StatusServiceUnavailable, "Protocol probe unavailable", "protocol_probe_unavailable", nil)
+		return
+	}
+	result, err := runner.ProbeAccountProtocolCapabilitiesNow(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, fmt.Errorf("protocol probe account %d: %w", accountID, err))
+		return
+	}
+	account, err = h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"account": h.buildAccountResponseWithRuntime(c.Request.Context(), account),
+		"outcome": result.Outcome,
+		"reason":  result.Reason,
+	})
+}
+
 // RecoverState handles unified recovery of recoverable account runtime state.
 // POST /api/v1/admin/accounts/:id/recover-state
 func (h *AccountHandler) RecoverState(c *gin.Context) {
@@ -1216,6 +1270,7 @@ func (h *AccountHandler) RecoverState(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	h.scheduleProtocolCapabilityProbes(account)
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }
@@ -1436,6 +1491,7 @@ func (h *AccountHandler) Refresh(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	h.scheduleProtocolCapabilityProbes(updatedAccount)
 
 	if warning == "missing_project_id_temporary" {
 		response.Success(c, gin.H{
@@ -1559,6 +1615,7 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 			)
 		}
 	}
+	h.scheduleProtocolCapabilityProbes(updatedAccount)
 
 	response.Success(c, h.buildAccountResponseWithRuntime(ctx, updatedAccount))
 }
@@ -1616,6 +1673,7 @@ func (h *AccountHandler) ClearError(c *gin.Context) {
 			log.Printf("[WARN] Failed to invalidate token cache for account %d: %v", accountID, invalidateErr)
 		}
 	}
+	h.scheduleProtocolCapabilityProbes(account)
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }
@@ -1875,6 +1933,7 @@ func (h *AccountHandler) BatchRefresh(c *gin.Context) {
 
 	var mu sync.Mutex
 	var successCount, failedCount int
+	var successIDs []int64
 	var errors []gin.H
 	var warnings []gin.H
 
@@ -1906,6 +1965,7 @@ func (h *AccountHandler) BatchRefresh(c *gin.Context) {
 				})
 			} else {
 				successCount++
+				successIDs = append(successIDs, acc.ID)
 				if warning != "" {
 					warnings = append(warnings, gin.H{
 						"account_id": acc.ID,
@@ -1922,6 +1982,7 @@ func (h *AccountHandler) BatchRefresh(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	h.scheduleProtocolCapabilityProbeBatch(successIDs)
 
 	response.Success(c, gin.H{
 		"total":    len(req.AccountIDs),
@@ -2646,6 +2707,9 @@ func (h *AccountHandler) SetSchedulable(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+	if req.Schedulable {
+		h.scheduleProtocolCapabilityProbes(account)
 	}
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))

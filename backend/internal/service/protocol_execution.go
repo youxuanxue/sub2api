@@ -18,6 +18,30 @@ type ProtocolExecutionFunc func(
 	request protocolrouter.CanonicalRequest,
 ) (any, error)
 
+// ExecuteGeminiProtocolProfile binds a plan-derived Gemini profile to exactly
+// one transport. Handlers supply request-scoped closures but do not select the
+// provider profile themselves.
+func ExecuteGeminiProtocolProfile[T any](
+	profile protocolrouter.GeminiEndpointProfile,
+	antigravity func() (T, error),
+	vertex func() (T, error),
+) (T, error) {
+	var zero T
+	var execute func() (T, error)
+	switch profile {
+	case protocolrouter.GeminiEndpointAntigravityCloudCode:
+		execute = antigravity
+	case protocolrouter.GeminiEndpointVertexServiceAccount:
+		execute = vertex
+	default:
+		return zero, ErrProtocolRouteUnavailable
+	}
+	if execute == nil {
+		return zero, ErrProtocolRouteUnavailable
+	}
+	return execute()
+}
+
 type ProtocolEndpointValidator func(ctx context.Context, account *Account, endpoint string) error
 
 type RouteFacts struct {
@@ -61,6 +85,10 @@ type ProtocolExecutors struct {
 	ResponsesIdentity   ProtocolExecutionFunc
 	ResponsesToChat     ProtocolExecutionFunc
 	ResponsesToMessages ProtocolExecutionFunc
+	MessagesToGemini    ProtocolExecutionFunc
+	ChatToGemini        ProtocolExecutionFunc
+	ResponsesToGemini   ProtocolExecutionFunc
+	GeminiIdentity      ProtocolExecutionFunc
 }
 
 type protocolExecutorsContextKey struct{}
@@ -113,6 +141,22 @@ func protocolExecutionEndpoint(ctx context.Context, fallback string) string {
 		return fallback
 	}
 	return plan.Endpoint()
+}
+
+func protocolExecutionURL(ctx context.Context, fallback string) string {
+	planned := strings.TrimSpace(protocolExecutionEndpoint(ctx, ""))
+	if planned == "" {
+		return fallback
+	}
+	plannedURL, err := url.Parse(planned)
+	if err != nil {
+		return fallback
+	}
+	fallbackURL, err := url.Parse(strings.TrimSpace(fallback))
+	if err == nil {
+		plannedURL.RawQuery = fallbackURL.RawQuery
+	}
+	return plannedURL.String()
 }
 
 func protocolExecutionBound(ctx context.Context) bool {
@@ -208,6 +252,30 @@ func (responsesToMessagesAdapter) Execute(ctx context.Context, execution protoco
 	return executeBoundProtocolAdapter(ctx, execution, protocolrouter.AdapterResponsesToMessages, protocolrouter.ProtocolResponses, protocolrouter.ProtocolMessages, protocolExecutorsFromContext(ctx).ResponsesToMessages)
 }
 
+type messagesToGeminiAdapter struct{}
+
+func (messagesToGeminiAdapter) Execute(ctx context.Context, execution protocolrouter.Execution) (protocolrouter.Result, error) {
+	return executeBoundProtocolAdapter(ctx, execution, protocolrouter.AdapterMessagesToGemini, protocolrouter.ProtocolMessages, protocolrouter.ProtocolGeminiGenerateContent, protocolExecutorsFromContext(ctx).MessagesToGemini)
+}
+
+type chatToGeminiAdapter struct{}
+
+func (chatToGeminiAdapter) Execute(ctx context.Context, execution protocolrouter.Execution) (protocolrouter.Result, error) {
+	return executeBoundProtocolAdapter(ctx, execution, protocolrouter.AdapterChatToGemini, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolGeminiGenerateContent, protocolExecutorsFromContext(ctx).ChatToGemini)
+}
+
+type responsesToGeminiAdapter struct{}
+
+func (responsesToGeminiAdapter) Execute(ctx context.Context, execution protocolrouter.Execution) (protocolrouter.Result, error) {
+	return executeBoundProtocolAdapter(ctx, execution, protocolrouter.AdapterResponsesToGemini, protocolrouter.ProtocolResponses, protocolrouter.ProtocolGeminiGenerateContent, protocolExecutorsFromContext(ctx).ResponsesToGemini)
+}
+
+type geminiIdentityAdapter struct{}
+
+func (geminiIdentityAdapter) Execute(ctx context.Context, execution protocolrouter.Execution) (protocolrouter.Result, error) {
+	return executeBoundProtocolAdapter(ctx, execution, protocolrouter.AdapterGeminiIdentity, protocolrouter.ProtocolGeminiGenerateContent, protocolrouter.ProtocolGeminiGenerateContent, protocolExecutorsFromContext(ctx).GeminiIdentity)
+}
+
 func NewProtocolRouter() *protocolrouter.Router {
 	return protocolrouter.New(protocolrouter.AdapterCatalog{
 		protocolrouter.AdapterMessagesIdentity:    messagesIdentityAdapter{},
@@ -219,6 +287,10 @@ func NewProtocolRouter() *protocolrouter.Router {
 		protocolrouter.AdapterResponsesIdentity:   responsesIdentityAdapter{},
 		protocolrouter.AdapterResponsesToChat:     responsesToChatAdapter{},
 		protocolrouter.AdapterResponsesToMessages: responsesToMessagesAdapter{},
+		protocolrouter.AdapterMessagesToGemini:    messagesToGeminiAdapter{},
+		protocolrouter.AdapterChatToGemini:        chatToGeminiAdapter{},
+		protocolrouter.AdapterResponsesToGemini:   responsesToGeminiAdapter{},
+		protocolrouter.AdapterGeminiIdentity:      geminiIdentityAdapter{},
 	})
 }
 
@@ -318,6 +390,49 @@ func ForwardResultFromOpenAI(result *OpenAIForwardResult) *ForwardResult {
 			ImageOutputTokens:        result.Usage.ImageOutputTokens,
 		},
 		Model:                         result.Model,
+		UpstreamModel:                 result.UpstreamModel,
+		UpstreamResponseModel:         result.UpstreamResponseModel,
+		UpstreamResponseModelConflict: result.UpstreamResponseModelConflict,
+		Stream:                        result.Stream,
+		Duration:                      result.Duration,
+		FirstTokenMs:                  result.FirstTokenMs,
+		ClientDisconnect:              result.ClientDisconnect,
+		ReasoningEffort:               result.ReasoningEffort,
+		ServiceTier:                   result.ServiceTier,
+		ImageCount:                    result.ImageCount,
+		ImageSize:                     result.ImageSize,
+		ImageInputSize:                result.ImageInputSize,
+		ImageOutputSize:               result.ImageOutputSize,
+		ImageOutputSizes:              append([]string(nil), result.ImageOutputSizes...),
+		ImageSizeSource:               result.ImageSizeSource,
+		ImageSizeBreakdown:            imageSizeBreakdown,
+		SearchCount:                   result.SearchCount,
+		AudioUsage:                    result.AudioUsage,
+		protocolRouteFacts:            result.protocolRouteFacts,
+	}
+}
+
+// OpenAIForwardResultFromForward keeps the OpenAI-facing handler's accounting
+// contract when a Gemini route adapter reuses an Anthropic-facing transport.
+func OpenAIForwardResultFromForward(result *ForwardResult) *OpenAIForwardResult {
+	if result == nil {
+		return nil
+	}
+	imageSizeBreakdown := make(map[string]int, len(result.ImageSizeBreakdown))
+	for size, count := range result.ImageSizeBreakdown {
+		imageSizeBreakdown[size] = count
+	}
+	return &OpenAIForwardResult{
+		RequestID: result.RequestID,
+		Usage: OpenAIUsage{
+			InputTokens:              result.Usage.InputTokens,
+			OutputTokens:             result.Usage.OutputTokens,
+			CacheCreationInputTokens: result.Usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     result.Usage.CacheReadInputTokens,
+			ImageOutputTokens:        result.Usage.ImageOutputTokens,
+		},
+		Model:                         result.Model,
+		BillingModel:                  result.Model,
 		UpstreamModel:                 result.UpstreamModel,
 		UpstreamResponseModel:         result.UpstreamResponseModel,
 		UpstreamResponseModelConflict: result.UpstreamResponseModelConflict,

@@ -355,8 +355,10 @@ func (s *AntigravityGatewayService) IsModelSupported(requestedModel string) bool
 
 // TestConnectionResult 测试连接结果
 type TestConnectionResult struct {
-	Text        string // 响应文本
-	MappedModel string // 实际使用的模型
+	Text         string // 响应文本
+	MappedModel  string // 实际使用的模型
+	StatusCode   int
+	ResponseBody []byte
 }
 
 const antigravityConnectionTestMaxOutputTokens = 64
@@ -442,11 +444,20 @@ func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account 
 	}
 
 	if result.resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("API 返回 %d: %s", result.resp.StatusCode, string(respBody))
+		return &TestConnectionResult{
+			MappedModel:  mappedModel,
+			StatusCode:   result.resp.StatusCode,
+			ResponseBody: append([]byte(nil), respBody...),
+		}, fmt.Errorf("API 返回 %d: %s", result.resp.StatusCode, string(respBody))
 	}
 
 	text := extractTextFromSSEResponse(respBody)
-	return &TestConnectionResult{Text: text, MappedModel: mappedModel}, nil
+	return &TestConnectionResult{
+		Text:         text,
+		MappedModel:  mappedModel,
+		StatusCode:   result.resp.StatusCode,
+		ResponseBody: append([]byte(nil), respBody...),
+	}, nil
 }
 
 // testConnectionHandleError 是 TestConnection 使用的轻量 handleError 回调。

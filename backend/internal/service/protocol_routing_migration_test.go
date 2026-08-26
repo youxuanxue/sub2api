@@ -130,7 +130,7 @@ func TestProtocolRoutingMediaOnlyClassificationKeepsTextWildcardAccounts(t *test
 		},
 	}
 
-	if protocolRoutingAccountIsMediaOnly(account) {
+	if protocolRoutingAccountHasNoTextModels(account) {
 		t.Fatal("text wildcard plus image model was misclassified as media-only")
 	}
 }
@@ -149,7 +149,7 @@ func TestProtocolRoutingMediaOnlyClassificationExcludesKnownImageAliases(t *test
 			},
 		}
 
-		if !protocolRoutingAccountIsMediaOnly(account) {
+		if !protocolRoutingAccountHasNoTextModels(account) {
 			t.Fatalf("model %q was not classified as media-only", model)
 		}
 	}
@@ -241,7 +241,7 @@ func TestPrepareProtocolRoutingSSOTProbesRemediationBeforeEnablingRouter(t *test
 	}
 }
 
-func TestPrepareProtocolRoutingSSOTKeepsLegacyRoutingWhenRemediationRemains(t *testing.T) {
+func TestPrepareProtocolRoutingSSOTKeepsRouterAndFailsReadinessWhenRemediationRemains(t *testing.T) {
 	repo := &protocolRoutingMigrationRepo{accounts: []Account{{
 		ID:       13,
 		Name:     "unresolved-openai",
@@ -254,12 +254,16 @@ func TestPrepareProtocolRoutingSSOTKeepsLegacyRoutingWhenRemediationRemains(t *t
 	}}}
 	prober := &protocolRoutingMigrationProber{repo: repo, account: map[int64][]protocolrouter.Protocol{}}
 
-	ready, err := prepareProtocolRoutingSSOT(context.Background(), repo, NewProtocolRouter(), prober)
+	router := NewProtocolRouter()
+	ready, err := prepareProtocolRoutingSSOT(context.Background(), repo, router, prober)
 	if err != nil {
 		t.Fatalf("prepareProtocolRoutingSSOT: %v", err)
 	}
-	if ready.Report.CutoverReady || ready.EnabledRouter() != nil {
-		t.Fatalf("ready = %+v router=%p, want remediation with legacy routing", ready.Report, ready.EnabledRouter())
+	if ready.Report.CutoverReady || ready.EnabledRouter() != router {
+		t.Fatalf("ready = %+v router=%p, want remediation with router %p", ready.Report, ready.EnabledRouter(), router)
+	}
+	if ready.Ready() {
+		t.Fatal("Ready() = true, want false while remediation remains")
 	}
 	if ready.Report.ProbeAttempts != 1 || ready.Report.ProbeResolved != 0 {
 		t.Fatalf("probe outcome = attempts:%d resolved:%d, want 1/0", ready.Report.ProbeAttempts, ready.Report.ProbeResolved)

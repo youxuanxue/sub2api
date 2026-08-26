@@ -265,6 +265,130 @@ func TestProtocolAccountSnapshotUsesCanonicalAgentPlanEndpoints(t *testing.T) {
 	}
 }
 
+func TestProtocolRoutingGovernsStableGeminiAccountShapes(t *testing.T) {
+	tests := []struct {
+		name    string
+		account *Account
+		want    bool
+	}{
+		{
+			name:    "antigravity oauth remains governed without current credentials",
+			account: &Account{Platform: PlatformAntigravity, Type: AccountTypeOAuth},
+			want:    true,
+		},
+		{
+			name: "antigravity edge relay remains governed as a configurable upstream",
+			account: &Account{Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
+				"base_url": "https://api-us3.tokenkey.dev",
+			}},
+			want: true,
+		},
+		{
+			name: "arbitrary antigravity apikey account remains outside the stable relay shape",
+			account: &Account{Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
+				"base_url": "https://relay.example.test",
+			}},
+			want: false,
+		},
+		{
+			name: "exact newapi vertex service account remains governed without current credentials",
+			account: &Account{
+				Platform:    PlatformNewAPI,
+				Type:        AccountTypeServiceAccount,
+				ChannelType: newapiconstant.ChannelTypeVertexAi,
+			},
+			want: true,
+		},
+		{
+			name: "unrelated service account remains outside text governance",
+			account: &Account{
+				Platform:    PlatformNewAPI,
+				Type:        AccountTypeServiceAccount,
+				ChannelType: newapiconstant.ChannelTypeAws,
+			},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := protocolRoutingGovernsAccount(tt.account); got != tt.want {
+				t.Fatalf("protocolRoutingGovernsAccount() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestProtocolAccountSnapshotDerivesGeminiEndpointProfile(t *testing.T) {
+	tests := []struct {
+		name         string
+		account      *Account
+		wantProfile  protocolrouter.GeminiEndpointProfile
+		wantEndpoint string
+	}{
+		{
+			name: "antigravity cloudcode",
+			account: &Account{
+				ID:       501,
+				Platform: PlatformAntigravity,
+				Type:     AccountTypeOAuth,
+				Credentials: map[string]any{
+					"access_token":  "secret",
+					"project_id":    "project-a",
+					"model_mapping": map[string]any{"client-model": "gemini-2.5-pro"},
+				},
+				Extra: map[string]any{SupportedProtocolsExtraKey: []any{"gemini_generate_content"}},
+			},
+			wantProfile:  protocolrouter.GeminiEndpointAntigravityCloudCode,
+			wantEndpoint: "https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent",
+		},
+		{
+			name: "newapi vertex service account",
+			account: &Account{
+				ID:          502,
+				Platform:    PlatformNewAPI,
+				Type:        AccountTypeServiceAccount,
+				ChannelType: newapiconstant.ChannelTypeVertexAi,
+				Credentials: map[string]any{
+					"project_id":    "project-v",
+					"location":      "us-central1",
+					"model_mapping": map[string]any{"client-model": "gemini-2.5-pro"},
+				},
+				Extra: map[string]any{SupportedProtocolsExtraKey: []any{"gemini_generate_content"}},
+			},
+			wantProfile:  protocolrouter.GeminiEndpointVertexServiceAccount,
+			wantEndpoint: "https://us-central1-aiplatform.googleapis.com/v1/projects/project-v/locations/us-central1/publishers/google/models/gemini-2.5-pro:generateContent",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+				InboundProtocol: protocolrouter.ProtocolGeminiGenerateContent,
+				RequestedModel:  "client-model",
+				Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+				Body:            []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`),
+			})
+			if err != nil {
+				t.Fatalf("NewCanonicalRequest: %v", err)
+			}
+			snapshot, err := protocolAccountSnapshotForRequest(tt.account, request)
+			if err != nil {
+				t.Fatalf("protocolAccountSnapshotForRequest: %v", err)
+			}
+			if snapshot.GeminiProfile() != tt.wantProfile {
+				t.Fatalf("GeminiProfile = %q, want %q", snapshot.GeminiProfile(), tt.wantProfile)
+			}
+			endpoint, err := protocolGeminiExactEndpoint(tt.account, snapshot.ResolvedModel(), snapshot.GeminiProfile(), request.Profile().Stream)
+			if err != nil {
+				t.Fatalf("protocolGeminiExactEndpoint: %v", err)
+			}
+			if endpoint != tt.wantEndpoint {
+				t.Fatalf("endpoint = %q, want %q", endpoint, tt.wantEndpoint)
+			}
+		})
+	}
+}
+
 func TestProtocolRouterRejectsResolvedModelOutsideOfficialRoutePolicy(t *testing.T) {
 	account := &Account{
 		ID:       78,

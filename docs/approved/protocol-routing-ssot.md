@@ -1,7 +1,7 @@
 ---
 title: Protocol Routing Single Source of Truth
 status: approved
-approved_by: "feng (conversation approval, 2026-08-24)"
+approved_by: "feng (conversation approval, 2026-08-26)"
 authors: [codex]
 created: 2026-08-24
 related_stories: []
@@ -28,20 +28,35 @@ credential destination selection, and gateway ownership boundary.
 
 ## 2. Scope
 
-This design covers only these customer-facing and upstream text wire protocols:
+This design covers these customer-facing and upstream text wire protocols:
 
 - `messages`
 - `chat_completions`
 - `responses`
+- `gemini_generate_content`
 
-It includes native forwarding and conversion among those protocols, including
-protocol-specific Responses path variants when explicitly supported by a route.
+`gemini_generate_content` means Gemini `generateContent` and
+`streamGenerateContent`; it does not encode a Google product, host, credential
+type, or account class. The protocol may resolve to an Antigravity Code Assist
+profile or an exact NewAPI Vertex service-account profile.
 
-It does not cover Gemini `generateContent`, embeddings, images, video, or other
-operations. Their current routing remains unchanged and they require a separate
-design if later migrated. This design does not introduce a universal protocol
-graph, a universal intermediate representation, administrator route ordering,
-or adaptive/fixed modes.
+TokenKey's exact Antigravity edge-relay API-key stubs remain configurable text
+upstreams rather than Code Assist profiles. They are governed through their
+explicit relay base URL and the ordinary Messages, Chat Completions, and
+Responses probes; capability is never copied from the native OAuth account on
+the remote edge.
+
+The design includes native forwarding and explicitly registered conversions
+among these protocols, including protocol-specific Responses path variants.
+Only text generation is governed. Embeddings, image/video/audio generation,
+OCR, rerank, and Gemini multimodal identity remain outside this router until
+their own capability owner is designed. One ingress scope predicate owns that
+boundary; handlers cannot independently choose between this router and legacy
+text routing.
+
+This design does not introduce a universal protocol graph, a universal
+intermediate representation, administrator route ordering, or adaptive/fixed
+modes.
 
 ## 3. Canonical account fact
 
@@ -52,7 +67,8 @@ The canonical persisted account field is:
   "supported_protocols": [
     "messages",
     "chat_completions",
-    "responses"
+    "responses",
+    "gemini_generate_content"
   ]
 }
 ```
@@ -86,7 +102,7 @@ backend/internal/engine/protocolrouter
 
 It is a sub-owner of the existing engine boundary. It owns:
 
-- the three protocol identifiers;
+- the four protocol identifiers;
 - the fixed ordered route registry;
 - route-level model and request-feature constraints;
 - explicit endpoint resolution;
@@ -126,6 +142,7 @@ registry beside them.
 | `backend/internal/pkg/openai_compat` | Keeps parsers, converters, and probe-verdict helpers. It cannot choose a target protocol or fallback. |
 | `ForwardAs*` methods | Become internal transport/converter adapters reachable only through `Execute`. |
 | NewAPI bridge checks | Become planner constraints describing whether a transport/adaptor exists for the selected route. |
+| Gemini/Antigravity/Vertex compatibility services | Keep pure conversion, auth, streaming, and transport details behind registered adapters. They cannot choose a protocol, account, endpoint, or fallback. |
 | Gateway handlers | Parse and normalize the inbound request, then consume scheduler/router results. They cannot select protocol, endpoint, converter, or fallback. |
 
 Direct production calls that bypass `Plan` or `Execute` are removed or
@@ -170,6 +187,13 @@ protocol-specific request when the typed profile alone is insufficient.
 as compact or input-token operations. A route is not legal for a path variant
 unless its registry entry explicitly permits that variant.
 
+Gemini ingress normalizes `generateContent` to `Stream=false` and
+`streamGenerateContent` to `Stream=true`. No second Gemini-action field is
+stored: for the two in-scope actions, `RequestProfile.Stream` is the canonical
+semantic fact. The selected target profile may still use a streaming upstream
+for a non-streaming customer request when its registered adapter performs the
+aggregation.
+
 `Plan` resolves the account-specific upstream model through the existing model
 mapping owner. The resulting plan records the request digest, resolved model,
 and the account snapshot revision. That revision covers every account fact used
@@ -200,6 +224,25 @@ always custom and must provide a valid explicit URL even when they target an
 official provider. An empty or unresolved custom URL never defaults to an
 official host.
 
+For `gemini_generate_content`, the route resolves exactly one compile-time
+endpoint/auth profile from the immutable account snapshot:
+
+- `antigravity_cloudcode`: supported Antigravity OAuth account shape; endpoint,
+  wrapper, OAuth token, CLI fingerprint, headers, proxy, and project binding are
+  supplied by the existing Code Assist owners;
+- `vertex_service_account`: exact `IsNewAPIVertexServiceAccount()` shape;
+  project, per-model location, service-account JWT exchange, fixed Google token
+  endpoint, proxy, and model/action URL are supplied by the existing Vertex
+  owners.
+
+An exact `tkIsAntigravityEdgeRelayStub()` is not assigned either Gemini
+profile. It remains a configurable upstream whose three ordinary text
+endpoints are planned from its explicit base URL and probed per relay account.
+
+Profiles are not persisted administrator configuration and are not a second
+capability SSOT. If the profile is ambiguous or cannot resolve its required
+facts, the account remains governed but the concrete route is illegal.
+
 ## 7. Fixed route registry
 
 Identity is always tried first. If identity is illegal, conversions are tried
@@ -207,19 +250,27 @@ in this fixed order:
 
 | Inbound protocol | Conversion targets |
 | --- | --- |
-| `messages` | `responses`, then `chat_completions` |
-| `chat_completions` | `responses`, then `messages` |
-| `responses` | `chat_completions`, then `messages` |
+| `messages` | `responses`, then `chat_completions`, then `gemini_generate_content` |
+| `chat_completions` | `responses`, then `messages`, then `gemini_generate_content` |
+| `responses` | `chat_completions`, then `messages`, then `gemini_generate_content` |
+| `gemini_generate_content` | identity only |
 
 The first legal entry wins. There is no score, quality weight, account-level
 preference, tie-breaker, or graph search.
 
 Each registry entry names its target protocol, allowed Responses path kinds,
-model policy, feature constraints, endpoint resolver, one `RouteAdapterID`, and
-one transport. `Execute` invokes that registered route adapter once. The adapter
-may internally compose existing pure conversion stages, but the composition is
-an implementation detail covered by that route entry's end-to-end mock test; it
-cannot select another target protocol or fallback.
+model policy, feature constraints, endpoint/profile resolver, one
+`RouteAdapterID`, and one transport. `Execute` invokes that registered route
+adapter once. The adapter may internally compose existing pure conversion
+stages, but the composition is an implementation detail covered by that route
+entry's end-to-end mock test; it cannot select another target protocol,
+profile, endpoint, or fallback.
+
+Conversion routes are deny-by-default. A route opens only semantics proven
+lossless by its adapter contract tests; unsupported tools, continuation,
+reasoning, cache, multimodal content, and path variants fail during `Plan`.
+This rule lives in registry constraints and tests, not in a second prose
+capability matrix or handler switch.
 
 ## 8. Scheduling and execution
 
@@ -289,9 +340,42 @@ backfill any account's `supported_protocols`.
 A customer-request failure may enqueue a probe but cannot directly mutate the
 field or try another protocol on the same account.
 
+Gemini candidates are provider-specific and never use a generic OpenAI probe:
+
+- `antigravity_cloudcode` reuses the production Code Assist wrapper, OAuth
+  token, project binding, CLI fingerprint, headers, proxy, endpoint builder,
+  and streaming parser;
+- `vertex_service_account` reuses the production service-account parser, fixed
+  Google token endpoint, token cache, project/per-model location resolver,
+  Vertex URL builder, proxy, and Gemini response parser.
+
+Exact Antigravity edge-relay API-key stubs use the same generic three-protocol
+probe path as other configurable text upstreams. Each relay row is probed and
+persisted independently; its result is not inferred from another relay sharing
+an edge or from the native OAuth pool behind that edge.
+
+A 2xx response is positive only when it parses as a recognized Gemini response
+envelope (including the Antigravity `response` wrapper); a generic JSON or
+error envelope is not positive evidence. Authentication, rate-limit, server,
+timeout, token-exchange, network, and malformed-response failures are
+inconclusive and preserve the prior fact. A Gemini 404/405 is
+`endpoint_negative` only when a provider-specific reason proves that the
+protocol method/path is unsupported; project, location, model, or action
+failures are `model_specific` or inconclusive. Raw status codes alone never
+remove `gemini_generate_content`.
+
 ## 10. Conservative migration
 
 Migration is additive and idempotent.
+
+The governance predicate identifies stable account classes, not current route
+health. It includes existing governed text accounts, supported Antigravity
+OAuth account shapes, exact Antigravity edge-relay API-key stubs, and exact
+NewAPI Vertex service-account shapes. Other Antigravity API-key accounts,
+service accounts, and non-text-only accounts remain outside this text router.
+Once an account class is governed, missing credentials, unresolved profiles,
+missing probe models, empty `supported_protocols`, or illegal model/features do
+not make it ungoverned: they produce no legal route and therefore fail closed.
 
 - Only accounts matching a compile-time `OfficialEndpointProfile` may be seeded
   from the router registry. The same predicate controls official endpoint
@@ -305,8 +389,10 @@ Migration is additive and idempotent.
 - Custom accounts are populated only by conclusive per-account probes or retain
   an already verified canonical value.
 - Every active account governed by this router must have at least one legal
-  route for its served models before cutover; otherwise it remains excluded and
-  is reported for remediation.
+  route for its served models before the candidate release may receive traffic;
+  otherwise release readiness fails and the account is reported for
+  remediation. Once that image receives traffic, an account cannot escape to
+  legacy routing by becoming "ungoverned" because configuration is incomplete.
 
 After cutover, production text routing reads only
 `accounts.extra.supported_protocols` for account-level native capability. Legacy
@@ -319,6 +405,12 @@ Account create/edit surfaces show `supported_protocols` as read-only capability
 chips and provide the existing test/re-probe action. An empty set is displayed
 as no usable text protocol detected and the account is excluded from the
 corresponding candidate pools.
+
+The synchronous re-probe API returns the refreshed account plus one explicit
+outcome: `updated`, `unchanged`, or `not_applicable`. Internal execution or
+persistence errors are non-2xx failures. The UI must not present `unchanged`,
+`not_applicable`, a missing probe runner, or an internal failure as a successful
+capability update.
 
 The UI and API do not add protocol ordering, `preferred_protocols`,
 `forced_protocol`, or adaptive/fixed controls.
@@ -349,9 +441,14 @@ maintaining a second route matrix.
 
 A separate, deliberately small policy-contract test does not derive its
 expectations from the registry. It asserts only the product invariants: the
-three protocol identifiers, identity-first behavior, and the fixed fallback
+four protocol identifiers, identity-first behavior, and the fixed fallback
 order for each inbound protocol. Exhaustive adapter/model/feature cases remain
 registry-derived, so there is no second implementation matrix.
+
+Gemini contract tests cover both endpoint/auth profiles, positive and
+non-destructive failure verdicts, exact host/path/credential binding, streaming
+and non-streaming envelopes, and rejection of unsupported request semantics
+before network I/O.
 
 Endpoint contract tests also prove both sides of the identity boundary: a fixed
 `OfficialEndpointProfile` may resolve its registered host, while every
@@ -375,18 +472,22 @@ Rollout order:
 1. The release image starts with the canonical field writer, registry, probes,
    router, scheduler hard gate, execution boundary, admin projection, and
    mechanical guard present together.
-2. Before constructing text gateway handlers, the image seeds official
-   profiles, probes every remediated custom account, and reruns the migration
-   report against the persisted results.
-3. Only `CutoverReady=true` exposes the router to handlers and activates the
-   scheduler hard gate. If any account remains unresolved, handlers receive no
-   router and the whole process keeps the legacy routing path; it must not
-   partially hard-cut only the already prepared accounts.
+2. Before constructing text gateway handlers, the image seeds eligible official
+   profiles, runs bounded per-account probes for every remediated custom,
+   Antigravity, and Vertex account, and reruns the migration report against the
+   persisted results. Platform, type, base URL, project, or provider similarity
+   never seeds or copies a positive Gemini fact.
+3. The candidate image constructs and injects the router unconditionally, but
+   only `CutoverReady=true` makes the image ready for customer traffic. If any
+   governed account remains unresolved, readiness fails and deployment keeps or
+   restores the previous application image. The candidate image must never
+   serve customer traffic through its legacy routing path.
 4. Smoke each distinct normalized base URL and monitor no-route failures,
    selected protocols, actual hosts/paths, and failover.
 
 Preparation and hard cutover may therefore ship in the same image. The
-readiness result, rather than image composition, is the single cutover gate.
+readiness result is a deployment traffic-admission gate, not a runtime switch
+between the router and legacy routing.
 
 Rollback is an application-image rollback. The additive JSON value and legacy
 fields remain, so rollback requires no destructive data change. No production
@@ -411,16 +512,29 @@ document.
   contain no independent route or fallback decision.
 - `accounts.extra.supported_protocols` is the only account-level native
   protocol capability read by production text routing after cutover.
+- A governed Antigravity or exact Vertex service account with incomplete auth,
+  profile, model, or probe facts has no legal plan and cannot bypass the hard
+  gate through the legacy route.
+- Exact Antigravity edge-relay stubs are governed as configurable upstreams and
+  keep per-account three-protocol evidence; arbitrary Antigravity API-key URLs
+  remain outside the stable governed shape.
+- Gemini probes use production provider identity and remove a prior capability
+  only after a provider-specific endpoint-negative conclusion; raw 404/405 does
+  not clear the fact.
+- The admin re-probe action reports an explicit outcome and never displays an
+  unexecuted, inconclusive, or failed probe as an updated capability.
 - CI tests the registry with mocks; real capability probes persist facts per
   account; per-base-URL smoke never copies capability between accounts.
 - A same-image rollout performs seed → per-account probe → revalidation before
-  enabling the router, and preserves legacy routing when revalidation is not
-  cutover-ready.
+  admitting customer traffic. A release that is not cutover-ready fails
+  readiness and rolls back at the application-image boundary; it never serves
+  through the candidate image's legacy routing path.
 - An independent policy-contract test protects identity-first and the fixed
   fallback order without duplicating the registry's adapter matrix.
 - An upstream merge that restores a competing decision path or removes the
   owner fails preflight.
-- Gemini `generateContent`, embeddings, images, video, and other operations are
+- Gemini text `generateContent` is governed as the fourth protocol. Embeddings,
+  images, video, audio, OCR, rerank, and Gemini multimodal identity are
   unchanged by this design.
 
 ## 15. Approval boundary

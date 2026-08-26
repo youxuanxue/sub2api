@@ -1,5 +1,5 @@
 <script setup lang="ts">
-type Protocol = 'messages' | 'chat_completions' | 'responses'
+type Protocol = 'messages' | 'chat_completions' | 'responses' | 'gemini_generate_content'
 
 defineProps<{
   protocols: Protocol[]
@@ -8,7 +8,8 @@ defineProps<{
 const labels: Record<Protocol, string> = {
   messages: 'Messages',
   chat_completions: 'Chat Completions',
-  responses: 'Responses'
+  responses: 'Responses',
+  gemini_generate_content: 'Gemini Generate Content'
 }
 </script>
 

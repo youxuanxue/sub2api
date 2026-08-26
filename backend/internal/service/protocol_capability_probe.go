@@ -16,12 +16,25 @@ import (
 
 type ProtocolProbeVerdict string
 
+type ProtocolProbeRunOutcome string
+
 const (
 	ProtocolProbePositive         ProtocolProbeVerdict = "positive"
 	ProtocolProbeEndpointNegative ProtocolProbeVerdict = "endpoint_negative"
 	ProtocolProbeInconclusive     ProtocolProbeVerdict = "inconclusive"
 	ProtocolProbeModelSpecific    ProtocolProbeVerdict = "model_specific"
 )
+
+const (
+	ProtocolProbeRunUpdated       ProtocolProbeRunOutcome = "updated"
+	ProtocolProbeRunUnchanged     ProtocolProbeRunOutcome = "unchanged"
+	ProtocolProbeRunNotApplicable ProtocolProbeRunOutcome = "not_applicable"
+)
+
+type ProtocolProbeRunResult struct {
+	Outcome ProtocolProbeRunOutcome
+	Reason  string
+}
 
 var ErrProtocolProbeStaleRevision = errors.New("protocol probe account revision is stale")
 
@@ -76,17 +89,25 @@ type protocolProbeObservation struct {
 }
 
 func (s *AccountTestService) ProbeAccountProtocolCapabilities(ctx context.Context, accountID int64) {
+	_, _ = s.ProbeAccountProtocolCapabilitiesNow(ctx, accountID)
+}
+
+func (s *AccountTestService) ProbeAccountProtocolCapabilitiesNow(ctx context.Context, accountID int64) (ProtocolProbeRunResult, error) {
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
-		return
+		return ProtocolProbeRunResult{}, err
 	}
 	candidates := ProtocolProbeCandidates(account)
 	if len(candidates) == 0 {
-		return
+		return ProtocolProbeRunResult{
+			Outcome: ProtocolProbeRunNotApplicable,
+			Reason:  "no_protocol_probe_candidates",
+		}, nil
 	}
+	before := account.SupportedProtocols()
 	revision, err := protocolProbeConfigurationRevision(account)
 	if err != nil {
-		return
+		return ProtocolProbeRunResult{}, err
 	}
 	if err := s.protocolProbeCoordinator.Do(accountID, revision, candidates, func() error {
 		type probeResult struct {
@@ -122,8 +143,32 @@ func (s *AccountTestService) ProbeAccountProtocolCapabilities(ctx context.Contex
 		}
 		return PersistProtocolProbeVerdicts(ctx, s.accountRepo, accountID, revision, verdicts, legacyUpdates)
 	}); err != nil {
-		return
+		return ProtocolProbeRunResult{}, err
 	}
+	refreshed, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return ProtocolProbeRunResult{}, err
+	}
+	after := refreshed.SupportedProtocols()
+	if protocolListsEqual(before, after) {
+		return ProtocolProbeRunResult{
+			Outcome: ProtocolProbeRunUnchanged,
+			Reason:  "no_conclusive_capability_change",
+		}, nil
+	}
+	return ProtocolProbeRunResult{Outcome: ProtocolProbeRunUpdated}, nil
+}
+
+func protocolListsEqual(left, right []protocolrouter.Protocol) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // ProbeAccountProtocolCapabilitiesBatch probes accounts with the same bounded
@@ -145,6 +190,8 @@ func (s *AccountTestService) probeProtocolCapability(
 		return s.probeOpenAIAPIKeyChatCompletionsSupport(ctx, account, revision)
 	case protocolrouter.ProtocolResponses:
 		return s.probeOpenAIAPIKeyResponsesSupport(ctx, account, revision)
+	case protocolrouter.ProtocolGeminiGenerateContent:
+		return s.probeGeminiGenerateContentSupport(ctx, account)
 	default:
 		return protocolProbeObservation{}, false
 	}
@@ -284,6 +331,9 @@ func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {
 	if !protocolRoutingGovernsAccount(account) || len(officialSupportedProtocols(account)) > 0 {
 		return nil
 	}
+	if protocolGeminiEndpointProfile(account).Valid() {
+		return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}
+	}
 	switch {
 	case account.Type == AccountTypeAPIKey, account.Type == AccountTypeUpstream:
 	case account.IsGrokOAuth():
@@ -295,6 +345,9 @@ func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {
 	}
 	candidates := make([]protocolrouter.Protocol, 0, len(protocolrouter.AllProtocols()))
 	for _, protocol := range protocolrouter.AllProtocols() {
+		if protocol == protocolrouter.ProtocolGeminiGenerateContent {
+			continue
+		}
 		if strings.TrimSpace(protocolProbeBaseURL(account, protocol)) != "" {
 			candidates = append(candidates, protocol)
 		}

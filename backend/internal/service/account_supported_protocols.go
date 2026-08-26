@@ -133,15 +133,15 @@ func SeedOfficialSupportedProtocols(account *Account) bool {
 }
 
 func ProtocolAccountSnapshot(account *Account, requestedModel string) (protocolrouter.AccountSnapshot, error) {
-	return protocolAccountSnapshot(account, requestedModel, false)
+	return protocolAccountSnapshot(account, requestedModel, false, false)
 }
 
 func protocolAccountSnapshotForRequest(account *Account, request protocolrouter.CanonicalRequest) (protocolrouter.AccountSnapshot, error) {
 	requireCompact := request.InboundProtocol() == protocolrouter.ProtocolResponses && request.ResponsesPath() == protocolrouter.ResponsesPathCompact
-	return protocolAccountSnapshot(account, request.RequestedModel(), requireCompact)
+	return protocolAccountSnapshot(account, request.RequestedModel(), requireCompact, request.Profile().Stream)
 }
 
-func protocolAccountSnapshot(account *Account, requestedModel string, requireCompact bool) (protocolrouter.AccountSnapshot, error) {
+func protocolAccountSnapshot(account *Account, requestedModel string, requireCompact bool, stream bool) (protocolrouter.AccountSnapshot, error) {
 	if account == nil {
 		return protocolrouter.AccountSnapshot{}, errors.New("account is required")
 	}
@@ -152,6 +152,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 	protocols := account.SupportedProtocols()
 	resolvedModel := protocolResolvedUpstreamModel(account, requestedModel, requireCompact)
 	customBaseURL, customBaseURLs, officialProfile := protocolAccountEndpoints(account)
+	geminiProfile := protocolGeminiEndpointProfile(account)
 	modelAllowed := make(map[protocolrouter.Protocol]bool, len(protocols))
 	for _, protocol := range protocols {
 		modelAllowed[protocol] = protocolResolvedModelAllowedForTarget(
@@ -162,7 +163,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 			resolvedModel,
 		)
 	}
-	exactEndpoints, err := protocolExactEndpoints(account, resolvedModel)
+	exactEndpoints, err := protocolExactEndpoints(account, resolvedModel, geminiProfile, stream)
 	if err != nil {
 		return protocolrouter.AccountSnapshot{}, err
 	}
@@ -179,6 +180,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 		CustomBaseURLs:     customBaseURLs,
 		ExactEndpoints:     exactEndpoints,
 		OfficialProfile:    officialProfile,
+		GeminiProfile:      geminiProfile,
 		ModelAllowed:       modelAllowed,
 		Transports:         []protocolrouter.TransportID{protocolrouter.TransportHTTP},
 	})
@@ -199,6 +201,9 @@ func protocolResolvedModelAllowedForTarget(
 		return target == protocolrouter.ProtocolResponses && isOpenAIOAuthServableModel(resolvedModel)
 	case protocolrouter.OfficialEndpointAnthropic:
 		return target == protocolrouter.ProtocolMessages && account.IsModelSupported(requestedModel)
+	}
+	if target == protocolrouter.ProtocolGeminiGenerateContent {
+		return protocolGeminiEndpointProfile(account).Valid() && account.IsModelSupported(requestedModel)
 	}
 	if _, matched := account.ResolveMappedModel(requestedModel); matched {
 		return true
@@ -225,7 +230,21 @@ func protocolResolvedUpstreamModel(account *Account, requestedModel string, requ
 	return strings.TrimSpace(account.GetMappedModel(requestedModel))
 }
 
-func protocolExactEndpoints(account *Account, resolvedModel string) (map[protocolrouter.Protocol]string, error) {
+func protocolExactEndpoints(
+	account *Account,
+	resolvedModel string,
+	geminiProfile protocolrouter.GeminiEndpointProfile,
+	stream bool,
+) (map[protocolrouter.Protocol]string, error) {
+	if geminiProfile.Valid() {
+		endpoint, err := protocolGeminiExactEndpoint(account, resolvedModel, geminiProfile, stream)
+		if err != nil {
+			return nil, err
+		}
+		return map[protocolrouter.Protocol]string{
+			protocolrouter.ProtocolGeminiGenerateContent: endpoint,
+		}, nil
+	}
 	if account == nil || account.Platform != PlatformNewAPI || account.ChannelType <= 0 {
 		return nil, nil
 	}
@@ -241,6 +260,39 @@ func protocolExactEndpoints(account *Account, resolvedModel string) (map[protoco
 		endpoints[protocol] = endpoint
 	}
 	return endpoints, nil
+}
+
+func protocolGeminiEndpointProfile(account *Account) protocolrouter.GeminiEndpointProfile {
+	if account == nil {
+		return protocolrouter.GeminiEndpointNone
+	}
+	if account.Platform == PlatformAntigravity && account.Type == AccountTypeOAuth {
+		return protocolrouter.GeminiEndpointAntigravityCloudCode
+	}
+	if account.IsNewAPIVertexServiceAccount() {
+		return protocolrouter.GeminiEndpointVertexServiceAccount
+	}
+	return protocolrouter.GeminiEndpointNone
+}
+
+func protocolGeminiExactEndpoint(
+	account *Account,
+	resolvedModel string,
+	profile protocolrouter.GeminiEndpointProfile,
+	stream bool,
+) (string, error) {
+	switch profile {
+	case protocolrouter.GeminiEndpointAntigravityCloudCode:
+		return strings.TrimRight(resolveAntigravityForwardBaseURL(account), "/") + "/v1internal:streamGenerateContent", nil
+	case protocolrouter.GeminiEndpointVertexServiceAccount:
+		action := "generateContent"
+		if stream {
+			action = "streamGenerateContent"
+		}
+		return buildVertexGeminiURL(account.VertexProjectID(), account.VertexLocation(resolvedModel), resolvedModel, action, false)
+	default:
+		return "", errors.New("gemini endpoint profile is required")
+	}
 }
 
 func protocolExactEndpoint(account *Account, protocol protocolrouter.Protocol, resolvedModel string) (string, error) {

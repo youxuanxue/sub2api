@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -90,6 +91,7 @@ type protocolProbeBarrierUpstream struct {
 	started     int
 	allStarted  chan struct{}
 	release     chan struct{}
+	wantStarted int
 }
 
 func (u *protocolProbeBarrierUpstream) Do(
@@ -114,7 +116,7 @@ func (u *protocolProbeBarrierUpstream) DoWithTLS(
 		u.maxInFlight = u.inFlight
 	}
 	u.started++
-	if u.started == len(protocolrouter.AllProtocols()) {
+	if u.started == u.wantStarted {
 		close(u.allStarted)
 	}
 	u.mu.Unlock()
@@ -240,7 +242,11 @@ func TestProtocolProbeCandidatesCoverGovernedCustomAccountsOnly(t *testing.T) {
 			account: &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Credentials: map[string]any{
 				"api_key": "secret", "base_url": "https://relay.example.test/v1",
 			}},
-			want: protocolrouter.AllProtocols(),
+			want: []protocolrouter.Protocol{
+				protocolrouter.ProtocolMessages,
+				protocolrouter.ProtocolChatCompletions,
+				protocolrouter.ProtocolResponses,
+			},
 		},
 		{
 			name: "custom newapi per-protocol base probes only declared endpoints",
@@ -280,7 +286,11 @@ func TestProtocolProbeCandidatesCoverGovernedCustomAccountsOnly(t *testing.T) {
 			account: &Account{Platform: PlatformGrok, Type: AccountTypeOAuth, Credentials: map[string]any{
 				"access_token": "oauth-secret", "base_url": "https://grok.example.test/v1",
 			}},
-			want: protocolrouter.AllProtocols(),
+			want: []protocolrouter.Protocol{
+				protocolrouter.ProtocolMessages,
+				protocolrouter.ProtocolChatCompletions,
+				protocolrouter.ProtocolResponses,
+			},
 		},
 		{
 			name: "ungoverned gemini is excluded",
@@ -289,11 +299,187 @@ func TestProtocolProbeCandidatesCoverGovernedCustomAccountsOnly(t *testing.T) {
 			}},
 			want: nil,
 		},
+		{
+			name: "antigravity oauth probes provider specific gemini only",
+			account: &Account{Platform: PlatformAntigravity, Type: AccountTypeOAuth, Credentials: map[string]any{
+				"access_token": "secret", "project_id": "project-a",
+			}},
+			want: []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent},
+		},
+		{
+			name: "antigravity edge relay probes its configurable text endpoints",
+			account: &Account{Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
+				"api_key": "secret", "base_url": "https://api-us3.tokenkey.dev",
+			}},
+			want: []protocolrouter.Protocol{
+				protocolrouter.ProtocolMessages,
+				protocolrouter.ProtocolChatCompletions,
+				protocolrouter.ProtocolResponses,
+			},
+		},
+		{
+			name: "arbitrary antigravity apikey endpoint is not a governed relay",
+			account: &Account{Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
+				"api_key": "secret", "base_url": "https://relay.example.test",
+			}},
+			want: nil,
+		},
+		{
+			name: "exact newapi vertex service account probes provider specific gemini only",
+			account: &Account{Platform: PlatformNewAPI, Type: AccountTypeServiceAccount,
+				ChannelType: newapiconstant.ChannelTypeVertexAi,
+				Credentials: map[string]any{"project_id": "project-v"}},
+			want: []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent},
+		},
+		{
+			name: "embedding only mapping is excluded from text protocol probes",
+			account: &Account{Platform: PlatformNewAPI, Type: AccountTypeAPIKey, Credentials: map[string]any{
+				"api_key": "secret", "base_url": "https://embedding.example.test/v1",
+				"model_mapping": map[string]any{"embedding": "bge-large-en"},
+			}},
+			want: nil,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := ProtocolProbeCandidates(tt.account); !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("ProtocolProbeCandidates = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func installOpaqueNonTextProtocolProbePricing(t *testing.T) {
+	t.Helper()
+	tkOverlayMu.Lock()
+	previous := tkOverlayEffective
+	tkOverlayEffective = &tkPricingOverlaySnapshot{Models: map[string]*LiteLLMModelPricing{
+		"opaque-vector-v1": {Mode: "embedding"},
+		"text-chat-v1":     {Mode: "chat"},
+	}}
+	tkOverlayMu.Unlock()
+	t.Cleanup(func() {
+		tkOverlayMu.Lock()
+		tkOverlayEffective = previous
+		tkOverlayMu.Unlock()
+	})
+}
+
+func TestSelectProtocolProbeModelUsesRegistryModeForOpaqueNonTextModels(t *testing.T) {
+	installOpaqueNonTextProtocolProbePricing(t)
+	mixed := &Account{
+		Platform: PlatformNewAPI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"vector": "opaque-vector-v1",
+				"chat":   "text-chat-v1",
+			},
+		},
+	}
+	if got := selectProtocolProbeModel(mixed); got != "text-chat-v1" {
+		t.Fatalf("selectProtocolProbeModel = %q, want text-chat-v1", got)
+	}
+}
+
+func TestProtocolProbeCandidatesUseRegistryModeForOpaqueNonTextAccounts(t *testing.T) {
+	installOpaqueNonTextProtocolProbePricing(t)
+	nonTextOnly := &Account{
+		Platform: PlatformNewAPI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":       "secret",
+			"base_url":      "https://vector.example.test/v1",
+			"model_mapping": map[string]any{"vector": "opaque-vector-v1"},
+		},
+	}
+	if got := ProtocolProbeCandidates(nonTextOnly); got != nil {
+		t.Fatalf("ProtocolProbeCandidates = %v, want nil for registry-classified non-text account", got)
+	}
+}
+
+func TestClassifyGeminiProtocolProbeIsNonDestructiveByDefault(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+		err    error
+		want   ProtocolProbeVerdict
+	}{
+		{name: "parseable success", status: http.StatusOK, body: `{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}`, want: ProtocolProbePositive},
+		{name: "parseable safety response", status: http.StatusOK, body: `{"promptFeedback":{"blockReason":"SAFETY"}}`, want: ProtocolProbePositive},
+		{name: "authentication", status: http.StatusUnauthorized, body: `{"error":{"status":"UNAUTHENTICATED"}}`, want: ProtocolProbeInconclusive},
+		{name: "rate limit", status: http.StatusTooManyRequests, body: `{"error":{"status":"RESOURCE_EXHAUSTED"}}`, want: ProtocolProbeInconclusive},
+		{name: "server error", status: http.StatusServiceUnavailable, body: `{"error":{"status":"UNAVAILABLE"}}`, want: ProtocolProbeInconclusive},
+		{name: "raw method not allowed", status: http.StatusMethodNotAllowed, body: `method not allowed`, want: ProtocolProbeInconclusive},
+		{name: "raw not found", status: http.StatusNotFound, body: `not found`, want: ProtocolProbeInconclusive},
+		{name: "authentication reason cannot remove capability", status: http.StatusUnauthorized, body: `{"error":{"details":[{"reason":"METHOD_NOT_SUPPORTED"}]}}`, want: ProtocolProbeInconclusive},
+		{name: "bad request reason cannot remove capability", status: http.StatusBadRequest, body: `{"error":{"details":[{"reason":"METHOD_NOT_SUPPORTED"}]}}`, want: ProtocolProbeInconclusive},
+		{name: "model missing", status: http.StatusNotFound, body: `{"error":{"status":"NOT_FOUND","message":"model gemini-x was not found"}}`, want: ProtocolProbeModelSpecific},
+		{name: "explicit provider method unsupported", status: http.StatusNotFound, body: `{"error":{"status":"NOT_FOUND","details":[{"reason":"METHOD_NOT_SUPPORTED"}]}}`, want: ProtocolProbeEndpointNegative},
+		{name: "explicit provider method not allowed", status: http.StatusMethodNotAllowed, body: `{"error":{"details":[{"reason":"UNSUPPORTED_METHOD"}]}}`, want: ProtocolProbeEndpointNegative},
+		{name: "2xx error envelope is not a Gemini response", status: http.StatusOK, body: `{"error":{"status":"UNAVAILABLE"}}`, want: ProtocolProbeInconclusive},
+		{name: "2xx unrelated json is not a Gemini response", status: http.StatusOK, body: `{"ok":true}`, want: ProtocolProbeInconclusive},
+		{name: "malformed success", status: http.StatusOK, body: `not-json`, want: ProtocolProbeInconclusive},
+		{name: "network", err: io.ErrUnexpectedEOF, want: ProtocolProbeInconclusive},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := classifyGeminiProtocolProbe(tt.status, []byte(tt.body), tt.err); got != tt.want {
+				t.Fatalf("classifyGeminiProtocolProbe() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClassifyAntigravityGeminiProtocolProbeRequiresParsedSuccess(t *testing.T) {
+	tests := []struct {
+		name   string
+		result *TestConnectionResult
+		err    error
+		want   ProtocolProbeVerdict
+	}{
+		{
+			name: "parseable success",
+			result: &TestConnectionResult{
+				StatusCode:   http.StatusOK,
+				ResponseBody: []byte(`{"response":{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}}`),
+			},
+			want: ProtocolProbePositive,
+		},
+		{
+			name: "malformed success",
+			result: &TestConnectionResult{
+				StatusCode:   http.StatusOK,
+				ResponseBody: []byte(`not-json`),
+				Text:         "must not substitute for wire parseability",
+			},
+			want: ProtocolProbeInconclusive,
+		},
+		{name: "missing result", want: ProtocolProbeInconclusive},
+		{
+			name: "explicit unsupported method",
+			result: &TestConnectionResult{
+				StatusCode:   http.StatusMethodNotAllowed,
+				ResponseBody: []byte(`{"error":{"details":[{"reason":"METHOD_NOT_SUPPORTED"}]}}`),
+			},
+			err:  errors.New("upstream rejected request"),
+			want: ProtocolProbeEndpointNegative,
+		},
+		{
+			name: "authentication remains inconclusive",
+			result: &TestConnectionResult{
+				StatusCode:   http.StatusUnauthorized,
+				ResponseBody: []byte(`{"error":{"details":[{"reason":"METHOD_NOT_SUPPORTED"}]}}`),
+			},
+			err:  errors.New("upstream rejected request"),
+			want: ProtocolProbeInconclusive,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := classifyAntigravityGeminiProtocolProbe(tt.result, tt.err); got != tt.want {
+				t.Fatalf("classifyAntigravityGeminiProtocolProbe() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -322,13 +508,19 @@ func TestProbeAccountProtocolCapabilitiesSupportsGrokOAuth(t *testing.T) {
 		}}},
 	}
 
-	svc.ProbeAccountProtocolCapabilities(context.Background(), account.ID)
+	result, err := svc.ProbeAccountProtocolCapabilitiesNow(context.Background(), account.ID)
+	if err != nil {
+		t.Fatalf("ProbeAccountProtocolCapabilitiesNow: %v", err)
+	}
+	if result.Outcome != ProtocolProbeRunUpdated {
+		t.Fatalf("probe outcome = %q, want %q", result.Outcome, ProtocolProbeRunUpdated)
+	}
 
 	got, err := repo.GetByID(context.Background(), account.ID)
 	if err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
-	if want := protocolrouter.AllProtocols(); !reflect.DeepEqual(got.SupportedProtocols(), want) {
+	if want := []protocolrouter.Protocol{protocolrouter.ProtocolMessages, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses}; !reflect.DeepEqual(got.SupportedProtocols(), want) {
 		t.Fatalf("supported protocols = %v, want %v", got.SupportedProtocols(), want)
 	}
 	upstream.mu.Lock()
@@ -544,7 +736,7 @@ func TestProbeAccountProtocolCapabilitiesEvaluatesCandidateSetAndPersistsOnce(t 
 	if err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
-	if want := protocolrouter.AllProtocols(); !reflect.DeepEqual(got.SupportedProtocols(), want) {
+	if want := []protocolrouter.Protocol{protocolrouter.ProtocolMessages, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses}; !reflect.DeepEqual(got.SupportedProtocols(), want) {
 		t.Fatalf("supported protocols = %v, want %v", got.SupportedProtocols(), want)
 	}
 	if repo.updateCalls != 1 {
@@ -564,8 +756,9 @@ func TestProbeAccountProtocolCapabilitiesProbesCandidateSetConcurrently(t *testi
 	account.UpdatedAt = time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
 	repo := &protocolProbeCASRepo{account: cloneProtocolProbeAccount(account)}
 	upstream := &protocolProbeBarrierUpstream{
-		allStarted: make(chan struct{}),
-		release:    make(chan struct{}),
+		allStarted:  make(chan struct{}),
+		release:     make(chan struct{}),
+		wantStarted: 3,
 	}
 	svc := &AccountTestService{
 		accountRepo:  repo,
@@ -594,8 +787,8 @@ func TestProbeAccountProtocolCapabilitiesProbesCandidateSetConcurrently(t *testi
 	upstream.mu.Lock()
 	maxInFlight := upstream.maxInFlight
 	upstream.mu.Unlock()
-	if maxInFlight != len(protocolrouter.AllProtocols()) {
-		t.Fatalf("max concurrent protocol probes = %d, want %d", maxInFlight, len(protocolrouter.AllProtocols()))
+	if maxInFlight != upstream.wantStarted {
+		t.Fatalf("max concurrent protocol probes = %d, want %d", maxInFlight, upstream.wantStarted)
 	}
 	if repo.updateCalls != 1 {
 		t.Fatalf("complete-set persistence calls = %d, want 1", repo.updateCalls)

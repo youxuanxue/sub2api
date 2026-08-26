@@ -10,7 +10,11 @@ import (
 )
 
 // RegisterCommonRoutes 注册通用路由（健康检查、状态等）
-func RegisterCommonRoutes(r *gin.Engine) {
+func RegisterCommonRoutes(r *gin.Engine, protocolReady ...bool) {
+	protocolRoutingReady := true
+	if len(protocolReady) > 0 {
+		protocolRoutingReady = protocolReady[0]
+	}
 	// /health: 就绪探针（readiness）。
 	// drain 模式下 503，Caddy 的 passive 检查据此立刻摘除 upstream。
 	// 注意：body 不带 in_flight 数；那是内部状态，由 /health/inflight 提供，
@@ -18,6 +22,10 @@ func RegisterCommonRoutes(r *gin.Engine) {
 	r.GET("/health", func(c *gin.Context) {
 		if middleware.IsDraining() {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "draining"})
+			return
+		}
+		if !protocolRoutingReady {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})

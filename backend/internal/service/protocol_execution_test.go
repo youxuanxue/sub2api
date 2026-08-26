@@ -29,8 +29,122 @@ func protocolExecutorsForTest(plan protocolrouter.Plan, execute ProtocolExecutio
 		executors.ResponsesToChat = execute
 	case protocolrouter.AdapterResponsesToMessages:
 		executors.ResponsesToMessages = execute
+	case protocolrouter.AdapterMessagesToGemini:
+		executors.MessagesToGemini = execute
+	case protocolrouter.AdapterChatToGemini:
+		executors.ChatToGemini = execute
+	case protocolrouter.AdapterResponsesToGemini:
+		executors.ResponsesToGemini = execute
+	case protocolrouter.AdapterGeminiIdentity:
+		executors.GeminiIdentity = execute
 	}
 	return executors
+}
+
+func TestExecuteGeminiProtocolProfileUsesOnlyPlannedProfile(t *testing.T) {
+	tests := []struct {
+		name            string
+		profile         protocolrouter.GeminiEndpointProfile
+		wantAntigravity int
+		wantVertex      int
+		wantValue       string
+	}{
+		{name: "antigravity", profile: protocolrouter.GeminiEndpointAntigravityCloudCode, wantAntigravity: 1, wantValue: "ag"},
+		{name: "vertex", profile: protocolrouter.GeminiEndpointVertexServiceAccount, wantVertex: 1, wantValue: "vertex"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			antigravityCalls := 0
+			vertexCalls := 0
+			value, err := ExecuteGeminiProtocolProfile(
+				tt.profile,
+				func() (any, error) {
+					antigravityCalls++
+					return "ag", nil
+				},
+				func() (any, error) {
+					vertexCalls++
+					return "vertex", nil
+				},
+			)
+			if err != nil {
+				t.Fatalf("ExecuteGeminiProtocolProfile: %v", err)
+			}
+			if antigravityCalls != tt.wantAntigravity || vertexCalls != tt.wantVertex || value != tt.wantValue {
+				t.Fatalf("calls/value = antigravity:%d vertex:%d value:%v", antigravityCalls, vertexCalls, value)
+			}
+		})
+	}
+}
+
+func TestExecuteGeminiProtocolProfileRejectsUnknownBeforeTransport(t *testing.T) {
+	calls := 0
+	transport := func() (any, error) {
+		calls++
+		return nil, nil
+	}
+	_, err := ExecuteGeminiProtocolProfile(protocolrouter.GeminiEndpointNone, transport, transport)
+	if !errors.Is(err, ErrProtocolRouteUnavailable) {
+		t.Fatalf("error = %v, want ErrProtocolRouteUnavailable", err)
+	}
+	if calls != 0 {
+		t.Fatalf("transport calls = %d, want 0", calls)
+	}
+}
+
+func TestProtocolExecutionRouterInvokesGeminiIdentityExecutor(t *testing.T) {
+	router := NewProtocolRouter()
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolGeminiGenerateContent,
+		RequestedModel:  "client-model",
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+	account := &Account{
+		ID:       501,
+		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token":  "secret",
+			"project_id":    "project-a",
+			"model_mapping": map[string]any{"client-model": "gemini-2.5-pro"},
+		},
+		Extra: map[string]any{SupportedProtocolsExtraKey: []any{"gemini_generate_content"}},
+	}
+	snapshot, err := protocolAccountSnapshotForRequest(account, request)
+	if err != nil {
+		t.Fatalf("protocolAccountSnapshotForRequest: %v", err)
+	}
+	plan, err := router.Plan(request, snapshot)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	calls := 0
+	ctx := WithProtocolExecutors(context.Background(), ProtocolExecutors{
+		GeminiIdentity: func(_ context.Context, gotPlan protocolrouter.Plan, gotRequest protocolrouter.CanonicalRequest) (any, error) {
+			calls++
+			if gotPlan.GeminiProfile() != protocolrouter.GeminiEndpointAntigravityCloudCode {
+				t.Fatalf("profile = %q", gotPlan.GeminiProfile())
+			}
+			if gotRequest.Digest() != request.Digest() {
+				t.Fatal("executor received different request")
+			}
+			return "sent", nil
+		},
+	})
+	ctx = protocolrouter.WithExecutionAccountState(ctx, protocolrouter.ExecutionAccountState{
+		AccountID: snapshot.AccountID(), Revision: snapshot.Revision(), CredentialPresent: true,
+	})
+	result, err := router.Execute(ctx, plan, request)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if calls != 1 || result.Value != "sent" {
+		t.Fatalf("calls/result = %d/%v", calls, result.Value)
+	}
 }
 
 func TestProtocolExecutionRouterInvokesOnlyPlannedAdapterExecutor(t *testing.T) {
@@ -130,6 +244,36 @@ func TestForwardResultFromOpenAIPreservesRouteBillingFacts(t *testing.T) {
 	}
 	if got.ReasoningEffort != &effort || got.ServiceTier != &tier || got.ImageCount != 1 || got.SearchCount != 2 ||
 		!got.UpstreamResponseModelConflict || !got.Stream || got.FirstTokenMs == nil || *got.FirstTokenMs != 9 {
+		t.Fatalf("converted route facts = %#v", got)
+	}
+}
+
+func TestOpenAIForwardResultFromForwardPreservesRouteBillingFacts(t *testing.T) {
+	effort := "high"
+	tier := "priority"
+	got := OpenAIForwardResultFromForward(&ForwardResult{
+		RequestID:                     "req_gemini",
+		Usage:                         ClaudeUsage{InputTokens: 13, OutputTokens: 8, CacheCreationInputTokens: 3, CacheReadInputTokens: 5, ImageOutputTokens: 21},
+		Model:                         "client-model",
+		UpstreamModel:                 "wire-model",
+		UpstreamResponseModel:         "wire-response-model",
+		UpstreamResponseModelConflict: true,
+		Stream:                        true,
+		FirstTokenMs:                  func() *int { value := 12; return &value }(),
+		ReasoningEffort:               &effort,
+		ServiceTier:                   &tier,
+		ImageCount:                    2,
+		SearchCount:                   4,
+	})
+	if got == nil || got.RequestID != "req_gemini" || got.Model != "client-model" || got.UpstreamModel != "wire-model" {
+		t.Fatalf("converted result identity = %#v", got)
+	}
+	if got.Usage.InputTokens != 13 || got.Usage.OutputTokens != 8 || got.Usage.CacheCreationInputTokens != 3 ||
+		got.Usage.CacheReadInputTokens != 5 || got.Usage.ImageOutputTokens != 21 {
+		t.Fatalf("converted usage = %#v", got.Usage)
+	}
+	if got.ReasoningEffort != &effort || got.ServiceTier != &tier || got.ImageCount != 2 || got.SearchCount != 4 ||
+		!got.UpstreamResponseModelConflict || !got.Stream || got.FirstTokenMs == nil || *got.FirstTokenMs != 12 {
 		t.Fatalf("converted route facts = %#v", got)
 	}
 }

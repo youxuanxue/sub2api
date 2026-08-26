@@ -961,6 +961,22 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						openAIResult, forwardErr := h.openAIGatewayService.ForwardAsAnthropicDispatched(executionCtx, c, account, attemptBody, "", channelMapping.MappedModel)
 						return service.ForwardResultFromOpenAI(openAIResult), forwardErr
 					},
+					MessagesToGemini: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						_, attemptBody, prepareErr := prepareGatewayMessagesExecution(c, h.gatewayService, account, apiKey.GroupID, attemptParsedReq, channelMapping, request)
+						if prepareErr != nil {
+							return nil, prepareErr
+						}
+						setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+						return service.ExecuteGeminiProtocolProfile(
+							plan.GeminiProfile(),
+							func() (*service.ForwardResult, error) {
+								return h.antigravityGatewayService.Forward(executionCtx, c, account, attemptBody, hasBoundSession)
+							},
+							func() (*service.ForwardResult, error) {
+								return h.geminiCompatService.Forward(executionCtx, c, account, attemptBody)
+							},
+						)
+					},
 				},
 			)
 			err = executeErr

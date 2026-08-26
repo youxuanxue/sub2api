@@ -371,6 +371,22 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
 					return h.gatewayService.ForwardAsResponses(executionCtx, c, account, forwardBody, parsedReq)
 				},
+				ResponsesToGemini: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					forwardBody := request.Body()
+					if channelMapping.Mapped {
+						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
+					}
+					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+					return service.ExecuteGeminiProtocolProfile(
+						plan.GeminiProfile(),
+						func() (*service.ForwardResult, error) {
+							return h.antigravityGatewayService.ForwardAsResponses(executionCtx, c, account, forwardBody, parsedReq)
+						},
+						func() (*service.ForwardResult, error) {
+							return h.geminiCompatService.ForwardAsResponses(executionCtx, c, account, forwardBody)
+						},
+					)
+				},
 			},
 		)
 		err = executeErr

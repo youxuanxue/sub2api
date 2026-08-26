@@ -10,6 +10,8 @@ from pathlib import Path
 
 
 OWNER_FILES = (
+    "backend/internal/engine/protocolrouter/protocol.go",
+    "backend/internal/engine/protocolrouter/account.go",
     "backend/internal/engine/protocolrouter/router.go",
     "backend/internal/engine/protocolrouter/registry.go",
     "backend/internal/engine/protocolrouter/router_test.go",
@@ -17,6 +19,7 @@ OWNER_FILES = (
     "backend/internal/service/account_supported_protocols.go",
     "backend/internal/service/account_supported_protocols_test.go",
     "backend/internal/service/protocol_capability_probe.go",
+    "backend/internal/service/protocol_capability_probe_gemini.go",
     "backend/internal/service/protocol_capability_probe_test.go",
     "backend/internal/service/protocol_routing_migration.go",
     "backend/internal/service/protocol_routing_migration_test.go",
@@ -29,9 +32,16 @@ OWNER_FILES = (
     "backend/internal/service/wire.go",
     "backend/internal/handler/protocol_request.go",
     "backend/internal/handler/protocol_request_test.go",
+    "backend/internal/handler/openai_gemini_protocol_execution.go",
+    "backend/internal/handler/openai_gemini_protocol_execution_test.go",
     "backend/internal/handler/wire.go",
+    "backend/internal/handler/wire_protocol_ssot_tk.go",
     "backend/internal/handler/openai_gateway_count_tokens.go",
+    "backend/internal/handler/gemini_v1beta_handler.go",
     "backend/internal/handler/admin/account_handler.go",
+    "backend/internal/server/router.go",
+    "backend/internal/server/routes/common.go",
+    "backend/internal/server/routes/common_health_test.go",
 )
 
 GOVERNED_HANDLERS = (
@@ -40,7 +50,20 @@ GOVERNED_HANDLERS = (
     "backend/internal/handler/gateway_handler_responses.go",
     "backend/internal/handler/openai_gateway_handler.go",
     "backend/internal/handler/openai_chat_completions.go",
+    "backend/internal/handler/gemini_v1beta_handler.go",
 )
+
+HANDLER_GEMINI_EXECUTORS = {
+    "backend/internal/handler/gateway_handler.go": ("MessagesToGemini",),
+    "backend/internal/handler/gateway_handler_chat_completions.go": ("ChatToGemini",),
+    "backend/internal/handler/gateway_handler_responses.go": ("ResponsesToGemini",),
+    "backend/internal/handler/openai_gateway_handler.go": (
+        "MessagesToGemini",
+        "ResponsesToGemini",
+    ),
+    "backend/internal/handler/openai_chat_completions.go": ("ChatToGemini",),
+    "backend/internal/handler/gemini_v1beta_handler.go": ("GeminiIdentity",),
+}
 
 CONCRETE_ADAPTERS = (
     "messagesIdentityAdapter",
@@ -52,6 +75,10 @@ CONCRETE_ADAPTERS = (
     "responsesIdentityAdapter",
     "responsesToChatAdapter",
     "responsesToMessagesAdapter",
+    "messagesToGeminiAdapter",
+    "chatToGeminiAdapter",
+    "responsesToGeminiAdapter",
+    "geminiIdentityAdapter",
 )
 
 LEGACY_ROUTE_SYMBOLS = (
@@ -228,6 +255,9 @@ def check(root: Path) -> list[str]:
         for required in ("WithProtocolRouting", "ExecuteSelectedProtocol"):
             if not contains_identifier(source, required):
                 errors.append(f"{relative}: missing {required} execution boundary")
+        for required in HANDLER_GEMINI_EXECUTORS.get(relative, ()):
+            if not contains_identifier(source, required):
+                errors.append(f"{relative}: missing governed Gemini executor {required}")
         for forbidden in LEGACY_ROUTE_SYMBOLS:
             if contains_identifier(source, forbidden):
                 errors.append(f"{relative}: handler route decision uses legacy symbol {forbidden}")
@@ -245,6 +275,12 @@ def check(root: Path) -> list[str]:
             errors.append(f"{relative}: executor does not consume canonical request.Body")
         if re.search(r"\bTargetProtocol\s*\(", source):
             errors.append(f"{relative}: handler performs a second TargetProtocol route decision")
+        for profile in (
+            "GeminiEndpointAntigravityCloudCode",
+            "GeminiEndpointVertexServiceAccount",
+        ):
+            if contains_identifier(source, profile):
+                errors.append(f"{relative}: handler selects Gemini endpoint profile {profile}")
         for pattern in FORWARD_BOUNDARIES.get(relative, ()):
             for match in re.finditer(pattern, source):
                 if not inside_any_span(match.start(), execute_spans):
@@ -262,6 +298,22 @@ def check(root: Path) -> list[str]:
             if not contains_identifier(source, required):
                 errors.append(f"{relative}: missing selected-plan guard {required}")
 
+    protocol_owner = root / "backend/internal/engine/protocolrouter/protocol.go"
+    if protocol_owner.is_file():
+        source = strip_go_comments_and_literals(protocol_owner.read_text(encoding="utf-8"))
+        if not contains_identifier(source, "ProtocolGeminiGenerateContent"):
+            errors.append("protocol registry is missing ProtocolGeminiGenerateContent")
+
+    protocol_account_owner = root / "backend/internal/engine/protocolrouter/account.go"
+    if protocol_account_owner.is_file():
+        source = strip_go_comments_and_literals(protocol_account_owner.read_text(encoding="utf-8"))
+        for required in (
+            "GeminiEndpointAntigravityCloudCode",
+            "GeminiEndpointVertexServiceAccount",
+        ):
+            if not contains_identifier(source, required):
+                errors.append(f"protocol account profile owner is missing {required}")
+
     canonical_owner = root / "backend/internal/service/account_supported_protocols.go"
     if canonical_owner.is_file():
         source = strip_go_comments_and_literals(canonical_owner.read_text(encoding="utf-8"))
@@ -272,6 +324,9 @@ def check(root: Path) -> list[str]:
             "BuildSupportedProtocolsUpdate",
             "ReplaceSupportedProtocols",
             "SeedOfficialSupportedProtocols",
+            "GeminiEndpointAntigravityCloudCode",
+            "GeminiEndpointVertexServiceAccount",
+            "IsNewAPIVertexServiceAccount",
         ):
             if not contains_identifier(source, required):
                 errors.append(f"canonical capability owner is missing {required}")
@@ -282,6 +337,8 @@ def check(root: Path) -> list[str]:
         for adapter in CONCRETE_ADAPTERS:
             if not contains_identifier(source, adapter):
                 errors.append(f"protocol execution owner is missing concrete adapter {adapter}")
+        if not contains_identifier(source, "ExecuteGeminiProtocolProfile"):
+            errors.append("protocol execution owner is missing Gemini profile dispatch")
         for forbidden in ("requestScopedProtocolAdapter", "WithProtocolExecution"):
             if contains_identifier(source, forbidden):
                 errors.append(f"protocol execution owner contains generic protocol adapter {forbidden}")
@@ -336,15 +393,41 @@ def check(root: Path) -> list[str]:
     probe_owner = root / "backend/internal/service/protocol_capability_probe.go"
     if probe_owner.is_file():
         source = strip_go_comments_and_literals(probe_owner.read_text(encoding="utf-8"))
-        bodies = function_bodies(source, "ProbeAccountProtocolCapabilities")
-        if not bodies:
+        dispatch_bodies = function_bodies(source, "probeProtocolCapability")
+        if not dispatch_bodies or not all(
+            contains_identifier(body, "ProtocolGeminiGenerateContent")
+            and contains_identifier(body, "probeGeminiGenerateContentSupport")
+            for body in dispatch_bodies
+        ):
+            errors.append("protocol capability owner is missing Gemini probe dispatch")
+        legacy_bodies = function_bodies(source, "ProbeAccountProtocolCapabilities")
+        result_bodies = function_bodies(source, "ProbeAccountProtocolCapabilitiesNow")
+        if not legacy_bodies:
             errors.append("protocol capability owner is missing aggregate account probe job")
+        if result_bodies:
+            for body in legacy_bodies:
+                if len(call_spans(body, "ProbeAccountProtocolCapabilitiesNow")) != 1:
+                    errors.append("legacy account probe wrapper must delegate to the result-returning aggregate job exactly once")
+            bodies = result_bodies
+        else:
+            bodies = legacy_bodies
         for body in bodies:
             for required in ("ProtocolProbeCandidates", "protocolProbeCoordinator", "probeProtocolCapability"):
                 if not contains_identifier(body, required):
                     errors.append(f"aggregate account probe job is missing {required}")
             if len(call_spans(body, "PersistProtocolProbeVerdicts")) != 1:
                 errors.append("aggregate account probe job must persist the complete candidate set exactly once")
+
+    gemini_probe_owner = root / "backend/internal/service/protocol_capability_probe_gemini.go"
+    if gemini_probe_owner.is_file():
+        raw_source = gemini_probe_owner.read_text(encoding="utf-8")
+        source = strip_go_comments_and_literals(raw_source)
+        for required in ("classifyGeminiProtocolProbe", "probeGeminiGenerateContentSupport"):
+            if not contains_identifier(source, required):
+                errors.append(f"Gemini protocol probe owner is missing {required}")
+        for reason in ("METHOD_NOT_SUPPORTED", "UNSUPPORTED_METHOD"):
+            if reason not in raw_source:
+                errors.append(f"Gemini protocol probe owner is missing explicit method reason {reason}")
 
     service_wire = root / "backend/internal/service/wire.go"
     if service_wire.is_file():
@@ -356,10 +439,16 @@ def check(root: Path) -> list[str]:
         ):
             errors.append("protocol routing startup preparation skips probe and revalidation")
         ready_builders = function_bodies(source, "newProtocolRoutingSSOTReady")
-        if not ready_builders or not all(
-            contains_identifier(body, "CutoverReady") for body in ready_builders
+        if not ready_builders or not all(contains_identifier(body, "router") for body in ready_builders):
+            errors.append("protocol routing readiness builder does not retain the router")
+        for body in ready_builders:
+            if re.search(r"\brouter\s*=\s*nil\b", body) or re.search(r"\brouter\s*:\s*nil\b", body):
+                errors.append("protocol routing readiness must not disable the router")
+        ready_accessors = function_bodies(source, "Ready")
+        if not ready_accessors or not all(
+            contains_identifier(body, "CutoverReady") for body in ready_accessors
         ):
-            errors.append("protocol routing startup readiness is not gated by CutoverReady")
+            errors.append("protocol routing Ready accessor is not gated by CutoverReady")
 
     handler_wire = root / "backend/internal/handler/wire.go"
     if handler_wire.is_file():
@@ -372,6 +461,44 @@ def check(root: Path) -> list[str]:
                 for definition in definitions
             ):
                 errors.append(f"{provider} bypasses protocol routing cutover readiness")
+        if not contains_identifier(source, "ProvideProtocolRoutedOpenAIGatewayHandler"):
+            errors.append("OpenAI protocol companion is not registered in the handler provider set")
+
+    protocol_handler_wire = root / "backend/internal/handler/wire_protocol_ssot_tk.go"
+    if protocol_handler_wire.is_file():
+        source = strip_go_comments_and_literals(protocol_handler_wire.read_text(encoding="utf-8"))
+        definitions = function_definitions(source, "ProvideProtocolRoutedOpenAIGatewayHandler")
+        if not definitions or not all(
+            contains_identifier(definition, "ProtocolRoutingSSOTReady")
+            and contains_identifier(definition, "ProvideOpenAIGatewayHandler")
+            and contains_identifier(definition, "SetGeminiProtocolServices")
+            for definition in definitions
+        ):
+            errors.append("OpenAI companion bypasses routing readiness or Gemini protocol services")
+    else:
+        errors.append("OpenAI Gemini protocol services lack a companion wiring owner")
+
+    server_router = root / "backend/internal/server/router.go"
+    if server_router.is_file():
+        source = strip_go_comments_and_literals(server_router.read_text(encoding="utf-8"))
+        route_bodies = function_bodies(source, "registerRoutes")
+        if not route_bodies or not all(
+            contains_identifier(body, "RegisterCommonRoutes")
+            and contains_identifier(body, "Ready")
+            for body in route_bodies
+        ):
+            errors.append("server router does not pass protocol readiness to common health routes")
+
+    common_routes = root / "backend/internal/server/routes/common.go"
+    if common_routes.is_file():
+        source = strip_go_comments_and_literals(common_routes.read_text(encoding="utf-8"))
+        route_bodies = function_bodies(source, "RegisterCommonRoutes")
+        if not route_bodies or not all(
+            re.search(r"!\s*protocol(?:Routing)?Ready\b", body)
+            and contains_identifier(body, "StatusServiceUnavailable")
+            for body in route_bodies
+        ):
+            errors.append("common health readiness gate is missing protocol readiness enforcement")
 
     count_tokens = root / "backend/internal/handler/openai_gateway_count_tokens.go"
     if count_tokens.is_file():

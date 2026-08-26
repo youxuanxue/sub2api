@@ -42,14 +42,15 @@ type ProtocolRoutingSSOTReady struct {
 }
 
 func newProtocolRoutingSSOTReady(report ProtocolRoutingMigrationReport, router *protocolrouter.Router) ProtocolRoutingSSOTReady {
-	if !report.CutoverReady {
-		router = nil
-	}
 	return ProtocolRoutingSSOTReady{Report: report, router: router}
 }
 
 func (r ProtocolRoutingSSOTReady) EnabledRouter() *protocolrouter.Router {
 	return r.router
+}
+
+func (r ProtocolRoutingSSOTReady) Ready() bool {
+	return r.Report.CutoverReady
 }
 
 func ProvideProtocolRoutingSSOTReady(accountRepo AccountRepository, accountTestService *AccountTestService, router *protocolrouter.Router) ProtocolRoutingSSOTReady {

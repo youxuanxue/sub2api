@@ -14,6 +14,16 @@ var officialEndpointBases = map[OfficialEndpointProfile]string{
 }
 
 func resolveEndpoint(account AccountSnapshot, target Protocol, responsesPath ResponsesPathKind) (string, error) {
+	if target == ProtocolGeminiGenerateContent {
+		if !account.geminiProfile.Valid() {
+			return "", errors.New("gemini endpoint profile is required")
+		}
+		endpoint := account.exactEndpoints[target]
+		if endpoint == "" {
+			return "", errors.New("exact Gemini endpoint is required")
+		}
+		return validateExactEndpoint(endpoint)
+	}
 	if endpoint := account.exactEndpoints[target]; endpoint != "" {
 		return validateExactEndpoint(endpoint)
 	}
@@ -103,6 +113,8 @@ func protocolEndpointPath(target Protocol, responsesPath ResponsesPathKind) (str
 		default:
 			return "", fmt.Errorf("unsupported responses path %q", responsesPath)
 		}
+	case ProtocolGeminiGenerateContent:
+		return "", errors.New("gemini endpoint requires a typed exact profile")
 	default:
 		return "", fmt.Errorf("unsupported target protocol %q", target)
 	}

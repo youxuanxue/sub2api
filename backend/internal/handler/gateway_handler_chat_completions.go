@@ -343,6 +343,22 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
 					return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
 				},
+				ChatToGemini: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					forwardBody := request.Body()
+					if channelMapping.Mapped {
+						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
+					}
+					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+					return service.ExecuteGeminiProtocolProfile(
+						plan.GeminiProfile(),
+						func() (*service.ForwardResult, error) {
+							return h.antigravityGatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
+						},
+						func() (*service.ForwardResult, error) {
+							return h.geminiCompatService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody)
+						},
+					)
+				},
 			},
 		)
 		err = executeErr

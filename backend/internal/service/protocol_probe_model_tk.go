@@ -12,14 +12,14 @@ import (
 // selectProtocolProbeModel selects one deterministic representative text model
 // shared by Chat Completions, Responses, and Messages capability probes.
 func selectProtocolProbeModel(account *Account) string {
-	if account == nil || protocolRoutingAccountIsMediaOnly(account) {
+	if account == nil || protocolRoutingAccountHasNoTextModels(account) {
 		return openai.DefaultTestModel
 	}
 	mapping := account.GetModelMapping()
 	candidates := make([]string, 0, len(mapping))
 	for _, upstream := range mapping {
 		upstream = strings.TrimSpace(upstream)
-		if upstream == "" || strings.Contains(upstream, "*") || protocolProbeModelIsMedia(upstream) {
+		if upstream == "" || strings.Contains(upstream, "*") || protocolProbeModelIsNonText(upstream) {
 			continue
 		}
 		candidates = append(candidates, upstream)
@@ -38,7 +38,7 @@ func selectProtocolProbeModel(account *Account) string {
 	return candidates[0]
 }
 
-func protocolRoutingAccountIsMediaOnly(account *Account) bool {
+func protocolRoutingAccountHasNoTextModels(account *Account) bool {
 	if account == nil {
 		return false
 	}
@@ -56,11 +56,36 @@ func protocolRoutingAccountIsMediaOnly(account *Account) bool {
 			continue
 		}
 		declared++
-		if !protocolProbeModelIsMedia(model) {
+		if !protocolProbeModelIsNonText(model) {
 			return false
 		}
 	}
 	return declared > 0
+}
+
+// protocolProbeModelIsNonText excludes models whose canonical runtime catalog
+// mode belongs to another endpoint family. The active pricing registry is the
+// model-modality SSOT; conservative name checks cover private upstream IDs that
+// are not present in that registry yet.
+func protocolProbeModelIsNonText(model string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	if normalized == "" {
+		return false
+	}
+	if snapshot := loadTKPricingOverlaySnapshot(); snapshot != nil {
+		if pricing := snapshot.Models[normalized]; pricing != nil {
+			switch strings.ToLower(strings.TrimSpace(pricing.Mode)) {
+			case "embedding", "image", "video", "audio", "rerank":
+				return true
+			}
+		}
+	}
+	return protocolProbeModelIsMedia(normalized) ||
+		strings.Contains(normalized, "embedding") ||
+		strings.Contains(normalized, "rerank") ||
+		strings.HasPrefix(normalized, "bge-") ||
+		strings.HasPrefix(normalized, "tts-") ||
+		strings.HasPrefix(normalized, "whisper-")
 }
 
 func protocolProbeModelIsMedia(model string) bool {

@@ -259,6 +259,20 @@ export async function refreshCredentials(id: number): Promise<Account> {
   return data
 }
 
+export type ProtocolProbeOutcome = 'updated' | 'unchanged' | 'not_applicable'
+
+export interface ProtocolProbeResult {
+	account: Account
+	outcome: ProtocolProbeOutcome
+	reason?: string
+}
+
+/** Re-probe one account's native text protocol capabilities. */
+export async function probeProtocols(id: number): Promise<ProtocolProbeResult> {
+	const { data } = await apiClient.post<ProtocolProbeResult>(`/admin/accounts/${id}/protocol-probe`)
+	return data
+}
+
 /**
  * Apply OAuth credentials after re-authorization.
  *
@@ -1066,6 +1080,7 @@ export const accountsAPI = {
   toggleStatus,
   testAccount,
   refreshCredentials,
+  probeProtocols,
   applyOAuthCredentials,
   applyAccountTier,
   getStats,

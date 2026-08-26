@@ -439,6 +439,7 @@ func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestF
 			if err != nil {
 				return nil, "", err
 			}
+			fullURL = protocolExecutionURL(ctx, fullURL)
 
 			restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
 			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))

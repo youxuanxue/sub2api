@@ -46,21 +46,23 @@ type Plan struct {
 	adapterID       RouteAdapterID
 	transport       TransportID
 	routeKind       RouteKind
+	geminiProfile   GeminiEndpointProfile
 	reason          string
 }
 
-func (p Plan) AccountID() int64                 { return p.accountID }
-func (p Plan) AccountRevision() string          { return p.accountRevision }
-func (p Plan) RequestDigest() RequestDigest     { return p.requestDigest }
-func (p Plan) ResolvedModel() string            { return p.resolvedModel }
-func (p Plan) InboundProtocol() Protocol        { return p.inboundProtocol }
-func (p Plan) TargetProtocol() Protocol         { return p.targetProtocol }
-func (p Plan) ResponsesPath() ResponsesPathKind { return p.responsesPath }
-func (p Plan) Endpoint() string                 { return p.endpoint }
-func (p Plan) AdapterID() RouteAdapterID        { return p.adapterID }
-func (p Plan) Transport() TransportID           { return p.transport }
-func (p Plan) RouteKind() RouteKind             { return p.routeKind }
-func (p Plan) Reason() string                   { return p.reason }
+func (p Plan) AccountID() int64                     { return p.accountID }
+func (p Plan) AccountRevision() string              { return p.accountRevision }
+func (p Plan) RequestDigest() RequestDigest         { return p.requestDigest }
+func (p Plan) ResolvedModel() string                { return p.resolvedModel }
+func (p Plan) InboundProtocol() Protocol            { return p.inboundProtocol }
+func (p Plan) TargetProtocol() Protocol             { return p.targetProtocol }
+func (p Plan) ResponsesPath() ResponsesPathKind     { return p.responsesPath }
+func (p Plan) Endpoint() string                     { return p.endpoint }
+func (p Plan) AdapterID() RouteAdapterID            { return p.adapterID }
+func (p Plan) Transport() TransportID               { return p.transport }
+func (p Plan) RouteKind() RouteKind                 { return p.routeKind }
+func (p Plan) Reason() string                       { return p.reason }
+func (p Plan) GeminiProfile() GeminiEndpointProfile { return p.geminiProfile }
 
 func (r *Router) Plan(request CanonicalRequest, account AccountSnapshot) (Plan, error) {
 	if r == nil {
@@ -108,6 +110,7 @@ func (r *Router) Plan(request CanonicalRequest, account AccountSnapshot) (Plan, 
 			adapterID:       route.adapterID,
 			transport:       route.transport,
 			routeKind:       route.kind,
+			geminiProfile:   account.geminiProfile,
 			reason:          string(route.kind),
 		}, nil
 	}
