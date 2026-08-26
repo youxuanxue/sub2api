@@ -134,6 +134,10 @@ _preflight_skip_slow_ops=0
 case "${PREFLIGHT_SKIP_SLOW_OPS_CONTRACTS:-}" in
     1|true|yes|TRUE|YES) _preflight_skip_slow_ops=1 ;;
 esac
+_preflight_skip_go_contracts=0
+case "${PREFLIGHT_SKIP_GO_CONTRACTS:-}" in
+    1|true|yes|TRUE|YES) _preflight_skip_go_contracts=1 ;;
+esac
 _preflight_skip_main_ancestry=0
 case "${PREFLIGHT_SKIP_MAIN_ANCESTRY:-}" in
     1|true|yes|TRUE|YES) _preflight_skip_main_ancestry=1 ;;
@@ -229,7 +233,7 @@ export PREFLIGHT_BASE="${template_base:-origin/main}"
 _qa_bundle_gate_run() {
     cd backend && go test -tags=unit -v ./internal/observability/qa/bundle ./internal/observability/qa
 }
-if [ "$_preflight_skip_slow_ops" -ne 1 ] && command -v python3 >/dev/null 2>&1 && command -v go >/dev/null 2>&1; then
+if [ "$_preflight_skip_go_contracts" -ne 1 ] && [ "$_preflight_skip_slow_ops" -ne 1 ] && command -v python3 >/dev/null 2>&1 && command -v go >/dev/null 2>&1; then
     _bg_spawn qa_bundle _qa_bundle_gate_run
 fi
 if command -v python3 >/dev/null 2>&1; then
@@ -802,7 +806,9 @@ fi
 # model list.
 echo ""
 echo "=== sub2api: generated model-surface bundle drift ==="
-if ! command -v go >/dev/null 2>&1; then
+if [ "$_preflight_skip_go_contracts" -eq 1 ]; then
+    echo "  skip: unchanged Go preflight surface"
+elif ! command -v go >/dev/null 2>&1; then
     echo "  FAIL: go not on PATH (required for model-surface bundle drift check)"
     errors=$((errors + 1))
 elif ! (cd backend && go run ./cmd/account-model-mapping bundle --check ../ops/pricing/model-surface-bundle.json); then
@@ -818,7 +824,9 @@ fi
 # classification owner so alert grouping cannot drift into a second rule set.
 echo ""
 echo "=== sub2api: model-family alert artifact drift ==="
-if ! command -v go >/dev/null 2>&1; then
+if [ "$_preflight_skip_go_contracts" -eq 1 ]; then
+    echo "  skip: unchanged Go preflight surface"
+elif ! command -v go >/dev/null 2>&1; then
     echo "  FAIL: go not on PATH (required for model-family artifact drift check)"
     errors=$((errors + 1))
 elif ! bash ./scripts/sentinels/check-model-family-rules.sh; then
@@ -1379,7 +1387,9 @@ fi
 # authorization test in verbose output so a rename/deletion cannot pass vacuously.
 echo ""
 echo "=== sub2api: QA Bundle service/worker contract ==="
-if [ "$_preflight_skip_slow_ops" -eq 1 ]; then
+if [ "$_preflight_skip_go_contracts" -eq 1 ]; then
+    echo "  skip: unchanged Go preflight surface"
+elif [ "$_preflight_skip_slow_ops" -eq 1 ]; then
     echo "  skip: unchanged CI surface; required preflight gate not needed"
 elif ! command -v go >/dev/null 2>&1; then
     echo "  FAIL: go not on PATH (required to run QA Bundle contract tests)"
@@ -3080,7 +3090,9 @@ echo "=== sub2api: Wire DI staleness ==="
 _wire_gen="backend/cmd/server/wire_gen.go"
 _backend_go_version="$(awk '/^go / { print $2; exit }' backend/go.mod 2>/dev/null)"
 _backend_go_toolchain="go${_backend_go_version}"
-if [ ! -f "$_wire_gen" ]; then
+if [ "$_preflight_skip_go_contracts" -eq 1 ]; then
+    echo "  skip: unchanged Go preflight surface"
+elif [ ! -f "$_wire_gen" ]; then
     echo "  FAIL: $_wire_gen does not exist — run 'go generate ./cmd/server' in backend/"
     errors=$((errors + 1))
 elif ! command -v git >/dev/null 2>&1; then
@@ -3122,7 +3134,9 @@ if has_merge_base_with_head "${PREFLIGHT_BASE:-origin/main}" && \
    git diff --name-only "${PREFLIGHT_BASE:-origin/main}...HEAD" 2>/dev/null | grep -q '^backend/ent/schema/'; then
     _ent_schema_changed=1
 fi
-if ! command -v go >/dev/null 2>&1; then
+if [ "$_preflight_skip_go_contracts" -eq 1 ]; then
+    echo "  skip: unchanged Go preflight surface"
+elif ! command -v go >/dev/null 2>&1; then
     echo "  skip: go not on PATH"
 elif [ "$_preflight_fast" = "1" ] && [ "$_ent_schema_changed" = "0" ]; then
     echo "  skip: Ent generation staleness (preflight-fast; no backend/ent/schema changes)"
@@ -3163,7 +3177,9 @@ fi
 echo ""
 echo "=== sub2api: go.mod replace path validation ==="
 _replace_path=$(grep 'QuantumNous/new-api =>' backend/go.mod 2>/dev/null | awk '{print $NF}')
-if [ -z "$_replace_path" ]; then
+if [ "$_preflight_skip_go_contracts" -eq 1 ]; then
+    echo "  skip: unchanged Go preflight surface"
+elif [ -z "$_replace_path" ]; then
     echo "  skip: no QuantumNous/new-api replace directive found in backend/go.mod"
 else
     _resolved_path="backend/$_replace_path"

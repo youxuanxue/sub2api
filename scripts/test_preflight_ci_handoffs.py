@@ -29,6 +29,17 @@ class PreflightCIHandoffTest(unittest.TestCase):
         self.assertIn("needs.changes.outputs.ops", skip_expression)
         self.assertIn("needs.changes.outputs.all", skip_expression)
 
+    def test_required_preflight_skips_go_contracts_when_go_surface_is_unchanged(self) -> None:
+        workflow = load_workflow(BACKEND_CI)
+        preflight = workflow["jobs"]["preflight"]
+        run_preflight = next(
+            step for step in preflight["steps"] if step.get("name") == "Run preflight"
+        )
+        self.assertEqual(
+            run_preflight["env"]["PREFLIGHT_SKIP_GO_CONTRACTS"],
+            "${{ needs.changes.outputs.preflight_go != 'true' && '1' || '0' }}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

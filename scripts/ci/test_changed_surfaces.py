@@ -28,6 +28,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "preflight_go": True,
                 "service_unit_cold": True,
                 "all": False,
             },
@@ -42,6 +43,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "preflight_go": False,
                 "service_unit_cold": False,
                 "all": False,
             },
@@ -56,6 +58,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": True,
                 "ops": False,
                 "contracts": False,
+                "preflight_go": False,
                 "service_unit_cold": False,
                 "all": False,
             },
@@ -70,6 +73,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": True,
+                "preflight_go": True,
                 "service_unit_cold": True,
                 "all": False,
             },
@@ -84,6 +88,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": True,
                 "contracts": False,
+                "preflight_go": True,
                 "service_unit_cold": True,
                 "all": False,
             },
@@ -98,6 +103,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "preflight_go": False,
                 "service_unit_cold": False,
                 "all": False,
             },
@@ -112,6 +118,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "preflight_go": False,
                 "service_unit_cold": False,
                 "all": False,
             },
@@ -131,6 +138,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "preflight_go": True,
                 "service_unit_cold": True,
                 "all": False,
             },
@@ -145,6 +153,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "preflight_go": True,
                 "service_unit_cold": True,
                 "all": False,
             },
@@ -160,6 +169,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "preflight_go": True,
                 "service_unit_cold": False,
                 "all": True,
             },
@@ -175,6 +185,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "preflight_go": True,
                 "service_unit_cold": False,
                 "all": True,
             },
@@ -190,6 +201,7 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "preflight_go": True,
                 "service_unit_cold": False,
                 "all": True,
             },
@@ -204,10 +216,21 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "deploy": False,
                 "ops": False,
                 "contracts": False,
+                "preflight_go": True,
                 "service_unit_cold": False,
                 "all": False,
             },
         )
+
+    def test_go_derived_preflight_contract_changes_enable_go_bootstrap(self) -> None:
+        for path in (
+            "ops/pricing/model-surface-bundle.json",
+            "ops/observability/generated/model-family-rules.json",
+            "scripts/sentinels/check-model-family-rules.sh",
+            "scripts/preflight.sh",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(changed_surfaces.classify([path])["preflight_go"])
 
     def test_unit_runner_and_ci_entrypoints_force_service_cold_path(self) -> None:
         for path in (
