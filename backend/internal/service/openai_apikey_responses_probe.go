@@ -131,10 +131,7 @@ func (s *AccountTestService) probeOpenAIAPIKeyResponsesSupport(
 		return protocolProbeObservation{}, false
 	}
 
-	apiKey := account.GetOpenAIApiKey()
-	if apiKey == "" {
-		apiKey = account.GetOpenAIProtocolAPIKey()
-	}
+	apiKey := protocolProbeAuthToken(account)
 	if apiKey == "" {
 		logger.LegacyPrintf("service.openai_probe", "probe_skip_no_apikey: account_id=%d", accountID)
 		return protocolProbeObservation{}, false
@@ -171,14 +168,10 @@ func (s *AccountTestService) probeOpenAIAPIKeyResponsesSupport(
 		logger.LegacyPrintf("service.openai_probe", "probe_build_request_failed: account_id=%d err=%v", accountID, err)
 		return protocolProbeObservation{}, false
 	}
-	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Accept", "application/json")
-	applyOpenAICodexProbeHeaders(req.Header)
-
-	// 账号级请求头覆写：能力探测与真实转发保持一致的最终头
-	account.ApplyHeaderOverrides(req.Header)
+	req = applyProtocolProbeRequestIdentity(req, account, protocolrouter.ProtocolResponses)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {

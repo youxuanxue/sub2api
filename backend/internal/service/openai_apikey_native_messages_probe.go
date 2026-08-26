@@ -75,15 +75,7 @@ func (s *AccountTestService) probeOpenAIAPIKeyNativeMessagesSupport(
 	_ string,
 ) (protocolProbeObservation, bool) {
 	accountID := account.ID
-	authToken := ""
-	if account.Platform == PlatformAnthropic && account.IsAnthropicOAuthOrSetupToken() {
-		authToken = account.GetCredential("access_token")
-	} else {
-		authToken = account.GetOpenAIProtocolAPIKey()
-		if authToken == "" {
-			authToken = account.GetCredential("api_key")
-		}
-	}
+	authToken := protocolProbeAuthToken(account)
 	if authToken == "" {
 		logger.LegacyPrintf("service.openai_probe", "native_messages_skip_no_auth: account_id=%d", accountID)
 		return protocolProbeObservation{}, false
@@ -110,7 +102,6 @@ func (s *AccountTestService) probeOpenAIAPIKeyNativeMessagesSupport(
 		logger.LegacyPrintf("service.openai_probe", "native_messages_build_request_failed: account_id=%d err=%v", accountID, err)
 		return protocolProbeObservation{}, false
 	}
-	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
 	req.Header.Set("Content-Type", "application/json")
 	if account.Platform == PlatformAnthropic {
 		req.Header.Set("anthropic-version", "2023-06-01")
@@ -124,7 +115,7 @@ func (s *AccountTestService) probeOpenAIAPIKeyNativeMessagesSupport(
 		req.Header.Set("Authorization", "Bearer "+authToken)
 	}
 	req.Header.Set("Accept", "application/json")
-	account.ApplyHeaderOverrides(req.Header)
+	req = applyProtocolProbeRequestIdentity(req, account, protocolrouter.ProtocolMessages)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {

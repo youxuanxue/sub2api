@@ -69,10 +69,7 @@ func (s *AccountTestService) probeOpenAIAPIKeyChatCompletionsSupport(
 	_ string,
 ) (protocolProbeObservation, bool) {
 	accountID := account.ID
-	apiKey := account.GetOpenAIProtocolAPIKey()
-	if apiKey == "" {
-		apiKey = account.GetCredential("api_key")
-	}
+	apiKey := protocolProbeAuthToken(account)
 	if apiKey == "" {
 		logger.LegacyPrintf("service.openai_probe", "chat_completions_skip_no_apikey: account_id=%d", accountID)
 		return protocolProbeObservation{}, false
@@ -108,11 +105,10 @@ func (s *AccountTestService) probeOpenAIAPIKeyChatCompletionsSupport(
 		logger.LegacyPrintf("service.openai_probe", "chat_completions_build_request_failed: account_id=%d err=%v", accountID, err)
 		return protocolProbeObservation{}, false
 	}
-	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Accept", "application/json")
-	account.ApplyHeaderOverrides(req.Header)
+	req = applyProtocolProbeRequestIdentity(req, account, protocolrouter.ProtocolChatCompletions)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {

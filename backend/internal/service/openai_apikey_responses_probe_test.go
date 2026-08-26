@@ -130,6 +130,42 @@ func TestProbeOpenAIAPIKeyResponsesSupportUsesCodexProbeHeaders(t *testing.T) {
 	require.Equal(t, true, updates[openai_compat.ExtraKeyResponsesSupported])
 }
 
+func TestProbeOpenAIAPIKeyResponsesSupportUsesGenericAPIKeyForAnthropicMirror(t *testing.T) {
+	updateCalls := make(chan map[string]any, 1)
+	account := Account{
+		ID:          197,
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "mirror-api-key",
+			"base_url": "https://mirror.example.test/v1",
+		},
+	}
+	repo := &snapshotUpdateAccountRepo{
+		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
+		updateExtraCalls:      updateCalls,
+	}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(`{"status":"completed","output":[{"type":"function_call","name":"probe_ping"}]}`)),
+	}}
+	svc := &AccountTestService{
+		accountRepo:  repo,
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+
+	svc.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), account.ID)
+
+	require.NotNil(t, upstream.lastReq, "Anthropic API-key mirrors must execute a real Responses probe")
+	require.Equal(t, "Bearer mirror-api-key", upstream.lastReq.Header.Get("Authorization"))
+	require.True(t, HTTPUpstreamRedirectsDisabled(upstream.lastReq.Context()))
+	updates := <-updateCalls
+	require.Equal(t, []string{"responses"}, updates[SupportedProtocolsExtraKey])
+}
+
 func TestProbeOpenAIAPIKeyResponsesSupportCNProviders(t *testing.T) {
 	tests := []struct {
 		name     string
