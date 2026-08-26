@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
@@ -497,6 +498,33 @@ func TestBuildSchedulerMetadataAccount_KeepsQuotaAutoPauseFields(t *testing.T) {
 	require.Equal(t, 0.96, got.Extra["auto_pause_7d_threshold"])
 	require.Equal(t, true, got.Extra["auto_pause_5h_disabled"])
 	require.Equal(t, false, got.Extra["auto_pause_7d_disabled"])
+}
+
+func TestSchedulerCacheSnapshotKeepsSupportedProtocolsForRouting(t *testing.T) {
+	account := service.Account{
+		ID:          89,
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeOAuth,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		Extra: map[string]any{
+			service.SupportedProtocolsExtraKey: []any{"responses"},
+			"unrelated":                        "drop-me",
+		},
+	}
+	cache := newSchedulerCacheUnit(t)
+	ctx := context.Background()
+	bucket := service.SchedulerBucket{GroupID: 89, Platform: service.PlatformOpenAI, Mode: service.SchedulerModeSingle}
+	token, err := cache.CaptureBucketWriteToken(ctx, bucket)
+	require.NoError(t, err)
+	require.NoError(t, cache.SetSnapshot(ctx, bucket, token, []service.Account{account}))
+
+	snapshot, hit, err := cache.GetSnapshot(ctx, bucket)
+	require.NoError(t, err)
+	require.True(t, hit)
+	require.Len(t, snapshot, 1)
+	require.Equal(t, []protocolrouter.Protocol{protocolrouter.ProtocolResponses}, snapshot[0].SupportedProtocols())
+	require.NotContains(t, snapshot[0].Extra, "unrelated")
 }
 
 func TestBuildSchedulerMetadataAccount_KeepsQuotaStateForCachedAccounts(t *testing.T) {
