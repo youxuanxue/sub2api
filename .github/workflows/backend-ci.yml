@@ -106,6 +106,7 @@ jobs:
           python3 -m unittest \
             scripts.test_preflight_ci_lint_skip \
             scripts.checks.test_cache_action_runtime \
+            scripts.checks.test_docker_action_runtime \
             scripts.checks.test_release_cache_key_parity \
             scripts.checks.test_go_rolling_cache_policy \
             scripts.test_preflight_ci_handoffs \
