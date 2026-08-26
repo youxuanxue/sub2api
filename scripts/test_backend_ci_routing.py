@@ -188,16 +188,16 @@ class BackendCIRoutingTest(unittest.TestCase):
             unit_step["env"]["UNIT_TEST_SERVICE_SHARD"],
         )
 
-    def test_unit_main_writer_uses_native_path_to_seed_result_cache(self) -> None:
+    def test_unit_main_push_uses_compile_once_shards_when_service_is_cold(self) -> None:
         unit_step = next(
             step
             for step in self.jobs["test-unit"]["steps"]
             if step.get("name") == "Unit tests"
         )
 
-        self.assertIn(
-            "github.event_name != 'push'",
+        self.assertEqual(
             unit_step["env"]["UNIT_TEST_SERVICE_SHARD"],
+            "${{ needs.changes.outputs.service_unit_cold == 'true' && '1' || '0' }}",
         )
 
     def test_lint_uses_rolling_analysis_cache_instead_of_action_cache(self) -> None:

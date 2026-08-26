@@ -232,7 +232,7 @@ jobs:
       - name: Unit tests
         working-directory: backend
         env:
-          UNIT_TEST_SERVICE_SHARD: ${{ github.event_name != 'push' && needs.changes.outputs.service_unit_cold == 'true' && '1' || '0' }}
+          UNIT_TEST_SERVICE_SHARD: ${{ needs.changes.outputs.service_unit_cold == 'true' && '1' || '0' }}
         run: make test-unit
       - name: Anthropic prompt surface fixture gateway
         run: python3 ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway

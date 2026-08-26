@@ -319,40 +319,78 @@ def run_unit_tests(
     min_shards: int,
     max_regex_bytes: int,
 ) -> int:
-    discovery_started_at = time.monotonic()
-    other_packages, service_tests, patterns, has_test_main = build_test_plan(
-        root,
-        service_package,
-        min_shards,
-        max_regex_bytes,
-    )
-    print(
-        f"unit-test-runner: STAGE discovery "
-        f"({time.monotonic() - discovery_started_at:.1f}s)",
-        flush=True,
-    )
-    if has_test_main:
-        print("unit-test-runner: TestMain detected; using native go test")
-        return subprocess.run(
-            ["go", "test", "-tags=unit", "./..."],
-            cwd=root,
-            check=False,
-        ).returncode
     with tempfile.TemporaryDirectory(prefix="sub2api-service-test-") as temporary:
         service_binary = Path(temporary) / "service.test"
-        commands = build_commands(
-            root,
-            service_package,
-            service_binary,
-            other_packages,
-            patterns,
-        )
-        other_commands = [command for command in commands if command.label == "other-packages"]
-        service_commands = [command for command in commands if command.label != "other-packages"]
         with tempfile.TemporaryDirectory(prefix="sub2api-unit-overlap-") as overlap_temp:
-            initial_running: list[RunningCommand] = []
+            compile_command = Command(
+                "service-compile",
+                (
+                    "go",
+                    "test",
+                    "-c",
+                    "-tags=unit",
+                    "-o",
+                    str(service_binary),
+                    service_package,
+                ),
+                root,
+            )
+            compile_log = Path(overlap_temp) / "service-compile.log"
+            compile_handle = compile_log.open("wb")
+            try:
+                compile_process = subprocess.Popen(
+                    compile_command.argv,
+                    cwd=compile_command.cwd,
+                    stdout=compile_handle,
+                    stderr=subprocess.STDOUT,
+                )
+            except BaseException:
+                compile_handle.close()
+                raise
+            compile_running: RunningCommand = (
+                compile_command,
+                compile_process,
+                compile_log,
+                time.monotonic(),
+            )
+            background: list[RunningCommand] = [compile_running]
             other_handle = None
             try:
+                discovery_started_at = time.monotonic()
+                other_packages, service_tests, patterns, has_test_main = build_test_plan(
+                    root,
+                    service_package,
+                    min_shards,
+                    max_regex_bytes,
+                )
+                print(
+                    f"unit-test-runner: STAGE discovery "
+                    f"({time.monotonic() - discovery_started_at:.1f}s)",
+                    flush=True,
+                )
+                if has_test_main:
+                    _terminate_processes(background)
+                    background.clear()
+                    print("unit-test-runner: TestMain detected; using native go test")
+                    return subprocess.run(
+                        ["go", "test", "-tags=unit", "./..."],
+                        cwd=root,
+                        check=False,
+                    ).returncode
+
+                commands = build_commands(
+                    root,
+                    service_package,
+                    service_binary,
+                    other_packages,
+                    patterns,
+                )
+                other_commands = [
+                    command for command in commands if command.label == "other-packages"
+                ]
+                service_commands = [
+                    command for command in commands if command.label != "other-packages"
+                ]
                 if other_commands:
                     other_command = other_commands[0]
                     other_log = Path(overlap_temp) / "other-packages.log"
@@ -363,26 +401,27 @@ def run_unit_tests(
                         stdout=other_handle,
                         stderr=subprocess.STDOUT,
                     )
-                    initial_running.append(
+                    background.append(
                         (other_command, other_process, other_log, time.monotonic())
                     )
 
-                compile_started_at = time.monotonic()
-                _run_checked(
-                    [
-                        "go",
-                        "test",
-                        "-c",
-                        "-tags=unit",
-                        "-o",
-                        str(service_binary),
-                        service_package,
-                    ],
-                    root,
-                )
+                compile_returncode = compile_process.wait()
+                compile_elapsed = time.monotonic() - compile_running[3]
+                if compile_returncode != 0:
+                    compile_output = compile_log.read_text(
+                        encoding="utf-8",
+                        errors="replace",
+                    )
+                    detail = (
+                        compile_output.strip()
+                        or f"command exited with status {compile_returncode}"
+                    )
+                    raise RunnerError(
+                        f"{' '.join(compile_command.argv)}: {detail}"
+                    )
                 print(
                     f"unit-test-runner: STAGE service-compile "
-                    f"({time.monotonic() - compile_started_at:.1f}s)",
+                    f"({compile_elapsed:.1f}s)",
                     flush=True,
                 )
                 service_dir = root / service_package.removeprefix("./")
@@ -393,11 +432,12 @@ def run_unit_tests(
                     f"({time.monotonic() - registry_started_at:.1f}s)",
                     flush=True,
                 )
-                return run_commands(service_commands, initial_running)
+                return run_commands(service_commands, background[1:])
             except BaseException:
-                _terminate_processes(initial_running)
+                _terminate_processes(background)
                 raise
             finally:
+                compile_handle.close()
                 if other_handle is not None:
                     other_handle.close()
 
