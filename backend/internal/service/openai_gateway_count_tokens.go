@@ -60,6 +60,10 @@ func (s *OpenAIGatewayService) ForwardResponsesInputTokens(
 		return err
 	}
 
+	if account.IsOpenAIOAuthLike() {
+		writeOpenAIResponsesInputTokensFallback(c, account, prepared, 0, "codex_endpoint_unsupported")
+		return nil
+	}
 	if shouldEstimateOpenAIInputTokensLocally(account) {
 		writeOpenAIResponsesInputTokensFallback(c, account, prepared, 0, "custom_relay")
 		return nil
