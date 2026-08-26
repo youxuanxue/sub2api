@@ -6878,7 +6878,9 @@
       "must_contain": [
         "allowedModelIDs, err := h.resolveCodexDiscoveryAPIKey",
         "if allowedModelIDs != nil && len(allowedModelIDs) == 0",
-        "requestLogger(c, \"gateway.codex_models\").Warn(\"capability_discovery_failed\", zap.Error(err))",
+        "\"gateway.codex_models\"",
+        "zap.String(\"protocol\", string(service.UniversalProtocolCodex))",
+        ").Warn(\"capability_discovery_failed\", zap.Error(err))",
         "func filterCodexModelsManifest(",
         "envelope[\"models\"] = encodedModels"
       ],
@@ -6904,9 +6906,10 @@
       "must_contain": [
         "logs.FilterMessage(\"capability_discovery_failed\")",
         "gateway.antigravity_models",
+        "gateway.codex_models",
         "gateway.gemini_models"
       ],
-      "rationale": "Focused handler regressions prove native universal discovery returns fail-hard 500s and emits the structured internal warning for Antigravity and Gemini instead of silently returning a generic error."
+      "rationale": "Focused handler regressions prove native universal discovery returns fail-hard 500s and emits one uniform component + protocol structured warning across Codex, Antigravity, and Gemini instead of silently returning a generic error."
     },
     {
       "path": "backend/internal/service/us046_universal_capability_test.go",

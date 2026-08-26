@@ -34,7 +34,11 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 	}
 	apiKey, allowedModelIDs, err := h.resolveCodexDiscoveryAPIKey(c.Request.Context(), apiKey)
 	if err != nil {
-		requestLogger(c, "gateway.codex_models").Warn("capability_discovery_failed", zap.Error(err))
+		requestLogger(
+			c,
+			"gateway.codex_models",
+			zap.String("protocol", string(service.UniversalProtocolCodex)),
+		).Warn("capability_discovery_failed", zap.Error(err))
 		status := http.StatusInternalServerError
 		message := "Codex model discovery unavailable"
 		if errors.Is(err, service.ErrUniversalNoEntitledGroup) {
