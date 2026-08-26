@@ -40,6 +40,35 @@ printf 'joined-rc=%s\\n' "$_bg_rc"
         )
 
 
+def _anthropic_gate() -> str:
+    text = PREFLIGHT.read_text(encoding="utf-8")
+    start = text.index('echo "=== sub2api: ops/anthropic orchestrators unittest ==="')
+    end = text.index("# Servable-model allowlist generator", start)
+    return text[start:end]
+
+
+def _run_anthropic_failure_gate() -> subprocess.CompletedProcess[str]:
+    script = f"""
+set -u
+errors=0
+_bg_spawned() {{ return 0; }}
+_bg_join() {{
+    if [ "${{2:-silent}}" = "replay-on-failure" ]; then
+        printf 'captured anthropic traceback\n'
+    fi
+    _bg_rc=1
+}}
+{_anthropic_gate()}
+printf 'errors=%s\n' "$errors"
+"""
+    return subprocess.run(
+        ["bash", "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
 class PreflightBackgroundOutputTest(unittest.TestCase):
     def test_failure_replays_captured_output(self) -> None:
         result = _run_spawned_join(1, "replay-on-failure")
@@ -58,6 +87,13 @@ class PreflightBackgroundOutputTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("captured job detail", result.stdout)
         self.assertIn("joined-rc=1", result.stdout)
+
+    def test_anthropic_gate_replays_failure_detail(self) -> None:
+        result = _run_anthropic_failure_gate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("captured anthropic traceback", result.stdout)
+        self.assertIn("FAIL: ops/anthropic unittest failed", result.stdout)
+        self.assertIn("errors=1", result.stdout)
 
 
 if __name__ == "__main__":

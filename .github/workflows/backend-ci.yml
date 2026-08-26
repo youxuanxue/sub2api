@@ -109,6 +109,7 @@ jobs:
             scripts.checks.test_release_cache_key_parity \
             scripts.checks.test_go_rolling_cache_policy \
             scripts.test_preflight_ci_handoffs \
+            scripts.test_preflight_background_output \
             scripts.test_ci_gate_handoffs \
             scripts.ci.test_changed_surfaces \
             scripts.test_backend_ci_routing

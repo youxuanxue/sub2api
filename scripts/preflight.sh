@@ -2232,7 +2232,7 @@ if ! command -v python3 >/dev/null 2>&1; then
 else
     _bg_rc=1
     if _bg_spawned anthropic_unittest; then
-        _bg_join anthropic_unittest
+        _bg_join anthropic_unittest replay-on-failure
     fi
     if [ "$_bg_rc" -ne 0 ]; then
         echo "  FAIL: ops/anthropic unittest failed (re-run: python3 -m unittest discover -s ops/anthropic -p 'test_*.py' -t ops/anthropic -v)"

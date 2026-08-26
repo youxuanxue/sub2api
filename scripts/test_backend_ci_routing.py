@@ -138,6 +138,17 @@ class BackendCIRoutingTest(unittest.TestCase):
             contract_step.get("run", ""),
         )
 
+    def test_preflight_background_output_contract_runs_in_orchestration_gate(self) -> None:
+        orchestration = next(
+            step
+            for step in self.jobs["preflight"]["steps"]
+            if step.get("name") == "CI orchestration contract tests"
+        )
+        self.assertIn(
+            "scripts.test_preflight_background_output",
+            orchestration.get("run", ""),
+        )
+
     def test_go_dependent_integration_contract_runs_after_pinned_setup(self) -> None:
         steps = self.jobs["preflight"]["steps"]
         orchestration = next(
