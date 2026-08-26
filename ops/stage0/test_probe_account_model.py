@@ -1,14 +1,36 @@
 #!/usr/bin/env python3
-"""Static regression tests for probe_account_model.sh."""
+"""Regression tests for probe_account_model.sh."""
 from __future__ import annotations
 
+import json
 import pathlib
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "probe_account_model.sh"
 
 
 class ProbeAccountModelTest(unittest.TestCase):
+    def test_missing_reserved_resources_reports_structured_setup_error(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="probe-account-model-test-") as td:
+            isolated_script = pathlib.Path(td) / "probe_account_model.sh"
+            shutil.copy2(_SCRIPT, isolated_script)
+
+            proc = subprocess.run(
+                ["bash", str(isolated_script)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["verdict"], "setup_error")
+        self.assertIn("missing probe_reserved_resources.sh companion", payload["error"])
+        self.assertNotIn("command not found", proc.stderr)
+
     def test_reusable_group_ensure_uses_two_step_returning_id(self) -> None:
         script = _SCRIPT.read_text()
         start = script.index('if [[ "$PROBE_REUSE_MODE" == "1" ]]; then\n  GROUP_ID=')
