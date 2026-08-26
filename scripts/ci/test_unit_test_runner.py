@@ -254,6 +254,37 @@ class UnitTestRunnerTest(unittest.TestCase):
         self.assertLess(min(durations), 0.5)
         self.assertGreaterEqual(max(durations), 0.7)
 
+    def test_runs_other_packages_while_service_binary_compiles(self) -> None:
+        with self._fake_go(
+            ["TestOne", "TestTwo"],
+            compile_delay=0.75,
+        ) as fixture:
+            result = self._run(fixture, "--min-shards", "2")
+            events = self._events(fixture.events)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        compile_finished = next(
+            event["at"]
+            for event in events
+            if event["kind"] == "go-finished" and "-c" in event["args"]
+        )
+        other_started = next(
+            event["at"]
+            for event in events
+            if event["kind"] == "go"
+            and "./internal/other" in event["args"]
+        )
+        self.assertLess(other_started, compile_finished, events)
+
+    def test_reports_discovery_compile_and_registry_stage_durations(self) -> None:
+        with self._fake_go(["TestOne"]) as fixture:
+            result = self._run(fixture)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(result.stdout, r"STAGE discovery \([0-9.]+s\)")
+        self.assertRegex(result.stdout, r"STAGE service-compile \([0-9.]+s\)")
+        self.assertRegex(result.stdout, r"STAGE registry-check \([0-9.]+s\)")
+
     def _run(self, fixture: "FakeGoFixture", *args: str) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["PATH"] = f"{fixture.bin_dir}{os.pathsep}{env['PATH']}"
@@ -269,6 +300,8 @@ class UnitTestRunnerTest(unittest.TestCase):
             env["FAKE_GO_FAIL_TEST"] = fixture.fail_test
         if fixture.slow_test:
             env["FAKE_GO_SLOW_TEST"] = fixture.slow_test
+        if fixture.compile_delay:
+            env["FAKE_GO_COMPILE_DELAY"] = str(fixture.compile_delay)
         return subprocess.run(
             ["python3", str(SCRIPT), "--root", str(fixture.root), *args],
             check=False,
@@ -314,6 +347,7 @@ class UnitTestRunnerTest(unittest.TestCase):
         fail_compile: bool = False,
         fail_test: str | None = None,
         slow_test: str | None = None,
+        compile_delay: float = 0.0,
     ) -> "FakeGoFixtureContext":
         return FakeGoFixtureContext(
             test_names,
@@ -322,6 +356,7 @@ class UnitTestRunnerTest(unittest.TestCase):
             fail_compile,
             fail_test,
             slow_test,
+            compile_delay,
         )
 
 
@@ -335,6 +370,7 @@ class FakeGoFixture:
         fail_compile: bool,
         fail_test: str | None,
         slow_test: str | None,
+        compile_delay: float,
     ) -> None:
         self._temporary = temporary
         self.root = Path(temporary.name)
@@ -348,6 +384,7 @@ class FakeGoFixture:
         self.fail_compile = fail_compile
         self.fail_test = fail_test
         self.slow_test = slow_test
+        self.compile_delay = compile_delay
         service_dir = self.root / "internal" / "service"
         service_dir.mkdir(parents=True)
         declarations = []
@@ -379,6 +416,7 @@ class FakeGoFixtureContext:
         fail_compile: bool,
         fail_test: str | None,
         slow_test: str | None,
+        compile_delay: float,
     ) -> None:
         self.test_names = test_names
         self.has_test_main = has_test_main
@@ -386,6 +424,7 @@ class FakeGoFixtureContext:
         self.fail_compile = fail_compile
         self.fail_test = fail_test
         self.slow_test = slow_test
+        self.compile_delay = compile_delay
         self.temporary: tempfile.TemporaryDirectory[str] | None = None
 
     def __enter__(self) -> FakeGoFixture:
@@ -398,6 +437,7 @@ class FakeGoFixtureContext:
             self.fail_compile,
             self.fail_test,
             self.slow_test,
+            self.compile_delay,
         )
         fake_binary_source = textwrap.dedent(
             """\
@@ -434,11 +474,12 @@ class FakeGoFixtureContext:
                 import os
                 from pathlib import Path
                 import sys
+                import time
 
                 args = sys.argv[1:]
                 events = Path(os.environ["FAKE_GO_EVENTS"])
                 with events.open("a", encoding="utf-8") as output:
-                    output.write(json.dumps({"kind": "go", "args": args}) + "\\n")
+                    output.write(json.dumps({"kind": "go", "args": args, "at": time.monotonic()}) + "\\n")
 
                 if args and args[0] == "run":
                     print(json.dumps({
@@ -461,6 +502,9 @@ class FakeGoFixtureContext:
                     raise SystemExit(0)
 
                 if "-c" in args:
+                    time.sleep(float(os.environ.get("FAKE_GO_COMPILE_DELAY", "0")))
+                    with events.open("a", encoding="utf-8") as output:
+                        output.write(json.dumps({"kind": "go-finished", "args": args, "at": time.monotonic()}) + "\\n")
                     if os.environ.get("FAKE_GO_FAIL_COMPILE") == "1":
                         print("intentional compile failure", file=sys.stderr)
                         raise SystemExit(1)

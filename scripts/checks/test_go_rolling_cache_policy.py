@@ -18,16 +18,36 @@ class GoRollingCachePolicyTest(unittest.TestCase):
     def test_only_main_push_steps_can_save_caches(self) -> None:
         steps = yaml.safe_load(ACTION.read_text(encoding="utf-8"))["runs"]["steps"]
         saving = [step for step in steps if step.get("uses") == "actions/cache@v6"]
-        self.assertEqual(len(saving), 2)
-        self.assertTrue(all(step.get("if") == MAIN_WRITER_IF for step in saving))
+        self.assertEqual(len(saving), 3)
+        self.assertTrue(all(MAIN_WRITER_IF in step.get("if", "") for step in saving))
 
-    def test_non_main_events_restore_but_never_save_both_cache_layers(self) -> None:
+    def test_non_main_events_restore_but_never_save_all_cache_layers(self) -> None:
         steps = yaml.safe_load(ACTION.read_text(encoding="utf-8"))["runs"]["steps"]
         restore_only = [step for step in steps if step.get("uses") == "actions/cache/restore@v6"]
-        self.assertEqual(len(restore_only), 2)
-        self.assertTrue(all(step.get("if") == NON_MAIN_IF for step in restore_only))
+        self.assertEqual(len(restore_only), 3)
+        self.assertTrue(all(NON_MAIN_IF in step.get("if", "") for step in restore_only))
         restored_paths = {step["with"]["path"] for step in restore_only}
-        self.assertEqual(restored_paths, {"~/go/pkg/mod", "~/.cache/go-build"})
+        self.assertEqual(
+            restored_paths,
+            {"~/go/pkg/mod", "~/.cache/go-build", "~/.cache/golangci-lint"},
+        )
+
+    def test_golangci_cache_is_opt_in_and_rolls_from_main(self) -> None:
+        action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
+        self.assertEqual(action["inputs"]["golangci_cache"]["default"], "false")
+        steps = action["runs"]["steps"]
+        golangci_steps = [
+            step
+            for step in steps
+            if step.get("with", {}).get("path") == "~/.cache/golangci-lint"
+        ]
+        self.assertEqual(len(golangci_steps), 2)
+        for step in golangci_steps:
+            with self.subTest(step=step["name"]):
+                self.assertIn("inputs.golangci_cache == 'true'", step["if"])
+                self.assertIn("github.run_id", step["with"]["key"])
+                self.assertIn("backend/go.sum", step["with"]["key"])
+                self.assertIn("backend/.golangci.yml", step["with"]["key"])
 
 
 if __name__ == "__main__":

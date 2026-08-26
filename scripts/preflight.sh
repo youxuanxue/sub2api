@@ -178,6 +178,31 @@ _bg_join() {  # _bg_join <key> [replay-on-failure] → sets _bg_rc; output in $_
 }
 _bg_spawned() { [ -f "$_preflight_bg_dir/$1.pid" ]; }
 
+_archive_rehearsal_gate_run() {
+    local script
+    for script in \
+        ./ops/archive/test_data_layer_archive_rehearsal.py \
+        ./ops/archive/test_data_layer_archive_prod_canary.py \
+        ./ops/archive/test_data_layer_archive_prod_export.py \
+        ./ops/archive/test_data_layer_archive_promote_batch.py \
+        ./ops/archive/test_data_layer_archive_cleanup_hold.py; do
+        if ! python3 "$script"; then
+            printf 'failed command: python3 %s\n' "${script#./}"
+            return 1
+        fi
+    done
+    if ! python3 ./scripts/checks/data-layer-archive-ssot.py --quiet; then
+        echo "failed command: python3 scripts/checks/data-layer-archive-ssot.py"
+        return 1
+    fi
+}
+
+_archive_rehearsal_spawn_if_needed() {
+    if [ "$_preflight_skip_slow_ops" -ne 1 ] && command -v python3 >/dev/null 2>&1; then
+        _bg_spawn archive_rehearsal _archive_rehearsal_gate_run
+    fi
+}
+
 # ---- Sections 1-8: delegate to dev-rules template ----------------------------
 if [ ! -x ./dev-rules/templates/preflight.sh ]; then
     echo "FAIL: dev-rules submodule not initialized."
@@ -1365,6 +1390,11 @@ else
     echo "  ok: edge_phase1_baseline.py present (Phase 1 soak probe wired)"
 fi
 
+# Start the Docker-backed archive rehearsal here instead of at preflight startup:
+# the following QA baseline and lightweight contracts provide enough overlap,
+# while avoiding extra Docker pressure during the initial Caddy/template fanout.
+_archive_rehearsal_spawn_if_needed
+
 # ---- sub2api: QA Phase 1 closeout + Phase 2 baseline ops -------------------
 echo ""
 echo "=== sub2api: QA Phase 1 closeout + Phase 2 baseline ==="
@@ -1686,32 +1716,17 @@ if [ "$_preflight_skip_slow_ops" -eq 1 ]; then
 elif ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for archive rehearsal tests)"
     errors=$((errors + 1))
-elif ! python3 ./ops/archive/test_data_layer_archive_rehearsal.py >/dev/null 2>&1; then
-    echo "  FAIL: nonprod archive/restore rehearsal contracts"
-    echo "        — run: python3 ops/archive/test_data_layer_archive_rehearsal.py"
-    errors=$((errors + 1))
-elif ! python3 ./ops/archive/test_data_layer_archive_prod_canary.py >/dev/null 2>&1; then
-    echo "  FAIL: production export-only archive canary contracts"
-    echo "        — run: python3 ops/archive/test_data_layer_archive_prod_canary.py"
-    errors=$((errors + 1))
-elif ! python3 ./ops/archive/test_data_layer_archive_prod_export.py >/dev/null 2>&1; then
-    echo "  FAIL: production legacy cold batch export contracts"
-    echo "        — run: python3 ops/archive/test_data_layer_archive_prod_export.py"
-    errors=$((errors + 1))
-elif ! python3 ./ops/archive/test_data_layer_archive_promote_batch.py >/dev/null 2>&1; then
-    echo "  FAIL: production archive promote contracts"
-    echo "        — run: python3 ops/archive/test_data_layer_archive_promote_batch.py"
-    errors=$((errors + 1))
-elif ! python3 ./ops/archive/test_data_layer_archive_cleanup_hold.py >/dev/null 2>&1; then
-    echo "  FAIL: production archive cleanup hold contracts"
-    echo "        — run: python3 ops/archive/test_data_layer_archive_cleanup_hold.py"
-    errors=$((errors + 1))
-elif ! python3 ./scripts/checks/data-layer-archive-ssot.py --quiet; then
-    echo "  FAIL: data-layer archive pipeline_status ↔ rehearsal constants drift"
-    echo "        — run: python3 scripts/checks/data-layer-archive-ssot.py"
+elif ! _bg_spawned archive_rehearsal; then
+    echo "  FAIL: archive rehearsal background job was not spawned (internal preflight bug)"
     errors=$((errors + 1))
 else
-    echo "  ok: nonprod rehearsal + cleanup hold + export canary + legacy export + archive promote"
+    _bg_join archive_rehearsal replay-on-failure
+    if [ "$_bg_rc" -ne 0 ]; then
+        echo "  FAIL: nonprod archive/restore rehearsal contracts"
+        errors=$((errors + 1))
+    else
+        echo "  ok: nonprod rehearsal + cleanup hold + export canary + legacy export + archive promote"
+    fi
 fi
 
 # ---- sub2api: runtime resource config verdict selftest ---------------------
@@ -2232,7 +2247,7 @@ if ! command -v python3 >/dev/null 2>&1; then
 else
     _bg_rc=1
     if _bg_spawned anthropic_unittest; then
-        _bg_join anthropic_unittest
+        _bg_join anthropic_unittest replay-on-failure
     fi
     if [ "$_bg_rc" -ne 0 ]; then
         echo "  FAIL: ops/anthropic unittest failed (re-run: python3 -m unittest discover -s ops/anthropic -p 'test_*.py' -t ops/anthropic -v)"

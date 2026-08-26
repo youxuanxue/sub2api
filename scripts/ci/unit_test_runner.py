@@ -35,6 +35,9 @@ class Command:
     cwd: Path
 
 
+RunningCommand = tuple[Command, subprocess.Popen[bytes], Path, float]
+
+
 def _run_checked(argv: list[str], root: Path) -> str:
     result = subprocess.run(
         argv,
@@ -238,7 +241,7 @@ def _last_summary(output: str) -> str:
 
 
 def _terminate_processes(
-    running: list[tuple[Command, subprocess.Popen[bytes], Path, float]],
+    running: list[RunningCommand],
 ) -> None:
     for _, process, _, _ in running:
         if process.poll() is not None:
@@ -255,10 +258,13 @@ def _terminate_processes(
             process.wait()
 
 
-def run_commands(commands: list[Command]) -> int:
+def run_commands(
+    commands: list[Command],
+    initial_running: list[RunningCommand] | None = None,
+) -> int:
     with tempfile.TemporaryDirectory(prefix="sub2api-unit-") as temporary:
         log_dir = Path(temporary)
-        running: list[tuple[Command, subprocess.Popen[bytes], Path, float]] = []
+        running = list(initial_running or [])
         handles = []
         try:
             for index, command in enumerate(commands):
@@ -313,11 +319,17 @@ def run_unit_tests(
     min_shards: int,
     max_regex_bytes: int,
 ) -> int:
+    discovery_started_at = time.monotonic()
     other_packages, service_tests, patterns, has_test_main = build_test_plan(
         root,
         service_package,
         min_shards,
         max_regex_bytes,
+    )
+    print(
+        f"unit-test-runner: STAGE discovery "
+        f"({time.monotonic() - discovery_started_at:.1f}s)",
+        flush=True,
     )
     if has_test_main:
         print("unit-test-runner: TestMain detected; using native go test")
@@ -328,20 +340,6 @@ def run_unit_tests(
         ).returncode
     with tempfile.TemporaryDirectory(prefix="sub2api-service-test-") as temporary:
         service_binary = Path(temporary) / "service.test"
-        _run_checked(
-            [
-                "go",
-                "test",
-                "-c",
-                "-tags=unit",
-                "-o",
-                str(service_binary),
-                service_package,
-            ],
-            root,
-        )
-        service_dir = root / service_package.removeprefix("./")
-        verify_binary_registry(service_binary, service_dir, service_tests)
         commands = build_commands(
             root,
             service_package,
@@ -349,7 +347,59 @@ def run_unit_tests(
             other_packages,
             patterns,
         )
-        return run_commands(commands)
+        other_commands = [command for command in commands if command.label == "other-packages"]
+        service_commands = [command for command in commands if command.label != "other-packages"]
+        with tempfile.TemporaryDirectory(prefix="sub2api-unit-overlap-") as overlap_temp:
+            initial_running: list[RunningCommand] = []
+            other_handle = None
+            try:
+                if other_commands:
+                    other_command = other_commands[0]
+                    other_log = Path(overlap_temp) / "other-packages.log"
+                    other_handle = other_log.open("wb")
+                    other_process = subprocess.Popen(
+                        other_command.argv,
+                        cwd=other_command.cwd,
+                        stdout=other_handle,
+                        stderr=subprocess.STDOUT,
+                    )
+                    initial_running.append(
+                        (other_command, other_process, other_log, time.monotonic())
+                    )
+
+                compile_started_at = time.monotonic()
+                _run_checked(
+                    [
+                        "go",
+                        "test",
+                        "-c",
+                        "-tags=unit",
+                        "-o",
+                        str(service_binary),
+                        service_package,
+                    ],
+                    root,
+                )
+                print(
+                    f"unit-test-runner: STAGE service-compile "
+                    f"({time.monotonic() - compile_started_at:.1f}s)",
+                    flush=True,
+                )
+                service_dir = root / service_package.removeprefix("./")
+                registry_started_at = time.monotonic()
+                verify_binary_registry(service_binary, service_dir, service_tests)
+                print(
+                    f"unit-test-runner: STAGE registry-check "
+                    f"({time.monotonic() - registry_started_at:.1f}s)",
+                    flush=True,
+                )
+                return run_commands(service_commands, initial_running)
+            except BaseException:
+                _terminate_processes(initial_running)
+                raise
+            finally:
+                if other_handle is not None:
+                    other_handle.close()
 
 
 def main(argv: list[str] | None = None) -> int:

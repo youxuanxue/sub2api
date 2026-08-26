@@ -138,6 +138,17 @@ class BackendCIRoutingTest(unittest.TestCase):
             contract_step.get("run", ""),
         )
 
+    def test_preflight_background_output_contract_runs_in_orchestration_gate(self) -> None:
+        orchestration = next(
+            step
+            for step in self.jobs["preflight"]["steps"]
+            if step.get("name") == "CI orchestration contract tests"
+        )
+        self.assertIn(
+            "scripts.test_preflight_background_output",
+            orchestration.get("run", ""),
+        )
+
     def test_go_dependent_integration_contract_runs_after_pinned_setup(self) -> None:
         steps = self.jobs["preflight"]["steps"]
         orchestration = next(
@@ -188,6 +199,23 @@ class BackendCIRoutingTest(unittest.TestCase):
             "github.event_name != 'push'",
             unit_step["env"]["UNIT_TEST_SERVICE_SHARD"],
         )
+
+    def test_lint_uses_rolling_analysis_cache_instead_of_action_cache(self) -> None:
+        steps = self.jobs["golangci-lint"]["steps"]
+        rolling_cache = next(
+            step
+            for step in steps
+            if step.get("uses") == "./.github/actions/go-rolling-cache"
+        )
+        self.assertEqual(rolling_cache["with"]["prefix"], "lint")
+        self.assertEqual(rolling_cache["with"]["golangci_cache"], "true")
+
+        lint_action = next(
+            step
+            for step in steps
+            if step.get("uses") == "golangci/golangci-lint-action@v9"
+        )
+        self.assertEqual(lint_action["with"]["skip-cache"], "true")
 
     def test_unit_target_uses_go_cache_by_default(self) -> None:
         result = subprocess.run(
