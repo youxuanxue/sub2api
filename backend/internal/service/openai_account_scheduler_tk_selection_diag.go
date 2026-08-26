@@ -51,6 +51,10 @@ func (s *OpenAIGatewayService) collectOpenAICompatSelectionFailureStatsForReques
 			stats.SampleRateLimitIDs = appendSelectionFailureRateSample(stats.SampleRateLimitIDs, acc.ID, remaining)
 		case "unschedulable":
 			stats.Unschedulable++
+			// Carry the naming reason, not just the count: this bucket absorbs every
+			// scheduling gate, so a bare count cannot be acted on (2026-08-25).
+			stats.SampleUnschedulableReasons = appendSelectionFailureReasonSample(
+				stats.SampleUnschedulableReasons, acc.ID, diagnosis.Detail)
 		case openAIProfitFilterReasonThreshold:
 			stats.ProfitThreshold++
 		case openAIProfitFilterReasonInvalidAccountRate:
@@ -88,7 +92,10 @@ func (s *OpenAIGatewayService) diagnoseOpenAICompatSelectionFailure(
 			Detail:   "model_or_channel",
 		}
 	}
-	if !openAICompatAccountMeetsSchedulingPrerequisites(ctx, acc, platform, requestedModel, requireCompact, requiredCapability) {
+	// Ask WHICH gate rejected the account, not merely whether one did: the reason
+	// string is what turns a bare "unschedulable=1" into an actionable line. See
+	// openai_gateway_scheduling_tk_eligibility_reason.go for the 2026-08-25 incident.
+	if reason := openAICompatEligibilityReason(ctx, acc, platform, requestedModel, requireCompact, requiredCapability); reason != "" {
 		if requestedModel != "" && !acc.IsSchedulableForModelWithContext(ctx, requestedModel) {
 			remaining := acc.GetRateLimitRemainingTimeWithContext(ctx, requestedModel)
 			if remaining > 0 {
@@ -98,7 +105,7 @@ func (s *OpenAIGatewayService) diagnoseOpenAICompatSelectionFailure(
 				}
 			}
 		}
-		return openAICompatSelectionFailureDiagnosis{Category: "unschedulable", Detail: "eligibility"}
+		return openAICompatSelectionFailureDiagnosis{Category: "unschedulable", Detail: reason}
 	}
 	if vetoed, reason := openAIProfitControlVetoReason(ctx, acc); vetoed {
 		return openAICompatSelectionFailureDiagnosis{Category: reason}
@@ -140,6 +147,8 @@ func (s *OpenAIGatewayService) logOpenAICompatSelectionFailure(
 		"sample_runtime_blocked", stats.SampleRuntimeBlockedIDs,
 		"sample_model_unsupported", stats.SampleMappingIDs,
 		"sample_model_rate_limited", stats.SampleRateLimitIDs,
+		// The field that makes an unschedulable=N line actionable: which gate said no.
+		"sample_unschedulable", stats.SampleUnschedulableReasons,
 	)
 	_ = ctx
 }

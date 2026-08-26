@@ -323,10 +323,6 @@ func normalizeOpenAICompatiblePlatform(platform string) string {
 	return NormalizeOpenAICompatiblePlatform(platform)
 }
 
-func openAICompatAccountMeetsSchedulingPrerequisites(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
-	return isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx, account, platform, requestedModel, requireCompact, requiredCapability)
-}
-
 // noAvailableOpenAISelectionError builds the standard "no account available" error
 // while preserving the legacy /responses/compact error when applicable.
 // details carries an optional machine-parseable exclusion summary (e.g.
@@ -410,50 +406,15 @@ func isOpenAICompatibleAccountEligibleForRequest(ctx context.Context, account *A
 // isOpenAICompatibleAccountEligibleForRequestBeforeProfit applies every
 // ordinary scheduling gate. Legacy selection uses it before classifying the
 // profit veto so earlier failures retain their actual reason.
+// TK: the gate order and every rejection condition now live in
+// openAICompatEligibilityReason (openai_gateway_scheduling_tk_eligibility_reason.go),
+// which returns the NAME of the branch that rejected the account instead of a
+// bare false. This wrapper keeps the boolean call sites unchanged while making
+// exactly one copy of the gate authoritative — a mirrored bool version would be
+// free to drift from the reason version, and a drifted diagnostic is worse than
+// none (2026-08-25: five hours of "unschedulable=1" that named no predicate).
 func isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
-	platform = NormalizeOpenAICompatiblePlatform(platform)
-	if account == nil || !account.IsOpenAICompatPoolMember(platform) || !account.IsOpenAICompatible() || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
-		return false
-	}
-	if account.IsOpenAI() {
-		if paused, reason := shouldAutoPauseOpenAIAccountByQuota(ctx, account); paused {
-			// Debug level: this fires per-candidate on the scheduling hot path, so Info
-			// would amplify into log spam once several accounts cross the threshold.
-			slog.Debug("account_auto_paused_by_quota",
-				"account_id", account.ID,
-				"window", reason.window,
-				"threshold", reason.threshold,
-				"utilization", reason.utilization,
-			)
-			return false
-		}
-	}
-	if account.IsGrok() {
-		if paused, reason := shouldAutoPauseGrokAccountByQuota(account); paused {
-			slog.Debug("grok_account_auto_paused_by_quota",
-				"account_id", account.ID,
-				"window", reason.window,
-				"threshold", reason.threshold,
-				"utilization", reason.utilization,
-			)
-			return false
-		}
-	}
-	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
-		return false
-	}
-	if !protocolRoutingOwnsOpenAITextCapability(ctx, requiredCapability) &&
-		!account.SupportsOpenAIEndpointCapability(requiredCapability) {
-		if account.IsGrok() && requiredCapability == OpenAIEndpointCapabilityGrokMediaGeneration {
-			_, reason := account.GrokMediaGenerationEligibility()
-			slog.Debug("grok_media_account_ineligible", "account_id", account.ID, "reason", reason)
-		}
-		return false
-	}
-	if requireCompact && openAICompactSupportTier(account) == 0 {
-		return false
-	}
-	return ProtocolRouteLegal(ctx, account, requestedModel)
+	return openAICompatEligibilityReason(ctx, account, platform, requestedModel, requireCompact, requiredCapability) == ""
 }
 
 type openAIQuotaAutoPauseDecision struct {
