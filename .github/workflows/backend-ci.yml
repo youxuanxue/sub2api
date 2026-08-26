@@ -233,10 +233,10 @@ jobs:
       - name: Unit tests
         working-directory: backend
         env:
-          # Service-cold runs prioritize the compile-once critical path. They
-          # warm build artifacts but intentionally do not seed native go test
-          # result entries; service-neutral runs retain the native cache path.
-          UNIT_TEST_SERVICE_SHARD: ${{ needs.changes.outputs.service_unit_cold == 'true' && '1' || '0' }}
+          # PR service-cold runs prioritize the compile-once critical path.
+          # Main is the rolling-cache writer, so it always uses native go test
+          # to seed result entries before the weekly archive is saved.
+          UNIT_TEST_SERVICE_SHARD: ${{ github.event_name != 'push' && needs.changes.outputs.service_unit_cold == 'true' && '1' || '0' }}
         run: make test-unit
       - name: Anthropic prompt surface fixture gateway
         run: python3 ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway
