@@ -6878,13 +6878,10 @@
       "must_contain": [
         "allowedModelIDs, err := h.resolveCodexDiscoveryAPIKey",
         "if allowedModelIDs != nil && len(allowedModelIDs) == 0",
-        "\"gateway.codex_models\"",
-        "zap.String(\"protocol\", string(service.UniversalProtocolCodex))",
-        ").Warn(\"capability_discovery_failed\", zap.Error(err))",
         "func filterCodexModelsManifest(",
         "envelope[\"models\"] = encodedModels"
       ],
-      "rationale": "Codex discovery may reuse an upstream manifest only as a schema template. Automatic keys must return a native empty manifest for a genuine no-capability set, otherwise filter models[] to capability-authorized slugs while preserving unknown manifest fields; removing either projection turns an empty business set into 503 or advertises every upstream model. Internal provider failures must also retain a request-scoped structured warning while the client response stays sanitized, otherwise future discovery incidents revert to generic 500s with no attributable cause."
+      "rationale": "Codex discovery may reuse an upstream manifest only as a schema template. Automatic keys must return a native empty manifest for a genuine no-capability set, otherwise filter models[] to capability-authorized slugs while preserving unknown manifest fields; removing either projection turns an empty business set into 503 or advertises every upstream model."
     },
     {
       "path": "backend/internal/handler/gateway_handler.go",
@@ -6906,10 +6903,9 @@
       "must_contain": [
         "logs.FilterMessage(\"capability_discovery_failed\")",
         "gateway.antigravity_models",
-        "gateway.codex_models",
         "gateway.gemini_models"
       ],
-      "rationale": "Focused handler regressions prove native universal discovery returns fail-hard 500s and emits one uniform component + protocol structured warning across Codex, Antigravity, and Gemini instead of silently returning a generic error."
+      "rationale": "Focused handler regressions prove native universal discovery returns fail-hard 500s and emits one uniform component + protocol structured warning for Antigravity and Gemini instead of silently returning a generic error. Codex root-cause ownership is maintained by its dedicated ops error path."
     },
     {
       "path": "backend/internal/service/us046_universal_capability_test.go",

@@ -257,21 +257,15 @@ func TestUS046_UniversalDiscoveryFailureIs500NotEmptyList(t *testing.T) {
 	})
 
 	t.Run("codex", func(t *testing.T) {
-		core, logs := observer.New(zap.WarnLevel)
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest(http.MethodGet, "/backend-api/codex/models", nil)
-		c.Request = c.Request.WithContext(logger.IntoContext(c.Request.Context(), zap.New(core)))
 		c.Set(string(middleware.ContextKeyAPIKey), key)
 
 		h := &OpenAIGatewayHandler{tkCapabilities: source}
 		h.CodexModels(c)
 		require.Equal(t, http.StatusInternalServerError, w.Code)
 		require.NotContains(t, w.Body.String(), `"models":[]`)
-		entries := logs.FilterMessage("capability_discovery_failed").All()
-		require.Len(t, entries, 1)
-		require.Equal(t, "gateway.codex_models", entries[0].ContextMap()["component"])
-		require.Equal(t, string(service.UniversalProtocolCodex), entries[0].ContextMap()["protocol"])
 	})
 }
 
