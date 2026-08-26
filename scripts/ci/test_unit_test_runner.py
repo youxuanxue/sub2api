@@ -56,6 +56,7 @@ class UnitTestRunnerTest(unittest.TestCase):
         compile_calls = [call for call in go_calls if "-c" in call]
         self.assertEqual(len(compile_calls), 1, go_calls)
         self.assertIn("./internal/service", compile_calls[0])
+        self.assertIn("-ldflags=-s -w", compile_calls[0])
         self.assertFalse(
             [
                 call

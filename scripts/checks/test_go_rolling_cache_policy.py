@@ -15,9 +15,9 @@ NON_MAIN_IF = "github.event_name != 'push' || github.ref != 'refs/heads/main'"
 
 
 class GoRollingCachePolicyTest(unittest.TestCase):
-    def test_build_cache_can_be_disabled_without_disabling_module_cache(self) -> None:
+    def test_build_cache_is_not_optionally_disabled(self) -> None:
         action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
-        self.assertEqual(action["inputs"].get("build_cache", {}).get("default"), "true")
+        self.assertNotIn("build_cache", action["inputs"])
 
         steps = action["runs"]["steps"]
         build_steps = [
@@ -28,17 +28,7 @@ class GoRollingCachePolicyTest(unittest.TestCase):
         self.assertEqual(len(build_steps), 2)
         for step in build_steps:
             with self.subTest(step=step["name"]):
-                self.assertIn("inputs.build_cache == 'true'", step.get("if", ""))
-
-        module_steps = [
-            step
-            for step in steps
-            if step.get("with", {}).get("path") == "~/go/pkg/mod"
-        ]
-        self.assertEqual(len(module_steps), 2)
-        self.assertTrue(
-            all("inputs.build_cache" not in step.get("if", "") for step in module_steps)
-        )
+                self.assertNotIn("inputs.build_cache", step.get("if", ""))
 
     def test_only_main_push_steps_can_save_caches(self) -> None:
         steps = yaml.safe_load(ACTION.read_text(encoding="utf-8"))["runs"]["steps"]

@@ -214,10 +214,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
-      # setup-go's built-in cache is disabled because its immutable shared entry
-      # mixes jobs with different build tags. The composite keeps the shared
-      # module cache. Main and service-cold PRs skip the 2.5GB+ build archive;
-      # other PRs retain it because their unsharded suite benefits from hot objects.
+      # cache:false + ./.github/actions/go-rolling-cache — setup-go's built-in
+      # cache is immutable and was shared across the three Go jobs despite their
+      # differing build tags, so the test-result cache never persisted (every run
+      # cold-compiled + re-ran all packages). See that composite for the full why.
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
@@ -226,7 +226,6 @@ jobs:
       - uses: ./.github/actions/go-rolling-cache
         with:
           prefix: unit
-          build_cache: ${{ (github.event_name == 'push' || needs.changes.outputs.service_unit_cold == 'true') && 'false' || 'true' }}
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
@@ -235,8 +234,9 @@ jobs:
         working-directory: backend
         env:
           # PR service-cold runs prioritize the compile-once critical path.
-          # The same cold-path predicate disables the large build-cache restore
-          # and enables compile-once service shards.
+          # Main also uses shards: service tests inspect tracked source/fixture
+          # files at runtime, so checkout mtimes prevent cross-run result-cache
+          # hits even when the weekly Go build cache restores exactly.
           UNIT_TEST_SERVICE_SHARD: ${{ (github.event_name == 'push' || needs.changes.outputs.service_unit_cold == 'true') && '1' || '0' }}
         run: make test-unit
       - name: Anthropic prompt surface fixture gateway
@@ -249,7 +249,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
-      # setup-go cache:false delegates module + build/test caching to the composite.
+      # cache:false + ./.github/actions/go-rolling-cache — see test-unit above.
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
@@ -300,7 +300,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
-      # setup-go cache:false delegates module + build/test caching to the composite.
+      # cache:false + ./.github/actions/go-rolling-cache — see test-unit above.
       # The composite also rolls ~/.cache/golangci-lint from main. The action's
       # built-in interval cache is immutable after its first save, so it cannot
       # persist changed-package analysis again until the interval key changes.

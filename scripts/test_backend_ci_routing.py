@@ -201,7 +201,7 @@ class BackendCIRoutingTest(unittest.TestCase):
             "needs.changes.outputs.service_unit_cold == 'true') && '1' || '0' }}",
         )
 
-    def test_unit_opts_out_of_the_go_build_cache_only_on_cold_paths(self) -> None:
+    def test_all_go_jobs_keep_the_build_cache(self) -> None:
         cache_steps = {
             job_name: next(
                 step
@@ -211,12 +211,7 @@ class BackendCIRoutingTest(unittest.TestCase):
             for job_name in ("preflight", "test-unit", "test-integration", "golangci-lint")
         }
 
-        self.assertEqual(
-            cache_steps["test-unit"].get("with", {}).get("build_cache"),
-            "${{ (github.event_name == 'push' || "
-            "needs.changes.outputs.service_unit_cold == 'true') && 'false' || 'true' }}",
-        )
-        for job_name in ("preflight", "test-integration", "golangci-lint"):
+        for job_name in ("preflight", "test-unit", "test-integration", "golangci-lint"):
             with self.subTest(job=job_name):
                 self.assertNotIn("build_cache", cache_steps[job_name].get("with", {}))
 
