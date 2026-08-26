@@ -181,6 +181,7 @@ run_edge_native_anthropic_smoke() {
     --timeout-seconds 600 \
     --script "${SCRIPT_DIR}/edge_native_anthropic_smoke.sh" \
     --with "${SCRIPT_DIR}/probe_account_model.sh" \
+    --with "${REPO_ROOT}/ops/pricing/probe_reserved_resources.sh" \
     --with "${SCRIPT_DIR}/probe_account_model_verdict.py" \
     --with "${SCRIPT_DIR}/smoke_anthropic_realistic.py" \
     --env "ANTHROPIC_MODELS=${TK_SMOKE_EDGE_LOCAL_CHAT_MODELS}" \

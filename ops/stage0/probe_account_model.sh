@@ -30,6 +30,15 @@ LOG_WINDOW="${LOG_WINDOW:-3m}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-90}"
 PROBE_USER_ID=1
 
+fail_json() {
+  local message="$1"
+  python3 - "$message" <<'PY'
+import json, sys
+print(json.dumps({"verdict": "setup_error", "error": sys.argv[1]}, ensure_ascii=False))
+PY
+  exit 0
+}
+
 PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -q -A -t -v ON_ERROR_STOP=1)
 PSQL_ARRAY=("${PSQL[@]}")
 PROBE_RESOURCES="${SCRIPT_DIR}/../pricing/probe_reserved_resources.sh"
@@ -52,15 +61,6 @@ import secrets
 print(secrets.token_urlsafe(18).replace("-", "").replace("_", "")[:24])
 PY
 )"
-}
-
-fail_json() {
-  local message="$1"
-  python3 - "$message" <<'PY'
-import json, sys
-print(json.dumps({"verdict": "setup_error", "error": sys.argv[1]}, ensure_ascii=False))
-PY
-  exit 0
 }
 
 psql_capture_numeric() {
