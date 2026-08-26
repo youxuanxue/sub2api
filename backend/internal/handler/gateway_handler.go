@@ -1263,6 +1263,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		}
 		capabilities, err := h.universalCapabilities(c.Request.Context(), apiKey, protocol)
 		if err != nil {
+			requestLogger(c, "gateway.models", zap.String("protocol", string(protocol))).Warn("capability_discovery_failed", zap.Error(err))
 			if protocol == service.UniversalProtocolAnthropic {
 				h.errorResponse(c, http.StatusInternalServerError, "api_error", "Model discovery unavailable")
 			} else {

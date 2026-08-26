@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -33,6 +34,7 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 	}
 	apiKey, allowedModelIDs, err := h.resolveCodexDiscoveryAPIKey(c.Request.Context(), apiKey)
 	if err != nil {
+		requestLogger(c, "gateway.codex_models").Warn("capability_discovery_failed", zap.Error(err))
 		status := http.StatusInternalServerError
 		message := "Codex model discovery unavailable"
 		if errors.Is(err, service.ErrUniversalNoEntitledGroup) {
