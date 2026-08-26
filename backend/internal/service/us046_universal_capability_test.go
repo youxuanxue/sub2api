@@ -258,6 +258,37 @@ func TestUS046_ForcedPlatformDiscoveryPropagatesRelevantProviderFailure(t *testi
 	require.ErrorIs(t, err, wantErr)
 }
 
+func TestUS046_AntigravityDiscoveryIgnoresUnrelatedProviderFailure(t *testing.T) {
+	antigravityGroup := us046ActiveGroup(10, PlatformAntigravity, false)
+	openAIGroup := us046ActiveGroup(20, PlatformOpenAI, false)
+	wantErr := errors.New("unrelated provider unavailable")
+	var candidateGroups []int64
+	svc := newUniversalCapabilityService(
+		&us046EntitlementStub{groups: []Group{openAIGroup, antigravityGroup}},
+		func(_ context.Context, groupID int64, _ string) ([]string, bool, error) {
+			candidateGroups = append(candidateGroups, groupID)
+			if groupID == openAIGroup.ID {
+				return nil, false, wantErr
+			}
+			return []string{"gemini-antigravity"}, false, nil
+		},
+		func(_ context.Context, groupID int64, _ string, model string, shape UniversalShape) (bool, error) {
+			return groupID == antigravityGroup.ID && model == "gemini-antigravity" && shape == ShapeGemini, nil
+		},
+		nil,
+	)
+
+	models, err := svc.List(
+		context.Background(),
+		&APIKey{UserID: 9, RoutingMode: RoutingModeUniversal},
+		UniversalProtocolAntigravity,
+	)
+	require.NoError(t, err)
+	require.Equal(t, []int64{antigravityGroup.ID}, candidateGroups)
+	require.Len(t, models, 1)
+	require.Equal(t, antigravityGroup.ID, models[0].SelectedGroup.ID)
+}
+
 func TestUS046_CapabilitiesUnionMappedAndPassthroughCandidates(t *testing.T) {
 	group := us046ActiveGroup(10, PlatformOpenAI, false)
 	svc := newUniversalCapabilityService(
