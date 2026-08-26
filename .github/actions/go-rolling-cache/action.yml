@@ -6,7 +6,8 @@
 # save race poisoned the others, so the test-result cache effectively never
 # restored and every run cold-compiled + re-ran all packages.
 #
-# Three caches, deliberately split:
+# Three cache layers, deliberately split; callers may disable the build/test
+# layer when transferring its archive costs more than rebuilding:
 #   - module cache: identical across all jobs, only changes with go.sum, so one
 #     shared immutable entry is correct and avoids triplicating ~1GB of
 #     GOMODCACHE against the 10GB/repo budget.
@@ -23,12 +24,16 @@
 # Set `cache: false` on the calling job's actions/setup-go step and call this
 # AFTER it (mirrors warm-release-cache in backend-ci.yml).
 name: Go rolling build/test cache
-description: Shared module cache + per-job rolling Go build/test cache (replaces setup-go's immutable shared cache).
+description: Shared module cache + optional per-job rolling Go build/test cache (replaces setup-go's immutable shared cache).
 
 inputs:
   prefix:
     description: Per-job cache namespace (e.g. unit / integration / lint) — keeps build objects from colliding across build tags.
     required: true
+  build_cache:
+    description: Restore/save the Go build/test cache; disable when archive transfer costs more than rebuilding.
+    required: false
+    default: "true"
   golangci_cache:
     description: Also roll ~/.cache/golangci-lint (enable only for the lint job).
     required: false
@@ -59,7 +64,7 @@ runs:
         restore-keys: ${{ runner.os }}-gomod-
 
     - name: Restore Go build/test cache (non-main writer, ${{ inputs.prefix }})
-      if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+      if: inputs.build_cache == 'true' && (github.event_name != 'push' || github.ref != 'refs/heads/main')
       uses: actions/cache/restore@v6
       with:
         path: ~/.cache/go-build
@@ -69,7 +74,7 @@ runs:
           ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
 
     - name: Go build/test cache (weekly main writer, ${{ inputs.prefix }})
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      if: inputs.build_cache == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: actions/cache@v6
       with:
         path: ~/.cache/go-build

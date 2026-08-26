@@ -214,10 +214,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
-      # cache:false + ./.github/actions/go-rolling-cache — setup-go's built-in
-      # cache is immutable and was shared across the three Go jobs despite their
-      # differing build tags, so the test-result cache never persisted (every run
-      # cold-compiled + re-ran all packages). See that composite for the full why.
+      # setup-go's built-in cache is disabled because its immutable shared entry
+      # mixes jobs with different build tags. The composite keeps the shared
+      # module cache, while unit skips its 2.5GB+ build archive: restoring that
+      # archive costs more than rebuilding this checkout's invalidated objects.
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
@@ -226,6 +226,7 @@ jobs:
       - uses: ./.github/actions/go-rolling-cache
         with:
           prefix: unit
+          build_cache: "false"
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
@@ -235,8 +236,8 @@ jobs:
         env:
           # PR service-cold runs prioritize the compile-once critical path.
           # Main also uses shards: service tests inspect tracked source/fixture
-          # files at runtime, so checkout mtimes prevent cross-run result-cache
-          # hits even when the weekly Go build cache restores exactly.
+          # files at runtime, so checkout mtimes prevent useful cross-run result
+          # cache hits and make the large build-cache restore a net loss.
           UNIT_TEST_SERVICE_SHARD: ${{ (github.event_name == 'push' || needs.changes.outputs.service_unit_cold == 'true') && '1' || '0' }}
         run: make test-unit
       - name: Anthropic prompt surface fixture gateway
