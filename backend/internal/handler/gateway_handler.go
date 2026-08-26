@@ -1263,6 +1263,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		}
 		capabilities, err := h.universalCapabilities(c.Request.Context(), apiKey, protocol)
 		if err != nil {
+			requestLogger(c, "gateway.models", zap.String("protocol", string(protocol))).Warn("capability_discovery_failed", zap.Error(err))
 			if protocol == service.UniversalProtocolAnthropic {
 				h.errorResponse(c, http.StatusInternalServerError, "api_error", "Model discovery unavailable")
 			} else {
@@ -1643,6 +1644,7 @@ func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
 	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.IsUniversal() && apiKey.Group == nil {
 		capabilities, err := h.universalCapabilities(c.Request.Context(), apiKey, service.UniversalProtocolAntigravity)
 		if err != nil {
+			requestLogger(c, "gateway.antigravity_models", zap.String("protocol", string(service.UniversalProtocolAntigravity))).Warn("capability_discovery_failed", zap.Error(err))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "api_error", "message": "Model discovery unavailable"}})
 			return
 		}
