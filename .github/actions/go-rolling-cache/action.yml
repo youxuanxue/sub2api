@@ -10,9 +10,10 @@
 #   - module cache: identical across all jobs, only changes with go.sum, so one
 #     shared immutable entry is correct and avoids triplicating ~1GB of
 #     GOMODCACHE against the 10GB/repo budget.
-#   - build/test cache: per-job (prefix) + UTC-week seed. The first main run of
-#     each week refreshes the large archive; later runs hit the exact key and
-#     avoid uploading 300MB-2.5GB again. restore-keys seed a new week from the
+#   - build/test cache: per-workload (prefix) + UTC-week seed. One designated
+#     main writer refreshes each large archive; read-only jobs may share a
+#     compatible workload cache without racing to save the same key. Later runs
+#     hit the exact key and avoid uploading 300MB-2.5GB again. restore-keys seed a new week from the
 #     previous one. Go's cache is content-addressed, so stale entries are unused,
 #     never wrong.
 #   - golangci analysis cache: optional, lint-only, and rolling for the same
@@ -23,12 +24,16 @@
 # Set `cache: false` on the calling job's actions/setup-go step and call this
 # AFTER it (mirrors warm-release-cache in backend-ci.yml).
 name: Go rolling build/test cache
-description: Shared module cache + per-job rolling Go build/test cache (replaces setup-go's immutable shared cache).
+description: Shared module cache + per-workload rolling Go build/test cache (replaces setup-go's immutable shared cache).
 
 inputs:
   prefix:
-    description: Per-job cache namespace (e.g. unit / integration / lint) — keeps build objects from colliding across build tags.
+    description: Workload cache namespace (e.g. integration / lint) — keeps incompatible build-tag objects apart.
     required: true
+  build_cache_writer:
+    description: Let this caller write the weekly build cache on main; false makes it restore-only on every event.
+    required: false
+    default: "true"
   golangci_cache:
     description: Also roll ~/.cache/golangci-lint (enable only for the lint job).
     required: false
@@ -58,8 +63,8 @@ runs:
         key: ${{ runner.os }}-gomod-${{ hashFiles('backend/go.sum') }}
         restore-keys: ${{ runner.os }}-gomod-
 
-    - name: Restore Go build/test cache (non-main writer, ${{ inputs.prefix }})
-      if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+    - name: Restore Go build/test cache (reader, ${{ inputs.prefix }})
+      if: inputs.build_cache_writer != 'true' || github.event_name != 'push' || github.ref != 'refs/heads/main'
       uses: actions/cache/restore@v6
       with:
         path: ~/.cache/go-build
@@ -69,7 +74,7 @@ runs:
           ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
 
     - name: Go build/test cache (weekly main writer, ${{ inputs.prefix }})
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      if: inputs.build_cache_writer == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: actions/cache@v6
       with:
         path: ~/.cache/go-build

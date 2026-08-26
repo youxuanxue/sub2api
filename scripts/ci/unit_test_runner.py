@@ -342,7 +342,6 @@ def run_unit_tests(
                     "test",
                     "-c",
                     "-tags=unit",
-                    "-ldflags=-s -w",
                     "-o",
                     str(service_binary),
                     service_package,

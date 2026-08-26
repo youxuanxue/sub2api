@@ -56,7 +56,6 @@ class UnitTestRunnerTest(unittest.TestCase):
         compile_calls = [call for call in go_calls if "-c" in call]
         self.assertEqual(len(compile_calls), 1, go_calls)
         self.assertIn("./internal/service", compile_calls[0])
-        self.assertIn("-ldflags=-s -w", compile_calls[0])
         self.assertFalse(
             [
                 call
@@ -629,6 +628,19 @@ class FakeGoFixtureContext:
                 if "-c" in args:
                     if os.environ.get("FAKE_GO_COMPILE_CHILD") == "1":
                         subprocess.Popen([sys.executable, __file__, "fake-go-child"])
+                        deadline = time.monotonic() + 3
+                        while time.monotonic() < deadline:
+                            child_started = any(
+                                json.loads(line).get("kind") == "go-child-started"
+                                for line in events.read_text(encoding="utf-8").splitlines()
+                                if line
+                            )
+                            if child_started:
+                                break
+                            time.sleep(0.01)
+                        else:
+                            print("fake go child did not become ready", file=sys.stderr)
+                            raise SystemExit(2)
                     time.sleep(float(os.environ.get("FAKE_GO_COMPILE_DELAY", "0")))
                     with events.open("a", encoding="utf-8") as output:
                         output.write(json.dumps({"kind": "go-finished", "args": args, "at": time.monotonic()}) + "\\n")

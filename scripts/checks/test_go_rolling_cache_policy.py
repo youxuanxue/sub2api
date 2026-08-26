@@ -15,9 +15,12 @@ NON_MAIN_IF = "github.event_name != 'push' || github.ref != 'refs/heads/main'"
 
 
 class GoRollingCachePolicyTest(unittest.TestCase):
-    def test_build_cache_is_not_optionally_disabled(self) -> None:
+    def test_build_cache_writer_can_be_disabled_without_disabling_restore(self) -> None:
         action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
-        self.assertNotIn("build_cache", action["inputs"])
+        self.assertEqual(
+            action["inputs"].get("build_cache_writer", {}).get("default"),
+            "true",
+        )
 
         steps = action["runs"]["steps"]
         build_steps = [
@@ -26,9 +29,24 @@ class GoRollingCachePolicyTest(unittest.TestCase):
             if step.get("with", {}).get("path") == "~/.cache/go-build"
         ]
         self.assertEqual(len(build_steps), 2)
-        for step in build_steps:
-            with self.subTest(step=step["name"]):
-                self.assertNotIn("inputs.build_cache", step.get("if", ""))
+        restore_step = next(
+            step for step in build_steps if step["uses"].endswith("/restore@v6")
+        )
+        save_step = next(step for step in build_steps if step["uses"] == "actions/cache@v6")
+        self.assertIn("inputs.build_cache_writer != 'true'", restore_step["if"])
+        self.assertIn("inputs.build_cache_writer == 'true'", save_step["if"])
+
+        module_steps = [
+            step
+            for step in steps
+            if step.get("with", {}).get("path") == "~/go/pkg/mod"
+        ]
+        self.assertTrue(
+            all(
+                "inputs.build_cache_writer" not in step.get("if", "")
+                for step in module_steps
+            )
+        )
 
     def test_only_main_push_steps_can_save_caches(self) -> None:
         steps = yaml.safe_load(ACTION.read_text(encoding="utf-8"))["runs"]["steps"]
