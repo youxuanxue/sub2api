@@ -67,19 +67,24 @@ func (f *ModelListFilter) FilterClientFacingStrict(ctx context.Context, platform
 	if f == nil || f.pricing == nil || len(candidates) == 0 {
 		return candidates, nil
 	}
-	out := make([]string, 0, len(candidates))
+	priced := make([]string, 0, len(candidates))
 	for _, id := range candidates {
 		if !f.pricing.IsModelPriced(id, platform) {
 			continue
 		}
-		if f.availability != nil {
-			state, err := f.availability.GetAvailability(ctx, platform, id)
-			if err != nil {
-				return nil, fmt.Errorf("read model availability for %s/%s: %w", platform, id, err)
-			}
-			if state.Status == AvailabilityStatusUnreachable {
-				continue
-			}
+		priced = append(priced, id)
+	}
+	if f.availability == nil || len(priced) == 0 {
+		return priced, nil
+	}
+	states, err := f.availability.GetAvailabilityBatch(ctx, platform, priced)
+	if err != nil {
+		return nil, fmt.Errorf("read model availability for %s: %w", platform, err)
+	}
+	out := make([]string, 0, len(priced))
+	for _, id := range priced {
+		if states[id].Status == AvailabilityStatusUnreachable {
+			continue
 		}
 		out = append(out, id)
 	}

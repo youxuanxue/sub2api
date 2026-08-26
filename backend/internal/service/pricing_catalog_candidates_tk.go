@@ -105,28 +105,44 @@ func ServableClientFacingIDs(ctx context.Context, platform string, availability 
 
 func servableClientFacingIDsStrict(ctx context.Context, platform string, availability MePricingAvailability, pricing *PricingCatalogService) ([]string, error) {
 	ids := tkServableCandidateIDs(ctx, platform, nil)
-	if availability != nil {
-		kept := make([]string, 0, len(ids))
+	if pricing != nil {
+		priced := make([]string, 0, len(ids))
 		for _, id := range ids {
-			state, err := availability.GetAvailability(ctx, platform, id)
-			if err != nil {
-				return nil, fmt.Errorf("read model availability for %s/%s: %w", platform, id, err)
+			if pricing.IsModelPriced(id, platform) {
+				priced = append(priced, id)
 			}
-			if tkAvailabilityStructurallyGone(state) {
-				continue
-			}
-			kept = append(kept, id)
 		}
-		ids = kept
+		ids = priced
 	}
-	if pricing == nil || len(ids) == 0 {
+	if availability == nil || len(ids) == 0 {
 		return ids, nil
 	}
-	out := make([]string, 0, len(ids))
+
+	if batchAvailability, ok := availability.(interface {
+		GetAvailabilityBatch(context.Context, string, []string) (map[string]AvailabilityState, error)
+	}); ok {
+		states, err := batchAvailability.GetAvailabilityBatch(ctx, platform, ids)
+		if err != nil {
+			return nil, fmt.Errorf("read model availability for %s: %w", platform, err)
+		}
+		kept := make([]string, 0, len(ids))
+		for _, id := range ids {
+			if !tkAvailabilityStructurallyGone(states[id]) {
+				kept = append(kept, id)
+			}
+		}
+		return kept, nil
+	}
+
+	kept := make([]string, 0, len(ids))
 	for _, id := range ids {
-		if pricing.IsModelPriced(id, platform) {
-			out = append(out, id)
+		state, err := availability.GetAvailability(ctx, platform, id)
+		if err != nil {
+			return nil, fmt.Errorf("read model availability for %s/%s: %w", platform, id, err)
+		}
+		if !tkAvailabilityStructurallyGone(state) {
+			kept = append(kept, id)
 		}
 	}
-	return out, nil
+	return kept, nil
 }

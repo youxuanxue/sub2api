@@ -3900,18 +3900,39 @@
       "path": "backend/internal/handler/gateway_handler.go",
       "must_contain": [
         "func (h *GatewayHandler) ensureForwardErrorResponse(c *gin.Context, streamStarted bool) bool",
-        "if isClientClosedRequest(c, nil) {",
-        "service.MarkOpsClientClosedRequest(c)",
-        "failoverClientGone(c)"
+        "func (h *GatewayHandler) ensureForwardErrorResponseForError(c *gin.Context, err error, streamStarted bool) bool",
+        "if isClientClosedRequest(c, err) {",
+        "markClientClosedForwardRequest(c)"
       ],
-      "rationale": "Client-cancel terminal response wiring: a Forward error after the inbound request context is canceled must bypass the generic 502 fallback, mark ops client-closed state, and finalize an uncommitted response as 499 without writing a body. This handler call site is shared by native Anthropic, Gemini, Responses, and compatibility surfaces; an upstream merge can delete the short-circuit while service tests still prove only that transport cancellation was propagated."
+      "rationale": "Client-cancel terminal response wiring: every Forward failure must pass the actual error chain into the shared fallback owner so a wrapped context.Canceled is classified as caller-owned even when the inbound request context has not yet observed cancellation. The compatibility wrapper remains for existing call sites, while native Anthropic, Gemini, Responses, and compatibility surfaces converge on markClientClosedForwardRequest instead of writing a generic 502."
+    },
+    {
+      "path": "backend/internal/handler/client_closed_request_tk.go",
+      "must_contain": [
+        "func markClientClosedForwardRequest(c *gin.Context)",
+        "service.MarkOpsClientClosedRequest(c)",
+        "service.StopOpenAICompactSSEKeepaliveCommitted(c)",
+        "c.Status(statusClientClosedRequest)"
+      ],
+      "rationale": "Single owner for Forward-time client cancellation finalization. It marks ops ownership, stops compact keepalive before touching the writer, preserves an already committed status, and otherwise emits bodyless 499. Both failoverClientGone and the direct Forward fallback must reuse this helper so cancellation behavior cannot drift by endpoint."
     },
     {
       "path": "backend/internal/handler/gateway_handler_error_fallback_test.go",
       "must_contain": [
-        "TestGatewayEnsureForwardErrorResponse_ClientCanceledWrites499WithoutBody"
+        "TestGatewayEnsureForwardErrorResponse_ClientCanceledWrites499WithoutBody",
+        "TestGatewayEnsureForwardErrorResponse_WrappedForwardCancellationWrites499",
+        "TestGatewayWrappedForwardCancellationDoesNotRecordAvailabilityFailure"
       ],
-      "rationale": "Focused handler regression proving canceled inbound requests terminate as 499, write no response body, and carry the ops client-closed marker instead of falling through to the generic upstream 502 response."
+      "rationale": "Focused handler regressions proving both an already-canceled inbound request and a wrapped Forward context.Canceled terminate as 499, write no response body, carry the ops client-closed marker, and do not mutate model availability instead of falling through to the generic upstream 502 response."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_forward_error.go",
+      "must_contain": [
+        "func TkRecordFailureFromErr(",
+        "if errors.Is(err, context.Canceled) {",
+        "svc.TKRecordForwardFailure(ctx, platform, model, accountID, statusCode, body, network)"
+      ],
+      "rationale": "Single passive availability failure tap owner. Caller-owned context cancellation must return before recording any model-health sample; real failover errors still preserve upstream status/body for canonical availability classification."
     },
     {
       "path": "backend/internal/service/gateway_forward.go",
@@ -3928,6 +3949,27 @@
         "return nil, err"
       ],
       "rationale": "Anthropic API-key and OAuth passthrough return before the canonical Forward loop, so their shared transport-error branch must independently propagate caller cancellation without writing 502. Omitting this anchor makes client-cancel semantics depend on account passthrough configuration."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_passthrough.go",
+      "must_contain": [
+        "var pendingStreamError *sseStreamErrorEventError",
+        "pendingStreamError = &sseStreamErrorEventError{}",
+        "pendingStreamError = &sseStreamErrorEventError{RawData: trimmed}",
+        "_ = s.sseStreamErrorFailover(c, account, resp, sseErr, http.StatusBadGateway)",
+        "MarkResponseCommitted(c)"
+      ],
+      "rationale": "Anthropic passthrough must treat upstream event:error (including an event-only frame) or data type=error as the terminal semantic outcome, forward the original SSE frame exactly once, mark the response committed, and reuse sseStreamErrorFailover only as the canonical ops evidence recorder. Losing these anchors turns real Kiro overload errors into misleading missing-terminal 502s or duplicate generic SSE errors."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_apikey_passthrough_test.go",
+      "must_contain": [
+        "TestGatewayService_AnthropicAPIKeyPassthrough_StreamErrorPreservesUpstreamFailure",
+        "TestGatewayService_AnthropicAPIKeyPassthrough_EventOnlyStreamErrorIsTerminal",
+        "TestGatewayService_AnthropicAPIKeyPassthrough_ForwardRecordsStreamErrorEvidence",
+        "MODEL_TEMPORARILY_UNAVAILABLE"
+      ],
+      "rationale": "Regression coverage pins the real Kiro high-load frame, event-only error boundary, canonical stream_error ops evidence, response-committed marker, and exactly-one-error-frame behavior."
     },
     {
       "path": "backend/internal/service/gateway_forward_client_cancel_test.go",
@@ -6859,9 +6901,28 @@
       "must_contain": [
         "func (f *ModelListFilter) FilterClientFacingStrict(",
         "func (f *ModelListFilter) ServableClientFacingIDsStrict(",
-        "f.availability.GetAvailability(ctx, platform, id)"
+        "states, err := f.availability.GetAvailabilityBatch(ctx, platform, priced)",
+        "return nil, fmt.Errorf(\"read model availability for %s: %w\", platform, err)"
       ],
-      "rationale": "Capability discovery must fail explicitly when the availability repository cannot answer. Runtime forwarding keeps the legacy fail-open filter, while these discovery-only strict entrypoints prevent a repository outage from being presented as a truthful callable menu."
+      "rationale": "Capability discovery must fail explicitly when the availability repository cannot answer, but must read the priced candidate set in one batch instead of issuing one query per model. Runtime forwarding keeps the legacy fail-open filter, while these discovery-only strict entrypoints preserve truthful callable menus without amplifying /v1/models database load."
+    },
+    {
+      "path": "backend/internal/service/pricing_catalog_candidates_tk.go",
+      "must_contain": [
+        "func servableClientFacingIDsStrict(",
+        "GetAvailabilityBatch(context.Context, string, []string) (map[string]AvailabilityState, error)",
+        "states, err := batchAvailability.GetAvailabilityBatch(ctx, platform, ids)"
+      ],
+      "rationale": "Strict catalog fallback is part of the same capability SSOT as mapped discovery. It must price first, batch availability reads through the request-local cache, and retain the single-read fallback only for narrow test/legacy implementations; otherwise multiple passthrough groups restore per-model query amplification."
+    },
+    {
+      "path": "backend/internal/service/model_list_filter_tk_batch_test.go",
+      "must_contain": [
+        "TestModelListFilterStrict_BatchesPricedAvailabilityReads",
+        "TestModelListFilterStrict_ReusesAvailabilityReadsWithinDiscoveryRequest",
+        "TestUniversalCapabilityList_ReusesBatchedAvailabilityForCatalogFallbackGroups"
+      ],
+      "rationale": "Behavioral regressions pin both mapped-model and catalog-fallback query shapes, including request-local deduplication across same-platform groups."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_model_list.go",

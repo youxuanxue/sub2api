@@ -26,6 +26,24 @@ func writeClientClosedRequest(c *gin.Context, write gatewayErrorResponseFunc) {
 	write(c, statusClientClosedRequest, "api_error", "context canceled")
 }
 
+// markClientClosedForwardRequest records a Forward-time caller cancellation
+// without writing a body to a connection that no longer has a receiver.
+func markClientClosedForwardRequest(c *gin.Context) {
+	if c == nil || c.Writer == nil {
+		return
+	}
+	service.MarkOpsClientClosedRequest(c)
+	// Stop compact keepalive before touching the writer. A committed keepalive
+	// has already fixed the HTTP status at 200, so only the ops classification
+	// can still be corrected.
+	if service.StopOpenAICompactSSEKeepaliveCommitted(c) {
+		return
+	}
+	if !c.Writer.Written() {
+		c.Status(statusClientClosedRequest)
+	}
+}
+
 func writeReadRequestBodyError(c *gin.Context, err error, write gatewayErrorResponseFunc) {
 	if maxErr, ok := extractMaxBytesError(err); ok {
 		write(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))

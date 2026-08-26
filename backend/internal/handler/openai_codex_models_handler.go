@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -31,6 +32,7 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 		h.errorResponse(c, http.StatusUnauthorized, "invalid_request_error", "Invalid API key")
 		return
 	}
+	discoveryAPIKeyID := apiKey.ID
 	apiKey, allowedModelIDs, err := h.resolveCodexDiscoveryAPIKey(c.Request.Context(), apiKey)
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -39,6 +41,11 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 			status = http.StatusServiceUnavailable
 			message = "No available OpenAI group for Codex"
 		}
+		service.SetOpsUpstreamError(c, 0, message, err.Error())
+		requestLogger(c, "handler.openai_gateway.codex_models",
+			zap.Int64("api_key_id", discoveryAPIKeyID),
+			zap.String("stage", "capability_resolution"),
+		).Error("codex.model_discovery_failed", zap.Error(err))
 		h.errorResponse(c, status, "upstream_error", message)
 		return
 	}

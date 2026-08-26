@@ -266,6 +266,10 @@ func TestUS046_UniversalDiscoveryFailureIs500NotEmptyList(t *testing.T) {
 		h.CodexModels(c)
 		require.Equal(t, http.StatusInternalServerError, w.Code)
 		require.NotContains(t, w.Body.String(), `"models":[]`)
+		require.NotContains(t, w.Body.String(), "database unavailable", "internal discovery errors must stay server-side")
+		detail, ok := c.Get(service.OpsUpstreamErrorDetailKey)
+		require.True(t, ok, "ops context must retain the discovery root cause")
+		require.Equal(t, "database unavailable", detail)
 	})
 }
 

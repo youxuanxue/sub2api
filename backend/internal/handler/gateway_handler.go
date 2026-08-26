@@ -585,7 +585,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				upstreamErrorAlreadyCommunicated := gatewayForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false
 				if !upstreamErrorAlreadyCommunicated {
-					wroteFallback = h.ensureForwardErrorResponse(c, streamStarted)
+					wroteFallback = h.ensureForwardErrorResponseForError(c, err, streamStarted)
 				}
 				forwardFailedFields := []zap.Field{
 					zap.Int64("account_id", account.ID),
@@ -1171,7 +1171,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				upstreamErrorAlreadyCommunicated := gatewayForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false
 				if !upstreamErrorAlreadyCommunicated {
-					wroteFallback = h.ensureForwardErrorResponse(c, streamStarted)
+					wroteFallback = h.ensureForwardErrorResponseForError(c, err, streamStarted)
 				}
 				forwardFailedFields := []zap.Field{
 					zap.Int64("account_id", account.ID),
@@ -2153,6 +2153,10 @@ func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, e
 // 让 handleStreamingAwareError 通过 SSE 发协议合规的终止事件，
 // 否则下游收到的就是 silent EOF。
 func (h *GatewayHandler) ensureForwardErrorResponse(c *gin.Context, streamStarted bool) bool {
+	return h.ensureForwardErrorResponseForError(c, nil, streamStarted)
+}
+
+func (h *GatewayHandler) ensureForwardErrorResponseForError(c *gin.Context, err error, streamStarted bool) bool {
 	if c == nil || c.Writer == nil {
 		return false
 	}
@@ -2160,9 +2164,8 @@ func (h *GatewayHandler) ensureForwardErrorResponse(c *gin.Context, streamStarte
 	// generic 502 here only corrupts access/ops semantics; there is no client left
 	// to receive it. Keep the established 499 classification used by failover and
 	// concurrency cancellation paths.
-	if isClientClosedRequest(c, nil) {
-		service.MarkOpsClientClosedRequest(c)
-		failoverClientGone(c)
+	if isClientClosedRequest(c, err) {
+		markClientClosedForwardRequest(c)
 		return false
 	}
 	if service.IsResponseCommitted(c) {
