@@ -8,8 +8,10 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -244,18 +246,28 @@ def _terminate_processes(
     running: list[RunningCommand],
 ) -> None:
     for _, process, _, _ in running:
-        if process.poll() is not None:
-            continue
         try:
-            process.terminate()
-        except ProcessLookupError:
-            continue
+            os.killpg(process.pid, signal.SIGTERM)
+        except AttributeError:
+            if process.poll() is None:
+                process.terminate()
+        except (PermissionError, ProcessLookupError):
+            if process.poll() is None:
+                process.terminate()
     for _, process, _, _ in running:
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            process.kill()
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (AttributeError, PermissionError, ProcessLookupError):
+                process.kill()
             process.wait()
+    for _, process, _, _ in running:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (AttributeError, PermissionError, ProcessLookupError):
+            pass
 
 
 def run_commands(
@@ -276,6 +288,7 @@ def run_commands(
                     cwd=command.cwd,
                     stdout=handle,
                     stderr=subprocess.STDOUT,
+                    start_new_session=True,
                 )
                 running.append((command, process, log_path, time.monotonic()))
 
@@ -343,6 +356,7 @@ def run_unit_tests(
                     cwd=compile_command.cwd,
                     stdout=compile_handle,
                     stderr=subprocess.STDOUT,
+                    start_new_session=True,
                 )
             except BaseException:
                 compile_handle.close()
@@ -400,6 +414,7 @@ def run_unit_tests(
                         cwd=other_command.cwd,
                         stdout=other_handle,
                         stderr=subprocess.STDOUT,
+                        start_new_session=True,
                     )
                     background.append(
                         (other_command, other_process, other_log, time.monotonic())
@@ -419,6 +434,7 @@ def run_unit_tests(
                     raise RunnerError(
                         f"{' '.join(compile_command.argv)}: {detail}"
                     )
+                background = background[1:]
                 print(
                     f"unit-test-runner: STAGE service-compile "
                     f"({compile_elapsed:.1f}s)",
@@ -432,7 +448,7 @@ def run_unit_tests(
                     f"({time.monotonic() - registry_started_at:.1f}s)",
                     flush=True,
                 )
-                return run_commands(service_commands, background[1:])
+                return run_commands(service_commands, background)
             except BaseException:
                 _terminate_processes(background)
                 raise

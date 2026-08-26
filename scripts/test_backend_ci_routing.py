@@ -188,7 +188,7 @@ class BackendCIRoutingTest(unittest.TestCase):
             unit_step["env"]["UNIT_TEST_SERVICE_SHARD"],
         )
 
-    def test_unit_main_push_uses_compile_once_shards_when_service_is_cold(self) -> None:
+    def test_unit_main_push_prioritizes_shards_over_native_result_cache(self) -> None:
         unit_step = next(
             step
             for step in self.jobs["test-unit"]["steps"]

@@ -100,6 +100,7 @@ class UnitTestRunnerTest(unittest.TestCase):
             ["TestOne"],
             has_test_main=True,
             compile_delay=5.0,
+            compile_child=True,
         ) as fixture:
             result = self._run(fixture)
             events = self._events(fixture.events)
@@ -114,6 +115,10 @@ class UnitTestRunnerTest(unittest.TestCase):
                 for event in events
                 if event["kind"] == "go-terminated" and "-c" in event["args"]
             ],
+            events,
+        )
+        self.assertTrue(
+            [event for event in events if event["kind"] == "go-child-terminated"],
             events,
         )
         self.assertFalse(self._binary_events(events))
@@ -189,13 +194,21 @@ class UnitTestRunnerTest(unittest.TestCase):
         )
 
     def test_compile_failure_stops_before_any_service_shard(self) -> None:
-        with self._fake_go(["TestOne", "TestTwo"], fail_compile=True) as fixture:
+        with self._fake_go(
+            ["TestOne", "TestTwo"],
+            fail_compile=True,
+            compile_child=True,
+        ) as fixture:
             result = self._run(fixture, "--min-shards", "2")
             events = self._events(fixture.events)
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("intentional compile failure", result.stderr)
         self.assertEqual(len([call for call in self._go_calls(events) if "-c" in call]), 1)
+        self.assertTrue(
+            [event for event in events if event["kind"] == "go-child-terminated"],
+            events,
+        )
         self.assertFalse(self._binary_events(events))
 
     def test_partial_start_failure_terminates_started_processes(self) -> None:
@@ -317,6 +330,7 @@ class UnitTestRunnerTest(unittest.TestCase):
             fail_discovery=True,
             discovery_delay=0.25,
             compile_delay=5.0,
+            compile_child=True,
         ) as fixture:
             result = self._run(fixture)
             events = self._events(fixture.events)
@@ -329,6 +343,10 @@ class UnitTestRunnerTest(unittest.TestCase):
                 for event in events
                 if event["kind"] == "go-terminated" and "-c" in event["args"]
             ],
+            events,
+        )
+        self.assertTrue(
+            [event for event in events if event["kind"] == "go-child-terminated"],
             events,
         )
         self.assertFalse(self._binary_events(events))
@@ -363,6 +381,8 @@ class UnitTestRunnerTest(unittest.TestCase):
             env["FAKE_GO_DISCOVERY_DELAY"] = str(fixture.discovery_delay)
         if fixture.fail_discovery:
             env["FAKE_GO_FAIL_DISCOVERY"] = "1"
+        if fixture.compile_child:
+            env["FAKE_GO_COMPILE_CHILD"] = "1"
         return subprocess.run(
             ["python3", str(SCRIPT), "--root", str(fixture.root), *args],
             check=False,
@@ -411,6 +431,7 @@ class UnitTestRunnerTest(unittest.TestCase):
         compile_delay: float = 0.0,
         discovery_delay: float = 0.0,
         fail_discovery: bool = False,
+        compile_child: bool = False,
     ) -> "FakeGoFixtureContext":
         return FakeGoFixtureContext(
             test_names,
@@ -422,6 +443,7 @@ class UnitTestRunnerTest(unittest.TestCase):
             compile_delay,
             discovery_delay,
             fail_discovery,
+            compile_child,
         )
 
 
@@ -438,6 +460,7 @@ class FakeGoFixture:
         compile_delay: float,
         discovery_delay: float,
         fail_discovery: bool,
+        compile_child: bool,
     ) -> None:
         self._temporary = temporary
         self.root = Path(temporary.name)
@@ -454,6 +477,7 @@ class FakeGoFixture:
         self.compile_delay = compile_delay
         self.discovery_delay = discovery_delay
         self.fail_discovery = fail_discovery
+        self.compile_child = compile_child
         service_dir = self.root / "internal" / "service"
         service_dir.mkdir(parents=True)
         declarations = []
@@ -488,6 +512,7 @@ class FakeGoFixtureContext:
         compile_delay: float,
         discovery_delay: float,
         fail_discovery: bool,
+        compile_child: bool,
     ) -> None:
         self.test_names = test_names
         self.has_test_main = has_test_main
@@ -498,6 +523,7 @@ class FakeGoFixtureContext:
         self.compile_delay = compile_delay
         self.discovery_delay = discovery_delay
         self.fail_discovery = fail_discovery
+        self.compile_child = compile_child
         self.temporary: tempfile.TemporaryDirectory[str] | None = None
 
     def __enter__(self) -> FakeGoFixture:
@@ -513,6 +539,7 @@ class FakeGoFixtureContext:
             self.compile_delay,
             self.discovery_delay,
             self.fail_discovery,
+            self.compile_child,
         )
         fake_binary_source = textwrap.dedent(
             """\
@@ -549,6 +576,7 @@ class FakeGoFixtureContext:
                 import os
                 from pathlib import Path
                 import signal
+                import subprocess
                 import sys
                 import time
 
@@ -556,13 +584,20 @@ class FakeGoFixtureContext:
                 events = Path(os.environ["FAKE_GO_EVENTS"])
 
                 def terminate(_signum, _frame):
+                    kind = "go-child-terminated" if args == ["fake-go-child"] else "go-terminated"
                     with events.open("a", encoding="utf-8") as output:
-                        output.write(json.dumps({"kind": "go-terminated", "args": args, "at": time.monotonic()}) + "\\n")
+                        output.write(json.dumps({"kind": kind, "args": args, "at": time.monotonic()}) + "\\n")
                     raise SystemExit(143)
 
                 signal.signal(signal.SIGTERM, terminate)
                 with events.open("a", encoding="utf-8") as output:
                     output.write(json.dumps({"kind": "go", "args": args, "at": time.monotonic()}) + "\\n")
+
+                if args == ["fake-go-child"]:
+                    with events.open("a", encoding="utf-8") as output:
+                        output.write(json.dumps({"kind": "go-child-started", "pid": os.getpid(), "at": time.monotonic()}) + "\\n")
+                    time.sleep(3)
+                    raise SystemExit(0)
 
                 if args and args[0] == "run":
                     time.sleep(float(os.environ.get("FAKE_GO_DISCOVERY_DELAY", "0")))
@@ -591,6 +626,8 @@ class FakeGoFixtureContext:
                     raise SystemExit(0)
 
                 if "-c" in args:
+                    if os.environ.get("FAKE_GO_COMPILE_CHILD") == "1":
+                        subprocess.Popen([sys.executable, __file__, "fake-go-child"])
                     time.sleep(float(os.environ.get("FAKE_GO_COMPILE_DELAY", "0")))
                     with events.open("a", encoding="utf-8") as output:
                         output.write(json.dumps({"kind": "go-finished", "args": args, "at": time.monotonic()}) + "\\n")
