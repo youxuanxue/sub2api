@@ -135,6 +135,7 @@ func (s *UniversalCapabilityService) List(ctx context.Context, apiKey *APIKey, p
 		return nil, fmt.Errorf("%w: api key is nil", ErrUniversalCapabilityUnavailable)
 	}
 	ctx = withUniversalCapabilityAccountCache(ctx)
+	ctx = withModelAvailabilityRequestCache(ctx)
 
 	groups, err := s.groupsForKey(ctx, apiKey)
 	if err != nil {

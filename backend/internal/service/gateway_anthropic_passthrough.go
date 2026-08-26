@@ -415,6 +415,14 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 	if input.RequestStream {
 		streamResult, err := s.handleStreamingResponseAnthropicAPIKeyPassthrough(ctx, resp, c, account, input.StartTime, input.RequestModel)
 		if err != nil {
+			var sseErr *sseStreamErrorEventError
+			if errors.As(err, &sseErr) {
+				// The error frame has already been forwarded as the terminal client
+				// outcome. Reuse the canonical recorder for ops evidence, but keep
+				// the non-failover error shape so the handler does not append a
+				// second generic SSE error after semantic output was committed.
+				_ = s.sseStreamErrorFailover(c, account, resp, sseErr, http.StatusBadGateway)
+			}
 			// 流中断时保留已观测到的 usage 与错误一起返回，避免上游已计量的请求
 			// 完全漏记漏计费（issue #5148）。
 			if partial := partialStreamUsageResult(c, resp, streamResult, input.OriginalModel, input.RequestModel, input.StartTime, err); partial != nil {
@@ -668,14 +676,23 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 		keepaliveTimer.Reset(keepaliveInterval)
 	}
 	inPartialEvent := false
+	pendingEventName := ""
+	var pendingStreamError *sseStreamErrorEventError
 
 	for {
 		select {
 		case ev, ok := <-events:
 			if !ok {
+				if pendingStreamError != nil && inPartialEvent && !clientDisconnected {
+					_, _ = io.WriteString(w, "\n")
+				}
 				if !clientDisconnected {
 					// 兜底补刷，确保最后一个未以空行结尾的事件也能及时送达客户端。
 					flusher.Flush()
+				}
+				if pendingStreamError != nil {
+					MarkResponseCommitted(c)
+					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, pendingStreamError
 				}
 				if !sawTerminalEvent {
 					if clientDisconnected && streamInterval > 0 {
@@ -706,6 +723,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			}
 
 			line := ev.line
+			trimmedLine := strings.TrimSpace(line)
 			if blocks, ok := parseKiroInternalThinkingSSECommentLine(line); ok {
 				applyKiroInternalThinkingBlocks(c, blocks)
 				continue
@@ -713,6 +731,9 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
 				observer.ObserveAnthropic([]byte(trimmed))
+				if strings.EqualFold(pendingEventName, "error") || gjson.Get(trimmed, "type").String() == "error" {
+					pendingStreamError = &sseStreamErrorEventError{RawData: trimmed}
+				}
 				if anthropicStreamEventIsTerminal("", trimmed) {
 					sawTerminalEvent = true
 				}
@@ -722,9 +743,14 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 				}
 				parseSSEUsagePassthrough(data, usage)
 			} else {
-				trimmed := strings.TrimSpace(line)
-				if strings.HasPrefix(trimmed, "event:") && anthropicStreamEventIsTerminal(strings.TrimSpace(strings.TrimPrefix(trimmed, "event:")), "") {
-					sawTerminalEvent = true
+				if strings.HasPrefix(trimmedLine, "event:") {
+					pendingEventName = strings.TrimSpace(strings.TrimPrefix(trimmedLine, "event:"))
+					if strings.EqualFold(pendingEventName, "error") {
+						pendingStreamError = &sseStreamErrorEventError{}
+					}
+					if anthropicStreamEventIsTerminal(pendingEventName, "") {
+						sawTerminalEvent = true
+					}
 				}
 			}
 
@@ -742,6 +768,11 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 					lastDataAt = time.Now()
 					resetKeepaliveTimer()
 					inPartialEvent = false
+					if pendingStreamError != nil {
+						MarkResponseCommitted(c)
+						return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: false}, pendingStreamError
+					}
+					pendingEventName = ""
 				} else {
 					inPartialEvent = true
 				}

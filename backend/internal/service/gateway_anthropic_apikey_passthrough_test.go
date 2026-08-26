@@ -1237,6 +1237,120 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_MissingTerminalEventReturnsEr
 	require.NotNil(t, result)
 }
 
+func TestGatewayService_AnthropicAPIKeyPassthrough_StreamErrorPreservesUpstreamFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	svc := &GatewayService{
+		cfg: &config.Config{
+			Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize},
+		},
+		rateLimitService: &RateLimitService{},
+	}
+	rawError := `{"type":"error","error":{"type":"upstream_error","message":"MODEL_TEMPORARILY_UNAVAILABLE: unexpectedly high load"}}`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			"event: error",
+			"data: " + rawError,
+			"",
+		}, "\n"))),
+	}
+
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(
+		context.Background(), resp, c, &Account{ID: 18}, time.Now(), "claude-opus-5",
+	)
+
+	require.Error(t, err)
+	var streamErr *sseStreamErrorEventError
+	require.ErrorAs(t, err, &streamErr)
+	require.Equal(t, rawError, streamErr.RawData)
+	require.NotContains(t, err.Error(), "missing terminal event")
+	require.NotNil(t, result)
+	require.Contains(t, rec.Body.String(), "event: error\n")
+	require.Contains(t, rec.Body.String(), "data: "+rawError+"\n\n")
+	require.True(t, IsResponseCommitted(c), "forwarded terminal error must suppress a second generic SSE error")
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_EventOnlyStreamErrorIsTerminal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	svc := &GatewayService{
+		cfg: &config.Config{
+			Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize},
+		},
+		rateLimitService: &RateLimitService{},
+	}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader("event: error\n\n")),
+	}
+
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(
+		context.Background(), resp, c, &Account{ID: 18}, time.Now(), "claude-opus-5",
+	)
+
+	require.Error(t, err)
+	var streamErr *sseStreamErrorEventError
+	require.ErrorAs(t, err, &streamErr)
+	require.Empty(t, streamErr.RawData)
+	require.NotContains(t, err.Error(), "missing terminal event")
+	require.NotNil(t, result)
+	require.Equal(t, "event: error\n\n", rec.Body.String())
+	require.True(t, IsResponseCommitted(c))
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardRecordsStreamErrorEvidence(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	rawError := `{"type":"error","error":{"type":"upstream_error","message":"MODEL_TEMPORARILY_UNAVAILABLE: unexpectedly high load"}}`
+	upstream := &anthropicHTTPUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+			"x-request-id": []string{"kiro-high-load"},
+		},
+		Body: io.NopCloser(strings.NewReader("event: error\ndata: " + rawError + "\n\n")),
+	}}
+	svc := &GatewayService{
+		cfg:              &config.Config{},
+		httpUpstream:     upstream,
+		rateLimitService: &RateLimitService{},
+	}
+	account := newAnthropicAPIKeyAccountForTest()
+	account.ID = 18
+	account.Name = "kiro-us4"
+	body := []byte(`{"model":"claude-opus-5","stream":true,"messages":[{"role":"user","content":"hello"}]}`)
+
+	_, err := svc.forwardAnthropicAPIKeyPassthrough(
+		context.Background(), c, account, body, "claude-opus-5", "claude-opus-5", true, time.Now(),
+	)
+
+	require.Error(t, err)
+	var streamErr *sseStreamErrorEventError
+	require.ErrorAs(t, err, &streamErr)
+	rawEvents, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok, "typed stream failure must be persisted in ops context")
+	events, ok := rawEvents.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.Len(t, events, 1)
+	require.Equal(t, http.StatusBadGateway, events[0].UpstreamStatusCode)
+	require.Equal(t, "stream_error", events[0].Kind)
+	require.Contains(t, events[0].Message, "MODEL_TEMPORARILY_UNAVAILABLE")
+	require.Equal(t, 1, strings.Count(rec.Body.String(), "event: error"), "terminal upstream error must not be duplicated")
+}
+
 func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_NonStreamingSuccess(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

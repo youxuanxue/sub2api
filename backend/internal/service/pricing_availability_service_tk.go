@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -112,6 +113,34 @@ type ModelAvailabilityRepository interface {
 	Get(ctx context.Context, platform, modelID string) (AvailabilityState, error)
 }
 
+// modelAvailabilityBatchRepository is an optional read optimization implemented
+// by the production repository. Keeping it separate preserves compatibility
+// with focused test repositories while discovery can avoid one query per model.
+type modelAvailabilityBatchRepository interface {
+	GetBatch(ctx context.Context, platform string, modelIDs []string) (map[string]AvailabilityState, error)
+}
+
+type modelAvailabilityRequestCacheContextKey struct{}
+
+type modelAvailabilityRequestCache struct {
+	mu     sync.Mutex
+	loaded map[string]struct{}
+	states map[string]AvailabilityState
+}
+
+func withModelAvailabilityRequestCache(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, ok := ctx.Value(modelAvailabilityRequestCacheContextKey{}).(*modelAvailabilityRequestCache); ok {
+		return ctx
+	}
+	return context.WithValue(ctx, modelAvailabilityRequestCacheContextKey{}, &modelAvailabilityRequestCache{
+		loaded: make(map[string]struct{}),
+		states: make(map[string]AvailabilityState),
+	})
+}
+
 // AvailabilityState is the in-memory shape of a model_availability row.
 // Mirrors the ent ModelAvailability fields. Pointers are used for nullable
 // timestamps; a fresh state has Status="" (untested has not been written yet).
@@ -210,6 +239,91 @@ func (s *PricingAvailabilityService) GetAvailability(ctx context.Context, platfo
 		return AvailabilityState{}, ErrAvailabilityRepoNil
 	}
 	return s.repo.Get(ctx, strings.TrimSpace(platform), strings.TrimSpace(modelID))
+}
+
+// GetAvailabilityBatch returns the current states for the requested model IDs.
+// Missing rows are omitted and therefore retain the same zero-value/untested
+// semantics as GetAvailability.
+func (s *PricingAvailabilityService) GetAvailabilityBatch(ctx context.Context, platform string, modelIDs []string) (map[string]AvailabilityState, error) {
+	if s == nil || s.repo == nil {
+		return nil, ErrAvailabilityRepoNil
+	}
+	platform = strings.TrimSpace(platform)
+	unique := make([]string, 0, len(modelIDs))
+	seen := make(map[string]struct{}, len(modelIDs))
+	for _, modelID := range modelIDs {
+		modelID = strings.TrimSpace(modelID)
+		if modelID == "" {
+			continue
+		}
+		if _, ok := seen[modelID]; ok {
+			continue
+		}
+		seen[modelID] = struct{}{}
+		unique = append(unique, modelID)
+	}
+	if len(unique) == 0 {
+		return map[string]AvailabilityState{}, nil
+	}
+	if cache, ok := ctx.Value(modelAvailabilityRequestCacheContextKey{}).(*modelAvailabilityRequestCache); ok && cache != nil {
+		return s.getAvailabilityBatchCached(ctx, cache, platform, unique)
+	}
+	return s.getAvailabilityBatchUncached(ctx, platform, unique)
+}
+
+func (s *PricingAvailabilityService) getAvailabilityBatchCached(
+	ctx context.Context,
+	cache *modelAvailabilityRequestCache,
+	platform string,
+	modelIDs []string,
+) (map[string]AvailabilityState, error) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	missing := make([]string, 0, len(modelIDs))
+	for _, modelID := range modelIDs {
+		if _, ok := cache.loaded[platform+"\x00"+modelID]; !ok {
+			missing = append(missing, modelID)
+		}
+	}
+	if len(missing) > 0 {
+		loaded, err := s.getAvailabilityBatchUncached(ctx, platform, missing)
+		if err != nil {
+			return nil, err
+		}
+		for _, modelID := range missing {
+			key := platform + "\x00" + modelID
+			cache.loaded[key] = struct{}{}
+			if state, ok := loaded[modelID]; ok {
+				cache.states[key] = state
+			}
+		}
+	}
+
+	out := make(map[string]AvailabilityState, len(modelIDs))
+	for _, modelID := range modelIDs {
+		if state, ok := cache.states[platform+"\x00"+modelID]; ok {
+			out[modelID] = state
+		}
+	}
+	return out, nil
+}
+
+func (s *PricingAvailabilityService) getAvailabilityBatchUncached(ctx context.Context, platform string, modelIDs []string) (map[string]AvailabilityState, error) {
+	if batchRepo, ok := s.repo.(modelAvailabilityBatchRepository); ok {
+		return batchRepo.GetBatch(ctx, platform, modelIDs)
+	}
+	out := make(map[string]AvailabilityState, len(modelIDs))
+	for _, modelID := range modelIDs {
+		state, err := s.repo.Get(ctx, platform, modelID)
+		if err != nil {
+			return nil, err
+		}
+		if state.ModelID != "" || state.Status != "" {
+			out[modelID] = state
+		}
+	}
+	return out, nil
 }
 
 // SuccessRate24h is a small helper for callers (catalog handler, frontend

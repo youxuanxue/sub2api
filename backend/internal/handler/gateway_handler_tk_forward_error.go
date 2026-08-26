@@ -59,6 +59,12 @@ func TkRecordFailureFromErr(
 	if svc == nil || err == nil {
 		return
 	}
+	if errors.Is(err, context.Canceled) {
+		// Caller-owned cancellation is not evidence about model health. Recording
+		// it as the default upstream_5xx failure can make a fresh availability
+		// cell unreachable and hide a callable model from strict discovery.
+		return
+	}
 	statusCode := 0
 	body := err.Error()
 	network := false

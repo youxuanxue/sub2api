@@ -62,6 +62,28 @@ func (r *modelAvailabilityRepository) Get(ctx context.Context, platform, modelID
 	return entRowToState(row), nil
 }
 
+func (r *modelAvailabilityRepository) GetBatch(ctx context.Context, platform string, modelIDs []string) (map[string]service.AvailabilityState, error) {
+	if r == nil || r.client == nil {
+		return nil, errors.New("model availability repo: nil client")
+	}
+	if len(modelIDs) == 0 {
+		return map[string]service.AvailabilityState{}, nil
+	}
+	rows, err := r.client.ModelAvailability.Query().
+		Where(modelavailability.PlatformEQ(modelavailability.Platform(platform))).
+		Where(modelavailability.ModelIDIn(modelIDs...)).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]service.AvailabilityState, len(rows))
+	for _, row := range rows {
+		state := entRowToState(row)
+		out[state.ModelID] = state
+	}
+	return out, nil
+}
+
 func (r *modelAvailabilityRepository) Upsert(ctx context.Context, platform, modelID string, fn func(service.AvailabilityState) service.AvailabilityState) error {
 	if r == nil || r.client == nil {
 		return errors.New("model availability repo: nil client")

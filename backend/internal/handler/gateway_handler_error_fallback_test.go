@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -52,6 +54,57 @@ func TestGatewayEnsureForwardErrorResponse_ClientCanceledWrites499WithoutBody(t 
 	require.Equal(t, statusClientClosedRequest, c.Writer.Status())
 	require.Empty(t, w.Body.String())
 	require.True(t, service.HasOpsClientClosedRequest(c))
+}
+
+func TestGatewayEnsureForwardErrorResponse_WrappedForwardCancellationWrites499(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, EndpointMessages, nil)
+	forwardErr := fmt.Errorf("kiro upstream call failed: %w", context.Canceled)
+
+	h := &GatewayHandler{}
+	wrote := h.ensureForwardErrorResponseForError(c, forwardErr, false)
+
+	require.False(t, wrote)
+	require.Equal(t, statusClientClosedRequest, c.Writer.Status())
+	require.Empty(t, w.Body.String())
+	require.True(t, service.HasOpsClientClosedRequest(c))
+}
+
+func TestGatewayWrappedForwardCancellationDoesNotRecordAvailabilityFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, EndpointMessages, nil)
+	forwardErr := fmt.Errorf("kiro upstream call failed: %w", context.Canceled)
+	repo := &countingAvailabilityRepo{}
+	availability := service.NewPricingAvailabilityService(repo, time.Now)
+	gateway := &service.GatewayService{}
+	gateway.SetPricingAvailabilityService(availability)
+
+	h := &GatewayHandler{}
+	wrote := h.ensureForwardErrorResponseForError(c, forwardErr, false)
+	TkRecordFailureFromErr(gateway, c.Request.Context(), service.PlatformAnthropic, "claude-opus-5", 18, forwardErr)
+
+	require.False(t, wrote)
+	require.Equal(t, statusClientClosedRequest, c.Writer.Status())
+	require.Empty(t, w.Body.String())
+	require.True(t, service.HasOpsClientClosedRequest(c))
+	require.Zero(t, repo.upsertCalls, "caller cancellation must not mutate model availability")
+}
+
+type countingAvailabilityRepo struct {
+	upsertCalls int
+}
+
+func (r *countingAvailabilityRepo) Upsert(_ context.Context, _, _ string, _ func(service.AvailabilityState) service.AvailabilityState) error {
+	r.upsertCalls++
+	return nil
+}
+
+func (r *countingAvailabilityRepo) Get(context.Context, string, string) (service.AvailabilityState, error) {
+	return service.AvailabilityState{}, nil
 }
 
 // Writer 已写后 ensureForwardErrorResponse 必须把错误以 SSE 形式追加，
