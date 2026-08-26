@@ -225,11 +225,7 @@ jobs:
           cache: false
       - uses: ./.github/actions/go-rolling-cache
         with:
-          # Unit and lint share the expensive production-package compile graph.
-          # Reuse lint's smaller cache and keep lint as the sole main writer;
-          # unit-only test objects are rebuilt locally but never inflate the archive.
-          prefix: lint
-          build_cache_writer: "false"
+          prefix: unit
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)

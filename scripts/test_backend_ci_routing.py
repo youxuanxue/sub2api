@@ -201,29 +201,6 @@ class BackendCIRoutingTest(unittest.TestCase):
             "needs.changes.outputs.service_unit_cold == 'true') && '1' || '0' }}",
         )
 
-    def test_unit_reuses_lint_build_cache_without_writing_it(self) -> None:
-        cache_steps = {
-            job_name: next(
-                step
-                for step in self.jobs[job_name]["steps"]
-                if step.get("uses") == "./.github/actions/go-rolling-cache"
-            )
-            for job_name in ("preflight", "test-unit", "test-integration", "golangci-lint")
-        }
-
-        self.assertEqual(cache_steps["test-unit"]["with"]["prefix"], "lint")
-        self.assertEqual(
-            cache_steps["test-unit"]["with"].get("build_cache_writer"),
-            "false",
-        )
-        self.assertEqual(cache_steps["golangci-lint"]["with"]["prefix"], "lint")
-        self.assertNotIn("build_cache_writer", cache_steps["golangci-lint"]["with"])
-        self.assertEqual(cache_steps["preflight"]["with"]["prefix"], "preflight")
-        self.assertEqual(
-            cache_steps["test-integration"]["with"]["prefix"],
-            "integration",
-        )
-
     def test_lint_uses_rolling_analysis_cache_instead_of_action_cache(self) -> None:
         steps = self.jobs["golangci-lint"]["steps"]
         rolling_cache = next(
