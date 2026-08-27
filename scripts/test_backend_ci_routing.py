@@ -114,11 +114,6 @@ class BackendCIRoutingTest(unittest.TestCase):
             next(
                 step
                 for step in steps
-                if step.get("name") == "Integration package discovery contract tests"
-            ),
-            next(
-                step
-                for step in steps
                 if step.get("uses") == "./.github/actions/go-rolling-cache"
             ),
         ]
@@ -187,24 +182,41 @@ class BackendCIRoutingTest(unittest.TestCase):
             orchestration.get("run", ""),
         )
 
-    def test_go_dependent_integration_contract_runs_after_pinned_setup(self) -> None:
-        steps = self.jobs["preflight"]["steps"]
-        orchestration = next(
-            step for step in steps if step.get("name") == "CI orchestration contract tests"
+    def test_go_dependent_integration_contract_runs_off_the_preflight_path(self) -> None:
+        preflight_steps = self.jobs["preflight"]["steps"]
+        self.assertFalse(
+            [
+                step
+                for step in preflight_steps
+                if "scripts.ci.test_integration_packages" in step.get("run", "")
+                or "scripts.ci.test_integration_test_runner" in step.get("run", "")
+            ]
         )
-        self.assertNotIn("scripts.ci.test_integration_packages", orchestration.get("run", ""))
 
-        setup_index = next(
-            index for index, step in enumerate(steps) if step.get("uses") == "actions/setup-go@v6"
+        steps = self.jobs["test-integration"]["steps"]
+        cache_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("uses") == "./.github/actions/go-rolling-cache"
         )
         contract_index = next(
             index
             for index, step in enumerate(steps)
-            if step.get("name") == "Integration package discovery contract tests"
+            if step.get("name") == "Integration runner contract tests"
         )
-        self.assertGreater(contract_index, setup_index)
+        integration_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Integration tests"
+        )
+        self.assertGreater(contract_index, cache_index)
+        self.assertLess(contract_index, integration_index)
         self.assertIn(
             "scripts.ci.test_integration_packages",
+            steps[contract_index].get("run", ""),
+        )
+        self.assertIn(
+            "scripts.ci.test_integration_test_runner",
             steps[contract_index].get("run", ""),
         )
 
@@ -218,14 +230,10 @@ class BackendCIRoutingTest(unittest.TestCase):
         contract_indexes = [
             index
             for index, step in enumerate(steps)
-            if step.get("name")
-            in {
-                "Unit runner contract tests",
-                "Integration package discovery contract tests",
-            }
+            if step.get("name") == "Unit runner contract tests"
         ]
 
-        self.assertEqual(len(contract_indexes), 2)
+        self.assertEqual(len(contract_indexes), 1)
         self.assertTrue(
             all(cache_index < contract_index for contract_index in contract_indexes),
             "Go-backed preflight contracts must consume the restored build cache",
@@ -243,11 +251,11 @@ class BackendCIRoutingTest(unittest.TestCase):
         self.assertIn("integration_test_runner.py", result.stdout)
         self.assertNotIn("go test -tags=integration", result.stdout)
 
-    def test_preflight_runs_integration_runner_contract_tests(self) -> None:
+    def test_integration_job_runs_integration_runner_contract_tests(self) -> None:
         step = next(
             step
-            for step in self.jobs["preflight"]["steps"]
-            if step.get("name") == "Integration package discovery contract tests"
+            for step in self.jobs["test-integration"]["steps"]
+            if step.get("name") == "Integration runner contract tests"
         )
 
         self.assertIn("scripts.ci.test_integration_test_runner", step["run"])

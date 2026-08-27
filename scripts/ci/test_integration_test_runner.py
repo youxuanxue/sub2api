@@ -97,8 +97,8 @@ class IntegrationTestRunnerTest(unittest.TestCase):
     def test_overlaps_compile_with_discovery_and_other_packages(self) -> None:
         with FakeGoFixture(
             ["TestOne", "TestTwo", "TestThree"],
-            compile_delay=4.0,
-            discovery_delay=0.5,
+            compile_delay=0.75,
+            discovery_delay=0.05,
         ) as fixture:
             result = fixture.run()
             events = fixture.read_events()
