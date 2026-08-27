@@ -274,6 +274,7 @@ jobs:
       - uses: ./.github/actions/go-rolling-cache
         with:
           prefix: integration
+          refresh_on_backend_change: "true"
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)

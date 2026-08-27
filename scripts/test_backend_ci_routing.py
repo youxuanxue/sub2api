@@ -239,6 +239,19 @@ class BackendCIRoutingTest(unittest.TestCase):
             if step.get("uses") == "./.github/actions/go-rolling-cache"
         )
         self.assertEqual(integration_cache["with"]["prefix"], "integration")
+        self.assertEqual(
+            integration_cache["with"]["refresh_on_backend_change"],
+            "true",
+        )
+
+        for job_name in ("preflight", "test-unit", "golangci-lint"):
+            cache_step = next(
+                step
+                for step in self.jobs[job_name]["steps"]
+                if step.get("uses") == "./.github/actions/go-rolling-cache"
+            )
+            with self.subTest(job=job_name):
+                self.assertNotIn("refresh_on_backend_change", cache_step.get("with", {}))
 
     def test_unit_reuses_service_objects_for_go_artifact_drift(self) -> None:
         steps = self.jobs["test-unit"]["steps"]

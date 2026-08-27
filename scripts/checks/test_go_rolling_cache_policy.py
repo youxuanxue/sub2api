@@ -49,10 +49,12 @@ class GoRollingCachePolicyTest(unittest.TestCase):
                 self.assertIn("backend/go.sum", step["with"]["key"])
                 self.assertIn("backend/.golangci.yml", step["with"]["key"])
 
-    def test_build_caches_follow_backend_inputs_without_per_run_churn(self) -> None:
+    def test_build_caches_refresh_weekly_unless_caller_opts_into_backend_fingerprint(self) -> None:
         action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
+        self.assertEqual(action["inputs"]["refresh_on_backend_change"]["default"], "false")
         steps = action["runs"]["steps"]
-        self.assertFalse(any(step.get("id") == "cache_epoch" for step in steps))
+        epoch_step = next(step for step in steps if step.get("id") == "cache_epoch")
+        self.assertIn("date -u +%G-W%V", epoch_step["run"])
 
         build_steps = [
             step
@@ -62,7 +64,9 @@ class GoRollingCachePolicyTest(unittest.TestCase):
         self.assertEqual(len(build_steps), 2)
         expected_key = (
             "${{ runner.os }}-gobuild-${{ inputs.prefix }}-"
-            "${{ hashFiles('backend/**', '.new-api-ref') }}"
+            "${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-"
+            "${{ inputs.refresh_on_backend_change == 'true' && "
+            "hashFiles('backend/**', '.new-api-ref') || steps.cache_epoch.outputs.value }}"
         )
         for step in build_steps:
             with self.subTest(step=step["name"]):
@@ -74,7 +78,8 @@ class GoRollingCachePolicyTest(unittest.TestCase):
                 restore_keys = cache_config["restore-keys"].splitlines()
                 self.assertEqual(
                     restore_keys[0],
-                    "${{ runner.os }}-gobuild-${{ inputs.prefix }}-",
+                    "${{ runner.os }}-gobuild-${{ inputs.prefix }}-"
+                    "${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-",
                 )
                 self.assertNotIn("github.run_id", str(cache_config))
 

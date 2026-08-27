@@ -10,12 +10,12 @@
 #   - module cache: identical across all jobs, only changes with go.sum, so one
 #     shared immutable entry is correct and avoids triplicating ~1GB of
 #     GOMODCACHE against the 10GB/repo budget.
-#   - build/test cache: per-job (prefix) + tracked backend input fingerprint.
-#     Main writes a new archive only when backend inputs change; PRs restore the
-#     newest matching main snapshot but never upload. This avoids a fixed weekly
-#     key pinning the cache before later source changes while also avoiding
-#     per-run uploads for VERSION/CI-only changes. Go's cache is content-addressed,
-#     so restoring the prior backend snapshot safely seeds changed PRs.
+#   - build/test cache: per-job (prefix) + UTC-week seed by default, avoiding
+#     repeated uploads of the 300MB-2.5GB preflight/unit/lint archives. The
+#     integration caller opts into a tracked-backend fingerprint because its
+#     stale weekly snapshot was measured adding ~40s of cold compilation; PRs
+#     restore but never upload, and main writes only when backend inputs change.
+#     Go's cache is content-addressed, so prior snapshots safely seed new keys.
 #   - golangci analysis cache: optional, lint-only, and rolling for the same
 #     reason. golangci-lint-action's interval key is immutable after the first
 #     save, so changed-package analysis cannot be written back until the interval
@@ -34,10 +34,19 @@ inputs:
     description: Also roll ~/.cache/golangci-lint (enable only for the lint job).
     required: false
     default: "false"
+  refresh_on_backend_change:
+    description: Use the tracked backend input fingerprint instead of the weekly epoch.
+    required: false
+    default: "false"
 
 runs:
   using: composite
   steps:
+    - name: Resolve weekly build cache epoch
+      id: cache_epoch
+      shell: bash
+      run: echo "value=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
     - name: Restore Go module cache (non-main writer)
       if: github.event_name != 'push' || github.ref != 'refs/heads/main'
       uses: actions/cache/restore@v6
@@ -59,16 +68,20 @@ runs:
       uses: actions/cache/restore@v6
       with:
         path: ~/.cache/go-build
-        key: ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/**', '.new-api-ref') }}
-        restore-keys: ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
+        key: ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ inputs.refresh_on_backend_change == 'true' && hashFiles('backend/**', '.new-api-ref') || steps.cache_epoch.outputs.value }}
+        restore-keys: |
+          ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
+          ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
 
-    - name: Go build/test cache (backend-input main writer, ${{ inputs.prefix }})
+    - name: Go build/test cache (main writer, ${{ inputs.prefix }})
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: actions/cache@v6
       with:
         path: ~/.cache/go-build
-        key: ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/**', '.new-api-ref') }}
-        restore-keys: ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
+        key: ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ inputs.refresh_on_backend_change == 'true' && hashFiles('backend/**', '.new-api-ref') || steps.cache_epoch.outputs.value }}
+        restore-keys: |
+          ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
+          ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
 
     - name: Restore golangci-lint analysis cache (non-main writer)
       if: inputs.golangci_cache == 'true' && (github.event_name != 'push' || github.ref != 'refs/heads/main')
