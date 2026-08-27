@@ -341,6 +341,35 @@ class BackendCIRoutingTest(unittest.TestCase):
             ],
         )
 
+    def test_backend_security_rolls_a_dedicated_nodwarf_build_cache(self) -> None:
+        steps = self.jobs["backend-security"]["steps"]
+        epoch_steps = [
+            step for step in steps if step.get("id") == "security_cache_epoch"
+        ]
+        self.assertEqual(len(epoch_steps), 1)
+        self.assertIn("date -u +%G-W%V", epoch_steps[0]["run"])
+
+        scan_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Run govulncheck"
+        )
+        cache_indexes = [
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Cache govulncheck build objects"
+        ]
+
+        self.assertEqual(len(cache_indexes), 1)
+        cache_index = cache_indexes[0]
+        self.assertLess(cache_index, scan_index)
+        cache = steps[cache_index]
+        self.assertEqual(cache["uses"], "actions/cache@v6")
+        self.assertEqual(cache["with"]["path"], "~/.cache/go-build")
+        self.assertIn("gobuild-security-nodwarf-v1", cache["with"]["key"])
+        self.assertIn("steps.security_cache_epoch.outputs.value", cache["with"]["key"])
+        self.assertIn("backend/go.sum", cache["with"]["key"])
+
     def test_heavy_go_jobs_use_nodwarf_build_cache_namespaces(self) -> None:
         expected_prefixes = {
             "preflight": "preflight-nodwarf-v1",

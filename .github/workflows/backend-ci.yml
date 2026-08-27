@@ -383,6 +383,17 @@ jobs:
           check-latest: false
           cache: true
           cache-dependency-path: backend/go.sum
+      - name: Resolve security build cache epoch
+        id: security_cache_epoch
+        run: echo "value=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+      - name: Cache govulncheck build objects
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-gobuild-security-nodwarf-v1-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ steps.security_cache_epoch.outputs.value }}
+          restore-keys: |
+            ${{ runner.os }}-gobuild-security-nodwarf-v1-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
+            ${{ runner.os }}-gobuild-security-nodwarf-v1-
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
