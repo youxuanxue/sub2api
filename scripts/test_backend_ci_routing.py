@@ -170,6 +170,29 @@ class BackendCIRoutingTest(unittest.TestCase):
             steps[contract_index].get("run", ""),
         )
 
+    def test_preflight_restores_go_cache_before_go_backed_contracts(self) -> None:
+        steps = self.jobs["preflight"]["steps"]
+        cache_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("uses") == "./.github/actions/go-rolling-cache"
+        )
+        contract_indexes = [
+            index
+            for index, step in enumerate(steps)
+            if step.get("name")
+            in {
+                "Unit runner contract tests",
+                "Integration package discovery contract tests",
+            }
+        ]
+
+        self.assertEqual(len(contract_indexes), 2)
+        self.assertTrue(
+            all(cache_index < contract_index for contract_index in contract_indexes),
+            "Go-backed preflight contracts must consume the restored build cache",
+        )
+
     def test_integration_target_uses_discovered_owner_packages(self) -> None:
         makefile = BACKEND_MAKEFILE.read_text(encoding="utf-8")
         target = makefile.split("test-integration:\n", 1)[1].split("\n\n", 1)[0]
