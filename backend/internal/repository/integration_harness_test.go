@@ -44,6 +44,8 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	runIntegrationRegistryOnlyIfRequested(m)
+
 	ctx := context.Background()
 
 	if err := timezone.Init("UTC"); err != nil {

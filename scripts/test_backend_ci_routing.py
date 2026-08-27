@@ -12,6 +12,7 @@ import yaml
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "backend-ci.yml"
 BACKEND_MAKEFILE = Path(__file__).resolve().parents[1] / "backend" / "Makefile"
+ROOT_MAKEFILE = Path(__file__).resolve().parents[1] / "Makefile"
 
 
 class BackendCIRoutingTest(unittest.TestCase):
@@ -52,6 +53,43 @@ class BackendCIRoutingTest(unittest.TestCase):
                 self.assertIn(f"needs.changes.outputs.{surface} == 'true'", condition)
                 self.assertIn("needs.changes.outputs.all == 'true'", condition)
 
+    def test_frontend_job_parallelizes_checks_on_one_runner(self) -> None:
+        frontend_step = next(
+            step
+            for step in self.jobs["frontend"]["steps"]
+            if "test-frontend" in step.get("run", "")
+        )
+
+        self.assertEqual(
+            frontend_step["name"],
+            "Frontend lint, typecheck, and critical vitest",
+        )
+        self.assertEqual(
+            frontend_step["run"],
+            "make -j3 --output-sync=target test-frontend",
+        )
+
+    def test_frontend_target_preserves_all_required_checks(self) -> None:
+        result = subprocess.run(
+            ["make", "-npRr", "-f", str(ROOT_MAKEFILE), "test-frontend"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        target_line = next(
+            line for line in result.stdout.splitlines() if line.startswith("test-frontend:")
+        )
+        self.assertEqual(
+            set(target_line.split(":", 1)[1].split()),
+            {
+                "test-frontend-lint",
+                "test-frontend-typecheck",
+                "test-frontend-critical",
+            },
+        )
+
     def test_required_preflight_owns_path_conditioned_contract_gates(self) -> None:
         preflight = self.jobs["preflight"]
         self.assertEqual(preflight.get("needs"), "changes")
@@ -73,11 +111,6 @@ class BackendCIRoutingTest(unittest.TestCase):
             ),
             next(step for step in steps if step.get("uses") == "actions/setup-go@v6"),
             next(step for step in steps if step.get("name") == "Unit runner contract tests"),
-            next(
-                step
-                for step in steps
-                if step.get("name") == "Integration package discovery contract tests"
-            ),
             next(
                 step
                 for step in steps
@@ -149,24 +182,41 @@ class BackendCIRoutingTest(unittest.TestCase):
             orchestration.get("run", ""),
         )
 
-    def test_go_dependent_integration_contract_runs_after_pinned_setup(self) -> None:
-        steps = self.jobs["preflight"]["steps"]
-        orchestration = next(
-            step for step in steps if step.get("name") == "CI orchestration contract tests"
+    def test_go_dependent_integration_contract_runs_off_the_preflight_path(self) -> None:
+        preflight_steps = self.jobs["preflight"]["steps"]
+        self.assertFalse(
+            [
+                step
+                for step in preflight_steps
+                if "scripts.ci.test_integration_packages" in step.get("run", "")
+                or "scripts.ci.test_integration_test_runner" in step.get("run", "")
+            ]
         )
-        self.assertNotIn("scripts.ci.test_integration_packages", orchestration.get("run", ""))
 
-        setup_index = next(
-            index for index, step in enumerate(steps) if step.get("uses") == "actions/setup-go@v6"
+        steps = self.jobs["test-integration"]["steps"]
+        cache_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("uses") == "./.github/actions/go-rolling-cache"
         )
         contract_index = next(
             index
             for index, step in enumerate(steps)
-            if step.get("name") == "Integration package discovery contract tests"
+            if step.get("name") == "Integration runner contract tests"
         )
-        self.assertGreater(contract_index, setup_index)
+        integration_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Integration tests"
+        )
+        self.assertGreater(contract_index, cache_index)
+        self.assertLess(contract_index, integration_index)
         self.assertIn(
             "scripts.ci.test_integration_packages",
+            steps[contract_index].get("run", ""),
+        )
+        self.assertIn(
+            "scripts.ci.test_integration_test_runner",
             steps[contract_index].get("run", ""),
         )
 
@@ -180,24 +230,35 @@ class BackendCIRoutingTest(unittest.TestCase):
         contract_indexes = [
             index
             for index, step in enumerate(steps)
-            if step.get("name")
-            in {
-                "Unit runner contract tests",
-                "Integration package discovery contract tests",
-            }
+            if step.get("name") == "Unit runner contract tests"
         ]
 
-        self.assertEqual(len(contract_indexes), 2)
+        self.assertEqual(len(contract_indexes), 1)
         self.assertTrue(
             all(cache_index < contract_index for contract_index in contract_indexes),
             "Go-backed preflight contracts must consume the restored build cache",
         )
 
-    def test_integration_target_uses_discovered_owner_packages(self) -> None:
-        makefile = BACKEND_MAKEFILE.read_text(encoding="utf-8")
-        target = makefile.split("test-integration:\n", 1)[1].split("\n\n", 1)[0]
-        self.assertIn("integration-packages.py", target)
-        self.assertNotIn("go test -tags=integration ./...", target)
+    def test_integration_target_uses_compile_once_repository_shards(self) -> None:
+        result = subprocess.run(
+            ["make", "-n", "-C", str(BACKEND_MAKEFILE.parent), "test-integration"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("integration_test_runner.py", result.stdout)
+        self.assertNotIn("go test -tags=integration", result.stdout)
+
+    def test_integration_job_runs_integration_runner_contract_tests(self) -> None:
+        step = next(
+            step
+            for step in self.jobs["test-integration"]["steps"]
+            if step.get("name") == "Integration runner contract tests"
+        )
+
+        self.assertIn("scripts.ci.test_integration_test_runner", step["run"])
 
     def test_unit_job_always_uses_compile_once_service_shards(self) -> None:
         unit_step = next(
