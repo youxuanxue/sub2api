@@ -44,20 +44,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	if os.Getenv("SUB2API_TEST_REGISTRY_ONLY") == "1" {
-		listRequested := false
-		for _, argument := range os.Args[1:] {
-			if argument == "-test.list" || strings.HasPrefix(argument, "-test.list=") {
-				listRequested = true
-				break
-			}
-		}
-		if !listRequested {
-			log.Printf("SUB2API_TEST_REGISTRY_ONLY requires -test.list")
-			os.Exit(2)
-		}
-		os.Exit(m.Run())
-	}
+	runIntegrationRegistryOnlyIfRequested(m)
 
 	ctx := context.Background()
 
