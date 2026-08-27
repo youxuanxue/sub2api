@@ -337,6 +337,7 @@ class BackendCIRoutingTest(unittest.TestCase):
                 ("test-unit", "job", "-gcflags=all=-dwarf=false"),
                 ("test-integration", "job", "-gcflags=all=-dwarf=false"),
                 ("golangci-lint", "job", "-gcflags=all=-dwarf=false"),
+                ("backend-security", "job", "-gcflags=all=-dwarf=false"),
             ],
         )
 

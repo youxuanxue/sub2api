@@ -369,6 +369,10 @@ jobs:
     if: (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'schedule' && github.event.schedule == '0 3 * * 1') || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'security'))) && (needs.changes.outputs.all == 'true' || needs.changes.outputs.backend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # Source vulnerability analysis uses Go export/type data, not DWARF.
+      # Avoid generating debug sections for the analyzer's transient builds.
+      GOFLAGS: -gcflags=all=-dwarf=false
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
