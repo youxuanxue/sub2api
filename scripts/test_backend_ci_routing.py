@@ -12,6 +12,7 @@ import yaml
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "backend-ci.yml"
 BACKEND_MAKEFILE = Path(__file__).resolve().parents[1] / "backend" / "Makefile"
+ROOT_MAKEFILE = Path(__file__).resolve().parents[1] / "Makefile"
 
 
 class BackendCIRoutingTest(unittest.TestCase):
@@ -51,6 +52,43 @@ class BackendCIRoutingTest(unittest.TestCase):
                 condition = job.get("if", "")
                 self.assertIn(f"needs.changes.outputs.{surface} == 'true'", condition)
                 self.assertIn("needs.changes.outputs.all == 'true'", condition)
+
+    def test_frontend_job_parallelizes_checks_on_one_runner(self) -> None:
+        frontend_step = next(
+            step
+            for step in self.jobs["frontend"]["steps"]
+            if "test-frontend" in step.get("run", "")
+        )
+
+        self.assertEqual(
+            frontend_step["name"],
+            "Frontend lint, typecheck, and critical vitest",
+        )
+        self.assertEqual(
+            frontend_step["run"],
+            "make -j3 --output-sync=target test-frontend",
+        )
+
+    def test_frontend_target_preserves_all_required_checks(self) -> None:
+        result = subprocess.run(
+            ["make", "-npRr", "-f", str(ROOT_MAKEFILE), "test-frontend"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        target_line = next(
+            line for line in result.stdout.splitlines() if line.startswith("test-frontend:")
+        )
+        self.assertEqual(
+            set(target_line.split(":", 1)[1].split()),
+            {
+                "test-frontend-lint",
+                "test-frontend-typecheck",
+                "test-frontend-critical",
+            },
+        )
 
     def test_required_preflight_owns_path_conditioned_contract_gates(self) -> None:
         preflight = self.jobs["preflight"]
