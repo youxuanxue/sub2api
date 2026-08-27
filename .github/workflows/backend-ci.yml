@@ -211,6 +211,10 @@ jobs:
     needs: changes
     if: (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))) && (needs.changes.outputs.all == 'true' || needs.changes.outputs.backend == 'true')
     runs-on: ubuntu-latest
+    env:
+      # Test failures retain file:line stacks without DWARF. Apply the flag to
+      # every Go command in this job so the fixture gateway reuses unit objects.
+      GOFLAGS: -gcflags=all=-dwarf=false
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
@@ -225,7 +229,9 @@ jobs:
           cache: false
       - uses: ./.github/actions/go-rolling-cache
         with:
-          prefix: unit
+          # Unit test archives omit DWARF below, so keep them out of the old
+          # 2.6GB namespace whose objects were built with different gcflags.
+          prefix: unit-nodwarf-v1
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)

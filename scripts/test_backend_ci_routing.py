@@ -201,6 +201,44 @@ class BackendCIRoutingTest(unittest.TestCase):
             "needs.changes.outputs.service_unit_cold == 'true') && '1' || '0' }}",
         )
 
+    def test_unit_job_omits_dwarf_from_test_build_objects(self) -> None:
+        self.assertEqual(
+            self.jobs["test-unit"]["env"]["GOFLAGS"],
+            "-gcflags=all=-dwarf=false",
+        )
+
+    def test_unit_dwarf_flags_do_not_leak_to_other_go_jobs(self) -> None:
+        declarations = []
+        for job_name, job in self.jobs.items():
+            if "GOFLAGS" in job.get("env", {}):
+                declarations.append((job_name, "job", job["env"]["GOFLAGS"]))
+            for step in job.get("steps", []):
+                if "GOFLAGS" in step.get("env", {}):
+                    declarations.append(
+                        (job_name, step.get("name", step.get("uses")), step["env"]["GOFLAGS"])
+                    )
+
+        self.assertEqual(
+            declarations,
+            [("test-unit", "job", "-gcflags=all=-dwarf=false")],
+        )
+
+    def test_unit_job_uses_dwarf_specific_build_cache_namespace(self) -> None:
+        rolling_cache = next(
+            step
+            for step in self.jobs["test-unit"]["steps"]
+            if step.get("uses") == "./.github/actions/go-rolling-cache"
+        )
+
+        self.assertEqual(rolling_cache["with"]["prefix"], "unit-nodwarf-v1")
+
+        integration_cache = next(
+            step
+            for step in self.jobs["test-integration"]["steps"]
+            if step.get("uses") == "./.github/actions/go-rolling-cache"
+        )
+        self.assertEqual(integration_cache["with"]["prefix"], "integration")
+
     def test_lint_uses_rolling_analysis_cache_instead_of_action_cache(self) -> None:
         steps = self.jobs["golangci-lint"]["steps"]
         rolling_cache = next(

@@ -36,6 +36,11 @@ func resolveEndpoint(account AccountSnapshot, target Protocol, responsesPath Res
 			return "https://chatgpt.com/backend-api/codex/responses", nil
 		case ResponsesPathCompact:
 			return "https://chatgpt.com/backend-api/codex/responses/compact", nil
+		case ResponsesPathInputTokens:
+			// Codex has no input_tokens endpoint. The root endpoint is only the
+			// validated account-route anchor; the token-count executor estimates
+			// locally and never sends this request upstream.
+			return "https://chatgpt.com/backend-api/codex/responses", nil
 		default:
 			return "", fmt.Errorf("OpenAI Codex official profile does not support responses path %q", responsesPath)
 		}

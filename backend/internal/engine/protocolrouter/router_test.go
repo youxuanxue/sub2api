@@ -258,6 +258,25 @@ func TestPlanUsesFixedOpenAICodexEndpointOnlyForResponses(t *testing.T) {
 	if chatPlan.TargetProtocol() != ProtocolResponses || chatPlan.Endpoint() != "https://chatgpt.com/backend-api/codex/responses" {
 		t.Fatalf("chat plan target/endpoint = %q/%q, want responses on fixed Codex endpoint", chatPlan.TargetProtocol(), chatPlan.Endpoint())
 	}
+
+	inputTokensRequest, err := NewCanonicalRequest(CanonicalRequestInput{
+		InboundProtocol: ProtocolResponses,
+		RequestedModel:  "gpt-5.4",
+		ResponsesPath:   ResponsesPathInputTokens,
+		Profile:         RequestProfile{ContentKinds: ContentText},
+		Body:            []byte(`{"model":"gpt-5.4","input":"hello"}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest input_tokens: %v", err)
+	}
+	inputTokensPlan, err := New(allTestAdapters()).Plan(inputTokensRequest, account)
+	if err != nil {
+		t.Fatalf("Plan input_tokens: %v", err)
+	}
+	if inputTokensPlan.ResponsesPath() != ResponsesPathInputTokens ||
+		inputTokensPlan.Endpoint() != "https://chatgpt.com/backend-api/codex/responses" {
+		t.Fatalf("input_tokens plan path/endpoint = %q/%q, want input_tokens anchored to Codex responses", inputTokensPlan.ResponsesPath(), inputTokensPlan.Endpoint())
+	}
 }
 
 func TestPlanSkipsRouteWithoutAdapter(t *testing.T) {
