@@ -1,6 +1,9 @@
 # 忽略编译后的文件
 vite.config.js
 vite.config.d.ts
+# Vitest's Vite config loader creates and deletes this beside the config while
+# the parallel ESLint target scans the frontend tree.
+/vitest.config.ts.timestamp-*.mjs
 
 # 忽略依赖
 node_modules/
