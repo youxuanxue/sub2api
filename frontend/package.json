@@ -8,8 +8,8 @@
     "build": "vue-tsc -b && vite build && python3 ../scripts/checks/frontend-dist-freshness.py --write ../backend/internal/web/dist",
     "preview": "vite preview",
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
-    "lint:check": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts",
-    "typecheck": "vue-tsc --noEmit",
+    "lint:check": "mkdir -p .cache/eslint && eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --cache --cache-strategy content --cache-location .cache/eslint/.eslintcache",
+    "typecheck": "mkdir -p .cache/vue-tsc && vue-tsc --noEmit --incremental --tsBuildInfoFile .cache/vue-tsc/tsconfig.tsbuildinfo",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage"

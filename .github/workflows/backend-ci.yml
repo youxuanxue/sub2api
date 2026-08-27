@@ -306,6 +306,16 @@ jobs:
           node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Restore frontend check caches
+        uses: actions/cache@v6
+        with:
+          path: |
+            frontend/.cache/eslint
+            frontend/.cache/vue-tsc
+          key: ${{ runner.os }}-frontend-checks-node24-v1-${{ hashFiles('frontend/pnpm-lock.yaml', 'frontend/package.json', 'frontend/tsconfig*.json', 'frontend/.eslintrc.cjs') }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-frontend-checks-node24-v1-${{ hashFiles('frontend/pnpm-lock.yaml', 'frontend/package.json', 'frontend/tsconfig*.json', 'frontend/.eslintrc.cjs') }}-
+            ${{ runner.os }}-frontend-checks-node24-v1-
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile

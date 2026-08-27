@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import subprocess
 import unittest
@@ -13,11 +14,15 @@ import yaml
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "backend-ci.yml"
 BACKEND_MAKEFILE = Path(__file__).resolve().parents[1] / "backend" / "Makefile"
 ROOT_MAKEFILE = Path(__file__).resolve().parents[1] / "Makefile"
+FRONTEND_PACKAGE = Path(__file__).resolve().parents[1] / "frontend" / "package.json"
 
 
 class BackendCIRoutingTest(unittest.TestCase):
     def setUp(self) -> None:
         self.jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        self.frontend_scripts = json.loads(
+            FRONTEND_PACKAGE.read_text(encoding="utf-8")
+        )["scripts"]
 
     def test_changes_job_exports_all_surface_decisions(self) -> None:
         outputs = self.jobs["changes"]["outputs"]
@@ -88,6 +93,45 @@ class BackendCIRoutingTest(unittest.TestCase):
                 "test-frontend-typecheck",
                 "test-frontend-critical",
             },
+        )
+
+    def test_frontend_job_reuses_content_validated_check_caches(self) -> None:
+        steps = self.jobs["frontend"]["steps"]
+        check_index = next(
+            index
+            for index, step in enumerate(steps)
+            if "test-frontend" in step.get("run", "")
+        )
+        cache_indexes = [
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Restore frontend check caches"
+        ]
+
+        self.assertEqual(len(cache_indexes), 1)
+        cache_index = cache_indexes[0]
+        self.assertLess(cache_index, check_index)
+        cache_step = steps[cache_index]
+        self.assertEqual(cache_step["uses"], "actions/cache@v6")
+        self.assertEqual(
+            set(cache_step["with"]["path"].splitlines()),
+            {
+                "frontend/.cache/eslint",
+                "frontend/.cache/vue-tsc",
+            },
+        )
+        self.assertIn("frontend-checks-node24-v1", cache_step["with"]["key"])
+        self.assertIn("github.run_id", cache_step["with"]["key"])
+
+        lint = self.frontend_scripts["lint:check"]
+        self.assertIn("--cache-strategy content", lint)
+        self.assertIn("--cache-location .cache/eslint/.eslintcache", lint)
+
+        typecheck = self.frontend_scripts["typecheck"]
+        self.assertIn("--incremental", typecheck)
+        self.assertIn(
+            "--tsBuildInfoFile .cache/vue-tsc/tsconfig.tsbuildinfo",
+            typecheck,
         )
 
     def test_required_preflight_owns_path_conditioned_contract_gates(self) -> None:
