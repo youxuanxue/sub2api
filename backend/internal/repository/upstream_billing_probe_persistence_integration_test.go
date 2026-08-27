@@ -20,7 +20,7 @@ func TestAccountUpdatePreservesConcurrentProbeSnapshot(t *testing.T) {
 		Name:        "probe-update-preserve",
 		Platform:    service.PlatformOpenAI,
 		Type:        service.AccountTypeAPIKey,
-		Credentials: map[string]any{"api_key": "sk-old"},
+		Credentials: map[string]any{"api_key": "sk-old", "base_url": "https://api.openai.com"},
 		Extra:       map[string]any{service.UpstreamBillingProbeEnabledExtraKey: true},
 	})
 
@@ -56,7 +56,7 @@ func TestAdminAccountEditPreservesRateSynchronizedAfterLoad(t *testing.T) {
 		Platform:       service.PlatformOpenAI,
 		Type:           service.AccountTypeAPIKey,
 		RateMultiplier: &initialRate,
-		Credentials:    map[string]any{"api_key": "sk-test"},
+		Credentials:    map[string]any{"api_key": "sk-test", "base_url": "https://api.openai.com"},
 		Extra: map[string]any{
 			service.UpstreamBillingProbeEnabledExtraKey:    true,
 			service.UpstreamBillingRateSyncEnabledExtraKey: true,
@@ -163,7 +163,7 @@ func TestAccountUpdatePreservesConcurrentProbeEnableFlag(t *testing.T) {
 		Name:        "probe-update-enable",
 		Platform:    service.PlatformOpenAI,
 		Type:        service.AccountTypeAPIKey,
-		Credentials: map[string]any{"api_key": "sk-test"},
+		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://api.openai.com"},
 		Extra: map[string]any{
 			service.UpstreamBillingProbeEnabledExtraKey: true,
 			service.UpstreamBillingProbeExtraKey:        map[string]any{"status": service.UpstreamBillingProbeStatusOK},
@@ -190,7 +190,7 @@ func TestAccountUpdateClearsProbeSnapshotWhenIdentityChanges(t *testing.T) {
 		Name:        "probe-update-identity",
 		Platform:    service.PlatformOpenAI,
 		Type:        service.AccountTypeAPIKey,
-		Credentials: map[string]any{"api_key": "sk-old"},
+		Credentials: map[string]any{"api_key": "sk-old", "base_url": "https://api.openai.com"},
 		Extra: map[string]any{
 			service.UpstreamBillingProbeEnabledExtraKey: true,
 			service.UpstreamBillingProbeExtraKey:        map[string]any{"status": service.UpstreamBillingProbeStatusOK},
@@ -216,7 +216,7 @@ func TestBulkUpdateAndCredentialUpdateDeleteProbeKey(t *testing.T) {
 			Name:        name,
 			Platform:    service.PlatformOpenAI,
 			Type:        service.AccountTypeAPIKey,
-			Credentials: map[string]any{"api_key": "sk-old"},
+			Credentials: map[string]any{"api_key": "sk-old", "base_url": "https://api.openai.com"},
 			Extra: map[string]any{
 				service.UpstreamBillingProbeEnabledExtraKey: true,
 				service.UpstreamBillingProbeExtraKey:        map[string]any{"status": service.UpstreamBillingProbeStatusOK},
@@ -234,7 +234,7 @@ func TestBulkUpdateAndCredentialUpdateDeleteProbeKey(t *testing.T) {
 	require.NotContains(t, got.Extra, service.UpstreamBillingProbeExtraKey)
 
 	credentialAccount := newAccount("probe-credentials-clear")
-	require.NoError(t, repo.UpdateCredentials(ctx, credentialAccount.ID, map[string]any{"api_key": "sk-new"}))
+	require.NoError(t, repo.UpdateCredentials(ctx, credentialAccount.ID, map[string]any{"api_key": "sk-new", "base_url": "https://api.openai.com"}))
 	got, err = repo.GetByID(ctx, credentialAccount.ID)
 	require.NoError(t, err)
 	require.NotContains(t, got.Extra, service.UpstreamBillingProbeExtraKey)
@@ -261,7 +261,7 @@ func TestProbeSnapshotCASIncludesLoadedEnabledState(t *testing.T) {
 				Name:        "probe-enabled-cas-" + tt.name,
 				Platform:    service.PlatformOpenAI,
 				Type:        service.AccountTypeAPIKey,
-				Credentials: map[string]any{"api_key": "sk-test"},
+				Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://api.openai.com"},
 				Extra:       map[string]any{service.UpstreamBillingProbeEnabledExtraKey: tt.loadedEnabled},
 			})
 			inFlight, err := repo.GetByID(ctx, account.ID)
@@ -302,7 +302,7 @@ func TestProbeSnapshotCASProtectsManualRateAfterSyncDisabled(t *testing.T) {
 		Platform:       service.PlatformAnthropic,
 		Type:           service.AccountTypeAPIKey,
 		RateMultiplier: &initialRate,
-		Credentials:    map[string]any{"api_key": "sk-test"},
+		Credentials:    map[string]any{"api_key": "sk-test", "base_url": "https://api.anthropic.com"},
 		Extra: map[string]any{
 			service.UpstreamBillingProbeEnabledExtraKey:    true,
 			service.UpstreamBillingRateSyncEnabledExtraKey: true,
@@ -370,7 +370,7 @@ func TestProxyIdentityUpdateInvalidatesProbeAndRejectsInFlightSnapshot(t *testin
 				Name:        "proxy-probe-account",
 				Platform:    service.PlatformOpenAI,
 				Type:        service.AccountTypeAPIKey,
-				Credentials: map[string]any{"api_key": "sk-test"},
+				Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://api.openai.com"},
 				Extra:       extra,
 				ProxyID:     &proxy.ID,
 			})
@@ -454,7 +454,7 @@ func TestSweepExpiredProxyWithoutFallbackInvalidatesOnlyExistingProbeSnapshot(t 
 			Name:        name,
 			Platform:    service.PlatformOpenAI,
 			Type:        service.AccountTypeAPIKey,
-			Credentials: map[string]any{"api_key": "sk-test"},
+			Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://api.openai.com"},
 			Extra:       extra,
 			ProxyID:     &proxy.ID,
 		})
@@ -507,7 +507,7 @@ func TestSweepExpiredProxyFallbackRerouteDeletesProbeSnapshot(t *testing.T) {
 		Name:        "expired-proxy-rerouted-snapshot",
 		Platform:    service.PlatformOpenAI,
 		Type:        service.AccountTypeAPIKey,
-		Credentials: map[string]any{"api_key": "sk-test"},
+		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://api.openai.com"},
 		Extra: map[string]any{
 			service.UpstreamBillingProbeEnabledExtraKey: true,
 			service.UpstreamBillingProbeExtraKey:        map[string]any{"status": service.UpstreamBillingProbeStatusOK},

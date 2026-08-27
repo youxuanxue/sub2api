@@ -189,7 +189,7 @@ func insertProtocolCapabilityTestAccount(t *testing.T, tx interface {
 	var id int64
 	err := tx.QueryRowContext(context.Background(), `
 INSERT INTO accounts (name, platform, type, credentials, extra, concurrency, priority, rate_multiplier, status, schedulable, auto_pause_on_expired, channel_type, quota_dimension, created_at, updated_at)
-VALUES ($1, 'openai', 'api_key', jsonb_build_object('api_key',$2,'base_url','https://relay.example.test/v1'), '{}'::jsonb, 1, 1, 1, 'active', TRUE, FALSE, 0, 'global', NOW(), NOW())
+VALUES ($1, 'openai', 'api_key', jsonb_build_object('api_key',$2::text,'base_url','https://relay.example.test/v1'), '{}'::jsonb, 1, 1, 1, 'active', TRUE, FALSE, 0, 'global', NOW(), NOW())
 RETURNING id`, name, apiKey).Scan(&id)
 	require.NoError(t, err)
 	return id

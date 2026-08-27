@@ -1320,7 +1320,7 @@ func (s *AccountRepoSuite) TestSetGrokOAuthErrorIfCredentialsUnchanged_AppliesAn
 		Type:        service.AccountTypeOAuth,
 		Status:      service.StatusActive,
 		Schedulable: true,
-		Credentials: map[string]any{"access_token": "observed", "_token_version": int64(7)},
+		Credentials: map[string]any{"access_token": "observed", "base_url": "https://cli-chat-proxy.grok.com/v1", "_token_version": int64(7)},
 	})
 	observed, err := s.repo.GetByID(s.ctx, account.ID)
 	s.Require().NoError(err)
@@ -1365,13 +1365,14 @@ func (s *AccountRepoSuite) TestSetGrokOAuthErrorIfCredentialsUnchanged_SkipsConc
 		Type:        service.AccountTypeOAuth,
 		Status:      service.StatusActive,
 		Schedulable: true,
-		Credentials: map[string]any{"access_token": "observed", "_token_version": int64(7)},
+		Credentials: map[string]any{"access_token": "observed", "base_url": "https://cli-chat-proxy.grok.com/v1", "_token_version": int64(7)},
 	})
 	observed, err := s.repo.GetByID(s.ctx, account.ID)
 	s.Require().NoError(err)
 	s.Require().NoError(s.repo.UpdateCredentials(s.ctx, account.ID, map[string]any{
 		"access_token":   "fresh-access",
 		"refresh_token":  "fresh-refresh",
+		"base_url":       "https://cli-chat-proxy.grok.com/v1",
 		"expires_at":     time.Now().UTC().Add(4 * time.Hour).Format(time.RFC3339),
 		"_token_version": int64(8),
 	}))
@@ -1418,6 +1419,7 @@ func (s *AccountRepoSuite) TestUpdateGrokOAuthCredentialsIfUnchanged_AppliesAndP
 		Credentials: map[string]any{
 			"access_token":   "attempted-access",
 			"refresh_token":  "attempted-refresh",
+			"base_url":       "https://cli-chat-proxy.grok.com/v1",
 			"_token_version": int64(10),
 		},
 	})
@@ -1436,6 +1438,7 @@ func (s *AccountRepoSuite) TestUpdateGrokOAuthCredentialsIfUnchanged_AppliesAndP
 		map[string]any{
 			"access_token":   "rotated-access",
 			"refresh_token":  "rotated-refresh",
+			"base_url":       "https://cli-chat-proxy.grok.com/v1",
 			"_token_version": int64(11),
 		},
 	)
@@ -1471,6 +1474,7 @@ func (s *AccountRepoSuite) TestUpdateGrokOAuthCredentialsIfUnchanged_SkipsConcur
 		Credentials: map[string]any{
 			"access_token":   "attempted-access",
 			"refresh_token":  "attempted-refresh",
+			"base_url":       "https://cli-chat-proxy.grok.com/v1",
 			"_token_version": int64(20),
 		},
 	})
@@ -1479,6 +1483,7 @@ func (s *AccountRepoSuite) TestUpdateGrokOAuthCredentialsIfUnchanged_SkipsConcur
 	s.Require().NoError(s.repo.UpdateCredentials(s.ctx, account.ID, map[string]any{
 		"access_token":   "reauthorized-access",
 		"refresh_token":  "reauthorized-refresh",
+		"base_url":       "https://cli-chat-proxy.grok.com/v1",
 		"_token_version": int64(21),
 	}))
 	cacheRecorder := &schedulerCacheRecorder{}
@@ -1494,6 +1499,7 @@ func (s *AccountRepoSuite) TestUpdateGrokOAuthCredentialsIfUnchanged_SkipsConcur
 		map[string]any{
 			"access_token":   "provider-access",
 			"refresh_token":  "provider-refresh",
+			"base_url":       "https://cli-chat-proxy.grok.com/v1",
 			"_token_version": int64(22),
 		},
 	)
@@ -1524,7 +1530,7 @@ func (s *AccountRepoSuite) TestGrokOAuthConditionalMutation_DetachesBoundedSnaps
 		Type:        service.AccountTypeOAuth,
 		Status:      service.StatusActive,
 		Schedulable: true,
-		Credentials: map[string]any{"access_token": "observed"},
+		Credentials: map[string]any{"access_token": "observed", "base_url": "https://cli-chat-proxy.grok.com/v1"},
 	})
 	observed, err := s.repo.GetByID(s.ctx, account.ID)
 	s.Require().NoError(err)
@@ -1557,7 +1563,7 @@ func TestGrokOAuthConditionalMutationRollsBackWhenOutboxInsertFails(t *testing.T
 		Type:        service.AccountTypeOAuth,
 		Status:      service.StatusActive,
 		Schedulable: true,
-		Credentials: map[string]any{"access_token": "observed"},
+		Credentials: map[string]any{"access_token": "observed", "base_url": "https://cli-chat-proxy.grok.com/v1"},
 	})
 	t.Cleanup(func() {
 		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduler_outbox WHERE account_id = $1", account.ID)

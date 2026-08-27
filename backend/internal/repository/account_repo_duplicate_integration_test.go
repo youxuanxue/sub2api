@@ -30,7 +30,7 @@ func TestCreateWithAccountGroupsPersistsPausedCopyAtomically(t *testing.T) {
 		Type:        service.AccountTypeAPIKey,
 		Status:      service.StatusActive,
 		Schedulable: false,
-		Credentials: map[string]any{"api_key": "secret"},
+		Credentials: map[string]any{"api_key": "secret", "base_url": "https://api.anthropic.com"},
 		Extra:       map[string]any{},
 	}
 	require.NoError(t, repo.CreateWithAccountGroups(ctx, success, []service.AccountGroup{{GroupID: group.ID, Priority: 37}}))
@@ -57,7 +57,7 @@ func TestCreateWithAccountGroupsPersistsPausedCopyAtomically(t *testing.T) {
 		Type:        service.AccountTypeAPIKey,
 		Status:      service.StatusActive,
 		Schedulable: false,
-		Credentials: map[string]any{"api_key": "secret"},
+		Credentials: map[string]any{"api_key": "secret", "base_url": "https://api.anthropic.com"},
 		Extra:       map[string]any{},
 	}
 	err = repo.CreateWithAccountGroups(ctx, failure, []service.AccountGroup{{GroupID: int64(^uint64(0) >> 1), Priority: 1}})
