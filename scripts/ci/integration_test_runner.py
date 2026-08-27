@@ -26,7 +26,7 @@ from unit_test_runner import (
 
 
 DEFAULT_REPOSITORY_PACKAGE = "./internal/repository"
-DEFAULT_SHARDS = 2
+DEFAULT_SHARDS = 3
 INTEGRATION_PACKAGES_HELPER = Path(__file__).resolve().with_name(
     "integration-packages.py"
 )

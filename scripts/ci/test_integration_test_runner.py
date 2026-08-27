@@ -17,7 +17,7 @@ SCRIPT = Path(__file__).resolve().parent / "integration_test_runner.py"
 
 
 class IntegrationTestRunnerTest(unittest.TestCase):
-    def test_compiles_repository_once_and_runs_only_integration_entries_in_two_shards(
+    def test_compiles_repository_once_and_runs_only_integration_entries_in_three_shards(
         self,
     ) -> None:
         integration_tests = [f"TestIntegration{i}" for i in range(9)]
@@ -52,7 +52,7 @@ class IntegrationTestRunnerTest(unittest.TestCase):
         first_patterns = self._binary_patterns(first_events)
         second_patterns = self._binary_patterns(second_events)
         self.assertEqual(first_patterns, second_patterns)
-        self.assertEqual(len(first_patterns), 2, first_patterns)
+        self.assertEqual(len(first_patterns), 3, first_patterns)
 
         matched: list[str] = []
         for pattern in first_patterns:
