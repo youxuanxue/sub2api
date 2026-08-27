@@ -5,6 +5,7 @@ approved_by: "feng (conversation approval, 2026-08-27)"
 authors: [codex]
 created: 2026-08-24
 revised: 2026-08-27
+related_design: docs/approved/pricing-serving-single-source-of-truth.md
 related_stories: []
 ---
 
@@ -91,7 +92,7 @@ The reference is nullable only for account classes outside this design. An
 active and schedulable governed account without a valid reference is not ready
 and has no legal text route.
 
-The runtime decision owner remains focused at:
+The runtime decision owner for governed generation remains focused at:
 
 ```text
 backend/internal/engine/protocolrouter
@@ -99,14 +100,21 @@ backend/internal/engine/protocolrouter
 
 It owns protocol identifiers, the fixed route registry, request-feature and
 model constraints, endpoint resolution, route planning, and the only execution
-entry that may reach governed text transports.
+entry that may reach governed generation transports.
+
+`docs/approved/pricing-serving-single-source-of-truth.md` owns the higher-level
+delivery formula: `CatalogPolicy + RequestPlan + RuntimeReadiness`. For the
+generation family governed here, `protocolrouter.Plan` is the `RequestPlan`
+implementation. This document does not own catalog policy, runtime account
+readiness, asynchronous task continuation, or non-generation execution
+families.
 
 The separation is strict:
 
 | Fact or decision | Owner | Protocol effect |
 | --- | --- | --- |
 | Endpoint native protocols | `protocol_endpoint_capabilities.supported_protocols` | Shared persisted SSOT |
-| Route and conversion legality | `protocolrouter` | Only runtime decision owner |
+| Generation route and conversion legality | `protocolrouter` | Only generation runtime decision owner |
 | Credential, balance, limit, cooldown, health | account/scheduler owners | Independent hard gates |
 | Probe observations | capability evidence | Audit and update input only |
 | Customer request semantics | immutable `CanonicalRequest` | Planner input only |
@@ -289,7 +297,6 @@ AND model policy permits the resolved upstream model
 AND the adapter preserves the concrete request features
 AND the endpoint resolves explicitly from the same identity/account snapshot
 AND the required adapter and transport exist
-AND account authorization and scheduler health gates pass
 ```
 
 Endpoint resolution must reproduce the identity used to obtain the capability
@@ -302,12 +309,23 @@ Protocol legality is a scheduler hard gate, not a ranking signal:
 
 ```text
 construct immutable CanonicalRequest
-  -> evaluate independent account auth/health gates
-  -> Plan every remaining candidate against its linked capability
+  -> Plan every candidate against its linked capability
   -> discard candidates with no legal plan
-  -> apply existing priority/sticky/capacity/cooldown ordering unchanged
+  -> apply independent RuntimeReadiness hard gates
+     (authorization, schedulable, cooldown, quota, concurrency, capacity)
+  -> apply existing priority/sticky ordering unchanged
   -> Execute the selected candidate's already-created plan
 ```
+
+The scheduler eligibility equation is therefore:
+
+```text
+legal generation RequestPlan AND RuntimeReadiness passes
+```
+
+Runtime readiness cannot create, replace, or improve a route. Route planning
+cannot treat transient authorization, quota, cooldown, concurrency, or capacity
+as endpoint protocol capability.
 
 The plan stores the request digest, account snapshot revision, capability key
 and revision, resolved model, inbound and target protocols, endpoint, adapter,
@@ -652,9 +670,5 @@ or capability state.
 Approval authorizes implementation planning only. Implementation, production
 migration, external probes, deployment, PR merge, and release retain their
 normal review and approval gates.
-
-The account-level implementation currently present in PR #1848 is superseded
-by this revision and is not merge-ready until it is refactored to the shared
-endpoint-capability model.
 
 high-risk-anchor: protocol-routing-ssot
