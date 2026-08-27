@@ -45,6 +45,7 @@ test-frontend-typecheck:
 
 test-frontend-critical:
 	@pnpm --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST)
+	@node --test scripts/ci/test_frontend_eslint_ignore.mjs
 
 test-datamanagementd:
 	@cd datamanagement && go test ./...
