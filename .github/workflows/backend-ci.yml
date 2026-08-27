@@ -109,6 +109,7 @@ jobs:
             scripts.checks.test_docker_action_runtime \
             scripts.checks.test_release_cache_key_parity \
             scripts.checks.test_go_rolling_cache_policy \
+            scripts.checks.test_model_surface_bundle_check \
             scripts.test_preflight_ci_handoffs \
             scripts.test_preflight_background_output \
             scripts.test_ci_gate_handoffs \
@@ -151,6 +152,11 @@ jobs:
           PREFLIGHT_SKIP_MAIN_ANCESTRY: "1"
           PREFLIGHT_SKIP_AGENT_CONTRACT: ${{ needs.changes.outputs.all != 'true' && needs.changes.outputs.contracts != 'true' && '1' || '0' }}
           PREFLIGHT_SKIP_GO_CONTRACTS: ${{ needs.changes.outputs.preflight_go != 'true' && '1' || '0' }}
+          # Backend/all runs already compile the service-backed Go owners in
+          # test-unit. Move both generated-artifact drift checks together so
+          # their shared cold compile cannot simply fall through to the next
+          # preflight check. Artifact-only changes keep the strict fallback.
+          PREFLIGHT_DEFER_GO_ARTIFACT_DRIFT: ${{ (needs.changes.outputs.all == 'true' || needs.changes.outputs.backend == 'true') && '1' || '0' }}
         run: |
           if [ -x scripts/preflight.sh ]; then
             ./scripts/preflight.sh
@@ -247,6 +253,10 @@ jobs:
         run: make test-unit
       - name: Anthropic prompt surface fixture gateway
         run: python3 ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway
+      - name: Model surface bundle drift
+        run: bash scripts/checks/check-model-surface-bundle.sh
+      - name: Model family alert artifact drift
+        run: bash scripts/sentinels/check-model-family-rules.sh
 
   test-integration:
     needs: changes

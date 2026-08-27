@@ -831,12 +831,20 @@ fi
 # model list.
 echo ""
 echo "=== sub2api: generated model-surface bundle drift ==="
+_preflight_defer_go_artifact_drift=0
+if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+    case "${PREFLIGHT_DEFER_GO_ARTIFACT_DRIFT:-}" in
+        1|true|yes|TRUE|YES) _preflight_defer_go_artifact_drift=1 ;;
+    esac
+fi
 if [ "$_preflight_skip_go_contracts" -eq 1 ]; then
     echo "  skip: unchanged Go preflight surface"
+elif [ "$_preflight_defer_go_artifact_drift" -eq 1 ]; then
+    echo "  ok: model-surface bundle drift delegated to CI test-unit"
 elif ! command -v go >/dev/null 2>&1; then
     echo "  FAIL: go not on PATH (required for model-surface bundle drift check)"
     errors=$((errors + 1))
-elif ! (cd backend && go run ./cmd/account-model-mapping bundle --check ../ops/pricing/model-surface-bundle.json); then
+elif ! bash ./scripts/checks/check-model-surface-bundle.sh; then
     echo "  FAIL: ops/pricing/model-surface-bundle.json drifted from the Go owner"
     echo "        — run: cd backend && go run ./cmd/account-model-mapping bundle --output ../ops/pricing/model-surface-bundle.json"
     errors=$((errors + 1))
@@ -851,6 +859,8 @@ echo ""
 echo "=== sub2api: model-family alert artifact drift ==="
 if [ "$_preflight_skip_go_contracts" -eq 1 ]; then
     echo "  skip: unchanged Go preflight surface"
+elif [ "$_preflight_defer_go_artifact_drift" -eq 1 ]; then
+    echo "  ok: model-family alert artifact drift delegated to CI test-unit"
 elif ! command -v go >/dev/null 2>&1; then
     echo "  FAIL: go not on PATH (required for model-family artifact drift check)"
     errors=$((errors + 1))

@@ -110,6 +110,7 @@ class BackendCIRoutingTest(unittest.TestCase):
             "scripts.test_ci_gate_handoffs",
             "scripts.ci.test_changed_surfaces",
             "scripts.test_backend_ci_routing",
+            "scripts.checks.test_model_surface_bundle_check",
         }
         for module in expected_modules:
             with self.subTest(module=module):
@@ -238,6 +239,63 @@ class BackendCIRoutingTest(unittest.TestCase):
             if step.get("uses") == "./.github/actions/go-rolling-cache"
         )
         self.assertEqual(integration_cache["with"]["prefix"], "integration")
+
+    def test_unit_reuses_service_objects_for_go_artifact_drift(self) -> None:
+        steps = self.jobs["test-unit"]["steps"]
+        fixture_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Anthropic prompt surface fixture gateway"
+        )
+        bundle_index, bundle_step = next(
+            (index, step)
+            for index, step in enumerate(steps)
+            if step.get("name") == "Model surface bundle drift"
+        )
+        family_index, family_step = next(
+            (index, step)
+            for index, step in enumerate(steps)
+            if step.get("name") == "Model family alert artifact drift"
+        )
+
+        self.assertGreater(bundle_index, fixture_index)
+        self.assertGreater(family_index, bundle_index)
+        self.assertEqual(
+            bundle_step["run"],
+            "bash scripts/checks/check-model-surface-bundle.sh",
+        )
+        self.assertEqual(
+            family_step["run"],
+            "bash scripts/sentinels/check-model-family-rules.sh",
+        )
+
+    def test_unit_is_the_only_workflow_owner_for_go_artifact_drift(self) -> None:
+        owners = []
+        for job_name, job in self.jobs.items():
+            for step in job.get("steps", []):
+                command = step.get("run", "")
+                for helper in (
+                    "scripts/checks/check-model-surface-bundle.sh",
+                    "scripts/sentinels/check-model-family-rules.sh",
+                ):
+                    if helper in command:
+                        owners.append((helper, job_name, step.get("name")))
+
+        self.assertEqual(
+            owners,
+            [
+                (
+                    "scripts/checks/check-model-surface-bundle.sh",
+                    "test-unit",
+                    "Model surface bundle drift",
+                ),
+                (
+                    "scripts/sentinels/check-model-family-rules.sh",
+                    "test-unit",
+                    "Model family alert artifact drift",
+                ),
+            ],
+        )
 
     def test_lint_uses_rolling_analysis_cache_instead_of_action_cache(self) -> None:
         steps = self.jobs["golangci-lint"]["steps"]
