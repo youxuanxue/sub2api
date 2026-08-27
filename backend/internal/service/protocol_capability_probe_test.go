@@ -21,9 +21,10 @@ import (
 
 type protocolProbeCASRepo struct {
 	AccountRepository
-	mu          sync.Mutex
-	account     *Account
-	updateCalls int
+	mu             sync.Mutex
+	account        *Account
+	updateCalls    int
+	publishedCalls int
 }
 
 func (r *protocolProbeCASRepo) GetByID(_ context.Context, id int64) (*Account, error) {
@@ -113,6 +114,14 @@ func (r *protocolProbeCASRepo) AcquireProbeLease(_ context.Context, key, owner s
 }
 
 func (r *protocolProbeCASRepo) CommitProbeResult(_ context.Context, lease ProtocolProbeLease, mutation ProtocolCapabilityMutation) (*ProtocolEndpointCapability, int, error) {
+	return r.commitProbeResult(lease, mutation, true)
+}
+
+func (r *protocolProbeCASRepo) CommitPreparedProbeResult(_ context.Context, lease ProtocolProbeLease, mutation ProtocolCapabilityMutation) (*ProtocolEndpointCapability, int, error) {
+	return r.commitProbeResult(lease, mutation, false)
+}
+
+func (r *protocolProbeCASRepo) commitProbeResult(lease ProtocolProbeLease, mutation ProtocolCapabilityMutation, publish bool) (*ProtocolEndpointCapability, int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	capability := r.account.ProtocolEndpointCapability
@@ -131,8 +140,11 @@ func (r *protocolProbeCASRepo) CommitProbeResult(_ context.Context, lease Protoc
 	capability.ProbeEvidence.InitialProbeCompleted = mutation.InitialProbeCompleted || capability.ProbeEvidence.InitialProbeCompleted
 	capability.IdentityConflict = mutation.IdentityConflict
 	capability.ProbeLeaseOwner = nil
-	update, _ := BuildSupportedProtocolsUpdate(normalized)
-	applySupportedProtocolsUpdate(r.account, update)
+	if publish {
+		update, _ := BuildSupportedProtocolsUpdate(normalized)
+		applySupportedProtocolsUpdate(r.account, update)
+		r.publishedCalls++
+	}
 	r.updateCalls++
 	return capability, 1, nil
 }
@@ -955,6 +967,36 @@ func TestProbeAccountProtocolCapabilitiesEvaluatesCandidateSetAndPersistsOnce(t 
 	slices.Sort(wantPaths)
 	if !reflect.DeepEqual(gotPaths, wantPaths) {
 		t.Fatalf("probe paths = %v, want %v", gotPaths, wantPaths)
+	}
+}
+
+func TestProbeAccountProtocolCapabilitiesForPreparationPersistsOnlySharedCapability(t *testing.T) {
+	account := protocolRoutingOpenAIAccount(98)
+	account.UpdatedAt = time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
+	repo := &protocolProbeCASRepo{account: cloneProtocolProbeAccount(account)}
+	upstream := &protocolProbeSetUpstream{}
+	svc := &AccountTestService{
+		accountRepo:  repo,
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled: false,
+		}}},
+	}
+
+	svc.ProbeAccountProtocolCapabilitiesForPreparation(context.Background(), account.ID)
+
+	got, err := repo.GetByID(context.Background(), account.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.ProtocolEndpointCapability == nil || len(got.ProtocolEndpointCapability.SupportedProtocols) != 3 {
+		t.Fatalf("prepared capability = %#v", got.ProtocolEndpointCapability)
+	}
+	if projection, exists := got.Extra[SupportedProtocolsExtraKey]; exists {
+		t.Fatalf("legacy projection published during preparation: %#v", projection)
+	}
+	if repo.updateCalls != 1 || repo.publishedCalls != 0 {
+		t.Fatalf("probe commits=%d published=%d, want 1/0", repo.updateCalls, repo.publishedCalls)
 	}
 }
 

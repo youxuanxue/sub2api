@@ -139,7 +139,11 @@ FOR UPDATE`, key)
 		return nil, errors.New("capability key collision or identity mismatch")
 	}
 
-	merged, err := mergeProtocolSets(capability.SupportedProtocols, normalizedHistorical)
+	seedProtocols := normalizedHistorical
+	if capability.LastProbedAt != nil && !officialSeed {
+		seedProtocols = nil
+	}
+	merged, err := mergeProtocolSets(capability.SupportedProtocols, seedProtocols)
 	if err != nil {
 		return nil, err
 	}
@@ -180,29 +184,14 @@ WHERE id=$1`, capability.ID, string(protocolJSON), string(evidenceJSON), revisio
 
 	_, err = db.ExecContext(ctx, `
 UPDATE accounts
-SET protocol_endpoint_capability_id=$2, updated_at=NOW()
+SET protocol_endpoint_capability_id=$2
 WHERE id=$1 AND deleted_at IS NULL`, account.ID, capability.ID)
 	if err != nil {
-		return nil, err
-	}
-	if err := writeRollbackProjections(ctx, db, capability.ID, capability.SupportedProtocols); err != nil {
 		return nil, err
 	}
 	linked, err := countProtocolCapabilityLinkedAccounts(ctx, db, capability.ID)
 	if err != nil {
 		return nil, err
-	}
-	if protocolsChanged || evidenceChanged {
-		linkedAccountIDs, listErr := listProtocolCapabilityLinkedAccountIDs(ctx, db, capability.ID)
-		if listErr != nil {
-			return nil, listErr
-		}
-		for _, linkedAccountID := range linkedAccountIDs {
-			accountID := linkedAccountID
-			if err := enqueueSchedulerOutbox(ctx, db, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil); err != nil {
-				return nil, err
-			}
-		}
 	}
 	capability.LinkedAccountCount = linked
 	account.ProtocolEndpointCapabilityID = &capability.ID
@@ -277,6 +266,74 @@ ORDER BY a.id`, capabilityKey)
 	return ids, rows.Err()
 }
 
+func (r *protocolEndpointCapabilityRepository) PublishProtocolRoutingProjections(ctx context.Context) (_ int, retErr error) {
+	tx, err := r.begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if retErr != nil {
+			_ = tx.rollback()
+		}
+	}()
+
+	rows, err := tx.db.QueryContext(ctx, `
+SELECT c.id, c.supported_protocols
+FROM protocol_endpoint_capabilities c
+WHERE EXISTS (
+    SELECT 1
+    FROM accounts a
+    WHERE a.protocol_endpoint_capability_id=c.id
+      AND a.deleted_at IS NULL
+)
+ORDER BY c.id
+FOR UPDATE OF c`)
+	if err != nil {
+		return 0, err
+	}
+	type preparedCapability struct {
+		id        int64
+		protocols []protocolrouter.Protocol
+	}
+	prepared := make([]preparedCapability, 0)
+	for rows.Next() {
+		var (
+			item       preparedCapability
+			encodedRaw []byte
+		)
+		if err := rows.Scan(&item.id, &encodedRaw); err != nil {
+			_ = rows.Close()
+			return 0, err
+		}
+		item.protocols, err = unmarshalProtocols(encodedRaw)
+		if err != nil {
+			_ = rows.Close()
+			return 0, err
+		}
+		prepared = append(prepared, item)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+
+	affected := 0
+	for _, item := range prepared {
+		changedAccountIDs, publishErr := publishProtocolCapability(ctx, tx.db, item.id, item.protocols)
+		if publishErr != nil {
+			return 0, publishErr
+		}
+		affected += len(changedAccountIDs)
+	}
+	if err := tx.commit(); err != nil {
+		return 0, err
+	}
+	return affected, nil
+}
+
 func (r *protocolEndpointCapabilityRepository) AcquireProbeLease(
 	ctx context.Context,
 	capabilityKey, owner string,
@@ -318,6 +375,23 @@ func (r *protocolEndpointCapabilityRepository) CommitProbeResult(
 	ctx context.Context,
 	lease service.ProtocolProbeLease,
 	mutation service.ProtocolCapabilityMutation,
+) (*service.ProtocolEndpointCapability, int, error) {
+	return r.commitProbeResult(ctx, lease, mutation, true)
+}
+
+func (r *protocolEndpointCapabilityRepository) CommitPreparedProbeResult(
+	ctx context.Context,
+	lease service.ProtocolProbeLease,
+	mutation service.ProtocolCapabilityMutation,
+) (*service.ProtocolEndpointCapability, int, error) {
+	return r.commitProbeResult(ctx, lease, mutation, false)
+}
+
+func (r *protocolEndpointCapabilityRepository) commitProbeResult(
+	ctx context.Context,
+	lease service.ProtocolProbeLease,
+	mutation service.ProtocolCapabilityMutation,
+	publish bool,
 ) (_ *service.ProtocolEndpointCapability, _ int, retErr error) {
 	normalized, err := service.NormalizeSupportedProtocols(mutation.SupportedProtocols)
 	if err != nil {
@@ -393,18 +467,16 @@ WHERE id=$1 AND revision=$7 AND probe_generation=$8 AND probe_lease_owner=$9`,
 	if affected != 1 {
 		return nil, 0, service.ErrProtocolCapabilityStaleWrite
 	}
-	if err := writeRollbackProjections(ctx, tx.db, current.ID, normalized); err != nil {
-		return nil, 0, err
+	var linkedCount int
+	if publish {
+		var changedAccountIDs []int64
+		changedAccountIDs, err = publishProtocolCapability(ctx, tx.db, current.ID, normalized)
+		linkedCount = len(changedAccountIDs)
+	} else {
+		linkedCount, err = countProtocolCapabilityLinkedAccounts(ctx, tx.db, current.ID)
 	}
-	linkedAccountIDs, err := listProtocolCapabilityLinkedAccountIDs(ctx, tx.db, current.ID)
 	if err != nil {
 		return nil, 0, err
-	}
-	for _, accountID := range linkedAccountIDs {
-		accountID := accountID
-		if err := enqueueSchedulerOutbox(ctx, tx.db, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil); err != nil {
-			return nil, 0, err
-		}
 	}
 	if err := tx.commit(); err != nil {
 		return nil, 0, err
@@ -416,28 +488,8 @@ WHERE id=$1 AND revision=$7 AND probe_generation=$8 AND probe_lease_owner=$9`,
 	current.IdentityConflict = mutation.IdentityConflict
 	current.ProbeLeaseOwner = nil
 	current.ProbeLeaseUntil = nil
-	current.LinkedAccountCount = len(linkedAccountIDs)
-	return current, len(linkedAccountIDs), nil
-}
-
-func listProtocolCapabilityLinkedAccountIDs(ctx context.Context, db protocolCapabilitySQL, capabilityID int64) ([]int64, error) {
-	rows, err := db.QueryContext(ctx, `SELECT id FROM accounts WHERE protocol_endpoint_capability_id=$1 AND deleted_at IS NULL ORDER BY id`, capabilityID)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	ids := make([]int64, 0)
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return ids, nil
+	current.LinkedAccountCount = linkedCount
+	return current, linkedCount, nil
 }
 
 func countProtocolCapabilityLinkedAccounts(ctx context.Context, db protocolCapabilitySQL, capabilityID int64) (int, error) {
@@ -459,17 +511,54 @@ func countProtocolCapabilityLinkedAccounts(ctx context.Context, db protocolCapab
 	return linked, nil
 }
 
-func writeRollbackProjections(ctx context.Context, db protocolCapabilitySQL, capabilityID int64, protocols []protocolrouter.Protocol) error {
+func writeRollbackProjections(ctx context.Context, db protocolCapabilitySQL, capabilityID int64, protocols []protocolrouter.Protocol) ([]int64, error) {
 	encoded, err := marshalProtocols(protocols)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, err = db.ExecContext(ctx, `
+	rows, err := db.QueryContext(ctx, `
 UPDATE accounts
 SET extra=jsonb_set(COALESCE(extra, '{}'::jsonb), '{supported_protocols}', $2::jsonb, true),
     updated_at=NOW()
-WHERE protocol_endpoint_capability_id=$1 AND deleted_at IS NULL`, capabilityID, string(encoded))
-	return err
+WHERE protocol_endpoint_capability_id=$1
+  AND deleted_at IS NULL
+  AND extra->'supported_protocols' IS DISTINCT FROM $2::jsonb
+RETURNING id`, capabilityID, string(encoded))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	accountIDs := make([]int64, 0)
+	for rows.Next() {
+		var accountID int64
+		if err := rows.Scan(&accountID); err != nil {
+			return nil, err
+		}
+		accountIDs = append(accountIDs, accountID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return accountIDs, nil
+}
+
+func publishProtocolCapability(
+	ctx context.Context,
+	db protocolCapabilitySQL,
+	capabilityID int64,
+	protocols []protocolrouter.Protocol,
+) ([]int64, error) {
+	changedAccountIDs, err := writeRollbackProjections(ctx, db, capabilityID, protocols)
+	if err != nil {
+		return nil, err
+	}
+	for _, changedAccountID := range changedAccountIDs {
+		accountID := changedAccountID
+		if err := enqueueSchedulerOutbox(ctx, db, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil); err != nil {
+			return nil, err
+		}
+	}
+	return changedAccountIDs, nil
 }
 
 func mergeProtocolSets(left, right []protocolrouter.Protocol) ([]protocolrouter.Protocol, error) {
@@ -499,6 +588,18 @@ func marshalProtocols(protocols []protocolrouter.Protocol) ([]byte, error) {
 		values[i] = string(protocol)
 	}
 	return json.Marshal(values)
+}
+
+func unmarshalProtocols(encoded []byte) ([]protocolrouter.Protocol, error) {
+	var values []string
+	if err := json.Unmarshal(encoded, &values); err != nil {
+		return nil, fmt.Errorf("decode supported protocols: %w", err)
+	}
+	protocols := make([]protocolrouter.Protocol, 0, len(values))
+	for _, value := range values {
+		protocols = append(protocols, protocolrouter.Protocol(value))
+	}
+	return service.NormalizeSupportedProtocols(protocols)
 }
 
 type protocolCapabilityRowScanner interface {
@@ -565,16 +666,8 @@ func (s *protocolCapabilityScanState) decode() (*service.ProtocolEndpointCapabil
 	if err := json.Unmarshal(s.identityJSON, &s.capability.Identity); err != nil {
 		return nil, fmt.Errorf("decode protocol endpoint identity: %w", err)
 	}
-	var protocolValues []string
-	if err := json.Unmarshal(s.protocolsJSON, &protocolValues); err != nil {
-		return nil, fmt.Errorf("decode supported protocols: %w", err)
-	}
-	protocols := make([]protocolrouter.Protocol, 0, len(protocolValues))
-	for _, value := range protocolValues {
-		protocols = append(protocols, protocolrouter.Protocol(value))
-	}
 	var err error
-	s.capability.SupportedProtocols, err = service.NormalizeSupportedProtocols(protocols)
+	s.capability.SupportedProtocols, err = unmarshalProtocols(s.protocolsJSON)
 	if err != nil {
 		return nil, err
 	}

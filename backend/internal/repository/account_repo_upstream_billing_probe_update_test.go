@@ -397,13 +397,16 @@ func TestUpdateWithAccountBillingSettingsRollsBackWhenOutboxFails(t *testing.T) 
 	mock.ExpectExec(`(?s)UPDATE accounts.*protocol_endpoint_capability_id=\$2`).
 		WithArgs(int64(27), int64(501)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`(?s)UPDATE accounts.*supported_protocols`).
-		WithArgs(int64(501), `[]`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM accounts WHERE protocol_endpoint_capability_id=$1 AND deleted_at IS NULL")).
 		WithArgs(int64(501)).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO scheduler_outbox")).WillReturnError(errors.New("outbox failed"))
+	mock.ExpectQuery(`(?s)UPDATE accounts.*supported_protocols`).
+		WithArgs(int64(501), `[]`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(27)))
+	accountID := int64(27)
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO scheduler_outbox")).
+		WithArgs(service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil, sqlmock.AnyArg()).
+		WillReturnError(errors.New("outbox failed"))
 	mock.ExpectRollback()
 
 	repo := newAccountRepositoryWithSQL(client, db, nil, nil)

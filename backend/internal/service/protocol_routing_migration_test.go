@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"maps"
 	"reflect"
 	"sync"
 	"testing"
@@ -14,16 +15,52 @@ import (
 )
 
 type protocolRoutingMigrationProber struct {
-	mu      sync.Mutex
-	account map[int64][]protocolrouter.Protocol
-	calls   []int64
-	repo    *protocolRoutingMigrationRepo
+	mu          sync.Mutex
+	account     map[int64][]protocolrouter.Protocol
+	calls       []int64
+	normalCalls []int64
+	repo        *protocolRoutingMigrationRepo
+}
+
+type protocolRoutingSequenceProber struct {
+	repo      *protocolRoutingMigrationRepo
+	mutations []ProtocolCapabilityMutation
+	calls     []int64
+}
+
+func (p *protocolRoutingSequenceProber) ProbeAccountProtocolCapabilitiesForPreparation(_ context.Context, accountID int64) {
+	p.calls = append(p.calls, accountID)
+	if p.repo == nil || len(p.mutations) == 0 {
+		return
+	}
+	capability, err := p.repo.GetByAccountID(context.Background(), accountID)
+	if err != nil {
+		return
+	}
+	lease, acquired, err := p.repo.AcquireProbeLease(context.Background(), capability.CapabilityKey, "sequence-prober", time.Now(), time.Minute)
+	if err != nil || !acquired {
+		return
+	}
+	mutation := p.mutations[0]
+	p.mutations = p.mutations[1:]
+	_, _, _ = p.repo.CommitPreparedProbeResult(context.Background(), lease, mutation)
 }
 
 func (p *protocolRoutingMigrationProber) ProbeAccountProtocolCapabilities(_ context.Context, accountID int64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.normalCalls = append(p.normalCalls, accountID)
+	p.commit(accountID, false)
+}
+
+func (p *protocolRoutingMigrationProber) ProbeAccountProtocolCapabilitiesForPreparation(_ context.Context, accountID int64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.calls = append(p.calls, accountID)
+	p.commit(accountID, true)
+}
+
+func (p *protocolRoutingMigrationProber) commit(accountID int64, prepared bool) {
 	protocols := p.account[accountID]
 	if len(protocols) == 0 || p.repo == nil {
 		return
@@ -36,19 +73,28 @@ func (p *protocolRoutingMigrationProber) ProbeAccountProtocolCapabilities(_ cont
 	if err != nil || !acquired {
 		return
 	}
-	_, _, _ = p.repo.CommitProbeResult(context.Background(), lease, ProtocolCapabilityMutation{
-		SupportedProtocols: protocols, InitialProbeCompleted: true,
-	})
+	mutation := ProtocolCapabilityMutation{SupportedProtocols: protocols, InitialProbeCompleted: true}
+	if prepared {
+		_, _, _ = p.repo.CommitPreparedProbeResult(context.Background(), lease, mutation)
+		return
+	}
+	_, _, _ = p.repo.CommitProbeResult(context.Background(), lease, mutation)
 }
 
 type protocolRoutingMigrationRepo struct {
-	accounts     []Account
-	updates      map[int64]map[string]any
-	capabilities map[string]*ProtocolEndpointCapability
-	links        map[int64]string
+	accounts                       []Account
+	updates                        map[int64]map[string]any
+	capabilities                   map[string]*ProtocolEndpointCapability
+	links                          map[int64]string
+	listCalls                      int
+	ensureCalls                    int
+	publishCalls                   int
+	publishErr                     error
+	rejectFinalReadinessAfterWrite bool
 }
 
 func (r *protocolRoutingMigrationRepo) ListActive(context.Context) ([]Account, error) {
+	r.listCalls++
 	result := make([]Account, len(r.accounts))
 	copy(result, r.accounts)
 	for i := range result {
@@ -61,8 +107,40 @@ func (r *protocolRoutingMigrationRepo) ListActive(context.Context) ([]Account, e
 			result[i].ProtocolEndpointCapability = capability
 			result[i].ProtocolEndpointCapabilityID = &capability.ID
 		}
+		if r.rejectFinalReadinessAfterWrite && r.publishCalls > 0 {
+			result[i].Credentials = map[string]any{}
+		}
 	}
 	return result, nil
+}
+
+func (r *protocolRoutingMigrationRepo) PublishProtocolRoutingProjections(ctx context.Context, validate func(context.Context) error) (int, error) {
+	r.publishCalls++
+	if r.publishErr != nil {
+		return 0, r.publishErr
+	}
+	accountSnapshot := make([]Account, len(r.accounts))
+	for i := range r.accounts {
+		accountSnapshot[i] = r.accounts[i]
+		accountSnapshot[i].Extra = maps.Clone(r.accounts[i].Extra)
+		accountSnapshot[i].Credentials = maps.Clone(r.accounts[i].Credentials)
+	}
+	affected := 0
+	for i := range r.accounts {
+		key := r.links[r.accounts[i].ID]
+		capability := r.capabilities[key]
+		if capability == nil {
+			continue
+		}
+		update, _ := BuildSupportedProtocolsUpdate(capability.SupportedProtocols)
+		applySupportedProtocolsUpdate(&r.accounts[i], update)
+		affected++
+	}
+	if err := validate(ctx); err != nil {
+		r.accounts = accountSnapshot
+		return 0, err
+	}
+	return affected, nil
 }
 
 func (r *protocolRoutingMigrationRepo) UpdateExtra(_ context.Context, id int64, updates map[string]any) error {
@@ -88,6 +166,7 @@ func (r *protocolRoutingMigrationRepo) ensureCapabilityMaps() {
 }
 
 func (r *protocolRoutingMigrationRepo) EnsureAccountLink(_ context.Context, account *Account, identity ProtocolEndpointIdentity, historical []protocolrouter.Protocol, official bool) (*ProtocolEndpointCapability, error) {
+	r.ensureCalls++
 	r.ensureCapabilityMaps()
 	key := identity.Key()
 	capability := r.capabilities[key]
@@ -95,7 +174,11 @@ func (r *protocolRoutingMigrationRepo) EnsureAccountLink(_ context.Context, acco
 		capability = &ProtocolEndpointCapability{ID: int64(len(r.capabilities) + 1), CapabilityKey: key, Identity: identity, Revision: 1}
 		r.capabilities[key] = capability
 	}
-	merged, err := NormalizeSupportedProtocols(append(append([]protocolrouter.Protocol{}, capability.SupportedProtocols...), historical...))
+	seedProtocols := historical
+	if capability.LastProbedAt != nil && !official {
+		seedProtocols = nil
+	}
+	merged, err := NormalizeSupportedProtocols(append(append([]protocolrouter.Protocol{}, capability.SupportedProtocols...), seedProtocols...))
 	if err != nil {
 		return nil, err
 	}
@@ -115,8 +198,6 @@ func (r *protocolRoutingMigrationRepo) EnsureAccountLink(_ context.Context, acco
 		if r.accounts[i].ID == account.ID {
 			r.accounts[i].ProtocolEndpointCapability = capability
 			r.accounts[i].ProtocolEndpointCapabilityID = &capability.ID
-			update, _ := BuildSupportedProtocolsUpdate(capability.SupportedProtocols)
-			applySupportedProtocolsUpdate(&r.accounts[i], update)
 		}
 	}
 	return capability, nil
@@ -163,6 +244,14 @@ func (r *protocolRoutingMigrationRepo) AcquireProbeLease(_ context.Context, key,
 }
 
 func (r *protocolRoutingMigrationRepo) CommitProbeResult(_ context.Context, lease ProtocolProbeLease, mutation ProtocolCapabilityMutation) (*ProtocolEndpointCapability, int, error) {
+	return r.commitProbeResult(lease, mutation, true)
+}
+
+func (r *protocolRoutingMigrationRepo) CommitPreparedProbeResult(_ context.Context, lease ProtocolProbeLease, mutation ProtocolCapabilityMutation) (*ProtocolEndpointCapability, int, error) {
+	return r.commitProbeResult(lease, mutation, false)
+}
+
+func (r *protocolRoutingMigrationRepo) commitProbeResult(lease ProtocolProbeLease, mutation ProtocolCapabilityMutation, publish bool) (*ProtocolEndpointCapability, int, error) {
 	capability, err := r.GetByKey(context.Background(), lease.CapabilityKey)
 	if err != nil {
 		return nil, 0, err
@@ -175,14 +264,22 @@ func (r *protocolRoutingMigrationRepo) CommitProbeResult(_ context.Context, leas
 	}
 	capability.SupportedProtocols, _ = NormalizeSupportedProtocols(mutation.SupportedProtocols)
 	capability.Revision++
+	capability.ProbeEvidence.Verdicts = mutation.ProbeEvidence.Verdicts
 	capability.ProbeEvidence.InitialProbeCompleted = mutation.InitialProbeCompleted
+	lastProbedAt := mutation.LastProbedAt
+	if lastProbedAt.IsZero() {
+		lastProbedAt = time.Now().UTC()
+	}
+	capability.LastProbedAt = &lastProbedAt
 	capability.ProbeLeaseOwner = nil
 	affected := 0
 	for i := range r.accounts {
 		if r.links[r.accounts[i].ID] == lease.CapabilityKey {
 			r.accounts[i].ProtocolEndpointCapability = capability
-			update, _ := BuildSupportedProtocolsUpdate(capability.SupportedProtocols)
-			applySupportedProtocolsUpdate(&r.accounts[i], update)
+			if publish {
+				update, _ := BuildSupportedProtocolsUpdate(capability.SupportedProtocols)
+				applySupportedProtocolsUpdate(&r.accounts[i], update)
+			}
 			affected++
 		}
 	}
@@ -206,8 +303,11 @@ func TestMigrateProtocolRoutingSSOTSeedsOnlyOfficialProfilesAndReportsCustomAcco
 	if report.ActiveGoverned != 2 || report.SeededOfficial != 1 || report.CutoverReady {
 		t.Fatalf("report = %+v", report)
 	}
-	if got := repo.accounts[0].Extra[SupportedProtocolsExtraKey]; !reflect.DeepEqual(got, []string{"responses"}) {
-		t.Fatalf("official seed = %#v, want responses", got)
+	if projection, exists := repo.accounts[0].Extra[SupportedProtocolsExtraKey]; exists {
+		t.Fatalf("migration published official seed into legacy account state: %#v", projection)
+	}
+	if capability, err := repo.GetByAccountID(context.Background(), 1); err != nil || !reflect.DeepEqual(capability.SupportedProtocols, []protocolrouter.Protocol{protocolrouter.ProtocolResponses}) {
+		t.Fatalf("official capability = %#v err=%v, want responses", capability, err)
 	}
 	if _, ok := repo.updates[2]; ok {
 		t.Fatal("custom account was inferred instead of reported for probe")
@@ -368,6 +468,15 @@ func TestPrepareProtocolRoutingSSOTProbesRemediationBeforeEnablingRouter(t *test
 	if !reflect.DeepEqual(prober.calls, []int64{12}) {
 		t.Fatalf("probe calls = %v, want [12]", prober.calls)
 	}
+	if len(prober.normalCalls) != 0 {
+		t.Fatalf("normal probe calls = %v, want none during startup preparation", prober.normalCalls)
+	}
+	if repo.publishCalls != 1 {
+		t.Fatalf("publish calls = %d, want 1", repo.publishCalls)
+	}
+	if repo.listCalls != 3 {
+		t.Fatalf("ListActive calls = %d, want preliminary, post-probe, and post-publication evaluations", repo.listCalls)
+	}
 	if got := repo.accounts[0].SupportedProtocols(); !reflect.DeepEqual(got, []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}) {
 		t.Fatalf("supported protocols = %v, want chat_completions", got)
 	}
@@ -402,5 +511,188 @@ func TestPrepareProtocolRoutingSSOTKeepsRouterAndFailsReadinessWhenRemediationRe
 	}
 	if !reflect.DeepEqual(prober.calls, []int64{13}) {
 		t.Fatalf("probe calls = %v, want [13]", prober.calls)
+	}
+	if repo.publishCalls != 0 {
+		t.Fatalf("publish calls = %d, want 0 while remediation remains", repo.publishCalls)
+	}
+}
+
+func TestPrepareProtocolRoutingSSOTFailsClosedWhenPublicationFails(t *testing.T) {
+	repo := &protocolRoutingMigrationRepo{
+		accounts: []Account{{
+			ID:       14,
+			Name:     "official-openai",
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeOAuth,
+			Credentials: map[string]any{
+				"access_token": "secret",
+			},
+		}},
+		publishErr: errors.New("publish failed"),
+	}
+	router := NewProtocolRouter()
+
+	ready, err := prepareProtocolRoutingSSOT(context.Background(), repo, router, nil)
+	if err == nil || err.Error() != "publish failed" {
+		t.Fatalf("prepareProtocolRoutingSSOT error = %v, want publish failed", err)
+	}
+	if ready.Ready() || ready.Report.CutoverReady {
+		t.Fatalf("publication failure admitted candidate: %+v", ready.Report)
+	}
+	if repo.publishCalls != 1 || repo.listCalls != 1 {
+		t.Fatalf("publish/list calls = %d/%d, want 1/1", repo.publishCalls, repo.listCalls)
+	}
+}
+
+func TestPrepareProtocolRoutingSSOTFinalReadinessDoesNotMutateCapabilityLinks(t *testing.T) {
+	repo := &protocolRoutingMigrationRepo{accounts: []Account{{
+		ID:       18,
+		Name:     "official-openai",
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token": "secret",
+		},
+	}}}
+
+	ready, err := prepareProtocolRoutingSSOT(context.Background(), repo, NewProtocolRouter(), nil)
+	if err != nil || !ready.Ready() {
+		t.Fatalf("prepareProtocolRoutingSSOT = %+v err=%v", ready.Report, err)
+	}
+	if repo.ensureCalls != 1 {
+		t.Fatalf("EnsureAccountLink calls = %d, want preparation only; final readiness must be read-only", repo.ensureCalls)
+	}
+}
+
+func TestPrepareProtocolRoutingSSOTRollsBackPublicationWhenFinalReadinessFails(t *testing.T) {
+	repo := &protocolRoutingMigrationRepo{
+		accounts: []Account{{
+			ID:       16,
+			Name:     "official-openai",
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeOAuth,
+			Credentials: map[string]any{
+				"access_token": "secret",
+			},
+			Extra: map[string]any{
+				SupportedProtocolsExtraKey: []any{string(protocolrouter.ProtocolMessages)},
+			},
+		}},
+		rejectFinalReadinessAfterWrite: true,
+	}
+	router := NewProtocolRouter()
+
+	ready, err := prepareProtocolRoutingSSOT(context.Background(), repo, router, nil)
+	if err != nil {
+		t.Fatalf("prepareProtocolRoutingSSOT: %v", err)
+	}
+	if ready.Ready() || ready.Report.CutoverReady {
+		t.Fatalf("final readiness failure admitted candidate: %+v", ready.Report)
+	}
+	if got := LegacySupportedProtocolsProjection(&repo.accounts[0]); !reflect.DeepEqual(got, []protocolrouter.Protocol{protocolrouter.ProtocolMessages}) {
+		t.Fatalf("failed final readiness left projection=%v, want pre-candidate messages", got)
+	}
+}
+
+func TestPrepareProtocolRoutingSSOTReusesCompletedProbeOnRestart(t *testing.T) {
+	repo := &protocolRoutingMigrationRepo{accounts: []Account{{
+		ID:       15,
+		Name:     "custom-openai",
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": "https://relay.example.test/v1",
+		},
+	}}}
+	prober := &protocolRoutingMigrationProber{
+		repo: repo,
+		account: map[int64][]protocolrouter.Protocol{
+			15: {protocolrouter.ProtocolChatCompletions},
+		},
+	}
+	router := NewProtocolRouter()
+
+	first, err := prepareProtocolRoutingSSOT(context.Background(), repo, router, prober)
+	if err != nil || !first.Ready() {
+		t.Fatalf("first preparation = %+v err=%v", first.Report, err)
+	}
+	second, err := prepareProtocolRoutingSSOT(context.Background(), repo, router, prober)
+	if err != nil || !second.Ready() {
+		t.Fatalf("second preparation = %+v err=%v", second.Report, err)
+	}
+	if !reflect.DeepEqual(prober.calls, []int64{15}) {
+		t.Fatalf("probe calls = %v, want one completed endpoint probe reused on restart", prober.calls)
+	}
+}
+
+func TestPrepareProtocolRoutingSSOTRetriesInconclusive429WithoutPublishingThenPublishesOnceAfterRecovery(t *testing.T) {
+	repo := &protocolRoutingMigrationRepo{accounts: []Account{{
+		ID:       17,
+		Name:     "rate-limited-openai",
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": "https://relay.example.test/v1",
+		},
+		Extra: map[string]any{
+			SupportedProtocolsExtraKey: []any{string(protocolrouter.ProtocolMessages)},
+		},
+	}}}
+	prober := &protocolRoutingSequenceProber{
+		repo: repo,
+		mutations: []ProtocolCapabilityMutation{
+			{
+				SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolMessages},
+				ProbeEvidence: ProtocolProbeEvidence{Verdicts: map[string]any{
+					string(protocolrouter.ProtocolResponses): map[string]any{"verdict": "inconclusive", "status_code": 429},
+				}},
+				InitialProbeCompleted: false,
+			},
+			{
+				SupportedProtocols:    []protocolrouter.Protocol{protocolrouter.ProtocolResponses},
+				InitialProbeCompleted: true,
+			},
+		},
+	}
+	router := NewProtocolRouter()
+
+	first, err := prepareProtocolRoutingSSOT(context.Background(), repo, router, prober)
+	if err != nil {
+		t.Fatalf("first prepareProtocolRoutingSSOT: %v", err)
+	}
+	if first.Ready() || first.Report.CutoverReady {
+		t.Fatalf("inconclusive 429 admitted candidate: %+v", first.Report)
+	}
+	if repo.publishCalls != 0 {
+		t.Fatalf("inconclusive 429 publication calls = %d, want 0", repo.publishCalls)
+	}
+	if got := LegacySupportedProtocolsProjection(&repo.accounts[0]); !reflect.DeepEqual(got, []protocolrouter.Protocol{protocolrouter.ProtocolMessages}) {
+		t.Fatalf("inconclusive 429 changed legacy projection to %v", got)
+	}
+	firstCapability := repo.accounts[0].ProtocolEndpointCapability
+	if firstCapability == nil || firstCapability.ProbeEvidence.InitialProbeCompleted {
+		t.Fatalf("inconclusive evidence did not remain retryable: %+v", firstCapability)
+	}
+
+	second, err := prepareProtocolRoutingSSOT(context.Background(), repo, router, prober)
+	if err != nil {
+		t.Fatalf("second prepareProtocolRoutingSSOT: %v", err)
+	}
+	if !second.Ready() || !second.Report.CutoverReady {
+		t.Fatalf("recovered endpoint remained not ready: %+v", second.Report)
+	}
+	if !reflect.DeepEqual(prober.calls, []int64{17, 17}) {
+		t.Fatalf("probe calls = %v, want one retry against the same linked capability", prober.calls)
+	}
+	if repo.publishCalls != 1 {
+		t.Fatalf("recovered endpoint publication calls = %d, want 1", repo.publishCalls)
+	}
+	if got := LegacySupportedProtocolsProjection(&repo.accounts[0]); !reflect.DeepEqual(got, []protocolrouter.Protocol{protocolrouter.ProtocolResponses}) {
+		t.Fatalf("recovered endpoint projection = %v, want responses", got)
+	}
+	if repo.accounts[0].ProtocolEndpointCapability != firstCapability {
+		t.Fatal("recovery created a second capability instead of reusing the endpoint SSOT row")
 	}
 }

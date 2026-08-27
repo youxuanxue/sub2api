@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"sync"
@@ -14,7 +15,7 @@ import (
 const protocolRoutingStartupProbeConcurrency = 4
 
 type protocolRoutingCapabilityProber interface {
-	ProbeAccountProtocolCapabilities(ctx context.Context, accountID int64)
+	ProbeAccountProtocolCapabilitiesForPreparation(ctx context.Context, accountID int64)
 }
 
 type ProtocolRoutingRemediationReason string
@@ -43,12 +44,32 @@ type ProtocolRoutingMigrationReport struct {
 type protocolRoutingMigrationRepository interface {
 	ListActive(ctx context.Context) ([]Account, error)
 	ProtocolEndpointCapabilityRepository
+	PublishProtocolRoutingProjections(ctx context.Context, validate func(context.Context) error) (int, error)
 }
+
+var errProtocolRoutingFinalReadinessNotReady = errors.New("protocol routing final readiness is not ready")
 
 func MigrateProtocolRoutingSSOT(
 	ctx context.Context,
 	repo protocolRoutingMigrationRepository,
 	router *protocolrouter.Router,
+) (ProtocolRoutingMigrationReport, error) {
+	return evaluateProtocolRoutingSSOT(ctx, repo, router, true)
+}
+
+func validateProtocolRoutingSSOTReadiness(
+	ctx context.Context,
+	repo protocolRoutingMigrationRepository,
+	router *protocolrouter.Router,
+) (ProtocolRoutingMigrationReport, error) {
+	return evaluateProtocolRoutingSSOT(ctx, repo, router, false)
+}
+
+func evaluateProtocolRoutingSSOT(
+	ctx context.Context,
+	repo protocolRoutingMigrationRepository,
+	router *protocolrouter.Router,
+	prepare bool,
 ) (ProtocolRoutingMigrationReport, error) {
 	report := ProtocolRoutingMigrationReport{CutoverReady: true}
 	accounts, err := repo.ListActive(ctx)
@@ -72,17 +93,31 @@ func MigrateProtocolRoutingSSOT(
 		if !governed {
 			continue
 		}
-		official := officialSupportedProtocols(account)
-		wasOfficialSeed := false
-		if existing, existingErr := repo.GetByKey(ctx, identity.Key()); existingErr == nil && existing != nil {
-			wasOfficialSeed = existing.ProbeEvidence.OfficialSeed
-		}
-		capability, err := repo.EnsureAccountLink(ctx, account, identity, LegacySupportedProtocolsProjection(account), len(official) > 0)
-		if err != nil {
-			return report, err
-		}
-		if len(official) > 0 && capability.ProbeEvidence.OfficialSeed && !wasOfficialSeed {
-			report.SeededOfficial++
+		capability := account.ProtocolEndpointCapability
+		if prepare {
+			official := officialSupportedProtocols(account)
+			wasOfficialSeed := false
+			if existing, existingErr := repo.GetByKey(ctx, identity.Key()); existingErr == nil && existing != nil {
+				wasOfficialSeed = existing.ProbeEvidence.OfficialSeed
+			}
+			capability, err = repo.EnsureAccountLink(ctx, account, identity, LegacySupportedProtocolsProjection(account), len(official) > 0)
+			if err != nil {
+				return report, err
+			}
+			if len(official) > 0 && capability.ProbeEvidence.OfficialSeed && !wasOfficialSeed {
+				report.SeededOfficial++
+			}
+		} else if capability == nil || account.ProtocolEndpointCapabilityID == nil ||
+			capability.ID != *account.ProtocolEndpointCapabilityID || capability.CapabilityKey != identity.Key() {
+			if account.Schedulable {
+				report.CutoverReady = false
+				report.Remediation = append(report.Remediation, ProtocolRoutingRemediation{
+					AccountID: account.ID,
+					Name:      account.Name,
+					Reason:    ProtocolRoutingRemediationProbeRequired,
+				})
+			}
+			continue
 		}
 		if !account.Schedulable {
 			continue
@@ -130,36 +165,59 @@ func prepareProtocolRoutingSSOT(
 	if err != nil {
 		return ProtocolRoutingSSOTReady{Report: initial}, err
 	}
-	if initial.CutoverReady || prober == nil || len(initial.Remediation) == 0 {
-		return newProtocolRoutingSSOTReady(initial, router), nil
-	}
+	prepared := initial
+	if !initial.CutoverReady && prober != nil && len(initial.Remediation) > 0 {
+		accountIDs := make([]int64, 0, len(initial.Remediation))
+		seenKeys := make(map[string]struct{}, len(initial.Remediation))
+		for _, remediation := range initial.Remediation {
+			if remediation.AccountID <= 0 {
+				continue
+			}
+			capability, capabilityErr := repo.GetByAccountID(ctx, remediation.AccountID)
+			if capabilityErr != nil || capability == nil || capability.CapabilityKey == "" {
+				continue
+			}
+			if _, exists := seenKeys[capability.CapabilityKey]; exists {
+				continue
+			}
+			seenKeys[capability.CapabilityKey] = struct{}{}
+			accountIDs = append(accountIDs, remediation.AccountID)
+		}
+		probeProtocolRoutingAccounts(ctx, prober, accountIDs)
 
-	accountIDs := make([]int64, 0, len(initial.Remediation))
-	seenKeys := make(map[string]struct{}, len(initial.Remediation))
-	for _, remediation := range initial.Remediation {
-		if remediation.AccountID <= 0 {
-			continue
+		prepared, err = MigrateProtocolRoutingSSOT(ctx, repo, router)
+		prepared.ProbeAttempts = len(accountIDs)
+		prepared.ProbeResolved = protocolRoutingResolvedProbeCount(accountIDs, prepared.Remediation)
+		prepared.SeededOfficial += initial.SeededOfficial
+		if err != nil {
+			return ProtocolRoutingSSOTReady{Report: prepared}, err
 		}
-		capability, capabilityErr := repo.GetByAccountID(ctx, remediation.AccountID)
-		if capabilityErr != nil || capability == nil || capability.CapabilityKey == "" {
-			continue
-		}
-		if _, exists := seenKeys[capability.CapabilityKey]; exists {
-			continue
-		}
-		seenKeys[capability.CapabilityKey] = struct{}{}
-		accountIDs = append(accountIDs, remediation.AccountID)
 	}
-	probeProtocolRoutingAccounts(ctx, prober, accountIDs)
-
-	final, err := MigrateProtocolRoutingSSOT(ctx, repo, router)
-	final.ProbeAttempts = len(accountIDs)
-	final.ProbeResolved = protocolRoutingResolvedProbeCount(accountIDs, final.Remediation)
+	if !prepared.CutoverReady {
+		return newProtocolRoutingSSOTReady(prepared, router), nil
+	}
+	final := prepared
+	_, err = repo.PublishProtocolRoutingProjections(ctx, func(txCtx context.Context) error {
+		var validationErr error
+		final, validationErr = validateProtocolRoutingSSOTReadiness(txCtx, repo, router)
+		final.SeededOfficial += prepared.SeededOfficial
+		final.ProbeAttempts = prepared.ProbeAttempts
+		final.ProbeResolved = prepared.ProbeResolved
+		if validationErr != nil {
+			return validationErr
+		}
+		if !final.CutoverReady {
+			return errProtocolRoutingFinalReadinessNotReady
+		}
+		return nil
+	})
+	if errors.Is(err, errProtocolRoutingFinalReadinessNotReady) {
+		return newProtocolRoutingSSOTReady(final, router), nil
+	}
 	if err != nil {
-		final.SeededOfficial += initial.SeededOfficial
+		final.CutoverReady = false
 		return ProtocolRoutingSSOTReady{Report: final}, err
 	}
-	final.SeededOfficial += initial.SeededOfficial
 	return newProtocolRoutingSSOTReady(final, router), nil
 }
 
@@ -192,7 +250,7 @@ func probeProtocolRoutingAccounts(ctx context.Context, prober protocolRoutingCap
 				if ctx.Err() != nil {
 					continue
 				}
-				prober.ProbeAccountProtocolCapabilities(ctx, accountID)
+				prober.ProbeAccountProtocolCapabilitiesForPreparation(ctx, accountID)
 			}
 		}()
 	}

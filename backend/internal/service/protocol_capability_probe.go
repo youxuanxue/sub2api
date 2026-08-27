@@ -78,7 +78,15 @@ func (s *AccountTestService) ProbeAccountProtocolCapabilities(ctx context.Contex
 	_, _ = s.ProbeAccountProtocolCapabilitiesNow(ctx, accountID)
 }
 
+func (s *AccountTestService) ProbeAccountProtocolCapabilitiesForPreparation(ctx context.Context, accountID int64) {
+	_, _ = s.probeAccountProtocolCapabilitiesNow(ctx, accountID, false)
+}
+
 func (s *AccountTestService) ProbeAccountProtocolCapabilitiesNow(ctx context.Context, accountID int64) (ProtocolProbeRunResult, error) {
+	return s.probeAccountProtocolCapabilitiesNow(ctx, accountID, true)
+}
+
+func (s *AccountTestService) probeAccountProtocolCapabilitiesNow(ctx context.Context, accountID int64, publish bool) (ProtocolProbeRunResult, error) {
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
 		return ProtocolProbeRunResult{}, err
@@ -111,7 +119,7 @@ func (s *AccountTestService) ProbeAccountProtocolCapabilitiesNow(ctx context.Con
 		}, nil
 	}
 	return s.protocolProbeCoordinator.Do(capability.CapabilityKey, func() (ProtocolProbeRunResult, error) {
-		return s.runEndpointProtocolProbe(ctx, capabilityRepo, capability, candidates)
+		return s.runEndpointProtocolProbe(ctx, capabilityRepo, capability, candidates, publish)
 	})
 }
 
@@ -125,6 +133,7 @@ func (s *AccountTestService) runEndpointProtocolProbe(
 	repo ProtocolEndpointCapabilityRepository,
 	capability *ProtocolEndpointCapability,
 	candidates []protocolrouter.Protocol,
+	publish bool,
 ) (ProtocolProbeRunResult, error) {
 	beforeProtocols := append([]protocolrouter.Protocol(nil), capability.SupportedProtocols...)
 	lease, acquired, err := repo.AcquireProbeLease(ctx, capability.CapabilityKey, uuid.NewString(), time.Now().UTC(), protocolProbeLeaseTTL)
@@ -144,12 +153,12 @@ func (s *AccountTestService) runEndpointProtocolProbe(
 	}
 	witnesses := selectProtocolProbeWitnesses(linked)
 	if len(witnesses) == 0 {
-		updated, affected, commitErr := repo.CommitProbeResult(ctx, lease, ProtocolCapabilityMutation{
+		updated, affected, commitErr := commitProtocolProbeResult(ctx, repo, lease, ProtocolCapabilityMutation{
 			SupportedProtocols: capability.SupportedProtocols,
 			ProbeEvidence:      capability.ProbeEvidence,
 			IdentityConflict:   capability.IdentityConflict || capability.ProbeEvidence.IdentityConflict,
 			LastProbedAt:       time.Now().UTC(),
-		})
+		}, publish)
 		if commitErr != nil {
 			return ProtocolProbeRunResult{}, commitErr
 		}
@@ -198,13 +207,13 @@ func (s *AccountTestService) runEndpointProtocolProbe(
 		verdictEvidence[string(protocol)] = verdict
 	}
 	evidence.Verdicts = verdictEvidence
-	updated, affected, err := repo.CommitProbeResult(ctx, lease, ProtocolCapabilityMutation{
+	updated, affected, err := commitProtocolProbeResult(ctx, repo, lease, ProtocolCapabilityMutation{
 		SupportedProtocols:    resolution.SupportedProtocols,
 		ProbeEvidence:         evidence,
 		InitialProbeCompleted: resolution.AllConclusive,
 		IdentityConflict:      resolution.IdentityConflict,
 		LastProbedAt:          time.Now().UTC(),
-	})
+	}, publish)
 	if err != nil {
 		return ProtocolProbeRunResult{}, err
 	}
@@ -223,6 +232,19 @@ func (s *AccountTestService) runEndpointProtocolProbe(
 		reason = "inconclusive_evidence"
 	}
 	return ProtocolProbeRunResult{Outcome: outcome, Reason: reason, Capability: updated, AffectedAccountCount: affected}, nil
+}
+
+func commitProtocolProbeResult(
+	ctx context.Context,
+	repo ProtocolEndpointCapabilityRepository,
+	lease ProtocolProbeLease,
+	mutation ProtocolCapabilityMutation,
+	publish bool,
+) (*ProtocolEndpointCapability, int, error) {
+	if publish {
+		return repo.CommitProbeResult(ctx, lease, mutation)
+	}
+	return repo.CommitPreparedProbeResult(ctx, lease, mutation)
 }
 
 func resolveProtocolProbeGeneration(

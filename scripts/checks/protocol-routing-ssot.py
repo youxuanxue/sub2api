@@ -278,6 +278,46 @@ def function_bodies(source: str, identifier: str) -> list[str]:
     return bodies
 
 
+def matching_brace(source: str, open_brace: int) -> int | None:
+    depth = 0
+    for index in range(open_brace, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def publication_has_preliminary_readiness_guard(body: str) -> bool:
+    publish_calls = call_spans(body, "PublishProtocolRoutingProjections")
+    if not publish_calls:
+        return False
+    publish_index = publish_calls[0][0]
+
+    positive_guard = re.compile(
+        r"\bif\s+prepared\s*\.\s*CutoverReady\s*\{"
+    )
+    for match in positive_guard.finditer(body):
+        open_brace = body.find("{", match.start(), match.end())
+        close_brace = matching_brace(body, open_brace)
+        if close_brace is not None and open_brace < publish_index < close_brace:
+            return True
+
+    negative_guard = re.compile(
+        r"\bif\s*!\s*prepared\s*\.\s*CutoverReady\s*\{"
+    )
+    for match in negative_guard.finditer(body):
+        open_brace = body.find("{", match.start(), match.end())
+        close_brace = matching_brace(body, open_brace)
+        if close_brace is None or close_brace >= publish_index:
+            continue
+        if contains_identifier(body[open_brace + 1 : close_brace], "return"):
+            return True
+    return False
+
+
 def check(root: Path) -> list[str]:
     errors: list[str] = []
     for relative in OWNER_FILES:
@@ -460,32 +500,83 @@ def check(root: Path) -> list[str]:
             "ListLinkedAccountIDs",
             "AcquireProbeLease",
             "CommitProbeResult",
+            "CommitPreparedProbeResult",
+            "PublishProtocolRoutingProjections",
             "writeRollbackProjections",
         ):
             if not contains_identifier(source, required):
                 errors.append(f"protocol capability repository is missing {required}")
         commit_bodies = function_bodies(source, "CommitProbeResult")
         for body in commit_bodies:
-            if not contains_identifier(body, "listProtocolCapabilityLinkedAccountIDs"):
-                errors.append("capability commit does not enumerate linked accounts for scheduler invalidation")
-            if not contains_identifier(body, "enqueueSchedulerOutbox"):
-                errors.append("capability commit does not publish scheduler cache invalidation")
-            if not re.search(
-                r"for\s+_,\s+\w+\s*:=\s*range\s+linkedAccountIDs\s*\{[\s\S]*?enqueueSchedulerOutbox\s*\([^)]*&\w+",
-                body,
-            ):
-                errors.append("capability commit does not invalidate all linked accounts")
+            if not contains_identifier(body, "commitProbeResult") or not re.search(r"\btrue\b", body):
+                errors.append("normal capability probe commit does not select atomic publication")
+        prepared_commit_bodies = function_bodies(source, "CommitPreparedProbeResult")
+        for body in prepared_commit_bodies:
+            if not contains_identifier(body, "commitProbeResult") or not re.search(r"\bfalse\b", body):
+                errors.append("prepared capability probe commit does not remain silent")
+        shared_commit_bodies = function_bodies(source, "commitProbeResult")
+        for body in shared_commit_bodies:
+            if not contains_identifier(body, "publishProtocolCapability") or not contains_identifier(body, "publish"):
+                errors.append("capability probe commit does not separate prepared and published persistence")
         ensure_bodies = function_bodies(source, "ensureProtocolEndpointCapabilityLink")
         for body in ensure_bodies:
-            if not contains_identifier(body, "listProtocolCapabilityLinkedAccountIDs"):
-                errors.append("capability link update does not enumerate linked accounts for scheduler invalidation")
-            if not contains_identifier(body, "enqueueSchedulerOutbox"):
-                errors.append("capability link update does not publish scheduler cache invalidation")
+            for forbidden in (
+                "writeRollbackProjections",
+                "publishProtocolCapability",
+                "enqueueSchedulerOutbox",
+            ):
+                if contains_identifier(body, forbidden):
+                    errors.append(
+                        f"capability link silent preparation publishes legacy state through {forbidden}"
+                    )
             if not re.search(
-                r"for\s+_,\s+\w+\s*:=\s*range\s+linkedAccountIDs\s*\{[\s\S]*?enqueueSchedulerOutbox\s*\([^)]*&\w+",
+                r"\b\w+\s*\.\s*LastProbedAt\s*!=\s*nil\s*&&\s*!\s*officialSeed\s*\{[\s\S]*?\bseedProtocols\s*=\s*nil",
                 body,
             ):
-                errors.append("capability link update does not invalidate all linked accounts")
+                errors.append("capability historical projection seed survives an accepted probe")
+        publication_bodies = function_bodies(source, "publishProtocolCapability")
+        for body in publication_bodies:
+            if not contains_identifier(body, "writeRollbackProjections"):
+                errors.append("capability publication omits the rollback projection")
+            if not re.search(
+                r"changedAccountIDs\s*,\s*\w+\s*:=\s*writeRollbackProjections\s*\(",
+                body,
+            ):
+                errors.append("capability publication does not derive scheduler invalidations from changed projections")
+            if not contains_identifier(body, "enqueueSchedulerOutbox"):
+                errors.append("capability publication does not publish scheduler cache invalidation")
+            if not re.search(
+                r"for\s+_,\s+\w+\s*:=\s*range\s+changedAccountIDs\s*\{[\s\S]*?enqueueSchedulerOutbox\s*\([^)]*&\w+",
+                body,
+            ):
+                errors.append("capability publication does not invalidate all changed accounts")
+        publish_all_bodies = function_bodies(source, "PublishProtocolRoutingProjections")
+        if not publish_all_bodies or not all(
+            contains_identifier(body, "publishProtocolCapability") for body in publish_all_bodies
+        ):
+            errors.append("protocol capability repository is missing the atomic publication owner")
+
+    migration_owner = root / "backend/internal/service/protocol_routing_migration.go"
+    if migration_owner.is_file():
+        source = strip_go_comments_and_literals(migration_owner.read_text(encoding="utf-8"))
+        if contains_identifier(source, "ProbeAccountProtocolCapabilities"):
+            errors.append("protocol routing startup uses the normal probe writer instead of the preparation probe")
+        if not contains_identifier(source, "ProbeAccountProtocolCapabilitiesForPreparation"):
+            errors.append("protocol routing startup is missing the preparation probe")
+        preparation_bodies = function_bodies(source, "prepareProtocolRoutingSSOT")
+        for body in preparation_bodies:
+            if not contains_identifier(body, "PublishProtocolRoutingProjections"):
+                errors.append("protocol routing startup is missing the atomic publication boundary")
+                continue
+            if not publication_has_preliminary_readiness_guard(body):
+                errors.append("protocol routing startup publication lacks an exact preliminary readiness guard")
+            publish_calls = call_spans(body, "PublishProtocolRoutingProjections")
+            publish_call = body[publish_calls[0][0] : publish_calls[0][1]] if publish_calls else ""
+            if (
+                not call_spans(publish_call, "validateProtocolRoutingSSOTReadiness")
+                or not contains_identifier(publish_call, "CutoverReady")
+            ):
+                errors.append("protocol routing final readiness is outside the publication transaction callback")
 
     execution_owner = root / "backend/internal/service/protocol_execution.go"
     if execution_owner.is_file():
@@ -794,15 +885,24 @@ def check(root: Path) -> list[str]:
                     )
         legacy_bodies = function_bodies(source, "ProbeAccountProtocolCapabilities")
         result_bodies = function_bodies(source, "ProbeAccountProtocolCapabilitiesNow")
+        prepared_bodies = function_bodies(source, "ProbeAccountProtocolCapabilitiesForPreparation")
+        aggregate_bodies = function_bodies(source, "probeAccountProtocolCapabilitiesNow")
         if not legacy_bodies:
             errors.append("protocol capability owner is missing aggregate account probe job")
-        if result_bodies:
-            for body in legacy_bodies:
-                if len(call_spans(body, "ProbeAccountProtocolCapabilitiesNow")) != 1:
-                    errors.append("legacy account probe wrapper must delegate to the result-returning aggregate job exactly once")
-            bodies = result_bodies
-        else:
-            bodies = legacy_bodies
+        for body in legacy_bodies:
+            if len(call_spans(body, "ProbeAccountProtocolCapabilitiesNow")) != 1:
+                errors.append("legacy account probe wrapper must delegate to the result-returning aggregate job exactly once")
+        if result_bodies and aggregate_bodies:
+            for body in result_bodies:
+                if len(call_spans(body, "probeAccountProtocolCapabilitiesNow")) != 1 or not re.search(r"\btrue\b", body):
+                    errors.append("normal account probe wrapper does not select published persistence")
+        if not prepared_bodies or not all(
+            len(call_spans(body, "probeAccountProtocolCapabilitiesNow")) == 1
+            and re.search(r"\bfalse\b", body)
+            for body in prepared_bodies
+        ):
+            errors.append("startup preparation probe wrapper does not select silent persistence")
+        bodies = aggregate_bodies or result_bodies or legacy_bodies
         for body in bodies:
             for required in (
                 "EnsureAccountLink",
@@ -822,10 +922,18 @@ def check(root: Path) -> list[str]:
                 "AcquireProbeLease",
                 "ListLinkedAccountIDs",
                 "probeProtocolCapability",
-                "CommitProbeResult",
+                "commitProtocolProbeResult",
             ):
                 if not contains_identifier(body, required):
                     errors.append(f"endpoint-scoped probe execution is missing {required}")
+        commit_dispatch_bodies = function_bodies(source, "commitProtocolProbeResult")
+        if not commit_dispatch_bodies or not all(
+            contains_identifier(body, "CommitProbeResult")
+            and contains_identifier(body, "CommitPreparedProbeResult")
+            and contains_identifier(body, "publish")
+            for body in commit_dispatch_bodies
+        ):
+            errors.append("protocol capability probe persistence does not separate preparation from publication")
         for forbidden in (
             "PersistProtocolProbeVerdicts",
             "BuildProtocolProbeUpdate",

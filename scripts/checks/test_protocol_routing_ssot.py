@@ -140,17 +140,24 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         capability_repo.write_text(
             "package fixture\n"
             "func EnsureAccountLink(){}\n"
-            "func ensureProtocolEndpointCapabilityLink(){ linkedAccountIDs := listProtocolCapabilityLinkedAccountIDs(); for _, linkedAccountID := range linkedAccountIDs { accountID := linkedAccountID; enqueueSchedulerOutbox(&accountID) } }\n"
+            "func ensureProtocolEndpointCapabilityLink(){ if capability.LastProbedAt != nil && !officialSeed { seedProtocols = nil }; countProtocolCapabilityLinkedAccounts() }\n"
             "func GetByAccountID(){}\n"
             "func ListLinkedAccountIDs(){}\n"
             "func AcquireProbeLease(){}\n"
-            "func CommitProbeResult(){ linkedAccountIDs := listProtocolCapabilityLinkedAccountIDs(); for _, linkedAccountID := range linkedAccountIDs { accountID := linkedAccountID; enqueueSchedulerOutbox(&accountID) } }\n"
+            "func CommitProbeResult(){ commitProbeResult(true) }\n"
+            "func CommitPreparedProbeResult(){ commitProbeResult(false) }\n"
+            "func commitProbeResult(publish bool){ if publish { publishProtocolCapability() } }\n"
+            "func PublishProtocolRoutingProjections(){ publishProtocolCapability() }\n"
+            "func publishProtocolCapability(){ changedAccountIDs, _ := writeRollbackProjections(); for _, changedAccountID := range changedAccountIDs { accountID := changedAccountID; enqueueSchedulerOutbox(&accountID) } }\n"
             "func writeRollbackProjections(){}\n",
             encoding="utf-8",
         )
         migration_owner = root / "backend/internal/service/protocol_routing_migration.go"
         migration_owner.write_text(
-            "package fixture\nfunc migrate(){ LegacySupportedProtocolsProjection() }\n",
+            "package fixture\n"
+            "func MigrateProtocolRoutingSSOT(){ LegacySupportedProtocolsProjection() }\n"
+            "func validateProtocolRoutingSSOTReadiness(){}\n"
+            "func prepareProtocolRoutingSSOT(){ ProbeAccountProtocolCapabilitiesForPreparation(); prepared := MigrateProtocolRoutingSSOT(); if prepared.CutoverReady { PublishProtocolRoutingProjections(func(){ final := validateProtocolRoutingSSOTReadiness(); if !final.CutoverReady { return errProtocolRoutingFinalReadinessNotReady } }) } }\n",
             encoding="utf-8",
         )
         count_tokens = root / "backend/internal/handler/openai_gateway_count_tokens.go"
@@ -219,8 +226,11 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "func probeOpenAIAPIKeyResponsesSupport(){}\n"
             "func probeGeminiGenerateContentSupport(){}\n"
             "func ProbeAccountProtocolCapabilities(){ ProbeAccountProtocolCapabilitiesNow() }\n"
-            "func ProbeAccountProtocolCapabilitiesNow(){ EnsureAccountLink(); ProtocolProbeCandidates(); protocolProbeCoordinator.Do(capability.CapabilityKey, func(){ runEndpointProtocolProbe() }) }\n"
-            "func runEndpointProtocolProbe(){ AcquireProbeLease(); ListLinkedAccountIDs(); selectProtocolProbeWitnesses(); probeProtocolWitnesses(); probeProtocolCapability(); IdentityConflict(); ProbeEvidence(); CommitProbeResult() }\n"
+            "func ProbeAccountProtocolCapabilitiesForPreparation(){ probeAccountProtocolCapabilitiesNow(false) }\n"
+            "func ProbeAccountProtocolCapabilitiesNow(){ probeAccountProtocolCapabilitiesNow(true) }\n"
+            "func probeAccountProtocolCapabilitiesNow(publish bool){ EnsureAccountLink(); ProtocolProbeCandidates(); protocolProbeCoordinator.Do(capability.CapabilityKey, func(){ runEndpointProtocolProbe(publish) }) }\n"
+            "func runEndpointProtocolProbe(publish bool){ AcquireProbeLease(); ListLinkedAccountIDs(); selectProtocolProbeWitnesses(); probeProtocolWitnesses(); probeProtocolCapability(); IdentityConflict(); ProbeEvidence(); commitProtocolProbeResult(publish) }\n"
+            "func commitProtocolProbeResult(publish bool){ if publish { CommitProbeResult() } else { CommitPreparedProbeResult() } }\n"
             "func selectProtocolProbeWitnesses(){ protocolProbeAuthorizationUsable() }\n"
             "func protocolProbeAuthorizationUsable(account Account){ ProtocolAuthorizationPresent(account) }\n"
             "func protocolAuthorizationToken(account Account){ if account.IsOpenAIOAuthLike(){ account.GetOpenAIAccessToken() } }\n"
@@ -332,8 +342,11 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "func probeOpenAIAPIKeyResponsesSupport(){}\n"
             "func probeGeminiGenerateContentSupport(){}\n"
             "func ProbeAccountProtocolCapabilities(){ ProbeAccountProtocolCapabilitiesNow() }\n"
-            "func ProbeAccountProtocolCapabilitiesNow(){ EnsureAccountLink(); ProtocolProbeCandidates(); protocolProbeCoordinator.Do(capability.CapabilityKey, func(){ runEndpointProtocolProbe() }) }\n"
-            "func runEndpointProtocolProbe(){ AcquireProbeLease(); ListLinkedAccountIDs(); selectProtocolProbeWitnesses(); probeProtocolWitnesses(); probeProtocolCapability(); IdentityConflict(); ProbeEvidence(); CommitProbeResult() }\n"
+            "func ProbeAccountProtocolCapabilitiesForPreparation(){ probeAccountProtocolCapabilitiesNow(false) }\n"
+            "func ProbeAccountProtocolCapabilitiesNow(){ probeAccountProtocolCapabilitiesNow(true) }\n"
+            "func probeAccountProtocolCapabilitiesNow(publish bool){ EnsureAccountLink(); ProtocolProbeCandidates(); protocolProbeCoordinator.Do(capability.CapabilityKey, func(){ runEndpointProtocolProbe(publish) }) }\n"
+            "func runEndpointProtocolProbe(publish bool){ AcquireProbeLease(); ListLinkedAccountIDs(); selectProtocolProbeWitnesses(); probeProtocolWitnesses(); probeProtocolCapability(); IdentityConflict(); ProbeEvidence(); commitProtocolProbeResult(publish) }\n"
+            "func commitProtocolProbeResult(publish bool){ if publish { CommitProbeResult() } else { CommitPreparedProbeResult() } }\n"
             "func selectProtocolProbeWitnesses(){ protocolProbeAuthorizationUsable() }\n"
             "func protocolProbeAuthorizationUsable(account Account){ ProtocolAuthorizationPresent(account) }\n"
             "func protocolAuthorizationToken(account Account){ if account.IsOpenAIOAuthLike(){ account.GetOpenAIAccessToken() } }\n"
@@ -625,7 +638,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         owner = root / "backend/internal/repository/protocol_endpoint_capability_repo.go"
         owner.write_text(
             owner.read_text(encoding="utf-8").replace(
-                "func CommitProbeResult(){ linkedAccountIDs := listProtocolCapabilityLinkedAccountIDs(); for _, linkedAccountID := range linkedAccountIDs { accountID := linkedAccountID; enqueueSchedulerOutbox(&accountID) } }\n",
+                "func CommitProbeResult(){ commitProbeResult(true) }\n",
                 "",
             ),
             encoding="utf-8",
@@ -636,22 +649,95 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         root = self.fixture()
         owner = root / "backend/internal/repository/protocol_endpoint_capability_repo.go"
         owner.write_text(
-            owner.read_text(encoding="utf-8").replace("enqueueSchedulerOutbox(&accountID)", "noop()", 2),
+            owner.read_text(encoding="utf-8").replace("enqueueSchedulerOutbox(&accountID)", "noop()", 1),
             encoding="utf-8",
         )
         self.assertTrue(any("scheduler cache invalidation" in error for error in MODULE.check(root)))
 
-    def test_rejects_capability_link_without_scheduler_invalidation(self) -> None:
+    def test_rejects_capability_link_that_publishes_legacy_state(self) -> None:
         root = self.fixture()
         owner = root / "backend/internal/repository/protocol_endpoint_capability_repo.go"
         owner.write_text(
             owner.read_text(encoding="utf-8").replace(
-                "func ensureProtocolEndpointCapabilityLink(){ linkedAccountIDs := listProtocolCapabilityLinkedAccountIDs(); for _, linkedAccountID := range linkedAccountIDs { accountID := linkedAccountID; enqueueSchedulerOutbox(&accountID) } }",
-                "func ensureProtocolEndpointCapabilityLink(){}",
+                "countProtocolCapabilityLinkedAccounts() }",
+                "countProtocolCapabilityLinkedAccounts(); writeRollbackProjections(); enqueueSchedulerOutbox() }",
+                1,
             ),
             encoding="utf-8",
         )
-        self.assertTrue(any("capability link update" in error for error in MODULE.check(root)))
+        self.assertTrue(any("silent preparation" in error for error in MODULE.check(root)))
+
+    def test_rejects_capability_link_that_reseeds_history_after_an_accepted_probe(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/repository/protocol_endpoint_capability_repo.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "if capability.LastProbedAt != nil && !officialSeed { seedProtocols = nil }",
+                "if capability.ProbeEvidence.InitialProbeCompleted && !officialSeed { seedProtocols = nil }",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("historical projection" in error for error in MODULE.check(root)))
+
+    def test_rejects_startup_migration_without_atomic_projection_publication(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/protocol_routing_migration.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "PublishProtocolRoutingProjections",
+                "MissingProtocolRoutingPublication",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("publication boundary" in error for error in MODULE.check(root)))
+
+    def test_rejects_startup_publication_with_unconditional_cutover_guard(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/protocol_routing_migration.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "if prepared.CutoverReady {",
+                "if true || prepared.CutoverReady {",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("preliminary readiness guard" in error for error in MODULE.check(root)))
+
+    def test_rejects_startup_publication_guarded_by_unrelated_report(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/protocol_routing_migration.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "if prepared.CutoverReady {",
+                "if unrelated.CutoverReady {",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("preliminary readiness guard" in error for error in MODULE.check(root)))
+
+    def test_rejects_final_readiness_outside_publication_transaction(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/protocol_routing_migration.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "PublishProtocolRoutingProjections(func(){ final := validateProtocolRoutingSSOTReadiness(); if !final.CutoverReady { return errProtocolRoutingFinalReadinessNotReady } })",
+                "PublishProtocolRoutingProjections(); final := validateProtocolRoutingSSOTReadiness(); if !final.CutoverReady { return errProtocolRoutingFinalReadinessNotReady }",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("publication transaction callback" in error for error in MODULE.check(root)))
+
+    def test_rejects_startup_migration_that_uses_normal_probe_writer(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/protocol_routing_migration.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "ProbeAccountProtocolCapabilitiesForPreparation()",
+                "ProbeAccountProtocolCapabilities()",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("preparation probe" in error for error in MODULE.check(root)))
 
     def test_rejects_execution_without_authoritative_account_reload(self) -> None:
         root = self.fixture()
@@ -844,17 +930,17 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         )
         self.assertTrue(any("persisted verdict result" in error for error in MODULE.check(root)))
 
-    def test_rejects_capability_commit_that_invalidates_only_one_linked_account(self) -> None:
+    def test_rejects_capability_commit_that_invalidates_only_one_changed_account(self) -> None:
         root = self.fixture()
         owner = root / "backend/internal/repository/protocol_endpoint_capability_repo.go"
         owner.write_text(
             owner.read_text(encoding="utf-8").replace(
-                "func CommitProbeResult(){ linkedAccountIDs := listProtocolCapabilityLinkedAccountIDs(); for _, linkedAccountID := range linkedAccountIDs { accountID := linkedAccountID; enqueueSchedulerOutbox(&accountID) } }",
-                "func CommitProbeResult(){ linkedAccountIDs := listProtocolCapabilityLinkedAccountIDs(); accountID := linkedAccountIDs[0]; enqueueSchedulerOutbox(&accountID) }",
+                "func publishProtocolCapability(){ changedAccountIDs, _ := writeRollbackProjections(); for _, changedAccountID := range changedAccountIDs { accountID := changedAccountID; enqueueSchedulerOutbox(&accountID) } }",
+                "func publishProtocolCapability(){ changedAccountIDs, _ := writeRollbackProjections(); accountID := changedAccountIDs[0]; enqueueSchedulerOutbox(&accountID) }",
             ),
             encoding="utf-8",
         )
-        self.assertTrue(any("all linked accounts" in error for error in MODULE.check(root)))
+        self.assertTrue(any("all changed accounts" in error for error in MODULE.check(root)))
 
     def test_rejects_gateway_scheduler_that_ignores_both_hard_gate_results(self) -> None:
         root = self.fixture()

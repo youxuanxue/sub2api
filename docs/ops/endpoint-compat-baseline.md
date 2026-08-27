@@ -47,8 +47,6 @@ stable probe conclusions, reproducible commands, and the next probe focus.
 | Cleanup command | `bash ops/observability/run-probe.sh --target prod --script ops/observability/cleanup-probe-resources.sh` |
 | Probe prune command | `bash ops/observability/run-probe.sh --target prod --script ops/observability/prune-probe-resources.sh` (keeps canonical `*_srcgrp_*` scopes only) |
 
-<<<<<<< Updated upstream
-=======
 ### Evidence Pointers
 
 | Evidence | Result |
@@ -118,7 +116,6 @@ stable probe conclusions, reproducible commands, and the next probe focus.
 | `/tmp/tokenkey-ssot-gate-paid-media-full-latest-online-20260705.log` | Latest full displayed+priced paid media gate: 19 rows returned `200 PASS keep_displayed`; summary `DISPLAY_KEEP=19 DISPLAY_BLOCK=0 REPROBE_REQUIRED=0 FAIL=0 EXCLUDED_BLOCK=0 NO_ROWS=0`. |
 | PR #1265 / 2026-07-07 Antigravity Claude catalog probe | Live `cloudcode-pa` `fetchAvailableModels` for the tested Antigravity account exposed only `claude-opus-4-6-thinking` and `claude-sonnet-4-6`. Newer/other Claude ids such as `claude-fable-5`, `claude-opus-4-8`, `claude-sonnet-5`, and `claude-haiku-4-5` reached upstream but returned `404 NOT_FOUND`; the old gateway surfaced that as generic `502 Upstream request failed`. |
 
->>>>>>> Stashed changes
 ## Compatibility Matrix
 
 | platform/group | endpoint | direct route-gate | direct live servability | universal live servability | evidence | fallback / next action |

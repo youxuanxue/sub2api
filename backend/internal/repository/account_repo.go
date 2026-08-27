@@ -117,46 +117,92 @@ func NewAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCache se
 	return newAccountRepositoryWithSQL(client, sqlDB, schedulerCache, tierResolver)
 }
 
-func (r *accountRepository) protocolCapabilityRepository() *protocolEndpointCapabilityRepository {
+func (r *accountRepository) protocolCapabilityRepository(ctx context.Context) *protocolEndpointCapabilityRepository {
+	if tx := dbent.TxFromContext(ctx); tx != nil {
+		return newProtocolEndpointCapabilityRepositoryWithDB(tx.Client())
+	}
 	return newProtocolEndpointCapabilityRepositoryWithDB(r.sql)
 }
 
 func (r *accountRepository) EnsureAccountLink(ctx context.Context, account *service.Account, identity service.ProtocolEndpointIdentity, historical []protocolrouter.Protocol, officialSeed bool) (*service.ProtocolEndpointCapability, error) {
-	return r.protocolCapabilityRepository().EnsureAccountLink(ctx, account, identity, historical, officialSeed)
+	return r.protocolCapabilityRepository(ctx).EnsureAccountLink(ctx, account, identity, historical, officialSeed)
 }
 
 func (r *accountRepository) GetByAccountID(ctx context.Context, accountID int64) (*service.ProtocolEndpointCapability, error) {
-	return r.protocolCapabilityRepository().GetByAccountID(ctx, accountID)
+	return r.protocolCapabilityRepository(ctx).GetByAccountID(ctx, accountID)
 }
 
 func (r *accountRepository) GetByKey(ctx context.Context, capabilityKey string) (*service.ProtocolEndpointCapability, error) {
-	return r.protocolCapabilityRepository().GetByKey(ctx, capabilityKey)
+	return r.protocolCapabilityRepository(ctx).GetByKey(ctx, capabilityKey)
 }
 
 func (r *accountRepository) ListLinkedAccountIDs(ctx context.Context, capabilityKey string) ([]int64, error) {
-	return r.protocolCapabilityRepository().ListLinkedAccountIDs(ctx, capabilityKey)
+	return r.protocolCapabilityRepository(ctx).ListLinkedAccountIDs(ctx, capabilityKey)
 }
 
 func (r *accountRepository) AcquireProbeLease(ctx context.Context, capabilityKey, owner string, now time.Time, ttl time.Duration) (service.ProtocolProbeLease, bool, error) {
-	return r.protocolCapabilityRepository().AcquireProbeLease(ctx, capabilityKey, owner, now, ttl)
+	return r.protocolCapabilityRepository(ctx).AcquireProbeLease(ctx, capabilityKey, owner, now, ttl)
 }
 
 func (r *accountRepository) CommitProbeResult(ctx context.Context, lease service.ProtocolProbeLease, mutation service.ProtocolCapabilityMutation) (*service.ProtocolEndpointCapability, int, error) {
-	return r.protocolCapabilityRepository().CommitProbeResult(ctx, lease, mutation)
+	return r.protocolCapabilityRepository(ctx).CommitProbeResult(ctx, lease, mutation)
 }
 
-func ensureAccountProtocolEndpointCapability(ctx context.Context, db protocolCapabilitySQL, account *service.Account) error {
+func (r *accountRepository) CommitPreparedProbeResult(ctx context.Context, lease service.ProtocolProbeLease, mutation service.ProtocolCapabilityMutation) (*service.ProtocolEndpointCapability, int, error) {
+	return r.protocolCapabilityRepository(ctx).CommitPreparedProbeResult(ctx, lease, mutation)
+}
+
+func (r *accountRepository) PublishProtocolRoutingProjections(
+	ctx context.Context,
+	validate func(context.Context) error,
+) (int, error) {
+	if validate == nil {
+		return 0, errors.New("protocol routing publication validator is required")
+	}
+	if contextTx := dbent.TxFromContext(ctx); contextTx != nil {
+		affected, err := r.protocolCapabilityRepository(ctx).PublishProtocolRoutingProjections(ctx)
+		if err != nil {
+			return 0, err
+		}
+		if err := validate(ctx); err != nil {
+			return 0, err
+		}
+		return affected, nil
+	}
+	if r.client == nil {
+		return 0, errors.New("account repository client is required for protocol routing publication")
+	}
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	txCtx := dbent.NewTxContext(ctx, tx)
+	affected, err := r.protocolCapabilityRepository(txCtx).PublishProtocolRoutingProjections(txCtx)
+	if err != nil {
+		return 0, err
+	}
+	if err := validate(txCtx); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return affected, nil
+}
+
+func ensureAccountProtocolEndpointCapability(ctx context.Context, db protocolCapabilitySQL, account *service.Account) (bool, error) {
 	input, err := service.BuildProtocolEndpointCapabilityLinkInput(account)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !input.Governed {
 		if account.ProtocolEndpointCapabilityID == nil && account.ProtocolEndpointCapability == nil {
-			return nil
+			return false, nil
 		}
-		return unlinkProtocolEndpointCapability(ctx, db, account)
+		return false, unlinkProtocolEndpointCapability(ctx, db, account)
 	}
-	_, err = ensureProtocolEndpointCapabilityLink(
+	capability, err := ensureProtocolEndpointCapabilityLink(
 		ctx,
 		db,
 		account,
@@ -164,7 +210,19 @@ func ensureAccountProtocolEndpointCapability(ctx context.Context, db protocolCap
 		input.SeedProtocols,
 		input.OfficialSeed,
 	)
-	return err
+	if err != nil {
+		return false, err
+	}
+	changedAccountIDs, err := publishProtocolCapability(ctx, db, capability.ID, capability.SupportedProtocols)
+	if err != nil {
+		return false, err
+	}
+	for _, changedAccountID := range changedAccountIDs {
+		if changedAccountID == account.ID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // NewAdminAccountRepository exposes the account repository's atomic duplication capability
@@ -200,11 +258,14 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 	if err := createAccountRecord(ctx, client, account); err != nil {
 		return err
 	}
-	if err := ensureAccountProtocolEndpointCapability(ctx, client, account); err != nil {
+	protocolPublished, err := ensureAccountProtocolEndpointCapability(ctx, client, account)
+	if err != nil {
 		return err
 	}
-	if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs)); err != nil {
-		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue account create failed: account=%d err=%v", account.ID, err)
+	if !protocolPublished {
+		if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs)); err != nil {
+			logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue account create failed: account=%d err=%v", account.ID, err)
+		}
 	}
 	if tx != nil {
 		if err := tx.Commit(); err != nil {
@@ -308,7 +369,8 @@ func (r *accountRepository) CreateWithAccountGroups(ctx context.Context, account
 	if err := createAccountRecord(ctx, txClient, account); err != nil {
 		return err
 	}
-	if err := ensureAccountProtocolEndpointCapability(ctx, txClient, account); err != nil {
+	protocolPublished, err := ensureAccountProtocolEndpointCapability(ctx, txClient, account)
+	if err != nil {
 		return err
 	}
 	groupIDs := make([]int64, 0, len(groups))
@@ -329,8 +391,10 @@ func (r *accountRepository) CreateWithAccountGroups(ctx context.Context, account
 	}
 	account.GroupIDs = groupIDs
 	account.AccountGroups = append([]service.AccountGroup(nil), groups...)
-	if err := enqueueSchedulerOutbox(ctx, txClient, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(groupIDs)); err != nil {
-		return err
+	if !protocolPublished {
+		if err := enqueueSchedulerOutbox(ctx, txClient, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(groupIDs)); err != nil {
+			return err
+		}
 	}
 
 	if tx != nil {
@@ -662,11 +726,14 @@ func (r *accountRepository) updateAccount(
 	if err != nil {
 		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
 	}
-	if err := ensureAccountProtocolEndpointCapability(ctx, client, account); err != nil {
+	protocolPublished, err := ensureAccountProtocolEndpointCapability(ctx, client, account)
+	if err != nil {
 		return err
 	}
-	if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs)); err != nil {
-		return err
+	if !protocolPublished {
+		if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs)); err != nil {
+			return err
+		}
 	}
 	if tx != nil {
 		if err := tx.Commit(); err != nil {
@@ -1043,11 +1110,14 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 	if err != nil {
 		return err
 	}
-	if err := ensureAccountProtocolEndpointCapability(ctx, client, updatedAccount); err != nil {
+	protocolPublished, err := ensureAccountProtocolEndpointCapability(ctx, client, updatedAccount)
+	if err != nil {
 		return err
 	}
-	if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
-		return err
+	if !protocolPublished {
+		if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
+			return err
+		}
 	}
 	if tx != nil {
 		if err := tx.Commit(); err != nil {
@@ -1454,7 +1524,7 @@ func (r *accountRepository) ListByGroup(ctx context.Context, groupID int64) ([]s
 }
 
 func (r *accountRepository) ListActive(ctx context.Context) ([]service.Account, error) {
-	accounts, err := r.client.Account.Query().
+	accounts, err := clientFromContext(ctx, r.client).Account.Query().
 		Where(dbaccount.StatusEQ(service.StatusActive)).
 		Order(dbent.Asc(dbaccount.FieldPriority)).
 		All(ctx)
@@ -3523,7 +3593,7 @@ func (r *accountRepository) loadProxies(ctx context.Context, proxyIDs []int64) (
 		if end > len(proxyIDs) {
 			end = len(proxyIDs)
 		}
-		proxies, err := r.client.Proxy.Query().
+		proxies, err := clientFromContext(ctx, r.client).Proxy.Query().
 			Where(
 				dbproxy.IDIn(proxyIDs[start:end]...),
 				dbproxy.StatusEQ(service.StatusActive),
@@ -3554,7 +3624,7 @@ func (r *accountRepository) loadAccountGroups(ctx context.Context, accountIDs []
 		if end > len(accountIDs) {
 			end = len(accountIDs)
 		}
-		entries, err := r.client.AccountGroup.Query().
+		entries, err := clientFromContext(ctx, r.client).AccountGroup.Query().
 			Where(dbaccountgroup.AccountIDIn(accountIDs[start:end]...)).
 			Order(dbaccountgroup.ByAccountID(), dbaccountgroup.ByPriority()).
 			All(ctx)
@@ -3602,7 +3672,7 @@ func (r *accountRepository) loadGroups(ctx context.Context, groupIDs []int64) (m
 		if end > len(groupIDs) {
 			end = len(groupIDs)
 		}
-		groups, err := r.client.Group.Query().Where(dbgroup.IDIn(groupIDs[start:end]...)).All(ctx)
+		groups, err := clientFromContext(ctx, r.client).Group.Query().Where(dbgroup.IDIn(groupIDs[start:end]...)).All(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -3735,10 +3805,14 @@ func (r *accountRepository) loadProtocolEndpointCapabilities(
 ) (map[int64]*service.ProtocolEndpointCapability, error) {
 	result := make(map[int64]*service.ProtocolEndpointCapability)
 	accountIDs = uniquePositiveInt64s(accountIDs)
-	if len(accountIDs) == 0 || r == nil || r.sql == nil {
+	if len(accountIDs) == 0 || r == nil {
 		return result, nil
 	}
-	rows, err := r.sql.QueryContext(ctx, `
+	capabilityRepo := r.protocolCapabilityRepository(ctx)
+	if capabilityRepo == nil || capabilityRepo.db == nil {
+		return result, nil
+	}
+	rows, err := capabilityRepo.db.QueryContext(ctx, `
 SELECT a.id,
        c.id, c.capability_key, c.identity, c.supported_protocols, c.probe_evidence, c.revision,
        c.last_probed_at, c.probe_lease_owner, c.probe_lease_until, c.probe_generation,

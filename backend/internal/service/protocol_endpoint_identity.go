@@ -100,6 +100,7 @@ type ProtocolEndpointCapabilityRepository interface {
 	ListLinkedAccountIDs(ctx context.Context, capabilityKey string) ([]int64, error)
 	AcquireProbeLease(ctx context.Context, capabilityKey, owner string, now time.Time, ttl time.Duration) (ProtocolProbeLease, bool, error)
 	CommitProbeResult(ctx context.Context, lease ProtocolProbeLease, mutation ProtocolCapabilityMutation) (*ProtocolEndpointCapability, int, error)
+	CommitPreparedProbeResult(ctx context.Context, lease ProtocolProbeLease, mutation ProtocolCapabilityMutation) (*ProtocolEndpointCapability, int, error)
 }
 
 func BuildProtocolEndpointCapabilityLinkInput(account *Account) (ProtocolEndpointCapabilityLinkInput, error) {

@@ -505,7 +505,10 @@ the same endpoint-scoped coordinator; only the latter is synchronous.
 
 ### 10.1 Additive migration
 
-Migration is idempotent and runs before the new image can receive traffic:
+Migration is idempotent and runs before the new image can receive traffic. It
+has two phases with one explicit publication boundary.
+
+The silent preparation phase:
 
 1. create the capability table and account foreign key;
 2. compute canonical identity for every governed account;
@@ -514,11 +517,38 @@ Migration is idempotent and runs before the new image can receive traffic:
    `supported_protocols` values for that key;
 5. treat missing or empty historical values as no evidence, never as negative;
 6. probe each distinct unverified key once, subject to witness availability;
-7. write a rollback projection to every linked account;
-8. evaluate readiness from the new table only.
+7. evaluate preliminary readiness from the new table only.
 
-Historical union is a migration seed, not permanent evidence ownership. A
-later conclusive endpoint-negative probe may remove a seeded protocol.
+Silent preparation may create capability rows, account links, leases, and probe
+evidence. It must not change `accounts.extra.supported_protocols`, account
+business revision timestamps, or scheduler outbox state. A failed candidate may
+therefore leave reusable preparation facts without changing anything consumed
+by the previous image.
+
+Only after preliminary readiness succeeds, one transaction publishes the
+release boundary:
+
+1. write the complete rollback projection to every linked governed account
+   whose existing projection differs;
+2. advance the affected account revisions;
+3. enqueue scheduler invalidation for the affected accounts;
+4. reload and evaluate final readiness without creating or repairing links;
+5. commit all effects together only when final readiness succeeds, or roll all
+   legacy-visible effects back together.
+
+Final readiness runs inside the publication transaction and sees its
+uncommitted projection/outbox writes. It is read-only with respect to
+capability/link facts: a concurrently introduced missing or mismatched link
+fails readiness instead of being repaired after publication. Only that final
+successful evaluation may commit the transaction and make `/health` return
+`200`. Repeating publication with already-matching projections is a no-op: it
+does not advance account revisions or enqueue duplicate scheduler events.
+
+Historical union is a migration seed, not permanent evidence ownership. Once
+an accepted probe result has been persisted, migration never merges historical
+account projections into that capability again. A conclusive endpoint-negative
+observation may therefore remove a seeded protocol even when another protocol
+in the same generation remains inconclusive.
 
 ### 10.2 Cutover rule
 
@@ -535,24 +565,31 @@ governed account:
 - is linked to an identity conflict relevant to its served routes;
 - has no legal native or convertible route for its served models;
 - fails its independent authorization/schedulability gate;
-- cannot receive a successfully persisted rollback projection.
+- cannot receive the atomically published rollback projection and scheduler
+  invalidation required for this release boundary.
 
 Disabled or deliberately unschedulable accounts do not block release
 readiness. They remain fail-closed if re-enabled before their identity,
 capability, and account gates are valid.
 
 The candidate image never serves customer traffic through legacy routing. A
-failed readiness check keeps or restores the previous image.
+failed preparation, probe, preliminary readiness, publication, or final
+readiness check keeps the previous image serving. In those failure cases the
+previous image continues to observe the same legacy projection, account
+revision, and scheduler snapshots that existed before the candidate started.
 
 ### 10.3 Rollback projection
 
 For one release rollback window,
 `accounts.extra.supported_protocols` is a write-only projection of the linked
 capability set for the previous image. New routing, scheduling, APIs, and UI do
-not read it. Capability changes and all linked rollback projections commit in
-one database transaction. A projection write failure aborts that update and
-blocks readiness because an image rollback must not restore divergent account
-facts.
+not read it. Normal post-cutover capability changes and their linked rollback
+projections commit in one database transaction. During candidate startup,
+capability preparation is intentionally durable but unpublished; the complete
+projection, account revision advances, and scheduler invalidations are instead
+published together only after preliminary readiness succeeds. A publication
+failure rolls back every legacy-visible effect and blocks readiness because an
+image rollback must not restore divergent account facts.
 
 After the rollback window, deleting the legacy field, projection writer, and
 compatibility code is a separate reviewed change. The shared capability table
@@ -581,6 +618,17 @@ Required tests include:
 - positive/negative identity conflict failing closed;
 - lease, generation, and compare-and-swap race handling;
 - migration positive union and empty-as-no-evidence semantics;
+- silent candidate preparation preserving legacy projection, account revision,
+  and scheduler outbox state when readiness fails;
+- atomic release publication of all rollback projections, account revisions,
+  and scheduler invalidations only after preliminary readiness succeeds;
+- idempotent publication skipping unchanged projections, revisions, and
+  scheduler invalidations;
+- publication failure rolling back every legacy-visible effect;
+- final-readiness failure rolling back the publication transaction, with final
+  validation unable to repair capability links;
+- failed-candidate restart reusing completed endpoint probes without exposing
+  partial publication;
 - identity-first and fixed conversion order;
 - model, feature, Responses-path, endpoint, adapter, and transport constraints;
 - plan capture and stale capability revision rejection before network I/O;
@@ -656,6 +704,14 @@ or capability state.
   the shared key, affected accounts, and an honest result.
 - Migration probes each distinct key rather than each account, and positive
   historical union cannot turn empty/absent values into negative evidence.
+- Candidate preparation and probing can persist new-table facts but cannot
+  change the legacy projection, account revision, or scheduler outbox before
+  preliminary readiness succeeds.
+- A successful candidate publishes rollback projections, account revisions,
+  and scheduler invalidations in one transaction, then passes a final readiness
+  evaluation before `/health` becomes `200`.
+- A failed candidate can be retried from persisted preparation facts while the
+  previous image continues to observe its pre-candidate routing state.
 - The new image reads only the capability table. Readiness prevents traffic
   until every active/schedulable governed account has a linked, conflict-free,
   usable capability and valid account gates.
