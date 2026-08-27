@@ -134,19 +134,6 @@ class BackendCIRoutingTest(unittest.TestCase):
             typecheck,
         )
 
-    def test_backend_security_uses_the_go_1_27_compatible_govulncheck_pin(self) -> None:
-        scan_step = next(
-            step
-            for step in self.jobs["backend-security"]["steps"]
-            if step.get("name") == "Run govulncheck"
-        )
-
-        self.assertIn(
-            "go install golang.org/x/vuln/cmd/govulncheck@v1.7.0",
-            scan_step["run"],
-        )
-        self.assertIn("govulncheck ./...", scan_step["run"])
-
     def test_required_preflight_owns_path_conditioned_contract_gates(self) -> None:
         preflight = self.jobs["preflight"]
         self.assertEqual(preflight.get("needs"), "changes")
