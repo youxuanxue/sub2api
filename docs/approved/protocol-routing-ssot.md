@@ -1,9 +1,10 @@
 ---
 title: Protocol Routing Single Source of Truth
 status: approved
-approved_by: "feng (conversation approval, 2026-08-26)"
+approved_by: "feng (conversation approval, 2026-08-27)"
 authors: [codex]
 created: 2026-08-24
+revised: 2026-08-27
 related_stories: []
 ---
 
@@ -11,152 +12,226 @@ related_stories: []
 
 ## 1. Problem
 
-TokenKey currently decides an upstream text protocol in several places: handler
-fallbacks, platform-derived endpoints, engine bridge capabilities,
-`openai_compat` helpers, account legacy fields, and `ForwardAs*` methods. These
-decisions can disagree. A valid credential can then be sent through the wrong
-wire protocol or to the wrong host, and an upstream merge can restore an old
-branch without breaking compilation.
+TokenKey historically decides an upstream text protocol in several places:
+handler fallbacks, platform-derived endpoints, compatibility helpers, account
+legacy fields, engine bridge checks, and `ForwardAs*` methods. These decisions
+can disagree. A valid credential can then be sent through the wrong wire
+protocol or to the wrong host, and an upstream merge can restore an old branch
+without breaking compilation.
 
-The fix is one protocol-routing decision owner. It must decide whether an
-account has a legal path for the concrete request before scheduling or network
-I/O. Existing transports and converters remain reusable implementation details;
-they stop choosing routes.
+The previous account-level design stored `supported_protocols` independently on
+every account. That also has the wrong ownership boundary: protocol support is
+a property of an upstream endpoint identity, while credentials, balance,
+limits, and health are properties of an account. Re-probing every account
+duplicates work and allows accounts targeting the same endpoint to drift.
 
-This is a high-risk design because it changes the core inference path,
-credential destination selection, and gateway ownership boundary.
+This design establishes:
 
-## 2. Scope
+1. one persisted endpoint-capability fact shared by all accounts with the same
+   canonical endpoint identity;
+2. one runtime protocol-planning and execution owner;
+3. account authorization and health as independent scheduler hard gates.
 
-This design covers these customer-facing and upstream text wire protocols:
+There is no fourth protocol fact. Probe evidence is audit metadata, request
+normalization is an immutable input, and account health remains account state;
+none can independently choose a protocol.
+
+This is a high-risk design because it changes the core inference path, database
+schema, credential destination selection, and deployment readiness boundary.
+
+## 2. Scope and non-goals
+
+The governed customer-facing and upstream text wire protocols are:
 
 - `messages`
 - `chat_completions`
 - `responses`
 - `gemini_generate_content`
 
-`gemini_generate_content` means Gemini `generateContent` and
-`streamGenerateContent`; it does not encode a Google product, host, credential
-type, or account class. The protocol may resolve to an Antigravity Code Assist
-profile or an exact NewAPI Vertex service-account profile.
+`gemini_generate_content` covers Gemini `generateContent` and
+`streamGenerateContent`. It is a wire protocol, not a Google product, host,
+credential type, or account class.
 
-TokenKey's exact Antigravity edge-relay API-key stubs remain configurable text
-upstreams rather than Code Assist profiles. They are governed through their
-explicit relay base URL and the ordinary Messages, Chat Completions, and
-Responses probes; capability is never copied from the native OAuth account on
-the remote edge.
+This design includes native forwarding and explicitly registered, lossless
+conversions among governed protocols. It also includes protocol-specific
+Responses path variants such as compact and input-token operations when an
+individual route explicitly supports them.
 
-The design includes native forwarding and explicitly registered conversions
-among these protocols, including protocol-specific Responses path variants.
 Only text generation is governed. Embeddings, image/video/audio generation,
-OCR, rerank, and Gemini multimodal identity remain outside this router until
-their own capability owner is designed. One ingress scope predicate owns that
-boundary; handlers cannot independently choose between this router and legacy
-text routing.
+OCR, rerank, and Gemini multimodal identity remain outside this router. One
+ingress predicate owns this boundary; handlers cannot independently choose
+between SSOT routing and legacy text routing.
 
-This design does not introduce a universal protocol graph, a universal
-intermediate representation, administrator route ordering, or adaptive/fixed
-modes.
+This design deliberately does not add:
 
-## 3. Canonical account fact
+- administrator protocol ordering or manual protocol overrides;
+- `preferred_protocols`, `forced_protocol`, adaptive/fixed modes, scores, or
+  graph search;
+- a universal protocol graph or universal intermediate representation;
+- credential-dependent endpoint capability;
+- periodic per-account capability probing;
+- inference from platform name, a similar base URL, or another account;
+- media-protocol governance.
 
-The canonical persisted account field is:
+## 3. Ownership model
 
-```json
-{
-  "supported_protocols": [
-    "messages",
-    "chat_completions",
-    "responses",
-    "gemini_generate_content"
-  ]
-}
+The persisted protocol-capability SSOT is:
+
+```text
+protocol_endpoint_capabilities
 ```
 
-It is stored at `accounts.extra.supported_protocols`; no database column is
-added. It means only that the account can natively receive those wire
-protocols. It is coarse endpoint capability, not proof that every mapped model
-or every request feature is legal on that protocol.
+An account references exactly one shared capability row when it is governed:
 
-Semantics are binary:
+```text
+accounts.protocol_endpoint_capability_id
+```
 
-- present: the protocol may be considered during planning;
-- absent: the protocol is ineligible.
+The reference is nullable only for account classes outside this design. An
+active and schedulable governed account without a valid reference is not ready
+and has no legal text route.
 
-There is no persisted `unknown`, `preferred_protocols`, `forced_protocol`, or
-`adaptive` state. An empty or missing set is fail-closed and makes the account
-ineligible for requests governed by this router.
-
-One repository writer validates protocol identifiers, removes duplicates,
-sorts deterministically, and atomically replaces the value. Production code
-must not write the JSON key directly or reconstruct this fact from legacy
-fields.
-
-## 4. One decision owner
-
-The focused owner is:
+The runtime decision owner remains focused at:
 
 ```text
 backend/internal/engine/protocolrouter
 ```
 
-It is a sub-owner of the existing engine boundary. It owns:
+It owns protocol identifiers, the fixed route registry, request-feature and
+model constraints, endpoint resolution, route planning, and the only execution
+entry that may reach governed text transports.
 
-- the four protocol identifiers;
-- the fixed ordered route registry;
-- route-level model and request-feature constraints;
-- explicit endpoint resolution;
-- protocol route planning;
-- the only execution entry that can reach text-protocol transports.
+The separation is strict:
 
-The application constructs one router with an immutable adapter catalog at the
-composition root:
+| Fact or decision | Owner | Protocol effect |
+| --- | --- | --- |
+| Endpoint native protocols | `protocol_endpoint_capabilities.supported_protocols` | Shared persisted SSOT |
+| Route and conversion legality | `protocolrouter` | Only runtime decision owner |
+| Credential, balance, limit, cooldown, health | account/scheduler owners | Independent hard gates |
+| Probe observations | capability evidence | Audit and update input only |
+| Customer request semantics | immutable `CanonicalRequest` | Planner input only |
 
-```go
-router := protocolrouter.New(adapterCatalog)
+No production consumer may reconstruct endpoint capability from account type,
+platform, URL shape, legacy fields, probe evidence, or a transport helper.
+
+## 4. Canonical endpoint identity
+
+### 4.1 Capability key
+
+Every governed account is mapped to a versioned canonical identity. The unique
+key is:
+
+```text
+capability_key = SHA256(canonical_json(identity))
 ```
 
-Request-time code has deliberately two calls:
+The identity contains every non-secret fact that can change which native wire
+protocols the endpoint accepts:
 
-```go
-plan, err := router.Plan(request, accountSnapshot)
-result, err := router.Execute(ctx, plan, request)
+```json
+{
+  "key_schema_version": 1,
+  "platform": "openai",
+  "endpoint_profile": "custom_api_key",
+  "channel_type": "openai",
+  "protocol_endpoints": {
+    "chat_completions": {
+      "url": "https://example.test/v1/chat/completions",
+      "api_version": ""
+    },
+    "responses": {
+      "url": "https://example.test/v1/responses",
+      "api_version": ""
+    }
+  },
+  "upstream_request_profile": "openai_json_v1",
+  "routing_headers": {}
+}
 ```
 
-`Plan` is pure and performs no network I/O. `Execute` follows the supplied
-immutable plan; it does not select, improve, or replace the route.
-`protocolrouter` owns the adapter interfaces; existing implementations satisfy
-those interfaces and are wired at the composition root, preserving the current
-engine-to-service dependency direction. The catalog cannot be mutated after
-construction; there is no package-global adapter registration surface.
+The exact fields are built by one identity builder owned next to the capability
+repository. They include:
 
-## 5. Existing-owner migration
+- `key_schema_version`;
+- platform;
+- stable account type or compile-time endpoint profile;
+- channel type;
+- a protocol-sorted map of normalized URL and API version;
+- the upstream request/wrapper profile;
+- routing-affecting non-authentication headers or profiles.
 
-The new module replaces existing route decisions rather than becoming another
-registry beside them.
+They exclude:
 
-| Existing surface | Responsibility after migration |
-| --- | --- |
-| `backend/internal/engine/capability.go` | Text entries move into the router or become transport-availability data consumed by it. They no longer decide a text route. |
-| `backend/internal/handler/endpoint.go` | Keeps inbound path normalization. Platform-derived upstream text endpoint selection is removed. |
-| `backend/internal/pkg/openai_compat` | Keeps parsers, converters, and probe-verdict helpers. It cannot choose a target protocol or fallback. |
-| `ForwardAs*` methods | Become internal transport/converter adapters reachable only through `Execute`. |
-| NewAPI bridge checks | Become planner constraints describing whether a transport/adaptor exists for the selected route. |
-| Gemini/Antigravity/Vertex compatibility services | Keep pure conversion, auth, streaming, and transport details behind registered adapters. They cannot choose a protocol, account, endpoint, or fallback. |
-| Gateway handlers | Parse and normalize the inbound request, then consume scheduler/router results. They cannot select protocol, endpoint, converter, or fallback. |
+- account ID, token, API key, OAuth token, or service-account secret;
+- balance, quota, rate limit, priority, cooldown, and account status;
+- proxy selection;
+- model mapping and requested model;
+- dynamic customer request features.
 
-Direct production calls that bypass `Plan` or `Execute` are removed or
-mechanically rejected.
+URL normalization lowercases scheme and host, removes default ports, normalizes
+empty/trailing path forms without changing endpoint meaning, sorts semantic
+query parameters, and excludes credentials. Protocol and header maps are sorted
+before canonical JSON serialization. Authentication headers are never included
+or persisted in identity or evidence.
 
-## 6. Canonical request and model-aware legality
+Changing a URL, API version, channel type, endpoint/request profile, or
+routing-affecting non-auth header produces a new key. Rotating credentials,
+changing balance or priority, changing proxy, or changing model mapping does
+not.
+
+Two accounts with the same key must reference the same capability row and see
+the same `supported_protocols`. Administrators cannot type or edit the key.
+
+### 4.2 Persisted schema
+
+The additive table is conceptually:
+
+```text
+protocol_endpoint_capabilities
+  id                  primary key
+  capability_key      unique, not null
+  identity            jsonb, not null
+  supported_protocols jsonb, not null, default []
+  probe_evidence      jsonb, not null, default {}
+  revision            bigint, not null
+  last_probed_at      timestamp nullable
+  probe_lease_owner   text nullable
+  probe_lease_until   timestamp nullable
+  probe_generation    bigint, not null
+  created_at
+  updated_at
+```
+
+`identity` is immutable for a row. Configuration changes compute a new key and
+atomically relink the account; they never mutate an existing row into another
+identity.
+
+`supported_protocols` is the complete, validated, duplicate-free,
+deterministically sorted native protocol set. Semantics are binary:
+
+- present: the endpoint may be considered as that native target;
+- absent: the endpoint is ineligible as that native target.
+
+There is no persisted `unknown`. An empty set is fail-closed. Probe status and
+evidence may be inconclusive, but they cannot act as a third routing state.
+
+`revision` changes whenever the sorted protocol set or conflict state changes.
+Plans store the key and revision so execution can reject stale capability
+input. `probe_generation` increments for every accepted probe request and,
+together with the lease fields, coordinates probe work; it does not affect
+routing directly.
+
+Orphaned capability rows are retained for audit and possible account relinking.
+Garbage collection is outside this change.
+
+## 5. Canonical request and route registry
 
 Ingress validates the original wire body once and constructs one immutable
-`CanonicalRequest`. This is a wrapper around the inbound protocol body, not a
+`CanonicalRequest`. It is a wrapper around the validated inbound body, not a
 cross-protocol intermediate representation.
 
 ```go
 type CanonicalRequest struct {
-    // Private fields; constructed through the validated ingress boundary.
     inboundProtocol Protocol
     requestedModel  string
     responsesPath   ResponsesPathKind
@@ -164,89 +239,32 @@ type CanonicalRequest struct {
     body            []byte
     digest          RequestDigest
 }
-
-type RequestProfile struct {
-    Stream       bool
-    ToolChoice   ToolChoiceKind
-    Continuation ContinuationKind
-    Reasoning    ReasoningKind
-    PromptCache  PromptCacheKind
-    ContentKinds ContentKindSet
-}
 ```
 
-The constructor defensively copies the body. Accessors cannot expose mutable
-storage. The digest covers the protocol, requested model, Responses path,
-profile, and body. The profile uses typed semantic variants, not presence
-booleans, so it can distinguish cases such as automatic, required, and named
-tool choice; continuation forms; reasoning shapes; cache placement; and
-supported content block kinds. A route constraint may inspect the validated
-protocol-specific request when the typed profile alone is insufficient.
+The constructor defensively copies the body. The digest covers protocol,
+requested model, Responses path, typed feature profile, and body. The profile
+distinguishes streaming, tool choice, continuation, reasoning, prompt cache,
+and content kinds. A route may inspect the validated protocol-specific body
+only when typed semantics are insufficient.
 
-`ResponsesPath` distinguishes the root endpoint and supported subresources such
-as compact or input-token operations. A route is not legal for a path variant
-unless its registry entry explicitly permits that variant.
+The application constructs one immutable router at the composition root:
 
-Gemini ingress normalizes `generateContent` to `Stream=false` and
-`streamGenerateContent` to `Stream=true`. No second Gemini-action field is
-stored: for the two in-scope actions, `RequestProfile.Stream` is the canonical
-semantic fact. The selected target profile may still use a streaming upstream
-for a non-streaming customer request when its registered adapter performs the
-aggregation.
-
-`Plan` resolves the account-specific upstream model through the existing model
-mapping owner. The resulting plan records the request digest, resolved model,
-and the account snapshot revision. That revision covers every account fact used
-by planning, including credentials, endpoint configuration,
-`supported_protocols`, and model-mapping inputs.
-
-For one account, a route is legal only when all conditions hold:
-
-```text
-target protocol is in account.supported_protocols
-AND an ordered route entry exists
-AND model policy permits the resolved upstream model
-AND the adapter preserves the request features
-AND the endpoint resolves explicitly
-AND the required transport/adaptor exists
+```go
+router := protocolrouter.New(adapterCatalog)
 ```
 
-Model policies and feature constraints are route data owned by the router. When
-they depend on an existing model catalog or account configuration owner, the
-route references that owner rather than copying its lists. Missing required
-policy, endpoint, route-adapter, or transport data makes the route illegal.
+Request-time code uses exactly:
 
-An official provider host may be an explicit default only when the account
-matches a compile-time `OfficialEndpointProfile`: a fixed built-in account type
-whose endpoint cannot be overridden by an administrator. Accounts with a
-configurable base URL, including API-key, upstream, and NewAPI accounts, are
-always custom and must provide a valid explicit URL even when they target an
-official provider. An empty or unresolved custom URL never defaults to an
-official host.
+```go
+plan, err := router.Plan(request, accountSnapshot)
+result, err := router.Execute(ctx, plan, request)
+```
 
-For `gemini_generate_content`, the route resolves exactly one compile-time
-endpoint/auth profile from the immutable account snapshot:
+`Plan` is pure and performs no network I/O. `Execute` follows the immutable
+plan and cannot select, improve, or replace its route.
 
-- `antigravity_cloudcode`: supported Antigravity OAuth account shape; endpoint,
-  wrapper, OAuth token, CLI fingerprint, headers, proxy, and project binding are
-  supplied by the existing Code Assist owners;
-- `vertex_service_account`: exact `IsNewAPIVertexServiceAccount()` shape;
-  project, per-model location, service-account JWT exchange, fixed Google token
-  endpoint, proxy, and model/action URL are supplied by the existing Vertex
-  owners.
-
-An exact `tkIsAntigravityEdgeRelayStub()` is not assigned either Gemini
-profile. It remains a configurable upstream whose three ordinary text
-endpoints are planned from its explicit base URL and probed per relay account.
-
-Profiles are not persisted administrator configuration and are not a second
-capability SSOT. If the profile is ambiguous or cannot resolve its required
-facts, the account remains governed but the concrete route is illegal.
-
-## 7. Fixed route registry
-
-Identity is always tried first. If identity is illegal, conversions are tried
-in this fixed order:
+Identity is always attempted first. If identity is illegal, conversions are
+tried in this fixed order:
 
 | Inbound protocol | Conversion targets |
 | --- | --- |
@@ -255,292 +273,388 @@ in this fixed order:
 | `responses` | `chat_completions`, then `messages`, then `gemini_generate_content` |
 | `gemini_generate_content` | identity only |
 
-The first legal entry wins. There is no score, quality weight, account-level
-preference, tie-breaker, or graph search.
+The first legal entry wins. Each registry entry names its target protocol,
+allowed Responses paths, model policy, feature constraints, endpoint/profile
+resolver, one route adapter, and one transport. Conversion routes are
+deny-by-default and open only for semantics proven lossless by adapter contract
+tests.
 
-Each registry entry names its target protocol, allowed Responses path kinds,
-model policy, feature constraints, endpoint/profile resolver, one
-`RouteAdapterID`, and one transport. `Execute` invokes that registered route
-adapter once. The adapter may internally compose existing pure conversion
-stages, but the composition is an implementation detail covered by that route
-entry's end-to-end mock test; it cannot select another target protocol,
-profile, endpoint, or fallback.
+For one account, a route is legal only when:
 
-Conversion routes are deny-by-default. A route opens only semantics proven
-lossless by its adapter contract tests; unsupported tools, continuation,
-reasoning, cache, multimodal content, and path variants fail during `Plan`.
-This rule lives in registry constraints and tests, not in a second prose
-capability matrix or handler switch.
+```text
+target protocol is in the linked capability.supported_protocols
+AND the capability key/revision is current
+AND an ordered registry entry exists
+AND model policy permits the resolved upstream model
+AND the adapter preserves the concrete request features
+AND the endpoint resolves explicitly from the same identity/account snapshot
+AND the required adapter and transport exist
+AND account authorization and scheduler health gates pass
+```
 
-## 8. Scheduling and execution
+Endpoint resolution must reproduce the identity used to obtain the capability
+key. A configurable endpoint with an empty or mismatched URL never falls back
+to an official host.
+
+## 6. Scheduling and execution
 
 Protocol legality is a scheduler hard gate, not a ranking signal:
 
 ```text
-construct the immutable CanonicalRequest
-  -> Plan for every candidate account and resolve its upstream model
-  -> discard accounts with no legal plan
-  -> run existing priority/sticky/capacity/cooldown ordering unchanged
-  -> Execute the selected account's already-created plan
+construct immutable CanonicalRequest
+  -> evaluate independent account auth/health gates
+  -> Plan every remaining candidate against its linked capability
+  -> discard candidates with no legal plan
+  -> apply existing priority/sticky/capacity/cooldown ordering unchanged
+  -> Execute the selected candidate's already-created plan
 ```
 
-The selected plan and the same `CanonicalRequest` are passed unchanged to
-`Execute`; no second route decision is allowed. The plan contains the request
-digest, account snapshot revision, resolved model, protocols, endpoint, route
-adapter, transport, route kind, and reason. Before creating a network request,
-`Execute` verifies both digests/revisions. A different request, stale account
-snapshot, or missing credential fails closed and enters normal account failover.
+The plan stores the request digest, account snapshot revision, capability key
+and revision, resolved model, inbound and target protocols, endpoint, adapter,
+transport, route kind, and reason. Before constructing a network request,
+`Execute` verifies all captured revisions and digests. A stale account,
+capability, request, endpoint, or credential fails closed and enters normal
+account failover.
 
 Execution invariants:
 
-- the `CanonicalRequest` is immutable across account attempts;
-- one registered route adapter is invoked per attempt; planner and handler
-  cannot start a second conversion or fallback;
-- credentials are attached only after endpoint validation;
+- the same immutable request is used across account attempts;
+- one registered route adapter is invoked per attempt;
+- credentials are attached only after endpoint and identity validation;
 - transports cannot change protocol or endpoint;
-- no handler or transport retries a second protocol on the same account within
-  the same customer request;
-- usage, billing, QA, and error records use the actual protocol and endpoint
-  from the plan.
+- no handler or transport retries another protocol on the same account;
+- usage, billing, QA, and error records use the actual plan facts.
 
-Planning failure and pre-send validation failure cause no network I/O. Upstream
-failures retain existing classification, cooldown, and account failover rules.
+Planning and pre-send validation failures perform no network I/O. Upstream
+failures retain existing cooldown and account-failover classification.
 
-## 9. Probe contract
+## 7. Capability discovery and re-probe
 
-Real probes are runtime account-lifecycle operations, not CI tests. They run on
-account onboarding, capability-affecting configuration changes, explicit
-re-test, or a scheduled response to observed protocol drift.
+### 7.1 Coordination unit and triggers
 
-One probe job evaluates a candidate protocol/path set for one account and
-configuration revision. Its inputs include the exact credential binding,
-normalized base URL, and a real resolved upstream model. For each protocol, a
-conclusive positive verdict adds it and a conclusive endpoint-negative verdict
-removes it; an inconclusive or model-specific rejection preserves its prior
-membership. Model compatibility remains a planner policy, not account endpoint
-capability. The coordinator atomically writes the resulting complete set only
-if the configuration revision is still current. A new account with no
-conclusive positive verdict remains empty and ineligible.
+Probe coordination is endpoint-scoped, never account-scoped. The logical job
+key is `capability_key + probe_generation`. A database lease and
+compare-and-swap write ensure that concurrent instances do not probe or
+overwrite the same generation twice.
 
-The protocols inside one account job may be probed concurrently, but the job
-still has one account identity, one configuration revision, and one atomic
-complete-set write. Startup preparation bounds account-level concurrency so a
-release cannot create an unbounded upstream burst.
+A probe may be requested only when:
 
-Results are never copied between accounts, even when base URLs match. The probe
-coordinator may coalesce only identical concurrent jobs; its key includes
-account identity and configuration revision, so coalescing suppresses duplicate
-work for the same account rather than turning one account's result into another
-account's fact.
+- a new capability key is first created and has neither a conclusive probe nor
+  an allowed official seed;
+- an administrator explicitly re-probes an account or capability;
+- structured runtime evidence indicates endpoint drift;
+- a previously unusable witness becomes healthy and the shared capability is
+  still empty, unprobed, or inconclusive.
 
-A release smoke may exercise each distinct normalized base URL once to reduce
-operational cost. That smoke is endpoint evidence only: it does not write or
-backfill any account's `supported_protocols`.
+Adding another account with an established key reuses the existing row and
+does not probe. Credential rotation does not probe. There is no periodic
+per-account scan.
 
-A customer-request failure may enqueue a probe but cannot directly mutate the
-field or try another protocol on the same account.
+A successful account connection/recovery test may enqueue the last trigger,
+but it still creates at most one endpoint-scoped job. This makes an endpoint
+whose first witnesses had broken authorization recover automatically after an
+operator fixes one account, without turning account tests into a second
+capability writer.
 
-Gemini candidates are provider-specific and never use a generic OpenAI probe:
+### 7.2 Witness selection
 
-- `antigravity_cloudcode` reuses the production Code Assist wrapper, OAuth
-  token, project binding, CLI fingerprint, headers, proxy, endpoint builder,
-  and streaming parser;
-- `vertex_service_account` reuses the production service-account parser, fixed
-  Google token endpoint, token cache, project/per-model location resolver,
-  Vertex URL builder, proxy, and Gemini response parser.
+The coordinator chooses a witness account from all accounts linked to the key.
+The deterministic order requires:
 
-Exact Antigravity edge-relay API-key stubs use the same generic three-protocol
-probe path as other configurable text upstreams. Each relay row is probed and
-persisted independently; its result is not inferred from another relay sharing
-an edge or from the native OAuth pool behind that edge.
+1. complete and non-expired authorization;
+2. active and schedulable state;
+3. no current account error;
+4. existing priority order;
+5. account ID as the final tie-breaker.
 
-A 2xx response is positive only when it parses as a recognized Gemini response
-envelope (including the Antigravity `response` wrapper); a generic JSON or
-error envelope is not positive evidence. Authentication, rate-limit, server,
-timeout, token-exchange, network, and malformed-response failures are
-inconclusive and preserve the prior fact. A Gemini 404/405 is
-`endpoint_negative` only when a provider-specific reason proves that the
-protocol method/path is unsupported; project, location, model, or action
-failures are `model_specific` or inconclusive. Raw status codes alone never
-remove `gemini_generate_content`.
+The exact production transport, wrapper, endpoint builder, routing headers,
+and a real resolved upstream model are reused. Alternate witnesses may be tried
+only after an inconclusive account-specific failure and stop at one
+compile-time `maxWitnessAttempts` policy owned by the coordinator.
 
-## 10. Conservative migration
+### 7.3 Verdicts
 
-Migration is additive and idempotent.
+Each protocol observation is classified as:
 
-The governance predicate identifies stable account classes, not current route
-health. It includes existing governed text accounts, supported Antigravity
-OAuth account shapes, exact Antigravity edge-relay API-key stubs, and exact
-NewAPI Vertex service-account shapes. Other Antigravity API-key accounts,
-service accounts, and non-text-only accounts remain outside this text router.
-Once an account class is governed, missing credentials, unresolved profiles,
-missing probe models, empty `supported_protocols`, or illegal model/features do
-not make it ungoverned: they produce no legal route and therefore fail closed.
+- `positive`: a recognized protocol response proves endpoint support;
+- `endpoint_negative`: structured provider evidence proves that the endpoint
+  identity does not implement the protocol/path;
+- `model_specific`: the protocol exists but the selected model or action is
+  unsupported;
+- `inconclusive`: authentication, authorization, rate limit, server, network,
+  timeout, token exchange, malformed response, or ambiguous provider error.
 
-- Only accounts matching a compile-time `OfficialEndpointProfile` may be seeded
-  from the router registry. The same predicate controls official endpoint
-  defaults, so migration and runtime cannot disagree.
-- For custom or third-party upstreams, `api_protocol`, `adaptive`, configured
-  URLs, platform, account type, channel type, and legacy capability fields are
-  probe hints only. None is proof of native support.
-- Ambiguous existing API-key, upstream, or NewAPI accounts are never inferred to
-  be official. Migration reports them for an explicit base URL and per-account
-  probe instead of guessing a provider host.
-- Custom accounts are populated only by conclusive per-account probes or retain
-  an already verified canonical value.
-- Every active account governed by this router must have at least one legal
-  route for its served models before the candidate release may receive traffic;
-  otherwise release readiness fails and the account is reported for
-  remediation. Once that image receives traffic, an account cannot escape to
-  legacy routing by becoming "ungoverned" because configuration is incomplete.
+Only `positive` adds a protocol. Only `endpoint_negative` removes it.
+`model_specific` and `inconclusive` preserve existing membership. Raw 401/403,
+429, 5xx, timeout, network error, or generic 404/405 never clears a shared
+capability because it may describe the witness, model, project, or transient
+service state rather than endpoint protocol support.
 
-After cutover, production text routing reads only
-`accounts.extra.supported_protocols` for account-level native capability. Legacy
-fields remain for one rollback window but are not router inputs. Their eventual
-removal is a separate reviewed change.
+If the same key obtains both conclusive positive and conclusive endpoint
+negative evidence for one protocol, the protocol is removed from routing and
+the row records `identity_conflict`. That protocol remains fail-closed until a
+new probe or identity correction resolves the conflict. The system never
+silently splits capability by account; a real difference means the identity
+builder is missing a key dimension and must be fixed.
 
-## 11. Admin surface
+The coordinator atomically replaces the complete sorted set and evidence only
+when both the leased `probe_generation` and the previously read `revision`
+remain current. A route-relevant change increments `revision`; an evidence-only
+refresh does not. Customer-request failures may enqueue a probe but cannot
+directly mutate capability or retry a second protocol on the same account.
 
-Account create/edit surfaces show `supported_protocols` as read-only capability
-chips and provide the existing test/re-probe action. An empty set is displayed
-as no usable text protocol detected and the account is excluded from the
-corresponding candidate pools.
+Real probes are runtime lifecycle operations. CI uses mocks and never calls
+production upstreams.
 
-The synchronous re-probe API returns the refreshed account plus one explicit
-outcome: `updated`, `unchanged`, or `not_applicable`. Internal execution or
-persistence errors are non-2xx failures. The UI must not present `unchanged`,
-`not_applicable`, a missing probe runner, or an internal failure as a successful
-capability update.
+## 8. Governed account profiles
 
-The UI and API do not add protocol ordering, `preferred_protocols`,
-`forced_protocol`, or adaptive/fixed controls.
+Governance is determined by stable compile-time account shapes, not current
+health. Once an account shape is governed, missing credentials, an empty
+capability, or an illegal route makes it fail closed; it cannot escape to a
+legacy route.
 
-## 12. Mechanical verification
+The governed profiles include:
 
-CI derives deterministic cases from the route registry and uses mock upstreams.
-It neither enumerates production accounts or base URLs nor calls external
-providers.
+- existing configurable text API-key/upstream/NewAPI account shapes with
+  explicit endpoint identities;
+- supported Antigravity OAuth accounts, mapped to the
+  `antigravity_cloudcode` endpoint/request profile and probed through the real
+  Code Assist wrapper;
+- exact `IsNewAPIVertexServiceAccount()` accounts, mapped to the
+  `vertex_service_account` profile and probed through the real JWT exchange,
+  project/location resolver, and Vertex Gemini endpoint;
+- exact TokenKey Antigravity edge-relay API-key stubs, treated as configurable
+  text endpoints using their explicit relay URLs.
 
-Required behavior coverage includes:
+Arbitrary Antigravity API-key accounts and arbitrary service accounts are not
+silently included. A service account is governed only when it matches the exact
+supported Vertex shape. Adding another stable shape requires an explicit
+identity/profile implementation and tests.
 
-- identity and conversion selection in the fixed order;
-- resolved-model allow and deny cases;
-- streaming, tools, continuation, reasoning, cache, multimodal, and Responses
-  path constraints;
-- no-route, missing endpoint, stale plan, and missing transport failures before
-  network I/O;
-- exact outbound host, path, body shape, credentials boundary, streaming
-  events, and response shape;
-- immutable `CanonicalRequest` across failover;
-- route facts propagated to usage, billing, QA, and errors;
-- deterministic account-field writes and conservative migration.
+Official capability seeding is allowed only for an immutable compile-time
+official endpoint profile whose host, protocol contract, and inability to be
+administrator-overridden are all enforced by code. Platform or URL similarity
+is never an official seed.
 
-Registry self-tests reject entries with missing policies, endpoint resolvers,
-adapters, or transports. Tests derive route cases from the registry instead of
-maintaining a second route matrix.
+## 9. Account lifecycle and administrator surface
 
-A separate, deliberately small policy-contract test does not derive its
-expectations from the registry. It asserts only the product invariants: the
-four protocol identifiers, identity-first behavior, and the fixed fallback
-order for each inbound protocol. Exhaustive adapter/model/feature cases remain
-registry-derived, so there is no second implementation matrix.
+Account create/import/edit computes the canonical identity, upserts the shared
+capability row by key, and atomically links the account. Token rotation keeps
+the link. An identity-affecting edit links a new or existing key. No API accepts
+`capability_key` or `supported_protocols` as administrator-written input.
 
-Gemini contract tests cover both endpoint/auth profiles, positive and
-non-destructive failure verdicts, exact host/path/credential binding, streaming
-and non-streaming envelopes, and rejection of unsupported request semantics
-before network I/O.
+The existing account action remains the human entry point:
 
-Endpoint contract tests also prove both sides of the identity boundary: a fixed
-`OfficialEndpointProfile` may resolve its registered host, while every
-configurable or ambiguous account with an empty URL fails before credential
-binding or network construction.
+```text
+POST /api/v1/admin/accounts/:id/protocol-probe
+```
 
-The project preflight and CI add a syntax-aware SSOT guard plus existing
-sentinel/contract checks. They fail when production handlers choose a protocol
-or endpoint, legacy fields re-enter routing, `ForwardAs*` is called outside the
-execution boundary, platform-derived text endpoints return, or the owner and
-its core behavioral tests are removed.
+Internally it resolves the account's capability key, acquires or joins the
+shared job, selects a witness, and refreshes every linked account's projection.
+The compatibility `account.supported_protocols` response field is derived from
+the linked capability row, never read from account JSON. The response includes:
 
-These API-only checks are unit and service-integration tests, not UI e2e tests.
-The read-only admin projection is covered at its normal UI-test level when
-implemented.
+```json
+{
+  "account": {},
+  "capability": {
+    "capability_key": "...",
+    "supported_protocols": ["responses"],
+    "revision": 7,
+    "last_probed_at": "2026-08-27T00:00:00Z",
+    "affected_account_count": 3
+  },
+  "outcome": "updated",
+  "reason": "positive_evidence"
+}
+```
 
-## 13. Rollout and rollback
+Outcomes are `updated`, `unchanged`, `inconclusive`, or `not_applicable`.
+Execution and persistence failures are non-2xx responses. The UI must not show
+an inconclusive, unavailable, or failed probe as a successful capability
+update.
 
-Rollout order:
+Account pages show read-only shared capability chips, the shared-account count,
+last probe time, and a re-probe action. They do not provide protocol editing,
+ordering, forcing, or mode controls.
 
-1. The release image starts with the canonical field writer, registry, probes,
-   router, scheduler hard gate, execution boundary, admin projection, and
-   mechanical guard present together.
-2. Before constructing text gateway handlers, the image seeds eligible official
-   profiles, runs bounded per-account probes for every remediated custom,
-   Antigravity, and Vertex account, and reruns the migration report against the
-   persisted results. Platform, type, base URL, project, or provider similarity
-   never seeds or copies a positive Gemini fact.
-3. The candidate image constructs and injects the router unconditionally, but
-   only `CutoverReady=true` makes the image ready for customer traffic. If any
-   governed account remains unresolved, readiness fails and deployment keeps or
-   restores the previous application image. The candidate image must never
-   serve customer traffic through its legacy routing path.
-4. Smoke each distinct normalized base URL and monitor no-route failures,
-   selected protocols, actual hosts/paths, and failover.
+If a governed account currently links to an empty capability after upstream
+authorization or scheduling is repaired, the operator may run the normal
+account connection test or the explicit protocol re-probe. Both converge on
+the same endpoint-scoped coordinator; only the latter is synchronous.
 
-Preparation and hard cutover may therefore ship in the same image. The
-readiness result is a deployment traffic-admission gate, not a runtime switch
-between the router and legacy routing.
+## 10. Migration, readiness, and rollback
 
-Rollback is an application-image rollback. The additive JSON value and legacy
-fields remain, so rollback requires no destructive data change. No production
-migration, deployment, or external probe is authorized by approval of this
-document.
+### 10.1 Additive migration
 
-## 14. Acceptance criteria
+Migration is idempotent and runs before the new image can receive traffic:
 
-- Every governed customer request either receives one deterministic legal plan
-  or fails before network I/O.
-- Account eligibility includes native and convertible paths and is evaluated
-  against the resolved upstream model, request features, Responses path, exact
-  endpoint, and available transport.
-- The scheduler uses legality only as a hard gate; existing business ordering
-  is unchanged.
-- The plan selected during scheduling is the same immutable plan executed.
-- Planning and execution consume the same immutable `CanonicalRequest`, and
-  `Execute` rejects a request whose digest differs from the plan.
-- No unresolved custom endpoint can become an official provider host, and no
-  credential is attached before endpoint validation.
-- Handlers, compatibility helpers, transports, and legacy forwarding methods
-  contain no independent route or fallback decision.
-- `accounts.extra.supported_protocols` is the only account-level native
-  protocol capability read by production text routing after cutover.
-- A governed Antigravity or exact Vertex service account with incomplete auth,
-  profile, model, or probe facts has no legal plan and cannot bypass the hard
-  gate through the legacy route.
-- Exact Antigravity edge-relay stubs are governed as configurable upstreams and
-  keep per-account three-protocol evidence; arbitrary Antigravity API-key URLs
-  remain outside the stable governed shape.
-- Gemini probes use production provider identity and remove a prior capability
-  only after a provider-specific endpoint-negative conclusion; raw 404/405 does
-  not clear the fact.
-- The admin re-probe action reports an explicit outcome and never displays an
-  unexecuted, inconclusive, or failed probe as an updated capability.
-- CI tests the registry with mocks; real capability probes persist facts per
-  account; per-base-URL smoke never copies capability between accounts.
-- A same-image rollout performs seed → per-account probe → revalidation before
-  admitting customer traffic. A release that is not cutover-ready fails
-  readiness and rolls back at the application-image boundary; it never serves
-  through the candidate image's legacy routing path.
-- An independent policy-contract test protects identity-first and the fixed
-  fallback order without duplicating the registry's adapter matrix.
-- An upstream merge that restores a competing decision path or removes the
-  owner fails preflight.
-- Gemini text `generateContent` is governed as the fourth protocol. Embeddings,
-  images, video, audio, OCR, rerank, and Gemini multimodal identity are
-  unchanged by this design.
+1. create the capability table and account foreign key;
+2. compute canonical identity for every governed account;
+3. upsert one row per distinct key and link all matching accounts;
+4. seed each row from the positive union of historical account-level
+   `supported_protocols` values for that key;
+5. treat missing or empty historical values as no evidence, never as negative;
+6. probe each distinct unverified key once, subject to witness availability;
+7. write a rollback projection to every linked account;
+8. evaluate readiness from the new table only.
 
-## 15. Approval boundary
+Historical union is a migration seed, not permanent evidence ownership. A
+later conclusive endpoint-negative probe may remove a seeded protocol.
+
+### 10.2 Cutover rule
+
+New application code always reads the capability table. It has no fallback to
+`accounts.extra.supported_protocols`, even during migration. Preparation,
+probing, and hard routing cutover may ship in one image because readiness is the
+traffic-admission boundary.
+
+The image reports `/health` as `503 not_ready` when any active, schedulable,
+governed account:
+
+- lacks a valid capability link;
+- has neither completed initial probing nor an allowed official seed;
+- is linked to an identity conflict relevant to its served routes;
+- has no legal native or convertible route for its served models;
+- fails its independent authorization/schedulability gate;
+- cannot receive a successfully persisted rollback projection.
+
+Disabled or deliberately unschedulable accounts do not block release
+readiness. They remain fail-closed if re-enabled before their identity,
+capability, and account gates are valid.
+
+The candidate image never serves customer traffic through legacy routing. A
+failed readiness check keeps or restores the previous image.
+
+### 10.3 Rollback projection
+
+For one release rollback window,
+`accounts.extra.supported_protocols` is a write-only projection of the linked
+capability set for the previous image. New routing, scheduling, APIs, and UI do
+not read it. Capability changes and all linked rollback projections commit in
+one database transaction. A projection write failure aborts that update and
+blocks readiness because an image rollback must not restore divergent account
+facts.
+
+After the rollback window, deleting the legacy field, projection writer, and
+compatibility code is a separate reviewed change. The shared capability table
+remains the permanent SSOT.
+
+No production schema application, external probe, deployment, or data mutation
+is authorized by approval of this document alone.
+
+## 11. Mechanical verification
+
+CI derives exhaustive route behavior from the immutable registry and uses mock
+upstreams. It does not enumerate production accounts, base URLs, or
+credentials, and it does not call external providers.
+
+Required tests include:
+
+- canonical identity normalization and stable key generation;
+- same-key account sharing and unique-row upsert under concurrency;
+- token rotation retaining the key and avoiding a probe;
+- identity-affecting configuration creating or reusing a different key;
+- empty capability fail-closed behavior;
+- deterministic witness selection and bounded alternate-witness fallback;
+- 401/403, 429, 5xx, timeout, and network failures not mutating shared facts;
+- positive addition, structured endpoint-negative removal, and model-specific
+  preservation;
+- positive/negative identity conflict failing closed;
+- lease, generation, and compare-and-swap race handling;
+- migration positive union and empty-as-no-evidence semantics;
+- identity-first and fixed conversion order;
+- model, feature, Responses-path, endpoint, adapter, and transport constraints;
+- plan capture and stale capability revision rejection before network I/O;
+- exact outbound host/path/body/credential boundary and response shape;
+- immutable request behavior across account failover;
+- account-level authorization gates remaining independent of shared capability;
+- readiness failure for missing links, unresolved initial capability, conflict,
+  no legal path, broken account gates, or failed rollback projection;
+- administrator re-probe returning key, affected-account count, and honest
+  outcome;
+- Antigravity, exact Vertex service-account, and edge-relay profile boundaries.
+
+A small independent policy-contract test asserts only the product invariants:
+the governed protocol identifiers, identity-first behavior, and fixed fallback
+order. Detailed adapter/model/feature cases remain registry-derived so CI does
+not become a second route matrix.
+
+The project preflight adds syntax-aware guards and sentinels that fail when:
+
+- a production handler, compatibility helper, or transport chooses a protocol
+  or fallback;
+- capability is read from an account legacy field or probe evidence;
+- endpoint identity is rebuilt outside its owner;
+- `ForwardAs*` bypasses the router execution boundary;
+- platform-derived custom endpoints return;
+- the capability owner, router owner, or their load-bearing tests disappear.
+
+API/service integration tests are not described as e2e. The read-only admin
+projection and re-probe journey use the repository's normal UI test level.
+
+## 12. Observability
+
+Logs and metrics record the capability key prefix, capability revision,
+selected witness account ID, probe generation/outcome/reason, affected-account
+count, selected inbound/target protocol, endpoint profile, and route failure
+reason. They never record credentials or authentication headers.
+
+Operational views distinguish:
+
+- no endpoint capability;
+- no legal conversion for the concrete request/model;
+- account authorization or health rejection;
+- endpoint identity conflict;
+- probe inconclusive or lease contention;
+- stale plan/capability rejection.
+
+These distinctions are diagnostics only. They do not create alternate routing
+or capability state.
+
+## 13. Acceptance criteria
+
+- One canonical endpoint identity produces one unique capability row.
+- All accounts with the same key observe the same sorted native protocol set.
+- Adding a same-key account or rotating credentials does not trigger redundant
+  capability probing.
+- Adding a new key, explicit re-probe, or structured endpoint drift can trigger
+  exactly one coordinated endpoint probe generation.
+- Account authorization, balance, limit, cooldown, and health remain
+  independent hard gates and cannot mutate shared endpoint capability.
+- Empty capability and identity conflict are fail-closed; there is no persisted
+  `unknown` or legacy-routing escape.
+- Every governed request receives one deterministic legal plan or fails before
+  network I/O.
+- The plan selected during scheduling is the exact immutable plan executed.
+- No configurable endpoint can default to an official host, and credentials are
+  attached only after endpoint identity validation.
+- Handlers, compatibility helpers, transports, and forwarding methods contain
+  no independent route, endpoint, or fallback decision.
+- Antigravity OAuth and exact Vertex service-account profiles are governed;
+  arbitrary service accounts remain outside the boundary until explicitly
+  supported.
+- Administrator re-probe is account-addressed but endpoint-scoped and reports
+  the shared key, affected accounts, and an honest result.
+- Migration probes each distinct key rather than each account, and positive
+  historical union cannot turn empty/absent values into negative evidence.
+- The new image reads only the capability table. Readiness prevents traffic
+  until every active/schedulable governed account has a linked, conflict-free,
+  usable capability and valid account gates.
+- The account legacy field exists only as a one-window rollback projection and
+  is never a new-version routing input.
+- CI uses mock upstreams and mechanically rejects competing protocol owners.
+- An upstream merge that restores account-level capability ownership or a
+  parallel routing decision path fails preflight.
+
+## 14. Approval boundary
 
 Approval authorizes implementation planning only. Implementation, production
-migration, deployment, merge, and external probes retain their normal review
-and approval gates.
+migration, external probes, deployment, PR merge, and release retain their
+normal review and approval gates.
+
+The account-level implementation currently present in PR #1848 is superseded
+by this revision and is not merge-ready until it is refactored to the shared
+endpoint-capability model.
 
 high-risk-anchor: protocol-routing-ssot
