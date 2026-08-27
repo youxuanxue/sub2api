@@ -231,6 +231,12 @@ class BackendCIRoutingTest(unittest.TestCase):
         )
 
         self.assertEqual(rolling_cache["with"]["prefix"], "unit-nodwarf-v1")
+        self.assertEqual(
+            rolling_cache["with"]["benchmark_writer"],
+            "${{ github.event_name == 'workflow_dispatch' && "
+            "inputs.suite == 'unit-cache-bench' && "
+            "github.ref == 'refs/heads/chore/ci-unit-dwarf-bench' }}",
+        )
 
         integration_cache = next(
             step
@@ -238,6 +244,14 @@ class BackendCIRoutingTest(unittest.TestCase):
             if step.get("uses") == "./.github/actions/go-rolling-cache"
         )
         self.assertEqual(integration_cache["with"]["prefix"], "integration")
+        self.assertNotIn("benchmark_writer", integration_cache["with"])
+
+    def test_unit_cache_benchmark_routes_only_to_unit(self) -> None:
+        self.assertIn("inputs.suite == 'unit-cache-bench'", self.jobs["test-unit"]["if"])
+        self.assertIn("inputs.suite != 'unit-cache-bench'", self.jobs["shell"]["if"])
+        for job_name in ("preflight", "test-integration", "frontend", "golangci-lint"):
+            with self.subTest(job=job_name):
+                self.assertNotIn("inputs.suite == 'unit-cache-bench'", self.jobs[job_name]["if"])
 
     def test_lint_uses_rolling_analysis_cache_instead_of_action_cache(self) -> None:
         steps = self.jobs["golangci-lint"]["steps"]

@@ -33,6 +33,10 @@ inputs:
     description: Also roll ~/.cache/golangci-lint (enable only for the lint job).
     required: false
     default: "false"
+  benchmark_writer:
+    description: Allow the dedicated unit-cache benchmark dispatch to seed its branch-scoped build cache.
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -59,7 +63,7 @@ runs:
         restore-keys: ${{ runner.os }}-gomod-
 
     - name: Restore Go build/test cache (non-main writer, ${{ inputs.prefix }})
-      if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+      if: (github.event_name != 'push' || github.ref != 'refs/heads/main') && inputs.benchmark_writer != 'true'
       uses: actions/cache/restore@v6
       with:
         path: ~/.cache/go-build
@@ -69,7 +73,7 @@ runs:
           ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
 
     - name: Go build/test cache (weekly main writer, ${{ inputs.prefix }})
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || inputs.benchmark_writer == 'true'
       uses: actions/cache@v6
       with:
         path: ~/.cache/go-build
