@@ -225,7 +225,9 @@ jobs:
           cache: false
       - uses: ./.github/actions/go-rolling-cache
         with:
-          prefix: unit
+          # Unit test archives omit DWARF below, so keep them out of the old
+          # 2.6GB namespace whose objects were built with different gcflags.
+          prefix: unit-nodwarf-v1
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
@@ -238,6 +240,9 @@ jobs:
           # files at runtime, so checkout mtimes prevent cross-run result-cache
           # hits even when the weekly Go build cache restores exactly.
           UNIT_TEST_SERVICE_SHARD: ${{ (github.event_name == 'push' || needs.changes.outputs.service_unit_cold == 'true') && '1' || '0' }}
+          # Test failures retain file:line stacks without DWARF. Omitting it
+          # shrinks the large unit build cache and the service test binary.
+          GOFLAGS: -gcflags=all=-dwarf=false
         run: make test-unit
       - name: Anthropic prompt surface fixture gateway
         run: python3 ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway

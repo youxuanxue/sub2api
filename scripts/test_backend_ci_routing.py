@@ -201,6 +201,27 @@ class BackendCIRoutingTest(unittest.TestCase):
             "needs.changes.outputs.service_unit_cold == 'true') && '1' || '0' }}",
         )
 
+    def test_unit_job_omits_dwarf_from_test_build_objects(self) -> None:
+        unit_step = next(
+            step
+            for step in self.jobs["test-unit"]["steps"]
+            if step.get("name") == "Unit tests"
+        )
+
+        self.assertEqual(
+            unit_step["env"]["GOFLAGS"],
+            "-gcflags=all=-dwarf=false",
+        )
+
+    def test_unit_job_uses_dwarf_specific_build_cache_namespace(self) -> None:
+        rolling_cache = next(
+            step
+            for step in self.jobs["test-unit"]["steps"]
+            if step.get("uses") == "./.github/actions/go-rolling-cache"
+        )
+
+        self.assertEqual(rolling_cache["with"]["prefix"], "unit-nodwarf-v1")
+
     def test_lint_uses_rolling_analysis_cache_instead_of_action_cache(self) -> None:
         steps = self.jobs["golangci-lint"]["steps"]
         rolling_cache = next(
