@@ -125,11 +125,11 @@ func TestSelectProtocolAccountForTokenCountReturnsSchedulerPlan(t *testing.T) {
 }
 
 func protocolRoutingOpenAIAccount(id int64, protocols ...string) *Account {
-	extraProtocols := make([]any, len(protocols))
+	supported := make([]protocolrouter.Protocol, len(protocols))
 	for i, protocol := range protocols {
-		extraProtocols[i] = protocol
+		supported[i] = protocolrouter.Protocol(protocol)
 	}
-	return &Account{
+	account := &Account{
 		ID:          id,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -139,7 +139,29 @@ func protocolRoutingOpenAIAccount(id int64, protocols ...string) *Account {
 			"api_key":  "secret",
 			"base_url": "https://relay.example.test/v1",
 		},
-		Extra: map[string]any{SupportedProtocolsExtraKey: extraProtocols},
+		Extra: map[string]any{},
+	}
+	attachTestProtocolCapability(account, supported...)
+	return account
+}
+
+func attachTestProtocolCapability(account *Account, protocols ...protocolrouter.Protocol) {
+	identity, governed, err := BuildProtocolEndpointIdentity(account)
+	if err != nil || !governed {
+		panic("invalid governed protocol test account")
+	}
+	id := account.ID + 100000
+	if id <= 0 {
+		id = 100000
+	}
+	account.ProtocolEndpointCapabilityID = &id
+	account.ProtocolEndpointCapability = &ProtocolEndpointCapability{
+		ID:                 id,
+		CapabilityKey:      identity.Key(),
+		Identity:           identity,
+		SupportedProtocols: append([]protocolrouter.Protocol(nil), protocols...),
+		Revision:           1,
+		ProbeEvidence:      ProtocolProbeEvidence{InitialProbeCompleted: true},
 	}
 }
 
@@ -180,12 +202,20 @@ func TestOpenAIEligibilityUsesProtocolHardGateWithoutChangingOtherChecks(t *test
 	)
 	missing := protocolRoutingOpenAIAccount(1)
 	legal := protocolRoutingOpenAIAccount(2, "chat_completions")
+	missingAuthorization := protocolRoutingOpenAIAccount(3, "chat_completions")
+	delete(missingAuthorization.Credentials, "api_key")
 
 	if isOpenAICompatibleAccountEligibleForRequest(ctx, missing, PlatformOpenAI, "gpt-5.4", false, OpenAIEndpointCapabilityChatCompletions) {
 		t.Fatal("OpenAI eligibility admitted account without legal protocol route")
 	}
 	if !isOpenAICompatibleAccountEligibleForRequest(ctx, legal, PlatformOpenAI, "gpt-5.4", false, OpenAIEndpointCapabilityChatCompletions) {
 		t.Fatal("OpenAI eligibility rejected otherwise-valid legal account")
+	}
+	if isOpenAICompatibleAccountEligibleForRequest(ctx, missingAuthorization, PlatformOpenAI, "gpt-5.4", false, OpenAIEndpointCapabilityChatCompletions) {
+		t.Fatal("OpenAI eligibility admitted a governed account without authorization")
+	}
+	if (&GatewayService{}).isAccountSchedulableForModelSelection(ctx, missingAuthorization, "gpt-5.4") {
+		t.Fatal("gateway scheduling admitted a governed account without authorization")
 	}
 }
 

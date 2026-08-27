@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	middleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -27,6 +28,25 @@ type gatewayHandlerKiroRecoveryCache struct {
 	sticky      map[string]int64
 	recovery    map[string]int64
 	consumeCall int
+}
+
+type gatewayHandlerKiroRecoveryAccountRepo struct {
+	service.AccountRepository
+	service.ProtocolEndpointCapabilityRepository
+	accounts map[int64]*service.Account
+}
+
+func (r *gatewayHandlerKiroRecoveryAccountRepo) GetByID(_ context.Context, id int64) (*service.Account, error) {
+	return r.accounts[id], nil
+}
+
+func (r *gatewayHandlerKiroRecoveryAccountRepo) GetByAccountID(_ context.Context, id int64) (*service.ProtocolEndpointCapability, error) {
+	account := r.accounts[id]
+	if account == nil || account.ProtocolEndpointCapability == nil {
+		return nil, service.ErrProtocolCapabilityNotFound
+	}
+	capability := *account.ProtocolEndpointCapability
+	return &capability, nil
 }
 
 func newGatewayHandlerKiroRecoveryCache() *gatewayHandlerKiroRecoveryCache {
@@ -124,11 +144,33 @@ func newGatewayHandlerForKiroRecoveryTest(
 	upstream service.HTTPUpstream,
 ) (*GatewayHandler, func()) {
 	t.Helper()
+	accountsByID := make(map[int64]*service.Account, len(accounts))
+	for _, account := range accounts {
+		if account == nil {
+			continue
+		}
+		identity, governed, err := service.BuildProtocolEndpointIdentity(account)
+		require.NoError(t, err)
+		if governed {
+			capabilityID := account.ID
+			account.ProtocolEndpointCapabilityID = &capabilityID
+			account.ProtocolEndpointCapability = &service.ProtocolEndpointCapability{
+				ID:                 capabilityID,
+				CapabilityKey:      identity.Key(),
+				Identity:           identity,
+				SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent},
+				ProbeEvidence:      service.ProtocolProbeEvidence{InitialProbeCompleted: true},
+				Revision:           1,
+			}
+		}
+		accountsByID[account.ID] = account
+	}
+	accountRepo := &gatewayHandlerKiroRecoveryAccountRepo{accounts: accountsByID}
 	schedulerCache := &fakeSchedulerCache{accounts: accounts}
 	schedulerSnapshot := service.NewSchedulerSnapshotService(schedulerCache, nil, nil, nil, nil)
 	kiroGateway := service.NewKiroGatewayService(upstream, nil, nil)
 	gwSvc := service.NewGatewayService(
-		nil, &fakeGroupRepo{group: group}, nil, nil, nil, nil, nil, cache, nil,
+		accountRepo, &fakeGroupRepo{group: group}, nil, nil, nil, nil, nil, cache, nil,
 		schedulerSnapshot, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil, nil, nil, nil, nil, kiroGateway,
 	)

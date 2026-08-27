@@ -41,6 +41,18 @@ func protocolExecutorsForTest(plan protocolrouter.Plan, execute ProtocolExecutio
 	return executors
 }
 
+func protocolExecutionAccountLoaderForTest(account *Account) ProtocolExecutionAccountLoader {
+	return func(context.Context, int64) (*Account, error) {
+		if account == nil || account.ProtocolEndpointCapability == nil {
+			return nil, ErrProtocolCapabilityNotFound
+		}
+		clone := *account
+		capability := *account.ProtocolEndpointCapability
+		clone.ProtocolEndpointCapability = &capability
+		return &clone, nil
+	}
+}
+
 func TestExecuteGeminiProtocolProfileUsesOnlyPlannedProfile(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -112,8 +124,9 @@ func TestProtocolExecutionRouterInvokesGeminiIdentityExecutor(t *testing.T) {
 			"project_id":    "project-a",
 			"model_mapping": map[string]any{"client-model": "gemini-2.5-pro"},
 		},
-		Extra: map[string]any{SupportedProtocolsExtraKey: []any{"gemini_generate_content"}},
+		Extra: map[string]any{},
 	}
+	attachTestProtocolCapability(account, protocolrouter.ProtocolGeminiGenerateContent)
 	snapshot, err := protocolAccountSnapshotForRequest(account, request)
 	if err != nil {
 		t.Fatalf("protocolAccountSnapshotForRequest: %v", err)
@@ -124,7 +137,7 @@ func TestProtocolExecutionRouterInvokesGeminiIdentityExecutor(t *testing.T) {
 	}
 	calls := 0
 	ctx := WithProtocolExecutors(context.Background(), ProtocolExecutors{
-		GeminiIdentity: func(_ context.Context, gotPlan protocolrouter.Plan, gotRequest protocolrouter.CanonicalRequest) (any, error) {
+		GeminiIdentity: func(_ context.Context, _ *Account, gotPlan protocolrouter.Plan, gotRequest protocolrouter.CanonicalRequest) (any, error) {
 			calls++
 			if gotPlan.GeminiProfile() != protocolrouter.GeminiEndpointAntigravityCloudCode {
 				t.Fatalf("profile = %q", gotPlan.GeminiProfile())
@@ -135,8 +148,9 @@ func TestProtocolExecutionRouterInvokesGeminiIdentityExecutor(t *testing.T) {
 			return "sent", nil
 		},
 	})
+	ctx = withProtocolExecutionAccount(ctx, account)
 	ctx = protocolrouter.WithExecutionAccountState(ctx, protocolrouter.ExecutionAccountState{
-		AccountID: snapshot.AccountID(), Revision: snapshot.Revision(), CredentialPresent: true,
+		AccountID: snapshot.AccountID(), Revision: snapshot.Revision(), CapabilityKey: snapshot.CapabilityKey(), CapabilityRevision: snapshot.CapabilityRevision(), CredentialPresent: true,
 	})
 	result, err := router.Execute(ctx, plan, request)
 	if err != nil {
@@ -150,7 +164,8 @@ func TestProtocolExecutionRouterInvokesGeminiIdentityExecutor(t *testing.T) {
 func TestProtocolExecutionRouterInvokesOnlyPlannedAdapterExecutor(t *testing.T) {
 	router := NewProtocolRouter()
 	req := protocolRoutingTestRequest(t, protocolrouter.ProtocolMessages)
-	account, err := ProtocolAccountSnapshot(protocolRoutingOpenAIAccount(12, "responses"), "gpt-5.4")
+	sourceAccount := protocolRoutingOpenAIAccount(12, "responses")
+	account, err := ProtocolAccountSnapshot(sourceAccount, "gpt-5.4")
 	if err != nil {
 		t.Fatalf("ProtocolAccountSnapshot: %v", err)
 	}
@@ -161,12 +176,13 @@ func TestProtocolExecutionRouterInvokesOnlyPlannedAdapterExecutor(t *testing.T) 
 	calls := 0
 	wrongCalls := 0
 	executionCtx := WithProtocolExecutors(context.Background(), ProtocolExecutors{
-		MessagesIdentity: func(context.Context, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
+		MessagesIdentity: func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
 			wrongCalls++
 			return nil, nil
 		},
 		MessagesToResponses: func(
 			_ context.Context,
+			account *Account,
 			gotPlan protocolrouter.Plan,
 			gotRequest protocolrouter.CanonicalRequest,
 		) (any, error) {
@@ -180,10 +196,13 @@ func TestProtocolExecutionRouterInvokesOnlyPlannedAdapterExecutor(t *testing.T) 
 			return "sent", nil
 		},
 	})
+	executionCtx = withProtocolExecutionAccount(executionCtx, sourceAccount)
 	executionCtx = protocolrouter.WithExecutionAccountState(executionCtx, protocolrouter.ExecutionAccountState{
-		AccountID:         account.AccountID(),
-		Revision:          account.Revision(),
-		CredentialPresent: true,
+		AccountID:          account.AccountID(),
+		Revision:           account.Revision(),
+		CapabilityKey:      account.CapabilityKey(),
+		CapabilityRevision: account.CapabilityRevision(),
+		CredentialPresent:  true,
 	})
 
 	result, err := router.Execute(executionCtx, plan, req)
@@ -207,9 +226,11 @@ func TestProtocolExecutionRouterFailsBeforeNetworkWhenExecutorIsMissing(t *testi
 		t.Fatalf("Plan: %v", err)
 	}
 	ctx := protocolrouter.WithExecutionAccountState(context.Background(), protocolrouter.ExecutionAccountState{
-		AccountID:         account.AccountID(),
-		Revision:          account.Revision(),
-		CredentialPresent: true,
+		AccountID:          account.AccountID(),
+		Revision:           account.Revision(),
+		CapabilityKey:      account.CapabilityKey(),
+		CapabilityRevision: account.CapabilityRevision(),
+		CredentialPresent:  true,
 	})
 
 	_, err = router.Execute(ctx, plan, req)
@@ -293,7 +314,8 @@ func TestExecuteSelectedProtocolStampsImmutableRouteFactsOnResult(t *testing.T) 
 		&AccountSelectionResult{Account: account, ProtocolPlan: &plan},
 		account,
 		func(context.Context, *Account, string) error { return nil },
-		protocolExecutorsForTest(plan, func(context.Context, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
+		protocolExecutionAccountLoaderForTest(account),
+		protocolExecutorsForTest(plan, func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
 			return &OpenAIForwardResult{}, nil
 		}),
 	)
@@ -325,22 +347,97 @@ func TestExecuteSelectedProtocolRejectsAccountMutationBeforeExecutor(t *testing.
 		t.Fatalf("protocolPlanForAccount: %v", err)
 	}
 	selection := &AccountSelectionResult{Account: account, ProtocolPlan: &plan}
-	account.Credentials = map[string]any{
+	authoritative := *account
+	authoritative.Credentials = map[string]any{
 		"api_key":  "changed-secret",
 		"base_url": "https://relay.example.test/v1",
 	}
 	calls := 0
 
-	execute := func(context.Context, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
+	execute := func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
 		calls++
 		return nil, nil
 	}
-	_, err = ExecuteSelectedProtocol(ctx, router, selection, account, func(context.Context, *Account, string) error { return nil }, protocolExecutorsForTest(plan, execute))
+	_, err = ExecuteSelectedProtocol(ctx, router, selection, account, func(context.Context, *Account, string) error { return nil }, func(context.Context, int64) (*Account, error) {
+		return &authoritative, nil
+	}, protocolExecutorsForTest(plan, execute))
 	if !errors.Is(err, protocolrouter.ErrStalePlan) {
 		t.Fatalf("ExecuteSelectedProtocol error = %v, want ErrStalePlan", err)
 	}
 	if calls != 0 {
 		t.Fatalf("executor calls = %d, want 0", calls)
+	}
+}
+
+func TestExecuteSelectedProtocolFailsOverMissingAuthorizationBeforeExecutor(t *testing.T) {
+	router := NewProtocolRouter()
+	request := protocolRoutingTestRequest(t, protocolrouter.ProtocolMessages)
+	ctx := WithProtocolRouting(context.Background(), router, request)
+	account := protocolRoutingOpenAIAccount(13, "responses")
+	delete(account.Credentials, "api_key")
+	plan, _, err := protocolPlanForAccount(ctx, account, request.RequestedModel())
+	if err != nil {
+		t.Fatalf("protocolPlanForAccount: %v", err)
+	}
+	calls := 0
+
+	_, err = ExecuteSelectedProtocol(
+		ctx,
+		router,
+		&AccountSelectionResult{Account: account, ProtocolPlan: &plan},
+		account,
+		func(context.Context, *Account, string) error { return nil },
+		protocolExecutionAccountLoaderForTest(account),
+		protocolExecutorsForTest(plan, func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
+			calls++
+			return nil, nil
+		}),
+	)
+	var failover *UpstreamFailoverError
+	if !errors.As(err, &failover) || !failover.ShouldRetryNextAccount() {
+		t.Fatalf("ExecuteSelectedProtocol error = %v, want next-account failover", err)
+	}
+	if calls != 0 {
+		t.Fatalf("executor calls = %d, want 0 before credential/network boundary", calls)
+	}
+}
+
+func TestExecuteSelectedProtocolPassesAuthoritativeAccountToExecutor(t *testing.T) {
+	router := NewProtocolRouter()
+	request := protocolRoutingTestRequest(t, protocolrouter.ProtocolMessages)
+	ctx := WithProtocolRouting(context.Background(), router, request)
+	account := protocolRoutingOpenAIAccount(12, "responses")
+	plan, _, err := protocolPlanForAccount(ctx, account, request.RequestedModel())
+	if err != nil {
+		t.Fatalf("protocolPlanForAccount: %v", err)
+	}
+	authoritative := *account
+	authoritative.Credentials = map[string]any{
+		"api_key":  account.GetCredential("api_key"),
+		"base_url": account.GetCredential("base_url"),
+	}
+	calls := 0
+
+	_, err = ExecuteSelectedProtocol(
+		ctx,
+		router,
+		&AccountSelectionResult{Account: account, ProtocolPlan: &plan},
+		account,
+		func(context.Context, *Account, string) error { return nil },
+		func(context.Context, int64) (*Account, error) { return &authoritative, nil },
+		protocolExecutorsForTest(plan, func(_ context.Context, executionAccount *Account, _ protocolrouter.Plan, _ protocolrouter.CanonicalRequest) (any, error) {
+			calls++
+			if executionAccount != &authoritative {
+				t.Fatalf("executor account = %p, want authoritative %p", executionAccount, &authoritative)
+			}
+			return "sent", nil
+		}),
+	)
+	if err != nil {
+		t.Fatalf("ExecuteSelectedProtocol: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("executor calls = %d, want 1", calls)
 	}
 }
 
@@ -351,11 +448,11 @@ func TestExecuteSelectedProtocolFailsClosedForGovernedAccountWithoutSelectedPlan
 	account := protocolRoutingOpenAIAccount(12, "messages")
 	calls := 0
 
-	execute := func(context.Context, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
+	execute := func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
 		calls++
 		return nil, nil
 	}
-	_, err := ExecuteSelectedProtocol(ctx, router, &AccountSelectionResult{Account: account}, account, func(context.Context, *Account, string) error { return nil }, ProtocolExecutors{MessagesIdentity: execute})
+	_, err := ExecuteSelectedProtocol(ctx, router, &AccountSelectionResult{Account: account}, account, func(context.Context, *Account, string) error { return nil }, nil, ProtocolExecutors{MessagesIdentity: execute})
 	if !errors.Is(err, ErrProtocolRouteUnavailable) {
 		t.Fatalf("ExecuteSelectedProtocol error = %v, want ErrProtocolRouteUnavailable", err)
 	}
@@ -378,7 +475,8 @@ func TestExecuteSelectedProtocolUsesLegacyExecutorWhenCutoverRouterDisabled(t *t
 		selection,
 		account,
 		nil,
-		ProtocolExecutors{NonGoverned: func(_ context.Context, _ protocolrouter.Plan, got protocolrouter.CanonicalRequest) (any, error) {
+		nil,
+		ProtocolExecutors{NonGoverned: func(_ context.Context, _ *Account, _ protocolrouter.Plan, got protocolrouter.CanonicalRequest) (any, error) {
 			calls++
 			if string(got.Body()) != string(request.Body()) {
 				t.Fatalf("legacy request body = %q, want %q", got.Body(), request.Body())
@@ -411,7 +509,7 @@ func TestExecuteSelectedProtocolValidatesExactPlanEndpointBeforeExecutor(t *test
 			t.Fatalf("validated endpoint = %q, want %q", endpoint, plan.Endpoint())
 		}
 		return errors.New("blocked by allowlist")
-	}, protocolExecutorsForTest(plan, func(context.Context, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
+	}, protocolExecutionAccountLoaderForTest(account), protocolExecutorsForTest(plan, func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
 		calls++
 		return nil, nil
 	}))
@@ -420,5 +518,59 @@ func TestExecuteSelectedProtocolValidatesExactPlanEndpointBeforeExecutor(t *test
 	}
 	if calls != 0 {
 		t.Fatalf("executor calls = %d, want 0 before credential/network boundary", calls)
+	}
+}
+
+func TestExecuteSelectedProtocolReloadsAuthoritativeCapabilityBeforeExecutor(t *testing.T) {
+	router := NewProtocolRouter()
+	request := protocolRoutingTestRequest(t, protocolrouter.ProtocolMessages)
+	ctx := WithProtocolRouting(context.Background(), router, request)
+	account := protocolRoutingOpenAIAccount(12, "responses")
+	plan, _, err := protocolPlanForAccount(ctx, account, request.RequestedModel())
+	if err != nil {
+		t.Fatalf("protocolPlanForAccount: %v", err)
+	}
+	calls := 0
+	authoritative := *account.ProtocolEndpointCapability
+	authoritative.Revision++
+	_, err = ExecuteSelectedProtocol(
+		ctx,
+		router,
+		&AccountSelectionResult{Account: account, ProtocolPlan: &plan},
+		account,
+		func(context.Context, *Account, string) error { return nil },
+		func(context.Context, int64) (*Account, error) {
+			fresh := *account
+			fresh.ProtocolEndpointCapability = &authoritative
+			return &fresh, nil
+		},
+		protocolExecutorsForTest(plan, func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
+			calls++
+			return nil, nil
+		}),
+	)
+	if !errors.Is(err, protocolrouter.ErrStalePlan) {
+		t.Fatalf("ExecuteSelectedProtocol error = %v, want ErrStalePlan", err)
+	}
+	if calls != 0 {
+		t.Fatalf("executor calls = %d, want 0", calls)
+	}
+}
+
+func TestProtocolCredentialPresentUsesSanitizedSchedulerSnapshot(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"__tk_protocol_authorization_present": true,
+		},
+	}
+	if !ProtocolAuthorizationPresent(account) {
+		t.Fatal("sanitized scheduler snapshot lost positive authorization readiness")
+	}
+
+	account.Credentials["__tk_protocol_authorization_present"] = false
+	if ProtocolAuthorizationPresent(account) {
+		t.Fatal("sanitized scheduler snapshot admitted missing authorization")
 	}
 }

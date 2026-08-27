@@ -54,7 +54,13 @@ func (r ProtocolRoutingSSOTReady) Ready() bool {
 }
 
 func ProvideProtocolRoutingSSOTReady(accountRepo AccountRepository, accountTestService *AccountTestService, router *protocolrouter.Router) ProtocolRoutingSSOTReady {
-	ready, err := prepareProtocolRoutingSSOT(context.Background(), accountRepo, router, accountTestService)
+	migrationRepo, ok := accountRepo.(protocolRoutingMigrationRepository)
+	if !ok {
+		report := ProtocolRoutingMigrationReport{CutoverReady: false}
+		logger.LegacyPrintf("service.protocol_routing", "protocol SSOT repository capability is unavailable")
+		return newProtocolRoutingSSOTReady(report, router)
+	}
+	ready, err := prepareProtocolRoutingSSOT(context.Background(), migrationRepo, router, accountTestService)
 	report := ready.Report
 	if err != nil {
 		report.CutoverReady = false

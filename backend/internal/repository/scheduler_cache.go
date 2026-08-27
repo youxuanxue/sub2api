@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -886,34 +887,36 @@ func (c *schedulerCache) mgetChunked(ctx context.Context, keys []string) ([]any,
 
 func buildSchedulerMetadataAccount(account service.Account) service.Account {
 	return service.Account{
-		ID:                      account.ID,
-		Name:                    account.Name,
-		Platform:                account.Platform,
-		Type:                    account.Type,
-		Concurrency:             account.Concurrency,
-		LoadFactor:              account.LoadFactor,
-		Priority:                account.Priority,
-		RateMultiplier:          account.RateMultiplier,
-		Status:                  account.Status,
-		LastUsedAt:              account.LastUsedAt,
-		ExpiresAt:               account.ExpiresAt,
-		AutoPauseOnExpired:      account.AutoPauseOnExpired,
-		Schedulable:             account.Schedulable,
-		RateLimitedAt:           account.RateLimitedAt,
-		RateLimitResetAt:        account.RateLimitResetAt,
-		OverloadUntil:           account.OverloadUntil,
-		TempUnschedulableUntil:  account.TempUnschedulableUntil,
-		TempUnschedulableReason: account.TempUnschedulableReason,
-		SessionWindowStart:      account.SessionWindowStart,
-		SessionWindowEnd:        account.SessionWindowEnd,
-		SessionWindowStatus:     account.SessionWindowStatus,
-		ChannelType:             account.ChannelType,
-		ParentAccountID:         account.ParentAccountID,
-		QuotaDimension:          account.QuotaDimension,
-		AccountGroups:           filterSchedulerAccountGroups(account.AccountGroups),
-		GroupIDs:                filterSchedulerGroupIDs(account.GroupIDs, account.AccountGroups),
-		Credentials:             filterSchedulerCredentials(account.Credentials),
-		Extra:                   filterSchedulerExtra(account.Extra),
+		ID:                           account.ID,
+		Name:                         account.Name,
+		Platform:                     account.Platform,
+		Type:                         account.Type,
+		Concurrency:                  account.Concurrency,
+		LoadFactor:                   account.LoadFactor,
+		Priority:                     account.Priority,
+		RateMultiplier:               account.RateMultiplier,
+		Status:                       account.Status,
+		LastUsedAt:                   account.LastUsedAt,
+		ExpiresAt:                    account.ExpiresAt,
+		AutoPauseOnExpired:           account.AutoPauseOnExpired,
+		Schedulable:                  account.Schedulable,
+		RateLimitedAt:                account.RateLimitedAt,
+		RateLimitResetAt:             account.RateLimitResetAt,
+		OverloadUntil:                account.OverloadUntil,
+		TempUnschedulableUntil:       account.TempUnschedulableUntil,
+		TempUnschedulableReason:      account.TempUnschedulableReason,
+		SessionWindowStart:           account.SessionWindowStart,
+		SessionWindowEnd:             account.SessionWindowEnd,
+		SessionWindowStatus:          account.SessionWindowStatus,
+		ChannelType:                  account.ChannelType,
+		ProtocolEndpointCapabilityID: account.ProtocolEndpointCapabilityID,
+		ProtocolEndpointCapability:   account.ProtocolEndpointCapability,
+		ParentAccountID:              account.ParentAccountID,
+		QuotaDimension:               account.QuotaDimension,
+		AccountGroups:                filterSchedulerAccountGroups(account.AccountGroups),
+		GroupIDs:                     filterSchedulerGroupIDs(account.GroupIDs, account.AccountGroups),
+		Credentials:                  filterSchedulerCredentialsForProtocolRouting(account),
+		Extra:                        filterSchedulerExtra(account.Extra),
 	}
 }
 
@@ -985,6 +988,13 @@ func filterSchedulerCredentials(credentials map[string]any) map[string]any {
 		"oauth_type",
 		"plan_type",
 		"base_url",
+		"api_base_urls",
+		"api_version",
+		"api_versions",
+		"header_override_enabled",
+		"header_overrides",
+		"location",
+		"vertex_location",
 		"mirror_platform",
 		"pool_mode",
 	}
@@ -997,6 +1007,23 @@ func filterSchedulerCredentials(credentials map[string]any) map[string]any {
 	if len(filtered) == 0 {
 		return nil
 	}
+	return filtered
+}
+
+func filterSchedulerCredentialsForProtocolRouting(account service.Account) map[string]any {
+	filtered := filterSchedulerCredentials(account.Credentials)
+	if filtered == nil {
+		filtered = make(map[string]any)
+	}
+	filtered[service.ProtocolAuthorizationSnapshotCredentialKey] = service.ProtocolAuthorizationPresent(&account)
+	if !account.IsNewAPIVertexServiceAccount() {
+		return filtered
+	}
+	projectID := strings.TrimSpace(account.VertexProjectID())
+	if projectID == "" {
+		return filtered
+	}
+	filtered["project_id"] = projectID
 	return filtered
 }
 
@@ -1020,6 +1047,9 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"quota_weekly_reset_hour",
 		"quota_reset_timezone",
 		"mixed_scheduling",
+		"custom_base_url_enabled",
+		"custom_base_url",
+		"plan_type",
 		"max_sessions",
 		"session_idle_timeout_minutes",
 		"base_rpm",

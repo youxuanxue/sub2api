@@ -35,6 +35,7 @@ const (
 	openAICompatIneligibleNotCompatible     = "not_openai_compatible"
 	openAICompatIneligibleAccountCooling    = "account_cooling_or_disabled"
 	openAICompatIneligibleQuotaAutoPause    = "quota_auto_pause"
+	openAICompatIneligibleAuthorization     = "authorization_unavailable"
 	openAICompatIneligibleModelUnsupported  = "model_unsupported_by_account"
 	openAICompatIneligibleCapabilityMissing = "endpoint_capability_missing"
 	openAICompatIneligibleCompactMissing    = "compact_unsupported"
@@ -82,6 +83,9 @@ func openAICompatEligibilityReason(
 			return fmt.Sprintf("%s(window=%s threshold=%.2f utilization=%.2f)",
 				openAICompatIneligibleQuotaAutoPause, reason.window, reason.threshold, reason.utilization)
 		}
+	}
+	if !protocolRuntimeAuthorizationReady(ctx, account) {
+		return openAICompatIneligibleAuthorization
 	}
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
 		return openAICompatIneligibleModelUnsupported

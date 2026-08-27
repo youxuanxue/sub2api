@@ -35,6 +35,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
+	"github.com/Wei-Shaw/sub2api/ent/protocolendpointcapability"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/ent/qaarchiveshard"
 	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
@@ -813,6 +814,33 @@ func (f TraversePromoCodeUsage) Traverse(ctx context.Context, q ent.Query) error
 	return fmt.Errorf("unexpected query type %T. expect *ent.PromoCodeUsageQuery", q)
 }
 
+// The ProtocolEndpointCapabilityFunc type is an adapter to allow the use of ordinary function as a Querier.
+type ProtocolEndpointCapabilityFunc func(context.Context, *ent.ProtocolEndpointCapabilityQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f ProtocolEndpointCapabilityFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.ProtocolEndpointCapabilityQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.ProtocolEndpointCapabilityQuery", q)
+}
+
+// The TraverseProtocolEndpointCapability type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseProtocolEndpointCapability func(context.Context, *ent.ProtocolEndpointCapabilityQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseProtocolEndpointCapability) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseProtocolEndpointCapability) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.ProtocolEndpointCapabilityQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.ProtocolEndpointCapabilityQuery", q)
+}
+
 // The ProxyFunc type is an adapter to allow the use of ordinary function as a Querier.
 type ProxyFunc func(context.Context, *ent.ProxyQuery) (ent.Value, error)
 
@@ -1354,6 +1382,8 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.PromoCodeQuery, predicate.PromoCode, promocode.OrderOption]{typ: ent.TypePromoCode, tq: q}, nil
 	case *ent.PromoCodeUsageQuery:
 		return &query[*ent.PromoCodeUsageQuery, predicate.PromoCodeUsage, promocodeusage.OrderOption]{typ: ent.TypePromoCodeUsage, tq: q}, nil
+	case *ent.ProtocolEndpointCapabilityQuery:
+		return &query[*ent.ProtocolEndpointCapabilityQuery, predicate.ProtocolEndpointCapability, protocolendpointcapability.OrderOption]{typ: ent.TypeProtocolEndpointCapability, tq: q}, nil
 	case *ent.ProxyQuery:
 		return &query[*ent.ProxyQuery, predicate.Proxy, proxy.OrderOption]{typ: ent.TypeProxy, tq: q}, nil
 	case *ent.QAArchiveShardQuery:

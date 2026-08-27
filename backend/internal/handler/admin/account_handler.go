@@ -46,6 +46,35 @@ type protocolCapabilityProbeRunner interface {
 	ProbeAccountProtocolCapabilitiesNow(ctx context.Context, accountID int64) (service.ProtocolProbeRunResult, error)
 }
 
+type protocolCapabilityProbeResponse struct {
+	CapabilityKey        string     `json:"capability_key"`
+	SupportedProtocols   []string   `json:"supported_protocols"`
+	Revision             int64      `json:"revision"`
+	LastProbedAt         *time.Time `json:"last_probed_at"`
+	AffectedAccountCount int        `json:"affected_account_count"`
+}
+
+func protocolCapabilityProbeProjection(result service.ProtocolProbeRunResult) *protocolCapabilityProbeResponse {
+	if result.Capability == nil {
+		return nil
+	}
+	protocols, err := service.NormalizeSupportedProtocols(result.Capability.SupportedProtocols)
+	if err != nil {
+		protocols = nil
+	}
+	supportedProtocols := make([]string, len(protocols))
+	for i, protocol := range protocols {
+		supportedProtocols[i] = string(protocol)
+	}
+	return &protocolCapabilityProbeResponse{
+		CapabilityKey:        result.Capability.CapabilityKey,
+		SupportedProtocols:   supportedProtocols,
+		Revision:             result.Capability.Revision,
+		LastProbedAt:         result.Capability.LastProbedAt,
+		AffectedAccountCount: result.AffectedAccountCount,
+	}
+}
+
 // NewOAuthHandler creates a new OAuth handler
 func NewOAuthHandler(oauthService *service.OAuthService) *OAuthHandler {
 	return &OAuthHandler{
@@ -1238,9 +1267,10 @@ func (h *AccountHandler) ProbeProtocols(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{
-		"account": h.buildAccountResponseWithRuntime(c.Request.Context(), account),
-		"outcome": result.Outcome,
-		"reason":  result.Reason,
+		"account":    h.buildAccountResponseWithRuntime(c.Request.Context(), account),
+		"capability": protocolCapabilityProbeProjection(result),
+		"outcome":    result.Outcome,
+		"reason":     result.Reason,
 	})
 }
 

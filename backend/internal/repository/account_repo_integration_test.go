@@ -11,7 +11,6 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
-	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -1755,43 +1754,6 @@ func (s *AccountRepoSuite) TestUpdateExtra_SchedulerRelevantStillEnqueuesOutbox(
 		"mixed_scheduling":       true,
 		"codex_usage_updated_at": "2026-03-11T10:00:00Z",
 	}))
-
-	var count int
-	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox", nil, &count)
-	s.Require().NoError(err)
-	s.Require().Equal(1, count)
-}
-
-func (s *AccountRepoSuite) TestUpdateExtraIfUpdatedAtAtomicallyRejectsStaleProbeWrite() {
-	account := mustCreateAccount(s.T(), s.client, &service.Account{
-		Name:     "acc-extra-protocol-probe-cas",
-		Platform: service.PlatformOpenAI,
-		Type:     service.AccountTypeAPIKey,
-		Extra: map[string]any{
-			service.SupportedProtocolsExtraKey: []string{"responses"},
-		},
-	})
-	_, err := s.repo.sql.ExecContext(s.ctx, "TRUNCATE scheduler_outbox")
-	s.Require().NoError(err)
-
-	updated, err := s.repo.UpdateExtraIfUpdatedAt(s.ctx, account.ID, account.UpdatedAt, map[string]any{
-		service.SupportedProtocolsExtraKey: []string{"messages", "responses"},
-	})
-	s.Require().NoError(err)
-	s.Require().True(updated)
-
-	staleUpdated, err := s.repo.UpdateExtraIfUpdatedAt(s.ctx, account.ID, account.UpdatedAt, map[string]any{
-		service.SupportedProtocolsExtraKey: []string{"chat_completions"},
-	})
-	s.Require().NoError(err)
-	s.Require().False(staleUpdated)
-
-	got, err := s.repo.GetByID(s.ctx, account.ID)
-	s.Require().NoError(err)
-	s.Require().Equal([]protocolrouter.Protocol{
-		protocolrouter.ProtocolMessages,
-		protocolrouter.ProtocolResponses,
-	}, got.SupportedProtocols())
 
 	var count int
 	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox", nil, &count)

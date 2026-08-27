@@ -56,11 +56,7 @@ func protocolTargetTestService(upstream *protocolTargetHTTPUpstream) *OpenAIGate
 }
 
 func protocolTargetTestAccount(protocols ...protocolrouter.Protocol) *Account {
-	values := make([]any, len(protocols))
-	for i, protocol := range protocols {
-		values[i] = string(protocol)
-	}
-	return &Account{
+	account := &Account{
 		ID:          901,
 		Name:        "protocol-target",
 		Platform:    PlatformOpenAI,
@@ -70,8 +66,10 @@ func protocolTargetTestAccount(protocols ...protocolrouter.Protocol) *Account {
 			"api_key":  "sk-protocol-target",
 			"base_url": "http://upstream.example",
 		},
-		Extra: map[string]any{SupportedProtocolsExtraKey: values},
+		Extra: map[string]any{},
 	}
+	attachTestProtocolCapability(account, protocols...)
+	return account
 }
 
 func protocolTargetTestExecution(
@@ -82,6 +80,10 @@ func protocolTargetTestExecution(
 	execute ProtocolExecutionFunc,
 ) (any, error) {
 	t.Helper()
+	// Test cases mutate identity-affecting account fields after constructing the
+	// shared fixture. Production account edits atomically relink the capability;
+	// mirror that lifecycle boundary before planning.
+	attachTestProtocolCapability(account, account.SupportedProtocols()...)
 	requestedModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
 		InboundProtocol: inbound,
@@ -104,7 +106,7 @@ func protocolTargetTestExecution(
 	return ExecuteSelectedProtocol(ctx, router, &AccountSelectionResult{
 		Account:      account,
 		ProtocolPlan: &plan,
-	}, account, func(context.Context, *Account, string) error { return nil }, protocolExecutorsForTest(plan, execute))
+	}, account, func(context.Context, *Account, string) error { return nil }, protocolExecutionAccountLoaderForTest(account), protocolExecutorsForTest(plan, execute))
 }
 
 type protocolTargetGeminiTokenCache struct {
@@ -162,9 +164,11 @@ func TestProtocolGeminiAntigravityPlanBindsExactWireEndpointAndBearer(t *testing
 				},
 				Extra: map[string]any{SupportedProtocolsExtraKey: []any{string(protocolrouter.ProtocolGeminiGenerateContent)}},
 			}
+			attachTestProtocolCapability(account, protocolrouter.ProtocolGeminiGenerateContent)
 			var plan protocolrouter.Plan
 			value, err := protocolTargetTestExecution(t, protocolrouter.ProtocolMessages, body, account, func(
 				executionCtx context.Context,
+				account *Account,
 				selected protocolrouter.Plan,
 				request protocolrouter.CanonicalRequest,
 			) (any, error) {
@@ -237,9 +241,11 @@ func TestProtocolGeminiVertexPlanBindsExactWireEndpointAndBearer(t *testing.T) {
 				},
 				Extra: map[string]any{SupportedProtocolsExtraKey: []any{string(protocolrouter.ProtocolGeminiGenerateContent)}},
 			}
+			attachTestProtocolCapability(account, protocolrouter.ProtocolGeminiGenerateContent)
 			var plan protocolrouter.Plan
 			value, err := protocolTargetTestExecution(t, protocolrouter.ProtocolMessages, body, account, func(
 				executionCtx context.Context,
+				account *Account,
 				selected protocolrouter.Plan,
 				request protocolrouter.CanonicalRequest,
 			) (any, error) {
@@ -301,6 +307,7 @@ func TestProtocolExecutionPlanOverridesLegacyChatRouting(t *testing.T) {
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, body, account, func(
 		executionCtx context.Context,
+		account *Account,
 		_ protocolrouter.Plan,
 		_ protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -342,6 +349,7 @@ func TestProtocolExecutionPlanOverridesLegacyMessagesRouting(t *testing.T) {
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolMessages, body, account, func(
 		executionCtx context.Context,
+		account *Account,
 		_ protocolrouter.Plan,
 		_ protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -378,6 +386,7 @@ func TestProtocolMessagesIdentityUsesNativeAnthropicCredentialContractForCNAccou
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolMessages, body, account, func(
 		executionCtx context.Context,
+		account *Account,
 		_ protocolrouter.Plan,
 		request protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -412,6 +421,7 @@ func TestProtocolMessagesIdentityUsesNewAPIProtocolCredential(t *testing.T) {
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolMessages, body, account, func(
 		executionCtx context.Context,
+		account *Account,
 		_ protocolrouter.Plan,
 		request protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -456,6 +466,7 @@ func TestProtocolExecutionDoesNotFallbackProtocolOnSameAccount(t *testing.T) {
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, body, account, func(
 		executionCtx context.Context,
+		account *Account,
 		_ protocolrouter.Plan,
 		_ protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -492,6 +503,7 @@ func TestProtocolExecutionNewAPIResponsesUsesPlannedEndpoint(t *testing.T) {
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, body, account, func(
 		executionCtx context.Context,
+		account *Account,
 		plan protocolrouter.Plan,
 		_ protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -542,6 +554,7 @@ func TestProtocolExecutionBindsPlanResolvedModelToUpstreamRequest(t *testing.T) 
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, canonicalBody, account, func(
 		executionCtx context.Context,
+		account *Account,
 		_ protocolrouter.Plan,
 		_ protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -579,6 +592,7 @@ func TestProtocolExecutionBindsPlanEndpointToUpstreamRequest(t *testing.T) {
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, body, account, func(
 		executionCtx context.Context,
+		account *Account,
 		_ protocolrouter.Plan,
 		_ protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -616,6 +630,7 @@ func TestProtocolExecutionBindsNewAPIBridgeToPlanModelAndEndpoint(t *testing.T) 
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, body, account, func(
 		executionCtx context.Context,
+		account *Account,
 		_ protocolrouter.Plan,
 		request protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -660,6 +675,7 @@ func TestProtocolRouteRegistryRealAdaptersHonorWireContract(t *testing.T) {
 
 			value, err := protocolTargetTestExecution(t, route.InboundProtocol(), body, account, func(
 				executionCtx context.Context,
+				account *Account,
 				plan protocolrouter.Plan,
 				request protocolrouter.CanonicalRequest,
 			) (any, error) {

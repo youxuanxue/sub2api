@@ -3,6 +3,7 @@ package admin
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -123,15 +125,26 @@ func TestProbeProtocolsRunsExactAccountAndReturnsRefreshedCapabilities(t *testin
 	gin.SetMode(gin.TestMode)
 	adminService := newStubAdminService()
 	adminService.getAccountResult = governedProtocolProbeAccount(42)
+	lastProbedAt := time.Date(2026, time.August, 27, 0, 0, 0, 0, time.UTC)
+	capabilityID := int64(9)
+	capability := &service.ProtocolEndpointCapability{
+		ID:                 capabilityID,
+		CapabilityKey:      "endpoint-capability-key",
+		SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolResponses},
+		Revision:           7,
+		LastProbedAt:       &lastProbedAt,
+	}
 	scheduler := &recordingProtocolCapabilityProbeScheduler{
 		calls: make(chan []int64, 1),
 		probeNowResult: service.ProtocolProbeRunResult{
-			Outcome: service.ProtocolProbeRunUpdated,
+			Outcome:              service.ProtocolProbeRunUpdated,
+			Reason:               "positive_evidence",
+			Capability:           capability,
+			AffectedAccountCount: 3,
 		},
 		onProbe: func([]int64) {
-			adminService.getAccountResult.Extra = map[string]any{
-				service.SupportedProtocolsExtraKey: []any{"responses"},
-			}
+			adminService.getAccountResult.ProtocolEndpointCapabilityID = &capabilityID
+			adminService.getAccountResult.ProtocolEndpointCapability = capability
 		},
 	}
 	handler := &AccountHandler{adminService: adminService, protocolProbeScheduler: scheduler}
@@ -148,11 +161,42 @@ func TestProbeProtocolsRunsExactAccountAndReturnsRefreshedCapabilities(t *testin
 	if got, want := awaitProtocolProbeCall(t, scheduler), []int64{42}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("probe account IDs = %v, want %v", got, want)
 	}
-	if !strings.Contains(recorder.Body.String(), `"outcome":"updated"`) {
-		t.Fatalf("response did not contain probe outcome: %s", recorder.Body.String())
+	var responseBody struct {
+		Data struct {
+			Account struct {
+				SupportedProtocols []string `json:"supported_protocols"`
+			} `json:"account"`
+			Capability struct {
+				CapabilityKey      string     `json:"capability_key"`
+				SupportedProtocols []string   `json:"supported_protocols"`
+				Revision           int64      `json:"revision"`
+				LastProbedAt       *time.Time `json:"last_probed_at"`
+				AffectedCount      int        `json:"affected_account_count"`
+			} `json:"capability"`
+			Outcome service.ProtocolProbeRunOutcome `json:"outcome"`
+			Reason  string                          `json:"reason"`
+		} `json:"data"`
 	}
-	if !strings.Contains(recorder.Body.String(), `"account":`) || !strings.Contains(recorder.Body.String(), `"supported_protocols":["responses"]`) {
-		t.Fatalf("response did not contain refreshed protocols: %s", recorder.Body.String())
+	if err := json.Unmarshal(recorder.Body.Bytes(), &responseBody); err != nil {
+		t.Fatalf("decode response: %v body=%s", err, recorder.Body.String())
+	}
+	if got, want := responseBody.Data.Account.SupportedProtocols, []string{"responses"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("account supported_protocols = %v, want %v", got, want)
+	}
+	if got, want := responseBody.Data.Capability.CapabilityKey, "endpoint-capability-key"; got != want {
+		t.Fatalf("capability key = %q, want %q", got, want)
+	}
+	if got, want := responseBody.Data.Capability.SupportedProtocols, []string{"responses"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("capability supported_protocols = %v, want %v", got, want)
+	}
+	if responseBody.Data.Capability.Revision != 7 || responseBody.Data.Capability.AffectedCount != 3 {
+		t.Fatalf("capability metadata = %+v", responseBody.Data.Capability)
+	}
+	if responseBody.Data.Capability.LastProbedAt == nil || !responseBody.Data.Capability.LastProbedAt.Equal(lastProbedAt) {
+		t.Fatalf("last_probed_at = %v, want %v", responseBody.Data.Capability.LastProbedAt, lastProbedAt)
+	}
+	if responseBody.Data.Outcome != service.ProtocolProbeRunUpdated || responseBody.Data.Reason != "positive_evidence" {
+		t.Fatalf("probe result = outcome %q reason %q", responseBody.Data.Outcome, responseBody.Data.Reason)
 	}
 }
 

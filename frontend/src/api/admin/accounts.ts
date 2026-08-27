@@ -26,7 +26,9 @@ import type {
   UpstreamBillingProbeResult,
   UpstreamBillingProbeSettings,
   OllamaCloudUsageSettings,
-  OllamaCloudUsageState
+  OllamaCloudUsageState,
+  NativeTextProtocol,
+  ProtocolEndpointCapabilitySummary
 } from '@/types'
 
 /**
@@ -259,10 +261,15 @@ export async function refreshCredentials(id: number): Promise<Account> {
   return data
 }
 
-export type ProtocolProbeOutcome = 'updated' | 'unchanged' | 'not_applicable'
+export type ProtocolProbeOutcome = 'updated' | 'unchanged' | 'inconclusive' | 'not_applicable'
+
+export interface ProtocolProbeCapability extends ProtocolEndpointCapabilitySummary {
+  supported_protocols: NativeTextProtocol[]
+}
 
 export interface ProtocolProbeResult {
 	account: Account
+	capability: ProtocolProbeCapability | null
 	outcome: ProtocolProbeOutcome
 	reason?: string
 }

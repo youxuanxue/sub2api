@@ -1,223 +1,13 @@
 package service
 
 import (
-	"context"
-	"io"
-	"net/http"
-	"strings"
 	"testing"
-	"time"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/stretchr/testify/require"
 )
-
-func TestProbeOpenAIAPIKeyResponsesSupportUsesNewAPIAdaptorEndpoint(t *testing.T) {
-	updateCalls := make(chan map[string]any, 1)
-	account := Account{
-		ID:          72,
-		Platform:    PlatformNewAPI,
-		Type:        AccountTypeAPIKey,
-		ChannelType: newapiconstant.ChannelTypeAli,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key":  "dashscope-key",
-			"base_url": "https://dashscope.aliyuncs.com",
-			"model_mapping": map[string]any{
-				"qwen3.7-max": "qwen3.7-max",
-			},
-		},
-	}
-	repo := &snapshotUpdateAccountRepo{
-		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
-		updateExtraCalls:      updateCalls,
-	}
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     make(http.Header),
-		Body:       io.NopCloser(strings.NewReader(`{"status":"completed","output":[{"type":"function_call","name":"probe_ping"}]}`)),
-	}}
-	svc := &AccountTestService{
-		accountRepo:  repo,
-		httpUpstream: upstream,
-		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
-	}
-
-	svc.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), account.ID)
-
-	require.NotNil(t, upstream.lastReq)
-	require.Equal(t, "https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1/responses", upstream.lastReq.URL.String())
-	updates := <-updateCalls
-	require.Equal(t, []string{"responses"}, updates[SupportedProtocolsExtraKey])
-}
-
-func TestProbeOpenAIAPIKeyResponsesSupportPrefersChannelNativeTextModel(t *testing.T) {
-	updateCalls := make(chan map[string]any, 1)
-	account := Account{
-		ID:          78,
-		Platform:    PlatformNewAPI,
-		Type:        AccountTypeAPIKey,
-		ChannelType: newapiconstant.ChannelTypeAli,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key":  "dashscope-key",
-			"base_url": "https://dashscope.aliyuncs.com",
-			"model_mapping": map[string]any{
-				"glm-4.5":   "glm-4.5",
-				"qwen-plus": "qwen-plus",
-			},
-		},
-	}
-	repo := &snapshotUpdateAccountRepo{
-		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
-		updateExtraCalls:      updateCalls,
-	}
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     make(http.Header),
-		Body:       io.NopCloser(strings.NewReader(`{"status":"completed","output":[{"type":"function_call","name":"probe_ping"}]}`)),
-	}}
-	svc := &AccountTestService{
-		accountRepo:  repo,
-		httpUpstream: upstream,
-		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
-	}
-
-	svc.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), account.ID)
-
-	require.Len(t, upstream.bodies, 1)
-	require.Contains(t, string(upstream.bodies[0]), `"model":"qwen-plus"`)
-	updates := <-updateCalls
-	require.Equal(t, []string{"responses"}, updates[SupportedProtocolsExtraKey])
-}
-
-func TestProbeOpenAIAPIKeyResponsesSupportUsesCodexProbeHeaders(t *testing.T) {
-	updateCalls := make(chan map[string]any, 1)
-	account := Account{
-		ID:          96,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key":  "sk-test",
-			"base_url": "https://compat-upstream.example/v1",
-		},
-	}
-	repo := &snapshotUpdateAccountRepo{
-		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
-		updateExtraCalls:      updateCalls,
-	}
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     make(http.Header),
-		Body:       io.NopCloser(strings.NewReader(`{"output":[{"type":"function_call","name":"probe_ping"}]}`)),
-	}}
-	svc := &AccountTestService{
-		accountRepo:  repo,
-		httpUpstream: upstream,
-		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
-	}
-
-	svc.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), account.ID)
-
-	require.NotNil(t, upstream.lastReq)
-	require.Equal(t, "https://compat-upstream.example/v1/responses", upstream.lastReq.URL.String())
-	requireOpenAICodexProbeHeaders(t, upstream.lastReq.Header)
-	updates := <-updateCalls
-	require.Equal(t, true, updates[openai_compat.ExtraKeyResponsesSupported])
-}
-
-func TestProbeOpenAIAPIKeyResponsesSupportUsesGenericAPIKeyForAnthropicMirror(t *testing.T) {
-	updateCalls := make(chan map[string]any, 1)
-	account := Account{
-		ID:          197,
-		Platform:    PlatformAnthropic,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key":  "mirror-api-key",
-			"base_url": "https://mirror.example.test/v1",
-		},
-	}
-	repo := &snapshotUpdateAccountRepo{
-		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
-		updateExtraCalls:      updateCalls,
-	}
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     make(http.Header),
-		Body:       io.NopCloser(strings.NewReader(`{"status":"completed","output":[{"type":"function_call","name":"probe_ping"}]}`)),
-	}}
-	svc := &AccountTestService{
-		accountRepo:  repo,
-		httpUpstream: upstream,
-		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
-	}
-
-	svc.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), account.ID)
-
-	require.NotNil(t, upstream.lastReq, "Anthropic API-key mirrors must execute a real Responses probe")
-	require.Equal(t, "Bearer mirror-api-key", upstream.lastReq.Header.Get("Authorization"))
-	require.True(t, HTTPUpstreamRedirectsDisabled(upstream.lastReq.Context()))
-	updates := <-updateCalls
-	require.Equal(t, []string{"responses"}, updates[SupportedProtocolsExtraKey])
-}
-
-func TestProbeOpenAIAPIKeyResponsesSupportCNProviders(t *testing.T) {
-	tests := []struct {
-		name     string
-		id       int64
-		platform string
-		protocol string
-		status   int
-		body     string
-		want     bool
-	}{
-		{name: "deepseek adaptive does not imply responses", id: 201, platform: PlatformDeepseek, protocol: APIProtocolAdaptive, status: http.StatusNotFound, body: `{"error":{"message":"not found"}}`, want: false},
-		{name: "kimi chat setting does not deny a conclusive responses probe", id: 202, platform: PlatformKimi, protocol: APIProtocolChatCompletions, status: http.StatusOK, body: `{"status":"completed","output":[{"type":"function_call","name":"probe_ping"}]}`, want: true},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			updateCalls := make(chan map[string]any, 1)
-			account := Account{
-				ID: tc.id, Platform: tc.platform, Type: AccountTypeAPIKey,
-				Credentials: map[string]any{"api_key": "sk-test", "api_protocol": tc.protocol, "base_url": "https://cn.example"},
-				Extra: map[string]any{
-					openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceResponses),
-				},
-			}
-			repo := &snapshotUpdateAccountRepo{
-				stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
-				updateExtraCalls:      updateCalls,
-			}
-			upstream := &httpUpstreamRecorder{resp: &http.Response{
-				StatusCode: tc.status,
-				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader(tc.body)),
-			}}
-			svc := &AccountTestService{
-				accountRepo:  repo,
-				httpUpstream: upstream,
-				cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
-			}
-
-			svc.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), account.ID)
-
-			var updates map[string]any
-			select {
-			case updates = <-updateCalls:
-			case <-time.After(time.Second):
-				t.Fatal("probe did not persist a conclusive verdict")
-			}
-			require.Equal(t, tc.want, updates[openai_compat.ExtraKeyResponsesSupported])
-			require.NotNil(t, upstream.lastReq, "capability must come from a real per-account probe")
-		})
-	}
-}
 
 func TestDecideResponsesProbeSupport(t *testing.T) {
 	fnCall := []byte(`{"output":[{"type":"reasoning"},{"type":"function_call","name":"probe_ping"}]}`)
@@ -248,6 +38,27 @@ func TestDecideResponsesProbeSupport(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			endpointSupported := openai_compat.ResponsesEndpointSupportedByStatus(tc.status)
 			require.Equal(t, tc.want, decideResponsesProbeSupport(endpointSupported, tc.status, tc.body))
+		})
+	}
+}
+
+func TestResponsesProbeVerdictIsConclusive(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{"200_completed", 200, `{"status":"completed","output":[]}`, true},
+		{"200_incomplete_max_output_tokens", 200, `{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}`, false},
+		{"200_incomplete_content_filter", 200, `{"status":"incomplete","incomplete_details":{"reason":"content_filter"}}`, true},
+		{"200_failed", 200, `{"status":"failed"}`, false},
+		{"200_no_status_field", 200, `{"output":[]}`, true},
+		{"404_ignores_body_status", 404, `{"status":"failed"}`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, responsesProbeVerdictIsConclusive(tc.status, []byte(tc.body)))
 		})
 	}
 }

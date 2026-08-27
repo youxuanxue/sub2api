@@ -42,7 +42,7 @@ type ProtocolRoutingMigrationReport struct {
 
 type protocolRoutingMigrationRepository interface {
 	ListActive(ctx context.Context) ([]Account, error)
-	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error
+	ProtocolEndpointCapabilityRepository
 }
 
 func MigrateProtocolRoutingSSOT(
@@ -61,17 +61,40 @@ func MigrateProtocolRoutingSSOT(
 			continue
 		}
 		report.ActiveGoverned++
-		if _, exists := account.Extra[SupportedProtocolsExtraKey]; !exists {
-			if protocols := officialSupportedProtocols(account); len(protocols) > 0 {
-				if err := ReplaceSupportedProtocols(ctx, repo, account.ID, protocols); err != nil {
-					return report, err
-				}
-				update, _ := BuildSupportedProtocolsUpdate(protocols)
-				applySupportedProtocolsUpdate(account, update)
-				report.SeededOfficial++
+		identity, governed, err := BuildProtocolEndpointIdentity(account)
+		if err != nil {
+			if account.Schedulable {
+				report.CutoverReady = false
+				report.Remediation = append(report.Remediation, ProtocolRoutingRemediation{AccountID: account.ID, Name: account.Name, Reason: ProtocolRoutingRemediationNoLegalRoute})
 			}
+			continue
 		}
-		if len(account.SupportedProtocols()) == 0 {
+		if !governed {
+			continue
+		}
+		official := officialSupportedProtocols(account)
+		wasOfficialSeed := false
+		if existing, existingErr := repo.GetByKey(ctx, identity.Key()); existingErr == nil && existing != nil {
+			wasOfficialSeed = existing.ProbeEvidence.OfficialSeed
+		}
+		capability, err := repo.EnsureAccountLink(ctx, account, identity, LegacySupportedProtocolsProjection(account), len(official) > 0)
+		if err != nil {
+			return report, err
+		}
+		if len(official) > 0 && capability.ProbeEvidence.OfficialSeed && !wasOfficialSeed {
+			report.SeededOfficial++
+		}
+		if !account.Schedulable {
+			continue
+		}
+		if !ProtocolAuthorizationPresent(account) {
+			report.CutoverReady = false
+			report.Remediation = append(report.Remediation, ProtocolRoutingRemediation{AccountID: account.ID, Name: account.Name, Reason: ProtocolRoutingRemediationProbeRequired})
+			continue
+		}
+		if capability.IdentityConflict || capability.ProbeEvidence.IdentityConflict ||
+			(!capability.ProbeEvidence.InitialProbeCompleted && !capability.ProbeEvidence.OfficialSeed) ||
+			len(capability.SupportedProtocols) == 0 {
 			report.CutoverReady = false
 			report.Remediation = append(report.Remediation, ProtocolRoutingRemediation{
 				AccountID: account.ID,
@@ -112,15 +135,19 @@ func prepareProtocolRoutingSSOT(
 	}
 
 	accountIDs := make([]int64, 0, len(initial.Remediation))
-	seen := make(map[int64]struct{}, len(initial.Remediation))
+	seenKeys := make(map[string]struct{}, len(initial.Remediation))
 	for _, remediation := range initial.Remediation {
 		if remediation.AccountID <= 0 {
 			continue
 		}
-		if _, exists := seen[remediation.AccountID]; exists {
+		capability, capabilityErr := repo.GetByAccountID(ctx, remediation.AccountID)
+		if capabilityErr != nil || capability == nil || capability.CapabilityKey == "" {
 			continue
 		}
-		seen[remediation.AccountID] = struct{}{}
+		if _, exists := seenKeys[capability.CapabilityKey]; exists {
+			continue
+		}
+		seenKeys[capability.CapabilityKey] = struct{}{}
 		accountIDs = append(accountIDs, remediation.AccountID)
 	}
 	probeProtocolRoutingAccounts(ctx, prober, accountIDs)

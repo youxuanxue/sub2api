@@ -52,11 +52,14 @@ func TestNormalizeSupportedProtocolsValidatesDeduplicatesAndOrders(t *testing.T)
 	}
 }
 
-func TestAccountSupportedProtocolsReadsOnlyCanonicalExtraKey(t *testing.T) {
+func TestAccountSupportedProtocolsReadsOnlyLinkedCapability(t *testing.T) {
 	account := &Account{Extra: map[string]any{
-		SupportedProtocolsExtraKey:         []any{"responses", "messages", "responses"},
+		SupportedProtocolsExtraKey:         []any{"chat_completions"},
 		"openai_responses_supported":       true,
 		"openai_native_messages_supported": true,
+	}}
+	account.ProtocolEndpointCapability = &ProtocolEndpointCapability{SupportedProtocols: []protocolrouter.Protocol{
+		protocolrouter.ProtocolResponses, protocolrouter.ProtocolMessages, protocolrouter.ProtocolResponses,
 	}}
 
 	got := account.SupportedProtocols()
@@ -131,10 +134,9 @@ func TestProtocolAccountSnapshotResolvesModelAndRevisionFromAccountFacts(t *test
 			"base_url":      "https://relay.example.test/v1",
 			"model_mapping": map[string]any{"client-model": "upstream-model"},
 		},
-		Extra: map[string]any{
-			SupportedProtocolsExtraKey: []any{"chat_completions", "responses"},
-		},
+		Extra: map[string]any{},
 	}
+	attachTestProtocolCapability(account, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses)
 
 	snapshot, err := ProtocolAccountSnapshot(account, "client-model")
 	if err != nil {
@@ -162,6 +164,26 @@ func TestProtocolAccountSnapshotResolvesModelAndRevisionFromAccountFacts(t *test
 	}
 }
 
+func TestProtocolAccountSnapshotRejectsUnverifiedHistoricalCapability(t *testing.T) {
+	account := &Account{
+		ID:       43,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": "https://relay.example.test/v1",
+		},
+		Extra: map[string]any{},
+	}
+	attachTestProtocolCapability(account, protocolrouter.ProtocolResponses)
+	account.ProtocolEndpointCapability.ProbeEvidence.InitialProbeCompleted = false
+	account.ProtocolEndpointCapability.ProbeEvidence.OfficialSeed = false
+
+	if _, err := ProtocolAccountSnapshot(account, "gpt-5.4"); err == nil {
+		t.Fatal("unverified historical capability was admitted to runtime routing")
+	}
+}
+
 func TestProtocolAccountSnapshotUsesOfficialProfileForOpenAIOAuth(t *testing.T) {
 	account := &Account{
 		ID:       77,
@@ -170,10 +192,9 @@ func TestProtocolAccountSnapshotUsesOfficialProfileForOpenAIOAuth(t *testing.T) 
 		Credentials: map[string]any{
 			"access_token": "oauth-secret",
 		},
-		Extra: map[string]any{
-			SupportedProtocolsExtraKey: []any{"responses"},
-		},
+		Extra: map[string]any{},
 	}
+	attachTestProtocolCapability(account, protocolrouter.ProtocolResponses)
 	snapshot, err := ProtocolAccountSnapshot(account, "gpt-5.4")
 	if err != nil {
 		t.Fatalf("ProtocolAccountSnapshot: %v", err)
@@ -204,11 +225,11 @@ func TestProtocolAccountSnapshotUsesExplicitMessagesEndpointForCustomAnthropicOA
 			"access_token": "oauth-secret",
 		},
 		Extra: map[string]any{
-			SupportedProtocolsExtraKey: []any{"messages"},
-			"custom_base_url_enabled":  true,
-			"custom_base_url":          "https://relay.example.test/v1",
+			"custom_base_url_enabled": true,
+			"custom_base_url":         "https://relay.example.test/v1",
 		},
 	}
+	attachTestProtocolCapability(account, protocolrouter.ProtocolMessages)
 	snapshot, err := ProtocolAccountSnapshot(account, "claude-sonnet-4-6")
 	if err != nil {
 		t.Fatalf("ProtocolAccountSnapshot: %v", err)
@@ -362,6 +383,7 @@ func TestProtocolAccountSnapshotDerivesGeminiEndpointProfile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			attachTestProtocolCapability(tt.account, protocolrouter.ProtocolGeminiGenerateContent)
 			request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
 				InboundProtocol: protocolrouter.ProtocolGeminiGenerateContent,
 				RequestedModel:  "client-model",
@@ -402,6 +424,7 @@ func TestProtocolRouterRejectsResolvedModelOutsideOfficialRoutePolicy(t *testing
 			SupportedProtocolsExtraKey: []any{"responses"},
 		},
 	}
+	attachTestProtocolCapability(account, protocolrouter.ProtocolResponses)
 	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
 		InboundProtocol: protocolrouter.ProtocolResponses,
 		RequestedModel:  "client-alias",
@@ -460,9 +483,8 @@ func TestSeedOfficialSupportedProtocolsIsConservativeAndIdempotent(t *testing.T)
 		})
 	}
 
-	explicitEmpty := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{
-		SupportedProtocolsExtraKey: []any{},
-	}}
+	explicitEmpty := &Account{ID: 91, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Credentials: map[string]any{"access_token": "secret"}}
+	attachTestProtocolCapability(explicitEmpty)
 	SeedOfficialSupportedProtocols(explicitEmpty)
 	if got := explicitEmpty.SupportedProtocols(); len(got) != 0 {
 		t.Fatalf("explicit empty capability was overwritten: %v", got)
@@ -503,6 +525,7 @@ func TestAdminUpdatePreservesCanonicalSupportedProtocolsAndIgnoresClientValue(t 
 			},
 		},
 	}}
+	repo.accounts[accountID].ProtocolEndpointCapability = &ProtocolEndpointCapability{SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolMessages}}
 	updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
 		Extra: map[string]any{
 			SupportedProtocolsExtraKey: []any{"responses"},
@@ -528,6 +551,7 @@ func TestAdminUpdateExtraCannotWriteSupportedProtocols(t *testing.T) {
 			Extra: map[string]any{SupportedProtocolsExtraKey: []string{"messages"}},
 		},
 	}}
+	repo.accounts[accountID].ProtocolEndpointCapability = &ProtocolEndpointCapability{SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolMessages}}
 	err := (&adminServiceImpl{accountRepo: repo}).UpdateAccountExtra(context.Background(), accountID, map[string]any{
 		SupportedProtocolsExtraKey: []any{"responses"},
 		"custom":                   true,

@@ -27,6 +27,7 @@ import (
 	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -116,6 +117,56 @@ func NewAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCache se
 	return newAccountRepositoryWithSQL(client, sqlDB, schedulerCache, tierResolver)
 }
 
+func (r *accountRepository) protocolCapabilityRepository() *protocolEndpointCapabilityRepository {
+	return newProtocolEndpointCapabilityRepositoryWithDB(r.sql)
+}
+
+func (r *accountRepository) EnsureAccountLink(ctx context.Context, account *service.Account, identity service.ProtocolEndpointIdentity, historical []protocolrouter.Protocol, officialSeed bool) (*service.ProtocolEndpointCapability, error) {
+	return r.protocolCapabilityRepository().EnsureAccountLink(ctx, account, identity, historical, officialSeed)
+}
+
+func (r *accountRepository) GetByAccountID(ctx context.Context, accountID int64) (*service.ProtocolEndpointCapability, error) {
+	return r.protocolCapabilityRepository().GetByAccountID(ctx, accountID)
+}
+
+func (r *accountRepository) GetByKey(ctx context.Context, capabilityKey string) (*service.ProtocolEndpointCapability, error) {
+	return r.protocolCapabilityRepository().GetByKey(ctx, capabilityKey)
+}
+
+func (r *accountRepository) ListLinkedAccountIDs(ctx context.Context, capabilityKey string) ([]int64, error) {
+	return r.protocolCapabilityRepository().ListLinkedAccountIDs(ctx, capabilityKey)
+}
+
+func (r *accountRepository) AcquireProbeLease(ctx context.Context, capabilityKey, owner string, now time.Time, ttl time.Duration) (service.ProtocolProbeLease, bool, error) {
+	return r.protocolCapabilityRepository().AcquireProbeLease(ctx, capabilityKey, owner, now, ttl)
+}
+
+func (r *accountRepository) CommitProbeResult(ctx context.Context, lease service.ProtocolProbeLease, mutation service.ProtocolCapabilityMutation) (*service.ProtocolEndpointCapability, int, error) {
+	return r.protocolCapabilityRepository().CommitProbeResult(ctx, lease, mutation)
+}
+
+func ensureAccountProtocolEndpointCapability(ctx context.Context, db protocolCapabilitySQL, account *service.Account) error {
+	input, err := service.BuildProtocolEndpointCapabilityLinkInput(account)
+	if err != nil {
+		return err
+	}
+	if !input.Governed {
+		if account.ProtocolEndpointCapabilityID == nil && account.ProtocolEndpointCapability == nil {
+			return nil
+		}
+		return unlinkProtocolEndpointCapability(ctx, db, account)
+	}
+	_, err = ensureProtocolEndpointCapabilityLink(
+		ctx,
+		db,
+		account,
+		input.Identity,
+		input.SeedProtocols,
+		input.OfficialSeed,
+	)
+	return err
+}
+
 // NewAdminAccountRepository exposes the account repository's atomic duplication capability
 // as an explicit dependency of the admin service.
 func NewAdminAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCache service.SchedulerCache) service.AdminAccountRepository {
@@ -134,11 +185,31 @@ func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedul
 }
 
 func (r *accountRepository) Create(ctx context.Context, account *service.Account) error {
-	if err := createAccountRecord(ctx, r.client, account); err != nil {
+	if account == nil {
+		return service.ErrAccountNilInput
+	}
+	tx, err := r.client.Tx(ctx)
+	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
 		return err
 	}
-	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs)); err != nil {
+	client := r.client
+	if tx != nil {
+		defer func() { _ = tx.Rollback() }()
+		client = tx.Client()
+	}
+	if err := createAccountRecord(ctx, client, account); err != nil {
+		return err
+	}
+	if err := ensureAccountProtocolEndpointCapability(ctx, client, account); err != nil {
+		return err
+	}
+	if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs)); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue account create failed: account=%d err=%v", account.ID, err)
+	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -235,6 +306,9 @@ func (r *accountRepository) CreateWithAccountGroups(ctx context.Context, account
 	}
 
 	if err := createAccountRecord(ctx, txClient, account); err != nil {
+		return err
+	}
+	if err := ensureAccountProtocolEndpointCapability(ctx, txClient, account); err != nil {
 		return err
 	}
 	groupIDs := make([]int64, 0, len(groups))
@@ -406,6 +480,10 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 	if err != nil {
 		return nil, err
 	}
+	capabilitiesByAccount, err := r.loadProtocolEndpointCapabilities(ctx, accountIDs)
+	if err != nil {
+		return nil, err
+	}
 
 	outByID := make(map[int64]*service.Account, len(entAccounts))
 	for _, entAcc := range entAccounts {
@@ -429,6 +507,9 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 		}
 		if ags, ok := accountGroupsByAccount[entAcc.ID]; ok {
 			out.AccountGroups = ags
+		}
+		if capability, ok := capabilitiesByAccount[entAcc.ID]; ok {
+			out.ProtocolEndpointCapability = capability
 		}
 		outByID[entAcc.ID] = out
 	}
@@ -580,6 +661,9 @@ func (r *accountRepository) updateAccount(
 	)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
+	}
+	if err := ensureAccountProtocolEndpointCapability(ctx, client, account); err != nil {
+		return err
 	}
 	if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs)); err != nil {
 		return err
@@ -955,6 +1039,13 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 	if affected == 0 {
 		return service.ErrAccountNotFound
 	}
+	updatedAccount, err := loadAccountForProtocolCapabilityLifecycle(ctx, client, id)
+	if err != nil {
+		return err
+	}
+	if err := ensureAccountProtocolEndpointCapability(ctx, client, updatedAccount); err != nil {
+		return err
+	}
 	if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
 		return err
 	}
@@ -967,6 +1058,52 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 		r.syncSchedulerAccountSnapshot(baseCtx, id)
 	}
 	return nil
+}
+
+func loadAccountForProtocolCapabilityLifecycle(ctx context.Context, db protocolCapabilitySQL, id int64) (*service.Account, error) {
+	rows, err := db.QueryContext(ctx, `
+SELECT id, platform, type, credentials, extra, channel_type, protocol_endpoint_capability_id
+FROM accounts
+WHERE id=$1 AND deleted_at IS NULL
+FOR UPDATE`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, service.ErrAccountNotFound
+	}
+	var (
+		account     service.Account
+		credentials []byte
+		extra       []byte
+		capability  sql.NullInt64
+	)
+	if err := rows.Scan(
+		&account.ID,
+		&account.Platform,
+		&account.Type,
+		&credentials,
+		&extra,
+		&account.ChannelType,
+		&capability,
+	); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(credentials, &account.Credentials); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(extra, &account.Extra); err != nil {
+		return nil, err
+	}
+	if capability.Valid {
+		capabilityID := capability.Int64
+		account.ProtocolEndpointCapabilityID = &capabilityID
+	}
+	return &account, nil
 }
 
 func (r *accountRepository) Delete(ctx context.Context, id int64) error {
@@ -2701,18 +2838,6 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 	return err
 }
 
-// UpdateExtraIfUpdatedAt atomically merges extra only when the account still
-// has the revision read by the caller. A false result is a compare-and-swap
-// miss; no account or outbox row was changed.
-func (r *accountRepository) UpdateExtraIfUpdatedAt(
-	ctx context.Context,
-	id int64,
-	expectedUpdatedAt time.Time,
-	updates map[string]any,
-) (bool, error) {
-	return r.updateExtra(ctx, id, &expectedUpdatedAt, updates)
-}
-
 func (r *accountRepository) updateExtra(
 	ctx context.Context,
 	id int64,
@@ -3312,6 +3437,10 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 	if err != nil {
 		return nil, err
 	}
+	capabilitiesByAccount, err := r.loadProtocolEndpointCapabilities(ctx, accountIDs)
+	if err != nil {
+		return nil, err
+	}
 
 	outAccounts := make([]service.Account, 0, len(accounts))
 	for _, acc := range accounts {
@@ -3339,6 +3468,9 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		}
 		if ags, ok := accountGroupsByAccount[acc.ID]; ok {
 			out.AccountGroups = ags
+		}
+		if capability, ok := capabilitiesByAccount[acc.ID]; ok {
+			out.ProtocolEndpointCapability = capability
 		}
 		// TK: overlay per-tier config (base_rpm / max_sessions / ...) onto the
 		// in-memory Extra so runtime getters resolve tier values; nil-safe.
@@ -3560,40 +3692,85 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 	rateMultiplier := m.RateMultiplier
 
 	return &service.Account{
-		ID:                      m.ID,
-		Name:                    m.Name,
-		Notes:                   m.Notes,
-		Platform:                m.Platform,
-		Type:                    m.Type,
-		Credentials:             copyJSONMap(m.Credentials),
-		Extra:                   copyJSONMap(m.Extra),
-		ProxyID:                 m.ProxyID,
-		ProxyFallbackOriginID:   m.ProxyFallbackOriginID,
-		Concurrency:             m.Concurrency,
-		Priority:                m.Priority,
-		RateMultiplier:          &rateMultiplier,
-		LoadFactor:              m.LoadFactor,
-		Status:                  m.Status,
-		ErrorMessage:            derefString(m.ErrorMessage),
-		LastUsedAt:              m.LastUsedAt,
-		ExpiresAt:               m.ExpiresAt,
-		AutoPauseOnExpired:      m.AutoPauseOnExpired,
-		CreatedAt:               m.CreatedAt,
-		UpdatedAt:               m.UpdatedAt,
-		Schedulable:             m.Schedulable,
-		RateLimitedAt:           m.RateLimitedAt,
-		RateLimitResetAt:        m.RateLimitResetAt,
-		OverloadUntil:           m.OverloadUntil,
-		TempUnschedulableUntil:  m.TempUnschedulableUntil,
-		TempUnschedulableReason: derefString(m.TempUnschedulableReason),
-		SessionWindowStart:      m.SessionWindowStart,
-		SessionWindowEnd:        m.SessionWindowEnd,
-		SessionWindowStatus:     derefString(m.SessionWindowStatus),
-		ChannelType:             m.ChannelType,
-		TierID:                  m.TierID,
-		ParentAccountID:         m.ParentAccountID,
-		QuotaDimension:          string(m.QuotaDimension),
+		ID:                           m.ID,
+		Name:                         m.Name,
+		Notes:                        m.Notes,
+		Platform:                     m.Platform,
+		Type:                         m.Type,
+		Credentials:                  copyJSONMap(m.Credentials),
+		Extra:                        copyJSONMap(m.Extra),
+		ProxyID:                      m.ProxyID,
+		ProxyFallbackOriginID:        m.ProxyFallbackOriginID,
+		Concurrency:                  m.Concurrency,
+		Priority:                     m.Priority,
+		RateMultiplier:               &rateMultiplier,
+		LoadFactor:                   m.LoadFactor,
+		Status:                       m.Status,
+		ErrorMessage:                 derefString(m.ErrorMessage),
+		LastUsedAt:                   m.LastUsedAt,
+		ExpiresAt:                    m.ExpiresAt,
+		AutoPauseOnExpired:           m.AutoPauseOnExpired,
+		CreatedAt:                    m.CreatedAt,
+		UpdatedAt:                    m.UpdatedAt,
+		Schedulable:                  m.Schedulable,
+		RateLimitedAt:                m.RateLimitedAt,
+		RateLimitResetAt:             m.RateLimitResetAt,
+		OverloadUntil:                m.OverloadUntil,
+		TempUnschedulableUntil:       m.TempUnschedulableUntil,
+		TempUnschedulableReason:      derefString(m.TempUnschedulableReason),
+		SessionWindowStart:           m.SessionWindowStart,
+		SessionWindowEnd:             m.SessionWindowEnd,
+		SessionWindowStatus:          derefString(m.SessionWindowStatus),
+		ChannelType:                  m.ChannelType,
+		TierID:                       m.TierID,
+		ProtocolEndpointCapabilityID: m.ProtocolEndpointCapabilityID,
+		ParentAccountID:              m.ParentAccountID,
+		QuotaDimension:               string(m.QuotaDimension),
 	}
+}
+
+func (r *accountRepository) loadProtocolEndpointCapabilities(
+	ctx context.Context,
+	accountIDs []int64,
+) (map[int64]*service.ProtocolEndpointCapability, error) {
+	result := make(map[int64]*service.ProtocolEndpointCapability)
+	accountIDs = uniquePositiveInt64s(accountIDs)
+	if len(accountIDs) == 0 || r == nil || r.sql == nil {
+		return result, nil
+	}
+	rows, err := r.sql.QueryContext(ctx, `
+SELECT a.id,
+       c.id, c.capability_key, c.identity, c.supported_protocols, c.probe_evidence, c.revision,
+       c.last_probed_at, c.probe_lease_owner, c.probe_lease_until, c.probe_generation,
+       c.identity_conflict, c.created_at, c.updated_at,
+       (
+           SELECT COUNT(*)
+           FROM accounts linked
+           WHERE linked.protocol_endpoint_capability_id=c.id
+             AND linked.deleted_at IS NULL
+       ) AS linked_account_count
+FROM accounts a
+JOIN protocol_endpoint_capabilities c ON c.id=a.protocol_endpoint_capability_id
+WHERE a.id = ANY($1) AND a.deleted_at IS NULL`, pq.Array(accountIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var accountID int64
+		state := newProtocolCapabilityScanState()
+		destinations := append([]any{&accountID}, state.destinations()...)
+		destinations = append(destinations, &state.capability.LinkedAccountCount)
+		if err := rows.Scan(destinations...); err != nil {
+			return nil, err
+		}
+		capability, err := state.decode()
+		if err != nil {
+			return nil, err
+		}
+		result[accountID] = capability
+	}
+	return result, rows.Err()
 }
 
 func normalizeJSONMap(in map[string]any) map[string]any {

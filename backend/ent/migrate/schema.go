@@ -130,6 +130,7 @@ var (
 		{Name: "quota_dimension", Type: field.TypeEnum, Enums: []string{"global", "spark"}, Default: "global"},
 		{Name: "proxy_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "parent_account_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "protocol_endpoint_capability_id", Type: field.TypeInt64, Nullable: true},
 	}
 	// AccountsTable holds the schema information for the "accounts" table.
 	AccountsTable = &schema.Table{
@@ -147,6 +148,12 @@ var (
 				Symbol:     "accounts_accounts_children",
 				Columns:    []*schema.Column{AccountsColumns[33]},
 				RefColumns: []*schema.Column{AccountsColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "accounts_protocol_endpoint_capabilities_accounts",
+				Columns:    []*schema.Column{AccountsColumns[34]},
+				RefColumns: []*schema.Column{ProtocolEndpointCapabilitiesColumns[0]},
 				OnDelete:   schema.Restrict,
 			},
 		},
@@ -225,6 +232,11 @@ var (
 				Name:    "account_parent_account_id",
 				Unique:  false,
 				Columns: []*schema.Column{AccountsColumns[33]},
+			},
+			{
+				Name:    "account_protocol_endpoint_capability_id",
+				Unique:  false,
+				Columns: []*schema.Column{AccountsColumns[34]},
 			},
 		},
 	}
@@ -1447,6 +1459,40 @@ var (
 			},
 		},
 	}
+	// ProtocolEndpointCapabilitiesColumns holds the columns for the "protocol_endpoint_capabilities" table.
+	ProtocolEndpointCapabilitiesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "capability_key", Type: field.TypeString, Unique: true, Size: 64},
+		{Name: "identity", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "supported_protocols", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "probe_evidence", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "revision", Type: field.TypeInt64, Default: 1},
+		{Name: "last_probed_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "probe_lease_owner", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "probe_lease_until", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "probe_generation", Type: field.TypeInt64, Default: 0},
+		{Name: "identity_conflict", Type: field.TypeBool, Default: false},
+	}
+	// ProtocolEndpointCapabilitiesTable holds the schema information for the "protocol_endpoint_capabilities" table.
+	ProtocolEndpointCapabilitiesTable = &schema.Table{
+		Name:       "protocol_endpoint_capabilities",
+		Columns:    ProtocolEndpointCapabilitiesColumns,
+		PrimaryKey: []*schema.Column{ProtocolEndpointCapabilitiesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "protocolendpointcapability_probe_lease_until",
+				Unique:  false,
+				Columns: []*schema.Column{ProtocolEndpointCapabilitiesColumns[10]},
+			},
+			{
+				Name:    "protocolendpointcapability_identity_conflict",
+				Unique:  false,
+				Columns: []*schema.Column{ProtocolEndpointCapabilitiesColumns[12]},
+			},
+		},
+	}
 	// ProxiesColumns holds the columns for the "proxies" table.
 	ProxiesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -2366,6 +2412,7 @@ var (
 		PendingAuthSessionsTable,
 		PromoCodesTable,
 		PromoCodeUsagesTable,
+		ProtocolEndpointCapabilitiesTable,
 		ProxiesTable,
 		QaArchiveShardsTable,
 		QaExportJobsTable,
@@ -2395,6 +2442,7 @@ func init() {
 	}
 	AccountsTable.ForeignKeys[0].RefTable = ProxiesTable
 	AccountsTable.ForeignKeys[1].RefTable = AccountsTable
+	AccountsTable.ForeignKeys[2].RefTable = ProtocolEndpointCapabilitiesTable
 	AccountsTable.Annotation = &entsql.Annotation{
 		Table: "accounts",
 	}
@@ -2485,6 +2533,9 @@ func init() {
 	PromoCodeUsagesTable.ForeignKeys[1].RefTable = UsersTable
 	PromoCodeUsagesTable.Annotation = &entsql.Annotation{
 		Table: "promo_code_usages",
+	}
+	ProtocolEndpointCapabilitiesTable.Annotation = &entsql.Annotation{
+		Table: "protocol_endpoint_capabilities",
 	}
 	ProxiesTable.ForeignKeys[0].RefTable = ProxiesTable
 	ProxiesTable.Annotation = &entsql.Annotation{

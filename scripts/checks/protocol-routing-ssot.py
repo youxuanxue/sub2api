@@ -18,6 +18,8 @@ OWNER_FILES = (
     "backend/internal/engine/protocolrouter/policy_contract_test.go",
     "backend/internal/service/account_supported_protocols.go",
     "backend/internal/service/account_supported_protocols_test.go",
+    "backend/internal/service/protocol_endpoint_identity.go",
+    "backend/internal/service/protocol_endpoint_identity_test.go",
     "backend/internal/service/protocol_capability_probe.go",
     "backend/internal/service/protocol_capability_probe_gemini.go",
     "backend/internal/service/protocol_capability_probe_test.go",
@@ -29,7 +31,19 @@ OWNER_FILES = (
     "backend/internal/service/protocol_execution_target_test.go",
     "backend/internal/service/protocol_routing_context.go",
     "backend/internal/service/protocol_routing_context_test.go",
+    "backend/internal/service/gateway_scheduling.go",
+    "backend/internal/service/openai_account_scheduler.go",
+    "backend/internal/service/openai_gateway_scheduling_tk_eligibility_reason.go",
     "backend/internal/service/wire.go",
+    "backend/internal/repository/protocol_endpoint_capability_repo.go",
+    "backend/internal/repository/protocol_endpoint_capability_repo_integration_test.go",
+    "backend/internal/repository/account_repo_protocol_capability_test.go",
+    "backend/internal/repository/scheduler_cache.go",
+    "backend/internal/repository/scheduler_cache_unit_test.go",
+    "backend/ent/schema/account.go",
+    "backend/ent/schema/protocol_endpoint_capability.go",
+    "backend/migrations/tk_089_protocol_endpoint_capabilities.sql",
+    "backend/migrations/tk_089_protocol_endpoint_capabilities_test.go",
     "backend/internal/handler/protocol_request.go",
     "backend/internal/handler/protocol_request_test.go",
     "backend/internal/handler/openai_gemini_protocol_execution.go",
@@ -117,6 +131,30 @@ FORWARD_BOUNDARIES = {
     ),
     "backend/internal/handler/openai_gateway_handler.go": (
         r"\bh\.gatewayService\.(?:Forward|ForwardAsResponses(?:Dispatched)?|ForwardAsAnthropic(?:Dispatched)?)\s*\(",
+    ),
+}
+
+AUTHORITATIVE_ACCOUNT_HELPERS = {
+    "backend/internal/handler/openai_gateway_handler.go": (
+        (
+            "prepareResponsesBody",
+            r"\bprepareResponsesBody\s*:=\s*func\s*\(\s*executionAccount\s+\*service\.Account\s*,",
+            r"\bprepareResponsesBody\s*\(\s*account\s*,",
+        ),
+    ),
+    "backend/internal/handler/openai_chat_completions.go": (
+        (
+            "prepareBody",
+            r"\bprepareBody\s*:=\s*func\s*\(\s*executionAccount\s+\*service\.Account\s*,",
+            r"\bprepareBody\s*\(\s*account\s*,",
+        ),
+    ),
+    "backend/internal/handler/gemini_v1beta_handler.go": (
+        (
+            "forwardNonGoverned",
+            r"\bforwardNonGoverned\s*:=\s*func\s*\(\s*executionCtx\s+context\.Context\s*,\s*executionAccount\s+\*service\.Account\s*,",
+            r"\bforwardNonGoverned\s*\(\s*executionCtx\s*,\s*account\s*,",
+        ),
     ),
 }
 
@@ -267,6 +305,8 @@ def check(root: Path) -> list[str]:
             call = source[start:end]
             if not contains_identifier(call, "ValidateProtocolEndpoint"):
                 errors.append(f"{relative}: ExecuteSelectedProtocol is missing endpoint validator")
+            if not contains_identifier(call, "LoadProtocolExecutionAccount"):
+                errors.append(f"{relative}: ExecuteSelectedProtocol is missing authoritative account loader")
             if not contains_identifier(call, "ProtocolExecutors"):
                 errors.append(f"{relative}: ExecuteSelectedProtocol is missing concrete executors")
             if re.search(r"\bProtocolExecutors\s*{\s*}", call):
@@ -287,6 +327,11 @@ def check(root: Path) -> list[str]:
                     errors.append(
                         f"{relative}: forwarding call outside ExecuteSelectedProtocol boundary"
                     )
+        for helper, definition_pattern, call_pattern in AUTHORITATIVE_ACCOUNT_HELPERS.get(relative, ()):
+            if not re.search(definition_pattern, source) or not re.search(call_pattern, source):
+                errors.append(
+                    f"{relative}: {helper} does not consume the authoritative execution account"
+                )
 
     for relative, required_symbols in TARGET_BOUNDARIES.items():
         path = root / relative
@@ -330,6 +375,107 @@ def check(root: Path) -> list[str]:
         ):
             if not contains_identifier(source, required):
                 errors.append(f"canonical capability owner is missing {required}")
+        supported_protocol_bodies = function_bodies(source, "SupportedProtocols")
+        if not supported_protocol_bodies:
+            errors.append("canonical capability owner is missing Account.SupportedProtocols")
+        for body in supported_protocol_bodies:
+            if not contains_identifier(body, "ProtocolEndpointCapability"):
+                errors.append("Account.SupportedProtocols does not read the linked capability")
+            for forbidden in ("Extra", "SupportedProtocolsExtraKey", "LegacySupportedProtocolsProjection"):
+                if contains_identifier(body, forbidden):
+                    errors.append("Account.SupportedProtocols reads the legacy account projection")
+        snapshot_bodies = function_bodies(source, "protocolAccountSnapshot")
+        if not snapshot_bodies:
+            errors.append("canonical capability owner is missing protocolAccountSnapshot")
+        for body in snapshot_bodies:
+            if not contains_identifier(body, "InitialProbeCompleted") or not contains_identifier(body, "OfficialSeed"):
+                errors.append("protocolAccountSnapshot does not fail closed on unverified capability evidence")
+
+    identity_owner = root / "backend/internal/service/protocol_endpoint_identity.go"
+    if identity_owner.is_file():
+        source = strip_go_comments_and_literals(identity_owner.read_text(encoding="utf-8"))
+        for required in ("BuildProtocolEndpointIdentity", "CanonicalJSON", "Key", "sha256"):
+            if not contains_identifier(source, required):
+                errors.append(f"protocol endpoint identity owner is missing {required}")
+        normalization_bodies = function_bodies(source, "normalizeEndpointIdentityURL")
+        if not normalization_bodies or not all(
+            contains_identifier(body, "protocolEndpointCredentialQueryParam")
+            for body in normalization_bodies
+        ):
+            errors.append("protocol endpoint identity normalization does not exclude query credentials")
+        credential_query_bodies = function_bodies(
+            source,
+            "protocolEndpointCredentialQueryParam",
+        )
+        if not credential_query_bodies or not all(
+            contains_identifier(body, "isSensitiveKey") for body in credential_query_bodies
+        ):
+            errors.append("protocol endpoint identity does not reuse the sensitive query-key classifier")
+
+    identity_test = root / "backend/internal/service/protocol_endpoint_identity_test.go"
+    if identity_test.is_file():
+        source = strip_go_comments_and_literals(identity_test.read_text(encoding="utf-8"))
+        bodies = function_bodies(
+            source,
+            "TestBuildProtocolEndpointIdentityExcludesQueryCredentialsButKeepsSemanticRouting",
+        )
+        if not bodies or not all(
+            len(call_spans(body, "BuildProtocolEndpointIdentity")) >= 2
+            and contains_identifier(body, "Key")
+            for body in bodies
+        ):
+            errors.append("protocol routing is missing the query credential identity regression test")
+
+    service_root = root / "backend/internal/service"
+    if service_root.is_dir():
+        for path in service_root.glob("*.go"):
+            if path.name.endswith("_test.go") or path == identity_owner:
+                continue
+            source = strip_go_comments_and_literals(path.read_text(encoding="utf-8"))
+            if function_definitions(source, "BuildProtocolEndpointIdentity"):
+                errors.append(f"{path.relative_to(root)}: duplicates the endpoint identity builder")
+            if path.name not in {"account_supported_protocols.go", "protocol_routing_migration.go"} and contains_identifier(
+                source, "LegacySupportedProtocolsProjection"
+            ):
+                errors.append(f"{path.relative_to(root)}: consumes the legacy protocol projection outside migration")
+
+    router_owner = root / "backend/internal/engine/protocolrouter/router.go"
+    if router_owner.is_file():
+        source = strip_go_comments_and_literals(router_owner.read_text(encoding="utf-8"))
+        execute_bodies = function_bodies(source, "Execute")
+        if not execute_bodies:
+            errors.append("protocol router is missing Execute stale-plan validation")
+        for body in execute_bodies:
+            if not contains_identifier(body, "CapabilityKey"):
+                errors.append("protocol router Execute is missing capability key stale validation")
+            if not contains_identifier(body, "CapabilityRevision"):
+                errors.append("protocol router Execute is missing capability revision stale validation")
+
+    capability_repo = root / "backend/internal/repository/protocol_endpoint_capability_repo.go"
+    if capability_repo.is_file():
+        source = strip_go_comments_and_literals(capability_repo.read_text(encoding="utf-8"))
+        for required in (
+            "EnsureAccountLink",
+            "GetByAccountID",
+            "ListLinkedAccountIDs",
+            "AcquireProbeLease",
+            "CommitProbeResult",
+            "writeRollbackProjections",
+        ):
+            if not contains_identifier(source, required):
+                errors.append(f"protocol capability repository is missing {required}")
+        commit_bodies = function_bodies(source, "CommitProbeResult")
+        for body in commit_bodies:
+            if not contains_identifier(body, "listProtocolCapabilityLinkedAccountIDs"):
+                errors.append("capability commit does not enumerate linked accounts for scheduler invalidation")
+            if not contains_identifier(body, "enqueueSchedulerOutbox"):
+                errors.append("capability commit does not publish scheduler cache invalidation")
+        ensure_bodies = function_bodies(source, "ensureProtocolEndpointCapabilityLink")
+        for body in ensure_bodies:
+            if not contains_identifier(body, "listProtocolCapabilityLinkedAccountIDs"):
+                errors.append("capability link update does not enumerate linked accounts for scheduler invalidation")
+            if not contains_identifier(body, "enqueueSchedulerOutbox"):
+                errors.append("capability link update does not publish scheduler cache invalidation")
 
     execution_owner = root / "backend/internal/service/protocol_execution.go"
     if execution_owner.is_file():
@@ -342,6 +488,166 @@ def check(root: Path) -> list[str]:
         for forbidden in ("requestScopedProtocolAdapter", "WithProtocolExecution"):
             if contains_identifier(source, forbidden):
                 errors.append(f"protocol execution owner contains generic protocol adapter {forbidden}")
+        execute_selected_bodies = function_bodies(source, "ExecuteSelectedProtocol")
+        for body in execute_selected_bodies:
+            if not contains_identifier(body, "loadAccount"):
+                errors.append("selected protocol execution skips authoritative account reload")
+            if not contains_identifier(body, "withProtocolExecutionAccount"):
+                errors.append("selected protocol execution does not bind the authoritative account to executors")
+            if not re.search(r"CredentialPresent\s*:\s*ProtocolAuthorizationPresent\s*\(\s*freshAccount\s*\)", body):
+                errors.append("selected protocol execution derives credential readiness from a stale account")
+            if len(call_spans(body, "protocolExecutionPreSendFailure")) < 2:
+                errors.append("selected protocol execution leaves a pre-send stale failure outside account failover")
+            if not contains_identifier(body, "ErrMissingCredential"):
+                errors.append("selected protocol execution leaves a missing credential outside account failover")
+        credential_bodies = function_bodies(source, "ProtocolAuthorizationPresent")
+        if not credential_bodies or not all(
+            contains_identifier(body, "ProtocolAuthorizationSnapshotCredentialKey")
+            and contains_identifier(body, "IsNewAPIVertexServiceAccount")
+            and contains_identifier(body, "parseVertexServiceAccountKey")
+            and contains_identifier(body, "protocolAuthorizationToken")
+            for body in credential_bodies
+        ):
+            errors.append("protocol runtime authorization does not validate the exact credential shape")
+        authorization_bodies = function_bodies(source, "protocolRuntimeAuthorizationReady")
+        if not authorization_bodies or not all(
+            contains_identifier(body, "ProtocolRoutingRequest")
+            and contains_identifier(body, "ProtocolAuthorizationPresent")
+            for body in authorization_bodies
+        ):
+            errors.append("protocol runtime authorization hard gate is missing its credential owner")
+        pre_send_failure_bodies = function_bodies(source, "protocolExecutionPreSendFailure")
+        if not pre_send_failure_bodies or not all(
+            contains_identifier(body, "UpstreamFailoverError")
+            and contains_identifier(body, "NextAccountRetry")
+            for body in pre_send_failure_bodies
+        ):
+            errors.append("protocol pre-send failure owner does not provide retry-next-account semantics")
+
+    execution_test = root / "backend/internal/service/protocol_execution_test.go"
+    if execution_test.is_file():
+        source = strip_go_comments_and_literals(execution_test.read_text(encoding="utf-8"))
+        bodies = function_bodies(
+            source,
+            "TestExecuteSelectedProtocolFailsOverMissingAuthorizationBeforeExecutor",
+        )
+        if not bodies or not all(
+            contains_identifier(body, "ExecuteSelectedProtocol") for body in bodies
+        ):
+            errors.append("protocol routing is missing the missing-authorization execution regression test")
+
+    probe_owner = root / "backend/internal/service/protocol_capability_probe.go"
+    if probe_owner.is_file():
+        source = strip_go_comments_and_literals(probe_owner.read_text(encoding="utf-8"))
+        run_bodies = function_bodies(source, "runEndpointProtocolProbe")
+        for body in run_bodies:
+            if not contains_identifier(body, "probeProtocolWitnesses"):
+                errors.append("endpoint probe bypasses conclusive witness stopping owner")
+            if not contains_identifier(body, "IdentityConflict"):
+                errors.append("endpoint probe does not preserve conflict when no witness is usable")
+            if not contains_identifier(body, "ProbeEvidence"):
+                errors.append("endpoint probe does not compare persisted verdict evidence")
+            if not contains_identifier(body, "selectProtocolProbeWitnesses"):
+                errors.append("endpoint probe bypasses witness eligibility selection")
+        resolver_bodies = function_bodies(source, "resolveProtocolProbeGeneration")
+        for body in resolver_bodies:
+            if not contains_identifier(body, "conclusiveProtocolProbeVerdict"):
+                errors.append("probe generation resolver ignores prior conclusive verdict evidence")
+            if not contains_identifier(body, "persistedProtocolProbeVerdict"):
+                errors.append("probe generation resolver overwrites prior conclusive evidence with inconclusive results")
+        witness_bodies = function_bodies(source, "selectProtocolProbeWitnesses")
+        for body in witness_bodies:
+            if not contains_identifier(body, "protocolProbeAuthorizationUsable"):
+                errors.append("protocol probe witness selection does not filter unusable authorization")
+        authorization_bodies = function_bodies(source, "protocolProbeAuthorizationUsable")
+        if not authorization_bodies or not all(
+            contains_identifier(body, "ProtocolAuthorizationPresent")
+            for body in authorization_bodies
+        ):
+            errors.append("protocol probe authorization does not reuse the shared credential owner")
+        token_bodies = function_bodies(source, "protocolAuthorizationToken")
+        if not token_bodies or not all(
+            contains_identifier(body, "IsOpenAIOAuthLike")
+            and contains_identifier(body, "GetOpenAIAccessToken")
+            for body in token_bodies
+        ):
+            errors.append("protocol authorization owner is missing the OpenAI OAuth access token")
+
+    probe_test = root / "backend/internal/service/protocol_capability_probe_test.go"
+    if probe_test.is_file():
+        source = strip_go_comments_and_literals(probe_test.read_text(encoding="utf-8"))
+        bodies = function_bodies(
+            source,
+            "TestSelectProtocolProbeWitnessesFiltersUnusableAuthorizationBeforeBound",
+        )
+        if not bodies or not all(
+            contains_identifier(body, "selectProtocolProbeWitnesses") for body in bodies
+        ):
+            errors.append("protocol probe is missing the Vertex probe witness regression test")
+
+    account_schema = root / "backend/ent/schema/account.go"
+    if account_schema.is_file():
+        raw_source = account_schema.read_text(encoding="utf-8")
+        source = strip_go_comments_and_literals(raw_source)
+        if 'field.Int64("protocol_endpoint_capability_id")' not in raw_source:
+            errors.append("account Ent schema is missing protocol capability FK field")
+        if 'edge.From("protocol_endpoint_capability", ProtocolEndpointCapability.Type)' not in raw_source:
+            errors.append("account Ent schema is missing protocol capability inverse edge")
+        if not contains_identifier(source, "ProtocolEndpointCapability"):
+            errors.append("account Ent schema is missing protocol capability type binding")
+    capability_schema = root / "backend/ent/schema/protocol_endpoint_capability.go"
+    if capability_schema.is_file():
+        source = strip_go_comments_and_literals(capability_schema.read_text(encoding="utf-8"))
+        if not (contains_identifier(source, "OnDelete") and contains_identifier(source, "Restrict")):
+            errors.append("protocol capability Ent edge is missing ON DELETE RESTRICT")
+
+    account_repo = root / "backend/internal/repository/account_repo.go"
+    if account_repo.is_file():
+        source = strip_go_comments_and_literals(account_repo.read_text(encoding="utf-8"))
+        update_credentials_bodies = function_bodies(source, "UpdateCredentials")
+        for body in update_credentials_bodies:
+            if not contains_identifier(body, "loadAccountForProtocolCapabilityLifecycle"):
+                errors.append("credential replacement skips capability lifecycle reload")
+            if not contains_identifier(body, "ensureAccountProtocolEndpointCapability"):
+                errors.append("credential replacement skips capability identity relink")
+
+    scheduler_owner = root / "backend/internal/repository/scheduler_cache.go"
+    if scheduler_owner.is_file():
+        source = strip_go_comments_and_literals(scheduler_owner.read_text(encoding="utf-8"))
+        metadata_bodies = function_bodies(source, "buildSchedulerMetadataAccount")
+        if not metadata_bodies or not all(
+            contains_identifier(body, "filterSchedulerCredentialsForProtocolRouting")
+            for body in metadata_bodies
+        ):
+            errors.append("scheduler metadata drops protocol endpoint identity credentials")
+        credential_bodies = function_bodies(
+            source,
+            "filterSchedulerCredentialsForProtocolRouting",
+        )
+        if not credential_bodies or not all(
+            contains_identifier(body, "IsNewAPIVertexServiceAccount")
+            and contains_identifier(body, "VertexProjectID")
+            and contains_identifier(body, "ProtocolAuthorizationPresent")
+            and contains_identifier(body, "ProtocolAuthorizationSnapshotCredentialKey")
+            for body in credential_bodies
+        ):
+            errors.append("scheduler metadata does not preserve protocol identity and authorization readiness")
+
+    scheduler_test = root / "backend/internal/repository/scheduler_cache_unit_test.go"
+    if scheduler_test.is_file():
+        source = strip_go_comments_and_literals(scheduler_test.read_text(encoding="utf-8"))
+        bodies = function_bodies(
+            source,
+            "TestBuildSchedulerMetadataAccountPreservesProtocolEndpointIdentity",
+        )
+        if not bodies or not all(
+            len(call_spans(body, "BuildProtocolEndpointIdentity")) >= 2
+            and contains_identifier(body, "buildSchedulerMetadataAccount")
+            and contains_identifier(body, "ProtocolAuthorizationSnapshotCredentialKey")
+            and contains_identifier(body, "Key")
+            for body in bodies
+        ):
+            errors.append("protocol routing is missing the scheduler identity and authorization regression test")
 
     routing_context = root / "backend/internal/service/protocol_routing_context.go"
     if routing_context.is_file():
@@ -357,6 +663,51 @@ def check(root: Path) -> list[str]:
                 errors.append("protocol selection performs secondary protocol planning")
             if not re.search(r"\.\s*get\s*\(", body):
                 errors.append("protocol selection does not reuse scheduler-created plan")
+
+    gateway_scheduling = root / "backend/internal/service/gateway_scheduling.go"
+    if gateway_scheduling.is_file():
+        source = strip_go_comments_and_literals(gateway_scheduling.read_text(encoding="utf-8"))
+        bodies = function_bodies(source, "isAccountSchedulableForModelSelection")
+        if not bodies or not all(
+            contains_identifier(body, "protocolRuntimeAuthorizationReady")
+            and contains_identifier(body, "ProtocolRouteLegal")
+            for body in bodies
+        ):
+            errors.append("gateway scheduler authorization hard gate is not composed with protocol legality")
+
+    openai_scheduler = root / "backend/internal/service/openai_account_scheduler.go"
+    if openai_scheduler.is_file():
+        source = strip_go_comments_and_literals(openai_scheduler.read_text(encoding="utf-8"))
+        bodies = function_bodies(source, "isAccountRequestCompatibleReason")
+        if not bodies or not all(
+            contains_identifier(body, "protocolRuntimeAuthorizationReady")
+            and contains_identifier(body, "ProtocolRouteLegal")
+            for body in bodies
+        ):
+            errors.append("OpenAI scheduler authorization hard gate is not composed with protocol legality")
+
+    openai_eligibility = root / "backend/internal/service/openai_gateway_scheduling_tk_eligibility_reason.go"
+    if openai_eligibility.is_file():
+        source = strip_go_comments_and_literals(openai_eligibility.read_text(encoding="utf-8"))
+        bodies = function_bodies(source, "openAICompatEligibilityReason")
+        if not bodies or not all(
+            contains_identifier(body, "protocolRuntimeAuthorizationReady") for body in bodies
+        ):
+            errors.append("OpenAI eligibility authorization diagnostic is missing the runtime hard gate")
+
+    routing_context_test = root / "backend/internal/service/protocol_routing_context_test.go"
+    if routing_context_test.is_file():
+        source = strip_go_comments_and_literals(routing_context_test.read_text(encoding="utf-8"))
+        bodies = function_bodies(
+            source,
+            "TestOpenAIEligibilityUsesProtocolHardGateWithoutChangingOtherChecks",
+        )
+        if not bodies or not all(
+            contains_identifier(body, "isOpenAICompatibleAccountEligibleForRequest")
+            and contains_identifier(body, "isAccountSchedulableForModelSelection")
+            for body in bodies
+        ):
+            errors.append("protocol routing is missing the scheduler authorization regression test")
 
     account_handler = root / "backend/internal/handler/admin/account_handler.go"
     if account_handler.is_file():
@@ -412,11 +763,45 @@ def check(root: Path) -> list[str]:
         else:
             bodies = legacy_bodies
         for body in bodies:
-            for required in ("ProtocolProbeCandidates", "protocolProbeCoordinator", "probeProtocolCapability"):
+            for required in (
+                "EnsureAccountLink",
+                "ProtocolProbeCandidates",
+                "protocolProbeCoordinator",
+                "runEndpointProtocolProbe",
+            ):
                 if not contains_identifier(body, required):
                     errors.append(f"aggregate account probe job is missing {required}")
-            if len(call_spans(body, "PersistProtocolProbeVerdicts")) != 1:
-                errors.append("aggregate account probe job must persist the complete candidate set exactly once")
+            if not re.search(r"protocolProbeCoordinator\s*\.\s*Do\s*\(\s*capability\s*\.\s*CapabilityKey\b", body):
+                errors.append("aggregate account probe job is not coordinated by capability key")
+        endpoint_probe_bodies = function_bodies(source, "runEndpointProtocolProbe")
+        if not endpoint_probe_bodies:
+            errors.append("protocol capability owner is missing endpoint-scoped probe execution")
+        for body in endpoint_probe_bodies:
+            for required in (
+                "AcquireProbeLease",
+                "ListLinkedAccountIDs",
+                "probeProtocolCapability",
+                "CommitProbeResult",
+            ):
+                if not contains_identifier(body, required):
+                    errors.append(f"endpoint-scoped probe execution is missing {required}")
+        for forbidden in (
+            "PersistProtocolProbeVerdicts",
+            "BuildProtocolProbeUpdate",
+            "UpdateExtraIfUpdatedAt",
+        ):
+            if contains_identifier(source, forbidden):
+                errors.append(f"protocol capability owner contains account-owned protocol probe writer {forbidden}")
+
+    for relative in (
+        "backend/internal/repository/account_repo.go",
+        "backend/internal/service/account.go",
+    ):
+        path = root / relative
+        if path.is_file():
+            source = strip_go_comments_and_literals(path.read_text(encoding="utf-8"))
+            if contains_identifier(source, "UpdateExtraIfUpdatedAt"):
+                errors.append(f"{relative}: retains account-owned protocol probe CAS writer")
 
     gemini_probe_owner = root / "backend/internal/service/protocol_capability_probe_gemini.go"
     if gemini_probe_owner.is_file():

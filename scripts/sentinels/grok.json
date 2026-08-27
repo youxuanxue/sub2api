@@ -647,10 +647,12 @@
       "must_contain": [
         "ProtocolProbeCandidates",
         "protocolProbeConfigurationRevision",
-        "PersistProtocolProbeVerdicts",
-        "BuildSupportedProtocolsUpdate"
+        "capability.CapabilityKey",
+        "AcquireProbeLease",
+        "ListLinkedAccountIDs",
+        "CommitProbeResult"
       ],
-      "rationale": "Grok API-key relay capability is a per-account canonical fact even when several accounts share one edge base_url. Candidate discovery covers governed explicit endpoints, while revision-scoped CAS persistence prevents cross-account/base-url copying and stale probe writes."
+      "rationale": "Grok accounts with the same canonical endpoint identity share one capability row; account IDs are probe witnesses, not fact owners. Candidate discovery plus database lease, generation, configuration-revision CAS, and one capability commit prevent duplicate work and stale or cross-endpoint writes; legacy account extra is rollback projection only."
     }
   ]
 }

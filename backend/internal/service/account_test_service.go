@@ -147,6 +147,7 @@ type AccountTestService struct {
 	tlsFPProfileService       *TLSFingerprintProfileService
 	agentIdentityTaskMu       sync.Mutex
 	protocolProbeCoordinator  protocolProbeCoordinator
+	protocolCapabilityRepo    ProtocolEndpointCapabilityRepository
 	agentIdentityWS           agentIdentityWSConnectionInvalidator
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
 	// WS dialer when nil (supports proxy + coder/websocket handshake).
@@ -172,7 +173,7 @@ func NewAccountTestService(
 	cfg *config.Config,
 	tlsFPProfileService *TLSFingerprintProfileService,
 ) *AccountTestService {
-	return &AccountTestService{
+	service := &AccountTestService{
 		accountRepo:               accountRepo,
 		geminiTokenProvider:       geminiTokenProvider,
 		claudeTokenProvider:       claudeTokenProvider,
@@ -184,6 +185,10 @@ func NewAccountTestService(
 		cfg:                       cfg,
 		tlsFPProfileService:       tlsFPProfileService,
 	}
+	if capabilityRepo, ok := accountRepo.(ProtocolEndpointCapabilityRepository); ok {
+		service.protocolCapabilityRepo = capabilityRepo
+	}
+	return service
 }
 
 func (s *AccountTestService) validateUpstreamBaseURL(raw string) (string, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -12,8 +13,16 @@ import (
 
 var ErrProtocolExecutorMissing = errors.New("protocol executor missing")
 
+const ProtocolAuthorizationSnapshotCredentialKey = "__tk_protocol_authorization_present"
+
+const (
+	protocolExecutionStaleReason      GatewayFailureReason = "protocol_execution_stale"
+	protocolExecutionReloadFailReason GatewayFailureReason = "protocol_execution_reload_failed"
+)
+
 type ProtocolExecutionFunc func(
 	ctx context.Context,
+	account *Account,
 	plan protocolrouter.Plan,
 	request protocolrouter.CanonicalRequest,
 ) (any, error)
@@ -43,6 +52,30 @@ func ExecuteGeminiProtocolProfile[T any](
 }
 
 type ProtocolEndpointValidator func(ctx context.Context, account *Account, endpoint string) error
+
+type ProtocolExecutionAccountLoader func(ctx context.Context, accountID int64) (*Account, error)
+
+func protocolExecutionPreSendFailure(cause error, scope GatewayFailureScope) error {
+	reason := protocolExecutionStaleReason
+	nextAccountAction := NextAccountRetry
+	if scope == GatewayFailureScopeProvider {
+		reason = protocolExecutionReloadFailReason
+		nextAccountAction = NextAccountStop
+	}
+	return errors.Join(
+		&UpstreamFailoverError{
+			StatusCode:        http.StatusServiceUnavailable,
+			Stage:             GatewayFailureStageInference,
+			Scope:             scope,
+			Reason:            reason,
+			NextAccountAction: nextAccountAction,
+			ClientStatusCode:  http.StatusServiceUnavailable,
+			ClientErrorType:   "server_error",
+			ClientMessage:     "Service temporarily unavailable",
+		},
+		cause,
+	)
+}
 
 type RouteFacts struct {
 	targetProtocol protocolrouter.Protocol
@@ -95,12 +128,23 @@ type protocolExecutorsContextKey struct{}
 
 type protocolExecutionPlanContextKey struct{}
 
+type protocolExecutionAccountContextKey struct{}
+
 func WithProtocolExecutors(ctx context.Context, executors ProtocolExecutors) context.Context {
 	return context.WithValue(ctx, protocolExecutorsContextKey{}, executors)
 }
 
 func withProtocolExecutionPlan(ctx context.Context, plan protocolrouter.Plan) context.Context {
 	return context.WithValue(ctx, protocolExecutionPlanContextKey{}, plan)
+}
+
+func withProtocolExecutionAccount(ctx context.Context, account *Account) context.Context {
+	return context.WithValue(ctx, protocolExecutionAccountContextKey{}, account)
+}
+
+func protocolExecutionAccountFromContext(ctx context.Context) *Account {
+	account, _ := ctx.Value(protocolExecutionAccountContextKey{}).(*Account)
+	return account
 }
 
 // ProtocolExecutionPlan returns the immutable route selected by the scheduler.
@@ -186,7 +230,11 @@ func executeBoundProtocolAdapter(
 	if execute == nil {
 		return protocolrouter.Result{}, ErrProtocolExecutorMissing
 	}
-	value, err := execute(withProtocolExecutionPlan(ctx, plan), plan, execution.Request())
+	executionAccount := protocolExecutionAccountFromContext(ctx)
+	if executionAccount == nil {
+		return protocolrouter.Result{}, fmt.Errorf("%w: authoritative execution account is missing", ErrProtocolRouteUnavailable)
+	}
+	value, err := execute(withProtocolExecutionPlan(ctx, plan), executionAccount, plan, execution.Request())
 	if err != nil {
 		return protocolrouter.Result{}, err
 	}
@@ -300,6 +348,7 @@ func ExecuteSelectedProtocol(
 	selection *AccountSelectionResult,
 	account *Account,
 	validateEndpoint ProtocolEndpointValidator,
+	loadAccount ProtocolExecutionAccountLoader,
 	executors ProtocolExecutors,
 ) (any, error) {
 	request, canonical := protocolRoutingCanonicalRequest(ctx)
@@ -309,13 +358,13 @@ func ExecuteSelectedProtocol(
 		if executors.NonGoverned == nil {
 			return nil, ErrProtocolExecutorMissing
 		}
-		return executors.NonGoverned(ctx, protocolrouter.Plan{}, request)
+		return executors.NonGoverned(ctx, account, protocolrouter.Plan{}, request)
 	}
 	if router == nil && canonical && !routed && !planned {
 		if executors.NonGoverned == nil {
 			return nil, ErrProtocolExecutorMissing
 		}
-		return executors.NonGoverned(ctx, protocolrouter.Plan{}, request)
+		return executors.NonGoverned(ctx, account, protocolrouter.Plan{}, request)
 	}
 	if !routed || !planned || router == nil {
 		return nil, fmt.Errorf("%w: governed account requires canonical request, router, and selected plan", ErrProtocolRouteUnavailable)
@@ -323,21 +372,49 @@ func ExecuteSelectedProtocol(
 	if validateEndpoint == nil {
 		return nil, fmt.Errorf("%w: governed account requires endpoint validation", ErrProtocolRouteUnavailable)
 	}
-	if err := validateEndpoint(ctx, account, plan.Endpoint()); err != nil {
-		return nil, fmt.Errorf("%w: validate selected endpoint: %v", ErrProtocolRouteUnavailable, err)
+	if loadAccount == nil {
+		return nil, fmt.Errorf("%w: governed account requires authoritative account reload", ErrProtocolRouteUnavailable)
 	}
-	fresh, err := protocolAccountSnapshotForRequest(account, request)
+	freshAccount, err := loadAccount(ctx, account.ID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrProtocolRouteUnavailable, err)
+		return nil, protocolExecutionPreSendFailure(
+			fmt.Errorf("%w: reload authoritative account: %v", ErrProtocolRouteUnavailable, err),
+			GatewayFailureScopeProvider,
+		)
+	}
+	if freshAccount == nil || freshAccount.ID != account.ID {
+		return nil, protocolExecutionPreSendFailure(
+			fmt.Errorf("%w: authoritative account is missing or mismatched", ErrProtocolRouteUnavailable),
+			GatewayFailureScopeAccount,
+		)
+	}
+	if err := validateEndpoint(ctx, freshAccount, plan.Endpoint()); err != nil {
+		return nil, protocolExecutionPreSendFailure(
+			fmt.Errorf("%w: validate selected endpoint: %v", ErrProtocolRouteUnavailable, err),
+			GatewayFailureScopeAccount,
+		)
+	}
+	fresh, err := protocolAccountSnapshotForRequest(freshAccount, request)
+	if err != nil {
+		return nil, protocolExecutionPreSendFailure(
+			fmt.Errorf("%w: %v", ErrProtocolRouteUnavailable, err),
+			GatewayFailureScopeAccount,
+		)
 	}
 	executionCtx := WithProtocolExecutors(ctx, executors)
+	executionCtx = withProtocolExecutionAccount(executionCtx, freshAccount)
 	executionCtx = protocolrouter.WithExecutionAccountState(executionCtx, protocolrouter.ExecutionAccountState{
-		AccountID:         fresh.AccountID(),
-		Revision:          fresh.Revision(),
-		CredentialPresent: protocolCredentialPresent(account),
+		AccountID:          fresh.AccountID(),
+		Revision:           fresh.Revision(),
+		CapabilityKey:      fresh.CapabilityKey(),
+		CapabilityRevision: fresh.CapabilityRevision(),
+		CredentialPresent:  ProtocolAuthorizationPresent(freshAccount),
 	})
 	result, err := router.Execute(executionCtx, plan, request)
 	if err != nil {
+		if errors.Is(err, protocolrouter.ErrStalePlan) || errors.Is(err, protocolrouter.ErrMissingCredential) {
+			return nil, protocolExecutionPreSendFailure(err, GatewayFailureScopeAccount)
+		}
 		return nil, err
 	}
 	stampProtocolRouteFacts(result.Value, routeFactsFromPlan(plan))
@@ -360,14 +437,32 @@ func stampProtocolRouteFacts(value any, facts RouteFacts) {
 	}
 }
 
-func protocolCredentialPresent(account *Account) bool {
+func ProtocolAuthorizationPresent(account *Account) bool {
 	if account == nil {
 		return false
+	}
+	if present, ok := account.Credentials[ProtocolAuthorizationSnapshotCredentialKey].(bool); ok {
+		return present
 	}
 	if account.ParentAccountID != nil {
 		return true
 	}
-	return len(account.Credentials) > 0
+	if protocolGeminiEndpointProfile(account) == protocolrouter.GeminiEndpointAntigravityCloudCode {
+		return strings.TrimSpace(account.GetCredential("access_token")) != "" &&
+			strings.TrimSpace(account.GetCredential("project_id")) != ""
+	}
+	if account.IsNewAPIVertexServiceAccount() {
+		_, err := parseVertexServiceAccountKey(account)
+		return err == nil
+	}
+	return strings.TrimSpace(protocolAuthorizationToken(account)) != ""
+}
+
+func protocolRuntimeAuthorizationReady(ctx context.Context, account *Account) bool {
+	if _, routed := ProtocolRoutingRequest(ctx); !routed {
+		return true
+	}
+	return !protocolRoutingGovernsAccount(account) || ProtocolAuthorizationPresent(account)
 }
 
 // ForwardResultFromOpenAI keeps the Anthropic-facing handler's accounting

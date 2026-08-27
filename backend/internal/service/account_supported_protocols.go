@@ -40,35 +40,14 @@ func NormalizeSupportedProtocols(protocols []protocolrouter.Protocol) ([]protoco
 }
 
 func (a *Account) SupportedProtocols() []protocolrouter.Protocol {
-	if a == nil || a.Extra == nil {
+	if a == nil || a.ProtocolEndpointCapability == nil {
 		return nil
 	}
-	raw, ok := a.Extra[SupportedProtocolsExtraKey]
-	if !ok {
-		return nil
-	}
-	protocols := make([]protocolrouter.Protocol, 0)
-	switch values := raw.(type) {
-	case []any:
-		for _, value := range values {
-			if text, ok := value.(string); ok {
-				protocols = append(protocols, protocolrouter.Protocol(strings.TrimSpace(text)))
-			}
-		}
-	case []string:
-		for _, value := range values {
-			protocols = append(protocols, protocolrouter.Protocol(strings.TrimSpace(value)))
-		}
-	case []protocolrouter.Protocol:
-		protocols = append(protocols, values...)
-	default:
-		return nil
-	}
-	normalized, err := NormalizeSupportedProtocols(protocols)
+	normalized, err := NormalizeSupportedProtocols(a.ProtocolEndpointCapability.SupportedProtocols)
 	if err != nil {
 		return nil
 	}
-	return normalized
+	return append([]protocolrouter.Protocol(nil), normalized...)
 }
 
 func ReplaceSupportedProtocols(
@@ -104,6 +83,39 @@ func BuildSupportedProtocolsUpdate(protocols []protocolrouter.Protocol) (map[str
 	}, nil
 }
 
+// LegacySupportedProtocolsProjection decodes the previous image's rollback
+// field for one-time migration seeding only. Runtime routing, APIs, and UI must
+// use Account.SupportedProtocols, which reads the linked capability row.
+func LegacySupportedProtocolsProjection(account *Account) []protocolrouter.Protocol {
+	if account == nil || account.Extra == nil {
+		return nil
+	}
+	raw, ok := account.Extra[SupportedProtocolsExtraKey]
+	if !ok {
+		return nil
+	}
+	protocols := make([]protocolrouter.Protocol, 0)
+	switch values := raw.(type) {
+	case []any:
+		for _, value := range values {
+			if text, ok := value.(string); ok {
+				protocols = append(protocols, protocolrouter.Protocol(strings.TrimSpace(text)))
+			}
+		}
+	case []string:
+		for _, value := range values {
+			protocols = append(protocols, protocolrouter.Protocol(strings.TrimSpace(value)))
+		}
+	case []protocolrouter.Protocol:
+		protocols = append(protocols, values...)
+	}
+	normalized, err := NormalizeSupportedProtocols(protocols)
+	if err != nil {
+		return nil
+	}
+	return normalized
+}
+
 func applySupportedProtocolsUpdate(account *Account, update map[string]any) {
 	if account.Extra == nil {
 		account.Extra = make(map[string]any)
@@ -115,20 +127,33 @@ func SeedOfficialSupportedProtocols(account *Account) bool {
 	if account == nil {
 		return false
 	}
-	if account.Extra != nil {
-		if _, exists := account.Extra[SupportedProtocolsExtraKey]; exists {
-			return false
-		}
+	if account.ProtocolEndpointCapability != nil {
+		return false
 	}
 	protocols := officialSupportedProtocols(account)
 	if len(protocols) == 0 {
 		return false
 	}
-	update, err := BuildSupportedProtocolsUpdate(protocols)
-	if err != nil {
+	identity, governed, err := BuildProtocolEndpointIdentity(account)
+	if err != nil || !governed {
 		return false
 	}
-	applySupportedProtocolsUpdate(account, update)
+	id := account.ID
+	if id <= 0 {
+		id = 1
+	}
+	account.ProtocolEndpointCapabilityID = &id
+	account.ProtocolEndpointCapability = &ProtocolEndpointCapability{
+		ID:                 id,
+		CapabilityKey:      identity.Key(),
+		Identity:           identity,
+		SupportedProtocols: append([]protocolrouter.Protocol(nil), protocols...),
+		ProbeEvidence: ProtocolProbeEvidence{
+			InitialProbeCompleted: true,
+			OfficialSeed:          true,
+		},
+		Revision: 1,
+	}
 	return true
 }
 
@@ -148,6 +173,22 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 	requestedModel = strings.TrimSpace(requestedModel)
 	if requestedModel == "" {
 		return protocolrouter.AccountSnapshot{}, errors.New("requested model is required")
+	}
+	capability := account.ProtocolEndpointCapability
+	if capability == nil || account.ProtocolEndpointCapabilityID == nil || capability.ID != *account.ProtocolEndpointCapabilityID {
+		return protocolrouter.AccountSnapshot{}, errors.New("governed account is missing protocol endpoint capability link")
+	}
+	if capability.CapabilityKey == "" || capability.Revision <= 0 ||
+		(!capability.ProbeEvidence.InitialProbeCompleted && !capability.ProbeEvidence.OfficialSeed) ||
+		capability.IdentityConflict || capability.ProbeEvidence.IdentityConflict {
+		return protocolrouter.AccountSnapshot{}, errors.New("protocol endpoint capability is invalid or conflicted")
+	}
+	identity, governed, err := BuildProtocolEndpointIdentity(account)
+	if err != nil {
+		return protocolrouter.AccountSnapshot{}, err
+	}
+	if !governed || identity.Key() != capability.CapabilityKey {
+		return protocolrouter.AccountSnapshot{}, errors.New("account endpoint identity does not match linked capability")
 	}
 	protocols := account.SupportedProtocols()
 	resolvedModel := protocolResolvedUpstreamModel(account, requestedModel, requireCompact)
@@ -174,6 +215,8 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 	return protocolrouter.NewAccountSnapshot(protocolrouter.AccountSnapshotInput{
 		AccountID:          account.ID,
 		Revision:           revision,
+		CapabilityKey:      capability.CapabilityKey,
+		CapabilityRevision: capability.Revision,
 		SupportedProtocols: protocols,
 		ResolvedModel:      resolvedModel,
 		CustomBaseURL:      customBaseURL,

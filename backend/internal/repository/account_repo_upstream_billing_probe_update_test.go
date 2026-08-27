@@ -349,6 +349,7 @@ func TestUpdateCredentialsAtomicallyClearsProbeForOpenAIAPIKeyIdentityChange(t *
 	mock.ExpectExec(`(?s)UPDATE accounts.*credentials IS DISTINCT FROM \$1::jsonb.*- 'upstream_billing_probe'`).
 		WithArgs(`{"api_key":"sk-new"}`, int64(27)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectUngovernedProtocolCapabilityLifecycleLoad(mock, 27)
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO scheduler_outbox")).
 		WithArgs(service.SchedulerOutboxEventAccountChanged, int64(27), nil, nil, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -370,7 +371,7 @@ func TestUpdateWithAccountBillingSettingsRollsBackWhenOutboxFails(t *testing.T) 
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(`(?s)`+regexp.QuoteMeta("SELECT")+`.*`+regexp.QuoteMeta("FOR NO KEY UPDATE")).
-		WithArgs(int64(27), service.PlatformOpenAI, service.AccountTypeAPIKey, `{"api_key":"sk-test"}`, nil).
+		WithArgs(int64(27), service.PlatformOpenAI, service.AccountTypeAPIKey, `{"api_key":"sk-test","base_url":"https://api.example.test/v1"}`, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"identity_unchanged", "ollama_group_unchanged", "ollama_proxy_unchanged", "enabled", "rate_sync_enabled", "snapshot", "ollama_session", "ollama_auto", "ollama_snapshot"}).
 			AddRow(true, false, true, []byte(`true`), []byte(`true`), []byte(`{"status":"ok"}`), nil, nil, nil))
 	mock.ExpectExec(`(?s)UPDATE .*accounts.*SET.*WHERE .*id.*`).
@@ -378,6 +379,30 @@ func TestUpdateWithAccountBillingSettingsRollsBackWhenOutboxFails(t *testing.T) 
 	mock.ExpectQuery(`(?s)SELECT .* FROM "accounts" WHERE "id" = \$1`).
 		WithArgs(int64(27)).
 		WillReturnRows(updatedAccountRows(27, `{"upstream_billing_probe_enabled":false,"upstream_billing_rate_sync_enabled":false}`))
+	now := time.Now()
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO protocol_endpoint_capabilities")).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`(?s)SELECT id, capability_key, identity, supported_protocols, probe_evidence, revision,.*FROM protocol_endpoint_capabilities.*FOR UPDATE`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "capability_key", "identity", "supported_protocols", "probe_evidence", "revision",
+			"last_probed_at", "probe_lease_owner", "probe_lease_until", "probe_generation",
+			"identity_conflict", "created_at", "updated_at",
+		}).AddRow(
+			int64(501), "capability-key",
+			`{"key_schema_version":1,"platform":"openai","endpoint_profile":"custom_api_key","channel_type":"0","protocol_endpoints":{"chat_completions":{"url":"https://api.example.test/v1/chat/completions","api_version":""},"messages":{"url":"https://api.example.test/v1/messages","api_version":""},"responses":{"url":"https://api.example.test/v1/responses","api_version":""}},"upstream_request_profile":"openai_json_v1","routing_headers":{}}`,
+			`[]`, `{}`, int64(0), nil, nil, nil, int64(0), false, now, now,
+		))
+	mock.ExpectExec(`(?s)UPDATE accounts.*protocol_endpoint_capability_id=\$2`).
+		WithArgs(int64(27), int64(501)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`(?s)UPDATE accounts.*supported_protocols`).
+		WithArgs(int64(501), `[]`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM accounts WHERE protocol_endpoint_capability_id=$1 AND deleted_at IS NULL")).
+		WithArgs(int64(501)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO scheduler_outbox")).WillReturnError(errors.New("outbox failed"))
 	mock.ExpectRollback()
 
@@ -387,7 +412,7 @@ func TestUpdateWithAccountBillingSettingsRollsBackWhenOutboxFails(t *testing.T) 
 		Name:        "test",
 		Platform:    service.PlatformOpenAI,
 		Type:        service.AccountTypeAPIKey,
-		Credentials: map[string]any{"api_key": "sk-test"},
+		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://api.example.test/v1"},
 		Extra: map[string]any{
 			service.UpstreamBillingProbeExtraKey: map[string]any{"status": "stale"},
 		},
@@ -439,6 +464,7 @@ func TestUpdateCredentialsRollsBackWhenOutboxFails(t *testing.T) {
 	mock.ExpectExec(`(?s)UPDATE accounts.*credentials IS DISTINCT FROM \$1::jsonb.*- 'upstream_billing_probe'`).
 		WithArgs(`{"api_key":"sk-new"}`, int64(27)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectUngovernedProtocolCapabilityLifecycleLoad(mock, 27)
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO scheduler_outbox")).WillReturnError(errors.New("outbox failed"))
 	mock.ExpectRollback()
 
@@ -478,6 +504,6 @@ func updatedAccountRows(id int64, extra string) *sqlmock.Rows {
 		id, now, now, nil, "test", nil, service.PlatformOpenAI, service.AccountTypeAPIKey,
 		[]byte(`{"api_key":"sk-test"}`), []byte(extra), nil, nil, 1, nil, 1, 1.0,
 		service.StatusActive, nil, nil, nil, false, true, nil, nil, nil, nil, nil, nil,
-		nil, nil, nil, nil, nil, service.QuotaDimensionGlobal,
+		nil, nil, nil, nil, nil, nil, service.QuotaDimensionGlobal,
 	)
 }

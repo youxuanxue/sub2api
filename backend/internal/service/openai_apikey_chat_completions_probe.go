@@ -33,43 +33,13 @@ func openaiChatCompletionsProbePayload(modelID string) []byte {
 	return body
 }
 
-func (s *AccountTestService) ProbeOpenAIAPIKeyChatCompletionsSupport(ctx context.Context, accountID int64) {
-	account, err := s.accountRepo.GetByID(ctx, accountID)
-	if err != nil {
-		logger.LegacyPrintf("service.openai_probe", "chat_completions_load_account_failed: account_id=%d err=%v", accountID, err)
-		return
-	}
-	if !protocolProbeSupports(account, protocolrouter.ProtocolChatCompletions) {
-		return
-	}
-	revision, err := protocolProbeConfigurationRevision(account)
-	if err != nil {
-		logger.LegacyPrintf("service.openai_probe", "chat_completions_revision_failed: account_id=%d err=%v", accountID, err)
-		return
-	}
-	observation, observed := s.probeOpenAIAPIKeyChatCompletionsSupport(ctx, account, revision)
-	if !observed {
-		return
-	}
-	if err := PersistProtocolProbeVerdicts(
-		ctx,
-		s.accountRepo,
-		accountID,
-		revision,
-		map[protocolrouter.Protocol]ProtocolProbeVerdict{observation.protocol: observation.verdict},
-		observation.legacyUpdates,
-	); err != nil {
-		logger.LegacyPrintf("service.openai_probe", "chat_completions_persist_failed: account_id=%d err=%v", accountID, err)
-	}
-}
-
 func (s *AccountTestService) probeOpenAIAPIKeyChatCompletionsSupport(
 	ctx context.Context,
 	account *Account,
 	_ string,
 ) (protocolProbeObservation, bool) {
 	accountID := account.ID
-	apiKey := protocolProbeAuthToken(account)
+	apiKey := protocolAuthorizationToken(account)
 	if apiKey == "" {
 		logger.LegacyPrintf("service.openai_probe", "chat_completions_skip_no_apikey: account_id=%d", accountID)
 		return protocolProbeObservation{}, false

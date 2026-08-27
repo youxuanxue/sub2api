@@ -35,23 +35,27 @@ func New(catalog AdapterCatalog) *Router {
 }
 
 type Plan struct {
-	accountID       int64
-	accountRevision string
-	requestDigest   RequestDigest
-	resolvedModel   string
-	inboundProtocol Protocol
-	targetProtocol  Protocol
-	responsesPath   ResponsesPathKind
-	endpoint        string
-	adapterID       RouteAdapterID
-	transport       TransportID
-	routeKind       RouteKind
-	geminiProfile   GeminiEndpointProfile
-	reason          string
+	accountID          int64
+	accountRevision    string
+	capabilityKey      string
+	capabilityRevision int64
+	requestDigest      RequestDigest
+	resolvedModel      string
+	inboundProtocol    Protocol
+	targetProtocol     Protocol
+	responsesPath      ResponsesPathKind
+	endpoint           string
+	adapterID          RouteAdapterID
+	transport          TransportID
+	routeKind          RouteKind
+	geminiProfile      GeminiEndpointProfile
+	reason             string
 }
 
 func (p Plan) AccountID() int64                     { return p.accountID }
 func (p Plan) AccountRevision() string              { return p.accountRevision }
+func (p Plan) CapabilityKey() string                { return p.capabilityKey }
+func (p Plan) CapabilityRevision() int64            { return p.capabilityRevision }
 func (p Plan) RequestDigest() RequestDigest         { return p.requestDigest }
 func (p Plan) ResolvedModel() string                { return p.resolvedModel }
 func (p Plan) InboundProtocol() Protocol            { return p.inboundProtocol }
@@ -99,28 +103,32 @@ func (r *Router) Plan(request CanonicalRequest, account AccountSnapshot) (Plan, 
 			continue
 		}
 		return Plan{
-			accountID:       account.accountID,
-			accountRevision: account.revision,
-			requestDigest:   request.digest,
-			resolvedModel:   account.resolvedModel,
-			inboundProtocol: request.inboundProtocol,
-			targetProtocol:  route.target,
-			responsesPath:   responsesPath,
-			endpoint:        endpoint,
-			adapterID:       route.adapterID,
-			transport:       route.transport,
-			routeKind:       route.kind,
-			geminiProfile:   account.geminiProfile,
-			reason:          string(route.kind),
+			accountID:          account.accountID,
+			accountRevision:    account.revision,
+			capabilityKey:      account.capabilityKey,
+			capabilityRevision: account.capabilityRevision,
+			requestDigest:      request.digest,
+			resolvedModel:      account.resolvedModel,
+			inboundProtocol:    request.inboundProtocol,
+			targetProtocol:     route.target,
+			responsesPath:      responsesPath,
+			endpoint:           endpoint,
+			adapterID:          route.adapterID,
+			transport:          route.transport,
+			routeKind:          route.kind,
+			geminiProfile:      account.geminiProfile,
+			reason:             string(route.kind),
 		}, nil
 	}
 	return Plan{}, ErrNoLegalRoute
 }
 
 type ExecutionAccountState struct {
-	AccountID         int64
-	Revision          string
-	CredentialPresent bool
+	AccountID          int64
+	Revision           string
+	CapabilityKey      string
+	CapabilityRevision int64
+	CredentialPresent  bool
 }
 
 type executionAccountStateKey struct{}
@@ -149,7 +157,8 @@ func (r *Router) Execute(ctx context.Context, plan Plan, request CanonicalReques
 		return Result{}, ErrStalePlan
 	}
 	state, ok := ctx.Value(executionAccountStateKey{}).(ExecutionAccountState)
-	if !ok || state.AccountID != plan.accountID || state.Revision != plan.accountRevision {
+	if !ok || state.AccountID != plan.accountID || state.Revision != plan.accountRevision ||
+		state.CapabilityKey != plan.capabilityKey || state.CapabilityRevision != plan.capabilityRevision {
 		return Result{}, ErrStalePlan
 	}
 	if !state.CredentialPresent {

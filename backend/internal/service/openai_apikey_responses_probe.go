@@ -73,54 +73,6 @@ func openaiResponsesProbePayload(modelID string) []byte {
 	return body
 }
 
-// ProbeOpenAIAPIKeyResponsesSupport 探测 OpenAI APIKey 账号上游是否支持
-// /v1/responses 端点，并通过统一持久化入口更新 accounts.extra.supported_protocols；
-// 同时写入 openai_responses_supported 兼容旧读取方。
-//
-// 调用时机：统一协议能力探测选出 Responses 候选后；适用于所有受治理的自定义
-// APIKey/Upstream 账号，不再由 platform 名称推断能力。
-//
-// 探测策略（参见包文档 internal/pkg/openai_compat）：
-//   - 上游 404 / 405 → 端点不存在,写 false
-//   - 上游 2xx → 端点存在,进一步看工具能力:响应含 function_call 输出项才写 true;
-//     仅 reasoning / 无 function_call(如火山方舟 coding/v3 × kimi-k2.6)写 false
-//   - 其他非 2xx（401/422/400/5xx 等）→ 端点存在但无法判定工具能力,保守写 true
-//   - 网络层失败（连接错误、超时）→ 不写标记，保留既有能力事实
-//
-// 该方法是幂等的：重复调用会以最新探测结果覆盖标记。
-//
-// 关于失败处理：探测本身的失败不阻塞账号写入或启动准备；所有错误仅记录日志，
-// 未得出结论时保留既有能力事实。
-func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Context, accountID int64) {
-	account, err := s.accountRepo.GetByID(ctx, accountID)
-	if err != nil {
-		logger.LegacyPrintf("service.openai_probe", "probe_load_account_failed: account_id=%d err=%v", accountID, err)
-		return
-	}
-	if !protocolProbeSupports(account, protocolrouter.ProtocolResponses) {
-		return
-	}
-	revision, err := protocolProbeConfigurationRevision(account)
-	if err != nil {
-		logger.LegacyPrintf("service.openai_probe", "probe_revision_failed: account_id=%d err=%v", accountID, err)
-		return
-	}
-	observation, observed := s.probeOpenAIAPIKeyResponsesSupport(ctx, account, revision)
-	if !observed {
-		return
-	}
-	if err := PersistProtocolProbeVerdicts(
-		ctx,
-		s.accountRepo,
-		accountID,
-		revision,
-		map[protocolrouter.Protocol]ProtocolProbeVerdict{observation.protocol: observation.verdict},
-		observation.legacyUpdates,
-	); err != nil {
-		logger.LegacyPrintf("service.openai_probe", "probe_persist_failed: account_id=%d err=%v", accountID, err)
-	}
-}
-
 func (s *AccountTestService) probeOpenAIAPIKeyResponsesSupport(
 	ctx context.Context,
 	account *Account,
@@ -131,7 +83,7 @@ func (s *AccountTestService) probeOpenAIAPIKeyResponsesSupport(
 		return protocolProbeObservation{}, false
 	}
 
-	apiKey := protocolProbeAuthToken(account)
+	apiKey := protocolAuthorizationToken(account)
 	if apiKey == "" {
 		logger.LegacyPrintf("service.openai_probe", "probe_skip_no_apikey: account_id=%d", accountID)
 		return protocolProbeObservation{}, false
@@ -238,9 +190,6 @@ func (s *AccountTestService) probeOpenAIAPIKeyResponsesSupport(
 	return protocolProbeObservation{
 		protocol: protocolrouter.ProtocolResponses,
 		verdict:  verdict,
-		legacyUpdates: map[string]any{
-			openai_compat.ExtraKeyResponsesSupported: supported,
-		},
 	}, true
 }
 

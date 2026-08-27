@@ -14,7 +14,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/tidwall/gjson"
 )
 
@@ -35,47 +34,13 @@ func openaiNativeMessagesProbePayload(modelID string) []byte {
 	return body
 }
 
-// ProbeOpenAIAPIKeyNativeMessagesSupport probes whether an OpenAI APIKey account
-// upstream exposes Anthropic /v1/messages, updates accounts.extra.supported_protocols
-// through the shared persistence path, and keeps openai_native_messages_supported
-// for legacy readers.
-func (s *AccountTestService) ProbeOpenAIAPIKeyNativeMessagesSupport(ctx context.Context, accountID int64) {
-	account, err := s.accountRepo.GetByID(ctx, accountID)
-	if err != nil {
-		logger.LegacyPrintf("service.openai_probe", "native_messages_load_account_failed: account_id=%d err=%v", accountID, err)
-		return
-	}
-	if !protocolProbeSupports(account, protocolrouter.ProtocolMessages) {
-		return
-	}
-	revision, err := protocolProbeConfigurationRevision(account)
-	if err != nil {
-		logger.LegacyPrintf("service.openai_probe", "native_messages_revision_failed: account_id=%d err=%v", accountID, err)
-		return
-	}
-	observation, observed := s.probeOpenAIAPIKeyNativeMessagesSupport(ctx, account, revision)
-	if !observed {
-		return
-	}
-	if err := PersistProtocolProbeVerdicts(
-		ctx,
-		s.accountRepo,
-		accountID,
-		revision,
-		map[protocolrouter.Protocol]ProtocolProbeVerdict{observation.protocol: observation.verdict},
-		observation.legacyUpdates,
-	); err != nil {
-		logger.LegacyPrintf("service.openai_probe", "native_messages_persist_failed: account_id=%d err=%v", accountID, err)
-	}
-}
-
 func (s *AccountTestService) probeOpenAIAPIKeyNativeMessagesSupport(
 	ctx context.Context,
 	account *Account,
 	_ string,
 ) (protocolProbeObservation, bool) {
 	accountID := account.ID
-	authToken := protocolProbeAuthToken(account)
+	authToken := protocolAuthorizationToken(account)
 	if authToken == "" {
 		logger.LegacyPrintf("service.openai_probe", "native_messages_skip_no_auth: account_id=%d", accountID)
 		return protocolProbeObservation{}, false
@@ -149,9 +114,6 @@ func (s *AccountTestService) probeOpenAIAPIKeyNativeMessagesSupport(
 	return protocolProbeObservation{
 		protocol: protocolrouter.ProtocolMessages,
 		verdict:  verdict,
-		legacyUpdates: map[string]any{
-			openai_compat.ExtraKeyNativeMessagesSupported: supported,
-		},
 	}, true
 }
 

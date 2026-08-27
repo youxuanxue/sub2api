@@ -21,12 +21,9 @@ import (
 
 type protocolProbeCASRepo struct {
 	AccountRepository
-	mu              sync.Mutex
-	account         *Account
-	waitForFirstTwo bool
-	casArrivals     int
-	casReady        chan struct{}
-	updateCalls     int
+	mu          sync.Mutex
+	account     *Account
+	updateCalls int
 }
 
 func (r *protocolProbeCASRepo) GetByID(_ context.Context, id int64) (*Account, error) {
@@ -38,39 +35,106 @@ func (r *protocolProbeCASRepo) GetByID(_ context.Context, id int64) (*Account, e
 	return cloneProtocolProbeAccount(r.account), nil
 }
 
-func (r *protocolProbeCASRepo) UpdateExtraIfUpdatedAt(
-	_ context.Context,
-	id int64,
-	expectedUpdatedAt time.Time,
-	updates map[string]any,
-) (bool, error) {
+func (r *protocolProbeCASRepo) GetByIDs(_ context.Context, ids []int64) ([]*Account, error) {
 	r.mu.Lock()
-	if r.account == nil || r.account.ID != id {
-		r.mu.Unlock()
-		return false, ErrAccountNotFound
-	}
-	if r.waitForFirstTwo && r.casArrivals < 2 {
-		r.casArrivals++
-		if r.casArrivals == 2 {
-			close(r.casReady)
-		}
-		r.mu.Unlock()
-		<-r.casReady
-		r.mu.Lock()
-	}
 	defer r.mu.Unlock()
-	if !r.account.UpdatedAt.Equal(expectedUpdatedAt) {
-		return false, nil
+	result := make([]*Account, 0, len(ids))
+	for _, id := range ids {
+		if r.account != nil && r.account.ID == id {
+			result = append(result, cloneProtocolProbeAccount(r.account))
+		}
 	}
-	if r.account.Extra == nil {
-		r.account.Extra = make(map[string]any)
+	return result, nil
+}
+
+func (r *protocolProbeCASRepo) EnsureAccountLink(_ context.Context, account *Account, identity ProtocolEndpointIdentity, historical []protocolrouter.Protocol, official bool) (*ProtocolEndpointCapability, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.account == nil || r.account.ID != account.ID {
+		return nil, ErrAccountNotFound
 	}
-	for key, value := range updates {
-		r.account.Extra[key] = value
+	if r.account.ProtocolEndpointCapability == nil {
+		id := int64(1)
+		r.account.ProtocolEndpointCapabilityID = &id
+		r.account.ProtocolEndpointCapability = &ProtocolEndpointCapability{ID: id, CapabilityKey: identity.Key(), Identity: identity, Revision: 1}
 	}
+	capability := r.account.ProtocolEndpointCapability
+	capability.SupportedProtocols, _ = NormalizeSupportedProtocols(append(capability.SupportedProtocols, historical...))
+	if official {
+		capability.SupportedProtocols, _ = NormalizeSupportedProtocols(append(capability.SupportedProtocols, officialSupportedProtocols(account)...))
+		capability.ProbeEvidence.OfficialSeed = true
+		capability.ProbeEvidence.InitialProbeCompleted = true
+	}
+	account.ProtocolEndpointCapabilityID = r.account.ProtocolEndpointCapabilityID
+	account.ProtocolEndpointCapability = capability
+	return capability, nil
+}
+
+func (r *protocolProbeCASRepo) GetByAccountID(_ context.Context, accountID int64) (*ProtocolEndpointCapability, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.account == nil || r.account.ID != accountID || r.account.ProtocolEndpointCapability == nil {
+		return nil, ErrProtocolCapabilityNotFound
+	}
+	return r.account.ProtocolEndpointCapability, nil
+}
+
+func (r *protocolProbeCASRepo) GetByKey(_ context.Context, key string) (*ProtocolEndpointCapability, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.account == nil || r.account.ProtocolEndpointCapability == nil || r.account.ProtocolEndpointCapability.CapabilityKey != key {
+		return nil, ErrProtocolCapabilityNotFound
+	}
+	return r.account.ProtocolEndpointCapability, nil
+}
+
+func (r *protocolProbeCASRepo) ListLinkedAccountIDs(_ context.Context, key string) ([]int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.account != nil && r.account.ProtocolEndpointCapability != nil && r.account.ProtocolEndpointCapability.CapabilityKey == key {
+		return []int64{r.account.ID}, nil
+	}
+	return nil, nil
+}
+
+func (r *protocolProbeCASRepo) AcquireProbeLease(_ context.Context, key, owner string, _ time.Time, _ time.Duration) (ProtocolProbeLease, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.account == nil || r.account.ProtocolEndpointCapability == nil || r.account.ProtocolEndpointCapability.CapabilityKey != key {
+		return ProtocolProbeLease{}, false, ErrProtocolCapabilityNotFound
+	}
+	capability := r.account.ProtocolEndpointCapability
+	if capability.ProbeLeaseOwner != nil {
+		return ProtocolProbeLease{}, false, nil
+	}
+	capability.ProbeGeneration++
+	capability.ProbeLeaseOwner = &owner
+	return ProtocolProbeLease{CapabilityKey: key, Generation: capability.ProbeGeneration, Revision: capability.Revision, Owner: owner}, true, nil
+}
+
+func (r *protocolProbeCASRepo) CommitProbeResult(_ context.Context, lease ProtocolProbeLease, mutation ProtocolCapabilityMutation) (*ProtocolEndpointCapability, int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	capability := r.account.ProtocolEndpointCapability
+	if capability == nil || capability.CapabilityKey != lease.CapabilityKey || capability.Revision != lease.Revision || capability.ProbeGeneration != lease.Generation || capability.ProbeLeaseOwner == nil || *capability.ProbeLeaseOwner != lease.Owner {
+		return nil, 0, ErrProtocolCapabilityStaleWrite
+	}
+	normalized, err := NormalizeSupportedProtocols(mutation.SupportedProtocols)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !protocolListsEqual(capability.SupportedProtocols, normalized) || capability.IdentityConflict != mutation.IdentityConflict {
+		capability.Revision++
+	}
+	capability.SupportedProtocols = normalized
+	capability.ProbeEvidence = mutation.ProbeEvidence
+	capability.ProbeEvidence.InitialProbeCompleted = mutation.InitialProbeCompleted || capability.ProbeEvidence.InitialProbeCompleted
+	capability.IdentityConflict = mutation.IdentityConflict
+	capability.ProbeLeaseOwner = nil
+	update, _ := BuildSupportedProtocolsUpdate(normalized)
+	applySupportedProtocolsUpdate(r.account, update)
 	r.updateCalls++
-	r.account.UpdatedAt = r.account.UpdatedAt.Add(time.Nanosecond)
-	return true, nil
+	return capability, 1, nil
 }
 
 type protocolProbeSetUpstream struct {
@@ -228,6 +292,236 @@ func TestApplyProtocolProbeVerdictsUpdatesOnlyConclusiveEndpointFacts(t *testing
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("model-specific verdict changed endpoint fact: got %v want %v", got, want)
+	}
+}
+
+func TestResolveProtocolProbeGenerationFailsClosedOnContradictoryEvidence(t *testing.T) {
+	resolution, err := resolveProtocolProbeGeneration(
+		[]protocolrouter.Protocol{protocolrouter.ProtocolMessages, protocolrouter.ProtocolResponses},
+		false,
+		nil,
+		[]protocolrouter.Protocol{protocolrouter.ProtocolResponses},
+		map[protocolrouter.Protocol][]ProtocolProbeVerdict{
+			protocolrouter.ProtocolResponses: {ProtocolProbePositive, ProtocolProbeEndpointNegative},
+		},
+	)
+	if err != nil {
+		t.Fatalf("resolveProtocolProbeGeneration: %v", err)
+	}
+	if !resolution.IdentityConflict {
+		t.Fatal("contradictory endpoint evidence did not mark identity conflict")
+	}
+	if slices.Contains(resolution.SupportedProtocols, protocolrouter.ProtocolResponses) {
+		t.Fatalf("conflicted protocol remained routable: %v", resolution.SupportedProtocols)
+	}
+	if resolution.AllConclusive {
+		t.Fatal("conflicted generation was marked conclusive")
+	}
+}
+
+func TestResolveProtocolProbeGenerationClearsConflictAfterConsistentProbe(t *testing.T) {
+	resolution, err := resolveProtocolProbeGeneration(
+		[]protocolrouter.Protocol{protocolrouter.ProtocolMessages},
+		true,
+		map[string]any{string(protocolrouter.ProtocolResponses): "conflict"},
+		[]protocolrouter.Protocol{protocolrouter.ProtocolResponses},
+		map[protocolrouter.Protocol][]ProtocolProbeVerdict{
+			protocolrouter.ProtocolResponses: {ProtocolProbePositive, ProtocolProbePositive},
+		},
+	)
+	if err != nil {
+		t.Fatalf("resolveProtocolProbeGeneration: %v", err)
+	}
+	if resolution.IdentityConflict {
+		t.Fatal("consistent conclusive generation did not clear identity conflict")
+	}
+	if !resolution.AllConclusive {
+		t.Fatal("consistent positive evidence was not conclusive")
+	}
+	if !slices.Contains(resolution.SupportedProtocols, protocolrouter.ProtocolResponses) {
+		t.Fatalf("positive protocol was not restored: %v", resolution.SupportedProtocols)
+	}
+}
+
+func TestResolveProtocolProbeGenerationPreservesConflictOnInconclusiveProbe(t *testing.T) {
+	resolution, err := resolveProtocolProbeGeneration(
+		[]protocolrouter.Protocol{protocolrouter.ProtocolMessages},
+		true,
+		map[string]any{string(protocolrouter.ProtocolResponses): string(ProtocolProbePositive)},
+		[]protocolrouter.Protocol{protocolrouter.ProtocolResponses},
+		map[protocolrouter.Protocol][]ProtocolProbeVerdict{
+			protocolrouter.ProtocolResponses: {ProtocolProbeModelSpecific, ProtocolProbeInconclusive},
+		},
+	)
+	if err != nil {
+		t.Fatalf("resolveProtocolProbeGeneration: %v", err)
+	}
+	if !resolution.IdentityConflict {
+		t.Fatal("inconclusive generation cleared an existing identity conflict")
+	}
+	if resolution.AllConclusive {
+		t.Fatal("model-specific/inconclusive evidence was marked conclusive")
+	}
+}
+
+func TestResolveProtocolProbeGenerationConflictsWithPriorConclusiveEvidence(t *testing.T) {
+	tests := []struct {
+		name         string
+		prior        []protocolrouter.Protocol
+		priorVerdict ProtocolProbeVerdict
+		observed     ProtocolProbeVerdict
+	}{
+		{
+			name:         "positive then endpoint negative",
+			prior:        []protocolrouter.Protocol{protocolrouter.ProtocolResponses},
+			priorVerdict: ProtocolProbePositive,
+			observed:     ProtocolProbeEndpointNegative,
+		},
+		{
+			name:         "endpoint negative then positive",
+			priorVerdict: ProtocolProbeEndpointNegative,
+			observed:     ProtocolProbePositive,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolution, err := resolveProtocolProbeGeneration(
+				tt.prior,
+				false,
+				map[string]any{string(protocolrouter.ProtocolResponses): string(tt.priorVerdict)},
+				[]protocolrouter.Protocol{protocolrouter.ProtocolResponses},
+				map[protocolrouter.Protocol][]ProtocolProbeVerdict{
+					protocolrouter.ProtocolResponses: {tt.observed},
+				},
+			)
+			if err != nil {
+				t.Fatalf("resolveProtocolProbeGeneration: %v", err)
+			}
+			if !resolution.IdentityConflict {
+				t.Fatal("opposite conclusive generations did not mark identity conflict")
+			}
+			if slices.Contains(resolution.SupportedProtocols, protocolrouter.ProtocolResponses) {
+				t.Fatalf("conflicted protocol remained routable: %v", resolution.SupportedProtocols)
+			}
+		})
+	}
+}
+
+func TestResolveProtocolProbeGenerationKeepsConclusiveHistoryAcrossInconclusiveGeneration(t *testing.T) {
+	protocol := protocolrouter.ProtocolResponses
+	middle, err := resolveProtocolProbeGeneration(
+		[]protocolrouter.Protocol{protocol},
+		false,
+		map[string]any{string(protocol): string(ProtocolProbePositive)},
+		[]protocolrouter.Protocol{protocol},
+		map[protocolrouter.Protocol][]ProtocolProbeVerdict{
+			protocol: {ProtocolProbeInconclusive},
+		},
+	)
+	if err != nil {
+		t.Fatalf("resolve inconclusive generation: %v", err)
+	}
+	if got := conclusiveProtocolProbeVerdict(middle.Evidence[protocol]); got != ProtocolProbePositive {
+		t.Fatalf("persisted verdict after inconclusive generation = %q, want prior positive", got)
+	}
+
+	final, err := resolveProtocolProbeGeneration(
+		middle.SupportedProtocols,
+		middle.IdentityConflict,
+		map[string]any{string(protocol): middle.Evidence[protocol]},
+		[]protocolrouter.Protocol{protocol},
+		map[protocolrouter.Protocol][]ProtocolProbeVerdict{
+			protocol: {ProtocolProbeEndpointNegative},
+		},
+	)
+	if err != nil {
+		t.Fatalf("resolve opposite conclusive generation: %v", err)
+	}
+	if !final.IdentityConflict {
+		t.Fatal("positive -> inconclusive -> endpoint-negative did not mark identity conflict")
+	}
+}
+
+func TestProbeProtocolWitnessesStopsAfterFirstConclusiveVerdict(t *testing.T) {
+	witnesses := []*Account{{ID: 1}, {ID: 2}, {ID: 3}}
+	calls := 0
+	verdicts := probeProtocolWitnesses(witnesses, func(witness *Account) (protocolProbeObservation, bool) {
+		calls++
+		if witness.ID == 1 {
+			return protocolProbeObservation{verdict: ProtocolProbePositive}, true
+		}
+		return protocolProbeObservation{verdict: ProtocolProbeEndpointNegative}, true
+	})
+	if calls != 1 {
+		t.Fatalf("witness calls = %d, want 1", calls)
+	}
+	if !reflect.DeepEqual(verdicts, []ProtocolProbeVerdict{ProtocolProbePositive}) {
+		t.Fatalf("verdicts = %v, want first conclusive verdict only", verdicts)
+	}
+}
+
+func TestSelectProtocolProbeWitnessesFiltersUnusableAuthorizationBeforeBound(t *testing.T) {
+	now := time.Now().UTC()
+	validVertexCredential := `{"type":"service_account","project_id":"vertex-project","private_key":"private-key","client_email":"svc@vertex-project.iam.gserviceaccount.com"}`
+	accounts := []*Account{
+		{ID: 1, Priority: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"base_url": "https://relay.example.test/v1"}},
+		{ID: 2, Priority: 2, Platform: PlatformGrok, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"access_token": "expired", "expires_at": now.Add(-time.Minute).Format(time.RFC3339)}},
+		{ID: 3, Priority: 3, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"api_key": "   "}},
+		{ID: 4, Priority: 4, Platform: PlatformNewAPI, Type: AccountTypeServiceAccount, ChannelType: newapiconstant.ChannelTypeVertexAi, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"service_account_json": `{"project_id":"vertex-project"}`}},
+		{ID: 5, Priority: 5, Platform: PlatformNewAPI, Type: AccountTypeServiceAccount, ChannelType: newapiconstant.ChannelTypeVertexAi, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"service_account_json": validVertexCredential}},
+		{ID: 6, Priority: 6, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"api_key": "usable"}},
+		{ID: 7, Priority: 7, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"access_token": "oauth-usable"}},
+	}
+
+	witnesses := selectProtocolProbeWitnesses(accounts)
+	if got := protocolProbeWitnessIDs(witnesses); !reflect.DeepEqual(got, []int64{5, 6, 7}) {
+		t.Fatalf("witness ids = %v, want [5 6 7]", got)
+	}
+}
+
+func protocolProbeWitnessIDs(accounts []*Account) []int64 {
+	ids := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		ids = append(ids, account.ID)
+	}
+	return ids
+}
+
+func TestProbeAccountProtocolCapabilitiesNoWitnessPreservesConflict(t *testing.T) {
+	account := protocolRoutingOpenAIAccount(92)
+	account.Status = StatusError
+	account.Schedulable = false
+	account.ErrorMessage = "authorization unavailable"
+	identity, governed, err := BuildProtocolEndpointIdentity(account)
+	if err != nil || !governed {
+		t.Fatalf("BuildProtocolEndpointIdentity = governed:%v err:%v", governed, err)
+	}
+	capabilityID := int64(1)
+	account.ProtocolEndpointCapabilityID = &capabilityID
+	account.ProtocolEndpointCapability = &ProtocolEndpointCapability{
+		ID:                 capabilityID,
+		CapabilityKey:      identity.Key(),
+		Identity:           identity,
+		SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolResponses},
+		ProbeEvidence: ProtocolProbeEvidence{
+			IdentityConflict: true,
+			Verdicts:         map[string]any{string(protocolrouter.ProtocolResponses): "conflict"},
+		},
+		IdentityConflict: true,
+		Revision:         2,
+	}
+	repo := &protocolProbeCASRepo{account: cloneProtocolProbeAccount(account)}
+	svc := &AccountTestService{accountRepo: repo, protocolCapabilityRepo: repo}
+
+	result, err := svc.ProbeAccountProtocolCapabilitiesNow(context.Background(), account.ID)
+	if err != nil {
+		t.Fatalf("ProbeAccountProtocolCapabilitiesNow: %v", err)
+	}
+	if result.Outcome != ProtocolProbeRunInconclusive || result.Reason != "no_usable_witness" {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.Capability == nil || !result.Capability.IdentityConflict || !result.Capability.ProbeEvidence.IdentityConflict {
+		t.Fatalf("no-witness probe cleared conflict: %#v", result.Capability)
 	}
 }
 
@@ -492,6 +786,8 @@ func TestProbeAccountProtocolCapabilitiesSupportsGrokOAuth(t *testing.T) {
 		Platform:    PlatformGrok,
 		Type:        AccountTypeOAuth,
 		Concurrency: 1,
+		Status:      StatusActive,
+		Schedulable: true,
 		Credentials: map[string]any{
 			"access_token": "grok-oauth-secret",
 			"base_url":     "https://grok.example.test/v1",
@@ -569,6 +865,8 @@ func TestProbeAccountProtocolCapabilitiesSupportsCustomAnthropicOAuth(t *testing
 		Platform:    PlatformAnthropic,
 		Type:        AccountTypeOAuth,
 		Concurrency: 1,
+		Status:      StatusActive,
+		Schedulable: true,
 		Credentials: map[string]any{"access_token": "oauth-secret"},
 		Extra: map[string]any{
 			"custom_base_url_enabled": true,
@@ -602,118 +900,6 @@ func TestProbeAccountProtocolCapabilitiesSupportsCustomAnthropicOAuth(t *testing
 	}
 	if want := []string{"Bearer oauth-secret"}; !reflect.DeepEqual(upstream.authorizations, want) {
 		t.Fatalf("probe authorizations = %v, want %v", upstream.authorizations, want)
-	}
-}
-
-func TestBuildProtocolProbeUpdateRejectsStaleAccountRevision(t *testing.T) {
-	account := protocolRoutingOpenAIAccount(55, "responses")
-	expected, err := protocolProbeConfigurationRevision(account)
-	if err != nil {
-		t.Fatalf("protocolProbeConfigurationRevision: %v", err)
-	}
-	account.Credentials["base_url"] = "https://changed.example.test/v1"
-
-	_, err = BuildProtocolProbeUpdate(account, expected, map[protocolrouter.Protocol]ProtocolProbeVerdict{
-		protocolrouter.ProtocolChatCompletions: ProtocolProbePositive,
-	})
-	if !errors.Is(err, ErrProtocolProbeStaleRevision) {
-		t.Fatalf("BuildProtocolProbeUpdate error = %v, want ErrProtocolProbeStaleRevision", err)
-	}
-}
-
-func TestProtocolProbeFactsRemainPerAccountEvenWhenBaseURLMatches(t *testing.T) {
-	first := protocolRoutingOpenAIAccount(1, "responses")
-	second := protocolRoutingOpenAIAccount(2, "messages")
-	first.Credentials["base_url"] = "https://shared.example.test/v1"
-	second.Credentials["base_url"] = "https://shared.example.test/v1"
-
-	firstRevision, _ := protocolProbeConfigurationRevision(first)
-	secondRevision, _ := protocolProbeConfigurationRevision(second)
-	firstUpdate, err := BuildProtocolProbeUpdate(first, firstRevision, map[protocolrouter.Protocol]ProtocolProbeVerdict{
-		protocolrouter.ProtocolResponses: ProtocolProbeEndpointNegative,
-	})
-	if err != nil {
-		t.Fatalf("BuildProtocolProbeUpdate first: %v", err)
-	}
-	secondUpdate, err := BuildProtocolProbeUpdate(second, secondRevision, map[protocolrouter.Protocol]ProtocolProbeVerdict{
-		protocolrouter.ProtocolMessages: ProtocolProbePositive,
-	})
-	if err != nil {
-		t.Fatalf("BuildProtocolProbeUpdate second: %v", err)
-	}
-	if reflect.DeepEqual(firstUpdate[SupportedProtocolsExtraKey], secondUpdate[SupportedProtocolsExtraKey]) {
-		t.Fatalf("shared base URL collapsed per-account capability facts: first=%v second=%v", firstUpdate, secondUpdate)
-	}
-}
-
-func TestPersistProtocolProbeVerdictsMergesConcurrentSiblingResultsWithoutLoss(t *testing.T) {
-	account := protocolRoutingOpenAIAccount(88)
-	account.UpdatedAt = time.Date(2026, 8, 24, 8, 0, 0, 0, time.UTC)
-	revision, err := protocolProbeConfigurationRevision(account)
-	if err != nil {
-		t.Fatalf("protocolProbeConfigurationRevision: %v", err)
-	}
-	repo := &protocolProbeCASRepo{
-		account:         cloneProtocolProbeAccount(account),
-		waitForFirstTwo: true,
-		casReady:        make(chan struct{}),
-	}
-
-	errCh := make(chan error, 2)
-	go func() {
-		errCh <- PersistProtocolProbeVerdicts(
-			context.Background(), repo, account.ID, revision,
-			map[protocolrouter.Protocol]ProtocolProbeVerdict{protocolrouter.ProtocolMessages: ProtocolProbePositive},
-			map[string]any{"openai_native_messages_supported": true},
-		)
-	}()
-	go func() {
-		errCh <- PersistProtocolProbeVerdicts(
-			context.Background(), repo, account.ID, revision,
-			map[protocolrouter.Protocol]ProtocolProbeVerdict{protocolrouter.ProtocolResponses: ProtocolProbePositive},
-			map[string]any{"openai_responses_supported": true},
-		)
-	}()
-	for range 2 {
-		if err := <-errCh; err != nil {
-			t.Fatalf("PersistProtocolProbeVerdicts: %v", err)
-		}
-	}
-
-	got, err := repo.GetByID(context.Background(), account.ID)
-	if err != nil {
-		t.Fatalf("GetByID: %v", err)
-	}
-	want := []protocolrouter.Protocol{protocolrouter.ProtocolMessages, protocolrouter.ProtocolResponses}
-	if !reflect.DeepEqual(got.SupportedProtocols(), want) {
-		t.Fatalf("supported protocols = %v, want %v", got.SupportedProtocols(), want)
-	}
-	if got.Extra["openai_native_messages_supported"] != true || got.Extra["openai_responses_supported"] != true {
-		t.Fatalf("legacy rollback facts were not preserved: extra=%v", got.Extra)
-	}
-}
-
-func TestPersistProtocolProbeVerdictsRejectsConfigurationChangedAfterProbe(t *testing.T) {
-	account := protocolRoutingOpenAIAccount(89, "responses")
-	account.UpdatedAt = time.Date(2026, 8, 24, 8, 0, 0, 0, time.UTC)
-	revision, err := protocolProbeConfigurationRevision(account)
-	if err != nil {
-		t.Fatalf("protocolProbeConfigurationRevision: %v", err)
-	}
-	repo := &protocolProbeCASRepo{account: cloneProtocolProbeAccount(account)}
-	repo.account.Credentials["base_url"] = "https://changed.example.test/v1"
-	repo.account.UpdatedAt = repo.account.UpdatedAt.Add(time.Second)
-
-	err = PersistProtocolProbeVerdicts(
-		context.Background(), repo, account.ID, revision,
-		map[protocolrouter.Protocol]ProtocolProbeVerdict{protocolrouter.ProtocolMessages: ProtocolProbePositive},
-		nil,
-	)
-	if !errors.Is(err, ErrProtocolProbeStaleRevision) {
-		t.Fatalf("PersistProtocolProbeVerdicts error = %v, want ErrProtocolProbeStaleRevision", err)
-	}
-	if got := repo.account.SupportedProtocols(); !reflect.DeepEqual(got, []protocolrouter.Protocol{protocolrouter.ProtocolResponses}) {
-		t.Fatalf("stale probe changed supported protocols: %v", got)
 	}
 }
 
@@ -795,24 +981,23 @@ func TestProbeAccountProtocolCapabilitiesProbesCandidateSetConcurrently(t *testi
 	}
 }
 
-func TestProtocolProbeCoordinatorCoalescesOnlyIdenticalAccountRevisionCandidateSet(t *testing.T) {
+func TestProtocolProbeCoordinatorCoalescesByEndpointCapabilityKey(t *testing.T) {
 	var coordinator protocolProbeCoordinator
-	allCandidates := protocolrouter.AllProtocols()
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var calls atomic.Int32
-	job := func() error {
+	job := func() (ProtocolProbeRunResult, error) {
 		if calls.Add(1) == 1 {
 			close(started)
 		}
 		<-release
-		return nil
+		return ProtocolProbeRunResult{Outcome: ProtocolProbeRunUnchanged}, nil
 	}
 
 	errCh := make(chan error, 2)
-	go func() { errCh <- coordinator.Do(7, "revision-a", allCandidates, job) }()
+	go func() { _, err := coordinator.Do("capability-a", job); errCh <- err }()
 	<-started
-	go func() { errCh <- coordinator.Do(7, "revision-a", allCandidates, job) }()
+	go func() { _, err := coordinator.Do("capability-a", job); errCh <- err }()
 	time.Sleep(20 * time.Millisecond)
 	close(release)
 	for range 2 {
@@ -827,26 +1012,28 @@ func TestProtocolProbeCoordinatorCoalescesOnlyIdenticalAccountRevisionCandidateS
 	started = make(chan struct{})
 	release = make(chan struct{})
 	calls.Store(0)
-	job = func() error {
+	job = func() (ProtocolProbeRunResult, error) {
 		if calls.Add(1) == 1 {
 			close(started)
 		}
 		<-release
-		return nil
+		return ProtocolProbeRunResult{Outcome: ProtocolProbeRunUnchanged}, nil
 	}
 	errCh = make(chan error, 2)
 	go func() {
-		errCh <- coordinator.Do(7, "revision-a", []protocolrouter.Protocol{protocolrouter.ProtocolMessages}, job)
+		_, err := coordinator.Do("capability-a", job)
+		errCh <- err
 	}()
 	<-started
 	go func() {
-		errCh <- coordinator.Do(7, "revision-a", []protocolrouter.Protocol{protocolrouter.ProtocolResponses}, job)
+		_, err := coordinator.Do("capability-b", job)
+		errCh <- err
 	}()
 	deadline := time.After(time.Second)
 	for calls.Load() != 2 {
 		select {
 		case <-deadline:
-			t.Fatalf("different candidate-set jobs were coalesced; calls=%d", calls.Load())
+			t.Fatalf("different endpoint keys were coalesced; calls=%d", calls.Load())
 		default:
 			time.Sleep(time.Millisecond)
 		}

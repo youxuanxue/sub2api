@@ -188,6 +188,9 @@ func attachProtocolPlan(
 	}
 	snapshot, err := protocolAccountSnapshotForRequest(selection.Account, routing.request)
 	if err != nil {
+		if routing.plans.containsAccount(selection.Account.ID) {
+			return releaseProtocolSelectionOnPlanError(selection, protocolrouter.ErrStalePlan)
+		}
 		return releaseProtocolSelectionOnPlanError(selection, fmt.Errorf("%w: %v", ErrProtocolRouteUnavailable, err))
 	}
 	plan, planned := routing.plans.get(snapshot.AccountID(), snapshot.Revision())

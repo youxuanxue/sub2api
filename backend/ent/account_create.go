@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/protocolendpointcapability"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 )
@@ -405,6 +406,20 @@ func (_c *AccountCreate) SetNillableChannelType(v *int) *AccountCreate {
 	return _c
 }
 
+// SetProtocolEndpointCapabilityID sets the "protocol_endpoint_capability_id" field.
+func (_c *AccountCreate) SetProtocolEndpointCapabilityID(v int64) *AccountCreate {
+	_c.mutation.SetProtocolEndpointCapabilityID(v)
+	return _c
+}
+
+// SetNillableProtocolEndpointCapabilityID sets the "protocol_endpoint_capability_id" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableProtocolEndpointCapabilityID(v *int64) *AccountCreate {
+	if v != nil {
+		_c.SetProtocolEndpointCapabilityID(*v)
+	}
+	return _c
+}
+
 // SetTierID sets the "tier_id" field.
 func (_c *AccountCreate) SetTierID(v int64) *AccountCreate {
 	_c.mutation.SetTierID(v)
@@ -465,6 +480,11 @@ func (_c *AccountCreate) AddGroups(v ...*Group) *AccountCreate {
 // SetProxy sets the "proxy" edge to the Proxy entity.
 func (_c *AccountCreate) SetProxy(v *Proxy) *AccountCreate {
 	return _c.SetProxyID(v.ID)
+}
+
+// SetProtocolEndpointCapability sets the "protocol_endpoint_capability" edge to the ProtocolEndpointCapability entity.
+func (_c *AccountCreate) SetProtocolEndpointCapability(v *ProtocolEndpointCapability) *AccountCreate {
+	return _c.SetProtocolEndpointCapabilityID(v.ID)
 }
 
 // SetParentID sets the "parent" edge to the Account entity by ID.
@@ -879,6 +899,23 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_node.ProxyID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.ProtocolEndpointCapabilityIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   account.ProtocolEndpointCapabilityTable,
+			Columns: []string{account.ProtocolEndpointCapabilityColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(protocolendpointcapability.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.ProtocolEndpointCapabilityID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.ParentIDs(); len(nodes) > 0 {
@@ -1459,6 +1496,24 @@ func (u *AccountUpsert) UpdateChannelType() *AccountUpsert {
 // AddChannelType adds v to the "channel_type" field.
 func (u *AccountUpsert) AddChannelType(v int) *AccountUpsert {
 	u.Add(account.FieldChannelType, v)
+	return u
+}
+
+// SetProtocolEndpointCapabilityID sets the "protocol_endpoint_capability_id" field.
+func (u *AccountUpsert) SetProtocolEndpointCapabilityID(v int64) *AccountUpsert {
+	u.Set(account.FieldProtocolEndpointCapabilityID, v)
+	return u
+}
+
+// UpdateProtocolEndpointCapabilityID sets the "protocol_endpoint_capability_id" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateProtocolEndpointCapabilityID() *AccountUpsert {
+	u.SetExcluded(account.FieldProtocolEndpointCapabilityID)
+	return u
+}
+
+// ClearProtocolEndpointCapabilityID clears the value of the "protocol_endpoint_capability_id" field.
+func (u *AccountUpsert) ClearProtocolEndpointCapabilityID() *AccountUpsert {
+	u.SetNull(account.FieldProtocolEndpointCapabilityID)
 	return u
 }
 
@@ -2118,6 +2173,27 @@ func (u *AccountUpsertOne) AddChannelType(v int) *AccountUpsertOne {
 func (u *AccountUpsertOne) UpdateChannelType() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.UpdateChannelType()
+	})
+}
+
+// SetProtocolEndpointCapabilityID sets the "protocol_endpoint_capability_id" field.
+func (u *AccountUpsertOne) SetProtocolEndpointCapabilityID(v int64) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetProtocolEndpointCapabilityID(v)
+	})
+}
+
+// UpdateProtocolEndpointCapabilityID sets the "protocol_endpoint_capability_id" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateProtocolEndpointCapabilityID() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateProtocolEndpointCapabilityID()
+	})
+}
+
+// ClearProtocolEndpointCapabilityID clears the value of the "protocol_endpoint_capability_id" field.
+func (u *AccountUpsertOne) ClearProtocolEndpointCapabilityID() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearProtocolEndpointCapabilityID()
 	})
 }
 
@@ -2952,6 +3028,27 @@ func (u *AccountUpsertBulk) AddChannelType(v int) *AccountUpsertBulk {
 func (u *AccountUpsertBulk) UpdateChannelType() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.UpdateChannelType()
+	})
+}
+
+// SetProtocolEndpointCapabilityID sets the "protocol_endpoint_capability_id" field.
+func (u *AccountUpsertBulk) SetProtocolEndpointCapabilityID(v int64) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetProtocolEndpointCapabilityID(v)
+	})
+}
+
+// UpdateProtocolEndpointCapabilityID sets the "protocol_endpoint_capability_id" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateProtocolEndpointCapabilityID() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateProtocolEndpointCapabilityID()
+	})
+}
+
+// ClearProtocolEndpointCapabilityID clears the value of the "protocol_endpoint_capability_id" field.
+func (u *AccountUpsertBulk) ClearProtocolEndpointCapabilityID() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearProtocolEndpointCapabilityID()
 	})
 }
 

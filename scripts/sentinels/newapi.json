@@ -575,9 +575,9 @@
     {
       "path": "backend/internal/handler/openai_chat_completions.go",
       "must_contain": [
-        "NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {\n\t\t\t\t\t\treturn h.gatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, prepareBody(request), promptCacheKey, dispatchMappedModel)",
-        "ChatIdentity: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest)",
-        "return h.gatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, prepareBody(request), promptCacheKey, dispatchMappedModel)"
+        "NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {\n\t\t\t\t\t\treturn h.gatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, prepareBody(account, request), promptCacheKey, dispatchMappedModel)",
+        "ChatIdentity: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest)",
+        "return h.gatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, prepareBody(account, request), promptCacheKey, dispatchMappedModel)"
       ],
       "must_not_contain": [
         "return h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, promptCacheKey, dispatchMappedModel)",
@@ -916,7 +916,7 @@
     {
       "path": "backend/internal/service/protocol_capability_probe.go",
       "must_contain": [
-        "func protocolProbeAuthToken(account *Account) string",
+        "func protocolAuthorizationToken(account *Account) string",
         "func applyProtocolProbeRequestIdentity(",
         "case account.IsGrokOAuth():",
         "HTTPUpstreamProfileGrok",
@@ -986,9 +986,10 @@
       "must_contain": [
         "selectProtocolProbeModel(account)",
         "ProtocolMessages",
-        "openai_native_messages_supported"
+        "ProtocolProbePositive",
+        "ProtocolProbeEndpointNegative"
       ],
-      "rationale": "Native Messages capability probes share the same representative text-model owner and persist canonical protocol evidence while retaining the legacy compatibility field. Losing that call recreates per-protocol model selection drift."
+      "rationale": "Native Messages probing owns only the real upstream observation and verdict. The endpoint capability commit is the sole persistence path, while the shared representative text-model owner prevents per-protocol model selection drift."
     },
     {
       "path": "backend/internal/service/protocol_routing_context.go",
@@ -1149,7 +1150,7 @@
     {
       "path": "backend/internal/service/openai_apikey_chat_completions_probe_test.go",
       "must_contain": [
-        "TestProbeOpenAIAPIKeyChatCompletionsSupportUsesNewAPIAdaptorEndpoint",
+        "TestChatCompletionsProtocolProbeUsesNewAPIAdaptorEndpoint",
         "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
       ],
       "rationale": "Regression proof that the ch17 Chat Completions probe follows the live adaptor endpoint instead of the generic 404 path."
@@ -1157,16 +1158,15 @@
     {
       "path": "backend/internal/service/openai_apikey_responses_probe_test.go",
       "must_contain": [
-        "TestProbeOpenAIAPIKeyResponsesSupportUsesNewAPIAdaptorEndpoint",
-        "TestProbeOpenAIAPIKeyResponsesSupportUsesGenericAPIKeyForAnthropicMirror",
-        "HTTPUpstreamRedirectsDisabled(upstream.lastReq.Context())",
-        "TestProbeOpenAIAPIKeyResponsesSupportPrefersChannelNativeTextModel",
+        "TestDecideResponsesProbeSupport",
+        "TestResponsesProbeVerdictIsConclusive",
+        "TestResponsesProbeBodyHasFunctionCall",
         "TestSelectProtocolProbeModelUsesDeterministicTextFallback",
         "TestSelectProtocolProbeModelExcludesMediaAndUsesDeterministicTextFallback",
         "TestSelectProtocolProbeModelPrefersAliNativeQwenFamily",
-        "https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1/responses"
+        "TestSelectProtocolProbeModelSkipsEmbeddingModels"
       ],
-      "rationale": "Regression proof that the ch17 Responses probe follows the live adaptor endpoint, prefers qwen-* for Ali channels, filters media mappings, and chooses one deterministic representative model."
+      "rationale": "Responses probe classification and representative-model selection remain deterministic, prefer channel-native text families, and exclude media or embedding mappings. Exact endpoint dispatch and witness coordination are guarded by their dedicated owner sentinels."
     },
     {
       "path": "backend/internal/handler/openai_chat_completions_legacy_protocol_fallback_test.go",
@@ -1180,7 +1180,7 @@
     {
       "path": "backend/internal/handler/openai_gateway_count_tokens.go",
       "must_contain": [
-        "NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest)",
+        "NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest)",
         "ForwardResponsesInputTokens(executionCtx, c, account, request.Body())"
       ],
       "rationale": "Responses input-token requests must keep their legacy executor while CutoverReady=false. This call site is intentionally separate from generation handlers; losing its NonGoverned binding returns ErrProtocolExecutorMissing with an empty response even though the process-wide rollout gate says legacy routing remains active."
@@ -1213,11 +1213,11 @@
         "TestMigrateProtocolRoutingSSOTExcludesVideoOnlyAccounts",
         "TestProtocolRoutingMediaOnlyClassificationKeepsTextWildcardAccounts",
         "TestProtocolRoutingMediaOnlyClassificationExcludesKnownImageAliases",
-        "TestProtocolRoutingMigrationUsesWildcardServedModelsForLegalRoute",
+        "TestProtocolRoutingMigrationDoesNotTreatHistoricalWildcardSeedAsVerified",
         "ProbeAttempts != 1 || ready.Report.ProbeResolved != 1",
         "ProbeAttempts != 1 || ready.Report.ProbeResolved != 0"
       ],
-      "rationale": "Regression proof for the rollout-remediation fixes: XRToken video-only accounts stay outside text governance, mixed wildcard accounts stay governed, CloudWise wildcard mappings remain legal, and startup reporting no longer calls every attempted probe resolved."
+      "rationale": "Regression proof for rollout remediation: non-text accounts stay outside text governance, mixed wildcard accounts stay governed, historical wildcard seeds are not promoted to verified endpoint facts, and startup reporting distinguishes probe attempts from resolved capabilities."
     },
     {
       "path": "backend/internal/service/wire.go",
@@ -1227,6 +1227,52 @@
         "report.ProbeResolved"
       ],
       "rationale": "Startup reporting must distinguish attempted capability probes from accounts whose remediation was actually cleared. Calling attempts probed_accounts made the release report look converged while the router remained disabled."
+    },
+    {
+      "path": "backend/internal/service/protocol_endpoint_identity.go",
+      "must_contain": [
+        "BuildProtocolEndpointIdentity",
+        "ProtocolEndpointIdentity",
+        "CanonicalJSON",
+        "protocolEndpointCapabilityKeySchemaVersion",
+        "sha256.Sum256"
+      ],
+      "rationale": "Protocol capability ownership is endpoint-scoped. One credential-free canonical identity builder must own platform + channel type + endpoint/profile + API-version normalization and stable key generation; duplicating or deleting it can split identical NewAPI endpoints into conflicting capability rows or merge distinct endpoints."
+    },
+    {
+      "path": "backend/internal/repository/protocol_endpoint_capability_repo.go",
+      "must_contain": [
+        "EnsureAccountLink",
+        "AcquireProbeLease",
+        "CommitProbeResult",
+        "writeRollbackProjections",
+        "probe_generation",
+        "identity_conflict"
+      ],
+      "rationale": "The shared endpoint capability row, database lease/generation CAS, and atomic legacy rollback projection are one persistence boundary. Losing any part reintroduces per-account protocol facts, stale probe overwrites, or mixed-version rollback drift."
+    },
+    {
+      "path": "backend/internal/service/protocol_capability_probe.go",
+      "must_contain": [
+        "capability.CapabilityKey",
+        "runEndpointProtocolProbe",
+        "AcquireProbeLease",
+        "ListLinkedAccountIDs",
+        "CommitProbeResult",
+        "protocolProbeMaxWitnesses"
+      ],
+      "rationale": "Protocol discovery must coordinate and commit by canonical endpoint capability, while account IDs are only witness choices. This anchor prevents upstream merges from restoring account-scoped singleflight/CAS writers or unbounded per-account probing."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/router.go",
+      "must_contain": [
+        "CapabilityKey",
+        "CapabilityRevision",
+        "state.CapabilityKey != plan.capabilityKey",
+        "state.CapabilityRevision != plan.capabilityRevision",
+        "ErrStalePlan"
+      ],
+      "rationale": "A selected route captures the endpoint capability key and revision. Execute must reject a changed capability before adapter or network execution; otherwise a probe or endpoint relink can make an already-selected route unsafe."
     }
   ]
 }

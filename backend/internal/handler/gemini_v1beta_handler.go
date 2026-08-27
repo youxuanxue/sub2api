@@ -552,13 +552,13 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			requestCtx = service.WithAccountSwitchCount(requestCtx, fs.SwitchCount, h.metadataBridgeEnabled())
 		}
 		sessionGroupID := derefGroupID(apiKey.GroupID)
-		forwardNonGoverned := func(executionCtx context.Context, request protocolrouter.CanonicalRequest) (any, error) {
+		forwardNonGoverned := func(executionCtx context.Context, executionAccount *service.Account, request protocolrouter.CanonicalRequest) (any, error) {
 			forwardBody := request.Body()
-			if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
+			if executionAccount.Platform == service.PlatformAntigravity && executionAccount.Type != service.AccountTypeAPIKey {
 				return h.antigravityGatewayService.ForwardGemini(
 					executionCtx,
 					c,
-					account,
+					executionAccount,
 					modelName,
 					action,
 					stream,
@@ -567,7 +567,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 					service.WithForwardGeminiSession(sessionGroupID, sessionKey),
 				)
 			}
-			return h.geminiCompatService.ForwardNative(executionCtx, c, account, modelName, action, stream, forwardBody)
+			return h.geminiCompatService.ForwardNative(executionCtx, c, executionAccount, modelName, action, stream, forwardBody)
 		}
 		value, executeErr := service.ExecuteSelectedProtocol(
 			requestCtx,
@@ -575,11 +575,12 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			selection,
 			account,
 			h.gatewayService.ValidateProtocolEndpoint,
+			h.gatewayService.LoadProtocolExecutionAccount,
 			service.ProtocolExecutors{
-				NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-					return forwardNonGoverned(executionCtx, request)
+				NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					return forwardNonGoverned(executionCtx, account, request)
 				},
-				GeminiIdentity: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+				GeminiIdentity: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
 					forwardBody := request.Body()
 					return service.ExecuteGeminiProtocolProfile(

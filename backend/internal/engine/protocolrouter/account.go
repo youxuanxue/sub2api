@@ -38,6 +38,8 @@ const TransportHTTP TransportID = "http"
 type AccountSnapshotInput struct {
 	AccountID          int64
 	Revision           string
+	CapabilityKey      string
+	CapabilityRevision int64
 	SupportedProtocols []Protocol
 	ResolvedModel      string
 	CustomBaseURL      string
@@ -52,6 +54,8 @@ type AccountSnapshotInput struct {
 type AccountSnapshot struct {
 	accountID          int64
 	revision           string
+	capabilityKey      string
+	capabilityRevision int64
 	supportedProtocols map[Protocol]struct{}
 	resolvedModel      string
 	customBaseURL      string
@@ -70,6 +74,13 @@ func NewAccountSnapshot(input AccountSnapshotInput) (AccountSnapshot, error) {
 	revision := strings.TrimSpace(input.Revision)
 	if revision == "" {
 		return AccountSnapshot{}, errors.New("account revision is required")
+	}
+	capabilityKey := strings.TrimSpace(input.CapabilityKey)
+	if capabilityKey == "" {
+		return AccountSnapshot{}, errors.New("capability key is required")
+	}
+	if input.CapabilityRevision <= 0 {
+		return AccountSnapshot{}, errors.New("capability revision must be positive")
 	}
 	model := strings.TrimSpace(input.ResolvedModel)
 	if model == "" {
@@ -120,6 +131,8 @@ func NewAccountSnapshot(input AccountSnapshotInput) (AccountSnapshot, error) {
 	return AccountSnapshot{
 		accountID:          input.AccountID,
 		revision:           revision,
+		capabilityKey:      capabilityKey,
+		capabilityRevision: input.CapabilityRevision,
 		supportedProtocols: supported,
 		resolvedModel:      model,
 		customBaseURL:      strings.TrimSpace(input.CustomBaseURL),
@@ -134,6 +147,8 @@ func NewAccountSnapshot(input AccountSnapshotInput) (AccountSnapshot, error) {
 
 func (a AccountSnapshot) AccountID() int64                     { return a.accountID }
 func (a AccountSnapshot) Revision() string                     { return a.revision }
+func (a AccountSnapshot) CapabilityKey() string                { return a.capabilityKey }
+func (a AccountSnapshot) CapabilityRevision() int64            { return a.capabilityRevision }
 func (a AccountSnapshot) ResolvedModel() string                { return a.resolvedModel }
 func (a AccountSnapshot) GeminiProfile() GeminiEndpointProfile { return a.geminiProfile }
 
