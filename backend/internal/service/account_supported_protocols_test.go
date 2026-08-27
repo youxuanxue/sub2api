@@ -150,6 +150,7 @@ func TestProtocolAccountSnapshotResolvesModelAndRevisionFromAccountFacts(t *test
 	}
 
 	changed := *account
+	changed.UpdatedAt = updatedAt.Add(time.Nanosecond)
 	changed.Credentials = map[string]any{
 		"api_key":       "different-secret",
 		"base_url":      "https://relay.example.test/v1",
@@ -160,7 +161,7 @@ func TestProtocolAccountSnapshotResolvesModelAndRevisionFromAccountFacts(t *test
 		t.Fatalf("ProtocolAccountSnapshot changed: %v", err)
 	}
 	if changedSnapshot.Revision() == snapshot.Revision() {
-		t.Fatal("credential change did not change account revision")
+		t.Fatal("persisted account update did not change account revision")
 	}
 }
 

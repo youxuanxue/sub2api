@@ -36,7 +36,6 @@ func openaiChatCompletionsProbePayload(modelID string) []byte {
 func (s *AccountTestService) probeOpenAIAPIKeyChatCompletionsSupport(
 	ctx context.Context,
 	account *Account,
-	_ string,
 ) (protocolProbeObservation, bool) {
 	accountID := account.ID
 	apiKey := protocolAuthorizationToken(account)

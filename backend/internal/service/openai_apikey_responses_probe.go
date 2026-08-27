@@ -76,7 +76,6 @@ func openaiResponsesProbePayload(modelID string) []byte {
 func (s *AccountTestService) probeOpenAIAPIKeyResponsesSupport(
 	ctx context.Context,
 	account *Account,
-	_ string,
 ) (protocolProbeObservation, bool) {
 	accountID := account.ID
 	if !protocolProbeSupports(account, protocolrouter.ProtocolResponses) {

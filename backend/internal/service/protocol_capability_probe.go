@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/google/uuid"
 	"golang.org/x/sync/singleflight"
 )
@@ -170,11 +169,7 @@ func (s *AccountTestService) runEndpointProtocolProbe(
 			results[index].protocol = protocol
 			limit := min(protocolProbeMaxWitnesses, len(witnesses))
 			results[index].verdicts = probeProtocolWitnesses(witnesses[:limit], func(witness *Account) (protocolProbeObservation, bool) {
-				revision, revisionErr := protocolProbeConfigurationRevision(witness)
-				if revisionErr != nil {
-					return protocolProbeObservation{}, false
-				}
-				return s.probeProtocolCapability(ctx, witness, revision, protocol)
+				return s.probeProtocolCapability(ctx, witness, protocol)
 			})
 		}(i, candidate)
 	}
@@ -387,16 +382,15 @@ func (s *AccountTestService) ProbeAccountProtocolCapabilitiesBatch(ctx context.C
 func (s *AccountTestService) probeProtocolCapability(
 	ctx context.Context,
 	account *Account,
-	revision string,
 	protocol protocolrouter.Protocol,
 ) (protocolProbeObservation, bool) {
 	switch protocol {
 	case protocolrouter.ProtocolMessages:
-		return s.probeOpenAIAPIKeyNativeMessagesSupport(ctx, account, revision)
+		return s.probeOpenAIAPIKeyNativeMessagesSupport(ctx, account)
 	case protocolrouter.ProtocolChatCompletions:
-		return s.probeOpenAIAPIKeyChatCompletionsSupport(ctx, account, revision)
+		return s.probeOpenAIAPIKeyChatCompletionsSupport(ctx, account)
 	case protocolrouter.ProtocolResponses:
-		return s.probeOpenAIAPIKeyResponsesSupport(ctx, account, revision)
+		return s.probeOpenAIAPIKeyResponsesSupport(ctx, account)
 	case protocolrouter.ProtocolGeminiGenerateContent:
 		return s.probeGeminiGenerateContentSupport(ctx, account)
 	default:
@@ -438,26 +432,6 @@ func ApplyProtocolProbeVerdicts(
 		}
 	}
 	return result, nil
-}
-
-func protocolProbeConfigurationRevision(account *Account) (string, error) {
-	if account == nil {
-		return "", errors.New("account is required")
-	}
-	configuration := *account
-	configuration.UpdatedAt = time.Time{}
-	configuration.Extra = make(map[string]any, len(account.Extra))
-	for key, value := range account.Extra {
-		switch key {
-		case SupportedProtocolsExtraKey,
-			openai_compat.ExtraKeyResponsesSupported,
-			openai_compat.ExtraKeyNativeMessagesSupported:
-			continue
-		default:
-			configuration.Extra[key] = value
-		}
-	}
-	return protocolAccountRevision(&configuration)
 }
 
 func protocolProbeBaseURL(account *Account, protocol protocolrouter.Protocol) string {

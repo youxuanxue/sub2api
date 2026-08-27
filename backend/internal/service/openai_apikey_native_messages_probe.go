@@ -37,7 +37,6 @@ func openaiNativeMessagesProbePayload(modelID string) []byte {
 func (s *AccountTestService) probeOpenAIAPIKeyNativeMessagesSupport(
 	ctx context.Context,
 	account *Account,
-	_ string,
 ) (protocolProbeObservation, bool) {
 	accountID := account.ID
 	authToken := protocolAuthorizationToken(account)

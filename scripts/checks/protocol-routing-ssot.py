@@ -470,12 +470,22 @@ def check(root: Path) -> list[str]:
                 errors.append("capability commit does not enumerate linked accounts for scheduler invalidation")
             if not contains_identifier(body, "enqueueSchedulerOutbox"):
                 errors.append("capability commit does not publish scheduler cache invalidation")
+            if not re.search(
+                r"for\s+_,\s+\w+\s*:=\s*range\s+linkedAccountIDs\s*\{[\s\S]*?enqueueSchedulerOutbox\s*\([^)]*&\w+",
+                body,
+            ):
+                errors.append("capability commit does not invalidate all linked accounts")
         ensure_bodies = function_bodies(source, "ensureProtocolEndpointCapabilityLink")
         for body in ensure_bodies:
             if not contains_identifier(body, "listProtocolCapabilityLinkedAccountIDs"):
                 errors.append("capability link update does not enumerate linked accounts for scheduler invalidation")
             if not contains_identifier(body, "enqueueSchedulerOutbox"):
                 errors.append("capability link update does not publish scheduler cache invalidation")
+            if not re.search(
+                r"for\s+_,\s+\w+\s*:=\s*range\s+linkedAccountIDs\s*\{[\s\S]*?enqueueSchedulerOutbox\s*\([^)]*&\w+",
+                body,
+            ):
+                errors.append("capability link update does not invalidate all linked accounts")
 
     execution_owner = root / "backend/internal/service/protocol_execution.go"
     if execution_owner.is_file():
@@ -551,10 +561,18 @@ def check(root: Path) -> list[str]:
                 errors.append("endpoint probe bypasses witness eligibility selection")
         resolver_bodies = function_bodies(source, "resolveProtocolProbeGeneration")
         for body in resolver_bodies:
-            if not contains_identifier(body, "conclusiveProtocolProbeVerdict"):
+            if not re.search(
+                r"\bpriorVerdict\s*:=\s*conclusiveProtocolProbeVerdict\s*\(", body
+            ):
                 errors.append("probe generation resolver ignores prior conclusive verdict evidence")
-            if not contains_identifier(body, "persistedProtocolProbeVerdict"):
+            persisted_calls = len(call_spans(body, "persistedProtocolProbeVerdict"))
+            persisted_assignments = len(re.findall(
+                r"resolution\s*\.\s*Evidence\s*\[[^]]+\]\s*=\s*persistedProtocolProbeVerdict\s*\(",
+                body,
+            ))
+            if persisted_calls == 0 or persisted_assignments != persisted_calls:
                 errors.append("probe generation resolver overwrites prior conclusive evidence with inconclusive results")
+                errors.append("probe generation resolver discards the persisted verdict result")
         witness_bodies = function_bodies(source, "selectProtocolProbeWitnesses")
         for body in witness_bodies:
             if not contains_identifier(body, "protocolProbeAuthorizationUsable"):
@@ -669,8 +687,10 @@ def check(root: Path) -> list[str]:
         source = strip_go_comments_and_literals(gateway_scheduling.read_text(encoding="utf-8"))
         bodies = function_bodies(source, "isAccountSchedulableForModelSelection")
         if not bodies or not all(
-            contains_identifier(body, "protocolRuntimeAuthorizationReady")
-            and contains_identifier(body, "ProtocolRouteLegal")
+            re.search(
+                r"\breturn\b[\s\S]*?protocolRuntimeAuthorizationReady\s*\([^;]*?\)\s*&&\s*ProtocolRouteLegal\s*\(",
+                body,
+            )
             for body in bodies
         ):
             errors.append("gateway scheduler authorization hard gate is not composed with protocol legality")
@@ -680,8 +700,14 @@ def check(root: Path) -> list[str]:
         source = strip_go_comments_and_literals(openai_scheduler.read_text(encoding="utf-8"))
         bodies = function_bodies(source, "isAccountRequestCompatibleReason")
         if not bodies or not all(
-            contains_identifier(body, "protocolRuntimeAuthorizationReady")
-            and contains_identifier(body, "ProtocolRouteLegal")
+            re.search(
+                r"if\s*!\s*protocolRuntimeAuthorizationReady\s*\([^;]*?\)\s*\{[\s\S]*?return\s+false\b",
+                body,
+            )
+            and re.search(
+                r"if\s*!\s*ProtocolRouteLegal\s*\([^;]*?\)\s*\{[\s\S]*?return\s+false\b",
+                body,
+            )
             for body in bodies
         ):
             errors.append("OpenAI scheduler authorization hard gate is not composed with protocol legality")
@@ -751,6 +777,21 @@ def check(root: Path) -> list[str]:
             for body in dispatch_bodies
         ):
             errors.append("protocol capability owner is missing Gemini probe dispatch")
+        probe_dispatches = (
+            ("ProtocolMessages", "probeOpenAIAPIKeyNativeMessagesSupport"),
+            ("ProtocolChatCompletions", "probeOpenAIAPIKeyChatCompletionsSupport"),
+            ("ProtocolResponses", "probeOpenAIAPIKeyResponsesSupport"),
+            ("ProtocolGeminiGenerateContent", "probeGeminiGenerateContentSupport"),
+        )
+        for body in dispatch_bodies:
+            for protocol, helper in probe_dispatches:
+                if not re.search(
+                    rf"case\s+(?:protocolrouter\s*\.\s*)?{protocol}\s*:\s*return\s+(?:s\s*\.\s*)?{helper}\s*\(",
+                    body,
+                ):
+                    errors.append(
+                        f"protocol capability probe dispatch ignores the classifier result for {protocol}"
+                    )
         legacy_bodies = function_bodies(source, "ProbeAccountProtocolCapabilities")
         result_bodies = function_bodies(source, "ProbeAccountProtocolCapabilitiesNow")
         if not legacy_bodies:

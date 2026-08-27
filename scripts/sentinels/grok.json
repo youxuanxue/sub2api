@@ -646,13 +646,14 @@
       "path": "backend/internal/service/protocol_capability_probe.go",
       "must_contain": [
         "ProtocolProbeCandidates",
-        "protocolProbeConfigurationRevision",
+        "protocolProbeCoordinator.Do",
         "capability.CapabilityKey",
+        "runEndpointProtocolProbe",
         "AcquireProbeLease",
         "ListLinkedAccountIDs",
         "CommitProbeResult"
       ],
-      "rationale": "Grok accounts with the same canonical endpoint identity share one capability row; account IDs are probe witnesses, not fact owners. Candidate discovery plus database lease, generation, configuration-revision CAS, and one capability commit prevent duplicate work and stale or cross-endpoint writes; legacy account extra is rollback projection only."
+      "rationale": "Grok accounts with the same canonical endpoint identity share one capability row; account IDs are probe witnesses, not fact owners. Candidate discovery and capability-key coordination enter one endpoint-scoped probe, while the repository lease, generation/revision CAS, and one capability commit prevent duplicate work and stale writes; legacy account extra is rollback projection only."
     }
   ]
 }

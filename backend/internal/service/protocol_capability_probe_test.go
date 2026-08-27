@@ -409,36 +409,57 @@ func TestResolveProtocolProbeGenerationConflictsWithPriorConclusiveEvidence(t *t
 
 func TestResolveProtocolProbeGenerationKeepsConclusiveHistoryAcrossInconclusiveGeneration(t *testing.T) {
 	protocol := protocolrouter.ProtocolResponses
-	middle, err := resolveProtocolProbeGeneration(
-		[]protocolrouter.Protocol{protocol},
-		false,
-		map[string]any{string(protocol): string(ProtocolProbePositive)},
-		[]protocolrouter.Protocol{protocol},
-		map[protocolrouter.Protocol][]ProtocolProbeVerdict{
-			protocol: {ProtocolProbeInconclusive},
+	tests := []struct {
+		name           string
+		priorProtocols []protocolrouter.Protocol
+		priorVerdict   ProtocolProbeVerdict
+		middleVerdict  ProtocolProbeVerdict
+		finalVerdict   ProtocolProbeVerdict
+	}{
+		{
+			name:           "positive through inconclusive to endpoint negative",
+			priorProtocols: []protocolrouter.Protocol{protocol},
+			priorVerdict:   ProtocolProbePositive,
+			middleVerdict:  ProtocolProbeInconclusive,
+			finalVerdict:   ProtocolProbeEndpointNegative,
 		},
-	)
-	if err != nil {
-		t.Fatalf("resolve inconclusive generation: %v", err)
+		{
+			name:          "endpoint negative through model specific to positive",
+			priorVerdict:  ProtocolProbeEndpointNegative,
+			middleVerdict: ProtocolProbeModelSpecific,
+			finalVerdict:  ProtocolProbePositive,
+		},
 	}
-	if got := conclusiveProtocolProbeVerdict(middle.Evidence[protocol]); got != ProtocolProbePositive {
-		t.Fatalf("persisted verdict after inconclusive generation = %q, want prior positive", got)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			middle, err := resolveProtocolProbeGeneration(
+				tt.priorProtocols,
+				false,
+				map[string]any{string(protocol): string(tt.priorVerdict)},
+				[]protocolrouter.Protocol{protocol},
+				map[protocolrouter.Protocol][]ProtocolProbeVerdict{protocol: {tt.middleVerdict}},
+			)
+			if err != nil {
+				t.Fatalf("resolve intermediate generation: %v", err)
+			}
+			if got := conclusiveProtocolProbeVerdict(middle.Evidence[protocol]); got != tt.priorVerdict {
+				t.Fatalf("persisted verdict after intermediate generation = %q, want %q", got, tt.priorVerdict)
+			}
 
-	final, err := resolveProtocolProbeGeneration(
-		middle.SupportedProtocols,
-		middle.IdentityConflict,
-		map[string]any{string(protocol): middle.Evidence[protocol]},
-		[]protocolrouter.Protocol{protocol},
-		map[protocolrouter.Protocol][]ProtocolProbeVerdict{
-			protocol: {ProtocolProbeEndpointNegative},
-		},
-	)
-	if err != nil {
-		t.Fatalf("resolve opposite conclusive generation: %v", err)
-	}
-	if !final.IdentityConflict {
-		t.Fatal("positive -> inconclusive -> endpoint-negative did not mark identity conflict")
+			final, err := resolveProtocolProbeGeneration(
+				middle.SupportedProtocols,
+				middle.IdentityConflict,
+				map[string]any{string(protocol): middle.Evidence[protocol]},
+				[]protocolrouter.Protocol{protocol},
+				map[protocolrouter.Protocol][]ProtocolProbeVerdict{protocol: {tt.finalVerdict}},
+			)
+			if err != nil {
+				t.Fatalf("resolve opposite conclusive generation: %v", err)
+			}
+			if !final.IdentityConflict || slices.Contains(final.SupportedProtocols, protocol) {
+				t.Fatalf("conclusive history did not fail closed: conflict=%t protocols=%v", final.IdentityConflict, final.SupportedProtocols)
+			}
+		})
 	}
 }
 

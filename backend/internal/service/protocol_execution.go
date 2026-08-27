@@ -377,9 +377,13 @@ func ExecuteSelectedProtocol(
 	}
 	freshAccount, err := loadAccount(ctx, account.ID)
 	if err != nil {
+		scope := GatewayFailureScopeProvider
+		if errors.Is(err, ErrAccountNotFound) {
+			scope = GatewayFailureScopeAccount
+		}
 		return nil, protocolExecutionPreSendFailure(
-			fmt.Errorf("%w: reload authoritative account: %v", ErrProtocolRouteUnavailable, err),
-			GatewayFailureScopeProvider,
+			fmt.Errorf("%w: reload authoritative account: %w", ErrProtocolRouteUnavailable, err),
+			scope,
 		)
 	}
 	if freshAccount == nil || freshAccount.ID != account.ID {

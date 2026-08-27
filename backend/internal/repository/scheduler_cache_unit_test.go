@@ -331,6 +331,16 @@ func TestBuildSchedulerMetadataAccount_KeepsOpenAIWSFlags(t *testing.T) {
 	require.Nil(t, got.Extra["unused_large_field"])
 }
 
+func TestBuildSchedulerMetadataAccount_KeepsAuthoritativeAccountRevisionTimestamp(t *testing.T) {
+	updatedAt := time.Date(2026, 8, 27, 8, 30, 0, 123, time.UTC)
+	metadata := buildSchedulerMetadataAccount(service.Account{
+		ID:        4201,
+		UpdatedAt: updatedAt,
+	})
+
+	require.Equal(t, updatedAt, metadata.UpdatedAt)
+}
+
 // 回归保护：调度快照必须保留 privacy_mode 字段。
 // 缺失会导致 Account.IsPrivacySet() 永远返回 false，
 // 凡是开启 require_privacy_set 的分组都会卡住所有 OpenAI/Antigravity 账号

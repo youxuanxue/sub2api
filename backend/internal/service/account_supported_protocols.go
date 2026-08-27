@@ -406,25 +406,19 @@ func copyProtocolBaseURL(raw map[string]any, key string, protocol protocolrouter
 
 func protocolAccountRevision(account *Account) (string, error) {
 	input := struct {
-		ID          int64          `json:"id"`
-		Platform    string         `json:"platform"`
-		Type        string         `json:"type"`
-		ChannelType int            `json:"channel_type"`
-		Credentials map[string]any `json:"credentials"`
-		Extra       map[string]any `json:"extra"`
-		UpdatedAt   int64          `json:"updated_at_unix_nano"`
+		ID        int64 `json:"id"`
+		UpdatedAt int64 `json:"updated_at_unix_nano"`
 	}{
-		ID:          account.ID,
-		Platform:    account.Platform,
-		Type:        account.Type,
-		ChannelType: account.ChannelType,
-		Credentials: account.Credentials,
-		Extra:       account.Extra,
-		UpdatedAt:   account.UpdatedAt.UTC().UnixNano(),
+		ID:        account.ID,
+		UpdatedAt: account.UpdatedAt.UTC().UnixNano(),
 	}
+	return protocolRevisionDigest(input)
+}
+
+func protocolRevisionDigest(input any) (string, error) {
 	encoded, err := json.Marshal(input)
 	if err != nil {
-		return "", fmt.Errorf("marshal protocol account revision: %w", err)
+		return "", fmt.Errorf("marshal protocol revision: %w", err)
 	}
 	digest := sha256.Sum256(encoded)
 	return hex.EncodeToString(digest[:]), nil

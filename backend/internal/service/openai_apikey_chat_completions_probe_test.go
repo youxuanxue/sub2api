@@ -21,7 +21,7 @@ func TestChatCompletionsProtocolProbeUsesNewAPIAdaptorEndpoint(t *testing.T) {
 	upstream := &httpUpstreamRecorder{resp: protocolProbeHTTPResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"OK"}}]}`)}
 	svc := protocolRequestBuilderTestService(upstream)
 
-	observation, observed := svc.probeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account, "")
+	observation, observed := svc.probeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account)
 
 	require.True(t, observed)
 	require.Equal(t, ProtocolProbePositive, observation.verdict)
@@ -38,7 +38,7 @@ func TestChatCompletionsProtocolProbeClassifiesEndpointNegative(t *testing.T) {
 	upstream := &httpUpstreamRecorder{resp: protocolProbeHTTPResponse(http.StatusNotFound, `{"error":{"message":"not found"}}`)}
 	svc := protocolRequestBuilderTestService(upstream)
 
-	observation, observed := svc.probeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account, "")
+	observation, observed := svc.probeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account)
 
 	require.True(t, observed)
 	require.Equal(t, ProtocolProbeEndpointNegative, observation.verdict)
@@ -50,7 +50,7 @@ func TestChatCompletionsProtocolProbeRequiresExplicitBaseURL(t *testing.T) {
 	upstream := &httpUpstreamRecorder{}
 	svc := protocolRequestBuilderTestService(upstream)
 
-	_, observed := svc.probeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account, "")
+	_, observed := svc.probeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account)
 
 	require.False(t, observed)
 	require.Nil(t, upstream.lastReq)

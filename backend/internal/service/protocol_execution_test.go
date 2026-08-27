@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 )
@@ -348,6 +349,7 @@ func TestExecuteSelectedProtocolRejectsAccountMutationBeforeExecutor(t *testing.
 	}
 	selection := &AccountSelectionResult{Account: account, ProtocolPlan: &plan}
 	authoritative := *account
+	authoritative.UpdatedAt = account.UpdatedAt.Add(time.Nanosecond)
 	authoritative.Credentials = map[string]any{
 		"api_key":  "changed-secret",
 		"base_url": "https://relay.example.test/v1",
@@ -438,6 +440,40 @@ func TestExecuteSelectedProtocolPassesAuthoritativeAccountToExecutor(t *testing.
 	}
 	if calls != 1 {
 		t.Fatalf("executor calls = %d, want 1", calls)
+	}
+}
+
+func TestExecuteSelectedProtocolRetriesNextAccountWhenAuthoritativeAccountWasDeleted(t *testing.T) {
+	router := NewProtocolRouter()
+	request := protocolRoutingTestRequest(t, protocolrouter.ProtocolMessages)
+	ctx := WithProtocolRouting(context.Background(), router, request)
+	account := protocolRoutingOpenAIAccount(1201, "responses")
+	plan, _, err := protocolPlanForAccount(ctx, account, request.RequestedModel())
+	if err != nil {
+		t.Fatalf("protocolPlanForAccount: %v", err)
+	}
+
+	_, err = ExecuteSelectedProtocol(
+		ctx,
+		router,
+		&AccountSelectionResult{Account: account, ProtocolPlan: &plan},
+		account,
+		func(context.Context, *Account, string) error { return nil },
+		func(context.Context, int64) (*Account, error) { return nil, ErrAccountNotFound },
+		protocolExecutorsForTest(plan, func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
+			t.Fatal("executor must not run after authoritative account deletion")
+			return nil, nil
+		}),
+	)
+	if !errors.Is(err, ErrAccountNotFound) {
+		t.Fatalf("ExecuteSelectedProtocol error = %v, want ErrAccountNotFound cause", err)
+	}
+	var failoverErr *UpstreamFailoverError
+	if !errors.As(err, &failoverErr) {
+		t.Fatalf("ExecuteSelectedProtocol error = %v, want UpstreamFailoverError", err)
+	}
+	if failoverErr.Scope != GatewayFailureScopeAccount || failoverErr.NextAccountAction != NextAccountRetry || failoverErr.Reason != protocolExecutionStaleReason {
+		t.Fatalf("failover classification = scope %q action %q reason %q", failoverErr.Scope, failoverErr.NextAccountAction, failoverErr.Reason)
 	}
 }
 

@@ -140,11 +140,11 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         capability_repo.write_text(
             "package fixture\n"
             "func EnsureAccountLink(){}\n"
-            "func ensureProtocolEndpointCapabilityLink(){ listProtocolCapabilityLinkedAccountIDs(); enqueueSchedulerOutbox() }\n"
+            "func ensureProtocolEndpointCapabilityLink(){ linkedAccountIDs := listProtocolCapabilityLinkedAccountIDs(); for _, linkedAccountID := range linkedAccountIDs { accountID := linkedAccountID; enqueueSchedulerOutbox(&accountID) } }\n"
             "func GetByAccountID(){}\n"
             "func ListLinkedAccountIDs(){}\n"
             "func AcquireProbeLease(){}\n"
-            "func CommitProbeResult(){ listProtocolCapabilityLinkedAccountIDs(); enqueueSchedulerOutbox() }\n"
+            "func CommitProbeResult(){ linkedAccountIDs := listProtocolCapabilityLinkedAccountIDs(); for _, linkedAccountID := range linkedAccountIDs { accountID := linkedAccountID; enqueueSchedulerOutbox(&accountID) } }\n"
             "func writeRollbackProjections(){}\n",
             encoding="utf-8",
         )
@@ -180,7 +180,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         gateway_scheduling = root / "backend/internal/service/gateway_scheduling.go"
         gateway_scheduling.write_text(
             "package fixture\n"
-            "func isAccountSchedulableForModelSelection(){ protocolRuntimeAuthorizationReady(); ProtocolRouteLegal() }\n",
+            "func isAccountSchedulableForModelSelection() bool { return protocolRuntimeAuthorizationReady() && ProtocolRouteLegal() }\n",
             encoding="utf-8",
         )
         openai_eligibility = root / "backend/internal/service/openai_gateway_scheduling_tk_eligibility_reason.go"
@@ -192,7 +192,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         openai_scheduler = root / "backend/internal/service/openai_account_scheduler.go"
         openai_scheduler.write_text(
             "package fixture\n"
-            "func isAccountRequestCompatibleReason(){ protocolRuntimeAuthorizationReady(); ProtocolRouteLegal() }\n",
+            "func isAccountRequestCompatibleReason() (bool, string) { if !protocolRuntimeAuthorizationReady() { return false, \"authorization\" }; if !ProtocolRouteLegal() { return false, \"protocol\" }; return true, \"\" }\n",
             encoding="utf-8",
         )
         account_handler = root / "backend/internal/handler/admin/account_handler.go"
@@ -213,7 +213,10 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         probe_owner.write_text(
             "package fixture\n"
             "type protocolProbeCoordinator struct{}\n"
-            "func probeProtocolCapability(protocol Protocol){ switch protocol { case ProtocolGeminiGenerateContent: probeGeminiGenerateContentSupport() } }\n"
+            "func probeProtocolCapability(protocol Protocol) (Observation, bool) { switch protocol { case ProtocolMessages: return probeOpenAIAPIKeyNativeMessagesSupport(); case ProtocolChatCompletions: return probeOpenAIAPIKeyChatCompletionsSupport(); case ProtocolResponses: return probeOpenAIAPIKeyResponsesSupport(); case ProtocolGeminiGenerateContent: return probeGeminiGenerateContentSupport() }; return Observation{}, false }\n"
+            "func probeOpenAIAPIKeyNativeMessagesSupport(){}\n"
+            "func probeOpenAIAPIKeyChatCompletionsSupport(){}\n"
+            "func probeOpenAIAPIKeyResponsesSupport(){}\n"
             "func probeGeminiGenerateContentSupport(){}\n"
             "func ProbeAccountProtocolCapabilities(){ ProbeAccountProtocolCapabilitiesNow() }\n"
             "func ProbeAccountProtocolCapabilitiesNow(){ EnsureAccountLink(); ProtocolProbeCandidates(); protocolProbeCoordinator.Do(capability.CapabilityKey, func(){ runEndpointProtocolProbe() }) }\n"
@@ -221,7 +224,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "func selectProtocolProbeWitnesses(){ protocolProbeAuthorizationUsable() }\n"
             "func protocolProbeAuthorizationUsable(account Account){ ProtocolAuthorizationPresent(account) }\n"
             "func protocolAuthorizationToken(account Account){ if account.IsOpenAIOAuthLike(){ account.GetOpenAIAccessToken() } }\n"
-            "func resolveProtocolProbeGeneration(){ conclusiveProtocolProbeVerdict(); persistedProtocolProbeVerdict() }\n",
+            "func resolveProtocolProbeGeneration(){ priorVerdict := conclusiveProtocolProbeVerdict(priorEvidence); resolution.Evidence[protocol] = persistedProtocolProbeVerdict(priorVerdict, modelSpecific); resolution.Evidence[protocol] = persistedProtocolProbeVerdict(priorVerdict, inconclusive) }\n",
             encoding="utf-8",
         )
         probe_test = root / "backend/internal/service/protocol_capability_probe_test.go"
@@ -323,7 +326,10 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         owner.write_text(
             "package fixture\n"
             "type protocolProbeCoordinator struct{}\n"
-            "func probeProtocolCapability(protocol Protocol){ switch protocol { case ProtocolGeminiGenerateContent: probeGeminiGenerateContentSupport() } }\n"
+            "func probeProtocolCapability(protocol Protocol) (Observation, bool) { switch protocol { case ProtocolMessages: return probeOpenAIAPIKeyNativeMessagesSupport(); case ProtocolChatCompletions: return probeOpenAIAPIKeyChatCompletionsSupport(); case ProtocolResponses: return probeOpenAIAPIKeyResponsesSupport(); case ProtocolGeminiGenerateContent: return probeGeminiGenerateContentSupport() }; return Observation{}, false }\n"
+            "func probeOpenAIAPIKeyNativeMessagesSupport(){}\n"
+            "func probeOpenAIAPIKeyChatCompletionsSupport(){}\n"
+            "func probeOpenAIAPIKeyResponsesSupport(){}\n"
             "func probeGeminiGenerateContentSupport(){}\n"
             "func ProbeAccountProtocolCapabilities(){ ProbeAccountProtocolCapabilitiesNow() }\n"
             "func ProbeAccountProtocolCapabilitiesNow(){ EnsureAccountLink(); ProtocolProbeCandidates(); protocolProbeCoordinator.Do(capability.CapabilityKey, func(){ runEndpointProtocolProbe() }) }\n"
@@ -331,7 +337,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "func selectProtocolProbeWitnesses(){ protocolProbeAuthorizationUsable() }\n"
             "func protocolProbeAuthorizationUsable(account Account){ ProtocolAuthorizationPresent(account) }\n"
             "func protocolAuthorizationToken(account Account){ if account.IsOpenAIOAuthLike(){ account.GetOpenAIAccessToken() } }\n"
-            "func resolveProtocolProbeGeneration(){ conclusiveProtocolProbeVerdict(); persistedProtocolProbeVerdict() }\n",
+            "func resolveProtocolProbeGeneration(){ priorVerdict := conclusiveProtocolProbeVerdict(priorEvidence); resolution.Evidence[protocol] = persistedProtocolProbeVerdict(priorVerdict, modelSpecific); resolution.Evidence[protocol] = persistedProtocolProbeVerdict(priorVerdict, inconclusive) }\n",
             encoding="utf-8",
         )
 
@@ -415,7 +421,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         owner = root / "backend/internal/service/protocol_capability_probe.go"
         owner.write_text(
             owner.read_text(encoding="utf-8").replace(
-                "case ProtocolGeminiGenerateContent: probeGeminiGenerateContentSupport()",
+                "case ProtocolGeminiGenerateContent: return probeGeminiGenerateContentSupport()",
                 "case ProtocolResponses: probeProtocolCapability()",
             ),
             encoding="utf-8",
@@ -619,7 +625,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         owner = root / "backend/internal/repository/protocol_endpoint_capability_repo.go"
         owner.write_text(
             owner.read_text(encoding="utf-8").replace(
-                "func CommitProbeResult(){ listProtocolCapabilityLinkedAccountIDs(); enqueueSchedulerOutbox() }\n",
+                "func CommitProbeResult(){ linkedAccountIDs := listProtocolCapabilityLinkedAccountIDs(); for _, linkedAccountID := range linkedAccountIDs { accountID := linkedAccountID; enqueueSchedulerOutbox(&accountID) } }\n",
                 "",
             ),
             encoding="utf-8",
@@ -630,7 +636,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         root = self.fixture()
         owner = root / "backend/internal/repository/protocol_endpoint_capability_repo.go"
         owner.write_text(
-            owner.read_text(encoding="utf-8").replace("enqueueSchedulerOutbox()", "noop()"),
+            owner.read_text(encoding="utf-8").replace("enqueueSchedulerOutbox(&accountID)", "noop()", 2),
             encoding="utf-8",
         )
         self.assertTrue(any("scheduler cache invalidation" in error for error in MODULE.check(root)))
@@ -640,7 +646,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         owner = root / "backend/internal/repository/protocol_endpoint_capability_repo.go"
         owner.write_text(
             owner.read_text(encoding="utf-8").replace(
-                "func ensureProtocolEndpointCapabilityLink(){ listProtocolCapabilityLinkedAccountIDs(); enqueueSchedulerOutbox() }",
+                "func ensureProtocolEndpointCapabilityLink(){ linkedAccountIDs := listProtocolCapabilityLinkedAccountIDs(); for _, linkedAccountID := range linkedAccountIDs { accountID := linkedAccountID; enqueueSchedulerOutbox(&accountID) } }",
                 "func ensureProtocolEndpointCapabilityLink(){}",
             ),
             encoding="utf-8",
@@ -681,7 +687,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         root = self.fixture()
         owner = root / "backend/internal/service/gateway_scheduling.go"
         owner.write_text(
-            owner.read_text(encoding="utf-8").replace("protocolRuntimeAuthorizationReady();", ""),
+            owner.read_text(encoding="utf-8").replace("protocolRuntimeAuthorizationReady() && ", ""),
             encoding="utf-8",
         )
         self.assertTrue(any("gateway scheduler authorization hard gate" in error for error in MODULE.check(root)))
@@ -690,7 +696,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         root = self.fixture()
         owner = root / "backend/internal/service/openai_account_scheduler.go"
         owner.write_text(
-            owner.read_text(encoding="utf-8").replace("protocolRuntimeAuthorizationReady();", ""),
+            owner.read_text(encoding="utf-8").replace('if !protocolRuntimeAuthorizationReady() { return false, "authorization" }; ', ""),
             encoding="utf-8",
         )
         self.assertTrue(any("OpenAI scheduler authorization hard gate" in error for error in MODULE.check(root)))
@@ -760,7 +766,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         root = self.fixture()
         owner = root / "backend/internal/service/protocol_capability_probe.go"
         owner.write_text(
-            owner.read_text(encoding="utf-8").replace("conclusiveProtocolProbeVerdict()", "currentVerdict()"),
+            owner.read_text(encoding="utf-8").replace("conclusiveProtocolProbeVerdict(priorEvidence)", "currentVerdict()"),
             encoding="utf-8",
         )
         self.assertTrue(any("prior conclusive verdict" in error for error in MODULE.check(root)))
@@ -769,10 +775,110 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         root = self.fixture()
         owner = root / "backend/internal/service/protocol_capability_probe.go"
         owner.write_text(
-            owner.read_text(encoding="utf-8").replace("persistedProtocolProbeVerdict()", "currentVerdict()"),
+            owner.read_text(encoding="utf-8")
+            .replace("persistedProtocolProbeVerdict(priorVerdict, modelSpecific)", "currentVerdict()")
+            .replace("persistedProtocolProbeVerdict(priorVerdict, inconclusive)", "currentVerdict()"),
             encoding="utf-8",
         )
         self.assertTrue(any("overwrites prior conclusive evidence" in error for error in MODULE.check(root)))
+
+    def test_rejects_probe_dispatch_that_ignores_classifier_result(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/protocol_capability_probe.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "return probeGeminiGenerateContentSupport()",
+                "probeGeminiGenerateContentSupport(); return Observation{}, false",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("classifier result" in error for error in MODULE.check(root)))
+
+    def test_rejects_any_probe_dispatch_branch_that_ignores_classifier_result(self) -> None:
+        cases = (
+            ("probeOpenAIAPIKeyNativeMessagesSupport", "ProtocolMessages"),
+            ("probeOpenAIAPIKeyChatCompletionsSupport", "ProtocolChatCompletions"),
+            ("probeOpenAIAPIKeyResponsesSupport", "ProtocolResponses"),
+            ("probeGeminiGenerateContentSupport", "ProtocolGeminiGenerateContent"),
+        )
+        for helper, protocol in cases:
+            with self.subTest(protocol=protocol):
+                root = self.fixture()
+                owner = root / "backend/internal/service/protocol_capability_probe.go"
+                owner.write_text(
+                    owner.read_text(encoding="utf-8").replace(
+                        f"return {helper}()",
+                        f"{helper}(); return Observation{{}}, false",
+                    ),
+                    encoding="utf-8",
+                )
+                self.assertTrue(any("classifier result" in error for error in MODULE.check(root)))
+
+    def test_rejects_probe_resolver_that_discards_persisted_verdict_result(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/protocol_capability_probe.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8")
+            .replace(
+                "resolution.Evidence[protocol] = persistedProtocolProbeVerdict(priorVerdict, modelSpecific)",
+                "persistedProtocolProbeVerdict(priorVerdict, modelSpecific); resolution.Evidence[protocol] = modelSpecific",
+            )
+            .replace(
+                "resolution.Evidence[protocol] = persistedProtocolProbeVerdict(priorVerdict, inconclusive)",
+                "persistedProtocolProbeVerdict(priorVerdict, inconclusive); resolution.Evidence[protocol] = inconclusive",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("persisted verdict result" in error for error in MODULE.check(root)))
+
+    def test_rejects_probe_resolver_when_only_one_persisted_verdict_result_is_used(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/protocol_capability_probe.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "resolution.Evidence[protocol] = persistedProtocolProbeVerdict(priorVerdict, modelSpecific)",
+                "persistedProtocolProbeVerdict(priorVerdict, modelSpecific); resolution.Evidence[protocol] = modelSpecific",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("persisted verdict result" in error for error in MODULE.check(root)))
+
+    def test_rejects_capability_commit_that_invalidates_only_one_linked_account(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/repository/protocol_endpoint_capability_repo.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "func CommitProbeResult(){ linkedAccountIDs := listProtocolCapabilityLinkedAccountIDs(); for _, linkedAccountID := range linkedAccountIDs { accountID := linkedAccountID; enqueueSchedulerOutbox(&accountID) } }",
+                "func CommitProbeResult(){ linkedAccountIDs := listProtocolCapabilityLinkedAccountIDs(); accountID := linkedAccountIDs[0]; enqueueSchedulerOutbox(&accountID) }",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("all linked accounts" in error for error in MODULE.check(root)))
+
+    def test_rejects_gateway_scheduler_that_ignores_both_hard_gate_results(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/gateway_scheduling.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "return protocolRuntimeAuthorizationReady() && ProtocolRouteLegal()",
+                "protocolRuntimeAuthorizationReady(); ProtocolRouteLegal(); return true",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("composed with protocol legality" in error for error in MODULE.check(root)))
+
+    def test_rejects_openai_scheduler_that_ignores_both_hard_gate_results(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/openai_account_scheduler.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "if !protocolRuntimeAuthorizationReady() { return false, \"authorization\" }; if !ProtocolRouteLegal() { return false, \"protocol\" }",
+                "protocolRuntimeAuthorizationReady(); ProtocolRouteLegal()",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("composed with protocol legality" in error for error in MODULE.check(root)))
 
     def test_rejects_probe_witness_selection_without_authorization_filter(self) -> None:
         root = self.fixture()

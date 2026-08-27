@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
@@ -287,7 +288,8 @@ func TestSelectionRejectsAccountChangedAfterSchedulerPlan(t *testing.T) {
 	if !ProtocolRouteLegal(ctx, account, "gpt-5.4") {
 		t.Fatal("scheduler rejected legal protocol route")
 	}
-	account.Credentials["base_url"] = "https://changed.example.test/v1"
+	account.Credentials["api_key"] = "rotated-secret"
+	account.UpdatedAt = account.UpdatedAt.Add(time.Nanosecond)
 
 	_, err := (&OpenAIGatewayService{}).newSelectionResult(ctx, account, false, nil, nil)
 	if !errors.Is(err, protocolrouter.ErrStalePlan) {
