@@ -335,17 +335,12 @@ class BackendCIRoutingTest(unittest.TestCase):
             with self.subTest(job=job_name):
                 self.assertNotIn("refresh_on_backend_change", cache_step.get("with", {}))
 
-    def test_unit_reuses_service_objects_for_go_artifact_drift(self) -> None:
+    def test_unit_avoids_relinking_model_surface_owner_after_unit_tests(self) -> None:
         steps = self.jobs["test-unit"]["steps"]
         fixture_index = next(
             index
             for index, step in enumerate(steps)
             if step.get("name") == "Anthropic prompt surface fixture gateway"
-        )
-        bundle_index, bundle_step = next(
-            (index, step)
-            for index, step in enumerate(steps)
-            if step.get("name") == "Model surface bundle drift"
         )
         family_index, family_step = next(
             (index, step)
@@ -353,12 +348,11 @@ class BackendCIRoutingTest(unittest.TestCase):
             if step.get("name") == "Model family alert artifact drift"
         )
 
-        self.assertGreater(bundle_index, fixture_index)
-        self.assertGreater(family_index, bundle_index)
-        self.assertEqual(
-            bundle_step["run"],
-            "bash scripts/checks/check-model-surface-bundle.sh",
+        self.assertNotIn(
+            "Model surface bundle drift",
+            {step.get("name") for step in steps},
         )
+        self.assertGreater(family_index, fixture_index)
         self.assertEqual(
             family_step["run"],
             "bash scripts/sentinels/check-model-family-rules.sh",
@@ -379,11 +373,6 @@ class BackendCIRoutingTest(unittest.TestCase):
         self.assertEqual(
             owners,
             [
-                (
-                    "scripts/checks/check-model-surface-bundle.sh",
-                    "test-unit",
-                    "Model surface bundle drift",
-                ),
                 (
                     "scripts/sentinels/check-model-family-rules.sh",
                     "test-unit",

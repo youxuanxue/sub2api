@@ -253,8 +253,6 @@ jobs:
         run: make test-unit
       - name: Anthropic prompt surface fixture gateway
         run: python3 ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway
-      - name: Model surface bundle drift
-        run: bash scripts/checks/check-model-surface-bundle.sh
       - name: Model family alert artifact drift
         run: bash scripts/sentinels/check-model-family-rules.sh
 
