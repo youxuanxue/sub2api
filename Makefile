@@ -1,4 +1,4 @@
-.PHONY: build build-backend build-frontend build-datamanagementd test test-backend test-frontend test-frontend-critical test-datamanagementd
+.PHONY: build build-backend build-frontend build-datamanagementd test test-backend test-frontend test-frontend-lint test-frontend-typecheck test-frontend-critical test-datamanagementd
 
 FRONTEND_CRITICAL_VITEST := \
 	src/api/__tests__/client.spec.ts \
@@ -35,10 +35,13 @@ test: test-backend test-frontend
 test-backend:
 	@$(MAKE) -C backend test
 
-test-frontend:
+test-frontend: test-frontend-lint test-frontend-typecheck test-frontend-critical
+
+test-frontend-lint:
 	@pnpm --dir frontend run lint:check
+
+test-frontend-typecheck:
 	@pnpm --dir frontend run typecheck
-	@$(MAKE) test-frontend-critical
 
 test-frontend-critical:
 	@pnpm --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST)

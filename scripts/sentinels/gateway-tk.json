@@ -3,6 +3,30 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/repository/integration_registry_only_tk_test.go",
+      "must_contain": [
+        "func runIntegrationRegistryOnlyIfRequested(m *testing.M)",
+        "const integrationRegistryOnlyEnv = \"SUB2API_TEST_REGISTRY_ONLY\"",
+        "SUB2API_TEST_REGISTRY_ONLY requires -test.list"
+      ],
+      "rationale": "CI repository sharding verifies the compiled test registry before starting shards. The repository TestMain normally starts PostgreSQL, Redis, and all migrations, so registry listing must bypass that harness only when the private registry env and -test.list are both present. Dropping this companion silently adds another full integration harness startup to every CI run or reopens a test-skipping path."
+    },
+    {
+      "path": "backend/internal/repository/integration_harness_test.go",
+      "must_contain": [
+        "runIntegrationRegistryOnlyIfRequested(m)"
+      ],
+      "rationale": "Minimal upstream-shaped call site for the registry-only companion. The companion remains compile-clean if an upstream merge drops this one line, but integration CI then spends another PostgreSQL/Redis/migration startup on -test.list before launching the real shards."
+    },
+    {
+      "path": "backend/internal/repository/integration_registry_only_tk_contract_test.go",
+      "must_contain": [
+        "TestIntegrationRegistryOnlyRequestGuard",
+        "enabled rejects ordinary test execution"
+      ],
+      "rationale": "Focused guard proving the private registry mode accepts only -test.list and cannot be reused to skip ordinary repository integration execution."
+    },
+    {
       "path": "backend/internal/service/ops_dlq_spill.go",
       "must_contain": [
         "defaultOpsDLQMaxFiles",

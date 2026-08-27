@@ -139,9 +139,6 @@ jobs:
       - name: Unit runner contract tests
         if: needs.changes.outputs.preflight_go == 'true'
         run: python3 -m unittest scripts.ci.test_unit_test_runner
-      - name: Integration package discovery contract tests
-        if: needs.changes.outputs.preflight_go == 'true'
-        run: python3 -m unittest scripts.ci.test_integration_packages
       - name: Run preflight
         env:
           PREFLIGHT_FAST: ${{ github.event_name == 'pull_request' && '1' || '0' }}
@@ -286,6 +283,11 @@ jobs:
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
           go version | grep -Fq "go${expected}"
+      - name: Integration runner contract tests
+        run: >-
+          python3 -m unittest
+          scripts.ci.test_integration_packages
+          scripts.ci.test_integration_test_runner
       - name: Integration tests
         working-directory: backend
         run: make test-integration
@@ -311,8 +313,8 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
-      - name: Frontend typecheck and critical vitest
-        run: make test-frontend
+      - name: Frontend lint, typecheck, and critical vitest
+        run: make -j3 --output-sync=target test-frontend
 
   golangci-lint:
     needs: changes
