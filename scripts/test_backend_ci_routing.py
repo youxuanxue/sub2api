@@ -29,7 +29,6 @@ class BackendCIRoutingTest(unittest.TestCase):
                 "ops",
                 "contracts",
                 "preflight_go",
-                "service_unit_cold",
                 "all",
             },
         )
@@ -110,6 +109,7 @@ class BackendCIRoutingTest(unittest.TestCase):
             "scripts.test_ci_gate_handoffs",
             "scripts.ci.test_changed_surfaces",
             "scripts.test_backend_ci_routing",
+            "scripts.checks.test_model_surface_bundle_check",
         }
         for module in expected_modules:
             with self.subTest(module=module):
@@ -170,36 +170,43 @@ class BackendCIRoutingTest(unittest.TestCase):
             steps[contract_index].get("run", ""),
         )
 
+    def test_preflight_restores_go_cache_before_go_backed_contracts(self) -> None:
+        steps = self.jobs["preflight"]["steps"]
+        cache_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("uses") == "./.github/actions/go-rolling-cache"
+        )
+        contract_indexes = [
+            index
+            for index, step in enumerate(steps)
+            if step.get("name")
+            in {
+                "Unit runner contract tests",
+                "Integration package discovery contract tests",
+            }
+        ]
+
+        self.assertEqual(len(contract_indexes), 2)
+        self.assertTrue(
+            all(cache_index < contract_index for contract_index in contract_indexes),
+            "Go-backed preflight contracts must consume the restored build cache",
+        )
+
     def test_integration_target_uses_discovered_owner_packages(self) -> None:
         makefile = BACKEND_MAKEFILE.read_text(encoding="utf-8")
         target = makefile.split("test-integration:\n", 1)[1].split("\n\n", 1)[0]
         self.assertIn("integration-packages.py", target)
         self.assertNotIn("go test -tags=integration ./...", target)
 
-    def test_unit_job_passes_the_service_cold_path_decision(self) -> None:
+    def test_unit_job_always_uses_compile_once_service_shards(self) -> None:
         unit_step = next(
             step
             for step in self.jobs["test-unit"]["steps"]
             if step.get("name") == "Unit tests"
         )
 
-        self.assertIn(
-            "needs.changes.outputs.service_unit_cold",
-            unit_step["env"]["UNIT_TEST_SERVICE_SHARD"],
-        )
-
-    def test_unit_main_push_uses_service_shards(self) -> None:
-        unit_step = next(
-            step
-            for step in self.jobs["test-unit"]["steps"]
-            if step.get("name") == "Unit tests"
-        )
-
-        self.assertEqual(
-            unit_step["env"]["UNIT_TEST_SERVICE_SHARD"],
-            "${{ (github.event_name == 'push' || "
-            "needs.changes.outputs.service_unit_cold == 'true') && '1' || '0' }}",
-        )
+        self.assertEqual(unit_step["env"]["UNIT_TEST_SERVICE_SHARD"], "1")
 
     def test_unit_job_omits_dwarf_from_test_build_objects(self) -> None:
         self.assertEqual(
@@ -207,7 +214,7 @@ class BackendCIRoutingTest(unittest.TestCase):
             "-gcflags=all=-dwarf=false",
         )
 
-    def test_unit_dwarf_flags_do_not_leak_to_other_go_jobs(self) -> None:
+    def test_heavy_go_jobs_omit_dwarf_from_cached_build_objects(self) -> None:
         declarations = []
         for job_name, job in self.jobs.items():
             if "GOFLAGS" in job.get("env", {}):
@@ -220,24 +227,109 @@ class BackendCIRoutingTest(unittest.TestCase):
 
         self.assertEqual(
             declarations,
-            [("test-unit", "job", "-gcflags=all=-dwarf=false")],
+            [
+                ("preflight", "job", "-gcflags=all=-dwarf=false"),
+                ("test-unit", "job", "-gcflags=all=-dwarf=false"),
+                ("test-integration", "job", "-gcflags=all=-dwarf=false"),
+                ("golangci-lint", "job", "-gcflags=all=-dwarf=false"),
+            ],
         )
 
-    def test_unit_job_uses_dwarf_specific_build_cache_namespace(self) -> None:
-        rolling_cache = next(
-            step
-            for step in self.jobs["test-unit"]["steps"]
-            if step.get("uses") == "./.github/actions/go-rolling-cache"
-        )
-
-        self.assertEqual(rolling_cache["with"]["prefix"], "unit-nodwarf-v1")
+    def test_heavy_go_jobs_use_nodwarf_build_cache_namespaces(self) -> None:
+        expected_prefixes = {
+            "preflight": "preflight-nodwarf-v1",
+            "test-unit": "unit-nodwarf-v1",
+            "test-integration": "integration-nodwarf-v1",
+            "golangci-lint": "lint-nodwarf-v1",
+        }
+        for job_name, expected_prefix in expected_prefixes.items():
+            cache_step = next(
+                step
+                for step in self.jobs[job_name]["steps"]
+                if step.get("uses") == "./.github/actions/go-rolling-cache"
+            )
+            with self.subTest(job=job_name):
+                self.assertEqual(cache_step["with"]["prefix"], expected_prefix)
 
         integration_cache = next(
             step
             for step in self.jobs["test-integration"]["steps"]
             if step.get("uses") == "./.github/actions/go-rolling-cache"
         )
-        self.assertEqual(integration_cache["with"]["prefix"], "integration")
+        self.assertEqual(
+            integration_cache["with"]["prefix"],
+            "integration-nodwarf-v1",
+        )
+        self.assertEqual(
+            integration_cache["with"]["refresh_on_backend_change"],
+            "true",
+        )
+
+        for job_name in ("preflight", "test-unit", "golangci-lint"):
+            cache_step = next(
+                step
+                for step in self.jobs[job_name]["steps"]
+                if step.get("uses") == "./.github/actions/go-rolling-cache"
+            )
+            with self.subTest(job=job_name):
+                self.assertNotIn("refresh_on_backend_change", cache_step.get("with", {}))
+
+    def test_unit_reuses_service_objects_for_go_artifact_drift(self) -> None:
+        steps = self.jobs["test-unit"]["steps"]
+        fixture_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Anthropic prompt surface fixture gateway"
+        )
+        bundle_index, bundle_step = next(
+            (index, step)
+            for index, step in enumerate(steps)
+            if step.get("name") == "Model surface bundle drift"
+        )
+        family_index, family_step = next(
+            (index, step)
+            for index, step in enumerate(steps)
+            if step.get("name") == "Model family alert artifact drift"
+        )
+
+        self.assertGreater(bundle_index, fixture_index)
+        self.assertGreater(family_index, bundle_index)
+        self.assertEqual(
+            bundle_step["run"],
+            "bash scripts/checks/check-model-surface-bundle.sh",
+        )
+        self.assertEqual(
+            family_step["run"],
+            "bash scripts/sentinels/check-model-family-rules.sh",
+        )
+
+    def test_unit_is_the_only_workflow_owner_for_go_artifact_drift(self) -> None:
+        owners = []
+        for job_name, job in self.jobs.items():
+            for step in job.get("steps", []):
+                command = step.get("run", "")
+                for helper in (
+                    "scripts/checks/check-model-surface-bundle.sh",
+                    "scripts/sentinels/check-model-family-rules.sh",
+                ):
+                    if helper in command:
+                        owners.append((helper, job_name, step.get("name")))
+
+        self.assertEqual(
+            owners,
+            [
+                (
+                    "scripts/checks/check-model-surface-bundle.sh",
+                    "test-unit",
+                    "Model surface bundle drift",
+                ),
+                (
+                    "scripts/sentinels/check-model-family-rules.sh",
+                    "test-unit",
+                    "Model family alert artifact drift",
+                ),
+            ],
+        )
 
     def test_lint_uses_rolling_analysis_cache_instead_of_action_cache(self) -> None:
         steps = self.jobs["golangci-lint"]["steps"]
@@ -246,7 +338,7 @@ class BackendCIRoutingTest(unittest.TestCase):
             for step in steps
             if step.get("uses") == "./.github/actions/go-rolling-cache"
         )
-        self.assertEqual(rolling_cache["with"]["prefix"], "lint")
+        self.assertEqual(rolling_cache["with"]["prefix"], "lint-nodwarf-v1")
         self.assertEqual(rolling_cache["with"]["golangci_cache"], "true")
 
         lint_action = next(

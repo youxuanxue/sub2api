@@ -409,14 +409,21 @@ class ProdArchiveExportTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             batch_id = "prod-export-20260722T000000.000000Z-deadbeef0000"
             prefix = f"s3://test-backups/prod/pgdump/archive-export/{batch_id}"
-            with self.assertRaises(canary.CanaryError) as ctx:
+
+            def unavailable_download(_command: list[str]) -> str:
+                raise canary.CanaryError("deterministic download boundary")
+
+            with self.assertRaisesRegex(
+                canary.CanaryError,
+                "deterministic download boundary",
+            ):
                 canary._download_committed_batch(
                     prefix,
                     batch_id,
                     temp,
+                    command_runner=unavailable_download,
                     expected_manifest_sha256="a" * 64,
                 )
-            self.assertNotIn("do not match", str(ctx.exception))
 
     def test_post_legacy_plan_init_and_seal(self) -> None:
         as_of = "2026-08-08T03:00:00.000000Z"

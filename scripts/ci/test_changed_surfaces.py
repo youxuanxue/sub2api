@@ -29,7 +29,6 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "ops": False,
                 "contracts": False,
                 "preflight_go": True,
-                "service_unit_cold": True,
                 "all": False,
             },
         )
@@ -44,7 +43,6 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "ops": False,
                 "contracts": False,
                 "preflight_go": False,
-                "service_unit_cold": False,
                 "all": False,
             },
         )
@@ -59,7 +57,6 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "ops": False,
                 "contracts": False,
                 "preflight_go": False,
-                "service_unit_cold": False,
                 "all": False,
             },
         )
@@ -74,7 +71,6 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "ops": False,
                 "contracts": True,
                 "preflight_go": True,
-                "service_unit_cold": True,
                 "all": False,
             },
         )
@@ -89,7 +85,6 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "ops": True,
                 "contracts": False,
                 "preflight_go": True,
-                "service_unit_cold": True,
                 "all": False,
             },
         )
@@ -104,7 +99,6 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "ops": False,
                 "contracts": False,
                 "preflight_go": False,
-                "service_unit_cold": False,
                 "all": False,
             },
         )
@@ -119,7 +113,6 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "ops": False,
                 "contracts": False,
                 "preflight_go": False,
-                "service_unit_cold": False,
                 "all": False,
             },
         )
@@ -139,7 +132,6 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "ops": False,
                 "contracts": False,
                 "preflight_go": True,
-                "service_unit_cold": True,
                 "all": False,
             },
         )
@@ -154,7 +146,6 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "ops": False,
                 "contracts": False,
                 "preflight_go": True,
-                "service_unit_cold": True,
                 "all": False,
             },
         )
@@ -170,7 +161,6 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "ops": False,
                 "contracts": False,
                 "preflight_go": True,
-                "service_unit_cold": False,
                 "all": True,
             },
         )
@@ -186,7 +176,6 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "ops": False,
                 "contracts": False,
                 "preflight_go": True,
-                "service_unit_cold": False,
                 "all": True,
             },
         )
@@ -202,12 +191,11 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "ops": False,
                 "contracts": False,
                 "preflight_go": True,
-                "service_unit_cold": False,
                 "all": True,
             },
         )
 
-    def test_backend_non_go_change_keeps_service_cache_path(self) -> None:
+    def test_backend_non_go_change_runs_backend_without_all_surfaces(self) -> None:
         self.assertEqual(
             changed_surfaces.classify(["backend/migrations/001.sql"]),
             {
@@ -217,7 +205,6 @@ class ChangedSurfacesTest(unittest.TestCase):
                 "ops": False,
                 "contracts": False,
                 "preflight_go": True,
-                "service_unit_cold": False,
                 "all": False,
             },
         )
@@ -226,27 +213,14 @@ class ChangedSurfacesTest(unittest.TestCase):
         for path in (
             "ops/pricing/model-surface-bundle.json",
             "ops/observability/generated/model-family-rules.json",
+            "scripts/checks/check-model-surface-bundle.sh",
             "scripts/sentinels/check-model-family-rules.sh",
             "scripts/preflight.sh",
         ):
             with self.subTest(path=path):
                 self.assertTrue(changed_surfaces.classify([path])["preflight_go"])
 
-    def test_unit_runner_and_ci_entrypoints_force_service_cold_path(self) -> None:
-        for path in (
-            ".new-api-ref",
-            "backend/go.mod",
-            "backend/go.sum",
-            "scripts/ci/list_go_tests.go",
-            "scripts/ci/unit_test_runner.py",
-            "scripts/ci/test_unit_test_runner.py",
-            "backend/Makefile",
-            ".github/workflows/backend-ci.yml",
-        ):
-            with self.subTest(path=path):
-                self.assertTrue(changed_surfaces.classify([path])["service_unit_cold"])
-
-    def test_all_mode_marks_service_cold_path(self) -> None:
+    def test_all_mode_marks_only_active_surface_decisions(self) -> None:
         completed = subprocess.run(
             [sys.executable, str(MODULE_PATH), "--all"],
             input="",
@@ -257,7 +231,18 @@ class ChangedSurfacesTest(unittest.TestCase):
 
         self.assertEqual(completed.returncode, 0, completed.stderr)
         result = json.loads(completed.stdout)
-        self.assertEqual(set(result), set(changed_surfaces.KEYS))
+        self.assertEqual(
+            set(result),
+            {
+                "backend",
+                "frontend",
+                "deploy",
+                "ops",
+                "contracts",
+                "preflight_go",
+                "all",
+            },
+        )
         self.assertTrue(all(result.values()))
 
 

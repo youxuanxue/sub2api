@@ -17,20 +17,8 @@ KEYS = (
     "ops",
     "contracts",
     "preflight_go",
-    "service_unit_cold",
     "all",
 )
-
-SERVICE_UNIT_COLD_FILES = {
-    ".github/workflows/backend-ci.yml",
-    ".new-api-ref",
-    "backend/Makefile",
-    "backend/go.mod",
-    "backend/go.sum",
-    "scripts/ci/list_go_tests.go",
-    "scripts/ci/test_unit_test_runner.py",
-    "scripts/ci/unit_test_runner.py",
-}
 
 CONTRACT_FILES = {
     "backend/internal/domain/constants.go",
@@ -53,6 +41,7 @@ PREFLIGHT_GO_FILES = {
     # preflight toolchain path even though they live outside backend/.
     "ops/observability/generated/model-family-rules.json",
     "ops/pricing/model-surface-bundle.json",
+    "scripts/checks/check-model-surface-bundle.sh",
     "scripts/preflight.sh",
     "scripts/sentinels/check-model-family-rules.sh",
 }
@@ -82,11 +71,6 @@ def classify(paths: Iterable[str]) -> dict[str, bool]:
 
         if path in PREFLIGHT_GO_FILES:
             result["preflight_go"] = True
-
-        if path in SERVICE_UNIT_COLD_FILES or (
-            path.startswith("backend/") and path.endswith(".go")
-        ):
-            result["service_unit_cold"] = True
 
         if path == ".github/workflows/backend-ci.yml" or _starts(
             path,
