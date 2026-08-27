@@ -132,16 +132,16 @@ jobs:
           go-version-file: backend/go.mod
           check-latest: false
           cache: false
+      - uses: ./.github/actions/go-rolling-cache
+        if: needs.changes.outputs.preflight_go == 'true'
+        with:
+          prefix: preflight-nodwarf-v1
       - name: Unit runner contract tests
         if: needs.changes.outputs.preflight_go == 'true'
         run: python3 -m unittest scripts.ci.test_unit_test_runner
       - name: Integration package discovery contract tests
         if: needs.changes.outputs.preflight_go == 'true'
         run: python3 -m unittest scripts.ci.test_integration_packages
-      - uses: ./.github/actions/go-rolling-cache
-        if: needs.changes.outputs.preflight_go == 'true'
-        with:
-          prefix: preflight-nodwarf-v1
       - name: Run preflight
         env:
           PREFLIGHT_FAST: ${{ github.event_name == 'pull_request' && '1' || '0' }}
