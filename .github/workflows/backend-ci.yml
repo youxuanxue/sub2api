@@ -93,6 +93,10 @@ jobs:
     # Mechanical gate for process / quality rules from dev-rules submodule.
     # See CLAUDE.md § 10 and dev-rules/rules/dev-rules-convention.mdc.
     runs-on: ubuntu-latest
+    env:
+      # Preflight only executes generators, contracts, and tests; failure stacks
+      # retain file:line data without storing DWARF in the rolling Go cache.
+      GOFLAGS: -gcflags=all=-dwarf=false
     steps:
       - name: Require changed-surface classification
         if: needs.changes.result != 'success'
@@ -138,7 +142,7 @@ jobs:
       - uses: ./.github/actions/go-rolling-cache
         if: needs.changes.outputs.preflight_go == 'true'
         with:
-          prefix: preflight
+          prefix: preflight-nodwarf-v1
       - name: Run preflight
         env:
           PREFLIGHT_FAST: ${{ github.event_name == 'pull_request' && '1' || '0' }}
@@ -262,6 +266,10 @@ jobs:
     needs: changes
     if: (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))) && (needs.changes.outputs.all == 'true' || needs.changes.outputs.backend == 'true')
     runs-on: ubuntu-latest
+    env:
+      # Integration failures retain file:line stacks without DWARF while the
+      # package/test cache stays materially smaller to restore and refresh.
+      GOFLAGS: -gcflags=all=-dwarf=false
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
@@ -273,7 +281,7 @@ jobs:
           cache: false
       - uses: ./.github/actions/go-rolling-cache
         with:
-          prefix: integration
+          prefix: integration-nodwarf-v1
           refresh_on_backend_change: "true"
       - name: Verify Go version
         run: |
@@ -314,6 +322,10 @@ jobs:
       contents: read
       pull-requests: read
     runs-on: ubuntu-latest
+    env:
+      # golangci-lint consumes export/type data, not DWARF. Omitting it targets
+      # the measured 2.25GB lint build cache and its 41s restore bottleneck.
+      GOFLAGS: -gcflags=all=-dwarf=false
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
@@ -328,7 +340,7 @@ jobs:
           cache: false
       - uses: ./.github/actions/go-rolling-cache
         with:
-          prefix: lint
+          prefix: lint-nodwarf-v1
           golangci_cache: "true"
       - name: Verify Go version
         run: |
