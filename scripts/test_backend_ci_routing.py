@@ -341,13 +341,12 @@ class BackendCIRoutingTest(unittest.TestCase):
             ],
         )
 
-    def test_backend_security_rolls_a_dedicated_nodwarf_build_cache(self) -> None:
+    def test_backend_security_reuses_the_shared_nodwarf_rolling_cache(self) -> None:
         steps = self.jobs["backend-security"]["steps"]
-        epoch_steps = [
-            step for step in steps if step.get("id") == "security_cache_epoch"
-        ]
-        self.assertEqual(len(epoch_steps), 1)
-        self.assertIn("date -u +%G-W%V", epoch_steps[0]["run"])
+        setup_go = next(
+            step for step in steps if step.get("uses") == "actions/setup-go@v6"
+        )
+        self.assertFalse(setup_go["with"]["cache"])
 
         scan_index = next(
             index
@@ -357,18 +356,23 @@ class BackendCIRoutingTest(unittest.TestCase):
         cache_indexes = [
             index
             for index, step in enumerate(steps)
-            if step.get("name") == "Cache govulncheck build objects"
+            if step.get("uses") == "./.github/actions/go-rolling-cache"
         ]
 
         self.assertEqual(len(cache_indexes), 1)
         cache_index = cache_indexes[0]
         self.assertLess(cache_index, scan_index)
         cache = steps[cache_index]
-        self.assertEqual(cache["uses"], "actions/cache@v6")
-        self.assertEqual(cache["with"]["path"], "~/.cache/go-build")
-        self.assertIn("gobuild-security-nodwarf-v1", cache["with"]["key"])
-        self.assertIn("steps.security_cache_epoch.outputs.value", cache["with"]["key"])
-        self.assertIn("backend/go.sum", cache["with"]["key"])
+        self.assertEqual(cache["with"]["prefix"], "security-nodwarf-v1")
+        self.assertNotIn("refresh_on_backend_change", cache.get("with", {}))
+        self.assertFalse(
+            [
+                step
+                for step in steps
+                if step.get("id") == "security_cache_epoch"
+                or step.get("name") == "Cache govulncheck build objects"
+            ]
+        )
 
     def test_heavy_go_jobs_use_nodwarf_build_cache_namespaces(self) -> None:
         expected_prefixes = {
@@ -376,6 +380,7 @@ class BackendCIRoutingTest(unittest.TestCase):
             "test-unit": "unit-nodwarf-v1",
             "test-integration": "integration-nodwarf-v1",
             "golangci-lint": "lint-nodwarf-v1",
+            "backend-security": "security-nodwarf-v1",
         }
         for job_name, expected_prefix in expected_prefixes.items():
             cache_step = next(
@@ -400,7 +405,7 @@ class BackendCIRoutingTest(unittest.TestCase):
             "true",
         )
 
-        for job_name in ("preflight", "test-unit", "golangci-lint"):
+        for job_name in ("preflight", "test-unit", "golangci-lint", "backend-security"):
             cache_step = next(
                 step
                 for step in self.jobs[job_name]["steps"]
