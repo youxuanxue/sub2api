@@ -335,30 +335,17 @@ class BackendCIRoutingTest(unittest.TestCase):
             with self.subTest(job=job_name):
                 self.assertNotIn("refresh_on_backend_change", cache_step.get("with", {}))
 
-    def test_unit_avoids_relinking_model_surface_owner_after_unit_tests(self) -> None:
+    def test_unit_avoids_relinking_go_artifact_owners_after_unit_tests(self) -> None:
         steps = self.jobs["test-unit"]["steps"]
-        fixture_index = next(
-            index
-            for index, step in enumerate(steps)
-            if step.get("name") == "Anthropic prompt surface fixture gateway"
-        )
-        family_index, family_step = next(
-            (index, step)
-            for index, step in enumerate(steps)
-            if step.get("name") == "Model family alert artifact drift"
+        step_names = {step.get("name") for step in steps}
+        self.assertTrue(
+            {
+                "Model surface bundle drift",
+                "Model family alert artifact drift",
+            }.isdisjoint(step_names),
         )
 
-        self.assertNotIn(
-            "Model surface bundle drift",
-            {step.get("name") for step in steps},
-        )
-        self.assertGreater(family_index, fixture_index)
-        self.assertEqual(
-            family_step["run"],
-            "bash scripts/sentinels/check-model-family-rules.sh",
-        )
-
-    def test_unit_is_the_only_workflow_owner_for_go_artifact_drift(self) -> None:
+    def test_go_artifact_drift_has_no_relinking_workflow_owner(self) -> None:
         owners = []
         for job_name, job in self.jobs.items():
             for step in job.get("steps", []):
@@ -370,16 +357,7 @@ class BackendCIRoutingTest(unittest.TestCase):
                     if helper in command:
                         owners.append((helper, job_name, step.get("name")))
 
-        self.assertEqual(
-            owners,
-            [
-                (
-                    "scripts/sentinels/check-model-family-rules.sh",
-                    "test-unit",
-                    "Model family alert artifact drift",
-                ),
-            ],
-        )
+        self.assertEqual(owners, [])
 
     def test_lint_uses_rolling_analysis_cache_instead_of_action_cache(self) -> None:
         steps = self.jobs["golangci-lint"]["steps"]
