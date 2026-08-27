@@ -53,6 +53,7 @@ PREFLIGHT_GO_FILES = {
     # preflight toolchain path even though they live outside backend/.
     "ops/observability/generated/model-family-rules.json",
     "ops/pricing/model-surface-bundle.json",
+    "scripts/checks/check-model-surface-bundle.sh",
     "scripts/preflight.sh",
     "scripts/sentinels/check-model-family-rules.sh",
 }

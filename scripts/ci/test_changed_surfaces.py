@@ -226,6 +226,7 @@ class ChangedSurfacesTest(unittest.TestCase):
         for path in (
             "ops/pricing/model-surface-bundle.json",
             "ops/observability/generated/model-family-rules.json",
+            "scripts/checks/check-model-surface-bundle.sh",
             "scripts/sentinels/check-model-family-rules.sh",
             "scripts/preflight.sh",
         ):
