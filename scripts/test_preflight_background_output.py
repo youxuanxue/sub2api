@@ -10,6 +10,12 @@ import unittest
 
 
 PREFLIGHT = pathlib.Path(__file__).resolve().parent / "preflight.sh"
+QA_SINGLE_OWNER_TEST = (
+    PREFLIGHT.parent.parent
+    / "ops"
+    / "stage0"
+    / "test_activate_qa_single_owner_via_ssm.sh"
+)
 
 
 def _shell_function(name: str) -> str:
@@ -99,6 +105,22 @@ _archive_rehearsal_spawn_if_needed
     )
 
 
+def _run_slow_ops_spawn(skip_slow_ops: int) -> subprocess.CompletedProcess[str]:
+    script = f"""
+set -u
+_preflight_skip_slow_ops={skip_slow_ops}
+_bg_spawn() {{ printf 'spawned=%s:%s\n' "$1" "$2"; }}
+{_optional_shell_function("_slow_ops_contracts_spawn_if_needed")}
+_slow_ops_contracts_spawn_if_needed
+"""
+    return subprocess.run(
+        ["bash", "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
 def _run_archive_failure_gate() -> subprocess.CompletedProcess[str]:
     script = f"""
 set -u
@@ -172,6 +194,35 @@ _archive_rehearsal_gate_run
 
 
 class PreflightBackgroundOutputTest(unittest.TestCase):
+    def test_qa_single_owner_contract_avoids_real_poll_delay(self) -> None:
+        result = subprocess.run(
+            ["bash", str(QA_SINGLE_OWNER_TEST)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("fake_poll_sleeps=2", result.stdout)
+
+    def test_slow_ops_contracts_spawn_together(self) -> None:
+        result = _run_slow_ops_spawn(skip_slow_ops=0)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("spawned=qa_phase_ops:_qa_phase_ops_gate_run", result.stdout)
+        self.assertIn(
+            "spawned=phase1_activation_safety:_phase1_activation_safety_gate_run",
+            result.stdout,
+        )
+
+    def test_slow_ops_skip_only_omits_surface_gated_phase_ops(self) -> None:
+        result = _run_slow_ops_spawn(skip_slow_ops=1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("spawned=qa_phase_ops:", result.stdout)
+        self.assertIn(
+            "spawned=phase1_activation_safety:_phase1_activation_safety_gate_run",
+            result.stdout,
+        )
+
     def test_failure_replays_captured_output(self) -> None:
         result = _run_spawned_join(1, "replay-on-failure")
         self.assertEqual(result.returncode, 0, result.stderr)

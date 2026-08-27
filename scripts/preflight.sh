@@ -228,6 +228,68 @@ _archive_rehearsal_spawn_if_needed() {
     fi
 }
 
+_qa_phase_ops_gate_run() {
+    if ! python3 -m py_compile ./ops/qa/edge_phase1_closeout.py ./ops/qa/prod_phase2_baseline.py; then
+        echo "  FAIL: QA phase ops scripts do not compile"
+        return 1
+    fi
+    python3 ./ops/qa/test_qa_phase_ops.py
+}
+
+_phase1_activation_safety_gate_run() {
+    if ! python3 ./ops/observability/test_probe_data_layer_safety.py >/dev/null 2>&1; then
+        echo "  FAIL: data-layer safety probe contracts"
+        echo "        - run: python3 ops/observability/test_probe_data_layer_safety.py"
+        return 1
+    elif ! python3 ./ops/observability/test_data_layer_snapshot_signal.py >/dev/null 2>&1; then
+        echo "  FAIL: data-layer snapshot target contracts"
+        echo "        - run: python3 ops/observability/test_data_layer_snapshot_signal.py"
+        return 1
+    elif ! python3 ./ops/migration/test_data_layer_partition_maintenance.py >/dev/null 2>&1; then
+        echo "  FAIL: fixed partition maintenance controller contracts"
+        echo "        - run: python3 ops/migration/test_data_layer_partition_maintenance.py"
+        return 1
+    elif ! python3 ./ops/migration/test_usage_logs_daily_partition.py >/dev/null 2>&1; then
+        echo "  FAIL: Fleet usage_logs daily partition operator contracts"
+        echo "        - run: python3 ops/migration/test_usage_logs_daily_partition.py"
+        return 1
+    elif ! python3 ./ops/stage0/test_pgdump_restore_canary.py >/dev/null 2>&1; then
+        echo "  FAIL: Fleet pg_dump restore canary contracts"
+        echo "        - run: python3 ops/stage0/test_pgdump_restore_canary.py"
+        return 1
+    elif ! python3 ./ops/stage0/test_pgdump_restore_canary_workflow.py >/dev/null 2>&1; then
+        echo "  FAIL: Fleet pg_dump restore canary workflow contracts"
+        echo "        - run: python3 ops/stage0/test_pgdump_restore_canary_workflow.py"
+        return 1
+    elif ! python3 ./ops/observability/test_pgdump_restore_canary_verdict.py >/dev/null 2>&1; then
+        echo "  FAIL: Fleet pg_dump restore canary receipt contracts"
+        echo "        - run: python3 ops/observability/test_pgdump_restore_canary_verdict.py"
+        return 1
+    elif ! python3 ./ops/observability/test_pgdump_restore_canary_alert.py >/dev/null 2>&1; then
+        echo "  FAIL: Fleet pg_dump restore canary alert contracts"
+        echo "        - run: python3 ops/observability/test_pgdump_restore_canary_alert.py"
+        return 1
+    elif ! python3 ./ops/observability/test_ops_daily_diagnostics_workflow.py >/dev/null 2>&1; then
+        echo "  FAIL: Fleet pg_dump restore canary daily diagnostics contracts"
+        echo "        - run: python3 ops/observability/test_ops_daily_diagnostics_workflow.py"
+        return 1
+    elif ! python3 ./scripts/test_release_post_check.py >/dev/null 2>&1; then
+        echo "  FAIL: post-release live→new PR check contracts"
+        echo "        - run: python3 scripts/test_release_post_check.py"
+        return 1
+    fi
+}
+
+_slow_ops_contracts_spawn_if_needed() {
+    if ! command -v python3 >/dev/null 2>&1; then
+        return 0
+    fi
+    if [ "$_preflight_skip_slow_ops" -ne 1 ]; then
+        _bg_spawn qa_phase_ops _qa_phase_ops_gate_run
+    fi
+    _bg_spawn phase1_activation_safety _phase1_activation_safety_gate_run
+}
+
 # ---- Sections 1-8: delegate to dev-rules template ----------------------------
 if [ ! -x ./dev-rules/templates/preflight.sh ]; then
     echo "FAIL: dev-rules submodule not initialized."
@@ -1429,6 +1491,7 @@ fi
 # the following QA baseline and lightweight contracts provide enough overlap,
 # while avoiding extra Docker pressure during the initial Caddy/template fanout.
 _archive_rehearsal_spawn_if_needed
+_slow_ops_contracts_spawn_if_needed
 
 # ---- sub2api: QA Phase 1 closeout + Phase 2 baseline ops -------------------
 echo ""
@@ -1438,13 +1501,16 @@ if [ "$_preflight_skip_slow_ops" -eq 1 ]; then
 elif ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by QA phase ops scripts)"
     errors=$((errors + 1))
-elif ! python3 -m py_compile ./ops/qa/edge_phase1_closeout.py ./ops/qa/prod_phase2_baseline.py; then
-    echo "  FAIL: QA phase ops scripts do not compile"
-    errors=$((errors + 1))
-elif ! python3 ./ops/qa/test_qa_phase_ops.py; then
+elif ! _bg_spawned qa_phase_ops; then
+    echo "  FAIL: QA phase ops background job was not spawned (internal preflight bug)"
     errors=$((errors + 1))
 else
-    echo "  ok: Phase 1 closeout + Phase 2 baseline artifacts compile and regression tests pass"
+    _bg_join qa_phase_ops replay-on-failure
+    if [ "$_bg_rc" -ne 0 ]; then
+        errors=$((errors + 1))
+    else
+        echo "  ok: Phase 1 closeout + Phase 2 baseline artifacts compile and regression tests pass"
+    fi
 fi
 
 # ---- sub2api: QA Bundle service/worker contract ------------------------------------
@@ -1682,48 +1748,16 @@ echo "=== sub2api: phase1 production activation safety contracts ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for activation safety tests)"
     errors=$((errors + 1))
-elif ! python3 ./ops/observability/test_probe_data_layer_safety.py >/dev/null 2>&1; then
-    echo "  FAIL: data-layer safety probe contracts"
-    echo "        - run: python3 ops/observability/test_probe_data_layer_safety.py"
-    errors=$((errors + 1))
-elif ! python3 ./ops/observability/test_data_layer_snapshot_signal.py >/dev/null 2>&1; then
-    echo "  FAIL: data-layer snapshot target contracts"
-    echo "        - run: python3 ops/observability/test_data_layer_snapshot_signal.py"
-    errors=$((errors + 1))
-elif ! python3 ./ops/migration/test_data_layer_partition_maintenance.py >/dev/null 2>&1; then
-    echo "  FAIL: fixed partition maintenance controller contracts"
-    echo "        - run: python3 ops/migration/test_data_layer_partition_maintenance.py"
-    errors=$((errors + 1))
-elif ! python3 ./ops/migration/test_usage_logs_daily_partition.py >/dev/null 2>&1; then
-    echo "  FAIL: Fleet usage_logs daily partition operator contracts"
-    echo "        - run: python3 ops/migration/test_usage_logs_daily_partition.py"
-    errors=$((errors + 1))
-elif ! python3 ./ops/stage0/test_pgdump_restore_canary.py >/dev/null 2>&1; then
-    echo "  FAIL: Fleet pg_dump restore canary contracts"
-    echo "        - run: python3 ops/stage0/test_pgdump_restore_canary.py"
-    errors=$((errors + 1))
-elif ! python3 ./ops/stage0/test_pgdump_restore_canary_workflow.py >/dev/null 2>&1; then
-    echo "  FAIL: Fleet pg_dump restore canary workflow contracts"
-    echo "        - run: python3 ops/stage0/test_pgdump_restore_canary_workflow.py"
-    errors=$((errors + 1))
-elif ! python3 ./ops/observability/test_pgdump_restore_canary_verdict.py >/dev/null 2>&1; then
-    echo "  FAIL: Fleet pg_dump restore canary receipt contracts"
-    echo "        - run: python3 ops/observability/test_pgdump_restore_canary_verdict.py"
-    errors=$((errors + 1))
-elif ! python3 ./ops/observability/test_pgdump_restore_canary_alert.py >/dev/null 2>&1; then
-    echo "  FAIL: Fleet pg_dump restore canary alert contracts"
-    echo "        - run: python3 ops/observability/test_pgdump_restore_canary_alert.py"
-    errors=$((errors + 1))
-elif ! python3 ./ops/observability/test_ops_daily_diagnostics_workflow.py >/dev/null 2>&1; then
-    echo "  FAIL: Fleet pg_dump restore canary daily diagnostics contracts"
-    echo "        - run: python3 ops/observability/test_ops_daily_diagnostics_workflow.py"
-    errors=$((errors + 1))
-elif ! python3 ./scripts/test_release_post_check.py >/dev/null 2>&1; then
-    echo "  FAIL: post-release live→new PR check contracts"
-    echo "        - run: python3 scripts/test_release_post_check.py"
+elif ! _bg_spawned phase1_activation_safety; then
+    echo "  FAIL: activation safety background job was not spawned (internal preflight bug)"
     errors=$((errors + 1))
 else
-    echo "  ok: fail-closed probes + Fleet restore and partition operators"
+    _bg_join phase1_activation_safety replay-on-failure
+    if [ "$_bg_rc" -ne 0 ]; then
+        errors=$((errors + 1))
+    else
+        echo "  ok: fail-closed probes + Fleet restore and partition operators"
+    fi
 fi
 
 # ---- sub2api: single app-container resolver owner --------------------------
