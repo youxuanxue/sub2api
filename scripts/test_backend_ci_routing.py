@@ -208,7 +208,7 @@ class BackendCIRoutingTest(unittest.TestCase):
             "-gcflags=all=-dwarf=false",
         )
 
-    def test_unit_dwarf_flags_do_not_leak_to_other_go_jobs(self) -> None:
+    def test_heavy_go_jobs_omit_dwarf_from_cached_build_objects(self) -> None:
         declarations = []
         for job_name, job in self.jobs.items():
             if "GOFLAGS" in job.get("env", {}):
@@ -221,24 +221,39 @@ class BackendCIRoutingTest(unittest.TestCase):
 
         self.assertEqual(
             declarations,
-            [("test-unit", "job", "-gcflags=all=-dwarf=false")],
+            [
+                ("preflight", "job", "-gcflags=all=-dwarf=false"),
+                ("test-unit", "job", "-gcflags=all=-dwarf=false"),
+                ("test-integration", "job", "-gcflags=all=-dwarf=false"),
+                ("golangci-lint", "job", "-gcflags=all=-dwarf=false"),
+            ],
         )
 
-    def test_unit_job_uses_dwarf_specific_build_cache_namespace(self) -> None:
-        rolling_cache = next(
-            step
-            for step in self.jobs["test-unit"]["steps"]
-            if step.get("uses") == "./.github/actions/go-rolling-cache"
-        )
-
-        self.assertEqual(rolling_cache["with"]["prefix"], "unit-nodwarf-v1")
+    def test_heavy_go_jobs_use_nodwarf_build_cache_namespaces(self) -> None:
+        expected_prefixes = {
+            "preflight": "preflight-nodwarf-v1",
+            "test-unit": "unit-nodwarf-v1",
+            "test-integration": "integration-nodwarf-v1",
+            "golangci-lint": "lint-nodwarf-v1",
+        }
+        for job_name, expected_prefix in expected_prefixes.items():
+            cache_step = next(
+                step
+                for step in self.jobs[job_name]["steps"]
+                if step.get("uses") == "./.github/actions/go-rolling-cache"
+            )
+            with self.subTest(job=job_name):
+                self.assertEqual(cache_step["with"]["prefix"], expected_prefix)
 
         integration_cache = next(
             step
             for step in self.jobs["test-integration"]["steps"]
             if step.get("uses") == "./.github/actions/go-rolling-cache"
         )
-        self.assertEqual(integration_cache["with"]["prefix"], "integration")
+        self.assertEqual(
+            integration_cache["with"]["prefix"],
+            "integration-nodwarf-v1",
+        )
         self.assertEqual(
             integration_cache["with"]["refresh_on_backend_change"],
             "true",
@@ -317,7 +332,7 @@ class BackendCIRoutingTest(unittest.TestCase):
             for step in steps
             if step.get("uses") == "./.github/actions/go-rolling-cache"
         )
-        self.assertEqual(rolling_cache["with"]["prefix"], "lint")
+        self.assertEqual(rolling_cache["with"]["prefix"], "lint-nodwarf-v1")
         self.assertEqual(rolling_cache["with"]["golangci_cache"], "true")
 
         lint_action = next(
