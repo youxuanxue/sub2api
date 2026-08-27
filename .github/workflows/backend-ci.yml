@@ -406,7 +406,7 @@ jobs:
           # and a supply-chain surface — a bad upstream release would silently
           # break or poison this gate. Contrast golangci-lint (pinned v2.9) and
           # new-api (pinned by SHA). Bump deliberately.
-          go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
           govulncheck ./...
 
   frontend-security:
