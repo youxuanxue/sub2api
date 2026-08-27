@@ -124,6 +124,53 @@ printf 'errors=%s\n' "$errors"
     )
 
 
+def _run_archive_composite_with_docker_barrier(
+    failing_key: str = "",
+) -> subprocess.CompletedProcess[str]:
+    with tempfile.TemporaryDirectory() as tmp:
+        script = f"""
+set -u
+barrier_dir={tmp!s}
+failing_key={failing_key!s}
+python3() {{
+    case "$1" in
+        ./ops/archive/test_data_layer_archive_rehearsal.py)
+            key=rehearsal
+            ;;
+        ./ops/archive/test_data_layer_archive_prod_canary.py)
+            key=prod_canary
+            ;;
+        *)
+            printf 'serial=%s\n' "$1"
+            return 0
+            ;;
+    esac
+    touch "$barrier_dir/$key.started"
+    attempts=0
+    while [ ! -f "$barrier_dir/rehearsal.started" ] || [ ! -f "$barrier_dir/prod_canary.started" ]; do
+        attempts=$((attempts + 1))
+        if [ "$attempts" -ge 100 ]; then
+            printf 'docker scripts did not overlap\n' >&2
+            return 99
+        fi
+        sleep 0.01
+    done
+    printf 'overlapped=%s\n' "$key"
+    if [ "$key" = "$failing_key" ]; then
+        return 23
+    fi
+}}
+{_shell_function("_archive_rehearsal_gate_run")}
+_archive_rehearsal_gate_run
+"""
+        return subprocess.run(
+            ["bash", "-c", script],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+
 class PreflightBackgroundOutputTest(unittest.TestCase):
     def test_failure_replays_captured_output(self) -> None:
         result = _run_spawned_join(1, "replay-on-failure")
@@ -173,6 +220,21 @@ class PreflightBackgroundOutputTest(unittest.TestCase):
         )
         self.assertIn("FAIL: nonprod archive/restore rehearsal contracts", result.stdout)
         self.assertIn("errors=1", result.stdout)
+
+    def test_archive_composite_overlaps_independent_docker_suites(self) -> None:
+        result = _run_archive_composite_with_docker_barrier()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("overlapped=rehearsal", result.stdout)
+        self.assertIn("overlapped=prod_canary", result.stdout)
+
+    def test_archive_composite_propagates_parallel_suite_failure(self) -> None:
+        result = _run_archive_composite_with_docker_barrier("prod_canary")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(
+            "failed command: python3 ops/archive/test_data_layer_archive_prod_canary.py",
+            result.stdout,
+        )
+        self.assertNotIn("serial=", result.stdout)
 
 
 if __name__ == "__main__":
