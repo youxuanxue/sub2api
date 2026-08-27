@@ -49,11 +49,10 @@ class GoRollingCachePolicyTest(unittest.TestCase):
                 self.assertIn("backend/go.sum", step["with"]["key"])
                 self.assertIn("backend/.golangci.yml", step["with"]["key"])
 
-    def test_large_build_caches_refresh_weekly_instead_of_every_run(self) -> None:
+    def test_build_caches_follow_backend_inputs_without_per_run_churn(self) -> None:
         action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
         steps = action["runs"]["steps"]
-        epoch_step = next(step for step in steps if step.get("id") == "cache_epoch")
-        self.assertIn("date -u +%G-W%V", epoch_step["run"])
+        self.assertFalse(any(step.get("id") == "cache_epoch" for step in steps))
 
         build_steps = [
             step
@@ -61,23 +60,22 @@ class GoRollingCachePolicyTest(unittest.TestCase):
             if step.get("with", {}).get("path") == "~/.cache/go-build"
         ]
         self.assertEqual(len(build_steps), 2)
+        expected_key = (
+            "${{ runner.os }}-gobuild-${{ inputs.prefix }}-"
+            "${{ hashFiles('backend/**', '.new-api-ref') }}"
+        )
         for step in build_steps:
             with self.subTest(step=step["name"]):
                 cache_config = step["with"]
                 key = cache_config["key"]
-                self.assertIn("steps.cache_epoch.outputs.value", key)
+                self.assertEqual(key, expected_key)
                 self.assertNotIn("github.run_id", key)
-                self.assertIn("backend/go.mod", key)
-                self.assertIn("backend/go.sum", key)
-                self.assertIn(".new-api-ref", key)
 
                 restore_keys = cache_config["restore-keys"].splitlines()
                 self.assertEqual(
                     restore_keys[0],
-                    "${{ runner.os }}-gobuild-${{ inputs.prefix }}-"
-                    "${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-",
+                    "${{ runner.os }}-gobuild-${{ inputs.prefix }}-",
                 )
-                self.assertNotIn("steps.cache_epoch.outputs.value", cache_config["restore-keys"])
                 self.assertNotIn("github.run_id", str(cache_config))
 
 
