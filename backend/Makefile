@@ -65,9 +65,7 @@ else
 endif
 
 test-integration:
-	@packages="$$(python3 ../scripts/ci/integration-packages.py --root .)" || exit $$?; \
-	printf 'integration packages:\n%s\n' "$$packages"; \
-	go test -tags=integration $$packages
+	python3 ../scripts/ci/integration_test_runner.py --root .
 
 lint: ensure-golangci-lint
 	$(GOLANGCI_LINT) run ./... $(GOLANGCI_LINT_FAST_ARGS)

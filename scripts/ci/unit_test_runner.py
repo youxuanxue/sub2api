@@ -40,13 +40,22 @@ class Command:
 RunningCommand = tuple[Command, subprocess.Popen[bytes], Path, float]
 
 
-def _run_checked(argv: list[str], root: Path) -> str:
+def _run_checked(
+    argv: list[str],
+    root: Path,
+    environment: dict[str, str] | None = None,
+) -> str:
+    run_environment = None
+    if environment:
+        run_environment = os.environ.copy()
+        run_environment.update(environment)
     result = subprocess.run(
         argv,
         cwd=root,
         check=False,
         capture_output=True,
         text=True,
+        env=run_environment,
     )
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip() or "command failed"
@@ -179,10 +188,13 @@ def verify_binary_registry(
     service_binary: Path,
     service_dir: Path,
     discovered_tests: list[str],
+    subject: str = "service",
+    environment: dict[str, str] | None = None,
 ) -> None:
     output = _run_checked(
         [str(service_binary), "-test.list", "^(Test|Fuzz|Example)"],
         service_dir,
+        environment,
     )
     registered_tests = sorted(
         {line.strip() for line in output.splitlines() if line.strip()}
@@ -199,7 +211,7 @@ def verify_binary_registry(
         details.append("missing from AST discovery: " + ", ".join(missing))
     if unexpected:
         details.append("missing from binary registry: " + ", ".join(unexpected))
-    raise RunnerError("service test registry mismatch; " + "; ".join(details))
+    raise RunnerError(f"{subject} test registry mismatch; " + "; ".join(details))
 
 
 def build_commands(
@@ -273,8 +285,10 @@ def _terminate_processes(
 def run_commands(
     commands: list[Command],
     initial_running: list[RunningCommand] | None = None,
+    runner_name: str = "unit-test-runner",
+    temporary_prefix: str = "sub2api-unit-",
 ) -> int:
-    with tempfile.TemporaryDirectory(prefix="sub2api-unit-") as temporary:
+    with tempfile.TemporaryDirectory(prefix=temporary_prefix) as temporary:
         log_dir = Path(temporary)
         running = list(initial_running or [])
         handles = []
@@ -314,12 +328,12 @@ def run_commands(
             output = log_path.read_text(encoding="utf-8", errors="replace")
             if returncode == 0:
                 print(
-                    f"unit-test-runner: PASS {command.label} "
+                    f"{runner_name}: PASS {command.label} "
                     f"({elapsed:.1f}s): {_last_summary(output)}"
                 )
                 continue
             print(
-                f"unit-test-runner: FAIL {command.label} ({elapsed:.1f}s)",
+                f"{runner_name}: FAIL {command.label} ({elapsed:.1f}s)",
                 file=sys.stderr,
             )
             print(output.rstrip(), file=sys.stderr)

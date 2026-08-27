@@ -231,11 +231,26 @@ class BackendCIRoutingTest(unittest.TestCase):
             "Go-backed preflight contracts must consume the restored build cache",
         )
 
-    def test_integration_target_uses_discovered_owner_packages(self) -> None:
-        makefile = BACKEND_MAKEFILE.read_text(encoding="utf-8")
-        target = makefile.split("test-integration:\n", 1)[1].split("\n\n", 1)[0]
-        self.assertIn("integration-packages.py", target)
-        self.assertNotIn("go test -tags=integration ./...", target)
+    def test_integration_target_uses_compile_once_repository_shards(self) -> None:
+        result = subprocess.run(
+            ["make", "-n", "-C", str(BACKEND_MAKEFILE.parent), "test-integration"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("integration_test_runner.py", result.stdout)
+        self.assertNotIn("go test -tags=integration", result.stdout)
+
+    def test_preflight_runs_integration_runner_contract_tests(self) -> None:
+        step = next(
+            step
+            for step in self.jobs["preflight"]["steps"]
+            if step.get("name") == "Integration package discovery contract tests"
+        )
+
+        self.assertIn("scripts.ci.test_integration_test_runner", step["run"])
 
     def test_unit_job_always_uses_compile_once_service_shards(self) -> None:
         unit_step = next(

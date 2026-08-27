@@ -141,7 +141,10 @@ jobs:
         run: python3 -m unittest scripts.ci.test_unit_test_runner
       - name: Integration package discovery contract tests
         if: needs.changes.outputs.preflight_go == 'true'
-        run: python3 -m unittest scripts.ci.test_integration_packages
+        run: >-
+          python3 -m unittest
+          scripts.ci.test_integration_packages
+          scripts.ci.test_integration_test_runner
       - name: Run preflight
         env:
           PREFLIGHT_FAST: ${{ github.event_name == 'pull_request' && '1' || '0' }}
