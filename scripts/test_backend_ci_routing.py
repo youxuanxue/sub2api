@@ -29,7 +29,6 @@ class BackendCIRoutingTest(unittest.TestCase):
                 "ops",
                 "contracts",
                 "preflight_go",
-                "service_unit_cold",
                 "all",
             },
         )
@@ -177,30 +176,14 @@ class BackendCIRoutingTest(unittest.TestCase):
         self.assertIn("integration-packages.py", target)
         self.assertNotIn("go test -tags=integration ./...", target)
 
-    def test_unit_job_passes_the_service_cold_path_decision(self) -> None:
+    def test_unit_job_always_uses_compile_once_service_shards(self) -> None:
         unit_step = next(
             step
             for step in self.jobs["test-unit"]["steps"]
             if step.get("name") == "Unit tests"
         )
 
-        self.assertIn(
-            "needs.changes.outputs.service_unit_cold",
-            unit_step["env"]["UNIT_TEST_SERVICE_SHARD"],
-        )
-
-    def test_unit_main_push_uses_service_shards(self) -> None:
-        unit_step = next(
-            step
-            for step in self.jobs["test-unit"]["steps"]
-            if step.get("name") == "Unit tests"
-        )
-
-        self.assertEqual(
-            unit_step["env"]["UNIT_TEST_SERVICE_SHARD"],
-            "${{ (github.event_name == 'push' || "
-            "needs.changes.outputs.service_unit_cold == 'true') && '1' || '0' }}",
-        )
+        self.assertEqual(unit_step["env"]["UNIT_TEST_SERVICE_SHARD"], "1")
 
     def test_unit_job_omits_dwarf_from_test_build_objects(self) -> None:
         self.assertEqual(
