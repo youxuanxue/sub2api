@@ -247,7 +247,7 @@ jobs:
         env:
           # Service tests inspect tracked source/fixture files at runtime, so
           # checkout mtimes prevent cross-run result-cache hits even when the
-          # weekly Go build cache restores exactly. Always use the compile-once
+          # weekly Go build cache restores exactly. Always use the shared-build
           # runner instead of gambling the critical path on test-result cache.
           UNIT_TEST_SERVICE_SHARD: "1"
         run: make test-unit

@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Run Go unit tests while sharding the large internal/service package."""
+"""Run Go unit tests with a shared compile graph and sharded service package."""
 
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import hashlib
 import json
@@ -20,6 +19,9 @@ import time
 
 DEFAULT_SERVICE_PACKAGE = "./internal/service"
 DEFAULT_MIN_SHARDS = 8
+# Keep the established service fan-out while allowing four other packages to
+# make progress without launching every test binary at once on hosted runners.
+DEFAULT_MAX_PARALLEL = DEFAULT_MIN_SHARDS + 4
 TEST_DISCOVERY_HELPER = Path(__file__).resolve().with_name("list_go_tests.go")
 # Linux limits a single argv entry to 128 KiB. Keep 32 KiB of headroom while
 # avoiding unnecessary shard/link fan-out at the current service test scale.
@@ -113,10 +115,11 @@ def _test_entries(root: Path, test_files: list[Path]) -> tuple[list[str], bool]:
 def discover_test_plan(
     root: Path,
     service_package: str,
-) -> tuple[list[str], list[str], bool]:
+) -> tuple[list[str], list[str], list[str], bool]:
     output = _run_checked(["go", "list", "-json", "-tags=unit", "./..."], root)
     service_dir = (root / service_package.removeprefix("./")).resolve()
     packages: list[str] = []
+    test_packages: list[str] = []
     service_test_files: list[Path] | None = None
     for package in _decode_go_list(output):
         package_dir = Path(str(package["Dir"])).resolve()
@@ -124,20 +127,27 @@ def discover_test_plan(
             relative = package_dir.relative_to(root)
         except ValueError as exc:
             raise RunnerError(f"package outside backend root: {package_dir}") from exc
+        package_path = f"./{relative.as_posix()}"
+        packages.append(package_path)
+        filenames = [
+            *package.get("TestGoFiles", []),
+            *package.get("XTestGoFiles", []),
+        ]
+        if filenames:
+            test_packages.append(package_path)
         if package_dir == service_dir:
-            filenames = [
-                *package.get("TestGoFiles", []),
-                *package.get("XTestGoFiles", []),
-            ]
             service_test_files = [package_dir / str(name) for name in filenames]
-            continue
-        packages.append(f"./{relative.as_posix()}")
     if service_test_files is None:
         raise RunnerError(f"service package not found: {service_package}")
     tests, has_test_main = _test_entries(root, service_test_files)
     if not tests and not has_test_main:
         raise RunnerError("no service unit tests discovered")
-    return sorted(set(packages)), tests, has_test_main
+    return (
+        sorted(set(packages)),
+        sorted(set(test_packages)),
+        tests,
+        has_test_main,
+    )
 
 
 def _test_pattern(test_names: list[str]) -> str:
@@ -176,19 +186,56 @@ def build_test_plan(
     service_package: str,
     min_shards: int,
     max_regex_bytes: int,
-) -> tuple[list[str], list[str], list[str], bool]:
-    other_packages, service_tests, has_test_main = discover_test_plan(
+) -> tuple[list[str], list[str], list[str], list[str], bool]:
+    packages, test_packages, service_tests, has_test_main = discover_test_plan(
         root,
         service_package,
     )
     if has_test_main:
-        return other_packages, service_tests, [], True
+        return packages, test_packages, service_tests, [], True
     patterns = shard_service_tests(
         service_tests,
         min_shards,
         max_regex_bytes,
     )
-    return other_packages, service_tests, patterns, False
+    return packages, test_packages, service_tests, patterns, False
+
+
+def _shared_compile_layout(
+    build_root: Path,
+    packages: list[str],
+    test_packages: list[str],
+) -> tuple[list[list[str]], dict[str, Path]]:
+    """Lay out the minimum compile batches without test-binary collisions."""
+
+    all_packages = sorted(set(packages))
+    runnable_packages = sorted(set(test_packages))
+    all_package_set = set(all_packages)
+    runnable_package_set = set(runnable_packages)
+    unknown = sorted(runnable_package_set - all_package_set)
+    if unknown:
+        raise RunnerError(
+            "test packages missing from unit package discovery: " + ", ".join(unknown)
+        )
+
+    by_binary_name: dict[str, list[str]] = {}
+    for package in all_packages:
+        binary_name = f"{Path(package).name}.test"
+        by_binary_name.setdefault(binary_name, []).append(package)
+
+    batch_count = max((len(group) for group in by_binary_name.values()), default=1)
+    batches: list[list[str]] = [[] for _ in range(batch_count)]
+    binaries: dict[str, Path] = {}
+    for binary_name, owners in sorted(by_binary_name.items()):
+        for batch_index, package in enumerate(sorted(owners)):
+            batch_dir = build_root / f"batch-{batch_index}"
+            batches[batch_index].append(package)
+            if package in runnable_package_set:
+                binaries[package] = batch_dir / binary_name
+    for batch_index, batch in enumerate(batches):
+        (build_root / f"batch-{batch_index}").mkdir(parents=True, exist_ok=True)
+        batch.sort()
+    return batches, binaries
 
 
 def verify_binary_registry(
@@ -224,33 +271,56 @@ def verify_binary_registry(
 def build_commands(
     root: Path,
     service_package: str,
-    service_binary: Path,
-    other_packages: list[str],
+    binaries: dict[str, Path],
+    test_packages: list[str],
     patterns: list[str],
+    has_test_main: bool,
 ) -> list[Command]:
     commands: list[Command] = []
-    if other_packages:
-        commands.append(
-            Command(
-                "other-packages",
-                tuple(["go", "test", "-tags=unit", *other_packages]),
-                root,
-            )
-        )
+    service_binary = binaries[service_package]
     service_dir = root / service_package.removeprefix("./")
-    width = len(str(len(patterns) - 1))
-    for index, pattern in enumerate(patterns):
+    if has_test_main:
         commands.append(
             Command(
-                f"service-shard-{index:0{width}d}",
+                "service-all",
                 (
                     str(service_binary),
-                    "-test.run",
-                    pattern,
                     "-test.timeout=10m",
                     "-test.paniconexit0",
                 ),
                 service_dir,
+            )
+        )
+    else:
+        width = len(str(len(patterns) - 1))
+        for index, pattern in enumerate(patterns):
+            commands.append(
+                Command(
+                    f"service-shard-{index:0{width}d}",
+                    (
+                        str(service_binary),
+                        "-test.run",
+                        pattern,
+                        "-test.timeout=10m",
+                        "-test.paniconexit0",
+                    ),
+                    service_dir,
+                )
+            )
+
+    for package in test_packages:
+        if package == service_package:
+            continue
+        package_label = package.removeprefix("./").replace("/", "-")
+        commands.append(
+            Command(
+                f"other-{package_label}",
+                (
+                    str(binaries[package]),
+                    "-test.timeout=10m",
+                    "-test.paniconexit0",
+                ),
+                root / package.removeprefix("./"),
             )
         )
     return commands
@@ -320,44 +390,77 @@ def run_commands(
     runner_name: str = "unit-test-runner",
     temporary_prefix: str = "sub2api-unit-",
     slow_test_limit: int = 0,
+    max_parallel: int | None = None,
 ) -> int:
+    if max_parallel is not None and max_parallel < 1:
+        raise RunnerError("max parallel commands must be positive")
     with tempfile.TemporaryDirectory(prefix=temporary_prefix) as temporary:
         log_dir = Path(temporary)
-        running = list(initial_running or [])
+        initial = list(initial_running or [])
+        if max_parallel is not None and len(initial) > max_parallel:
+            raise RunnerError("initial commands exceed max parallel commands")
+        running: list[tuple[int, RunningCommand]] = [
+            (index - len(initial), item) for index, item in enumerate(initial)
+        ]
+        pending = list(enumerate(commands))
         handles = []
+        results: list[tuple[int, Command, int, Path, float]] = []
+        parallelism = max_parallel or max(1, len(running) + len(pending))
         try:
-            for index, command in enumerate(commands):
-                log_path = log_dir / f"{index:02d}-{command.label}.log"
-                handle = log_path.open("wb")
-                handles.append(handle)
-                process = subprocess.Popen(
-                    command.argv,
-                    cwd=command.cwd,
-                    stdout=handle,
-                    stderr=subprocess.STDOUT,
-                    start_new_session=True,
-                )
-                running.append((command, process, log_path, time.monotonic()))
+            while pending or running:
+                while pending and len(running) < parallelism:
+                    index, command = pending.pop(0)
+                    log_path = log_dir / f"{index:02d}-{command.label}.log"
+                    handle = log_path.open("wb")
+                    handles.append(handle)
+                    process = subprocess.Popen(
+                        command.argv,
+                        cwd=command.cwd,
+                        stdout=handle,
+                        stderr=subprocess.STDOUT,
+                        start_new_session=True,
+                    )
+                    running.append(
+                        (
+                            index,
+                            (command, process, log_path, time.monotonic()),
+                        )
+                    )
 
-            def wait_for_process(
-                item: tuple[Command, subprocess.Popen[bytes], Path, float],
-            ) -> tuple[Command, int, Path, float]:
-                command, process, log_path, started_at = item
-                returncode = process.wait()
-                elapsed = time.monotonic() - started_at
-                return command, returncode, log_path, elapsed
-
-            with ThreadPoolExecutor(max_workers=len(running)) as executor:
-                results = list(executor.map(wait_for_process, running))
-            failed = any(returncode != 0 for _, returncode, _, _ in results)
+                completed: list[tuple[int, RunningCommand, int]] = []
+                while not completed:
+                    for index, item in running:
+                        returncode = item[1].poll()
+                        if returncode is not None:
+                            completed.append((index, item, returncode))
+                    if not completed:
+                        time.sleep(0.01)
+                completed_indexes = {index for index, _, _ in completed}
+                running = [
+                    (index, item)
+                    for index, item in running
+                    if index not in completed_indexes
+                ]
+                for index, item, returncode in completed:
+                    command, _, log_path, started_at = item
+                    results.append(
+                        (
+                            index,
+                            command,
+                            returncode,
+                            log_path,
+                            time.monotonic() - started_at,
+                        )
+                    )
+            failed = any(returncode != 0 for _, _, returncode, _, _ in results)
         except BaseException:
-            _terminate_processes(running)
+            _terminate_processes([item for _, item in running])
             raise
         finally:
             for handle in handles:
                 handle.close()
 
-        for command, returncode, log_path, elapsed in results:
+        for _, command, returncode, log_path, elapsed in sorted(results):
             output = log_path.read_text(encoding="utf-8", errors="replace")
             if returncode == 0:
                 print(
@@ -390,130 +493,78 @@ def run_unit_tests(
     min_shards: int,
     max_regex_bytes: int,
 ) -> int:
-    with tempfile.TemporaryDirectory(prefix="sub2api-service-test-") as temporary:
-        service_binary = Path(temporary) / "service.test"
-        with tempfile.TemporaryDirectory(prefix="sub2api-unit-overlap-") as overlap_temp:
-            compile_command = Command(
-                "service-compile",
-                (
+    discovery_started_at = time.monotonic()
+    packages, test_packages, service_tests, patterns, has_test_main = build_test_plan(
+        root,
+        service_package,
+        min_shards,
+        max_regex_bytes,
+    )
+    print(
+        f"unit-test-runner: STAGE discovery "
+        f"({time.monotonic() - discovery_started_at:.1f}s)",
+        flush=True,
+    )
+
+    with tempfile.TemporaryDirectory(prefix="sub2api-unit-build-") as temporary:
+        build_root = Path(temporary)
+        compile_batches, binaries = _shared_compile_layout(
+            build_root,
+            packages,
+            test_packages,
+        )
+        compile_started_at = time.monotonic()
+        for batch_index, batch in enumerate(compile_batches):
+            batch_started_at = time.monotonic()
+            _run_checked(
+                [
                     "go",
                     "test",
                     "-c",
                     "-tags=unit",
                     "-o",
-                    str(service_binary),
-                    service_package,
-                ),
+                    str(build_root / f"batch-{batch_index}"),
+                    *batch,
+                ],
                 root,
             )
-            compile_log = Path(overlap_temp) / "service-compile.log"
-            compile_handle = compile_log.open("wb")
-            try:
-                compile_process = subprocess.Popen(
-                    compile_command.argv,
-                    cwd=compile_command.cwd,
-                    stdout=compile_handle,
-                    stderr=subprocess.STDOUT,
-                    start_new_session=True,
-                )
-            except BaseException:
-                compile_handle.close()
-                raise
-            compile_running: RunningCommand = (
-                compile_command,
-                compile_process,
-                compile_log,
-                time.monotonic(),
+            print(
+                f"unit-test-runner: DETAIL shared-compile-batch-{batch_index} "
+                f"packages={len(batch)} ({time.monotonic() - batch_started_at:.1f}s)",
+                flush=True,
             )
-            background: list[RunningCommand] = [compile_running]
-            other_handle = None
-            try:
-                discovery_started_at = time.monotonic()
-                other_packages, service_tests, patterns, has_test_main = build_test_plan(
-                    root,
-                    service_package,
-                    min_shards,
-                    max_regex_bytes,
-                )
-                print(
-                    f"unit-test-runner: STAGE discovery "
-                    f"({time.monotonic() - discovery_started_at:.1f}s)",
-                    flush=True,
-                )
-                if has_test_main:
-                    _terminate_processes(background)
-                    background.clear()
-                    print("unit-test-runner: TestMain detected; using native go test")
-                    return subprocess.run(
-                        ["go", "test", "-tags=unit", "./..."],
-                        cwd=root,
-                        check=False,
-                    ).returncode
+        print(
+            f"unit-test-runner: STAGE shared-compile "
+            f"({time.monotonic() - compile_started_at:.1f}s)",
+            flush=True,
+        )
 
-                commands = build_commands(
-                    root,
-                    service_package,
-                    service_binary,
-                    other_packages,
-                    patterns,
-                )
-                other_commands = [
-                    command for command in commands if command.label == "other-packages"
-                ]
-                service_commands = [
-                    command for command in commands if command.label != "other-packages"
-                ]
-                if other_commands:
-                    other_command = other_commands[0]
-                    other_log = Path(overlap_temp) / "other-packages.log"
-                    other_handle = other_log.open("wb")
-                    other_process = subprocess.Popen(
-                        other_command.argv,
-                        cwd=other_command.cwd,
-                        stdout=other_handle,
-                        stderr=subprocess.STDOUT,
-                        start_new_session=True,
-                    )
-                    background.append(
-                        (other_command, other_process, other_log, time.monotonic())
-                    )
-
-                compile_returncode = compile_process.wait()
-                compile_elapsed = time.monotonic() - compile_running[3]
-                if compile_returncode != 0:
-                    compile_output = compile_log.read_text(
-                        encoding="utf-8",
-                        errors="replace",
-                    )
-                    detail = (
-                        compile_output.strip()
-                        or f"command exited with status {compile_returncode}"
-                    )
-                    raise RunnerError(
-                        f"{' '.join(compile_command.argv)}: {detail}"
-                    )
-                background = background[1:]
-                print(
-                    f"unit-test-runner: STAGE service-compile "
-                    f"({compile_elapsed:.1f}s)",
-                    flush=True,
-                )
-                service_dir = root / service_package.removeprefix("./")
-                registry_started_at = time.monotonic()
-                verify_binary_registry(service_binary, service_dir, service_tests)
-                print(
-                    f"unit-test-runner: STAGE registry-check "
-                    f"({time.monotonic() - registry_started_at:.1f}s)",
-                    flush=True,
-                )
-                return run_commands(service_commands, background)
-            except BaseException:
-                _terminate_processes(background)
-                raise
-            finally:
-                compile_handle.close()
-                if other_handle is not None:
-                    other_handle.close()
+        service_binary = binaries[service_package]
+        service_dir = root / service_package.removeprefix("./")
+        registry_started_at = time.monotonic()
+        if not has_test_main:
+            verify_binary_registry(service_binary, service_dir, service_tests)
+        print(
+            f"unit-test-runner: STAGE registry-check "
+            f"({time.monotonic() - registry_started_at:.1f}s)",
+            flush=True,
+        )
+        commands = build_commands(
+            root,
+            service_package,
+            binaries,
+            test_packages,
+            patterns,
+            has_test_main,
+        )
+        execution_started_at = time.monotonic()
+        returncode = run_commands(commands, max_parallel=DEFAULT_MAX_PARALLEL)
+        print(
+            f"unit-test-runner: STAGE test-execution "
+            f"({time.monotonic() - execution_started_at:.1f}s)",
+            flush=True,
+        )
+        return returncode
 
 
 def main(argv: list[str] | None = None) -> int:
