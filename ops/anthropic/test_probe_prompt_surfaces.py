@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,10 @@ REGISTRY = OPS / "prompt_surface_registry.json"
 FIXTURE = OPS / "testdata" / "prompt_surface_probe_fixture.jsonl"
 
 
+def _truthy_env(*names: str) -> bool:
+    return any(os.environ.get(name, "") in {"1", "true", "yes", "TRUE", "YES"} for name in names)
+
+
 class TestPromptSurfaceRegistry(unittest.TestCase):
     def test_registry_valid(self) -> None:
         proc = subprocess.run(
@@ -29,6 +34,8 @@ class TestPromptSurfaceRegistry(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
 
     def test_fixture_gateway_coverage(self) -> None:
+        if _truthy_env("PREFLIGHT_SKIP_PROMPT_FIXTURE_GATEWAY", "PREFLIGHT_FAST"):
+            self.skipTest("CI preflight defers fixture gateway to test-unit")
         proc = subprocess.run(
             [sys.executable, str(PROBE), "--check-fixture-gateway"],
             cwd=str(REPO_ROOT),
