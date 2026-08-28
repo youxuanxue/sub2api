@@ -61,6 +61,7 @@ class GoRollingCachePolicyTest(unittest.TestCase):
 
     def test_build_caches_support_daily_refresh_without_changing_other_callers(self) -> None:
         action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
+        self.assertEqual(action["inputs"]["fallback_prefix"]["default"], "")
         self.assertEqual(action["inputs"]["refresh_on_backend_change"]["default"], "false")
         self.assertEqual(action["inputs"]["refresh_daily"]["default"], "false")
         self.assertEqual(
@@ -100,6 +101,15 @@ class GoRollingCachePolicyTest(unittest.TestCase):
                     "${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-",
                 )
                 self.assertNotIn("github.run_id", str(cache_config))
+
+                fallback_keys = [
+                    key for key in restore_keys if "inputs.fallback_prefix" in key
+                ]
+                self.assertEqual(len(fallback_keys), 2)
+                self.assertTrue(
+                    all("format(" in key for key in fallback_keys),
+                    fallback_keys,
+                )
 
 
 if __name__ == "__main__":

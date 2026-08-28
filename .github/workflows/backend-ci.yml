@@ -219,8 +219,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Test failures retain file:line stacks without DWARF. Apply the flag to
-      # every Go command in this job so the fixture gateway reuses unit objects.
+      # every Go command in this job. Reuse the daily integration cache because
+      # it already contains the large tag-neutral production dependency graph;
+      # unit-only test objects compile on top and main retains them once daily.
       GOFLAGS: -gcflags=all=-dwarf=false
+      GOCACHE: ${{ github.workspace }}/.cache/go-build-integration
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
@@ -235,9 +238,14 @@ jobs:
           cache: false
       - uses: ./.github/actions/go-rolling-cache
         with:
-          # Unit test archives omit DWARF below, so keep them out of the old
-          # 2.6GB namespace whose objects were built with different gcflags.
-          prefix: unit-nodwarf-v1
+          # Main writes at most one Unit snapshot per UTC day. Before that
+          # snapshot exists, restore the daily integration cache as a production
+          # dependency seed; PR runs remain restore-only by action policy.
+          prefix: unit-nodwarf-v2
+          fallback_prefix: integration-nodwarf-v2
+          refresh_daily: "true"
+          build_cache_path: ${{ github.workspace }}/.cache/go-build-integration
+          save_caches: "true"
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
@@ -247,7 +255,7 @@ jobs:
         env:
           # Service tests inspect tracked source/fixture files at runtime, so
           # checkout mtimes prevent cross-run result-cache hits even when the
-          # weekly Go build cache restores exactly. Always use the shared-build
+          # daily Go build cache restores exactly. Always use the compile-once
           # runner instead of gambling the critical path on test-result cache.
           UNIT_TEST_SERVICE_SHARD: "1"
         run: make test-unit

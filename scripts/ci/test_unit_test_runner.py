@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Behavior tests for the shared-compile Go unit test runner."""
+"""Behavior tests for the compile-once Go unit test runner."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ RUNNER_SPEC.loader.exec_module(unit_test_runner)
 
 
 class UnitTestRunnerTest(unittest.TestCase):
-    def test_compiles_all_packages_once_and_runs_stable_binary_shards(self) -> None:
+    def test_compiles_service_once_and_runs_all_entries_in_stable_binary_shards(self) -> None:
         test_names = [f"TestCase{i:02d}_{'x' * 24}" for i in range(22)] + [
             "ExampleService",
             "FuzzServiceInput",
@@ -49,19 +49,18 @@ class UnitTestRunnerTest(unittest.TestCase):
             [call for call in go_calls if call and call[0] == "list"],
             [["list", "-json", "-tags=unit", "./..."]],
         )
+        self.assertEqual(
+            [call for call in go_calls if "./internal/other" in call],
+            [["test", "-tags=unit", "./internal/other"]],
+        )
         compile_calls = [call for call in go_calls if "-c" in call]
         self.assertEqual(len(compile_calls), 1, go_calls)
-        self.assertIn(
-            f"-p={unit_test_runner._compile_parallelism()}",
-            compile_calls[0],
-        )
         self.assertIn("./internal/service", compile_calls[0])
-        self.assertIn("./internal/other", compile_calls[0])
         self.assertFalse(
             [
                 call
                 for call in go_calls
-                if call and call[0] == "test" and "-c" not in call
+                if "./internal/service" in call and "-c" not in call
             ],
             go_calls,
         )
@@ -75,18 +74,6 @@ class UnitTestRunnerTest(unittest.TestCase):
         self.assertEqual(
             Path(registry_events[0]["cwd"]).resolve(),
             (fixture.root / "internal" / "service").resolve(),
-        )
-
-        other_events = [
-            event
-            for event in self._binary_events(first_events)
-            if Path(str(event["executable"])).name == "other.test"
-        ]
-        self.assertEqual(len(other_events), 1, first_events)
-        self.assertNotIn("-test.run", other_events[0]["args"])
-        self.assertEqual(
-            Path(other_events[0]["cwd"]).resolve(),
-            (fixture.root / "internal" / "other").resolve(),
         )
 
         binary_events = self._binary_run_events(first_events)
@@ -108,67 +95,33 @@ class UnitTestRunnerTest(unittest.TestCase):
         self.assertCountEqual(matched, test_names)
         self.assertEqual(len(matched), len(set(matched)))
 
-    def test_test_main_runs_the_compiled_service_binary_once(self) -> None:
+    def test_test_main_falls_back_to_one_native_go_test(self) -> None:
         with self._fake_go(
             ["TestOne"],
             has_test_main=True,
+            compile_delay=5.0,
+            compile_child=True,
         ) as fixture:
             result = self._run(fixture)
             events = self._events(fixture.events)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         go_calls = self._go_calls(events)
+        self.assertIn(["test", "-tags=unit", "./..."], go_calls)
         self.assertEqual(len([call for call in go_calls if "-c" in call]), 1)
-        self.assertFalse(
-            [call for call in go_calls if call and call[0] == "test" and "-c" not in call],
-            go_calls,
+        self.assertTrue(
+            [
+                event
+                for event in events
+                if event["kind"] == "go-terminated" and "-c" in event["args"]
+            ],
+            events,
         )
-        service_runs = [
-            event
-            for event in self._binary_events(events)
-            if Path(str(event["executable"])).name == "service.test"
-        ]
-        self.assertEqual(len(service_runs), 1, events)
-        self.assertNotIn("-test.run", service_runs[0]["args"])
-
-    def test_shared_compile_layout_separates_duplicate_binary_names(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            packages = [
-                "./first/duplicate",
-                "./second/duplicate",
-                "./third/duplicate",
-                "./internal/service",
-                "./without-tests",
-            ]
-            batches, binaries = unit_test_runner._shared_compile_layout(
-                Path(temporary),
-                packages,
-                [packages[0], packages[1], packages[3]],
-            )
-
-        self.assertEqual(len(batches), 3)
-        self.assertCountEqual(
-            [package for batch in batches for package in batch],
-            packages,
+        self.assertTrue(
+            [event for event in events if event["kind"] == "go-child-terminated"],
+            events,
         )
-        self.assertEqual(
-            len([package for batch in batches for package in batch]),
-            len(packages),
-        )
-        self.assertNotEqual(
-            binaries["./first/duplicate"],
-            binaries["./second/duplicate"],
-        )
-        self.assertNotIn("./third/duplicate", binaries)
-        self.assertEqual(binaries["./internal/service"].name, "service.test")
-
-    def test_compile_parallelism_doubles_cpu_with_a_hosted_runner_cap(self) -> None:
-        with mock.patch.object(unit_test_runner.os, "cpu_count", return_value=4):
-            self.assertEqual(unit_test_runner._compile_parallelism(), 8)
-        with mock.patch.object(unit_test_runner.os, "cpu_count", return_value=64):
-            self.assertEqual(unit_test_runner._compile_parallelism(), 24)
-        with mock.patch.object(unit_test_runner.os, "cpu_count", return_value=None):
-            self.assertEqual(unit_test_runner._compile_parallelism(), 2)
+        self.assertFalse(self._binary_events(events))
 
     def test_fails_closed_when_ast_discovery_differs_from_binary_registry(self) -> None:
         with self._fake_go(
@@ -244,6 +197,7 @@ class UnitTestRunnerTest(unittest.TestCase):
         with self._fake_go(
             ["TestOne", "TestTwo"],
             fail_compile=True,
+            compile_child=True,
         ) as fixture:
             result = self._run(fixture, "--min-shards", "2")
             events = self._events(fixture.events)
@@ -251,6 +205,10 @@ class UnitTestRunnerTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("intentional compile failure", result.stderr)
         self.assertEqual(len([call for call in self._go_calls(events) if "-c" in call]), 1)
+        self.assertTrue(
+            [event for event in events if event["kind"] == "go-child-terminated"],
+            events,
+        )
         self.assertFalse(self._binary_events(events))
 
     def test_partial_start_failure_terminates_started_processes(self) -> None:
@@ -284,40 +242,6 @@ class UnitTestRunnerTest(unittest.TestCase):
 
         self.assertTrue(process.terminated)
         self.assertTrue(process.waited)
-
-    def test_run_commands_respects_the_parallelism_limit(self) -> None:
-        state = {"active": 0, "peak": 0}
-
-        class FakeProcess:
-            def __init__(self) -> None:
-                self.remaining_polls = 1
-                self.finished = False
-                state["active"] += 1
-                state["peak"] = max(state["peak"], state["active"])
-
-            def poll(self) -> int | None:
-                if self.remaining_polls > 0:
-                    self.remaining_polls -= 1
-                    return None
-                if not self.finished:
-                    self.finished = True
-                    state["active"] -= 1
-                return 0
-
-        commands = [
-            unit_test_runner.Command(f"command-{index}", ("fake",), Path.cwd())
-            for index in range(5)
-        ]
-        with mock.patch.object(
-            unit_test_runner.subprocess,
-            "Popen",
-            side_effect=lambda *args, **kwargs: FakeProcess(),
-        ):
-            result = unit_test_runner.run_commands(commands, max_parallel=2)
-
-        self.assertEqual(result, 0)
-        self.assertEqual(state["peak"], 2)
-        self.assertEqual(state["active"], 0)
 
     def test_failed_shard_fails_the_run_and_expands_only_its_log(self) -> None:
         with self._fake_go(
@@ -355,7 +279,7 @@ class UnitTestRunnerTest(unittest.TestCase):
         self.assertLess(min(durations), 0.5)
         self.assertGreaterEqual(max(durations), 0.7)
 
-    def test_runs_all_test_binaries_only_after_shared_compile_finishes(self) -> None:
+    def test_runs_other_packages_while_service_binary_compiles(self) -> None:
         with self._fake_go(
             ["TestOne", "TestTwo"],
             compile_delay=0.75,
@@ -369,15 +293,15 @@ class UnitTestRunnerTest(unittest.TestCase):
             for event in events
             if event["kind"] == "go-finished" and "-c" in event["args"]
         )
-        test_started = [
+        other_started = next(
             event["at"]
             for event in events
-            if event["kind"] == "binary" and "-test.list" not in event["args"]
-        ]
-        self.assertTrue(test_started, events)
-        self.assertLessEqual(compile_finished, min(test_started), events)
+            if event["kind"] == "go"
+            and "./internal/other" in event["args"]
+        )
+        self.assertLess(other_started, compile_finished, events)
 
-    def test_starts_shared_compile_only_after_discovery_finishes(self) -> None:
+    def test_starts_service_compile_before_discovery_finishes(self) -> None:
         with self._fake_go(
             ["TestOne", "TestTwo"],
             discovery_delay=0.75,
@@ -398,20 +322,33 @@ class UnitTestRunnerTest(unittest.TestCase):
             and event["args"]
             and event["args"][0] == "run"
         )
-        self.assertLessEqual(discovery_finished, compile_started, events)
+        self.assertLess(compile_started, discovery_finished, events)
 
-    def test_discovery_failure_stops_before_shared_compile(self) -> None:
+    def test_discovery_failure_terminates_service_compile(self) -> None:
         with self._fake_go(
             ["TestOne"],
             fail_discovery=True,
             discovery_delay=0.25,
+            compile_delay=5.0,
+            compile_child=True,
         ) as fixture:
             result = self._run(fixture)
             events = self._events(fixture.events)
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("invalid Go test discovery output", result.stderr)
-        self.assertFalse([call for call in self._go_calls(events) if "-c" in call], events)
+        self.assertTrue(
+            [
+                event
+                for event in events
+                if event["kind"] == "go-terminated" and "-c" in event["args"]
+            ],
+            events,
+        )
+        self.assertTrue(
+            [event for event in events if event["kind"] == "go-child-terminated"],
+            events,
+        )
         self.assertFalse(self._binary_events(events))
 
     def test_reports_discovery_compile_and_registry_stage_durations(self) -> None:
@@ -420,9 +357,8 @@ class UnitTestRunnerTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertRegex(result.stdout, r"STAGE discovery \([0-9.]+s\)")
-        self.assertRegex(result.stdout, r"STAGE shared-compile \([0-9.]+s\)")
+        self.assertRegex(result.stdout, r"STAGE service-compile \([0-9.]+s\)")
         self.assertRegex(result.stdout, r"STAGE registry-check \([0-9.]+s\)")
-        self.assertRegex(result.stdout, r"STAGE test-execution \([0-9.]+s\)")
 
     def _run(self, fixture: "FakeGoFixture", *args: str) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
@@ -562,12 +498,6 @@ class FakeGoFixture:
             + "\n",
             encoding="utf-8",
         )
-        other_dir = self.root / "internal" / "other"
-        other_dir.mkdir(parents=True)
-        (other_dir / "other_test.go").write_text(
-            'package other\n\nimport "testing"\n\nfunc TestOther(t *testing.T) {}\n',
-            encoding="utf-8",
-        )
 
 
 class FakeGoFixtureContext:
@@ -622,20 +552,10 @@ class FakeGoFixtureContext:
 
             args = sys.argv[1:]
             with Path(os.environ["FAKE_GO_EVENTS"]).open("a", encoding="utf-8") as output:
-                output.write(json.dumps({
-                    "kind": "binary",
-                    "executable": sys.argv[0],
-                    "args": args,
-                    "cwd": os.getcwd(),
-                    "at": time.monotonic(),
-                }) + "\\n")
+                output.write(json.dumps({"kind": "binary", "args": args, "cwd": os.getcwd()}) + "\\n")
             if "-test.list" in args:
                 for name in json.loads(os.environ["FAKE_GO_BINARY_TESTS"]):
                     print(name)
-                raise SystemExit(0)
-            if "-test.run" not in args:
-                print("successful package noise")
-                print("PASS")
                 raise SystemExit(0)
             pattern = args[args.index("-test.run") + 1]
             fail_test = os.environ.get("FAKE_GO_FAIL_TEST", "")
@@ -702,7 +622,6 @@ class FakeGoFixtureContext:
                     print(json.dumps({
                         "Dir": str(root / "internal" / "other"),
                         "ImportPath": "example.com/fixture/internal/other",
-                        "TestGoFiles": ["other_test.go"],
                     }))
                     raise SystemExit(0)
 
@@ -728,16 +647,9 @@ class FakeGoFixtureContext:
                     if os.environ.get("FAKE_GO_FAIL_COMPILE") == "1":
                         print("intentional compile failure", file=sys.stderr)
                         raise SystemExit(1)
-                    destination = Path(args[args.index("-o") + 1])
-                    packages = [value for value in args if value.startswith("./")]
-                    binaries = (
-                        [destination / f"{Path(package).name}.test" for package in packages]
-                        if destination.is_dir()
-                        else [destination]
-                    )
-                    for binary in binaries:
-                        binary.write_text(__BINARY_SOURCE__, encoding="utf-8")
-                        binary.chmod(0o755)
+                    binary = Path(args[args.index("-o") + 1])
+                    binary.write_text(__BINARY_SOURCE__, encoding="utf-8")
+                    binary.chmod(0o755)
                     raise SystemExit(0)
 
                 print("ok  fake/package  0.001s")
