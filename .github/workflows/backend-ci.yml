@@ -18,6 +18,7 @@ on:
           - ci
           - security
           - weekly-smoke
+          - unit-cache-benchmark
       ssot_base:
         description: Optional git ref/SHA for manual SSOT delta offline gate
         required: false
@@ -74,7 +75,7 @@ jobs:
 
   shell:
     needs: changes
-    if: needs.changes.outputs.all == 'true' || needs.changes.outputs.deploy == 'true'
+    if: (github.event_name != 'workflow_dispatch' || inputs.suite != 'unit-cache-benchmark') && (needs.changes.outputs.all == 'true' || needs.changes.outputs.deploy == 'true')
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
@@ -168,7 +169,7 @@ jobs:
     # Offline SSOT delta guard for catalog diffs. It intentionally does not hit
     # prod: new catalog/model_mapping changes can only become live after deploy,
     # so prod HTTP proof belongs to the post-deploy canary/closeout gate.
-    if: github.event_name == 'pull_request' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.ssot_base != '')
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.suite != 'unit-cache-benchmark' && inputs.ssot_base != '')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -215,11 +216,12 @@ jobs:
 
   test-unit:
     needs: changes
-    if: (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))) && (needs.changes.outputs.all == 'true' || needs.changes.outputs.backend == 'true')
+    if: (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci' || inputs.suite == 'unit-cache-benchmark'))) && (needs.changes.outputs.all == 'true' || needs.changes.outputs.backend == 'true')
     runs-on: ubuntu-latest
     env:
       # Test failures retain file:line stacks without DWARF. Apply the flag to
-      # every Go command in this job so the fixture gateway reuses unit objects.
+      # every Go command in this job; main retains Unit build objects for each
+      # distinct backend tree so same-day merges cannot pin a stale snapshot.
       GOFLAGS: -gcflags=all=-dwarf=false
     steps:
       - uses: actions/checkout@v6
@@ -235,9 +237,17 @@ jobs:
           cache: false
       - uses: ./.github/actions/go-rolling-cache
         with:
-          # Unit test archives omit DWARF below, so keep them out of the old
-          # 2.6GB namespace whose objects were built with different gcflags.
-          prefix: unit-nodwarf-v1
+          # Main writes one Unit snapshot per distinct backend tree. Content
+          # keys let a same-day backend merge restore the latest compatible
+          # snapshot, compile the delta, and persist the refreshed objects.
+          # Manual A/B runs use an isolated namespace; ordinary PR runs remain
+          # restore-only by action policy.
+          prefix: unit-nodwarf-v3
+          fallback_prefix: unit-nodwarf-v1
+          refresh_on_backend_change: "true"
+          save_caches: "true"
+          benchmark_prefix: unit-nodwarf-v3-bench
+          benchmark_build_cache_write: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'unit-cache-benchmark' && 'true' || 'false' }}
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
@@ -247,7 +257,7 @@ jobs:
         env:
           # Service tests inspect tracked source/fixture files at runtime, so
           # checkout mtimes prevent cross-run result-cache hits even when the
-          # weekly Go build cache restores exactly. Always use the compile-once
+          # content-keyed Go build cache restores exactly. Always use the compile-once
           # runner instead of gambling the critical path on test-result cache.
           UNIT_TEST_SERVICE_SHARD: "1"
         run: make test-unit

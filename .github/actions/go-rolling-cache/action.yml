@@ -10,12 +10,12 @@
 #   - module cache: identical across all jobs, only changes with go.sum, so one
 #     shared immutable entry is correct and avoids triplicating ~1GB of
 #     GOMODCACHE against the 10GB/repo budget.
-#   - build/test cache: per-job (prefix) + UTC-week seed by default, avoiding
-#     repeated uploads of the 300MB-2.5GB preflight/unit/lint archives. The
-#     integration caller opts into a daily epoch and an isolated path. Required
-#     CI is restore-only; warm-release-cache-main.yml owns the non-blocking
-#     writer so a slow cache upload cannot extend the correctness gate. Go's
-#     cache is content-addressed, so prior snapshots safely seed new keys.
+#   - build/test cache: caller-selected namespace (prefix) + UTC-week seed by
+#     default, avoiding repeated uploads of the 300MB-2.5GB preflight/lint
+#     archives. Unit keys main snapshots by backend content and falls back to its
+#     previous weekly namespace until the first content-keyed entry exists.
+#     Integration remains isolated because its build tags do not seed Unit's
+#     critical compile graph.
 #   - golangci analysis cache: optional, lint-only, and rolling for the same
 #     reason. golangci-lint-action's interval key is immutable after the first
 #     save, so changed-package analysis cannot be written back until the interval
@@ -29,8 +29,12 @@ description: Shared module cache + per-job rolling Go build/test cache (replaces
 
 inputs:
   prefix:
-    description: Per-job cache namespace (e.g. unit / integration / lint) — keeps build objects from colliding across build tags.
+    description: Cache namespace; callers may share one when Go flags and the intended writer are compatible.
     required: true
+  fallback_prefix:
+    description: Optional secondary build-cache namespace used after the primary restore prefixes miss.
+    required: false
+    default: ""
   golangci_cache:
     description: Also roll ~/.cache/golangci-lint (enable only for the lint job).
     required: false
@@ -51,6 +55,14 @@ inputs:
     description: Allow main pushes to save caches owned by this action; set false on required jobs whose tail must stay restore-only.
     required: false
     default: "true"
+  benchmark_build_cache_write:
+    description: Allow a workflow_dispatch run to write only an isolated build cache for controlled A/B measurement.
+    required: false
+    default: "false"
+  benchmark_prefix:
+    description: Isolated build-cache namespace used only by the workflow_dispatch benchmark writer.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -79,7 +91,7 @@ runs:
         restore-keys: ${{ runner.os }}-gomod-
 
     - name: Restore Go build/test cache (non-main writer, ${{ inputs.prefix }})
-      if: github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.save_caches != 'true'
+      if: (github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.save_caches != 'true') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || inputs.benchmark_build_cache_write != 'true' || inputs.benchmark_prefix == '')
       uses: actions/cache/restore@v6
       with:
         path: ${{ inputs.build_cache_path }}
@@ -87,6 +99,20 @@ runs:
         restore-keys: |
           ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
           ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
+          ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-{2}-', runner.os, inputs.fallback_prefix, hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref')) || '' }}
+          ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-', runner.os, inputs.fallback_prefix) || '' }}
+
+    - name: Go build/test cache (workflow_dispatch benchmark writer, ${{ inputs.benchmark_prefix }})
+      if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && inputs.benchmark_build_cache_write == 'true' && inputs.benchmark_prefix != ''
+      uses: actions/cache@v6
+      with:
+        path: ${{ inputs.build_cache_path }}
+        key: ${{ runner.os }}-gobuild-${{ inputs.benchmark_prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ inputs.refresh_on_backend_change == 'true' && hashFiles('backend/**', '.new-api-ref') || inputs.refresh_daily == 'true' && steps.cache_epoch.outputs.day || steps.cache_epoch.outputs.week }}
+        restore-keys: |
+          ${{ runner.os }}-gobuild-${{ inputs.benchmark_prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
+          ${{ runner.os }}-gobuild-${{ inputs.benchmark_prefix }}-
+          ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-{2}-', runner.os, inputs.fallback_prefix, hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref')) || '' }}
+          ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-', runner.os, inputs.fallback_prefix) || '' }}
 
     - name: Go build/test cache (main writer, ${{ inputs.prefix }})
       if: github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.save_caches == 'true'
@@ -97,6 +123,8 @@ runs:
         restore-keys: |
           ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
           ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
+          ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-{2}-', runner.os, inputs.fallback_prefix, hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref')) || '' }}
+          ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-', runner.os, inputs.fallback_prefix) || '' }}
 
     - name: Restore golangci-lint analysis cache (non-main writer)
       if: inputs.golangci_cache == 'true' && (github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.save_caches != 'true')
