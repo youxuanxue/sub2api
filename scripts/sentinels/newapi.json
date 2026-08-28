@@ -499,7 +499,7 @@
         "tkHandleBridgeArrearsPenalty(ctx, rls, account, apiErr)",
         "bridgeWrapRelayErrorAfterPenalty"
       ],
-      "rationale": "TK companion that routes real bridge.Dispatch* upstream errors (401/402/429 allowlist) into RateLimitService.HandleUpstreamError so newapi accounts get disabled/cooled and the Feishu account-incident alert fires. Without it the fifth platform regresses to the 2026-06-11 prod incident: a 402 'Insufficient Balance' DeepSeek account stayed schedulable=true while the gateway hammered the exhausted upstream 6946 times in 2h with zero alerts. The narrow status allowlist is itself load-bearing: it is what keeps client-induced 400/404 (and the synthetic missing-credential/unsupported-channel 400s) from draining the pool (the #617 class). The tkHandleBridgeArrearsPenalty call MUST run BEFORE the tkBridgePenaltyStatusEligible allowlist (which excludes 400): an upstream DashScope arrears 400 ('Arrearage') is an account-standing failure disguised as a client 400 and must disable+alert (SetError, same as 402), not pass through. Reordering it after the allowlist (or dropping it) silently re-opens the 2026-06-12 prod incident where account 60 'Qwen' stayed schedulable with confusing 400s and no recharge alert. bridgeWrapRelayErrorAfterPenalty must turn those penalized account-level faults into UpstreamFailoverError so the handler can retry on a sibling account in the same request."
+      "rationale": "TK companion that routes real bridge.Dispatch* upstream errors (401/402/429 allowlist) into RateLimitService.HandleUpstreamError so newapi accounts get disabled/cooled and the Feishu account-incident alert fires. Without it the fifth platform regresses to the 2026-06-11 prod incident: a 402 'Insufficient Balance' DeepSeek account stayed schedulable=true while the gateway hammered the exhausted upstream 6946 times in 2h with zero alerts. The narrow status allowlist is itself load-bearing: it is what keeps client-induced 400/404 (and the synthetic missing-credential/unsupported-channel 400s) from draining the pool (the #617 class). The tkHandleBridgeArrearsPenalty call MUST run BEFORE the tkBridgePenaltyStatusEligible allowlist: DashScope arrears 400 ('Arrearage') is disguised as a client 400, and Moonshot billing-standing 429 would otherwise become a ~5s cooldown. Both must disable+alert (SetError, same as 402), not pass through. Reordering after the allowlist (or dropping it) silently re-opens the 2026-06-12 Qwen / 2026-08-28 kimi incidents. bridgeWrapRelayErrorAfterPenalty must turn those penalized account-level faults into UpstreamFailoverError so the handler can retry on a sibling account in the same request."
     },
     {
       "path": "backend/internal/service/newapi_bridge_failover_tk.go",
@@ -515,11 +515,23 @@
       "path": "backend/internal/service/newapi_bridge_arrears_tk.go",
       "must_contain": [
         "tkIsBridgeUpstreamArrears",
+        "tkIsBridgeUpstreamArrearsBillingMessage",
         "tkHandleBridgeArrearsPenalty",
         "tkBridgeArrearsIncidentReason",
-        "arrearage"
+        "arrearage",
+        "case 400, 403, 429",
+        "suspended due to"
       ],
-      "rationale": "TK companion implementing the narrow upstream account-standing / arrears (欠费) classifier + account-level penalty + immediate Feishu alert for the fifth platform. tkIsBridgeUpstreamArrears matches ONLY the DashScope/百炼 arrears verdict (provider code/type == 'Arrearage' case-insensitive, OR message containing 'account is in good standing' / 'overdue' / 'arrear') — never a generic client 400, which would re-open the #617 pool-drain. tkHandleBridgeArrearsPenalty disables the account (SetError, same as bridge 402 balance — recharge alone does NOT auto-recover; ops must clear error in Admin) and funnels the incident through notifyAccountSchedulingBlocked with reason 'newapi_arrears'. Dropping any symbol or weakening the matcher regresses the 2026-06-12 prod incident (account 60 'Qwen' arrears → confusing pass-through 400 + no alert) or, if widened, drains the pool on legitimate client 400s."
+      "rationale": "TK companion implementing the narrow upstream account-standing / arrears (欠费) classifier + account-level penalty + immediate Feishu alert for the fifth platform. 400/403 matches DashScope/百炼 Arrearage (code/type or 'account is in good standing' / 'overdue' / 'arrear'). 429 matches ONLY billing-standing phrases via tkIsBridgeUpstreamArrearsBillingMessage (insufficient balance / 余额不足 / suspended due to / please recharge your account) — never error.type/code alone, because Moonshot reuses exceeded_current_quota_error for RPM. Generic client 400s and plain rate-limit 429s must not match (#617 pool-drain / false SetError). tkHandleBridgeArrearsPenalty disables the account (SetError, same as bridge 402 — recharge does NOT auto-recover) and funnels reason 'newapi_arrears'. Dropping the 429 billing branch regresses the 2026-08-28 account 83 kimi incident (unpaid Moonshot stayed on a 5s cooldown); widening the matcher drains the pool or mis-disables RPM."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_arrears_tk_test.go",
+      "must_contain": [
+        "TestTkIsBridgeUpstreamArrears_MoonshotInsufficientBalance429",
+        "TestTkHandleBridgeUpstreamPenalty_Moonshot429ArrearsNotRateLimit",
+        "quota 429 without billing text"
+      ],
+      "rationale": "Focused regression for Moonshot billing-standing 429 (prod 2026-08-28 account 83). The matcher test pins the live insufficient-balance suspend text; the entrypoint test asserts SetError + newapi_arrears instead of handle429 cooldown; the negative case keeps exceeded_current_quota_error without billing text on the rate-limit path. Dropping these tests lets a revert of the 429 billing branch stay green."
     },
     {
       "path": "backend/internal/service/account_incident_notifier_tk.go",
