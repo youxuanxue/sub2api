@@ -54,6 +54,14 @@ inputs:
     description: Allow main pushes to save caches owned by this action; set false on required jobs whose tail must stay restore-only.
     required: false
     default: "true"
+  benchmark_build_cache_write:
+    description: Allow a workflow_dispatch run to write only an isolated build cache for controlled A/B measurement.
+    required: false
+    default: "false"
+  benchmark_prefix:
+    description: Isolated build-cache namespace used only by the workflow_dispatch benchmark writer.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -82,7 +90,7 @@ runs:
         restore-keys: ${{ runner.os }}-gomod-
 
     - name: Restore Go build/test cache (non-main writer, ${{ inputs.prefix }})
-      if: github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.save_caches != 'true'
+      if: (github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.save_caches != 'true') && inputs.benchmark_build_cache_write != 'true'
       uses: actions/cache/restore@v6
       with:
         path: ${{ inputs.build_cache_path }}
@@ -90,6 +98,18 @@ runs:
         restore-keys: |
           ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
           ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
+          ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-{2}-', runner.os, inputs.fallback_prefix, hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref')) || '' }}
+          ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-', runner.os, inputs.fallback_prefix) || '' }}
+
+    - name: Go build/test cache (workflow_dispatch benchmark writer, ${{ inputs.benchmark_prefix }})
+      if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && inputs.benchmark_build_cache_write == 'true' && inputs.benchmark_prefix != ''
+      uses: actions/cache@v6
+      with:
+        path: ${{ inputs.build_cache_path }}
+        key: ${{ runner.os }}-gobuild-${{ inputs.benchmark_prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ inputs.refresh_on_backend_change == 'true' && hashFiles('backend/**', '.new-api-ref') || inputs.refresh_daily == 'true' && steps.cache_epoch.outputs.day || steps.cache_epoch.outputs.week }}
+        restore-keys: |
+          ${{ runner.os }}-gobuild-${{ inputs.benchmark_prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
+          ${{ runner.os }}-gobuild-${{ inputs.benchmark_prefix }}-
           ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-{2}-', runner.os, inputs.fallback_prefix, hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref')) || '' }}
           ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-', runner.os, inputs.fallback_prefix) || '' }}
 

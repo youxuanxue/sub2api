@@ -18,6 +18,7 @@ on:
           - ci
           - security
           - weekly-smoke
+          - unit-cache-benchmark
       ssot_base:
         description: Optional git ref/SHA for manual SSOT delta offline gate
         required: false
@@ -215,7 +216,7 @@ jobs:
 
   test-unit:
     needs: changes
-    if: (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))) && (needs.changes.outputs.all == 'true' || needs.changes.outputs.backend == 'true')
+    if: (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci' || inputs.suite == 'unit-cache-benchmark'))) && (needs.changes.outputs.all == 'true' || needs.changes.outputs.backend == 'true')
     runs-on: ubuntu-latest
     env:
       # Test failures retain file:line stacks without DWARF. Apply the flag to
@@ -237,11 +238,14 @@ jobs:
         with:
           # Main writes at most one Unit snapshot per UTC day. Before that
           # snapshot exists, restore the previous Unit namespace with identical
-          # build tags and flags; PR runs remain restore-only by action policy.
+          # build tags and flags. Manual A/B runs use an isolated namespace;
+          # ordinary PR runs remain restore-only by action policy.
           prefix: unit-nodwarf-v2
           fallback_prefix: unit-nodwarf-v1
           refresh_daily: "true"
           save_caches: "true"
+          benchmark_prefix: unit-nodwarf-v2-bench
+          benchmark_build_cache_write: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'unit-cache-benchmark' && 'true' || 'false' }}
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
