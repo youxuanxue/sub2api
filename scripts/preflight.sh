@@ -2154,8 +2154,8 @@ else
 fi
 
 # ---- sub2api: edge-ip-status doc / live AWS drift ---------------------------
-# Source of truth: deploy/aws/stage0/edge-polluted-ips.json. The script's --check
-# mode reconciles docs/deploy/tokenkey-edge-ip-history.md polluted table only.
+# Source of truth: edge-polluted-ips.json + lightsail matrix porkbun_a_ipv4.
+# --check reconciles polluted and current tables in tokenkey-edge-ip-history.md.
 echo ""
 echo "=== sub2api: edge-ip-status doc / live AWS drift ==="
 if [ ! -x ./scripts/edge-ip-status.sh ]; then

@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -79,6 +81,65 @@ class RecordPollutedIPTests(unittest.TestCase):
             excluded = self.mod.excluded_ips_for_region(data, "eu-west-2")
             self.assertIn("3.9.160.161", excluded)
             self.assertNotIn("3.9.160.161", self.mod.excluded_ips_for_region(data, "us-east-1"))
+
+    def test_is_excluded_cli_accepts_registry_before_or_after_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "edge-polluted-ips.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "polluted": [
+                            {"ip": "32.185.163.163", "region": "us-west-2", "notes": "x"}
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            before = subprocess.run(
+                [
+                    sys.executable,
+                    str(RECORD),
+                    "--registry",
+                    str(path),
+                    "is-excluded",
+                    "--ip",
+                    "32.185.163.163",
+                    "--region",
+                    "us-west-2",
+                ],
+                check=False,
+            )
+            after = subprocess.run(
+                [
+                    sys.executable,
+                    str(RECORD),
+                    "is-excluded",
+                    "--ip",
+                    "32.185.163.163",
+                    "--region",
+                    "us-west-2",
+                    "--registry",
+                    str(path),
+                ],
+                check=False,
+            )
+            miss = subprocess.run(
+                [
+                    sys.executable,
+                    str(RECORD),
+                    "is-excluded",
+                    "--ip",
+                    "1.2.3.4",
+                    "--region",
+                    "us-west-2",
+                    "--registry",
+                    str(path),
+                ],
+                check=False,
+            )
+            self.assertEqual(before.returncode, 0)
+            self.assertEqual(after.returncode, 0)
+            self.assertEqual(miss.returncode, 1)
 
 
 if __name__ == "__main__":
