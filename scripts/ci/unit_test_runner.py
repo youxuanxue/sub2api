@@ -426,6 +426,23 @@ def run_unit_tests(
                 cwd=root,
                 check=False,
             ).returncode
+        if other_packages:
+            # The repository-wide package set covers most of service's shared
+            # dependency graph. On a cold four-core runner, completing it first
+            # makes the later service link much cheaper than compiling service
+            # first and leaves no competing Go process on the critical path.
+            other_returncode = run_commands(
+                [
+                    Command(
+                        "other-packages",
+                        tuple(["go", "test", "-tags=unit", *other_packages]),
+                        root,
+                    )
+                ],
+                temporary_prefix="sub2api-unit-other-",
+            )
+            if other_returncode != 0:
+                return other_returncode
 
     with tempfile.TemporaryDirectory(prefix="sub2api-service-test-") as temporary:
         service_binary = Path(temporary) / "service.test"
@@ -537,23 +554,6 @@ def run_unit_tests(
                     f"({compile_elapsed:.1f}s)",
                     flush=True,
                 )
-                # The service build now seeds GOCACHE for the rest of the
-                # repository. Run other packages alongside the already-linked
-                # service shards so test execution remains overlapped.
-                if not build_cache_hit and other_commands:
-                    other_command = other_commands[0]
-                    other_log = Path(overlap_temp) / "other-packages.log"
-                    other_handle = other_log.open("wb")
-                    other_process = subprocess.Popen(
-                        other_command.argv,
-                        cwd=other_command.cwd,
-                        stdout=other_handle,
-                        stderr=subprocess.STDOUT,
-                        start_new_session=True,
-                    )
-                    background.append(
-                        (other_command, other_process, other_log, time.monotonic())
-                    )
                 service_dir = root / service_package.removeprefix("./")
                 registry_started_at = time.monotonic()
                 verify_binary_registry(service_binary, service_dir, service_tests)
