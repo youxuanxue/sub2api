@@ -111,7 +111,7 @@ func (s *AccountTestService) probeOpenAIAPIKeyNativeMessagesSupport(
 			"native_messages_probe_done: account_id=%d base_url=%s probe_model=%s status=%d supported=%v verdict=%s",
 			accountID, normalizedBaseURL, probeModel, resp.StatusCode, supported, verdict,
 		)
-		if protocolProbeShouldTryNextModel(account, protocolrouter.ProtocolMessages, probeModel, resp.StatusCode, verdict, index+1 < len(probeModels)) {
+		if protocolProbeShouldTryNextModel(account, protocolrouter.ProtocolMessages, probeModel, resp.StatusCode, bodyBytes, verdict, index+1 < len(probeModels)) {
 			continue
 		}
 		return protocolProbeObservation{

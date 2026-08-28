@@ -59,6 +59,28 @@ func TestNativeMessagesProtocolProbeDoesNotRetryGenericUnauthorized(t *testing.T
 	require.Len(t, upstream.bodies, 1)
 }
 
+func TestNativeMessagesProtocolProbeDoesNotRetryCloudWiseCredentialUnauthorized(t *testing.T) {
+	account := &Account{
+		ID: 95, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":       "invalid-cloudwise-key",
+			"base_url":      "https://api.cloudwise.ai/api",
+			"model_mapping": modelMappingToAny(openAICloudwiseRelayWildcardModelMappingFloor()),
+		},
+	}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		protocolProbeHTTPResponse(http.StatusUnauthorized, `{"error":{"message":"invalid api key"}}`),
+		protocolProbeHTTPResponse(http.StatusOK, `{"type":"message","content":[{"type":"text","text":"OK"}]}`),
+	}}
+	svc := protocolRequestBuilderTestService(upstream)
+
+	observation, observed := svc.probeOpenAIAPIKeyNativeMessagesSupport(context.Background(), account)
+
+	require.True(t, observed)
+	require.Equal(t, ProtocolProbeInconclusive, observation.verdict)
+	require.Len(t, upstream.bodies, 1)
+}
+
 func TestNativeMessagesProbeSupported(t *testing.T) {
 	t.Parallel()
 	require.False(t, nativeMessagesProbeSupported(http.StatusNotFound, nil))

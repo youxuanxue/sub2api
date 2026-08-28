@@ -102,6 +102,7 @@ func protocolProbeShouldTryNextModel(
 	protocol protocolrouter.Protocol,
 	probeModel string,
 	status int,
+	body []byte,
 	verdict ProtocolProbeVerdict,
 	hasNext bool,
 ) bool {
@@ -114,7 +115,21 @@ func protocolProbeShouldTryNextModel(
 	return protocol == protocolrouter.ProtocolMessages &&
 		status == http.StatusUnauthorized &&
 		isCloudwiseRelayAccount(account) &&
+		protocolProbeCloudwiseModelRoutingUnauthorized(body) &&
 		!strings.EqualFold(strings.TrimSpace(probeModel), openAICloudwiseRelayProtocolProbeModel())
+}
+
+func protocolProbeCloudwiseModelRoutingUnauthorized(body []byte) bool {
+	normalized := normalizeModelNotFoundBody(body)
+	if normalized == "" || !strings.Contains(normalized, "model") {
+		return false
+	}
+	for _, marker := range []string{"route", "provider", "unavailable", "not available", "not supported"} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func protocolRoutingAccountHasNoTextModels(account *Account) bool {

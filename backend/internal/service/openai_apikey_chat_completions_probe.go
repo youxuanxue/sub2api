@@ -115,7 +115,7 @@ func (s *AccountTestService) probeOpenAIAPIKeyChatCompletionsSupport(
 			resp.StatusCode,
 			verdict,
 		)
-		if protocolProbeShouldTryNextModel(account, protocolrouter.ProtocolChatCompletions, probeModel, resp.StatusCode, verdict, index+1 < len(probeModels)) {
+		if protocolProbeShouldTryNextModel(account, protocolrouter.ProtocolChatCompletions, probeModel, resp.StatusCode, bodyBytes, verdict, index+1 < len(probeModels)) {
 			continue
 		}
 		return protocolProbeObservation{
