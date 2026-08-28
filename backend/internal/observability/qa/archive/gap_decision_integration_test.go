@@ -4,7 +4,6 @@ package archive
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"testing"
 	"time"
@@ -12,26 +11,11 @@ import (
 	"github.com/Wei-Shaw/sub2api/migrations"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
 func TestUS045_GapDecisionPlanJSONApplyIsAtomicAndIdempotentInPostgreSQL(t *testing.T) {
 	ctx := context.Background()
-	container, err := postgres.Run(
-		ctx, "postgres:18.1-alpine3.23",
-		postgres.WithDatabase("qa_archive_gap_decision"),
-		postgres.WithUsername("postgres"), postgres.WithPassword("postgres"),
-		postgres.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("start postgres: %v", err)
-	}
-	defer func() { _ = container.Terminate(ctx) }()
-
-	dsn, err := container.ConnectionString(ctx, "sslmode=disable", "TimeZone=UTC")
-	require.NoError(t, err)
-	db, err := sql.Open("postgres", dsn)
-	require.NoError(t, err)
+	db := openArchiveIntegrationDB(t, "qa_archive_gap_decision")
 	defer func() { _ = db.Close() }()
 	for _, migration := range []string{
 		"tk_004_create_qa_records.sql",
@@ -51,7 +35,7 @@ func TestUS045_GapDecisionPlanJSONApplyIsAtomicAndIdempotentInPostgreSQL(t *test
 	anchor = anchor.UTC()
 	cutoverStart := anchor.Add(-27 * time.Hour)
 	latestNormal := anchor.Add(-time.Hour)
-	_, err = db.ExecContext(ctx, `
+	_, err := db.ExecContext(ctx, `
 INSERT INTO qa_archive_shards (
     window_start, window_end, generation, state, restore_verified_at, forward_cutover
 ) VALUES

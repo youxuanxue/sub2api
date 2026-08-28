@@ -131,6 +131,38 @@ class IntegrationTestRunnerTest(unittest.TestCase):
         )
         self.assertLessEqual(compile_finished, first_binary_started, events)
 
+    def test_reports_stage_lines_and_slowest_top_level_tests(self) -> None:
+        with FakeGoFixture(["TestOne", "TestTwo", "TestThree"]) as fixture:
+            result = fixture.run()
+            events = fixture.read_events()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        run_events = [
+            event
+            for event in events
+            if event["kind"] == "binary" and "-test.list" not in event["args"]
+        ]
+        self.assertTrue(run_events)
+        for event in run_events:
+            self.assertIn("-test.v", event["args"])
+        self.assertIn(
+            "integration-test-runner: DETAIL other-other: "
+            "archive-integration: STAGE postgres-ready (1.234s)",
+            result.stdout,
+        )
+        self.assertIn(
+            "repository-integration: STAGE migrations-ready (2.345s)",
+            result.stdout,
+        )
+        self.assertIn(
+            "integration-test-runner: SLOW other-other (1.230s): TestSlow",
+            result.stdout,
+        )
+        self.assertNotIn(
+            "integration-test-runner: SLOW other-other (0.000s): TestZero",
+            result.stdout,
+        )
+
     @staticmethod
     def _binary_patterns(events: list[dict[str, object]]) -> list[str]:
         patterns = []
@@ -223,6 +255,11 @@ class FakeGoFixture:
                     print(name)
                 raise SystemExit(0)
             if "-test.run" not in args:
+                if "-test.v" in args:
+                    print("archive-integration: STAGE postgres-ready (1.234s)")
+                    print("--- PASS: TestSlow (1.23s)")
+                    print("--- PASS: TestFast (0.01s)")
+                    print("--- PASS: TestZero (0.00s)")
                 print("successful package noise")
                 print("PASS")
                 raise SystemExit(0)
@@ -231,6 +268,10 @@ class FakeGoFixture:
             if fail_test and fail_test in pattern:
                 print(f"intentional {fail_test} failure")
                 raise SystemExit(1)
+            if "-test.v" in args:
+                print("repository-integration: STAGE migrations-ready (2.345s)")
+                print("--- PASS: TestSlow (1.23s)")
+                print("--- PASS: TestFast (0.01s)")
             print("successful shard noise")
             print("PASS")
             """
