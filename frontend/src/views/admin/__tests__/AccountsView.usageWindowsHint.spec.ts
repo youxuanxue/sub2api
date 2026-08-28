@@ -7,14 +7,18 @@ const {
   listAccounts,
   listWithEtag,
   getBatchTodayStats,
+  getBatchPassiveUsage,
   getAllProxies,
-  getAllGroups
+  getAllGroups,
+  getAllIncludingInactive
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
+  getBatchPassiveUsage: vi.fn(),
   getAllProxies: vi.fn(),
-  getAllGroups: vi.fn()
+  getAllGroups: vi.fn(),
+  getAllIncludingInactive: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -23,6 +27,7 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
+      getBatchPassiveUsage,
       getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
       delete: vi.fn(),
       batchClearError: vi.fn(),
@@ -33,7 +38,8 @@ vi.mock('@/api/admin', () => ({
       getAll: getAllProxies
     },
     groups: {
-      getAll: getAllGroups
+      getAll: getAllGroups,
+      getAllIncludingInactive
     }
   }
 }))
@@ -138,8 +144,10 @@ describe('admin AccountsView usage windows hint', () => {
     listAccounts.mockReset()
     listWithEtag.mockReset()
     getBatchTodayStats.mockReset()
+    getBatchPassiveUsage.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
+    getAllIncludingInactive.mockReset()
 
     listAccounts.mockResolvedValue({
       items: [],
@@ -154,13 +162,16 @@ describe('admin AccountsView usage windows hint', () => {
       data: null
     })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
+    getBatchPassiveUsage.mockResolvedValue({ usage: {} })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
+    getAllIncludingInactive.mockResolvedValue([])
   })
 
   it('keeps groups available when loading proxies fails', async () => {
     getAllProxies.mockRejectedValue(new Error('proxy service unavailable'))
     getAllGroups.mockResolvedValue([{ id: 7, name: 'production' }])
+    getAllIncludingInactive.mockResolvedValue([{ id: 7, name: 'production' }])
 
     const wrapper = mountView()
     await flushPromises()

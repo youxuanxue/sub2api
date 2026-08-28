@@ -111,6 +111,7 @@ var ProviderSet = wire.NewSet(
 	NewUserPlatformQuotaServiceAdapter, // T14: adapter → service.UserPlatformQuotaRepository
 	// TK: pricing availability persistence — see docs/approved/pricing-availability-source-of-truth.md
 	NewModelAvailabilityRepository,
+	NewSupplierSourceRepository,
 
 	// Cache implementations
 	NewGatewayCache,

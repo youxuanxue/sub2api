@@ -233,6 +233,9 @@ func NewAccountService(accountRepo AccountRepository, groupRepo GroupRepository)
 
 // Create 创建账号
 func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (*Account, error) {
+	if err := ValidateSupplierReservedAccountExtra(req.Extra); err != nil {
+		return nil, err
+	}
 	// 验证分组是否存在（如果指定了分组）
 	if len(req.GroupIDs) > 0 {
 		if err := s.validateGroupIDsExist(ctx, req.GroupIDs); err != nil {
@@ -345,6 +348,14 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	if err != nil {
 		return nil, fmt.Errorf("get account: %w", err)
 	}
+	if err := ValidateSupplierManagedAccountUpdate(account); err != nil {
+		return nil, err
+	}
+	if req.Extra != nil {
+		if err := ValidateSupplierReservedAccountExtra(*req.Extra); err != nil {
+			return nil, err
+		}
+	}
 
 	// 更新字段
 	if req.Name != nil {
@@ -450,6 +461,13 @@ func (s *AccountService) Delete(ctx context.Context, id int64) error {
 	if !exists {
 		return ErrAccountNotFound
 	}
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("get account: %w", err)
+	}
+	if err := ValidateSupplierManagedAccountUpdate(account); err != nil {
+		return err
+	}
 
 	// 注意:此处不级联删除 spark 影子账号。当前唯一的后台删除入口走 AdminService.DeleteAccount
 	// (已 ListShadowsByParent 先删影子再删母)。本方法目前无删除调用方;若未来有调用方经此
@@ -499,6 +517,9 @@ func (s *AccountService) UpdateStatus(ctx context.Context, id int64, status stri
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return fmt.Errorf("get account: %w", err)
+	}
+	if err := ValidateSupplierManagedAccountUpdate(account); err != nil {
+		return err
 	}
 
 	account.Status = status

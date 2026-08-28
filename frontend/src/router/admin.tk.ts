@@ -127,6 +127,16 @@ export const adminRoutes: RouteRecordRaw[] = [
         }
       },
       {
+        path: 'supplier-sources',
+        name: 'AdminSupplierSources',
+        component: () => import('@/views/admin/SupplierSourcesView.vue'),
+        meta: {
+          title: 'Supplier Sources',
+          titleKey: 'admin.supplierSources.title',
+          descriptionKey: 'admin.supplierSources.description'
+        }
+      },
+      {
         path: 'edge-accounts',
         name: 'AdminEdgeAccounts',
         component: () => import('@/views/admin/EdgeAccountsView.vue'),

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/stretchr/testify/require"
 )
 
@@ -97,6 +98,24 @@ func TestNewAPIBridgeChannelInput_OmitsEmptyForwardingCredentials(t *testing.T) 
 	if in.StatusCodeMappingJSON != "" {
 		t.Fatalf("StatusCodeMappingJSON should be empty when not configured, got %q", in.StatusCodeMappingJSON)
 	}
+}
+
+func TestUS048_UnmanagedNewAPIOpenAIBaseURLRemainsUntouched(t *testing.T) {
+	account := &Account{
+		ID:          11,
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeOpenAI,
+		Credentials: map[string]any{
+			"base_url": "https://ordinary.example/v1",
+			"api_key":  "sk-test",
+		},
+	}
+
+	in := newAPIBridgeChannelInput(account, 1, "ordinary")
+
+	require.Equal(t, "https://ordinary.example/v1", in.BaseURL,
+		"supplier-source support must not rewrite unmanaged NewAPI account transport")
 }
 
 // TestNewAPIBridgeChannelInput_VertexServiceAccount pins #0: a channel_type 41

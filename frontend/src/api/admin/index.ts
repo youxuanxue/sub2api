@@ -38,6 +38,7 @@ import tierAPI from './tier'
 import edgeAccountsAPI from './edgeAccounts'
 import inviteTrialAPI from './inviteTrial'
 import auditAPI from './audit'
+import supplierSourcesAPI from './supplierSources'
 
 /**
  * Unified admin API object for convenient access
@@ -77,7 +78,8 @@ export const adminAPI = {
   tiers: tierAPI,
   edgeAccounts: edgeAccountsAPI,
   inviteTrial: inviteTrialAPI,
-  audit: auditAPI
+  audit: auditAPI,
+  supplierSources: supplierSourcesAPI
 }
 
 export {
@@ -115,7 +117,8 @@ export {
   tierAPI,
   edgeAccountsAPI,
   inviteTrialAPI,
-  auditAPI
+  auditAPI,
+  supplierSourcesAPI
 }
 
 export default adminAPI
@@ -128,6 +131,16 @@ export type { BackupAgentHealth, DataManagementConfig } from './dataManagement'
 export type { TLSFingerprintProfile, CreateProfileRequest, UpdateProfileRequest } from './tlsFingerprintProfile'
 export type { ContentModerationConfig, ContentModerationLog, ModerationMode } from './riskControl'
 export type { Tier, TierRequest } from './tier'
+export type {
+  SupplierSource,
+  SupplierSourceInput,
+  SupplierSourceModel,
+  SupplierPriorityPreview,
+  SupplierPriorityPreviewEntry,
+  SupplierProbeResult,
+  SupplierSourceAccountChange,
+  SupplierSourceSyncResult,
+} from './supplierSources'
 export type {
   TrialPreset,
   TrialPlan,

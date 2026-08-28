@@ -64,6 +64,39 @@
         "handler.ProvideTKGatewayHandlerModelList(gatewayHandler, openAIGatewayHandler, modelListFilter, universalCapabilityService)"
       ],
       "rationale": "Generated production DI evidence for the UniversalCapabilityService and both gateway projections. Source providers alone do not prove the real server graph retained the post-construction injection."
+    },
+    {
+      "path": "backend/internal/handler/handler.go",
+      "must_contain": [
+        "SupplierSource         *admin.SupplierSourceHandler"
+      ],
+      "rationale": "AdminHandlers must retain the supplier-source management owner. Removing this field together with its route wiring can compile cleanly while silently deleting the only supported operations surface."
+    },
+    {
+      "path": "backend/internal/server/routes/admin.go",
+      "must_contain": [
+        "registerSupplierSourceRoutes(admin, h)",
+        "sources := admin.Group(\"/supplier-sources\")",
+        "sources.GET(\"/priority-preview\", h.Admin.SupplierSource.PriorityPreview)",
+        "sources.POST(\"/:id/sync\", h.Admin.SupplierSource.Sync)"
+      ],
+      "must_not_contain": [
+        "sources.GET(\"/:id/activation-preview\", h.Admin.SupplierSource.ActivationPreview)",
+        "sources.POST(\"/:id/activate\", h.Admin.SupplierSource.Activate)",
+        "sources.POST(\"/:id/pause\", h.Admin.SupplierSource.Pause)"
+      ],
+      "rationale": "Canonical six-endpoint supplier-source route owner. The page saves facts, previews supplier priorities and explicitly syncs one source; activation/pause routes would reintroduce the rejected state machine while the rest of the application could still compile."
+    },
+    {
+      "path": "backend/cmd/server/wire_gen.go",
+      "must_contain": [
+        "supplierSourceRepository := repository.NewSupplierSourceRepository(db)",
+        "supplierManagedAccountCommands := service.ProvideSupplierManagedAccountCommands(adminService)",
+        "supplierSourceAccountStore := service.NewSupplierSourceAccountStore(accountRepository, supplierManagedAccountCommands, supplierCredentialFingerprinter)",
+        "supplierSourceService := service.NewSupplierSourceService(supplierSourceRepository, supplierSourceAccountStore, accountTestService, secretEncryptor, supplierCredentialFingerprinter)",
+        "supplierSourceHandler := admin.NewSupplierSourceHandler(supplierSourceService)"
+      ],
+      "rationale": "Generated production graph for the final supplier-source chain: one repository, account-domain commands, an account store with no group dependency, the real in-memory probe adapter, existing secret encryption, and the admin handler. Provider declarations alone do not prove the deployed server retained this isolated graph after Wire regeneration or an upstream merge."
     }
   ]
 }

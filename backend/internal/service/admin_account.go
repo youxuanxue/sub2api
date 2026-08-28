@@ -245,12 +245,18 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 		return nil, err
 	}
 	if existing != nil {
+		if IsSupplierManagedAccount(existing) {
+			return nil, ErrSupplierManagedAccountProtected
+		}
 		return existing, nil
 	}
 
 	source, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if IsSupplierManagedAccount(source) {
+		return nil, ErrSupplierManagedAccountProtected
 	}
 	if source.IsCredentialShadow() {
 		return nil, infraerrors.BadRequest(
@@ -473,7 +479,31 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	return account, nil
 }
 
+type accountCreateOptions struct {
+	allowSupplierReservedExtra bool
+	initialSchedulable         *bool
+	bestEffortDefaultGroupBind bool
+}
+
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	if input == nil {
+		return nil, ErrAccountNilInput
+	}
+	if err := ValidateSupplierReservedAccountExtra(input.Extra); err != nil {
+		return nil, err
+	}
+	return s.createAccount(ctx, input, accountCreateOptions{})
+}
+
+func (s *adminServiceImpl) createAccount(ctx context.Context, input *CreateAccountInput, options accountCreateOptions) (*Account, error) {
+	if input == nil {
+		return nil, ErrAccountNilInput
+	}
+	if !options.allowSupplierReservedExtra {
+		if err := ValidateSupplierReservedAccountExtra(input.Extra); err != nil {
+			return nil, err
+		}
+	}
 	if strings.TrimSpace(input.AccountEmail) != "" {
 		var err error
 		input.Extra, input.Credentials, err = ApplyAccountEmail(input.Extra, input.Credentials, input.AccountEmail)
@@ -492,6 +522,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	}
 
 	groupIDs := input.GroupIDs
+	usingDefaultGroup := false
 	if len(groupIDs) == 0 && !input.SkipDefaultGroupBind {
 		defaultGroupName := input.Platform + "-default"
 		groups, listErr := s.groupRepo.ListActiveByPlatform(ctx, input.Platform)
@@ -499,6 +530,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 			for _, group := range groups {
 				if group.Name == defaultGroupName {
 					groupIDs = []int64{group.ID}
+					usingDefaultGroup = true
 					break
 				}
 			}
@@ -506,12 +538,20 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	}
 	if len(groupIDs) > 0 && !input.SkipMixedChannelCheck {
 		if err := s.checkMixedChannelRisk(ctx, 0, input.Platform, groupIDs); err != nil {
-			return nil, err
+			if options.bestEffortDefaultGroupBind && usingDefaultGroup {
+				groupIDs = nil
+			} else {
+				return nil, err
+			}
 		}
 	}
 	if len(groupIDs) > 0 {
 		if err := s.checkPublicGroupAggregatorChannelPolicy(ctx, 0, input.Name, input.Platform, input.ChannelType, input.Credentials, groupIDs); err != nil {
-			return nil, err
+			if options.bestEffortDefaultGroupBind && usingDefaultGroup {
+				groupIDs = nil
+			} else {
+				return nil, err
+			}
 		}
 	}
 	if err := NormalizeHeaderOverrideCredentials(input.Credentials); err != nil {
@@ -523,6 +563,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	account, err := buildAccountForCreate(input, accountExtra)
 	if err != nil {
 		return nil, err
+	}
+	if options.initialSchedulable != nil {
+		account.Schedulable = *options.initialSchedulable
 	}
 	if err := resolveNewAPIMoonshotBaseURLOnSave(ctx, account); err != nil {
 		return nil, err
@@ -538,8 +581,12 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	// 绑定分组
 	if len(groupIDs) > 0 {
 		if err := s.accountRepo.BindGroups(ctx, account.ID, groupIDs); err != nil {
+			if options.bestEffortDefaultGroupBind && usingDefaultGroup {
+				return account, nil
+			}
 			return nil, err
 		}
+		account.GroupIDs = append([]int64(nil), groupIDs...)
 	}
 
 	// OAuth 账号：创建后异步设置隐私。
@@ -589,6 +636,12 @@ func upstreamBillingProbeIdentity(account *Account) map[string]any {
 func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
+		return nil, err
+	}
+	if err := ValidateSupplierManagedAccountUpdate(account); err != nil {
+		return nil, err
+	}
+	if err := ValidateSupplierReservedAccountExtra(input.Extra); err != nil {
 		return nil, err
 	}
 	var normalizedExtra map[string]any
@@ -946,6 +999,16 @@ func (s *adminServiceImpl) GetAccountModelMappingPresetIDs(ctx context.Context, 
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if IsSupplierManagedAccount(account) {
+		return ErrSupplierManagedAccountProtected
+	}
+	if err := ValidateSupplierReservedAccountExtra(updates); err != nil {
+		return err
+	}
 	updates = sanitizedCodexFingerprintExtraUpdates(updates)
 	delete(updates, SupportedProtocolsExtraKey)
 	delete(updates, UpstreamBillingProbeEnabledExtraKey)
@@ -955,10 +1018,6 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	delete(updates, OllamaCloudUsageAutoRefreshExtraKey)
 	delete(updates, OllamaCloudUsageSnapshotExtraKey)
 	if _, exists := updates[openAILongContextBillingEnabledKey]; exists {
-		account, err := s.accountRepo.GetByID(ctx, id)
-		if err != nil {
-			return err
-		}
 		if err := ValidateOpenAILongContextBillingExtra(account.Platform, updates); err != nil {
 			return err
 		}
@@ -1013,19 +1072,23 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	needPublicGroupAggregatorCheck := input.GroupIDs != nil
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
-	var cachedTargets []*Account
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || needPublicGroupAggregatorCheck || openAISettings.any() || input.ProbeEnabled != nil || input.RateMultiplier != nil {
-		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
-		if err != nil {
-			return nil, err
-		}
-		cachedTargets = loaded
+	cachedTargets, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
+	if err != nil {
+		return nil, err
 	}
 	targetsByID := make(map[int64]*Account, len(cachedTargets))
 	for _, account := range cachedTargets {
 		if account != nil {
 			targetsByID[account.ID] = account
 		}
+	}
+	for _, account := range cachedTargets {
+		if IsSupplierManagedAccount(account) {
+			return nil, ErrSupplierManagedAccountProtected
+		}
+	}
+	if err := ValidateSupplierReservedAccountExtra(input.Extra); err != nil {
+		return nil, err
 	}
 	if openAISettings.any() {
 		inheritedCount, err := validateBulkOpenAISettingsTargets(input, openAISettings, targetsByID)
@@ -1299,6 +1362,13 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 }
 
 func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if IsSupplierManagedAccount(account) {
+		return ErrSupplierManagedAccountProtected
+	}
 	// 级联删除 spark 影子账号（先删影子，再删母账号）
 	shadows, err := s.accountRepo.ListShadowsByParent(ctx, id)
 	if err != nil {
@@ -1318,6 +1388,9 @@ func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
 func (s *adminServiceImpl) RefreshAccountCredentials(ctx context.Context, id int64) (*Account, error) {
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
+		return nil, err
+	}
+	if err := ValidateSupplierManagedAccountUpdate(account); err != nil {
 		return nil, err
 	}
 	// TODO: Implement refresh logic
@@ -1351,6 +1424,13 @@ func (s *adminServiceImpl) SetAccountError(ctx context.Context, id int64, errorM
 }
 
 func (s *adminServiceImpl) SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*Account, error) {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if IsSupplierManagedAccount(account) {
+		return nil, ErrSupplierManagedAccountProtected
+	}
 	if err := s.accountRepo.SetSchedulable(ctx, id, schedulable); err != nil {
 		return nil, err
 	}
@@ -1380,6 +1460,9 @@ func (s *adminServiceImpl) CreateShadow(ctx context.Context, parentID int64, opt
 	parent, err := s.accountRepo.GetByID(ctx, parentID)
 	if err != nil {
 		return nil, fmt.Errorf("get parent account: %w", err)
+	}
+	if err := ValidateSupplierManagedAccountUpdate(parent); err != nil {
+		return nil, err
 	}
 	if !parent.IsOpenAIOAuth() {
 		return nil, infraerrors.New(http.StatusBadRequest, "SPARK_SHADOW_INVALID_PARENT",

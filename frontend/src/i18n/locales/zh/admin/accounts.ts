@@ -108,6 +108,11 @@ export default {
       schedulableEnabled: '调度已开启',
       schedulableDisabled: '调度已关闭',
       failedToToggleSchedulable: '切换调度状态失败',
+      supplierManaged: {
+        badge: '供应源托管',
+        readOnlyReason: '该账号由供应源托管，请前往供应源管理修改。',
+        openManagement: '前往供应源管理'
+      },
       groupCountTotal: '共 {count} 个分组',
       columns: {
         name: '名称',

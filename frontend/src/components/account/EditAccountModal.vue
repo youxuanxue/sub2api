@@ -11,6 +11,14 @@
       @submit.prevent="handleSubmit"
       class="space-y-5"
     >
+      <div
+        v-if="supplierManagedInfo.managed"
+        data-testid="supplier-managed-edit-notice"
+        class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-200"
+      >
+        <SupplierManagedBadge :account="account" />
+        <p class="mt-1">{{ supplierManagedReadOnlyReason }}</p>
+      </div>
       <div>
         <label class="input-label">{{ t('common.name') }}</label>
         <input v-model="form.name" type="text" required class="input" data-tour="edit-account-form-name" />
@@ -2884,7 +2892,8 @@
         <button
           type="submit"
           form="edit-account-form"
-          :disabled="submitting"
+          :disabled="submitting || supplierManagedInfo.managed"
+          :title="supplierManagedInfo.managed ? supplierManagedReadOnlyReason : undefined"
           class="btn btn-primary"
           data-tour="account-form-submit"
         >
@@ -2958,6 +2967,8 @@ import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import AccountProtocolCapabilities from './AccountProtocolCapabilities.vue'
+import SupplierManagedBadge from './SupplierManagedBadge.vue'
+import { useSupplierManagedAccount } from '@/composables/useSupplierManagedAccount'
 import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
 import { useTkAccountNewApiPlatform } from '@/composables/useTkAccountNewApiPlatform'
 import AccountKiroPlatformFields from './AccountKiroPlatformFields.vue'
@@ -3092,6 +3103,11 @@ const handleProtocolProbe = async () => {
     protocolProbeLoading.value = false
   }
 }
+const {
+  inspect: inspectSupplierManaged,
+  readOnlyReason: supplierManagedReadOnlyReason
+} = useSupplierManagedAccount()
+const supplierManagedInfo = computed(() => inspectSupplierManaged(props.account))
 
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
 // 故隐藏代理选择器。
@@ -4901,6 +4917,10 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
 
 const handleSubmit = async () => {
   if (!props.account) return
+  if (supplierManagedInfo.value.managed) {
+    appStore.showError(supplierManagedReadOnlyReason.value)
+    return
+  }
   const accountID = props.account.id
 
   if (!validateOpenAIMessagesCompactionForm()) {

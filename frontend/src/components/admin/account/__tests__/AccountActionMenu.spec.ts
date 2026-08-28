@@ -3,8 +3,18 @@ import { describe, expect, it, vi } from 'vitest'
 import AccountActionMenu from '../AccountActionMenu.vue'
 import type { Account } from '@/types'
 
+const { listSupplierSources } = vi.hoisted(() => ({
+  listSupplierSources: vi.fn().mockResolvedValue([])
+}))
+
 // t() returns the key verbatim so we can locate the "设置 Tier" item by its key.
 const TIER_ITEM_KEY = 'admin.accounts.setTierDialog.menuItem'
+
+vi.mock('@/api/admin/supplierSources', () => ({
+  default: {
+    list: listSupplierSources
+  }
+}))
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({ t: (key: string) => key })
@@ -104,6 +114,44 @@ describe('AccountActionMenu — 恢复状态入口', () => {
 
     expect(wrapper.emitted('recover-state')?.[0]?.[0]).toMatchObject({ id: 42 })
     expect(wrapper.emitted('close')).toBeTruthy()
+  })
+})
+
+describe('AccountActionMenu — 供应源托管账号', () => {
+  it('keeps configuration writes disabled while runtime recovery actions stay available', async () => {
+    const wrapper = mountMenu(makeAccount({
+      platform: 'openai',
+      type: 'apikey',
+      extra: { supplier_source_id: 7 },
+      quota_limit: 10
+    }))
+
+    const duplicateButton = wrapper.findAll('button').find(button =>
+      button.text().includes('admin.accounts.duplicateAccount')
+    )
+    const recoverButton = wrapper.findAll('button').find(button =>
+      button.text().includes('admin.accounts.recoverState')
+    )
+    const resetQuotaButton = wrapper.findAll('button').find(button =>
+      button.text().includes('admin.accounts.resetQuota')
+    )
+    const testButton = wrapper.findAll('button').find(button =>
+      button.text().includes('admin.accounts.testConnection')
+    )
+
+    expect(wrapper.text()).toContain('admin.accounts.supplierManaged.readOnlyReason')
+    expect(duplicateButton?.attributes('disabled')).toBeDefined()
+    expect(recoverButton?.attributes('disabled')).toBeUndefined()
+    expect(resetQuotaButton?.attributes('disabled')).toBeUndefined()
+    expect(testButton?.attributes('disabled')).toBeUndefined()
+
+    await duplicateButton!.trigger('click')
+    await recoverButton!.trigger('click')
+    await resetQuotaButton!.trigger('click')
+
+    expect(wrapper.emitted('duplicate')).toBeUndefined()
+    expect(wrapper.emitted('recover-state')?.[0]?.[0]).toMatchObject({ id: 1 })
+    expect(wrapper.emitted('reset-quota')?.[0]?.[0]).toMatchObject({ id: 1 })
   })
 })
 

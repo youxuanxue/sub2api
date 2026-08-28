@@ -1,0 +1,94 @@
+{
+  "generated_at": "2026-08-28T03:47:06Z",
+  "production_target": "prod",
+  "production_access": "read_only",
+  "credentials_or_response_bodies_recorded": false,
+  "source_workbook": {
+    "path": "~/Codes/tk/模型厂商渠道信息-0827.xlsx",
+    "sheet": "厂商渠道",
+    "sha256": "90de57b39146817298dfa60b1760fba3d63397ad2e00d7eb2633ee88b0ca3bf2",
+    "selection_rule": "only operator-approved lowest valid ratios; ambiguous 43折/45折/55折/73折 rows are excluded"
+  },
+  "cases": [
+    {
+      "supplier": "佳杰",
+      "channel": "first-batch-lowest-ratio",
+      "normalized_endpoint": "https://token.vstecscloud.com/v1",
+      "client_model_id": "deepseek-v4-pro",
+      "upstream_model_id": "deepseek-v4-pro",
+      "purchase_ratio": 0.5,
+      "discount_band": 3,
+      "account_id": null,
+      "probe_classification": "not_run",
+      "http_status": null,
+      "http_request_sent": false,
+      "missing_prerequisite": "no production account uses the VSTECS endpoint and the workbook contains no API credential"
+    },
+    {
+      "supplier": "佳杰",
+      "channel": "first-batch-lowest-ratio",
+      "normalized_endpoint": "https://token.vstecscloud.com/v1",
+      "client_model_id": "qwen-3.7-max",
+      "upstream_model_id": "qwen-3.7-max",
+      "purchase_ratio": 0.5,
+      "discount_band": 3,
+      "account_id": null,
+      "probe_classification": "not_run",
+      "http_status": null,
+      "http_request_sent": false,
+      "missing_prerequisite": "no production account uses the VSTECS endpoint and the workbook contains no API credential"
+    },
+    {
+      "supplier": "FMGo",
+      "channel": "seedance-video",
+      "normalized_endpoint": null,
+      "client_model_id": "doubao-seedance-2-0-260128",
+      "upstream_model_id": "feimiao-seedance-2-0-260128",
+      "purchase_ratio": 0.5,
+      "discount_band": 3,
+      "account_id": null,
+      "probe_classification": "protocol_unsupported",
+      "classification_source": "fixed_system_boundary_for_the_explicit_client_upstream_pair",
+      "http_status": null,
+      "http_request_sent": false,
+      "protocol_outcome": "supplier protocol unsupported",
+      "missing_prerequisite": "the workbook provides only the FMGo console URL and no API endpoint or credential; the fixed boundary returns protocol_unsupported without pretending to perform an upstream HTTP probe"
+    },
+    {
+      "supplier": "百度",
+      "channel": "qianfan",
+      "normalized_endpoint": "https://qianfan.baidubce.com",
+      "client_model_id": "deepseek-v4-flash-0731",
+      "upstream_model_id": "deepseek-v4-flash-0731",
+      "purchase_ratio": 0.7,
+      "discount_band": 4,
+      "account_id": 90,
+      "probe_classification": "not_run",
+      "http_status": null,
+      "http_request_sent": false,
+      "protocol_outcome": "read_only_inventory_transport_incompatible_with_v1_supplier_projection",
+      "observed_account": {
+        "platform": "newapi",
+        "type": "apikey",
+        "channel_type": 46,
+        "status": "active",
+        "schedulable": false
+      },
+      "missing_prerequisite": "account 90 uses channel_type 46 rather than the fixed OpenAI Chat channel_type required by the first supplier-source version, so it is not an adoption candidate; the missing supplier credential also prevents fingerprint matching and sync"
+    }
+  ],
+  "ui_evidence": {
+    "kind": "playwright_with_route_mocks",
+    "verified_at": "2026-08-28T04:03:16Z",
+    "result": "3 passed",
+    "proves": [
+      "saving procurement facts does not invoke sync",
+      "supplier-only global priority preview",
+      "single-source sync with per-model probe results",
+      "actual account changes returned by the sync response",
+      "FMGo protocol_unsupported fail-closed display",
+      "supplier-managed account badge, source link and canonical read-only reason"
+    ],
+    "proves_upstream_acceptance": false
+  }
+}

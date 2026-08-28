@@ -135,6 +135,21 @@ func TestAuditSensitiveKeys_CoverCredentialTable(t *testing.T) {
 	}
 }
 
+func TestRedactAuditBody_RedactsSupplierSourceCredential(t *testing.T) {
+	const secret = "supplier-api-key-audit-canary"
+	out := RedactAuditBody(
+		[]byte(`{"supplier_name":"佳杰","credential":"`+secret+`","base_priority":100}`),
+		"application/json",
+	)
+
+	if strings.Contains(out, secret) {
+		t.Fatalf("supplier credential leaked into audit body: %s", out)
+	}
+	if !strings.Contains(out, `"credential":"***"`) {
+		t.Fatalf("supplier credential was not redacted: %s", out)
+	}
+}
+
 func TestRedactAuditBody_NonJSONOmitted(t *testing.T) {
 	out := RedactAuditBody([]byte("username=admin&password=secret"), "application/x-www-form-urlencoded")
 	if strings.Contains(out, "secret") {

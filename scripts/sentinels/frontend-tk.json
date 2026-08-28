@@ -1961,6 +1961,95 @@
         "quota.platform !== 'gemini' && quota.platform !== 'antigravity'"
       ],
       "rationale": "Shared per-platform usage presentation for both customer and admin dashboards. It consumes the public taxonomy owner and keeps raw source-specific quota channels out of customer-facing cards, so the two dashboards cannot drift back to separate platform state machines."
+    },
+    {
+      "path": "frontend/src/router/admin.tk.ts",
+      "must_contain": [
+        "name: 'AdminSupplierSources'",
+        "component: () => import('@/views/admin/SupplierSourcesView.vue')"
+      ],
+      "rationale": "The supplier-source page is the sole supported operations owner for supplier credentials, explicit model mappings, procurement ratios, supplier-only priority preview, current probe results and explicit one-source sync. An upstream rewrite of the admin route subtree could silently remove this entry while the backend and page still compile."
+    },
+    {
+      "path": "frontend/src/views/admin/SupplierSourcesView.vue",
+      "must_contain": [
+        "const syncSucceeded = computed(() => (",
+        "syncResult.value !== null",
+        "syncError.value === ''",
+        "&& !syncResult.value.failed_step"
+      ],
+      "must_not_contain": [
+        "syncSucceeded = ref"
+      ],
+      "rationale": "The supplier page derives success from the current response, the current request error, and absence of failed_step. A mutable success flag can drift from a resolved partial-failure result and falsely tell operations that account projection completed."
+    },
+    {
+      "path": "frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts",
+      "must_contain": [
+        "saves new and existing sources through create or update only",
+        "requires saving edited supplier facts before syncing the selected source",
+        "renders every probe result and actual account change returned by sync",
+        "does not show success when a resolved sync result reports a failed step",
+        "shows protocol_unsupported probe results from a 422 response without success wording",
+        "contains no state machine, audit, activation, pause, or account-group controls"
+      ],
+      "rationale": "Focused UI regressions pin the final minimal workflow: save is side-effect free, unsaved edits cannot accidentally sync the previous database snapshot, sync renders current probes and real account changes, resolved failed_step responses cannot display success, private protocol failures remain closed, and no state machine or account-group controls return."
+    },
+    {
+      "path": "frontend/src/composables/useSupplierManagedAccount.ts",
+      "must_contain": [
+        "Object.prototype.hasOwnProperty.call(extra, 'supplier_source_id')",
+        "const readOnlyReason = computed(() => t('admin.accounts.supplierManaged.readOnlyReason'))",
+        "href: `/admin/supplier-sources?source_id=${marker.sourceId}`"
+      ],
+      "rationale": "Single frontend owner for the supplier-managed marker, source-name lookup, fallback labels, navigation and canonical read-only reason. Account rows, modals and menus must not grow separate ownership rules."
+    },
+    {
+      "path": "frontend/src/components/account/SupplierManagedBadge.vue",
+      "must_contain": [
+        "data-testid=\"supplier-managed-badge\"",
+        "useSupplierManagedAccount",
+        "ensureSourceDirectoryLoaded"
+      ],
+      "rationale": "Shared high-visibility account badge used across account surfaces. It binds presentation to the single ownership composable and lazily resolves supplier/channel names without coupling account-query services to the supplier repository."
+    },
+    {
+      "path": "frontend/src/views/admin/__tests__/AccountsView.supplierManaged.spec.ts",
+      "must_contain": [
+        "shows the badge and disables row and mixed-selection generic writes",
+        "rejects a stale child write event before calling the account API",
+        "allows supplier-managed runtime recovery and quota reset actions",
+        "allows supplier-managed bulk runtime recovery"
+      ],
+      "rationale": "Real account-page ownership regressions: visible badges and disabled controls are not enough, so the page also rejects stale child configuration-write events before any generic API can run while preserving recovery and quota-reset operations."
+    },
+    {
+      "path": "frontend/src/components/admin/account/__tests__/AccountActionMenu.spec.ts",
+      "must_contain": [
+        "keeps configuration writes disabled while runtime recovery actions stay available",
+        "admin.accounts.supplierManaged.readOnlyReason",
+        "recover-state",
+        "reset-quota"
+      ],
+      "rationale": "The row action menu must make supplier ownership obvious, block configuration actions such as duplicate/reauth/credential refresh, and keep account test, error recovery and quota reset available as runtime operations."
+    },
+    {
+      "path": "frontend/src/components/admin/account/__tests__/AccountBulkActionsBar.spec.ts",
+      "must_contain": [
+        "blocks generic bulk writes when the selection contains a supplier-managed account",
+        "preserves the upstream billing probe action from v0.1.166",
+        "reset-status",
+        "probe-upstream-billing"
+      ],
+      "rationale": "Mixed selections must block generic bulk configuration writes without disabling runtime reset-status or upstream probe actions. This prevents the supplier badge from accidentally becoming a broad account-operations shutdown."
+    },
+    {
+      "path": "frontend/src/components/account/__tests__/EditAccountModal.spec.ts",
+      "must_contain": [
+        "shows the supplier-managed reason and refuses generic account updates",
+        "admin.accounts.supplierManaged.readOnlyReason"
+      ],
+      "rationale": "The generic edit modal is a second UI entry point and must remain read-only for supplier-managed accounts with the same canonical reason, even if it is opened from stale state or another caller."
     }
   ]
 }

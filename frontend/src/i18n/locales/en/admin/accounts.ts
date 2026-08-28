@@ -110,6 +110,11 @@ export default {
       schedulableEnabled: 'Scheduling enabled',
       schedulableDisabled: 'Scheduling disabled',
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
+      supplierManaged: {
+        badge: 'Supplier managed',
+        readOnlyReason: 'This account is managed by a supplier source. Make changes in Supplier Sources.',
+        openManagement: 'Open Supplier Sources'
+      },
       groupCountTotal: '{count} groups total',
       platforms: {
         anthropic: 'Anthropic',

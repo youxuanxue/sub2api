@@ -88,6 +88,7 @@ apiClient.interceptors.response.use(
           message: apiResponse.message || 'Unknown error',
           reason: resp.reason as string | undefined,
           metadata: resp.metadata as Record<string, unknown> | undefined,
+          data: resp.data,
         }))
       }
     }
@@ -255,6 +256,7 @@ apiClient.interceptors.response.use(
         error: apiData.error,
         message: apiData.message || apiData.detail || error.message,
         metadata: apiData.metadata,
+        data: apiData.data,
       }))
     }
 
