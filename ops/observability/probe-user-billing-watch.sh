@@ -12,6 +12,13 @@
 # WINDOW_MINUTES  look-back window in minutes (default 30; matches report cadence)
 #
 # image/video discriminators reuse probe-image-video-billing.sh's proven predicates.
+#
+# 环比 (window-over-window) and anomaly baselines are computed HERE, in SQL —
+# not left to the caller's memory of a prior conversation turn. Every run emits:
+#   - current window totals (requests/cost, errors)
+#   - previous window totals (same shape, for a mechanical delta)
+#   - trailing-24h per-bucket baseline (avg/max), so "is this a spike" has a
+#     real reference instead of an eyeballed two-point comparison.
 set -u
 
 USER_IDS_OVERRIDE="${USER_IDS:-}"
@@ -69,7 +76,7 @@ $PSQL -c "SELECT row_to_json(t) FROM (SELECT
 # GENERAL — per-user requests + billing (usage_logs success path)
 # ---------------------------------------------------------------------------
 echo
-echo "=== general: usage_logs per-user totals (window) ==="
+echo "=== general: usage_logs per-user totals (current window) ==="
 $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   user_id,
   count(*)                                          AS reqs,
@@ -81,6 +88,18 @@ $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   max(created_at) AT TIME ZONE 'UTC'                 AS last_at_utc
   FROM usage_logs
   WHERE user_id IN (${IDS}) AND created_at >= now() - ${W}
+  GROUP BY user_id ORDER BY user_id) t;" 2>&1
+
+echo
+echo "=== general: usage_logs per-user totals (previous window, for 环比) ==="
+$PSQL -c "SELECT row_to_json(t) FROM (SELECT
+  user_id,
+  count(*)                                          AS reqs,
+  count(*) FILTER (WHERE COALESCE(total_cost,0) > 0) AS billed_reqs,
+  ROUND(COALESCE(sum(total_cost),0)::numeric,6)      AS total_cost,
+  ROUND(COALESCE(sum(actual_cost),0)::numeric,6)     AS actual_cost
+  FROM usage_logs
+  WHERE user_id IN (${IDS}) AND created_at >= now() - 2*${W} AND created_at < now() - ${W}
   GROUP BY user_id ORDER BY user_id) t;" 2>&1
 
 echo
@@ -123,7 +142,7 @@ $PSQL -c "SELECT row_to_json(t) FROM (SELECT
 # ERRORS — per-user, with image/video surface tag
 # ---------------------------------------------------------------------------
 echo
-echo "=== errors: per-user by status/surface (window) ==="
+echo "=== errors: per-user by status/surface (current window) ==="
 $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   user_id,
   CASE WHEN ${VID_E} THEN 'video' WHEN ${IMG_E} THEN 'image' ELSE 'general' END AS surface,
@@ -131,6 +150,17 @@ $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   count(*) AS n, max(created_at) AT TIME ZONE 'UTC' AS last_at_utc
   FROM ops_error_logs
   WHERE user_id IN (${IDS}) AND created_at >= now() - ${W}
+  GROUP BY 1,2,3,4,5,6,7 ORDER BY n DESC LIMIT 40) t;" 2>&1
+
+echo
+echo "=== errors: per-user by status/surface (previous window, for 环比) ==="
+$PSQL -c "SELECT row_to_json(t) FROM (SELECT
+  user_id,
+  CASE WHEN ${VID_E} THEN 'video' WHEN ${IMG_E} THEN 'image' ELSE 'general' END AS surface,
+  status_code, upstream_status_code, error_phase, error_type, error_owner,
+  count(*) AS n
+  FROM ops_error_logs
+  WHERE user_id IN (${IDS}) AND created_at >= now() - 2*${W} AND created_at < now() - ${W}
   GROUP BY 1,2,3,4,5,6,7 ORDER BY n DESC LIMIT 40) t;" 2>&1
 
 echo
@@ -213,6 +243,47 @@ SELECT row_to_json(t) FROM (SELECT
     (COALESCE(ak.routing_mode, 'direct') = 'universal')
   ORDER BY f.error_type_n DESC, key_group_n DESC, f.user_id, b.api_key_id NULLS LAST, b.group_id NULLS LAST
   LIMIT 80) t;" 2>&1
+
+echo
+echo "=== baseline: per-user request/cost trailing 24h (excl. current window) ==="
+$PSQL -c "WITH buckets AS (
+  SELECT
+    user_id,
+    to_timestamp(floor(extract(epoch from created_at) / (${WINDOW_MINUTES}*60)) * (${WINDOW_MINUTES}*60)) AS bucket_start,
+    count(*) AS reqs,
+    sum(total_cost) AS cost
+  FROM usage_logs
+  WHERE user_id IN (${IDS}) AND created_at >= now() - interval '24 hours' AND created_at < now() - ${W}
+  GROUP BY 1,2
+)
+SELECT row_to_json(t) FROM (SELECT
+  user_id,
+  ROUND(avg(reqs)::numeric,1)  AS avg_reqs_per_window_24h,
+  max(reqs)                    AS max_reqs_per_window_24h,
+  ROUND(avg(cost)::numeric,4)  AS avg_cost_per_window_24h,
+  ROUND(max(cost)::numeric,4)  AS max_cost_per_window_24h,
+  count(*)                     AS buckets_seen
+  FROM buckets GROUP BY 1 ORDER BY 1) t;" 2>&1
+
+echo
+echo "=== baseline: per-user error fingerprint trailing 24h (excl. current window) ==="
+$PSQL -c "WITH buckets AS (
+  SELECT
+    user_id, status_code, upstream_status_code, error_phase, error_type, error_owner,
+    to_timestamp(floor(extract(epoch from created_at) / (${WINDOW_MINUTES}*60)) * (${WINDOW_MINUTES}*60)) AS bucket_start,
+    count(*) AS n
+  FROM ops_error_logs
+  WHERE user_id IN (${IDS}) AND created_at >= now() - interval '24 hours' AND created_at < now() - ${W}
+  GROUP BY 1,2,3,4,5,6,7
+)
+SELECT row_to_json(t) FROM (SELECT
+  user_id, status_code, upstream_status_code, error_phase, error_type, error_owner,
+  ROUND(avg(n)::numeric,2) AS avg_per_window_24h,
+  max(n)                   AS max_per_window_24h,
+  count(*)                 AS buckets_seen
+  FROM buckets
+  GROUP BY 1,2,3,4,5,6
+  ORDER BY avg_per_window_24h DESC LIMIT 40) t;" 2>&1
 
 echo
 echo "=== errors: last 12 samples (desensitized) ==="
