@@ -1,41 +1,120 @@
 package service
 
 import (
+	"net/http"
 	"sort"
 	"strings"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
 
-// selectProtocolProbeModel selects one deterministic representative text model
-// shared by Chat Completions, Responses, and Messages capability probes.
-func selectProtocolProbeModel(account *Account) string {
+const protocolProbeMaxModels = 6
+
+// protocolProbeModelCandidates returns a deterministic, bounded set of text
+// models. A protocol probe may advance only after model-specific evidence;
+// transient/auth failures do not fan out across the set.
+func protocolProbeModelCandidates(account *Account) []string {
 	if account == nil || protocolRoutingAccountHasNoTextModels(account) {
-		return openai.DefaultTestModel
+		return []string{openai.DefaultTestModel}
 	}
 	mapping := account.GetModelMapping()
 	candidates := make([]string, 0, len(mapping))
+	seen := make(map[string]struct{}, len(mapping)+2)
 	for _, upstream := range mapping {
 		upstream = strings.TrimSpace(upstream)
 		if upstream == "" || strings.Contains(upstream, "*") || protocolProbeModelIsNonText(upstream) {
 			continue
 		}
+		if _, ok := seen[upstream]; ok {
+			continue
+		}
+		seen[upstream] = struct{}{}
 		candidates = append(candidates, upstream)
 	}
-	if len(candidates) == 0 {
-		return openai.DefaultTestModel
-	}
 	sort.Strings(candidates)
+	if len(candidates) == 0 {
+		candidates = append(candidates, openai.DefaultTestModel)
+		seen[openai.DefaultTestModel] = struct{}{}
+	}
 	if account.Platform == PlatformNewAPI && account.ChannelType == newapiconstant.ChannelTypeAli {
-		for _, model := range candidates {
+		for index, model := range candidates {
 			if strings.HasPrefix(strings.ToLower(model), "qwen") {
-				return model
+				candidates = append([]string{model}, append(candidates[:index], candidates[index+1:]...)...)
+				break
 			}
 		}
 	}
-	return candidates[0]
+	if isCloudwiseRelayAccount(account) {
+		probeModel := openAICloudwiseRelayProtocolProbeModel()
+		if _, ok := seen[probeModel]; !ok {
+			if len(candidates) >= protocolProbeMaxModels {
+				candidates = candidates[:protocolProbeMaxModels-1]
+			}
+			candidates = append(candidates, probeModel)
+		}
+	}
+	if len(candidates) > protocolProbeMaxModels {
+		candidates = candidates[:protocolProbeMaxModels]
+	}
+	return candidates
+}
+
+// selectProtocolProbeModel preserves the historical single-model helper for
+// callers/tests that only need the deterministic first representative.
+func selectProtocolProbeModel(account *Account) string {
+	return protocolProbeModelCandidates(account)[0]
+}
+
+func protocolProbeModelSpecificHTTPFailure(status int, body []byte) bool {
+	if status < http.StatusBadRequest || status == http.StatusUnauthorized || status == http.StatusTooManyRequests || status >= http.StatusInternalServerError {
+		return false
+	}
+	normalized := normalizeModelNotFoundBody(body)
+	if normalized == "" || !strings.Contains(normalized, "model") {
+		return false
+	}
+	for _, marker := range []string{
+		"model not found",
+		"unknown model",
+		"invalid model",
+		"unsupported model",
+		"model is not supported",
+		"model was not found",
+		"model is unavailable",
+		"model is not available",
+		"model does not exist",
+		"does not support responses",
+		"does not support messages",
+		"does not support chat",
+	} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return status == http.StatusForbidden && strings.Contains(normalized, "permission")
+}
+
+func protocolProbeShouldTryNextModel(
+	account *Account,
+	protocol protocolrouter.Protocol,
+	probeModel string,
+	status int,
+	verdict ProtocolProbeVerdict,
+	hasNext bool,
+) bool {
+	if !hasNext {
+		return false
+	}
+	if verdict == ProtocolProbeModelSpecific {
+		return true
+	}
+	return protocol == protocolrouter.ProtocolMessages &&
+		status == http.StatusUnauthorized &&
+		isCloudwiseRelayAccount(account) &&
+		!strings.EqualFold(strings.TrimSpace(probeModel), openAICloudwiseRelayProtocolProbeModel())
 }
 
 func protocolRoutingAccountHasNoTextModels(account *Account) bool {

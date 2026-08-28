@@ -98,98 +98,104 @@ func (s *AccountTestService) probeOpenAIAPIKeyResponsesSupport(
 		return protocolProbeObservation{}, false
 	}
 
-	probeModel := selectProtocolProbeModel(account)
-	probeURL := buildOpenAIResponsesURLForPlatform(account.Platform, normalizedBaseURL)
-	if exactEndpoint, exactErr := protocolExactEndpoint(account, protocolrouter.ProtocolResponses, probeModel); exactErr != nil {
-		logger.LegacyPrintf("service.openai_probe", "probe_resolve_endpoint_failed: account_id=%d err=%v", accountID, exactErr)
-		return protocolProbeObservation{}, false
-	} else if exactEndpoint != "" {
-		probeURL, err = s.validateUpstreamBaseURL(exactEndpoint)
-		if err != nil {
-			logger.LegacyPrintf("service.openai_probe", "probe_invalid_endpoint: account_id=%d endpoint=%q err=%v", accountID, exactEndpoint, err)
-			return protocolProbeObservation{}, false
-		}
-	}
-
 	probeCtx, cancel := context.WithTimeout(ctx, openaiResponsesProbeTimeout)
 	defer cancel()
-
-	req, err := http.NewRequestWithContext(probeCtx, http.MethodPost, probeURL, bytes.NewReader(openaiResponsesProbePayload(probeModel)))
-	if err != nil {
-		logger.LegacyPrintf("service.openai_probe", "probe_build_request_failed: account_id=%d err=%v", accountID, err)
-		return protocolProbeObservation{}, false
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Accept", "application/json")
-	req = applyProtocolProbeRequestIdentity(req, account, protocolrouter.ProtocolResponses)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	probeModels := protocolProbeModelCandidates(account)
+	for index, probeModel := range probeModels {
+		probeURL := buildOpenAIResponsesURLForPlatform(account.Platform, normalizedBaseURL)
+		if exactEndpoint, exactErr := protocolExactEndpoint(account, protocolrouter.ProtocolResponses, probeModel); exactErr != nil {
+			logger.LegacyPrintf("service.openai_probe", "probe_resolve_endpoint_failed: account_id=%d err=%v", accountID, exactErr)
+			return protocolProbeObservation{}, false
+		} else if exactEndpoint != "" {
+			probeURL, err = s.validateUpstreamBaseURL(exactEndpoint)
+			if err != nil {
+				logger.LegacyPrintf("service.openai_probe", "probe_invalid_endpoint: account_id=%d endpoint=%q err=%v", accountID, exactEndpoint, err)
+				return protocolProbeObservation{}, false
+			}
+		}
 
-	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
-	if err != nil {
-		// 网络层失败：不写标记，保留既有能力事实。
-		logger.LegacyPrintf("service.openai_probe", "probe_request_failed: account_id=%d url=%s err=%v", accountID, probeURL, err)
-		return protocolProbeObservation{}, false
-	}
-	defer func() { _ = resp.Body.Close() }()
-	bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, responsesProbeMaxBodyBytes))
-	// 有界排空剩余响应体:既帮助连接复用,又避免行为异常的上游用超大响应体拖住探测。
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, responsesProbeMaxBodyBytes))
-	if readErr != nil {
-		// 响应体读取失败(部分读取/传输错误):按网络层失败处理并保留既有能力事实，
-		// 不写标记——否则可能给一个 2xx 响应误写 supported=false。
-		logger.LegacyPrintf("service.openai_probe", "probe_read_body_failed: account_id=%d url=%s err=%v", accountID, probeURL, readErr)
-		return protocolProbeObservation{}, false
-	}
+		req, requestErr := http.NewRequestWithContext(probeCtx, http.MethodPost, probeURL, bytes.NewReader(openaiResponsesProbePayload(probeModel)))
+		if requestErr != nil {
+			logger.LegacyPrintf("service.openai_probe", "probe_build_request_failed: account_id=%d err=%v", accountID, requestErr)
+			return protocolProbeObservation{}, false
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		req.Header.Set("Accept", "application/json")
+		req = applyProtocolProbeRequestIdentity(req, account, protocolrouter.ProtocolResponses)
 
-	// 本次响应不足以下结论时保留既有能力事实，与网络层失败、响应体读取失败一致：
-	// 标记一旦写成 false 就会一直粘住（只有下次账号创建/更新才重探），网关会静默
-	// 改走 /v1/chat/completions —— 对 Codex 客户端意味着 prompt 缓存前缀被打散。
-	// 宁可不写，让请求继续走既有的 Responses 路径。
-	if !responsesProbeVerdictIsConclusive(resp.StatusCode, bodyBytes) {
+		resp, requestErr := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+		if requestErr != nil {
+			// 网络层失败：不写标记，保留既有能力事实。
+			logger.LegacyPrintf("service.openai_probe", "probe_request_failed: account_id=%d url=%s err=%v", accountID, probeURL, requestErr)
+			return protocolProbeObservation{}, false
+		}
+		bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, responsesProbeMaxBodyBytes))
+		// 有界排空剩余响应体:既帮助连接复用,又避免行为异常的上游用超大响应体拖住探测。
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, responsesProbeMaxBodyBytes))
+		_ = resp.Body.Close()
+		if readErr != nil {
+			// 响应体读取失败(部分读取/传输错误):按网络层失败处理并保留既有能力事实，
+			// 不写标记——否则可能给一个 2xx 响应误写 supported=false。
+			logger.LegacyPrintf("service.openai_probe", "probe_read_body_failed: account_id=%d url=%s err=%v", accountID, probeURL, readErr)
+			return protocolProbeObservation{}, false
+		}
+
+		// 本次响应不足以下结论时保留既有能力事实，与网络层失败、响应体读取失败一致。
+		if !responsesProbeVerdictIsConclusive(resp.StatusCode, bodyBytes) {
+			logger.LegacyPrintf("service.openai_probe",
+				"probe_inconclusive_preserve_prior: account_id=%d base_url=%s probe_model=%s status=%d response_status=%s reason=%s",
+				accountID, normalizedBaseURL, probeModel, resp.StatusCode,
+				gjson.GetBytes(bodyBytes, "status").String(),
+				gjson.GetBytes(bodyBytes, "incomplete_details.reason").String(),
+			)
+			return protocolProbeObservation{}, false
+		}
+
+		endpointSupported := openai_compat.ResponsesEndpointSupportedByStatus(resp.StatusCode)
+		supported := decideResponsesProbeSupport(endpointSupported, resp.StatusCode, bodyBytes)
+		verdict := ProtocolProbeInconclusive
+		switch {
+		case supported && resp.StatusCode >= 200 && resp.StatusCode < 300 && responsesProbeBodyHasFunctionCall(bodyBytes):
+			verdict = ProtocolProbePositive
+		case protocolProbeModelSpecificHTTPFailure(resp.StatusCode, bodyBytes):
+			verdict = ProtocolProbeModelSpecific
+		case !endpointSupported || responsesProbeBodyIndicatesNotImplemented(bodyBytes):
+			verdict = ProtocolProbeEndpointNegative
+		case resp.StatusCode >= 200 && resp.StatusCode < 300:
+			verdict = ProtocolProbeModelSpecific
+		}
+		if verdict == ProtocolProbeEndpointNegative {
+			// 落标为不支持等于把该账号长期钉在 /v1/chat/completions 上，成本与缓存命中率
+			// 都会变化，且不会自动恢复。这条必须能被运维看到（#5371）。
+			slog.Warn(
+				"openai_responses_probe_marked_unsupported",
+				"account_id", accountID,
+				"account_name", account.Name,
+				"base_url", normalizedBaseURL,
+				"probe_model", probeModel,
+				"upstream_status", resp.StatusCode,
+			)
+		}
+
 		logger.LegacyPrintf("service.openai_probe",
-			"probe_inconclusive_preserve_prior: account_id=%d base_url=%s probe_model=%s status=%d response_status=%s reason=%s",
-			accountID, normalizedBaseURL, probeModel, resp.StatusCode,
-			gjson.GetBytes(bodyBytes, "status").String(),
-			gjson.GetBytes(bodyBytes, "incomplete_details.reason").String(),
+			"probe_done: account_id=%d base_url=%s probe_model=%s status=%d supported=%v verdict=%s",
+			accountID, normalizedBaseURL, probeModel, resp.StatusCode, supported, verdict,
 		)
-		return protocolProbeObservation{}, false
+		if protocolProbeShouldTryNextModel(account, protocolrouter.ProtocolResponses, probeModel, resp.StatusCode, verdict, index+1 < len(probeModels)) {
+			continue
+		}
+		return protocolProbeObservation{
+			protocol: protocolrouter.ProtocolResponses,
+			verdict:  verdict,
+		}, true
 	}
-
-	endpointSupported := openai_compat.ResponsesEndpointSupportedByStatus(resp.StatusCode)
-	supported := decideResponsesProbeSupport(endpointSupported, resp.StatusCode, bodyBytes)
-
-	verdict := ProtocolProbeModelSpecific
-	if supported && resp.StatusCode >= 200 && resp.StatusCode < 300 && responsesProbeBodyHasFunctionCall(bodyBytes) {
-		verdict = ProtocolProbePositive
-	} else if !openai_compat.ResponsesEndpointSupportedByStatus(resp.StatusCode) || responsesProbeBodyIndicatesNotImplemented(bodyBytes) {
-		verdict = ProtocolProbeEndpointNegative
-	}
-	if !supported {
-		// 落标为不支持等于把该账号长期钉在 /v1/chat/completions 上，成本与缓存命中率
-		// 都会变化，且不会自动恢复。这条必须能被运维看到（#5371）。
-		slog.Warn(
-			"openai_responses_probe_marked_unsupported",
-			"account_id", accountID,
-			"account_name", account.Name,
-			"base_url", normalizedBaseURL,
-			"probe_model", probeModel,
-			"upstream_status", resp.StatusCode,
-		)
-	}
-
-	logger.LegacyPrintf("service.openai_probe",
-		"probe_done: account_id=%d base_url=%s probe_model=%s status=%d supported=%v",
-		accountID, normalizedBaseURL, probeModel, resp.StatusCode, supported,
-	)
-	return protocolProbeObservation{
-		protocol: protocolrouter.ProtocolResponses,
-		verdict:  verdict,
-	}, true
+	return protocolProbeObservation{}, false
 }
 
 // responsesProbeVerdictIsConclusive 判断本次探测响应是否足以对「上游是否支持带工具的

@@ -55,65 +55,71 @@ func (s *AccountTestService) probeOpenAIAPIKeyNativeMessagesSupport(
 		return protocolProbeObservation{}, false
 	}
 
-	probeURL := buildOpenAIEndpointURL(normalizedBaseURL, apipath.Messages)
-	probeModel := selectProtocolProbeModel(account)
-
 	probeCtx, cancel := context.WithTimeout(ctx, openaiNativeMessagesProbeTimeout)
 	defer cancel()
-
-	req, err := http.NewRequestWithContext(probeCtx, http.MethodPost, probeURL, bytes.NewReader(openaiNativeMessagesProbePayload(probeModel)))
-	if err != nil {
-		logger.LegacyPrintf("service.openai_probe", "native_messages_build_request_failed: account_id=%d err=%v", accountID, err)
-		return protocolProbeObservation{}, false
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if account.Platform == PlatformAnthropic {
-		req.Header.Set("anthropic-version", "2023-06-01")
-		req.Header.Set("anthropic-beta", claude.APIKeyBetaHeader)
-		if account.IsAnthropicOAuthOrSetupToken() {
-			setAnthropicOAuthPassthroughAuthHeader(req.Header, authToken)
-		} else {
-			setAnthropicAPIKeyAuthHeader(req.Header, account, authToken)
-		}
-	} else {
-		req.Header.Set("Authorization", "Bearer "+authToken)
-	}
-	req.Header.Set("Accept", "application/json")
-	req = applyProtocolProbeRequestIdentity(req, account, protocolrouter.ProtocolMessages)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	probeModels := protocolProbeModelCandidates(account)
+	for index, probeModel := range probeModels {
+		probeURL := buildOpenAIEndpointURL(normalizedBaseURL, apipath.Messages)
+		req, requestErr := http.NewRequestWithContext(probeCtx, http.MethodPost, probeURL, bytes.NewReader(openaiNativeMessagesProbePayload(probeModel)))
+		if requestErr != nil {
+			logger.LegacyPrintf("service.openai_probe", "native_messages_build_request_failed: account_id=%d err=%v", accountID, requestErr)
+			return protocolProbeObservation{}, false
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if account.Platform == PlatformAnthropic {
+			req.Header.Set("anthropic-version", "2023-06-01")
+			req.Header.Set("anthropic-beta", claude.APIKeyBetaHeader)
+			if account.IsAnthropicOAuthOrSetupToken() {
+				setAnthropicOAuthPassthroughAuthHeader(req.Header, authToken)
+			} else {
+				setAnthropicAPIKeyAuthHeader(req.Header, account, authToken)
+			}
+		} else {
+			req.Header.Set("Authorization", "Bearer "+authToken)
+		}
+		req.Header.Set("Accept", "application/json")
+		req = applyProtocolProbeRequestIdentity(req, account, protocolrouter.ProtocolMessages)
 
-	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
-	if err != nil {
-		logger.LegacyPrintf("service.openai_probe", "native_messages_request_failed: account_id=%d url=%s err=%v", accountID, probeURL, err)
-		return protocolProbeObservation{}, false
-	}
-	defer func() { _ = resp.Body.Close() }()
-	bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, responsesProbeMaxBodyBytes))
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, responsesProbeMaxBodyBytes))
-	if readErr != nil {
-		logger.LegacyPrintf("service.openai_probe", "native_messages_read_body_failed: account_id=%d url=%s err=%v", accountID, probeURL, readErr)
-		return protocolProbeObservation{}, false
-	}
+		resp, requestErr := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+		if requestErr != nil {
+			logger.LegacyPrintf("service.openai_probe", "native_messages_request_failed: account_id=%d url=%s err=%v", accountID, probeURL, requestErr)
+			return protocolProbeObservation{}, false
+		}
+		bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, responsesProbeMaxBodyBytes))
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, responsesProbeMaxBodyBytes))
+		_ = resp.Body.Close()
+		if readErr != nil {
+			logger.LegacyPrintf("service.openai_probe", "native_messages_read_body_failed: account_id=%d url=%s err=%v", accountID, probeURL, readErr)
+			return protocolProbeObservation{}, false
+		}
 
-	supported := nativeMessagesProbeSupported(resp.StatusCode, bodyBytes)
-	verdict := ProtocolProbeInconclusive
-	if supported {
-		verdict = ProtocolProbePositive
-	} else if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
-		verdict = ProtocolProbeEndpointNegative
+		supported := nativeMessagesProbeSupported(resp.StatusCode, bodyBytes)
+		verdict := ProtocolProbeInconclusive
+		if supported {
+			verdict = ProtocolProbePositive
+		} else if protocolProbeModelSpecificHTTPFailure(resp.StatusCode, bodyBytes) {
+			verdict = ProtocolProbeModelSpecific
+		} else if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
+			verdict = ProtocolProbeEndpointNegative
+		}
+		logger.LegacyPrintf("service.openai_probe",
+			"native_messages_probe_done: account_id=%d base_url=%s probe_model=%s status=%d supported=%v verdict=%s",
+			accountID, normalizedBaseURL, probeModel, resp.StatusCode, supported, verdict,
+		)
+		if protocolProbeShouldTryNextModel(account, protocolrouter.ProtocolMessages, probeModel, resp.StatusCode, verdict, index+1 < len(probeModels)) {
+			continue
+		}
+		return protocolProbeObservation{
+			protocol: protocolrouter.ProtocolMessages,
+			verdict:  verdict,
+		}, true
 	}
-	logger.LegacyPrintf("service.openai_probe",
-		"native_messages_probe_done: account_id=%d base_url=%s probe_model=%s status=%d supported=%v",
-		accountID, normalizedBaseURL, probeModel, resp.StatusCode, supported,
-	)
-	return protocolProbeObservation{
-		protocol: protocolrouter.ProtocolMessages,
-		verdict:  verdict,
-	}, true
+	return protocolProbeObservation{}, false
 }
 
 func nativeMessagesProbeSupported(status int, body []byte) bool {

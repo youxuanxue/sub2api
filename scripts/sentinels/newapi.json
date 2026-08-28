@@ -940,16 +940,19 @@
     {
       "path": "backend/internal/service/openai_apikey_chat_completions_probe.go",
       "must_contain": [
-        "selectProtocolProbeModel(account)",
+        "protocolProbeModelCandidates(account)",
         "protocolExactEndpoint(account, protocolrouter.ProtocolChatCompletions, probeModel)",
         "chat_completions_resolve_endpoint_failed"
       ],
-      "rationale": "Chat Completions capability probes must use the shared representative model and exact NewAPI adaptor URL rather than appending /v1/chat/completions to base_url. Dropping either call can probe a media/foreign model or mark DashScope ch17 unsupported after hitting the wrong 404 endpoint."
+      "rationale": "Chat Completions capability probes must use the shared bounded representative-model candidates and exact NewAPI adaptor URL rather than appending /v1/chat/completions to base_url. Dropping either call can probe a media/foreign model, lose model-specific fallback, or mark DashScope ch17 unsupported after hitting the wrong 404 endpoint."
     },
     {
       "path": "backend/internal/service/protocol_probe_model_tk.go",
       "must_contain": [
+        "func protocolProbeModelCandidates(account *Account) []string",
         "func selectProtocolProbeModel(account *Account) string",
+        "const protocolProbeMaxModels = 6",
+        "func protocolProbeShouldTryNextModel(",
         "func protocolRoutingAccountHasNoTextModels(account *Account) bool",
         "func protocolProbeModelIsNonText(model string) bool",
         "loadTKPricingOverlaySnapshot()",
@@ -958,9 +961,9 @@
         "isOpenAIImageGenerationModel(model)",
         "isGrokVideoGenerationModel(model)",
         "antigravity.IsImageModel(model)",
-        "return openai.DefaultTestModel"
+        "[]string{openai.DefaultTestModel}"
       ],
-      "rationale": "Single representative text-model owner shared by all protocol capability probes and text-governance classification. It deterministically prefers qwen-* for Ali channels, excludes registry-classified embedding/image/video/audio/rerank models plus conservative private non-text aliases, and prevents non-text-only accounts from blocking SSOT cutover readiness."
+      "rationale": "Single bounded representative text-model owner shared by all protocol capability probes and text-governance classification. It deterministically prefers qwen-* for Ali channels, excludes registry-classified embedding/image/video/audio/rerank models plus conservative private non-text aliases, caps model-specific fallback fanout, and prevents non-text-only accounts from blocking SSOT cutover readiness."
     },
     {
       "path": "backend/internal/service/protocol_capability_probe_test.go",
@@ -975,21 +978,21 @@
     {
       "path": "backend/internal/service/openai_apikey_responses_probe.go",
       "must_contain": [
-        "selectProtocolProbeModel(account)",
+        "protocolProbeModelCandidates(account)",
         "protocolExactEndpoint(account, protocolrouter.ProtocolResponses, probeModel)",
         "probe_resolve_endpoint_failed"
       ],
-      "rationale": "Responses capability probes for NewAPI accounts must use the shared representative model and exact adaptor URL. DashScope ch17 serves Responses under /api/v2/apps/protocols/compatible-mode/v1/responses; losing either owner produces false capability facts."
+      "rationale": "Responses capability probes for NewAPI accounts must use the shared bounded representative-model candidates and exact adaptor URL. DashScope ch17 serves Responses under /api/v2/apps/protocols/compatible-mode/v1/responses; losing either owner produces false capability facts, while losing candidate fallback lets one model-specific rejection block an otherwise capable endpoint."
     },
     {
       "path": "backend/internal/service/openai_apikey_native_messages_probe.go",
       "must_contain": [
-        "selectProtocolProbeModel(account)",
+        "protocolProbeModelCandidates(account)",
         "ProtocolMessages",
         "ProtocolProbePositive",
         "ProtocolProbeEndpointNegative"
       ],
-      "rationale": "Native Messages probing owns only the real upstream observation and verdict. The endpoint capability commit is the sole persistence path, while the shared representative text-model owner prevents per-protocol model selection drift."
+      "rationale": "Native Messages probing owns only the real upstream observation and verdict. The endpoint capability commit is the sole persistence path, while the shared bounded representative-model owner prevents per-protocol model selection drift and permits only classified model-specific fallback."
     },
     {
       "path": "backend/internal/service/protocol_routing_context.go",

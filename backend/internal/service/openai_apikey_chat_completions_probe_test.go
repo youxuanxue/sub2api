@@ -11,7 +11,35 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
+
+func TestChatCompletionsProtocolProbeRetriesAnotherMappedModelAfterModelSpecificRejection(t *testing.T) {
+	account := &Account{
+		ID: 7, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeVolcEngine, Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "ark-key",
+			"base_url": "https://ark.cn-beijing.volces.com",
+			"model_mapping": map[string]any{
+				"legacy": "alpha-model",
+				"new":    "beta-model",
+			},
+		},
+	}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		protocolProbeHTTPResponse(http.StatusForbidden, `{"error":{"message":"The model alpha-model is not supported for this endpoint"}}`),
+		protocolProbeHTTPResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"OK"}}]}`),
+	}}
+	svc := protocolRequestBuilderTestService(upstream)
+
+	observation, observed := svc.probeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account)
+
+	require.True(t, observed)
+	require.Equal(t, ProtocolProbePositive, observation.verdict)
+	require.Len(t, upstream.bodies, 2)
+	require.Equal(t, "alpha-model", gjson.GetBytes(upstream.bodies[0], "model").String())
+	require.Equal(t, "beta-model", gjson.GetBytes(upstream.bodies[1], "model").String())
+}
 
 func TestChatCompletionsProtocolProbeUsesNewAPIAdaptorEndpoint(t *testing.T) {
 	account := &Account{

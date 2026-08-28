@@ -54,65 +54,74 @@ func (s *AccountTestService) probeOpenAIAPIKeyChatCompletionsSupport(
 		return protocolProbeObservation{}, false
 	}
 
-	probeModel := selectProtocolProbeModel(account)
-	probeURL := buildOpenAIEndpointURL(normalizedBaseURL, apipath.ChatCompletions)
-	if exactEndpoint, exactErr := protocolExactEndpoint(account, protocolrouter.ProtocolChatCompletions, probeModel); exactErr != nil {
-		logger.LegacyPrintf("service.openai_probe", "chat_completions_resolve_endpoint_failed: account_id=%d err=%v", accountID, exactErr)
-		return protocolProbeObservation{}, false
-	} else if exactEndpoint != "" {
-		probeURL, err = s.validateUpstreamBaseURL(exactEndpoint)
-		if err != nil {
-			logger.LegacyPrintf("service.openai_probe", "chat_completions_invalid_endpoint: account_id=%d endpoint=%q err=%v", accountID, exactEndpoint, err)
-			return protocolProbeObservation{}, false
-		}
-	}
 	probeCtx, cancel := context.WithTimeout(ctx, openaiChatCompletionsProbeTimeout)
 	defer cancel()
-
-	req, err := http.NewRequestWithContext(probeCtx, http.MethodPost, probeURL, bytes.NewReader(openaiChatCompletionsProbePayload(probeModel)))
-	if err != nil {
-		logger.LegacyPrintf("service.openai_probe", "chat_completions_build_request_failed: account_id=%d err=%v", accountID, err)
-		return protocolProbeObservation{}, false
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Accept", "application/json")
-	req = applyProtocolProbeRequestIdentity(req, account, protocolrouter.ProtocolChatCompletions)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.resolveAccountTestTLSProfile(account))
-	if err != nil {
-		logger.LegacyPrintf("service.openai_probe", "chat_completions_request_failed: account_id=%d url=%s err=%v", accountID, probeURL, err)
-		return protocolProbeObservation{}, false
-	}
-	defer func() { _ = resp.Body.Close() }()
-	bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, responsesProbeMaxBodyBytes))
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, responsesProbeMaxBodyBytes))
-	if readErr != nil {
-		logger.LegacyPrintf("service.openai_probe", "chat_completions_read_body_failed: account_id=%d url=%s err=%v", accountID, probeURL, readErr)
-		return protocolProbeObservation{}, false
-	}
+	probeModels := protocolProbeModelCandidates(account)
+	for index, probeModel := range probeModels {
+		probeURL := buildOpenAIEndpointURL(normalizedBaseURL, apipath.ChatCompletions)
+		if exactEndpoint, exactErr := protocolExactEndpoint(account, protocolrouter.ProtocolChatCompletions, probeModel); exactErr != nil {
+			logger.LegacyPrintf("service.openai_probe", "chat_completions_resolve_endpoint_failed: account_id=%d err=%v", accountID, exactErr)
+			return protocolProbeObservation{}, false
+		} else if exactEndpoint != "" {
+			probeURL, err = s.validateUpstreamBaseURL(exactEndpoint)
+			if err != nil {
+				logger.LegacyPrintf("service.openai_probe", "chat_completions_invalid_endpoint: account_id=%d endpoint=%q err=%v", accountID, exactEndpoint, err)
+				return protocolProbeObservation{}, false
+			}
+		}
 
-	verdict := ProtocolProbeInconclusive
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 && gjson.GetBytes(bodyBytes, "choices").IsArray() {
-		verdict = ProtocolProbePositive
-	} else if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
-		verdict = ProtocolProbeEndpointNegative
+		req, requestErr := http.NewRequestWithContext(probeCtx, http.MethodPost, probeURL, bytes.NewReader(openaiChatCompletionsProbePayload(probeModel)))
+		if requestErr != nil {
+			logger.LegacyPrintf("service.openai_probe", "chat_completions_build_request_failed: account_id=%d err=%v", accountID, requestErr)
+			return protocolProbeObservation{}, false
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		req.Header.Set("Accept", "application/json")
+		req = applyProtocolProbeRequestIdentity(req, account, protocolrouter.ProtocolChatCompletions)
+
+		resp, requestErr := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.resolveAccountTestTLSProfile(account))
+		if requestErr != nil {
+			logger.LegacyPrintf("service.openai_probe", "chat_completions_request_failed: account_id=%d url=%s err=%v", accountID, probeURL, requestErr)
+			return protocolProbeObservation{}, false
+		}
+		bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, responsesProbeMaxBodyBytes))
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, responsesProbeMaxBodyBytes))
+		_ = resp.Body.Close()
+		if readErr != nil {
+			logger.LegacyPrintf("service.openai_probe", "chat_completions_read_body_failed: account_id=%d url=%s err=%v", accountID, probeURL, readErr)
+			return protocolProbeObservation{}, false
+		}
+
+		verdict := ProtocolProbeInconclusive
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 && gjson.GetBytes(bodyBytes, "choices").IsArray() {
+			verdict = ProtocolProbePositive
+		} else if protocolProbeModelSpecificHTTPFailure(resp.StatusCode, bodyBytes) {
+			verdict = ProtocolProbeModelSpecific
+		} else if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
+			verdict = ProtocolProbeEndpointNegative
+		}
+		logger.LegacyPrintf(
+			"service.openai_probe",
+			"chat_completions_probe_done: account_id=%d base_url=%s probe_model=%s status=%d verdict=%s",
+			accountID,
+			normalizedBaseURL,
+			probeModel,
+			resp.StatusCode,
+			verdict,
+		)
+		if protocolProbeShouldTryNextModel(account, protocolrouter.ProtocolChatCompletions, probeModel, resp.StatusCode, verdict, index+1 < len(probeModels)) {
+			continue
+		}
+		return protocolProbeObservation{
+			protocol: protocolrouter.ProtocolChatCompletions,
+			verdict:  verdict,
+		}, true
 	}
-	logger.LegacyPrintf(
-		"service.openai_probe",
-		"chat_completions_probe_done: account_id=%d base_url=%s probe_model=%s status=%d verdict=%s",
-		accountID,
-		normalizedBaseURL,
-		probeModel,
-		resp.StatusCode,
-		verdict,
-	)
-	return protocolProbeObservation{
-		protocol: protocolrouter.ProtocolChatCompletions,
-		verdict:  verdict,
-	}, true
+	return protocolProbeObservation{}, false
 }

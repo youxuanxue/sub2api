@@ -386,9 +386,19 @@ The deterministic order requires:
 5. account ID as the final tie-breaker.
 
 The exact production transport, wrapper, endpoint builder, routing headers,
-and a real resolved upstream model are reused. Alternate witnesses may be tried
-only after an inconclusive account-specific failure and stop at one
-compile-time `maxWitnessAttempts` policy owned by the coordinator.
+and real resolved upstream models are reused. Within one witness and protocol,
+the historical first representative model stays first; a deterministic,
+deduplicated candidate set derived from concrete text `model_mapping` values is
+capped by the compile-time `protocolProbeMaxModels` policy. The probe advances to the
+next model only after model-specific evidence. Authentication, rate limit,
+server, network, timeout, and malformed-response failures do not fan out across
+models. A provider-owned relay profile may nominate one canonical representative
+from its existing model SSOT; CloudWise Messages may try that representative
+after its known model-routing 401, while a 401 from that representative remains
+inconclusive. Alternate witnesses may be tried only after an inconclusive
+account-specific failure and stop at one compile-time `maxWitnessAttempts`
+policy owned by the coordinator. All model candidates within one witness share
+that protocol attempt's existing timeout.
 
 ### 7.3 Verdicts
 
@@ -406,7 +416,9 @@ Only `positive` adds a protocol. Only `endpoint_negative` removes it.
 `model_specific` and `inconclusive` preserve existing membership. Raw 401/403,
 429, 5xx, timeout, network error, or generic 404/405 never clears a shared
 capability because it may describe the witness, model, project, or transient
-service state rather than endpoint protocol support.
+service state rather than endpoint protocol support. A classified provider
+model-routing response may select another bounded model candidate, but it still
+cannot remove protocol membership.
 
 If the same key obtains both conclusive positive and conclusive endpoint
 negative evidence for one protocol, the protocol is removed from routing and

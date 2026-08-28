@@ -1,13 +1,74 @@
 package service
 
 import (
+	"context"
+	"net/http"
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
+
+func TestResponsesProtocolProbeRetriesAnotherMappedModelAfterModelSpecificRejection(t *testing.T) {
+	account := &Account{
+		ID: 7, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeVolcEngine, Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "ark-key",
+			"base_url": "https://ark.cn-beijing.volces.com",
+			"model_mapping": map[string]any{
+				"legacy-lite":      "doubao-1-5-lite-32k-250115",
+				"legacy-pro":       "doubao-1-5-pro-32k-250115",
+				"legacy-character": "doubao-1-5-pro-32k-character-250715",
+				"legacy-vision":    "doubao-1-5-vision-pro-32k-250115",
+				"seed":             "doubao-seed-1-6-250615",
+			},
+		},
+	}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		protocolProbeHTTPResponse(http.StatusForbidden, `{"error":{"message":"The model doubao-1-5-lite-32k-250115 does not support Responses API or you do not have permission to access it"}}`),
+		protocolProbeHTTPResponse(http.StatusForbidden, `{"error":{"message":"The model doubao-1-5-pro-32k-250115 does not support Responses API"}}`),
+		protocolProbeHTTPResponse(http.StatusForbidden, `{"error":{"message":"The model doubao-1-5-pro-32k-character-250715 does not support Responses API"}}`),
+		protocolProbeHTTPResponse(http.StatusForbidden, `{"error":{"message":"The model doubao-1-5-vision-pro-32k-250115 does not support Responses API"}}`),
+		protocolProbeHTTPResponse(http.StatusOK, `{"status":"completed","output":[{"type":"function_call","name":"probe_ping"}]}`),
+	}}
+	svc := protocolRequestBuilderTestService(upstream)
+
+	observation, observed := svc.probeOpenAIAPIKeyResponsesSupport(context.Background(), account)
+
+	require.True(t, observed)
+	require.Equal(t, ProtocolProbePositive, observation.verdict)
+	require.Len(t, upstream.bodies, 5)
+	require.Equal(t, "doubao-1-5-lite-32k-250115", gjson.GetBytes(upstream.bodies[0], "model").String())
+	require.Equal(t, "doubao-seed-1-6-250615", gjson.GetBytes(upstream.bodies[4], "model").String())
+}
+
+func TestResponsesProtocolProbeDoesNotFanOutTransientUpstreamFailure(t *testing.T) {
+	account := &Account{
+		ID: 76, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "relay-key",
+			"base_url": "https://relay.example/v1",
+			"model_mapping": map[string]any{
+				"first":  "alpha-model",
+				"second": "beta-model",
+			},
+		},
+	}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		protocolProbeHTTPResponse(http.StatusServiceUnavailable, `{"error":{"message":"No available accounts"}}`),
+		protocolProbeHTTPResponse(http.StatusOK, `{"status":"completed","output":[{"type":"function_call","name":"probe_ping"}]}`),
+	}}
+	svc := protocolRequestBuilderTestService(upstream)
+
+	observation, observed := svc.probeOpenAIAPIKeyResponsesSupport(context.Background(), account)
+
+	require.True(t, observed)
+	require.Equal(t, ProtocolProbeInconclusive, observation.verdict)
+	require.Len(t, upstream.bodies, 1)
+}
 
 func TestDecideResponsesProbeSupport(t *testing.T) {
 	fnCall := []byte(`{"output":[{"type":"reasoning"},{"type":"function_call","name":"probe_ping"}]}`)
