@@ -585,6 +585,28 @@ class BlueGreenRenderTest(unittest.TestCase):
             rollback_reload_failed.stdout,
         )
 
+        target_reload_restored = _run_commit_cutover_record_failure(
+            remote,
+            target_reload_fails=True,
+        )
+        self.assertEqual(target_reload_restored.returncode, 0, msg=target_reload_restored.stderr)
+        self.assertIn(
+            "rc=1 committed=0 live=old-route active=blue",
+            target_reload_restored.stdout,
+        )
+
+        restore_reload_failed = _run_commit_cutover_record_failure(
+            remote,
+            target_reload_fails=True,
+            rollback_reload_fails=True,
+            errexit=True,
+        )
+        self.assertNotEqual(restore_reload_failed.returncode, 0)
+        self.assertIn(
+            "rc=1 committed=1 live=old-route active=<missing>",
+            restore_reload_failed.stdout,
+        )
+
         restore_write_failed = _run_commit_cutover_record_failure(
             remote,
             target_reload_fails=True,

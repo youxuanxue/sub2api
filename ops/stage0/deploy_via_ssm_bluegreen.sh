@@ -756,9 +756,8 @@ commit_cutover() {
   fi
   sudo rm -f "${tmp}" >/dev/null 2>&1 || true
   if ! sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile; then
-    if sudo sh -c "cat '${backup}' > '${LIVE_CADDY}'"; then
-      sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile || true
-    else
+    if ! sudo sh -c "cat '${backup}' > '${LIVE_CADDY}'" \
+      || ! sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile; then
       preserve_unconfirmed_reload \
         "target Caddy reload could not be confirmed"
     fi
