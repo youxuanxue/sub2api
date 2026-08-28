@@ -81,7 +81,7 @@ bash ops/lightsail/rotate-static-ip.sh <edge_id> --apply --reason 'upstream-api-
 4. `aws lightsail get-static-ip` 读出 NEW ip
 5. `aws ssm put-parameter` 写 `${ssm_prefix}/public_ip = <new_ip>`
 6. `aws lightsail release-static-ip` 旧名字（**该 IP 进入 AWS pool**）
-7. `record-polluted-ip.py append` 把旧 IP 写入 exclusion registry（**记得 commit JSON + 跑 `scripts/edge-ip-status.sh --check`**）
+7. `record-polluted-ip.py append` 把旧 IP 写入 exclusion registry（**记得更新 matrix `static_ip_name` / `porkbun_a_ipv4`、commit JSON + 跑 `scripts/edge-ip-status.sh --check`**）
 
 输出最后会打印 NEW ip 和 DNS / smoke 提示。
 
@@ -91,7 +91,7 @@ bash ops/lightsail/rotate-static-ip.sh <edge_id> --apply --reason 'upstream-api-
 
 ## 3) DNS 与 Caddy
 
-去 Porkbun 把 `api-<edge_id>.tokenkey.dev` 的 A 记录改成 NEW ip。等 `dig +short @1.1.1.1` 指向 NEW ip（常见约 1 分钟）。
+去 Porkbun 把 `api-<edge_id>.tokenkey.dev` 的 A 记录改成 NEW ip。等 `dig +short @1.1.1.1` 指向 NEW ip（常见约 1 分钟）。Prod 走 AWS VPC DNS（`10.0.0.2`），可能在 Porkbun TTL 内仍解析旧 IP，表现为 `/api/v1/edge/accounts` `context deadline exceeded`；公网 `/health` 绿不能单独当作 prod 已切过去。
 
 IP 变更后重启 Caddy 以刷新 ACME / 绑定：
 

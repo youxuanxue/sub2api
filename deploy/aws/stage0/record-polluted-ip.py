@@ -142,16 +142,20 @@ def main() -> int:
     append.add_argument("--edge-id", default="")
     append.add_argument("--platform", choices=("ec2", "lightsail"), default="")
     append.add_argument("--dry-run", action="store_true")
+    # Same flag after the subcommand must not clobber the parent dest.
+    append.add_argument("--registry", type=Path, dest="registry_after", default=None)
 
     check = sub.add_parser("is-excluded", help="Exit 0 when ip+region is already excluded")
     check.add_argument("--ip", required=True)
     check.add_argument("--region", required=True)
+    check.add_argument("--registry", type=Path, dest="registry_after", default=None)
 
     args = parser.parse_args()
+    registry = args.registry_after if args.registry_after is not None else args.registry
 
     if args.command == "is-excluded":
         validate_ip(args.ip)
-        data = load_registry(args.registry)
+        data = load_registry(registry)
         if args.ip in excluded_ips_for_region(data, args.region):
             return 0
         return 1
@@ -162,7 +166,7 @@ def main() -> int:
         notes=args.notes,
         edge_id=args.edge_id,
         platform=args.platform,
-        registry_path=args.registry,
+        registry_path=registry,
         dry_run=args.dry_run,
     )
     return 0
