@@ -279,7 +279,7 @@ jobs:
           prefix: integration-nodwarf-v2
           refresh_daily: "true"
           build_cache_path: ${{ github.workspace }}/.cache/go-build-integration
-          save_build_cache: "false"
+          save_caches: "false"
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)

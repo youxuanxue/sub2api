@@ -405,7 +405,7 @@ class BackendCIRoutingTest(unittest.TestCase):
             "true",
         )
         self.assertEqual(
-            integration_cache["with"]["save_build_cache"],
+            integration_cache["with"]["save_caches"],
             "false",
         )
         self.assertEqual(

@@ -12,29 +12,27 @@ import yaml
 ACTION = Path(__file__).resolve().parents[2] / ".github" / "actions" / "go-rolling-cache" / "action.yml"
 MAIN_WRITER_IF = "github.event_name == 'push' && github.ref == 'refs/heads/main'"
 NON_MAIN_IF = "github.event_name != 'push' || github.ref != 'refs/heads/main'"
-RESTORE_ONLY_IF = "inputs.save_build_cache != 'true'"
+RESTORE_ONLY_IF = "inputs.save_caches != 'true'"
 
 
 class GoRollingCachePolicyTest(unittest.TestCase):
     def test_only_main_push_steps_can_save_caches(self) -> None:
         action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
-        self.assertEqual(action["inputs"]["save_build_cache"]["default"], "true")
+        self.assertEqual(action["inputs"]["save_caches"]["default"], "true")
         steps = action["runs"]["steps"]
         saving = [step for step in steps if step.get("uses") == "actions/cache@v6"]
         self.assertEqual(len(saving), 3)
         self.assertTrue(all(MAIN_WRITER_IF in step.get("if", "") for step in saving))
-        build_saver = next(
-            step
-            for step in saving
-            if step.get("with", {}).get("path") == "${{ inputs.build_cache_path }}"
+        self.assertTrue(
+            all("inputs.save_caches == 'true'" in step.get("if", "") for step in saving)
         )
-        self.assertIn("inputs.save_build_cache == 'true'", build_saver["if"])
 
-    def test_non_main_events_restore_but_never_save_all_cache_layers(self) -> None:
+    def test_non_main_or_restore_only_callers_never_save_any_cache_layer(self) -> None:
         steps = yaml.safe_load(ACTION.read_text(encoding="utf-8"))["runs"]["steps"]
         restore_only = [step for step in steps if step.get("uses") == "actions/cache/restore@v6"]
         self.assertEqual(len(restore_only), 3)
         self.assertTrue(all(NON_MAIN_IF in step.get("if", "") for step in restore_only))
+        self.assertTrue(all(RESTORE_ONLY_IF in step.get("if", "") for step in restore_only))
         restored_paths = {step["with"]["path"] for step in restore_only}
         self.assertEqual(
             restored_paths,
@@ -44,13 +42,6 @@ class GoRollingCachePolicyTest(unittest.TestCase):
                 "~/.cache/golangci-lint",
             },
         )
-        build_restore = next(
-            step
-            for step in restore_only
-            if step.get("with", {}).get("path") == "${{ inputs.build_cache_path }}"
-        )
-        self.assertIn(RESTORE_ONLY_IF, build_restore["if"])
-
     def test_golangci_cache_is_opt_in_and_rolls_from_main(self) -> None:
         action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
         self.assertEqual(action["inputs"]["golangci_cache"]["default"], "false")
