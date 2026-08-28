@@ -220,7 +220,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Test failures retain file:line stacks without DWARF. Apply the flag to
-      # every Go command in this job; main retains Unit build objects once daily.
+      # every Go command in this job; main retains Unit build objects for each
+      # distinct backend tree so same-day merges cannot pin a stale snapshot.
       GOFLAGS: -gcflags=all=-dwarf=false
     steps:
       - uses: actions/checkout@v6
@@ -236,15 +237,16 @@ jobs:
           cache: false
       - uses: ./.github/actions/go-rolling-cache
         with:
-          # Main writes at most one Unit snapshot per UTC day. Before that
-          # snapshot exists, restore the previous Unit namespace with identical
-          # build tags and flags. Manual A/B runs use an isolated namespace;
-          # ordinary PR runs remain restore-only by action policy.
-          prefix: unit-nodwarf-v2
+          # Main writes one Unit snapshot per distinct backend tree. Content
+          # keys let a same-day backend merge restore the latest compatible
+          # snapshot, compile the delta, and persist the refreshed objects.
+          # Manual A/B runs use an isolated namespace; ordinary PR runs remain
+          # restore-only by action policy.
+          prefix: unit-nodwarf-v3
           fallback_prefix: unit-nodwarf-v1
-          refresh_daily: "true"
+          refresh_on_backend_change: "true"
           save_caches: "true"
-          benchmark_prefix: unit-nodwarf-v2-bench
+          benchmark_prefix: unit-nodwarf-v3-bench
           benchmark_build_cache_write: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'unit-cache-benchmark' && 'true' || 'false' }}
       - name: Verify Go version
         run: |

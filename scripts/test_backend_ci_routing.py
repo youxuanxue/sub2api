@@ -337,10 +337,10 @@ class BackendCIRoutingTest(unittest.TestCase):
             for step in self.jobs["test-unit"]["steps"]
             if step.get("uses") == "./.github/actions/go-rolling-cache"
         )
-        self.assertEqual(unit_cache["with"]["prefix"], "unit-nodwarf-v2")
+        self.assertEqual(unit_cache["with"]["prefix"], "unit-nodwarf-v3")
         self.assertEqual(
             unit_cache["with"]["benchmark_prefix"],
-            "unit-nodwarf-v2-bench",
+            "unit-nodwarf-v3-bench",
         )
         self.assertEqual(
             unit_cache["with"]["benchmark_build_cache_write"],
@@ -412,7 +412,7 @@ class BackendCIRoutingTest(unittest.TestCase):
     def test_heavy_go_jobs_use_nodwarf_build_cache_strategy(self) -> None:
         expected_prefixes = {
             "preflight": "preflight-nodwarf-v1",
-            "test-unit": "unit-nodwarf-v2",
+            "test-unit": "unit-nodwarf-v3",
             "test-integration": "integration-nodwarf-v2",
             "golangci-lint": "lint-nodwarf-v1",
             "backend-security": "security-nodwarf-v1",
@@ -463,16 +463,17 @@ class BackendCIRoutingTest(unittest.TestCase):
         )
         self.assertEqual(
             unit_cache["with"]["prefix"],
-            "unit-nodwarf-v2",
+            "unit-nodwarf-v3",
         )
         self.assertEqual(
             unit_cache["with"]["fallback_prefix"],
             "unit-nodwarf-v1",
         )
         self.assertEqual(
-            unit_cache["with"]["refresh_daily"],
+            unit_cache["with"]["refresh_on_backend_change"],
             "true",
         )
+        self.assertNotIn("refresh_daily", unit_cache["with"])
         self.assertNotIn("build_cache_path", unit_cache["with"])
         self.assertEqual(
             unit_cache["with"]["save_caches"],
