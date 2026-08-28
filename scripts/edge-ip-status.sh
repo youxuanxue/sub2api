@@ -7,20 +7,24 @@
 # Target: docs/deploy/tokenkey-edge-ip-history.md
 #
 # Usage:
-#   scripts/edge-ip-status.sh             # print polluted markdown block
-#   scripts/edge-ip-status.sh --json      # raw JSON
+#   scripts/edge-ip-status.sh             # print current + polluted markdown blocks
+#   scripts/edge-ip-status.sh --json      # raw JSON (current + polluted)
 #   scripts/edge-ip-status.sh --check     # exit non-zero if doc blocks drifted
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-POLLUTED="${REPO_ROOT}/deploy/aws/stage0/edge-polluted-ips.json"
-MATRIX="${REPO_ROOT}/deploy/aws/lightsail/edge-targets-lightsail.json"
-DOC="${REPO_ROOT}/docs/deploy/tokenkey-edge-ip-history.md"
+POLLUTED="${EDGE_IP_STATUS_POLLUTED:-${REPO_ROOT}/deploy/aws/stage0/edge-polluted-ips.json}"
+MATRIX="${EDGE_IP_STATUS_MATRIX:-${REPO_ROOT}/deploy/aws/lightsail/edge-targets-lightsail.json}"
+DOC="${EDGE_IP_STATUS_DOC:-${REPO_ROOT}/docs/deploy/tokenkey-edge-ip-history.md}"
 MODE="${1:---markdown}"
 
 if [ ! -f "$POLLUTED" ]; then
   echo "missing $POLLUTED" >&2
+  exit 1
+fi
+if [ ! -f "$MATRIX" ]; then
+  echo "missing $MATRIX" >&2
   exit 1
 fi
 
@@ -40,10 +44,6 @@ emit_polluted_block() {
 }
 
 emit_current_block() {
-  if [ ! -f "$MATRIX" ]; then
-    echo "missing $MATRIX" >&2
-    exit 1
-  fi
   echo "<!-- BEGIN edge-ip-status:current (generated from deploy/aws/lightsail/edge-targets-lightsail.json) -->"
   echo "| Edge | Region | Domain | Static IP name | IPv4 |"
   echo "| --- | --- | --- | --- | --- |"
@@ -85,10 +85,14 @@ check_block() {
 
 case "$MODE" in
   --markdown)
+    emit_current_block
+    echo
     emit_polluted_block
     ;;
   --json)
-    jq -nc --argjson polluted "$polluted_json" '{polluted:$polluted}'
+    jq -nc --argjson polluted "$polluted_json" --argjson current "$(
+      jq '[.targets | to_entries | sort_by(.key)[] | select(.value.deployable == true) | {edge:.key, region:.value.lightsail_region, domain:.value.domain, static_ip_name:.value.static_ip_name, ipv4:(.value.porkbun_a_ipv4 // "")}]' "$MATRIX"
+    )" '{current:$current, polluted:$polluted}'
     ;;
   --check)
     if [ ! -f "$DOC" ]; then

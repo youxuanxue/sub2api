@@ -6,7 +6,7 @@ retired egress addresses. Do not bind excluded addresses to any edge again.
 - **Live IPs:** [`deploy/aws/lightsail/edge-targets-lightsail.json`](../../deploy/aws/lightsail/edge-targets-lightsail.json) (`porkbun_a_ipv4` / `static_ip_name`)
 - **Exclusion registry:** [`deploy/aws/stage0/edge-polluted-ips.json`](../../deploy/aws/stage0/edge-polluted-ips.json)
 - **Enforcement:** [`deploy/aws/stage0/record-polluted-ip.py`](../../deploy/aws/stage0/record-polluted-ip.py) + [`ops/lightsail/rotate-static-ip.sh`](../../ops/lightsail/rotate-static-ip.sh)
-- **Regenerate tables:** `scripts/edge-ip-status.sh --markdown` (polluted) and `--check` (polluted + current)
+- **Regenerate tables:** `scripts/edge-ip-status.sh --markdown` (current + polluted); `--check` fails if either block drifted
 
 Rotation runbook: [`.cursor/skills/tokenkey-stage0-edge-lightsail-ip-rotation/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-ip-rotation/SKILL.md).
 
@@ -24,15 +24,6 @@ Prod talks to edges by hostname (`api-<id>.tokenkey.dev`). After an A-record cha
 | `us5` | us-west-2 | `api-us5.tokenkey.dev` | `vless-or-fresh-1-rot-20260828T115642Z` | `16.144.175.131` |
 | `us6` | us-east-2 | `api-us6.tokenkey.dev` | `StaticIp-oh-3-rot-20260828T121745Z` | `3.147.98.112` |
 <!-- END edge-ip-status:current -->
-
-Rotated 2026-08-28 (instances unchanged; old IPs released into the polluted table):
-
-| Edge | Previous IPv4 |
-| --- | --- |
-| us3 | `18.220.195.44` |
-| us4 | `35.81.204.18` |
-| us5 | `32.185.163.163` |
-| us6 | `3.148.79.145` |
 
 ## Polluted IPs (do not re-use)
 
