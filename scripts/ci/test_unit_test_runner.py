@@ -307,6 +307,46 @@ class UnitTestRunnerTest(unittest.TestCase):
         )
         self.assertGreaterEqual(compile_started, discovery_finished, events)
 
+    def test_exact_cache_hit_overlaps_discovery_compile_and_other_packages(self) -> None:
+        with self._fake_go(
+            ["TestOne", "TestTwo"],
+            compile_delay=0.75,
+            discovery_delay=0.25,
+        ) as fixture:
+            result = self._run(
+                fixture,
+                "--min-shards",
+                "2",
+                build_cache_hit=True,
+            )
+            events = self._events(fixture.events)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        compile_started = next(
+            event["at"]
+            for event in events
+            if event["kind"] == "go" and "-c" in event["args"]
+        )
+        compile_finished = next(
+            event["at"]
+            for event in events
+            if event["kind"] == "go-finished" and "-c" in event["args"]
+        )
+        discovery_finished = next(
+            event["at"]
+            for event in events
+            if event["kind"] == "go-finished"
+            and event["args"]
+            and event["args"][0] == "run"
+        )
+        other_started = next(
+            event["at"]
+            for event in events
+            if event["kind"] == "go" and "./internal/other" in event["args"]
+        )
+        self.assertLess(compile_started, discovery_finished, events)
+        self.assertLess(other_started, compile_finished, events)
+
     def test_discovery_failure_stops_before_service_compile(self) -> None:
         with self._fake_go(
             ["TestOne"],
@@ -333,7 +373,12 @@ class UnitTestRunnerTest(unittest.TestCase):
         self.assertRegex(result.stdout, r"STAGE service-compile \([0-9.]+s\)")
         self.assertRegex(result.stdout, r"STAGE registry-check \([0-9.]+s\)")
 
-    def _run(self, fixture: "FakeGoFixture", *args: str) -> subprocess.CompletedProcess[str]:
+    def _run(
+        self,
+        fixture: "FakeGoFixture",
+        *args: str,
+        build_cache_hit: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["PATH"] = f"{fixture.bin_dir}{os.pathsep}{env['PATH']}"
         env["FAKE_GO_EVENTS"] = str(fixture.events)
@@ -356,6 +401,8 @@ class UnitTestRunnerTest(unittest.TestCase):
             env["FAKE_GO_FAIL_DISCOVERY"] = "1"
         if fixture.compile_child:
             env["FAKE_GO_COMPILE_CHILD"] = "1"
+        if build_cache_hit:
+            env["UNIT_TEST_BUILD_CACHE_HIT"] = "true"
         return subprocess.run(
             ["python3", str(SCRIPT), "--root", str(fixture.root), *args],
             check=False,
