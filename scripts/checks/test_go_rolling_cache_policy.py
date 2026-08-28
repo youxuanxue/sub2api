@@ -13,18 +13,44 @@ ACTION = Path(__file__).resolve().parents[2] / ".github" / "actions" / "go-rolli
 MAIN_WRITER_IF = "github.event_name == 'push' && github.ref == 'refs/heads/main'"
 NON_MAIN_IF = "github.event_name != 'push' || github.ref != 'refs/heads/main'"
 RESTORE_ONLY_IF = "inputs.save_caches != 'true'"
+BENCHMARK_WRITER_IF = "github.event_name == 'workflow_dispatch'"
 
 
 class GoRollingCachePolicyTest(unittest.TestCase):
-    def test_only_main_push_steps_can_save_caches(self) -> None:
+    def test_only_main_push_or_explicit_benchmark_steps_can_save_caches(self) -> None:
         action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
         self.assertEqual(action["inputs"]["save_caches"]["default"], "true")
+        self.assertEqual(action["inputs"]["benchmark_build_cache_write"]["default"], "false")
+        self.assertEqual(action["inputs"]["benchmark_prefix"]["default"], "")
         steps = action["runs"]["steps"]
         saving = [step for step in steps if step.get("uses") == "actions/cache@v6"]
-        self.assertEqual(len(saving), 3)
-        self.assertTrue(all(MAIN_WRITER_IF in step.get("if", "") for step in saving))
+        self.assertEqual(len(saving), 4)
+
+        benchmark_writers = [
+            step
+            for step in saving
+            if "inputs.benchmark_build_cache_write == 'true'" in step.get("if", "")
+        ]
+        self.assertEqual(len(benchmark_writers), 1)
+        benchmark_writer = benchmark_writers[0]
+        self.assertIn(BENCHMARK_WRITER_IF, benchmark_writer["if"])
+        self.assertIn("github.ref != 'refs/heads/main'", benchmark_writer["if"])
+        self.assertIn("inputs.benchmark_prefix != ''", benchmark_writer["if"])
+        self.assertEqual(
+            benchmark_writer["with"]["path"],
+            "${{ inputs.build_cache_path }}",
+        )
+        self.assertIn("inputs.benchmark_prefix", benchmark_writer["with"]["key"])
+
+        main_writers = [step for step in saving if step is not benchmark_writer]
         self.assertTrue(
-            all("inputs.save_caches == 'true'" in step.get("if", "") for step in saving)
+            all(MAIN_WRITER_IF in step.get("if", "") for step in main_writers)
+        )
+        self.assertTrue(
+            all(
+                "inputs.save_caches == 'true'" in step.get("if", "")
+                for step in main_writers
+            )
         )
 
     def test_non_main_or_restore_only_callers_never_save_any_cache_layer(self) -> None:
@@ -33,6 +59,15 @@ class GoRollingCachePolicyTest(unittest.TestCase):
         self.assertEqual(len(restore_only), 3)
         self.assertTrue(all(NON_MAIN_IF in step.get("if", "") for step in restore_only))
         self.assertTrue(all(RESTORE_ONLY_IF in step.get("if", "") for step in restore_only))
+        build_restore = next(
+            step
+            for step in restore_only
+            if step["with"]["path"] == "${{ inputs.build_cache_path }}"
+        )
+        self.assertIn(
+            "inputs.benchmark_build_cache_write != 'true'",
+            build_restore["if"],
+        )
         restored_paths = {step["with"]["path"] for step in restore_only}
         self.assertEqual(
             restored_paths,
@@ -42,6 +77,26 @@ class GoRollingCachePolicyTest(unittest.TestCase):
                 "~/.cache/golangci-lint",
             },
         )
+
+    def test_ineligible_benchmark_contexts_keep_restore_only_build_cache(self) -> None:
+        steps = yaml.safe_load(ACTION.read_text(encoding="utf-8"))["runs"]["steps"]
+        build_restore = next(
+            step
+            for step in steps
+            if step.get("uses") == "actions/cache/restore@v6"
+            and step["with"]["path"] == "${{ inputs.build_cache_path }}"
+        )
+
+        condition = build_restore["if"]
+        for fallback_clause in (
+            "github.event_name != 'workflow_dispatch'",
+            "github.ref == 'refs/heads/main'",
+            "inputs.benchmark_build_cache_write != 'true'",
+            "inputs.benchmark_prefix == ''",
+        ):
+            with self.subTest(clause=fallback_clause):
+                self.assertIn(fallback_clause, condition)
+
     def test_golangci_cache_is_opt_in_and_rolls_from_main(self) -> None:
         action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
         self.assertEqual(action["inputs"]["golangci_cache"]["default"], "false")
@@ -61,6 +116,7 @@ class GoRollingCachePolicyTest(unittest.TestCase):
 
     def test_build_caches_support_daily_refresh_without_changing_other_callers(self) -> None:
         action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
+        self.assertEqual(action["inputs"]["fallback_prefix"]["default"], "")
         self.assertEqual(action["inputs"]["refresh_on_backend_change"]["default"], "false")
         self.assertEqual(action["inputs"]["refresh_daily"]["default"], "false")
         self.assertEqual(
@@ -77,7 +133,7 @@ class GoRollingCachePolicyTest(unittest.TestCase):
             for step in steps
             if step.get("with", {}).get("path") == "${{ inputs.build_cache_path }}"
         ]
-        self.assertEqual(len(build_steps), 2)
+        self.assertEqual(len(build_steps), 3)
         expected_key = (
             "${{ runner.os }}-gobuild-${{ inputs.prefix }}-"
             "${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-"
@@ -90,16 +146,37 @@ class GoRollingCachePolicyTest(unittest.TestCase):
             with self.subTest(step=step["name"]):
                 cache_config = step["with"]
                 key = cache_config["key"]
-                self.assertEqual(key, expected_key)
+                if "benchmark writer" in step["name"]:
+                    self.assertEqual(
+                        key,
+                        expected_key.replace("inputs.prefix", "inputs.benchmark_prefix"),
+                    )
+                else:
+                    self.assertEqual(key, expected_key)
                 self.assertNotIn("github.run_id", key)
 
                 restore_keys = cache_config["restore-keys"].splitlines()
+                expected_restore_prefix = (
+                    "inputs.benchmark_prefix"
+                    if "benchmark writer" in step["name"]
+                    else "inputs.prefix"
+                )
                 self.assertEqual(
                     restore_keys[0],
-                    "${{ runner.os }}-gobuild-${{ inputs.prefix }}-"
-                    "${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-",
+                    "${{ runner.os }}-gobuild-${{ "
+                    + expected_restore_prefix
+                    + " }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-",
                 )
                 self.assertNotIn("github.run_id", str(cache_config))
+
+                fallback_keys = [
+                    key for key in restore_keys if "inputs.fallback_prefix" in key
+                ]
+                self.assertEqual(len(fallback_keys), 2)
+                self.assertTrue(
+                    all("format(" in key for key in fallback_keys),
+                    fallback_keys,
+                )
 
 
 if __name__ == "__main__":

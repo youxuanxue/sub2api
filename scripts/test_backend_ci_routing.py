@@ -19,7 +19,8 @@ FRONTEND_PACKAGE = Path(__file__).resolve().parents[1] / "frontend" / "package.j
 
 class BackendCIRoutingTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        self.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.jobs = self.workflow["jobs"]
         self.frontend_scripts = json.loads(
             FRONTEND_PACKAGE.read_text(encoding="utf-8")
         )["scripts"]
@@ -313,6 +314,44 @@ class BackendCIRoutingTest(unittest.TestCase):
 
         self.assertEqual(unit_step["env"]["UNIT_TEST_SERVICE_SHARD"], "1")
 
+    def test_unit_cache_benchmark_is_manual_isolated_and_opt_in(self) -> None:
+        triggers = self.workflow.get("on", self.workflow.get(True))
+        suite = triggers["workflow_dispatch"]["inputs"]["suite"]
+        self.assertIn("unit-cache-benchmark", suite["options"])
+
+        unit_job_condition = self.jobs["test-unit"]["if"]
+        self.assertIn("inputs.suite == 'unit-cache-benchmark'", unit_job_condition)
+        self.assertIn(
+            "inputs.suite != 'unit-cache-benchmark'",
+            self.jobs["shell"]["if"],
+        )
+        self.assertIn(
+            "inputs.suite != 'unit-cache-benchmark'",
+            self.jobs["ssot-delta-gate"]["if"],
+        )
+        for job_name in ("preflight", "test-integration", "golangci-lint"):
+            with self.subTest(job=job_name):
+                self.assertNotIn(
+                    "unit-cache-benchmark",
+                    self.jobs[job_name]["if"],
+                )
+
+        unit_cache = next(
+            step
+            for step in self.jobs["test-unit"]["steps"]
+            if step.get("uses") == "./.github/actions/go-rolling-cache"
+        )
+        self.assertEqual(unit_cache["with"]["prefix"], "unit-nodwarf-v3")
+        self.assertEqual(
+            unit_cache["with"]["benchmark_prefix"],
+            "unit-nodwarf-v3-bench",
+        )
+        self.assertEqual(
+            unit_cache["with"]["benchmark_build_cache_write"],
+            "${{ github.event_name == 'workflow_dispatch' && "
+            "inputs.suite == 'unit-cache-benchmark' && 'true' || 'false' }}",
+        )
+
     def test_unit_job_omits_dwarf_from_test_build_objects(self) -> None:
         self.assertEqual(
             self.jobs["test-unit"]["env"]["GOFLAGS"],
@@ -374,10 +413,10 @@ class BackendCIRoutingTest(unittest.TestCase):
             ]
         )
 
-    def test_heavy_go_jobs_use_nodwarf_build_cache_namespaces(self) -> None:
+    def test_heavy_go_jobs_use_nodwarf_build_cache_strategy(self) -> None:
         expected_prefixes = {
             "preflight": "preflight-nodwarf-v1",
-            "test-unit": "unit-nodwarf-v1",
+            "test-unit": "unit-nodwarf-v3",
             "test-integration": "integration-nodwarf-v2",
             "golangci-lint": "lint-nodwarf-v1",
             "backend-security": "security-nodwarf-v1",
@@ -421,7 +460,32 @@ class BackendCIRoutingTest(unittest.TestCase):
             integration_cache.get("with", {}),
         )
 
-        for job_name in ("preflight", "test-unit", "golangci-lint", "backend-security"):
+        unit_cache = next(
+            step
+            for step in self.jobs["test-unit"]["steps"]
+            if step.get("uses") == "./.github/actions/go-rolling-cache"
+        )
+        self.assertEqual(
+            unit_cache["with"]["prefix"],
+            "unit-nodwarf-v3",
+        )
+        self.assertEqual(
+            unit_cache["with"]["fallback_prefix"],
+            "unit-nodwarf-v1",
+        )
+        self.assertEqual(
+            unit_cache["with"]["refresh_on_backend_change"],
+            "true",
+        )
+        self.assertNotIn("refresh_daily", unit_cache["with"])
+        self.assertNotIn("build_cache_path", unit_cache["with"])
+        self.assertEqual(
+            unit_cache["with"]["save_caches"],
+            "true",
+        )
+        self.assertNotIn("GOCACHE", self.jobs["test-unit"]["env"])
+
+        for job_name in ("preflight", "golangci-lint", "backend-security"):
             cache_step = next(
                 step
                 for step in self.jobs[job_name]["steps"]
