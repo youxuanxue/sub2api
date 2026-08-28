@@ -20,25 +20,24 @@ alwaysApply: true
 └── .git/hooks/{pre-commit,commit-msg} ← install-hooks.sh 安装；pre-commit 按
                                         scripts/preflight.sh
                                         → dev-rules/templates/preflight.sh fallback；
-                                        commit-msg 直跑 token 类检查（高风险锚点、
-                                        契约删除公告）——唯一同时知道 staged paths
-                                        + 待提交 message 的本地阶段，token 缺失
-                                        在此硬拦截
+                                        commit-msg 直跑高风险审批锚点检查——唯一同时
+                                        知道 staged paths + 待提交 message 的本地阶段，
+                                        token 缺失在此硬拦截
 
-家目录消费端（symlink，由 sync.sh 维护）：
+家目录消费端（由 `sync.sh` 维护；除 additive registry 外为 symlink）：
 ~/.cursor/rules/      → dev-rules/rules/
-~/.cursor/skills      → dev-rules/.cursor/skills（通常再指向 agent-skills）
+~/.cursor/skills      ← additive registry（仅 dev-rules-owned skill links 指向配置的 agent-skills；保留其它 owner 条目）
 ~/.claude/commands/   → dev-rules/commands/
 ~/.claude/CLAUDE.md   → dev-rules/global/CLAUDE.md
 ~/.claude/skills      → ~/.cursor/skills
 ~/.local/bin/<name>   → dev-rules/global/bin/<name>（CLI launcher；secret 留本机 ~/.claude/*.json 不入库）
 ~/.codex/AGENTS.md    → dev-rules/global/CLAUDE.md（Codex 与 Claude 同一宪法）
-~/.codex/skills/<name>→ ~/.cursor/skills/<name>（逐个叠加，不动 Codex 自带 .system/default.rules）
+~/.codex/skills/<name>→ 配置的 agent-skills/<name>（逐个叠加，只维护 dev-rules-owned links，不动 Codex 自带 .system/default.rules）
 ~/.gemini/antigravity-cli/AGENTS.md    → dev-rules/global/CLAUDE.md（Antigravity 与 Claude/Codex 同一宪法）
-~/.gemini/antigravity-cli/skills/<name>→ ~/.cursor/skills/<name>（逐个叠加，不动 Antigravity 自带 builtin）
+~/.gemini/antigravity-cli/skills/<name>→ 配置的 agent-skills/<name>（逐个叠加，只维护 dev-rules-owned links，不动 Antigravity 自带 builtin）
 ```
 
-Codex 消费端要点：Codex 不读 `.cursor/rules/*.mdc`，行为规则经 `AGENTS.md` 的 dev-rules 受管块**指针化**到达（宪法 + 规则索引 + 技能索引 + 全局工具）；`~/.codex/rules/` 是 Codex 自己的命令审批策略（Starlark `.rules`），**dev-rules 永不写入**；`xj-review` 与 `twin` 都是 `.cursor/skills/` 中的三端通用 skill，Claude Code、Codex 与 Antigravity 通过各自的 skill 加载位消费同一份 `SKILL.md`。Codex 自定义 prompt 已被 OpenAI deprecated，可复用工作流一律走 skill，不 symlink commands 到 `~/.codex/prompts/`。
+Codex 消费端要点：Codex 不读 `.cursor/rules/*.mdc`，行为规则经 `AGENTS.md` 的 dev-rules 受管块**指针化**到达（宪法 + 规则索引 + 技能索引 + 全局工具）；`~/.codex/rules/` 是 Codex 自己的命令审批策略（Starlark `.rules`），**dev-rules 永不写入**；三端通用 skill 都在 `.cursor/skills/` 保持同一份 `SKILL.md`，由各自的 skill 加载位消费。Codex 自定义 prompt 已被 OpenAI deprecated，可复用工作流一律走 skill，不 symlink commands 到 `~/.codex/prompts/`。
 
 Antigravity CLI（Google `agy`）消费端要点：customization 模型与 Codex 同构，故复用同一管线。家目录 Global Customizations Root = `~/.gemini/antigravity-cli/`：全局规则读 `AGENTS.md`（symlink 同一宪法），技能自动发现 `skills/<name>/SKILL.md`（逐个 symlink）。工作区 Workspace Root = `<project>/.agents/`：技能读 `.agents/skills/<name>/`，**工作区规则复用项目根 `AGENTS.md` 的同一受管块**（与 Codex 同文件，零额外生成）。Antigravity 同样不自动加载 `.cursor/rules/*.mdc`，规则经 AGENTS.md 到达；不碰 `~/.gemini/GEMINI.md`（那是 gemini-cli 的根，非 antigravity-cli root）；可复用工作流走 skill，不 symlink commands。
 
@@ -76,7 +75,6 @@ fan-out 使用 `.registered-projects` 与 `.local-projects` 的并集：跨机�
 
 - `global/CLAUDE.md`：会话级硬纪律，只写 Agent 每次都要执行的短规则。
 - `rules/product-dev.mdc`：研发路径、风险分级、PR / commit 形状与完成自检。
-- `rules/agent-contract-enforcement.mdc`：WebUI / API / CLI / MCP 契约、安全基线与跨端对齐。
 - `rules/test-philosophy.mdc`：Story 与测试强度的升级条件。
 - `commands/*.md`：命令执行步骤与输出契约，不承载新的长期规则体系。
 - `README.md`：短入口索引；不展开接入细节、哲学、风险分级或测试方法。
@@ -96,11 +94,11 @@ fan-out 使用 `.registered-projects` 与 `.local-projects` 的并集：跨机�
 
 作者基线：
 
-- 新增或修改 skill / command 时，先列出其步骤里哪些是「可机械化」、哪些是「真判断」；可机械化的实现成脚本/工具并由 skill 调用，模型只消费其确定性输出（典型：`twin` skill 把状态推进全交给 provider-neutral `twin` CLI，模型只处理 action payload 中的真实判断）。
+- 新增或修改 skill / command 时，先列出其步骤里哪些是「可机械化」、哪些是「真判断」；可机械化的实现成脚本/工具并由 skill 调用，模型只消费其确定性输出。
 - 复用既有确定性工具，不重造：契约 / 分层 / Web surface / 高风险锚点 / 存在性测试 / approved frontmatter / 静默吞错等已由 `dev-rules/scripts/check_*.py` + `templates/preflight.sh` 覆盖；skill / command 应**调用** preflight 取 ground-truth，而非让模型重新肉眼判断（参见 `agent-skills/xj-review/SKILL.md` §0 机械门禁先行）。
 - 反复出现的机械化缺口按 `digital-clone-research.md §二` 落成会失败的脚本 / schema；纯创意步骤不强行工具化。
 
-**skill 加载位的单一事实来源**：skill 只在 `.cursor/skills/` 编辑与提交（Cursor 读 `.cursor`，Claude Code 读 `.claude`，Codex 读 `~/.codex/skills` 与项目 `.codex/skills`，Antigravity 读 `~/.gemini/antigravity-cli/skills` 与项目 `.agents/skills`）。让其它端加载同一份 skill **只能靠 symlink，禁止真实副本**（副本会分叉事实来源）。该 symlink 由 `sync.sh` 确定性维护，不靠人工记忆：home 层 `~/.cursor/skills → ~/Codes/dev-rules/.cursor/skills`（canonical mirror 的 skill 入口，通常再指向 `agent-skills`）、`~/.claude/skills → ~/.cursor/skills`，逐个 `~/.codex/skills/<name> → ~/.cursor/skills/<name>`（叠加式，绝不动 Codex 自带 `.system` / `codex-primary-runtime` / `default.rules`），以及逐个 `~/.gemini/antigravity-cli/skills/<name> → ~/.cursor/skills/<name>`（叠加式，不动 Antigravity 自带 builtin）；项目 fan-out 时，若项目存在 `.cursor/skills/` 则建 `<project>/.claude/skills`、`<project>/.codex/skills`、`<project>/.agents/skills` 三者均 `→ ../.cursor/skills`。`sync.sh --check` 把「缺失 / 真实目录（违禁副本）/ 错误目标 / 源不存在」列为漂移并 exit 1（家目录的 Cursor/Codex/Antigravity 链同样被守卫）。手动建该 symlink 属安装期 debt，应记入项目 `docs/preflight-debt.md`。
+**skill 加载位的单一事实来源**：skill 只在项目的 `.cursor/skills/` 编辑与提交（Cursor 读 `.cursor`，Claude Code 读 `.claude`，Codex 读 `~/.codex/skills` 与项目 `.codex/skills`，Antigravity 读 `~/.gemini/antigravity-cli/skills` 与项目 `.agents/skills`）。让其它端加载同一份 skill **只能靠 symlink，禁止真实副本**（副本会分叉事实来源）。`sync.sh` 确定性维护这些 links：家目录 `~/.cursor/skills` 是 additive consumer registry，不是全目录 source owner；它是真实目录，只创建和清理指向配置 `agent-skills` checkout 的 dev-rules-owned `<name>` links，保留 foreign symlink、real file 与 real directory，并在同名 foreign collision 时 fail closed。`~/.claude/skills → ~/.cursor/skills` 仍是唯一 whole-directory link。Codex 与 Antigravity 都逐个直接 link 配置的 `agent-skills/<name>`，不扫描或接管混合 registry 中的其它 owner 条目；Codex 不动 `.system` / `codex-primary-runtime` / `default.rules`，Antigravity 不动 builtin。项目 fan-out 时，若项目存在 `.cursor/skills/` 则建 `<project>/.claude/skills`、`<project>/.codex/skills`、`<project>/.agents/skills` 三者均 `→ ../.cursor/skills`。`sync.sh --check` 只守卫家目录 registry 中派生自配置 source 的 dev-rules links，另守卫 Claude whole-directory link 与 Codex/Antigravity owned links；foreign registry entries 不算漂移。手动建该 symlink 属安装期 debt，应记入项目 `docs/preflight-debt.md`。
 
 **Codex 加载上限**：Codex 0.122 拒绝 `description` 超过 1024 字符的 `SKILL.md`（静默丢弃该技能，Cursor/Claude 无此限）。为 Codex 复用，`dev-rules/scripts/check_codex_skill_limits.py` 在 preflight 把超限技能列为 exit 1，迫使在 `.cursor/skills/` 源头收敛描述长度，而非让 Codex 端静默缺技能。
 
@@ -109,8 +107,6 @@ fan-out 使用 `.registered-projects` 与 `.local-projects` 的并集：跨机�
 ## git worktree 与 submodule 约定
 
 普通交互式 Agent 需要新建、切换、修复或销毁 git worktree 时，必须使用 `$git-worktree-submodule`。尤其仓库含 submodule 时，不手写 `git worktree add` + `git submodule update --init`，不把 submodule 目录做 symlink；`add` / `switch` 后立即按 skill 输出的 `session-workdir` 切换当前 Agent 的 cwd / workdir，并在目标 worktree 内运行 `session-check` 后再读写文件。
-
-`/twin` 的 worker 隔离是程序化调用场景：`scripts/twin/worktree.py` 只消费 `$git-worktree-submodule` 的 `wtree.py` JSON 契约，不另写 worktree/submodule 实现。创建、分支或 `session-check` 不满足契约时必须 fail closed，禁止降级到共享 checkout；`TWIN_WORKTREE_ISOLATION=0` 只允许明确的只读调试。人类仍走 `wts`，普通 Agent 会话仍加载 `$git-worktree-submodule` 并绑定其 `session-workdir`。
 
 ## 编辑与提交规则
 
@@ -133,7 +129,7 @@ git commit -m "chore: sync dev-rules" && git push
 
 ### 跨机器同步（被动）
 
-LaunchAgent `local.dev-rules.sync` 每 30 分钟跑 `sync.sh --pull`，把其他机器推上来的更新拉到 `~/Codes/dev-rules` 并 fan-out 到本机已落地的注册项目。如果 `verify-rules.sh` 报告 LaunchAgent 未装，跑 `templates/install-launchagent.sh`。
+LaunchAgent `local.dev-rules.sync` 每 30 分钟跑 `sync.sh --pull`，把其他机器推上来的 `origin/main` 更新拉到 canonical `main` checkout 并 fan-out 到本机已落地的注册项目。`--pull` 在 canonical checkout 不是 `main`（含 detached HEAD）时必须在 fan-out 前 fail-closed，禁止从 feature branch 分发规则。若 main 使用独立 worktree，安装 LaunchAgent 时通过 `DEV_RULES_HOME=/absolute/main/worktree` 固定脚本路径与 canonical source；如果 `verify-rules.sh` 报告 LaunchAgent 未装，跑 `templates/install-launchagent.sh`。
 
 ## 强约束门禁（机械检查，禁止仅"靠自觉"）
 

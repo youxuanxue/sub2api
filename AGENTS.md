@@ -8,7 +8,6 @@
 ## 行为规则（按需展开阅读）
 Codex 不自动加载 `.cursor/rules/*.mdc`；需要时按下表路径读取对应文件：
 
-- [`.cursor/rules/agent-contract-enforcement.mdc`](.cursor/rules/agent-contract-enforcement.mdc) — Enforce agent contract consistency and safety baselines
 - [`.cursor/rules/dev-rules-convention.mdc`](.cursor/rules/dev-rules-convention.mdc) — dev-rules submodule 约定：规则的单一事实来源管理规范
 - [`.cursor/rules/product-dev.mdc`](.cursor/rules/product-dev.mdc) — IT 产品研发工作流规则，默认单 PR，按风险升级到高风险审批路径
 - [`.cursor/rules/test-philosophy.mdc`](.cursor/rules/test-philosophy.mdc) — 按风险匹配 Story 与测试强度；默认先补核心测试，高风险再进入完整 Story 闭环。
@@ -47,7 +46,6 @@ Codex 不自动加载 `.cursor/rules/*.mdc`；需要时按下表路径读取对�
 - **tokenkey-user-billing-watch** — Read-only TokenKey production user billing/usage/error watch. Use for active-user monitoring, 盯盘, 30-minute reporting loops, anomaly notifi…
 
 ## 全局技能与工具
-- `twin` supervisor 的三端宿主体验只由同源 `twin` skill 定义；运行时 CLI/action/schema 契约见 `dev-rules/docs/agent_integration.md`。不要在 AGENTS.md 复制命令面或状态机。
 - 代码审查走三端通用 skill `xj-review`（上面技能索引里）：先跑 `preflight.sh` 取 ground-truth，再按风险分级审；Codex 里描述"review 这个 diff/PR"即触发。
 
 <!-- dev-rules:codex END -->
