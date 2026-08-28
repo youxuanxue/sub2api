@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,10 @@ from pathlib import Path
 OPS = Path(__file__).resolve().parent
 REPO_ROOT = OPS.parents[1]
 PROBE = OPS / "probe_cc_geo_stego.py"
+
+
+def _truthy_env(*names: str) -> bool:
+    return any(os.environ.get(name, "") in {"1", "true", "yes", "TRUE", "YES"} for name in names)
 
 
 class TestProbeCCGeoStego(unittest.TestCase):
@@ -81,6 +86,8 @@ class TestProbeCCGeoStego(unittest.TestCase):
         self.assertEqual(cp.returncode, 0)
 
     def test_check_gateway_fixture_passes(self) -> None:
+        if _truthy_env("PREFLIGHT_SKIP_PROMPT_FIXTURE_GATEWAY", "PREFLIGHT_FAST"):
+            self.skipTest("CI preflight defers fixture gateway to test-unit")
         fixture = OPS / "testdata" / "cc_geo_probe_fixture.jsonl"
         cp = subprocess.run(
             [sys.executable, str(PROBE), str(fixture.resolve()), "--check-gateway"],
