@@ -77,6 +77,26 @@ class GoRollingCachePolicyTest(unittest.TestCase):
                 "~/.cache/golangci-lint",
             },
         )
+
+    def test_ineligible_benchmark_contexts_keep_restore_only_build_cache(self) -> None:
+        steps = yaml.safe_load(ACTION.read_text(encoding="utf-8"))["runs"]["steps"]
+        build_restore = next(
+            step
+            for step in steps
+            if step.get("uses") == "actions/cache/restore@v6"
+            and step["with"]["path"] == "${{ inputs.build_cache_path }}"
+        )
+
+        condition = build_restore["if"]
+        for fallback_clause in (
+            "github.event_name != 'workflow_dispatch'",
+            "github.ref == 'refs/heads/main'",
+            "inputs.benchmark_build_cache_write != 'true'",
+            "inputs.benchmark_prefix == ''",
+        ):
+            with self.subTest(clause=fallback_clause):
+                self.assertIn(fallback_clause, condition)
+
     def test_golangci_cache_is_opt_in_and_rolls_from_main(self) -> None:
         action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
         self.assertEqual(action["inputs"]["golangci_cache"]["default"], "false")

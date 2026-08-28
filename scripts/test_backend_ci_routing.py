@@ -325,6 +325,10 @@ class BackendCIRoutingTest(unittest.TestCase):
             "inputs.suite != 'unit-cache-benchmark'",
             self.jobs["shell"]["if"],
         )
+        self.assertIn(
+            "inputs.suite != 'unit-cache-benchmark'",
+            self.jobs["ssot-delta-gate"]["if"],
+        )
         for job_name in ("preflight", "test-integration", "golangci-lint"):
             with self.subTest(job=job_name):
                 self.assertNotIn(

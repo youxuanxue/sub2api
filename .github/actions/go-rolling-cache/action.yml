@@ -12,9 +12,10 @@
 #     GOMODCACHE against the 10GB/repo budget.
 #   - build/test cache: caller-selected namespace (prefix) + UTC-week seed by
 #     default, avoiding repeated uploads of the 300MB-2.5GB preflight/lint
-#     archives. Unit owns a daily snapshot on main and falls back to its previous
-#     weekly namespace until the first daily entry exists. Integration remains
-#     isolated because its build tags do not seed Unit's critical compile graph.
+#     archives. Unit keys main snapshots by backend content and falls back to its
+#     previous weekly namespace until the first content-keyed entry exists.
+#     Integration remains isolated because its build tags do not seed Unit's
+#     critical compile graph.
 #   - golangci analysis cache: optional, lint-only, and rolling for the same
 #     reason. golangci-lint-action's interval key is immutable after the first
 #     save, so changed-package analysis cannot be written back until the interval
@@ -90,7 +91,7 @@ runs:
         restore-keys: ${{ runner.os }}-gomod-
 
     - name: Restore Go build/test cache (non-main writer, ${{ inputs.prefix }})
-      if: (github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.save_caches != 'true') && inputs.benchmark_build_cache_write != 'true'
+      if: (github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.save_caches != 'true') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || inputs.benchmark_build_cache_write != 'true' || inputs.benchmark_prefix == '')
       uses: actions/cache/restore@v6
       with:
         path: ${{ inputs.build_cache_path }}

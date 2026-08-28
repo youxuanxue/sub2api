@@ -169,7 +169,7 @@ jobs:
     # Offline SSOT delta guard for catalog diffs. It intentionally does not hit
     # prod: new catalog/model_mapping changes can only become live after deploy,
     # so prod HTTP proof belongs to the post-deploy canary/closeout gate.
-    if: github.event_name == 'pull_request' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.ssot_base != '')
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.suite != 'unit-cache-benchmark' && inputs.ssot_base != '')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -257,7 +257,7 @@ jobs:
         env:
           # Service tests inspect tracked source/fixture files at runtime, so
           # checkout mtimes prevent cross-run result-cache hits even when the
-          # daily Go build cache restores exactly. Always use the compile-once
+          # content-keyed Go build cache restores exactly. Always use the compile-once
           # runner instead of gambling the critical path on test-result cache.
           UNIT_TEST_SERVICE_SHARD: "1"
         run: make test-unit
