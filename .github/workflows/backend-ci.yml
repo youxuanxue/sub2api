@@ -246,7 +246,7 @@ jobs:
           fallback_prefix: unit-nodwarf-v1
           refresh_on_backend_change: "true"
           save_caches: "true"
-          benchmark_prefix: unit-nodwarf-v3-bench
+          benchmark_prefix: unit-nodwarf-v4-serial-bench
           benchmark_build_cache_write: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'unit-cache-benchmark' && 'true' || 'false' }}
       - name: Verify Go version
         run: |

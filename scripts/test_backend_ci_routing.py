@@ -344,7 +344,7 @@ class BackendCIRoutingTest(unittest.TestCase):
         self.assertEqual(unit_cache["with"]["prefix"], "unit-nodwarf-v3")
         self.assertEqual(
             unit_cache["with"]["benchmark_prefix"],
-            "unit-nodwarf-v3-bench",
+            "unit-nodwarf-v4-serial-bench",
         )
         self.assertEqual(
             unit_cache["with"]["benchmark_build_cache_write"],

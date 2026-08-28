@@ -96,31 +96,14 @@ class UnitTestRunnerTest(unittest.TestCase):
         self.assertEqual(len(matched), len(set(matched)))
 
     def test_test_main_falls_back_to_one_native_go_test(self) -> None:
-        with self._fake_go(
-            ["TestOne"],
-            has_test_main=True,
-            compile_delay=5.0,
-            compile_child=True,
-        ) as fixture:
+        with self._fake_go(["TestOne"], has_test_main=True) as fixture:
             result = self._run(fixture)
             events = self._events(fixture.events)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         go_calls = self._go_calls(events)
         self.assertIn(["test", "-tags=unit", "./..."], go_calls)
-        self.assertEqual(len([call for call in go_calls if "-c" in call]), 1)
-        self.assertTrue(
-            [
-                event
-                for event in events
-                if event["kind"] == "go-terminated" and "-c" in event["args"]
-            ],
-            events,
-        )
-        self.assertTrue(
-            [event for event in events if event["kind"] == "go-child-terminated"],
-            events,
-        )
+        self.assertFalse([call for call in go_calls if "-c" in call], go_calls)
         self.assertFalse(self._binary_events(events))
 
     def test_fails_closed_when_ast_discovery_differs_from_binary_registry(self) -> None:
@@ -279,7 +262,7 @@ class UnitTestRunnerTest(unittest.TestCase):
         self.assertLess(min(durations), 0.5)
         self.assertGreaterEqual(max(durations), 0.7)
 
-    def test_runs_other_packages_while_service_binary_compiles(self) -> None:
+    def test_starts_other_packages_after_service_compile_populates_cache(self) -> None:
         with self._fake_go(
             ["TestOne", "TestTwo"],
             compile_delay=0.75,
@@ -299,9 +282,9 @@ class UnitTestRunnerTest(unittest.TestCase):
             if event["kind"] == "go"
             and "./internal/other" in event["args"]
         )
-        self.assertLess(other_started, compile_finished, events)
+        self.assertGreaterEqual(other_started, compile_finished, events)
 
-    def test_starts_service_compile_before_discovery_finishes(self) -> None:
+    def test_starts_service_compile_after_discovery_finishes(self) -> None:
         with self._fake_go(
             ["TestOne", "TestTwo"],
             discovery_delay=0.75,
@@ -322,31 +305,21 @@ class UnitTestRunnerTest(unittest.TestCase):
             and event["args"]
             and event["args"][0] == "run"
         )
-        self.assertLess(compile_started, discovery_finished, events)
+        self.assertGreaterEqual(compile_started, discovery_finished, events)
 
-    def test_discovery_failure_terminates_service_compile(self) -> None:
+    def test_discovery_failure_stops_before_service_compile(self) -> None:
         with self._fake_go(
             ["TestOne"],
             fail_discovery=True,
             discovery_delay=0.25,
-            compile_delay=5.0,
-            compile_child=True,
         ) as fixture:
             result = self._run(fixture)
             events = self._events(fixture.events)
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("invalid Go test discovery output", result.stderr)
-        self.assertTrue(
-            [
-                event
-                for event in events
-                if event["kind"] == "go-terminated" and "-c" in event["args"]
-            ],
-            events,
-        )
-        self.assertTrue(
-            [event for event in events if event["kind"] == "go-child-terminated"],
+        self.assertFalse(
+            [call for call in self._go_calls(events) if "-c" in call],
             events,
         )
         self.assertFalse(self._binary_events(events))
