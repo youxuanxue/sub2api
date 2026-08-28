@@ -46,28 +46,39 @@ func TestResponsesProtocolProbeRetriesAnotherMappedModelAfterModelSpecificReject
 }
 
 func TestResponsesProtocolProbeDoesNotFanOutTransientUpstreamFailure(t *testing.T) {
-	account := &Account{
-		ID: 76, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key":  "relay-key",
-			"base_url": "https://relay.example/v1",
-			"model_mapping": map[string]any{
-				"first":  "alpha-model",
-				"second": "beta-model",
-			},
-		},
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{name: "rate limit", status: http.StatusTooManyRequests, body: `{"error":{"message":"model is unavailable due to quota"}}`},
+		{name: "server failure", status: http.StatusServiceUnavailable, body: `{"error":{"message":"No available accounts"}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			account := &Account{
+				ID: 176, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
+				Credentials: map[string]any{
+					"api_key":  "relay-key",
+					"base_url": "https://relay.example/v1",
+					"model_mapping": map[string]any{
+						"first":  "alpha-model",
+						"second": "beta-model",
+					},
+				},
+			}
+			upstream := &httpUpstreamRecorder{responses: []*http.Response{
+				protocolProbeHTTPResponse(tc.status, tc.body),
+				protocolProbeHTTPResponse(http.StatusOK, `{"status":"completed","output":[{"type":"function_call","name":"probe_ping"}]}`),
+			}}
+			svc := protocolRequestBuilderTestService(upstream)
+
+			observation, observed := svc.probeOpenAIAPIKeyResponsesSupport(context.Background(), account)
+
+			require.True(t, observed)
+			require.Equal(t, ProtocolProbeInconclusive, observation.verdict)
+			require.Len(t, upstream.bodies, 1)
+		})
 	}
-	upstream := &httpUpstreamRecorder{responses: []*http.Response{
-		protocolProbeHTTPResponse(http.StatusServiceUnavailable, `{"error":{"message":"No available accounts"}}`),
-		protocolProbeHTTPResponse(http.StatusOK, `{"status":"completed","output":[{"type":"function_call","name":"probe_ping"}]}`),
-	}}
-	svc := protocolRequestBuilderTestService(upstream)
-
-	observation, observed := svc.probeOpenAIAPIKeyResponsesSupport(context.Background(), account)
-
-	require.True(t, observed)
-	require.Equal(t, ProtocolProbeInconclusive, observation.verdict)
-	require.Len(t, upstream.bodies, 1)
 }
 
 func TestDecideResponsesProbeSupport(t *testing.T) {
