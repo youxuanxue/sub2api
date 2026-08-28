@@ -4,12 +4,15 @@
 #
 # Per CLAUDE.md § 10, the dev-rules submodule template
 # (`dev-rules/templates/preflight.sh`) covers all the generic checks
-# (branch naming, submodule pointer, .cursor/rules drift, agent contract
-# drift, story/test alignment, docs/approved discipline, approved-doc
-# invariants R1-R5, doc-stat drift, cloud-agent env consistency). This
-# wrapper exists ONLY because sub2api has project-specific checks that
-# do not belong in the shared template:
+# (branch naming, submodule pointer, .cursor/rules drift, story/test
+# alignment, docs/approved discipline, approved-doc invariants R1-R5,
+# doc-stat drift, cloud-agent env consistency). This wrapper exists ONLY
+# because sub2api has project-specific checks that do not belong in the
+# shared template:
 #
+#   agent contract drift         — TokenKey still ships docs/agent_integration.md
+#        plus scripts/export_agent_contract.py. After dev-rules #99 the
+#        shared template no longer runs this gate; the wrapper owns it.
 #   newapi compat-pool drift     — guards the P0 regression that
 #        triggered docs/approved/newapi-as-fifth-platform.md (any new
 #        scheduler/gateway caller must use IsOpenAICompatPoolMember /
@@ -318,13 +321,11 @@ _bg_spawn ssm_parse bash ./scripts/checks/check-stage0-ssm-host-parse.sh
 # deleted-ref base and scans colocated Python tests outside tests/ directories.
 _dev_preflight_template="./dev-rules/templates/preflight.sh"
 if ! grep -q 'check_deleted_file_refs.py --base' "$_dev_preflight_template" 2>/dev/null || \
-   ! grep -q 'check_existence_only_tests.py --glob' "$_dev_preflight_template" 2>/dev/null || \
-   [ "${PREFLIGHT_SKIP_AGENT_CONTRACT:-}" = "1" ]; then
+   ! grep -q 'check_existence_only_tests.py --glob' "$_dev_preflight_template" 2>/dev/null; then
     _dev_preflight_template="$(mktemp "${TMPDIR:-/tmp}/preflight-dev-rules.XXXXXX")"
     sed \
         -e 's|check_deleted_file_refs\.py >|check_deleted_file_refs.py --base "${PREFLIGHT_BASE:-origin/main}" >|' \
         -e 's|"$PYTHON_BIN" dev-rules/scripts/check_existence_only_tests\.py >|"$PYTHON_BIN" -W ignore::SyntaxWarning dev-rules/scripts/check_existence_only_tests.py --glob "test_*.py" --glob "*_test.py" --glob "**/test_*.py" --glob "**/*_test.py" >|' \
-        -e 's|^if \[ -f scripts/export_agent_contract\.py \]; then$|if [ "${PREFLIGHT_SKIP_AGENT_CONTRACT:-}" = "1" ]; then skip "unchanged CI surface; required preflight gate not needed"; elif [ -f scripts/export_agent_contract.py ]; then|' \
         ./dev-rules/templates/preflight.sh > "$_dev_preflight_template"
     chmod +x "$_dev_preflight_template"
 fi
@@ -332,6 +333,25 @@ PREFLIGHT_BASE="$template_base" PREFLIGHT_REPO_ROOT="$REPO_ROOT" "$_dev_prefligh
 dev_status=$?
 if [ "$dev_status" -ne 0 ]; then
     exit "$dev_status"
+fi
+
+# ---- sub2api: agent contract drift ------------------------------------------
+# TokenKey-owned inventory (docs/agent_integration.md). The shared template
+# dropped this after youxuanxue/dev-rules#99; do not let the consume bump
+# silently turn a live gate into honor-system comments.
+echo ""
+echo "=== sub2api: agent contract drift ==="
+if [ "${PREFLIGHT_SKIP_AGENT_CONTRACT:-}" = "1" ]; then
+    echo "  skip: unchanged CI surface; required preflight gate not needed"
+elif [ ! -f scripts/export_agent_contract.py ]; then
+    echo "  FAIL: scripts/export_agent_contract.py missing"
+    exit 1
+elif ! python3 ./scripts/export_agent_contract.py --check; then
+    echo "  FAIL: agent contract docs drifted from live HTTP/CLI surface"
+    echo "        — run: python3 scripts/export_agent_contract.py"
+    exit 1
+else
+    echo "  ok: agent contract docs in sync with code"
 fi
 
 # ---- sub2api: newapi compat-pool drift --------------------------------------
