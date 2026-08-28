@@ -345,7 +345,9 @@ func probeProtocolWitnesses(
 			continue
 		}
 		verdicts = append(verdicts, observation.verdict)
-		if observation.verdict == ProtocolProbePositive || observation.verdict == ProtocolProbeEndpointNegative {
+		if observation.verdict == ProtocolProbePositive ||
+			observation.verdict == ProtocolProbeEndpointNegative ||
+			observation.verdict == ProtocolProbeModelSpecific {
 			break
 		}
 	}

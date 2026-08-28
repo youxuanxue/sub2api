@@ -493,6 +493,24 @@ func TestProbeProtocolWitnessesStopsAfterFirstConclusiveVerdict(t *testing.T) {
 	}
 }
 
+func TestProbeProtocolWitnessesStopsAfterModelSpecificObservation(t *testing.T) {
+	witnesses := []*Account{{ID: 1}, {ID: 2}, {ID: 3}}
+	calls := 0
+	verdicts := probeProtocolWitnesses(witnesses, func(witness *Account) (protocolProbeObservation, bool) {
+		calls++
+		if witness.ID == 1 {
+			return protocolProbeObservation{verdict: ProtocolProbeModelSpecific}, true
+		}
+		return protocolProbeObservation{verdict: ProtocolProbePositive}, true
+	})
+	if calls != 1 {
+		t.Fatalf("witness calls = %d, want 1 after bounded model candidates were exhausted", calls)
+	}
+	if !reflect.DeepEqual(verdicts, []ProtocolProbeVerdict{ProtocolProbeModelSpecific}) {
+		t.Fatalf("verdicts = %v, want model-specific verdict only", verdicts)
+	}
+}
+
 func TestSelectProtocolProbeWitnessesFiltersUnusableAuthorizationBeforeBound(t *testing.T) {
 	now := time.Now().UTC()
 	validVertexCredential := `{"type":"service_account","project_id":"vertex-project","private_key":"private-key","client_email":"svc@vertex-project.iam.gserviceaccount.com"}`

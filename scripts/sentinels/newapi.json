@@ -980,12 +980,13 @@
     {
       "path": "backend/internal/service/protocol_capability_probe_test.go",
       "must_contain": [
+        "func TestProbeProtocolWitnessesStopsAfterModelSpecificObservation(t *testing.T)",
         "func TestSelectProtocolProbeModelUsesRegistryModeForOpaqueNonTextModels(t *testing.T)",
         "func TestProtocolProbeCandidatesUseRegistryModeForOpaqueNonTextAccounts(t *testing.T)",
         "opaque-vector-v1",
         "ProtocolProbeCandidates(nonTextOnly)"
       ],
-      "rationale": "Behavioral regression guard proving that the pricing registry Mode, rather than model-name heuristics, excludes opaque non-text models from representative text probes and protocol-routing governance."
+      "rationale": "Behavioral regression guards proving that exhausted model-specific candidates do not multiply across witnesses, and that pricing registry Mode rather than model-name heuristics excludes opaque non-text models from representative text probes and protocol-routing governance."
     },
     {
       "path": "backend/internal/service/openai_apikey_responses_probe.go",
@@ -1166,16 +1167,18 @@
       "path": "backend/internal/service/openai_apikey_chat_completions_probe_test.go",
       "must_contain": [
         "TestChatCompletionsProtocolProbeRetriesAnotherMappedModelAfterModelSpecificRejection",
+        "TestChatCompletionsProtocolProbeDoesNotFanOutProjectAuthorizationFailure",
         "TestChatCompletionsProtocolProbeUsesNewAPIAdaptorEndpoint",
         "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
       ],
-      "rationale": "Regression proof that Chat Completions retries only model-specific rejections across the bounded deterministic candidate set, while ch17 follows the live adaptor endpoint instead of the generic 404 path."
+      "rationale": "Regression proof that Chat Completions retries only explicit model-specific rejections, does not fan out project-level authorization failures, and follows the live ch17 adaptor endpoint instead of the generic 404 path."
     },
     {
       "path": "backend/internal/service/openai_apikey_responses_probe_test.go",
       "must_contain": [
         "TestResponsesProtocolProbeRetriesAnotherMappedModelAfterModelSpecificRejection",
         "TestResponsesProtocolProbeDoesNotFanOutTransientUpstreamFailure",
+        "TestResponsesProtocolProbeDoesNotFanOutProjectAuthorizationFailure",
         "TestDecideResponsesProbeSupport",
         "TestResponsesProbeVerdictIsConclusive",
         "TestResponsesProbeBodyHasFunctionCall",
@@ -1184,15 +1187,16 @@
         "TestSelectProtocolProbeModelPrefersAliNativeQwenFamily",
         "TestSelectProtocolProbeModelSkipsEmbeddingModels"
       ],
-      "rationale": "Responses probe classification and bounded candidate selection remain deterministic, retry only model-specific rejections, stop on transient upstream failures, prefer channel-native text families, and exclude media or embedding mappings. Exact endpoint dispatch and witness coordination are guarded by their dedicated owner sentinels."
+      "rationale": "Responses probe classification and bounded candidate selection remain deterministic, retry only explicit model-specific rejections, stop on transient or project-authorization failures, prefer channel-native text families, and exclude media or embedding mappings. Exact endpoint dispatch and witness coordination are guarded by their dedicated owner sentinels."
     },
     {
       "path": "backend/internal/service/openai_apikey_native_messages_probe_test.go",
       "must_contain": [
         "TestNativeMessagesProtocolProbeRetriesCloudWiseRepresentativeAfterModelRouting401",
-        "TestNativeMessagesProtocolProbeDoesNotRetryCloudWiseCredentialUnauthorized"
+        "TestNativeMessagesProtocolProbeDoesNotRetryCloudWiseCredentialUnauthorized",
+        "TestNativeMessagesProtocolProbeDoesNotFanOutProjectAuthorizationFailure"
       ],
-      "rationale": "CloudWise Messages retries its representative model only for an explicit model-routing 401 and never broadens a credential 401 into additional upstream calls."
+      "rationale": "Messages retries only explicit model-routing evidence and never broadens credential or project-level authorization failures into additional upstream calls."
     },
     {
       "path": "backend/internal/handler/openai_chat_completions_legacy_protocol_fallback_test.go",

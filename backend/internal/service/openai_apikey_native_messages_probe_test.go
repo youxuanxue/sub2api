@@ -81,6 +81,31 @@ func TestNativeMessagesProtocolProbeDoesNotRetryCloudWiseCredentialUnauthorized(
 	require.Len(t, upstream.bodies, 1)
 }
 
+func TestNativeMessagesProtocolProbeDoesNotFanOutProjectAuthorizationFailure(t *testing.T) {
+	account := &Account{
+		ID: 107, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "project-key",
+			"base_url": "https://relay.example/v1",
+			"model_mapping": map[string]any{
+				"first":  "alpha-model",
+				"second": "beta-model",
+			},
+		},
+	}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		protocolProbeHTTPResponse(http.StatusForbidden, `{"error":{"message":"You do not have permission to invoke any model in this project"}}`),
+		protocolProbeHTTPResponse(http.StatusOK, `{"type":"message","content":[{"type":"text","text":"OK"}]}`),
+	}}
+	svc := protocolRequestBuilderTestService(upstream)
+
+	observation, observed := svc.probeOpenAIAPIKeyNativeMessagesSupport(context.Background(), account)
+
+	require.True(t, observed)
+	require.Equal(t, ProtocolProbeInconclusive, observation.verdict)
+	require.Len(t, upstream.bodies, 1)
+}
+
 func TestNativeMessagesProbeSupported(t *testing.T) {
 	t.Parallel()
 	require.False(t, nativeMessagesProbeSupported(http.StatusNotFound, nil))

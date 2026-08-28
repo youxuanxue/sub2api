@@ -94,7 +94,7 @@ func protocolProbeModelSpecificHTTPFailure(status int, body []byte) bool {
 			return true
 		}
 	}
-	return status == http.StatusForbidden && strings.Contains(normalized, "permission")
+	return false
 }
 
 func protocolProbeShouldTryNextModel(

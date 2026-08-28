@@ -41,6 +41,31 @@ func TestChatCompletionsProtocolProbeRetriesAnotherMappedModelAfterModelSpecific
 	require.Equal(t, "beta-model", gjson.GetBytes(upstream.bodies[1], "model").String())
 }
 
+func TestChatCompletionsProtocolProbeDoesNotFanOutProjectAuthorizationFailure(t *testing.T) {
+	account := &Account{
+		ID: 107, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "project-key",
+			"base_url": "https://relay.example/v1",
+			"model_mapping": map[string]any{
+				"first":  "alpha-model",
+				"second": "beta-model",
+			},
+		},
+	}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		protocolProbeHTTPResponse(http.StatusForbidden, `{"error":{"message":"You do not have permission to invoke any model in this project"}}`),
+		protocolProbeHTTPResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"OK"}}]}`),
+	}}
+	svc := protocolRequestBuilderTestService(upstream)
+
+	observation, observed := svc.probeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account)
+
+	require.True(t, observed)
+	require.Equal(t, ProtocolProbeInconclusive, observation.verdict)
+	require.Len(t, upstream.bodies, 1)
+}
+
 func TestChatCompletionsProtocolProbeUsesNewAPIAdaptorEndpoint(t *testing.T) {
 	account := &Account{
 		ID: 60, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeAli, Concurrency: 1,
