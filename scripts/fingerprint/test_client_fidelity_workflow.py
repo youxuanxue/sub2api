@@ -43,7 +43,7 @@ class ClientFidelityWorkflowContractTest(unittest.TestCase):
         self.assertIn("contents: read", self.text)
         self.assertIn("issues: write", self.text)
         self.assertIn("id-token: write", self.text)
-        self.assertIn("actions/upload-artifact@v4", self.text)
+        self.assertIn("actions/upload-artifact@v7", self.text)
         self.assertIn("open_client_release_watch_issues.py", self.text)
         self.assertIn("open_prompt_surface_watch_issues.py", self.text)
         self.assertIn("open_oauth_mimic_watch_issues.py", self.text)

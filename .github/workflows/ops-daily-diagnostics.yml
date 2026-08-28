@@ -762,7 +762,7 @@ jobs:
           PY
           cat "$OUT/target-report.md" >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: prod-ops-target-${{ matrix.target_id }}-${{ github.run_id }}
@@ -788,7 +788,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           pattern: prod-ops-target-*-${{ github.run_id }}
@@ -871,7 +871,7 @@ jobs:
           cat ops-report.md >> "$GITHUB_STEP_SUMMARY"
           cat daily-error-report.md >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: prod-ops-report-${{ github.run_id }}
           path: |
@@ -890,7 +890,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: prod-ops-report-${{ github.run_id }}
           path: .
@@ -1093,7 +1093,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "captured $LINES lines / $BYTES bytes"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: prod-logs-${{ github.run_id }}
           path: logs.txt

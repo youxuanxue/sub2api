@@ -77,7 +77,7 @@ jobs:
             --umbrella \
             --links-json .cache/fingerprint/client-release-watch/links.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: client-fidelity-release-${{ github.run_id }}
@@ -163,7 +163,7 @@ jobs:
             --umbrella \
             --links-json .cache/prompt-surface-watch/links.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: client-fidelity-prompt-${{ github.run_id }}
@@ -260,7 +260,7 @@ jobs:
           echo "status=$status" >> "$GITHUB_OUTPUT"
           echo "prod observation status: $status"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always() && steps.precheck.outputs.skip == 'false'
         with:
           name: client-fidelity-prompt-${{ github.run_id }}
@@ -356,7 +356,7 @@ jobs:
           echo "status=$status" >> "$GITHUB_OUTPUT"
           echo "edge OAuth mimic observation status: $status"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always() && steps.precheck.outputs.skip == 'false'
         with:
           name: client-fidelity-oauth-mimic-${{ github.run_id }}
@@ -425,7 +425,7 @@ jobs:
           echo "status=$status" >> "$GITHUB_OUTPUT"
           echo "Kiro production-configured parity observation status: $status"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always() && steps.precheck.outputs.skip == 'false'
         with:
           name: client-fidelity-kiro-parity-${{ github.run_id }}
@@ -443,25 +443,25 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: client-fidelity-release-${{ github.run_id }}
           path: .cache/fingerprint/client-release-watch
         continue-on-error: true
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: client-fidelity-prompt-${{ github.run_id }}
           path: .cache/prompt-surface-watch
         continue-on-error: true
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: client-fidelity-oauth-mimic-${{ github.run_id }}
           path: .cache/oauth-mimic-watch
         continue-on-error: true
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: client-fidelity-kiro-parity-${{ github.run_id }}
           path: .cache/kiro-profile-parity
@@ -550,7 +550,7 @@ jobs:
           echo "fidelity_verdict=$FIDELITY_VERDICT" >> "$GITHUB_OUTPUT"
           cat .cache/fingerprint/client-fidelity-watch/report.md >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: client-fidelity-watch-${{ github.run_id }}

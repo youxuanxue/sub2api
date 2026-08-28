@@ -378,7 +378,7 @@ class BackendCIRoutingTest(unittest.TestCase):
         expected_prefixes = {
             "preflight": "preflight-nodwarf-v1",
             "test-unit": "unit-nodwarf-v1",
-            "test-integration": "integration-nodwarf-v1",
+            "test-integration": "integration-nodwarf-v2",
             "golangci-lint": "lint-nodwarf-v1",
             "backend-security": "security-nodwarf-v1",
         }
@@ -398,11 +398,27 @@ class BackendCIRoutingTest(unittest.TestCase):
         )
         self.assertEqual(
             integration_cache["with"]["prefix"],
-            "integration-nodwarf-v1",
+            "integration-nodwarf-v2",
         )
         self.assertEqual(
-            integration_cache["with"]["refresh_on_backend_change"],
+            integration_cache["with"]["refresh_daily"],
             "true",
+        )
+        self.assertEqual(
+            integration_cache["with"]["save_build_cache"],
+            "false",
+        )
+        self.assertEqual(
+            integration_cache["with"]["build_cache_path"],
+            "${{ github.workspace }}/.cache/go-build-integration",
+        )
+        self.assertEqual(
+            self.jobs["test-integration"]["env"]["GOCACHE"],
+            "${{ github.workspace }}/.cache/go-build-integration",
+        )
+        self.assertNotIn(
+            "refresh_on_backend_change",
+            integration_cache.get("with", {}),
         )
 
         for job_name in ("preflight", "test-unit", "golangci-lint", "backend-security"):

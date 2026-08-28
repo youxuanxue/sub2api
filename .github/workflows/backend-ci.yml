@@ -262,6 +262,7 @@ jobs:
       # Integration failures retain file:line stacks without DWARF while the
       # package/test cache stays materially smaller to restore and refresh.
       GOFLAGS: -gcflags=all=-dwarf=false
+      GOCACHE: ${{ github.workspace }}/.cache/go-build-integration
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
@@ -273,8 +274,12 @@ jobs:
           cache: false
       - uses: ./.github/actions/go-rolling-cache
         with:
-          prefix: integration-nodwarf-v1
-          refresh_on_backend_change: "true"
+          # Required CI restores the daily cache but never waits for its upload.
+          # warm-release-cache-main.yml owns the single non-blocking writer.
+          prefix: integration-nodwarf-v2
+          refresh_daily: "true"
+          build_cache_path: ${{ github.workspace }}/.cache/go-build-integration
+          save_build_cache: "false"
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)

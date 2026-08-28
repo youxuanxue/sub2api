@@ -12,14 +12,15 @@
 #     GOMODCACHE against the 10GB/repo budget.
 #   - build/test cache: per-job (prefix) + UTC-week seed by default, avoiding
 #     repeated uploads of the 300MB-2.5GB preflight/unit/lint archives. The
-#     integration caller opts into a tracked-backend fingerprint because its
-#     stale weekly snapshot was measured adding ~40s of cold compilation; PRs
-#     restore but never upload, and main writes only when backend inputs change.
-#     Go's cache is content-addressed, so prior snapshots safely seed new keys.
+#     integration caller opts into a daily epoch and an isolated path. Required
+#     CI is restore-only; warm-release-cache-main.yml owns the non-blocking
+#     writer so a slow cache upload cannot extend the correctness gate. Go's
+#     cache is content-addressed, so prior snapshots safely seed new keys.
 #   - golangci analysis cache: optional, lint-only, and rolling for the same
 #     reason. golangci-lint-action's interval key is immutable after the first
 #     save, so changed-package analysis cannot be written back until the interval
-#     changes. Main owns the rolling writer; PRs restore but never save.
+#     changes. Main owns the rolling writer for the default callers; PRs and
+#     callers with save_build_cache=false restore but never save.
 #
 # Set `cache: false` on the calling job's actions/setup-go step and call this
 # AFTER it (mirrors warm-release-cache in backend-ci.yml).
@@ -38,6 +39,18 @@ inputs:
     description: Use the tracked backend input fingerprint instead of the weekly epoch.
     required: false
     default: "false"
+  refresh_daily:
+    description: Use a UTC-day cache epoch instead of the weekly epoch.
+    required: false
+    default: "false"
+  build_cache_path:
+    description: Go build/test cache path restored and optionally saved by this action.
+    required: false
+    default: ~/.cache/go-build
+  save_build_cache:
+    description: Allow main pushes to save the build/test cache; set false on required jobs whose tail must stay restore-only.
+    required: false
+    default: "true"
 
 runs:
   using: composite
@@ -45,7 +58,9 @@ runs:
     - name: Resolve weekly build cache epoch
       id: cache_epoch
       shell: bash
-      run: echo "value=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+      run: |
+        echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+        echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
 
     - name: Restore Go module cache (non-main writer)
       if: github.event_name != 'push' || github.ref != 'refs/heads/main'
@@ -64,21 +79,21 @@ runs:
         restore-keys: ${{ runner.os }}-gomod-
 
     - name: Restore Go build/test cache (non-main writer, ${{ inputs.prefix }})
-      if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+      if: github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.save_build_cache != 'true'
       uses: actions/cache/restore@v6
       with:
-        path: ~/.cache/go-build
-        key: ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ inputs.refresh_on_backend_change == 'true' && hashFiles('backend/**', '.new-api-ref') || steps.cache_epoch.outputs.value }}
+        path: ${{ inputs.build_cache_path }}
+        key: ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ inputs.refresh_on_backend_change == 'true' && hashFiles('backend/**', '.new-api-ref') || inputs.refresh_daily == 'true' && steps.cache_epoch.outputs.day || steps.cache_epoch.outputs.week }}
         restore-keys: |
           ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
           ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
 
     - name: Go build/test cache (main writer, ${{ inputs.prefix }})
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.save_build_cache == 'true'
       uses: actions/cache@v6
       with:
-        path: ~/.cache/go-build
-        key: ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ inputs.refresh_on_backend_change == 'true' && hashFiles('backend/**', '.new-api-ref') || steps.cache_epoch.outputs.value }}
+        path: ${{ inputs.build_cache_path }}
+        key: ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ inputs.refresh_on_backend_change == 'true' && hashFiles('backend/**', '.new-api-ref') || inputs.refresh_daily == 'true' && steps.cache_epoch.outputs.day || steps.cache_epoch.outputs.week }}
         restore-keys: |
           ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
           ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
