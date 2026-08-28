@@ -66,9 +66,9 @@ func TestTkIsBridgeUpstreamArrears_MessageAndCaseVariants(t *testing.T) {
 }
 
 // Part A NEGATIVE: genuine client / validation / oversize 400s, model-not-found
-// 404s, rate-limit 429s and 5xx outages must NEVER be classified as arrears —
-// they carry no account-standing signal and penalizing them re-opens the #617
-// pool-drain.
+// 404s, rate-limit 429s (including quota-type 429s without billing text) and 5xx
+// outages must NEVER be classified as arrears — they carry no account-standing
+// signal and penalizing them re-opens the #617 pool-drain or mis-disables RPM.
 func TestTkIsBridgeUpstreamArrears_NonArrearsNeverMatch(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -79,6 +79,7 @@ func TestTkIsBridgeUpstreamArrears_NonArrearsNeverMatch(t *testing.T) {
 		{"bad model name", arrearsBridgeError(400, "The supported API model names are ...", "invalid_request_error", "model_not_found")},
 		{"model not found 404", arrearsBridgeError(404, "model_not_found", "not_found", "model_not_found")},
 		{"rate limit 429", arrearsBridgeError(429, "Requests rate limit exceeded", "rate_limit_error", "rate_limit")},
+		{"quota 429 without billing text", arrearsBridgeError(429, "Requests rate limit exceeded, please retry later", "exceeded_current_quota_error", "exceeded_current_quota_error")},
 		{"server 500", arrearsBridgeError(500, "internal error", "server_error", "server_error")},
 		{"nil", nil},
 	} {
@@ -86,6 +87,74 @@ func TestTkIsBridgeUpstreamArrears_NonArrearsNeverMatch(t *testing.T) {
 			require.False(t, tkIsBridgeUpstreamArrears(tc.err))
 		})
 	}
+}
+
+const moonshotArrears429Message = "Your account org-ce9a5339d34042af92f21c9321c267f6 <ak-fbgy1mkyrfei11gu1to1> is suspended due to insufficient balance, please recharge your account or check your plan and billing details"
+
+func newKimiArrearsAccount() *Account {
+	// Mirrors prod account 83 "kimi": fifth-platform newapi apikey on
+	// Moonshot China (channel_type=25). 2026-08-28 live probe: GET /v1/models
+	// 200, chat 429 exceeded_current_quota_error + insufficient-balance suspend.
+	return &Account{
+		ID:          83,
+		Name:        "kimi",
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: 25,
+	}
+}
+
+// Part A POSITIVE (prod 2026-08-28 account 83): Moonshot bills standing-failure
+// as HTTP 429 + exceeded_current_quota_error. That must classify as arrears so
+// it is NOT treated as a 5s rate-limit cooldown.
+func TestTkIsBridgeUpstreamArrears_MoonshotInsufficientBalance429(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  *newapitypes.NewAPIError
+	}{
+		{"canonical moonshot 429", arrearsBridgeError(429, moonshotArrears429Message, "exceeded_current_quota_error", "")},
+		{"suspended due to phrase", arrearsBridgeError(429, "your account is suspended due to overdue invoices", "rate_limit_error", "")},
+		{"cn 余额不足 429", arrearsBridgeError(429, "账户余额不足，请充值后重试", "exceeded_current_quota_error", "")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.True(t, tkIsBridgeUpstreamArrears(tc.err))
+		})
+	}
+}
+
+// Part A: a Moonshot billing-standing 429 must DISABLE + alert via newapi_arrears,
+// not temp-cool as a generic 429.
+func TestTkHandleBridgeArrearsPenalty_Moonshot429DisablesAccountAndAlerts(t *testing.T) {
+	svc, repo, blocker, incidents := newBridgePenaltyTestService()
+	account := newKimiArrearsAccount()
+
+	handled := tkHandleBridgeArrearsPenalty(context.Background(), svc,
+		account, arrearsBridgeError(429, moonshotArrears429Message, "exceeded_current_quota_error", ""))
+
+	require.True(t, handled, "moonshot billing 429 must be handled as arrears")
+	require.Equal(t, 1, repo.setErrorCalls, "moonshot billing 429 must DISABLE via SetError")
+	require.Zero(t, repo.tempCalls, "moonshot billing 429 must NOT temp-cool")
+	require.Equal(t, []string{tkBridgeArrearsIncidentReason}, blocker.reasons)
+	require.Equal(t, []string{tkBridgeArrearsIncidentReason}, incidents.reasons)
+	require.Len(t, incidents.details, 1)
+	require.Contains(t, incidents.details[0], "Account arrears (429)")
+}
+
+// Part A integration: the bridge penalty entrypoint must route a Moonshot
+// billing-standing 429 through arrears BEFORE the generic 429 allowlist cooldown.
+func TestTkHandleBridgeUpstreamPenalty_Moonshot429ArrearsNotRateLimit(t *testing.T) {
+	require.True(t, tkBridgePenaltyStatusEligible(429),
+		"precondition: 429 is on the generic penalty allowlist (rate-limit cooldown)")
+
+	svc, repo, _, incidents := newBridgePenaltyTestService()
+	account := newKimiArrearsAccount()
+
+	tkHandleBridgeUpstreamPenalty(context.Background(), svc, account,
+		arrearsBridgeError(429, moonshotArrears429Message, "exceeded_current_quota_error", ""))
+
+	require.Equal(t, 1, repo.setErrorCalls, "moonshot billing 429 must disable via the arrears path")
+	require.Zero(t, repo.tempCalls, "must not fall through to handle429 cooldown")
+	require.Equal(t, []string{tkBridgeArrearsIncidentReason}, incidents.reasons)
 }
 
 // Part A: an arrears 400 must DISABLE the account (SetError, same as bridge 402)
