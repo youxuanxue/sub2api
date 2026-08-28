@@ -14,13 +14,15 @@ import (
 // TK: newapi fifth-platform bridge → upstream account-standing / arrears (欠费)
 // classifier + account-level penalty + immediate Feishu alert.
 //
-// Why this file exists (prod 2026-06-12, account 60 "Qwen" / Alibaba DashScope,
-// channel_type=17, base_url https://dashscope.aliyuncs.com):
-// when the upstream Alibaba account is in arrears, DashScope returns HTTP 400
-// with body
+// Why this file exists:
 //
-//	{"error":{"message":"Access denied, please make sure your account is in
-//	good standing. ...","type":"Arrearage","code":"Arrearage"}}
+//  1. prod 2026-06-12, account 60 "Qwen" / Alibaba DashScope (channel_type=17):
+//     arrears arrives as HTTP 400 + {"error":{"type":"Arrearage","code":"Arrearage",
+//     "message":"Access denied, please make sure your account is in good standing."}}.
+//  2. prod 2026-08-28, account 83 "kimi" / Moonshot China (channel_type=25):
+//     arrears arrives as HTTP 429 + type=exceeded_current_quota_error + message
+//     "is suspended due to insufficient balance, please recharge your account".
+//     GET /v1/models still 200 — the key is valid, billing standing is not.
 //
 // TokenKey classifies a bridge 400 as CLIENT-induced (see
 // tkBridgePenaltyStatusEligible — 400 is excluded from the penalty allowlist
@@ -32,16 +34,26 @@ import (
 // a confusing "400 bad request", AND operators get NO alert that the Alibaba
 // account needs a recharge.
 //
-// This file closes that gap WITHOUT widening the 400 allowlist (which would
-// re-open the #617 pool-drain). It is a separate, deliberately narrow exception:
+// A Moonshot billing 429 is worse if left on the generic 429 path: HandleUpstreamError
+// applyCNProviderReactive429 does not apply (platform=newapi is not IsCNProvider),
+// so the account gets a ~5s cooldown and keeps rotating. User-visible status is
+// "Upstream rate limit exceeded" while the real verdict is unpaid / suspended.
 //
-//   - Part A (penalty): the arrears signal is matched conservatively (upstream
-//     provider error code/type == "Arrearage" case-insensitive, OR message
-//     containing "account is in good standing" / "overdue" / "arrear"). On a
-//     match the account is DISABLED (SetError, same as bridge 402 balance) so
-//     recharge alone does not auto-recover — ops must clear error + re-test in
-//     Admin. Disabling takes the dead account out of rotation, enabling failover
-//     or a clean "no available accounts" response instead of a wall of 400s.
+// This file closes that gap WITHOUT widening the 400 allowlist (which would
+// re-open the #617 pool-drain) and WITHOUT treating every 429 quota type as
+// arrears (exceeded_current_quota_error is also used for RPM). It is a separate,
+// deliberately narrow exception:
+//
+//   - Part A (penalty): the arrears signal is matched conservatively.
+//     400/403: provider error code/type == "Arrearage" case-insensitive, OR
+//     message containing "account is in good standing" / "overdue" / "arrear",
+//     OR the billing-standing phrases below.
+//     429: ONLY billing-standing message phrases (insufficient balance /
+//     余额不足 / suspended due to / please recharge your account). Never match
+//     type/code alone — Moonshot RPM 429s reuse exceeded_current_quota_error.
+//     On a match the account is DISABLED (SetError, same as bridge 402 balance)
+//     so recharge alone does not auto-recover — ops must clear error + re-test
+//     in Admin.
 //   - Part B (alert): the same path routes the incident through the IMMEDIATE
 //     P0 Feishu card (classifyIncident "newapi_arrears" → IncidentKindPermanent
 //     Disable), NOT the self-healing temporary-cooldown digest that #730 made
@@ -51,7 +63,8 @@ import (
 //     spamming one card per request.
 //
 // Narrowness is the whole point: a false positive disables + alerts on a healthy
-// account, so the matcher must NEVER fire on a generic / legitimate client 400.
+// account, so the matcher must NEVER fire on a generic client 400 or a plain
+// rate-limit 429.
 
 // tkBridgeArrearsIncidentReason is the stable reason string classifyIncident
 // maps to the immediate "上游账号欠费" P0 card (NOT the temporary digest).
@@ -65,19 +78,18 @@ const tkBridgeArrearsIncidentReason = "newapi_arrears"
 // only ToOpenAIError() faithfully projects (NewAPIError.Error() returns the bare
 // error code when the underlying Err is nil).
 //
-// Match ONLY the account-standing signal — provider error code/type ==
-// "arrearage" (case-insensitive), OR message containing one of the
-// account-standing phrases. Generic invalid_request_error / bad-param / oversize
-// 400s carry none of these and must fall through to the client unchanged.
+// Match ONLY the account-standing signal. Generic invalid_request_error /
+// bad-param / oversize 400s and RPM 429s carry none of these and must fall
+// through unchanged.
 func tkIsBridgeUpstreamArrears(apiErr *newapitypes.NewAPIError) bool {
 	if apiErr == nil {
 		return false
 	}
-	// Conservative status gate: arrears is the 400 (and occasionally 403) shape
-	// for the DashScope/百炼 "account in arrears" verdict. Never let a 5xx
-	// upstream outage or a 429 rate-limit reach this account-standing matcher.
+	// Conservative status gate: DashScope/百炼 arrears is 400 (occasionally 403);
+	// Moonshot China billing standing-failure is 429 + billing text. Never let a
+	// 5xx outage or a 429 without billing-standing phrases reach SetError.
 	switch apiErr.StatusCode {
-	case 400, 403:
+	case 400, 403, 429:
 	default:
 		return false
 	}
@@ -85,12 +97,17 @@ func tkIsBridgeUpstreamArrears(apiErr *newapitypes.NewAPIError) bool {
 	if len(body) == 0 {
 		return false
 	}
+	msg := strings.ToLower(gjson.GetBytes(body, "error.message").String())
+	// 429: message-only. Do not trust error.type/code — Moonshot reuses
+	// exceeded_current_quota_error for both unpaid-account and RPM.
+	if apiErr.StatusCode == 429 {
+		return tkIsBridgeUpstreamArrearsBillingMessage(msg)
+	}
 	code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "error.code").String()))
 	typ := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "error.type").String()))
 	if code == "arrearage" || typ == "arrearage" {
 		return true
 	}
-	msg := strings.ToLower(gjson.GetBytes(body, "error.message").String())
 	if msg == "" {
 		return false
 	}
@@ -98,6 +115,26 @@ func tkIsBridgeUpstreamArrears(apiErr *newapitypes.NewAPIError) bool {
 		"account is in good standing", // DashScope arrears verbatim phrase
 		"overdue",                     // overdue-payment
 		"arrear",                      // arrears / arrearage (substring)
+	} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return tkIsBridgeUpstreamArrearsBillingMessage(msg)
+}
+
+// tkIsBridgeUpstreamArrearsBillingMessage is the 429-safe standing-failure set.
+// These phrases are billing/account-suspend, not RPM. "exceeded_current_quota_error"
+// alone is intentionally NOT a marker.
+func tkIsBridgeUpstreamArrearsBillingMessage(msg string) bool {
+	if msg == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"insufficient balance",
+		"余额不足",
+		"suspended due to",
+		"please recharge your account",
 	} {
 		if strings.Contains(msg, marker) {
 			return true
@@ -148,9 +185,9 @@ func tkHandleBridgeArrearsPenalty(ctx context.Context, rls *RateLimitService, ac
 		return false
 	}
 	detail := tkBridgeArrearsDetail(apiErr)
-	errorMsg := "Account arrears (400): insufficient balance or billing issue"
+	errorMsg := fmt.Sprintf("Account arrears (%d): insufficient balance or billing issue", apiErr.StatusCode)
 	if detail != "" {
-		errorMsg = "Account arrears (400): " + detail
+		errorMsg = fmt.Sprintf("Account arrears (%d): %s", apiErr.StatusCode, detail)
 	}
 
 	stateCtx, cancel := openAIAccountStateContext(ctx)
