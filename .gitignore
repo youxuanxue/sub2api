@@ -53,6 +53,7 @@ pnpm-debug.log*
 .env.*.local
 *.env
 !.env.example
+!ops/stage0/bluegreen-capacity-policy.env
 docker-compose.override.yml
 
 # ===================

@@ -45,7 +45,7 @@ CFN 模板已把 `docker-compose.yml`、`Caddyfile`、QA 生命周期 payload �
 
 ### 把 Caddyfile 改动落到「已经在跑」的主机（热同步）
 
-`deploy_via_ssm.sh`（Lightsail edge / legacy single-app path）**只换镜像，不刷新 Caddyfile**——Caddyfile 是开机时由 UserData 从 SSM Parameter 渲染一次的。所以改了 `lb_try_duration` 这类指令后，现有主机要等下次重建才生效。两条生效路径：
+Stage0 发版路径 `deploy_via_ssm_bluegreen.sh` 只切换 app 镜像与 Caddy upstream，**不重写整份 Caddyfile**。Caddyfile 正文仍是开机时由 UserData 从 SSM Parameter 渲染一次的。所以改了 `lb_try_duration` 这类指令后，现有主机要等下次重建或热同步才生效。两条生效路径：
 
 - **下次重建生效（reboot durability）**：`build-cfn.sh` 已把新 Caddyfile 嵌进 CFN 模板的 SSM 段；一次普通 `update-stack`（或重新 provision / EIP 轮换）就把新 blob 推进 Parameter Store，下次开机渲染即新值。更新 SSM Parameter 资源**不会**替换实例（UserData 只在启动时跑）。
 - **立刻生效（live host）**：跑热同步脚本，在运行中的主机上按开机同样的方式重渲染 Caddyfile 并 `caddy reload`（零断连）：
@@ -229,16 +229,17 @@ us4 -> us-west-2 -> api-us4.tokenkey.dev -> tokenkey-edge-us-or1-ls -> deploy-ed
 与 [`deploy/aws/lightsail/README.md`](lightsail/README.md)。日常发版 rollout 经
 `scripts/stage0/dispatch-edge-deploy.sh`（路由到 `deploy-edge-lightsail-stage0.yml`）。
 
-Edge 不是第二套部署逻辑：prod/test 和 Edge 都调用同一批共享脚本：
+Edge 不是第二套部署逻辑：prod 和 Lightsail Edge 都调用同一套 same-host blue/green 发版入口：
 
 ```text
 ops/stage0/verify_ghcr_manifest.sh
-ops/stage0/deploy_via_ssm.sh
+ops/stage0/deploy_via_ssm_bluegreen.sh
+scripts/checks/bluegreen-migration-safety.py --release-tag
 ops/stage0/external_health.sh
 ops/stage0/sync-feishu-config.sh
 ```
 
-这保证主网关和 Edge 后续都部署同一个 GHCR image 产物、同一份 `deploy/aws/stage0/docker-compose.yml` 基线、同一套 SSM 原地升级/rollback primitive；差异只来自 Edge target 参数、EC2 profile 和 `Caddyfile.edge` 的 API path allowlist。
+行为规范只在 `docs/approved/deploy-stage0-workflow.md`。差异只来自 Edge target 参数、容量准入和 `Caddyfile.edge` 的 API path allowlist。历史单容器 `deploy_via_ssm.sh` 已从 Stage0 发版路径退役。
 
 **Anthropic OAuth 稳定基线**：新增 Edge 账号时，按 [`docs/accounts/anthropic-oauth-edge-stability-baseline-index.md`](../../docs/accounts/anthropic-oauth-edge-stability-baseline-index.md) 选择 L1-L5 等级，再用只读检查命令比对线上状态：`python3 ops/anthropic/check-edge-oauth-stability.py --edge-id <edge_id> --account-name <account_name>`。唯一机器可读基线是 `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`；脚本默认不修改线上，`--emit-sql` 只生成审阅用 SQL。
 

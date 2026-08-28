@@ -20,7 +20,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | VERSION/tag 三态决策（tag-only / bump-and-tag / skip-bump-skip-tag） | 机械 | `scripts/release-decide-version.sh [--emit-suggested-bump]`（被上行脚本消费；单独跑仅用于诊断） |
 | 打 tag（含 skip-ci / VERSION 一致 / HEAD==origin/main 校验） | 机械 | `scripts/release-tag.sh vX.Y.Z`（被上行脚本调用） |
 | 读取 deployable edge 矩阵 | 机械 | `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` |
-| **canary Edge 选择（优先第一个有 native OAuth/Kiro 池的 deployable Edge）** | 机械 | `python3 scripts/stage0/pick_oauth_canary_edge.py`（SSM 读各 edge PG 计数；与 `edge_native_anthropic_smoke.sh` 同 eligibility；全部确定为空时回落首个 deployable Edge，infra 仍为硬门禁、native OAuth 记 N/A；`--json` 带 audit） |
+| **canary Edge 选择（容量合格 → 低流量 → 高内存余量 → 矩阵顺序）** | 机械 | `python3 scripts/stage0/pick_release_canary_edge.py`（SSM 探测全部 deployable Edge；硬门禁为内存/磁盘，按近 30 分钟完成请求数和内存余量排序；native OAuth/Kiro 池仅作 audit/smoke applicability；`--json` 带完整 audit） |
 | Edge dispatch 路由（edges 均为 Lightsail） | 机械 | `scripts/stage0/resolve-edge-deploy-route.py --edge-id <id> --json` |
 | Edge upgrade/smoke/rollback dispatch | 机械 | `bash scripts/stage0/dispatch-edge-deploy.sh --edge-id … --operation …` |
 | **其余 Edge rollout（bounded parallel fail-stop + smoke 标记验收）** | 机械 | `bash scripts/stage0/rollout-edges.sh --tag X.Y.Z --skip <canary>`（**默认 `--parallel 1` 顺序**，降低并发换容器对线上的影响；`N>1` 仅在可接受该影响时用） |
@@ -98,7 +98,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 `all` 不是并行全量推送。默认采用顺序化 canary rollout：
 
 1. **release build 一次**：只构建一个 multi-arch GHCR tag，所有目标复用同一 image，避免两套产物。
-2. **Edge canary：第一个有 native OAuth/Kiro 池的 deployable Edge upgrade + full smoke（显式 `--smoke-phase full`）**：用 `python3 scripts/stage0/pick_oauth_canary_edge.py` 选 canary（不是矩阵下标第一个）；验证镜像启动、infra 门禁，并在该 edge 容器内对每个可调度 Anthropic OAuth 账号跑拟真 `/v1/messages`（`probe_account_model` / `smoke_anthropic_realistic.py`）。**其余 Edge 一律 infra only**（`rollout-edges.sh`）。
+2. **Edge canary：容量合格后选择近 30 分钟流量最低、内存余量最高的 deployable Edge upgrade + full smoke（显式 `--smoke-phase full`）**：用 `python3 scripts/stage0/pick_release_canary_edge.py` 探测全 fleet 后选 canary；native OAuth/Kiro 账号数只决定该 smoke 子段是否适用，不参与 eligibility 或排序。**其余 Edge 一律 infra only**（`rollout-edges.sh`）。
 3. **prod 主网关 upgrade + 完整 prod smoke**：Edge canary 过后再升级 prod。
 4. **（可选）main gateway via Edge smoke**：仅当需要验证 prod→Edge 中转调度时，`smoke_phase=main-via-edge`；缺 `TK_SMOKE_API_KEY` 记 partial，不 rollback。
 5. **其余 deployable Edge bounded-parallel rollout**：prod full smoke 绿后，`rollout-edges.sh` 对每个 edge dispatch upgrade（**infra only**，验 log 含 `tk_edge_post_deploy_smoke: OK phase=infra`）。
@@ -248,7 +248,7 @@ bash scripts/stage0/dispatch-edge-deploy.sh \
   --operation upgrade \
   --tag "$TARGET_TAG"
 
-# canary full（target=all 第一步；CANARY_EDGE 来自 pick_oauth_canary_edge.py）
+# canary full（target=all 第一步；CANARY_EDGE 来自 pick_release_canary_edge.py）
 bash scripts/stage0/dispatch-edge-deploy.sh \
   --edge-id "$CANARY_EDGE" \
   --operation upgrade \
@@ -287,13 +287,13 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
 2. 读取 deployable 矩阵并**机械化选 canary**：
 
    ```bash
-   CANARY_EDGE="$(python3 scripts/stage0/pick_oauth_canary_edge.py)"
-   # 诊断：python3 scripts/stage0/pick_oauth_canary_edge.py --json
+   CANARY_EDGE="$(python3 scripts/stage0/pick_release_canary_edge.py)"
+   # 诊断：python3 scripts/stage0/pick_release_canary_edge.py --json
    python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable
    # edges 均为 Lightsail deployable=true（uk1、us2、us3、us4、…）
    ```
 
-   `pick_oauth_canary_edge.py` 按 `--list-deployable` 顺序逐个 SSM 探测 schedulable native OAuth/Kiro 账号数，优先用**第一个 count>0 的 edge**。若所有探测都确定为零，选择首个 deployable Edge 继续 full smoke：infra 仍须通过，edge-native-oauth 明确记 `SKIPPED no eligible accounts`。若任一探测失败且没有找到正数池，脚本仍 exit 1，避免把未知状态伪装成空池。
+   `pick_release_canary_edge.py` 逐个 SSM 探测**全部** deployable Edge。缺失/非法的内存、磁盘或近 30 分钟完成请求数只淘汰对应 Edge；合格节点按完成请求数升序、`MemAvailable` 余量降序、矩阵顺序排序。native OAuth/Kiro 账号数仅作 audit：全池为零仍正常选择并在 full smoke 中把对应子段记为 `SKIPPED no eligible accounts`。只有没有任何 Edge 通过容量/事实门禁时脚本才 exit 1。
 
 3. Canary upgrade + full smoke：`dispatch-edge-deploy.sh --edge-id=$CANARY_EDGE --operation upgrade --tag=$TARGET_TAG --smoke-phase full`，watch 到 success。
 4. 推进 prod deploy：canary full smoke 绿后 `gh workflow run deploy-stage0.yml -f tag=$TARGET_TAG`（prod 不再自动 queue），按 approval 命令自批，watch 到 success。
@@ -439,7 +439,7 @@ bash scripts/stage0/dispatch-edge-deploy.sh \
 
 prod smoke 失败：停，优先 rollback prod；不要继续 Edge rollout。Edge canary 失败：停，不批准/推进 prod，除非用户明确 override。
 
-**自动 rollback 也救不回 → 切灾难恢复（单次救不回即切，不必等"反复 N 次"）**：`deploy-stage0.yml` 调的 `ops/stage0/deploy_via_ssm.sh` 已内置 rollback ERR trap（失败自动恢复上一镜像）。当它**也救不回**——SSM 日志出现 `::error::…node requires MANUAL intervention`——或 dispatch rollback 到 `previous_tag` 后 external_health / smoke 仍失败，说明这已不是镜像级问题（整机 / OS / 数据卷 / 迁移 checksum 钉死）。此时切到 `deploy/aws/RUNBOOK-disaster-recovery.md`，按其 **§Agent 协同契约** 执行（Agent 自主跑只读/可逆步骤、高风险步骤先 plan 再等人类批）——具体边界与命令以该 runbook 为唯一权威，本段不复述。
+**显式 rollback 也救不回 → 切灾难恢复（单次救不回即切，不必等"反复 N 次"）**：prod/Edge 共用 `ops/stage0/deploy_via_ssm_bluegreen.sh`。pre-cutover 失败会保留旧颜色服务；committed 后失败会保留两颜色并要求显式 dispatch `previous_tag`，不会自动回切。当 dispatch rollback 后 external_health / smoke 仍失败，说明这已不是普通镜像切换问题（整机 / OS / 数据卷 / 迁移 checksum 钉死）。此时切到 `deploy/aws/RUNBOOK-disaster-recovery.md`，按其 **§Agent 协同契约** 执行——具体边界与命令以该 runbook 为唯一权威，本段不复述。
 
 ## 完成后：发版后两阶段实测（live tag → 本次 tag）
 
@@ -672,8 +672,9 @@ bash scripts/release-rollout-summary.sh --mode release
 - `scripts/release-tag.sh` — tag 门禁。
 - `.github/workflows/release.yml` — multi-arch image build 与 prod auto-dispatch。
 - `scripts/stage0/rollout-edges.sh` — 其余 Edge bounded-parallel rollout（fail-stop + smoke 标记验收；**默认 `--parallel 1` 顺序**，降低并发换容器对线上的影响；`N>1` 仅在可接受时用）。
-- `scripts/stage0/pick_oauth_canary_edge.py` — 按 deployable 顺序选第一个有 native OAuth/Kiro 池的 Edge 作 canary full smoke。
-- `ops/stage0/edge_oauth_pool_probe.sh` — canary 选择用的 SSM 账号池计数探针（与 edge-native smoke 同 eligibility）。
+- `scripts/stage0/pick_release_canary_edge.py` — 探测全 fleet 后按容量、近 30 分钟流量、内存余量和矩阵顺序选择 canary。
+- `ops/stage0/edge_release_canary_probe.sh` — canary 选择的单行 JSON 资源/流量探针；OAuth/Kiro 账号数为 audit-only。
+- `ops/stage0/edge_oauth_pool_probe.sh` — release probe 复用的账号池计数 owner（与 edge-native smoke 同 eligibility）。
 - `scripts/stage0/dispatch-edge-deploy.sh` — 单一 Edge deploy dispatch（edges 均为 Lightsail）。
 - `ops/observability/run-post-release-check.sh` — 两阶段实测入口（`--phase immediate|delayed` + 同一 `--since` / plan）。
 - `scripts/release_post_check.py` — 从 live tag→new tag 派生 PR 检查、分阶段评分、等待 cutover 窗口、渲染 Summary 并 fail-closed gate；禁止模型自造 hook。

@@ -109,6 +109,59 @@ def scan_file(path: Path) -> list[str]:
     return scan_sql(path.read_text(errors="replace"))
 
 
+def previous_release_tag(target: str, tag_lines: list[str]) -> str | None:
+    """Return the highest semver tag strictly older than target, matching the
+    existing prod release-range preparation.
+    """
+    raw = target.lstrip("v")
+    parts = raw.split(".")
+    if len(parts) != 3 or not all(part.isdigit() for part in parts):
+        raise ValueError(f"release tag must be X.Y.Z, got {target!r}")
+    wanted = tuple(int(part) for part in parts)
+    best: tuple[tuple[int, int, int], str] | None = None
+    for line in tag_lines:
+        fields = line.split()
+        if len(fields) < 2 or fields[1].endswith("^{}"):
+            continue
+        name = fields[1].removeprefix("refs/tags/")
+        match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", name)
+        if not match:
+            continue
+        version = tuple(int(part) for part in match.groups())
+        if version < wanted and (best is None or version > best[0]):
+            best = (version, name)
+    return best[1] if best else None
+
+
+def prepare_release_range(tag: str) -> tuple[str, str, bool]:
+    """Resolve the current prod/Edge release comparison range.
+
+    Semantics are unchanged from the previous workflow-inline preparation:
+    prefer previous-release-tag..vTAG when the target tag can be fetched,
+    otherwise fall back to origin/main..HEAD.
+    """
+    target_ref = f"v{tag.lstrip('v')}"
+    fetched = git("fetch", "--no-tags", "--depth=1", "origin", f"refs/tags/{target_ref}:refs/tags/{target_ref}")
+    if fetched.returncode != 0:
+        print(f"::warning::tag {target_ref} not found on origin; falling back to origin/main..HEAD")
+        target_ref = ""
+
+    listed = git("ls-remote", "--tags", "origin", "refs/tags/v[0-9]*.[0-9]*.[0-9]*")
+    base_ref = previous_release_tag(tag, listed.stdout.splitlines()) if listed.returncode == 0 else None
+
+    if target_ref and git("rev-parse", "--verify", target_ref).returncode == 0:
+        if not base_ref:
+            git("fetch", "--no-tags", "origin", "main:refs/remotes/origin/main", "--depth=64")
+            base_ref = "origin/main"
+        elif git("rev-parse", "--verify", base_ref).returncode != 0:
+            git("fetch", "--no-tags", "--depth=1", "origin", f"refs/tags/{base_ref}:refs/tags/{base_ref}")
+        print(f"blue/green migration safety range: {base_ref}..{target_ref}")
+        return base_ref, target_ref, True
+
+    git("fetch", "--no-tags", "origin", "main:refs/remotes/origin/main", "--depth=64")
+    return "origin/main", "HEAD", False
+
+
 def selftest() -> int:
     cases = [
         (
@@ -142,6 +195,18 @@ def selftest() -> int:
         got = scan_sql(sql)
         if got != expected:
             failures.append(f"{name}: expected {expected}, got {got}")
+    tag_lines = [
+        "abc refs/tags/v1.8.176",
+        "def refs/tags/v1.8.177",
+        "ghi refs/tags/v1.8.177^{}",
+        "jkl refs/tags/v1.8.178-rc.1",
+        "mno refs/tags/v1.8.178",
+    ]
+    previous = previous_release_tag("1.8.178", tag_lines)
+    if previous != "v1.8.177":
+        failures.append(f"previous-release-tag: expected v1.8.177, got {previous}")
+    if previous_release_tag("1.0.0", tag_lines) is not None:
+        failures.append("previous-release-tag: first release must have no predecessor")
     if failures:
         print("FAIL: bluegreen-migration-safety selftest")
         for failure in failures:
@@ -162,15 +227,23 @@ def main() -> int:
         help="allow explicit base/head tree diff in shallow deploy checkouts",
     )
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument(
+        "--release-tag",
+        help="prepare the current prod/Edge release comparison range from this X.Y.Z tag",
+    )
     args = ap.parse_args()
 
     if args.selftest:
         return selftest()
 
+    allow_tree_diff = args.allow_tree_diff_without_merge_base
+    if args.release_tag:
+        args.base, args.head, allow_tree_diff = prepare_release_range(args.release_tag)
+
     base, head = resolve_range(
         args.base,
         args.head,
-        allow_tree_diff_without_merge_base=args.allow_tree_diff_without_merge_base,
+        allow_tree_diff_without_merge_base=allow_tree_diff,
     )
     if not base:
         if not args.quiet:
