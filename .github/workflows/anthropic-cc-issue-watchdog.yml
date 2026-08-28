@@ -377,7 +377,7 @@ jobs:
           echo "cache_pr_url=$URL" >> "$GITHUB_OUTPUT"
           echo "cache PR: $URL"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: cc-issue-watchdog-scan-${{ github.run_id }}
@@ -454,7 +454,7 @@ jobs:
           git config user.name "tk-cc-issue-fix-agent[bot]"
           git config user.email "cc-issue-fix-agent@tokenkey.dev"
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: cc-issue-watchdog-scan-${{ github.run_id }}
           path: .cache/anthropic-cc-issue-watchdog
@@ -520,7 +520,7 @@ jobs:
           gh_token: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
           output_file: /tmp/cc-issue-fix-agent-output.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: cc-issue-fix-agent-output-${{ github.run_id }}

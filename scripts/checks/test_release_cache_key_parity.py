@@ -45,6 +45,43 @@ class ReleaseCacheWorkflowTest(unittest.TestCase):
         job = workflow["jobs"]["warm-release-cache"]
         self.assertEqual(job.get("if"), "github.ref == 'refs/heads/main'")
 
+    def test_warm_workflow_owns_daily_integration_cache_writes(self) -> None:
+        workflow = load_workflow(WARM_WORKFLOW)
+        steps = workflow["jobs"]["warm-release-cache"]["steps"]
+        epoch = next(step for step in steps if step.get("id") == "integration_epoch")
+        self.assertIn('day=$(date -u +%Y-%m-%d)', epoch["run"])
+
+        cache = next(step for step in steps if step.get("id") == "integration_cache")
+        self.assertEqual(cache["uses"], "actions/cache@v6")
+        self.assertEqual(
+            cache["with"]["path"],
+            "${{ github.workspace }}/.cache/go-build-integration",
+        )
+        dependency_hash = (
+            "${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}"
+        )
+        key_prefix = "${{ runner.os }}-gobuild-integration-nodwarf-v2-"
+        self.assertEqual(
+            cache["with"]["key"],
+            f"{key_prefix}{dependency_hash}-${{{{ steps.integration_epoch.outputs.day }}}}",
+        )
+        self.assertEqual(
+            cache["with"]["restore-keys"],
+            f"{key_prefix}{dependency_hash}-\n{key_prefix}\n",
+        )
+
+        warm = next(
+            step for step in steps if step.get("name") == "Warm integration build cache"
+        )
+        self.assertEqual(warm["if"], "steps.integration_cache.outputs.cache-hit != 'true'")
+        self.assertEqual(
+            warm["env"]["GOCACHE"],
+            "${{ github.workspace }}/.cache/go-build-integration",
+        )
+        self.assertEqual(warm["env"]["GOFLAGS"], "-gcflags=all=-dwarf=false")
+        self.assertIn("scripts/ci/integration-packages.py", warm["run"])
+        self.assertIn("go test -c -tags=integration", warm["run"])
+
 
 if __name__ == "__main__":
     unittest.main()
