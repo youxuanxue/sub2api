@@ -11,25 +11,11 @@ import (
 	"github.com/Wei-Shaw/sub2api/migrations"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
 func TestUS045_SQLTimelineSelectorPersistsTerminalAndFindsUncoveredIdentity(t *testing.T) {
 	ctx := context.Background()
-	container, err := postgres.Run(
-		ctx, "postgres:18.1-alpine3.23",
-		postgres.WithDatabase("qa_archive_timeline"),
-		postgres.WithUsername("postgres"), postgres.WithPassword("postgres"),
-		postgres.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("start postgres: %v", err)
-	}
-	defer func() { _ = container.Terminate(ctx) }()
-	dsn, err := container.ConnectionString(ctx, "sslmode=disable", "TimeZone=UTC")
-	require.NoError(t, err)
-	db, err := sql.Open("postgres", dsn)
-	require.NoError(t, err)
+	db := openArchiveIntegrationDB(t, "qa_archive_timeline")
 	defer func() { _ = db.Close() }()
 	for _, migration := range []string{
 		"tk_004_create_qa_records.sql",

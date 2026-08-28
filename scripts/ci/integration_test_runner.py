@@ -183,6 +183,7 @@ def run_integration_tests(
                 f"other-{Path(package).name}",
                 (
                     str(binaries[package]),
+                    "-test.v",
                     "-test.timeout=10m",
                     "-test.paniconexit0",
                 ),
@@ -197,6 +198,7 @@ def run_integration_tests(
                     f"repository-shard-{index:0{width}d}",
                     (
                         str(repository_binary),
+                        "-test.v",
                         "-test.run",
                         pattern,
                         "-test.timeout=10m",
@@ -209,6 +211,7 @@ def run_integration_tests(
             commands,
             runner_name="integration-test-runner",
             temporary_prefix="sub2api-integration-",
+            slow_test_limit=5,
         )
 
 
