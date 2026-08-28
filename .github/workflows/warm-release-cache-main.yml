@@ -80,10 +80,11 @@ jobs:
           GOFLAGS: -gcflags=all=-dwarf=false
         run: |
           set -euo pipefail
-          index=0
+          integration_packages=()
           while IFS= read -r package; do
-            go test -c -tags=integration \
-              -o "${RUNNER_TEMP}/integration-cache-${index}.test" \
-              "$package"
-            index=$((index + 1))
+            integration_packages+=("$package")
           done < <(python3 ../scripts/ci/integration-packages.py --root .)
+          mkdir -p "${RUNNER_TEMP}/integration-cache"
+          go test -c -tags=integration \
+            -o "${RUNNER_TEMP}/integration-cache/" \
+            "${integration_packages[@]}"

@@ -17,7 +17,7 @@ SCRIPT = Path(__file__).resolve().parent / "integration_test_runner.py"
 
 
 class IntegrationTestRunnerTest(unittest.TestCase):
-    def test_compiles_repository_once_and_runs_only_integration_entries_in_three_shards(
+    def test_compiles_all_integration_packages_once_with_tagged_vet_coverage(
         self,
     ) -> None:
         integration_tests = [f"TestIntegration{i}" for i in range(9)]
@@ -35,9 +35,15 @@ class IntegrationTestRunnerTest(unittest.TestCase):
         go_calls = [event["args"] for event in first_events if event["kind"] == "go"]
         compile_calls = [call for call in go_calls if "-c" in call]
         self.assertEqual(len(compile_calls), 1, go_calls)
+        self.assertNotIn("-vet=off", compile_calls[0])
         self.assertIn("./internal/repository", compile_calls[0])
-        self.assertIn(
-            ["test", "-tags=integration", "./internal/other"],
+        self.assertIn("./internal/other", compile_calls[0])
+        self.assertFalse(
+            [
+                call
+                for call in go_calls
+                if call and call[0] == "test" and "-c" not in call
+            ],
             go_calls,
         )
 
@@ -48,6 +54,15 @@ class IntegrationTestRunnerTest(unittest.TestCase):
         ]
         self.assertEqual(len(registry_events), 1, first_events)
         self.assertEqual(registry_events[0]["registry_only"], "1")
+
+        other_events = [
+            event
+            for event in first_events
+            if event["kind"] == "binary"
+            and Path(str(event["executable"])).name == "other.test"
+        ]
+        self.assertEqual(len(other_events), 1, first_events)
+        self.assertNotIn("-test.run", other_events[0]["args"])
 
         first_patterns = self._binary_patterns(first_events)
         second_patterns = self._binary_patterns(second_events)
@@ -94,7 +109,7 @@ class IntegrationTestRunnerTest(unittest.TestCase):
         self.assertNotIn("successful shard noise", combined)
         self.assertIn("integration-test-runner: FAIL", combined)
 
-    def test_overlaps_compile_with_discovery_and_other_packages(self) -> None:
+    def test_runs_test_binaries_only_after_the_shared_compile_finishes(self) -> None:
         with FakeGoFixture(
             ["TestOne", "TestTwo", "TestThree"],
             compile_delay=0.75,
@@ -104,30 +119,17 @@ class IntegrationTestRunnerTest(unittest.TestCase):
             events = fixture.read_events()
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        compile_started = next(
-            event["at"]
-            for event in events
-            if event["kind"] == "go" and "-c" in event["args"]
-        )
-        discovery_finished = max(
-            event["at"]
-            for event in events
-            if event["kind"] == "go-finished"
-            and event["args"]
-            and event["args"][0] in {"list", "run"}
-        )
         compile_finished = next(
             event["at"]
             for event in events
             if event["kind"] == "go-finished" and "-c" in event["args"]
         )
-        other_started = next(
+        first_binary_started = min(
             event["at"]
             for event in events
-            if event["kind"] == "go" and "./internal/other" in event["args"]
+            if event["kind"] == "binary"
         )
-        self.assertLess(compile_started, discovery_finished, events)
-        self.assertLess(other_started, compile_finished, events)
+        self.assertLessEqual(compile_finished, first_binary_started, events)
 
     @staticmethod
     def _binary_patterns(events: list[dict[str, object]]) -> list[str]:
@@ -210,6 +212,7 @@ class FakeGoFixture:
             with Path(os.environ["FAKE_GO_EVENTS"]).open("a", encoding="utf-8") as output:
                 output.write(json.dumps({
                     "kind": "binary",
+                    "executable": sys.argv[0],
                     "args": args,
                     "cwd": os.getcwd(),
                     "at": time.monotonic(),
@@ -218,6 +221,10 @@ class FakeGoFixture:
             if "-test.list" in args:
                 for name in json.loads(os.environ["FAKE_GO_BINARY_TESTS"]):
                     print(name)
+                raise SystemExit(0)
+            if "-test.run" not in args:
+                print("successful package noise")
+                print("PASS")
                 raise SystemExit(0)
             pattern = args[args.index("-test.run") + 1]
             fail_test = os.environ.get("FAKE_GO_FAIL_TEST", "")
@@ -286,9 +293,16 @@ class FakeGoFixture:
 
             if "-c" in args:
                 time.sleep(float(os.environ.get("FAKE_GO_COMPILE_DELAY", "0")))
-                binary = Path(args[args.index("-o") + 1])
-                binary.write_text(__BINARY_SOURCE__, encoding="utf-8")
-                binary.chmod(0o755)
+                output = Path(args[args.index("-o") + 1])
+                packages = [value for value in args if value.startswith("./")]
+                binaries = (
+                    [output / f"{Path(package).name}.test" for package in packages]
+                    if output.is_dir()
+                    else [output]
+                )
+                for binary in binaries:
+                    binary.write_text(__BINARY_SOURCE__, encoding="utf-8")
+                    binary.chmod(0o755)
                 with events.open("a", encoding="utf-8") as output:
                     output.write(json.dumps({"kind": "go-finished", "args": args, "at": time.monotonic()}) + "\\n")
                 raise SystemExit(0)
