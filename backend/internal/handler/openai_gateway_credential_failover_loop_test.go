@@ -888,15 +888,7 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 		accounts[1].Credentials["expires_at"] = time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
 	}
 	for i := range accounts {
-		if service.SeedOfficialSupportedProtocols(&accounts[i]) {
-			continue
-		}
-		update, err := service.BuildSupportedProtocolsUpdate([]protocolrouter.Protocol{protocolrouter.ProtocolResponses})
-		require.NoError(t, err)
-		if accounts[i].Extra == nil {
-			accounts[i].Extra = make(map[string]any)
-		}
-		accounts[i].Extra[service.SupportedProtocolsExtraKey] = update[service.SupportedProtocolsExtraKey]
+		attachHandlerTestProtocolCapability(t, &accounts[i], protocolrouter.ProtocolResponses)
 	}
 	repo := &grokCredentialHandlerRepo{accounts: accounts, missingOnGet: map[int64]bool{}}
 	if mode == "missing_row" {

@@ -217,6 +217,14 @@ type AccountModelOption struct {
 	DisplayName string `json:"display_name"`
 }
 
+type ProtocolEndpointCapability struct {
+	CapabilityKey        string     `json:"capability_key"`
+	Revision             int64      `json:"revision"`
+	LastProbedAt         *time.Time `json:"last_probed_at"`
+	AffectedAccountCount int        `json:"affected_account_count"`
+	IdentityConflict     bool       `json:"identity_conflict"`
+}
+
 type Account struct {
 	ID       int64   `json:"id"`
 	Name     string  `json:"name"`
@@ -229,6 +237,7 @@ type Account struct {
 	CredentialsStatus       map[string]bool                `json:"credentials_status,omitempty"`
 	Extra                   map[string]any                 `json:"extra"`
 	SupportedProtocols      []string                       `json:"supported_protocols"`
+	ProtocolCapability      *ProtocolEndpointCapability    `json:"protocol_capability,omitempty"`
 	OllamaCloudUsage        *service.OllamaCloudUsageState `json:"ollama_cloud_usage,omitempty"`
 	ProxyID                 *int64                         `json:"proxy_id"`
 	ProxyFallbackOriginID   *int64                         `json:"proxy_fallback_origin_id"`

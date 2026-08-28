@@ -31,6 +31,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
+	"github.com/Wei-Shaw/sub2api/ent/protocolendpointcapability"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/ent/qaarchiveshard"
 	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
@@ -1664,6 +1665,63 @@ func init() {
 	promocodeusageDescUsedAt := promocodeusageFields[3].Descriptor()
 	// promocodeusage.DefaultUsedAt holds the default value on creation for the used_at field.
 	promocodeusage.DefaultUsedAt = promocodeusageDescUsedAt.Default.(func() time.Time)
+	protocolendpointcapabilityMixin := schema.ProtocolEndpointCapability{}.Mixin()
+	protocolendpointcapabilityMixinFields0 := protocolendpointcapabilityMixin[0].Fields()
+	_ = protocolendpointcapabilityMixinFields0
+	protocolendpointcapabilityFields := schema.ProtocolEndpointCapability{}.Fields()
+	_ = protocolendpointcapabilityFields
+	// protocolendpointcapabilityDescCreatedAt is the schema descriptor for created_at field.
+	protocolendpointcapabilityDescCreatedAt := protocolendpointcapabilityMixinFields0[0].Descriptor()
+	// protocolendpointcapability.DefaultCreatedAt holds the default value on creation for the created_at field.
+	protocolendpointcapability.DefaultCreatedAt = protocolendpointcapabilityDescCreatedAt.Default.(func() time.Time)
+	// protocolendpointcapabilityDescUpdatedAt is the schema descriptor for updated_at field.
+	protocolendpointcapabilityDescUpdatedAt := protocolendpointcapabilityMixinFields0[1].Descriptor()
+	// protocolendpointcapability.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	protocolendpointcapability.DefaultUpdatedAt = protocolendpointcapabilityDescUpdatedAt.Default.(func() time.Time)
+	// protocolendpointcapability.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	protocolendpointcapability.UpdateDefaultUpdatedAt = protocolendpointcapabilityDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// protocolendpointcapabilityDescCapabilityKey is the schema descriptor for capability_key field.
+	protocolendpointcapabilityDescCapabilityKey := protocolendpointcapabilityFields[0].Descriptor()
+	// protocolendpointcapability.CapabilityKeyValidator is a validator for the "capability_key" field. It is called by the builders before save.
+	protocolendpointcapability.CapabilityKeyValidator = func() func(string) error {
+		validators := protocolendpointcapabilityDescCapabilityKey.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(capability_key string) error {
+			for _, fn := range fns {
+				if err := fn(capability_key); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// protocolendpointcapabilityDescSupportedProtocols is the schema descriptor for supported_protocols field.
+	protocolendpointcapabilityDescSupportedProtocols := protocolendpointcapabilityFields[2].Descriptor()
+	// protocolendpointcapability.DefaultSupportedProtocols holds the default value on creation for the supported_protocols field.
+	protocolendpointcapability.DefaultSupportedProtocols = protocolendpointcapabilityDescSupportedProtocols.Default.(func() []string)
+	// protocolendpointcapabilityDescProbeEvidence is the schema descriptor for probe_evidence field.
+	protocolendpointcapabilityDescProbeEvidence := protocolendpointcapabilityFields[3].Descriptor()
+	// protocolendpointcapability.DefaultProbeEvidence holds the default value on creation for the probe_evidence field.
+	protocolendpointcapability.DefaultProbeEvidence = protocolendpointcapabilityDescProbeEvidence.Default.(func() map[string]interface{})
+	// protocolendpointcapabilityDescRevision is the schema descriptor for revision field.
+	protocolendpointcapabilityDescRevision := protocolendpointcapabilityFields[4].Descriptor()
+	// protocolendpointcapability.DefaultRevision holds the default value on creation for the revision field.
+	protocolendpointcapability.DefaultRevision = protocolendpointcapabilityDescRevision.Default.(int64)
+	// protocolendpointcapability.RevisionValidator is a validator for the "revision" field. It is called by the builders before save.
+	protocolendpointcapability.RevisionValidator = protocolendpointcapabilityDescRevision.Validators[0].(func(int64) error)
+	// protocolendpointcapabilityDescProbeGeneration is the schema descriptor for probe_generation field.
+	protocolendpointcapabilityDescProbeGeneration := protocolendpointcapabilityFields[8].Descriptor()
+	// protocolendpointcapability.DefaultProbeGeneration holds the default value on creation for the probe_generation field.
+	protocolendpointcapability.DefaultProbeGeneration = protocolendpointcapabilityDescProbeGeneration.Default.(int64)
+	// protocolendpointcapability.ProbeGenerationValidator is a validator for the "probe_generation" field. It is called by the builders before save.
+	protocolendpointcapability.ProbeGenerationValidator = protocolendpointcapabilityDescProbeGeneration.Validators[0].(func(int64) error)
+	// protocolendpointcapabilityDescIdentityConflict is the schema descriptor for identity_conflict field.
+	protocolendpointcapabilityDescIdentityConflict := protocolendpointcapabilityFields[9].Descriptor()
+	// protocolendpointcapability.DefaultIdentityConflict holds the default value on creation for the identity_conflict field.
+	protocolendpointcapability.DefaultIdentityConflict = protocolendpointcapabilityDescIdentityConflict.Default.(bool)
 	proxyMixin := schema.Proxy{}.Mixin()
 	proxyMixinHooks1 := proxyMixin[1].Hooks()
 	proxy.Hooks[0] = proxyMixinHooks1[0]

@@ -201,6 +201,10 @@ func (Account) Fields() []ent.Field {
 		field.Int("channel_type").
 			Default(0),
 
+		field.Int64("protocol_endpoint_capability_id").
+			Optional().
+			Nillable(),
+
 		// tier_id: TokenKey anthropic OAuth 稳定性档位引用（可空）。
 		// 绑定到 tiers 表，运行时按 id 解析 per-tier 配置（base_rpm / max_sessions /
 		// rpm_sticky_buffer 等）。仅 anthropic OAuth 账号使用；apikey / 其它平台为 NULL。
@@ -228,6 +232,10 @@ func (Account) Edges() []ent.Edge {
 		// 使用已有的 proxy_id 外键字段
 		edge.To("proxy", Proxy.Type).
 			Field("proxy_id").
+			Unique(),
+		edge.From("protocol_endpoint_capability", ProtocolEndpointCapability.Type).
+			Ref("accounts").
+			Field("protocol_endpoint_capability_id").
 			Unique(),
 		// children/parent: linked spark shadow relationship.
 		// parent_account_id is nullable, and the active one-shadow-per-parent rule
@@ -262,5 +270,6 @@ func (Account) Indexes() []ent.Index {
 		index.Fields("deleted_at"), // 软删除查询优化
 		index.Fields("tier_id"),    // TK: 按 tier 反查引用账号（reconciler 值同步）
 		index.Fields("parent_account_id"),
+		index.Fields("protocol_endpoint_capability_id"),
 	}
 }

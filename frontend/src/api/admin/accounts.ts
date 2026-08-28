@@ -26,7 +26,9 @@ import type {
   UpstreamBillingProbeResult,
   UpstreamBillingProbeSettings,
   OllamaCloudUsageSettings,
-  OllamaCloudUsageState
+  OllamaCloudUsageState,
+  NativeTextProtocol,
+  ProtocolEndpointCapabilitySummary
 } from '@/types'
 
 /**
@@ -257,6 +259,25 @@ export async function testAccount(id: number): Promise<{
 export async function refreshCredentials(id: number): Promise<Account> {
   const { data } = await apiClient.post<Account>(`/admin/accounts/${id}/refresh`)
   return data
+}
+
+export type ProtocolProbeOutcome = 'updated' | 'unchanged' | 'inconclusive' | 'not_applicable'
+
+export interface ProtocolProbeCapability extends ProtocolEndpointCapabilitySummary {
+  supported_protocols: NativeTextProtocol[]
+}
+
+export interface ProtocolProbeResult {
+	account: Account
+	capability: ProtocolProbeCapability | null
+	outcome: ProtocolProbeOutcome
+	reason?: string
+}
+
+/** Re-probe one account's native text protocol capabilities. */
+export async function probeProtocols(id: number): Promise<ProtocolProbeResult> {
+	const { data } = await apiClient.post<ProtocolProbeResult>(`/admin/accounts/${id}/protocol-probe`)
+	return data
 }
 
 /**
@@ -1066,6 +1087,7 @@ export const accountsAPI = {
   toggleStatus,
   testAccount,
   refreshCredentials,
+  probeProtocols,
   applyOAuthCredentials,
   applyAccountTier,
   getStats,

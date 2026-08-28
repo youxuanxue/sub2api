@@ -17,7 +17,22 @@
       </div>
       <div data-testid="account-supported-protocols">
         <label class="input-label">{{ t('admin.accounts.supportedProtocols') }}</label>
-        <AccountProtocolCapabilities :protocols="account.supported_protocols || []" />
+        <div class="flex flex-wrap items-center gap-2">
+          <AccountProtocolCapabilities
+            :protocols="displayedSupportedProtocols"
+            :capability="displayedProtocolCapability"
+            :probe-outcome="protocolProbeOutcome"
+          />
+          <button
+            type="button"
+            data-testid="protocol-probe-button"
+            class="btn-secondary px-2 py-1 text-xs"
+            :disabled="protocolProbeLoading"
+            @click="handleProtocolProbe"
+          >
+            {{ protocolProbeLoading ? t('admin.accounts.protocolProbeRunning') : t('admin.accounts.protocolProbeAction') }}
+          </button>
+        </div>
         <p class="input-hint">{{ t('admin.accounts.supportedProtocolsHint') }}</p>
       </div>
       <div>
@@ -2927,8 +2942,11 @@ import type {
   OpenAICompactMode,
   OpenAIResponsesMode,
   OpenAIEndpointCapability,
-  OllamaCloudUsageState
+  OllamaCloudUsageState,
+  NativeTextProtocol,
+  ProtocolEndpointCapabilitySummary
 } from '@/types'
+import type { ProtocolProbeOutcome } from '@/api/admin/accounts'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
@@ -3027,6 +3045,53 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const protocolProbeLoading = ref(false)
+const protocolProbeProtocols = ref<NativeTextProtocol[] | null>(null)
+const protocolProbeCapability = ref<ProtocolEndpointCapabilitySummary | null>(null)
+const protocolProbeOutcome = ref<ProtocolProbeOutcome | 'error' | null>(null)
+const displayedSupportedProtocols = computed(
+  () => protocolProbeProtocols.value ?? props.account?.supported_protocols ?? []
+)
+const displayedProtocolCapability = computed(
+  () => protocolProbeCapability.value ?? props.account?.protocol_capability ?? null
+)
+
+watch(
+  () => props.account?.id,
+  () => {
+    protocolProbeProtocols.value = null
+    protocolProbeCapability.value = null
+    protocolProbeOutcome.value = null
+  }
+)
+
+const handleProtocolProbe = async () => {
+  if (!props.account || protocolProbeLoading.value) return
+  protocolProbeLoading.value = true
+  try {
+    const result = await adminAPI.accounts.probeProtocols(props.account.id)
+    protocolProbeProtocols.value = result.capability?.supported_protocols ?? result.account.supported_protocols
+    protocolProbeCapability.value = result.capability ?? result.account.protocol_capability ?? null
+    protocolProbeOutcome.value = result.outcome
+    emit('updated', result.account)
+    if (protocolProbeCapability.value?.identity_conflict) {
+      appStore.showError(t('admin.accounts.protocolCapabilityConflict'))
+    } else if (result.outcome === 'updated') {
+      appStore.showSuccess(t('admin.accounts.protocolProbeUpdated'))
+    } else if (result.outcome === 'not_applicable') {
+      appStore.showInfo(t('admin.accounts.protocolProbeNotApplicable'))
+    } else if (result.outcome === 'inconclusive') {
+      appStore.showInfo(t('admin.accounts.protocolProbeInconclusive'))
+    } else {
+      appStore.showInfo(t('admin.accounts.protocolProbeUnchanged'))
+    }
+  } catch (error: any) {
+    protocolProbeOutcome.value = 'error'
+    appStore.showError(error?.message || t('admin.accounts.protocolProbeFailed'))
+  } finally {
+    protocolProbeLoading.value = false
+  }
+}
 
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
 // 故隐藏代理选择器。

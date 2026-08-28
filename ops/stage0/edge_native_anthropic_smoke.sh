@@ -68,8 +68,8 @@ ORDER BY a.id;
 " | awk 'NF {print}')"
 
 if [[ -z "${account_rows// }" ]]; then
-  echo "tk_edge_native_anthropic_smoke: no schedulable anthropic OAuth accounts in group=${ANTHROPIC_SOURCE_GROUP} and no schedulable kiro accounts" >&2
-  exit 1
+  echo "tk_edge_native_anthropic_smoke: SKIPPED no eligible accounts (group=${ANTHROPIC_SOURCE_GROUP})"
+  exit 0
 fi
 
 echo "tk_edge_native_anthropic_smoke: group=${ANTHROPIC_SOURCE_GROUP} models=${models[*]} accounts=${account_rows//$'\n'/ }"

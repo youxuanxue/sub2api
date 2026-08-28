@@ -354,6 +354,18 @@ else
     echo "  ok: protocol-routing owner, handler, and selected-plan boundaries"
 fi
 
+echo ""
+echo "=== sub2api: merge conflict markers ==="
+if ! python3 ./scripts/checks/test_merge_conflict_markers.py >/dev/null; then
+    echo "  FAIL: merge conflict marker checker self-tests"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/merge-conflict-markers.py --quiet; then
+    echo "  FAIL: unresolved merge conflict markers"
+    errors=$((errors + 1))
+else
+    echo "  ok: no unresolved line-level merge conflict markers"
+fi
+
 # Check A — candidate-pool fetch must go through the TK helper
 # (IsOpenAICompatPoolMember / OpenAICompatPlatforms). A new caller passing
 # PlatformOpenAI directly to ListSchedulableAccounts would silently exclude

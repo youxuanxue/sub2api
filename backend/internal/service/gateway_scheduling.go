@@ -1125,7 +1125,9 @@ func (s *GatewayService) isAccountSchedulableForModelSelection(ctx context.Conte
 	if account == nil {
 		return false
 	}
-	return account.IsSchedulableForModelWithContext(ctx, requestedModel) && ProtocolRouteLegal(ctx, account, requestedModel)
+	return account.IsSchedulableForModelWithContext(ctx, requestedModel) &&
+		protocolRuntimeAuthorizationReady(ctx, account) &&
+		ProtocolRouteLegal(ctx, account, requestedModel)
 }
 
 // isAccountInGroup checks if the account belongs to the specified group.

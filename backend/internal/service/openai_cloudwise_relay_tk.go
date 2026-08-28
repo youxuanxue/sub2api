@@ -44,6 +44,10 @@ func openAICloudwiseRelayUpstreamModelID(modelID string) string {
 	return "MiniMax-" + suffix
 }
 
+func openAICloudwiseRelayProtocolProbeModel() string {
+	return openAICloudwiseRelayUpstreamModelID("minimax-m3")
+}
+
 func applyOpenAICloudwiseRelayUpstreamModelID(account *Account, modelID string) string {
 	if account == nil || !isCloudwiseRelayAccount(account) {
 		return modelID

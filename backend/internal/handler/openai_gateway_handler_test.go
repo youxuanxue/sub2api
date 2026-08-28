@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -2121,8 +2122,7 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 				"pool_mode_retry_status_codes": []any{float64(http.StatusBadGateway)},
 			},
 			Extra: map[string]any{
-				"openai_passthrough":               true,
-				service.SupportedProtocolsExtraKey: []any{"responses"},
+				"openai_passthrough": true,
 			},
 		},
 		{
@@ -2133,10 +2133,12 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 				"base_url": "https://api.example.test",
 			},
 			Extra: map[string]any{
-				"openai_passthrough":               true,
-				service.SupportedProtocolsExtraKey: []any{"responses"},
+				"openai_passthrough": true,
 			},
 		},
+	}
+	for i := range accounts {
+		attachHandlerTestProtocolCapability(t, &accounts[i], protocolrouter.ProtocolResponses)
 	}
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	cfg.Default.RateMultiplier = 1
@@ -2228,8 +2230,7 @@ func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHe
 						"pool_mode_retry_status_codes": []any{float64(tt.statusCode)},
 					},
 					Extra: map[string]any{
-						"openai_passthrough":               true,
-						service.SupportedProtocolsExtraKey: []any{"responses"},
+						"openai_passthrough": true,
 					},
 				},
 				{
@@ -2240,10 +2241,12 @@ func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHe
 						"base_url": "https://api.example.test",
 					},
 					Extra: map[string]any{
-						"openai_passthrough":               true,
-						service.SupportedProtocolsExtraKey: []any{"responses"},
+						"openai_passthrough": true,
 					},
 				},
+			}
+			for i := range accounts {
+				attachHandlerTestProtocolCapability(t, &accounts[i], protocolrouter.ProtocolResponses)
 			}
 			cfg := &config.Config{RunMode: config.RunModeSimple}
 			cfg.Default.RateMultiplier = 1
@@ -2327,10 +2330,12 @@ func TestOpenAIResponses_APIKeyPassthroughSSERateLimitUsesConfiguredPoolRetry(t 
 				"pool_mode_retry_status_codes": []any{float64(http.StatusTooManyRequests)},
 			},
 			Extra: map[string]any{
-				"openai_passthrough":               true,
-				service.SupportedProtocolsExtraKey: []any{"responses"},
+				"openai_passthrough": true,
 			},
 		},
+	}
+	for i := range accounts {
+		attachHandlerTestProtocolCapability(t, &accounts[i], protocolrouter.ProtocolResponses)
 	}
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	cfg.Default.RateMultiplier = 1

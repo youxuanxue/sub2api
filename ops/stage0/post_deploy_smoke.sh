@@ -3,8 +3,8 @@
 #
 # Exercises the same paths Claude Code uses against TokenKey:
 #   public settings, frontend release assets, /v1/models, /v1/chat/completions,
-#   /v1/messages, and (when configured) /v1/messages-with-tools through the
-#   Gemini bridge to catch tool-schema cleanup regressions.
+#   /v1/responses, /v1/messages, and (when configured) /v1/messages-with-tools
+#   through the Gemini bridge to catch tool-schema cleanup regressions.
 #
 # GitHub config (canonical TK_SMOKE_* — see ops/stage0/smoke_env.sh):
 #   TK_SMOKE_API_KEY
@@ -399,7 +399,59 @@ else
   echo "tk_post_deploy_smoke: skip /v1/messages (gemini) — suite=${GATEWAY_SMOKE_SUITE}"
 fi
 
-# --- 7) OpenAI OAuth /v1/chat/completions account + token-count probe ---
+# --- 7) OpenAI OAuth /v1/responses native-protocol probe ---
+openai_oauth_models=()
+while IFS= read -r smoke_model; do
+  [[ -n "${smoke_model}" ]] && openai_oauth_models+=("${smoke_model}")
+done < <(smoke_model_list "${TK_SMOKE_OPENAI_OAUTH_MODELS:-}" "gpt-5.4")
+
+if smoke_suite_runs responses; then
+  echo "tk_post_deploy_smoke: responses_models=${openai_oauth_models[*]}"
+  for openai_oauth_model in "${openai_oauth_models[@]}"; do
+  smoke_assert_openai_oauth_model_listed_or_warn "$tmpdir/models.json" "${openai_oauth_model}"
+
+  responses_payload="$(jq -n \
+    --arg m "${openai_oauth_model}" \
+    '{model:$m,input:"Reply with one short sentence.",stream:false}')"
+
+  responses_http=$(curl -sS -o "$tmpdir/openai-oauth-responses.json" -w "%{http_code}" \
+    -H "Authorization: Bearer ${API_KEY}" \
+    -H "Content-Type: application/json" \
+    -H "Accept: application/json" \
+    -d "${responses_payload}" \
+    "${BASE}/v1/responses")
+  echo "tk_post_deploy_smoke: POST .../v1/responses (openai oauth) model=${openai_oauth_model} -> HTTP ${responses_http}"
+
+  case "${responses_http}" in
+    200)
+      responses_object="$(jq -r '.object // empty' "$tmpdir/openai-oauth-responses.json")"
+      responses_output_count="$(jq -r '(.output // []) | length' "$tmpdir/openai-oauth-responses.json")"
+      responses_text="$(jq -r '[.output[]?.content[]? | select(.type == "output_text") | .text] | map(select(type == "string")) | join("")' "$tmpdir/openai-oauth-responses.json")"
+      responses_usage_type="$(jq -r 'if (.usage? | type) == "object" then "object" else "missing" end' "$tmpdir/openai-oauth-responses.json")"
+      if [[ "${responses_object}" != "response" ]] || [[ "${responses_output_count}" -lt 1 ]] || [[ -z "${responses_text}" ]] || [[ "${responses_usage_type}" != "object" ]]; then
+        echo "::error::tk_post_deploy_smoke: /v1/responses shape invalid (object=${responses_object:-missing} output=${responses_output_count} text_empty=$([[ -z "${responses_text}" ]] && echo yes || echo no) usage=${responses_usage_type})" >&2
+        jq . "$tmpdir/openai-oauth-responses.json" >&2 || true
+        exit 1
+      fi
+      echo "tk_post_deploy_smoke: /v1/responses shape object=${responses_object} output=${responses_output_count} text=non-empty usage=${responses_usage_type}"
+      ;;
+    429|5*)
+      echo "::warning::tk_post_deploy_smoke: /v1/responses returned HTTP ${responses_http} — runtime resource issue (likely no available accounts / upstream 5xx / rate-limit), NOT a protocol-routing regression." >&2
+      jq . "$tmpdir/openai-oauth-responses.json" >&2 2>/dev/null || cat "$tmpdir/openai-oauth-responses.json" >&2
+      echo "tk_post_deploy_smoke: /v1/responses section soft-skipped (HTTP ${responses_http} is not a protocol-routing regression signal)"
+      ;;
+    *)
+      echo "::error::tk_post_deploy_smoke: /v1/responses returned HTTP ${responses_http} — smoke key/route/account or native protocol routing is broken." >&2
+      jq . "$tmpdir/openai-oauth-responses.json" >&2 2>/dev/null || cat "$tmpdir/openai-oauth-responses.json" >&2
+      exit 1
+      ;;
+  esac
+  done
+else
+  echo "tk_post_deploy_smoke: skip /v1/responses — suite=${GATEWAY_SMOKE_SUITE}"
+fi
+
+# --- 8) OpenAI OAuth /v1/chat/completions account + token-count probe ---
 # Two-layer check on the OAuth/codex group key:
 #   (a) account correctness — HTTP 200 + correct shape + non-empty assistant
 #       content + expected marker + non-zero usage totals that add up.
@@ -428,10 +480,6 @@ fi
 #   5xx / 429 / "no available accounts" / "rate" / "timeout" → SOFT WARN,
 #       exit 0. Runtime resource issue.
 if smoke_suite_runs openai_oauth; then
-  openai_oauth_models=()
-  while IFS= read -r smoke_model; do
-    [[ -n "${smoke_model}" ]] && openai_oauth_models+=("${smoke_model}")
-  done < <(smoke_model_list "${TK_SMOKE_OPENAI_OAUTH_MODELS:-}" "gpt-5.4")
   echo "tk_post_deploy_smoke: openai_oauth_models=${openai_oauth_models[*]}"
   for openai_oauth_model in "${openai_oauth_models[@]}"; do
   smoke_assert_openai_oauth_model_listed_or_warn "$tmpdir/models.json" "${openai_oauth_model}"

@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Pick the first deployable Edge with a non-empty native OAuth/Kiro pool.
+"""Pick a deployable Edge for release canary smoke.
 
 Used by tokenkey-stage0-release-rollout target=all: canary full smoke runs on
 this edge only; rollout-edges.sh covers the rest with infra-only smoke.
 
 stdout (default): single edge id, e.g. ``us6``
 stdout (--json): {"canary_edge":"us6","oauth_account_count":2,"candidates":[...]}
-exit 0 when a canary is found; exit 1 when no deployable edge has OAuth pool.
+Prefer the first edge with a non-empty native OAuth/Kiro pool. If every probe
+conclusively reports zero, use the first deployable edge; full smoke then keeps
+infra mandatory and treats the native OAuth section as not applicable. Probe
+transport failures remain fail-closed.
 """
 from __future__ import annotations
 
@@ -99,6 +102,11 @@ def pick_oauth_canary(
         audit.append(row)
         if count is not None and count > 0:
             return edge_id, audit
+
+    if audit and len(audit) == len(edges) and all(
+        row["oauth_account_count"] == 0 for row in audit
+    ):
+        return edges[0], audit
     return None, audit
 
 

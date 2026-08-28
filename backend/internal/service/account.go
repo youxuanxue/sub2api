@@ -45,6 +45,12 @@ type Account struct {
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 
+	// ProtocolEndpointCapability is the only runtime source of native text
+	// protocol support. The legacy accounts.extra.supported_protocols value is
+	// maintained solely as a previous-image rollback projection.
+	ProtocolEndpointCapabilityID *int64
+	ProtocolEndpointCapability   *ProtocolEndpointCapability
+
 	Schedulable bool
 
 	RateLimitedAt    *time.Time

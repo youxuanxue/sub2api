@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -12,13 +13,69 @@ import (
 
 var ErrProtocolExecutorMissing = errors.New("protocol executor missing")
 
+const ProtocolAuthorizationSnapshotCredentialKey = "__tk_protocol_authorization_present"
+
+const (
+	protocolExecutionStaleReason      GatewayFailureReason = "protocol_execution_stale"
+	protocolExecutionReloadFailReason GatewayFailureReason = "protocol_execution_reload_failed"
+)
+
 type ProtocolExecutionFunc func(
 	ctx context.Context,
+	account *Account,
 	plan protocolrouter.Plan,
 	request protocolrouter.CanonicalRequest,
 ) (any, error)
 
+// ExecuteGeminiProtocolProfile binds a plan-derived Gemini profile to exactly
+// one transport. Handlers supply request-scoped closures but do not select the
+// provider profile themselves.
+func ExecuteGeminiProtocolProfile[T any](
+	profile protocolrouter.GeminiEndpointProfile,
+	antigravity func() (T, error),
+	vertex func() (T, error),
+) (T, error) {
+	var zero T
+	var execute func() (T, error)
+	switch profile {
+	case protocolrouter.GeminiEndpointAntigravityCloudCode:
+		execute = antigravity
+	case protocolrouter.GeminiEndpointVertexServiceAccount:
+		execute = vertex
+	default:
+		return zero, ErrProtocolRouteUnavailable
+	}
+	if execute == nil {
+		return zero, ErrProtocolRouteUnavailable
+	}
+	return execute()
+}
+
 type ProtocolEndpointValidator func(ctx context.Context, account *Account, endpoint string) error
+
+type ProtocolExecutionAccountLoader func(ctx context.Context, accountID int64) (*Account, error)
+
+func protocolExecutionPreSendFailure(cause error, scope GatewayFailureScope) error {
+	reason := protocolExecutionStaleReason
+	nextAccountAction := NextAccountRetry
+	if scope == GatewayFailureScopeProvider {
+		reason = protocolExecutionReloadFailReason
+		nextAccountAction = NextAccountStop
+	}
+	return errors.Join(
+		&UpstreamFailoverError{
+			StatusCode:        http.StatusServiceUnavailable,
+			Stage:             GatewayFailureStageInference,
+			Scope:             scope,
+			Reason:            reason,
+			NextAccountAction: nextAccountAction,
+			ClientStatusCode:  http.StatusServiceUnavailable,
+			ClientErrorType:   "server_error",
+			ClientMessage:     "Service temporarily unavailable",
+		},
+		cause,
+	)
+}
 
 type RouteFacts struct {
 	targetProtocol protocolrouter.Protocol
@@ -61,11 +118,17 @@ type ProtocolExecutors struct {
 	ResponsesIdentity   ProtocolExecutionFunc
 	ResponsesToChat     ProtocolExecutionFunc
 	ResponsesToMessages ProtocolExecutionFunc
+	MessagesToGemini    ProtocolExecutionFunc
+	ChatToGemini        ProtocolExecutionFunc
+	ResponsesToGemini   ProtocolExecutionFunc
+	GeminiIdentity      ProtocolExecutionFunc
 }
 
 type protocolExecutorsContextKey struct{}
 
 type protocolExecutionPlanContextKey struct{}
+
+type protocolExecutionAccountContextKey struct{}
 
 func WithProtocolExecutors(ctx context.Context, executors ProtocolExecutors) context.Context {
 	return context.WithValue(ctx, protocolExecutorsContextKey{}, executors)
@@ -73,6 +136,15 @@ func WithProtocolExecutors(ctx context.Context, executors ProtocolExecutors) con
 
 func withProtocolExecutionPlan(ctx context.Context, plan protocolrouter.Plan) context.Context {
 	return context.WithValue(ctx, protocolExecutionPlanContextKey{}, plan)
+}
+
+func withProtocolExecutionAccount(ctx context.Context, account *Account) context.Context {
+	return context.WithValue(ctx, protocolExecutionAccountContextKey{}, account)
+}
+
+func protocolExecutionAccountFromContext(ctx context.Context) *Account {
+	account, _ := ctx.Value(protocolExecutionAccountContextKey{}).(*Account)
+	return account
 }
 
 // ProtocolExecutionPlan returns the immutable route selected by the scheduler.
@@ -115,6 +187,22 @@ func protocolExecutionEndpoint(ctx context.Context, fallback string) string {
 	return plan.Endpoint()
 }
 
+func protocolExecutionURL(ctx context.Context, fallback string) string {
+	planned := strings.TrimSpace(protocolExecutionEndpoint(ctx, ""))
+	if planned == "" {
+		return fallback
+	}
+	plannedURL, err := url.Parse(planned)
+	if err != nil {
+		return fallback
+	}
+	fallbackURL, err := url.Parse(strings.TrimSpace(fallback))
+	if err == nil {
+		plannedURL.RawQuery = fallbackURL.RawQuery
+	}
+	return plannedURL.String()
+}
+
 func protocolExecutionBound(ctx context.Context) bool {
 	_, ok := ProtocolExecutionPlan(ctx)
 	return ok
@@ -142,7 +230,11 @@ func executeBoundProtocolAdapter(
 	if execute == nil {
 		return protocolrouter.Result{}, ErrProtocolExecutorMissing
 	}
-	value, err := execute(withProtocolExecutionPlan(ctx, plan), plan, execution.Request())
+	executionAccount := protocolExecutionAccountFromContext(ctx)
+	if executionAccount == nil {
+		return protocolrouter.Result{}, fmt.Errorf("%w: authoritative execution account is missing", ErrProtocolRouteUnavailable)
+	}
+	value, err := execute(withProtocolExecutionPlan(ctx, plan), executionAccount, plan, execution.Request())
 	if err != nil {
 		return protocolrouter.Result{}, err
 	}
@@ -208,6 +300,30 @@ func (responsesToMessagesAdapter) Execute(ctx context.Context, execution protoco
 	return executeBoundProtocolAdapter(ctx, execution, protocolrouter.AdapterResponsesToMessages, protocolrouter.ProtocolResponses, protocolrouter.ProtocolMessages, protocolExecutorsFromContext(ctx).ResponsesToMessages)
 }
 
+type messagesToGeminiAdapter struct{}
+
+func (messagesToGeminiAdapter) Execute(ctx context.Context, execution protocolrouter.Execution) (protocolrouter.Result, error) {
+	return executeBoundProtocolAdapter(ctx, execution, protocolrouter.AdapterMessagesToGemini, protocolrouter.ProtocolMessages, protocolrouter.ProtocolGeminiGenerateContent, protocolExecutorsFromContext(ctx).MessagesToGemini)
+}
+
+type chatToGeminiAdapter struct{}
+
+func (chatToGeminiAdapter) Execute(ctx context.Context, execution protocolrouter.Execution) (protocolrouter.Result, error) {
+	return executeBoundProtocolAdapter(ctx, execution, protocolrouter.AdapterChatToGemini, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolGeminiGenerateContent, protocolExecutorsFromContext(ctx).ChatToGemini)
+}
+
+type responsesToGeminiAdapter struct{}
+
+func (responsesToGeminiAdapter) Execute(ctx context.Context, execution protocolrouter.Execution) (protocolrouter.Result, error) {
+	return executeBoundProtocolAdapter(ctx, execution, protocolrouter.AdapterResponsesToGemini, protocolrouter.ProtocolResponses, protocolrouter.ProtocolGeminiGenerateContent, protocolExecutorsFromContext(ctx).ResponsesToGemini)
+}
+
+type geminiIdentityAdapter struct{}
+
+func (geminiIdentityAdapter) Execute(ctx context.Context, execution protocolrouter.Execution) (protocolrouter.Result, error) {
+	return executeBoundProtocolAdapter(ctx, execution, protocolrouter.AdapterGeminiIdentity, protocolrouter.ProtocolGeminiGenerateContent, protocolrouter.ProtocolGeminiGenerateContent, protocolExecutorsFromContext(ctx).GeminiIdentity)
+}
+
 func NewProtocolRouter() *protocolrouter.Router {
 	return protocolrouter.New(protocolrouter.AdapterCatalog{
 		protocolrouter.AdapterMessagesIdentity:    messagesIdentityAdapter{},
@@ -219,6 +335,10 @@ func NewProtocolRouter() *protocolrouter.Router {
 		protocolrouter.AdapterResponsesIdentity:   responsesIdentityAdapter{},
 		protocolrouter.AdapterResponsesToChat:     responsesToChatAdapter{},
 		protocolrouter.AdapterResponsesToMessages: responsesToMessagesAdapter{},
+		protocolrouter.AdapterMessagesToGemini:    messagesToGeminiAdapter{},
+		protocolrouter.AdapterChatToGemini:        chatToGeminiAdapter{},
+		protocolrouter.AdapterResponsesToGemini:   responsesToGeminiAdapter{},
+		protocolrouter.AdapterGeminiIdentity:      geminiIdentityAdapter{},
 	})
 }
 
@@ -228,6 +348,7 @@ func ExecuteSelectedProtocol(
 	selection *AccountSelectionResult,
 	account *Account,
 	validateEndpoint ProtocolEndpointValidator,
+	loadAccount ProtocolExecutionAccountLoader,
 	executors ProtocolExecutors,
 ) (any, error) {
 	request, canonical := protocolRoutingCanonicalRequest(ctx)
@@ -237,13 +358,13 @@ func ExecuteSelectedProtocol(
 		if executors.NonGoverned == nil {
 			return nil, ErrProtocolExecutorMissing
 		}
-		return executors.NonGoverned(ctx, protocolrouter.Plan{}, request)
+		return executors.NonGoverned(ctx, account, protocolrouter.Plan{}, request)
 	}
 	if router == nil && canonical && !routed && !planned {
 		if executors.NonGoverned == nil {
 			return nil, ErrProtocolExecutorMissing
 		}
-		return executors.NonGoverned(ctx, protocolrouter.Plan{}, request)
+		return executors.NonGoverned(ctx, account, protocolrouter.Plan{}, request)
 	}
 	if !routed || !planned || router == nil {
 		return nil, fmt.Errorf("%w: governed account requires canonical request, router, and selected plan", ErrProtocolRouteUnavailable)
@@ -251,21 +372,53 @@ func ExecuteSelectedProtocol(
 	if validateEndpoint == nil {
 		return nil, fmt.Errorf("%w: governed account requires endpoint validation", ErrProtocolRouteUnavailable)
 	}
-	if err := validateEndpoint(ctx, account, plan.Endpoint()); err != nil {
-		return nil, fmt.Errorf("%w: validate selected endpoint: %v", ErrProtocolRouteUnavailable, err)
+	if loadAccount == nil {
+		return nil, fmt.Errorf("%w: governed account requires authoritative account reload", ErrProtocolRouteUnavailable)
 	}
-	fresh, err := protocolAccountSnapshotForRequest(account, request)
+	freshAccount, err := loadAccount(ctx, account.ID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrProtocolRouteUnavailable, err)
+		scope := GatewayFailureScopeProvider
+		if errors.Is(err, ErrAccountNotFound) {
+			scope = GatewayFailureScopeAccount
+		}
+		return nil, protocolExecutionPreSendFailure(
+			fmt.Errorf("%w: reload authoritative account: %w", ErrProtocolRouteUnavailable, err),
+			scope,
+		)
+	}
+	if freshAccount == nil || freshAccount.ID != account.ID {
+		return nil, protocolExecutionPreSendFailure(
+			fmt.Errorf("%w: authoritative account is missing or mismatched", ErrProtocolRouteUnavailable),
+			GatewayFailureScopeAccount,
+		)
+	}
+	if err := validateEndpoint(ctx, freshAccount, plan.Endpoint()); err != nil {
+		return nil, protocolExecutionPreSendFailure(
+			fmt.Errorf("%w: validate selected endpoint: %v", ErrProtocolRouteUnavailable, err),
+			GatewayFailureScopeAccount,
+		)
+	}
+	fresh, err := protocolAccountSnapshotForRequest(freshAccount, request)
+	if err != nil {
+		return nil, protocolExecutionPreSendFailure(
+			fmt.Errorf("%w: %v", ErrProtocolRouteUnavailable, err),
+			GatewayFailureScopeAccount,
+		)
 	}
 	executionCtx := WithProtocolExecutors(ctx, executors)
+	executionCtx = withProtocolExecutionAccount(executionCtx, freshAccount)
 	executionCtx = protocolrouter.WithExecutionAccountState(executionCtx, protocolrouter.ExecutionAccountState{
-		AccountID:         fresh.AccountID(),
-		Revision:          fresh.Revision(),
-		CredentialPresent: protocolCredentialPresent(account),
+		AccountID:          fresh.AccountID(),
+		Revision:           fresh.Revision(),
+		CapabilityKey:      fresh.CapabilityKey(),
+		CapabilityRevision: fresh.CapabilityRevision(),
+		CredentialPresent:  ProtocolAuthorizationPresent(freshAccount),
 	})
 	result, err := router.Execute(executionCtx, plan, request)
 	if err != nil {
+		if errors.Is(err, protocolrouter.ErrStalePlan) || errors.Is(err, protocolrouter.ErrMissingCredential) {
+			return nil, protocolExecutionPreSendFailure(err, GatewayFailureScopeAccount)
+		}
 		return nil, err
 	}
 	stampProtocolRouteFacts(result.Value, routeFactsFromPlan(plan))
@@ -288,14 +441,32 @@ func stampProtocolRouteFacts(value any, facts RouteFacts) {
 	}
 }
 
-func protocolCredentialPresent(account *Account) bool {
+func ProtocolAuthorizationPresent(account *Account) bool {
 	if account == nil {
 		return false
+	}
+	if present, ok := account.Credentials[ProtocolAuthorizationSnapshotCredentialKey].(bool); ok {
+		return present
 	}
 	if account.ParentAccountID != nil {
 		return true
 	}
-	return len(account.Credentials) > 0
+	if protocolGeminiEndpointProfile(account) == protocolrouter.GeminiEndpointAntigravityCloudCode {
+		return strings.TrimSpace(account.GetCredential("access_token")) != "" &&
+			strings.TrimSpace(account.GetCredential("project_id")) != ""
+	}
+	if account.IsNewAPIVertexServiceAccount() {
+		_, err := parseVertexServiceAccountKey(account)
+		return err == nil
+	}
+	return strings.TrimSpace(protocolAuthorizationToken(account)) != ""
+}
+
+func protocolRuntimeAuthorizationReady(ctx context.Context, account *Account) bool {
+	if _, routed := ProtocolRoutingRequest(ctx); !routed {
+		return true
+	}
+	return !protocolRoutingGovernsAccount(account) || ProtocolAuthorizationPresent(account)
 }
 
 // ForwardResultFromOpenAI keeps the Anthropic-facing handler's accounting
@@ -318,6 +489,49 @@ func ForwardResultFromOpenAI(result *OpenAIForwardResult) *ForwardResult {
 			ImageOutputTokens:        result.Usage.ImageOutputTokens,
 		},
 		Model:                         result.Model,
+		UpstreamModel:                 result.UpstreamModel,
+		UpstreamResponseModel:         result.UpstreamResponseModel,
+		UpstreamResponseModelConflict: result.UpstreamResponseModelConflict,
+		Stream:                        result.Stream,
+		Duration:                      result.Duration,
+		FirstTokenMs:                  result.FirstTokenMs,
+		ClientDisconnect:              result.ClientDisconnect,
+		ReasoningEffort:               result.ReasoningEffort,
+		ServiceTier:                   result.ServiceTier,
+		ImageCount:                    result.ImageCount,
+		ImageSize:                     result.ImageSize,
+		ImageInputSize:                result.ImageInputSize,
+		ImageOutputSize:               result.ImageOutputSize,
+		ImageOutputSizes:              append([]string(nil), result.ImageOutputSizes...),
+		ImageSizeSource:               result.ImageSizeSource,
+		ImageSizeBreakdown:            imageSizeBreakdown,
+		SearchCount:                   result.SearchCount,
+		AudioUsage:                    result.AudioUsage,
+		protocolRouteFacts:            result.protocolRouteFacts,
+	}
+}
+
+// OpenAIForwardResultFromForward keeps the OpenAI-facing handler's accounting
+// contract when a Gemini route adapter reuses an Anthropic-facing transport.
+func OpenAIForwardResultFromForward(result *ForwardResult) *OpenAIForwardResult {
+	if result == nil {
+		return nil
+	}
+	imageSizeBreakdown := make(map[string]int, len(result.ImageSizeBreakdown))
+	for size, count := range result.ImageSizeBreakdown {
+		imageSizeBreakdown[size] = count
+	}
+	return &OpenAIForwardResult{
+		RequestID: result.RequestID,
+		Usage: OpenAIUsage{
+			InputTokens:              result.Usage.InputTokens,
+			OutputTokens:             result.Usage.OutputTokens,
+			CacheCreationInputTokens: result.Usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     result.Usage.CacheReadInputTokens,
+			ImageOutputTokens:        result.Usage.ImageOutputTokens,
+		},
+		Model:                         result.Model,
+		BillingModel:                  result.Model,
 		UpstreamModel:                 result.UpstreamModel,
 		UpstreamResponseModel:         result.UpstreamResponseModel,
 		UpstreamResponseModelConflict: result.UpstreamResponseModelConflict,

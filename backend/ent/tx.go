@@ -66,6 +66,8 @@ type Tx struct {
 	PromoCode *PromoCodeClient
 	// PromoCodeUsage is the client for interacting with the PromoCodeUsage builders.
 	PromoCodeUsage *PromoCodeUsageClient
+	// ProtocolEndpointCapability is the client for interacting with the ProtocolEndpointCapability builders.
+	ProtocolEndpointCapability *ProtocolEndpointCapabilityClient
 	// Proxy is the client for interacting with the Proxy builders.
 	Proxy *ProxyClient
 	// QAArchiveShard is the client for interacting with the QAArchiveShard builders.
@@ -259,6 +261,7 @@ func (tx *Tx) init() {
 	tx.PendingAuthSession = NewPendingAuthSessionClient(tx.config)
 	tx.PromoCode = NewPromoCodeClient(tx.config)
 	tx.PromoCodeUsage = NewPromoCodeUsageClient(tx.config)
+	tx.ProtocolEndpointCapability = NewProtocolEndpointCapabilityClient(tx.config)
 	tx.Proxy = NewProxyClient(tx.config)
 	tx.QAArchiveShard = NewQAArchiveShardClient(tx.config)
 	tx.QAExportJob = NewQAExportJobClient(tx.config)

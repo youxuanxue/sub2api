@@ -10,6 +10,7 @@ import (
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	middleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -31,8 +32,9 @@ func TestResponsesInputTokensOpenAICodexOAuthUsesRootRouteForLocalEstimate(t *te
 		Schedulable: true,
 		Concurrency: 1,
 		Credentials: map[string]any{"access_token": "test-token"},
-		Extra:       map[string]any{service.SupportedProtocolsExtraKey: []any{"responses"}},
+		Extra:       map[string]any{},
 	}
+	attachHandlerTestProtocolCapability(t, &account, protocolrouter.ProtocolResponses)
 	accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: []service.Account{account}}
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	cfg.Default.RateMultiplier = 1

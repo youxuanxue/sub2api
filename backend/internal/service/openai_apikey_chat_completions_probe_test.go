@@ -11,149 +11,111 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
-func TestProbeOpenAIAPIKeyChatCompletionsSupportUsesNewAPIAdaptorEndpoint(t *testing.T) {
-	updateCalls := make(chan map[string]any, 1)
-	account := Account{
-		ID:          60,
-		Platform:    PlatformNewAPI,
-		Type:        AccountTypeAPIKey,
-		ChannelType: newapiconstant.ChannelTypeAli,
-		Concurrency: 1,
+func TestChatCompletionsProtocolProbeRetriesAnotherMappedModelAfterModelSpecificRejection(t *testing.T) {
+	account := &Account{
+		ID: 7, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeVolcEngine, Concurrency: 1,
 		Credentials: map[string]any{
-			"api_key":  "dashscope-key",
-			"base_url": "https://dashscope.aliyuncs.com",
+			"api_key":  "ark-key",
+			"base_url": "https://ark.cn-beijing.volces.com",
 			"model_mapping": map[string]any{
-				"qwen3.7-max": "qwen3.7-max",
+				"legacy": "alpha-model",
+				"new":    "beta-model",
 			},
 		},
 	}
-	repo := &snapshotUpdateAccountRepo{
-		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
-		updateExtraCalls:      updateCalls,
-	}
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     make(http.Header),
-		Body: io.NopCloser(strings.NewReader(
-			`{"choices":[{"message":{"role":"assistant","content":"OK"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`,
-		)),
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		protocolProbeHTTPResponse(http.StatusForbidden, `{"error":{"message":"The model alpha-model is not supported for this endpoint"}}`),
+		protocolProbeHTTPResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"OK"}}]}`),
 	}}
-	svc := &AccountTestService{
-		accountRepo:  repo,
-		httpUpstream: upstream,
-		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	svc := protocolRequestBuilderTestService(upstream)
+
+	observation, observed := svc.probeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account)
+
+	require.True(t, observed)
+	require.Equal(t, ProtocolProbePositive, observation.verdict)
+	require.Len(t, upstream.bodies, 2)
+	require.Equal(t, "alpha-model", gjson.GetBytes(upstream.bodies[0], "model").String())
+	require.Equal(t, "beta-model", gjson.GetBytes(upstream.bodies[1], "model").String())
+}
+
+func TestChatCompletionsProtocolProbeDoesNotFanOutProjectAuthorizationFailure(t *testing.T) {
+	account := &Account{
+		ID: 107, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "project-key",
+			"base_url": "https://relay.example/v1",
+			"model_mapping": map[string]any{
+				"first":  "alpha-model",
+				"second": "beta-model",
+			},
+		},
 	}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		protocolProbeHTTPResponse(http.StatusForbidden, `{"error":{"message":"You do not have permission to invoke any model in this project"}}`),
+		protocolProbeHTTPResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"OK"}}]}`),
+	}}
+	svc := protocolRequestBuilderTestService(upstream)
 
-	svc.ProbeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account.ID)
+	observation, observed := svc.probeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account)
 
+	require.True(t, observed)
+	require.Equal(t, ProtocolProbeInconclusive, observation.verdict)
+	require.Len(t, upstream.bodies, 1)
+}
+
+func TestChatCompletionsProtocolProbeUsesNewAPIAdaptorEndpoint(t *testing.T) {
+	account := &Account{
+		ID: 60, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeAli, Concurrency: 1,
+		Credentials: map[string]any{"api_key": "dashscope-key", "base_url": "https://dashscope.aliyuncs.com", "model_mapping": map[string]any{"qwen3.7-max": "qwen3.7-max"}},
+	}
+	upstream := &httpUpstreamRecorder{resp: protocolProbeHTTPResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"OK"}}]}`)}
+	svc := protocolRequestBuilderTestService(upstream)
+
+	observation, observed := svc.probeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account)
+
+	require.True(t, observed)
+	require.Equal(t, ProtocolProbePositive, observation.verdict)
+	require.Equal(t, protocolrouter.ProtocolChatCompletions, observation.protocol)
 	require.NotNil(t, upstream.lastReq)
 	require.Equal(t, "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", upstream.lastReq.URL.String())
-	updates := <-updateCalls
-	require.Equal(t, []string{"chat_completions"}, updates[SupportedProtocolsExtraKey])
 }
 
-func TestProbeOpenAIAPIKeyChatCompletionsSupportPersistsPositiveCapability(t *testing.T) {
-	updateCalls := make(chan map[string]any, 1)
-	account := Account{
-		ID:          97,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key":  "sk-test",
-			"base_url": "https://compat-upstream.example/v1",
-		},
+func TestChatCompletionsProtocolProbeClassifiesEndpointNegative(t *testing.T) {
+	account := &Account{
+		ID: 98, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://compat-upstream.example/v1"},
 	}
-	repo := &snapshotUpdateAccountRepo{
-		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
-		updateExtraCalls:      updateCalls,
-	}
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     make(http.Header),
-		Body: io.NopCloser(strings.NewReader(
-			`{"choices":[{"message":{"role":"assistant","content":"OK"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`,
-		)),
-	}}
-	svc := &AccountTestService{
-		accountRepo:  repo,
-		httpUpstream: upstream,
-		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
-	}
+	upstream := &httpUpstreamRecorder{resp: protocolProbeHTTPResponse(http.StatusNotFound, `{"error":{"message":"not found"}}`)}
+	svc := protocolRequestBuilderTestService(upstream)
 
-	svc.ProbeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account.ID)
+	observation, observed := svc.probeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account)
 
-	require.NotNil(t, upstream.lastReq)
+	require.True(t, observed)
+	require.Equal(t, ProtocolProbeEndpointNegative, observation.verdict)
 	require.Equal(t, "https://compat-upstream.example/v1/chat/completions", upstream.lastReq.URL.String())
-	updates := <-updateCalls
-	require.Equal(t, []string{"chat_completions"}, updates[SupportedProtocolsExtraKey])
 }
 
-func TestProbeOpenAIAPIKeyChatCompletionsSupportRemovesEndpointNegativeCapability(t *testing.T) {
-	updateCalls := make(chan map[string]any, 1)
-	account := Account{
-		ID:          98,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key":  "sk-test",
-			"base_url": "https://compat-upstream.example/v1",
-		},
-		Extra: map[string]any{
-			SupportedProtocolsExtraKey: []string{
-				string(protocolrouter.ProtocolMessages),
-				string(protocolrouter.ProtocolChatCompletions),
-			},
-		},
-	}
-	repo := &snapshotUpdateAccountRepo{
-		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
-		updateExtraCalls:      updateCalls,
-	}
-	svc := &AccountTestService{
-		accountRepo: repo,
-		httpUpstream: &httpUpstreamRecorder{resp: &http.Response{
-			StatusCode: http.StatusNotFound,
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"not found"}}`)),
-		}},
-		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
-	}
-
-	svc.ProbeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account.ID)
-
-	updates := <-updateCalls
-	require.Equal(t, []string{"messages"}, updates[SupportedProtocolsExtraKey])
-}
-
-func TestProbeOpenAIAPIKeyChatCompletionsSupportRequiresExplicitBaseURL(t *testing.T) {
-	account := Account{
-		ID:          99,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{"api_key": "sk-test"},
-	}
-	repo := &snapshotUpdateAccountRepo{
-		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
-		updateExtraCalls:      make(chan map[string]any, 1),
-	}
+func TestChatCompletionsProtocolProbeRequiresExplicitBaseURL(t *testing.T) {
+	account := &Account{ID: 99, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1, Credentials: map[string]any{"api_key": "sk-test"}}
 	upstream := &httpUpstreamRecorder{}
-	svc := &AccountTestService{
-		accountRepo:  repo,
+	svc := protocolRequestBuilderTestService(upstream)
+
+	_, observed := svc.probeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account)
+
+	require.False(t, observed)
+	require.Nil(t, upstream.lastReq)
+}
+
+func protocolRequestBuilderTestService(upstream *httpUpstreamRecorder) *AccountTestService {
+	return &AccountTestService{
 		httpUpstream: upstream,
 		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
 	}
+}
 
-	svc.ProbeOpenAIAPIKeyChatCompletionsSupport(context.Background(), account.ID)
-
-	require.Nil(t, upstream.lastReq)
-	select {
-	case updates := <-repo.updateExtraCalls:
-		t.Fatalf("missing explicit base URL persisted capability update: %v", updates)
-	default:
-	}
+func protocolProbeHTTPResponse(status int, body string) *http.Response {
+	return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
 }

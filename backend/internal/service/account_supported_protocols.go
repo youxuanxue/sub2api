@@ -40,35 +40,14 @@ func NormalizeSupportedProtocols(protocols []protocolrouter.Protocol) ([]protoco
 }
 
 func (a *Account) SupportedProtocols() []protocolrouter.Protocol {
-	if a == nil || a.Extra == nil {
+	if a == nil || a.ProtocolEndpointCapability == nil {
 		return nil
 	}
-	raw, ok := a.Extra[SupportedProtocolsExtraKey]
-	if !ok {
-		return nil
-	}
-	protocols := make([]protocolrouter.Protocol, 0)
-	switch values := raw.(type) {
-	case []any:
-		for _, value := range values {
-			if text, ok := value.(string); ok {
-				protocols = append(protocols, protocolrouter.Protocol(strings.TrimSpace(text)))
-			}
-		}
-	case []string:
-		for _, value := range values {
-			protocols = append(protocols, protocolrouter.Protocol(strings.TrimSpace(value)))
-		}
-	case []protocolrouter.Protocol:
-		protocols = append(protocols, values...)
-	default:
-		return nil
-	}
-	normalized, err := NormalizeSupportedProtocols(protocols)
+	normalized, err := NormalizeSupportedProtocols(a.ProtocolEndpointCapability.SupportedProtocols)
 	if err != nil {
 		return nil
 	}
-	return normalized
+	return append([]protocolrouter.Protocol(nil), normalized...)
 }
 
 func ReplaceSupportedProtocols(
@@ -104,6 +83,39 @@ func BuildSupportedProtocolsUpdate(protocols []protocolrouter.Protocol) (map[str
 	}, nil
 }
 
+// LegacySupportedProtocolsProjection decodes the previous image's rollback
+// field for one-time migration seeding only. Runtime routing, APIs, and UI must
+// use Account.SupportedProtocols, which reads the linked capability row.
+func LegacySupportedProtocolsProjection(account *Account) []protocolrouter.Protocol {
+	if account == nil || account.Extra == nil {
+		return nil
+	}
+	raw, ok := account.Extra[SupportedProtocolsExtraKey]
+	if !ok {
+		return nil
+	}
+	protocols := make([]protocolrouter.Protocol, 0)
+	switch values := raw.(type) {
+	case []any:
+		for _, value := range values {
+			if text, ok := value.(string); ok {
+				protocols = append(protocols, protocolrouter.Protocol(strings.TrimSpace(text)))
+			}
+		}
+	case []string:
+		for _, value := range values {
+			protocols = append(protocols, protocolrouter.Protocol(strings.TrimSpace(value)))
+		}
+	case []protocolrouter.Protocol:
+		protocols = append(protocols, values...)
+	}
+	normalized, err := NormalizeSupportedProtocols(protocols)
+	if err != nil {
+		return nil
+	}
+	return normalized
+}
+
 func applySupportedProtocolsUpdate(account *Account, update map[string]any) {
 	if account.Extra == nil {
 		account.Extra = make(map[string]any)
@@ -115,33 +127,46 @@ func SeedOfficialSupportedProtocols(account *Account) bool {
 	if account == nil {
 		return false
 	}
-	if account.Extra != nil {
-		if _, exists := account.Extra[SupportedProtocolsExtraKey]; exists {
-			return false
-		}
+	if account.ProtocolEndpointCapability != nil {
+		return false
 	}
 	protocols := officialSupportedProtocols(account)
 	if len(protocols) == 0 {
 		return false
 	}
-	update, err := BuildSupportedProtocolsUpdate(protocols)
-	if err != nil {
+	identity, governed, err := BuildProtocolEndpointIdentity(account)
+	if err != nil || !governed {
 		return false
 	}
-	applySupportedProtocolsUpdate(account, update)
+	id := account.ID
+	if id <= 0 {
+		id = 1
+	}
+	account.ProtocolEndpointCapabilityID = &id
+	account.ProtocolEndpointCapability = &ProtocolEndpointCapability{
+		ID:                 id,
+		CapabilityKey:      identity.Key(),
+		Identity:           identity,
+		SupportedProtocols: append([]protocolrouter.Protocol(nil), protocols...),
+		ProbeEvidence: ProtocolProbeEvidence{
+			InitialProbeCompleted: true,
+			OfficialSeed:          true,
+		},
+		Revision: 1,
+	}
 	return true
 }
 
 func ProtocolAccountSnapshot(account *Account, requestedModel string) (protocolrouter.AccountSnapshot, error) {
-	return protocolAccountSnapshot(account, requestedModel, false)
+	return protocolAccountSnapshot(account, requestedModel, false, false)
 }
 
 func protocolAccountSnapshotForRequest(account *Account, request protocolrouter.CanonicalRequest) (protocolrouter.AccountSnapshot, error) {
 	requireCompact := request.InboundProtocol() == protocolrouter.ProtocolResponses && request.ResponsesPath() == protocolrouter.ResponsesPathCompact
-	return protocolAccountSnapshot(account, request.RequestedModel(), requireCompact)
+	return protocolAccountSnapshot(account, request.RequestedModel(), requireCompact, request.Profile().Stream)
 }
 
-func protocolAccountSnapshot(account *Account, requestedModel string, requireCompact bool) (protocolrouter.AccountSnapshot, error) {
+func protocolAccountSnapshot(account *Account, requestedModel string, requireCompact bool, stream bool) (protocolrouter.AccountSnapshot, error) {
 	if account == nil {
 		return protocolrouter.AccountSnapshot{}, errors.New("account is required")
 	}
@@ -149,9 +174,26 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 	if requestedModel == "" {
 		return protocolrouter.AccountSnapshot{}, errors.New("requested model is required")
 	}
+	capability := account.ProtocolEndpointCapability
+	if capability == nil || account.ProtocolEndpointCapabilityID == nil || capability.ID != *account.ProtocolEndpointCapabilityID {
+		return protocolrouter.AccountSnapshot{}, errors.New("governed account is missing protocol endpoint capability link")
+	}
+	if capability.CapabilityKey == "" || capability.Revision <= 0 ||
+		(!capability.ProbeEvidence.InitialProbeCompleted && !capability.ProbeEvidence.OfficialSeed) ||
+		capability.IdentityConflict || capability.ProbeEvidence.IdentityConflict {
+		return protocolrouter.AccountSnapshot{}, errors.New("protocol endpoint capability is invalid or conflicted")
+	}
+	identity, governed, err := BuildProtocolEndpointIdentity(account)
+	if err != nil {
+		return protocolrouter.AccountSnapshot{}, err
+	}
+	if !governed || identity.Key() != capability.CapabilityKey {
+		return protocolrouter.AccountSnapshot{}, errors.New("account endpoint identity does not match linked capability")
+	}
 	protocols := account.SupportedProtocols()
 	resolvedModel := protocolResolvedUpstreamModel(account, requestedModel, requireCompact)
 	customBaseURL, customBaseURLs, officialProfile := protocolAccountEndpoints(account)
+	geminiProfile := protocolGeminiEndpointProfile(account)
 	modelAllowed := make(map[protocolrouter.Protocol]bool, len(protocols))
 	for _, protocol := range protocols {
 		modelAllowed[protocol] = protocolResolvedModelAllowedForTarget(
@@ -162,7 +204,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 			resolvedModel,
 		)
 	}
-	exactEndpoints, err := protocolExactEndpoints(account, resolvedModel)
+	exactEndpoints, err := protocolExactEndpoints(account, resolvedModel, geminiProfile, stream)
 	if err != nil {
 		return protocolrouter.AccountSnapshot{}, err
 	}
@@ -173,12 +215,15 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 	return protocolrouter.NewAccountSnapshot(protocolrouter.AccountSnapshotInput{
 		AccountID:          account.ID,
 		Revision:           revision,
+		CapabilityKey:      capability.CapabilityKey,
+		CapabilityRevision: capability.Revision,
 		SupportedProtocols: protocols,
 		ResolvedModel:      resolvedModel,
 		CustomBaseURL:      customBaseURL,
 		CustomBaseURLs:     customBaseURLs,
 		ExactEndpoints:     exactEndpoints,
 		OfficialProfile:    officialProfile,
+		GeminiProfile:      geminiProfile,
 		ModelAllowed:       modelAllowed,
 		Transports:         []protocolrouter.TransportID{protocolrouter.TransportHTTP},
 	})
@@ -199,6 +244,9 @@ func protocolResolvedModelAllowedForTarget(
 		return target == protocolrouter.ProtocolResponses && isOpenAIOAuthServableModel(resolvedModel)
 	case protocolrouter.OfficialEndpointAnthropic:
 		return target == protocolrouter.ProtocolMessages && account.IsModelSupported(requestedModel)
+	}
+	if target == protocolrouter.ProtocolGeminiGenerateContent {
+		return protocolGeminiEndpointProfile(account).Valid() && account.IsModelSupported(requestedModel)
 	}
 	if _, matched := account.ResolveMappedModel(requestedModel); matched {
 		return true
@@ -225,7 +273,21 @@ func protocolResolvedUpstreamModel(account *Account, requestedModel string, requ
 	return strings.TrimSpace(account.GetMappedModel(requestedModel))
 }
 
-func protocolExactEndpoints(account *Account, resolvedModel string) (map[protocolrouter.Protocol]string, error) {
+func protocolExactEndpoints(
+	account *Account,
+	resolvedModel string,
+	geminiProfile protocolrouter.GeminiEndpointProfile,
+	stream bool,
+) (map[protocolrouter.Protocol]string, error) {
+	if geminiProfile.Valid() {
+		endpoint, err := protocolGeminiExactEndpoint(account, resolvedModel, geminiProfile, stream)
+		if err != nil {
+			return nil, err
+		}
+		return map[protocolrouter.Protocol]string{
+			protocolrouter.ProtocolGeminiGenerateContent: endpoint,
+		}, nil
+	}
 	if account == nil || account.Platform != PlatformNewAPI || account.ChannelType <= 0 {
 		return nil, nil
 	}
@@ -241,6 +303,39 @@ func protocolExactEndpoints(account *Account, resolvedModel string) (map[protoco
 		endpoints[protocol] = endpoint
 	}
 	return endpoints, nil
+}
+
+func protocolGeminiEndpointProfile(account *Account) protocolrouter.GeminiEndpointProfile {
+	if account == nil {
+		return protocolrouter.GeminiEndpointNone
+	}
+	if account.Platform == PlatformAntigravity && account.Type == AccountTypeOAuth {
+		return protocolrouter.GeminiEndpointAntigravityCloudCode
+	}
+	if account.IsNewAPIVertexServiceAccount() {
+		return protocolrouter.GeminiEndpointVertexServiceAccount
+	}
+	return protocolrouter.GeminiEndpointNone
+}
+
+func protocolGeminiExactEndpoint(
+	account *Account,
+	resolvedModel string,
+	profile protocolrouter.GeminiEndpointProfile,
+	stream bool,
+) (string, error) {
+	switch profile {
+	case protocolrouter.GeminiEndpointAntigravityCloudCode:
+		return strings.TrimRight(resolveAntigravityForwardBaseURL(account), "/") + "/v1internal:streamGenerateContent", nil
+	case protocolrouter.GeminiEndpointVertexServiceAccount:
+		action := "generateContent"
+		if stream {
+			action = "streamGenerateContent"
+		}
+		return buildVertexGeminiURL(account.VertexProjectID(), account.VertexLocation(resolvedModel), resolvedModel, action, false)
+	default:
+		return "", errors.New("gemini endpoint profile is required")
+	}
 }
 
 func protocolExactEndpoint(account *Account, protocol protocolrouter.Protocol, resolvedModel string) (string, error) {
@@ -311,25 +406,19 @@ func copyProtocolBaseURL(raw map[string]any, key string, protocol protocolrouter
 
 func protocolAccountRevision(account *Account) (string, error) {
 	input := struct {
-		ID          int64          `json:"id"`
-		Platform    string         `json:"platform"`
-		Type        string         `json:"type"`
-		ChannelType int            `json:"channel_type"`
-		Credentials map[string]any `json:"credentials"`
-		Extra       map[string]any `json:"extra"`
-		UpdatedAt   int64          `json:"updated_at_unix_nano"`
+		ID        int64 `json:"id"`
+		UpdatedAt int64 `json:"updated_at_unix_nano"`
 	}{
-		ID:          account.ID,
-		Platform:    account.Platform,
-		Type:        account.Type,
-		ChannelType: account.ChannelType,
-		Credentials: account.Credentials,
-		Extra:       account.Extra,
-		UpdatedAt:   account.UpdatedAt.UTC().UnixNano(),
+		ID:        account.ID,
+		UpdatedAt: account.UpdatedAt.UTC().UnixNano(),
 	}
+	return protocolRevisionDigest(input)
+}
+
+func protocolRevisionDigest(input any) (string, error) {
 	encoded, err := json.Marshal(input)
 	if err != nil {
-		return "", fmt.Errorf("marshal protocol account revision: %w", err)
+		return "", fmt.Errorf("marshal protocol revision: %w", err)
 	}
 	digest := sha256.Sum256(encoded)
 	return hex.EncodeToString(digest[:]), nil

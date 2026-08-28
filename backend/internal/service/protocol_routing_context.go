@@ -133,10 +133,19 @@ func protocolPlanForAccount(
 }
 
 func protocolRoutingGovernsAccount(account *Account) bool {
-	if account == nil || account.IsBedrock() || account.Type == AccountTypeServiceAccount {
+	if account == nil || account.IsBedrock() {
 		return false
 	}
-	if protocolRoutingAccountIsMediaOnly(account) {
+	if protocolRoutingAccountHasNoTextModels(account) {
+		return false
+	}
+	if account.IsNewAPIVertexServiceAccount() {
+		return true
+	}
+	if protocolRoutingSupportsAntigravityAccount(account) {
+		return true
+	}
+	if account.Type == AccountTypeServiceAccount {
 		return false
 	}
 	switch account.Platform {
@@ -151,6 +160,13 @@ func protocolRoutingGovernsAccount(account *Account) bool {
 	default:
 		return false
 	}
+}
+
+func protocolRoutingSupportsAntigravityAccount(account *Account) bool {
+	if account == nil || account.Platform != PlatformAntigravity {
+		return false
+	}
+	return account.Type == AccountTypeOAuth || tkIsAntigravityEdgeRelayStub(account)
 }
 
 func attachProtocolPlan(
@@ -172,6 +188,9 @@ func attachProtocolPlan(
 	}
 	snapshot, err := protocolAccountSnapshotForRequest(selection.Account, routing.request)
 	if err != nil {
+		if routing.plans.containsAccount(selection.Account.ID) {
+			return releaseProtocolSelectionOnPlanError(selection, protocolrouter.ErrStalePlan)
+		}
 		return releaseProtocolSelectionOnPlanError(selection, fmt.Errorf("%w: %v", ErrProtocolRouteUnavailable, err))
 	}
 	plan, planned := routing.plans.get(snapshot.AccountID(), snapshot.Revision())

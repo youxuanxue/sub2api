@@ -296,8 +296,9 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			selection,
 			account,
 			h.gatewayService.ValidateProtocolEndpoint,
+			h.gatewayService.LoadProtocolExecutionAccount,
 			service.ProtocolExecutors{
-				NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+				NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 					forwardBody := request.Body()
 					if channelMapping.Mapped {
 						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
@@ -317,7 +318,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 					}
 					return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
 				},
-				ChatIdentity: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+				ChatIdentity: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 					forwardBody := request.Body()
 					if channelMapping.Mapped {
 						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
@@ -326,7 +327,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 					openAIResult, forwardErr := h.openAIGatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, forwardBody, "", channelMapping.MappedModel)
 					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
 				},
-				ChatToResponses: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+				ChatToResponses: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 					forwardBody := request.Body()
 					if channelMapping.Mapped {
 						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
@@ -335,13 +336,29 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 					openAIResult, forwardErr := h.openAIGatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, "", channelMapping.MappedModel)
 					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
 				},
-				ChatToMessages: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+				ChatToMessages: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 					forwardBody := request.Body()
 					if channelMapping.Mapped {
 						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
 					}
 					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
 					return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
+				},
+				ChatToGemini: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					forwardBody := request.Body()
+					if channelMapping.Mapped {
+						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
+					}
+					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+					return service.ExecuteGeminiProtocolProfile(
+						plan.GeminiProfile(),
+						func() (*service.ForwardResult, error) {
+							return h.antigravityGatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
+						},
+						func() (*service.ForwardResult, error) {
+							return h.geminiCompatService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody)
+						},
+					)
 				},
 			},
 		)

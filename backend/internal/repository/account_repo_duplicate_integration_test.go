@@ -30,7 +30,7 @@ func TestCreateWithAccountGroupsPersistsPausedCopyAtomically(t *testing.T) {
 		Type:        service.AccountTypeAPIKey,
 		Status:      service.StatusActive,
 		Schedulable: false,
-		Credentials: map[string]any{"api_key": "secret"},
+		Credentials: map[string]any{"api_key": "secret", "base_url": "https://api.anthropic.com"},
 		Extra:       map[string]any{},
 	}
 	require.NoError(t, repo.CreateWithAccountGroups(ctx, success, []service.AccountGroup{{GroupID: group.ID, Priority: 37}}))
@@ -47,6 +47,9 @@ func TestCreateWithAccountGroupsPersistsPausedCopyAtomically(t *testing.T) {
 	var priority int
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT priority FROM account_groups WHERE account_id = $1 AND group_id = $2", success.ID, group.ID).Scan(&priority))
 	require.Equal(t, 37, priority)
+	created, err := repo.GetByID(ctx, success.ID)
+	require.NoError(t, err)
+	assertAccountProtocolProjectionAndSingleOutbox(t, integrationDB, created)
 	var outboxCount int
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM scheduler_outbox WHERE account_id = $1", success.ID).Scan(&outboxCount))
 	require.Equal(t, 1, outboxCount)
@@ -57,7 +60,7 @@ func TestCreateWithAccountGroupsPersistsPausedCopyAtomically(t *testing.T) {
 		Type:        service.AccountTypeAPIKey,
 		Status:      service.StatusActive,
 		Schedulable: false,
-		Credentials: map[string]any{"api_key": "secret"},
+		Credentials: map[string]any{"api_key": "secret", "base_url": "https://api.anthropic.com"},
 		Extra:       map[string]any{},
 	}
 	err = repo.CreateWithAccountGroups(ctx, failure, []service.AccountGroup{{GroupID: int64(^uint64(0) >> 1), Priority: 1}})

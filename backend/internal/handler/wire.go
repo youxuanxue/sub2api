@@ -413,7 +413,7 @@ var ProviderSet = wire.NewSet(
 	NewChannelMonitorUserHandler,
 	NewChannelMonitorV2Handler,
 	ProvideGatewayHandler,
-	ProvideOpenAIGatewayHandler,
+	ProvideProtocolRoutedOpenAIGatewayHandler,
 	NewTotpHandler,
 	NewPasskeyHandler,
 	ProvideSettingHandler,

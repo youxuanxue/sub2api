@@ -46,12 +46,24 @@ class PickOAuthCanaryEdgeTest(unittest.TestCase):
         self.assertEqual(canary, "us5")
         self.assertEqual(audit[0]["oauth_account_count"], None)
 
-    def test_returns_none_when_no_pool(self) -> None:
+    def test_uses_first_deployable_edge_for_full_canary_when_all_pools_are_empty(self) -> None:
         canary, audit = _mod.pick_oauth_canary(
             ["us3", "us4"],
             probe_count=lambda _e: 0,
             source_group="default",
         )
+        self.assertEqual(canary, "us3")
+        self.assertEqual(len(audit), 2)
+
+    def test_returns_none_when_empty_pool_cannot_be_proven(self) -> None:
+        counts = {"us3": None, "us4": 0}
+
+        canary, audit = _mod.pick_oauth_canary(
+            ["us3", "us4"],
+            probe_count=lambda edge_id: counts[edge_id],
+            source_group="default",
+        )
+
         self.assertIsNone(canary)
         self.assertEqual(len(audit), 2)
 

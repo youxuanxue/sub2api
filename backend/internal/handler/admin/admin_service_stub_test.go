@@ -36,6 +36,8 @@ type stubAdminService struct {
 	bulkUpdateAccountErr                error
 	lastBulkUpdateAccountInput          *service.BulkUpdateAccountsInput
 	getAccountResult                    *service.Account
+	clearAccountErrorResult             *service.Account
+	setSchedulableResult                *service.Account
 	updateAccountCalls                  int
 	updateAccountExtraCalls             int
 	checkMixedErr                       error
@@ -531,6 +533,11 @@ func (s *stubAdminService) RefreshAccountCredentials(ctx context.Context, id int
 }
 
 func (s *stubAdminService) ClearAccountError(ctx context.Context, id int64) (*service.Account, error) {
+	if s.clearAccountErrorResult != nil {
+		account := *s.clearAccountErrorResult
+		account.ID = id
+		return &account, nil
+	}
 	account := service.Account{ID: id, Name: "account", Status: service.StatusActive}
 	return &account, nil
 }
@@ -540,6 +547,12 @@ func (s *stubAdminService) SetAccountError(ctx context.Context, id int64, errorM
 }
 
 func (s *stubAdminService) SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*service.Account, error) {
+	if s.setSchedulableResult != nil {
+		account := *s.setSchedulableResult
+		account.ID = id
+		account.Schedulable = schedulable
+		return &account, nil
+	}
 	account := service.Account{ID: id, Name: "account", Status: service.StatusActive, Schedulable: schedulable}
 	return &account, nil
 }

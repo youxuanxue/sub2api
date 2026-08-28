@@ -42,7 +42,7 @@ func TestSchedulerSnapshotOutboxReplay(t *testing.T) {
 		Schedulable: true,
 		Concurrency: 3,
 		Priority:    1,
-		Credentials: map[string]any{},
+		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://api.openai.com"},
 		Extra:       map[string]any{},
 	}
 	require.NoError(t, accountRepo.Create(ctx, account))

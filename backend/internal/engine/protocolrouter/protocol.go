@@ -5,18 +5,19 @@ import "fmt"
 type Protocol string
 
 const (
-	ProtocolMessages        Protocol = "messages"
-	ProtocolChatCompletions Protocol = "chat_completions"
-	ProtocolResponses       Protocol = "responses"
+	ProtocolMessages              Protocol = "messages"
+	ProtocolChatCompletions       Protocol = "chat_completions"
+	ProtocolResponses             Protocol = "responses"
+	ProtocolGeminiGenerateContent Protocol = "gemini_generate_content"
 )
 
 func AllProtocols() []Protocol {
-	return []Protocol{ProtocolMessages, ProtocolChatCompletions, ProtocolResponses}
+	return []Protocol{ProtocolMessages, ProtocolChatCompletions, ProtocolResponses, ProtocolGeminiGenerateContent}
 }
 
 func (p Protocol) Valid() bool {
 	switch p {
-	case ProtocolMessages, ProtocolChatCompletions, ProtocolResponses:
+	case ProtocolMessages, ProtocolChatCompletions, ProtocolResponses, ProtocolGeminiGenerateContent:
 		return true
 	default:
 		return false

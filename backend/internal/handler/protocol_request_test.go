@@ -72,6 +72,25 @@ func TestNewCanonicalProtocolRequestRejectsMalformedBody(t *testing.T) {
 	}
 }
 
+func TestNewCanonicalProtocolRequestProfilesGeminiStreamAction(t *testing.T) {
+	req, err := newCanonicalProtocolRequest(
+		protocolrouter.ProtocolGeminiGenerateContent,
+		protocolrouter.ResponsesPathNone,
+		"gemini-2.5-pro",
+		true,
+		[]byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`),
+	)
+	if err != nil {
+		t.Fatalf("newCanonicalProtocolRequest: %v", err)
+	}
+	if req.InboundProtocol() != protocolrouter.ProtocolGeminiGenerateContent || !req.Profile().Stream {
+		t.Fatalf("protocol/stream = %q/%v", req.InboundProtocol(), req.Profile().Stream)
+	}
+	if req.Profile().ContentKinds != protocolrouter.ContentText {
+		t.Fatalf("content kinds = %v, want text", req.Profile().ContentKinds)
+	}
+}
+
 func TestNewCanonicalProtocolRequestMarksToolsAndUnknownContent(t *testing.T) {
 	req, err := newCanonicalProtocolRequest(
 		protocolrouter.ProtocolMessages,

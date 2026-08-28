@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/alicebob/miniredis/v2"
@@ -330,6 +331,16 @@ func TestBuildSchedulerMetadataAccount_KeepsOpenAIWSFlags(t *testing.T) {
 	require.Nil(t, got.Extra["unused_large_field"])
 }
 
+func TestBuildSchedulerMetadataAccount_KeepsAuthoritativeAccountRevisionTimestamp(t *testing.T) {
+	updatedAt := time.Date(2026, 8, 27, 8, 30, 0, 123, time.UTC)
+	metadata := buildSchedulerMetadataAccount(service.Account{
+		ID:        4201,
+		UpdatedAt: updatedAt,
+	})
+
+	require.Equal(t, updatedAt, metadata.UpdatedAt)
+}
+
 // 回归保护：调度快照必须保留 privacy_mode 字段。
 // 缺失会导致 Account.IsPrivacySet() 永远返回 false，
 // 凡是开启 require_privacy_set 的分组都会卡住所有 OpenAI/Antigravity 账号
@@ -501,15 +512,23 @@ func TestBuildSchedulerMetadataAccount_KeepsQuotaAutoPauseFields(t *testing.T) {
 }
 
 func TestSchedulerCacheSnapshotKeepsSupportedProtocolsForRouting(t *testing.T) {
+	capabilityID := int64(901)
 	account := service.Account{
-		ID:          89,
-		Platform:    service.PlatformOpenAI,
-		Type:        service.AccountTypeOAuth,
-		Status:      service.StatusActive,
-		Schedulable: true,
+		ID:                           89,
+		Platform:                     service.PlatformOpenAI,
+		Type:                         service.AccountTypeOAuth,
+		Status:                       service.StatusActive,
+		Schedulable:                  true,
+		ProtocolEndpointCapabilityID: &capabilityID,
+		ProtocolEndpointCapability: &service.ProtocolEndpointCapability{
+			ID:                 capabilityID,
+			CapabilityKey:      "scheduler-capability-key",
+			SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolResponses},
+			Revision:           1,
+			ProbeEvidence:      service.ProtocolProbeEvidence{InitialProbeCompleted: true},
+		},
 		Extra: map[string]any{
-			service.SupportedProtocolsExtraKey: []any{"responses"},
-			"unrelated":                        "drop-me",
+			"unrelated": "drop-me",
 		},
 	}
 	cache := newSchedulerCacheUnit(t)
@@ -525,6 +544,97 @@ func TestSchedulerCacheSnapshotKeepsSupportedProtocolsForRouting(t *testing.T) {
 	require.Len(t, snapshot, 1)
 	require.Equal(t, []protocolrouter.Protocol{protocolrouter.ProtocolResponses}, snapshot[0].SupportedProtocols())
 	require.NotContains(t, snapshot[0].Extra, "unrelated")
+}
+
+func TestBuildSchedulerMetadataAccountPreservesProtocolEndpointIdentity(t *testing.T) {
+	vertexCredential := `{"type":"service_account","project_id":"vertex-project","private_key":"private-key","client_email":"svc@vertex-project.iam.gserviceaccount.com"}`
+	tests := []struct {
+		name              string
+		account           service.Account
+		wantAuthorization bool
+	}{
+		{
+			name:              "custom protocol endpoints versions and routing headers",
+			wantAuthorization: true,
+			account: service.Account{
+				Platform: service.PlatformOpenAI,
+				Type:     service.AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"api_key":                 "secret",
+					"base_url":                "https://relay.example.test/v1",
+					"api_base_urls":           map[string]any{"anthropic": "https://messages.example.test/v1", "responses": "https://responses.example.test/v1"},
+					"api_versions":            map[string]any{"responses": "2026-08-27"},
+					"header_override_enabled": true,
+					"header_overrides":        map[string]any{"x-tenant": "alpha"},
+				},
+			},
+		},
+		{
+			name:              "anthropic oauth custom endpoint",
+			wantAuthorization: true,
+			account: service.Account{
+				Platform:    service.PlatformAnthropic,
+				Type:        service.AccountTypeOAuth,
+				Credentials: map[string]any{"access_token": "secret"},
+				Extra: map[string]any{
+					"custom_base_url_enabled": true,
+					"custom_base_url":         "https://anthropic-relay.example.test",
+				},
+			},
+		},
+		{
+			name:              "vertex service account sanitized project and location",
+			wantAuthorization: true,
+			account: service.Account{
+				Platform:    service.PlatformNewAPI,
+				Type:        service.AccountTypeServiceAccount,
+				ChannelType: newapiconstant.ChannelTypeVertexAi,
+				Credentials: map[string]any{
+					"service_account_json": vertexCredential,
+					"location":             "europe-west4",
+				},
+			},
+		},
+		{
+			name:              "OpenAI OAuth authorization without cached token",
+			wantAuthorization: true,
+			account: service.Account{
+				Platform:    service.PlatformOpenAI,
+				Type:        service.AccountTypeOAuth,
+				Credentials: map[string]any{"access_token": "secret", "plan_type": "plus"},
+			},
+		},
+		{
+			name:              "Antigravity authorization without cached token",
+			wantAuthorization: true,
+			account: service.Account{
+				Platform: service.PlatformAntigravity,
+				Type:     service.AccountTypeOAuth,
+				Credentials: map[string]any{
+					"access_token": "secret",
+					"project_id":   "project-a",
+					"plan_type":    "free",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fullIdentity, governed, err := service.BuildProtocolEndpointIdentity(&tt.account)
+			require.NoError(t, err)
+			require.True(t, governed)
+
+			metadata := buildSchedulerMetadataAccount(tt.account)
+			metadataIdentity, governed, err := service.BuildProtocolEndpointIdentity(&metadata)
+			require.NoError(t, err)
+			require.True(t, governed)
+			require.Equal(t, fullIdentity.Key(), metadataIdentity.Key())
+			require.Equal(t, tt.wantAuthorization, metadata.Credentials[service.ProtocolAuthorizationSnapshotCredentialKey])
+			require.NotContains(t, metadata.Credentials, "access_token")
+			require.NotContains(t, metadata.Credentials, "service_account_json")
+		})
+	}
 }
 
 func TestBuildSchedulerMetadataAccount_KeepsQuotaStateForCachedAccounts(t *testing.T) {

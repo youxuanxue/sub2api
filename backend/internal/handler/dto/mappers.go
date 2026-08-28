@@ -251,6 +251,16 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 	for i, protocol := range supportedProtocolValues {
 		supportedProtocols[i] = string(protocol)
 	}
+	var protocolCapability *ProtocolEndpointCapability
+	if capability := a.ProtocolEndpointCapability; capability != nil {
+		protocolCapability = &ProtocolEndpointCapability{
+			CapabilityKey:        capability.CapabilityKey,
+			Revision:             capability.Revision,
+			LastProbedAt:         capability.LastProbedAt,
+			AffectedAccountCount: capability.LinkedAccountCount,
+			IdentityConflict:     capability.IdentityConflict || capability.ProbeEvidence.IdentityConflict,
+		}
+	}
 	out := &Account{
 		ID:                      a.ID,
 		Name:                    a.Name,
@@ -261,6 +271,7 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		CredentialsStatus:       credsStatus,
 		Extra:                   extra,
 		SupportedProtocols:      supportedProtocols,
+		ProtocolCapability:      protocolCapability,
 		OllamaCloudUsage:        ollamaCloudUsage,
 		ProxyID:                 a.ProxyID,
 		ProxyFallbackOriginID:   a.ProxyFallbackOriginID,
