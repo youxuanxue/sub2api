@@ -364,6 +364,95 @@ class UnitTestRunnerTest(unittest.TestCase):
         self.assertLess(compile_started, discovery_finished, events)
         self.assertLess(other_started, compile_finished, events)
 
+    def test_exact_cache_hit_discovery_failure_terminates_compile_group(self) -> None:
+        with self._fake_go(
+            ["TestOne"],
+            fail_discovery=True,
+            discovery_delay=0.25,
+            compile_delay=5.0,
+            compile_child=True,
+        ) as fixture:
+            result = self._run(fixture, build_cache_hit=True)
+            events = self._events(fixture.events)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid Go test discovery output", result.stderr)
+        self.assertEqual(
+            len([call for call in self._go_calls(events) if "-c" in call]),
+            1,
+            events,
+        )
+        self.assertTrue(
+            [
+                event
+                for event in events
+                if event["kind"] == "go-terminated" and "-c" in event["args"]
+            ],
+            events,
+        )
+        self.assertTrue(
+            [event for event in events if event["kind"] == "go-child-terminated"],
+            events,
+        )
+        self.assertFalse(self._binary_events(events))
+
+    def test_exact_cache_hit_test_main_terminates_compile_group_before_fallback(
+        self,
+    ) -> None:
+        with self._fake_go(
+            ["TestOne"],
+            has_test_main=True,
+            discovery_delay=0.25,
+            compile_delay=5.0,
+            compile_child=True,
+        ) as fixture:
+            result = self._run(fixture, build_cache_hit=True)
+            events = self._events(fixture.events)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(["test", "-tags=unit", "./..."], self._go_calls(events))
+        self.assertTrue(
+            [
+                event
+                for event in events
+                if event["kind"] == "go-terminated" and "-c" in event["args"]
+            ],
+            events,
+        )
+        self.assertTrue(
+            [event for event in events if event["kind"] == "go-child-terminated"],
+            events,
+        )
+        self.assertFalse(self._binary_events(events))
+
+    def test_exact_cache_hit_compile_failure_terminates_other_packages(self) -> None:
+        with self._fake_go(
+            ["TestOne", "TestTwo"],
+            fail_compile=True,
+            compile_delay=0.5,
+            other_delay=5.0,
+        ) as fixture:
+            result = self._run(
+                fixture,
+                "--min-shards",
+                "2",
+                build_cache_hit=True,
+            )
+            events = self._events(fixture.events)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("intentional compile failure", result.stderr)
+        self.assertTrue(
+            [
+                event
+                for event in events
+                if event["kind"] == "go-terminated"
+                and "./internal/other" in event["args"]
+            ],
+            events,
+        )
+        self.assertFalse(self._binary_events(events))
+
     def test_discovery_failure_stops_before_service_compile(self) -> None:
         with self._fake_go(
             ["TestOne"],
