@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import subprocess
 import unittest
@@ -13,11 +14,15 @@ import yaml
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "backend-ci.yml"
 BACKEND_MAKEFILE = Path(__file__).resolve().parents[1] / "backend" / "Makefile"
 ROOT_MAKEFILE = Path(__file__).resolve().parents[1] / "Makefile"
+FRONTEND_PACKAGE = Path(__file__).resolve().parents[1] / "frontend" / "package.json"
 
 
 class BackendCIRoutingTest(unittest.TestCase):
     def setUp(self) -> None:
         self.jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        self.frontend_scripts = json.loads(
+            FRONTEND_PACKAGE.read_text(encoding="utf-8")
+        )["scripts"]
 
     def test_changes_job_exports_all_surface_decisions(self) -> None:
         outputs = self.jobs["changes"]["outputs"]
@@ -88,6 +93,45 @@ class BackendCIRoutingTest(unittest.TestCase):
                 "test-frontend-typecheck",
                 "test-frontend-critical",
             },
+        )
+
+    def test_frontend_job_reuses_content_validated_check_caches(self) -> None:
+        steps = self.jobs["frontend"]["steps"]
+        check_index = next(
+            index
+            for index, step in enumerate(steps)
+            if "test-frontend" in step.get("run", "")
+        )
+        cache_indexes = [
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Restore frontend check caches"
+        ]
+
+        self.assertEqual(len(cache_indexes), 1)
+        cache_index = cache_indexes[0]
+        self.assertLess(cache_index, check_index)
+        cache_step = steps[cache_index]
+        self.assertEqual(cache_step["uses"], "actions/cache@v6")
+        self.assertEqual(
+            set(cache_step["with"]["path"].splitlines()),
+            {
+                "frontend/.cache/eslint",
+                "frontend/.cache/vue-tsc",
+            },
+        )
+        self.assertIn("frontend-checks-node24-v1", cache_step["with"]["key"])
+        self.assertIn("github.run_id", cache_step["with"]["key"])
+
+        lint = self.frontend_scripts["lint:check"]
+        self.assertIn("--cache-strategy content", lint)
+        self.assertIn("--cache-location .cache/eslint/.eslintcache", lint)
+
+        typecheck = self.frontend_scripts["typecheck"]
+        self.assertIn("--incremental", typecheck)
+        self.assertIn(
+            "--tsBuildInfoFile .cache/vue-tsc/tsconfig.tsbuildinfo",
+            typecheck,
         )
 
     def test_required_preflight_owns_path_conditioned_contract_gates(self) -> None:
@@ -293,7 +337,41 @@ class BackendCIRoutingTest(unittest.TestCase):
                 ("test-unit", "job", "-gcflags=all=-dwarf=false"),
                 ("test-integration", "job", "-gcflags=all=-dwarf=false"),
                 ("golangci-lint", "job", "-gcflags=all=-dwarf=false"),
+                ("backend-security", "job", "-gcflags=all=-dwarf=false"),
             ],
+        )
+
+    def test_backend_security_reuses_the_shared_nodwarf_rolling_cache(self) -> None:
+        steps = self.jobs["backend-security"]["steps"]
+        setup_go = next(
+            step for step in steps if step.get("uses") == "actions/setup-go@v6"
+        )
+        self.assertFalse(setup_go["with"]["cache"])
+
+        scan_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Run govulncheck"
+        )
+        cache_indexes = [
+            index
+            for index, step in enumerate(steps)
+            if step.get("uses") == "./.github/actions/go-rolling-cache"
+        ]
+
+        self.assertEqual(len(cache_indexes), 1)
+        cache_index = cache_indexes[0]
+        self.assertLess(cache_index, scan_index)
+        cache = steps[cache_index]
+        self.assertEqual(cache["with"]["prefix"], "security-nodwarf-v1")
+        self.assertNotIn("refresh_on_backend_change", cache.get("with", {}))
+        self.assertFalse(
+            [
+                step
+                for step in steps
+                if step.get("id") == "security_cache_epoch"
+                or step.get("name") == "Cache govulncheck build objects"
+            ]
         )
 
     def test_heavy_go_jobs_use_nodwarf_build_cache_namespaces(self) -> None:
@@ -302,6 +380,7 @@ class BackendCIRoutingTest(unittest.TestCase):
             "test-unit": "unit-nodwarf-v1",
             "test-integration": "integration-nodwarf-v1",
             "golangci-lint": "lint-nodwarf-v1",
+            "backend-security": "security-nodwarf-v1",
         }
         for job_name, expected_prefix in expected_prefixes.items():
             cache_step = next(
@@ -326,7 +405,7 @@ class BackendCIRoutingTest(unittest.TestCase):
             "true",
         )
 
-        for job_name in ("preflight", "test-unit", "golangci-lint"):
+        for job_name in ("preflight", "test-unit", "golangci-lint", "backend-security"):
             cache_step = next(
                 step
                 for step in self.jobs[job_name]["steps"]
@@ -335,36 +414,17 @@ class BackendCIRoutingTest(unittest.TestCase):
             with self.subTest(job=job_name):
                 self.assertNotIn("refresh_on_backend_change", cache_step.get("with", {}))
 
-    def test_unit_reuses_service_objects_for_go_artifact_drift(self) -> None:
+    def test_unit_avoids_relinking_go_artifact_owners_after_unit_tests(self) -> None:
         steps = self.jobs["test-unit"]["steps"]
-        fixture_index = next(
-            index
-            for index, step in enumerate(steps)
-            if step.get("name") == "Anthropic prompt surface fixture gateway"
-        )
-        bundle_index, bundle_step = next(
-            (index, step)
-            for index, step in enumerate(steps)
-            if step.get("name") == "Model surface bundle drift"
-        )
-        family_index, family_step = next(
-            (index, step)
-            for index, step in enumerate(steps)
-            if step.get("name") == "Model family alert artifact drift"
+        step_names = {step.get("name") for step in steps}
+        self.assertTrue(
+            {
+                "Model surface bundle drift",
+                "Model family alert artifact drift",
+            }.isdisjoint(step_names),
         )
 
-        self.assertGreater(bundle_index, fixture_index)
-        self.assertGreater(family_index, bundle_index)
-        self.assertEqual(
-            bundle_step["run"],
-            "bash scripts/checks/check-model-surface-bundle.sh",
-        )
-        self.assertEqual(
-            family_step["run"],
-            "bash scripts/sentinels/check-model-family-rules.sh",
-        )
-
-    def test_unit_is_the_only_workflow_owner_for_go_artifact_drift(self) -> None:
+    def test_go_artifact_drift_has_no_relinking_workflow_owner(self) -> None:
         owners = []
         for job_name, job in self.jobs.items():
             for step in job.get("steps", []):
@@ -376,21 +436,7 @@ class BackendCIRoutingTest(unittest.TestCase):
                     if helper in command:
                         owners.append((helper, job_name, step.get("name")))
 
-        self.assertEqual(
-            owners,
-            [
-                (
-                    "scripts/checks/check-model-surface-bundle.sh",
-                    "test-unit",
-                    "Model surface bundle drift",
-                ),
-                (
-                    "scripts/sentinels/check-model-family-rules.sh",
-                    "test-unit",
-                    "Model family alert artifact drift",
-                ),
-            ],
-        )
+        self.assertEqual(owners, [])
 
     def test_lint_uses_rolling_analysis_cache_instead_of_action_cache(self) -> None:
         steps = self.jobs["golangci-lint"]["steps"]

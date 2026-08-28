@@ -38,11 +38,19 @@ class QAMaintenanceHealthGateTest(unittest.TestCase):
             encoding="utf-8",
         )
         aws.chmod(0o755)
+        sleep = fake_bin / "sleep"
+        sleep.write_text(
+            "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$SLEEP_CALLS\"\n",
+            encoding="utf-8",
+        )
+        sleep.chmod(0o755)
+        sleep_calls = root / "sleep-calls"
         proc = subprocess.run(
             ["bash", str(WRAPPER), "i-0123456789abcdef0"],
             env={
                 **os.environ,
                 "PATH": f"{fake_bin}:/opt/homebrew/bin:/usr/bin:/bin",
+                "SLEEP_CALLS": str(sleep_calls),
                 "STAGE0_SSM_OUTPUT_DIR": str(output),
                 "STAGE0_SSM_TIMEOUT_SECONDS": "10",
             },
@@ -51,6 +59,7 @@ class QAMaintenanceHealthGateTest(unittest.TestCase):
             check=False,
         )
         self.assertEqual(proc.returncode, 0, (proc.stdout, proc.stderr))
+        self.assertEqual(sleep_calls.read_text(encoding="utf-8"), "3\n")
         commands = json.loads(
             (output / "ssm-params.json").read_text(encoding="utf-8")
         )["commands"]

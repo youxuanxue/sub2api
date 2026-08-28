@@ -20,11 +20,10 @@ func main() {
 	if strings.TrimSpace(*outputPath) != "" && strings.TrimSpace(*checkPath) != "" {
 		fatal("--output and --check are mutually exclusive")
 	}
-	payload, err := json.MarshalIndent(service.ExportModelFamilyRules(), "", "  ")
+	payload, err := modelFamilyRulesPayload()
 	if err != nil {
 		fatal("marshal artifact: %v", err)
 	}
-	payload = append(payload, '\n')
 
 	if path := strings.TrimSpace(*checkPath); path != "" {
 		current, readErr := os.ReadFile(path)
@@ -45,6 +44,14 @@ func main() {
 	if _, err := os.Stdout.Write(payload); err != nil {
 		fatal("write stdout: %v", err)
 	}
+}
+
+func modelFamilyRulesPayload() ([]byte, error) {
+	payload, err := json.MarshalIndent(service.ExportModelFamilyRules(), "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(payload, '\n'), nil
 }
 
 func writeAtomic(path string, payload []byte) error {
