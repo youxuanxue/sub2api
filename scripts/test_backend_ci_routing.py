@@ -432,24 +432,18 @@ class BackendCIRoutingTest(unittest.TestCase):
         )
         self.assertEqual(
             unit_cache["with"]["fallback_prefix"],
-            "integration-nodwarf-v2",
+            "unit-nodwarf-v1",
         )
         self.assertEqual(
             unit_cache["with"]["refresh_daily"],
             "true",
         )
-        self.assertEqual(
-            unit_cache["with"]["build_cache_path"],
-            integration_cache["with"]["build_cache_path"],
-        )
+        self.assertNotIn("build_cache_path", unit_cache["with"])
         self.assertEqual(
             unit_cache["with"]["save_caches"],
             "true",
         )
-        self.assertEqual(
-            self.jobs["test-unit"]["env"]["GOCACHE"],
-            self.jobs["test-integration"]["env"]["GOCACHE"],
-        )
+        self.assertNotIn("GOCACHE", self.jobs["test-unit"]["env"])
 
         for job_name in ("preflight", "golangci-lint", "backend-security"):
             cache_step = next(

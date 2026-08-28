@@ -12,11 +12,9 @@
 #     GOMODCACHE against the 10GB/repo budget.
 #   - build/test cache: caller-selected namespace (prefix) + UTC-week seed by
 #     default, avoiding repeated uploads of the 300MB-2.5GB preflight/lint
-#     archives. Unit owns a daily snapshot on main and falls back to the daily
-#     integration snapshot on the first run; both use the same isolated path so
-#     tag-neutral production objects seed Unit before its test objects exist.
-#     Go's cache is content-addressed, so mixed build tags safely miss instead
-#     of consuming incompatible objects.
+#     archives. Unit owns a daily snapshot on main and falls back to its previous
+#     weekly namespace until the first daily entry exists. Integration remains
+#     isolated because its build tags do not seed Unit's critical compile graph.
 #   - golangci analysis cache: optional, lint-only, and rolling for the same
 #     reason. golangci-lint-action's interval key is immutable after the first
 #     save, so changed-package analysis cannot be written back until the interval
