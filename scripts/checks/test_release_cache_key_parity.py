@@ -80,7 +80,10 @@ class ReleaseCacheWorkflowTest(unittest.TestCase):
         )
         self.assertEqual(warm["env"]["GOFLAGS"], "-gcflags=all=-dwarf=false")
         self.assertIn("scripts/ci/integration-packages.py", warm["run"])
-        self.assertIn("go test -c -tags=integration", warm["run"])
+        self.assertIn("integration_packages=()", warm["run"])
+        self.assertIn('integration_packages+=("$package")', warm["run"])
+        self.assertIn("go test -vet=off -c -tags=integration", warm["run"])
+        self.assertEqual(warm["run"].count("go test -vet=off -c"), 1)
 
 
 if __name__ == "__main__":
