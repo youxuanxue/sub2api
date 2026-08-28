@@ -92,7 +92,7 @@ fi
 
 is_excluded_ip() {
   local ip="$1" rc
-  python3 "$RECORD_PY" is-excluded --ip "$ip" --region "$region" --registry "$REGISTRY"
+  python3 "$RECORD_PY" --registry "$REGISTRY" is-excluded --ip "$ip" --region "$region"
   rc=$?
   case "$rc" in
     0) return 0 ;;
@@ -225,7 +225,7 @@ domain  : ${domain}
 registry: ${REGISTRY} (commit this file + run scripts/edge-ip-status.sh --check)
 
 NEXT (human):
-  - commit deploy/aws/stage0/edge-polluted-ips.json and sync docs/deploy/tokenkey-edge-ip-history.md
+  - update matrix static_ip_name + porkbun_a_ipv4; commit polluted-ips.json; run scripts/edge-ip-status.sh --check
   - Porkbun A record ${domain} -> ${new_ip}
   - external probe from a clean-egress host:
       curl -sS --resolve ${domain}:443:${new_ip} https://${domain}/health
