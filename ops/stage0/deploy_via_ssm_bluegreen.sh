@@ -442,7 +442,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 120s
 
   tokenkey-green:
     image: ${TOKENKEY_IMAGE_GREEN:?TOKENKEY_IMAGE_GREEN is required}
@@ -525,7 +525,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 120s
 
 networks:
   tokenkey-network:
