@@ -7458,28 +7458,26 @@
         "type supplierManagedAccountReader interface",
         "reader.GetSupplierAccount(ctx, input.AccountID)",
         "newapiconstant.ChannelTypeOpenAI",
-        "bestEffortDefaultGroupBind: true",
+        "SkipDefaultGroupBind: true",
         "if len(input.ModelMapping) > 0 && !input.ChatProbePassed {",
         "return ErrSupplierProjectionUpdaterMissing",
         "return updater.UpdateSupplierMetadata(ctx, account.ID, account.Name, account.Priority)",
         "return updater.UpdateSupplierProjection(ctx, account, chatProbePassed)"
       ],
-      "rationale": "The supplier-source owner reads only the narrow projection, creates new managed accounts empty and unschedulable, fixes every managed projection to the one supported NewAPI OpenAI Chat transport, preserves non-owned account metadata, requires current-call Chat probe evidence for every non-empty mapping, makes only the implicit default-group bind best effort, and fails closed unless both narrow repository writes are available."
+      "rationale": "The supplier-source owner reads only the narrow projection, creates new managed accounts empty, unschedulable and ungrouped, fixes every managed projection to the one supported NewAPI OpenAI Chat transport, preserves non-owned account metadata, requires current-call Chat probe evidence for every non-empty mapping, and fails closed unless both narrow repository writes are available."
     },
     {
       "path": "backend/internal/service/supplier_managed_account_commands_test.go",
       "must_contain": [
-        "TestUS048_SupplierCreateDoesNotFailWhenDefaultGroupBindingFails",
-        "TestUS048_SupplierCreateDoesNotFailWhenDefaultGroupPolicyRejectsBinding",
-        "TestUS048_SupplierCreateUsesExistingDefaultGroupRuleAndStartsEmptyAndUnschedulable",
-        "TestUS048_SupplierDefaultGroupBestEffortDoesNotChangeOrdinaryCreateFailureContract",
+        "TestUS048_SupplierCreateStartsEmptyUngroupedAndUnschedulable",
+        "TestUS048_OrdinaryCreateAccountStillFailsWhenDefaultGroupBindFails",
         "TestUS048_SupplierConfigurationUpdateUsesGroupFreeReadAndNarrowWrite",
         "TestUS048_SupplierConfigurationUpdateRequiresPassedChatProbe",
         "require.Equal(t, 1, accounts.projectionUpdateCalls)",
         "require.True(t, accounts.projectionChatProbePassed)",
         "require.Zero(t, accounts.genericUpdateCalls"
       ],
-      "rationale": "Behavior regressions pin empty, unschedulable supplier creation, the asymmetric default-group contract, the non-empty Chat evidence gate, and prove supplier configuration updates use a group-free read plus the isolated projection write exactly once, never the generic account update path."
+      "rationale": "Behavior regressions pin empty, unschedulable, ungrouped supplier creation, the unchanged ordinary CreateAccount group-bind failure contract, the non-empty Chat evidence gate, and prove supplier configuration updates use a group-free read plus the isolated projection write exactly once, never the generic account update path."
     },
     {
       "path": "backend/internal/repository/account_repo_supplier_projection_test.go",
@@ -7567,6 +7565,7 @@
         "TestUS048_SupplierSyncAdditionFailureStopsBeforeRemovalAndRetryConverges",
         "TestUS048_SupplierSyncReadbackFailureReportsTheCompletedAddition",
         "TestUS048_NonActiveExactAccountMatchBlocksDuplicateSupplierAccountCreation",
+        "TestUS048_IncompatibleTransportExactMatchBlocksAdoptionWithoutRewritingAccount",
         "TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation",
         "TestUS048_SupplierSyncProbesBeforeRepairingNonEmptySchedulingProjection",
         "TestUS048_SupplierSyncRepairsEmptySchedulingProjectionWithoutProbe"

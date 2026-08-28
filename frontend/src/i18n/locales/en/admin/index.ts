@@ -6,7 +6,6 @@ import ops from './ops'
 import settings from './settings'
 import audit from './audit'
 import promptAudit from './promptAudit'
-import supplierSources from './supplierSources'
 
 export default {
   ...overview,
@@ -17,5 +16,4 @@ export default {
   ...settings,
   ...audit,
   ...promptAudit,
-  ...supplierSources,
 }

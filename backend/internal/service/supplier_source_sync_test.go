@@ -386,6 +386,37 @@ func TestUS048_NonActiveExactAccountMatchBlocksDuplicateSupplierAccountCreation(
 	}
 }
 
+func TestUS048_IncompatibleTransportExactMatchBlocksAdoptionWithoutRewritingAccount(t *testing.T) {
+	ratio := 0.5
+	repo := &supplierSourceRepoFake{stored: &SupplierSource{
+		ID: 7, SupplierName: "百度", ChannelName: "qianfan", Endpoint: "https://qianfan.baidubce.com",
+		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
+		Models: []SupplierSourceModel{{
+			ClientModelID: "deepseek-v4-flash-0731", UpstreamModelID: "deepseek-v4-flash-0731", PurchaseRatio: &ratio,
+		}},
+	}}
+	existing := &Account{
+		ID: 90, Name: "百度千帆", Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
+		ChannelType: 46,
+		Credentials: supplierManagedCredentials(
+			"https://qianfan.baidubce.com", "secret", map[string]string{"deepseek-v4-flash-0731": "deepseek-v4-flash-0731"},
+		),
+		Status: StatusActive, Schedulable: false,
+	}
+	accounts := &supplierSyncAccountStoreFake{matches: []*Account{existing}}
+	svc := NewSupplierSourceService(
+		repo, accounts, &supplierSyncProbeFake{failIfCalled: true}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{},
+	)
+
+	result, err := svc.Sync(context.Background(), 7)
+
+	require.ErrorIs(t, err, ErrSupplierSourceIdentityConflict)
+	require.Equal(t, "match_existing_account", result.FailedStep)
+	require.Zero(t, accounts.createCalls)
+	require.Empty(t, accounts.updated)
+	require.Equal(t, 46, existing.ChannelType, "incomplete first-batch inventory must not be rewritten to OpenAI Chat")
+}
+
 func TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation(t *testing.T) {
 	ratio03, ratio05 := 0.3, 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{

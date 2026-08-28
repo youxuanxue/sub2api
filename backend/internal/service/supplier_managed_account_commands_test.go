@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUS048_SupplierCreateUsesExistingDefaultGroupRuleAndStartsEmptyAndUnschedulable(t *testing.T) {
+func TestUS048_SupplierCreateStartsEmptyUngroupedAndUnschedulable(t *testing.T) {
 	accounts := &supplierManagedCommandsAccountRepoFake{}
 	groups := &supplierManagedCommandsGroupRepoFake{groups: []Group{{ID: 9, Name: PlatformNewAPI + "-default", Platform: PlatformNewAPI}}}
 	svc := &adminServiceImpl{accountRepo: accounts, groupRepo: groups}
@@ -25,32 +25,14 @@ func TestUS048_SupplierCreateUsesExistingDefaultGroupRuleAndStartsEmptyAndUnsche
 	require.Empty(t, accounts.created.GetModelMapping(), "new supplier account must be an empty projection until a verified update commits")
 	require.False(t, accounts.created.Schedulable, "account must never be persisted as schedulable before projection completes")
 	require.Equal(t, StatusActive, accounts.created.Status)
-	require.Equal(t, []int64{9}, accounts.boundGroupIDs)
-	require.Equal(t, []int64{9}, created.GroupIDs)
+	require.Empty(t, created.GroupIDs)
+	require.Zero(t, accounts.bindCalls, "supplier create must not bind account groups")
+	require.Zero(t, groups.listCalls, "supplier create must not read account groups")
 	require.Equal(t, int64(7), accounts.created.Extra[SupplierSourceIDExtraKey])
 	require.Equal(t, 3, accounts.created.Extra[SupplierDiscountBandExtraKey])
 }
 
-func TestUS048_SupplierCreateDoesNotFailWhenDefaultGroupBindingFails(t *testing.T) {
-	accounts := &supplierManagedCommandsAccountRepoFake{bindErr: errors.New("injected group bind failure")}
-	groups := &supplierManagedCommandsGroupRepoFake{groups: []Group{{ID: 9, Name: PlatformNewAPI + "-default", Platform: PlatformNewAPI}}}
-	svc := &adminServiceImpl{accountRepo: accounts, groupRepo: groups}
-
-	created, err := svc.CreateSupplierManagedAccount(context.Background(), SupplierManagedAccountCreateInput{
-		SourceID: 7, DiscountBand: 3, Name: "佳杰/stbl-5 · 档位 3",
-		Endpoint: "https://token.vstecscloud.com/v1", Credential: "secret",
-		Priority: 103,
-	})
-
-	require.NoError(t, err)
-	require.NotNil(t, created)
-	require.Equal(t, int64(101), created.ID)
-	require.False(t, created.Schedulable)
-	require.Empty(t, created.GroupIDs)
-	require.Equal(t, 1, accounts.bindCalls)
-}
-
-func TestUS048_SupplierDefaultGroupBestEffortDoesNotChangeOrdinaryCreateFailureContract(t *testing.T) {
+func TestUS048_OrdinaryCreateAccountStillFailsWhenDefaultGroupBindFails(t *testing.T) {
 	accounts := &supplierManagedCommandsAccountRepoFake{bindErr: errors.New("injected group bind failure")}
 	groups := &supplierManagedCommandsGroupRepoFake{groups: []Group{{ID: 9, Name: PlatformNewAPI + "-default", Platform: PlatformNewAPI}}}
 	svc := &adminServiceImpl{accountRepo: accounts, groupRepo: groups}
@@ -62,32 +44,8 @@ func TestUS048_SupplierDefaultGroupBestEffortDoesNotChangeOrdinaryCreateFailureC
 	})
 
 	require.ErrorContains(t, err, "injected group bind failure")
-	require.Nil(t, created, "supplier-only best effort must not change the public CreateAccount failure contract")
+	require.Nil(t, created, "skipping groups on the supplier path must not change the public CreateAccount failure contract")
 	require.Equal(t, 1, accounts.bindCalls)
-}
-
-func TestUS048_SupplierCreateDoesNotFailWhenDefaultGroupPolicyRejectsBinding(t *testing.T) {
-	accounts := &supplierManagedCommandsAccountRepoFake{groupAccounts: []Account{{
-		ID: 88, Name: "existing aggregator", Platform: PlatformNewAPI,
-		ChannelType: newapiconstant.ChannelTypeOpenRouter,
-	}}}
-	groups := &supplierManagedCommandsGroupRepoFake{groups: []Group{{
-		ID: 9, Name: PlatformNewAPI + "-default", Platform: PlatformNewAPI,
-	}}}
-	svc := &adminServiceImpl{accountRepo: accounts, groupRepo: groups}
-
-	created, err := svc.CreateSupplierManagedAccount(context.Background(), SupplierManagedAccountCreateInput{
-		SourceID: 7, DiscountBand: 3, Name: "佳杰/stbl-5 · 档位 3",
-		Endpoint: "https://token.vstecscloud.com/v1", Credential: "secret",
-		Priority: 103,
-	})
-
-	require.NoError(t, err)
-	require.NotNil(t, created)
-	require.Equal(t, int64(101), created.ID)
-	require.False(t, created.Schedulable)
-	require.Empty(t, created.GroupIDs)
-	require.Zero(t, accounts.bindCalls)
 }
 
 func TestUS048_SupplierConfigurationUpdateUsesGroupFreeReadAndNarrowWrite(t *testing.T) {
@@ -255,7 +213,6 @@ type supplierManagedCommandsAccountRepoFake struct {
 	bindErr                   error
 	genericGetCalls           int
 	supplierGetCalls          int
-	groupAccounts             []Account
 }
 
 func (r *supplierManagedCommandsAccountRepoFake) Create(_ context.Context, account *Account) error {
@@ -326,15 +283,17 @@ func (r *supplierManagedCommandsAccountRepoFake) BindGroups(_ context.Context, _
 }
 
 func (r *supplierManagedCommandsAccountRepoFake) ListByGroup(context.Context, int64) ([]Account, error) {
-	return append([]Account(nil), r.groupAccounts...), nil
+	return nil, nil
 }
 
 type supplierManagedCommandsGroupRepoFake struct {
 	GroupRepository
-	groups []Group
+	groups    []Group
+	listCalls int
 }
 
 func (r *supplierManagedCommandsGroupRepoFake) ListActiveByPlatform(context.Context, string) ([]Group, error) {
+	r.listCalls++
 	return append([]Group(nil), r.groups...), nil
 }
 

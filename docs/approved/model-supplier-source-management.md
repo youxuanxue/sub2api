@@ -39,8 +39,8 @@ account.priority = source.base_priority + discount_priority
 - 供应源不依赖账号组仓储，不读取、比较或写入账号组，不取模型账号组并集，不返回账号组 diff。
   供应投影读取使用专用的无账号组查询，不调用会加载 `AccountGroups`、`GroupIDs` 或 `Groups` 的通用
   `GetByID`。
-- 新账号通过现有账号创建服务建立并尝试沿用普通 NewAPI 账号的默认组规则；默认组策略校验或绑定失败
-  时，账号保持未分组且供应源同步继续。普通账号创建仍保持原有失败契约，不受这项 best-effort 行为影响。
+- 新账号通过现有账号创建服务建立，并显式跳过默认组绑定，保持未分组。普通账号创建仍保持原有失败
+  契约。供应源不改变账号网关调度。
 - 新账号固定为 NewAPI OpenAI Chat API Key transport，并先以空 `model_mapping`、
   `schedulable=false` 创建；结构同步会把 transport 漂移修复回固定值。
 - 受管账号和内存预探测账号只声明 Chat Completions。供应源 endpoint 末尾 `/v1` 只在该受管路径进入
@@ -134,13 +134,17 @@ POST   /admin/supplier-sources/:id/sync
 
 ## 首批验收
 
+首批三个案例必须各自提供完整、准确的供应事实才能同步。不匹配时不扩大已有账号匹配，不改网关调度。
+
 - 佳杰 / VSTECS：首批只录入 `deepseek-v4-pro` 与 `qwen-3.7-max` 的最低合法比例 `0.50`，两者进入档位
-  3 并合并到一个目标账号。当前没有生产 API Key，因此真实 HTTP 探测和账号同步必须保持 `not_run`。
+  3 并合并到一个目标账号。当前没有生产 API Key，因此真实 HTTP 探测和账号同步必须保持 `not_run`，
+  要求补全真实 endpoint 与凭证后再验收。
 - FMGo：只录入客户 ID `doubao-seedance-2-0-260128` 到上游 ID
-  `feimiao-seedance-2-0-260128` 的显式映射，ratio `0.50`。固定边界返回
-  `protocol_unsupported`，不发起伪 OpenAI Chat 请求，也不写账号。
+  `feimiao-seedance-2-0-260128` 的显式映射，ratio `0.50`。当前缺少 endpoint 与凭证；固定边界返回
+  `protocol_unsupported`，不发起伪 OpenAI Chat 请求，也不写账号。这不是通用前缀替换。
 - 百度千帆：生产账号 90 只作为只读库存证据。其 `channel_type=46` 不符合第一版固定的 OpenAI Chat
-  transport，因此首批不接管；缺少供应凭证也无法完成指纹匹配或同步。
+  transport，因此首批不接管，也不改账号 90。缺少供应凭证也无法完成指纹匹配或同步；若要接入必须
+  另建完整供应源事实。
 
 完整字段、边界和验收标准以
 `docs/superpowers/specs/2026-08-27-model-supplier-source-design.md` 为实现依据。

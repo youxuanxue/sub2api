@@ -69,7 +69,7 @@ func (s *adminServiceImpl) CreateSupplierManagedAccount(
 		return nil, err
 	}
 	initialSchedulable := false
-	account, err := s.createAccount(ctx, &CreateAccountInput{
+	return s.createAccount(ctx, &CreateAccountInput{
 		Name: input.Name, Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
 		ChannelType: newapiconstant.ChannelTypeOpenAI,
 		Credentials: supplierManagedCredentials(input.Endpoint, input.Credential, map[string]string{}),
@@ -77,19 +77,13 @@ func (s *adminServiceImpl) CreateSupplierManagedAccount(
 			SupplierSourceIDExtraKey:     input.SourceID,
 			SupplierDiscountBandExtraKey: input.DiscountBand,
 		},
-		Concurrency: 1,
-		Priority:    input.Priority,
+		Concurrency:          1,
+		Priority:             input.Priority,
+		SkipDefaultGroupBind: true,
 	}, accountCreateOptions{
 		allowSupplierReservedExtra: true,
 		initialSchedulable:         &initialSchedulable,
-		bestEffortDefaultGroupBind: true,
 	})
-	if account != nil {
-		// Default account-group binding belongs to the account domain. The supplier
-		// projection can continue once the unschedulable account row exists.
-		return account, nil
-	}
-	return nil, err
 }
 
 func (s *adminServiceImpl) UpdateSupplierManagedAccount(

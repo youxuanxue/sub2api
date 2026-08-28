@@ -482,7 +482,6 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 type accountCreateOptions struct {
 	allowSupplierReservedExtra bool
 	initialSchedulable         *bool
-	bestEffortDefaultGroupBind bool
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
@@ -522,7 +521,6 @@ func (s *adminServiceImpl) createAccount(ctx context.Context, input *CreateAccou
 	}
 
 	groupIDs := input.GroupIDs
-	usingDefaultGroup := false
 	if len(groupIDs) == 0 && !input.SkipDefaultGroupBind {
 		defaultGroupName := input.Platform + "-default"
 		groups, listErr := s.groupRepo.ListActiveByPlatform(ctx, input.Platform)
@@ -530,7 +528,6 @@ func (s *adminServiceImpl) createAccount(ctx context.Context, input *CreateAccou
 			for _, group := range groups {
 				if group.Name == defaultGroupName {
 					groupIDs = []int64{group.ID}
-					usingDefaultGroup = true
 					break
 				}
 			}
@@ -538,20 +535,12 @@ func (s *adminServiceImpl) createAccount(ctx context.Context, input *CreateAccou
 	}
 	if len(groupIDs) > 0 && !input.SkipMixedChannelCheck {
 		if err := s.checkMixedChannelRisk(ctx, 0, input.Platform, groupIDs); err != nil {
-			if options.bestEffortDefaultGroupBind && usingDefaultGroup {
-				groupIDs = nil
-			} else {
-				return nil, err
-			}
+			return nil, err
 		}
 	}
 	if len(groupIDs) > 0 {
 		if err := s.checkPublicGroupAggregatorChannelPolicy(ctx, 0, input.Name, input.Platform, input.ChannelType, input.Credentials, groupIDs); err != nil {
-			if options.bestEffortDefaultGroupBind && usingDefaultGroup {
-				groupIDs = nil
-			} else {
-				return nil, err
-			}
+			return nil, err
 		}
 	}
 	if err := NormalizeHeaderOverrideCredentials(input.Credentials); err != nil {
@@ -581,9 +570,6 @@ func (s *adminServiceImpl) createAccount(ctx context.Context, input *CreateAccou
 	// 绑定分组
 	if len(groupIDs) > 0 {
 		if err := s.accountRepo.BindGroups(ctx, account.ID, groupIDs); err != nil {
-			if options.bestEffortDefaultGroupBind && usingDefaultGroup {
-				return account, nil
-			}
 			return nil, err
 		}
 		account.GroupIDs = append([]int64(nil), groupIDs...)

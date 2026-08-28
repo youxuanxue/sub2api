@@ -77,6 +77,8 @@ export async function loadLocaleMessages(locale: LocaleCode): Promise<void> {
   // TK: legacy single-file locale keys not present in upstream split modules.
   const tkLegacyMissing = await import('./tk/legacyMissing.tk')
   i18n.global.mergeLocaleMessage(locale, tkLegacyMissing.default[locale] ?? {})
+  const tkSupplierSources = await import('./tk/supplierSources.tk')
+  i18n.global.mergeLocaleMessage(locale, tkSupplierSources.default[locale] ?? {})
   loadedLocales.add(locale)
 }
 

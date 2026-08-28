@@ -22,7 +22,7 @@
       "probe_classification": "not_run",
       "http_status": null,
       "http_request_sent": false,
-      "missing_prerequisite": "no production account uses the VSTECS endpoint and the workbook contains no API credential"
+      "missing_prerequisite": "incomplete first-batch facts: the workbook has no production API credential, so this case cannot be matched or synced until the operator provides the exact endpoint and credential"
     },
     {
       "supplier": "佳杰",
@@ -36,7 +36,7 @@
       "probe_classification": "not_run",
       "http_status": null,
       "http_request_sent": false,
-      "missing_prerequisite": "no production account uses the VSTECS endpoint and the workbook contains no API credential"
+      "missing_prerequisite": "incomplete first-batch facts: the workbook has no production API credential, so this case cannot be matched or synced until the operator provides the exact endpoint and credential"
     },
     {
       "supplier": "FMGo",
@@ -52,7 +52,7 @@
       "http_status": null,
       "http_request_sent": false,
       "protocol_outcome": "supplier protocol unsupported",
-      "missing_prerequisite": "the workbook provides only the FMGo console URL and no API endpoint or credential; the fixed boundary returns protocol_unsupported without pretending to perform an upstream HTTP probe"
+      "missing_prerequisite": "incomplete first-batch facts: the workbook has only the FMGo console URL, not an API endpoint or credential; even after those facts are supplied, the fixed Seedance pair stays protocol_unsupported and must not write an account"
     },
     {
       "supplier": "百度",
@@ -74,7 +74,7 @@
         "status": "active",
         "schedulable": false
       },
-      "missing_prerequisite": "account 90 uses channel_type 46 rather than the fixed OpenAI Chat channel_type required by the first supplier-source version, so it is not an adoption candidate; the missing supplier credential also prevents fingerprint matching and sync"
+      "missing_prerequisite": "incomplete first-batch facts: account 90 is read-only inventory with channel_type 46 and no supplier credential; do not adopt or rewrite that account, and do not expand matching — onboard only after a complete OpenAI Chat supplier-source record is provided"
     }
   ],
   "ui_evidence": {
