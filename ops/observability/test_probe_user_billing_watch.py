@@ -99,6 +99,38 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
         self.assertIn("connection refused", proc.stderr)
         self.assertNotIn("no active users found", proc.stderr)
 
+    def test_rejects_invalid_window_minutes(self) -> None:
+        proc, logged = self.run_probe(USER_IDS="1", WINDOW_MINUTES="30;drop")
+        self.assertEqual(proc.returncode, 2, proc.stderr + proc.stdout)
+        self.assertIn("bad WINDOW_MINUTES", proc.stderr)
+        self.assertEqual(logged, "")
+
+    def test_wow_usage_emits_delta_pct_from_single_two_window_scan(self) -> None:
+        proc, logged = self.run_probe(USER_IDS="1,16")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertIn("AS delta_reqs_pct", logged)
+        self.assertIn("AS delta_cost_pct", logged)
+        self.assertIn("created_at >= now() - 2*", logged)
+        self.assertIn("(created_at >= now() - interval '30 minutes') AS is_cur", logged)
+        self.assertNotIn("previous window, for 环比", proc.stdout)
+
+    def test_wow_errors_are_per_user_not_independent_top40(self) -> None:
+        proc, logged = self.run_probe(USER_IDS="1,16")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertIn("AS delta_n_pct", logged)
+        error_wow = [q for q in logged.split(";\n") if "AS delta_n_pct" in q]
+        self.assertEqual(len(error_wow), 1, logged)
+        self.assertNotIn("ORDER BY n DESC LIMIT 40", error_wow[0])
+
+    def test_trailing_24h_baseline_excludes_current_window(self) -> None:
+        proc, logged = self.run_probe(USER_IDS="1,16", WINDOW_MINUTES="15")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertIn("interval '24 hours'", logged)
+        self.assertIn("created_at < now() - interval '15 minutes'", logged)
+        self.assertIn("AS avg_reqs_per_window_24h", logged)
+        self.assertIn("AS max_per_window_24h", logged)
+        self.assertIn(" / (15*60)", logged)
+
 
 if __name__ == "__main__":
     unittest.main()

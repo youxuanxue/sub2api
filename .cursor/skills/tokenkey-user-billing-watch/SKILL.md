@@ -14,10 +14,10 @@ description: >-
 
 按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审：
 
-- **机械化（脚本承载，prompt 不重写）**：活跃用户发现、取数、字段解析、image/video 判别、窗口/用户参数化、SQL 注入守卫、**环比**、**异常基线**——全在 `ops/observability/probe-user-billing-watch.sh` 里用 SQL 直接算出来，一次 probe 自带对照，不依赖对话记忆：
+- **机械化（脚本承载，prompt 不重写）**：活跃用户发现、取数、字段解析、image/video 判别、窗口/用户参数化、SQL 注入守卫、**环比**、**异常基线**——全在 `ops/observability/probe-user-billing-watch.sh` 里用 SQL 直接算出来，一次 probe 自带对照，不依赖对话记忆，也**不要在 prompt 里再做减法**：
   - 倍率按 `actual_cost / total_cost`。
-  - 环比：脚本同时查询「上一个等长窗口」的 reqs/cost/error 汇总（`previous window` 系列输出），跟当前窗口对齐字段，直接读数相减即可，**不需要翻对话里上一轮报了什么数字**——换会话、隔几小时、上下文被压缩都不影响环比准确性。
-  - 异常基线：脚本额外按 `WINDOW_MINUTES` 分桶回溯过去 24 小时，给出每用户请求/成本的 `avg`/`max`（`baseline: ... request/cost trailing 24h`），以及每个错误指纹的 `avg`/`max`（`baseline: ... error fingerprint trailing 24h`）。判断"是否突升/飙升"时用这份基线做参照，而不是拿当前窗口跟上一窗两个点瞪着猜。
+  - 环比：读 `delta_reqs_pct` / `delta_cost_pct` / `delta_n_pct`（`环比` 系列输出）。上一窗为 0 时字段是 `null`，写成 `新出现`，不要自己除。换会话、隔几小时、上下文被压缩都不影响环比准确性。
+  - 异常基线：按 `WINDOW_MINUTES` 分桶回溯过去 24 小时，读每用户请求/成本的 `avg`/`max`（`baseline: ... request/cost trailing 24h`），以及每个错误指纹的 `avg`/`max`（`baseline: ... error fingerprint trailing 24h`）。判断"是否突升/飙升"时把当前窗和这份 `max`/`avg` 比，而不是拿两个点瞪着猜。
 - **真判断（留给 prompt / 本 skill）**：一条错误是客户端侧噪声还是系统异常（§4 判别法）、基线之上的数字是否值得推送（§3）。仅此二者。
 
 ## §1 启动（每次起盘跑这一条）
@@ -54,7 +54,7 @@ bash ops/observability/run-probe.sh \
 | user16 | 577（↓37%） | $28.00（↓36%） | gpt-5.5 71% | ⚠️ 1次自身参数错误；ℹ️ 15次上游故障系统已自愈 |
 | user1 | 611（↑2%） | $53.27（↓4%） | gpt-5.6-sol 84% | ✅ 无异常 |
 
-- **请求量 / 账单**：只放用户真正感知的两个数（`reqs`、`total_cost`），括号内环比用百分比——直接读 probe 输出里 `previous window` 那组数字相减即可，**不要凭对话记忆推算**。`actual_cost`/倍率是内部成本核算，默认不进表；只有倍率本身发生异常跳变（不是稳态值）时才在"用户体感"列点一句。
+- **请求量 / 账单**：只放用户真正感知的两个数（`reqs`、`total_cost`），括号内环比直接抄 `delta_reqs_pct` / `delta_cost_pct`（带正负号写成 ↑↓），**禁止再相减**。`actual_cost`/倍率是内部成本核算，默认不进表；只有倍率本身发生异常跳变（不是稳态值）时才在"用户体感"列点一句。
 - **Top模型**：只放按请求数最大的一个模型 + 其占比，够用；需要更多再展开成 Top3。成本结构明显偏离请求数分布时，补一句"按成本口径 X 占比最高"。
 - **用户体感**（这一列是全表灵魂，把 §4 的判别结果直接翻成人话，不出现 `error_owner`/`error_phase` 等字段名）：
   - `✅ 无异常`

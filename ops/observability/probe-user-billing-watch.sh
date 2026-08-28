@@ -13,12 +13,12 @@
 #
 # image/video discriminators reuse probe-image-video-billing.sh's proven predicates.
 #
-# 环比 (window-over-window) and anomaly baselines are computed HERE, in SQL —
-# not left to the caller's memory of a prior conversation turn. Every run emits:
+# 环比 and anomaly baselines are computed HERE, in SQL — not left to the
+# caller's memory or mental arithmetic. Every run emits:
 #   - current window totals (requests/cost, errors)
-#   - previous window totals (same shape, for a mechanical delta)
-#   - trailing-24h per-bucket baseline (avg/max), so "is this a spike" has a
-#     real reference instead of an eyeballed two-point comparison.
+#   - window-over-window 环比 rows with delta_*_pct already calculated
+#   - trailing-24h per-bucket baseline (avg/max), so "is this a spike"
+#     compares against a real distribution, not two raw points.
 set -u
 
 USER_IDS_OVERRIDE="${USER_IDS:-}"
@@ -91,16 +91,28 @@ $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   GROUP BY user_id ORDER BY user_id) t;" 2>&1
 
 echo
-echo "=== general: usage_logs per-user totals (previous window, for 环比) ==="
-$PSQL -c "SELECT row_to_json(t) FROM (SELECT
-  user_id,
-  count(*)                                          AS reqs,
-  count(*) FILTER (WHERE COALESCE(total_cost,0) > 0) AS billed_reqs,
-  ROUND(COALESCE(sum(total_cost),0)::numeric,6)      AS total_cost,
-  ROUND(COALESCE(sum(actual_cost),0)::numeric,6)     AS actual_cost
+echo "=== general: usage_logs per-user 环比 (current vs previous window) ==="
+$PSQL -c "WITH win AS (
+  SELECT user_id, total_cost, (created_at >= now() - ${W}) AS is_cur
   FROM usage_logs
-  WHERE user_id IN (${IDS}) AND created_at >= now() - 2*${W} AND created_at < now() - ${W}
-  GROUP BY user_id ORDER BY user_id) t;" 2>&1
+  WHERE user_id IN (${IDS}) AND created_at >= now() - 2*${W}
+)
+SELECT row_to_json(t) FROM (SELECT
+  user_id,
+  count(*) FILTER (WHERE is_cur) AS reqs,
+  count(*) FILTER (WHERE NOT is_cur) AS prev_reqs,
+  ROUND(COALESCE(sum(total_cost) FILTER (WHERE is_cur),0)::numeric,6) AS total_cost,
+  ROUND(COALESCE(sum(total_cost) FILTER (WHERE NOT is_cur),0)::numeric,6) AS prev_total_cost,
+  CASE WHEN count(*) FILTER (WHERE NOT is_cur) = 0 THEN NULL
+       ELSE ROUND(((count(*) FILTER (WHERE is_cur) - count(*) FILTER (WHERE NOT is_cur))::numeric
+                   / count(*) FILTER (WHERE NOT is_cur)) * 100, 1)
+  END AS delta_reqs_pct,
+  CASE WHEN COALESCE(sum(total_cost) FILTER (WHERE NOT is_cur),0) = 0 THEN NULL
+       ELSE ROUND(((COALESCE(sum(total_cost) FILTER (WHERE is_cur),0)
+                    - COALESCE(sum(total_cost) FILTER (WHERE NOT is_cur),0))
+                   / COALESCE(sum(total_cost) FILTER (WHERE NOT is_cur),0)) * 100, 1)
+  END AS delta_cost_pct
+  FROM win GROUP BY user_id ORDER BY user_id) t;" 2>&1
 
 echo
 echo "=== general: usage_logs per-user by model (window) ==="
@@ -153,15 +165,21 @@ $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   GROUP BY 1,2,3,4,5,6,7 ORDER BY n DESC LIMIT 40) t;" 2>&1
 
 echo
-echo "=== errors: per-user by status/surface (previous window, for 环比) ==="
-$PSQL -c "SELECT row_to_json(t) FROM (SELECT
-  user_id,
-  CASE WHEN ${VID_E} THEN 'video' WHEN ${IMG_E} THEN 'image' ELSE 'general' END AS surface,
-  status_code, upstream_status_code, error_phase, error_type, error_owner,
-  count(*) AS n
+echo "=== errors: per-user 环比 (current vs previous window) ==="
+$PSQL -c "WITH win AS (
+  SELECT user_id, (created_at >= now() - ${W}) AS is_cur
   FROM ops_error_logs
-  WHERE user_id IN (${IDS}) AND created_at >= now() - 2*${W} AND created_at < now() - ${W}
-  GROUP BY 1,2,3,4,5,6,7 ORDER BY n DESC LIMIT 40) t;" 2>&1
+  WHERE user_id IN (${IDS}) AND created_at >= now() - 2*${W}
+)
+SELECT row_to_json(t) FROM (SELECT
+  user_id,
+  count(*) FILTER (WHERE is_cur) AS n,
+  count(*) FILTER (WHERE NOT is_cur) AS prev_n,
+  CASE WHEN count(*) FILTER (WHERE NOT is_cur) = 0 THEN NULL
+       ELSE ROUND(((count(*) FILTER (WHERE is_cur) - count(*) FILTER (WHERE NOT is_cur))::numeric
+                   / count(*) FILTER (WHERE NOT is_cur)) * 100, 1)
+  END AS delta_n_pct
+  FROM win GROUP BY user_id ORDER BY user_id) t;" 2>&1
 
 echo
 echo "=== errors: key/group breakdown for error types over 10 (window) ==="
