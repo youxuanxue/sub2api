@@ -1,6 +1,6 @@
 //go:build integration
 
-package archive_test
+package archive
 
 import (
 	"context"
@@ -12,7 +12,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
 func TestUS045_QAArchiveForwardCutoverMigrationFollowsBothTK071Migrations(t *testing.T) {
@@ -47,23 +46,7 @@ func TestUS045_QAArchiveForwardCutoverMigrationFollowsBothTK071Migrations(t *tes
 
 func TestQAArchiveCloseoutControlMigrationIsAdditiveAndIdempotent(t *testing.T) {
 	ctx := context.Background()
-	container, err := postgres.Run(
-		ctx,
-		"postgres:18.1-alpine3.23",
-		postgres.WithDatabase("qa_archive_control"),
-		postgres.WithUsername("postgres"),
-		postgres.WithPassword("postgres"),
-		postgres.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("start postgres: %v", err)
-	}
-	defer func() { _ = container.Terminate(ctx) }()
-
-	dsn, err := container.ConnectionString(ctx, "sslmode=disable", "TimeZone=UTC")
-	require.NoError(t, err)
-	db, err := sql.Open("postgres", dsn)
-	require.NoError(t, err)
+	db := openArchiveIntegrationDB(t, "qa_archive_control")
 	defer func() { _ = db.Close() }()
 
 	applyMigration(t, ctx, db, "tk_069_create_qa_archive_shards.sql")
@@ -91,23 +74,7 @@ func TestQAArchiveCloseoutControlMigrationIsAdditiveAndIdempotent(t *testing.T) 
 
 func TestUS045_QAArchiveForwardCutoverMigrationIsAdditiveValidAndImmutable(t *testing.T) {
 	ctx := context.Background()
-	container, err := postgres.Run(
-		ctx,
-		"postgres:18.1-alpine3.23",
-		postgres.WithDatabase("qa_archive_cutover"),
-		postgres.WithUsername("postgres"),
-		postgres.WithPassword("postgres"),
-		postgres.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("start postgres: %v", err)
-	}
-	defer func() { _ = container.Terminate(ctx) }()
-
-	dsn, err := container.ConnectionString(ctx, "sslmode=disable", "TimeZone=UTC")
-	require.NoError(t, err)
-	db, err := sql.Open("postgres", dsn)
-	require.NoError(t, err)
+	db := openArchiveIntegrationDB(t, "qa_archive_cutover")
 	defer func() { _ = db.Close() }()
 
 	applyMigration(t, ctx, db, "tk_069_create_qa_archive_shards.sql")
@@ -136,7 +103,7 @@ RETURNING id`, start, start.Add(time.Hour), state, restoreAt).Scan(&id))
 	}
 
 	pendingID := insertShard(approved.Add(-2*time.Hour), "pending", true)
-	_, err = db.ExecContext(ctx, `UPDATE qa_archive_shards SET forward_cutover=true WHERE id=$1`, pendingID)
+	_, err := db.ExecContext(ctx, `UPDATE qa_archive_shards SET forward_cutover=true WHERE id=$1`, pendingID)
 	require.Error(t, err, "pending shard must not become the cutover")
 
 	unrestoredID := insertShard(approved.Add(-time.Hour), "committed", false)
@@ -159,23 +126,7 @@ RETURNING id`, start, start.Add(time.Hour), state, restoreAt).Scan(&id))
 
 func TestUS045_QAArchiveGapDecisionReceiptsAreAppendOnlyAndNotASecondStateMachine(t *testing.T) {
 	ctx := context.Background()
-	container, err := postgres.Run(
-		ctx,
-		"postgres:18.1-alpine3.23",
-		postgres.WithDatabase("qa_archive_gap_receipts"),
-		postgres.WithUsername("postgres"),
-		postgres.WithPassword("postgres"),
-		postgres.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("start postgres: %v", err)
-	}
-	defer func() { _ = container.Terminate(ctx) }()
-
-	dsn, err := container.ConnectionString(ctx, "sslmode=disable", "TimeZone=UTC")
-	require.NoError(t, err)
-	db, err := sql.Open("postgres", dsn)
-	require.NoError(t, err)
+	db := openArchiveIntegrationDB(t, "qa_archive_gap_receipts")
 	defer func() { _ = db.Close() }()
 
 	applyMigration(t, ctx, db, "tk_069_create_qa_archive_shards.sql")
@@ -185,7 +136,7 @@ func TestUS045_QAArchiveGapDecisionReceiptsAreAppendOnlyAndNotASecondStateMachin
 
 	planHash := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	planJSON := `{"schema_version":"qa-archive-gap-decision-v1","plan_hash":"` + planHash + `","windows":[{}]}`
-	_, err = db.ExecContext(ctx, `
+	_, err := db.ExecContext(ctx, `
 INSERT INTO qa_archive_gap_decision_receipts
     (plan_hash, plan_schema_version, plan_json, approved_by, window_count)
 VALUES ($1,'qa-archive-gap-decision-v1',$2::jsonb,'feng',1)`, planHash, planJSON)

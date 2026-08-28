@@ -4,32 +4,17 @@ package archive
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/migrations"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
 func TestUS045_SQLControlStoreSetsOnlyApprovedForwardCutover(t *testing.T) {
 	ctx := context.Background()
-	container, err := postgres.Run(
-		ctx, "postgres:18.1-alpine3.23",
-		postgres.WithDatabase("qa_archive_cutover_store"),
-		postgres.WithUsername("postgres"), postgres.WithPassword("postgres"),
-		postgres.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Skipf("start postgres: %v", err)
-	}
-	defer func() { _ = container.Terminate(ctx) }()
-	dsn, err := container.ConnectionString(ctx, "sslmode=disable", "TimeZone=UTC")
-	require.NoError(t, err)
-	db, err := sql.Open("postgres", dsn)
-	require.NoError(t, err)
+	db := openArchiveIntegrationDB(t, "qa_archive_cutover_store")
 	defer func() { _ = db.Close() }()
 	for _, migration := range []string{
 		"tk_069_create_qa_archive_shards.sql",

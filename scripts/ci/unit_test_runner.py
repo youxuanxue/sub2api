@@ -24,6 +24,13 @@ TEST_DISCOVERY_HELPER = Path(__file__).resolve().with_name("list_go_tests.go")
 # Linux limits a single argv entry to 128 KiB. Keep 32 KiB of headroom while
 # avoiding unnecessary shard/link fan-out at the current service test scale.
 DEFAULT_MAX_REGEX_BYTES = 96 * 1024
+GO_TEST_RESULT_RE = re.compile(
+    r"^\s*--- (?:PASS|FAIL|SKIP): (?P<name>\S+) \((?P<seconds>[0-9.]+)s\)\s*$"
+)
+INTEGRATION_STAGE_RE = re.compile(
+    r"^(?:\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} )?"
+    r"(?P<detail>[a-z0-9-]+-integration: STAGE .+)$"
+)
 
 
 class RunnerError(RuntimeError):
@@ -254,6 +261,31 @@ def _last_summary(output: str) -> str:
     return lines[-1] if lines else "no output"
 
 
+def _slow_top_level_tests(output: str, limit: int) -> list[tuple[float, str]]:
+    tests: list[tuple[float, str]] = []
+    for line in output.splitlines():
+        match = GO_TEST_RESULT_RE.match(line)
+        if not match:
+            continue
+        name = match.group("name")
+        if "/" in name:
+            continue
+        seconds = float(match.group("seconds"))
+        if seconds <= 0:
+            continue
+        tests.append((seconds, name))
+    return sorted(tests, reverse=True)[:limit]
+
+
+def _integration_stage_lines(output: str) -> list[str]:
+    details = []
+    for line in output.splitlines():
+        match = INTEGRATION_STAGE_RE.match(line)
+        if match:
+            details.append(match.group("detail"))
+    return details
+
+
 def _terminate_processes(
     running: list[RunningCommand],
 ) -> None:
@@ -287,6 +319,7 @@ def run_commands(
     initial_running: list[RunningCommand] | None = None,
     runner_name: str = "unit-test-runner",
     temporary_prefix: str = "sub2api-unit-",
+    slow_test_limit: int = 0,
 ) -> int:
     with tempfile.TemporaryDirectory(prefix=temporary_prefix) as temporary:
         log_dir = Path(temporary)
@@ -331,6 +364,17 @@ def run_commands(
                     f"{runner_name}: PASS {command.label} "
                     f"({elapsed:.1f}s): {_last_summary(output)}"
                 )
+                if slow_test_limit > 0:
+                    for detail in _integration_stage_lines(output):
+                        print(f"{runner_name}: DETAIL {command.label}: {detail}")
+                    for test_elapsed, test_name in _slow_top_level_tests(
+                        output,
+                        slow_test_limit,
+                    ):
+                        print(
+                            f"{runner_name}: SLOW {command.label} "
+                            f"({test_elapsed:.3f}s): {test_name}"
+                        )
                 continue
             print(
                 f"{runner_name}: FAIL {command.label} ({elapsed:.1f}s)",
