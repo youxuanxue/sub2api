@@ -608,14 +608,31 @@ install_bluegreen_systemd_unit() {
 #!/bin/bash
 set -euo pipefail
 ROOT=/var/lib/tokenkey
-ACTIVE=blue
+ACTIVE=
 if [ -r "${ROOT}/active-color" ]; then
   ACTIVE="$(sed -n '1p' "${ROOT}/active-color" | tr -d '[:space:]')"
 fi
-case "${ACTIVE}" in blue|green) ;; *) ACTIVE=blue ;; esac
+case "${ACTIVE}" in blue|green) ;; *) ACTIVE= ;; esac
+ROUTE=
+if [ -r "${ROOT}/caddy/Caddyfile" ]; then
+  ROUTE="$(awk '
+    $1 == "reverse_proxy" && $2 ~ /^tokenkey-(blue|green):8080$/ {
+      count += 1
+      color = $2
+      sub(/^tokenkey-/, "", color)
+      sub(/:8080$/, "", color)
+    }
+    END { if (count == 1) print color }
+  ' "${ROOT}/caddy/Caddyfile")"
+fi
+case "${ROUTE}" in blue|green) ;; *) ROUTE= ;; esac
 cd "${ROOT}"
 docker compose --env-file "${ROOT}/.env" up -d --no-deps postgres redis
-docker compose --project-name tokenkey --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.bluegreen.yml" up -d --no-deps "tokenkey-${ACTIVE}"
+if [ -n "${ACTIVE}" ] && [ "${ACTIVE}" = "${ROUTE}" ]; then
+  docker compose --project-name tokenkey --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.bluegreen.yml" up -d --no-deps "tokenkey-${ACTIVE}"
+else
+  docker compose --project-name tokenkey --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.bluegreen.yml" up -d --no-deps tokenkey-blue tokenkey-green
+fi
 docker compose --env-file "${ROOT}/.env" up -d --no-deps caddy
 docker rm -f tokenkey >/dev/null 2>&1 || true
 SH
@@ -679,6 +696,7 @@ preserve_target_cutover() {
   local color="$1" target_config="$2" reason="$3"
   echo "::error::${reason}; preserving target and both colors for explicit rollback"
   sudo sh -c "cat '${target_config}' > '${LIVE_CADDY}'" || true
+  sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile || true
   ROUTE_SWITCHED=1
   CUTOVER_COMMITTED=1
   write_active_color "${color}" || true
@@ -741,12 +759,20 @@ commit_cutover() {
       return 1
     fi
     if sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile; then
-      ROUTE_SWITCHED=0
       if [[ -f "${active_backup}" ]]; then
-        sudo mv "${active_backup}" "${ACTIVE_FILE}"
+        if ! sudo mv "${active_backup}" "${ACTIVE_FILE}"; then
+          preserve_target_cutover "${color}" "${target_config}" \
+            "could not restore active-color after cutover persistence failure"
+          return 1
+        fi
       else
-        sudo rm -f "${ACTIVE_FILE}" >/dev/null 2>&1 || true
+        if ! sudo rm -f "${ACTIVE_FILE}" >/dev/null 2>&1; then
+          preserve_target_cutover "${color}" "${target_config}" \
+            "could not remove active-color after cutover persistence failure"
+          return 1
+        fi
       fi
+      ROUTE_SWITCHED=0
       return 1
     else
       preserve_target_cutover "${color}" "${target_config}" \

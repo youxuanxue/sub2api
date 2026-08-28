@@ -195,6 +195,7 @@ def _run_commit_cutover_record_failure(
     target_reload_fails: bool = False,
     restore_write_fails: bool = False,
     active_write_fails: bool = False,
+    active_restore_fails: bool = False,
     errexit: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     function = "\n".join((
@@ -220,6 +221,7 @@ write_active_color() {{
 }}
 record_cutover() {{ return 1; }}
 sudo() {{
+  if [ "$1" = mv ] && [ "$ACTIVE_RESTORE_FAILS" = 1 ]; then return 1; fi
   if [ "$1" = sh ]; then
     SH_WRITE_COUNT=$((SH_WRITE_COUNT + 1))
     if [ "$LIVE_WRITE_FAILS" = 1 ] && [ "$SH_WRITE_COUNT" -eq 1 ]; then return 1; fi
@@ -247,6 +249,7 @@ LIVE_WRITE_FAILS={1 if live_write_fails else 0}
 TARGET_RELOAD_FAILS={1 if target_reload_fails else 0}
 RESTORE_WRITE_FAILS={1 if restore_write_fails else 0}
 ACTIVE_WRITE_FAILS={1 if active_write_fails else 0}
+ACTIVE_RESTORE_FAILS={1 if active_restore_fails else 0}
 {'set -e' if errexit else ''}
 trap 'printf "rc=%s committed=%s live=%s active=%s\\n" "$?" "$CUTOVER_COMMITTED" "$(cat "$LIVE_CADDY")" "$(cat "$ACTIVE_FILE")"' EXIT
 commit_cutover green
@@ -256,6 +259,46 @@ printf 'rc=%s committed=%s live=%s active=%s\\n' "$rc" "$CUTOVER_COMMITTED" "$(c
 """
         return subprocess.run(
             ["bash"], input=script, capture_output=True, text=True, check=False
+        )
+
+
+def _run_systemd_start(
+    remote: str, *, active: str | None, caddy_upstream: str | None
+) -> subprocess.CompletedProcess[str]:
+    marker = (
+        "sudo tee /usr/local/bin/tokenkey-bluegreen-systemd-start.sh "
+        ">/dev/null <<'SH'\n"
+    )
+    start = remote.index(marker) + len(marker)
+    end = remote.index(
+        "\nSH\n  sudo tee /usr/local/bin/tokenkey-bluegreen-systemd-stop.sh", start
+    )
+    systemd_start = remote[start:end]
+    with tempfile.TemporaryDirectory(prefix="bluegreen-systemd-") as tmp:
+        root = pathlib.Path(tmp)
+        bin_dir = root / "bin"
+        caddy_dir = root / "caddy"
+        bin_dir.mkdir()
+        caddy_dir.mkdir()
+        if active is not None:
+            (root / "active-color").write_text(f"{active}\n")
+        if caddy_upstream is not None:
+            (caddy_dir / "Caddyfile").write_text(
+                f"reverse_proxy {caddy_upstream} {{\n}}\n"
+            )
+        fake_docker = bin_dir / "docker"
+        fake_docker.write_text(
+            "#!/usr/bin/env bash\n"
+            "printf '%s\\n' \"$*\"\n"
+        )
+        fake_docker.chmod(0o755)
+        runnable = systemd_start.replace("ROOT=/var/lib/tokenkey", f"ROOT={root}")
+        env = {
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        }
+        return subprocess.run(
+            ["bash"], input=runnable, env=env, capture_output=True, text=True, check=False
         )
 
 
@@ -504,6 +547,43 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertIn(
             "rc=1 committed=1 live=new-route:tokenkey-green:8080 active=blue",
             commit_restore_write_failed.stdout,
+        )
+
+        active_restore_failed = _run_commit_cutover_record_failure(
+            remote,
+            active_restore_fails=True,
+            errexit=True,
+        )
+        self.assertNotEqual(active_restore_failed.returncode, 0)
+        self.assertIn(
+            "rc=1 committed=1 live=new-route:tokenkey-green:8080 active=green",
+            active_restore_failed.stdout,
+        )
+
+    def test_systemd_start_preserves_route_when_durable_state_disagrees(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert remote is not None
+
+        matching = _run_systemd_start(
+            remote, active="blue", caddy_upstream="tokenkey-blue:8080"
+        )
+        self.assertEqual(matching.returncode, 0, msg=matching.stderr)
+        self.assertIn("up -d --no-deps tokenkey-blue", matching.stdout)
+        self.assertNotIn("up -d --no-deps tokenkey-green", matching.stdout)
+
+        mismatch = _run_systemd_start(
+            remote, active="blue", caddy_upstream="tokenkey-green:8080"
+        )
+        self.assertEqual(mismatch.returncode, 0, msg=mismatch.stderr)
+        self.assertIn(
+            "up -d --no-deps tokenkey-blue tokenkey-green", mismatch.stdout
+        )
+
+        unknown = _run_systemd_start(remote, active="invalid", caddy_upstream=None)
+        self.assertEqual(unknown.returncode, 0, msg=unknown.stderr)
+        self.assertIn(
+            "up -d --no-deps tokenkey-blue tokenkey-green", unknown.stdout
         )
 
     def test_active_color_must_match_caddy_before_target_selection(self) -> None:

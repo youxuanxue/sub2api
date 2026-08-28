@@ -4,7 +4,7 @@
 
 **Goal:** Make prod and Lightsail Edge share one fail-safe same-host blue/green deploy primitive and select the Edge canary from measured capacity and recent traffic.
 
-**Architecture:** `ops/stage0/deploy_via_ssm_bluegreen.sh` remains the sole deploy state machine; the managed-instance ID selects only a prod or Edge environment profile. A new read-only Edge release probe emits one strict JSON record per host, and `scripts/stage0/pick_oauth_canary_edge.py` probes the full fleet before applying the approved deterministic sort.
+**Architecture:** `ops/stage0/deploy_via_ssm_bluegreen.sh` remains the sole deploy state machine; the managed-instance ID selects only a prod or Edge environment profile. A new read-only Edge release probe emits one strict JSON record per host, and `scripts/stage0/pick_release_canary_edge.py` probes the full fleet before applying the approved deterministic sort.
 
 **Tech Stack:** Bash, AWS SSM, Docker Compose, Caddy, Python `unittest`, GitHub Actions YAML.
 
@@ -137,8 +137,8 @@ Expected: PASS.
 **Files:**
 - Create: `ops/stage0/edge_release_canary_probe.sh`
 - Create: `ops/stage0/test_edge_release_canary_probe.py`
-- Modify: `scripts/stage0/pick_oauth_canary_edge.py`
-- Modify: `scripts/stage0/test_pick_oauth_canary_edge.py`
+- Modify: `scripts/stage0/pick_release_canary_edge.py`
+- Modify: `scripts/stage0/test_pick_release_canary_edge.py`
 
 **Interfaces:**
 - Consumes: `ops/lib/resolve-app-container.sh`, `/proc/meminfo`, `docker stats`, `df`, 30-minute app logs, and `edge_oauth_pool_probe.sh` eligibility output.
@@ -150,7 +150,7 @@ Cover strict JSON parsing; both capacity thresholds; missing/invalid required fa
 
 - [x] **Step 2: Run focused tests and observe failure**
 
-Run: `python3 -m unittest ops.stage0.test_edge_release_canary_probe scripts.stage0.test_pick_oauth_canary_edge`
+Run: `python3 -m unittest ops.stage0.test_edge_release_canary_probe scripts.stage0.test_pick_release_canary_edge`
 
 Expected: FAIL because the probe is missing and the selector still returns on the first positive OAuth count.
 
@@ -176,7 +176,7 @@ Keep CLI compatibility for plain edge ID and `--json`, but update help/error tex
 
 - [x] **Step 5: Run focused tests**
 
-Run: `python3 -m unittest ops.stage0.test_edge_release_canary_probe scripts.stage0.test_pick_oauth_canary_edge`
+Run: `python3 -m unittest ops.stage0.test_edge_release_canary_probe scripts.stage0.test_pick_release_canary_edge`
 
 Expected: PASS.
 
@@ -209,7 +209,7 @@ python3 -m unittest \
   ops.stage0.test_deploy_via_ssm_bluegreen \
   ops.stage0.test_deploy_stage0_workflow \
   ops.stage0.test_edge_release_canary_probe \
-  scripts.stage0.test_pick_oauth_canary_edge \
+  scripts.stage0.test_pick_release_canary_edge \
   scripts.stage0.test_rollout_edges \
   scripts.stage0.test_dispatch_edge_deploy_smoke_phase
 ```

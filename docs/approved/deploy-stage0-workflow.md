@@ -16,7 +16,7 @@ related_designs:
 # Adversarial fail-closed gate also verified:
 #   GHA run https://github.com/youxuanxue/sub2api/actions/runs/24872388875
 #   (tag=99.99.99 → exited at GHCR manifest precheck before any AWS call).
-scope: ".github/workflows/deploy-stage0.yml + .github/workflows/deploy-edge-lightsail-stage0.yml + ops/stage0/deploy_via_ssm_bluegreen.sh + scripts/stage0/pick_oauth_canary_edge.py + Stage0 smoke and rollout guards"
+scope: ".github/workflows/deploy-stage0.yml + .github/workflows/deploy-edge-lightsail-stage0.yml + ops/stage0/deploy_via_ssm_bluegreen.sh + scripts/stage0/pick_release_canary_edge.py + Stage0 smoke and rollout guards"
 ---
 
 # Cloud-Agent-Driven Stage0 Blue/Green Deployment Workflow

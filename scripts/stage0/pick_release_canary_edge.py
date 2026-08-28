@@ -138,11 +138,10 @@ def validate_release_facts(payload: object) -> bool:
     return True
 
 
-def pick_oauth_canary(
+def pick_release_canary(
     edges: list[str],
     *,
     probe_facts,
-    source_group: str,
 ) -> tuple[str | None, list[dict]]:
     """Return (canary_edge, complete candidate audit)."""
     audit: list[dict] = []
@@ -211,10 +210,9 @@ def main() -> int:
             timeout_seconds=args.timeout_seconds,
         )
 
-    canary, audit = pick_oauth_canary(
+    canary, audit = pick_release_canary(
         edges,
         probe_facts=_probe,
-        source_group=args.source_group,
     )
 
     if canary is None:
