@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
@@ -212,6 +213,20 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	if len(body) == 0 {
 		googleError(c, http.StatusBadRequest, "Request body is empty")
 		return
+	}
+	if action != "countTokens" {
+		canonicalRequest, canonicalErr := newCanonicalProtocolRequest(
+			protocolrouter.ProtocolGeminiGenerateContent,
+			protocolrouter.ResponsesPathNone,
+			modelName,
+			stream,
+			body,
+		)
+		if canonicalErr != nil {
+			googleError(c, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+		c.Request = c.Request.WithContext(service.WithProtocolRouting(c.Request.Context(), h.protocolRouter, canonicalRequest))
 	}
 
 	setOpsRequestModelAndBody(c, modelName, stream, body)
@@ -530,27 +545,62 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		// 账号槽位/等待计数需要在超时或断开时安全回收
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
-		// 5) forward (根据平台分流)
+		// 5) forward through the immutable protocol plan for governed accounts.
 		var result *service.ForwardResult
 		requestCtx := c.Request.Context()
 		if fs.SwitchCount > 0 {
 			requestCtx = service.WithAccountSwitchCount(requestCtx, fs.SwitchCount, h.metadataBridgeEnabled())
 		}
 		sessionGroupID := derefGroupID(apiKey.GroupID)
-		if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
-			result, err = h.antigravityGatewayService.ForwardGemini(
-				requestCtx,
-				c,
-				account,
-				modelName,
-				action,
-				stream,
-				body,
-				hasBoundSession,
-				service.WithForwardGeminiSession(sessionGroupID, sessionKey),
-			)
-		} else {
-			result, err = h.geminiCompatService.ForwardNative(requestCtx, c, account, modelName, action, stream, body)
+		forwardNonGoverned := func(executionCtx context.Context, executionAccount *service.Account, request protocolrouter.CanonicalRequest) (any, error) {
+			forwardBody := request.Body()
+			if executionAccount.Platform == service.PlatformAntigravity && executionAccount.Type != service.AccountTypeAPIKey {
+				return h.antigravityGatewayService.ForwardGemini(
+					executionCtx,
+					c,
+					executionAccount,
+					modelName,
+					action,
+					stream,
+					forwardBody,
+					hasBoundSession,
+					service.WithForwardGeminiSession(sessionGroupID, sessionKey),
+				)
+			}
+			return h.geminiCompatService.ForwardNative(executionCtx, c, executionAccount, modelName, action, stream, forwardBody)
+		}
+		value, executeErr := service.ExecuteSelectedProtocol(
+			requestCtx,
+			h.protocolRouter,
+			selection,
+			account,
+			h.gatewayService.ValidateProtocolEndpoint,
+			h.gatewayService.LoadProtocolExecutionAccount,
+			service.ProtocolExecutors{
+				NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					return forwardNonGoverned(executionCtx, account, request)
+				},
+				GeminiIdentity: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+					forwardBody := request.Body()
+					return service.ExecuteGeminiProtocolProfile(
+						plan.GeminiProfile(),
+						func() (*service.ForwardResult, error) {
+							return h.antigravityGatewayService.ForwardGemini(
+								executionCtx, c, account, modelName, action, stream, forwardBody, hasBoundSession,
+								service.WithForwardGeminiSession(sessionGroupID, sessionKey),
+							)
+						},
+						func() (*service.ForwardResult, error) {
+							return h.geminiCompatService.ForwardNative(executionCtx, c, account, modelName, action, stream, forwardBody)
+						},
+					)
+				},
+			},
+		)
+		err = executeErr
+		if value != nil {
+			result, _ = value.(*service.ForwardResult)
 		}
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()

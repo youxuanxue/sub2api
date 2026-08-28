@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate and audit the agent-facing contract for sub2api.
 
-Required by `dev-rules/agent-contract-enforcement.mdc` and the
+Required by `scripts/preflight.sh` (TokenKey-owned gate) and the
 `docs/approved/newapi-as-fifth-platform.md` §5.3 acceptance gate.
 
 # What this script enforces

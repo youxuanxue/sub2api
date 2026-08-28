@@ -34,6 +34,7 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /api/v1/admin/accounts/:id/ollama-cloud-usage/refresh` from `backend/internal/server/routes/admin.go`
 - `DELETE /api/v1/admin/accounts/:id/ollama-cloud-usage/session` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/accounts/:id/ollama-cloud-usage/session` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/accounts/:id/protocol-probe` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/:id/recover-state` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/:id/refresh` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/:id/refresh-tier` from `backend/internal/server/routes/admin.go`

@@ -1136,6 +1136,20 @@ export interface OllamaCloudUsageSettings {
   debounce_minutes: number
 }
 
+export type NativeTextProtocol =
+  | 'messages'
+  | 'chat_completions'
+  | 'responses'
+  | 'gemini_generate_content'
+
+export interface ProtocolEndpointCapabilitySummary {
+  capability_key: string
+  revision: number
+  last_probed_at: string | null
+  affected_account_count: number
+  identity_conflict: boolean
+}
+
 export interface Account {
   id: number
   name: string
@@ -1158,7 +1172,8 @@ export interface Account {
   // 改为通过 credentials_status.has_<key> 暴露存在性。
   credentials?: Record<string, unknown>
   credentials_status?: Record<string, boolean>
-  supported_protocols: Array<'messages' | 'chat_completions' | 'responses'>
+  supported_protocols: NativeTextProtocol[]
+  protocol_capability?: ProtocolEndpointCapabilitySummary | null
   ollama_cloud_usage?: OllamaCloudUsageState
   // Extra fields including Codex usage, OpenAI compact capability, and model-level rate limits.
   extra?: (CodexUsageSnapshot & OpenAICompactState & {

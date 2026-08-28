@@ -195,6 +195,11 @@ func ChannelType(v int) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldChannelType, v))
 }
 
+// ProtocolEndpointCapabilityID applies equality check predicate on the "protocol_endpoint_capability_id" field. It's identical to ProtocolEndpointCapabilityIDEQ.
+func ProtocolEndpointCapabilityID(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldProtocolEndpointCapabilityID, v))
+}
+
 // TierID applies equality check predicate on the "tier_id" field. It's identical to TierIDEQ.
 func TierID(v int64) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldTierID, v))
@@ -1605,6 +1610,36 @@ func ChannelTypeLTE(v int) predicate.Account {
 	return predicate.Account(sql.FieldLTE(FieldChannelType, v))
 }
 
+// ProtocolEndpointCapabilityIDEQ applies the EQ predicate on the "protocol_endpoint_capability_id" field.
+func ProtocolEndpointCapabilityIDEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldProtocolEndpointCapabilityID, v))
+}
+
+// ProtocolEndpointCapabilityIDNEQ applies the NEQ predicate on the "protocol_endpoint_capability_id" field.
+func ProtocolEndpointCapabilityIDNEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldProtocolEndpointCapabilityID, v))
+}
+
+// ProtocolEndpointCapabilityIDIn applies the In predicate on the "protocol_endpoint_capability_id" field.
+func ProtocolEndpointCapabilityIDIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldProtocolEndpointCapabilityID, vs...))
+}
+
+// ProtocolEndpointCapabilityIDNotIn applies the NotIn predicate on the "protocol_endpoint_capability_id" field.
+func ProtocolEndpointCapabilityIDNotIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldProtocolEndpointCapabilityID, vs...))
+}
+
+// ProtocolEndpointCapabilityIDIsNil applies the IsNil predicate on the "protocol_endpoint_capability_id" field.
+func ProtocolEndpointCapabilityIDIsNil() predicate.Account {
+	return predicate.Account(sql.FieldIsNull(FieldProtocolEndpointCapabilityID))
+}
+
+// ProtocolEndpointCapabilityIDNotNil applies the NotNil predicate on the "protocol_endpoint_capability_id" field.
+func ProtocolEndpointCapabilityIDNotNil() predicate.Account {
+	return predicate.Account(sql.FieldNotNull(FieldProtocolEndpointCapabilityID))
+}
+
 // TierIDEQ applies the EQ predicate on the "tier_id" field.
 func TierIDEQ(v int64) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldTierID, v))
@@ -1743,6 +1778,29 @@ func HasProxy() predicate.Account {
 func HasProxyWith(preds ...predicate.Proxy) predicate.Account {
 	return predicate.Account(func(s *sql.Selector) {
 		step := newProxyStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasProtocolEndpointCapability applies the HasEdge predicate on the "protocol_endpoint_capability" edge.
+func HasProtocolEndpointCapability() predicate.Account {
+	return predicate.Account(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, ProtocolEndpointCapabilityTable, ProtocolEndpointCapabilityColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasProtocolEndpointCapabilityWith applies the HasEdge predicate on the "protocol_endpoint_capability" edge with a given conditions (other predicates).
+func HasProtocolEndpointCapabilityWith(preds ...predicate.ProtocolEndpointCapability) predicate.Account {
+	return predicate.Account(func(s *sql.Selector) {
+		step := newProtocolEndpointCapabilityStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

@@ -4531,9 +4531,9 @@
     {
       "path": "backend/internal/handler/openai_chat_completions.go",
       "must_contain": [
-        "logOpenAIStudioChatImageRequestAudit(c, apiKey, subject.UserID, account, request.Body(), forwardBody)"
+        "logOpenAIStudioChatImageRequestAudit(c, apiKey, subject.UserID, executionAccount, request.Body(), forwardBody)"
       ],
-      "rationale": "Studio Gemini-native image requests hit /v1/chat/completions with X-TokenKey-Studio-Source containing 'studio'+'image'; this one-line audit hook is the only server-side prompt trace for that path. Upstream merges that rewrite the forward block can drop it without compile failure while ImageStudio/BakeOff chat-image debugging goes blind."
+      "rationale": "Studio Gemini-native image requests hit /v1/chat/completions with X-TokenKey-Studio-Source containing 'studio'+'image'; this audit hook must record the authoritative execution account reloaded immediately before dispatch. Upstream merges that rewrite the forward block can drop it or restore the stale selected account without compile failure while ImageStudio/BakeOff chat-image debugging goes blind or is attributed to the wrong account."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_saturation_penalty.go",
@@ -5070,9 +5070,9 @@
       "path": "backend/internal/handler/openai_gateway_handler.go",
       "must_contain": [
         "selectionModel := service.CanonicalizeOpenAICompatRoutingModel(reqModel)",
-        "dispatchBody := tkResponsesForwardDispatchBody(apiKey, account, request.Body(), failedAccountIDs, h.gatewayService.ReplaceModelInBody)"
+        "dispatchBody := tkResponsesForwardDispatchBody(apiKey, executionAccount, request.Body(), failedAccountIDs, h.gatewayService.ReplaceModelInBody)"
       ],
-      "rationale": "TK /v1/responses routing: account selection uses the client-requested model (parity with /v1/chat/completions) so tokensea relays whose model_mapping lists Claude wire IDs remain selectable. Per-account forward attempts apply dispatch body rewrite via tkResponsesForwardDispatchBody companion. Pairs with openai_gateway_handler_tk_tokensea_routing.go and openai_gateway_handler_tk_responses_dispatch.go sentinels."
+      "rationale": "TK /v1/responses routing: account selection uses the client-requested model (parity with /v1/chat/completions) so tokensea relays whose model_mapping lists Claude wire IDs remain selectable. Per-account forward attempts apply dispatch body rewrite from the authoritative execution account reloaded immediately before dispatch. Pairs with openai_gateway_handler_tk_tokensea_routing.go and openai_gateway_handler_tk_responses_dispatch.go sentinels."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler_tk_responses_dispatch.go",

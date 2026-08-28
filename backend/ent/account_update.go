@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
+	"github.com/Wei-Shaw/sub2api/ent/protocolendpointcapability"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 )
@@ -551,6 +552,26 @@ func (_u *AccountUpdate) AddChannelType(v int) *AccountUpdate {
 	return _u
 }
 
+// SetProtocolEndpointCapabilityID sets the "protocol_endpoint_capability_id" field.
+func (_u *AccountUpdate) SetProtocolEndpointCapabilityID(v int64) *AccountUpdate {
+	_u.mutation.SetProtocolEndpointCapabilityID(v)
+	return _u
+}
+
+// SetNillableProtocolEndpointCapabilityID sets the "protocol_endpoint_capability_id" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableProtocolEndpointCapabilityID(v *int64) *AccountUpdate {
+	if v != nil {
+		_u.SetProtocolEndpointCapabilityID(*v)
+	}
+	return _u
+}
+
+// ClearProtocolEndpointCapabilityID clears the value of the "protocol_endpoint_capability_id" field.
+func (_u *AccountUpdate) ClearProtocolEndpointCapabilityID() *AccountUpdate {
+	_u.mutation.ClearProtocolEndpointCapabilityID()
+	return _u
+}
+
 // SetTierID sets the "tier_id" field.
 func (_u *AccountUpdate) SetTierID(v int64) *AccountUpdate {
 	_u.mutation.ResetTierID()
@@ -632,6 +653,11 @@ func (_u *AccountUpdate) SetProxy(v *Proxy) *AccountUpdate {
 	return _u.SetProxyID(v.ID)
 }
 
+// SetProtocolEndpointCapability sets the "protocol_endpoint_capability" edge to the ProtocolEndpointCapability entity.
+func (_u *AccountUpdate) SetProtocolEndpointCapability(v *ProtocolEndpointCapability) *AccountUpdate {
+	return _u.SetProtocolEndpointCapabilityID(v.ID)
+}
+
 // SetParentID sets the "parent" edge to the Account entity by ID.
 func (_u *AccountUpdate) SetParentID(id int64) *AccountUpdate {
 	_u.mutation.SetParentID(id)
@@ -710,6 +736,12 @@ func (_u *AccountUpdate) RemoveGroups(v ...*Group) *AccountUpdate {
 // ClearProxy clears the "proxy" edge to the Proxy entity.
 func (_u *AccountUpdate) ClearProxy() *AccountUpdate {
 	_u.mutation.ClearProxy()
+	return _u
+}
+
+// ClearProtocolEndpointCapability clears the "protocol_endpoint_capability" edge to the ProtocolEndpointCapability entity.
+func (_u *AccountUpdate) ClearProtocolEndpointCapability() *AccountUpdate {
+	_u.mutation.ClearProtocolEndpointCapability()
 	return _u
 }
 
@@ -1088,6 +1120,35 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ProtocolEndpointCapabilityCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   account.ProtocolEndpointCapabilityTable,
+			Columns: []string{account.ProtocolEndpointCapabilityColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(protocolendpointcapability.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ProtocolEndpointCapabilityIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   account.ProtocolEndpointCapabilityTable,
+			Columns: []string{account.ProtocolEndpointCapabilityColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(protocolendpointcapability.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -1754,6 +1815,26 @@ func (_u *AccountUpdateOne) AddChannelType(v int) *AccountUpdateOne {
 	return _u
 }
 
+// SetProtocolEndpointCapabilityID sets the "protocol_endpoint_capability_id" field.
+func (_u *AccountUpdateOne) SetProtocolEndpointCapabilityID(v int64) *AccountUpdateOne {
+	_u.mutation.SetProtocolEndpointCapabilityID(v)
+	return _u
+}
+
+// SetNillableProtocolEndpointCapabilityID sets the "protocol_endpoint_capability_id" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableProtocolEndpointCapabilityID(v *int64) *AccountUpdateOne {
+	if v != nil {
+		_u.SetProtocolEndpointCapabilityID(*v)
+	}
+	return _u
+}
+
+// ClearProtocolEndpointCapabilityID clears the value of the "protocol_endpoint_capability_id" field.
+func (_u *AccountUpdateOne) ClearProtocolEndpointCapabilityID() *AccountUpdateOne {
+	_u.mutation.ClearProtocolEndpointCapabilityID()
+	return _u
+}
+
 // SetTierID sets the "tier_id" field.
 func (_u *AccountUpdateOne) SetTierID(v int64) *AccountUpdateOne {
 	_u.mutation.ResetTierID()
@@ -1835,6 +1916,11 @@ func (_u *AccountUpdateOne) SetProxy(v *Proxy) *AccountUpdateOne {
 	return _u.SetProxyID(v.ID)
 }
 
+// SetProtocolEndpointCapability sets the "protocol_endpoint_capability" edge to the ProtocolEndpointCapability entity.
+func (_u *AccountUpdateOne) SetProtocolEndpointCapability(v *ProtocolEndpointCapability) *AccountUpdateOne {
+	return _u.SetProtocolEndpointCapabilityID(v.ID)
+}
+
 // SetParentID sets the "parent" edge to the Account entity by ID.
 func (_u *AccountUpdateOne) SetParentID(id int64) *AccountUpdateOne {
 	_u.mutation.SetParentID(id)
@@ -1913,6 +1999,12 @@ func (_u *AccountUpdateOne) RemoveGroups(v ...*Group) *AccountUpdateOne {
 // ClearProxy clears the "proxy" edge to the Proxy entity.
 func (_u *AccountUpdateOne) ClearProxy() *AccountUpdateOne {
 	_u.mutation.ClearProxy()
+	return _u
+}
+
+// ClearProtocolEndpointCapability clears the "protocol_endpoint_capability" edge to the ProtocolEndpointCapability entity.
+func (_u *AccountUpdateOne) ClearProtocolEndpointCapability() *AccountUpdateOne {
+	_u.mutation.ClearProtocolEndpointCapability()
 	return _u
 }
 
@@ -2321,6 +2413,35 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ProtocolEndpointCapabilityCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   account.ProtocolEndpointCapabilityTable,
+			Columns: []string{account.ProtocolEndpointCapabilityColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(protocolendpointcapability.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ProtocolEndpointCapabilityIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   account.ProtocolEndpointCapabilityTable,
+			Columns: []string{account.ProtocolEndpointCapabilityColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(protocolendpointcapability.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

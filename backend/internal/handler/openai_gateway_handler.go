@@ -48,12 +48,25 @@ type OpenAIGatewayHandler struct {
 	mediaStore                 service.MediaStore     // TK; wired via SetMediaStore — image offload + legacy video S3 re-presign.
 	tkCapabilities             apiKeyCapabilitySource
 	protocolRouter             *protocolrouter.Router
+	geminiCompatService        *service.GeminiMessagesCompatService
+	antigravityGatewayService  *service.AntigravityGatewayService
 }
 
 func (h *OpenAIGatewayHandler) SetProtocolRouter(router *protocolrouter.Router) {
 	if h != nil {
 		h.protocolRouter = router
 	}
+}
+
+func (h *OpenAIGatewayHandler) SetGeminiProtocolServices(
+	geminiCompatService *service.GeminiMessagesCompatService,
+	antigravityGatewayService *service.AntigravityGatewayService,
+) {
+	if h == nil {
+		return
+	}
+	h.geminiCompatService = geminiCompatService
+	h.antigravityGatewayService = antigravityGatewayService
 }
 
 type openAIWSTurnChannelMappingSnapshot struct {
@@ -678,9 +691,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
-			prepareResponsesBody := func(request protocolrouter.CanonicalRequest) []byte {
-				dispatchBody := tkResponsesForwardDispatchBody(apiKey, account, request.Body(), failedAccountIDs, h.gatewayService.ReplaceModelInBody)
-				return h.deriveOpenAIForwardAttemptBody(reqLog, dispatchBody, account, &passthroughFailoverState)
+			prepareResponsesBody := func(executionAccount *service.Account, request protocolrouter.CanonicalRequest) []byte {
+				dispatchBody := tkResponsesForwardDispatchBody(apiKey, executionAccount, request.Body(), failedAccountIDs, h.gatewayService.ReplaceModelInBody)
+				return h.deriveOpenAIForwardAttemptBody(reqLog, dispatchBody, executionAccount, &passthroughFailoverState)
 			}
 			value, executeErr := service.ExecuteSelectedProtocol(
 				c.Request.Context(),
@@ -688,21 +701,41 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				selection,
 				account,
 				h.gatewayService.ValidateProtocolEndpoint,
+				h.gatewayService.LoadProtocolExecutionAccount,
 				service.ProtocolExecutors{
-					NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-						return h.gatewayService.Forward(executionCtx, c, account, prepareResponsesBody(request))
+					NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						return h.gatewayService.Forward(executionCtx, c, account, prepareResponsesBody(account, request))
 					},
-					ResponsesIdentity: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					ResponsesIdentity: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-						return h.gatewayService.ForwardAsResponsesDispatched(executionCtx, c, account, prepareResponsesBody(request))
+						return h.gatewayService.ForwardAsResponsesDispatched(executionCtx, c, account, prepareResponsesBody(account, request))
 					},
-					ResponsesToChat: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					ResponsesToChat: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-						return h.gatewayService.Forward(executionCtx, c, account, prepareResponsesBody(request))
+						return h.gatewayService.Forward(executionCtx, c, account, prepareResponsesBody(account, request))
 					},
-					ResponsesToMessages: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					ResponsesToMessages: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-						return h.gatewayService.Forward(executionCtx, c, account, prepareResponsesBody(request))
+						return h.gatewayService.Forward(executionCtx, c, account, prepareResponsesBody(account, request))
+					},
+					ResponsesToGemini: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+						forwardBody := prepareResponsesBody(account, request)
+						return executeOpenAIGeminiRoute(
+							plan.GeminiProfile(),
+							func() (*service.ForwardResult, error) {
+								if h.antigravityGatewayService == nil {
+									return nil, service.ErrProtocolRouteUnavailable
+								}
+								return h.antigravityGatewayService.ForwardAsResponses(executionCtx, c, account, forwardBody, nil)
+							},
+							func() (*service.ForwardResult, error) {
+								if h.geminiCompatService == nil {
+									return nil, service.ErrProtocolRouteUnavailable
+								}
+								return h.geminiCompatService.ForwardAsResponses(executionCtx, c, account, forwardBody)
+							},
+						)
 					},
 				},
 			)
@@ -1277,21 +1310,41 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				selection,
 				account,
 				h.gatewayService.ValidateProtocolEndpoint,
+				h.gatewayService.LoadProtocolExecutionAccount,
 				service.ProtocolExecutors{
-					NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 						return h.gatewayService.ForwardAsAnthropic(executionCtx, c, account, prepareMessagesBody(request), promptCacheKey, defaultMappedModel)
 					},
-					MessagesIdentity: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					MessagesIdentity: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
 						return h.gatewayService.ForwardAsAnthropic(executionCtx, c, account, prepareMessagesBody(request), promptCacheKey, defaultMappedModel)
 					},
-					MessagesToResponses: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					MessagesToResponses: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
 						return h.gatewayService.ForwardAsAnthropic(executionCtx, c, account, prepareMessagesBody(request), promptCacheKey, defaultMappedModel)
 					},
-					MessagesToChat: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					MessagesToChat: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
 						return h.gatewayService.ForwardAsAnthropicDispatched(executionCtx, c, account, prepareMessagesBody(request), promptCacheKey, defaultMappedModel)
+					},
+					MessagesToGemini: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+						forwardBody := prepareMessagesBody(request)
+						return executeOpenAIGeminiRoute(
+							plan.GeminiProfile(),
+							func() (*service.ForwardResult, error) {
+								if h.antigravityGatewayService == nil {
+									return nil, service.ErrProtocolRouteUnavailable
+								}
+								return h.antigravityGatewayService.Forward(executionCtx, c, account, forwardBody, false)
+							},
+							func() (*service.ForwardResult, error) {
+								if h.geminiCompatService == nil {
+									return nil, service.ErrProtocolRouteUnavailable
+								}
+								return h.geminiCompatService.Forward(executionCtx, c, account, forwardBody)
+							},
+						)
 					},
 				},
 			)

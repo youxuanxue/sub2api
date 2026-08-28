@@ -324,8 +324,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			selection,
 			account,
 			h.gatewayService.ValidateProtocolEndpoint,
+			h.gatewayService.LoadProtocolExecutionAccount,
 			service.ProtocolExecutors{
-				NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+				NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 					forwardBody := request.Body()
 					if channelMapping.Mapped {
 						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
@@ -345,7 +346,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 					}
 					return h.gatewayService.ForwardAsResponses(executionCtx, c, account, forwardBody, parsedReq)
 				},
-				ResponsesIdentity: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+				ResponsesIdentity: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 					forwardBody := request.Body()
 					if channelMapping.Mapped {
 						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
@@ -354,7 +355,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 					openAIResult, forwardErr := h.openAIGatewayService.ForwardAsResponsesDispatched(executionCtx, c, account, forwardBody)
 					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
 				},
-				ResponsesToChat: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+				ResponsesToChat: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 					forwardBody := request.Body()
 					if channelMapping.Mapped {
 						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
@@ -363,13 +364,29 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 					openAIResult, forwardErr := h.openAIGatewayService.Forward(executionCtx, c, account, forwardBody)
 					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
 				},
-				ResponsesToMessages: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+				ResponsesToMessages: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 					forwardBody := request.Body()
 					if channelMapping.Mapped {
 						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
 					}
 					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
 					return h.gatewayService.ForwardAsResponses(executionCtx, c, account, forwardBody, parsedReq)
+				},
+				ResponsesToGemini: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					forwardBody := request.Body()
+					if channelMapping.Mapped {
+						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
+					}
+					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+					return service.ExecuteGeminiProtocolProfile(
+						plan.GeminiProfile(),
+						func() (*service.ForwardResult, error) {
+							return h.antigravityGatewayService.ForwardAsResponses(executionCtx, c, account, forwardBody, parsedReq)
+						},
+						func() (*service.ForwardResult, error) {
+							return h.geminiCompatService.ForwardAsResponses(executionCtx, c, account, forwardBody)
+						},
+					)
 				},
 			},
 		)

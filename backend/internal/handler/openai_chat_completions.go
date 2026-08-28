@@ -267,12 +267,12 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
-			prepareBody := func(request protocolrouter.CanonicalRequest) []byte {
+			prepareBody := func(executionAccount *service.Account, request protocolrouter.CanonicalRequest) []byte {
 				forwardBody := request.Body()
 				if channelMapping.Mapped {
 					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
 				}
-				logOpenAIStudioChatImageRequestAudit(c, apiKey, subject.UserID, account, request.Body(), forwardBody)
+				logOpenAIStudioChatImageRequestAudit(c, apiKey, subject.UserID, executionAccount, request.Body(), forwardBody)
 				return forwardBody
 			}
 			value, executeErr := service.ExecuteSelectedProtocol(
@@ -281,21 +281,41 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				selection,
 				account,
 				h.gatewayService.ValidateProtocolEndpoint,
+				h.gatewayService.LoadProtocolExecutionAccount,
 				service.ProtocolExecutors{
-					NonGoverned: func(executionCtx context.Context, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-						return h.gatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, prepareBody(request), promptCacheKey, dispatchMappedModel)
+					NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						return h.gatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, prepareBody(account, request), promptCacheKey, dispatchMappedModel)
 					},
-					ChatIdentity: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					ChatIdentity: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-						return h.gatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, prepareBody(request), promptCacheKey, dispatchMappedModel)
+						return h.gatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, prepareBody(account, request), promptCacheKey, dispatchMappedModel)
 					},
-					ChatToResponses: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					ChatToResponses: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-						return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, prepareBody(request), promptCacheKey, dispatchMappedModel)
+						return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, prepareBody(account, request), promptCacheKey, dispatchMappedModel)
 					},
-					ChatToMessages: func(executionCtx context.Context, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					ChatToMessages: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-						return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, prepareBody(request), promptCacheKey, dispatchMappedModel)
+						return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, prepareBody(account, request), promptCacheKey, dispatchMappedModel)
+					},
+					ChatToGemini: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+						forwardBody := prepareBody(account, request)
+						return executeOpenAIGeminiRoute(
+							plan.GeminiProfile(),
+							func() (*service.ForwardResult, error) {
+								if h.antigravityGatewayService == nil {
+									return nil, service.ErrProtocolRouteUnavailable
+								}
+								return h.antigravityGatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, nil)
+							},
+							func() (*service.ForwardResult, error) {
+								if h.geminiCompatService == nil {
+									return nil, service.ErrProtocolRouteUnavailable
+								}
+								return h.geminiCompatService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody)
+							},
+						)
 					},
 				},
 			)

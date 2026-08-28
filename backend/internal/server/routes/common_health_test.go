@@ -17,13 +17,30 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-func newCommonRouter(t *testing.T) *gin.Engine {
+func newCommonRouter(t *testing.T, protocolReady ...bool) *gin.Engine {
 	t.Helper()
 	r := gin.New()
 	// 复刻 router.go 的中间件顺序，确保 /health/inflight 能读到 InFlightTracker 的计数。
 	r.Use(middleware.InFlightTracker())
-	RegisterCommonRoutes(r)
+	RegisterCommonRoutes(r, protocolReady...)
 	return r
+}
+
+func TestHealthEndpoint_503_WhenProtocolRoutingNotReady(t *testing.T) {
+	resetDrainForTest(t)
+	r := newCommonRouter(t, false)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 got %d body=%s", w.Code, w.Body.String())
+	}
+	got := decodeJSON(t, w.Body.Bytes())
+	if got["status"] != "not_ready" {
+		t.Fatalf("expected status=not_ready got %v", got["status"])
+	}
 }
 
 func resetDrainForTest(t *testing.T) {

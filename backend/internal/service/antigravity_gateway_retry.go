@@ -11,6 +11,7 @@ import (
 	mathrand "math/rand"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -534,6 +535,11 @@ urlFallbackLoop:
 			if err != nil {
 				return nil, err
 			}
+			boundURL, err := url.Parse(protocolExecutionURL(p.ctx, upstreamReq.URL.String()))
+			if err != nil {
+				return nil, err
+			}
+			upstreamReq.URL = boundURL
 
 			hwka := s.beginHeaderWaitKeepalive(p.c, p.clientStream, p.keepaliveFrame)
 			resp, err = p.httpUpstream.Do(upstreamReq, p.proxyURL, p.account.ID, p.account.Concurrency)

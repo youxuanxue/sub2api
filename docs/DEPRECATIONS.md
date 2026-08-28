@@ -23,6 +23,15 @@ restores the file and removes the entry in the same change.
 
 ---
 
+## Deletion ledger: `backend/internal/service/openai_apikey_responses_probe_verdict_test.go#removed`
+
+- **Upstream path:** `backend/internal/service/openai_apikey_responses_probe_verdict_test.go`.
+- **Deletion commit + PR:** `a760c22ce` — "feat(protocol): share capability truth by endpoint identity", proposed in [PR #1848](https://github.com/youxuanxue/sub2api/pull/1848).
+- **Reason:** PR #1848 replaces the account-owned Responses probe writer with the endpoint-scoped protocol capability probe. Keeping this file would preserve a second test harness around the removed per-account `extra` mutation path. Its classifier cases now live in `backend/internal/service/openai_apikey_responses_probe_test.go`; inconclusive-history preservation, conclusive mutation, conflict, and one-persist-per-generation behavior live in `backend/internal/service/protocol_capability_probe_test.go` against the new SSOT owner.
+- **Regression cost:** future upstream additions to this standalone per-account verdict suite will not merge automatically. Upstream-merge review must map any new response classification into `openai_apikey_responses_probe_test.go` and any persistence/history invariant into `protocol_capability_probe_test.go`, without restoring account-owned protocol facts.
+- **Upstream tests lost:** the standalone `runResponsesProbe` account-`extra` fixture and its two persistence tests were removed because that storage path no longer exists. `TestResponsesProbeVerdictIsConclusive` remains under `openai_apikey_responses_probe_test.go`; equivalent endpoint-scoped preservation and commit behavior is covered by `TestApplyProtocolProbeVerdictsUpdatesOnlyConclusiveEndpointFacts`, `TestResolveProtocolProbeGenerationKeepsConclusiveHistoryAcrossInconclusiveGeneration`, and `TestProbeAccountProtocolCapabilitiesEvaluatesCandidateSetAndPersistsOnce`.
+- **Re-adopt when:** upstream adopts the endpoint-capability SSOT and rewrites this file to exercise a distinct behavior not covered by the classifier and endpoint-scoped probe suites. Restore the file and remove this entry in the same change; never re-adopt the account-owned `extra` writer fixture.
+
 ## frontend/src/components/account/__tests__/CreateAccountModal.grok.spec.ts
 
 - **Upstream path:** `frontend/src/components/account/__tests__/CreateAccountModal.grok.spec.ts`.

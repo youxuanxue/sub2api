@@ -14,6 +14,23 @@ const (
 	OfficialEndpointOpenAICodex OfficialEndpointProfile = "openai_codex_official"
 )
 
+type GeminiEndpointProfile string
+
+const (
+	GeminiEndpointNone                 GeminiEndpointProfile = ""
+	GeminiEndpointAntigravityCloudCode GeminiEndpointProfile = "antigravity_cloudcode"
+	GeminiEndpointVertexServiceAccount GeminiEndpointProfile = "vertex_service_account"
+)
+
+func (p GeminiEndpointProfile) Valid() bool {
+	switch p {
+	case GeminiEndpointAntigravityCloudCode, GeminiEndpointVertexServiceAccount:
+		return true
+	default:
+		return false
+	}
+}
+
 type TransportID string
 
 const TransportHTTP TransportID = "http"
@@ -21,12 +38,15 @@ const TransportHTTP TransportID = "http"
 type AccountSnapshotInput struct {
 	AccountID          int64
 	Revision           string
+	CapabilityKey      string
+	CapabilityRevision int64
 	SupportedProtocols []Protocol
 	ResolvedModel      string
 	CustomBaseURL      string
 	CustomBaseURLs     map[Protocol]string
 	ExactEndpoints     map[Protocol]string
 	OfficialProfile    OfficialEndpointProfile
+	GeminiProfile      GeminiEndpointProfile
 	ModelAllowed       map[Protocol]bool
 	Transports         []TransportID
 }
@@ -34,12 +54,15 @@ type AccountSnapshotInput struct {
 type AccountSnapshot struct {
 	accountID          int64
 	revision           string
+	capabilityKey      string
+	capabilityRevision int64
 	supportedProtocols map[Protocol]struct{}
 	resolvedModel      string
 	customBaseURL      string
 	customBaseURLs     map[Protocol]string
 	exactEndpoints     map[Protocol]string
 	officialProfile    OfficialEndpointProfile
+	geminiProfile      GeminiEndpointProfile
 	modelAllowed       map[Protocol]bool
 	transports         map[TransportID]struct{}
 }
@@ -51,6 +74,13 @@ func NewAccountSnapshot(input AccountSnapshotInput) (AccountSnapshot, error) {
 	revision := strings.TrimSpace(input.Revision)
 	if revision == "" {
 		return AccountSnapshot{}, errors.New("account revision is required")
+	}
+	capabilityKey := strings.TrimSpace(input.CapabilityKey)
+	if capabilityKey == "" {
+		return AccountSnapshot{}, errors.New("capability key is required")
+	}
+	if input.CapabilityRevision <= 0 {
+		return AccountSnapshot{}, errors.New("capability revision must be positive")
 	}
 	model := strings.TrimSpace(input.ResolvedModel)
 	if model == "" {
@@ -95,23 +125,32 @@ func NewAccountSnapshot(input AccountSnapshotInput) (AccountSnapshot, error) {
 			exactEndpoints[protocol] = trimmed
 		}
 	}
+	if input.GeminiProfile != GeminiEndpointNone && !input.GeminiProfile.Valid() {
+		return AccountSnapshot{}, fmt.Errorf("invalid Gemini endpoint profile %q", input.GeminiProfile)
+	}
 	return AccountSnapshot{
 		accountID:          input.AccountID,
 		revision:           revision,
+		capabilityKey:      capabilityKey,
+		capabilityRevision: input.CapabilityRevision,
 		supportedProtocols: supported,
 		resolvedModel:      model,
 		customBaseURL:      strings.TrimSpace(input.CustomBaseURL),
 		customBaseURLs:     customBaseURLs,
 		exactEndpoints:     exactEndpoints,
 		officialProfile:    input.OfficialProfile,
+		geminiProfile:      input.GeminiProfile,
 		modelAllowed:       modelAllowed,
 		transports:         transports,
 	}, nil
 }
 
-func (a AccountSnapshot) AccountID() int64      { return a.accountID }
-func (a AccountSnapshot) Revision() string      { return a.revision }
-func (a AccountSnapshot) ResolvedModel() string { return a.resolvedModel }
+func (a AccountSnapshot) AccountID() int64                     { return a.accountID }
+func (a AccountSnapshot) Revision() string                     { return a.revision }
+func (a AccountSnapshot) CapabilityKey() string                { return a.capabilityKey }
+func (a AccountSnapshot) CapabilityRevision() int64            { return a.capabilityRevision }
+func (a AccountSnapshot) ResolvedModel() string                { return a.resolvedModel }
+func (a AccountSnapshot) GeminiProfile() GeminiEndpointProfile { return a.geminiProfile }
 
 func (a AccountSnapshot) supports(protocol Protocol) bool {
 	_, ok := a.supportedProtocols[protocol]

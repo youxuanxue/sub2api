@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapitypes "github.com/QuantumNous/new-api/types"
@@ -55,11 +56,7 @@ func protocolTargetTestService(upstream *protocolTargetHTTPUpstream) *OpenAIGate
 }
 
 func protocolTargetTestAccount(protocols ...protocolrouter.Protocol) *Account {
-	values := make([]any, len(protocols))
-	for i, protocol := range protocols {
-		values[i] = string(protocol)
-	}
-	return &Account{
+	account := &Account{
 		ID:          901,
 		Name:        "protocol-target",
 		Platform:    PlatformOpenAI,
@@ -69,8 +66,10 @@ func protocolTargetTestAccount(protocols ...protocolrouter.Protocol) *Account {
 			"api_key":  "sk-protocol-target",
 			"base_url": "http://upstream.example",
 		},
-		Extra: map[string]any{SupportedProtocolsExtraKey: values},
+		Extra: map[string]any{},
 	}
+	attachTestProtocolCapability(account, protocols...)
+	return account
 }
 
 func protocolTargetTestExecution(
@@ -81,12 +80,17 @@ func protocolTargetTestExecution(
 	execute ProtocolExecutionFunc,
 ) (any, error) {
 	t.Helper()
+	// Test cases mutate identity-affecting account fields after constructing the
+	// shared fixture. Production account edits atomically relink the capability;
+	// mirror that lifecycle boundary before planning.
+	attachTestProtocolCapability(account, account.SupportedProtocols()...)
 	requestedModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
 		InboundProtocol: inbound,
 		RequestedModel:  requestedModel,
 		Profile: protocolrouter.RequestProfile{
 			ContentKinds: protocolrouter.ContentText,
+			Stream:       gjson.GetBytes(body, "stream").Bool(),
 		},
 		Body: body,
 	})
@@ -102,7 +106,186 @@ func protocolTargetTestExecution(
 	return ExecuteSelectedProtocol(ctx, router, &AccountSelectionResult{
 		Account:      account,
 		ProtocolPlan: &plan,
-	}, account, func(context.Context, *Account, string) error { return nil }, protocolExecutorsForTest(plan, execute))
+	}, account, func(context.Context, *Account, string) error { return nil }, protocolExecutionAccountLoaderForTest(account), protocolExecutorsForTest(plan, execute))
+}
+
+type protocolTargetGeminiTokenCache struct {
+	token string
+}
+
+func (c *protocolTargetGeminiTokenCache) GetAccessToken(context.Context, string) (string, error) {
+	return c.token, nil
+}
+
+func (*protocolTargetGeminiTokenCache) SetAccessToken(context.Context, string, string, time.Duration) error {
+	return nil
+}
+
+func (*protocolTargetGeminiTokenCache) DeleteAccessToken(context.Context, string) error {
+	return nil
+}
+
+func (*protocolTargetGeminiTokenCache) AcquireRefreshLock(context.Context, string, time.Duration) (bool, error) {
+	return false, nil
+}
+
+func (*protocolTargetGeminiTokenCache) ReleaseRefreshLock(context.Context, string) error {
+	return nil
+}
+
+func TestProtocolGeminiAntigravityPlanBindsExactWireEndpointAndBearer(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, stream := range []bool{false, true} {
+		stream := stream
+		t.Run(map[bool]string{false: "non_stream", true: "stream"}[stream], func(t *testing.T) {
+			body := []byte(`{"model":"gemini-2.5-flash","max_tokens":8,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
+			if stream {
+				body = []byte(`{"model":"gemini-2.5-flash","max_tokens":8,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
+			}
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+			upstream := &protocolTargetHTTPUpstream{responses: []*http.Response{{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body: io.NopCloser(strings.NewReader(
+					"data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":1,\"candidatesTokenCount\":1}}}\n\n",
+				)),
+			}}}
+			svc := &AntigravityGatewayService{
+				settingService: NewSettingService(&antigravitySettingRepoStub{}, &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}),
+				tokenProvider:  &AntigravityTokenProvider{},
+				httpUpstream:   upstream,
+			}
+			account := &Account{
+				ID: 910, Name: "planned-antigravity", Platform: PlatformAntigravity, Type: AccountTypeOAuth, Status: StatusActive, Concurrency: 1,
+				Credentials: map[string]any{
+					"access_token": "ag-token", "project_id": "ag-project",
+					"model_mapping": map[string]any{"gemini-2.5-flash": "gemini-2.5-flash"},
+				},
+				Extra: map[string]any{SupportedProtocolsExtraKey: []any{string(protocolrouter.ProtocolGeminiGenerateContent)}},
+			}
+			attachTestProtocolCapability(account, protocolrouter.ProtocolGeminiGenerateContent)
+			var plan protocolrouter.Plan
+			value, err := protocolTargetTestExecution(t, protocolrouter.ProtocolMessages, body, account, func(
+				executionCtx context.Context,
+				account *Account,
+				selected protocolrouter.Plan,
+				request protocolrouter.CanonicalRequest,
+			) (any, error) {
+				plan = selected
+				account.Credentials["plan_type"] = "g1-pro-tier"
+				return svc.Forward(executionCtx, c, account, request.Body(), false)
+			})
+			if err != nil {
+				t.Fatalf("ExecuteSelectedProtocol: %v", err)
+			}
+			result, ok := value.(*ForwardResult)
+			if !ok {
+				t.Fatalf("result type = %T, want *ForwardResult", value)
+			}
+			facts, ok := result.ProtocolRouteFacts()
+			if !ok || facts.Endpoint() != plan.Endpoint() || facts.TargetProtocol() != protocolrouter.ProtocolGeminiGenerateContent {
+				t.Fatalf("route facts = %#v, want Gemini endpoint %q", facts, plan.Endpoint())
+			}
+			if len(upstream.requests) != 1 {
+				t.Fatalf("upstream requests = %d, want 1", len(upstream.requests))
+			}
+			request := upstream.requests[0]
+			if got := request.URL.Scheme + "://" + request.URL.Host + request.URL.EscapedPath(); got != plan.Endpoint() {
+				t.Fatalf("upstream endpoint = %q, want immutable plan endpoint %q", got, plan.Endpoint())
+			}
+			if got := request.URL.Query().Get("alt"); got != "sse" {
+				t.Fatalf("upstream alt query = %q, want sse", got)
+			}
+			if got := request.Header.Get("Authorization"); got != "Bearer ag-token" {
+				t.Fatalf("authorization = %q, want Antigravity bearer", got)
+			}
+			wireBody := readProtocolTargetRequestBody(t, request)
+			if gjson.GetBytes(wireBody, "project").String() != "ag-project" || gjson.GetBytes(wireBody, "model").String() != "gemini-2.5-flash" {
+				t.Fatalf("Antigravity wrapper = %s", wireBody)
+			}
+		})
+	}
+}
+
+func TestProtocolGeminiVertexPlanBindsExactWireEndpointAndBearer(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, stream := range []bool{false, true} {
+		stream := stream
+		t.Run(map[bool]string{false: "non_stream", true: "stream"}[stream], func(t *testing.T) {
+			body := []byte(`{"model":"gemini-2.5-flash","max_tokens":8,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
+			responseBody := `{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1}}`
+			contentType := "application/json"
+			if stream {
+				body = []byte(`{"model":"gemini-2.5-flash","max_tokens":8,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
+				responseBody = "data: " + responseBody + "\n\n"
+				contentType = "text/event-stream"
+			}
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+			upstream := &protocolTargetHTTPUpstream{responses: []*http.Response{{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{contentType}},
+				Body:       io.NopCloser(strings.NewReader(responseBody)),
+			}}}
+			tokenProvider := NewGeminiTokenProvider(nil, &protocolTargetGeminiTokenCache{token: "vertex-token"}, nil)
+			svc := &GeminiMessagesCompatService{tokenProvider: tokenProvider, httpUpstream: upstream, cfg: &config.Config{}}
+			serviceAccountJSON := `{"type":"service_account","project_id":"vertex-project","private_key_id":"key-id","private_key":"-----BEGIN PRIVATE KEY-----\nunused\n-----END PRIVATE KEY-----\n","client_email":"svc@vertex-project.iam.gserviceaccount.com"}`
+			account := &Account{
+				ID: 911, Name: "planned-vertex", Platform: PlatformNewAPI, ChannelType: newapiconstant.ChannelTypeVertexAi,
+				Type: AccountTypeServiceAccount, Status: StatusActive, Concurrency: 1,
+				Credentials: map[string]any{
+					"service_account_json": serviceAccountJSON,
+					"location":             "us-central1",
+					"model_mapping":        map[string]any{"gemini-2.5-flash": "gemini-2.5-flash"},
+				},
+				Extra: map[string]any{SupportedProtocolsExtraKey: []any{string(protocolrouter.ProtocolGeminiGenerateContent)}},
+			}
+			attachTestProtocolCapability(account, protocolrouter.ProtocolGeminiGenerateContent)
+			var plan protocolrouter.Plan
+			value, err := protocolTargetTestExecution(t, protocolrouter.ProtocolMessages, body, account, func(
+				executionCtx context.Context,
+				account *Account,
+				selected protocolrouter.Plan,
+				request protocolrouter.CanonicalRequest,
+			) (any, error) {
+				plan = selected
+				account.Credentials["location"] = "europe-west1"
+				return svc.Forward(executionCtx, c, account, request.Body())
+			})
+			if err != nil {
+				t.Fatalf("ExecuteSelectedProtocol: %v", err)
+			}
+			result, ok := value.(*ForwardResult)
+			if !ok {
+				t.Fatalf("result type = %T, want *ForwardResult", value)
+			}
+			facts, ok := result.ProtocolRouteFacts()
+			if !ok || facts.Endpoint() != plan.Endpoint() || facts.TargetProtocol() != protocolrouter.ProtocolGeminiGenerateContent {
+				t.Fatalf("route facts = %#v, want Gemini endpoint %q", facts, plan.Endpoint())
+			}
+			if len(upstream.requests) != 1 {
+				t.Fatalf("upstream requests = %d, want 1", len(upstream.requests))
+			}
+			request := upstream.requests[0]
+			if got := request.URL.Scheme + "://" + request.URL.Host + request.URL.EscapedPath(); got != plan.Endpoint() {
+				t.Fatalf("upstream endpoint = %q, want immutable plan endpoint %q", got, plan.Endpoint())
+			}
+			wantAlt := ""
+			if stream {
+				wantAlt = "sse"
+			}
+			if got := request.URL.Query().Get("alt"); got != wantAlt {
+				t.Fatalf("upstream alt query = %q, want %q", got, wantAlt)
+			}
+			if got := request.Header.Get("Authorization"); got != "Bearer vertex-token" {
+				t.Fatalf("authorization = %q, want Vertex bearer", got)
+			}
+			if got := request.Header.Get("x-goog-api-key"); got != "" {
+				t.Fatalf("x-goog-api-key = %q, want service-account bearer only", got)
+			}
+		})
+	}
 }
 
 func TestProtocolExecutionPlanOverridesLegacyChatRouting(t *testing.T) {
@@ -124,6 +307,7 @@ func TestProtocolExecutionPlanOverridesLegacyChatRouting(t *testing.T) {
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, body, account, func(
 		executionCtx context.Context,
+		account *Account,
 		_ protocolrouter.Plan,
 		_ protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -165,6 +349,7 @@ func TestProtocolExecutionPlanOverridesLegacyMessagesRouting(t *testing.T) {
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolMessages, body, account, func(
 		executionCtx context.Context,
+		account *Account,
 		_ protocolrouter.Plan,
 		_ protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -201,6 +386,7 @@ func TestProtocolMessagesIdentityUsesNativeAnthropicCredentialContractForCNAccou
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolMessages, body, account, func(
 		executionCtx context.Context,
+		account *Account,
 		_ protocolrouter.Plan,
 		request protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -235,6 +421,7 @@ func TestProtocolMessagesIdentityUsesNewAPIProtocolCredential(t *testing.T) {
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolMessages, body, account, func(
 		executionCtx context.Context,
+		account *Account,
 		_ protocolrouter.Plan,
 		request protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -279,6 +466,7 @@ func TestProtocolExecutionDoesNotFallbackProtocolOnSameAccount(t *testing.T) {
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, body, account, func(
 		executionCtx context.Context,
+		account *Account,
 		_ protocolrouter.Plan,
 		_ protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -315,6 +503,7 @@ func TestProtocolExecutionNewAPIResponsesUsesPlannedEndpoint(t *testing.T) {
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, body, account, func(
 		executionCtx context.Context,
+		account *Account,
 		plan protocolrouter.Plan,
 		_ protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -365,6 +554,7 @@ func TestProtocolExecutionBindsPlanResolvedModelToUpstreamRequest(t *testing.T) 
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, canonicalBody, account, func(
 		executionCtx context.Context,
+		account *Account,
 		_ protocolrouter.Plan,
 		_ protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -402,6 +592,7 @@ func TestProtocolExecutionBindsPlanEndpointToUpstreamRequest(t *testing.T) {
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, body, account, func(
 		executionCtx context.Context,
+		account *Account,
 		_ protocolrouter.Plan,
 		_ protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -439,6 +630,7 @@ func TestProtocolExecutionBindsNewAPIBridgeToPlanModelAndEndpoint(t *testing.T) 
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, body, account, func(
 		executionCtx context.Context,
+		account *Account,
 		_ protocolrouter.Plan,
 		request protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -459,6 +651,9 @@ func TestProtocolRouteRegistryRealAdaptersHonorWireContract(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, route := range protocolrouter.RouteSpecs() {
 		route := route
+		if route.TargetProtocol() == protocolrouter.ProtocolGeminiGenerateContent {
+			continue
+		}
 		t.Run(string(route.AdapterID()), func(t *testing.T) {
 			body := protocolRouteContractRequestBody(route.InboundProtocol())
 			originalBody := append([]byte(nil), body...)
@@ -480,6 +675,7 @@ func TestProtocolRouteRegistryRealAdaptersHonorWireContract(t *testing.T) {
 
 			value, err := protocolTargetTestExecution(t, route.InboundProtocol(), body, account, func(
 				executionCtx context.Context,
+				account *Account,
 				plan protocolrouter.Plan,
 				request protocolrouter.CanonicalRequest,
 			) (any, error) {

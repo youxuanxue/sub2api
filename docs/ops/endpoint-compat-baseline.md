@@ -24,9 +24,10 @@ stable probe conclusions, reproducible commands, and the next probe focus.
 
 | Field | Value |
 |---|---|
-| Baseline date | 2026-08-27 |
+| Baseline date | 2026-08-28 |
 | Target | prod (`https://tokenkey.dev`; `https://api.tokenkey.dev` redirects control-plane paths with HTTP 301) |
-| Runtime code anchor | `v1.8.177` release (`backend/cmd/server/VERSION`); last live deploy `v1.8.176`. v1.8.142 image built but canary deploy failed (duplicate route panic, #1611); v1.8.143 pending prod deploy. The 2026-07-05 focused Anthropic closeout also includes the live config remediation that set edge default Anthropic group `id=1` to `claude_code_only=false` on `us3/us4/us5/us6`. |
+| Runtime code anchor | `v1.8.178` release (`backend/cmd/server/VERSION`); last live deploy `v1.8.177`. Deployed successfully on 2026-08-27 by Stage0 run `33040897798`. The 2026-07-05 focused Anthropic closeout also includes the live config remediation that set edge default Anthropic group `id=1` to `claude_code_only=false` on `us3/us4/us5/us6`. |
+| Protocol-routing capability SSOT | The `v1.8.176` startup pass evaluated 28 governed accounts and re-probed all 12 unresolved accounts. Result: `probe_attempts=12`, `probe_resolved=0`, `cutover_ready=false`, `remediation=12`. Eight accounts were throttled with `429`, accounts 76/82 returned `503`, account 83 returned `429` for Chat/Responses and `404` for Messages, and account 90 had an unsupported NewAPI Responses relay mode plus `401/404`; all remained inconclusive or endpoint/model-specific, so fail-closed persistence correctly left `supported_protocols=[]`. Evidence: Stage0 run `32969017344`; read-only SSM commands `47bfac4c-9b0e-413f-afe5-cff5134c7ddc` and `96ba51c2-9da5-41d6-aea5-14dd6ff4e683`. |
 | Latest universal smoke | `v1.8.161`, canonical host: control `models`/`usage` 200; Anthropic messages + count_tokens, OpenAI chat + responses, newapi chat, and Grok chat passed; Gemini native and Antigravity were `429` empty-pool skips; OpenAI embeddings was an entitlement `403` skip; Kiro direct row was not run because no direct Kiro key; paid media was intentionally skipped. Summary: `PASS=9 SKIP=9 FAIL=0` (recorded in PR #1719). |
 | Paid media probes | approved and rerun post-`v1.8.80` / #1207 for Imagen, Veo, and Grok media SSOT display gate plus direct-vs-universal parity; latest full displayed+priced paid media gate on 2026-07-05 returned `DISPLAY_KEEP=19 DISPLAY_BLOCK=0 REPROBE_REQUIRED=0 FAIL=0`. |
 | Direct route-gate command | `bash ops/observability/endpoint-compat-audit.sh --direct-route-gate` |
@@ -46,8 +47,6 @@ stable probe conclusions, reproducible commands, and the next probe focus.
 | Cleanup command | `bash ops/observability/run-probe.sh --target prod --script ops/observability/cleanup-probe-resources.sh` |
 | Probe prune command | `bash ops/observability/run-probe.sh --target prod --script ops/observability/prune-probe-resources.sh` (keeps canonical `*_srcgrp_*` scopes only) |
 
-<<<<<<< Updated upstream
-=======
 ### Evidence Pointers
 
 | Evidence | Result |
@@ -117,7 +116,6 @@ stable probe conclusions, reproducible commands, and the next probe focus.
 | `/tmp/tokenkey-ssot-gate-paid-media-full-latest-online-20260705.log` | Latest full displayed+priced paid media gate: 19 rows returned `200 PASS keep_displayed`; summary `DISPLAY_KEEP=19 DISPLAY_BLOCK=0 REPROBE_REQUIRED=0 FAIL=0 EXCLUDED_BLOCK=0 NO_ROWS=0`. |
 | PR #1265 / 2026-07-07 Antigravity Claude catalog probe | Live `cloudcode-pa` `fetchAvailableModels` for the tested Antigravity account exposed only `claude-opus-4-6-thinking` and `claude-sonnet-4-6`. Newer/other Claude ids such as `claude-fable-5`, `claude-opus-4-8`, `claude-sonnet-5`, and `claude-haiku-4-5` reached upstream but returned `404 NOT_FOUND`; the old gateway surfaced that as generic `502 Upstream request failed`. |
 
->>>>>>> Stashed changes
 ## Compatibility Matrix
 
 | platform/group | endpoint | direct route-gate | direct live servability | universal live servability | evidence | fallback / next action |

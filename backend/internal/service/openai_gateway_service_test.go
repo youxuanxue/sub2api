@@ -56,30 +56,6 @@ func (r *snapshotUpdateAccountRepo) UpdateExtra(ctx context.Context, id int64, u
 	return r.applyExtraUpdate(id, updates)
 }
 
-func (r *snapshotUpdateAccountRepo) UpdateExtraIfUpdatedAt(
-	_ context.Context,
-	id int64,
-	expectedUpdatedAt time.Time,
-	updates map[string]any,
-) (bool, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for i := range r.accounts {
-		if r.accounts[i].ID != id {
-			continue
-		}
-		if !r.accounts[i].UpdatedAt.Equal(expectedUpdatedAt) {
-			return false, nil
-		}
-		if err := r.applyExtraUpdate(id, updates); err != nil {
-			return false, err
-		}
-		r.accounts[i].UpdatedAt = r.accounts[i].UpdatedAt.Add(time.Nanosecond)
-		return true, nil
-	}
-	return false, errors.New("account not found")
-}
-
 func (r *snapshotUpdateAccountRepo) applyExtraUpdate(id int64, updates map[string]any) error {
 	for i := range r.accounts {
 		if r.accounts[i].ID != id {

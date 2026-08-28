@@ -39,6 +39,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
+	"github.com/Wei-Shaw/sub2api/ent/protocolendpointcapability"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/ent/qaarchiveshard"
 	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
@@ -95,6 +96,7 @@ const (
 	TypePendingAuthSession            = "PendingAuthSession"
 	TypePromoCode                     = "PromoCode"
 	TypePromoCodeUsage                = "PromoCodeUsage"
+	TypeProtocolEndpointCapability    = "ProtocolEndpointCapability"
 	TypeProxy                         = "Proxy"
 	TypeQAArchiveShard                = "QAArchiveShard"
 	TypeQAExportJob                   = "QAExportJob"
@@ -2346,64 +2348,66 @@ func (m *APIKeyMutation) ResetEdge(name string) error {
 // AccountMutation represents an operation that mutates the Account nodes in the graph.
 type AccountMutation struct {
 	config
-	op                          Op
-	typ                         string
-	id                          *int64
-	created_at                  *time.Time
-	updated_at                  *time.Time
-	deleted_at                  *time.Time
-	name                        *string
-	notes                       *string
-	platform                    *string
-	_type                       *string
-	credentials                 *map[string]interface{}
-	extra                       *map[string]interface{}
-	proxy_fallback_origin_id    *int64
-	addproxy_fallback_origin_id *int64
-	concurrency                 *int
-	addconcurrency              *int
-	load_factor                 *int
-	addload_factor              *int
-	priority                    *int
-	addpriority                 *int
-	rate_multiplier             *float64
-	addrate_multiplier          *float64
-	status                      *string
-	error_message               *string
-	last_used_at                *time.Time
-	expires_at                  *time.Time
-	auto_pause_on_expired       *bool
-	schedulable                 *bool
-	rate_limited_at             *time.Time
-	rate_limit_reset_at         *time.Time
-	overload_until              *time.Time
-	temp_unschedulable_until    *time.Time
-	temp_unschedulable_reason   *string
-	session_window_start        *time.Time
-	session_window_end          *time.Time
-	session_window_status       *string
-	channel_type                *int
-	addchannel_type             *int
-	tier_id                     *int64
-	addtier_id                  *int64
-	quota_dimension             *account.QuotaDimension
-	clearedFields               map[string]struct{}
-	groups                      map[int64]struct{}
-	removedgroups               map[int64]struct{}
-	clearedgroups               bool
-	proxy                       *int64
-	clearedproxy                bool
-	parent                      *int64
-	clearedparent               bool
-	children                    map[int64]struct{}
-	removedchildren             map[int64]struct{}
-	clearedchildren             bool
-	usage_logs                  map[int64]struct{}
-	removedusage_logs           map[int64]struct{}
-	clearedusage_logs           bool
-	done                        bool
-	oldValue                    func(context.Context) (*Account, error)
-	predicates                  []predicate.Account
+	op                                  Op
+	typ                                 string
+	id                                  *int64
+	created_at                          *time.Time
+	updated_at                          *time.Time
+	deleted_at                          *time.Time
+	name                                *string
+	notes                               *string
+	platform                            *string
+	_type                               *string
+	credentials                         *map[string]interface{}
+	extra                               *map[string]interface{}
+	proxy_fallback_origin_id            *int64
+	addproxy_fallback_origin_id         *int64
+	concurrency                         *int
+	addconcurrency                      *int
+	load_factor                         *int
+	addload_factor                      *int
+	priority                            *int
+	addpriority                         *int
+	rate_multiplier                     *float64
+	addrate_multiplier                  *float64
+	status                              *string
+	error_message                       *string
+	last_used_at                        *time.Time
+	expires_at                          *time.Time
+	auto_pause_on_expired               *bool
+	schedulable                         *bool
+	rate_limited_at                     *time.Time
+	rate_limit_reset_at                 *time.Time
+	overload_until                      *time.Time
+	temp_unschedulable_until            *time.Time
+	temp_unschedulable_reason           *string
+	session_window_start                *time.Time
+	session_window_end                  *time.Time
+	session_window_status               *string
+	channel_type                        *int
+	addchannel_type                     *int
+	tier_id                             *int64
+	addtier_id                          *int64
+	quota_dimension                     *account.QuotaDimension
+	clearedFields                       map[string]struct{}
+	groups                              map[int64]struct{}
+	removedgroups                       map[int64]struct{}
+	clearedgroups                       bool
+	proxy                               *int64
+	clearedproxy                        bool
+	protocol_endpoint_capability        *int64
+	clearedprotocol_endpoint_capability bool
+	parent                              *int64
+	clearedparent                       bool
+	children                            map[int64]struct{}
+	removedchildren                     map[int64]struct{}
+	clearedchildren                     bool
+	usage_logs                          map[int64]struct{}
+	removedusage_logs                   map[int64]struct{}
+	clearedusage_logs                   bool
+	done                                bool
+	oldValue                            func(context.Context) (*Account, error)
+	predicates                          []predicate.Account
 }
 
 var _ ent.Mutation = (*AccountMutation)(nil)
@@ -3914,6 +3918,55 @@ func (m *AccountMutation) ResetChannelType() {
 	m.addchannel_type = nil
 }
 
+// SetProtocolEndpointCapabilityID sets the "protocol_endpoint_capability_id" field.
+func (m *AccountMutation) SetProtocolEndpointCapabilityID(i int64) {
+	m.protocol_endpoint_capability = &i
+}
+
+// ProtocolEndpointCapabilityID returns the value of the "protocol_endpoint_capability_id" field in the mutation.
+func (m *AccountMutation) ProtocolEndpointCapabilityID() (r int64, exists bool) {
+	v := m.protocol_endpoint_capability
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProtocolEndpointCapabilityID returns the old "protocol_endpoint_capability_id" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldProtocolEndpointCapabilityID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProtocolEndpointCapabilityID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProtocolEndpointCapabilityID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProtocolEndpointCapabilityID: %w", err)
+	}
+	return oldValue.ProtocolEndpointCapabilityID, nil
+}
+
+// ClearProtocolEndpointCapabilityID clears the value of the "protocol_endpoint_capability_id" field.
+func (m *AccountMutation) ClearProtocolEndpointCapabilityID() {
+	m.protocol_endpoint_capability = nil
+	m.clearedFields[account.FieldProtocolEndpointCapabilityID] = struct{}{}
+}
+
+// ProtocolEndpointCapabilityIDCleared returns if the "protocol_endpoint_capability_id" field was cleared in this mutation.
+func (m *AccountMutation) ProtocolEndpointCapabilityIDCleared() bool {
+	_, ok := m.clearedFields[account.FieldProtocolEndpointCapabilityID]
+	return ok
+}
+
+// ResetProtocolEndpointCapabilityID resets all changes to the "protocol_endpoint_capability_id" field.
+func (m *AccountMutation) ResetProtocolEndpointCapabilityID() {
+	m.protocol_endpoint_capability = nil
+	delete(m.clearedFields, account.FieldProtocolEndpointCapabilityID)
+}
+
 // SetTierID sets the "tier_id" field.
 func (m *AccountMutation) SetTierID(i int64) {
 	m.tier_id = &i
@@ -4150,6 +4203,33 @@ func (m *AccountMutation) ResetProxy() {
 	m.clearedproxy = false
 }
 
+// ClearProtocolEndpointCapability clears the "protocol_endpoint_capability" edge to the ProtocolEndpointCapability entity.
+func (m *AccountMutation) ClearProtocolEndpointCapability() {
+	m.clearedprotocol_endpoint_capability = true
+	m.clearedFields[account.FieldProtocolEndpointCapabilityID] = struct{}{}
+}
+
+// ProtocolEndpointCapabilityCleared reports if the "protocol_endpoint_capability" edge to the ProtocolEndpointCapability entity was cleared.
+func (m *AccountMutation) ProtocolEndpointCapabilityCleared() bool {
+	return m.ProtocolEndpointCapabilityIDCleared() || m.clearedprotocol_endpoint_capability
+}
+
+// ProtocolEndpointCapabilityIDs returns the "protocol_endpoint_capability" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ProtocolEndpointCapabilityID instead. It exists only for internal usage by the builders.
+func (m *AccountMutation) ProtocolEndpointCapabilityIDs() (ids []int64) {
+	if id := m.protocol_endpoint_capability; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetProtocolEndpointCapability resets all changes to the "protocol_endpoint_capability" edge.
+func (m *AccountMutation) ResetProtocolEndpointCapability() {
+	m.protocol_endpoint_capability = nil
+	m.clearedprotocol_endpoint_capability = false
+}
+
 // SetParentID sets the "parent" edge to the Account entity by id.
 func (m *AccountMutation) SetParentID(id int64) {
 	m.parent = &id
@@ -4332,7 +4412,7 @@ func (m *AccountMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AccountMutation) Fields() []string {
-	fields := make([]string, 0, 33)
+	fields := make([]string, 0, 34)
 	if m.created_at != nil {
 		fields = append(fields, account.FieldCreatedAt)
 	}
@@ -4423,6 +4503,9 @@ func (m *AccountMutation) Fields() []string {
 	if m.channel_type != nil {
 		fields = append(fields, account.FieldChannelType)
 	}
+	if m.protocol_endpoint_capability != nil {
+		fields = append(fields, account.FieldProtocolEndpointCapabilityID)
+	}
 	if m.tier_id != nil {
 		fields = append(fields, account.FieldTierID)
 	}
@@ -4500,6 +4583,8 @@ func (m *AccountMutation) Field(name string) (ent.Value, bool) {
 		return m.SessionWindowStatus()
 	case account.FieldChannelType:
 		return m.ChannelType()
+	case account.FieldProtocolEndpointCapabilityID:
+		return m.ProtocolEndpointCapabilityID()
 	case account.FieldTierID:
 		return m.TierID()
 	case account.FieldParentAccountID:
@@ -4575,6 +4660,8 @@ func (m *AccountMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldSessionWindowStatus(ctx)
 	case account.FieldChannelType:
 		return m.OldChannelType(ctx)
+	case account.FieldProtocolEndpointCapabilityID:
+		return m.OldProtocolEndpointCapabilityID(ctx)
 	case account.FieldTierID:
 		return m.OldTierID(ctx)
 	case account.FieldParentAccountID:
@@ -4800,6 +4887,13 @@ func (m *AccountMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetChannelType(v)
 		return nil
+	case account.FieldProtocolEndpointCapabilityID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProtocolEndpointCapabilityID(v)
+		return nil
 	case account.FieldTierID:
 		v, ok := value.(int64)
 		if !ok {
@@ -4986,6 +5080,9 @@ func (m *AccountMutation) ClearedFields() []string {
 	if m.FieldCleared(account.FieldSessionWindowStatus) {
 		fields = append(fields, account.FieldSessionWindowStatus)
 	}
+	if m.FieldCleared(account.FieldProtocolEndpointCapabilityID) {
+		fields = append(fields, account.FieldProtocolEndpointCapabilityID)
+	}
 	if m.FieldCleared(account.FieldTierID) {
 		fields = append(fields, account.FieldTierID)
 	}
@@ -5053,6 +5150,9 @@ func (m *AccountMutation) ClearField(name string) error {
 		return nil
 	case account.FieldSessionWindowStatus:
 		m.ClearSessionWindowStatus()
+		return nil
+	case account.FieldProtocolEndpointCapabilityID:
+		m.ClearProtocolEndpointCapabilityID()
 		return nil
 	case account.FieldTierID:
 		m.ClearTierID()
@@ -5158,6 +5258,9 @@ func (m *AccountMutation) ResetField(name string) error {
 	case account.FieldChannelType:
 		m.ResetChannelType()
 		return nil
+	case account.FieldProtocolEndpointCapabilityID:
+		m.ResetProtocolEndpointCapabilityID()
+		return nil
 	case account.FieldTierID:
 		m.ResetTierID()
 		return nil
@@ -5173,12 +5276,15 @@ func (m *AccountMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *AccountMutation) AddedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
 	if m.groups != nil {
 		edges = append(edges, account.EdgeGroups)
 	}
 	if m.proxy != nil {
 		edges = append(edges, account.EdgeProxy)
+	}
+	if m.protocol_endpoint_capability != nil {
+		edges = append(edges, account.EdgeProtocolEndpointCapability)
 	}
 	if m.parent != nil {
 		edges = append(edges, account.EdgeParent)
@@ -5206,6 +5312,10 @@ func (m *AccountMutation) AddedIDs(name string) []ent.Value {
 		if id := m.proxy; id != nil {
 			return []ent.Value{*id}
 		}
+	case account.EdgeProtocolEndpointCapability:
+		if id := m.protocol_endpoint_capability; id != nil {
+			return []ent.Value{*id}
+		}
 	case account.EdgeParent:
 		if id := m.parent; id != nil {
 			return []ent.Value{*id}
@@ -5228,7 +5338,7 @@ func (m *AccountMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *AccountMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
 	if m.removedgroups != nil {
 		edges = append(edges, account.EdgeGroups)
 	}
@@ -5269,12 +5379,15 @@ func (m *AccountMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *AccountMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
 	if m.clearedgroups {
 		edges = append(edges, account.EdgeGroups)
 	}
 	if m.clearedproxy {
 		edges = append(edges, account.EdgeProxy)
+	}
+	if m.clearedprotocol_endpoint_capability {
+		edges = append(edges, account.EdgeProtocolEndpointCapability)
 	}
 	if m.clearedparent {
 		edges = append(edges, account.EdgeParent)
@@ -5296,6 +5409,8 @@ func (m *AccountMutation) EdgeCleared(name string) bool {
 		return m.clearedgroups
 	case account.EdgeProxy:
 		return m.clearedproxy
+	case account.EdgeProtocolEndpointCapability:
+		return m.clearedprotocol_endpoint_capability
 	case account.EdgeParent:
 		return m.clearedparent
 	case account.EdgeChildren:
@@ -5313,6 +5428,9 @@ func (m *AccountMutation) ClearEdge(name string) error {
 	case account.EdgeProxy:
 		m.ClearProxy()
 		return nil
+	case account.EdgeProtocolEndpointCapability:
+		m.ClearProtocolEndpointCapability()
+		return nil
 	case account.EdgeParent:
 		m.ClearParent()
 		return nil
@@ -5329,6 +5447,9 @@ func (m *AccountMutation) ResetEdge(name string) error {
 		return nil
 	case account.EdgeProxy:
 		m.ResetProxy()
+		return nil
+	case account.EdgeProtocolEndpointCapability:
+		m.ResetProtocolEndpointCapability()
 		return nil
 	case account.EdgeParent:
 		m.ResetParent()
@@ -39027,6 +39148,1164 @@ func (m *PromoCodeUsageMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown PromoCodeUsage edge %s", name)
+}
+
+// ProtocolEndpointCapabilityMutation represents an operation that mutates the ProtocolEndpointCapability nodes in the graph.
+type ProtocolEndpointCapabilityMutation struct {
+	config
+	op                        Op
+	typ                       string
+	id                        *int64
+	created_at                *time.Time
+	updated_at                *time.Time
+	capability_key            *string
+	identity                  *map[string]interface{}
+	supported_protocols       *[]string
+	appendsupported_protocols []string
+	probe_evidence            *map[string]interface{}
+	revision                  *int64
+	addrevision               *int64
+	last_probed_at            *time.Time
+	probe_lease_owner         *string
+	probe_lease_until         *time.Time
+	probe_generation          *int64
+	addprobe_generation       *int64
+	identity_conflict         *bool
+	clearedFields             map[string]struct{}
+	accounts                  map[int64]struct{}
+	removedaccounts           map[int64]struct{}
+	clearedaccounts           bool
+	done                      bool
+	oldValue                  func(context.Context) (*ProtocolEndpointCapability, error)
+	predicates                []predicate.ProtocolEndpointCapability
+}
+
+var _ ent.Mutation = (*ProtocolEndpointCapabilityMutation)(nil)
+
+// protocolendpointcapabilityOption allows management of the mutation configuration using functional options.
+type protocolendpointcapabilityOption func(*ProtocolEndpointCapabilityMutation)
+
+// newProtocolEndpointCapabilityMutation creates new mutation for the ProtocolEndpointCapability entity.
+func newProtocolEndpointCapabilityMutation(c config, op Op, opts ...protocolendpointcapabilityOption) *ProtocolEndpointCapabilityMutation {
+	m := &ProtocolEndpointCapabilityMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeProtocolEndpointCapability,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withProtocolEndpointCapabilityID sets the ID field of the mutation.
+func withProtocolEndpointCapabilityID(id int64) protocolendpointcapabilityOption {
+	return func(m *ProtocolEndpointCapabilityMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *ProtocolEndpointCapability
+		)
+		m.oldValue = func(ctx context.Context) (*ProtocolEndpointCapability, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().ProtocolEndpointCapability.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withProtocolEndpointCapability sets the old ProtocolEndpointCapability of the mutation.
+func withProtocolEndpointCapability(node *ProtocolEndpointCapability) protocolendpointcapabilityOption {
+	return func(m *ProtocolEndpointCapabilityMutation) {
+		m.oldValue = func(context.Context) (*ProtocolEndpointCapability, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ProtocolEndpointCapabilityMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ProtocolEndpointCapabilityMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *ProtocolEndpointCapabilityMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *ProtocolEndpointCapabilityMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().ProtocolEndpointCapability.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *ProtocolEndpointCapabilityMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *ProtocolEndpointCapabilityMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the ProtocolEndpointCapability entity.
+// If the ProtocolEndpointCapability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProtocolEndpointCapabilityMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *ProtocolEndpointCapabilityMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *ProtocolEndpointCapabilityMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *ProtocolEndpointCapabilityMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the ProtocolEndpointCapability entity.
+// If the ProtocolEndpointCapability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProtocolEndpointCapabilityMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *ProtocolEndpointCapabilityMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetCapabilityKey sets the "capability_key" field.
+func (m *ProtocolEndpointCapabilityMutation) SetCapabilityKey(s string) {
+	m.capability_key = &s
+}
+
+// CapabilityKey returns the value of the "capability_key" field in the mutation.
+func (m *ProtocolEndpointCapabilityMutation) CapabilityKey() (r string, exists bool) {
+	v := m.capability_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCapabilityKey returns the old "capability_key" field's value of the ProtocolEndpointCapability entity.
+// If the ProtocolEndpointCapability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProtocolEndpointCapabilityMutation) OldCapabilityKey(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCapabilityKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCapabilityKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCapabilityKey: %w", err)
+	}
+	return oldValue.CapabilityKey, nil
+}
+
+// ResetCapabilityKey resets all changes to the "capability_key" field.
+func (m *ProtocolEndpointCapabilityMutation) ResetCapabilityKey() {
+	m.capability_key = nil
+}
+
+// SetIdentity sets the "identity" field.
+func (m *ProtocolEndpointCapabilityMutation) SetIdentity(value map[string]interface{}) {
+	m.identity = &value
+}
+
+// Identity returns the value of the "identity" field in the mutation.
+func (m *ProtocolEndpointCapabilityMutation) Identity() (r map[string]interface{}, exists bool) {
+	v := m.identity
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldIdentity returns the old "identity" field's value of the ProtocolEndpointCapability entity.
+// If the ProtocolEndpointCapability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProtocolEndpointCapabilityMutation) OldIdentity(ctx context.Context) (v map[string]interface{}, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldIdentity is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldIdentity requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldIdentity: %w", err)
+	}
+	return oldValue.Identity, nil
+}
+
+// ResetIdentity resets all changes to the "identity" field.
+func (m *ProtocolEndpointCapabilityMutation) ResetIdentity() {
+	m.identity = nil
+}
+
+// SetSupportedProtocols sets the "supported_protocols" field.
+func (m *ProtocolEndpointCapabilityMutation) SetSupportedProtocols(s []string) {
+	m.supported_protocols = &s
+	m.appendsupported_protocols = nil
+}
+
+// SupportedProtocols returns the value of the "supported_protocols" field in the mutation.
+func (m *ProtocolEndpointCapabilityMutation) SupportedProtocols() (r []string, exists bool) {
+	v := m.supported_protocols
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSupportedProtocols returns the old "supported_protocols" field's value of the ProtocolEndpointCapability entity.
+// If the ProtocolEndpointCapability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProtocolEndpointCapabilityMutation) OldSupportedProtocols(ctx context.Context) (v []string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSupportedProtocols is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSupportedProtocols requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSupportedProtocols: %w", err)
+	}
+	return oldValue.SupportedProtocols, nil
+}
+
+// AppendSupportedProtocols adds s to the "supported_protocols" field.
+func (m *ProtocolEndpointCapabilityMutation) AppendSupportedProtocols(s []string) {
+	m.appendsupported_protocols = append(m.appendsupported_protocols, s...)
+}
+
+// AppendedSupportedProtocols returns the list of values that were appended to the "supported_protocols" field in this mutation.
+func (m *ProtocolEndpointCapabilityMutation) AppendedSupportedProtocols() ([]string, bool) {
+	if len(m.appendsupported_protocols) == 0 {
+		return nil, false
+	}
+	return m.appendsupported_protocols, true
+}
+
+// ResetSupportedProtocols resets all changes to the "supported_protocols" field.
+func (m *ProtocolEndpointCapabilityMutation) ResetSupportedProtocols() {
+	m.supported_protocols = nil
+	m.appendsupported_protocols = nil
+}
+
+// SetProbeEvidence sets the "probe_evidence" field.
+func (m *ProtocolEndpointCapabilityMutation) SetProbeEvidence(value map[string]interface{}) {
+	m.probe_evidence = &value
+}
+
+// ProbeEvidence returns the value of the "probe_evidence" field in the mutation.
+func (m *ProtocolEndpointCapabilityMutation) ProbeEvidence() (r map[string]interface{}, exists bool) {
+	v := m.probe_evidence
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProbeEvidence returns the old "probe_evidence" field's value of the ProtocolEndpointCapability entity.
+// If the ProtocolEndpointCapability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProtocolEndpointCapabilityMutation) OldProbeEvidence(ctx context.Context) (v map[string]interface{}, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProbeEvidence is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProbeEvidence requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProbeEvidence: %w", err)
+	}
+	return oldValue.ProbeEvidence, nil
+}
+
+// ResetProbeEvidence resets all changes to the "probe_evidence" field.
+func (m *ProtocolEndpointCapabilityMutation) ResetProbeEvidence() {
+	m.probe_evidence = nil
+}
+
+// SetRevision sets the "revision" field.
+func (m *ProtocolEndpointCapabilityMutation) SetRevision(i int64) {
+	m.revision = &i
+	m.addrevision = nil
+}
+
+// Revision returns the value of the "revision" field in the mutation.
+func (m *ProtocolEndpointCapabilityMutation) Revision() (r int64, exists bool) {
+	v := m.revision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRevision returns the old "revision" field's value of the ProtocolEndpointCapability entity.
+// If the ProtocolEndpointCapability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProtocolEndpointCapabilityMutation) OldRevision(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRevision is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRevision requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRevision: %w", err)
+	}
+	return oldValue.Revision, nil
+}
+
+// AddRevision adds i to the "revision" field.
+func (m *ProtocolEndpointCapabilityMutation) AddRevision(i int64) {
+	if m.addrevision != nil {
+		*m.addrevision += i
+	} else {
+		m.addrevision = &i
+	}
+}
+
+// AddedRevision returns the value that was added to the "revision" field in this mutation.
+func (m *ProtocolEndpointCapabilityMutation) AddedRevision() (r int64, exists bool) {
+	v := m.addrevision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRevision resets all changes to the "revision" field.
+func (m *ProtocolEndpointCapabilityMutation) ResetRevision() {
+	m.revision = nil
+	m.addrevision = nil
+}
+
+// SetLastProbedAt sets the "last_probed_at" field.
+func (m *ProtocolEndpointCapabilityMutation) SetLastProbedAt(t time.Time) {
+	m.last_probed_at = &t
+}
+
+// LastProbedAt returns the value of the "last_probed_at" field in the mutation.
+func (m *ProtocolEndpointCapabilityMutation) LastProbedAt() (r time.Time, exists bool) {
+	v := m.last_probed_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastProbedAt returns the old "last_probed_at" field's value of the ProtocolEndpointCapability entity.
+// If the ProtocolEndpointCapability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProtocolEndpointCapabilityMutation) OldLastProbedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastProbedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastProbedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastProbedAt: %w", err)
+	}
+	return oldValue.LastProbedAt, nil
+}
+
+// ClearLastProbedAt clears the value of the "last_probed_at" field.
+func (m *ProtocolEndpointCapabilityMutation) ClearLastProbedAt() {
+	m.last_probed_at = nil
+	m.clearedFields[protocolendpointcapability.FieldLastProbedAt] = struct{}{}
+}
+
+// LastProbedAtCleared returns if the "last_probed_at" field was cleared in this mutation.
+func (m *ProtocolEndpointCapabilityMutation) LastProbedAtCleared() bool {
+	_, ok := m.clearedFields[protocolendpointcapability.FieldLastProbedAt]
+	return ok
+}
+
+// ResetLastProbedAt resets all changes to the "last_probed_at" field.
+func (m *ProtocolEndpointCapabilityMutation) ResetLastProbedAt() {
+	m.last_probed_at = nil
+	delete(m.clearedFields, protocolendpointcapability.FieldLastProbedAt)
+}
+
+// SetProbeLeaseOwner sets the "probe_lease_owner" field.
+func (m *ProtocolEndpointCapabilityMutation) SetProbeLeaseOwner(s string) {
+	m.probe_lease_owner = &s
+}
+
+// ProbeLeaseOwner returns the value of the "probe_lease_owner" field in the mutation.
+func (m *ProtocolEndpointCapabilityMutation) ProbeLeaseOwner() (r string, exists bool) {
+	v := m.probe_lease_owner
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProbeLeaseOwner returns the old "probe_lease_owner" field's value of the ProtocolEndpointCapability entity.
+// If the ProtocolEndpointCapability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProtocolEndpointCapabilityMutation) OldProbeLeaseOwner(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProbeLeaseOwner is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProbeLeaseOwner requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProbeLeaseOwner: %w", err)
+	}
+	return oldValue.ProbeLeaseOwner, nil
+}
+
+// ClearProbeLeaseOwner clears the value of the "probe_lease_owner" field.
+func (m *ProtocolEndpointCapabilityMutation) ClearProbeLeaseOwner() {
+	m.probe_lease_owner = nil
+	m.clearedFields[protocolendpointcapability.FieldProbeLeaseOwner] = struct{}{}
+}
+
+// ProbeLeaseOwnerCleared returns if the "probe_lease_owner" field was cleared in this mutation.
+func (m *ProtocolEndpointCapabilityMutation) ProbeLeaseOwnerCleared() bool {
+	_, ok := m.clearedFields[protocolendpointcapability.FieldProbeLeaseOwner]
+	return ok
+}
+
+// ResetProbeLeaseOwner resets all changes to the "probe_lease_owner" field.
+func (m *ProtocolEndpointCapabilityMutation) ResetProbeLeaseOwner() {
+	m.probe_lease_owner = nil
+	delete(m.clearedFields, protocolendpointcapability.FieldProbeLeaseOwner)
+}
+
+// SetProbeLeaseUntil sets the "probe_lease_until" field.
+func (m *ProtocolEndpointCapabilityMutation) SetProbeLeaseUntil(t time.Time) {
+	m.probe_lease_until = &t
+}
+
+// ProbeLeaseUntil returns the value of the "probe_lease_until" field in the mutation.
+func (m *ProtocolEndpointCapabilityMutation) ProbeLeaseUntil() (r time.Time, exists bool) {
+	v := m.probe_lease_until
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProbeLeaseUntil returns the old "probe_lease_until" field's value of the ProtocolEndpointCapability entity.
+// If the ProtocolEndpointCapability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProtocolEndpointCapabilityMutation) OldProbeLeaseUntil(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProbeLeaseUntil is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProbeLeaseUntil requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProbeLeaseUntil: %w", err)
+	}
+	return oldValue.ProbeLeaseUntil, nil
+}
+
+// ClearProbeLeaseUntil clears the value of the "probe_lease_until" field.
+func (m *ProtocolEndpointCapabilityMutation) ClearProbeLeaseUntil() {
+	m.probe_lease_until = nil
+	m.clearedFields[protocolendpointcapability.FieldProbeLeaseUntil] = struct{}{}
+}
+
+// ProbeLeaseUntilCleared returns if the "probe_lease_until" field was cleared in this mutation.
+func (m *ProtocolEndpointCapabilityMutation) ProbeLeaseUntilCleared() bool {
+	_, ok := m.clearedFields[protocolendpointcapability.FieldProbeLeaseUntil]
+	return ok
+}
+
+// ResetProbeLeaseUntil resets all changes to the "probe_lease_until" field.
+func (m *ProtocolEndpointCapabilityMutation) ResetProbeLeaseUntil() {
+	m.probe_lease_until = nil
+	delete(m.clearedFields, protocolendpointcapability.FieldProbeLeaseUntil)
+}
+
+// SetProbeGeneration sets the "probe_generation" field.
+func (m *ProtocolEndpointCapabilityMutation) SetProbeGeneration(i int64) {
+	m.probe_generation = &i
+	m.addprobe_generation = nil
+}
+
+// ProbeGeneration returns the value of the "probe_generation" field in the mutation.
+func (m *ProtocolEndpointCapabilityMutation) ProbeGeneration() (r int64, exists bool) {
+	v := m.probe_generation
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProbeGeneration returns the old "probe_generation" field's value of the ProtocolEndpointCapability entity.
+// If the ProtocolEndpointCapability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProtocolEndpointCapabilityMutation) OldProbeGeneration(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProbeGeneration is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProbeGeneration requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProbeGeneration: %w", err)
+	}
+	return oldValue.ProbeGeneration, nil
+}
+
+// AddProbeGeneration adds i to the "probe_generation" field.
+func (m *ProtocolEndpointCapabilityMutation) AddProbeGeneration(i int64) {
+	if m.addprobe_generation != nil {
+		*m.addprobe_generation += i
+	} else {
+		m.addprobe_generation = &i
+	}
+}
+
+// AddedProbeGeneration returns the value that was added to the "probe_generation" field in this mutation.
+func (m *ProtocolEndpointCapabilityMutation) AddedProbeGeneration() (r int64, exists bool) {
+	v := m.addprobe_generation
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetProbeGeneration resets all changes to the "probe_generation" field.
+func (m *ProtocolEndpointCapabilityMutation) ResetProbeGeneration() {
+	m.probe_generation = nil
+	m.addprobe_generation = nil
+}
+
+// SetIdentityConflict sets the "identity_conflict" field.
+func (m *ProtocolEndpointCapabilityMutation) SetIdentityConflict(b bool) {
+	m.identity_conflict = &b
+}
+
+// IdentityConflict returns the value of the "identity_conflict" field in the mutation.
+func (m *ProtocolEndpointCapabilityMutation) IdentityConflict() (r bool, exists bool) {
+	v := m.identity_conflict
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldIdentityConflict returns the old "identity_conflict" field's value of the ProtocolEndpointCapability entity.
+// If the ProtocolEndpointCapability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProtocolEndpointCapabilityMutation) OldIdentityConflict(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldIdentityConflict is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldIdentityConflict requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldIdentityConflict: %w", err)
+	}
+	return oldValue.IdentityConflict, nil
+}
+
+// ResetIdentityConflict resets all changes to the "identity_conflict" field.
+func (m *ProtocolEndpointCapabilityMutation) ResetIdentityConflict() {
+	m.identity_conflict = nil
+}
+
+// AddAccountIDs adds the "accounts" edge to the Account entity by ids.
+func (m *ProtocolEndpointCapabilityMutation) AddAccountIDs(ids ...int64) {
+	if m.accounts == nil {
+		m.accounts = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.accounts[ids[i]] = struct{}{}
+	}
+}
+
+// ClearAccounts clears the "accounts" edge to the Account entity.
+func (m *ProtocolEndpointCapabilityMutation) ClearAccounts() {
+	m.clearedaccounts = true
+}
+
+// AccountsCleared reports if the "accounts" edge to the Account entity was cleared.
+func (m *ProtocolEndpointCapabilityMutation) AccountsCleared() bool {
+	return m.clearedaccounts
+}
+
+// RemoveAccountIDs removes the "accounts" edge to the Account entity by IDs.
+func (m *ProtocolEndpointCapabilityMutation) RemoveAccountIDs(ids ...int64) {
+	if m.removedaccounts == nil {
+		m.removedaccounts = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.accounts, ids[i])
+		m.removedaccounts[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedAccounts returns the removed IDs of the "accounts" edge to the Account entity.
+func (m *ProtocolEndpointCapabilityMutation) RemovedAccountsIDs() (ids []int64) {
+	for id := range m.removedaccounts {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// AccountsIDs returns the "accounts" edge IDs in the mutation.
+func (m *ProtocolEndpointCapabilityMutation) AccountsIDs() (ids []int64) {
+	for id := range m.accounts {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetAccounts resets all changes to the "accounts" edge.
+func (m *ProtocolEndpointCapabilityMutation) ResetAccounts() {
+	m.accounts = nil
+	m.clearedaccounts = false
+	m.removedaccounts = nil
+}
+
+// Where appends a list predicates to the ProtocolEndpointCapabilityMutation builder.
+func (m *ProtocolEndpointCapabilityMutation) Where(ps ...predicate.ProtocolEndpointCapability) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ProtocolEndpointCapabilityMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ProtocolEndpointCapabilityMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.ProtocolEndpointCapability, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ProtocolEndpointCapabilityMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ProtocolEndpointCapabilityMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (ProtocolEndpointCapability).
+func (m *ProtocolEndpointCapabilityMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ProtocolEndpointCapabilityMutation) Fields() []string {
+	fields := make([]string, 0, 12)
+	if m.created_at != nil {
+		fields = append(fields, protocolendpointcapability.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, protocolendpointcapability.FieldUpdatedAt)
+	}
+	if m.capability_key != nil {
+		fields = append(fields, protocolendpointcapability.FieldCapabilityKey)
+	}
+	if m.identity != nil {
+		fields = append(fields, protocolendpointcapability.FieldIdentity)
+	}
+	if m.supported_protocols != nil {
+		fields = append(fields, protocolendpointcapability.FieldSupportedProtocols)
+	}
+	if m.probe_evidence != nil {
+		fields = append(fields, protocolendpointcapability.FieldProbeEvidence)
+	}
+	if m.revision != nil {
+		fields = append(fields, protocolendpointcapability.FieldRevision)
+	}
+	if m.last_probed_at != nil {
+		fields = append(fields, protocolendpointcapability.FieldLastProbedAt)
+	}
+	if m.probe_lease_owner != nil {
+		fields = append(fields, protocolendpointcapability.FieldProbeLeaseOwner)
+	}
+	if m.probe_lease_until != nil {
+		fields = append(fields, protocolendpointcapability.FieldProbeLeaseUntil)
+	}
+	if m.probe_generation != nil {
+		fields = append(fields, protocolendpointcapability.FieldProbeGeneration)
+	}
+	if m.identity_conflict != nil {
+		fields = append(fields, protocolendpointcapability.FieldIdentityConflict)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ProtocolEndpointCapabilityMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case protocolendpointcapability.FieldCreatedAt:
+		return m.CreatedAt()
+	case protocolendpointcapability.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case protocolendpointcapability.FieldCapabilityKey:
+		return m.CapabilityKey()
+	case protocolendpointcapability.FieldIdentity:
+		return m.Identity()
+	case protocolendpointcapability.FieldSupportedProtocols:
+		return m.SupportedProtocols()
+	case protocolendpointcapability.FieldProbeEvidence:
+		return m.ProbeEvidence()
+	case protocolendpointcapability.FieldRevision:
+		return m.Revision()
+	case protocolendpointcapability.FieldLastProbedAt:
+		return m.LastProbedAt()
+	case protocolendpointcapability.FieldProbeLeaseOwner:
+		return m.ProbeLeaseOwner()
+	case protocolendpointcapability.FieldProbeLeaseUntil:
+		return m.ProbeLeaseUntil()
+	case protocolendpointcapability.FieldProbeGeneration:
+		return m.ProbeGeneration()
+	case protocolendpointcapability.FieldIdentityConflict:
+		return m.IdentityConflict()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ProtocolEndpointCapabilityMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case protocolendpointcapability.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case protocolendpointcapability.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case protocolendpointcapability.FieldCapabilityKey:
+		return m.OldCapabilityKey(ctx)
+	case protocolendpointcapability.FieldIdentity:
+		return m.OldIdentity(ctx)
+	case protocolendpointcapability.FieldSupportedProtocols:
+		return m.OldSupportedProtocols(ctx)
+	case protocolendpointcapability.FieldProbeEvidence:
+		return m.OldProbeEvidence(ctx)
+	case protocolendpointcapability.FieldRevision:
+		return m.OldRevision(ctx)
+	case protocolendpointcapability.FieldLastProbedAt:
+		return m.OldLastProbedAt(ctx)
+	case protocolendpointcapability.FieldProbeLeaseOwner:
+		return m.OldProbeLeaseOwner(ctx)
+	case protocolendpointcapability.FieldProbeLeaseUntil:
+		return m.OldProbeLeaseUntil(ctx)
+	case protocolendpointcapability.FieldProbeGeneration:
+		return m.OldProbeGeneration(ctx)
+	case protocolendpointcapability.FieldIdentityConflict:
+		return m.OldIdentityConflict(ctx)
+	}
+	return nil, fmt.Errorf("unknown ProtocolEndpointCapability field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ProtocolEndpointCapabilityMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case protocolendpointcapability.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case protocolendpointcapability.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case protocolendpointcapability.FieldCapabilityKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCapabilityKey(v)
+		return nil
+	case protocolendpointcapability.FieldIdentity:
+		v, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetIdentity(v)
+		return nil
+	case protocolendpointcapability.FieldSupportedProtocols:
+		v, ok := value.([]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSupportedProtocols(v)
+		return nil
+	case protocolendpointcapability.FieldProbeEvidence:
+		v, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProbeEvidence(v)
+		return nil
+	case protocolendpointcapability.FieldRevision:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRevision(v)
+		return nil
+	case protocolendpointcapability.FieldLastProbedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastProbedAt(v)
+		return nil
+	case protocolendpointcapability.FieldProbeLeaseOwner:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProbeLeaseOwner(v)
+		return nil
+	case protocolendpointcapability.FieldProbeLeaseUntil:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProbeLeaseUntil(v)
+		return nil
+	case protocolendpointcapability.FieldProbeGeneration:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProbeGeneration(v)
+		return nil
+	case protocolendpointcapability.FieldIdentityConflict:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetIdentityConflict(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ProtocolEndpointCapability field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ProtocolEndpointCapabilityMutation) AddedFields() []string {
+	var fields []string
+	if m.addrevision != nil {
+		fields = append(fields, protocolendpointcapability.FieldRevision)
+	}
+	if m.addprobe_generation != nil {
+		fields = append(fields, protocolendpointcapability.FieldProbeGeneration)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ProtocolEndpointCapabilityMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case protocolendpointcapability.FieldRevision:
+		return m.AddedRevision()
+	case protocolendpointcapability.FieldProbeGeneration:
+		return m.AddedProbeGeneration()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ProtocolEndpointCapabilityMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case protocolendpointcapability.FieldRevision:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRevision(v)
+		return nil
+	case protocolendpointcapability.FieldProbeGeneration:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddProbeGeneration(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ProtocolEndpointCapability numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ProtocolEndpointCapabilityMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(protocolendpointcapability.FieldLastProbedAt) {
+		fields = append(fields, protocolendpointcapability.FieldLastProbedAt)
+	}
+	if m.FieldCleared(protocolendpointcapability.FieldProbeLeaseOwner) {
+		fields = append(fields, protocolendpointcapability.FieldProbeLeaseOwner)
+	}
+	if m.FieldCleared(protocolendpointcapability.FieldProbeLeaseUntil) {
+		fields = append(fields, protocolendpointcapability.FieldProbeLeaseUntil)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ProtocolEndpointCapabilityMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ProtocolEndpointCapabilityMutation) ClearField(name string) error {
+	switch name {
+	case protocolendpointcapability.FieldLastProbedAt:
+		m.ClearLastProbedAt()
+		return nil
+	case protocolendpointcapability.FieldProbeLeaseOwner:
+		m.ClearProbeLeaseOwner()
+		return nil
+	case protocolendpointcapability.FieldProbeLeaseUntil:
+		m.ClearProbeLeaseUntil()
+		return nil
+	}
+	return fmt.Errorf("unknown ProtocolEndpointCapability nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ProtocolEndpointCapabilityMutation) ResetField(name string) error {
+	switch name {
+	case protocolendpointcapability.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case protocolendpointcapability.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case protocolendpointcapability.FieldCapabilityKey:
+		m.ResetCapabilityKey()
+		return nil
+	case protocolendpointcapability.FieldIdentity:
+		m.ResetIdentity()
+		return nil
+	case protocolendpointcapability.FieldSupportedProtocols:
+		m.ResetSupportedProtocols()
+		return nil
+	case protocolendpointcapability.FieldProbeEvidence:
+		m.ResetProbeEvidence()
+		return nil
+	case protocolendpointcapability.FieldRevision:
+		m.ResetRevision()
+		return nil
+	case protocolendpointcapability.FieldLastProbedAt:
+		m.ResetLastProbedAt()
+		return nil
+	case protocolendpointcapability.FieldProbeLeaseOwner:
+		m.ResetProbeLeaseOwner()
+		return nil
+	case protocolendpointcapability.FieldProbeLeaseUntil:
+		m.ResetProbeLeaseUntil()
+		return nil
+	case protocolendpointcapability.FieldProbeGeneration:
+		m.ResetProbeGeneration()
+		return nil
+	case protocolendpointcapability.FieldIdentityConflict:
+		m.ResetIdentityConflict()
+		return nil
+	}
+	return fmt.Errorf("unknown ProtocolEndpointCapability field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ProtocolEndpointCapabilityMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.accounts != nil {
+		edges = append(edges, protocolendpointcapability.EdgeAccounts)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ProtocolEndpointCapabilityMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case protocolendpointcapability.EdgeAccounts:
+		ids := make([]ent.Value, 0, len(m.accounts))
+		for id := range m.accounts {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ProtocolEndpointCapabilityMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.removedaccounts != nil {
+		edges = append(edges, protocolendpointcapability.EdgeAccounts)
+	}
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ProtocolEndpointCapabilityMutation) RemovedIDs(name string) []ent.Value {
+	switch name {
+	case protocolendpointcapability.EdgeAccounts:
+		ids := make([]ent.Value, 0, len(m.removedaccounts))
+		for id := range m.removedaccounts {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ProtocolEndpointCapabilityMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.clearedaccounts {
+		edges = append(edges, protocolendpointcapability.EdgeAccounts)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ProtocolEndpointCapabilityMutation) EdgeCleared(name string) bool {
+	switch name {
+	case protocolendpointcapability.EdgeAccounts:
+		return m.clearedaccounts
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ProtocolEndpointCapabilityMutation) ClearEdge(name string) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown ProtocolEndpointCapability unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ProtocolEndpointCapabilityMutation) ResetEdge(name string) error {
+	switch name {
+	case protocolendpointcapability.EdgeAccounts:
+		m.ResetAccounts()
+		return nil
+	}
+	return fmt.Errorf("unknown ProtocolEndpointCapability edge %s", name)
 }
 
 // ProxyMutation represents an operation that mutates the Proxy nodes in the graph.

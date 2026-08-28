@@ -329,6 +329,7 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertIn("REDIS_HOST=tokenkey-redis", remote)
         self.assertIn("x-tokenkey-logging: &tokenkey-logging", remote)
         self.assertEqual(remote.count("logging: *tokenkey-logging"), 2)
+        self.assertEqual(remote.count("start_period: 120s"), 2)
         self.assertIn('max-size: "100m"', remote)
         self.assertIn('max-file: "5"', remote)
         self.assertEqual(remote.count("- SKIP_DATA_CHOWN=1"), 2)

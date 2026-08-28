@@ -180,8 +180,7 @@ spec delta 是意图载体，不是审批基线；若命中高风险条件，必
 **动作**：
 1. 基于已审批的原型，补全所有边界处理和错误处理
 2. 编写完整的测试套件（遵循 test-philosophy.mdc）
-3. 更新 API 契约文档（遵循 agent-contract-enforcement.mdc）
-4. 将实现收敛到一个用户意图明确的 PR 中；只在确有必要时拆分
+3. 将实现收敛到一个用户意图明确的 PR 中；只在确有必要时拆分
 **提交**：PR 标题聚焦结果，不写冗长过程清单
 
 ### 阶段 4：测试验证
@@ -221,7 +220,6 @@ spec delta 是意图载体，不是审批基线；若命中高风险条件，必
 - `提交` 小节必须从当前 PR commit 集合生成，至少包含相对 base 的所有 commit short SHA + subject，并包含 `最新提交：<HEAD short SHA>` freshness anchor
 - 每产生新的 commit 后，必须在 push 或继续 review 前用当前 `git log --oneline <base>..HEAD` 重写整个 PR body；禁止沿用旧 body 或只追加零散备注
 - review comment 默认只报阻塞问题、真实风险、缺失验证；不输出大而全的审计散文
-- 公共契约删除必须在 commit subject/body 显式声明删除说明锚点（如 `contract-deletion-notice`），禁止静默删约。
 - 有 Web surface 的仓库中，后端服务/业务逻辑改动必须同 PR 对齐对应 Web 页面、配置、契约或 Story；确无影响时必须在 commit message 中写明 `no-web-impact` / `Web impact: none`，让 preflight 可机械验证。
 - 命中高风险路径的改动必须绑定审批锚点（`docs/approved/*` 或等价 anchor token），不允许无锚点直改。
 - release 敏感分支/语境下提交消息禁止出现 `[skip ci]` / `[ci skip]`，避免流水线静默跳过。
@@ -263,7 +261,6 @@ spec delta 是意图载体，不是审批基线；若命中高风险条件，必
 任何检查段失败都必须修复后重跑，**禁止带未通过的 preflight 提交、推送、部署或发布**。preflight 分为默认必跑检查与高风险条件触发检查；不要把所有项目、所有任务都按最高负担执行。
 
 其中新增红线由模板 preflight 机械化落地：
-- contract deletion notice：公共契约删除必须有显式 deletion notice。
 - web surface alignment：后端/业务逻辑改动必须有 Web/config/contract 对齐证据或 no-web-impact 说明。
 - layer dependency inversion：分层依赖不可反转（项目提供 `.preflight/layer-deps.json` 时启用）。
 - high-risk approval anchor：高风险改动必须绑定审批锚点。

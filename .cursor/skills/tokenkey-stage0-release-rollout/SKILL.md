@@ -20,7 +20,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | VERSION/tag 三态决策（tag-only / bump-and-tag / skip-bump-skip-tag） | 机械 | `scripts/release-decide-version.sh [--emit-suggested-bump]`（被上行脚本消费；单独跑仅用于诊断） |
 | 打 tag（含 skip-ci / VERSION 一致 / HEAD==origin/main 校验） | 机械 | `scripts/release-tag.sh vX.Y.Z`（被上行脚本调用） |
 | 读取 deployable edge 矩阵 | 机械 | `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` |
-| **canary Edge 选择（第一个有 native OAuth/Kiro 池的 deployable Edge）** | 机械 | `python3 scripts/stage0/pick_oauth_canary_edge.py`（SSM 读各 edge PG 计数；与 `edge_native_anthropic_smoke.sh` 同 eligibility；`--json` 带 audit） |
+| **canary Edge 选择（优先第一个有 native OAuth/Kiro 池的 deployable Edge）** | 机械 | `python3 scripts/stage0/pick_oauth_canary_edge.py`（SSM 读各 edge PG 计数；与 `edge_native_anthropic_smoke.sh` 同 eligibility；全部确定为空时回落首个 deployable Edge，infra 仍为硬门禁、native OAuth 记 N/A；`--json` 带 audit） |
 | Edge dispatch 路由（edges 均为 Lightsail） | 机械 | `scripts/stage0/resolve-edge-deploy-route.py --edge-id <id> --json` |
 | Edge upgrade/smoke/rollback dispatch | 机械 | `bash scripts/stage0/dispatch-edge-deploy.sh --edge-id … --operation …` |
 | **其余 Edge rollout（bounded parallel fail-stop + smoke 标记验收）** | 机械 | `bash scripts/stage0/rollout-edges.sh --tag X.Y.Z --skip <canary>`（**默认 `--parallel 1` 顺序**，降低并发换容器对线上的影响；`N>1` 仅在可接受该影响时用） |
@@ -293,7 +293,7 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
    # edges 均为 Lightsail deployable=true（uk1、us2、us3、us4、…）
    ```
 
-   `pick_oauth_canary_edge.py` 按 `--list-deployable` 顺序逐个 SSM 探测 schedulable native OAuth/Kiro 账号数，**第一个 count>0 的 edge 为 canary**。若全部为零，脚本 exit 1——先修 Edge 账号池，不要对无池 edge 跑 full smoke。
+   `pick_oauth_canary_edge.py` 按 `--list-deployable` 顺序逐个 SSM 探测 schedulable native OAuth/Kiro 账号数，优先用**第一个 count>0 的 edge**。若所有探测都确定为零，选择首个 deployable Edge 继续 full smoke：infra 仍须通过，edge-native-oauth 明确记 `SKIPPED no eligible accounts`。若任一探测失败且没有找到正数池，脚本仍 exit 1，避免把未知状态伪装成空池。
 
 3. Canary upgrade + full smoke：`dispatch-edge-deploy.sh --edge-id=$CANARY_EDGE --operation upgrade --tag=$TARGET_TAG --smoke-phase full`，watch 到 success。
 4. 推进 prod deploy：canary full smoke 绿后 `gh workflow run deploy-stage0.yml -f tag=$TARGET_TAG`（prod 不再自动 queue），按 approval 命令自批，watch 到 success。
@@ -644,7 +644,7 @@ bash scripts/release-rollout-summary.sh --mode release
 | Edge `confirm_stack` mismatch | 停止；检查 `deploy/aws/stage0/edge-targets.json`，不要手改成别的栈名绕过。 |
 | Edge smoke 403 | public runner 访问 `/v1/models` 403 是预期；主网关来源 403 才查 `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 与 prod EIP。 |
 | main-via-edge smoke HTTP 503 `"no available accounts"` | 先在 prod 上确认对应账号（如 `cc-<edge_id>-oauth`）是否被设为可调度；这是 prod 路由策略，与本次镜像无关。若设计上就不可调度，把这条 smoke 从 hard-fail 降为"infra OK / business-link by design"，**不要 rollback**。若运维想恢复该链路，请按 `/tokenkey-anthropic-oauth-config` 调可调度位再 `dispatch-edge-deploy.sh --operation smoke --smoke-phase main-via-edge` 复验。 |
-| 其余 Edge rollout 因 edge-native-oauth 失败（无 schedulable OAuth/Kiro 账号） | 说明该 edge **不应跑 full**——只对 `pick_oauth_canary_edge.py` 选出的 canary 跑 full；其余走 `rollout-edges.sh`（固定 `--smoke-phase infra`）。canary 选 edge 时 count=0 应被脚本跳过；若 canary full 仍失败，查该 edge 账号/scheduling，不要对多个 edge 批量重试 full。 |
+| canary / 其余 Edge 的 native OAuth/Kiro 池为空 | 全部池确定为空时，selector 回落首个 deployable Edge；full smoke 的 infra 仍须通过，edge-native-oauth 输出 `SKIPPED no eligible accounts` 并记 N/A，不阻断部署。其余 Edge 仍走 `rollout-edges.sh` 的 infra-only。若账号存在但探针鉴权失败，或池计数探测失败且没有正数候选，仍应失败并停 rollout。 |
 | `gh run watch` 被工具超时打断 | 用同一 run id 再执行 `gh run watch <id> --exit-status` 接到终态（`rollout-edges.sh` 已内置重连）。 |
 | 发版后 tick 报 `No such container: tokenkey` | 先确认在用新版 `ops/observability/probe-post-release-tick.sh`；它默认 `CONTAINER=auto` 会解析 prod blue/green active container。不要手工猜 `tokenkey-green`；若仍失败，看 tick stdout 的 `container_resolution`。 |
 | `TK_SMOKE_GITHUB_ENV=prod` 报 `unexpected gh variables response` | 旧版 `load_smoke_github_env.py` 对单页 gh api 响应断言成 list 的 bug，已修；若复现先 `gh api repos/{owner}/{repo}/environments/prod/variables` 看原始形状。 |

@@ -25,6 +25,10 @@ const (
 	AdapterResponsesIdentity   RouteAdapterID = "responses_identity"
 	AdapterResponsesToChat     RouteAdapterID = "responses_to_chat_completions"
 	AdapterResponsesToMessages RouteAdapterID = "responses_to_messages"
+	AdapterMessagesToGemini    RouteAdapterID = "messages_to_gemini_generate_content"
+	AdapterChatToGemini        RouteAdapterID = "chat_completions_to_gemini_generate_content"
+	AdapterResponsesToGemini   RouteAdapterID = "responses_to_gemini_generate_content"
+	AdapterGeminiIdentity      RouteAdapterID = "gemini_generate_content_identity"
 )
 
 type routeEntry struct {
@@ -74,12 +78,16 @@ var routeRegistry = []routeEntry{
 	{inbound: ProtocolMessages, target: ProtocolMessages, kind: RouteIdentity, adapterID: AdapterMessagesIdentity, transport: TransportHTTP, model: permitsMessagesModel, preserves: preservesIdentity, endpoint: resolveEndpoint},
 	{inbound: ProtocolMessages, target: ProtocolResponses, kind: RouteConversion, adapterID: AdapterMessagesToResponses, transport: TransportHTTP, responsesPaths: []ResponsesPathKind{ResponsesPathRoot}, model: permitsResponsesModel, preserves: preservesMessagesToResponses, endpoint: resolveEndpoint},
 	{inbound: ProtocolMessages, target: ProtocolChatCompletions, kind: RouteConversion, adapterID: AdapterMessagesToChat, transport: TransportHTTP, model: permitsChatCompletionsModel, preserves: preservesMessagesToChat, endpoint: resolveEndpoint},
+	{inbound: ProtocolMessages, target: ProtocolGeminiGenerateContent, kind: RouteConversion, adapterID: AdapterMessagesToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesToGemini, endpoint: resolveEndpoint},
 	{inbound: ProtocolChatCompletions, target: ProtocolChatCompletions, kind: RouteIdentity, adapterID: AdapterChatIdentity, transport: TransportHTTP, model: permitsChatCompletionsModel, preserves: preservesIdentity, endpoint: resolveEndpoint},
 	{inbound: ProtocolChatCompletions, target: ProtocolResponses, kind: RouteConversion, adapterID: AdapterChatToResponses, transport: TransportHTTP, responsesPaths: []ResponsesPathKind{ResponsesPathRoot}, model: permitsResponsesModel, preserves: preservesChatToResponses, endpoint: resolveEndpoint},
 	{inbound: ProtocolChatCompletions, target: ProtocolMessages, kind: RouteConversion, adapterID: AdapterChatToMessages, transport: TransportHTTP, model: permitsMessagesModel, preserves: preservesChatToMessages, endpoint: resolveEndpoint},
+	{inbound: ProtocolChatCompletions, target: ProtocolGeminiGenerateContent, kind: RouteConversion, adapterID: AdapterChatToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesToGemini, endpoint: resolveEndpoint},
 	{inbound: ProtocolResponses, target: ProtocolResponses, kind: RouteIdentity, adapterID: AdapterResponsesIdentity, transport: TransportHTTP, responsesPaths: []ResponsesPathKind{ResponsesPathRoot, ResponsesPathCompact, ResponsesPathInputTokens}, model: permitsResponsesModel, preserves: preservesIdentity, endpoint: resolveEndpoint},
 	{inbound: ProtocolResponses, target: ProtocolChatCompletions, kind: RouteConversion, adapterID: AdapterResponsesToChat, transport: TransportHTTP, model: permitsChatCompletionsModel, preserves: preservesResponsesConversion, endpoint: resolveEndpoint},
 	{inbound: ProtocolResponses, target: ProtocolMessages, kind: RouteConversion, adapterID: AdapterResponsesToMessages, transport: TransportHTTP, model: permitsMessagesModel, preserves: preservesResponsesConversion, endpoint: resolveEndpoint},
+	{inbound: ProtocolResponses, target: ProtocolGeminiGenerateContent, kind: RouteConversion, adapterID: AdapterResponsesToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesToGemini, endpoint: resolveEndpoint},
+	{inbound: ProtocolGeminiGenerateContent, target: ProtocolGeminiGenerateContent, kind: RouteIdentity, adapterID: AdapterGeminiIdentity, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesGeminiIdentity, endpoint: resolveEndpoint},
 }
 
 func validateRouteRegistry(entries []routeEntry) error {
@@ -150,6 +158,10 @@ func permitsResponsesModel(account AccountSnapshot) bool {
 	return account.permitsModel(ProtocolResponses)
 }
 
+func permitsGeminiModel(account AccountSnapshot) bool {
+	return account.permitsModel(ProtocolGeminiGenerateContent)
+}
+
 func preservesIdentity(CanonicalRequest) bool { return true }
 
 func preservesMessagesToResponses(req CanonicalRequest) bool {
@@ -182,6 +194,18 @@ func preservesResponsesConversion(req CanonicalRequest) bool {
 		req.profile.Continuation == ContinuationNone &&
 		req.profile.Reasoning == ReasoningNone &&
 		req.profile.PromptCache == PromptCacheNone
+}
+
+func preservesToGemini(req CanonicalRequest) bool {
+	return preservesTextOnlyWithoutTools(req) &&
+		(req.inboundProtocol != ProtocolResponses || req.responsesPath == ResponsesPathRoot) &&
+		req.profile.Continuation == ContinuationNone &&
+		req.profile.Reasoning == ReasoningNone &&
+		req.profile.PromptCache == PromptCacheNone
+}
+
+func preservesGeminiIdentity(req CanonicalRequest) bool {
+	return req.profile.ContentKinds != 0 && req.profile.ContentKinds&^ContentText == 0
 }
 
 func preservesTextOnlyWithoutTools(req CanonicalRequest) bool {

@@ -38,6 +38,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
+	"github.com/Wei-Shaw/sub2api/ent/protocolendpointcapability"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/ent/qaarchiveshard"
 	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
@@ -142,6 +143,7 @@ func checkColumn(t, c string) error {
 			pendingauthsession.Table:            pendingauthsession.ValidColumn,
 			promocode.Table:                     promocode.ValidColumn,
 			promocodeusage.Table:                promocodeusage.ValidColumn,
+			protocolendpointcapability.Table:    protocolendpointcapability.ValidColumn,
 			proxy.Table:                         proxy.ValidColumn,
 			qaarchiveshard.Table:                qaarchiveshard.ValidColumn,
 			qaexportjob.Table:                   qaexportjob.ValidColumn,

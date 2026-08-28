@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/Wei-Shaw/sub2api/ent/account"
+	"github.com/Wei-Shaw/sub2api/ent/protocolendpointcapability"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
 )
 
@@ -79,6 +80,8 @@ type Account struct {
 	SessionWindowStatus *string `json:"session_window_status,omitempty"`
 	// ChannelType holds the value of the "channel_type" field.
 	ChannelType int `json:"channel_type,omitempty"`
+	// ProtocolEndpointCapabilityID holds the value of the "protocol_endpoint_capability_id" field.
+	ProtocolEndpointCapabilityID *int64 `json:"protocol_endpoint_capability_id,omitempty"`
 	// TK: bound anthropic-oauth stability tier id (tiers table).
 	TierID *int64 `json:"tier_id,omitempty"`
 	// Parent account id for a linked spark shadow (NULL = normal).
@@ -97,6 +100,8 @@ type AccountEdges struct {
 	Groups []*Group `json:"groups,omitempty"`
 	// Proxy holds the value of the proxy edge.
 	Proxy *Proxy `json:"proxy,omitempty"`
+	// ProtocolEndpointCapability holds the value of the protocol_endpoint_capability edge.
+	ProtocolEndpointCapability *ProtocolEndpointCapability `json:"protocol_endpoint_capability,omitempty"`
 	// Parent holds the value of the parent edge.
 	Parent *Account `json:"parent,omitempty"`
 	// Children holds the value of the children edge.
@@ -107,7 +112,7 @@ type AccountEdges struct {
 	AccountGroups []*AccountGroup `json:"account_groups,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [6]bool
+	loadedTypes [7]bool
 }
 
 // GroupsOrErr returns the Groups value or an error if the edge
@@ -130,12 +135,23 @@ func (e AccountEdges) ProxyOrErr() (*Proxy, error) {
 	return nil, &NotLoadedError{edge: "proxy"}
 }
 
+// ProtocolEndpointCapabilityOrErr returns the ProtocolEndpointCapability value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e AccountEdges) ProtocolEndpointCapabilityOrErr() (*ProtocolEndpointCapability, error) {
+	if e.ProtocolEndpointCapability != nil {
+		return e.ProtocolEndpointCapability, nil
+	} else if e.loadedTypes[2] {
+		return nil, &NotFoundError{label: protocolendpointcapability.Label}
+	}
+	return nil, &NotLoadedError{edge: "protocol_endpoint_capability"}
+}
+
 // ParentOrErr returns the Parent value or an error if the edge
 // was not loaded in eager-loading, or loaded but was not found.
 func (e AccountEdges) ParentOrErr() (*Account, error) {
 	if e.Parent != nil {
 		return e.Parent, nil
-	} else if e.loadedTypes[2] {
+	} else if e.loadedTypes[3] {
 		return nil, &NotFoundError{label: account.Label}
 	}
 	return nil, &NotLoadedError{edge: "parent"}
@@ -144,7 +160,7 @@ func (e AccountEdges) ParentOrErr() (*Account, error) {
 // ChildrenOrErr returns the Children value or an error if the edge
 // was not loaded in eager-loading.
 func (e AccountEdges) ChildrenOrErr() ([]*Account, error) {
-	if e.loadedTypes[3] {
+	if e.loadedTypes[4] {
 		return e.Children, nil
 	}
 	return nil, &NotLoadedError{edge: "children"}
@@ -153,7 +169,7 @@ func (e AccountEdges) ChildrenOrErr() ([]*Account, error) {
 // UsageLogsOrErr returns the UsageLogs value or an error if the edge
 // was not loaded in eager-loading.
 func (e AccountEdges) UsageLogsOrErr() ([]*UsageLog, error) {
-	if e.loadedTypes[4] {
+	if e.loadedTypes[5] {
 		return e.UsageLogs, nil
 	}
 	return nil, &NotLoadedError{edge: "usage_logs"}
@@ -162,7 +178,7 @@ func (e AccountEdges) UsageLogsOrErr() ([]*UsageLog, error) {
 // AccountGroupsOrErr returns the AccountGroups value or an error if the edge
 // was not loaded in eager-loading.
 func (e AccountEdges) AccountGroupsOrErr() ([]*AccountGroup, error) {
-	if e.loadedTypes[5] {
+	if e.loadedTypes[6] {
 		return e.AccountGroups, nil
 	}
 	return nil, &NotLoadedError{edge: "account_groups"}
@@ -179,7 +195,7 @@ func (*Account) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case account.FieldRateMultiplier:
 			values[i] = new(sql.NullFloat64)
-		case account.FieldID, account.FieldProxyID, account.FieldProxyFallbackOriginID, account.FieldConcurrency, account.FieldLoadFactor, account.FieldPriority, account.FieldChannelType, account.FieldTierID, account.FieldParentAccountID:
+		case account.FieldID, account.FieldProxyID, account.FieldProxyFallbackOriginID, account.FieldConcurrency, account.FieldLoadFactor, account.FieldPriority, account.FieldChannelType, account.FieldProtocolEndpointCapabilityID, account.FieldTierID, account.FieldParentAccountID:
 			values[i] = new(sql.NullInt64)
 		case account.FieldName, account.FieldNotes, account.FieldPlatform, account.FieldType, account.FieldStatus, account.FieldErrorMessage, account.FieldTempUnschedulableReason, account.FieldSessionWindowStatus, account.FieldQuotaDimension:
 			values[i] = new(sql.NullString)
@@ -406,6 +422,13 @@ func (_m *Account) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.ChannelType = int(value.Int64)
 			}
+		case account.FieldProtocolEndpointCapabilityID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field protocol_endpoint_capability_id", values[i])
+			} else if value.Valid {
+				_m.ProtocolEndpointCapabilityID = new(int64)
+				*_m.ProtocolEndpointCapabilityID = value.Int64
+			}
 		case account.FieldTierID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field tier_id", values[i])
@@ -447,6 +470,11 @@ func (_m *Account) QueryGroups() *GroupQuery {
 // QueryProxy queries the "proxy" edge of the Account entity.
 func (_m *Account) QueryProxy() *ProxyQuery {
 	return NewAccountClient(_m.config).QueryProxy(_m)
+}
+
+// QueryProtocolEndpointCapability queries the "protocol_endpoint_capability" edge of the Account entity.
+func (_m *Account) QueryProtocolEndpointCapability() *ProtocolEndpointCapabilityQuery {
+	return NewAccountClient(_m.config).QueryProtocolEndpointCapability(_m)
 }
 
 // QueryParent queries the "parent" edge of the Account entity.
@@ -613,6 +641,11 @@ func (_m *Account) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("channel_type=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ChannelType))
+	builder.WriteString(", ")
+	if v := _m.ProtocolEndpointCapabilityID; v != nil {
+		builder.WriteString("protocol_endpoint_capability_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteString(", ")
 	if v := _m.TierID; v != nil {
 		builder.WriteString("tier_id=")

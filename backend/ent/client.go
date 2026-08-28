@@ -41,6 +41,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
+	"github.com/Wei-Shaw/sub2api/ent/protocolendpointcapability"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/ent/qaarchiveshard"
 	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
@@ -120,6 +121,8 @@ type Client struct {
 	PromoCode *PromoCodeClient
 	// PromoCodeUsage is the client for interacting with the PromoCodeUsage builders.
 	PromoCodeUsage *PromoCodeUsageClient
+	// ProtocolEndpointCapability is the client for interacting with the ProtocolEndpointCapability builders.
+	ProtocolEndpointCapability *ProtocolEndpointCapabilityClient
 	// Proxy is the client for interacting with the Proxy builders.
 	Proxy *ProxyClient
 	// QAArchiveShard is the client for interacting with the QAArchiveShard builders.
@@ -193,6 +196,7 @@ func (c *Client) init() {
 	c.PendingAuthSession = NewPendingAuthSessionClient(c.config)
 	c.PromoCode = NewPromoCodeClient(c.config)
 	c.PromoCodeUsage = NewPromoCodeUsageClient(c.config)
+	c.ProtocolEndpointCapability = NewProtocolEndpointCapabilityClient(c.config)
 	c.Proxy = NewProxyClient(c.config)
 	c.QAArchiveShard = NewQAArchiveShardClient(c.config)
 	c.QAExportJob = NewQAExportJobClient(c.config)
@@ -329,6 +333,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		PendingAuthSession:            NewPendingAuthSessionClient(cfg),
 		PromoCode:                     NewPromoCodeClient(cfg),
 		PromoCodeUsage:                NewPromoCodeUsageClient(cfg),
+		ProtocolEndpointCapability:    NewProtocolEndpointCapabilityClient(cfg),
 		Proxy:                         NewProxyClient(cfg),
 		QAArchiveShard:                NewQAArchiveShardClient(cfg),
 		QAExportJob:                   NewQAExportJobClient(cfg),
@@ -392,6 +397,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		PendingAuthSession:            NewPendingAuthSessionClient(cfg),
 		PromoCode:                     NewPromoCodeClient(cfg),
 		PromoCodeUsage:                NewPromoCodeUsageClient(cfg),
+		ProtocolEndpointCapability:    NewProtocolEndpointCapabilityClient(cfg),
 		Proxy:                         NewProxyClient(cfg),
 		QAArchiveShard:                NewQAArchiveShardClient(cfg),
 		QAExportJob:                   NewQAExportJobClient(cfg),
@@ -446,11 +452,11 @@ func (c *Client) Use(hooks ...Hook) {
 		c.CompositeModelRoute, c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
 		c.IdentityAdoptionDecision, c.ModelAvailability, c.PaymentAuditLog,
 		c.PaymentOrder, c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode,
-		c.PromoCodeUsage, c.Proxy, c.QAArchiveShard, c.QAExportJob, c.QARecord,
-		c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
-		c.TLSFingerprintProfile, c.Tier, c.UsageCleanupTask, c.UsageLog, c.User,
-		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
-		c.UserPlatformQuota, c.UserSubscription,
+		c.PromoCodeUsage, c.ProtocolEndpointCapability, c.Proxy, c.QAArchiveShard,
+		c.QAExportJob, c.QARecord, c.RedeemCode, c.SecuritySecret, c.Setting,
+		c.SubscriptionPlan, c.TLSFingerprintProfile, c.Tier, c.UsageCleanupTask,
+		c.UsageLog, c.User, c.UserAllowedGroup, c.UserAttributeDefinition,
+		c.UserAttributeValue, c.UserPlatformQuota, c.UserSubscription,
 	} {
 		n.Use(hooks...)
 	}
@@ -467,11 +473,11 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.CompositeModelRoute, c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
 		c.IdentityAdoptionDecision, c.ModelAvailability, c.PaymentAuditLog,
 		c.PaymentOrder, c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode,
-		c.PromoCodeUsage, c.Proxy, c.QAArchiveShard, c.QAExportJob, c.QARecord,
-		c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
-		c.TLSFingerprintProfile, c.Tier, c.UsageCleanupTask, c.UsageLog, c.User,
-		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
-		c.UserPlatformQuota, c.UserSubscription,
+		c.PromoCodeUsage, c.ProtocolEndpointCapability, c.Proxy, c.QAArchiveShard,
+		c.QAExportJob, c.QARecord, c.RedeemCode, c.SecuritySecret, c.Setting,
+		c.SubscriptionPlan, c.TLSFingerprintProfile, c.Tier, c.UsageCleanupTask,
+		c.UsageLog, c.User, c.UserAllowedGroup, c.UserAttributeDefinition,
+		c.UserAttributeValue, c.UserPlatformQuota, c.UserSubscription,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -532,6 +538,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.PromoCode.mutate(ctx, m)
 	case *PromoCodeUsageMutation:
 		return c.PromoCodeUsage.mutate(ctx, m)
+	case *ProtocolEndpointCapabilityMutation:
+		return c.ProtocolEndpointCapability.mutate(ctx, m)
 	case *ProxyMutation:
 		return c.Proxy.mutate(ctx, m)
 	case *QAArchiveShardMutation:
@@ -889,6 +897,22 @@ func (c *AccountClient) QueryProxy(_m *Account) *ProxyQuery {
 			sqlgraph.From(account.Table, account.FieldID, id),
 			sqlgraph.To(proxy.Table, proxy.FieldID),
 			sqlgraph.Edge(sqlgraph.M2O, false, account.ProxyTable, account.ProxyColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryProtocolEndpointCapability queries the protocol_endpoint_capability edge of a Account.
+func (c *AccountClient) QueryProtocolEndpointCapability(_m *Account) *ProtocolEndpointCapabilityQuery {
+	query := (&ProtocolEndpointCapabilityClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(account.Table, account.FieldID, id),
+			sqlgraph.To(protocolendpointcapability.Table, protocolendpointcapability.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, account.ProtocolEndpointCapabilityTable, account.ProtocolEndpointCapabilityColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -4646,6 +4670,155 @@ func (c *PromoCodeUsageClient) mutate(ctx context.Context, m *PromoCodeUsageMuta
 	}
 }
 
+// ProtocolEndpointCapabilityClient is a client for the ProtocolEndpointCapability schema.
+type ProtocolEndpointCapabilityClient struct {
+	config
+}
+
+// NewProtocolEndpointCapabilityClient returns a client for the ProtocolEndpointCapability from the given config.
+func NewProtocolEndpointCapabilityClient(c config) *ProtocolEndpointCapabilityClient {
+	return &ProtocolEndpointCapabilityClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `protocolendpointcapability.Hooks(f(g(h())))`.
+func (c *ProtocolEndpointCapabilityClient) Use(hooks ...Hook) {
+	c.hooks.ProtocolEndpointCapability = append(c.hooks.ProtocolEndpointCapability, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `protocolendpointcapability.Intercept(f(g(h())))`.
+func (c *ProtocolEndpointCapabilityClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ProtocolEndpointCapability = append(c.inters.ProtocolEndpointCapability, interceptors...)
+}
+
+// Create returns a builder for creating a ProtocolEndpointCapability entity.
+func (c *ProtocolEndpointCapabilityClient) Create() *ProtocolEndpointCapabilityCreate {
+	mutation := newProtocolEndpointCapabilityMutation(c.config, OpCreate)
+	return &ProtocolEndpointCapabilityCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ProtocolEndpointCapability entities.
+func (c *ProtocolEndpointCapabilityClient) CreateBulk(builders ...*ProtocolEndpointCapabilityCreate) *ProtocolEndpointCapabilityCreateBulk {
+	return &ProtocolEndpointCapabilityCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ProtocolEndpointCapabilityClient) MapCreateBulk(slice any, setFunc func(*ProtocolEndpointCapabilityCreate, int)) *ProtocolEndpointCapabilityCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ProtocolEndpointCapabilityCreateBulk{err: fmt.Errorf("calling to ProtocolEndpointCapabilityClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ProtocolEndpointCapabilityCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ProtocolEndpointCapabilityCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ProtocolEndpointCapability.
+func (c *ProtocolEndpointCapabilityClient) Update() *ProtocolEndpointCapabilityUpdate {
+	mutation := newProtocolEndpointCapabilityMutation(c.config, OpUpdate)
+	return &ProtocolEndpointCapabilityUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ProtocolEndpointCapabilityClient) UpdateOne(_m *ProtocolEndpointCapability) *ProtocolEndpointCapabilityUpdateOne {
+	mutation := newProtocolEndpointCapabilityMutation(c.config, OpUpdateOne, withProtocolEndpointCapability(_m))
+	return &ProtocolEndpointCapabilityUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ProtocolEndpointCapabilityClient) UpdateOneID(id int64) *ProtocolEndpointCapabilityUpdateOne {
+	mutation := newProtocolEndpointCapabilityMutation(c.config, OpUpdateOne, withProtocolEndpointCapabilityID(id))
+	return &ProtocolEndpointCapabilityUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ProtocolEndpointCapability.
+func (c *ProtocolEndpointCapabilityClient) Delete() *ProtocolEndpointCapabilityDelete {
+	mutation := newProtocolEndpointCapabilityMutation(c.config, OpDelete)
+	return &ProtocolEndpointCapabilityDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ProtocolEndpointCapabilityClient) DeleteOne(_m *ProtocolEndpointCapability) *ProtocolEndpointCapabilityDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ProtocolEndpointCapabilityClient) DeleteOneID(id int64) *ProtocolEndpointCapabilityDeleteOne {
+	builder := c.Delete().Where(protocolendpointcapability.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ProtocolEndpointCapabilityDeleteOne{builder}
+}
+
+// Query returns a query builder for ProtocolEndpointCapability.
+func (c *ProtocolEndpointCapabilityClient) Query() *ProtocolEndpointCapabilityQuery {
+	return &ProtocolEndpointCapabilityQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeProtocolEndpointCapability},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ProtocolEndpointCapability entity by its id.
+func (c *ProtocolEndpointCapabilityClient) Get(ctx context.Context, id int64) (*ProtocolEndpointCapability, error) {
+	return c.Query().Where(protocolendpointcapability.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ProtocolEndpointCapabilityClient) GetX(ctx context.Context, id int64) *ProtocolEndpointCapability {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryAccounts queries the accounts edge of a ProtocolEndpointCapability.
+func (c *ProtocolEndpointCapabilityClient) QueryAccounts(_m *ProtocolEndpointCapability) *AccountQuery {
+	query := (&AccountClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(protocolendpointcapability.Table, protocolendpointcapability.FieldID, id),
+			sqlgraph.To(account.Table, account.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, protocolendpointcapability.AccountsTable, protocolendpointcapability.AccountsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *ProtocolEndpointCapabilityClient) Hooks() []Hook {
+	return c.hooks.ProtocolEndpointCapability
+}
+
+// Interceptors returns the client interceptors.
+func (c *ProtocolEndpointCapabilityClient) Interceptors() []Interceptor {
+	return c.inters.ProtocolEndpointCapability
+}
+
+func (c *ProtocolEndpointCapabilityClient) mutate(ctx context.Context, m *ProtocolEndpointCapabilityMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ProtocolEndpointCapabilityCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ProtocolEndpointCapabilityUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ProtocolEndpointCapabilityUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ProtocolEndpointCapabilityDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ProtocolEndpointCapability mutation op: %q", m.Op())
+	}
+}
+
 // ProxyClient is a client for the Proxy schema.
 type ProxyClient struct {
 	config
@@ -7538,11 +7711,11 @@ type (
 		ChannelMonitorRequestTemplate, CompositeModelRoute, ErrorPassthroughRule,
 		Group, IdempotencyRecord, IdentityAdoptionDecision, ModelAvailability,
 		PaymentAuditLog, PaymentOrder, PaymentProviderInstance, PendingAuthSession,
-		PromoCode, PromoCodeUsage, Proxy, QAArchiveShard, QAExportJob, QARecord,
-		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
-		Tier, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
-		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota,
-		UserSubscription []ent.Hook
+		PromoCode, PromoCodeUsage, ProtocolEndpointCapability, Proxy, QAArchiveShard,
+		QAExportJob, QARecord, RedeemCode, SecuritySecret, Setting, SubscriptionPlan,
+		TLSFingerprintProfile, Tier, UsageCleanupTask, UsageLog, User,
+		UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
+		UserPlatformQuota, UserSubscription []ent.Hook
 	}
 	inters struct {
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
@@ -7551,11 +7724,11 @@ type (
 		ChannelMonitorRequestTemplate, CompositeModelRoute, ErrorPassthroughRule,
 		Group, IdempotencyRecord, IdentityAdoptionDecision, ModelAvailability,
 		PaymentAuditLog, PaymentOrder, PaymentProviderInstance, PendingAuthSession,
-		PromoCode, PromoCodeUsage, Proxy, QAArchiveShard, QAExportJob, QARecord,
-		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
-		Tier, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
-		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota,
-		UserSubscription []ent.Interceptor
+		PromoCode, PromoCodeUsage, ProtocolEndpointCapability, Proxy, QAArchiveShard,
+		QAExportJob, QARecord, RedeemCode, SecuritySecret, Setting, SubscriptionPlan,
+		TLSFingerprintProfile, Tier, UsageCleanupTask, UsageLog, User,
+		UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
+		UserPlatformQuota, UserSubscription []ent.Interceptor
 	}
 )
 

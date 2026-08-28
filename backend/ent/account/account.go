@@ -76,6 +76,8 @@ const (
 	FieldSessionWindowStatus = "session_window_status"
 	// FieldChannelType holds the string denoting the channel_type field in the database.
 	FieldChannelType = "channel_type"
+	// FieldProtocolEndpointCapabilityID holds the string denoting the protocol_endpoint_capability_id field in the database.
+	FieldProtocolEndpointCapabilityID = "protocol_endpoint_capability_id"
 	// FieldTierID holds the string denoting the tier_id field in the database.
 	FieldTierID = "tier_id"
 	// FieldParentAccountID holds the string denoting the parent_account_id field in the database.
@@ -86,6 +88,8 @@ const (
 	EdgeGroups = "groups"
 	// EdgeProxy holds the string denoting the proxy edge name in mutations.
 	EdgeProxy = "proxy"
+	// EdgeProtocolEndpointCapability holds the string denoting the protocol_endpoint_capability edge name in mutations.
+	EdgeProtocolEndpointCapability = "protocol_endpoint_capability"
 	// EdgeParent holds the string denoting the parent edge name in mutations.
 	EdgeParent = "parent"
 	// EdgeChildren holds the string denoting the children edge name in mutations.
@@ -108,6 +112,13 @@ const (
 	ProxyInverseTable = "proxies"
 	// ProxyColumn is the table column denoting the proxy relation/edge.
 	ProxyColumn = "proxy_id"
+	// ProtocolEndpointCapabilityTable is the table that holds the protocol_endpoint_capability relation/edge.
+	ProtocolEndpointCapabilityTable = "accounts"
+	// ProtocolEndpointCapabilityInverseTable is the table name for the ProtocolEndpointCapability entity.
+	// It exists in this package in order to avoid circular dependency with the "protocolendpointcapability" package.
+	ProtocolEndpointCapabilityInverseTable = "protocol_endpoint_capabilities"
+	// ProtocolEndpointCapabilityColumn is the table column denoting the protocol_endpoint_capability relation/edge.
+	ProtocolEndpointCapabilityColumn = "protocol_endpoint_capability_id"
 	// ParentTable is the table that holds the parent relation/edge.
 	ParentTable = "accounts"
 	// ParentColumn is the table column denoting the parent relation/edge.
@@ -165,6 +176,7 @@ var Columns = []string{
 	FieldSessionWindowEnd,
 	FieldSessionWindowStatus,
 	FieldChannelType,
+	FieldProtocolEndpointCapabilityID,
 	FieldTierID,
 	FieldParentAccountID,
 	FieldQuotaDimension,
@@ -404,6 +416,11 @@ func ByChannelType(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldChannelType, opts...).ToFunc()
 }
 
+// ByProtocolEndpointCapabilityID orders the results by the protocol_endpoint_capability_id field.
+func ByProtocolEndpointCapabilityID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldProtocolEndpointCapabilityID, opts...).ToFunc()
+}
+
 // ByTierID orders the results by the tier_id field.
 func ByTierID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldTierID, opts...).ToFunc()
@@ -437,6 +454,13 @@ func ByGroups(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 func ByProxyField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newProxyStep(), sql.OrderByField(field, opts...))
+	}
+}
+
+// ByProtocolEndpointCapabilityField orders the results by protocol_endpoint_capability field.
+func ByProtocolEndpointCapabilityField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newProtocolEndpointCapabilityStep(), sql.OrderByField(field, opts...))
 	}
 }
 
@@ -500,6 +524,13 @@ func newProxyStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(ProxyInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, false, ProxyTable, ProxyColumn),
+	)
+}
+func newProtocolEndpointCapabilityStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ProtocolEndpointCapabilityInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, ProtocolEndpointCapabilityTable, ProtocolEndpointCapabilityColumn),
 	)
 }
 func newParentStep() *sqlgraph.Step {
