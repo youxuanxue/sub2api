@@ -12,7 +12,7 @@
 
 2026-06-24 prod 发版实测出现用户可感知 5xx：单 app 发版期间 Caddy 5xx 窗口约 30s，窗口内 176 个 503 + 2 个 502，主因是单容器 drain 后没有备用健康 upstream。prod 当前 `t4g.large` 资源足够承载短暂双 app 重叠，因此触发本方案第一阶段落地。
 
-第一阶段刻意不改共享 `deploy/aws/stage0/docker-compose.yml`，因为该文件仍被 Lightsail edge bootstrap 复用。prod/Edge blue/green 布局由同一套 SSM 脚本在 live host 上幂等生成。**2026-08-28：Edge 单 app 路径已 superseded**，现行规范见 `docs/approved/deploy-stage0-workflow.md`。
+第一阶段刻意不改共享 `deploy/aws/stage0/docker-compose.yml`，因为该文件仍被 Lightsail edge bootstrap 复用。prod blue/green 布局由 SSM 脚本在 live host 上幂等生成；edge 继续使用 `deploy_via_ssm.sh` 单 app 路径。
 
 ## 1. 后续增强触发项
 
