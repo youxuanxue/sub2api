@@ -18,10 +18,6 @@
 - Candidate `/health` owns protocol readiness; deployment code must not infer or probe protocol support.
 - Steady state runs one app color; post-commit routed `/health` must pass for 30 seconds before stopping the previous app.
 - Canary ordering is lowest completed requests over 30 minutes, greatest `MemAvailable` headroom, then matrix order; OAuth/Kiro count is audit-only.
-- `scripts/checks/bluegreen-migration-safety.py` owns target-tag/range resolution and SQL compatibility for both prod and Edge workflows.
-- `ops/stage0/bluegreen-capacity-policy.env` owns the three capacity constants consumed by deploy, probe, and picker.
-- A colored Caddy route without `active-color` is explicit recovery state: restart starts both colors and deploy blocks until repaired.
-- Current operational docs point to the shared owners; historical documents are retained only when marked superseded.
 - No permanent dual instances, second Edge deploy state machine, new load balancer, automatic post-commit rollback, or upstream account probing.
 
 ---
@@ -243,244 +239,73 @@ Run: `git diff --check && git diff --stat && git status --short`
 
 Confirm every approved behavior has one code owner, no unrelated files changed, and no deployment/release was triggered.
 
-### Task 6: Shared target-tag migration gate
-
-**Files:**
-- Modify: `scripts/checks/bluegreen-migration-safety.py`
-- Modify: `.github/workflows/deploy-stage0.yml`
-- Modify: `.github/workflows/deploy-edge-lightsail-stage0.yml`
-- Modify: `ops/stage0/test_deploy_stage0_workflow.py`
-- Modify: `scripts/preflight.sh`
-
-**Interfaces:**
-- Consumes: requested release tag without leading `v`, git remote/tag metadata, changed SQL migrations.
-- Produces: one fail-closed migration verdict used before prod deploy or Edge upgrade/rollback mutation.
-
-- [ ] **Step 1: Write failing checker and workflow contract tests**
-
-Extend the checker's existing `--selftest` with exact target-tag resolution,
-previous stable release selection, unresolved target/range failure, destructive
-SQL detection, and the existing explicit acknowledgement. Require both
-workflows to call only:
-
-```text
-python3 scripts/checks/bluegreen-migration-safety.py --target-tag "$INPUT_TAG"
-```
-
-Forbid workflow-owned `git ls-remote`, previous-tag Python snippets, or direct
-`--base/--head` deploy logic.
-
-- [ ] **Step 2: Run focused tests and observe failure**
-
-Run:
-
-```bash
-python3 -m unittest ops.stage0.test_deploy_stage0_workflow
-python3 scripts/checks/bluegreen-migration-safety.py --selftest
-```
-
-Expected: FAIL because the checker lacks `--target-tag` and Edge has no
-migration gate.
-
-- [ ] **Step 3: Move release-range ownership into the checker**
-
-Implement `--target-tag` as the deploy entry point. Normalize to `vX.Y.Z`,
-fetch/verify the requested tag, select and fetch the greatest lower stable tag,
-and scan that exact range. Preserve `--base/--head` for local preflight only.
-Deploy-mode resolution errors return non-zero; no `origin/main..HEAD` fallback
-is allowed for an unresolved requested release.
-
-- [ ] **Step 4: Replace both workflow implementations with thin calls**
-
-Run the shared checker after tag/manifest validation and before AWS credentials
-or app mutation. The Edge gate applies to `upgrade` and `rollback`; initial
-`provision` has no old application sharing its database and remains outside the
-blue/green compatibility gate.
-
-- [ ] **Step 5: Add the migration-owner sentinel and rerun tests**
-
-Extend preflight to require both workflow calls and reject duplicated
-range-selection logic. Rerun the Step 2 commands plus:
-
-```bash
-./scripts/preflight.sh
-```
-
-Expected: PASS.
-
-### Task 7: Fail-closed exceptional cutover recovery
-
-**Files:**
-- Modify: `ops/stage0/test_deploy_via_ssm_bluegreen.py`
-- Modify: `ops/stage0/deploy_via_ssm_bluegreen.sh`
-
-**Interfaces:**
-- Consumes: failed target-route preservation/reload and existing Caddy plus `active-color` state.
-- Produces: honest durable recovery state, restart-safe dual-color service, and a blocked next deploy.
-
-- [ ] **Step 1: Write failing recovery tests**
-
-Prove:
-
-```text
-confirmed target reload may persist target active-color
-unconfirmed target reload removes active-color and preserves both colors
-systemd starts both colors when active-color is missing or inconsistent
-colored Caddy route + missing active-color is not legacy and blocks deploy
-cleanup never removes either preserved color in this state
-```
-
-- [ ] **Step 2: Run focused tests and observe failure**
-
-Run: `python3 -m unittest ops.stage0.test_deploy_via_ssm_bluegreen`
-
-Expected: FAIL because `preserve_target_cutover` currently ignores reload
-failure and still writes target `active-color`.
-
-- [ ] **Step 3: Implement the minimal recovery semantics**
-
-Make `preserve_target_cutover` distinguish confirmed from unconfirmed target
-reload. On unconfirmed reload, remove `active-color`, retain both colors, and
-return failure without entering candidate cleanup. Tighten
-`ensure_legacy_cutover` so a colored route without `active-color` fails with an
-explicit recovery diagnostic. Reuse the existing systemd disagreement path;
-do not add a marker file or third deploy state.
-
-- [ ] **Step 4: Run focused and shell checks**
-
-Run:
-
-```bash
-python3 -m unittest ops.stage0.test_deploy_via_ssm_bluegreen
-bash -n ops/stage0/deploy_via_ssm_bluegreen.sh
-```
-
-Expected: PASS.
-
-### Task 8: Capacity policy data SSOT
-
-**Files:**
-- Create: `ops/stage0/bluegreen-capacity-policy.env`
-- Modify: `ops/stage0/deploy_via_ssm_bluegreen.sh`
-- Modify: `ops/stage0/edge_release_canary_probe.sh`
-- Modify: `scripts/stage0/pick_release_canary_edge.py`
-- Modify: `ops/stage0/test_deploy_via_ssm_bluegreen.py`
-- Modify: `ops/stage0/test_edge_release_canary_probe.py`
-- Modify: `scripts/stage0/test_pick_release_canary_edge.py`
-- Modify: `scripts/preflight.sh`
-
-**Interfaces:**
-- Consumes: exactly three `KEY=decimal-bytes` fields.
-- Produces: identical memory floor, active-app headroom, and root-disk floor for deploy, probe, and picker validation.
-
-- [ ] **Step 1: Write failing policy-consumer tests**
-
-Require all three consumers to reject missing, duplicate, unknown, or
-non-decimal policy fields. Assert the policy file is included in remote probe
-transport and that the three byte literals do not occur in consumer code.
-
-- [ ] **Step 2: Run focused tests and observe failure**
-
-Run:
-
-```bash
-python3 -m unittest \
-  ops.stage0.test_deploy_via_ssm_bluegreen \
-  ops.stage0.test_edge_release_canary_probe \
-  scripts.stage0.test_pick_release_canary_edge
-```
-
-Expected: FAIL because each consumer currently owns part of the policy.
-
-- [ ] **Step 3: Add and consume the data-only policy**
-
-Create the file with only:
-
-```text
-EDGE_MIN_MEM_AVAILABLE_BYTES=335544320
-EDGE_ACTIVE_APP_HEADROOM_BYTES=134217728
-EDGE_MIN_ROOT_DISK_AVAILABLE_BYTES=5368709120
-```
-
-Shell consumers validate and source it; the deploy primitive renders the
-validated values into the remote script. `run-probe.sh` uploads the same file
-for the Edge probe. The picker strictly parses the local file and uses those
-values to validate returned facts. Do not create a general release-policy
-framework.
-
-- [ ] **Step 4: Add the capacity-owner sentinel and rerun tests**
-
-Preflight requires the file and its three consumers, and rejects the three byte
-literals outside the policy file and tests/docs. Run the Step 2 command plus:
-
-```bash
-bash -n ops/stage0/deploy_via_ssm_bluegreen.sh
-bash -n ops/stage0/edge_release_canary_probe.sh
-```
-
-Expected: PASS.
-
-### Task 9: Current operational docs and complete SSOT verification
-
-**Files:**
-- Modify: `deploy/aws/RUNBOOK-disaster-recovery.md`
-- Modify: `deploy/aws/lightsail/README.md`
-- Modify: `deploy/aws/README.md`
-- Modify: `docs/spec-delta/edge-lightsail.md`
-- Modify: `docs/deploy/blue-green-zero-downtime-backlog.md`
-- Modify: `scripts/preflight.sh`
-- Modify: focused tests/sentinels only where needed.
-
-**Interfaces:**
-- Consumes: the shared migration, capacity, deploy, recovery, and canary owners.
-- Produces: current operator guidance with no competing active deployment contract.
-
-- [ ] **Step 1: Add a failing current-doc contract check**
-
-Enumerate current operational docs explicitly. Reject statements that describe
-`deploy_via_ssm.sh` or stop-first single-container replacement as the current
-prod/Edge upgrade or rollback path. Do not scan archive directories as current
-instructions.
-
-- [ ] **Step 2: Align current docs and mark history**
-
-Point current runbooks and READMEs to
-`ops/stage0/deploy_via_ssm_bluegreen.sh` and this approved spec. Correct the
-first-run sequence to requested-tag blue candidate → one cutover → legacy
-drain. Mark the zero-downtime backlog and any retained design-delta claims that
-describe the old Edge path as superseded; preserve their historical context.
-
-- [ ] **Step 3: Run focused release-safety verification**
-
-Run:
-
-```bash
-python3 -m unittest \
-  ops.stage0.test_deploy_via_ssm_bluegreen \
-  ops.stage0.test_deploy_stage0_workflow \
-  ops.stage0.test_edge_release_canary_probe \
-  scripts.stage0.test_pick_release_canary_edge \
-  scripts.stage0.test_rollout_edges \
-  scripts.stage0.test_dispatch_edge_deploy_smoke_phase
-bash -n ops/stage0/deploy_via_ssm_bluegreen.sh
-bash -n ops/stage0/edge_release_canary_probe.sh
-git diff --check
-```
-
-Expected: PASS.
-
-- [ ] **Step 4: Run the complete mechanical gate**
-
-Run: `./scripts/preflight.sh`
-
-Expected: PASS with distinct confirmations for the shared migration gate,
-capacity-policy uniqueness, blue/green primitive sharing, and current-doc
-contract.
-
-- [ ] **Step 5: Final SSOT review**
-
-Search the entire non-archive repository for duplicated migration-range logic,
-capacity literals, current legacy deployment claims, and independent cutover
-state. Confirm every load-bearing behavior points to exactly one executable
-owner and one canonical approved spec. Do not deploy, release, probe upstream
-accounts, push, or merge during this task.
+### Task 6: Keep recovery state honest
+
+**Files:** `ops/stage0/deploy_via_ssm_bluegreen.sh`,
+`ops/stage0/test_deploy_via_ssm_bluegreen.py`.
+
+- [ ] RED: prove an unconfirmed target reload clears `active-color`, keeps both
+  colors, and makes a colored route without `active-color` block the next
+  deploy.
+- [ ] Implement only the recovery behavior in acceptance criterion 4; reuse the
+  existing two-state cleanup and systemd disagreement paths.
+- [ ] GREEN:
+
+  ```bash
+  python3 -m unittest ops.stage0.test_deploy_via_ssm_bluegreen
+  bash -n ops/stage0/deploy_via_ssm_bluegreen.sh
+  ```
+
+### Task 7: Share the existing release checks
+
+**Files:** `scripts/checks/bluegreen-migration-safety.py`,
+`ops/stage0/bluegreen-capacity-policy.env`, both Stage0 workflows, the deploy
+primitive, Edge release probe, canary picker, focused tests, and
+`scripts/preflight.sh`.
+
+- [ ] RED: require both workflows to call one migration entry; require the
+  capacity literals to have one data owner; prove the picker does not implement
+  capacity thresholds.
+- [ ] Extract the current prod migration preparation unchanged into the shared
+  checker entry and call it from prod and Edge. Do not redesign tag/range
+  semantics in this PR.
+- [ ] Put the three existing capacity constants in the data-only policy. Only
+  deploy and probe consume it; picker validates probe shape and sorts its
+  verdict/facts.
+- [ ] Extend the existing Stage0 sentinel for these exact owners. Do not add a
+  generic release-policy framework or prose parser.
+- [ ] GREEN:
+
+  ```bash
+  python3 -m unittest \
+    ops.stage0.test_deploy_stage0_workflow \
+    ops.stage0.test_deploy_via_ssm_bluegreen \
+    ops.stage0.test_edge_release_canary_probe \
+    scripts.stage0.test_pick_release_canary_edge
+  python3 scripts/checks/bluegreen-migration-safety.py --selftest
+  bash -n ops/stage0/deploy_via_ssm_bluegreen.sh
+  bash -n ops/stage0/edge_release_canary_probe.sh
+  ```
+
+### Task 8: Align operator guidance and verify
+
+**Files:** `deploy/aws/RUNBOOK-disaster-recovery.md`,
+`deploy/aws/lightsail/README.md`, `deploy/aws/README.md`,
+`docs/spec-delta/edge-lightsail.md`, and
+`docs/deploy/blue-green-zero-downtime-backlog.md`.
+
+- [ ] Point current operator guidance to the shared blue/green primitive and
+  canonical approved spec. Mark retained historical descriptions as
+  superseded; do not rewrite archives.
+- [ ] Run the focused release-safety suites from Tasks 6-7, then:
+
+  ```bash
+  python3 -m unittest \
+    scripts.stage0.test_rollout_edges \
+    scripts.stage0.test_dispatch_edge_deploy_smoke_phase
+  git diff --check
+  ./scripts/preflight.sh
+  ```
+
+- [ ] Confirm the final design still has one deploy state machine, one capacity
+  data owner, and no deployment, release, upstream probe, push, or merge.

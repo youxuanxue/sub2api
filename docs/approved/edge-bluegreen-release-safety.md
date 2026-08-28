@@ -14,36 +14,8 @@ canonical_spec: docs/approved/deploy-stage0-workflow.md
 ## Decision
 
 Lightsail Edge reuses the prod same-host blue/green deployment primitive.
-`docs/approved/deploy-stage0-workflow.md` is the single owner of deployment
-state, migration admission, capacity admission, cutover, rollback, observation,
-canary selection, and recovery. This record does not define a second state
-machine.
-
-The approved product rules are:
-
-1. Prod and Edge call one blue/green primitive with thin environment profiles.
-2. The serving app is never stopped before the candidate is healthy.
-3. A failed cutover commit restores the old Caddy route only when both route
-   and durable active state can be restored. If either restoration fails, keep
-   the target route and both colors for explicit recovery. A committed cutover
-   is never automatically flipped back.
-4. After 30 seconds of successful routed observation, the old app is drained
-   and stopped. At steady state one app is running.
-5. Canary selection first rejects hosts without enough capacity, then chooses
-   the lowest recent traffic, greatest memory headroom, and matrix order.
-6. Prod deploy and Edge upgrade/rollback run the same migration-safety checker
-   against the requested release tag before app mutation; workflow YAML does
-   not own tag-range or SQL compatibility logic.
-7. One data-only capacity policy supplies the memory and disk thresholds used by
-   candidate admission, the read-only Edge probe, and canary validation.
-
-On host restart, systemd starts only the color jointly identified by Caddy and
-`active-color`. If they disagree, either value cannot be resolved, or a failed
-target reload has deliberately removed `active-color`, it starts both colors
-before Caddy so the persisted route remains serviceable while an operator
-performs explicit recovery. A colored Caddy route without `active-color` is an
-explicit recovery state and blocks the next deployment; it must never be
-reinterpreted as a legacy single-container host.
+`docs/approved/deploy-stage0-workflow.md` is the only behavior specification.
+This decision record adds no second state machine or duplicated rules.
 
 ## Incident
 
@@ -60,13 +32,11 @@ image serving when the target is inconclusive or unhealthy.
 
 ## Scope boundary
 
-This approval includes the shared primitive, Edge workflow wiring, Edge
-capacity admission, deterministic canary selection, shared migration gate,
-capacity-policy SSOT, fail-closed exceptional recovery, current operational-doc
-alignment, and mechanical regression guards. It excludes permanent dual
-instances, a second Edge deploy mode, upstream account probing, protocol
-inference in operations scripts, automatic post-commit rollback, and new
-infrastructure.
+This approval includes Edge workflow wiring to the shared primitive, the
+minimum capacity/canary checks required to choose a safe candidate, and the
+recovery fix found during review. It excludes permanent dual instances, a
+second Edge deploy mode, upstream account probing, protocol inference,
+automatic post-commit rollback, and new infrastructure.
 
 Implementation, merge, release, and rollout retain their normal approval
 gates. The failed `v1.8.178` rollout remains frozen; the implementation requires

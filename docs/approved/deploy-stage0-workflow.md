@@ -108,16 +108,11 @@ Steps:
    role from `vars.AWS_OIDC_ROLE_ARN`. The job-level **`environment: prod`**
    binding (a) adds the subject the IAM trust requires, (b) pauses for any
    reviewer rule configured on the prod Environment (Section 5).
-4. **Blue/green migration safety gate** —
-   `scripts/checks/bluegreen-migration-safety.py` is the only owner of target-tag
-   resolution, previous-release range selection, resolution failure, and changed
-   SQL scanning. Both prod and Edge workflows pass the requested release tag to
-   this checker before prod deploy or Edge upgrade/rollback app mutation;
-   neither workflow embeds a second range or SQL-pattern implementation.
-   `DROP`, `RENAME`, `SET NOT NULL`, `ADD COLUMN ... NOT NULL`, and `ALTER ...
-   TYPE` require an explicit
-   `bluegreen-safe-destructive-ok` acknowledgement after expand/contract review.
-   An unresolved target or comparison range fails closed in deploy workflows.
+4. **Blue/green migration safety gate** — prod and Edge call
+   `scripts/checks/bluegreen-migration-safety.py` before app mutation. The
+   checker absorbs the existing prod tag/range preparation as its release-mode
+   entry. This centralizes the current gate without redesigning its comparison
+   semantics; workflow YAML contains no second implementation.
 5. **Resolve target instance + api domain** from the stack's
    `InstanceId` / `ApiUrl` outputs.
 6. **Deploy via the shared SSM blue/green owner** — prod EC2 (`i-*`) and
@@ -170,14 +165,11 @@ Steps:
    legacy migration, and every later deploy remains blocked until an operator
    makes route and durable active state agree.
 
-   `ops/stage0/bluegreen-capacity-policy.env` is the only owner of the capacity
-   constants. It contains strict `KEY=decimal-bytes` data only, with no shell
-   logic. The deploy primitive sources it before rendering the remote command;
-   `edge_release_canary_probe.sh` receives the same file through the canonical
-   probe transport; `pick_release_canary_edge.py` parses it strictly when
-   validating probe facts. Missing, duplicate, unknown, or non-decimal policy
-   fields fail closed. Edge starts a candidate only when both hard admission
-   rules pass:
+   `ops/stage0/bluegreen-capacity-policy.env` is the single data owner of the
+   Edge memory and disk thresholds. Only the deploy primitive and the read-only
+   Edge release probe consume it. The canary picker consumes the probe verdict
+   and facts; it does not parse or recompute the policy. Edge starts a candidate
+   only when both hard admission rules pass:
 
    - `MemAvailable >= max(EDGE_MIN_MEM_AVAILABLE_BYTES, active app working set + EDGE_ACTIVE_APP_HEADROOM_BYTES)`;
    - root filesystem available space is at least
@@ -261,15 +253,6 @@ Native OAuth/Kiro pool size remains an audit and smoke-applicability field; it
 does not affect eligibility or ordering. A fleet-wide empty pool is expected
 and does not fail canary selection. Transport failure for one Edge rejects that
 Edge; selection fails closed only when no eligible Edge remains.
-
-### Operational documentation ownership
-
-This approved document and the executable owners named above define current
-behavior. Current runbooks and deployment READMEs may explain how to invoke or
-recover the workflow, but must point to these owners and must not describe
-`ops/stage0/deploy_via_ssm.sh` as the current prod or Edge upgrade/rollback
-primitive. Historical design and backlog documents may remain for provenance
-only when visibly marked superseded; archived material is not rewritten.
 
 ## 5. Required pre-deploy operator setup
 
@@ -377,17 +360,12 @@ gates fire correctly and the regression check holds:
 7. **Canary selection is deterministic**: eligible Edges sort by 30-minute
    traffic, memory headroom, and matrix order; OAuth/Kiro pool size cannot make
    selection fail.
-8. **Migration admission has one owner**: prod and Edge workflows both invoke
-   `scripts/checks/bluegreen-migration-safety.py` with the requested tag for
-   prod deploy and Edge upgrade/rollback, and a sentinel rejects embedded
-   workflow range or SQL-pattern implementations.
-9. **Capacity policy has one owner**: the deploy primitive, Edge probe, and
-   canary selector consume `ops/stage0/bluegreen-capacity-policy.env`; the
-   threshold byte values do not appear in those consumers.
-10. **Current operator guidance has one truth**: a sentinel rejects current
-    operational docs that advertise the legacy single-container primitive as
-    the active prod or Edge upgrade/rollback path. Superseded historical
-    material is clearly labeled and excluded from current instructions.
+8. **Migration admission has one entry**: prod and Edge call
+   `scripts/checks/bluegreen-migration-safety.py`; workflows do not copy its
+   tag/range preparation or SQL scan.
+9. **Capacity policy has one owner**: only the deploy primitive and Edge probe
+   consume `ops/stage0/bluegreen-capacity-policy.env`; the canary picker uses
+   the probe verdict without reimplementing capacity policy.
 
 A successful deploy itself is not a separate acceptance bullet — that
 *is* the workflow's purpose, observed via job-summary HTTP 200 from
