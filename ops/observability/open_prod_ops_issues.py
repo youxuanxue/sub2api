@@ -38,11 +38,9 @@ def sh(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[st
 
 
 def ensure_label(name: str, color: str, description: str) -> None:
-    subprocess.run(
+    sh(
         ["gh", "label", "create", name, "--color", color, "--description", description[:100]],
-        text=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        check=False,
     )
 
 

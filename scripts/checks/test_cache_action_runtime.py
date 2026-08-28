@@ -13,7 +13,11 @@ GITHUB_DIR = REPO_ROOT / ".github"
 CACHE_ACTION = re.compile(
     r"actions/cache(?P<variant>/(?:restore|save))?@v(?P<major>\d+)"
 )
+UPLOAD_ARTIFACT_ACTION = re.compile(r"actions/upload-artifact@v(?P<major>\d+)")
+DOWNLOAD_ARTIFACT_ACTION = re.compile(r"actions/download-artifact@v(?P<major>\d+)")
 REQUIRED_MAJOR = "6"
+MINIMUM_UPLOAD_ARTIFACT_MAJOR = 6
+REQUIRED_DOWNLOAD_ARTIFACT_MAJOR = "8"
 
 
 class CacheActionRuntimeTest(unittest.TestCase):
@@ -40,6 +44,58 @@ class CacheActionRuntimeTest(unittest.TestCase):
             outdated,
             [],
             "direct cache actions must use v6 (Node 24 runtime):\n"
+            + "\n".join(outdated),
+        )
+
+    def test_all_upload_artifact_actions_use_node24_runtime_major(self) -> None:
+        matches: list[tuple[Path, int, str]] = []
+        outdated: list[str] = []
+
+        workflow_files = sorted(GITHUB_DIR.rglob("*.yml")) + sorted(
+            GITHUB_DIR.rglob("*.yaml")
+        )
+        for path in workflow_files:
+            for line_number, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1
+            ):
+                for match in UPLOAD_ARTIFACT_ACTION.finditer(line):
+                    action = match.group(0)
+                    matches.append((path, line_number, action))
+                    if int(match.group("major")) < MINIMUM_UPLOAD_ARTIFACT_MAJOR:
+                        relative = path.relative_to(REPO_ROOT)
+                        outdated.append(f"{relative}:{line_number}: {action}")
+
+        self.assertTrue(matches, "expected at least one upload-artifact reference")
+        self.assertEqual(
+            outdated,
+            [],
+            "upload-artifact actions must use v6+ (Node 24 runtime):\n"
+            + "\n".join(outdated),
+        )
+
+    def test_all_download_artifact_actions_use_node24_runtime_major(self) -> None:
+        matches: list[tuple[Path, int, str]] = []
+        outdated: list[str] = []
+
+        workflow_files = sorted(GITHUB_DIR.rglob("*.yml")) + sorted(
+            GITHUB_DIR.rglob("*.yaml")
+        )
+        for path in workflow_files:
+            for line_number, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1
+            ):
+                for match in DOWNLOAD_ARTIFACT_ACTION.finditer(line):
+                    action = match.group(0)
+                    matches.append((path, line_number, action))
+                    if match.group("major") != REQUIRED_DOWNLOAD_ARTIFACT_MAJOR:
+                        relative = path.relative_to(REPO_ROOT)
+                        outdated.append(f"{relative}:{line_number}: {action}")
+
+        self.assertTrue(matches, "expected at least one download-artifact reference")
+        self.assertEqual(
+            outdated,
+            [],
+            "download-artifact actions must use v8 (Node 24 runtime):\n"
             + "\n".join(outdated),
         )
 

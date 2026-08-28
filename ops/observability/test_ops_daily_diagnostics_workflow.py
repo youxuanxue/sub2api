@@ -274,6 +274,7 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
             issue_candidates=[],
             gh_issues=[{"number": 42, "state": "OPEN", "closedAt": None, "createdAt": "2026-07-20T08:00:00Z"}],
         )
+        self.assertTrue(any(call[:2] == ["gh", "label"] for call in calls))
         self.assertTrue(any(call[:4] == ["gh", "issue", "list", "--label"] for call in calls))
         comment_calls = [call for call in calls if call[:3] == ["gh", "issue", "comment"]]
         self.assertEqual(len(comment_calls), 1)

@@ -33,3 +33,10 @@ func TestWriteFileAtomicReplacesBundleWithoutTempResidue(t *testing.T) {
 		t.Fatalf("unexpected output directory entries: %v", entries)
 	}
 }
+
+func TestModelSurfaceBundleArtifactMatchesOwner(t *testing.T) {
+	artifact := filepath.Join("..", "..", "..", "ops", "pricing", "model-surface-bundle.json")
+	if err := bundle([]string{"--check", artifact}); err != nil {
+		t.Fatal(err)
+	}
+}

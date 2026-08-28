@@ -31,8 +31,16 @@ esac
 EOF
 chmod +x "${fake_bin}/aws"
 
+cat >"${fake_bin}/sleep" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${FAKE_SLEEP_LOG}"
+exit 0
+EOF
+chmod +x "${fake_bin}/sleep"
+
 export PATH="${fake_bin}:${PATH}"
 export FAKE_AWS_LOG="${tmp}/aws.log"
+export FAKE_SLEEP_LOG="${tmp}/sleep.log"
 export STAGE0_SSM_OUTPUT_DIR="${tmp}/output"
 
 bash "${SCRIPT}" plan i-0123456789abcdef0 >"${tmp}/plan.out"
@@ -54,5 +62,6 @@ bash "${SCRIPT}" activate i-0123456789abcdef0 \
   >"${tmp}/activate.out"
 grep -F '"phase":"single_owner_activate"' "${tmp}/activate.out" >/dev/null
 grep -F -- '--activate-single-owner' "${FAKE_AWS_LOG}" >/dev/null
+test "$(wc -l <"${FAKE_SLEEP_LOG}" | tr -d '[:space:]')" = 2
 
-echo 'test_activate_qa_single_owner_via_ssm: ok'
+echo 'test_activate_qa_single_owner_via_ssm: ok (fake_poll_sleeps=2)'

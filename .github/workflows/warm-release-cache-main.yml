@@ -1,8 +1,9 @@
 name: Warm Release Cache
 
 # Release tags can restore caches from the default branch, but not from older
-# tag refs. Keep the cross-arch cache warm on main only when backend build
-# inputs change; this is acceleration work, not a required CI correctness gate.
+# tag refs. Keep the cross-arch release cache and the daily integration build
+# cache warm on main only when backend build inputs change. This is acceleration
+# work, not a required CI correctness gate.
 on:
   push:
     branches: [main]
@@ -59,3 +60,30 @@ jobs:
             GOARCH="${arch}" go build -o /dev/null ./cmd/server
             echo "::endgroup::"
           done
+      - name: Resolve daily integration cache epoch
+        id: integration_epoch
+        run: echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      - name: Daily integration build cache
+        id: integration_cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ github.workspace }}/.cache/go-build-integration
+          key: ${{ runner.os }}-gobuild-integration-nodwarf-v2-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ steps.integration_epoch.outputs.day }}
+          restore-keys: |
+            ${{ runner.os }}-gobuild-integration-nodwarf-v2-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
+            ${{ runner.os }}-gobuild-integration-nodwarf-v2-
+      - name: Warm integration build cache
+        if: steps.integration_cache.outputs.cache-hit != 'true'
+        working-directory: backend
+        env:
+          GOCACHE: ${{ github.workspace }}/.cache/go-build-integration
+          GOFLAGS: -gcflags=all=-dwarf=false
+        run: |
+          set -euo pipefail
+          index=0
+          while IFS= read -r package; do
+            go test -c -tags=integration \
+              -o "${RUNNER_TEMP}/integration-cache-${index}.test" \
+              "$package"
+            index=$((index + 1))
+          done < <(python3 ../scripts/ci/integration-packages.py --root .)
