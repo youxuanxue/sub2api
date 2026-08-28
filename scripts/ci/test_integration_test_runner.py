@@ -17,7 +17,7 @@ SCRIPT = Path(__file__).resolve().parent / "integration_test_runner.py"
 
 
 class IntegrationTestRunnerTest(unittest.TestCase):
-    def test_compiles_all_integration_packages_once_without_duplicate_vet(
+    def test_compiles_all_integration_packages_once_with_tagged_vet_coverage(
         self,
     ) -> None:
         integration_tests = [f"TestIntegration{i}" for i in range(9)]
@@ -35,7 +35,7 @@ class IntegrationTestRunnerTest(unittest.TestCase):
         go_calls = [event["args"] for event in first_events if event["kind"] == "go"]
         compile_calls = [call for call in go_calls if "-c" in call]
         self.assertEqual(len(compile_calls), 1, go_calls)
-        self.assertIn("-vet=off", compile_calls[0])
+        self.assertNotIn("-vet=off", compile_calls[0])
         self.assertIn("./internal/repository", compile_calls[0])
         self.assertIn("./internal/other", compile_calls[0])
         self.assertFalse(

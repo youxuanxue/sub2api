@@ -85,6 +85,6 @@ jobs:
             integration_packages+=("$package")
           done < <(python3 ../scripts/ci/integration-packages.py --root .)
           mkdir -p "${RUNNER_TEMP}/integration-cache"
-          go test -vet=off -c -tags=integration \
+          go test -c -tags=integration \
             -o "${RUNNER_TEMP}/integration-cache/" \
             "${integration_packages[@]}"

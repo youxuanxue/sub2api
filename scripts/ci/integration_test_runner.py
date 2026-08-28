@@ -149,7 +149,6 @@ def run_integration_tests(
             [
                 "go",
                 "test",
-                "-vet=off",
                 "-c",
                 "-tags=integration",
                 "-o",
