@@ -149,10 +149,17 @@ Steps:
    The externally meaningful state is only `pre_cutover` or `committed`.
    `commit_cutover` owns the Caddy backup/reload plus atomic `active-color` and
    timestamp write. A validation, reload, or persistence failure restores the
-   old Caddy route and keeps the old color active. After commit, routed
-   `/health` must remain successful for 30 seconds before the old color is
-   drained and stopped. A post-commit failure leaves both colors running for an
-   explicit previous-tag rollback; it never flips back automatically.
+   old Caddy route and durable active state when both restorations succeed. If
+   either restoration fails, it preserves the target route and both colors for
+   explicit recovery instead of entering pre-cutover cleanup. After commit,
+   routed `/health` must remain successful for 30 seconds before the old color
+   is drained and stopped. A post-commit failure leaves both colors running for
+   an explicit previous-tag rollback; it never flips back automatically.
+
+   On host restart, `tokenkey.service` starts only the color jointly identified
+   by Caddy and `active-color`. If they disagree or either value is unresolved,
+   it starts both colors before Caddy so the persisted route stays serviceable;
+   the next deploy remains blocked until explicit recovery makes them agree.
 
    Edge starts a candidate only when both hard admission rules pass:
 
@@ -331,7 +338,9 @@ gates fire correctly and the regression check holds:
    or readiness failure removes the candidate and leaves Caddy,
    `active-color`, and the serving app unchanged.
 4. **Cutover commit is recoverable**: Caddy reload or state-persistence failure
-   restores the old Caddy route and reports a failed deployment.
+   restores the old route and durable active state when possible; if either
+   restoration fails, the target route and both colors remain available for
+   explicit recovery and the deployment reports failure.
 5. **One steady-state app**: successful routed observation drains and stops the
    old color; a post-commit observation failure leaves it running for explicit
    rollback.

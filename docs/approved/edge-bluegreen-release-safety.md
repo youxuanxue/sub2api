@@ -22,12 +22,19 @@ The approved product rules are:
 
 1. Prod and Edge call one blue/green primitive with thin environment profiles.
 2. The serving app is never stopped before the candidate is healthy.
-3. A failed cutover commit restores the old Caddy route; a committed cutover is
-   never automatically flipped back.
+3. A failed cutover commit restores the old Caddy route only when both route
+   and durable active state can be restored. If either restoration fails, keep
+   the target route and both colors for explicit recovery. A committed cutover
+   is never automatically flipped back.
 4. After 30 seconds of successful routed observation, the old app is drained
    and stopped. At steady state one app is running.
 5. Canary selection first rejects hosts without enough capacity, then chooses
    the lowest recent traffic, greatest memory headroom, and matrix order.
+
+On host restart, systemd starts only the color jointly identified by Caddy and
+`active-color`. If they disagree or either value cannot be resolved, it starts
+both colors before Caddy so the persisted route remains serviceable while an
+operator performs explicit recovery.
 
 ## Incident
 
