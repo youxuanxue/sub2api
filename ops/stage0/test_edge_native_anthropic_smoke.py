@@ -29,7 +29,9 @@ class EdgeNativeAnthropicSmokeTest(unittest.TestCase):
                 textwrap.dedent(
                     """\
                     #!/usr/bin/env bash
-                    printf '%s\n' "${FAKE_ACCOUNT_ROWS:-66|kiro}"
+                    if [[ "${FAKE_ACCOUNT_ROWS:-66|kiro}" != "__EMPTY__" ]]; then
+                      printf '%s\n' "${FAKE_ACCOUNT_ROWS:-66|kiro}"
+                    fi
                     """
                 )
             )
@@ -107,6 +109,13 @@ class EdgeNativeAnthropicSmokeTest(unittest.TestCase):
         self.assertIn("probe account_id=11 platform=anthropic model=claude-sonnet-4-6", proc.stdout)
         self.assertIn("probe account_id=66 platform=kiro model=claude-sonnet-4-6", proc.stdout)
         self.assertIn("OK served=2", proc.stdout)
+
+    def test_empty_native_pool_is_explicitly_skipped(self) -> None:
+        proc, logged_models = self._run_smoke("claude-sonnet-4-6", "__EMPTY__")
+
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertEqual(logged_models, [])
+        self.assertIn("SKIPPED no eligible accounts", proc.stdout)
 
 
 if __name__ == "__main__":

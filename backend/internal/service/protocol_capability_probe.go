@@ -67,6 +67,17 @@ type protocolProbeObservation struct {
 	verdict  ProtocolProbeVerdict
 }
 
+func protocolProbeRelayCapacityVerdict(
+	account *Account,
+	statusCode int,
+	body []byte,
+) (ProtocolProbeVerdict, bool) {
+	if tkIsAntigravityRelayCapacityResponse(account, statusCode, body) {
+		return ProtocolProbePositive, true
+	}
+	return "", false
+}
+
 type protocolProbeGenerationResolution struct {
 	SupportedProtocols []protocolrouter.Protocol
 	Evidence           map[protocolrouter.Protocol]any

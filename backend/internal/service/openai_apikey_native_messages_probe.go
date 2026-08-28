@@ -100,7 +100,9 @@ func (s *AccountTestService) probeOpenAIAPIKeyNativeMessagesSupport(
 
 		supported := nativeMessagesProbeSupported(resp.StatusCode, bodyBytes)
 		verdict := ProtocolProbeInconclusive
-		if supported {
+		if capacityVerdict, knownCapacity := protocolProbeRelayCapacityVerdict(account, resp.StatusCode, bodyBytes); knownCapacity {
+			verdict = capacityVerdict
+		} else if supported {
 			verdict = ProtocolProbePositive
 		} else if protocolProbeModelSpecificHTTPFailure(resp.StatusCode, bodyBytes) {
 			verdict = ProtocolProbeModelSpecific

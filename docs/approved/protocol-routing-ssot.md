@@ -420,6 +420,13 @@ service state rather than endpoint protocol support. A classified provider
 model-routing response may select another bounded model candidate, but it still
 cannot remove protocol membership.
 
+One narrow managed-relay exception applies: for an exact TokenKey Antigravity
+Edge relay stub, the canonical `No available accounts` capacity response is
+`positive` endpoint evidence. That response is emitted only after the Edge
+gateway accepted the concrete protocol path and request shape; it proves the
+protocol endpoint while saying nothing about the current native OAuth/Kiro
+pool. Arbitrary provider 429/5xx responses remain `inconclusive`.
+
 If the same key obtains both conclusive positive and conclusive endpoint
 negative evidence for one protocol, the protocol is removed from routing and
 the row records `identity_conflict`. That protocol remains fail-closed until a
@@ -625,6 +632,8 @@ Required tests include:
 - empty capability fail-closed behavior;
 - deterministic witness selection and bounded alternate-witness fallback;
 - 401/403, 429, 5xx, timeout, and network failures not mutating shared facts;
+- exact TokenKey Antigravity Edge relay capacity responses adding endpoint
+  facts while arbitrary 429/5xx responses remain inconclusive;
 - positive addition, structured endpoint-negative removal, and model-specific
   preservation;
 - positive/negative identity conflict failing closed;

@@ -158,6 +158,8 @@ type protocolProbeSetUpstream struct {
 	grokVersions   []string
 	originators    []string
 	codexWindows   []string
+	statusCode     int
+	responseBody   string
 }
 
 type protocolProbeBarrierUpstream struct {
@@ -221,6 +223,61 @@ func (u *protocolProbeBarrierUpstream) DoWithTLS(
 	}, nil
 }
 
+func TestProbeAccountProtocolCapabilitiesTreatsEdgeRelayEmptyPoolAsEndpointEvidence(t *testing.T) {
+	account := &Account{
+		ID:          61,
+		Name:        "antigravity-us3",
+		Platform:    PlatformAntigravity,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": "https://api-us3.tokenkey.dev",
+			"model_mapping": map[string]any{
+				"gemini-3-flash": "gemini-3-flash",
+			},
+		},
+		UpdatedAt: time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC),
+	}
+	repo := &protocolProbeCASRepo{account: cloneProtocolProbeAccount(account)}
+	upstream := &protocolProbeSetUpstream{
+		statusCode:   http.StatusTooManyRequests,
+		responseBody: `{"type":"error","error":{"type":"api_error","message":"No available accounts: no available accounts"}}`,
+	}
+	svc := &AccountTestService{
+		accountRepo:  repo,
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled: false,
+		}}},
+	}
+
+	result, err := svc.ProbeAccountProtocolCapabilitiesNow(context.Background(), account.ID)
+	if err != nil {
+		t.Fatalf("ProbeAccountProtocolCapabilitiesNow: %v", err)
+	}
+	if result.Outcome != ProtocolProbeRunUpdated {
+		t.Fatalf("probe outcome = %q, want %q", result.Outcome, ProtocolProbeRunUpdated)
+	}
+	got, err := repo.GetByID(context.Background(), account.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	want := []protocolrouter.Protocol{
+		protocolrouter.ProtocolMessages,
+		protocolrouter.ProtocolChatCompletions,
+		protocolrouter.ProtocolResponses,
+	}
+	if !reflect.DeepEqual(got.SupportedProtocols(), want) {
+		t.Fatalf("supported protocols = %v, want %v", got.SupportedProtocols(), want)
+	}
+	if got.ProtocolEndpointCapability == nil || !got.ProtocolEndpointCapability.ProbeEvidence.InitialProbeCompleted {
+		t.Fatalf("empty-pool endpoint evidence remained inconclusive: %#v", got.ProtocolEndpointCapability)
+	}
+}
+
 func (u *protocolProbeSetUpstream) Do(
 	req *http.Request,
 	proxyURL string,
@@ -247,15 +304,22 @@ func (u *protocolProbeSetUpstream) DoWithTLS(
 	u.codexWindows = append(u.codexWindows, req.Header.Get("X-Codex-Window-ID"))
 	u.mu.Unlock()
 
-	body := `{"output":[{"type":"function_call","name":"probe_ping"}]}`
-	switch req.URL.Path {
-	case "/v1/messages":
-		body = `{"type":"message","content":[{"type":"text","text":"OK"}]}`
-	case "/v1/chat/completions":
-		body = `{"choices":[{"message":{"role":"assistant","content":"OK"}}]}`
+	statusCode := u.statusCode
+	if statusCode == 0 {
+		statusCode = http.StatusOK
+	}
+	body := u.responseBody
+	if body == "" {
+		body = `{"output":[{"type":"function_call","name":"probe_ping"}]}`
+		switch req.URL.Path {
+		case "/v1/messages":
+			body = `{"type":"message","content":[{"type":"text","text":"OK"}]}`
+		case "/v1/chat/completions":
+			body = `{"choices":[{"message":{"role":"assistant","content":"OK"}}]}`
+		}
 	}
 	return &http.Response{
-		StatusCode: http.StatusOK,
+		StatusCode: statusCode,
 		Header:     make(http.Header),
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}, nil

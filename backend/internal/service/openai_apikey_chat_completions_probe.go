@@ -99,7 +99,9 @@ func (s *AccountTestService) probeOpenAIAPIKeyChatCompletionsSupport(
 		}
 
 		verdict := ProtocolProbeInconclusive
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 && gjson.GetBytes(bodyBytes, "choices").IsArray() {
+		if capacityVerdict, knownCapacity := protocolProbeRelayCapacityVerdict(account, resp.StatusCode, bodyBytes); knownCapacity {
+			verdict = capacityVerdict
+		} else if resp.StatusCode >= 200 && resp.StatusCode < 300 && gjson.GetBytes(bodyBytes, "choices").IsArray() {
 			verdict = ProtocolProbePositive
 		} else if protocolProbeModelSpecificHTTPFailure(resp.StatusCode, bodyBytes) {
 			verdict = ProtocolProbeModelSpecific

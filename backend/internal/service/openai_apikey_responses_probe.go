@@ -159,8 +159,11 @@ func (s *AccountTestService) probeOpenAIAPIKeyResponsesSupport(
 
 		endpointSupported := openai_compat.ResponsesEndpointSupportedByStatus(resp.StatusCode)
 		supported := decideResponsesProbeSupport(endpointSupported, resp.StatusCode, bodyBytes)
+		capacityVerdict, knownCapacity := protocolProbeRelayCapacityVerdict(account, resp.StatusCode, bodyBytes)
 		verdict := ProtocolProbeInconclusive
 		switch {
+		case knownCapacity:
+			verdict = capacityVerdict
 		case supported && resp.StatusCode >= 200 && resp.StatusCode < 300 && responsesProbeBodyHasFunctionCall(bodyBytes):
 			verdict = ProtocolProbePositive
 		case protocolProbeModelSpecificHTTPFailure(resp.StatusCode, bodyBytes):
