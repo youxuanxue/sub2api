@@ -75,7 +75,7 @@ jobs:
 
   shell:
     needs: changes
-    if: needs.changes.outputs.all == 'true' || needs.changes.outputs.deploy == 'true'
+    if: (github.event_name != 'workflow_dispatch' || inputs.suite != 'unit-cache-benchmark') && (needs.changes.outputs.all == 'true' || needs.changes.outputs.deploy == 'true')
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
