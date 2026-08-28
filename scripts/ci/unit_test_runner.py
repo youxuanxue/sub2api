@@ -22,6 +22,7 @@ DEFAULT_MIN_SHARDS = 8
 # Keep the established service fan-out while allowing four other packages to
 # make progress without launching every test binary at once on hosted runners.
 DEFAULT_MAX_PARALLEL = DEFAULT_MIN_SHARDS + 4
+MAX_COMPILE_PARALLELISM = 24
 TEST_DISCOVERY_HELPER = Path(__file__).resolve().with_name("list_go_tests.go")
 # Linux limits a single argv entry to 128 KiB. Keep 32 KiB of headroom while
 # avoiding unnecessary shard/link fan-out at the current service test scale.
@@ -236,6 +237,10 @@ def _shared_compile_layout(
         (build_root / f"batch-{batch_index}").mkdir(parents=True, exist_ok=True)
         batch.sort()
     return batches, binaries
+
+
+def _compile_parallelism() -> int:
+    return min(MAX_COMPILE_PARALLELISM, max(1, os.cpu_count() or 1) * 2)
 
 
 def verify_binary_registry(
@@ -513,6 +518,7 @@ def run_unit_tests(
             packages,
             test_packages,
         )
+        compile_parallelism = _compile_parallelism()
         compile_started_at = time.monotonic()
         for batch_index, batch in enumerate(compile_batches):
             batch_started_at = time.monotonic()
@@ -522,6 +528,7 @@ def run_unit_tests(
                     "test",
                     "-c",
                     "-tags=unit",
+                    f"-p={compile_parallelism}",
                     "-o",
                     str(build_root / f"batch-{batch_index}"),
                     *batch,
@@ -530,7 +537,8 @@ def run_unit_tests(
             )
             print(
                 f"unit-test-runner: DETAIL shared-compile-batch-{batch_index} "
-                f"packages={len(batch)} ({time.monotonic() - batch_started_at:.1f}s)",
+                f"packages={len(batch)} parallelism={compile_parallelism} "
+                f"({time.monotonic() - batch_started_at:.1f}s)",
                 flush=True,
             )
         print(

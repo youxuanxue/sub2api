@@ -51,6 +51,10 @@ class UnitTestRunnerTest(unittest.TestCase):
         )
         compile_calls = [call for call in go_calls if "-c" in call]
         self.assertEqual(len(compile_calls), 1, go_calls)
+        self.assertIn(
+            f"-p={unit_test_runner._compile_parallelism()}",
+            compile_calls[0],
+        )
         self.assertIn("./internal/service", compile_calls[0])
         self.assertIn("./internal/other", compile_calls[0])
         self.assertFalse(
@@ -157,6 +161,14 @@ class UnitTestRunnerTest(unittest.TestCase):
         )
         self.assertNotIn("./third/duplicate", binaries)
         self.assertEqual(binaries["./internal/service"].name, "service.test")
+
+    def test_compile_parallelism_doubles_cpu_with_a_hosted_runner_cap(self) -> None:
+        with mock.patch.object(unit_test_runner.os, "cpu_count", return_value=4):
+            self.assertEqual(unit_test_runner._compile_parallelism(), 8)
+        with mock.patch.object(unit_test_runner.os, "cpu_count", return_value=64):
+            self.assertEqual(unit_test_runner._compile_parallelism(), 24)
+        with mock.patch.object(unit_test_runner.os, "cpu_count", return_value=None):
+            self.assertEqual(unit_test_runner._compile_parallelism(), 2)
 
     def test_fails_closed_when_ast_discovery_differs_from_binary_registry(self) -> None:
         with self._fake_go(
