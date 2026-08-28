@@ -2168,20 +2168,22 @@ fi
 echo ""
 echo "=== sub2api: Stage0 deployment primitive sharing ==="
 # EC2 edge path removed 2026-06-07 (deploy-edge-stage0.yml deleted); edges are
-# Lightsail-only. prod now uses the blue/green SSM primitive; Lightsail edge
-# stays on the legacy single-app primitive because its bootstrap still uses the
-# shared single-app compose. Neither workflow may inline compose deploy commands.
+# Lightsail-only. Prod and Lightsail Edge share one blue/green SSM primitive.
+# Neither workflow may inline compose deploy commands or call the legacy owner.
 if ! grep -q 'ops/stage0/deploy_via_ssm_bluegreen.sh' .github/workflows/deploy-stage0.yml; then
     echo "  FAIL: deploy-stage0.yml must use ops/stage0/deploy_via_ssm_bluegreen.sh"
     errors=$((errors + 1))
-elif ! grep -q 'ops/stage0/deploy_via_ssm.sh' .github/workflows/deploy-edge-lightsail-stage0.yml; then
-    echo "  FAIL: deploy-edge-lightsail-stage0.yml must use ops/stage0/deploy_via_ssm.sh"
+elif ! grep -q 'ops/stage0/deploy_via_ssm_bluegreen.sh' .github/workflows/deploy-edge-lightsail-stage0.yml; then
+    echo "  FAIL: deploy-edge-lightsail-stage0.yml must use ops/stage0/deploy_via_ssm_bluegreen.sh"
+    errors=$((errors + 1))
+elif grep -q 'ops/stage0/deploy_via_ssm\.sh' .github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-lightsail-stage0.yml; then
+    echo "  FAIL: Stage0 workflows must not call the legacy single-app deploy primitive"
     errors=$((errors + 1))
 elif grep -q 'docker compose --env-file .* up -d --no-deps tokenkey' .github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-lightsail-stage0.yml; then
-    echo "  FAIL: Stage0 workflows must not inline tokenkey SSM deploy commands; use the matching ops/stage0 deploy primitive"
+    echo "  FAIL: Stage0 workflows must not inline tokenkey SSM deploy commands; use the shared blue/green primitive"
     errors=$((errors + 1))
 else
-    echo "  ok: prod uses blue/green SSM primitive; Lightsail edge stays on single-app SSM primitive"
+    echo "  ok: prod and Lightsail Edge share the blue/green SSM primitive"
 fi
 
 echo ""

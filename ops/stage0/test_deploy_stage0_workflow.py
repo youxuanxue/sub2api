@@ -9,6 +9,7 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "deploy-stage0.yml"
+EDGE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "deploy-edge-lightsail-stage0.yml"
 BLUEGREEN_DEPLOY = REPO_ROOT / "ops" / "stage0" / "deploy_via_ssm_bluegreen.sh"
 
 
@@ -43,6 +44,14 @@ def step_run(name: str) -> str:
 
 
 class DeployStage0WorkflowTest(unittest.TestCase):
+    def test_prod_and_edge_share_bluegreen_deploy_owner(self) -> None:
+        prod = WORKFLOW.read_text(encoding="utf-8")
+        edge = EDGE_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("ops/stage0/deploy_via_ssm_bluegreen.sh", prod)
+        self.assertIn("ops/stage0/deploy_via_ssm_bluegreen.sh", edge)
+        self.assertNotIn("ops/stage0/deploy_via_ssm.sh", prod)
+        self.assertNotIn("ops/stage0/deploy_via_ssm.sh", edge)
+
     def test_operation_choice_preserves_deploy_default(self) -> None:
         text = workflow_text()
         operation = re.search(

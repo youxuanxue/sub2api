@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 #
-# Stage0 prod blue/green SSM deploy primitive.
+# Stage0 prod/Edge blue/green SSM deploy primitive.
 #
 # Scope:
-#   - Prod EC2 only (i-*). Lightsail edges keep using deploy_via_ssm.sh.
+#   - Prod EC2 (i-*) and Lightsail Edge managed instances (mi-*).
 #   - Single data layer: postgres/redis/caddy stay on the existing host/network.
 #   - Two app colors: tokenkey-blue and tokenkey-green share the same data layer.
-#   - First run migrates the legacy single tokenkey container to tokenkey-blue,
-#     then deploys the requested tag to the other color.
+#   - First run migrates the requested tag directly from legacy tokenkey to blue.
 #
 # Cutover model:
 #   1. Keep Caddy pointed at the current active color while the target color is
@@ -40,16 +39,20 @@ if [[ -z "${INSTANCE_ID}" ]]; then
   echo "stage0_deploy_via_ssm_bluegreen: instance id is required" >&2
   exit 1
 fi
-if [[ "${INSTANCE_ID}" != i-* ]]; then
-  echo "stage0_deploy_via_ssm_bluegreen: prod-only primitive requires EC2 instance id (i-*), got ${INSTANCE_ID}" >&2
-  exit 1
-fi
+case "${INSTANCE_ID}" in
+  i-*) DEPLOY_PROFILE=prod ;;
+  mi-*) DEPLOY_PROFILE=edge ;;
+  *)
+    echo "stage0_deploy_via_ssm_bluegreen: requires EC2 i-* or managed-instance mi-*, got ${INSTANCE_ID}" >&2
+    exit 1
+    ;;
+esac
 if [[ ! "${TIMEOUT_SECONDS}" =~ ^[0-9]+$ || ! "${EXECUTION_TIMEOUT_SECONDS}" =~ ^[0-9]+$ ]] \
   || (( TIMEOUT_SECONDS <= 0 || EXECUTION_TIMEOUT_SECONDS <= 0 )); then
   echo "stage0_deploy_via_ssm_bluegreen: timeout values must be positive integers" >&2
   exit 1
 fi
-if [[ "${QA_BUNDLE_ENABLED-}" = true ]]; then
+if [[ "${DEPLOY_PROFILE}" = prod && "${QA_BUNDLE_ENABLED-}" = true ]]; then
   for key in QA_BUNDLE_QUEUE_URL QA_BUNDLE_STORAGE_DRIVER QA_BUNDLE_STORAGE_REGION QA_BUNDLE_STORAGE_BUCKET QA_BUNDLE_STORAGE_PREFIX; do
     if [[ -z "${!key-}" ]]; then
       echo "stage0_deploy_via_ssm_bluegreen: ${key} is required when QA_BUNDLE_ENABLED=true" >&2
@@ -74,6 +77,7 @@ read -r -d '' REMOTE_SCRIPT <<'REMOTE' || true
 set -euo pipefail
 
 TAG="${TAG:?TAG is required}"
+DEPLOY_PROFILE="${DEPLOY_PROFILE:?DEPLOY_PROFILE is required}"
 ROOT=/var/lib/tokenkey
 ENV_FILE="${ROOT}/.env"
 BG_COMPOSE="${ROOT}/docker-compose.bluegreen.yml"
@@ -85,6 +89,8 @@ TARGET_CONTAINER=""
 CUTOVER_COMMITTED=0
 CUTOVER_AT=""
 ENV_BACKUP=""
+LEGACY_MIGRATED=0
+ROUTE_SWITCHED=0
 
 log() {
   echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"
@@ -148,17 +154,25 @@ backup_env() {
 }
 
 restore_env_if_safe() {
-  if [[ "${CUTOVER_COMMITTED}" = 0 && -n "${ENV_BACKUP}" && -f "${ENV_BACKUP}" ]]; then
+  if [[ "${CUTOVER_COMMITTED}" = 0 && "${ROUTE_SWITCHED}" = 0 && -n "${ENV_BACKUP}" && -f "${ENV_BACKUP}" ]]; then
     sudo cp -a "${ENV_BACKUP}" "${ENV_FILE}"
     log "restored .env from ${ENV_BACKUP}"
   fi
 }
 
-on_err() {
+cleanup_on_exit() {
   local rc=$?
+  trap - EXIT
+  [[ "${rc}" -ne 0 ]] || return 0
+  if [[ "${ROUTE_SWITCHED}" = 1 && "${CUTOVER_COMMITTED}" = 0 ]]; then
+    CUTOVER_COMMITTED=1
+    echo "::error::route switched without durable commit; preserving both colors for explicit recovery"
+  fi
   echo "::warning::blue/green deploy failed (rc=${rc}, cutover_committed=${CUTOVER_COMMITTED})"
   if [[ "${CUTOVER_COMMITTED}" = 0 && -n "${TARGET_CONTAINER}" ]]; then
-    log "preserving target ${TARGET_CONTAINER} for retry; active color remains untouched"
+    sudo docker logs "${TARGET_CONTAINER}" --since 3m 2>&1 | tail -80 || true
+    sudo docker rm -f "${TARGET_CONTAINER}" >/dev/null 2>&1 || true
+    log "removed failed target ${TARGET_CONTAINER}; active color remains untouched"
   fi
   restore_env_if_safe
   if [[ "${CUTOVER_COMMITTED}" = 1 ]]; then
@@ -166,10 +180,32 @@ on_err() {
   fi
   exit "${rc}"
 }
-trap on_err ERR
+trap cleanup_on_exit EXIT
 
-ensure_prod_defaults() {
-  [[ -f "${ENV_FILE}" ]] || die "missing ${ENV_FILE}; is this a Stage0 prod host?"
+clear_edge_profile_overrides() {
+  [[ "${DEPLOY_PROFILE}" = edge ]] || return 0
+  unset \
+    QA_BUNDLE_ENABLED QA_BUNDLE_ENABLED_SET \
+    QA_BUNDLE_QUEUE_URL QA_BUNDLE_QUEUE_URL_SET \
+    QA_BUNDLE_STORAGE_DRIVER QA_BUNDLE_STORAGE_DRIVER_SET \
+    QA_BUNDLE_STORAGE_REGION QA_BUNDLE_STORAGE_REGION_SET \
+    QA_BUNDLE_STORAGE_BUCKET QA_BUNDLE_STORAGE_BUCKET_SET \
+    QA_BUNDLE_STORAGE_PREFIX QA_BUNDLE_STORAGE_PREFIX_SET \
+    QA_ARCHIVE_ENABLED QA_ARCHIVE_STORAGE_DRIVER QA_ARCHIVE_STORAGE_REGION \
+    QA_ARCHIVE_STORAGE_BUCKET QA_ARCHIVE_STORAGE_PREFIX \
+    TELEMETRY_ARCHIVE_ENABLED TELEMETRY_ARCHIVE_REGION TELEMETRY_ARCHIVE_BUCKET \
+    TELEMETRY_ARCHIVE_PREFIX TELEMETRY_ARCHIVE_QUEUE_SIZE \
+    TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES TELEMETRY_ARCHIVE_MAX_EVENT_BYTES \
+    TELEMETRY_ARCHIVE_BATCH_SIZE TELEMETRY_ARCHIVE_WORKER_COUNT \
+    TELEMETRY_ARCHIVE_FLUSH_INTERVAL_SECONDS TELEMETRY_ARCHIVE_PUT_TIMEOUT_SECONDS \
+    MEDIA_STORAGE_DRIVER MEDIA_STORAGE_REGION MEDIA_STORAGE_BUCKET \
+    GATEWAY_IMAGE_CONCURRENCY_ENABLED GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS \
+    GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE
+}
+
+ensure_profile_environment() {
+  [[ -f "${ENV_FILE}" ]] || die "missing ${ENV_FILE}; is this a Stage0 host?"
+  clear_edge_profile_overrides
 
   local api_domain
   api_domain="$(env_get API_DOMAIN)"
@@ -181,6 +217,11 @@ ensure_prod_defaults() {
   fi
 
   env_default TOKENKEY_GHCR_KEEP_TAGS 3
+
+  if [[ "${DEPLOY_PROFILE}" = edge ]]; then
+    log "edge profile: preserving existing QA/archive/media/concurrency host values"
+    return 0
+  fi
 
   env_apply_if_supplied QA_BUNDLE_ENABLED "${QA_BUNDLE_ENABLED:-}" "${QA_BUNDLE_ENABLED_SET:-false}"
   env_apply_if_supplied QA_BUNDLE_QUEUE_URL "${QA_BUNDLE_QUEUE_URL:-}" "${QA_BUNDLE_QUEUE_URL_SET:-false}"
@@ -305,18 +346,44 @@ wait_ready() {
   return 1
 }
 
-target_is_reusable() {
-  local container="$1" expected_image="$2" actual_image health skip_chown expected_hash actual_hash
-  actual_image="$(container_image "${container}")"
-  health="$(container_health "${container}")"
-  skip_chown="$(sudo docker inspect "${container}" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
-    | sed -n 's/^SKIP_DATA_CHOWN=//p' | tail -1)"
-  expected_hash="$(compose_bg config --hash "${container}" 2>/dev/null | awk 'NF {print $NF}' | tail -1)"
-  actual_hash="$(sudo docker inspect "${container}" --format '{{index .Config.Labels "com.docker.compose.config-hash"}}' 2>/dev/null || true)"
-  log "target reuse check ${container}: image=${actual_image:-missing} health=${health} skip_data_chown=${skip_chown:-unset} config_hash_match=$([[ -n "${expected_hash}" && "${actual_hash}" = "${expected_hash}" ]] && echo true || echo false)"
-  [[ "${actual_image}" = "${expected_image}" && "${health}" = healthy && "${skip_chown}" = 1 ]] || return 1
-  [[ -n "${expected_hash}" && "${actual_hash}" = "${expected_hash}" ]] || return 1
-  wait_ready "${container}"
+bytes_from_docker_mem() {
+  local raw="$1" number unit multiplier
+  raw="${raw// /}"
+  number="$(printf '%s' "${raw}" | sed -nE 's/^([0-9]+([.][0-9]+)?).*/\1/p')"
+  unit="${raw#"${number}"}"
+  case "${unit}" in
+    B|'') multiplier=1 ;;
+    kB|KB) multiplier=1000 ;;
+    KiB) multiplier=1024 ;;
+    MB) multiplier=1000000 ;;
+    MiB) multiplier=1048576 ;;
+    GB) multiplier=1000000000 ;;
+    GiB) multiplier=1073741824 ;;
+    *) return 1 ;;
+  esac
+  [[ -n "${number}" ]] || return 1
+  awk -v number="${number}" -v multiplier="${multiplier}" 'BEGIN { printf "%.0f\n", number * multiplier }'
+}
+
+admit_edge_candidate() {
+  local active_container="$1" mem_available_bytes active_usage active_working_set_bytes
+  local memory_floor_bytes=335544320 memory_required_bytes disk_floor_bytes=5368709120 disk_available_bytes
+  [[ "${DEPLOY_PROFILE}" = edge ]] || return 0
+
+  mem_available_bytes="$(awk '/^MemAvailable:/ {printf "%.0f\n", $2 * 1024; exit}' /proc/meminfo)"
+  active_usage="$(sudo docker stats --no-stream --format '{{.MemUsage}}' "${active_container}" | cut -d/ -f1)"
+  active_working_set_bytes="$(bytes_from_docker_mem "${active_usage}")" || die "could not parse active app working set: ${active_usage:-<empty>}"
+  memory_required_bytes=$((active_working_set_bytes + 134217728))
+  if (( memory_required_bytes < memory_floor_bytes )); then memory_required_bytes=${memory_floor_bytes}; fi
+  disk_available_bytes="$(df -B1 --output=avail / | awk 'NR==2 {print $1}')"
+
+  # Hard contract: MemAvailable >= max(320 MiB, active working set + 128 MiB).
+  log "edge admission: mem_available_bytes=${mem_available_bytes:-invalid} active_working_set_bytes=${active_working_set_bytes} memory_required_bytes=${memory_required_bytes} disk_available_bytes=${disk_available_bytes:-invalid}"
+  log "edge admission audit: swap_free_kib=$(awk '/^SwapFree:/ {print $2; exit}' /proc/meminfo) load=$(cut -d' ' -f1-3 /proc/loadavg) recent_oom=$(sudo dmesg --since '24 hours ago' 2>/dev/null | grep -ciE 'out of memory|oom-kill' || true)"
+  [[ "${mem_available_bytes}" =~ ^[0-9]+$ ]] || die "invalid MemAvailable"
+  [[ "${disk_available_bytes}" =~ ^[0-9]+$ ]] || die "invalid root filesystem availability"
+  (( mem_available_bytes >= memory_required_bytes )) || die "Edge memory admission failed: available=${mem_available_bytes} required=${memory_required_bytes}"
+  (( disk_available_bytes >= disk_floor_bytes )) || die "Edge disk admission failed: available=${disk_available_bytes} required=${disk_floor_bytes}"
 }
 
 drain_container() {
@@ -566,7 +633,7 @@ SH
 
   sudo tee /etc/systemd/system/tokenkey.service >/dev/null <<'UNIT'
 [Unit]
-Description=tokenkey stack (docker compose, prod blue/green)
+Description=tokenkey stack (docker compose, Stage0 blue/green)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
@@ -608,31 +675,85 @@ render_caddy_with_upstream() {
   ' "${LIVE_CADDY}" | sudo tee "${tmp}" >/dev/null
 }
 
-write_caddy_for_color() {
-  local color="$1" upstream tmp backup ts
+preserve_target_cutover() {
+  local color="$1" target_config="$2" reason="$3"
+  echo "::error::${reason}; preserving target and both colors for explicit rollback"
+  sudo sh -c "cat '${target_config}' > '${LIVE_CADDY}'" || true
+  ROUTE_SWITCHED=1
+  CUTOVER_COMMITTED=1
+  write_active_color "${color}" || true
+  record_cutover || true
+}
+
+commit_cutover() {
+  local color="$1" upstream tmp backup target_config active_backup ts
   upstream="$(color_container "${color}"):8080"
   [[ -f "${LIVE_CADDY}" ]] || die "missing live Caddyfile at ${LIVE_CADDY}"
 
   tmp="${CADDY_DIR}/Caddyfile.bluegreen-${color}.new"
   ts="$(date +%Y%m%d-%H%M%S)"
   backup="${CADDY_DIR}/Caddyfile.before-bluegreen-${color}-${ts}"
+  target_config="${CADDY_DIR}/Caddyfile.committed-bluegreen-${color}-${ts}"
 
   if ! render_caddy_with_upstream "${upstream}" "${tmp}"; then
     sudo rm -f "${tmp}" >/dev/null 2>&1 || true
     die "could not rewrite exactly one reverse_proxy upstream in ${LIVE_CADDY}"
   fi
 
-  sudo docker run --rm -v "${tmp}:/tmp/Caddyfile:ro" caddy:2-alpine caddy validate --config /tmp/Caddyfile --adapter caddyfile
-  sudo cp -a "${LIVE_CADDY}" "${backup}"
-  sudo sh -c "cat '${tmp}' > '${LIVE_CADDY}'"
-  sudo rm -f "${tmp}"
-  if ! sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile; then
-    echo "::warning::caddy reload failed; restoring previous Caddyfile"
-    sudo sh -c "cat '${backup}' > '${LIVE_CADDY}'"
-    sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile || true
+  if ! sudo docker run --rm -v "${tmp}:/tmp/Caddyfile:ro" caddy:2-alpine caddy validate --config /tmp/Caddyfile --adapter caddyfile; then
+    sudo rm -f "${tmp}" >/dev/null 2>&1 || true
     return 1
   fi
-  log "caddy now routes new requests to ${upstream} (backup=${backup})"
+  sudo cp -a "${LIVE_CADDY}" "${backup}"
+  sudo cp -a "${tmp}" "${target_config}"
+  active_backup="${ACTIVE_FILE}.before-cutover.$$"
+  if [[ -f "${ACTIVE_FILE}" ]]; then sudo cp -a "${ACTIVE_FILE}" "${active_backup}"; fi
+
+  if ! sudo sh -c "cat '${tmp}' > '${LIVE_CADDY}'"; then
+    if ! sudo sh -c "cat '${backup}' > '${LIVE_CADDY}'"; then
+      preserve_target_cutover "${color}" "${target_config}" \
+        "could not restore Caddyfile after failed live write"
+    fi
+    return 1
+  fi
+  sudo rm -f "${tmp}" >/dev/null 2>&1 || true
+  if ! sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile; then
+    if sudo sh -c "cat '${backup}' > '${LIVE_CADDY}'"; then
+      sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile || true
+    else
+      preserve_target_cutover "${color}" "${target_config}" \
+        "could not restore Caddyfile after failed target reload"
+    fi
+    return 1
+  fi
+  ROUTE_SWITCHED=1
+
+  if write_active_color "${color}" && record_cutover; then
+    CUTOVER_COMMITTED=1
+    sudo rm -f "${active_backup}" >/dev/null 2>&1 || true
+    log "caddy now routes new requests to ${upstream} (backup=${backup})"
+    return 0
+  else
+    echo "::warning::cutover commit failed; restore previous Caddyfile and active-color"
+    if ! sudo sh -c "cat '${backup}' > '${LIVE_CADDY}'"; then
+      preserve_target_cutover "${color}" "${target_config}" \
+        "could not restore Caddyfile after cutover persistence failure"
+      return 1
+    fi
+    if sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile; then
+      ROUTE_SWITCHED=0
+      if [[ -f "${active_backup}" ]]; then
+        sudo mv "${active_backup}" "${ACTIVE_FILE}"
+      else
+        sudo rm -f "${ACTIVE_FILE}" >/dev/null 2>&1 || true
+      fi
+      return 1
+    else
+      preserve_target_cutover "${color}" "${target_config}" \
+        "old Caddy route reload failed"
+      return 1
+    fi
+  fi
 }
 
 write_active_color() {
@@ -642,11 +763,18 @@ write_active_color() {
   log "active-color=${color}"
 }
 
-commit_cutover_state() {
-  local color="$1"
-  CUTOVER_COMMITTED=1
-  write_active_color "${color}"
-  record_cutover
+observe_routed_health() {
+  local color="$1" seconds="${TOKENKEY_BLUEGREEN_OBSERVE_SECONDS:-30}" domain i body
+  domain="$(env_get API_DOMAIN)"
+  [[ -n "${domain}" ]] || die "API_DOMAIN is required for routed health observation"
+  for i in $(seq 1 "${seconds}"); do
+    if ! body="$(sudo docker exec tokenkey-caddy wget -q -T 5 -O - "https://${domain}/health" 2>/dev/null)"; then
+      echo "::error::routed /health failed after committed cutover color=${color} second=${i}/${seconds}"
+      return 1
+    fi
+    log "routed /health color=${color} second=${i}/${seconds}: ${body}"
+    sleep 1
+  done
 }
 
 read_active_color() {
@@ -655,10 +783,31 @@ read_active_color() {
   fi
 }
 
+caddy_active_color() {
+  sudo awk '
+    $1 == "reverse_proxy" && $2 ~ /^tokenkey-(blue|green):8080$/ {
+      color = $2
+      sub(/^tokenkey-/, "", color)
+      sub(/:8080$/, "", color)
+      print color
+      count += 1
+    }
+    END { if (count != 1) exit 1 }
+  ' "${LIVE_CADDY}"
+}
+
+assert_active_route_consistent() {
+  local active="$1" routed
+  routed="$(caddy_active_color)" || die "could not resolve exactly one blue/green Caddy route"
+  [[ "${routed}" = "${active}" ]] \
+    || die "active-color ${active} disagrees with Caddy route ${routed}; explicit recovery required"
+}
+
 ensure_legacy_cutover() {
-  local active legacy_img blue_img
+  local active legacy_img repo blue_img
   active="$(read_active_color || true)"
   if [[ "${active}" =~ ^(blue|green)$ ]]; then
+    assert_active_route_consistent "${active}"
     log "blue/green already initialized: active=${active}"
     return 0
   fi
@@ -669,8 +818,10 @@ ensure_legacy_cutover() {
 
   log "initializing blue/green layout from legacy tokenkey container"
   legacy_img="$(container_image tokenkey)"
-  blue_img="${legacy_img:-$(env_get TOKENKEY_IMAGE)}"
-  [[ -n "${blue_img}" ]] || die "could not derive legacy tokenkey image"
+  if ! repo="$(image_repo "${legacy_img:-$(env_get TOKENKEY_IMAGE)}")"; then
+    die "could not derive image repo from legacy tokenkey container"
+  fi
+  blue_img="${repo}:${TAG}"
 
   backup_env legacy
   env_set TOKENKEY_IMAGE_BLUE "${blue_img}"
@@ -679,22 +830,23 @@ ensure_legacy_cutover() {
   write_bluegreen_compose
 
   TARGET_CONTAINER=tokenkey-blue
+  admit_edge_candidate tokenkey
+  compose_bg pull tokenkey-blue
   compose_bg up -d --no-deps --force-recreate tokenkey-blue
   wait_healthy tokenkey-blue
   wait_ready tokenkey-blue
 
-  write_caddy_for_color blue
-  commit_cutover_state blue
+  commit_cutover blue
+  observe_routed_health blue
   install_bluegreen_systemd_unit
 
   drain_container tokenkey
-  sudo docker stop -t 30 tokenkey >/dev/null 2>&1 || true
+  sudo docker stop -t 30 tokenkey >/dev/null
   sudo docker rm -f tokenkey >/dev/null 2>&1 || true
   log "legacy tokenkey container removed after cutover to blue"
 
   TARGET_CONTAINER=""
-  CUTOVER_COMMITTED=0
-  backup_env active-blue
+  LEGACY_MIGRATED=1
 }
 
 deploy_target_color() {
@@ -702,6 +854,7 @@ deploy_target_color() {
   active_file_value="$(read_active_color || true)"
   [[ "${active_file_value}" =~ ^(blue|green)$ ]] || die "invalid or missing active color: ${active_file_value:-<empty>}"
   active="${active_file_value}"
+  assert_active_route_consistent "${active}"
   target="$(other_color "${active}")"
   active_container="$(color_container "${active}")"
   target_container="$(color_container "${target}")"
@@ -726,22 +879,18 @@ deploy_target_color() {
   env_set TOKENKEY_IMAGE "${new_img}"
   write_bluegreen_compose
 
+  admit_edge_candidate "${active_container}"
   compose_bg pull "${target_container}"
-  if target_is_reusable "${target_container}" "${new_img}"; then
-    log "reusing healthy target ${target_container}"
-  else
-    compose_bg up -d --no-deps --force-recreate "${target_container}"
-    wait_healthy "${target_container}"
-    wait_ready "${target_container}"
-  fi
+  compose_bg up -d --no-deps --force-recreate "${target_container}"
+  wait_healthy "${target_container}"
+  wait_ready "${target_container}"
 
-  write_caddy_for_color "${target}"
-  commit_cutover_state "${target}"
+  commit_cutover "${target}"
+  observe_routed_health "${target}"
   install_bluegreen_systemd_unit
 
   drain_container "${active_container}"
-  sudo docker stop -t 30 "${active_container}" >/dev/null 2>&1 || true
-  sudo docker rm -f "${active_container}" >/dev/null 2>&1 || true
+  sudo docker stop -t 30 "${active_container}" >/dev/null
   log "stopped previous color ${active_container}"
 
   TARGET_CONTAINER=""
@@ -760,10 +909,9 @@ prune_images() {
 }
 
 log "=== blue/green deploy tag=${TAG} ==="
-ensure_prod_defaults
+ensure_profile_environment
 ensure_legacy_cutover
-deploy_target_color
-trap - ERR
+if [[ "${LEGACY_MIGRATED}" = 0 ]]; then deploy_target_color; fi
 prune_images
 log "=== blue/green deploy done ==="
 compose_bg ps
@@ -779,8 +927,39 @@ printf '%s\n' "${REMOTE_SCRIPT}" > "${remote_script_file}"
 REMOTE_B64="$(printf '%s' "${REMOTE_SCRIPT}" | base64 | tr -d '\n')"
 chunks_json="$(printf '%s' "${REMOTE_B64}" | fold -w 1000 | jq -R -s 'split("\n") | map(select(length > 0))')"
 
+if [[ "${DEPLOY_PROFILE}" = prod ]]; then
+  DELIVER_QA_ARCHIVE_ENABLED="${QA_ARCHIVE_ENABLED:-true}"
+  DELIVER_QA_ARCHIVE_DRIVER="${QA_ARCHIVE_STORAGE_DRIVER:-s3}"
+  DELIVER_QA_ARCHIVE_REGION="${QA_ARCHIVE_STORAGE_REGION:-us-east-1}"
+  DELIVER_QA_ARCHIVE_BUCKET="${QA_ARCHIVE_STORAGE_BUCKET:-tokenkey-prod-qa-raw-archive-682751977094}"
+  DELIVER_QA_ARCHIVE_PREFIX="${QA_ARCHIVE_STORAGE_PREFIX:-raw/v1}"
+  DELIVER_TELEMETRY_REGION="${TELEMETRY_ARCHIVE_REGION:-us-east-1}"
+  DELIVER_TELEMETRY_BUCKET="${TELEMETRY_ARCHIVE_BUCKET:-tokenkey-prod-archive-682751977094}"
+  DELIVER_TELEMETRY_PREFIX="${TELEMETRY_ARCHIVE_PREFIX:-prod/raw-telemetry}"
+  DELIVER_TELEMETRY_QUEUE_SIZE="${TELEMETRY_ARCHIVE_QUEUE_SIZE:-8192}"
+  DELIVER_TELEMETRY_QUEUE_MAX_BYTES="${TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES:-33554432}"
+  DELIVER_TELEMETRY_MAX_EVENT_BYTES="${TELEMETRY_ARCHIVE_MAX_EVENT_BYTES:-1048576}"
+  DELIVER_TELEMETRY_BATCH_SIZE="${TELEMETRY_ARCHIVE_BATCH_SIZE:-256}"
+  DELIVER_TELEMETRY_WORKER_COUNT="${TELEMETRY_ARCHIVE_WORKER_COUNT:-4}"
+  DELIVER_TELEMETRY_FLUSH_INTERVAL="${TELEMETRY_ARCHIVE_FLUSH_INTERVAL_SECONDS:-5}"
+  DELIVER_TELEMETRY_PUT_TIMEOUT="${TELEMETRY_ARCHIVE_PUT_TIMEOUT_SECONDS:-10}"
+  DELIVER_MEDIA_DRIVER="${MEDIA_STORAGE_DRIVER:-s3}"
+  DELIVER_MEDIA_REGION="${MEDIA_STORAGE_REGION:-us-east-1}"
+  DELIVER_MEDIA_BUCKET="${MEDIA_STORAGE_BUCKET:-tokenkey-prod-media-682751977094}"
+  DELIVER_IMAGE_ENABLED="${GATEWAY_IMAGE_CONCURRENCY_ENABLED:-true}"
+  DELIVER_IMAGE_MAX="${GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS:-8}"
+  DELIVER_IMAGE_OVERFLOW="${GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE:-reject}"
+else
+  DELIVER_QA_ARCHIVE_ENABLED="" DELIVER_QA_ARCHIVE_DRIVER="" DELIVER_QA_ARCHIVE_REGION="" DELIVER_QA_ARCHIVE_BUCKET="" DELIVER_QA_ARCHIVE_PREFIX=""
+  DELIVER_TELEMETRY_REGION="" DELIVER_TELEMETRY_BUCKET="" DELIVER_TELEMETRY_PREFIX="" DELIVER_TELEMETRY_QUEUE_SIZE="" DELIVER_TELEMETRY_QUEUE_MAX_BYTES=""
+  DELIVER_TELEMETRY_MAX_EVENT_BYTES="" DELIVER_TELEMETRY_BATCH_SIZE="" DELIVER_TELEMETRY_WORKER_COUNT="" DELIVER_TELEMETRY_FLUSH_INTERVAL="" DELIVER_TELEMETRY_PUT_TIMEOUT=""
+  DELIVER_MEDIA_DRIVER="" DELIVER_MEDIA_REGION="" DELIVER_MEDIA_BUCKET=""
+  DELIVER_IMAGE_ENABLED="" DELIVER_IMAGE_MAX="" DELIVER_IMAGE_OVERFLOW=""
+fi
+
 jq -n \
   --arg tag "${TAG}" \
+  --arg deploy_profile "${DEPLOY_PROFILE}" \
   --arg execution_timeout "${EXECUTION_TIMEOUT_SECONDS}" \
   --arg qa_enabled "${QA_BUNDLE_ENABLED-}" \
   --arg qa_queue_url "${QA_BUNDLE_QUEUE_URL-}" \
@@ -794,28 +973,28 @@ jq -n \
   --argjson qa_region_set "$([[ -n "${QA_BUNDLE_STORAGE_REGION+x}" ]] && echo true || echo false)" \
   --argjson qa_bucket_set "$([[ -n "${QA_BUNDLE_STORAGE_BUCKET+x}" ]] && echo true || echo false)" \
   --argjson qa_prefix_set "$([[ -n "${QA_BUNDLE_STORAGE_PREFIX+x}" ]] && echo true || echo false)" \
-  --arg qa_archive_enabled "${QA_ARCHIVE_ENABLED:-true}" \
-  --arg qa_archive_driver "${QA_ARCHIVE_STORAGE_DRIVER:-s3}" \
-  --arg qa_archive_region "${QA_ARCHIVE_STORAGE_REGION:-us-east-1}" \
-  --arg qa_archive_bucket "${QA_ARCHIVE_STORAGE_BUCKET:-tokenkey-prod-qa-raw-archive-682751977094}" \
-  --arg qa_archive_prefix "${QA_ARCHIVE_STORAGE_PREFIX:-raw/v1}" \
+  --arg qa_archive_enabled "${DELIVER_QA_ARCHIVE_ENABLED}" \
+  --arg qa_archive_driver "${DELIVER_QA_ARCHIVE_DRIVER}" \
+  --arg qa_archive_region "${DELIVER_QA_ARCHIVE_REGION}" \
+  --arg qa_archive_bucket "${DELIVER_QA_ARCHIVE_BUCKET}" \
+  --arg qa_archive_prefix "${DELIVER_QA_ARCHIVE_PREFIX}" \
   --arg telemetry_enabled "${TELEMETRY_ARCHIVE_ENABLED:-}" \
-  --arg telemetry_region "${TELEMETRY_ARCHIVE_REGION:-us-east-1}" \
-  --arg telemetry_bucket "${TELEMETRY_ARCHIVE_BUCKET:-tokenkey-prod-archive-682751977094}" \
-  --arg telemetry_prefix "${TELEMETRY_ARCHIVE_PREFIX:-prod/raw-telemetry}" \
-  --arg telemetry_queue_size "${TELEMETRY_ARCHIVE_QUEUE_SIZE:-8192}" \
-  --arg telemetry_queue_max_bytes "${TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES:-33554432}" \
-  --arg telemetry_max_event_bytes "${TELEMETRY_ARCHIVE_MAX_EVENT_BYTES:-1048576}" \
-  --arg telemetry_batch_size "${TELEMETRY_ARCHIVE_BATCH_SIZE:-256}" \
-  --arg telemetry_worker_count "${TELEMETRY_ARCHIVE_WORKER_COUNT:-4}" \
-  --arg telemetry_flush_interval "${TELEMETRY_ARCHIVE_FLUSH_INTERVAL_SECONDS:-5}" \
-  --arg telemetry_put_timeout "${TELEMETRY_ARCHIVE_PUT_TIMEOUT_SECONDS:-10}" \
-  --arg media_driver "${MEDIA_STORAGE_DRIVER:-s3}" \
-  --arg media_region "${MEDIA_STORAGE_REGION:-us-east-1}" \
-  --arg media_bucket "${MEDIA_STORAGE_BUCKET:-tokenkey-prod-media-682751977094}" \
-  --arg image_enabled "${GATEWAY_IMAGE_CONCURRENCY_ENABLED:-true}" \
-  --arg image_max "${GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS:-8}" \
-  --arg image_overflow "${GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE:-reject}" \
+  --arg telemetry_region "${DELIVER_TELEMETRY_REGION}" \
+  --arg telemetry_bucket "${DELIVER_TELEMETRY_BUCKET}" \
+  --arg telemetry_prefix "${DELIVER_TELEMETRY_PREFIX}" \
+  --arg telemetry_queue_size "${DELIVER_TELEMETRY_QUEUE_SIZE}" \
+  --arg telemetry_queue_max_bytes "${DELIVER_TELEMETRY_QUEUE_MAX_BYTES}" \
+  --arg telemetry_max_event_bytes "${DELIVER_TELEMETRY_MAX_EVENT_BYTES}" \
+  --arg telemetry_batch_size "${DELIVER_TELEMETRY_BATCH_SIZE}" \
+  --arg telemetry_worker_count "${DELIVER_TELEMETRY_WORKER_COUNT}" \
+  --arg telemetry_flush_interval "${DELIVER_TELEMETRY_FLUSH_INTERVAL}" \
+  --arg telemetry_put_timeout "${DELIVER_TELEMETRY_PUT_TIMEOUT}" \
+  --arg media_driver "${DELIVER_MEDIA_DRIVER}" \
+  --arg media_region "${DELIVER_MEDIA_REGION}" \
+  --arg media_bucket "${DELIVER_MEDIA_BUCKET}" \
+  --arg image_enabled "${DELIVER_IMAGE_ENABLED}" \
+  --arg image_max "${DELIVER_IMAGE_MAX}" \
+  --arg image_overflow "${DELIVER_IMAGE_OVERFLOW}" \
   --argjson chunks "${chunks_json}" '{
   commands: ([
     "set -euo pipefail",
@@ -825,6 +1004,7 @@ jq -n \
     "chmod 700 /tmp/tokenkey-bluegreen-deploy.sh",
     (
       "TAG=" + ($tag|@sh)
+      + " DEPLOY_PROFILE=" + ($deploy_profile|@sh)
       + " QA_BUNDLE_ENABLED=" + ($qa_enabled|@sh)
       + " QA_BUNDLE_ENABLED_SET=" + ($qa_enabled_set|tostring)
       + " QA_BUNDLE_QUEUE_URL=" + ($qa_queue_url|@sh)

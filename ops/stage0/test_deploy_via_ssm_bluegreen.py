@@ -148,75 +148,115 @@ wait_healthy tokenkey-green
         return proc.returncode, calls, proc.stdout + proc.stderr
 
 
-def _run_target_is_reusable(
-    remote: str,
-    *,
-    image: str = "ghcr.io/youxuanxue/sub2api:1.8.134",
-    expected_image: str = "ghcr.io/youxuanxue/sub2api:1.8.134",
-    health: str = "healthy",
-    skip_chown: str = "1",
-    expected_hash: str = "expected-hash",
-    actual_hash: str = "expected-hash",
-    ready: bool = True,
-) -> tuple[int, str]:
-    start = remote.index("target_is_reusable() {")
-    end = remote.index("\n}\n\ndrain_container()", start) + len("\n}\n")
-    function = remote[start:end]
-    script = f"""{function}
-log() {{ :; }}
-container_image() {{ printf '%s\\n' {shlex.quote(image)}; }}
-container_health() {{ printf '%s\\n' {shlex.quote(health)}; }}
-compose_bg() {{ printf 'tokenkey-green %s\\n' {shlex.quote(expected_hash)}; }}
-wait_ready() {{ return {0 if ready else 1}; }}
-sudo() {{
-  case "$*" in
-    *'range .Config.Env'*) printf 'SKIP_DATA_CHOWN=%s\\n' {shlex.quote(skip_chown)} ;;
-    *'com.docker.compose.config-hash'*) printf '%s\\n' {shlex.quote(actual_hash)} ;;
-    *) return 1 ;;
-  esac
-}}
-target_is_reusable tokenkey-green {shlex.quote(expected_image)}
-"""
-    proc = subprocess.run(
-        ["bash"],
-        input=script,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return proc.returncode, proc.stdout + proc.stderr
-
-
 def _extract_shell_function(remote: str, name: str) -> str:
     start = remote.index(f"{name}() {{")
     end = remote.index("\n}\n\n", start) + len("\n}\n")
     return remote[start:end]
 
 
-def _run_commit_cutover_state(remote: str, color: str) -> subprocess.CompletedProcess[str]:
-    try:
-        function = _extract_shell_function(remote, "commit_cutover_state")
-    except ValueError:
-        return subprocess.CompletedProcess(
-            args=["bash"],
-            returncode=127,
-            stdout="",
-            stderr="commit_cutover_state is missing",
-        )
-    script = f"""{function}
-write_active_color() {{ printf 'active:%s:%s\\n' "$CUTOVER_COMMITTED" "$1"; }}
-record_cutover() {{ printf 'record:%s\\n' "$CUTOVER_COMMITTED"; }}
-CUTOVER_COMMITTED=0
-commit_cutover_state {shlex.quote(color)}
-printf 'final:%s\\n' "$CUTOVER_COMMITTED"
-"""
+def _run_bytes_from_docker_mem(remote: str, value: str) -> subprocess.CompletedProcess[str]:
+    function = _extract_shell_function(remote, "bytes_from_docker_mem")
     return subprocess.run(
         ["bash"],
-        input=script,
+        input=f"{function}\nbytes_from_docker_mem {shlex.quote(value)}\n",
         capture_output=True,
         text=True,
         check=False,
     )
+
+
+def _run_clear_edge_profile_overrides(
+    remote: str, profile: str
+) -> subprocess.CompletedProcess[str]:
+    function = _extract_shell_function(remote, "clear_edge_profile_overrides")
+    script = f"""{function}
+DEPLOY_PROFILE={shlex.quote(profile)}
+QA_ARCHIVE_ENABLED=host-qa
+TELEMETRY_ARCHIVE_BUCKET=host-telemetry
+MEDIA_STORAGE_BUCKET=host-media
+GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS=host-limit
+clear_edge_profile_overrides
+printf 'qa=%s telemetry=%s media=%s limit=%s\\n' \
+  "${{QA_ARCHIVE_ENABLED-unset}}" \
+  "${{TELEMETRY_ARCHIVE_BUCKET-unset}}" \
+  "${{MEDIA_STORAGE_BUCKET-unset}}" \
+  "${{GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS-unset}}"
+"""
+    return subprocess.run(
+        ["bash"], input=script, capture_output=True, text=True, check=False
+    )
+
+
+def _run_commit_cutover_record_failure(
+    remote: str,
+    *,
+    rollback_reload_fails: bool = False,
+    live_write_fails: bool = False,
+    target_reload_fails: bool = False,
+    restore_write_fails: bool = False,
+    active_write_fails: bool = False,
+    errexit: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    function = "\n".join((
+        _extract_shell_function(remote, "preserve_target_cutover"),
+        _extract_shell_function(remote, "commit_cutover"),
+    ))
+    with tempfile.TemporaryDirectory(prefix="bluegreen-commit-") as tmp:
+        root = pathlib.Path(tmp)
+        caddy_dir = root / "caddy"
+        caddy_dir.mkdir()
+        live = caddy_dir / "Caddyfile"
+        active = root / "active-color"
+        live.write_text("old-route\n")
+        active.write_text("blue\n")
+        script = f"""{function}
+color_container() {{ printf 'tokenkey-%s' "$1"; }}
+die() {{ return 1; }}
+log() {{ :; }}
+render_caddy_with_upstream() {{ printf 'new-route:%s\\n' "$1" > "$2"; }}
+write_active_color() {{
+  [ "$ACTIVE_WRITE_FAILS" = 0 ] || return 1
+  printf '%s\\n' "$1" > "$ACTIVE_FILE"
+}}
+record_cutover() {{ return 1; }}
+sudo() {{
+  if [ "$1" = sh ]; then
+    SH_WRITE_COUNT=$((SH_WRITE_COUNT + 1))
+    if [ "$LIVE_WRITE_FAILS" = 1 ] && [ "$SH_WRITE_COUNT" -eq 1 ]; then return 1; fi
+    if [ "$RESTORE_WRITE_FAILS" = 1 ] && [ "$SH_WRITE_COUNT" -eq 2 ]; then return 1; fi
+  fi
+  if [ "$1" = docker ]; then
+    if [ "$2" = exec ]; then
+      RELOAD_COUNT=$((RELOAD_COUNT + 1))
+      if [ "$TARGET_RELOAD_FAILS" = 1 ] && [ "$RELOAD_COUNT" -eq 1 ]; then return 1; fi
+      if [ "$ROLLBACK_RELOAD_FAILS" = 1 ] && [ "$RELOAD_COUNT" -eq 2 ]; then return 1; fi
+    fi
+    return 0
+  fi
+  command "$@"
+}}
+CADDY_DIR={shlex.quote(str(caddy_dir))}
+LIVE_CADDY={shlex.quote(str(live))}
+ACTIVE_FILE={shlex.quote(str(active))}
+CUTOVER_COMMITTED=0
+ROUTE_SWITCHED=0
+RELOAD_COUNT=0
+SH_WRITE_COUNT=0
+ROLLBACK_RELOAD_FAILS={1 if rollback_reload_fails else 0}
+LIVE_WRITE_FAILS={1 if live_write_fails else 0}
+TARGET_RELOAD_FAILS={1 if target_reload_fails else 0}
+RESTORE_WRITE_FAILS={1 if restore_write_fails else 0}
+ACTIVE_WRITE_FAILS={1 if active_write_fails else 0}
+{'set -e' if errexit else ''}
+trap 'printf "rc=%s committed=%s live=%s active=%s\\n" "$?" "$CUTOVER_COMMITTED" "$(cat "$LIVE_CADDY")" "$(cat "$ACTIVE_FILE")"' EXIT
+commit_cutover green
+rc=$?
+trap - EXIT
+printf 'rc=%s committed=%s live=%s active=%s\\n' "$rc" "$CUTOVER_COMMITTED" "$(cat "$LIVE_CADDY")" "$(cat "$ACTIVE_FILE")"
+"""
+        return subprocess.run(
+            ["bash"], input=script, capture_output=True, text=True, check=False
+        )
 
 
 def _run_cutover_path(remote: str, function_name: str) -> subprocess.CompletedProcess[str]:
@@ -232,18 +272,21 @@ compose_bg() { :; }
 wait_healthy() { :; }
 wait_ready() { :; }
 install_bluegreen_systemd_unit() { :; }
-write_caddy_for_color() { printf 'caddy:%s\n' "$1"; }
-commit_cutover_state() { CUTOVER_COMMITTED=1; printf 'commit:%s\n' "$1"; }
-record_cutover() { printf 'raw-record\n'; }
-write_active_color() { printf 'raw-active:%s\n' "$1"; }
+commit_cutover() { CUTOVER_COMMITTED=1; printf 'commit:%s\n' "$1"; }
+observe_routed_health() { printf 'observe:%s\n' "$1"; }
 drain_container() { printf 'drain:%s\n' "$1"; }
+admit_edge_candidate() { :; }
+assert_active_route_consistent() { :; }
 TARGET_CONTAINER=""
 CUTOVER_COMMITTED=0
+DEPLOY_PROFILE=prod
+TAG=1.8.99
 """
     if function_name == "ensure_legacy_cutover":
         setup = """
 read_active_color() { :; }
 container_image() { printf 'ghcr.io/youxuanxue/sub2api:1.8.98\n'; }
+image_repo() { printf 'ghcr.io/youxuanxue/sub2api\n'; }
 env_get() { printf 'ghcr.io/youxuanxue/sub2api:1.8.98\n'; }
 ensure_legacy_cutover
 """
@@ -255,8 +298,6 @@ color_container() { printf 'tokenkey-%s\n' "$1"; }
 container_image() { printf 'ghcr.io/youxuanxue/sub2api:1.8.98\n'; }
 image_repo() { printf 'ghcr.io/youxuanxue/sub2api\n'; }
 env_get() { printf 'ghcr.io/youxuanxue/sub2api:1.8.98\n'; }
-target_is_reusable() { return 0; }
-TAG=1.8.99
 TELEMETRY_ARCHIVE_ENABLED=""
 deploy_target_color
 """
@@ -269,11 +310,61 @@ deploy_target_color
     )
 
 
+def _run_active_route_consistency(
+    remote: str, active: str, caddy_upstream: str
+) -> subprocess.CompletedProcess[str]:
+    functions = "\n".join((
+        _extract_shell_function(remote, "caddy_active_color"),
+        _extract_shell_function(remote, "assert_active_route_consistent"),
+    ))
+    with tempfile.TemporaryDirectory(prefix="bluegreen-route-") as tmp:
+        live = pathlib.Path(tmp) / "Caddyfile"
+        live.write_text(f"reverse_proxy {caddy_upstream} {{\n}}\n")
+        script = f"""{functions}
+sudo() {{ command "$@"; }}
+die() {{ printf 'die:%s\\n' "$*"; return 1; }}
+LIVE_CADDY={shlex.quote(str(live))}
+assert_active_route_consistent {shlex.quote(active)}
+"""
+        return subprocess.run(
+            ["bash"], input=script, capture_output=True, text=True, check=False
+        )
+
+
 class BlueGreenRenderTest(unittest.TestCase):
-    def test_rejects_lightsail_edge_ids(self) -> None:
+    def test_renders_lightsail_edge_profile_without_prod_defaults(self) -> None:
         proc, params, remote = _render(_EDGE_IID, env_extra={"EDGE_ID": "us2"})
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert params is not None
+        assert remote is not None
+        joined = "\n".join(params["commands"])
+        self.assertIn("DEPLOY_PROFILE='edge'", joined)
+        self.assertIn("QA_ARCHIVE_ENABLED=''", joined)
+        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET=''", joined)
+        self.assertIn("TELEMETRY_ARCHIVE_BUCKET=''", joined)
+        self.assertIn("MEDIA_STORAGE_BUCKET=''", joined)
+        self.assertIn('MemAvailable >= max(320 MiB, active working set + 128 MiB)', remote)
+        self.assertIn('memory_floor_bytes=335544320', remote)
+        self.assertIn('active_working_set_bytes + 134217728', remote)
+        self.assertIn('disk_floor_bytes=5368709120', remote)
+        cleared = _run_clear_edge_profile_overrides(remote, "edge")
+        self.assertEqual(cleared.returncode, 0, msg=cleared.stderr)
+        self.assertEqual(
+            cleared.stdout.strip(),
+            "qa=unset telemetry=unset media=unset limit=unset",
+        )
+
+        preserved = _run_clear_edge_profile_overrides(remote, "prod")
+        self.assertEqual(preserved.returncode, 0, msg=preserved.stderr)
+        self.assertEqual(
+            preserved.stdout.strip(),
+            "qa=host-qa telemetry=host-telemetry media=host-media limit=host-limit",
+        )
+
+    def test_rejects_unknown_instance_id_shape(self) -> None:
+        proc, params, remote = _render("x-invalid")
         self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("prod-only primitive", proc.stderr)
+        self.assertIn("requires EC2 i-* or managed-instance mi-*", proc.stderr)
         self.assertIsNone(params)
         self.assertIsNone(remote)
 
@@ -302,6 +393,7 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertEqual(params.get("executionTimeout"), ["1200"])
         self.assertIn("/tmp/tokenkey-bluegreen-deploy.sh", joined)
         self.assertIn("TAG='1.8.99'", joined)
+        self.assertIn("DEPLOY_PROFILE='prod'", joined)
         self.assertIn("QA_BUNDLE_STORAGE_BUCKET=''", joined)
         self.assertIn("QA_BUNDLE_STORAGE_BUCKET_SET=false", joined)
         self.assertIn("QA_ARCHIVE_ENABLED='true'", joined)
@@ -318,7 +410,7 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertIn("tokenkey-green", remote)
         self.assertIn("TOKENKEY_IMAGE_BLUE", remote)
         self.assertIn("TOKENKEY_IMAGE_GREEN", remote)
-        self.assertIn("write_caddy_for_color", remote)
+        self.assertIn("commit_cutover", remote)
         self.assertIn("render_caddy_with_upstream", remote)
         self.assertIn("could not rewrite exactly one reverse_proxy upstream", remote)
         self.assertIn("wait_ready", remote)
@@ -340,25 +432,91 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertIn('TOKENKEY_BLUEGREEN_UNHEALTHY_LIMIT:-3', remote)
         self.assertIn('entered terminal state ${status}; failing health wait immediately', remote)
         self.assertIn('remained unhealthy for ${unhealthy_streak} consecutive checks', remote)
-        self.assertIn('if target_is_reusable "${target_container}" "${new_img}"; then', remote)
-        self.assertIn('compose_bg config --hash "${container}"', remote)
-        self.assertIn("com.docker.compose.config-hash", remote)
-        self.assertIn('reusing healthy target ${target_container}', remote)
+        self.assertNotIn('target_is_reusable()', remote)
         self.assertIn('compose_bg up -d --no-deps --force-recreate "${target_container}"', remote)
-        self.assertIn('preserving target ${TARGET_CONTAINER} for retry', remote)
-        self.assertNotIn('removed failed target ${TARGET_CONTAINER}', remote)
+        self.assertLess(
+            remote.index('admit_edge_candidate "${active_container}"'),
+            remote.index('compose_bg pull "${target_container}"'),
+        )
+        self.assertNotIn('docker stop -t 30 "${active_container}" >/dev/null 2>&1 || true', remote)
+        self.assertIn('removed failed target ${TARGET_CONTAINER}', remote)
+        self.assertIn('trap cleanup_on_exit EXIT', remote)
+        self.assertNotIn('trap on_err ERR', remote)
+        self.assertIn('observe_routed_health', remote)
+        self.assertIn('TOKENKEY_BLUEGREEN_OBSERVE_SECONDS:-30', remote)
+        self.assertIn('docker exec tokenkey-caddy wget', remote)
+        self.assertIn('"https://${domain}/health"', remote)
+        self.assertNotIn("--no-check-certificate", remote)
         self.assertIn("last-cutover-at", remote)
 
-    def test_commit_cutover_state_persists_live_state_in_safe_order(self) -> None:
+    def test_commit_cutover_marks_committed_only_after_route_and_state_persist(self) -> None:
         proc, _, remote = _render()
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         assert remote is not None
-        committed = _run_commit_cutover_state(remote, "green")
-        self.assertEqual(committed.returncode, 0, msg=committed.stderr)
-        self.assertEqual(
-            committed.stdout.splitlines(),
-            ["active:1:green", "record:1", "final:1"],
+        function = _extract_shell_function(remote, "commit_cutover")
+        success_branch = function.index('if write_active_color "${color}" && record_cutover; then')
+        durable_commit = function.index("CUTOVER_COMMITTED=1", success_branch)
+        self.assertLess(success_branch, durable_commit)
+        self.assertLess(
+            function.index('sudo cp -a "${tmp}" "${target_config}"'),
+            function.index('cat \'${tmp}\' > \'${LIVE_CADDY}\''),
         )
+        self.assertIn("restore previous Caddyfile", function)
+
+        live_write_failed = _run_commit_cutover_record_failure(
+            remote, live_write_fails=True
+        )
+        self.assertEqual(live_write_failed.returncode, 0, msg=live_write_failed.stderr)
+        self.assertIn("rc=1 committed=0 live=old-route active=blue", live_write_failed.stdout)
+
+        failed = _run_commit_cutover_record_failure(remote)
+        self.assertEqual(failed.returncode, 0, msg=failed.stderr)
+        self.assertIn("rc=1 committed=0 live=old-route active=blue", failed.stdout)
+
+        rollback_reload_failed = _run_commit_cutover_record_failure(
+            remote, rollback_reload_fails=True
+        )
+        self.assertEqual(rollback_reload_failed.returncode, 0, msg=rollback_reload_failed.stderr)
+        self.assertIn(
+            "rc=1 committed=1 live=new-route:tokenkey-green:8080 active=green",
+            rollback_reload_failed.stdout,
+        )
+
+        restore_write_failed = _run_commit_cutover_record_failure(
+            remote,
+            target_reload_fails=True,
+            restore_write_fails=True,
+            errexit=True,
+        )
+        self.assertNotEqual(restore_write_failed.returncode, 0)
+        self.assertIn(
+            "rc=1 committed=1 live=new-route:tokenkey-green:8080 active=green",
+            restore_write_failed.stdout,
+        )
+
+        commit_restore_write_failed = _run_commit_cutover_record_failure(
+            remote,
+            restore_write_fails=True,
+            active_write_fails=True,
+            errexit=True,
+        )
+        self.assertNotEqual(commit_restore_write_failed.returncode, 0)
+        self.assertIn(
+            "rc=1 committed=1 live=new-route:tokenkey-green:8080 active=blue",
+            commit_restore_write_failed.stdout,
+        )
+
+    def test_active_color_must_match_caddy_before_target_selection(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert remote is not None
+
+        matching = _run_active_route_consistency(remote, "blue", "tokenkey-blue:8080")
+        self.assertEqual(matching.returncode, 0, msg=matching.stderr + matching.stdout)
+
+        mismatch = _run_active_route_consistency(remote, "blue", "tokenkey-green:8080")
+        self.assertNotEqual(mismatch.returncode, 0)
+        self.assertIn("disagrees with Caddy route green", mismatch.stdout)
 
     def test_legacy_and_regular_cutovers_share_committed_state_owner(self) -> None:
         proc, _, remote = _render()
@@ -366,8 +524,8 @@ class BlueGreenRenderTest(unittest.TestCase):
         assert remote is not None
 
         cases = [
-            ("ensure_legacy_cutover", ["caddy:blue", "commit:blue", "drain:tokenkey"]),
-            ("deploy_target_color", ["caddy:green", "commit:green", "drain:tokenkey-blue"]),
+            ("ensure_legacy_cutover", ["commit:blue", "observe:blue", "drain:tokenkey"]),
+            ("deploy_target_color", ["commit:green", "observe:green", "drain:tokenkey-blue"]),
         ]
         for function_name, expected in cases:
             with self.subTest(function_name=function_name):
@@ -426,24 +584,20 @@ class BlueGreenRenderTest(unittest.TestCase):
                 self.assertEqual(rc, expected_rc, msg=output)
                 self.assertEqual(calls, expected_calls, msg=output)
 
-    def test_target_reuse_requires_every_runtime_contract_to_match(self) -> None:
+    def test_docker_memory_units_parse_without_host_specific_numfmt(self) -> None:
         proc, _, remote = _render()
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         assert remote is not None
-
-        cases = [
-            ({}, 0),
-            ({"image": "ghcr.io/youxuanxue/sub2api:old"}, 1),
-            ({"health": "unhealthy"}, 1),
-            ({"skip_chown": "0"}, 1),
-            ({"actual_hash": "stale-hash"}, 1),
-            ({"expected_hash": ""}, 1),
-            ({"ready": False}, 1),
-        ]
-        for overrides, expected_rc in cases:
-            with self.subTest(overrides=overrides):
-                rc, output = _run_target_is_reusable(remote, **overrides)
-                self.assertEqual(rc, expected_rc, msg=output)
+        cases = {
+            "213.4MiB": "223766118",
+            "1.5GiB": "1610612736",
+            "500MB": "500000000",
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                parsed = _run_bytes_from_docker_mem(remote, raw)
+                self.assertEqual(parsed.returncode, 0, msg=parsed.stderr)
+                self.assertEqual(parsed.stdout.strip(), expected)
 
     def test_values_are_env_overridable(self) -> None:
         proc, params, _ = _render(env_extra={

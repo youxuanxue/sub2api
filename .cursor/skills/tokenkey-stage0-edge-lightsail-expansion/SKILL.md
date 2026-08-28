@@ -40,7 +40,7 @@ description: >-
 | `operation=prepare` | 仅做注册 + 一次性 IAM/SSM/PAT 配置，**不**创建实例。 |
 | `operation=provision` | 创建 Lightsail 实例 + 分配 Static IP + 等 SSM Hybrid 注册完成。默认 fail-if-exists；要销毁重建须 `recreate=true`（destructive）。 |
 | `operation=smoke` | 不动实例，复用 `ops/stage0/external_health.sh` + `ops/stage0/edge_post_deploy_smoke.sh`。 |
-| `operation=upgrade` / `rollback` | 通过共享 `ops/stage0/deploy_via_ssm.sh` 换 tag，与 EC2 完全相同 primitive。 |
+| `operation=upgrade` / `rollback` | 通过共享 `ops/stage0/deploy_via_ssm_bluegreen.sh` 换 tag，与 prod 完全相同 primitive。 |
 | `operation=full` | prepare → provision → admin creds → firewall 443 → DNS（手工）→ renew cert（若 DNS 晚于 provision）→ smoke 闭环。 |
 
 默认行为：
