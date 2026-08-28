@@ -7,7 +7,9 @@
 Lightsail Edge 与 prod Stage0 **共用**：
 
 - `deploy/aws/stage0/docker-compose.yml`、`Caddyfile.edge`
-- `ops/stage0/verify_ghcr_manifest.sh`、`deploy_via_ssm.sh`、`edge_post_deploy_smoke.sh`
+- `ops/stage0/verify_ghcr_manifest.sh`、`deploy_via_ssm_bluegreen.sh`、`edge_post_deploy_smoke.sh`
+
+升级/回滚走与 prod 同一套 same-host blue/green primitive；行为规范见 `docs/approved/deploy-stage0-workflow.md`。历史单容器 `deploy_via_ssm.sh` 不再是 Edge 发版路径。
 
 差异：无 CloudFormation；实例由 Lightsail API 创建；SSM 通过 **Hybrid Activation** 注册为 `mi-*` 节点。
 

@@ -26,7 +26,7 @@ prod 栈出厂就带三层保护，**恢复前先确认能否用更轻的一层*
 |---|---|---|
 | **持久数据卷** `DataVolume`（gp3，加密，`DeletionPolicy/UpdateReplacePolicy: Retain`） | CFN，挂 `/dev/sdf`→`/var/lib/tokenkey`，承载 PG/Redis/Caddy/app/`.env.secret` | 实例替换（ImageTag 变更等）时卷自动 detach→re-attach，数据零丢失 |
 | **DLM 自动快照** `SnapshotPolicy` | CFN，针对 `Backup=stage0` tag 的实例，daily 03:00 保留 7 天（可切 hourly 保留 168=7 天） | 数据卷损坏 / 误删 / AZ 丢失，回到最近快照点 |
-| **失败自动回滚** | `ops/stage0/deploy_via_ssm.sh` 的 ERR trap | 发版本身失败，自动恢复上一镜像 |
+| **失败自动回滚** | ~~`ops/stage0/deploy_via_ssm.sh` 的 ERR trap~~ **已 superseded** | 现行路径是 `ops/stage0/deploy_via_ssm_bluegreen.sh`：pre-cutover 失败删候选并保留旧服务；committed 后失败保留双颜色，不自动回切。见 `docs/approved/deploy-stage0-workflow.md` |
 
 **RPO**（最坏数据丢失）：daily 快照 = ≤24h；关键发版/迁移期建议临时切 `SnapshotSchedule=hourly`（见 §5）。
 **RTO**（恢复时长）：场景 A 约 5–15 min（CFN 实例替换 + bootstrap 拉镜像起容器）；场景 B 约 +5–10 min（从快照建卷）。
@@ -55,7 +55,7 @@ aws cloudformation describe-stacks --stack-name "$STACK" \
 
 ## Agent 协同契约（Agent 执行本 runbook 时的边界）
 
-本 runbook 既给人读、也给 Agent 照跑。**触发**：发版 `ops/stage0/deploy_via_ssm.sh` 的自动 rollback 也救不回（SSM 日志 `node requires MANUAL intervention`）、或 external_health / smoke 失败——**单次救不回即入本 runbook**（不必等「反复 N 次」）。来路见 `.cursor/skills/tokenkey-stage0-release-rollout/SKILL.md` 的 `## rollback` 段。
+本 runbook 既给人读、也给 Agent 照跑。**触发**：发版 `ops/stage0/deploy_via_ssm_bluegreen.sh` 在 committed 后失败、或 external_health / smoke 失败——**单次救不回即入本 runbook**（不必等「反复 N 次」）。现行 blue/green 不自动回切；回滚是对上一已知良好 tag 再走同一条健康/切流路径。来路见 `.cursor/skills/tokenkey-stage0-release-rollout/SKILL.md` 的 `## rollback` 段。
 
 | 步骤 | Agent 可否自主 |
 |---|---|

@@ -244,12 +244,12 @@ Confirm every approved behavior has one code owner, no unrelated files changed, 
 **Files:** `ops/stage0/deploy_via_ssm_bluegreen.sh`,
 `ops/stage0/test_deploy_via_ssm_bluegreen.py`.
 
-- [ ] RED: prove an unconfirmed target reload clears `active-color`, keeps both
+- [x] RED: prove an unconfirmed target reload clears `active-color`, keeps both
   colors, and makes a colored route without `active-color` block the next
   deploy.
-- [ ] Implement only the recovery behavior in acceptance criterion 4; reuse the
+- [x] Implement only the recovery behavior in acceptance criterion 4; reuse the
   existing two-state cleanup and systemd disagreement paths.
-- [ ] GREEN:
+- [x] GREEN:
 
   ```bash
   python3 -m unittest ops.stage0.test_deploy_via_ssm_bluegreen
@@ -263,18 +263,18 @@ Confirm every approved behavior has one code owner, no unrelated files changed, 
 primitive, Edge release probe, canary picker, focused tests, and
 `scripts/preflight.sh`.
 
-- [ ] RED: require both workflows to call one migration entry; require the
+- [x] RED: require both workflows to call one migration entry; require the
   capacity literals to have one data owner; prove the picker does not implement
   capacity thresholds.
-- [ ] Extract the current prod migration preparation unchanged into the shared
+- [x] Extract the current prod migration preparation unchanged into the shared
   checker entry and call it from prod and Edge. Do not redesign tag/range
   semantics in this PR.
-- [ ] Put the three existing capacity constants in the data-only policy. Only
+- [x] Put the three existing capacity constants in the data-only policy. Only
   deploy and probe consume it; picker validates probe shape and sorts its
   verdict/facts.
-- [ ] Extend the existing Stage0 sentinel for these exact owners. Do not add a
+- [x] Extend the existing Stage0 sentinel for these exact owners. Do not add a
   generic release-policy framework or prose parser.
-- [ ] GREEN:
+- [x] GREEN:
 
   ```bash
   python3 -m unittest \
@@ -294,10 +294,10 @@ primitive, Edge release probe, canary picker, focused tests, and
 `docs/spec-delta/edge-lightsail.md`, and
 `docs/deploy/blue-green-zero-downtime-backlog.md`.
 
-- [ ] Point current operator guidance to the shared blue/green primitive and
+- [x] Point current operator guidance to the shared blue/green primitive and
   canonical approved spec. Mark retained historical descriptions as
   superseded; do not rewrite archives.
-- [ ] Run the focused release-safety suites from Tasks 6-7, then:
+- [x] Run the focused release-safety suites from Tasks 6-7, then:
 
   ```bash
   python3 -m unittest \

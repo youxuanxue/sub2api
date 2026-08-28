@@ -61,6 +61,16 @@ if [[ "${DEPLOY_PROFILE}" = prod && "${QA_BUNDLE_ENABLED-}" = true ]]; then
   done
 fi
 
+CAPACITY_POLICY="$(cd "$(dirname "$0")" && pwd)/bluegreen-capacity-policy.env"
+# shellcheck source=bluegreen-capacity-policy.env
+source "${CAPACITY_POLICY}"
+for key in EDGE_MIN_MEM_AVAILABLE_BYTES EDGE_ACTIVE_APP_HEADROOM_BYTES EDGE_MIN_ROOT_DISK_AVAILABLE_BYTES; do
+  if [[ ! "${!key:-}" =~ ^[0-9]+$ ]]; then
+    echo "stage0_deploy_via_ssm_bluegreen: ${key} missing or invalid in ${CAPACITY_POLICY}" >&2
+    exit 1
+  fi
+done
+
 ssm_region_args=()
 if [[ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
   ssm_region_args=(--region "${AWS_REGION:-${AWS_DEFAULT_REGION}}")
@@ -367,17 +377,19 @@ bytes_from_docker_mem() {
 
 admit_edge_candidate() {
   local active_container="$1" mem_available_bytes active_usage active_working_set_bytes
-  local memory_floor_bytes=335544320 memory_required_bytes disk_floor_bytes=5368709120 disk_available_bytes
+  local memory_floor_bytes="${EDGE_MIN_MEM_AVAILABLE_BYTES:?}" memory_required_bytes
+  local memory_headroom_bytes="${EDGE_ACTIVE_APP_HEADROOM_BYTES:?}"
+  local disk_floor_bytes="${EDGE_MIN_ROOT_DISK_AVAILABLE_BYTES:?}" disk_available_bytes
   [[ "${DEPLOY_PROFILE}" = edge ]] || return 0
 
   mem_available_bytes="$(awk '/^MemAvailable:/ {printf "%.0f\n", $2 * 1024; exit}' /proc/meminfo)"
   active_usage="$(sudo docker stats --no-stream --format '{{.MemUsage}}' "${active_container}" | cut -d/ -f1)"
   active_working_set_bytes="$(bytes_from_docker_mem "${active_usage}")" || die "could not parse active app working set: ${active_usage:-<empty>}"
-  memory_required_bytes=$((active_working_set_bytes + 134217728))
+  memory_required_bytes=$((active_working_set_bytes + memory_headroom_bytes))
   if (( memory_required_bytes < memory_floor_bytes )); then memory_required_bytes=${memory_floor_bytes}; fi
   disk_available_bytes="$(df -B1 --output=avail / | awk 'NR==2 {print $1}')"
 
-  # Hard contract: MemAvailable >= max(320 MiB, active working set + 128 MiB).
+  # Hard contract comes from ops/stage0/bluegreen-capacity-policy.env.
   log "edge admission: mem_available_bytes=${mem_available_bytes:-invalid} active_working_set_bytes=${active_working_set_bytes} memory_required_bytes=${memory_required_bytes} disk_available_bytes=${disk_available_bytes:-invalid}"
   log "edge admission audit: swap_free_kib=$(awk '/^SwapFree:/ {print $2; exit}' /proc/meminfo) load=$(cut -d' ' -f1-3 /proc/loadavg) recent_oom=$(sudo dmesg --since '24 hours ago' 2>/dev/null | grep -ciE 'out of memory|oom-kill' || true)"
   [[ "${mem_available_bytes}" =~ ^[0-9]+$ ]] || die "invalid MemAvailable"
@@ -703,6 +715,14 @@ preserve_target_cutover() {
   record_cutover || true
 }
 
+preserve_unconfirmed_reload() {
+  local reason="$1"
+  echo "::error::${reason}; cleared active-color and preserving both colors for explicit recovery"
+  sudo rm -f "${ACTIVE_FILE}" >/dev/null 2>&1 || true
+  ROUTE_SWITCHED=1
+  CUTOVER_COMMITTED=1
+}
+
 commit_cutover() {
   local color="$1" upstream tmp backup target_config active_backup ts
   upstream="$(color_container "${color}"):8080"
@@ -739,8 +759,8 @@ commit_cutover() {
     if sudo sh -c "cat '${backup}' > '${LIVE_CADDY}'"; then
       sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile || true
     else
-      preserve_target_cutover "${color}" "${target_config}" \
-        "could not restore Caddyfile after failed target reload"
+      preserve_unconfirmed_reload \
+        "target Caddy reload could not be confirmed"
     fi
     return 1
   fi
@@ -830,12 +850,17 @@ assert_active_route_consistent() {
 }
 
 ensure_legacy_cutover() {
-  local active legacy_img repo blue_img
+  local active routed legacy_img repo blue_img
   active="$(read_active_color || true)"
   if [[ "${active}" =~ ^(blue|green)$ ]]; then
     assert_active_route_consistent "${active}"
     log "blue/green already initialized: active=${active}"
     return 0
+  fi
+
+  routed="$(caddy_active_color || true)"
+  if [[ "${routed}" =~ ^(blue|green)$ ]]; then
+    die "colored Caddy route ${routed} has no active-color; explicit recovery required"
   fi
 
   if ! sudo docker inspect tokenkey >/dev/null 2>&1; then
@@ -1021,6 +1046,9 @@ jq -n \
   --arg image_enabled "${DELIVER_IMAGE_ENABLED}" \
   --arg image_max "${DELIVER_IMAGE_MAX}" \
   --arg image_overflow "${DELIVER_IMAGE_OVERFLOW}" \
+  --arg edge_min_mem "${EDGE_MIN_MEM_AVAILABLE_BYTES}" \
+  --arg edge_app_headroom "${EDGE_ACTIVE_APP_HEADROOM_BYTES}" \
+  --arg edge_min_disk "${EDGE_MIN_ROOT_DISK_AVAILABLE_BYTES}" \
   --argjson chunks "${chunks_json}" '{
   commands: ([
     "set -euo pipefail",
@@ -1065,6 +1093,9 @@ jq -n \
       + " GATEWAY_IMAGE_CONCURRENCY_ENABLED=" + ($image_enabled|@sh)
       + " GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS=" + ($image_max|@sh)
       + " GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE=" + ($image_overflow|@sh)
+      + " EDGE_MIN_MEM_AVAILABLE_BYTES=" + ($edge_min_mem|@sh)
+      + " EDGE_ACTIVE_APP_HEADROOM_BYTES=" + ($edge_app_headroom|@sh)
+      + " EDGE_MIN_ROOT_DISK_AVAILABLE_BYTES=" + ($edge_min_disk|@sh)
       + " /tmp/tokenkey-bluegreen-deploy.sh"
     )
   ]),

@@ -8,9 +8,10 @@
 ## Background
 
 最初 Edge Stage0 基于 EC2 + CloudFormation + SSM Run-Command，与 prod 共享
-`ops/stage0/deploy_via_ssm.sh`、烟测与 diagnostics 入口；本 delta 当初新增 Lightsail
-作为并行降本/区域覆盖路径。此后多 Edge 全部收敛到 Lightsail，EC2 edge 路径整体退役，
-Lightsail 成为唯一 edge 实现（与 prod 仍共享上述 SSM/smoke/diagnostics primitive）。
+当时的单容器 `ops/stage0/deploy_via_ssm.sh`、烟测与 diagnostics 入口；本 delta 当初新增 Lightsail
+作为并行降本/区域覆盖路径。此后多 Edge 全部收敛到 Lightsail，EC2 edge 路径整体退役。
+**2026-08-28：Lightsail Edge 升级/回滚已改走与 prod 同一套 `deploy_via_ssm_bluegreen.sh`。**
+现行行为规范见 `docs/approved/deploy-stage0-workflow.md`；下文仍描述 Lightsail 基础设施增量，其中单容器发版描述视为 superseded。
 
 ## Delta
 
@@ -53,8 +54,8 @@ Lightsail 成为唯一 edge 实现（与 prod 仍共享上述 SSM/smoke/diagnost
 1. **provision**：workflow 创建 SSM Hybrid Activation → Lightsail 实例 launch script
    注册 SSM → **`DescribeInstanceInformation` 以本次 `ActivationId`（`ActivationIds` 过滤器）
    主路径解析 `mi-*`（不可用「标签过滤器 + ResourceType」混用）；bootstrap `hostnamectl` 对齐 Lightsail `instance_name` 作为兜底** → 写入 managed instance id → 分配 Static IP → DNS 后 smoke 通过
-2. **upgrade**：从 SSM 读 `mi-*` → `deploy_via_ssm.sh` 换 tag → external health +
-   `edge_post_deploy_smoke.sh` 通过
+2. **upgrade**：从 SSM 读 `mi-*` → `deploy_via_ssm_bluegreen.sh` 换 tag → external health +
+   `edge_post_deploy_smoke.sh` 通过。候选 `/health` 通过后才切流；协议就绪由应用 `/health` 单独决定。
 3. **daily diagnostics**：`ops-daily-diagnostics.yml` 自动把 deployable Lightsail
    edge 接入矩阵，复用 SSM SendCommand 跑 docker ps / 健康 / 日志信号计数；同
    一份 ops-report 同时覆盖 prod + EC2 edge + Lightsail edge

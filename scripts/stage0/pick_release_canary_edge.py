@@ -23,6 +23,7 @@ RESOLVE_EDGE = REPO_ROOT / "deploy/aws/stage0/resolve-edge-target.py"
 RUN_PROBE = REPO_ROOT / "ops/observability/run-probe.sh"
 RELEASE_PROBE = REPO_ROOT / "ops/stage0/edge_release_canary_probe.sh"
 OAUTH_PROBE = REPO_ROOT / "ops/stage0/edge_oauth_pool_probe.sh"
+CAPACITY_POLICY = REPO_ROOT / "ops/stage0/bluegreen-capacity-policy.env"
 
 
 def _fail(message: str, code: int = 1) -> None:
@@ -55,6 +56,8 @@ def probe_edge_release_facts(edge_id: str, *, source_group: str, timeout_seconds
             str(RELEASE_PROBE),
             "--with",
             str(OAUTH_PROBE),
+            "--with",
+            str(CAPACITY_POLICY),
             "--env",
             f"ANTHROPIC_SOURCE_GROUP={source_group}",
             "--comment",
@@ -121,15 +124,10 @@ def validate_release_facts(payload: object) -> bool:
         )
         if any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in hard_facts):
             return False
-        expected_required = max(
-            335_544_320,
-            payload["active_app_working_set_bytes"] + 134_217_728,
-        )
-        if payload["memory_required_bytes"] != expected_required:
-            return False
-        if payload["memory_headroom_bytes"] != payload["mem_available_bytes"] - expected_required:
-            return False
-        if payload["disk_available_bytes"] < 5_368_709_120:
+        if (
+            payload["memory_headroom_bytes"]
+            != payload["mem_available_bytes"] - payload["memory_required_bytes"]
+        ):
             return False
         if reasons:
             return False
@@ -198,6 +196,8 @@ def main() -> int:
         _fail(f"release canary probe missing: {RELEASE_PROBE}")
     if not OAUTH_PROBE.is_file():
         _fail(f"oauth pool probe missing: {OAUTH_PROBE}")
+    if not CAPACITY_POLICY.is_file():
+        _fail(f"capacity policy missing: {CAPACITY_POLICY}")
 
     edges = list_deployable_edges()
     if not edges:

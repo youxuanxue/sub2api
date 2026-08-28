@@ -200,6 +200,7 @@ def _run_commit_cutover_record_failure(
 ) -> subprocess.CompletedProcess[str]:
     function = "\n".join((
         _extract_shell_function(remote, "preserve_target_cutover"),
+        _extract_shell_function(remote, "preserve_unconfirmed_reload"),
         _extract_shell_function(remote, "commit_cutover"),
     ))
     with tempfile.TemporaryDirectory(prefix="bluegreen-commit-") as tmp:
@@ -251,11 +252,12 @@ RESTORE_WRITE_FAILS={1 if restore_write_fails else 0}
 ACTIVE_WRITE_FAILS={1 if active_write_fails else 0}
 ACTIVE_RESTORE_FAILS={1 if active_restore_fails else 0}
 {'set -e' if errexit else ''}
-trap 'printf "rc=%s committed=%s live=%s active=%s\\n" "$?" "$CUTOVER_COMMITTED" "$(cat "$LIVE_CADDY")" "$(cat "$ACTIVE_FILE")"' EXIT
+active_state() {{ if [ -f "$ACTIVE_FILE" ]; then cat "$ACTIVE_FILE"; else printf '<missing>'; fi; }}
+trap 'printf "rc=%s committed=%s live=%s active=%s\\n" "$?" "$CUTOVER_COMMITTED" "$(cat "$LIVE_CADDY")" "$(active_state)"' EXIT
 commit_cutover green
 rc=$?
 trap - EXIT
-printf 'rc=%s committed=%s live=%s active=%s\\n' "$rc" "$CUTOVER_COMMITTED" "$(cat "$LIVE_CADDY")" "$(cat "$ACTIVE_FILE")"
+printf 'rc=%s committed=%s live=%s active=%s\\n' "$rc" "$CUTOVER_COMMITTED" "$(cat "$LIVE_CADDY")" "$(active_state)"
 """
         return subprocess.run(
             ["bash"], input=script, capture_output=True, text=True, check=False
@@ -374,6 +376,60 @@ assert_active_route_consistent {shlex.quote(active)}
         )
 
 
+def _run_colored_route_without_active_color(
+    remote: str, function_name: str
+) -> subprocess.CompletedProcess[str]:
+    function = _extract_shell_function(remote, function_name)
+    extras = "\n".join((
+        _extract_shell_function(remote, "caddy_active_color"),
+        _extract_shell_function(remote, "read_active_color"),
+        _extract_shell_function(remote, "assert_active_route_consistent"),
+    ))
+    with tempfile.TemporaryDirectory(prefix="bluegreen-recovery-") as tmp:
+        root = pathlib.Path(tmp)
+        caddy_dir = root / "caddy"
+        caddy_dir.mkdir()
+        live = caddy_dir / "Caddyfile"
+        live.write_text("reverse_proxy tokenkey-green:8080 {\n}\n")
+        script = f"""{extras}
+{function}
+log() {{ :; }}
+die() {{ printf 'die:%s\\n' "$*"; exit 1; }}
+sudo() {{
+  if [ "$1" = docker ] && [ "$2" = inspect ] && [ "$3" = tokenkey ]; then return 0; fi
+  command "$@"
+}}
+backup_env() {{ printf 'backup\\n'; }}
+env_set() {{ :; }}
+write_bluegreen_compose() {{ :; }}
+compose_bg() {{ printf 'compose:%s\\n' "$*"; }}
+wait_healthy() {{ :; }}
+wait_ready() {{ :; }}
+install_bluegreen_systemd_unit() {{ :; }}
+commit_cutover() {{ printf 'commit:%s\\n' "$1"; }}
+observe_routed_health() {{ :; }}
+drain_container() {{ :; }}
+admit_edge_candidate() {{ :; }}
+container_image() {{ printf 'ghcr.io/youxuanxue/sub2api:1.8.98\\n'; }}
+image_repo() {{ printf 'ghcr.io/youxuanxue/sub2api\\n'; }}
+env_get() {{ printf 'ghcr.io/youxuanxue/sub2api:1.8.98\\n'; }}
+other_color() {{ printf 'green\\n'; }}
+color_container() {{ printf 'tokenkey-%s\\n' "$1"; }}
+ROOT={shlex.quote(str(root))}
+ACTIVE_FILE={shlex.quote(str(root / "active-color"))}
+LIVE_CADDY={shlex.quote(str(live))}
+TARGET_CONTAINER=""
+CUTOVER_COMMITTED=0
+DEPLOY_PROFILE=prod
+TAG=1.8.99
+TELEMETRY_ARCHIVE_ENABLED=""
+{function_name}
+"""
+        return subprocess.run(
+            ["bash"], input=script, capture_output=True, text=True, check=False
+        )
+
+
 class BlueGreenRenderTest(unittest.TestCase):
     def test_renders_lightsail_edge_profile_without_prod_defaults(self) -> None:
         proc, params, remote = _render(_EDGE_IID, env_extra={"EDGE_ID": "us2"})
@@ -386,10 +442,14 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertIn("QA_ARCHIVE_STORAGE_BUCKET=''", joined)
         self.assertIn("TELEMETRY_ARCHIVE_BUCKET=''", joined)
         self.assertIn("MEDIA_STORAGE_BUCKET=''", joined)
-        self.assertIn('MemAvailable >= max(320 MiB, active working set + 128 MiB)', remote)
-        self.assertIn('memory_floor_bytes=335544320', remote)
-        self.assertIn('active_working_set_bytes + 134217728', remote)
-        self.assertIn('disk_floor_bytes=5368709120', remote)
+        self.assertIn("EDGE_MIN_MEM_AVAILABLE_BYTES='335544320'", joined)
+        self.assertIn("EDGE_ACTIVE_APP_HEADROOM_BYTES='134217728'", joined)
+        self.assertIn("EDGE_MIN_ROOT_DISK_AVAILABLE_BYTES='5368709120'", joined)
+        self.assertIn('${EDGE_MIN_MEM_AVAILABLE_BYTES:?}', remote)
+        self.assertIn('${EDGE_ACTIVE_APP_HEADROOM_BYTES:?}', remote)
+        self.assertIn('${EDGE_MIN_ROOT_DISK_AVAILABLE_BYTES:?}', remote)
+        self.assertNotIn('memory_floor_bytes=335544320', remote)
+        self.assertIn('ops/stage0/bluegreen-capacity-policy.env', remote)
         cleared = _run_clear_edge_profile_overrides(remote, "edge")
         self.assertEqual(cleared.returncode, 0, msg=cleared.stderr)
         self.assertEqual(
@@ -533,7 +593,7 @@ class BlueGreenRenderTest(unittest.TestCase):
         )
         self.assertNotEqual(restore_write_failed.returncode, 0)
         self.assertIn(
-            "rc=1 committed=1 live=new-route:tokenkey-green:8080 active=green",
+            "rc=1 committed=1 live=new-route:tokenkey-green:8080 active=<missing>",
             restore_write_failed.stdout,
         )
 
@@ -585,6 +645,37 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertIn(
             "up -d --no-deps tokenkey-blue tokenkey-green", unknown.stdout
         )
+
+    def test_unconfirmed_target_reload_clears_active_color_and_blocks_next_deploy(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert remote is not None
+
+        unconfirmed = _run_commit_cutover_record_failure(
+            remote,
+            target_reload_fails=True,
+            restore_write_fails=True,
+        )
+        self.assertEqual(unconfirmed.returncode, 0, msg=unconfirmed.stderr)
+        self.assertIn(
+            "rc=1 committed=1 live=new-route:tokenkey-green:8080 active=<missing>",
+            unconfirmed.stdout,
+        )
+
+        blocked_legacy = _run_colored_route_without_active_color(
+            remote, "ensure_legacy_cutover"
+        )
+        self.assertNotEqual(blocked_legacy.returncode, 0)
+        self.assertIn("colored Caddy route", blocked_legacy.stdout)
+        self.assertIn("no active-color", blocked_legacy.stdout)
+        self.assertNotIn("commit:", blocked_legacy.stdout)
+
+        blocked_target = _run_colored_route_without_active_color(
+            remote, "deploy_target_color"
+        )
+        self.assertNotEqual(blocked_target.returncode, 0)
+        self.assertIn("invalid or missing active color", blocked_target.stdout)
+        self.assertNotIn("commit:", blocked_target.stdout)
 
     def test_active_color_must_match_caddy_before_target_selection(self) -> None:
         proc, _, remote = _render()

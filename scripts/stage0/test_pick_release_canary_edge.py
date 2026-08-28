@@ -103,6 +103,18 @@ class PickReleaseCanaryEdgeTest(unittest.TestCase):
         self.assertEqual(canary, "us4")
         self.assertEqual(audit[0]["rejection_reasons"], ["probe_facts_invalid"])
 
+    def test_picker_does_not_implement_capacity_thresholds(self) -> None:
+        text = _MODULE_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("335544320", text)
+        self.assertNotIn("335_544_320", text)
+        self.assertNotIn("134217728", text)
+        self.assertNotIn("134_217_728", text)
+        self.assertNotIn("5368709120", text)
+        self.assertNotIn("5_368_709_120", text)
+        small_disk = row(traffic=0, headroom=1)
+        small_disk["disk_available_bytes"] = 4_000_000_000
+        self.assertTrue(_mod.validate_release_facts(small_disk))
+
     def test_release_fact_schema_rejects_inconsistent_rows(self) -> None:
         cases = []
         missing_sort_fact = row(traffic=0, headroom=1)

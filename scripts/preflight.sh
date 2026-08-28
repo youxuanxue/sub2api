@@ -2182,8 +2182,22 @@ elif grep -q 'ops/stage0/deploy_via_ssm\.sh' .github/workflows/deploy-stage0.yml
 elif grep -q 'docker compose --env-file .* up -d --no-deps tokenkey' .github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-lightsail-stage0.yml; then
     echo "  FAIL: Stage0 workflows must not inline tokenkey SSM deploy commands; use the shared blue/green primitive"
     errors=$((errors + 1))
+elif ! grep -q 'python3 scripts/checks/bluegreen-migration-safety.py --release-tag' .github/workflows/deploy-stage0.yml \
+    || ! grep -q 'python3 scripts/checks/bluegreen-migration-safety.py --release-tag' .github/workflows/deploy-edge-lightsail-stage0.yml; then
+    echo "  FAIL: prod and Edge must call the shared bluegreen-migration-safety.py --release-tag entry"
+    errors=$((errors + 1))
+elif [ ! -f ops/stage0/bluegreen-capacity-policy.env ]; then
+    echo "  FAIL: missing ops/stage0/bluegreen-capacity-policy.env"
+    errors=$((errors + 1))
+elif ! grep -q 'bluegreen-capacity-policy.env' ops/stage0/deploy_via_ssm_bluegreen.sh \
+    || ! grep -q 'bluegreen-capacity-policy.env' ops/stage0/edge_release_canary_probe.sh; then
+    echo "  FAIL: deploy primitive and Edge release probe must consume bluegreen-capacity-policy.env"
+    errors=$((errors + 1))
+elif grep -E '335544320|134217728|5368709120|335_544_320|134_217_728|5_368_709_120' scripts/stage0/pick_release_canary_edge.py >/dev/null; then
+    echo "  FAIL: pick_release_canary_edge.py must not reimplement capacity policy literals"
+    errors=$((errors + 1))
 else
-    echo "  ok: prod and Lightsail Edge share the blue/green SSM primitive"
+    echo "  ok: prod and Lightsail Edge share the blue/green SSM primitive, migration entry, and capacity policy"
 fi
 
 echo ""

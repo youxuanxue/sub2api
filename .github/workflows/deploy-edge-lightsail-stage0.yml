@@ -129,6 +129,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"
 
+      - name: Blue/green migration safety gate
+        if: inputs.operation == 'upgrade' || inputs.operation == 'rollback'
+        run: python3 scripts/checks/bluegreen-migration-safety.py --release-tag "$INPUT_TAG"
+
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v6
         with:

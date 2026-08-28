@@ -52,6 +52,17 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertNotIn("ops/stage0/deploy_via_ssm.sh", prod)
         self.assertNotIn("ops/stage0/deploy_via_ssm.sh", edge)
 
+    def test_prod_and_edge_share_one_migration_safety_entry(self) -> None:
+        prod = WORKFLOW.read_text(encoding="utf-8")
+        edge = EDGE_WORKFLOW.read_text(encoding="utf-8")
+        entry = 'python3 scripts/checks/bluegreen-migration-safety.py --release-tag'
+        self.assertIn(entry, prod)
+        self.assertIn(entry, edge)
+        self.assertNotIn("git ls-remote --tags origin", prod)
+        self.assertNotIn("git ls-remote --tags origin", edge)
+        self.assertEqual(prod.count(entry), 1)
+        self.assertEqual(edge.count(entry), 1)
+
     def test_operation_choice_preserves_deploy_default(self) -> None:
         text = workflow_text()
         operation = re.search(

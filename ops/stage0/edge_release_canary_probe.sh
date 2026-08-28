@@ -2,9 +2,20 @@
 # Read-only Edge release canary facts. Emits exactly one strict JSON object.
 set -u
 
-MEMORY_FLOOR_BYTES=335544320
-MEMORY_HEADROOM_BYTES=134217728
-DISK_FLOOR_BYTES=5368709120
+POLICY=""
+for candidate in \
+  "${EDGE_CAPACITY_POLICY:-}" \
+  "$(dirname "$0")/bluegreen-capacity-policy.env" \
+  "/tmp/bluegreen-capacity-policy.env"
+do
+  if [ -n "$candidate" ] && [ -f "$candidate" ]; then POLICY="$candidate"; break; fi
+done
+[ -n "$POLICY" ] || { echo "edge_release_canary_probe: missing bluegreen-capacity-policy.env" >&2; exit 1; }
+# shellcheck source=bluegreen-capacity-policy.env
+. "$POLICY"
+MEMORY_FLOOR_BYTES="${EDGE_MIN_MEM_AVAILABLE_BYTES:?}"
+MEMORY_HEADROOM_BYTES="${EDGE_ACTIVE_APP_HEADROOM_BYTES:?}"
+DISK_FLOOR_BYTES="${EDGE_MIN_ROOT_DISK_AVAILABLE_BYTES:?}"
 
 integer_or_empty() {
   case "${1:-}" in
