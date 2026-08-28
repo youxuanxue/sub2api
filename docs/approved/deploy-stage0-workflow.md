@@ -1,28 +1,32 @@
 ---
-title: Cloud-Agent-Driven Tag-and-Deploy Workflow
-status: shipped
-approved_by: youxuanxue (PR #53 squash-merge)
-approved_at: 2026-04-24
+title: Cloud-Agent-Driven Stage0 Blue/Green Deployment Workflow
+status: approved
+approved_by: "feng (2026-08-28 revision); youxuanxue (PR #53 initial approval)"
+approved_at: 2026-08-28
 created: 2026-04-23
 shipped_at: 2026-04-24
 owners: [tk-platform]
 related_prs: ["#53", "#976", "#978"]
+revised: 2026-08-28
+related_designs:
+  - docs/approved/edge-bluegreen-release-safety.md
 # First successful prod deploy via the new workflow:
 #   GHA run https://github.com/youxuanxue/sub2api/actions/runs/24872412714
 #   (env=prod, tag=1.6.0, no-op image hash, external /health 200).
 # Adversarial fail-closed gate also verified:
 #   GHA run https://github.com/youxuanxue/sub2api/actions/runs/24872388875
 #   (tag=99.99.99 → exited at GHCR manifest precheck before any AWS call).
-scope: ".github/workflows/deploy-stage0.yml (prod-only) + ops/stage0/deploy_via_ssm_bluegreen.sh + ops/stage0/post_deploy_smoke.sh + scripts/checks/bluegreen-migration-safety.py + IAM in deploy/aws/cloudformation/cicd-oidc.yaml"
+scope: ".github/workflows/deploy-stage0.yml + .github/workflows/deploy-edge-lightsail-stage0.yml + ops/stage0/deploy_via_ssm_bluegreen.sh + scripts/stage0/pick_oauth_canary_edge.py + Stage0 smoke and rollout guards"
 ---
 
-# Cloud-Agent-Driven Tag-and-Deploy Workflow
+# Cloud-Agent-Driven Stage0 Blue/Green Deployment Workflow
 
 ## 1. Why this exists
 
 The release loop is now: tag → `release.yml` builds a multi-arch image →
-operator dispatches one prod Environment-gated workflow → the workflow performs
-the same-host blue/green SSM deploy, external health check, and gateway smoke.
+operator dispatches the Environment-gated prod workflow and the fleet Edge
+rollout → both use the same-host blue/green SSM owner, external health checks,
+and their canonical smoke suites.
 
 This document originally approved the cloud-agent wrapper around the old manual
 SSM SOP. The 2026-06-24 revision keeps the same GitHub Environment/OIDC control
@@ -113,31 +117,51 @@ Steps:
    review. This is fail-closed before AWS credentials are configured.
 5. **Resolve target instance + api domain** from the stack's
    `InstanceId` / `ApiUrl` outputs.
-6. **Deploy via SSM Run-Command** — call
-   `ops/stage0/deploy_via_ssm_bluegreen.sh` against the prod EC2 `i-*`
-   instance. The primitive is prod-only; Lightsail Edge keeps the single-app
-   `deploy_via_ssm.sh` path.
+6. **Deploy via the shared SSM blue/green owner** — prod EC2 (`i-*`) and
+   Lightsail Edge (`mi-*`) both call
+   `ops/stage0/deploy_via_ssm_bluegreen.sh`. The managed-instance ID selects a
+   thin `prod` or `edge` environment profile; it does not select a second
+   deployment state machine.
 
-   First run self-migrates the legacy app:
-   `.env` backup → derive current `tokenkey` image → write
+   First run performs one migration cutover while legacy `tokenkey` continues
+   serving: `.env` backup → derive the image repository → write
    `/var/lib/tokenkey/docker-compose.bluegreen.yml` → start
-   `tokenkey-blue` with the current image → wait Docker health and `/health`
+   `tokenkey-blue` with the requested image → wait Docker health and `/health`
    readiness → rewrite only the live Caddy `reverse_proxy` upstream to
-   `tokenkey-blue:8080` and hot reload → write
-   `/var/lib/tokenkey/active-color=blue` → install the blue/green
-   `tokenkey.service` → drain and remove legacy `tokenkey`.
+   `tokenkey-blue:8080` and hot reload → atomically write
+   `/var/lib/tokenkey/active-color=blue` and the cutover timestamp → observe the
+   routed `/health` for 30 seconds → install the blue/green `tokenkey.service`
+   → drain and stop legacy `tokenkey`.
 
    Every subsequent deploy alternates colors:
-   `.env` backup → pull target tag into the inactive color
-   (`tokenkey-blue` or `tokenkey-green`) → reuse it only when image, Compose
-   config hash, Docker health, and `/health` readiness all match; otherwise
-   force-recreate only that color → wait up to 300 seconds for Docker health
+   `.env` backup → pull target tag → always force-recreate the inactive color
+   (`tokenkey-blue` or `tokenkey-green`) → wait up to 300 seconds for Docker health
    (`exited`/`dead` fail immediately; three consecutive `unhealthy` checks fail
-   early) and then `/health` readiness → rewrite only the live Caddy upstream to the target
-   color and hot reload → atomically write `active-color` → install/update the
-   blue/green systemd unit → SIGUSR1/drain and stop the previous color. A
-   pre-cutover failure preserves the inactive target for evidence and retry;
-   the active color remains untouched.
+   early) and then `/health` readiness → rewrite only the live Caddy upstream
+   to the target color and hot reload → atomically write `active-color` and the
+   cutover timestamp → observe routed `/health` for 30 seconds →
+   install/update the blue/green systemd unit → SIGUSR1/drain and stop the
+   previous color. A pre-cutover failure captures bounded logs, removes the
+   failed candidate, restores the pre-deploy `.env`, and leaves the active
+   color untouched. Explicit exits and returned command failures share one
+   `EXIT` cleanup path; an `ERR` trap is not the rollback owner.
+
+   The externally meaningful state is only `pre_cutover` or `committed`.
+   `commit_cutover` owns the Caddy backup/reload plus atomic `active-color` and
+   timestamp write. A validation, reload, or persistence failure restores the
+   old Caddy route and keeps the old color active. After commit, routed
+   `/health` must remain successful for 30 seconds before the old color is
+   drained and stopped. A post-commit failure leaves both colors running for an
+   explicit previous-tag rollback; it never flips back automatically.
+
+   Edge starts a candidate only when both hard admission rules pass:
+
+   - `MemAvailable >= max(320 MiB, active app working set + 128 MiB)`;
+   - root filesystem available space is at least 5 GiB.
+
+   Swap pressure, load, and recent OOM history are audit fields only. Protocol
+   readiness is not reconstructed by deployment code: candidate `/health` is
+   the single target-version decision owner.
 
    PostgreSQL, Redis, Caddy, `/var/lib/tokenkey/app`, and the Docker network
    remain the single shared data layer. EC2/Lightsail bootstrap owns the app
@@ -199,6 +223,21 @@ receives `contents: write`. The post-release live check is a later step in
 `deploy`; it is read-only SSM plus git history and does not mutate host
 colors.
 
+### Edge release canary
+
+The canary selector probes every deployable Edge and emits a complete JSON
+audit. Missing or invalid memory, disk, or 30-minute completed-request facts
+make that Edge ineligible. Among eligible Edges it sorts by:
+
+1. lower completed requests in the prior 30 minutes;
+2. greater `MemAvailable` headroom;
+3. canonical Edge matrix order.
+
+Native OAuth/Kiro pool size remains an audit and smoke-applicability field; it
+does not affect eligibility or ordering. A fleet-wide empty pool is expected
+and does not fail canary selection. Transport failure for one Edge rejects that
+Edge; selection fails closed only when no eligible Edge remains.
+
 ## 5. Required pre-deploy operator setup
 
 After this PR merges, before the first dispatch:
@@ -246,10 +285,11 @@ To stay focused on prod deploy automation and nothing else:
 - **No multi-region** — role scoped to one `AWS::Region`.
 - **No separate staging promotion gate inside Actions** — `deploy-stage0.yml`
   upgrades **`prod` only**; smoke probes target that stack's `ApiUrl`.
-- **No post-cutover auto-rollback** — before Caddy reload, failures leave the
-  old color untouched and serving; after Caddy reload, re-dispatch the workflow
-  with the previous app tag so the rollback goes through the same health/smoke
-  path. QA Worker/host-runner rollback is a separate lifecycle governed only by
+- **No post-commit auto-rollback** — pre-cutover failures leave the old color
+  untouched; an incomplete cutover commit restores the old Caddy route; after
+  a committed cutover, re-dispatch the previous app tag so rollback goes
+  through the same health/smoke path. QA Worker/host-runner rollback is a
+  separate lifecycle governed only by
   `docs/approved/design-prod-qa-24h-s3-lifecycle.md` section 18.2.
 - **No CFN `ImageTag` parameter mutation** — drift between the CFN
   parameter and runtime `TOKENKEY_IMAGE` remains the accepted trade-off
@@ -287,6 +327,19 @@ gates fire correctly and the regression check holds:
 2. **Existing OIDC consumers unaffected**: `ops-daily-diagnostics.yml` error clustering
    and log dump runs after the IAM stack update succeed (regression check on
    the trust expansion).
+3. **Candidate failure preserves service**: explicit exit, liveness failure,
+   or readiness failure removes the candidate and leaves Caddy,
+   `active-color`, and the serving app unchanged.
+4. **Cutover commit is recoverable**: Caddy reload or state-persistence failure
+   restores the old Caddy route and reports a failed deployment.
+5. **One steady-state app**: successful routed observation drains and stops the
+   old color; a post-commit observation failure leaves it running for explicit
+   rollback.
+6. **Edge capacity is fail-closed**: insufficient/unknown required memory,
+   disk, or traffic facts reject only that Edge before candidate start.
+7. **Canary selection is deterministic**: eligible Edges sort by 30-minute
+   traffic, memory headroom, and matrix order; OAuth/Kiro pool size cannot make
+   selection fail.
 
 A successful deploy itself is not a separate acceptance bullet — that
 *is* the workflow's purpose, observed via job-summary HTTP 200 from
@@ -300,11 +353,14 @@ Step 6.
 - [x] First successful prod deploy via `gh workflow run` —
       [run 24872412714](https://github.com/youxuanxue/sub2api/actions/runs/24872412714)
       (env=prod, tag=1.6.0, external `/health` HTTP 200)
-- [x] Status flipped to `shipped` (this PR)
+- [x] Initial workflow status flipped to `shipped` (PR #53)
 - [x] 2026-06-24 revision: prod deploy primitive changed from single-container
       restart to same-host blue/green, single data layer. PR #976 shipped the
       runtime change; PR #978 hardened the approved baseline, Caddy active
       upstream handling, SSM timeout, and migration-safety guard.
+- [x] 2026-08-28 Edge reuse design approved: one shared primitive, two hard
+      capacity gates, two-state cutover, and traffic-first canary selection.
+- [ ] 2026-08-28 Edge reuse implementation merged and released.
 
 ### Adversarial gate verified
 
