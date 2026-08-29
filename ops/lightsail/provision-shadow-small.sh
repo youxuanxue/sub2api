@@ -179,7 +179,30 @@ export SWAP_SIZE_GIB='2'
 export ALLOW_SECRET_GENERATE='false'
 EOF
   { cat "$launch_env"; echo; cat "${REPO_ROOT}/deploy/aws/lightsail/generated-launch-script.sh"; } >"$user_data"
-
+  # Lightsail user-data is capped at 16 KB. Env + launch script exceeds that, so
+  # wrap a gzip payload in a tiny decoder stub.
+  user_data_gz="$(mktemp)"
+  gzip -9n -c "$user_data" | base64 | tr -d '\n' >"$user_data_gz"
+  python3 - "$user_data_gz" "$user_data" <<'PY'
+import pathlib, sys
+b64 = pathlib.Path(sys.argv[1]).read_text(encoding="ascii")
+pathlib.Path(sys.argv[2]).write_text(
+    "#!/bin/bash\nset -euo pipefail\npython3 - <<'PY'\n"
+    "import base64, gzip\n"
+    f"open('/tmp/tokenkey-shadow-launch.sh','wb').write(gzip.decompress(base64.b64decode('{b64}')))\n"
+    "PY\n"
+    "exec bash /tmp/tokenkey-shadow-launch.sh\n",
+    encoding="ascii",
+)
+PY
+  payload_bytes="$(wc -c < "$user_data")"
+  echo "shadow user-data bytes=${payload_bytes}"
+  if [[ "$payload_bytes" -ge 16000 ]]; then
+    echo "compressed user-data still exceeds Lightsail 16KB limit (${payload_bytes})" >&2
+    rm -f "$user_data_gz"
+    exit 1
+  fi
+  rm -f "$user_data_gz"
   echo "creating ${SHADOW_NAME} small_3_0 in ${AZ}"
   aws lightsail create-instances \
     --region "$REGION" \
