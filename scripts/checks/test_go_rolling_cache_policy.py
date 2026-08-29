@@ -46,10 +46,11 @@ class GoRollingCachePolicyTest(unittest.TestCase):
             for step in action["runs"]["steps"]
             if step.get("id") == "build_cache_status"
         )
-        self.assertIn("BUILD_CACHE_PATH", status["env"])
+        self.assertIn("RESTORE_MATCHED", status["env"])
+        self.assertIn("cache-matched-key", status["env"]["RESTORE_MATCHED"])
         self.assertIn("build_cache_hit=${hit}", status["run"])
         self.assertIn("build_cache_populated=${populated}", status["run"])
-        self.assertIn('find "${cache_path}" -type f -print -quit', status["run"])
+        self.assertNotIn("find ", status["run"])
 
     def test_uses_family_input_and_drops_date_epochs(self) -> None:
         action = load_action()

@@ -40,7 +40,7 @@ outputs:
     description: "true only when the selected primary Go build cache key restores exactly."
     value: ${{ steps.build_cache_status.outputs.build_cache_hit }}
   build_cache_populated:
-    description: "true when an exact hit or a prefix/fallback restore left build objects on disk."
+    description: "true when an exact hit or a prefix/fallback restore set cache-matched-key."
     value: ${{ steps.build_cache_status.outputs.build_cache_populated }}
 
 runs:
@@ -124,7 +124,9 @@ runs:
         RESTORE_HIT: ${{ steps.build_cache_restore.outputs.cache-hit }}
         BENCHMARK_HIT: ${{ steps.build_cache_benchmark.outputs.cache-hit }}
         MAIN_HIT: ${{ steps.build_cache_main.outputs.cache-hit }}
-        BUILD_CACHE_PATH: ${{ inputs.build_cache_path }}
+        RESTORE_MATCHED: ${{ steps.build_cache_restore.outputs.cache-matched-key }}
+        BENCHMARK_MATCHED: ${{ steps.build_cache_benchmark.outputs.cache-matched-key }}
+        MAIN_MATCHED: ${{ steps.build_cache_main.outputs.cache-matched-key }}
       run: |
         hit=false
         if [[ "$RESTORE_HIT" == "true" || "$BENCHMARK_HIT" == "true" || "$MAIN_HIT" == "true" ]]; then
@@ -132,11 +134,14 @@ runs:
         fi
         echo "build_cache_hit=${hit}" >> "$GITHUB_OUTPUT"
 
-        # actions/cache sets cache-hit only for an exact key. Prefix and
-        # fallback restores still leave usable Go objects; treat those as warm.
+        # cache-hit is exact-key only. Prefix/fallback restores set
+        # cache-matched-key. Do not probe the directory: setup-go / go env
+        # leave files in GOCACHE even on a complete miss, which #1880 treated
+        # as warm and then dual-compiled (service-compile 336s).
         populated="${hit}"
-        cache_path="${BUILD_CACHE_PATH/#\~/${HOME}}"
-        if [[ "${populated}" != "true" && -d "${cache_path}" ]] && [ -n "$(find "${cache_path}" -type f -print -quit)" ]; then
+        matched="${RESTORE_MATCHED:-}${BENCHMARK_MATCHED:-}${MAIN_MATCHED:-}"
+        if [[ "${populated}" != "true" && -n "${matched}" ]]; then
           populated=true
         fi
         echo "build_cache_populated=${populated}" >> "$GITHUB_OUTPUT"
+        echo "build_cache_matched_key=${RESTORE_MATCHED:-${BENCHMARK_MATCHED:-${MAIN_MATCHED:-}}}" >> "$GITHUB_OUTPUT"
