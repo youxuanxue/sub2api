@@ -316,6 +316,34 @@ class PricingServingDocsContractTest(unittest.TestCase):
         self.assertNotIn("TaskContinuation", protocol.read_text(encoding="utf-8"))
         self.assertEqual(MODULE.check(root), [])
 
+    def test_prefilter_keeps_known_forbidden_samples(self) -> None:
+        samples = (
+            "SINGLE client-facing servable truth",
+            "official upstream aliases display when priced+servable",
+            "intersected with public priced+displayable SSOT",
+            "上架一个模型（served + priced）",
+            "per pricing-availability-source-of-truth.md §2.4 / R-002 it is a feed",
+            "家族 floor 是对 PRICE 事实的估计，只**读**两个事实。",
+            "grok defaults must mirror the unified servable SSOT",
+            "Structural SSOT (servable ↔ priced ↔ display intent) stays here.",
+            "truthful callable menus",
+            "unpriced never blocks serving",
+            "¬unreachable accounts stay hidden",
+            "四层洋葱",
+            "有价 + 可服务",
+            "one entry, four facts",
+            "列出即可调用",
+            "account.go:639",
+        )
+        for sample in samples:
+            with self.subTest(sample=sample):
+                self.assertTrue(MODULE.secondary_truth_candidate(sample), sample)
+
+    def test_prefilter_skips_unrelated_go(self) -> None:
+        self.assertFalse(
+            MODULE.secondary_truth_candidate("package service\n\nfunc add(a int, b int) int { return a + b }\n")
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

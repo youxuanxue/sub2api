@@ -243,6 +243,23 @@ has_merge_base_with_head() {
     git rev-parse --verify "$ref" >/dev/null 2>&1 && git merge-base "$ref" HEAD >/dev/null 2>&1
 }
 
+# Triple-dot vs PREFLIGHT_BASE is empty on a main push (origin/main == HEAD).
+# Fall back to first-parent so a squash that touched backend/ent/ still
+# generate-and-diffs.
+_ent_surface_touched() {
+    local base="${PREFLIGHT_BASE:-origin/main}"
+    if git diff --name-only "$base"...HEAD -- backend/ent/ 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    if git rev-parse --verify "$base" >/dev/null 2>&1 \
+       && [ "$(git rev-parse "$base")" = "$(git rev-parse HEAD)" ] \
+       && git rev-parse --verify HEAD^1 >/dev/null 2>&1; then
+        git diff --name-only HEAD^1 HEAD -- backend/ent/ 2>/dev/null | grep -q .
+        return $?
+    fi
+    return 1
+}
+
 template_base="${PREFLIGHT_BASE:-}"
 if [ -n "$template_base" ] && ! has_merge_base_with_head "$template_base"; then
     template_base=""
@@ -278,13 +295,50 @@ export PREFLIGHT_BASE="${template_base:-origin/main}"
 
 # ---- TK: spawn the expensive independent gates early --------------------------
 # Spawned BEFORE the dev-rules template so the heavy jobs (QA go test, the
-# unittest-discover suites, the dockerized Caddyfile adapt) overlap with the
-# template's own ~25s of generic + network checks. Joined at their original
+# unittest-discover suites, the dockerized Caddyfile adapt, and the early
+# Python SSOT walkers) overlap with the template. Joined at their original
 # section positions below. Spawn guards mirror each section's prerequisite
 # checks; a missing prerequisite leaves the job unspawned and the section
 # falls back to its serial FAIL/skip path.
 _qa_bundle_gate_run() {
     cd backend && go test -tags=unit -v ./internal/observability/qa/bundle ./internal/observability/qa
+}
+_protocol_routing_gate_run() {
+    python3 ./scripts/checks/test_protocol_routing_ssot.py >/dev/null &&
+        python3 ./scripts/checks/protocol-routing-ssot.py --quiet
+}
+_pricing_serving_gate_run() {
+    python3 ./scripts/checks/test_pricing_serving_docs.py >/dev/null &&
+        python3 ./scripts/checks/pricing-serving-docs.py --quiet
+}
+_merge_conflict_gate_run() {
+    python3 ./scripts/checks/test_merge_conflict_markers.py >/dev/null &&
+        python3 ./scripts/checks/merge-conflict-markers.py --quiet
+}
+_qa_phase2_gate_run() {
+    python3 -m py_compile \
+        ./ops/qa/qa_archive_recovery_gate.py \
+        ./ops/qa/prod_qa_archive_closeout.py \
+        ./ops/qa/prod_phase2_live_health.py \
+        ./ops/qa/verify_raw_archive_iam_contract.py \
+        ./ops/qa/qa_phase2_health.py \
+        ./deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py \
+        ./deploy/aws/cloudformation/test_stage0_edge_qa_s3_boundary.py &&
+        python3 -m unittest \
+            deploy.aws.cloudformation.test_stage0_qa_raw_archive_contract \
+            deploy.aws.cloudformation.test_stage0_edge_qa_s3_boundary \
+            ops.qa.test_qa_archive_recovery_gate \
+            ops.qa.test_prod_qa_archive_closeout \
+            ops.qa.test_prod_phase2_live_health
+}
+_qa_phase_ops_gate_run() {
+    python3 -m py_compile ./ops/qa/edge_phase1_closeout.py ./ops/qa/prod_phase2_baseline.py &&
+        python3 ./ops/qa/test_qa_phase_ops.py
+}
+_qa_phase_ops_spawn_if_needed() {
+    if [ "$_preflight_skip_slow_ops" -ne 1 ] && command -v python3 >/dev/null 2>&1; then
+        _bg_spawn qa_phase_ops _qa_phase_ops_gate_run
+    fi
 }
 if [ "$_preflight_skip_go_contracts" -ne 1 ] && [ "$_preflight_skip_slow_ops" -ne 1 ] && command -v python3 >/dev/null 2>&1 && command -v go >/dev/null 2>&1; then
     _bg_spawn qa_bundle _qa_bundle_gate_run
@@ -314,6 +368,11 @@ if command -v python3 >/dev/null 2>&1; then
     _bg_spawn smoke_unittest python3 -m unittest scripts.test_smoke_suite \
         scripts.test_edge_smoke_phase_contract scripts.test_smoke_env \
         scripts.test_smoke_lib scripts.test_load_smoke_github_env -q
+    _bg_spawn protocol_routing _protocol_routing_gate_run
+    _bg_spawn pricing_serving _pricing_serving_gate_run
+    _bg_spawn merge_conflict _merge_conflict_gate_run
+    _bg_spawn qa_phase2 _qa_phase2_gate_run
+    _qa_phase_ops_spawn_if_needed
 fi
 _bg_spawn ssm_parse bash ./scripts/checks/check-stage0-ssm-host-parse.sh
 
@@ -364,7 +423,18 @@ errors=0
 
 echo ""
 echo "=== sub2api: protocol-routing SSOT ==="
-if ! python3 ./scripts/checks/test_protocol_routing_ssot.py >/dev/null; then
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by protocol-routing SSOT)"
+    errors=$((errors + 1))
+elif _bg_spawned protocol_routing; then
+    _bg_join protocol_routing replay-on-failure
+    if [ "$_bg_rc" -ne 0 ]; then
+        echo "  FAIL: protocol-routing SSOT checker self-tests or boundary drift"
+        errors=$((errors + 1))
+    else
+        echo "  ok: protocol-routing owner, handler, and selected-plan boundaries"
+    fi
+elif ! python3 ./scripts/checks/test_protocol_routing_ssot.py >/dev/null; then
     echo "  FAIL: protocol-routing SSOT checker self-tests"
     errors=$((errors + 1))
 elif ! python3 ./scripts/checks/protocol-routing-ssot.py --quiet; then
@@ -376,7 +446,18 @@ fi
 
 echo ""
 echo "=== sub2api: pricing/serving approved-doc precedence ==="
-if ! python3 ./scripts/checks/test_pricing_serving_docs.py >/dev/null; then
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by pricing/serving approved-doc check)"
+    errors=$((errors + 1))
+elif _bg_spawned pricing_serving; then
+    _bg_join pricing_serving replay-on-failure
+    if [ "$_bg_rc" -ne 0 ]; then
+        echo "  FAIL: pricing/serving approved-doc checker self-tests or owner precedence"
+        errors=$((errors + 1))
+    else
+        echo "  ok: pricing, availability, and protocol docs have one reciprocal precedence"
+    fi
+elif ! python3 ./scripts/checks/test_pricing_serving_docs.py >/dev/null; then
     echo "  FAIL: pricing/serving approved-doc checker self-tests"
     errors=$((errors + 1))
 elif ! python3 ./scripts/checks/pricing-serving-docs.py --quiet; then
@@ -388,7 +469,18 @@ fi
 
 echo ""
 echo "=== sub2api: merge conflict markers ==="
-if ! python3 ./scripts/checks/test_merge_conflict_markers.py >/dev/null; then
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by merge conflict marker check)"
+    errors=$((errors + 1))
+elif _bg_spawned merge_conflict; then
+    _bg_join merge_conflict replay-on-failure
+    if [ "$_bg_rc" -ne 0 ]; then
+        echo "  FAIL: unresolved merge conflict markers"
+        errors=$((errors + 1))
+    else
+        echo "  ok: no unresolved line-level merge conflict markers"
+    fi
+elif ! python3 ./scripts/checks/test_merge_conflict_markers.py >/dev/null; then
     echo "  FAIL: merge conflict marker checker self-tests"
     errors=$((errors + 1))
 elif ! python3 ./scripts/checks/merge-conflict-markers.py --quiet; then
@@ -1435,6 +1527,14 @@ echo "=== sub2api: QA Phase 2 recovery and IAM contracts ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by QA recovery contract tests)"
     errors=$((errors + 1))
+elif _bg_spawned qa_phase2; then
+    _bg_join qa_phase2 replay-on-failure
+    if [ "$_bg_rc" -ne 0 ]; then
+        echo "  FAIL: QA Phase 2 recovery and IAM contracts"
+        errors=$((errors + 1))
+    else
+        echo "  ok: exact QA IAM sets and approval-bound workstation recovery gate pass"
+    fi
 elif ! python3 -m py_compile \
     ./ops/qa/qa_archive_recovery_gate.py \
     ./ops/qa/prod_qa_archive_closeout.py \
@@ -1482,6 +1582,14 @@ if [ "$_preflight_skip_slow_ops" -eq 1 ]; then
 elif ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by QA phase ops scripts)"
     errors=$((errors + 1))
+elif _bg_spawned qa_phase_ops; then
+    _bg_join qa_phase_ops replay-on-failure
+    if [ "$_bg_rc" -ne 0 ]; then
+        echo "  FAIL: QA phase ops scripts do not compile or regression tests failed"
+        errors=$((errors + 1))
+    else
+        echo "  ok: Phase 1 closeout + Phase 2 baseline artifacts compile and regression tests pass"
+    fi
 elif ! python3 -m py_compile ./ops/qa/edge_phase1_closeout.py ./ops/qa/prod_phase2_baseline.py; then
     echo "  FAIL: QA phase ops scripts do not compile"
     errors=$((errors + 1))
@@ -3287,17 +3395,20 @@ fi
 # and diffs to catch drift. Non-destructive: restores the directory after.
 echo ""
 echo "=== sub2api: Ent generation staleness ==="
-_ent_schema_changed=0
-if has_merge_base_with_head "${PREFLIGHT_BASE:-origin/main}" && \
-   git diff --name-only "${PREFLIGHT_BASE:-origin/main}...HEAD" 2>/dev/null | grep -q '^backend/ent/schema/'; then
-    _ent_schema_changed=1
+_ent_surface_changed=0
+_ent_has_base=0
+if has_merge_base_with_head "${PREFLIGHT_BASE:-origin/main}"; then
+    _ent_has_base=1
+    if _ent_surface_touched; then
+        _ent_surface_changed=1
+    fi
 fi
 if [ "$_preflight_skip_go_contracts" -eq 1 ]; then
     echo "  skip: unchanged Go preflight surface"
 elif ! command -v go >/dev/null 2>&1; then
     echo "  skip: go not on PATH"
-elif [ "$_preflight_fast" = "1" ] && [ "$_ent_schema_changed" = "0" ]; then
-    echo "  skip: Ent generation staleness (preflight-fast; no backend/ent/schema changes)"
+elif [ "$_ent_surface_changed" = "0" ] && { [ "$_ent_has_base" = "1" ] || [ "$_preflight_fast" = "1" ]; }; then
+    echo "  skip: Ent generation staleness (no backend/ent changes vs ${PREFLIGHT_BASE:-origin/main})"
 else
     _ent_rc=0
     ( cd backend && GOTOOLCHAIN="$_backend_go_toolchain" go generate ./ent ) >/dev/null 2>&1 || _ent_rc=$?
