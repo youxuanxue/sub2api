@@ -52,9 +52,7 @@ func testAccount(t *testing.T, supported ...Protocol) AccountSnapshot {
 	}
 	account, err := NewAccountSnapshot(AccountSnapshotInput{
 		AccountID:          42,
-		Revision:           "rev-1",
 		CapabilityKey:      "capability-test",
-		CapabilityRevision: 1,
 		SupportedProtocols: supported,
 		ResolvedModel:      "upstream-model",
 		CustomBaseURL:      "https://relay.example.test/v1",
@@ -91,9 +89,7 @@ func TestPlanGeminiIdentityRequiresTypedProfileAndExactEndpoint(t *testing.T) {
 	request := testRequest(t, ProtocolGeminiGenerateContent, RequestProfile{ContentKinds: ContentText})
 	input := AccountSnapshotInput{
 		AccountID:          42,
-		Revision:           "rev-1",
 		CapabilityKey:      "capability-test",
-		CapabilityRevision: 1,
 		SupportedProtocols: []Protocol{ProtocolGeminiGenerateContent},
 		ResolvedModel:      "gemini-2.5-pro",
 		ModelAllowed:       map[Protocol]bool{ProtocolGeminiGenerateContent: true},
@@ -132,9 +128,7 @@ func TestPlanGeminiProfilesUseExactEndpoint(t *testing.T) {
 			const endpoint = "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google/models/gemini-2.5-pro:generateContent"
 			account, err := NewAccountSnapshot(AccountSnapshotInput{
 				AccountID:          42,
-				Revision:           "rev-1",
 				CapabilityKey:      "capability-test",
-				CapabilityRevision: 1,
 				SupportedProtocols: []Protocol{ProtocolGeminiGenerateContent},
 				ResolvedModel:      "gemini-2.5-pro",
 				ExactEndpoints:     map[Protocol]string{ProtocolGeminiGenerateContent: endpoint},
@@ -194,9 +188,7 @@ func TestExecuteRejectsStaleCapabilityBeforeAdapter(t *testing.T) {
 	request := testRequest(t, ProtocolResponses, RequestProfile{})
 	account, err := NewAccountSnapshot(AccountSnapshotInput{
 		AccountID:          42,
-		Revision:           "account-rev-1",
 		CapabilityKey:      "capability-key-a",
-		CapabilityRevision: 7,
 		SupportedProtocols: []Protocol{ProtocolResponses},
 		ResolvedModel:      "upstream-model",
 		CustomBaseURL:      "https://relay.example.test/v1",
@@ -210,15 +202,13 @@ func TestExecuteRejectsStaleCapabilityBeforeAdapter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	if plan.CapabilityKey() != "capability-key-a" || plan.CapabilityRevision() != 7 {
-		t.Fatalf("plan capability = %q/%d", plan.CapabilityKey(), plan.CapabilityRevision())
+	if plan.CapabilityKey() != "capability-key-a" {
+		t.Fatalf("plan capability = %q", plan.CapabilityKey())
 	}
 	ctx := WithExecutionAccountState(context.Background(), ExecutionAccountState{
-		AccountID:          42,
-		Revision:           "account-rev-1",
-		CapabilityKey:      "capability-key-a",
-		CapabilityRevision: 8,
-		CredentialPresent:  true,
+		AccountID:         42,
+		CapabilityKey:     "capability-key-b",
+		CredentialPresent: true,
 	})
 	if _, err := router.Execute(ctx, plan, request); !errors.Is(err, ErrStalePlan) {
 		t.Fatalf("Execute error = %v, want ErrStalePlan", err)
@@ -268,9 +258,7 @@ func TestPlanNamesModelPolicyRejection(t *testing.T) {
 func TestPlanFailsClosedWhenCustomEndpointIsMissing(t *testing.T) {
 	account, err := NewAccountSnapshot(AccountSnapshotInput{
 		AccountID:          42,
-		Revision:           "rev-1",
 		CapabilityKey:      "capability-test",
-		CapabilityRevision: 1,
 		SupportedProtocols: []Protocol{ProtocolMessages},
 		ResolvedModel:      "upstream-model",
 		ModelAllowed:       map[Protocol]bool{ProtocolMessages: true},
@@ -289,9 +277,7 @@ func TestPlanFailsClosedWhenCustomEndpointIsMissing(t *testing.T) {
 func TestPlanUsesFixedOpenAICodexEndpointOnlyForResponses(t *testing.T) {
 	account, err := NewAccountSnapshot(AccountSnapshotInput{
 		AccountID:          42,
-		Revision:           "rev-1",
 		CapabilityKey:      "capability-test",
-		CapabilityRevision: 1,
 		SupportedProtocols: []Protocol{ProtocolResponses, ProtocolChatCompletions},
 		ResolvedModel:      "gpt-5.4",
 		OfficialProfile:    OfficialEndpointOpenAICodex,
@@ -485,11 +471,9 @@ func TestExecuteRejectsDifferentRequestBeforeAdapter(t *testing.T) {
 		t.Fatalf("NewCanonicalRequest: %v", err)
 	}
 	ctx := WithExecutionAccountState(context.Background(), ExecutionAccountState{
-		AccountID:          42,
-		Revision:           "rev-1",
-		CapabilityKey:      "capability-test",
-		CapabilityRevision: 1,
-		CredentialPresent:  true,
+		AccountID:         42,
+		CapabilityKey:     "capability-test",
+		CredentialPresent: true,
 	})
 
 	_, err = router.Execute(ctx, plan, different)
@@ -507,8 +491,8 @@ func TestExecuteRejectsStaleAccountOrMissingCredentialBeforeAdapter(t *testing.T
 		state ExecutionAccountState
 		want  error
 	}{
-		{name: "stale revision", state: ExecutionAccountState{AccountID: 42, Revision: "rev-2", CapabilityKey: "capability-test", CapabilityRevision: 1, CredentialPresent: true}, want: ErrStalePlan},
-		{name: "missing credential", state: ExecutionAccountState{AccountID: 42, Revision: "rev-1", CapabilityKey: "capability-test", CapabilityRevision: 1}, want: ErrMissingCredential},
+		{name: "stale capability key", state: ExecutionAccountState{AccountID: 42, CapabilityKey: "capability-other", CredentialPresent: true}, want: ErrStalePlan},
+		{name: "missing credential", state: ExecutionAccountState{AccountID: 42, CapabilityKey: "capability-test"}, want: ErrMissingCredential},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -544,11 +528,9 @@ func TestExecuteInvokesExactlyThePlannedAdapter(t *testing.T) {
 		t.Fatalf("Plan: %v", err)
 	}
 	ctx := WithExecutionAccountState(context.Background(), ExecutionAccountState{
-		AccountID:          42,
-		Revision:           "rev-1",
-		CapabilityKey:      "capability-test",
-		CapabilityRevision: 1,
-		CredentialPresent:  true,
+		AccountID:         42,
+		CapabilityKey:     "capability-test",
+		CredentialPresent: true,
 	})
 
 	result, err := router.Execute(ctx, plan, req)
@@ -589,11 +571,9 @@ func TestRouteRegistryEntriesPlanAndExecuteTheirDeclaredAdapter(t *testing.T) {
 			}
 
 			ctx := WithExecutionAccountState(context.Background(), ExecutionAccountState{
-				AccountID:          account.AccountID(),
-				Revision:           account.Revision(),
-				CapabilityKey:      account.CapabilityKey(),
-				CapabilityRevision: account.CapabilityRevision(),
-				CredentialPresent:  true,
+				AccountID:         account.AccountID(),
+				CapabilityKey:     account.CapabilityKey(),
+				CredentialPresent: true,
 			})
 			result, err := router.Execute(ctx, plan, request)
 			if err != nil {

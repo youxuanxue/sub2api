@@ -123,7 +123,7 @@ func TestBuildSupportedProtocolsUpdateOwnsCanonicalEncoding(t *testing.T) {
 	}
 }
 
-func TestProtocolAccountSnapshotResolvesModelAndRevisionFromAccountFacts(t *testing.T) {
+func TestProtocolAccountSnapshotResolvesModelFromAccountFacts(t *testing.T) {
 	updatedAt := time.Date(2026, 8, 24, 10, 30, 0, 0, time.UTC)
 	account := &Account{
 		ID:        42,
@@ -146,8 +146,8 @@ func TestProtocolAccountSnapshotResolvesModelAndRevisionFromAccountFacts(t *test
 	if snapshot.AccountID() != 42 || snapshot.ResolvedModel() != "upstream-model" {
 		t.Fatalf("snapshot account/model = %d/%q", snapshot.AccountID(), snapshot.ResolvedModel())
 	}
-	if snapshot.Revision() == "" {
-		t.Fatal("snapshot revision is empty")
+	if snapshot.CapabilityKey() == "" {
+		t.Fatal("snapshot capability key is empty")
 	}
 
 	noisy := *account
@@ -161,8 +161,8 @@ func TestProtocolAccountSnapshotResolvesModelAndRevisionFromAccountFacts(t *test
 	if err != nil {
 		t.Fatalf("ProtocolAccountSnapshot noisy: %v", err)
 	}
-	if noisySnapshot.Revision() != snapshot.Revision() {
-		t.Fatal("updated_at or secret rotation must not change protocol revision")
+	if noisySnapshot.CapabilityKey() != snapshot.CapabilityKey() || noisySnapshot.ResolvedModel() != snapshot.ResolvedModel() {
+		t.Fatal("updated_at or secret rotation changed capability key or resolved model")
 	}
 
 	changed := *account
@@ -175,41 +175,8 @@ func TestProtocolAccountSnapshotResolvesModelAndRevisionFromAccountFacts(t *test
 	if err != nil {
 		t.Fatalf("ProtocolAccountSnapshot changed: %v", err)
 	}
-	if changedSnapshot.Revision() == snapshot.Revision() {
-		t.Fatal("model mapping change did not change account revision")
-	}
-}
-
-func TestProtocolAccountRevisionIgnoresUsageExtraWrites(t *testing.T) {
-	account := &Account{
-		ID:        44,
-		Platform:  PlatformOpenAI,
-		Type:      AccountTypeOAuth,
-		UpdatedAt: time.Date(2026, 8, 29, 13, 37, 0, 0, time.UTC),
-		Credentials: map[string]any{
-			"access_token": "secret",
-		},
-		Extra: map[string]any{
-			"codex_usage_updated_at": "2026-08-29T13:37:00Z",
-		},
-	}
-	if !SeedOfficialSupportedProtocols(account) {
-		t.Fatal("official OpenAI OAuth seed must succeed")
-	}
-	before, err := protocolAccountRevision(account)
-	if err != nil {
-		t.Fatalf("protocolAccountRevision: %v", err)
-	}
-
-	account.UpdatedAt = account.UpdatedAt.Add(time.Second)
-	account.Extra["codex_usage_updated_at"] = "2026-08-29T13:38:00Z"
-	account.Extra["quota_used"] = 12.5
-	after, err := protocolAccountRevision(account)
-	if err != nil {
-		t.Fatalf("protocolAccountRevision after extra write: %v", err)
-	}
-	if before != after {
-		t.Fatal("usage/quota extra writes changed protocol revision")
+	if changedSnapshot.ResolvedModel() != "other-upstream" {
+		t.Fatalf("mapping change resolved model = %q, want other-upstream", changedSnapshot.ResolvedModel())
 	}
 }
 

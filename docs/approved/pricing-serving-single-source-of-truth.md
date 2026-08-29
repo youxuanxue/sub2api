@@ -5,8 +5,9 @@ approved_by: "xuejiao（2026-08-26 本会话确认）"
 approved_at: "2026-06-17"
 revised_at: "2026-08-29"
 revision_note: >
-  本文只保留组合公式、owner 指针和生命周期分界。generation 细节单向委托
-  protocol-routing-ssot.md；availability 只作 Evidence。
+  generation plan cache 只覆盖 request digest 与 accountID；发送前用当前
+  owner 重规划，路由事实不等价才 stale。不再把 account/capability revision
+  当 Execute 裁判。availability 只作 Evidence。
 authors: [agent]
 created: 2026-06-17
 related_prs: [1821]
@@ -90,7 +91,7 @@ AND 没有 structurally-gone 证据
 
 - 组合公式与 `TaskContinuation` 分界只在本文；协议文档不得复制公式或拥有 `TaskContinuation`。
 - 各 family 的 RequestPlan 测试从 canonical owner 派生样本，不手写模型/协议清单。
-- generation plan cache 覆盖 request digest、account revision、capability key/revision；成败都只规划一次。
+- generation plan cache 覆盖 request digest 与 accountID；成败都只规划一次。发送前用当前 owner 重规划，路由事实不等价才 stale。
 - image/video 续接必须读提交时 task record，禁止重新 scheduler 选号。
 - `_aliases` 校验 owner 存在、单跳、无重叠、无环。
 - catalog / model-list / admin discovery 共用 structurally-gone predicate。

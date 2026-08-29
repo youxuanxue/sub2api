@@ -76,6 +76,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "func ExecuteGeminiProtocolProfile(){}\n"
             "func protocolExecutionPreSendFailure(){ UpstreamFailoverError(); NextAccountRetry() }\n"
             "func ExecuteSelectedProtocol(){ freshAccount := loadAccount(); if freshAccount == nil { protocolExecutionPreSendFailure() }; if !protocolPlansRoutingEquivalent(plan, router.Plan(request, fresh)) { protocolExecutionPreSendFailure() }; withProtocolExecutionAccount(freshAccount); state := ExecutionAccountState{CredentialPresent: ProtocolAuthorizationPresent(freshAccount)}; if router.Execute(state) == ErrStalePlan || router.Execute(state) == ErrMissingCredential { protocolExecutionPreSendFailure() } }\n"
+            "func protocolPlansRoutingEquivalent(scheduled, fresh Plan) bool { return scheduled.CapabilityKey() == fresh.CapabilityKey() && scheduled.Endpoint() == fresh.Endpoint() }\n"
             "func ProtocolAuthorizationPresent(account Account){ ProtocolAuthorizationSnapshotCredentialKey(); if account.IsNewAPIVertexServiceAccount(){ parseVertexServiceAccountKey(account) }; protocolAuthorizationToken(account) }\n"
             "func protocolRuntimeAuthorizationReady(ctx Context, account Account){ ProtocolRoutingRequest(ctx); ProtocolAuthorizationPresent(account) }\n",
             encoding="utf-8",
@@ -103,7 +104,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         router_owner.write_text(
             "package fixture\n"
             "func (r *Router) Execute(plan Plan, state ExecutionAccountState){ "
-            "if state.CapabilityKey != plan.capabilityKey || state.CapabilityRevision != plan.capabilityRevision { ErrStalePlan() } }\n",
+            "if state.CapabilityKey != plan.capabilityKey { ErrStalePlan() } }\n",
             encoding="utf-8",
         )
         canonical_owner = root / "backend/internal/service/account_supported_protocols.go"
@@ -174,7 +175,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "package fixture\n"
             "type protocolPlanCache struct{}\n"
             "func (c *protocolPlanCache) getOrPlan(key protocolPlanCacheKey, compute func() (Plan, error)) (Plan, error){ return compute() }\n"
-            "func (c *protocolPlanCache) get(id int64, revision string) (Plan, bool){ return Plan{}, true }\n"
+            "func (c *protocolPlanCache) get(id int64) (Plan, bool){ return Plan{}, true }\n"
             "func protocolPlanForAccount(){ plans.getOrPlan() }\n"
             "func attachProtocolPlan(){ plans.get() }\n",
             encoding="utf-8",
@@ -623,17 +624,38 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         owner.write_text("package fixture\n", encoding="utf-8")
         self.assertTrue(any("query credential identity regression test" in error for error in MODULE.check(root)))
 
-    def test_rejects_removed_capability_revision_stale_guard(self) -> None:
+    def test_rejects_revision_token_stale_guard(self) -> None:
         root = self.fixture()
         owner = root / "backend/internal/engine/protocolrouter/router.go"
         owner.write_text(
             owner.read_text(encoding="utf-8").replace(
-                " || state.CapabilityRevision != plan.capabilityRevision",
-                "",
+                "if state.CapabilityKey != plan.capabilityKey { ErrStalePlan() }",
+                "if state.CapabilityKey != plan.capabilityKey || state.CapabilityRevision != plan.capabilityRevision { ErrStalePlan() }",
             ),
             encoding="utf-8",
         )
-        self.assertTrue(any("capability revision" in error for error in MODULE.check(root)))
+        self.assertTrue(any("revision tokens" in error for error in MODULE.check(root)))
+
+    def test_rejects_equivalent_route_revision_compare(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/protocol_execution.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "scheduled.CapabilityKey() == fresh.CapabilityKey()",
+                "scheduled.CapabilityKey() == fresh.CapabilityKey() && scheduled.CapabilityRevision() == fresh.CapabilityRevision()",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("revision tokens" in error for error in MODULE.check(root)))
+
+    def test_rejects_account_revision_hash(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/account_supported_protocols.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8") + "func protocolAccountRevision(){}\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any("protocol revision hash" in error for error in MODULE.check(root)))
 
     def test_rejects_capability_repository_without_generation_commit(self) -> None:
         root = self.fixture()

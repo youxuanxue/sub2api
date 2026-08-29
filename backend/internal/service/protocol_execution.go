@@ -417,15 +417,10 @@ func ExecuteSelectedProtocol(
 	}
 	executionCtx := WithProtocolExecutors(ctx, executors)
 	executionCtx = withProtocolExecutionAccount(executionCtx, freshAccount)
-	// Bind the scheduled plan's revision token so Execute can verify the
-	// captured route. Account updated_at / token writes change
-	// snapshot.Revision() without changing the route; those must not 503.
 	executionCtx = protocolrouter.WithExecutionAccountState(executionCtx, protocolrouter.ExecutionAccountState{
-		AccountID:          plan.AccountID(),
-		Revision:           plan.AccountRevision(),
-		CapabilityKey:      plan.CapabilityKey(),
-		CapabilityRevision: plan.CapabilityRevision(),
-		CredentialPresent:  ProtocolAuthorizationPresent(freshAccount),
+		AccountID:         plan.AccountID(),
+		CapabilityKey:     plan.CapabilityKey(),
+		CredentialPresent: ProtocolAuthorizationPresent(freshAccount),
 	})
 	result, err := router.Execute(executionCtx, plan, request)
 	if err != nil {
@@ -441,7 +436,6 @@ func ExecuteSelectedProtocol(
 func protocolPlansRoutingEquivalent(scheduled, fresh protocolrouter.Plan) bool {
 	return scheduled.AccountID() == fresh.AccountID() &&
 		scheduled.CapabilityKey() == fresh.CapabilityKey() &&
-		scheduled.CapabilityRevision() == fresh.CapabilityRevision() &&
 		scheduled.RequestDigest() == fresh.RequestDigest() &&
 		scheduled.ResolvedModel() == fresh.ResolvedModel() &&
 		scheduled.InboundProtocol() == fresh.InboundProtocol() &&

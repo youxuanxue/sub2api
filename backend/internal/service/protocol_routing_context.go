@@ -19,7 +19,6 @@ type protocolRoutingContextValue struct {
 
 type protocolPlanCacheKey struct {
 	accountID int64
-	revision  string
 }
 
 type protocolPlanCache struct {
@@ -36,9 +35,10 @@ func newProtocolPlanCache() *protocolPlanCache {
 	return &protocolPlanCache{outcomes: make(map[protocolPlanCacheKey]protocolPlanOutcome)}
 }
 
-// getOrPlan is the per-request, per-account-revision planning boundary. It
-// caches both success and failure so scheduler rechecks cannot call Plan twice
-// for the same immutable account snapshot.
+// getOrPlan is the per-request, per-account planning boundary. It caches both
+// success and failure so scheduler rechecks cannot call Plan twice for the
+// same account in one request. Send-time freshness is route-fact equivalence,
+// not a version token.
 func (c *protocolPlanCache) getOrPlan(
 	key protocolPlanCacheKey,
 	compute func() (protocolrouter.Plan, error),
@@ -56,13 +56,13 @@ func (c *protocolPlanCache) getOrPlan(
 	return plan, err
 }
 
-func (c *protocolPlanCache) get(accountID int64, revision string) (protocolrouter.Plan, bool) {
+func (c *protocolPlanCache) get(accountID int64) (protocolrouter.Plan, bool) {
 	if c == nil {
 		return protocolrouter.Plan{}, false
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	outcome, ok := c.outcomes[protocolPlanCacheKey{accountID: accountID, revision: revision}]
+	outcome, ok := c.outcomes[protocolPlanCacheKey{accountID: accountID}]
 	return outcome.plan, ok && outcome.err == nil
 }
 
@@ -167,7 +167,7 @@ func protocolPlanForAccount(
 	if err != nil {
 		return protocolrouter.Plan{}, true, fmt.Errorf("%w: %v", ErrProtocolRouteUnavailable, err)
 	}
-	key := protocolPlanCacheKey{accountID: snapshot.AccountID(), revision: snapshot.Revision()}
+	key := protocolPlanCacheKey{accountID: snapshot.AccountID()}
 	plan, err := routing.plans.getOrPlan(key, func() (protocolrouter.Plan, error) {
 		return routing.router.Plan(routing.request, snapshot)
 	})
@@ -238,7 +238,7 @@ func attachProtocolPlan(
 		}
 		return releaseProtocolSelectionOnPlanError(selection, fmt.Errorf("%w: %v", ErrProtocolRouteUnavailable, err))
 	}
-	plan, planned := routing.plans.get(snapshot.AccountID(), snapshot.Revision())
+	plan, planned := routing.plans.get(snapshot.AccountID())
 	if !planned {
 		if routing.plans.containsAccount(snapshot.AccountID()) {
 			return releaseProtocolSelectionOnPlanError(selection, protocolrouter.ErrStalePlan)
