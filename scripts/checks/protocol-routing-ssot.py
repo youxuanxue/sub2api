@@ -761,9 +761,15 @@ def check(root: Path) -> list[str]:
     routing_context = root / "backend/internal/service/protocol_routing_context.go"
     if routing_context.is_file():
         source = strip_go_comments_and_literals(routing_context.read_text(encoding="utf-8"))
-        for required in ("protocolPlanCache", "put", "get"):
+        for required in ("protocolPlanCache", "getOrPlan", "get"):
             if not contains_identifier(source, required):
                 errors.append(f"protocol routing context is missing scheduler plan cache {required}")
+        planning_bodies = function_bodies(source, "protocolPlanForAccount")
+        if not planning_bodies:
+            errors.append("protocol routing context is missing protocolPlanForAccount")
+        for body in planning_bodies:
+            if not contains_identifier(body, "getOrPlan"):
+                errors.append("protocol routing context bypasses the per-revision plan cache")
         bodies = function_bodies(source, "attachProtocolPlan")
         if not bodies:
             errors.append("protocol routing context is missing attachProtocolPlan")
@@ -795,10 +801,7 @@ def check(root: Path) -> list[str]:
                 r"if\s*!\s*protocolRuntimeAuthorizationReady\s*\([^;]*?\)\s*\{[\s\S]*?return\s+false\b",
                 body,
             )
-            and re.search(
-                r"if\s*!\s*ProtocolRouteLegal\s*\([^;]*?\)\s*\{[\s\S]*?return\s+false\b",
-                body,
-            )
+            and contains_identifier(body, "protocolRequestEligibilityReason")
             for body in bodies
         ):
             errors.append("OpenAI scheduler authorization hard gate is not composed with protocol legality")
@@ -808,7 +811,9 @@ def check(root: Path) -> list[str]:
         source = strip_go_comments_and_literals(openai_eligibility.read_text(encoding="utf-8"))
         bodies = function_bodies(source, "openAICompatEligibilityReason")
         if not bodies or not all(
-            contains_identifier(body, "protocolRuntimeAuthorizationReady") for body in bodies
+            contains_identifier(body, "protocolRuntimeAuthorizationReady")
+            and contains_identifier(body, "protocolRequestEligibilityReason")
+            for body in bodies
         ):
             errors.append("OpenAI eligibility authorization diagnostic is missing the runtime hard gate")
 

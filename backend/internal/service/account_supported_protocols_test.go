@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -444,8 +445,12 @@ func TestProtocolRouterRejectsResolvedModelOutsideOfficialRoutePolicy(t *testing
 	if snapshot.ResolvedModel() != "deepseek-v3" {
 		t.Fatalf("resolved model = %q, want deepseek-v3", snapshot.ResolvedModel())
 	}
-	if _, err := NewProtocolRouter().Plan(request, snapshot); err != protocolrouter.ErrNoLegalRoute {
-		t.Fatalf("Plan error = %v, want ErrNoLegalRoute", err)
+	_, err = NewProtocolRouter().Plan(request, snapshot)
+	if !errors.Is(err, protocolrouter.ErrModelNotAllowed) {
+		t.Fatalf("Plan error = %v, want ErrModelNotAllowed", err)
+	}
+	if !errors.Is(err, protocolrouter.ErrNoLegalRoute) {
+		t.Fatalf("Plan error = %v, want wrapped ErrNoLegalRoute", err)
 	}
 }
 

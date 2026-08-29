@@ -253,6 +253,18 @@ func TestPlanFailsClosedWhenCapabilityIsMissing(t *testing.T) {
 	}
 }
 
+func TestPlanNamesModelPolicyRejection(t *testing.T) {
+	router := New(allTestAdapters())
+	req := testRequest(t, ProtocolMessages, RequestProfile{})
+	account := testAccount(t, ProtocolMessages)
+	account.modelAllowed[ProtocolMessages] = false
+
+	_, err := router.Plan(req, account)
+	if !errors.Is(err, ErrModelNotAllowed) {
+		t.Fatalf("Plan error = %v, want ErrModelNotAllowed", err)
+	}
+}
+
 func TestPlanFailsClosedWhenCustomEndpointIsMissing(t *testing.T) {
 	account, err := NewAccountSnapshot(AccountSnapshotInput{
 		AccountID:          42,

@@ -239,6 +239,103 @@ func TestAdvancedSchedulerCompatibilityUsesProtocolHardGate(t *testing.T) {
 	}
 }
 
+func TestCanonicalPlanningOwnsGovernedModelRejectionReason(t *testing.T) {
+	ctx := WithProtocolRouting(
+		context.Background(),
+		protocolRoutingTestRouter(),
+		protocolRoutingTestRequest(t, protocolrouter.ProtocolChatCompletions),
+	)
+	account := protocolRoutingOpenAIAccount(3, "chat_completions")
+	account.Credentials["model_mapping"] = map[string]any{
+		"another-model": "upstream-model",
+	}
+
+	eligible, reason := protocolRequestEligibilityReason(ctx, account, "gpt-5.4")
+	if eligible || reason != "model_not_supported" {
+		t.Fatalf("eligibility = %v/%q, want false/model_not_supported", eligible, reason)
+	}
+}
+
+func TestOpenAICompatEligibilityReasonUsesCanonicalModelRejection(t *testing.T) {
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolResponses,
+		RequestedModel:  "client-alias",
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"client-alias","input":"hi"}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+	ctx := WithProtocolRouting(context.Background(), protocolRoutingTestRouter(), request)
+	account := &Account{
+		ID:          31,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"access_token":  "secret",
+			"model_mapping": map[string]any{"client-alias": "deepseek-v3"},
+		},
+		Extra: map[string]any{SupportedProtocolsExtraKey: []any{"responses"}},
+	}
+	attachTestProtocolCapability(account, protocolrouter.ProtocolResponses)
+	if !account.IsModelSupported("client-alias") {
+		t.Fatal("test precondition: legacy account check must admit the explicit alias")
+	}
+
+	reason := openAICompatEligibilityReason(
+		ctx,
+		account,
+		PlatformOpenAI,
+		"client-alias",
+		false,
+		OpenAIEndpointCapabilityResponses,
+	)
+	if reason != openAICompatIneligibleModelUnsupported {
+		t.Fatalf("eligibility reason = %q, want canonical %q", reason, openAICompatIneligibleModelUnsupported)
+	}
+}
+
+func TestFailureDiagnosisDoesNotRenameNoRouteAsUnsupportedModel(t *testing.T) {
+	ctx := WithProtocolRouting(
+		context.Background(),
+		protocolRoutingTestRouter(),
+		protocolRoutingTestRequest(t, protocolrouter.ProtocolChatCompletions),
+	)
+	account := protocolRoutingOpenAIAccount(4)
+	account.Credentials["model_mapping"] = map[string]any{
+		"another-model": "upstream-model",
+	}
+
+	if (&OpenAIGatewayService{}).isOpenAICompatModelUnservableForRequest(
+		ctx, nil, account, "gpt-5.4", false, false,
+	) {
+		t.Fatal("protocol no-route was misclassified as model unsupported")
+	}
+}
+
+func TestProtocolPlanCacheComputesEachAccountRevisionOnce(t *testing.T) {
+	cache := newProtocolPlanCache()
+	key := protocolPlanCacheKey{accountID: 9, revision: "rev-1"}
+	wantErr := errors.New("no route")
+	calls := 0
+	compute := func() (protocolrouter.Plan, error) {
+		calls++
+		return protocolrouter.Plan{}, wantErr
+	}
+
+	_, firstErr := cache.getOrPlan(key, compute)
+	_, secondErr := cache.getOrPlan(key, compute)
+
+	if !errors.Is(firstErr, wantErr) || !errors.Is(secondErr, wantErr) {
+		t.Fatalf("cached errors = %v / %v, want %v", firstErr, secondErr, wantErr)
+	}
+	if calls != 1 {
+		t.Fatalf("planner calls = %d, want 1 for one account revision", calls)
+	}
+}
+
 func TestSelectionAttachesPlanForHydratedAccount(t *testing.T) {
 	ctx := WithProtocolRouting(
 		context.Background(),

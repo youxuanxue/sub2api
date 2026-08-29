@@ -56,21 +56,28 @@ Production (`api.tokenkey.dev`) is **not** where the upstream Anthropic OAuth ca
 
 **Attribution discipline:** a prod `cc-<edge>` cooldown (`temp_unschedulable_reason.matched_keyword='anthropic_upstream_error'`) is almost never prod-local — the real cause is on that edge. prod's `upstream-429 by account` / `recovered-200` are polluted by client-cancel tagging + failover smear and **cannot tell a dead edge from a healthy one** (a dead single-account edge and a healthy multi-account edge can both read ~1300 upstream-429). The reliable signal is each edge's OWN access-log `served_200 : no_available_429` ratio + schedulable-account count — run `ops/observability/scan-edge-health.sh`. See skills `tokenkey-online-log-troubleshooting` (§0 trap 9, §6.1 D) and `tokenkey-online-traffic-profile` (§4.1).
 
-## Model serving SSOT (`model_mapping`, catalog, prod vs edge)
+## Model serving SSOT / 模型交付 SSOT
 
-Customer-visible serving is gated by three layers that must stay aligned on **prod**:
+完整设计只在 `docs/approved/pricing-serving-single-source-of-truth.md`；
+generation 协议只在 `docs/approved/protocol-routing-ssot.md`。这里不复制判定表。
+probe、traffic、availability 和日志是证据，不能单独放行一次请求。
 
-1. **可展示** — `supported*CatalogModels` / `ServableClientFacingIDs` (public `/models`, `/pricing`, menu).
-2. **已定价** — channel pricing + `tk_pricing_overlay.json` (zero-price leak is an ops alert, not a customer block).
-3. **可服务 + prod 账号放行** — prod `accounts.credentials.model_mapping` (plus optional runtime replacement in `settings.tk_account_model_mapping_runtime`) must match the compiled Go floor for each managed platform. Property-selected bundle overrides for the VolcEngine Agent Plan (`platform + channel_type + base_url`) take precedence over the shared newapi channel floor; account IDs are not used as selectors. Vertex `newapi/channel_type=41` is the only account-varying capability scope: its public catalog is the verified union, its shared floor is the strict successful intersection, and `vertex_capability_profile` selects a complete named profile floor. Missing/unknown profiles fail safe to the shared floor and are configuration violations; other platform/channel scopes remain shared.
+prod mapping（含可选 `settings.tk_account_model_mapping_runtime`）仍须匹配每个受管 scope 的 compiled
+Go floor。VolcEngine Agent Plan 的 property-selected bundle override 使用
+`platform + channel_type + base_url`，不使用 account id。Vertex `newapi/channel_type=41` 是唯一
+account-varying capability scope：public catalog 是验证过的 union，共享 floor 是成功账号的严格
+intersection，`vertex_capability_profile` 选择完整命名 profile；缺失/未知 profile 回退共享 floor
+并产生配置 violation，其它 scope 保持共享。
 
 **Official upstream aliases are displayable when priced and servable.** For every
 TokenKey-managed native platform and newapi `channel_type`, if the provider's
 official model page (or curated `tk_served_models.json` row for newapi long-tail)
-declares a model id or alias, and TokenKey has verified it is **priced + servable**
-on the target account/path, it belongs in the public catalog/menu — not only the
-stable bare id. Legacy retirement redirects and third-party slugs without an
-official declaration stay **priced-only** (explicit requests must not bill `$0`).
+declares a model id or alias, and TokenKey has a canonical price owner plus reviewed
+servability evidence on the target account/path, it may enter the public catalog/menu —
+not only the stable bare id. This is CatalogPolicy activation evidence; request-time
+Plan and RuntimeReadiness remain independent. Legacy retirement redirects and
+third-party slugs without an official declaration stay **priced-only** (explicit
+requests must not bill `$0`).
 
 **prod is the only post-release config check target.** After deploy + smoke, run:
 

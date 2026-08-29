@@ -6929,7 +6929,7 @@
         "states, err := f.availability.GetAvailabilityBatch(ctx, platform, priced)",
         "return nil, fmt.Errorf(\"read model availability for %s: %w\", platform, err)"
       ],
-      "rationale": "Capability discovery must fail explicitly when the availability repository cannot answer, but must read the priced candidate set in one batch instead of issuing one query per model. Runtime forwarding keeps the legacy fail-open filter, while these discovery-only strict entrypoints preserve truthful callable menus without amplifying /v1/models database load."
+      "rationale": "Capability discovery must fail explicitly when the availability repository cannot answer, but must read the priced candidate set in one batch instead of issuing one query per model. Runtime forwarding keeps the legacy fail-open filter, while these discovery-only strict entrypoints keep CatalogPolicy projection honest without amplifying /v1/models database load."
     },
     {
       "path": "backend/internal/service/pricing_catalog_candidates_tk.go",
@@ -6938,7 +6938,7 @@
         "GetAvailabilityBatch(context.Context, string, []string) (map[string]AvailabilityState, error)",
         "states, err := batchAvailability.GetAvailabilityBatch(ctx, platform, ids)"
       ],
-      "rationale": "Strict catalog fallback is part of the same capability SSOT as mapped discovery. It must price first, batch availability reads through the request-local cache, and retain the single-read fallback only for narrow test/legacy implementations; otherwise multiple passthrough groups restore per-model query amplification."
+      "rationale": "Strict catalog fallback is the same CatalogPolicy projection as mapped discovery. It must price first, batch availability reads through the request-local cache, and retain the single-read fallback only for narrow test/legacy implementations; otherwise multiple passthrough groups restore per-model query amplification."
     },
     {
       "path": "backend/internal/service/model_list_filter_tk_batch_test.go",
@@ -7305,29 +7305,35 @@
       "rationale": "Regression tests for the absent-vs-broken distinction. They pin the two directions that matter: a never-written key resolves silently on the long TTL (no log churn, no 12x re-read), and a real DB error still warns and still backs off on the short errorTTL. TestAllOptOutAccessors_* sweeps all four flags so a newly added kill-switch written with the old 'if err != nil' shape fails here."
     },
     {
-      "path": "backend/internal/service/billing_service_tk_declared_alias.go",
+      "path": "backend/internal/service/tk_pricing_overlay.json",
       "must_contain": [
-        "var tkDeclaredRegistryAliases = map[string]string{",
-        "\"deepseek-v4-flash-0731\": \"deepseek-v4-flash\"",
-        "func tkDeclaredRegistryAlias(model string) (string, bool)"
+        "\"_aliases\":",
+        "\"deepseek-v4-flash-0731\": \"deepseek-v4-flash\""
       ],
-      "rationale": "Declared price aliases: an id listed here shares its owner's price by decision, so IsServedViaFamilyFloor must NOT raise served_at_fallback for it. Dropping the file or an entry does not change any price (both paths resolve the same owner) but silently restores the false 'unbilled' Feishu card that sent an operator hunting a nonexistent revenue leak on 2026-08-25. The map must stay distinct from tk_pricing_overlay.json: an entry here has deliberately NO overlay row of its own, because a second row would be a second owner free to drift."
+      "rationale": "Public price aliases live only in the overlay _aliases map. An id listed here shares its owner's price by decision, so IsServedViaFamilyFloor must NOT raise served_at_fallback for it. Dropping the alias does not change any price (both paths resolve the same owner) but silently restores the false 'unbilled' Feishu card that sent an operator hunting a nonexistent revenue leak on 2026-08-25. The alias itself must never become a second overlay owner row."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_registry_alias.go",
+      "must_contain": [
+        "func tkPricingRegistryAliasOwner(model string) (string, bool)"
+      ],
+      "rationale": "Runtime alias lookup must read the overlay _aliases snapshot. A second hard-coded alias table would split the public price-alias owner and let billing drift from the registry."
     },
     {
       "path": "backend/internal/service/billing_service.go",
       "must_contain": [
-        "if _, declared := tkDeclaredRegistryAlias(lower); declared {"
+        "if _, declared := tkPricingRegistryAliasOwner(lower); declared {"
       ],
       "rationale": "The declared-alias exemption inside IsServedViaFamilyFloor is the single call site that separates a settled alias from an accidental substring match. Without this line every declared alias re-raises served_at_fallback; the surrounding predicate is otherwise upstream-shaped and an upstream merge would drop the branch compile-clean."
     },
     {
-      "path": "backend/internal/service/billing_service_tk_declared_alias_test.go",
+      "path": "backend/internal/service/billing_service_tk_pricing_alias_test.go",
       "must_contain": [
-        "TestDeclaredAliasIsNotServedViaFamilyFloor",
-        "TestDeclaredAliasSuppressesFallbackAlertButKeepsPrice",
-        "TestDeclaredAliasesAreWellFormed"
+        "TestRegistryPricingAliasIsNotServedViaFamilyFloor",
+        "TestRegistryPricingAliasSuppressesFallbackAlertButKeepsPrice",
+        "TestRegistryPricingAliasesAreWellFormed"
       ],
-      "rationale": "Focused regressions for the declared-alias decision, pinned through the REAL predicate (IsServedViaFamilyFloor), not just the lookup table: a declared alias is exempt, a substring-only id (deepseek-v4-flash-9999) still reports true, and every declared owner resolves in the overlay while the alias itself never becomes a second owner."
+      "rationale": "Focused regressions for the registry-alias decision, pinned through the REAL predicate (IsServedViaFamilyFloor), not just the lookup table: a declared alias is exempt, a substring-only id (deepseek-v4-flash-9999) still reports true, and every declared owner resolves in the overlay while the alias itself never becomes a second owner."
     },
     {
       "path": "backend/internal/service/pricing_missing_notifier_tk.go",

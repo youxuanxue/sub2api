@@ -5,21 +5,16 @@ import (
 	"fmt"
 )
 
-// Self-healing per-platform candidate model IDs — the single source of truth
-// behind BOTH the admin model-whitelist selector (admin_service
-// GetGroupModelsListCandidates) and the per-user menu fallback (me_pricing
-// platformDefaultModelIDs). Before this, the admin selector drew from the
-// CANONICAL defaults (claude.DefaultModels etc., which still list retired /
-// access-gated models like claude-fable-5), so the frontend had to hand-maintain
-// a hardcoded mirror. Now both draw from the empirically-servable allowlist with
-// live model_availability pruning, so an upstream-retired model auto-drops from
-// the selector without a manual edit. (R-003 follow-up to PR #752.)
+// Shared per-platform catalog candidates for the admin model-whitelist selector
+// (admin_service GetGroupModelsListCandidates) and the per-user menu fallback
+// (me_pricing platformDefaultModelIDs). Both read the curated catalog set and
+// prune structurally-gone evidence. Canonical advertised lists are not a catalog owner.
 
 // tkServableCandidateIDs returns the self-healing candidate list for one platform
 // (used by the admin selector). Empirical native platforms draw from
 // supportedCatalogModelIDsForPlatform; newapi keeps its canonical/channel-shaped
 // defaults. Every platform is then pruned of structurally-gone models
-// (tkPruneStructurallyGoneIDs), so the result respects PER-PLATFORM truth:
+// (tkPruneStructurallyGoneIDs), so the result stays platform-scoped:
 // a model gone on anthropic stays on antigravity if it is still servable there.
 // availability == nil → no prune.
 func tkServableCandidateIDs(ctx context.Context, platform string, availability MePricingAvailability) []string {
@@ -69,21 +64,19 @@ func tkPruneStructurallyGoneIDs(ctx context.Context, platform string, ids []stri
 	return kept
 }
 
-// ServableClientFacingIDs is the SINGLE client-facing servable truth shared by
-// every model-list surface — the public /pricing catalog filter, the Your-Menu
-// fallback, and the gateway /v1/models family fallback (/v1/models, /v1beta/models,
-// /antigravity/models). It enforces the invariant
+// ServableClientFacingIDs is the shared client-facing catalog projection used by
+// the public /pricing filter, Your-Menu fallback, and gateway model-list fallback.
+// It enforces the catalog invariant
 //
-//	visible ⟹ reachable ∧ priced
+//	displayed ⟹ catalog-approved ∧ priced ∧ not structurally gone
 //
-// by taking the per-platform servable candidate set (tkServableCandidateIDs:
+// by taking the per-platform catalog candidate set (tkServableCandidateIDs:
 // empirical allowlist or canonical, with structurally-gone ids pruned) and keeping
 // only ids that resolve to a usable price (IsModelPriced — the billing-capability
-// gate). This closes the "in the allowlist but unpriced → advertised at $0" hole
+// condition). This closes the "in the allowlist but unpriced → advertised at $0" hole
 // structurally rather than ASSUMING allowlist ⊆ priced (e.g. an allowlisted but
-// price-less id like tab_flash_lite_preview is dropped here, not silently served
-// for free). It is the same priced gate FilterClientFacing applies to the
-// account-mapped path, so fallback and account-mapped surfaces agree.
+// price-less id like tab_flash_lite_preview is dropped here). This projection does
+// not claim that a concrete request has a legal RequestPlan or current capacity.
 //
 // Nil-safe, matching the surrounding fail-open posture:
 //   - availability == nil → no structurally-gone prune (cold-start / tests)

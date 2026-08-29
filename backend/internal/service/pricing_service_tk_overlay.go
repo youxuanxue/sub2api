@@ -52,6 +52,7 @@ type tkPricingRegistryRuntimeEnvelope struct {
 
 type tkPricingOverlaySnapshot struct {
 	Models             map[string]*LiteLLMModelPricing
+	Aliases            map[string]string
 	BaseTax            tkOfficialListBaseTaxPolicy
 	DeepSeekPeakValley *tkDeepSeekPeakValleyPolicy
 	WebSearchPrice     float64
@@ -60,6 +61,7 @@ type tkPricingOverlaySnapshot struct {
 
 type tkPricingOverlayDocument struct {
 	Models             map[string]*LiteLLMModelPricing
+	Aliases            map[string]string
 	BaseTax            *tkOfficialListBaseTaxPolicy
 	DeepSeekPeakValley *tkDeepSeekPeakValleyPolicy
 	WebSearchPrice     *float64
@@ -81,6 +83,11 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 		return nil, err
 	}
 	doc := &tkPricingOverlayDocument{Models: make(map[string]*LiteLLMModelPricing, len(raw))}
+	if rawAliases, ok := raw["_aliases"]; ok {
+		if err := json.Unmarshal(rawAliases, &doc.Aliases); err != nil {
+			return nil, fmt.Errorf("parse overlay _aliases: %w", err)
+		}
+	}
 	if rawConfig, ok := raw["_config"]; ok {
 		var config tkPricingOverlayExecutableConfig
 		decoder := json.NewDecoder(bytes.NewReader(rawConfig))
@@ -239,7 +246,34 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 		}
 		doc.Models[name] = p
 	}
+	if err := validateTKPricingRegistryAliases(doc.Aliases, doc.Models); err != nil {
+		return nil, err
+	}
 	return doc, nil
+}
+
+func validateTKPricingRegistryAliases(aliases map[string]string, models map[string]*LiteLLMModelPricing) error {
+	for alias, owner := range aliases {
+		if alias == "" || alias != strings.ToLower(strings.TrimSpace(alias)) || strings.Contains(alias, "/") {
+			return fmt.Errorf("overlay alias %q must be normalized lowercase and bare", alias)
+		}
+		if owner == "" || owner != strings.ToLower(strings.TrimSpace(owner)) || strings.Contains(owner, "/") {
+			return fmt.Errorf("overlay alias %q owner %q must be normalized lowercase and bare", alias, owner)
+		}
+		if alias == owner {
+			return fmt.Errorf("overlay alias %q cannot point to itself", alias)
+		}
+		if _, exists := models[alias]; exists {
+			return fmt.Errorf("overlay alias %q is also a canonical owner", alias)
+		}
+		if _, chained := aliases[owner]; chained {
+			return fmt.Errorf("overlay alias %q points to alias %q; aliases must be single-hop", alias, owner)
+		}
+		if _, exists := models[owner]; !exists {
+			return fmt.Errorf("overlay alias %q points to missing owner %q", alias, owner)
+		}
+	}
+	return nil
 }
 
 const tkPricingRegistryMaxBytes = 8 << 20
@@ -350,6 +384,7 @@ func buildTKPricingRegistrySnapshot(registryBytes []byte, metadata tkPricingRegi
 	}
 	snapshot := &tkPricingOverlaySnapshot{
 		Models:         doc.Models,
+		Aliases:        doc.Aliases,
 		BaseTax:        *doc.BaseTax,
 		WebSearchPrice: *doc.WebSearchPrice,
 		Metadata:       metadata,

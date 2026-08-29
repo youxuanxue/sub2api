@@ -19,13 +19,13 @@ func (s *stubPricing) IsModelPriced(modelID, _ string) bool {
 	return s != nil && s.priced[modelID]
 }
 
-// stubAvailability implements AvailabilityLookup. unreachable[platform+"::"+modelID] = true.
+// stubAvailability implements AvailabilityLookup.
 type stubAvailability struct {
-	unreachable map[string]bool
+	structurallyGone map[string]bool
 }
 
-func (s *stubAvailability) IsUnreachable(_ context.Context, platform, modelID string) bool {
-	return s != nil && s.unreachable[platform+"::"+modelID]
+func (s *stubAvailability) IsStructurallyGone(_ context.Context, platform, modelID string) bool {
+	return s != nil && s.structurallyGone[platform+"::"+modelID]
 }
 
 func TestDiscoveryFilterApply_TagsPricingStatus(t *testing.T) {
@@ -68,22 +68,24 @@ func TestDiscoveryFilterApply_DropsProviderUnavailable(t *testing.T) {
 	}, out)
 }
 
-func TestDiscoveryFilterApply_DropsUnreachableFromAvailabilityTable(t *testing.T) {
+func TestDiscoveryFilterApply_DropsOnlyStructurallyGoneAvailability(t *testing.T) {
 	pricing := &stubPricing{priced: map[string]bool{
-		"gpt-4o": true, "gpt-3.5-turbo": true,
+		"gpt-4o": true, "gpt-3.5-turbo": true, "gpt-transient": true,
 	}}
-	avail := &stubAvailability{unreachable: map[string]bool{
-		"openai::gpt-3.5-turbo": true, // recently observed unreachable
+	avail := &stubAvailability{structurallyGone: map[string]bool{
+		"openai::gpt-3.5-turbo": true,
 	}}
 	f := NewDiscoveryFilter(pricing, avail)
 
 	out := f.Apply(context.Background(), "openai", []rawDiscoveredModel{
 		{ID: "gpt-4o"},
 		{ID: "gpt-3.5-turbo"},
+		{ID: "gpt-transient"},
 	})
 
 	require.Equal(t, []DiscoveredModel{
 		{ID: "gpt-4o", PricingStatus: PricingStatusPriced},
+		{ID: "gpt-transient", PricingStatus: PricingStatusPriced},
 	}, out)
 }
 

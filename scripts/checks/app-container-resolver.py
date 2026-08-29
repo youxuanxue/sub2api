@@ -1,18 +1,12 @@
 #!/usr/bin/env python3
 """Prove the app-container resolver has exactly one owner.
 
-The active-color + candidate-loop logic used to be copy-pasted across ~16 sites
-in three shapes (bash function bodies, python heredocs, inline SSM command
-strings). The copies drifted: most only checked whether a container *existed*, so
-during a blue/green window they could select a STOPPED container and report its
-stale env as live runtime state. A diagnostic that reads a stopped container is
-worse than one that says "unknown", because it looks like a healthy answer.
-
-Deleting the copies is not enough on its own — nothing stops the next probe from
-hand-rolling the loop again, and no unit test would notice. This check is the
-mechanical half: any file that re-derives the resolution rules instead of using
-ops/lib/resolve-app-container.sh (shell) or ops/lib/resolve_app_container.py
-(python heredocs / inline SSM) fails the build.
+Active-color and candidate-loop resolution has one owner:
+ops/lib/resolve-app-container.sh (shell) and ops/lib/resolve_app_container.py
+(python heredocs / inline SSM). A local copy that only checks whether a
+container exists can select a STOPPED container during blue/green and report
+stale env as live runtime. This check fails any file that re-derives those
+rules instead of calling the owner.
 
 Exit 0 = single owner intact. Exit 1 = a copy reappeared.
 """

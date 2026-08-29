@@ -257,6 +257,24 @@ func TestEmbeddedRegistryParsesAsCompleteFloor(t *testing.T) {
 	require.InDelta(t, 0.01, snapshot.WebSearchPrice, 1e-15)
 	require.True(t, snapshot.Models["glm-4.5-flash"].ExplicitFree)
 	require.NotContains(t, snapshot.Models, "deepseek-v3-2-251201")
+	require.Equal(t, "deepseek-v4-flash", snapshot.Aliases["deepseek-v4-flash-0731"])
+}
+
+func TestParseTKOverlayDocumentValidatesCanonicalAliases(t *testing.T) {
+	validOwner := `{"mode":"chat","input_cost_per_token":0.1,"output_cost_per_token":0.2}`
+	tests := map[string]string{
+		"alias is owner": `{"_aliases":{"model":"owner"},"model":` + validOwner + `,"owner":` + validOwner + `}`,
+		"missing owner":  `{"_aliases":{"alias":"missing"},"owner":` + validOwner + `}`,
+		"alias chain":    `{"_aliases":{"alias-a":"alias-b","alias-b":"owner"},"owner":` + validOwner + `}`,
+		"self alias":     `{"_aliases":{"alias":"alias"},"owner":` + validOwner + `}`,
+		"bad alias key":  `{"_aliases":{" Provider/Alias ":"owner"},"owner":` + validOwner + `}`,
+	}
+	for name, blob := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := parseTKOverlayDocument([]byte(blob))
+			require.Error(t, err)
+		})
+	}
 }
 
 func TestParseTKOverlayDocument_RejectsMalformedVideoTiers(t *testing.T) {

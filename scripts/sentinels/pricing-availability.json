@@ -303,7 +303,8 @@
         "served-via-admin-ui",
         "served-via-modelops-activation",
         "#812-class gap",
-        "def _selftest("
+        "def _selftest(",
+        "_aliases"
       ],
       "rationale": "The served-models manifest drift guard asserts repository agreement for the thin intent layer: (A1) non-zero pricing, (A2) native allowlist or manifest-owned newapi display, and (A3) an explicit mapping write path. Legacy rows may be evidenced by a quoted model id plus account guard in tk_*.sql or by the served-via-admin-ui seed-state marker; every new floor must declare served-via-modelops-activation and then complete the approved evidence-backed prod activation before release. A3 catches the #812 priced/displayed-but-empty-pool failure without forcing generic deploy to mutate live accounts. Pinning both legacy and activation markers, the selftest, and the allowlist parser prevents an upstream merge from silently dropping either safety path. Wired into preflight and the upstream conflict gate."
     },

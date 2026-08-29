@@ -88,7 +88,6 @@ REQUIRED = {
         "legacy app 只保留 fully verified live Worker",
     ),
     ".testing/user-stories/stories/US-045-qa-phase2-production-integrity.md": (
-        "historical/superseded",
         "single_owner_not_activated",
         "ResumePendingHotCleanups",
         "TestQABoundaryCommandRejectsRetiredCutoverModes",
@@ -182,17 +181,6 @@ FORBIDDEN_TEXT = {
         "boundary orphan cleanup",
         "maintenance 过渡清理",
         "并执行 post-deploy Bundle canary",
-    ),
-    "docs/approved/design-qa-phase2-archive-closeout.md": (
-        "--qa-cutover-provision-only",
-        "tokenkey-prod-qa-cutover-provision-v1",
-        "legacy age cleanup stays active",
-        "Export-orphan cleanup remains under the boundary runner",
-        "The boundary is `date_trunc",
-        "cutover inventory/activate/provision-only/finalize",
-        "Before DEFAULT removal",
-        "After DEFAULT removal",
-        "the boundary phase owns `qa_exports_tmp`",
     ),
     "docs/deploy/aws-us-openai-gateway-deployment.md": (
         "`tokenkey-qa-boundary.sh` 是 default-free 小时生命周期 owner",

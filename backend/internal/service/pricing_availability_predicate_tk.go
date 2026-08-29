@@ -1,18 +1,18 @@
 package service
 
-// TokenKey: read-side predicate used by the upstream-discovery filter (R-002,
-// Goal 1) and client model-list filter (R-003, Goal 2). Keeps the predicate
-// in a TK companion file so the core RecordOutcome / classifier code in
-// pricing_availability_service_tk.go stays focused on the write path.
+// TokenKey: read-side predicate used by the upstream-discovery projection.
+// Keeps the predicate in a TK companion file so the core RecordOutcome /
+// classifier code in pricing_availability_service_tk.go stays focused on the
+// write path.
 
 import (
 	"context"
 	"strings"
 )
 
-// IsUnreachable reports whether the (platform, modelID) cell is currently in
-// the 'unreachable' state. Used to drop models from upstream-discovery and
-// client model-list responses.
+// IsStructurallyGone reports whether the (platform, modelID) evidence says the
+// model no longer exists upstream. A transient 5xx/network failure may also
+// derive status=unreachable, but it remains evidence and must not hide the model.
 //
 // Behavior:
 //   - nil receiver / nil repo → false (feature-flag-off; never filter when
@@ -22,7 +22,7 @@ import (
 //   - repo error (e.g. PG transient) → false (fail-open; an SDK seeing a
 //     model that turns out unreachable is recoverable, but a blank model
 //     list is not).
-func (s *PricingAvailabilityService) IsUnreachable(ctx context.Context, platform, modelID string) bool {
+func (s *PricingAvailabilityService) IsStructurallyGone(ctx context.Context, platform, modelID string) bool {
 	if s == nil || s.repo == nil {
 		return false
 	}
@@ -35,5 +35,5 @@ func (s *PricingAvailabilityService) IsUnreachable(ctx context.Context, platform
 	if err != nil {
 		return false
 	}
-	return state.Status == AvailabilityStatusUnreachable
+	return tkAvailabilityStructurallyGone(state)
 }

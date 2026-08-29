@@ -27,7 +27,7 @@ description: >-
 | Antigravity `gemini-2.5-pro` generateContent 超时 / inconclusive，要窄探 chat vs v1beta | **分支 B** → `tokenkey-servable-model-refresh` §「Antigravity gemini-2.5-pro 专项」 |
 | 新模型已定价/可服务/可展示但 prod `Unsupported model`、空池或疑似被 `model_mapping` floor 拦 | 先按下方「新模型 prod model_mapping 判读」区分当前 prod floor 与上游账号能力；只有目标账号实测 `servable` 且 mapping 路径复核后才进入 **分支 B/D** |
 | Qwen/DeepSeek mapping 漂、429 空池、60↔72 mirror | **分支 A** |
-| 已有 servable+priced+displayable SSOT，需要快速热更新账号 `model_mapping` | **分支 D**（runtime desired layer + 显式 check/diff/apply） |
+| 已完成 catalog、价格与账号路径证据复核，需要快速热更新账号 `model_mapping` | **分支 D**（runtime desired layer + 显式 check/diff/apply） |
 | 已有 release bundle，要把新模型面正式激活到 prod | `modelops.py activate`（current/target bundle + 独立 probe/pricing evidence） |
 | 客户要上新模型、ready_for_onboard | **分支 C**（可先 A 再 C） |
 | 单账号单模型能不能通 | `tokenkey-account-model-probe`（诊断，非 hub 子分支） |
@@ -36,7 +36,7 @@ description: >-
 
 设计基线：`docs/approved/served-model-reconcile-planner.md` · 脚本表：`ops/pricing/README.md`
 
-测试原则：model ops 改动若触达 catalog/menu/model_mapping/pricing，测试必须从下方「四事实」owner
+测试原则：model ops 改动若触达 catalog/menu/model_mapping/pricing，测试必须从 canonical owner
 派生正向/负向集合（例如 `ServableClientFacingIDs`、`supportedCatalogModelIDsForPlatform`、
 manifest/overlay parser 或 runtime desired layer helper）。禁止在测试、skill 或 PR 模板里手写一套
 会随模型上架同步变动的模型清单；手写样本只保留未知 ID、跨平台 ID、兼容别名、priced-but-hidden
@@ -178,7 +178,7 @@ cd backend && go test -tags=unit ./internal/service/ -run PublicCatalog
 
 脚本：`ops/pricing/manage-account-model-mapping-runtime.py`。
 
-用途：把已确认 **可服务、已定价、可展示** 的账号 `model_mapping` SSOT 作为 runtime
+用途：把已完成 catalog、价格与目标账号路径复核的 `model_mapping` 完整期望作为 runtime
 replacement 写入 `settings.tk_account_model_mapping_runtime`，再用只读 `release-gate` /
 `check-accounts` 对 prod 生成 diff（默认 prod only；edge 空 mapping 不纳入日常检查，需
 `--include-edges` 才查 edge）。`release-gate` 只用于显式 modelops / 模型激活预检：它检查
@@ -247,11 +247,7 @@ floor 或 `tk_served_models.json`，避免 runtime 长期 shadow 编译期事实
 
 ---
 
-## 四事实（hub 只对齐，不拥有）
+## 判定边界（hub 只对齐，不拥有）
 
-| 事实 | Owner | 典型分支 |
-| --- | --- | --- |
-| Public catalog + Menu | `pricing_catalog_supported_models_tk.go` | B |
-| Runtime serving | `accounts.credentials.model_mapping` + `tk_account_model_mapping_runtime` | A / C / D |
-| Price | overlay + channel pricing | A / C / hotfix |
-| Curated newapi intent | `tk_served_models.json` | A / C |
+交付公式只在 `docs/approved/pricing-serving-single-source-of-truth.md`。
+本 hub 写 catalog / mapping / 价格证据，不写协议 route，也不写 runtime 容量。

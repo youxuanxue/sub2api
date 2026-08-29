@@ -507,7 +507,7 @@ main() {
 		fi
 	fi
 	if [ -n "${OPENAI_CHAT_MODELS:-}${OPENAI_RESPONSES_MODELS:-}${OPENAI_IMAGE_MODELS:-}" ]; then
-		# OpenAI catalog probing must use the native OpenAI serving truth. Do not
+		# OpenAI catalog probing must use the native OpenAI source pool. Do not
 		# bind this to account 76 / api.ainzy.net/v1: that relay has its own
 		# openai_ainzy_relay floor and must not overwrite native OpenAI.
 		# A 400 "Unsupported model: X" can mean prod mapping floor rejected the id

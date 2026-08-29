@@ -8,6 +8,7 @@ import (
 
 var (
 	ErrNoLegalRoute      = errors.New("no legal protocol route")
+	ErrModelNotAllowed   = errors.New("model is not allowed by account policy")
 	ErrStalePlan         = errors.New("stale protocol route plan")
 	ErrMissingCredential = errors.New("missing account credential")
 )
@@ -75,13 +76,20 @@ func (r *Router) Plan(request CanonicalRequest, account AccountSnapshot) (Plan, 
 	if r.registryErr != nil {
 		return Plan{}, fmt.Errorf("%w: %v", ErrNoLegalRoute, r.registryErr)
 	}
+	supportedTargetSeen := false
+	modelPermittedSeen := false
 	for _, route := range routeRegistry {
 		if route.inbound != request.inboundProtocol {
 			continue
 		}
-		if !account.supports(route.target) || route.model == nil || !route.model(account) {
+		if !account.supports(route.target) {
 			continue
 		}
+		supportedTargetSeen = true
+		if route.model == nil || !route.model(account) {
+			continue
+		}
+		modelPermittedSeen = true
 		if !account.hasTransport(route.transport) || r.adapters[route.adapterID] == nil {
 			continue
 		}
@@ -119,6 +127,9 @@ func (r *Router) Plan(request CanonicalRequest, account AccountSnapshot) (Plan, 
 			geminiProfile:      account.geminiProfile,
 			reason:             string(route.kind),
 		}, nil
+	}
+	if supportedTargetSeen && !modelPermittedSeen {
+		return Plan{}, fmt.Errorf("%w: %w", ErrNoLegalRoute, ErrModelNotAllowed)
 	}
 	return Plan{}, ErrNoLegalRoute
 }

@@ -1095,7 +1095,7 @@ func tkOverlayModelPricing(model string) *ModelPricing {
 // read from the legacy numeric matcher. Channel pricing is not consulted here because channel-
 // priced callers skip this classification.
 //
-// A DECLARED alias (tkDeclaredRegistryAliases) is excluded: sharing that owner's price is a
+// A registry-declared alias is excluded: sharing that owner's price is a
 // settled decision, not a convergence gap, so it must not keep raising served_at_fallback. An
 // id that only resolves through the substring matcher is NOT excluded — that is exactly the
 // accidental-owner case the alert exists to surface (2026-08-25).
@@ -1107,7 +1107,7 @@ func (s *BillingService) IsServedViaFamilyFloor(model string) bool {
 	if real := s.pricingService.GetModelPricing(lower); real != nil && !tkIsEffectivelyUnpriced(real) {
 		return false
 	}
-	if _, declared := tkDeclaredRegistryAlias(lower); declared {
+	if _, declared := tkPricingRegistryAliasOwner(lower); declared {
 		return false
 	}
 	return s.getRegistryAliasPricing(lower) != nil

@@ -20,6 +20,16 @@ func tkRegistryAliasOwnerPricing(owner string) *ModelPricing {
 	return pricing
 }
 
+func tkPricingRegistryAliasOwner(model string) (string, bool) {
+	model = strings.ToLower(strings.TrimSpace(model))
+	snapshot := loadTKPricingOverlaySnapshot()
+	if snapshot == nil {
+		return "", false
+	}
+	owner, ok := snapshot.Aliases[model]
+	return owner, ok
+}
+
 // getRegistryAliasPricing reuses the mature compatibility matcher without
 // allowing its legacy numeric table to participate in billing. The matcher
 // identifies a family; the returned dimensions are always re-read from the
@@ -34,6 +44,9 @@ func (s *BillingService) getRegistryAliasPricing(model string) *ModelPricing {
 	}
 	if direct := tkRegistryAliasOwnerPricing(lower); direct != nil {
 		return direct
+	}
+	if owner, declared := tkPricingRegistryAliasOwner(lower); declared {
+		return tkRegistryAliasOwnerPricing(owner)
 	}
 
 	// xAI: resolve known aliases via their routing canonical → pricing owner.

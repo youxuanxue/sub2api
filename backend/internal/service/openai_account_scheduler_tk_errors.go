@@ -176,8 +176,8 @@ func (s *OpenAIGatewayService) isOpenAICompatModelUnservableForRequest(
 	if account == nil || strings.TrimSpace(requestedModel) == "" {
 		return false
 	}
-	if !account.IsModelSupported(requestedModel) {
-		return true
+	if eligible, reason := protocolRequestEligibilityReason(ctx, account, requestedModel); !eligible {
+		return reason == "model_not_supported"
 	}
 	if needsUpstreamCheck && groupID != nil && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel, requireCompact) {
 		return true

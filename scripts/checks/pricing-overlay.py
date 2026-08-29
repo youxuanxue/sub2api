@@ -20,6 +20,7 @@ a soft rule that bit us once becomes a mechanical gate). It asserts:
      Deliberately free rows must say explicit_free=true; unknown zeroes are rejected.
   4. `_config.official_list_base_tax` is a valid executable policy: one bounded
      multiplier, unique normalized providers, and non-duplicated fallback matchers.
+  5. `_aliases` is a single-hop alias -> canonical-owner map with no overlap.
 
 Usage: python3 scripts/checks/pricing-overlay.py [--quiet]
 Exit 0 ok, 1 violation, 2 missing dep / file / unparseable.
@@ -182,6 +183,32 @@ def validate_runtime_owner_shape(model: str, pricing: dict) -> list[str]:
                     previous_max = bounds[idx - 1][1]
                     if previous_max is None or previous_max > min_tokens:
                         errors.append(f"{label} overlaps the preceding interval")
+    return errors
+
+
+def validate_aliases(aliases: object, owners: dict[str, object]) -> list[str]:
+    errors: list[str] = []
+    if aliases is None:
+        return errors
+    if not isinstance(aliases, dict):
+        return ["_aliases must be an object"]
+    for alias, owner in aliases.items():
+        if (not isinstance(alias, str) or not alias or
+                alias != alias.strip().lower() or "/" in alias):
+            errors.append(f"_aliases key {alias!r} must be normalized lowercase and bare")
+            continue
+        if (not isinstance(owner, str) or not owner or
+                owner != owner.strip().lower() or "/" in owner):
+            errors.append(f"_aliases[{alias!r}] owner must be normalized lowercase and bare")
+            continue
+        if alias == owner:
+            errors.append(f"_aliases[{alias!r}] cannot point to itself")
+        if alias in owners:
+            errors.append(f"_aliases[{alias!r}] is also a canonical owner")
+        if owner in aliases:
+            errors.append(f"_aliases[{alias!r}] points to alias {owner!r}; aliases must be single-hop")
+        if owner not in owners:
+            errors.append(f"_aliases[{alias!r}] points to missing owner {owner!r}")
     return errors
 
 
@@ -414,6 +441,7 @@ def main() -> int:
     entries = {k: v for k, v in data.items() if not k.startswith("_")}
     errors: list[str] = validate_official_list_base_tax(data)
     errors.extend(validate_deepseek_peak_valley(data))
+    errors.extend(validate_aliases(data.get("_aliases"), entries))
 
     if not entries:
         errors.append("overlay has zero pricing entries")

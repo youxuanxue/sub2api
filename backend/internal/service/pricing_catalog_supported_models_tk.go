@@ -12,17 +12,8 @@ import (
 // additionally projects Kiro-served IDs onto its anthropic vendor surface via
 // supportedClaudeCatalogModels because Kiro mirror stubs live in Claude groups.
 //
-// Problem: both surfaces used to advertise models that TokenKey cannot
-// actually serve — the public catalog rendered the whole litellm mirror (22
-// anthropic + 123 openai entries, most retired), and Your Menu fell back to
-// the canonical openai.DefaultModels / claude.DefaultModels advertised lists.
-// Customers picked dead models and hit 400/404/502.
-//
-// Rule (operator directive): keep ONLY model IDs that PASSED a live prod
-// probe (returned a real 200). This is purely empirical — canonical /
-// advertised status is irrelevant; a model that the upstream rejects is
-// dropped even if it is in DefaultModels, and a servable model is kept even
-// if it is not.
+// Rule: keep only model IDs that passed a live prod probe (real 200).
+// Canonical / advertised DefaultModels lists are not a catalog owner.
 //
 // Provenance:
 //   - anthropic: Claude-Code-shaped POST /v1/messages through the edge-us7

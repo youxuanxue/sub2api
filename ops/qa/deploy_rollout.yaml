@@ -10,7 +10,7 @@ prod:
     deploy_inject_default: true
     policy_target: prod.archive.enabled
     target_deploy_inject_default: true
-    enable_after: docs/approved/design-qa-phase2-archive-closeout.md#production-rollout
+    enable_after: docs/approved/design-prod-qa-24h-s3-lifecycle.md
     repository_closeout_state: production_recloseout_verified
     observed_live_state: production_recloseout_verified
   tokenkey_qa_maintenance_timer:

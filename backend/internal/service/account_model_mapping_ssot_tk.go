@@ -508,7 +508,7 @@ func tokenseaRelayAccountSupportsRequestedModel(requestedModel string) bool {
 }
 
 // tokenseaRelayCorePublicFloorIDs is the shared 92/93 live floor: upstream 47
-// intersect public SSOT, plus the extras 92 already serves.
+// intersect the public catalog projection, plus the extras 92 already serves.
 func tokenseaRelayCorePublicFloorIDs() []string {
 	return tokenseaRelayPublicSSOTIDs(append(
 		supportedCatalogModelIDsFromMap(supportedOpenAITokenseaRelayCatalogModels),
@@ -516,8 +516,8 @@ func tokenseaRelayCorePublicFloorIDs() []string {
 	))
 }
 
-// tokenseaRelayPublicSSOTIDs keeps only upstream-listed IDs that already satisfy
-// the public serving triple: displayable catalog/menu, priced, and servable.
+// tokenseaRelayPublicSSOTIDs keeps only upstream-listed IDs that satisfy the
+// public catalog policy: displayable, priced, and backed by reviewed path evidence.
 func tokenseaRelayPublicSSOTIDs(ids []string) []string {
 	seen := make(map[string]struct{}, len(ids))
 	out := make([]string, 0, len(ids))
@@ -543,7 +543,7 @@ func tokenseaRelayMeetsPublicSSOT(id string) bool {
 	if tokenseaRelayIsClientFacing(id) && tokenseaRelayIsPriced(id) {
 		return true
 	}
-	// Official dated wire IDs stay first-class when they alias a client-facing SSOT row.
+	// Official dated wire IDs stay first-class when they alias a client-facing catalog row.
 	for short, wire := range anthropicTokenseaRelayWireModelMapping {
 		if wire == id && tokenseaRelayIsClientFacing(short) && tokenseaRelayIsPriced(short) {
 			return true
