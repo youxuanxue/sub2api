@@ -1022,7 +1022,7 @@ func TestGeminiMessagesCompatService_isModelSupportedByAccount(t *testing.T) {
 	}
 }
 
-func TestGeminiMessagesCompatService_isModelSupportedByAccountWithContext_LeftoverPassthroughStaysFailOpen(t *testing.T) {
+func TestGeminiMessagesCompatService_isModelSupportedByAccountWithContext_PlanRejectsLeftoverPassthrough(t *testing.T) {
 	svc := &GeminiMessagesCompatService{}
 	account := officialOpenAIOAuthAccount(83)
 	account.Extra["openai_passthrough"] = true
@@ -1040,8 +1040,8 @@ func TestGeminiMessagesCompatService_isModelSupportedByAccountWithContext_Leftov
 	require.NoError(t, err)
 	ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
 
-	require.True(t, svc.isModelSupportedByAccountWithContext(ctx, account, "gpt-5.6-sol"),
-		"leftover passthrough must stay fail-open (issue #4936); Plan must not shrink it")
+	require.False(t, svc.isModelSupportedByAccountWithContext(ctx, account, "gpt-5.6-sol"),
+		"Gemini compat selection must ask Plan, not IsModelSupported")
 
 	listed, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
 		InboundProtocol: protocolrouter.ProtocolResponses,

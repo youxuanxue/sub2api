@@ -121,6 +121,9 @@ func protocolRequestEligibilityReason(ctx context.Context, account *Account, req
 }
 
 func ProtocolRoutingRequest(ctx context.Context) (protocolrouter.CanonicalRequest, bool) {
+	if ctx == nil {
+		return protocolrouter.CanonicalRequest{}, false
+	}
 	routing, ok := ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue)
 	if !ok || routing.router == nil {
 		return protocolrouter.CanonicalRequest{}, false
@@ -129,6 +132,9 @@ func ProtocolRoutingRequest(ctx context.Context) (protocolrouter.CanonicalReques
 }
 
 func protocolRoutingCanonicalRequest(ctx context.Context) (protocolrouter.CanonicalRequest, bool) {
+	if ctx == nil {
+		return protocolrouter.CanonicalRequest{}, false
+	}
 	routing, ok := ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue)
 	if !ok {
 		return protocolrouter.CanonicalRequest{}, false

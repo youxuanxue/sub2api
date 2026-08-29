@@ -2296,7 +2296,7 @@ func thinkingEnabledFromCtx(ctx context.Context) *bool {
 
 // accountAdmitsRequestedModel is the single model-admission helper consumed by
 // Plan and by ungoverned scheduler paths. Platform extras (Anthropic namespace,
-// OpenAI passthrough leftover fail-open, Antigravity thinking suffix) live here
+// OpenAI passthrough leftover mapping, Antigravity thinking suffix) live here
 // so they are not a second door beside protocolrouter.Plan.
 func accountAdmitsRequestedModel(account *Account, requestedModel string, thinkingEnabled *bool) bool {
 	if account == nil {
@@ -2336,11 +2336,17 @@ func accountAdmitsRequestedModel(account *Account, requestedModel string, thinki
 		}
 	}
 	if account.Platform == PlatformOpenAI && account.IsOpenAIPassthroughEnabled() {
-		// issue #4936: leftover model_mapping after flipping to passthrough
-		// must not shrink the candidate set. Live prod/edge (2026-08-29)
-		// has zero leftover-passthrough accounts; keep fail-open so a later
-		// leftover cannot 404 official GPT traffic that IsModelSupported admits.
-		return true
+		mapping := account.GetModelMapping()
+		if len(mapping) > 0 {
+			// Scheduler/Plan keep leftover mapping as a whitelist.
+			// issue #4936 only fail-opens IsModelSupported for direct callers.
+			if mappingSupportsRequestedModel(mapping, requestedModel) {
+				return true
+			}
+			normalized := normalizeRequestedModelForLookup(account.Platform, requestedModel)
+			return normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized)
+		}
+		return tkIsForwardableOpenAIModelName(requestedModel)
 	}
 	if account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
 		if account.Type == AccountTypeServiceAccount {

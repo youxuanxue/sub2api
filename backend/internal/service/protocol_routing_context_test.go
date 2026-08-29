@@ -398,7 +398,7 @@ func TestOfficialAnthropicEmptyMappingRejectsForeignModelsViaPlan(t *testing.T) 
 	}
 }
 
-func TestOfficialOpenAIPassthroughLeftoverMappingAdmitsViaPlan(t *testing.T) {
+func TestOfficialOpenAIPassthroughLeftoverMappingGatesViaPlan(t *testing.T) {
 	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
 		InboundProtocol: protocolrouter.ProtocolResponses,
 		RequestedModel:  "gpt-5.6-sol",
@@ -419,8 +419,8 @@ func TestOfficialOpenAIPassthroughLeftoverMappingAdmitsViaPlan(t *testing.T) {
 
 	ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
 	eligible, reason := protocolRequestEligibilityReason(ctx, account, "gpt-5.6-sol")
-	if !eligible || reason != "" {
-		t.Fatalf("eligibility = %v/%q, want true so leftover passthrough stays fail-open (issue #4936)", eligible, reason)
+	if eligible || reason != "model_not_supported" {
+		t.Fatalf("eligibility = %v/%q, want false/model_not_supported so Plan owns leftover passthrough mapping", eligible, reason)
 	}
 }
 

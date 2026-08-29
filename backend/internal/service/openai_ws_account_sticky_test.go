@@ -458,7 +458,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_PassthroughLefto
 	}
 }
 
-func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_PassthroughLeftoverMappingMissStaysFailOpen(t *testing.T) {
+func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_PassthroughLeftoverMappingMissViaPlan(t *testing.T) {
 	account := leftoverPassthroughOpenAIWSAccount(82)
 	require.True(t, account.IsModelSupported("gpt-5.6-sol"),
 		"precondition: IsModelSupported still admits leftover passthrough misses")
@@ -486,12 +486,10 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_PassthroughLefto
 
 	selection, err := svc.SelectAccountByPreviousResponseID(ctx, &groupID, "resp_prev_passthrough_miss", "gpt-5.6-sol", nil, false)
 	require.NoError(t, err)
-	require.NotNil(t, selection, "leftover passthrough must stay fail-open (issue #4936)")
-	require.NotNil(t, selection.Account)
-	require.Equal(t, account.ID, selection.Account.ID)
-	if selection.ReleaseFunc != nil {
-		selection.ReleaseFunc()
-	}
+	require.Nil(t, selection, "WS sticky must ask Plan, not IsModelSupported, for leftover passthrough mapping")
+	boundAccountID, getErr := store.GetResponseAccount(ctx, groupID, "resp_prev_passthrough_miss")
+	require.NoError(t, getErr)
+	require.Equal(t, account.ID, boundAccountID, "transient Plan miss must not delete the sticky binding")
 }
 
 func leftoverPassthroughOpenAIWSAccount(id int64) *Account {
