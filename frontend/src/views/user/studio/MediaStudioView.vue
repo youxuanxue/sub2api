@@ -438,7 +438,8 @@ async function finishBackgroundProbe(
 // the OFFICIAL list price (rate-decoupled by ops policy) — exactly what the cost
 // mirror needs (settlement applies the rate later), so the studio keeps
 // rateMultiplier=1. A model with no per_image/per_second price is simply omitted
-// (priced ∩ servable). Failure → empty map (models hide) rather than stale prices.
+// (omit models without a live catalog price). Failure → empty map (models hide)
+// rather than stale prices.
 async function loadPriceMap(keyId: number): Promise<void> {
   const k = keys.value.find((x) => x.id === keyId)
   if (k && isUniversalKey(k)) {

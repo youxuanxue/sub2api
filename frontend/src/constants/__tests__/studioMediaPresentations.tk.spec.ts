@@ -150,7 +150,7 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     expect(out.every((r) => r.servedId === r.presentation.modelId)).toBe(true)
   })
 
-  it('hides a servable model that has no live price (priced ∩ servable)', () => {
+  it('hides a catalog candidate that has no live price', () => {
     const priceless = new Map() // served but unpriced
     expect(resolveAvailableModels('image', IMAGEN3, priceless)).toEqual([])
   })

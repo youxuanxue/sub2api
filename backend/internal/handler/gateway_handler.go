@@ -1317,7 +1317,8 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	// Get available models from account configurations for the selected group platform.
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
-	// TK: filter to priced ∩ ¬unreachable (Goal 2, R-003). Nil-safe fail-open.
+	// TK: CatalogPolicy projection — priced and not structurally-gone.
+	// Transient unreachable stays visible. Nil-safe fail-open.
 	availableModels = h.tkFilterModelIDs(c.Request.Context(), platform, availableModels)
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 		fallbackModels := h.servableIDs(c.Request.Context(), platform)
@@ -1348,9 +1349,9 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	}
 
 	if platform == service.PlatformGemini {
-		// TK: converge to the unified servable truth (servableIDs) so the gemini
-		// /v1/models fallback matches /pricing + Your-Menu — drops advertised_dead
-		// (e.g. gemini-2.0-flash) instead of returning the raw geminicli.DefaultModels.
+		// TK: same CatalogPolicy projection as /pricing and Your-Menu fallback —
+		// drops advertised_dead (e.g. gemini-2.0-flash) instead of returning the
+		// raw geminicli.DefaultModels.
 		c.JSON(http.StatusOK, gin.H{
 			"object": "list",
 			"data":   h.tkGeminiDefaultModelsList(c.Request.Context()),

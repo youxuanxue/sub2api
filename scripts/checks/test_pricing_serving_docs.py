@@ -165,6 +165,28 @@ class PricingServingDocsContractTest(unittest.TestCase):
         path.write_text("TokenKey 的完整目录是一个四层洋葱\n", encoding="utf-8")
         self.assertTrue(any("secondary delivery-truth claim" in error for error in MODULE.check(root)))
 
+    def test_rejects_intersection_slogan_outside_the_old_file_list(self) -> None:
+        root = self.fixture()
+        path = root / "backend/internal/handler/gateway_handler.go"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("// TK: filter to priced ∩ ¬unreachable (Goal 2, R-003).\n", encoding="utf-8")
+        errors = MODULE.check(root)
+        self.assertTrue(any("priced ∩" in error or "¬unreachable" in error for error in errors))
+
+    def test_rejects_unified_servable_ssot_slogan(self) -> None:
+        root = self.fixture()
+        path = root / "backend/internal/handler/admin/account_handler_available_models_test.go"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("grok defaults must mirror the unified servable SSOT\n", encoding="utf-8")
+        self.assertTrue(any("unified servable SSOT" in error for error in MODULE.check(root)))
+
+    def test_rejects_unpriced_never_blocks_as_current_policy(self) -> None:
+        root = self.fixture()
+        path = root / "backend/internal/service/gateway_service_tk_served_zero_cost.go"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("// 背景：unpriced never blocks\n", encoding="utf-8")
+        self.assertTrue(any("unpriced never blocks" in error for error in MODULE.check(root)))
+
     def test_rejects_catalog_equivalence_as_delivery_truth(self) -> None:
         root = self.fixture()
         path = root / "scripts/checks/ssot-delta-gate.py"

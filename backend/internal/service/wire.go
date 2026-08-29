@@ -1146,8 +1146,8 @@ var ProviderSet = wire.NewSet(
 	// empty AG accounts can hot-add models without writing credentials.
 	// Consumed by provideCleanup so wire forces evaluation.
 	ProvideTKAccountModelMappingRuntimeServing,
-	// TokenKey: client model-list filter (R-003 / Goal 2) — gates /v1/models
-	// /v1beta/models /antigravity/models to priced ∩ ¬unreachable.
+	// TokenKey: client model-list filter — CatalogPolicy projection
+	// (priced, not structurally-gone) for /v1/models, /v1beta/models, /antigravity/models.
 	NewModelListFilter,
 	NewUniversalCapabilityService,
 	// TokenKey: Anthropic signature_error preempt — wires the per-account

@@ -242,7 +242,7 @@ func TestAccountHandlerGetAvailableModels_GrokDefaultsToXAIModelsWithoutMapping(
 	require.ElementsMatch(t,
 		service.ServableClientFacingIDs(context.Background(), service.PlatformGrok, nil, nil),
 		ids,
-		"grok defaults must mirror the unified servable SSOT")
+		"grok defaults must mirror the shared CatalogPolicy projection")
 }
 
 func TestAccountHandlerGetAvailableModels_OpenAIOAuthUsesExplicitModelMapping(t *testing.T) {
@@ -316,7 +316,7 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughFallsBackToDefau
 	require.ElementsMatch(t,
 		service.ServableClientFacingIDs(context.Background(), service.PlatformOpenAI, nil, nil),
 		availableModelIDs(resp.Data),
-		"OpenAI admin defaults must mirror the unified servable SSOT")
+		"OpenAI admin defaults must mirror the shared CatalogPolicy projection")
 }
 
 func TestAccountHandlerGetAvailableModels_OpenAINoMappingDropsAdvertisedDead(t *testing.T) {
@@ -348,7 +348,7 @@ func TestAccountHandlerGetAvailableModels_OpenAINoMappingDropsAdvertisedDead(t *
 	require.ElementsMatch(t,
 		service.ServableClientFacingIDs(context.Background(), service.PlatformOpenAI, nil, nil),
 		availableModelIDs(resp.Data),
-		"OpenAI admin defaults must mirror the unified servable SSOT")
+		"OpenAI admin defaults must mirror the shared CatalogPolicy projection")
 }
 
 func TestAccountHandlerGetAvailableModels_GeminiOAuthDropsAdvertisedDead(t *testing.T) {
@@ -380,7 +380,7 @@ func TestAccountHandlerGetAvailableModels_GeminiOAuthDropsAdvertisedDead(t *test
 	require.ElementsMatch(t,
 		service.ServableClientFacingIDs(context.Background(), service.PlatformGemini, nil, nil),
 		availableModelIDs(resp.Data),
-		"Gemini admin defaults must mirror the unified servable SSOT")
+		"Gemini admin defaults must mirror the shared CatalogPolicy projection")
 }
 
 func TestAccountHandlerGetAvailableModels_GeminiOAuthMappingUsesServableIntersection(t *testing.T) {

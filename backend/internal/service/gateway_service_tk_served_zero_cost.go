@@ -7,7 +7,8 @@ import (
 
 // TK 根因②：「已服务但零计费」统一探针。
 //
-// 背景：计价不确定时系统选择"免费放行"（unpriced never blocks），漏血默认无声。
+// 背景：运行期价格闸已拒绝「连家族 floor 都没有」的 id；本探针覆盖仍到达计费
+// funnel 的残余静默 $0，漏血默认无声。
 // 除无价模型（ErrModelPricingUnavailable，已有错误侧观测）外，还有多类静默 $0：
 // 非缺价 cost-calc 错误吞 $0、渠道/视频/per_request 无价、负倍率归零。本探针在两条
 // 计费 funnel 的记账点（cost 已知后）统一按**结果**判定（TotalCost/ActualCost），

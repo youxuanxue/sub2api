@@ -42,30 +42,23 @@ TASK_CONTINUATION_ANTIPATTERNS = {
     ),
 }
 
-SECONDARY_TRUTH_FILES = (
+SECONDARY_TRUTH_GLOBS = (
     "CLAUDE.md",
-    "docs/approved/README.md",
-    "docs/approved/served-model-reconcile-planner.md",
-    "docs/approved/priced-or-it-doesnt-ship.md",
-    "docs/approved/newapi-served-models-reconciler.md",
-    "docs/approved/universal-key-capability-discovery.md",
-    "docs/all-platform-model-inventory.md",
-    "docs/global/agent-reference.md",
-    "ops/pricing/README.md",
-    "ops/pricing/probe-servable-models.sh",
-    ".cursor/skills/tokenkey-modelops-planner/SKILL.md",
-    ".cursor/skills/tokenkey-servable-model-refresh/SKILL.md",
-    "backend/internal/service/account_model_mapping_ssot_tk.go",
-    "backend/internal/service/gateway_service_tk_unsupported_model.go",
-    "backend/internal/service/pricing_catalog_candidates_tk.go",
-    "backend/internal/service/pricing_catalog_supported_models_tk.go",
-    "backend/internal/service/model_list_filter_tk.go",
-    "backend/internal/handler/gateway_handler_tk_model_list_test.go",
-    "frontend/src/constants/__tests__/studioMediaPresentations.tk.spec.ts",
-    "scripts/checks/ssot-delta-gate.py",
-    "scripts/sentinels/gateway-tk.json",
-    "scripts/sentinels/pricing-availability.json",
+    "docs/**/*.md",
+    "ops/**/*.md",
+    "ops/**/*.sh",
+    ".cursor/skills/**/*.md",
+    "backend/**/*.go",
+    "frontend/src/**/*.ts",
+    "frontend/src/**/*.vue",
+    "scripts/checks/*.py",
+    "scripts/sentinels/*.json",
 )
+
+SECONDARY_TRUTH_SKIP = {
+    "scripts/checks/pricing-serving-docs.py",
+    "scripts/checks/test_pricing_serving_docs.py",
+}
 
 SECONDARY_TRUTH_PATTERNS = (
     re.compile(r"SINGLE\s+client-facing\s+servable\s+truth", re.IGNORECASE),
@@ -87,10 +80,34 @@ SECONDARY_TRUTH_PATTERNS = (
     re.compile(r"priced\+servable", re.IGNORECASE),
     re.compile(r"servable\+priced", re.IGNORECASE),
     re.compile(r"priced\s+and\s+(?:probe-)?servable", re.IGNORECASE),
+    re.compile(r"priced\s*[∩]\s*"),
+    re.compile(r"¬unreachable"),
+    re.compile(r"unified\s+servable\s+(?:truth|SSOT|source|set|candidate)", re.IGNORECASE),
+    re.compile(r"unified\s+client-facing\s+servable", re.IGNORECASE),
+    re.compile(r"unified\s+Antigravity\s+SSOT", re.IGNORECASE),
+    re.compile(r"unpriced\s+never\s+blocks", re.IGNORECASE),
     re.compile(r"display\s+when\s+priced", re.IGNORECASE),
     re.compile(r"四层洋葱"),
     re.compile(r"有价\s*\+\s*可服务"),
 )
+
+
+def iter_secondary_truth_files(root: Path) -> list[Path]:
+    seen: set[Path] = set()
+    files: list[Path] = []
+    for pattern in SECONDARY_TRUTH_GLOBS:
+        for path in root.glob(pattern):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(root).as_posix()
+            if relative in SECONDARY_TRUTH_SKIP:
+                continue
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            files.append(path)
+    return files
 
 
 def frontmatter(path: Path) -> dict[str, str]:
@@ -189,10 +206,8 @@ def check(root: Path) -> list[str]:
                     "must consume the canonical task record"
                 )
 
-    for relative in SECONDARY_TRUTH_FILES:
-        path = root / relative
-        if not path.is_file():
-            continue
+    for path in iter_secondary_truth_files(root):
+        relative = path.relative_to(root).as_posix()
         text = path.read_text(encoding="utf-8")
         for pattern in SECONDARY_TRUTH_PATTERNS:
             match = pattern.search(text)

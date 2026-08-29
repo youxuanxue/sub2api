@@ -70,7 +70,7 @@ func TestProvideTKPricingCatalogHandler_NilAvailabilityIsAllowed(t *testing.T) {
 // TestProvideTKGatewayHandlerModelList_WiresModelListFilter proves the
 // sentinel-style post-construction setter wires the filter onto GatewayHandler.
 // Without this the client model-list endpoints (/v1/models, /antigravity/models)
-// would silently never filter unreachable + unpriced models (Goal 2, R-003).
+// would silently skip the CatalogPolicy model-list projection (priced, not structurally-gone).
 func TestProvideTKGatewayHandlerModelList_WiresModelListFilter(t *testing.T) {
 	gw := &handler.GatewayHandler{}
 	require.False(t, gw.HasModelListFilter(), "baseline: no filter before wiring")

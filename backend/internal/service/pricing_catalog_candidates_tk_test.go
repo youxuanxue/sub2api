@@ -109,7 +109,7 @@ func TestServableClientFacingIDs_PrunesStructurallyGone(t *testing.T) {
 
 	seedAvail(repo, PlatformAnthropic, target, AvailabilityStatusUnreachable, FailureKindModelNotFound)
 	got := ServableClientFacingIDs(ctx, PlatformAnthropic, svc, pricing)
-	require.NotContains(t, got, target, "structurally-gone model must be pruned from the unified servable source")
+	require.NotContains(t, got, target, "structurally-gone model must be pruned from the CatalogPolicy candidate source")
 	require.Contains(t, got, survivor, "an unaffected SSOT sibling must remain servable")
 }
 

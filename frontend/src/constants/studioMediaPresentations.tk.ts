@@ -306,8 +306,8 @@ export interface MediaModelPresentation {
    * Video modality only: the DISCRETE durations (seconds) this model's UPSTREAM
    * accepts — same "declare exactly what the upstream takes" contract as
    * `imageSizes`/`supportedParams`. The Studio renders these as chips and never
-   * lets the user pick (or get quoted for) an out-of-range value, so a request is
-   * priced ∩ servable, never a 400/FAILURE-on-submit footgun. Per the upstream
+   * lets the user pick (or get quoted for) an out-of-range value, so the quoted
+   * duration stays in the upstream-accepted set. Per the upstream
    * task adaptors (new-api ResolveVeoDuration / doubao) durations are passed
    * through unvalidated, so the upstream's own accepted set is the only guard.
    * The default selected value is the MAX of this list (videoDurationDefault).
@@ -606,9 +606,9 @@ export interface ResolvedMediaModel {
 
 /**
  * Resolve the models the user can actually use for `modality`: shown only when
- * (a) its primary OR an alias id is in `availableIds` (servable) AND (b) the live
- * `priceMap` has a price for it (priced) — priced ∩ servable, never a footgun.
- * Sorted cheap → premium.
+ * (a) its primary OR an alias id is in `availableIds` AND (b) the live
+ * `priceMap` has a price for this modality. This is Studio's CatalogPolicy
+ * projection, not a delivery verdict. Sorted cheap → premium.
  */
 export function resolveAvailableModels(
   modality: StudioModality,

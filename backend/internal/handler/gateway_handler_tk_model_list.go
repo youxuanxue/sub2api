@@ -126,14 +126,12 @@ func (h *GatewayHandler) tkFilterModelIDs(ctx context.Context, platform string, 
 	return h.tkModelListFilter.FilterClientFacing(ctx, platform, ids)
 }
 
-// servableIDs is the gateway-side bridge to the unified client-facing servable
-// truth (service.ServableClientFacingIDs via the wired model-list filter): the
-// per-platform empirical allowlist (or canonical when unprobed), pruned of
-// structurally-gone ids and filtered to priced. Every /v1/models-family FALLBACK
-// sources its ids here, so the gateway advertises exactly the set the public
-// /pricing catalog and the Your-Menu fallback show — no advertised_dead (a priced
-// id not in the allowlist, e.g. gpt-5.6-sol), no visible-but-unpriced. Nil-safe: no
-// filter wired → service.ServableClientFacingIDs fail-opens to the candidate set.
+// servableIDs returns the CatalogPolicy projection used by /v1/models-family
+// fallbacks (service.ServableClientFacingIDs via the wired model-list filter):
+// per-platform catalog candidates, priced, and not structurally-gone. Shared
+// with /pricing and Your-Menu; this is a display projection, not a delivery
+// verdict. Nil-safe: no filter wired → ServableClientFacingIDs fail-opens to
+// the candidate set.
 func (h *GatewayHandler) servableIDs(ctx context.Context, platform string) []string {
 	if h == nil || h.tkModelListFilter == nil {
 		return service.ServableClientFacingIDs(ctx, platform, nil, nil)
@@ -142,7 +140,7 @@ func (h *GatewayHandler) servableIDs(ctx context.Context, platform string) []str
 }
 
 // tkOpenAIDefaultModelIDs returns the /v1/models fallback for OpenAI-compat
-// platforms as []openai.Model, synthesized from the unified servable set
+// platforms as []openai.Model, synthesized from the CatalogPolicy projection
 // (servableIDs) and preferring the canonical openai.DefaultModels entry for an id
 // when present (DisplayName/Created fidelity), else synthesizing — mirroring
 // writeOpenAIModelsList. Converges with /pricing (drops advertised_dead like
@@ -152,7 +150,7 @@ func (h *GatewayHandler) tkOpenAIDefaultModelIDs(ctx context.Context, platform s
 }
 
 // tkClaudeDefaultModelIDs returns the /v1/models fallback for Claude as
-// []claude.Model, synthesized from the unified servable set. The allowlist carries
+// []claude.Model, synthesized from the CatalogPolicy projection. The allowlist carries
 // BASE ids (claude-opus-4-5) while claude.DefaultModels carries the canonical (often
 // DATED) form (claude-opus-4-5-20251101); we index DefaultModels by their
 // denormalized (base) id so a base servable id reuses the canonical entry —
@@ -163,8 +161,8 @@ func (h *GatewayHandler) tkClaudeDefaultModelIDs(ctx context.Context, platform s
 }
 
 // tkAntigravityDefaultModels returns the /antigravity/models fallback as
-// []antigravity.ClaudeModel, synthesized from the unified Antigravity servable
-// set (Gemini + the PR #1265 live Claude subset; gpt-oss excluded).
+// []antigravity.ClaudeModel, synthesized from the Antigravity CatalogPolicy
+// projection (Gemini + the PR #1265 live Claude subset; gpt-oss excluded).
 // Preserves the []ClaudeModel shape (R-001) and prefers the canonical
 // antigravity.DefaultModels() entry for DisplayName fidelity. The group
 // supported_model_scopes filter still runs after this in AntigravityModels.
@@ -187,7 +185,7 @@ func (h *GatewayHandler) tkAntigravityDefaultModels(ctx context.Context) []antig
 }
 
 // tkGeminiDefaultModelsList returns the /v1/models fallback for the gemini platform
-// as []geminicli.Model, synthesized from the unified servable set so the gemini
+// as []geminicli.Model, synthesized from the CatalogPolicy projection so the gemini
 // /v1/models list converges with /pricing (drops advertised_dead like
 // gemini-2.0-flash). Prefers the canonical geminicli.DefaultModels entry for
 // DisplayName fidelity.
@@ -196,7 +194,7 @@ func (h *GatewayHandler) tkGeminiDefaultModelsList(ctx context.Context) []gemini
 }
 
 // tkGeminiFallbackModelsList returns the /v1beta/models fallback as a
-// gemini.ModelsListResponse, synthesized from the unified servable set. gemini.Model
+// gemini.ModelsListResponse, synthesized from the CatalogPolicy projection. gemini.Model
 // uses the "models/<id>" Name prefix; we restore it on output and prefer the
 // canonical gemini.DefaultModels() entry (carrying SupportedGenerationMethods) when
 // present, synthesizing a bare Name otherwise (a servable media id is advertised
