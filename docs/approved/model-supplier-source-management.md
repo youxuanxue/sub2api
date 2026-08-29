@@ -8,7 +8,6 @@ created: 2026-08-27
 owners: [tk-platform]
 scope: "supplier facts, admin API/UI, credential isolation, account projection, probe gate, and managed-account ownership"
 related_stories: ["US-048"]
-related_design: docs/superpowers/specs/2026-08-27-model-supplier-source-design.md
 ---
 
 # TokenKey 模型供应源管理审批基线
@@ -146,5 +145,4 @@ POST   /admin/supplier-sources/:id/sync
   transport，因此首批不接管，也不改账号 90。缺少供应凭证也无法完成指纹匹配或同步；若要接入必须
   另建完整供应源事实。
 
-完整字段、边界和验收标准以
-`docs/superpowers/specs/2026-08-27-model-supplier-source-design.md` 为实现依据。
+完整字段、边界和验收标准以本文为实现依据。

@@ -4,7 +4,7 @@
 - Title: 运营以供应源安全接入并热更新模型供应账号
 - Priority: P0
 - As a / I want / So that: 作为 TokenKey 运营，我希望只维护供应商通道、API Key、明确模型、采购比例和基础 priority，并在主动校验后把它们同步为现有账号配置，从而在不修改 scheduler、账号组、倍率和定价的前提下管理外部供给。
-- Trace: `docs/approved/model-supplier-source-management.md`、`docs/superpowers/specs/2026-08-27-model-supplier-source-design.md`
+- Trace: `docs/approved/model-supplier-source-management.md`
 - Risk Focus:
   - 逻辑错误：六档边界、同档合并、最终 priority 或先增后减顺序错误，导致模型进入错误账号或提前失去供给。
   - 行为回归：供应源引入第二套调度语义、覆盖账号组或普通运行字段、改变普通 NewAPI 网关行为，或者保存供应事实就直接改变线上账号。
@@ -120,7 +120,7 @@ cd frontend && pnpm exec playwright test e2e/us048-supplier-source-management.e2
 
 - 后端、组件和真实 UI 行为由 Linked Tests 生成。
 - Playwright Chromium 驱动真实页面，但 API 使用路由 mock；它证明表单、预览、同步结果、失败封闭和账号 ownership UI，不证明真实供应商接入成功。
-- 工作簿与生产只读库存证据记录在 `attachments/US-048-supplier-source-real-acceptance.json`。事实不完整或不匹配时保持 `not_run` / `protocol_unsupported` / 只读库存，要求补全准确信息，不以 mock 代替真实上游验收，也不扩大匹配。
+- 首批三个案例事实不完整或不匹配时保持 `not_run` / `protocol_unsupported` / 只读库存，要求补全准确信息，不以 mock 代替真实上游验收，也不扩大匹配。
 
 ## Status
 
