@@ -1142,10 +1142,10 @@
       "must_contain": [
         "func (r ProtocolRoutingSSOTReady) EnabledRouter() *protocolrouter.Router",
         "func (r ProtocolRoutingSSOTReady) Ready() bool",
-        "return r.Report.CutoverReady",
+        "return r.Report.TrafficReady",
         "return ProtocolRoutingSSOTReady{Report: report, router: router}"
       ],
-      "rationale": "Router availability and release readiness are separate facts: handlers always receive the SSOT router, while CutoverReady controls traffic admission. Reintroducing router=nil on an unready candidate silently restores legacy serving inside the new image."
+      "rationale": "Router availability and traffic admission are separate facts: handlers always receive the SSOT router, while TrafficReady controls /health. CutoverReady remains the full-matrix publish gate. Reintroducing router=nil on an unready candidate silently restores legacy serving inside the new image."
     },
     {
       "path": "backend/internal/server/routes/common.go",

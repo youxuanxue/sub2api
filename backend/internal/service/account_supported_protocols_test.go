@@ -186,6 +186,42 @@ func TestProtocolAccountSnapshotRejectsUnverifiedHistoricalCapability(t *testing
 	}
 }
 
+func TestProtocolAccountSnapshotAdmitsPartialPositiveProbeWithoutInitialCompletion(t *testing.T) {
+	account := &Account{
+		ID:       60,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":       "secret",
+			"base_url":      "https://relay.example.test/v1",
+			"model_mapping": map[string]any{"qwen3.5-plus": "qwen3.5-plus"},
+		},
+		Extra: map[string]any{},
+	}
+	attachTestProtocolCapability(account, protocolrouter.ProtocolChatCompletions)
+	account.ProtocolEndpointCapability.ProbeEvidence.InitialProbeCompleted = false
+	account.ProtocolEndpointCapability.ProbeEvidence.OfficialSeed = false
+	account.ProtocolEndpointCapability.ProbeEvidence.Verdicts = map[string]any{
+		string(protocolrouter.ProtocolChatCompletions): string(ProtocolProbePositive),
+	}
+
+	snapshot, err := ProtocolAccountSnapshot(account, "qwen3.5-plus")
+	if err != nil {
+		t.Fatalf("partial positive capability was excluded: %v", err)
+	}
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolChatCompletions,
+		RequestedModel:  "qwen3.5-plus",
+		Body:            []byte(`{"model":"qwen3.5-plus","messages":[{"role":"user","content":"hi"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+	if _, err := NewProtocolRouter().Plan(request, snapshot); err != nil {
+		t.Fatalf("partial positive chat_completions route failed: %v", err)
+	}
+}
+
 func TestProtocolAccountSnapshotUsesOfficialProfileForOpenAIOAuth(t *testing.T) {
 	account := &Account{
 		ID:       77,
