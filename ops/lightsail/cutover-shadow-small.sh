@@ -17,6 +17,10 @@ field() { printf '%s\n' "$TARGET_JSON" | awk -F= -v k="$1" '$1==k {print substr(
 
 REGION="$(field lightsail_region)"
 LIVE_NAME="$(field instance_name)"
+if [[ "$LIVE_NAME" == *-s30 ]]; then
+  echo "matrix instance_name=${LIVE_NAME} already points at the small sidecar; refuse to derive ${LIVE_NAME}-s30" >&2
+  exit 1
+fi
 LIVE_IP_NAME="$(field static_ip_name)"
 DOMAIN="$(field domain)"
 LIVE_PREFIX="$(field ssm_prefix)"
@@ -212,22 +216,7 @@ rm -f "$app_script"
 SHADOW_COUNTS="$(ssm_out "$shadow_mi" "b-shadow-counts" "$count_script" | tr -d '[:space:]')"
 rm -f "$count_script"
 echo "shadow_counts ${SHADOW_COUNTS}"
-python3 - "$DUMP_COUNTS" "$SHADOW_COUNTS" <<'PY'
-import sys
-def parse(raw: str) -> dict[str, int]:
-    out = {}
-    for part in raw.split(","):
-        if not part or "=" not in part:
-            raise SystemExit(f"bad count blob: {raw!r}")
-        k, v = part.split("=", 1)
-        out[k] = int(v)
-    return out
-dump, shadow = parse(sys.argv[1]), parse(sys.argv[2])
-for key in ("users", "accounts", "api_keys", "groups", "settings"):
-    if dump.get(key) != shadow.get(key):
-        raise SystemExit(f"identity table {key} dump={dump.get(key)} shadow={shadow.get(key)}")
-print("precious identity match")
-PY
+python3 "${REPO_ROOT}/ops/lightsail/shadow_count_compare.py" "$DUMP_COUNTS" "$SHADOW_COUNTS"
 
 echo "pre-cutover live /health still required"
 code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 "https://${DOMAIN}/health" || true)"

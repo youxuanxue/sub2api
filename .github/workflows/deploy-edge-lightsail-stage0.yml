@@ -37,7 +37,7 @@ on:
         required: false
         type: string
       confirm_instance:
-        description: "Must match instance_name from matrix (e.g. tokenkey-edge-us-oh1-ls)."
+        description: "Must match instance_name from matrix (e.g. tokenkey-edge-us-oh1-ls-s30)."
         required: true
         type: string
       recreate:
@@ -71,30 +71,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  shadow-small-phase-a:
-    if: inputs.operation == 'smoke' && inputs.smoke_phase == 'shadow-small-phase-a'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    environment: edge-${{ inputs.edge_id }}
-    env:
-      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: recursive
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: us-east-2
-      - name: Provision shadow small (Phase A, no live cutover)
-        env:
-          ACME_EMAIL: ${{ vars.EDGE_ACME_EMAIL }}
-          MAIN_GATEWAY_ALLOWED_CIDR: ${{ vars.EDGE_MAIN_GATEWAY_ALLOWED_CIDR }}
-        run: bash ops/lightsail/provision-shadow-small.sh "${{ inputs.edge_id }}"
-
   edge:
-    if: inputs.smoke_phase != 'shadow-small-phase-a'
     runs-on: ubuntu-latest
     # Above a normal Lightsail provision + upgrade but far below the 6h GHA
     # default, so a hung step can't hold the cancel-in-progress:false edge

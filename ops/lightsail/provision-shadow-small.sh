@@ -24,6 +24,10 @@ LIVE_NAME="$(field instance_name)"
 LIVE_IP_NAME="$(field static_ip_name)"
 DOMAIN="$(field domain)"
 LIVE_PREFIX="$(field ssm_prefix)"
+if [[ "$LIVE_NAME" == *-s30 ]]; then
+  echo "matrix instance_name=${LIVE_NAME} already points at the small sidecar; refuse to derive ${LIVE_NAME}-s30" >&2
+  exit 1
+fi
 SHADOW_NAME="${LIVE_NAME}-s30"
 SHADOW_IP_NAME="${LIVE_NAME}-s30-ip"
 SHADOW_EDGE_TAG="${LIVE_EDGE_ID}-s30"
@@ -139,7 +143,7 @@ echo
 
 [[ "$live_state" == "running" ]] || { echo "live instance is not running" >&2; exit 1; }
 [[ "$live_attached" == "$LIVE_NAME" ]] || { echo "live static IP not on live instance" >&2; exit 1; }
-[[ "$live_bundle" == "micro_3_0" ]] || { echo "unexpected live bundle $live_bundle" >&2; exit 1; }
+[[ "$live_bundle" == "micro_3_0" ]] || { echo "live bundle is $live_bundle, expected micro_3_0 (already resized?)" >&2; exit 1; }
 code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 "https://${DOMAIN}/health" || true)"
 [[ "$code" == "200" ]] || { echo "live /health is $code; refusing to start shadow" >&2; exit 1; }
 
@@ -395,30 +399,7 @@ SHADOW_COUNTS="$(ssm_out "$shadow_mi" "shadow-precious-counts" "$count_script" |
 rm -f "$count_script"
 echo "dump_counts   ${DUMP_COUNTS}"
 echo "shadow_counts ${SHADOW_COUNTS}"
-python3 - "$DUMP_COUNTS" "$SHADOW_COUNTS" <<'PY'
-import sys
-def parse(raw: str) -> dict[str, int]:
-    out = {}
-    for part in raw.split(","):
-        if not part or "=" not in part:
-            raise SystemExit(f"bad count blob: {raw!r}")
-        k, v = part.split("=", 1)
-        out[k] = int(v)
-    return out
-dump, shadow = parse(sys.argv[1]), parse(sys.argv[2])
-identity = ("users", "accounts", "api_keys", "groups", "settings")
-for key in identity:
-    if dump.get(key) != shadow.get(key):
-        raise SystemExit(f"identity table {key} dump={dump.get(key)} shadow={shadow.get(key)}")
-delta = abs(dump.get("usage_billing_dedup", -1) - shadow.get("usage_billing_dedup", -2))
-# Busy edges write this table during dump+restore. Keep a floor of 20, then
-# allow 0.01% of the larger snapshot so a 751k-row ledger can drift ~24 rows.
-base = max(dump.get("usage_billing_dedup", 0), shadow.get("usage_billing_dedup", 0))
-slack = max(20, base // 10000)
-if delta > slack:
-    raise SystemExit(f"usage_billing_dedup drift {delta} exceeds slack {slack}")
-print(f"precious identity match; billing_dedup_delta={delta} slack={slack}")
-PY
+python3 "${REPO_ROOT}/ops/lightsail/shadow_count_compare.py" "$DUMP_COUNTS" "$SHADOW_COUNTS" --billing
 
 mem_script="$(mktemp)"
 cat >"$mem_script" <<'EOF'
