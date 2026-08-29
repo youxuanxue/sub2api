@@ -186,7 +186,9 @@ Steps:
    bind mount, so startup never recursively walks large DLQ/blob trees. Other
    deployment shapes retain the compatibility recursive ownership repair. The
    generated blue/green compose only contains the two app services and points
-   them at `tokenkey-postgres` / `tokenkey-redis`.
+   them at `tokenkey-postgres` / `tokenkey-redis`. For the Edge profile, the
+   shared primitive durably writes `QA_CAPTURE_ENABLED=false` and maps it into
+   both colors; a missing or inherited prod capture setting must fail smoke.
 7. **External health-check** — `curl ${ApiUrl}/health`, three attempts
    spaced 10 s apart, require HTTP 200 within 5 s.
 8. **Post-deploy live-host advisory checks** — the workflow reads the active
