@@ -104,6 +104,41 @@ class PricingServingDocsContractTest(unittest.TestCase):
         )
         self.assertTrue(any("delivery term RuntimeReadiness" in error for error in MODULE.check(root)))
 
+    def test_rejects_claude_copy_of_delivery_formula(self) -> None:
+        root = self.fixture()
+        path = root / "CLAUDE.md"
+        path.write_text(
+            "Model delivery SSOT（CatalogPolicy + RequestPlan + RuntimeReadiness）\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any("CLAUDE.md" in error and "delivery formula" in error for error in MODULE.check(root)))
+
+    def test_rejects_old_two_fact_price_vocabulary(self) -> None:
+        root = self.fixture()
+        path = root / "docs/approved/priced-or-it-doesnt-ship.md"
+        path.write_text("家族 floor 是对 PRICE 事实的估计，只**读**两个事实。\n", encoding="utf-8")
+        self.assertTrue(any("secondary delivery-truth claim" in error for error in MODULE.check(root)))
+
+    def test_rejects_priced_displayable_ssot_slogan(self) -> None:
+        root = self.fixture()
+        path = root / "backend/internal/service/pricing_catalog_supported_models_tk.go"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("// intersected with public priced+displayable SSOT\n", encoding="utf-8")
+        self.assertTrue(any("priced+displayable" in error for error in MODULE.check(root)))
+
+    def test_rejects_served_plus_priced_slogan(self) -> None:
+        root = self.fixture()
+        path = root / ".cursor/skills/tokenkey-onboard-model/SKILL.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# 上架一个模型（served + priced）\n", encoding="utf-8")
+        self.assertTrue(any("served + priced" in error for error in MODULE.check(root)))
+
+    def test_rejects_stale_availability_r002_citation(self) -> None:
+        root = self.fixture()
+        path = root / "docs/approved/newapi-served-models-reconciler.md"
+        path.write_text("per pricing-availability-source-of-truth.md §2.4 / R-002 it is a feed\n", encoding="utf-8")
+        self.assertTrue(any("§2.4 / R-002" in error for error in MODULE.check(root)))
+
     def test_rejects_availability_copy_of_delivery_formula(self) -> None:
         root = self.fixture()
         path = root / "docs/approved/pricing-availability-source-of-truth.md"

@@ -481,7 +481,7 @@ func anthropicTokenseaRelayModelMappingFloor() map[string]string {
 	return out
 }
 
-// tokenseaRelaySharedExtraSSOTIDs are public priced+displayable models already
+// tokenseaRelaySharedExtraSSOTIDs are public CatalogPolicy models already
 // served on prod account 92 but absent from the 47-id upstream snapshot.
 var tokenseaRelaySharedExtraSSOTIDs = []string{
 	"codex-auto-review",

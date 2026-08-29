@@ -265,7 +265,7 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     ).toEqual([])
   })
 
-  it('video pool surfaces only served+priced video models with per-second price', () => {
+  it('video pool surfaces only CatalogPolicy video models with per-second price', () => {
     const out = resolveAvailableModels(
       'video',
       new Set(['doubao-seedance-2-0-fast-260128']),

@@ -147,8 +147,8 @@ var supportedOpenAIAinzyRelayCatalogModels = map[string]struct{}{
 
 // supportedOpenAITokenseaRelayCatalogModels — upstream GET /v1/models owner for
 // prod account 92 (agent.tokensea.ai OpenAI relay) on 2026-08-20. The compiled
-// account floor is this set intersected with public priced+displayable SSOT
-// that tokensea can actually chat-serve. Listing here does not add public
+// account floor is this set intersected with the public CatalogPolicy
+// projection that tokensea can actually chat-serve. Listing here does not add public
 // catalog/menu rows; DeepSeek/Qwen/GLM/Kimi rows listed on 2026-08-20 failed
 // raw /v1/chat/completions (400 openai_error) and stay off the floor.
 var supportedOpenAITokenseaRelayCatalogModels = map[string]struct{}{

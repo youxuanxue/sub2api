@@ -220,7 +220,7 @@ Owner table + extension rules: [`docs/global/agent-reference.md`](docs/global/ag
 
 Gateway flow, prod↔edge topology, disaster recovery, full PR checklist: [`docs/global/agent-reference.md`](docs/global/agent-reference.md).
 
-Model delivery SSOT（CatalogPolicy + RequestPlan + RuntimeReadiness；prod mapping / catalog / 价格各有 owner；edge 空 mapping）：[`docs/global/agent-reference.md`](docs/global/agent-reference.md#model-serving-ssot-model_mapping-catalog-prod-vs-edge)。完整公式只在 `docs/approved/pricing-serving-single-source-of-truth.md`。
+Model delivery SSOT（prod mapping / catalog / 价格各有 owner；edge 空 mapping）：[`docs/global/agent-reference.md`](docs/global/agent-reference.md#model-serving-ssot-model_mapping-catalog-prod-vs-edge)。完整公式只在 `docs/approved/pricing-serving-single-source-of-truth.md`。
 
 Model/catalog tests must derive positive and negative model sets from that SSOT (`ServableClientFacingIDs`, platform allowlist helpers, manifest/overlay parsers, runtime mapping helpers). Do not hand-maintain duplicate model lists in tests; only hardcode true boundary samples such as unknown IDs, cross-platform IDs, compatibility aliases, or priced-but-hidden examples.
 

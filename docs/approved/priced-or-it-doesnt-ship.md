@@ -15,6 +15,9 @@ supersedes: none
 
 # 定了价才能上 — serving 准入处的运行期价格闸
 
+本文只拥有运行期价格闸：发往上游前必须能解析结算价。交付公式不在本文，见
+`docs/approved/pricing-serving-single-source-of-truth.md`。
+
 > **每个模型都得有价——真价优先，没真价就落家族 floor；只有连家族 floor 都没有的，才不予服务。**
 > 闸全平台默认开。有真价用真价；主流家族无真价落到家族中位 floor，绝不 `$0`、也不误拒；
 > 连 floor 都没有的未知 id 在准入处 `404`（内部子码 `model_not_priced`）。走了 floor 的请求发
@@ -44,13 +47,13 @@ supersedes: none
   的 id，没有任何此类检查。本设计堵的就是这个运行期缺口。
 - **不是**被否决的「price ⇒ serving auto-mapping」（见 §3）。本闸读取价格 owner 与 RequestPlan
   的账号映射输入，**不拥有**任何一个：它绝不往任何账号的模型映射里**加**模型，也绝不写价格；家族 floor 是
-  对 PRICE 事实的**估计**，不写 `model_mapping`。
+  对价格 owner 的**估计**，不写 `model_mapping`。
 
 ## 1. 闸要守住的边界
 
 | 事实 | 佐证 | 后果 |
 | --- | --- | --- |
-| 空 `model_mapping` = allow-all | `Account.IsModelSupported`（`account.go:639`）：`len(mapping)==0 → return true // 无映射 = 允许所有` | native catch-all 账号（如被清空 mapping 的 Vertex 账号）会服务**任意**客户 model id，含上游新 id。 |
+| 空 `model_mapping` 仍可能透传到未定价 id | `IsModelSupported` 对多数原生空映射返回 true；请求准入另由 `protocolrouter.Plan` 收窄 | catch-all 账号会接到上游新 id，包括还没真价的 id。 |
 | 闸未命中时 billing 仍可能记 `$0` | `GetModelPricing` miss → `ErrModelPricingUnavailable`；`served_zero_cost` 只观测 | 闸必须在转发前拦住无 floor 的 id，不能靠事后告警 |
 | 价格解析会 fail-open | `billing_service.go`：`GetModelPricing`（active registry + registry family alias）miss 时返 `ErrModelPricingUnavailable`，funnel 记 `$0` 并服务。注：`channel_model_pricing` 是 billing 计费路径的 scoped override，不在 `GetModelPricing` 内——故闸必须两面都查（见 §2，复审 B1）。 | 漏血窗口 = 新模型进入 catch-all → 运维确认 owner 并合并 registry PR → publisher 热生效。 |
 | A1 只在 CI | `catalog-serving-drift.py` A1：每个 catalog/manifest id 可解析出价——**只在 CI**。交付公式见 `pricing-serving-single-source-of-truth.md`。 | catch-all 服务的是 A1 从没见过的*非 manifest* id。运行期没有等价闸。 |
@@ -120,10 +123,10 @@ floor 都解析不出、billing 会按 `$0` 记账）**且无渠道价**，则**
 本改动**叠加**在 SSOT 设计体之上，而非与之对抗。
 
 - **`pricing-serving-single-source-of-truth.md` —「一个承诺、三个判定」**：`model_mapping` 是
-  RequestPlan 的输入；GLOBAL PRICE 由 active complete registry 拥有，`channel_model_pricing` 仅在明确
+  RequestPlan 的输入；公开价格由 active complete registry 拥有，`channel_model_pricing` 仅在明确
   scope 内覆盖。**本闸不拥有任何事实**，
-  它是横切的*计费完整性准入规则*——「我们不服务我们算不出钱的东西」——只**读**两个事实、**不改**
-  任何一个。它绝不写 `model_mapping`，也绝不写价格。**家族 floor 是 registry 中一个有来源的 owner**；
+  它是横切的*计费完整性准入规则*——「我们不服务我们算不出钱的东西」——只**读**价格 owner 与
+  RequestPlan 的 mapping 输入，**不改**任何一个。它绝不写 `model_mapping`，也绝不写价格。**家族 floor 是 registry 中一个有来源的 owner**；
   Go 只保留 requested model → family owner 的兼容匹配。命中 family alias 表示该 requested id 仍缺少
   直接 owner，由 `served_at_fallback` 驱动补齐。
 - **它不是被 REJECTED 的「让白名单对齐 registry」**：那条否决禁的是*价格存在 ⇒ 自动映射到账号*
@@ -136,7 +139,7 @@ floor 都解析不出、billing 会按 `$0` 记账）**且无渠道价**，则**
   属于 CatalogPolicy。本闸复用 billing 的价格解析结果，不能把 availability、目录 membership 或
   probe 结果提升为请求准入 owner。
 - **上游是喂给人决策的 feed，从不是决策本身。** §4 遵守：补价从可信源取
-  *价格*、写 PRICE 事实；它**绝不**自动写 catalog 或 `model_mapping`。具体请求仍由 RequestPlan 与
+  *价格*、写价格 owner；它**绝不**自动写 catalog 或 `model_mapping`。具体请求仍由 RequestPlan 与
   RuntimeReadiness 派生；家族 floor 不破这条——它不来自上游、是 TK 自定的保守估值。
 
 ## 4. 让闸安全的那一半 —— 家族 floor 是可用性机制，告警驱动补真价
@@ -179,7 +182,7 @@ o-series 与非 chat GPT 刻意没有 catch-all：跨厂商/跨模态价差太�
   无需应用发版。deploy/rollback 应用工作流不写价格 setting。
 - `channel_model_pricing` 只处理明确渠道 scope，不作为全局止血层。
 
-**共有不变量（仅写 PRICE，绝不碰 serving）：**
+**共有不变量（只写价格 owner，绝不写 mapping / Plan）：**
 
 1. **信号**：一次 `served_at_fallback`（或对无 floor id 的闸拒绝 / `served_zero_cost`）点名一个走 floor /
    未定价、且是**候选**（在 catalog 候选集内——不是任意客户垃圾串）的模型。

@@ -17,7 +17,8 @@ supersedes: none
 
 Do not build an unattended whitelist reconciler. The mechanism is human-in-the-loop:
 admin "fetch upstream models" plus `tokenkey-onboard-model`, gated by the static
-drift guard in `catalog-serving-drift.py`.
+drift guard in `catalog-serving-drift.py`. Delivery eligibility is not owned here;
+see `docs/approved/pricing-serving-single-source-of-truth.md`.
 
 ## 0. Context
 
@@ -39,31 +40,22 @@ Three independent reasons, each sufficient on its own.
 
 ### 1.1 Reason 1 — allow-all inversion (the reconciler does the OPPOSITE of "auto-sync new models")
 
-`Account.IsModelSupported` (`backend/internal/service/account.go:639`):
+`Account.IsModelSupported` still treats most empty native mappings as pass-through. That
+is one RequestPlan input, not the delivery owner: official Anthropic, CloudWise, Tokensea,
+Kiro, and OpenAI OAuth add further Plan or account gates on top.
 
-```go
-func (a *Account) IsModelSupported(requestedModel string) bool {
-	mapping := a.GetModelMapping()
-	if len(mapping) == 0 {
-		return true // 无映射 = 允许所有
-	}
-	...
-}
-```
-
-For a non-antigravity platform, an **empty** `model_mapping` means **allow-all**. An
-empty-mapping newapi account **already serves whatever the upstream channel exposes** —
+An empty-mapping newapi account can already reach whatever the upstream channel exposes —
 including new models the day upstream adds them, with zero TK action. Auto-populating the
-mapping does not *add* models; it **NARROWS allow-all into a snapshot-frozen restrictive
+mapping does not *add* models; it **NARROWS pass-through into a snapshot-frozen restrictive
 allowlist**. The reconciler's effect is the exact opposite of its stated goal: instead of
 "auto-sync new models in," it would freeze the account to the manifest snapshot and start
 *rejecting* anything not in it. The naming ("served-models reconciler", "auto-sync") hides
 that inversion — which is precisely why it must not be built unattended.
 
-### 1.2 Reason 2 — there is no trustworthy source to converge toward (R-002)
+### 1.2 Reason 2 — there is no trustworthy source to converge toward
 
 A converging reconciler needs an authoritative desired-state. Upstream `/v1/models` is
-**not** it — per `docs/approved/pricing-availability-source-of-truth.md` §2.4 / R-002 it is
+**not** it — per `docs/approved/pricing-availability-source-of-truth.md` §2.1 it is
 an unvetted discovery feed that over-reports deprecated, retired, disabled, served-but-
 unpriced, and embedding-only ids. `FetchUpstreamSupportedModels`
 (`backend/internal/service/upstream_models.go:76`) returns a bare `[]string` with no pricing

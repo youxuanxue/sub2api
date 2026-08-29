@@ -17,8 +17,9 @@
 
 ## 0. TL;DR
 
-不要把下面的分层当成现行交付公式。现行只问：CatalogPolicy 能不能展示/按什么价结算，
-RequestPlan 有没有合法路径，RuntimeReadiness 现在能不能跑。本文分层只用来读这份历史快照：
+不要把下面的分层当成现行交付公式。现行判定只看
+`docs/approved/pricing-serving-single-source-of-truth.md`。
+本文分层只用来读这份历史快照：
 
 ```
 当时有价 / 当时探针 200 / 当时进了公开目录 / 当时出现在 DefaultModels
@@ -330,7 +331,7 @@ glm-4.7  glm-4.6  glm-4.5  glm-4.5-air
 ## 6. 维护与刷新
 
 - **可服务 allowlist 刷新**：`/tokenkey-servable-model-refresh`（`ops/pricing/refresh-servable-allowlist.py`）——经 prod SSM 逐模型真实请求，只留 200，splice 回 Go servable map。探测元组当前为 anthropic/openai/gemini；antigravity/grok 手维护。
-- **上架单个模型（served+priced）**：`/tokenkey-onboard-model`——probe → `tk_served_models.json` 清单 + complete registry owner（**官方源、禁臆造**）→ registry PR 合并热发布 → 生成 checksummed bundle → `modelops activate` 以独立 probe/pricing evidence 写入 prod mapping → release/livefire 200 → 两档计费核对；generic deploy/rollback 不写 live mapping 或价格。
+- **上架单个模型（写 mapping 与价格）**：`/tokenkey-onboard-model`——probe → `tk_served_models.json` 清单 + complete registry owner（**官方源、禁臆造**）→ registry PR 合并热发布 → 生成 checksummed bundle → `modelops activate` 以独立 probe/pricing evidence 写入 prod mapping → release/livefire 200 → 两档计费核对；generic deploy/rollback 不写 live mapping 或价格。
 - **漂移门禁**：`scripts/checks/catalog-serving-drift.py`（manifest↔mapping path↔overlay 一致，未声明 activation/legacy mapping 的 priced-but-not-mapped 条目硬失败）经 `scripts/preflight.sh` 调用。
 - **不可服务台账机器源**：`ops/pricing/servable-reprobe-ledger.json`（watchlist / skiplist / deadlist）由 `refresh-servable-allowlist.py selftest` 和 preflight 校验，避免 transient 记录过期或误进永久 skip。
 

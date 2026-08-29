@@ -15,7 +15,7 @@ description: >-
 应该展示哪些实测可服务模型」从一次性手工探测固化为可复跑流水线。背景与解耦原因见
 `ops/pricing/README.md`、PR #605（呈现层过滤 vs IsModelPriced 解耦）、#608（本工具）。
 
-当前公开目录和用户菜单已收敛到同一 servable surface：
+公开 `/pricing` 与用户 Menu 共用同一 CatalogPolicy 投影：
 
 - `FilterPublicCatalogToServable` 过滤公开 `/pricing`。
 - `supportedCatalogModelIDsForPlatform` 喂给用户菜单 fallback。

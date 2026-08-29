@@ -89,6 +89,13 @@ SECONDARY_TRUTH_PATTERNS = (
     re.compile(r"display\s+when\s+priced", re.IGNORECASE),
     re.compile(r"四层洋葱"),
     re.compile(r"有价\s*\+\s*可服务"),
+    re.compile(r"PRICE\s+事实"),
+    re.compile(r"只.{0,12}两个事实"),
+    re.compile(r"served\s*\+\s*priced", re.IGNORECASE),
+    re.compile(r"priced\+displayable", re.IGNORECASE),
+    re.compile(r"§2\.4\s*/\s*R-002"),
+    re.compile(r"同一\s*servable\s+surface"),
+    re.compile(r"account\.go:639"),
 )
 
 
@@ -179,6 +186,9 @@ def check(root: Path) -> list[str]:
     availability_text = (root / AVAILABILITY).read_text(encoding="utf-8")
     if formula.search(availability_text):
         errors.append(f"{AVAILABILITY}: must not copy the delivery formula owned by {MAIN}")
+    claude_text = (root / "CLAUDE.md").read_text(encoding="utf-8") if (root / "CLAUDE.md").is_file() else ""
+    if formula.search(claude_text):
+        errors.append(f"CLAUDE.md: must not copy the delivery formula owned by {MAIN}")
 
     for relative, fields in ((MAIN, main), (PROTOCOL, protocol)):
         if fields.get("aligned_origin_main"):
