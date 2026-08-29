@@ -85,6 +85,9 @@ class ReleaseCacheWorkflowTest(unittest.TestCase):
         self.assertEqual(
             test_warm["env"]["GOFLAGS"], "-trimpath -gcflags=all=-dwarf=false"
         )
+        self.assertIn("go test -tags=unit -run=^$ ./...", test_warm["run"])
+        self.assertIn("go test -c -tags=unit", test_warm["run"])
+        self.assertIn("./internal/service", test_warm["run"])
 
         release_warm = next(
             step for step in steps if step.get("name") == "Warm cross-arch Go build cache"

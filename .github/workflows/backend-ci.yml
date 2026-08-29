@@ -138,8 +138,13 @@ jobs:
       - uses: ./.github/actions/go-rolling-cache
         if: needs.changes.outputs.preflight_go == 'true'
         with:
+          # Restore-only. Preflight finishes before test-unit/warm and would
+          # otherwise win the exact test-v1 key with a thin GOCACHE (~200MB
+          # of contract compiles). #1880 restored that stub; service-compile
+          # stayed ~100s despite cache-hit=true.
           family: test
           fallback_prefix: preflight-nodwarf-v1
+          save_caches: "false"
       - name: Unit runner contract tests
         if: needs.changes.outputs.preflight_go == 'true'
         run: python3 -m unittest scripts.ci.test_unit_test_runner
@@ -295,7 +300,10 @@ jobs:
           family: integration
           fallback_prefix: integration-nodwarf-v2
           build_cache_path: ${{ github.workspace }}/.cache/go-build-integration
-          save_caches: "false"
+          # Main required job writes the same key as warm. PRs restore
+          # backend-ci's main snapshot more reliably than a just-finished
+          # warm-release-cache-main run (measured miss on #1880).
+          save_caches: "true"
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)

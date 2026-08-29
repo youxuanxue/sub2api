@@ -79,7 +79,11 @@ jobs:
         working-directory: backend
         env:
           GOFLAGS: -trimpath -gcflags=all=-dwarf=false
-        run: go test -tags=unit -run=^$ ./...
+        run: |
+          go test -tags=unit -run=^$ ./...
+          # Match unit_test_runner's service -c so a warm exact hit does not
+          # still spend ~100s linking ./internal/service.test.
+          go test -c -tags=unit -o "${RUNNER_TEMP}/service.test" ./internal/service
       - name: Save test build cache
         if: steps.test_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
