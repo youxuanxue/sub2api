@@ -103,7 +103,7 @@ jobs:
         with:
           go-version-file: backend/go.mod
           check-latest: false
-          cache: true
+          cache: false
           cache-dependency-path: backend/go.sum
 
       - name: Registry + fixture gateway gate

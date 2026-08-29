@@ -172,15 +172,24 @@ jobs:
       # dead tag-scoped caches. Go's cache is content-addressed, so a slightly
       # stale entry (e.g. after a .new-api-ref bump) is simply unused, never
       # wrong — release recompiles only changed packages + relinks.
+      - name: Resolve exact Go version
+        id: go_version
+        run: echo "version=$(awk '/^go /{print $2; exit}' backend/go.mod)" >> "$GITHUB_OUTPUT"
+      - name: Restore Go module cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-gomod-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}
+          restore-keys: |
+            ${{ runner.os }}-gomod-v1-${{ steps.go_version.outputs.version }}-
+            ${{ runner.os }}-gomod-
       - name: Restore cross-arch Go build cache (warmed on main)
         uses: actions/cache/restore@v6
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-release-${{ hashFiles('backend/go.sum') }}
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-release-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-go-release-${{ hashFiles('backend/go.sum') }}-
+            ${{ runner.os }}-go-release-v1-${{ steps.go_version.outputs.version }}-
             ${{ runner.os }}-go-release-
 
       - name: Verify Go version

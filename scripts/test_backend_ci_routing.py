@@ -183,6 +183,8 @@ class BackendCIRoutingTest(unittest.TestCase):
             "scripts.test_preflight_ci_lint_skip",
             "scripts.checks.test_release_cache_key_parity",
             "scripts.checks.test_go_rolling_cache_policy",
+            "scripts.checks.test_go_cache_boundary_contract",
+            "scripts.ci.test_go_cache_prune",
             "scripts.test_preflight_ci_handoffs",
             "scripts.test_ci_gate_handoffs",
             "scripts.ci.test_changed_surfaces",
@@ -351,7 +353,7 @@ class BackendCIRoutingTest(unittest.TestCase):
             for step in self.jobs["test-unit"]["steps"]
             if step.get("uses") == "./.github/actions/go-rolling-cache"
         )
-        self.assertEqual(unit_cache["with"]["prefix"], "unit-nodwarf-v3")
+        self.assertEqual(unit_cache["with"]["family"], "test")
         self.assertEqual(
             unit_cache["with"]["benchmark_prefix"],
             "unit-nodwarf-v5-other-first-bench",
@@ -365,7 +367,7 @@ class BackendCIRoutingTest(unittest.TestCase):
     def test_unit_job_omits_dwarf_from_test_build_objects(self) -> None:
         self.assertEqual(
             self.jobs["test-unit"]["env"]["GOFLAGS"],
-            "-gcflags=all=-dwarf=false",
+            "-trimpath -gcflags=all=-dwarf=false",
         )
 
     def test_heavy_go_jobs_omit_dwarf_from_cached_build_objects(self) -> None:
@@ -382,11 +384,11 @@ class BackendCIRoutingTest(unittest.TestCase):
         self.assertEqual(
             declarations,
             [
-                ("preflight", "job", "-gcflags=all=-dwarf=false"),
-                ("test-unit", "job", "-gcflags=all=-dwarf=false"),
-                ("test-integration", "job", "-gcflags=all=-dwarf=false"),
-                ("golangci-lint", "job", "-gcflags=all=-dwarf=false"),
-                ("backend-security", "job", "-gcflags=all=-dwarf=false"),
+                ("preflight", "job", "-trimpath -gcflags=all=-dwarf=false"),
+                ("test-unit", "job", "-trimpath -gcflags=all=-dwarf=false"),
+                ("test-integration", "job", "-trimpath -gcflags=all=-dwarf=false"),
+                ("golangci-lint", "job", "-trimpath -gcflags=all=-dwarf=false"),
+                ("backend-security", "job", "-trimpath -gcflags=all=-dwarf=false"),
             ],
         )
 
@@ -412,7 +414,9 @@ class BackendCIRoutingTest(unittest.TestCase):
         cache_index = cache_indexes[0]
         self.assertLess(cache_index, scan_index)
         cache = steps[cache_index]
-        self.assertEqual(cache["with"]["prefix"], "security-nodwarf-v1")
+        self.assertEqual(cache["with"]["family"], "analysis")
+        self.assertEqual(cache["with"]["fallback_prefix"], "security-nodwarf-v1")
+        self.assertEqual(cache["with"]["save_caches"], "false")
         self.assertNotIn("refresh_on_backend_change", cache.get("with", {}))
         self.assertFalse(
             [
@@ -424,21 +428,21 @@ class BackendCIRoutingTest(unittest.TestCase):
         )
 
     def test_heavy_go_jobs_use_nodwarf_build_cache_strategy(self) -> None:
-        expected_prefixes = {
-            "preflight": "preflight-nodwarf-v1",
-            "test-unit": "unit-nodwarf-v3",
-            "test-integration": "integration-nodwarf-v2",
-            "golangci-lint": "lint-nodwarf-v1",
-            "backend-security": "security-nodwarf-v1",
+        expected_families = {
+            "preflight": "test",
+            "test-unit": "test",
+            "test-integration": "integration",
+            "golangci-lint": "analysis",
+            "backend-security": "analysis",
         }
-        for job_name, expected_prefix in expected_prefixes.items():
+        for job_name, expected_family in expected_families.items():
             cache_step = next(
                 step
                 for step in self.jobs[job_name]["steps"]
                 if step.get("uses") == "./.github/actions/go-rolling-cache"
             )
             with self.subTest(job=job_name):
-                self.assertEqual(cache_step["with"]["prefix"], expected_prefix)
+                self.assertEqual(cache_step["with"]["family"], expected_family)
 
         integration_cache = next(
             step
@@ -446,13 +450,14 @@ class BackendCIRoutingTest(unittest.TestCase):
             if step.get("uses") == "./.github/actions/go-rolling-cache"
         )
         self.assertEqual(
-            integration_cache["with"]["prefix"],
-            "integration-nodwarf-v2",
+            integration_cache["with"]["family"],
+            "integration",
         )
         self.assertEqual(
-            integration_cache["with"]["refresh_daily"],
-            "true",
+            integration_cache["with"]["fallback_prefix"],
+            "integration-nodwarf-v2",
         )
+        self.assertNotIn("refresh_daily", integration_cache.get("with", {}))
         self.assertEqual(
             integration_cache["with"]["save_caches"],
             "false",
@@ -476,17 +481,14 @@ class BackendCIRoutingTest(unittest.TestCase):
             if step.get("uses") == "./.github/actions/go-rolling-cache"
         )
         self.assertEqual(
-            unit_cache["with"]["prefix"],
-            "unit-nodwarf-v3",
+            unit_cache["with"]["family"],
+            "test",
         )
         self.assertEqual(
             unit_cache["with"]["fallback_prefix"],
-            "unit-nodwarf-v1",
+            "unit-nodwarf-v3",
         )
-        self.assertEqual(
-            unit_cache["with"]["refresh_on_backend_change"],
-            "true",
-        )
+        self.assertNotIn("refresh_on_backend_change", unit_cache.get("with", {}))
         self.assertNotIn("refresh_daily", unit_cache["with"])
         self.assertNotIn("build_cache_path", unit_cache["with"])
         self.assertEqual(
@@ -535,8 +537,9 @@ class BackendCIRoutingTest(unittest.TestCase):
             for step in steps
             if step.get("uses") == "./.github/actions/go-rolling-cache"
         )
-        self.assertEqual(rolling_cache["with"]["prefix"], "lint-nodwarf-v1")
-        self.assertEqual(rolling_cache["with"]["golangci_cache"], "true")
+        self.assertEqual(rolling_cache["with"]["family"], "analysis")
+        self.assertEqual(rolling_cache["with"]["fallback_prefix"], "lint-nodwarf-v1")
+        self.assertNotIn("golangci_cache", rolling_cache.get("with", {}))
 
         lint_action = next(
             step

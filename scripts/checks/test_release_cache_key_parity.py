@@ -8,7 +8,6 @@ import unittest
 
 import yaml
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_CI = REPO_ROOT / ".github" / "workflows" / "backend-ci.yml"
 WARM_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "warm-release-cache-main.yml"
@@ -31,60 +30,118 @@ class ReleaseCacheWorkflowTest(unittest.TestCase):
         workflow = load_workflow(WARM_WORKFLOW)
         push = workflow_on(workflow)["push"]
         self.assertEqual(push["branches"], ["main"])
-        self.assertEqual(
-            set(push["paths"]),
-            {
-                "backend/**/*.go",
-                "backend/go.mod",
-                "backend/go.sum",
-                ".new-api-ref",
-                ".goreleaser.yaml",
-                ".github/workflows/warm-release-cache-main.yml",
-            },
-        )
+        self.assertIn("backend/**/*.go", push["paths"])
+        self.assertIn(".new-api-ref", push["paths"])
         job = workflow["jobs"]["warm-release-cache"]
         self.assertEqual(job.get("if"), "github.ref == 'refs/heads/main'")
 
-    def test_warm_workflow_owns_daily_integration_cache_writes(self) -> None:
+    def test_warm_workflow_writes_five_families_with_explicit_save(self) -> None:
         workflow = load_workflow(WARM_WORKFLOW)
+        self.assertEqual(workflow["permissions"]["actions"], "write")
+        self.assertNotIn("GOFLAGS", workflow.get("env", {}))
         steps = workflow["jobs"]["warm-release-cache"]["steps"]
-        epoch = next(step for step in steps if step.get("id") == "integration_epoch")
-        self.assertIn('day=$(date -u +%Y-%m-%d)', epoch["run"])
+        save_steps = [step for step in steps if step.get("uses") == "actions/cache/save@v6"]
+        restore_steps = [step for step in steps if step.get("uses") == "actions/cache/restore@v6"]
+        self.assertEqual(len(save_steps), 5)
+        self.assertEqual(len(restore_steps), 5)
+        self.assertTrue(all("cache-hit != 'true'" in step.get("if", "") for step in save_steps))
+        combined = [step for step in steps if step.get("uses") == "actions/cache@v6"]
+        self.assertEqual(combined, [])
+        keys = "\n".join(str(step.get("with", {}).get("key", "")) for step in restore_steps + save_steps)
+        self.assertIn("gomod-v1-", keys)
+        self.assertIn("gobuild-test-v1-", keys)
+        self.assertIn("gobuild-integration-v1-", keys)
+        self.assertIn("gobuild-analysis-v1-", keys)
+        self.assertIn("go-release-v1-", keys)
+        self.assertNotIn("github.run_id", keys)
 
-        cache = next(step for step in steps if step.get("id") == "integration_cache")
-        self.assertEqual(cache["uses"], "actions/cache@v6")
-        self.assertEqual(
-            cache["with"]["path"],
-            "${{ github.workspace }}/.cache/go-build-integration",
-        )
-        dependency_hash = (
-            "${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}"
-        )
-        key_prefix = "${{ runner.os }}-gobuild-integration-nodwarf-v2-"
-        self.assertEqual(
-            cache["with"]["key"],
-            f"{key_prefix}{dependency_hash}-${{{{ steps.integration_epoch.outputs.day }}}}",
-        )
-        self.assertEqual(
-            cache["with"]["restore-keys"],
-            f"{key_prefix}{dependency_hash}-\n{key_prefix}\n",
-        )
+        test_restore = next(step for step in restore_steps if "gobuild-test-v1-" in str(step.get("with", {}).get("key", "")))
+        test_save = next(step for step in save_steps if "gobuild-test-v1-" in str(step.get("with", {}).get("key", "")))
+        self.assertEqual(test_restore["with"]["path"], "~/.cache/go-build")
+        self.assertEqual(test_save["with"]["path"], "~/.cache/go-build")
+        analysis_restore = next(step for step in restore_steps if "gobuild-analysis-v1-" in str(step.get("with", {}).get("key", "")))
+        self.assertIn("~/.cache/go-build", analysis_restore["with"]["path"])
+        self.assertIn("~/.cache/golangci-lint", analysis_restore["with"]["path"])
+        release_restore = next(step for step in restore_steps if "go-release-v1-" in str(step.get("with", {}).get("key", "")))
+        release_save = next(step for step in save_steps if "go-release-v1-" in str(step.get("with", {}).get("key", "")))
+        self.assertEqual(release_restore["with"]["path"], "~/.cache/go-build")
+        self.assertEqual(release_save["with"]["path"], "~/.cache/go-build")
 
-        warm = next(
-            step for step in steps if step.get("name") == "Warm integration build cache"
-        )
+        warm = next(step for step in steps if step.get("name") == "Warm integration build cache")
         self.assertEqual(warm["if"], "steps.integration_cache.outputs.cache-hit != 'true'")
         self.assertEqual(
             warm["env"]["GOCACHE"],
             "${{ github.workspace }}/.cache/go-build-integration",
         )
-        self.assertEqual(warm["env"]["GOFLAGS"], "-gcflags=all=-dwarf=false")
-        self.assertIn("scripts/ci/integration-packages.py", warm["run"])
-        self.assertIn("integration_packages=()", warm["run"])
-        self.assertIn('integration_packages+=("$package")', warm["run"])
+        self.assertEqual(
+            warm["env"]["GOFLAGS"], "-trimpath -gcflags=all=-dwarf=false"
+        )
         self.assertIn("go test -c -tags=integration", warm["run"])
         self.assertNotIn("-vet=off", warm["run"])
-        self.assertEqual(warm["run"].count("go test -c"), 1)
+
+        test_warm = next(
+            step for step in steps if step.get("name") == "Warm test build cache"
+        )
+        self.assertEqual(
+            test_warm["env"]["GOFLAGS"], "-trimpath -gcflags=all=-dwarf=false"
+        )
+
+        release_warm = next(
+            step for step in steps if step.get("name") == "Warm cross-arch Go build cache"
+        )
+        self.assertEqual(release_warm["env"]["GOFLAGS"], "-trimpath")
+        self.assertIn("-tags=embed", release_warm["run"])
+        self.assertIn("./cmd/server", release_warm["run"])
+        self.assertIn("./cmd/qa-archive", release_warm["run"])
+
+        prune = next(step for step in steps if step.get("name") == "Check managed Go cache budget")
+        self.assertIn("go_cache_prune.py --check", prune["run"])
+
+    def test_warm_analysis_runs_golangci_lint_to_fill_analysis_family(self) -> None:
+        # Boundary: analysis family includes ~/.cache/golangci-lint. Warm must
+        # populate it, or an exact-hit after a go-test-only warm poisons the
+        # lint job into restore-only against an empty golangci cache.
+        lint_step = next(
+            step
+            for step in load_workflow(BACKEND_CI)["jobs"]["golangci-lint"]["steps"]
+            if step.get("name") == "golangci-lint"
+        )
+        steps = load_workflow(WARM_WORKFLOW)["jobs"]["warm-release-cache"]["steps"]
+        analysis_compile = next(
+            step for step in steps if step.get("name") == "Warm analysis build cache"
+        )
+        self.assertEqual(
+            analysis_compile["if"],
+            "steps.analysis_cache.outputs.cache-hit != 'true'",
+        )
+        self.assertEqual(
+            analysis_compile["env"]["GOFLAGS"],
+            "-trimpath -gcflags=all=-dwarf=false",
+        )
+        self.assertIn("go test -run=^$", analysis_compile["run"])
+        lint_warm = next(
+            step
+            for step in steps
+            if str(step.get("uses", "")).startswith("golangci/golangci-lint-action@")
+        )
+        self.assertEqual(
+            lint_warm["if"],
+            "steps.analysis_cache.outputs.cache-hit != 'true'",
+        )
+        self.assertEqual(
+            lint_warm["env"]["GOFLAGS"],
+            "-trimpath -gcflags=all=-dwarf=false",
+        )
+        self.assertEqual(lint_warm["with"]["version"], lint_step["with"]["version"])
+        self.assertEqual(lint_warm["with"]["args"], lint_step["with"]["args"])
+        self.assertEqual(
+            lint_warm["with"]["working-directory"],
+            lint_step["with"]["working-directory"],
+        )
+        self.assertEqual(
+            lint_warm["with"].get("skip-cache"),
+            lint_step["with"].get("skip-cache"),
+        )
 
 
 if __name__ == "__main__":

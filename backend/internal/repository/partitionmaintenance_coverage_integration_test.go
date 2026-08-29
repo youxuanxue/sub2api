@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -40,9 +38,8 @@ type partitionProbeStats struct {
 }
 
 func TestDataLayerSafetyProbePartitionCoverage(t *testing.T) {
-	_, filename, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	queryPath := filepath.Join(filepath.Dir(filename), "../../../ops/observability/data-layer-partition-coverage.sql")
+	queryPath, err := findFromWorkingDir("ops/observability/data-layer-partition-coverage.sql")
+	require.NoError(t, err)
 	query, err := os.ReadFile(queryPath)
 	require.NoError(t, err)
 

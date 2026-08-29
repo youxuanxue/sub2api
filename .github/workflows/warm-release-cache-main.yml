@@ -1,9 +1,7 @@
 name: Warm Release Cache
 
-# Release tags can restore caches from the default branch, but not from older
-# tag refs. Keep the cross-arch release cache and the daily integration build
-# cache warm on main only when backend build inputs change. This is acceleration
-# work, not a required CI correctness gate.
+# Default-branch writer for the five managed Go cache families. Required CI
+# stays correct on a miss. This workflow is acceleration, not a required gate.
 on:
   push:
     branches: [main]
@@ -11,13 +9,17 @@ on:
       - 'backend/**/*.go'
       - 'backend/go.mod'
       - 'backend/go.sum'
+      - 'backend/.golangci.yml'
       - '.new-api-ref'
       - '.goreleaser.yaml'
       - '.github/workflows/warm-release-cache-main.yml'
+      - '.github/actions/go-rolling-cache/action.yml'
+      - 'scripts/ci/go_cache_prune.py'
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: warm-release-cache-main
@@ -35,49 +37,74 @@ jobs:
           go-version-file: backend/go.mod
           check-latest: false
           cache: false
-      - name: Rolling Go build cache (amd64 + arm64 cross-compile)
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-release-${{ hashFiles('backend/go.sum') }}-${{ github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-go-release-${{ hashFiles('backend/go.sum') }}-
-            ${{ runner.os }}-go-release-
-      - name: Verify Go version
+      - name: Resolve exact Go version
+        id: go_version
         run: |
-          expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
-          go version | grep -Fq "go${expected}"
-      - name: Warm cross-arch Go build cache
+          version="$(awk '/^go /{print $2; exit}' backend/go.mod)"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          go version | grep -Fq "go${version}"
+
+      - name: Restore Go module cache
+        id: gomod_cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-gomod-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}
+          restore-keys: |
+            ${{ runner.os }}-gomod-v1-${{ steps.go_version.outputs.version }}-
+            ${{ runner.os }}-gomod-
+      - name: Download modules
+        if: steps.gomod_cache.outputs.cache-hit != 'true'
+        working-directory: backend
+        run: go mod download
+      - name: Save Go module cache
+        if: steps.gomod_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-gomod-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}
+
+      - name: Restore test build cache
+        id: test_cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-gobuild-test-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-gobuild-test-v1-${{ steps.go_version.outputs.version }}-
+            ${{ runner.os }}-gobuild-test-
+            ${{ runner.os }}-gobuild-unit-nodwarf-v3-
+      - name: Warm test build cache
+        if: steps.test_cache.outputs.cache-hit != 'true'
         working-directory: backend
         env:
-          CGO_ENABLED: '0'
-          GOOS: linux
-        run: |
-          for arch in amd64 arm64; do
-            echo "::group::go build linux/${arch}"
-            GOARCH="${arch}" go build -o /dev/null ./cmd/server
-            echo "::endgroup::"
-          done
-      - name: Resolve daily integration cache epoch
-        id: integration_epoch
-        run: echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
-      - name: Daily integration build cache
+          GOFLAGS: -trimpath -gcflags=all=-dwarf=false
+        run: go test -tags=unit -run=^$ ./...
+      - name: Save test build cache
+        if: steps.test_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-gobuild-test-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
+      - name: Isolate default GOCACHE before the next family
+        run: rm -rf ~/.cache/go-build
+
+      - name: Restore integration build cache
         id: integration_cache
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: ${{ github.workspace }}/.cache/go-build-integration
-          key: ${{ runner.os }}-gobuild-integration-nodwarf-v2-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ steps.integration_epoch.outputs.day }}
+          key: ${{ runner.os }}-gobuild-integration-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-gobuild-integration-nodwarf-v2-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
+            ${{ runner.os }}-gobuild-integration-v1-${{ steps.go_version.outputs.version }}-
+            ${{ runner.os }}-gobuild-integration-
             ${{ runner.os }}-gobuild-integration-nodwarf-v2-
       - name: Warm integration build cache
         if: steps.integration_cache.outputs.cache-hit != 'true'
         working-directory: backend
         env:
           GOCACHE: ${{ github.workspace }}/.cache/go-build-integration
-          GOFLAGS: -gcflags=all=-dwarf=false
+          GOFLAGS: -trimpath -gcflags=all=-dwarf=false
         run: |
           set -euo pipefail
           integration_packages=()
@@ -88,3 +115,84 @@ jobs:
           go test -c -tags=integration \
             -o "${RUNNER_TEMP}/integration-cache/" \
             "${integration_packages[@]}"
+      - name: Save integration build cache
+        if: steps.integration_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ github.workspace }}/.cache/go-build-integration
+          key: ${{ runner.os }}-gobuild-integration-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
+
+      - name: Restore analysis build cache
+        id: analysis_cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/.cache/golangci-lint
+          key: ${{ runner.os }}-gobuild-analysis-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-gobuild-analysis-v1-${{ steps.go_version.outputs.version }}-
+            ${{ runner.os }}-gobuild-analysis-
+            ${{ runner.os }}-gobuild-lint-nodwarf-v1-
+      - name: Warm analysis build cache
+        if: steps.analysis_cache.outputs.cache-hit != 'true'
+        working-directory: backend
+        env:
+          GOFLAGS: -trimpath -gcflags=all=-dwarf=false
+        run: go test -run=^$ ./...
+      - name: Warm golangci-lint cache
+        if: steps.analysis_cache.outputs.cache-hit != 'true'
+        uses: golangci/golangci-lint-action@v9
+        env:
+          GOFLAGS: -trimpath -gcflags=all=-dwarf=false
+        with:
+          version: v2.9
+          args: --concurrency=4 --timeout=30m
+          working-directory: backend
+          only-new-issues: false
+          skip-cache: "true"
+      - name: Save analysis build cache
+        if: steps.analysis_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/.cache/golangci-lint
+          key: ${{ runner.os }}-gobuild-analysis-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
+      - name: Isolate default GOCACHE before the release family
+        run: rm -rf ~/.cache/go-build
+
+      - name: Restore release build cache
+        id: release_cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-release-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-go-release-v1-${{ steps.go_version.outputs.version }}-
+            ${{ runner.os }}-go-release-
+      - name: Warm cross-arch Go build cache
+        if: steps.release_cache.outputs.cache-hit != 'true'
+        working-directory: backend
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOFLAGS: -trimpath
+        run: |
+          for arch in amd64 arm64; do
+            echo "::group::go build release linux/${arch}"
+            GOARCH="${arch}" go build -tags=embed -o /dev/null ./cmd/server
+            GOARCH="${arch}" go build -o /dev/null ./cmd/qa-archive
+            echo "::endgroup::"
+          done
+      - name: Save release build cache
+        if: steps.release_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-release-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
+
+      - name: Check managed Go cache budget
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/go_cache_prune.py --check

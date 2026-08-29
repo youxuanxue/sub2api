@@ -110,6 +110,7 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
+          cache: false
 
       - name: Set up Python
         uses: actions/setup-python@v6
