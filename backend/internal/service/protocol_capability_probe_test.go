@@ -716,6 +716,16 @@ func TestProtocolProbeCandidatesCoverGovernedCustomAccountsOnly(t *testing.T) {
 			want: []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent},
 		},
 		{
+			name: "openai edge mirror does not probe ingress messages as a native target",
+			account: &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{
+				"api_key": "secret", "base_url": "https://api-us4.tokenkey.dev",
+			}},
+			want: []protocolrouter.Protocol{
+				protocolrouter.ProtocolChatCompletions,
+				protocolrouter.ProtocolResponses,
+			},
+		},
+		{
 			name: "antigravity edge relay probes its configurable text endpoints",
 			account: &Account{Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
 				"api_key": "secret", "base_url": "https://api-us3.tokenkey.dev",
