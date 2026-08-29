@@ -1,0 +1,50 @@
+name: Provision Edge shadow small_3_0
+
+# Phase A only: sidecar small instance + dump restore. Does not cut over
+# the live Static IP and does not write /tokenkey/lightsail/<edge_id>/*.
+run-name: "shadow-small edge=${{ inputs.edge_id }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      edge_id:
+        description: "Live Lightsail edge to shadow (us3 first)"
+        required: true
+        type: choice
+        options:
+          - us3
+          - us4
+          - us5
+          - us6
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: provision-shadow-small-${{ inputs.edge_id }}
+  cancel-in-progress: false
+
+jobs:
+  shadow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: edge-${{ inputs.edge_id }}
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: us-east-2
+
+      - name: Provision shadow small (Phase A)
+        env:
+          ACME_EMAIL: ${{ vars.EDGE_ACME_EMAIL }}
+          MAIN_GATEWAY_ALLOWED_CIDR: ${{ vars.EDGE_MAIN_GATEWAY_ALLOWED_CIDR }}
+        run: bash ops/lightsail/provision-shadow-small.sh "${{ inputs.edge_id }}"

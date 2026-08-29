@@ -1933,6 +1933,15 @@ else
     echo "  ok: edge disk remediation + recovery anchors pass"
 fi
 
+echo "=== sub2api: shadow small restore count compare ==="
+if ! python3 -m unittest ops/lightsail/test_shadow_count_compare.py -q; then
+    echo "  FAIL: shadow restore count compare"
+    echo "        — run: python3 -m unittest ops/lightsail/test_shadow_count_compare.py -v"
+    errors=$((errors + 1))
+else
+    echo "  ok: shadow identity + billing-dedup slack compare"
+fi
+
 echo "=== sub2api: env secret backup fail-closed contract ==="
 if ! bash ./ops/stage0/test_backup_env_secrets_via_ssm.sh >/dev/null 2>&1 || \
    ! bash ./deploy/aws/lightsail/test_restore_edge_env_secrets.sh >/dev/null 2>&1 || \

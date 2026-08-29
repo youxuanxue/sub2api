@@ -38,11 +38,14 @@ class ResolveEdgeDeployRouteTest(unittest.TestCase):
         edge_id = _deployable_lightsail_edge()
         if edge_id is None:
             self.skipTest("no deployable Lightsail edge in matrix")
+        targets = json.loads(LIGHTSAIL_MATRIX.read_text(encoding="utf-8")).get("targets") or {}
+        expected_instance = str((targets.get(edge_id) or {}).get("instance_name") or "")
         route = self._route(edge_id)
         self.assertEqual(route["platform"], "lightsail")
         self.assertEqual(route["workflow_file"], "deploy-edge-lightsail-stage0.yml")
         self.assertEqual(route["confirm_flag"], "confirm_instance")
-        self.assertTrue(route["confirm_value"].endswith("-ls"))
+        self.assertEqual(route["confirm_value"], expected_instance)
+        self.assertTrue(expected_instance)
 
     # NOTE: us1 was the last EC2 edge; it is being retired (deployable=false →
     # decommission, replaced by the us6 Lightsail edge). With no deployable EC2 edge

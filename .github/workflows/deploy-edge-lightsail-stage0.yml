@@ -37,7 +37,7 @@ on:
         required: false
         type: string
       confirm_instance:
-        description: "Must match instance_name from matrix (e.g. tokenkey-edge-us-oh1-ls)."
+        description: "Must match instance_name from matrix (e.g. tokenkey-edge-us-oh1-ls-s30)."
         required: true
         type: string
       recreate:
