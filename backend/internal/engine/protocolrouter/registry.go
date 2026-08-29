@@ -165,8 +165,20 @@ func permitsGeminiModel(account AccountSnapshot) bool {
 func preservesIdentity(CanonicalRequest) bool { return true }
 
 func preservesMessagesToResponses(req CanonicalRequest) bool {
-	return preservesTextOnlyWithoutTools(req) &&
+	// ForwardAsAnthropic already preserves Claude Code tools, images, and
+	// tool_use / tool_result blocks. Text-only-without-tools was fail-closing
+	// those requests onto /v1/messages identity, which TokenKey edge OpenAI
+	// pools cannot serve.
+	return preservesMessagesToResponsesContent(req) &&
 		req.profile.Continuation == ContinuationNone
+}
+
+func preservesMessagesToResponsesContent(req CanonicalRequest) bool {
+	if req.profile.ContentKinds == 0 {
+		return false
+	}
+	allowed := ContentText | ContentImage | ContentUnknown
+	return req.profile.ContentKinds&^allowed == 0
 }
 
 func preservesMessagesToChat(req CanonicalRequest) bool {

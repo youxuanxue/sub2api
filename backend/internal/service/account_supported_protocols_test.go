@@ -150,19 +150,66 @@ func TestProtocolAccountSnapshotResolvesModelAndRevisionFromAccountFacts(t *test
 		t.Fatal("snapshot revision is empty")
 	}
 
-	changed := *account
-	changed.UpdatedAt = updatedAt.Add(time.Nanosecond)
-	changed.Credentials = map[string]any{
+	noisy := *account
+	noisy.UpdatedAt = updatedAt.Add(time.Nanosecond)
+	noisy.Credentials = map[string]any{
 		"api_key":       "different-secret",
 		"base_url":      "https://relay.example.test/v1",
 		"model_mapping": map[string]any{"client-model": "upstream-model"},
+	}
+	noisySnapshot, err := ProtocolAccountSnapshot(&noisy, "client-model")
+	if err != nil {
+		t.Fatalf("ProtocolAccountSnapshot noisy: %v", err)
+	}
+	if noisySnapshot.Revision() != snapshot.Revision() {
+		t.Fatal("updated_at or secret rotation must not change protocol revision")
+	}
+
+	changed := *account
+	changed.Credentials = map[string]any{
+		"api_key":       "secret",
+		"base_url":      "https://relay.example.test/v1",
+		"model_mapping": map[string]any{"client-model": "other-upstream"},
 	}
 	changedSnapshot, err := ProtocolAccountSnapshot(&changed, "client-model")
 	if err != nil {
 		t.Fatalf("ProtocolAccountSnapshot changed: %v", err)
 	}
 	if changedSnapshot.Revision() == snapshot.Revision() {
-		t.Fatal("persisted account update did not change account revision")
+		t.Fatal("model mapping change did not change account revision")
+	}
+}
+
+func TestProtocolAccountRevisionIgnoresUsageExtraWrites(t *testing.T) {
+	account := &Account{
+		ID:        44,
+		Platform:  PlatformOpenAI,
+		Type:      AccountTypeOAuth,
+		UpdatedAt: time.Date(2026, 8, 29, 13, 37, 0, 0, time.UTC),
+		Credentials: map[string]any{
+			"access_token": "secret",
+		},
+		Extra: map[string]any{
+			"codex_usage_updated_at": "2026-08-29T13:37:00Z",
+		},
+	}
+	if !SeedOfficialSupportedProtocols(account) {
+		t.Fatal("official OpenAI OAuth seed must succeed")
+	}
+	before, err := protocolAccountRevision(account)
+	if err != nil {
+		t.Fatalf("protocolAccountRevision: %v", err)
+	}
+
+	account.UpdatedAt = account.UpdatedAt.Add(time.Second)
+	account.Extra["codex_usage_updated_at"] = "2026-08-29T13:38:00Z"
+	account.Extra["quota_used"] = 12.5
+	after, err := protocolAccountRevision(account)
+	if err != nil {
+		t.Fatalf("protocolAccountRevision after extra write: %v", err)
+	}
+	if before != after {
+		t.Fatal("usage/quota extra writes changed protocol revision")
 	}
 }
 
@@ -610,5 +657,59 @@ func TestAdminUpdateExtraCannotWriteSupportedProtocols(t *testing.T) {
 	}
 	if account.Extra["custom"] != true {
 		t.Fatalf("unmanaged extra update was lost: %#v", account.Extra)
+	}
+}
+
+func TestRoutingSupportedProtocolsStripsMessagesOnOpenAIEdgeMirror(t *testing.T) {
+	stub := &Account{
+		ID:       68,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": "https://api-us4.tokenkey.dev",
+		},
+	}
+	attachTestProtocolCapability(stub,
+		protocolrouter.ProtocolMessages,
+		protocolrouter.ProtocolChatCompletions,
+		protocolrouter.ProtocolResponses,
+	)
+	got := routingSupportedProtocols(stub)
+	want := []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("routingSupportedProtocols(stub) = %v, want %v", got, want)
+	}
+	if !reflect.DeepEqual(stub.SupportedProtocols(), []protocolrouter.Protocol{
+		protocolrouter.ProtocolMessages,
+		protocolrouter.ProtocolChatCompletions,
+		protocolrouter.ProtocolResponses,
+	}) {
+		t.Fatalf("capability owner list was rewritten: %v", stub.SupportedProtocols())
+	}
+
+	external := protocolRoutingOpenAIAccount(70,
+		string(protocolrouter.ProtocolMessages),
+		string(protocolrouter.ProtocolResponses),
+	)
+	if got := routingSupportedProtocols(external); !reflect.DeepEqual(got, []protocolrouter.Protocol{
+		protocolrouter.ProtocolMessages,
+		protocolrouter.ProtocolResponses,
+	}) {
+		t.Fatalf("external OpenAI relay lost native messages: %v", got)
+	}
+
+	messagesOnly := &Account{
+		ID:       71,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": "https://api-us4.tokenkey.dev",
+		},
+	}
+	attachTestProtocolCapability(messagesOnly, protocolrouter.ProtocolMessages)
+	if got := routingSupportedProtocols(messagesOnly); !reflect.DeepEqual(got, []protocolrouter.Protocol{protocolrouter.ProtocolMessages}) {
+		t.Fatalf("messages-only stub fallback = %v, want messages kept", got)
 	}
 }

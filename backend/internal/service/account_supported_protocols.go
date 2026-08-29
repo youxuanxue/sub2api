@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
@@ -158,6 +159,33 @@ func SeedOfficialSupportedProtocols(account *Account) bool {
 	return true
 }
 
+// routingSupportedProtocols is the Plan() view of capability.supported_protocols.
+// Prod OpenAI edge-mirror stubs (api-*.tokenkey.dev) accept /v1/messages as
+// TokenKey ingress and convert simple probes, but the next hop's OpenAI OAuth
+// pool only speaks responses. Treating probe-positive messages as identity
+// dumps Claude Code bodies onto the edge, which then fail-closes to 503/502.
+func routingSupportedProtocols(account *Account) []protocolrouter.Protocol {
+	protocols := account.SupportedProtocols()
+	if !tkIsOpenAIEdgeMirrorStub(account) {
+		return protocols
+	}
+	filtered := make([]protocolrouter.Protocol, 0, len(protocols))
+	hasOpenAINative := false
+	for _, protocol := range protocols {
+		if protocol == protocolrouter.ProtocolMessages {
+			continue
+		}
+		filtered = append(filtered, protocol)
+		if protocol == protocolrouter.ProtocolResponses || protocol == protocolrouter.ProtocolChatCompletions {
+			hasOpenAINative = true
+		}
+	}
+	if !hasOpenAINative {
+		return protocols
+	}
+	return filtered
+}
+
 func ProtocolAccountSnapshot(account *Account, requestedModel string) (protocolrouter.AccountSnapshot, error) {
 	return protocolAccountSnapshot(account, requestedModel, false, false, nil)
 }
@@ -198,7 +226,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 	if !governed || identity.Key() != capability.CapabilityKey {
 		return protocolrouter.AccountSnapshot{}, errors.New("account endpoint identity does not match linked capability")
 	}
-	protocols := account.SupportedProtocols()
+	protocols := routingSupportedProtocols(account)
 	resolvedModel := protocolResolvedUpstreamModel(account, requestedModel, requireCompact)
 	customBaseURL, customBaseURLs, officialProfile := protocolAccountEndpoints(account)
 	geminiProfile := protocolGeminiEndpointProfile(account)
@@ -427,14 +455,86 @@ func copyProtocolBaseURL(raw map[string]any, key string, protocol protocolrouter
 }
 
 func protocolAccountRevision(account *Account) (string, error) {
+	if account == nil {
+		return "", errors.New("account is required")
+	}
+	baseURL, protocolBaseURLs, officialProfile := protocolAccountEndpoints(account)
+	capabilityKey := ""
+	capabilityRevision := int64(0)
+	identityConflict := false
+	if account.ProtocolEndpointCapability != nil {
+		capabilityKey = account.ProtocolEndpointCapability.CapabilityKey
+		capabilityRevision = account.ProtocolEndpointCapability.Revision
+		identityConflict = account.ProtocolEndpointCapability.IdentityConflict ||
+			account.ProtocolEndpointCapability.ProbeEvidence.IdentityConflict
+	}
+	protocols := routingSupportedProtocols(account)
+	protocolNames := make([]string, 0, len(protocols))
+	for _, protocol := range protocols {
+		protocolNames = append(protocolNames, string(protocol))
+	}
+	protocolURLPairs := make([]string, 0, len(protocolBaseURLs))
+	for _, protocol := range protocolrouter.AllProtocols() {
+		if value := strings.TrimSpace(protocolBaseURLs[protocol]); value != "" {
+			protocolURLPairs = append(protocolURLPairs, string(protocol)+"="+value)
+		}
+	}
+	compactMode := ""
+	if account.Extra != nil {
+		if mode, _ := account.Extra["openai_compact_mode"].(string); strings.TrimSpace(mode) != "" {
+			compactMode = strings.TrimSpace(mode)
+		}
+	}
 	input := struct {
-		ID        int64 `json:"id"`
-		UpdatedAt int64 `json:"updated_at_unix_nano"`
+		ID                 int64    `json:"id"`
+		Platform           string   `json:"platform"`
+		Type               string   `json:"type"`
+		ChannelType        int      `json:"channel_type"`
+		CapabilityKey      string   `json:"capability_key"`
+		CapabilityRevision int64    `json:"capability_revision"`
+		IdentityConflict   bool     `json:"identity_conflict"`
+		SupportedProtocols []string `json:"supported_protocols"`
+		OfficialProfile    string   `json:"official_profile"`
+		GeminiProfile      string   `json:"gemini_profile"`
+		CustomBaseURL      string   `json:"custom_base_url"`
+		ProtocolBaseURLs   []string `json:"protocol_base_urls"`
+		ModelMapping       []string `json:"model_mapping"`
+		CompactMapping     []string `json:"compact_mapping"`
+		Passthrough        bool     `json:"passthrough"`
+		CompactMode        string   `json:"compact_mode"`
+		AuthPresent        bool     `json:"auth_present"`
 	}{
-		ID:        account.ID,
-		UpdatedAt: account.UpdatedAt.UTC().UnixNano(),
+		ID:                 account.ID,
+		Platform:           account.Platform,
+		Type:               account.Type,
+		ChannelType:        account.ChannelType,
+		CapabilityKey:      capabilityKey,
+		CapabilityRevision: capabilityRevision,
+		IdentityConflict:   identityConflict,
+		SupportedProtocols: protocolNames,
+		OfficialProfile:    string(officialProfile),
+		GeminiProfile:      string(protocolGeminiEndpointProfile(account)),
+		CustomBaseURL:      strings.TrimSpace(baseURL),
+		ProtocolBaseURLs:   protocolURLPairs,
+		ModelMapping:       protocolRevisionMappingPairs(account.GetModelMapping()),
+		CompactMapping:     protocolRevisionMappingPairs(account.GetCompactModelMapping()),
+		Passthrough:        account.IsOpenAIPassthroughEnabled(),
+		CompactMode:        compactMode,
+		AuthPresent:        ProtocolAuthorizationPresent(account),
 	}
 	return protocolRevisionDigest(input)
+}
+
+func protocolRevisionMappingPairs(mapping map[string]string) []string {
+	if len(mapping) == 0 {
+		return nil
+	}
+	pairs := make([]string, 0, len(mapping))
+	for key, value := range mapping {
+		pairs = append(pairs, key+"="+value)
+	}
+	sort.Strings(pairs)
+	return pairs
 }
 
 func protocolRevisionDigest(input any) (string, error) {

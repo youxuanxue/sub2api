@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
@@ -163,6 +162,60 @@ func attachTestProtocolCapability(account *Account, protocols ...protocolrouter.
 		SupportedProtocols: append([]protocolrouter.Protocol(nil), protocols...),
 		Revision:           1,
 		ProbeEvidence:      ProtocolProbeEvidence{InitialProbeCompleted: true},
+	}
+}
+
+func protocolRoutingClaudeCodeMessagesRequest(t *testing.T) protocolrouter.CanonicalRequest {
+	t.Helper()
+	req, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolMessages,
+		RequestedModel:  "gpt-5.4",
+		Profile: protocolrouter.RequestProfile{
+			Tools:        true,
+			ToolChoice:   protocolrouter.ToolChoiceAuto,
+			ContentKinds: protocolrouter.ContentText,
+		},
+		Body: []byte(`{"model":"gpt-5.4","tools":[{"name":"lookup"}],"messages":[{"role":"user","content":"hi"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+	return req
+}
+
+func TestOpenAIEdgeMirrorPlansClaudeCodeMessagesAsResponses(t *testing.T) {
+	account := &Account{
+		ID:          68,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": "https://api-us4.tokenkey.dev",
+		},
+	}
+	attachTestProtocolCapability(account,
+		protocolrouter.ProtocolMessages,
+		protocolrouter.ProtocolChatCompletions,
+		protocolrouter.ProtocolResponses,
+	)
+	ctx := WithProtocolRouting(
+		context.Background(),
+		protocolRoutingTestRouter(),
+		protocolRoutingClaudeCodeMessagesRequest(t),
+	)
+	if !ProtocolRouteLegal(ctx, account, "gpt-5.4") {
+		t.Fatal("Claude Code messages on openai-us4 edge stub were not route-legal")
+	}
+	plan, governed, err := protocolPlanForAccount(ctx, account, "gpt-5.4")
+	if !governed || err != nil {
+		t.Fatalf("protocolPlanForAccount: governed=%v err=%v", governed, err)
+	}
+	if plan.TargetProtocol() != protocolrouter.ProtocolResponses ||
+		plan.AdapterID() != protocolrouter.AdapterMessagesToResponses {
+		t.Fatalf("plan target/adapter = %q/%q, want responses/%s",
+			plan.TargetProtocol(), plan.AdapterID(), protocolrouter.AdapterMessagesToResponses)
 	}
 }
 
@@ -584,8 +637,7 @@ func TestSelectionRejectsAccountChangedAfterSchedulerPlan(t *testing.T) {
 	if !ProtocolRouteLegal(ctx, account, "gpt-5.4") {
 		t.Fatal("scheduler rejected legal protocol route")
 	}
-	account.Credentials["api_key"] = "rotated-secret"
-	account.UpdatedAt = account.UpdatedAt.Add(time.Nanosecond)
+	account.Credentials["base_url"] = "https://other-relay.example.test/v1"
 
 	_, err := (&OpenAIGatewayService{}).newSelectionResult(ctx, account, false, nil, nil)
 	if !errors.Is(err, protocolrouter.ErrStalePlan) {

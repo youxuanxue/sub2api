@@ -545,6 +545,9 @@ func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {
 		if protocol == protocolrouter.ProtocolGeminiGenerateContent {
 			continue
 		}
+		if protocol == protocolrouter.ProtocolMessages && tkIsOpenAIEdgeMirrorStub(account) {
+			continue
+		}
 		if strings.TrimSpace(protocolProbeBaseURL(account, protocol)) != "" {
 			candidates = append(candidates, protocol)
 		}

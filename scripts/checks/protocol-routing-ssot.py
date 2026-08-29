@@ -606,7 +606,9 @@ def check(root: Path) -> list[str]:
                 errors.append("selected protocol execution does not bind the authoritative account to executors")
             if not re.search(r"CredentialPresent\s*:\s*ProtocolAuthorizationPresent\s*\(\s*freshAccount\s*\)", body):
                 errors.append("selected protocol execution derives credential readiness from a stale account")
-            if len(call_spans(body, "protocolExecutionPreSendFailure")) < 2:
+            if not contains_identifier(body, "protocolPlansRoutingEquivalent"):
+                errors.append("selected protocol execution skips equivalent-route replan before send")
+            if len(call_spans(body, "protocolExecutionPreSendFailure")) < 3:
                 errors.append("selected protocol execution leaves a pre-send stale failure outside account failover")
             if not contains_identifier(body, "ErrMissingCredential"):
                 errors.append("selected protocol execution leaves a missing credential outside account failover")
