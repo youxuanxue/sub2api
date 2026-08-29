@@ -101,8 +101,8 @@ func ProtocolRouteLegal(ctx context.Context, account *Account, requestedModel st
 
 // protocolRequestEligibilityReason is the single scheduler-facing owner for
 // model admission plus protocol legality. Governed text requests are decided by
-// one protocolrouter.Plan call, which consumes model mapping and route policy.
-// Out-of-scope requests retain the existing Account.IsModelSupported contract.
+// one protocolrouter.Plan call, which consumes model mapping, platform extras,
+// and route policy. Out-of-scope requests keep accountAdmitsRequestedModel.
 func protocolRequestEligibilityReason(ctx context.Context, account *Account, requestedModel string) (bool, string) {
 	_, governed, err := protocolPlanForAccount(ctx, account, requestedModel)
 	if governed {
@@ -114,7 +114,7 @@ func protocolRequestEligibilityReason(ctx context.Context, account *Account, req
 		}
 		return false, "protocol_route_unavailable"
 	}
-	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
+	if requestedModel != "" && !accountAdmitsRequestedModel(account, requestedModel, thinkingEnabledFromCtx(ctx)) {
 		return false, "model_not_supported"
 	}
 	return true, ""
@@ -157,7 +157,7 @@ func protocolPlanForAccount(
 	if !ok || routing.router == nil || !protocolRoutingGovernsAccount(account) {
 		return protocolrouter.Plan{}, false, nil
 	}
-	snapshot, err := protocolAccountSnapshotForRequest(account, routing.request)
+	snapshot, err := protocolAccountSnapshotForRequestWithThinking(account, routing.request, thinkingEnabledFromCtx(ctx))
 	if err != nil {
 		return protocolrouter.Plan{}, true, fmt.Errorf("%w: %v", ErrProtocolRouteUnavailable, err)
 	}
@@ -225,7 +225,7 @@ func attachProtocolPlan(
 	if routing.plans == nil {
 		return releaseProtocolSelectionOnPlanError(selection, fmt.Errorf("%w: governed account requires scheduler-created plan", ErrProtocolRouteUnavailable))
 	}
-	snapshot, err := protocolAccountSnapshotForRequest(selection.Account, routing.request)
+	snapshot, err := protocolAccountSnapshotForRequestWithThinking(selection.Account, routing.request, thinkingEnabledFromCtx(ctx))
 	if err != nil {
 		if routing.plans.containsAccount(selection.Account.ID) {
 			return releaseProtocolSelectionOnPlanError(selection, protocolrouter.ErrStalePlan)

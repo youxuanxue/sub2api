@@ -7308,7 +7308,8 @@
       "path": "backend/internal/service/tk_pricing_overlay.json",
       "must_contain": [
         "\"_aliases\":",
-        "\"deepseek-v4-flash-0731\": \"deepseek-v4-flash\""
+        "\"deepseek-v4-flash-0731\": \"deepseek-v4-flash\"",
+        "\"gpt-5.5-pro\": \"gpt-5.5\""
       ],
       "rationale": "Public price aliases live only in the overlay _aliases map. An id listed here shares its owner's price by decision, so IsServedViaFamilyFloor must NOT raise served_at_fallback for it. Dropping the alias does not change any price (both paths resolve the same owner) but silently restores the false 'unbilled' Feishu card that sent an operator hunting a nonexistent revenue leak on 2026-08-25. The alias itself must never become a second overlay owner row."
     },

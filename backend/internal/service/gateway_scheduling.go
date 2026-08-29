@@ -2286,35 +2286,22 @@ func summarizeSelectionFailureStats(stats selectionFailureStats) string {
 	)
 }
 
-// isModelSupportedByAccountWithContext 根据账户平台检查模型支持（带 context）
-// 对于 Antigravity 平台，会先获取映射后的最终模型名（包括 thinking 后缀）再检查支持
-func (s *GatewayService) isModelSupportedByAccountWithContext(ctx context.Context, account *Account, requestedModel string) bool {
-	if account.Platform == PlatformAntigravity {
-		if strings.TrimSpace(requestedModel) == "" {
-			return true
-		}
-		// 使用与转发阶段一致的映射逻辑：自定义映射优先 → 默认映射兜底
-		mapped := mapAntigravityModel(account, requestedModel)
-		if mapped == "" {
-			return false
-		}
-		// 应用 thinking 后缀后检查最终模型是否在账号映射中
-		if enabled, ok := ThinkingEnabledFromContext(ctx); ok {
-			finalModel := applyThinkingModelSuffix(mapped, enabled)
-			if finalModel == mapped {
-				return true // thinking 后缀未改变模型名，映射已通过
-			}
-			return account.IsModelSupported(finalModel)
-		}
-		return true
+func thinkingEnabledFromCtx(ctx context.Context) *bool {
+	if enabled, ok := ThinkingEnabledFromContext(ctx); ok {
+		value := enabled
+		return &value
 	}
-	return s.isModelSupportedByAccount(account, requestedModel)
+	return nil
 }
 
-// isModelSupportedByAccount 根据账户平台检查模型支持（无 context，用于非 Antigravity 平台）
-func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedModel string) bool {
-	// CloudWise / tokensea dual-stack relays must not use the Anthropic
-	// claude-* namespace filter: their mapping is the allowlist.
+// accountAdmitsRequestedModel is the single model-admission helper consumed by
+// Plan and by ungoverned scheduler paths. Platform extras (Anthropic namespace,
+// OpenAI passthrough leftover mapping, Antigravity thinking suffix) live here
+// so they are not a second door beside protocolrouter.Plan.
+func accountAdmitsRequestedModel(account *Account, requestedModel string, thinkingEnabled *bool) bool {
+	if account == nil {
+		return false
+	}
 	if isCloudwiseRelayAccount(account) {
 		return account.IsModelSupported(requestedModel)
 	}
@@ -2325,30 +2312,32 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 		if strings.TrimSpace(requestedModel) == "" {
 			return true
 		}
-		return mapAntigravityModel(account, requestedModel) != ""
+		mapped := mapAntigravityModel(account, requestedModel)
+		if mapped == "" {
+			return false
+		}
+		if thinkingEnabled != nil {
+			finalModel := applyThinkingModelSuffix(mapped, *thinkingEnabled)
+			if finalModel == mapped {
+				return true
+			}
+			return account.IsModelSupported(finalModel)
+		}
+		return true
 	}
 	if account.IsBedrock() {
 		_, ok := ResolveBedrockModelID(account, requestedModel)
 		return ok
 	}
 	if account.Platform == PlatformAnthropic && account.Type != AccountTypeServiceAccount {
-		// Leak only when BOTH the request and the forwarded name are outside
-		// claude-*: empty mapping keeps the request name; gpt-4o→claude stays
-		// allowed; claude→vendor-wire-id stays allowed; glm-*→glm-* identity
-		// copies on official Anthropic accounts must not claim CloudWise
-		// prefixes now that ingress lets those names through.
 		mapped := account.GetMappedModel(requestedModel)
 		if !tkIsForwardableAnthropicModelName(requestedModel) && !tkIsForwardableAnthropicModelName(mapped) {
 			return false
 		}
 	}
-	// OpenAI 透传模式：仅替换认证；显式 passthrough 账号只应认领 OpenAI
-	// namespace，避免在 universal routing 中抢走 Gemini/Claude 等外部平台模型。
 	if account.Platform == PlatformOpenAI && account.IsOpenAIPassthroughEnabled() {
 		mapping := account.GetModelMapping()
 		if len(mapping) > 0 {
-			// 调度路径必须按 mapping 白名单判定，不能走 IsModelSupported 的透传短路
-			//（issue #4936 仅覆盖直接调用 IsModelSupported 的残留白名单场景）。
 			if mappingSupportsRequestedModel(mapping, requestedModel) {
 				return true
 			}
@@ -2357,7 +2346,6 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 		}
 		return tkIsForwardableOpenAIModelName(requestedModel)
 	}
-	// OAuth/SetupToken 账号使用 Anthropic 标准映射（短ID → 长ID）
 	if account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
 		if account.Type == AccountTypeServiceAccount {
 			requestedModel = normalizeVertexAnthropicModelID(claude.NormalizeModelID(requestedModel))
@@ -2365,6 +2353,20 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 			requestedModel = claude.NormalizeModelID(requestedModel)
 		}
 	}
-	// 其他平台使用账户的模型支持检查
 	return account.IsModelSupported(requestedModel)
+}
+
+// isModelSupportedByAccountWithContext uses Plan as the only model+protocol
+// gate when this request is already under protocol routing. Ungoverned or
+// no-context callers keep the same platform extras via accountAdmitsRequestedModel.
+func (s *GatewayService) isModelSupportedByAccountWithContext(ctx context.Context, account *Account, requestedModel string) bool {
+	if _, routed := ProtocolRoutingRequest(ctx); routed && protocolRoutingGovernsAccount(account) {
+		eligible, _ := protocolRequestEligibilityReason(ctx, account, requestedModel)
+		return eligible
+	}
+	return accountAdmitsRequestedModel(account, requestedModel, thinkingEnabledFromCtx(ctx))
+}
+
+func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedModel string) bool {
+	return accountAdmitsRequestedModel(account, requestedModel, nil)
 }

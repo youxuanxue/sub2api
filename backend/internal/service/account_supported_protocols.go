@@ -159,15 +159,23 @@ func SeedOfficialSupportedProtocols(account *Account) bool {
 }
 
 func ProtocolAccountSnapshot(account *Account, requestedModel string) (protocolrouter.AccountSnapshot, error) {
-	return protocolAccountSnapshot(account, requestedModel, false, false)
+	return protocolAccountSnapshot(account, requestedModel, false, false, nil)
 }
 
 func protocolAccountSnapshotForRequest(account *Account, request protocolrouter.CanonicalRequest) (protocolrouter.AccountSnapshot, error) {
-	requireCompact := request.InboundProtocol() == protocolrouter.ProtocolResponses && request.ResponsesPath() == protocolrouter.ResponsesPathCompact
-	return protocolAccountSnapshot(account, request.RequestedModel(), requireCompact, request.Profile().Stream)
+	return protocolAccountSnapshotForRequestWithThinking(account, request, nil)
 }
 
-func protocolAccountSnapshot(account *Account, requestedModel string, requireCompact bool, stream bool) (protocolrouter.AccountSnapshot, error) {
+func protocolAccountSnapshotForRequestWithThinking(
+	account *Account,
+	request protocolrouter.CanonicalRequest,
+	thinkingEnabled *bool,
+) (protocolrouter.AccountSnapshot, error) {
+	requireCompact := request.InboundProtocol() == protocolrouter.ProtocolResponses && request.ResponsesPath() == protocolrouter.ResponsesPathCompact
+	return protocolAccountSnapshot(account, request.RequestedModel(), requireCompact, request.Profile().Stream, thinkingEnabled)
+}
+
+func protocolAccountSnapshot(account *Account, requestedModel string, requireCompact bool, stream bool, thinkingEnabled *bool) (protocolrouter.AccountSnapshot, error) {
 	if account == nil {
 		return protocolrouter.AccountSnapshot{}, errors.New("account is required")
 	}
@@ -203,6 +211,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 			protocol,
 			requestedModel,
 			resolvedModel,
+			thinkingEnabled,
 		)
 	}
 	exactEndpoints, err := protocolExactEndpoints(account, resolvedModel, geminiProfile, stream)
@@ -236,20 +245,22 @@ func protocolResolvedModelAllowedForTarget(
 	target protocolrouter.Protocol,
 	requestedModel string,
 	resolvedModel string,
+	thinkingEnabled *bool,
 ) bool {
 	if account == nil || strings.TrimSpace(resolvedModel) == "" {
 		return false
 	}
+	if !accountAdmitsRequestedModel(account, requestedModel, thinkingEnabled) {
+		return false
+	}
 	switch profile {
 	case protocolrouter.OfficialEndpointOpenAICodex:
-		return target == protocolrouter.ProtocolResponses &&
-			account.IsModelSupported(requestedModel) &&
-			isOpenAIOAuthServableModel(resolvedModel)
+		return target == protocolrouter.ProtocolResponses && isOpenAIOAuthServableModel(resolvedModel)
 	case protocolrouter.OfficialEndpointAnthropic:
-		return target == protocolrouter.ProtocolMessages && account.IsModelSupported(requestedModel)
+		return target == protocolrouter.ProtocolMessages
 	}
 	if target == protocolrouter.ProtocolGeminiGenerateContent {
-		return protocolGeminiEndpointProfile(account).Valid() && account.IsModelSupported(requestedModel)
+		return protocolGeminiEndpointProfile(account).Valid()
 	}
 	if _, matched := account.ResolveMappedModel(requestedModel); matched {
 		return true

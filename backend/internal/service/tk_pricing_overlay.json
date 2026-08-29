@@ -6,7 +6,8 @@
     "migration_baseline_external_sha256": "f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
   },
   "_aliases": {
-    "deepseek-v4-flash-0731": "deepseek-v4-flash"
+    "deepseek-v4-flash-0731": "deepseek-v4-flash",
+    "gpt-5.5-pro": "gpt-5.5"
   },
   "_config": {
     "official_list_base_tax": {

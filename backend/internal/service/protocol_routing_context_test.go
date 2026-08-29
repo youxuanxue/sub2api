@@ -314,6 +314,147 @@ func TestOfficialOpenAIOAuthMappingGatesUnlistedOfficialModels(t *testing.T) {
 	}
 }
 
+func TestOfficialOpenAIOAuthEmptyMappingDoesNotApplyWhitelistGate(t *testing.T) {
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolResponses,
+		RequestedModel:  "gpt-5.6-sol",
+		ResponsesPath:   protocolrouter.ResponsesPathCompact,
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"gpt-5.6-sol","input":"hello"}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+
+	empty := officialOpenAIOAuthAccount(71)
+	if empty.IsModelSupported("deepseek-v4") {
+		t.Fatal("test precondition: empty official OAuth must reject foreign families")
+	}
+	if !empty.IsModelSupported("gpt-5.6-sol") {
+		t.Fatal("test precondition: empty official OAuth must fail-open for unlisted official IDs")
+	}
+
+	ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
+	eligible, reason := protocolRequestEligibilityReason(ctx, empty, "gpt-5.6-sol")
+	if !eligible || reason != "" {
+		t.Fatalf("empty-mapping official OAuth eligibility = %v/%q, want true for unlisted official model", eligible, reason)
+	}
+
+	foreignReq, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolResponses,
+		RequestedModel:  "deepseek-v4",
+		ResponsesPath:   protocolrouter.ResponsesPathCompact,
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"deepseek-v4","input":"hello"}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+	eligible, reason = protocolRequestEligibilityReason(
+		WithProtocolRouting(context.Background(), NewProtocolRouter(), foreignReq),
+		empty,
+		"deepseek-v4",
+	)
+	if eligible || reason != "model_not_supported" {
+		t.Fatalf("empty-mapping official OAuth eligibility = %v/%q, want false/model_not_supported for foreign family", eligible, reason)
+	}
+}
+
+func TestOfficialAnthropicEmptyMappingRejectsForeignModelsViaPlan(t *testing.T) {
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolMessages,
+		RequestedModel:  "deepseek-v4-flash",
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+
+	account := officialAnthropicOAuthAccount(72)
+	if !account.IsModelSupported("deepseek-v4-flash") {
+		t.Fatal("test precondition: empty Anthropic mapping still allow-alls at IsModelSupported")
+	}
+
+	ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
+	eligible, reason := protocolRequestEligibilityReason(ctx, account, "deepseek-v4-flash")
+	if eligible || reason != "model_not_supported" {
+		t.Fatalf("eligibility = %v/%q, want false/model_not_supported so Plan owns the claude-* namespace filter", eligible, reason)
+	}
+
+	claudeReq, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolMessages,
+		RequestedModel:  "claude-sonnet-4-6",
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+	ctx = WithProtocolRouting(context.Background(), NewProtocolRouter(), claudeReq)
+	eligible, reason = protocolRequestEligibilityReason(ctx, account, "claude-sonnet-4-6")
+	if !eligible || reason != "" {
+		t.Fatalf("eligibility = %v/%q, want true for official Anthropic claude-*", eligible, reason)
+	}
+}
+
+func TestOfficialOpenAIPassthroughLeftoverMappingGatesViaPlan(t *testing.T) {
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolResponses,
+		RequestedModel:  "gpt-5.6-sol",
+		ResponsesPath:   protocolrouter.ResponsesPathCompact,
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"gpt-5.6-sol","input":"hello"}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+
+	account := officialOpenAIOAuthAccount(73)
+	account.Extra["openai_passthrough"] = true
+	account.Credentials["model_mapping"] = map[string]any{"gpt-5.5": "gpt-5.5"}
+	if !account.IsModelSupported("gpt-5.6-sol") {
+		t.Fatal("test precondition: IsModelSupported passthrough short-circuit must still admit leftover-mapping misses")
+	}
+
+	ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
+	eligible, reason := protocolRequestEligibilityReason(ctx, account, "gpt-5.6-sol")
+	if eligible || reason != "model_not_supported" {
+		t.Fatalf("eligibility = %v/%q, want false/model_not_supported so Plan owns leftover passthrough mapping", eligible, reason)
+	}
+}
+
+func officialOpenAIOAuthAccount(id int64) *Account {
+	account := &Account{
+		ID:          id,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{"access_token": "test-token"},
+		Extra:       map[string]any{"openai_compact_mode": OpenAICompactModeForceOn},
+	}
+	if !SeedOfficialSupportedProtocols(account) {
+		panic("official OpenAI OAuth seed must succeed")
+	}
+	return account
+}
+
+func officialAnthropicOAuthAccount(id int64) *Account {
+	account := &Account{
+		ID:          id,
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{"access_token": "test-token"},
+	}
+	if !SeedOfficialSupportedProtocols(account) {
+		panic("official Anthropic OAuth seed must succeed")
+	}
+	return account
+}
+
 func TestOpenAICompatEligibilityReasonUsesCanonicalModelRejection(t *testing.T) {
 	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
 		InboundProtocol: protocolrouter.ProtocolResponses,

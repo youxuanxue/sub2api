@@ -14,6 +14,10 @@ func TestUS043_GPT55ProAliasBillsRoutedRegistryOwner(t *testing.T) {
 	pricingService := NewPricingService(&config.Config{}, nil)
 	billing := NewBillingService(&config.Config{}, pricingService)
 
+	declaredOwner, declared := tkPricingRegistryAliasOwner("gpt-5.5-pro")
+	require.True(t, declared, "gpt-5.5-pro must be a declared _aliases owner, not a Go special case")
+	require.Equal(t, "gpt-5.5", declaredOwner)
+
 	owner := pricingService.GetModelPricing("gpt-5.5")
 	require.NotNil(t, owner)
 	pricing, err := billing.GetModelPricing("gpt-5.5-pro")
@@ -22,6 +26,8 @@ func TestUS043_GPT55ProAliasBillsRoutedRegistryOwner(t *testing.T) {
 	require.InDelta(t, owner.OutputCostPerToken, pricing.OutputPricePerToken, 1e-15)
 	require.InDelta(t, 5e-6, pricing.InputPricePerToken, 1e-15)
 	require.InDelta(t, 30e-6, pricing.OutputPricePerToken, 1e-15)
+	require.False(t, billing.IsServedViaFamilyFloor("gpt-5.5-pro"),
+		"declared public alias must not raise served_at_fallback")
 }
 
 func TestUS043_LegacyFallbackNumbersCannotAffectBilling(t *testing.T) {
