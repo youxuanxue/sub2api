@@ -79,6 +79,44 @@ class ReleaseCacheWorkflowTest(unittest.TestCase):
         prune = next(step for step in steps if step.get("name") == "Check managed Go cache budget")
         self.assertIn("go_cache_prune.py --check", prune["run"])
 
+    def test_warm_analysis_runs_golangci_lint_to_fill_analysis_family(self) -> None:
+        # Boundary: analysis family includes ~/.cache/golangci-lint. Warm must
+        # populate it, or an exact-hit after a go-test-only warm poisons the
+        # lint job into restore-only against an empty golangci cache.
+        lint_step = next(
+            step
+            for step in load_workflow(BACKEND_CI)["jobs"]["golangci-lint"]["steps"]
+            if step.get("name") == "golangci-lint"
+        )
+        steps = load_workflow(WARM_WORKFLOW)["jobs"]["warm-release-cache"]["steps"]
+        analysis_compile = next(
+            step for step in steps if step.get("name") == "Warm analysis build cache"
+        )
+        self.assertEqual(
+            analysis_compile["if"],
+            "steps.analysis_cache.outputs.cache-hit != 'true'",
+        )
+        self.assertIn("go test -run=^$", analysis_compile["run"])
+        lint_warm = next(
+            step
+            for step in steps
+            if str(step.get("uses", "")).startswith("golangci/golangci-lint-action@")
+        )
+        self.assertEqual(
+            lint_warm["if"],
+            "steps.analysis_cache.outputs.cache-hit != 'true'",
+        )
+        self.assertEqual(lint_warm["with"]["version"], lint_step["with"]["version"])
+        self.assertEqual(lint_warm["with"]["args"], lint_step["with"]["args"])
+        self.assertEqual(
+            lint_warm["with"]["working-directory"],
+            lint_step["with"]["working-directory"],
+        )
+        self.assertEqual(
+            lint_warm["with"].get("skip-cache"),
+            lint_step["with"].get("skip-cache"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
