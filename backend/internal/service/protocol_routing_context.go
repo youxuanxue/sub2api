@@ -66,20 +66,6 @@ func (c *protocolPlanCache) get(accountID int64) (protocolrouter.Plan, bool) {
 	return outcome.plan, ok && outcome.err == nil
 }
 
-func (c *protocolPlanCache) containsAccount(accountID int64) bool {
-	if c == nil {
-		return false
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for key, outcome := range c.outcomes {
-		if key.accountID == accountID && outcome.err == nil {
-			return true
-		}
-	}
-	return false
-}
-
 type protocolRoutingContextKey struct{}
 
 func WithProtocolRouting(
@@ -233,16 +219,13 @@ func attachProtocolPlan(
 	}
 	snapshot, err := protocolAccountSnapshotForRequestWithThinking(selection.Account, routing.request, thinkingEnabledFromCtx(ctx))
 	if err != nil {
-		if routing.plans.containsAccount(selection.Account.ID) {
+		if _, planned := routing.plans.get(selection.Account.ID); planned {
 			return releaseProtocolSelectionOnPlanError(selection, protocolrouter.ErrStalePlan)
 		}
 		return releaseProtocolSelectionOnPlanError(selection, fmt.Errorf("%w: %v", ErrProtocolRouteUnavailable, err))
 	}
 	plan, planned := routing.plans.get(snapshot.AccountID())
 	if !planned {
-		if routing.plans.containsAccount(snapshot.AccountID()) {
-			return releaseProtocolSelectionOnPlanError(selection, protocolrouter.ErrStalePlan)
-		}
 		return releaseProtocolSelectionOnPlanError(selection, fmt.Errorf("%w: selected account has no scheduler-created plan", ErrProtocolRouteUnavailable))
 	}
 	if plan.RequestDigest() != routing.request.Digest() {
