@@ -105,6 +105,7 @@ func gateBillingResolverWith(modelIDs ...string) tkBillingPricingResolver {
 func newGateTestContext() (*gin.Context, *httptest.ResponseRecorder) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
 	return c, w
 }
 

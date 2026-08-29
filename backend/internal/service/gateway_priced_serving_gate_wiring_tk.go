@@ -210,3 +210,59 @@ func (s *GeminiMessagesCompatService) tkPricedServingGate(ctx context.Context, c
 	}
 	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.tkBillingService), tkChannelPricingProbeFromResolver(s.tkPricingResolver), s.tkSettingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel)
 }
+
+// ---------------------------------------------------------------------------
+// AntigravityGatewayService (Claude messages + native Gemini generateContent).
+// Holds settingService natively; billing/catalog/notifier/resolver are injected.
+// ---------------------------------------------------------------------------
+
+func (s *AntigravityGatewayService) SetPricedServingGateDeps(catalog *PricingCatalogService, billing *BillingService, setting *SettingService, notifier PricingMissingNotifier, resolver *ModelPricingResolver) {
+	if s == nil {
+		return
+	}
+	s.tkPricingCatalog = catalog
+	s.tkBillingService = billing
+	if setting != nil {
+		s.settingService = setting
+	}
+	s.tkPricingMissingNotifier = notifier
+	s.tkPricingResolver = resolver
+}
+
+func (s *AntigravityGatewayService) HasPricedServingGateDeps() bool {
+	return s != nil && s.tkBillingService != nil && s.settingService != nil
+}
+
+func (s *AntigravityGatewayService) tkPricedServingGate(ctx context.Context, c *gin.Context, wireProtocol tkGateWireProtocol, platform, billingModel, requestedModel string) bool {
+	if s == nil {
+		return true
+	}
+	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.tkBillingService), tkChannelPricingProbeFromResolver(s.tkPricingResolver), s.settingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel)
+}
+
+// ---------------------------------------------------------------------------
+// KiroGatewayService (Anthropic /v1/messages onto Kiro). Holds none of the
+// gate deps on the upstream constructor.
+// ---------------------------------------------------------------------------
+
+func (s *KiroGatewayService) SetPricedServingGateDeps(catalog *PricingCatalogService, billing *BillingService, setting *SettingService, notifier PricingMissingNotifier, resolver *ModelPricingResolver) {
+	if s == nil {
+		return
+	}
+	s.tkPricingCatalog = catalog
+	s.tkBillingService = billing
+	s.tkSettingService = setting
+	s.tkPricingMissingNotifier = notifier
+	s.tkPricingResolver = resolver
+}
+
+func (s *KiroGatewayService) HasPricedServingGateDeps() bool {
+	return s != nil && s.tkBillingService != nil && s.tkSettingService != nil
+}
+
+func (s *KiroGatewayService) tkPricedServingGate(ctx context.Context, c *gin.Context, wireProtocol tkGateWireProtocol, platform, billingModel, requestedModel string) bool {
+	if s == nil {
+		return true
+	}
+	return tkCheckPricedServingGate(ctx, tkBillingResolverFromService(s.tkBillingService), tkChannelPricingProbeFromResolver(s.tkPricingResolver), s.tkSettingService, s.tkPricingMissingNotifier, c, wireProtocol, platform, billingModel, requestedModel)
+}

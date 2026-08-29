@@ -2356,15 +2356,22 @@ func accountAdmitsRequestedModel(account *Account, requestedModel string, thinki
 	return account.IsModelSupported(requestedModel)
 }
 
-// isModelSupportedByAccountWithContext uses Plan as the only model+protocol
+// accountAdmitsRequestedModelWithContext uses Plan as the only model+protocol
 // gate when this request is already under protocol routing. Ungoverned or
 // no-context callers keep the same platform extras via accountAdmitsRequestedModel.
-func (s *GatewayService) isModelSupportedByAccountWithContext(ctx context.Context, account *Account, requestedModel string) bool {
+func accountAdmitsRequestedModelWithContext(ctx context.Context, account *Account, requestedModel string) bool {
 	if _, routed := ProtocolRoutingRequest(ctx); routed && protocolRoutingGovernsAccount(account) {
 		eligible, _ := protocolRequestEligibilityReason(ctx, account, requestedModel)
 		return eligible
 	}
 	return accountAdmitsRequestedModel(account, requestedModel, thinkingEnabledFromCtx(ctx))
+}
+
+// isModelSupportedByAccountWithContext uses Plan as the only model+protocol
+// gate when this request is already under protocol routing. Ungoverned or
+// no-context callers keep the same platform extras via accountAdmitsRequestedModel.
+func (s *GatewayService) isModelSupportedByAccountWithContext(ctx context.Context, account *Account, requestedModel string) bool {
+	return accountAdmitsRequestedModelWithContext(ctx, account, requestedModel)
 }
 
 func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedModel string) bool {

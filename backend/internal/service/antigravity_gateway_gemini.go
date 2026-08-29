@@ -92,6 +92,11 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		return nil, s.writeGoogleError(c, http.StatusForbidden, fmt.Sprintf("model %s not in whitelist", originalModel))
 	}
 	forwardedModel := mappedModel
+	// TK priced-serving gate: billing records result.Model=originalModel.
+	// countTokens returns above and stays exempt (zero-billing pre-flight).
+	if !s.tkPricedServingGate(ctx, c, tkGateWireGemini, account.Platform, originalModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
+	}
 
 	// 获取 access_token
 	if s.tokenProvider == nil {

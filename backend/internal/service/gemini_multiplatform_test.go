@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
@@ -1015,8 +1016,69 @@ func TestGeminiMessagesCompatService_isModelSupportedByAccount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := svc.isModelSupportedByAccount(tt.account, tt.model)
+			got := svc.isModelSupportedByAccountWithContext(context.Background(), tt.account, tt.model)
 			require.Equal(t, tt.expected, got)
 		})
 	}
+}
+
+func TestGeminiMessagesCompatService_isModelSupportedByAccountWithContext_PlanRejectsLeftoverPassthrough(t *testing.T) {
+	svc := &GeminiMessagesCompatService{}
+	account := officialOpenAIOAuthAccount(83)
+	account.Extra["openai_passthrough"] = true
+	account.Credentials["model_mapping"] = map[string]any{"gpt-5.5": "gpt-5.5"}
+	require.True(t, account.IsModelSupported("gpt-5.6-sol"),
+		"precondition: IsModelSupported still admits leftover passthrough misses")
+
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolResponses,
+		RequestedModel:  "gpt-5.6-sol",
+		ResponsesPath:   protocolrouter.ResponsesPathRoot,
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"gpt-5.6-sol","input":"hello"}`),
+	})
+	require.NoError(t, err)
+	ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
+
+	require.False(t, svc.isModelSupportedByAccountWithContext(ctx, account, "gpt-5.6-sol"),
+		"Gemini compat selection must ask Plan, not IsModelSupported")
+
+	listed, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolResponses,
+		RequestedModel:  "gpt-5.5",
+		ResponsesPath:   protocolrouter.ResponsesPathRoot,
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"gpt-5.5","input":"hello"}`),
+	})
+	require.NoError(t, err)
+	ctx = WithProtocolRouting(context.Background(), NewProtocolRouter(), listed)
+	require.True(t, svc.isModelSupportedByAccountWithContext(ctx, account, "gpt-5.5"),
+		"mapped leftover passthrough id must still be admitted")
+}
+
+func TestGeminiMessagesCompatService_isModelSupportedByAccountWithContext_PlanRejectsAnthropicForeign(t *testing.T) {
+	svc := &GeminiMessagesCompatService{}
+	account := officialAnthropicOAuthAccount(84)
+	require.True(t, account.IsModelSupported("deepseek-v4-flash"),
+		"precondition: empty Anthropic mapping still allow-alls at IsModelSupported")
+
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolMessages,
+		RequestedModel:  "deepseek-v4-flash",
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi"}]}`),
+	})
+	require.NoError(t, err)
+	ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
+	require.False(t, svc.isModelSupportedByAccountWithContext(ctx, account, "deepseek-v4-flash"))
+
+	claudeReq, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolMessages,
+		RequestedModel:  "claude-sonnet-4-6",
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`),
+	})
+	require.NoError(t, err)
+	ctx = WithProtocolRouting(context.Background(), NewProtocolRouter(), claudeReq)
+	require.True(t, svc.isModelSupportedByAccountWithContext(ctx, account, "claude-sonnet-4-6"))
 }

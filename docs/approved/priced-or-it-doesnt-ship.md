@@ -274,13 +274,13 @@ soak 才敢开下一个；唯一会被拒的是无 floor 的 id，那是设计**
 转向后有 floor 的家族（claude/gpt/gemini）全平台默认 ON 已闭环（floor 保证永不误拒）。下列残留**仅在
 把对应面/平台真正纳入闸保护时才相关**，逐条处理，不阻断默认上线：
 
-- **R-kiro / antigravity — 无闸 hook（enable 是 no-op）**：`AntigravityGatewayService.Forward/
-  ForwardGemini`（两路）、`KiroGatewayService.Forward`（单路）计费但无 `tkPricedServingGate` hook。即便在启用集 `'*'` 内，闸也
-  在这些路线**静默失效**（没有注入点）——把它们真正纳入闸**前需先补 hook + sentinel**。今天无害（恒按
-  其平台真价/floor 走计费），但别误以为 `'*'` 已覆盖它们。
-- **R-embeddings — `/v1/embeddings` 无闸**：经 `ForwardAsEmbeddingsDispatched` 计费但无
-  `tkPricedServingGate`，靠事后 `served_zero_cost` 兜底（血量小）。embeddings 是未纳入面而非有意豁免
-  ——纳入前补 hook。
+- **R-kiro / antigravity — 闸 hook 已接线**：`AntigravityGatewayService.Forward` /
+  `ForwardGemini` 与 `KiroGatewayService.Forward` 已注入 `tkPricedServingGate`（启用集 `'*'`
+  对这三条路线生效）。AG Claude / Gemini 判 `originalModel`（`forwardResultBillingModel` 的记账键）；
+  Kiro 判解析后的请求模型。`countTokens` 仍豁免。
+- **R-embeddings — `/v1/embeddings` 闸 hook 已接线**：`forwardOpenAIV1JSON` 在
+  `urlSegment=="embeddings"` 时判 mapped `billingModel`（与 OpenAI usage 的
+  `result.BillingModel` 一致）。`images/generations` 不走此 hook。
 - **R-openai o 系列 — 无家族 floor**：`getFallbackPricing` 的 gpt catch-all 只匹配含 `"gpt"` 的 id；
   OpenAI **o 系列**（o1/o3/o4 等，不含 "gpt"）**无 floor** → 缺真价时会被闸拒。gpt 主线已被 catch-all
   覆盖，o 系列是已知缺口——若要 o 系列也按 floor 服务，需为其加一档家族 floor；否则缺真价即 reject

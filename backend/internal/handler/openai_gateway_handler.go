@@ -1919,6 +1919,19 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model is required in first response.create payload")
 		return
 	}
+	canonicalRequest, canonicalErr := newCanonicalProtocolRequest(
+		protocolrouter.ProtocolResponses,
+		protocolrouter.ResponsesPathRoot,
+		reqModel,
+		true,
+		firstMessage,
+	)
+	if canonicalErr != nil {
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "Failed to parse request body")
+		return
+	}
+	ctx = service.WithProtocolRouting(ctx, h.protocolRouter, canonicalRequest)
+	c.Request = c.Request.WithContext(ctx)
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	ctx = c.Request.Context()
 	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {

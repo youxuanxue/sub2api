@@ -291,10 +291,11 @@ func ProvideTKAccountIncidentNotifier(
 // It ALSO wires the runtime priced-serving gate deps
 // (docs/approved/priced-or-it-doesnt-ship.md) in the same pass, since the gate
 // reuses this same notifier as its reject-time alert channel and the catalog
-// predicate must reach the same three forwarders:
+// predicate must reach the same five forwarders:
 //   - GatewayService / OpenAIGatewayService already hold settingService +
 //     notifier + billingService; we add the catalog via SetPricingCatalogService.
-//   - GeminiMessagesCompatService holds none of them; SetPricedServingGateDeps
+//   - GeminiMessagesCompatService / AntigravityGatewayService /
+//     KiroGatewayService hold none (or only setting); SetPricedServingGateDeps
 //     injects catalog + billing + setting + notifier at once.
 //
 // The gate's pass/reject judgment goes through BillingService.GetModelPricing
@@ -308,6 +309,8 @@ func ProvideTKPricingMissingNotifier(
 	gw *GatewayService,
 	openaiGw *OpenAIGatewayService,
 	geminiCompat *GeminiMessagesCompatService,
+	antigravityGw *AntigravityGatewayService,
+	kiroGw *KiroGatewayService,
 	catalog *PricingCatalogService,
 	billing *BillingService,
 	setting *SettingService,
@@ -334,16 +337,22 @@ func ProvideTKPricingMissingNotifier(
 		openaiGw.SetPricingMissingNotifier(n)
 		openaiGw.SetPricingCatalogService(catalog)
 	}
+	var resolver *ModelPricingResolver
+	if gw != nil {
+		resolver = gw.resolver
+	}
 	if geminiCompat != nil {
 		// gemini compat delegates billing to GatewayService.recordUsage (which uses
 		// gw.resolver for channel pricing), so feed the gate the SAME resolver so its
 		// channel-price probe matches billing exactly (B1). Same package → private
 		// field access, no extra Wire provider / wire_gen regen.
-		var resolver *ModelPricingResolver
-		if gw != nil {
-			resolver = gw.resolver
-		}
 		geminiCompat.SetPricedServingGateDeps(catalog, billing, setting, n, resolver)
+	}
+	if antigravityGw != nil {
+		antigravityGw.SetPricedServingGateDeps(catalog, billing, setting, n, resolver)
+	}
+	if kiroGw != nil {
+		kiroGw.SetPricedServingGateDeps(catalog, billing, setting, n, resolver)
 	}
 	return n
 }

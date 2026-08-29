@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "rationale": "Load-bearing hooks for the runtime 'priced-or-it-doesnt-ship' serving-admission gate (docs/approved/priced-or-it-doesnt-ship.md, issue #1016 v1). The gate is a thin per-route injection (one guarded call + early return) into 6 upstream-shaped service forwarders; each touch is small and compiles clean if dropped, so an upstream merge or refactor can silently revert it and re-open the catch-all $0-billing hole. These sentinels pin the gate companion, its billing-oracle predicate, the degraded-source fail-open, the DI wiring, every per-route hook (on billing's exact key), the setting constant, and the enabled-set getter so preflight + the upstream-merge PR shape check fail loudly if any disappears.",
+  "rationale": "Load-bearing hooks for the runtime 'priced-or-it-doesnt-ship' serving-admission gate (docs/approved/priced-or-it-doesnt-ship.md, issue #1016 v1). The gate is a thin per-route injection (one guarded call + early return) into the upstream-shaped service forwarders; each touch is small and compiles clean if dropped, so an upstream merge or refactor can silently revert it and re-open the catch-all $0-billing hole. These sentinels pin the gate companion, its billing-oracle predicate, the degraded-source fail-open, the DI wiring, every per-route hook (on billing's exact key), the setting constant, and the enabled-set getter so preflight + the upstream-merge PR shape check fail loudly if any disappears.",
   "sentinels": [
     {
       "path": "backend/internal/service/gateway_priced_serving_gate_tk.go",
@@ -25,9 +25,13 @@
         "func (s *GatewayService) SetPricingCatalogService(catalog *PricingCatalogService)",
         "func (s *OpenAIGatewayService) SetPricingCatalogService(catalog *PricingCatalogService)",
         "func (s *GeminiMessagesCompatService) SetPricedServingGateDeps(catalog *PricingCatalogService, billing *BillingService, setting *SettingService, notifier PricingMissingNotifier, resolver *ModelPricingResolver)",
+        "func (s *AntigravityGatewayService) SetPricedServingGateDeps(catalog *PricingCatalogService, billing *BillingService, setting *SettingService, notifier PricingMissingNotifier, resolver *ModelPricingResolver)",
+        "func (s *KiroGatewayService) SetPricedServingGateDeps(catalog *PricingCatalogService, billing *BillingService, setting *SettingService, notifier PricingMissingNotifier, resolver *ModelPricingResolver)",
         "func (s *GatewayService) tkPricedServingGate(",
         "func (s *OpenAIGatewayService) tkPricedServingGate(",
         "func (s *GeminiMessagesCompatService) tkPricedServingGate(",
+        "func (s *AntigravityGatewayService) tkPricedServingGate(",
+        "func (s *KiroGatewayService) tkPricedServingGate(",
         "func tkChannelPricingProbeFromResolver(resolver *ModelPricingResolver) tkChannelPricingProbe {",
         "return resolved != nil && resolved.Source == PricingSourceChannel",
         "func tkResolvedPricingChargeable(r *ResolvedPricing) bool {"
@@ -84,6 +88,35 @@
         "SettingKeyPricedServingGateEnabled = \"priced_serving_gate_enabled\""
       ],
       "rationale": "The setting key for the per-platform enabled SET. Renaming/removing it silently disables every IsPricedServingGateEnabled lookup (gate off for all platforms) without a compile error if a stale string literal lingers elsewhere."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_claude.go",
+      "must_contain": [
+        "if !s.tkPricedServingGate(ctx, c, tkGateWireAnthropic, account.Platform, originalModel, originalModel) {"
+      ],
+      "rationale": "Route hook — Antigravity Claude Forward. Anthropic wire envelope. Judges originalModel (billing's key via forwardResultBillingModel), after mapping/thinking suffix and before token fetch. Without this hook the default enabled set '*' is a no-op on AG Claude."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": [
+        "if !s.tkPricedServingGate(ctx, c, tkGateWireGemini, account.Platform, originalModel, originalModel) {"
+      ],
+      "rationale": "Route hook — Antigravity ForwardGemini. Gemini wire envelope. Judges originalModel; countTokens returns earlier and stays exempt. Without this hook the default enabled set '*' is a no-op on AG Gemini."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_service.go",
+      "must_contain": [
+        "if !s.tkPricedServingGate(ctx, c, tkGateWireAnthropic, account.Platform, model, model) {"
+      ],
+      "rationale": "Route hook — KiroGatewayService.Forward. Anthropic /v1/messages wire envelope. Judges the resolved request model (billing's key). Without this hook the default enabled set '*' is a no-op on Kiro."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_v1_forward.go",
+      "must_contain": [
+        "if urlSegment == \"embeddings\" {",
+        "if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, billingModel, originalModel) {"
+      ],
+      "rationale": "Route hook — OpenAI /v1/embeddings via forwardOpenAIV1JSON. Judges billingModel (the mapped id OpenAI usage records when result.BillingModel is set). The urlSegment==embeddings guard keeps images/generations off this hook."
     },
     {
       "path": "backend/internal/service/setting_service_tk_cold_start.go",

@@ -58,6 +58,12 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 	thinkingEnabled := claudeReq.Thinking != nil && (claudeReq.Thinking.Type == "enabled" || claudeReq.Thinking.Type == "adaptive")
 	mappedModel = applyThinkingModelSuffix(mappedModel, thinkingEnabled)
 	billingModel := mappedModel
+	// TK priced-serving gate: billing records result.Model=originalModel
+	// (forwardResultBillingModel prefers requested). Judge that key, not the
+	// mapped/thinking id, so a catch-all cannot leak $0 onto an unpriced client id.
+	if !s.tkPricedServingGate(ctx, c, tkGateWireAnthropic, account.Platform, originalModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
+	}
 
 	// 获取 access_token
 	if s.tokenProvider == nil {

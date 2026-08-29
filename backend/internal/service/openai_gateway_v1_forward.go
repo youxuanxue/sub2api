@@ -108,6 +108,13 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 	}
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	// Embeddings is a billed surface and must hit the priced-serving gate.
+	// images/generations stays on its own media path — do not gate it here.
+	if urlSegment == "embeddings" {
+		if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, billingModel, originalModel) {
+			return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", billingModel, account.Platform)
+		}
+	}
 	forwardBody := body
 	if upstreamModel != originalModel {
 		forwardBody = s.ReplaceModelInBody(body, upstreamModel)
