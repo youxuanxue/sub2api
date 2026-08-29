@@ -260,7 +260,7 @@ bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-ser
 ### Antigravity `gemini-2.5-pro` 专项（literal id，不进 `run` splice）
 
 全量 `ANTIGRAVITY_CHAT_MODELS` 批里 `gemini-2.5-pro` 的 `:generateContent` 常 **000 timeout /
-inconclusive**（见 `docs/all-platform-model-inventory.md`），与 chat 路径结论混在一起难判根因。
+inconclusive**（历史快照见 `docs/all-platform-model-inventory.md`，不是交付 SSOT），与 chat 路径结论混在一起难判根因。
 用 **`probe-antigravity-gemini25pro-literal.sh`** 窄打 Google-Gemini 源组（默认
 `gemini-pro-agent` + `gemini-2.5-pro`），**同一 key** 并排探 `/v1/chat/completions` 与
 `/antigravity/v1beta/models/{id}:generateContent`，附账号快照（无 secret）：

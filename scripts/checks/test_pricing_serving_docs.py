@@ -142,6 +142,29 @@ class PricingServingDocsContractTest(unittest.TestCase):
         path.write_text("3. **一个能力 SSOT。** 网站只投影这个真值。\n", encoding="utf-8")
         self.assertTrue(any("secondary delivery-truth claim" in error for error in MODULE.check(root)))
 
+    def test_rejects_priced_servable_slogan_in_claude(self) -> None:
+        root = self.fixture()
+        path = root / "CLAUDE.md"
+        path.write_text(
+            "official upstream aliases display when priced+servable\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any("secondary delivery-truth claim" in error for error in MODULE.check(root)))
+
+    def test_rejects_priced_plus_servable_chinese_slogan(self) -> None:
+        root = self.fixture()
+        path = root / ".cursor/skills/tokenkey-modelops-planner/SKILL.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("已核实 有价 + 可服务，则必须进入公开 catalog\n", encoding="utf-8")
+        self.assertTrue(any("secondary delivery-truth claim" in error for error in MODULE.check(root)))
+
+    def test_rejects_onion_layers_as_delivery_truth(self) -> None:
+        root = self.fixture()
+        path = root / "docs/all-platform-model-inventory.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("TokenKey 的完整目录是一个四层洋葱\n", encoding="utf-8")
+        self.assertTrue(any("secondary delivery-truth claim" in error for error in MODULE.check(root)))
+
     def test_rejects_catalog_equivalence_as_delivery_truth(self) -> None:
         root = self.fixture()
         path = root / "scripts/checks/ssot-delta-gate.py"

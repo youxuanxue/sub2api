@@ -296,9 +296,9 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 //
 // Hand-maintained like the antigravity arm (the refresh tool's probe tuple is
 // anthropic/openai/gemini and does not cover grok yet). Display policy follows
-// the repo SSOT rule: upstream-official ids/aliases on the provider model page
-// that are priced and probe-servable are public-listed. Legacy retirement
-// redirects (grok-4-fast-reasoning) stay priced-only.
+// CatalogPolicy: official ids/aliases may be public-listed when they have a
+// price owner and are not structurally gone. Legacy retirement redirects
+// (grok-4-fast-reasoning) stay priced-only.
 var supportedGrokCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin grok
 	"grok-4.20-0309-non-reasoning": {},

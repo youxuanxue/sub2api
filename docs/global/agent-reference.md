@@ -69,15 +69,9 @@ account-varying capability scope：public catalog 是验证过的 union，共享
 intersection，`vertex_capability_profile` 选择完整命名 profile；缺失/未知 profile 回退共享 floor
 并产生配置 violation，其它 scope 保持共享。
 
-**Official upstream aliases are displayable when priced and servable.** For every
-TokenKey-managed native platform and newapi `channel_type`, if the provider's
-official model page (or curated `tk_served_models.json` row for newapi long-tail)
-declares a model id or alias, and TokenKey has a canonical price owner plus reviewed
-servability evidence on the target account/path, it may enter the public catalog/menu —
-not only the stable bare id. This is CatalogPolicy activation evidence; request-time
-Plan and RuntimeReadiness remain independent. Legacy retirement redirects and
-third-party slugs without an official declaration stay **priced-only** (explicit
-requests must not bill `$0`).
+官方别名能否进公开目录，只看 CatalogPolicy：有官方声明、能解析到价格 owner，且没有
+structurally-gone 证据。probe 200 只是激活证据，不能单独放行一次请求。未声明的兼容
+slug 可以只保留价格，供显式请求结算，不进橱窗。
 
 **prod is the only post-release config check target.** After deploy + smoke, run:
 

@@ -140,7 +140,7 @@ func TestTkAntigravityDefaultModels_PricedServableSetIncludesReprobedGeminiIDs(t
 	require.ElementsMatch(t,
 		service.ServableClientFacingIDs(ctx, service.PlatformAntigravity, nil, pricingSvc),
 		modelIDsFromAntigravityModels(result),
-		"/antigravity/models must mirror the unified priced+servable SSOT")
+		"/antigravity/models must mirror the shared CatalogPolicy projection")
 	require.False(t, ids[geminiOnly], "%s must not leak into /antigravity/models", geminiOnly)
 	require.False(t, ids["gpt-oss-120b-medium"], "unsupported gpt-oss boundary sample must not leak into /antigravity/models")
 }

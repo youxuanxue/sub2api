@@ -43,18 +43,25 @@ TASK_CONTINUATION_ANTIPATTERNS = {
 }
 
 SECONDARY_TRUTH_FILES = (
+    "CLAUDE.md",
     "docs/approved/README.md",
     "docs/approved/served-model-reconcile-planner.md",
     "docs/approved/priced-or-it-doesnt-ship.md",
     "docs/approved/newapi-served-models-reconciler.md",
     "docs/approved/universal-key-capability-discovery.md",
+    "docs/all-platform-model-inventory.md",
     "docs/global/agent-reference.md",
     "ops/pricing/README.md",
     "ops/pricing/probe-servable-models.sh",
     ".cursor/skills/tokenkey-modelops-planner/SKILL.md",
+    ".cursor/skills/tokenkey-servable-model-refresh/SKILL.md",
     "backend/internal/service/account_model_mapping_ssot_tk.go",
+    "backend/internal/service/gateway_service_tk_unsupported_model.go",
     "backend/internal/service/pricing_catalog_candidates_tk.go",
+    "backend/internal/service/pricing_catalog_supported_models_tk.go",
     "backend/internal/service/model_list_filter_tk.go",
+    "backend/internal/handler/gateway_handler_tk_model_list_test.go",
+    "frontend/src/constants/__tests__/studioMediaPresentations.tk.spec.ts",
     "scripts/checks/ssot-delta-gate.py",
     "scripts/sentinels/gateway-tk.json",
     "scripts/sentinels/pricing-availability.json",
@@ -77,6 +84,12 @@ SECONDARY_TRUTH_PATTERNS = (
     re.compile(r"servable\s*↔\s*priced\s*↔\s*display", re.IGNORECASE),
     re.compile(r"native\s+OpenAI\s+serving\s+truth", re.IGNORECASE),
     re.compile(r"public\s+serving\s+triple", re.IGNORECASE),
+    re.compile(r"priced\+servable", re.IGNORECASE),
+    re.compile(r"servable\+priced", re.IGNORECASE),
+    re.compile(r"priced\s+and\s+(?:probe-)?servable", re.IGNORECASE),
+    re.compile(r"display\s+when\s+priced", re.IGNORECASE),
+    re.compile(r"四层洋葱"),
+    re.compile(r"有价\s*\+\s*可服务"),
 )
 
 

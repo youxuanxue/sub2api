@@ -53,7 +53,7 @@ supersedes: none
 | 空 `model_mapping` = allow-all | `Account.IsModelSupported`（`account.go:639`）：`len(mapping)==0 → return true // 无映射 = 允许所有` | native catch-all 账号（如被清空 mapping 的 Vertex 账号）会服务**任意**客户 model id，含上游新 id。 |
 | 闸未命中时 billing 仍可能记 `$0` | `GetModelPricing` miss → `ErrModelPricingUnavailable`；`served_zero_cost` 只观测 | 闸必须在转发前拦住无 floor 的 id，不能靠事后告警 |
 | 价格解析会 fail-open | `billing_service.go`：`GetModelPricing`（active registry + registry family alias）miss 时返 `ErrModelPricingUnavailable`，funnel 记 `$0` 并服务。注：`channel_model_pricing` 是 billing 计费路径的 scoped override，不在 `GetModelPricing` 内——故闸必须两面都查（见 §2，复审 B1）。 | 漏血窗口 = 新模型进入 catch-all → 运维确认 owner 并合并 registry PR → publisher 热生效。 |
-| A1 只在 CI | `pricing-serving-single-source-of-truth.md` §3：A1 断言每个 catalog/manifest id 可解析出价——**在 CI**。 | catch-all 服务的是 A1 从没见过的*非 manifest* id。运行期没有等价闸。 |
+| A1 只在 CI | `catalog-serving-drift.py` A1：每个 catalog/manifest id 可解析出价——**只在 CI**。交付公式见 `pricing-serving-single-source-of-truth.md`。 | catch-all 服务的是 A1 从没见过的*非 manifest* id。运行期没有等价闸。 |
 | newapi 已堵，native 通过显式 apply 收敛 | `account_service_tk_newapi_mapping.go`（`validateNewapiAccountModelMapping`）+ `manage-account-model-mapping-runtime.py check-accounts/apply-accounts`：newapi 写时强制非空；native 平台由运维审 diff 后写入显式 `model_mapping`，不再把空 mapping 当目标运营状态。 | 剩余风险在账号刚创建、尚未跑 post-release/post-hotfix check，或 operator 尚未确认 apply 的窗口；空 mapping 是降级 fallback，不是配置目标。 |
 
 **漏洞窄而具体**：历史 native 平台 catch-all 账号会按 `$0` 服务上游新、未定价的 id。当前修复路径是用显式 `model_mapping` 收敛账号配置；其余（newapi、已上架 manifest id）都已覆盖。

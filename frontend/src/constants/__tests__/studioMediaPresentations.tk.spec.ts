@@ -139,7 +139,7 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     ['imagen-4.0-ultra-generate-001', { perImage: 0.06, billingMode: 'image' }],
   ])
 
-  it('lists only priced+servable image models, sorted cheap → premium, with live price', () => {
+  it('lists only catalog-priced image models, sorted cheap → premium, with live price', () => {
     const out = resolveAvailableModels('image', IMAGEN3, IMAGEN_PRICES)
     expect(out.map((r) => r.presentation.modelId)).toEqual([
       'imagen-4.0-fast-generate-001', // 0.02
