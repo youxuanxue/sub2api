@@ -10,11 +10,11 @@ BUDGET_BYTES = 6 * 1024**3
 DEFAULT_REF = "refs/heads/main"
 FAMILIES = ("gomod", "test", "integration", "analysis", "release")
 PREFIXES = {
-    "gomod": "Linux-gomod-",
-    "test": "Linux-gobuild-test-",
-    "integration": "Linux-gobuild-integration-",
-    "analysis": "Linux-gobuild-analysis-",
-    "release": "Linux-go-release-",
+    "gomod": "Linux-gomod-v1-",
+    "test": "Linux-gobuild-test-v1-",
+    "integration": "Linux-gobuild-integration-v1-",
+    "analysis": "Linux-gobuild-analysis-v1-",
+    "release": "Linux-go-release-v1-",
 }
 
 
@@ -52,7 +52,11 @@ def plan_prune(
     obsolete: list[dict[str, object]] = []
     evidence: list[str] = []
     for family in FAMILIES:
-        entries = sorted(grouped[family], key=lambda item: int(item["id"]), reverse=True)
+        entries = sorted(
+            grouped[family],
+            key=lambda item: (str(item["createdAt"]), int(item["id"])),
+            reverse=True,
+        )
         if entries:
             latest.append(entries[0])
             evidence.append(f"{family} latest={entries[0]['key']} size={entries[0]['sizeInBytes']}")
@@ -96,7 +100,21 @@ def _list_caches() -> list[dict[str, object]]:
     import subprocess
 
     raw = subprocess.check_output(
-        ["gh", "cache", "list", "--limit", "200", "--json", "id,key,sizeInBytes,ref"],
+        [
+            "gh",
+            "cache",
+            "list",
+            "--ref",
+            DEFAULT_REF,
+            "--sort",
+            "created_at",
+            "--order",
+            "desc",
+            "--limit",
+            "10000",
+            "--json",
+            "id,key,sizeInBytes,ref,createdAt",
+        ],
         text=True,
     )
     payload = json.loads(raw)

@@ -416,6 +416,7 @@ class BackendCIRoutingTest(unittest.TestCase):
         cache = steps[cache_index]
         self.assertEqual(cache["with"]["family"], "analysis")
         self.assertEqual(cache["with"]["fallback_prefix"], "security-nodwarf-v1")
+        self.assertEqual(cache["with"]["save_caches"], "false")
         self.assertNotIn("refresh_on_backend_change", cache.get("with", {}))
         self.assertFalse(
             [

@@ -38,7 +38,7 @@ class ReleaseCacheWorkflowTest(unittest.TestCase):
     def test_warm_workflow_writes_five_families_with_explicit_save(self) -> None:
         workflow = load_workflow(WARM_WORKFLOW)
         self.assertEqual(workflow["permissions"]["actions"], "write")
-        self.assertEqual(workflow.get("env", {}).get("GOFLAGS"), "-trimpath -gcflags=all=-dwarf=false")
+        self.assertNotIn("GOFLAGS", workflow.get("env", {}))
         steps = workflow["jobs"]["warm-release-cache"]["steps"]
         save_steps = [step for step in steps if step.get("uses") == "actions/cache/save@v6"]
         restore_steps = [step for step in steps if step.get("uses") == "actions/cache/restore@v6"]
@@ -73,8 +73,26 @@ class ReleaseCacheWorkflowTest(unittest.TestCase):
             warm["env"]["GOCACHE"],
             "${{ github.workspace }}/.cache/go-build-integration",
         )
+        self.assertEqual(
+            warm["env"]["GOFLAGS"], "-trimpath -gcflags=all=-dwarf=false"
+        )
         self.assertIn("go test -c -tags=integration", warm["run"])
         self.assertNotIn("-vet=off", warm["run"])
+
+        test_warm = next(
+            step for step in steps if step.get("name") == "Warm test build cache"
+        )
+        self.assertEqual(
+            test_warm["env"]["GOFLAGS"], "-trimpath -gcflags=all=-dwarf=false"
+        )
+
+        release_warm = next(
+            step for step in steps if step.get("name") == "Warm cross-arch Go build cache"
+        )
+        self.assertEqual(release_warm["env"]["GOFLAGS"], "-trimpath")
+        self.assertIn("-tags=embed", release_warm["run"])
+        self.assertIn("./cmd/server", release_warm["run"])
+        self.assertIn("./cmd/qa-archive", release_warm["run"])
 
         prune = next(step for step in steps if step.get("name") == "Check managed Go cache budget")
         self.assertIn("go_cache_prune.py --check", prune["run"])
@@ -96,6 +114,10 @@ class ReleaseCacheWorkflowTest(unittest.TestCase):
             analysis_compile["if"],
             "steps.analysis_cache.outputs.cache-hit != 'true'",
         )
+        self.assertEqual(
+            analysis_compile["env"]["GOFLAGS"],
+            "-trimpath -gcflags=all=-dwarf=false",
+        )
         self.assertIn("go test -run=^$", analysis_compile["run"])
         lint_warm = next(
             step
@@ -105,6 +127,10 @@ class ReleaseCacheWorkflowTest(unittest.TestCase):
         self.assertEqual(
             lint_warm["if"],
             "steps.analysis_cache.outputs.cache-hit != 'true'",
+        )
+        self.assertEqual(
+            lint_warm["env"]["GOFLAGS"],
+            "-trimpath -gcflags=all=-dwarf=false",
         )
         self.assertEqual(lint_warm["with"]["version"], lint_step["with"]["version"])
         self.assertEqual(lint_warm["with"]["args"], lint_step["with"]["args"])

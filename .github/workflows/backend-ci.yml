@@ -406,8 +406,12 @@ jobs:
           cache: false
       - uses: ./.github/actions/go-rolling-cache
         with:
+          # Restore-only: this job shares the analysis family with lint but
+          # does not populate ~/.cache/golangci-lint on push/PR. A main save
+          # would exact-hit and lock lint into an empty golangci cache.
           family: analysis
           fallback_prefix: security-nodwarf-v1
+          save_caches: "false"
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)

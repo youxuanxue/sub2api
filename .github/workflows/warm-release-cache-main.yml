@@ -25,9 +25,6 @@ concurrency:
   group: warm-release-cache-main
   cancel-in-progress: true
 
-env:
-  GOFLAGS: -trimpath -gcflags=all=-dwarf=false
-
 jobs:
   warm-release-cache:
     if: github.ref == 'refs/heads/main'
@@ -80,6 +77,8 @@ jobs:
       - name: Warm test build cache
         if: steps.test_cache.outputs.cache-hit != 'true'
         working-directory: backend
+        env:
+          GOFLAGS: -trimpath -gcflags=all=-dwarf=false
         run: go test -tags=unit -run=^$ ./...
       - name: Save test build cache
         if: steps.test_cache.outputs.cache-hit != 'true'
@@ -105,6 +104,7 @@ jobs:
         working-directory: backend
         env:
           GOCACHE: ${{ github.workspace }}/.cache/go-build-integration
+          GOFLAGS: -trimpath -gcflags=all=-dwarf=false
         run: |
           set -euo pipefail
           integration_packages=()
@@ -137,10 +137,14 @@ jobs:
       - name: Warm analysis build cache
         if: steps.analysis_cache.outputs.cache-hit != 'true'
         working-directory: backend
+        env:
+          GOFLAGS: -trimpath -gcflags=all=-dwarf=false
         run: go test -run=^$ ./...
       - name: Warm golangci-lint cache
         if: steps.analysis_cache.outputs.cache-hit != 'true'
         uses: golangci/golangci-lint-action@v9
+        env:
+          GOFLAGS: -trimpath -gcflags=all=-dwarf=false
         with:
           version: v2.9
           args: --concurrency=4 --timeout=30m
@@ -173,10 +177,12 @@ jobs:
         env:
           CGO_ENABLED: '0'
           GOOS: linux
+          GOFLAGS: -trimpath
         run: |
           for arch in amd64 arm64; do
-            echo "::group::go build linux/${arch}"
-            GOARCH="${arch}" go build -o /dev/null ./cmd/server
+            echo "::group::go build release linux/${arch}"
+            GOARCH="${arch}" go build -tags=embed -o /dev/null ./cmd/server
+            GOARCH="${arch}" go build -o /dev/null ./cmd/qa-archive
             echo "::endgroup::"
           done
       - name: Save release build cache
