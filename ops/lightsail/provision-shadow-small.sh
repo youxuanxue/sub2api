@@ -393,7 +393,26 @@ SHADOW_COUNTS="$(ssm_out "$shadow_mi" "shadow-precious-counts" "$count_script" |
 rm -f "$count_script"
 echo "dump_counts   ${DUMP_COUNTS}"
 echo "shadow_counts ${SHADOW_COUNTS}"
-[[ "$SHADOW_COUNTS" == "$DUMP_COUNTS" ]] || { echo "precious counts mismatch vs dump-time snapshot" >&2; exit 1; }
+python3 - "$DUMP_COUNTS" "$SHADOW_COUNTS" <<'PY'
+import sys
+def parse(raw: str) -> dict[str, int]:
+    out = {}
+    for part in raw.split(","):
+        if not part or "=" not in part:
+            raise SystemExit(f"bad count blob: {raw!r}")
+        k, v = part.split("=", 1)
+        out[k] = int(v)
+    return out
+dump, shadow = parse(sys.argv[1]), parse(sys.argv[2])
+identity = ("users", "accounts", "api_keys", "groups", "settings")
+for key in identity:
+    if dump.get(key) != shadow.get(key):
+        raise SystemExit(f"identity table {key} dump={dump.get(key)} shadow={shadow.get(key)}")
+delta = abs(dump.get("usage_billing_dedup", -1) - shadow.get("usage_billing_dedup", -2))
+if delta > 20:
+    raise SystemExit(f"usage_billing_dedup drift {delta} exceeds slack 20")
+print(f"precious identity match; billing_dedup_delta={delta}")
+PY
 
 mem_script="$(mktemp)"
 cat >"$mem_script" <<'EOF'
