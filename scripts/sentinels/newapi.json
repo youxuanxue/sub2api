@@ -1040,9 +1040,10 @@
         "func OpenAIForwardResultFromForward(result *ForwardResult) *OpenAIForwardResult",
         "RouteFacts",
         "ExecuteSelectedProtocol",
+        "protocolPlansRoutingEquivalent",
         "if router == nil && canonical && !routed && !planned {"
       ],
-      "rationale": "Protocol routing is the single execution boundary for governed text channels. Every registered inbound→target pair, including Gemini, has a concrete adapter and immutable route facts; the service execution owner alone dispatches the plan-derived Gemini endpoint profile, while transports bind the selected endpoint and preserve transport-derived query semantics. The nil-router legacy branch remains only as a compatibility boundary for explicitly non-routed callers; production candidate images always inject the router and use readiness for traffic admission. Router-enabled requests without a selected plan remain fail-closed."
+      "rationale": "Protocol routing is the single execution boundary for governed text channels. Every registered inbound→target pair, including Gemini, has a concrete adapter and immutable route facts; send-time freshness is authoritative reload plus protocolPlansRoutingEquivalent, not a revision token. The service execution owner alone dispatches the plan-derived Gemini endpoint profile, while transports bind the selected endpoint and preserve transport-derived query semantics. The nil-router legacy branch remains only as a compatibility boundary for explicitly non-routed callers; production candidate images always inject the router and use readiness for traffic admission. Router-enabled requests without a selected plan remain fail-closed."
     },
     {
       "path": "backend/internal/service/account_supported_protocols.go",
@@ -1301,13 +1302,12 @@
       "path": "backend/internal/engine/protocolrouter/router.go",
       "must_contain": [
         "CapabilityKey",
-        "CapabilityRevision",
         "state.CapabilityKey != plan.capabilityKey",
-        "state.CapabilityRevision != plan.capabilityRevision",
+        "plan.requestDigest != request.digest",
         "ErrStalePlan",
         "ErrModelNotAllowed"
       ],
-      "rationale": "A selected route captures the endpoint capability key and revision. Execute must reject a changed capability before adapter or network execution; otherwise a probe or endpoint relink can make an already-selected route unsafe. Model-policy rejection must stay a distinct Plan error so schedulers do not rename no-route as unsupported, or unsupported as no-route."
+      "rationale": "Execute verifies request digest and capability-key identity only. Capability revision is probe CAS, not a send-time referee; route-fact staleness is owned by ExecuteSelectedProtocol replan plus protocolPlansRoutingEquivalent. Model-policy rejection must stay a distinct Plan error so schedulers do not rename no-route as unsupported, or unsupported as no-route."
     },
     {
       "path": "backend/internal/integration/newapi/discover_filter_tk.go",

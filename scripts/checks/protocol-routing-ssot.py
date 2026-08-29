@@ -474,6 +474,8 @@ def check(root: Path) -> list[str]:
             source = strip_go_comments_and_literals(path.read_text(encoding="utf-8"))
             if function_definitions(source, "BuildProtocolEndpointIdentity"):
                 errors.append(f"{path.relative_to(root)}: duplicates the endpoint identity builder")
+            if path.name == "account_supported_protocols.go" and function_definitions(source, "protocolAccountRevision"):
+                errors.append("account snapshot still invents a protocol revision hash")
             if path.name not in {"account_supported_protocols.go", "protocol_routing_migration.go"} and contains_identifier(
                 source, "LegacySupportedProtocolsProjection"
             ):
@@ -487,9 +489,9 @@ def check(root: Path) -> list[str]:
             errors.append("protocol router is missing Execute stale-plan validation")
         for body in execute_bodies:
             if not contains_identifier(body, "CapabilityKey"):
-                errors.append("protocol router Execute is missing capability key stale validation")
-            if not contains_identifier(body, "CapabilityRevision"):
-                errors.append("protocol router Execute is missing capability revision stale validation")
+                errors.append("protocol router Execute is missing capability key identity validation")
+            if contains_identifier(body, "CapabilityRevision") or contains_identifier(body, "accountRevision"):
+                errors.append("protocol router Execute still treats revision tokens as the stale referee")
 
     capability_repo = root / "backend/internal/repository/protocol_endpoint_capability_repo.go"
     if capability_repo.is_file():
@@ -612,6 +614,10 @@ def check(root: Path) -> list[str]:
                 errors.append("selected protocol execution leaves a pre-send stale failure outside account failover")
             if not contains_identifier(body, "ErrMissingCredential"):
                 errors.append("selected protocol execution leaves a missing credential outside account failover")
+        equivalent_bodies = function_bodies(source, "protocolPlansRoutingEquivalent")
+        for body in equivalent_bodies:
+            if contains_identifier(body, "CapabilityRevision") or contains_identifier(body, "AccountRevision"):
+                errors.append("equivalent-route check still compares revision tokens")
         credential_bodies = function_bodies(source, "ProtocolAuthorizationPresent")
         if not credential_bodies or not all(
             contains_identifier(body, "ProtocolAuthorizationSnapshotCredentialKey")
@@ -780,7 +786,7 @@ def check(root: Path) -> list[str]:
             errors.append("protocol routing context is missing protocolPlanForAccount")
         for body in planning_bodies:
             if not contains_identifier(body, "getOrPlan"):
-                errors.append("protocol routing context bypasses the per-revision plan cache")
+                errors.append("protocol routing context bypasses the per-account plan cache")
         bodies = function_bodies(source, "attachProtocolPlan")
         if not bodies:
             errors.append("protocol routing context is missing attachProtocolPlan")

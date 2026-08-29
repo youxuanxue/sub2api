@@ -2,12 +2,8 @@ package service
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
@@ -245,15 +241,9 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 	if err != nil {
 		return protocolrouter.AccountSnapshot{}, err
 	}
-	revision, err := protocolAccountRevision(account)
-	if err != nil {
-		return protocolrouter.AccountSnapshot{}, err
-	}
 	return protocolrouter.NewAccountSnapshot(protocolrouter.AccountSnapshotInput{
 		AccountID:          account.ID,
-		Revision:           revision,
 		CapabilityKey:      capability.CapabilityKey,
-		CapabilityRevision: capability.Revision,
 		SupportedProtocols: protocols,
 		ResolvedModel:      resolvedModel,
 		CustomBaseURL:      customBaseURL,
@@ -452,96 +442,4 @@ func copyProtocolBaseURL(raw map[string]any, key string, protocol protocolrouter
 	if value = strings.TrimSpace(value); value != "" {
 		out[protocol] = value
 	}
-}
-
-func protocolAccountRevision(account *Account) (string, error) {
-	if account == nil {
-		return "", errors.New("account is required")
-	}
-	baseURL, protocolBaseURLs, officialProfile := protocolAccountEndpoints(account)
-	capabilityKey := ""
-	capabilityRevision := int64(0)
-	identityConflict := false
-	if account.ProtocolEndpointCapability != nil {
-		capabilityKey = account.ProtocolEndpointCapability.CapabilityKey
-		capabilityRevision = account.ProtocolEndpointCapability.Revision
-		identityConflict = account.ProtocolEndpointCapability.IdentityConflict ||
-			account.ProtocolEndpointCapability.ProbeEvidence.IdentityConflict
-	}
-	protocols := routingSupportedProtocols(account)
-	protocolNames := make([]string, 0, len(protocols))
-	for _, protocol := range protocols {
-		protocolNames = append(protocolNames, string(protocol))
-	}
-	protocolURLPairs := make([]string, 0, len(protocolBaseURLs))
-	for _, protocol := range protocolrouter.AllProtocols() {
-		if value := strings.TrimSpace(protocolBaseURLs[protocol]); value != "" {
-			protocolURLPairs = append(protocolURLPairs, string(protocol)+"="+value)
-		}
-	}
-	compactMode := ""
-	if account.Extra != nil {
-		if mode, _ := account.Extra["openai_compact_mode"].(string); strings.TrimSpace(mode) != "" {
-			compactMode = strings.TrimSpace(mode)
-		}
-	}
-	input := struct {
-		ID                 int64    `json:"id"`
-		Platform           string   `json:"platform"`
-		Type               string   `json:"type"`
-		ChannelType        int      `json:"channel_type"`
-		CapabilityKey      string   `json:"capability_key"`
-		CapabilityRevision int64    `json:"capability_revision"`
-		IdentityConflict   bool     `json:"identity_conflict"`
-		SupportedProtocols []string `json:"supported_protocols"`
-		OfficialProfile    string   `json:"official_profile"`
-		GeminiProfile      string   `json:"gemini_profile"`
-		CustomBaseURL      string   `json:"custom_base_url"`
-		ProtocolBaseURLs   []string `json:"protocol_base_urls"`
-		ModelMapping       []string `json:"model_mapping"`
-		CompactMapping     []string `json:"compact_mapping"`
-		Passthrough        bool     `json:"passthrough"`
-		CompactMode        string   `json:"compact_mode"`
-		AuthPresent        bool     `json:"auth_present"`
-	}{
-		ID:                 account.ID,
-		Platform:           account.Platform,
-		Type:               account.Type,
-		ChannelType:        account.ChannelType,
-		CapabilityKey:      capabilityKey,
-		CapabilityRevision: capabilityRevision,
-		IdentityConflict:   identityConflict,
-		SupportedProtocols: protocolNames,
-		OfficialProfile:    string(officialProfile),
-		GeminiProfile:      string(protocolGeminiEndpointProfile(account)),
-		CustomBaseURL:      strings.TrimSpace(baseURL),
-		ProtocolBaseURLs:   protocolURLPairs,
-		ModelMapping:       protocolRevisionMappingPairs(account.GetModelMapping()),
-		CompactMapping:     protocolRevisionMappingPairs(account.GetCompactModelMapping()),
-		Passthrough:        account.IsOpenAIPassthroughEnabled(),
-		CompactMode:        compactMode,
-		AuthPresent:        ProtocolAuthorizationPresent(account),
-	}
-	return protocolRevisionDigest(input)
-}
-
-func protocolRevisionMappingPairs(mapping map[string]string) []string {
-	if len(mapping) == 0 {
-		return nil
-	}
-	pairs := make([]string, 0, len(mapping))
-	for key, value := range mapping {
-		pairs = append(pairs, key+"="+value)
-	}
-	sort.Strings(pairs)
-	return pairs
-}
-
-func protocolRevisionDigest(input any) (string, error) {
-	encoded, err := json.Marshal(input)
-	if err != nil {
-		return "", fmt.Errorf("marshal protocol revision: %w", err)
-	}
-	digest := sha256.Sum256(encoded)
-	return hex.EncodeToString(digest[:]), nil
 }

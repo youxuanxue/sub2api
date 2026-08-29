@@ -567,9 +567,9 @@ func TestFailureDiagnosisDoesNotRenameNoRouteAsUnsupportedModel(t *testing.T) {
 	}
 }
 
-func TestProtocolPlanCacheComputesEachAccountRevisionOnce(t *testing.T) {
+func TestProtocolPlanCacheComputesEachAccountOnce(t *testing.T) {
 	cache := newProtocolPlanCache()
-	key := protocolPlanCacheKey{accountID: 9, revision: "rev-1"}
+	key := protocolPlanCacheKey{accountID: 9}
 	wantErr := errors.New("no route")
 	calls := 0
 	compute := func() (protocolrouter.Plan, error) {
@@ -584,7 +584,7 @@ func TestProtocolPlanCacheComputesEachAccountRevisionOnce(t *testing.T) {
 		t.Fatalf("cached errors = %v / %v, want %v", firstErr, secondErr, wantErr)
 	}
 	if calls != 1 {
-		t.Fatalf("planner calls = %d, want 1 for one account revision", calls)
+		t.Fatalf("planner calls = %d, want 1 for one account", calls)
 	}
 }
 

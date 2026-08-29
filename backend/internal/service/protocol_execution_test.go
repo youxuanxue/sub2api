@@ -151,7 +151,7 @@ func TestProtocolExecutionRouterInvokesGeminiIdentityExecutor(t *testing.T) {
 	})
 	ctx = withProtocolExecutionAccount(ctx, account)
 	ctx = protocolrouter.WithExecutionAccountState(ctx, protocolrouter.ExecutionAccountState{
-		AccountID: snapshot.AccountID(), Revision: snapshot.Revision(), CapabilityKey: snapshot.CapabilityKey(), CapabilityRevision: snapshot.CapabilityRevision(), CredentialPresent: true,
+		AccountID: snapshot.AccountID(), CapabilityKey: snapshot.CapabilityKey(), CredentialPresent: true,
 	})
 	result, err := router.Execute(ctx, plan, request)
 	if err != nil {
@@ -199,11 +199,9 @@ func TestProtocolExecutionRouterInvokesOnlyPlannedAdapterExecutor(t *testing.T) 
 	})
 	executionCtx = withProtocolExecutionAccount(executionCtx, sourceAccount)
 	executionCtx = protocolrouter.WithExecutionAccountState(executionCtx, protocolrouter.ExecutionAccountState{
-		AccountID:          account.AccountID(),
-		Revision:           account.Revision(),
-		CapabilityKey:      account.CapabilityKey(),
-		CapabilityRevision: account.CapabilityRevision(),
-		CredentialPresent:  true,
+		AccountID:         account.AccountID(),
+		CapabilityKey:     account.CapabilityKey(),
+		CredentialPresent: true,
 	})
 
 	result, err := router.Execute(executionCtx, plan, req)
@@ -227,11 +225,9 @@ func TestProtocolExecutionRouterFailsBeforeNetworkWhenExecutorIsMissing(t *testi
 		t.Fatalf("Plan: %v", err)
 	}
 	ctx := protocolrouter.WithExecutionAccountState(context.Background(), protocolrouter.ExecutionAccountState{
-		AccountID:          account.AccountID(),
-		Revision:           account.Revision(),
-		CapabilityKey:      account.CapabilityKey(),
-		CapabilityRevision: account.CapabilityRevision(),
-		CredentialPresent:  true,
+		AccountID:         account.AccountID(),
+		CapabilityKey:     account.CapabilityKey(),
+		CredentialPresent: true,
 	})
 
 	_, err = router.Execute(ctx, plan, req)
@@ -600,7 +596,47 @@ func TestExecuteSelectedProtocolValidatesExactPlanEndpointBeforeExecutor(t *test
 	}
 }
 
-func TestExecuteSelectedProtocolReloadsAuthoritativeCapabilityBeforeExecutor(t *testing.T) {
+func TestExecuteSelectedProtocolRejectsResolvedModelChangeBeforeExecutor(t *testing.T) {
+	router := NewProtocolRouter()
+	req := protocolRoutingTestRequest(t, protocolrouter.ProtocolMessages)
+	ctx := WithProtocolRouting(context.Background(), router, req)
+	account := protocolRoutingOpenAIAccount(12, "responses")
+	account.Credentials["model_mapping"] = map[string]any{"gpt-5.4": "upstream-a"}
+	plan, _, err := protocolPlanForAccount(ctx, account, "gpt-5.4")
+	if err != nil {
+		t.Fatalf("protocolPlanForAccount: %v", err)
+	}
+	calls := 0
+
+	_, err = ExecuteSelectedProtocol(
+		ctx,
+		router,
+		&AccountSelectionResult{Account: account, ProtocolPlan: &plan},
+		account,
+		func(context.Context, *Account, string) error { return nil },
+		func(context.Context, int64) (*Account, error) {
+			fresh := *account
+			fresh.Credentials = map[string]any{
+				"api_key":       "secret",
+				"base_url":      "https://relay.example.test/v1",
+				"model_mapping": map[string]any{"gpt-5.4": "upstream-b"},
+			}
+			return &fresh, nil
+		},
+		protocolExecutorsForTest(plan, func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
+			calls++
+			return nil, nil
+		}),
+	)
+	if !errors.Is(err, protocolrouter.ErrStalePlan) {
+		t.Fatalf("ExecuteSelectedProtocol error = %v, want ErrStalePlan", err)
+	}
+	if calls != 0 {
+		t.Fatalf("executor calls = %d, want 0", calls)
+	}
+}
+
+func TestExecuteSelectedProtocolKeepsEquivalentRouteAfterCapabilityRevisionBump(t *testing.T) {
 	router := NewProtocolRouter()
 	request := protocolRoutingTestRequest(t, protocolrouter.ProtocolMessages)
 	ctx := WithProtocolRouting(context.Background(), router, request)
@@ -625,14 +661,14 @@ func TestExecuteSelectedProtocolReloadsAuthoritativeCapabilityBeforeExecutor(t *
 		},
 		protocolExecutorsForTest(plan, func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
 			calls++
-			return nil, nil
+			return "sent", nil
 		}),
 	)
-	if !errors.Is(err, protocolrouter.ErrStalePlan) {
-		t.Fatalf("ExecuteSelectedProtocol error = %v, want ErrStalePlan", err)
+	if err != nil {
+		t.Fatalf("ExecuteSelectedProtocol: %v", err)
 	}
-	if calls != 0 {
-		t.Fatalf("executor calls = %d, want 0", calls)
+	if calls != 1 {
+		t.Fatalf("executor calls = %d, want 1 after capability revision-only bump", calls)
 	}
 }
 

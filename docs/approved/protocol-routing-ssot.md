@@ -5,6 +5,9 @@ approved_by: "feng (conversation approval, 2026-08-27)"
 authors: [codex]
 created: 2026-08-24
 revised: 2026-08-29
+revision_note: >
+  Plans and Execute no longer compare account or capability revision tokens.
+  Send-time freshness is authoritative reload plus route-fact equivalence.
 related_stories: []
 ---
 
@@ -213,8 +216,8 @@ There is no persisted `unknown`. An empty set is fail-closed. Probe status and
 evidence may be inconclusive, but they cannot act as a third routing state.
 
 `revision` changes whenever the sorted protocol set or conflict state changes.
-Plans store the key and revision so execution can reject stale capability
-input. `probe_generation` increments for every accepted probe request and,
+It is probe compare-and-swap and audit state only. Plans and `Execute` do not
+compare it. `probe_generation` increments for every accepted probe request and,
 together with the lease fields, coordinates probe work; it does not affect
 routing directly.
 
@@ -280,7 +283,7 @@ For one account, a route is legal only when:
 
 ```text
 target protocol is in the linked capability.supported_protocols
-AND the capability key/revision is current
+AND the capability key is current
 AND an ordered registry entry exists
 AND model policy permits the resolved upstream model
 AND the adapter preserves the concrete request features
@@ -313,18 +316,18 @@ Runtime readiness cannot create, replace, or improve a route. Route planning
 cannot treat transient authorization, quota, cooldown, concurrency, or capacity
 as endpoint protocol capability.
 
-The plan stores the request digest, account snapshot revision, capability key
-and revision, resolved model, inbound and target protocols, endpoint, adapter,
-transport, route kind, and reason. Before constructing a network request,
-execution reloads the authoritative account and re-plans it. `Execute` then
-verifies the captured request digest and capability key/revision. A plan is
-stale only when the fresh account no longer produces an equivalent route
-(capability, resolved model, endpoint, adapter, transport) or authorization is
-missing. Account `updated_at`, last-used, token rotation, and other health
-writes do not by themselves invalidate a still-equivalent plan; the reload
-exists to attach current credentials, not to treat every account row write as a
-protocol change. A stale route or missing credential fails closed and enters
-normal account failover.
+The plan stores the request digest, capability key, resolved model, inbound and
+target protocols, endpoint, adapter, transport, route kind, and reason. It does
+not store an account or capability revision token. Before constructing a
+network request, execution reloads the authoritative account and re-plans it.
+A plan is stale only when the fresh account no longer produces an equivalent
+route (capability key, resolved model, endpoint, adapter, transport) or
+authorization is missing. `Execute` verifies the captured request digest and
+capability key. Account `updated_at`, last-used, token rotation, capability
+`revision` bumps, and other health writes do not by themselves invalidate a
+still-equivalent plan; the reload exists to attach current credentials, not to
+treat every account or probe write as a protocol change. A stale route or
+missing credential fails closed and enters normal account failover.
 
 Execution invariants:
 
@@ -644,7 +647,7 @@ Required tests include:
   partial publication;
 - identity-first and fixed conversion order;
 - model, feature, Responses-path, endpoint, adapter, and transport constraints;
-- plan capture and stale capability revision rejection before network I/O;
+- plan capture and inequivalent-route rejection before network I/O;
 - exact outbound host/path/body/credential boundary and response shape;
 - immutable request behavior across account failover;
 - account-level authorization gates remaining independent of shared capability;
