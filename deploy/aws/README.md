@@ -220,7 +220,7 @@ Edge 子网关不是第二个用户入口。区域域名（如 `api-us3.tokenkey
 所有 edge 都在 Lightsail（矩阵 `deploy/aws/lightsail/edge-targets-lightsail.json`，workflow `deploy-edge-lightsail-stage0.yml`）。当前 edge 矩阵示例：
 
 ```text
-us3 -> us-east-2 -> api-us3.tokenkey.dev -> tokenkey-edge-us-oh1-ls -> deploy-edge-lightsail-stage0.yml
+us3 -> us-east-2 -> api-us3.tokenkey.dev -> tokenkey-edge-us-oh1-ls-s30 -> deploy-edge-lightsail-stage0.yml
 us4 -> us-west-2 -> api-us4.tokenkey.dev -> tokenkey-edge-us-or1-ls -> deploy-edge-lightsail-stage0.yml
 ```
 
