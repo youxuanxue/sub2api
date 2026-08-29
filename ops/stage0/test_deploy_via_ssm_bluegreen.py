@@ -471,6 +471,24 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertIsNone(params)
         self.assertIsNone(remote)
 
+    def test_edge_profile_explicitly_disables_qa_capture_for_both_colors(self) -> None:
+        proc, _, remote = _render(_EDGE_IID, env_extra={"EDGE_ID": "us5"})
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert remote is not None
+
+        ensure_profile = _extract_shell_function(remote, "ensure_profile_environment")
+        edge_branch_start = ensure_profile.index(
+            'if [[ "${DEPLOY_PROFILE}" = edge ]]; then'
+        )
+        edge_branch_end = ensure_profile.index("  fi", edge_branch_start)
+        edge_branch = ensure_profile[edge_branch_start:edge_branch_end]
+        self.assertIn("env_set QA_CAPTURE_ENABLED false", edge_branch)
+        self.assertIn("enforced QA_CAPTURE_ENABLED=false", edge_branch)
+        self.assertEqual(
+            remote.count("- QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-}"),
+            2,
+        )
+
     def test_remote_script_parses(self) -> None:
         proc, params, remote = _render()
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
