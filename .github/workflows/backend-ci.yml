@@ -263,10 +263,9 @@ jobs:
           # content-keyed Go build cache restores exactly. Always use the compile-once
           # runner instead of gambling the critical path on test-result cache.
           UNIT_TEST_SERVICE_SHARD: "1"
-          # Exact hits already contain this tree's build objects, so overlap the
-          # lightweight discovery/compile commands. Misses and restore-key hits
-          # serialize the shared cold dependency graph to avoid CPU contention.
-          UNIT_TEST_BUILD_CACHE_HIT: ${{ steps.go_cache.outputs.build_cache_hit }}
+          # Exact hits and prefix/fallback restores both leave usable Go objects.
+          # Only a completely empty cache should take the cold compile-all path.
+          UNIT_TEST_BUILD_CACHE_HIT: ${{ steps.go_cache.outputs.build_cache_populated }}
         run: make test-unit
       - name: Anthropic prompt surface fixture gateway
         run: python3 ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway

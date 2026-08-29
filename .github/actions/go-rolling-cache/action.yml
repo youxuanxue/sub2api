@@ -39,6 +39,9 @@ outputs:
   build_cache_hit:
     description: "true only when the selected primary Go build cache key restores exactly."
     value: ${{ steps.build_cache_status.outputs.build_cache_hit }}
+  build_cache_populated:
+    description: "true when an exact hit or a prefix/fallback restore left build objects on disk."
+    value: ${{ steps.build_cache_status.outputs.build_cache_populated }}
 
 runs:
   using: composite
@@ -121,9 +124,19 @@ runs:
         RESTORE_HIT: ${{ steps.build_cache_restore.outputs.cache-hit }}
         BENCHMARK_HIT: ${{ steps.build_cache_benchmark.outputs.cache-hit }}
         MAIN_HIT: ${{ steps.build_cache_main.outputs.cache-hit }}
+        BUILD_CACHE_PATH: ${{ inputs.build_cache_path }}
       run: |
+        hit=false
         if [[ "$RESTORE_HIT" == "true" || "$BENCHMARK_HIT" == "true" || "$MAIN_HIT" == "true" ]]; then
-          echo "build_cache_hit=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "build_cache_hit=false" >> "$GITHUB_OUTPUT"
+          hit=true
         fi
+        echo "build_cache_hit=${hit}" >> "$GITHUB_OUTPUT"
+
+        # actions/cache sets cache-hit only for an exact key. Prefix and
+        # fallback restores still leave usable Go objects; treat those as warm.
+        populated="${hit}"
+        cache_path="${BUILD_CACHE_PATH/#\~/${HOME}}"
+        if [[ "${populated}" != "true" && -d "${cache_path}" ]] && [ -n "$(find "${cache_path}" -type f -print -quit)" ]; then
+          populated=true
+        fi
+        echo "build_cache_populated=${populated}" >> "$GITHUB_OUTPUT"

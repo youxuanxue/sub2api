@@ -37,14 +37,19 @@ class GoRollingCachePolicyTest(unittest.TestCase):
             action["outputs"]["build_cache_hit"]["value"],
             "${{ steps.build_cache_status.outputs.build_cache_hit }}",
         )
+        self.assertEqual(
+            action["outputs"]["build_cache_populated"]["value"],
+            "${{ steps.build_cache_status.outputs.build_cache_populated }}",
+        )
         status = next(
             step
             for step in action["runs"]["steps"]
             if step.get("id") == "build_cache_status"
         )
-        self.assertIn('== "true"', status["run"])
-        self.assertIn("build_cache_hit=true", status["run"])
-        self.assertIn("build_cache_hit=false", status["run"])
+        self.assertIn("BUILD_CACHE_PATH", status["env"])
+        self.assertIn("build_cache_hit=${hit}", status["run"])
+        self.assertIn("build_cache_populated=${populated}", status["run"])
+        self.assertIn('find "${cache_path}" -type f -print -quit', status["run"])
 
     def test_uses_family_input_and_drops_date_epochs(self) -> None:
         action = load_action()
