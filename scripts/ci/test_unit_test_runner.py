@@ -96,31 +96,14 @@ class UnitTestRunnerTest(unittest.TestCase):
         self.assertEqual(len(matched), len(set(matched)))
 
     def test_test_main_falls_back_to_one_native_go_test(self) -> None:
-        with self._fake_go(
-            ["TestOne"],
-            has_test_main=True,
-            compile_delay=5.0,
-            compile_child=True,
-        ) as fixture:
+        with self._fake_go(["TestOne"], has_test_main=True) as fixture:
             result = self._run(fixture)
             events = self._events(fixture.events)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         go_calls = self._go_calls(events)
         self.assertIn(["test", "-tags=unit", "./..."], go_calls)
-        self.assertEqual(len([call for call in go_calls if "-c" in call]), 1)
-        self.assertTrue(
-            [
-                event
-                for event in events
-                if event["kind"] == "go-terminated" and "-c" in event["args"]
-            ],
-            events,
-        )
-        self.assertTrue(
-            [event for event in events if event["kind"] == "go-child-terminated"],
-            events,
-        )
+        self.assertFalse([call for call in go_calls if "-c" in call], go_calls)
         self.assertFalse(self._binary_events(events))
 
     def test_fails_closed_when_ast_discovery_differs_from_binary_registry(self) -> None:
@@ -279,29 +262,46 @@ class UnitTestRunnerTest(unittest.TestCase):
         self.assertLess(min(durations), 0.5)
         self.assertGreaterEqual(max(durations), 0.7)
 
-    def test_runs_other_packages_while_service_binary_compiles(self) -> None:
+    def test_starts_service_compile_after_other_packages_populate_cache(self) -> None:
         with self._fake_go(
             ["TestOne", "TestTwo"],
-            compile_delay=0.75,
+            other_delay=0.75,
         ) as fixture:
             result = self._run(fixture, "--min-shards", "2")
             events = self._events(fixture.events)
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        compile_finished = next(
+        other_finished = next(
             event["at"]
             for event in events
-            if event["kind"] == "go-finished" and "-c" in event["args"]
-        )
-        other_started = next(
-            event["at"]
-            for event in events
-            if event["kind"] == "go"
+            if event["kind"] == "go-finished"
             and "./internal/other" in event["args"]
         )
-        self.assertLess(other_started, compile_finished, events)
+        compile_started = next(
+            event["at"]
+            for event in events
+            if event["kind"] == "go" and "-c" in event["args"]
+        )
+        self.assertGreaterEqual(compile_started, other_finished, events)
 
-    def test_starts_service_compile_before_discovery_finishes(self) -> None:
+    def test_other_package_failure_stops_before_service_compile_on_cold_cache(
+        self,
+    ) -> None:
+        with self._fake_go(
+            ["TestOne", "TestTwo"],
+            fail_other=True,
+        ) as fixture:
+            result = self._run(fixture, "--min-shards", "2")
+            events = self._events(fixture.events)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("intentional other package failure", result.stderr)
+        self.assertFalse(
+            [call for call in self._go_calls(events) if "-c" in call],
+            events,
+        )
+
+    def test_starts_service_compile_after_discovery_finishes(self) -> None:
         with self._fake_go(
             ["TestOne", "TestTwo"],
             discovery_delay=0.75,
@@ -322,9 +322,49 @@ class UnitTestRunnerTest(unittest.TestCase):
             and event["args"]
             and event["args"][0] == "run"
         )
-        self.assertLess(compile_started, discovery_finished, events)
+        self.assertGreaterEqual(compile_started, discovery_finished, events)
 
-    def test_discovery_failure_terminates_service_compile(self) -> None:
+    def test_exact_cache_hit_overlaps_discovery_compile_and_other_packages(self) -> None:
+        with self._fake_go(
+            ["TestOne", "TestTwo"],
+            compile_delay=0.75,
+            discovery_delay=0.25,
+        ) as fixture:
+            result = self._run(
+                fixture,
+                "--min-shards",
+                "2",
+                build_cache_hit=True,
+            )
+            events = self._events(fixture.events)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        compile_started = next(
+            event["at"]
+            for event in events
+            if event["kind"] == "go" and "-c" in event["args"]
+        )
+        compile_finished = next(
+            event["at"]
+            for event in events
+            if event["kind"] == "go-finished" and "-c" in event["args"]
+        )
+        discovery_finished = next(
+            event["at"]
+            for event in events
+            if event["kind"] == "go-finished"
+            and event["args"]
+            and event["args"][0] == "run"
+        )
+        other_started = next(
+            event["at"]
+            for event in events
+            if event["kind"] == "go" and "./internal/other" in event["args"]
+        )
+        self.assertLess(compile_started, discovery_finished, events)
+        self.assertLess(other_started, compile_finished, events)
+
+    def test_exact_cache_hit_discovery_failure_terminates_compile_group(self) -> None:
         with self._fake_go(
             ["TestOne"],
             fail_discovery=True,
@@ -332,11 +372,16 @@ class UnitTestRunnerTest(unittest.TestCase):
             compile_delay=5.0,
             compile_child=True,
         ) as fixture:
-            result = self._run(fixture)
+            result = self._run(fixture, build_cache_hit=True)
             events = self._events(fixture.events)
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("invalid Go test discovery output", result.stderr)
+        self.assertEqual(
+            len([call for call in self._go_calls(events) if "-c" in call]),
+            1,
+            events,
+        )
         self.assertTrue(
             [
                 event
@@ -351,6 +396,80 @@ class UnitTestRunnerTest(unittest.TestCase):
         )
         self.assertFalse(self._binary_events(events))
 
+    def test_exact_cache_hit_test_main_terminates_compile_group_before_fallback(
+        self,
+    ) -> None:
+        with self._fake_go(
+            ["TestOne"],
+            has_test_main=True,
+            discovery_delay=0.25,
+            compile_delay=5.0,
+            compile_child=True,
+        ) as fixture:
+            result = self._run(fixture, build_cache_hit=True)
+            events = self._events(fixture.events)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(["test", "-tags=unit", "./..."], self._go_calls(events))
+        self.assertTrue(
+            [
+                event
+                for event in events
+                if event["kind"] == "go-terminated" and "-c" in event["args"]
+            ],
+            events,
+        )
+        self.assertTrue(
+            [event for event in events if event["kind"] == "go-child-terminated"],
+            events,
+        )
+        self.assertFalse(self._binary_events(events))
+
+    def test_exact_cache_hit_compile_failure_terminates_other_packages(self) -> None:
+        with self._fake_go(
+            ["TestOne", "TestTwo"],
+            fail_compile=True,
+            compile_delay=0.5,
+            other_delay=5.0,
+        ) as fixture:
+            result = self._run(
+                fixture,
+                "--min-shards",
+                "2",
+                build_cache_hit=True,
+            )
+            events = self._events(fixture.events)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("intentional compile failure", result.stderr)
+        self.assertTrue(
+            [
+                event
+                for event in events
+                if event["kind"] == "go-terminated"
+                and "./internal/other" in event["args"]
+            ],
+            events,
+        )
+        self.assertFalse(self._binary_events(events))
+
+    def test_discovery_failure_stops_before_service_compile(self) -> None:
+        with self._fake_go(
+            ["TestOne"],
+            fail_discovery=True,
+            discovery_delay=0.25,
+        ) as fixture:
+            result = self._run(fixture)
+            events = self._events(fixture.events)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid Go test discovery output", result.stderr)
+        self.assertFalse(
+            [call for call in self._go_calls(events) if "-c" in call],
+            events,
+        )
+        self.assertFalse(self._binary_events(events))
+
     def test_reports_discovery_compile_and_registry_stage_durations(self) -> None:
         with self._fake_go(["TestOne"]) as fixture:
             result = self._run(fixture)
@@ -360,13 +479,19 @@ class UnitTestRunnerTest(unittest.TestCase):
         self.assertRegex(result.stdout, r"STAGE service-compile \([0-9.]+s\)")
         self.assertRegex(result.stdout, r"STAGE registry-check \([0-9.]+s\)")
 
-    def _run(self, fixture: "FakeGoFixture", *args: str) -> subprocess.CompletedProcess[str]:
+    def _run(
+        self,
+        fixture: "FakeGoFixture",
+        *args: str,
+        build_cache_hit: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["PATH"] = f"{fixture.bin_dir}{os.pathsep}{env['PATH']}"
         env["FAKE_GO_EVENTS"] = str(fixture.events)
         env["FAKE_GO_ROOT"] = str(fixture.root)
         env["FAKE_GO_TESTS"] = json.dumps(fixture.test_names)
         env["FAKE_GO_BINARY_TESTS"] = json.dumps(fixture.binary_test_names)
+        env.pop("UNIT_TEST_BUILD_CACHE_HIT", None)
         if fixture.has_test_main:
             env["FAKE_GO_HAS_TEST_MAIN"] = "1"
         if fixture.fail_compile:
@@ -383,6 +508,12 @@ class UnitTestRunnerTest(unittest.TestCase):
             env["FAKE_GO_FAIL_DISCOVERY"] = "1"
         if fixture.compile_child:
             env["FAKE_GO_COMPILE_CHILD"] = "1"
+        if fixture.fail_other:
+            env["FAKE_GO_FAIL_OTHER"] = "1"
+        if fixture.other_delay:
+            env["FAKE_GO_OTHER_DELAY"] = str(fixture.other_delay)
+        if build_cache_hit:
+            env["UNIT_TEST_BUILD_CACHE_HIT"] = "true"
         return subprocess.run(
             ["python3", str(SCRIPT), "--root", str(fixture.root), *args],
             check=False,
@@ -432,6 +563,8 @@ class UnitTestRunnerTest(unittest.TestCase):
         discovery_delay: float = 0.0,
         fail_discovery: bool = False,
         compile_child: bool = False,
+        fail_other: bool = False,
+        other_delay: float = 0.0,
     ) -> "FakeGoFixtureContext":
         return FakeGoFixtureContext(
             test_names,
@@ -444,6 +577,8 @@ class UnitTestRunnerTest(unittest.TestCase):
             discovery_delay,
             fail_discovery,
             compile_child,
+            fail_other,
+            other_delay,
         )
 
 
@@ -461,6 +596,8 @@ class FakeGoFixture:
         discovery_delay: float,
         fail_discovery: bool,
         compile_child: bool,
+        fail_other: bool,
+        other_delay: float,
     ) -> None:
         self._temporary = temporary
         self.root = Path(temporary.name)
@@ -478,6 +615,8 @@ class FakeGoFixture:
         self.discovery_delay = discovery_delay
         self.fail_discovery = fail_discovery
         self.compile_child = compile_child
+        self.fail_other = fail_other
+        self.other_delay = other_delay
         service_dir = self.root / "internal" / "service"
         service_dir.mkdir(parents=True)
         declarations = []
@@ -513,6 +652,8 @@ class FakeGoFixtureContext:
         discovery_delay: float,
         fail_discovery: bool,
         compile_child: bool,
+        fail_other: bool,
+        other_delay: float,
     ) -> None:
         self.test_names = test_names
         self.has_test_main = has_test_main
@@ -524,6 +665,8 @@ class FakeGoFixtureContext:
         self.discovery_delay = discovery_delay
         self.fail_discovery = fail_discovery
         self.compile_child = compile_child
+        self.fail_other = fail_other
+        self.other_delay = other_delay
         self.temporary: tempfile.TemporaryDirectory[str] | None = None
 
     def __enter__(self) -> FakeGoFixture:
@@ -540,6 +683,8 @@ class FakeGoFixtureContext:
             self.discovery_delay,
             self.fail_discovery,
             self.compile_child,
+            self.fail_other,
+            self.other_delay,
         )
         fake_binary_source = textwrap.dedent(
             """\
@@ -651,6 +796,14 @@ class FakeGoFixtureContext:
                     binary.write_text(__BINARY_SOURCE__, encoding="utf-8")
                     binary.chmod(0o755)
                     raise SystemExit(0)
+
+                if "./internal/other" in args:
+                    time.sleep(float(os.environ.get("FAKE_GO_OTHER_DELAY", "0")))
+                    with events.open("a", encoding="utf-8") as output:
+                        output.write(json.dumps({"kind": "go-finished", "args": args, "at": time.monotonic()}) + "\\n")
+                    if os.environ.get("FAKE_GO_FAIL_OTHER") == "1":
+                        print("intentional other package failure", file=sys.stderr)
+                        raise SystemExit(1)
 
                 print("ok  fake/package  0.001s")
                 """

@@ -307,6 +307,18 @@ def _terminate_processes(
             except (AttributeError, PermissionError, ProcessLookupError):
                 process.kill()
             process.wait()
+    deadline = time.monotonic() + 0.25
+    while time.monotonic() < deadline:
+        live_group = False
+        for _, process, _, _ in running:
+            try:
+                os.killpg(process.pid, 0)
+                live_group = True
+            except (AttributeError, PermissionError, ProcessLookupError):
+                pass
+        if not live_group:
+            break
+        time.sleep(0.01)
     for _, process, _, _ in running:
         try:
             os.killpg(process.pid, signal.SIGKILL)
@@ -390,6 +402,48 @@ def run_unit_tests(
     min_shards: int,
     max_regex_bytes: int,
 ) -> int:
+    build_cache_hit = os.environ.get("UNIT_TEST_BUILD_CACHE_HIT") == "true"
+    if not build_cache_hit:
+        # Keep discovery ahead of the cold service build. On a four-core hosted
+        # runner, overlapping separate Go commands makes them rebuild and contend
+        # for the same dependency graph instead of shortening the critical path.
+        discovery_started_at = time.monotonic()
+        other_packages, service_tests, patterns, has_test_main = build_test_plan(
+            root,
+            service_package,
+            min_shards,
+            max_regex_bytes,
+        )
+        print(
+            f"unit-test-runner: STAGE discovery "
+            f"({time.monotonic() - discovery_started_at:.1f}s)",
+            flush=True,
+        )
+        if has_test_main:
+            print("unit-test-runner: TestMain detected; using native go test")
+            return subprocess.run(
+                ["go", "test", "-tags=unit", "./..."],
+                cwd=root,
+                check=False,
+            ).returncode
+        if other_packages:
+            # The repository-wide package set covers most of service's shared
+            # dependency graph. On a cold four-core runner, completing it first
+            # makes the later service link much cheaper than compiling service
+            # first and leaves no competing Go process on the critical path.
+            other_returncode = run_commands(
+                [
+                    Command(
+                        "other-packages",
+                        tuple(["go", "test", "-tags=unit", *other_packages]),
+                        root,
+                    )
+                ],
+                temporary_prefix="sub2api-unit-other-",
+            )
+            if other_returncode != 0:
+                return other_returncode
+
     with tempfile.TemporaryDirectory(prefix="sub2api-service-test-") as temporary:
         service_binary = Path(temporary) / "service.test"
         with tempfile.TemporaryDirectory(prefix="sub2api-unit-overlap-") as overlap_temp:
@@ -428,27 +482,30 @@ def run_unit_tests(
             background: list[RunningCommand] = [compile_running]
             other_handle = None
             try:
-                discovery_started_at = time.monotonic()
-                other_packages, service_tests, patterns, has_test_main = build_test_plan(
-                    root,
-                    service_package,
-                    min_shards,
-                    max_regex_bytes,
-                )
-                print(
-                    f"unit-test-runner: STAGE discovery "
-                    f"({time.monotonic() - discovery_started_at:.1f}s)",
-                    flush=True,
-                )
-                if has_test_main:
-                    _terminate_processes(background)
-                    background.clear()
-                    print("unit-test-runner: TestMain detected; using native go test")
-                    return subprocess.run(
-                        ["go", "test", "-tags=unit", "./..."],
-                        cwd=root,
-                        check=False,
-                    ).returncode
+                if build_cache_hit:
+                    discovery_started_at = time.monotonic()
+                    other_packages, service_tests, patterns, has_test_main = (
+                        build_test_plan(
+                            root,
+                            service_package,
+                            min_shards,
+                            max_regex_bytes,
+                        )
+                    )
+                    print(
+                        f"unit-test-runner: STAGE discovery "
+                        f"({time.monotonic() - discovery_started_at:.1f}s)",
+                        flush=True,
+                    )
+                    if has_test_main:
+                        _terminate_processes(background)
+                        background.clear()
+                        print("unit-test-runner: TestMain detected; using native go test")
+                        return subprocess.run(
+                            ["go", "test", "-tags=unit", "./..."],
+                            cwd=root,
+                            check=False,
+                        ).returncode
 
                 commands = build_commands(
                     root,
@@ -463,7 +520,7 @@ def run_unit_tests(
                 service_commands = [
                     command for command in commands if command.label != "other-packages"
                 ]
-                if other_commands:
+                if build_cache_hit and other_commands:
                     other_command = other_commands[0]
                     other_log = Path(overlap_temp) / "other-packages.log"
                     other_handle = other_log.open("wb")
@@ -477,7 +534,6 @@ def run_unit_tests(
                     background.append(
                         (other_command, other_process, other_log, time.monotonic())
                     )
-
                 compile_returncode = compile_process.wait()
                 compile_elapsed = time.monotonic() - compile_running[3]
                 if compile_returncode != 0:

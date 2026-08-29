@@ -236,6 +236,7 @@ jobs:
           check-latest: false
           cache: false
       - uses: ./.github/actions/go-rolling-cache
+        id: go_cache
         with:
           # Main writes one Unit snapshot per distinct backend tree. Content
           # keys let a same-day backend merge restore the latest compatible
@@ -246,7 +247,7 @@ jobs:
           fallback_prefix: unit-nodwarf-v1
           refresh_on_backend_change: "true"
           save_caches: "true"
-          benchmark_prefix: unit-nodwarf-v3-bench
+          benchmark_prefix: unit-nodwarf-v5-other-first-bench
           benchmark_build_cache_write: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'unit-cache-benchmark' && 'true' || 'false' }}
       - name: Verify Go version
         run: |
@@ -260,6 +261,10 @@ jobs:
           # content-keyed Go build cache restores exactly. Always use the compile-once
           # runner instead of gambling the critical path on test-result cache.
           UNIT_TEST_SERVICE_SHARD: "1"
+          # Exact hits already contain this tree's build objects, so overlap the
+          # lightweight discovery/compile commands. Misses and restore-key hits
+          # serialize the shared cold dependency graph to avoid CPU contention.
+          UNIT_TEST_BUILD_CACHE_HIT: ${{ steps.go_cache.outputs.build_cache_hit }}
         run: make test-unit
       - name: Anthropic prompt surface fixture gateway
         run: python3 ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway
