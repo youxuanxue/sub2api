@@ -5,6 +5,8 @@
 #
 # Usage:
 #   bash ops/lightsail/provision-shadow-small.sh us3
+# Phase B (after sidecar is ready; moves the live Static IP):
+#   bash ops/lightsail/cutover-shadow-small.sh us3
 set -euo pipefail
 
 LIVE_EDGE_ID="${1:?usage: $0 <live_edge_id>}"
