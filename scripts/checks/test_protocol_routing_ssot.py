@@ -75,7 +75,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "type geminiIdentityAdapter struct{}\n"
             "func ExecuteGeminiProtocolProfile(){}\n"
             "func protocolExecutionPreSendFailure(){ UpstreamFailoverError(); NextAccountRetry() }\n"
-            "func ExecuteSelectedProtocol(){ freshAccount := loadAccount(); if freshAccount == nil { protocolExecutionPreSendFailure() }; withProtocolExecutionAccount(freshAccount); state := ExecutionAccountState{CredentialPresent: ProtocolAuthorizationPresent(freshAccount)}; if router.Execute(state) == ErrStalePlan || router.Execute(state) == ErrMissingCredential { protocolExecutionPreSendFailure() } }\n"
+            "func ExecuteSelectedProtocol(){ freshAccount := loadAccount(); if freshAccount == nil { protocolExecutionPreSendFailure() }; if !protocolPlansRoutingEquivalent(plan, router.Plan(request, fresh)) { protocolExecutionPreSendFailure() }; withProtocolExecutionAccount(freshAccount); state := ExecutionAccountState{CredentialPresent: ProtocolAuthorizationPresent(freshAccount)}; if router.Execute(state) == ErrStalePlan || router.Execute(state) == ErrMissingCredential { protocolExecutionPreSendFailure() } }\n"
             "func ProtocolAuthorizationPresent(account Account){ ProtocolAuthorizationSnapshotCredentialKey(); if account.IsNewAPIVertexServiceAccount(){ parseVertexServiceAccountKey(account) }; protocolAuthorizationToken(account) }\n"
             "func protocolRuntimeAuthorizationReady(ctx Context, account Account){ ProtocolRoutingRequest(ctx); ProtocolAuthorizationPresent(account) }\n",
             encoding="utf-8",

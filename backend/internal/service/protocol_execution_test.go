@@ -338,7 +338,7 @@ func TestExecuteSelectedProtocolStampsImmutableRouteFactsOnResult(t *testing.T) 
 	}
 }
 
-func TestExecuteSelectedProtocolRejectsAccountMutationBeforeExecutor(t *testing.T) {
+func TestExecuteSelectedProtocolKeepsEquivalentRouteAfterAccountWrite(t *testing.T) {
 	router := NewProtocolRouter()
 	req := protocolRoutingTestRequest(t, protocolrouter.ProtocolMessages)
 	ctx := WithProtocolRouting(context.Background(), router, req)
@@ -351,18 +351,61 @@ func TestExecuteSelectedProtocolRejectsAccountMutationBeforeExecutor(t *testing.
 	authoritative := *account
 	authoritative.UpdatedAt = account.UpdatedAt.Add(time.Nanosecond)
 	authoritative.Credentials = map[string]any{
-		"api_key":  "changed-secret",
+		"api_key":  "rotated-secret",
 		"base_url": "https://relay.example.test/v1",
 	}
 	calls := 0
 
-	execute := func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
-		calls++
-		return nil, nil
-	}
 	_, err = ExecuteSelectedProtocol(ctx, router, selection, account, func(context.Context, *Account, string) error { return nil }, func(context.Context, int64) (*Account, error) {
 		return &authoritative, nil
-	}, protocolExecutorsForTest(plan, execute))
+	}, protocolExecutorsForTest(plan, func(_ context.Context, executionAccount *Account, _ protocolrouter.Plan, _ protocolrouter.CanonicalRequest) (any, error) {
+		calls++
+		if executionAccount != &authoritative {
+			t.Fatalf("executor account = %p, want authoritative %p", executionAccount, &authoritative)
+		}
+		if executionAccount.GetCredential("api_key") != "rotated-secret" {
+			t.Fatalf("executor credential = %q, want rotated secret", executionAccount.GetCredential("api_key"))
+		}
+		return "sent", nil
+	}))
+	if err != nil {
+		t.Fatalf("ExecuteSelectedProtocol: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("executor calls = %d, want 1 after updated_at/token write", calls)
+	}
+}
+
+func TestExecuteSelectedProtocolRejectsInequivalentRouteBeforeExecutor(t *testing.T) {
+	router := NewProtocolRouter()
+	req := protocolRoutingTestRequest(t, protocolrouter.ProtocolMessages)
+	ctx := WithProtocolRouting(context.Background(), router, req)
+	account := protocolRoutingOpenAIAccount(12, "responses")
+	plan, _, err := protocolPlanForAccount(ctx, account, "gpt-5.4")
+	if err != nil {
+		t.Fatalf("protocolPlanForAccount: %v", err)
+	}
+	calls := 0
+	freshCapability := *account.ProtocolEndpointCapability
+	freshCapability.SupportedProtocols = []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}
+
+	_, err = ExecuteSelectedProtocol(
+		ctx,
+		router,
+		&AccountSelectionResult{Account: account, ProtocolPlan: &plan},
+		account,
+		func(context.Context, *Account, string) error { return nil },
+		func(context.Context, int64) (*Account, error) {
+			fresh := *account
+			fresh.UpdatedAt = account.UpdatedAt.Add(time.Nanosecond)
+			fresh.ProtocolEndpointCapability = &freshCapability
+			return &fresh, nil
+		},
+		protocolExecutorsForTest(plan, func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
+			calls++
+			return nil, nil
+		}),
+	)
 	if !errors.Is(err, protocolrouter.ErrStalePlan) {
 		t.Fatalf("ExecuteSelectedProtocol error = %v, want ErrStalePlan", err)
 	}

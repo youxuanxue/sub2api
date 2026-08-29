@@ -316,9 +316,15 @@ as endpoint protocol capability.
 The plan stores the request digest, account snapshot revision, capability key
 and revision, resolved model, inbound and target protocols, endpoint, adapter,
 transport, route kind, and reason. Before constructing a network request,
-`Execute` verifies all captured revisions and digests. A stale account,
-capability, request, endpoint, or credential fails closed and enters normal
-account failover.
+execution reloads the authoritative account and re-plans it. `Execute` then
+verifies the captured request digest and capability key/revision. A plan is
+stale only when the fresh account no longer produces an equivalent route
+(capability, resolved model, endpoint, adapter, transport) or authorization is
+missing. Account `updated_at`, last-used, token rotation, and other health
+writes do not by themselves invalidate a still-equivalent plan; the reload
+exists to attach current credentials, not to treat every account row write as a
+protocol change. A stale route or missing credential fails closed and enters
+normal account failover.
 
 Execution invariants:
 

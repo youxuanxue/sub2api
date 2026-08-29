@@ -405,13 +405,26 @@ func ExecuteSelectedProtocol(
 			GatewayFailureScopeAccount,
 		)
 	}
+	freshPlan, err := router.Plan(request, fresh)
+	if err != nil {
+		return nil, protocolExecutionPreSendFailure(
+			fmt.Errorf("%w: %v", ErrProtocolRouteUnavailable, err),
+			GatewayFailureScopeAccount,
+		)
+	}
+	if !protocolPlansRoutingEquivalent(plan, freshPlan) {
+		return nil, protocolExecutionPreSendFailure(protocolrouter.ErrStalePlan, GatewayFailureScopeAccount)
+	}
 	executionCtx := WithProtocolExecutors(ctx, executors)
 	executionCtx = withProtocolExecutionAccount(executionCtx, freshAccount)
+	// Bind the scheduled plan's revision token so Execute can verify the
+	// captured route. Account updated_at / token writes change
+	// snapshot.Revision() without changing the route; those must not 503.
 	executionCtx = protocolrouter.WithExecutionAccountState(executionCtx, protocolrouter.ExecutionAccountState{
-		AccountID:          fresh.AccountID(),
-		Revision:           fresh.Revision(),
-		CapabilityKey:      fresh.CapabilityKey(),
-		CapabilityRevision: fresh.CapabilityRevision(),
+		AccountID:          plan.AccountID(),
+		Revision:           plan.AccountRevision(),
+		CapabilityKey:      plan.CapabilityKey(),
+		CapabilityRevision: plan.CapabilityRevision(),
 		CredentialPresent:  ProtocolAuthorizationPresent(freshAccount),
 	})
 	result, err := router.Execute(executionCtx, plan, request)
@@ -423,6 +436,22 @@ func ExecuteSelectedProtocol(
 	}
 	stampProtocolRouteFacts(result.Value, routeFactsFromPlan(plan))
 	return result.Value, nil
+}
+
+func protocolPlansRoutingEquivalent(scheduled, fresh protocolrouter.Plan) bool {
+	return scheduled.AccountID() == fresh.AccountID() &&
+		scheduled.CapabilityKey() == fresh.CapabilityKey() &&
+		scheduled.CapabilityRevision() == fresh.CapabilityRevision() &&
+		scheduled.RequestDigest() == fresh.RequestDigest() &&
+		scheduled.ResolvedModel() == fresh.ResolvedModel() &&
+		scheduled.InboundProtocol() == fresh.InboundProtocol() &&
+		scheduled.TargetProtocol() == fresh.TargetProtocol() &&
+		scheduled.ResponsesPath() == fresh.ResponsesPath() &&
+		scheduled.Endpoint() == fresh.Endpoint() &&
+		scheduled.AdapterID() == fresh.AdapterID() &&
+		scheduled.Transport() == fresh.Transport() &&
+		scheduled.RouteKind() == fresh.RouteKind() &&
+		scheduled.GeminiProfile() == fresh.GeminiProfile()
 }
 
 func stampProtocolRouteFacts(value any, facts RouteFacts) {
