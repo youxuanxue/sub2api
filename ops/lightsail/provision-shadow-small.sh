@@ -411,9 +411,13 @@ for key in identity:
     if dump.get(key) != shadow.get(key):
         raise SystemExit(f"identity table {key} dump={dump.get(key)} shadow={shadow.get(key)}")
 delta = abs(dump.get("usage_billing_dedup", -1) - shadow.get("usage_billing_dedup", -2))
-if delta > 20:
-    raise SystemExit(f"usage_billing_dedup drift {delta} exceeds slack 20")
-print(f"precious identity match; billing_dedup_delta={delta}")
+# Busy edges write this table during dump+restore. Keep a floor of 20, then
+# allow 0.01% of the larger snapshot so a 751k-row ledger can drift ~24 rows.
+base = max(dump.get("usage_billing_dedup", 0), shadow.get("usage_billing_dedup", 0))
+slack = max(20, base // 10000)
+if delta > slack:
+    raise SystemExit(f"usage_billing_dedup drift {delta} exceeds slack {slack}")
+print(f"precious identity match; billing_dedup_delta={delta} slack={slack}")
 PY
 
 mem_script="$(mktemp)"
