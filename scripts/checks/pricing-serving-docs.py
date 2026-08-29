@@ -98,6 +98,34 @@ SECONDARY_TRUTH_PATTERNS = (
     re.compile(r"account\.go:639"),
 )
 
+# Cheap literal cover of SECONDARY_TRUTH_PATTERNS. A file that cannot contain
+# any of these needles cannot match a secondary-truth regex; skip the 40-pattern
+# scan. Keep this list conservative: every pattern must retain at least one
+# needle in any string it can match.
+SECONDARY_TRUTH_PREFILTER = (
+    "servable",
+    "priced",
+    "serving",
+    "ssot",
+    "四事实",
+    "列出即可调用",
+    "truthful",
+    "unreachable",
+    "unpriced",
+    "四层",
+    "有价",
+    "price 事实",
+    "两个事实",
+    "r-002",
+    "account.go:639",
+    "four facts",
+)
+
+
+def secondary_truth_candidate(text: str) -> bool:
+    lowered = text.lower()
+    return any(needle in lowered for needle in SECONDARY_TRUTH_PREFILTER)
+
 
 def iter_secondary_truth_files(root: Path) -> list[Path]:
     seen: set[Path] = set()
@@ -219,6 +247,8 @@ def check(root: Path) -> list[str]:
     for path in iter_secondary_truth_files(root):
         relative = path.relative_to(root).as_posix()
         text = path.read_text(encoding="utf-8")
+        if not secondary_truth_candidate(text):
+            continue
         for pattern in SECONDARY_TRUTH_PATTERNS:
             match = pattern.search(text)
             if match:

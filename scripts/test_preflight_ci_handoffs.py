@@ -76,6 +76,38 @@ class PreflightCIHandoffTest(unittest.TestCase):
             4,
         )
 
+    def test_ent_staleness_skips_when_backend_ent_is_unchanged(self) -> None:
+        script = PREFLIGHT.read_text(encoding="utf-8")
+        ent_section = script.split(
+            'echo "=== sub2api: Ent generation staleness ==="', 1
+        )[1].split('echo "=== sub2api: changed Go file gofmt ==="', 1)[0]
+        self.assertIn("^backend/ent/", ent_section)
+        self.assertIn("_ent_surface_changed", ent_section)
+        self.assertIn("_ent_has_base", ent_section)
+        self.assertNotIn("_ent_schema_changed", ent_section)
+
+    def test_early_python_ssot_gates_spawn_before_template(self) -> None:
+        script = PREFLIGHT.read_text(encoding="utf-8")
+        template_idx = script.index(
+            'PREFLIGHT_BASE="$template_base" PREFLIGHT_REPO_ROOT="$REPO_ROOT"'
+        )
+        for key in (
+            "_bg_spawn protocol_routing",
+            "_bg_spawn pricing_serving",
+            "_bg_spawn merge_conflict",
+            "_bg_spawn qa_phase2",
+            "_qa_phase_ops_spawn_if_needed",
+        ):
+            with self.subTest(key=key):
+                self.assertLess(script.index(key), template_idx)
+
+        after_template = script.split(
+            'if [ "$dev_status" -ne 0 ]; then', 1
+        )[1].split('echo "=== sub2api: agent contract drift ==="', 1)[0]
+        self.assertIn("_archive_rehearsal_spawn_if_needed", after_template)
+        before_template = script[:template_idx]
+        self.assertEqual(before_template.count("_archive_rehearsal_spawn_if_needed"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -236,6 +236,42 @@ class PreflightBackgroundOutputTest(unittest.TestCase):
         )
         self.assertNotIn("serial=", result.stdout)
 
+    def test_qa_phase_ops_spawns_unless_slow_ops_are_skipped(self) -> None:
+        script = f"""
+set -u
+_preflight_skip_slow_ops=0
+_bg_spawn() {{ printf 'spawned=%s:%s\\n' "$1" "$2"; }}
+command() {{ [ "$1" = -v ] && [ "$2" = python3 ]; }}
+{_optional_shell_function("_qa_phase_ops_spawn_if_needed")}
+_qa_phase_ops_spawn_if_needed
+"""
+        result = subprocess.run(
+            ["bash", "-c", script],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("spawned=qa_phase_ops:_qa_phase_ops_gate_run", result.stdout)
+
+    def test_qa_phase_ops_does_not_spawn_when_slow_ops_are_skipped(self) -> None:
+        script = f"""
+set -u
+_preflight_skip_slow_ops=1
+_bg_spawn() {{ printf 'spawned=%s:%s\\n' "$1" "$2"; }}
+command() {{ [ "$1" = -v ] && [ "$2" = python3 ]; }}
+{_optional_shell_function("_qa_phase_ops_spawn_if_needed")}
+_qa_phase_ops_spawn_if_needed
+"""
+        result = subprocess.run(
+            ["bash", "-c", script],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("spawned=", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
