@@ -51,7 +51,7 @@ class UnitTestRunnerTest(unittest.TestCase):
         )
         self.assertEqual(
             [call for call in go_calls if "./internal/other" in call],
-            [["test", "-tags=unit", "./internal/other"]],
+            [["test", "-tags=unit", "-vet=off", "./internal/other"]],
         )
         compile_calls = [call for call in go_calls if "-c" in call]
         self.assertEqual(len(compile_calls), 1, go_calls)
@@ -102,8 +102,7 @@ class UnitTestRunnerTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         go_calls = self._go_calls(events)
-        self.assertIn(["test", "-tags=unit", "./..."], go_calls)
-        self.assertFalse([call for call in go_calls if "-c" in call], go_calls)
+        self.assertIn(["test", "-tags=unit", "-vet=off", "./..."], go_calls)
         self.assertFalse(self._binary_events(events))
 
     def test_fails_closed_when_ast_discovery_differs_from_binary_registry(self) -> None:
@@ -262,31 +261,7 @@ class UnitTestRunnerTest(unittest.TestCase):
         self.assertLess(min(durations), 0.5)
         self.assertGreaterEqual(max(durations), 0.7)
 
-    def test_starts_service_compile_after_compile_all_on_cold_cache(self) -> None:
-        with self._fake_go(
-            ["TestOne", "TestTwo"],
-            compile_all_delay=0.25,
-        ) as fixture:
-            result = self._run(fixture, "--min-shards", "2")
-            events = self._events(fixture.events)
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        compile_all_finished = next(
-            event["at"]
-            for event in events
-            if event["kind"] == "go-finished"
-            and event["args"] == ["test", "-tags=unit", "-run=^$", "./..."]
-        )
-        compile_started = next(
-            event["at"]
-            for event in events
-            if event["kind"] == "go" and "-c" in event["args"]
-        )
-        self.assertGreaterEqual(compile_started, compile_all_finished, events)
-
-    def test_other_package_failure_fails_run_after_compile_all_on_cold_cache(
-        self,
-    ) -> None:
+    def test_other_package_failure_fails_run(self) -> None:
         with self._fake_go(
             ["TestOne", "TestTwo"],
             fail_other=True,
@@ -296,98 +271,26 @@ class UnitTestRunnerTest(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("intentional other package failure", result.stderr)
-        self.assertIn(["test", "-tags=unit", "-run=^$", "./..."], self._go_calls(events))
-
-    def test_cache_miss_compiles_all_packages_then_overlaps_service_and_other(
-        self,
-    ) -> None:
-        with self._fake_go(
-            ["TestOne", "TestTwo"],
-            compile_delay=0.75,
-            compile_all_delay=0.25,
-        ) as fixture:
-            result = self._run(fixture, "--min-shards", "2")
-            events = self._events(fixture.events)
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertRegex(result.stdout, r"STAGE compile-all \([0-9.]+s\)")
-        go_calls = self._go_calls(events)
-        self.assertIn(["test", "-tags=unit", "-run=^$", "./..."], go_calls)
-        compile_all_finished = next(
-            event["at"]
-            for event in events
-            if event["kind"] == "go-finished"
-            and event["args"] == ["test", "-tags=unit", "-run=^$", "./..."]
-        )
-        compile_started = next(
-            event["at"]
-            for event in events
-            if event["kind"] == "go" and "-c" in event["args"]
-        )
-        compile_finished = next(
-            event["at"]
-            for event in events
-            if event["kind"] == "go-finished" and "-c" in event["args"]
-        )
-        other_started = next(
-            event["at"]
-            for event in events
-            if event["kind"] == "go" and "./internal/other" in event["args"]
-        )
-        self.assertGreaterEqual(compile_started, compile_all_finished, events)
-        self.assertLess(other_started, compile_finished, events)
-
-    def test_compile_all_failure_stops_before_service_compile(self) -> None:
-        with self._fake_go(["TestOne"], fail_compile_all=True) as fixture:
-            result = self._run(fixture)
-            events = self._events(fixture.events)
-
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("intentional compile-all failure", result.stderr)
         self.assertFalse(
-            [call for call in self._go_calls(events) if "-c" in call],
+            [
+                call
+                for call in self._go_calls(events)
+                if call == ["test", "-tags=unit", "-run=^$", "./..."]
+            ],
             events,
         )
-        self.assertFalse(self._binary_events(events))
 
-    def test_starts_service_compile_after_discovery_finishes(self) -> None:
-        with self._fake_go(
-            ["TestOne", "TestTwo"],
-            discovery_delay=0.75,
-        ) as fixture:
-            result = self._run(fixture, "--min-shards", "2")
-            events = self._events(fixture.events)
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        compile_started = next(
-            event["at"]
-            for event in events
-            if event["kind"] == "go" and "-c" in event["args"]
-        )
-        discovery_finished = next(
-            event["at"]
-            for event in events
-            if event["kind"] == "go-finished"
-            and event["args"]
-            and event["args"][0] == "run"
-        )
-        self.assertGreaterEqual(compile_started, discovery_finished, events)
-
-    def test_exact_cache_hit_overlaps_discovery_compile_and_other_packages(self) -> None:
+    def test_overlaps_discovery_compile_and_other_packages_on_cache_miss(self) -> None:
         with self._fake_go(
             ["TestOne", "TestTwo"],
             compile_delay=0.75,
             discovery_delay=0.25,
         ) as fixture:
-            result = self._run(
-                fixture,
-                "--min-shards",
-                "2",
-                build_cache_hit=True,
-            )
+            result = self._run(fixture, "--min-shards", "2")
             events = self._events(fixture.events)
 
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotRegex(result.stdout, r"STAGE compile-all")
         compile_started = next(
             event["at"]
             for event in events
@@ -413,7 +316,7 @@ class UnitTestRunnerTest(unittest.TestCase):
         self.assertLess(compile_started, discovery_finished, events)
         self.assertLess(other_started, compile_finished, events)
 
-    def test_exact_cache_hit_discovery_failure_terminates_compile_group(self) -> None:
+    def test_discovery_failure_terminates_compile_group(self) -> None:
         with self._fake_go(
             ["TestOne"],
             fail_discovery=True,
@@ -421,7 +324,7 @@ class UnitTestRunnerTest(unittest.TestCase):
             compile_delay=5.0,
             compile_child=True,
         ) as fixture:
-            result = self._run(fixture, build_cache_hit=True)
+            result = self._run(fixture)
             events = self._events(fixture.events)
 
         self.assertNotEqual(result.returncode, 0)
@@ -445,9 +348,7 @@ class UnitTestRunnerTest(unittest.TestCase):
         )
         self.assertFalse(self._binary_events(events))
 
-    def test_exact_cache_hit_test_main_terminates_compile_group_before_fallback(
-        self,
-    ) -> None:
+    def test_test_main_terminates_compile_group_before_fallback(self) -> None:
         with self._fake_go(
             ["TestOne"],
             has_test_main=True,
@@ -455,11 +356,11 @@ class UnitTestRunnerTest(unittest.TestCase):
             compile_delay=5.0,
             compile_child=True,
         ) as fixture:
-            result = self._run(fixture, build_cache_hit=True)
+            result = self._run(fixture)
             events = self._events(fixture.events)
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(["test", "-tags=unit", "./..."], self._go_calls(events))
+        self.assertIn(["test", "-tags=unit", "-vet=off", "./..."], self._go_calls(events))
         self.assertTrue(
             [
                 event
@@ -474,19 +375,14 @@ class UnitTestRunnerTest(unittest.TestCase):
         )
         self.assertFalse(self._binary_events(events))
 
-    def test_exact_cache_hit_compile_failure_terminates_other_packages(self) -> None:
+    def test_compile_failure_terminates_other_packages(self) -> None:
         with self._fake_go(
             ["TestOne", "TestTwo"],
             fail_compile=True,
             compile_delay=0.5,
             other_delay=5.0,
         ) as fixture:
-            result = self._run(
-                fixture,
-                "--min-shards",
-                "2",
-                build_cache_hit=True,
-            )
+            result = self._run(fixture, "--min-shards", "2")
             events = self._events(fixture.events)
 
         self.assertNotEqual(result.returncode, 0)
@@ -502,30 +398,13 @@ class UnitTestRunnerTest(unittest.TestCase):
         )
         self.assertFalse(self._binary_events(events))
 
-    def test_discovery_failure_stops_before_service_compile(self) -> None:
-        with self._fake_go(
-            ["TestOne"],
-            fail_discovery=True,
-            discovery_delay=0.25,
-        ) as fixture:
-            result = self._run(fixture)
-            events = self._events(fixture.events)
-
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("invalid Go test discovery output", result.stderr)
-        self.assertFalse(
-            [call for call in self._go_calls(events) if "-c" in call],
-            events,
-        )
-        self.assertFalse(self._binary_events(events))
-
     def test_reports_discovery_compile_and_registry_stage_durations(self) -> None:
         with self._fake_go(["TestOne"]) as fixture:
             result = self._run(fixture)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertRegex(result.stdout, r"STAGE discovery \([0-9.]+s\)")
-        self.assertRegex(result.stdout, r"STAGE compile-all \([0-9.]+s\)")
+        self.assertNotRegex(result.stdout, r"STAGE compile-all")
         self.assertRegex(result.stdout, r"STAGE service-compile \([0-9.]+s\)")
         self.assertRegex(result.stdout, r"STAGE registry-check \([0-9.]+s\)")
 
@@ -533,7 +412,6 @@ class UnitTestRunnerTest(unittest.TestCase):
         self,
         fixture: "FakeGoFixture",
         *args: str,
-        build_cache_hit: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["PATH"] = f"{fixture.bin_dir}{os.pathsep}{env['PATH']}"
@@ -541,7 +419,6 @@ class UnitTestRunnerTest(unittest.TestCase):
         env["FAKE_GO_ROOT"] = str(fixture.root)
         env["FAKE_GO_TESTS"] = json.dumps(fixture.test_names)
         env["FAKE_GO_BINARY_TESTS"] = json.dumps(fixture.binary_test_names)
-        env.pop("UNIT_TEST_BUILD_CACHE_HIT", None)
         if fixture.has_test_main:
             env["FAKE_GO_HAS_TEST_MAIN"] = "1"
         if fixture.fail_compile:
@@ -562,12 +439,6 @@ class UnitTestRunnerTest(unittest.TestCase):
             env["FAKE_GO_FAIL_OTHER"] = "1"
         if fixture.other_delay:
             env["FAKE_GO_OTHER_DELAY"] = str(fixture.other_delay)
-        if fixture.fail_compile_all:
-            env["FAKE_GO_FAIL_COMPILE_ALL"] = "1"
-        if fixture.compile_all_delay:
-            env["FAKE_GO_COMPILE_ALL_DELAY"] = str(fixture.compile_all_delay)
-        if build_cache_hit:
-            env["UNIT_TEST_BUILD_CACHE_HIT"] = "true"
         return subprocess.run(
             ["python3", str(SCRIPT), "--root", str(fixture.root), *args],
             check=False,
@@ -619,8 +490,6 @@ class UnitTestRunnerTest(unittest.TestCase):
         compile_child: bool = False,
         fail_other: bool = False,
         other_delay: float = 0.0,
-        fail_compile_all: bool = False,
-        compile_all_delay: float = 0.0,
     ) -> "FakeGoFixtureContext":
         return FakeGoFixtureContext(
             test_names,
@@ -635,8 +504,6 @@ class UnitTestRunnerTest(unittest.TestCase):
             compile_child,
             fail_other,
             other_delay,
-            fail_compile_all,
-            compile_all_delay,
         )
 
 
@@ -656,8 +523,6 @@ class FakeGoFixture:
         compile_child: bool,
         fail_other: bool,
         other_delay: float,
-        fail_compile_all: bool,
-        compile_all_delay: float,
     ) -> None:
         self._temporary = temporary
         self.root = Path(temporary.name)
@@ -677,8 +542,6 @@ class FakeGoFixture:
         self.compile_child = compile_child
         self.fail_other = fail_other
         self.other_delay = other_delay
-        self.fail_compile_all = fail_compile_all
-        self.compile_all_delay = compile_all_delay
         service_dir = self.root / "internal" / "service"
         service_dir.mkdir(parents=True)
         declarations = []
@@ -716,8 +579,6 @@ class FakeGoFixtureContext:
         compile_child: bool,
         fail_other: bool,
         other_delay: float,
-        fail_compile_all: bool,
-        compile_all_delay: float,
     ) -> None:
         self.test_names = test_names
         self.has_test_main = has_test_main
@@ -731,8 +592,6 @@ class FakeGoFixtureContext:
         self.compile_child = compile_child
         self.fail_other = fail_other
         self.other_delay = other_delay
-        self.fail_compile_all = fail_compile_all
-        self.compile_all_delay = compile_all_delay
         self.temporary: tempfile.TemporaryDirectory[str] | None = None
 
     def __enter__(self) -> FakeGoFixture:
@@ -751,8 +610,6 @@ class FakeGoFixtureContext:
             self.compile_child,
             self.fail_other,
             self.other_delay,
-            self.fail_compile_all,
-            self.compile_all_delay,
         )
         fake_binary_source = textwrap.dedent(
             """\
@@ -823,16 +680,6 @@ class FakeGoFixtureContext:
                         "entries": json.loads(os.environ["FAKE_GO_TESTS"]),
                         "has_test_main": os.environ.get("FAKE_GO_HAS_TEST_MAIN") == "1",
                     }))
-                    raise SystemExit(0)
-
-                if args == ["test", "-tags=unit", "-run=^$", "./..."]:
-                    time.sleep(float(os.environ.get("FAKE_GO_COMPILE_ALL_DELAY", "0")))
-                    with events.open("a", encoding="utf-8") as output:
-                        output.write(json.dumps({"kind": "go-finished", "args": args, "at": time.monotonic()}) + "\\n")
-                    if os.environ.get("FAKE_GO_FAIL_COMPILE_ALL") == "1":
-                        print("intentional compile-all failure", file=sys.stderr)
-                        raise SystemExit(1)
-                    print("ok  fake/package  0.001s")
                     raise SystemExit(0)
 
                 if args == ["list", "-json", "-tags=unit", "./..."]:
