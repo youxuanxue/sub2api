@@ -22,8 +22,9 @@ func newAdminRoutesTestRouter() *gin.Engine {
 		v1,
 		&handler.Handlers{
 			Admin: &handler.AdminHandlers{
-				Channel:   &adminhandler.ChannelHandler{},
-				TKChannel: &adminhandler.TKChannelAdminHandler{},
+				Channel:        &adminhandler.ChannelHandler{},
+				TKChannel:      &adminhandler.TKChannelAdminHandler{},
+				SupplierSource: &adminhandler.SupplierSourceHandler{},
 			},
 		},
 		servermiddleware.AdminAuthMiddleware(func(c *gin.Context) {
@@ -36,6 +37,40 @@ func newAdminRoutesTestRouter() *gin.Engine {
 	)
 
 	return router
+}
+
+func TestUS048_SupplierSourceRoutesAreRegistered(t *testing.T) {
+	router := newAdminRoutesTestRouter()
+	registered := map[string]bool{}
+	for _, route := range router.Routes() {
+		registered[route.Method+" "+route.Path] = true
+	}
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/admin/supplier-sources"},
+		{http.MethodPost, "/api/v1/admin/supplier-sources"},
+		{http.MethodGet, "/api/v1/admin/supplier-sources/priority-preview"},
+		{http.MethodGet, "/api/v1/admin/supplier-sources/:id"},
+		{http.MethodPut, "/api/v1/admin/supplier-sources/:id"},
+		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/sync"},
+	} {
+		require.True(t, registered[tt.method+" "+tt.path], "path=%s should be registered", tt.path)
+	}
+
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/validate"},
+		{http.MethodGet, "/api/v1/admin/supplier-sources/:id/activation-preview"},
+		{http.MethodGet, "/api/v1/admin/supplier-sources/:id/audits"},
+		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/activate"},
+		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/pause"},
+	} {
+		require.False(t, registered[tt.method+" "+tt.path], "removed path=%s must not be registered", tt.path)
+	}
 }
 
 func TestAdminRoutesTokenKeyChannelHelpersAreRegistered(t *testing.T) {

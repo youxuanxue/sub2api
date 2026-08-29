@@ -77,6 +77,9 @@ func newAPIBridgeChannelInputForModel(account *Account, userID int64, groupLabel
 	}
 	baseURL := strings.TrimSpace(account.GetBaseURL())
 	baseURL = newapiintegration.NormalizeArkChannelBaseURL(account.ChannelType, baseURL)
+	if account.ChannelType == newapiconstant.ChannelTypeOpenAI && IsSupplierManagedAccount(account) {
+		baseURL = normalizeNewAPIOpenAIChannelBaseURL(baseURL)
+	}
 	// Fifth platform `newapi`: OpenAI base URL fallback does not apply; credentials.base_url is required at create time.
 	if baseURL == "" && account.Platform != PlatformNewAPI {
 		baseURL = strings.TrimSpace(account.GetOpenAIBaseURL())
@@ -122,4 +125,12 @@ func newAPIBridgeChannelInputForModel(account *Account, userID int64, groupLabel
 		VertexKeyType:         vertexKeyType,
 		VertexLocation:        vertexLocation,
 	}
+}
+
+func normalizeNewAPIOpenAIChannelBaseURL(baseURL string) string {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if strings.HasSuffix(baseURL, "/v1") {
+		return strings.TrimRight(strings.TrimSuffix(baseURL, "/v1"), "/")
+	}
+	return baseURL
 }

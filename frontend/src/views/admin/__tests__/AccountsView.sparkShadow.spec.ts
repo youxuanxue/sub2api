@@ -13,8 +13,12 @@ const {
   listAccounts,
   listWithEtag,
   getBatchTodayStats,
+  getBatchPassiveUsage,
+  getUpstreamBillingProbeSettings,
   getAllProxies,
   getAllGroups,
+  getAllIncludingInactive,
+  listEdgeAccounts,
   duplicateAccount,
   createSparkShadow,
   showSuccess,
@@ -23,8 +27,12 @@ const {
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
+  getBatchPassiveUsage: vi.fn(),
+  getUpstreamBillingProbeSettings: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
+  getAllIncludingInactive: vi.fn(),
+  listEdgeAccounts: vi.fn(),
   duplicateAccount: vi.fn(),
   createSparkShadow: vi.fn(),
   showSuccess: vi.fn(),
@@ -37,8 +45,9 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
+      getBatchPassiveUsage,
       duplicate: duplicateAccount,
-      getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
+      getUpstreamBillingProbeSettings,
       createSparkShadow,
       delete: vi.fn(),
       batchClearError: vi.fn(),
@@ -46,7 +55,8 @@ vi.mock('@/api/admin', () => ({
       toggleSchedulable: vi.fn()
     },
     proxies: { getAll: getAllProxies },
-    groups: { getAll: getAllGroups }
+    groups: { getAll: getAllGroups, getAllIncludingInactive },
+    edgeAccounts: { listWithEtag: listEdgeAccounts }
   }
 }))
 
@@ -66,6 +76,32 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
+const ActionDataTableStub = {
+  props: ['data'],
+  template: `
+    <div>
+      <div v-for="row in data" :key="row.id" data-test="account-actions">
+        <slot name="cell-actions" :row="row" />
+      </div>
+    </div>
+  `
+}
+
+const parentAccount = {
+  id: 42,
+  name: 'parent-acc',
+  platform: 'openai',
+  type: 'oauth',
+  status: 'active',
+  schedulable: true,
+  priority: 1,
+  concurrency: 1,
+  supported_protocols: ['responses'],
+  extra: {},
+  created_at: '2026-08-28T00:00:00Z',
+  updated_at: '2026-08-28T00:00:00Z'
+}
+
 const mountView = () =>
   mount(AccountsView, {
     global: {
@@ -74,7 +110,7 @@ const mountView = () =>
         TablePageLayout: {
           template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
         },
-        DataTable: true,
+        DataTable: ActionDataTableStub,
         Pagination: true,
         ConfirmDialog: true,
         AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
@@ -104,17 +140,30 @@ const mountView = () =>
     }
   })
 
+async function openActionMenu(wrapper: ReturnType<typeof mountView>) {
+  const actionButtons = wrapper.get('[data-test="account-actions"]').findAll('button')
+  await actionButtons[2].trigger('click')
+  await flushPromises()
+  const menu = wrapper.findComponent(AccountActionMenu)
+  expect(menu.exists()).toBe(true)
+  return menu
+}
+
 describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
   beforeEach(() => {
     localStorage.clear()
-    for (const fn of [listAccounts, listWithEtag, getBatchTodayStats, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow, showSuccess, showError]) {
+    for (const fn of [listAccounts, listWithEtag, getBatchTodayStats, getBatchPassiveUsage, getUpstreamBillingProbeSettings, getAllProxies, getAllGroups, getAllIncludingInactive, listEdgeAccounts, duplicateAccount, createSparkShadow, showSuccess, showError]) {
       fn.mockReset()
     }
-    listAccounts.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
+    listAccounts.mockResolvedValue({ items: [parentAccount], total: 1, page: 1, page_size: 20, pages: 1 })
     listWithEtag.mockResolvedValue({ notModified: true, etag: null, data: null })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
+    getBatchPassiveUsage.mockResolvedValue({ usage: {} })
+    getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30 })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
+    getAllIncludingInactive.mockResolvedValue([])
+    listEdgeAccounts.mockResolvedValue({ notModified: false, etag: null, data: { platform: '__by_stub__', edges: [], ts: 1 } })
     duplicateAccount.mockResolvedValue({ id: 998, name: 'parent-acc (Copy)' })
     createSparkShadow.mockResolvedValue({ id: 999, name: 'parent-acc (Spark)' })
   })
@@ -127,7 +176,8 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    wrapper.findComponent(AccountActionMenu).vm.$emit('duplicate', { id: 42, name: 'parent-acc' })
+    const menu = await openActionMenu(wrapper)
+    menu.vm.$emit('duplicate', parentAccount)
     await flushPromises()
 
     expect(duplicateAccount).toHaveBeenCalledTimes(1)
@@ -143,9 +193,9 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    const menu = wrapper.findComponent(AccountActionMenu)
-    menu.vm.$emit('duplicate', { id: 42, name: 'parent-acc' })
-    menu.vm.$emit('duplicate', { id: 42, name: 'parent-acc' })
+    const menu = await openActionMenu(wrapper)
+    menu.vm.$emit('duplicate', parentAccount)
+    menu.vm.$emit('duplicate', parentAccount)
     await flushPromises()
 
     expect(duplicateAccount).toHaveBeenCalledTimes(1)
@@ -160,7 +210,8 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    wrapper.findComponent(AccountActionMenu).vm.$emit('duplicate', { id: 42, name: 'parent-acc' })
+    const menu = await openActionMenu(wrapper)
+    menu.vm.$emit('duplicate', parentAccount)
     await flushPromises()
 
     expect(showError).toHaveBeenCalledWith('duplicate failed')
@@ -172,10 +223,8 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    const menu = wrapper.findComponent(AccountActionMenu)
-    expect(menu.exists()).toBe(true)
-
-    menu.vm.$emit('create-spark-shadow', { id: 42, name: 'parent-acc' })
+    const menu = await openActionMenu(wrapper)
+    menu.vm.$emit('create-spark-shadow', parentAccount)
     await flushPromises()
 
     // 不再用原生 confirm,改用应用内 ConfirmDialog:先弹出,点确认才调 API
@@ -194,7 +243,8 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    wrapper.findComponent(AccountActionMenu).vm.$emit('create-spark-shadow', { id: 42, name: 'parent-acc' })
+    const menu = await openActionMenu(wrapper)
+    menu.vm.$emit('create-spark-shadow', parentAccount)
     await flushPromises()
 
     // 弹出 ConfirmDialog 后点取消,不应调用 API
@@ -259,13 +309,17 @@ const mountViewWithRow = () =>
 describe('admin AccountsView — 账号行展示', () => {
   beforeEach(() => {
     localStorage.clear()
-    for (const fn of [listAccounts, listWithEtag, getBatchTodayStats, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow, showSuccess, showError]) {
+    for (const fn of [listAccounts, listWithEtag, getBatchTodayStats, getBatchPassiveUsage, getUpstreamBillingProbeSettings, getAllProxies, getAllGroups, getAllIncludingInactive, listEdgeAccounts, duplicateAccount, createSparkShadow, showSuccess, showError]) {
       fn.mockReset()
     }
     listWithEtag.mockResolvedValue({ notModified: true, etag: null, data: null })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
+    getBatchPassiveUsage.mockResolvedValue({ usage: {} })
+    getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30 })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
+    getAllIncludingInactive.mockResolvedValue([])
+    listEdgeAccounts.mockResolvedValue({ notModified: false, etag: null, data: { platform: '__by_stub__', edges: [], ts: 1 } })
     vi.stubGlobal('confirm', vi.fn(() => true))
   })
 

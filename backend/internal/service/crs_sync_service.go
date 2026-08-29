@@ -71,6 +71,13 @@ func guardCRSShadowParentInvariant(ctx context.Context, repo AccountRepository, 
 	return nil
 }
 
+func guardCRSAccountUpdate(ctx context.Context, repo AccountRepository, existing *Account, newPlatform, newType string) error {
+	if IsSupplierManagedAccount(existing) {
+		return ErrSupplierManagedAccountProtected
+	}
+	return guardCRSShadowParentInvariant(ctx, repo, existing, newPlatform, newType)
+}
+
 type SyncFromCRSInput struct {
 	BaseURL            string
 	Username           string
@@ -355,6 +362,13 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		if accountUUID, ok := src.Credentials["account_uuid"]; ok {
 			extra["account_uuid"] = accountUUID
 		}
+		if extraErr := ValidateSupplierReservedAccountExtra(extra); extraErr != nil {
+			item.Action = "failed"
+			item.Error = extraErr.Error()
+			result.Failed++
+			result.Items = append(result.Items, item)
+			continue
+		}
 
 		existing, err := s.accountRepo.GetByCRSAccountID(ctx, src.ID)
 		if err != nil {
@@ -405,7 +419,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		}
 
 		// 母账号守卫(外审第9轮):CRS ID 跨平台碰撞时,本(Anthropic OAuth)分支不得改坏有 spark 影子的 OpenAI 母账号。
-		if gerr := guardCRSShadowParentInvariant(ctx, s.accountRepo, existing, PlatformAnthropic, targetType); gerr != nil {
+		if gerr := guardCRSAccountUpdate(ctx, s.accountRepo, existing, PlatformAnthropic, targetType); gerr != nil {
 			item.Action = "failed"
 			item.Error = gerr.Error()
 			result.Failed++
@@ -530,7 +544,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		}
 
 		// 母账号守卫(外审第9轮):CRS ID 跨平台碰撞时,本(Anthropic APIKey)分支不得改坏有 spark 影子的 OpenAI 母账号。
-		if gerr := guardCRSShadowParentInvariant(ctx, s.accountRepo, existing, PlatformAnthropic, AccountTypeAPIKey); gerr != nil {
+		if gerr := guardCRSAccountUpdate(ctx, s.accountRepo, existing, PlatformAnthropic, AccountTypeAPIKey); gerr != nil {
 			item.Action = "failed"
 			item.Error = gerr.Error()
 			result.Failed++
@@ -625,6 +639,13 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		if crsEmail, ok := src.Extra["crs_email"]; ok {
 			extra["email"] = crsEmail
 		}
+		if extraErr := ValidateSupplierReservedAccountExtra(extra); extraErr != nil {
+			item.Action = "failed"
+			item.Error = extraErr.Error()
+			result.Failed++
+			result.Items = append(result.Items, item)
+			continue
+		}
 
 		existing, err := s.accountRepo.GetByCRSAccountID(ctx, src.ID)
 		if err != nil {
@@ -680,6 +701,14 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 			}
 			item.Action = "created"
 			result.Created++
+			result.Items = append(result.Items, item)
+			continue
+		}
+
+		if gerr := guardCRSAccountUpdate(ctx, s.accountRepo, existing, PlatformOpenAI, AccountTypeOAuth); gerr != nil {
+			item.Action = "failed"
+			item.Error = gerr.Error()
+			result.Failed++
 			result.Items = append(result.Items, item)
 			continue
 		}
@@ -772,6 +801,13 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		extra["crs_account_id"] = src.ID
 		extra["crs_kind"] = src.Kind
 		extra["crs_synced_at"] = now
+		if extraErr := ValidateSupplierReservedAccountExtra(extra); extraErr != nil {
+			item.Action = "failed"
+			item.Error = extraErr.Error()
+			result.Failed++
+			result.Items = append(result.Items, item)
+			continue
+		}
 
 		existing, err := s.accountRepo.GetByCRSAccountID(ctx, src.ID)
 		if err != nil {
@@ -829,7 +865,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 
 		// 母账号守卫(外审第8/9轮):CRS 不得把有 spark 影子的母账号改离 OpenAI OAuth(此处会翻成 api_key),
 		// 否则影子读透母凭据失败、resolveCredentialAccount 必报错、spark 调度与用量刷新全崩。须先删影子再改。
-		if gerr := guardCRSShadowParentInvariant(ctx, s.accountRepo, existing, PlatformOpenAI, AccountTypeAPIKey); gerr != nil {
+		if gerr := guardCRSAccountUpdate(ctx, s.accountRepo, existing, PlatformOpenAI, AccountTypeAPIKey); gerr != nil {
 			item.Action = "failed"
 			item.Error = gerr.Error()
 			result.Failed++
@@ -909,6 +945,13 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		extra["crs_account_id"] = src.ID
 		extra["crs_kind"] = src.Kind
 		extra["crs_synced_at"] = now
+		if extraErr := ValidateSupplierReservedAccountExtra(extra); extraErr != nil {
+			item.Action = "failed"
+			item.Error = extraErr.Error()
+			result.Failed++
+			result.Items = append(result.Items, item)
+			continue
+		}
 
 		existing, err := s.accountRepo.GetByCRSAccountID(ctx, src.ID)
 		if err != nil {
@@ -956,7 +999,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		}
 
 		// 母账号守卫(外审第9轮):CRS ID 跨平台碰撞时,本(Gemini OAuth)分支不得改坏有 spark 影子的 OpenAI 母账号。
-		if gerr := guardCRSShadowParentInvariant(ctx, s.accountRepo, existing, PlatformGemini, AccountTypeOAuth); gerr != nil {
+		if gerr := guardCRSAccountUpdate(ctx, s.accountRepo, existing, PlatformGemini, AccountTypeOAuth); gerr != nil {
 			item.Action = "failed"
 			item.Error = gerr.Error()
 			result.Failed++
@@ -1034,6 +1077,13 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		extra["crs_account_id"] = src.ID
 		extra["crs_kind"] = src.Kind
 		extra["crs_synced_at"] = now
+		if extraErr := ValidateSupplierReservedAccountExtra(extra); extraErr != nil {
+			item.Action = "failed"
+			item.Error = extraErr.Error()
+			result.Failed++
+			result.Items = append(result.Items, item)
+			continue
+		}
 
 		existing, err := s.accountRepo.GetByCRSAccountID(ctx, src.ID)
 		if err != nil {
@@ -1078,7 +1128,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		}
 
 		// 母账号守卫(外审第9轮):CRS ID 跨平台碰撞时,本(Gemini APIKey)分支不得改坏有 spark 影子的 OpenAI 母账号。
-		if gerr := guardCRSShadowParentInvariant(ctx, s.accountRepo, existing, PlatformGemini, AccountTypeAPIKey); gerr != nil {
+		if gerr := guardCRSAccountUpdate(ctx, s.accountRepo, existing, PlatformGemini, AccountTypeAPIKey); gerr != nil {
 			item.Action = "failed"
 			item.Error = gerr.Error()
 			result.Failed++

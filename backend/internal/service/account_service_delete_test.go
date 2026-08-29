@@ -37,7 +37,7 @@ func (s *accountRepoStub) Create(ctx context.Context, account *Account) error {
 }
 
 func (s *accountRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
-	panic("unexpected GetByID call")
+	return &Account{ID: id, Extra: map[string]any{}}, nil
 }
 
 func (s *accountRepoStub) GetByIDs(ctx context.Context, ids []int64) ([]*Account, error) {

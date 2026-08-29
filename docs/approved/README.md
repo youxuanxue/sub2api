@@ -43,6 +43,7 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 | [`glm-direct-zhipuv4-onboarding.md`](glm-direct-zhipuv4-onboarding.md) | GLM direct onboarding |
 | [`grok-relay-first-class-platform.md`](grok-relay-first-class-platform.md) | Grok relay platform |
 | [`kiro-claude-code-completion-continuity.md`](kiro-claude-code-completion-continuity.md) | Kiro Claude Code completion continuity |
+| [`model-supplier-source-management.md`](model-supplier-source-management.md) | 模型供应源管理、探测门禁与账号 ownership |
 | [`newapi-served-models-reconciler.md`](newapi-served-models-reconciler.md) | No unattended newapi auto-sync |
 | [`ops-sla-error-owner-scope.md`](ops-sla-error-owner-scope.md) | Ops SLA owner scope |
 | [`ops-unified-contract.md`](ops-unified-contract.md) | Ops unified contract |

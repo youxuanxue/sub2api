@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +32,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/google/uuid"
 	"github.com/lib/pq"
 
 	entsql "entgo.io/ent/dialect/sql"
@@ -223,6 +225,84 @@ func ensureAccountProtocolEndpointCapability(ctx context.Context, db protocolCap
 		}
 	}
 	return false, nil
+}
+
+const supplierVerifiedChatCapabilityLeaseTTL = 2 * time.Minute
+
+func publishVerifiedSupplierChatCapability(
+	ctx context.Context,
+	repo *protocolEndpointCapabilityRepository,
+	account *service.Account,
+) (bool, error) {
+	if repo == nil || account == nil || !service.IsSupplierManagedAccount(account) {
+		return false, service.ErrSupplierProjectionProtocolNotReady
+	}
+	input, err := service.BuildProtocolEndpointCapabilityLinkInput(account)
+	if err != nil {
+		return false, err
+	}
+	if !input.Governed || len(input.Identity.ProtocolEndpoints) != 1 {
+		return false, service.ErrSupplierProjectionProtocolNotReady
+	}
+	if _, ok := input.Identity.ProtocolEndpoints[protocolrouter.ProtocolChatCompletions]; !ok {
+		return false, service.ErrSupplierProjectionProtocolNotReady
+	}
+
+	capability, err := repo.EnsureAccountLink(
+		ctx,
+		account,
+		input.Identity,
+		input.SeedProtocols,
+		input.OfficialSeed,
+	)
+	if err != nil {
+		return false, err
+	}
+	if capability == nil || capability.IdentityConflict || capability.ProbeEvidence.IdentityConflict {
+		return false, service.ErrSupplierProjectionProtocolNotReady
+	}
+
+	chatOnly := []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}
+	projectionAlreadyChatOnly := slices.Equal(service.LegacySupportedProtocolsProjection(account), chatOnly)
+	now := time.Now().UTC()
+	lease, acquired, err := repo.AcquireProbeLease(
+		ctx,
+		capability.CapabilityKey,
+		uuid.NewString(),
+		now,
+		supplierVerifiedChatCapabilityLeaseTTL,
+	)
+	if err != nil {
+		return false, err
+	}
+	if !acquired {
+		return false, service.ErrSupplierProjectionProtocolNotReady
+	}
+
+	evidence := capability.ProbeEvidence
+	verdicts := make(map[string]any, len(evidence.Verdicts)+1)
+	for protocol, verdict := range evidence.Verdicts {
+		verdicts[protocol] = verdict
+	}
+	verdicts[string(protocolrouter.ProtocolChatCompletions)] = string(service.ProtocolProbePositive)
+	evidence.Verdicts = verdicts
+	evidence.IdentityConflict = false
+	updated, _, err := repo.CommitProbeResult(ctx, lease, service.ProtocolCapabilityMutation{
+		SupportedProtocols:    chatOnly,
+		ProbeEvidence:         evidence,
+		InitialProbeCompleted: true,
+		IdentityConflict:      false,
+		LastProbedAt:          now,
+	})
+	if err != nil {
+		if errors.Is(err, service.ErrProtocolCapabilityStaleWrite) {
+			return false, service.ErrSupplierProjectionProtocolNotReady
+		}
+		return false, err
+	}
+	account.ProtocolEndpointCapabilityID = &updated.ID
+	account.ProtocolEndpointCapability = updated
+	return !projectionAlreadyChatOnly, nil
 }
 
 // NewAdminAccountRepository exposes the account repository's atomic duplication capability
@@ -499,6 +579,16 @@ func (r *accountRepository) GetByID(ctx context.Context, id int64) (*service.Acc
 	return &accounts[0], nil
 }
 
+func (r *accountRepository) GetSupplierAccount(ctx context.Context, id int64) (*service.Account, error) {
+	m, err := selectSupplierAccountProjection(
+		r.client.Account.Query().Where(dbaccount.IDEQ(id)),
+	).Only(ctx)
+	if err != nil {
+		return nil, translatePersistenceError(err, service.ErrAccountNotFound, nil)
+	}
+	return supplierAccountEntityToService(m), nil
+}
+
 func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*service.Account, error) {
 	if len(ids) == 0 {
 		return []*service.Account{}, nil
@@ -670,6 +760,162 @@ func (r *accountRepository) ListCRSAccountIDs(ctx context.Context) (map[string]i
 
 func (r *accountRepository) Update(ctx context.Context, account *service.Account) error {
 	return r.updateAccount(ctx, account, nil, nil, account.RateMultiplier)
+}
+
+func (r *accountRepository) UpdateSupplierMetadata(ctx context.Context, accountID int64, name string, priority int) error {
+	baseCtx := ctx
+	contextTx := dbent.TxFromContext(ctx)
+	client := r.client
+	var tx *dbent.Tx
+	if contextTx != nil {
+		client = contextTx.Client()
+	} else {
+		var err error
+		tx, err = r.client.Tx(ctx)
+		if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+			return err
+		}
+		if tx != nil {
+			defer func() { _ = tx.Rollback() }()
+			ctx = dbent.NewTxContext(ctx, tx)
+			client = tx.Client()
+		}
+	}
+
+	result, err := client.ExecContext(ctx, `
+		UPDATE accounts
+		SET
+			name = $1,
+			priority = $2,
+			updated_at = NOW()
+		WHERE id = $3 AND deleted_at IS NULL
+	`, name, priority, accountID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrAccountNotFound
+	}
+	if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil); err != nil {
+		return err
+	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	if contextTx == nil {
+		r.syncSchedulerAccountSnapshot(baseCtx, accountID)
+	}
+	return nil
+}
+
+func (r *accountRepository) UpdateSupplierProjection(ctx context.Context, account *service.Account, chatProbePassed bool) error {
+	if account == nil {
+		return nil
+	}
+	if len(account.GetModelMapping()) > 0 && !chatProbePassed {
+		return service.ErrSupplierProjectionProtocolNotReady
+	}
+	credentials, err := json.Marshal(normalizeJSONMap(account.Credentials))
+	if err != nil {
+		return err
+	}
+	sourceID, sourceOK := account.Extra[service.SupplierSourceIDExtraKey]
+	discountBand, bandOK := account.Extra[service.SupplierDiscountBandExtraKey]
+	if !sourceOK || !bandOK {
+		return service.ErrSupplierSourceInvalidInput
+	}
+	managedExtra, err := json.Marshal(map[string]any{
+		service.SupplierSourceIDExtraKey:     sourceID,
+		service.SupplierDiscountBandExtraKey: discountBand,
+	})
+	if err != nil {
+		return err
+	}
+	schedulable := account.Schedulable
+	if account.Status == service.StatusError {
+		schedulable = false
+	}
+
+	baseCtx := ctx
+	contextTx := dbent.TxFromContext(ctx)
+	client := r.client
+	var tx *dbent.Tx
+	if contextTx != nil {
+		client = contextTx.Client()
+	} else {
+		tx, err = r.client.Tx(ctx)
+		if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+			return err
+		}
+		if tx != nil {
+			defer func() { _ = tx.Rollback() }()
+			ctx = dbent.NewTxContext(ctx, tx)
+			client = tx.Client()
+		}
+	}
+
+	result, err := client.ExecContext(ctx, `
+		UPDATE accounts
+		SET
+			name = $1,
+			platform = $2,
+			type = $3,
+			channel_type = $4,
+			credentials = $5::jsonb,
+			extra = COALESCE(extra, '{}'::jsonb) || $6::jsonb,
+			priority = $7,
+			status = $8,
+			schedulable = $9,
+			updated_at = NOW()
+		WHERE id = $10 AND deleted_at IS NULL
+	`, account.Name, account.Platform, account.Type, account.ChannelType, string(credentials), string(managedExtra), account.Priority, account.Status, schedulable, account.ID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrAccountNotFound
+	}
+	updatedAccount, err := loadAccountForProtocolCapabilityLifecycle(ctx, client, account.ID)
+	if err != nil {
+		return err
+	}
+	protocolPublished := false
+	if len(updatedAccount.GetModelMapping()) > 0 {
+		protocolPublished, err = publishVerifiedSupplierChatCapability(
+			ctx,
+			r.protocolCapabilityRepository(ctx),
+			updatedAccount,
+		)
+	} else {
+		protocolPublished, err = ensureAccountProtocolEndpointCapability(ctx, client, updatedAccount)
+	}
+	if err != nil {
+		return err
+	}
+	if !protocolPublished {
+		if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, nil); err != nil {
+			return err
+		}
+	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	if contextTx == nil {
+		r.syncSchedulerAccountSnapshot(baseCtx, account.ID)
+	}
+	return nil
 }
 
 // UpdateWithAccountBillingSettings applies an admin account edit while
@@ -1649,6 +1895,20 @@ func (r *accountRepository) ListByPlatform(ctx context.Context, platform string)
 		return nil, err
 	}
 	return r.accountsToService(ctx, accounts)
+}
+
+func (r *accountRepository) ListSupplierAdoptionCandidates(ctx context.Context) ([]service.Account, error) {
+	accounts, err := selectSupplierAccountProjection(r.client.Account.Query().
+		Where(
+			dbaccount.DeletedAtIsNil(),
+			dbaccount.PlatformEQ(service.PlatformNewAPI),
+		).
+		Order(dbent.Asc(dbaccount.FieldPriority))).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return accountsToSupplierSourceService(accounts), nil
 }
 
 func (r *accountRepository) UpdateLastUsed(ctx context.Context, id int64) error {
@@ -3847,6 +4107,50 @@ WHERE a.id = ANY($1) AND a.deleted_at IS NULL`, pq.Array(accountIDs))
 	return result, rows.Err()
 }
 
+func selectSupplierAccountProjection(query *dbent.AccountQuery) *dbent.AccountSelect {
+	return query.Select(
+		dbaccount.FieldID,
+		dbaccount.FieldName,
+		dbaccount.FieldPlatform,
+		dbaccount.FieldType,
+		dbaccount.FieldCredentials,
+		dbaccount.FieldExtra,
+		dbaccount.FieldPriority,
+		dbaccount.FieldStatus,
+		dbaccount.FieldSchedulable,
+		dbaccount.FieldChannelType,
+	)
+}
+
+func supplierAccountEntityToService(m *dbent.Account) *service.Account {
+	if m == nil {
+		return nil
+	}
+	return &service.Account{
+		ID:          m.ID,
+		Name:        m.Name,
+		Platform:    m.Platform,
+		Type:        m.Type,
+		Credentials: copyJSONMap(m.Credentials),
+		Extra:       copyJSONMap(m.Extra),
+		Priority:    m.Priority,
+		Status:      m.Status,
+		Schedulable: m.Schedulable,
+		ChannelType: m.ChannelType,
+	}
+}
+
+func accountsToSupplierSourceService(accounts []*dbent.Account) []service.Account {
+	result := make([]service.Account, 0, len(accounts))
+	for _, account := range accounts {
+		converted := supplierAccountEntityToService(account)
+		if converted != nil {
+			result = append(result, *converted)
+		}
+	}
+	return result
+}
+
 func normalizeJSONMap(in map[string]any) map[string]any {
 	if in == nil {
 		return map[string]any{}
@@ -3932,6 +4236,26 @@ func (r *accountRepository) FindByExtraField(ctx context.Context, key string, va
 	}
 
 	return r.accountsToService(ctx, accounts)
+}
+
+func (r *accountRepository) ListSupplierManagedAccounts(ctx context.Context, sourceID int64) ([]service.Account, error) {
+	accounts, err := selectSupplierAccountProjection(r.client.Account.Query().
+		Where(
+			dbaccount.DeletedAtIsNil(),
+			func(selector *entsql.Selector) {
+				path := sqljson.Path(service.SupplierSourceIDExtraKey)
+				selector.Where(entsql.Or(
+					sqljson.ValueEQ(dbaccount.FieldExtra, sourceID, path),
+					sqljson.ValueEQ(dbaccount.FieldExtra, strconv.FormatInt(sourceID, 10), path),
+				))
+			},
+		).
+		Order(dbent.Asc(dbaccount.FieldID))).
+		All(ctx)
+	if err != nil {
+		return nil, translatePersistenceError(err, service.ErrAccountNotFound, nil)
+	}
+	return accountsToSupplierSourceService(accounts), nil
 }
 
 // ListDueUpstreamBillingProbeAccounts bounds result hydration and network work

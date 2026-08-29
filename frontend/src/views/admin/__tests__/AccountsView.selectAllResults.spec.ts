@@ -7,17 +7,21 @@ const {
   listAccounts,
   listWithEtag,
   getBatchTodayStats,
+  getBatchPassiveUsage,
   getUpstreamBillingProbeSettings,
   getAllProxies,
   getAllGroups,
+  getAllIncludingInactive,
   showError
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
+  getBatchPassiveUsage: vi.fn(),
   getUpstreamBillingProbeSettings: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
+  getAllIncludingInactive: vi.fn(),
   showError: vi.fn()
 }))
 
@@ -27,6 +31,7 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
+      getBatchPassiveUsage,
       getUpstreamBillingProbeSettings,
       batchDelete: vi.fn(),
       batchClearError: vi.fn(),
@@ -37,7 +42,8 @@ vi.mock('@/api/admin', () => ({
       getAll: getAllProxies
     },
     groups: {
-      getAll: getAllGroups
+      getAll: getAllGroups,
+      getAllIncludingInactive
     }
   }
 }))
@@ -140,9 +146,11 @@ describe('admin AccountsView select all filtered results', () => {
     listAccounts.mockReset()
     listWithEtag.mockReset()
     getBatchTodayStats.mockReset()
+    getBatchPassiveUsage.mockReset()
     getUpstreamBillingProbeSettings.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
+    getAllIncludingInactive.mockReset()
     showError.mockReset()
 
     listWithEtag.mockResolvedValue({
@@ -151,9 +159,11 @@ describe('admin AccountsView select all filtered results', () => {
       data: null
     })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
+    getBatchPassiveUsage.mockResolvedValue({ usage: {} })
     getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30 })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
+    getAllIncludingInactive.mockResolvedValue([])
   })
 
   it('selects all matching IDs in one commit and clears the selection when filters change', async () => {

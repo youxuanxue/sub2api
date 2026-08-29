@@ -6384,9 +6384,10 @@
     {
       "path": "backend/internal/service/admin_account.go",
       "must_contain": [
-        "needMixedChannelCheck || needPublicGroupAggregatorCheck || openAISettings.any()"
+        "cachedTargets, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)",
+        "if needMixedChannelCheck || needPublicGroupAggregatorCheck {"
       ],
-      "rationale": "A group-only bulk edit with SkipMixedChannelCheck still needs hydrated target accounts for the public-group aggregator loop-prevention policy. Without this preload term accountByID stays empty, the policy loop skips every target, and forbidden OpenRouter/Coze/Submodel accounts enter public groups."
+      "rationale": "Bulk edits now hydrate every target once before any write so supplier-managed ownership and the existing public-group aggregator policy share one complete account snapshot. The later map fill remains required for group-only edits with SkipMixedChannelCheck."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions.go",
@@ -7366,6 +7367,235 @@
         "TestAppendSelectionFailureReasonSampleIsCapped"
       ],
       "rationale": "Focused regressions for the ineligibility-reason plumbing: reason=='' must agree with the bool predicate for every input (otherwise the diagnostic log names a gate that did not fire, or stays silent about one that did), each gate must report its own reason code, an ungoverned account must yield no route reason, and the reason samples stay capped like the sibling buckets so one log line cannot be flooded by a large pool."
+    },
+    {
+      "path": "backend/internal/service/gateway_scheduling_priority_test.go",
+      "must_contain": [
+        "func TestSchedulingPriorityIgnoresAccountExtra(",
+        "(&GatewayService{}).sortCandidatesForFallback(accounts, false, mode)",
+        "require.Equal(t, []int64{3, 2, 1}"
+      ],
+      "rationale": "Supplier-source management derives ordinary account priority values and must not add a second scheduler concept. This regression keeps smaller numeric priority first even when old or arbitrary account Extra metadata is present."
+    },
+    {
+      "path": "backend/internal/service/admin_account.go",
+      "must_contain": [
+        "ValidateSupplierManagedAccountUpdate(account)",
+        "ValidateSupplierReservedAccountExtra(input.Extra)",
+        "func (s *adminServiceImpl) RefreshAccountCredentials(ctx context.Context, id int64)",
+        "func (s *adminServiceImpl) CreateShadow(ctx context.Context, parentID int64, opts ShadowOptions)",
+        "ValidateSupplierManagedAccountUpdate(parent)",
+        "if IsSupplierManagedAccount(account) {",
+        "return nil, ErrSupplierManagedAccountProtected"
+      ],
+      "rationale": "The ordinary account admin surface must delegate supplier-managed configuration mutations back to the supplier-source owner. Single-account edits, bulk changes, credential refresh, shadow creation, reserved Extra injection, and destructive account actions live in this upstream-shaped service; losing these guards would create two competing owners for credentials, model mapping, priority, status, and schedulability."
+    },
+    {
+      "path": "backend/internal/service/supplier_managed_account_guard_test.go",
+      "must_contain": [
+        "TestUS048_ManagedAccountRejectsEveryGenericUpdate",
+        "TestUS048_ManagedAccountRejectsDirectExtraUpdateDeleteDuplicateAndSchedulable",
+        "TestUS048_ManagedAccountRejectsGenericSparkShadowCreation",
+        "TestUS048_ManagedAccountRejectsNameOnlyBulkUpdate",
+        "TestUS048_GenericAccountServiceUsesTheSameSupplierOwnershipGuard",
+        "TestUS048_UnmanagedAccountCannotForgeSupplierManagedExtra",
+        "RefreshAccountCredentials"
+      ],
+      "rationale": "Focused regressions prove that AdminService and the generic AccountService both fail closed for supplier-managed configuration writes, including credential refresh, shadow creation and deletion, while unmanaged callers cannot forge the reserved marker. This pins single ownership at service boundaries rather than relying on UI-only disabling or metadata helpers."
+    },
+    {
+      "path": "backend/internal/service/account_service.go",
+      "must_contain": [
+        "ValidateSupplierReservedAccountExtra(req.Extra)",
+        "ValidateSupplierManagedAccountUpdate(account)",
+        "func (s *AccountService) Delete(ctx context.Context, id int64) error",
+        "func (s *AccountService) UpdateStatus(ctx context.Context, id int64, status string, errorMessage string) error"
+      ],
+      "rationale": "The generic account service is another ordinary write owner. It must reject reserved supplier Extra on create and delegate update, delete and status mutations back to the supplier-source owner whenever supplier_source_id is present."
+    },
+    {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": [
+        "func (r *accountRepository) UpdateSupplierMetadata(ctx context.Context, accountID int64, name string, priority int) error",
+        "func (r *accountRepository) UpdateSupplierProjection(ctx context.Context, account *service.Account, chatProbePassed bool) error",
+        "if len(account.GetModelMapping()) > 0 && !chatProbePassed {",
+        "publishVerifiedSupplierChatCapability(",
+        "enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil)",
+        "enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, nil)",
+        "extra = COALESCE(extra, '{}'::jsonb) || $6::jsonb"
+      ],
+      "rationale": "Production-only narrow write paths for supplier metadata and full projections. Non-empty mappings fail closed without the current sync call's Chat probe evidence; the same account transaction publishes the verified Chat-only capability before ordinary scheduler invalidation. Both writes avoid account-group payloads, and the full projection merges only the two owned supplier keys while preserving every non-owned Extra. The generic AccountRepository.Update forwards billing and unrelated runtime fields, so supplier sync must never fall back to it."
+    },
+    {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": [
+        "func (r *accountRepository) GetSupplierAccount(ctx context.Context, id int64)",
+        "func (r *accountRepository) ListSupplierAdoptionCandidates(ctx context.Context) ([]service.Account, error) {\n\taccounts, err := selectSupplierAccountProjection(r.client.Account.Query().\n\t\tWhere(\n\t\t\tdbaccount.DeletedAtIsNil(),\n\t\t\tdbaccount.PlatformEQ(service.PlatformNewAPI),\n\t\t).",
+        "func (r *accountRepository) ListSupplierManagedAccounts(ctx context.Context, sourceID int64)",
+        "func selectSupplierAccountProjection(query *dbent.AccountQuery) *dbent.AccountSelect",
+        "return supplierAccountEntityToService(m), nil"
+      ],
+      "rationale": "Supplier projections use one dedicated field-level query and mapper. They select only the configuration fields required by synchronization and bypass generic account hydration, so account groups, billing multipliers and unrelated runtime state never enter procurement management. Adoption collision lookup must include every non-deleted NewAPI status so disabled/error exact matches block duplicate account creation instead of disappearing behind an active-only filter."
+    },
+    {
+      "path": "backend/internal/service/supplier_source_account_store.go",
+      "must_contain": [
+        "type supplierSourceAccountReader interface",
+        "ListSupplierManagedAccounts(ctx context.Context, sourceID int64)",
+        "ListSupplierAdoptionCandidates(ctx context.Context)",
+        "GetSupplierAccount(ctx context.Context, accountID int64)",
+        "ErrSupplierProjectionReaderMissing",
+        "copyAccount.AccountGroups = nil",
+        "copyAccount.GroupIDs = nil",
+        "copyAccount.Groups = nil"
+      ],
+      "rationale": "The supplier account store accepts only the three narrow projection reads, fails closed if production wiring lacks them, and strips any accidental group relations before values enter supplier logic. This prevents a future generic GetByID fallback from re-coupling supplier sync to account groups."
+    },
+    {
+      "path": "backend/internal/service/supplier_managed_account_commands.go",
+      "must_contain": [
+        "type supplierProjectionAccountUpdater interface",
+        "type supplierManagedAccountReader interface",
+        "reader.GetSupplierAccount(ctx, input.AccountID)",
+        "newapiconstant.ChannelTypeOpenAI",
+        "SkipDefaultGroupBind: true",
+        "if len(input.ModelMapping) > 0 && !input.ChatProbePassed {",
+        "return ErrSupplierProjectionUpdaterMissing",
+        "return updater.UpdateSupplierMetadata(ctx, account.ID, account.Name, account.Priority)",
+        "return updater.UpdateSupplierProjection(ctx, account, chatProbePassed)"
+      ],
+      "rationale": "The supplier-source owner reads only the narrow projection, creates new managed accounts empty, unschedulable and ungrouped, fixes every managed projection to the one supported NewAPI OpenAI Chat transport, preserves non-owned account metadata, requires current-call Chat probe evidence for every non-empty mapping, and fails closed unless both narrow repository writes are available."
+    },
+    {
+      "path": "backend/internal/service/supplier_managed_account_commands_test.go",
+      "must_contain": [
+        "TestUS048_SupplierCreateStartsEmptyUngroupedAndUnschedulable",
+        "TestUS048_OrdinaryCreateAccountStillFailsWhenDefaultGroupBindFails",
+        "TestUS048_SupplierConfigurationUpdateUsesGroupFreeReadAndNarrowWrite",
+        "TestUS048_SupplierConfigurationUpdateRequiresPassedChatProbe",
+        "require.Equal(t, 1, accounts.projectionUpdateCalls)",
+        "require.True(t, accounts.projectionChatProbePassed)",
+        "require.Zero(t, accounts.genericUpdateCalls"
+      ],
+      "rationale": "Behavior regressions pin empty, unschedulable, ungrouped supplier creation, the unchanged ordinary CreateAccount group-bind failure contract, the non-empty Chat evidence gate, and prove supplier configuration updates use a group-free read plus the isolated projection write exactly once, never the generic account update path."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_supplier_projection_test.go",
+      "must_contain": [
+        "TestUS048_SupplierMetadataRepositoryWritesOnlyNameAndPriority",
+        "TestUS048_SupplierConfigurationRepositoryRejectsUnverifiedNonEmptyMapping",
+        "TestUS048_SupplierConfigurationRepositoryWritesOnlyOwnedFields",
+        "TestUS048_SupplierProjectionReadSelectsOnlyRequiredConfigurationFields",
+        "rate_multiplier",
+        "scheduler_outbox"
+      ],
+      "rationale": "SQL-level regressions prove unverified non-empty mappings are rejected before any write, while verified metadata-only and structural supplier writes own only their declared account columns, preserve non-owned Extra, emit ordinary scheduler invalidation, and read only the configuration fields required by supplier synchronization without loading billing, group, proxy, quota, error or runtime fields."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_integration_test.go",
+      "must_contain": [
+        "TestUS048_SupplierProjectionReadsDoNotQueryAccountGroups",
+        "TestUS048_SupplierAdoptionCandidatesExposeNonActiveCollisionsButNotDeletedAccounts",
+        "TestUS048_SupplierConfigurationProjectionRebindsProtocolEndpointCapability",
+        "ListSupplierManagedAccounts",
+        "ListSupplierAdoptionCandidates",
+        "GetSupplierAccount"
+      ],
+      "rationale": "Real PostgreSQL evidence that all three supplier projection reads still work after the account_groups table is made unreadable and return no AccountGroups, GroupIDs or Groups; adoption lookup includes active/disabled/error collisions while excluding soft-deleted rows; a verified structural projection atomically rebinds the account to the Chat-only protocol capability with positive probe evidence."
+    },
+    {
+      "path": "backend/internal/service/account_test_service_supplier_probe.go",
+      "must_contain": [
+        "protocol != \"account_test\" && protocol != \"openai_chat_completions\"",
+        "SupplierProbeStatusProtocolUnsupported",
+        "return \"openai_responses\"",
+        "return \"anthropic_messages\""
+      ],
+      "rationale": "Version-one supplier probing is intentionally fixed to OpenAI Chat. Even successful Responses or Anthropic Messages evidence must fail closed as protocol_unsupported instead of silently expanding the production transport surface."
+    },
+    {
+      "path": "backend/internal/service/account_test_service_supplier_probe_test.go",
+      "must_contain": [
+        "TestUS048_SupplierProbeUsesInMemoryAccountWithoutRepositoryLookup",
+        "TestUS048_SupplierManagedAccountDeclaresOnlyChatProtocol",
+        "TestUS048_SupplierManagedOpenAIEndpointDoesNotDuplicateV1",
+        "TestUS048_SupplierProbeDoesNotLogRawUpstreamError",
+        "TestUS048_SupplierProbeClassifiesEventsWithoutPersistingUpstreamDetail",
+        "successful non-chat protocol remains unsupported"
+      ],
+      "rationale": "Probe regressions pin in-memory execution, the managed identity's single Chat capability, supplier-only trailing-/v1 normalization, raw-upstream log redaction, fixed public result details, and non-Chat failure closure without persisting an account or upstream response body."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_usage.go",
+      "must_contain": [
+        "if account.ChannelType == newapiconstant.ChannelTypeOpenAI && IsSupplierManagedAccount(account) {",
+        "baseURL = normalizeNewAPIOpenAIChannelBaseURL(baseURL)"
+      ],
+      "rationale": "Trailing-/v1 normalization is a supplier-managed transport exception, not a global NewAPI OpenAI behavior change. The supplier_source_id ownership marker must remain part of the condition so ordinary accounts keep their stored base URL untouched."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_usage_test.go",
+      "must_contain": [
+        "TestUS048_UnmanagedNewAPIOpenAIBaseURLRemainsUntouched",
+        "supplier-source support must not rewrite unmanaged NewAPI account transport"
+      ],
+      "rationale": "Regression evidence for the isolation boundary: enabling supplier endpoints ending in /v1 must not rewrite any unmanaged NewAPI OpenAI account's base URL."
+    },
+    {
+      "path": "backend/internal/service/supplier_source_fingerprint.go",
+      "must_contain": [
+        "cfg.Totp.EncryptionKey",
+        "hmac.New(sha256.New, f.key)"
+      ],
+      "rationale": "Supplier credential identity follows the same existing encryption-key lifecycle as the encrypted secret. JWT rotation must not invalidate duplicate detection or account-adoption matching."
+    },
+    {
+      "path": "backend/internal/service/supplier_source_fingerprint_test.go",
+      "must_contain": [
+        "TestUS048_SupplierCredentialFingerprintFollowsEncryptionKeyNotJWTKey",
+        "JWT rotation must not change supplier credential identity"
+      ],
+      "rationale": "Regression evidence for the credential identity lifecycle: identical encryption keys yield identical fingerprints across JWT rotations, while encryption-key rotation changes the fingerprint."
+    },
+    {
+      "path": "backend/internal/service/supplier_source_sync_test.go",
+      "must_contain": [
+        "TestUS048_SupplierProbeAccountCarriesManagedIdentity",
+        "TestUS048_SupplierSyncEarlyErrorsAlwaysReportFailedStep",
+        "TestUS048_SupplierSyncAdditionFailureStopsBeforeRemovalAndRetryConverges",
+        "TestUS048_SupplierSyncReadbackFailureReportsTheCompletedAddition",
+        "TestUS048_NonActiveExactAccountMatchBlocksDuplicateSupplierAccountCreation",
+        "TestUS048_IncompatibleTransportExactMatchBlocksAdoptionWithoutRewritingAccount",
+        "TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation",
+        "TestUS048_SupplierSyncProbesBeforeRepairingNonEmptySchedulingProjection",
+        "TestUS048_SupplierSyncRepairsEmptySchedulingProjectionWithoutProbe"
+      ],
+      "rationale": "Sync regressions keep failed_step and completed changes present on early and mid-write errors, preserve successful additions, stop pending removals and prove retry convergence. They also block duplicate creation whenever an exact account match cannot satisfy the narrow adoption contract, including disabled/error accounts and multi-band sources, and keep status/schedulable projection repair on the minimal probe boundary."
+    },
+    {
+      "path": "backend/internal/service/crs_sync_supplier_managed_test.go",
+      "must_contain": [
+        "TestUS048_CRSSyncRejectsSupplierManagedAccountOverwrite",
+        "TestUS048_CRSSyncRejectsReservedSupplierExtraOnNewAccount"
+      ],
+      "rationale": "CRS import must neither overwrite a supplier-managed account nor forge supplier ownership on a new account. Both directions are service-level security boundaries."
+    },
+    {
+      "path": "backend/internal/service/audit_log.go",
+      "must_contain": [
+        "\"key\", \"credential\"",
+        "var auditBodySensitiveExactKeys = func() map[string]struct{}"
+      ],
+      "rationale": "Supplier-source create/update requests use the exact top-level field credential. Admin Audit Log body capture must classify that key as sensitive or a valid supplier API key is persisted in plaintext even though account credential tables and normal API responses remain redacted."
+    },
+    {
+      "path": "backend/internal/service/audit_log_test.go",
+      "must_contain": [
+        "func TestRedactAuditBody_RedactsSupplierSourceCredential(",
+        "supplier-api-key-audit-canary",
+        "supplier credential leaked into audit body"
+      ],
+      "rationale": "Regression evidence for the supplier-source audit boundary: a realistic create body must retain non-sensitive management facts while replacing credential with the audit placeholder."
     }
   ]
 }

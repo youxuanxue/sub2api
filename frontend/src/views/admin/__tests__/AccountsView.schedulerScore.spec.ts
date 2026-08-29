@@ -7,14 +7,20 @@ const {
   listAccounts,
   listWithEtag,
   getBatchTodayStats,
+  getBatchPassiveUsage,
+  getUpstreamBillingProbeSettings,
   getAllProxies,
-  getAllGroups
+  getAllGroups,
+  getAllIncludingInactive
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
+  getBatchPassiveUsage: vi.fn(),
+  getUpstreamBillingProbeSettings: vi.fn(),
   getAllProxies: vi.fn(),
-  getAllGroups: vi.fn()
+  getAllGroups: vi.fn(),
+  getAllIncludingInactive: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -23,7 +29,8 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
-      getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
+      getBatchPassiveUsage,
+      getUpstreamBillingProbeSettings,
       delete: vi.fn(),
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
@@ -33,7 +40,8 @@ vi.mock('@/api/admin', () => ({
       getAll: getAllProxies
     },
     groups: {
-      getAll: getAllGroups
+      getAll: getAllGroups,
+      getAllIncludingInactive
     }
   }
 }))
@@ -136,8 +144,11 @@ describe('admin AccountsView scheduler score column', () => {
     listAccounts.mockReset()
     listWithEtag.mockReset()
     getBatchTodayStats.mockReset()
+    getBatchPassiveUsage.mockReset()
+    getUpstreamBillingProbeSettings.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
+    getAllIncludingInactive.mockReset()
 
     listAccounts.mockResolvedValue({
       items: [
@@ -189,8 +200,11 @@ describe('admin AccountsView scheduler score column', () => {
       data: null
     })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
+    getBatchPassiveUsage.mockResolvedValue({ usage: {} })
+    getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30 })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
+    getAllIncludingInactive.mockResolvedValue([])
   })
 
   it('falls back to the base score for ungrouped accounts instead of showing a dash', async () => {

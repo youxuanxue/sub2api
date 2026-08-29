@@ -47,6 +47,8 @@ func RegisterAdminRoutes(
 		// 账号管理
 		registerAccountRoutes(admin, h, stepUpAuth)
 
+		registerSupplierSourceRoutes(admin, h)
+
 		// 公告管理
 		registerAnnouncementRoutes(admin, h)
 
@@ -137,6 +139,18 @@ func RegisterAdminRoutes(
 
 		// 操作审计日志
 		registerAuditLogRoutes(admin, h, stepUpAuth)
+	}
+}
+
+func registerSupplierSourceRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	sources := admin.Group("/supplier-sources")
+	{
+		sources.GET("", h.Admin.SupplierSource.List)
+		sources.POST("", h.Admin.SupplierSource.Create)
+		sources.GET("/priority-preview", h.Admin.SupplierSource.PriorityPreview)
+		sources.GET("/:id", h.Admin.SupplierSource.Get)
+		sources.PUT("/:id", h.Admin.SupplierSource.Update)
+		sources.POST("/:id/sync", h.Admin.SupplierSource.Sync)
 	}
 }
 

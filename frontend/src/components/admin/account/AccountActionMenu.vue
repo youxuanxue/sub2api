@@ -11,6 +11,14 @@
       >
         <div class="py-1">
           <template v-if="account">
+            <div
+              v-if="isSupplierManaged"
+              data-testid="supplier-managed-action-notice"
+              class="mx-2 mb-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-200"
+            >
+              <SupplierManagedBadge :account="account" />
+              <p class="mt-1 leading-5">{{ readOnlyReason }}</p>
+            </div>
             <button @click.stop.prevent="emitAction('test', account)" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
               <Icon name="play" size="sm" class="text-green-500" :stroke-width="2" />
               {{ t('admin.accounts.testConnection') }}
@@ -23,30 +31,30 @@
               <Icon name="clock" size="sm" class="text-orange-500" />
               {{ t('admin.scheduledTests.schedule') }}
             </button>
-            <button v-if="canDuplicate" @click="$emit('duplicate', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
+            <button v-if="canDuplicate" :disabled="isSupplierManaged" :title="isSupplierManaged ? readOnlyReason : undefined" @click="emitWriteAction('duplicate', account)" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-dark-700">
               <Icon name="copy" size="sm" class="text-sky-500" />
               {{ t('admin.accounts.duplicateAccount') }}
             </button>
             <!-- 影子账号不持凭据:重授权/刷新 token 对其无效(后端拒绝),故隐藏(外审 G4)。 -->
             <template v-if="(account.type === 'oauth' || account.type === 'setup-token') && !isShadow">
-              <button @click.stop.prevent="emitAction('reauth', account)" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-blue-600 hover:bg-gray-100 dark:hover:bg-dark-700">
+              <button :disabled="isSupplierManaged" :title="isSupplierManaged ? readOnlyReason : undefined" @click.stop.prevent="emitWriteAction('reauth', account)" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-blue-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-dark-700">
                 <Icon name="link" size="sm" />
                 {{ t('admin.accounts.reAuthorize') }}
               </button>
-              <button @click.stop.prevent="emitAction('refresh-token', account)" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-purple-600 hover:bg-gray-100 dark:hover:bg-dark-700">
+              <button :disabled="isSupplierManaged" :title="isSupplierManaged ? readOnlyReason : undefined" @click.stop.prevent="emitWriteAction('refresh-token', account)" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-purple-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-dark-700">
                 <Icon name="refresh" size="sm" />
                 {{ t('admin.accounts.refreshToken') }}
               </button>
             </template>
-            <button v-if="isOpenAIOAuthParent" @click.stop.prevent="emitAction('create-spark-shadow', account)" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-amber-600 hover:bg-gray-100 dark:hover:bg-dark-700">
+            <button v-if="isOpenAIOAuthParent" :disabled="isSupplierManaged" :title="isSupplierManaged ? readOnlyReason : undefined" @click.stop.prevent="emitWriteAction('create-spark-shadow', account)" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-amber-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-dark-700">
               <Icon name="sparkles" size="sm" />
               {{ t('admin.accounts.createSparkShadow') }}
             </button>
-            <button v-if="supportsPrivacy" @click.stop.prevent="emitAction('set-privacy', account)" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-emerald-600 hover:bg-gray-100 dark:hover:bg-dark-700">
+            <button v-if="supportsPrivacy" :disabled="isSupplierManaged" :title="isSupplierManaged ? readOnlyReason : undefined" @click.stop.prevent="emitWriteAction('set-privacy', account)" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-emerald-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-dark-700">
               <Icon name="shield" size="sm" />
               {{ t('admin.accounts.setPrivacy') }}
             </button>
-            <button v-if="canSetTier" @click.stop.prevent="emitAction('set-tier', account)" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-amber-600 hover:bg-gray-100 dark:hover:bg-dark-700">
+            <button v-if="canSetTier" :disabled="isSupplierManaged" :title="isSupplierManaged ? readOnlyReason : undefined" @click.stop.prevent="emitWriteAction('set-tier', account)" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-amber-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-dark-700">
               <Icon name="chart" size="sm" />
               {{ t('admin.accounts.setTierDialog.menuItem') }}
             </button>
@@ -70,6 +78,8 @@
 import { computed, watch, onUnmounted, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
+import SupplierManagedBadge from '@/components/account/SupplierManagedBadge.vue'
+import { useSupplierManagedAccount } from '@/composables/useSupplierManagedAccount'
 import type { Account } from '@/types'
 import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
@@ -81,6 +91,8 @@ const props = defineProps<{
 }>()
 const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'set-tier', 'create-spark-shadow'])
 const { t } = useI18n()
+const { inspect: inspectSupplierManaged, readOnlyReason } = useSupplierManagedAccount()
+const isSupplierManaged = computed(() => inspectSupplierManaged(props.account).managed)
 
 const canDuplicate = computed(() => {
   if (!props.account || props.account.parent_account_id != null) return false
@@ -161,6 +173,7 @@ type MenuActionEvent =
   | 'test'
   | 'stats'
   | 'schedule'
+  | 'duplicate'
   | 'reauth'
   | 'refresh-token'
   | 'recover-state'
@@ -176,6 +189,10 @@ type MenuActionEvent =
 const emitAction = (event: MenuActionEvent, account: Account) => {
   emit(event, account)
   void nextTick(() => emit('close'))
+}
+const emitWriteAction = (event: MenuActionEvent, account: Account) => {
+  if (isSupplierManaged.value) return
+  emitAction(event, account)
 }
 const isAntigravityOAuth = computed(() => props.account?.platform === PLATFORM_ANTIGRAVITY && props.account?.type === 'oauth')
 const isOpenAIOAuth = computed(() => props.account?.platform === PLATFORM_OPENAI && props.account?.type === 'oauth')

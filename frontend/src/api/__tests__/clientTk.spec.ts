@@ -25,12 +25,25 @@ describe('ApiError', () => {
   })
 
   it('keeps fields enumerable so spread / JSON.stringify retain them (incl. message)', () => {
-    const e = createApiError({ status: 404, code: 'NOT_FOUND', message: 'missing', metadata: { id: 7 } })
+    const e = createApiError({
+      status: 404,
+      code: 'NOT_FOUND',
+      message: 'missing',
+      metadata: { id: 7 },
+      data: { probe_results: [{ status: 'protocol_unsupported' }] },
+    })
     const spread = { ...e }
-    expect(spread).toMatchObject({ status: 404, code: 'NOT_FOUND', message: 'missing', metadata: { id: 7 } })
+    expect(spread).toMatchObject({
+      status: 404,
+      code: 'NOT_FOUND',
+      message: 'missing',
+      metadata: { id: 7 },
+      data: { probe_results: [{ status: 'protocol_unsupported' }] },
+    })
     const json = JSON.parse(JSON.stringify(e))
     expect(json.message).toBe('missing')
     expect(json.status).toBe(404)
+    expect(json.data.probe_results[0].status).toBe('protocol_unsupported')
   })
 
   it('falls back to a default message when none is supplied', () => {

@@ -1,0 +1,265 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
+
+import SupplierSourcesView from '../SupplierSourcesView.vue'
+
+const { list, create, update, priorityPreview, sync, routeQuery } = vi.hoisted(() => ({
+  list: vi.fn(),
+  create: vi.fn(),
+  update: vi.fn(),
+  priorityPreview: vi.fn(),
+  sync: vi.fn(),
+  routeQuery: {} as Record<string, unknown>,
+}))
+
+vi.mock('@/api/admin', () => ({
+  adminAPI: { supplierSources: { list, create, update, priorityPreview, sync } },
+}))
+
+vi.mock('vue-i18n', async () => {
+  const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
+  return { ...actual, useI18n: () => ({ t: (key: string) => key }) }
+})
+
+vi.mock('vue-router', () => ({
+  useRoute: () => ({ query: routeQuery }),
+}))
+
+const source = {
+  id: 7,
+  supplier_name: '佳杰',
+  channel_name: 'stbl-5',
+  endpoint: 'https://token.vstecscloud.com/v1',
+  base_priority: 100,
+  notes: '首批最低折扣',
+  models: [{
+    client_model_id: 'deepseek-v4-pro',
+    upstream_model_id: 'deepseek-v4-pro',
+    purchase_ratio: 0.5,
+  }],
+  created_at: '2026-08-28T01:00:00Z',
+  updated_at: '2026-08-28T01:00:00Z',
+}
+
+describe('SupplierSourcesView', () => {
+  beforeEach(() => {
+    for (const key of Object.keys(routeQuery)) delete routeQuery[key]
+    list.mockReset().mockResolvedValue([])
+    create.mockReset()
+    update.mockReset()
+    priorityPreview.mockReset().mockResolvedValue({ entries: [], warnings: [] })
+    sync.mockReset()
+  })
+
+  it('defaults a new source to base priority 100', async () => {
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+
+    expect((wrapper.get('[data-test="base-priority"]').element as HTMLInputElement).value).toBe('100')
+  })
+
+  it('shows blank purchase ratio as band 6 and priority base plus 6', async () => {
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="model-band-0"]').text()).toContain('6')
+    expect(wrapper.get('[data-test="model-priority-0"]').text()).toContain('106')
+  })
+
+  it('selects the supplier source requested by source_id after loading the list', async () => {
+    routeQuery.source_id = '7'
+    list.mockResolvedValueOnce([
+      { ...source, id: 8, supplier_name: 'FMGo', channel_name: 'seedance' },
+      source,
+    ])
+
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+
+    expect((wrapper.get('[data-test="supplier-name"]').element as HTMLInputElement).value).toBe('佳杰')
+    expect(wrapper.get('[data-test="source-select-7"]').classes()).toContain('border-primary-500')
+  })
+
+  it('saves new and existing sources through create or update only', async () => {
+    create.mockResolvedValueOnce(source)
+    list.mockResolvedValueOnce([source])
+    update.mockResolvedValueOnce({ ...source, notes: '合同已复核' })
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+
+    await wrapper.get('[data-test="new-source"]').trigger('click')
+    await wrapper.get('[data-test="supplier-name"]').setValue('佳杰')
+    await wrapper.get('[data-test="channel-name"]').setValue('stbl-5')
+    await wrapper.get('[data-test="endpoint"]').setValue('https://token.vstecscloud.com/v1')
+    await wrapper.get('[data-test="credential"]').setValue('secret')
+    await wrapper.get('[data-test="save-source"]').trigger('submit')
+    await flushPromises()
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ base_priority: 100, models: [] }))
+    expect(priorityPreview).not.toHaveBeenCalled()
+    expect(sync).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+    await wrapper.get('[data-test="notes"]').setValue('合同已复核')
+    await wrapper.get('[data-test="save-source"]').trigger('submit')
+    await flushPromises()
+
+    expect(update).toHaveBeenCalledWith(7, expect.objectContaining({ credential: '', notes: '合同已复核' }))
+  })
+
+  it('serializes save and sync submissions for the selected source', async () => {
+    list.mockResolvedValueOnce([source])
+    let resolveUpdate!: (value: typeof source) => void
+    update.mockReturnValueOnce(new Promise(resolve => { resolveUpdate = resolve }))
+    let resolveSync!: (value: {
+      source_id: number
+      probe_results: never[]
+      changes: never[]
+    }) => void
+    sync.mockReturnValueOnce(new Promise(resolve => { resolveSync = resolve }))
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+
+    await wrapper.get('[data-test="save-source"]').trigger('submit')
+    await nextTick()
+
+    expect(wrapper.get('[data-test="save-source"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
+
+    resolveUpdate(source)
+    await flushPromises()
+    await wrapper.get('[data-test="sync-source"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('[data-test="save-source"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
+
+    resolveSync({ source_id: 7, probe_results: [], changes: [] })
+    await flushPromises()
+  })
+
+  it('requires saving edited supplier facts before syncing the selected source', async () => {
+    list.mockResolvedValueOnce([source])
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+
+    await wrapper.get('[data-test="notes"]').setValue('尚未保存的修改')
+    await nextTick()
+
+    expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-test="sync-save-first"]').text()).toContain(
+      'admin.supplierSources.saveBeforeSync',
+    )
+    await wrapper.get('[data-test="sync-source"]').trigger('click')
+    expect(sync).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-test="notes"]').setValue(source.notes)
+    await nextTick()
+
+    expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('[data-test="sync-save-first"]').exists()).toBe(false)
+  })
+
+  it('renders every probe result and actual account change returned by sync', async () => {
+    list.mockResolvedValueOnce([source])
+    sync.mockResolvedValueOnce({
+      source_id: 7,
+      probe_results: [
+        {
+          client_model_id: 'deepseek-v4-pro', upstream_model_id: 'deepseek-v4-pro',
+          status: 'passed', protocol: 'openai_chat_completions',
+        },
+        {
+          client_model_id: 'qwen-3.7-max', upstream_model_id: 'qwen-3.7-max',
+          status: 'passed', protocol: 'openai_chat_completions',
+        },
+      ],
+      changes: [{
+        account_id: 101, discount_band: 3, action: 'created',
+        added_models: ['deepseek-v4-pro', 'qwen-3.7-max'], removed_models: [],
+        priority_after: 103, schedulable_after: true,
+      }],
+    })
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+    await wrapper.get('[data-test="sync-source"]').trigger('click')
+    await flushPromises()
+
+    const result = wrapper.get('[data-test="sync-result"]').text()
+    expect(result).toContain('deepseek-v4-pro')
+    expect(result).toContain('qwen-3.7-max')
+    expect(result).toContain('101')
+    expect(result).toContain('created')
+  })
+
+  it('does not show success when a resolved sync result reports a failed step', async () => {
+    list.mockResolvedValueOnce([source])
+    sync.mockResolvedValueOnce({
+      source_id: 7,
+      probe_results: [],
+      changes: [],
+      failed_step: 'verify_band_3',
+    })
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+    await wrapper.get('[data-test="sync-source"]').trigger('click')
+    await flushPromises()
+
+    const result = wrapper.get('[data-test="sync-result"]').text()
+    expect(result).toContain('verify_band_3')
+    expect(result).not.toContain('admin.supplierSources.syncSucceeded')
+  })
+
+  it('shows protocol_unsupported probe results from a 422 response without success wording', async () => {
+    list.mockResolvedValueOnce([{ ...source, id: 9, supplier_name: 'FMGo', channel_name: 'seedance' }])
+    const failedResult = {
+      source_id: 9,
+      probe_results: [{
+        client_model_id: 'doubao-seedance-2-0-260128',
+        upstream_model_id: 'feimiao-seedance-2-0-260128',
+        status: 'protocol_unsupported',
+        detail: 'supplier protocol unsupported',
+      }],
+      changes: [],
+      failed_step: 'probe',
+    }
+    sync.mockRejectedValueOnce(Object.assign(new Error('one or more supplier models failed validation'), {
+      status: 422,
+      reason: 'SUPPLIER_SOURCE_PROBE_FAILED',
+      data: failedResult,
+    }))
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+
+    await wrapper.get('[data-test="source-select-9"]').trigger('click')
+    await wrapper.get('[data-test="sync-source"]').trigger('click')
+    await flushPromises()
+
+    const result = wrapper.get('[data-test="sync-result"]').text()
+    expect(result).toContain('protocol_unsupported')
+    expect(result).toContain('doubao-seedance-2-0-260128')
+    expect(result).not.toContain('admin.supplierSources.syncSucceeded')
+  })
+
+  it('contains no state machine, audit, activation, pause, or account-group controls', async () => {
+    list.mockResolvedValueOnce([source])
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+
+    const text = wrapper.text().toLowerCase()
+    for (const forbidden of ['activation', 'activate', 'pause', 'audit', 'revision', 'group_ids', 'account group']) {
+      expect(text).not.toContain(forbidden)
+    }
+    for (const testID of ['validate-source', 'activate-source', 'pause-source', 'audit-history', 'activation-preview']) {
+      expect(wrapper.find(`[data-test="${testID}"]`).exists()).toBe(false)
+    }
+  })
+})

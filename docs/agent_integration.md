@@ -404,6 +404,12 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /api/v1/admin/subscriptions/:id/revoke` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/subscriptions/assign` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/subscriptions/bulk-assign` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/supplier-sources` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/supplier-sources` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/supplier-sources/:id` from `backend/internal/server/routes/admin.go`
+- `PUT /api/v1/admin/supplier-sources/:id` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/supplier-sources/:id/sync` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/supplier-sources/priority-preview` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/system/check-updates` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/system/restart` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/system/rollback` from `backend/internal/server/routes/admin.go`

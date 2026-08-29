@@ -13,6 +13,7 @@ const {
   listWithEtag,
   getBatchTodayStats,
   getBatchPassiveUsage,
+  getUpstreamBillingProbeSettings,
   getAllProxies,
   getAllGroups,
   getAllIncludingInactive
@@ -21,6 +22,7 @@ const {
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
   getBatchPassiveUsage: vi.fn(),
+  getUpstreamBillingProbeSettings: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
   getAllIncludingInactive: vi.fn()
@@ -33,6 +35,7 @@ vi.mock('@/api/admin', () => ({
       listWithEtag,
       getBatchTodayStats,
       getBatchPassiveUsage,
+      getUpstreamBillingProbeSettings,
       delete: vi.fn(),
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
@@ -185,6 +188,7 @@ describe('admin AccountsView platformTypeBadgesById memoization', () => {
     listWithEtag.mockReset()
     getBatchTodayStats.mockReset()
     getBatchPassiveUsage.mockReset()
+    getUpstreamBillingProbeSettings.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
     getAllIncludingInactive.mockReset()
@@ -192,6 +196,7 @@ describe('admin AccountsView platformTypeBadgesById memoization', () => {
     listWithEtag.mockResolvedValue({ notModified: true, etag: null, data: null })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     getBatchPassiveUsage.mockResolvedValue({ usage: {} })
+    getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30 })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
     getAllIncludingInactive.mockResolvedValue([])

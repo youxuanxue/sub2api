@@ -9,6 +9,7 @@ const {
   listWithEtag,
   getBatchTodayStats,
   getBatchPassiveUsage,
+  getUpstreamBillingProbeSettings,
   getAllProxies,
   getAllGroups,
   getAllIncludingInactive,
@@ -22,6 +23,7 @@ const {
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
   getBatchPassiveUsage: vi.fn(),
+  getUpstreamBillingProbeSettings: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
   getAllIncludingInactive: vi.fn(),
@@ -39,6 +41,7 @@ vi.mock('@/api/admin', () => ({
       listWithEtag,
       getBatchTodayStats,
       getBatchPassiveUsage: getBatchPassiveUsage,
+      getUpstreamBillingProbeSettings,
       delete: vi.fn(),
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
@@ -209,6 +212,7 @@ describe('admin AccountsView bulk edit scope', () => {
     listWithEtag.mockReset()
     getBatchTodayStats.mockReset()
     getBatchPassiveUsage.mockReset()
+    getUpstreamBillingProbeSettings.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
     getAllIncludingInactive.mockReset()
@@ -232,6 +236,7 @@ describe('admin AccountsView bulk edit scope', () => {
     })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     getBatchPassiveUsage.mockResolvedValue({ usage: {} })
+    getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30 })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
     getAllIncludingInactive.mockResolvedValue([])
@@ -349,6 +354,7 @@ describe('admin AccountsView bulk edit scope', () => {
       'groups',
       'usage',
       'priority',
+      'upstream_billing_rate',
       'actions'
     ])
     expect(columnKeys).not.toContain('id')
@@ -389,6 +395,7 @@ describe('admin AccountsView bulk edit scope', () => {
       'groups',
       'usage',
       'priority',
+      'upstream_billing_rate',
       'actions'
     ])
     expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).toEqual([

@@ -5,10 +5,12 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -185,6 +187,280 @@ func (s *AccountRepoSuite) TestUpdate() {
 	got, err := s.repo.GetByID(s.ctx, account.ID)
 	s.Require().NoError(err, "GetByID after update")
 	s.Require().Equal("updated", got.Name)
+}
+
+func (s *AccountRepoSuite) TestUS048_SupplierMetadataProjectionOnlyUpdatesNameAndPriority() {
+	group := mustCreateGroup(s.T(), s.client, &service.Group{Name: "supplier-metadata-group"})
+	account := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:        "supplier/old · 档位 3",
+		Platform:    service.PlatformNewAPI,
+		Type:        service.AccountTypeAPIKey,
+		ChannelType: 46,
+		Credentials: map[string]any{
+			"base_url": "https://supplier.example/v1",
+			"api_key":  "secret",
+			"model_mapping": map[string]any{
+				"deepseek-v4-pro": "deepseek-v4-pro",
+			},
+		},
+		Extra: map[string]any{
+			service.SupplierSourceIDExtraKey:     int64(7),
+			service.SupplierDiscountBandExtraKey: 3,
+			"runtime_observation":                "stale",
+		},
+		Priority:    103,
+		Status:      service.StatusActive,
+		Schedulable: true,
+	})
+	mustBindAccountToGroup(s.T(), s.client, account.ID, group.ID, 1)
+
+	stale, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().ElementsMatch([]int64{group.ID}, stale.GroupIDs)
+
+	_, err = s.repo.sql.ExecContext(s.ctx, `
+		UPDATE accounts
+		SET notes = $1,
+			concurrency = $2,
+			status = $3,
+			error_message = $4,
+			schedulable = $5,
+			extra = $6::jsonb,
+			rate_multiplier = $7
+		WHERE id = $8
+	`, "runtime note", 9, service.StatusError, "runtime error", false,
+		`{"supplier_source_id":7,"supplier_discount_band":3,"runtime_observation":"fresh"}`,
+		1.75, account.ID)
+	s.Require().NoError(err)
+
+	type supplierMetadataUpdater interface {
+		UpdateSupplierMetadata(ctx context.Context, accountID int64, name string, priority int) error
+	}
+	updater, ok := any(s.repo).(supplierMetadataUpdater)
+	s.Require().True(ok, "production account repository must expose the supplier metadata-only write")
+
+	err = updater.UpdateSupplierMetadata(s.ctx, account.ID, "supplier/new · 档位 3", 113)
+	s.Require().NoError(err)
+
+	got, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Equal("supplier/new · 档位 3", got.Name)
+	s.Require().Equal(113, got.Priority)
+	s.Require().Equal("runtime note", *got.Notes)
+	s.Require().Equal(9, got.Concurrency)
+	s.Require().Equal(service.StatusError, got.Status)
+	s.Require().Equal("runtime error", got.ErrorMessage)
+	s.Require().False(got.Schedulable)
+	s.Require().Equal("fresh", got.Extra["runtime_observation"])
+	s.Require().NotNil(got.RateMultiplier)
+	s.Require().Equal(1.75, *got.RateMultiplier)
+	s.Require().ElementsMatch([]int64{group.ID}, got.GroupIDs)
+
+	var outboxPayload sql.NullString
+	err = scanSingleRow(
+		s.ctx,
+		s.repo.sql,
+		`SELECT payload::text
+		 FROM scheduler_outbox
+		 WHERE event_type = $1 AND account_id = $2
+		 ORDER BY id DESC
+		 LIMIT 1`,
+		[]any{service.SchedulerOutboxEventAccountChanged, account.ID},
+		&outboxPayload,
+	)
+	s.Require().NoError(err)
+	s.Require().False(outboxPayload.Valid, "supplier projection outbox must not carry account-group data")
+}
+
+func (s *AccountRepoSuite) TestUS048_SupplierConfigurationProjectionPreservesRuntimeFieldsAndGroups() {
+	group := mustCreateGroup(s.T(), s.client, &service.Group{Name: "supplier-configuration-group"})
+	account := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:        "supplier/old · 档位 3",
+		Platform:    service.PlatformNewAPI,
+		Type:        service.AccountTypeAPIKey,
+		ChannelType: 46,
+		Credentials: map[string]any{
+			"base_url": "https://old.example/v1",
+			"api_key":  "old-secret",
+			"model_mapping": map[string]any{
+				"old-model": "old-model",
+			},
+		},
+		Extra: map[string]any{
+			service.SupplierSourceIDExtraKey:     int64(7),
+			service.SupplierDiscountBandExtraKey: 3,
+			"supplier_channel":                   "operator-owned",
+			"runtime_observation":                "stale",
+		},
+		Priority:    103,
+		Status:      service.StatusActive,
+		Schedulable: true,
+	})
+	mustBindAccountToGroup(s.T(), s.client, account.ID, group.ID, 1)
+
+	stale, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().ElementsMatch([]int64{group.ID}, stale.GroupIDs)
+
+	_, err = s.repo.sql.ExecContext(s.ctx, `
+		UPDATE accounts
+		SET notes = $1,
+			concurrency = $2,
+			status = $3,
+			error_message = $4,
+			schedulable = $5,
+			extra = $6::jsonb,
+			rate_multiplier = $7
+		WHERE id = $8
+	`, "runtime note", 9, service.StatusError, "runtime error", false,
+		`{"supplier_source_id":7,"supplier_discount_band":3,"supplier_channel":"operator-owned","supplier_projection_mode":"operator-owned","runtime_observation":"fresh"}`,
+		1.75, account.ID)
+	s.Require().NoError(err)
+
+	stale.Name = "supplier/new · 档位 4"
+	stale.Platform = service.PlatformNewAPI
+	stale.Type = service.AccountTypeAPIKey
+	stale.ChannelType = newapiconstant.ChannelTypeOpenAI
+	stale.Credentials = map[string]any{
+		"base_url": "https://new.example/v1",
+		"api_key":  "new-secret",
+		"model_mapping": map[string]string{
+			"deepseek-v4-pro": "deepseek-v4-pro",
+		},
+	}
+	stale.Extra[service.SupplierSourceIDExtraKey] = int64(7)
+	stale.Extra[service.SupplierDiscountBandExtraKey] = 4
+	stale.Extra["runtime_observation"] = "stale-value-must-not-be-written"
+	stale.Priority = 114
+	stale.Status = service.StatusActive
+	stale.Schedulable = true
+
+	err = s.repo.UpdateSupplierProjection(s.ctx, stale, true)
+	s.Require().NoError(err)
+
+	got, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Equal("supplier/new · 档位 4", got.Name)
+	s.Require().Equal(service.PlatformNewAPI, got.Platform)
+	s.Require().Equal(service.AccountTypeAPIKey, got.Type)
+	s.Require().Equal(newapiconstant.ChannelTypeOpenAI, got.ChannelType)
+	s.Require().Equal("https://new.example/v1", got.Credentials["base_url"])
+	s.Require().Equal("new-secret", got.Credentials["api_key"])
+	s.Require().Equal(114, got.Priority)
+	s.Require().Equal(service.StatusActive, got.Status)
+	s.Require().True(got.Schedulable)
+	s.Require().EqualValues(int64(7), got.Extra[service.SupplierSourceIDExtraKey])
+	s.Require().Equal(float64(4), got.Extra[service.SupplierDiscountBandExtraKey])
+	s.Require().Equal("fresh", got.Extra["runtime_observation"])
+	s.Require().Equal("operator-owned", got.Extra["supplier_channel"])
+	s.Require().Equal("operator-owned", got.Extra["supplier_projection_mode"])
+	s.Require().Equal("runtime note", *got.Notes)
+	s.Require().Equal(9, got.Concurrency)
+	s.Require().Equal("runtime error", got.ErrorMessage)
+	s.Require().NotNil(got.RateMultiplier)
+	s.Require().Equal(1.75, *got.RateMultiplier)
+	s.Require().ElementsMatch([]int64{group.ID}, got.GroupIDs)
+
+	var outboxPayload sql.NullString
+	err = scanSingleRow(
+		s.ctx,
+		s.repo.sql,
+		`SELECT payload::text
+		 FROM scheduler_outbox
+		 WHERE event_type = $1 AND account_id = $2
+		 ORDER BY id DESC
+		 LIMIT 1`,
+		[]any{service.SchedulerOutboxEventAccountChanged, account.ID},
+		&outboxPayload,
+	)
+	s.Require().NoError(err)
+	s.Require().False(outboxPayload.Valid, "supplier projection outbox must not carry account-group data")
+}
+
+func (s *AccountRepoSuite) TestUS048_SupplierConfigurationProjectionRebindsProtocolEndpointCapability() {
+	account := &service.Account{
+		Name:        "supplier/source · 档位 3",
+		Platform:    service.PlatformNewAPI,
+		Type:        service.AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeOpenAI,
+		Credentials: map[string]any{
+			"base_url": "https://old-supplier.example/v1",
+			"api_key":  "supplier-secret",
+			"model_mapping": map[string]any{
+				"deepseek-v4-pro": "deepseek-v4-pro",
+			},
+		},
+		Extra: map[string]any{
+			service.SupplierSourceIDExtraKey:     int64(7),
+			service.SupplierDiscountBandExtraKey: 3,
+		},
+		Concurrency: 1,
+		Priority:    103,
+		Status:      service.StatusActive,
+		Schedulable: true,
+	}
+
+	err := s.repo.Create(s.ctx, account)
+	s.Require().NoError(err)
+
+	var previousCapabilityID sql.NullInt64
+	err = scanSingleRow(
+		s.ctx,
+		s.repo.sql,
+		`SELECT protocol_endpoint_capability_id FROM accounts WHERE id = $1`,
+		[]any{account.ID},
+		&previousCapabilityID,
+	)
+	s.Require().NoError(err)
+	s.Require().True(previousCapabilityID.Valid)
+
+	account.Credentials = map[string]any{
+		"base_url": "https://new-supplier.example/v1",
+		"api_key":  "supplier-secret",
+		"model_mapping": map[string]any{
+			"deepseek-v4-pro": "deepseek-v4-pro",
+		},
+	}
+
+	err = s.repo.UpdateSupplierProjection(s.ctx, account, true)
+	s.Require().NoError(err)
+
+	expectedIdentity, governed, err := service.BuildProtocolEndpointIdentity(account)
+	s.Require().NoError(err)
+	s.Require().True(governed)
+
+	var (
+		currentCapabilityID  sql.NullInt64
+		currentCapabilityKey string
+		supportedProtocols   []byte
+		probeEvidence        []byte
+	)
+	err = scanSingleRow(
+		s.ctx,
+		s.repo.sql,
+		`SELECT a.protocol_endpoint_capability_id, c.capability_key,
+		        c.supported_protocols, c.probe_evidence
+		 FROM accounts a
+		 JOIN protocol_endpoint_capabilities c ON c.id = a.protocol_endpoint_capability_id
+		 WHERE a.id = $1`,
+		[]any{account.ID},
+		&currentCapabilityID,
+		&currentCapabilityKey,
+		&supportedProtocols,
+		&probeEvidence,
+	)
+	s.Require().NoError(err)
+	s.Require().True(currentCapabilityID.Valid)
+	s.Require().NotEqual(previousCapabilityID.Int64, currentCapabilityID.Int64)
+	s.Require().Equal(expectedIdentity.Key(), currentCapabilityKey)
+	var protocols []string
+	s.Require().NoError(json.Unmarshal(supportedProtocols, &protocols))
+	s.Require().Equal([]string{"chat_completions"}, protocols)
+	var evidence service.ProtocolProbeEvidence
+	s.Require().NoError(json.Unmarshal(probeEvidence, &evidence))
+	s.Require().True(evidence.InitialProbeCompleted)
+	s.Require().False(evidence.OfficialSeed)
+	s.Require().Equal("positive", evidence.Verdicts["chat_completions"])
 }
 
 func (s *AccountRepoSuite) TestUpdate_SyncSchedulerSnapshotOnDisabled() {
@@ -834,6 +1110,78 @@ func (s *AccountRepoSuite) TestListByPlatform() {
 	s.Require().NoError(err, "ListByPlatform")
 	s.Require().Len(accounts, 1)
 	s.Require().Equal(service.PlatformAnthropic, accounts[0].Platform)
+}
+
+func (s *AccountRepoSuite) TestUS048_SupplierProjectionReadsDoNotQueryAccountGroups() {
+	group := mustCreateGroup(s.T(), s.client, &service.Group{Name: "supplier-reader-isolation"})
+	account := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:        "supplier/source · 档位 3",
+		Platform:    service.PlatformNewAPI,
+		Type:        service.AccountTypeAPIKey,
+		ChannelType: 1,
+		Credentials: map[string]any{
+			"base_url": "https://supplier.example/v1", "api_key": "secret",
+			"model_mapping": map[string]any{"model": "model"},
+		},
+		Extra: map[string]any{
+			service.SupplierSourceIDExtraKey: int64(7), service.SupplierDiscountBandExtraKey: 3,
+		},
+		Status: service.StatusActive,
+	})
+	mustBindAccountToGroup(s.T(), s.client, account.ID, group.ID, 1)
+
+	_, err := s.repo.sql.ExecContext(s.ctx, `ALTER TABLE account_groups RENAME TO account_groups_supplier_reader_hidden`)
+	s.Require().NoError(err)
+
+	managed, err := s.repo.ListSupplierManagedAccounts(s.ctx, 7)
+	s.Require().NoError(err)
+	s.Require().Len(managed, 1)
+	s.Require().Empty(managed[0].AccountGroups)
+	s.Require().Empty(managed[0].GroupIDs)
+	s.Require().Empty(managed[0].Groups)
+
+	candidates, err := s.repo.ListSupplierAdoptionCandidates(s.ctx)
+	s.Require().NoError(err)
+	s.Require().NotEmpty(candidates)
+
+	loaded, err := s.repo.GetSupplierAccount(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(account.ID, loaded.ID)
+	s.Require().Empty(loaded.AccountGroups)
+	s.Require().Empty(loaded.GroupIDs)
+	s.Require().Empty(loaded.Groups)
+}
+
+func (s *AccountRepoSuite) TestUS048_SupplierAdoptionCandidatesExposeNonActiveCollisionsButNotDeletedAccounts() {
+	createCandidate := func(name, status string) *service.Account {
+		return mustCreateAccount(s.T(), s.client, &service.Account{
+			Name: name, Platform: service.PlatformNewAPI, Type: service.AccountTypeAPIKey,
+			ChannelType: newapiconstant.ChannelTypeOpenAI,
+			Credentials: map[string]any{
+				"base_url": "https://supplier.example/v1", "api_key": name,
+				"model_mapping": map[string]any{"model": "model"},
+			},
+			Status: status,
+		})
+	}
+
+	active := createCandidate("supplier-candidate-active", service.StatusActive)
+	disabled := createCandidate("supplier-candidate-disabled", service.StatusDisabled)
+	errored := createCandidate("supplier-candidate-error", service.StatusError)
+	deleted := createCandidate("supplier-candidate-deleted", service.StatusActive)
+	s.Require().NoError(s.client.Account.DeleteOneID(deleted.ID).Exec(s.ctx))
+
+	candidates, err := s.repo.ListSupplierAdoptionCandidates(s.ctx)
+	s.Require().NoError(err)
+	ids := make([]int64, 0, len(candidates))
+	for _, candidate := range candidates {
+		ids = append(ids, candidate.ID)
+	}
+
+	s.Require().Contains(ids, active.ID)
+	s.Require().Contains(ids, disabled.ID)
+	s.Require().Contains(ids, errored.ID)
+	s.Require().NotContains(ids, deleted.ID)
 }
 
 // --- Preload and VirtualFields ---

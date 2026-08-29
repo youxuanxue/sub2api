@@ -47,4 +47,39 @@ describe('AccountBulkActionsBar', () => {
     await button!.trigger('click')
     expect(wrapper.emitted('probe-upstream-billing')).toHaveLength(1)
   })
+
+  it('blocks generic bulk writes when the selection contains a supplier-managed account', async () => {
+    const wrapper = mount(AccountBulkActionsBar, {
+      props: {
+        selectedIds: [1, 2],
+        totalResults: 45,
+        selectingAll: false,
+        allResultsSelected: false,
+        containsSupplierManaged: true
+      }
+    })
+
+    const deleteButton = wrapper.findAll('button').find(item =>
+      item.text().includes('admin.accounts.bulkActions.delete')
+    )
+    const probeButton = wrapper.findAll('button').find(item =>
+      item.text().includes('admin.accounts.bulkActions.probeUpstreamBilling')
+    )
+    const resetStatusButton = wrapper.findAll('button').find(item =>
+      item.text().includes('admin.accounts.bulkActions.resetStatus')
+    )
+
+    expect(wrapper.text()).toContain('admin.accounts.supplierManaged.readOnlyReason')
+    expect(deleteButton?.attributes('disabled')).toBeDefined()
+    expect(probeButton?.attributes('disabled')).toBeUndefined()
+    expect(resetStatusButton?.attributes('disabled')).toBeUndefined()
+
+    await deleteButton!.trigger('click')
+    await probeButton!.trigger('click')
+    await resetStatusButton!.trigger('click')
+
+    expect(wrapper.emitted('delete')).toBeUndefined()
+    expect(wrapper.emitted('probe-upstream-billing')).toHaveLength(1)
+    expect(wrapper.emitted('reset-status')).toHaveLength(1)
+  })
 })

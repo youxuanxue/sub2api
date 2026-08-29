@@ -278,14 +278,18 @@ func createTestPayload(modelID string) (map[string]any, error) {
 // opts is optional media (image/audio data URLs for real generation / STT).
 func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string, opts ...AccountTestOptions) error {
 	ctx := c.Request.Context()
-	testOpts := firstAccountTestOptions(opts)
-	_ = testOpts
-
-	// Get account
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
+	return s.testAccountConnectionWithAccount(c, account, modelID, prompt, mode, opts...)
+}
+
+func (s *AccountTestService) testAccountConnectionWithAccount(c *gin.Context, account *Account, modelID string, prompt string, mode string, opts ...AccountTestOptions) error {
+	if account == nil {
+		return s.sendErrorAndEnd(c, "Account not found")
+	}
+	testOpts := firstAccountTestOptions(opts)
 
 	// Synthetic UI load-test accounts exercise the real SSE parsing and modal
 	// interactions, but intentionally do not send their placeholder credentials
@@ -2116,7 +2120,10 @@ func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {
 
 // sendErrorAndEnd sends an error event and ends the stream
 func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) error {
-	log.Printf("Account test error: %s", errorMsg)
+	suppressLog, _ := c.Get(accountTestSuppressErrorLogContextKey)
+	if suppress, _ := suppressLog.(bool); !suppress {
+		log.Printf("Account test error: %s", errorMsg)
+	}
 	s.sendEvent(c, TestEvent{Type: "error", Error: errorMsg})
 	return fmt.Errorf("%s", errorMsg)
 }

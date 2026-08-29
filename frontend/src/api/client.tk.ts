@@ -19,6 +19,7 @@ export interface ApiErrorFields {
   reason?: string
   error?: string
   metadata?: Record<string, unknown>
+  data?: unknown
   offline?: boolean
   url?: string
 }
@@ -29,6 +30,7 @@ export class ApiError extends Error {
   reason?: string
   error?: string
   metadata?: Record<string, unknown>
+  data?: unknown
   offline?: boolean
   url?: string
 

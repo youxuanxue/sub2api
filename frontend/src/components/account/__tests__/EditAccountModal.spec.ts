@@ -2,13 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { mount } from '@vue/test-utils'
 
-const { updateAccountMock, probeProtocolsMock, checkMixedChannelRiskMock, getWebSearchEmulationConfigMock, getSettingsMock, listTLSFingerprintProfilesMock, showErrorMock, showInfoMock, showSuccessMock, authIsSimpleMode } = vi.hoisted(() => ({
+const { updateAccountMock, probeProtocolsMock, checkMixedChannelRiskMock, getWebSearchEmulationConfigMock, getSettingsMock, listTLSFingerprintProfilesMock, listSupplierSourcesMock, showErrorMock, showInfoMock, showSuccessMock, authIsSimpleMode } = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
   probeProtocolsMock: vi.fn(),
   checkMixedChannelRiskMock: vi.fn(),
   getWebSearchEmulationConfigMock: vi.fn(),
   getSettingsMock: vi.fn(),
   listTLSFingerprintProfilesMock: vi.fn(),
+  listSupplierSourcesMock: vi.fn(),
   showErrorMock: vi.fn(),
   showInfoMock: vi.fn(),
   showSuccessMock: vi.fn(),
@@ -52,6 +53,12 @@ vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
+vi.mock('@/api/admin/supplierSources', () => ({
+  default: {
+    list: listSupplierSourcesMock
+  }
+}))
+
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return {
@@ -72,6 +79,7 @@ beforeEach(() => {
   getWebSearchEmulationConfigMock.mockReset()
   getSettingsMock.mockReset()
   listTLSFingerprintProfilesMock.mockReset()
+  listSupplierSourcesMock.mockReset()
   showErrorMock.mockReset()
   showInfoMock.mockReset()
   showSuccessMock.mockReset()
@@ -80,6 +88,7 @@ beforeEach(() => {
   getWebSearchEmulationConfigMock.mockResolvedValue({ enabled: false, providers: [] })
   getSettingsMock.mockResolvedValue({ account_quota_notify_enabled: false })
   listTLSFingerprintProfilesMock.mockResolvedValue([])
+  listSupplierSourcesMock.mockResolvedValue([])
 })
 
 const BaseDialogStub = defineComponent({
@@ -366,6 +375,21 @@ function mountModal(account = buildAccount(), groups: any[] = []) {
 describe('EditAccountModal', () => {
   beforeEach(() => {
     authIsSimpleMode.value = true
+  })
+
+  it('shows the supplier-managed reason and refuses generic account updates', async () => {
+    const account = {
+      ...buildAccount(),
+      extra: { supplier_source_id: '7' }
+    }
+    const wrapper = mountModal(account)
+
+    expect(wrapper.text()).toContain('admin.accounts.supplierManaged.readOnlyReason')
+    expect(wrapper.get('[data-tour="account-form-submit"]').attributes('disabled')).toBeDefined()
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).not.toHaveBeenCalled()
   })
 
   it('re-probes canonical native protocols and emits the refreshed account', async () => {
