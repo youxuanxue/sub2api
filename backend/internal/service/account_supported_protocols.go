@@ -242,7 +242,9 @@ func protocolResolvedModelAllowedForTarget(
 	}
 	switch profile {
 	case protocolrouter.OfficialEndpointOpenAICodex:
-		return target == protocolrouter.ProtocolResponses && isOpenAIOAuthServableModel(resolvedModel)
+		return target == protocolrouter.ProtocolResponses &&
+			account.IsModelSupported(requestedModel) &&
+			isOpenAIOAuthServableModel(resolvedModel)
 	case protocolrouter.OfficialEndpointAnthropic:
 		return target == protocolrouter.ProtocolMessages && account.IsModelSupported(requestedModel)
 	}

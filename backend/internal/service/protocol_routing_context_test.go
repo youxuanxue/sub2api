@@ -256,6 +256,64 @@ func TestCanonicalPlanningOwnsGovernedModelRejectionReason(t *testing.T) {
 	}
 }
 
+func TestOfficialOpenAIOAuthMappingGatesUnlistedOfficialModels(t *testing.T) {
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolResponses,
+		RequestedModel:  "gpt-5.6-sol",
+		ResponsesPath:   protocolrouter.ResponsesPathCompact,
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"gpt-5.6-sol","input":"hello"}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+
+	unlisted := &Account{
+		ID:          69,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"access_token":  "test-token",
+			"model_mapping": map[string]any{"gpt-other": "gpt-other"},
+		},
+		Extra: map[string]any{"openai_compact_mode": OpenAICompactModeForceOn},
+	}
+	if !SeedOfficialSupportedProtocols(unlisted) {
+		t.Fatal("test precondition: official OpenAI OAuth seed must succeed")
+	}
+	if unlisted.IsModelSupported("gpt-5.6-sol") {
+		t.Fatal("test precondition: explicit mapping must reject the unlisted official model")
+	}
+
+	ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
+	eligible, reason := protocolRequestEligibilityReason(ctx, unlisted, "gpt-5.6-sol")
+	if eligible || reason != "model_not_supported" {
+		t.Fatalf("eligibility = %v/%q, want false/model_not_supported for unlisted official model", eligible, reason)
+	}
+
+	listed := &Account{
+		ID:          68,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"access_token":  "test-token",
+			"model_mapping": map[string]any{"gpt-5.6-sol": "gpt-5.6-sol"},
+		},
+		Extra: map[string]any{"openai_compact_mode": OpenAICompactModeForceOn},
+	}
+	if !SeedOfficialSupportedProtocols(listed) {
+		t.Fatal("test precondition: listed official OpenAI OAuth seed must succeed")
+	}
+	eligible, reason = protocolRequestEligibilityReason(ctx, listed, "gpt-5.6-sol")
+	if !eligible || reason != "" {
+		t.Fatalf("eligibility = %v/%q, want true for mapped official model", eligible, reason)
+	}
+}
+
 func TestOpenAICompatEligibilityReasonUsesCanonicalModelRejection(t *testing.T) {
 	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
 		InboundProtocol: protocolrouter.ProtocolResponses,
