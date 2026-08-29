@@ -131,6 +131,19 @@ class GoRollingCachePolicyTest(unittest.TestCase):
         self.assertNotIn("Linux-golangci-", text)
         self.assertNotIn("github.run_id", text)
 
+    def test_non_analysis_build_path_is_a_single_entry(self) -> None:
+        # actions/cache versions by the path list. A dummy second copy of
+        # build_cache_path made required CI miss warm's single-path archives.
+        text = ACTION.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "&& '~/.cache/golangci-lint' || inputs.build_cache_path",
+            text,
+        )
+        self.assertIn(
+            "format('{0}\\n~/.cache/golangci-lint', inputs.build_cache_path)",
+            text,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -78,9 +78,11 @@ runs:
       if: (github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.save_caches != 'true') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || inputs.benchmark_build_cache_write != 'true' || inputs.benchmark_prefix == '')
       uses: actions/cache/restore@v6
       with:
-        path: |
-          ${{ inputs.build_cache_path }}
-          ${{ inputs.family == 'analysis' && '~/.cache/golangci-lint' || inputs.build_cache_path }}
+        # One path for test/integration/release so the cache version matches
+        # warm-release-cache-main.yml. Repeating build_cache_path as a dummy
+        # second line hashed a different version; #1880 then missed warm's
+        # 920MB test / 555MB integration keys.
+        path: ${{ inputs.family == 'analysis' && format('{0}\n~/.cache/golangci-lint', inputs.build_cache_path) || inputs.build_cache_path }}
         key: ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
         restore-keys: |
           ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
@@ -106,9 +108,7 @@ runs:
       if: github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.save_caches == 'true'
       uses: actions/cache@v6
       with:
-        path: |
-          ${{ inputs.build_cache_path }}
-          ${{ inputs.family == 'analysis' && '~/.cache/golangci-lint' || inputs.build_cache_path }}
+        path: ${{ inputs.family == 'analysis' && format('{0}\n~/.cache/golangci-lint', inputs.build_cache_path) || inputs.build_cache_path }}
         key: ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
         restore-keys: |
           ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
