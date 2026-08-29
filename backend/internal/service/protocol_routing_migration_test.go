@@ -300,7 +300,7 @@ func TestMigrateProtocolRoutingSSOTSeedsOnlyOfficialProfilesAndReportsCustomAcco
 	if err != nil {
 		t.Fatalf("MigrateProtocolRoutingSSOT: %v", err)
 	}
-	if report.ActiveGoverned != 2 || report.SeededOfficial != 1 || report.CutoverReady {
+	if report.ActiveGoverned != 2 || report.SeededOfficial != 1 || report.CutoverReady || !report.TrafficReady {
 		t.Fatalf("report = %+v", report)
 	}
 	if projection, exists := repo.accounts[0].Extra[SupportedProtocolsExtraKey]; exists {
@@ -405,7 +405,7 @@ func TestProtocolRoutingMigrationReportRejectsCanonicalAccountWithoutLegalRoute(
 	if err != nil {
 		t.Fatalf("MigrateProtocolRoutingSSOT: %v", err)
 	}
-	if report.CutoverReady || len(report.Remediation) != 1 || report.Remediation[0].Reason != ProtocolRoutingRemediationNoLegalRoute {
+	if report.CutoverReady || report.TrafficReady || len(report.Remediation) != 1 || report.Remediation[0].Reason != ProtocolRoutingRemediationNoLegalRoute {
 		t.Fatalf("report = %+v", report)
 	}
 }
@@ -431,8 +431,83 @@ func TestProtocolRoutingMigrationDoesNotTreatHistoricalWildcardSeedAsVerified(t 
 	if err != nil {
 		t.Fatalf("MigrateProtocolRoutingSSOT: %v", err)
 	}
-	if report.CutoverReady || len(report.Remediation) != 1 || report.Remediation[0].Reason != ProtocolRoutingRemediationProbeRequired {
+	if report.CutoverReady || !report.TrafficReady || len(report.Remediation) != 1 || report.Remediation[0].Reason != ProtocolRoutingRemediationProbeRequired {
 		t.Fatalf("historical positive seed bypassed initial endpoint probe: %+v", report)
+	}
+}
+
+func TestMigrateProtocolRoutingSSOTAdmitsPartialPositiveProtocolsWithoutBlockingTraffic(t *testing.T) {
+	verified := Account{
+		ID:       60,
+		Name:     "Qwen",
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":       "secret",
+			"base_url":      "https://relay.example.test/v1",
+			"model_mapping": map[string]any{"qwen3.5-plus": "qwen3.5-plus"},
+		},
+	}
+	unverified := Account{
+		ID:       94,
+		Name:     "cloudwise",
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": "https://api.cloudwise.ai/api",
+			"model_mapping": map[string]any{
+				"claude-*": "claude-*",
+			},
+		},
+		Extra: map[string]any{SupportedProtocolsExtraKey: []any{string(protocolrouter.ProtocolMessages)}},
+	}
+	repo := &protocolRoutingMigrationRepo{accounts: []Account{verified, unverified}}
+	identity, governed, err := BuildProtocolEndpointIdentity(&verified)
+	if err != nil || !governed {
+		t.Fatalf("BuildProtocolEndpointIdentity: governed=%v err=%v", governed, err)
+	}
+	repo.ensureCapabilityMaps()
+	repo.capabilities[identity.Key()] = &ProtocolEndpointCapability{
+		ID:                 1,
+		CapabilityKey:      identity.Key(),
+		Identity:           identity,
+		SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions},
+		Revision:           1,
+		ProbeEvidence: ProtocolProbeEvidence{
+			Verdicts: map[string]any{
+				string(protocolrouter.ProtocolChatCompletions): string(ProtocolProbePositive),
+			},
+		},
+	}
+	repo.links[verified.ID] = identity.Key()
+
+	report, err := MigrateProtocolRoutingSSOT(context.Background(), repo, NewProtocolRouter())
+	if err != nil {
+		t.Fatalf("MigrateProtocolRoutingSSOT: %v", err)
+	}
+	ready := newProtocolRoutingSSOTReady(report, NewProtocolRouter())
+	if !ready.Ready() || !report.TrafficReady {
+		t.Fatalf("partial positive account blocked process traffic readiness: %+v", report)
+	}
+	if report.CutoverReady {
+		t.Fatalf("incomplete probe was treated as full cutover: %+v", report)
+	}
+	if len(report.Remediation) != 2 {
+		t.Fatalf("remediation = %+v, want probe_required for both the partial and unverified accounts", report.Remediation)
+	}
+	for _, item := range report.Remediation {
+		if item.Reason != ProtocolRoutingRemediationProbeRequired {
+			t.Fatalf("remediation = %+v, want probe_required only", report.Remediation)
+		}
+	}
+
+	linked := repo.accounts[0]
+	if _, err := ProtocolAccountSnapshot(&linked, "qwen3.5-plus"); err != nil {
+		t.Fatalf("verified partial protocol was not routable: %v", err)
+	}
+	if _, err := ProtocolAccountSnapshot(&repo.accounts[1], "claude-sonnet"); err == nil {
+		t.Fatal("unverified historical protocol was admitted to runtime routing")
 	}
 }
 
@@ -482,7 +557,7 @@ func TestPrepareProtocolRoutingSSOTProbesRemediationBeforeEnablingRouter(t *test
 	}
 }
 
-func TestPrepareProtocolRoutingSSOTKeepsRouterAndFailsReadinessWhenRemediationRemains(t *testing.T) {
+func TestPrepareProtocolRoutingSSOTKeepsRouterAndTrafficReadyWhenRemediationRemains(t *testing.T) {
 	repo := &protocolRoutingMigrationRepo{accounts: []Account{{
 		ID:       13,
 		Name:     "unresolved-openai",
@@ -500,11 +575,11 @@ func TestPrepareProtocolRoutingSSOTKeepsRouterAndFailsReadinessWhenRemediationRe
 	if err != nil {
 		t.Fatalf("prepareProtocolRoutingSSOT: %v", err)
 	}
-	if ready.Report.CutoverReady || ready.EnabledRouter() != router {
-		t.Fatalf("ready = %+v router=%p, want remediation with router %p", ready.Report, ready.EnabledRouter(), router)
+	if ready.Report.CutoverReady || !ready.Report.TrafficReady || ready.EnabledRouter() != router {
+		t.Fatalf("ready = %+v router=%p, want traffic-ready remediation with router %p", ready.Report, ready.EnabledRouter(), router)
 	}
-	if ready.Ready() {
-		t.Fatal("Ready() = true, want false while remediation remains")
+	if !ready.Ready() {
+		t.Fatal("Ready() = false, want true while only unverified accounts remain excluded")
 	}
 	if ready.Report.ProbeAttempts != 1 || ready.Report.ProbeResolved != 0 {
 		t.Fatalf("probe outcome = attempts:%d resolved:%d, want 1/0", ready.Report.ProbeAttempts, ready.Report.ProbeResolved)
@@ -662,8 +737,8 @@ func TestPrepareProtocolRoutingSSOTRetriesInconclusive429WithoutPublishingThenPu
 	if err != nil {
 		t.Fatalf("first prepareProtocolRoutingSSOT: %v", err)
 	}
-	if first.Ready() || first.Report.CutoverReady {
-		t.Fatalf("inconclusive 429 admitted candidate: %+v", first.Report)
+	if !first.Ready() || !first.Report.TrafficReady || first.Report.CutoverReady {
+		t.Fatalf("inconclusive 429 should keep traffic ready without full cutover: %+v", first.Report)
 	}
 	if repo.publishCalls != 0 {
 		t.Fatalf("inconclusive 429 publication calls = %d, want 0", repo.publishCalls)

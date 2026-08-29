@@ -188,8 +188,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 		return protocolrouter.AccountSnapshot{}, errors.New("governed account is missing protocol endpoint capability link")
 	}
 	if capability.CapabilityKey == "" || capability.Revision <= 0 ||
-		(!capability.ProbeEvidence.InitialProbeCompleted && !capability.ProbeEvidence.OfficialSeed) ||
-		capability.IdentityConflict || capability.ProbeEvidence.IdentityConflict {
+		!protocolCapabilityHasVerifiedRoutingEvidence(capability) {
 		return protocolrouter.AccountSnapshot{}, errors.New("protocol endpoint capability is invalid or conflicted")
 	}
 	identity, governed, err := BuildProtocolEndpointIdentity(account)

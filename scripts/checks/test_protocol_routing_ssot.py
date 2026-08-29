@@ -114,7 +114,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "func BuildSupportedProtocolsUpdate(){}\n"
             "func ReplaceSupportedProtocols(){}\n"
             "func SeedOfficialSupportedProtocols(){}\n"
-            "func protocolAccountSnapshot(capability Capability){ if !capability.ProbeEvidence.InitialProbeCompleted && !capability.ProbeEvidence.OfficialSeed { fail() } }\n",
+            "func protocolAccountSnapshot(capability Capability){ if !protocolCapabilityHasVerifiedRoutingEvidence(capability) { fail() } }\n",
             encoding="utf-8",
         )
         identity_owner = root / "backend/internal/service/protocol_endpoint_identity.go"
@@ -157,7 +157,8 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "package fixture\n"
             "func MigrateProtocolRoutingSSOT(){ LegacySupportedProtocolsProjection() }\n"
             "func validateProtocolRoutingSSOTReadiness(){}\n"
-            "func prepareProtocolRoutingSSOT(){ ProbeAccountProtocolCapabilitiesForPreparation(); prepared := MigrateProtocolRoutingSSOT(); if prepared.CutoverReady { PublishProtocolRoutingProjections(func(){ final := validateProtocolRoutingSSOTReadiness(); if !final.CutoverReady { return errProtocolRoutingFinalReadinessNotReady } }) } }\n",
+            "func prepareProtocolRoutingSSOT(){ ProbeAccountProtocolCapabilitiesForPreparation(); prepared := MigrateProtocolRoutingSSOT(); if prepared.CutoverReady { PublishProtocolRoutingProjections(func(){ final := validateProtocolRoutingSSOTReadiness(); if !final.CutoverReady { return errProtocolRoutingFinalReadinessNotReady } }) } }\n"
+            "func protocolCapabilityHasVerifiedRoutingEvidence(capability Capability){ capability.ProbeEvidence.OfficialSeed; capability.ProbeEvidence.InitialProbeCompleted; ProtocolProbePositive; capability.IdentityConflict }\n",
             encoding="utf-8",
         )
         count_tokens = root / "backend/internal/handler/openai_gateway_count_tokens.go"
@@ -285,7 +286,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "package fixture\n"
             "type ProtocolRoutingSSOTReady struct{ Report Report; router *Router }\n"
             "func (r ProtocolRoutingSSOTReady) EnabledRouter(){}\n"
-            "func (r ProtocolRoutingSSOTReady) Ready() bool { return r.Report.CutoverReady }\n"
+            "func (r ProtocolRoutingSSOTReady) Ready() bool { return r.Report.TrafficReady }\n"
             "func newProtocolRoutingSSOTReady(report Report, router *Router) ProtocolRoutingSSOTReady { return ProtocolRoutingSSOTReady{Report: report, router: router} }\n"
             "func ProvideProtocolRoutingSSOTReady(){ prepareProtocolRoutingSSOT() }\n",
             encoding="utf-8",
@@ -466,12 +467,12 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         )
         self.assertTrue(any("must not disable the router" in error for error in MODULE.check(root)))
 
-    def test_rejects_readiness_accessor_that_ignores_cutover_report(self) -> None:
+    def test_rejects_readiness_accessor_that_ignores_traffic_report(self) -> None:
         root = self.fixture()
         wire = root / "backend/internal/service/wire.go"
         wire.write_text(
             wire.read_text(encoding="utf-8").replace(
-                "return r.Report.CutoverReady",
+                "return r.Report.TrafficReady",
                 "return true",
             ),
             encoding="utf-8",

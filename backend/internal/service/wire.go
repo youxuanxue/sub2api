@@ -50,30 +50,32 @@ func (r ProtocolRoutingSSOTReady) EnabledRouter() *protocolrouter.Router {
 }
 
 func (r ProtocolRoutingSSOTReady) Ready() bool {
-	return r.Report.CutoverReady
+	return r.Report.TrafficReady
 }
 
 func ProvideProtocolRoutingSSOTReady(accountRepo AccountRepository, accountTestService *AccountTestService, router *protocolrouter.Router) ProtocolRoutingSSOTReady {
 	migrationRepo, ok := accountRepo.(protocolRoutingMigrationRepository)
 	if !ok {
-		report := ProtocolRoutingMigrationReport{CutoverReady: false}
+		report := ProtocolRoutingMigrationReport{TrafficReady: false, CutoverReady: false}
 		logger.LegacyPrintf("service.protocol_routing", "protocol SSOT repository capability is unavailable")
 		return newProtocolRoutingSSOTReady(report, router)
 	}
 	ready, err := prepareProtocolRoutingSSOT(context.Background(), migrationRepo, router, accountTestService)
 	report := ready.Report
 	if err != nil {
+		report.TrafficReady = false
 		report.CutoverReady = false
 		logger.LegacyPrintf("service.protocol_routing", "protocol SSOT migration/report failed: %v", err)
 		return newProtocolRoutingSSOTReady(report, router)
 	}
 	logger.LegacyPrintf(
 		"service.protocol_routing",
-		"protocol SSOT migration/report: active_governed=%d seeded_official=%d probe_attempts=%d probe_resolved=%d cutover_ready=%t remediation=%d",
+		"protocol SSOT migration/report: active_governed=%d seeded_official=%d probe_attempts=%d probe_resolved=%d traffic_ready=%t cutover_ready=%t remediation=%d",
 		report.ActiveGoverned,
 		report.SeededOfficial,
 		report.ProbeAttempts,
 		report.ProbeResolved,
+		report.TrafficReady,
 		report.CutoverReady,
 		len(report.Remediation),
 	)

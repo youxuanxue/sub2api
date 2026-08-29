@@ -428,7 +428,7 @@ def check(root: Path) -> list[str]:
         if not snapshot_bodies:
             errors.append("canonical capability owner is missing protocolAccountSnapshot")
         for body in snapshot_bodies:
-            if not contains_identifier(body, "InitialProbeCompleted") or not contains_identifier(body, "OfficialSeed"):
+            if not contains_identifier(body, "protocolCapabilityHasVerifiedRoutingEvidence"):
                 errors.append("protocolAccountSnapshot does not fail closed on unverified capability evidence")
 
     identity_owner = root / "backend/internal/service/protocol_endpoint_identity.go"
@@ -563,6 +563,15 @@ def check(root: Path) -> list[str]:
             errors.append("protocol routing startup uses the normal probe writer instead of the preparation probe")
         if not contains_identifier(source, "ProbeAccountProtocolCapabilitiesForPreparation"):
             errors.append("protocol routing startup is missing the preparation probe")
+        evidence_bodies = function_bodies(source, "protocolCapabilityHasVerifiedRoutingEvidence")
+        if not evidence_bodies or not all(
+            contains_identifier(body, "OfficialSeed")
+            and contains_identifier(body, "InitialProbeCompleted")
+            and contains_identifier(body, "ProtocolProbePositive")
+            and contains_identifier(body, "IdentityConflict")
+            for body in evidence_bodies
+        ):
+            errors.append("protocol routing verified-evidence helper is missing official, probe, or conflict gates")
         preparation_bodies = function_bodies(source, "prepareProtocolRoutingSSOT")
         for body in preparation_bodies:
             if not contains_identifier(body, "PublishProtocolRoutingProjections"):
@@ -985,9 +994,9 @@ def check(root: Path) -> list[str]:
                 errors.append("protocol routing readiness must not disable the router")
         ready_accessors = function_bodies(source, "Ready")
         if not ready_accessors or not all(
-            contains_identifier(body, "CutoverReady") for body in ready_accessors
+            contains_identifier(body, "TrafficReady") for body in ready_accessors
         ):
-            errors.append("protocol routing Ready accessor is not gated by CutoverReady")
+            errors.append("protocol routing Ready accessor is not gated by TrafficReady")
 
     handler_wire = root / "backend/internal/handler/wire.go"
     if handler_wire.is_file():

@@ -37,8 +37,13 @@ type ProtocolRoutingMigrationReport struct {
 	SeededOfficial int
 	ProbeAttempts  int
 	ProbeResolved  int
-	CutoverReady   bool
-	Remediation    []ProtocolRoutingRemediation
+	// TrafficReady is true when every hard blocker is gone: identity can be
+	// built, and any already-verified protocol set still has a legal route.
+	// Unverified / incomplete probes stay in Remediation and do not flip this.
+	TrafficReady bool
+	// CutoverReady is true only when TrafficReady and no remediations remain.
+	CutoverReady bool
+	Remediation  []ProtocolRoutingRemediation
 }
 
 type protocolRoutingMigrationRepository interface {
@@ -71,7 +76,7 @@ func evaluateProtocolRoutingSSOT(
 	router *protocolrouter.Router,
 	prepare bool,
 ) (ProtocolRoutingMigrationReport, error) {
-	report := ProtocolRoutingMigrationReport{CutoverReady: true}
+	report := ProtocolRoutingMigrationReport{CutoverReady: true, TrafficReady: true}
 	accounts, err := repo.ListActive(ctx)
 	if err != nil {
 		return report, err
@@ -85,6 +90,7 @@ func evaluateProtocolRoutingSSOT(
 		identity, governed, err := BuildProtocolEndpointIdentity(account)
 		if err != nil {
 			if account.Schedulable {
+				report.TrafficReady = false
 				report.CutoverReady = false
 				report.Remediation = append(report.Remediation, ProtocolRoutingRemediation{AccountID: account.ID, Name: account.Name, Reason: ProtocolRoutingRemediationNoLegalRoute})
 			}
@@ -128,8 +134,7 @@ func evaluateProtocolRoutingSSOT(
 			continue
 		}
 		if capability.IdentityConflict || capability.ProbeEvidence.IdentityConflict ||
-			(!capability.ProbeEvidence.InitialProbeCompleted && !capability.ProbeEvidence.OfficialSeed) ||
-			len(capability.SupportedProtocols) == 0 {
+			!protocolCapabilityHasVerifiedRoutingEvidence(capability) {
 			report.CutoverReady = false
 			report.Remediation = append(report.Remediation, ProtocolRoutingRemediation{
 				AccountID: account.ID,
@@ -140,12 +145,22 @@ func evaluateProtocolRoutingSSOT(
 		}
 		models := protocolRoutingMigrationModels(account)
 		if !accountHasLegalProtocolRoute(router, account, models) {
+			report.TrafficReady = false
 			report.CutoverReady = false
 			report.Remediation = append(report.Remediation, ProtocolRoutingRemediation{
 				AccountID: account.ID,
 				Name:      account.Name,
 				Reason:    ProtocolRoutingRemediationNoLegalRoute,
 				Models:    models,
+			})
+			continue
+		}
+		if !capability.ProbeEvidence.InitialProbeCompleted && !capability.ProbeEvidence.OfficialSeed {
+			report.CutoverReady = false
+			report.Remediation = append(report.Remediation, ProtocolRoutingRemediation{
+				AccountID: account.ID,
+				Name:      account.Name,
+				Reason:    ProtocolRoutingRemediationProbeRequired,
 			})
 		}
 	}
@@ -212,9 +227,12 @@ func prepareProtocolRoutingSSOT(
 		return nil
 	})
 	if errors.Is(err, errProtocolRoutingFinalReadinessNotReady) {
+		final.TrafficReady = false
+		final.CutoverReady = false
 		return newProtocolRoutingSSOTReady(final, router), nil
 	}
 	if err != nil {
+		final.TrafficReady = false
 		final.CutoverReady = false
 		return ProtocolRoutingSSOTReady{Report: final}, err
 	}
@@ -295,6 +313,27 @@ func protocolRoutingMigrationModels(account *Account) []string {
 	}
 	sort.Strings(models)
 	return models
+}
+
+func protocolCapabilityHasVerifiedRoutingEvidence(capability *ProtocolEndpointCapability) bool {
+	if capability == nil {
+		return false
+	}
+	if capability.IdentityConflict || capability.ProbeEvidence.IdentityConflict {
+		return false
+	}
+	if len(capability.SupportedProtocols) == 0 {
+		return false
+	}
+	if capability.ProbeEvidence.OfficialSeed || capability.ProbeEvidence.InitialProbeCompleted {
+		return true
+	}
+	for _, protocol := range capability.SupportedProtocols {
+		if conclusiveProtocolProbeVerdict(capability.ProbeEvidence.Verdicts[string(protocol)]) == ProtocolProbePositive {
+			return true
+		}
+	}
+	return false
 }
 
 func accountHasLegalProtocolRoute(router *protocolrouter.Router, account *Account, models []string) bool {
