@@ -64,6 +64,11 @@ inputs:
     required: false
     default: ""
 
+outputs:
+  build_cache_hit:
+    description: "true only when the selected primary Go build cache key restores exactly."
+    value: ${{ steps.build_cache_status.outputs.build_cache_hit }}
+
 runs:
   using: composite
   steps:
@@ -91,6 +96,7 @@ runs:
         restore-keys: ${{ runner.os }}-gomod-
 
     - name: Restore Go build/test cache (non-main writer, ${{ inputs.prefix }})
+      id: build_cache_restore
       if: (github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.save_caches != 'true') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || inputs.benchmark_build_cache_write != 'true' || inputs.benchmark_prefix == '')
       uses: actions/cache/restore@v6
       with:
@@ -103,6 +109,7 @@ runs:
           ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-', runner.os, inputs.fallback_prefix) || '' }}
 
     - name: Go build/test cache (workflow_dispatch benchmark writer, ${{ inputs.benchmark_prefix }})
+      id: build_cache_benchmark
       if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && inputs.benchmark_build_cache_write == 'true' && inputs.benchmark_prefix != ''
       uses: actions/cache@v6
       with:
@@ -115,6 +122,7 @@ runs:
           ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-', runner.os, inputs.fallback_prefix) || '' }}
 
     - name: Go build/test cache (main writer, ${{ inputs.prefix }})
+      id: build_cache_main
       if: github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.save_caches == 'true'
       uses: actions/cache@v6
       with:
@@ -125,6 +133,20 @@ runs:
           ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
           ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-{2}-', runner.os, inputs.fallback_prefix, hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref')) || '' }}
           ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-', runner.os, inputs.fallback_prefix) || '' }}
+
+    - name: Resolve Go build cache status
+      id: build_cache_status
+      shell: bash
+      env:
+        RESTORE_HIT: ${{ steps.build_cache_restore.outputs.cache-hit }}
+        BENCHMARK_HIT: ${{ steps.build_cache_benchmark.outputs.cache-hit }}
+        MAIN_HIT: ${{ steps.build_cache_main.outputs.cache-hit }}
+      run: |
+        if [[ "$RESTORE_HIT" == "true" || "$BENCHMARK_HIT" == "true" || "$MAIN_HIT" == "true" ]]; then
+          echo "build_cache_hit=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "build_cache_hit=false" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Restore golangci-lint analysis cache (non-main writer)
       if: inputs.golangci_cache == 'true' && (github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.save_caches != 'true')

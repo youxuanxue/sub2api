@@ -306,13 +306,23 @@ class BackendCIRoutingTest(unittest.TestCase):
         self.assertIn("scripts.ci.test_integration_test_runner", step["run"])
 
     def test_unit_job_always_uses_compile_once_service_shards(self) -> None:
+        unit_cache = next(
+            step
+            for step in self.jobs["test-unit"]["steps"]
+            if step.get("uses") == "./.github/actions/go-rolling-cache"
+        )
         unit_step = next(
             step
             for step in self.jobs["test-unit"]["steps"]
             if step.get("name") == "Unit tests"
         )
 
+        self.assertEqual(unit_cache["id"], "go_cache")
         self.assertEqual(unit_step["env"]["UNIT_TEST_SERVICE_SHARD"], "1")
+        self.assertEqual(
+            unit_step["env"]["UNIT_TEST_BUILD_CACHE_HIT"],
+            "${{ steps.go_cache.outputs.build_cache_hit }}",
+        )
 
     def test_unit_cache_benchmark_is_manual_isolated_and_opt_in(self) -> None:
         triggers = self.workflow.get("on", self.workflow.get(True))
@@ -344,7 +354,7 @@ class BackendCIRoutingTest(unittest.TestCase):
         self.assertEqual(unit_cache["with"]["prefix"], "unit-nodwarf-v3")
         self.assertEqual(
             unit_cache["with"]["benchmark_prefix"],
-            "unit-nodwarf-v3-bench",
+            "unit-nodwarf-v5-other-first-bench",
         )
         self.assertEqual(
             unit_cache["with"]["benchmark_build_cache_write"],

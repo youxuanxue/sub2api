@@ -17,6 +17,43 @@ BENCHMARK_WRITER_IF = "github.event_name == 'workflow_dispatch'"
 
 
 class GoRollingCachePolicyTest(unittest.TestCase):
+    def test_exports_only_primary_exact_build_cache_hits(self) -> None:
+        action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
+        self.assertEqual(
+            action["outputs"]["build_cache_hit"]["value"],
+            "${{ steps.build_cache_status.outputs.build_cache_hit }}",
+        )
+
+        steps = action["runs"]["steps"]
+        build_steps = [
+            step
+            for step in steps
+            if step.get("with", {}).get("path") == "${{ inputs.build_cache_path }}"
+        ]
+        self.assertEqual(
+            {step.get("id") for step in build_steps},
+            {
+                "build_cache_restore",
+                "build_cache_benchmark",
+                "build_cache_main",
+            },
+        )
+
+        status = next(
+            step for step in steps if step.get("id") == "build_cache_status"
+        )
+        self.assertEqual(
+            status["env"],
+            {
+                "RESTORE_HIT": "${{ steps.build_cache_restore.outputs.cache-hit }}",
+                "BENCHMARK_HIT": "${{ steps.build_cache_benchmark.outputs.cache-hit }}",
+                "MAIN_HIT": "${{ steps.build_cache_main.outputs.cache-hit }}",
+            },
+        )
+        self.assertIn('== "true"', status["run"])
+        self.assertIn("build_cache_hit=true", status["run"])
+        self.assertIn("build_cache_hit=false", status["run"])
+
     def test_only_main_push_or_explicit_benchmark_steps_can_save_caches(self) -> None:
         action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
         self.assertEqual(action["inputs"]["save_caches"]["default"], "true")
