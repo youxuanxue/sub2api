@@ -293,14 +293,22 @@ assert_live_untouched
 
 echo "online pg_dump on live (does not stop live)"
 dump_script="$(mktemp)"
-cat >"$dump_script" <<EOF
+cat >"$dump_script" <<'EOF'
 set -euo pipefail
-/usr/local/bin/tokenkey-pgdump.sh
-ls -1t /var/lib/tokenkey/pgdump/tokenkey-*.sql.gz | head -1
+/usr/local/bin/tokenkey-pgdump.sh >/tmp/pgdump.out
+DUMP_PATH="$(ls -1t /var/lib/tokenkey/pgdump/tokenkey-*.sql.gz | head -1)"
+test -n "$DUMP_PATH"
+test "$(wc -c < "$DUMP_PATH")" -gt 2048
+echo "DUMP_PATH=${DUMP_PATH}"
+cat /tmp/pgdump.out
 EOF
-DUMP_PATH="$(ssm_out "$live_mi" "live-pgdump" "$dump_script" | tail -1)"
+DUMP_PATH="$(ssm_out "$live_mi" "live-pgdump" "$dump_script" | awk -F= '/^DUMP_PATH=/{print $2; exit}')"
 rm -f "$dump_script"
 DUMP_NAME="$(basename "$DUMP_PATH")"
+if [[ -z "$DUMP_NAME" || "$DUMP_NAME" == "pgdump" ]]; then
+  echo "could not parse live dump name (got '$DUMP_PATH')" >&2
+  exit 1
+fi
 echo "live dump=${DUMP_NAME}"
 count_sql="SELECT string_agg(n || '=' || c, ',') FROM ( "
 first=1
