@@ -1,58 +1,29 @@
-# Single source for the Go cache strategy shared by the heavy Go CI jobs
-# (test-unit / test-integration / golangci-lint). Replaces setup-go's built-in
-# cache, which is keyed only on hash(go.sum), IMMUTABLE (saved once on first
-# miss), and was shared across these jobs even though they build different
-# objects (-tags=unit vs =integration vs none) — whichever job won the post-job
-# save race poisoned the others, so the test-result cache effectively never
-# restored and every run cold-compiled + re-ran all packages.
+# Content-addressed Go cache for the five managed families.
+# Keys use schema / runner OS / exact go.mod version / family / dependency /
+# source fingerprints. Date, week, branch, and run ID are not key dimensions.
 #
-# Three caches, deliberately split:
-#   - module cache: identical across all jobs, only changes with go.sum, so one
-#     shared immutable entry is correct and avoids triplicating ~1GB of
-#     GOMODCACHE against the 10GB/repo budget.
-#   - build/test cache: caller-selected namespace (prefix) + UTC-week seed by
-#     default, avoiding repeated uploads of the 300MB-2.5GB preflight/lint
-#     archives. Unit keys main snapshots by backend content and falls back to its
-#     previous weekly namespace until the first content-keyed entry exists.
-#     Integration remains isolated because its build tags do not seed Unit's
-#     critical compile graph.
-#   - golangci analysis cache: optional, lint-only, and rolling for the same
-#     reason. golangci-lint-action's interval key is immutable after the first
-#     save, so changed-package analysis cannot be written back until the interval
-#     changes. Main owns the rolling writer for the default callers; PRs and
-#     callers with save_caches=false restore but never save.
+# Dual-write window: required main jobs may still save. The warm workflow is
+# the intended long-term writer and uses restore → build → save → prune.
 #
 # Set `cache: false` on the calling job's actions/setup-go step and call this
-# AFTER it (mirrors warm-release-cache in backend-ci.yml).
+# AFTER it.
 name: Go rolling build/test cache
-description: Shared module cache + per-job rolling Go build/test cache (replaces setup-go's immutable shared cache).
+description: Shared module cache + per-family content-addressed Go build cache.
 
 inputs:
-  prefix:
-    description: Cache namespace; callers may share one when Go flags and the intended writer are compatible.
+  family:
+    description: Managed build family (test, integration, analysis, or release).
     required: true
   fallback_prefix:
-    description: Optional secondary build-cache namespace used after the primary restore prefixes miss.
+    description: Optional legacy build-cache namespace used after the primary family key misses.
     required: false
     default: ""
-  golangci_cache:
-    description: Also roll ~/.cache/golangci-lint (enable only for the lint job).
-    required: false
-    default: "false"
-  refresh_on_backend_change:
-    description: Use the tracked backend input fingerprint instead of the weekly epoch.
-    required: false
-    default: "false"
-  refresh_daily:
-    description: Use a UTC-day cache epoch instead of the weekly epoch.
-    required: false
-    default: "false"
   build_cache_path:
     description: Go build/test cache path restored and optionally saved by this action.
     required: false
     default: ~/.cache/go-build
   save_caches:
-    description: Allow main pushes to save caches owned by this action; set false on required jobs whose tail must stay restore-only.
+    description: Allow main pushes to save caches owned by this action; set false on restore-only jobs.
     required: false
     default: "true"
   benchmark_build_cache_write:
@@ -72,65 +43,74 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Resolve weekly build cache epoch
-      id: cache_epoch
+    - name: Resolve exact Go version
+      id: go_version
       shell: bash
       run: |
-        echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
-        echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+        version="$(awk '/^go /{print $2; exit}' backend/go.mod)"
+        echo "version=${version}" >> "$GITHUB_OUTPUT"
 
     - name: Restore Go module cache (non-main writer)
       if: github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.save_caches != 'true'
       uses: actions/cache/restore@v6
       with:
         path: ~/go/pkg/mod
-        key: ${{ runner.os }}-gomod-${{ hashFiles('backend/go.sum') }}
-        restore-keys: ${{ runner.os }}-gomod-
+        key: ${{ runner.os }}-gomod-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}
+        restore-keys: |
+          ${{ runner.os }}-gomod-v1-${{ steps.go_version.outputs.version }}-
+          ${{ runner.os }}-gomod-
 
     - name: Go module cache (main writer)
       if: github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.save_caches == 'true'
       uses: actions/cache@v6
       with:
         path: ~/go/pkg/mod
-        key: ${{ runner.os }}-gomod-${{ hashFiles('backend/go.sum') }}
-        restore-keys: ${{ runner.os }}-gomod-
+        key: ${{ runner.os }}-gomod-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}
+        restore-keys: |
+          ${{ runner.os }}-gomod-v1-${{ steps.go_version.outputs.version }}-
+          ${{ runner.os }}-gomod-
 
-    - name: Restore Go build/test cache (non-main writer, ${{ inputs.prefix }})
+    - name: Restore Go build cache (non-main writer)
       id: build_cache_restore
       if: (github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.save_caches != 'true') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || inputs.benchmark_build_cache_write != 'true' || inputs.benchmark_prefix == '')
       uses: actions/cache/restore@v6
       with:
-        path: ${{ inputs.build_cache_path }}
-        key: ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ inputs.refresh_on_backend_change == 'true' && hashFiles('backend/**', '.new-api-ref') || inputs.refresh_daily == 'true' && steps.cache_epoch.outputs.day || steps.cache_epoch.outputs.week }}
+        path: |
+          ${{ inputs.build_cache_path }}
+          ${{ inputs.family == 'analysis' && '~/.cache/golangci-lint' || inputs.build_cache_path }}
+        key: ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
         restore-keys: |
-          ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
-          ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
+          ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
+          ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-
+          ${{ runner.os }}-gobuild-${{ inputs.family }}-
           ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-{2}-', runner.os, inputs.fallback_prefix, hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref')) || '' }}
           ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-', runner.os, inputs.fallback_prefix) || '' }}
 
-    - name: Go build/test cache (workflow_dispatch benchmark writer, ${{ inputs.benchmark_prefix }})
+    - name: Go build cache (workflow_dispatch benchmark writer)
       id: build_cache_benchmark
       if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && inputs.benchmark_build_cache_write == 'true' && inputs.benchmark_prefix != ''
       uses: actions/cache@v6
       with:
         path: ${{ inputs.build_cache_path }}
-        key: ${{ runner.os }}-gobuild-${{ inputs.benchmark_prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ inputs.refresh_on_backend_change == 'true' && hashFiles('backend/**', '.new-api-ref') || inputs.refresh_daily == 'true' && steps.cache_epoch.outputs.day || steps.cache_epoch.outputs.week }}
+        key: ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-bench-${{ inputs.benchmark_prefix }}-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
         restore-keys: |
-          ${{ runner.os }}-gobuild-${{ inputs.benchmark_prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
-          ${{ runner.os }}-gobuild-${{ inputs.benchmark_prefix }}-
-          ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-{2}-', runner.os, inputs.fallback_prefix, hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref')) || '' }}
+          ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
+          ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-
           ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-', runner.os, inputs.fallback_prefix) || '' }}
 
-    - name: Go build/test cache (main writer, ${{ inputs.prefix }})
+    - name: Go build cache (main writer)
       id: build_cache_main
       if: github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.save_caches == 'true'
       uses: actions/cache@v6
       with:
-        path: ${{ inputs.build_cache_path }}
-        key: ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ inputs.refresh_on_backend_change == 'true' && hashFiles('backend/**', '.new-api-ref') || inputs.refresh_daily == 'true' && steps.cache_epoch.outputs.day || steps.cache_epoch.outputs.week }}
+        path: |
+          ${{ inputs.build_cache_path }}
+          ${{ inputs.family == 'analysis' && '~/.cache/golangci-lint' || inputs.build_cache_path }}
+        key: ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
         restore-keys: |
-          ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
-          ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
+          ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
+          ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-
+          ${{ runner.os }}-gobuild-${{ inputs.family }}-
           ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-{2}-', runner.os, inputs.fallback_prefix, hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref')) || '' }}
           ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-', runner.os, inputs.fallback_prefix) || '' }}
 
@@ -147,23 +127,3 @@ runs:
         else
           echo "build_cache_hit=false" >> "$GITHUB_OUTPUT"
         fi
-
-    - name: Restore golangci-lint analysis cache (non-main writer)
-      if: inputs.golangci_cache == 'true' && (github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.save_caches != 'true')
-      uses: actions/cache/restore@v6
-      with:
-        path: ~/.cache/golangci-lint
-        key: ${{ runner.os }}-golangci-${{ hashFiles('backend/go.sum', 'backend/.golangci.yml') }}-${{ github.run_id }}
-        restore-keys: |
-          ${{ runner.os }}-golangci-${{ hashFiles('backend/go.sum', 'backend/.golangci.yml') }}-
-          ${{ runner.os }}-golangci-
-
-    - name: golangci-lint analysis cache (rolling main writer)
-      if: inputs.golangci_cache == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.save_caches == 'true'
-      uses: actions/cache@v6
-      with:
-        path: ~/.cache/golangci-lint
-        key: ${{ runner.os }}-golangci-${{ hashFiles('backend/go.sum', 'backend/.golangci.yml') }}-${{ github.run_id }}
-        restore-keys: |
-          ${{ runner.os }}-golangci-${{ hashFiles('backend/go.sum', 'backend/.golangci.yml') }}-
-          ${{ runner.os }}-golangci-

@@ -3080,6 +3080,34 @@ else
 fi
 
 echo ""
+echo "=== sub2api: Go cache prune plan ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by go cache prune contract)"
+    errors=$((errors + 1))
+elif ! python3 -m unittest scripts.ci.test_go_cache_prune >/dev/null; then
+    echo "  FAIL: scripts.ci.test_go_cache_prune"
+    echo "        — run: python3 -m unittest scripts.ci.test_go_cache_prune -v"
+    errors=$((errors + 1))
+else
+    echo "  ok: managed Go cache prune keeps two generations inside 6 GiB"
+fi
+
+echo ""
+echo "=== sub2api: Go cache boundary contract ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by go cache boundary contract)"
+    errors=$((errors + 1))
+elif ! python3 -m unittest \
+        scripts.checks.test_go_rolling_cache_policy \
+        scripts.checks.test_go_cache_boundary_contract >/dev/null; then
+    echo "  FAIL: go cache boundary contract"
+    echo "        — run: python3 -m unittest scripts.checks.test_go_rolling_cache_policy scripts.checks.test_go_cache_boundary_contract -v"
+    errors=$((errors + 1))
+else
+    echo "  ok: Go cache families stay content-addressed and setup-go cache stays off"
+fi
+
+echo ""
 echo "=== sub2api: GitHub cache action Node runtime ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by cache action runtime contract)"

@@ -96,7 +96,7 @@ jobs:
     env:
       # Preflight only executes generators, contracts, and tests; failure stacks
       # retain file:line data without storing DWARF in the rolling Go cache.
-      GOFLAGS: -gcflags=all=-dwarf=false
+      GOFLAGS: -trimpath -gcflags=all=-dwarf=false
     steps:
       - name: Require changed-surface classification
         if: needs.changes.result != 'success'
@@ -113,6 +113,8 @@ jobs:
             scripts.checks.test_docker_action_runtime \
             scripts.checks.test_release_cache_key_parity \
             scripts.checks.test_go_rolling_cache_policy \
+            scripts.checks.test_go_cache_boundary_contract \
+            scripts.ci.test_go_cache_prune \
             scripts.checks.test_model_surface_bundle_check \
             scripts.test_preflight_ci_handoffs \
             scripts.test_preflight_background_output \
@@ -136,7 +138,8 @@ jobs:
       - uses: ./.github/actions/go-rolling-cache
         if: needs.changes.outputs.preflight_go == 'true'
         with:
-          prefix: preflight-nodwarf-v1
+          family: test
+          fallback_prefix: preflight-nodwarf-v1
       - name: Unit runner contract tests
         if: needs.changes.outputs.preflight_go == 'true'
         run: python3 -m unittest scripts.ci.test_unit_test_runner
@@ -222,7 +225,7 @@ jobs:
       # Test failures retain file:line stacks without DWARF. Apply the flag to
       # every Go command in this job; main retains Unit build objects for each
       # distinct backend tree so same-day merges cannot pin a stale snapshot.
-      GOFLAGS: -gcflags=all=-dwarf=false
+      GOFLAGS: -trimpath -gcflags=all=-dwarf=false
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
@@ -243,9 +246,8 @@ jobs:
           # snapshot, compile the delta, and persist the refreshed objects.
           # Manual A/B runs use an isolated namespace; ordinary PR runs remain
           # restore-only by action policy.
-          prefix: unit-nodwarf-v3
-          fallback_prefix: unit-nodwarf-v1
-          refresh_on_backend_change: "true"
+          family: test
+          fallback_prefix: unit-nodwarf-v3
           save_caches: "true"
           benchmark_prefix: unit-nodwarf-v5-other-first-bench
           benchmark_build_cache_write: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'unit-cache-benchmark' && 'true' || 'false' }}
@@ -276,7 +278,7 @@ jobs:
     env:
       # Integration failures retain file:line stacks without DWARF while the
       # package/test cache stays materially smaller to restore and refresh.
-      GOFLAGS: -gcflags=all=-dwarf=false
+      GOFLAGS: -trimpath -gcflags=all=-dwarf=false
       GOCACHE: ${{ github.workspace }}/.cache/go-build-integration
     steps:
       - uses: actions/checkout@v6
@@ -291,8 +293,8 @@ jobs:
         with:
           # Required CI restores the daily cache but never waits for its upload.
           # warm-release-cache-main.yml owns the single non-blocking writer.
-          prefix: integration-nodwarf-v2
-          refresh_daily: "true"
+          family: integration
+          fallback_prefix: integration-nodwarf-v2
           build_cache_path: ${{ github.workspace }}/.cache/go-build-integration
           save_caches: "false"
       - name: Verify Go version
@@ -352,7 +354,7 @@ jobs:
     env:
       # golangci-lint consumes export/type data, not DWARF. Omitting it targets
       # the measured 2.25GB lint build cache and its 41s restore bottleneck.
-      GOFLAGS: -gcflags=all=-dwarf=false
+      GOFLAGS: -trimpath -gcflags=all=-dwarf=false
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
@@ -367,8 +369,8 @@ jobs:
           cache: false
       - uses: ./.github/actions/go-rolling-cache
         with:
-          prefix: lint-nodwarf-v1
-          golangci_cache: "true"
+          family: analysis
+          fallback_prefix: lint-nodwarf-v1
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
@@ -392,7 +394,7 @@ jobs:
     env:
       # Source vulnerability analysis uses Go export/type data, not DWARF.
       # Avoid generating debug sections for the analyzer's transient builds.
-      GOFLAGS: -gcflags=all=-dwarf=false
+      GOFLAGS: -trimpath -gcflags=all=-dwarf=false
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
@@ -404,7 +406,8 @@ jobs:
           cache: false
       - uses: ./.github/actions/go-rolling-cache
         with:
-          prefix: security-nodwarf-v1
+          family: analysis
+          fallback_prefix: security-nodwarf-v1
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
@@ -472,7 +475,7 @@ jobs:
         with:
           go-version-file: backend/go.mod
           check-latest: false
-          cache: true
+          cache: false
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
@@ -496,7 +499,7 @@ jobs:
         with:
           go-version-file: backend/go.mod
           check-latest: false
-          cache: true
+          cache: false
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
