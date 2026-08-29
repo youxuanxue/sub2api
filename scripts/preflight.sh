@@ -243,6 +243,23 @@ has_merge_base_with_head() {
     git rev-parse --verify "$ref" >/dev/null 2>&1 && git merge-base "$ref" HEAD >/dev/null 2>&1
 }
 
+# Triple-dot vs PREFLIGHT_BASE is empty on a main push (origin/main == HEAD).
+# Fall back to first-parent so a squash that touched backend/ent/ still
+# generate-and-diffs.
+_ent_surface_touched() {
+    local base="${PREFLIGHT_BASE:-origin/main}"
+    if git diff --name-only "$base"...HEAD -- backend/ent/ 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    if git rev-parse --verify "$base" >/dev/null 2>&1 \
+       && [ "$(git rev-parse "$base")" = "$(git rev-parse HEAD)" ] \
+       && git rev-parse --verify HEAD^1 >/dev/null 2>&1; then
+        git diff --name-only HEAD^1 HEAD -- backend/ent/ 2>/dev/null | grep -q .
+        return $?
+    fi
+    return 1
+}
+
 template_base="${PREFLIGHT_BASE:-}"
 if [ -n "$template_base" ] && ! has_merge_base_with_head "$template_base"; then
     template_base=""
@@ -376,10 +393,6 @@ dev_status=$?
 if [ "$dev_status" -ne 0 ]; then
     exit "$dev_status"
 fi
-
-# Docker-backed archive overlaps the remaining early Python joins. Keep it
-# after the template so it does not compete with the Caddy/template fanout.
-_archive_rehearsal_spawn_if_needed
 
 # ---- sub2api: agent contract drift ------------------------------------------
 # TokenKey-owned inventory (docs/agent_integration.md). The shared template
@@ -1555,6 +1568,11 @@ elif ! python3 -m py_compile ./ops/qa/edge_phase1_baseline.py; then
 else
     echo "  ok: edge_phase1_baseline.py present (Phase 1 soak probe wired)"
 fi
+
+# Start the Docker-backed archive rehearsal here instead of at preflight startup:
+# the following QA baseline and lightweight contracts provide enough overlap,
+# while avoiding extra Docker pressure during the initial Caddy/template fanout.
+_archive_rehearsal_spawn_if_needed
 
 # ---- sub2api: QA Phase 1 closeout + Phase 2 baseline ops -------------------
 echo ""
@@ -3381,7 +3399,7 @@ _ent_surface_changed=0
 _ent_has_base=0
 if has_merge_base_with_head "${PREFLIGHT_BASE:-origin/main}"; then
     _ent_has_base=1
-    if git diff --name-only "${PREFLIGHT_BASE:-origin/main}...HEAD" 2>/dev/null | grep -q '^backend/ent/'; then
+    if _ent_surface_touched; then
         _ent_surface_changed=1
     fi
 fi

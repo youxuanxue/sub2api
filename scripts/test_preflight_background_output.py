@@ -254,6 +254,53 @@ _qa_phase_ops_spawn_if_needed
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("spawned=qa_phase_ops:_qa_phase_ops_gate_run", result.stdout)
 
+    def test_ent_surface_touched_uses_pr_range_or_main_first_parent(self) -> None:
+        helper = _shell_function("_ent_surface_touched")
+        with tempfile.TemporaryDirectory() as tmp:
+            script = f"""
+set -u
+set -e
+cd {tmp!s}
+git init -q -b main
+mkdir -p backend/ent/schema scripts
+printf 'schema\\n' > backend/ent/schema/user.go
+printf 'other\\n' > scripts/preflight.sh
+git add backend scripts
+git -c user.email=t@t -c user.name=t commit -qm base
+git checkout -q -b feature
+printf 'schema2\\n' > backend/ent/schema/user.go
+git add backend/ent/schema/user.go
+git -c user.email=t@t -c user.name=t commit -qm ent
+PREFLIGHT_BASE=main
+{helper}
+if _ent_surface_touched; then echo pr-ent=yes; else echo pr-ent=no; fi
+printf 'script\\n' > scripts/preflight.sh
+git add scripts/preflight.sh
+git -c user.email=t@t -c user.name=t commit -qm scripts-only
+if _ent_surface_touched; then echo pr-scripts=yes; else echo pr-scripts=no; fi
+git checkout -q main
+printf 'gen\\n' > backend/ent/generated.go
+git add backend/ent/generated.go
+git -c user.email=t@t -c user.name=t commit -qm main-ent
+PREFLIGHT_BASE=main
+if _ent_surface_touched; then echo main-ent=yes; else echo main-ent=no; fi
+printf 'more\\n' > scripts/preflight.sh
+git add scripts/preflight.sh
+git -c user.email=t@t -c user.name=t commit -qm main-scripts
+if _ent_surface_touched; then echo main-scripts=yes; else echo main-scripts=no; fi
+"""
+            result = subprocess.run(
+                ["bash", "-c", script],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("pr-ent=yes", result.stdout)
+        self.assertIn("pr-scripts=yes", result.stdout)
+        self.assertIn("main-ent=yes", result.stdout)
+        self.assertIn("main-scripts=no", result.stdout)
+
     def test_qa_phase_ops_does_not_spawn_when_slow_ops_are_skipped(self) -> None:
         script = f"""
 set -u

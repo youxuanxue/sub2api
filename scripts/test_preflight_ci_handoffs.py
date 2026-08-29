@@ -81,10 +81,12 @@ class PreflightCIHandoffTest(unittest.TestCase):
         ent_section = script.split(
             'echo "=== sub2api: Ent generation staleness ==="', 1
         )[1].split('echo "=== sub2api: changed Go file gofmt ==="', 1)[0]
-        self.assertIn("^backend/ent/", ent_section)
+        self.assertIn("_ent_surface_touched", ent_section)
         self.assertIn("_ent_surface_changed", ent_section)
         self.assertIn("_ent_has_base", ent_section)
         self.assertNotIn("_ent_schema_changed", ent_section)
+        self.assertIn("HEAD^1 HEAD -- backend/ent/", script)
+        self.assertIn('"$base"...HEAD -- backend/ent/', script)
 
     def test_early_python_ssot_gates_spawn_before_template(self) -> None:
         script = PREFLIGHT.read_text(encoding="utf-8")
@@ -104,9 +106,13 @@ class PreflightCIHandoffTest(unittest.TestCase):
         after_template = script.split(
             'if [ "$dev_status" -ne 0 ]; then', 1
         )[1].split('echo "=== sub2api: agent contract drift ==="', 1)[0]
-        self.assertIn("_archive_rehearsal_spawn_if_needed", after_template)
-        before_template = script[:template_idx]
-        self.assertEqual(before_template.count("_archive_rehearsal_spawn_if_needed"), 1)
+        self.assertNotIn("_archive_rehearsal_spawn_if_needed", after_template)
+        phase1 = script.split(
+            'echo "=== sub2api: QA Phase 1 edge baseline probe ==="', 1
+        )[1].split(
+            'echo "=== sub2api: QA Phase 1 closeout + Phase 2 baseline ==="', 1
+        )[0]
+        self.assertIn("_archive_rehearsal_spawn_if_needed", phase1)
 
 
 if __name__ == "__main__":
