@@ -37,14 +37,20 @@ class GoRollingCachePolicyTest(unittest.TestCase):
             action["outputs"]["build_cache_hit"]["value"],
             "${{ steps.build_cache_status.outputs.build_cache_hit }}",
         )
+        self.assertEqual(
+            action["outputs"]["build_cache_populated"]["value"],
+            "${{ steps.build_cache_status.outputs.build_cache_populated }}",
+        )
         status = next(
             step
             for step in action["runs"]["steps"]
             if step.get("id") == "build_cache_status"
         )
-        self.assertIn('== "true"', status["run"])
-        self.assertIn("build_cache_hit=true", status["run"])
-        self.assertIn("build_cache_hit=false", status["run"])
+        self.assertIn("RESTORE_MATCHED", status["env"])
+        self.assertIn("cache-matched-key", status["env"]["RESTORE_MATCHED"])
+        self.assertIn("build_cache_hit=${hit}", status["run"])
+        self.assertIn("build_cache_populated=${populated}", status["run"])
+        self.assertNotIn("find ", status["run"])
 
     def test_uses_family_input_and_drops_date_epochs(self) -> None:
         action = load_action()
@@ -124,6 +130,29 @@ class GoRollingCachePolicyTest(unittest.TestCase):
         self.assertIn("inputs.family == 'analysis'", text)
         self.assertNotIn("Linux-golangci-", text)
         self.assertNotIn("github.run_id", text)
+
+    def test_non_analysis_build_path_is_a_single_entry(self) -> None:
+        # actions/cache versions by the path list. A dummy second copy of
+        # build_cache_path made required CI miss warm's single-path archives.
+        text = ACTION.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "&& '~/.cache/golangci-lint' || inputs.build_cache_path",
+            text,
+        )
+        self.assertNotIn("format('{0}\\n~/.cache/golangci-lint'", text)
+        self.assertIn("id: build_cache_restore_analysis", text)
+        restore = next(
+            step
+            for step in load_action()["runs"]["steps"]
+            if step.get("id") == "build_cache_restore"
+        )
+        self.assertEqual(restore["with"]["path"], "${{ inputs.build_cache_path }}")
+        analysis = next(
+            step
+            for step in load_action()["runs"]["steps"]
+            if step.get("id") == "build_cache_restore_analysis"
+        )
+        self.assertIn("~/.cache/golangci-lint", str(analysis["with"]["path"]))
 
 
 if __name__ == "__main__":

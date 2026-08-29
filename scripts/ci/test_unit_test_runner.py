@@ -262,29 +262,29 @@ class UnitTestRunnerTest(unittest.TestCase):
         self.assertLess(min(durations), 0.5)
         self.assertGreaterEqual(max(durations), 0.7)
 
-    def test_starts_service_compile_after_other_packages_populate_cache(self) -> None:
+    def test_starts_service_compile_after_compile_all_on_cold_cache(self) -> None:
         with self._fake_go(
             ["TestOne", "TestTwo"],
-            other_delay=0.75,
+            compile_all_delay=0.25,
         ) as fixture:
             result = self._run(fixture, "--min-shards", "2")
             events = self._events(fixture.events)
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        other_finished = next(
+        compile_all_finished = next(
             event["at"]
             for event in events
             if event["kind"] == "go-finished"
-            and "./internal/other" in event["args"]
+            and event["args"] == ["test", "-tags=unit", "-run=^$", "./..."]
         )
         compile_started = next(
             event["at"]
             for event in events
             if event["kind"] == "go" and "-c" in event["args"]
         )
-        self.assertGreaterEqual(compile_started, other_finished, events)
+        self.assertGreaterEqual(compile_started, compile_all_finished, events)
 
-    def test_other_package_failure_stops_before_service_compile_on_cold_cache(
+    def test_other_package_failure_fails_run_after_compile_all_on_cold_cache(
         self,
     ) -> None:
         with self._fake_go(
@@ -296,10 +296,59 @@ class UnitTestRunnerTest(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("intentional other package failure", result.stderr)
+        self.assertIn(["test", "-tags=unit", "-run=^$", "./..."], self._go_calls(events))
+
+    def test_cache_miss_compiles_all_packages_then_overlaps_service_and_other(
+        self,
+    ) -> None:
+        with self._fake_go(
+            ["TestOne", "TestTwo"],
+            compile_delay=0.75,
+            compile_all_delay=0.25,
+        ) as fixture:
+            result = self._run(fixture, "--min-shards", "2")
+            events = self._events(fixture.events)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(result.stdout, r"STAGE compile-all \([0-9.]+s\)")
+        go_calls = self._go_calls(events)
+        self.assertIn(["test", "-tags=unit", "-run=^$", "./..."], go_calls)
+        compile_all_finished = next(
+            event["at"]
+            for event in events
+            if event["kind"] == "go-finished"
+            and event["args"] == ["test", "-tags=unit", "-run=^$", "./..."]
+        )
+        compile_started = next(
+            event["at"]
+            for event in events
+            if event["kind"] == "go" and "-c" in event["args"]
+        )
+        compile_finished = next(
+            event["at"]
+            for event in events
+            if event["kind"] == "go-finished" and "-c" in event["args"]
+        )
+        other_started = next(
+            event["at"]
+            for event in events
+            if event["kind"] == "go" and "./internal/other" in event["args"]
+        )
+        self.assertGreaterEqual(compile_started, compile_all_finished, events)
+        self.assertLess(other_started, compile_finished, events)
+
+    def test_compile_all_failure_stops_before_service_compile(self) -> None:
+        with self._fake_go(["TestOne"], fail_compile_all=True) as fixture:
+            result = self._run(fixture)
+            events = self._events(fixture.events)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("intentional compile-all failure", result.stderr)
         self.assertFalse(
             [call for call in self._go_calls(events) if "-c" in call],
             events,
         )
+        self.assertFalse(self._binary_events(events))
 
     def test_starts_service_compile_after_discovery_finishes(self) -> None:
         with self._fake_go(
@@ -476,6 +525,7 @@ class UnitTestRunnerTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertRegex(result.stdout, r"STAGE discovery \([0-9.]+s\)")
+        self.assertRegex(result.stdout, r"STAGE compile-all \([0-9.]+s\)")
         self.assertRegex(result.stdout, r"STAGE service-compile \([0-9.]+s\)")
         self.assertRegex(result.stdout, r"STAGE registry-check \([0-9.]+s\)")
 
@@ -512,6 +562,10 @@ class UnitTestRunnerTest(unittest.TestCase):
             env["FAKE_GO_FAIL_OTHER"] = "1"
         if fixture.other_delay:
             env["FAKE_GO_OTHER_DELAY"] = str(fixture.other_delay)
+        if fixture.fail_compile_all:
+            env["FAKE_GO_FAIL_COMPILE_ALL"] = "1"
+        if fixture.compile_all_delay:
+            env["FAKE_GO_COMPILE_ALL_DELAY"] = str(fixture.compile_all_delay)
         if build_cache_hit:
             env["UNIT_TEST_BUILD_CACHE_HIT"] = "true"
         return subprocess.run(
@@ -565,6 +619,8 @@ class UnitTestRunnerTest(unittest.TestCase):
         compile_child: bool = False,
         fail_other: bool = False,
         other_delay: float = 0.0,
+        fail_compile_all: bool = False,
+        compile_all_delay: float = 0.0,
     ) -> "FakeGoFixtureContext":
         return FakeGoFixtureContext(
             test_names,
@@ -579,6 +635,8 @@ class UnitTestRunnerTest(unittest.TestCase):
             compile_child,
             fail_other,
             other_delay,
+            fail_compile_all,
+            compile_all_delay,
         )
 
 
@@ -598,6 +656,8 @@ class FakeGoFixture:
         compile_child: bool,
         fail_other: bool,
         other_delay: float,
+        fail_compile_all: bool,
+        compile_all_delay: float,
     ) -> None:
         self._temporary = temporary
         self.root = Path(temporary.name)
@@ -617,6 +677,8 @@ class FakeGoFixture:
         self.compile_child = compile_child
         self.fail_other = fail_other
         self.other_delay = other_delay
+        self.fail_compile_all = fail_compile_all
+        self.compile_all_delay = compile_all_delay
         service_dir = self.root / "internal" / "service"
         service_dir.mkdir(parents=True)
         declarations = []
@@ -654,6 +716,8 @@ class FakeGoFixtureContext:
         compile_child: bool,
         fail_other: bool,
         other_delay: float,
+        fail_compile_all: bool,
+        compile_all_delay: float,
     ) -> None:
         self.test_names = test_names
         self.has_test_main = has_test_main
@@ -667,6 +731,8 @@ class FakeGoFixtureContext:
         self.compile_child = compile_child
         self.fail_other = fail_other
         self.other_delay = other_delay
+        self.fail_compile_all = fail_compile_all
+        self.compile_all_delay = compile_all_delay
         self.temporary: tempfile.TemporaryDirectory[str] | None = None
 
     def __enter__(self) -> FakeGoFixture:
@@ -685,6 +751,8 @@ class FakeGoFixtureContext:
             self.compile_child,
             self.fail_other,
             self.other_delay,
+            self.fail_compile_all,
+            self.compile_all_delay,
         )
         fake_binary_source = textwrap.dedent(
             """\
@@ -755,6 +823,16 @@ class FakeGoFixtureContext:
                         "entries": json.loads(os.environ["FAKE_GO_TESTS"]),
                         "has_test_main": os.environ.get("FAKE_GO_HAS_TEST_MAIN") == "1",
                     }))
+                    raise SystemExit(0)
+
+                if args == ["test", "-tags=unit", "-run=^$", "./..."]:
+                    time.sleep(float(os.environ.get("FAKE_GO_COMPILE_ALL_DELAY", "0")))
+                    with events.open("a", encoding="utf-8") as output:
+                        output.write(json.dumps({"kind": "go-finished", "args": args, "at": time.monotonic()}) + "\\n")
+                    if os.environ.get("FAKE_GO_FAIL_COMPILE_ALL") == "1":
+                        print("intentional compile-all failure", file=sys.stderr)
+                        raise SystemExit(1)
+                    print("ok  fake/package  0.001s")
                     raise SystemExit(0)
 
                 if args == ["list", "-json", "-tags=unit", "./..."]:

@@ -323,7 +323,7 @@ class BackendCIRoutingTest(unittest.TestCase):
         self.assertEqual(unit_step["env"]["UNIT_TEST_SERVICE_SHARD"], "1")
         self.assertEqual(
             unit_step["env"]["UNIT_TEST_BUILD_CACHE_HIT"],
-            "${{ steps.go_cache.outputs.build_cache_hit }}",
+            "${{ steps.go_cache.outputs.build_cache_populated }}",
         )
 
     def test_unit_cache_benchmark_is_manual_isolated_and_opt_in(self) -> None:
@@ -460,7 +460,7 @@ class BackendCIRoutingTest(unittest.TestCase):
         self.assertNotIn("refresh_daily", integration_cache.get("with", {}))
         self.assertEqual(
             integration_cache["with"]["save_caches"],
-            "false",
+            "true",
         )
         self.assertEqual(
             integration_cache["with"]["build_cache_path"],
@@ -505,6 +505,13 @@ class BackendCIRoutingTest(unittest.TestCase):
             )
             with self.subTest(job=job_name):
                 self.assertNotIn("refresh_on_backend_change", cache_step.get("with", {}))
+
+        preflight_cache = next(
+            step
+            for step in self.jobs["preflight"]["steps"]
+            if step.get("uses") == "./.github/actions/go-rolling-cache"
+        )
+        self.assertEqual(preflight_cache["with"]["save_caches"], "false")
 
     def test_unit_avoids_relinking_go_artifact_owners_after_unit_tests(self) -> None:
         steps = self.jobs["test-unit"]["steps"]

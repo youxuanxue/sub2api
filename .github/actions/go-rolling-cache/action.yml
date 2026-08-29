@@ -39,6 +39,9 @@ outputs:
   build_cache_hit:
     description: "true only when the selected primary Go build cache key restores exactly."
     value: ${{ steps.build_cache_status.outputs.build_cache_hit }}
+  build_cache_populated:
+    description: "true when an exact hit or a prefix/fallback restore set cache-matched-key."
+    value: ${{ steps.build_cache_status.outputs.build_cache_populated }}
 
 runs:
   using: composite
@@ -72,12 +75,30 @@ runs:
 
     - name: Restore Go build cache (non-main writer)
       id: build_cache_restore
-      if: (github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.save_caches != 'true') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || inputs.benchmark_build_cache_write != 'true' || inputs.benchmark_prefix == '')
+      if: inputs.family != 'analysis' && (github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.save_caches != 'true') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || inputs.benchmark_build_cache_write != 'true' || inputs.benchmark_prefix == '')
       uses: actions/cache/restore@v6
       with:
+        # Single path: must match warm-release-cache-main.yml or
+        # actions/cache versions diverge and the key is invisible.
+        path: ${{ inputs.build_cache_path }}
+        key: ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
+          ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-
+          ${{ runner.os }}-gobuild-${{ inputs.family }}-
+          ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-{2}-', runner.os, inputs.fallback_prefix, hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref')) || '' }}
+          ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-', runner.os, inputs.fallback_prefix) || '' }}
+
+    - name: Restore Go analysis cache (non-main writer)
+      id: build_cache_restore_analysis
+      if: inputs.family == 'analysis' && (github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.save_caches != 'true') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || inputs.benchmark_build_cache_write != 'true' || inputs.benchmark_prefix == '')
+      uses: actions/cache/restore@v6
+      with:
+        # YAML two-line path: format('\n') does not produce a newline and
+        # misses the existing analysis archive.
         path: |
           ${{ inputs.build_cache_path }}
-          ${{ inputs.family == 'analysis' && '~/.cache/golangci-lint' || inputs.build_cache_path }}
+          ~/.cache/golangci-lint
         key: ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
         restore-keys: |
           ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
@@ -100,12 +121,26 @@ runs:
 
     - name: Go build cache (main writer)
       id: build_cache_main
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.save_caches == 'true'
+      if: inputs.family != 'analysis' && github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.save_caches == 'true'
+      uses: actions/cache@v6
+      with:
+        path: ${{ inputs.build_cache_path }}
+        key: ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
+          ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-
+          ${{ runner.os }}-gobuild-${{ inputs.family }}-
+          ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-{2}-', runner.os, inputs.fallback_prefix, hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref')) || '' }}
+          ${{ inputs.fallback_prefix != '' && format('{0}-gobuild-{1}-', runner.os, inputs.fallback_prefix) || '' }}
+
+    - name: Go analysis cache (main writer)
+      id: build_cache_main_analysis
+      if: inputs.family == 'analysis' && github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.save_caches == 'true'
       uses: actions/cache@v6
       with:
         path: |
           ${{ inputs.build_cache_path }}
-          ${{ inputs.family == 'analysis' && '~/.cache/golangci-lint' || inputs.build_cache_path }}
+          ~/.cache/golangci-lint
         key: ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
         restore-keys: |
           ${{ runner.os }}-gobuild-${{ inputs.family }}-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-
@@ -118,12 +153,27 @@ runs:
       id: build_cache_status
       shell: bash
       env:
-        RESTORE_HIT: ${{ steps.build_cache_restore.outputs.cache-hit }}
+        RESTORE_HIT: ${{ steps.build_cache_restore.outputs.cache-hit || steps.build_cache_restore_analysis.outputs.cache-hit }}
         BENCHMARK_HIT: ${{ steps.build_cache_benchmark.outputs.cache-hit }}
-        MAIN_HIT: ${{ steps.build_cache_main.outputs.cache-hit }}
+        MAIN_HIT: ${{ steps.build_cache_main.outputs.cache-hit || steps.build_cache_main_analysis.outputs.cache-hit }}
+        RESTORE_MATCHED: ${{ steps.build_cache_restore.outputs.cache-matched-key || steps.build_cache_restore_analysis.outputs.cache-matched-key }}
+        BENCHMARK_MATCHED: ${{ steps.build_cache_benchmark.outputs.cache-matched-key }}
+        MAIN_MATCHED: ${{ steps.build_cache_main.outputs.cache-matched-key || steps.build_cache_main_analysis.outputs.cache-matched-key }}
       run: |
+        hit=false
         if [[ "$RESTORE_HIT" == "true" || "$BENCHMARK_HIT" == "true" || "$MAIN_HIT" == "true" ]]; then
-          echo "build_cache_hit=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "build_cache_hit=false" >> "$GITHUB_OUTPUT"
+          hit=true
         fi
+        echo "build_cache_hit=${hit}" >> "$GITHUB_OUTPUT"
+
+        # cache-hit is exact-key only. Prefix/fallback restores set
+        # cache-matched-key. Do not probe the directory: setup-go / go env
+        # leave files in GOCACHE even on a complete miss, which #1880 treated
+        # as warm and then dual-compiled (service-compile 336s).
+        populated="${hit}"
+        matched="${RESTORE_MATCHED:-}${BENCHMARK_MATCHED:-}${MAIN_MATCHED:-}"
+        if [[ "${populated}" != "true" && -n "${matched}" ]]; then
+          populated=true
+        fi
+        echo "build_cache_populated=${populated}" >> "$GITHUB_OUTPUT"
+        echo "build_cache_matched_key=${RESTORE_MATCHED:-${BENCHMARK_MATCHED:-${MAIN_MATCHED:-}}}" >> "$GITHUB_OUTPUT"

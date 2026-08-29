@@ -396,6 +396,16 @@ def run_commands(
         return 1 if failed else 0
 
 
+def _compile_all_unit_packages(root: Path) -> None:
+    started_at = time.monotonic()
+    _run_checked(["go", "test", "-tags=unit", "-run=^$", "./..."], root)
+    print(
+        f"unit-test-runner: STAGE compile-all "
+        f"({time.monotonic() - started_at:.1f}s)",
+        flush=True,
+    )
+
+
 def run_unit_tests(
     root: Path,
     service_package: str,
@@ -403,10 +413,13 @@ def run_unit_tests(
     max_regex_bytes: int,
 ) -> int:
     build_cache_hit = os.environ.get("UNIT_TEST_BUILD_CACHE_HIT") == "true"
+    other_packages: list[str] = []
+    service_tests: list[str] = []
+    patterns: list[str] = []
     if not build_cache_hit:
-        # Keep discovery ahead of the cold service build. On a four-core hosted
-        # runner, overlapping separate Go commands makes them rebuild and contend
-        # for the same dependency graph instead of shortening the critical path.
+        # Empty GOCACHE: discover first, compile the whole unit graph once, then
+        # overlap service -c with other-package tests. Two concurrent `go test`
+        # processes on a cold four-core runner rebuild the same graph.
         discovery_started_at = time.monotonic()
         other_packages, service_tests, patterns, has_test_main = build_test_plan(
             root,
@@ -426,23 +439,7 @@ def run_unit_tests(
                 cwd=root,
                 check=False,
             ).returncode
-        if other_packages:
-            # The repository-wide package set covers most of service's shared
-            # dependency graph. On a cold four-core runner, completing it first
-            # makes the later service link much cheaper than compiling service
-            # first and leaves no competing Go process on the critical path.
-            other_returncode = run_commands(
-                [
-                    Command(
-                        "other-packages",
-                        tuple(["go", "test", "-tags=unit", *other_packages]),
-                        root,
-                    )
-                ],
-                temporary_prefix="sub2api-unit-other-",
-            )
-            if other_returncode != 0:
-                return other_returncode
+        _compile_all_unit_packages(root)
 
     with tempfile.TemporaryDirectory(prefix="sub2api-service-test-") as temporary:
         service_binary = Path(temporary) / "service.test"
@@ -520,7 +517,7 @@ def run_unit_tests(
                 service_commands = [
                     command for command in commands if command.label != "other-packages"
                 ]
-                if build_cache_hit and other_commands:
+                if other_commands:
                     other_command = other_commands[0]
                     other_log = Path(overlap_temp) / "other-packages.log"
                     other_handle = other_log.open("wb")
