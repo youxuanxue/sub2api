@@ -139,10 +139,20 @@ class GoRollingCachePolicyTest(unittest.TestCase):
             "&& '~/.cache/golangci-lint' || inputs.build_cache_path",
             text,
         )
-        self.assertIn(
-            "format('{0}\\n~/.cache/golangci-lint', inputs.build_cache_path)",
-            text,
+        self.assertNotIn("format('{0}\\n~/.cache/golangci-lint'", text)
+        self.assertIn("id: build_cache_restore_analysis", text)
+        restore = next(
+            step
+            for step in load_action()["runs"]["steps"]
+            if step.get("id") == "build_cache_restore"
         )
+        self.assertEqual(restore["with"]["path"], "${{ inputs.build_cache_path }}")
+        analysis = next(
+            step
+            for step in load_action()["runs"]["steps"]
+            if step.get("id") == "build_cache_restore_analysis"
+        )
+        self.assertIn("~/.cache/golangci-lint", str(analysis["with"]["path"]))
 
 
 if __name__ == "__main__":
