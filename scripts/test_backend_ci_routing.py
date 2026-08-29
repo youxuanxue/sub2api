@@ -321,10 +321,7 @@ class BackendCIRoutingTest(unittest.TestCase):
 
         self.assertEqual(unit_cache["id"], "go_cache")
         self.assertEqual(unit_step["env"]["UNIT_TEST_SERVICE_SHARD"], "1")
-        self.assertEqual(
-            unit_step["env"]["UNIT_TEST_BUILD_CACHE_HIT"],
-            "${{ steps.go_cache.outputs.build_cache_populated }}",
-        )
+        self.assertNotIn("UNIT_TEST_BUILD_CACHE_HIT", unit_step.get("env") or {})
 
     def test_unit_cache_benchmark_is_manual_isolated_and_opt_in(self) -> None:
         triggers = self.workflow.get("on", self.workflow.get(True))

@@ -131,6 +131,31 @@ class IntegrationTestRunnerTest(unittest.TestCase):
         )
         self.assertLessEqual(compile_finished, first_binary_started, events)
 
+    def test_overlaps_repository_discovery_with_shared_compile(self) -> None:
+        with FakeGoFixture(
+            ["TestOne", "TestTwo", "TestThree"],
+            compile_delay=0.75,
+            discovery_delay=0.25,
+        ) as fixture:
+            result = fixture.run()
+            events = fixture.read_events()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        compile_started = next(
+            event["at"]
+            for event in events
+            if event["kind"] == "go" and "-c" in event["args"]
+        )
+        repository_list_finished = next(
+            event["at"]
+            for event in events
+            if event["kind"] == "go-finished"
+            and event["args"]
+            and event["args"][0] == "list"
+            and "./internal/repository" in event["args"]
+        )
+        self.assertLess(compile_started, repository_list_finished, events)
+
     def test_reports_stage_lines_and_slowest_top_level_tests(self) -> None:
         with FakeGoFixture(["TestOne", "TestTwo", "TestThree"]) as fixture:
             result = fixture.run()

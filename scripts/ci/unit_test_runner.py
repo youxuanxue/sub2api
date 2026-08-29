@@ -233,7 +233,7 @@ def build_commands(
         commands.append(
             Command(
                 "other-packages",
-                tuple(["go", "test", "-tags=unit", *other_packages]),
+                tuple(["go", "test", "-tags=unit", "-vet=off", *other_packages]),
                 root,
             )
         )
@@ -396,51 +396,19 @@ def run_commands(
         return 1 if failed else 0
 
 
-def _compile_all_unit_packages(root: Path) -> None:
-    started_at = time.monotonic()
-    _run_checked(["go", "test", "-tags=unit", "-run=^$", "./..."], root)
-    print(
-        f"unit-test-runner: STAGE compile-all "
-        f"({time.monotonic() - started_at:.1f}s)",
-        flush=True,
-    )
-
-
 def run_unit_tests(
     root: Path,
     service_package: str,
     min_shards: int,
     max_regex_bytes: int,
 ) -> int:
-    build_cache_hit = os.environ.get("UNIT_TEST_BUILD_CACHE_HIT") == "true"
-    other_packages: list[str] = []
-    service_tests: list[str] = []
-    patterns: list[str] = []
-    if not build_cache_hit:
-        # Empty GOCACHE: discover first, compile the whole unit graph once, then
-        # overlap service -c with other-package tests. Two concurrent `go test`
-        # processes on a cold four-core runner rebuild the same graph.
-        discovery_started_at = time.monotonic()
-        other_packages, service_tests, patterns, has_test_main = build_test_plan(
-            root,
-            service_package,
-            min_shards,
-            max_regex_bytes,
-        )
-        print(
-            f"unit-test-runner: STAGE discovery "
-            f"({time.monotonic() - discovery_started_at:.1f}s)",
-            flush=True,
-        )
-        if has_test_main:
-            print("unit-test-runner: TestMain detected; using native go test")
-            return subprocess.run(
-                ["go", "test", "-tags=unit", "./..."],
-                cwd=root,
-                check=False,
-            ).returncode
-        _compile_all_unit_packages(root)
-
+    # Always overlap service -c with discovery (and other-packages after
+    # discovery). The #1880 compile-all miss path (`go test -run=^$ ./...`)
+    # was 234s on an empty GOCACHE (run 33239155828). The same miss without
+    # compile-all overlapped other-packages in 196s (run 33239790276). The
+    # 336s dual-compile was a false cache hit, now fixed by treating only
+    # cache-matched-key as populated. golangci-lint owns vet; -vet=off keeps
+    # the unit job from re-vetting every package on a cold miss.
     with tempfile.TemporaryDirectory(prefix="sub2api-service-test-") as temporary:
         service_binary = Path(temporary) / "service.test"
         with tempfile.TemporaryDirectory(prefix="sub2api-unit-overlap-") as overlap_temp:
@@ -479,30 +447,29 @@ def run_unit_tests(
             background: list[RunningCommand] = [compile_running]
             other_handle = None
             try:
-                if build_cache_hit:
-                    discovery_started_at = time.monotonic()
-                    other_packages, service_tests, patterns, has_test_main = (
-                        build_test_plan(
-                            root,
-                            service_package,
-                            min_shards,
-                            max_regex_bytes,
-                        )
+                discovery_started_at = time.monotonic()
+                other_packages, service_tests, patterns, has_test_main = (
+                    build_test_plan(
+                        root,
+                        service_package,
+                        min_shards,
+                        max_regex_bytes,
                     )
-                    print(
-                        f"unit-test-runner: STAGE discovery "
-                        f"({time.monotonic() - discovery_started_at:.1f}s)",
-                        flush=True,
-                    )
-                    if has_test_main:
-                        _terminate_processes(background)
-                        background.clear()
-                        print("unit-test-runner: TestMain detected; using native go test")
-                        return subprocess.run(
-                            ["go", "test", "-tags=unit", "./..."],
-                            cwd=root,
-                            check=False,
-                        ).returncode
+                )
+                print(
+                    f"unit-test-runner: STAGE discovery "
+                    f"({time.monotonic() - discovery_started_at:.1f}s)",
+                    flush=True,
+                )
+                if has_test_main:
+                    _terminate_processes(background)
+                    background.clear()
+                    print("unit-test-runner: TestMain detected; using native go test")
+                    return subprocess.run(
+                        ["go", "test", "-tags=unit", "-vet=off", "./..."],
+                        cwd=root,
+                        check=False,
+                    ).returncode
 
                 commands = build_commands(
                     root,
