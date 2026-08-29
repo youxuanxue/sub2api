@@ -221,7 +221,7 @@ Edge 子网关不是第二个用户入口。区域域名（如 `api-us3.tokenkey
 
 ```text
 us3 -> us-east-2 -> api-us3.tokenkey.dev -> tokenkey-edge-us-oh1-ls-s30 -> deploy-edge-lightsail-stage0.yml
-us4 -> us-west-2 -> api-us4.tokenkey.dev -> tokenkey-edge-us-or1-ls -> deploy-edge-lightsail-stage0.yml
+us4 -> us-west-2 -> api-us4.tokenkey.dev -> tokenkey-edge-us-or1-ls-s30 -> deploy-edge-lightsail-stage0.yml
 ```
 
 新增 edge / 升级 / 回滚 / IP 轮换的端到端流程见
