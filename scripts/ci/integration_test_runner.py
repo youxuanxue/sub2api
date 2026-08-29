@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 import time
@@ -15,9 +14,7 @@ from unit_test_runner import (
     Command,
     DEFAULT_MAX_REGEX_BYTES,
     RunnerError,
-    RunningCommand,
     _run_checked,
-    _terminate_processes,
     _test_entries,
     run_commands,
     shard_service_tests,
@@ -72,7 +69,10 @@ def _test_binary_paths(
     return binaries
 
 
-def list_integration_packages(root: Path, repository_package: str) -> list[str]:
+def discover_test_plan(
+    root: Path,
+    repository_package: str,
+) -> tuple[list[str], Path, list[str], list[str]]:
     package_output = _run_checked(
         ["python3", str(INTEGRATION_PACKAGES_HELPER), "--root", str(root)],
         root,
@@ -83,13 +83,7 @@ def list_integration_packages(root: Path, repository_package: str) -> list[str]:
             f"repository package not found in integration package discovery: "
             f"{repository_package}"
         )
-    return packages
 
-
-def discover_repository_entries(
-    root: Path,
-    repository_package: str,
-) -> tuple[Path, list[str], list[str]]:
     baseline = _go_list_package(root, repository_package)
     tagged = _go_list_package(root, repository_package, "integration")
     try:
@@ -117,18 +111,6 @@ def discover_repository_entries(
         raise RunnerError(
             f"no integration test entries discovered for {repository_package}"
         )
-    return repository_dir, all_entries, integration_entries
-
-
-def discover_test_plan(
-    root: Path,
-    repository_package: str,
-) -> tuple[list[str], Path, list[str], list[str]]:
-    packages = list_integration_packages(root, repository_package)
-    repository_dir, all_entries, integration_entries = discover_repository_entries(
-        root,
-        repository_package,
-    )
     return (
         [package for package in packages if package != repository_package],
         repository_dir,
@@ -143,135 +125,94 @@ def run_integration_tests(
     shard_count: int,
     max_regex_bytes: int,
 ) -> int:
-    packages = list_integration_packages(root, repository_package)
-    other_packages = [package for package in packages if package != repository_package]
-    compile_packages = [repository_package, *other_packages]
+    discovery_started_at = time.monotonic()
+    other_packages, repository_dir, all_entries, integration_entries = (
+        discover_test_plan(root, repository_package)
+    )
+    patterns = shard_service_tests(
+        integration_entries,
+        shard_count,
+        max_regex_bytes,
+    )
+    print(
+        f"integration-test-runner: STAGE discovery "
+        f"({time.monotonic() - discovery_started_at:.1f}s)",
+        flush=True,
+    )
+
+    packages = [repository_package, *other_packages]
     with tempfile.TemporaryDirectory(prefix="sub2api-integration-build-") as temporary:
         build_dir = Path(temporary)
-        binaries = _test_binary_paths(build_dir, compile_packages)
-        compile_command = Command(
-            "shared-compile",
-            (
+        binaries = _test_binary_paths(build_dir, packages)
+        compile_started_at = time.monotonic()
+        _run_checked(
+            [
                 "go",
                 "test",
                 "-c",
                 "-tags=integration",
                 "-o",
                 str(build_dir),
-                *compile_packages,
-            ),
+                *packages,
+            ],
             root,
         )
-        compile_log = build_dir / "shared-compile.log"
-        compile_handle = compile_log.open("wb")
-        try:
-            compile_process = subprocess.Popen(
-                compile_command.argv,
-                cwd=compile_command.cwd,
-                stdout=compile_handle,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
-        except BaseException:
-            compile_handle.close()
-            raise
-        compile_running: RunningCommand = (
-            compile_command,
-            compile_process,
-            compile_log,
-            time.monotonic(),
+        print(
+            f"integration-test-runner: STAGE shared-compile "
+            f"({time.monotonic() - compile_started_at:.1f}s)",
+            flush=True,
         )
-        background: list[RunningCommand] = [compile_running]
-        try:
-            discovery_started_at = time.monotonic()
-            repository_dir, all_entries, integration_entries = (
-                discover_repository_entries(root, repository_package)
-            )
-            patterns = shard_service_tests(
-                integration_entries,
-                shard_count,
-                max_regex_bytes,
-            )
-            print(
-                f"integration-test-runner: STAGE discovery "
-                f"({time.monotonic() - discovery_started_at:.1f}s)",
-                flush=True,
-            )
 
-            compile_returncode = compile_process.wait()
-            compile_elapsed = time.monotonic() - compile_running[3]
-            if compile_returncode != 0:
-                compile_output = compile_log.read_text(
-                    encoding="utf-8",
-                    errors="replace",
-                )
-                detail = (
-                    compile_output.strip()
-                    or f"command exited with status {compile_returncode}"
-                )
-                raise RunnerError(f"{' '.join(compile_command.argv)}: {detail}")
-            print(
-                f"integration-test-runner: STAGE shared-compile "
-                f"({compile_elapsed:.1f}s)",
-                flush=True,
-            )
-            background.clear()
+        repository_binary = binaries[repository_package]
+        registry_started_at = time.monotonic()
+        verify_binary_registry(
+            repository_binary,
+            repository_dir,
+            all_entries,
+            subject="repository",
+            environment={"SUB2API_TEST_REGISTRY_ONLY": "1"},
+        )
+        print(
+            f"integration-test-runner: STAGE registry-check "
+            f"({time.monotonic() - registry_started_at:.1f}s)",
+            flush=True,
+        )
 
-            repository_binary = binaries[repository_package]
-            registry_started_at = time.monotonic()
-            verify_binary_registry(
-                repository_binary,
-                repository_dir,
-                all_entries,
-                subject="repository",
-                environment={"SUB2API_TEST_REGISTRY_ONLY": "1"},
+        commands = [
+            Command(
+                f"other-{Path(package).name}",
+                (
+                    str(binaries[package]),
+                    "-test.v",
+                    "-test.timeout=10m",
+                    "-test.paniconexit0",
+                ),
+                root / package.removeprefix("./"),
             )
-            print(
-                f"integration-test-runner: STAGE registry-check "
-                f"({time.monotonic() - registry_started_at:.1f}s)",
-                flush=True,
-            )
-
-            commands = [
+            for package in other_packages
+        ]
+        width = len(str(len(patterns) - 1))
+        for index, pattern in enumerate(patterns):
+            commands.append(
                 Command(
-                    f"other-{Path(package).name}",
+                    f"repository-shard-{index:0{width}d}",
                     (
-                        str(binaries[package]),
+                        str(repository_binary),
                         "-test.v",
+                        "-test.run",
+                        pattern,
                         "-test.timeout=10m",
                         "-test.paniconexit0",
                     ),
-                    root / package.removeprefix("./"),
+                    repository_dir,
                 )
-                for package in other_packages
-            ]
-            width = len(str(len(patterns) - 1))
-            for index, pattern in enumerate(patterns):
-                commands.append(
-                    Command(
-                        f"repository-shard-{index:0{width}d}",
-                        (
-                            str(repository_binary),
-                            "-test.v",
-                            "-test.run",
-                            pattern,
-                            "-test.timeout=10m",
-                            "-test.paniconexit0",
-                        ),
-                        repository_dir,
-                    )
-                )
-            return run_commands(
-                commands,
-                runner_name="integration-test-runner",
-                temporary_prefix="sub2api-integration-",
-                slow_test_limit=5,
             )
-        except BaseException:
-            _terminate_processes(background)
-            raise
-        finally:
-            compile_handle.close()
+        return run_commands(
+            commands,
+            runner_name="integration-test-runner",
+            temporary_prefix="sub2api-integration-",
+            slow_test_limit=5,
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
