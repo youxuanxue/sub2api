@@ -18,6 +18,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+EDGE_RUN_PROBE="${EDGE_RUN_PROBE:-${REPO_ROOT}/ops/observability/run-probe.sh}"
 # shellcheck source=smoke_env.sh
 source "${SCRIPT_DIR}/smoke_env.sh"
 # Shared SSM "resolve managed-instance after tag-targeted send" helper.
@@ -90,91 +92,21 @@ run_infra_smoke() {
     exit 1
   fi
 
-  ssm_commands=(
-    "set -euo pipefail"
-    "cd /var/lib/tokenkey"
-    "sudo docker compose version"
-    "sudo docker compose -f docker-compose.yml --env-file .env ps"
-    'qa_cap=$(sudo docker compose -f docker-compose.yml --env-file .env exec -T tokenkey printenv QA_CAPTURE_ENABLED 2>/dev/null || echo missing)'
-    'echo "tk_edge_post_deploy_smoke: container QA_CAPTURE_ENABLED=${qa_cap}"'
-    'if [ "${qa_cap}" != "false" ]; then echo "tk_edge_post_deploy_smoke: edge QA capture must be disabled (QA_CAPTURE_ENABLED=false)" >&2; exit 1; fi'
-    "sudo docker compose -f docker-compose.yml --env-file .env exec -T tokenkey wget -qO- http://localhost:8080/health"
-  )
-
   if [[ "${EDGE_SELF_SMOKE_MODE}" == "api" ]]; then
     echo "tk_edge_post_deploy_smoke: EDGE_SELF_SMOKE_MODE=api uses edge-native oauth smoke (not post_deploy_smoke)"
   else
     echo "tk_edge_post_deploy_smoke: edge API self-smoke skipped (set EDGE_SELF_SMOKE_MODE=api to enable native oauth probe)"
   fi
 
-  jq -n --argjson commands "$(printf '%s\n' "${ssm_commands[@]}" | jq -R . | jq -s .)" '{commands:$commands}' > "${tmpdir}/edge-ssm.json"
-  eff_instance_id="${EDGE_INSTANCE_ID}"
-  declare -a send_targets_extra=()
-  if [[ "${EDGE_INSTANCE_ID}" == mi-* ]]; then
-    send_targets_extra=(--targets "Key=tag:EdgeId,Values=${EDGE_ID}" "Key=tag:Platform,Values=lightsail")
-  else
-    send_targets_extra=(--instance-ids "${EDGE_INSTANCE_ID}")
-  fi
-  cmd_id="$(aws ssm send-command \
-    --region "${AWS_CLI_REGION}" \
-    "${send_targets_extra[@]}" \
-    --document-name AWS-RunShellScript \
+  bash "${EDGE_RUN_PROBE}" \
+    --target "edge:${EDGE_ID}" \
     --comment "edge-self-smoke edge=${EDGE_ID}" \
-    --parameters "file://${tmpdir}/edge-ssm.json" \
-    --query 'Command.CommandId' --output text)"
-  if [[ "${EDGE_INSTANCE_ID}" == mi-* ]]; then
-    eff_instance_id="$(ssm_resolve_invocation_mi "${AWS_CLI_REGION}" "${cmd_id}")"
-    if [[ "${eff_instance_id}" != "${EDGE_INSTANCE_ID}" ]]; then
-      echo "::warning::live SSM invocation instance ${eff_instance_id} != EDGE_INSTANCE_ID ${EDGE_INSTANCE_ID} (check /ssm_managed_instance_id Parameter Store)"
-    fi
-  fi
-  echo "tk_edge_post_deploy_smoke: edge self-smoke ssm command-id=${cmd_id}"
-
-  deadline=$(( $(date +%s) + 180 ))
-  status="InProgress"
-  while true; do
-    status="$(aws ssm get-command-invocation \
-      --region "${AWS_CLI_REGION}" \
-      --command-id "${cmd_id}" --instance-id "${eff_instance_id}" \
-      --query 'Status' --output text 2>/dev/null || echo InProgress)"
-    case "${status}" in
-      Success|Failed|TimedOut|Cancelled) break ;;
-    esac
-    if [[ $(date +%s) -ge ${deadline} ]]; then
-      status="TimedOut"
-      break
-    fi
-    sleep 5
-  done
-  aws ssm get-command-invocation \
-    --region "${AWS_CLI_REGION}" \
-    --command-id "${cmd_id}" --instance-id "${eff_instance_id}" \
-    --query 'StandardOutputContent' --output text > "${tmpdir}/edge-stdout.txt"
-  aws ssm get-command-invocation \
-    --region "${AWS_CLI_REGION}" \
-    --command-id "${cmd_id}" --instance-id "${eff_instance_id}" \
-    --query 'StandardErrorContent' --output text > "${tmpdir}/edge-stderr.txt"
-  invoke_details="$(aws ssm get-command-invocation \
-    --region "${AWS_CLI_REGION}" \
-    --command-id "${cmd_id}" --instance-id "${eff_instance_id}" \
-    --output json 2>/dev/null || echo '{}')"
-  echo '--- edge self-smoke invocation (Status / ResponseCode / StatusDetails) ---'
-  echo "${invoke_details}" | jq '{Status, ResponseCode, StatusDetails, ExecutionElapsedTime}'
-  echo '--- edge self-smoke stdout (last 4KB) ---'
-  tail -c 4096 "${tmpdir}/edge-stdout.txt"
-  echo
-  echo '--- edge self-smoke stderr (last 4KB) ---'
-  tail -c 4096 "${tmpdir}/edge-stderr.txt"
-  echo
-  if [[ "${status}" != "Success" ]]; then
-    echo "tk_edge_post_deploy_smoke: edge self-smoke SSM status=${status}" >&2
-    exit 1
-  fi
+    --timeout-seconds 180 \
+    --script "${SCRIPT_DIR}/edge_infra_smoke.sh"
 }
 
 run_edge_native_anthropic_smoke() {
   echo "tk_edge_post_deploy_smoke: edge-native anthropic oauth smoke edge=${EDGE_ID} models=${TK_SMOKE_EDGE_LOCAL_CHAT_MODELS}"
-  REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
   bash "${REPO_ROOT}/ops/observability/run-probe.sh" \
     --target "edge:${EDGE_ID}" \
     --comment "edge-native-anthropic-smoke edge=${EDGE_ID}" \
