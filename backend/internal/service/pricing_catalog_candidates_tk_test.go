@@ -109,14 +109,32 @@ func TestServableClientFacingIDs_PrunesStructurallyGone(t *testing.T) {
 
 	seedAvail(repo, PlatformAnthropic, target, AvailabilityStatusUnreachable, FailureKindModelNotFound)
 	got := ServableClientFacingIDs(ctx, PlatformAnthropic, svc, pricing)
-	require.NotContains(t, got, target, "structurally-gone model must be pruned from the unified servable source")
+	require.NotContains(t, got, target, "structurally-gone model must be pruned from the CatalogPolicy candidate source")
 	require.Contains(t, got, survivor, "an unaffected SSOT sibling must remain servable")
 }
 
-// TK (R-003, follow-up to PR #752): the admin model-whitelist selector now draws
-// its candidates from tkServableCandidateIDs (self-healing) instead of the
-// canonical defaults. These pin that membership truth on the Go side so the
-// frontend no longer hand-maintains a hardcoded mirror.
+func TestModelListFilter_PrunesOnlyStructurallyGoneAvailability(t *testing.T) {
+	ctx := context.Background()
+	availability, repo, _ := newAvailabilityTestService(t)
+	const gone = "model-gone"
+	const degraded = "model-degraded"
+	pricing := tkBuildPricedServiceForTest(t, []string{gone, degraded})
+	seedAvail(repo, PlatformOpenAI, gone, AvailabilityStatusUnreachable, FailureKindModelNotFound)
+	seedAvail(repo, PlatformOpenAI, degraded, AvailabilityStatusUnreachable, FailureKindUpstream5xx)
+	filter := NewModelListFilter(pricing, availability)
+
+	got := filter.FilterClientFacing(ctx, PlatformOpenAI, []string{gone, degraded})
+	require.Equal(t, []string{degraded}, got,
+		"transient 5xx evidence must keep the model visible; only structurally-gone models are pruned")
+
+	strict, err := filter.FilterClientFacingStrict(ctx, PlatformOpenAI, []string{gone, degraded})
+	require.NoError(t, err)
+	require.Equal(t, []string{degraded}, strict,
+		"strict discovery must propagate read errors without turning transient degradation into a serving gate")
+}
+
+// Admin whitelist candidates come from tkServableCandidateIDs, not canonical
+// advertised defaults. The frontend does not own a hardcoded mirror.
 func TestTkServableCandidateIDs(t *testing.T) {
 	ctx := context.Background()
 

@@ -1,7 +1,8 @@
 package service
 
-// TokenKey: client-facing model-list filter for Goal 2 of
-// docs/approved/pricing-availability-source-of-truth.md §2.5.
+// TokenKey: client-facing model-list filter.
+// Catalog decoration and structurally-gone pruning follow
+// docs/approved/pricing-availability-source-of-truth.md.
 //
 // Used by three gateway handler endpoints:
 //   GET /v1/models          (GatewayHandler.Models)
@@ -9,9 +10,10 @@ package service
 //   GET /antigravity/models (GatewayHandler.AntigravityModels)
 //
 // Client-facing contract: only emit models that are (a) priced AND
-// (b) not currently unreachable per the availability table. Fail-open when
-// pricing is nil so that cold-start or degraded wiring never produces an
-// empty model-list that would break an SDK.
+// (b) not structurally gone per availability evidence. Transient 5xx/network
+// degradation stays visible; availability is display evidence, not serving
+// eligibility. Fail-open when pricing is nil so cold-start wiring never blanks
+// an SDK model list.
 
 import (
 	"context"
@@ -31,8 +33,9 @@ func NewModelListFilter(pricing *PricingCatalogService, availability *PricingAva
 	return &ModelListFilter{pricing: pricing, availability: availability}
 }
 
-// FilterClientFacing returns the subset of candidates that are priced AND
-// not unreachable.
+// FilterClientFacing returns candidates that are priced and not structurally
+// gone. Availability read errors fail open; this non-strict projection must not
+// turn an observability outage into an empty customer model list.
 //
 // Fail-open conditions (returns candidates unchanged):
 //   - f == nil
@@ -51,8 +54,11 @@ func (f *ModelListFilter) FilterClientFacing(ctx context.Context, platform strin
 		if !f.pricing.IsModelPriced(id, platform) {
 			continue
 		}
-		if f.availability != nil && f.availability.IsUnreachable(ctx, platform, id) {
-			continue
+		if f.availability != nil {
+			state, err := f.availability.GetAvailability(ctx, platform, id)
+			if err == nil && tkAvailabilityStructurallyGone(state) {
+				continue
+			}
 		}
 		out = append(out, id)
 	}
@@ -62,7 +68,7 @@ func (f *ModelListFilter) FilterClientFacing(ctx context.Context, platform strin
 // FilterClientFacingStrict is the discovery-only counterpart of
 // FilterClientFacing. It preserves nil/degraded behavior, but once the
 // availability service is wired it propagates repository errors so discovery
-// cannot misrepresent an unknown state as a callable model.
+// can say “unknown” without treating transient degradation as structural death.
 func (f *ModelListFilter) FilterClientFacingStrict(ctx context.Context, platform string, candidates []string) ([]string, error) {
 	if f == nil || f.pricing == nil || len(candidates) == 0 {
 		return candidates, nil
@@ -83,7 +89,7 @@ func (f *ModelListFilter) FilterClientFacingStrict(ctx context.Context, platform
 	}
 	out := make([]string, 0, len(priced))
 	for _, id := range priced {
-		if states[id].Status == AvailabilityStatusUnreachable {
+		if tkAvailabilityStructurallyGone(states[id]) {
 			continue
 		}
 		out = append(out, id)
@@ -91,11 +97,10 @@ func (f *ModelListFilter) FilterClientFacingStrict(ctx context.Context, platform
 	return out, nil
 }
 
-// ServableClientFacingIDs returns the unified servable candidate IDs for a
-// platform — the single source the gateway /v1/models family FALLBACK shares with
-// the public /pricing catalog and the Your-Menu fallback. It is the empirical
-// allowlist (or canonical when unprobed), pruned of structurally-gone ids and
-// filtered to priced (billable), enforcing visible ⟹ reachable ∧ priced.
+// ServableClientFacingIDs returns the shared client-facing catalog projection for
+// a platform. It combines the curated candidate set, price membership, and the
+// structurally-gone-only evidence prune. It does not claim request-time legality
+// or capacity.
 //
 // This differs from FilterClientFacing in two intentional ways: (1) the candidate
 // set is the curated servable allowlist (not an arbitrary caller-supplied list —

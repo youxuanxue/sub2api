@@ -172,8 +172,9 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         routing_context.write_text(
             "package fixture\n"
             "type protocolPlanCache struct{}\n"
-            "func (c *protocolPlanCache) put(plan Plan){}\n"
+            "func (c *protocolPlanCache) getOrPlan(key protocolPlanCacheKey, compute func() (Plan, error)) (Plan, error){ return compute() }\n"
             "func (c *protocolPlanCache) get(id int64, revision string) (Plan, bool){ return Plan{}, true }\n"
+            "func protocolPlanForAccount(){ plans.getOrPlan() }\n"
             "func attachProtocolPlan(){ plans.get() }\n",
             encoding="utf-8",
         )
@@ -193,13 +194,13 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         openai_eligibility = root / "backend/internal/service/openai_gateway_scheduling_tk_eligibility_reason.go"
         openai_eligibility.write_text(
             "package fixture\n"
-            "func openAICompatEligibilityReason(){ protocolRuntimeAuthorizationReady(); tkProtocolRouteIllegalReason() }\n",
+            "func openAICompatEligibilityReason(){ protocolRuntimeAuthorizationReady(); protocolRequestEligibilityReason() }\n",
             encoding="utf-8",
         )
         openai_scheduler = root / "backend/internal/service/openai_account_scheduler.go"
         openai_scheduler.write_text(
             "package fixture\n"
-            "func isAccountRequestCompatibleReason() (bool, string) { if !protocolRuntimeAuthorizationReady() { return false, \"authorization\" }; if !ProtocolRouteLegal() { return false, \"protocol\" }; return true, \"\" }\n",
+            "func isAccountRequestCompatibleReason() (bool, string) { if !protocolRuntimeAuthorizationReady() { return false, \"authorization\" }; if eligible, reason := protocolRequestEligibilityReason(); !eligible { return false, reason }; return true, \"\" }\n",
             encoding="utf-8",
         )
         account_handler = root / "backend/internal/handler/admin/account_handler.go"
@@ -959,7 +960,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         owner = root / "backend/internal/service/openai_account_scheduler.go"
         owner.write_text(
             owner.read_text(encoding="utf-8").replace(
-                "if !protocolRuntimeAuthorizationReady() { return false, \"authorization\" }; if !ProtocolRouteLegal() { return false, \"protocol\" }",
+                "if !protocolRuntimeAuthorizationReady() { return false, \"authorization\" }; if eligible, reason := protocolRequestEligibilityReason(); !eligible { return false, reason }",
                 "protocolRuntimeAuthorizationReady(); ProtocolRouteLegal()",
             ),
             encoding="utf-8",

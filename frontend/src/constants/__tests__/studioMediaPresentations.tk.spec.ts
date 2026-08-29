@@ -139,7 +139,7 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     ['imagen-4.0-ultra-generate-001', { perImage: 0.06, billingMode: 'image' }],
   ])
 
-  it('lists only priced+servable image models, sorted cheap → premium, with live price', () => {
+  it('lists only catalog-priced image models, sorted cheap → premium, with live price', () => {
     const out = resolveAvailableModels('image', IMAGEN3, IMAGEN_PRICES)
     expect(out.map((r) => r.presentation.modelId)).toEqual([
       'imagen-4.0-fast-generate-001', // 0.02
@@ -150,7 +150,7 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     expect(out.every((r) => r.servedId === r.presentation.modelId)).toBe(true)
   })
 
-  it('hides a servable model that has no live price (priced ∩ servable)', () => {
+  it('hides a catalog candidate that has no live price', () => {
     const priceless = new Map() // served but unpriced
     expect(resolveAvailableModels('image', IMAGEN3, priceless)).toEqual([])
   })
@@ -265,7 +265,7 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     ).toEqual([])
   })
 
-  it('video pool surfaces only served+priced video models with per-second price', () => {
+  it('video pool surfaces only CatalogPolicy video models with per-second price', () => {
     const out = resolveAvailableModels(
       'video',
       new Set(['doubao-seedance-2-0-fast-260128']),

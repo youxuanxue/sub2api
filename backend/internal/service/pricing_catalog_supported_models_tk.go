@@ -12,17 +12,8 @@ import (
 // additionally projects Kiro-served IDs onto its anthropic vendor surface via
 // supportedClaudeCatalogModels because Kiro mirror stubs live in Claude groups.
 //
-// Problem: both surfaces used to advertise models that TokenKey cannot
-// actually serve — the public catalog rendered the whole litellm mirror (22
-// anthropic + 123 openai entries, most retired), and Your Menu fell back to
-// the canonical openai.DefaultModels / claude.DefaultModels advertised lists.
-// Customers picked dead models and hit 400/404/502.
-//
-// Rule (operator directive): keep ONLY model IDs that PASSED a live prod
-// probe (returned a real 200). This is purely empirical — canonical /
-// advertised status is irrelevant; a model that the upstream rejects is
-// dropped even if it is in DefaultModels, and a servable model is kept even
-// if it is not.
+// Rule: keep only model IDs that passed a live prod probe (real 200).
+// Canonical / advertised DefaultModels lists are not a catalog owner.
 //
 // Provenance:
 //   - anthropic: Claude-Code-shaped POST /v1/messages through the edge-us7
@@ -156,8 +147,8 @@ var supportedOpenAIAinzyRelayCatalogModels = map[string]struct{}{
 
 // supportedOpenAITokenseaRelayCatalogModels — upstream GET /v1/models owner for
 // prod account 92 (agent.tokensea.ai OpenAI relay) on 2026-08-20. The compiled
-// account floor is this set intersected with public priced+displayable SSOT
-// that tokensea can actually chat-serve. Listing here does not add public
+// account floor is this set intersected with the public CatalogPolicy
+// projection that tokensea can actually chat-serve. Listing here does not add public
 // catalog/menu rows; DeepSeek/Qwen/GLM/Kimi rows listed on 2026-08-20 failed
 // raw /v1/chat/completions (400 openai_error) and stay off the floor.
 var supportedOpenAITokenseaRelayCatalogModels = map[string]struct{}{
@@ -305,9 +296,9 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 //
 // Hand-maintained like the antigravity arm (the refresh tool's probe tuple is
 // anthropic/openai/gemini and does not cover grok yet). Display policy follows
-// the repo SSOT rule: upstream-official ids/aliases on the provider model page
-// that are priced and probe-servable are public-listed. Legacy retirement
-// redirects (grok-4-fast-reasoning) stay priced-only.
+// CatalogPolicy: official ids/aliases may be public-listed when they have a
+// price owner and are not structurally gone. Legacy retirement redirects
+// (grok-4-fast-reasoning) stay priced-only.
 var supportedGrokCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin grok
 	"grok-4.20-0309-non-reasoning": {},

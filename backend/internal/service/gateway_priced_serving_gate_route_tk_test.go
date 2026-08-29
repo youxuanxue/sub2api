@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -153,4 +154,114 @@ func TestGeminiForwardNative_Route_CountTokensExemptFromGate(t *testing.T) {
 
 	require.NotEqual(t, http.StatusNotFound, w.Code, "countTokens must be EXEMPT: gate must not 404 a zero-billing pre-flight")
 	require.False(t, c.IsAborted(), "gate must not abort countTokens")
+}
+
+func catchAllAntigravityAccount() *Account {
+	return &Account{
+		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"*": "gemini-2.5-pro"},
+		},
+	}
+}
+
+func antigravityGateService(t *testing.T, enabledSet string) *AntigravityGatewayService {
+	t.Helper()
+	svc := &AntigravityGatewayService{}
+	svc.SetPricedServingGateDeps(nil, newGateBillingService(t, "gemini-2.5-pro"), newGateSettingService(enabledSet), nil, nil)
+	return svc
+}
+
+func TestAntigravityForward_Route_RejectsUnpricedOriginalUnderCatchAll(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := antigravityGateService(t, "antigravity")
+	c, w := newGateTestContext()
+	body := []byte(`{"model":"garbage-unpriced-xyz","messages":[{"role":"user","content":"hi"}]}`)
+
+	_, err := svc.Forward(context.Background(), c, catchAllAntigravityAccount(), body, false)
+
+	require.Error(t, err, "gate must reject: original is unpriced even though catch-all maps to a priced id")
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.True(t, c.IsAborted())
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	require.Equal(t, "error", payload["type"], "Anthropic wire shape: top-level type=error")
+}
+
+func TestAntigravityForwardGemini_Route_RejectsUnpricedOriginalUnderCatchAll(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := antigravityGateService(t, "antigravity")
+	c, w := newGateTestContext()
+
+	_, err := svc.ForwardGemini(context.Background(), c, catchAllAntigravityAccount(), "garbage-unpriced-xyz", "generateContent", false, []byte(`{}`), false)
+
+	require.Error(t, err)
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.True(t, c.IsAborted())
+}
+
+func TestAntigravityForwardGemini_Route_CountTokensExemptFromGate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := antigravityGateService(t, "antigravity")
+	c, w := newGateTestContext()
+
+	result, err := svc.ForwardGemini(context.Background(), c, catchAllAntigravityAccount(), "garbage-unpriced-xyz", "countTokens", false, []byte(`{}`), false)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotEqual(t, http.StatusNotFound, w.Code)
+	require.False(t, c.IsAborted())
+}
+
+func TestKiroForward_Route_RejectsUnpriced(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &KiroGatewayService{}
+	svc.SetPricedServingGateDeps(nil, newGateBillingService(t, "gemini-2.5-pro"), newGateSettingService("kiro"), nil, nil)
+	c, w := newGateTestContext()
+	body := []byte(`{"model":"garbage-unpriced-xyz","messages":[{"role":"user","content":"hi"}]}`)
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "garbage-unpriced-xyz"}
+
+	_, err := svc.Forward(context.Background(), c, &Account{Platform: PlatformKiro}, parsed, time.Now())
+
+	require.Error(t, err)
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.True(t, c.IsAborted())
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	require.Equal(t, "error", payload["type"], "Anthropic wire shape: top-level type=error")
+}
+
+func TestOpenAIForwardAsEmbeddings_Route_RejectsUnpriced(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &OpenAIGatewayService{
+		billingService: newGateBillingService(t, "text-embedding-3-small"),
+		settingService: newGateSettingService("openai"),
+	}
+	c, w := newGateTestContext()
+	body := []byte(`{"model":"garbage-unpriced-xyz","input":"hi"}`)
+
+	_, err := svc.ForwardAsEmbeddings(context.Background(), c, &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, body, "")
+
+	require.Error(t, err)
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.True(t, c.IsAborted())
+}
+
+func TestOpenAIForwardAsImageGenerations_Route_DoesNotUseEmbeddingsGate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &OpenAIGatewayService{
+		billingService: newGateBillingService(t, "text-embedding-3-small"),
+		settingService: newGateSettingService("openai"),
+	}
+	c, w := newGateTestContext()
+	body := []byte(`{"model":"garbage-unpriced-xyz","prompt":"hi"}`)
+
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = svc.ForwardAsImageGenerations(context.Background(), c, &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, body, "")
+	}()
+
+	require.NotEqual(t, http.StatusNotFound, w.Code, "images/generations must not use the embeddings gate hook")
+	require.False(t, c.IsAborted())
 }

@@ -87,8 +87,14 @@ func openAICompatEligibilityReason(
 	if !protocolRuntimeAuthorizationReady(ctx, account) {
 		return openAICompatIneligibleAuthorization
 	}
-	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
-		return openAICompatIneligibleModelUnsupported
+	if eligible, reason := protocolRequestEligibilityReason(ctx, account, requestedModel); !eligible {
+		if reason == "model_not_supported" {
+			return openAICompatIneligibleModelUnsupported
+		}
+		if detail := tkProtocolRouteIllegalReason(ctx, account, requestedModel); detail != "" {
+			return detail
+		}
+		return openAICompatIneligibleNoLegalRoute
 	}
 	if !protocolRoutingOwnsOpenAITextCapability(ctx, requiredCapability) &&
 		!account.SupportsOpenAIEndpointCapability(requiredCapability) {
@@ -102,9 +108,6 @@ func openAICompatEligibilityReason(
 	}
 	if requireCompact && openAICompactSupportTier(account) == 0 {
 		return openAICompatIneligibleCompactMissing
-	}
-	if reason := tkProtocolRouteIllegalReason(ctx, account, requestedModel); reason != "" {
-		return reason
 	}
 	return ""
 }

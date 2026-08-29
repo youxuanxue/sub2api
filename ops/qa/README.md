@@ -54,4 +54,4 @@ python3 -m unittest ops.qa.test_qa_phase_ops
 cd backend && go test -tags=unit ./internal/observability/qa/lifecycle ./cmd/server
 ```
 
-Phase 2 archive/recovery closeout evidence remains in `docs/approved/design-qa-phase2-archive-closeout.md` and is explicitly historical/superseded for lifecycle ownership. Edge closeout evidence is retained only as history; it is not a deployable prod owner.
+Current lifecycle owner is `docs/approved/design-prod-qa-24h-s3-lifecycle.md`.

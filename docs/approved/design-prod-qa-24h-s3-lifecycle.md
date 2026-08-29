@@ -28,8 +28,7 @@ QA 数据面只有一个目标形态：
 > 不做 DEFAULT、逐行 DELETE、rehome、copy 或 move。用户列表、详情和导出均读取 user/API-key scoped
 > S3 QA Bundle；ZIP 只在用户请求导出时从已提交 Bundle 生成，不回源 prod。Edge 完全退出 QA。
 
-`docs/approved/design-qa-phase2-archive-closeout.md` 保留已经上线的 Phase 2 历史、恢复和证据契约；
-本文件是后续运行目标的唯一批准基线。`ops/qa/policy.yaml` 是实现后的目标策略 SSOT，
+本文件是 QA lifecycle 的唯一批准基线。`ops/qa/policy.yaml` 是实现后的目标策略 SSOT，
 `ops/qa/deploy_rollout.yaml` 必须分别记录 repository readiness 与 observed live state。
 文档批准不表示实现、部署或生产 DROP 已发生。
 

@@ -1915,11 +1915,8 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if !protocolRuntimeAuthorizationReady(ctx, account) {
 		return false, "authorization_unavailable"
 	}
-	if req.RequestedModel != "" && !account.IsModelSupported(req.RequestedModel) {
-		return false, "model_not_supported"
-	}
-	if !ProtocolRouteLegal(ctx, account, req.RequestedModel) {
-		return false, "protocol_route_unavailable"
+	if eligible, reason := protocolRequestEligibilityReason(ctx, account, req.RequestedModel); !eligible {
+		return false, reason
 	}
 	if req.GroupID != nil && s != nil && s.service != nil &&
 		s.service.needsUpstreamChannelRestrictionCheck(ctx, req.GroupID) &&

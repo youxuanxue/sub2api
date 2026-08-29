@@ -13,23 +13,23 @@ import (
 // alert — sharing that owner is a declared decision, not a gap. 2026-08-25: the
 // alert was firing on it and the digest printed the already-billed tokens as
 // "未计费", which is what sent an operator hunting a nonexistent revenue leak.
-func TestDeclaredAliasSuppressesFallbackAlertButKeepsPrice(t *testing.T) {
-	owner, declared := tkDeclaredRegistryAlias("deepseek-v4-flash-0731")
+func TestRegistryPricingAliasSuppressesFallbackAlertButKeepsPrice(t *testing.T) {
+	owner, declared := tkPricingRegistryAliasOwner("deepseek-v4-flash-0731")
 	require.True(t, declared, "0731 must be a declared alias")
 	require.Equal(t, "deepseek-v4-flash", owner)
 
 	// Case-insensitive and whitespace-tolerant, since it is keyed off client input.
-	owner, declared = tkDeclaredRegistryAlias("  DeepSeek-V4-Flash-0731 ")
+	owner, declared = tkPricingRegistryAliasOwner("  DeepSeek-V4-Flash-0731 ")
 	require.True(t, declared)
 	require.Equal(t, "deepseek-v4-flash", owner)
 
 	// The owner itself is not an alias of anything.
-	_, declared = tkDeclaredRegistryAlias("deepseek-v4-flash")
+	_, declared = tkPricingRegistryAliasOwner("deepseek-v4-flash")
 	require.False(t, declared)
 
 	// An id that only resolves via the substring matcher stays unsuppressed: that
 	// accidental-owner case is precisely what the alert must keep surfacing.
-	_, declared = tkDeclaredRegistryAlias("deepseek-v4-flash-9999")
+	_, declared = tkPricingRegistryAliasOwner("deepseek-v4-flash-9999")
 	require.False(t, declared)
 
 	// The declared owner must exist in the overlay, or the alias would silently
@@ -43,12 +43,12 @@ func TestDeclaredAliasSuppressesFallbackAlertButKeepsPrice(t *testing.T) {
 // declared alias must read as NOT served-via-floor (it is a settled decision),
 // while a substring-only id in the same family must still read as true, and the
 // resolved price must be identical either way.
-func TestDeclaredAliasIsNotServedViaFamilyFloor(t *testing.T) {
-	// Empty registry: nothing has a direct owner here, so the verdict is decided
-	// by the declared-alias table and the substring matcher alone.
+func TestRegistryPricingAliasIsNotServedViaFamilyFloor(t *testing.T) {
+	// Empty compatibility pricing source: direct billing rows cannot mask whether
+	// the active registry alias or the substring matcher produced the verdict.
 	billing := newConsistencyBilling(t, []byte(`{}`))
 
-	for alias, owner := range tkDeclaredRegistryAliases {
+	for alias, owner := range loadTKPricingOverlaySnapshot().Aliases {
 		require.False(t, billing.IsServedViaFamilyFloor(alias),
 			"declared alias %q must not raise served_at_fallback", alias)
 
@@ -72,9 +72,9 @@ func TestDeclaredAliasIsNotServedViaFamilyFloor(t *testing.T) {
 // Every declared alias must point at a resolvable overlay owner, and must not
 // itself be an overlay owner (that would make two owners for one price — the
 // exact drift tk_pricing_overlay's single-owner rule forbids).
-func TestDeclaredAliasesAreWellFormed(t *testing.T) {
+func TestRegistryPricingAliasesAreWellFormed(t *testing.T) {
 	overlay := loadTKPricingOverlay()
-	for alias, owner := range tkDeclaredRegistryAliases {
+	for alias, owner := range loadTKPricingOverlaySnapshot().Aliases {
 		require.NotEmpty(t, owner, "alias %q has empty owner", alias)
 		require.Nil(t, overlay[alias],
 			"alias %q must NOT be its own overlay owner (two owners drift)", alias)

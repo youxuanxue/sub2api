@@ -15,7 +15,7 @@ description: >-
 应该展示哪些实测可服务模型」从一次性手工探测固化为可复跑流水线。背景与解耦原因见
 `ops/pricing/README.md`、PR #605（呈现层过滤 vs IsModelPriced 解耦）、#608（本工具）。
 
-当前公开目录和用户菜单已收敛到同一 servable surface：
+公开 `/pricing` 与用户 Menu 共用同一 CatalogPolicy 投影：
 
 - `FilterPublicCatalogToServable` 过滤公开 `/pricing`。
 - `supportedCatalogModelIDsForPlatform` 喂给用户菜单 fallback。
@@ -260,7 +260,7 @@ bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-ser
 ### Antigravity `gemini-2.5-pro` 专项（literal id，不进 `run` splice）
 
 全量 `ANTIGRAVITY_CHAT_MODELS` 批里 `gemini-2.5-pro` 的 `:generateContent` 常 **000 timeout /
-inconclusive**（见 `docs/all-platform-model-inventory.md`），与 chat 路径结论混在一起难判根因。
+inconclusive**（历史快照见 `docs/all-platform-model-inventory.md`，不是交付 SSOT），与 chat 路径结论混在一起难判根因。
 用 **`probe-antigravity-gemini25pro-literal.sh`** 窄打 Google-Gemini 源组（默认
 `gemini-pro-agent` + `gemini-2.5-pro`），**同一 key** 并排探 `/v1/chat/completions` 与
 `/antigravity/v1beta/models/{id}:generateContent`，附账号快照（无 secret）：

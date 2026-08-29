@@ -33,7 +33,7 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 | [`admin-dashboard-rollup-performance.md`](admin-dashboard-rollup-performance.md) | Admin dashboard rollups |
 | [`admin-ui-performance-rollups.md`](admin-ui-performance-rollups.md) | Admin UI rollup performance |
 | [`anthropic-window-util-sched.md`](anthropic-window-util-sched.md) | Upstream window-util scheduling |
-| [`cc-only-disable-prep-decisions.md`](cc-only-disable-prep-decisions.md) | cc-only disable prep |
+| [`cc-only-disable-prep-decisions.md`](cc-only-disable-prep-decisions.md) | canonical Anthropic OAuth identity gates when relaxing cc-only |
 | [`channel-pricing-refund-gate-and-runtime-pricing.md`](channel-pricing-refund-gate-and-runtime-pricing.md) | Runtime pricing and refund gate |
 | [`design-data-layer-prod-export-canary.md`](design-data-layer-prod-export-canary.md) | 生产只读、export-only、无删除归档 canary |
 | [`design-capacity-first-data-layer-safety.md`](design-capacity-first-data-layer-safety.md) | Capacity-first 阈值契约；正式 probe 已晋升进 daily diagnostics |
@@ -48,14 +48,16 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 | [`ops-sla-error-owner-scope.md`](ops-sla-error-owner-scope.md) | Ops SLA owner scope |
 | [`ops-unified-contract.md`](ops-unified-contract.md) | Ops unified contract |
 | [`priced-or-it-doesnt-ship.md`](priced-or-it-doesnt-ship.md) | Runtime priced-serving gate |
-| [`pricing-availability-source-of-truth.md`](pricing-availability-source-of-truth.md) | Pricing availability SSOT |
+| [`pricing-availability-source-of-truth.md`](pricing-availability-source-of-truth.md) | Availability evidence and structural-gone catalog pruning |
 | [`pricing-registry-hot-reload.md`](pricing-registry-hot-reload.md) | Global pricing registry owner and protected hot reload |
-| [`pricing-serving-single-source-of-truth.md`](pricing-serving-single-source-of-truth.md) | Pricing/serving ownership |
+| [`pricing-serving-single-source-of-truth.md`](pricing-serving-single-source-of-truth.md) | One delivery promise, three decision boundaries |
+| [`protocol-routing-ssot.md`](protocol-routing-ssot.md) | Generation endpoint capability and protocol route planning |
 | [`rpm-override-deferred-removal.md`](rpm-override-deferred-removal.md) | RPM override layer |
 | [`served-model-reconcile-planner.md`](served-model-reconcile-planner.md) | Modelops planner |
 | [`tk041-migration-checksum-remediation.md`](tk041-migration-checksum-remediation.md) | Migration checksum remediation |
 | [`tk052-reenable-anthropic-request-normalize.md`](tk052-reenable-anthropic-request-normalize.md) | Anthropic request normalize |
 | [`universal-key-routing.md`](universal-key-routing.md) | Universal key routing |
+| [`universal-key-capability-discovery.md`](universal-key-capability-discovery.md) | Per-key/protocol/operation discovery projection |
 | [`upstream-merge-2026-07-02.md`](upstream-merge-2026-07-02.md) | Upstream merge anchor |
 | [`upstream-merge-2026-08-15-migrations.md`](upstream-merge-2026-08-15-migrations.md) | Upstream merge 2026-08-15 migration anchor |
 | [`user-cold-start.md`](user-cold-start.md) | New-user cold start |

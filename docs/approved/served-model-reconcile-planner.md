@@ -20,23 +20,12 @@ This implements the allowed half of automatic model operations:
   second menu list.
 - YES: automatically print the next probe commands and existing guarded apply commands.
 - NO: do not run a background job that writes `accounts.credentials.model_mapping`.
-- NO: do not let upstream `/models` or pricing presence write SERVING.
+- NO: do not let upstream `/models`, probe results, or pricing presence write catalog or account mapping owners.
 
-That boundary follows `pricing-serving-single-source-of-truth.md`: SERVING is owned by
-per-account `model_mapping`; global PRICE is owned by the active complete registry and
-may be overridden only within an explicit `channel_model_pricing` scope; PUBLIC SURFACE
-is owned by `pricing_catalog_supported_models_tk.go`. Upstream `/models` and provider
-pricing are discovery sensors, not authority.
-
-The Jobs cut is one entry, four facts:
-
-| Fact | Owner | Planner role |
-| --- | --- | --- |
-| Runtime serving | `accounts.credentials.model_mapping` | diff live snapshots and print guarded dry-runs |
-| Global price | active complete `tk_pricing_overlay.json` registry snapshot | classify priced/missing and point to a registry-only PR |
-| Scoped price override | `channel_model_pricing` | report the matching commercial scope without promoting it to a global owner |
-| Public catalog + user menu | `pricing_catalog_supported_models_tk.go` | identify the shared surface; refresh remains a separate apply path |
-| Curated newapi intent | `tk_served_models.json` | compare manifest intent with candidates and live mapping |
+This planner owns no delivery decision. The canonical boundary is
+`pricing-serving-single-source-of-truth.md`: it compares CatalogPolicy inputs, RequestPlan
+inputs, and time-bound evidence, then points to the guarded owner write path. It never
+claims RuntimeReadiness or derives a persistent `deliverable` value.
 
 ## Tool
 
@@ -74,21 +63,21 @@ Outputs:
   `apply-model-mapping-live.py` commands.
 - `mapping_extra_review`: live mapping has ids absent from manifest or suspicious state.
 - `mirror_drift`: exact mapping diff for source/target mirror accounts.
-- `surfaces`: names the owner files/tools for served intent, pricing, runtime mapping, and
-  the public catalog/user menu surface.
+- `surfaces`: names the owner files/tools for catalog policy, account mapping inputs, and
+  the shared public catalog/user-menu projection.
 
 The planner is a review surface, not an apply surface.
 
-## Catalog/Menu Surface
+## Catalog/Menu Projection
 
-The public `/pricing` catalog and the per-user "Your Menu" are already converged:
+The public `/pricing` catalog and the per-user "Your Menu" share one projection:
 
 - `FilterPublicCatalogToServable` filters public catalog rows.
 - `supportedCatalogModelIDsForPlatform` feeds user-menu fallback.
 - Both consume the empirical sets in `pricing_catalog_supported_models_tk.go`.
 
-Therefore #997 must not introduce another catalog/menu list. The planner only points to
-the shared surface. Refresh still goes through `ops/pricing/refresh-servable-allowlist.py`
+Do not introduce another catalog/menu list. The planner only points to
+the shared projection. Refresh still goes through `ops/pricing/refresh-servable-allowlist.py`
 for the probe-generated blocks, or a reviewed code change for hand-maintained empirical
 sets such as antigravity and grok.
 

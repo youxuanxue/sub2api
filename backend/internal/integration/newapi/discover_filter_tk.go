@@ -7,7 +7,7 @@ package newapi
 //   raw upstream /v1/models response
 //     → DiscoveryFilter.Apply(...)
 //        [1] drop ids whose provider metadata is explicitly unavailable
-//        [2] drop ids whose model_availability cell = 'unreachable'
+//        [2] drop ids whose availability evidence says structurally gone
 //        [3] tag pricing_status (priced | missing) — weak filter (admin sees missing)
 //     → []DiscoveredModel
 //
@@ -34,10 +34,10 @@ type PricingCatalogLookup interface {
 
 // AvailabilityLookup is the read-side seam DiscoveryFilter needs from the
 // pricing availability service. The single production implementation is
-// *service.PricingAvailabilityService (which exports IsUnreachable in
+// *service.PricingAvailabilityService (which exports IsStructurallyGone in
 // pricing_availability_predicate_tk.go).
 type AvailabilityLookup interface {
-	IsUnreachable(ctx context.Context, platform, modelID string) bool
+	IsStructurallyGone(ctx context.Context, platform, modelID string) bool
 }
 
 // PricingStatus values. The two are mutually exclusive; "missing" is the
@@ -128,8 +128,9 @@ func (f *DiscoveryFilter) Apply(ctx context.Context, platform string, raw []rawD
 		if r.ProviderUnavailable {
 			continue
 		}
-		// [2] model_availability table says unreachable → drop
-		if f.availability != nil && f.availability.IsUnreachable(ctx, platform, id) {
+		// [2] explicit model_not_found/retired evidence → drop. Transient
+		// unreachable evidence remains visible to the operator.
+		if f.availability != nil && f.availability.IsStructurallyGone(ctx, platform, id) {
 			continue
 		}
 		// [3] tag pricing_status (weak filter)

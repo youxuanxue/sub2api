@@ -20,6 +20,7 @@ but never actually wired onto the serving account's model_mapping => empty pool 
 
   A0 PARSE        manifest + overlay parse; every entry has the required fields/types.
   A1 PRICE        every entry resolves to a non-zero complete-registry owner;
+                  display=true identifies it directly or through `_aliases`;
                   channel is allowed only as an explicitly documented scope. HARD-FAIL
   A2 DISPLAY      native display==true => model_id present in the platform's Go
                   allowlist map. newapi display is owned by this manifest.     HARD
@@ -30,7 +31,8 @@ but never actually wired onto the serving account's model_mapping => empty pool 
                   This is the #812-catching direction.                        HARD-FAIL
                   Legacy escape hatch: `served-via-admin-ui` is downgraded to WARN for
                   mapping state that predates the activation contract.
-  A4 ENUMERATION  (advisory WARN) every dashscope/deepseek chat overlay key SHOULD be a
+  A4 ENUMERATION  native display allowlists also require a direct owner or `_aliases`;
+                  (advisory WARN) every dashscope/deepseek chat overlay key SHOULD be a
                   manifest entry (catch a priced+served-but-forgotten model).
 
 Usage: python3 scripts/checks/catalog-serving-drift.py [--quiet] [--selftest]
@@ -189,6 +191,9 @@ def evaluate(
         return (["manifest has no top-level `entries` object"], warnings)
 
     overlay_entries = {k: v for k, v in overlay.items() if not k.startswith("_")}
+    overlay_aliases = overlay.get("_aliases", {})
+    if not isinstance(overlay_aliases, dict):
+        return (["tk_pricing_overlay.json _aliases must be an object"], warnings)
     manifest_model_ids: set[str] = set()
 
     for key, entry in entries.items():
@@ -281,6 +286,20 @@ def evaluate(
                     f"the channel_model_pricing source (static guard cannot read the DB)"
                 )
 
+        if entry["display"]:
+            if price_source != "overlay":
+                errors.append(
+                    f"{key}: display=true requires a global registry owner; "
+                    "channel_model_pricing is scope-local"
+                )
+            else:
+                explicit_owner = model_id if model_id in overlay_entries else overlay_aliases.get(model_id)
+                if explicit_owner != price_key:
+                    errors.append(
+                        f"{key}: display model {model_id!r} must resolve to price_key "
+                        f"{price_key!r} through a direct owner or _aliases, got {explicit_owner!r}"
+                    )
+
         # ---- A2 display => allowlist -------------------------------------------
         if entry["display"] and platform != "newapi":
             if platform not in ALLOWLIST_PLATFORMS:
@@ -318,6 +337,14 @@ def evaluate(
                 errors.append(msg)
 
     # ---- A4 enumeration completeness (advisory) --------------------------------
+    for platform, model_ids in allowlist.items():
+        for model_id in model_ids:
+            if model_id not in overlay_entries and model_id not in overlay_aliases:
+                errors.append(
+                    f"{platform}/{model_id}: native display allowlist has no direct owner "
+                    "or _aliases entry in tk_pricing_overlay.json"
+                )
+
     for k, v in overlay_entries.items():
         if not isinstance(v, dict):
             continue
@@ -339,6 +366,7 @@ def _selftest() -> int:
     """Synthetic pass+fail fixtures, no repo I/O — proves each assertion fires."""
     overlay = {
         "_meta": {"note": "x"},
+        "_aliases": {"good-chat-alias": "good-chat"},
         "good-chat": {
             "litellm_provider": "dashscope",
             "mode": "chat",
@@ -361,6 +389,12 @@ def _selftest() -> int:
             "litellm_provider": "dashscope",
             "mode": "embedding",
             "input_cost_per_token": 1e-7,
+        },
+        "claude-opus-4-8": {
+            "litellm_provider": "anthropic",
+            "mode": "chat",
+            "input_cost_per_token": 1e-7,
+            "output_cost_per_token": 2e-7,
         },
         "zero-embedding": {
             "litellm_provider": "dashscope",
@@ -388,6 +422,11 @@ def _selftest() -> int:
             "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
             "display": True, "notes": "ok",
         },
+        "newapi/good-chat-alias": {
+            "platform": "newapi", "model_id": "good-chat-alias", "served_on": ["60"],
+            "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
+            "display": True, "notes": "served-via-modelops-activation",
+        },
         "newapi/adminui-chat": {
             "platform": "newapi", "model_id": "adminui-chat", "served_on": ["60"],
             "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
@@ -409,6 +448,15 @@ def _selftest() -> int:
         failures.append(f"PASS fixture produced hard errors: {errs}")
     if not any("forgotten-chat" in w for w in warns):
         failures.append("PASS fixture: expected A4 advisory warning for forgotten-chat")
+
+    # --- A1 owner identity: display may use only a direct owner or _aliases ---
+    errs, _ = run({"newapi/implicit-alias": {
+        "platform": "newapi", "model_id": "implicit-alias", "served_on": ["60"],
+        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
+        "display": True, "notes": "ok",
+    }})
+    if not any("direct owner or _aliases" in e for e in errs):
+        failures.append("A1: display owner identity accepted an implicit price alias")
 
     # --- A0: missing field / wrong type ----------------------------------------
     errs, _ = run({"newapi/bad": {"platform": "newapi", "model_id": "good-chat"}})

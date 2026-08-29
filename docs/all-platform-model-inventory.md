@@ -1,8 +1,13 @@
-# TokenKey 全平台可服务模型清单（All-Platform Model Inventory）
+# TokenKey 全平台模型清单（历史快照，不是交付 SSOT）
 
-> **用途**：把「TokenKey 在 7 个平台上到底能服务哪些模型、各自定价/展示/广告状态如何、哪些实测不可服务、为什么不在清单里、以后还要不要再试」一次性写清楚，作为权威参考，避免反复实测与「这模型为什么没了」的反复追问。
+> **不是交付 SSOT。** 本次请求能不能交付只看
+> `docs/approved/pricing-serving-single-source-of-truth.md`。
+> generation 协议只看 `docs/approved/protocol-routing-ssot.md`。
+> 可用性证据只看 `docs/approved/pricing-availability-source-of-truth.md`。
 >
-> **数据来源（repo-grounded，非线上探测）**：本清单由仓库内的权威源推导——5 个 Go servable-allowlist map、`tk_served_models.json` 清单、`tk_pricing_overlay.json` 价格 overlay、各平台 `DefaultModels`、newapi 渠道适配器目录、`model_mapping` 迁移。
+> 本文是 2026-06/07 的仓库快照与实测台账，用来回答「当时为什么没上某模型」。
+> 现行 catalog / mapping / 价格以代码 owner 为准；watchlist 以
+> `ops/pricing/servable-reprobe-ledger.json` 为准。
 >
 > **快照日期**：2026-06-21 抓取，2026-06-22 更新 openai/grok/antigravity-tab/GLM 处理状态，2026-06-23 复测 openai/gemini/antigravity/grok/newapi watchlist，2026-07-04 退休 native Gemini Google One pool，2026-07-10 复测 OpenAI / Ainzy / Gemini / Grok 新模型边界，2026-07-28 复测 `codex-auto-review`（prod OAuth 上游 200，纳入 native OpenAI allowlist + floor）。实测探针基线：claude/gpt 2026-06-05，OpenAI SSOT audit 2026-07-10（`gpt-5.3*` legacy Codex 写法改为非展示 alias 到 spark）、gemini/Vertex 2026-06-09（2026-06-23 复测遇到基线同为 429，2026-07-04 `gemini-eng-g2` / `gemini-am-g2` 直接账号探针仍为上游 429，group 8 已软删除）、antigravity 2026-06-23、grok 2026-07-10（direct xAI upstream account probe 证实 `grok-4.5*` 与若干 alias 200）、VolcEngine Ark chat 2026-06-23。**point-in-time 状态会过期**——带 `transient` 标记的条目必须按 §4 的 reprobe-watchlist 定期复核，不能当永久结论。
 >
@@ -12,13 +17,12 @@
 
 ## 0. TL;DR
 
-TokenKey 的完整目录是一个**四层洋葱**，几乎每个「缺口」都是相邻两层对同一个模型的判断不一致：
+不要把下面的分层当成现行交付公式。现行判定只看
+`docs/approved/pricing-serving-single-source-of-truth.md`。
+本文分层只用来读这份历史快照：
 
 ```
-PRICED（有非零价，~140 id，最宽）
-  ⊇ SERVABLE（网关真能拿到 200）
-      ⊇ DISPLAYED（公开 /pricing storefront 展示）
-ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」）  ← 与上面三层正交
+当时有价 / 当时探针 200 / 当时进了公开目录 / 当时出现在 DefaultModels
 ```
 
 - **7 个平台**：anthropic / openai / gemini / antigravity（前四原生）+ **newapi**（第五，OpenAI 兼容长尾）+ **kiro**（第六，CodeWhisperer 中继）+ **grok**（第七，xAI OAuth 中继）。
@@ -32,14 +36,16 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 | 类别 | 是什么 | 现状 | 处置 |
 |---|---|---|---|
 | `servable_unpriced`（chat） | 可服务但无价 → 计 `$0` 无扣额 | **会发 P0 告警，不是 silent**（`served_zero_cost` 探针）。本轮已处理主例：grok-4.3/4.20/build/code-fast 官方价进 overlay+allowlist，antigravity `tab_flash_lite_preview` 从默认/mapping SSOT 移除 | 新发现条目需补**官方**核实价进 overlay → 加 allowlist；或从 defaults/mapping 移除。**不要给 chat 加 fail-closed 守卫**（见下） |
-| `advertised_dead` | 在 `DefaultModels` 但实测 502/404/403 | 客户能在 /v1/models 或菜单里选到打不通的模型。OpenAI 侧已改为统一 servable+priced fallback：native OpenAI floor 与 `api.ainzy.net/v1` floor 分离，native 保留 live-proven OAuth 集（含 GPT-5.6 族与 2026-07-28 复测纳入的 `codex-auto-review`），`gpt-5`/chat/pro/search/5.1/`gpt-5.4-pro` 这批 delta gate 403 的 priced rows 不进默认面。`gpt-image-*` 不进默认面。gemini-2.0-flash、gemini-3.x chat 仍按 project-scoped watchlist 管理 | servable-refresh 复测确认 200 则留，否则从可见面移除，并用同一 allowlist 闸 `DefaultModels` |
+| `advertised_dead` | 在 `DefaultModels` 但实测 502/404/403 | 客户能在 /v1/models 或菜单里选到打不通的模型。OpenAI 侧默认面按 CatalogPolicy 投影：native OpenAI floor 与 `api.ainzy.net/v1` floor 分离，native 保留 live-proven OAuth 集（含 GPT-5.6 族与 2026-07-28 复测纳入的 `codex-auto-review`），`gpt-5`/chat/pro/search/5.1/`gpt-5.4-pro` 这批 delta gate 403 的 priced rows 不进默认面。`gpt-image-*` 不进默认面。gemini-2.0-flash、gemini-3.x chat 仍按 project-scoped watchlist 管理 | servable-refresh 复测确认 200 则留，否则从可见面移除，并用同一 allowlist 闸 `DefaultModels` |
 | `channel_not_onboarded` | 渠道适配器理论可达但无 TK 账号/价 | 扩展 backlog，非缺陷。openai 153+24 尾、gemini ct24/41、Moonshot/MiniMax/Zhipu… | 有客户需求时走 `tokenkey-onboard-model` 逐个上架 |
 
-**一个刻意的非对称（不要误判为缺陷）**：`media` 路径（image/video）对无价模型**先拒后服务**返回 400（一条视频上游可达 ~$22，硬失败防资损）；`chat` 路径**先服务后告警**（一条 chat 是分级成本，可用性优先，靠 `served_zero_cost` P0 兜底）。这是操作员 2026-06-12 拍板的成本加权决策（`openai_gateway_service_tk_media_unpriced_guard.go` 头注），**不是缺的守卫**。
+**无价请求不再按「chat 先服务、media 先拒」理解。** 现行运行期价格闸见
+`docs/approved/priced-or-it-doesnt-ship.md`：能解析真价或家族 floor 才放行，连 floor
+都没有的 id 在准入处 404。media 路径另有高单价硬守卫，但不能把它读成第二套交付公式。
 
 ---
 
-## 1. 架构：7 平台 × 4 个状态维度
+## 1. 快照标签：当时怎么读一份模型行
 
 ### 1.1 平台拓扑
 
@@ -53,12 +59,14 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 | 6 | `kiro` | AWS CodeWhisperer | prod→edge anthropic apikey 中继；镜像进 claude 组 | 中继 claude id（无自有目录）|
 | 7 | `grok` | xAI（SuperGrok Heavy OAuth）| 原生 OAuth 中继；chat/image/video 全臂 | Go `supportedGrokCatalogModels`（空则透传）|
 
-### 1.2 四个状态维度（每个模型都要分开看）
+### 1.2 快照列（只解释当时表格，不定义现行交付）
 
-- **SERVABLE**：网关能真拿到 200。判定方式按平台不同：原生显示平台是 Go 硬 allowlist；newapi 是 per-account `model_mapping` identity 白名单（空 mapping = 该账号 catch-all 放行全渠道）；kiro 与 grok 原生臂是纯透传中继。
-- **PRICED**：全局价格必须在 complete registry `tk_pricing_overlay.json` 有有效 owner；`channel_model_pricing` 只作为显式 scope 覆盖。`price_source ∈ {overlay, channel, none}`，其中 `overlay` 是历史枚举名、语义为 complete registry。Provider/LiteLLM 镜像只做 sensor；`none` = 计 `$0`（chat 会 P0 告警；media 会被 400 守卫拦下）。
-- **DISPLAYED**：是否进 `GET /api/v1/public/pricing` 与 `IsModelPriced` 会员资格，由 `isPublicCatalogModelSupported` / `isTkCuratedNewAPICatalogRowListed` 决定（native 平台用 Go allowlist；newapi 用 manifest）。
-- **ADVERTISED**：是否在某平台 `DefaultModels`（喂网关 `/v1/models` 与「我的菜单」）。**与可服务正交**——可服务未必广告（如 `claude-opus-4-1`），广告未必可服务（`advertised_dead`）。
+下面四个标签只用来读本文表格。现行无价请求由 `priced-or-it-doesnt-ship.md` 的运行期闸处理，不能再读成「chat 记 $0、只告警」。
+
+- **SERVABLE**：当时探针或 allowlist 认为网关能拿到 200。原生显示平台是 Go allowlist；newapi 是 per-account `model_mapping`；kiro 与 grok 原生臂当时是透传中继。
+- **PRICED**：当时 complete registry / 渠道价是否有 owner。`overlay` 是历史枚举名，语义为 complete registry。
+- **DISPLAYED**：当时是否进公开 `/pricing` 投影。
+- **ADVERTISED**：当时是否出现在某平台 `DefaultModels`。与当时探针结果可以不一致，这正是 `advertised_dead` 行的来源。
 
 ### 1.3 公开目录闸门逻辑（`isPublicCatalogModelSupported`）
 
@@ -323,7 +331,7 @@ glm-4.7  glm-4.6  glm-4.5  glm-4.5-air
 ## 6. 维护与刷新
 
 - **可服务 allowlist 刷新**：`/tokenkey-servable-model-refresh`（`ops/pricing/refresh-servable-allowlist.py`）——经 prod SSM 逐模型真实请求，只留 200，splice 回 Go servable map。探测元组当前为 anthropic/openai/gemini；antigravity/grok 手维护。
-- **上架单个模型（served+priced）**：`/tokenkey-onboard-model`——probe → `tk_served_models.json` 清单 + complete registry owner（**官方源、禁臆造**）→ registry PR 合并热发布 → 生成 checksummed bundle → `modelops activate` 以独立 probe/pricing evidence 写入 prod mapping → release/livefire 200 → 两档计费核对；generic deploy/rollback 不写 live mapping 或价格。
+- **上架单个模型（写 mapping 与价格）**：`/tokenkey-onboard-model`——probe → `tk_served_models.json` 清单 + complete registry owner（**官方源、禁臆造**）→ registry PR 合并热发布 → 生成 checksummed bundle → `modelops activate` 以独立 probe/pricing evidence 写入 prod mapping → release/livefire 200 → 两档计费核对；generic deploy/rollback 不写 live mapping 或价格。
 - **漂移门禁**：`scripts/checks/catalog-serving-drift.py`（manifest↔mapping path↔overlay 一致，未声明 activation/legacy mapping 的 priced-but-not-mapped 条目硬失败）经 `scripts/preflight.sh` 调用。
 - **不可服务台账机器源**：`ops/pricing/servable-reprobe-ledger.json`（watchlist / skiplist / deadlist）由 `refresh-servable-allowlist.py selftest` 和 preflight 校验，避免 transient 记录过期或误进永久 skip。
 

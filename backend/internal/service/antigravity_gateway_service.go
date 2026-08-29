@@ -131,6 +131,13 @@ type AntigravityGatewayService struct {
 	internal500Cache  Internal500CounterCache // INTERNAL 500 渐进惩罚计数器
 	retryBackoff      func(context.Context, int) bool
 	retryWait         func(context.Context, time.Duration) bool
+	// TK priced-serving gate deps (docs/approved/priced-or-it-doesnt-ship.md).
+	// settingService is already on the constructor; the rest are injected via
+	// SetPricedServingGateDeps. nil = gate disabled (fail-open).
+	tkBillingService         *BillingService
+	tkPricingCatalog         *PricingCatalogService
+	tkPricingMissingNotifier PricingMissingNotifier
+	tkPricingResolver        *ModelPricingResolver
 }
 
 func (s *AntigravityGatewayService) waitRetryBackoff(ctx context.Context, attempt int) bool {

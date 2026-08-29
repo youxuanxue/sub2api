@@ -20,10 +20,20 @@ func tkRegistryAliasOwnerPricing(owner string) *ModelPricing {
 	return pricing
 }
 
-// getRegistryAliasPricing reuses the mature compatibility matcher without
-// allowing its legacy numeric table to participate in billing. The matcher
-// identifies a family; the returned dimensions are always re-read from the
-// active registry owner so hot price changes take effect immediately.
+func tkPricingRegistryAliasOwner(model string) (string, bool) {
+	model = strings.ToLower(strings.TrimSpace(model))
+	snapshot := loadTKPricingOverlaySnapshot()
+	if snapshot == nil {
+		return "", false
+	}
+	owner, ok := snapshot.Aliases[model]
+	return owner, ok
+}
+
+// getRegistryAliasPricing resolves settlement price after the public alias
+// owner. Declared public aliases live only in overlay `_aliases`. What remains
+// below is family-floor remapping so unknown IDs in a known family still bill
+// from the live registry owner, never the legacy numeric table.
 func (s *BillingService) getRegistryAliasPricing(model string) *ModelPricing {
 	if s == nil {
 		return nil
@@ -35,19 +45,16 @@ func (s *BillingService) getRegistryAliasPricing(model string) *ModelPricing {
 	if direct := tkRegistryAliasOwnerPricing(lower); direct != nil {
 		return direct
 	}
+	if owner, declared := tkPricingRegistryAliasOwner(lower); declared {
+		return tkRegistryAliasOwnerPricing(owner)
+	}
 
 	// xAI: resolve known aliases via their routing canonical → pricing owner.
-	// This sits before the legacy matcher so direct registry rows (above) still
+	// This sits before the family floor so direct registry rows (above) still
 	// take precedence, and known aliases without a public pricing owner fail
 	// closed rather than inheriting the unknown-model floor.
 	if grokOwner, known := resolveGrokTextPricingOwner(lower); known {
 		return tkRegistryAliasOwnerPricing(grokOwner)
-	}
-
-	// This compatibility SKU routes to ordinary GPT-5.5. A provider-advertised
-	// Pro row is sensor evidence only and is not a serving/billing owner.
-	if normalizeOpenAIBillingModel(lower) == "gpt-5.5-pro" {
-		return tkRegistryAliasOwnerPricing("gpt-5.5")
 	}
 
 	legacy := s.getFallbackPricing(lower)

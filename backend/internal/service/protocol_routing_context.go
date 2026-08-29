@@ -23,41 +23,57 @@ type protocolPlanCacheKey struct {
 }
 
 type protocolPlanCache struct {
-	mu    sync.RWMutex
-	plans map[protocolPlanCacheKey]protocolrouter.Plan
+	mu       sync.Mutex
+	outcomes map[protocolPlanCacheKey]protocolPlanOutcome
+}
+
+type protocolPlanOutcome struct {
+	plan protocolrouter.Plan
+	err  error
 }
 
 func newProtocolPlanCache() *protocolPlanCache {
-	return &protocolPlanCache{plans: make(map[protocolPlanCacheKey]protocolrouter.Plan)}
+	return &protocolPlanCache{outcomes: make(map[protocolPlanCacheKey]protocolPlanOutcome)}
 }
 
-func (c *protocolPlanCache) put(plan protocolrouter.Plan) {
+// getOrPlan is the per-request, per-account-revision planning boundary. It
+// caches both success and failure so scheduler rechecks cannot call Plan twice
+// for the same immutable account snapshot.
+func (c *protocolPlanCache) getOrPlan(
+	key protocolPlanCacheKey,
+	compute func() (protocolrouter.Plan, error),
+) (protocolrouter.Plan, error) {
 	if c == nil {
-		return
+		return compute()
 	}
 	c.mu.Lock()
-	c.plans[protocolPlanCacheKey{accountID: plan.AccountID(), revision: plan.AccountRevision()}] = plan
-	c.mu.Unlock()
+	defer c.mu.Unlock()
+	if outcome, ok := c.outcomes[key]; ok {
+		return outcome.plan, outcome.err
+	}
+	plan, err := compute()
+	c.outcomes[key] = protocolPlanOutcome{plan: plan, err: err}
+	return plan, err
 }
 
 func (c *protocolPlanCache) get(accountID int64, revision string) (protocolrouter.Plan, bool) {
 	if c == nil {
 		return protocolrouter.Plan{}, false
 	}
-	c.mu.RLock()
-	plan, ok := c.plans[protocolPlanCacheKey{accountID: accountID, revision: revision}]
-	c.mu.RUnlock()
-	return plan, ok
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	outcome, ok := c.outcomes[protocolPlanCacheKey{accountID: accountID, revision: revision}]
+	return outcome.plan, ok && outcome.err == nil
 }
 
 func (c *protocolPlanCache) containsAccount(accountID int64) bool {
 	if c == nil {
 		return false
 	}
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	for key := range c.plans {
-		if key.accountID == accountID {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key, outcome := range c.outcomes {
+		if key.accountID == accountID && outcome.err == nil {
 			return true
 		}
 	}
@@ -83,7 +99,31 @@ func ProtocolRouteLegal(ctx context.Context, account *Account, requestedModel st
 	return !governed || err == nil
 }
 
+// protocolRequestEligibilityReason is the single scheduler-facing owner for
+// model admission plus protocol legality. Governed text requests are decided by
+// one protocolrouter.Plan call, which consumes model mapping, platform extras,
+// and route policy. Out-of-scope requests keep accountAdmitsRequestedModel.
+func protocolRequestEligibilityReason(ctx context.Context, account *Account, requestedModel string) (bool, string) {
+	_, governed, err := protocolPlanForAccount(ctx, account, requestedModel)
+	if governed {
+		if err == nil {
+			return true, ""
+		}
+		if errors.Is(err, protocolrouter.ErrModelNotAllowed) {
+			return false, "model_not_supported"
+		}
+		return false, "protocol_route_unavailable"
+	}
+	if requestedModel != "" && !accountAdmitsRequestedModel(account, requestedModel, thinkingEnabledFromCtx(ctx)) {
+		return false, "model_not_supported"
+	}
+	return true, ""
+}
+
 func ProtocolRoutingRequest(ctx context.Context) (protocolrouter.CanonicalRequest, bool) {
+	if ctx == nil {
+		return protocolrouter.CanonicalRequest{}, false
+	}
 	routing, ok := ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue)
 	if !ok || routing.router == nil {
 		return protocolrouter.CanonicalRequest{}, false
@@ -92,6 +132,9 @@ func ProtocolRoutingRequest(ctx context.Context) (protocolrouter.CanonicalReques
 }
 
 func protocolRoutingCanonicalRequest(ctx context.Context) (protocolrouter.CanonicalRequest, bool) {
+	if ctx == nil {
+		return protocolrouter.CanonicalRequest{}, false
+	}
 	routing, ok := ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue)
 	if !ok {
 		return protocolrouter.CanonicalRequest{}, false
@@ -120,15 +163,17 @@ func protocolPlanForAccount(
 	if !ok || routing.router == nil || !protocolRoutingGovernsAccount(account) {
 		return protocolrouter.Plan{}, false, nil
 	}
-	snapshot, err := protocolAccountSnapshotForRequest(account, routing.request)
+	snapshot, err := protocolAccountSnapshotForRequestWithThinking(account, routing.request, thinkingEnabledFromCtx(ctx))
 	if err != nil {
 		return protocolrouter.Plan{}, true, fmt.Errorf("%w: %v", ErrProtocolRouteUnavailable, err)
 	}
-	plan, err := routing.router.Plan(routing.request, snapshot)
+	key := protocolPlanCacheKey{accountID: snapshot.AccountID(), revision: snapshot.Revision()}
+	plan, err := routing.plans.getOrPlan(key, func() (protocolrouter.Plan, error) {
+		return routing.router.Plan(routing.request, snapshot)
+	})
 	if err != nil {
-		return protocolrouter.Plan{}, true, fmt.Errorf("%w: %v", ErrProtocolRouteUnavailable, err)
+		return protocolrouter.Plan{}, true, fmt.Errorf("%w: %w", ErrProtocolRouteUnavailable, err)
 	}
-	routing.plans.put(plan)
 	return plan, true, nil
 }
 
@@ -186,7 +231,7 @@ func attachProtocolPlan(
 	if routing.plans == nil {
 		return releaseProtocolSelectionOnPlanError(selection, fmt.Errorf("%w: governed account requires scheduler-created plan", ErrProtocolRouteUnavailable))
 	}
-	snapshot, err := protocolAccountSnapshotForRequest(selection.Account, routing.request)
+	snapshot, err := protocolAccountSnapshotForRequestWithThinking(selection.Account, routing.request, thinkingEnabledFromCtx(ctx))
 	if err != nil {
 		if routing.plans.containsAccount(selection.Account.ID) {
 			return releaseProtocolSelectionOnPlanError(selection, protocolrouter.ErrStalePlan)

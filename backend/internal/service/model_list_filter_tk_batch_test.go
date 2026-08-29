@@ -41,25 +41,37 @@ func TestModelListFilterStrict_BatchesPricedAvailabilityReads(t *testing.T) {
 	pricing.SetSourceForTesting(func() ([]byte, time.Time, bool) {
 		return []byte(`{
 			"model-a":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
-			"model-b":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"}
+			"model-b":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
+			"model-c":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"}
 		}`), time.Unix(1, 0), true
 	})
 	repo := &batchAvailabilityRepoStub{states: map[string]AvailabilityState{
-		"openai/model-b": {Platform: "openai", ModelID: "model-b", Status: AvailabilityStatusUnreachable},
+		"openai/model-b": {
+			Platform:        "openai",
+			ModelID:         "model-b",
+			Status:          AvailabilityStatusUnreachable,
+			LastFailureKind: FailureKindModelNotFound,
+		},
+		"openai/model-c": {
+			Platform:        "openai",
+			ModelID:         "model-c",
+			Status:          AvailabilityStatusUnreachable,
+			LastFailureKind: FailureKindUpstream5xx,
+		},
 	}}
 	filter := NewModelListFilter(pricing, NewPricingAvailabilityService(repo, time.Now))
 
 	got, err := filter.FilterClientFacingStrict(
 		context.Background(),
 		PlatformOpenAI,
-		[]string{"model-a", "unpriced-model", "model-b"},
+		[]string{"model-a", "unpriced-model", "model-b", "model-c"},
 	)
 
 	require.NoError(t, err)
-	require.Equal(t, []string{"model-a"}, got)
+	require.Equal(t, []string{"model-a", "model-c"}, got)
 	require.Zero(t, repo.getCalls, "strict discovery must not issue one availability query per model")
 	require.Equal(t, 1, repo.batchCalls)
-	require.Equal(t, [][]string{{"model-a", "model-b"}}, repo.batchInputs)
+	require.Equal(t, [][]string{{"model-a", "model-b", "model-c"}}, repo.batchInputs)
 }
 
 func TestModelListFilterStrict_ReusesAvailabilityReadsWithinDiscoveryRequest(t *testing.T) {

@@ -68,7 +68,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		// 没有 gemini 账户，检查是否有 antigravity 账户可用
 		hasAntigravity, _ := h.geminiCompatService.HasAntigravityAccounts(c.Request.Context(), apiKey.GroupID)
 		if hasAntigravity {
-			// antigravity 账户使用静态模型列表，TK: 过滤至 priced ∩ ¬unreachable (CF-001)
+			// antigravity 账户使用静态模型列表，TK: CatalogPolicy 投影（有价且非 structurally-gone）
 			c.JSON(http.StatusOK, h.tkGeminiFallbackModelsList(c.Request.Context()))
 			return
 		}
@@ -84,7 +84,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 	if shouldFallbackGeminiModels(res) {
-		// TK: 过滤至 priced ∩ ¬unreachable (CF-001)
+		// TK: CatalogPolicy 投影（有价且非 structurally-gone）
 		c.JSON(http.StatusOK, h.tkGeminiFallbackModelsList(c.Request.Context()))
 		return
 	}

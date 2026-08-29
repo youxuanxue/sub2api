@@ -26,6 +26,23 @@ PARITY_SPEC.loader.exec_module(PARITY)
 
 
 class PricingRegistryGateTest(unittest.TestCase):
+    def test_aliases_require_one_canonical_owner(self) -> None:
+        owners = {
+            "owner": {"mode": "chat", "input_cost_per_token": 1e-6,
+                      "output_cost_per_token": 2e-6},
+        }
+        self.assertFalse(CHECK.validate_aliases(
+            {"alias": "owner"}, owners,
+        ))
+        for aliases in (
+            {"owner": "owner"},
+            {"missing-alias": "missing-owner"},
+            {"alias-a": "alias-b", "alias-b": "owner"},
+            {" Provider/Alias ": "owner"},
+        ):
+            with self.subTest(aliases=aliases):
+                self.assertTrue(CHECK.validate_aliases(aliases, owners))
+
     def test_rejects_malformed_runtime_owner_shapes(self) -> None:
         cases = (
             ("provider/model", {"mode": "chat"}),

@@ -375,6 +375,18 @@ else
 fi
 
 echo ""
+echo "=== sub2api: pricing/serving approved-doc precedence ==="
+if ! python3 ./scripts/checks/test_pricing_serving_docs.py >/dev/null; then
+    echo "  FAIL: pricing/serving approved-doc checker self-tests"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/pricing-serving-docs.py --quiet; then
+    echo "  FAIL: pricing/serving approved docs disagree on owner precedence"
+    errors=$((errors + 1))
+else
+    echo "  ok: pricing, availability, and protocol docs have one reciprocal precedence"
+fi
+
+echo ""
 echo "=== sub2api: merge conflict markers ==="
 if ! python3 ./scripts/checks/test_merge_conflict_markers.py >/dev/null; then
     echo "  FAIL: merge conflict marker checker self-tests"

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/stretchr/testify/require"
 )
 
@@ -430,6 +431,74 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_CapabilityMismat
 	boundAccountID, getErr := store.GetResponseAccount(ctx, groupID, "resp_prev_capability")
 	require.NoError(t, getErr)
 	require.Equal(t, account.ID, boundAccountID)
+}
+
+func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_PassthroughLeftoverMappingHit(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(23)
+	account := leftoverPassthroughOpenAIWSAccount(81)
+	cache := &stubGatewayCache{}
+	store := NewOpenAIWSStateStore(cache)
+	svc := &OpenAIGatewayService{
+		accountRepo:        stubOpenAIAccountRepo{accounts: []Account{*account}},
+		cache:              cache,
+		cfg:                newOpenAIWSV2TestConfig(),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		openaiWSStateStore: store,
+	}
+	require.NoError(t, store.BindResponseAccount(ctx, groupID, "resp_prev_passthrough_hit", account.ID, time.Hour))
+
+	selection, err := svc.SelectAccountByPreviousResponseID(ctx, &groupID, "resp_prev_passthrough_hit", "gpt-5.5", nil, false)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, account.ID, selection.Account.ID)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_PassthroughLeftoverMappingMissViaPlan(t *testing.T) {
+	account := leftoverPassthroughOpenAIWSAccount(82)
+	require.True(t, account.IsModelSupported("gpt-5.6-sol"),
+		"precondition: IsModelSupported still admits leftover passthrough misses")
+
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolResponses,
+		RequestedModel:  "gpt-5.6-sol",
+		ResponsesPath:   protocolrouter.ResponsesPathRoot,
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"gpt-5.6-sol","input":"hello"}`),
+	})
+	require.NoError(t, err)
+	ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
+	groupID := int64(23)
+	cache := &stubGatewayCache{}
+	store := NewOpenAIWSStateStore(cache)
+	svc := &OpenAIGatewayService{
+		accountRepo:        stubOpenAIAccountRepo{accounts: []Account{*account}},
+		cache:              cache,
+		cfg:                newOpenAIWSV2TestConfig(),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		openaiWSStateStore: store,
+	}
+	require.NoError(t, store.BindResponseAccount(ctx, groupID, "resp_prev_passthrough_miss", account.ID, time.Hour))
+
+	selection, err := svc.SelectAccountByPreviousResponseID(ctx, &groupID, "resp_prev_passthrough_miss", "gpt-5.6-sol", nil, false)
+	require.NoError(t, err)
+	require.Nil(t, selection, "WS sticky must ask Plan, not IsModelSupported, for leftover passthrough mapping")
+	boundAccountID, getErr := store.GetResponseAccount(ctx, groupID, "resp_prev_passthrough_miss")
+	require.NoError(t, getErr)
+	require.Equal(t, account.ID, boundAccountID, "transient Plan miss must not delete the sticky binding")
+}
+
+func leftoverPassthroughOpenAIWSAccount(id int64) *Account {
+	account := officialOpenAIOAuthAccount(id)
+	account.Concurrency = 2
+	account.Extra["openai_passthrough"] = true
+	account.Extra["openai_oauth_responses_websockets_v2_enabled"] = true
+	account.Credentials["model_mapping"] = map[string]any{"gpt-5.5": "gpt-5.5"}
+	return account
 }
 
 func newOpenAIWSV2TestConfig() *config.Config {

@@ -1,19 +1,13 @@
 # TokenKey model operations
 
-TokenKey model operations keep four facts separate:
+交付判定、owner 与 precedence 只在
+`docs/approved/pricing-serving-single-source-of-truth.md` 维护。本文只说明运维工具：probe、traffic、
+upstream discovery 和 availability 都是证据；不得据此单独声明当前请求可交付。
 
-| Fact | Owner |
-| --- | --- |
-| Runtime serving | per-account `accounts.credentials.model_mapping` |
-| Global price | active complete `tk_pricing_overlay.json` registry snapshot |
-| Scoped commercial override | `channel_model_pricing` |
-| Public catalog + user menu surface | `pricing_catalog_supported_models_tk.go` |
-| Curated newapi intent | `tk_served_models.json` |
-
-The public `/pricing` catalog and the per-user "Your Menu" have converged on
-the same servable surface: `supportedCatalogModelIDsForPlatform` feeds the menu
-fallback, and `FilterPublicCatalogToServable` filters the public catalog from
-the same empirical sets. These sets live in
+The public `/pricing` catalog and the per-user "Your Menu" share one catalog projection:
+`supportedCatalogModelIDsForPlatform` feeds the menu fallback, and
+`FilterPublicCatalogToServable` filters the public catalog from the same empirical sets.
+This projection does not claim request-time reachability. The sets live in
 `backend/internal/service/pricing_catalog_supported_models_tk.go` between
 `servable-allowlist:begin/end <platform>` markers. The refresh tool rewrites the
 anthropic/openai/gemini blocks from live probes; antigravity and grok are still
@@ -186,8 +180,8 @@ a scope replacement layer: each listed platform or newapi `channel_type`
 replaces the compiled account mapping floor for that scope; omitted scopes keep
 the compiled floor.
 
-**prod-only SSOT check.** Public serving requires **可展示 + 已定价 + 可服务** to
-align on prod: catalog allowlists, active registry/scoped channel rows, and prod
+**prod-only model-surface alignment check.** 公开目录、商业价格与 prod mapping intent 必须
+一致，但它们不是三套 request gate：catalog allowlists、active registry/scoped channel rows 与 prod
 `accounts.credentials.model_mapping` (plus optional runtime replacement). When a
 bundle contains `account_overrides`, the property-based
 `account_override:<platform>:<channel_type>:<base_url>` scope overrides the
@@ -210,9 +204,10 @@ allowing preheated extras, except keys/prefixes explicitly forbidden by that Go
 SSOT. It does not run in generic `deploy-stage0.yml`.
 
 **Official upstream aliases:** when a managed platform or newapi channel's provider
-model page declares an id/alias and TokenKey has priced + probe-verified servability,
-add it to the public catalog (not priced-only). Retirement redirects without a current
-official SKU stay priced-only. Canonical wording:
+model page declares an id/alias and TokenKey has a canonical price owner plus reviewed
+probe evidence, it may enter the public catalog. This is CatalogPolicy activation evidence,
+not a substitute for request-time Plan or runtime capacity. Retirement redirects without a
+current official SKU stay priced-only. Canonical wording:
 `docs/global/agent-reference.md` § Model serving SSOT.
 
 **Edge empty mapping is expected.** Traffic is `user → prod → edge relay → upstream`.
@@ -365,8 +360,9 @@ Git revert of the registry followed by the same publisher. Alert digest cadence 
 
 ### Antigravity `gemini-2.5-pro` literal probe
 
-The broad servable batch times out on `gemini-2.5-pro` generateContent (see
-`docs/all-platform-model-inventory.md`). When you need a focused before/after
+The broad servable batch times out on `gemini-2.5-pro` generateContent.
+Historical snapshot notes live in `docs/all-platform-model-inventory.md`;
+that file is not the delivery SSOT. When you need a focused before/after
 signal without rerunning the full refresh:
 
 ```bash

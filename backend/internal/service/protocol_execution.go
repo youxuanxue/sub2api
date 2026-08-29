@@ -398,7 +398,7 @@ func ExecuteSelectedProtocol(
 			GatewayFailureScopeAccount,
 		)
 	}
-	fresh, err := protocolAccountSnapshotForRequest(freshAccount, request)
+	fresh, err := protocolAccountSnapshotForRequestWithThinking(freshAccount, request, thinkingEnabledFromCtx(ctx))
 	if err != nil {
 		return nil, protocolExecutionPreSendFailure(
 			fmt.Errorf("%w: %v", ErrProtocolRouteUnavailable, err),

@@ -17,8 +17,8 @@ Migration 134 只为 `openai` / `gemini` / `antigravity` 回填了 `groups.allow
 含 Vertex Imagen（channel_type 41）或 VolcEngine Seedream（45）的 `newapi` 分组在 prod 仍为
 默认 `false`，导致 `/v1/images/generations` 与全能 Key imagen 路由报「该分组未开通此类生成」。
 
-Admin 后端字段与 API 已支持 `allow_image_generation`，但 `GroupsView` 的「图片生成计费」区块
-原先未包含 `platform=newapi`。
+Admin 后端字段、API 与 `GroupsView`「图片生成计费」区块覆盖
+`openai` / `gemini` / `antigravity` / `newapi`。
 
 ## 变更
 

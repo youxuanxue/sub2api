@@ -5,6 +5,7 @@ approved_by: "xuejiao (design directive, 2026-06-27)"
 approved_at: 2026-06-27
 authors: [agent]
 created: 2026-06-26
+revised_at: 2026-08-26
 related_prs: [1016]
 related_commits: []
 related_stories: []
@@ -14,13 +15,13 @@ supersedes: none
 
 # 定了价才能上 — serving 准入处的运行期价格闸
 
+本文只拥有运行期价格闸：发往上游前必须能解析结算价。交付公式不在本文，见
+`docs/approved/pricing-serving-single-source-of-truth.md`。
+
 > **每个模型都得有价——真价优先，没真价就落家族 floor；只有连家族 floor 都没有的，才不予服务。**
-> 今天的行为是 *unpriced never blocks*：一个无可解析价格的模型照常转发、按 `$0` 记账，事后才发
-> 告警——无声漏血。本设计把**价格变成 serving 的前置条件**：有真价用真价，没真价的主流家族
-> （claude/gpt/gemini）**落到家族中位 floor**——**绝不 `$0`、绝不拒**有 floor 的模型；只有连家族
-> floor 都没有的（多厂商 newapi/国产 的未知 id）才在准入处 `404`（backstop）。走了 floor 的请求发
-> `served_at_fallback` 告警，驱动运维/自动补真价，fallback 用量随之衰减到稳态。闸**全平台默认开**
-> ——安全，因为有 floor 的平台永不误拒。
+> 闸全平台默认开。有真价用真价；主流家族无真价落到家族中位 floor，绝不 `$0`、也不误拒；
+> 连 floor 都没有的未知 id 在准入处 `404`（内部子码 `model_not_priced`）。走了 floor 的请求发
+> `served_at_fallback`，驱动补真价。有 floor 的平台不会因缺真价被拒。
 
 ## 0. TL;DR
 
@@ -44,18 +45,18 @@ supersedes: none
 - 这是 **CI-time A1 guard 的运行期对应**（`catalog-serving-drift.py`：每个 catalog/manifest id
   都可解析出价）。A1 只在 CI 保护*已上架*的 id；catch-all 路径在运行期服务的是*不在 manifest 里*
   的 id，没有任何此类检查。本设计堵的就是这个运行期缺口。
-- **不是**被否决的「price ⇒ serving auto-mapping」（见 §3）。本闸**读** PRICE 与 SERVING 两个事实、
-  **不拥有**任何一个：它绝不往任何账号的 serving 白名单里**加**模型，也绝不写价格；家族 floor 是
-  对 PRICE 事实的**估计**，不写 `model_mapping`。
+- **不是**被否决的「price ⇒ serving auto-mapping」（见 §3）。本闸读取价格 owner 与 RequestPlan
+  的账号映射输入，**不拥有**任何一个：它绝不往任何账号的模型映射里**加**模型，也绝不写价格；家族 floor 是
+  对价格 owner 的**估计**，不写 `model_mapping`。
 
-## 1. 缺口（代码佐证）
+## 1. 闸要守住的边界
 
 | 事实 | 佐证 | 后果 |
 | --- | --- | --- |
-| 空 `model_mapping` = allow-all | `Account.IsModelSupported`（`account.go:639`）：`len(mapping)==0 → return true // 无映射 = 允许所有` | native catch-all 账号（如被清空 mapping 的 Vertex 账号）会服务**任意**客户 model id，含上游新 id。 |
-| unpriced never blocks | `gateway_service_tk_served_zero_cost.go`：*「计价不确定时系统选择免费放行（unpriced never blocks）…… 不拒绝服务、不改金额，纯可观测性」* | 未定价的已服务 id 被按 `$0` 记账；唯一反馈是事后的 P0 飞书告警。 |
+| 空 `model_mapping` 仍可能透传到未定价 id | `IsModelSupported` 对多数原生空映射返回 true；请求准入另由 `protocolrouter.Plan` 收窄 | catch-all 账号会接到上游新 id，包括还没真价的 id。 |
+| 闸未命中时 billing 仍可能记 `$0` | `GetModelPricing` miss → `ErrModelPricingUnavailable`；`served_zero_cost` 只观测 | 闸必须在转发前拦住无 floor 的 id，不能靠事后告警 |
 | 价格解析会 fail-open | `billing_service.go`：`GetModelPricing`（active registry + registry family alias）miss 时返 `ErrModelPricingUnavailable`，funnel 记 `$0` 并服务。注：`channel_model_pricing` 是 billing 计费路径的 scoped override，不在 `GetModelPricing` 内——故闸必须两面都查（见 §2，复审 B1）。 | 漏血窗口 = 新模型进入 catch-all → 运维确认 owner 并合并 registry PR → publisher 热生效。 |
-| A1 只在 CI | `pricing-serving-single-source-of-truth.md` §3：A1 断言每个 catalog/manifest id 可解析出价——**在 CI**。 | catch-all 服务的是 A1 从没见过的*非 manifest* id。运行期没有等价闸。 |
+| A1 只在 CI | `catalog-serving-drift.py` A1：每个 catalog/manifest id 可解析出价——**只在 CI**。交付公式见 `pricing-serving-single-source-of-truth.md`。 | catch-all 服务的是 A1 从没见过的*非 manifest* id。运行期没有等价闸。 |
 | newapi 已堵，native 通过显式 apply 收敛 | `account_service_tk_newapi_mapping.go`（`validateNewapiAccountModelMapping`）+ `manage-account-model-mapping-runtime.py check-accounts/apply-accounts`：newapi 写时强制非空；native 平台由运维审 diff 后写入显式 `model_mapping`，不再把空 mapping 当目标运营状态。 | 剩余风险在账号刚创建、尚未跑 post-release/post-hotfix check，或 operator 尚未确认 apply 的窗口；空 mapping 是降级 fallback，不是配置目标。 |
 
 **漏洞窄而具体**：历史 native 平台 catch-all 账号会按 `$0` 服务上游新、未定价的 id。当前修复路径是用显式 `model_mapping` 收敛账号配置；其余（newapi、已上架 manifest id）都已覆盖。
@@ -121,33 +122,30 @@ floor 都解析不出、billing 会按 `$0` 记账）**且无渠道价**，则**
 
 本改动**叠加**在 SSOT 设计体之上，而非与之对抗。
 
-- **`pricing-serving-single-source-of-truth.md` —「一个事实一个 owner」**：SERVING 由 per-account
-  `model_mapping` 拥有；GLOBAL PRICE 由 active complete registry 拥有，`channel_model_pricing` 仅在明确
+- **`pricing-serving-single-source-of-truth.md` —「一个承诺、三个判定」**：`model_mapping` 是
+  RequestPlan 的输入；公开价格由 active complete registry 拥有，`channel_model_pricing` 仅在明确
   scope 内覆盖。**本闸不拥有任何事实**，
-  它是横切的*计费完整性准入规则*——「我们不服务我们算不出钱的东西」——只**读**两个事实、**不改**
-  任何一个。它绝不写 `model_mapping`，也绝不写价格。**家族 floor 是 registry 中一个有来源的 owner**；
+  它是横切的*计费完整性准入规则*——「我们不服务我们算不出钱的东西」——只**读**价格 owner 与
+  RequestPlan 的 mapping 输入，**不改**任何一个。它绝不写 `model_mapping`，也绝不写价格。**家族 floor 是 registry 中一个有来源的 owner**；
   Go 只保留 requested model → family owner 的兼容匹配。命中 family alias 表示该 requested id 仍缺少
   直接 owner，由 `served_at_fallback` 驱动补齐。
 - **它不是被 REJECTED 的「让白名单对齐 registry」**：那条否决禁的是*价格存在 ⇒ 自动映射到账号*
-  （#812 那种「有价看着像已服务」的幻觉：已定价但未映射 → `429/503`）。本闸是**反方向**：*价格缺失
-  ⇒ 不服务（仅无 floor 时）*。它从 catch-all 会服务的集合里**减**，绝不**加**一条 serving 声明。#812
-  的失败模式（已定价但未映射）不受影响——那条 id 映没映射，与本闸无关。
+  （已定价但未映射 → `429/503`）。本闸是**反方向**：*价格缺失 ⇒ 不服务（仅无 floor 时）*。
+  它从 catch-all 会服务的集合里**减**，绝不**加**一条 serving 声明。已定价但未映射不受本闸影响。
 - **它是 A1 的运行期对应**：`catalog-serving-drift.py` 的 A1 已断言*每个 manifest/catalog id 可
   解析出价*——但只在 CI、且只覆盖已上架 id。catch-all 在运行期服务非 manifest id。本闸把**同一个
   谓词搬到运行期强制**，堵住 A1 看不见的那一面。
-- **`pricing-availability-source-of-truth.md`** 已让 `/pricing` 与每个 model-list 端点只 emit
-  `priced` id，明言目标*「空池暴露为 error，而非无声服务不可达模型」*。本闸把这个目标从**列表**面
-  延伸到**serving**面：catalog 不**列**（连 floor 都没有）的模型，现在网关也不**服务**。
-- **「上游是喂给人决策的 feed，从不是决策本身」**（§2.4 / R-002）由 §4 遵守：补价从可信源取
-  *价格*、写 PRICE 事实；它**绝不**自动上架 serving（不写 `model_mapping`）。serving 仍是人/迁移的
-  决策；只有价格被自动化，且只来自可信源。家族 floor 不破这条——它不来自上游、是 TK 自定的保守估值。
+- **`pricing-availability-source-of-truth.md`** 只允许目录投影按 structurally-gone 证据裁剪；价格过滤
+  属于 CatalogPolicy。本闸复用 billing 的价格解析结果，不能把 availability、目录 membership 或
+  probe 结果提升为请求准入 owner。
+- **上游是喂给人决策的 feed，从不是决策本身。** §4 遵守：补价从可信源取
+  *价格*、写价格 owner；它**绝不**自动写 catalog 或 `model_mapping`。具体请求仍由 RequestPlan 与
+  RuntimeReadiness 派生；家族 floor 不破这条——它不来自上游、是 TK 自定的保守估值。
 
 ## 4. 让闸安全的那一半 —— 家族 floor 是可用性机制，告警驱动补真价
 
-旧设计里「让 fail-closed 安全」靠的是「拒绝即触发补价、补完才不回退」——闸单发就会拒掉每个新模型。
-**转向后这层风险已由家族 floor 从根上解决**：有 floor 的主流家族（claude/gpt/gemini）缺真价时**按 floor
-服务、压根不进拒绝分支**，可用性天然不回退。补价通路因此**降级为「校准」而非「解封」**——它把按 floor
-服务的请求收敛回真价，而不是把被拒的请求放出来。
+有 floor 的主流家族（claude/gpt/gemini）缺真价时**按 floor 服务，不进拒绝分支**。
+补价通路是「校准」不是「解封」：它把按 floor 服务的请求收敛回真价，而不是先拒再放行。
 
 ### 4.1 家族 floor 本身就是可用性机制
 
@@ -184,7 +182,7 @@ o-series 与非 chat GPT 刻意没有 catch-all：跨厂商/跨模态价差太�
   无需应用发版。deploy/rollback 应用工作流不写价格 setting。
 - `channel_model_pricing` 只处理明确渠道 scope，不作为全局止血层。
 
-**共有不变量（仅写 PRICE，绝不碰 serving）：**
+**共有不变量（只写价格 owner，绝不写 mapping / Plan）：**
 
 1. **信号**：一次 `served_at_fallback`（或对无 floor id 的闸拒绝 / `served_zero_cost`）点名一个走 floor /
    未定价、且是**候选**（在 catalog 候选集内——不是任意客户垃圾串）的模型。
@@ -207,7 +205,8 @@ soak 才敢开下一个；唯一会被拒的是无 floor 的 id，那是设计**
 ——它和 claude/gpt 一样有家族 floor、一样默认开、一样靠 `served_at_fallback` 收敛。
 
 站稳后，`tokenkey-servable-model-refresh` 里那套手动 catch-all「安全仪式」（probe → 补价 → soak →
-清空 mapping）**退役**：机器强制*priced ⟺ servable*（priced 含 floor），人只批无 floor 那几个。
+清空 mapping）**退役**：机器只强制“发往上游的请求必须可解析结算价格”（priced 含 floor）。价格存在
+不能推出合法 RequestPlan 或 RuntimeReadiness。
 **不设 `allow_unpriced` 逃生门**——一条规矩、无 per-account 旗标（旗标是纪律的坟墓）；唯一旋钮是按
 平台的启用集（含 `*` 通配），用于回滚，而非长期 bypass。
 
@@ -275,13 +274,13 @@ soak 才敢开下一个；唯一会被拒的是无 floor 的 id，那是设计**
 转向后有 floor 的家族（claude/gpt/gemini）全平台默认 ON 已闭环（floor 保证永不误拒）。下列残留**仅在
 把对应面/平台真正纳入闸保护时才相关**，逐条处理，不阻断默认上线：
 
-- **R-kiro / antigravity — 无闸 hook（enable 是 no-op）**：`AntigravityGatewayService.Forward/
-  ForwardGemini`（两路）、`KiroGatewayService.Forward`（单路）计费但无 `tkPricedServingGate` hook。即便在启用集 `'*'` 内，闸也
-  在这些路线**静默失效**（没有注入点）——把它们真正纳入闸**前需先补 hook + sentinel**。今天无害（恒按
-  其平台真价/floor 走计费），但别误以为 `'*'` 已覆盖它们。
-- **R-embeddings — `/v1/embeddings` 无闸**：经 `ForwardAsEmbeddingsDispatched` 计费但无
-  `tkPricedServingGate`，靠事后 `served_zero_cost` 兜底（血量小）。embeddings 是未纳入面而非有意豁免
-  ——纳入前补 hook。
+- **R-kiro / antigravity — 闸 hook 已接线**：`AntigravityGatewayService.Forward` /
+  `ForwardGemini` 与 `KiroGatewayService.Forward` 已注入 `tkPricedServingGate`（启用集 `'*'`
+  对这三条路线生效）。AG Claude / Gemini 判 `originalModel`（`forwardResultBillingModel` 的记账键）；
+  Kiro 判解析后的请求模型。`countTokens` 仍豁免。
+- **R-embeddings — `/v1/embeddings` 闸 hook 已接线**：`forwardOpenAIV1JSON` 在
+  `urlSegment=="embeddings"` 时判 mapped `billingModel`（与 OpenAI usage 的
+  `result.BillingModel` 一致）。`images/generations` 不走此 hook。
 - **R-openai o 系列 — 无家族 floor**：`getFallbackPricing` 的 gpt catch-all 只匹配含 `"gpt"` 的 id；
   OpenAI **o 系列**（o1/o3/o4 等，不含 "gpt"）**无 floor** → 缺真价时会被闸拒。gpt 主线已被 catch-all
   覆盖，o 系列是已知缺口——若要 o 系列也按 floor 服务，需为其加一档家族 floor；否则缺真价即 reject

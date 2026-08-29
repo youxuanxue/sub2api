@@ -2,8 +2,8 @@
 """ssot-delta-gate — SSOT delta discovery for catalog diffs.
 
 Replaces the retired daily full SSOT gate (account-ban risk from ~356 HTTP probes).
-Structural SSOT (servable ↔ priced ↔ display intent) stays in catalog-serving-drift.py
-and display-coverage-gate.py (preflight, zero HTTP). PR CI runs this gate with
+Structural catalog contracts (display owner, price owner, and reviewed activation evidence)
+stay in catalog-serving-drift.py and display-coverage-gate.py (preflight, zero HTTP). PR CI runs this gate with
 --skip-live so new catalog/model_mapping changes do not deadlock on the old prod
 deployment. Post-deploy closeout owns live HTTP proof via endpoint-compat-audit,
 or this script can still run focused live probes when explicitly invoked without

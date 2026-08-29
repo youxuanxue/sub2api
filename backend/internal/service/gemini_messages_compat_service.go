@@ -277,8 +277,9 @@ func (s *GeminiMessagesCompatService) isAccountUsableForRequestWithPrecheck(
 	}
 
 	// 检查模型支持
-	// Check model support
-	if requestedModel != "" && !s.isModelSupportedByAccount(account, requestedModel) {
+	// Check model support. Governed requests already carry ProtocolRouting;
+	// Plan is the only model+protocol door on that path.
+	if requestedModel != "" && !s.isModelSupportedByAccountWithContext(ctx, account, requestedModel) {
 		return false
 	}
 
@@ -421,15 +422,10 @@ func (s *GeminiMessagesCompatService) isBetterGeminiAccount(candidate, current *
 	}
 }
 
-// isModelSupportedByAccount 根据账户平台检查模型支持
-func (s *GeminiMessagesCompatService) isModelSupportedByAccount(account *Account, requestedModel string) bool {
-	if account.Platform == PlatformAntigravity {
-		if strings.TrimSpace(requestedModel) == "" {
-			return true
-		}
-		return mapAntigravityModel(account, requestedModel) != ""
-	}
-	return account.IsModelSupported(requestedModel)
+// isModelSupportedByAccountWithContext uses Plan when this request is already
+// under protocol routing. Ungoverned callers keep accountAdmitsRequestedModel.
+func (s *GeminiMessagesCompatService) isModelSupportedByAccountWithContext(ctx context.Context, account *Account, requestedModel string) bool {
+	return accountAdmitsRequestedModelWithContext(ctx, account, requestedModel)
 }
 
 // GetAntigravityGatewayService 返回 AntigravityGatewayService

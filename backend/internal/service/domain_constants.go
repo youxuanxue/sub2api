@@ -193,8 +193,7 @@ const (
 	// tk_canonical_cc_oauth TLS profile) has TWO ORTHOGONAL hardening toggles,
 	// deliberately split so an operator can pick the strategy that matches their
 	// cc_only-relax plan. They are NOT redundant and are NOT meant to move
-	// together — see docs/approved/cc-only-disable-prep-decisions.md (D1/D4,
-	// 2026-06-11 direction revision).
+	// together — see docs/approved/cc-only-disable-prep-decisions.md.
 	//
 	// SettingKeyAnthropicCanonicalIngressStrictEnabled = INGRESS strategy "reject
 	// at the door". Defaults to false (keep deny-list / upstream behavior, zero

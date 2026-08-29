@@ -239,6 +239,302 @@ func TestAdvancedSchedulerCompatibilityUsesProtocolHardGate(t *testing.T) {
 	}
 }
 
+func TestCanonicalPlanningOwnsGovernedModelRejectionReason(t *testing.T) {
+	ctx := WithProtocolRouting(
+		context.Background(),
+		protocolRoutingTestRouter(),
+		protocolRoutingTestRequest(t, protocolrouter.ProtocolChatCompletions),
+	)
+	account := protocolRoutingOpenAIAccount(3, "chat_completions")
+	account.Credentials["model_mapping"] = map[string]any{
+		"another-model": "upstream-model",
+	}
+
+	eligible, reason := protocolRequestEligibilityReason(ctx, account, "gpt-5.4")
+	if eligible || reason != "model_not_supported" {
+		t.Fatalf("eligibility = %v/%q, want false/model_not_supported", eligible, reason)
+	}
+}
+
+func TestOfficialOpenAIOAuthMappingGatesUnlistedOfficialModels(t *testing.T) {
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolResponses,
+		RequestedModel:  "gpt-5.6-sol",
+		ResponsesPath:   protocolrouter.ResponsesPathCompact,
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"gpt-5.6-sol","input":"hello"}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+
+	unlisted := &Account{
+		ID:          69,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"access_token":  "test-token",
+			"model_mapping": map[string]any{"gpt-other": "gpt-other"},
+		},
+		Extra: map[string]any{"openai_compact_mode": OpenAICompactModeForceOn},
+	}
+	if !SeedOfficialSupportedProtocols(unlisted) {
+		t.Fatal("test precondition: official OpenAI OAuth seed must succeed")
+	}
+	if unlisted.IsModelSupported("gpt-5.6-sol") {
+		t.Fatal("test precondition: explicit mapping must reject the unlisted official model")
+	}
+
+	ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
+	eligible, reason := protocolRequestEligibilityReason(ctx, unlisted, "gpt-5.6-sol")
+	if eligible || reason != "model_not_supported" {
+		t.Fatalf("eligibility = %v/%q, want false/model_not_supported for unlisted official model", eligible, reason)
+	}
+
+	listed := &Account{
+		ID:          68,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"access_token":  "test-token",
+			"model_mapping": map[string]any{"gpt-5.6-sol": "gpt-5.6-sol"},
+		},
+		Extra: map[string]any{"openai_compact_mode": OpenAICompactModeForceOn},
+	}
+	if !SeedOfficialSupportedProtocols(listed) {
+		t.Fatal("test precondition: listed official OpenAI OAuth seed must succeed")
+	}
+	eligible, reason = protocolRequestEligibilityReason(ctx, listed, "gpt-5.6-sol")
+	if !eligible || reason != "" {
+		t.Fatalf("eligibility = %v/%q, want true for mapped official model", eligible, reason)
+	}
+}
+
+func TestOfficialOpenAIOAuthEmptyMappingDoesNotApplyWhitelistGate(t *testing.T) {
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolResponses,
+		RequestedModel:  "gpt-5.6-sol",
+		ResponsesPath:   protocolrouter.ResponsesPathCompact,
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"gpt-5.6-sol","input":"hello"}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+
+	empty := officialOpenAIOAuthAccount(71)
+	if empty.IsModelSupported("deepseek-v4") {
+		t.Fatal("test precondition: empty official OAuth must reject foreign families")
+	}
+	if !empty.IsModelSupported("gpt-5.6-sol") {
+		t.Fatal("test precondition: empty official OAuth must fail-open for unlisted official IDs")
+	}
+
+	ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
+	eligible, reason := protocolRequestEligibilityReason(ctx, empty, "gpt-5.6-sol")
+	if !eligible || reason != "" {
+		t.Fatalf("empty-mapping official OAuth eligibility = %v/%q, want true for unlisted official model", eligible, reason)
+	}
+
+	foreignReq, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolResponses,
+		RequestedModel:  "deepseek-v4",
+		ResponsesPath:   protocolrouter.ResponsesPathCompact,
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"deepseek-v4","input":"hello"}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+	eligible, reason = protocolRequestEligibilityReason(
+		WithProtocolRouting(context.Background(), NewProtocolRouter(), foreignReq),
+		empty,
+		"deepseek-v4",
+	)
+	if eligible || reason != "model_not_supported" {
+		t.Fatalf("empty-mapping official OAuth eligibility = %v/%q, want false/model_not_supported for foreign family", eligible, reason)
+	}
+}
+
+func TestOfficialAnthropicEmptyMappingRejectsForeignModelsViaPlan(t *testing.T) {
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolMessages,
+		RequestedModel:  "deepseek-v4-flash",
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+
+	account := officialAnthropicOAuthAccount(72)
+	if !account.IsModelSupported("deepseek-v4-flash") {
+		t.Fatal("test precondition: empty Anthropic mapping still allow-alls at IsModelSupported")
+	}
+
+	ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
+	eligible, reason := protocolRequestEligibilityReason(ctx, account, "deepseek-v4-flash")
+	if eligible || reason != "model_not_supported" {
+		t.Fatalf("eligibility = %v/%q, want false/model_not_supported so Plan owns the claude-* namespace filter", eligible, reason)
+	}
+
+	claudeReq, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolMessages,
+		RequestedModel:  "claude-sonnet-4-6",
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+	ctx = WithProtocolRouting(context.Background(), NewProtocolRouter(), claudeReq)
+	eligible, reason = protocolRequestEligibilityReason(ctx, account, "claude-sonnet-4-6")
+	if !eligible || reason != "" {
+		t.Fatalf("eligibility = %v/%q, want true for official Anthropic claude-*", eligible, reason)
+	}
+}
+
+func TestOfficialOpenAIPassthroughLeftoverMappingGatesViaPlan(t *testing.T) {
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolResponses,
+		RequestedModel:  "gpt-5.6-sol",
+		ResponsesPath:   protocolrouter.ResponsesPathCompact,
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"gpt-5.6-sol","input":"hello"}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+
+	account := officialOpenAIOAuthAccount(73)
+	account.Extra["openai_passthrough"] = true
+	account.Credentials["model_mapping"] = map[string]any{"gpt-5.5": "gpt-5.5"}
+	if !account.IsModelSupported("gpt-5.6-sol") {
+		t.Fatal("test precondition: IsModelSupported passthrough short-circuit must still admit leftover-mapping misses")
+	}
+
+	ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
+	eligible, reason := protocolRequestEligibilityReason(ctx, account, "gpt-5.6-sol")
+	if eligible || reason != "model_not_supported" {
+		t.Fatalf("eligibility = %v/%q, want false/model_not_supported so Plan owns leftover passthrough mapping", eligible, reason)
+	}
+}
+
+func officialOpenAIOAuthAccount(id int64) *Account {
+	account := &Account{
+		ID:          id,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{"access_token": "test-token"},
+		Extra:       map[string]any{"openai_compact_mode": OpenAICompactModeForceOn},
+	}
+	if !SeedOfficialSupportedProtocols(account) {
+		panic("official OpenAI OAuth seed must succeed")
+	}
+	return account
+}
+
+func officialAnthropicOAuthAccount(id int64) *Account {
+	account := &Account{
+		ID:          id,
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{"access_token": "test-token"},
+	}
+	if !SeedOfficialSupportedProtocols(account) {
+		panic("official Anthropic OAuth seed must succeed")
+	}
+	return account
+}
+
+func TestOpenAICompatEligibilityReasonUsesCanonicalModelRejection(t *testing.T) {
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolResponses,
+		RequestedModel:  "client-alias",
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"client-alias","input":"hi"}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+	ctx := WithProtocolRouting(context.Background(), protocolRoutingTestRouter(), request)
+	account := &Account{
+		ID:          31,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"access_token":  "secret",
+			"model_mapping": map[string]any{"client-alias": "deepseek-v3"},
+		},
+		Extra: map[string]any{SupportedProtocolsExtraKey: []any{"responses"}},
+	}
+	attachTestProtocolCapability(account, protocolrouter.ProtocolResponses)
+	if !account.IsModelSupported("client-alias") {
+		t.Fatal("test precondition: legacy account check must admit the explicit alias")
+	}
+
+	reason := openAICompatEligibilityReason(
+		ctx,
+		account,
+		PlatformOpenAI,
+		"client-alias",
+		false,
+		OpenAIEndpointCapabilityResponses,
+	)
+	if reason != openAICompatIneligibleModelUnsupported {
+		t.Fatalf("eligibility reason = %q, want canonical %q", reason, openAICompatIneligibleModelUnsupported)
+	}
+}
+
+func TestFailureDiagnosisDoesNotRenameNoRouteAsUnsupportedModel(t *testing.T) {
+	ctx := WithProtocolRouting(
+		context.Background(),
+		protocolRoutingTestRouter(),
+		protocolRoutingTestRequest(t, protocolrouter.ProtocolChatCompletions),
+	)
+	account := protocolRoutingOpenAIAccount(4)
+	account.Credentials["model_mapping"] = map[string]any{
+		"another-model": "upstream-model",
+	}
+
+	if (&OpenAIGatewayService{}).isOpenAICompatModelUnservableForRequest(
+		ctx, nil, account, "gpt-5.4", false, false,
+	) {
+		t.Fatal("protocol no-route was misclassified as model unsupported")
+	}
+}
+
+func TestProtocolPlanCacheComputesEachAccountRevisionOnce(t *testing.T) {
+	cache := newProtocolPlanCache()
+	key := protocolPlanCacheKey{accountID: 9, revision: "rev-1"}
+	wantErr := errors.New("no route")
+	calls := 0
+	compute := func() (protocolrouter.Plan, error) {
+		calls++
+		return protocolrouter.Plan{}, wantErr
+	}
+
+	_, firstErr := cache.getOrPlan(key, compute)
+	_, secondErr := cache.getOrPlan(key, compute)
+
+	if !errors.Is(firstErr, wantErr) || !errors.Is(secondErr, wantErr) {
+		t.Fatalf("cached errors = %v / %v, want %v", firstErr, secondErr, wantErr)
+	}
+	if calls != 1 {
+		t.Fatalf("planner calls = %d, want 1 for one account revision", calls)
+	}
+}
+
 func TestSelectionAttachesPlanForHydratedAccount(t *testing.T) {
 	ctx := WithProtocolRouting(
 		context.Background(),

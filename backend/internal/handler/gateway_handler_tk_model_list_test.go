@@ -102,7 +102,7 @@ func TestTkAntigravityDefaultModels_FilterDropsUnreachable(t *testing.T) {
 }
 
 func TestTkAntigravityDefaultModels_NilFilterIsFailOpen(t *testing.T) {
-	// Post-SSOT convergence: nil filter still uses the unified servable candidate
+	// Post-SSOT convergence: nil filter still uses the CatalogPolicy candidate
 	// set, so SDKs see the current Antigravity allowlist without requiring pricing
 	// wiring. It does not fall back to raw DefaultModels, which still contains
 	// claude/gpt-oss and unprobed Gemini ids.
@@ -115,7 +115,7 @@ func TestTkAntigravityDefaultModels_NilFilterIsFailOpen(t *testing.T) {
 	require.ElementsMatch(t,
 		service.ServableClientFacingIDs(context.Background(), service.PlatformAntigravity, nil, nil),
 		modelIDsFromAntigravityModels(result),
-		"nil filter must still mirror the unified Antigravity SSOT")
+		"nil filter must still mirror the Antigravity CatalogPolicy projection")
 }
 
 func TestTkAntigravityDefaultModels_PricedServableSetIncludesReprobedGeminiIDs(t *testing.T) {
@@ -140,7 +140,7 @@ func TestTkAntigravityDefaultModels_PricedServableSetIncludesReprobedGeminiIDs(t
 	require.ElementsMatch(t,
 		service.ServableClientFacingIDs(ctx, service.PlatformAntigravity, nil, pricingSvc),
 		modelIDsFromAntigravityModels(result),
-		"/antigravity/models must mirror the unified priced+servable SSOT")
+		"/antigravity/models must mirror the shared CatalogPolicy projection")
 	require.False(t, ids[geminiOnly], "%s must not leak into /antigravity/models", geminiOnly)
 	require.False(t, ids["gpt-oss-120b-medium"], "unsupported gpt-oss boundary sample must not leak into /antigravity/models")
 }
@@ -153,7 +153,7 @@ func TestTkOpenAIDefaultModelIDs_DropsAdvertisedDead(t *testing.T) {
 	require.ElementsMatch(t,
 		service.ServableClientFacingIDs(context.Background(), service.PlatformOpenAI, nil, nil),
 		modelIDsFromOpenAIModels(result),
-		"OpenAI default model list must mirror the unified servable SSOT")
+		"OpenAI default model list must mirror the shared CatalogPolicy projection")
 }
 
 // --- tkGeminiFallbackModelsList ---

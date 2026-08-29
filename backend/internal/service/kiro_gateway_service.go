@@ -35,6 +35,13 @@ type KiroGatewayService struct {
 	httpUpstream        HTTPUpstream
 	tlsFPProfileService *TLSFingerprintProfileService
 	accountRepo         AccountRepository
+	// TK priced-serving gate deps (docs/approved/priced-or-it-doesnt-ship.md).
+	// Injected post-construction via SetPricedServingGateDeps. nil = gate off.
+	tkSettingService         *SettingService
+	tkBillingService         *BillingService
+	tkPricingCatalog         *PricingCatalogService
+	tkPricingMissingNotifier PricingMissingNotifier
+	tkPricingResolver        *ModelPricingResolver
 }
 
 // maxClaudeCodeCompletionTurns bounds the number of Kiro model calls inside a
@@ -501,6 +508,9 @@ func (s *KiroGatewayService) Forward(
 	model := req.Model
 	if model == "" {
 		model = parsed.Model
+	}
+	if !s.tkPricedServingGate(ctx, c, tkGateWireAnthropic, account.Platform, model, model) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", model, account.Platform)
 	}
 
 	if req.Stream {

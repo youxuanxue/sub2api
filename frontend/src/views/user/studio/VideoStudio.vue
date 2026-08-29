@@ -418,7 +418,7 @@ const props = defineProps<{
   rateMultiplier: number
   /** True when another key in the dropdown serves video (empty-state hint). */
   anyKeyServesVideo?: boolean
-  /** Parent is still resolving priced ∩ servable — suppress the empty-state footgun. */
+  /** Parent is still resolving the catalog + live-price projection — suppress the empty-state footgun. */
   catalogLoading?: boolean
 }>()
 const emit = defineEmits<{ (e: 'spent'): void }>()

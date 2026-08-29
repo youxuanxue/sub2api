@@ -70,7 +70,7 @@ func TestProvideTKPricingCatalogHandler_NilAvailabilityIsAllowed(t *testing.T) {
 // TestProvideTKGatewayHandlerModelList_WiresModelListFilter proves the
 // sentinel-style post-construction setter wires the filter onto GatewayHandler.
 // Without this the client model-list endpoints (/v1/models, /antigravity/models)
-// would silently never filter unreachable + unpriced models (Goal 2, R-003).
+// would silently skip the CatalogPolicy model-list projection (priced, not structurally-gone).
 func TestProvideTKGatewayHandlerModelList_WiresModelListFilter(t *testing.T) {
 	gw := &handler.GatewayHandler{}
 	require.False(t, gw.HasModelListFilter(), "baseline: no filter before wiring")
@@ -99,34 +99,41 @@ func TestProvideTKPricingMissingNotifier_WiresPricedServingGate(t *testing.T) {
 	gw := &service.GatewayService{}
 	openaiGw := &service.OpenAIGatewayService{}
 	geminiCompat := &service.GeminiMessagesCompatService{}
+	antigravityGw := &service.AntigravityGatewayService{}
+	kiroGw := &service.KiroGatewayService{}
 	require.False(t, gw.HasPricingCatalogService(), "baseline: GatewayService has no catalog")
 	require.False(t, openaiGw.HasPricingCatalogService(), "baseline: OpenAIGatewayService has no catalog")
 	require.False(t, geminiCompat.HasPricedServingGateDeps(), "baseline: gemini compat has no gate deps")
+	require.False(t, antigravityGw.HasPricedServingGateDeps(), "baseline: antigravity has no gate deps")
+	require.False(t, kiroGw.HasPricedServingGateDeps(), "baseline: kiro has no gate deps")
 
 	catalog := service.NewPricingCatalogService(nil)
 	setting := &service.SettingService{}
 	// The gate now judges via BillingService.GetModelPricing, so the provider must
-	// thread billing into the gemini compat forwarder (it holds none of the deps
-	// natively). A nil billing here would make HasPricedServingGateDeps false.
+	// thread billing into the gemini compat / antigravity / kiro forwarders (they
+	// hold none of the deps natively). A nil billing here would make
+	// HasPricedServingGateDeps false.
 	billing := service.NewBillingService(nil, nil)
 
-	n := service.ProvideTKPricingMissingNotifier(gw, openaiGw, geminiCompat, catalog, billing, setting, nil, nil)
+	n := service.ProvideTKPricingMissingNotifier(gw, openaiGw, geminiCompat, antigravityGw, kiroGw, catalog, billing, setting, nil, nil)
 	require.NotNil(t, n)
 	t.Cleanup(n.Stop) // stop the digest ticker started by the provider
 
 	require.True(t, gw.HasPricingCatalogService(), "after Provide: GatewayService catalog wired")
 	require.True(t, openaiGw.HasPricingCatalogService(), "after Provide: OpenAIGatewayService catalog wired")
 	// HasPricedServingGateDeps now requires BOTH billing (the judgment oracle) and
-	// setting (the enable check) — proves the gemini compat gate can actually fire,
-	// not just that the catalog slot survived.
+	// setting (the enable check) — proves the gemini compat / AG / Kiro gates can
+	// actually fire, not just that the catalog slot survived.
 	require.True(t, geminiCompat.HasPricedServingGateDeps(), "after Provide: gemini compat gate deps (billing+setting) wired")
+	require.True(t, antigravityGw.HasPricedServingGateDeps(), "after Provide: antigravity gate deps (billing+setting) wired")
+	require.True(t, kiroGw.HasPricedServingGateDeps(), "after Provide: kiro gate deps (billing+setting) wired")
 }
 
 // TestProvideTKPricingMissingNotifier_NilForwardersAreNoOp verifies the
 // nil-safety contract for degraded wiring.
 func TestProvideTKPricingMissingNotifier_NilForwardersAreNoOp(t *testing.T) {
 	require.NotPanics(t, func() {
-		n := service.ProvideTKPricingMissingNotifier(nil, nil, nil, nil, nil, nil, nil, nil)
+		n := service.ProvideTKPricingMissingNotifier(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 		if n != nil {
 			n.Stop()
 		}

@@ -1,22 +1,23 @@
 ---
 name: tokenkey-onboard-model
 description: >-
-  TokenKey served+priced model onboarding workflow for curated newapi mapping accounts. Use when adding or pricing Qwen, DeepSeek, Moonshot/Kimi, GLM, or VolcEngine long-tail models, serving via manifest-owned newapi accounts, or debugging priced-but-empty-pool 429/503 drift.
+  TokenKey newapi long-tail onboarding — write account mapping and price owners. Use when adding or pricing Qwen, DeepSeek, Moonshot/Kimi, GLM, or VolcEngine models on curated newapi accounts, or debugging priced-but-empty-pool 429/503 drift.
 ---
 
-# TokenKey：上架一个模型（served + priced，确定性流水线）
+# TokenKey：上架一个模型（newapi 长尾：写 mapping 与价格）
 
-适用于本仓库（TokenKey fork of sub2api）。把"客户想用模型 X，要它在某账号上**可调用 + 计费正确**"
-从一次性手工操作（裸 SQL 改 model_mapping、手补 overlay、靠记忆刷 scheduler_outbox）固化为可复跑、
-有门禁兜底的分钟级流水线。
+适用于本仓库（TokenKey fork of sub2api）。本 skill 只写账号 `model_mapping` 与价格 owner。
+一次请求能不能交付仍看 `docs/approved/pricing-serving-single-source-of-truth.md`，不由
+「已映射且已定价」单独放行。把上架从一次性手工操作（裸 SQL 改 mapping、手补 overlay、
+靠记忆刷 scheduler_outbox）固化为可复跑、有门禁兜底的分钟级流水线。
 
 **单一意图源 = `backend/internal/service/tk_served_models.json`**（manifest）。它是一层**薄意图**，
 声明"TK 在平台 P 上、经某账号的 `credentials.model_mapping` 白名单、以价格 π、display=是/否，服务模型 M"。
 它**不替代**两个既有机制，只断言三方一致：
 
-1. 账号 `credentials.model_mapping` —— 运行期"可服务白名单"，由 `tk_NNN_*model_mapping*.sql` 迁移
+1. 账号 `credentials.model_mapping` —— RequestPlan 的账号映射输入，由 `tk_NNN_*model_mapping*.sql` 迁移
    （及 admin UI 编辑）写入；
-2. `tk_pricing_overlay.json`（+ 运行期 litellm 镜像）—— 价格。
+2. `tk_pricing_overlay.json` —— 价格 owner；Provider/LiteLLM 只作证据。
 
 manifest 与 `tk_pricing_overlay.json` 同目录（`backend/internal/service/`），所以同一个 Go 包能 `//go:embed`
 两者、同一个 preflight 能解析两者；选址理由见 manifest 头注 `_doc`。

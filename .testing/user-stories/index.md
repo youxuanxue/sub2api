@@ -43,7 +43,7 @@
 | US-041 | Kiro Claude Code completion continuity preserves unfinished work | InTest | `.testing/user-stories/stories/US-041-kiro-claude-code-completion-continuity.md` |
 | US-043 | Global pricing has one registry owner and protected hot reload | Done | `.testing/user-stories/stories/US-043-pricing-registry-hot-reload.md` |
 | US-044 | QA S3 Bundle 用户面与单一生命周期 owner | Done | `.testing/user-stories/stories/US-044-qa-lifecycle-single-owner-and-export-contract.md` |
-| US-045 | QA Phase 2 历史证据与 single-owner 迁移边界 | Done | `.testing/user-stories/stories/US-045-qa-phase2-production-integrity.md` |
+| US-045 | QA single-owner 迁移边界 | Done | `.testing/user-stories/stories/US-045-qa-phase2-production-integrity.md` |
 | US-046 | 默认 API Key 的诚实能力发现与统一菜单 | Done | `.testing/user-stories/stories/US-046-universal-key-capability-discovery.md` |
 | US-047 | Anthropic 缓冲流失败进入 failover，部分内容诚实标记截断 | InTest | `.testing/user-stories/stories/US-047-anthropic-buffered-stream-failure-contract.md` |
 | US-048 | 运营以供应源安全接入并热更新模型供应账号 | InTest | `.testing/user-stories/stories/US-048-model-supplier-source-management.md` |

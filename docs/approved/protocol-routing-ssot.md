@@ -4,40 +4,31 @@ status: approved
 approved_by: "feng (conversation approval, 2026-08-27)"
 authors: [codex]
 created: 2026-08-24
-revised: 2026-08-27
-related_design: docs/approved/pricing-serving-single-source-of-truth.md
+revised: 2026-08-29
 related_stories: []
 ---
 
 # Protocol Routing Single Source of Truth
 
-## 1. Problem
+## 1. Ownership
 
-TokenKey historically decides an upstream text protocol in several places:
-handler fallbacks, platform-derived endpoints, compatibility helpers, account
-legacy fields, engine bridge checks, and `ForwardAs*` methods. These decisions
-can disagree. A valid credential can then be sent through the wrong wire
-protocol or to the wrong host, and an upstream merge can restore an old branch
-without breaking compilation.
-
-The previous account-level design stored `supported_protocols` independently on
-every account. That also has the wrong ownership boundary: protocol support is
-a property of an upstream endpoint identity, while credentials, balance,
-limits, and health are properties of an account. Re-probing every account
-duplicates work and allows accounts targeting the same endpoint to drift.
-
-This design establishes:
+This design owns:
 
 1. one persisted endpoint-capability fact shared by all accounts with the same
    canonical endpoint identity;
 2. one runtime protocol-planning and execution owner;
 3. account authorization and health as independent scheduler hard gates.
 
-There is no fourth protocol fact. Probe evidence is audit metadata, request
-normalization is an immutable input, and account health remains account state;
-none can independently choose a protocol.
+Protocol support is a property of an upstream endpoint identity. Credentials,
+balance, limits, and health are properties of an account. Probe evidence is
+audit metadata; request normalization is an immutable input; account health
+remains account state. None of them independently choose a protocol.
 
-This is a high-risk design because it changes the core inference path, database
+There is no fourth protocol fact. Handler fallbacks, platform-derived
+endpoints, compatibility helpers, account extra fields, engine bridge checks,
+and `ForwardAs*` methods cannot independently pick a wire protocol or host.
+
+This is a high-risk design because it governs the core inference path, database
 schema, credential destination selection, and deployment readiness boundary.
 
 ## 2. Scope and non-goals
@@ -102,12 +93,10 @@ It owns protocol identifiers, the fixed route registry, request-feature and
 model constraints, endpoint resolution, route planning, and the only execution
 entry that may reach governed generation transports.
 
-`docs/approved/pricing-serving-single-source-of-truth.md` owns the higher-level
-delivery formula: `CatalogPolicy + RequestPlan + RuntimeReadiness`. For the
-generation family governed here, `protocolrouter.Plan` is the `RequestPlan`
-implementation. This document does not own catalog policy, runtime account
-readiness, asynchronous task continuation, or non-generation execution
-families.
+For the generation family governed here, `protocolrouter.Plan` is the request
+planning implementation. This document does not own catalog policy, runtime
+account readiness, asynchronous task continuation, or non-generation execution
+families. Delivery outcome composition stays outside this protocol design.
 
 The separation is strict:
 
@@ -311,17 +300,14 @@ Protocol legality is a scheduler hard gate, not a ranking signal:
 construct immutable CanonicalRequest
   -> Plan every candidate against its linked capability
   -> discard candidates with no legal plan
-  -> apply independent RuntimeReadiness hard gates
+  -> apply independent account-runtime hard gates
      (authorization, schedulable, cooldown, quota, concurrency, capacity)
   -> apply existing priority/sticky ordering unchanged
   -> Execute the selected candidate's already-created plan
 ```
 
-The scheduler eligibility equation is therefore:
-
-```text
-legal generation RequestPlan AND RuntimeReadiness passes
-```
+A candidate is eligible only when it has a legal `protocolrouter.Plan` and then
+passes those account-runtime gates.
 
 Runtime readiness cannot create, replace, or improve a route. Route planning
 cannot treat transient authorization, quota, cooldown, concurrency, or capacity

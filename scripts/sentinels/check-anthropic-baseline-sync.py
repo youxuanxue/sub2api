@@ -28,13 +28,11 @@ Usage:
   python3 scripts/sentinels/check-anthropic-baseline-sync.py --json   # machine-readable
 
 Why this exists:
-  Before this guard, the JSON's `temp_unschedulable_rules` carried 429/529
-  cooldown durations that conflicted with the Go ladder (PR #337,
-  2026-05-21). Operators reading the JSON saw "30 min cooldown on 429"
-  but production actually applied 30s/2min/10min via the ladder. The
-  rules were removed; the ladder values were promoted into the JSON
-  policy block so the JSON is authoritative for ops dashboards. This
-  script keeps the two ends honest.
+  The JSON `policy` block documents the Go cooldown ladder for ops audit.
+  This script keeps `cooldown_ladder_seconds` / `cooldown_tier_ttl_minutes`
+  identical to `anthropicCooldownTierLadder` and
+  `anthropicCooldownTierTTLMinutes`. JSON must not carry a second cooldown
+  table (including leftover `temp_unschedulable_rules` durations).
 """
 from __future__ import annotations
 

@@ -1,188 +1,109 @@
 ---
-title: Pricing & Serving — One Owner Per Fact (consolidated SSOT decision)
+title: 模型交付承诺 SSOT——一个承诺、三个判定
 status: approved
-approved_by: "xuejiao (design directive, this session)"
+approved_by: "xuejiao（2026-08-26 本会话确认）"
 approved_at: "2026-06-17"
+revised_at: "2026-08-29"
+revision_note: >
+  本文只保留组合公式、owner 指针和生命周期分界。generation 细节单向委托
+  protocol-routing-ssot.md；availability 只作 Evidence。
 authors: [agent]
 created: 2026-06-17
-related_prs: []
-related_commits: []
+related_prs: [1821]
 related_stories: []
-related_design: docs/approved/pricing-registry-hot-reload.md, docs/approved/newapi-as-fifth-platform.md, docs/approved/pricing-availability-source-of-truth.md, docs/approved/newapi-served-models-reconciler.md, docs/approved/channel-pricing-refund-gate-and-runtime-pricing.md
-supersedes: none
+related_design: docs/approved/pricing-registry-hot-reload.md, docs/approved/pricing-availability-source-of-truth.md, docs/approved/priced-or-it-doesnt-ship.md, docs/approved/protocol-routing-ssot.md, docs/approved/universal-key-capability-discovery.md
+supersedes: "pricing-availability-source-of-truth.md 中把 /pricing 或 model_availability 视为 serving eligibility owner 的声明"
 ---
 
-# Pricing & Serving — One Owner Per Fact
+# 模型交付承诺 SSOT——一个承诺、三个判定
 
-> **The SSOT verdict is ONE OWNER PER FACT, not "collapse everything to upstream."**
-> Two facts govern whether a model works in TokenKey, and they have two different owners:
-> **SERVING** (does this account serve this id?) and **PRICE** (what does it cost?).
-> Every drift incident in this area traces back to a third party silently claiming
-> ownership of one of those facts. This doc names the owners, rejects the two tempting
-> wrong answers, and maps the remaining work.
+新请求只问一件事：**这次执行现在能不能交付？**
 
-## 1. The two facts and their owners
-
-| Fact | Question | OWNER (single source) | Thin projection / cache |
-| --- | --- | --- | --- |
-| **SERVING** | Does account N serve client-id `m`? | per-account `credentials.model_mapping` (identity whitelist `key==value`) | `tk_served_models.json` manifest — CI-time **intent** projection only, NOT runtime |
-| **GLOBAL PRICE** | What does `m` cost by default? | active complete `tk_pricing_overlay.json` registry snapshot | embedded copy is last-known-good fallback; provider/LiteLLM data is sensor evidence |
-| **SCOPED PRICE OVERRIDE** | Does one commercial channel override `m`? | `channel_model_pricing` for that explicit scope | resolver/cache only |
-
-**Price precedence (highest wins):**
-
-```
-matching channel_model_pricing scope
-  > active complete registry snapshot
-    > embedded complete registry fallback
+```text
+CatalogPolicy + RequestPlan + RuntimeReadiness = 本次可交付
 ```
 
-There is one editable global owner. A channel row is not a second global writer: it
-applies only when the resolver selects that commercial scope. Provider/LiteLLM files may
-produce a candidate diff, but no value from them participates in effective billing.
+不落 `deliverable` 总表。定价、探测成功、菜单可见，任何一项都不能单独放行。
+观测是证据，不是裁判。
 
-### 1.1 User billing is independent of the serving account
+已创建的异步任务不再回答这三个问题：按提交时写入的 canonical task record 走
+`TaskContinuation`。新工作要规划；已创建的工作只续接，不重新选号。
+`TaskContinuation` 是生命周期分支，不是第四个商业事实。
 
-Approved clarification (2026-08-25): the price precedence above is evaluated in the
-**customer commercial scope**, not in the upstream account that happens to serve a
-request. `channel_model_pricing` is selected from the API key's group/channel context;
-it is not a serving-account price table.
+## 1. 三个判定
 
-For client ids with a global owner, every serving account therefore produces the same
-user-facing `ActualCost`. Differences between an upstream account's procurement price
-and the global user price belong to provider-cost / profit reporting and must not rewrite
-the billing model or alter balance, subscription, API-key quota, or rate-limit deductions.
-In particular, Qianfan account 90 uses the global owners for shared ids such as
-`deepseek-v4-pro`, `deepseek-v4-flash`, `glm-5*`, and `kimi-k2.6`; the former
-`.qianfan` registry keys and serving-account remap are deliberately retired rather than
-moved into `channel_model_pricing`.
-
-Qianfan-only ids with no equivalent global/direct-provider SKU remain legitimate global
-owners. Reintroducing user prices that vary by serving account would be a new billing
-policy and requires a separately approved serving-account-scoped primitive; it must not
-be approximated with customer-channel pricing.
-
-**Serving owner is genuinely per-account.** `Account.IsModelSupported`
-(`backend/internal/service/account.go:639`) returns `true` on an **empty** mapping —
-"无映射 = 允许所有" — for every non-antigravity platform. A populated `model_mapping` is an
-identity WHITELIST; an empty one is allow-all. This asymmetry is load-bearing for §2's
-rejection of an auto-sync reconciler and is documented in
-`docs/approved/newapi-served-models-reconciler.md`.
-
-## 2. Two wrong answers we explicitly REJECT
-
-### REJECTED: "align the whitelist to the price registry"
-
-The registry is a PRICE source. Letting price-presence imply serving (auto-mapping every
-priced id onto an account) inverts the fact ownership: it makes the PRICE owner silently
-write the SERVING fact. This is exactly the #812-class confusion — `qwen3-8b/14b/32b` were
-priced in the registry but not mapped onto account 60, and the price-present-looks-served
-illusion produced `429`/`503` in prod. The fix is **not** to let the price drag serving
-along; it is to keep them separate facts and let a guard assert they agree
-(A1/A3 below, shipped in #819).
-
-### REJECTED: "converge everything to upstream capability"
-
-Tempting because upstream `/v1/models` *looks* authoritative. It is not a source of truth —
-it is an **unvetted discovery feed** (`docs/approved/pricing-availability-source-of-truth.md`
-§2.4 / R-002). It over-reports:
-
-- deprecated / retired / disabled ids the operator must not serve,
-- served-but-unpriced ids (a money hole if auto-onboarded),
-- embedding-only ids that have no chat surface.
-
-`FetchUpstreamSupportedModels` (`backend/internal/service/upstream_models.go:76`) returns a
-bare `[]string` — no pricing tag, no availability tag — and is deliberately **NOT wired**
-to `DiscoveryFilter`. The discovery filter
-(`backend/internal/integration/newapi/discover_filter_tk.go`) treats the upstream list as a
-**weak suggestion** requiring human confirm: it drops explicitly-unavailable ids, drops
-`model_availability='unreachable'` ids, and tags the rest `priced | missing` so a human sees
-the gap. Converging serving to upstream would re-import every over-report and re-open the
-money hole. **Upstream is a feed into a human decision, never the decision.**
-
-## 3. What is already shipped (do not re-litigate)
-
-| PR | What landed | SSOT role |
-| --- | --- | --- |
-| **#818** | `tk_029` maps `qwen3-8b/14b/32b` onto account 60 | point-fix the #812 serving gap |
-| **#819** | `scripts/checks/catalog-serving-drift.py` (A1/A2/A3) + `tk_served_models.json` manifest (13 entries) | mechanical drift guard + intent projection |
-| **#820** | `tokenkey-onboard-model` skill + dashscope probe | the human-in-the-loop onboarding mechanism |
-
-The **#812-class drift is now mechanically blocked** by the #819 guard's three assertions:
-
-- **A1** — every catalog/manifest id is **price-resolvable** (price owner agrees).
-- **A2** — `display=true` ⇒ present in the Go servable map (display agrees with code).
-- **A3** — `served_on` ⇒ a migration maps it onto the account (serving owner agrees).
-
-A3 is the specific catcher for #812: a manifest row claiming an account serves an id, with
-no migration putting it there, hard-fails CI. The manifest is **NOT** `//go:embed`-ed — it
-is CI-time intent only; runtime serving still comes from the per-account `model_mapping`,
-which keeps the owner single.
-
-## 4. Remaining work (mapped, not all in this batch)
-
-| Track | What | Owner-fact it closes | Status |
+| 判定 | 只回答 | 读哪些 owner | 不拥有 |
 | --- | --- | --- | --- |
-| **FE catalog (PR-B)** | newapi whitelist picker offers the served long-tail (qwen3 dense ids) | SERVING fact *offerable* in admin UI | **this batch (PR-B)** |
-| **channel-pricing refund gate** | validate dimensions that `channel_model_pricing` can override in its explicit scope | keeps scoped overrides settlement-safe without making them a global owner | **deferred** — investigated, no live refund leak today (§4.1) |
-| **protected registry publication** | merge a registry-only PR and atomically publish the exact protected-main artifact | makes the single global PRICE owner hot without an application release | **implemented** — see `pricing-registry-hot-reload.md` |
-| **provider price sensor** | compare external evidence and prepare a draft registry-only candidate | removes manual discovery toil without delegating the price decision | **implemented** — sensor cannot publish or access AWS |
+| **CatalogPolicy** | 能不能公开展示、按什么价结算 | 公共目录投影；`tk_pricing_overlay.json`（含 `_aliases`）；scope 内 `channel_model_pricing` | 账号映射、协议、容量 |
+| **RequestPlan** | 这个 operation 在这个账号上有没有合法路径 | 统一 outcome：合法 plan 或 reason。generation 现由 `protocolrouter` 实现；其它 family 读各自已有 owner | 实时容量、客户价格 |
+| **RuntimeReadiness** | 已有路径的账号现在能不能跑 | schedulable、cooldown、quota、concurrency、capacity | 展示、价格、协议 |
 
-See `docs/approved/channel-pricing-refund-gate-and-runtime-pricing.md` for the full gate +
-② design and the investigation below.
+组合层只返回 outcome。`model_mapping`、endpoint protocol capability、channel/adapter
+capability 都是 RequestPlan 的输入，不是第二套可交付真相。
+`protocol_endpoint_capabilities.supported_protocols` 只描述 canonical endpoint 的原生
+generation wire，推不出某个模型、feature、operation 或账号的请求合法性。
 
-### 4.1 The channel-pricing "hole" — investigated, found INERT today (no live leak)
+## 2. RequestPlan 是同形 outcome，不是万能 package
 
-The prior framing of this work called `channel_model_pricing` "the real remaining money
-hole": it **WINS within its selected scope** and **bypasses** the registry's preflight refund gate
-(`scripts/checks/pricing-overlay.py` runs CI-only against the JSON, never a DB write). The
-precedence + bypass are real. **But a direct code read retracts the "live money-leak"
-claim** — the dangerous write (an ungated *video* price re-enabling the terminal-failure
-refund leak) is **structurally unreachable** through `channel_model_pricing` today:
+凡是会创建一次新上游执行的 operation，都必须给出同形 outcome。这不要求所有 family
+迁入同一个 package。
 
-1. **No column.** `ChannelModelPricing` (`channel.go:75`) has `input/output/cache_write/
-   cache_read/image_output/per_request` price fields only — **no `output_cost_per_second`,
-   no `failure_billing`, no thinking field.**
-2. **No billing mode.** `BillingMode` has `token / per_request / image` — **no `video`.**
-3. **No resolver branch.** `ModelPricingResolver` (`model_pricing_resolver.go:75,139`) routes
-   only `token / per_request / image`; `ResolvedPricing` (`:16`) has **no per-second field**.
-4. **Video cost is registry-only.** `billing_service.go:976` reads `pricing.OutputCostPerSecond`
-   from the active registry `ModelPricing` (`pricing_service.go:84`) — which
-   `pricing-overlay.py` **already gates**. The video refund
-   (`openai_gateway_service_tk_video_refund.go`) reverses that registry-derived cost. A
-   `channel_model_pricing` row never feeds video cost or its refund. Thinking rate is the
-   same story: `ThinkingOutputPricePerToken` is sourced only from the registry
-   (`billing_service.go:412`), never from a channel row.
+| family | 当前 planning owner |
+| --- | --- |
+| generation（`messages` / `chat_completions` / `responses` / Gemini `generateContent`） | `protocolrouter`；细节只在 `docs/approved/protocol-routing-ssot.md` |
+| embedding / 独立 image / video submit / utility | 各自已有 model、endpoint、adapter、task owner |
 
-So the only price dimensions `channel_model_pricing` can actually carry are
-`token / per_request / image`, and for those the existing admin validator already enforces
-*mode-has-price* / *non-negative* / *intervals-have-prices* (`channel_service.go:613`). The
-single ungated residue is an **undercharging $0 token price** (a revenue guardrail, not a
-refund leak). **Conclusion: there is no live channel-pricing refund leak; the refund-safety
-gate is not urgent and is folded into ②**, where channel pricing first *gains* the
-video/per-second + thinking resolver paths and the gate's invariants become load-bearing
-together with them. A prototype gate (3 columns + write-time validator + 15/15 unit tests)
-was built and verified this session as proof it is implementable; it is intentionally **not
-shipped standalone** to avoid freezing dead columns into the live schema (migration
-immutability) ahead of the resolver work that makes them load-bearing.
+Gemini `generateContent` 是 generation wire，不是媒体例外；经它出图仍走 generation route。
+独立 image/video API 才进对应 family。不得为了形式统一把 media/embedding/utility 提前并进
+`protocolrouter`。
 
-## 5. The real FE gap (one, and it is narrow)
+image poll 读 `ImageTaskRecord`，video fetch/status 读 `VideoTaskRecord`。二者都是
+`TaskContinuation`：可刷新同一账号 token，不得改选账号、endpoint 或 upstream task。
 
-The admin-UI "drops qwen3-8b" claim is a **phantom** for account 60: pure-identity
-whitelists round-trip intact, out-of-catalog ids render as removable chips from
-`props.modelValue` and survive a save, and `addCustom` is a zero-validation escape hatch.
-The single real gap is the **picker offer set**: the newapi selector is hardcoded
-`platform='newapi'` → `newapiModels` (`frontend/src/composables/useModelWhitelist.ts`),
-which was **GPT-only**. A separate `qwenModels` array exists but is reachable only for
-`platform==='qwen'`, never for `newapi`, and it too lacked the three dense ids. So the picker
-could not *offer* `qwen3-8b/14b/32b` — an operator had to use the `addCustom` escape hatch.
-**PR-B (this batch)** teaches the newapi picker to offer the served long-tail; the deeper
-convergence (derive the picker from the backend manifest via a servable endpoint, like
-`useServableModels` for the API-backed platforms) is a follow-on, not done here.
+## 3. 目录只投影 CatalogPolicy
 
-## 6. The one-line test for any future change here
+```text
+catalog candidate
+AND 能解析到 direct price owner 或 `_aliases`
+AND 没有 structurally-gone 证据
+= 可公开展示
+```
 
-Before adding code, ask: **which of the two facts does this write, and is it the owner?**
-If a change makes the PRICE source write SERVING, or makes upstream `/v1/models` write
-either, it is the wrong primitive — stop. Every incident in this area is a third party
-quietly claiming a fact it does not own.
+`display=false` 不等于 API 禁止。`priced` 不能推出 Plan 或容量。
+`model_availability`、probe、upstream `/models`、流量只是 Evidence。
+只有明确 `model_not_found/retired` 可裁目录；5xx/429/auth/普通 unreachable 不能裁目录，
+也不能当 scheduler gate。证据分类见 `docs/approved/pricing-availability-source-of-truth.md`。
+
+## 4. 价格与 alias
+
+```text
+匹配 scope 的 channel_model_pricing
+  > active tk_pricing_overlay.json
+    > embedded last-known-good
+```
+
+公开价格 alias 只写 `_aliases: alias -> owner`：owner 必须存在，只单跳，禁止 self/chain/cycle。
+路由归一化不拥有价格；legacy substring matcher 是债务。运行期 priced-serving gate 只保证
+发往上游前能解析结算价，见 `docs/approved/priced-or-it-doesnt-ship.md`。
+
+## 5. 本文拥有的门禁
+
+- 组合公式与 `TaskContinuation` 分界只在本文；协议文档不得复制公式或拥有 `TaskContinuation`。
+- 各 family 的 RequestPlan 测试从 canonical owner 派生样本，不手写模型/协议清单。
+- generation plan cache 覆盖 request digest、account revision、capability key/revision；成败都只规划一次。
+- image/video 续接必须读提交时 task record，禁止重新 scheduler 选号。
+- `_aliases` 校验 owner 存在、单跳、无重叠、无环。
+- catalog / model-list / admin discovery 共用 structurally-gone predicate。
+- 其它文档、skill、注释、sentinel 不得再声明第二套 delivery 或 capability truth。
+
+实现是否对齐由当前代码的测试和 preflight 判断。本文不嵌入 SHA、镜像、edge 或某次探测结果。
+
+## 6. 不做什么
+
+- 不建复制价格、mapping、协议、capability、容量的 mega-registry。
+- 不建全协议 × 全 operation 自动转换图。
+- 不把任务续接伪装成新的 RequestPlan。
+- 不把 `/pricing`、availability、probe、`/models` 或流量当作请求准入。
+- 不让价格 presence 自动上架、自动写 mapping 或自动声明协议能力。
+
+审查只问：新执行还是续接？读哪个 owner？owner 被绕过时哪个检查会失败？

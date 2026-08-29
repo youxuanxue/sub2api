@@ -1,5 +1,5 @@
 ---
-title: newapi Served-Models Reconciler — DECIDED: do NOT build an unattended auto-sync
+title: newapi Served-Models Reconciler — do NOT build an unattended auto-sync
 status: approved
 approved_by: "xuejiao (design directive, this session)"
 approved_at: "2026-06-17"
@@ -13,18 +13,14 @@ related_design: docs/approved/newapi-as-fifth-platform.md, docs/approved/pricing
 supersedes: none
 ---
 
-# newapi Served-Models Reconciler — DECIDED: do NOT build an unattended auto-sync
+# newapi Served-Models Reconciler — do NOT build an unattended auto-sync
 
-> **DECISION CHANGED (2026-06-17).** The prior revision of this record left an
-> unattended whitelist reconciler as an "approved design, deferred implementation"
-> waiting on a churn trigger. **That stance is now reversed.** After auditing the
-> serving primitive against `account.go`, R-002, and the `BulkUpdate` JSONB semantics,
-> the decision is: **do NOT build an unattended auto-sync reconciler at all.** It is not
-> "defer until the trigger fires" — it is "this is the wrong tool, full stop." The safe
-> mechanism is human-in-the-loop: the admin "fetch upstream models" discovery button +
-> the `tokenkey-onboard-model` skill, gated by the #819 static drift guard.
+Do not build an unattended whitelist reconciler. The mechanism is human-in-the-loop:
+admin "fetch upstream models" plus `tokenkey-onboard-model`, gated by the static
+drift guard in `catalog-serving-drift.py`. Delivery eligibility is not owned here;
+see `docs/approved/pricing-serving-single-source-of-truth.md`.
 
-## 0. Context (unchanged)
+## 0. Context
 
 TokenKey serves a TK-curated long-tail of `newapi` (fifth-platform) models — Qwen and
 DeepSeek families — on two dedicated single-account groups:
@@ -34,12 +30,9 @@ DeepSeek families — on two dedicated single-account groups:
 | 60 | Qwen | `newapi` | 17 (Ali/DashScope) | 18 |
 | 39 | ds-官 DeepSeek | `newapi` | 43 (DeepSeek) | 11 |
 
-A model is "served" on one of these accounts only when its client-facing id appears as a
-key in that account's `credentials.model_mapping` (an identity WHITELIST: `key == value`).
-The #812-class regression (qwen3 dense ids priced but unmapped) motivated asking whether a
-reconciler could make "add a model" need no per-account migration. The answer below is **no
-— building it is actively harmful.** #818's `tk_029` point-fixed the gap; #819's guard
-mechanically blocks its recurrence; #820's skill is the ongoing mechanism.
+A model is served on one of these accounts only when its client-facing id appears as a
+key in that account's `credentials.model_mapping` (identity whitelist: `key == value`).
+Priced-but-unmapped ids are a configuration gap, not a reason to auto-write mapping.
 
 ## 1. DECISION: do NOT build an unattended newapi auto-sync reconciler
 
@@ -47,31 +40,22 @@ Three independent reasons, each sufficient on its own.
 
 ### 1.1 Reason 1 — allow-all inversion (the reconciler does the OPPOSITE of "auto-sync new models")
 
-`Account.IsModelSupported` (`backend/internal/service/account.go:639`):
+`Account.IsModelSupported` still treats most empty native mappings as pass-through. That
+is one RequestPlan input, not the delivery owner: official Anthropic, CloudWise, Tokensea,
+Kiro, and OpenAI OAuth add further Plan or account gates on top.
 
-```go
-func (a *Account) IsModelSupported(requestedModel string) bool {
-	mapping := a.GetModelMapping()
-	if len(mapping) == 0 {
-		return true // 无映射 = 允许所有
-	}
-	...
-}
-```
-
-For a non-antigravity platform, an **empty** `model_mapping` means **allow-all**. An
-empty-mapping newapi account **already serves whatever the upstream channel exposes** —
+An empty-mapping newapi account can already reach whatever the upstream channel exposes —
 including new models the day upstream adds them, with zero TK action. Auto-populating the
-mapping does not *add* models; it **NARROWS allow-all into a snapshot-frozen restrictive
+mapping does not *add* models; it **NARROWS pass-through into a snapshot-frozen restrictive
 allowlist**. The reconciler's effect is the exact opposite of its stated goal: instead of
 "auto-sync new models in," it would freeze the account to the manifest snapshot and start
 *rejecting* anything not in it. The naming ("served-models reconciler", "auto-sync") hides
 that inversion — which is precisely why it must not be built unattended.
 
-### 1.2 Reason 2 — there is no trustworthy source to converge toward (R-002)
+### 1.2 Reason 2 — there is no trustworthy source to converge toward
 
 A converging reconciler needs an authoritative desired-state. Upstream `/v1/models` is
-**not** it — per `docs/approved/pricing-availability-source-of-truth.md` §2.4 / R-002 it is
+**not** it — per `docs/approved/pricing-availability-source-of-truth.md` §2.1 it is
 an unvetted discovery feed that over-reports deprecated, retired, disabled, served-but-
 unpriced, and embedding-only ids. `FetchUpstreamSupportedModels`
 (`backend/internal/service/upstream_models.go:76`) returns a bare `[]string` with no pricing
@@ -120,8 +104,9 @@ adding an inversion footgun, a polluted-snapshot risk, and a clobbering write.
 Adding a newapi model stays a small reviewed action, not an autonomous loop:
 
 1. **Discovery** — the admin "fetch upstream models" button surfaces the upstream list run
-   through `DiscoveryFilter` (`discover_filter_tk.go`), which drops explicitly-unavailable /
-   `unreachable` ids and tags the rest `priced | missing`. A human reads the badges and
+   through `DiscoveryFilter` (`discover_filter_tk.go`), which drops provider-declared unavailable
+   or structurally-gone ids and tags the rest `priced | missing`. Transient `unreachable`
+   evidence remains visible. A human reads the badges and
    **confirms** — upstream is a suggestion, never an auto-apply.
 2. **Onboard** — the `tokenkey-onboard-model` skill (#820) drives the add: map the id onto
    the account (migration or admin-UI edit), ensure a price exists (overlay 固化 or
@@ -131,9 +116,9 @@ Adding a newapi model stays a small reviewed action, not an autonomous loop:
    catcher). The static guard is the mechanical safety net the reconciler was supposed to
    provide — without the inversion, the pollution, or the clobber.
 
-This keeps the SERVING fact owned by the per-account `model_mapping` and the human review
-gate intact, which is the SSOT invariant in
-`docs/approved/pricing-serving-single-source-of-truth.md`.
+This keeps `model_mapping` as the reviewed account-mapping input to RequestPlan. It does
+not turn upstream discovery, pricing, or the reconciler into a delivery owner; the full
+boundary remains in `docs/approved/pricing-serving-single-source-of-truth.md`.
 
 ## 3. What about true-runtime (no-release) onboarding?
 

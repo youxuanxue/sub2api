@@ -921,7 +921,9 @@
       "must_contain": [
         "TestProtocolAccountSnapshotUsesCanonicalAgentPlanEndpoints",
         "VolcEngineAgentPlanBaseURL+\"/chat/completions\"",
-        "VolcEngineAgentPlanBaseURL+\"/responses\""
+        "VolcEngineAgentPlanBaseURL+\"/responses\"",
+        "TestProtocolRouterRejectsResolvedModelOutsideOfficialRoutePolicy",
+        "ErrModelNotAllowed"
       ],
       "rationale": "Regression proof that Agent Plan account 88 resolves both governed text protocols under the canonical /api/plan/v3 base instead of probing or executing the generic VolcEngine paths that returned 404 during rollout preparation."
     },
@@ -1014,9 +1016,11 @@
         "func protocolRoutingSupportsAntigravityAccount(account *Account) bool",
         "account.Type == AccountTypeOAuth || tkIsAntigravityEdgeRelayStub(account)",
         "func protocolRoutingCanonicalRequest(ctx context.Context) (protocolrouter.CanonicalRequest, bool)",
-        "if !ok || routing.router == nil {\n\t\treturn protocolrouter.CanonicalRequest{}, false"
+        "if !ok || routing.router == nil {\n\t\treturn protocolrouter.CanonicalRequest{}, false",
+        "func protocolRequestEligibilityReason(",
+        "routing.plans.getOrPlan("
       ],
-      "rationale": "Text protocol governance excludes non-text-only accounts before scheduling and admits only the two stable Antigravity shapes: native OAuth or an exact TokenKey edge relay stub. The latter keeps per-account generic protocol evidence for prod relay accounts such as us3/us4 without broadening governance to arbitrary Antigravity API-key URLs. Cutover-disabled text requests retain the canonical body for legacy execution without making ProtocolRoutingRequest report routing enabled."
+      "rationale": "Text protocol governance excludes non-text-only accounts before scheduling and admits only the two stable Antigravity shapes: native OAuth or an exact TokenKey edge relay stub. The latter keeps per-account generic protocol evidence for prod relay accounts such as us3/us4 without broadening governance to arbitrary Antigravity API-key URLs. Cutover-disabled text requests retain the canonical body for legacy execution without making ProtocolRoutingRequest report routing enabled. Scheduler eligibility and plan cache must share one protocolrouter.Plan owner; a second planner or uncached Plan call recreates split model/protocol verdicts."
     },
     {
       "path": "backend/internal/service/protocol_execution.go",
@@ -1300,9 +1304,17 @@
         "CapabilityRevision",
         "state.CapabilityKey != plan.capabilityKey",
         "state.CapabilityRevision != plan.capabilityRevision",
-        "ErrStalePlan"
+        "ErrStalePlan",
+        "ErrModelNotAllowed"
       ],
-      "rationale": "A selected route captures the endpoint capability key and revision. Execute must reject a changed capability before adapter or network execution; otherwise a probe or endpoint relink can make an already-selected route unsafe."
+      "rationale": "A selected route captures the endpoint capability key and revision. Execute must reject a changed capability before adapter or network execution; otherwise a probe or endpoint relink can make an already-selected route unsafe. Model-policy rejection must stay a distinct Plan error so schedulers do not rename no-route as unsupported, or unsupported as no-route."
+    },
+    {
+      "path": "backend/internal/integration/newapi/discover_filter_tk.go",
+      "must_contain": [
+        "IsStructurallyGone"
+      ],
+      "rationale": "Admin upstream-model discovery may hide only structurally-gone evidence (unreachable plus model_not_found). Transient 5xx/429 unreachable must remain visible; swapping this predicate back to a broad unreachable hide recreates a second serving-truth from probe evidence."
     }
   ]
 }
