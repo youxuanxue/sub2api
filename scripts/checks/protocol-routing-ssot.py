@@ -582,6 +582,8 @@ def check(root: Path) -> list[str]:
     migration_owner = root / "backend/internal/service/protocol_routing_migration.go"
     if migration_owner.is_file():
         source = strip_go_comments_and_literals(migration_owner.read_text(encoding="utf-8"))
+        if contains_identifier(source, "TrafficReady"):
+            errors.append("protocol routing report still carries process TrafficReady")
         if contains_identifier(source, "ProbeAccountProtocolCapabilities"):
             errors.append("protocol routing startup uses the normal probe writer instead of the preparation probe")
         if not contains_identifier(source, "ProbeAccountProtocolCapabilitiesForPreparation"):
@@ -1043,11 +1045,8 @@ def check(root: Path) -> list[str]:
         for body in ready_builders:
             if re.search(r"\brouter\s*=\s*nil\b", body) or re.search(r"\brouter\s*:\s*nil\b", body):
                 errors.append("protocol routing readiness must not disable the router")
-        ready_accessors = function_bodies(source, "Ready")
-        if not ready_accessors or not all(
-            contains_identifier(body, "TrafficReady") for body in ready_accessors
-        ):
-            errors.append("protocol routing Ready accessor is not gated by TrafficReady")
+        if function_bodies(source, "Ready") or contains_identifier(source, "TrafficReady"):
+            errors.append("protocol routing still exposes a Ready/TrafficReady process gate")
 
     handler_wire = root / "backend/internal/handler/wire.go"
     if handler_wire.is_file():

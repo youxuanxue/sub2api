@@ -289,7 +289,6 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "package fixture\n"
             "type ProtocolRoutingSSOTReady struct{ Report Report; router *Router }\n"
             "func (r ProtocolRoutingSSOTReady) EnabledRouter(){}\n"
-            "func (r ProtocolRoutingSSOTReady) Ready() bool { return r.Report.TrafficReady }\n"
             "func newProtocolRoutingSSOTReady(report Report, router *Router) ProtocolRoutingSSOTReady { return ProtocolRoutingSSOTReady{Report: report, router: router} }\n"
             "func ProvideProtocolRoutingSSOTReady(){ prepareProtocolRoutingSSOT() }\n",
             encoding="utf-8",
@@ -470,17 +469,17 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         )
         self.assertTrue(any("must not disable the router" in error for error in MODULE.check(root)))
 
-    def test_rejects_readiness_accessor_that_ignores_traffic_report(self) -> None:
+    def test_rejects_ready_accessor(self) -> None:
         root = self.fixture()
         wire = root / "backend/internal/service/wire.go"
         wire.write_text(
             wire.read_text(encoding="utf-8").replace(
-                "return r.Report.TrafficReady",
-                "return true",
+                "func (r ProtocolRoutingSSOTReady) EnabledRouter(){}",
+                "func (r ProtocolRoutingSSOTReady) EnabledRouter(){}\nfunc (r ProtocolRoutingSSOTReady) Ready() bool { return true }",
             ),
             encoding="utf-8",
         )
-        self.assertTrue(any("Ready accessor" in error for error in MODULE.check(root)))
+        self.assertTrue(any("Ready/TrafficReady process gate" in error for error in MODULE.check(root)))
 
     def test_rejects_health_route_that_gates_on_protocol_readiness(self) -> None:
         root = self.fixture()

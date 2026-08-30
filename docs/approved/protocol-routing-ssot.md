@@ -9,6 +9,7 @@ revision_note: >
   Plans and Execute no longer compare account or capability revision tokens.
   Send-time freshness is authoritative reload plus route-fact equivalence.
   /health is drain-only. Protocol remediations never 503 the process.
+  TrafficReady and Ready() are gone; CutoverReady is the only report gate.
   NewAPI exact-endpoint resolution is per declared protocol: undeclared
   protocols are not resolved, and a missing Responses URL omits that route
   from both exact endpoints and the Plan-facing supported set.
@@ -616,9 +617,9 @@ capability preparation is intentionally durable but unpublished; the complete
 projection, account revision advances, and scheduler invalidations are instead
 published together only after preliminary readiness succeeds. A publication
 callback that fails CutoverReady rolls back every legacy-visible effect.
-`/health` stays drain-only. A publication transaction error still flips
-TrafficReady in the report, because an image rollback must not restore
-divergent account facts.
+`/health` stays drain-only. A publication transaction error fails
+preparation and keeps CutoverReady false; it does not invent a second
+process-admission boolean.
 
 After the rollback window, deleting the legacy field, projection writer, and
 compatibility code is a separate reviewed change. The shared capability table

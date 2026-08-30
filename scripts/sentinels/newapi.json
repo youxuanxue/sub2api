@@ -1142,11 +1142,9 @@
       "path": "backend/internal/service/wire.go",
       "must_contain": [
         "func (r ProtocolRoutingSSOTReady) EnabledRouter() *protocolrouter.Router",
-        "func (r ProtocolRoutingSSOTReady) Ready() bool",
-        "return r.Report.TrafficReady",
         "return ProtocolRoutingSSOTReady{Report: report, router: router}"
       ],
-      "rationale": "Router availability stays independent of publication completeness. TrafficReady is a report field; /health does not read it. CutoverReady remains the full-matrix publish gate. Reintroducing router=nil on an unready candidate silently restores legacy serving inside the new image."
+      "rationale": "Router availability stays independent of publication completeness. /health is drain-only and must not read a process TrafficReady/Ready gate. CutoverReady remains the full-matrix publish gate. Reintroducing router=nil on an unready candidate silently restores legacy serving inside the new image."
     },
     {
       "path": "backend/internal/server/routes/common.go",
