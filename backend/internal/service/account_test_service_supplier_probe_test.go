@@ -116,6 +116,23 @@ func TestUS048_SupplierManagedQianfanDeclaresBaiduV2ChatProtocol(t *testing.T) {
 	require.Equal(t, []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}, ProtocolProbeCandidates(account))
 }
 
+func TestUS048_UnmanagedQianfanIdentityKeyStaysStable(t *testing.T) {
+	// Regression for PR #1899: supplier BaiduV2 must not rewrite the historical
+	// identity URL of ordinary Qianfan accounts, or CapabilityKey mismatches
+	// break ProtocolAccountSnapshot routing.
+	account := qianfanChatTestAccount(90)
+
+	identity, governed, err := BuildProtocolEndpointIdentity(account)
+
+	require.NoError(t, err)
+	require.True(t, governed)
+	require.Equal(t, map[protocolrouter.Protocol]ProtocolEndpoint{
+		protocolrouter.ProtocolChatCompletions: {URL: newapiintegration.QianfanBaseURL + "/v1/chat/completions"},
+		protocolrouter.ProtocolMessages:        {URL: newapiintegration.QianfanBaseURL + "/v1/messages"},
+		protocolrouter.ProtocolResponses:       {URL: newapiintegration.QianfanBaseURL + "/v1/responses"},
+	}, identity.ProtocolEndpoints)
+}
+
 func TestUS048_SupplierManagedOpenAIEndpointDoesNotDuplicateV1(t *testing.T) {
 	account := &Account{
 		ID:          41,

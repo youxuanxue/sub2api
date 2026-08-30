@@ -91,6 +91,7 @@
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_FMGoSeedanceIsProtocolUnsupportedWithoutAccountWrite`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_SupplierManagedAccountDeclaresOnlyChatProtocol`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_SupplierManagedQianfanDeclaresBaiduV2ChatProtocol`
+- `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_UnmanagedQianfanIdentityKeyStaysStable`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_SupplierManagedOpenAIEndpointDoesNotDuplicateV1`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_SupplierProbeClassifiesEventsWithoutPersistingUpstreamDetail`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_SupplierProbeDoesNotLogRawUpstreamError`

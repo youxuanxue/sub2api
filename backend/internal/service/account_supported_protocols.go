@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
@@ -477,8 +478,15 @@ func protocolAccountEndpoints(account *Account) (string, map[protocolrouter.Prot
 			!supplierManagedTransportOK(account) || baseURL == "" {
 			return "", nil, ""
 		}
+		chatBase := baseURL
+		if account.ChannelType == newapiconstant.ChannelTypeBaiduV2 {
+			// Qianfan Chat lives under /v2; declare the complete path so identity
+			// normalize does not invent a /v1 suffix. Non-supplier Qianfan accounts
+			// keep their historical identity key and are unchanged.
+			chatBase = strings.TrimRight(newapiintegration.QianfanBaseURL, "/") + "/v2/chat/completions"
+		}
 		return "", map[protocolrouter.Protocol]string{
-			protocolrouter.ProtocolChatCompletions: baseURL,
+			protocolrouter.ProtocolChatCompletions: chatBase,
 		}, ""
 	}
 	baseURLs := make(map[protocolrouter.Protocol]string)
