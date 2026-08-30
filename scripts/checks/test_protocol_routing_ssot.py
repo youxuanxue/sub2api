@@ -115,7 +115,8 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "func BuildSupportedProtocolsUpdate(){}\n"
             "func ReplaceSupportedProtocols(){}\n"
             "func SeedOfficialSupportedProtocols(){}\n"
-            "func protocolAccountSnapshot(capability Capability){ if !protocolCapabilityHasVerifiedRoutingEvidence(capability) { fail() } }\n",
+            "func protocolAccountSnapshot(capability Capability){ if !protocolCapabilityHasVerifiedRoutingEvidence(capability) { fail() } }\n"
+            "func protocolExactEndpoints(){ endpoint, err := protocolExactEndpoint(); if err != nil { continue }; endpoints[protocol] = endpoint }\n",
             encoding="utf-8",
         )
         identity_owner = root / "backend/internal/service/protocol_endpoint_identity.go"
@@ -751,6 +752,20 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertTrue(any("publication transaction callback" in error for error in MODULE.check(root)))
+
+    def test_rejects_newapi_exact_endpoints_that_fail_closed_on_one_protocol(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/account_supported_protocols.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "func protocolExactEndpoints(){ endpoint, err := protocolExactEndpoint(); if err != nil { continue }; endpoints[protocol] = endpoint }",
+                "func protocolExactEndpoints(){ endpoint, err := protocolExactEndpoint(); if err != nil { return nil, err }; endpoints[protocol] = endpoint }",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("one unsupported protocol" in error for error in MODULE.check(root))
+        )
 
     def test_rejects_account_evaluation_that_flips_process_traffic_ready(self) -> None:
         root = self.fixture()

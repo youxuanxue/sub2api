@@ -323,15 +323,25 @@ func protocolExactEndpoints(
 		return nil, nil
 	}
 	endpoints := make(map[protocolrouter.Protocol]string, 2)
+	var firstErr error
 	for _, protocol := range []protocolrouter.Protocol{
 		protocolrouter.ProtocolChatCompletions,
 		protocolrouter.ProtocolResponses,
 	} {
 		endpoint, err := protocolExactEndpoint(account, protocol, resolvedModel)
 		if err != nil {
-			return nil, err
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if strings.TrimSpace(endpoint) == "" {
+			continue
 		}
 		endpoints[protocol] = endpoint
+	}
+	if len(endpoints) == 0 && firstErr != nil {
+		return nil, firstErr
 	}
 	return endpoints, nil
 }

@@ -9,6 +9,8 @@ revision_note: >
   Plans and Execute no longer compare account or capability revision tokens.
   Send-time freshness is authoritative reload plus route-fact equivalence.
   /health follows process TrafficReady, not one account's missing route.
+  NewAPI exact-endpoint resolution is per protocol: a missing Responses URL
+  omits that route instead of failing the whole account snapshot.
 related_stories: []
 ---
 
@@ -294,7 +296,9 @@ AND the required adapter and transport exist
 
 Endpoint resolution must reproduce the identity used to obtain the capability
 key. A configurable endpoint with an empty or mismatched URL never falls back
-to an official host.
+to an official host. For NewAPI channel adaptors, exact URLs are attached per
+protocol. A channel that cannot resolve Responses omits that protocol; it does
+not fail Chat snapshot construction or the account's remaining legal routes.
 
 ## 6. Scheduling and execution
 

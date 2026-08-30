@@ -409,6 +409,48 @@ func TestProtocolRoutingMigrationReportFailsTrafficReadyWhenRouterMissing(t *tes
 	}
 }
 
+func TestMigrateProtocolRoutingSSOTDoesNotMarkQianfanChatOnlyAsNoLegalRoute(t *testing.T) {
+	account := qianfanChatTestAccount(90)
+	repo := &protocolRoutingMigrationRepo{accounts: []Account{*account}}
+	identity, governed, err := BuildProtocolEndpointIdentity(account)
+	if err != nil || !governed {
+		t.Fatalf("BuildProtocolEndpointIdentity: governed=%v err=%v", governed, err)
+	}
+	repo.ensureCapabilityMaps()
+	repo.capabilities[identity.Key()] = &ProtocolEndpointCapability{
+		ID:                 1,
+		CapabilityKey:      identity.Key(),
+		Identity:           identity,
+		SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions},
+		Revision:           1,
+		ProbeEvidence: ProtocolProbeEvidence{
+			Verdicts: map[string]any{
+				string(protocolrouter.ProtocolChatCompletions): string(ProtocolProbePositive),
+				string(protocolrouter.ProtocolMessages):        string(ProtocolProbeEndpointNegative),
+			},
+		},
+	}
+	repo.links[account.ID] = identity.Key()
+
+	report, err := MigrateProtocolRoutingSSOT(context.Background(), repo, NewProtocolRouter())
+	if err != nil {
+		t.Fatalf("MigrateProtocolRoutingSSOT: %v", err)
+	}
+	ready := newProtocolRoutingSSOTReady(report, NewProtocolRouter())
+	if !ready.Ready() || !report.TrafficReady {
+		t.Fatalf("Qianfan chat-only account blocked process traffic: %+v", report)
+	}
+	for _, item := range report.Remediation {
+		if item.Reason == ProtocolRoutingRemediationNoLegalRoute {
+			t.Fatalf("verified Qianfan chat evidence was treated as no_legal_route: %+v", report.Remediation)
+		}
+	}
+	linked := repo.accounts[0]
+	if !accountHasLegalProtocolRoute(NewProtocolRouter(), &linked, []string{"ernie-5.0"}) {
+		t.Fatal("verified Qianfan chat account has no legal text route")
+	}
+}
+
 func TestProtocolRoutingMigrationReportKeepsTrafficReadyWhenAccountHasNoLegalRoute(t *testing.T) {
 	repo := &protocolRoutingMigrationRepo{accounts: []Account{{
 		ID:       9,

@@ -430,6 +430,19 @@ def check(root: Path) -> list[str]:
         for body in snapshot_bodies:
             if not contains_identifier(body, "protocolCapabilityHasVerifiedRoutingEvidence"):
                 errors.append("protocolAccountSnapshot does not fail closed on unverified capability evidence")
+        exact_bodies = function_bodies(source, "protocolExactEndpoints")
+        if not exact_bodies:
+            errors.append("canonical capability owner is missing protocolExactEndpoints")
+        for body in exact_bodies:
+            if not contains_identifier(body, "protocolExactEndpoint"):
+                errors.append("protocolExactEndpoints does not resolve NewAPI protocol URLs")
+            if re.search(
+                r"protocolExactEndpoint\s*\([\s\S]*?if\s+err\s*!=\s*nil\s*\{\s*return\s+nil,\s*err",
+                body,
+            ):
+                errors.append(
+                    "NewAPI exact-endpoint resolution still fail-closes the snapshot on one unsupported protocol"
+                )
 
     identity_owner = root / "backend/internal/service/protocol_endpoint_identity.go"
     if identity_owner.is_file():
