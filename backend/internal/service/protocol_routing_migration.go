@@ -37,11 +37,7 @@ type ProtocolRoutingMigrationReport struct {
 	SeededOfficial int
 	ProbeAttempts  int
 	ProbeResolved  int
-	// TrafficReady is true when the process can serve: the router exists and
-	// startup evaluation did not abort. Account remediations stay in
-	// Remediation and only clear CutoverReady.
-	TrafficReady bool
-	// CutoverReady is true only when TrafficReady and no remediations remain.
+	// CutoverReady is true only when the router exists and no remediations remain.
 	CutoverReady bool
 	Remediation  []ProtocolRoutingRemediation
 }
@@ -76,7 +72,7 @@ func evaluateProtocolRoutingSSOT(
 	router *protocolrouter.Router,
 	prepare bool,
 ) (ProtocolRoutingMigrationReport, error) {
-	report := ProtocolRoutingMigrationReport{CutoverReady: router != nil, TrafficReady: router != nil}
+	report := ProtocolRoutingMigrationReport{CutoverReady: router != nil}
 	accounts, err := repo.ListActive(ctx)
 	if err != nil {
 		return report, err
@@ -229,7 +225,6 @@ func prepareProtocolRoutingSSOT(
 		return newProtocolRoutingSSOTReady(final, router), nil
 	}
 	if err != nil {
-		final.TrafficReady = false
 		final.CutoverReady = false
 		return ProtocolRoutingSSOTReady{Report: final}, err
 	}

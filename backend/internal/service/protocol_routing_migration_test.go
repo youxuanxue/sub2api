@@ -300,7 +300,7 @@ func TestMigrateProtocolRoutingSSOTSeedsOnlyOfficialProfilesAndReportsCustomAcco
 	if err != nil {
 		t.Fatalf("MigrateProtocolRoutingSSOT: %v", err)
 	}
-	if report.ActiveGoverned != 2 || report.SeededOfficial != 1 || report.CutoverReady || !report.TrafficReady {
+	if report.ActiveGoverned != 2 || report.SeededOfficial != 1 || report.CutoverReady {
 		t.Fatalf("report = %+v", report)
 	}
 	if projection, exists := repo.accounts[0].Extra[SupportedProtocolsExtraKey]; exists {
@@ -387,7 +387,7 @@ func TestProtocolRoutingMediaOnlyClassificationExcludesKnownImageAliases(t *test
 	}
 }
 
-func TestProtocolRoutingMigrationReportFailsTrafficReadyWhenRouterMissing(t *testing.T) {
+func TestProtocolRoutingMigrationReportFailsCutoverWhenRouterMissing(t *testing.T) {
 	repo := &protocolRoutingMigrationRepo{accounts: []Account{{
 		ID:       9,
 		Name:     "custom-openai",
@@ -404,8 +404,8 @@ func TestProtocolRoutingMigrationReportFailsTrafficReadyWhenRouterMissing(t *tes
 		t.Fatalf("MigrateProtocolRoutingSSOT: %v", err)
 	}
 	ready := newProtocolRoutingSSOTReady(report, nil)
-	if ready.Ready() || report.TrafficReady || report.CutoverReady {
-		t.Fatalf("missing router admitted traffic: %+v", report)
+	if ready.EnabledRouter() != nil || report.CutoverReady {
+		t.Fatalf("missing router admitted cutover: %+v", report)
 	}
 }
 
@@ -437,8 +437,8 @@ func TestMigrateProtocolRoutingSSOTDoesNotMarkQianfanChatOnlyAsNoLegalRoute(t *t
 		t.Fatalf("MigrateProtocolRoutingSSOT: %v", err)
 	}
 	ready := newProtocolRoutingSSOTReady(report, NewProtocolRouter())
-	if !ready.Ready() || !report.TrafficReady {
-		t.Fatalf("Qianfan chat-only account blocked process traffic: %+v", report)
+	if ready.EnabledRouter() == nil {
+		t.Fatalf("Qianfan chat-only account dropped the router: %+v", report)
 	}
 	for _, item := range report.Remediation {
 		if item.Reason == ProtocolRoutingRemediationNoLegalRoute {
@@ -451,7 +451,7 @@ func TestMigrateProtocolRoutingSSOTDoesNotMarkQianfanChatOnlyAsNoLegalRoute(t *t
 	}
 }
 
-func TestProtocolRoutingMigrationReportKeepsTrafficReadyWhenAccountHasNoLegalRoute(t *testing.T) {
+func TestProtocolRoutingMigrationReportKeepsRouterWhenAccountHasNoLegalRoute(t *testing.T) {
 	repo := &protocolRoutingMigrationRepo{accounts: []Account{{
 		ID:       9,
 		Name:     "bad-route",
@@ -470,8 +470,8 @@ func TestProtocolRoutingMigrationReportKeepsTrafficReadyWhenAccountHasNoLegalRou
 		t.Fatalf("MigrateProtocolRoutingSSOT: %v", err)
 	}
 	ready := newProtocolRoutingSSOTReady(report, NewProtocolRouter())
-	if !ready.Ready() || !report.TrafficReady {
-		t.Fatalf("account without a legal route blocked process traffic readiness: %+v", report)
+	if ready.EnabledRouter() == nil {
+		t.Fatalf("account without a legal route dropped the router: %+v", report)
 	}
 	if report.CutoverReady || len(report.Remediation) != 1 || report.Remediation[0].Reason != ProtocolRoutingRemediationNoLegalRoute {
 		t.Fatalf("report = %+v, want no_legal_route remediation without cutover", report)
@@ -499,7 +499,7 @@ func TestProtocolRoutingMigrationDoesNotTreatHistoricalWildcardSeedAsVerified(t 
 	if err != nil {
 		t.Fatalf("MigrateProtocolRoutingSSOT: %v", err)
 	}
-	if report.CutoverReady || !report.TrafficReady || len(report.Remediation) != 1 || report.Remediation[0].Reason != ProtocolRoutingRemediationProbeRequired {
+	if report.CutoverReady || len(report.Remediation) != 1 || report.Remediation[0].Reason != ProtocolRoutingRemediationProbeRequired {
 		t.Fatalf("historical positive seed bypassed initial endpoint probe: %+v", report)
 	}
 }
@@ -555,8 +555,8 @@ func TestMigrateProtocolRoutingSSOTAdmitsPartialPositiveProtocolsWithoutBlocking
 		t.Fatalf("MigrateProtocolRoutingSSOT: %v", err)
 	}
 	ready := newProtocolRoutingSSOTReady(report, NewProtocolRouter())
-	if !ready.Ready() || !report.TrafficReady {
-		t.Fatalf("partial positive account blocked process traffic readiness: %+v", report)
+	if ready.EnabledRouter() == nil {
+		t.Fatalf("partial positive account dropped the router: %+v", report)
 	}
 	if report.CutoverReady {
 		t.Fatalf("incomplete probe was treated as full cutover: %+v", report)
@@ -625,7 +625,7 @@ func TestPrepareProtocolRoutingSSOTProbesRemediationBeforeEnablingRouter(t *test
 	}
 }
 
-func TestPrepareProtocolRoutingSSOTKeepsRouterAndTrafficReadyWhenRemediationRemains(t *testing.T) {
+func TestPrepareProtocolRoutingSSOTKeepsRouterWhenRemediationRemains(t *testing.T) {
 	repo := &protocolRoutingMigrationRepo{accounts: []Account{{
 		ID:       13,
 		Name:     "unresolved-openai",
@@ -643,11 +643,8 @@ func TestPrepareProtocolRoutingSSOTKeepsRouterAndTrafficReadyWhenRemediationRema
 	if err != nil {
 		t.Fatalf("prepareProtocolRoutingSSOT: %v", err)
 	}
-	if ready.Report.CutoverReady || !ready.Report.TrafficReady || ready.EnabledRouter() != router {
-		t.Fatalf("ready = %+v router=%p, want traffic-ready remediation with router %p", ready.Report, ready.EnabledRouter(), router)
-	}
-	if !ready.Ready() {
-		t.Fatal("Ready() = false, want true while only unverified accounts remain excluded")
+	if ready.Report.CutoverReady || ready.EnabledRouter() != router {
+		t.Fatalf("ready = %+v router=%p, want remediation with router %p", ready.Report, ready.EnabledRouter(), router)
 	}
 	if ready.Report.ProbeAttempts != 1 || ready.Report.ProbeResolved != 0 {
 		t.Fatalf("probe outcome = attempts:%d resolved:%d, want 1/0", ready.Report.ProbeAttempts, ready.Report.ProbeResolved)
@@ -679,7 +676,7 @@ func TestPrepareProtocolRoutingSSOTFailsClosedWhenPublicationFails(t *testing.T)
 	if err == nil || err.Error() != "publish failed" {
 		t.Fatalf("prepareProtocolRoutingSSOT error = %v, want publish failed", err)
 	}
-	if ready.Ready() || ready.Report.CutoverReady {
+	if ready.EnabledRouter() != nil || ready.Report.CutoverReady {
 		t.Fatalf("publication failure admitted candidate: %+v", ready.Report)
 	}
 	if repo.publishCalls != 1 || repo.listCalls != 1 {
@@ -699,7 +696,7 @@ func TestPrepareProtocolRoutingSSOTFinalReadinessDoesNotMutateCapabilityLinks(t 
 	}}}
 
 	ready, err := prepareProtocolRoutingSSOT(context.Background(), repo, NewProtocolRouter(), nil)
-	if err != nil || !ready.Ready() {
+	if err != nil || ready.EnabledRouter() == nil {
 		t.Fatalf("prepareProtocolRoutingSSOT = %+v err=%v", ready.Report, err)
 	}
 	if repo.ensureCalls != 1 {
@@ -729,8 +726,8 @@ func TestPrepareProtocolRoutingSSOTRollsBackPublicationWhenFinalReadinessFails(t
 	if err != nil {
 		t.Fatalf("prepareProtocolRoutingSSOT: %v", err)
 	}
-	if !ready.Ready() || ready.Report.CutoverReady {
-		t.Fatalf("final readiness failure should keep process traffic ready without cutover: %+v", ready.Report)
+	if ready.EnabledRouter() != router || ready.Report.CutoverReady {
+		t.Fatalf("final readiness failure should keep router without cutover: %+v", ready.Report)
 	}
 	if got := LegacySupportedProtocolsProjection(&repo.accounts[0]); !reflect.DeepEqual(got, []protocolrouter.Protocol{protocolrouter.ProtocolMessages}) {
 		t.Fatalf("failed final readiness left projection=%v, want pre-candidate messages", got)
@@ -757,11 +754,11 @@ func TestPrepareProtocolRoutingSSOTReusesCompletedProbeOnRestart(t *testing.T) {
 	router := NewProtocolRouter()
 
 	first, err := prepareProtocolRoutingSSOT(context.Background(), repo, router, prober)
-	if err != nil || !first.Ready() {
+	if err != nil || first.EnabledRouter() == nil {
 		t.Fatalf("first preparation = %+v err=%v", first.Report, err)
 	}
 	second, err := prepareProtocolRoutingSSOT(context.Background(), repo, router, prober)
-	if err != nil || !second.Ready() {
+	if err != nil || second.EnabledRouter() == nil {
 		t.Fatalf("second preparation = %+v err=%v", second.Report, err)
 	}
 	if !reflect.DeepEqual(prober.calls, []int64{15}) {
@@ -805,8 +802,8 @@ func TestPrepareProtocolRoutingSSOTRetriesInconclusive429WithoutPublishingThenPu
 	if err != nil {
 		t.Fatalf("first prepareProtocolRoutingSSOT: %v", err)
 	}
-	if !first.Ready() || !first.Report.TrafficReady || first.Report.CutoverReady {
-		t.Fatalf("inconclusive 429 should keep traffic ready without full cutover: %+v", first.Report)
+	if first.EnabledRouter() != router || first.Report.CutoverReady {
+		t.Fatalf("inconclusive 429 should keep router without full cutover: %+v", first.Report)
 	}
 	if repo.publishCalls != 0 {
 		t.Fatalf("inconclusive 429 publication calls = %d, want 0", repo.publishCalls)
@@ -823,8 +820,8 @@ func TestPrepareProtocolRoutingSSOTRetriesInconclusive429WithoutPublishingThenPu
 	if err != nil {
 		t.Fatalf("second prepareProtocolRoutingSSOT: %v", err)
 	}
-	if !second.Ready() || !second.Report.CutoverReady {
-		t.Fatalf("recovered endpoint remained not ready: %+v", second.Report)
+	if second.EnabledRouter() != router || !second.Report.CutoverReady {
+		t.Fatalf("recovered endpoint remained not cutover-ready: %+v", second.Report)
 	}
 	if !reflect.DeepEqual(prober.calls, []int64{17, 17}) {
 		t.Fatalf("probe calls = %v, want one retry against the same linked capability", prober.calls)
