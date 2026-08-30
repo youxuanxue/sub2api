@@ -225,7 +225,6 @@ func prepareProtocolRoutingSSOT(
 		return nil
 	})
 	if errors.Is(err, errProtocolRoutingFinalReadinessNotReady) {
-		final.TrafficReady = false
 		final.CutoverReady = false
 		return newProtocolRoutingSSOTReady(final, router), nil
 	}

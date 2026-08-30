@@ -729,8 +729,8 @@ func TestPrepareProtocolRoutingSSOTRollsBackPublicationWhenFinalReadinessFails(t
 	if err != nil {
 		t.Fatalf("prepareProtocolRoutingSSOT: %v", err)
 	}
-	if ready.Ready() || ready.Report.CutoverReady {
-		t.Fatalf("final readiness failure admitted candidate: %+v", ready.Report)
+	if !ready.Ready() || ready.Report.CutoverReady {
+		t.Fatalf("final readiness failure should keep process traffic ready without cutover: %+v", ready.Report)
 	}
 	if got := LegacySupportedProtocolsProjection(&repo.accounts[0]); !reflect.DeepEqual(got, []protocolrouter.Protocol{protocolrouter.ProtocolMessages}) {
 		t.Fatalf("failed final readiness left projection=%v, want pre-candidate messages", got)

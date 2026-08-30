@@ -584,6 +584,22 @@ def check(root: Path) -> list[str]:
         for body in evaluate_bodies:
             if re.search(r"TrafficReady\s*=\s*false", body):
                 errors.append("account evaluation still treats one account remediation as process TrafficReady")
+        prepare_bodies = function_bodies(source, "prepareProtocolRoutingSSOT")
+        for body in prepare_bodies:
+            match = re.search(
+                r"if\s+errors\s*\.\s*Is\s*\(\s*err\s*,\s*errProtocolRoutingFinalReadinessNotReady\s*\)\s*\{",
+                body,
+            )
+            if match is None:
+                continue
+            open_brace = body.find("{", match.start(), match.end())
+            close_brace = matching_brace(body, open_brace)
+            if close_brace is None:
+                continue
+            if re.search(r"TrafficReady\s*=\s*false", body[open_brace + 1 : close_brace]):
+                errors.append(
+                    "publication-time CutoverReady failure still treats one account as process TrafficReady"
+                )
         evidence_bodies = function_bodies(source, "protocolCapabilityHasVerifiedRoutingEvidence")
         if not evidence_bodies or not all(
             contains_identifier(body, "OfficialSeed")

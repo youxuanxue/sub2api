@@ -160,7 +160,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "func MigrateProtocolRoutingSSOT(){ LegacySupportedProtocolsProjection() }\n"
             "func validateProtocolRoutingSSOTReadiness(){}\n"
             "func evaluateProtocolRoutingSSOT(){ report.CutoverReady = false }\n"
-            "func prepareProtocolRoutingSSOT(){ ProbeAccountProtocolCapabilitiesForPreparation(); prepared := MigrateProtocolRoutingSSOT(); if prepared.CutoverReady { PublishProtocolRoutingProjections(func(){ final := validateProtocolRoutingSSOTReadiness(); if !final.CutoverReady { return errProtocolRoutingFinalReadinessNotReady } }) } }\n"
+            "func prepareProtocolRoutingSSOT(){ ProbeAccountProtocolCapabilitiesForPreparation(); prepared := MigrateProtocolRoutingSSOT(); if prepared.CutoverReady { PublishProtocolRoutingProjections(func(){ final := validateProtocolRoutingSSOTReadiness(); if !final.CutoverReady { return errProtocolRoutingFinalReadinessNotReady } }) }; if errors.Is(err, errProtocolRoutingFinalReadinessNotReady) { final.CutoverReady = false } }\n"
             "func protocolCapabilityHasVerifiedRoutingEvidence(capability Capability){ capability.ProbeEvidence.OfficialSeed; capability.ProbeEvidence.InitialProbeCompleted; ProtocolProbePositive; capability.IdentityConflict }\n",
             encoding="utf-8",
         )
@@ -765,6 +765,20 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         )
         self.assertTrue(
             any("one unsupported protocol" in error for error in MODULE.check(root))
+        )
+
+    def test_rejects_publication_cutover_failure_that_flips_process_traffic_ready(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/protocol_routing_migration.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "if errors.Is(err, errProtocolRoutingFinalReadinessNotReady) { final.CutoverReady = false }",
+                "if errors.Is(err, errProtocolRoutingFinalReadinessNotReady) { final.TrafficReady = false; final.CutoverReady = false }",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("publication-time CutoverReady" in error for error in MODULE.check(root))
         )
 
     def test_rejects_account_evaluation_that_flips_process_traffic_ready(self) -> None:

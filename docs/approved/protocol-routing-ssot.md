@@ -574,8 +574,8 @@ in the same generation remains inconclusive.
 
 New application code always reads the capability table. It has no fallback to
 `accounts.extra.supported_protocols`, even during migration. Preparation,
-probing, and hard routing cutover may ship in one image because readiness is the
-traffic-admission boundary.
+probing, and hard routing cutover may ship in one image. TrafficReady admits
+process traffic; CutoverReady is the publication-completeness signal.
 
 The image reports `/health` as `503 not_ready` only for a process-wide
 blocker: drain, missing router, or startup evaluation abort. An individual
