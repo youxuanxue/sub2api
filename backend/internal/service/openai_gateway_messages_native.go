@@ -152,7 +152,9 @@ func (s *OpenAIGatewayService) sendNativeAnthropicMessagesRequest(
 	if account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	hwka := s.beginAnthropicClientHeaderWaitKeepalive(c, stream)
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	hwka.stop()
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 	}

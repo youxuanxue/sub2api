@@ -1466,6 +1466,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					// 断开排水期间上游已计量的 usage 必须入账（此前直接 return 丢弃，
 					// payg 上游照常计费而平台漏记）。
 					submitMessagesUsage(result)
+					// Client already gone; if nothing was written, still emit an
+					// Anthropic error so access logs are 502 instead of empty 200.
+					h.ensureAnthropicErrorResponse(c, streamStarted)
 					return
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, result), false, nil, err)

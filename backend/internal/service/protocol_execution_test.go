@@ -570,7 +570,7 @@ func TestExecuteSelectedProtocolUsesLegacyExecutorWhenCutoverRouterDisabled(t *t
 
 func TestExecuteSelectedProtocolValidatesExactPlanEndpointBeforeExecutor(t *testing.T) {
 	router := NewProtocolRouter()
-	req := protocolRoutingTestRequest(t, protocolrouter.ProtocolMessages)
+	req := protocolRoutingClaudeMessagesRequest(t, "claude-sonnet-4-6")
 	ctx := WithProtocolRouting(context.Background(), router, req)
 	account := protocolRoutingOpenAIAccount(12, "messages")
 	plan, _, err := protocolPlanForAccount(ctx, account, req.RequestedModel())

@@ -106,7 +106,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	if err != nil {
 		return nil, err
 	}
+	hwka := s.beginAnthropicClientHeaderWaitKeepalive(c, clientStream)
 	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, chatBody, clientStream, apiKey, account.GetOpenAIUserAgent(), "")
+	hwka.stop()
 	if err != nil {
 		return nil, err
 	}

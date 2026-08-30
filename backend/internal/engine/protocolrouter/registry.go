@@ -182,10 +182,12 @@ func preservesMessagesToResponsesContent(req CanonicalRequest) bool {
 }
 
 func preservesMessagesToChat(req CanonicalRequest) bool {
-	return preservesTextOnlyWithoutTools(req) &&
-		req.profile.Continuation == ContinuationNone &&
-		req.profile.Reasoning == ReasoningNone &&
-		req.profile.PromptCache == PromptCacheNone
+	// forwardAnthropicViaRawChatCompletions already converts Claude Code
+	// function tools and images (AnthropicToChatCompletionsRequest). The old
+	// text-only-without-tools gate fail-closed those requests onto messages
+	// identity, which dual-stack OpenAI relays cannot serve for non-Claude models.
+	return preservesMessagesToResponsesContent(req) &&
+		req.profile.Continuation == ContinuationNone
 }
 
 func preservesChatToResponses(req CanonicalRequest) bool {

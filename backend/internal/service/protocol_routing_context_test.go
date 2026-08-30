@@ -219,6 +219,89 @@ func TestOpenAIEdgeMirrorPlansClaudeCodeMessagesAsResponses(t *testing.T) {
 	}
 }
 
+func protocolRoutingClaudeMessagesRequest(t *testing.T, model string) protocolrouter.CanonicalRequest {
+	t.Helper()
+	req, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolMessages,
+		RequestedModel:  model,
+		Profile: protocolrouter.RequestProfile{
+			Tools:        true,
+			ToolChoice:   protocolrouter.ToolChoiceAuto,
+			ContentKinds: protocolrouter.ContentText,
+		},
+		Body: []byte(`{"model":"` + model + `","tools":[{"name":"lookup"}],"messages":[{"role":"user","content":"hi"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+	return req
+}
+
+func protocolRoutingRelinkedOpenAIAccount(id int64, baseURL string, protocols ...string) *Account {
+	account := protocolRoutingOpenAIAccount(id, protocols...)
+	account.Credentials["base_url"] = baseURL
+	supported := make([]protocolrouter.Protocol, len(protocols))
+	for i, protocol := range protocols {
+		supported[i] = protocolrouter.Protocol(protocol)
+	}
+	attachTestProtocolCapability(account, supported...)
+	return account
+}
+
+func TestDualStackOpenAIRelayPlansNonClaudeMessagesAwayFromNativeIdentity(t *testing.T) {
+	tokenseaLike := protocolRoutingRelinkedOpenAIAccount(92, "https://agent.tokensea.ai/v1", "messages", "chat_completions")
+	cloudwiseLike := protocolRoutingRelinkedOpenAIAccount(95, "https://api.cloudwise.ai/api", "messages", "chat_completions", "responses")
+
+	t.Run("tokensea gpt-5.4 uses chat_completions", func(t *testing.T) {
+		ctx := WithProtocolRouting(context.Background(), protocolRoutingTestRouter(), protocolRoutingClaudeCodeMessagesRequest(t))
+		if !ProtocolRouteLegal(ctx, tokenseaLike, "gpt-5.4") {
+			t.Fatal("tokensea dual-stack must still route Claude Code gpt-5.4")
+		}
+		plan, governed, err := protocolPlanForAccount(ctx, tokenseaLike, "gpt-5.4")
+		if !governed || err != nil {
+			t.Fatalf("protocolPlanForAccount: governed=%v err=%v", governed, err)
+		}
+		if plan.TargetProtocol() != protocolrouter.ProtocolChatCompletions ||
+			plan.AdapterID() != protocolrouter.AdapterMessagesToChat {
+			t.Fatalf("plan target/adapter = %q/%q, want chat_completions/%s",
+				plan.TargetProtocol(), plan.AdapterID(), protocolrouter.AdapterMessagesToChat)
+		}
+	})
+
+	t.Run("cloudwise MiniMax uses chat_completions not responses", func(t *testing.T) {
+		req := protocolRoutingClaudeMessagesRequest(t, "MiniMax-M3")
+		ctx := WithProtocolRouting(context.Background(), protocolRoutingTestRouter(), req)
+		if !ProtocolRouteLegal(ctx, cloudwiseLike, "MiniMax-M3") {
+			t.Fatal("cloudwise dual-stack must still route Claude Code MiniMax")
+		}
+		plan, governed, err := protocolPlanForAccount(ctx, cloudwiseLike, "MiniMax-M3")
+		if !governed || err != nil {
+			t.Fatalf("protocolPlanForAccount: governed=%v err=%v", governed, err)
+		}
+		if plan.TargetProtocol() != protocolrouter.ProtocolChatCompletions ||
+			plan.AdapterID() != protocolrouter.AdapterMessagesToChat {
+			t.Fatalf("plan target/adapter = %q/%q, want chat_completions/%s",
+				plan.TargetProtocol(), plan.AdapterID(), protocolrouter.AdapterMessagesToChat)
+		}
+	})
+
+	t.Run("claude model stays on native messages", func(t *testing.T) {
+		req := protocolRoutingClaudeMessagesRequest(t, "claude-sonnet-4-6")
+		for _, account := range []*Account{tokenseaLike, cloudwiseLike} {
+			ctx := WithProtocolRouting(context.Background(), protocolRoutingTestRouter(), req)
+			plan, governed, err := protocolPlanForAccount(ctx, account, "claude-sonnet-4-6")
+			if !governed || err != nil {
+				t.Fatalf("account %d: governed=%v err=%v", account.ID, governed, err)
+			}
+			if plan.TargetProtocol() != protocolrouter.ProtocolMessages ||
+				plan.AdapterID() != protocolrouter.AdapterMessagesIdentity {
+				t.Fatalf("account %d plan target/adapter = %q/%q, want messages/%s",
+					account.ID, plan.TargetProtocol(), plan.AdapterID(), protocolrouter.AdapterMessagesIdentity)
+			}
+		}
+	})
+}
+
 func TestProtocolRoutingHardGateRejectsGovernedAccountWithoutLegalPath(t *testing.T) {
 	ctx := WithProtocolRouting(
 		context.Background(),
