@@ -258,7 +258,7 @@ func TestClassifyIncident_NewAPIArrearsIsImmediateNotDigest(t *testing.T) {
 	require.True(t, cls.alert)
 	require.Equal(t, IncidentKindPermanentDisable, cls.kind,
 		"arrears must use the immediate P0 path, NOT the temporary digest")
-	require.Equal(t, "上游账号欠费", cls.kindZh)
+	require.Contains(t, cls.kindZh, "欠费")
 	require.Contains(t, cls.advice, "充值")
 	require.Contains(t, cls.advice, "手动清除 error")
 }

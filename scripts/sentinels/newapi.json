@@ -539,7 +539,34 @@
         "case \"newapi_arrears\":",
         "IncidentKindPermanentDisable, \"newapi_arrears\", \"上游账号欠费\""
       ],
-      "rationale": "classifyIncident MUST map reason 'newapi_arrears' to the IMMEDIATE P0 card path (IncidentKindPermanentDisable), NOT the temporary-cooldown digest that PR #730 made default-OFF. Upstream arrears is persistent until a human recharges — it will not self-heal — so folding it into the silenced self-healing digest would mean operators never learn the upstream account needs a recharge. Re-mapping it to IncidentKindTemporaryCooldown silently regresses the 2026-06-12 alerting gap."
+      "rationale": "classifyIncident MUST map reason 'newapi_arrears' to the IMMEDIATE P0 card path (IncidentKindPermanentDisable), NOT the temporary-cooldown digest that PR #730 made default-OFF. Upstream arrears is persistent until a human recharges — it will not self-heal — so folding it into the silenced self-healing digest would mean operators never learn the upstream account needs a recharge. Re-mapping it to IncidentKindTemporaryCooldown silently regresses the 2026-06-12 alerting gap. Card title stays '上游账号欠费'; prepaid 额度不足 (tokensea 403) shares this same reason via tkTryHandleStandingBilling."
+    },
+    {
+      "path": "backend/internal/service/account_standing_billing_tk.go",
+      "must_contain": [
+        "tkStandingBillingIncidentReason",
+        "tkIsAccountStandingBillingMessage",
+        "tkTryHandleStandingBilling",
+        "用户额度不足",
+        "weekly usage quota"
+      ],
+      "rationale": "SSOT for account-standing billing / prepaid quota death across 400/402/403. Prod 2026-08-30 tokensea-cc #93 returned 403 '用户额度不足' and only failovers (no SetError, no account-incident P0). This file owns the shared phrase list and the SetError + newapi_arrears Feishu path. 'weekly usage quota' is the negative marker so recoverable windows (account 88) must not permanently disable. Dropping the file or the tokensea phrase re-opens the prepaid-dead account staying schedulable."
+    },
+    {
+      "path": "backend/internal/service/account_standing_billing_tk_test.go",
+      "must_contain": [
+        "TestTkTryHandleStandingBilling_Tokensea403DisablesAndAlerts",
+        "TestTkTryHandleStandingBilling_WeeklyQuota429IsNotStanding",
+        "tokenseaQuota403Body"
+      ],
+      "rationale": "Regression for prepaid 额度不足 403 (prod 2026-08-30 account 93) and the weekly-quota negative. Dropping these tests lets handle403 stub-saturation failover stay green while a dead prepaid account remains schedulable."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "tkTryHandleStandingBilling"
+      ],
+      "rationale": "HandleUpstreamError must call tkTryHandleStandingBilling before pool-mode skip and tryTempUnschedulable. Otherwise a generic 403 temp rule or Anthropic stub-saturation fallthrough leaves prepaid-dead accounts (tokensea 用户额度不足) schedulable with no Feishu account-failure card."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
