@@ -241,6 +241,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 	if err != nil {
 		return protocolrouter.AccountSnapshot{}, err
 	}
+	protocols = retainResolvedNewAPIExactProtocols(account, protocols, exactEndpoints)
 	return protocolrouter.NewAccountSnapshot(protocolrouter.AccountSnapshotInput{
 		AccountID:          account.ID,
 		CapabilityKey:      capability.CapabilityKey,
@@ -322,18 +323,58 @@ func protocolExactEndpoints(
 	if account == nil || account.Platform != PlatformNewAPI || account.ChannelType <= 0 {
 		return nil, nil
 	}
+	// Only resolve protocols the linked capability already claims. Qianfan
+	// (channel 46) rejects Responses; forcing that URL used to poison
+	// chat-only snapshots. A claimed protocol that cannot resolve is omitted
+	// so a remaining legal Chat route still plans.
 	endpoints := make(map[protocolrouter.Protocol]string, 2)
-	for _, protocol := range []protocolrouter.Protocol{
-		protocolrouter.ProtocolChatCompletions,
-		protocolrouter.ProtocolResponses,
-	} {
+	var firstErr error
+	for _, protocol := range routingSupportedProtocols(account) {
+		switch protocol {
+		case protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses:
+		default:
+			continue
+		}
 		endpoint, err := protocolExactEndpoint(account, protocol, resolvedModel)
 		if err != nil {
-			return nil, err
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if strings.TrimSpace(endpoint) == "" {
+			continue
 		}
 		endpoints[protocol] = endpoint
 	}
+	if len(endpoints) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
 	return endpoints, nil
+}
+
+// retainResolvedNewAPIExactProtocols drops Chat/Responses that the channel
+// adaptor could not resolve. Leaving them in the Plan-facing set lets
+// resolveEndpoint invent /v1/responses from customBaseURL.
+func retainResolvedNewAPIExactProtocols(
+	account *Account,
+	protocols []protocolrouter.Protocol,
+	exactEndpoints map[protocolrouter.Protocol]string,
+) []protocolrouter.Protocol {
+	if account == nil || account.Platform != PlatformNewAPI || account.ChannelType <= 0 {
+		return protocols
+	}
+	kept := make([]protocolrouter.Protocol, 0, len(protocols))
+	for _, protocol := range protocols {
+		switch protocol {
+		case protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses:
+			if strings.TrimSpace(exactEndpoints[protocol]) == "" {
+				continue
+			}
+		}
+		kept = append(kept, protocol)
+	}
+	return kept
 }
 
 func protocolGeminiEndpointProfile(account *Account) protocolrouter.GeminiEndpointProfile {

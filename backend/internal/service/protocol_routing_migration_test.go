@@ -387,7 +387,71 @@ func TestProtocolRoutingMediaOnlyClassificationExcludesKnownImageAliases(t *test
 	}
 }
 
-func TestProtocolRoutingMigrationReportRejectsCanonicalAccountWithoutLegalRoute(t *testing.T) {
+func TestProtocolRoutingMigrationReportFailsTrafficReadyWhenRouterMissing(t *testing.T) {
+	repo := &protocolRoutingMigrationRepo{accounts: []Account{{
+		ID:       9,
+		Name:     "custom-openai",
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": "https://relay.example.test/v1",
+		},
+	}}}
+
+	report, err := MigrateProtocolRoutingSSOT(context.Background(), repo, nil)
+	if err != nil {
+		t.Fatalf("MigrateProtocolRoutingSSOT: %v", err)
+	}
+	ready := newProtocolRoutingSSOTReady(report, nil)
+	if ready.Ready() || report.TrafficReady || report.CutoverReady {
+		t.Fatalf("missing router admitted traffic: %+v", report)
+	}
+}
+
+func TestMigrateProtocolRoutingSSOTDoesNotMarkQianfanChatOnlyAsNoLegalRoute(t *testing.T) {
+	account := qianfanChatTestAccount(90)
+	repo := &protocolRoutingMigrationRepo{accounts: []Account{*account}}
+	identity, governed, err := BuildProtocolEndpointIdentity(account)
+	if err != nil || !governed {
+		t.Fatalf("BuildProtocolEndpointIdentity: governed=%v err=%v", governed, err)
+	}
+	repo.ensureCapabilityMaps()
+	repo.capabilities[identity.Key()] = &ProtocolEndpointCapability{
+		ID:                 1,
+		CapabilityKey:      identity.Key(),
+		Identity:           identity,
+		SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions},
+		Revision:           1,
+		ProbeEvidence: ProtocolProbeEvidence{
+			Verdicts: map[string]any{
+				string(protocolrouter.ProtocolChatCompletions): string(ProtocolProbePositive),
+				string(protocolrouter.ProtocolMessages):        string(ProtocolProbeEndpointNegative),
+			},
+		},
+	}
+	repo.links[account.ID] = identity.Key()
+
+	report, err := MigrateProtocolRoutingSSOT(context.Background(), repo, NewProtocolRouter())
+	if err != nil {
+		t.Fatalf("MigrateProtocolRoutingSSOT: %v", err)
+	}
+	ready := newProtocolRoutingSSOTReady(report, NewProtocolRouter())
+	if !ready.Ready() || !report.TrafficReady {
+		t.Fatalf("Qianfan chat-only account blocked process traffic: %+v", report)
+	}
+	for _, item := range report.Remediation {
+		if item.Reason == ProtocolRoutingRemediationNoLegalRoute {
+			t.Fatalf("verified Qianfan chat evidence was treated as no_legal_route: %+v", report.Remediation)
+		}
+	}
+	linked := repo.accounts[0]
+	if !accountHasLegalProtocolRoute(NewProtocolRouter(), &linked, []string{"ernie-5.0"}) {
+		t.Fatal("verified Qianfan chat account has no legal text route")
+	}
+}
+
+func TestProtocolRoutingMigrationReportKeepsTrafficReadyWhenAccountHasNoLegalRoute(t *testing.T) {
 	repo := &protocolRoutingMigrationRepo{accounts: []Account{{
 		ID:       9,
 		Name:     "bad-route",
@@ -405,8 +469,12 @@ func TestProtocolRoutingMigrationReportRejectsCanonicalAccountWithoutLegalRoute(
 	if err != nil {
 		t.Fatalf("MigrateProtocolRoutingSSOT: %v", err)
 	}
-	if report.CutoverReady || report.TrafficReady || len(report.Remediation) != 1 || report.Remediation[0].Reason != ProtocolRoutingRemediationNoLegalRoute {
-		t.Fatalf("report = %+v", report)
+	ready := newProtocolRoutingSSOTReady(report, NewProtocolRouter())
+	if !ready.Ready() || !report.TrafficReady {
+		t.Fatalf("account without a legal route blocked process traffic readiness: %+v", report)
+	}
+	if report.CutoverReady || len(report.Remediation) != 1 || report.Remediation[0].Reason != ProtocolRoutingRemediationNoLegalRoute {
+		t.Fatalf("report = %+v, want no_legal_route remediation without cutover", report)
 	}
 }
 
@@ -661,8 +729,8 @@ func TestPrepareProtocolRoutingSSOTRollsBackPublicationWhenFinalReadinessFails(t
 	if err != nil {
 		t.Fatalf("prepareProtocolRoutingSSOT: %v", err)
 	}
-	if ready.Ready() || ready.Report.CutoverReady {
-		t.Fatalf("final readiness failure admitted candidate: %+v", ready.Report)
+	if !ready.Ready() || ready.Report.CutoverReady {
+		t.Fatalf("final readiness failure should keep process traffic ready without cutover: %+v", ready.Report)
 	}
 	if got := LegacySupportedProtocolsProjection(&repo.accounts[0]); !reflect.DeepEqual(got, []protocolrouter.Protocol{protocolrouter.ProtocolMessages}) {
 		t.Fatalf("failed final readiness left projection=%v, want pre-candidate messages", got)

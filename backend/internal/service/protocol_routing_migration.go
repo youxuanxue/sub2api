@@ -37,9 +37,9 @@ type ProtocolRoutingMigrationReport struct {
 	SeededOfficial int
 	ProbeAttempts  int
 	ProbeResolved  int
-	// TrafficReady is true when every hard blocker is gone: identity can be
-	// built, and any already-verified protocol set still has a legal route.
-	// Unverified / incomplete probes stay in Remediation and do not flip this.
+	// TrafficReady is true when the process can serve: the router exists and
+	// startup evaluation did not abort. Account remediations stay in
+	// Remediation and only clear CutoverReady.
 	TrafficReady bool
 	// CutoverReady is true only when TrafficReady and no remediations remain.
 	CutoverReady bool
@@ -76,7 +76,7 @@ func evaluateProtocolRoutingSSOT(
 	router *protocolrouter.Router,
 	prepare bool,
 ) (ProtocolRoutingMigrationReport, error) {
-	report := ProtocolRoutingMigrationReport{CutoverReady: true, TrafficReady: true}
+	report := ProtocolRoutingMigrationReport{CutoverReady: router != nil, TrafficReady: router != nil}
 	accounts, err := repo.ListActive(ctx)
 	if err != nil {
 		return report, err
@@ -90,7 +90,6 @@ func evaluateProtocolRoutingSSOT(
 		identity, governed, err := BuildProtocolEndpointIdentity(account)
 		if err != nil {
 			if account.Schedulable {
-				report.TrafficReady = false
 				report.CutoverReady = false
 				report.Remediation = append(report.Remediation, ProtocolRoutingRemediation{AccountID: account.ID, Name: account.Name, Reason: ProtocolRoutingRemediationNoLegalRoute})
 			}
@@ -145,7 +144,6 @@ func evaluateProtocolRoutingSSOT(
 		}
 		models := protocolRoutingMigrationModels(account)
 		if !accountHasLegalProtocolRoute(router, account, models) {
-			report.TrafficReady = false
 			report.CutoverReady = false
 			report.Remediation = append(report.Remediation, ProtocolRoutingRemediation{
 				AccountID: account.ID,
@@ -227,7 +225,6 @@ func prepareProtocolRoutingSSOT(
 		return nil
 	})
 	if errors.Is(err, errProtocolRoutingFinalReadinessNotReady) {
-		final.TrafficReady = false
 		final.CutoverReady = false
 		return newProtocolRoutingSSOTReady(final, router), nil
 	}

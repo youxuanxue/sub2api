@@ -4,10 +4,14 @@ status: approved
 approved_by: "feng (conversation approval, 2026-08-27)"
 authors: [codex]
 created: 2026-08-24
-revised: 2026-08-29
+revised: 2026-08-30
 revision_note: >
   Plans and Execute no longer compare account or capability revision tokens.
   Send-time freshness is authoritative reload plus route-fact equivalence.
+  /health follows process TrafficReady, not one account's missing route.
+  NewAPI exact-endpoint resolution is per declared protocol: undeclared
+  protocols are not resolved, and a missing Responses URL omits that route
+  from both exact endpoints and the Plan-facing supported set.
 related_stories: []
 ---
 
@@ -293,7 +297,13 @@ AND the required adapter and transport exist
 
 Endpoint resolution must reproduce the identity used to obtain the capability
 key. A configurable endpoint with an empty or mismatched URL never falls back
-to an official host.
+to an official host. For NewAPI channel adaptors, exact URLs are attached only
+for Chat/Responses protocols already in the linked capability. A declared
+protocol that cannot resolve is omitted from both the exact-endpoint map and
+the Plan-facing supported set; undeclared protocols are not resolved.
+A channel that cannot resolve Responses does not fail Chat snapshot
+construction or the account's remaining legal routes, and must not invent a
+Responses URL from the channel base.
 
 ## 6. Scheduling and execution
 
@@ -553,9 +563,10 @@ release boundary:
 Final readiness runs inside the publication transaction and sees its
 uncommitted projection/outbox writes. It is read-only with respect to
 capability/link facts: a concurrently introduced missing or mismatched link
-fails readiness instead of being repaired after publication. Only that final
-successful evaluation may commit the transaction and make `/health` return
-`200`. Repeating publication with already-matching projections is a no-op: it
+fails CutoverReady instead of being repaired after publication. Only that
+final successful evaluation may commit the transaction. `/health` follows
+process TrafficReady independently and does not wait for publication.
+Repeating publication with already-matching projections is a no-op: it
 does not advance account revisions or enqueue duplicate scheduler events.
 
 Historical union is a migration seed, not permanent evidence ownership. Once
@@ -568,22 +579,25 @@ in the same generation remains inconclusive.
 
 New application code always reads the capability table. It has no fallback to
 `accounts.extra.supported_protocols`, even during migration. Preparation,
-probing, and hard routing cutover may ship in one image because readiness is the
-traffic-admission boundary.
+probing, and hard routing cutover may ship in one image. TrafficReady admits
+process traffic; CutoverReady is the publication-completeness signal.
 
-The image reports `/health` as `503 not_ready` when any active, schedulable,
-governed account:
+The image reports `/health` as `503 not_ready` only for a process-wide
+blocker: drain, missing router, or startup evaluation abort. An individual
+active, schedulable, governed account that:
 
 - lacks a valid capability link;
 - has neither completed initial probing nor an allowed official seed;
 - is linked to an identity conflict relevant to its served routes;
 - has no legal native or convertible route for its served models;
 - fails its independent authorization/schedulability gate;
-- cannot receive the atomically published rollback projection and scheduler
-  invalidation required for this release boundary.
+
+is recorded as remediation, stays fail-closed at schedule and execute, and
+does not 503 the process. CutoverReady remains the publication-completeness
+signal; it is not the traffic-admission boundary.
 
 Disabled or deliberately unschedulable accounts do not block release
-readiness. They remain fail-closed if re-enabled before their identity,
+publication. They remain fail-closed if re-enabled before their identity,
 capability, and account gates are valid.
 
 The candidate image never serves customer traffic through legacy routing. A
@@ -602,8 +616,10 @@ projections commit in one database transaction. During candidate startup,
 capability preparation is intentionally durable but unpublished; the complete
 projection, account revision advances, and scheduler invalidations are instead
 published together only after preliminary readiness succeeds. A publication
-failure rolls back every legacy-visible effect and blocks readiness because an
-image rollback must not restore divergent account facts.
+callback that fails CutoverReady rolls back every legacy-visible effect and
+keeps process TrafficReady so `/health` does not 503 the candidate. A
+publication transaction error still flips TrafficReady, because an image
+rollback must not restore divergent account facts.
 
 After the rollback window, deleting the legacy field, projection writer, and
 compatibility code is a separate reviewed change. The shared capability table
@@ -724,13 +740,12 @@ or capability state.
   change the legacy projection, account revision, or scheduler outbox before
   preliminary readiness succeeds.
 - A successful candidate publishes rollback projections, account revisions,
-  and scheduler invalidations in one transaction, then passes a final readiness
-  evaluation before `/health` becomes `200`.
+  and scheduler invalidations in one transaction after CutoverReady.
 - A failed candidate can be retried from persisted preparation facts while the
   previous image continues to observe its pre-candidate routing state.
-- The new image reads only the capability table. Readiness prevents traffic
-  until every active/schedulable governed account has a linked, conflict-free,
-  usable capability and valid account gates.
+- The new image reads only the capability table. `/health` admits traffic when
+  the process can serve. An account without a legal route fails closed at
+  selection or execute and does not 503 the machine.
 - The account legacy field exists only as a one-window rollback projection and
   is never a new-version routing input.
 - CI uses mock upstreams and mechanically rejects competing protocol owners.

@@ -115,7 +115,8 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "func BuildSupportedProtocolsUpdate(){}\n"
             "func ReplaceSupportedProtocols(){}\n"
             "func SeedOfficialSupportedProtocols(){}\n"
-            "func protocolAccountSnapshot(capability Capability){ if !protocolCapabilityHasVerifiedRoutingEvidence(capability) { fail() } }\n",
+            "func protocolAccountSnapshot(capability Capability){ if !protocolCapabilityHasVerifiedRoutingEvidence(capability) { fail() }; retainResolvedNewAPIExactProtocols() }\n"
+            "func protocolExactEndpoints(){ for _, protocol := range routingSupportedProtocols(account) { endpoint, err := protocolExactEndpoint(); if err != nil { continue }; endpoints[protocol] = endpoint } }\n",
             encoding="utf-8",
         )
         identity_owner = root / "backend/internal/service/protocol_endpoint_identity.go"
@@ -158,7 +159,8 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "package fixture\n"
             "func MigrateProtocolRoutingSSOT(){ LegacySupportedProtocolsProjection() }\n"
             "func validateProtocolRoutingSSOTReadiness(){}\n"
-            "func prepareProtocolRoutingSSOT(){ ProbeAccountProtocolCapabilitiesForPreparation(); prepared := MigrateProtocolRoutingSSOT(); if prepared.CutoverReady { PublishProtocolRoutingProjections(func(){ final := validateProtocolRoutingSSOTReadiness(); if !final.CutoverReady { return errProtocolRoutingFinalReadinessNotReady } }) } }\n"
+            "func evaluateProtocolRoutingSSOT(){ report.CutoverReady = false }\n"
+            "func prepareProtocolRoutingSSOT(){ ProbeAccountProtocolCapabilitiesForPreparation(); prepared := MigrateProtocolRoutingSSOT(); if prepared.CutoverReady { PublishProtocolRoutingProjections(func(){ final := validateProtocolRoutingSSOTReadiness(); if !final.CutoverReady { return errProtocolRoutingFinalReadinessNotReady } }) }; if errors.Is(err, errProtocolRoutingFinalReadinessNotReady) { final.CutoverReady = false } }\n"
             "func protocolCapabilityHasVerifiedRoutingEvidence(capability Capability){ capability.ProbeEvidence.OfficialSeed; capability.ProbeEvidence.InitialProbeCompleted; ProtocolProbePositive; capability.IdentityConflict }\n",
             encoding="utf-8",
         )
@@ -750,6 +752,74 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertTrue(any("publication transaction callback" in error for error in MODULE.check(root)))
+
+    def test_rejects_newapi_exact_endpoints_that_fail_closed_on_one_protocol(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/account_supported_protocols.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "func protocolExactEndpoints(){ for _, protocol := range routingSupportedProtocols(account) { endpoint, err := protocolExactEndpoint(); if err != nil { continue }; endpoints[protocol] = endpoint } }",
+                "func protocolExactEndpoints(){ for _, protocol := range routingSupportedProtocols(account) { endpoint, err := protocolExactEndpoint(); if err != nil { return nil, err }; endpoints[protocol] = endpoint } }",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("one unsupported protocol" in error for error in MODULE.check(root))
+        )
+
+    def test_rejects_newapi_exact_endpoints_that_ignore_declared_protocols(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/account_supported_protocols.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "for _, protocol := range routingSupportedProtocols(account) {",
+                "for _, protocol := range []Protocol{ChatCompletions, Responses} {",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("declared protocols" in error for error in MODULE.check(root))
+        )
+
+    def test_rejects_snapshot_that_plans_unresolved_newapi_protocols(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/account_supported_protocols.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "retainResolvedNewAPIExactProtocols()",
+                "keepDeclaredProtocols()",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("no exact endpoint" in error for error in MODULE.check(root))
+        )
+
+    def test_rejects_publication_cutover_failure_that_flips_process_traffic_ready(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/protocol_routing_migration.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "if errors.Is(err, errProtocolRoutingFinalReadinessNotReady) { final.CutoverReady = false }",
+                "if errors.Is(err, errProtocolRoutingFinalReadinessNotReady) { final.TrafficReady = false; final.CutoverReady = false }",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("publication-time CutoverReady" in error for error in MODULE.check(root))
+        )
+
+    def test_rejects_account_evaluation_that_flips_process_traffic_ready(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/protocol_routing_migration.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "func evaluateProtocolRoutingSSOT(){ report.CutoverReady = false }",
+                "func evaluateProtocolRoutingSSOT(){ report.TrafficReady = false }",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("process TrafficReady" in error for error in MODULE.check(root)))
 
     def test_rejects_startup_migration_that_uses_normal_probe_writer(self) -> None:
         root = self.fixture()

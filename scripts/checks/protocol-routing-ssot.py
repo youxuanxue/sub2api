@@ -430,6 +430,27 @@ def check(root: Path) -> list[str]:
         for body in snapshot_bodies:
             if not contains_identifier(body, "protocolCapabilityHasVerifiedRoutingEvidence"):
                 errors.append("protocolAccountSnapshot does not fail closed on unverified capability evidence")
+            if not contains_identifier(body, "retainResolvedNewAPIExactProtocols"):
+                errors.append(
+                    "protocolAccountSnapshot still plans NewAPI protocols that have no exact endpoint"
+                )
+        exact_bodies = function_bodies(source, "protocolExactEndpoints")
+        if not exact_bodies:
+            errors.append("canonical capability owner is missing protocolExactEndpoints")
+        for body in exact_bodies:
+            if not contains_identifier(body, "protocolExactEndpoint"):
+                errors.append("protocolExactEndpoints does not resolve NewAPI protocol URLs")
+            if not contains_identifier(body, "routingSupportedProtocols"):
+                errors.append(
+                    "protocolExactEndpoints does not limit NewAPI exact URLs to declared protocols"
+                )
+            if re.search(
+                r"protocolExactEndpoint\s*\([\s\S]*?if\s+err\s*!=\s*nil\s*\{\s*return\s+nil,\s*err",
+                body,
+            ):
+                errors.append(
+                    "NewAPI exact-endpoint resolution still fail-closes the snapshot on one unsupported protocol"
+                )
 
     identity_owner = root / "backend/internal/service/protocol_endpoint_identity.go"
     if identity_owner.is_file():
@@ -565,6 +586,28 @@ def check(root: Path) -> list[str]:
             errors.append("protocol routing startup uses the normal probe writer instead of the preparation probe")
         if not contains_identifier(source, "ProbeAccountProtocolCapabilitiesForPreparation"):
             errors.append("protocol routing startup is missing the preparation probe")
+        evaluate_bodies = function_bodies(source, "evaluateProtocolRoutingSSOT")
+        if not evaluate_bodies:
+            errors.append("protocol routing startup is missing account evaluation")
+        for body in evaluate_bodies:
+            if re.search(r"TrafficReady\s*=\s*false", body):
+                errors.append("account evaluation still treats one account remediation as process TrafficReady")
+        prepare_bodies = function_bodies(source, "prepareProtocolRoutingSSOT")
+        for body in prepare_bodies:
+            match = re.search(
+                r"if\s+errors\s*\.\s*Is\s*\(\s*err\s*,\s*errProtocolRoutingFinalReadinessNotReady\s*\)\s*\{",
+                body,
+            )
+            if match is None:
+                continue
+            open_brace = body.find("{", match.start(), match.end())
+            close_brace = matching_brace(body, open_brace)
+            if close_brace is None:
+                continue
+            if re.search(r"TrafficReady\s*=\s*false", body[open_brace + 1 : close_brace]):
+                errors.append(
+                    "publication-time CutoverReady failure still treats one account as process TrafficReady"
+                )
         evidence_bodies = function_bodies(source, "protocolCapabilityHasVerifiedRoutingEvidence")
         if not evidence_bodies or not all(
             contains_identifier(body, "OfficialSeed")
