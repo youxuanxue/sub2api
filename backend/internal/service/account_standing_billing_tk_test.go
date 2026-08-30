@@ -32,6 +32,7 @@ func TestTkIsAccountStandingBillingMessage_PositiveAndNegative(t *testing.T) {
 	negatives := []string{
 		"You have exceeded the weekly usage quota. It will reset at 2026-08-30 23:59:59 +0800 CST",
 		"Requests rate limit exceeded, please retry later",
+		"insufficient_quota",
 		"Invalid value for parameter 'temperature'",
 		"do not have access to this model",
 		"",
@@ -65,6 +66,25 @@ func TestTkTryHandleStandingBilling_Tokensea403DisablesAndAlerts(t *testing.T) {
 	require.Equal(t, []string{tkStandingBillingIncidentReason}, blocker.reasons)
 	require.Equal(t, []string{tkStandingBillingIncidentReason}, incidents.reasons)
 	require.Contains(t, incidents.details[0], "用户额度不足")
+}
+
+func TestTkTryHandleStandingBilling_SurvivesCanceledRequestContext(t *testing.T) {
+	svc, repo, _, _ := newBridgePenaltyTestService()
+	repo.failSetErrorOnCanceled = true
+	account := &Account{
+		ID:       93,
+		Name:     "tokensea-cc",
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	shouldDisable := svc.HandleUpstreamError(ctx, account, http.StatusForbidden, http.Header{}, []byte(tokenseaQuota403Body))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls, "SetError must survive canceled request ctx")
+	require.Contains(t, repo.lastErrorMsg, "用户额度不足")
 }
 
 func TestTkTryHandleStandingBilling_WeeklyQuota429IsNotStanding(t *testing.T) {

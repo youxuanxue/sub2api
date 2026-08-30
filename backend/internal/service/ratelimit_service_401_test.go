@@ -56,6 +56,10 @@ type rateLimitAccountRepoStub struct {
 	// the model-scoped cooldown path (operator usage gauge depends on it).
 	updateSessionWindowCalls int
 	lastSessionWindowStatus  string
+
+	// When true, SetError fails if ctx is already canceled — used to prove
+	// standing-billing / bridge penalty writes go through WithoutCancel.
+	failSetErrorOnCanceled bool
 }
 
 type rateLimitStubModelCall struct {
@@ -81,6 +85,9 @@ func (r *rateLimitAccountRepoStub) UpdateSessionWindow(ctx context.Context, id i
 }
 
 func (r *rateLimitAccountRepoStub) SetError(ctx context.Context, id int64, errorMsg string) error {
+	if r.failSetErrorOnCanceled && ctx != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
 	r.setErrorCalls++
 	r.lastErrorID = id
 	r.lastErrorMsg = errorMsg

@@ -35,20 +35,28 @@ import (
 // 1h per-account dedupe covers DashScope, Moonshot, tokensea, and 402.
 const tkStandingBillingIncidentReason = tkBridgeArrearsIncidentReason
 
-// tkAccountStandingBillingMarkers is the SSOT phrase list. Match is substring
-// on a lowercased haystack. Do NOT add bare "quota" — that collides with RPM
-// and weekly usage-window 429s.
-var tkAccountStandingBillingMarkers = []string{
+// tkAccountStandingBilling429SafeMarkers is the 429-safe standing-failure set.
+// Moonshot reuses exceeded_current_quota_error for both unpaid-account and RPM,
+// so 429 must stay message-only and never include error-code names such as
+// insufficient_quota. These four phrases are billing/account-suspend, not RPM.
+var tkAccountStandingBilling429SafeMarkers = []string{
 	"insufficient balance",
-	"insufficient_quota",
 	"余额不足",
+	"suspended due to",
+	"please recharge your account",
+}
+
+// tkAccountStandingBillingMarkers is the 400/402/403 phrase list. It includes
+// the 429-safe set plus prepaid-quota death text that arrives as 403/400
+// (tokensea 用户额度不足, Anthropic credit balance). Do NOT add bare "quota"
+// or insufficient_quota — those collide with RPM 429s if they leak into the
+// 429 matcher.
+var tkAccountStandingBillingMarkers = append([]string{
 	"用户额度不足",
 	"预扣费额度",
 	"额度不足",
 	"credit balance",
-	"suspended due to",
-	"please recharge your account",
-}
+}, tkAccountStandingBilling429SafeMarkers...)
 
 func tkIsAccountStandingBillingMessage(msg string) bool {
 	if msg == "" {
@@ -144,7 +152,9 @@ func (s *RateLimitService) tkTryHandleStandingBilling(ctx context.Context, accou
 	if s.accountRepo == nil {
 		return true
 	}
-	if err := s.accountRepo.SetError(ctx, account.ID, errorMsg); err != nil {
+	stateCtx, cancel := openAIAccountStateContext(ctx)
+	defer cancel()
+	if err := s.accountRepo.SetError(stateCtx, account.ID, errorMsg); err != nil {
 		slog.Warn("account_standing_billing_set_error_failed",
 			"account_id", account.ID, "status_code", statusCode, "error", err)
 		return true

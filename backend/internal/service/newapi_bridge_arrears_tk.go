@@ -127,9 +127,15 @@ func tkIsBridgeUpstreamArrears(apiErr *newapitypes.NewAPIError) bool {
 // These phrases are billing/account-suspend, not RPM. "exceeded_current_quota_error"
 // alone is intentionally NOT a marker.
 func tkIsBridgeUpstreamArrearsBillingMessage(msg string) bool {
-	// Phrase SSOT lives in tkAccountStandingBillingMarkers (tokensea 用户额度不足,
-	// insufficient balance, 余额不足, suspended due to, please recharge your account).
-	return tkIsAccountStandingBillingMessage(msg)
+	if msg == "" {
+		return false
+	}
+	for _, marker := range tkAccountStandingBilling429SafeMarkers {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // tkBridgeArrearsDetail synthesizes the Feishu card 详情 line: the upstream code
