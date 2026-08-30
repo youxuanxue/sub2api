@@ -815,17 +815,18 @@ write_active_color() {
 }
 
 observe_routed_health() {
-  local color="$1" seconds="${TOKENKEY_BLUEGREEN_OBSERVE_SECONDS:-30}" upstream i body
-  # Observe the color Caddy now routes to on the docker network.
-  # Do not hairpin wget through https://$API_DOMAIN (Cloudflare): 1.8.184
-  # first poll was ok, second failed, workflow red, traffic already on green.
-  upstream="$(color_container "${color}"):8080"
+  local color="$1" seconds="${TOKENKEY_BLUEGREEN_OBSERVE_SECONDS:-30}" domain i body
+  # Hit local Caddy with the real Host/SNI. Do not hairpin through Cloudflare
+  # (1.8.184: first public poll ok, second wget failed, workflow red) and do
+  # not skip Caddy by probing tokenkey-{color}:8080 directly.
+  domain="$(env_get API_DOMAIN)"
+  [[ -n "${domain}" ]] || die "API_DOMAIN is required for routed health observation"
   for i in $(seq 1 "${seconds}"); do
-    if ! body="$(sudo docker exec tokenkey-caddy wget -q -T 5 -O - "http://${upstream}/health" 2>/dev/null)"; then
-      echo "::error::routed /health failed after committed cutover color=${color} upstream=${upstream} second=${i}/${seconds}"
+    if ! body="$(curl -fsS --max-time 5 --resolve "${domain}:443:127.0.0.1" "https://${domain}/health")"; then
+      echo "::error::routed /health failed after committed cutover color=${color} second=${i}/${seconds}"
       return 1
     fi
-    log "routed /health color=${color} upstream=${upstream} second=${i}/${seconds}: ${body}"
+    log "routed /health color=${color} second=${i}/${seconds}: ${body}"
     sleep 1
   done
 }

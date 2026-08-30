@@ -26,25 +26,6 @@ func newCommonRouter(t *testing.T) *gin.Engine {
 	return r
 }
 
-func TestHealthEndpoint_OK_WithoutProtocolReadiness(t *testing.T) {
-	// /health stays 200 even when protocol remediations remain. 1.8.183/184
-	// used this endpoint as a process gate and failed blue/green cutover.
-	resetDrainForTest(t)
-	r := newCommonRouter(t)
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 got %d body=%s", w.Code, w.Body.String())
-	}
-	got := decodeJSON(t, w.Body.Bytes())
-	if got["status"] != "ok" {
-		t.Fatalf("expected status=ok got %v", got["status"])
-	}
-}
-
 func resetDrainForTest(t *testing.T) {
 	t.Helper()
 	middleware.SetDrain(false)
@@ -61,6 +42,8 @@ func decodeJSON(t *testing.T, body []byte) map[string]any {
 }
 
 func TestHealthEndpoint_OK_WhenNotDraining(t *testing.T) {
+	// Drain is the only /health 503. Protocol remediations stay fail-closed
+	// at schedule/execute; 1.8.183/184 used this endpoint as a process gate.
 	resetDrainForTest(t)
 	r := newCommonRouter(t)
 
