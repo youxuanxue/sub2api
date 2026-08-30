@@ -4,8 +4,6 @@ import (
 	"context"
 	"maps"
 	"strings"
-
-	newapiconstant "github.com/QuantumNous/new-api/constant"
 )
 
 type SupplierManagedAccountCreateInput struct {
@@ -68,10 +66,14 @@ func (s *adminServiceImpl) CreateSupplierManagedAccount(
 	); err != nil {
 		return nil, err
 	}
+	transport, err := resolveSupplierManagedTransport(input.Endpoint)
+	if err != nil {
+		return nil, err
+	}
 	initialSchedulable := false
 	return s.createAccount(ctx, &CreateAccountInput{
 		Name: input.Name, Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
-		ChannelType: newapiconstant.ChannelTypeOpenAI,
+		ChannelType: transport.ChannelType,
 		Credentials: supplierManagedCredentials(input.Endpoint, input.Credential, map[string]string{}),
 		Extra: map[string]any{
 			SupplierSourceIDExtraKey:     input.SourceID,
@@ -141,10 +143,14 @@ func (s *adminServiceImpl) UpdateSupplierManagedAccount(
 		return nil, ErrSupplierProjectionProtocolNotReady
 	}
 
+	transport, err := resolveSupplierManagedTransport(input.Endpoint)
+	if err != nil {
+		return nil, err
+	}
 	account.Name = strings.TrimSpace(input.Name)
 	account.Platform = PlatformNewAPI
 	account.Type = AccountTypeAPIKey
-	account.ChannelType = newapiconstant.ChannelTypeOpenAI
+	account.ChannelType = transport.ChannelType
 	account.Credentials = supplierManagedCredentials(input.Endpoint, input.Credential, input.ModelMapping)
 	account.Extra = maps.Clone(account.Extra)
 	if account.Extra == nil {
@@ -206,8 +212,12 @@ func supplierManagedCredentials(endpoint, credential string, modelMapping map[st
 	for clientModelID, upstreamModelID := range modelMapping {
 		mapping[clientModelID] = upstreamModelID
 	}
+	baseURL := strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	if transport, err := resolveSupplierManagedTransport(endpoint); err == nil {
+		baseURL = transport.Endpoint
+	}
 	return map[string]any{
-		"base_url":      strings.TrimRight(strings.TrimSpace(endpoint), "/"),
+		"base_url":      baseURL,
 		"api_key":       strings.TrimSpace(credential),
 		"model_mapping": mapping,
 	}

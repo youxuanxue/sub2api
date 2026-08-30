@@ -18,10 +18,10 @@
 2. AC-002 (优先级): Given 模型采购比例落入六个固定档位，When 查看表单与全局预览，Then 档位分别贡献 `1..6`，账号 priority 严格等于 `base_priority + discount_priority`；同源同档模型合并为一个目标账号，预览只比较供应源目标 priority，且 `base_priority + 6` 不得越过 PostgreSQL `INTEGER`。
 3. AC-003 (探测门禁): Given endpoint、credential、模型 ID、模型增减、跨档，或非空受管账号的 `status/schedulable` 与目标不一致，When 点击“校验并同步”，Then 系统用带 source/band 身份的内存账号逐模型使用明确 upstream ID 真实探测；任一失败返回全部当次结果且不写账号。只有 Chat Completions 正向结果生成本次同步内部证据；FMGo Seedance 显式映射及任何 Responses/Anthropic 等非 Chat 成功证据都返回 `protocol_unsupported`，不猜协议、不写账号。
 4. AC-004 (热更新): Given 全部结构探测成功，When 同步模型跨档或增减，Then 系统先以空 mapping、不可调度状态创建缺失账号；非空投影必须携带本次 Chat 正向证据，并在单账号事务内提交账号配置、Chat-only 现有协议能力、`InitialProbeCompleted=true`/`OfficialSeed=false` 证据和 scheduler outbox，再做配置读回确认而不进行写后二次网络探测，最后从旧档删除 mapping。单账号事务失败时已有账号保持旧配置、新账号保持空 mapping 不可调度；跨账号中途失败保留已完成增加、停止后续减少，返回 `failed_step + changes[]`，重试可继续收敛；空档账号保留并收敛为 `active + schedulable=false`。已选来源存在未保存表单修改时同步入口禁用并提示先保存，成功提示只能从当前结果派生。
-5. AC-005 (隔离回归): Given 供应源保存、预览或同步，When 执行任一路径，Then 供应源不读取、比较、返回或写入账号组，专用投影读取不调用通用 `GetByID`，并且只选择同步所需配置字段，不读取倍率或无关运行字段；新账号保持未分组且不借用 `newapi-default`，普通账号创建失败契约不变；受管/预探测账号只声明 Chat Completions，末尾 `/v1` 只在该路径规范化，普通 NewAPI 账号行为不变；系统不修改倍率、定价或 scheduler，scheduler 继续只按更小的原有账号 priority 先调度，不读取供应来源 Extra。
-6. AC-006 (ownership): Given 账号 Extra 存在 `supplier_source_id`，When 普通账号单项、批量、复制、删除、从父账号创建影子账号、credentials/Extra/刷新凭证、状态、可调度或 CRS 导入覆盖尝试写入，Then service 层整体拒绝；普通创建和 CRS 导入不能伪造保留 Extra；供应源同步只走不携带 `rate_multiplier` 的窄写命令，只合并 `supplier_source_id`、`supplier_discount_band` 两个受管 Extra 并保留所有非受管 Extra，同时修复固定 NewAPI OpenAI Chat transport 与目标 `status/schedulable`。已有账号匹配覆盖全部未删除 NewAPI 候选，但只有 active 唯一精确匹配可接管；disabled/error 精确匹配返回冲突且不新建重复账号。恢复错误、配额重置、代理 fallback 与探测仍允许。真实账号 UI 显示“供应源托管”徽标和统一只读原因，点击后按 `source_id` 直接选中对应供应源。
+5. AC-005 (隔离回归): Given 供应源保存、预览或同步，When 执行任一路径，Then 供应源不读取、比较、返回或写入账号组，专用投影读取不调用通用 `GetByID`，并且只选择同步所需配置字段，不读取倍率或无关运行字段；新账号保持未分组且不借用 `newapi-default`，普通账号创建失败契约不变；受管/预探测账号只声明 Chat Completions；通用 host 末尾 `/v1` 只在 OpenAI 受管路径规范化，`qianfan.baidubce.com` 解析为 BaiduV2 + 根 URL 并声明 `/v2/chat/completions`，普通 NewAPI 账号行为不变；系统不修改倍率、定价或 scheduler，scheduler 继续只按更小的原有账号 priority 先调度，不读取供应来源 Extra。
+6. AC-006 (ownership): Given 账号 Extra 存在 `supplier_source_id`，When 普通账号单项、批量、复制、删除、从父账号创建影子账号、credentials/Extra/刷新凭证、状态、可调度或 CRS 导入覆盖尝试写入，Then service 层整体拒绝；普通创建和 CRS 导入不能伪造保留 Extra；供应源同步只走不携带 `rate_multiplier` 的窄写命令，只合并 `supplier_source_id`、`supplier_discount_band` 两个受管 Extra 并保留所有非受管 Extra，同时修复解析后的 NewAPI transport（OpenAI 或 Qianfan BaiduV2）与目标 `status/schedulable`。已有账号匹配覆盖全部未删除 NewAPI 候选，但只有 active 唯一精确匹配可接管；disabled/error 精确匹配返回冲突且不新建重复账号。恢复错误、配额重置、代理 fallback 与探测仍允许。真实账号 UI 显示“供应源托管”徽标和统一只读原因，点击后按 `source_id` 直接选中对应供应源。
 7. AC-007 (安全): Given 创建、更新、探测或同步供应源，When API、日志和 Admin Audit Log 记录请求与结果，Then 不包含凭证明文、密文、HMAC 指纹或上游原始响应；探测只返回固定状态、协议分类和脱敏说明；HMAC 指纹跟随凭证加密密钥而非 JWT secret 的生命周期。
-8. AC-008 (首批证据): Given 首批运营表和只读生产库存，When 记录验收结果，Then 三个案例必须各自提供完整准确的供应事实才能同步；信息不完整或不匹配时不扩大已有账号匹配、不改网关调度。佳杰/VSTECS 只保留两个最低合法比例 `0.50` 模型且因无生产凭证标记 `not_run`；FMGo 只保留 Seedance 显式双 ID 与 `protocol_unsupported`；百度账号 90 的 `channel_type=46` 不符合固定 OpenAI Chat transport，只作为库存差异证据，不冒充已完成接管。
+8. AC-008 (首批证据): Given 首批运营表和只读生产库存，When 记录验收结果，Then 三个案例必须各自提供完整准确的供应事实才能同步；信息不完整或不匹配时不扩大已有账号匹配、不改网关调度。佳杰/VSTECS 只保留两个最低合法比例 `0.50` 模型且因无生产凭证标记 `not_run`；FMGo 只保留 Seedance 显式双 ID 与 `protocol_unsupported`；百度千帆在凭证齐备时以 BaiduV2 transport 接管账号 90（channel_type=46），不以 OpenAI Chat 伪探测冒充成功。
 
 ## Assertions
 
@@ -31,7 +31,7 @@
 - 保存、名称/priority 元数据同步和投影同步是三条明确路径；结构变化或非空账号的调度投影漂移需要探测。
 - 新建受管账号命令不接受 mapping；非空投影必须携带 Chat 正向探测证据，service 与 repository 双重拒绝绕过。
 - 单账号账号配置、Chat-only capability、探测证据与 scheduler outbox 原子提交；读回是配置确认，不是写后二次探测。
-- 供应源 `/v1` 规范化只由 `supplier_source_id` 路径触发，普通 NewAPI OpenAI base URL 不改写。
+- 供应源 `/v1` 规范化只由 OpenAI 受管路径触发；Qianfan 主机规范化为根 URL 并声明 `/v2/chat/completions`；普通 NewAPI base URL 不改写。
 - `supplier_source_id + supplier_discount_band` 是受管账号逻辑身份；账号组不参与匹配或同步成败。
 - 未删除的精确 endpoint + 凭证匹配不会因 disabled/error 被忽略；非 active 候选只报冲突，不绕过建号。
 - 供应投影读取只选择同步所需配置字段，不查询账号组、倍率或无关运行字段，并清空 `AccountGroups`、`GroupIDs`、`Groups`。
@@ -62,6 +62,10 @@
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierSyncEarlyErrorsAlwaysReportFailedStep`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_NonActiveExactAccountMatchBlocksDuplicateSupplierAccountCreation`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_IncompatibleTransportExactMatchBlocksAdoptionWithoutRewritingAccount`
+- `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_QianfanBaiduV2ExactMatchIsAdopted`
+- `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_BaiduV2TransportAgainstOpenAISupplierIsRejected`
+- `backend/internal/service/supplier_managed_transport_test.go`::`TestUS048_ResolveSupplierManagedTransportSelectsBaiduV2ForQianfan`
+- `backend/internal/service/supplier_managed_account_commands_test.go`::`TestUS048_SupplierQianfanCreateUsesBaiduV2Transport`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierSyncProbesBeforeRepairingNonEmptySchedulingProjection`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierSyncRepairsEmptySchedulingProjectionWithoutProbe`
@@ -86,6 +90,7 @@
 - `backend/internal/service/crs_sync_supplier_managed_test.go`::`TestUS048_CRSSyncRejectsReservedSupplierExtraOnNewAccount`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_FMGoSeedanceIsProtocolUnsupportedWithoutAccountWrite`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_SupplierManagedAccountDeclaresOnlyChatProtocol`
+- `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_SupplierManagedQianfanDeclaresBaiduV2ChatProtocol`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_SupplierManagedOpenAIEndpointDoesNotDuplicateV1`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_SupplierProbeClassifiesEventsWithoutPersistingUpstreamDetail`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_SupplierProbeDoesNotLogRawUpstreamError`

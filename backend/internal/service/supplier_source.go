@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
@@ -151,6 +152,10 @@ func NormalizeSupplierEndpoint(raw string) (string, error) {
 	parsed.RawQuery = ""
 	parsed.Host = strings.ToLower(parsed.Host)
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
+	// Qianfan BaiduV2 accounts require the bare host root; strip accidental /v1 or /v2 suffixes.
+	if strings.EqualFold(parsed.Hostname(), "qianfan.baidubce.com") {
+		return newapiintegration.QianfanBaseURL, nil
+	}
 	return parsed.String(), nil
 }
 

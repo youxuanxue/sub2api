@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
@@ -475,7 +474,7 @@ func protocolAccountEndpoints(account *Account) (string, map[protocolrouter.Prot
 	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
 	if IsSupplierManagedAccount(account) {
 		if account.Platform != PlatformNewAPI || account.Type != AccountTypeAPIKey ||
-			account.ChannelType != newapiconstant.ChannelTypeOpenAI || baseURL == "" {
+			!supplierManagedTransportOK(account) || baseURL == "" {
 			return "", nil, ""
 		}
 		return "", map[protocolrouter.Protocol]string{

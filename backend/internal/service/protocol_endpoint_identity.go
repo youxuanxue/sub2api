@@ -296,6 +296,12 @@ func normalizeProtocolEndpointURL(raw string, protocol protocolrouter.Protocol) 
 	if err != nil {
 		return "", err
 	}
+	// Qianfan BaiduV2 chat lives under /v2, not the OpenAI-compat /v1 suffix.
+	if strings.EqualFold(parsed.Hostname(), "qianfan.baidubce.com") &&
+		protocol == protocolrouter.ProtocolChatCompletions {
+		parsed.Path = "/v2/chat/completions"
+		return parsed.String(), nil
+	}
 	endpointPath := ""
 	switch protocol {
 	case protocolrouter.ProtocolMessages:

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/stretchr/testify/require"
 )
 
@@ -85,6 +86,32 @@ func TestUS048_SupplierManagedAccountDeclaresOnlyChatProtocol(t *testing.T) {
 	require.True(t, governed)
 	require.Equal(t, map[protocolrouter.Protocol]ProtocolEndpoint{
 		protocolrouter.ProtocolChatCompletions: {URL: "https://supplier.example/v1/chat/completions"},
+	}, identity.ProtocolEndpoints)
+	require.Equal(t, []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}, ProtocolProbeCandidates(account))
+}
+
+func TestUS048_SupplierManagedQianfanDeclaresBaiduV2ChatProtocol(t *testing.T) {
+	account := &Account{
+		ID:          90,
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: 46,
+		Credentials: supplierManagedCredentials(
+			"https://qianfan.baidubce.com/v2", "secret", map[string]string{"glm-5.1": "glm-5.1"},
+		),
+		Extra: map[string]any{
+			SupplierSourceIDExtraKey:     int64(3),
+			SupplierDiscountBandExtraKey: 3,
+		},
+	}
+
+	identity, governed, err := BuildProtocolEndpointIdentity(account)
+
+	require.NoError(t, err)
+	require.True(t, governed)
+	require.Equal(t, newapiintegration.QianfanBaseURL, account.Credentials["base_url"])
+	require.Equal(t, map[protocolrouter.Protocol]ProtocolEndpoint{
+		protocolrouter.ProtocolChatCompletions: {URL: newapiintegration.QianfanBaseURL + "/v2/chat/completions"},
 	}, identity.ProtocolEndpoints)
 	require.Equal(t, []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}, ProtocolProbeCandidates(account))
 }

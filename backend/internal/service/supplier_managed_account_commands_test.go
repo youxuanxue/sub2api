@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/stretchr/testify/require"
 )
 
@@ -77,10 +78,28 @@ func TestUS048_SupplierConfigurationUpdateUsesGroupFreeReadAndNarrowWrite(t *tes
 	require.Equal(t, 123, accounts.updated.Priority)
 	require.Equal(t, PlatformNewAPI, accounts.updated.Platform)
 	require.Equal(t, AccountTypeAPIKey, accounts.updated.Type)
-	require.Equal(t, newapiconstant.ChannelTypeOpenAI, accounts.updated.ChannelType, "managed transport must converge to the fixed OpenAI channel")
+	require.Equal(t, newapiconstant.ChannelTypeOpenAI, accounts.updated.ChannelType, "generic supplier hosts keep the OpenAI Chat transport")
 	require.Equal(t, 1, accounts.projectionUpdateCalls)
 	require.True(t, accounts.projectionChatProbePassed)
 	require.Zero(t, accounts.genericUpdateCalls, "supplier projections must not use the generic account update path")
+}
+
+func TestUS048_SupplierQianfanCreateUsesBaiduV2Transport(t *testing.T) {
+	accounts := &supplierManagedCommandsAccountRepoFake{}
+	groups := &supplierManagedCommandsGroupRepoFake{groups: []Group{{ID: 9, Name: PlatformNewAPI + "-default", Platform: PlatformNewAPI}}}
+	svc := &adminServiceImpl{accountRepo: accounts, groupRepo: groups}
+
+	_, err := svc.CreateSupplierManagedAccount(context.Background(), SupplierManagedAccountCreateInput{
+		SourceID: 7, DiscountBand: 3, Name: "百度/千帆 · 档位 3",
+		Endpoint: "https://qianfan.baidubce.com/v2", Credential: "secret",
+		Priority: 103,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, newapiconstant.ChannelTypeBaiduV2, accounts.created.ChannelType)
+	require.Equal(t, newapiintegration.QianfanBaseURL, accounts.created.Credentials["base_url"])
+	require.False(t, accounts.created.Schedulable)
+	require.Zero(t, accounts.bindCalls)
 }
 
 func TestUS048_SupplierConfigurationUpdateRequiresPassedChatProbe(t *testing.T) {
@@ -171,7 +190,8 @@ func TestUS048_SupplierAdoptAddsManagedIdentityWithoutReadingOrWritingGroups(t *
 	require.Equal(t, int64(7), accounts.updated.Extra[SupplierSourceIDExtraKey])
 	require.Equal(t, 3, accounts.updated.Extra[SupplierDiscountBandExtraKey])
 	require.Equal(t, "keep", accounts.updated.Extra["runtime_observation"])
-	require.Equal(t, newapiconstant.ChannelTypeOpenAI, accounts.updated.ChannelType)
+	require.Equal(t, newapiconstant.ChannelTypeBaiduV2, accounts.updated.ChannelType)
+	require.Equal(t, newapiintegration.QianfanBaseURL, accounts.updated.Credentials["base_url"])
 	require.Empty(t, accounts.updated.GroupIDs)
 	require.Empty(t, updated.GroupIDs)
 	require.Zero(t, accounts.bindCalls)
