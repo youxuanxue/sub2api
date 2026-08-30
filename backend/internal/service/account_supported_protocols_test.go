@@ -504,6 +504,69 @@ func TestProtocolRouterRejectsResolvedModelOutsideOfficialRoutePolicy(t *testing
 	}
 }
 
+func TestProtocolAccountSnapshotBaiduV2ChatOnlyDoesNotRequireResponsesEndpoint(t *testing.T) {
+	// Prod account 90 (百度 / ChannelTypeBaiduV2): capability is chat_completions-only.
+	// Resolving Responses for this channel fails with "unsupported relay mode: 33";
+	// that must not poison chat_completions snapshot/Plan or migration readiness.
+	account := &Account{
+		ID:          90,
+		Name:        "百度",
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeBaiduV2,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": "https://qianfan.baidubce.com",
+			"model_mapping": map[string]any{
+				"glm-5":        "glm-5",
+				"ernie-5.0":    "ernie-5.0",
+				"bge-large-zh": "bge-large-zh",
+			},
+		},
+	}
+	attachTestProtocolCapability(account, protocolrouter.ProtocolChatCompletions)
+	account.ProtocolEndpointCapability.ProbeEvidence = ProtocolProbeEvidence{
+		Verdicts: map[string]any{
+			string(protocolrouter.ProtocolMessages):        string(ProtocolProbeEndpointNegative),
+			string(protocolrouter.ProtocolChatCompletions): string(ProtocolProbePositive),
+		},
+		OfficialSeed:          false,
+		InitialProbeCompleted: false,
+	}
+
+	snapshot, err := ProtocolAccountSnapshot(account, "glm-5")
+	if err != nil {
+		t.Fatalf("ProtocolAccountSnapshot: %v", err)
+	}
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolChatCompletions,
+		RequestedModel:  "glm-5",
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"model":"glm-5","messages":[{"role":"user","content":"hi"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+	plan, err := NewProtocolRouter().Plan(request, snapshot)
+	if err != nil {
+		t.Fatalf("Plan chat_completions: %v", err)
+	}
+	if plan.TargetProtocol() != protocolrouter.ProtocolChatCompletions {
+		t.Fatalf("target = %s, want chat_completions", plan.TargetProtocol())
+	}
+
+	models := protocolRoutingMigrationModels(account)
+	if !accountHasLegalProtocolRoute(NewProtocolRouter(), account, models) {
+		t.Fatalf("accountHasLegalProtocolRoute=false for Baidu V2 chat-only account; models=%v", models)
+	}
+
+	// Negative: claiming Responses support still fail-closes when the channel cannot resolve it.
+	attachTestProtocolCapability(account, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses)
+	if _, err := ProtocolAccountSnapshot(account, "glm-5"); err == nil {
+		t.Fatal("expected Responses-capable Baidu V2 snapshot to fail closed")
+	}
+}
+
 func TestSeedOfficialSupportedProtocolsIsConservativeAndIdempotent(t *testing.T) {
 	tests := []struct {
 		name    string

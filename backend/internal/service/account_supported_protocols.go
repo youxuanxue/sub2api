@@ -322,14 +322,23 @@ func protocolExactEndpoints(
 	if account == nil || account.Platform != PlatformNewAPI || account.ChannelType <= 0 {
 		return nil, nil
 	}
+	// Only resolve endpoints for protocols this account actually supports.
+	// Channels such as Baidu V2 (channel_type=46) reject Responses relay mode;
+	// forcing that resolution used to poison chat_completions-only snapshots and
+	// falsely mark the account no_legal_route at migration/readiness time.
 	endpoints := make(map[protocolrouter.Protocol]string, 2)
-	for _, protocol := range []protocolrouter.Protocol{
-		protocolrouter.ProtocolChatCompletions,
-		protocolrouter.ProtocolResponses,
-	} {
+	for _, protocol := range routingSupportedProtocols(account) {
+		switch protocol {
+		case protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses:
+		default:
+			continue
+		}
 		endpoint, err := protocolExactEndpoint(account, protocol, resolvedModel)
 		if err != nil {
 			return nil, err
+		}
+		if strings.TrimSpace(endpoint) == "" {
+			continue
 		}
 		endpoints[protocol] = endpoint
 	}
