@@ -124,8 +124,9 @@ func registerRoutes(
 	cfg *config.Config,
 	redisClient *redis.Client,
 ) {
-	// 通用路由（健康检查、状态等）
-	routes.RegisterCommonRoutes(r, protocolRoutingReady.Ready())
+	// 通用路由（健康检查、状态等）。协议就绪只写日志/CutoverReady，不进 /health。
+	_ = protocolRoutingReady
+	routes.RegisterCommonRoutes(r)
 
 	// API v1
 	v1 := r.Group("/api/v1")

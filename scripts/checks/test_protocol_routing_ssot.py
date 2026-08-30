@@ -313,14 +313,14 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         server_router.parent.mkdir(parents=True, exist_ok=True)
         server_router.write_text(
             "package fixture\n"
-            "func registerRoutes(ready ProtocolRoutingSSOTReady){ RegisterCommonRoutes(ready.Ready()) }\n",
+            "func registerRoutes(){ RegisterCommonRoutes() }\n",
             encoding="utf-8",
         )
         common_routes = root / "backend/internal/server/routes/common.go"
         common_routes.parent.mkdir(parents=True, exist_ok=True)
         common_routes.write_text(
             "package fixture\n"
-            "func RegisterCommonRoutes(protocolReady bool){ if !protocolReady { http.StatusServiceUnavailable; not_ready() } }\n",
+            "func RegisterCommonRoutes(){ if IsDraining() { http.StatusServiceUnavailable; draining() } }\n",
             encoding="utf-8",
         )
         return root
@@ -482,17 +482,29 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         )
         self.assertTrue(any("Ready accessor" in error for error in MODULE.check(root)))
 
-    def test_rejects_health_route_without_protocol_readiness_gate(self) -> None:
+    def test_rejects_health_route_that_gates_on_protocol_readiness(self) -> None:
         root = self.fixture()
         common = root / "backend/internal/server/routes/common.go"
         common.write_text(
             common.read_text(encoding="utf-8").replace(
+                "if IsDraining() { http.StatusServiceUnavailable; draining() }",
                 "if !protocolReady { http.StatusServiceUnavailable; not_ready() }",
-                "ok()",
             ),
             encoding="utf-8",
         )
-        self.assertTrue(any("health readiness gate" in error for error in MODULE.check(root)))
+        self.assertTrue(any("consults protocol readiness" in error for error in MODULE.check(root)))
+
+    def test_rejects_router_that_passes_protocol_ready_to_health(self) -> None:
+        root = self.fixture()
+        router = root / "backend/internal/server/router.go"
+        router.write_text(
+            router.read_text(encoding="utf-8").replace(
+                "RegisterCommonRoutes()",
+                "RegisterCommonRoutes(ready.Ready())",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("gates /health on protocol readiness" in error for error in MODULE.check(root)))
 
     def test_rejects_handler_target_protocol_switch(self) -> None:
         root = self.fixture()

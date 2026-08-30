@@ -1082,22 +1082,24 @@ def check(root: Path) -> list[str]:
         source = strip_go_comments_and_literals(server_router.read_text(encoding="utf-8"))
         route_bodies = function_bodies(source, "registerRoutes")
         if not route_bodies or not all(
-            contains_identifier(body, "RegisterCommonRoutes")
-            and contains_identifier(body, "Ready")
-            for body in route_bodies
+            contains_identifier(body, "RegisterCommonRoutes") for body in route_bodies
         ):
-            errors.append("server router does not pass protocol readiness to common health routes")
+            errors.append("server router does not register common health routes")
+        for body in route_bodies:
+            if contains_identifier(body, "Ready"):
+                errors.append("server router still gates /health on protocol readiness")
 
     common_routes = root / "backend/internal/server/routes/common.go"
     if common_routes.is_file():
         source = strip_go_comments_and_literals(common_routes.read_text(encoding="utf-8"))
         route_bodies = function_bodies(source, "RegisterCommonRoutes")
-        if not route_bodies or not all(
-            re.search(r"!\s*protocol(?:Routing)?Ready\b", body)
-            and contains_identifier(body, "StatusServiceUnavailable")
-            for body in route_bodies
-        ):
-            errors.append("common health readiness gate is missing protocol readiness enforcement")
+        if not route_bodies:
+            errors.append("common health routes are missing RegisterCommonRoutes")
+        for body in route_bodies:
+            if re.search(r"protocol(?:Routing)?Ready", body):
+                errors.append("common /health still consults protocol readiness")
+            if not contains_identifier(body, "IsDraining"):
+                errors.append("common /health is missing the drain gate")
 
     count_tokens = root / "backend/internal/handler/openai_gateway_count_tokens.go"
     if count_tokens.is_file():

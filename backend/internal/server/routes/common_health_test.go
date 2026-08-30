@@ -17,29 +17,31 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-func newCommonRouter(t *testing.T, protocolReady ...bool) *gin.Engine {
+func newCommonRouter(t *testing.T) *gin.Engine {
 	t.Helper()
 	r := gin.New()
 	// 复刻 router.go 的中间件顺序，确保 /health/inflight 能读到 InFlightTracker 的计数。
 	r.Use(middleware.InFlightTracker())
-	RegisterCommonRoutes(r, protocolReady...)
+	RegisterCommonRoutes(r)
 	return r
 }
 
-func TestHealthEndpoint_503_WhenProtocolRoutingNotReady(t *testing.T) {
+func TestHealthEndpoint_OK_WithoutProtocolReadiness(t *testing.T) {
+	// /health stays 200 even when protocol remediations remain. 1.8.183/184
+	// used this endpoint as a process gate and failed blue/green cutover.
 	resetDrainForTest(t)
-	r := newCommonRouter(t, false)
+	r := newCommonRouter(t)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 got %d body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 got %d body=%s", w.Code, w.Body.String())
 	}
 	got := decodeJSON(t, w.Body.Bytes())
-	if got["status"] != "not_ready" {
-		t.Fatalf("expected status=not_ready got %v", got["status"])
+	if got["status"] != "ok" {
+		t.Fatalf("expected status=ok got %v", got["status"])
 	}
 }
 

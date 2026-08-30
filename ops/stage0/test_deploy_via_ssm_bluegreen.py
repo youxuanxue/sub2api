@@ -566,7 +566,8 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertIn('observe_routed_health', remote)
         self.assertIn('TOKENKEY_BLUEGREEN_OBSERVE_SECONDS:-30', remote)
         self.assertIn('docker exec tokenkey-caddy wget', remote)
-        self.assertIn('"https://${domain}/health"', remote)
+        self.assertIn('"http://${upstream}/health"', remote)
+        self.assertNotIn('"https://${domain}/health"', remote)
         self.assertNotIn("--no-check-certificate", remote)
         self.assertIn("last-cutover-at", remote)
 

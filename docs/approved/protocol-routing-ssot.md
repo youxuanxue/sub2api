@@ -8,7 +8,7 @@ revised: 2026-08-30
 revision_note: >
   Plans and Execute no longer compare account or capability revision tokens.
   Send-time freshness is authoritative reload plus route-fact equivalence.
-  /health follows process TrafficReady, not one account's missing route.
+  /health is drain-only. Protocol remediations never 503 the process.
   NewAPI exact-endpoint resolution is per declared protocol: undeclared
   protocols are not resolved, and a missing Responses URL omits that route
   from both exact endpoints and the Plan-facing supported set.
@@ -564,8 +564,8 @@ Final readiness runs inside the publication transaction and sees its
 uncommitted projection/outbox writes. It is read-only with respect to
 capability/link facts: a concurrently introduced missing or mismatched link
 fails CutoverReady instead of being repaired after publication. Only that
-final successful evaluation may commit the transaction. `/health` follows
-process TrafficReady independently and does not wait for publication.
+final successful evaluation may commit the transaction. `/health` does not
+wait for publication.
 Repeating publication with already-matching projections is a no-op: it
 does not advance account revisions or enqueue duplicate scheduler events.
 
@@ -579,11 +579,10 @@ in the same generation remains inconclusive.
 
 New application code always reads the capability table. It has no fallback to
 `accounts.extra.supported_protocols`, even during migration. Preparation,
-probing, and hard routing cutover may ship in one image. TrafficReady admits
-process traffic; CutoverReady is the publication-completeness signal.
+probing, and hard routing cutover may ship in one image. CutoverReady is the
+publication-completeness signal. `/health` does not read it.
 
-The image reports `/health` as `503 not_ready` only for a process-wide
-blocker: drain, missing router, or startup evaluation abort. An individual
+The image reports `/health` as `503` only while draining. An individual
 active, schedulable, governed account that:
 
 - lacks a valid capability link;
@@ -616,10 +615,10 @@ projections commit in one database transaction. During candidate startup,
 capability preparation is intentionally durable but unpublished; the complete
 projection, account revision advances, and scheduler invalidations are instead
 published together only after preliminary readiness succeeds. A publication
-callback that fails CutoverReady rolls back every legacy-visible effect and
-keeps process TrafficReady so `/health` does not 503 the candidate. A
-publication transaction error still flips TrafficReady, because an image
-rollback must not restore divergent account facts.
+callback that fails CutoverReady rolls back every legacy-visible effect.
+`/health` stays drain-only. A publication transaction error still flips
+TrafficReady in the report, because an image rollback must not restore
+divergent account facts.
 
 After the rollback window, deleting the legacy field, projection writer, and
 compatibility code is a separate reviewed change. The shared capability table
@@ -743,9 +742,8 @@ or capability state.
   and scheduler invalidations in one transaction after CutoverReady.
 - A failed candidate can be retried from persisted preparation facts while the
   previous image continues to observe its pre-candidate routing state.
-- The new image reads only the capability table. `/health` admits traffic when
-  the process can serve. An account without a legal route fails closed at
-  selection or execute and does not 503 the machine.
+- The new image reads only the capability table. `/health` is drain-only.
+  An account without a legal route fails closed at selection or execute.
 - The account legacy field exists only as a one-window rollback projection and
   is never a new-version routing input.
 - CI uses mock upstreams and mechanically rejects competing protocol owners.
