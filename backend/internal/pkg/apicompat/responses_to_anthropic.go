@@ -194,6 +194,8 @@ type ResponsesEventToAnthropicState struct {
 	PendingThinkingSignature string
 	// ReasoningTextEmitted 避免 output_item.done 在已有 delta 时重复抄 thinking。
 	ReasoningTextEmitted bool
+	// TextEmitted 避免 response.completed.output 在已有 text delta 时重复抄正文。
+	TextEmitted bool
 
 	// OutputIndexToBlockIdx maps Responses output_index → Anthropic content block index.
 	OutputIndexToBlockIdx map[int]int
@@ -349,8 +351,14 @@ func ResponsesAnthropicEventToSSE(evt AnthropicStreamEvent) (string, error) {
 // --- internal handlers ---
 
 func resToAnthHandleCreated(evt *ResponsesStreamEvent, state *ResponsesEventToAnthropicState) []AnthropicStreamEvent {
-	if evt.Response != nil {
-		state.ResponseID = evt.Response.ID
+	return resToAnthEnsureMessageStart(state, evt)
+}
+
+func resToAnthEnsureMessageStart(state *ResponsesEventToAnthropicState, evt *ResponsesStreamEvent) []AnthropicStreamEvent {
+	if evt != nil && evt.Response != nil {
+		if id := strings.TrimSpace(evt.Response.ID); id != "" {
+			state.ResponseID = id
+		}
 		// Only use upstream model if no override was set (e.g. originalModel)
 		if state.Model == "" {
 			state.Model = evt.Response.Model
@@ -381,6 +389,70 @@ func resToAnthHandleCreated(evt *ResponsesStreamEvent, state *ResponsesEventToAn
 			},
 		},
 	}}
+}
+
+func resToAnthBackfillCompletedOutput(evt *ResponsesStreamEvent, state *ResponsesEventToAnthropicState) []AnthropicStreamEvent {
+	if evt == nil || evt.Response == nil {
+		return nil
+	}
+
+	var events []AnthropicStreamEvent
+	for _, item := range evt.Response.Output {
+		switch item.Type {
+		case "reasoning":
+			if state.ReasoningTextEmitted {
+				if sig := strings.TrimSpace(item.EncryptedContent); sig != "" && state.PendingThinkingSignature == "" {
+					state.PendingThinkingSignature = sig
+				}
+				continue
+			}
+			text := extractResponsesOutputReasoningText(&item)
+			if text == "" && strings.TrimSpace(item.EncryptedContent) == "" {
+				continue
+			}
+			events = append(events, resToAnthEnsureReasoningBlockOpen(state, 0)...)
+			if text != "" {
+				blockIdx := state.OutputIndexToBlockIdx[0]
+				events = append(events, AnthropicStreamEvent{
+					Type:  "content_block_delta",
+					Index: &blockIdx,
+					Delta: &AnthropicDelta{Type: "thinking_delta", Thinking: text},
+				})
+				state.ReasoningTextEmitted = true
+			}
+			if sig := strings.TrimSpace(item.EncryptedContent); sig != "" {
+				state.PendingThinkingSignature = sig
+			}
+			events = append(events, closeCurrentBlock(state)...)
+		case "message":
+			if state.TextEmitted {
+				continue
+			}
+			var text strings.Builder
+			for _, part := range item.Content {
+				if part.Type == "output_text" && part.Text != "" {
+					_, _ = text.WriteString(part.Text)
+				}
+			}
+			if text.Len() == 0 {
+				continue
+			}
+			events = append(events, resToAnthHandleTextDelta(&ResponsesStreamEvent{Delta: text.String()}, state)...)
+			events = append(events, closeCurrentBlock(state)...)
+		case "function_call", "custom_tool_call":
+			if state.HasToolCall {
+				continue
+			}
+			events = append(events, resToAnthHandleOutputItemAdded(&ResponsesStreamEvent{
+				Item: &item,
+			}, state)...)
+			if item.Arguments != "" {
+				events = append(events, resToAnthHandleFuncArgsDelta(&ResponsesStreamEvent{Delta: item.Arguments}, state)...)
+			}
+			events = append(events, closeCurrentBlock(state)...)
+		}
+	}
+	return events
 }
 
 func resToAnthHandleOutputItemAdded(evt *ResponsesStreamEvent, state *ResponsesEventToAnthropicState) []AnthropicStreamEvent {
@@ -463,6 +535,7 @@ func resToAnthHandleTextDelta(evt *ResponsesStreamEvent, state *ResponsesEventTo
 			Text: evt.Delta,
 		},
 	})
+	state.TextEmitted = true
 	return events
 }
 
@@ -714,7 +787,13 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 	}
 
 	var events []AnthropicStreamEvent
+	events = append(events, resToAnthEnsureMessageStart(state, evt)...)
 	events = append(events, closeCurrentBlock(state)...)
+	// Codex / edge-mirror hops often buffer visible text into the terminal
+	// response.output after a long reasoning wait and omit output_text.delta.
+	// Backfill those items before the US-027 empty-text firewall so Claude
+	// Code receives the real answer instead of an empty content block.
+	events = append(events, resToAnthBackfillCompletedOutput(evt, state)...)
 	// US-027 schema firewall: a terminal event MUST be preceded by at least one
 	// content_block_start/_stop pair. If the upstream stream emitted neither
 	// real content nor a synthesizable delta, inject an empty-text block here so

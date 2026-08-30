@@ -762,14 +762,15 @@ func TestResponsesEventToAnthropicEvents_ResponseDone(t *testing.T) {
 			Usage:  &ResponsesUsage{InputTokens: 12, OutputTokens: 4},
 		},
 	}, state)
-	require.Len(t, events, 4)
-	assert.Equal(t, "content_block_start", events[0].Type)
-	assert.Equal(t, "content_block_stop", events[1].Type)
-	assert.Equal(t, "message_delta", events[2].Type)
-	assert.Equal(t, "end_turn", events[2].Delta.StopReason)
-	assert.Equal(t, 12, events[2].Usage.InputTokens)
-	assert.Equal(t, 4, events[2].Usage.OutputTokens)
-	assert.Equal(t, "message_stop", events[3].Type)
+	require.Len(t, events, 5)
+	assert.Equal(t, "message_start", events[0].Type)
+	assert.Equal(t, "content_block_start", events[1].Type)
+	assert.Equal(t, "content_block_stop", events[2].Type)
+	assert.Equal(t, "message_delta", events[3].Type)
+	assert.Equal(t, "end_turn", events[3].Delta.StopReason)
+	assert.Equal(t, 12, events[3].Usage.InputTokens)
+	assert.Equal(t, 4, events[3].Usage.OutputTokens)
+	assert.Equal(t, "message_stop", events[4].Type)
 	assert.Nil(t, FinalizeResponsesAnthropicStream(state))
 }
 
@@ -792,16 +793,18 @@ func TestResponsesEventToAnthropicEvents_TopLevelTerminalUsage(t *testing.T) {
 	}, state)
 
 	// TK US-027: terminal events always include an empty content block pair when
-	// no real content was emitted (anthropics/claude-code#24662).
-	require.Len(t, events, 4)
-	assert.Equal(t, "content_block_start", events[0].Type)
-	assert.Equal(t, "content_block_stop", events[1].Type)
-	assert.Equal(t, "message_delta", events[2].Type)
-	require.NotNil(t, events[2].Usage)
-	assert.Equal(t, 15, events[2].Usage.InputTokens)
-	assert.Equal(t, 5, events[2].Usage.CacheReadInputTokens)
-	assert.Equal(t, 6, events[2].Usage.OutputTokens)
-	assert.Equal(t, "message_stop", events[3].Type)
+	// no real content was emitted (anthropics/claude-code#24662). A lone
+	// completed event must also open the Anthropic stream with message_start.
+	require.Len(t, events, 5)
+	assert.Equal(t, "message_start", events[0].Type)
+	assert.Equal(t, "content_block_start", events[1].Type)
+	assert.Equal(t, "content_block_stop", events[2].Type)
+	assert.Equal(t, "message_delta", events[3].Type)
+	require.NotNil(t, events[3].Usage)
+	assert.Equal(t, 15, events[3].Usage.InputTokens)
+	assert.Equal(t, 5, events[3].Usage.CacheReadInputTokens)
+	assert.Equal(t, 6, events[3].Usage.OutputTokens)
+	assert.Equal(t, "message_stop", events[4].Type)
 }
 
 func TestResponsesEventToAnthropicEvents_ResponseDoneIncomplete(t *testing.T) {
@@ -816,12 +819,13 @@ func TestResponsesEventToAnthropicEvents_ResponseDoneIncomplete(t *testing.T) {
 			Usage:             &ResponsesUsage{InputTokens: 12, OutputTokens: 4},
 		},
 	}, state)
-	require.Len(t, events, 4)
-	assert.Equal(t, "content_block_start", events[0].Type)
-	assert.Equal(t, "content_block_stop", events[1].Type)
-	assert.Equal(t, "message_delta", events[2].Type)
-	assert.Equal(t, "max_tokens", events[2].Delta.StopReason)
-	assert.Equal(t, "message_stop", events[3].Type)
+	require.Len(t, events, 5)
+	assert.Equal(t, "message_start", events[0].Type)
+	assert.Equal(t, "content_block_start", events[1].Type)
+	assert.Equal(t, "content_block_stop", events[2].Type)
+	assert.Equal(t, "message_delta", events[3].Type)
+	assert.Equal(t, "max_tokens", events[3].Delta.StopReason)
+	assert.Equal(t, "message_stop", events[4].Type)
 	assert.Nil(t, FinalizeResponsesAnthropicStream(state))
 }
 
@@ -2309,4 +2313,77 @@ func TestMessageStartSSE_StopReasonIsJSONNull(t *testing.T) {
 	// Official Anthropic wire: "stop_reason":null
 	require.Contains(t, sse, `"stop_reason":null`)
 	require.NotContains(t, sse, `"stop_reason":""`)
+}
+
+func TestResponsesEventToAnthropic_CompletedBackfillsVisibleTextAfterReasoning(t *testing.T) {
+	state := NewResponsesEventToAnthropicState()
+	state.Model = "gpt-5.4"
+
+	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:     "response.created",
+		Response: &ResponsesResponse{ID: "resp_late", Model: "gpt-5.4"},
+	}, state)
+	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:        "response.output_item.added",
+		OutputIndex: 0,
+		Item:        &ResponsesOutput{Type: "reasoning"},
+	}, state)
+
+	events := ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type: "response.completed",
+		Response: &ResponsesResponse{
+			ID:     "resp_late",
+			Status: "completed",
+			Usage:  &ResponsesUsage{InputTokens: 19449, OutputTokens: 608},
+			Output: []ResponsesOutput{
+				{Type: "reasoning", Summary: []ResponsesSummary{{Type: "summary_text", Text: "think"}}},
+				{Type: "message", Role: "assistant", Content: []ResponsesContentPart{{Type: "output_text", Text: "visible answer"}}},
+			},
+		},
+	}, state)
+
+	var types []string
+	var text string
+	for _, evt := range events {
+		types = append(types, evt.Type)
+		if evt.Delta != nil && evt.Delta.Type == "text_delta" {
+			text += evt.Delta.Text
+		}
+	}
+	require.Contains(t, types, "content_block_delta")
+	require.Equal(t, "visible answer", text)
+	require.Equal(t, 19449, state.InputTokens)
+	require.Equal(t, 608, state.OutputTokens)
+	require.True(t, state.TextEmitted)
+}
+
+func TestResponsesStreamEvent_ObjectDeltaUnmarshalsText(t *testing.T) {
+	var evt ResponsesStreamEvent
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"type":"response.output_text.delta",
+		"delta":{"type":"output_text","text":"hello"}
+	}`), &evt))
+	require.Equal(t, "response.output_text.delta", evt.Type)
+	require.Equal(t, "hello", evt.Delta)
+
+	state := NewResponsesEventToAnthropicState()
+	events := ResponsesEventToAnthropicEvents(&evt, state)
+	require.NotEmpty(t, events)
+	require.Equal(t, "hello", events[len(events)-1].Delta.Text)
+}
+
+func TestResponsesEventToAnthropic_EmptyCompletedStillInjectsTextBlock(t *testing.T) {
+	state := NewResponsesEventToAnthropicState()
+	events := ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type: "response.completed",
+		Response: &ResponsesResponse{
+			Status: "completed",
+			Usage:  &ResponsesUsage{InputTokens: 3, OutputTokens: 0},
+		},
+	}, state)
+	require.GreaterOrEqual(t, len(events), 4)
+	require.Equal(t, "message_start", events[0].Type)
+	require.Equal(t, "content_block_start", events[1].Type)
+	require.Equal(t, "text", events[1].ContentBlock.Type)
+	require.Equal(t, "", events[1].ContentBlock.Text)
 }

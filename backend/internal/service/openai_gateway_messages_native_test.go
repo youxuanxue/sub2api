@@ -210,6 +210,68 @@ func TestForwardAsAnthropic_HeaderWaitKeepaliveEmitsAnthropicPing(t *testing.T) 
 	result, err := svc.ForwardAsAnthropic(context.Background(), c, rawChatCompletionsTestAccount(), body, "", "")
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Contains(t, rec.Body.String(), "event: ping",
+	bodyOut := rec.Body.String()
+	require.Contains(t, bodyOut, "event: ping",
 		"Claude /v1/messages clients must receive Anthropic ping while waiting on upstream headers")
+	require.Contains(t, bodyOut, "event: message_start")
+	require.Less(t, strings.Index(bodyOut, "event: message_start"), strings.Index(bodyOut, "event: ping"),
+		"message_start must precede the first ping so Claude Code keeps the late-first-token stream")
+	require.Contains(t, bodyOut, `"text_delta"`)
+	require.Contains(t, bodyOut, "ok")
+	require.Equal(t, 5, result.Usage.InputTokens)
+	require.Equal(t, 2, result.Usage.OutputTokens)
+}
+
+func TestForwardAsAnthropic_JSONResponsesBodyStreamsVisibleText(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.4","max_tokens":16,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	upstreamJSON := `{
+		"id":"resp_json","object":"response","model":"gpt-5.4","status":"completed",
+		"output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"from json"}]}],
+		"usage":{"input_tokens":11,"output_tokens":4,"total_tokens":15}
+	}`
+	svc := &OpenAIGatewayService{
+		cfg: rawChatCompletionsTestConfig(),
+		httpUpstream: &httpUpstreamRecorder{resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(upstreamJSON)),
+		}},
+	}
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, rawChatCompletionsTestAccount(), body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 11, result.Usage.InputTokens)
+	require.Equal(t, 4, result.Usage.OutputTokens)
+	require.Contains(t, rec.Body.String(), "event: message_start")
+	require.Contains(t, rec.Body.String(), "from json")
+}
+
+func TestForwardAsAnthropic_JSONNonResponsesBodyIsFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.4","max_tokens":16,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	svc := &OpenAIGatewayService{
+		cfg: rawChatCompletionsTestConfig(),
+		httpUpstream: &httpUpstreamRecorder{resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+		}},
+	}
+
+	_, err := svc.ForwardAsAnthropic(context.Background(), c, rawChatCompletionsTestAccount(), body, "", "")
+	require.Error(t, err)
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
 }

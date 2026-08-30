@@ -3,10 +3,17 @@ package service
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/gin-gonic/gin"
+)
+
+const (
+	tkAnthropicStreamModelKey      = "tk_anthropic_stream_model"
+	tkAnthropicMessageStartSentKey = "tk_anthropic_message_start_sent"
 )
 
 // anthropicSSEPingFrame is the Anthropic-shaped SSE keepalive frame. It is byte
@@ -100,7 +107,74 @@ func (s *OpenAIGatewayService) beginAnthropicClientHeaderWaitKeepalive(c *gin.Co
 	if s == nil || s.cfg == nil {
 		return nil
 	}
-	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.cfg.Gateway.StreamKeepaliveInterval, anthropicSSEPingFrame)
+	if !reqStream || s.cfg.Gateway.StreamKeepaliveInterval <= 0 {
+		return nil
+	}
+	// Claude Code requires message_start as the first typed Anthropic event.
+	// A late Codex/edge first token (~12s) otherwise lets the 10s header-wait
+	// ping commit the stream first; CC then treats later deltas as idle/empty.
+	return startHeaderWaitKeepaliveWithPrefix(
+		c,
+		time.Duration(s.cfg.Gateway.StreamKeepaliveInterval)*time.Second,
+		anthropicStreamMessageStartSSE(anthropicStreamModelFromContext(c), ""),
+		anthropicSSEPingFrame,
+		func() { markAnthropicMessageStartSent(c) },
+	)
+}
+
+func setAnthropicStreamModel(c *gin.Context, model string) {
+	if c == nil {
+		return
+	}
+	c.Set(tkAnthropicStreamModelKey, strings.TrimSpace(model))
+}
+
+func anthropicStreamModelFromContext(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	if value, ok := c.Get(tkAnthropicStreamModelKey); ok {
+		if model, ok := value.(string); ok {
+			return model
+		}
+	}
+	return ""
+}
+
+func markAnthropicMessageStartSent(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	c.Set(tkAnthropicMessageStartSentKey, true)
+}
+
+func anthropicMessageStartAlreadySent(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	value, ok := c.Get(tkAnthropicMessageStartSentKey)
+	sent, isBool := value.(bool)
+	return ok && isBool && sent
+}
+
+func anthropicStreamMessageStartSSE(model, id string) string {
+	state := apicompat.NewResponsesEventToAnthropicState()
+	state.Model = strings.TrimSpace(model)
+	events := apicompat.ResponsesEventToAnthropicEvents(&apicompat.ResponsesStreamEvent{
+		Type: "response.created",
+		Response: &apicompat.ResponsesResponse{
+			ID:    strings.TrimSpace(id),
+			Model: state.Model,
+		},
+	}, state)
+	if len(events) == 0 {
+		return ""
+	}
+	sse, err := apicompat.ResponsesAnthropicEventToSSE(events[0])
+	if err != nil {
+		return ""
+	}
+	return sse
 }
 
 // beginConfiguredHeaderWaitKeepalive is the shared constructor used by every
@@ -142,6 +216,16 @@ func (s *GeminiMessagesCompatService) beginSSECommentHeaderWaitKeepalive(c *gin.
 // bytes emitted each tick (platform specific). interval <= 0, a nil
 // context/writer, or a writer that cannot flush all yield a nil no-op.
 func startHeaderWaitKeepalive(c *gin.Context, interval time.Duration, frame string) *headerWaitKeepalive {
+	return startHeaderWaitKeepaliveWithPrefix(c, interval, "", frame, nil)
+}
+
+func startHeaderWaitKeepaliveWithPrefix(
+	c *gin.Context,
+	interval time.Duration,
+	firstFrame string,
+	frame string,
+	afterFirstWrite func(),
+) *headerWaitKeepalive {
 	if interval <= 0 || c == nil || c.Writer == nil || c.Request == nil {
 		return nil
 	}
@@ -160,6 +244,7 @@ func startHeaderWaitKeepalive(c *gin.Context, interval time.Duration, frame stri
 		defer ticker.Stop()
 		ctxDone := c.Request.Context().Done()
 		headersSent := false
+		wroteFirst := false
 		for {
 			select {
 			case <-k.stopCh:
@@ -186,11 +271,21 @@ func startHeaderWaitKeepalive(c *gin.Context, interval time.Duration, frame stri
 					h.Set("X-Accel-Buffering", "no")
 					headersSent = true
 				}
-				if _, err := fmt.Fprint(c.Writer, frame); err != nil {
+				toWrite := frame
+				if !wroteFirst && firstFrame != "" {
+					toWrite = firstFrame + frame
+				}
+				if _, err := fmt.Fprint(c.Writer, toWrite); err != nil {
 					// Client is gone; stop emitting. The upstream read path will
 					// observe the disconnect via context cancellation or its own
 					// write failure once it takes over.
 					return
+				}
+				if !wroteFirst {
+					wroteFirst = true
+					if afterFirstWrite != nil {
+						afterFirstWrite()
+					}
 				}
 				flusher.Flush()
 			}

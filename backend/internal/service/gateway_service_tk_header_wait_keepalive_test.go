@@ -96,6 +96,12 @@ func TestOpenAIGatewayService_BeginAnthropicClientHeaderWaitKeepaliveUsesPingFra
 	if !strings.Contains(body, "event: ping") {
 		t.Fatalf("messages client keepalive must emit Anthropic ping, got %q", body)
 	}
+	if !strings.Contains(body, "event: message_start") {
+		t.Fatalf("messages client keepalive must emit message_start before ping, got %q", body)
+	}
+	if strings.Index(body, "event: message_start") > strings.Index(body, "event: ping") {
+		t.Fatalf("message_start must precede ping, got %q", body)
+	}
 	if strings.Contains(body, ":\n\n") && !strings.Contains(body, "event: ping") {
 		t.Fatalf("messages client keepalive must not be an OpenAI comment, got %q", body)
 	}

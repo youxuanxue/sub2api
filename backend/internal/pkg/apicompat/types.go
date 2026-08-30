@@ -626,6 +626,50 @@ type ResponsesStreamEvent struct {
 	SequenceNumber int `json:"sequence_number,omitempty"`
 }
 
+// UnmarshalJSON accepts both the public Responses string delta and Codex/compat
+// object deltas ({"text":"..."} / {"delta":"..."}). A typed object must not fail
+// the whole event — otherwise /v1/messages drops usage and visible text.
+func (e *ResponsesStreamEvent) UnmarshalJSON(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	deltaRaw := fields["delta"]
+	delete(fields, "delta")
+	normalized, err := json.Marshal(fields)
+	if err != nil {
+		return err
+	}
+	type responsesStreamEventAlias ResponsesStreamEvent
+	var decoded responsesStreamEventAlias
+	if err := json.Unmarshal(normalized, &decoded); err != nil {
+		return err
+	}
+	*e = ResponsesStreamEvent(decoded)
+	e.Delta = parseResponsesDeltaField(deltaRaw)
+	return nil
+}
+
+func parseResponsesDeltaField(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return text
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return ""
+	}
+	for _, key := range []string{"text", "delta", "content"} {
+		if value, ok := obj[key].(string); ok {
+			return value
+		}
+	}
+	return ""
+}
+
 // ---------------------------------------------------------------------------
 // OpenAI Chat Completions API types
 // ---------------------------------------------------------------------------
