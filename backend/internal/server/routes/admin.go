@@ -150,6 +150,7 @@ func registerSupplierSourceRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		sources.GET("/priority-preview", h.Admin.SupplierSource.PriorityPreview)
 		sources.GET("/:id", h.Admin.SupplierSource.Get)
 		sources.PUT("/:id", h.Admin.SupplierSource.Update)
+		sources.POST("/:id/models-discover", h.Admin.SupplierSource.DiscoverModels)
 		sources.POST("/:id/sync", h.Admin.SupplierSource.Sync)
 	}
 }

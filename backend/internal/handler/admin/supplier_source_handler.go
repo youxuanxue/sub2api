@@ -207,6 +207,26 @@ func (h *SupplierSourceHandler) Sync(c *gin.Context) {
 	response.Success(c, result)
 }
 
+func (h *SupplierSourceHandler) DiscoverModels(c *gin.Context) {
+	id, ok := supplierSourceID(c)
+	if !ok {
+		return
+	}
+	result, err := h.service.DiscoverModels(c.Request.Context(), id)
+	if err != nil {
+		writeSupplierSourceDiscoverError(c, result, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+func writeSupplierSourceDiscoverError(c *gin.Context, result *service.SupplierModelsDiscoverResult, err error) {
+	statusCode, message, reason, metadata := supplierSourceHTTPError(err)
+	c.JSON(statusCode, response.Response{
+		Code: statusCode, Message: message, Reason: reason, Metadata: metadata, Data: result,
+	})
+}
+
 func writeSupplierSourceSyncError(c *gin.Context, result *service.SupplierSourceSyncResult, err error) {
 	statusCode, message, reason, metadata := supplierSourceHTTPError(err)
 	c.JSON(statusCode, response.Response{

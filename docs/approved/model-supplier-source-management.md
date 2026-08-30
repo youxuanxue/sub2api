@@ -63,6 +63,20 @@ account.priority = source.base_priority + discount_priority
 priority 自行判断和修改 `base_priority`。已选来源的表单存在未保存修改时，页面禁用“校验并同步”并
 提示先保存；同步 API 始终只读取数据库中已保存的供应事实。
 
+“校验并同步”在账号投影前先走只读 `POST /admin/supplier-sources/:id/models-discover`：
+
+1. 拉取上游 models 列表（OpenAI 兼容 `/v1/models`；千帆 BaiduV2 为 `/v2/models`）；
+2. 把已配置模型 ID 规整为上游规范 ID（大小写、空格等）；无法匹配的保留原值并标
+   `configured_issues`，不自动删除；
+3. 对列表中尚未配置、且 type 可探测（`chat` / `multimodal` / `image2text` / 空）的候选做真实
+   Chat Completions 探测；`embeddings` / `text2image` 等直接拒绝建议；
+4. **仅探测通过**的候选进入 `suggested_appends`（默认 `purchase_ratio=1.0`）；探测失败的进入
+   `rejected_candidates`，不得写入表单建议、更不得投影账号；
+5. 若有已配置 ID 规整变更，结果回填表单草稿并要求人工确认后保存；建议追加只展示，需运营主动
+   「加入表单」才进入草稿。discover 本身不写供应源、不写账号。保存后再点“校验并同步”才进入
+   既有账号投影；
+6. 若无需规整确认，即使仍有建议追加，也继续执行下方投影同步（建议可在同屏查看后择机加入）。
+
 同步按以下最小规则执行：
 
 1. 供应商名称、通道名称或 `base_priority` 变化时，只更新受管账号名称和 priority，不探测；
@@ -128,12 +142,13 @@ GET    /admin/supplier-sources/:id
 POST   /admin/supplier-sources
 PUT    /admin/supplier-sources/:id
 GET    /admin/supplier-sources/priority-preview
+POST   /admin/supplier-sources/:id/models-discover
 POST   /admin/supplier-sources/:id/sync
 ```
 
 不提供 DELETE、validate、activation-preview、activate、pause 或供应源 audits API。页面只展示运营
-字段、档位与目标 priority、全局供应源 priority、保存、单源“校验并同步”、当次逐模型探测结果和
-实际账号变化。
+字段、档位与目标 priority、全局供应源 priority、保存、单源“校验并同步”（内嵌 models-discover
+规整/建议）、当次发现结果、当次逐模型探测结果和实际账号变化。
 
 ## 首批验收
 

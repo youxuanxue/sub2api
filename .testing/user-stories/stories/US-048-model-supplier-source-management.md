@@ -22,6 +22,7 @@
 6. AC-006 (ownership): Given 账号 Extra 存在 `supplier_source_id`，When 普通账号单项、批量、复制、删除、从父账号创建影子账号、credentials/Extra/刷新凭证、状态、可调度或 CRS 导入覆盖尝试写入，Then service 层整体拒绝；普通创建和 CRS 导入不能伪造保留 Extra；供应源同步只走不携带 `rate_multiplier` 的窄写命令，只合并 `supplier_source_id`、`supplier_discount_band` 两个受管 Extra 并保留所有非受管 Extra，同时修复解析后的 NewAPI transport（OpenAI 或 Qianfan BaiduV2）与目标 `status/schedulable`。已有账号匹配覆盖全部未删除 NewAPI 候选，但只有 active 唯一精确匹配可接管；disabled/error 精确匹配返回冲突且不新建重复账号。恢复错误、配额重置、代理 fallback 与探测仍允许。真实账号 UI 显示“供应源托管”徽标和统一只读原因，点击后按 `source_id` 直接选中对应供应源。
 7. AC-007 (安全): Given 创建、更新、探测或同步供应源，When API、日志和 Admin Audit Log 记录请求与结果，Then 不包含凭证明文、密文、HMAC 指纹或上游原始响应；探测只返回固定状态、协议分类和脱敏说明；HMAC 指纹跟随凭证加密密钥而非 JWT secret 的生命周期。
 8. AC-008 (首批证据): Given 首批运营表和只读生产库存，When 记录验收结果，Then 三个案例必须各自提供完整准确的供应事实才能同步；信息不完整或不匹配时不扩大已有账号匹配、不改网关调度。佳杰/VSTECS 只保留两个最低合法比例 `0.50` 模型且因无生产凭证标记 `not_run`；FMGo 只保留 Seedance 显式双 ID 与 `protocol_unsupported`；百度千帆在凭证齐备时以 BaiduV2 transport 接管账号 90（channel_type=46），不以 OpenAI Chat 伪探测冒充成功。
+9. AC-009 (上游发现): Given 已保存供应源，When 点击“校验并同步”，Then 系统先 `models-discover`：拉取上游 models、规整已配置 ID、对未配置且可探测类型的候选做真实 Chat 探测；仅探测通过的进入建议追加（默认 ratio `1.0`），探测失败或非 chat 类型不得建议追加；有规整变更时回填表单草稿要求保存，建议追加需运营主动加入表单；无规整变更时继续既有投影同步。discover 不写供应源也不写账号。
 
 ## Assertions
 
@@ -29,6 +30,7 @@
 - 同一供应源内 `client_model_id` 唯一，客户 ID 与上游 ID 必须逐行明确，不提供通用前缀替换器。
 - 首批佳杰模型筛选是运营输入边界；格式未确认的 `43折` 等文本不参与自动比较。
 - 保存、名称/priority 元数据同步和投影同步是三条明确路径；结构变化或非空账号的调度投影漂移需要探测。
+- “校验并同步”内嵌 models-discover；建议追加必须以探测通过为门禁，不得仅凭 models 列表写入。
 - 新建受管账号命令不接受 mapping；非空投影必须携带 Chat 正向探测证据，service 与 repository 双重拒绝绕过。
 - 单账号账号配置、Chat-only capability、探测证据与 scheduler outbox 原子提交；读回是配置确认，不是写后二次探测。
 - 供应源 `/v1` 规范化只由 OpenAI 受管路径触发；Qianfan 主机规范化为根 URL 并声明 `/v2/chat/completions`；普通 NewAPI base URL 不改写。
@@ -88,6 +90,13 @@
 - `backend/internal/service/supplier_managed_account_guard_test.go`::`TestUS048_UnmanagedAccountCannotForgeSupplierManagedExtra`
 - `backend/internal/service/crs_sync_supplier_managed_test.go`::`TestUS048_CRSSyncRejectsSupplierManagedAccountOverwrite`
 - `backend/internal/service/crs_sync_supplier_managed_test.go`::`TestUS048_CRSSyncRejectsReservedSupplierExtraOnNewAccount`
+- `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_SupplierModelMatchKeyNormalizesCaseAndSpaces`
+- `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_MatchSupplierUpstreamModelIDPrefersCanonicalID`
+- `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_BuildSupplierModelsListURLUsesBaiduV2Path`
+- `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_DiscoverModelsNormalizesAndSuggestsOnlyProbePassed`
+- `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_DiscoverModelsSuggestionsAloneDoNotBlockProjection`
+- `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_DiscoverModelsAuthFailureStopsWithoutSuggesting`
+- `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_ExtractSupplierUpstreamModelEntriesKeepsType`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_FMGoSeedanceIsProtocolUnsupportedWithoutAccountWrite`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_SupplierManagedAccountDeclaresOnlyChatProtocol`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_SupplierManagedQianfanDeclaresBaiduV2ChatProtocol`
@@ -103,6 +112,8 @@
 - `backend/internal/service/audit_log_test.go`::`TestRedactAuditBody_RedactsSupplierSourceCredential`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`saves new and existing sources through create or update only`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`requires saving edited supplier facts before syncing the selected source`
+- `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`applies discover normalize to the form and keeps suggestions opt-in`
+- `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`continues to account sync when discover only has optional suggestions`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`renders every probe result and actual account change returned by sync`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`does not show success when a resolved sync result reports a failed step`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`shows protocol_unsupported probe results from a 422 response without success wording`

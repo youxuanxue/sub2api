@@ -286,6 +286,72 @@
         </form>
 
         <section
+          v-if="discoverResult"
+          data-test="discover-result"
+          class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-700"
+        >
+          <h2 class="font-medium">{{ t('admin.supplierSources.discoverResult') }}</h2>
+          <p v-if="discoverNeedsSave" data-test="discover-needs-save" class="text-sm text-amber-700">
+            {{ t('admin.supplierSources.discoverNeedsSave') }}
+          </p>
+          <div v-if="discoverResult.normalized_changes.length">
+            <h3 class="text-sm font-medium">{{ t('admin.supplierSources.normalizedChanges') }}</h3>
+            <ul class="mt-2 space-y-1 text-sm">
+              <li
+                v-for="change in discoverResult.normalized_changes"
+                :key="`${change.from_upstream_model_id}->${change.to_upstream_model_id}`"
+              >
+                {{ change.from_client_model_id }} / {{ change.from_upstream_model_id }}
+                → {{ change.to_client_model_id }} / {{ change.to_upstream_model_id }}
+              </li>
+            </ul>
+          </div>
+          <div v-if="discoverResult.suggested_appends.length">
+            <h3 class="text-sm font-medium">{{ t('admin.supplierSources.suggestedAppends') }}</h3>
+            <ul class="mt-2 space-y-1 text-sm">
+              <li
+                v-for="model in discoverResult.suggested_appends"
+                :key="`suggest-${model.upstream_model_id}`"
+              >
+                {{ model.upstream_model_id }} · ratio {{ model.purchase_ratio ?? '—' }}
+              </li>
+            </ul>
+            <button
+              type="button"
+              data-test="append-suggested"
+              class="mt-2 text-sm text-primary-600"
+              @click="appendSuggestedModels"
+            >
+              {{ t('admin.supplierSources.appendSuggested') }}
+            </button>
+          </div>
+          <div v-if="discoverResult.configured_issues.length">
+            <h3 class="text-sm font-medium">{{ t('admin.supplierSources.configuredIssues') }}</h3>
+            <ul class="mt-2 space-y-1 text-sm">
+              <li
+                v-for="issue in discoverResult.configured_issues"
+                :key="`issue-${issue.upstream_model_id}`"
+              >
+                {{ issue.client_model_id }} / {{ issue.upstream_model_id }} · {{ issue.reason }}
+              </li>
+            </ul>
+          </div>
+          <div v-if="discoverResult.rejected_candidates.length">
+            <h3 class="text-sm font-medium">{{ t('admin.supplierSources.rejectedCandidates') }}</h3>
+            <ul class="mt-2 space-y-1 text-sm text-gray-600 dark:text-gray-300">
+              <li
+                v-for="item in discoverResult.rejected_candidates"
+                :key="`reject-${item.upstream_model_id}`"
+              >
+                {{ item.upstream_model_id }}
+                <span v-if="item.type"> · {{ item.type }}</span>
+                · {{ item.reason }}
+              </li>
+            </ul>
+          </div>
+        </section>
+
+        <section
           v-if="syncResult"
           data-test="sync-result"
           class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-700"
@@ -342,6 +408,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import {
   adminAPI,
+  type SupplierModelsDiscoverResult,
   type SupplierPriorityPreview,
   type SupplierSource,
   type SupplierSourceInput,
@@ -363,6 +430,8 @@ const listQuery = ref('')
 const editorEl = ref<HTMLElement | null>(null)
 const priorityPreview = ref<SupplierPriorityPreview | null>(null)
 const syncResult = ref<SupplierSourceSyncResult | null>(null)
+const discoverResult = ref<SupplierModelsDiscoverResult | null>(null)
+const discoverNeedsSave = ref(false)
 const syncError = ref('')
 const saveError = ref('')
 
@@ -453,6 +522,8 @@ function resetForm(): void {
   selected.value = null
   copiedFrom.value = null
   syncResult.value = null
+  discoverResult.value = null
+  discoverNeedsSave.value = false
   syncError.value = ''
   saveError.value = ''
   Object.assign(form, {
@@ -470,6 +541,8 @@ function selectSource(source: SupplierSource): void {
   selected.value = source
   copiedFrom.value = null
   syncResult.value = null
+  discoverResult.value = null
+  discoverNeedsSave.value = false
   syncError.value = ''
   saveError.value = ''
   Object.assign(form, {
@@ -505,6 +578,8 @@ function copySelected(): void {
   copiedFrom.value = origin
   selected.value = null
   syncResult.value = null
+  discoverResult.value = null
+  discoverNeedsSave.value = false
   syncError.value = ''
   saveError.value = ''
   Object.assign(form, {
@@ -618,6 +693,36 @@ async function loadPriorityPreview(): Promise<void> {
   }
 }
 
+function applyDiscoverToForm(result: SupplierModelsDiscoverResult): void {
+  // Only rewrite configured rows to canonical IDs. Suggested appends stay in the
+  // discover panel until the operator explicitly adds them — auto-appending would
+  // re-dirty the form on every Sync after the operator removed unwanted models.
+  form.models = result.normalized_models.length > 0
+    ? result.normalized_models.map(model => ({
+      client_model_id: model.client_model_id,
+      upstream_model_id: model.upstream_model_id,
+      purchase_ratio: model.purchase_ratio,
+    }))
+    : [emptyModel()]
+}
+
+function appendSuggestedModels(): void {
+  if (!discoverResult.value) return
+  const existing = new Set(
+    form.models.map(model => model.client_model_id.trim().toLowerCase()).filter(Boolean),
+  )
+  for (const model of discoverResult.value.suggested_appends) {
+    const key = model.client_model_id.trim().toLowerCase()
+    if (!key || existing.has(key)) continue
+    form.models.push({
+      client_model_id: model.client_model_id,
+      upstream_model_id: model.upstream_model_id,
+      purchase_ratio: model.purchase_ratio,
+    })
+    existing.add(key)
+  }
+}
+
 function supplierSyncResultFromError(error: unknown): SupplierSourceSyncResult | null {
   if (!error || typeof error !== 'object') return null
   const data = (error as { data?: unknown }).data
@@ -627,14 +732,36 @@ function supplierSyncResultFromError(error: unknown): SupplierSourceSyncResult |
   return candidate as SupplierSourceSyncResult
 }
 
+function supplierDiscoverResultFromError(error: unknown): SupplierModelsDiscoverResult | null {
+  if (!error || typeof error !== 'object') return null
+  const data = (error as { data?: unknown }).data
+  if (!data || typeof data !== 'object') return null
+  const candidate = data as Partial<SupplierModelsDiscoverResult>
+  if (!Array.isArray(candidate.normalized_models) || !Array.isArray(candidate.suggested_appends)) return null
+  return candidate as SupplierModelsDiscoverResult
+}
+
 async function syncSelected(): Promise<void> {
   if (!selected.value || hasUnsavedChanges.value) return
   syncing.value = true
   syncResult.value = null
+  discoverResult.value = null
+  discoverNeedsSave.value = false
   syncError.value = ''
   try {
+    const discovered = await adminAPI.supplierSources.discoverModels(selected.value.id)
+    discoverResult.value = discovered
+    if (discovered.needs_confirmation) {
+      applyDiscoverToForm(discovered)
+      discoverNeedsSave.value = true
+      return
+    }
     syncResult.value = await adminAPI.supplierSources.sync(selected.value.id)
   } catch (error) {
+    const discovered = supplierDiscoverResultFromError(error)
+    if (discovered) {
+      discoverResult.value = discovered
+    }
     syncResult.value = supplierSyncResultFromError(error)
     syncError.value = error instanceof Error ? error.message : String(error)
   } finally {

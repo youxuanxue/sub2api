@@ -83,6 +83,44 @@ export interface SupplierSourceSyncResult {
   failed_step?: string
 }
 
+export interface SupplierUpstreamModelEntry {
+  id: string
+  type?: string
+}
+
+export interface SupplierModelNormalizeChange {
+  from_client_model_id: string
+  from_upstream_model_id: string
+  to_client_model_id: string
+  to_upstream_model_id: string
+}
+
+export interface SupplierModelDiscoverIssue {
+  client_model_id: string
+  upstream_model_id: string
+  reason: string
+}
+
+export interface SupplierModelDiscoverRejection {
+  upstream_model_id: string
+  type?: string
+  reason: string
+  detail?: string
+}
+
+export interface SupplierModelsDiscoverResult {
+  source_id: number
+  upstream_models: SupplierUpstreamModelEntry[]
+  normalized_models: SupplierSourceModel[]
+  normalized_changes: SupplierModelNormalizeChange[]
+  suggested_appends: SupplierSourceModel[]
+  rejected_candidates: SupplierModelDiscoverRejection[]
+  configured_issues: SupplierModelDiscoverIssue[]
+  probe_results: SupplierProbeResult[]
+  needs_confirmation: boolean
+  failed_step?: string
+}
+
 async function list(): Promise<SupplierSource[]> {
   const { data } = await apiClient.get<SupplierSource[]>('/admin/supplier-sources')
   return data
@@ -108,9 +146,16 @@ async function priorityPreview(): Promise<SupplierPriorityPreview> {
   return data
 }
 
+async function discoverModels(id: number): Promise<SupplierModelsDiscoverResult> {
+  const { data } = await apiClient.post<SupplierModelsDiscoverResult>(
+    `/admin/supplier-sources/${id}/models-discover`,
+  )
+  return data
+}
+
 async function sync(id: number): Promise<SupplierSourceSyncResult> {
   const { data } = await apiClient.post<SupplierSourceSyncResult>(`/admin/supplier-sources/${id}/sync`)
   return data
 }
 
-export default { list, get, create, update, priorityPreview, sync }
+export default { list, get, create, update, priorityPreview, discoverModels, sync }
