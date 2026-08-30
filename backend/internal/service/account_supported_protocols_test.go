@@ -340,6 +340,7 @@ func TestProtocolAccountSnapshotUsesCanonicalAgentPlanEndpoints(t *testing.T) {
 
 func TestProtocolExactEndpointsOmitsUnsupportedNewAPIProtocol(t *testing.T) {
 	account := qianfanChatTestAccount(90)
+	attachTestProtocolCapability(account, protocolrouter.ProtocolChatCompletions)
 	endpoints, err := protocolExactEndpoints(account, "ernie-5.0", protocolrouter.GeminiEndpointNone, false)
 	if err != nil {
 		t.Fatalf("protocolExactEndpoints: %v", err)
@@ -349,6 +350,31 @@ func TestProtocolExactEndpointsOmitsUnsupportedNewAPIProtocol(t *testing.T) {
 	}
 	if _, ok := endpoints[protocolrouter.ProtocolResponses]; ok {
 		t.Fatalf("unsupported Responses exact endpoint was attached: %#v", endpoints)
+	}
+}
+
+func TestProtocolExactEndpointsOmitsUnresolvableClaimedResponses(t *testing.T) {
+	// #1893 fail-closed when capability falsely claimed Responses. Keep Chat
+	// and omit the unresolvable protocol instead of poisoning the snapshot.
+	account := qianfanChatTestAccount(90)
+	attachTestProtocolCapability(account, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses)
+	endpoints, err := protocolExactEndpoints(account, "ernie-5.0", protocolrouter.GeminiEndpointNone, false)
+	if err != nil {
+		t.Fatalf("claimed Responses must not fail Chat exact endpoints: %v", err)
+	}
+	if got := endpoints[protocolrouter.ProtocolChatCompletions]; got != newapiintegration.QianfanBaseURL+"/v2/chat/completions" {
+		t.Fatalf("chat exact endpoint = %q", got)
+	}
+	if _, ok := endpoints[protocolrouter.ProtocolResponses]; ok {
+		t.Fatalf("unresolvable claimed Responses was attached: %#v", endpoints)
+	}
+}
+
+func TestProtocolExactEndpointsFailsWhenEveryDeclaredProtocolIsUnresolvable(t *testing.T) {
+	account := qianfanChatTestAccount(90)
+	attachTestProtocolCapability(account, protocolrouter.ProtocolResponses)
+	if _, err := protocolExactEndpoints(account, "ernie-5.0", protocolrouter.GeminiEndpointNone, false); err == nil {
+		t.Fatal("expected Responses-only Qianfan exact endpoints to fail closed")
 	}
 }
 
@@ -409,6 +435,36 @@ func TestProtocolAccountSnapshotPlansQianfanChatWithoutResponses(t *testing.T) {
 	}
 	if got, want := converted.Endpoint(), newapiintegration.QianfanBaseURL+"/v2/chat/completions"; got != want {
 		t.Fatalf("converted endpoint = %q, want invented Responses URL %q", got, want)
+	}
+}
+
+func TestProtocolAccountSnapshotOmitsUnresolvableClaimedResponses(t *testing.T) {
+	account := qianfanChatTestAccount(90)
+	attachTestProtocolCapability(account, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses)
+	snapshot, err := ProtocolAccountSnapshot(account, "ernie-5.0")
+	if err != nil {
+		t.Fatalf("claimed Responses must not fail Chat snapshot: %v", err)
+	}
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolChatCompletions,
+		RequestedModel:  "ernie-5.0",
+		Profile: protocolrouter.RequestProfile{
+			ContentKinds: protocolrouter.ContentText,
+		},
+		Body: []byte(`{"model":"ernie-5.0","messages":[{"role":"user","content":"hi"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+	plan, err := NewProtocolRouter().Plan(request, snapshot)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if got, want := plan.TargetProtocol(), protocolrouter.ProtocolChatCompletions; got != want {
+		t.Fatalf("target = %q, want %q", got, want)
+	}
+	if got, want := plan.Endpoint(), newapiintegration.QianfanBaseURL+"/v2/chat/completions"; got != want {
+		t.Fatalf("endpoint = %q, want %q", got, want)
 	}
 }
 

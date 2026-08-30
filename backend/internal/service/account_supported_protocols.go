@@ -322,12 +322,18 @@ func protocolExactEndpoints(
 	if account == nil || account.Platform != PlatformNewAPI || account.ChannelType <= 0 {
 		return nil, nil
 	}
+	// Only resolve protocols the linked capability already claims. Qianfan
+	// (channel 46) rejects Responses; forcing that URL used to poison
+	// chat-only snapshots. A claimed protocol that cannot resolve is omitted
+	// so a remaining legal Chat route still plans.
 	endpoints := make(map[protocolrouter.Protocol]string, 2)
 	var firstErr error
-	for _, protocol := range []protocolrouter.Protocol{
-		protocolrouter.ProtocolChatCompletions,
-		protocolrouter.ProtocolResponses,
-	} {
+	for _, protocol := range routingSupportedProtocols(account) {
+		switch protocol {
+		case protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses:
+		default:
+			continue
+		}
 		endpoint, err := protocolExactEndpoint(account, protocol, resolvedModel)
 		if err != nil {
 			if firstErr == nil {

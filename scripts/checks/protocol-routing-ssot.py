@@ -436,6 +436,10 @@ def check(root: Path) -> list[str]:
         for body in exact_bodies:
             if not contains_identifier(body, "protocolExactEndpoint"):
                 errors.append("protocolExactEndpoints does not resolve NewAPI protocol URLs")
+            if not contains_identifier(body, "routingSupportedProtocols"):
+                errors.append(
+                    "protocolExactEndpoints does not limit NewAPI exact URLs to declared protocols"
+                )
             if re.search(
                 r"protocolExactEndpoint\s*\([\s\S]*?if\s+err\s*!=\s*nil\s*\{\s*return\s+nil,\s*err",
                 body,
