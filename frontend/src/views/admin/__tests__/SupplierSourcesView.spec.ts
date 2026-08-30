@@ -262,4 +262,116 @@ describe('SupplierSourcesView', () => {
       expect(wrapper.find(`[data-test="${testID}"]`).exists()).toBe(false)
     }
   })
+
+  it('does not offer copy until a saved source is selected', async () => {
+    list.mockResolvedValueOnce([source])
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="copy-source"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="editor-title"]').text()).toBe('admin.supplierSources.editorNew')
+
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+    expect(wrapper.get('[data-test="copy-source"]').text()).toBe('admin.supplierSources.copyAsNew')
+    expect(wrapper.get('[data-test="editor-title"]').text()).toBe('admin.supplierSources.editorEdit')
+  })
+
+  it('copies the selected source into a new editor without saving or exposing credentials', async () => {
+    list.mockResolvedValueOnce([
+      source,
+      { ...source, id: 8, channel_name: 'stbl-5 (admin.supplierSources.copySuffix)' },
+    ])
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+
+    await wrapper.get('[data-test="copy-source"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('[data-test="editor-title"]').text()).toBe('admin.supplierSources.editorCopy')
+    expect(wrapper.get('[data-test="copy-hint"]').text()).toBe('admin.supplierSources.copyHint')
+    expect(wrapper.find('[data-test="copy-source"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="sync-source"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="source-select-7"]').classes()).not.toContain('border-primary-500')
+    expect((wrapper.get('[data-test="supplier-name"]').element as HTMLInputElement).value).toBe('佳杰')
+    expect((wrapper.get('[data-test="channel-name"]').element as HTMLInputElement).value).toBe(
+      'stbl-5 (admin.supplierSources.copySuffix 2)',
+    )
+    expect((wrapper.get('[data-test="endpoint"]').element as HTMLInputElement).value).toBe(source.endpoint)
+    expect((wrapper.get('[data-test="credential"]').element as HTMLInputElement).value).toBe('')
+    expect(wrapper.get('[data-test="credential"]').attributes('required')).toBeDefined()
+    expect((wrapper.get('[data-test="client-model-id"]').element as HTMLInputElement).value).toBe('deepseek-v4-pro')
+    expect((wrapper.get('[data-test="purchase-ratio"]').element as HTMLInputElement).value).toBe('0.5')
+    expect(create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-test="credential"]').setValue('copied-secret')
+    await wrapper.get('[data-test="save-source"]').trigger('submit')
+    await flushPromises()
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      supplier_name: '佳杰',
+      channel_name: 'stbl-5 (admin.supplierSources.copySuffix 2)',
+      credential: 'copied-secret',
+      models: source.models,
+    }))
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('copies unsaved form edits into the new editor instead of the last saved source', async () => {
+    list.mockResolvedValueOnce([source])
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+
+    await wrapper.get('[data-test="channel-name"]').setValue('stbl-6')
+    await wrapper.get('[data-test="notes"]').setValue('未保存的合同备注')
+    await wrapper.get('[data-test="copy-source"]').trigger('click')
+    await nextTick()
+
+    expect((wrapper.get('[data-test="channel-name"]').element as HTMLInputElement).value).toBe(
+      'stbl-6 (admin.supplierSources.copySuffix)',
+    )
+    expect((wrapper.get('[data-test="notes"]').element as HTMLTextAreaElement).value).toBe('未保存的合同备注')
+    expect((wrapper.get('[data-test="credential"]').element as HTMLInputElement).value).toBe('')
+    expect(create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('filters the source list by supplier, channel, or model and reports no matches', async () => {
+    list.mockResolvedValueOnce([
+      source,
+      {
+        ...source,
+        id: 9,
+        supplier_name: 'FMGo',
+        channel_name: 'seedance',
+        models: [{
+          client_model_id: 'doubao-seedance-2-0-260128',
+          upstream_model_id: 'feimiao-seedance-2-0-260128',
+          purchase_ratio: 0.5,
+        }],
+      },
+    ])
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="source-list-count"]').text()).toBe('2')
+    expect(wrapper.find('[data-test="source-select-7"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="source-select-9"]').exists()).toBe(true)
+
+    await wrapper.get('[data-test="source-search"]').setValue('seedance')
+    await nextTick()
+
+    expect(wrapper.get('[data-test="source-list-count"]').text()).toBe('1/2')
+    expect(wrapper.find('[data-test="source-select-7"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="source-select-9"]').exists()).toBe(true)
+
+    await wrapper.get('[data-test="source-search"]').setValue('unknown-model')
+    await nextTick()
+
+    expect(wrapper.get('[data-test="source-search-empty"]').text()).toBe('admin.supplierSources.noSearchResults')
+    expect(wrapper.find('[data-test="source-select-7"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="source-select-9"]').exists()).toBe(false)
+  })
 })
