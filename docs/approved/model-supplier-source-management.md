@@ -66,8 +66,9 @@ priority 自行判断和修改 `base_priority`。已选来源的表单存在未�
 “校验并同步”在账号投影前先走只读 `POST /admin/supplier-sources/:id/models-discover`：
 
 1. 拉取上游 models 列表（OpenAI 兼容 `/v1/models`；千帆 BaiduV2 为 `/v2/models`）；
-2. 把已配置模型 ID 规整为上游规范 ID（大小写、空格等）；无法匹配的保留原值并标
-   `configured_issues`，不自动删除；
+2. 把已配置的上游模型 ID 规整为规范 ID（大小写、空格等）；当 `client_model_id` 与
+   `upstream_model_id` 为同一事实（相同或模糊等价）时同步规整 client，显式 remap（如 FMGo
+   Seedance）保留 client。无法匹配的保留原值并标 `configured_issues`，不自动删除；
 3. 对列表中尚未配置、且 type 可探测（`chat` / `multimodal` / `image2text` / 空）的候选做真实
    Chat Completions 探测；`embeddings` / `text2image` 等直接拒绝建议；
 4. **仅探测通过**的候选进入 `suggested_appends`（默认 `purchase_ratio=1.0`）；探测失败的进入

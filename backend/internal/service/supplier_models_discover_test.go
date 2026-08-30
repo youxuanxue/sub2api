@@ -116,6 +116,35 @@ func TestUS048_DiscoverModelsSuggestionsAloneDoNotBlockProjection(t *testing.T) 
 	require.Equal(t, "glm-5.1", result.SuggestedAppends[0].UpstreamModelID)
 }
 
+func TestUS048_DiscoverModelsPreservesIntentionalClientUpstreamRemap(t *testing.T) {
+	ratio := 0.5
+	source := &SupplierSource{
+		ID: 6, SupplierName: "FMGo", ChannelName: "seedance",
+		Endpoint: "https://token.vstecscloud.com/v1", EncryptedCredential: "enc:secret",
+		BasePriority: 100,
+		Models: []SupplierSourceModel{{
+			ClientModelID:   "doubao-seedance-2-0-260128",
+			UpstreamModelID: "Feimiao-Seedance-2-0-260128",
+			PurchaseRatio:   &ratio,
+		}},
+	}
+	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
+	lister := &supplierDiscoverProbeFake{
+		entries: []SupplierUpstreamModelEntry{
+			{ID: "feimiao-seedance-2-0-260128", Type: "chat"},
+		},
+	}
+	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+	result, err := svc.DiscoverModels(context.Background(), 6)
+	require.NoError(t, err)
+	require.True(t, result.NeedsConfirmation)
+	require.Len(t, result.NormalizedModels, 1)
+	require.Equal(t, "doubao-seedance-2-0-260128", result.NormalizedModels[0].ClientModelID)
+	require.Equal(t, "feimiao-seedance-2-0-260128", result.NormalizedModels[0].UpstreamModelID)
+	require.Equal(t, "doubao-seedance-2-0-260128", result.NormalizedChanges[0].ToClientModelID)
+	require.Equal(t, "feimiao-seedance-2-0-260128", result.NormalizedChanges[0].ToUpstreamModelID)
+}
+
 func TestUS048_DiscoverModelsAuthFailureStopsWithoutSuggesting(t *testing.T) {
 	source := &SupplierSource{
 		ID: 4, SupplierName: "baidu", ChannelName: "default",

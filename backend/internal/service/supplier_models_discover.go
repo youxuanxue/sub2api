@@ -5,9 +5,14 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 )
 
-const supplierDiscoverDefaultPurchaseRatio = 1.0
+const (
+	supplierDiscoverDefaultPurchaseRatio = 1.0
+	supplierDiscoverProbeConcurrency     = 4
+)
 
 // SupplierModelNormalizeChange records a configured-row rewrite to a canonical upstream id.
 type SupplierModelNormalizeChange struct {
@@ -33,8 +38,8 @@ type SupplierModelDiscoverRejection struct {
 }
 
 // SupplierModelsDiscoverResult is a read-only preview used by “校验并同步” before account projection.
-// It never writes accounts or the supplier source row; the UI applies NormalizedModels /
-// SuggestedAppends to the form draft for human confirmation and Save.
+// It never writes accounts or the supplier source row. The UI applies NormalizedModels when
+// NeedsConfirmation is set; SuggestedAppends stay opt-in via an explicit form action.
 type SupplierModelsDiscoverResult struct {
 	SourceID           int64                            `json:"source_id"`
 	UpstreamModels     []SupplierUpstreamModelEntry     `json:"upstream_models"`
@@ -111,13 +116,20 @@ func (s *SupplierSourceService) DiscoverModels(ctx context.Context, sourceID int
 		}
 		coveredIDs[canonical] = struct{}{}
 		coveredKeys[supplierModelMatchKey(canonical)] = struct{}{}
-		if model.ClientModelID != canonical || model.UpstreamModelID != canonical {
+		// Preserve intentional client≠upstream remaps (e.g. FMGo Seedance). Only rewrite
+		// client_model_id when it was an identity/fuzzy twin of the configured upstream id.
+		nextClient := model.ClientModelID
+		if supplierConfiguredClientShouldNormalize(model.ClientModelID, model.UpstreamModelID, canonical) {
+			nextClient = canonical
+		}
+		nextUpstream := canonical
+		if model.ClientModelID != nextClient || model.UpstreamModelID != nextUpstream {
 			result.NormalizedChanges = append(result.NormalizedChanges, SupplierModelNormalizeChange{
 				FromClientModelID: model.ClientModelID, FromUpstreamModelID: model.UpstreamModelID,
-				ToClientModelID: canonical, ToUpstreamModelID: canonical,
+				ToClientModelID: nextClient, ToUpstreamModelID: nextUpstream,
 			})
-			normalized.ClientModelID = canonical
-			normalized.UpstreamModelID = canonical
+			normalized.ClientModelID = nextClient
+			normalized.UpstreamModelID = nextUpstream
 		}
 		result.NormalizedModels = append(result.NormalizedModels, normalized)
 	}
@@ -143,6 +155,7 @@ func (s *SupplierSourceService) DiscoverModels(ctx context.Context, sourceID int
 		Band: 6, Priority: priority, Mapping: map[string]string{},
 	})
 	defaultRatio := supplierDiscoverDefaultPurchaseRatio
+	probeable := make([]SupplierUpstreamModelEntry, 0, len(candidates))
 	for _, entry := range candidates {
 		if !supplierUpstreamTypeProbeable(entry.Type) {
 			result.RejectedCandidates = append(result.RejectedCandidates, SupplierModelDiscoverRejection{
@@ -150,11 +163,59 @@ func (s *SupplierSourceService) DiscoverModels(ctx context.Context, sourceID int
 			})
 			continue
 		}
-		probeResult := s.probe.ProbeSupplierModel(ctx, SupplierProbeInput{
-			Account: probeAccount, ClientModelID: entry.ID, UpstreamModelID: entry.ID,
-		})
-		probeResult.ClientModelID = entry.ID
-		probeResult.UpstreamModelID = entry.ID
+		probeable = append(probeable, entry)
+	}
+	if len(probeable) == 0 {
+		result.NeedsConfirmation = len(result.NormalizedChanges) > 0
+		return result, nil
+	}
+
+	type probeOutcome struct {
+		entry  SupplierUpstreamModelEntry
+		result SupplierProbeResult
+	}
+	outcomes := make([]probeOutcome, len(probeable))
+	probeCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var authFailed atomic.Bool
+	sem := make(chan struct{}, supplierDiscoverProbeConcurrency)
+	var wg sync.WaitGroup
+	for index, entry := range probeable {
+		wg.Add(1)
+		go func(index int, entry SupplierUpstreamModelEntry) {
+			defer wg.Done()
+			if authFailed.Load() {
+				return
+			}
+			select {
+			case sem <- struct{}{}:
+			case <-probeCtx.Done():
+				return
+			}
+			defer func() { <-sem }()
+			if authFailed.Load() {
+				return
+			}
+			probeResult := s.probe.ProbeSupplierModel(probeCtx, SupplierProbeInput{
+				Account: probeAccount, ClientModelID: entry.ID, UpstreamModelID: entry.ID,
+			})
+			probeResult.ClientModelID = entry.ID
+			probeResult.UpstreamModelID = entry.ID
+			outcomes[index] = probeOutcome{entry: entry, result: probeResult}
+			if probeResult.Status == SupplierProbeStatusAuthFailed {
+				authFailed.Store(true)
+				cancel()
+			}
+		}(index, entry)
+	}
+	wg.Wait()
+
+	for _, outcome := range outcomes {
+		if outcome.entry.ID == "" && outcome.result.Status == "" {
+			continue
+		}
+		entry := outcome.entry
+		probeResult := outcome.result
 		result.ProbeResults = append(result.ProbeResults, probeResult)
 		if probeResult.Status == SupplierProbeStatusAuthFailed {
 			result.RejectedCandidates = append(result.RejectedCandidates, SupplierModelDiscoverRejection{
@@ -186,4 +247,21 @@ func cloneSupplierFloat64Ptr(value *float64) *float64 {
 	}
 	cloned := *value
 	return &cloned
+}
+
+func supplierConfiguredClientShouldNormalize(clientID, upstreamID, canonical string) bool {
+	clientID = strings.TrimSpace(clientID)
+	upstreamID = strings.TrimSpace(upstreamID)
+	canonical = strings.TrimSpace(canonical)
+	if clientID == "" || canonical == "" {
+		return false
+	}
+	if clientID == upstreamID {
+		return true
+	}
+	clientKey := supplierModelMatchKey(clientID)
+	if clientKey == "" {
+		return false
+	}
+	return clientKey == supplierModelMatchKey(upstreamID) || clientKey == supplierModelMatchKey(canonical)
 }

@@ -95,6 +95,7 @@
 - `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_BuildSupplierModelsListURLUsesBaiduV2Path`
 - `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_DiscoverModelsNormalizesAndSuggestsOnlyProbePassed`
 - `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_DiscoverModelsSuggestionsAloneDoNotBlockProjection`
+- `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_DiscoverModelsPreservesIntentionalClientUpstreamRemap`
 - `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_DiscoverModelsAuthFailureStopsWithoutSuggesting`
 - `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_ExtractSupplierUpstreamModelEntriesKeepsType`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_FMGoSeedanceIsProtocolUnsupportedWithoutAccountWrite`
