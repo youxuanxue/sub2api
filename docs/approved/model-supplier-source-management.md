@@ -3,7 +3,7 @@ title: TokenKey Model Supplier Source Management
 status: approved
 approved_by: "xuejiao (operator directives through 2026-08-28)"
 approved_at: 2026-08-27
-updated: 2026-08-28
+updated: 2026-08-30
 created: 2026-08-27
 owners: [tk-platform]
 scope: "supplier facts, admin API/UI, credential isolation, account projection, probe gate, and managed-account ownership"
@@ -40,10 +40,13 @@ account.priority = source.base_priority + discount_priority
   `GetByID`。
 - 新账号通过现有账号创建服务建立，并显式跳过默认组绑定，保持未分组。普通账号创建仍保持原有失败
   契约。供应源不改变账号网关调度。
-- 新账号固定为 NewAPI OpenAI Chat API Key transport，并先以空 `model_mapping`、
-  `schedulable=false` 创建；结构同步会把 transport 漂移修复回固定值。
-- 受管账号和内存预探测账号只声明 Chat Completions。供应源 endpoint 末尾 `/v1` 只在该受管路径进入
-  NewAPI OpenAI 适配器前规范化，普通 NewAPI 账号的 base URL 和协议行为保持不变。
+- 新账号默认固定为 NewAPI OpenAI Chat API Key transport；当供应源 endpoint 主机为
+  `qianfan.baidubce.com` 时，改为 BaiduV2（channel_type=46）并规范化 `base_url` 为
+  `https://qianfan.baidubce.com`。结构同步会把 transport 漂移修复回该解析结果。
+  账号先以空 `model_mapping`、`schedulable=false` 创建。
+- 受管账号和内存预探测账号只声明 Chat Completions。供应源 endpoint 末尾 `/v1` 只在 OpenAI
+  受管路径进入 NewAPI OpenAI 适配器前规范化；Qianfan 路径使用 `/v2/chat/completions`。普通
+  NewAPI 账号的 base URL 和协议行为保持不变。
 - 供应源不读取或写入倍率、售价、pricing registry、计费规则、用户价格或利润数据。
 - 除把账号 `status/schedulable` 收敛到目标 mapping 的投影值外，供应源不修改 gateway、scheduler、
   sticky、运行期健康窗口、冷却、限流、fallback、`error_message` 或其他运行期字段。
@@ -59,6 +62,21 @@ account.priority = source.base_priority + discount_priority
 目标档位并提示相同 priority，不扫描普通账号、OAuth 账号或账号组。运营结合账号管理页的真实
 priority 自行判断和修改 `base_priority`。已选来源的表单存在未保存修改时，页面禁用“校验并同步”并
 提示先保存；同步 API 始终只读取数据库中已保存的供应事实。
+
+“校验并同步”在账号投影前先走只读 `POST /admin/supplier-sources/:id/models-discover`：
+
+1. 拉取上游 models 列表（OpenAI 兼容 `/v1/models`；千帆 BaiduV2 为 `/v2/models`）；
+2. 把已配置的上游模型 ID 规整为规范 ID（大小写、空格等）；当 `client_model_id` 与
+   `upstream_model_id` 为同一事实（相同或模糊等价）时同步规整 client，显式 remap（如 FMGo
+   Seedance）保留 client。无法匹配的保留原值并标 `configured_issues`，不自动删除；
+3. 对列表中尚未配置、且 type 可探测（`chat` / `multimodal` / `image2text` / 空）的候选做真实
+   Chat Completions 探测；`embeddings` / `text2image` 等直接拒绝建议；
+4. **仅探测通过**的候选进入 `suggested_appends`（默认 `purchase_ratio=1.0`）；探测失败的进入
+   `rejected_candidates`，不得写入表单建议、更不得投影账号；
+5. 若有已配置 ID 规整变更，结果回填表单草稿并要求人工确认后保存；建议追加只展示，需运营主动
+   「加入表单」才进入草稿。discover 本身不写供应源、不写账号。保存后再点“校验并同步”才进入
+   既有账号投影；
+6. 若无需规整确认，即使仍有建议追加，也继续执行下方投影同步（建议可在同屏查看后择机加入）。
 
 同步按以下最小规则执行：
 
@@ -90,9 +108,10 @@ supplier_discount_band
 ```
 
 `supplier_source_id + supplier_discount_band` 是唯一逻辑身份。已有普通账号只有在 endpoint、凭证指纹、
-固定 NewAPI transport、唯一匹配、单非空档位以及 mapping 子集等窄条件全部满足时才可接管；账号组
-不参与匹配，接管前后保持不变。匹配查询覆盖全部未删除 NewAPI 账号以识别凭证冲突；只有当前
-`status=active` 的唯一精确匹配可自动接管，`disabled/error` 精确匹配返回冲突，不绕过它新建重复账号。
+解析后的 NewAPI transport（OpenAI 或 Qianfan 的 BaiduV2）、唯一匹配、单非空档位以及 mapping 子集等窄
+条件全部满足时才可接管；账号组不参与匹配，接管前后保持不变。匹配查询覆盖全部未删除 NewAPI 账号以
+识别凭证冲突；只有当前 `status=active` 的唯一精确匹配可自动接管，`disabled/error` 精确匹配返回冲突，
+不绕过它新建重复账号。
 
 存在 `supplier_source_id` 的账号，其供应源拥有字段只能由供应源同步服务通过专用账号命令写入。所有
 通用账号配置写入口和 CRS 导入覆盖在 service 层整体拒绝，普通创建和导入也拒绝伪造保留 Extra；
@@ -124,12 +143,13 @@ GET    /admin/supplier-sources/:id
 POST   /admin/supplier-sources
 PUT    /admin/supplier-sources/:id
 GET    /admin/supplier-sources/priority-preview
+POST   /admin/supplier-sources/:id/models-discover
 POST   /admin/supplier-sources/:id/sync
 ```
 
 不提供 DELETE、validate、activation-preview、activate、pause 或供应源 audits API。页面只展示运营
-字段、档位与目标 priority、全局供应源 priority、保存、单源“校验并同步”、当次逐模型探测结果和
-实际账号变化。
+字段、档位与目标 priority、全局供应源 priority、保存、单源“校验并同步”（内嵌 models-discover
+规整/建议）、当次发现结果、当次逐模型探测结果和实际账号变化。
 
 ## 首批验收
 
@@ -141,8 +161,8 @@ POST   /admin/supplier-sources/:id/sync
 - FMGo：只录入客户 ID `doubao-seedance-2-0-260128` 到上游 ID
   `feimiao-seedance-2-0-260128` 的显式映射，ratio `0.50`。当前缺少 endpoint 与凭证；固定边界返回
   `protocol_unsupported`，不发起伪 OpenAI Chat 请求，也不写账号。这不是通用前缀替换。
-- 百度千帆：生产账号 90 只作为只读库存证据。其 `channel_type=46` 不符合第一版固定的 OpenAI Chat
-  transport，因此首批不接管，也不改账号 90。缺少供应凭证也无法完成指纹匹配或同步；若要接入必须
-  另建完整供应源事实。
+- 百度千帆：供应源 endpoint 主机为 `qianfan.baidubce.com` 时使用 BaiduV2 transport，可接管生产账号
+  90（channel_type=46、同一凭证与 endpoint 根）。缺少供应凭证时仍无法完成指纹匹配或同步；凭证齐备后
+  Sync 走 Chat Completions 探测与投影，不再因 transport 固定为 OpenAI 而 `protocol_unsupported`。
 
 完整字段、边界和验收标准以本文为实现依据。

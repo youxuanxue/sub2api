@@ -67,8 +67,7 @@ func (s *defaultSupplierSourceAccountStore) FindCredentialEndpointMatches(
 	for index := range accounts {
 		account := &accounts[index]
 		baseURL, _ := account.Credentials["base_url"].(string)
-		endpoint, endpointErr := NormalizeSupplierEndpoint(baseURL)
-		if endpointErr != nil || endpoint != wantEndpoint {
+		if !supplierManagedEndpointsEqual(baseURL, wantEndpoint) {
 			continue
 		}
 		apiKey, _ := account.Credentials["api_key"].(string)

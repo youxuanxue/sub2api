@@ -475,11 +475,18 @@ func protocolAccountEndpoints(account *Account) (string, map[protocolrouter.Prot
 	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
 	if IsSupplierManagedAccount(account) {
 		if account.Platform != PlatformNewAPI || account.Type != AccountTypeAPIKey ||
-			account.ChannelType != newapiconstant.ChannelTypeOpenAI || baseURL == "" {
+			!supplierManagedTransportOK(account) || baseURL == "" {
 			return "", nil, ""
 		}
+		chatBase := baseURL
+		if account.ChannelType == newapiconstant.ChannelTypeBaiduV2 {
+			// Qianfan Chat lives under /v2; declare the complete path so identity
+			// normalize does not invent a /v1 suffix. Non-supplier Qianfan accounts
+			// keep their historical identity key and are unchanged.
+			chatBase = strings.TrimRight(newapiintegration.QianfanBaseURL, "/") + "/v2/chat/completions"
+		}
 		return "", map[protocolrouter.Protocol]string{
-			protocolrouter.ProtocolChatCompletions: baseURL,
+			protocolrouter.ProtocolChatCompletions: chatBase,
 		}, ""
 	}
 	baseURLs := make(map[protocolrouter.Protocol]string)

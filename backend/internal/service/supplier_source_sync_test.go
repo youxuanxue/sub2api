@@ -324,7 +324,7 @@ func TestUS048_SupplierSyncCreateUpdateFailureRetryConverges(t *testing.T) {
 func TestUS048_ExistingSupplierAccountIsAdoptedOnlyOnUniqueNarrowMatch(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "百度", ChannelName: "千帆", Endpoint: "https://qianfan.baidubce.com/v1",
+		ID: 7, SupplierName: "百度", ChannelName: "千帆", Endpoint: "https://qianfan.baidubce.com",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{
 			{ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio},
@@ -332,10 +332,10 @@ func TestUS048_ExistingSupplierAccountIsAdoptedOnlyOnUniqueNarrowMatch(t *testin
 		},
 	}}
 	accounts := &supplierSyncAccountStoreFake{matches: []*Account{{
-		ID: 90, Name: "OpenAI-compatible supplier", Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
-		ChannelType: newapiconstant.ChannelTypeOpenAI,
+		ID: 90, Name: "百度千帆", Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeBaiduV2,
 		Credentials: supplierManagedCredentials(
-			"https://qianfan.baidubce.com/v1", "secret",
+			"https://qianfan.baidubce.com", "secret",
 			map[string]string{"deepseek-v4-pro": "deepseek-v4-pro"},
 		),
 		GroupIDs: []int64{4, 9}, Status: StatusActive, Schedulable: true,
@@ -396,8 +396,8 @@ func TestUS048_IncompatibleTransportExactMatchBlocksAdoptionWithoutRewritingAcco
 		}},
 	}}
 	existing := &Account{
-		ID: 90, Name: "百度千帆", Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
-		ChannelType: 46,
+		ID: 90, Name: "百度千帆误配 OpenAI", Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeOpenAI,
 		Credentials: supplierManagedCredentials(
 			"https://qianfan.baidubce.com", "secret", map[string]string{"deepseek-v4-flash-0731": "deepseek-v4-flash-0731"},
 		),
@@ -414,7 +414,7 @@ func TestUS048_IncompatibleTransportExactMatchBlocksAdoptionWithoutRewritingAcco
 	require.Equal(t, "match_existing_account", result.FailedStep)
 	require.Zero(t, accounts.createCalls)
 	require.Empty(t, accounts.updated)
-	require.Equal(t, 46, existing.ChannelType, "incomplete first-batch inventory must not be rewritten to OpenAI Chat")
+	require.Equal(t, newapiconstant.ChannelTypeOpenAI, existing.ChannelType, "wrong OpenAI transport on Qianfan must not be rewritten during blocked adoption")
 }
 
 func TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation(t *testing.T) {
@@ -496,20 +496,49 @@ func TestUS048_SupplierSyncRepairsEmptySchedulingProjectionWithoutProbe(t *testi
 	require.False(t, accounts.managed[0].Schedulable)
 }
 
-func TestUS048_ExistingSupplierAccountWithNonOpenAITransportIsRejected(t *testing.T) {
+func TestUS048_QianfanBaiduV2ExactMatchIsAdopted(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "百度", ChannelName: "千帆", Endpoint: "https://qianfan.baidubce.com/v1",
+		ID: 7, SupplierName: "百度", ChannelName: "千帆", Endpoint: "https://qianfan.baidubce.com/v2",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{
-			ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio,
+			ClientModelID: "glm-5.1", UpstreamModelID: "glm-5.1", PurchaseRatio: &ratio,
 		}},
 	}}
 	accounts := &supplierSyncAccountStoreFake{matches: []*Account{{
 		ID: 90, Name: "百度千帆", Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
 		ChannelType: newapiconstant.ChannelTypeBaiduV2,
 		Credentials: supplierManagedCredentials(
-			"https://qianfan.baidubce.com/v1", "secret",
+			"https://qianfan.baidubce.com", "secret",
+			map[string]string{"glm-5.1": "glm-5.1"},
+		),
+		GroupIDs: []int64{4, 9}, Status: StatusActive, Schedulable: true,
+	}}}
+	svc := NewSupplierSourceService(repo, accounts, &supplierSyncProbeFake{}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	result, err := svc.Sync(context.Background(), 7)
+
+	require.NoError(t, err)
+	require.Zero(t, accounts.createCalls)
+	require.True(t, accounts.updated[0].Adopt)
+	require.Equal(t, int64(90), accounts.updated[0].AccountID)
+	require.Equal(t, "adopted", result.Changes[0].Action)
+}
+
+func TestUS048_BaiduV2TransportAgainstOpenAISupplierIsRejected(t *testing.T) {
+	ratio := 0.5
+	repo := &supplierSourceRepoFake{stored: &SupplierSource{
+		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", Endpoint: "https://token.vstecscloud.com/v1",
+		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
+		Models: []SupplierSourceModel{{
+			ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio,
+		}},
+	}}
+	accounts := &supplierSyncAccountStoreFake{matches: []*Account{{
+		ID: 90, Name: "wrong transport", Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeBaiduV2,
+		Credentials: supplierManagedCredentials(
+			"https://token.vstecscloud.com/v1", "secret",
 			map[string]string{"deepseek-v4-pro": "deepseek-v4-pro"},
 		),
 		GroupIDs: []int64{4, 9}, Status: StatusActive, Schedulable: true,
@@ -528,13 +557,13 @@ func TestUS048_ExistingSupplierAccountWithNonOpenAITransportIsRejected(t *testin
 func TestUS048_ExistingSupplierAccountMultipleMatchesStopBeforeProbeOrWrite(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "百度", ChannelName: "千帆", Endpoint: "https://qianfan.baidubce.com/v1",
+		ID: 7, SupplierName: "百度", ChannelName: "千帆", Endpoint: "https://qianfan.baidubce.com",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{ClientModelID: "model", UpstreamModelID: "model", PurchaseRatio: &ratio}},
 	}}
 	match := &Account{
-		ID: 90, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeOpenAI,
-		Credentials: supplierManagedCredentials("https://qianfan.baidubce.com/v1", "secret", map[string]string{"model": "model"}),
+		ID: 90, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeBaiduV2,
+		Credentials: supplierManagedCredentials("https://qianfan.baidubce.com", "secret", map[string]string{"model": "model"}),
 	}
 	second := cloneSupplierProjectionAccount(match)
 	second.ID = 91
@@ -707,8 +736,9 @@ func (f *supplierSyncAccountStoreFake) CreateManagedAccount(_ context.Context, i
 		f.nextID = 100
 	}
 	f.nextID++
+	transport, _ := resolveSupplierManagedTransport(input.Endpoint)
 	account := &Account{
-		ID: f.nextID, Name: input.Name, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1,
+		ID: f.nextID, Name: input.Name, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: transport.ChannelType,
 		Credentials: supplierManagedCredentials(input.Endpoint, input.Credential, map[string]string{}),
 		Extra:       map[string]any{SupplierSourceIDExtraKey: input.SourceID, SupplierDiscountBandExtraKey: input.DiscountBand},
 		Priority:    input.Priority, Status: StatusActive, Schedulable: false,
@@ -737,6 +767,8 @@ func (f *supplierSyncAccountStoreFake) UpdateManagedAccount(_ context.Context, i
 			account.Name = input.Name
 			account.Priority = input.Priority
 		} else {
+			transport, _ := resolveSupplierManagedTransport(input.Endpoint)
+			account.ChannelType = transport.ChannelType
 			account.Credentials = supplierManagedCredentials(input.Endpoint, input.Credential, input.ModelMapping)
 			account.Priority = input.Priority
 			account.Status = input.Status
@@ -746,8 +778,9 @@ func (f *supplierSyncAccountStoreFake) UpdateManagedAccount(_ context.Context, i
 		return cloneSupplierProjectionAccount(account), nil
 	}
 	if input.Adopt {
+		transport, _ := resolveSupplierManagedTransport(input.Endpoint)
 		account := &Account{
-			ID: input.AccountID, Name: input.Name, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1,
+			ID: input.AccountID, Name: input.Name, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: transport.ChannelType,
 			Credentials: supplierManagedCredentials(input.Endpoint, input.Credential, input.ModelMapping),
 			Extra:       map[string]any{SupplierSourceIDExtraKey: input.SourceID, SupplierDiscountBandExtraKey: input.DiscountBand},
 			Priority:    input.Priority, Status: input.Status, Schedulable: input.Schedulable,

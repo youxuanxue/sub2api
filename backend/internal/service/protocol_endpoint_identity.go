@@ -308,6 +308,11 @@ func normalizeProtocolEndpointURL(raw string, protocol protocolrouter.Protocol) 
 		return "", fmt.Errorf("unsupported endpoint identity protocol %q", protocol)
 	}
 	basePath := strings.TrimSuffix(parsed.Path, "/")
+	// Callers may already supply a complete protocol path (e.g. supplier BaiduV2
+	// Chat Completions at /v2/chat/completions). Do not append another suffix.
+	if protocolPathAlreadyComplete(basePath, protocol) {
+		return parsed.String(), nil
+	}
 	if strings.HasSuffix(basePath, "/v1") && strings.HasPrefix(endpointPath, "/v1/") {
 		endpointPath = strings.TrimPrefix(endpointPath, "/v1")
 	}
@@ -316,6 +321,19 @@ func normalizeProtocolEndpointURL(raw string, protocol protocolrouter.Protocol) 
 		parsed.Path = "/" + parsed.Path
 	}
 	return parsed.String(), nil
+}
+
+func protocolPathAlreadyComplete(basePath string, protocol protocolrouter.Protocol) bool {
+	switch protocol {
+	case protocolrouter.ProtocolMessages:
+		return strings.HasSuffix(basePath, "/messages")
+	case protocolrouter.ProtocolChatCompletions:
+		return strings.HasSuffix(basePath, "/chat/completions")
+	case protocolrouter.ProtocolResponses:
+		return strings.HasSuffix(basePath, "/responses")
+	default:
+		return false
+	}
 }
 
 func normalizeEndpointIdentityURL(raw string) (*url.URL, error) {

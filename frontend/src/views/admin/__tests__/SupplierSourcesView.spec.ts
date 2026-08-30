@@ -4,17 +4,18 @@ import { nextTick } from 'vue'
 
 import SupplierSourcesView from '../SupplierSourcesView.vue'
 
-const { list, create, update, priorityPreview, sync, routeQuery } = vi.hoisted(() => ({
+const { list, create, update, priorityPreview, discoverModels, sync, routeQuery } = vi.hoisted(() => ({
   list: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
   priorityPreview: vi.fn(),
+  discoverModels: vi.fn(),
   sync: vi.fn(),
   routeQuery: {} as Record<string, unknown>,
 }))
 
 vi.mock('@/api/admin', () => ({
-  adminAPI: { supplierSources: { list, create, update, priorityPreview, sync } },
+  adminAPI: { supplierSources: { list, create, update, priorityPreview, discoverModels, sync } },
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -49,6 +50,17 @@ describe('SupplierSourcesView', () => {
     create.mockReset()
     update.mockReset()
     priorityPreview.mockReset().mockResolvedValue({ entries: [], warnings: [] })
+    discoverModels.mockReset().mockResolvedValue({
+      source_id: 7,
+      upstream_models: [],
+      normalized_models: source.models,
+      normalized_changes: [],
+      suggested_appends: [],
+      rejected_candidates: [],
+      configured_issues: [],
+      probe_results: [],
+      needs_confirmation: false,
+    })
     sync.mockReset()
   })
 
@@ -135,6 +147,7 @@ describe('SupplierSourcesView', () => {
 
     expect(wrapper.get('[data-test="save-source"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
+    expect(discoverModels).toHaveBeenCalledWith(7)
 
     resolveSync({ source_id: 7, probe_results: [], changes: [] })
     await flushPromises()
@@ -154,6 +167,7 @@ describe('SupplierSourcesView', () => {
       'admin.supplierSources.saveBeforeSync',
     )
     await wrapper.get('[data-test="sync-source"]').trigger('click')
+    expect(discoverModels).not.toHaveBeenCalled()
     expect(sync).not.toHaveBeenCalled()
 
     await wrapper.get('[data-test="notes"]').setValue(source.notes)
@@ -161,6 +175,92 @@ describe('SupplierSourcesView', () => {
 
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeUndefined()
     expect(wrapper.find('[data-test="sync-save-first"]').exists()).toBe(false)
+  })
+
+  it('applies discover normalize to the form and keeps suggestions opt-in', async () => {
+    list.mockResolvedValueOnce([source])
+    discoverModels.mockResolvedValueOnce({
+      source_id: 7,
+      upstream_models: [{ id: 'deepseek-v4-pro', type: 'chat' }, { id: 'glm-5.1', type: 'chat' }],
+      normalized_models: [{
+        client_model_id: 'deepseek-v4-pro',
+        upstream_model_id: 'deepseek-v4-pro',
+        purchase_ratio: 0.5,
+      }],
+      normalized_changes: [{
+        from_client_model_id: 'DeepSeek-V4-Pro',
+        from_upstream_model_id: 'DeepSeek-V4-Pro',
+        to_client_model_id: 'deepseek-v4-pro',
+        to_upstream_model_id: 'deepseek-v4-pro',
+      }],
+      suggested_appends: [{
+        client_model_id: 'glm-5.1',
+        upstream_model_id: 'glm-5.1',
+        purchase_ratio: 1,
+      }],
+      rejected_candidates: [{
+        upstream_model_id: 'embedding-v1',
+        type: 'embeddings',
+        reason: 'non_chat_type',
+      }],
+      configured_issues: [],
+      probe_results: [{
+        client_model_id: 'glm-5.1',
+        upstream_model_id: 'glm-5.1',
+        status: 'passed',
+      }],
+      needs_confirmation: true,
+    })
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+    await wrapper.get('[data-test="sync-source"]').trigger('click')
+    await flushPromises()
+
+    expect(sync).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-test="discover-needs-save"]').text()).toContain(
+      'admin.supplierSources.discoverNeedsSave',
+    )
+    expect(wrapper.get('[data-test="discover-result"]').text()).toContain('glm-5.1')
+    expect(wrapper.findAll('[data-test="upstream-model-id"]')).toHaveLength(1)
+    expect((wrapper.get('[data-test="upstream-model-id"]').element as HTMLInputElement).value)
+      .toBe('deepseek-v4-pro')
+
+    await wrapper.get('[data-test="append-suggested"]').trigger('click')
+    await nextTick()
+    const upstreamInputs = wrapper.findAll('[data-test="upstream-model-id"]')
+    expect(upstreamInputs).toHaveLength(2)
+    expect((upstreamInputs[1].element as HTMLInputElement).value).toBe('glm-5.1')
+    expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('continues to account sync when discover only has optional suggestions', async () => {
+    list.mockResolvedValueOnce([source])
+    discoverModels.mockResolvedValueOnce({
+      source_id: 7,
+      upstream_models: [{ id: 'deepseek-v4-pro', type: 'chat' }, { id: 'glm-5.1', type: 'chat' }],
+      normalized_models: source.models,
+      normalized_changes: [],
+      suggested_appends: [{
+        client_model_id: 'glm-5.1',
+        upstream_model_id: 'glm-5.1',
+        purchase_ratio: 1,
+      }],
+      rejected_candidates: [],
+      configured_issues: [],
+      probe_results: [],
+      needs_confirmation: false,
+    })
+    sync.mockResolvedValueOnce({ source_id: 7, probe_results: [], changes: [] })
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+    await wrapper.get('[data-test="sync-source"]').trigger('click')
+    await flushPromises()
+
+    expect(sync).toHaveBeenCalledWith(7)
+    expect(wrapper.get('[data-test="discover-result"]').text()).toContain('glm-5.1')
+    expect(wrapper.find('[data-test="discover-needs-save"]').exists()).toBe(false)
   })
 
   it('renders every probe result and actual account change returned by sync', async () => {

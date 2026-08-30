@@ -54,6 +54,7 @@ func TestUS048_SupplierSourceRoutesAreRegistered(t *testing.T) {
 		{http.MethodGet, "/api/v1/admin/supplier-sources/priority-preview"},
 		{http.MethodGet, "/api/v1/admin/supplier-sources/:id"},
 		{http.MethodPut, "/api/v1/admin/supplier-sources/:id"},
+		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/models-discover"},
 		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/sync"},
 	} {
 		require.True(t, registered[tt.method+" "+tt.path], "path=%s should be registered", tt.path)

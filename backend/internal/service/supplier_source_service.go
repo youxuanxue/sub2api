@@ -452,7 +452,7 @@ func (s *SupplierSourceService) findReusableAccounts(
 	}
 	match := externalMatches[0]
 	if len(managed) != 0 || len(targets) != 1 || IsSupplierManagedAccount(match) ||
-		match.Status != StatusActive || !supplierReusableAccountTransport(match) {
+		match.Status != StatusActive || !supplierReusableAccountTransport(match, source.Endpoint) {
 		return nil, ErrSupplierSourceIdentityConflict
 	}
 	band := sortedSupplierBands(targets)[0]
@@ -460,8 +460,7 @@ func (s *SupplierSourceService) findReusableAccounts(
 		return nil, ErrSupplierSourceIdentityConflict
 	}
 	baseURL, _ := match.Credentials["base_url"].(string)
-	normalized, normalizeErr := NormalizeSupplierEndpoint(baseURL)
-	if normalizeErr != nil || normalized != source.Endpoint {
+	if !supplierManagedEndpointsEqual(baseURL, source.Endpoint) {
 		return nil, ErrSupplierSourceIdentityConflict
 	}
 	apiKey, _ := match.Credentials["api_key"].(string)
@@ -557,12 +556,11 @@ func supplierStructureChanged(
 }
 
 func supplierAccountStructureMatches(account *Account, endpoint, credential string, mapping map[string]string) bool {
-	if !supplierReusableAccountTransport(account) {
+	if !supplierReusableAccountTransport(account, endpoint) {
 		return false
 	}
 	baseURL, _ := account.Credentials["base_url"].(string)
-	normalized, err := NormalizeSupplierEndpoint(baseURL)
-	if err != nil || normalized != endpoint {
+	if !supplierManagedEndpointsEqual(baseURL, endpoint) {
 		return false
 	}
 	apiKey, _ := account.Credentials["api_key"].(string)
@@ -581,15 +579,14 @@ func supplierSchedulingProjectionMatches(account *Account, mapping map[string]st
 	return account != nil && account.Status == StatusActive && account.Schedulable == (len(mapping) > 0)
 }
 
-func supplierReusableAccountTransport(account *Account) bool {
-	return account != nil && account.Platform == PlatformNewAPI && account.Type == AccountTypeAPIKey &&
-		account.ChannelType == newapiconstant.ChannelTypeOpenAI
-}
-
 func supplierProbeAccount(base *Account, source *SupplierSource, credential string, target supplierTargetBand) *Account {
+	transport, err := resolveSupplierManagedTransport(source.Endpoint)
+	if err != nil {
+		transport = supplierManagedTransport{ChannelType: newapiconstant.ChannelTypeOpenAI, Endpoint: source.Endpoint}
+	}
 	account := &Account{
 		Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
-		ChannelType: newapiconstant.ChannelTypeOpenAI, Concurrency: 1,
+		ChannelType: transport.ChannelType, Concurrency: 1,
 	}
 	if base != nil {
 		account = cloneSupplierProjectionAccount(base)
@@ -597,7 +594,7 @@ func supplierProbeAccount(base *Account, source *SupplierSource, credential stri
 	account.Name = supplierManagedAccountName(source, target.Band)
 	account.Platform = PlatformNewAPI
 	account.Type = AccountTypeAPIKey
-	account.ChannelType = newapiconstant.ChannelTypeOpenAI
+	account.ChannelType = transport.ChannelType
 	account.Credentials = supplierManagedCredentials(source.Endpoint, credential, target.Mapping)
 	account.Extra = cloneSupplierJSONMap(account.Extra)
 	if account.Extra == nil {
