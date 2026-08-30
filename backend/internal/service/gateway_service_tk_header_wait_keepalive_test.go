@@ -84,6 +84,7 @@ func TestStartHeaderWaitKeepalive_DisabledReturnsNil(t *testing.T) {
 
 func TestOpenAIGatewayService_BeginAnthropicClientHeaderWaitKeepaliveUsesPingFrame(t *testing.T) {
 	c, rec := newKeepaliveTestContext(t)
+	setAnthropicStreamModel(c, "gpt-5.4")
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}}}
 	k := svc.beginAnthropicClientHeaderWaitKeepalive(c, true)
 	if k == nil {
@@ -104,6 +105,25 @@ func TestOpenAIGatewayService_BeginAnthropicClientHeaderWaitKeepaliveUsesPingFra
 	}
 	if strings.Contains(body, ":\n\n") && !strings.Contains(body, "event: ping") {
 		t.Fatalf("messages client keepalive must not be an OpenAI comment, got %q", body)
+	}
+}
+
+func TestOpenAIGatewayService_BeginAnthropicClientHeaderWaitKeepaliveNativePingOnly(t *testing.T) {
+	c, rec := newKeepaliveTestContext(t)
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}}}
+	k := svc.beginAnthropicClientHeaderWaitKeepalive(c, true)
+	if k == nil {
+		t.Fatal("expected non-nil Anthropic client keepalive handle")
+	}
+	time.Sleep(1100 * time.Millisecond)
+	k.stop()
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "event: ping") {
+		t.Fatalf("native messages keepalive must still emit Anthropic ping, got %q", body)
+	}
+	if strings.Contains(body, "event: message_start") {
+		t.Fatalf("native/chat fallback keepalive must not synthesize message_start, got %q", body)
 	}
 }
 

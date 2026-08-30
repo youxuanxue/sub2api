@@ -788,12 +788,13 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 
 	var events []AnthropicStreamEvent
 	events = append(events, resToAnthEnsureMessageStart(state, evt)...)
-	events = append(events, closeCurrentBlock(state)...)
 	// Codex / edge-mirror hops often buffer visible text into the terminal
 	// response.output after a long reasoning wait and omit output_text.delta.
-	// Backfill those items before the US-027 empty-text firewall so Claude
-	// Code receives the real answer instead of an empty content block.
+	// Backfill while the current thinking block is still open so reasoning
+	// text is not written after content_block_stop. Then close leftover
+	// blocks before the US-027 empty-text firewall.
 	events = append(events, resToAnthBackfillCompletedOutput(evt, state)...)
+	events = append(events, closeCurrentBlock(state)...)
 	// US-027 schema firewall: a terminal event MUST be preceded by at least one
 	// content_block_start/_stop pair. If the upstream stream emitted neither
 	// real content nor a synthesizable delta, inject an empty-text block here so

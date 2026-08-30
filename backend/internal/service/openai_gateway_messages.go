@@ -1384,13 +1384,22 @@ func (s *OpenAIGatewayService) handleAnthropicJSONResponsesAsStream(
 		return nil, s.newOpenAIStreamFailoverError(c, account, false, requestID, body, "OpenAI messages upstream returned non-SSE JSON without a Responses object")
 	}
 
+	status := strings.TrimSpace(finalResponse.Status)
+	if status == "failed" {
+		return s.handleAnthropicJSONResponsesFailed(resp, c, account, requestID, body, &finalResponse)
+	}
+
 	state := apicompat.NewResponsesEventToAnthropicState()
 	state.Model = originalModel
 	if anthropicMessageStartAlreadySent(c) {
 		state.MessageStartSent = true
 	}
+	eventType := "response.completed"
+	if status == "incomplete" {
+		eventType = "response.incomplete"
+	}
 	events := apicompat.ResponsesEventToAnthropicEvents(&apicompat.ResponsesStreamEvent{
-		Type:     "response.completed",
+		Type:     eventType,
 		Response: &finalResponse,
 	}, state)
 	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
@@ -1429,8 +1438,64 @@ func (s *OpenAIGatewayService) handleAnthropicJSONResponsesAsStream(
 		IncompleteReason:              state.IncompleteReason,
 		ContentTextLen:                utf8.RuneCountInString(collectAnthropicStreamText(events)),
 	}
-	logOpenAISuccessMissingUsage(c.Request.Context(), c, account, resp, &usage, "response.completed", false)
+	logOpenAISuccessMissingUsage(c.Request.Context(), c, account, resp, &usage, eventType, false)
 	return result, nil
+}
+
+func (s *OpenAIGatewayService) handleAnthropicJSONResponsesFailed(
+	resp *http.Response,
+	c *gin.Context,
+	account *Account,
+	requestID string,
+	body []byte,
+	finalResponse *apicompat.ResponsesResponse,
+) (*OpenAIForwardResult, error) {
+	payload := body
+	if gjson.GetBytes(body, "type").String() != "response.failed" {
+		if wrapped, wrapErr := json.Marshal(gin.H{"type": "response.failed", "response": finalResponse}); wrapErr == nil {
+			payload = wrapped
+		}
+	}
+	usage := OpenAIUsage{}
+	if finalResponse != nil && finalResponse.Usage != nil {
+		usage = copyOpenAIUsageFromResponsesUsage(finalResponse.Usage)
+	}
+	if hit, code, msg := detectOpenAICyberPolicy(payload); hit {
+		MarkOpsCyberPolicy(c, CyberPolicyMark{
+			Code:           code,
+			Message:        msg,
+			Body:           truncateString(string(payload), 4096),
+			UpstreamStatus: http.StatusOK,
+			UpstreamInTok:  usage.InputTokens,
+			UpstreamOutTok: usage.OutputTokens,
+		})
+		clientMsg := msg
+		if clientMsg == "" {
+			clientMsg = "Request blocked by upstream cyber-security policy"
+		}
+		if c.Writer.Written() {
+			if _, writeErr := fmt.Fprint(c.Writer, buildAnthropicStreamErrorSSE("invalid_request_error", clientMsg)); writeErr == nil {
+				c.Writer.Flush()
+			}
+		} else {
+			writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", clientMsg)
+		}
+		return nil, fmt.Errorf("openai cyber_policy: %s", msg)
+	}
+	message := extractOpenAISSEErrorMessage(payload)
+	if !c.Writer.Written() && openAIStreamFailedEventShouldFailover(payload, message) {
+		return nil, s.newOpenAIStreamFailoverError(c, account, false, requestID, payload, message, resp.Header)
+	}
+	message = s.recordOpenAIStreamUpstreamError(c, account, false, requestID, "http_error", payload, message)
+	errStatus, errType := openAIStreamFailedClientResponse(payload, message, "api_error")
+	if c.Writer.Written() {
+		if _, writeErr := fmt.Fprint(c.Writer, buildAnthropicStreamErrorSSE(errType, message)); writeErr == nil {
+			c.Writer.Flush()
+		}
+	} else {
+		writeAnthropicError(c, errStatus, errType, message)
+	}
+	return nil, fmt.Errorf("upstream response failed: %s", message)
 }
 
 func collectAnthropicStreamText(events []apicompat.AnthropicStreamEvent) string {

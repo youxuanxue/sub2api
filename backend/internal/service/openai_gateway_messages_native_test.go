@@ -5,6 +5,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -274,4 +275,35 @@ func TestForwardAsAnthropic_JSONNonResponsesBodyIsFailover(t *testing.T) {
 	require.Error(t, err)
 	var failover *UpstreamFailoverError
 	require.ErrorAs(t, err, &failover)
+}
+
+func TestForwardAsAnthropic_JSONFailedResponsesIsError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.4","max_tokens":16,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	upstreamJSON := `{
+		"id":"resp_failed","object":"response","model":"gpt-5.4","status":"failed",
+		"output":[],
+		"error":{"code":"invalid_request_error","message":"messages is not allowed for this model"},
+		"usage":{"input_tokens":3,"output_tokens":0}
+	}`
+	svc := &OpenAIGatewayService{
+		cfg: rawChatCompletionsTestConfig(),
+		httpUpstream: &httpUpstreamRecorder{resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(upstreamJSON)),
+		}},
+	}
+
+	_, err := svc.ForwardAsAnthropic(context.Background(), c, rawChatCompletionsTestAccount(), body, "", "")
+	require.Error(t, err)
+	var failover *UpstreamFailoverError
+	require.False(t, errors.As(err, &failover), "non-retryable failed JSON must not failover")
+	require.NotContains(t, rec.Body.String(), "event: message_stop")
+	require.NotContains(t, rec.Body.String(), `"stop_reason":"end_turn"`)
 }

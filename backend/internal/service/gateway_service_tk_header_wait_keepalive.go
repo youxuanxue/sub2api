@@ -110,15 +110,22 @@ func (s *OpenAIGatewayService) beginAnthropicClientHeaderWaitKeepalive(c *gin.Co
 	if !reqStream || s.cfg.Gateway.StreamKeepaliveInterval <= 0 {
 		return nil
 	}
-	// Claude Code requires message_start as the first typed Anthropic event.
-	// A late Codex/edge first token (~12s) otherwise lets the 10s header-wait
-	// ping commit the stream first; CC then treats later deltas as idle/empty.
+	// Claude Code requires message_start as the first typed Anthropic event
+	// on the Responses→Anthropic compat path. Native Anthropic / chat
+	// fallback callers share this helper and must keep ping-only frames:
+	// a synthetic message_start would duplicate the real upstream one.
+	firstFrame := ""
+	var afterFirstWrite func()
+	if anthropicStreamModelWasSet(c) {
+		firstFrame = anthropicStreamMessageStartSSE(anthropicStreamModelFromContext(c), "")
+		afterFirstWrite = func() { markAnthropicMessageStartSent(c) }
+	}
 	return startHeaderWaitKeepaliveWithPrefix(
 		c,
 		time.Duration(s.cfg.Gateway.StreamKeepaliveInterval)*time.Second,
-		anthropicStreamMessageStartSSE(anthropicStreamModelFromContext(c), ""),
+		firstFrame,
 		anthropicSSEPingFrame,
-		func() { markAnthropicMessageStartSent(c) },
+		afterFirstWrite,
 	)
 }
 
@@ -139,6 +146,14 @@ func anthropicStreamModelFromContext(c *gin.Context) string {
 		}
 	}
 	return ""
+}
+
+func anthropicStreamModelWasSet(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	_, ok := c.Get(tkAnthropicStreamModelKey)
+	return ok
 }
 
 func markAnthropicMessageStartSent(c *gin.Context) {

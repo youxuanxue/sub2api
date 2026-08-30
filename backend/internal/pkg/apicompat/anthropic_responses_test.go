@@ -2344,14 +2344,28 @@ func TestResponsesEventToAnthropic_CompletedBackfillsVisibleTextAfterReasoning(t
 
 	var types []string
 	var text string
+	var thinking string
+	thinkingAfterStop := false
+	sawContentBlockStop := false
 	for _, evt := range events {
 		types = append(types, evt.Type)
+		if evt.Type == "content_block_stop" {
+			sawContentBlockStop = true
+		}
 		if evt.Delta != nil && evt.Delta.Type == "text_delta" {
 			text += evt.Delta.Text
 		}
+		if evt.Delta != nil && evt.Delta.Type == "thinking_delta" {
+			thinking += evt.Delta.Thinking
+			if sawContentBlockStop {
+				thinkingAfterStop = true
+			}
+		}
 	}
 	require.Contains(t, types, "content_block_delta")
+	require.Equal(t, "think", thinking)
 	require.Equal(t, "visible answer", text)
+	require.False(t, thinkingAfterStop, "thinking_delta must precede content_block_stop, got %v", types)
 	require.Equal(t, 19449, state.InputTokens)
 	require.Equal(t, 608, state.OutputTokens)
 	require.True(t, state.TextEmitted)
