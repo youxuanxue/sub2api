@@ -56,43 +56,107 @@
       </ul>
     </section>
 
-    <div class="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-      <section class="rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800">
-        <div class="mb-3 flex items-center justify-between">
-          <h2 class="font-medium">{{ t('admin.supplierSources.sources') }}</h2>
-          <button
-            data-test="new-source"
-            class="text-sm text-primary-600"
-            type="button"
-            @click="resetForm"
-          >
-            {{ t('admin.supplierSources.newSource') }}
-          </button>
-        </div>
-        <div v-if="loading" class="text-sm text-gray-500">{{ t('common.loading') }}</div>
-        <div v-else-if="sources.length === 0" class="text-sm text-gray-500">
-          {{ t('admin.supplierSources.empty') }}
-        </div>
-        <button
-          v-for="source in sources"
-          :key="source.id"
-          :data-test="`source-select-${source.id}`"
-          type="button"
-          class="mb-2 w-full rounded-lg border p-3 text-left"
-          :class="selected?.id === source.id
-            ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20'
-            : 'border-gray-200 dark:border-dark-600'"
-          @click="selectSource(source)"
-        >
-          <div class="font-medium">{{ source.supplier_name }} · {{ source.channel_name }}</div>
-          <div class="mt-1 text-xs text-gray-500">
-            priority {{ source.base_priority }} · {{ source.models.length }} models
+    <div class="grid items-start gap-6 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
+      <section
+        data-test="source-list"
+        class="flex max-h-[min(22rem,50vh)] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-6rem)]"
+      >
+        <div class="shrink-0 space-y-2 border-b border-gray-200 p-3 dark:border-dark-700">
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="min-w-0 truncate font-medium">
+              {{ t('admin.supplierSources.sources') }}
+              <span
+                v-if="sources.length > 0"
+                data-test="source-list-count"
+                class="ml-1 text-xs font-normal text-gray-500"
+              >
+                {{ listCountLabel }}
+              </span>
+            </h2>
+            <button
+              data-test="new-source"
+              class="shrink-0 text-sm text-primary-600"
+              type="button"
+              @click="resetForm"
+            >
+              {{ t('admin.supplierSources.newSource') }}
+            </button>
           </div>
-        </button>
+          <input
+            v-if="sources.length > 0"
+            v-model="listQuery"
+            data-test="source-search"
+            type="search"
+            :placeholder="t('admin.supplierSources.searchPlaceholder')"
+            class="w-full rounded-lg border px-2.5 py-1.5 text-sm"
+          />
+        </div>
+        <div class="min-h-0 flex-1 overflow-y-auto p-2">
+          <div v-if="loading" class="px-1 py-2 text-sm text-gray-500">{{ t('common.loading') }}</div>
+          <div v-else-if="sources.length === 0" class="px-1 py-2 text-sm text-gray-500">
+            {{ t('admin.supplierSources.empty') }}
+          </div>
+          <div v-else-if="filteredSources.length === 0" data-test="source-search-empty" class="px-1 py-2 text-sm text-gray-500">
+            {{ t('admin.supplierSources.noSearchResults') }}
+          </div>
+          <div v-else class="space-y-3">
+            <div v-for="group in groupedSources" :key="group.supplier">
+              <div
+                v-if="groupedSources.length > 1"
+                class="px-1 pb-1 text-[11px] font-medium text-gray-400"
+              >
+                {{ group.supplier }}
+                <span class="font-normal normal-case tracking-normal">{{ group.sources.length }}</span>
+              </div>
+              <div class="space-y-1">
+                <button
+                  v-for="source in group.sources"
+                  :key="source.id"
+                  :data-test="`source-select-${source.id}`"
+                  type="button"
+                  class="w-full rounded-md border px-2.5 py-1.5 text-left"
+                  :class="selected?.id === source.id
+                    ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20'
+                    : 'border-gray-200 dark:border-dark-600'"
+                  @click="selectSource(source)"
+                >
+                  <div class="truncate text-sm font-medium">
+                    <template v-if="groupedSources.length > 1">{{ source.channel_name }}</template>
+                    <template v-else>{{ source.supplier_name }} · {{ source.channel_name }}</template>
+                  </div>
+                  <div class="truncate text-[11px] text-gray-500">
+                    priority {{ source.base_priority }} · {{ source.models.length }} models
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
-      <section class="space-y-5 rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800">
+      <section
+        ref="editorEl"
+        data-test="source-editor"
+        class="space-y-5 rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800"
+      >
         <form class="space-y-4" @submit.prevent="save">
+          <div class="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 data-test="editor-title" class="font-medium">{{ editorTitle }}</h2>
+              <p v-if="copiedFrom" data-test="copy-hint" class="mt-1 text-xs text-gray-500">
+                {{ t('admin.supplierSources.copyHint') }}
+              </p>
+            </div>
+            <button
+              v-if="selected"
+              data-test="copy-source"
+              type="button"
+              class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm dark:border-dark-600"
+              @click="copySelected"
+            >
+              {{ t('admin.supplierSources.copyAsNew') }}
+            </button>
+          </div>
           <div class="grid gap-4 sm:grid-cols-2">
             <label class="text-sm">
               {{ t('admin.supplierSources.supplierName') }}
@@ -273,7 +337,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import {
@@ -294,10 +358,54 @@ const syncing = ref(false)
 const previewing = ref(false)
 const sources = ref<SupplierSource[]>([])
 const selected = ref<SupplierSource | null>(null)
+const copiedFrom = ref<SupplierSource | null>(null)
+const listQuery = ref('')
+const editorEl = ref<HTMLElement | null>(null)
 const priorityPreview = ref<SupplierPriorityPreview | null>(null)
 const syncResult = ref<SupplierSourceSyncResult | null>(null)
 const syncError = ref('')
 const saveError = ref('')
+
+const filteredSources = computed(() => sources.value.filter(source => sourceMatchesQuery(source, listQuery.value)))
+
+const groupedSources = computed(() => {
+  const groups: { supplier: string; sources: SupplierSource[] }[] = []
+  const index = new Map<string, number>()
+  for (const source of filteredSources.value) {
+    const existing = index.get(source.supplier_name)
+    if (existing === undefined) {
+      index.set(source.supplier_name, groups.length)
+      groups.push({ supplier: source.supplier_name, sources: [source] })
+      continue
+    }
+    groups[existing].sources.push(source)
+  }
+  return groups
+})
+
+const listCountLabel = computed(() => (
+  listQuery.value.trim() === ''
+    ? String(sources.value.length)
+    : `${filteredSources.value.length}/${sources.value.length}`
+))
+
+const editorTitle = computed(() => {
+  if (selected.value) return t('admin.supplierSources.editorEdit')
+  if (copiedFrom.value) return t('admin.supplierSources.editorCopy')
+  return t('admin.supplierSources.editorNew')
+})
+
+function sourceMatchesQuery(source: SupplierSource, rawQuery: string): boolean {
+  const query = rawQuery.trim().toLowerCase()
+  if (query === '') return true
+  const haystack = [
+    source.supplier_name,
+    source.channel_name,
+    source.notes,
+    ...source.models.flatMap(model => [model.client_model_id, model.upstream_model_id]),
+  ].join('\n').toLowerCase()
+  return haystack.includes(query)
+}
 const syncSucceeded = computed(() => (
   syncResult.value !== null
   && syncError.value === ''
@@ -343,6 +451,7 @@ function sourceIDFromQuery(rawSourceID: unknown): number | null {
 
 function resetForm(): void {
   selected.value = null
+  copiedFrom.value = null
   syncResult.value = null
   syncError.value = ''
   saveError.value = ''
@@ -359,6 +468,7 @@ function resetForm(): void {
 
 function selectSource(source: SupplierSource): void {
   selected.value = source
+  copiedFrom.value = null
   syncResult.value = null
   syncError.value = ''
   saveError.value = ''
@@ -370,6 +480,44 @@ function selectSource(source: SupplierSource): void {
     base_priority: source.base_priority,
     models: source.models.length > 0 ? source.models.map(model => ({ ...model })) : [emptyModel()],
     notes: source.notes,
+  })
+}
+
+function nextCopyChannelName(source: SupplierSource): string {
+  const suffix = t('admin.supplierSources.copySuffix')
+  const taken = new Set(
+    sources.value
+      .filter(item => item.supplier_name === source.supplier_name && item.endpoint === source.endpoint)
+      .map(item => item.channel_name),
+  )
+  const candidates = [`${source.channel_name} (${suffix})`]
+  for (let n = 2; n < 100; n++) candidates.push(`${source.channel_name} (${suffix} ${n})`)
+  for (const name of candidates) {
+    if (!taken.has(name) && name.length <= 120) return name
+  }
+  return candidates[0].slice(0, 120)
+}
+
+function copySelected(): void {
+  const origin = selected.value
+  if (!origin) return
+  copiedFrom.value = origin
+  selected.value = null
+  syncResult.value = null
+  syncError.value = ''
+  saveError.value = ''
+  Object.assign(form, {
+    supplier_name: origin.supplier_name,
+    channel_name: nextCopyChannelName(origin),
+    endpoint: origin.endpoint,
+    credential: '',
+    base_priority: origin.base_priority,
+    models: origin.models.length > 0 ? origin.models.map(model => ({ ...model })) : [emptyModel()],
+    notes: origin.notes,
+  })
+  void nextTick(() => {
+    editorEl.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+    document.querySelector<HTMLInputElement>('[data-test="channel-name"]')?.focus()
   })
 }
 

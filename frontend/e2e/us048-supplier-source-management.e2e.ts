@@ -420,3 +420,76 @@ test('US048 accounts UI marks supplier-managed accounts and explains read-only o
   await expect(page.locator('[data-test="supplier-name"]')).toHaveValue('佳杰')
   await expect(page.locator('[data-test="channel-name"]')).toHaveValue('VSTECS')
 })
+
+test('US048 operator copies a source into a new editor and filters the list', async ({ page }) => {
+  const jiajie = source({
+    channel_name: 'VSTECS',
+    models: [{
+      client_model_id: 'deepseek-v4-pro',
+      upstream_model_id: 'deepseek-v4-pro',
+      purchase_ratio: 0.5,
+    }],
+  })
+  const fmgo = source({
+    id: 9,
+    supplier_name: 'FMGo',
+    channel_name: 'seedance',
+    endpoint: 'https://fmgo.invalid/v1',
+    models: [{
+      client_model_id: 'doubao-seedance-2-0-260128',
+      upstream_model_id: 'feimiao-seedance-2-0-260128',
+      purchase_ratio: 0.5,
+    }],
+  })
+  let created: Record<string, unknown> | null = null
+
+  await installBase(page, async (route, path) => {
+    const request = route.request()
+    if (path === '/api/v1/admin/supplier-sources' && request.method() === 'GET') {
+      await fulfillSuccess(route, [jiajie, fmgo])
+      return true
+    }
+    if (path === '/api/v1/admin/supplier-sources' && request.method() === 'POST') {
+      created = request.postDataJSON() as Record<string, unknown>
+      await fulfillSuccess(route, source({
+        id: 11,
+        channel_name: String(created.channel_name ?? ''),
+        models: jiajie.models,
+      }))
+      return true
+    }
+    return false
+  })
+
+  await page.goto('/admin/supplier-sources')
+  await page.locator('[data-test="source-select-7"]').click()
+  await expect(page.locator('[data-test="editor-title"]')).toHaveText('编辑供应源')
+  await expect(page.locator('[data-test="copy-source"]')).toBeVisible()
+
+  await page.locator('[data-test="copy-source"]').click()
+  await expect(page.locator('[data-test="editor-title"]')).toHaveText('复制供应源')
+  await expect(page.locator('[data-test="copy-hint"]')).toBeVisible()
+  await expect(page.locator('[data-test="copy-source"]')).toHaveCount(0)
+  await expect(page.locator('[data-test="sync-source"]')).toHaveCount(0)
+  await expect(page.locator('[data-test="source-select-7"]')).not.toHaveClass(/border-primary-500/)
+  await expect(page.locator('[data-test="channel-name"]')).toHaveValue('VSTECS (副本)')
+  await expect(page.locator('[data-test="credential"]')).toHaveValue('')
+  await expect(page.locator('[data-test="client-model-id"]')).toHaveValue('deepseek-v4-pro')
+
+  await page.locator('[data-test="credential"]').fill('copied-e2e-secret')
+  await page.locator('[data-test="save-source"]').click()
+  await expect(page.locator('[data-test="source-select-11"]')).toBeVisible()
+  expect(created).toMatchObject({
+    supplier_name: '佳杰',
+    channel_name: 'VSTECS (副本)',
+    credential: 'copied-e2e-secret',
+  })
+
+  await page.locator('[data-test="source-search"]').fill('seedance')
+  await expect(page.locator('[data-test="source-list-count"]')).toHaveText('1/3')
+  await expect(page.locator('[data-test="source-select-9"]')).toBeVisible()
+  await expect(page.locator('[data-test="source-select-7"]')).toHaveCount(0)
+
+  await page.locator('[data-test="source-search"]').fill('no-such-source')
+  await expect(page.locator('[data-test="source-search-empty"]')).toBeVisible()
+})
