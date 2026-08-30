@@ -1142,20 +1142,18 @@
       "path": "backend/internal/service/wire.go",
       "must_contain": [
         "func (r ProtocolRoutingSSOTReady) EnabledRouter() *protocolrouter.Router",
-        "func (r ProtocolRoutingSSOTReady) Ready() bool",
-        "return r.Report.TrafficReady",
         "return ProtocolRoutingSSOTReady{Report: report, router: router}"
       ],
-      "rationale": "Router availability and traffic admission are separate facts: handlers always receive the SSOT router, while TrafficReady controls /health. CutoverReady remains the full-matrix publish gate. Reintroducing router=nil on an unready candidate silently restores legacy serving inside the new image."
+      "rationale": "Router availability stays independent of publication completeness. /health is drain-only and must not read a process TrafficReady/Ready gate. CutoverReady remains the full-matrix publish gate. Reintroducing router=nil on an unready candidate silently restores legacy serving inside the new image."
     },
     {
       "path": "backend/internal/server/routes/common.go",
       "must_contain": [
-        "if !protocolRoutingReady {",
-        "gin.H{\"status\": \"not_ready\"}",
+        "if middleware.IsDraining() {",
+        "gin.H{\"status\": \"draining\"}",
         "http.StatusServiceUnavailable"
       ],
-      "rationale": "The public readiness endpoint returns 503 for a protocol-SSOT candidate that has not completed probe/revalidation, while liveness remains independent. This is the deployment hard gate that replaces runtime legacy fallback."
+      "rationale": "/health is drain-only. Protocol remediations stay fail-closed at schedule and execute and must not 503 the public readiness endpoint or block blue/green cutover."
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler.go",

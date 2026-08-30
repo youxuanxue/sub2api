@@ -37,7 +37,6 @@ func SetupRouter(
 	settingService *service.SettingService,
 	compositeResolver *service.CompositeRouteResolver,
 	terminalOutcomeRecorder *service.TerminalOutcomeRecorder,
-	protocolRoutingReady service.ProtocolRoutingSSOTReady,
 	cfg *config.Config,
 	redisClient *redis.Client,
 ) *gin.Engine {
@@ -97,7 +96,7 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, eitherAuth, auditLog, stepUpAuth, apiKeyService, userService, subscriptionService, opsService, settingService, compositeResolver, terminalOutcomeRecorder, protocolRoutingReady, cfg, redisClient)
+	registerRoutes(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, eitherAuth, auditLog, stepUpAuth, apiKeyService, userService, subscriptionService, opsService, settingService, compositeResolver, terminalOutcomeRecorder, cfg, redisClient)
 
 	return r
 }
@@ -120,12 +119,11 @@ func registerRoutes(
 	settingService *service.SettingService,
 	compositeResolver *service.CompositeRouteResolver,
 	terminalOutcomeRecorder *service.TerminalOutcomeRecorder,
-	protocolRoutingReady service.ProtocolRoutingSSOTReady,
 	cfg *config.Config,
 	redisClient *redis.Client,
 ) {
-	// 通用路由（健康检查、状态等）
-	routes.RegisterCommonRoutes(r, protocolRoutingReady.Ready())
+	// 通用路由（健康检查、状态等）。协议 remediation 不进 /health。
+	routes.RegisterCommonRoutes(r)
 
 	// API v1
 	v1 := r.Group("/api/v1")

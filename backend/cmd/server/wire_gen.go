@@ -367,7 +367,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	stepUpAuthMiddleware := middleware.NewStepUpAuthMiddleware(totpService, userService, settingService)
 	terminalOutcomeRepository := repository.NewTerminalOutcomeRepository(db)
 	terminalOutcomeRecorder := service.ProvideTerminalOutcomeRecorder(terminalOutcomeRepository)
-	engine := server.ProvideRouter(configConfig, handlers, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, eitherAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, userService, subscriptionService, opsService, settingService, compositeRouteResolver, terminalOutcomeRecorder, protocolRoutingSSOTReady, redisClient)
+	engine := server.ProvideRouter(configConfig, handlers, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, eitherAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, userService, subscriptionService, opsService, settingService, compositeRouteResolver, terminalOutcomeRecorder, redisClient)
 	httpServer := server.ProvideHTTPServer(configConfig, engine)
 	opsMetricsCollector := service.ProvideOpsMetricsCollector(opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, configConfig, qaService)
 	opsAggregationService := service.ProvideOpsAggregationService(opsRepository, settingRepository, db, redisClient, configConfig)
