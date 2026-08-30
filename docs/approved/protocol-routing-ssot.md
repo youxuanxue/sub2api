@@ -11,7 +11,7 @@ revision_note: >
   /health follows process TrafficReady, not one account's missing route.
   NewAPI exact-endpoint resolution is per declared protocol: undeclared
   protocols are not resolved, and a missing Responses URL omits that route
-  instead of failing the whole account snapshot.
+  from both exact endpoints and the Plan-facing supported set.
 related_stories: []
 ---
 
@@ -299,9 +299,11 @@ Endpoint resolution must reproduce the identity used to obtain the capability
 key. A configurable endpoint with an empty or mismatched URL never falls back
 to an official host. For NewAPI channel adaptors, exact URLs are attached only
 for Chat/Responses protocols already in the linked capability. A declared
-protocol that cannot resolve is omitted; undeclared protocols are not resolved.
+protocol that cannot resolve is omitted from both the exact-endpoint map and
+the Plan-facing supported set; undeclared protocols are not resolved.
 A channel that cannot resolve Responses does not fail Chat snapshot
-construction or the account's remaining legal routes.
+construction or the account's remaining legal routes, and must not invent a
+Responses URL from the channel base.
 
 ## 6. Scheduling and execution
 
@@ -614,8 +616,10 @@ projections commit in one database transaction. During candidate startup,
 capability preparation is intentionally durable but unpublished; the complete
 projection, account revision advances, and scheduler invalidations are instead
 published together only after preliminary readiness succeeds. A publication
-failure rolls back every legacy-visible effect and blocks readiness because an
-image rollback must not restore divergent account facts.
+callback that fails CutoverReady rolls back every legacy-visible effect and
+keeps process TrafficReady so `/health` does not 503 the candidate. A
+publication transaction error still flips TrafficReady, because an image
+rollback must not restore divergent account facts.
 
 After the rollback window, deleting the legacy field, projection writer, and
 compatibility code is a separate reviewed change. The shared capability table

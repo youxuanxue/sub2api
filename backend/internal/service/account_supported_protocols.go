@@ -241,6 +241,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 	if err != nil {
 		return protocolrouter.AccountSnapshot{}, err
 	}
+	protocols = retainResolvedNewAPIExactProtocols(account, protocols, exactEndpoints)
 	return protocolrouter.NewAccountSnapshot(protocolrouter.AccountSnapshotInput{
 		AccountID:          account.ID,
 		CapabilityKey:      capability.CapabilityKey,
@@ -350,6 +351,30 @@ func protocolExactEndpoints(
 		return nil, firstErr
 	}
 	return endpoints, nil
+}
+
+// retainResolvedNewAPIExactProtocols drops Chat/Responses that the channel
+// adaptor could not resolve. Leaving them in the Plan-facing set lets
+// resolveEndpoint invent /v1/responses from customBaseURL.
+func retainResolvedNewAPIExactProtocols(
+	account *Account,
+	protocols []protocolrouter.Protocol,
+	exactEndpoints map[protocolrouter.Protocol]string,
+) []protocolrouter.Protocol {
+	if account == nil || account.Platform != PlatformNewAPI || account.ChannelType <= 0 {
+		return protocols
+	}
+	kept := make([]protocolrouter.Protocol, 0, len(protocols))
+	for _, protocol := range protocols {
+		switch protocol {
+		case protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses:
+			if strings.TrimSpace(exactEndpoints[protocol]) == "" {
+				continue
+			}
+		}
+		kept = append(kept, protocol)
+	}
+	return kept
 }
 
 func protocolGeminiEndpointProfile(account *Account) protocolrouter.GeminiEndpointProfile {

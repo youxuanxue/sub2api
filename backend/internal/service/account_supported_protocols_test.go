@@ -466,6 +466,29 @@ func TestProtocolAccountSnapshotOmitsUnresolvableClaimedResponses(t *testing.T) 
 	if got, want := plan.Endpoint(), newapiintegration.QianfanBaseURL+"/v2/chat/completions"; got != want {
 		t.Fatalf("endpoint = %q, want %q", got, want)
 	}
+
+	responsesReq, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolResponses,
+		RequestedModel:  "ernie-5.0",
+		ResponsesPath:   protocolrouter.ResponsesPathRoot,
+		Profile: protocolrouter.RequestProfile{
+			ContentKinds: protocolrouter.ContentText,
+		},
+		Body: []byte(`{"model":"ernie-5.0","input":"hi"}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest responses: %v", err)
+	}
+	converted, err := NewProtocolRouter().Plan(responsesReq, snapshot)
+	if err != nil {
+		t.Fatalf("inbound Responses should convert to chat, not invent /v1/responses: %v", err)
+	}
+	if got, want := converted.TargetProtocol(), protocolrouter.ProtocolChatCompletions; got != want {
+		t.Fatalf("converted target = %q, want %q", got, want)
+	}
+	if got, want := converted.Endpoint(), newapiintegration.QianfanBaseURL+"/v2/chat/completions"; got != want {
+		t.Fatalf("converted endpoint = %q, want invented Responses URL %q", got, want)
+	}
 }
 
 func qianfanChatTestAccount(id int64) *Account {

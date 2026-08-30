@@ -430,6 +430,10 @@ def check(root: Path) -> list[str]:
         for body in snapshot_bodies:
             if not contains_identifier(body, "protocolCapabilityHasVerifiedRoutingEvidence"):
                 errors.append("protocolAccountSnapshot does not fail closed on unverified capability evidence")
+            if not contains_identifier(body, "retainResolvedNewAPIExactProtocols"):
+                errors.append(
+                    "protocolAccountSnapshot still plans NewAPI protocols that have no exact endpoint"
+                )
         exact_bodies = function_bodies(source, "protocolExactEndpoints")
         if not exact_bodies:
             errors.append("canonical capability owner is missing protocolExactEndpoints")

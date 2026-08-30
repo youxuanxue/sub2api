@@ -115,7 +115,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "func BuildSupportedProtocolsUpdate(){}\n"
             "func ReplaceSupportedProtocols(){}\n"
             "func SeedOfficialSupportedProtocols(){}\n"
-            "func protocolAccountSnapshot(capability Capability){ if !protocolCapabilityHasVerifiedRoutingEvidence(capability) { fail() } }\n"
+            "func protocolAccountSnapshot(capability Capability){ if !protocolCapabilityHasVerifiedRoutingEvidence(capability) { fail() }; retainResolvedNewAPIExactProtocols() }\n"
             "func protocolExactEndpoints(){ for _, protocol := range routingSupportedProtocols(account) { endpoint, err := protocolExactEndpoint(); if err != nil { continue }; endpoints[protocol] = endpoint } }\n",
             encoding="utf-8",
         )
@@ -779,6 +779,20 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         )
         self.assertTrue(
             any("declared protocols" in error for error in MODULE.check(root))
+        )
+
+    def test_rejects_snapshot_that_plans_unresolved_newapi_protocols(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/account_supported_protocols.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "retainResolvedNewAPIExactProtocols()",
+                "keepDeclaredProtocols()",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            any("no exact endpoint" in error for error in MODULE.check(root))
         )
 
     def test_rejects_publication_cutover_failure_that_flips_process_traffic_ready(self) -> None:
