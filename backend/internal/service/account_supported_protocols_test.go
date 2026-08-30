@@ -123,6 +123,35 @@ func TestBuildSupportedProtocolsUpdateOwnsCanonicalEncoding(t *testing.T) {
 	}
 }
 
+func TestProtocolResolvedModelAllowedForTarget_DualStackMessagesRequiresClaude(t *testing.T) {
+	account := protocolRoutingOpenAIAccount(92, "messages", "chat_completions")
+	if !protocolResolvedModelAllowedForTarget(account, "", protocolrouter.ProtocolMessages, "claude-sonnet-4-6", "claude-sonnet-4-6", nil) {
+		t.Fatal("claude model must remain legal for native messages")
+	}
+	if protocolResolvedModelAllowedForTarget(account, "", protocolrouter.ProtocolMessages, "gpt-5.4", "gpt-5.4", nil) {
+		t.Fatal("gpt-5.4 must not be legal for native messages on a dual-stack OpenAI relay")
+	}
+	if !protocolResolvedModelAllowedForTarget(account, "", protocolrouter.ProtocolChatCompletions, "gpt-5.4", "gpt-5.4", nil) {
+		t.Fatal("gpt-5.4 must remain legal for chat_completions")
+	}
+
+	tokensea := protocolRoutingRelinkedOpenAIAccount(92, "https://agent.tokensea.ai/v1", "messages", "chat_completions", "responses")
+	if protocolResolvedModelAllowedForTarget(tokensea, "", protocolrouter.ProtocolResponses, "gpt-5.4", "gpt-5.4", nil) {
+		t.Fatal("tokensea must not plan native responses")
+	}
+
+	cloudwise := protocolRoutingRelinkedOpenAIAccount(95, "https://api.cloudwise.ai/api", "messages", "chat_completions", "responses")
+	if protocolResolvedModelAllowedForTarget(cloudwise, "", protocolrouter.ProtocolMessages, "MiniMax-M3", "MiniMax-M3", nil) {
+		t.Fatal("cloudwise MiniMax must not plan native messages")
+	}
+	if protocolResolvedModelAllowedForTarget(cloudwise, "", protocolrouter.ProtocolResponses, "MiniMax-M3", "MiniMax-M3", nil) {
+		t.Fatal("cloudwise must not plan native responses")
+	}
+	if !protocolResolvedModelAllowedForTarget(cloudwise, "", protocolrouter.ProtocolChatCompletions, "MiniMax-M3", "MiniMax-M3", nil) {
+		t.Fatal("cloudwise MiniMax must remain legal for chat_completions")
+	}
+}
+
 func TestProtocolAccountSnapshotResolvesModelFromAccountFacts(t *testing.T) {
 	updatedAt := time.Date(2026, 8, 24, 10, 30, 0, 0, time.UTC)
 	account := &Account{

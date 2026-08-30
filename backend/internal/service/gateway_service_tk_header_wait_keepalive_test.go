@@ -82,6 +82,25 @@ func TestStartHeaderWaitKeepalive_DisabledReturnsNil(t *testing.T) {
 	nilHandle.stop()
 }
 
+func TestOpenAIGatewayService_BeginAnthropicClientHeaderWaitKeepaliveUsesPingFrame(t *testing.T) {
+	c, rec := newKeepaliveTestContext(t)
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}}}
+	k := svc.beginAnthropicClientHeaderWaitKeepalive(c, true)
+	if k == nil {
+		t.Fatal("expected non-nil Anthropic client keepalive handle")
+	}
+	time.Sleep(1100 * time.Millisecond)
+	k.stop()
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "event: ping") {
+		t.Fatalf("messages client keepalive must emit Anthropic ping, got %q", body)
+	}
+	if strings.Contains(body, ":\n\n") && !strings.Contains(body, "event: ping") {
+		t.Fatalf("messages client keepalive must not be an OpenAI comment, got %q", body)
+	}
+}
+
 func TestBeginHeaderWaitKeepalive_NonStreamReturnsNil(t *testing.T) {
 	c, _ := newKeepaliveTestContext(t)
 	// reqStream=false short-circuits before any config lookup, so a zero-value

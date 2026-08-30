@@ -13,6 +13,9 @@ revision_note: >
   NewAPI exact-endpoint resolution is per declared protocol: undeclared
   protocols are not resolved, and a missing Responses URL omits that route
   from both exact endpoints and the Plan-facing supported set.
+  On a non-OfficialEndpointAnthropic identity, native messages is legal only
+  for a Claude-family resolved model; dual-stack OpenAI relays convert
+  inbound /v1/messages for GPT and other non-Claude models.
 related_stories: []
 ---
 
@@ -295,6 +298,18 @@ AND the adapter preserves the concrete request features
 AND the endpoint resolves explicitly from the same identity/account snapshot
 AND the required adapter and transport exist
 ```
+
+On a non-`OfficialEndpointAnthropic` identity, native `messages` is legal only
+when the resolved upstream model is in the Claude family (`claude-*`). Dual-stack
+OpenAI relays that advertise `messages` plus `chat_completions` and/or
+`responses` therefore convert inbound Claude Code `/v1/messages` for GPT and
+other non-Claude models instead of identity-forwarding onto a Claude-only
+native path. TokenSea and CloudWise also omit native `responses` from Plan
+because their advertised Responses support is a probe false-positive; the
+legal conversion for those identities is `chat_completions`. The
+`messages → chat_completions` conversion preserves Claude Code function tools
+and images, matching the already-proven `messages → responses` surface, so a
+tools-bearing Claude Code body does not fail closed back onto identity.
 
 Endpoint resolution must reproduce the identity used to obtain the capability
 key. A configurable endpoint with an empty or mismatched URL never falls back

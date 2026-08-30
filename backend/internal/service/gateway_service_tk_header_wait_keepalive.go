@@ -92,6 +92,17 @@ func (s *OpenAIGatewayService) beginHeaderWaitKeepalive(c *gin.Context, reqStrea
 	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.cfg.Gateway.StreamKeepaliveInterval, openaiSSECommentFrame)
 }
 
+// beginAnthropicClientHeaderWaitKeepalive emits Anthropic ping frames while a
+// /v1/messages client waits on upstream response headers. Do not reuse
+// beginHeaderWaitKeepalive here: that helper emits OpenAI SSE comments, which
+// Claude Code treats as idle and will still drop the connection.
+func (s *OpenAIGatewayService) beginAnthropicClientHeaderWaitKeepalive(c *gin.Context, reqStream bool) *headerWaitKeepalive {
+	if s == nil || s.cfg == nil {
+		return nil
+	}
+	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.cfg.Gateway.StreamKeepaliveInterval, anthropicSSEPingFrame)
+}
+
 // beginConfiguredHeaderWaitKeepalive is the shared constructor used by every
 // streaming platform Forward/Do path (Anthropic, OpenAI, Kiro, Bedrock,
 // Antigravity, Gemini). intervalSec comes from gateway.stream_keepalive_interval.

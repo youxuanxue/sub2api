@@ -277,6 +277,22 @@ func protocolResolvedModelAllowedForTarget(
 	case protocolrouter.OfficialEndpointAnthropic:
 		return target == protocolrouter.ProtocolMessages
 	}
+	// Native Anthropic /v1/messages only accepts Claude-family names. Dual-stack
+	// OpenAI relays (tokensea, cloudwise) advertise messages plus chat/responses;
+	// without this gate, inbound Claude Code + gpt-* / MiniMax / GLM plans
+	// identity messages and execute fail-closes with
+	// "native anthropic messages requires a Claude model".
+	if target == protocolrouter.ProtocolMessages && !tkIsForwardableAnthropicModelName(resolvedModel) {
+		return false
+	}
+	// Those same relays advertise /v1/responses because the probe treats HTTP 400
+	// as "endpoint exists". Execute already forces raw chat
+	// (shouldForwardOpenAIResponsesViaRawChatCompletions). Plan must not pick
+	// responses or Claude Code + non-Claude would convert onto a dead wire.
+	if target == protocolrouter.ProtocolResponses &&
+		(account.IsOpenAICloudwiseRelay() || account.IsOpenAITokenseaRelay()) {
+		return false
+	}
 	if target == protocolrouter.ProtocolGeminiGenerateContent {
 		return protocolGeminiEndpointProfile(account).Valid()
 	}

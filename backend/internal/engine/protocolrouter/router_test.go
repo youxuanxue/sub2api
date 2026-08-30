@@ -352,17 +352,21 @@ func TestPlanRejectsConversionThatCannotPreserveContinuation(t *testing.T) {
 	}
 }
 
-func TestPlanRejectsConversionThatCannotPreserveToolsOrUnknownContent(t *testing.T) {
+func TestPlanMessagesToChatPreservesClaudeCodeTools(t *testing.T) {
 	router := New(allTestAdapters())
 	account := testAccount(t, ProtocolChatCompletions)
 	for _, profile := range []RequestProfile{
-		{Tools: true, ContentKinds: ContentText},
-		{ToolChoice: ToolChoiceRequired, ContentKinds: ContentText},
-		{ContentKinds: ContentText | ContentUnknown},
+		{Tools: true, ToolChoice: ToolChoiceAuto, ContentKinds: ContentText},
+		{Tools: true, ContentKinds: ContentText | ContentImage},
+		{Tools: true, ContentKinds: ContentText | ContentUnknown},
 	} {
-		_, err := router.Plan(testRequest(t, ProtocolMessages, profile), account)
-		if !errors.Is(err, ErrNoLegalRoute) {
-			t.Fatalf("Plan profile=%+v error = %v, want ErrNoLegalRoute", profile, err)
+		plan, err := router.Plan(testRequest(t, ProtocolMessages, profile), account)
+		if err != nil {
+			t.Fatalf("Plan profile=%+v: %v", profile, err)
+		}
+		if plan.TargetProtocol() != ProtocolChatCompletions || plan.AdapterID() != AdapterMessagesToChat {
+			t.Fatalf("plan target/adapter = %q/%q, want chat_completions/%s",
+				plan.TargetProtocol(), plan.AdapterID(), AdapterMessagesToChat)
 		}
 	}
 }

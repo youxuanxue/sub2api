@@ -363,7 +363,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 				return nil, fmt.Errorf("build grok retry request: %w", err)
 			}
 		}
+		hwka := s.beginAnthropicClientHeaderWaitKeepalive(c, isStream)
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+		hwka.stop()
 		if err != nil {
 			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 		}
@@ -1440,7 +1442,9 @@ func (s *OpenAIGatewayService) fallbackAnthropicToGrokChatCompletions(
 	if account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	hwka := s.beginAnthropicClientHeaderWaitKeepalive(c, clientStream)
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	hwka.stop()
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 	}

@@ -97,7 +97,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 		return nil, err
 	}
 
+	hwka := s.beginAnthropicClientHeaderWaitKeepalive(c, clientStream)
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	hwka.stop()
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 	}
