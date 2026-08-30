@@ -565,6 +565,12 @@ def check(root: Path) -> list[str]:
             errors.append("protocol routing startup uses the normal probe writer instead of the preparation probe")
         if not contains_identifier(source, "ProbeAccountProtocolCapabilitiesForPreparation"):
             errors.append("protocol routing startup is missing the preparation probe")
+        evaluate_bodies = function_bodies(source, "evaluateProtocolRoutingSSOT")
+        if not evaluate_bodies:
+            errors.append("protocol routing startup is missing account evaluation")
+        for body in evaluate_bodies:
+            if re.search(r"TrafficReady\s*=\s*false", body):
+                errors.append("account evaluation still treats one account remediation as process TrafficReady")
         evidence_bodies = function_bodies(source, "protocolCapabilityHasVerifiedRoutingEvidence")
         if not evidence_bodies or not all(
             contains_identifier(body, "OfficialSeed")

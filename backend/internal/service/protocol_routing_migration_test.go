@@ -387,7 +387,29 @@ func TestProtocolRoutingMediaOnlyClassificationExcludesKnownImageAliases(t *test
 	}
 }
 
-func TestProtocolRoutingMigrationReportRejectsCanonicalAccountWithoutLegalRoute(t *testing.T) {
+func TestProtocolRoutingMigrationReportFailsTrafficReadyWhenRouterMissing(t *testing.T) {
+	repo := &protocolRoutingMigrationRepo{accounts: []Account{{
+		ID:       9,
+		Name:     "custom-openai",
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": "https://relay.example.test/v1",
+		},
+	}}}
+
+	report, err := MigrateProtocolRoutingSSOT(context.Background(), repo, nil)
+	if err != nil {
+		t.Fatalf("MigrateProtocolRoutingSSOT: %v", err)
+	}
+	ready := newProtocolRoutingSSOTReady(report, nil)
+	if ready.Ready() || report.TrafficReady || report.CutoverReady {
+		t.Fatalf("missing router admitted traffic: %+v", report)
+	}
+}
+
+func TestProtocolRoutingMigrationReportKeepsTrafficReadyWhenAccountHasNoLegalRoute(t *testing.T) {
 	repo := &protocolRoutingMigrationRepo{accounts: []Account{{
 		ID:       9,
 		Name:     "bad-route",
@@ -405,8 +427,12 @@ func TestProtocolRoutingMigrationReportRejectsCanonicalAccountWithoutLegalRoute(
 	if err != nil {
 		t.Fatalf("MigrateProtocolRoutingSSOT: %v", err)
 	}
-	if report.CutoverReady || report.TrafficReady || len(report.Remediation) != 1 || report.Remediation[0].Reason != ProtocolRoutingRemediationNoLegalRoute {
-		t.Fatalf("report = %+v", report)
+	ready := newProtocolRoutingSSOTReady(report, NewProtocolRouter())
+	if !ready.Ready() || !report.TrafficReady {
+		t.Fatalf("account without a legal route blocked process traffic readiness: %+v", report)
+	}
+	if report.CutoverReady || len(report.Remediation) != 1 || report.Remediation[0].Reason != ProtocolRoutingRemediationNoLegalRoute {
+		t.Fatalf("report = %+v, want no_legal_route remediation without cutover", report)
 	}
 }
 

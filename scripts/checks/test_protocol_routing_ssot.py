@@ -158,6 +158,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "package fixture\n"
             "func MigrateProtocolRoutingSSOT(){ LegacySupportedProtocolsProjection() }\n"
             "func validateProtocolRoutingSSOTReadiness(){}\n"
+            "func evaluateProtocolRoutingSSOT(){ report.CutoverReady = false }\n"
             "func prepareProtocolRoutingSSOT(){ ProbeAccountProtocolCapabilitiesForPreparation(); prepared := MigrateProtocolRoutingSSOT(); if prepared.CutoverReady { PublishProtocolRoutingProjections(func(){ final := validateProtocolRoutingSSOTReadiness(); if !final.CutoverReady { return errProtocolRoutingFinalReadinessNotReady } }) } }\n"
             "func protocolCapabilityHasVerifiedRoutingEvidence(capability Capability){ capability.ProbeEvidence.OfficialSeed; capability.ProbeEvidence.InitialProbeCompleted; ProtocolProbePositive; capability.IdentityConflict }\n",
             encoding="utf-8",
@@ -750,6 +751,18 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertTrue(any("publication transaction callback" in error for error in MODULE.check(root)))
+
+    def test_rejects_account_evaluation_that_flips_process_traffic_ready(self) -> None:
+        root = self.fixture()
+        owner = root / "backend/internal/service/protocol_routing_migration.go"
+        owner.write_text(
+            owner.read_text(encoding="utf-8").replace(
+                "func evaluateProtocolRoutingSSOT(){ report.CutoverReady = false }",
+                "func evaluateProtocolRoutingSSOT(){ report.TrafficReady = false }",
+            ),
+            encoding="utf-8",
+        )
+        self.assertTrue(any("process TrafficReady" in error for error in MODULE.check(root)))
 
     def test_rejects_startup_migration_that_uses_normal_probe_writer(self) -> None:
         root = self.fixture()
