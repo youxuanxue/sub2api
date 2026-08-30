@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"sync/atomic"
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
@@ -165,6 +167,35 @@ func TestUS048_DiscoverModelsAuthFailureStopsWithoutSuggesting(t *testing.T) {
 	require.Empty(t, result.SuggestedAppends)
 }
 
+func TestUS048_DiscoverModelsCapsCandidateProbesAndSkipsRest(t *testing.T) {
+	source := &SupplierSource{
+		ID: 8, SupplierName: "baidu", ChannelName: "default",
+		Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
+		BasePriority: 100, Models: nil,
+	}
+	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
+	entries := make([]SupplierUpstreamModelEntry, 0, supplierDiscoverMaxCandidateProbes+3)
+	probeStatus := make(map[string]SupplierProbeStatus, supplierDiscoverMaxCandidateProbes+3)
+	for i := 0; i < supplierDiscoverMaxCandidateProbes+3; i++ {
+		id := fmt.Sprintf("model-%02d", i)
+		entries = append(entries, SupplierUpstreamModelEntry{ID: id, Type: "chat"})
+		probeStatus[id] = SupplierProbeStatusPassed
+	}
+	lister := &supplierDiscoverProbeFake{entries: entries, probeStatus: probeStatus}
+	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+	result, err := svc.DiscoverModels(context.Background(), 8)
+	require.NoError(t, err)
+	require.Equal(t, int64(supplierDiscoverMaxCandidateProbes), lister.probeCalls.Load())
+	require.Len(t, result.SuggestedAppends, supplierDiscoverMaxCandidateProbes)
+	skipped := 0
+	for _, item := range result.RejectedCandidates {
+		if item.Reason == "probe_skipped_budget" {
+			skipped++
+		}
+	}
+	require.Equal(t, 3, skipped)
+}
+
 func TestUS048_ExtractSupplierUpstreamModelEntriesKeepsType(t *testing.T) {
 	entries, err := extractSupplierUpstreamModelEntries([]byte(`{
 		"data": [
@@ -183,6 +214,7 @@ type supplierDiscoverProbeFake struct {
 	entries     []SupplierUpstreamModelEntry
 	probeStatus map[string]SupplierProbeStatus
 	listErr     error
+	probeCalls  atomic.Int64
 }
 
 func (f *supplierDiscoverProbeFake) ListSupplierUpstreamModels(
@@ -197,6 +229,7 @@ func (f *supplierDiscoverProbeFake) ListSupplierUpstreamModels(
 }
 
 func (f *supplierDiscoverProbeFake) ProbeSupplierModel(_ context.Context, input SupplierProbeInput) SupplierProbeResult {
+	f.probeCalls.Add(1)
 	status := SupplierProbeStatusFailed
 	if f.probeStatus != nil {
 		if got, ok := f.probeStatus[input.UpstreamModelID]; ok {

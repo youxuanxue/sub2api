@@ -70,13 +70,18 @@ priority 自行判断和修改 `base_priority`。已选来源的表单存在未�
    `upstream_model_id` 为同一事实（相同或模糊等价）时同步规整 client，显式 remap（如 FMGo
    Seedance）保留 client。无法匹配的保留原值并标 `configured_issues`，不自动删除；
 3. 对列表中尚未配置、且 type 可探测（`chat` / `multimodal` / `image2text` / 空）的候选做真实
-   Chat Completions 探测；`embeddings` / `text2image` 等直接拒绝建议；
+   Chat Completions 探测；每次 discover 最多探测 8 个候选（超出记 `probe_skipped_budget`，不建议追加），
+   避免管理页 30s 超时与上游长尾探测把「校验并同步」拖到数分钟；`embeddings` / `text2image` 等直接拒绝建议；
 4. **仅探测通过**的候选进入 `suggested_appends`（默认 `purchase_ratio=1.0`）；探测失败的进入
    `rejected_candidates`，不得写入表单建议、更不得投影账号；
 5. 若有已配置 ID 规整变更，结果回填表单草稿并要求人工确认后保存；建议追加只展示，需运营主动
    「加入表单」才进入草稿。discover 本身不写供应源、不写账号。保存后再点“校验并同步”才进入
    既有账号投影；
 6. 若无需规整确认，即使仍有建议追加，也继续执行下方投影同步（建议可在同屏查看后择机加入）。
+
+discover / sync 失败时，API 必须返回可读 `message`（含上游 models 列表的 `UpstreamModelSyncError.SafeMessage`）
+与结果体中的 `failed_step`；管理页必须在同步结果区之外独立展示错误文案，并在「上游模型发现」中展示
+`failed_step` 与计数摘要，禁止只露出空标题。
 
 同步按以下最小规则执行：
 

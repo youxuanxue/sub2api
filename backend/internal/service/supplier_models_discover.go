@@ -12,6 +12,9 @@ import (
 const (
 	supplierDiscoverDefaultPurchaseRatio = 1.0
 	supplierDiscoverProbeConcurrency     = 4
+	// Cap live Chat probes so “校验并同步” stays within the admin UI timeout.
+	// Remaining probeable candidates are rejected as probe_skipped_budget (not suggested).
+	supplierDiscoverMaxCandidateProbes = 8
 )
 
 // SupplierModelNormalizeChange records a configured-row rewrite to a canonical upstream id.
@@ -154,6 +157,9 @@ func (s *SupplierSourceService) DiscoverModels(ctx context.Context, sourceID int
 	probeAccount := supplierProbeAccount(nil, source, credential, supplierTargetBand{
 		Band: 6, Priority: priority, Mapping: map[string]string{},
 	})
+	// Isolate discover traffic from account-id 0 caches and allow limited parallel probes.
+	probeAccount.ID = supplierDiscoverProbeAccountID(source.ID)
+	probeAccount.Concurrency = supplierDiscoverProbeConcurrency
 	defaultRatio := supplierDiscoverDefaultPurchaseRatio
 	probeable := make([]SupplierUpstreamModelEntry, 0, len(candidates))
 	for _, entry := range candidates {
@@ -164,6 +170,15 @@ func (s *SupplierSourceService) DiscoverModels(ctx context.Context, sourceID int
 			continue
 		}
 		probeable = append(probeable, entry)
+	}
+	if len(probeable) > supplierDiscoverMaxCandidateProbes {
+		for _, entry := range probeable[supplierDiscoverMaxCandidateProbes:] {
+			result.RejectedCandidates = append(result.RejectedCandidates, SupplierModelDiscoverRejection{
+				UpstreamModelID: entry.ID, Type: entry.Type, Reason: "probe_skipped_budget",
+				Detail: fmt.Sprintf("candidate probe budget is %d per discover", supplierDiscoverMaxCandidateProbes),
+			})
+		}
+		probeable = probeable[:supplierDiscoverMaxCandidateProbes]
 	}
 	if len(probeable) == 0 {
 		result.NeedsConfirmation = len(result.NormalizedChanges) > 0
@@ -239,6 +254,13 @@ func (s *SupplierSourceService) DiscoverModels(ctx context.Context, sourceID int
 
 	result.NeedsConfirmation = len(result.NormalizedChanges) > 0
 	return result, nil
+}
+
+func supplierDiscoverProbeAccountID(sourceID int64) int64 {
+	if sourceID <= 0 {
+		return -1
+	}
+	return -sourceID
 }
 
 func cloneSupplierFloat64Ptr(value *float64) *float64 {

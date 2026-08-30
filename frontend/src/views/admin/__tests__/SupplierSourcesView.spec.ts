@@ -263,6 +263,43 @@ describe('SupplierSourcesView', () => {
     expect(wrapper.find('[data-test="discover-needs-save"]').exists()).toBe(false)
   })
 
+  it('shows discover failure message and failed_step outside the sync-result block', async () => {
+    list.mockResolvedValueOnce([source])
+    discoverModels.mockRejectedValueOnce(Object.assign(
+      new Error('Supplier model list request failed with HTTP 401'),
+      {
+        status: 502,
+        data: {
+          source_id: 7,
+          upstream_models: [],
+          normalized_models: [],
+          normalized_changes: [],
+          suggested_appends: [],
+          rejected_candidates: [],
+          configured_issues: [],
+          probe_results: [],
+          needs_confirmation: false,
+          failed_step: 'list_upstream_models',
+        },
+      },
+    ))
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+    await wrapper.get('[data-test="sync-source"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="sync-error"]').text()).toContain(
+      'Supplier model list request failed with HTTP 401',
+    )
+    expect(wrapper.get('[data-test="discover-failed-step"]').text()).toContain('list_upstream_models')
+    expect(wrapper.get('[data-test="discover-summary"]').text()).toBe(
+      'admin.supplierSources.discoverSummary',
+    )
+    expect(wrapper.find('[data-test="sync-result"]').exists()).toBe(false)
+    expect(sync).not.toHaveBeenCalled()
+  })
+
   it('renders every probe result and actual account change returned by sync', async () => {
     list.mockResolvedValueOnce([source])
     sync.mockResolvedValueOnce({

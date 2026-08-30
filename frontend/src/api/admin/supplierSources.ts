@@ -147,8 +147,11 @@ async function priorityPreview(): Promise<SupplierPriorityPreview> {
 }
 
 async function discoverModels(id: number): Promise<SupplierModelsDiscoverResult> {
+  // Discover may probe several upstream candidates; keep above the global 30s client timeout.
   const { data } = await apiClient.post<SupplierModelsDiscoverResult>(
     `/admin/supplier-sources/${id}/models-discover`,
+    undefined,
+    { timeout: 90_000 },
   )
   return data
 }
