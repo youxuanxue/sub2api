@@ -483,7 +483,7 @@ function selectSource(source: SupplierSource): void {
   })
 }
 
-function nextCopyChannelName(source: SupplierSource): string {
+function nextCopyChannelName(source: Pick<SupplierSource, 'supplier_name' | 'channel_name' | 'endpoint'>): string {
   const suffix = t('admin.supplierSources.copySuffix')
   const taken = new Set(
     sources.value
@@ -501,19 +501,24 @@ function nextCopyChannelName(source: SupplierSource): string {
 function copySelected(): void {
   const origin = selected.value
   if (!origin) return
+  const input = buildInput()
   copiedFrom.value = origin
   selected.value = null
   syncResult.value = null
   syncError.value = ''
   saveError.value = ''
   Object.assign(form, {
-    supplier_name: origin.supplier_name,
-    channel_name: nextCopyChannelName(origin),
-    endpoint: origin.endpoint,
+    supplier_name: input.supplier_name,
+    channel_name: nextCopyChannelName({
+      supplier_name: input.supplier_name,
+      channel_name: input.channel_name || origin.channel_name,
+      endpoint: input.endpoint,
+    }),
+    endpoint: input.endpoint,
     credential: '',
-    base_priority: origin.base_priority,
-    models: origin.models.length > 0 ? origin.models.map(model => ({ ...model })) : [emptyModel()],
-    notes: origin.notes,
+    base_priority: Number.isFinite(input.base_priority) ? input.base_priority : origin.base_priority,
+    models: input.models.length > 0 ? input.models.map(model => ({ ...model })) : [emptyModel()],
+    notes: input.notes,
   })
   void nextTick(() => {
     editorEl.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })

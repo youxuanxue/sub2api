@@ -318,6 +318,26 @@ describe('SupplierSourcesView', () => {
     expect(update).not.toHaveBeenCalled()
   })
 
+  it('copies unsaved form edits into the new editor instead of the last saved source', async () => {
+    list.mockResolvedValueOnce([source])
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+
+    await wrapper.get('[data-test="channel-name"]').setValue('stbl-6')
+    await wrapper.get('[data-test="notes"]').setValue('未保存的合同备注')
+    await wrapper.get('[data-test="copy-source"]').trigger('click')
+    await nextTick()
+
+    expect((wrapper.get('[data-test="channel-name"]').element as HTMLInputElement).value).toBe(
+      'stbl-6 (admin.supplierSources.copySuffix)',
+    )
+    expect((wrapper.get('[data-test="notes"]').element as HTMLTextAreaElement).value).toBe('未保存的合同备注')
+    expect((wrapper.get('[data-test="credential"]').element as HTMLInputElement).value).toBe('')
+    expect(create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  })
+
   it('filters the source list by supplier, channel, or model and reports no matches', async () => {
     list.mockResolvedValueOnce([
       source,
