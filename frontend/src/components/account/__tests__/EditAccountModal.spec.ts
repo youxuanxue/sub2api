@@ -384,8 +384,8 @@ describe('EditAccountModal', () => {
     }
     const wrapper = mountModal(account)
 
-    expect(wrapper.text()).toContain('admin.accounts.supplierManaged.readOnlyReason')
-    expect(wrapper.get('[data-tour="account-form-submit"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('admin.accounts.supplierManaged.viewHint')
+    expect(wrapper.find('[data-tour="account-form-submit"]').exists()).toBe(false)
 
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 

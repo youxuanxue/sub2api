@@ -147,7 +147,9 @@ func (r *supplierSourceRepoFake) Get(_ context.Context, id int64) (*SupplierSour
 	if r.stored == nil || r.stored.ID != id {
 		return nil, ErrSupplierSourceNotFound
 	}
-	return cloneSupplierSourceForTest(r.stored), nil
+	cloned := cloneSupplierSourceForTest(r.stored)
+	cloned.AccountConcurrency = ResolveSupplierSourceAccountConcurrency(cloned.AccountConcurrency)
+	return cloned, nil
 }
 
 func (r *supplierSourceRepoFake) List(context.Context) ([]SupplierSource, error) {

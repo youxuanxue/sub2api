@@ -19,6 +19,7 @@ export interface SupplierSource {
   channel_name: string
   endpoint: string
   base_priority: number
+  account_concurrency: number
   models: SupplierSourceModel[]
   notes: string
   created_at: string
@@ -31,6 +32,7 @@ export interface SupplierSourceInput {
   endpoint: string
   credential: string
   base_priority: number
+  account_concurrency: number
   models: SupplierSourceModel[]
   notes: string
 }

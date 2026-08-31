@@ -134,7 +134,11 @@ func (s *SupplierSourceService) Create(ctx context.Context, input SupplierSource
 	if input.BasePriority != nil {
 		basePriority = *input.BasePriority
 	}
-	source := supplierSourceFromInput(input, basePriority)
+	accountConcurrency := SupplierSourceDefaultAccountConcurrency
+	if input.AccountConcurrency != nil {
+		accountConcurrency = ResolveSupplierSourceAccountConcurrency(*input.AccountConcurrency)
+	}
+	source := supplierSourceFromInput(input, basePriority, accountConcurrency)
 	source.EncryptedCredential = encryptedCredential
 	source.CredentialFingerprint = fingerprint
 	if err := s.repo.Create(ctx, source); err != nil {
@@ -162,7 +166,11 @@ func (s *SupplierSourceService) Update(ctx context.Context, id int64, input Supp
 	if input.BasePriority != nil {
 		basePriority = *input.BasePriority
 	}
-	updated := supplierSourceFromInput(input, basePriority)
+	accountConcurrency := existing.AccountConcurrency
+	if input.AccountConcurrency != nil {
+		accountConcurrency = ResolveSupplierSourceAccountConcurrency(*input.AccountConcurrency)
+	}
+	updated := supplierSourceFromInput(input, basePriority, accountConcurrency)
 	updated.ID = existing.ID
 	updated.CreatedAt = existing.CreatedAt
 	updated.EncryptedCredential = existing.EncryptedCredential
@@ -261,6 +269,16 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 		if err := s.syncSupplierMetadata(ctx, source, managedByBand, result); err != nil {
 			return result, err
 		}
+		workingByBand := make(map[int]*Account, len(managedByBand))
+		for band, account := range managedByBand {
+			workingByBand[band] = cloneSupplierProjectionAccount(account)
+		}
+		if err := s.ensureSupplierManagedConcurrency(ctx, source, credential, targets, workingByBand, result); err != nil {
+			return result, err
+		}
+		if err := s.ensureSupplierProtocolProjections(ctx, source, credential, targets, workingByBand, result); err != nil {
+			return result, err
+		}
 		return result, nil
 	}
 
@@ -292,7 +310,7 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 				createInput := SupplierManagedAccountCreateInput{
 					SourceID: source.ID, DiscountBand: band, Name: supplierManagedAccountName(source, band),
 					Endpoint: source.Endpoint, Credential: credential,
-					Priority: target.Priority,
+					Priority: target.Priority, Concurrency: source.AccountConcurrency,
 				}
 				account, err = s.accounts.CreateManagedAccount(ctx, createInput)
 				if err != nil {
@@ -308,7 +326,8 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 		updateInput := SupplierManagedAccountUpdateInput{
 			AccountID: account.ID, SourceID: source.ID, DiscountBand: band,
 			Name: supplierManagedAccountName(source, band), Endpoint: source.Endpoint, Credential: credential,
-			ModelMapping: additionMapping, Priority: target.Priority, Status: StatusActive,
+			ModelMapping: additionMapping, Priority: target.Priority, Concurrency: source.AccountConcurrency,
+			Status:      StatusActive,
 			Schedulable: len(additionMapping) > 0, Adopt: adopt,
 			ChatProbePassed: len(additionMapping) > 0,
 		}
@@ -353,7 +372,7 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 			desiredMapping = target.Mapping
 			desiredPriority = target.Priority
 		}
-		if supplierAccountMatchesDesired(account, source.Endpoint, credential, desiredMapping, desiredPriority) {
+		if supplierAccountMatchesDesired(account, source, credential, desiredMapping, desiredPriority) {
 			continue
 		}
 		before := cloneSupplierProjectionAccount(account)
@@ -361,7 +380,8 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 			AccountID: account.ID, SourceID: source.ID, DiscountBand: band,
 			Name: supplierManagedAccountName(source, band), Endpoint: source.Endpoint, Credential: credential,
 			ModelMapping: cloneSupplierStringMap(desiredMapping), Priority: desiredPriority,
-			Status: StatusActive, Schedulable: len(desiredMapping) > 0,
+			Concurrency: source.AccountConcurrency,
+			Status:      StatusActive, Schedulable: len(desiredMapping) > 0,
 			ChatProbePassed: len(desiredMapping) > 0,
 		})
 		if updateErr != nil {
@@ -374,6 +394,9 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 			action = "cleared"
 		}
 		result.Changes = append(result.Changes, supplierAccountChange(before, updated, band, action))
+	}
+	if err := s.ensureSupplierProtocolProjections(ctx, source, credential, targets, workingByBand, result); err != nil {
+		return result, err
 	}
 	return result, nil
 }
@@ -572,9 +595,20 @@ func supplierAccountStructureMatches(account *Account, endpoint, credential stri
 	return supplierStringMapsEqual(supplierModelMapping(account.Credentials), mapping)
 }
 
-func supplierAccountMatchesDesired(account *Account, endpoint, credential string, mapping map[string]string, priority int) bool {
-	return supplierAccountStructureMatches(account, endpoint, credential, mapping) &&
-		account.Priority == priority && supplierSchedulingProjectionMatches(account, mapping)
+func supplierAccountMatchesDesired(
+	account *Account,
+	source *SupplierSource,
+	credential string,
+	mapping map[string]string,
+	priority int,
+) bool {
+	if source == nil {
+		return false
+	}
+	return supplierAccountStructureMatches(account, source.Endpoint, credential, mapping) &&
+		account.Priority == priority &&
+		account.Concurrency == ResolveSupplierSourceAccountConcurrency(source.AccountConcurrency) &&
+		supplierSchedulingProjectionMatches(account, mapping)
 }
 
 func supplierSchedulingProjectionMatches(account *Account, mapping map[string]string) bool {
@@ -588,7 +622,8 @@ func supplierProbeAccount(base *Account, source *SupplierSource, credential stri
 	}
 	account := &Account{
 		Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
-		ChannelType: transport.ChannelType, Concurrency: 1,
+		ChannelType: transport.ChannelType,
+		Concurrency: ResolveSupplierSourceAccountConcurrency(source.AccountConcurrency),
 	}
 	if base != nil {
 		account = cloneSupplierProjectionAccount(base)
@@ -711,15 +746,123 @@ func supplierAccountChange(before, after *Account, band int, action string) Supp
 	return change
 }
 
-func supplierSourceFromInput(input SupplierSourceInput, basePriority int) *SupplierSource {
+func supplierSourceFromInput(input SupplierSourceInput, basePriority, accountConcurrency int) *SupplierSource {
 	models := make([]SupplierSourceModel, 0, len(input.Models))
 	for _, model := range input.Models {
 		models = append(models, SupplierSourceModel(model))
 	}
 	return &SupplierSource{
 		SupplierName: input.SupplierName, ChannelName: input.ChannelName, Endpoint: input.Endpoint,
-		BasePriority: basePriority, Models: models, Notes: input.Notes,
+		BasePriority: basePriority, AccountConcurrency: ResolveSupplierSourceAccountConcurrency(accountConcurrency),
+		Models: models, Notes: input.Notes,
 	}
+}
+
+func (s *SupplierSourceService) ensureSupplierManagedConcurrency(
+	ctx context.Context,
+	source *SupplierSource,
+	credential string,
+	targets map[int]supplierTargetBand,
+	workingByBand map[int]*Account,
+	result *SupplierSourceSyncResult,
+) error {
+	wantConcurrency := ResolveSupplierSourceAccountConcurrency(source.AccountConcurrency)
+	for _, band := range sortedSupplierBands(targets) {
+		target := targets[band]
+		if len(target.Mapping) == 0 {
+			continue
+		}
+		account := workingByBand[band]
+		if account == nil || account.Concurrency == wantConcurrency {
+			continue
+		}
+		before := cloneSupplierProjectionAccount(account)
+		updated, err := s.accounts.UpdateManagedAccount(ctx, SupplierManagedAccountUpdateInput{
+			AccountID: account.ID, SourceID: source.ID, DiscountBand: band,
+			Name: supplierManagedAccountName(source, band), Endpoint: source.Endpoint, Credential: credential,
+			ModelMapping: cloneSupplierStringMap(target.Mapping), Priority: target.Priority,
+			Concurrency: source.AccountConcurrency, Status: StatusActive, Schedulable: true,
+			ChatProbePassed: true,
+		})
+		if err != nil {
+			result.FailedStep = fmt.Sprintf("concurrency_band_%d", band)
+			return err
+		}
+		readback, readbackErr := s.accounts.GetAccount(ctx, updated.ID)
+		if readbackErr != nil {
+			result.FailedStep = fmt.Sprintf("concurrency_band_%d", band)
+			return readbackErr
+		}
+		workingByBand[band] = readback
+		result.Changes = append(result.Changes, supplierAccountChange(before, readback, band, "updated"))
+	}
+	return nil
+}
+
+func (s *SupplierSourceService) ensureSupplierProtocolProjections(
+	ctx context.Context,
+	source *SupplierSource,
+	credential string,
+	targets map[int]supplierTargetBand,
+	workingByBand map[int]*Account,
+	result *SupplierSourceSyncResult,
+) error {
+	for _, band := range sortedSupplierBands(targets) {
+		target := targets[band]
+		if len(target.Mapping) == 0 {
+			continue
+		}
+		account := workingByBand[band]
+		if account == nil || !supplierAccountNeedsProtocolRepublish(account, source.Endpoint) {
+			continue
+		}
+		before := cloneSupplierProjectionAccount(account)
+		updated, err := s.accounts.UpdateManagedAccount(ctx, SupplierManagedAccountUpdateInput{
+			AccountID: account.ID, SourceID: source.ID, DiscountBand: band,
+			Name: supplierManagedAccountName(source, band), Endpoint: source.Endpoint, Credential: credential,
+			ModelMapping: cloneSupplierStringMap(target.Mapping), Priority: target.Priority,
+			Concurrency: source.AccountConcurrency, Status: StatusActive, Schedulable: true,
+			ChatProbePassed: true,
+		})
+		if err != nil {
+			result.FailedStep = fmt.Sprintf("protocol_band_%d", band)
+			return err
+		}
+		readback, readbackErr := s.accounts.GetAccount(ctx, updated.ID)
+		if readbackErr != nil {
+			result.FailedStep = fmt.Sprintf("protocol_band_%d", band)
+			return readbackErr
+		}
+		workingByBand[band] = readback
+		result.Changes = append(result.Changes, supplierAccountChange(before, readback, band, "updated"))
+	}
+	return nil
+}
+
+func supplierAccountNeedsProtocolRepublish(account *Account, sourceEndpoint string) bool {
+	if account == nil || len(supplierModelMapping(account.Credentials)) == 0 {
+		return false
+	}
+	want, err := resolveSupplierManagedTransport(sourceEndpoint)
+	if err != nil {
+		return false
+	}
+	if account.ChannelType != want.ChannelType {
+		return true
+	}
+	baseURL, _ := account.Credentials["base_url"].(string)
+	if !supplierManagedEndpointsEqual(baseURL, sourceEndpoint) {
+		return true
+	}
+	identity, governed, err := BuildProtocolEndpointIdentity(account)
+	if err != nil || !governed {
+		return true
+	}
+	if account.ProtocolEndpointCapability != nil &&
+		identity.Key() != account.ProtocolEndpointCapability.CapabilityKey {
+		return true
+	}
+	return false
 }
 
 func (s *SupplierSourceService) protectCredential(credential string) (string, string, error) {

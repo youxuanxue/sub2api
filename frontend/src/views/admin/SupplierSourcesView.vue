@@ -198,6 +198,17 @@
                 class="mt-1 w-full rounded-lg border px-3 py-2"
               />
             </label>
+            <label class="text-sm">
+              {{ t('admin.supplierSources.accountConcurrency') }}
+              <input
+                v-model.number="form.account_concurrency"
+                data-test="account-concurrency"
+                type="number"
+                min="1"
+                required
+                class="mt-1 w-full rounded-lg border px-3 py-2"
+              />
+            </label>
           </div>
 
           <label class="block text-sm">
@@ -546,6 +557,7 @@ const form = reactive<SupplierSourceInput>({
   endpoint: '',
   credential: '',
   base_priority: 100,
+  account_concurrency: 1000,
   models: [emptyModel()],
   notes: '',
 })
@@ -585,6 +597,7 @@ function resetForm(): void {
     endpoint: '',
     credential: '',
     base_priority: 100,
+    account_concurrency: 1000,
     models: [emptyModel()],
     notes: '',
   })
@@ -604,6 +617,7 @@ function selectSource(source: SupplierSource): void {
     endpoint: source.endpoint,
     credential: '',
     base_priority: source.base_priority,
+    account_concurrency: source.account_concurrency,
     models: source.models.length > 0 ? source.models.map(model => ({ ...model })) : [emptyModel()],
     notes: source.notes,
   })
@@ -645,6 +659,9 @@ function copySelected(): void {
     endpoint: input.endpoint,
     credential: '',
     base_priority: Number.isFinite(input.base_priority) ? input.base_priority : origin.base_priority,
+    account_concurrency: Number.isFinite(input.account_concurrency)
+      ? input.account_concurrency
+      : origin.account_concurrency,
     models: input.models.length > 0 ? input.models.map(model => ({ ...model })) : [emptyModel()],
     notes: input.notes,
   })
@@ -694,6 +711,7 @@ function buildInput(): SupplierSourceInput {
     endpoint: form.endpoint.trim(),
     credential: form.credential,
     base_priority: Number(form.base_priority),
+    account_concurrency: Number(form.account_concurrency),
     models,
     notes: form.notes.trim(),
   }
@@ -709,6 +727,7 @@ const hasUnsavedChanges = computed(() => {
     || input.channel_name !== source.channel_name
     || input.endpoint !== source.endpoint
     || input.base_priority !== source.base_priority
+    || input.account_concurrency !== source.account_concurrency
     || input.notes !== source.notes
   ) return true
   return JSON.stringify(input.models) !== JSON.stringify(source.models)

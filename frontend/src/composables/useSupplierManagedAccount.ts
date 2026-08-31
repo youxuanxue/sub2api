@@ -61,6 +61,8 @@ async function ensureSourceDirectoryLoaded(): Promise<void> {
 export function useSupplierManagedAccount() {
   const { t } = useI18n()
   const readOnlyReason = computed(() => t('admin.accounts.supplierManaged.readOnlyReason'))
+  const viewHint = computed(() => t('admin.accounts.supplierManaged.viewHint'))
+  const viewButtonTitle = computed(() => t('admin.accounts.supplierManaged.viewButtonTitle'))
 
   const inspect = (account: SupplierManagedAccountLike | null | undefined): SupplierManagedAccountInfo => {
     const marker = supplierSourceMarker(account)
@@ -90,6 +92,8 @@ export function useSupplierManagedAccount() {
   return {
     inspect,
     readOnlyReason,
+    viewHint,
+    viewButtonTitle,
     ensureSourceDirectoryLoaded
   }
 }

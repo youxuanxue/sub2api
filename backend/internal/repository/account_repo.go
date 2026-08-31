@@ -872,9 +872,10 @@ func (r *accountRepository) UpdateSupplierProjection(ctx context.Context, accoun
 			priority = $7,
 			status = $8,
 			schedulable = $9,
+			concurrency = $10,
 			updated_at = NOW()
-		WHERE id = $10 AND deleted_at IS NULL
-	`, account.Name, account.Platform, account.Type, account.ChannelType, string(credentials), string(managedExtra), account.Priority, account.Status, schedulable, account.ID)
+		WHERE id = $11 AND deleted_at IS NULL
+	`, account.Name, account.Platform, account.Type, account.ChannelType, string(credentials), string(managedExtra), account.Priority, account.Status, schedulable, account.Concurrency, account.ID)
 	if err != nil {
 		return err
 	}
@@ -4119,6 +4120,8 @@ func selectSupplierAccountProjection(query *dbent.AccountQuery) *dbent.AccountSe
 		dbaccount.FieldStatus,
 		dbaccount.FieldSchedulable,
 		dbaccount.FieldChannelType,
+		dbaccount.FieldConcurrency,
+		dbaccount.FieldProtocolEndpointCapabilityID,
 	)
 }
 
@@ -4126,7 +4129,7 @@ func supplierAccountEntityToService(m *dbent.Account) *service.Account {
 	if m == nil {
 		return nil
 	}
-	return &service.Account{
+	account := &service.Account{
 		ID:          m.ID,
 		Name:        m.Name,
 		Platform:    m.Platform,
@@ -4137,7 +4140,12 @@ func supplierAccountEntityToService(m *dbent.Account) *service.Account {
 		Status:      m.Status,
 		Schedulable: m.Schedulable,
 		ChannelType: m.ChannelType,
+		Concurrency: m.Concurrency,
 	}
+	if m.ProtocolEndpointCapabilityID != nil {
+		account.ProtocolEndpointCapabilityID = m.ProtocolEndpointCapabilityID
+	}
+	return account
 }
 
 func accountsToSupplierSourceService(accounts []*dbent.Account) []service.Account {
@@ -4255,7 +4263,29 @@ func (r *accountRepository) ListSupplierManagedAccounts(ctx context.Context, sou
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrAccountNotFound, nil)
 	}
-	return accountsToSupplierSourceService(accounts), nil
+	if len(accounts) == 0 {
+		return []service.Account{}, nil
+	}
+	accountIDs := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		accountIDs = append(accountIDs, account.ID)
+	}
+	capabilitiesByAccount, err := r.loadProtocolEndpointCapabilities(ctx, accountIDs)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]service.Account, 0, len(accounts))
+	for _, account := range accounts {
+		converted := supplierAccountEntityToService(account)
+		if converted == nil {
+			continue
+		}
+		if capability, ok := capabilitiesByAccount[account.ID]; ok {
+			converted.ProtocolEndpointCapability = capability
+		}
+		result = append(result, *converted)
+	}
+	return result, nil
 }
 
 // ListDueUpstreamBillingProbeAccounts bounds result hydration and network work

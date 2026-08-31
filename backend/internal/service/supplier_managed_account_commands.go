@@ -13,6 +13,7 @@ type SupplierManagedAccountCreateInput struct {
 	Endpoint     string
 	Credential   string
 	Priority     int
+	Concurrency  int
 }
 
 type SupplierManagedAccountUpdateInput struct {
@@ -26,6 +27,7 @@ type SupplierManagedAccountUpdateInput struct {
 	Credential      string
 	ModelMapping    map[string]string
 	Priority        int
+	Concurrency     int
 	Status          string
 	Schedulable     bool
 	ChatProbePassed bool
@@ -79,7 +81,7 @@ func (s *adminServiceImpl) CreateSupplierManagedAccount(
 			SupplierSourceIDExtraKey:     input.SourceID,
 			SupplierDiscountBandExtraKey: input.DiscountBand,
 		},
-		Concurrency:          1,
+		Concurrency:          ResolveSupplierSourceAccountConcurrency(input.Concurrency),
 		Priority:             input.Priority,
 		SkipDefaultGroupBind: true,
 	}, accountCreateOptions{
@@ -159,6 +161,7 @@ func (s *adminServiceImpl) UpdateSupplierManagedAccount(
 	account.Extra[SupplierSourceIDExtraKey] = input.SourceID
 	account.Extra[SupplierDiscountBandExtraKey] = input.DiscountBand
 	account.Priority = input.Priority
+	account.Concurrency = ResolveSupplierSourceAccountConcurrency(input.Concurrency)
 	if input.Status == "" {
 		account.Status = StatusActive
 	} else {

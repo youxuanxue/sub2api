@@ -36,7 +36,7 @@ func TestUS048_SupplierSourceResponsesExposeOnlyManagementFacts(t *testing.T) {
 	result := supplierSourceToResponse(&service.SupplierSource{
 		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5",
 		Endpoint: "https://token.vstecscloud.com/v1", EncryptedCredential: "ciphertext",
-		CredentialFingerprint: "hmac:secret", BasePriority: 100, Notes: "lowest ratio only",
+		CredentialFingerprint: "hmac:secret", BasePriority: 100, AccountConcurrency: 1000, Notes: "lowest ratio only",
 		Models: []service.SupplierSourceModel{{
 			ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio,
 		}},
@@ -46,6 +46,7 @@ func TestUS048_SupplierSourceResponsesExposeOnlyManagementFacts(t *testing.T) {
 	require.NoError(t, err)
 	body := strings.ToLower(string(payload))
 	require.Contains(t, body, `"base_priority":100`)
+	require.Contains(t, body, `"account_concurrency":1000`)
 	require.Contains(t, body, `"client_model_id":"deepseek-v4-pro"`)
 	require.NotContains(t, body, "encrypted_credential")
 	require.NotContains(t, body, "credential_fingerprint")

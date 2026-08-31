@@ -19,6 +19,7 @@ export default {
     credential: 'API Key',
     credentialKeep: '已有凭证不回显，留空沿用。',
     basePriority: '基础优先级',
+    accountConcurrency: '托管账号并发',
     notes: '备注',
     clientModel: 'TokenKey 模型 ID',
     upstreamModel: '上游模型 ID',

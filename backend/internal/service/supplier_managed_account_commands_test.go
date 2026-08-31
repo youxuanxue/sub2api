@@ -49,6 +49,20 @@ func TestUS048_OrdinaryCreateAccountStillFailsWhenDefaultGroupBindFails(t *testi
 	require.Equal(t, 1, accounts.bindCalls)
 }
 
+func TestUS048_SupplierCreateUsesDefaultAccountConcurrency(t *testing.T) {
+	accounts := &supplierManagedCommandsAccountRepoFake{}
+	groups := &supplierManagedCommandsGroupRepoFake{groups: []Group{{ID: 9, Name: PlatformNewAPI + "-default", Platform: PlatformNewAPI}}}
+	svc := &adminServiceImpl{accountRepo: accounts, groupRepo: groups}
+
+	_, err := svc.CreateSupplierManagedAccount(context.Background(), SupplierManagedAccountCreateInput{
+		SourceID: 7, DiscountBand: 3, Name: "supplier/test · 档位 3",
+		Endpoint: "https://supplier.example/v1", Credential: "secret", Priority: 103,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, SupplierSourceDefaultAccountConcurrency, accounts.created.Concurrency)
+}
+
 func TestUS048_SupplierConfigurationUpdateUsesGroupFreeReadAndNarrowWrite(t *testing.T) {
 	accounts := &supplierManagedCommandsAccountRepoFake{existing: &Account{
 		ID: 41, Name: "old", Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 46,
