@@ -1,4 +1,5 @@
 -- TokenKey: explicit Extension Engine channel_type on supplier sources for transport + model discovery.
+-- bluegreen-safe-destructive-ok: expand-only NOT NULL column with DEFAULT 1; old app ignores the new column while both colors overlap.
 
 ALTER TABLE model_supplier_sources
     ADD COLUMN IF NOT EXISTS channel_type INTEGER NOT NULL DEFAULT 1;
@@ -11,6 +12,14 @@ UPDATE model_supplier_sources
 SET channel_type = 17
 WHERE endpoint ILIKE '%dashscope.aliyuncs.com%';
 
-ALTER TABLE model_supplier_sources
-    ADD CONSTRAINT model_supplier_sources_channel_type_check
-        CHECK (channel_type > 0);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'model_supplier_sources_channel_type_check'
+    ) THEN
+        ALTER TABLE model_supplier_sources
+            ADD CONSTRAINT model_supplier_sources_channel_type_check
+                CHECK (channel_type > 0);
+    END IF;
+END $$;

@@ -1981,7 +1981,10 @@
         "async function waitDiscoverJob(",
         "adminAPI.supplierSources.getDiscoverModelsJob(sourceID, jobID)",
         "data-test=\"discover-probe-progress\"",
-        "v-if=\"discoverResult.probe_status === 'completed'\""
+        "v-if=\"discoverResult.probe_status === 'completed'\"",
+        "form.channel_type",
+        "useNewApiChannelTypes",
+        "supplierChannelTypeOptions"
       ],
       "must_not_contain": [
         "syncSucceeded = ref"

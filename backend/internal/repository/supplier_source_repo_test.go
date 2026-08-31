@@ -48,16 +48,16 @@ func TestSupplierSourceRepositoryCreatePersistsSingleRowContract(t *testing.T) {
 		ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio,
 	}}
 	source := &service.SupplierSource{
-		SupplierName: "佳杰", ChannelName: "stbl-5", Endpoint: "https://token.vstecscloud.com/v1",
+		SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://token.vstecscloud.com/v1",
 		EncryptedCredential: "ciphertext", CredentialFingerprint: "hmac:fingerprint",
 		BasePriority: 100, Models: models, Notes: "lowest ratio only",
 	}
 
 	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO model_supplier_sources
-(supplier_name, channel_name, endpoint, encrypted_credential, credential_fingerprint, base_priority, models, notes)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+(supplier_name, channel_name, channel_type, endpoint, encrypted_credential, credential_fingerprint, base_priority, models, notes)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id, created_at, updated_at`)).
-		WithArgs("佳杰", "stbl-5", "https://token.vstecscloud.com/v1", "ciphertext", "hmac:fingerprint", 100, supplierModelsJSONArg{want: models}, "lowest ratio only").
+		WithArgs("佳杰", "stbl-5", 1, "https://token.vstecscloud.com/v1", "ciphertext", "hmac:fingerprint", 100, supplierModelsJSONArg{want: models}, "lowest ratio only").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow(int64(7), now, now))
 
 	repo := NewSupplierSourceRepository(db)
@@ -78,17 +78,17 @@ func TestSupplierSourceRepositoryUpdateReplacesSingleRowContract(t *testing.T) {
 		ClientModelID: "qwen-3.7-max", UpstreamModelID: "qwen-3.7-max", PurchaseRatio: &ratio,
 	}}
 	source := &service.SupplierSource{
-		ID: 7, SupplierName: "VSTECS", ChannelName: "stbl-5", Endpoint: "https://token.vstecscloud.com/v1",
+		ID: 7, SupplierName: "VSTECS", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://token.vstecscloud.com/v1",
 		EncryptedCredential: "rotated-ciphertext", CredentialFingerprint: "hmac:rotated",
 		BasePriority: 120, Models: models, Notes: "rotated",
 	}
 
 	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE model_supplier_sources
-SET supplier_name=$1, channel_name=$2, endpoint=$3, encrypted_credential=$4,
-    credential_fingerprint=$5, base_priority=$6, models=$7, notes=$8, updated_at=NOW()
-WHERE id=$9
+SET supplier_name=$1, channel_name=$2, channel_type=$3, endpoint=$4, encrypted_credential=$5,
+    credential_fingerprint=$6, base_priority=$7, models=$8, notes=$9, updated_at=NOW()
+WHERE id=$10
 RETURNING updated_at`)).
-		WithArgs("VSTECS", "stbl-5", "https://token.vstecscloud.com/v1", "rotated-ciphertext", "hmac:rotated", 120, supplierModelsJSONArg{want: models}, "rotated", int64(7)).
+		WithArgs("VSTECS", "stbl-5", 1, "https://token.vstecscloud.com/v1", "rotated-ciphertext", "hmac:rotated", 120, supplierModelsJSONArg{want: models}, "rotated", int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{"updated_at"}).AddRow(now))
 
 	repo := NewSupplierSourceRepository(db)
@@ -104,19 +104,20 @@ func TestSupplierSourceRepositoryGetReturnsModelsFromJSON(t *testing.T) {
 
 	now := time.Date(2026, 8, 28, 8, 0, 0, 0, time.UTC)
 	modelsJSON := []byte(`[{"client_model_id":"deepseek-v4-pro","upstream_model_id":"deepseek-v4-pro","purchase_ratio":0.5}]`)
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, supplier_name, channel_name, endpoint, encrypted_credential,
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, supplier_name, channel_name, channel_type, endpoint, encrypted_credential,
 credential_fingerprint, base_priority, models, notes, created_at, updated_at
 FROM model_supplier_sources WHERE id=$1`)).
 		WithArgs(int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "supplier_name", "channel_name", "endpoint", "encrypted_credential",
+			"id", "supplier_name", "channel_name", "channel_type", "endpoint", "encrypted_credential",
 			"credential_fingerprint", "base_priority", "models", "notes", "created_at", "updated_at",
-		}).AddRow(int64(7), "佳杰", "stbl-5", "https://token.vstecscloud.com/v1", "ciphertext", "hmac:fingerprint", 100, modelsJSON, "", now, now))
+		}).AddRow(int64(7), "佳杰", "stbl-5", 1, "https://token.vstecscloud.com/v1", "ciphertext", "hmac:fingerprint", 100, modelsJSON, "", now, now))
 
 	repo := NewSupplierSourceRepository(db)
 	source, err := repo.Get(context.Background(), 7)
 	require.NoError(t, err)
 	require.Equal(t, "ciphertext", source.EncryptedCredential)
+	require.Equal(t, 1, source.ChannelType)
 	require.Equal(t, 100, source.BasePriority)
 	require.Len(t, source.Models, 1)
 	require.Equal(t, "deepseek-v4-pro", source.Models[0].ClientModelID)
