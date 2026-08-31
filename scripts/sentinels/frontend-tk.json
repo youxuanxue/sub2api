@@ -1977,12 +1977,26 @@
         "const syncSucceeded = computed(() => (",
         "syncResult.value !== null",
         "syncError.value === ''",
-        "&& !syncResult.value.failed_step"
+        "&& !syncResult.value.failed_step",
+        "async function waitDiscoverJob(",
+        "adminAPI.supplierSources.getDiscoverModelsJob(sourceID, jobID)",
+        "data-test=\"discover-probe-progress\"",
+        "v-if=\"discoverResult.probe_status === 'completed'\""
       ],
       "must_not_contain": [
         "syncSucceeded = ref"
       ],
-      "rationale": "The supplier page derives success from the current response, the current request error, and absence of failed_step. A mutable success flag can drift from a resolved partial-failure result and falsely tell operations that account projection completed."
+      "rationale": "The supplier page derives success from the current response, the current request error, and absence of failed_step. It must poll async models-discover jobs to completion before projection sync, show probe progress, and only allow appending suggestions after probing finishes so partial candidate sets cannot enter the form."
+    },
+    {
+      "path": "frontend/src/api/admin/supplierSources.ts",
+      "must_contain": [
+        "async function discoverModels(id: number): Promise<SupplierModelsDiscoverResult>",
+        "`/admin/supplier-sources/${id}/models-discover`",
+        "async function getDiscoverModelsJob(id: number, jobId: string): Promise<SupplierModelsDiscoverResult>",
+        "`/admin/supplier-sources/${id}/models-discover/jobs/${encodeURIComponent(jobId)}`"
+      ],
+      "rationale": "Admin client must expose both models-discover start and job poll endpoints. Dropping the poll client forces synchronous long probes behind the browser timeout again."
     },
     {
       "path": "frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts",
@@ -1992,9 +2006,11 @@
         "renders every probe result and actual account change returned by sync",
         "does not show success when a resolved sync result reports a failed step",
         "shows protocol_unsupported probe results from a 422 response without success wording",
-        "contains no state machine, audit, activation, pause, or account-group controls"
+        "contains no state machine, audit, activation, pause, or account-group controls",
+        "polls a running models-discover job until completed before syncing",
+        "shows discover failure message and failed_step outside the sync-result block"
       ],
-      "rationale": "Focused UI regressions pin the final minimal workflow: save is side-effect free, unsaved edits cannot accidentally sync the previous database snapshot, sync renders current probes and real account changes, resolved failed_step responses cannot display success, private protocol failures remain closed, and no state machine or account-group controls return."
+      "rationale": "Focused UI regressions pin the final minimal workflow: save is side-effect free, unsaved edits cannot accidentally sync the previous database snapshot, sync renders current probes and real account changes, resolved failed_step responses cannot display success, private protocol failures remain closed, async discover polling must complete before projection sync, discover failures stay visible outside the sync block, and no state machine or account-group controls return."
     },
     {
       "path": "frontend/src/composables/useSupplierManagedAccount.ts",

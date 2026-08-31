@@ -353,6 +353,7 @@
               </li>
             </ul>
             <button
+              v-if="discoverResult.probe_status === 'completed'"
               type="button"
               data-test="append-suggested"
               class="mt-2 text-sm text-primary-600"

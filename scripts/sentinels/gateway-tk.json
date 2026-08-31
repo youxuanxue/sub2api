@@ -7606,6 +7606,49 @@
         "supplier credential leaked into audit body"
       ],
       "rationale": "Regression evidence for the supplier-source audit boundary: a realistic create body must retain non-sensitive management facts while replacing credential with the audit placeholder."
+    },
+    {
+      "path": "backend/internal/service/supplier_models_discover.go",
+      "must_contain": [
+        "func (s *SupplierSourceService) StartDiscoverModels(",
+        "func (s *SupplierSourceService) GetDiscoverModelsJob(",
+        "supplierDiscoverProbeConcurrency = 8",
+        "go s.runSupplierDiscoverProbes(jobCtx, job, probeAccount, probeable)"
+      ],
+      "must_not_contain": [
+        "supplierDiscoverProbeBudget",
+        "probe_skipped_budget"
+      ],
+      "rationale": "models-discover must list/normalize synchronously then probe EVERY probeable candidate asynchronously at high concurrency. A fixed probe budget would silently leave remaining upstream models' servability unknown, which violates the supplier-source product definition."
+    },
+    {
+      "path": "backend/internal/service/supplier_models_discover_test.go",
+      "must_contain": [
+        "func TestUS048_StartDiscoverModelsProbesAllCandidatesAsynchronously(",
+        "func TestUS048_GetDiscoverModelsJobMissingReturnsFailedSnapshot(",
+        "require.Equal(t, int64(12), lister.probeCalls.Load())"
+      ],
+      "rationale": "Focused regressions pin full-candidate async probing without a budget cap, and prove missing/expired jobs return a failed snapshot rather than conflating with supplier-source-not-found."
+    },
+    {
+      "path": "backend/internal/handler/admin/supplier_source_handler.go",
+      "must_contain": [
+        "func (h *SupplierSourceHandler) DiscoverModels(c *gin.Context)",
+        "result, err := h.service.StartDiscoverModels(c.Request.Context(), id)",
+        "func (h *SupplierSourceHandler) GetDiscoverModelsJob(c *gin.Context)",
+        "result, err := h.service.GetDiscoverModelsJob(c.Request.Context(), id, jobID)",
+        "case errors.As(err, &syncErr):"
+      ],
+      "rationale": "Admin discover must start the async probe job and expose job polling; upstream models-list failures must map through UpstreamModelSyncError.SafeMessage so the page never shows only an empty discover title."
+    },
+    {
+      "path": "backend/internal/service/supplier_upstream_models.go",
+      "must_contain": [
+        "ListSupplierUpstreamModels(ctx context.Context, endpoint, credential string) ([]SupplierUpstreamModelEntry, error)",
+        "return strings.TrimRight(newapiintegration.QianfanBaseURL, \"/\") + \"/v2/models\"",
+        "ID: -1001, ChannelType: transport.ChannelType, Concurrency: 4,"
+      ],
+      "rationale": "Supplier upstream listing owns BaiduV2 /v2/models routing and a dedicated negative list identity so concurrent discovers do not contend on account-id caches. Losing either returns wrong OpenAI /v1/models paths for Qianfan or serializes catalog fetches incorrectly."
     }
   ]
 }

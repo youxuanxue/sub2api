@@ -169,6 +169,18 @@ func TestUS048_DiscoverModelsAuthFailureStopsWithoutSuggesting(t *testing.T) {
 	require.Empty(t, result.SuggestedAppends)
 }
 
+func TestUS048_GetDiscoverModelsJobMissingReturnsFailedSnapshot(t *testing.T) {
+	svc := NewSupplierSourceService(
+		&supplierSourceRepoFake{}, nil, &supplierDiscoverProbeFake{},
+		supplierSyncEncryptor{}, supplierSourceTestFingerprinter{},
+	)
+	result, err := svc.GetDiscoverModelsJob(context.Background(), 3, "missing-job")
+	require.NoError(t, err)
+	require.Equal(t, "missing-job", result.JobID)
+	require.Equal(t, "job_not_found", result.FailedStep)
+	require.Equal(t, SupplierDiscoverProbeFailed, result.ProbeStatus)
+}
+
 func TestUS048_StartDiscoverModelsProbesAllCandidatesAsynchronously(t *testing.T) {
 	source := &SupplierSource{
 		ID: 8, SupplierName: "baidu", ChannelName: "default",

@@ -274,6 +274,89 @@ describe('SupplierSourcesView', () => {
     expect(wrapper.find('[data-test="discover-needs-save"]').exists()).toBe(false)
   })
 
+  it('polls a running models-discover job until completed before syncing', async () => {
+    vi.useFakeTimers()
+    list.mockResolvedValueOnce([source])
+    discoverModels.mockResolvedValueOnce({
+      source_id: 7,
+      job_id: 'job-async-1',
+      probe_status: 'running',
+      probe_total: 2,
+      probe_done: 0,
+      upstream_models: [{ id: 'deepseek-v4-pro', type: 'chat' }, { id: 'glm-5.1', type: 'chat' }],
+      normalized_models: source.models,
+      normalized_changes: [],
+      suggested_appends: [],
+      rejected_candidates: [],
+      configured_issues: [],
+      probe_results: [],
+      needs_confirmation: false,
+    })
+    getDiscoverModelsJob
+      .mockResolvedValueOnce({
+        source_id: 7,
+        job_id: 'job-async-1',
+        probe_status: 'running',
+        probe_total: 2,
+        probe_done: 1,
+        upstream_models: [{ id: 'deepseek-v4-pro', type: 'chat' }, { id: 'glm-5.1', type: 'chat' }],
+        normalized_models: source.models,
+        normalized_changes: [],
+        suggested_appends: [{
+          client_model_id: 'glm-5.1',
+          upstream_model_id: 'glm-5.1',
+          purchase_ratio: 1,
+        }],
+        rejected_candidates: [],
+        configured_issues: [],
+        probe_results: [],
+        needs_confirmation: false,
+      })
+      .mockResolvedValueOnce({
+        source_id: 7,
+        job_id: 'job-async-1',
+        probe_status: 'completed',
+        probe_total: 2,
+        probe_done: 2,
+        upstream_models: [{ id: 'deepseek-v4-pro', type: 'chat' }, { id: 'glm-5.1', type: 'chat' }],
+        normalized_models: source.models,
+        normalized_changes: [],
+        suggested_appends: [{
+          client_model_id: 'glm-5.1',
+          upstream_model_id: 'glm-5.1',
+          purchase_ratio: 1,
+        }],
+        rejected_candidates: [],
+        configured_issues: [],
+        probe_results: [],
+        needs_confirmation: false,
+      })
+    sync.mockResolvedValueOnce({ source_id: 7, probe_results: [], changes: [] })
+
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+    await wrapper.get('[data-test="sync-source"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="discover-probe-progress"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="append-suggested"]').exists()).toBe(false)
+    expect(sync).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushPromises()
+    expect(getDiscoverModelsJob).toHaveBeenCalledWith(7, 'job-async-1')
+    expect(wrapper.find('[data-test="append-suggested"]').exists()).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushPromises()
+    expect(sync).toHaveBeenCalledWith(7)
+    expect(wrapper.find('[data-test="discover-probe-progress"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="append-suggested"]').exists()).toBe(true)
+
+    vi.useRealTimers()
+  })
+
   it('shows discover failure message and failed_step outside the sync-result block', async () => {
     list.mockResolvedValueOnce([source])
     discoverModels.mockRejectedValueOnce(Object.assign(

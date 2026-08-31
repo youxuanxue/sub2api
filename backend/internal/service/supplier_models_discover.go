@@ -294,11 +294,12 @@ func (s *SupplierSourceService) GetDiscoverModelsJob(ctx context.Context, source
 	}
 	job, ok := s.discoverJobRegistry().get(sourceID, jobID)
 	if !ok || job == nil {
+		// Poll-friendly: expired/superseded jobs are not "source missing".
 		result := emptySupplierModelsDiscoverResult(sourceID)
 		result.JobID = jobID
 		result.FailedStep = "job_not_found"
 		result.ProbeStatus = SupplierDiscoverProbeFailed
-		return result, ErrSupplierSourceNotFound
+		return result, nil
 	}
 	result := job.snapshot()
 	return result, nil
