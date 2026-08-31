@@ -898,3 +898,24 @@ func TestSupplierAccountNeedsProtocolRepublishDetectsTransportDrift(t *testing.T
 		account, "https://qianfan.baidubce.com", newapiconstant.ChannelTypeBaiduV2,
 	))
 }
+
+func TestSupplierAccountNeedsProtocolRepublishDetectsLegacyNonExclusiveCredentials(t *testing.T) {
+	// Pre-fix managed rows only had bare base_url; sync must republish exclusive shape.
+	account := &Account{
+		Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1,
+		Credentials: map[string]any{
+			"base_url":      "https://supplier.example/v1",
+			"api_key":       "secret",
+			"model_mapping": map[string]string{"model": "model"},
+		},
+	}
+	require.False(t, accountDeclaresExclusiveProtocolEndpoints(account))
+	require.True(t, supplierAccountNeedsProtocolRepublish(account, "https://supplier.example/v1", 1))
+
+	migrated := &Account{
+		Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1,
+		Credentials: supplierManagedCredentials(
+			"https://supplier.example/v1", "secret", map[string]string{"model": "model"}, 1),
+	}
+	require.False(t, supplierAccountNeedsProtocolRepublish(migrated, "https://supplier.example/v1", 1))
+}

@@ -100,7 +100,6 @@ func TestUS048_ChatOnlyIdentityDoesNotRequireSupplierSourceBinding(t *testing.T)
 			"https://dashscope.aliyuncs.com", "secret",
 			map[string]string{"qwen3.6-flash": "qwen3.6-flash"}, newapiconstant.ChannelTypeAli),
 	}
-	delete(account.Extra, SupplierSourceIDExtraKey)
 	account.Extra = nil
 
 	identity, governed, err := BuildProtocolEndpointIdentity(account)

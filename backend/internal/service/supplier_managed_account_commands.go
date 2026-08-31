@@ -271,8 +271,8 @@ func supplierManagedCredentials(endpoint, credential string, modelMapping map[st
 		chatBase = strings.TrimRight(newapiintegration.QianfanBaseURL, "/") + "/v2/chat/completions"
 	}
 	return map[string]any{
-		"base_url": baseURL,
-		"api_key":  strings.TrimSpace(credential),
+		"base_url":      baseURL,
+		"api_key":       strings.TrimSpace(credential),
 		"model_mapping": mapping,
 		"api_base_urls": map[string]any{
 			APIProtocolChatCompletions: chatBase,
