@@ -558,11 +558,11 @@ func TestBuildSchedulerMetadataAccount_KeepsExclusiveProtocolEndpointCredentials
 				service.APIProtocolChatCompletions: "https://dashscope.aliyuncs.com",
 			},
 			service.ProtocolEndpointsExclusiveCredentialKey: true,
-			"unused_large_field": "drop-me",
+			"unused_large_field":                            "drop-me",
 		},
 		Extra: map[string]any{
 			service.SupplierSourceIDExtraKey: int64(8),
-			"unrelated":                     "drop-me",
+			"unrelated":                      "drop-me",
 		},
 	}
 	got := buildSchedulerMetadataAccount(account)
