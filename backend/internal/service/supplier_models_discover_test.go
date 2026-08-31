@@ -2,7 +2,10 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
@@ -162,7 +165,58 @@ func TestUS048_DiscoverModelsAuthFailureStopsWithoutSuggesting(t *testing.T) {
 	result, err := svc.DiscoverModels(context.Background(), 4)
 	require.ErrorIs(t, err, ErrSupplierSourceProbeFailed)
 	require.Equal(t, "probe_candidate", result.FailedStep)
+	require.Equal(t, SupplierDiscoverProbeFailed, result.ProbeStatus)
 	require.Empty(t, result.SuggestedAppends)
+}
+
+func TestUS048_GetDiscoverModelsJobMissingReturnsFailedSnapshot(t *testing.T) {
+	svc := NewSupplierSourceService(
+		&supplierSourceRepoFake{}, nil, &supplierDiscoverProbeFake{},
+		supplierSyncEncryptor{}, supplierSourceTestFingerprinter{},
+	)
+	result, err := svc.GetDiscoverModelsJob(context.Background(), 3, "missing-job")
+	require.NoError(t, err)
+	require.Equal(t, "missing-job", result.JobID)
+	require.Equal(t, "job_not_found", result.FailedStep)
+	require.Equal(t, SupplierDiscoverProbeFailed, result.ProbeStatus)
+}
+
+func TestUS048_StartDiscoverModelsProbesAllCandidatesAsynchronously(t *testing.T) {
+	source := &SupplierSource{
+		ID: 8, SupplierName: "baidu", ChannelName: "default",
+		Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
+		BasePriority: 100, Models: nil,
+	}
+	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
+	entries := make([]SupplierUpstreamModelEntry, 0, 12)
+	probeStatus := make(map[string]SupplierProbeStatus, 12)
+	for i := 0; i < 12; i++ {
+		id := fmt.Sprintf("model-%02d", i)
+		entries = append(entries, SupplierUpstreamModelEntry{ID: id, Type: "chat"})
+		probeStatus[id] = SupplierProbeStatusPassed
+	}
+	lister := &supplierDiscoverProbeFake{entries: entries, probeStatus: probeStatus}
+	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+	started, err := svc.StartDiscoverModels(context.Background(), 8)
+	require.NoError(t, err)
+	require.Equal(t, SupplierDiscoverProbeRunning, started.ProbeStatus)
+	require.Equal(t, 12, started.ProbeTotal)
+	require.NotEmpty(t, started.JobID)
+
+	deadline := time.Now().Add(2 * time.Second)
+	var result *SupplierModelsDiscoverResult
+	for time.Now().Before(deadline) {
+		result, err = svc.GetDiscoverModelsJob(context.Background(), 8, started.JobID)
+		require.NoError(t, err)
+		if result.ProbeStatus == SupplierDiscoverProbeCompleted {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	require.Equal(t, SupplierDiscoverProbeCompleted, result.ProbeStatus)
+	require.Equal(t, 12, result.ProbeDone)
+	require.Equal(t, int64(12), lister.probeCalls.Load())
+	require.Len(t, result.SuggestedAppends, 12)
 }
 
 func TestUS048_ExtractSupplierUpstreamModelEntriesKeepsType(t *testing.T) {
@@ -183,6 +237,7 @@ type supplierDiscoverProbeFake struct {
 	entries     []SupplierUpstreamModelEntry
 	probeStatus map[string]SupplierProbeStatus
 	listErr     error
+	probeCalls  atomic.Int64
 }
 
 func (f *supplierDiscoverProbeFake) ListSupplierUpstreamModels(
@@ -197,6 +252,7 @@ func (f *supplierDiscoverProbeFake) ListSupplierUpstreamModels(
 }
 
 func (f *supplierDiscoverProbeFake) ProbeSupplierModel(_ context.Context, input SupplierProbeInput) SupplierProbeResult {
+	f.probeCalls.Add(1)
 	status := SupplierProbeStatusFailed
 	if f.probeStatus != nil {
 		if got, ok := f.probeStatus[input.UpstreamModelID]; ok {

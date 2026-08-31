@@ -78,6 +78,8 @@
         "registerSupplierSourceRoutes(admin, h)",
         "sources := admin.Group(\"/supplier-sources\")",
         "sources.GET(\"/priority-preview\", h.Admin.SupplierSource.PriorityPreview)",
+        "sources.POST(\"/:id/models-discover\", h.Admin.SupplierSource.DiscoverModels)",
+        "sources.GET(\"/:id/models-discover/jobs/:job_id\", h.Admin.SupplierSource.GetDiscoverModelsJob)",
         "sources.POST(\"/:id/sync\", h.Admin.SupplierSource.Sync)"
       ],
       "must_not_contain": [
@@ -85,7 +87,7 @@
         "sources.POST(\"/:id/activate\", h.Admin.SupplierSource.Activate)",
         "sources.POST(\"/:id/pause\", h.Admin.SupplierSource.Pause)"
       ],
-      "rationale": "Canonical six-endpoint supplier-source route owner. The page saves facts, previews supplier priorities and explicitly syncs one source; activation/pause routes would reintroduce the rejected state machine while the rest of the application could still compile."
+      "rationale": "Canonical supplier-source route owner including async models-discover start + job poll before sync. Activation/pause routes would reintroduce the rejected state machine while the rest of the application could still compile."
     },
     {
       "path": "backend/cmd/server/wire_gen.go",

@@ -56,7 +56,9 @@ func (s *AccountTestService) ListSupplierUpstreamModels(
 
 	account := &Account{
 		Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
-		ChannelType: transport.ChannelType, Concurrency: 1,
+		// Negative sentinel avoids colliding with real account 0 / id-less caches while
+		// listing supplier catalogs (concurrent discovers previously contended here).
+		ID: -1001, ChannelType: transport.ChannelType, Concurrency: 4,
 		Credentials: map[string]any{
 			"base_url": transport.Endpoint,
 			"api_key":  credential,

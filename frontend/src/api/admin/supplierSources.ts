@@ -108,8 +108,14 @@ export interface SupplierModelDiscoverRejection {
   detail?: string
 }
 
+export type SupplierDiscoverProbeStatus = 'pending' | 'running' | 'completed' | 'failed'
+
 export interface SupplierModelsDiscoverResult {
   source_id: number
+  job_id?: string
+  probe_status: SupplierDiscoverProbeStatus
+  probe_total: number
+  probe_done: number
   upstream_models: SupplierUpstreamModelEntry[]
   normalized_models: SupplierSourceModel[]
   normalized_changes: SupplierModelNormalizeChange[]
@@ -147,8 +153,16 @@ async function priorityPreview(): Promise<SupplierPriorityPreview> {
 }
 
 async function discoverModels(id: number): Promise<SupplierModelsDiscoverResult> {
+  // Starts async candidate probing; returns list/normalize immediately with job_id.
   const { data } = await apiClient.post<SupplierModelsDiscoverResult>(
     `/admin/supplier-sources/${id}/models-discover`,
+  )
+  return data
+}
+
+async function getDiscoverModelsJob(id: number, jobId: string): Promise<SupplierModelsDiscoverResult> {
+  const { data } = await apiClient.get<SupplierModelsDiscoverResult>(
+    `/admin/supplier-sources/${id}/models-discover/jobs/${encodeURIComponent(jobId)}`,
   )
   return data
 }
@@ -158,4 +172,4 @@ async function sync(id: number): Promise<SupplierSourceSyncResult> {
   return data
 }
 
-export default { list, get, create, update, priorityPreview, discoverModels, sync }
+export default { list, get, create, update, priorityPreview, discoverModels, getDiscoverModelsJob, sync }

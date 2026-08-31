@@ -4,18 +4,19 @@ import { nextTick } from 'vue'
 
 import SupplierSourcesView from '../SupplierSourcesView.vue'
 
-const { list, create, update, priorityPreview, discoverModels, sync, routeQuery } = vi.hoisted(() => ({
+const { list, create, update, priorityPreview, discoverModels, getDiscoverModelsJob, sync, routeQuery } = vi.hoisted(() => ({
   list: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
   priorityPreview: vi.fn(),
   discoverModels: vi.fn(),
+  getDiscoverModelsJob: vi.fn(),
   sync: vi.fn(),
   routeQuery: {} as Record<string, unknown>,
 }))
 
 vi.mock('@/api/admin', () => ({
-  adminAPI: { supplierSources: { list, create, update, priorityPreview, discoverModels, sync } },
+  adminAPI: { supplierSources: { list, create, update, priorityPreview, discoverModels, getDiscoverModelsJob, sync } },
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -52,6 +53,9 @@ describe('SupplierSourcesView', () => {
     priorityPreview.mockReset().mockResolvedValue({ entries: [], warnings: [] })
     discoverModels.mockReset().mockResolvedValue({
       source_id: 7,
+      probe_status: 'completed',
+      probe_total: 0,
+      probe_done: 0,
       upstream_models: [],
       normalized_models: source.models,
       normalized_changes: [],
@@ -61,6 +65,7 @@ describe('SupplierSourcesView', () => {
       probe_results: [],
       needs_confirmation: false,
     })
+    getDiscoverModelsJob.mockReset()
     sync.mockReset()
   })
 
@@ -181,6 +186,9 @@ describe('SupplierSourcesView', () => {
     list.mockResolvedValueOnce([source])
     discoverModels.mockResolvedValueOnce({
       source_id: 7,
+      probe_status: 'completed',
+      probe_total: 1,
+      probe_done: 1,
       upstream_models: [{ id: 'deepseek-v4-pro', type: 'chat' }, { id: 'glm-5.1', type: 'chat' }],
       normalized_models: [{
         client_model_id: 'deepseek-v4-pro',
@@ -238,6 +246,9 @@ describe('SupplierSourcesView', () => {
     list.mockResolvedValueOnce([source])
     discoverModels.mockResolvedValueOnce({
       source_id: 7,
+      probe_status: 'completed',
+      probe_total: 1,
+      probe_done: 1,
       upstream_models: [{ id: 'deepseek-v4-pro', type: 'chat' }, { id: 'glm-5.1', type: 'chat' }],
       normalized_models: source.models,
       normalized_changes: [],
@@ -261,6 +272,129 @@ describe('SupplierSourcesView', () => {
     expect(sync).toHaveBeenCalledWith(7)
     expect(wrapper.get('[data-test="discover-result"]').text()).toContain('glm-5.1')
     expect(wrapper.find('[data-test="discover-needs-save"]').exists()).toBe(false)
+  })
+
+  it('polls a running models-discover job until completed before syncing', async () => {
+    vi.useFakeTimers()
+    list.mockResolvedValueOnce([source])
+    discoverModels.mockResolvedValueOnce({
+      source_id: 7,
+      job_id: 'job-async-1',
+      probe_status: 'running',
+      probe_total: 2,
+      probe_done: 0,
+      upstream_models: [{ id: 'deepseek-v4-pro', type: 'chat' }, { id: 'glm-5.1', type: 'chat' }],
+      normalized_models: source.models,
+      normalized_changes: [],
+      suggested_appends: [],
+      rejected_candidates: [],
+      configured_issues: [],
+      probe_results: [],
+      needs_confirmation: false,
+    })
+    getDiscoverModelsJob
+      .mockResolvedValueOnce({
+        source_id: 7,
+        job_id: 'job-async-1',
+        probe_status: 'running',
+        probe_total: 2,
+        probe_done: 1,
+        upstream_models: [{ id: 'deepseek-v4-pro', type: 'chat' }, { id: 'glm-5.1', type: 'chat' }],
+        normalized_models: source.models,
+        normalized_changes: [],
+        suggested_appends: [{
+          client_model_id: 'glm-5.1',
+          upstream_model_id: 'glm-5.1',
+          purchase_ratio: 1,
+        }],
+        rejected_candidates: [],
+        configured_issues: [],
+        probe_results: [],
+        needs_confirmation: false,
+      })
+      .mockResolvedValueOnce({
+        source_id: 7,
+        job_id: 'job-async-1',
+        probe_status: 'completed',
+        probe_total: 2,
+        probe_done: 2,
+        upstream_models: [{ id: 'deepseek-v4-pro', type: 'chat' }, { id: 'glm-5.1', type: 'chat' }],
+        normalized_models: source.models,
+        normalized_changes: [],
+        suggested_appends: [{
+          client_model_id: 'glm-5.1',
+          upstream_model_id: 'glm-5.1',
+          purchase_ratio: 1,
+        }],
+        rejected_candidates: [],
+        configured_issues: [],
+        probe_results: [],
+        needs_confirmation: false,
+      })
+    sync.mockResolvedValueOnce({ source_id: 7, probe_results: [], changes: [] })
+
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+    await wrapper.get('[data-test="sync-source"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="discover-probe-progress"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="append-suggested"]').exists()).toBe(false)
+    expect(sync).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushPromises()
+    expect(getDiscoverModelsJob).toHaveBeenCalledWith(7, 'job-async-1')
+    expect(wrapper.find('[data-test="append-suggested"]').exists()).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushPromises()
+    expect(sync).toHaveBeenCalledWith(7)
+    expect(wrapper.find('[data-test="discover-probe-progress"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="append-suggested"]').exists()).toBe(true)
+
+    vi.useRealTimers()
+  })
+
+  it('shows discover failure message and failed_step outside the sync-result block', async () => {
+    list.mockResolvedValueOnce([source])
+    discoverModels.mockRejectedValueOnce(Object.assign(
+      new Error('Supplier model list request failed with HTTP 401'),
+      {
+        status: 502,
+        data: {
+          source_id: 7,
+          probe_status: 'failed',
+          probe_total: 0,
+          probe_done: 0,
+          upstream_models: [],
+          normalized_models: [],
+          normalized_changes: [],
+          suggested_appends: [],
+          rejected_candidates: [],
+          configured_issues: [],
+          probe_results: [],
+          needs_confirmation: false,
+          failed_step: 'list_upstream_models',
+        },
+      },
+    ))
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+    await wrapper.get('[data-test="sync-source"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="sync-error"]').text()).toContain(
+      'Supplier model list request failed with HTTP 401',
+    )
+    expect(wrapper.get('[data-test="discover-failed-step"]').text()).toContain('list_upstream_models')
+    expect(wrapper.get('[data-test="discover-summary"]').text()).toBe(
+      'admin.supplierSources.discoverSummary',
+    )
+    expect(wrapper.find('[data-test="sync-result"]').exists()).toBe(false)
+    expect(sync).not.toHaveBeenCalled()
   })
 
   it('renders every probe result and actual account change returned by sync', async () => {

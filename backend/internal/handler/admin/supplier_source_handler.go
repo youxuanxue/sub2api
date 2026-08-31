@@ -2,8 +2,10 @@ package admin
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -212,7 +214,25 @@ func (h *SupplierSourceHandler) DiscoverModels(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result, err := h.service.DiscoverModels(c.Request.Context(), id)
+	result, err := h.service.StartDiscoverModels(c.Request.Context(), id)
+	if err != nil {
+		writeSupplierSourceDiscoverError(c, result, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *SupplierSourceHandler) GetDiscoverModelsJob(c *gin.Context) {
+	id, ok := supplierSourceID(c)
+	if !ok {
+		return
+	}
+	jobID := strings.TrimSpace(c.Param("job_id"))
+	if jobID == "" {
+		response.InvalidRequest(c)
+		return
+	}
+	result, err := h.service.GetDiscoverModelsJob(c.Request.Context(), id, jobID)
 	if err != nil {
 		writeSupplierSourceDiscoverError(c, result, err)
 		return
@@ -222,6 +242,16 @@ func (h *SupplierSourceHandler) DiscoverModels(c *gin.Context) {
 
 func writeSupplierSourceDiscoverError(c *gin.Context, result *service.SupplierModelsDiscoverResult, err error) {
 	statusCode, message, reason, metadata := supplierSourceHTTPError(err)
+	failedStep := ""
+	if result != nil {
+		failedStep = result.FailedStep
+	}
+	slog.Warn("supplier_models_discover_failed",
+		"status_code", statusCode,
+		"failed_step", failedStep,
+		"message", message,
+		"err", err.Error(),
+	)
 	c.JSON(statusCode, response.Response{
 		Code: statusCode, Message: message, Reason: reason, Metadata: metadata, Data: result,
 	})
@@ -249,6 +279,7 @@ func writeSupplierSourceError(c *gin.Context, err error) {
 }
 
 func supplierSourceHTTPError(err error) (int, string, string, map[string]string) {
+	var syncErr *service.UpstreamModelSyncError
 	switch {
 	case errors.Is(err, service.ErrSupplierSourceInvalidInput),
 		errors.Is(err, service.ErrSupplierSourceInvalidPurchaseRatio),
@@ -263,6 +294,13 @@ func supplierSourceHTTPError(err error) (int, string, string, map[string]string)
 		errors.Is(err, service.ErrSupplierProjectionProtocolNotReady):
 		status := infraerrors.FromError(err)
 		return int(status.Code), status.Message, status.Reason, status.Metadata
+	case errors.As(err, &syncErr):
+		switch syncErr.Kind {
+		case service.UpstreamModelSyncErrorConfiguration, service.UpstreamModelSyncErrorUnsupported:
+			return http.StatusBadRequest, syncErr.SafeMessage(), "", nil
+		default:
+			return http.StatusBadGateway, syncErr.SafeMessage(), "", nil
+		}
 	default:
 		return http.StatusInternalServerError, "supplier source operation failed", "", nil
 	}

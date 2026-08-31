@@ -79,13 +79,48 @@ func TestUS048_SupplierSourceErrorsUseStableHTTPClasses(t *testing.T) {
 		{service.ErrSupplierSourceIdentityConflict, http.StatusConflict},
 		{service.ErrSupplierSourceProbeFailed, http.StatusUnprocessableEntity},
 		{service.ErrSupplierProjectionProtocolNotReady, http.StatusUnprocessableEntity},
+		{&service.UpstreamModelSyncError{
+			Kind: service.UpstreamModelSyncErrorConfiguration, Message: "No supplier API key is available",
+		}, http.StatusBadRequest},
+		{&service.UpstreamModelSyncError{
+			Kind: service.UpstreamModelSyncErrorUpstream, Message: "Supplier model list request failed with HTTP 401",
+		}, http.StatusBadGateway},
 	}
 	for _, tt := range tests {
 		recorder := httptest.NewRecorder()
 		ctx, _ := gin.CreateTestContext(recorder)
 		writeSupplierSourceError(ctx, tt.err)
-		require.Equal(t, tt.want, recorder.Code)
+		require.Equal(t, tt.want, recorder.Code, tt.err.Error())
 	}
+}
+
+func TestUS048_DiscoverUpstreamListFailureReturnsSafeMessageAndFailedStep(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	result := &service.SupplierModelsDiscoverResult{
+		SourceID:           3,
+		UpstreamModels:     []service.SupplierUpstreamModelEntry{},
+		NormalizedModels:   []service.SupplierSourceModel{},
+		NormalizedChanges:  []service.SupplierModelNormalizeChange{},
+		SuggestedAppends:   []service.SupplierSourceModel{},
+		RejectedCandidates: []service.SupplierModelDiscoverRejection{},
+		ConfiguredIssues:   []service.SupplierModelDiscoverIssue{},
+		ProbeResults:       []service.SupplierProbeResult{},
+		FailedStep:         "list_upstream_models",
+	}
+	writeSupplierSourceDiscoverError(ctx, result, &service.UpstreamModelSyncError{
+		Kind:    service.UpstreamModelSyncErrorUpstream,
+		Message: "Supplier model list request failed with HTTP 401",
+		Err:     errors.New("supplier model list returned HTTP 401"),
+	})
+
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.Equal(t, "Supplier model list request failed with HTTP 401", payload["message"])
+	data, ok := payload["data"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "list_upstream_models", data["failed_step"])
 }
 
 func TestUS048_SupplierSourceProbeFailureReturns422WithCompleteResult(t *testing.T) {

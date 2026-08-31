@@ -82,6 +82,7 @@ type SupplierSourceService struct {
 	probe         SupplierSourceProbe
 	encryptor     SecretEncryptor
 	fingerprinter SupplierCredentialFingerprinter
+	discoverJobs  *supplierDiscoverJobRegistry
 }
 
 func NewSupplierSourceService(
@@ -93,6 +94,7 @@ func NewSupplierSourceService(
 ) *SupplierSourceService {
 	return &SupplierSourceService{
 		repo: repo, accounts: accounts, probe: probe, encryptor: encryptor, fingerprinter: fingerprinter,
+		discoverJobs: newSupplierDiscoverJobRegistry(),
 	}
 }
 
