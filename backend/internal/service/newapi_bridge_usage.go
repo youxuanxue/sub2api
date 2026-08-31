@@ -77,7 +77,14 @@ func newAPIBridgeChannelInputForModel(account *Account, userID int64, groupLabel
 	}
 	baseURL := strings.TrimSpace(account.GetBaseURL())
 	baseURL = newapiintegration.NormalizeArkChannelBaseURL(account.ChannelType, baseURL)
-	if account.ChannelType == newapiconstant.ChannelTypeOpenAI && IsSupplierManagedAccount(account) {
+	// OpenAI channel adaptors append /v1/... themselves. Strip a trailing /v1
+	// from credentials.base_url for every OpenAI channel — not only when
+	// Extra.supplier_source_id is present. Scheduler cache intentionally omits
+	// that Extra key ("identity uses account credentials only"), so gating on
+	// IsSupplierManagedAccount made plan-time ResolveTextEndpoint emit
+	// .../v1/v1/chat/completions while execution-time reload (full Extra) emitted
+	// .../v1/chat/completions → protocol_execution_stale → client 503.
+	if account.ChannelType == newapiconstant.ChannelTypeOpenAI {
 		baseURL = normalizeNewAPIOpenAIChannelBaseURL(baseURL)
 	}
 	// Fifth platform `newapi`: OpenAI base URL fallback does not apply; credentials.base_url is required at create time.
