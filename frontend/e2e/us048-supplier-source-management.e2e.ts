@@ -27,13 +27,22 @@ interface SupplierSource {
   id: number
   supplier_name: string
   channel_name: string
+  channel_type: number
   endpoint: string
   base_priority: number
+  account_concurrency: number
   models: SupplierModel[]
   notes: string
   created_at: string
   updated_at: string
 }
+
+/** Minimal NewAPI channel-type catalog so supplier form + accounts filters can render. */
+const CHANNEL_TYPES = [
+  { channel_type: 1, name: 'OpenAI', api_type: 0, has_adaptor: true, base_url: 'https://api.openai.com/v1' },
+  { channel_type: 17, name: 'Ali', api_type: 0, has_adaptor: true, base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+  { channel_type: 46, name: 'Baidu V2', api_type: 0, has_adaptor: true, base_url: 'https://qianfan.baidubce.com' },
+]
 
 type ApiRouteHandler = (route: Route, path: string) => Promise<boolean>
 
@@ -116,6 +125,20 @@ async function installBase(page: Page, handleApi: ApiRouteHandler): Promise<void
       })
       return
     }
+    // Shared admin surfaces added after US-048 landed: supplier form, accounts
+    // filters, and EditAccountModal setup all hit these on first paint / open.
+    if (path === '/api/v1/admin/channel-types' && request.method() === 'GET') {
+      await fulfillSuccess(route, CHANNEL_TYPES)
+      return
+    }
+    if (path === '/api/v1/admin/settings/web-search-emulation' && request.method() === 'GET') {
+      await fulfillSuccess(route, { enabled: false, providers: [] })
+      return
+    }
+    if (path === '/api/v1/admin/tls-fingerprint-profiles' && request.method() === 'GET') {
+      await fulfillSuccess(route, [])
+      return
+    }
     if (await handleApi(route, path)) return
     throw new Error(`unexpected API request: ${request.method()} ${path}`)
   })
@@ -126,13 +149,38 @@ function source(overrides: Partial<SupplierSource> = {}): SupplierSource {
     id: 7,
     supplier_name: '佳杰',
     channel_name: 'VSTECS',
+    channel_type: 1,
     endpoint: 'https://token.vstecscloud.com/v1',
     base_priority: 100,
+    account_concurrency: 1000,
     models: [],
     notes: '',
     created_at: '2026-08-28T00:00:00Z',
     updated_at: '2026-08-28T00:00:00Z',
     ...overrides,
+  }
+}
+
+/** Sync now runs models-discover first; return a completed, no-confirm payload. */
+function discoverOK(src: SupplierSource) {
+  return {
+    source_id: src.id,
+    probe_status: 'completed',
+    probe_total: src.models.length,
+    probe_done: src.models.length,
+    upstream_models: src.models.map(model => ({ id: model.upstream_model_id, type: 'chat' })),
+    normalized_models: src.models,
+    normalized_changes: [],
+    suggested_appends: [],
+    rejected_candidates: [],
+    configured_issues: [],
+    probe_results: src.models.map(model => ({
+      client_model_id: model.client_model_id,
+      upstream_model_id: model.upstream_model_id,
+      status: 'passed',
+      protocol: 'openai_chat_completions',
+    })),
+    needs_confirmation: false,
   }
 }
 
@@ -181,6 +229,10 @@ test('US048 Jiajie saves facts previews priority and syncs one band account', as
         }],
         warnings: [],
       })
+      return true
+    }
+    if (path === '/api/v1/admin/supplier-sources/7/models-discover' && request.method() === 'POST') {
+      await fulfillSuccess(route, discoverOK(sources[0]))
       return true
     }
     if (path === '/api/v1/admin/supplier-sources/7/sync' && request.method() === 'POST') {
@@ -237,9 +289,11 @@ test('US048 Jiajie saves facts previews priority and syncs one band account', as
   expect(submitted).toEqual({
     supplier_name: '佳杰',
     channel_name: 'first-batch-lowest-ratio',
+    channel_type: 1,
     endpoint: 'https://token.vstecscloud.com/v1',
     credential: 'jiajie-e2e-secret',
     base_priority: 100,
+    account_concurrency: 1000,
     models: [
       {
         client_model_id: 'deepseek-v4-pro',
@@ -296,6 +350,10 @@ test('US048 FMGo shows the fixed protocol boundary without account changes', asy
     const request = route.request()
     if (path === '/api/v1/admin/supplier-sources' && request.method() === 'GET') {
       await fulfillSuccess(route, [fmgo])
+      return true
+    }
+    if (path === '/api/v1/admin/supplier-sources/9/models-discover' && request.method() === 'POST') {
+      await fulfillSuccess(route, discoverOK(fmgo))
       return true
     }
     if (path === '/api/v1/admin/supplier-sources/9/sync' && request.method() === 'POST') {
@@ -385,10 +443,6 @@ test('US048 accounts UI marks supplier-managed accounts and explains read-only o
       await fulfillSuccess(route, { platform: '__by_stub__', edges: [], ts: 1 })
       return true
     }
-    if (path === '/api/v1/admin/channel-types' && request.method() === 'GET') {
-      await fulfillSuccess(route, [])
-      return true
-    }
     if (path === '/api/v1/admin/supplier-sources' && request.method() === 'GET') {
       await fulfillSuccess(route, [source()])
       return true
@@ -408,10 +462,13 @@ test('US048 accounts UI marks supplier-managed accounts and explains read-only o
   await expect(editButton).toContainText('查看')
 
   await editButton.click()
-  await expect(page.getByRole('heading', { name: '查看账号' })).toBeVisible()
-  await expect(page.getByText('以下为只读快照；修改模型、凭证与 priority 请前往供应源管理。')).toBeVisible()
-  await expect(page.getByRole('button', { name: '更新' })).toHaveCount(0)
-  await page.getByRole('button', { name: '关闭' }).click()
+  // Scope to the edit dialog: page-level name:'更新' also matches toolbar「批量更新」.
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('heading', { name: '查看账号' })).toBeVisible()
+  await expect(dialog.getByText('以下为只读快照；修改模型、凭证与 priority 请前往供应源管理。')).toBeVisible()
+  await expect(dialog.locator('[data-tour="account-form-submit"]')).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: '更新', exact: true })).toHaveCount(0)
+  await dialog.getByRole('button', { name: '关闭' }).click()
 
   await row.getByRole('button', { name: '更多' }).click()
   await expect(page.getByText('该账号由供应源托管，请前往供应源管理修改。')).toBeVisible()
