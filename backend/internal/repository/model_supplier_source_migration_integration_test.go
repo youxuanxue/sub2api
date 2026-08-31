@@ -19,6 +19,9 @@ func TestModelSupplierSourceMigrationCreatesOnlyTheSingleSourceTable(t *testing.
 	migrationSQL, err := dbmigrations.FS.ReadFile("tk_089_model_supplier_sources.sql")
 	require.NoError(t, err)
 	require.NoError(t, execMigrationStatements(ctx, tx, migrationSQL))
+	migrationSQL, err = dbmigrations.FS.ReadFile("tk_090_model_supplier_sources_channel_type.sql")
+	require.NoError(t, err)
+	require.NoError(t, execMigrationStatements(ctx, tx, migrationSQL))
 
 	models := `[{"client_model_id":"deepseek-v4-pro","upstream_model_id":"deepseek-v4-pro","purchase_ratio":0.5}]`
 	var sourceID int64
@@ -36,6 +39,7 @@ RETURNING id
 	require.Contains(t, columns, "encrypted_credential")
 	require.Contains(t, columns, "credential_fingerprint")
 	require.Contains(t, columns, "base_priority")
+	require.Contains(t, columns, "channel_type")
 	require.Contains(t, columns, "models")
 	require.NotContains(t, columns, "state")
 	require.NotContains(t, columns, "revision")

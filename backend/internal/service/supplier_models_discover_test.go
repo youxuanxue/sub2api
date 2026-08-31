@@ -34,21 +34,28 @@ func TestUS048_MatchSupplierUpstreamModelIDPrefersCanonicalID(t *testing.T) {
 }
 
 func TestUS048_BuildSupplierModelsListURLUsesBaiduV2Path(t *testing.T) {
-	transport, err := resolveSupplierManagedTransport("https://qianfan.baidubce.com")
+	transport, err := resolveSupplierManagedTransport("https://qianfan.baidubce.com", newapiconstant.ChannelTypeBaiduV2)
 	require.NoError(t, err)
 	require.Equal(t, newapiconstant.ChannelTypeBaiduV2, transport.ChannelType)
 	require.Equal(t, newapiintegration.QianfanBaseURL+"/v2/models", buildSupplierModelsListURL(transport))
 
-	openAI, err := resolveSupplierManagedTransport("https://token.vstecscloud.com/v1")
+	openAI, err := resolveSupplierManagedTransport("https://token.vstecscloud.com/v1", newapiconstant.ChannelTypeOpenAI)
 	require.NoError(t, err)
 	require.Equal(t, "https://token.vstecscloud.com/v1/models", buildSupplierModelsListURL(openAI))
+}
+
+func TestUS048_BuildSupplierModelsListURLUsesAliCompatibleModePath(t *testing.T) {
+	transport, err := resolveSupplierManagedTransport("https://dashscope.aliyuncs.com", newapiconstant.ChannelTypeAli)
+	require.NoError(t, err)
+	require.Equal(t, newapiconstant.ChannelTypeAli, transport.ChannelType)
+	require.Equal(t, "https://dashscope.aliyuncs.com/compatible-mode/v1/models", buildSupplierModelsListURL(transport))
 }
 
 func TestUS048_DiscoverModelsNormalizesAndSuggestsOnlyProbePassed(t *testing.T) {
 	ratio := 0.5
 	source := &SupplierSource{
 		ID: 3, SupplierName: "baidu", ChannelName: "default",
-		Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
+		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
 		BasePriority: 100,
 		Models: []SupplierSourceModel{
 			{ClientModelID: "DeepSeek-V4-Pro", UpstreamModelID: "DeepSeek-V4-Pro", PurchaseRatio: &ratio},
@@ -96,7 +103,7 @@ func TestUS048_DiscoverModelsSuggestionsAloneDoNotBlockProjection(t *testing.T) 
 	ratio := 0.5
 	source := &SupplierSource{
 		ID: 5, SupplierName: "baidu", ChannelName: "default",
-		Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
+		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
 		BasePriority: 100,
 		Models: []SupplierSourceModel{
 			{ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio},
@@ -123,7 +130,7 @@ func TestUS048_DiscoverModelsPreservesIntentionalClientUpstreamRemap(t *testing.
 	ratio := 0.5
 	source := &SupplierSource{
 		ID: 6, SupplierName: "FMGo", ChannelName: "seedance",
-		Endpoint: "https://token.vstecscloud.com/v1", EncryptedCredential: "enc:secret",
+		ChannelType: 1, Endpoint: "https://token.vstecscloud.com/v1", EncryptedCredential: "enc:secret",
 		BasePriority: 100,
 		Models: []SupplierSourceModel{{
 			ClientModelID:   "doubao-seedance-2-0-260128",
@@ -151,7 +158,7 @@ func TestUS048_DiscoverModelsPreservesIntentionalClientUpstreamRemap(t *testing.
 func TestUS048_DiscoverModelsAuthFailureStopsWithoutSuggesting(t *testing.T) {
 	source := &SupplierSource{
 		ID: 4, SupplierName: "baidu", ChannelName: "default",
-		Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
+		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
 		BasePriority: 100, Models: nil,
 	}
 	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
@@ -241,7 +248,7 @@ type supplierDiscoverProbeFake struct {
 }
 
 func (f *supplierDiscoverProbeFake) ListSupplierUpstreamModels(
-	context.Context, string, string,
+	context.Context, string, int, string,
 ) ([]SupplierUpstreamModelEntry, error) {
 	if f.listErr != nil {
 		return nil, f.listErr

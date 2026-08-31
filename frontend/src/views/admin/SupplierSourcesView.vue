@@ -169,6 +169,23 @@
           </div>
 
           <label class="block text-sm">
+            {{ t('admin.supplierSources.channelType') }}
+            <select
+              v-model.number="form.channel_type"
+              data-test="channel-type"
+              required
+              class="mt-1 w-full rounded-lg border px-3 py-2"
+              :disabled="channelTypesLoading"
+            >
+              <option v-if="channelTypesLoading" disabled value="0">{{ t('common.loading') }}</option>
+              <option v-for="option in supplierChannelTypeOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+            <span v-if="channelTypesError" class="mt-1 block text-xs text-red-600">{{ channelTypesError }}</span>
+          </label>
+
+          <label class="block text-sm">
             {{ t('admin.supplierSources.endpoint') }}
             <input v-model.trim="form.endpoint" data-test="endpoint" type="url" required class="mt-1 w-full rounded-lg border px-3 py-2" />
           </label>
@@ -446,7 +463,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import {
@@ -458,9 +475,21 @@ import {
   type SupplierSourceModel,
   type SupplierSourceSyncResult,
 } from '@/api/admin'
+import { useNewApiChannelTypes } from '@/composables/useNewApiChannelTypes'
+import { isNewApiUpstreamFetchableChannelType } from '@/constants/newApiUpstreamFetchableChannelTypes'
 
 const { t } = useI18n()
 const route = useRoute()
+const { types: channelTypes, loading: channelTypesLoading, error: channelTypesError, load: loadChannelTypes } = useNewApiChannelTypes()
+
+const supplierChannelTypeOptions = computed(() =>
+  channelTypes.value
+    .filter(item => isNewApiUpstreamFetchableChannelType(item.channel_type))
+    .map(item => ({
+      value: item.channel_type,
+      label: `${item.name} (${item.channel_type})`,
+    })),
+)
 
 const loading = ref(true)
 const saving = ref(false)
@@ -543,6 +572,7 @@ const emptyModel = (): SupplierSourceModel => ({
 const form = reactive<SupplierSourceInput>({
   supplier_name: '',
   channel_name: '',
+  channel_type: 1,
   endpoint: '',
   credential: '',
   base_priority: 100,
@@ -550,9 +580,18 @@ const form = reactive<SupplierSourceInput>({
   notes: '',
 })
 
+watch(() => form.channel_type, (channelType) => {
+  const selected = channelTypes.value.find(item => item.channel_type === channelType)
+  const baseUrl = selected?.base_url?.trim()
+  if (baseUrl) {
+    form.endpoint = baseUrl.replace(/\/v1\/?$/, '')
+  }
+})
+
 async function load(): Promise<void> {
   loading.value = true
   try {
+    await loadChannelTypes().catch(() => undefined)
     sources.value = await adminAPI.supplierSources.list()
     const requestedSourceID = sourceIDFromQuery(route.query.source_id)
     const requestedSource = requestedSourceID === null
@@ -582,6 +621,7 @@ function resetForm(): void {
   Object.assign(form, {
     supplier_name: '',
     channel_name: '',
+    channel_type: 1,
     endpoint: '',
     credential: '',
     base_priority: 100,
@@ -601,6 +641,7 @@ function selectSource(source: SupplierSource): void {
   Object.assign(form, {
     supplier_name: source.supplier_name,
     channel_name: source.channel_name,
+    channel_type: source.channel_type,
     endpoint: source.endpoint,
     credential: '',
     base_priority: source.base_priority,
@@ -642,6 +683,7 @@ function copySelected(): void {
       channel_name: input.channel_name || origin.channel_name,
       endpoint: input.endpoint,
     }),
+    channel_type: input.channel_type,
     endpoint: input.endpoint,
     credential: '',
     base_priority: Number.isFinite(input.base_priority) ? input.base_priority : origin.base_priority,
@@ -691,6 +733,7 @@ function buildInput(): SupplierSourceInput {
   return {
     supplier_name: form.supplier_name.trim(),
     channel_name: form.channel_name.trim(),
+    channel_type: Number(form.channel_type),
     endpoint: form.endpoint.trim(),
     credential: form.credential,
     base_priority: Number(form.base_priority),
@@ -707,6 +750,7 @@ const hasUnsavedChanges = computed(() => {
   if (
     input.supplier_name !== source.supplier_name
     || input.channel_name !== source.channel_name
+    || input.channel_type !== source.channel_type
     || input.endpoint !== source.endpoint
     || input.base_priority !== source.base_priority
     || input.notes !== source.notes

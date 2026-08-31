@@ -106,8 +106,7 @@ func TestUS048_SupplierConfigurationUpdateRequiresPassedChatProbe(t *testing.T) 
 	accounts := &supplierManagedCommandsAccountRepoFake{existing: &Account{
 		ID: 41, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeOpenAI,
 		Credentials: supplierManagedCredentials(
-			"https://old.example/v1", "old-secret", map[string]string{"old-model": "old-model"},
-		),
+			"https://old.example/v1", "old-secret", map[string]string{"old-model": "old-model"}, 1),
 		Extra: map[string]any{
 			SupplierSourceIDExtraKey:     int64(7),
 			SupplierDiscountBandExtraKey: 3,

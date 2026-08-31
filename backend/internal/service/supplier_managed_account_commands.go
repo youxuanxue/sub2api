@@ -11,6 +11,7 @@ type SupplierManagedAccountCreateInput struct {
 	DiscountBand int
 	Name         string
 	Endpoint     string
+	ChannelType  int
 	Credential   string
 	Priority     int
 }
@@ -23,6 +24,7 @@ type SupplierManagedAccountUpdateInput struct {
 	Adopt           bool
 	Name            string
 	Endpoint        string
+	ChannelType     int
 	Credential      string
 	ModelMapping    map[string]string
 	Priority        int
@@ -66,7 +68,7 @@ func (s *adminServiceImpl) CreateSupplierManagedAccount(
 	); err != nil {
 		return nil, err
 	}
-	transport, err := resolveSupplierManagedTransport(input.Endpoint)
+	transport, err := resolveSupplierManagedTransport(input.Endpoint, input.ChannelType)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +76,7 @@ func (s *adminServiceImpl) CreateSupplierManagedAccount(
 	return s.createAccount(ctx, &CreateAccountInput{
 		Name: input.Name, Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
 		ChannelType: transport.ChannelType,
-		Credentials: supplierManagedCredentials(input.Endpoint, input.Credential, map[string]string{}),
+		Credentials: supplierManagedCredentials(input.Endpoint, input.Credential, map[string]string{}, input.ChannelType),
 		Extra: map[string]any{
 			SupplierSourceIDExtraKey:     input.SourceID,
 			SupplierDiscountBandExtraKey: input.DiscountBand,
@@ -143,7 +145,7 @@ func (s *adminServiceImpl) UpdateSupplierManagedAccount(
 		return nil, ErrSupplierProjectionProtocolNotReady
 	}
 
-	transport, err := resolveSupplierManagedTransport(input.Endpoint)
+	transport, err := resolveSupplierManagedTransport(input.Endpoint, input.ChannelType)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +153,7 @@ func (s *adminServiceImpl) UpdateSupplierManagedAccount(
 	account.Platform = PlatformNewAPI
 	account.Type = AccountTypeAPIKey
 	account.ChannelType = transport.ChannelType
-	account.Credentials = supplierManagedCredentials(input.Endpoint, input.Credential, input.ModelMapping)
+	account.Credentials = supplierManagedCredentials(input.Endpoint, input.Credential, input.ModelMapping, input.ChannelType)
 	account.Extra = maps.Clone(account.Extra)
 	if account.Extra == nil {
 		account.Extra = make(map[string]any, 2)
@@ -207,13 +209,13 @@ func validateSupplierManagedAccountCommand(sourceID int64, discountBand int, nam
 	return nil
 }
 
-func supplierManagedCredentials(endpoint, credential string, modelMapping map[string]string) map[string]any {
+func supplierManagedCredentials(endpoint, credential string, modelMapping map[string]string, channelType int) map[string]any {
 	mapping := make(map[string]any, len(modelMapping))
 	for clientModelID, upstreamModelID := range modelMapping {
 		mapping[clientModelID] = upstreamModelID
 	}
 	baseURL := strings.TrimRight(strings.TrimSpace(endpoint), "/")
-	if transport, err := resolveSupplierManagedTransport(endpoint); err == nil {
+	if transport, err := resolveSupplierManagedTransport(endpoint, channelType); err == nil {
 		baseURL = transport.Endpoint
 	}
 	return map[string]any{

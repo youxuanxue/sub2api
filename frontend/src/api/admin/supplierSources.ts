@@ -17,6 +17,7 @@ export interface SupplierSource {
   id: number
   supplier_name: string
   channel_name: string
+  channel_type: number
   endpoint: string
   base_priority: number
   models: SupplierSourceModel[]
@@ -28,6 +29,7 @@ export interface SupplierSource {
 export interface SupplierSourceInput {
   supplier_name: string
   channel_name: string
+  channel_type: number
   endpoint: string
   credential: string
   base_priority: number

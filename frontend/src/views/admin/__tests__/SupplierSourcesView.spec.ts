@@ -15,6 +15,15 @@ const { list, create, update, priorityPreview, discoverModels, getDiscoverModels
   routeQuery: {} as Record<string, unknown>,
 }))
 
+vi.mock('@/composables/useNewApiChannelTypes', () => ({
+  useNewApiChannelTypes: () => ({
+    types: { value: [{ channel_type: 1, name: 'OpenAI', base_url: 'https://api.openai.com/v1' }] },
+    loading: { value: false },
+    error: { value: null },
+    load: vi.fn().mockResolvedValue(undefined),
+  }),
+}))
+
 vi.mock('@/api/admin', () => ({
   adminAPI: { supplierSources: { list, create, update, priorityPreview, discoverModels, getDiscoverModelsJob, sync } },
 }))
@@ -32,6 +41,7 @@ const source = {
   id: 7,
   supplier_name: '佳杰',
   channel_name: 'stbl-5',
+  channel_type: 1,
   endpoint: 'https://token.vstecscloud.com/v1',
   base_priority: 100,
   notes: '首批最低折扣',

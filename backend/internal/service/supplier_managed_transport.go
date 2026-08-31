@@ -15,21 +15,46 @@ type supplierManagedTransport struct {
 	Endpoint    string
 }
 
-func resolveSupplierManagedTransport(endpoint string) (supplierManagedTransport, error) {
+func validateSupplierChannelType(channelType int) error {
+	if channelType <= 0 || !newapiintegration.IsKnownChannelType(channelType) {
+		return errSupplierSourceInvalidChannelType
+	}
+	return nil
+}
+
+func inferSupplierChannelTypeFromEndpoint(endpoint string) int {
+	normalized, err := NormalizeSupplierEndpoint(endpoint)
+	if err != nil {
+		return newapiconstant.ChannelTypeOpenAI
+	}
+	if isQianfanSupplierEndpoint(normalized) {
+		return newapiconstant.ChannelTypeBaiduV2
+	}
+	parsed, parseErr := url.Parse(normalized)
+	if parseErr != nil || parsed.Host == "" {
+		return newapiconstant.ChannelTypeOpenAI
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if strings.Contains(host, "dashscope.aliyuncs.com") {
+		return newapiconstant.ChannelTypeAli
+	}
+	return newapiconstant.ChannelTypeOpenAI
+}
+
+func resolveSupplierManagedTransport(endpoint string, channelType int) (supplierManagedTransport, error) {
 	normalized, err := NormalizeSupplierEndpoint(endpoint)
 	if err != nil {
 		return supplierManagedTransport{}, err
 	}
-	if isQianfanSupplierEndpoint(normalized) {
-		return supplierManagedTransport{
-			ChannelType: newapiconstant.ChannelTypeBaiduV2,
-			Endpoint:    newapiintegration.QianfanBaseURL,
-		}, nil
+	if channelType <= 0 {
+		channelType = inferSupplierChannelTypeFromEndpoint(normalized)
 	}
-	return supplierManagedTransport{
-		ChannelType: newapiconstant.ChannelTypeOpenAI,
-		Endpoint:    normalized,
-	}, nil
+	endpointForTransport := normalized
+	switch channelType {
+	case newapiconstant.ChannelTypeBaiduV2:
+		endpointForTransport = newapiintegration.QianfanBaseURL
+	}
+	return supplierManagedTransport{ChannelType: channelType, Endpoint: endpointForTransport}, nil
 }
 
 func isQianfanSupplierEndpoint(endpoint string) bool {
@@ -42,8 +67,8 @@ func isQianfanSupplierEndpoint(endpoint string) bool {
 }
 
 func supplierManagedEndpointsEqual(left, right string) bool {
-	leftTransport, leftErr := resolveSupplierManagedTransport(left)
-	rightTransport, rightErr := resolveSupplierManagedTransport(right)
+	leftTransport, leftErr := resolveSupplierManagedTransport(left, 0)
+	rightTransport, rightErr := resolveSupplierManagedTransport(right, 0)
 	if leftErr != nil || rightErr != nil {
 		leftNorm, leftNormErr := NormalizeSupplierEndpoint(left)
 		rightNorm, rightNormErr := NormalizeSupplierEndpoint(right)
@@ -58,18 +83,18 @@ func supplierManagedTransportOK(account *Account) bool {
 		return false
 	}
 	switch account.ChannelType {
-	case newapiconstant.ChannelTypeOpenAI, newapiconstant.ChannelTypeBaiduV2:
+	case newapiconstant.ChannelTypeOpenAI, newapiconstant.ChannelTypeBaiduV2, newapiconstant.ChannelTypeAli:
 		return true
 	default:
-		return false
+		return newapiintegration.IsKnownChannelType(account.ChannelType)
 	}
 }
 
-func supplierReusableAccountTransport(account *Account, sourceEndpoint string) bool {
+func supplierReusableAccountTransport(account *Account, sourceEndpoint string, sourceChannelType int) bool {
 	if !supplierManagedTransportOK(account) {
 		return false
 	}
-	want, err := resolveSupplierManagedTransport(sourceEndpoint)
+	want, err := resolveSupplierManagedTransport(sourceEndpoint, sourceChannelType)
 	if err != nil {
 		return false
 	}

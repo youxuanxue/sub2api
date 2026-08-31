@@ -15,6 +15,7 @@ export default {
     editorCopy: '复制供应源',
     supplierName: '供应商',
     channelName: '供应通道',
+    channelType: '供应源类型',
     endpoint: '上游地址',
     credential: 'API Key',
     credentialKeep: '已有凭证不回显，留空沿用。',

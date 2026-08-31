@@ -14,8 +14,8 @@ func TestUS048_CreateSupplierSourceEncryptsCredentialAndDefaultsBasePriority(t *
 	svc := NewSupplierSourceService(repo, nil, nil, supplierSourceTestEncryptor{}, supplierSourceTestFingerprinter{})
 
 	created, err := svc.Create(context.Background(), SupplierSourceInput{
-		SupplierName: " 佳杰 ", ChannelName: " stbl-5 ", Endpoint: "https://token.vstecscloud.com/v1/",
-		Credential: "secret", Notes: " lowest ratio only ",
+		SupplierName: " 佳杰 ", ChannelName: " stbl-5 ", ChannelType: 1,
+		Endpoint: "https://token.vstecscloud.com/v1/", Credential: "secret", Notes: " lowest ratio only ",
 		Models: []SupplierSourceModelInput{{
 			ClientModelID: " deepseek-v4-pro ", UpstreamModelID: " deepseek-v4-pro ", PurchaseRatio: &ratio,
 		}},
@@ -25,6 +25,7 @@ func TestUS048_CreateSupplierSourceEncryptsCredentialAndDefaultsBasePriority(t *
 	require.Equal(t, 1, repo.createCalls)
 	require.Equal(t, "佳杰", created.SupplierName)
 	require.Equal(t, "stbl-5", created.ChannelName)
+	require.Equal(t, 1, created.ChannelType)
 	require.Equal(t, "https://token.vstecscloud.com/v1", created.Endpoint)
 	require.Equal(t, "enc:secret", repo.stored.EncryptedCredential)
 	require.Equal(t, "fp:secret", repo.stored.CredentialFingerprint)
@@ -39,7 +40,7 @@ func TestUS048_CreateSupplierSourceAcceptsEmptyModelList(t *testing.T) {
 	svc := NewSupplierSourceService(repo, nil, nil, supplierSourceTestEncryptor{}, supplierSourceTestFingerprinter{})
 
 	created, err := svc.Create(context.Background(), SupplierSourceInput{
-		SupplierName: "FMGo", ChannelName: "seedance", Endpoint: "https://fmgo.example/v1", Credential: "secret",
+		SupplierName: "FMGo", ChannelName: "seedance", ChannelType: 1, Endpoint: "https://fmgo.example/v1", Credential: "secret",
 	})
 
 	require.NoError(t, err)
@@ -50,14 +51,14 @@ func TestUS048_CreateSupplierSourceAcceptsEmptyModelList(t *testing.T) {
 func TestUS048_UpdateSupplierSourceBlankCredentialKeepsStoredSecretIdentity(t *testing.T) {
 	basePriority := 120
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", Endpoint: "https://old.example/v1",
+		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://old.example/v1",
 		EncryptedCredential: "enc:old", CredentialFingerprint: "fp:old", BasePriority: 100,
 		Models: []SupplierSourceModel{}, CreatedAt: time.Date(2026, 8, 27, 8, 0, 0, 0, time.UTC),
 	}}
 	svc := NewSupplierSourceService(repo, nil, nil, supplierSourceTestEncryptor{}, supplierSourceTestFingerprinter{})
 
 	updated, err := svc.Update(context.Background(), 7, SupplierSourceInput{
-		SupplierName: "佳杰", ChannelName: "stbl-5", Endpoint: "https://new.example/v1",
+		SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://new.example/v1",
 		Credential: "", BasePriority: &basePriority, Models: []SupplierSourceModelInput{},
 	})
 
@@ -71,13 +72,13 @@ func TestUS048_UpdateSupplierSourceBlankCredentialKeepsStoredSecretIdentity(t *t
 
 func TestUS048_UpdateSupplierSourceProvidedCredentialRotatesStoredSecretIdentity(t *testing.T) {
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", Endpoint: "https://old.example/v1",
+		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://old.example/v1",
 		EncryptedCredential: "enc:old", CredentialFingerprint: "fp:old", BasePriority: 100,
 	}}
 	svc := NewSupplierSourceService(repo, nil, nil, supplierSourceTestEncryptor{}, supplierSourceTestFingerprinter{})
 
 	updated, err := svc.Update(context.Background(), 7, SupplierSourceInput{
-		SupplierName: "佳杰", ChannelName: "stbl-5", Endpoint: "https://old.example/v1",
+		SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://old.example/v1",
 		Credential: "new-secret", Models: []SupplierSourceModelInput{},
 	})
 

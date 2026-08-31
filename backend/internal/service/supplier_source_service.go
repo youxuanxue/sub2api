@@ -291,7 +291,7 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 			} else {
 				createInput := SupplierManagedAccountCreateInput{
 					SourceID: source.ID, DiscountBand: band, Name: supplierManagedAccountName(source, band),
-					Endpoint: source.Endpoint, Credential: credential,
+					Endpoint: source.Endpoint, ChannelType: source.ChannelType, Credential: credential,
 					Priority: target.Priority,
 				}
 				account, err = s.accounts.CreateManagedAccount(ctx, createInput)
@@ -307,7 +307,8 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 		additionMapping := supplierAdditionMapping(account, target.Mapping, allTargetMapping)
 		updateInput := SupplierManagedAccountUpdateInput{
 			AccountID: account.ID, SourceID: source.ID, DiscountBand: band,
-			Name: supplierManagedAccountName(source, band), Endpoint: source.Endpoint, Credential: credential,
+			Name: supplierManagedAccountName(source, band), Endpoint: source.Endpoint, ChannelType: source.ChannelType,
+			Credential:   credential,
 			ModelMapping: additionMapping, Priority: target.Priority, Status: StatusActive,
 			Schedulable: len(additionMapping) > 0, Adopt: adopt,
 			ChatProbePassed: len(additionMapping) > 0,
@@ -353,13 +354,14 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 			desiredMapping = target.Mapping
 			desiredPriority = target.Priority
 		}
-		if supplierAccountMatchesDesired(account, source.Endpoint, credential, desiredMapping, desiredPriority) {
+		if supplierAccountMatchesDesired(account, source.Endpoint, source.ChannelType, credential, desiredMapping, desiredPriority) {
 			continue
 		}
 		before := cloneSupplierProjectionAccount(account)
 		updated, updateErr := s.accounts.UpdateManagedAccount(ctx, SupplierManagedAccountUpdateInput{
 			AccountID: account.ID, SourceID: source.ID, DiscountBand: band,
-			Name: supplierManagedAccountName(source, band), Endpoint: source.Endpoint, Credential: credential,
+			Name: supplierManagedAccountName(source, band), Endpoint: source.Endpoint, ChannelType: source.ChannelType,
+			Credential:   credential,
 			ModelMapping: cloneSupplierStringMap(desiredMapping), Priority: desiredPriority,
 			Status: StatusActive, Schedulable: len(desiredMapping) > 0,
 			ChatProbePassed: len(desiredMapping) > 0,
@@ -454,7 +456,7 @@ func (s *SupplierSourceService) findReusableAccounts(
 	}
 	match := externalMatches[0]
 	if len(managed) != 0 || len(targets) != 1 || IsSupplierManagedAccount(match) ||
-		match.Status != StatusActive || !supplierReusableAccountTransport(match, source.Endpoint) {
+		match.Status != StatusActive || !supplierReusableAccountTransport(match, source.Endpoint, source.ChannelType) {
 		return nil, ErrSupplierSourceIdentityConflict
 	}
 	band := sortedSupplierBands(targets)[0]
@@ -538,7 +540,7 @@ func supplierStructureChanged(
 ) bool {
 	for band, target := range targets {
 		account := managedByBand[band]
-		if account == nil || !supplierAccountStructureMatches(account, source.Endpoint, credential, target.Mapping) ||
+		if account == nil || !supplierAccountStructureMatches(account, source.Endpoint, source.ChannelType, credential, target.Mapping) ||
 			!supplierSchedulingProjectionMatches(account, target.Mapping) {
 			return true
 		}
@@ -549,7 +551,7 @@ func supplierStructureChanged(
 		if exists {
 			mapping = target.Mapping
 		}
-		if !supplierAccountStructureMatches(account, source.Endpoint, credential, mapping) ||
+		if !supplierAccountStructureMatches(account, source.Endpoint, source.ChannelType, credential, mapping) ||
 			!supplierSchedulingProjectionMatches(account, mapping) {
 			return true
 		}
@@ -557,8 +559,8 @@ func supplierStructureChanged(
 	return false
 }
 
-func supplierAccountStructureMatches(account *Account, endpoint, credential string, mapping map[string]string) bool {
-	if !supplierReusableAccountTransport(account, endpoint) {
+func supplierAccountStructureMatches(account *Account, endpoint string, channelType int, credential string, mapping map[string]string) bool {
+	if !supplierReusableAccountTransport(account, endpoint, channelType) {
 		return false
 	}
 	baseURL, _ := account.Credentials["base_url"].(string)
@@ -572,8 +574,8 @@ func supplierAccountStructureMatches(account *Account, endpoint, credential stri
 	return supplierStringMapsEqual(supplierModelMapping(account.Credentials), mapping)
 }
 
-func supplierAccountMatchesDesired(account *Account, endpoint, credential string, mapping map[string]string, priority int) bool {
-	return supplierAccountStructureMatches(account, endpoint, credential, mapping) &&
+func supplierAccountMatchesDesired(account *Account, endpoint string, channelType int, credential string, mapping map[string]string, priority int) bool {
+	return supplierAccountStructureMatches(account, endpoint, channelType, credential, mapping) &&
 		account.Priority == priority && supplierSchedulingProjectionMatches(account, mapping)
 }
 
@@ -582,7 +584,7 @@ func supplierSchedulingProjectionMatches(account *Account, mapping map[string]st
 }
 
 func supplierProbeAccount(base *Account, source *SupplierSource, credential string, target supplierTargetBand) *Account {
-	transport, err := resolveSupplierManagedTransport(source.Endpoint)
+	transport, err := resolveSupplierManagedTransport(source.Endpoint, source.ChannelType)
 	if err != nil {
 		transport = supplierManagedTransport{ChannelType: newapiconstant.ChannelTypeOpenAI, Endpoint: source.Endpoint}
 	}
@@ -597,7 +599,7 @@ func supplierProbeAccount(base *Account, source *SupplierSource, credential stri
 	account.Platform = PlatformNewAPI
 	account.Type = AccountTypeAPIKey
 	account.ChannelType = transport.ChannelType
-	account.Credentials = supplierManagedCredentials(source.Endpoint, credential, target.Mapping)
+	account.Credentials = supplierManagedCredentials(source.Endpoint, credential, target.Mapping, source.ChannelType)
 	account.Extra = cloneSupplierJSONMap(account.Extra)
 	if account.Extra == nil {
 		account.Extra = make(map[string]any, 2)
@@ -717,8 +719,8 @@ func supplierSourceFromInput(input SupplierSourceInput, basePriority int) *Suppl
 		models = append(models, SupplierSourceModel(model))
 	}
 	return &SupplierSource{
-		SupplierName: input.SupplierName, ChannelName: input.ChannelName, Endpoint: input.Endpoint,
-		BasePriority: basePriority, Models: models, Notes: input.Notes,
+		SupplierName: input.SupplierName, ChannelName: input.ChannelName, ChannelType: input.ChannelType,
+		Endpoint: input.Endpoint, BasePriority: basePriority, Models: models, Notes: input.Notes,
 	}
 }
 

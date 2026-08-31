@@ -14,6 +14,8 @@ import (
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
+var errSupplierSourceInvalidChannelType = fmt.Errorf("%w: channel_type", ErrSupplierSourceInvalidInput)
+
 type SupplierProbeStatus string
 
 const (
@@ -49,6 +51,7 @@ type SupplierSource struct {
 	ID                    int64
 	SupplierName          string
 	ChannelName           string
+	ChannelType           int
 	Endpoint              string
 	EncryptedCredential   string
 	Notes                 string
@@ -68,6 +71,7 @@ type SupplierSourceModel struct {
 type SupplierSourceInput struct {
 	SupplierName string
 	ChannelName  string
+	ChannelType  int
 	Endpoint     string
 	Credential   string
 	BasePriority *int
@@ -114,6 +118,9 @@ func (i SupplierSourceInput) Validate() error {
 	}
 	if i.SupplierName == "" || i.ChannelName == "" || i.Endpoint == "" {
 		return ErrSupplierSourceInvalidInput
+	}
+	if err := validateSupplierChannelType(i.ChannelType); err != nil {
+		return err
 	}
 	if i.BasePriority != nil {
 		if _, err := SupplierAccountPriority(*i.BasePriority, 6); err != nil {
