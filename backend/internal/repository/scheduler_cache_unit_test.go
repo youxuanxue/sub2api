@@ -546,6 +546,27 @@ func TestSchedulerCacheSnapshotKeepsSupportedProtocolsForRouting(t *testing.T) {
 	require.NotContains(t, snapshot[0].Extra, "unrelated")
 }
 
+func TestBuildSchedulerMetadataAccount_KeepsSupplierManagedIdentityKeys(t *testing.T) {
+	account := service.Account{
+		ID:       109,
+		Platform: service.PlatformNewAPI,
+		Type:     service.AccountTypeAPIKey,
+		Extra: map[string]any{
+			service.SupplierSourceIDExtraKey:     int64(8),
+			service.SupplierDiscountBandExtraKey: 4,
+			service.SupportedProtocolsExtraKey:   []any{"chat_completions"},
+			"unrelated":                          "drop-me",
+		},
+	}
+	got := buildSchedulerMetadataAccount(account)
+	require.Equal(t, int64(8), got.Extra[service.SupplierSourceIDExtraKey])
+	require.Equal(t, 4, got.Extra[service.SupplierDiscountBandExtraKey])
+	require.Equal(t, []any{"chat_completions"}, got.Extra[service.SupportedProtocolsExtraKey])
+	require.NotContains(t, got.Extra, "unrelated")
+	require.True(t, service.IsSupplierManagedAccount(&got),
+		"scheduler snapshot must keep supplier_source_id so protocol identity matches EnsureAccountLink")
+}
+
 func TestBuildSchedulerMetadataAccountPreservesProtocolEndpointIdentity(t *testing.T) {
 	vertexCredential := `{"type":"service_account","project_id":"vertex-project","private_key":"private-key","client_email":"svc@vertex-project.iam.gserviceaccount.com"}`
 	tests := []struct {

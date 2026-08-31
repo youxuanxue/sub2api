@@ -1074,6 +1074,13 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"openai_responses_supported",
 		"openai_native_messages_supported",
 		service.SupportedProtocolsExtraKey,
+		// supplier_source_id decides IsSupplierManagedAccount → protocol
+		// identity (chat-only vs all OpenAI-compat paths). Dropping it makes
+		// the scheduler snapshot build a different identity than DB recheck /
+		// EnsureAccountLink, so supplier-managed accounts fail with
+		// no_legal_protocol_route after entering the selection pool.
+		service.SupplierSourceIDExtraKey,
+		service.SupplierDiscountBandExtraKey,
 		"codex_fingerprint_mode",
 		"codex_fingerprint_seed",
 		"codex_5h_used_percent",
