@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -213,7 +214,25 @@ func (h *SupplierSourceHandler) DiscoverModels(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result, err := h.service.DiscoverModels(c.Request.Context(), id)
+	result, err := h.service.StartDiscoverModels(c.Request.Context(), id)
+	if err != nil {
+		writeSupplierSourceDiscoverError(c, result, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *SupplierSourceHandler) GetDiscoverModelsJob(c *gin.Context) {
+	id, ok := supplierSourceID(c)
+	if !ok {
+		return
+	}
+	jobID := strings.TrimSpace(c.Param("job_id"))
+	if jobID == "" {
+		response.InvalidRequest(c)
+		return
+	}
+	result, err := h.service.GetDiscoverModelsJob(c.Request.Context(), id, jobID)
 	if err != nil {
 		writeSupplierSourceDiscoverError(c, result, err)
 		return

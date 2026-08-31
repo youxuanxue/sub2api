@@ -33,6 +33,7 @@ export default {
     discoverNeedsSave: '已根据上游 models 规整已配置模型 ID，请确认后保存，再点校验并同步投影账号。探测通过的建议追加需点「加入表单」后才会写入。',
     discoverResult: '上游模型发现',
     discoverSummary: '上游 {upstream} 个 · 规整 {normalized} · 建议追加 {suggested} · 配置未匹配 {issues} · 未建议 {rejected}',
+    discoverProbeProgress: '候选探测进行中：{done}/{total}',
     discoverEmpty: '上游列表已处理：当前配置无需规整，也没有探测通过的建议追加。',
     normalizedChanges: '规整变更',
     suggestedAppends: '建议追加（探测通过）',

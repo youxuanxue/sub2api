@@ -317,6 +317,16 @@
               rejected: discoverResult.rejected_candidates.length,
             }) }}
           </p>
+          <p
+            v-if="discoverResult.probe_status === 'running'"
+            data-test="discover-probe-progress"
+            class="text-sm text-amber-700"
+          >
+            {{ t('admin.supplierSources.discoverProbeProgress', {
+              done: discoverResult.probe_done,
+              total: discoverResult.probe_total,
+            }) }}
+          </p>
           <p v-if="discoverNeedsSave" data-test="discover-needs-save" class="text-sm text-amber-700">
             {{ t('admin.supplierSources.discoverNeedsSave') }}
           </p>
@@ -516,6 +526,7 @@ const syncSucceeded = computed(() => (
 const discoverEmptyDetail = computed(() => {
   const result = discoverResult.value
   if (!result || result.failed_step || syncError.value) return false
+  if (result.probe_status === 'running' || result.probe_status === 'pending') return false
   return result.normalized_changes.length === 0
     && result.suggested_appends.length === 0
     && result.configured_issues.length === 0
@@ -781,6 +792,15 @@ function supplierDiscoverResultFromError(error: unknown): SupplierModelsDiscover
   if (!Array.isArray(candidate.normalized_models) || !Array.isArray(candidate.suggested_appends)) return null
   return {
     source_id: typeof candidate.source_id === 'number' ? candidate.source_id : 0,
+    job_id: typeof candidate.job_id === 'string' ? candidate.job_id : undefined,
+    probe_status: candidate.probe_status === 'running'
+      || candidate.probe_status === 'completed'
+      || candidate.probe_status === 'failed'
+      || candidate.probe_status === 'pending'
+      ? candidate.probe_status
+      : 'failed',
+    probe_total: typeof candidate.probe_total === 'number' ? candidate.probe_total : 0,
+    probe_done: typeof candidate.probe_done === 'number' ? candidate.probe_done : 0,
     upstream_models: Array.isArray(candidate.upstream_models) ? candidate.upstream_models : [],
     normalized_models: candidate.normalized_models,
     normalized_changes: Array.isArray(candidate.normalized_changes) ? candidate.normalized_changes : [],
@@ -793,6 +813,34 @@ function supplierDiscoverResultFromError(error: unknown): SupplierModelsDiscover
   }
 }
 
+async function waitDiscoverJob(
+  sourceID: number,
+  started: SupplierModelsDiscoverResult,
+): Promise<SupplierModelsDiscoverResult> {
+  let current = started
+  discoverResult.value = current
+  const jobID = current.job_id
+  if (!jobID || current.probe_status !== 'running') {
+    return current
+  }
+  const deadline = Date.now() + 15 * 60 * 1000
+  while (Date.now() < deadline) {
+    await new Promise(resolve => window.setTimeout(resolve, 1000))
+    current = await adminAPI.supplierSources.getDiscoverModelsJob(sourceID, jobID)
+    discoverResult.value = current
+    if (current.probe_status === 'completed') {
+      return current
+    }
+    if (current.probe_status === 'failed') {
+      const message = current.failed_step
+        ? `${t('admin.supplierSources.failedStep')}: ${current.failed_step}`
+        : t('admin.supplierSources.discoverResult')
+      throw Object.assign(new Error(message), { data: current, status: 422 })
+    }
+  }
+  throw new Error('supplier discover probe timed out')
+}
+
 async function syncSelected(): Promise<void> {
   if (!selected.value || hasUnsavedChanges.value) return
   syncing.value = true
@@ -801,7 +849,8 @@ async function syncSelected(): Promise<void> {
   discoverNeedsSave.value = false
   syncError.value = ''
   try {
-    const discovered = await adminAPI.supplierSources.discoverModels(selected.value.id)
+    const started = await adminAPI.supplierSources.discoverModels(selected.value.id)
+    const discovered = await waitDiscoverJob(selected.value.id, started)
     discoverResult.value = discovered
     if (discovered.needs_confirmation) {
       applyDiscoverToForm(discovered)

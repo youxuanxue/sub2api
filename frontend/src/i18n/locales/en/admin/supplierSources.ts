@@ -33,6 +33,7 @@ export default {
     discoverNeedsSave: 'Configured model IDs were normalized from the upstream models API. Confirm, save, then validate and sync again to project accounts. Probe-passed suggestions are added only via “Add suggestions to form”.',
     discoverResult: 'Upstream model discovery',
     discoverSummary: 'Upstream {upstream} · normalized {normalized} · suggested {suggested} · unmatched {issues} · rejected {rejected}',
+    discoverProbeProgress: 'Candidate probing in progress: {done}/{total}',
     discoverEmpty: 'Upstream list processed: no normalization needed and no probe-passed suggestions.',
     normalizedChanges: 'Normalized changes',
     suggestedAppends: 'Suggested appends (probe passed)',

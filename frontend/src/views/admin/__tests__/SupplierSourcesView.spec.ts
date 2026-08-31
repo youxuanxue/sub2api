@@ -4,18 +4,19 @@ import { nextTick } from 'vue'
 
 import SupplierSourcesView from '../SupplierSourcesView.vue'
 
-const { list, create, update, priorityPreview, discoverModels, sync, routeQuery } = vi.hoisted(() => ({
+const { list, create, update, priorityPreview, discoverModels, getDiscoverModelsJob, sync, routeQuery } = vi.hoisted(() => ({
   list: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
   priorityPreview: vi.fn(),
   discoverModels: vi.fn(),
+  getDiscoverModelsJob: vi.fn(),
   sync: vi.fn(),
   routeQuery: {} as Record<string, unknown>,
 }))
 
 vi.mock('@/api/admin', () => ({
-  adminAPI: { supplierSources: { list, create, update, priorityPreview, discoverModels, sync } },
+  adminAPI: { supplierSources: { list, create, update, priorityPreview, discoverModels, getDiscoverModelsJob, sync } },
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -52,6 +53,9 @@ describe('SupplierSourcesView', () => {
     priorityPreview.mockReset().mockResolvedValue({ entries: [], warnings: [] })
     discoverModels.mockReset().mockResolvedValue({
       source_id: 7,
+      probe_status: 'completed',
+      probe_total: 0,
+      probe_done: 0,
       upstream_models: [],
       normalized_models: source.models,
       normalized_changes: [],
@@ -61,6 +65,7 @@ describe('SupplierSourcesView', () => {
       probe_results: [],
       needs_confirmation: false,
     })
+    getDiscoverModelsJob.mockReset()
     sync.mockReset()
   })
 
@@ -181,6 +186,9 @@ describe('SupplierSourcesView', () => {
     list.mockResolvedValueOnce([source])
     discoverModels.mockResolvedValueOnce({
       source_id: 7,
+      probe_status: 'completed',
+      probe_total: 1,
+      probe_done: 1,
       upstream_models: [{ id: 'deepseek-v4-pro', type: 'chat' }, { id: 'glm-5.1', type: 'chat' }],
       normalized_models: [{
         client_model_id: 'deepseek-v4-pro',
@@ -238,6 +246,9 @@ describe('SupplierSourcesView', () => {
     list.mockResolvedValueOnce([source])
     discoverModels.mockResolvedValueOnce({
       source_id: 7,
+      probe_status: 'completed',
+      probe_total: 1,
+      probe_done: 1,
       upstream_models: [{ id: 'deepseek-v4-pro', type: 'chat' }, { id: 'glm-5.1', type: 'chat' }],
       normalized_models: source.models,
       normalized_changes: [],
@@ -271,6 +282,9 @@ describe('SupplierSourcesView', () => {
         status: 502,
         data: {
           source_id: 7,
+          probe_status: 'failed',
+          probe_total: 0,
+          probe_done: 0,
           upstream_models: [],
           normalized_models: [],
           normalized_changes: [],

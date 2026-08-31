@@ -70,8 +70,10 @@ priority 自行判断和修改 `base_priority`。已选来源的表单存在未�
    `upstream_model_id` 为同一事实（相同或模糊等价）时同步规整 client，显式 remap（如 FMGo
    Seedance）保留 client。无法匹配的保留原值并标 `configured_issues`，不自动删除；
 3. 对列表中尚未配置、且 type 可探测（`chat` / `multimodal` / `image2text` / 空）的候选做真实
-   Chat Completions 探测；每次 discover 最多探测 8 个候选（超出记 `probe_skipped_budget`，不建议追加），
-   避免管理页 30s 超时与上游长尾探测把「校验并同步」拖到数分钟；`embeddings` / `text2image` 等直接拒绝建议；
+   Chat Completions 探测：`POST models-discover` 同步完成 list/规整后立即返回 `job_id`，后台以高并发
+   异步探测**全部**候选；管理页轮询 `GET .../models-discover/jobs/:job_id` 直到 `probe_status`
+   为 `completed`/`failed`，并展示 `probe_done/probe_total`。不得用固定条数裁剪可服务性判断；
+   `embeddings` / `text2image` 等直接拒绝建议；
 4. **仅探测通过**的候选进入 `suggested_appends`（默认 `purchase_ratio=1.0`）；探测失败的进入
    `rejected_candidates`，不得写入表单建议、更不得投影账号；
 5. 若有已配置 ID 规整变更，结果回填表单草稿并要求人工确认后保存；建议追加只展示，需运营主动
