@@ -7701,7 +7701,8 @@
         "TestMergeAccountCredentials_AdminRealignsExclusiveWhenIncomingSpreadsStaleURLs",
         "TestFinalizeAccountCredentials_RealignsQianfanExclusiveChatPath",
         "TestPrepareBulkCredentialPatch_ClearsIdentityWhenRotatingBaseURL",
-        "TestSupplierManagedCredentials_UsesSharedExclusiveChatSSOT"
+        "TestSupplierManagedCredentials_UsesSharedExclusiveChatSSOT",
+        "TestPrepareBulkCredentialPatch_LeavesExclusiveAloneForAPIKeyOnlyRotate"
       ],
       "rationale": "Focused regressions for the exclusive-endpoint SSOT: CRS preserve-all drops stale identity, admin spread realigns chat URLs to the new base_url, Qianfan exclusive chat paths rebuild, bulk base_url/api_key patches clear identity keys, and supplierManagedCredentials shares applyExclusiveChatProtocolEndpoints."
     },

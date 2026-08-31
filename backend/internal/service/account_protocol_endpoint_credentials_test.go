@@ -98,6 +98,15 @@ func TestPrepareBulkCredentialPatch_ClearsIdentityWhenRotatingBaseURL(t *testing
 	require.Nil(t, patch[ProtocolEndpointsExclusiveCredentialKey])
 }
 
+func TestPrepareBulkCredentialPatch_LeavesExclusiveAloneForAPIKeyOnlyRotate(t *testing.T) {
+	patch := PrepareBulkCredentialPatch(map[string]any{
+		"api_key": "rotated-only",
+	})
+	require.Equal(t, map[string]any{"api_key": "rotated-only"}, patch)
+	require.NotContains(t, patch, apiBaseURLsCredentialKey)
+	require.NotContains(t, patch, ProtocolEndpointsExclusiveCredentialKey)
+}
+
 func TestPrepareBulkCredentialPatch_LeavesUnrelatedPatchesAlone(t *testing.T) {
 	patch := PrepareBulkCredentialPatch(map[string]any{
 		"model_mapping": map[string]any{"a": "a"},

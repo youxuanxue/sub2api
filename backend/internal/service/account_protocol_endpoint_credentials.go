@@ -60,15 +60,14 @@ func FinalizeAccountCredentials(credentials map[string]any, channelType int) map
 }
 
 // PrepareBulkCredentialPatch ensures a JSONB-merge bulk credentials patch cannot
-// leave stale exclusive identity behind when it rotates base_url or api_key
-// without explicitly declaring protocol endpoints.
+// leave stale exclusive identity behind when it rotates base_url without
+// explicitly declaring protocol endpoints. api_key-only patches leave identity
+// alone so chat-only exclusive accounts keep #1907 routing shape.
 func PrepareBulkCredentialPatch(patch map[string]any) map[string]any {
 	if len(patch) == 0 {
 		return patch
 	}
-	_, hasBaseURL := patch["base_url"]
-	_, hasAPIKey := patch["api_key"]
-	if !hasBaseURL && !hasAPIKey {
+	if _, hasBaseURL := patch["base_url"]; !hasBaseURL {
 		return patch
 	}
 	_, hasBaseURLs := patch[apiBaseURLsCredentialKey]
