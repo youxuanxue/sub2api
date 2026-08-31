@@ -38,7 +38,6 @@ var (
 	ErrSupplierProjectionProtocolNotReady = infraerrors.New(http.StatusUnprocessableEntity, "SUPPLIER_PROTOCOL_NOT_READY", "supplier account protocol capability is not ready")
 	ErrSupplierProjectionReaderMissing    = errors.New("supplier projection reader unavailable")
 	ErrSupplierProjectionUpdaterMissing   = errors.New("supplier projection updater unavailable")
-	ErrSupplierManagedAccountProtected    = infraerrors.Conflict("SUPPLIER_MANAGED_ACCOUNT_PROTECTED", "supplier-managed account fields are read-only; edit the supplier source instead")
 	ErrSupplierReservedAccountExtra       = infraerrors.BadRequest("SUPPLIER_RESERVED_ACCOUNT_EXTRA", "supplier_source_id and supplier_discount_band are reserved for supplier-source sync")
 )
 

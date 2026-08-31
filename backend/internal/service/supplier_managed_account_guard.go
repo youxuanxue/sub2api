@@ -1,5 +1,12 @@
 package service
 
+import (
+	"maps"
+)
+
+// IsSupplierManagedAccount reports whether Extra carries the supplier_source_id
+// marker used by supplier-source sync and admin UI badges. Presence alone is
+// enough (fail closed on malformed values).
 func IsSupplierManagedAccount(account *Account) bool {
 	if account == nil || account.Extra == nil {
 		return false
@@ -8,13 +15,9 @@ func IsSupplierManagedAccount(account *Account) bool {
 	return exists
 }
 
-func ValidateSupplierManagedAccountUpdate(account *Account) error {
-	if !IsSupplierManagedAccount(account) {
-		return nil
-	}
-	return ErrSupplierManagedAccountProtected
-}
-
+// ValidateSupplierReservedAccountExtra rejects forging supplier ownership keys
+// through ordinary create/import Extra payloads. Managed accounts receive these
+// keys only from supplier-source sync commands.
 func ValidateSupplierReservedAccountExtra(extra map[string]any) error {
 	if extra == nil {
 		return nil
@@ -26,6 +29,44 @@ func ValidateSupplierReservedAccountExtra(extra map[string]any) error {
 		return ErrSupplierReservedAccountExtra
 	}
 	return nil
+}
+
+// StripSupplierReservedAccountExtra removes reserved ownership keys from an
+// incoming Extra map so ordinary edits can echo Extra without forging.
+func StripSupplierReservedAccountExtra(extra map[string]any) map[string]any {
+	if extra == nil {
+		return nil
+	}
+	out := maps.Clone(extra)
+	delete(out, SupplierSourceIDExtraKey)
+	delete(out, SupplierDiscountBandExtraKey)
+	return out
+}
+
+// PreserveSupplierManagedExtraKeys re-applies reserved ownership keys from the
+// existing account onto a replacement Extra map so ordinary Extra edits cannot
+// drop supplier sync identity.
+func PreserveSupplierManagedExtraKeys(account *Account, extra map[string]any) map[string]any {
+	if account == nil || account.Extra == nil {
+		return extra
+	}
+	sourceID, sourceOK := account.Extra[SupplierSourceIDExtraKey]
+	band, bandOK := account.Extra[SupplierDiscountBandExtraKey]
+	if !sourceOK && !bandOK {
+		return extra
+	}
+	if extra == nil {
+		extra = make(map[string]any, 2)
+	} else {
+		extra = maps.Clone(extra)
+	}
+	if sourceOK {
+		extra[SupplierSourceIDExtraKey] = sourceID
+	}
+	if bandOK {
+		extra[SupplierDiscountBandExtraKey] = band
+	}
+	return extra
 }
 
 func supplierSourceIDFromAccount(account *Account) (int64, bool) {

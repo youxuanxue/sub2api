@@ -7387,38 +7387,38 @@
     {
       "path": "backend/internal/service/admin_account.go",
       "must_contain": [
-        "ValidateSupplierManagedAccountUpdate(account)",
         "ValidateSupplierReservedAccountExtra(input.Extra)",
+        "StripSupplierReservedAccountExtra(input.Extra)",
+        "PreserveSupplierManagedExtraKeys(account, normalizedExtra)",
+        "SupplierSourceIDExtraKey:",
         "func (s *adminServiceImpl) RefreshAccountCredentials(ctx context.Context, id int64)",
         "func (s *adminServiceImpl) CreateShadow(ctx context.Context, parentID int64, opts ShadowOptions)",
-        "ValidateSupplierManagedAccountUpdate(parent)",
-        "if IsSupplierManagedAccount(account) {",
-        "return nil, ErrSupplierManagedAccountProtected"
+        "if IsSupplierManagedAccount(account) {"
       ],
-      "rationale": "The ordinary account admin surface must delegate supplier-managed configuration mutations back to the supplier-source owner. Single-account edits, bulk changes, credential refresh, shadow creation, reserved Extra injection, and destructive account actions live in this upstream-shaped service; losing these guards would create two competing owners for credentials, model mapping, priority, status, and schedulability."
+      "rationale": "Ordinary account admin writes treat supplier-managed accounts like ordinary accounts. Reserved Extra keys cannot be forged on create/import; managed Extra edits strip/forge-guard reserved keys and PreserveSupplierManagedExtraKeys keeps sync identity; duplicate strips supplier identity keys. Projection field overwrite remains owned by supplier-source sync narrow writes, not by these generic guards."
     },
     {
       "path": "backend/internal/service/supplier_managed_account_guard_test.go",
       "must_contain": [
-        "TestUS048_ManagedAccountRejectsEveryGenericUpdate",
-        "TestUS048_ManagedAccountRejectsDirectExtraUpdateDeleteDuplicateAndSchedulable",
-        "TestUS048_ManagedAccountRejectsGenericSparkShadowCreation",
-        "TestUS048_ManagedAccountRejectsNameOnlyBulkUpdate",
-        "TestUS048_GenericAccountServiceUsesTheSameSupplierOwnershipGuard",
+        "TestUS048_ManagedAccountUsesSupplierSourceIDAsOnlyMarker",
+        "TestUS048_OrdinaryCreateRejectsSupplierReservedExtra",
+        "TestUS048_ManagedAccountBehavesLikeOrdinaryAccountForUpdates",
+        "TestUS048_ManagedAccountDuplicateStripsSupplierIdentity",
         "TestUS048_UnmanagedAccountCannotForgeSupplierManagedExtra",
-        "RefreshAccountCredentials"
+        "TestUS048_PreserveSupplierManagedExtraKeys"
       ],
-      "rationale": "Focused regressions prove that AdminService and the generic AccountService both fail closed for supplier-managed configuration writes, including credential refresh, shadow creation and deletion, while unmanaged callers cannot forge the reserved marker. This pins single ownership at service boundaries rather than relying on UI-only disabling or metadata helpers."
+      "rationale": "Focused regressions prove managed accounts accept ordinary update/delete/schedulable/bulk paths, duplicate strips supplier identity, Extra edits preserve reserved keys, and unmanaged create/import cannot forge supplier_source_id / supplier_discount_band."
     },
     {
       "path": "backend/internal/service/account_service.go",
       "must_contain": [
         "ValidateSupplierReservedAccountExtra(req.Extra)",
-        "ValidateSupplierManagedAccountUpdate(account)",
+        "StripSupplierReservedAccountExtra(*req.Extra)",
+        "PreserveSupplierManagedExtraKeys(account, prepareCodexFingerprintExtraForUpdate(account, extra))",
         "func (s *AccountService) Delete(ctx context.Context, id int64) error",
         "func (s *AccountService) UpdateStatus(ctx context.Context, id int64, status string, errorMessage string) error"
       ],
-      "rationale": "The generic account service is another ordinary write owner. It must reject reserved supplier Extra on create and delegate update, delete and status mutations back to the supplier-source owner whenever supplier_source_id is present."
+      "rationale": "The generic account service rejects reserved supplier Extra on create, strips reserved keys from managed Extra updates, and preserves sync identity keys. It does not reject ordinary update/delete/status for supplier-managed accounts."
     },
     {
       "path": "backend/internal/repository/account_repo.go",
@@ -7592,10 +7592,10 @@
     {
       "path": "backend/internal/service/crs_sync_supplier_managed_test.go",
       "must_contain": [
-        "TestUS048_CRSSyncRejectsSupplierManagedAccountOverwrite",
+        "TestUS048_CRSSyncAllowsSupplierManagedAccountOverwrite",
         "TestUS048_CRSSyncRejectsReservedSupplierExtraOnNewAccount"
       ],
-      "rationale": "CRS import must neither overwrite a supplier-managed account nor forge supplier ownership on a new account. Both directions are service-level security boundaries."
+      "rationale": "CRS import may overwrite an already supplier-managed account like any other account (preserving reserved identity via PreserveSupplierManagedExtraKeys), but must still reject forging supplier ownership Extra on a newly created account."
     },
     {
       "path": "backend/internal/service/audit_log.go",

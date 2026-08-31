@@ -6,7 +6,7 @@ approved_at: 2026-08-27
 updated: 2026-08-31
 created: 2026-08-27
 owners: [tk-platform]
-scope: "supplier facts, admin API/UI, credential isolation, account projection, probe gate, and managed-account ownership"
+scope: "supplier facts, admin API/UI, credential isolation, account projection, probe gate; managed accounts behave like ordinary accounts after create, with sync overwriting projection fields"
 related_stories: ["US-048"]
 ---
 
@@ -125,27 +125,22 @@ supplier_discount_band
 识别凭证冲突；只有当前 `status=active` 的唯一精确匹配可自动接管，`disabled/error` 精确匹配返回冲突，
 不绕过它新建重复账号。
 
-存在 `supplier_source_id` 的账号，其供应源拥有字段只能由供应源同步服务通过专用账号命令写入。所有
-通用账号配置写入口和 CRS 导入覆盖在 service 层整体拒绝，普通创建和导入也拒绝伪造保留 Extra；
-通用 credentials 刷新同样拒绝。供应投影更新必须走不携带 `rate_multiplier` 的窄写路径，不能回退到
-通用账号 Update。恢复错误、重置配额、代理 fallback 和账号探测等运行期专用操作继续允许。
+受管账号创建后，在账号管理页按**普通账号**对待：可编辑、删除、复制、切换调度、批量更新等。
+普通创建与导入仍拒绝伪造 `supplier_source_id` / `supplier_discount_band`；普通 Extra 编辑会保留
+已有受管身份键，复制账号时剥离这些键以免重复身份。
 
-账号列表、详情和操作菜单显眼显示：
+仅在供应源点击「校验并同步」时，通过专用窄写命令覆盖供应源投影字段（名称、凭证含
+`model_mapping`、priority、concurrency、status/schedulable、transport 等），不读取或写入账号组，
+也不携带 `rate_multiplier`。供应投影更新不能回退到通用账号 Update。
+
+账号列表显示徽标：
 
 ```text
 供应源托管 · {supplier_name}/{channel_name}
 ```
 
-徽标链接携带 `source_id`，供应源页面加载列表后直接选中对应来源；账号页重新挂载时刷新名称目录，
-避免同一会话内供应源改名后仍显示旧名称。
-
-普通编辑、复制、删除、状态/可调度切换和通用批量写显示统一原因：
-
-```text
-该账号由供应源托管，请前往供应源管理修改。
-```
-
-账号组仍在账号组管理入口独立维护。
+徽标链接携带 `source_id`，供应源页面加载列表后直接选中对应来源。账号编辑提示说明：平时可按普通
+账号编辑；「校验并同步」会覆盖投影字段。
 
 ## 第一版 API 与页面
 
