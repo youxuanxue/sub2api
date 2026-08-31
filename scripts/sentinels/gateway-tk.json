@@ -7549,10 +7549,10 @@
     {
       "path": "backend/internal/service/newapi_bridge_usage.go",
       "must_contain": [
-        "if account.ChannelType == newapiconstant.ChannelTypeOpenAI && IsSupplierManagedAccount(account) {",
+        "IsSupplierManagedAccount(account) || accountDeclaresExclusiveProtocolEndpoints(account)",
         "baseURL = normalizeNewAPIOpenAIChannelBaseURL(baseURL)"
       ],
-      "rationale": "Trailing-/v1 normalization is a supplier-managed transport exception, not a global NewAPI OpenAI behavior change. The supplier_source_id ownership marker must remain part of the condition so ordinary accounts keep their stored base URL untouched."
+      "rationale": "Trailing-/v1 normalization stays a supplier-transport exception, but the gate must also accept credentials.protocol_endpoints_exclusive. Scheduler cache drops Extra.supplier_source_id by design; exclusive is the credential-side ownership signal that keeps plan-time and execution-time ResolveTextEndpoint URLs identical. Ordinary unmanaged OpenAI NewAPI accounts without exclusive keep their stored base URL."
     },
     {
       "path": "backend/internal/service/newapi_bridge_usage_test.go",

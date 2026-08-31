@@ -47,11 +47,13 @@ func TestOpenAIChannelBaseURL_SchedulerCacheMatchesFreshReload(t *testing.T) {
 
 	require.False(t, IsSupplierManagedAccount(sched))
 	require.True(t, IsSupplierManagedAccount(fresh))
+	require.True(t, accountDeclaresExclusiveProtocolEndpoints(sched),
+		"exclusive credential must survive scheduler-shaped Extra filtering")
 
 	schedIn := newAPIBridgeChannelInputForModel(sched, 0, "", model).WithoutModelMapping()
 	freshIn := newAPIBridgeChannelInputForModel(fresh, 0, "", model).WithoutModelMapping()
 	require.Equal(t, freshIn.BaseURL, schedIn.BaseURL,
-		"scheduler-shaped account must normalize OpenAI base_url the same as a fresh managed reload")
+		"scheduler-shaped exclusive account must normalize OpenAI base_url the same as a fresh managed reload")
 	require.Equal(t, "https://token.vstecscloud.com", schedIn.BaseURL)
 
 	schedEP, err := bridge.ResolveTextEndpoint(schedIn, newapitypes.RelayFormatOpenAI, model)
