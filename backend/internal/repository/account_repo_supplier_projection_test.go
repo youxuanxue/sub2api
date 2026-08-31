@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"regexp"
 	"strings"
 	"testing"
@@ -151,19 +152,19 @@ func TestUS048_SupplierConfigurationRepositoryWritesOnlyOwnedFields(t *testing.T
 	t.Cleanup(func() { _ = client.Close() })
 	repo := newAccountRepositoryWithSQL(client, db, nil, nil)
 
+	creds := supplierExclusiveChatCredentials(
+		"https://supplier.example/v1", "new-secret",
+		map[string]any{"deepseek-v4-pro": "deepseek-v4-pro"},
+	)
+	credJSON, err := json.Marshal(creds)
+	require.NoError(t, err)
 	account := &service.Account{
 		ID:          41,
 		Name:        "supplier/new · 档位 3",
 		Platform:    service.PlatformNewAPI,
 		Type:        service.AccountTypeAPIKey,
 		ChannelType: 1,
-		Credentials: map[string]any{
-			"base_url": "https://supplier.example/v1",
-			"api_key":  "new-secret",
-			"model_mapping": map[string]string{
-				"deepseek-v4-pro": "deepseek-v4-pro",
-			},
-		},
+		Credentials: creds,
 		Extra: map[string]any{
 			service.SupplierSourceIDExtraKey:     int64(7),
 			service.SupplierDiscountBandExtraKey: 3,
@@ -178,6 +179,7 @@ func TestUS048_SupplierConfigurationRepositoryWritesOnlyOwnedFields(t *testing.T
 	identity, governed, err := service.BuildProtocolEndpointIdentity(account)
 	require.NoError(t, err)
 	require.True(t, governed)
+	require.Len(t, identity.ProtocolEndpoints, 1)
 	identityJSON, err := identity.CanonicalJSON()
 	require.NoError(t, err)
 	now := time.Date(2026, time.August, 28, 0, 0, 0, 0, time.UTC)
@@ -189,7 +191,7 @@ func TestUS048_SupplierConfigurationRepositoryWritesOnlyOwnedFields(t *testing.T
 			service.PlatformNewAPI,
 			service.AccountTypeAPIKey,
 			1,
-			`{"api_key":"new-secret","base_url":"https://supplier.example/v1","model_mapping":{"deepseek-v4-pro":"deepseek-v4-pro"}}`,
+			string(credJSON),
 			`{"supplier_discount_band":3,"supplier_source_id":7}`,
 			113,
 			service.StatusActive,
@@ -204,7 +206,7 @@ func TestUS048_SupplierConfigurationRepositoryWritesOnlyOwnedFields(t *testing.T
 			"id", "platform", "type", "credentials", "extra", "channel_type", "protocol_endpoint_capability_id",
 		}).AddRow(
 			int64(41), service.PlatformNewAPI, service.AccountTypeAPIKey,
-			`{"api_key":"new-secret","base_url":"https://supplier.example/v1","model_mapping":{"deepseek-v4-pro":"deepseek-v4-pro"}}`,
+			string(credJSON),
 			`{"supplier_discount_band":3,"supplier_source_id":7,"supported_protocols":[]}`,
 			1,
 			int64(8),
