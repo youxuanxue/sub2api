@@ -30,7 +30,7 @@ func TestUS048_SupplierSyncGroupsSameBandModelsIntoOneAccount(t *testing.T) {
 	require.Len(t, result.ProbeResults, 2)
 	require.Equal(t, 1, accounts.createCalls)
 	require.Equal(t, 3, accounts.created[0].DiscountBand)
-	require.Equal(t, 103, accounts.created[0].Priority)
+	require.Equal(t, 130, accounts.created[0].Priority)
 	require.NotEmpty(t, accounts.updated)
 	require.Equal(t, map[string]string{
 		"deepseek-v4-pro": "deepseek-v4-pro",
@@ -43,7 +43,7 @@ func TestUS048_SupplierSyncGroupsSameBandModelsIntoOneAccount(t *testing.T) {
 func TestUS048_SupplierProbeAccountCarriesManagedIdentity(t *testing.T) {
 	source := &SupplierSource{ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1"}
 	account := supplierProbeAccount(nil, source, "secret", supplierTargetBand{
-		Band: 3, Priority: 103, Mapping: map[string]string{"client-model": "vendor-model"},
+		Band: 3, Priority: 130, Mapping: map[string]string{"client-model": "vendor-model"},
 	})
 
 	require.True(t, IsSupplierManagedAccount(account))
@@ -101,7 +101,7 @@ func TestUS048_SupplierSyncMetadataOnlySkipsProbe(t *testing.T) {
 	require.Len(t, accounts.updated, 1)
 	require.True(t, accounts.updated[0].MetadataOnly)
 	require.Equal(t, "佳杰/stbl-5 · 档位 3", accounts.updated[0].Name)
-	require.Equal(t, 103, accounts.updated[0].Priority)
+	require.Equal(t, 130, accounts.updated[0].Priority)
 }
 
 func TestUS048_SupplierSyncNameChangeUpdatesAccountWithoutProbe(t *testing.T) {
@@ -116,7 +116,7 @@ func TestUS048_SupplierSyncNameChangeUpdatesAccountWithoutProbe(t *testing.T) {
 		Credentials: supplierManagedCredentials(
 			"https://supplier.example/v1", "secret", map[string]string{"model": "model"}, 1),
 		Extra:    map[string]any{SupplierSourceIDExtraKey: int64(7), SupplierDiscountBandExtraKey: 3},
-		Priority: 103, Status: StatusActive, Schedulable: true, Concurrency: SupplierSourceDefaultAccountConcurrency,
+		Priority: 130, Status: StatusActive, Schedulable: true, Concurrency: SupplierSourceDefaultAccountConcurrency,
 	}}}
 	probe := &supplierSyncProbeFake{failIfCalled: true}
 	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
@@ -141,7 +141,7 @@ func TestUS048_SupplierSyncMovesModelByAddingBeforeRemoving(t *testing.T) {
 		Credentials: supplierManagedCredentials(
 			"https://supplier.example/v1", "secret", map[string]string{"model": "model"}, 1),
 		Extra:    map[string]any{SupplierSourceIDExtraKey: int64(7), SupplierDiscountBandExtraKey: 3},
-		Priority: 103, Status: StatusActive, Schedulable: true, Concurrency: SupplierSourceDefaultAccountConcurrency,
+		Priority: 130, Status: StatusActive, Schedulable: true, Concurrency: SupplierSourceDefaultAccountConcurrency,
 	}}}
 	probe := &supplierSyncProbeFake{}
 	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
@@ -171,7 +171,7 @@ func TestUS048_SupplierSyncStopsBeforeRemovalWhenVerifiedProjectionWriteFails(t 
 	}}
 	accounts := &supplierSyncAccountStoreFake{
 		managed: []*Account{supplierSyncManagedAccount(
-			41, 7, 3, 103, map[string]string{"model": "model"}, true,
+			41, 7, 3, 130, map[string]string{"model": "model"}, true,
 		)},
 		updateErrAt: 1,
 		updateErr:   ErrSupplierProjectionProtocolNotReady,
@@ -198,7 +198,7 @@ func TestUS048_SupplierSyncClearsEmptyBandWithoutDeletingAccount(t *testing.T) {
 		Models: []SupplierSourceModel{},
 	}}
 	accounts := &supplierSyncAccountStoreFake{managed: []*Account{supplierSyncManagedAccount(
-		41, 7, 3, 103, map[string]string{"model": "model"}, true,
+		41, 7, 3, 130, map[string]string{"model": "model"}, true,
 	)}}
 	probe := &supplierSyncProbeFake{failIfCalled: true}
 	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
@@ -444,7 +444,7 @@ func TestUS048_SupplierSyncProbesBeforeRepairingNonEmptySchedulingProjection(t *
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{ClientModelID: "model", UpstreamModelID: "model", PurchaseRatio: &ratio}},
 	}}
-	account := supplierSyncManagedAccount(41, 7, 3, 103, map[string]string{"model": "model"}, false)
+	account := supplierSyncManagedAccount(41, 7, 3, 130, map[string]string{"model": "model"}, false)
 	account.Name = supplierManagedAccountName(repo.stored, 3)
 	account.Status = StatusError
 	accounts := &supplierSyncAccountStoreFake{managed: []*Account{account}}
@@ -468,7 +468,7 @@ func TestUS048_SupplierSyncRepairsEmptySchedulingProjectionWithoutProbe(t *testi
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{},
 	}}
-	account := supplierSyncManagedAccount(41, 7, 3, 103, map[string]string{}, true)
+	account := supplierSyncManagedAccount(41, 7, 3, 130, map[string]string{}, true)
 	account.Name = supplierManagedAccountName(repo.stored, 3)
 	account.Status = StatusDisabled
 	accounts := &supplierSyncAccountStoreFake{managed: []*Account{account}}
@@ -574,7 +574,7 @@ func TestUS048_SupplierSyncSameBandRatioChangeDoesNotTouchAccounts(t *testing.T)
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{ClientModelID: "model", UpstreamModelID: "model", PurchaseRatio: &ratio}},
 	}}
-	account := supplierSyncManagedAccount(41, 7, 3, 103, map[string]string{"model": "model"}, true)
+	account := supplierSyncManagedAccount(41, 7, 3, 130, map[string]string{"model": "model"}, true)
 	account.Name = supplierManagedAccountName(repo.stored, 3)
 	accounts := &supplierSyncAccountStoreFake{managed: []*Account{account}}
 	probe := &supplierSyncProbeFake{failIfCalled: true}
@@ -837,7 +837,7 @@ func TestUS048_SupplierSyncAppliesSourceAccountConcurrency(t *testing.T) {
 			"https://supplier.example/v1", "secret",
 			map[string]string{"deepseek-v4-pro": "deepseek-v4-pro"}, 1),
 		Extra:    map[string]any{SupplierSourceIDExtraKey: int64(7), SupplierDiscountBandExtraKey: 3},
-		Priority: 103, Status: StatusActive, Schedulable: true, Concurrency: 1,
+		Priority: 130, Status: StatusActive, Schedulable: true, Concurrency: 1,
 	}}}
 	probe := &supplierSyncProbeFake{failIfCalled: true}
 	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
@@ -870,7 +870,7 @@ func TestUS048_SupplierSyncProtocolIdentityDriftRequiresCurrentProbe(t *testing.
 			"model_mapping": map[string]string{"deepseek-v4-pro": "deepseek-v4-pro"},
 		},
 		Extra:    map[string]any{SupplierSourceIDExtraKey: int64(7), SupplierDiscountBandExtraKey: 3},
-		Priority: 103, Status: StatusActive, Schedulable: true, Concurrency: 1000,
+		Priority: 130, Status: StatusActive, Schedulable: true, Concurrency: 1000,
 		ProtocolEndpointCapabilityID: &capabilityID,
 		ProtocolEndpointCapability:   &ProtocolEndpointCapability{ID: capabilityID, CapabilityKey: "stale-identity"},
 	}}}

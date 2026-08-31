@@ -737,9 +737,11 @@ function discountBand(rawRatio: number | null): number {
   return 5
 }
 
+const DISCOUNT_PRIORITY_STEP = 10
+
 function modelPriority(ratio: number | null): number {
   const basePriority = Number.isFinite(Number(form.base_priority)) ? Number(form.base_priority) : 100
-  return basePriority + discountBand(ratio)
+  return basePriority + discountBand(ratio) * DISCOUNT_PRIORITY_STEP
 }
 
 function buildInput(): SupplierSourceInput {

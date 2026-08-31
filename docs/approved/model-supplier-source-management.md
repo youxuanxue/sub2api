@@ -25,9 +25,10 @@ related_stories: ["US-048"]
 account.priority = source.base_priority + discount_priority
 ```
 
-所有新供应源默认 `base_priority=100`。采购比例固定分六档，分别增加 `1..6`；`ratio=1.00` 和空值
-均进入档位 6。同一供应源、同一档位的模型合并为一个账号，每个供应源最多六个受管账号。
-`base_priority` 必须保证再加最大档位值 6 后仍可写入 PostgreSQL `INTEGER`。
+所有新供应源默认 `base_priority=100`。采购比例固定分六档，`discount_priority` 分别为
+`10, 20, …, 60`（相邻档位增量 10）；`ratio=1.00` 和空值均进入档位 6。同一供应源、同一档位的
+模型合并为一个账号，每个供应源最多六个受管账号。`base_priority` 必须保证再加最大档位贡献 60
+后仍可写入 PostgreSQL `INTEGER`。
 
 原生 OAuth、普通账号和供应账号没有额外调度层。它们的相对顺序完全由各自现有 priority 决定；
 供应源不读取或修改原生 OAuth priority。

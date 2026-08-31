@@ -47,21 +47,25 @@ func TestUS048_DiscountBandRejectsOutOfRangeRatios(t *testing.T) {
 	}
 }
 
-func TestUS048_SupplierPriorityIsBasePlusBand(t *testing.T) {
+func TestUS048_SupplierPriorityIsBasePlusBandTimesStep(t *testing.T) {
 	got, err := SupplierAccountPriority(100, 3)
 	require.NoError(t, err)
-	require.Equal(t, 103, got)
+	require.Equal(t, 130, got)
+
+	discount, err := SupplierDiscountPriority(3)
+	require.NoError(t, err)
+	require.Equal(t, 30, discount)
 
 	_, err = SupplierAccountPriority(100, 0)
 	require.ErrorIs(t, err, ErrSupplierSourceInvalidInput)
 }
 
 func TestUS048_SupplierPriorityStaysWithinPostgresIntegerRange(t *testing.T) {
-	got, err := SupplierAccountPriority((1<<31)-7, 6)
+	got, err := SupplierAccountPriority((1<<31)-61, 6)
 	require.NoError(t, err)
 	require.Equal(t, (1<<31)-1, got)
 
-	for _, basePriority := range []int{(1 << 31) - 6, -(1 << 31) - 1} {
+	for _, basePriority := range []int{(1 << 31) - 60, -(1 << 31) - 1} {
 		_, err := SupplierAccountPriority(basePriority, 6)
 		require.ErrorIs(t, err, ErrSupplierSourceInvalidInput)
 

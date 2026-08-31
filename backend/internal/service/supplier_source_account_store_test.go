@@ -58,7 +58,7 @@ func TestUS048_SupplierAccountStoreDelegatesWritesOnlyToAccountCommands(t *testi
 
 	created, err := store.CreateManagedAccount(context.Background(), SupplierManagedAccountCreateInput{
 		SourceID: 7, DiscountBand: 3, Name: "source-7-band-3", Endpoint: "https://supplier.example/v1",
-		Credential: "secret", Priority: 103,
+		Credential: "secret", Priority: 130,
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(101), created.ID)
@@ -67,7 +67,7 @@ func TestUS048_SupplierAccountStoreDelegatesWritesOnlyToAccountCommands(t *testi
 	updated, err := store.UpdateManagedAccount(context.Background(), SupplierManagedAccountUpdateInput{
 		AccountID: 101, SourceID: 7, DiscountBand: 3, Name: "source-7-band-3",
 		Endpoint: "https://supplier.example/v1", Credential: "secret",
-		ModelMapping: map[string]string{"model": "upstream"}, Priority: 103, Status: StatusActive, Schedulable: true,
+		ModelMapping: map[string]string{"model": "upstream"}, Priority: 130, Status: StatusActive, Schedulable: true,
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(101), updated.ID)

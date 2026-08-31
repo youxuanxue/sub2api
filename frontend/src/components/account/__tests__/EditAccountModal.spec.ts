@@ -381,7 +381,7 @@ describe('EditAccountModal', () => {
     const account = {
       ...buildAccount(),
       extra: { supplier_source_id: '7' },
-      priority: 103,
+      priority: 130,
       group_ids: []
     }
     const wrapper = mountModal(account)
