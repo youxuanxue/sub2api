@@ -4,6 +4,10 @@
 When the five latest generations alone exceed BUDGET_BYTES, drop lowest-priority
 family latest entries until the remainder fits. Priority (keep first):
 test > gomod > integration > release > analysis.
+
+`--fits` asks whether a family would remain after that overflow logic (optionally
+with a replacement latest size), so warm writers can skip save/warm instead of
+uploading a cache that heal would immediately delete.
 """
 
 from __future__ import annotations
@@ -23,6 +27,8 @@ PREFIXES = {
     "analysis": "Linux-gobuild-analysis-v1-",
     "release": "Linux-go-release-v1-",
 }
+_SYNTHETIC_ID = -1
+_SYNTHETIC_CREATED = "9999-12-31T23:59:59Z"
 
 
 @dataclass(frozen=True)
@@ -31,6 +37,7 @@ class PrunePlan:
     delete_ids: tuple[int, ...]
     keep_ids: tuple[int, ...]
     evidence: tuple[str, ...]
+    overflow_delete_ids: tuple[int, ...] = ()
 
 
 def _family_for(key: str) -> str | None:
@@ -93,6 +100,7 @@ def plan_prune(
         if not dropped:
             break
 
+    overflow_ids = tuple(int(item["id"]) for item in overflow_delete)
     if latest_bytes > budget_bytes:
         keep = list(kept_latest.values()) + overflow_delete
         return PrunePlan(
@@ -100,6 +108,7 @@ def plan_prune(
             delete_ids=(),
             keep_ids=tuple(int(item["id"]) for item in keep),
             evidence=tuple(evidence),
+            overflow_delete_ids=overflow_ids,
         )
 
     remaining = latest_bytes + sum(int(item["sizeInBytes"]) for item in candidates)
@@ -121,7 +130,84 @@ def plan_prune(
         delete_ids=tuple(int(item["id"]) for item in delete),
         keep_ids=tuple(int(item["id"]) for item in keep),
         evidence=tuple(evidence),
+        overflow_delete_ids=overflow_ids,
     )
+
+
+def family_fits(
+    caches: Iterable[dict[str, object]],
+    family: str,
+    *,
+    size: int | None = None,
+    budget_bytes: int = BUDGET_BYTES,
+) -> bool:
+    """Return True when the family's latest would be kept under the budget.
+
+    When ``size`` is set, replace that family's latest with a synthetic entry of
+    that size (modeling a pending cache save) before planning.
+    """
+    if family not in FAMILIES:
+        raise ValueError(f"unknown family: {family}")
+    items = [dict(cache) for cache in caches]
+    if size is not None:
+        prefix = PREFIXES[family]
+        family_entries = [
+            item
+            for item in items
+            if item.get("ref") == DEFAULT_REF and _family_for(str(item["key"])) == family
+        ]
+        key = (
+            str(family_entries[0]["key"])
+            if family_entries
+            else f"{prefix}fits-synthetic"
+        )
+        items = [
+            item
+            for item in items
+            if not (
+                item.get("ref") == DEFAULT_REF and _family_for(str(item["key"])) == family
+            )
+        ]
+        # Preserve previous generations as candidates by re-adding all but the
+        # former latest (which we replace with the synthetic size).
+        if family_entries:
+            ordered = sorted(
+                family_entries,
+                key=lambda item: (str(item["createdAt"]), int(item["id"])),
+                reverse=True,
+            )
+            items.extend(ordered[1:])
+        items.append(
+            {
+                "id": _SYNTHETIC_ID,
+                "key": key,
+                "sizeInBytes": size,
+                "ref": DEFAULT_REF,
+                "createdAt": _SYNTHETIC_CREATED,
+            }
+        )
+        plan = plan_prune(items, budget_bytes=budget_bytes)
+        return plan.ok and _SYNTHETIC_ID in plan.keep_ids
+
+    plan = plan_prune(items, budget_bytes=budget_bytes)
+    if not plan.ok:
+        return False
+    latest_id = None
+    grouped: list[dict[str, object]] = []
+    for cache in items:
+        if cache.get("ref") != DEFAULT_REF:
+            continue
+        if _family_for(str(cache["key"])) == family:
+            grouped.append(cache)
+    if not grouped:
+        return True
+    latest = sorted(
+        grouped,
+        key=lambda item: (str(item["createdAt"]), int(item["id"])),
+        reverse=True,
+    )[0]
+    latest_id = int(latest["id"])
+    return latest_id in plan.keep_ids
 
 
 def _list_caches() -> list[dict[str, object]]:
@@ -170,15 +256,36 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument(
         "--check",
         action="store_true",
-        help="plan-only budget check; never deletes caches",
+        help="plan-only; exit 1 when inventory needs overflow heal or cannot fit",
     )
     mode.add_argument(
         "--heal",
         action="store_true",
         help="apply prune plan, including overflow drops of lowest-priority latest caches",
     )
+    mode.add_argument(
+        "--fits",
+        metavar="FAMILY",
+        choices=FAMILIES,
+        help="exit 0 when FAMILY's latest would be kept under budget (see --size)",
+    )
+    parser.add_argument(
+        "--size",
+        type=int,
+        default=None,
+        help="with --fits, model a pending save of this many bytes as FAMILY's latest",
+    )
     args = parser.parse_args(argv)
-    plan = plan_prune(_list_caches())
+    caches = _list_caches()
+    if args.fits:
+        if args.size is not None and args.size < 0:
+            print("go_cache_prune: --size must be >= 0", file=sys.stderr)
+            return 2
+        ok = family_fits(caches, args.fits, size=args.size)
+        print(f"go_cache_prune: fits family={args.fits} size={args.size} ok={ok}")
+        return 0 if ok else 1
+
+    plan = plan_prune(caches)
     for line in plan.evidence:
         print(line)
     if not plan.ok:
@@ -189,6 +296,17 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     if args.check:
+        if plan.overflow_delete_ids:
+            print(
+                "go_cache_prune: inventory exceeds budget until overflow heal "
+                f"drops ids={list(plan.overflow_delete_ids)}",
+                file=sys.stderr,
+            )
+            print(
+                f"go_cache_prune: needs_heal keep={list(plan.keep_ids)} "
+                f"delete_plan={list(plan.delete_ids)}"
+            )
+            return 1
         print(f"go_cache_prune: ok keep={list(plan.keep_ids)} delete_plan={list(plan.delete_ids)}")
         return 0
     if plan.delete_ids:
