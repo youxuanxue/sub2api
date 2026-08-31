@@ -571,7 +571,7 @@ const emptyModel = (): SupplierSourceModel => ({
 
 const form = reactive<SupplierSourceInput>({
   supplier_name: '',
-  channel_name: '',
+  channel_name: 'default',
   channel_type: 1,
   endpoint: '',
   credential: '',
@@ -620,7 +620,7 @@ function resetForm(): void {
   saveError.value = ''
   Object.assign(form, {
     supplier_name: '',
-    channel_name: '',
+    channel_name: 'default',
     channel_type: 1,
     endpoint: '',
     credential: '',

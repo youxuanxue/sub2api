@@ -1983,6 +1983,7 @@
         "data-test=\"discover-probe-progress\"",
         "v-if=\"discoverResult.probe_status === 'completed'\"",
         "form.channel_type",
+        "channel_name: 'default'",
         "useNewApiChannelTypes",
         "supplierChannelTypeOptions"
       ],

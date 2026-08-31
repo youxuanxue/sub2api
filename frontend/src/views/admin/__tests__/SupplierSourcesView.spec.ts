@@ -79,10 +79,11 @@ describe('SupplierSourcesView', () => {
     sync.mockReset()
   })
 
-  it('defaults a new source to base priority 100', async () => {
+  it('defaults a new source to channel default and base priority 100', async () => {
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
 
+    expect((wrapper.get('[data-test="channel-name"]').element as HTMLInputElement).value).toBe('default')
     expect((wrapper.get('[data-test="base-priority"]').element as HTMLInputElement).value).toBe('100')
   })
 
