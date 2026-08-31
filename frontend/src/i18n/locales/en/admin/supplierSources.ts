@@ -15,6 +15,7 @@ export default {
     editorCopy: 'Copied source',
     supplierName: 'Supplier',
     channelName: 'Supply channel',
+    channelType: 'Supplier type',
     endpoint: 'Upstream endpoint',
     credential: 'API key',
     credentialKeep: 'Existing credentials are write-only; leave blank to keep the current value.',

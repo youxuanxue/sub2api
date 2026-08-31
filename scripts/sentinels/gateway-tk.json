@@ -7466,7 +7466,7 @@
         "type supplierProjectionAccountUpdater interface",
         "type supplierManagedAccountReader interface",
         "reader.GetSupplierAccount(ctx, input.AccountID)",
-        "resolveSupplierManagedTransport(input.Endpoint)",
+        "resolveSupplierManagedTransport(input.Endpoint, input.ChannelType)",
         "ChannelType: transport.ChannelType",
         "account.ChannelType = transport.ChannelType",
         "SkipDefaultGroupBind: true",
@@ -7654,8 +7654,8 @@
       "path": "backend/internal/service/supplier_source_service.go",
       "must_contain": [
         "func (s *SupplierSourceService) ensureSupplierManagedConcurrency(",
-        "func supplierAccountNeedsProtocolRepublish(account *Account, sourceEndpoint string) bool",
-        "supplierAccountNeedsProtocolRepublish(account, source.Endpoint)",
+        "func supplierAccountNeedsProtocolRepublish(account *Account, sourceEndpoint string, sourceChannelType int) bool",
+        "supplierAccountNeedsProtocolRepublish(account, source.Endpoint, source.ChannelType)",
         "UpdateManagedAccountConcurrency(",
         "ResolveSupplierSourceAccountConcurrency(source.AccountConcurrency)",
         "identity.Key() != account.ProtocolEndpointCapability.CapabilityKey"
@@ -7665,11 +7665,13 @@
     {
       "path": "backend/internal/service/supplier_upstream_models.go",
       "must_contain": [
-        "ListSupplierUpstreamModels(ctx context.Context, endpoint, credential string) ([]SupplierUpstreamModelEntry, error)",
+        "ListSupplierUpstreamModels(ctx context.Context, endpoint string, channelType int, credential string) ([]SupplierUpstreamModelEntry, error)",
+        "case newapiconstant.ChannelTypeAli:",
+        "return base + \"/compatible-mode/v1/models\"",
         "return strings.TrimRight(newapiintegration.QianfanBaseURL, \"/\") + \"/v2/models\"",
         "ID: -1001, ChannelType: transport.ChannelType, Concurrency: 4,"
       ],
-      "rationale": "Supplier upstream listing owns BaiduV2 /v2/models routing and a dedicated negative list identity so concurrent discovers do not contend on account-id caches. Losing either returns wrong OpenAI /v1/models paths for Qianfan or serializes catalog fetches incorrectly."
+      "rationale": "Supplier upstream listing owns channel_type-aware models paths (Ali compatible-mode, BaiduV2 /v2/models, default OpenAI /v1/models) and a dedicated negative list identity so concurrent discovers do not contend on account-id caches."
     }
   ]
 }

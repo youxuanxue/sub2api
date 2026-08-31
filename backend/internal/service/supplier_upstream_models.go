@@ -21,19 +21,26 @@ type SupplierUpstreamModelEntry struct {
 
 // SupplierUpstreamModelsLister fetches the live model catalog for a supplier endpoint.
 type SupplierUpstreamModelsLister interface {
-	ListSupplierUpstreamModels(ctx context.Context, endpoint, credential string) ([]SupplierUpstreamModelEntry, error)
+	ListSupplierUpstreamModels(ctx context.Context, endpoint string, channelType int, credential string) ([]SupplierUpstreamModelEntry, error)
 }
 
 func buildSupplierModelsListURL(transport supplierManagedTransport) string {
-	if transport.ChannelType == newapiconstant.ChannelTypeBaiduV2 {
+	base := strings.TrimRight(strings.TrimSpace(transport.Endpoint), "/")
+	switch transport.ChannelType {
+	case newapiconstant.ChannelTypeBaiduV2:
 		return strings.TrimRight(newapiintegration.QianfanBaseURL, "/") + "/v2/models"
+	case newapiconstant.ChannelTypeAli:
+		return base + "/compatible-mode/v1/models"
+	default:
+		return buildOpenAIModelsURL(transport.Endpoint)
 	}
-	return buildOpenAIModelsURL(transport.Endpoint)
 }
 
 func (s *AccountTestService) ListSupplierUpstreamModels(
 	ctx context.Context,
-	endpoint, credential string,
+	endpoint string,
+	channelType int,
+	credential string,
 ) ([]SupplierUpstreamModelEntry, error) {
 	if s == nil || s.httpUpstream == nil {
 		return nil, newUpstreamModelSyncConfigError("Upstream HTTP client is not configured", nil)
@@ -42,7 +49,7 @@ func (s *AccountTestService) ListSupplierUpstreamModels(
 	if credential == "" {
 		return nil, newUpstreamModelSyncConfigError("No supplier API key is available", nil)
 	}
-	transport, err := resolveSupplierManagedTransport(endpoint)
+	transport, err := resolveSupplierManagedTransport(endpoint, channelType)
 	if err != nil {
 		return nil, newUpstreamModelSyncConfigError("Invalid supplier endpoint", err)
 	}

@@ -134,7 +134,7 @@ func (s *SupplierSourceService) StartDiscoverModels(ctx context.Context, sourceI
 		result.ProbeStatus = SupplierDiscoverProbeFailed
 		return result, fmt.Errorf("decrypt supplier credential: %w", err)
 	}
-	upstream, err := lister.ListSupplierUpstreamModels(ctx, source.Endpoint, credential)
+	upstream, err := lister.ListSupplierUpstreamModels(ctx, source.Endpoint, source.ChannelType, credential)
 	if err != nil {
 		result.FailedStep = "list_upstream_models"
 		result.ProbeStatus = SupplierDiscoverProbeFailed

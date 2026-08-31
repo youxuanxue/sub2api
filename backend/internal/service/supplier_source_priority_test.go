@@ -66,7 +66,7 @@ func TestUS048_SupplierPriorityStaysWithinPostgresIntegerRange(t *testing.T) {
 		require.ErrorIs(t, err, ErrSupplierSourceInvalidInput)
 
 		input := SupplierSourceInput{
-			SupplierName: "supplier", ChannelName: "channel", Endpoint: "https://supplier.example/v1",
+			SupplierName: "supplier", ChannelName: "channel", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 			BasePriority: &basePriority,
 		}
 		require.ErrorIs(t, input.Validate(), ErrSupplierSourceInvalidInput)
@@ -78,7 +78,7 @@ func TestUS048_SupplierSourceInputRejectsDuplicateClientModel(t *testing.T) {
 	input := SupplierSourceInput{
 		SupplierName: "佳杰",
 		ChannelName:  "stbl-5",
-		Endpoint:     "https://token.vstecscloud.com/v1/",
+		ChannelType:  1, Endpoint: "https://token.vstecscloud.com/v1/",
 		Models: []SupplierSourceModelInput{
 			{ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio},
 			{ClientModelID: " deepseek-v4-pro ", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio},
@@ -93,7 +93,7 @@ func TestUS048_SupplierSourceInputRequiresExplicitUpstreamModel(t *testing.T) {
 	ratio := 0.5
 	for _, upstreamModelID := range []string{"", "*", "全系列"} {
 		input := SupplierSourceInput{
-			SupplierName: "佳杰", ChannelName: "stbl-5", Endpoint: "https://token.vstecscloud.com/v1",
+			SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://token.vstecscloud.com/v1",
 			Models: []SupplierSourceModelInput{{
 				ClientModelID: "deepseek-v4-pro", UpstreamModelID: upstreamModelID, PurchaseRatio: &ratio,
 			}},
@@ -106,7 +106,7 @@ func TestUS048_SupplierSourceInputRequiresExplicitUpstreamModel(t *testing.T) {
 func TestUS048_SupplierSourceInputRejectsNonFinitePurchaseRatio(t *testing.T) {
 	for _, ratio := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
 		input := SupplierSourceInput{
-			SupplierName: "佳杰", ChannelName: "stbl-5", Endpoint: "https://token.vstecscloud.com/v1",
+			SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://token.vstecscloud.com/v1",
 			Models: []SupplierSourceModelInput{{
 				ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio,
 			}},

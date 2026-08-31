@@ -16,7 +16,7 @@ func TestUS048_ResolveSupplierManagedTransportSelectsBaiduV2ForQianfan(t *testin
 		"https://qianfan.baidubce.com/v2",
 		"https://Qianfan.BaiduBce.com/v2/chat/completions",
 	} {
-		transport, err := resolveSupplierManagedTransport(endpoint)
+		transport, err := resolveSupplierManagedTransport(endpoint, 0)
 		require.NoError(t, err, endpoint)
 		require.Equal(t, newapiconstant.ChannelTypeBaiduV2, transport.ChannelType, endpoint)
 		require.Equal(t, newapiintegration.QianfanBaseURL, transport.Endpoint, endpoint)
@@ -24,7 +24,7 @@ func TestUS048_ResolveSupplierManagedTransportSelectsBaiduV2ForQianfan(t *testin
 }
 
 func TestUS048_ResolveSupplierManagedTransportKeepsOpenAIForGenericHosts(t *testing.T) {
-	transport, err := resolveSupplierManagedTransport("https://token.vstecscloud.com/v1")
+	transport, err := resolveSupplierManagedTransport("https://token.vstecscloud.com/v1", 0)
 	require.NoError(t, err)
 	require.Equal(t, newapiconstant.ChannelTypeOpenAI, transport.ChannelType)
 	require.Equal(t, "https://token.vstecscloud.com/v1", transport.Endpoint)

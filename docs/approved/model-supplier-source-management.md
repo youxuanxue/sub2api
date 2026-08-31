@@ -40,9 +40,10 @@ account.priority = source.base_priority + discount_priority
   `GetByID`。
 - 新账号通过现有账号创建服务建立，并显式跳过默认组绑定，保持未分组。普通账号创建仍保持原有失败
   契约。供应源不改变账号网关调度。
-- 新账号默认固定为 NewAPI OpenAI Chat API Key transport；当供应源 endpoint 主机为
-  `qianfan.baidubce.com` 时，改为 BaiduV2（channel_type=46）并规范化 `base_url` 为
-  `https://qianfan.baidubce.com`。结构同步会把 transport 漂移修复回该解析结果。
+- 供应源持久化 `channel_type`（Extension Engine 枚举）；Admin 表单必选类型，endpoint 主机仍可作
+  兼容提示，但 transport / models 路径 / 受管账号投影以 `channel_type` 为准。默认 OpenAI
+  Chat（1）；千帆 BaiduV2（46）规范化 `base_url` 为 `https://qianfan.baidubce.com`；DashScope Ali
+  （17）使用 `compatible-mode/v1/*` 路径。结构同步会把 transport 漂移修复回该解析结果。
   账号先以空 `model_mapping`、`schedulable=false` 创建。
 - 受管账号和内存预探测账号只声明 Chat Completions。供应源 endpoint 末尾 `/v1` 只在 OpenAI
   受管路径进入 NewAPI OpenAI 适配器前规范化；Qianfan 路径使用 `/v2/chat/completions`。普通
@@ -67,7 +68,8 @@ priority 自行判断和修改 `base_priority`。已选来源的表单存在未�
 
 “校验并同步”在账号投影前先走只读 `POST /admin/supplier-sources/:id/models-discover`：
 
-1. 拉取上游 models 列表（OpenAI 兼容 `/v1/models`；千帆 BaiduV2 为 `/v2/models`）；
+1. 拉取上游 models 列表（OpenAI 兼容 `/v1/models`；千帆 BaiduV2 为 `/v2/models`；DashScope Ali
+   为 `/compatible-mode/v1/models`）；
 2. 把已配置的上游模型 ID 规整为规范 ID（大小写、空格等）；当 `client_model_id` 与
    `upstream_model_id` 为同一事实（相同或模糊等价）时同步规整 client，显式 remap（如 FMGo
    Seedance）保留 client。无法匹配的保留原值并标 `configured_issues`，不自动删除；

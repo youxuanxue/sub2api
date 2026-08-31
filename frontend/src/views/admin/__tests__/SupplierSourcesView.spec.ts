@@ -4,7 +4,7 @@ import { nextTick } from 'vue'
 
 import SupplierSourcesView from '../SupplierSourcesView.vue'
 
-const { list, create, update, priorityPreview, discoverModels, getDiscoverModelsJob, sync, routeQuery } = vi.hoisted(() => ({
+const { list, create, update, priorityPreview, discoverModels, getDiscoverModelsJob, sync, routeQuery, channelTypes } = vi.hoisted(() => ({
   list: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
@@ -13,6 +13,20 @@ const { list, create, update, priorityPreview, discoverModels, getDiscoverModels
   getDiscoverModelsJob: vi.fn(),
   sync: vi.fn(),
   routeQuery: {} as Record<string, unknown>,
+  channelTypes: { value: [
+    { channel_type: 1, name: 'OpenAI', base_url: 'https://api.openai.com/v1' },
+    { channel_type: 17, name: 'Ali', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+    { channel_type: 46, name: 'Baidu V2', base_url: 'https://qianfan.baidubce.com' },
+  ] },
+}))
+
+vi.mock('@/composables/useNewApiChannelTypes', () => ({
+  useNewApiChannelTypes: () => ({
+    types: channelTypes,
+    loading: false,
+    error: null,
+    load: vi.fn().mockResolvedValue(undefined),
+  }),
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -32,6 +46,7 @@ const source = {
   id: 7,
   supplier_name: '佳杰',
   channel_name: 'stbl-5',
+  channel_type: 1,
   endpoint: 'https://token.vstecscloud.com/v1',
   base_priority: 100,
   account_concurrency: 1000,
@@ -70,11 +85,52 @@ describe('SupplierSourcesView', () => {
     sync.mockReset()
   })
 
-  it('defaults a new source to base priority 100', async () => {
+  it('defaults a new source to channel default and base priority 100', async () => {
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
 
+    expect((wrapper.get('[data-test="channel-name"]').element as HTMLInputElement).value).toBe('default')
     expect((wrapper.get('[data-test="base-priority"]').element as HTMLInputElement).value).toBe('100')
+  })
+
+  it('offers and hydrates BaiduV2 while preserving a custom endpoint during source selection', async () => {
+    const qianfanSource = {
+      ...source,
+      channel_type: 46,
+      endpoint: 'https://qianfan.baidubce.com',
+    }
+    const aliSource = {
+      ...source,
+      id: 8,
+      supplier_name: 'Ali',
+      channel_type: 17,
+      endpoint: 'https://dashscope-proxy.example.com',
+    }
+    list.mockResolvedValueOnce([qianfanSource, aliSource])
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+
+    const channelType = wrapper.get('[data-test="channel-type"]')
+    expect(channelType.findAll('option').map(option => option.attributes('value'))).toContain('46')
+
+    await channelType.setValue('46')
+    await nextTick()
+    expect((wrapper.get('[data-test="endpoint"]').element as HTMLInputElement).value).toBe(
+      'https://qianfan.baidubce.com',
+    )
+
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+    await nextTick()
+    expect((channelType.element as HTMLSelectElement).value).toBe('46')
+
+    await wrapper.get('[data-test="source-select-8"]').trigger('click')
+    await nextTick()
+    expect((channelType.element as HTMLSelectElement).value).toBe('17')
+    expect((wrapper.get('[data-test="endpoint"]').element as HTMLInputElement).value).toBe(
+      aliSource.endpoint,
+    )
+    expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('[data-test="sync-save-first"]').exists()).toBe(false)
   })
 
   it('shows blank purchase ratio as band 6 and priority base plus 6', async () => {

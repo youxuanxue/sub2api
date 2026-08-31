@@ -24,6 +24,7 @@ func NewSupplierSourceHandler(svc *service.SupplierSourceService) *SupplierSourc
 type supplierSourceRequest struct {
 	SupplierName       string                       `json:"supplier_name" binding:"required,max=120"`
 	ChannelName        string                       `json:"channel_name" binding:"required,max=120"`
+	ChannelType        int                          `json:"channel_type" binding:"required,gt=0"`
 	Endpoint           string                       `json:"endpoint" binding:"required,max=500"`
 	Credential         string                       `json:"credential" binding:"max=8192"`
 	BasePriority       *int                         `json:"base_priority"`
@@ -42,6 +43,7 @@ type supplierSourceResponse struct {
 	ID                 int64                         `json:"id"`
 	SupplierName       string                        `json:"supplier_name"`
 	ChannelName        string                        `json:"channel_name"`
+	ChannelType        int                           `json:"channel_type"`
 	Endpoint           string                        `json:"endpoint"`
 	BasePriority       int                           `json:"base_priority"`
 	AccountConcurrency int                           `json:"account_concurrency"`
@@ -86,7 +88,8 @@ func (r supplierSourceRequest) toInput() service.SupplierSourceInput {
 		})
 	}
 	return service.SupplierSourceInput{
-		SupplierName: r.SupplierName, ChannelName: r.ChannelName, Endpoint: r.Endpoint,
+		SupplierName: r.SupplierName, ChannelName: r.ChannelName, ChannelType: r.ChannelType,
+		Endpoint:   r.Endpoint,
 		Credential: r.Credential, BasePriority: r.BasePriority, AccountConcurrency: r.AccountConcurrency,
 		Notes: r.Notes, Models: models,
 	}
@@ -104,7 +107,7 @@ func supplierSourceToResponse(source *service.SupplierSource) *supplierSourceRes
 	}
 	return &supplierSourceResponse{
 		ID: source.ID, SupplierName: source.SupplierName, ChannelName: source.ChannelName,
-		Endpoint: source.Endpoint, BasePriority: source.BasePriority,
+		ChannelType: source.ChannelType, Endpoint: source.Endpoint, BasePriority: source.BasePriority,
 		AccountConcurrency: source.AccountConcurrency, Models: models, Notes: source.Notes,
 		CreatedAt: source.CreatedAt, UpdatedAt: source.UpdatedAt,
 	}

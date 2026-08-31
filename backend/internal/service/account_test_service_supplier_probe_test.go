@@ -37,8 +37,7 @@ func TestUS048_SupplierProbeUsesInMemoryAccountWithoutRepositoryLookup(t *testin
 		Account: &Account{
 			Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1, Concurrency: 1,
 			Credentials: supplierManagedCredentials(
-				server.URL, "secret", map[string]string{"client-model": "vendor-model"},
-			),
+				server.URL, "secret", map[string]string{"client-model": "vendor-model"}, 1),
 		},
 		ClientModelID: "client-model", UpstreamModelID: "vendor-model",
 	})
@@ -72,8 +71,7 @@ func TestUS048_SupplierManagedAccountDeclaresOnlyChatProtocol(t *testing.T) {
 		Type:        AccountTypeAPIKey,
 		ChannelType: 1,
 		Credentials: supplierManagedCredentials(
-			"https://supplier.example/v1", "secret", map[string]string{"client-model": "vendor-model"},
-		),
+			"https://supplier.example/v1", "secret", map[string]string{"client-model": "vendor-model"}, 1),
 		Extra: map[string]any{
 			SupplierSourceIDExtraKey:     int64(7),
 			SupplierDiscountBandExtraKey: 3,
@@ -97,8 +95,7 @@ func TestUS048_SupplierManagedQianfanDeclaresBaiduV2ChatProtocol(t *testing.T) {
 		Type:        AccountTypeAPIKey,
 		ChannelType: 46,
 		Credentials: supplierManagedCredentials(
-			"https://qianfan.baidubce.com/v2", "secret", map[string]string{"glm-5.1": "glm-5.1"},
-		),
+			"https://qianfan.baidubce.com/v2", "secret", map[string]string{"glm-5.1": "glm-5.1"}, 46),
 		Extra: map[string]any{
 			SupplierSourceIDExtraKey:     int64(3),
 			SupplierDiscountBandExtraKey: 3,
@@ -140,8 +137,7 @@ func TestUS048_SupplierManagedOpenAIEndpointDoesNotDuplicateV1(t *testing.T) {
 		Type:        AccountTypeAPIKey,
 		ChannelType: 1,
 		Credentials: supplierManagedCredentials(
-			"https://supplier.example/v1", "secret", map[string]string{"client-model": "vendor-model"},
-		),
+			"https://supplier.example/v1", "secret", map[string]string{"client-model": "vendor-model"}, 1),
 		Extra: map[string]any{
 			SupplierSourceIDExtraKey:     int64(7),
 			SupplierDiscountBandExtraKey: 3,
@@ -180,8 +176,7 @@ func TestUS048_SupplierProbeDoesNotLogRawUpstreamError(t *testing.T) {
 		Account: &Account{
 			Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1, Concurrency: 1,
 			Credentials: supplierManagedCredentials(
-				server.URL, "secret", map[string]string{"client-model": "vendor-model"},
-			),
+				server.URL, "secret", map[string]string{"client-model": "vendor-model"}, 1),
 		},
 		ClientModelID: "client-model", UpstreamModelID: "vendor-model",
 	})
