@@ -388,7 +388,7 @@ test('US048 FMGo shows the fixed protocol boundary without account changes', asy
   await expect(page.getByRole('button', { name: /激活|暂停/ })).toHaveCount(0)
 })
 
-test('US048 accounts UI marks supplier-managed accounts and explains read-only ownership', async ({ page }) => {
+test('US048 accounts UI marks supplier-managed accounts and allows ordinary edits', async ({ page }) => {
   await installBase(page, async (route, path) => {
     const request = route.request()
     if (path === '/api/v1/admin/accounts' && request.method() === 'GET') {
@@ -458,20 +458,21 @@ test('US048 accounts UI marks supplier-managed accounts and explains read-only o
 
   const editButton = row.locator('[data-testid="account-edit-btn"]')
   await expect(editButton).toBeEnabled()
-  await expect(editButton).toHaveAttribute('title', '查看托管账号配置（只读）')
-  await expect(editButton).toContainText('查看')
+  await expect(editButton).toContainText('编辑')
 
   await editButton.click()
   // Scope to the edit dialog: page-level name:'更新' also matches toolbar「批量更新」.
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByRole('heading', { name: '查看账号' })).toBeVisible()
-  await expect(dialog.getByText('以下为只读快照；修改模型、凭证与 priority 请前往供应源管理。')).toBeVisible()
-  await expect(dialog.locator('[data-tour="account-form-submit"]')).toHaveCount(0)
-  await expect(dialog.getByRole('button', { name: '更新', exact: true })).toHaveCount(0)
-  await dialog.getByRole('button', { name: '关闭' }).click()
+  await expect(dialog.getByRole('heading', { name: '编辑账号' })).toBeVisible()
+  await expect(dialog.getByText('该账号由供应源创建；在供应源点击「校验并同步」会覆盖更新投影字段（如 priority、model_mapping 等）。平时可按普通账号编辑。')).toBeVisible()
+  await expect(dialog.locator('[data-tour="account-form-submit"]')).toBeVisible()
+  await expect(dialog.locator('[data-tour="edit-account-form-name"]')).toBeEnabled()
+  await expect(dialog.locator('[data-tour="account-form-priority"]')).toBeEnabled()
+  await dialog.getByRole('button', { name: '取消' }).click()
 
   await row.getByRole('button', { name: '更多' }).click()
-  await expect(page.getByText('该账号由供应源托管，请前往供应源管理修改。')).toBeVisible()
+  await expect(page.getByText('复制账号')).toBeVisible()
+  await expect(page.getByRole('button', { name: '复制账号' })).toBeEnabled()
   const menuBadge = page.locator('[data-testid="supplier-managed-badge"]').last()
   await expect(menuBadge).toHaveAttribute(
     'href',

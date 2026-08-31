@@ -26,10 +26,7 @@
           {{ t('admin.accounts.supplierManaged.openManagement') }}
         </a>
       </div>
-      <fieldset
-        :disabled="supplierManagedInfo.managed"
-        class="m-0 min-w-0 space-y-5 border-0 p-0 disabled:opacity-100"
-      >
+      <div class="space-y-5">
       <div>
         <label class="input-label">{{ t('common.name') }}</label>
         <input v-model="form.name" type="text" required class="input" data-tour="edit-account-form-name" />
@@ -2893,21 +2890,21 @@
         data-tour="account-form-groups"
       />
 
-      </fieldset>
+      </div>
 
     </form>
 
     <template #footer>
       <div v-if="account" class="flex justify-end gap-3">
         <button @click="handleClose" type="button" class="btn btn-secondary">
-          {{ supplierManagedInfo.managed ? t('common.close') : t('common.cancel') }}
+          {{ t('common.cancel') }}
         </button>
         <button
-          v-if="!supplierManagedInfo.managed"
           type="submit"
           form="edit-account-form"
           :disabled="submitting"
           class="btn btn-primary"
+          data-testid="account-form-submit"
           data-tour="account-form-submit"
         >
           <svg
@@ -3118,15 +3115,10 @@ const handleProtocolProbe = async () => {
 }
 const {
   inspect: inspectSupplierManaged,
-  readOnlyReason: supplierManagedReadOnlyReason,
   viewHint: supplierManagedViewHint,
 } = useSupplierManagedAccount()
 const supplierManagedInfo = computed(() => inspectSupplierManaged(props.account))
-const dialogTitle = computed(() => (
-  supplierManagedInfo.value.managed
-    ? t('admin.accounts.viewAccount')
-    : t('admin.accounts.editAccount')
-))
+const dialogTitle = computed(() => t('admin.accounts.editAccount'))
 
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
 // 故隐藏代理选择器。
@@ -4936,10 +4928,6 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
 
 const handleSubmit = async () => {
   if (!props.account) return
-  if (supplierManagedInfo.value.managed) {
-    appStore.showError(supplierManagedReadOnlyReason.value)
-    return
-  }
   const accountID = props.account.id
 
   if (!validateOpenAIMessagesCompactionForm()) {

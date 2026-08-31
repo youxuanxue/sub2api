@@ -48,7 +48,7 @@ describe('AccountBulkActionsBar', () => {
     expect(wrapper.emitted('probe-upstream-billing')).toHaveLength(1)
   })
 
-  it('blocks generic bulk writes when the selection contains a supplier-managed account', async () => {
+  it('keeps bulk writes enabled when the selection contains a supplier-managed account', async () => {
     const wrapper = mount(AccountBulkActionsBar, {
       props: {
         selectedIds: [1, 2],
@@ -69,8 +69,7 @@ describe('AccountBulkActionsBar', () => {
       item.text().includes('admin.accounts.bulkActions.resetStatus')
     )
 
-    expect(wrapper.text()).toContain('admin.accounts.supplierManaged.readOnlyReason')
-    expect(deleteButton?.attributes('disabled')).toBeDefined()
+    expect(deleteButton?.attributes('disabled')).toBeUndefined()
     expect(probeButton?.attributes('disabled')).toBeUndefined()
     expect(resetStatusButton?.attributes('disabled')).toBeUndefined()
 
@@ -78,7 +77,7 @@ describe('AccountBulkActionsBar', () => {
     await probeButton!.trigger('click')
     await resetStatusButton!.trigger('click')
 
-    expect(wrapper.emitted('delete')).toBeUndefined()
+    expect(wrapper.emitted('delete')).toHaveLength(1)
     expect(wrapper.emitted('probe-upstream-billing')).toHaveLength(1)
     expect(wrapper.emitted('reset-status')).toHaveLength(1)
   })

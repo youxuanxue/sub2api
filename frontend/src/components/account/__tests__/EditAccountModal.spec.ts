@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 
 const { updateAccountMock, probeProtocolsMock, checkMixedChannelRiskMock, getWebSearchEmulationConfigMock, getSettingsMock, listTLSFingerprintProfilesMock, listSupplierSourcesMock, showErrorMock, showInfoMock, showSuccessMock, authIsSimpleMode } = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
@@ -377,19 +377,28 @@ describe('EditAccountModal', () => {
     authIsSimpleMode.value = true
   })
 
-  it('shows the supplier-managed reason and refuses generic account updates', async () => {
+  it('shows the supplier-managed hint and submits a normal account update', async () => {
     const account = {
       ...buildAccount(),
-      extra: { supplier_source_id: '7' }
+      extra: { supplier_source_id: '7' },
+      priority: 103,
+      group_ids: []
     }
     const wrapper = mountModal(account)
 
     expect(wrapper.text()).toContain('admin.accounts.supplierManaged.viewHint')
-    expect(wrapper.find('[data-tour="account-form-submit"]').exists()).toBe(false)
+    expect(wrapper.find('[data-tour="account-form-submit"]').exists()).toBe(true)
+    expect(wrapper.get('[data-tour="edit-account-form-name"]').attributes('disabled')).toBeUndefined()
 
+    const priorityInput = wrapper.get('[data-tour="account-form-priority"]')
+    await priorityInput.setValue(50)
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
 
-    expect(updateAccountMock).not.toHaveBeenCalled()
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const payload = updateAccountMock.mock.calls[0]?.[1]
+    expect(payload.priority).toBe(50)
+    expect(payload.name).toBe(account.name)
   })
 
   it('re-probes canonical native protocols and emits the refreshed account', async () => {

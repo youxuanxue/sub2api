@@ -191,7 +191,6 @@
           :total-results="pagination.total"
           :selecting-all="selectingAllResults"
           :all-results-selected="allResultsSelected"
-          :contains-supplier-managed="selectedContainsSupplierManaged"
           @delete="handleBulkDelete"
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
@@ -361,7 +360,7 @@
             </div>
           </template>
           <template #cell-schedulable="{ row }">
-            <button @click="handleToggleSchedulable(row)" :disabled="togglingSchedulable === row.id || isSupplierManaged(row)" class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-dark-800" :class="[row.schedulable ? 'bg-primary-500 hover:bg-primary-600' : 'bg-gray-200 hover:bg-gray-300 dark:bg-dark-600 dark:hover:bg-dark-500']" :title="isSupplierManaged(row) ? supplierManagedReadOnlyReason : (row.schedulable ? t('admin.accounts.schedulableEnabled') : t('admin.accounts.schedulableDisabled'))">
+            <button @click="handleToggleSchedulable(row)" :disabled="togglingSchedulable === row.id" class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-dark-800" :class="[row.schedulable ? 'bg-primary-500 hover:bg-primary-600' : 'bg-gray-200 hover:bg-gray-300 dark:bg-dark-600 dark:hover:bg-dark-500']" :title="row.schedulable ? t('admin.accounts.schedulableEnabled') : t('admin.accounts.schedulableDisabled')">
               <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out" :class="[row.schedulable ? 'translate-x-4' : 'translate-x-0']" />
             </button>
           </template>
@@ -498,15 +497,14 @@
             <div class="flex items-center gap-1">
               <button
                 data-testid="account-edit-btn"
-                :title="isSupplierManaged(row) ? supplierManagedViewButtonTitle : undefined"
+                
                 @click="handleEdit(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
               >
-                <svg v-if="!isSupplierManaged(row)" class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
-                <svg v-else class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                <span class="text-xs">{{ isSupplierManaged(row) ? t('common.view') : t('common.edit') }}</span>
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
+                <span class="text-xs">{{ t('common.edit') }}</span>
               </button>
-              <button :disabled="isSupplierManaged(row)" :title="isSupplierManaged(row) ? supplierManagedReadOnlyReason : undefined" @click="handleDelete(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-red-900/20 dark:hover:text-red-400">
+              <button @click="handleDelete(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-red-900/20 dark:hover:text-red-400">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
                 <span class="text-xs">{{ t('common.delete') }}</span>
               </button>
@@ -614,7 +612,6 @@ import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountProtocolCapabilities from '@/components/account/AccountProtocolCapabilities.vue'
 import SupplierManagedBadge from '@/components/account/SupplierManagedBadge.vue'
-import { useSupplierManagedAccount } from '@/composables/useSupplierManagedAccount'
 const AccountUsageCell = defineAsyncComponent(() => import('@/components/account/AccountUsageCell.vue'))
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
@@ -640,12 +637,6 @@ import { formatMultiplier } from '@/utils/formatters'
 const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
-const {
-  inspect: inspectSupplierManaged,
-  readOnlyReason: supplierManagedReadOnlyReason,
-  viewButtonTitle: supplierManagedViewButtonTitle,
-} = useSupplierManagedAccount()
-const isSupplierManaged = (account: Account | null | undefined) => inspectSupplierManaged(account).managed
 
 const proxies = ref<AccountProxy[]>([])
 // Active groups — feeds the filter dropdown + create/edit/bulk modals (unchanged).
@@ -1207,31 +1198,6 @@ const allResultsSelected = computed(() => {
   if (!snapshot || snapshot.size === 0 || snapshot.size !== selectedSet.value.size) return false
   return Array.from(snapshot).every(id => selectedSet.value.has(id))
 })
-const supplierManagedByAccountID = ref(new Map<number, boolean>())
-const recordSupplierManagedAccounts = (rows: Account[]) => {
-  const next = new Map(supplierManagedByAccountID.value)
-  for (const account of rows) {
-    next.set(account.id, isSupplierManaged(account))
-  }
-  supplierManagedByAccountID.value = next
-}
-watch(accounts, recordSupplierManagedAccounts, { immediate: true })
-const selectedContainsSupplierManaged = computed(() =>
-  selIds.value.some(accountID => supplierManagedByAccountID.value.get(accountID) === true)
-)
-
-const rejectSupplierManagedAccountWrite = (account: Account | null | undefined): boolean => {
-  if (!isSupplierManaged(account)) return false
-  appStore.showError(supplierManagedReadOnlyReason.value)
-  return true
-}
-
-const rejectSupplierManagedSelectionWrite = (): boolean => {
-  if (!selectedContainsSupplierManaged.value) return false
-  appStore.showError(supplierManagedReadOnlyReason.value)
-  return true
-}
-
 const clearSelection = () => {
   selectionRequestVersion.value++
   selectingAllResults.value = false
@@ -1988,7 +1954,6 @@ const toggleSelectAllVisible = (event: Event) => {
 }
 const handleBulkDelete = async () => {
   const accountIds = [...selIds.value]
-  if (rejectSupplierManagedSelectionWrite()) return
   if (!confirm(t('admin.accounts.bulkActions.confirmDelete', { count: accountIds.length }))) return
   try {
     const result = await adminAPI.accounts.batchDelete(accountIds)
@@ -2025,7 +1990,6 @@ const handleBulkResetStatus = async () => {
   }
 }
 const handleBulkRefreshToken = async () => {
-  if (rejectSupplierManagedSelectionWrite()) return
   if (!confirm(t('common.confirm'))) return
   try {
     const result = await adminAPI.accounts.batchRefresh(selIds.value)
@@ -2142,7 +2106,6 @@ const normalizeBulkSchedulableResult = (
 }
 const handleBulkToggleSchedulable = async (schedulable: boolean) => {
   const accountIds = [...selIds.value]
-  if (rejectSupplierManagedSelectionWrite()) return
   try {
     const result = await adminAPI.accounts.bulkUpdate(accountIds, { schedulable })
     const { successIds, failedIds, successCount, failedCount, hasIds, hasCounts } = normalizeBulkSchedulableResult(result, accountIds)
@@ -2207,7 +2170,6 @@ const handleSelectAllResults = async () => {
     const ids = await fetchAllAccountIds(
       async (page, pageSize, requestFilters) => {
         const result = await adminAPI.accounts.list(page, pageSize, requestFilters)
-        recordSupplierManagedAccounts(result.items)
         return result
       },
       filters
@@ -2234,7 +2196,6 @@ const collectSelectionMetadata = (rows: Account[]) => {
 }
 
 const openBulkEditSelected = () => {
-  if (rejectSupplierManagedSelectionWrite()) return
   bulkEditTarget.value = {
     mode: 'selected',
     accountIds: [...selIds.value],
@@ -2406,7 +2367,6 @@ const handleAccountUpdated = (updatedAccount: Account) => {
 // handleAccountUpdated as the applied callback (patch row + silent refresh).
 const tierCtl = useTkAccountTier(handleAccountUpdated)
 const handleSetTier = (a: Account) => {
-  if (rejectSupplierManagedAccountWrite(a)) return
   tierCtl.open(a)
 }
 const formatExportTimestamp = () => {
@@ -2482,13 +2442,11 @@ const handleSchedule = async (a: Account) => {
 }
 const closeSchedulePanel = () => { showSchedulePanel.value = false; scheduleAcc.value = null; scheduleModelOptions.value = [] }
 const handleReAuth = (a: Account) => {
-  if (rejectSupplierManagedAccountWrite(a)) return
   reAuthAcc.value = a
   showReAuth.value = true
 }
 const duplicatingAccountIDs = new Set<number>()
 const handleDuplicateAccount = async (a: Account) => {
-  if (rejectSupplierManagedAccountWrite(a)) return
   if (duplicatingAccountIDs.has(a.id)) return
   duplicatingAccountIDs.add(a.id)
   try {
@@ -2503,7 +2461,6 @@ const handleDuplicateAccount = async (a: Account) => {
   }
 }
 const handleRefresh = async (a: Account) => {
-  if (rejectSupplierManagedAccountWrite(a)) return
   try {
     const updated = await adminAPI.accounts.refreshCredentials(a.id)
     patchAccountInList(updated)
@@ -2556,7 +2513,6 @@ const privacyResultMessageKey = (account: Account): { type: 'success' | 'error';
 }
 
 const handleSetPrivacy = async (a: Account) => {
-  if (rejectSupplierManagedAccountWrite(a)) return
   try {
     const updated = await adminAPI.accounts.setPrivacy(a.id)
     patchAccountInList(updated)
@@ -2583,7 +2539,6 @@ const onRevertFallback = async (a: Account) => {
   }
 }
 const handleCreateSparkShadow = (a: Account) => {
-  if (rejectSupplierManagedAccountWrite(a)) return
   creatingShadowAcc.value = a
   showCreateShadowDialog.value = true
 }
@@ -2602,12 +2557,11 @@ const confirmCreateSparkShadow = async () => {
   }
 }
 const handleDelete = (a: Account) => {
-  if (rejectSupplierManagedAccountWrite(a)) return
   deletingAcc.value = a
   showDeleteDialog.value = true
 }
 const confirmDelete = async () => {
-  if (!deletingAcc.value || rejectSupplierManagedAccountWrite(deletingAcc.value)) return
+  if (!deletingAcc.value) return
   try {
     await adminAPI.accounts.delete(deletingAcc.value.id)
     showDeleteDialog.value = false
@@ -2618,7 +2572,6 @@ const confirmDelete = async () => {
   }
 }
 const handleToggleSchedulable = async (a: Account) => {
-  if (rejectSupplierManagedAccountWrite(a)) return
   const nextSchedulable = !a.schedulable
   togglingSchedulable.value = a.id
   try {

@@ -149,6 +149,8 @@ var duplicateAccountDiscardedExtraKeys = map[string]struct{}{
 	"codex_7d_window_minutes":              {},
 	"codex_7d_reset_at":                    {},
 	SupportedProtocolsExtraKey:             {},
+	SupplierSourceIDExtraKey:               {},
+	SupplierDiscountBandExtraKey:           {},
 }
 
 func duplicateAccountExtra(value map[string]any) (map[string]any, error) {
@@ -245,18 +247,12 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 		return nil, err
 	}
 	if existing != nil {
-		if IsSupplierManagedAccount(existing) {
-			return nil, ErrSupplierManagedAccountProtected
-		}
 		return existing, nil
 	}
 
 	source, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
-	}
-	if IsSupplierManagedAccount(source) {
-		return nil, ErrSupplierManagedAccountProtected
 	}
 	if source.IsCredentialShadow() {
 		return nil, infraerrors.BadRequest(
@@ -624,10 +620,11 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
-	if err := ValidateSupplierManagedAccountUpdate(account); err != nil {
-		return nil, err
-	}
-	if err := ValidateSupplierReservedAccountExtra(input.Extra); err != nil {
+	if IsSupplierManagedAccount(account) {
+		if input.Extra != nil {
+			input.Extra = StripSupplierReservedAccountExtra(input.Extra)
+		}
+	} else if err := ValidateSupplierReservedAccountExtra(input.Extra); err != nil {
 		return nil, err
 	}
 	var normalizedExtra map[string]any
@@ -735,13 +732,15 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			OllamaCloudUsageSessionExtraKey,
 			OllamaCloudUsageAutoRefreshExtraKey,
 			OllamaCloudUsageSnapshotExtraKey,
+			SupplierSourceIDExtraKey,
+			SupplierDiscountBandExtraKey,
 		} {
 			if v, ok := account.Extra[key]; ok {
 				normalizedExtra[key] = v
 			}
 		}
 		normalizedExtra = prepareCodexFingerprintExtraForUpdate(account, normalizedExtra)
-		account.Extra = normalizedExtra
+		account.Extra = PreserveSupplierManagedExtraKeys(account, normalizedExtra)
 		if account.Platform == PlatformAntigravity && wasOveragesEnabled && !account.IsOveragesEnabled() {
 			delete(account.Extra, "antigravity_credits_overages") // 清理旧版 overages 运行态
 			// 清除 AICredits 限流 key
@@ -989,9 +988,6 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	if err != nil {
 		return err
 	}
-	if IsSupplierManagedAccount(account) {
-		return ErrSupplierManagedAccountProtected
-	}
 	if err := ValidateSupplierReservedAccountExtra(updates); err != nil {
 		return err
 	}
@@ -1068,14 +1064,19 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			targetsByID[account.ID] = account
 		}
 	}
+	hasManaged := false
 	for _, account := range cachedTargets {
 		if IsSupplierManagedAccount(account) {
-			return nil, ErrSupplierManagedAccountProtected
+			hasManaged = true
+			break
 		}
 	}
-	if err := ValidateSupplierReservedAccountExtra(input.Extra); err != nil {
+	if hasManaged {
+		input.Extra = StripSupplierReservedAccountExtra(input.Extra)
+	} else if err := ValidateSupplierReservedAccountExtra(input.Extra); err != nil {
 		return nil, err
 	}
+
 	if openAISettings.any() {
 		inheritedCount, err := validateBulkOpenAISettingsTargets(input, openAISettings, targetsByID)
 		if err != nil {
@@ -1348,12 +1349,8 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 }
 
 func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
-	account, err := s.accountRepo.GetByID(ctx, id)
-	if err != nil {
+	if _, err := s.accountRepo.GetByID(ctx, id); err != nil {
 		return err
-	}
-	if IsSupplierManagedAccount(account) {
-		return ErrSupplierManagedAccountProtected
 	}
 	// 级联删除 spark 影子账号（先删影子，再删母账号）
 	shadows, err := s.accountRepo.ListShadowsByParent(ctx, id)
@@ -1374,9 +1371,6 @@ func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
 func (s *adminServiceImpl) RefreshAccountCredentials(ctx context.Context, id int64) (*Account, error) {
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
-		return nil, err
-	}
-	if err := ValidateSupplierManagedAccountUpdate(account); err != nil {
 		return nil, err
 	}
 	// TODO: Implement refresh logic
@@ -1410,13 +1404,6 @@ func (s *adminServiceImpl) SetAccountError(ctx context.Context, id int64, errorM
 }
 
 func (s *adminServiceImpl) SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*Account, error) {
-	account, err := s.accountRepo.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if IsSupplierManagedAccount(account) {
-		return nil, ErrSupplierManagedAccountProtected
-	}
 	if err := s.accountRepo.SetSchedulable(ctx, id, schedulable); err != nil {
 		return nil, err
 	}
@@ -1446,9 +1433,6 @@ func (s *adminServiceImpl) CreateShadow(ctx context.Context, parentID int64, opt
 	parent, err := s.accountRepo.GetByID(ctx, parentID)
 	if err != nil {
 		return nil, fmt.Errorf("get parent account: %w", err)
-	}
-	if err := ValidateSupplierManagedAccountUpdate(parent); err != nil {
-		return nil, err
 	}
 	if !parent.IsOpenAIOAuth() {
 		return nil, infraerrors.New(http.StatusBadRequest, "SPARK_SHADOW_INVALID_PARENT",

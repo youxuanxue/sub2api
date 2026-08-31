@@ -113,9 +113,7 @@ export default {
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
       supplierManaged: {
         badge: 'Supplier managed',
-        readOnlyReason: 'This account is managed by a supplier source. Make changes in Supplier Sources.',
-        viewHint: 'Read-only snapshot. Edit models, credentials, and priority in Supplier Sources.',
-        viewButtonTitle: 'View supplier-managed account (read-only)',
+        viewHint: 'Created from a supplier source. Validate & Sync overwrites projection fields (priority, model_mapping, etc.). Edit like any other account otherwise.',
         openManagement: 'Open Supplier Sources'
       },
       groupCountTotal: '{count} groups total',

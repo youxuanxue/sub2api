@@ -2024,11 +2024,10 @@
       "path": "frontend/src/composables/useSupplierManagedAccount.ts",
       "must_contain": [
         "Object.prototype.hasOwnProperty.call(extra, 'supplier_source_id')",
-        "const readOnlyReason = computed(() => t('admin.accounts.supplierManaged.readOnlyReason'))",
         "const viewHint = computed(() => t('admin.accounts.supplierManaged.viewHint'))",
         "href: `/admin/supplier-sources?source_id=${marker.sourceId}`"
       ],
-      "rationale": "Single frontend owner for the supplier-managed marker, source-name lookup, fallback labels, navigation and canonical read-only reason. Account rows, modals and menus must not grow separate ownership rules."
+      "rationale": "Single frontend owner for the supplier-managed marker, source-name lookup, fallback labels, navigation and sync-overwrite hint. Managed accounts are edited like ordinary accounts; UI must not invent a second ownership/read-only policy."
     },
     {
       "path": "frontend/src/components/account/SupplierManagedBadge.vue",
@@ -2042,41 +2041,40 @@
     {
       "path": "frontend/src/views/admin/__tests__/AccountsView.supplierManaged.spec.ts",
       "must_contain": [
-        "shows the badge and disables row and mixed-selection generic writes",
-        "opens the read-only account modal for supplier-managed rows",
-        "rejects a stale child write event before calling the account API",
+        "shows the supplier-managed badge and treats managed rows like ordinary accounts",
+        "opens the account modal for supplier-managed rows",
+        "allows duplicate of supplier-managed accounts like ordinary accounts",
         "allows supplier-managed runtime recovery and quota reset actions",
         "allows supplier-managed bulk runtime recovery"
       ],
-      "rationale": "Real account-page ownership regressions: visible badges and disabled controls are not enough, so the page also rejects stale child configuration-write events before any generic API can run while preserving recovery and quota-reset operations."
+      "rationale": "Account-page regressions: supplier-managed rows keep the badge and sync-overwrite hint, but edit/delete/duplicate/bulk/runtime actions stay available like ordinary accounts. Sync from supplier sources remains the only path that overwrites projection fields."
     },
     {
       "path": "frontend/src/components/admin/account/__tests__/AccountActionMenu.spec.ts",
       "must_contain": [
-        "keeps configuration writes disabled while runtime recovery actions stay available",
-        "admin.accounts.supplierManaged.readOnlyReason",
+        "treats supplier-managed accounts like ordinary accounts for writes",
         "recover-state",
         "reset-quota"
       ],
-      "rationale": "The row action menu must make supplier ownership obvious, block configuration actions such as duplicate/reauth/credential refresh, and keep account test, error recovery and quota reset available as runtime operations."
+      "rationale": "The row action menu must keep supplier-managed accounts writable like ordinary accounts (including duplicate) while still exposing runtime recovery and quota reset."
     },
     {
       "path": "frontend/src/components/admin/account/__tests__/AccountBulkActionsBar.spec.ts",
       "must_contain": [
-        "blocks generic bulk writes when the selection contains a supplier-managed account",
+        "keeps bulk writes enabled when the selection contains a supplier-managed account",
         "preserves the upstream billing probe action from v0.1.166",
         "reset-status",
         "probe-upstream-billing"
       ],
-      "rationale": "Mixed selections must block generic bulk configuration writes without disabling runtime reset-status or upstream probe actions. This prevents the supplier badge from accidentally becoming a broad account-operations shutdown."
+      "rationale": "Mixed selections with supplier-managed accounts must keep bulk configuration writes available. Runtime reset-status and upstream probe actions stay available; the badge must not become a broad account-operations shutdown."
     },
     {
       "path": "frontend/src/components/account/__tests__/EditAccountModal.spec.ts",
       "must_contain": [
-        "shows the supplier-managed reason and refuses generic account updates",
+        "shows the supplier-managed hint and submits a normal account update",
         "admin.accounts.supplierManaged.viewHint"
       ],
-      "rationale": "The generic edit modal is a second UI entry point and must remain read-only for supplier-managed accounts with the same view hint and disabled submit path, even if it is opened from stale state or another caller."
+      "rationale": "The generic edit modal shows the sync-overwrite hint for supplier-managed accounts but still submits ordinary account updates. Field-level read-only special cases are intentionally absent."
     }
   ]
 }

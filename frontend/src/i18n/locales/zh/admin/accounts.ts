@@ -111,9 +111,7 @@ export default {
       failedToToggleSchedulable: '切换调度状态失败',
       supplierManaged: {
         badge: '供应源托管',
-        readOnlyReason: '该账号由供应源托管，请前往供应源管理修改。',
-        viewHint: '以下为只读快照；修改模型、凭证与 priority 请前往供应源管理。',
-        viewButtonTitle: '查看托管账号配置（只读）',
+        viewHint: '该账号由供应源创建；在供应源点击「校验并同步」会覆盖更新投影字段（如 priority、model_mapping 等）。平时可按普通账号编辑。',
         openManagement: '前往供应源管理'
       },
       groupCountTotal: '共 {count} 个分组',

@@ -348,11 +348,11 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	if err != nil {
 		return nil, fmt.Errorf("get account: %w", err)
 	}
-	if err := ValidateSupplierManagedAccountUpdate(account); err != nil {
-		return nil, err
-	}
 	if req.Extra != nil {
-		if err := ValidateSupplierReservedAccountExtra(*req.Extra); err != nil {
+		if IsSupplierManagedAccount(account) {
+			stripped := StripSupplierReservedAccountExtra(*req.Extra)
+			req.Extra = &stripped
+		} else if err := ValidateSupplierReservedAccountExtra(*req.Extra); err != nil {
 			return nil, err
 		}
 	}
@@ -377,7 +377,7 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 		delete(extra, OllamaCloudUsageSessionExtraKey)
 		delete(extra, OllamaCloudUsageAutoRefreshExtraKey)
 		delete(extra, OllamaCloudUsageSnapshotExtraKey)
-		account.Extra = prepareCodexFingerprintExtraForUpdate(account, extra)
+		account.Extra = PreserveSupplierManagedExtraKeys(account, prepareCodexFingerprintExtraForUpdate(account, extra))
 	} else {
 		account.Extra = prepareCodexFingerprintExtraForUpdate(account, account.Extra)
 	}
@@ -461,14 +461,6 @@ func (s *AccountService) Delete(ctx context.Context, id int64) error {
 	if !exists {
 		return ErrAccountNotFound
 	}
-	account, err := s.accountRepo.GetByID(ctx, id)
-	if err != nil {
-		return fmt.Errorf("get account: %w", err)
-	}
-	if err := ValidateSupplierManagedAccountUpdate(account); err != nil {
-		return err
-	}
-
 	// 注意:此处不级联删除 spark 影子账号。当前唯一的后台删除入口走 AdminService.DeleteAccount
 	// (已 ListShadowsByParent 先删影子再删母)。本方法目前无删除调用方;若未来有调用方经此
 	// 删除母账号,需在此补级联,否则会留下孤儿影子(外审第6轮 P3:当前不可达,记为残留)。
@@ -517,9 +509,6 @@ func (s *AccountService) UpdateStatus(ctx context.Context, id int64, status stri
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return fmt.Errorf("get account: %w", err)
-	}
-	if err := ValidateSupplierManagedAccountUpdate(account); err != nil {
-		return err
 	}
 
 	account.Status = status

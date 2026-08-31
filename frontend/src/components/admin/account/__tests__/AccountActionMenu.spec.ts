@@ -118,7 +118,7 @@ describe('AccountActionMenu — 恢复状态入口', () => {
 })
 
 describe('AccountActionMenu — 供应源托管账号', () => {
-  it('keeps configuration writes disabled while runtime recovery actions stay available', async () => {
+  it('treats supplier-managed accounts like ordinary accounts for writes', async () => {
     const wrapper = mountMenu(makeAccount({
       platform: 'openai',
       type: 'apikey',
@@ -139,8 +139,7 @@ describe('AccountActionMenu — 供应源托管账号', () => {
       button.text().includes('admin.accounts.testConnection')
     )
 
-    expect(wrapper.text()).toContain('admin.accounts.supplierManaged.readOnlyReason')
-    expect(duplicateButton?.attributes('disabled')).toBeDefined()
+    expect(duplicateButton?.attributes('disabled')).toBeUndefined()
     expect(recoverButton?.attributes('disabled')).toBeUndefined()
     expect(resetQuotaButton?.attributes('disabled')).toBeUndefined()
     expect(testButton?.attributes('disabled')).toBeUndefined()
@@ -149,7 +148,7 @@ describe('AccountActionMenu — 供应源托管账号', () => {
     await recoverButton!.trigger('click')
     await resetQuotaButton!.trigger('click')
 
-    expect(wrapper.emitted('duplicate')).toBeUndefined()
+    expect(wrapper.emitted('duplicate')?.[0]?.[0]).toMatchObject({ id: 1 })
     expect(wrapper.emitted('recover-state')?.[0]?.[0]).toMatchObject({ id: 1 })
     expect(wrapper.emitted('reset-quota')?.[0]?.[0]).toMatchObject({ id: 1 })
   })

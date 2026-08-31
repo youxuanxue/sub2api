@@ -122,77 +122,47 @@ const managedAccount = {
   type: 'apikey',
   status: 'active',
   schedulable: true,
-  supported_protocols: ['chat_completions'],
-  extra: { supplier_source_id: 3, supplier_discount_band: 3 },
   priority: 103,
   concurrency: 1,
+  group_ids: [],
+  extra: { supplier_source_id: 7, supplier_discount_band: 3 },
   created_at: '2026-08-28T00:00:00Z',
   updated_at: '2026-08-28T00:00:00Z'
 }
 
 const ordinaryAccount = {
-  ...managedAccount,
   id: 8,
   name: 'ordinary-account',
-  extra: {}
+  platform: 'anthropic',
+  type: 'apikey',
+  status: 'active',
+  schedulable: true,
+  priority: 1,
+  concurrency: 1,
+  group_ids: [],
+  extra: {},
+  created_at: '2026-08-28T00:00:00Z',
+  updated_at: '2026-08-28T00:00:00Z'
 }
 
 function mountView() {
   return mount(AccountsView, {
     global: {
       stubs: {
-        AppLayout: { template: '<div><slot /></div>' },
-        TablePageLayout: { template: '<div><slot name="table" /></div>' },
         DataTable: DataTableStub,
-        Pagination: true,
-        ConfirmDialog: true,
-        AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
-        AccountTableFilters: true,
         AccountActionMenu: AccountActionMenuStub,
-        ImportDataModal: true,
-        ReAuthAccountModal: true,
-        AccountTestModal: true,
-        AccountStatsModal: true,
-        ScheduledTestsPanel: true,
-        SyncFromCrsModal: true,
-        TempUnschedStatusModal: true,
-        ErrorPassthroughRulesModal: true,
-        TLSFingerprintProfilesModal: true,
-        CreateAccountModal: true,
         EditAccountModal: EditAccountModalStub,
-        BulkEditAccountModal: true,
-        PlatformTypeBadge: true,
-        ChannelTypeBadge: true,
-        AccountCapacityCell: true,
-        AccountStatusIndicator: true,
-        AccountTodayStatsCell: true,
-        AccountGroupsCell: true,
-        AccountUsageCell: true,
-        Icon: true
+        AccountBulkActionsBar: false,
+        RouterLink: true,
+        Teleport: true
       }
     }
   })
 }
 
-describe('admin AccountsView supplier-managed ownership', () => {
+describe('AccountsView supplier-managed accounts', () => {
   beforeEach(() => {
-    localStorage.clear()
-    listAccounts.mockReset()
-    listWithEtag.mockReset()
-    getBatchTodayStats.mockReset()
-    getBatchPassiveUsage.mockReset()
-    getAllProxies.mockReset()
-    getAllGroups.mockReset()
-    getAllIncludingInactive.mockReset()
-    listEdgeAccounts.mockReset()
-    listSupplierSources.mockReset()
-    duplicateAccount.mockReset()
-    setSchedulable.mockReset()
-    recoverState.mockReset()
-    resetAccountQuota.mockReset()
-    batchClearError.mockReset()
-    showError.mockReset()
-
+    vi.clearAllMocks()
     listAccounts.mockResolvedValue({
       items: [managedAccount, ordinaryAccount],
       total: 2,
@@ -200,23 +170,30 @@ describe('admin AccountsView supplier-managed ownership', () => {
       page_size: 20,
       pages: 1
     })
-    listWithEtag.mockResolvedValue({ notModified: true, etag: null, data: null })
+    listWithEtag.mockResolvedValue({
+      notModified: false,
+      etag: 'etag',
+      data: {
+        items: [managedAccount, ordinaryAccount],
+        total: 2,
+        page: 1,
+        page_size: 20,
+        pages: 1
+      }
+    })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     getBatchPassiveUsage.mockResolvedValue({ usage: {} })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
     getAllIncludingInactive.mockResolvedValue([])
-    listEdgeAccounts.mockResolvedValue({
-      notModified: false,
-      etag: null,
-      data: { platform: '__by_stub__', edges: [], ts: 1 }
-    })
+    listEdgeAccounts.mockResolvedValue({ platform: '__by_stub__', edges: [], ts: 1 })
     listSupplierSources.mockResolvedValue([
       {
-        id: 3,
+        id: 7,
         supplier_name: '佳杰',
         channel_name: 'VSTECS',
-        endpoint: 'https://example.com/v1',
+        endpoint: 'https://example.com',
+        channel_type: 1,
         base_priority: 100,
         models: [],
         notes: '',
@@ -224,12 +201,14 @@ describe('admin AccountsView supplier-managed ownership', () => {
         updated_at: '2026-08-28T00:00:00Z'
       }
     ])
+    duplicateAccount.mockResolvedValue({ ...managedAccount, id: 99, name: 'copy' })
+    setSchedulable.mockResolvedValue({ ...managedAccount, schedulable: false })
     recoverState.mockResolvedValue({ ...managedAccount, status: 'active', schedulable: true })
     resetAccountQuota.mockResolvedValue({ ...managedAccount })
     batchClearError.mockResolvedValue({ total: 1, success: 1, failed: 0, errors: [] })
   })
 
-  it('shows the badge and disables row and mixed-selection generic writes', async () => {
+  it('shows the supplier-managed badge and treats managed rows like ordinary accounts', async () => {
     const wrapper = mountView()
     await flushPromises()
 
@@ -237,23 +216,13 @@ describe('admin AccountsView supplier-managed ownership', () => {
     const ordinaryRow = wrapper.get('[data-test="account-row-8"]')
 
     expect(managedRow.text()).toContain('admin.accounts.supplierManaged.badge · 佳杰/VSTECS')
-    expect(managedRow.get('[data-test="schedulable"] button').attributes('disabled')).toBeDefined()
-    expect(managedRow.get('[data-testid="account-edit-btn"]').attributes('disabled')).toBeUndefined()
-    expect(managedRow.get('[data-testid="account-edit-btn"]').text()).toContain('common.view')
-    expect(managedRow.findAll('[data-test="actions"] button')[1].attributes('disabled')).toBeDefined()
+    expect(managedRow.get('[data-test="schedulable"] button').attributes('disabled')).toBeUndefined()
+    expect(managedRow.get('[data-testid="account-edit-btn"]').text()).toContain('common.edit')
+    expect(managedRow.findAll('[data-test="actions"] button')[1].attributes('disabled')).toBeUndefined()
     expect(ordinaryRow.get('[data-test="schedulable"] button').attributes('disabled')).toBeUndefined()
-
-    await managedRow.get('[data-test="select"] input').trigger('change')
-    await ordinaryRow.get('[data-test="select"] input').trigger('change')
-
-    const bulkDelete = wrapper.findAll('button').find(button =>
-      button.text().includes('admin.accounts.bulkActions.delete')
-    )
-    expect(wrapper.text()).toContain('admin.accounts.supplierManaged.readOnlyReason')
-    expect(bulkDelete?.attributes('disabled')).toBeDefined()
   })
 
-  it('opens the read-only account modal for supplier-managed rows', async () => {
+  it('opens the account modal for supplier-managed rows', async () => {
     const wrapper = mountView()
     await flushPromises()
 
@@ -266,16 +235,17 @@ describe('admin AccountsView supplier-managed ownership', () => {
     expect(showError).not.toHaveBeenCalled()
   })
 
-  it('rejects a stale child write event before calling the account API', async () => {
+  it('allows duplicate of supplier-managed accounts like ordinary accounts', async () => {
     const wrapper = mountView()
     await flushPromises()
 
     const managedRow = wrapper.get('[data-test="account-row-7"]')
     await managedRow.findAll('[data-test="actions"] button')[2].trigger('click')
     await wrapper.get('[data-test="menu-duplicate"]').trigger('click')
+    await flushPromises()
 
-    expect(duplicateAccount).not.toHaveBeenCalled()
-    expect(showError).toHaveBeenCalledWith('admin.accounts.supplierManaged.readOnlyReason')
+    expect(duplicateAccount).toHaveBeenCalledWith(7)
+    expect(showError).not.toHaveBeenCalled()
   })
 
   it('allows supplier-managed runtime recovery and quota reset actions', async () => {
@@ -290,7 +260,6 @@ describe('admin AccountsView supplier-managed ownership', () => {
 
     expect(recoverState).toHaveBeenCalledWith(7)
     expect(resetAccountQuota).toHaveBeenCalledWith(7)
-    expect(showError).not.toHaveBeenCalledWith('admin.accounts.supplierManaged.readOnlyReason')
   })
 
   it('allows supplier-managed bulk runtime recovery', async () => {
@@ -298,17 +267,13 @@ describe('admin AccountsView supplier-managed ownership', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    const managedRow = wrapper.get('[data-test="account-row-7"]')
-    await managedRow.get('[data-test="select"] input').trigger('change')
-    const resetStatusButton = wrapper.findAll('button').find(button =>
+    await wrapper.get('[data-test="account-row-7"]').get('[data-test="select"] input').trigger('change')
+    const bulkReset = wrapper.findAll('button').find(button =>
       button.text().includes('admin.accounts.bulkActions.resetStatus')
     )
-    expect(resetStatusButton?.attributes('disabled')).toBeUndefined()
-
-    await resetStatusButton!.trigger('click')
+    await bulkReset!.trigger('click')
     await flushPromises()
 
-    expect(batchClearError).toHaveBeenCalledWith([7])
-    expect(showError).not.toHaveBeenCalledWith('admin.accounts.supplierManaged.readOnlyReason')
+    expect(batchClearError).toHaveBeenCalled()
   })
 })

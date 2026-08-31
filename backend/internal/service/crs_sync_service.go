@@ -72,9 +72,6 @@ func guardCRSShadowParentInvariant(ctx context.Context, repo AccountRepository, 
 }
 
 func guardCRSAccountUpdate(ctx context.Context, repo AccountRepository, existing *Account, newPlatform, newType string) error {
-	if IsSupplierManagedAccount(existing) {
-		return ErrSupplierManagedAccountProtected
-	}
 	return guardCRSShadowParentInvariant(ctx, repo, existing, newPlatform, newType)
 }
 
@@ -713,7 +710,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 			continue
 		}
 
-		existing.Extra = extra
+		existing.Extra = PreserveSupplierManagedExtraKeys(existing, extra)
 		existing.Name = defaultName(src.Name, src.ID)
 		existing.Platform = PlatformOpenAI
 		existing.Type = AccountTypeOAuth
@@ -873,7 +870,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 			continue
 		}
 
-		existing.Extra = extra
+		existing.Extra = PreserveSupplierManagedExtraKeys(existing, extra)
 		existing.Name = defaultName(src.Name, src.ID)
 		existing.Platform = PlatformOpenAI
 		existing.Type = AccountTypeAPIKey

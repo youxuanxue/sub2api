@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUS048_CRSSyncRejectsSupplierManagedAccountOverwrite(t *testing.T) {
+func TestUS048_CRSSyncAllowsSupplierManagedAccountOverwrite(t *testing.T) {
 	repo := &crsSupplierManagedAccountRepo{stored: &Account{
 		ID: 41, Name: "佳杰/stbl-5 · 档位 3", Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{"base_url": "https://supplier.example/v1", "api_key": "supplier-secret"},
@@ -49,14 +49,13 @@ func TestUS048_CRSSyncRejectsSupplierManagedAccountOverwrite(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, 1, result.Failed)
-	require.Zero(t, result.Updated)
-	require.Len(t, result.Items, 1)
-	require.Equal(t, "failed", result.Items[0].Action)
-	require.Contains(t, result.Items[0].Error, "supplier-managed")
-	require.Zero(t, repo.updateCalls)
-	require.Equal(t, "佳杰/stbl-5 · 档位 3", repo.stored.Name)
-	require.Equal(t, "supplier-secret", repo.stored.Credentials["api_key"])
+	require.Equal(t, 1, result.Updated)
+	require.Zero(t, result.Failed)
+	require.Equal(t, 1, repo.updateCalls)
+	require.Equal(t, "CRS overwrite", repo.stored.Name)
+	require.Equal(t, "crs-secret", repo.stored.Credentials["api_key"])
+	_, hasSource := repo.stored.Extra[SupplierSourceIDExtraKey]
+	require.True(t, hasSource, "CRS overwrite must not drop supplier identity")
 }
 
 func TestUS048_CRSSyncRejectsReservedSupplierExtraOnNewAccount(t *testing.T) {
