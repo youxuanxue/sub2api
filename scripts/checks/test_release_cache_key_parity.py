@@ -96,9 +96,24 @@ class ReleaseCacheWorkflowTest(unittest.TestCase):
         self.assertIn("-tags=embed", release_warm["run"])
         self.assertIn("./cmd/server", release_warm["run"])
         self.assertIn("./cmd/qa-archive", release_warm["run"])
+        self.assertIn("steps.release_budget.outputs.fits == 'true'", release_warm["if"])
 
-        prune = next(step for step in steps if step.get("name") == "Check managed Go cache budget")
-        self.assertIn("go_cache_prune.py --check", prune["run"])
+        prune = next(step for step in steps if step.get("name") == "Heal managed Go cache budget")
+        self.assertIn("go_cache_prune.py --heal", prune["run"])
+        self.assertTrue(
+            any(
+                step.get("name") == "Budget gate for analysis warm"
+                and "go_cache_prune.py --fits analysis" in str(step.get("run", ""))
+                for step in steps
+            )
+        )
+        self.assertTrue(
+            any(
+                step.get("name") == "Budget gate for release warm"
+                and "go_cache_prune.py --fits release" in str(step.get("run", ""))
+                for step in steps
+            )
+        )
 
     def test_warm_analysis_runs_golangci_lint_to_fill_analysis_family(self) -> None:
         # Boundary: analysis family includes ~/.cache/golangci-lint. Warm must
@@ -115,7 +130,7 @@ class ReleaseCacheWorkflowTest(unittest.TestCase):
         )
         self.assertEqual(
             analysis_compile["if"],
-            "steps.analysis_cache.outputs.cache-hit != 'true'",
+            "steps.analysis_cache.outputs.cache-hit != 'true' && steps.analysis_budget.outputs.fits == 'true'",
         )
         self.assertEqual(
             analysis_compile["env"]["GOFLAGS"],
@@ -129,7 +144,7 @@ class ReleaseCacheWorkflowTest(unittest.TestCase):
         )
         self.assertEqual(
             lint_warm["if"],
-            "steps.analysis_cache.outputs.cache-hit != 'true'",
+            "steps.analysis_cache.outputs.cache-hit != 'true' && steps.analysis_budget.outputs.fits == 'true'",
         )
         self.assertEqual(
             lint_warm["env"]["GOFLAGS"],
