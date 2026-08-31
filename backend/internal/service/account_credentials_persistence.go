@@ -23,7 +23,7 @@ func persistAccountCredentials(ctx context.Context, repo AccountRepository, acco
 		return nil
 	}
 
-	account.Credentials = shallowCopyMap(credentials)
+	account.Credentials = FinalizeAccountCredentials(shallowCopyMap(credentials), account.ChannelType)
 	if updater, ok := any(repo).(accountCredentialsUpdater); ok {
 		return updater.UpdateCredentials(ctx, account.ID, account.Credentials)
 	}

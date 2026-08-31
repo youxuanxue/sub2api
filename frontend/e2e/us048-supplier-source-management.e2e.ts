@@ -473,13 +473,12 @@ test('US048 accounts UI marks supplier-managed accounts and allows ordinary edit
   await row.getByRole('button', { name: '更多' }).click()
   await expect(page.getByText('复制账号')).toBeVisible()
   await expect(page.getByRole('button', { name: '复制账号' })).toBeEnabled()
-  const menuBadge = page.locator('[data-testid="supplier-managed-badge"]').last()
-  await expect(menuBadge).toHaveAttribute(
-    'href',
-    '/admin/supplier-sources?source_id=7',
-  )
+  // Close the action menu first: its full-screen backdrop (z-9998) intercepts
+  // clicks on the row badge while the menu is open.
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: '复制账号' })).toHaveCount(0)
 
-  await menuBadge.click()
+  await badge.click()
   await expect(page).toHaveURL(/\/admin\/supplier-sources\?source_id=7$/)
   await expect(page.locator('[data-test="source-select-7"]')).toHaveClass(/border-primary-500/)
   await expect(page.locator('[data-test="supplier-name"]')).toHaveValue('佳杰')

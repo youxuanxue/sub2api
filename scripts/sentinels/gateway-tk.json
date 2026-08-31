@@ -6385,9 +6385,12 @@
       "path": "backend/internal/service/admin_account.go",
       "must_contain": [
         "cachedTargets, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)",
-        "if needMixedChannelCheck || needPublicGroupAggregatorCheck {"
+        "if needMixedChannelCheck || needPublicGroupAggregatorCheck {",
+        "MergeAccountCredentials(\n\t\t\taccount.Credentials, input.Credentials, account.ChannelType, CredentialMergeAdmin,",
+        "PrepareBulkCredentialPatch(input.Credentials)",
+        "FinalizeAccountCredentials(input.Credentials, input.ChannelType)"
       ],
-      "rationale": "Bulk edits now hydrate every target once before any write so supplier-managed ownership and the existing public-group aggregator policy share one complete account snapshot. The later map fill remains required for group-only edits with SkipMixedChannelCheck."
+      "rationale": "Bulk edits now hydrate every target once before any write so supplier-managed ownership and the existing public-group aggregator policy share one complete account snapshot. The later map fill remains required for group-only edits with SkipMixedChannelCheck. Admin create/update/bulk must finalize protocol identity credentials. Without these call sites, ordinary NewAPI edits and bulk base_url rotations can keep exclusive urls pointing at a prior supplier."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions.go",
@@ -7475,9 +7478,11 @@
         "return updater.UpdateSupplierMetadata(ctx, account.ID, account.Name, account.Priority)",
         "updater.UpdateSupplierConcurrency(ctx, account.ID, concurrency)",
         "return updater.UpdateSupplierProjection(ctx, account, chatProbePassed)",
-        "account.Concurrency = ResolveSupplierSourceAccountConcurrency(input.Concurrency)"
+        "account.Concurrency = ResolveSupplierSourceAccountConcurrency(input.Concurrency)",
+        "applyExclusiveChatProtocolEndpoints(credentials, baseURL, channelType)",
+        "return FinalizeAccountCredentials(credentials, channelType)"
       ],
-      "rationale": "The supplier-source owner reads only the narrow projection, creates new managed accounts empty, unschedulable and ungrouped, resolves managed transport from the procurement endpoint (OpenAI Chat or Qianfan BaiduV2), preserves non-owned account metadata, requires current-call Chat probe evidence for every non-empty mapping, and fails closed unless both narrow repository writes are available."
+      "rationale": "The supplier-source owner reads only the narrow projection, creates new managed accounts empty, unschedulable and ungrouped, resolves managed transport from the procurement endpoint (OpenAI Chat or Qianfan BaiduV2), preserves non-owned account metadata, requires current-call Chat probe evidence for every non-empty mapping, and fails closed unless both narrow repository writes are available. Supplier projection writes exclusive chat identity only through the shared applyExclusiveChatProtocolEndpoints helper so Qianfan/OpenAI chat shapes cannot drift from FinalizeAccountCredentials."
     },
     {
       "path": "backend/internal/service/supplier_managed_account_commands_test.go",
@@ -7593,9 +7598,11 @@
       "path": "backend/internal/service/crs_sync_supplier_managed_test.go",
       "must_contain": [
         "TestUS048_CRSSyncAllowsSupplierManagedAccountOverwrite",
-        "TestUS048_CRSSyncRejectsReservedSupplierExtraOnNewAccount"
+        "TestUS048_CRSSyncRejectsReservedSupplierExtraOnNewAccount",
+        "CRS overwrite must drop stale exclusive api_base_urls",
+        "CRS overwrite must drop protocol_endpoints_exclusive so new secrets are not sent to the old supplier"
       ],
-      "rationale": "CRS import may overwrite an already supplier-managed account like any other account (preserving reserved identity via PreserveSupplierManagedExtraKeys), but must still reject forging supplier ownership Extra on a newly created account."
+      "rationale": "CRS import may overwrite an already supplier-managed account like any other account (preserving reserved identity via PreserveSupplierManagedExtraKeys), but must still reject forging supplier ownership Extra on a newly created account. US-048 regression proving CRS overwrite of a supplier-managed exclusive account drops stale identity keys instead of sending the new api_key to the old supplier URL."
     },
     {
       "path": "backend/internal/service/audit_log.go",
@@ -7672,6 +7679,56 @@
         "ID: -1001, ChannelType: transport.ChannelType, Concurrency: 4,"
       ],
       "rationale": "Supplier upstream listing owns channel_type-aware models paths (Ali compatible-mode, BaiduV2 /v2/models, default OpenAI /v1/models) and a dedicated negative list identity so concurrent discovers do not contend on account-id caches."
+    },
+    {
+      "path": "backend/internal/service/account_protocol_endpoint_credentials.go",
+      "must_contain": [
+        "func MergeAccountCredentials(existing, incoming map[string]any, channelType int, mode CredentialMergeMode) map[string]any",
+        "func FinalizeAccountCredentials(credentials map[string]any, channelType int) map[string]any",
+        "func PrepareBulkCredentialPatch(patch map[string]any) map[string]any",
+        "func applyExclusiveChatProtocolEndpoints(credentials map[string]any, baseURL string, channelType int)",
+        "func deriveExclusiveChatProtocolURL(baseURL string, channelType int) string",
+        "CredentialMergePreserveAll",
+        "delete(merged, apiBaseURLsCredentialKey)",
+        "delete(merged, ProtocolEndpointsExclusiveCredentialKey)"
+      ],
+      "rationale": "SSOT for protocol endpoint identity credentials. Merge/Finalize/bulk-patch must keep api_base_urls + protocol_endpoints_exclusive consistent with base_url; CRS/admin/bulk writers call these helpers so a future upstream merge cannot reintroduce stale exclusive routing that sends rotated secrets to an old supplier."
+    },
+    {
+      "path": "backend/internal/service/account_protocol_endpoint_credentials_test.go",
+      "must_contain": [
+        "TestMergeAccountCredentials_CRSPreserveAllDropsStaleExclusive",
+        "TestMergeAccountCredentials_AdminRealignsExclusiveWhenIncomingSpreadsStaleURLs",
+        "TestFinalizeAccountCredentials_RealignsQianfanExclusiveChatPath",
+        "TestPrepareBulkCredentialPatch_ClearsIdentityWhenRotatingBaseURL",
+        "TestSupplierManagedCredentials_UsesSharedExclusiveChatSSOT"
+      ],
+      "rationale": "Focused regressions for the exclusive-endpoint SSOT: CRS preserve-all drops stale identity, admin spread realigns chat URLs to the new base_url, Qianfan exclusive chat paths rebuild, bulk base_url/api_key patches clear identity keys, and supplierManagedCredentials shares applyExclusiveChatProtocolEndpoints."
+    },
+    {
+      "path": "backend/internal/service/account_supported_protocols.go",
+      "must_contain": [
+        "const ProtocolEndpointsExclusiveCredentialKey = \"protocol_endpoints_exclusive\"",
+        "if accountDeclaresExclusiveProtocolEndpoints(account) {",
+        "func accountDeclaresExclusiveProtocolEndpoints(account *Account) bool {"
+      ],
+      "rationale": "Gateway/scheduler identity reads protocol_endpoints_exclusive from account credentials. Dropping the exclusive branch silently fans bare base_url into undeclared protocols again and undoes the account-self identity contract from PR #1907."
+    },
+    {
+      "path": "backend/internal/repository/scheduler_cache.go",
+      "must_contain": [
+        "service.ProtocolEndpointsExclusiveCredentialKey",
+        "\"api_base_urls\""
+      ],
+      "rationale": "Scheduler snapshots must project protocol_endpoints_exclusive and api_base_urls or chat-only exclusive identity collapses after Extra filtering and recreates no_legal_protocol_route on supplier-managed accounts."
+    },
+    {
+      "path": "backend/internal/service/crs_sync_service.go",
+      "must_contain": [
+        "MergeAccountCredentials(existing.Credentials, credentials, existing.ChannelType, CredentialMergePreserveAll)",
+        "FinalizeAccountCredentials(credentials, 0)"
+      ],
+      "rationale": "Every CRS create/update path must go through the credential SSOT so rotating base_url/api_key cannot retain stale exclusive supplier endpoints."
     }
   ]
 }

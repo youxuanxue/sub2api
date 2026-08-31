@@ -245,11 +245,14 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 
 	// 创建账号
 	account := &Account{
-		Name:        req.Name,
-		Notes:       normalizeAccountNotes(req.Notes),
-		Platform:    req.Platform,
-		Type:        req.Type,
-		Credentials: SanitizeStoredCredentials(req.Platform, req.Credentials),
+		Name:     req.Name,
+		Notes:    normalizeAccountNotes(req.Notes),
+		Platform: req.Platform,
+		Type:     req.Type,
+		Credentials: FinalizeAccountCredentials(
+			SanitizeStoredCredentials(req.Platform, req.Credentials),
+			0,
+		),
 		Extra:       prepareCodexFingerprintExtraForCreate(req.Platform, req.Type, req.Extra),
 		ProxyID:     req.ProxyID,
 		Concurrency: req.Concurrency,
@@ -366,7 +369,10 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	}
 
 	if req.Credentials != nil {
-		account.Credentials = SanitizeStoredCredentials(account.Platform, *req.Credentials)
+		account.Credentials = FinalizeAccountCredentials(
+			SanitizeStoredCredentials(account.Platform, *req.Credentials),
+			account.ChannelType,
+		)
 	}
 
 	if req.Extra != nil {

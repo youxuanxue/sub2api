@@ -497,7 +497,6 @@
             <div class="flex items-center gap-1">
               <button
                 data-testid="account-edit-btn"
-                
                 @click="handleEdit(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
               >

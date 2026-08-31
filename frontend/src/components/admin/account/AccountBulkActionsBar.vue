@@ -62,15 +62,12 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 
-withDefaults(defineProps<{
+defineProps<{
   selectedIds: number[]
   totalResults: number
   selectingAll: boolean
   allResultsSelected: boolean
-  containsSupplierManaged?: boolean
-}>(), {
-  containsSupplierManaged: false
-})
+}>()
 
 defineEmits<{
   (e: 'select-page'): void

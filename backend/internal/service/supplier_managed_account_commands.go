@@ -4,9 +4,6 @@ import (
 	"context"
 	"maps"
 	"strings"
-
-	newapiconstant "github.com/QuantumNous/new-api/constant"
-	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 )
 
 type SupplierManagedAccountCreateInput struct {
@@ -263,22 +260,12 @@ func supplierManagedCredentials(endpoint, credential string, modelMapping map[st
 	if transport, err := resolveSupplierManagedTransport(endpoint, channelType); err == nil {
 		baseURL = transport.Endpoint
 	}
-	chatBase := baseURL
-	if channelType == newapiconstant.ChannelTypeBaiduV2 {
-		// Qianfan Chat lives under /v2; declare the complete path so identity
-		// normalize does not invent a /v1 suffix. Ordinary (non-exclusive)
-		// Qianfan accounts keep bare base_url fan-out and historical keys.
-		chatBase = strings.TrimRight(newapiintegration.QianfanBaseURL, "/") + "/v2/chat/completions"
-	}
-	return map[string]any{
-		"base_url":      baseURL,
+	credentials := map[string]any{
 		"api_key":       strings.TrimSpace(credential),
 		"model_mapping": mapping,
-		"api_base_urls": map[string]any{
-			APIProtocolChatCompletions: chatBase,
-		},
-		// Account-self exclusive endpoint declaration — scheduling identity
-		// reads this, not supplier_source_id.
-		ProtocolEndpointsExclusiveCredentialKey: true,
 	}
+	// Account-self exclusive endpoint declaration — scheduling identity
+	// reads this, not supplier_source_id. Shared with FinalizeAccountCredentials.
+	applyExclusiveChatProtocolEndpoints(credentials, baseURL, channelType)
+	return FinalizeAccountCredentials(credentials, channelType)
 }

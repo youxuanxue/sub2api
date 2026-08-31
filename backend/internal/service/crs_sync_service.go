@@ -388,7 +388,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 				Name:        defaultName(src.Name, src.ID),
 				Platform:    PlatformAnthropic,
 				Type:        targetType,
-				Credentials: credentials,
+				Credentials: FinalizeAccountCredentials(credentials, 0),
 				Extra:       extra,
 				ProxyID:     proxyID,
 				Concurrency: concurrency,
@@ -429,7 +429,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		existing.Name = defaultName(src.Name, src.ID)
 		existing.Platform = PlatformAnthropic
 		existing.Type = targetType
-		existing.Credentials = mergeMap(existing.Credentials, credentials)
+		existing.Credentials = MergeAccountCredentials(existing.Credentials, credentials, existing.ChannelType, CredentialMergePreserveAll)
 		if proxyID != nil {
 			existing.ProxyID = proxyID
 		}
@@ -519,7 +519,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 				Name:        defaultName(src.Name, src.ID),
 				Platform:    PlatformAnthropic,
 				Type:        AccountTypeAPIKey,
-				Credentials: credentials,
+				Credentials: FinalizeAccountCredentials(credentials, 0),
 				Extra:       extra,
 				ProxyID:     proxyID,
 				Concurrency: concurrency,
@@ -553,7 +553,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		existing.Name = defaultName(src.Name, src.ID)
 		existing.Platform = PlatformAnthropic
 		existing.Type = AccountTypeAPIKey
-		existing.Credentials = mergeMap(existing.Credentials, credentials)
+		existing.Credentials = MergeAccountCredentials(existing.Credentials, credentials, existing.ChannelType, CredentialMergePreserveAll)
 		if proxyID != nil {
 			existing.ProxyID = proxyID
 		}
@@ -677,7 +677,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 				Name:        defaultName(src.Name, src.ID),
 				Platform:    PlatformOpenAI,
 				Type:        AccountTypeOAuth,
-				Credentials: credentials,
+				Credentials: FinalizeAccountCredentials(credentials, 0),
 				Extra:       extra,
 				ProxyID:     proxyID,
 				Concurrency: concurrency,
@@ -714,7 +714,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		existing.Name = defaultName(src.Name, src.ID)
 		existing.Platform = PlatformOpenAI
 		existing.Type = AccountTypeOAuth
-		existing.Credentials = mergeMap(existing.Credentials, credentials)
+		existing.Credentials = MergeAccountCredentials(existing.Credentials, credentials, existing.ChannelType, CredentialMergePreserveAll)
 		if proxyID != nil {
 			existing.ProxyID = proxyID
 		}
@@ -839,7 +839,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 				Name:        defaultName(src.Name, src.ID),
 				Platform:    PlatformOpenAI,
 				Type:        AccountTypeAPIKey,
-				Credentials: credentials,
+				Credentials: FinalizeAccountCredentials(credentials, 0),
 				Extra:       extra,
 				ProxyID:     proxyID,
 				Concurrency: concurrency,
@@ -874,7 +874,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		existing.Name = defaultName(src.Name, src.ID)
 		existing.Platform = PlatformOpenAI
 		existing.Type = AccountTypeAPIKey
-		existing.Credentials = mergeMap(existing.Credentials, credentials)
+		existing.Credentials = MergeAccountCredentials(existing.Credentials, credentials, existing.ChannelType, CredentialMergePreserveAll)
 		if proxyID != nil {
 			existing.ProxyID = proxyID
 		}
@@ -971,7 +971,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 				Name:        defaultName(src.Name, src.ID),
 				Platform:    PlatformGemini,
 				Type:        AccountTypeOAuth,
-				Credentials: credentials,
+				Credentials: FinalizeAccountCredentials(credentials, 0),
 				Extra:       extra,
 				ProxyID:     proxyID,
 				Concurrency: 3,
@@ -1008,7 +1008,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		existing.Name = defaultName(src.Name, src.ID)
 		existing.Platform = PlatformGemini
 		existing.Type = AccountTypeOAuth
-		existing.Credentials = mergeMap(existing.Credentials, credentials)
+		existing.Credentials = MergeAccountCredentials(existing.Credentials, credentials, existing.ChannelType, CredentialMergePreserveAll)
 		if proxyID != nil {
 			existing.ProxyID = proxyID
 		}
@@ -1103,7 +1103,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 				Name:        defaultName(src.Name, src.ID),
 				Platform:    PlatformGemini,
 				Type:        AccountTypeAPIKey,
-				Credentials: credentials,
+				Credentials: FinalizeAccountCredentials(credentials, 0),
 				Extra:       extra,
 				ProxyID:     proxyID,
 				Concurrency: 3,
@@ -1137,7 +1137,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		existing.Name = defaultName(src.Name, src.ID)
 		existing.Platform = PlatformGemini
 		existing.Type = AccountTypeAPIKey
-		existing.Credentials = mergeMap(existing.Credentials, credentials)
+		existing.Credentials = MergeAccountCredentials(existing.Credentials, credentials, existing.ChannelType, CredentialMergePreserveAll)
 		if proxyID != nil {
 			existing.ProxyID = proxyID
 		}
