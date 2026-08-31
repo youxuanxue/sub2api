@@ -47,6 +47,16 @@ func TestUS048_CreateSupplierSourceAcceptsEmptyModelList(t *testing.T) {
 	require.Empty(t, created.Models)
 }
 
+func TestUS048_SupplierSourceRejectsAccountConcurrencyAboveDatabaseInteger(t *testing.T) {
+	tooLarge := SupplierSourceMaxAccountConcurrency + 1
+	input := SupplierSourceInput{
+		SupplierName: "佳杰", ChannelName: "default", Endpoint: "https://supplier.example/v1",
+		AccountConcurrency: &tooLarge,
+	}
+
+	require.ErrorIs(t, input.Validate(), ErrSupplierSourceInvalidInput)
+}
+
 func TestUS048_UpdateSupplierSourceBlankCredentialKeepsStoredSecretIdentity(t *testing.T) {
 	basePriority := 120
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{

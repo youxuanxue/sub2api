@@ -814,6 +814,55 @@ func (r *accountRepository) UpdateSupplierMetadata(ctx context.Context, accountI
 	return nil
 }
 
+func (r *accountRepository) UpdateSupplierConcurrency(ctx context.Context, accountID int64, concurrency int) error {
+	baseCtx := ctx
+	contextTx := dbent.TxFromContext(ctx)
+	client := r.client
+	var tx *dbent.Tx
+	if contextTx != nil {
+		client = contextTx.Client()
+	} else {
+		var err error
+		tx, err = r.client.Tx(ctx)
+		if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+			return err
+		}
+		if tx != nil {
+			defer func() { _ = tx.Rollback() }()
+			ctx = dbent.NewTxContext(ctx, tx)
+			client = tx.Client()
+		}
+	}
+
+	result, err := client.ExecContext(ctx, `
+		UPDATE accounts
+		SET concurrency = $1, updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL
+	`, concurrency, accountID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrAccountNotFound
+	}
+	if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil); err != nil {
+		return err
+	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	if contextTx == nil {
+		r.syncSchedulerAccountSnapshot(baseCtx, accountID)
+	}
+	return nil
+}
+
 func (r *accountRepository) UpdateSupplierProjection(ctx context.Context, account *service.Account, chatProbePassed bool) error {
 	if account == nil {
 		return nil

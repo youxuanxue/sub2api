@@ -7424,6 +7424,7 @@
       "path": "backend/internal/repository/account_repo.go",
       "must_contain": [
         "func (r *accountRepository) UpdateSupplierMetadata(ctx context.Context, accountID int64, name string, priority int) error",
+        "func (r *accountRepository) UpdateSupplierConcurrency(ctx context.Context, accountID int64, concurrency int) error",
         "func (r *accountRepository) UpdateSupplierProjection(ctx context.Context, account *service.Account, chatProbePassed bool) error",
         "if len(account.GetModelMapping()) > 0 && !chatProbePassed {",
         "publishVerifiedSupplierChatCapability(",
@@ -7432,7 +7433,7 @@
         "enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, nil)",
         "extra = COALESCE(extra, '{}'::jsonb) || $6::jsonb"
       ],
-      "rationale": "Production-only narrow write paths for supplier metadata and full projections. Non-empty mappings fail closed without the current sync call's Chat probe evidence; the same account transaction publishes the verified Chat-only capability before ordinary scheduler invalidation. Both writes avoid account-group payloads, and the full projection merges only the two owned supplier keys while preserving every non-owned Extra. Full projection also owns account concurrency from the supplier source. The generic AccountRepository.Update forwards billing and unrelated runtime fields, so supplier sync must never fall back to it."
+      "rationale": "Production-only narrow write paths for supplier metadata, concurrency and full projections. Concurrency-only sync writes the single owned column plus scheduler invalidation without fabricating probe evidence. Non-empty full projections fail closed without the current sync call's Chat probe evidence; the same account transaction publishes the verified Chat-only capability before ordinary scheduler invalidation. These writes avoid account-group payloads, and the full projection merges only the two owned supplier keys while preserving every non-owned Extra. The generic AccountRepository.Update forwards billing and unrelated runtime fields, so supplier sync must never fall back to it."
     },
     {
       "path": "backend/internal/repository/account_repo.go",
@@ -7472,6 +7473,7 @@
         "if len(input.ModelMapping) > 0 && !input.ChatProbePassed {",
         "return ErrSupplierProjectionUpdaterMissing",
         "return updater.UpdateSupplierMetadata(ctx, account.ID, account.Name, account.Priority)",
+        "updater.UpdateSupplierConcurrency(ctx, account.ID, concurrency)",
         "return updater.UpdateSupplierProjection(ctx, account, chatProbePassed)",
         "account.Concurrency = ResolveSupplierSourceAccountConcurrency(input.Concurrency)"
       ],
@@ -7482,6 +7484,7 @@
       "must_contain": [
         "TestUS048_SupplierCreateStartsEmptyUngroupedAndUnschedulable",
         "TestUS048_OrdinaryCreateAccountStillFailsWhenDefaultGroupBindFails",
+        "TestUS048_SupplierConcurrencyUpdateUsesNarrowWriteWithoutProbeEvidence",
         "TestUS048_SupplierConfigurationUpdateUsesGroupFreeReadAndNarrowWrite",
         "TestUS048_SupplierConfigurationUpdateRequiresPassedChatProbe",
         "TestUS048_SupplierQianfanCreateUsesBaiduV2Transport",
@@ -7495,6 +7498,7 @@
       "path": "backend/internal/repository/account_repo_supplier_projection_test.go",
       "must_contain": [
         "TestUS048_SupplierMetadataRepositoryWritesOnlyNameAndPriority",
+        "TestUS048_SupplierConcurrencyRepositoryWritesOnlyConcurrency",
         "TestUS048_SupplierConfigurationRepositoryRejectsUnverifiedNonEmptyMapping",
         "TestUS048_SupplierConfigurationRepositoryWritesOnlyOwnedFields",
         "TestUS048_SupplierProjectionReadSelectsOnlyRequiredConfigurationFields",
@@ -7650,12 +7654,13 @@
       "path": "backend/internal/service/supplier_source_service.go",
       "must_contain": [
         "func (s *SupplierSourceService) ensureSupplierManagedConcurrency(",
-        "func (s *SupplierSourceService) ensureSupplierProtocolProjections(",
         "func supplierAccountNeedsProtocolRepublish(account *Account, sourceEndpoint string) bool",
+        "supplierAccountNeedsProtocolRepublish(account, source.Endpoint)",
+        "UpdateManagedAccountConcurrency(",
         "ResolveSupplierSourceAccountConcurrency(source.AccountConcurrency)",
         "identity.Key() != account.ProtocolEndpointCapability.CapabilityKey"
       ],
-      "rationale": "Supplier sync must repair managed-account concurrency from the source owner and republish protocol projections when transport or capability identity drifts, without falling back to generic account updates."
+      "rationale": "Supplier sync repairs managed-account concurrency through the narrow concurrency write, while transport or capability identity drift enters the normal real-probe path before any full projection republishes protocol evidence."
     },
     {
       "path": "backend/internal/service/supplier_upstream_models.go",

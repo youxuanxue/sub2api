@@ -44,6 +44,7 @@ const (
 	SupplierSourceIDExtraKey                = "supplier_source_id"
 	SupplierDiscountBandExtraKey            = "supplier_discount_band"
 	SupplierSourceDefaultAccountConcurrency = 1000
+	SupplierSourceMaxAccountConcurrency     = 1<<31 - 1
 )
 
 type SupplierSource struct {
@@ -123,8 +124,10 @@ func (i SupplierSourceInput) Validate() error {
 			return err
 		}
 	}
-	if i.AccountConcurrency != nil && *i.AccountConcurrency <= 0 {
-		return ErrSupplierSourceInvalidInput
+	if i.AccountConcurrency != nil {
+		if *i.AccountConcurrency <= 0 || *i.AccountConcurrency > SupplierSourceMaxAccountConcurrency {
+			return ErrSupplierSourceInvalidInput
+		}
 	}
 	seen := make(map[string]struct{}, len(i.Models))
 	for _, model := range i.Models {

@@ -65,6 +65,7 @@ type SupplierSourceAccountStore interface {
 	FindCredentialEndpointMatches(ctx context.Context, match SupplierAccountMatch) ([]*Account, error)
 	CreateManagedAccount(ctx context.Context, input SupplierManagedAccountCreateInput) (*Account, error)
 	UpdateManagedAccount(ctx context.Context, input SupplierManagedAccountUpdateInput) (*Account, error)
+	UpdateManagedAccountConcurrency(ctx context.Context, accountID, sourceID int64, discountBand, concurrency int) (*Account, error)
 	GetAccount(ctx context.Context, accountID int64) (*Account, error)
 }
 
@@ -273,10 +274,7 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 		for band, account := range managedByBand {
 			workingByBand[band] = cloneSupplierProjectionAccount(account)
 		}
-		if err := s.ensureSupplierManagedConcurrency(ctx, source, credential, targets, workingByBand, result); err != nil {
-			return result, err
-		}
-		if err := s.ensureSupplierProtocolProjections(ctx, source, credential, targets, workingByBand, result); err != nil {
+		if err := s.ensureSupplierManagedConcurrency(ctx, source, targets, workingByBand, result); err != nil {
 			return result, err
 		}
 		return result, nil
@@ -394,9 +392,6 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 			action = "cleared"
 		}
 		result.Changes = append(result.Changes, supplierAccountChange(before, updated, band, action))
-	}
-	if err := s.ensureSupplierProtocolProjections(ctx, source, credential, targets, workingByBand, result); err != nil {
-		return result, err
 	}
 	return result, nil
 }
@@ -562,6 +557,7 @@ func supplierStructureChanged(
 	for band, target := range targets {
 		account := managedByBand[band]
 		if account == nil || !supplierAccountStructureMatches(account, source.Endpoint, credential, target.Mapping) ||
+			supplierAccountNeedsProtocolRepublish(account, source.Endpoint) ||
 			!supplierSchedulingProjectionMatches(account, target.Mapping) {
 			return true
 		}
@@ -573,6 +569,7 @@ func supplierStructureChanged(
 			mapping = target.Mapping
 		}
 		if !supplierAccountStructureMatches(account, source.Endpoint, credential, mapping) ||
+			supplierAccountNeedsProtocolRepublish(account, source.Endpoint) ||
 			!supplierSchedulingProjectionMatches(account, mapping) {
 			return true
 		}
@@ -761,7 +758,6 @@ func supplierSourceFromInput(input SupplierSourceInput, basePriority, accountCon
 func (s *SupplierSourceService) ensureSupplierManagedConcurrency(
 	ctx context.Context,
 	source *SupplierSource,
-	credential string,
 	targets map[int]supplierTargetBand,
 	workingByBand map[int]*Account,
 	result *SupplierSourceSyncResult,
@@ -777,13 +773,9 @@ func (s *SupplierSourceService) ensureSupplierManagedConcurrency(
 			continue
 		}
 		before := cloneSupplierProjectionAccount(account)
-		updated, err := s.accounts.UpdateManagedAccount(ctx, SupplierManagedAccountUpdateInput{
-			AccountID: account.ID, SourceID: source.ID, DiscountBand: band,
-			Name: supplierManagedAccountName(source, band), Endpoint: source.Endpoint, Credential: credential,
-			ModelMapping: cloneSupplierStringMap(target.Mapping), Priority: target.Priority,
-			Concurrency: source.AccountConcurrency, Status: StatusActive, Schedulable: true,
-			ChatProbePassed: true,
-		})
+		updated, err := s.accounts.UpdateManagedAccountConcurrency(
+			ctx, account.ID, source.ID, band, wantConcurrency,
+		)
 		if err != nil {
 			result.FailedStep = fmt.Sprintf("concurrency_band_%d", band)
 			return err
@@ -791,46 +783,6 @@ func (s *SupplierSourceService) ensureSupplierManagedConcurrency(
 		readback, readbackErr := s.accounts.GetAccount(ctx, updated.ID)
 		if readbackErr != nil {
 			result.FailedStep = fmt.Sprintf("concurrency_band_%d", band)
-			return readbackErr
-		}
-		workingByBand[band] = readback
-		result.Changes = append(result.Changes, supplierAccountChange(before, readback, band, "updated"))
-	}
-	return nil
-}
-
-func (s *SupplierSourceService) ensureSupplierProtocolProjections(
-	ctx context.Context,
-	source *SupplierSource,
-	credential string,
-	targets map[int]supplierTargetBand,
-	workingByBand map[int]*Account,
-	result *SupplierSourceSyncResult,
-) error {
-	for _, band := range sortedSupplierBands(targets) {
-		target := targets[band]
-		if len(target.Mapping) == 0 {
-			continue
-		}
-		account := workingByBand[band]
-		if account == nil || !supplierAccountNeedsProtocolRepublish(account, source.Endpoint) {
-			continue
-		}
-		before := cloneSupplierProjectionAccount(account)
-		updated, err := s.accounts.UpdateManagedAccount(ctx, SupplierManagedAccountUpdateInput{
-			AccountID: account.ID, SourceID: source.ID, DiscountBand: band,
-			Name: supplierManagedAccountName(source, band), Endpoint: source.Endpoint, Credential: credential,
-			ModelMapping: cloneSupplierStringMap(target.Mapping), Priority: target.Priority,
-			Concurrency: source.AccountConcurrency, Status: StatusActive, Schedulable: true,
-			ChatProbePassed: true,
-		})
-		if err != nil {
-			result.FailedStep = fmt.Sprintf("protocol_band_%d", band)
-			return err
-		}
-		readback, readbackErr := s.accounts.GetAccount(ctx, updated.ID)
-		if readbackErr != nil {
-			result.FailedStep = fmt.Sprintf("protocol_band_%d", band)
 			return readbackErr
 		}
 		workingByBand[band] = readback

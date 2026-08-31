@@ -65,6 +65,48 @@ func TestUS048_SupplierMetadataRepositoryWritesOnlyNameAndPriority(t *testing.T)
 	}
 }
 
+func TestUS048_SupplierConcurrencyRepositoryWritesOnlyConcurrency(t *testing.T) {
+	var capturedSQL []string
+	matcher := sqlmock.QueryMatcherFunc(func(expectedSQL, actualSQL string) error {
+		capturedSQL = append(capturedSQL, actualSQL)
+		return sqlmock.QueryMatcherRegexp.Match(expectedSQL, actualSQL)
+	})
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(matcher))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+	t.Cleanup(func() { _ = client.Close() })
+	repo := newAccountRepositoryWithSQL(client, db, nil, nil)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`(?s)UPDATE accounts\s+SET concurrency = \$1, updated_at = NOW\(\)\s+WHERE id = \$2 AND deleted_at IS NULL`).
+		WithArgs(1000, int64(41)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO scheduler_outbox")).
+		WithArgs(service.SchedulerOutboxEventAccountChanged, int64(41), nil, nil, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	err = repo.UpdateSupplierConcurrency(context.Background(), 41, 1000)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var accountUpdateSQL string
+	for _, query := range capturedSQL {
+		if strings.Contains(query, "UPDATE accounts") {
+			accountUpdateSQL = strings.ToLower(query)
+			break
+		}
+	}
+	require.NotEmpty(t, accountUpdateSQL)
+	require.Contains(t, accountUpdateSQL, "concurrency")
+	for _, forbidden := range []string{
+		"credentials", "extra", "name", "priority", "status", "schedulable", "rate_multiplier", "protocol_endpoint_capability_id",
+	} {
+		require.NotContains(t, accountUpdateSQL, forbidden)
+	}
+}
+
 func TestUS048_SupplierConfigurationRepositoryRejectsUnverifiedNonEmptyMapping(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
