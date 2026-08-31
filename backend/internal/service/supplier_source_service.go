@@ -594,6 +594,36 @@ func supplierAccountStructureMatches(account *Account, endpoint string, channelT
 	return supplierStringMapsEqual(supplierModelMapping(account.Credentials), mapping)
 }
 
+func supplierAccountNeedsProtocolRepublish(account *Account, sourceEndpoint string, sourceChannelType int) bool {
+	if account == nil || len(supplierModelMapping(account.Credentials)) == 0 {
+		return false
+	}
+	// Migrate legacy managed credentials that still fan identity from bare base_url.
+	if !accountDeclaresExclusiveProtocolEndpoints(account) {
+		return true
+	}
+	want, err := resolveSupplierManagedTransport(sourceEndpoint, sourceChannelType)
+	if err != nil {
+		return true
+	}
+	if account.ChannelType != want.ChannelType {
+		return true
+	}
+	baseURL, _ := account.Credentials["base_url"].(string)
+	if !supplierManagedEndpointsEqual(baseURL, sourceEndpoint) {
+		return true
+	}
+	identity, governed, err := BuildProtocolEndpointIdentity(account)
+	if err != nil || !governed {
+		return true
+	}
+	if account.ProtocolEndpointCapability != nil &&
+		identity.Key() != account.ProtocolEndpointCapability.CapabilityKey {
+		return true
+	}
+	return false
+}
+
 func supplierAccountMatchesDesired(
 	account *Account,
 	source *SupplierSource,
@@ -792,32 +822,6 @@ func (s *SupplierSourceService) ensureSupplierManagedConcurrency(
 		result.Changes = append(result.Changes, supplierAccountChange(before, readback, band, "updated"))
 	}
 	return nil
-}
-
-func supplierAccountNeedsProtocolRepublish(account *Account, sourceEndpoint string, sourceChannelType int) bool {
-	if account == nil || len(supplierModelMapping(account.Credentials)) == 0 {
-		return false
-	}
-	want, err := resolveSupplierManagedTransport(sourceEndpoint, sourceChannelType)
-	if err != nil {
-		return false
-	}
-	if account.ChannelType != want.ChannelType {
-		return true
-	}
-	baseURL, _ := account.Credentials["base_url"].(string)
-	if !supplierManagedEndpointsEqual(baseURL, sourceEndpoint) {
-		return true
-	}
-	identity, governed, err := BuildProtocolEndpointIdentity(account)
-	if err != nil || !governed {
-		return true
-	}
-	if account.ProtocolEndpointCapability != nil &&
-		identity.Key() != account.ProtocolEndpointCapability.CapabilityKey {
-		return true
-	}
-	return false
 }
 
 func (s *SupplierSourceService) protectCredential(credential string) (string, string, error) {

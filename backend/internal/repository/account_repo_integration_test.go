@@ -279,13 +279,10 @@ func (s *AccountRepoSuite) TestUS048_SupplierConfigurationProjectionPreservesRun
 		Platform:    service.PlatformNewAPI,
 		Type:        service.AccountTypeAPIKey,
 		ChannelType: 46,
-		Credentials: map[string]any{
-			"base_url": "https://old.example/v1",
-			"api_key":  "old-secret",
-			"model_mapping": map[string]any{
-				"old-model": "old-model",
-			},
-		},
+		Credentials: supplierExclusiveChatCredentials(
+			"https://old.example/v1", "old-secret",
+			map[string]any{"old-model": "old-model"},
+		),
 		Extra: map[string]any{
 			service.SupplierSourceIDExtraKey:     int64(7),
 			service.SupplierDiscountBandExtraKey: 3,
@@ -321,13 +318,10 @@ func (s *AccountRepoSuite) TestUS048_SupplierConfigurationProjectionPreservesRun
 	stale.Platform = service.PlatformNewAPI
 	stale.Type = service.AccountTypeAPIKey
 	stale.ChannelType = newapiconstant.ChannelTypeOpenAI
-	stale.Credentials = map[string]any{
-		"base_url": "https://new.example/v1",
-		"api_key":  "new-secret",
-		"model_mapping": map[string]string{
-			"deepseek-v4-pro": "deepseek-v4-pro",
-		},
-	}
+	stale.Credentials = supplierExclusiveChatCredentials(
+		"https://new.example/v1", "new-secret",
+		map[string]any{"deepseek-v4-pro": "deepseek-v4-pro"},
+	)
 	stale.Extra[service.SupplierSourceIDExtraKey] = int64(7)
 	stale.Extra[service.SupplierDiscountBandExtraKey] = 4
 	stale.Extra["runtime_observation"] = "stale-value-must-not-be-written"
@@ -384,13 +378,10 @@ func (s *AccountRepoSuite) TestUS048_SupplierConfigurationProjectionRebindsProto
 		Platform:    service.PlatformNewAPI,
 		Type:        service.AccountTypeAPIKey,
 		ChannelType: newapiconstant.ChannelTypeOpenAI,
-		Credentials: map[string]any{
-			"base_url": "https://old-supplier.example/v1",
-			"api_key":  "supplier-secret",
-			"model_mapping": map[string]any{
-				"deepseek-v4-pro": "deepseek-v4-pro",
-			},
-		},
+		Credentials: supplierExclusiveChatCredentials(
+			"https://old-supplier.example/v1", "supplier-secret",
+			map[string]any{"deepseek-v4-pro": "deepseek-v4-pro"},
+		),
 		Extra: map[string]any{
 			service.SupplierSourceIDExtraKey:     int64(7),
 			service.SupplierDiscountBandExtraKey: 3,
@@ -415,13 +406,10 @@ func (s *AccountRepoSuite) TestUS048_SupplierConfigurationProjectionRebindsProto
 	s.Require().NoError(err)
 	s.Require().True(previousCapabilityID.Valid)
 
-	account.Credentials = map[string]any{
-		"base_url": "https://new-supplier.example/v1",
-		"api_key":  "supplier-secret",
-		"model_mapping": map[string]any{
-			"deepseek-v4-pro": "deepseek-v4-pro",
-		},
-	}
+	account.Credentials = supplierExclusiveChatCredentials(
+		"https://new-supplier.example/v1", "supplier-secret",
+		map[string]any{"deepseek-v4-pro": "deepseek-v4-pro"},
+	)
 
 	err = s.repo.UpdateSupplierProjection(s.ctx, account, true)
 	s.Require().NoError(err)

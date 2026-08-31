@@ -546,6 +546,44 @@ func TestSchedulerCacheSnapshotKeepsSupportedProtocolsForRouting(t *testing.T) {
 	require.NotContains(t, snapshot[0].Extra, "unrelated")
 }
 
+func TestBuildSchedulerMetadataAccount_KeepsExclusiveProtocolEndpointCredentials(t *testing.T) {
+	account := service.Account{
+		ID:       109,
+		Platform: service.PlatformNewAPI,
+		Type:     service.AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://dashscope.aliyuncs.com",
+			"api_key":  "secret",
+			"api_base_urls": map[string]any{
+				service.APIProtocolChatCompletions: "https://dashscope.aliyuncs.com",
+			},
+			service.ProtocolEndpointsExclusiveCredentialKey: true,
+			"unused_large_field":                            "drop-me",
+		},
+		Extra: map[string]any{
+			service.SupplierSourceIDExtraKey: int64(8),
+			"unrelated":                      "drop-me",
+		},
+	}
+	got := buildSchedulerMetadataAccount(account)
+	require.Equal(t, true, got.Credentials[service.ProtocolEndpointsExclusiveCredentialKey])
+	require.Equal(t, "https://dashscope.aliyuncs.com", got.Credentials["base_url"])
+	require.Equal(t, map[string]any{
+		service.APIProtocolChatCompletions: "https://dashscope.aliyuncs.com",
+	}, got.Credentials["api_base_urls"])
+	require.NotContains(t, got.Credentials, "unused_large_field")
+	require.NotContains(t, got.Extra, service.SupplierSourceIDExtraKey,
+		"supplier_source_id must stay out of scheduler Extra; identity uses account credentials only")
+	require.NotContains(t, got.Extra, "unrelated")
+
+	identity, governed, err := service.BuildProtocolEndpointIdentity(&got)
+	require.NoError(t, err)
+	require.True(t, governed)
+	require.Equal(t, map[protocolrouter.Protocol]service.ProtocolEndpoint{
+		protocolrouter.ProtocolChatCompletions: {URL: "https://dashscope.aliyuncs.com/v1/chat/completions"},
+	}, identity.ProtocolEndpoints)
+}
+
 func TestBuildSchedulerMetadataAccountPreservesProtocolEndpointIdentity(t *testing.T) {
 	vertexCredential := `{"type":"service_account","project_id":"vertex-project","private_key":"private-key","client_email":"svc@vertex-project.iam.gserviceaccount.com"}`
 	tests := []struct {

@@ -86,10 +86,8 @@ func TestUS048_SupplierSyncMetadataOnlySkipsProbe(t *testing.T) {
 	}}
 	accounts := &supplierSyncAccountStoreFake{managed: []*Account{{
 		ID: 41, Name: "existing", Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1,
-		Credentials: map[string]any{
-			"base_url": "https://supplier.example/v1", "api_key": "secret",
-			"model_mapping": map[string]string{"model": "model"},
-		},
+		Credentials: supplierManagedCredentials(
+			"https://supplier.example/v1", "secret", map[string]string{"model": "model"}, 1),
 		Extra:    map[string]any{SupplierSourceIDExtraKey: int64(7), SupplierDiscountBandExtraKey: 3},
 		Priority: 102, Status: StatusActive, Schedulable: true, Concurrency: SupplierSourceDefaultAccountConcurrency,
 	}}}
@@ -115,10 +113,8 @@ func TestUS048_SupplierSyncNameChangeUpdatesAccountWithoutProbe(t *testing.T) {
 	}}
 	accounts := &supplierSyncAccountStoreFake{managed: []*Account{{
 		ID: 41, Name: "佳杰/stbl-5 · 档位 3", Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1,
-		Credentials: map[string]any{
-			"base_url": "https://supplier.example/v1", "api_key": "secret",
-			"model_mapping": map[string]string{"model": "model"},
-		},
+		Credentials: supplierManagedCredentials(
+			"https://supplier.example/v1", "secret", map[string]string{"model": "model"}, 1),
 		Extra:    map[string]any{SupplierSourceIDExtraKey: int64(7), SupplierDiscountBandExtraKey: 3},
 		Priority: 103, Status: StatusActive, Schedulable: true, Concurrency: SupplierSourceDefaultAccountConcurrency,
 	}}}
@@ -142,10 +138,8 @@ func TestUS048_SupplierSyncMovesModelByAddingBeforeRemoving(t *testing.T) {
 	}}
 	accounts := &supplierSyncAccountStoreFake{managed: []*Account{{
 		ID: 41, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1,
-		Credentials: map[string]any{
-			"base_url": "https://supplier.example/v1", "api_key": "secret",
-			"model_mapping": map[string]string{"model": "model"},
-		},
+		Credentials: supplierManagedCredentials(
+			"https://supplier.example/v1", "secret", map[string]string{"model": "model"}, 1),
 		Extra:    map[string]any{SupplierSourceIDExtraKey: int64(7), SupplierDiscountBandExtraKey: 3},
 		Priority: 103, Status: StatusActive, Schedulable: true, Concurrency: SupplierSourceDefaultAccountConcurrency,
 	}}}
@@ -839,10 +833,9 @@ func TestUS048_SupplierSyncAppliesSourceAccountConcurrency(t *testing.T) {
 	}}
 	accounts := &supplierSyncAccountStoreFake{managed: []*Account{{
 		ID: 41, Name: "supplier/佳杰 · 档位 3", Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1,
-		Credentials: map[string]any{
-			"base_url": "https://supplier.example/v1", "api_key": "secret",
-			"model_mapping": map[string]string{"deepseek-v4-pro": "deepseek-v4-pro"},
-		},
+		Credentials: supplierManagedCredentials(
+			"https://supplier.example/v1", "secret",
+			map[string]string{"deepseek-v4-pro": "deepseek-v4-pro"}, 1),
 		Extra:    map[string]any{SupplierSourceIDExtraKey: int64(7), SupplierDiscountBandExtraKey: 3},
 		Priority: 103, Status: StatusActive, Schedulable: true, Concurrency: 1,
 	}}}
@@ -904,4 +897,25 @@ func TestSupplierAccountNeedsProtocolRepublishDetectsTransportDrift(t *testing.T
 	require.True(t, supplierAccountNeedsProtocolRepublish(
 		account, "https://qianfan.baidubce.com", newapiconstant.ChannelTypeBaiduV2,
 	))
+}
+
+func TestSupplierAccountNeedsProtocolRepublishDetectsLegacyNonExclusiveCredentials(t *testing.T) {
+	// Pre-fix managed rows only had bare base_url; sync must republish exclusive shape.
+	account := &Account{
+		Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1,
+		Credentials: map[string]any{
+			"base_url":      "https://supplier.example/v1",
+			"api_key":       "secret",
+			"model_mapping": map[string]string{"model": "model"},
+		},
+	}
+	require.False(t, accountDeclaresExclusiveProtocolEndpoints(account))
+	require.True(t, supplierAccountNeedsProtocolRepublish(account, "https://supplier.example/v1", 1))
+
+	migrated := &Account{
+		Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1,
+		Credentials: supplierManagedCredentials(
+			"https://supplier.example/v1", "secret", map[string]string{"model": "model"}, 1),
+	}
+	require.False(t, supplierAccountNeedsProtocolRepublish(migrated, "https://supplier.example/v1", 1))
 }
