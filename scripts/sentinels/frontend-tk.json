@@ -2017,6 +2017,7 @@
       "must_contain": [
         "Object.prototype.hasOwnProperty.call(extra, 'supplier_source_id')",
         "const readOnlyReason = computed(() => t('admin.accounts.supplierManaged.readOnlyReason'))",
+        "const viewHint = computed(() => t('admin.accounts.supplierManaged.viewHint'))",
         "href: `/admin/supplier-sources?source_id=${marker.sourceId}`"
       ],
       "rationale": "Single frontend owner for the supplier-managed marker, source-name lookup, fallback labels, navigation and canonical read-only reason. Account rows, modals and menus must not grow separate ownership rules."
@@ -2034,6 +2035,7 @@
       "path": "frontend/src/views/admin/__tests__/AccountsView.supplierManaged.spec.ts",
       "must_contain": [
         "shows the badge and disables row and mixed-selection generic writes",
+        "opens the read-only account modal for supplier-managed rows",
         "rejects a stale child write event before calling the account API",
         "allows supplier-managed runtime recovery and quota reset actions",
         "allows supplier-managed bulk runtime recovery"
@@ -2064,9 +2066,9 @@
       "path": "frontend/src/components/account/__tests__/EditAccountModal.spec.ts",
       "must_contain": [
         "shows the supplier-managed reason and refuses generic account updates",
-        "admin.accounts.supplierManaged.readOnlyReason"
+        "admin.accounts.supplierManaged.viewHint"
       ],
-      "rationale": "The generic edit modal is a second UI entry point and must remain read-only for supplier-managed accounts with the same canonical reason, even if it is opened from stale state or another caller."
+      "rationale": "The generic edit modal is a second UI entry point and must remain read-only for supplier-managed accounts with the same view hint and disabled submit path, even if it is opened from stale state or another caller."
     }
   ]
 }

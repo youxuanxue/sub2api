@@ -72,6 +72,11 @@ func TestUS048_SupplierAccountStoreDelegatesWritesOnlyToAccountCommands(t *testi
 	require.NoError(t, err)
 	require.Equal(t, int64(101), updated.ID)
 	require.Equal(t, 1, commands.updateCalls)
+
+	concurrencyUpdated, err := store.UpdateManagedAccountConcurrency(context.Background(), 101, 7, 3, 1000)
+	require.NoError(t, err)
+	require.Equal(t, int64(101), concurrencyUpdated.ID)
+	require.Equal(t, 1, commands.concurrencyUpdateCalls)
 	require.Zero(t, repo.createCalls)
 	require.Zero(t, repo.updateCalls)
 }
@@ -127,8 +132,9 @@ func (r *supplierAccountStoreRepoFake) Update(context.Context, *Account) error {
 }
 
 type supplierAccountCommandsFake struct {
-	createCalls int
-	updateCalls int
+	createCalls            int
+	updateCalls            int
+	concurrencyUpdateCalls int
 }
 
 func (f *supplierAccountCommandsFake) CreateSupplierManagedAccount(_ context.Context, input SupplierManagedAccountCreateInput) (*Account, error) {
@@ -141,4 +147,13 @@ func (f *supplierAccountCommandsFake) CreateSupplierManagedAccount(_ context.Con
 func (f *supplierAccountCommandsFake) UpdateSupplierManagedAccount(_ context.Context, input SupplierManagedAccountUpdateInput) (*Account, error) {
 	f.updateCalls++
 	return &Account{ID: input.AccountID}, nil
+}
+
+func (f *supplierAccountCommandsFake) UpdateSupplierManagedAccountConcurrency(
+	_ context.Context,
+	accountID, _ int64,
+	_, concurrency int,
+) (*Account, error) {
+	f.concurrencyUpdateCalls++
+	return &Account{ID: accountID, Concurrency: concurrency}, nil
 }

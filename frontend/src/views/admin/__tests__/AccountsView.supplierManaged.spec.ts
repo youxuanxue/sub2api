@@ -238,7 +238,8 @@ describe('admin AccountsView supplier-managed ownership', () => {
 
     expect(managedRow.text()).toContain('admin.accounts.supplierManaged.badge · 佳杰/VSTECS')
     expect(managedRow.get('[data-test="schedulable"] button').attributes('disabled')).toBeDefined()
-    expect(managedRow.get('[data-testid="account-edit-btn"]').attributes('disabled')).toBeDefined()
+    expect(managedRow.get('[data-testid="account-edit-btn"]').attributes('disabled')).toBeUndefined()
+    expect(managedRow.get('[data-testid="account-edit-btn"]').text()).toContain('common.view')
     expect(managedRow.findAll('[data-test="actions"] button')[1].attributes('disabled')).toBeDefined()
     expect(ordinaryRow.get('[data-test="schedulable"] button').attributes('disabled')).toBeUndefined()
 
@@ -250,6 +251,19 @@ describe('admin AccountsView supplier-managed ownership', () => {
     )
     expect(wrapper.text()).toContain('admin.accounts.supplierManaged.readOnlyReason')
     expect(bulkDelete?.attributes('disabled')).toBeDefined()
+  })
+
+  it('opens the read-only account modal for supplier-managed rows', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="account-row-7"]').get('[data-testid="account-edit-btn"]').trigger('click')
+    await flushPromises()
+
+    const modal = wrapper.get('[data-test="edit-modal"]')
+    expect(modal.attributes('data-show')).toBe('true')
+    expect(modal.attributes('data-account-id')).toBe('7')
+    expect(showError).not.toHaveBeenCalled()
   })
 
   it('rejects a stale child write event before calling the account API', async () => {

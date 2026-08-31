@@ -34,6 +34,7 @@ const source = {
   channel_name: 'stbl-5',
   endpoint: 'https://token.vstecscloud.com/v1',
   base_priority: 100,
+  account_concurrency: 1000,
   notes: '首批最低折扣',
   models: [{
     client_model_id: 'deepseek-v4-pro',

@@ -65,6 +65,48 @@ func TestUS048_SupplierMetadataRepositoryWritesOnlyNameAndPriority(t *testing.T)
 	}
 }
 
+func TestUS048_SupplierConcurrencyRepositoryWritesOnlyConcurrency(t *testing.T) {
+	var capturedSQL []string
+	matcher := sqlmock.QueryMatcherFunc(func(expectedSQL, actualSQL string) error {
+		capturedSQL = append(capturedSQL, actualSQL)
+		return sqlmock.QueryMatcherRegexp.Match(expectedSQL, actualSQL)
+	})
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(matcher))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+	t.Cleanup(func() { _ = client.Close() })
+	repo := newAccountRepositoryWithSQL(client, db, nil, nil)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`(?s)UPDATE accounts\s+SET concurrency = \$1, updated_at = NOW\(\)\s+WHERE id = \$2 AND deleted_at IS NULL`).
+		WithArgs(1000, int64(41)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO scheduler_outbox")).
+		WithArgs(service.SchedulerOutboxEventAccountChanged, int64(41), nil, nil, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	err = repo.UpdateSupplierConcurrency(context.Background(), 41, 1000)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var accountUpdateSQL string
+	for _, query := range capturedSQL {
+		if strings.Contains(query, "UPDATE accounts") {
+			accountUpdateSQL = strings.ToLower(query)
+			break
+		}
+	}
+	require.NotEmpty(t, accountUpdateSQL)
+	require.Contains(t, accountUpdateSQL, "concurrency")
+	for _, forbidden := range []string{
+		"credentials", "extra", "name", "priority", "status", "schedulable", "rate_multiplier", "protocol_endpoint_capability_id",
+	} {
+		require.NotContains(t, accountUpdateSQL, forbidden)
+	}
+}
+
 func TestUS048_SupplierConfigurationRepositoryRejectsUnverifiedNonEmptyMapping(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
@@ -130,6 +172,7 @@ func TestUS048_SupplierConfigurationRepositoryWritesOnlyOwnedFields(t *testing.T
 		Priority:    113,
 		Status:      service.StatusActive,
 		Schedulable: true,
+		Concurrency: 1000,
 		GroupIDs:    []int64{4, 9},
 	}
 	identity, governed, err := service.BuildProtocolEndpointIdentity(account)
@@ -140,7 +183,7 @@ func TestUS048_SupplierConfigurationRepositoryWritesOnlyOwnedFields(t *testing.T
 	now := time.Date(2026, time.August, 28, 0, 0, 0, 0, time.UTC)
 
 	mock.ExpectBegin()
-	mock.ExpectExec(`(?s)UPDATE accounts\s+SET\s+name = \$1,\s+platform = \$2,\s+type = \$3,\s+channel_type = \$4,\s+credentials = \$5::jsonb,\s+extra = COALESCE\(extra, '\{\}'::jsonb\) \|\| \$6::jsonb,\s+priority = \$7,\s+status = \$8,\s+schedulable = \$9,\s+updated_at = NOW\(\)\s+WHERE id = \$10 AND deleted_at IS NULL`).
+	mock.ExpectExec(`(?s)UPDATE accounts\s+SET\s+name = \$1,\s+platform = \$2,\s+type = \$3,\s+channel_type = \$4,\s+credentials = \$5::jsonb,\s+extra = COALESCE\(extra, '\{\}'::jsonb\) \|\| \$6::jsonb,\s+priority = \$7,\s+status = \$8,\s+schedulable = \$9,\s+concurrency = \$10,\s+updated_at = NOW\(\)\s+WHERE id = \$11 AND deleted_at IS NULL`).
 		WithArgs(
 			"supplier/new · 档位 3",
 			service.PlatformNewAPI,
@@ -151,6 +194,7 @@ func TestUS048_SupplierConfigurationRepositoryWritesOnlyOwnedFields(t *testing.T
 			113,
 			service.StatusActive,
 			true,
+			1000,
 			int64(41),
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -222,11 +266,11 @@ func TestUS048_SupplierConfigurationRepositoryWritesOnlyOwnedFields(t *testing.T
 		}
 	}
 	require.NotEmpty(t, accountUpdateSQL)
-	for _, required := range []string{"name", "platform", "type", "channel_type", "credentials", "extra", "priority", "status", "schedulable"} {
+	for _, required := range []string{"name", "platform", "type", "channel_type", "credentials", "extra", "priority", "status", "schedulable", "concurrency"} {
 		require.Contains(t, accountUpdateSQL, required)
 	}
 	for _, forbidden := range []string{
-		"notes", "concurrency", "rate_multiplier",
+		"notes", "rate_multiplier",
 		"proxy_id", "load_factor", "tier_id", "last_used_at", "expires_at", "rate_limit",
 		"overload_until", "session_window", "quota_dimension", "parent_account_id", "error_message", "group",
 		"supplier_source_model_id", "supplier_channel", "supplier_projection_mode", "supplier_credential_fingerprint",
@@ -251,19 +295,19 @@ func TestUS048_SupplierProjectionReadSelectsOnlyRequiredConfigurationFields(t *t
 	mock.ExpectQuery(`(?s)SELECT .* FROM "accounts" WHERE .*"id" = \$1`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "name", "platform", "type", "credentials", "extra",
-			"priority", "status", "schedulable", "channel_type",
+			"priority", "status", "schedulable", "channel_type", "concurrency", "protocol_endpoint_capability_id",
 		}).AddRow(
 			int64(41), "supplier/source · 档位 3", service.PlatformNewAPI, service.AccountTypeAPIKey,
 			[]byte(`{"base_url":"https://supplier.example/v1","api_key":"secret","model_mapping":{"model":"model"}}`),
 			[]byte(`{"supplier_source_id":7,"supplier_discount_band":3}`),
-			103, service.StatusActive, true, 1,
+			103, service.StatusActive, true, 1, 1000, nil,
 		))
 
 	account, err := repo.GetSupplierAccount(context.Background(), 41)
 	require.NoError(t, err)
 	require.Equal(t, int64(41), account.ID)
 	require.Nil(t, account.RateMultiplier)
-	require.Zero(t, account.Concurrency)
+	require.Equal(t, 1000, account.Concurrency)
 	require.Nil(t, account.ProxyID)
 	require.Nil(t, account.GroupIDs)
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -272,12 +316,12 @@ func TestUS048_SupplierProjectionReadSelectsOnlyRequiredConfigurationFields(t *t
 	query := strings.ToLower(capturedSQL[0])
 	for _, required := range []string{
 		"id", "name", "platform", "type", "credentials", "extra",
-		"priority", "status", "schedulable", "channel_type",
+		"priority", "status", "schedulable", "channel_type", "concurrency", "protocol_endpoint_capability_id",
 	} {
 		require.Contains(t, query, required)
 	}
 	for _, forbidden := range []string{
-		"account_groups", "rate_multiplier", "concurrency", "proxy_id", "proxy_fallback_origin_id",
+		"account_groups", "rate_multiplier", "proxy_id", "proxy_fallback_origin_id",
 		"load_factor", "notes", "error_message", "last_used_at", "expires_at", "rate_limited_at",
 		"rate_limit_reset_at", "overload_until", "temp_unschedulable", "session_window", "tier_id",
 		"parent_account_id", "quota_dimension",

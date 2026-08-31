@@ -334,6 +334,7 @@ func (s *AccountRepoSuite) TestUS048_SupplierConfigurationProjectionPreservesRun
 	stale.Priority = 114
 	stale.Status = service.StatusActive
 	stale.Schedulable = true
+	stale.Concurrency = 1000
 
 	err = s.repo.UpdateSupplierProjection(s.ctx, stale, true)
 	s.Require().NoError(err)
@@ -355,7 +356,7 @@ func (s *AccountRepoSuite) TestUS048_SupplierConfigurationProjectionPreservesRun
 	s.Require().Equal("operator-owned", got.Extra["supplier_channel"])
 	s.Require().Equal("operator-owned", got.Extra["supplier_projection_mode"])
 	s.Require().Equal("runtime note", *got.Notes)
-	s.Require().Equal(9, got.Concurrency)
+	s.Require().Equal(1000, got.Concurrency)
 	s.Require().Equal("runtime error", got.ErrorMessage)
 	s.Require().NotNil(got.RateMultiplier)
 	s.Require().Equal(1.75, *got.RateMultiplier)
