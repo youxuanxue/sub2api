@@ -203,9 +203,13 @@ func (s *SupplierSourceService) PriorityPreview(ctx context.Context) (*SupplierP
 		}
 		for _, band := range sortedSupplierBands(targets) {
 			modelIDs := sortedSupplierMappingKeys(targets[band].Mapping)
+			discountPriority, priorityErr := SupplierDiscountPriority(band)
+			if priorityErr != nil {
+				return nil, priorityErr
+			}
 			preview.Entries = append(preview.Entries, SupplierPriorityPreviewEntry{
 				SourceID: source.ID, SupplierName: source.SupplierName, ChannelName: source.ChannelName,
-				DiscountBand: band, DiscountPriority: band * SupplierDiscountPriorityStep, Priority: targets[band].Priority,
+				DiscountBand: band, DiscountPriority: discountPriority, Priority: targets[band].Priority,
 				ClientModelIDs: modelIDs,
 			})
 		}
