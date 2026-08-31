@@ -49,6 +49,41 @@ func TestUS048_OrdinaryCreateAccountStillFailsWhenDefaultGroupBindFails(t *testi
 	require.Equal(t, 1, accounts.bindCalls)
 }
 
+func TestUS048_SupplierCreateUsesDefaultAccountConcurrency(t *testing.T) {
+	accounts := &supplierManagedCommandsAccountRepoFake{}
+	groups := &supplierManagedCommandsGroupRepoFake{groups: []Group{{ID: 9, Name: PlatformNewAPI + "-default", Platform: PlatformNewAPI}}}
+	svc := &adminServiceImpl{accountRepo: accounts, groupRepo: groups}
+
+	_, err := svc.CreateSupplierManagedAccount(context.Background(), SupplierManagedAccountCreateInput{
+		SourceID: 7, DiscountBand: 3, Name: "supplier/test · 档位 3",
+		Endpoint: "https://supplier.example/v1", Credential: "secret", Priority: 103,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, SupplierSourceDefaultAccountConcurrency, accounts.created.Concurrency)
+}
+
+func TestUS048_SupplierConcurrencyUpdateUsesNarrowWriteWithoutProbeEvidence(t *testing.T) {
+	accounts := &supplierManagedCommandsAccountRepoFake{existing: &Account{
+		ID: 41,
+		Extra: map[string]any{
+			SupplierSourceIDExtraKey: int64(7), SupplierDiscountBandExtraKey: 3,
+		},
+		Concurrency: 1,
+	}}
+	svc := &adminServiceImpl{accountRepo: accounts}
+
+	updated, err := svc.UpdateSupplierManagedAccountConcurrency(context.Background(), 41, 7, 3, 1000)
+
+	require.NoError(t, err)
+	require.Equal(t, 1000, updated.Concurrency)
+	require.Equal(t, 1, accounts.concurrencyUpdateCalls)
+	require.Equal(t, int64(41), accounts.concurrencyAccountID)
+	require.Equal(t, 1000, accounts.concurrencyValue)
+	require.Zero(t, accounts.projectionUpdateCalls, "concurrency-only changes must not publish protocol evidence")
+	require.Zero(t, accounts.genericUpdateCalls)
+}
+
 func TestUS048_SupplierConfigurationUpdateUsesGroupFreeReadAndNarrowWrite(t *testing.T) {
 	accounts := &supplierManagedCommandsAccountRepoFake{existing: &Account{
 		ID: 41, Name: "old", Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 46,
@@ -229,6 +264,9 @@ type supplierManagedCommandsAccountRepoFake struct {
 	metadataAccountID         int64
 	metadataName              string
 	metadataPriority          int
+	concurrencyUpdateCalls    int
+	concurrencyAccountID      int64
+	concurrencyValue          int
 	bindErr                   error
 	genericGetCalls           int
 	supplierGetCalls          int
@@ -279,6 +317,15 @@ func (r *supplierManagedCommandsAccountRepoFake) UpdateSupplierMetadata(_ contex
 	r.updated = cloneSupplierManagedCommandsTestAccount(r.existing)
 	r.updated.Name = name
 	r.updated.Priority = priority
+	return nil
+}
+
+func (r *supplierManagedCommandsAccountRepoFake) UpdateSupplierConcurrency(_ context.Context, accountID int64, concurrency int) error {
+	r.concurrencyUpdateCalls++
+	r.concurrencyAccountID = accountID
+	r.concurrencyValue = concurrency
+	r.updated = cloneSupplierManagedCommandsTestAccount(r.existing)
+	r.updated.Concurrency = concurrency
 	return nil
 }
 

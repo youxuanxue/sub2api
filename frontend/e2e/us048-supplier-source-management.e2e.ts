@@ -403,8 +403,15 @@ test('US048 accounts UI marks supplier-managed accounts and explains read-only o
   await expect(badge).toHaveAttribute('href', '/admin/supplier-sources?source_id=7')
 
   const editButton = row.locator('[data-testid="account-edit-btn"]')
-  await expect(editButton).toBeDisabled()
-  await expect(editButton).toHaveAttribute('title', '该账号由供应源托管，请前往供应源管理修改。')
+  await expect(editButton).toBeEnabled()
+  await expect(editButton).toHaveAttribute('title', '查看托管账号配置（只读）')
+  await expect(editButton).toContainText('查看')
+
+  await editButton.click()
+  await expect(page.getByRole('heading', { name: '查看账号' })).toBeVisible()
+  await expect(page.getByText('以下为只读快照；修改模型、凭证与 priority 请前往供应源管理。')).toBeVisible()
+  await expect(page.getByRole('button', { name: '更新' })).toHaveCount(0)
+  await page.getByRole('button', { name: '关闭' }).click()
 
   await row.getByRole('button', { name: '更多' }).click()
   await expect(page.getByText('该账号由供应源托管，请前往供应源管理修改。')).toBeVisible()

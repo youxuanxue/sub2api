@@ -1985,12 +1985,15 @@
         "form.channel_type",
         "channel_name: 'default'",
         "useNewApiChannelTypes",
-        "supplierChannelTypeOptions"
+        "supplierChannelTypeOptions",
+        "item.channel_type === SUPPLIER_BAIDU_V2_CHANNEL_TYPE",
+        "@change=\"applyChannelTypeDefaultEndpoint(form.channel_type)\""
       ],
       "must_not_contain": [
-        "syncSucceeded = ref"
+        "syncSucceeded = ref",
+        "watch(() => form.channel_type"
       ],
-      "rationale": "The supplier page derives success from the current response, the current request error, and absence of failed_step. It must poll async models-discover jobs to completion before projection sync, show probe progress, and only allow appending suggestions after probing finishes so partial candidate sets cannot enter the form."
+      "rationale": "The supplier page derives success from the current response, the current request error, and absence of failed_step. It must poll async models-discover jobs to completion before projection sync, show probe progress, and only allow appending suggestions after probing finishes so partial candidate sets cannot enter the form. BaiduV2 remains an explicit supplier transport even though it is absent from NewAPI's generic model-fetch set, and catalog endpoint defaults apply only to operator channel changes so source hydration preserves persisted custom endpoints."
     },
     {
       "path": "frontend/src/api/admin/supplierSources.ts",
@@ -2012,15 +2015,17 @@
         "shows protocol_unsupported probe results from a 422 response without success wording",
         "contains no state machine, audit, activation, pause, or account-group controls",
         "polls a running models-discover job until completed before syncing",
-        "shows discover failure message and failed_step outside the sync-result block"
+        "shows discover failure message and failed_step outside the sync-result block",
+        "offers and hydrates BaiduV2 while preserving a custom endpoint during source selection"
       ],
-      "rationale": "Focused UI regressions pin the final minimal workflow: save is side-effect free, unsaved edits cannot accidentally sync the previous database snapshot, sync renders current probes and real account changes, resolved failed_step responses cannot display success, private protocol failures remain closed, async discover polling must complete before projection sync, discover failures stay visible outside the sync block, and no state machine or account-group controls return."
+      "rationale": "Focused UI regressions pin the final minimal workflow: save is side-effect free, unsaved edits cannot accidentally sync the previous database snapshot, sync renders current probes and real account changes, resolved failed_step responses cannot display success, private protocol failures remain closed, async discover polling must complete before projection sync, discover failures stay visible outside the sync block, BaiduV2 stays selectable without hydration overwriting a custom endpoint, and no state machine or account-group controls return."
     },
     {
       "path": "frontend/src/composables/useSupplierManagedAccount.ts",
       "must_contain": [
         "Object.prototype.hasOwnProperty.call(extra, 'supplier_source_id')",
         "const readOnlyReason = computed(() => t('admin.accounts.supplierManaged.readOnlyReason'))",
+        "const viewHint = computed(() => t('admin.accounts.supplierManaged.viewHint'))",
         "href: `/admin/supplier-sources?source_id=${marker.sourceId}`"
       ],
       "rationale": "Single frontend owner for the supplier-managed marker, source-name lookup, fallback labels, navigation and canonical read-only reason. Account rows, modals and menus must not grow separate ownership rules."
@@ -2038,6 +2043,7 @@
       "path": "frontend/src/views/admin/__tests__/AccountsView.supplierManaged.spec.ts",
       "must_contain": [
         "shows the badge and disables row and mixed-selection generic writes",
+        "opens the read-only account modal for supplier-managed rows",
         "rejects a stale child write event before calling the account API",
         "allows supplier-managed runtime recovery and quota reset actions",
         "allows supplier-managed bulk runtime recovery"
@@ -2068,9 +2074,9 @@
       "path": "frontend/src/components/account/__tests__/EditAccountModal.spec.ts",
       "must_contain": [
         "shows the supplier-managed reason and refuses generic account updates",
-        "admin.accounts.supplierManaged.readOnlyReason"
+        "admin.accounts.supplierManaged.viewHint"
       ],
-      "rationale": "The generic edit modal is a second UI entry point and must remain read-only for supplier-managed accounts with the same canonical reason, even if it is opened from stale state or another caller."
+      "rationale": "The generic edit modal is a second UI entry point and must remain read-only for supplier-managed accounts with the same view hint and disabled submit path, even if it is opened from stale state or another caller."
     }
   ]
 }

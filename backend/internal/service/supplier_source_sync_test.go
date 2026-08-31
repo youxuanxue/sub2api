@@ -91,7 +91,7 @@ func TestUS048_SupplierSyncMetadataOnlySkipsProbe(t *testing.T) {
 			"model_mapping": map[string]string{"model": "model"},
 		},
 		Extra:    map[string]any{SupplierSourceIDExtraKey: int64(7), SupplierDiscountBandExtraKey: 3},
-		Priority: 102, Status: StatusActive, Schedulable: true,
+		Priority: 102, Status: StatusActive, Schedulable: true, Concurrency: SupplierSourceDefaultAccountConcurrency,
 	}}}
 	probe := &supplierSyncProbeFake{failIfCalled: true}
 	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
@@ -120,7 +120,7 @@ func TestUS048_SupplierSyncNameChangeUpdatesAccountWithoutProbe(t *testing.T) {
 			"model_mapping": map[string]string{"model": "model"},
 		},
 		Extra:    map[string]any{SupplierSourceIDExtraKey: int64(7), SupplierDiscountBandExtraKey: 3},
-		Priority: 103, Status: StatusActive, Schedulable: true,
+		Priority: 103, Status: StatusActive, Schedulable: true, Concurrency: SupplierSourceDefaultAccountConcurrency,
 	}}}
 	probe := &supplierSyncProbeFake{failIfCalled: true}
 	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
@@ -147,7 +147,7 @@ func TestUS048_SupplierSyncMovesModelByAddingBeforeRemoving(t *testing.T) {
 			"model_mapping": map[string]string{"model": "model"},
 		},
 		Extra:    map[string]any{SupplierSourceIDExtraKey: int64(7), SupplierDiscountBandExtraKey: 3},
-		Priority: 103, Status: StatusActive, Schedulable: true,
+		Priority: 103, Status: StatusActive, Schedulable: true, Concurrency: SupplierSourceDefaultAccountConcurrency,
 	}}}
 	probe := &supplierSyncProbeFake{}
 	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
@@ -652,6 +652,7 @@ func supplierSyncManagedAccount(id, sourceID int64, band, priority int, mapping 
 			SupplierSourceIDExtraKey: sourceID, SupplierDiscountBandExtraKey: band,
 		},
 		Priority: priority, Status: StatusActive, Schedulable: schedulable,
+		Concurrency: SupplierSourceDefaultAccountConcurrency,
 	}
 }
 
@@ -685,19 +686,42 @@ func (p *supplierSyncProbeFake) ProbeSupplierModel(_ context.Context, input Supp
 }
 
 type supplierSyncAccountStoreFake struct {
-	managed     []*Account
-	matches     []*Account
-	created     []SupplierManagedAccountCreateInput
-	updated     []SupplierManagedAccountUpdateInput
-	operations  []string
-	createCalls int
-	getCalls    int
-	nextID      int64
-	updateErrAt int
-	updateErr   error
-	getErrAt    int
-	listErr     error
-	matchErr    error
+	managed            []*Account
+	matches            []*Account
+	created            []SupplierManagedAccountCreateInput
+	updated            []SupplierManagedAccountUpdateInput
+	concurrencyUpdates []int
+	operations         []string
+	createCalls        int
+	getCalls           int
+	nextID             int64
+	updateErrAt        int
+	updateErr          error
+	getErrAt           int
+	listErr            error
+	matchErr           error
+}
+
+func (f *supplierSyncAccountStoreFake) UpdateManagedAccountConcurrency(
+	_ context.Context,
+	accountID, sourceID int64,
+	discountBand, concurrency int,
+) (*Account, error) {
+	f.concurrencyUpdates = append(f.concurrencyUpdates, concurrency)
+	for index, account := range f.managed {
+		if account.ID != accountID {
+			continue
+		}
+		managedSourceID, sourceOK := supplierSourceIDFromAccount(account)
+		managedBand, bandOK := supplierDiscountBandFromAccount(account)
+		if !sourceOK || !bandOK || managedSourceID != sourceID || managedBand != discountBand {
+			return nil, ErrSupplierSourceIdentityConflict
+		}
+		account.Concurrency = concurrency
+		f.managed[index] = account
+		return cloneSupplierProjectionAccount(account), nil
+	}
+	return nil, ErrAccountNotFound
 }
 
 func (f *supplierSyncAccountStoreFake) ListManagedAccounts(context.Context, int64) ([]*Account, error) {
@@ -765,6 +789,7 @@ func (f *supplierSyncAccountStoreFake) UpdateManagedAccount(_ context.Context, i
 			account.ChannelType = transport.ChannelType
 			account.Credentials = supplierManagedCredentials(input.Endpoint, input.Credential, input.ModelMapping, input.ChannelType)
 			account.Priority = input.Priority
+			account.Concurrency = ResolveSupplierSourceAccountConcurrency(input.Concurrency)
 			account.Status = input.Status
 			account.Schedulable = input.Schedulable && len(input.ModelMapping) > 0
 		}
@@ -800,4 +825,83 @@ func (f *supplierSyncAccountStoreFake) GetAccount(_ context.Context, accountID i
 
 func syncOperationLabel(input SupplierManagedAccountUpdateInput) string {
 	return "update:band=" + string(rune('0'+input.DiscountBand)) + ":models=" + string(rune('0'+len(input.ModelMapping)))
+}
+
+func TestUS048_SupplierSyncAppliesSourceAccountConcurrency(t *testing.T) {
+	ratio := 0.5
+	repo := &supplierSourceRepoFake{stored: &SupplierSource{
+		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", Endpoint: "https://supplier.example/v1",
+		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
+		AccountConcurrency: 1000,
+		Models: []SupplierSourceModel{
+			{ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio},
+		},
+	}}
+	accounts := &supplierSyncAccountStoreFake{managed: []*Account{{
+		ID: 41, Name: "supplier/佳杰 · 档位 3", Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1,
+		Credentials: map[string]any{
+			"base_url": "https://supplier.example/v1", "api_key": "secret",
+			"model_mapping": map[string]string{"deepseek-v4-pro": "deepseek-v4-pro"},
+		},
+		Extra:    map[string]any{SupplierSourceIDExtraKey: int64(7), SupplierDiscountBandExtraKey: 3},
+		Priority: 103, Status: StatusActive, Schedulable: true, Concurrency: 1,
+	}}}
+	probe := &supplierSyncProbeFake{failIfCalled: true}
+	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	_, err := svc.Sync(context.Background(), 7)
+
+	require.NoError(t, err)
+	require.Equal(t, []int{1000}, accounts.concurrencyUpdates)
+	for _, update := range accounts.updated {
+		require.True(t, update.MetadataOnly, "concurrency-only sync must not use the full projection write")
+	}
+	require.Equal(t, 1000, accounts.managed[0].Concurrency)
+}
+
+func TestUS048_SupplierSyncProtocolIdentityDriftRequiresCurrentProbe(t *testing.T) {
+	ratio := 0.5
+	capabilityID := int64(797)
+	repo := &supplierSourceRepoFake{stored: &SupplierSource{
+		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", Endpoint: "https://supplier.example/v1",
+		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
+		AccountConcurrency: 1000,
+		Models: []SupplierSourceModel{{
+			ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio,
+		}},
+	}}
+	accounts := &supplierSyncAccountStoreFake{managed: []*Account{{
+		ID: 41, Name: "supplier/佳杰 · 档位 3", Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1,
+		Credentials: map[string]any{
+			"base_url": "https://supplier.example/v1", "api_key": "secret",
+			"model_mapping": map[string]string{"deepseek-v4-pro": "deepseek-v4-pro"},
+		},
+		Extra:    map[string]any{SupplierSourceIDExtraKey: int64(7), SupplierDiscountBandExtraKey: 3},
+		Priority: 103, Status: StatusActive, Schedulable: true, Concurrency: 1000,
+		ProtocolEndpointCapabilityID: &capabilityID,
+		ProtocolEndpointCapability:   &ProtocolEndpointCapability{ID: capabilityID, CapabilityKey: "stale-identity"},
+	}}}
+	probe := &supplierSyncProbeFake{}
+	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	result, err := svc.Sync(context.Background(), 7)
+
+	require.NoError(t, err)
+	require.Len(t, result.ProbeResults, 1, "protocol identity repair must be backed by this sync call's real probe")
+	require.NotEmpty(t, accounts.updated)
+	require.True(t, accounts.updated[0].ChatProbePassed)
+}
+
+func TestSupplierAccountNeedsProtocolRepublishDetectsTransportDrift(t *testing.T) {
+	account := &Account{
+		Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeOpenAI,
+		Credentials: supplierManagedCredentials(
+			"https://qianfan.baidubce.com", "secret", map[string]string{"glm-5.3": "glm-5.3"},
+			newapiconstant.ChannelTypeOpenAI,
+		),
+		ProtocolEndpointCapabilityID: func() *int64 { id := int64(797); return &id }(),
+	}
+	require.True(t, supplierAccountNeedsProtocolRepublish(
+		account, "https://qianfan.baidubce.com", newapiconstant.ChannelTypeBaiduV2,
+	))
 }

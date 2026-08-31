@@ -43,8 +43,10 @@ var (
 )
 
 const (
-	SupplierSourceIDExtraKey     = "supplier_source_id"
-	SupplierDiscountBandExtraKey = "supplier_discount_band"
+	SupplierSourceIDExtraKey                = "supplier_source_id"
+	SupplierDiscountBandExtraKey            = "supplier_discount_band"
+	SupplierSourceDefaultAccountConcurrency = 1000
+	SupplierSourceMaxAccountConcurrency     = 1<<31 - 1
 )
 
 type SupplierSource struct {
@@ -56,6 +58,7 @@ type SupplierSource struct {
 	EncryptedCredential   string
 	Notes                 string
 	BasePriority          int
+	AccountConcurrency    int
 	CredentialFingerprint string
 	Models                []SupplierSourceModel
 	CreatedAt             time.Time
@@ -69,14 +72,15 @@ type SupplierSourceModel struct {
 }
 
 type SupplierSourceInput struct {
-	SupplierName string
-	ChannelName  string
-	ChannelType  int
-	Endpoint     string
-	Credential   string
-	BasePriority *int
-	Notes        string
-	Models       []SupplierSourceModelInput
+	SupplierName       string
+	ChannelName        string
+	ChannelType        int
+	Endpoint           string
+	Credential         string
+	BasePriority       *int
+	AccountConcurrency *int
+	Notes              string
+	Models             []SupplierSourceModelInput
 }
 
 type SupplierSourceModelInput struct {
@@ -127,6 +131,11 @@ func (i SupplierSourceInput) Validate() error {
 			return err
 		}
 	}
+	if i.AccountConcurrency != nil {
+		if *i.AccountConcurrency <= 0 || *i.AccountConcurrency > SupplierSourceMaxAccountConcurrency {
+			return ErrSupplierSourceInvalidInput
+		}
+	}
 	seen := make(map[string]struct{}, len(i.Models))
 	for _, model := range i.Models {
 		if model.ClientModelID == "" || model.ClientModelID == "*" || strings.Contains(model.ClientModelID, "全系列") ||
@@ -164,6 +173,13 @@ func NormalizeSupplierEndpoint(raw string) (string, error) {
 		return newapiintegration.QianfanBaseURL, nil
 	}
 	return parsed.String(), nil
+}
+
+func ResolveSupplierSourceAccountConcurrency(value int) int {
+	if value <= 0 {
+		return SupplierSourceDefaultAccountConcurrency
+	}
+	return value
 }
 
 type SupplierSourceRepository interface {

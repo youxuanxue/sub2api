@@ -14,6 +14,7 @@ type SupplierManagedAccountCreateInput struct {
 	ChannelType  int
 	Credential   string
 	Priority     int
+	Concurrency  int
 }
 
 type SupplierManagedAccountUpdateInput struct {
@@ -28,6 +29,7 @@ type SupplierManagedAccountUpdateInput struct {
 	Credential      string
 	ModelMapping    map[string]string
 	Priority        int
+	Concurrency     int
 	Status          string
 	Schedulable     bool
 	ChatProbePassed bool
@@ -36,10 +38,12 @@ type SupplierManagedAccountUpdateInput struct {
 type SupplierManagedAccountCommands interface {
 	CreateSupplierManagedAccount(ctx context.Context, input SupplierManagedAccountCreateInput) (*Account, error)
 	UpdateSupplierManagedAccount(ctx context.Context, input SupplierManagedAccountUpdateInput) (*Account, error)
+	UpdateSupplierManagedAccountConcurrency(ctx context.Context, accountID, sourceID int64, discountBand, concurrency int) (*Account, error)
 }
 
 type supplierProjectionAccountUpdater interface {
 	UpdateSupplierMetadata(ctx context.Context, accountID int64, name string, priority int) error
+	UpdateSupplierConcurrency(ctx context.Context, accountID int64, concurrency int) error
 	UpdateSupplierProjection(ctx context.Context, account *Account, chatProbePassed bool) error
 }
 
@@ -81,7 +85,7 @@ func (s *adminServiceImpl) CreateSupplierManagedAccount(
 			SupplierSourceIDExtraKey:     input.SourceID,
 			SupplierDiscountBandExtraKey: input.DiscountBand,
 		},
-		Concurrency:          1,
+		Concurrency:          ResolveSupplierSourceAccountConcurrency(input.Concurrency),
 		Priority:             input.Priority,
 		SkipDefaultGroupBind: true,
 	}, accountCreateOptions{
@@ -161,6 +165,7 @@ func (s *adminServiceImpl) UpdateSupplierManagedAccount(
 	account.Extra[SupplierSourceIDExtraKey] = input.SourceID
 	account.Extra[SupplierDiscountBandExtraKey] = input.DiscountBand
 	account.Priority = input.Priority
+	account.Concurrency = ResolveSupplierSourceAccountConcurrency(input.Concurrency)
 	if input.Status == "" {
 		account.Status = StatusActive
 	} else {
@@ -170,6 +175,43 @@ func (s *adminServiceImpl) UpdateSupplierManagedAccount(
 	if err := updateSupplierProjection(ctx, s.accountRepo, account, input.ChatProbePassed); err != nil {
 		return nil, err
 	}
+	return account, nil
+}
+
+func (s *adminServiceImpl) UpdateSupplierManagedAccountConcurrency(
+	ctx context.Context,
+	accountID, sourceID int64,
+	discountBand, concurrency int,
+) (*Account, error) {
+	if s == nil || s.accountRepo == nil || accountID <= 0 || concurrency <= 0 ||
+		concurrency > SupplierSourceMaxAccountConcurrency {
+		return nil, ErrSupplierSourceInvalidInput
+	}
+	reader, ok := s.accountRepo.(supplierManagedAccountReader)
+	if !ok {
+		return nil, ErrSupplierProjectionReaderMissing
+	}
+	account, err := reader.GetSupplierAccount(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	account = cloneSupplierProjectionAccount(account)
+	if err := validateSupplierManagedIdentity(sourceID, discountBand); err != nil {
+		return nil, err
+	}
+	managedSourceID, sourceOK := supplierSourceIDFromAccount(account)
+	managedBand, bandOK := supplierDiscountBandFromAccount(account)
+	if !sourceOK || !bandOK || managedSourceID != sourceID || managedBand != discountBand {
+		return nil, ErrSupplierSourceIdentityConflict
+	}
+	updater, ok := s.accountRepo.(supplierProjectionAccountUpdater)
+	if !ok {
+		return nil, ErrSupplierProjectionUpdaterMissing
+	}
+	if err := updater.UpdateSupplierConcurrency(ctx, account.ID, concurrency); err != nil {
+		return nil, err
+	}
+	account.Concurrency = concurrency
 	return account, nil
 }
 

@@ -7424,14 +7424,16 @@
       "path": "backend/internal/repository/account_repo.go",
       "must_contain": [
         "func (r *accountRepository) UpdateSupplierMetadata(ctx context.Context, accountID int64, name string, priority int) error",
+        "func (r *accountRepository) UpdateSupplierConcurrency(ctx context.Context, accountID int64, concurrency int) error",
         "func (r *accountRepository) UpdateSupplierProjection(ctx context.Context, account *service.Account, chatProbePassed bool) error",
         "if len(account.GetModelMapping()) > 0 && !chatProbePassed {",
         "publishVerifiedSupplierChatCapability(",
+        "concurrency = $10",
         "enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil)",
         "enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, nil)",
         "extra = COALESCE(extra, '{}'::jsonb) || $6::jsonb"
       ],
-      "rationale": "Production-only narrow write paths for supplier metadata and full projections. Non-empty mappings fail closed without the current sync call's Chat probe evidence; the same account transaction publishes the verified Chat-only capability before ordinary scheduler invalidation. Both writes avoid account-group payloads, and the full projection merges only the two owned supplier keys while preserving every non-owned Extra. The generic AccountRepository.Update forwards billing and unrelated runtime fields, so supplier sync must never fall back to it."
+      "rationale": "Production-only narrow write paths for supplier metadata, concurrency and full projections. Concurrency-only sync writes the single owned column plus scheduler invalidation without fabricating probe evidence. Non-empty full projections fail closed without the current sync call's Chat probe evidence; the same account transaction publishes the verified Chat-only capability before ordinary scheduler invalidation. These writes avoid account-group payloads, and the full projection merges only the two owned supplier keys while preserving every non-owned Extra. The generic AccountRepository.Update forwards billing and unrelated runtime fields, so supplier sync must never fall back to it."
     },
     {
       "path": "backend/internal/repository/account_repo.go",
@@ -7471,7 +7473,9 @@
         "if len(input.ModelMapping) > 0 && !input.ChatProbePassed {",
         "return ErrSupplierProjectionUpdaterMissing",
         "return updater.UpdateSupplierMetadata(ctx, account.ID, account.Name, account.Priority)",
-        "return updater.UpdateSupplierProjection(ctx, account, chatProbePassed)"
+        "updater.UpdateSupplierConcurrency(ctx, account.ID, concurrency)",
+        "return updater.UpdateSupplierProjection(ctx, account, chatProbePassed)",
+        "account.Concurrency = ResolveSupplierSourceAccountConcurrency(input.Concurrency)"
       ],
       "rationale": "The supplier-source owner reads only the narrow projection, creates new managed accounts empty, unschedulable and ungrouped, resolves managed transport from the procurement endpoint (OpenAI Chat or Qianfan BaiduV2), preserves non-owned account metadata, requires current-call Chat probe evidence for every non-empty mapping, and fails closed unless both narrow repository writes are available."
     },
@@ -7480,6 +7484,7 @@
       "must_contain": [
         "TestUS048_SupplierCreateStartsEmptyUngroupedAndUnschedulable",
         "TestUS048_OrdinaryCreateAccountStillFailsWhenDefaultGroupBindFails",
+        "TestUS048_SupplierConcurrencyUpdateUsesNarrowWriteWithoutProbeEvidence",
         "TestUS048_SupplierConfigurationUpdateUsesGroupFreeReadAndNarrowWrite",
         "TestUS048_SupplierConfigurationUpdateRequiresPassedChatProbe",
         "TestUS048_SupplierQianfanCreateUsesBaiduV2Transport",
@@ -7493,6 +7498,7 @@
       "path": "backend/internal/repository/account_repo_supplier_projection_test.go",
       "must_contain": [
         "TestUS048_SupplierMetadataRepositoryWritesOnlyNameAndPriority",
+        "TestUS048_SupplierConcurrencyRepositoryWritesOnlyConcurrency",
         "TestUS048_SupplierConfigurationRepositoryRejectsUnverifiedNonEmptyMapping",
         "TestUS048_SupplierConfigurationRepositoryWritesOnlyOwnedFields",
         "TestUS048_SupplierProjectionReadSelectsOnlyRequiredConfigurationFields",
@@ -7578,7 +7584,8 @@
         "TestUS048_IncompatibleTransportExactMatchBlocksAdoptionWithoutRewritingAccount",
         "TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation",
         "TestUS048_SupplierSyncProbesBeforeRepairingNonEmptySchedulingProjection",
-        "TestUS048_SupplierSyncRepairsEmptySchedulingProjectionWithoutProbe"
+        "TestUS048_SupplierSyncRepairsEmptySchedulingProjectionWithoutProbe",
+        "TestSupplierAccountNeedsProtocolRepublishDetectsTransportDrift"
       ],
       "rationale": "Sync regressions keep failed_step and completed changes present on early and mid-write errors, preserve successful additions, stop pending removals and prove retry convergence. They also block duplicate creation whenever an exact account match cannot satisfy the narrow adoption contract, including disabled/error accounts and multi-band sources, and keep status/schedulable projection repair on the minimal probe boundary."
     },
@@ -7637,9 +7644,23 @@
         "result, err := h.service.StartDiscoverModels(c.Request.Context(), id)",
         "func (h *SupplierSourceHandler) GetDiscoverModelsJob(c *gin.Context)",
         "result, err := h.service.GetDiscoverModelsJob(c.Request.Context(), id, jobID)",
+        "AccountConcurrency",
+        "account_concurrency",
         "case errors.As(err, &syncErr):"
       ],
-      "rationale": "Admin discover must start the async probe job and expose job polling; upstream models-list failures must map through UpstreamModelSyncError.SafeMessage so the page never shows only an empty discover title."
+      "rationale": "Admin discover must start the async probe job and expose job polling; upstream models-list failures must map through UpstreamModelSyncError.SafeMessage so the page never shows only an empty discover title. Supplier-source CRUD must round-trip account_concurrency."
+    },
+    {
+      "path": "backend/internal/service/supplier_source_service.go",
+      "must_contain": [
+        "func (s *SupplierSourceService) ensureSupplierManagedConcurrency(",
+        "func supplierAccountNeedsProtocolRepublish(account *Account, sourceEndpoint string, sourceChannelType int) bool",
+        "supplierAccountNeedsProtocolRepublish(account, source.Endpoint, source.ChannelType)",
+        "UpdateManagedAccountConcurrency(",
+        "ResolveSupplierSourceAccountConcurrency(source.AccountConcurrency)",
+        "identity.Key() != account.ProtocolEndpointCapability.CapabilityKey"
+      ],
+      "rationale": "Supplier sync repairs managed-account concurrency through the narrow concurrency write, while transport or capability identity drift enters the normal real-probe path before any full projection republishes protocol evidence."
     },
     {
       "path": "backend/internal/service/supplier_upstream_models.go",

@@ -77,6 +77,7 @@ export default {
         'Existing accounts only sync fields returned by CRS; missing fields keep their current values. Credentials are merged by key — keys not returned by CRS are preserved. Proxies are kept when "Sync proxies" is unchecked.',
       crsBack: 'Back',
       editAccount: 'Edit Account',
+      viewAccount: 'View Account',
       deleteAccount: 'Delete Account',
       searchAccounts: 'Search accounts...',
       notes: 'Notes',
@@ -113,6 +114,8 @@ export default {
       supplierManaged: {
         badge: 'Supplier managed',
         readOnlyReason: 'This account is managed by a supplier source. Make changes in Supplier Sources.',
+        viewHint: 'Read-only snapshot. Edit models, credentials, and priority in Supplier Sources.',
+        viewButtonTitle: 'View supplier-managed account (read-only)',
         openManagement: 'Open Supplier Sources'
       },
       groupCountTotal: '{count} groups total',

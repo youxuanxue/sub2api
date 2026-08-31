@@ -3,7 +3,7 @@ title: TokenKey Model Supplier Source Management
 status: approved
 approved_by: "xuejiao (operator directives through 2026-08-28)"
 approved_at: 2026-08-27
-updated: 2026-08-30
+updated: 2026-08-31
 created: 2026-08-27
 owners: [tk-platform]
 scope: "supplier facts, admin API/UI, credential isolation, account projection, probe gate, and managed-account ownership"
@@ -50,7 +50,9 @@ account.priority = source.base_priority + discount_priority
   NewAPI 账号的 base URL 和协议行为保持不变。
 - 供应源不读取或写入倍率、售价、pricing registry、计费规则、用户价格或利润数据。
 - 除把账号 `status/schedulable` 收敛到目标 mapping 的投影值外，供应源不修改 gateway、scheduler、
-  sticky、运行期健康窗口、冷却、限流、fallback、`error_message` 或其他运行期字段。
+  sticky、运行期健康窗口、冷却、限流、fallback、`error_message` 或其他运行期字段。供应源拥有
+  `account_concurrency`（默认 `1000`），同步时写入受管账号 `concurrency`，不再保留账号页手工设置的
+  并发值。
 - 凭证使用最小权限 API Key；不保存供应商后台账号密码，不自动登录、处理 MFA 或代建 API Key。
 - API 不回显明文、密文或凭证指纹；日志和 Admin Audit Log 必须擦除请求字段 `credential`。
 - 未知或私有协议失败封闭；即使探测得到 Responses、Anthropic Messages 等非 Chat 成功证据，也返回
@@ -90,6 +92,7 @@ discover / sync 失败时，API 必须返回可读 `message`（含上游 models 
 同步按以下最小规则执行：
 
 1. 供应商名称、通道名称或 `base_priority` 变化时，只更新受管账号名称和 priority，不探测；
+1b. `account_concurrency` 变化时，只更新受管账号 `concurrency`，不探测；
 2. endpoint、credential、模型 ID、模型增减、跨档，或非空受管账号的 `status/schedulable` 与目标
    不一致时，先用内存目标账号逐模型真实探测；空 mapping 的调度字段漂移无需探测；
 3. 任一模型失败，返回完整当次探测结果且不写账号；全部成功生成仅供本次同步调用链使用的 Chat
@@ -156,7 +159,8 @@ POST   /admin/supplier-sources/:id/models-discover
 POST   /admin/supplier-sources/:id/sync
 ```
 
-不提供 DELETE、validate、activation-preview、activate、pause 或供应源 audits API。页面只展示运营
+不提供 DELETE、validate、activation-preview、activate、pause 或供应源 audits API。供应源读写体含
+`account_concurrency`（正整数，默认 `1000`）。页面只展示运营
 字段、档位与目标 priority、全局供应源 priority、保存、单源“校验并同步”（内嵌 models-discover
 规整/建议）、当次发现结果、当次逐模型探测结果和实际账号变化。
 

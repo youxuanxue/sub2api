@@ -96,6 +96,17 @@ func (s *defaultSupplierSourceAccountStore) UpdateManagedAccount(
 	return cloneSupplierProjectionAccount(account), err
 }
 
+func (s *defaultSupplierSourceAccountStore) UpdateManagedAccountConcurrency(
+	ctx context.Context,
+	accountID, sourceID int64,
+	discountBand, concurrency int,
+) (*Account, error) {
+	account, err := s.commands.UpdateSupplierManagedAccountConcurrency(
+		ctx, accountID, sourceID, discountBand, concurrency,
+	)
+	return cloneSupplierProjectionAccount(account), err
+}
+
 func (s *defaultSupplierSourceAccountStore) GetAccount(ctx context.Context, accountID int64) (*Account, error) {
 	if s == nil || s.reader == nil {
 		return nil, ErrSupplierProjectionReaderMissing

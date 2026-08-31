@@ -1,7 +1,7 @@
 <template>
   <BaseDialog
     :show="show"
-    :title="t('admin.accounts.editAccount')"
+    :title="dialogTitle"
     width="wide"
     @close="handleClose"
   >
@@ -17,8 +17,19 @@
         class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-200"
       >
         <SupplierManagedBadge :account="account" />
-        <p class="mt-1">{{ supplierManagedReadOnlyReason }}</p>
+        <p class="mt-1">{{ supplierManagedViewHint }}</p>
+        <a
+          v-if="supplierManagedInfo.href"
+          :href="supplierManagedInfo.href"
+          class="mt-2 inline-flex text-sm font-medium text-primary-600 hover:underline dark:text-primary-400"
+        >
+          {{ t('admin.accounts.supplierManaged.openManagement') }}
+        </a>
       </div>
+      <fieldset
+        :disabled="supplierManagedInfo.managed"
+        class="m-0 min-w-0 space-y-5 border-0 p-0 disabled:opacity-100"
+      >
       <div>
         <label class="input-label">{{ t('common.name') }}</label>
         <input v-model="form.name" type="text" required class="input" data-tour="edit-account-form-name" />
@@ -2882,18 +2893,20 @@
         data-tour="account-form-groups"
       />
 
+      </fieldset>
+
     </form>
 
     <template #footer>
       <div v-if="account" class="flex justify-end gap-3">
         <button @click="handleClose" type="button" class="btn btn-secondary">
-          {{ t('common.cancel') }}
+          {{ supplierManagedInfo.managed ? t('common.close') : t('common.cancel') }}
         </button>
         <button
+          v-if="!supplierManagedInfo.managed"
           type="submit"
           form="edit-account-form"
-          :disabled="submitting || supplierManagedInfo.managed"
-          :title="supplierManagedInfo.managed ? supplierManagedReadOnlyReason : undefined"
+          :disabled="submitting"
           class="btn btn-primary"
           data-tour="account-form-submit"
         >
@@ -3105,9 +3118,15 @@ const handleProtocolProbe = async () => {
 }
 const {
   inspect: inspectSupplierManaged,
-  readOnlyReason: supplierManagedReadOnlyReason
+  readOnlyReason: supplierManagedReadOnlyReason,
+  viewHint: supplierManagedViewHint,
 } = useSupplierManagedAccount()
 const supplierManagedInfo = computed(() => inspectSupplierManaged(props.account))
+const dialogTitle = computed(() => (
+  supplierManagedInfo.value.managed
+    ? t('admin.accounts.viewAccount')
+    : t('admin.accounts.editAccount')
+))
 
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
 // 故隐藏代理选择器。

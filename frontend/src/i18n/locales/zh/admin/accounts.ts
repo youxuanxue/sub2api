@@ -76,6 +76,7 @@ export default {
         '已有账号仅同步 CRS 返回的字段，缺失字段保持原值；凭据按键合并，不会清空未下发的键；未勾选"同步代理"时保留原有代理。',
       crsBack: '返回',
       editAccount: '编辑账号',
+      viewAccount: '查看账号',
       deleteAccount: '删除账号',
       searchAccounts: '搜索账号...',
       notes: '备注',
@@ -111,6 +112,8 @@ export default {
       supplierManaged: {
         badge: '供应源托管',
         readOnlyReason: '该账号由供应源托管，请前往供应源管理修改。',
+        viewHint: '以下为只读快照；修改模型、凭证与 priority 请前往供应源管理。',
+        viewButtonTitle: '查看托管账号配置（只读）',
         openManagement: '前往供应源管理'
       },
       groupCountTotal: '共 {count} 个分组',

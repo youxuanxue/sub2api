@@ -114,6 +114,7 @@
 - `backend/internal/service/audit_log_test.go`::`TestRedactAuditBody_RedactsSupplierSourceCredential`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`saves new and existing sources through create or update only`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`requires saving edited supplier facts before syncing the selected source`
+- `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`offers and hydrates BaiduV2 while preserving a custom endpoint during source selection`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`applies discover normalize to the form and keeps suggestions opt-in`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`continues to account sync when discover only has optional suggestions`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`shows discover failure message and failed_step outside the sync-result block`

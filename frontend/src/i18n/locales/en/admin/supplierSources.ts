@@ -20,6 +20,7 @@ export default {
     credential: 'API key',
     credentialKeep: 'Existing credentials are write-only; leave blank to keep the current value.',
     basePriority: 'Base priority',
+    accountConcurrency: 'Managed account concurrency',
     notes: 'Notes',
     clientModel: 'TokenKey model ID',
     upstreamModel: 'Upstream model ID',

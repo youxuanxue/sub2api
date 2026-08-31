@@ -814,6 +814,55 @@ func (r *accountRepository) UpdateSupplierMetadata(ctx context.Context, accountI
 	return nil
 }
 
+func (r *accountRepository) UpdateSupplierConcurrency(ctx context.Context, accountID int64, concurrency int) error {
+	baseCtx := ctx
+	contextTx := dbent.TxFromContext(ctx)
+	client := r.client
+	var tx *dbent.Tx
+	if contextTx != nil {
+		client = contextTx.Client()
+	} else {
+		var err error
+		tx, err = r.client.Tx(ctx)
+		if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+			return err
+		}
+		if tx != nil {
+			defer func() { _ = tx.Rollback() }()
+			ctx = dbent.NewTxContext(ctx, tx)
+			client = tx.Client()
+		}
+	}
+
+	result, err := client.ExecContext(ctx, `
+		UPDATE accounts
+		SET concurrency = $1, updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL
+	`, concurrency, accountID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrAccountNotFound
+	}
+	if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil); err != nil {
+		return err
+	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	if contextTx == nil {
+		r.syncSchedulerAccountSnapshot(baseCtx, accountID)
+	}
+	return nil
+}
+
 func (r *accountRepository) UpdateSupplierProjection(ctx context.Context, account *service.Account, chatProbePassed bool) error {
 	if account == nil {
 		return nil
@@ -872,9 +921,10 @@ func (r *accountRepository) UpdateSupplierProjection(ctx context.Context, accoun
 			priority = $7,
 			status = $8,
 			schedulable = $9,
+			concurrency = $10,
 			updated_at = NOW()
-		WHERE id = $10 AND deleted_at IS NULL
-	`, account.Name, account.Platform, account.Type, account.ChannelType, string(credentials), string(managedExtra), account.Priority, account.Status, schedulable, account.ID)
+		WHERE id = $11 AND deleted_at IS NULL
+	`, account.Name, account.Platform, account.Type, account.ChannelType, string(credentials), string(managedExtra), account.Priority, account.Status, schedulable, account.Concurrency, account.ID)
 	if err != nil {
 		return err
 	}
@@ -4119,6 +4169,8 @@ func selectSupplierAccountProjection(query *dbent.AccountQuery) *dbent.AccountSe
 		dbaccount.FieldStatus,
 		dbaccount.FieldSchedulable,
 		dbaccount.FieldChannelType,
+		dbaccount.FieldConcurrency,
+		dbaccount.FieldProtocolEndpointCapabilityID,
 	)
 }
 
@@ -4126,7 +4178,7 @@ func supplierAccountEntityToService(m *dbent.Account) *service.Account {
 	if m == nil {
 		return nil
 	}
-	return &service.Account{
+	account := &service.Account{
 		ID:          m.ID,
 		Name:        m.Name,
 		Platform:    m.Platform,
@@ -4137,7 +4189,12 @@ func supplierAccountEntityToService(m *dbent.Account) *service.Account {
 		Status:      m.Status,
 		Schedulable: m.Schedulable,
 		ChannelType: m.ChannelType,
+		Concurrency: m.Concurrency,
 	}
+	if m.ProtocolEndpointCapabilityID != nil {
+		account.ProtocolEndpointCapabilityID = m.ProtocolEndpointCapabilityID
+	}
+	return account
 }
 
 func accountsToSupplierSourceService(accounts []*dbent.Account) []service.Account {
@@ -4255,7 +4312,29 @@ func (r *accountRepository) ListSupplierManagedAccounts(ctx context.Context, sou
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrAccountNotFound, nil)
 	}
-	return accountsToSupplierSourceService(accounts), nil
+	if len(accounts) == 0 {
+		return []service.Account{}, nil
+	}
+	accountIDs := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		accountIDs = append(accountIDs, account.ID)
+	}
+	capabilitiesByAccount, err := r.loadProtocolEndpointCapabilities(ctx, accountIDs)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]service.Account, 0, len(accounts))
+	for _, account := range accounts {
+		converted := supplierAccountEntityToService(account)
+		if converted == nil {
+			continue
+		}
+		if capability, ok := capabilitiesByAccount[account.ID]; ok {
+			converted.ProtocolEndpointCapability = capability
+		}
+		result = append(result, *converted)
+	}
+	return result, nil
 }
 
 // ListDueUpstreamBillingProbeAccounts bounds result hydration and network work

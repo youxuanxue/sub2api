@@ -176,6 +176,7 @@
               required
               class="mt-1 w-full rounded-lg border px-3 py-2"
               :disabled="channelTypesLoading"
+              @change="applyChannelTypeDefaultEndpoint(form.channel_type)"
             >
               <option v-if="channelTypesLoading" disabled value="0">{{ t('common.loading') }}</option>
               <option v-for="option in supplierChannelTypeOptions" :key="option.value" :value="option.value">
@@ -211,6 +212,17 @@
                 v-model.number="form.base_priority"
                 data-test="base-priority"
                 type="number"
+                required
+                class="mt-1 w-full rounded-lg border px-3 py-2"
+              />
+            </label>
+            <label class="text-sm">
+              {{ t('admin.supplierSources.accountConcurrency') }}
+              <input
+                v-model.number="form.account_concurrency"
+                data-test="account-concurrency"
+                type="number"
+                min="1"
                 required
                 class="mt-1 w-full rounded-lg border px-3 py-2"
               />
@@ -463,7 +475,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import {
@@ -481,10 +493,14 @@ import { isNewApiUpstreamFetchableChannelType } from '@/constants/newApiUpstream
 const { t } = useI18n()
 const route = useRoute()
 const { types: channelTypes, loading: channelTypesLoading, error: channelTypesError, load: loadChannelTypes } = useNewApiChannelTypes()
+const SUPPLIER_BAIDU_V2_CHANNEL_TYPE = 46
 
 const supplierChannelTypeOptions = computed(() =>
   channelTypes.value
-    .filter(item => isNewApiUpstreamFetchableChannelType(item.channel_type))
+    .filter(item => (
+      isNewApiUpstreamFetchableChannelType(item.channel_type)
+      || item.channel_type === SUPPLIER_BAIDU_V2_CHANNEL_TYPE
+    ))
     .map(item => ({
       value: item.channel_type,
       label: `${item.name} (${item.channel_type})`,
@@ -576,17 +592,18 @@ const form = reactive<SupplierSourceInput>({
   endpoint: '',
   credential: '',
   base_priority: 100,
+  account_concurrency: 1000,
   models: [emptyModel()],
   notes: '',
 })
 
-watch(() => form.channel_type, (channelType) => {
+function applyChannelTypeDefaultEndpoint(channelType: number): void {
   const selected = channelTypes.value.find(item => item.channel_type === channelType)
   const baseUrl = selected?.base_url?.trim()
   if (baseUrl) {
     form.endpoint = baseUrl.replace(/\/v1\/?$/, '')
   }
-})
+}
 
 async function load(): Promise<void> {
   loading.value = true
@@ -625,6 +642,7 @@ function resetForm(): void {
     endpoint: '',
     credential: '',
     base_priority: 100,
+    account_concurrency: 1000,
     models: [emptyModel()],
     notes: '',
   })
@@ -645,6 +663,7 @@ function selectSource(source: SupplierSource): void {
     endpoint: source.endpoint,
     credential: '',
     base_priority: source.base_priority,
+    account_concurrency: source.account_concurrency,
     models: source.models.length > 0 ? source.models.map(model => ({ ...model })) : [emptyModel()],
     notes: source.notes,
   })
@@ -687,6 +706,9 @@ function copySelected(): void {
     endpoint: input.endpoint,
     credential: '',
     base_priority: Number.isFinite(input.base_priority) ? input.base_priority : origin.base_priority,
+    account_concurrency: Number.isFinite(input.account_concurrency)
+      ? input.account_concurrency
+      : origin.account_concurrency,
     models: input.models.length > 0 ? input.models.map(model => ({ ...model })) : [emptyModel()],
     notes: input.notes,
   })
@@ -737,6 +759,7 @@ function buildInput(): SupplierSourceInput {
     endpoint: form.endpoint.trim(),
     credential: form.credential,
     base_priority: Number(form.base_priority),
+    account_concurrency: Number(form.account_concurrency),
     models,
     notes: form.notes.trim(),
   }
@@ -753,6 +776,7 @@ const hasUnsavedChanges = computed(() => {
     || input.channel_type !== source.channel_type
     || input.endpoint !== source.endpoint
     || input.base_priority !== source.base_priority
+    || input.account_concurrency !== source.account_concurrency
     || input.notes !== source.notes
   ) return true
   return JSON.stringify(input.models) !== JSON.stringify(source.models)
