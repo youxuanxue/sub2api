@@ -14,7 +14,11 @@ import (
 func TestUS048_CRSSyncAllowsSupplierManagedAccountOverwrite(t *testing.T) {
 	repo := &crsSupplierManagedAccountRepo{stored: &Account{
 		ID: 41, Name: "佳杰/stbl-5 · 档位 3", Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
-		Credentials: map[string]any{"base_url": "https://supplier.example/v1", "api_key": "supplier-secret"},
+		Credentials: supplierManagedCredentials(
+			"https://supplier.example/v1", "supplier-secret",
+			map[string]string{"deepseek-v4-pro": "deepseek-v4-pro"},
+			1,
+		),
 		Extra: map[string]any{
 			"crs_account_id":             "crs-1",
 			SupplierSourceIDExtraKey:     int64(7),
@@ -34,7 +38,10 @@ func TestUS048_CRSSyncAllowsSupplierManagedAccountOverwrite(t *testing.T) {
 			"data": map[string]any{"claudeConsoleAccounts": []any{map[string]any{
 				"kind": "claude-console", "id": "crs-1", "name": "CRS overwrite",
 				"isActive": true, "schedulable": true, "priority": 1,
-				"credentials": map[string]any{"api_key": "crs-secret"},
+				"credentials": map[string]any{
+					"api_key":  "crs-secret",
+					"base_url": "https://crs.example",
+				},
 			}}},
 		}))
 	}))
@@ -54,6 +61,11 @@ func TestUS048_CRSSyncAllowsSupplierManagedAccountOverwrite(t *testing.T) {
 	require.Equal(t, 1, repo.updateCalls)
 	require.Equal(t, "CRS overwrite", repo.stored.Name)
 	require.Equal(t, "crs-secret", repo.stored.Credentials["api_key"])
+	require.Equal(t, "https://crs.example", repo.stored.Credentials["base_url"])
+	require.NotContains(t, repo.stored.Credentials, apiBaseURLsCredentialKey,
+		"CRS overwrite must drop stale exclusive api_base_urls")
+	require.NotContains(t, repo.stored.Credentials, ProtocolEndpointsExclusiveCredentialKey,
+		"CRS overwrite must drop protocol_endpoints_exclusive so new secrets are not sent to the old supplier")
 	_, hasSource := repo.stored.Extra[SupplierSourceIDExtraKey]
 	require.True(t, hasSource, "CRS overwrite must not drop supplier identity")
 }

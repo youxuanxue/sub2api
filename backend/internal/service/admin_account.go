@@ -544,6 +544,7 @@ func (s *adminServiceImpl) createAccount(ctx context.Context, input *CreateAccou
 	}
 	// Never persist ephemeral SSO/password secrets after OAuth conversion.
 	input.Credentials = SanitizeStoredCredentials(input.Platform, input.Credentials)
+	input.Credentials = FinalizeAccountCredentials(input.Credentials, input.ChannelType)
 
 	account, err := buildAccountForCreate(input, accountExtra)
 	if err != nil {
@@ -684,15 +685,18 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if account.IsCredentialShadow() && input.Credentials != nil {
 		account.Credentials = sanitizeSparkShadowCredentials(input.Credentials)
 	} else if len(input.Credentials) > 0 {
-		// 敏感子键采用"incoming 没提供就保留"的合并语义：前端响应已脱敏，
-		// 全对象 PUT 编辑时不会再带回 token，避免覆盖时清空已有凭证。
-		account.Credentials = MergePreservingSensitiveCreds(account.Credentials, input.Credentials)
+		// SSOT credential merge: sensitive preserve-when-omitted + never inherit
+		// stale protocol identity (api_base_urls / protocol_endpoints_exclusive).
+		account.Credentials = MergeAccountCredentials(
+			account.Credentials, input.Credentials, account.ChannelType, CredentialMergeAdmin,
+		)
 		// 校验并规范化请求头覆写配置（header 名小写化、格式检查）
 		if err := NormalizeHeaderOverrideCredentials(account.Credentials); err != nil {
 			return nil, err
 		}
 		// Strip SSO/password residue that must never sit next to OAuth tokens.
 		account.Credentials = SanitizeStoredCredentials(account.Platform, account.Credentials)
+		account.Credentials = FinalizeAccountCredentials(account.Credentials, account.ChannelType)
 	}
 	// Extra 使用 map：需要区分“未提供(nil)”与“显式清空({})”。
 	// 关闭配额限制时前端会删除 quota_* 键并提交 extra:{}，此时也必须落库。
@@ -1186,6 +1190,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	// only when platform is known Grok — empty platform still strips password/*).
 	if input.Credentials != nil {
 		input.Credentials = SanitizeStoredCredentials("", input.Credentials)
+		input.Credentials = PrepareBulkCredentialPatch(input.Credentials)
 	}
 
 	// Prepare bulk updates for columns and JSONB fields.

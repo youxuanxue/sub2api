@@ -54,8 +54,7 @@ describe('AccountBulkActionsBar', () => {
         selectedIds: [1, 2],
         totalResults: 45,
         selectingAll: false,
-        allResultsSelected: false,
-        containsSupplierManaged: true
+        allResultsSelected: false
       }
     })
 
