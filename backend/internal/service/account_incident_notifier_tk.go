@@ -109,12 +109,11 @@ func classifyIncident(reason string, until time.Time, kind AccountIncidentKind) 
 	case "temp_unschedulable", "stream_timeout_temp_unschedulable":
 		return incidentClass{true, IncidentKindTemporaryCooldown, "temp", "临时不可调度", "观察是否自愈"}
 	case "newapi_arrears":
-		// TK: upstream account-standing / 欠费 (DashScope 400 Arrearage, or Moonshot
-		// 429 insufficient-balance suspend). Same penalty shape as bridge 402
-		// (SetError disable) — recharge does NOT auto-recover scheduling. The ALERT
-		// must be IMMEDIATE + actionable; route through the permanent (immediate P0
-		// card) path with the 1h per-account dedupe.
-		return incidentClass{true, IncidentKindPermanentDisable, "newapi_arrears", "上游账号欠费", "DashScope/Moonshot 等上游账号欠费,需在对应控制台(阿里云百炼/platform.kimi.com)充值/还款;" + tkUpstreamStandingDisableRecoveryAdvice}
+		// SSOT for account-standing billing / prepaid quota death: DashScope
+		// Arrearage, Moonshot insufficient-balance 429, tokensea 用户额度不足 403,
+		// generic 402 Insufficient Balance. Same penalty (SetError) + immediate
+		// P0 Feishu card; recharge does NOT auto-recover. 1h per-account dedupe.
+		return incidentClass{true, IncidentKindPermanentDisable, "newapi_arrears", "上游账号欠费", "上游账号欠费或预付额度耗尽,需在对应控制台充值/还款;" + tkUpstreamStandingDisableRecoveryAdvice}
 	case "kiro_quota_limit":
 		// TK (prod 2026-06-25, edge-us4 account 9): Kiro OAuth subscription quota
 		// exhaustion is HTTP 402 + "You have reached the limit." — not an auth

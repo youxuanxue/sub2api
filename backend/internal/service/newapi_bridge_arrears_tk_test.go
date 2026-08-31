@@ -80,6 +80,7 @@ func TestTkIsBridgeUpstreamArrears_NonArrearsNeverMatch(t *testing.T) {
 		{"model not found 404", arrearsBridgeError(404, "model_not_found", "not_found", "model_not_found")},
 		{"rate limit 429", arrearsBridgeError(429, "Requests rate limit exceeded", "rate_limit_error", "rate_limit")},
 		{"quota 429 without billing text", arrearsBridgeError(429, "Requests rate limit exceeded, please retry later", "exceeded_current_quota_error", "exceeded_current_quota_error")},
+		{"insufficient_quota code in 429 message", arrearsBridgeError(429, "insufficient_quota", "insufficient_quota", "insufficient_quota")},
 		{"server 500", arrearsBridgeError(500, "internal error", "server_error", "server_error")},
 		{"nil", nil},
 	} {

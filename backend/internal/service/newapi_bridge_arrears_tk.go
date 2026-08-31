@@ -130,12 +130,7 @@ func tkIsBridgeUpstreamArrearsBillingMessage(msg string) bool {
 	if msg == "" {
 		return false
 	}
-	for _, marker := range []string{
-		"insufficient balance",
-		"余额不足",
-		"suspended due to",
-		"please recharge your account",
-	} {
+	for _, marker := range tkAccountStandingBilling429SafeMarkers {
 		if strings.Contains(msg, marker) {
 			return true
 		}

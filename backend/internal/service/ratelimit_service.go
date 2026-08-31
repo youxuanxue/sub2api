@@ -405,6 +405,15 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		return true
 	}
 
+	// Account-standing prepaid/balance exhaustion (tokensea 用户额度不足, 402
+	// Insufficient Balance, Anthropic credit balance, …) is the same SSOT as
+	// newapi_arrears: SetError + immediate Feishu P0. Must beat pool-mode skip
+	// and tryTempUnschedulable so a generic 403 rule cannot flap a dead prepaid
+	// account (prod 2026-08-30 tokensea-cc #93).
+	if s.tkTryHandleStandingBilling(ctx, account, statusCode, responseBody) {
+		return true
+	}
+
 	// 池模式默认不标记本地账号状态；但管理员显式配置的临时不可调度规则优先。
 	// 401 保留现有认证错误语义，不在这里改变池模式的认证处理。
 	if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic && !cloudwiseModelBalance402 {
