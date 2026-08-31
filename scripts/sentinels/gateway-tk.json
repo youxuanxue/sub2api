@@ -7473,7 +7473,6 @@
         "return ErrSupplierProjectionUpdaterMissing",
         "return updater.UpdateSupplierMetadata(ctx, account.ID, account.Name, account.Priority)",
         "return updater.UpdateSupplierProjection(ctx, account, chatProbePassed)",
-        "ResolveSupplierSourceAccountConcurrency(input.Concurrency)",
         "account.Concurrency = ResolveSupplierSourceAccountConcurrency(input.Concurrency)"
       ],
       "rationale": "The supplier-source owner reads only the narrow projection, creates new managed accounts empty, unschedulable and ungrouped, resolves managed transport from the procurement endpoint (OpenAI Chat or Qianfan BaiduV2), preserves non-owned account metadata, requires current-call Chat probe evidence for every non-empty mapping, and fails closed unless both narrow repository writes are available."

@@ -1,4 +1,6 @@
 -- Per-supplier default concurrency for managed projection accounts.
+-- bluegreen-safe-destructive-ok: expand-only ADD COLUMN IF NOT EXISTS with DEFAULT 1000
+-- backfills existing rows; no table rewrite or contract shrink.
 
 ALTER TABLE model_supplier_sources
     ADD COLUMN IF NOT EXISTS account_concurrency INTEGER NOT NULL DEFAULT 1000;
