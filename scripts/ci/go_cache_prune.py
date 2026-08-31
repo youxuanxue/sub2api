@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Plan GitHub Actions cache deletions for the five managed Go families."""
+"""Plan (and optionally apply) GitHub Actions cache deletions for managed Go families.
+
+When the five latest generations alone exceed BUDGET_BYTES, drop lowest-priority
+family latest entries until the remainder fits. Priority (keep first):
+test > gomod > integration > release > analysis.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +14,8 @@ from typing import Iterable
 BUDGET_BYTES = 6 * 1024**3
 DEFAULT_REF = "refs/heads/main"
 FAMILIES = ("gomod", "test", "integration", "analysis", "release")
+# Drop first when latest generations overflow the budget.
+OVERFLOW_DROP_ORDER = ("analysis", "release", "integration", "gomod", "test")
 PREFIXES = {
     "gomod": "Linux-gomod-v1-",
     "test": "Linux-gobuild-test-v1-",
@@ -47,7 +54,7 @@ def plan_prune(
             continue
         grouped[family].append(cache)
 
-    latest: list[dict[str, object]] = []
+    latest_by_family: dict[str, dict[str, object]] = {}
     candidates: list[dict[str, object]] = []
     obsolete: list[dict[str, object]] = []
     evidence: list[str] = []
@@ -58,23 +65,45 @@ def plan_prune(
             reverse=True,
         )
         if entries:
-            latest.append(entries[0])
+            latest_by_family[family] = entries[0]
             evidence.append(f"{family} latest={entries[0]['key']} size={entries[0]['sizeInBytes']}")
         if len(entries) >= 2:
             candidates.append(entries[1])
         obsolete.extend(entries[2:])
 
-    latest_bytes = sum(int(item["sizeInBytes"]) for item in latest)
+    kept_latest = dict(latest_by_family)
+    overflow_delete: list[dict[str, object]] = []
+    latest_bytes = sum(int(item["sizeInBytes"]) for item in kept_latest.values())
+    # Never drop the final surviving family: if it alone exceeds the budget the
+    # plan is impossible and the warm job must fail closed.
+    while latest_bytes > budget_bytes and len(kept_latest) > 1:
+        dropped = False
+        for family in OVERFLOW_DROP_ORDER:
+            item = kept_latest.pop(family, None)
+            if item is None:
+                continue
+            overflow_delete.append(item)
+            size = int(item["sizeInBytes"])
+            latest_bytes -= size
+            evidence.append(
+                f"overflow_drop family={family} key={item['key']} size={size}"
+            )
+            dropped = True
+            break
+        if not dropped:
+            break
+
     if latest_bytes > budget_bytes:
+        keep = list(kept_latest.values()) + overflow_delete
         return PrunePlan(
             ok=False,
             delete_ids=(),
-            keep_ids=tuple(int(item["id"]) for item in latest),
+            keep_ids=tuple(int(item["id"]) for item in keep),
             evidence=tuple(evidence),
         )
 
     remaining = latest_bytes + sum(int(item["sizeInBytes"]) for item in candidates)
-    delete = list(obsolete)
+    delete = list(obsolete) + overflow_delete
     keep_candidates: list[dict[str, object]] = []
     for candidate in sorted(
         candidates,
@@ -86,7 +115,7 @@ def plan_prune(
         else:
             keep_candidates.append(candidate)
 
-    keep = latest + keep_candidates
+    keep = list(kept_latest.values()) + keep_candidates
     return PrunePlan(
         ok=True,
         delete_ids=tuple(int(item["id"]) for item in delete),
@@ -123,26 +152,48 @@ def _list_caches() -> list[dict[str, object]]:
     return payload
 
 
+def _delete_caches(cache_ids: Iterable[int]) -> None:
+    import subprocess
+
+    for cache_id in cache_ids:
+        subprocess.check_call(
+            ["gh", "cache", "delete", str(cache_id)],
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
+    import sys
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument(
         "--check",
         action="store_true",
         help="plan-only budget check; never deletes caches",
     )
+    mode.add_argument(
+        "--heal",
+        action="store_true",
+        help="apply prune plan, including overflow drops of lowest-priority latest caches",
+    )
     args = parser.parse_args(argv)
-    if not args.check:
-        print("go_cache_prune: apply is a separate approval gate", file=__import__("sys").stderr)
-        return 2
     plan = plan_prune(_list_caches())
     for line in plan.evidence:
         print(line)
     if not plan.ok:
-        print("go_cache_prune: latest generations exceed the 6 GiB budget", file=__import__("sys").stderr)
+        print(
+            "go_cache_prune: latest generations exceed the 6 GiB budget "
+            "even after overflow drops",
+            file=sys.stderr,
+        )
         return 1
-    print(f"go_cache_prune: ok keep={list(plan.keep_ids)} delete_plan={list(plan.delete_ids)}")
+    if args.check:
+        print(f"go_cache_prune: ok keep={list(plan.keep_ids)} delete_plan={list(plan.delete_ids)}")
+        return 0
+    if plan.delete_ids:
+        _delete_caches(plan.delete_ids)
+    print(f"go_cache_prune: healed keep={list(plan.keep_ids)} deleted={list(plan.delete_ids)}")
     return 0
 
 

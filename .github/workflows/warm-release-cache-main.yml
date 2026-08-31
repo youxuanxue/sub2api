@@ -196,7 +196,10 @@ jobs:
           path: ~/.cache/go-build
           key: ${{ runner.os }}-go-release-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
 
-      - name: Check managed Go cache budget
+      # Budget is hard at 6 GiB of latest generations. When latest alone overflows,
+      # --heal drops lowest-priority family latest (analysis → release → …) and
+      # applies the prune plan so required CI stays correct on a miss.
+      - name: Heal managed Go cache budget
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/go_cache_prune.py --check
+        run: python3 scripts/ci/go_cache_prune.py --heal
