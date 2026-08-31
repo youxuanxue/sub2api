@@ -17,7 +17,10 @@ sys.modules[SPEC.name] = go_cache_prune
 SPEC.loader.exec_module(go_cache_prune)
 BUDGET_BYTES = go_cache_prune.BUDGET_BYTES
 FAMILIES = go_cache_prune.FAMILIES
+OVERFLOW_DROP_ORDER = go_cache_prune.OVERFLOW_DROP_ORDER
 plan_prune = go_cache_prune.plan_prune
+family_fits = go_cache_prune.family_fits
+
 
 
 def _cache(
@@ -140,7 +143,7 @@ class GoCachePruneTest(unittest.TestCase):
         self.assertEqual(plan.delete_ids, (999,))
         self.assertEqual(set(plan.keep_ids), {1, 2})
 
-    def test_fails_when_latest_generations_exceed_budget(self) -> None:
+    def test_overflow_drops_lowest_priority_latest_first(self) -> None:
         caches = [
             _cache("Linux-gomod-v1-a", 4, cache_id=1),
             _cache("Linux-gobuild-test-v1-a", 4, cache_id=2),
@@ -149,11 +152,64 @@ class GoCachePruneTest(unittest.TestCase):
             _cache("Linux-go-release-v1-a", 4, cache_id=5),
         ]
         plan = plan_prune(caches, budget_bytes=10)
-        self.assertFalse(plan.ok)
-        self.assertEqual(plan.delete_ids, ())
-        self.assertEqual(set(plan.keep_ids), {1, 2, 3, 4, 5})
+        self.assertTrue(plan.ok)
+        # 20 → drop analysis (4) then release (4) → kept 12 still over 10 →
+        # drop integration (4) → kept test+gomod = 8.
+        self.assertEqual(set(plan.delete_ids), {3, 4, 5})
+        self.assertEqual(set(plan.keep_ids), {1, 2})
+        self.assertEqual(set(plan.overflow_delete_ids), {3, 4, 5})
         evidence = " ".join(plan.evidence)
         self.assertTrue(all(family in evidence for family in FAMILIES), plan.evidence)
+        self.assertIn("overflow_drop family=analysis", evidence)
+        self.assertIn("overflow_drop family=release", evidence)
+        self.assertIn("overflow_drop family=integration", evidence)
+
+    def test_overflow_drop_order_prefers_analysis_before_release(self) -> None:
+        caches = [
+            _cache("Linux-gomod-v1-a", 2, cache_id=1),
+            _cache("Linux-gobuild-test-v1-a", 2, cache_id=2),
+            _cache("Linux-gobuild-integration-v1-a", 2, cache_id=3),
+            _cache("Linux-gobuild-analysis-v1-a", 3, cache_id=4),
+            _cache("Linux-go-release-v1-a", 3, cache_id=5),
+        ]
+        # latest sum=12; dropping analysis alone → 9 ≤ 10.
+        plan = plan_prune(caches, budget_bytes=10)
+        self.assertTrue(plan.ok)
+        self.assertEqual(plan.delete_ids, (4,))
+        self.assertEqual(plan.overflow_delete_ids, (4,))
+        self.assertEqual(set(plan.keep_ids), {1, 2, 3, 5})
+        self.assertEqual(OVERFLOW_DROP_ORDER[0], "analysis")
+        self.assertFalse(family_fits(caches, "analysis", budget_bytes=10))
+        self.assertTrue(family_fits(caches, "release", budget_bytes=10))
+        self.assertFalse(family_fits(caches, "analysis", size=3, budget_bytes=10))
+        self.assertTrue(family_fits(caches, "release", size=3, budget_bytes=10))
+
+    def test_fits_with_size_models_pending_save(self) -> None:
+        caches = [
+            _cache("Linux-gomod-v1-a", 2, cache_id=1),
+            _cache("Linux-gobuild-test-v1-a", 2, cache_id=2),
+            _cache("Linux-gobuild-integration-v1-a", 2, cache_id=3),
+            _cache("Linux-gobuild-analysis-v1-a", 1, cache_id=4),
+            _cache("Linux-go-release-v1-a", 2, cache_id=5),
+        ]
+        # current sum=9 ≤ 10, analysis fits; a pending 4-byte analysis tips over and drops.
+        self.assertTrue(family_fits(caches, "analysis", budget_bytes=10))
+        self.assertFalse(family_fits(caches, "analysis", size=4, budget_bytes=10))
+        self.assertTrue(family_fits(caches, "test", size=2, budget_bytes=10))
+
+    def test_fails_when_single_latest_exceeds_budget(self) -> None:
+        caches = [
+            _cache("Linux-gomod-v1-a", 1, cache_id=1),
+            _cache("Linux-gobuild-test-v1-a", 20, cache_id=2),
+            _cache("Linux-gobuild-integration-v1-a", 1, cache_id=3),
+            _cache("Linux-gobuild-analysis-v1-a", 1, cache_id=4),
+            _cache("Linux-go-release-v1-a", 1, cache_id=5),
+        ]
+        plan = plan_prune(caches, budget_bytes=10)
+        self.assertFalse(plan.ok)
+        self.assertEqual(plan.delete_ids, ())
+        # test is highest keep priority; after dropping others, test alone still overflows.
+        self.assertIn(2, plan.keep_ids)
 
     def test_candidate_tie_breaks_by_key_ascending(self) -> None:
         caches = [
@@ -185,6 +241,30 @@ class GoCachePruneTest(unittest.TestCase):
         self.assertGreaterEqual(limit, 10_000)
         fields = args[args.index("--json") + 1]
         self.assertIn("createdAt", fields)
+
+    def test_check_exits_nonzero_when_overflow_heal_is_required(self) -> None:
+        caches = [
+            _cache("Linux-gomod-v1-a", 2, cache_id=1),
+            _cache("Linux-gobuild-test-v1-a", 2, cache_id=2),
+            _cache("Linux-gobuild-integration-v1-a", 2, cache_id=3),
+            _cache("Linux-gobuild-analysis-v1-a", 3, cache_id=4),
+            _cache("Linux-go-release-v1-a", 3, cache_id=5),
+        ]
+
+        def _plan(caches_arg, budget_bytes=go_cache_prune.BUDGET_BYTES):
+            del budget_bytes
+            return plan_prune(caches_arg, budget_bytes=10)
+
+        def _fits(caches_arg, family, *, size=None, budget_bytes=go_cache_prune.BUDGET_BYTES):
+            del budget_bytes
+            return family_fits(caches_arg, family, size=size, budget_bytes=10)
+
+        with patch.object(go_cache_prune, "_list_caches", return_value=caches):
+            with patch.object(go_cache_prune, "plan_prune", side_effect=_plan):
+                self.assertEqual(go_cache_prune.main(["--check"]), 1)
+            with patch.object(go_cache_prune, "family_fits", side_effect=_fits):
+                self.assertEqual(go_cache_prune.main(["--fits", "analysis"]), 1)
+                self.assertEqual(go_cache_prune.main(["--fits", "release"]), 0)
 
 
 if __name__ == "__main__":

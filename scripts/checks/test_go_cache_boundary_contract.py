@@ -61,5 +61,13 @@ class GoCacheBoundaryContractTest(unittest.TestCase):
         self.assertEqual(offenders, [])
 
 
+    def test_warm_release_cache_heals_budget_overflow(self) -> None:
+        text = (WORKFLOWS / "warm-release-cache-main.yml").read_text(encoding="utf-8")
+        self.assertIn("go_cache_prune.py --heal", text)
+        self.assertIn("go_cache_prune.py --fits analysis", text)
+        self.assertIn("go_cache_prune.py --fits release", text)
+        self.assertNotIn("go_cache_prune.py --check", text)
+
+
 if __name__ == "__main__":
     unittest.main()

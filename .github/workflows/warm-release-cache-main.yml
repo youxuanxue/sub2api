@@ -138,14 +138,28 @@ jobs:
             ${{ runner.os }}-gobuild-analysis-v1-${{ steps.go_version.outputs.version }}-
             ${{ runner.os }}-gobuild-analysis-
             ${{ runner.os }}-gobuild-lint-nodwarf-v1-
-      - name: Warm analysis build cache
+      # Skip warm/save when this family would be overflow-dropped under the 6 GiB
+      # budget — otherwise we thrash: upload then --heal deletes the same entry.
+      - name: Budget gate for analysis warm
+        id: analysis_budget
         if: steps.analysis_cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if python3 scripts/ci/go_cache_prune.py --fits analysis; then
+            echo "fits=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "fits=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::skip analysis warm/save; family would be overflow-dropped under 6 GiB budget"
+          fi
+      - name: Warm analysis build cache
+        if: steps.analysis_cache.outputs.cache-hit != 'true' && steps.analysis_budget.outputs.fits == 'true'
         working-directory: backend
         env:
           GOFLAGS: -trimpath -gcflags=all=-dwarf=false
         run: go test -run=^$ ./...
       - name: Warm golangci-lint cache
-        if: steps.analysis_cache.outputs.cache-hit != 'true'
+        if: steps.analysis_cache.outputs.cache-hit != 'true' && steps.analysis_budget.outputs.fits == 'true'
         uses: golangci/golangci-lint-action@v9
         env:
           GOFLAGS: -trimpath -gcflags=all=-dwarf=false
@@ -155,8 +169,21 @@ jobs:
           working-directory: backend
           only-new-issues: false
           skip-cache: "true"
+      - name: Budget gate for analysis save
+        id: analysis_save_budget
+        if: steps.analysis_cache.outputs.cache-hit != 'true' && steps.analysis_budget.outputs.fits == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          size="$(du -sb "$HOME/.cache/go-build" "$HOME/.cache/golangci-lint" 2>/dev/null | awk '{s+=$1} END {print s+0}')"
+          if python3 scripts/ci/go_cache_prune.py --fits analysis --size "$size"; then
+            echo "fits=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "fits=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::skip analysis cache save (size=${size}); would be overflow-dropped under 6 GiB budget"
+          fi
       - name: Save analysis build cache
-        if: steps.analysis_cache.outputs.cache-hit != 'true'
+        if: steps.analysis_cache.outputs.cache-hit != 'true' && steps.analysis_save_budget.outputs.fits == 'true'
         uses: actions/cache/save@v6
         with:
           path: |
@@ -175,8 +202,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-release-v1-${{ steps.go_version.outputs.version }}-
             ${{ runner.os }}-go-release-
-      - name: Warm cross-arch Go build cache
+      - name: Budget gate for release warm
+        id: release_budget
         if: steps.release_cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if python3 scripts/ci/go_cache_prune.py --fits release; then
+            echo "fits=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "fits=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::skip release warm/save; family would be overflow-dropped under 6 GiB budget"
+          fi
+      - name: Warm cross-arch Go build cache
+        if: steps.release_cache.outputs.cache-hit != 'true' && steps.release_budget.outputs.fits == 'true'
         working-directory: backend
         env:
           CGO_ENABLED: '0'
@@ -189,14 +228,31 @@ jobs:
             GOARCH="${arch}" go build -o /dev/null ./cmd/qa-archive
             echo "::endgroup::"
           done
+      - name: Budget gate for release save
+        id: release_save_budget
+        if: steps.release_cache.outputs.cache-hit != 'true' && steps.release_budget.outputs.fits == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          size="$(du -sb "$HOME/.cache/go-build" 2>/dev/null | awk '{print $1+0}')"
+          if python3 scripts/ci/go_cache_prune.py --fits release --size "$size"; then
+            echo "fits=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "fits=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::skip release cache save (size=${size}); would be overflow-dropped under 6 GiB budget"
+          fi
       - name: Save release build cache
-        if: steps.release_cache.outputs.cache-hit != 'true'
+        if: steps.release_cache.outputs.cache-hit != 'true' && steps.release_save_budget.outputs.fits == 'true'
         uses: actions/cache/save@v6
         with:
           path: ~/.cache/go-build
           key: ${{ runner.os }}-go-release-v1-${{ steps.go_version.outputs.version }}-${{ hashFiles('backend/go.mod', 'backend/go.sum', '.new-api-ref') }}-${{ hashFiles('backend/**/*.go', 'backend/.golangci.yml', '.goreleaser.yaml') }}
 
-      - name: Check managed Go cache budget
+      # Budget is hard at 6 GiB of latest generations. When latest alone overflows,
+      # --heal drops lowest-priority family latest (analysis → release → …) and
+      # applies the prune plan so required CI stays correct on a miss. Warm/save
+      # gates above skip families that would only thrash under that policy.
+      - name: Heal managed Go cache budget
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/go_cache_prune.py --check
+        run: python3 scripts/ci/go_cache_prune.py --heal
