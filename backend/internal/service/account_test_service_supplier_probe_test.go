@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/stretchr/testify/require"
@@ -86,6 +87,31 @@ func TestUS048_SupplierManagedAccountDeclaresOnlyChatProtocol(t *testing.T) {
 		protocolrouter.ProtocolChatCompletions: {URL: "https://supplier.example/v1/chat/completions"},
 	}, identity.ProtocolEndpoints)
 	require.Equal(t, []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}, ProtocolProbeCandidates(account))
+}
+
+func TestUS048_ChatOnlyIdentityDoesNotRequireSupplierSourceBinding(t *testing.T) {
+	// Scheduling/gateway identity must follow account credentials, not Extra.supplier_source_id.
+	account := &Account{
+		ID:          109,
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeAli,
+		Credentials: supplierManagedCredentials(
+			"https://dashscope.aliyuncs.com", "secret",
+			map[string]string{"qwen3.6-flash": "qwen3.6-flash"}, newapiconstant.ChannelTypeAli),
+	}
+	delete(account.Extra, SupplierSourceIDExtraKey)
+	account.Extra = nil
+
+	identity, governed, err := BuildProtocolEndpointIdentity(account)
+
+	require.NoError(t, err)
+	require.True(t, governed)
+	require.False(t, IsSupplierManagedAccount(account))
+	require.Equal(t, true, account.Credentials[ProtocolEndpointsExclusiveCredentialKey])
+	require.Equal(t, map[protocolrouter.Protocol]ProtocolEndpoint{
+		protocolrouter.ProtocolChatCompletions: {URL: "https://dashscope.aliyuncs.com/v1/chat/completions"},
+	}, identity.ProtocolEndpoints)
 }
 
 func TestUS048_SupplierManagedQianfanDeclaresBaiduV2ChatProtocol(t *testing.T) {

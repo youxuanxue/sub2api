@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
@@ -15,6 +14,13 @@ import (
 )
 
 const SupportedProtocolsExtraKey = "supported_protocols"
+
+// ProtocolEndpointsExclusiveCredentialKey marks that credentials.api_base_urls
+// is the exclusive protocol-endpoint declaration for identity / probe routing.
+// When set, bare base_url must not fan out into undeclared protocols. This is
+// an account-self signal (not supplier_source_id): scheduling and gateway
+// identity stay decoupled from supplier-source binding.
+const ProtocolEndpointsExclusiveCredentialKey = "protocol_endpoints_exclusive"
 
 type supportedProtocolsExtraWriter interface {
 	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error
@@ -473,22 +479,6 @@ func protocolAccountEndpoints(account *Account) (string, map[protocolrouter.Prot
 		return "", nil, protocolrouter.OfficialEndpointOpenAICodex
 	}
 	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
-	if IsSupplierManagedAccount(account) {
-		if account.Platform != PlatformNewAPI || account.Type != AccountTypeAPIKey ||
-			!supplierManagedTransportOK(account) || baseURL == "" {
-			return "", nil, ""
-		}
-		chatBase := baseURL
-		if account.ChannelType == newapiconstant.ChannelTypeBaiduV2 {
-			// Qianfan Chat lives under /v2; declare the complete path so identity
-			// normalize does not invent a /v1 suffix. Non-supplier Qianfan accounts
-			// keep their historical identity key and are unchanged.
-			chatBase = strings.TrimRight(newapiintegration.QianfanBaseURL, "/") + "/v2/chat/completions"
-		}
-		return "", map[protocolrouter.Protocol]string{
-			protocolrouter.ProtocolChatCompletions: chatBase,
-		}, ""
-	}
 	baseURLs := make(map[protocolrouter.Protocol]string)
 	if raw, ok := account.Credentials["api_base_urls"].(map[string]any); ok {
 		copyProtocolBaseURL(raw, APIProtocolChatCompletions, protocolrouter.ProtocolChatCompletions, baseURLs)
@@ -498,7 +488,31 @@ func protocolAccountEndpoints(account *Account) (string, map[protocolrouter.Prot
 	if len(baseURLs) == 0 {
 		baseURLs = nil
 	}
+	// Exclusive declared endpoints: identity/probe use only api_base_urls, never
+	// fan bare base_url into messages/responses. Used by chat-only NewAPI
+	// transports (including supplier-projected accounts) without reading
+	// supplier_source_id.
+	if accountDeclaresExclusiveProtocolEndpoints(account) {
+		if len(baseURLs) == 0 {
+			return "", nil, ""
+		}
+		return "", baseURLs, ""
+	}
 	return baseURL, baseURLs, ""
+}
+
+func accountDeclaresExclusiveProtocolEndpoints(account *Account) bool {
+	if account == nil || account.Credentials == nil {
+		return false
+	}
+	switch typed := account.Credentials[ProtocolEndpointsExclusiveCredentialKey].(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.EqualFold(strings.TrimSpace(typed), "true")
+	default:
+		return false
+	}
 }
 
 func copyProtocolBaseURL(raw map[string]any, key string, protocol protocolrouter.Protocol, out map[protocolrouter.Protocol]string) {
