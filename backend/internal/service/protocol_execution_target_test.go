@@ -407,6 +407,95 @@ func TestProtocolMessagesIdentityUsesNativeAnthropicCredentialContractForCNAccou
 	}
 }
 
+func TestProtocolChatToMessagesUsesNativeAnthropicCredentialForKiroMirror(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	route := protocolRouteSpecByAdapter(t, protocolrouter.AdapterChatToMessages)
+	upstream := &protocolTargetHTTPUpstream{responses: []*http.Response{protocolRouteContractResponse(route)}}
+	svc := protocolTargetTestService(upstream)
+	account := protocolTargetTestAccount(
+		protocolrouter.ProtocolMessages,
+		protocolrouter.ProtocolChatCompletions,
+		protocolrouter.ProtocolResponses,
+	)
+	account.Name = "kiro-us6"
+	account.Platform = PlatformAnthropic
+	account.Credentials["mirror_platform"] = PlatformKiro
+	account.Credentials["model_mapping"] = map[string]any{"claude-opus-4-8": "claude-opus-4-8"}
+
+	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, body, account, func(
+		executionCtx context.Context,
+		account *Account,
+		_ protocolrouter.Plan,
+		request protocolrouter.CanonicalRequest,
+	) (any, error) {
+		return svc.ForwardAsChatCompletions(executionCtx, c, account, request.Body(), "", "")
+	})
+	if err != nil {
+		t.Fatalf("ExecuteSelectedProtocol: %v", err)
+	}
+	if len(upstream.requests) != 1 {
+		t.Fatalf("upstream requests = %d, want 1", len(upstream.requests))
+	}
+	request := upstream.requests[0]
+	if got, want := request.URL.String(), "http://upstream.example/v1/messages"; got != want {
+		t.Fatalf("upstream URL = %q, want Kiro native messages hop %q", got, want)
+	}
+	if got := request.Header.Get("x-api-key"); got != "sk-protocol-target" {
+		t.Fatalf("x-api-key = %q, want Kiro mirror credential", got)
+	}
+	if got := request.Header.Get("Authorization"); got != "" {
+		t.Fatalf("authorization = %q, want no OpenAI bearer credential", got)
+	}
+}
+
+func TestNativeAnthropicAPIKeyForAccountUsesProtocolCredentialOwner(t *testing.T) {
+	tests := []struct {
+		name    string
+		account *Account
+		want    string
+	}{
+		{name: "nil account", account: nil, want: ""},
+		{
+			name: "anthropic api key",
+			account: &Account{
+				Platform:    PlatformAnthropic,
+				Type:        AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "  sk-kiro  "},
+			},
+			want: "sk-kiro",
+		},
+		{
+			name: "oauth token is rejected",
+			account: &Account{
+				Platform:    PlatformAnthropic,
+				Type:        AccountTypeOAuth,
+				Credentials: map[string]any{"access_token": "oauth-token", "api_key": "stale-key"},
+			},
+			want: "",
+		},
+		{
+			name: "blank api key",
+			account: &Account{
+				Platform:    PlatformAnthropic,
+				Type:        AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "   "},
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := nativeAnthropicAPIKeyForAccount(tt.account); got != tt.want {
+				t.Fatalf("nativeAnthropicAPIKeyForAccount() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestProtocolMessagesIdentityUsesNewAPIProtocolCredential(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"model":"client-model","max_tokens":8,"messages":[{"role":"user","content":"hello"}],"stream":false}`)

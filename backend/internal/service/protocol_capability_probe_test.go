@@ -726,6 +726,13 @@ func TestProtocolProbeCandidatesCoverGovernedCustomAccountsOnly(t *testing.T) {
 			},
 		},
 		{
+			name: "kiro edge mirror probes only its native messages hop",
+			account: &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Credentials: map[string]any{
+				"api_key": "secret", "base_url": "https://api-us6.tokenkey.dev", "mirror_platform": PlatformKiro,
+			}},
+			want: []protocolrouter.Protocol{protocolrouter.ProtocolMessages},
+		},
+		{
 			name: "antigravity edge relay probes its configurable text endpoints",
 			account: &Account{Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
 				"api_key": "secret", "base_url": "https://api-us3.tokenkey.dev",

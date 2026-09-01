@@ -882,3 +882,30 @@ func TestRoutingSupportedProtocolsStripsMessagesOnOpenAIEdgeMirror(t *testing.T)
 		t.Fatalf("messages-only stub fallback = %v, want messages kept", got)
 	}
 }
+
+func TestRoutingSupportedProtocolsClampsKiroMirrorToMessages(t *testing.T) {
+	stub := &Account{
+		ID:       66,
+		Name:     "kiro-us6",
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":         "secret",
+			"base_url":        "https://api-us6.tokenkey.dev",
+			"mirror_platform": PlatformKiro,
+		},
+	}
+	stored := []protocolrouter.Protocol{
+		protocolrouter.ProtocolMessages,
+		protocolrouter.ProtocolChatCompletions,
+		protocolrouter.ProtocolResponses,
+	}
+	attachTestProtocolCapability(stub, stored...)
+
+	if got, want := routingSupportedProtocols(stub), []protocolrouter.Protocol{protocolrouter.ProtocolMessages}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("routingSupportedProtocols(Kiro stub) = %v, want %v", got, want)
+	}
+	if got := stub.SupportedProtocols(); !reflect.DeepEqual(got, stored) {
+		t.Fatalf("capability owner list was rewritten: %v", got)
+	}
+}

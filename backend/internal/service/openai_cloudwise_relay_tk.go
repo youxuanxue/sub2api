@@ -10,6 +10,7 @@ var openAICloudwiseRelayAllowedModelPrefixes = []string{
 	"glm-",
 	"minimax-",
 	"deepseek-",
+	"hy3", // Tencent Hy3 on CloudWise MaaS (supplier account #114); no hyphen suffix.
 }
 
 func openAICloudwiseRelayWildcardModelMappingFloor() map[string]string {

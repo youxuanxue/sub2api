@@ -1202,9 +1202,10 @@
         "openAICloudwiseRelayWildcardModelMappingFloor(",
         "func isCloudwiseRelayAccount(",
         "func openAICloudwiseRelaySupportsRequestedModel(",
-        "if account == nil || !isCloudwiseRelayAccount(account)"
+        "if account == nil || !isCloudwiseRelayAccount(account)",
+        "\"hy3\""
       ],
-      "rationale": "Single SSOT for CloudWise MaaS relay supported model families (kimi/claude/glm/minimax/deepseek prefix policy). Adjust only openAICloudwiseRelayAllowedModelPrefixes; wildcard model_mapping floor derives from it. isCloudwiseRelayAccount + openAICloudwiseRelaySupportsRequestedModel are the dual-stack prefix hard gate used before passthrough / empty-mapping allow-all."
+      "rationale": "Single SSOT for CloudWise MaaS relay supported model families (kimi/claude/glm/minimax/deepseek/hy3 prefix policy). Adjust only openAICloudwiseRelayAllowedModelPrefixes; wildcard model_mapping floor derives from it. isCloudwiseRelayAccount + openAICloudwiseRelaySupportsRequestedModel are the dual-stack prefix hard gate used before passthrough / empty-mapping allow-all."
     },
     {
       "path": "backend/internal/service/account.go",
@@ -1251,9 +1252,19 @@
         "TestCloudwiseRelayEmptyMappingStillRejectsForeignFamilies",
         "TestCloudwiseRelayPrefixGateOverridesExplicitGPTMapping",
         "TestGatewayService_CloudwiseRelayPassthroughEmptyMappingUsesPrefixGate",
-        "TestApplyOpenAICloudwiseRelayUpstreamModelID_AnthropicAccount"
+        "TestApplyOpenAICloudwiseRelayUpstreamModelID_AnthropicAccount",
+        "\"hy3\""
       ],
       "rationale": "Focused regressions for the CloudWise prefix hard gate: empty mapping / leftover passthrough still reject gpt-* on both Account.IsModelSupported and GatewayService.isModelSupportedByAccount, and an explicit gpt mapping cannot override the family floor."
+    },
+    {
+      "path": "backend/internal/service/universal_routing_tk_serving.go",
+      "must_contain": [
+        "func universalOpenAICompatMappingHonorsPlatformHint(",
+        "isCloudwiseRelayAccount(account)",
+        "minimax-*/hy3*"
+      ],
+      "rationale": "Universal OpenAI-compat routing must keep CloudWise as the newapi-hint exception for curated prefix families including hy3; dropping the exception misroutes hy3 away from CloudWise supplier accounts."
     },
     {
       "path": "backend/internal/service/gateway_cloudwise_relay_test.go",
@@ -7234,6 +7245,7 @@
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_anthropic_native.go",
       "must_contain": [
+        "apiKey := nativeAnthropicAPIKeyForAccount(account)",
         "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {",
         "if tkAnthropicBufferedEventCompletesMessage(&event) {",
         "streamCompleted = true\n\t\t\tbreak",
@@ -7246,6 +7258,7 @@
     {
       "path": "backend/internal/service/openai_gateway_responses_anthropic_native.go",
       "must_contain": [
+        "apiKey := nativeAnthropicAPIKeyForAccount(account)",
         "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {",
         "if tkAnthropicBufferedEventCompletesMessage(&event) {",
         "streamCompleted = true\n\t\t\tbreak",
@@ -7254,6 +7267,65 @@
         "tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)"
       ],
       "rationale": "Native-Anthropic Responses buffered path shares the same completion, failover-before-write, and partial-truncation contract, including idle timeout handling."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_anthropic_native_tk.go",
+      "must_contain": [
+        "apiKey := nativeAnthropicAPIKeyForAccount(account)",
+        "func nativeAnthropicAPIKeyForAccount(account *Account) string {",
+        "account.Type != AccountTypeAPIKey",
+        "protocolAuthorizationToken(account)"
+      ],
+      "rationale": "Native Anthropic Messages transports reached through the OpenAI-compatible protocol router enforce their API-key-only boundary, then delegate credential binding to protocolAuthorizationToken, the shared protocol-routing owner. The selected wire protocol owns the credential shape; platform=anthropic Kiro mirror stubs must not pass through the OpenAI-platform getter and fail locally before HTTP dispatch."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution_target_test.go",
+      "must_contain": [
+        "func TestProtocolChatToMessagesUsesNativeAnthropicCredentialForKiroMirror(",
+        "account.Name = \"kiro-us6\"",
+        "account.Platform = PlatformAnthropic",
+        "account.Credentials[\"mirror_platform\"] = PlatformKiro",
+        "http://upstream.example/v1/messages",
+        "x-api-key = %q, want Kiro mirror credential"
+      ],
+      "rationale": "Incident-shaped regression for default/composite OpenAI Chat Completions routing to a mirror_platform=kiro Anthropic API-key stub whose stored evidence also claims Chat and Responses. Planning must still convert to exactly one edge /v1/messages request with x-api-key and no OpenAI Authorization bearer header."
+    },
+    {
+      "path": "backend/internal/service/account_supported_protocols.go",
+      "must_contain": [
+        "func routingSupportedProtocols(account *Account) []protocolrouter.Protocol {",
+        "if account.IsKiroMirrorStub() {",
+        "return []protocolrouter.Protocol{protocolrouter.ProtocolMessages}"
+      ],
+      "rationale": "The Plan-facing protocol projection is the execution SSOT for Kiro mirror stubs. Stored probe evidence may include compatibility endpoints, but mirror_platform=kiro must expose only native Messages so Chat/Responses ingress converts before the prod-to-edge hop."
+    },
+    {
+      "path": "backend/internal/service/account_supported_protocols_test.go",
+      "must_contain": [
+        "func TestRoutingSupportedProtocolsClampsKiroMirrorToMessages(",
+        "protocolrouter.ProtocolChatCompletions",
+        "protocolrouter.ProtocolResponses",
+        "capability owner list was rewritten"
+      ],
+      "rationale": "Regression pins the separation between stored protocol evidence and the effective Kiro execution projection: stale or probe-positive Chat/Responses remain observable but cannot become planner targets."
+    },
+    {
+      "path": "backend/internal/service/protocol_capability_probe.go",
+      "must_contain": [
+        "func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {",
+        "if account.IsKiroMirrorStub() {",
+        "return []protocolrouter.Protocol{protocolrouter.ProtocolMessages}"
+      ],
+      "rationale": "Generic endpoint discovery must not promote edge Chat/Responses compatibility ingress into native Kiro execution capability. Kiro mirror probing is restricted to the prod-to-edge Messages hop."
+    },
+    {
+      "path": "backend/internal/service/protocol_capability_probe_test.go",
+      "must_contain": [
+        "kiro edge mirror probes only its native messages hop",
+        "\"mirror_platform\": PlatformKiro",
+        "want: []protocolrouter.Protocol{protocolrouter.ProtocolMessages}"
+      ],
+      "rationale": "Regression pins the Kiro probe candidate set to Messages even though the edge gateway also accepts selected compatibility endpoints."
     },
     {
       "path": "backend/internal/handler/gateway_anthropic_buffered_failover_tk_test.go",
@@ -7751,6 +7823,43 @@
         "FinalizeAccountCredentials(credentials, 0)"
       ],
       "rationale": "Every CRS create/update path must go through the credential SSOT so rotating base_url/api_key cannot retain stale exclusive supplier endpoints."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_chat_fallback.go",
+      "must_contain": [
+        "newMessagesChatAnthropicOutputStage",
+        "outputStage.Emit(",
+        "outputStage.Finalize("
+      ],
+      "rationale": "The upstream-shaped messages-to-chat forwarder must retain the TokenKey output stage call sites so upstream merges cannot bypass empty-stream refusal detection while leaving the companion implementation and tests intact."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_chat_silent_refusal_tk.go",
+      "must_contain": [
+        "type messagesChatAnthropicOutputStage struct",
+        "messagesChatAnthropicEventsHaveSemanticOutput",
+        "messagesChatEmptyFinishIsSilentRefusal",
+        "if s.c.Writer.Written()",
+        "failoverErr.SafeToFailoverAfterWrite = true"
+      ],
+      "rationale": "The TokenKey companion must stage synthetic Anthropic preamble frames until real text/thinking/tool output exists. Empty zero-usage upstream attempts must enter the shared silent-refusal failover path instead of synthesizing message_start -> end_turn and making Claude Code report a false successful completion. The safe-after-write marker applies only when header-wait pings actually committed; no-write attempts must retain the full account-failover budget."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_chat_fallback_test.go",
+      "must_contain": [
+        "TestForwardAsAnthropic_ForceChatCompletionsEmptyStreamFailsOver"
+      ],
+      "rationale": "The upstream-shaped fallback suite must keep a focused end-to-end regression proving that a DONE-only Chat Completions stream cannot become a synthetic Anthropic success."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_chat_silent_refusal_tk_test.go",
+      "must_contain": [
+        "TestMessagesChatSilentRefusal_RoleOnlyStopFailsOver",
+        "TestMessagesChatSilentRefusal_UsageOnlyStreamSucceeds",
+        "TestMessagesChatSilentRefusal_EmptyLengthStreamSucceeds",
+        "TestMessagesChatSilentRefusal_AfterPingDoesNotEndTurn"
+      ],
+      "rationale": "Focused companion regressions pin the production role-only false-success shape, the non-zero usage and explicit non-stop terminal exemptions, and the late header-wait ping case so an upstream merge cannot restore empty end_turn framing or shrink ordinary no-write account failover while text/tool tests remain green."
     }
   ]
 }
