@@ -146,7 +146,9 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	// 8. Get access token
 	token, tokenType, err := s.GetAccessToken(ctx, account)
 	if err != nil {
-		return nil, fmt.Errorf("get access token: %w", err)
+		safeErr := sanitizeUpstreamErrorMessage(err.Error())
+		recordCCUpstreamRequestError(c, account, "", "request_error", safeErr)
+		return nil, fmt.Errorf("get access token: %s", safeErr)
 	}
 
 	// 9. Get proxy URL
@@ -160,7 +162,9 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	upstreamReq, _, err := s.buildAnthropicCompatUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
 	releaseUpstreamCtx()
 	if err != nil {
-		return nil, fmt.Errorf("build upstream request: %w", err)
+		safeErr := sanitizeUpstreamErrorMessage(err.Error())
+		recordCCUpstreamRequestError(c, account, "", "request_error", safeErr)
+		return nil, fmt.Errorf("build upstream request: %s", safeErr)
 	}
 
 	// 11. Send request
@@ -170,15 +174,11 @@ func (s *GatewayService) ForwardAsChatCompletions(
 			_ = resp.Body.Close()
 		}
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())
-		setOpsUpstreamError(c, 0, safeErr, "")
-		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			Platform:           account.Platform,
-			AccountID:          account.ID,
-			AccountName:        account.Name,
-			UpstreamStatusCode: 0,
-			Kind:               "request_error",
-			Message:            safeErr,
-		})
+		upstreamURL := ""
+		if upstreamReq != nil && upstreamReq.URL != nil {
+			upstreamURL = upstreamReq.URL.String()
+		}
+		recordCCUpstreamRequestError(c, account, upstreamURL, "request_error", safeErr)
 		writeGatewayCCError(c, http.StatusBadGateway, "server_error", "Upstream request failed")
 		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 	}
@@ -650,6 +650,35 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	c.Writer.Flush()
 
 	return resultWithUsage(), nil
+}
+
+// recordCCUpstreamRequestError persists a local/transport failure onto the gin
+// context so ops_error_logs.upstream_errors keeps the sanitized raw error, and
+// writes the same string to the process log. The client-facing CC body stays
+// generic; this is the evidence channel for hop failures that never produce an
+// upstream HTTP status.
+func recordCCUpstreamRequestError(c *gin.Context, account *Account, upstreamURL, kind, safeErr string) {
+	if account == nil {
+		account = &Account{}
+	}
+	if c != nil {
+		setOpsUpstreamError(c, 0, safeErr, "")
+		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			Platform:    account.Platform,
+			AccountID:   account.ID,
+			AccountName: account.Name,
+			UpstreamURL: safeUpstreamURL(upstreamURL),
+			Kind:        kind,
+			Message:     safeErr,
+		})
+	}
+	logger.L().Warn("gateway cc upstream request failed",
+		zap.Int64("account_id", account.ID),
+		zap.String("account_name", account.Name),
+		zap.String("kind", kind),
+		zap.String("upstream_url", safeUpstreamURL(upstreamURL)),
+		zap.String("error", safeErr),
+	)
 }
 
 // writeGatewayCCError writes an error in OpenAI Chat Completions format for

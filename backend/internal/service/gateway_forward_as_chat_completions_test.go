@@ -459,3 +459,55 @@ func TestForwardAsChatCompletions_KiroMirrorStub_NonStreamingPreservesUpstreamSt
 	require.NotNil(t, result)
 	require.Equal(t, "MIRROR-OK", gjson.GetBytes(rec.Body.Bytes(), "choices.0.message.content").String())
 }
+
+func TestForwardAsChatCompletions_TransportErrorPersistsOpsEvent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	const transportErr = `Post "https://api-us6.tokenkey.dev/v1/messages?key=secret": http2: server sent GOAWAY`
+	upstream := &failingOpenAIHTTPUpstream{err: errors.New(transportErr)}
+	body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}],"max_tokens":32,"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	svc := &GatewayService{
+		cfg:          &config.Config{},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:       66,
+		Name:     "kiro-us6",
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":         "relay-key",
+			"base_url":        "https://api-us6.tokenkey.dev",
+			"mirror_platform": PlatformKiro,
+		},
+	}
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, nil)
+	require.Nil(t, result)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "http2: server sent GOAWAY")
+	require.NotContains(t, err.Error(), "secret")
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.Equal(t, "Upstream request failed", gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+
+	msg, ok := c.Get(OpsUpstreamErrorMessageKey)
+	require.True(t, ok)
+	require.Contains(t, msg.(string), "http2: server sent GOAWAY")
+	require.NotContains(t, msg.(string), "secret")
+
+	raw, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	events, ok := raw.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.Len(t, events, 1)
+	require.Equal(t, "request_error", events[0].Kind)
+	require.Equal(t, int64(66), events[0].AccountID)
+	require.Equal(t, "kiro-us6", events[0].AccountName)
+	require.Contains(t, events[0].Message, "http2: server sent GOAWAY")
+	require.Equal(t, "https://api-us6.tokenkey.dev/v1/messages", events[0].UpstreamURL)
+}
