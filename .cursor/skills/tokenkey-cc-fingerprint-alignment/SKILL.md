@@ -40,7 +40,9 @@ python3 ops/anthropic/capture_cc_fingerprint.py classify-config \
 - `third_party_token` / `first_party_non_oauth`：只验证 UA、Stainless、system 等通用 HTTP 表面；OAuth beta 必须为 `NOT_OBSERVED`，禁止据此改 OAuth baseline。
 - TLS 只接受 collector 或 passive pcap；`baseline_stub_http_only` 必须为 `NOT_OBSERVED`。
 
-关联：`cc0-claude0-launcher` skill（cc0-here 环境）、`tokenkey-anthropic-oauth-config` skill（ja3 变更时的 TLS profile apply）、`docs/spec-delta/cc-canonical-ua-beta-2.1.152.md`（PR #423 实例）。
+关联：本机 `cc0-here` / `claude0-here` launcher（抓包环境）、`tokenkey-anthropic-oauth-config`
+skill（ja3 变更时的 TLS profile apply）、
+`docs/spec-delta/cc-canonical-ua-beta-2.1.152.md`（PR #423 实例）。
 
 ## 抓包 / 日更
 
@@ -97,17 +99,17 @@ bash ops/anthropic/capture-cc-fingerprint.sh emit-edits
 
 ### 4.2 beta 集合漂移（comprehensive 抓到稳定新 token，且非 A/B 灰度）
 
-`--write` 只同步版本字符串，**不碰 beta 列表**。beta 真变了才手改，且必须有抓包证据（见 §6）：
+`--write` 只同步版本字符串，**不碰 beta 列表**。beta 真变了才手改，且必须有真实抓包证据：
 
 - `deploy/aws/stage0/anthropic-http-mimicry-baselines.json` 的 `sonnet_opus` / `haiku` 数组。
 - `backend/internal/pkg/claude/constants.go` 的 beta 常量 + `HaikuBetaHeader` / `FullClaudeCode*MimicryBetas()`。
 - claude 包对应单测。
 - 若新增 load-bearing 面：`scripts/sentinels/gateway-tk.json`。
-- **写/更新一份按主题命名的决策记录** `docs/spec-delta-cc-<topic>.md`（如
+- **写/更新一份按主题命名的决策记录** `docs/spec-delta/cc-<topic>.md`（如
   `…-haiku-beta-ab.md`、`…-canonical-ua.md`；不要用版本号命名、不要一 patch 一份），
   记录 token 集合、分布与抉择理由，并就地更新；代码按稳定名引用它。在
   `docs/ops/cc-fingerprint-changelog.md` 追加一行、type 标 `decision` 并链到该记录。
-  （bimodal Haiku A/B 已在 `spec-delta-cc-2.1.160.md` + #429 刻画，勿逐 patch 重述。）
+  （bimodal Haiku A/B 已在 `docs/spec-delta/cc-2.1.160.md` + #429 刻画，勿逐 patch 重述。）
 
 ### 4.4 Geo stego body 漂移（`--check-gateway` FAIL；capture 内建 `--fix` 未收敛）
 

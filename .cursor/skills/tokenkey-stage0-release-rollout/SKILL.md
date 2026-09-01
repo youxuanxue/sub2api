@@ -139,7 +139,8 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
 - `scripts/stage0/approve-github-run-env.sh` — Environment 门禁自批（warm / prod / edge）。
 - `scripts/release-decide-version.sh` — VERSION/tag 三态决策。
 - `scripts/release-tag.sh` — tag 门禁。
-- `.github/workflows/release.yml` — multi-arch image build 与 prod auto-dispatch。
+- `.github/workflows/release.yml` — multi-arch image build/publish；prod 由 skill 显式 dispatch
+  `.github/workflows/deploy-stage0.yml`。
 - `scripts/stage0/rollout-edges.sh` — 其余 Edge bounded-parallel rollout（fail-stop + smoke 标记验收；**默认 `--parallel 1` 顺序**，降低并发换容器对线上的影响；`N>1` 仅在可接受时用）。
 - `scripts/stage0/pick_release_canary_edge.py` — 探测全 fleet 后按容量、近 30 分钟流量、内存余量和矩阵顺序选择 canary。
 - `ops/stage0/edge_release_canary_probe.sh` — canary 选择的单行 JSON 资源/流量探针；OAuth/Kiro 账号数为 audit-only。

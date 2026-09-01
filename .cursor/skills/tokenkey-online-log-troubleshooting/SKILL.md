@@ -83,7 +83,10 @@ description: >-
 6. **区分最终失败和中间 upstream event。** `ops_error_logs.status_code` 是最终用户侧状态；`upstream_errors[*]` 可能是被重试/降级恢复的中间错误。
 7. **禁止泄漏敏感信息。** 不输出 Authorization、API key、cookie、完整 request_body、OAuth token、数据库密码。必要时只输出 sanitized/truncated 摘要。
 8. **一次失败先修命令，不扩大权限。** SSM/SQL 失败时先读 error、修 quoting/schema；不要改线上状态来绕过。
-9. **prod 的 `upstream-429 by account` / `recovered-200` 不反映镜像 edge 死活——别拿它当 triage 主信号。** 这两个数被双重灌水：(a) 客户端断流（context canceled）在重试/failover 中途被打上残留 `upstream_status=429`；(b) `shouldFailoverUpstreamError` 对 429 也 failover，死 edge 的 429 沿 failover 链涂抹到链尾每个账号。2026-06-06 压测中 **edge-us5 实发 77 个 429，prod 却记 1266（16×）**；六个镜像 edge 的 prod upstream-429 都是 1272–1941，看着齐平，**底下从全健康（us5）到全宕 3.5h（us3：0×200）都有**。更反直觉：**`recovered-200` 越高 = edge 越死**（全靠 failover 救回，健康 edge 直接服务无需"恢复"）。判断 edge 死活的**唯一可靠口径** = edge **自身** access-log 的 `served_200 : no_available_429` 比 + 可调度账号数 → 跑 `ops/observability/scan-edge-health.sh`（见 `scan-edge-health.sh` / 基线表）。详见 memory「判断 edge 死活看 edge 自身比值非 prod upstream-429」与 §0 上方的 `upstream_error_rate` 假 P0 记忆。
+9. **prod 的 `upstream-429 by account` / `recovered-200` 不反映镜像 edge 死活。**
+   客户端断流与 failover 会把中间 429 归到链尾账号，因此不得把 prod 聚合值当作
+   edge 健康主信号。跑 `ops/observability/scan-edge-health.sh`，以 edge 自身 access log 的
+   `served_200 : no_available_429` 与可调度账号证据判定。
 
 ## 命令细节
 
