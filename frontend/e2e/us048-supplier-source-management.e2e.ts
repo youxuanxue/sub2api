@@ -317,7 +317,10 @@ test('US048 Jiajie saves facts previews priority and syncs one band account', as
 
   await page.locator('[data-test="notes"]').fill('尚未保存的运营修改')
   await expect(page.locator('[data-test="sync-source"]')).toBeDisabled()
-  await expect(page.locator('[data-test="sync-save-first"]')).toContainText('请先保存再同步')
+  await expect(page.locator('[data-test="probe-source"]')).toBeDisabled()
+  await expect(page.locator('[data-test="sync-save-first"]')).toContainText(
+    '请先保存当前修改，再探测或同步。',
+  )
   expect(syncRequests).toBe(0)
   await page.locator('[data-test="notes"]').fill('首批最低合法比例')
   await expect(page.locator('[data-test="sync-source"]')).toBeEnabled()
