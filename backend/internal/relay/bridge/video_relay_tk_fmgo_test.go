@@ -183,6 +183,51 @@ func TestFMGoTaskAdaptor_RejectsUnsupportedDuration(t *testing.T) {
 	}
 }
 
+func TestFMGoTaskAdaptor_ReadsDurationSecondsAlias(t *testing.T) {
+	client := newapiintegration.FMGoSeedanceClientID
+	wire, _, err := buildFMGoSubmitBody(t, client, `{"`+client+`":"`+client+`"}`, map[string]any{
+		"resolution":       "720p",
+		"duration_seconds": 10,
+	})
+	if err != nil {
+		t.Fatalf("BuildRequestBody: %v", err)
+	}
+	if got := gjson.GetBytes(wire, "model").String(); got != "feimiao-v2-720p-10s" {
+		t.Fatalf("duration_seconds=10 must rewrite to feimiao-v2-720p-10s, got %q", got)
+	}
+}
+
+func TestFMGoTaskAdaptor_SanitizeFetchResponse(t *testing.T) {
+	t.Parallel()
+	adaptor := newFMGoTaskAdaptor()
+	got := adaptor.sanitizeFetchResponse([]byte(`{"id":"t1","model":"feimiao-v2-720p-10s","status":"succeeded"}`))
+	if gjson.GetBytes(got, "model").String() != newapiintegration.FMGoSeedanceClientID {
+		t.Fatalf("non-fast sku model = %q", gjson.GetBytes(got, "model").String())
+	}
+	if gjson.GetBytes(got, "status").String() != "succeeded" || gjson.GetBytes(got, "id").String() != "t1" {
+		t.Fatalf("sanitize must only rewrite model, got %s", got)
+	}
+	got = adaptor.sanitizeFetchResponse([]byte(`{"model":"feimiao-v2-fast-480p-8s"}`))
+	if gjson.GetBytes(got, "model").String() != newapiintegration.FMGoSeedanceFastClientID {
+		t.Fatalf("fast sku model = %q", gjson.GetBytes(got, "model").String())
+	}
+	for name, body := range map[string]string{
+		"no model":       `{"id":"x","status":"succeeded"}`,
+		"already client": `{"model":"doubao-seedance-2-0-260128"}`,
+		"not json":       `<html>error</html>`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rewritten := adaptor.sanitizeFetchResponse([]byte(body))
+			if string(rewritten) != body {
+				t.Fatalf("must leave foreign body alone:\n got: %s\nwant: %s", rewritten, body)
+			}
+		})
+	}
+	if got := adaptor.sanitizeFetchResponse(nil); got != nil {
+		t.Fatalf("nil body must stay nil, got %q", got)
+	}
+}
+
 func TestFMGoTaskAdaptor_DoRequest_HitsVideoGenerations(t *testing.T) {
 	ensureNewAPIDeps()
 	var gotPath string

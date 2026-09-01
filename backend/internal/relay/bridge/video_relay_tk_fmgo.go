@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	newapichannel "github.com/QuantumNous/new-api/relay/channel"
 	taskdoubao "github.com/QuantumNous/new-api/relay/channel/task/doubao"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -152,6 +153,20 @@ func fmgoVideoParamsFromSubmit(c *gin.Context, raw []byte) (string, int, error) 
 	if err != nil {
 		return "", 0, err
 	}
+	// Doubao BuildRequestBody drops top-level duration aliases. Re-read the
+	// original submit body so duration_seconds / seconds still reach the SKU.
+	if orig := fmgoOriginalSubmitBody(c); len(orig) > 0 {
+		origRes, origDur, origErr := fmgoVideoParamsFromBody(orig)
+		if origErr != nil {
+			return "", 0, origErr
+		}
+		if origRes != "" {
+			resolution = origRes
+		}
+		if origDur != 0 {
+			duration = origDur
+		}
+	}
 	if c == nil {
 		return resolution, duration, nil
 	}
@@ -190,7 +205,7 @@ func fmgoDurationFromTask(req relaycommon.TaskSubmitReq) (int, bool, error) {
 		return duration, true, err
 	}
 	if req.Metadata != nil {
-		for _, key := range []string{"duration", "seconds"} {
+		for _, key := range []string{"duration", "seconds", "duration_seconds"} {
 			if value, ok := req.Metadata[key]; ok {
 				duration, err := parseFMGoDurationValue(value)
 				return duration, true, err
@@ -220,9 +235,9 @@ func parseFMGoDurationValue(value any) (int, error) {
 
 func fmgoVideoParamsFromBody(raw []byte) (string, int, error) {
 	resolution := firstNonEmptyJSONString(raw, "resolution", "size", "metadata.resolution", "metadata.size")
-	rawDuration := firstNonEmptyJSONString(raw, "duration", "seconds", "metadata.duration", "metadata.seconds")
+	rawDuration := firstNonEmptyJSONString(raw, "duration", "seconds", "duration_seconds", "metadata.duration", "metadata.seconds", "metadata.duration_seconds")
 	if rawDuration == "" {
-		for _, path := range []string{"duration", "seconds", "metadata.duration", "metadata.seconds"} {
+		for _, path := range []string{"duration", "seconds", "duration_seconds", "metadata.duration", "metadata.seconds", "metadata.duration_seconds"} {
 			node := gjson.GetBytes(raw, path)
 			if node.Exists() && node.Type == gjson.Number {
 				rawDuration = node.Raw
@@ -235,6 +250,25 @@ func fmgoVideoParamsFromBody(raw []byte) (string, int, error) {
 		return "", 0, err
 	}
 	return resolution, duration, nil
+}
+
+func fmgoOriginalSubmitBody(c *gin.Context) []byte {
+	if c == nil {
+		return nil
+	}
+	stored, ok := c.Get(common.KeyBodyStorage)
+	if !ok {
+		return nil
+	}
+	stor, ok := stored.(common.BodyStorage)
+	if !ok || stor == nil {
+		return nil
+	}
+	body, err := stor.Bytes()
+	if err != nil {
+		return nil
+	}
+	return body
 }
 
 func firstNonEmptyJSONString(raw []byte, paths ...string) string {

@@ -800,7 +800,8 @@
         "/v1/video/generations",
         "fmgoSeedanceClientFromRelay",
         "fmgoVideoParamsFromSubmit",
-        "FMGoSeedanceUpstreamSKU"
+        "FMGoSeedanceUpstreamSKU",
+        "duration_seconds"
       ],
       "rationale": "TK companion task adaptor for FMGo video. Must submit /v1/video/generations, rewrite official Seedance clients from OriginModelName plus request params, and ignore probe-anchor mapping as a frozen SKU. Capability set stays in newapiintegration, never notes or supplier Extra."
     },
@@ -813,7 +814,9 @@
         "TestFMGoTaskAdaptor_RewritesPastProbeAnchorMapping",
         "TestFMGoTaskAdaptor_DefaultsToMaxResolutionAndDuration",
         "TestFMGoTaskAdaptor_RejectsUnsupportedResolution",
-        "TestFMGoTaskAdaptor_RejectsUnsupportedDuration"
+        "TestFMGoTaskAdaptor_RejectsUnsupportedDuration",
+        "TestFMGoTaskAdaptor_ReadsDurationSecondsAlias",
+        "TestFMGoTaskAdaptor_SanitizeFetchResponse"
       ],
       "rationale": "Focused FMGo video regressions: host selection, official + probe-anchor rewrite, defaults, and illegal param rejection."
     },
