@@ -6821,9 +6821,9 @@
         "prodUsageLogRetentionDays  = 90",
         "prodErrorLogRetentionDays  = 30",
         "prodSystemLogRetentionDays = 7",
-        "edgeUsageLogRetentionDays  = 7",
-        "edgeErrorLogRetentionDays  = 14",
-        "edgeSystemLogRetentionDays = 3",
+        "edgeUsageLogRetentionDays  = 90",
+        "edgeErrorLogRetentionDays  = 30",
+        "edgeSystemLogRetentionDays = 7",
         "billingDedupRetentionDays  = 365",
         "func resolveDataLifecyclePolicy(",
         "billingDedupRetentionDays: billingDedupRetentionDays",
@@ -6839,7 +6839,7 @@
         "func IsEdgeFrontendURL(frontendURL string) bool {",
         "strings.HasSuffix(strings.ToLower(parsed.Hostname()), \".tokenkey.dev\")"
       ],
-      "rationale": "The lifecycle policy now connects this shared role helper to destructive retention cutoffs. Edge classification must require the canonical TokenKey domain; otherwise a custom prod host such as api-us1.example.com silently receives the shorter edge windows while cleanup still reports success."
+      "rationale": "The lifecycle policy connects this shared role helper to destructive retention cutoffs. Edge classification must require the canonical TokenKey domain; otherwise a custom prod host such as api-us1.example.com is treated as an unknown/non-edge role and may apply the wrong role policy while cleanup still reports success."
     },
     {
       "path": "backend/internal/service/data_lifecycle_policy_tk_test.go",
