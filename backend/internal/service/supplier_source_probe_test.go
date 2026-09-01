@@ -252,6 +252,43 @@ func TestUS048_StartSupplierProbeJobProbesAllCandidatesAsynchronously(t *testing
 	require.Len(t, result.SuggestedAppends, 12)
 }
 
+func TestUS048_FMGoProbeSkipsNonVideoInventory(t *testing.T) {
+	source := &SupplierSource{
+		ID: 10, SupplierName: "feimiao", ChannelName: "default",
+		ChannelType:         newapiconstant.ChannelTypeDoubaoVideo,
+		Endpoint:            "https://www.fmgo.top",
+		EncryptedCredential: "enc:secret",
+		BasePriority:        100,
+	}
+	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
+	lister := &supplierProbeFake{
+		entries: []SupplierUpstreamModelEntry{
+			{ID: "claude-opus-4-8"},
+			{ID: "feimiao-v2-431-720p-15s"},
+			{ID: "gpt-5.4"},
+			{ID: "feimiao-v2.5-720p-15s"},
+		},
+		probeStatus: map[string]SupplierProbeStatus{
+			"feimiao-v2-431-720p-15s": SupplierProbeStatusPassed,
+			"feimiao-v2.5-720p-15s":   SupplierProbeStatusPassed,
+		},
+	}
+	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	result, err := svc.ProbeUntilComplete(context.Background(), 10)
+	require.NoError(t, err)
+	rejected := map[string]string{}
+	for _, item := range result.RejectedCandidates {
+		rejected[item.UpstreamModelID] = item.Reason
+	}
+	require.Equal(t, "non_video_inventory", rejected["claude-opus-4-8"])
+	require.Equal(t, "non_video_inventory", rejected["gpt-5.4"])
+	require.NotContains(t, rejected, "feimiao-v2-431-720p-15s")
+	require.NotContains(t, rejected, "feimiao-v2.5-720p-15s")
+	require.Equal(t, int64(2), lister.probeCalls.Load())
+	require.Len(t, result.SuggestedAppends, 2)
+}
+
 func TestUS048_ExtractSupplierUpstreamModelEntriesKeepsType(t *testing.T) {
 	entries, err := extractSupplierUpstreamModelEntries([]byte(`{
 		"data": [

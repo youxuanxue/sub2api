@@ -12,14 +12,17 @@ import (
 // FMGoBaseURL is the canonical FMGo (feimiao) API root from the vendor guide.
 const FMGoBaseURL = "https://api.fmgo.top"
 
-// FMGo chat-completions video dialect (feimiao-v2 / feimiao-v2-fast).
+// FMGo chat-completions video dialect (legacy feimiao-v2 / feimiao-v2-fast).
+// Current default Seedance inventory (v2.5 / 431 / mini) uses /v1/videos.
 const (
 	FMGoChatCompletionsPath = "/v1/chat/completions"
 	FMGoTaskPathPrefix      = "/v1/tasks"
+	FMGoVideosPath          = "/v1/videos"
 )
 
 // Official Seedance 2.0 client ids TokenKey exposes. Runtime rewrite on the
-// FMGo video adaptor turns these into feimiao-v2[-fast]-{res}-{dur}s SKUs.
+// FMGo video adaptor turns these into catalog families that the live default
+// group actually serves: 431 / 431-fast (FMGo aliases seedance-2.0).
 const (
 	FMGoSeedanceClientID     = "doubao-seedance-2-0-260128"
 	FMGoSeedanceFastClientID = "doubao-seedance-2-0-fast-260128"
@@ -28,6 +31,12 @@ const (
 const (
 	FMGoDefaultResolution = "720p"
 	FMGoDefaultDuration   = 15
+	FMGoFamilyV25         = "v2.5"
+	FMGoFamily431         = "v2-431"
+	FMGoFamily431Fast     = "v2-431-fast"
+	FMGoFamilyMini        = "v2-mini"
+	FMGoFamilyV2          = "v2"
+	FMGoFamilyV2Fast      = "v2-fast"
 )
 
 // FMGo capability set is pinned in this adaptor. Do not read supplier sources
@@ -37,11 +46,22 @@ var (
 		"480p": {},
 		"720p": {},
 	}
-	fmgoDurations = map[int]struct{}{
+	fmgoChatDurations = map[int]struct{}{
 		6: {}, 8: {}, 10: {}, 12: {}, 15: {},
+	}
+	fmgo431Durations = map[int]struct{}{
+		10: {}, 15: {},
 	}
 	fmgoAspectRatios = map[string]struct{}{
 		"16:9": {}, "9:16": {}, "1:1": {}, "2:3": {}, "3:2": {},
+	}
+	fmgoV25Combos = map[string]map[int]struct{}{
+		"480p": {5: {}, 10: {}, 15: {}, 30: {}},
+		"720p": {10: {}, 15: {}, 30: {}},
+	}
+	fmgoMiniCombos = map[string]int{
+		"720p": 10,
+		"480p": 15,
 	}
 )
 
@@ -104,17 +124,98 @@ func IsFMGoSeedanceClient(model string) bool {
 	}
 }
 
+// FMGoModelFamily classifies a client or upstream id onto a pinned FMGo family.
+// Official Seedance clients map to 431 / 431-fast (live default-group inventory).
+func FMGoModelFamily(model string) string {
+	model = strings.ToLower(strings.TrimSpace(model))
+	switch {
+	case model == "":
+		return ""
+	case model == FMGoSeedanceFastClientID || strings.HasPrefix(model, "feimiao-v2-431-fast"):
+		return FMGoFamily431Fast
+	case model == FMGoSeedanceClientID || strings.HasPrefix(model, "feimiao-v2-431"):
+		return FMGoFamily431
+	case strings.HasPrefix(model, "feimiao-v2.5"):
+		return FMGoFamilyV25
+	case strings.HasPrefix(model, "feimiao-v2-mini"):
+		return FMGoFamilyMini
+	case strings.HasPrefix(model, "feimiao-v2-fast-"):
+		return FMGoFamilyV2Fast
+	case strings.HasPrefix(model, "feimiao-v2-"):
+		return FMGoFamilyV2
+	default:
+		return ""
+	}
+}
+
+// FMGoUsesVideosDialect is the official /v1/videos families plus official Seedance clients.
+func FMGoUsesVideosDialect(model string) bool {
+	switch FMGoModelFamily(model) {
+	case FMGoFamilyV25, FMGoFamily431, FMGoFamily431Fast, FMGoFamilyMini:
+		return true
+	default:
+		return false
+	}
+}
+
+// FMGoSubmitPath is the vendor create path for this model. Seedance clients
+// follow the videos dialect of the live default group.
+func FMGoSubmitPath(model string) string {
+	if FMGoUsesVideosDialect(model) {
+		return FMGoVideosPath
+	}
+	return FMGoChatCompletionsPath
+}
+
+// FMGoFetchPath is the vendor poll path for a previously created task.
+// Empty model defaults to /v1/videos (live Seedance inventory).
+func FMGoFetchPath(model string) string {
+	switch FMGoModelFamily(model) {
+	case FMGoFamilyV2, FMGoFamilyV2Fast:
+		return FMGoTaskPathPrefix
+	default:
+		return FMGoVideosPath
+	}
+}
+
+// IsFMGoVideoInventoryID reports catalog ids that are real FMGo video SKUs.
+// Used to keep ch54 candidate probes off Claude/GPT chat rows in a mixed group.
+func IsFMGoVideoInventoryID(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if FMGoModelFamily(model) != "" {
+		return true
+	}
+	switch {
+	case strings.HasPrefix(model, "veo-"),
+		strings.HasPrefix(model, "sora-"),
+		strings.HasPrefix(model, "grok-video"),
+		strings.HasPrefix(model, "gemini-omni"),
+		model == "omni":
+		return true
+	default:
+		return false
+	}
+}
+
 // FMGoSeedanceUpstreamSKU maps an official Seedance client + request params
-// onto one FMGo inventory SKU. Empty resolution/duration take the set maximum.
-// Values outside the pinned set are rejected; nothing is clamped or downgraded.
+// onto one live-group inventory SKU. Empty resolution/duration take the
+// family default. Values outside the pinned family set are rejected.
 func FMGoSeedanceUpstreamSKU(client, resolution string, duration int) (string, error) {
 	client = strings.TrimSpace(client)
 	if client == "" {
 		return "", fmt.Errorf("fmgo seedance: empty model")
 	}
+	family := FMGoModelFamily(client)
+	if family == "" {
+		return client, nil
+	}
 	if !IsFMGoSeedanceClient(client) {
 		return client, nil
 	}
+	return fmgoFormatFamilySKU(family, resolution, duration)
+}
+
+func fmgoFormatFamilySKU(family, resolution string, duration int) (string, error) {
 	resolution = strings.ToLower(strings.TrimSpace(resolution))
 	if resolution == "" {
 		resolution = FMGoDefaultResolution
@@ -124,14 +225,64 @@ func FMGoSeedanceUpstreamSKU(client, resolution string, duration int) (string, e
 	}
 	if duration == 0 {
 		duration = FMGoDefaultDuration
+		if family == FMGoFamilyMini && resolution == "720p" {
+			duration = 10
+		}
 	}
-	if _, ok := fmgoDurations[duration]; !ok {
-		return "", fmt.Errorf("fmgo seedance: unsupported duration %d", duration)
+	switch family {
+	case FMGoFamily431, FMGoFamily431Fast:
+		if _, ok := fmgo431Durations[duration]; !ok {
+			return "", fmt.Errorf("fmgo seedance: unsupported duration %d", duration)
+		}
+		if family == FMGoFamily431Fast {
+			return fmt.Sprintf("feimiao-v2-431-fast-%s-%ds", resolution, duration), nil
+		}
+		return fmt.Sprintf("feimiao-v2-431-%s-%ds", resolution, duration), nil
+	case FMGoFamilyV25:
+		allowed, ok := fmgoV25Combos[resolution]
+		if !ok {
+			return "", fmt.Errorf("fmgo seedance: unsupported resolution %q", resolution)
+		}
+		if _, ok = allowed[duration]; !ok {
+			return "", fmt.Errorf("fmgo seedance: unsupported duration %d", duration)
+		}
+		return fmt.Sprintf("feimiao-v2.5-%s-%ds", resolution, duration), nil
+	case FMGoFamilyMini:
+		want, ok := fmgoMiniCombos[resolution]
+		if !ok || want != duration {
+			return "", fmt.Errorf("fmgo seedance: unsupported mini combo %s/%ds", resolution, duration)
+		}
+		return fmt.Sprintf("feimiao-v2-mini-%s-%ds", resolution, duration), nil
+	case FMGoFamilyV2, FMGoFamilyV2Fast:
+		if _, ok := fmgoChatDurations[duration]; !ok {
+			return "", fmt.Errorf("fmgo seedance: unsupported duration %d", duration)
+		}
+		if family == FMGoFamilyV2Fast {
+			return fmt.Sprintf("feimiao-v2-fast-%s-%ds", resolution, duration), nil
+		}
+		return fmt.Sprintf("feimiao-v2-%s-%ds", resolution, duration), nil
+	default:
+		return "", fmt.Errorf("fmgo seedance: unknown family %q", family)
 	}
-	if client == FMGoSeedanceFastClientID {
-		return fmt.Sprintf("feimiao-v2-fast-%s-%ds", resolution, duration), nil
+}
+
+// FMGoClientForUpstreamSKU rewrites a vendor inventory or echo id back to the
+// TokenKey-facing official Seedance client. Unknown ids pass through.
+func FMGoClientForUpstreamSKU(model string) string {
+	switch strings.ToLower(strings.TrimSpace(model)) {
+	case "seedance-2.0-fast", "seeddance-2.0-min", "seedance-2.0-min":
+		return FMGoSeedanceFastClientID
+	case "seedance-2.0":
+		return FMGoSeedanceClientID
 	}
-	return fmt.Sprintf("feimiao-v2-%s-%ds", resolution, duration), nil
+	switch FMGoModelFamily(model) {
+	case FMGoFamily431Fast, FMGoFamilyV2Fast, FMGoFamilyMini:
+		return FMGoSeedanceFastClientID
+	case FMGoFamily431, FMGoFamilyV25, FMGoFamilyV2:
+		return FMGoSeedanceClientID
+	default:
+		return strings.TrimSpace(model)
+	}
 }
 
 // ParseFMGoVideoDuration accepts a JSON number or numeric string. Zero means absent.

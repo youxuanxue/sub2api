@@ -22,7 +22,7 @@ import (
 
 func TestFMGoTaskAdaptor_BuildRequestURL(t *testing.T) {
 	t.Parallel()
-	want := newapiintegration.FMGoBaseURL + newapiintegration.FMGoChatCompletionsPath
+	want := newapiintegration.FMGoBaseURL + newapiintegration.FMGoVideosPath
 	for _, base := range []string{
 		newapiintegration.FMGoBaseURL,
 		newapiintegration.FMGoBaseURL + "/v1",
@@ -121,21 +121,21 @@ func TestFMGoTaskAdaptor_RewritesOfficialSeedanceSKU(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildRequestBody: %v", err)
 	}
-	want := "feimiao-v2-720p-10s"
+	want := "feimiao-v2-431-720p-10s"
 	if got := gjson.GetBytes(wire, "model").String(); got != want {
 		t.Fatalf("wire model = %q, want %q", got, want)
 	}
-	if !gjson.GetBytes(wire, "async").Bool() {
-		t.Fatal("official feimiao-v2 submit must set async=true")
+	if gjson.GetBytes(wire, "async").Exists() {
+		t.Fatal("/v1/videos body must not set async")
 	}
-	if gjson.GetBytes(wire, "generationConfig.videoConfig.duration").Int() != 10 {
-		t.Fatalf("videoConfig.duration = %s", gjson.GetBytes(wire, "generationConfig.videoConfig.duration").Raw)
+	if gjson.GetBytes(wire, "seconds").String() != "10" {
+		t.Fatalf("seconds = %s", gjson.GetBytes(wire, "seconds").Raw)
 	}
-	if gjson.GetBytes(wire, "generationConfig.videoConfig.resolution").String() != "720p" {
-		t.Fatalf("videoConfig.resolution = %q", gjson.GetBytes(wire, "generationConfig.videoConfig.resolution").String())
+	if gjson.GetBytes(wire, "resolution").String() != "720p" {
+		t.Fatalf("resolution = %q", gjson.GetBytes(wire, "resolution").String())
 	}
-	if gjson.GetBytes(wire, "messages.0.content").String() != "a cat playing piano" {
-		t.Fatalf("chat prompt = %q", gjson.GetBytes(wire, "messages.0.content").String())
+	if gjson.GetBytes(wire, "prompt").String() != "a cat playing piano" {
+		t.Fatalf("prompt = %q", gjson.GetBytes(wire, "prompt").String())
 	}
 	if info.UpstreamModelName != want {
 		t.Fatalf("UpstreamModelName = %q, want %q", info.UpstreamModelName, want)
@@ -147,15 +147,15 @@ func TestFMGoTaskAdaptor_RewritesOfficialSeedanceSKU(t *testing.T) {
 
 func TestFMGoTaskAdaptor_RewritesPastProbeAnchorMapping(t *testing.T) {
 	client := newapiintegration.FMGoSeedanceClientID
-	anchor := "feimiao-v2-720p-15s"
+	anchor := "feimiao-v2-431-720p-15s"
 	wire, info, err := buildFMGoSubmitBody(t, client, `{"`+client+`":"`+anchor+`"}`, map[string]any{
 		"resolution": "480p",
-		"duration":   8,
+		"duration":   10,
 	})
 	if err != nil {
 		t.Fatalf("BuildRequestBody: %v", err)
 	}
-	want := "feimiao-v2-480p-8s"
+	want := "feimiao-v2-431-480p-10s"
 	if got := gjson.GetBytes(wire, "model").String(); got != want {
 		t.Fatalf("wire model = %q, want %q — probe-anchor mapping must not freeze the SKU", got, want)
 	}
@@ -173,7 +173,7 @@ func TestFMGoTaskAdaptor_DefaultsToMaxResolutionAndDuration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildRequestBody: %v", err)
 	}
-	if got := gjson.GetBytes(wire, "model").String(); got != "feimiao-v2-fast-720p-15s" {
+	if got := gjson.GetBytes(wire, "model").String(); got != "feimiao-v2-431-fast-720p-15s" {
 		t.Fatalf("default sku = %q", got)
 	}
 }
@@ -209,15 +209,15 @@ func TestFMGoTaskAdaptor_ReadsDurationSecondsAlias(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildRequestBody: %v", err)
 	}
-	if got := gjson.GetBytes(wire, "model").String(); got != "feimiao-v2-720p-10s" {
-		t.Fatalf("duration_seconds=10 must rewrite to feimiao-v2-720p-10s, got %q", got)
+	if got := gjson.GetBytes(wire, "model").String(); got != "feimiao-v2-431-720p-10s" {
+		t.Fatalf("duration_seconds=10 must rewrite to feimiao-v2-431-720p-10s, got %q", got)
 	}
 }
 
 func TestFMGoTaskAdaptor_SanitizeFetchResponse(t *testing.T) {
 	t.Parallel()
 	adaptor := newFMGoTaskAdaptor()
-	got := adaptor.sanitizeFetchResponse([]byte(`{"id":"t1","model":"feimiao-v2-720p-10s","status":"succeeded"}`))
+	got := adaptor.sanitizeFetchResponse([]byte(`{"id":"t1","model":"feimiao-v2-431-720p-10s","status":"succeeded"}`))
 	if gjson.GetBytes(got, "model").String() != newapiintegration.FMGoSeedanceClientID {
 		t.Fatalf("non-fast sku model = %q", gjson.GetBytes(got, "model").String())
 	}
@@ -245,14 +245,14 @@ func TestFMGoTaskAdaptor_SanitizeFetchResponse(t *testing.T) {
 	}
 }
 
-func TestFMGoTaskAdaptor_DoRequest_HitsChatCompletions(t *testing.T) {
+func TestFMGoTaskAdaptor_DoRequest_HitsVideos(t *testing.T) {
 	ensureNewAPIDeps()
 	var gotPath, gotPrefer string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotPrefer = r.Header.Get("Prefer")
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusAccepted)
+		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"id":"task-fmgo-1"}`))
 	}))
 	defer srv.Close()
@@ -265,27 +265,28 @@ func TestFMGoTaskAdaptor_DoRequest_HitsChatCompletions(t *testing.T) {
 			ChannelBaseUrl: srv.URL,
 			ApiKey:         "fmgo-key",
 		},
+		OriginModelName: newapiintegration.FMGoSeedanceClientID,
 	}
 	a := newFMGoTaskAdaptor()
 	a.baseURL = srv.URL
 	a.TaskAdaptor.Init(info)
-	resp, err := a.DoRequest(c, info, bytes.NewReader([]byte(`{"model":"feimiao-v2-720p-15s","async":true}`)))
+	resp, err := a.DoRequest(c, info, bytes.NewReader([]byte(`{"model":"feimiao-v2-431-720p-15s","prompt":"probe"}`)))
 	if err != nil {
 		t.Fatalf("DoRequest: %v", err)
 	}
 	_ = resp.Body.Close()
-	if gotPath != newapiintegration.FMGoChatCompletionsPath {
-		t.Fatalf("path = %q, want %s (not /v1/video/generations)", gotPath, newapiintegration.FMGoChatCompletionsPath)
+	if gotPath != newapiintegration.FMGoVideosPath {
+		t.Fatalf("path = %q, want %s", gotPath, newapiintegration.FMGoVideosPath)
 	}
-	if gotPrefer != "respond-async" {
-		t.Fatalf("Prefer = %q, want respond-async", gotPrefer)
+	if gotPrefer != "" {
+		t.Fatalf("videos dialect must not send Prefer, got %q", gotPrefer)
 	}
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("FMGo 202 must be rewritten to 200 for DispatchVideoSubmit, got %d", resp.StatusCode)
+		t.Fatalf("videos create is already 200, got %d", resp.StatusCode)
 	}
 }
 
-func TestFMGoTaskAdaptor_FetchTask_HitsTasksPath(t *testing.T) {
+func TestFMGoTaskAdaptor_FetchTask_HitsVideosPath(t *testing.T) {
 	t.Parallel()
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -300,8 +301,8 @@ func TestFMGoTaskAdaptor_FetchTask_HitsTasksPath(t *testing.T) {
 		t.Fatalf("FetchTask: %v", err)
 	}
 	_ = resp.Body.Close()
-	if gotPath != "/v1/tasks/task-1" {
-		t.Fatalf("fetch path = %q, want /v1/tasks/task-1", gotPath)
+	if gotPath != "/v1/videos/task-1" {
+		t.Fatalf("fetch path = %q, want /v1/videos/task-1", gotPath)
 	}
 }
 
@@ -320,19 +321,25 @@ func TestFMGoTaskAdaptor_ParseTaskResult_Completed(t *testing.T) {
 	}
 }
 
-func TestFMGoTaskAdaptor_Accepts6s(t *testing.T) {
+func TestFMGoTaskAdaptor_RejectsLegacy6sOnVideosFamily(t *testing.T) {
 	client := newapiintegration.FMGoSeedanceClientID
-	wire, _, err := buildFMGoSubmitBody(t, client, `{"`+client+`":"`+client+`"}`, map[string]any{
+	_, _, err := buildFMGoSubmitBody(t, client, `{"`+client+`":"`+client+`"}`, map[string]any{
 		"resolution": "720p",
 		"duration":   6,
 	})
+	if err == nil {
+		t.Fatal("431 family must reject 6s")
+	}
+}
+
+func TestFMGoTaskAdaptor_ParseTaskResult_VideosResultURL(t *testing.T) {
+	t.Parallel()
+	a := newFMGoTaskAdaptor()
+	info, err := a.ParseTaskResult([]byte(`{"id":"task-1","status":"completed","result_url":"https://static.fmgo.top/v.mp4"}`))
 	if err != nil {
-		t.Fatalf("BuildRequestBody: %v", err)
+		t.Fatalf("ParseTaskResult: %v", err)
 	}
-	if got := gjson.GetBytes(wire, "model").String(); got != "feimiao-v2-720p-6s" {
-		t.Fatalf("6s sku = %q", got)
-	}
-	if gjson.GetBytes(wire, "generationConfig.videoConfig.duration").Int() != 6 {
-		t.Fatalf("videoConfig.duration = %s", gjson.GetBytes(wire, "generationConfig.videoConfig.duration").Raw)
+	if info.Url != "https://static.fmgo.top/v.mp4" {
+		t.Fatalf("result_url = %q", info.Url)
 	}
 }
