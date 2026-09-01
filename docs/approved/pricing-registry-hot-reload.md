@@ -9,7 +9,7 @@ related_prs: ["#1524 (superseded implementation)"]
 related_commits: []
 related_stories: ["US-043"]
 related_design: docs/approved/pricing-serving-single-source-of-truth.md, docs/approved/priced-or-it-doesnt-ship.md
-supersedes: "The global price-owner and runtime-overlay sections of pricing-serving-single-source-of-truth.md and channel-pricing-refund-gate-and-runtime-pricing.md"
+supersedes: "The former global price-owner and runtime-overlay designs"
 ---
 
 # Pricing Registry SSOT and Protected Hot Reload

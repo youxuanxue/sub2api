@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """apply-pricing-hotfix.py — 缺价模型定价热更新（飞书「模型缺价」告警的配套 runbook 脚本）。
 
-背景：catch-all 账号会把任意模型名转发到上游；缺价模型按零成本记账（不拒绝服务），
-由 PricingMissingNotifier 发飞书提醒运营。本脚本把既有的人肉止血路径机械化
+背景：缺价请求有三种不同结果：``gate_rejected_unpriced`` 未服务；
+``served_at_fallback`` 按家族 floor 正常计费；只有 ``unpriced`` /
+``negative_multiplier`` 才是真正的零成本漏算。PricingMissingNotifier 会区分告警。
+本脚本把既有的人肉止血路径机械化
 （deepseek-v4 先例：显式 scoped 渠道定价止血 → registry PR 固化）：
 
   热更（立即生效，无需发版）：渠道定价 DB 凌驾一切定价来源，经 prod admin API

@@ -2810,6 +2810,8 @@
     {
       "path": "ops/pricing/modelops.py",
       "must_contain": [
+        "REPO_ROOT / \"ops\" / \"pricing\" / \"modelops_probe.py\"",
+        "probe_env_name = _PROBE.probe_env_name",
         "ACTIVATION_EVIDENCE_MAX_AGE = dt.timedelta(hours=24)",
         "ACTIVATION_CONFIRM = \"yes-activate-model-surface\"",
         "def build_activation_context(",
@@ -2828,6 +2830,17 @@
         "openai_cloudwise_relay"
       ],
       "rationale": "The single prod model-surface activation entry validates current/target bundle digests, rejects stale or incomplete independent probe/pricing evidence, defaults to a reviewed mapping dry-run, requires a fixed outer confirmation before the inner mapping apply, and fails unless the post-apply prod release gate passes. It deliberately never targets Edge; direct Edge diagnostics/apply remain a separate mapping-manager capability."
+    },
+    {
+      "path": "ops/pricing/modelops_probe.py",
+      "must_contain": [
+        "class AccountSnapshot:",
+        "def load_probe_results(",
+        "def probe_env_name(",
+        "if snapshot is None or snapshot.channel_type is None:",
+        "def run_probe_command("
+      ],
+      "rationale": "Pure modelops probe-family owner. It parses machine-readable evidence and selects probe commands only from a caller-supplied live account snapshot, preventing historical account ids or names from becoming a second capability source. The modelops loader is separately anchored so deletion of either side fails preflight."
     },
     {
       "path": "ops/pricing/test_model_activation.py",

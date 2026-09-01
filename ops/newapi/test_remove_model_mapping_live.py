@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).with_name("apply-model-mapping-live.py")
-SPEC = importlib.util.spec_from_file_location("apply_model_mapping_live", SCRIPT)
+SPEC = importlib.util.spec_from_file_location("remove_model_mapping_live", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)

@@ -58,55 +58,14 @@ Production (`api.tokenkey.dev`) is **not** where the upstream Anthropic OAuth ca
 
 ## Model serving SSOT / 模型交付 SSOT
 
-完整设计只在 `docs/approved/pricing-serving-single-source-of-truth.md`；
-generation 协议只在 `docs/approved/protocol-routing-ssot.md`。这里不复制判定表。
-probe、traffic、availability 和日志是证据，不能单独放行一次请求。
+架构与判定只在 `docs/approved/pricing-serving-single-source-of-truth.md`；generation
+协议只在 `docs/approved/protocol-routing-ssot.md`。操作入口是 skill
+`tokenkey-modelops-planner`，命令索引见 `ops/pricing/README.md`，CLI 参数以 argparse
+及生成的 `docs/agent_integration.md` 为准。本文件不复制判定表、账号信息或命令手册。
 
-prod mapping（含可选 `settings.tk_account_model_mapping_runtime`）仍须匹配每个受管 scope 的 compiled
-Go floor。VolcEngine Agent Plan 的 property-selected bundle override 使用
-`platform + channel_type + base_url`，不使用 account id。Vertex `newapi/channel_type=41` 是唯一
-account-varying capability scope：public catalog 是验证过的 union，共享 floor 是成功账号的严格
-intersection，`vertex_capability_profile` 选择完整命名 profile；缺失/未知 profile 回退共享 floor
-并产生配置 violation，其它 scope 保持共享。
-
-官方别名能否进公开目录，只看 CatalogPolicy：有官方声明、能解析到价格 owner，且没有
-structurally-gone 证据。probe 200 只是激活证据，不能单独放行一次请求。未声明的兼容
-slug 可以只保留价格，供显式请求结算，不进橱窗。
-
-**prod is the only post-release config check target.** After deploy + smoke, run:
-
-```bash
-python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json
-```
-
-Default scope is prod only. A violation is a yellow configuration-drift finding:
-review the Go-SSOT-derived diff and converge prod via. For ch41, assign the
-reviewed profile first with the separate prod-only `assign-vertex-profiles`
-dry-run/confirmed flow; that operation writes only the profile property and does
-not change `model_mapping` in the same transaction.
-
-```bash
-python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts --target prod --dry-run
-python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts --target prod --confirm yes-apply-account-model-mapping
-```
-
-For an explicit new-model activation, modelops may separately run a release-floor
-precheck from the checkout that owns the intended Go SSOT:
-
-```bash
-python3 ops/pricing/manage-account-model-mapping-runtime.py release-gate
-```
-
-That command gates the modelops activation only. Generic `deploy-stage0.yml`
-deploys and rollbacks never call it and must not depend on live mapping
-convergence or on the target tag containing the Go helper. Their acceptance
-path is image deployment plus real post-deploy smoke/display canaries.
-
-**Edge accounts keep empty `model_mapping`.** User traffic is `client → prod gateway → edge relay → upstream`. Do **not** treat edge empty mappings as drift, do **not** bulk-apply prod floors to edges, and do **not** fail release checks because `--include-edges` shows violations. Empty is not unrestricted for Antigravity: empty AG accounts serve compiled `DefaultAntigravityModelMapping` overlaid with `tk_account_model_mapping_runtime.platforms.antigravity`. `sync-runtime` is the hot-add path for those empty rows; non-empty mappings stay authoritative and still need `apply-accounts`. Use `--include-edges` only for explicit edge troubleshooting.
-
-**New-model probes must split gateway vs upstream.** `400 Unsupported model: <id>` from a prod/edge TokenKey probe means the model is absent from catalog/floor/mapping — not proof that the upstream provider cannot serve it. For capability truth on a specific OAuth account, use direct upstream probes (e.g. `ops/stage0/probe_grok_upstream_model.sh` on edge) or account-scoped gateway probes after prod mapping is updated.
-
-Operator entry: skill `tokenkey-modelops-planner` (branch D). Details: `ops/pricing/README.md` § Account model_mapping runtime hot update.
+必须保持的边界：probe、traffic、availability 与日志只是证据；prod mapping 必须收敛到
+compiled Go floor；Edge relay 账号不复制 prod mapping；generic deploy/rollback 不依赖 live
+mapping 收敛。
 
 ## PR Checklist
 

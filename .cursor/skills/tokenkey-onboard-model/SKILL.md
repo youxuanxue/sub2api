@@ -1,15 +1,19 @@
 ---
 name: tokenkey-onboard-model
 description: >-
-  TokenKey newapi long-tail onboarding — write account mapping and price owners. Use when adding or pricing Qwen, DeepSeek, Moonshot/Kimi, GLM, or VolcEngine models on curated newapi accounts, or debugging priced-but-empty-pool 429/503 drift.
+  TokenKey newapi curated-model onboarding through manifest, pricing owner, generated
+  bundle, and evidence-backed activation. Use when adding or pricing Qwen, DeepSeek,
+  Moonshot/Kimi, GLM, or VolcEngine models, or debugging priced-but-empty-pool drift.
 ---
 
-# TokenKey：上架一个模型（newapi 长尾）
+# TokenKey：上架一个模型（newapi 策展模型面）
 
-经 hub **`tokenkey-modelops-planner` 分支 C** 进入。本 skill 只写账号 `model_mapping` 与价格
-owner；一次请求能不能交付仍看 `docs/approved/pricing-serving-single-source-of-truth.md`。
+经 hub **`tokenkey-modelops-planner` 分支 C** 进入。本 skill 准备 manifest、价格 owner、
+生成 bundle 与激活证据；一次请求能不能交付仍看
+`docs/approved/pricing-serving-single-source-of-truth.md`。
 
-命令、probe 族、hotfix、activate 确认词：**只维护在 `ops/pricing/README.md`**，此处不复述。
+命令与参数由 argparse parser 拥有，并机械生成到 `docs/agent_integration.md` § CLI。
+本 skill 只保留上架判断与安全边界。
 
 **意图源** = `backend/internal/service/tk_served_models.json`（manifest）。它断言三方一致，不替代：
 
@@ -20,13 +24,10 @@ owner；一次请求能不能交付仍看 `docs/approved/pricing-serving-single-
 
 ## 范围
 
-| 账号 | 名称 | channel_type | group | 上游 |
-| --- | --- | --- | --- | --- |
-| 60 | Qwen | 17 DashScope | 18 | `dashscope.aliyuncs.com` |
-| 39 | ds-官 | 43 DeepSeek | 11 | `api.deepseek.com` |
-| 83 | kimi | 25 Moonshot | 19 | `api.moonshot.cn`（国内 RMB÷6.7） |
+范围由 `tk_served_models.json` 的策展 intent、生成 bundle 与 live account snapshot
+共同表达。不要在 skill 中保存账号 ID、group ID 或当前账号名称。
 
-**不含** litellm 全目录、四原生平台（走 refresh）、grok（第七平台，不经上述 mapping）。
+不含完整 provider/LiteLLM 目录、原生平台 empirical allowlist 或协议路由。
 
 ## 真判断（脚本之外）
 
@@ -44,7 +45,7 @@ owner；一次请求能不能交付仍看 `docs/approved/pricing-serving-single-
    `verdict=servable` 且 `usage_match.account_id` 命中目标账号。
 2. **写 manifest** — `tk_served_models.json` 加 `newapi/<id>`；新 floor 的 `notes` 必须含
    `served-via-modelops-activation`；`display` / `price_source` 语义见 manifest `_schema`。
-3. **价 + bundle** — 官方核价后 `apply-pricing-hotfix.py stage-overlay`（或 registry PR）；
+3. **价 + bundle** — 官方核价后修改 complete registry（或明确 scoped channel price）；
    `go run ./cmd/account-model-mapping bundle` 生成 target artifact（禁手改 JSON）。
 4. **activate** — 独立 probe/pricing evidence + `modelops.py activate` dry-run → 人审 →
    `--confirm yes-activate-model-surface`。只写 prod；generic deploy/rollback 不代替。
@@ -64,7 +65,7 @@ prod live 对账：`manage-account-model-mapping-runtime.py check-accounts --jso
 ## 坑
 
 - 大陆价基准 RMB÷6.7（Moonshot 国内表；禁国际 USD 表给 `api.moonshot.cn`）
-- 新 floor 一律 activation；`served-via-admin-ui` 仅历史种子态
+- 新 floor 一律 activation；不得新增历史 seed/admin/migration 旁路标记
 - 零计费高量：计费键是 `requested_model`，查 mapping chain
 - **合并等人授权**
 
