@@ -58,6 +58,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 		body = rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)
 	}
 	body = applyNewAPIQwenNonStreamingShape(gjson.GetBytes(body, "model").String(), body)
+	body = applyNewAPIAliFixedSamplingShape(gjson.GetBytes(body, "model").String(), body)
 	auth := bridgeAuthFromGin(c)
 	body, in, err := bindProtocolPlanToNewAPIBridge(ctx, account, body, auth.UserID, auth.GroupName, newapitypes.RelayFormatOpenAI)
 	if err != nil {
@@ -110,6 +111,7 @@ func dispatchNewAPIAccountTestChatCompletions(
 ) error {
 	recordBridgeDispatch()
 	body = rewriteNewAPIBridgeBodyModel(account, body, "")
+	body = applyNewAPIAliFixedSamplingShape(gjson.GetBytes(body, "model").String(), body)
 	in := newAPIBridgeChannelInputForBody(account, 0, "", body)
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
