@@ -389,6 +389,38 @@ func TestPlanMessagesToResponsesPreservesClaudeCodeTools(t *testing.T) {
 	}
 }
 
+func TestPlanChatToResponsesPreservesTools(t *testing.T) {
+	router := New(allTestAdapters())
+	account := testAccount(t, ProtocolResponses)
+	for _, profile := range []RequestProfile{
+		{Tools: true, ToolChoice: ToolChoiceAuto, ContentKinds: ContentText},
+		{Tools: true, ContentKinds: ContentText | ContentImage},
+		{Tools: true, ContentKinds: ContentText | ContentUnknown},
+	} {
+		plan, err := router.Plan(testRequest(t, ProtocolChatCompletions, profile), account)
+		if err != nil {
+			t.Fatalf("Plan profile=%+v: %v", profile, err)
+		}
+		if plan.TargetProtocol() != ProtocolResponses || plan.AdapterID() != AdapterChatToResponses {
+			t.Fatalf("plan target/adapter = %q/%q, want responses/%s",
+				plan.TargetProtocol(), plan.AdapterID(), AdapterChatToResponses)
+		}
+	}
+}
+
+func TestPlanChatToResponsesStillRejectsContinuation(t *testing.T) {
+	router := New(allTestAdapters())
+	account := testAccount(t, ProtocolResponses)
+	_, err := router.Plan(testRequest(t, ProtocolChatCompletions, RequestProfile{
+		Tools:        true,
+		ContentKinds: ContentText,
+		Continuation: ContinuationPreviousResponse,
+	}), account)
+	if !errors.Is(err, ErrNoLegalRoute) {
+		t.Fatalf("Plan error = %v, want ErrNoLegalRoute", err)
+	}
+}
+
 func TestRouteRegistryRejectsIncompleteExecutionPolicy(t *testing.T) {
 	tests := []struct {
 		name   string
