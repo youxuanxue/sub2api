@@ -9,6 +9,11 @@ TARGET_MODELS="${TARGET_MODELS:-}"
 MODEL="${MODEL:-}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-60}"
 
+# Canonical app-container resolver (ops/lib). run-probe uploads lib next to this
+# script under /tmp; a repo checkout has it at ../lib.
+TK_LIB_DIR="${TK_LIB_DIR:-$(cd "$(dirname "$0")/../lib" && pwd)}"
+export TK_LIB_DIR
+
 if [[ ! "$ACCOUNT_ID" =~ ^[0-9]+$ ]]; then
   echo '{"verdict":"setup_error","error":"ACCOUNT_ID must be numeric"}'
   exit 0
@@ -21,6 +26,7 @@ fi
 python3 - "$ACCOUNT_ID" "$BASE_URL" "$TARGET_MODELS" "$MODEL" "$REQUEST_TIMEOUT_SECONDS" <<'PY'
 import ipaddress
 import json
+import os
 import re
 import ssl
 import subprocess
@@ -28,6 +34,9 @@ import sys
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
+
+sys.path.insert(0, os.environ.get("TK_LIB_DIR", ""))
+from resolve_app_container import resolve as resolve_app_container_owner
 
 account_id, base_url, target_models_raw, model, timeout_raw = sys.argv[1:6]
 targets = target_models_raw.split()
@@ -88,27 +97,9 @@ def _same_netloc(old_url, location):
     )
 
 
-def _docker_running(name):
-    proc = subprocess.run(
-        ["docker", "inspect", "-f", "{{.State.Running}}", name],
-        check=False, text=True, capture_output=True,
-    )
-    return proc.returncode == 0 and proc.stdout.strip() == "true"
-
-
 def resolve_app_container():
-    try:
-        color = open("/opt/tokenkey/active-color", encoding="utf-8").read().strip()
-    except OSError:
-        color = ""
-    if color:
-        name = f"tokenkey-{color}"
-        if _docker_running(name):
-            return name
-    for name in ("tokenkey-blue", "tokenkey-green", "tokenkey"):
-        if _docker_running(name):
-            return name
-    return None
+    name, _notes = resolve_app_container_owner("auto")
+    return name
 
 
 def docker_admin_post(url, body, admin_key, timeout):
