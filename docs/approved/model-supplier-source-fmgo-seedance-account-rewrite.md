@@ -34,11 +34,11 @@ operator_locks: "2026-09-01: models exactly 2 official remaps; 16 SKUs notes-onl
 识别 FMGo dialect：账号上的 `channel_type` + `base_url`（类比 XRToken ch54）。  
 **禁止**读 `supplier_source_id`。
 
-`{480p,720p} × {6,8,10,12,15}` **钉在 FMGo 账号通道 adaptor 里**。  
+`{480p,720p} × {6,8,10,12,15}` **钉在 FMGo 账号通道 adaptor 里**。
 不读供应源表，不从 notes 解析，不读账号 Extra 里的供应源字段。
 
-上游方言（飞秒使用指南）：`feimiao-v2` / `feimiao-v2-fast` 走  
-`https://api.fmgo.top` 的 `POST /v1/chat/completions`（`Prefer: respond-async`、`async: true`、`generationConfig.videoConfig`），轮询 `GET /v1/tasks/{task_id}`。  
+上游方言（飞秒使用指南）：`feimiao-v2` / `feimiao-v2-fast` 走
+`https://api.fmgo.top` 的 `POST /v1/chat/completions`（`Prefer: respond-async`、`async: true`、`generationConfig.videoConfig`），轮询 `GET /v1/tasks/{task_id}`。
 不是 `/v1/video/generations`，也不是通用 Chat 伪成功。
 
 ## 已拍板
