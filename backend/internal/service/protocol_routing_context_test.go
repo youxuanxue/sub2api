@@ -809,3 +809,25 @@ func TestTokenseaOpenAIRelayAdmitsLunaChatDespiteLeftoverMapping(t *testing.T) {
 			plan.TargetProtocol(), plan.AdapterID(), protocolrouter.AdapterChatIdentity)
 	}
 }
+
+func TestTokenseaOpenAIRelayLeftoverMappingStillRejectsNonFloorID(t *testing.T) {
+	// Boundary sample: leftover passthrough whitelist must still hide IDs that
+	// are not on the tokensea public floor. A too-wide IsOpenAITokenseaRelay
+	// admit-all would fail this and still pass the luna floor case above.
+	const unknownID = "not-a-tokensea-floor-model"
+	account := protocolRoutingRelinkedOpenAIAccount(92, "https://agent.tokensea.ai/v1", "messages", "chat_completions")
+	account.Extra["openai_passthrough"] = true
+	account.Credentials["model_mapping"] = map[string]any{"gpt-5.4": "gpt-5.4"}
+	if tokenseaRelaySupportsRequestedModel(unknownID) {
+		t.Fatal("test precondition: unknownID is a boundary sample, not a floor owner copy")
+	}
+	ctx := WithProtocolRouting(
+		context.Background(),
+		protocolRoutingTestRouter(),
+		protocolRoutingChatCompletionsToolsRequest(t, unknownID),
+	)
+	eligible, reason := protocolRequestEligibilityReason(ctx, account, unknownID)
+	if eligible || reason != "model_not_supported" {
+		t.Fatalf("eligibility = %v/%q, want false/model_not_supported for leftover non-floor ID", eligible, reason)
+	}
+}
