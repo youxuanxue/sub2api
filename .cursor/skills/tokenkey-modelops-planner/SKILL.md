@@ -67,7 +67,7 @@ CatalogPolicy 细节见 `docs/global/agent-reference.md` § Model serving SSOT�
 
 ## 分支 A：newapi / mapping / mirror 对账（只读）
 
-入口：`python3 ops/pricing/modelops.py plan …`（`reconcile-served-models.py` 仅为兼容 wrapper）。
+入口：`python3 ops/pricing/modelops.py plan …`。
 参数、snapshot、probe 示例见 `ops/pricing/README.md`。
 
 | plan 块 | 下一步 |
