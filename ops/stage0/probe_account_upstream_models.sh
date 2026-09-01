@@ -26,7 +26,7 @@ import ssl
 import subprocess
 import sys
 from urllib.error import HTTPError, URLError
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 
 account_id, base_url, target_models_raw, model, timeout_raw = sys.argv[1:6]
@@ -75,65 +75,6 @@ def validate_base_url(raw):
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
-
-
-def _same_netloc(old_url, location):
-    old = urlsplit(old_url)
-    new = urlsplit(urljoin(old_url, location))
-    return bool(
-        old.netloc
-        and new.netloc
-        and old.netloc.lower() == new.netloc.lower()
-        and new.scheme in {"http", "https"}
-    )
-
-
-def _docker_running(name):
-    proc = subprocess.run(
-        ["docker", "inspect", "-f", "{{.State.Running}}", name],
-        check=False, text=True, capture_output=True,
-    )
-    return proc.returncode == 0 and proc.stdout.strip() == "true"
-
-
-def resolve_app_container():
-    try:
-        color = open("/opt/tokenkey/active-color", encoding="utf-8").read().strip()
-    except OSError:
-        color = ""
-    if color:
-        name = f"tokenkey-{color}"
-        if _docker_running(name):
-            return name
-    for name in ("tokenkey-blue", "tokenkey-green", "tokenkey"):
-        if _docker_running(name):
-            return name
-    return None
-
-
-def docker_admin_post(url, body, admin_key, timeout):
-    container = resolve_app_container()
-    if not container:
-        return None, None
-    parsed = urlsplit(url)
-    inner = f"http://127.0.0.1:8080{parsed.path}"
-    if parsed.query:
-        inner += "?" + parsed.query
-    cmd = [
-        "docker", "exec", container,
-        "wget", "-qO-", f"--timeout={timeout}",
-        f"--header=x-api-key: {admin_key}",
-        "--header=Content-Type: application/json",
-        f"--post-data={body.decode('utf-8')}",
-        inner,
-    ]
-    proc = subprocess.run(cmd, check=False, text=True, capture_output=True)
-    raw = ((proc.stdout or "") + (proc.stderr or "")).encode("utf-8", errors="replace")
-    status = 200 if proc.returncode == 0 else 500
-    codes = re.findall(r"HTTP/\S+\s+(\d{3})\b", proc.stderr or "")
-    if codes:
-        status = int(codes[-1])
-    return status, raw[: 8 << 20]
 
 
 base_url = validate_base_url(base_url)
@@ -233,43 +174,27 @@ if model:
 else:
     url = base_url + f"/admin/accounts/{account_id}/models/sync-upstream"
     body = b"{}"
+req = Request(url, data=body, method="POST", headers={
+    "x-api-key": admin_key,
+    "content-type": "application/json",
+})
 status = None
-raw = b""
 opener = build_opener(NoRedirect(), HTTPSHandler(context=ssl.create_default_context()))
-
-def _post(target):
-    request = Request(target, data=body, method="POST", headers={
-        "x-api-key": admin_key,
-        "content-type": "application/json",
-    })
-    with opener.open(request, timeout=timeout) as response:
-        return response.status, response.read(8 << 20)
-
 try:
-    status, raw = _post(url)
+    with opener.open(req, timeout=timeout) as response:
+        status = response.status
+        raw = response.read(8 << 20)
 except HTTPError as exc:
     status = exc.code
     raw = exc.read(4096)
-    loc = (exc.headers.get("Location") or "").strip()
-    if status in {301, 302, 307, 308} and loc and _same_netloc(url, loc):
-        try:
-            status, raw = _post(urljoin(url, loc))
-        except HTTPError as retry_exc:
-            status = retry_exc.code
-            raw = retry_exc.read(4096)
 except URLError as exc:
-    parsed = urlsplit(url)
-    host = (parsed.hostname or "").lower()
-    if host in {"127.0.0.1", "localhost"}:
-        status, raw = docker_admin_post(url, body, admin_key, timeout)
-    if status is None:
-        print(json.dumps({
-            "verdict": "inconclusive_transport",
-            "account_id": int(account_id),
-            "http_status": None,
-            "error": str(exc.reason or exc),
-        }, ensure_ascii=False))
-        raise SystemExit(0)
+    print(json.dumps({
+        "verdict": "inconclusive_transport",
+        "account_id": int(account_id),
+        "http_status": None,
+        "error": str(exc.reason or exc),
+    }, ensure_ascii=False))
+    raise SystemExit(0)
 
 if model:
     events = []

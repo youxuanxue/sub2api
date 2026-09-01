@@ -277,29 +277,6 @@ class ProbeAccountUpstreamModelsTest(unittest.TestCase):
         self.assertEqual(got["account_scope"], "kiro")
         self.assertEqual(got["content_excerpt"], "OK")
 
-    def test_follows_same_netloc_redirect(self):
-        class Handler(BaseHTTPRequestHandler):
-            def do_POST(self):
-                if not self.path.endswith("/"):
-                    self.send_response(301)
-                    self.send_header("location", self.path + "/")
-                    self.end_headers()
-                    return
-                body = json.dumps({"data": {"models": ["claude-sonnet-4-5"]}}).encode()
-                self.send_response(200)
-                self.send_header("content-type", "application/json")
-                self.send_header("content-length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def log_message(self, *_args):
-                pass
-
-        with _Server(Handler) as server:
-            got = self.run_probe(base_url=server.base_url, targets="claude-sonnet-4-5")
-        self.assertEqual(got["verdict"], "listed")
-        self.assertEqual(got["http_status"], 200)
-
     def test_does_not_forward_admin_key_across_redirects(self):
         redirected = {"requests": 0}
 
