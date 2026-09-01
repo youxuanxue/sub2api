@@ -99,6 +99,32 @@ func TestTkHandleBridgeArrearsPenalty_VstecscloudPrepaidQuotaUsesStandingBilling
 	require.True(t, tkBridgeUpstreamShouldFailoverAfterPenalty(apiErr))
 }
 
+func TestTkHandleBridgeArrearsPenalty_StandingBillingMarkerOutsideMessageStillFailsOver(t *testing.T) {
+	svc, repo, blocker, incidents := newBridgePenaltyTestService()
+	account := &Account{
+		ID:          102,
+		Name:        "newapi-billing-code-only",
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: 1,
+	}
+	apiErr := arrearsBridgeError(
+		http.StatusForbidden,
+		"billing rejected",
+		"credit balance exhausted",
+		"billing_error",
+	)
+
+	handled := tkHandleBridgeArrearsPenalty(context.Background(), svc, account, apiErr)
+
+	require.True(t, handled)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Equal(t, []string{tkStandingBillingIncidentReason}, blocker.reasons)
+	require.Equal(t, []string{tkStandingBillingIncidentReason}, incidents.reasons)
+	require.True(t, tkBridgeUpstreamShouldFailoverAfterPenalty(apiErr),
+		"penalty and failover must classify the same complete upstream envelope")
+}
+
 // Part A NEGATIVE: genuine client / validation / oversize 400s, model-not-found
 // 404s, rate-limit 429s (including quota-type 429s without billing text) and 5xx
 // outages must NEVER be classified as arrears — they carry no account-standing

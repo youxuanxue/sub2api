@@ -124,7 +124,7 @@ func tkIsBridgeUpstreamArrears(apiErr *newapitypes.NewAPIError) bool {
 	// matcher. Keep bridge-only Arrearage metadata above, but do not duplicate
 	// provider phrases here (vstecscloud insufficient_user_quota is one such
 	// 403 shape).
-	return tkIsAccountStandingBillingFailure(msg, nil)
+	return tkIsAccountStandingBillingFailure("", body)
 }
 
 // tkIsBridgeUpstreamArrearsBillingMessage is the 429-safe standing-failure set.

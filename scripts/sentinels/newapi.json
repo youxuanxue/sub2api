@@ -557,10 +557,10 @@
     {
       "path": "backend/internal/service/newapi_bridge_arrears_tk.go",
       "must_contain": [
-        "tkIsAccountStandingBillingFailure(msg, nil)",
+        "tkIsAccountStandingBillingFailure(\"\", body)",
         "rls.tkTryHandleStandingBilling"
       ],
-      "rationale": "The newapi bridge must delegate 400/403 prepaid-balance messages to the account-standing billing SSOT. Prod 2026-09-01 vstecscloud returned 403 insufficient_user_quota with '预扣费额度失败'; using the 429-only narrow matcher skipped SetError and the immediate newapi_arrears Feishu P0. Bridge-only Arrearage metadata and narrow billing 429 handling remain compatibility fallbacks."
+      "rationale": "The newapi bridge must delegate the complete 400/403 upstream envelope to the account-standing billing SSOT for both penalty and failover classification. Prod 2026-09-01 vstecscloud returned 403 insufficient_user_quota with '预扣费额度失败'; using the 429-only narrow matcher skipped SetError and the immediate newapi_arrears Feishu P0. Passing message-only here can still split penalty from failover when the billing marker lives in error.code/type. Bridge-only Arrearage metadata and narrow billing 429 handling remain compatibility fallbacks."
     },
     {
       "path": "backend/internal/service/account_standing_billing_tk_test.go",
@@ -575,9 +575,10 @@
       "path": "backend/internal/service/newapi_bridge_arrears_tk_test.go",
       "must_contain": [
         "TestTkHandleBridgeArrearsPenalty_VstecscloudPrepaidQuotaUsesStandingBillingSSOT",
+        "TestTkHandleBridgeArrearsPenalty_StandingBillingMarkerOutsideMessageStillFailsOver",
         "vstecscloudPrepaidQuotaMessage"
       ],
-      "rationale": "Regression for the real vstecscloud 403 insufficient_user_quota response shape: the bridge must SetError, emit newapi_arrears through the account incident notifier, preserve the upstream detail, and fail over."
+      "rationale": "Regression for the real vstecscloud 403 insufficient_user_quota response shape plus a marker-outside-message boundary: the bridge must SetError, emit newapi_arrears through the account incident notifier, preserve the upstream detail, and make the same failover decision from the complete envelope."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
