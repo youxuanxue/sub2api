@@ -7263,9 +7263,9 @@
         "apiKey := nativeAnthropicAPIKeyForAccount(account)",
         "func nativeAnthropicAPIKeyForAccount(account *Account) string {",
         "account.Type != AccountTypeAPIKey",
-        "account.GetCredential(\"api_key\")"
+        "protocolAuthorizationToken(account)"
       ],
-      "rationale": "Single credential owner for every native Anthropic Messages transport reached through the OpenAI-compatible protocol router. The selected wire protocol owns the credential shape; platform=anthropic Kiro mirror stubs must read their API-key credential instead of passing through the OpenAI-platform getter and failing locally before HTTP dispatch."
+      "rationale": "Native Anthropic Messages transports reached through the OpenAI-compatible protocol router enforce their API-key-only boundary, then delegate credential binding to protocolAuthorizationToken, the shared protocol-routing owner. The selected wire protocol owns the credential shape; platform=anthropic Kiro mirror stubs must not pass through the OpenAI-platform getter and fail locally before HTTP dispatch."
     },
     {
       "path": "backend/internal/service/protocol_execution_target_test.go",

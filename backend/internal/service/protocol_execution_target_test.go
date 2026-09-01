@@ -443,6 +443,51 @@ func TestProtocolChatToMessagesUsesNativeAnthropicCredentialForKiroMirror(t *tes
 	}
 }
 
+func TestNativeAnthropicAPIKeyForAccountUsesProtocolCredentialOwner(t *testing.T) {
+	tests := []struct {
+		name    string
+		account *Account
+		want    string
+	}{
+		{name: "nil account", account: nil, want: ""},
+		{
+			name: "anthropic api key",
+			account: &Account{
+				Platform:    PlatformAnthropic,
+				Type:        AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "  sk-kiro  "},
+			},
+			want: "sk-kiro",
+		},
+		{
+			name: "oauth token is rejected",
+			account: &Account{
+				Platform:    PlatformAnthropic,
+				Type:        AccountTypeOAuth,
+				Credentials: map[string]any{"access_token": "oauth-token", "api_key": "stale-key"},
+			},
+			want: "",
+		},
+		{
+			name: "blank api key",
+			account: &Account{
+				Platform:    PlatformAnthropic,
+				Type:        AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "   "},
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := nativeAnthropicAPIKeyForAccount(tt.account); got != tt.want {
+				t.Fatalf("nativeAnthropicAPIKeyForAccount() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestProtocolMessagesIdentityUsesNewAPIProtocolCredential(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"model":"client-model","max_tokens":8,"messages":[{"role":"user","content":"hello"}],"stream":false}`)

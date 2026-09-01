@@ -129,7 +129,7 @@ func nativeAnthropicAPIKeyForAccount(account *Account) string {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return ""
 	}
-	return strings.TrimSpace(account.GetCredential("api_key"))
+	return strings.TrimSpace(protocolAuthorizationToken(account))
 }
 
 // nativeAnthropicTargetURL 组装国产供应商原生 Anthropic messages 端点。
