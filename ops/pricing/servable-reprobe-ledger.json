@@ -1,5 +1,5 @@
 {
-  "_doc": "Machine-readable reprobe ledger for ops/pricing/refresh-servable-allowlist.py. Keys are platform/model pairs. watchlist entries are transient or unconfirmed and must be re-probed before freshness expires; skiplist/deadlist entries are not allowed to re-enter a servable allowlist without editing this file with evidence.",
+  "_doc": "Machine-readable reprobe ledger for ops/pricing/refresh-servable-allowlist.py. Keys are platform/model pairs. watchlist freshness is an operational alert and never blocks candidate generation; skiplist entries are excluded from probing; structurally_gone entries are the reviewed authority for catalog removal.",
   "_generated_from": "mechanized 2026-06-22 from then-current probe ledger; current owner is this file",
   "watchlist": [
     {
@@ -341,6 +341,60 @@
       "freshness_days": 30,
       "auto_probe": false,
       "owner": "native-antigravity"
+    },
+    {
+      "platform": "gemini",
+      "model": "gemini-2.0-flash",
+      "reason": "2026-06-09 project-scoped 502 on the then-current Vertex project was inconclusive and must not become permanent catalog-removal evidence.",
+      "last_probe": "2026-06-09",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_chat"
+    },
+    {
+      "platform": "gemini",
+      "model": "gemini-2.0-flash-001",
+      "reason": "2026-06-09 project-scoped 502 on the then-current Vertex project was inconclusive and must remain eligible for re-probe.",
+      "last_probe": "2026-06-09",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_chat"
+    },
+    {
+      "platform": "gemini",
+      "model": "gemini-2.0-flash-lite",
+      "reason": "2026-06-09 project-scoped 502 on the then-current Vertex project was inconclusive and must remain eligible for re-probe.",
+      "last_probe": "2026-06-09",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_chat"
+    },
+    {
+      "platform": "gemini",
+      "model": "gemini-2.0-flash-lite-001",
+      "reason": "2026-06-09 project-scoped 502 on the then-current Vertex project was inconclusive and must remain eligible for re-probe.",
+      "last_probe": "2026-06-09",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_chat"
+    },
+    {
+      "platform": "gemini",
+      "model": "gemini-3-pro-preview",
+      "reason": "2026-06-09 project-scoped 502 on the then-current Vertex project was inconclusive and must remain eligible for re-probe.",
+      "last_probe": "2026-06-09",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_chat"
+    },
+    {
+      "platform": "gemini",
+      "model": "gemini-3.1-pro-preview",
+      "reason": "2026-06-09 project-scoped 502 on the then-current Vertex project was inconclusive and must remain eligible for re-probe.",
+      "last_probe": "2026-06-09",
+      "freshness_days": 30,
+      "auto_probe": true,
+      "probe_family": "gemini_chat"
     }
   ],
   "skiplist": [
@@ -373,36 +427,6 @@
       "platform": "openai",
       "model": "gpt-5.5-pro",
       "reason": "2026-07-10 native OpenAI OAuth probes reached ChatGPT Codex upstream but returned 400; operator decision: keep as a non-display alias to gpt-5.5, not a public catalog row."
-    },
-    {
-      "platform": "gemini",
-      "model": "gemini-2.0-flash",
-      "reason": "Project-scoped 502 on the current Vertex project; keep out of the native gemini allowlist until a new probe on an enabled project says otherwise."
-    },
-    {
-      "platform": "gemini",
-      "model": "gemini-2.0-flash-001",
-      "reason": "Project-scoped Gemini 2.0 chat 502 on the current Vertex project."
-    },
-    {
-      "platform": "gemini",
-      "model": "gemini-2.0-flash-lite",
-      "reason": "Project-scoped Gemini 2.0 chat 502 on the current Vertex project."
-    },
-    {
-      "platform": "gemini",
-      "model": "gemini-2.0-flash-lite-001",
-      "reason": "Project-scoped Gemini 2.0 chat 502 on the current Vertex project."
-    },
-    {
-      "platform": "gemini",
-      "model": "gemini-3-pro-preview",
-      "reason": "Project-scoped Gemini 3.x chat 502 on the current Vertex project."
-    },
-    {
-      "platform": "gemini",
-      "model": "gemini-3.1-pro-preview",
-      "reason": "Project-scoped Gemini 3.x chat 502 on the current Vertex project."
     },
     {
       "platform": "newapi",
@@ -455,7 +479,7 @@
       "reason": "2026-07-02 prod ANTIGRAVITY_IMAGE_MODELS /v1/chat/completions via antigravity group_id=21 returned 429 not_allowlisted; this structural-dead alias is intentionally absent from canonical account mapping. Use gemini-2.5-flash-image, which maps to the servable image path."
     }
   ],
-  "deadlist": [
+  "structurally_gone": [
     {
       "platform": "openai",
       "model": "gpt-5.2",

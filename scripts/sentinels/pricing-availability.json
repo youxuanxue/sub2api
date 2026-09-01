@@ -98,6 +98,18 @@
       "rationale": "Single source for the empirically-servable native catalog sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. The `servable-allowlist:begin/end` splice markers are load-bearing for ops/pricing/refresh-servable-allowlist.py (it rewrites the maps between them); an upstream merge that drops the markers would break the re-runnable refresh. The antigravity allowlist (supportedAntigravityCatalogModels: live Gemini set plus #1265 live Claude subset, with gpt-oss/dead/unpriced keys excluded from persisted account mappings) is hand-maintained from empirical probes; losing it silently reverts antigravity to passthrough or hides now-supported Claude IDs. The grok allowlist (supportedGrokCatalogModels: priced grok-imagine media + official-priced grok chat ids that returned 200 on the native grok edge probe) is likewise hand-maintained; losing it silently empties a grok group's 分组目录 again (2026-06-20 incident). Fifth-platform newapi long-tail display is delegated to tk_served_models_manifest_tk.go via isTkCuratedNewAPICatalogRowDisplayed; unknown vendors stay hidden until a universal mapping exists."
     },
     {
+      "path": "ops/pricing/refresh-servable-allowlist.py",
+      "must_contain": [
+        "def project_allowlists(",
+        "current + positive - reviewed structural removals",
+        "_ledger_entries(ledger, \"structurally_gone\")",
+        "def watchlist_freshness(",
+        "sub.add_parser(\"watchlist-status\")",
+        "transient-only evidence must produce a byte-identical projection"
+      ],
+      "rationale": "Catalog refresh must be additive: current membership survives absent traffic, auth/setup failures, 429, 5xx and timeout; only the reviewed structurally_gone ledger may remove a row. The pure projection and mixed-result regression assertion keep this invariant executable, while watchlist-status separates freshness alerting from candidate generation. Losing these anchors could silently reintroduce bulk catalog shrink or the selftest-green/candidates-broken failure mode."
+    },
+    {
       "path": "backend/internal/service/tk_served_models_manifest_tk.go",
       "must_contain": [
         "//go:embed tk_served_models.json",
