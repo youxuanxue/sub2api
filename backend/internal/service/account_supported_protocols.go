@@ -162,11 +162,14 @@ func SeedOfficialSupportedProtocols(account *Account) bool {
 }
 
 // routingSupportedProtocols is the Plan() view of capability.supported_protocols.
-// Prod OpenAI edge-mirror stubs (api-*.tokenkey.dev) accept /v1/messages as
-// TokenKey ingress and convert simple probes, but the next hop's OpenAI OAuth
-// pool only speaks responses. Treating probe-positive messages as identity
-// dumps Claude Code bodies onto the edge, which then fail-closes to 503/502.
+// Kiro mirror stubs expose only their native Messages hop; public ingress
+// compatibility is handled by protocol conversion before prod calls edge.
+// OpenAI mirror stubs similarly hide their compatibility-only Messages ingress.
+// The stored capability remains untouched as probe evidence.
 func routingSupportedProtocols(account *Account) []protocolrouter.Protocol {
+	if account.IsKiroMirrorStub() {
+		return []protocolrouter.Protocol{protocolrouter.ProtocolMessages}
+	}
 	protocols := account.SupportedProtocols()
 	if !tkIsOpenAIEdgeMirrorStub(account) {
 		return protocols

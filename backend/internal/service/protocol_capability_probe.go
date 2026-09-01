@@ -528,6 +528,9 @@ func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {
 	if !protocolRoutingGovernsAccount(account) || len(officialSupportedProtocols(account)) > 0 {
 		return nil
 	}
+	if account.IsKiroMirrorStub() {
+		return []protocolrouter.Protocol{protocolrouter.ProtocolMessages}
+	}
 	if protocolGeminiEndpointProfile(account).Valid() {
 		return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}
 	}
