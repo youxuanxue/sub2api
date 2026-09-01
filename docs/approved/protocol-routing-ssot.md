@@ -4,7 +4,7 @@ status: approved
 approved_by: "feng (conversation approval, 2026-08-27)"
 authors: [codex]
 created: 2026-08-24
-revised: 2026-08-30
+revised: 2026-09-01
 revision_note: >
   Plans and Execute no longer compare account or capability revision tokens.
   Send-time freshness is authoritative reload plus route-fact equivalence.
@@ -15,7 +15,9 @@ revision_note: >
   from both exact endpoints and the Plan-facing supported set.
   On a non-OfficialEndpointAnthropic identity, native messages is legal only
   for a Claude-family resolved model; dual-stack OpenAI relays convert
-  inbound /v1/messages for GPT and other non-Claude models.
+  inbound /v1/messages for GPT and other non-Claude models. Conversation
+  approval on 2026-09-01 also requires conversion adapters to fail over an
+  empty zero-usage terminal attempt instead of synthesizing protocol success.
 related_stories: []
 ---
 
@@ -363,6 +365,16 @@ Execution invariants:
 - transports cannot change protocol or endpoint;
 - no handler or transport retries another protocol on the same account;
 - usage, billing, QA, and error records use the actual plan facts.
+
+Conversion adapters must also preserve failure semantics. A streaming attempt
+that reaches a terminal marker with no text, reasoning, tool call, error, or
+token usage is not a successful empty answer. Before semantic output is
+committed, the adapter keeps protocol preamble frames attempt-local and returns
+the existing silent-refusal failover error. If a keepalive has already committed
+the downstream stream, the terminal result is a protocol-shaped error; the
+adapter must never synthesize `end_turn` or an equivalent success terminal.
+Non-zero usage and explicit non-stop terminal reasons remain valid evidence and
+are not classified as this empty-attempt failure.
 
 Planning and pre-send validation failures perform no network I/O. Upstream
 failures retain existing cooldown and account-failover classification.
