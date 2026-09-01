@@ -77,16 +77,7 @@ func newAPIBridgeChannelInputForModel(account *Account, userID int64, groupLabel
 	}
 	baseURL := strings.TrimSpace(account.GetBaseURL())
 	baseURL = newapiintegration.NormalizeArkChannelBaseURL(account.ChannelType, baseURL)
-	// Trailing-/v1 strip for OpenAI channel adaptors. Prefer Extra.supplier_source_id
-	// when present, but also accept credentials.protocol_endpoints_exclusive — the
-	// marker scheduler cache keeps after intentionally dropping supplier Extra
-	// ("identity uses account credentials only"). Gating only on
-	// IsSupplierManagedAccount made plan-time ResolveTextEndpoint emit
-	// .../v1/v1/chat/completions while execution-time reload emitted
-	// .../v1/chat/completions → protocol_execution_stale → client 503. Ordinary
-	// OpenAI NewAPI accounts without exclusive keep their stored base URL.
-	if account.ChannelType == newapiconstant.ChannelTypeOpenAI &&
-		(IsSupplierManagedAccount(account) || accountDeclaresExclusiveProtocolEndpoints(account)) {
+	if shouldNormalizeNewAPIOpenAIChannelBaseURL(account) {
 		baseURL = normalizeNewAPIOpenAIChannelBaseURL(baseURL)
 	}
 	// Fifth platform `newapi`: OpenAI base URL fallback does not apply; credentials.base_url is required at create time.
@@ -134,6 +125,16 @@ func newAPIBridgeChannelInputForModel(account *Account, userID int64, groupLabel
 		VertexKeyType:         vertexKeyType,
 		VertexLocation:        vertexLocation,
 	}
+}
+
+// shouldNormalizeNewAPIOpenAIChannelBaseURL is the SSOT gate for stripping a
+// trailing /v1 before OpenAI-channel adaptors (they append /v1/... themselves).
+// Uses HasSupplierManagedTransportIdentity so scheduler-cache-shaped accounts
+// (no Extra.supplier_source_id) still match execution-time reloads.
+func shouldNormalizeNewAPIOpenAIChannelBaseURL(account *Account) bool {
+	return account != nil &&
+		account.ChannelType == newapiconstant.ChannelTypeOpenAI &&
+		HasSupplierManagedTransportIdentity(account)
 }
 
 func normalizeNewAPIOpenAIChannelBaseURL(baseURL string) string {

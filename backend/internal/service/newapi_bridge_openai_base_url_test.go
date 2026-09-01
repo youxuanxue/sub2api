@@ -12,7 +12,8 @@ import (
 
 // TestOpenAIChannelBaseURL_SchedulerCacheMatchesFreshReload pins the vstecs
 // gateway 503 shape: scheduler Extra drops supplier_source_id, so plan-time and
-// execution-time bridge BaseURL normalization must not depend on that marker.
+// execution-time bridge BaseURL normalization must use
+// HasSupplierManagedTransportIdentity (exclusive credential), not Extra alone.
 func TestOpenAIChannelBaseURL_SchedulerCacheMatchesFreshReload(t *testing.T) {
 	base := "https://token.vstecscloud.com/v1"
 	model := "MiniMax-M2.7"
@@ -47,8 +48,10 @@ func TestOpenAIChannelBaseURL_SchedulerCacheMatchesFreshReload(t *testing.T) {
 
 	require.False(t, IsSupplierManagedAccount(sched))
 	require.True(t, IsSupplierManagedAccount(fresh))
-	require.True(t, accountDeclaresExclusiveProtocolEndpoints(sched),
-		"exclusive credential must survive scheduler-shaped Extra filtering")
+	require.True(t, HasSupplierManagedTransportIdentity(sched))
+	require.True(t, HasSupplierManagedTransportIdentity(fresh))
+	require.True(t, shouldNormalizeNewAPIOpenAIChannelBaseURL(sched))
+	require.True(t, shouldNormalizeNewAPIOpenAIChannelBaseURL(fresh))
 
 	schedIn := newAPIBridgeChannelInputForModel(sched, 0, "", model).WithoutModelMapping()
 	freshIn := newAPIBridgeChannelInputForModel(fresh, 0, "", model).WithoutModelMapping()
