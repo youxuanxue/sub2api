@@ -4,6 +4,9 @@ package service
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -147,5 +150,47 @@ func TestForwardAsChatCompletionsDispatched_PinsKimiK3TopP(t *testing.T) {
 	}
 	if !strings.Contains(string(capturedBody), `"model":"kimi-k3"`) {
 		t.Fatalf("expected kimi-k3 in body, got %s", capturedBody)
+	}
+}
+
+func TestForwardAsAnthropicDispatched_PinsKimiK3TopP(t *testing.T) {
+	oldDispatch := dispatchNewAPIChatCompletions
+	t.Cleanup(func() { dispatchNewAPIChatCompletions = oldDispatch })
+
+	var capturedBody []byte
+	dispatchNewAPIChatCompletions = func(_ context.Context, _ *gin.Context, _ bridge.ChannelContextInput, body []byte) (*bridge.DispatchOutcome, *newapitypes.NewAPIError) {
+		capturedBody = append([]byte(nil), body...)
+		return nil, newapitypes.NewError(errors.New("stop after capture"), newapitypes.ErrorCodeInvalidRequest)
+	}
+
+	account := &Account{
+		ID:          110,
+		Platform:    PlatformNewAPI,
+		ChannelType: 17,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key": "test-key",
+			"model_mapping": map[string]any{
+				"kimi-k3": "kimi-k3",
+			},
+		},
+	}
+	svc := &OpenAIGatewayService{}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	body := []byte(`{"model":"kimi-k3","max_tokens":16,"messages":[{"role":"user","content":"hi"}],"temperature":0.7}`)
+	_, err := svc.ForwardAsAnthropicDispatched(context.Background(), c, account, body, "", "")
+	if err == nil {
+		t.Fatal("expected dispatch error after capture")
+	}
+	if len(capturedBody) == 0 {
+		t.Fatal("expected anthropic→chat body to reach dispatch")
+	}
+	if topP := gjson.GetBytes(capturedBody, "top_p").Float(); topP != 0.95 {
+		t.Fatalf("anthropic bridge chat body top_p=%v want 0.95", topP)
+	}
+	if temp := gjson.GetBytes(capturedBody, "temperature").Float(); temp != 1.0 {
+		t.Fatalf("anthropic bridge chat body temperature=%v want 1.0", temp)
 	}
 }
