@@ -5,7 +5,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-// TK billing_model_source 确认闸（docs/approved/priced-or-it-doesnt-ship.md 复审 B1 的缓解）。
+// TK billing_model_source 确认闸（docs/approved/priced-or-it-doesnt-ship.md §2 B1）。
 //
 // channels.billing_model_source 决定计费按【哪个模型名】查价：
 //   - channel_mapped（默认、安全）：按上游/映射后的模型名计费 —— 与价格闸判定的
@@ -30,7 +30,7 @@ func tkRequireBillingModelSourceConfirm(source string, confirmed bool) error {
 				"BILLING_MODEL_SOURCE_CONFIRM_REQUIRED",
 				"将渠道 billing_model_source 设为 \""+source+"\" 会改变计费所用的模型名，"+
 					"可能与价格闸判定的模型名不一致而产生 $0 漏计"+
-					"（见 docs/approved/priced-or-it-doesnt-ship.md 复审 B1）。"+
+					"（见 docs/approved/priced-or-it-doesnt-ship.md §2 B1）。"+
 					"确认风险后，请在请求体中附带 confirm_billing_model_source=true 再提交。",
 			)
 		}

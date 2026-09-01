@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// R3 gate ⟺ billing consistency (docs/approved/priced-or-it-doesnt-ship.md §7).
+// R3 gate ⟺ billing consistency (docs/approved/priced-or-it-doesnt-ship.md §4).
 //
 // Root-cause refactor: the gate now decides pass/reject through the SAME oracle
 // billing uses — BillingService.GetModelPricing — instead of a catalog shadow
@@ -203,7 +203,7 @@ func TestR3_ChannelPricedModelNotFalseRejected(t *testing.T) {
 }
 
 // TestIsServedViaFamilyFloor pins the post-pivot convergence signal (docs/approved/
-// priced-or-it-doesnt-ship.md §4): true iff a model has NO direct registry owner BUT a registry
+// priced-or-it-doesnt-ship.md §3): true iff a model has NO direct registry owner BUT a registry
 // family alias — i.e. it is being served at an estimated family price and needs a real owner added
 // (served_at_fallback alert). A real-priced model, or a no-floor model (gate-rejected), returns false.
 func TestIsServedViaFamilyFloor(t *testing.T) {
