@@ -150,8 +150,8 @@ func TestOpsCleanupServiceRunCleanupOnceUsageFailureStopsBeforeOpsTables(t *test
 	if dashboardRepo.cleanupUsageCalls != 1 || dashboardRepo.cleanupDedupCalls != 0 {
 		t.Fatalf("usage lifecycle calls = usage:%d dedup:%d", dashboardRepo.cleanupUsageCalls, dashboardRepo.cleanupDedupCalls)
 	}
-	if !cutoffMatchesDays(dashboardRepo.lastUsageCutoff, 7) {
-		t.Fatalf("edge usage cutoff = %s, want 7 days", dashboardRepo.lastUsageCutoff)
+	if !cutoffMatchesDays(dashboardRepo.lastUsageCutoff, 90) {
+		t.Fatalf("edge usage cutoff = %s, want 90 days", dashboardRepo.lastUsageCutoff)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unexpected ops table cleanup: %v", err)

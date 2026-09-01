@@ -38,9 +38,9 @@ func TestResolveDataLifecyclePolicyRoleLimits(t *testing.T) {
 		},
 	}, cleanup)
 	require.Equal(t, "edge", edge.role)
-	require.Equal(t, 7, edge.usageLogRetentionDays)
-	require.Equal(t, 14, edge.errorLogRetentionDays)
-	require.Equal(t, 3, edge.systemLogRetentionDays)
+	require.Equal(t, 90, edge.usageLogRetentionDays)
+	require.Equal(t, 30, edge.errorLogRetentionDays)
+	require.Equal(t, 7, edge.systemLogRetentionDays)
 	require.Equal(t, 365, edge.billingDedupRetentionDays)
 }
 
@@ -86,7 +86,7 @@ func TestUsageLogRetentionDaysUsesResolvedPolicy(t *testing.T) {
 			Retention: config.DashboardAggregationRetentionConfig{UsageLogsDays: 180},
 		},
 	}))
-	require.Equal(t, 7, UsageLogRetentionDays(&config.Config{
+	require.Equal(t, 90, UsageLogRetentionDays(&config.Config{
 		Server: config.ServerConfig{FrontendURL: "https://api-us1.tokenkey.dev"},
 		DashboardAgg: config.DashboardAggregationConfig{
 			Retention: config.DashboardAggregationRetentionConfig{UsageLogsDays: 90},
