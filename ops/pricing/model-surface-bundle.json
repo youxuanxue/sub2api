@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "759afa7a3b6486ba260b26160109c56f7817fa10477b0cb82310f58afbee0d9c",
+  "floor_sha256": "0d13b7ea93c11fd6798ee557b511e6ab81c0a47623c2c1aca79cdd954b4545a8",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -217,6 +217,7 @@
         "claude-*": "claude-*",
         "deepseek-*": "deepseek-*",
         "glm-*": "glm-*",
+        "hy3*": "hy3*",
         "kimi-*": "kimi-*",
         "minimax-*": "minimax-*"
       },

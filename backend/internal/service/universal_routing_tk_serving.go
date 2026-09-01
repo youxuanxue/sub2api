@@ -242,7 +242,7 @@ func universalOpenAICompatMappingHonorsPlatformHint(account *Account, model stri
 	}
 	// Listing-only OpenAI relays (tokensea / ainzy / official GPT 专线 leftovers)
 	// must not steal curated newapi vendor models. CloudWise is the exception:
-	// its openai apikey floor is explicitly glm-*/deepseek-*/kimi-*/minimax-*.
+	// its openai apikey floor is explicitly glm-*/deepseek-*/kimi-*/minimax-*/hy3*.
 	if account.Platform == PlatformOpenAI && hint == PlatformNewAPI {
 		return isCloudwiseRelayAccount(account)
 	}

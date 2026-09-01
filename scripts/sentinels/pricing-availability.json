@@ -160,7 +160,9 @@
         "\"provider\": \"dashscope\"",
         "\"provider\": \"moonshot\"",
         "\"provider\": \"volcengine\"",
-        "\"provider\": \"zhipu\""
+        "\"provider\": \"zhipu\"",
+        "\"glm-5.3-flash\"",
+        "\"hy3\""
       ],
       "rationale": "Executable SSOT for all currently taxed official-list providers. The embedded registry is the last-known-good fallback and a valid protected-main envelope replaces the whole snapshot atomically. Pinning every behavior-preserving provider row and the multiplier prevents an upstream merge from silently dropping one tax family while model prices continue to parse. New providers are added here, not in Go."
     },

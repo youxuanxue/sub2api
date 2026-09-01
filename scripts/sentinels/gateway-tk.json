@@ -1202,9 +1202,10 @@
         "openAICloudwiseRelayWildcardModelMappingFloor(",
         "func isCloudwiseRelayAccount(",
         "func openAICloudwiseRelaySupportsRequestedModel(",
-        "if account == nil || !isCloudwiseRelayAccount(account)"
+        "if account == nil || !isCloudwiseRelayAccount(account)",
+        "\"hy3\""
       ],
-      "rationale": "Single SSOT for CloudWise MaaS relay supported model families (kimi/claude/glm/minimax/deepseek prefix policy). Adjust only openAICloudwiseRelayAllowedModelPrefixes; wildcard model_mapping floor derives from it. isCloudwiseRelayAccount + openAICloudwiseRelaySupportsRequestedModel are the dual-stack prefix hard gate used before passthrough / empty-mapping allow-all."
+      "rationale": "Single SSOT for CloudWise MaaS relay supported model families (kimi/claude/glm/minimax/deepseek/hy3 prefix policy). Adjust only openAICloudwiseRelayAllowedModelPrefixes; wildcard model_mapping floor derives from it. isCloudwiseRelayAccount + openAICloudwiseRelaySupportsRequestedModel are the dual-stack prefix hard gate used before passthrough / empty-mapping allow-all."
     },
     {
       "path": "backend/internal/service/account.go",
@@ -1251,9 +1252,19 @@
         "TestCloudwiseRelayEmptyMappingStillRejectsForeignFamilies",
         "TestCloudwiseRelayPrefixGateOverridesExplicitGPTMapping",
         "TestGatewayService_CloudwiseRelayPassthroughEmptyMappingUsesPrefixGate",
-        "TestApplyOpenAICloudwiseRelayUpstreamModelID_AnthropicAccount"
+        "TestApplyOpenAICloudwiseRelayUpstreamModelID_AnthropicAccount",
+        "\"hy3\""
       ],
       "rationale": "Focused regressions for the CloudWise prefix hard gate: empty mapping / leftover passthrough still reject gpt-* on both Account.IsModelSupported and GatewayService.isModelSupportedByAccount, and an explicit gpt mapping cannot override the family floor."
+    },
+    {
+      "path": "backend/internal/service/universal_routing_tk_serving.go",
+      "must_contain": [
+        "func universalOpenAICompatMappingHonorsPlatformHint(",
+        "isCloudwiseRelayAccount(account)",
+        "minimax-*/hy3*"
+      ],
+      "rationale": "Universal OpenAI-compat routing must keep CloudWise as the newapi-hint exception for curated prefix families including hy3; dropping the exception misroutes hy3 away from CloudWise supplier accounts."
     },
     {
       "path": "backend/internal/service/gateway_cloudwise_relay_test.go",

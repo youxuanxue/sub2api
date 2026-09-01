@@ -10051,9 +10051,9 @@
   "glm-5.3-flash": {
     "litellm_provider": "zhipu",
     "mode": "chat",
-    "input_cost_per_token": 0.00000015,
-    "output_cost_per_token": 0.0000005,
-    "cache_read_input_token_cost": 0.00000003,
+    "input_cost_per_token": 1.1940298507462686e-07,
+    "output_cost_per_token": 4.17910447761194e-07,
+    "cache_read_input_token_cost": 3.432835820895522e-08,
     "max_input_tokens": 1048576,
     "max_output_tokens": 128000,
     "supports_prompt_caching": true,
@@ -10061,7 +10061,7 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_reasoning": true,
-    "source": "Z.AI official https://docs.z.ai/guides/overview/pricing captured 2026-09-01 via litellm zai/glm-5.3-flash: GLM-5.3-Flash $0.15/$0.03/$0.50 per 1M tokens (input/cache-hit/output). TokenKey glm-5.3 owner remains BigModel CNY÷6.7; flash SKU priced from Z.AI USD list until BigModel flash row is captured. Overlay stores pre-tax official list rates; official_list_base_tax zhipu multiplier applies at resolution."
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-09-01: GLM-5.3-Flash standard list input ¥0.8/Mtok, output ¥2.8/Mtok, cache-hit ¥0.23/Mtok, 1M context; CNY/USD=6.7 (promo 50% row ignored — matches glm-5.3 BigModel list-price basis, not Z.AI USD). Overlay stores pre-tax official list rates; official_list_base_tax zhipu multiplier applies at resolution."
   },
   "hy3": {
     "litellm_provider": "tencent",
@@ -10077,7 +10077,23 @@
     "input_cost_per_token": 0.00000029850746268656716,
     "output_cost_per_token": 0.0000011940298507462686,
     "cache_read_input_token_cost": 0.00000029850746268656716,
-    "source": "TEMPORARY owner cloned from qwen3.7-plus DashScope CNY÷6.7 (2026-09-01 supplier hotfix). Replace with Alibaba DashScope official qwen3.6-plus China-mainland list when captured. LiteLLM also lists openrouter/qwen/qwen3.6-plus at $0.325/$1.95 per 1M (not used; keep DashScope family consistency)."
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 256000,
+        "input_cost_per_token": 0.00000029850746268656716,
+        "output_cost_per_token": 0.0000011940298507462686,
+        "cache_read_input_token_cost": 0.00000029850746268656716
+      },
+      {
+        "min_tokens": 256000,
+        "max_tokens": null,
+        "input_cost_per_token": 0.0000008955223880597015,
+        "output_cost_per_token": 0.000003582089552238806,
+        "cache_read_input_token_cost": 0.0000008955223880597015
+      }
+    ],
+    "source": "TEMPORARY owner cloned from qwen3.7-plus DashScope CNY÷6.7 incl. input-tier intervals (2026-09-01 supplier hotfix). Replace with Alibaba DashScope official qwen3.6-plus China-mainland list when captured. LiteLLM also lists openrouter/qwen/qwen3.6-plus at $0.325/$1.95 per 1M (not used; keep DashScope family consistency)."
   },
   "qwen3.6-35b-a3b": {
     "litellm_provider": "dashscope",
@@ -10086,7 +10102,21 @@
     "output_cost_per_token": 0.0000004776119402985075,
     "supports_vision": true,
     "supports_reasoning": false,
-    "source": "TEMPORARY owner cloned from qwen3.5-35b-a3b (same size class) for 2026-09-01 supplier hotfix. Replace with DashScope official qwen3.6-35b-a3b list when captured."
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 128000,
+        "input_cost_per_token": 0.00000005970149253731344,
+        "output_cost_per_token": 0.0000004776119402985075
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 0.00000023880597014925373,
+        "output_cost_per_token": 0.00000191044776119403
+      }
+    ],
+    "source": "TEMPORARY owner cloned from qwen3.5-35b-a3b incl. input-tier intervals (same size class) for 2026-09-01 supplier hotfix. Replace with DashScope official qwen3.6-35b-a3b list when captured."
   },
   "qwen3.6-max-preview": {
     "litellm_provider": "dashscope",
@@ -10117,6 +10147,22 @@
     "input_cost_per_token": 0.0000001791044776119403,
     "output_cost_per_token": 0.0000010746268656716418,
     "cache_read_input_token_cost": 0.0000001791044776119403,
-    "source": "TEMPORARY owner cloned from qwen3.6-flash DashScope CNY÷6.7 for 2026-09-01 supplier hotfix (flash-tier). Replace with DashScope official qwen3.8-flash list when captured."
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 256000,
+        "input_cost_per_token": 0.0000001791044776119403,
+        "output_cost_per_token": 0.0000010746268656716418,
+        "cache_read_input_token_cost": 0.0000001791044776119403
+      },
+      {
+        "min_tokens": 256000,
+        "max_tokens": null,
+        "input_cost_per_token": 0.0000007164179104477612,
+        "output_cost_per_token": 0.000004298507462686567,
+        "cache_read_input_token_cost": 0.0000007164179104477612
+      }
+    ],
+    "source": "TEMPORARY owner cloned from qwen3.6-flash DashScope CNY÷6.7 incl. input-tier intervals for 2026-09-01 supplier hotfix (flash-tier). Replace with DashScope official qwen3.8-flash list when captured."
   }
 }
