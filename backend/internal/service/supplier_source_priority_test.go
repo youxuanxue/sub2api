@@ -1,7 +1,11 @@
 package service
 
 import (
+	"fmt"
 	"math"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -58,6 +62,18 @@ func TestUS048_SupplierPriorityIsBasePlusBandTimesStep(t *testing.T) {
 
 	_, err = SupplierAccountPriority(100, 0)
 	require.ErrorIs(t, err, ErrSupplierSourceInvalidInput)
+}
+
+// Pins FE SUPPLIER_DISCOUNT_PRIORITY_STEP to backend SupplierDiscountPriorityStep
+// so Admin form live preview cannot drift from sync/account priority.
+func TestUS048_DiscountPriorityStepMatchesFrontendConstant(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	feConst := filepath.Join(filepath.Dir(thisFile), "..", "..", "..", "frontend", "src", "constants", "supplierSource.tk.ts")
+	raw, err := os.ReadFile(feConst)
+	require.NoError(t, err, "frontend constant file must exist at %s", feConst)
+	needle := fmt.Sprintf("export const SUPPLIER_DISCOUNT_PRIORITY_STEP = %d", SupplierDiscountPriorityStep)
+	require.Contains(t, string(raw), needle)
 }
 
 func TestUS048_SupplierPriorityStaysWithinPostgresIntegerRange(t *testing.T) {

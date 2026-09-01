@@ -489,6 +489,7 @@ import {
 } from '@/api/admin'
 import { useNewApiChannelTypes } from '@/composables/useNewApiChannelTypes'
 import { isNewApiUpstreamFetchableChannelType } from '@/constants/newApiUpstreamFetchableChannelTypes'
+import { SUPPLIER_DISCOUNT_PRIORITY_STEP } from '@/constants/supplierSource.tk'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -737,11 +738,9 @@ function discountBand(rawRatio: number | null): number {
   return 5
 }
 
-const DISCOUNT_PRIORITY_STEP = 10
-
 function modelPriority(ratio: number | null): number {
   const basePriority = Number.isFinite(Number(form.base_priority)) ? Number(form.base_priority) : 100
-  return basePriority + discountBand(ratio) * DISCOUNT_PRIORITY_STEP
+  return basePriority + discountBand(ratio) * SUPPLIER_DISCOUNT_PRIORITY_STEP
 }
 
 function buildInput(): SupplierSourceInput {
