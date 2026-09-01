@@ -2923,6 +2923,7 @@
       "path": "backend/internal/handler/openai_gateway_tk_video.go",
       "must_contain": [
         "videoRequestedSeconds",
+        "videoBillingSecondsForAccount",
         "VideoSubmitBillingParamsFromBody",
         "VideoDurationSeconds",
         "VideoResolution:      videoBilling.Resolution",
@@ -2934,7 +2935,16 @@
         "TkVideoModelUnpriced",
         "videoDurationBelowProviderMinimum"
       ],
-      "rationale": "Per-second video billing: VideoSubmitBillingParamsFromBody resolves resolution/audio/image-input once and the explicit ForwardResult assignments carry those exact dimensions into settlement; dropping any one silently flattens tier billing even when submit still succeeds. videoRequestedSeconds anchors duration, RefundVideoUsageOnFailure anchors terminal-failed refund, and videoSubmitHasVideoInput anchors the unpriced video-input reject guard. videoDurationBelowProviderMinimum keeps XRToken's four-second floor local and before paid upstream dispatch."
+      "rationale": "Per-second video billing: VideoSubmitBillingParamsFromBody resolves resolution/audio/image-input once and the explicit ForwardResult assignments carry those exact dimensions into settlement; dropping any one silently flattens tier billing even when submit still succeeds. videoBillingSecondsForAccount resolves provider-specific omitted-duration semantics after account selection and before the hold, while videoRequestedSeconds anchors the shared explicit-duration parser. RefundVideoUsageOnFailure anchors terminal-failed refund, videoSubmitHasVideoInput anchors the unpriced video-input reject guard, and videoDurationBelowProviderMinimum keeps XRToken's four-second floor local and before paid upstream dispatch."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_tk_video_test.go",
+      "must_contain": [
+        "TestVideoBillingSecondsForAccount",
+        "FMGoDefaultDuration",
+        "https://ark.cn-beijing.volces.com"
+      ],
+      "rationale": "The same public Seedance model can route to FMGo or official Ark. This regression locks FMGo's omitted duration to the adaptor-owned 15 seconds while preserving the shared 8-second default for Ark, and proves explicit durations still win."
     },
     {
       "path": "backend/internal/service/billing_service_tk_video_test.go",
