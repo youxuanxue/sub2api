@@ -3,6 +3,9 @@ package service
 const (
 	postgresInt32Min = -1 << 31
 	postgresInt32Max = 1<<31 - 1
+
+	// SupplierDiscountPriorityStep is the priority gap between adjacent discount bands.
+	SupplierDiscountPriorityStep = 10
 )
 
 func SupplierDiscountBandForRatio(ratio *float64) (int, error) {
@@ -26,12 +29,21 @@ func SupplierDiscountBandForRatio(ratio *float64) (int, error) {
 	}
 }
 
-func SupplierAccountPriority(basePriority, discountBand int) (int, error) {
+// SupplierDiscountPriority returns the priority contribution for a discount band (10, 20, …, 60).
+func SupplierDiscountPriority(discountBand int) (int, error) {
 	if discountBand < 1 || discountBand > 6 {
 		return 0, ErrSupplierSourceInvalidInput
 	}
-	if basePriority < postgresInt32Min || basePriority > postgresInt32Max-discountBand {
+	return discountBand * SupplierDiscountPriorityStep, nil
+}
+
+func SupplierAccountPriority(basePriority, discountBand int) (int, error) {
+	discountPriority, err := SupplierDiscountPriority(discountBand)
+	if err != nil {
+		return 0, err
+	}
+	if basePriority < postgresInt32Min || basePriority > postgresInt32Max-discountPriority {
 		return 0, ErrSupplierSourceInvalidInput
 	}
-	return basePriority + discountBand, nil
+	return basePriority + discountPriority, nil
 }

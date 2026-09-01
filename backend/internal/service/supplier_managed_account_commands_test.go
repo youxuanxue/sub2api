@@ -18,7 +18,7 @@ func TestUS048_SupplierCreateStartsEmptyUngroupedAndUnschedulable(t *testing.T) 
 	created, err := svc.CreateSupplierManagedAccount(context.Background(), SupplierManagedAccountCreateInput{
 		SourceID: 7, DiscountBand: 3, Name: "佳杰/stbl-5 · 档位 3",
 		Endpoint: "https://token.vstecscloud.com/v1", Credential: "secret",
-		Priority: 103,
+		Priority: 130,
 	})
 
 	require.NoError(t, err)
@@ -56,7 +56,7 @@ func TestUS048_SupplierCreateUsesDefaultAccountConcurrency(t *testing.T) {
 
 	_, err := svc.CreateSupplierManagedAccount(context.Background(), SupplierManagedAccountCreateInput{
 		SourceID: 7, DiscountBand: 3, Name: "supplier/test · 档位 3",
-		Endpoint: "https://supplier.example/v1", Credential: "secret", Priority: 103,
+		Endpoint: "https://supplier.example/v1", Credential: "secret", Priority: 130,
 	})
 
 	require.NoError(t, err)
@@ -91,7 +91,7 @@ func TestUS048_SupplierConfigurationUpdateUsesGroupFreeReadAndNarrowWrite(t *tes
 		Extra: map[string]any{
 			SupplierSourceIDExtraKey: int64(7), SupplierDiscountBandExtraKey: 3, "runtime_observation": "keep",
 		},
-		Priority: 103, Status: StatusActive, Schedulable: true, GroupIDs: []int64{4, 9},
+		Priority: 130, Status: StatusActive, Schedulable: true, GroupIDs: []int64{4, 9},
 	}}
 	svc := &adminServiceImpl{accountRepo: accounts}
 
@@ -127,7 +127,7 @@ func TestUS048_SupplierQianfanCreateUsesBaiduV2Transport(t *testing.T) {
 	_, err := svc.CreateSupplierManagedAccount(context.Background(), SupplierManagedAccountCreateInput{
 		SourceID: 7, DiscountBand: 3, Name: "百度/千帆 · 档位 3",
 		Endpoint: "https://qianfan.baidubce.com/v2", Credential: "secret",
-		Priority: 103,
+		Priority: 130,
 	})
 
 	require.NoError(t, err)
@@ -146,7 +146,7 @@ func TestUS048_SupplierConfigurationUpdateRequiresPassedChatProbe(t *testing.T) 
 			SupplierSourceIDExtraKey:     int64(7),
 			SupplierDiscountBandExtraKey: 3,
 		},
-		Priority: 103, Status: StatusActive, Schedulable: true,
+		Priority: 130, Status: StatusActive, Schedulable: true,
 	}}
 	svc := &adminServiceImpl{accountRepo: accounts}
 
@@ -171,7 +171,7 @@ func TestUS048_SupplierMetadataUpdateChangesOnlyNameAndPriority(t *testing.T) {
 		Extra: map[string]any{
 			SupplierSourceIDExtraKey: int64(7), SupplierDiscountBandExtraKey: 3, "runtime_observation": "keep",
 		},
-		Priority: 103, Status: StatusActive, Schedulable: true, GroupIDs: []int64{4, 9},
+		Priority: 130, Status: StatusActive, Schedulable: true, GroupIDs: []int64{4, 9},
 	}
 	accounts := &supplierManagedCommandsAccountRepoFake{existing: existing}
 	svc := &adminServiceImpl{accountRepo: accounts}

@@ -169,7 +169,7 @@ func newManagedAccountAdminRepoFake() *managedAccountAdminRepoFake {
 	return &managedAccountAdminRepoFake{
 		account: &Account{
 			ID: 41, Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
-			Name: "managed", Status: StatusActive, Concurrency: 1000, Priority: 103,
+			Name: "managed", Status: StatusActive, Concurrency: 1000, Priority: 130,
 			Credentials: map[string]any{"api_key": "secret", "base_url": "https://supplier.example/v1"},
 			Extra:       map[string]any{SupplierSourceIDExtraKey: int64(7), SupplierDiscountBandExtraKey: 3},
 		},

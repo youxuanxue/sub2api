@@ -24,7 +24,7 @@ func TestUS048_CRSSyncAllowsSupplierManagedAccountOverwrite(t *testing.T) {
 			SupplierSourceIDExtraKey:     int64(7),
 			SupplierDiscountBandExtraKey: 3,
 		},
-		Priority: 103, Status: StatusActive, Schedulable: true,
+		Priority: 130, Status: StatusActive, Schedulable: true,
 	}}
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Content-Type", "application/json")

@@ -122,7 +122,7 @@ const managedAccount = {
   type: 'apikey',
   status: 'active',
   schedulable: true,
-  priority: 103,
+  priority: 130,
   concurrency: 1,
   group_ids: [],
   extra: { supplier_source_id: 7, supplier_discount_band: 3 },

@@ -1,7 +1,10 @@
 package service
 
 import (
+	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -47,21 +50,55 @@ func TestUS048_DiscountBandRejectsOutOfRangeRatios(t *testing.T) {
 	}
 }
 
-func TestUS048_SupplierPriorityIsBasePlusBand(t *testing.T) {
+func TestUS048_SupplierPriorityIsBasePlusBandTimesStep(t *testing.T) {
 	got, err := SupplierAccountPriority(100, 3)
 	require.NoError(t, err)
-	require.Equal(t, 103, got)
+	require.Equal(t, 130, got)
+
+	discount, err := SupplierDiscountPriority(3)
+	require.NoError(t, err)
+	require.Equal(t, 30, discount)
 
 	_, err = SupplierAccountPriority(100, 0)
 	require.ErrorIs(t, err, ErrSupplierSourceInvalidInput)
 }
 
+// Pins FE SUPPLIER_DISCOUNT_PRIORITY_STEP to backend SupplierDiscountPriorityStep
+// so Admin form live preview cannot drift from sync/account priority.
+// Locates the monorepo root via Getwd (not runtime.Caller): CI builds with
+// -trimpath, so Caller paths are module-shaped and not on disk.
+func TestUS048_DiscountPriorityStepMatchesFrontendConstant(t *testing.T) {
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	root := ""
+	for dir := wd; ; dir = filepath.Dir(dir) {
+		feDir := filepath.Join(dir, "frontend", "src", "constants")
+		backendMod := filepath.Join(dir, "backend", "go.mod")
+		if st, err := os.Stat(feDir); err == nil && st.IsDir() {
+			if _, err := os.Stat(backendMod); err == nil {
+				root = dir
+				break
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+	}
+	require.NotEmpty(t, root, "monorepo root not found from wd=%s", wd)
+	feConst := filepath.Join(root, "frontend", "src", "constants", "supplierSource.tk.ts")
+	raw, err := os.ReadFile(feConst)
+	require.NoError(t, err, "frontend constant file must exist at %s", feConst)
+	needle := fmt.Sprintf("export const SUPPLIER_DISCOUNT_PRIORITY_STEP = %d", SupplierDiscountPriorityStep)
+	require.Contains(t, string(raw), needle)
+}
+
 func TestUS048_SupplierPriorityStaysWithinPostgresIntegerRange(t *testing.T) {
-	got, err := SupplierAccountPriority((1<<31)-7, 6)
+	got, err := SupplierAccountPriority((1<<31)-61, 6)
 	require.NoError(t, err)
 	require.Equal(t, (1<<31)-1, got)
 
-	for _, basePriority := range []int{(1 << 31) - 6, -(1 << 31) - 1} {
+	for _, basePriority := range []int{(1 << 31) - 60, -(1 << 31) - 1} {
 		_, err := SupplierAccountPriority(basePriority, 6)
 		require.ErrorIs(t, err, ErrSupplierSourceInvalidInput)
 

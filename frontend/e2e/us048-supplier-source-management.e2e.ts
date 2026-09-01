@@ -223,8 +223,8 @@ test('US048 Jiajie saves facts previews priority and syncs one band account', as
           supplier_name: '佳杰',
           channel_name: 'first-batch-lowest-ratio',
           discount_band: 3,
-          discount_priority: 3,
-          priority: 103,
+          discount_priority: 30,
+          priority: 130,
           client_model_ids: ['deepseek-v4-pro', 'qwen-3.7-max'],
         }],
         warnings: [],
@@ -259,7 +259,7 @@ test('US048 Jiajie saves facts previews priority and syncs one band account', as
           action: 'created',
           added_models: ['deepseek-v4-pro', 'qwen-3.7-max'],
           removed_models: [],
-          priority_after: 103,
+          priority_after: 130,
           schedulable_after: true,
         }],
       })
@@ -312,7 +312,7 @@ test('US048 Jiajie saves facts previews priority and syncs one band account', as
   await page.locator('[data-test="priority-preview-button"]').click()
   const preview = page.locator('[data-test="priority-preview"]')
   await expect(preview).toContainText('佳杰/first-batch-lowest-ratio')
-  await expect(preview).toContainText('103')
+  await expect(preview).toContainText('130')
   await expect(preview).toContainText('deepseek-v4-pro, qwen-3.7-max')
 
   await page.locator('[data-test="notes"]').fill('尚未保存的运营修改')
@@ -328,7 +328,7 @@ test('US048 Jiajie saves facts previews priority and syncs one band account', as
   await expect(result).toContainText('deepseek-v4-pro → deepseek-v4-pro')
   await expect(result).toContainText('qwen-3.7-max → qwen-3.7-max')
   await expect(result).toContainText('#101 · created · band 3')
-  await expect(result).toContainText('priority — → 103')
+  await expect(result).toContainText('priority — → 130')
   expect(syncRequests).toBe(1)
   await expect(page.getByRole('button', { name: /激活|暂停/ })).toHaveCount(0)
 })
@@ -401,7 +401,7 @@ test('US048 accounts UI marks supplier-managed accounts and allows ordinary edit
           channel_type: 1,
           status: 'active',
           schedulable: true,
-          priority: 103,
+          priority: 130,
           concurrency: 1,
           group_ids: [],
           supported_protocols: ['chat_completions'],

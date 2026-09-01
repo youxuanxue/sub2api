@@ -133,12 +133,12 @@ describe('SupplierSourcesView', () => {
     expect(wrapper.find('[data-test="sync-save-first"]').exists()).toBe(false)
   })
 
-  it('shows blank purchase ratio as band 6 and priority base plus 6', async () => {
+  it('shows blank purchase ratio as band 6 and priority base plus 60', async () => {
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
 
     expect(wrapper.get('[data-test="model-band-0"]').text()).toContain('6')
-    expect(wrapper.get('[data-test="model-priority-0"]').text()).toContain('106')
+    expect(wrapper.get('[data-test="model-priority-0"]').text()).toContain('160')
   })
 
   it('selects the supplier source requested by source_id after loading the list', async () => {
@@ -471,7 +471,7 @@ describe('SupplierSourcesView', () => {
       changes: [{
         account_id: 101, discount_band: 3, action: 'created',
         added_models: ['deepseek-v4-pro', 'qwen-3.7-max'], removed_models: [],
-        priority_after: 103, schedulable_after: true,
+        priority_after: 130, schedulable_after: true,
       }],
     })
     const wrapper = mount(SupplierSourcesView)

@@ -114,8 +114,8 @@ func TestUS048_PriorityPreviewGroupsModelsBySourceBand(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, []SupplierPriorityPreviewEntry{
-		{SourceID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", DiscountBand: 3, DiscountPriority: 3, Priority: 103, ClientModelIDs: []string{"deepseek-v4-pro", "qwen-3.7-max"}},
-		{SourceID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", DiscountBand: 5, DiscountPriority: 5, Priority: 105, ClientModelIDs: []string{"fallback-model"}},
+		{SourceID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", DiscountBand: 3, DiscountPriority: 30, Priority: 130, ClientModelIDs: []string{"deepseek-v4-pro", "qwen-3.7-max"}},
+		{SourceID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", DiscountBand: 5, DiscountPriority: 50, Priority: 150, ClientModelIDs: []string{"fallback-model"}},
 	}, preview.Entries)
 }
 

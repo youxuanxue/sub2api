@@ -15,7 +15,7 @@
 ## Acceptance Criteria
 
 1. AC-001 (正向): Given 运营新增供应源，When 只点击保存，Then 系统只写单表采购事实，凭证加密且不回显，新供应源默认 `base_priority=100`，不探测、不创建或修改账号。
-2. AC-002 (优先级): Given 模型采购比例落入六个固定档位，When 查看表单与全局预览，Then 档位分别贡献 `1..6`，账号 priority 严格等于 `base_priority + discount_priority`；同源同档模型合并为一个目标账号，预览只比较供应源目标 priority，且 `base_priority + 6` 不得越过 PostgreSQL `INTEGER`。
+2. AC-002 (优先级): Given 模型采购比例落入六个固定档位，When 查看表单与全局预览，Then 档位分别贡献 `10, 20, …, 60`（相邻增量 10），账号 priority 严格等于 `base_priority + discount_priority`；同源同档模型合并为一个目标账号，预览只比较供应源目标 priority，且 `base_priority + 60` 不得越过 PostgreSQL `INTEGER`。
 3. AC-003 (探测门禁): Given endpoint、credential、模型 ID、模型增减、跨档，或非空受管账号的 `status/schedulable` 与目标不一致，When 点击“校验并同步”，Then 系统用带 source/band 身份的内存账号逐模型使用明确 upstream ID 真实探测；任一失败返回全部当次结果且不写账号。只有 Chat Completions 正向结果生成本次同步内部证据；FMGo Seedance 显式映射及任何 Responses/Anthropic 等非 Chat 成功证据都返回 `protocol_unsupported`，不猜协议、不写账号。
 4. AC-004 (热更新): Given 全部结构探测成功，When 同步模型跨档或增减，Then 系统先以空 mapping、不可调度状态创建缺失账号；非空投影必须携带本次 Chat 正向证据，并在单账号事务内提交账号配置、Chat-only 现有协议能力、`InitialProbeCompleted=true`/`OfficialSeed=false` 证据和 scheduler outbox，再做配置读回确认而不进行写后二次网络探测，最后从旧档删除 mapping。单账号事务失败时已有账号保持旧配置、新账号保持空 mapping 不可调度；跨账号中途失败保留已完成增加、停止后续减少，返回 `failed_step + changes[]`，重试可继续收敛；空档账号保留并收敛为 `active + schedulable=false`。已选来源存在未保存表单修改时同步入口禁用并提示先保存，成功提示只能从当前结果派生。
 5. AC-005 (隔离回归): Given 供应源保存、预览或同步，When 执行任一路径，Then 供应源不读取、比较、返回或写入账号组，专用投影读取不调用通用 `GetByID`，并且只选择同步所需配置字段，不读取倍率或无关运行字段；新账号保持未分组且不借用 `newapi-default`，普通账号创建失败契约不变；受管/预探测账号只声明 Chat Completions；通用 host 末尾 `/v1` 只在 OpenAI 受管路径规范化，`qianfan.baidubce.com` 解析为 BaiduV2 + 根 URL 并声明 `/v2/chat/completions`，普通 NewAPI 账号行为不变；系统不修改倍率、定价或 scheduler，scheduler 继续只按更小的原有账号 priority 先调度，不读取供应来源 Extra。
@@ -45,7 +45,7 @@
 ## Linked Tests
 
 - `backend/internal/service/supplier_source_priority_test.go`::`TestUS048_DiscountBandBoundaries`
-- `backend/internal/service/supplier_source_priority_test.go`::`TestUS048_SupplierPriorityIsBasePlusBand`
+- `backend/internal/service/supplier_source_priority_test.go`::`TestUS048_SupplierPriorityIsBasePlusBandTimesStep`
 - `backend/internal/service/supplier_source_priority_test.go`::`TestUS048_SupplierPriorityStaysWithinPostgresIntegerRange`
 - `backend/internal/service/supplier_source_service_test.go`::`TestUS048_CreateSupplierSourceEncryptsCredentialAndDefaultsBasePriority`
 - `backend/internal/service/supplier_source_service_test.go`::`TestUS048_PriorityPreviewGroupsModelsBySourceBand`
