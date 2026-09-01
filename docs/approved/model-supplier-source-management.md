@@ -3,7 +3,7 @@ title: TokenKey Model Supplier Source Management
 status: approved
 approved_by: "xuejiao (operator directives through 2026-08-28)"
 approved_at: 2026-08-27
-updated: 2026-08-31
+updated: 2026-09-01
 created: 2026-08-27
 owners: [tk-platform]
 scope: "supplier facts, admin API/UI, credential isolation, account projection, probe gate; managed accounts behave like ordinary accounts after create, with sync overwriting projection fields"
@@ -122,6 +122,11 @@ supplier_discount_band
 仅在供应源点击「同步账号」时，通过专用窄写命令覆盖供应源投影字段（名称、凭证含
 `model_mapping`、priority、concurrency、status/schedulable、transport 等），不读取或写入账号组，
 也不携带 `rate_multiplier`。供应投影更新不能回退到通用账号 Update。
+
+`model_mapping` 所有权：带 `extra.supplier_source_id` 的账号由供应源 Sync 拥有（采购投影的精确
+集合）。`ops/pricing/manage-account-model-mapping-runtime.py` 的 `check-accounts` /
+`apply-accounts` / `release-gate` **不得**用平台/渠道 serving floor 去扩写或判缺这些账号；
+floor 收敛只作用于非供应源托管账号。否则会出现 Sync 子集 ↔ floor 全量的乒乓。
 
 账号列表显示徽标：
 
