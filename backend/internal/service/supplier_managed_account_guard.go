@@ -49,7 +49,6 @@ func ValidateSupplierReservedAccountExtra(extra map[string]any) error {
 	return nil
 }
 
-
 // StripSupplierReservedAccountExtra removes reserved ownership keys from an
 // incoming Extra map so ordinary edits can echo Extra without forging.
 func StripSupplierReservedAccountExtra(extra map[string]any) map[string]any {
