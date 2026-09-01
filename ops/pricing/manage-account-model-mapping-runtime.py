@@ -23,6 +23,12 @@ surface bundle, then
 ``apply-accounts --confirm ...`` when an operator has reviewed the diff and
 wants to overwrite persisted mappings.
 
+Supplier-source managed accounts (``extra.supplier_source_id`` present) are
+exempt from floor convergence in ``check-accounts`` / ``apply-accounts`` /
+``release-gate``. Their ``model_mapping`` is owned by supplier Sync as a
+procurement projection (exact client→upstream set), not the platform/channel
+serving floor. Applying the floor would fight the next Sync.
+
 ``release-gate`` is an explicit, **prod-only** modelops/model-activation floor
 check. It compares live prod account mappings to the selected release bundle's
 required floor and fails closed when prod is behind that model surface. It is not a
@@ -104,7 +110,8 @@ SELECT jsonb_build_object(
       'mirror_platform', a.credentials->>'mirror_platform',
       'base_url', a.credentials->>'base_url',
       'auth_mode', a.credentials->>'auth_mode',
-      'vertex_capability_profile', a.credentials->>'vertex_capability_profile'
+      'vertex_capability_profile', a.credentials->>'vertex_capability_profile',
+      'supplier_source_id_present', COALESCE(a.extra ? 'supplier_source_id', false)
     ) ORDER BY a.platform, a.id)
     FROM accounts a
     WHERE a.deleted_at IS NULL
@@ -679,10 +686,22 @@ def _vertex_profile_issue(row: dict[str, Any], floor: dict[str, Any]) -> str | N
     return None
 
 
+def _is_supplier_managed_account(row: dict[str, Any]) -> bool:
+    """True when Extra.supplier_source_id marks supplier Sync as mapping owner.
+
+    SQL projects JSONB key presence so even a malformed JSON null value matches
+    Go IsSupplierManagedAccount's fail-closed ownership rule.
+    Floor check/apply must not expand these rows to a platform/channel floor.
+    """
+    return (row or {}).get("supplier_source_id_present") is True
+
+
 def _account_plan(
     row: dict[str, Any],
     floor: dict[str, Any],
 ) -> dict[str, Any] | None:
+    if _is_supplier_managed_account(row):
+        return None
     want, scope = _desired_mapping_for_account(row, floor)
     if not want:
         return None
@@ -825,6 +844,8 @@ def _check_target(
         return violations, [], runtime_present
     floor = _load_effective_floor(runtime_raw)
     for row in bundle.get("accounts") or []:
+        if _is_supplier_managed_account(row):
+            continue
         plan = _account_plan(row, floor)
         if plan:
             plan["target"] = label
@@ -917,6 +938,10 @@ def _collect_apply_plan(
             plan["observed_model_mapping"] = _canonicalize_observed_mapping(row)
             account_changes.append(plan)
         elif account_ids is not None:
+            # Supplier Sync owns mapping; floor apply must not rewrite these rows.
+            if _is_supplier_managed_account(row):
+                skipped_ids.append(int(row.get("id") or 0))
+                continue
             # Distinguish skipped (no desired mapping / no scope match) from already-compliant.
             want, _scope = _desired_mapping_for_account(row, floor)
             if want:
@@ -2036,6 +2061,65 @@ def cmd_selftest(_args) -> int:
         floor,
     )
     assert openai_plan and openai_plan["diff"]["missing_keys"] == ["gpt-5.6-sol"]
+    # Supplier Sync owns model_mapping: subset vs channel floor must not violate or apply.
+    supplier_subset = {
+        "id": 104,
+        "platform": "newapi",
+        "type": "apikey",
+        "channel_type": 45,
+        "base_url": "https://qianfan.baidubce.com",
+        "supplier_source_id_present": True,
+        "model_mapping": {
+            "deepseek-v4-flash": "deepseek-v4-flash",
+            "deepseek-v4-pro": "deepseek-v4-pro",
+        },
+    }
+    assert _is_supplier_managed_account(supplier_subset)
+    # SQL key-presence projection stays true even when the JSON value is null.
+    assert _is_supplier_managed_account({**supplier_subset, "supplier_source_id_present": True})
+    assert not _is_supplier_managed_account({**supplier_subset, "supplier_source_id_present": False})
+    assert "COALESCE(a.extra ? 'supplier_source_id', false)" in ACCOUNT_MODEL_MAPPING_CHECK_SQL
+    assert _account_plan(supplier_subset, floor) is None
+    assert _account_plan({**supplier_subset, "supplier_source_id_present": False}, floor) is not None
+    supplier_vertex = {
+        **supplier_subset,
+        "id": 105,
+        "channel_type": 41,
+        "vertex_capability_profile": "",
+    }
+    original_run_check_sql_json = globals()["_run_check_sql_json"]
+    original_load_effective_floor = globals()["_load_effective_floor"]
+    globals()["_run_check_sql_json"] = lambda _region, _instance_id, _label: {
+        "runtime_setting": None,
+        "accounts": [supplier_subset, supplier_vertex, {
+            "id": 2,
+            "platform": "openai",
+            "type": "oauth",
+            "model_mapping": {
+                "gpt-5.6": "gpt-5.6",
+                "gpt-5.6-luna": "gpt-5.6-luna",
+                "gpt-5.6-terra": "gpt-5.6-terra",
+            },
+        }],
+        "antigravity_groups": [],
+    }
+    globals()["_load_effective_floor"] = lambda _raw: floor
+    try:
+        check_violations, _, _ = _check_target("prod", "test-region", "i-test")
+        assert all(int(v.get("id") or 0) != 104 for v in check_violations)
+        assert all(int(v.get("id") or 0) != 105 for v in check_violations)
+        assert any(int(v.get("id") or 0) == 2 for v in check_violations)
+        apply_plan = _collect_apply_plan(
+            "prod", "test-region", "i-test", account_ids=[104, 105, 2],
+        )
+        assert 104 in apply_plan["skipped_ids"]
+        assert 105 in apply_plan["skipped_ids"]
+        assert 104 not in apply_plan["changed_ids"]
+        assert 105 not in apply_plan["changed_ids"]
+        assert 2 in apply_plan["changed_ids"]
+    finally:
+        globals()["_run_check_sql_json"] = original_run_check_sql_json
+        globals()["_load_effective_floor"] = original_load_effective_floor
     account_override_row = {
         "id": 12345,
         "platform": "newapi",

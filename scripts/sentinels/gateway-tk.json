@@ -2764,14 +2764,17 @@
         "forbidden_model_mapping_keys",
         "_BUNDLE.account_override_scope",
         "\"account_bulk_changed\"",
-        "\"group_changed\""
+        "\"group_changed\"",
+        "def _is_supplier_managed_account(",
+        "'supplier_source_id_present', COALESCE(a.extra ? 'supplier_source_id', false)",
+        "if _is_supplier_managed_account(row):"
       ],
       "must_not_contain": [
         "GO_HELPER",
         "--ssot-repo-root",
         "--allow-extra-model-mapping"
       ],
-      "rationale": "Explicit ops check/apply surfaces for account model_mapping. The script must consume the checksummed bundle without Go/source discovery, prioritize property-selected account overrides over shared platform/channel floors, select VolcEngine Agent Plan by platform/channel/base_url rather than account ID, use one required-floor + forbidden-policy rule, preserve compatible extras, keep check-accounts read-only, scope release-gate to explicit model activation, require confirmation before writes, update only model_mapping/group scopes, and enqueue scheduler outbox events. Activation pins the resolved prod instance and rechecks runtime-shadow absence under a settings-table lock before writes. Generic deploy wiring is prohibited by the workflow sentinel above, while direct Edge diagnostics/apply remain available."
+      "rationale": "Explicit ops check/apply surfaces for account model_mapping. The script must consume the checksummed bundle without Go/source discovery, prioritize property-selected account overrides over shared platform/channel floors, select VolcEngine Agent Plan by platform/channel/base_url rather than account ID, use one required-floor + forbidden-policy rule, preserve compatible extras, keep check-accounts read-only, scope release-gate to explicit model activation, require confirmation before writes, update only model_mapping/group scopes, and enqueue scheduler outbox events. Accounts with Extra.supplier_source_id are owned by supplier Sync (exact procurement subset) and must be exempt from floor check/apply/release-gate convergence. Activation pins the resolved prod instance and rechecks runtime-shadow absence under a settings-table lock before writes. Generic deploy wiring is prohibited by the workflow sentinel above, while direct Edge diagnostics/apply remain available."
     },
     {
       "path": "backend/cmd/account-model-mapping/main.go",
@@ -2942,6 +2945,7 @@
       "path": "backend/internal/handler/openai_gateway_tk_video.go",
       "must_contain": [
         "videoRequestedSeconds",
+        "videoBillingSecondsForAccount",
         "VideoSubmitBillingParamsFromBody",
         "VideoDurationSeconds",
         "VideoResolution:      videoBilling.Resolution",
@@ -2953,7 +2957,16 @@
         "TkVideoModelUnpriced",
         "videoDurationBelowProviderMinimum"
       ],
-      "rationale": "Per-second video billing: VideoSubmitBillingParamsFromBody resolves resolution/audio/image-input once and the explicit ForwardResult assignments carry those exact dimensions into settlement; dropping any one silently flattens tier billing even when submit still succeeds. videoRequestedSeconds anchors duration, RefundVideoUsageOnFailure anchors terminal-failed refund, and videoSubmitHasVideoInput anchors the unpriced video-input reject guard. videoDurationBelowProviderMinimum keeps XRToken's four-second floor local and before paid upstream dispatch."
+      "rationale": "Per-second video billing: VideoSubmitBillingParamsFromBody resolves resolution/audio/image-input once and the explicit ForwardResult assignments carry those exact dimensions into settlement; dropping any one silently flattens tier billing even when submit still succeeds. videoBillingSecondsForAccount resolves provider-specific omitted-duration semantics after account selection and before the hold, while videoRequestedSeconds anchors the shared explicit-duration parser. RefundVideoUsageOnFailure anchors terminal-failed refund, videoSubmitHasVideoInput anchors the unpriced video-input reject guard, and videoDurationBelowProviderMinimum keeps XRToken's four-second floor local and before paid upstream dispatch."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_tk_video_test.go",
+      "must_contain": [
+        "TestVideoBillingSecondsForAccount",
+        "FMGoDefaultDuration",
+        "https://ark.cn-beijing.volces.com"
+      ],
+      "rationale": "The same public Seedance model can route to FMGo or official Ark. This regression locks FMGo's omitted duration to the adaptor-owned 15 seconds while preserving the shared 8-second default for Ark, and proves explicit durations still win."
     },
     {
       "path": "backend/internal/service/billing_service_tk_video_test.go",
@@ -7621,9 +7634,13 @@
         "protocol != \"account_test\" && protocol != \"openai_chat_completions\"",
         "SupplierProbeStatusProtocolUnsupported",
         "return \"openai_responses\"",
-        "return \"anthropic_messages\""
+        "return \"anthropic_messages\"",
+        "supplierFMGoChatProbeBody",
+        "fmgo_chat_completions",
+        "respond-async",
+        "FMGoChatCompletionsPath"
       ],
-      "rationale": "Version-one supplier probing is intentionally fixed to OpenAI Chat. Even successful Responses or Anthropic Messages evidence must fail closed as protocol_unsupported instead of silently expanding the production transport surface."
+      "rationale": "Version-one supplier probing is intentionally fixed to OpenAI Chat. Even successful Responses or Anthropic Messages evidence must fail closed as protocol_unsupported instead of silently expanding the production transport surface. FMGo ch54 is the exception that still uses official async chat-completions video dialect (not hi-Chat fake success, not /v1/video/generations)."
     },
     {
       "path": "backend/internal/service/account_test_service_supplier_probe_test.go",
@@ -7633,9 +7650,12 @@
         "TestUS048_SupplierManagedOpenAIEndpointDoesNotDuplicateV1",
         "TestUS048_SupplierProbeDoesNotLogRawUpstreamError",
         "TestUS048_SupplierProbeClassifiesEventsWithoutPersistingUpstreamDetail",
-        "successful non-chat protocol remains unsupported"
+        "successful non-chat protocol remains unsupported",
+        "TestUS048_FMGoVideoProbeURLUsesChatCompletions",
+        "TestUS048_FMGoChatProbeBodyMatchesOfficialDialect",
+        "TestUS048_VideoProbeAcceptsHTTP202"
       ],
-      "rationale": "Probe regressions pin in-memory execution, the managed identity's single Chat capability, supplier-only trailing-/v1 normalization, raw-upstream log redaction, fixed public result details, and non-Chat failure closure without persisting an account or upstream response body."
+      "rationale": "Probe regressions pin in-memory execution, the managed identity's single Chat capability, supplier-only trailing-/v1 normalization, raw-upstream log redaction, fixed public result details, and non-Chat failure closure without persisting an account or upstream response body. FMGo video probe must hit official chat completions, carry the vendor video body, and accept HTTP 202."
     },
     {
       "path": "backend/internal/service/supplier_managed_account_guard.go",

@@ -34,8 +34,12 @@ operator_locks: "2026-09-01: models exactly 2 official remaps; 16 SKUs notes-onl
 识别 FMGo dialect：账号上的 `channel_type` + `base_url`（类比 XRToken ch54）。  
 **禁止**读 `supplier_source_id`。
 
-`{480p,720p} × {8,10,12,15}` **钉在 FMGo 账号通道 adaptor 里**。  
+`{480p,720p} × {6,8,10,12,15}` **钉在 FMGo 账号通道 adaptor 里**。
 不读供应源表，不从 notes 解析，不读账号 Extra 里的供应源字段。
+
+上游方言（飞秒使用指南）：`feimiao-v2` / `feimiao-v2-fast` 走
+`https://api.fmgo.top` 的 `POST /v1/chat/completions`（`Prefer: respond-async`、`async: true`、`generationConfig.videoConfig`），轮询 `GET /v1/tasks/{task_id}`。
+不是 `/v1/video/generations`，也不是通用 Chat 伪成功。
 
 ## 已拍板
 
@@ -58,9 +62,12 @@ operator_locks: "2026-09-01: models exactly 2 official remaps; 16 SKUs notes-onl
 ## 上游能力集合（adaptor 内钉死）
 
 ```text
+host       ∈ {api.fmgo.top, www.fmgo.top, fmgo.top} → canonical https://api.fmgo.top
 resolution ∈ {480p, 720p}
-duration   ∈ {8, 10, 12, 15}
+duration   ∈ {6, 8, 10, 12, 15}
 SKU        = feimiao-v2[-fast]-{resolution}-{duration}s
+submit     = POST /v1/chat/completions
+poll       = GET /v1/tasks/{id}
 ```
 
 ## 供应源唯一存法
@@ -79,13 +86,14 @@ SKU        = feimiao-v2[-fast]-{resolution}-{duration}s
 1. fast 与否 → `feimiao-v2-fast-*` / `feimiao-v2-*`
 2. resolution：缺省 → `720p`；∈ 集合 → 用其值；否则明确拒绝
 3. duration：缺省 → `15`；∈ 集合 → 用其值；否则明确拒绝
-4. 拼出唯一上游 SKU 再提交 FMGo 视频 API
+4. 拼出唯一上游 SKU，按官方 chat-completions 视频方言提交
 
 ## 探测
 
-- `channel_type=54` → 视频协议，与账号通道同一路径。
+- `channel_type=54` → 与账号通道同一上游方言。
+- FMGo：官方 `POST /v1/chat/completions` 视频体（不是「hi」Chat 伪成功）。
 - 只探两行锚点：`feimiao-v2-720p-15s`、`feimiao-v2-fast-720p-15s`。
-- 失败不写账号。禁止 Chat 伪成功。
+- 失败不写账号。禁止用普通 Chat Completions 探测冒充视频可服务。
 
 ## Scenarios
 

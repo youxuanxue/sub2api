@@ -779,14 +779,17 @@
         "FMGoSeedanceUpstreamSKU",
         "FMGoSeedanceClientID",
         "FMGoSeedanceFastClientID",
+        "FMGoChatCompletionsPath",
+        "api.fmgo.top",
         "ChannelTypeDoubaoVideo"
       ],
-      "rationale": "FMGo (feimiao) host detection and pinned Seedance capability set. Identification is channel_type + base_url only; scheduler/gateway must never read supplier_source_id. FMGoSeedanceUpstreamSKU is the only owner of {480p,720p} x {8,10,12,15} and the feimiao-v2[-fast]-{res}-{dur}s formula. Dropping it freezes probe-anchor SKUs or leaks inventory ids as clients."
+      "rationale": "FMGo (feimiao) host detection and pinned Seedance capability set. Identification is channel_type + base_url only; scheduler/gateway must never read supplier_source_id. Canonical host is api.fmgo.top. FMGoSeedanceUpstreamSKU is the only owner of {480p,720p} x {6,8,10,12,15} and the feimiao-v2[-fast]-{res}-{dur}s formula. Dropping it freezes probe-anchor SKUs or leaks inventory ids as clients."
     },
     {
       "path": "backend/internal/integration/newapi/fmgo_test.go",
       "must_contain": [
         "TestIsFMGoBaseURL",
+        "TestNormalizeFMGoBaseURL",
         "TestFMGoSeedanceUpstreamSKU",
         "TestParseFMGoVideoDuration"
       ],
@@ -797,13 +800,15 @@
       "must_contain": [
         "fmgoTaskAdaptor",
         "newFMGoTaskAdaptor",
-        "/v1/video/generations",
+        "/v1/chat/completions",
+        "/v1/tasks",
+        "respond-async",
         "fmgoSeedanceClientFromRelay",
         "fmgoVideoParamsFromSubmit",
         "FMGoSeedanceUpstreamSKU",
         "duration_seconds"
       ],
-      "rationale": "TK companion task adaptor for FMGo video. Must submit /v1/video/generations, rewrite official Seedance clients from OriginModelName plus request params, and ignore probe-anchor mapping as a frozen SKU. Capability set stays in newapiintegration, never notes or supplier Extra."
+      "rationale": "TK companion task adaptor for official FMGo feimiao-v2 dialect: async POST /v1/chat/completions plus GET /v1/tasks/{id}. Must rewrite official Seedance clients from OriginModelName plus request params, ignore probe-anchor mapping as a frozen SKU, and not fall back to /v1/video/generations. Capability set stays in newapiintegration, never notes or supplier Extra."
     },
     {
       "path": "backend/internal/relay/bridge/video_relay_tk_fmgo_test.go",
@@ -816,7 +821,10 @@
         "TestFMGoTaskAdaptor_RejectsUnsupportedResolution",
         "TestFMGoTaskAdaptor_RejectsUnsupportedDuration",
         "TestFMGoTaskAdaptor_ReadsDurationSecondsAlias",
-        "TestFMGoTaskAdaptor_SanitizeFetchResponse"
+        "TestFMGoTaskAdaptor_SanitizeFetchResponse",
+        "TestFMGoTaskAdaptor_DoRequest_HitsChatCompletions",
+        "TestFMGoTaskAdaptor_FetchTask_HitsTasksPath",
+        "TestFMGoTaskAdaptor_ParseTaskResult_Completed"
       ],
       "rationale": "Focused FMGo video regressions: host selection, official + probe-anchor rewrite, defaults, and illegal param rejection."
     },
