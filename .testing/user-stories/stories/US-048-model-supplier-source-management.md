@@ -103,8 +103,10 @@
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_FMGoSeedanceSyncProjectsOfficialClientsOnly`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_DoubaoVideoChannelProbesVideoPathNotChat`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_VideoProbeFailToFetchTaskDoesNotPass`
-- `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_FMGoVideoProbeURLUsesChatCompletions`
+- `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_FMGoVideoProbeURLUsesVideosForLiveFamilies`
+- `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_FMGoVideosProbeBodyMatchesOfficialDialect`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_FMGoChatProbeBodyMatchesOfficialDialect`
+- `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_FMGoProbeSkipsNonVideoInventory`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_VideoProbeAcceptsHTTP202`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_SupplierManagedAccountDeclaresOnlyChatProtocol`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_SupplierManagedQianfanDeclaresBaiduV2ChatProtocol`

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -23,13 +24,14 @@ import (
 
 // TokenKey: FMGo (feimiao) video task adaptor.
 //
-// Official feimiao-v2 / feimiao-v2-fast dialect is async chat completions
-// (POST /v1/chat/completions + GET /v1/tasks/{id}), not OpenAI /v1/videos.
-// TokenKey clients still send official Ark ids plus resolution/duration.
-// Identification is channel_type + base_url only — never supplier_source_id.
+// Official Seedance clients rewrite to live-group /v1/videos families
+// (v2.5 / 431 / mini). Legacy feimiao-v2[-fast] still uses async chat
+// completions. Identification is channel_type + base_url only — never
+// supplier_source_id.
 type fmgoTaskAdaptor struct {
 	*taskdoubao.TaskAdaptor
 	baseURL string
+	family  string
 }
 
 func newFMGoTaskAdaptor() *fmgoTaskAdaptor {
@@ -43,18 +45,20 @@ func (a *fmgoTaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	a.TaskAdaptor.Init(info)
 }
 
-func (a *fmgoTaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, error) {
+func (a *fmgoTaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	if a.baseURL == "" {
 		return "", fmt.Errorf("fmgo video submit: empty base_url")
 	}
-	return a.baseURL + newapiintegration.FMGoChatCompletionsPath, nil
+	return a.baseURL + newapiintegration.FMGoSubmitPath(fmgoRelayModel(info, a.family)), nil
 }
 
 func (a *fmgoTaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
 	if err := a.TaskAdaptor.BuildRequestHeader(c, req, info); err != nil {
 		return err
 	}
-	req.Header.Set("Prefer", "respond-async")
+	if !newapiintegration.FMGoUsesVideosDialect(fmgoRelayModel(info, a.family)) {
+		req.Header.Set("Prefer", "respond-async")
+	}
 	return nil
 }
 
@@ -80,7 +84,7 @@ func (a *fmgoTaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, pr
 	if base == "" {
 		return nil, fmt.Errorf("fmgo video fetch: empty base_url")
 	}
-	uri := fmt.Sprintf("%s%s/%s", base, newapiintegration.FMGoTaskPathPrefix, taskID)
+	uri := fmt.Sprintf("%s%s/%s", base, newapiintegration.FMGoFetchPath(a.family), taskID)
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
 	if err != nil {
 		return nil, err
@@ -112,13 +116,26 @@ func (a *fmgoTaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.Rel
 	if info != nil {
 		info.UpstreamModelName = upstream
 	}
+	a.family = newapiintegration.FMGoModelFamily(upstream)
+	if a.family == "" {
+		a.family = newapiintegration.FMGoModelFamily(client)
+	}
 	if resolution == "" {
 		resolution = newapiintegration.FMGoDefaultResolution
 	}
 	if duration == 0 {
 		duration = newapiintegration.FMGoDefaultDuration
 	}
-	payload, err := fmgoChatCompletionsBody(upstream, fmgoPromptFromSubmit(c, orig), fmgoImagesFromSubmit(c, orig), resolution, duration, fmgoAspectRatioFromSubmit(c, orig))
+	aspect := fmgoAspectRatioFromSubmit(c, orig)
+	prompt := fmgoPromptFromSubmit(c, orig)
+	images := fmgoImagesFromSubmit(c, orig)
+	var payload []byte
+	var err error
+	if newapiintegration.FMGoUsesVideosDialect(upstream) || newapiintegration.FMGoUsesVideosDialect(client) {
+		payload, err = fmgoVideosBody(upstream, prompt, images, resolution, duration, aspect)
+	} else {
+		payload, err = fmgoChatCompletionsBody(upstream, prompt, images, resolution, duration, aspect)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +145,7 @@ func (a *fmgoTaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.Rel
 func (a *fmgoTaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
 	info := &relaycommon.TaskInfo{Code: 0}
 	status := strings.ToLower(firstNonEmptyJSONString(respBody, "status", "task.status"))
-	videoURL := firstNonEmptyJSONString(respBody, "result.url", "content.video_url")
+	videoURL := firstNonEmptyJSONString(respBody, "result.url", "result_url", "content.video_url")
 	reason := firstNonEmptyJSONString(respBody, "error.message", "task.error", "message")
 	switch status {
 	case "queued", "pending":
@@ -150,6 +167,48 @@ func (a *fmgoTaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInf
 		info.Progress = "30%"
 	}
 	return info, nil
+}
+
+func fmgoVideosBody(model, prompt string, images []string, resolution string, duration int, aspectRatio string) ([]byte, error) {
+	body := map[string]any{
+		"model":        model,
+		"prompt":       prompt,
+		"aspect_ratio": aspectRatio,
+		"resolution":   resolution,
+		"seconds":      strconv.Itoa(duration),
+	}
+	if len(images) > 0 {
+		cleaned := make([]string, 0, len(images))
+		for _, imageURL := range images {
+			imageURL = strings.TrimSpace(imageURL)
+			if imageURL != "" {
+				cleaned = append(cleaned, imageURL)
+			}
+		}
+		if len(cleaned) > 0 {
+			body["images"] = cleaned
+		}
+	}
+	return json.Marshal(body)
+}
+
+func fmgoRelayModel(info *relaycommon.RelayInfo, family string) string {
+	if info != nil {
+		if name := strings.TrimSpace(info.UpstreamModelName); name != "" {
+			return name
+		}
+		if name := strings.TrimSpace(info.OriginModelName); name != "" {
+			return name
+		}
+	}
+	switch family {
+	case newapiintegration.FMGoFamily431Fast, newapiintegration.FMGoFamilyV2Fast, newapiintegration.FMGoFamilyMini:
+		return newapiintegration.FMGoSeedanceFastClientID
+	case newapiintegration.FMGoFamily431, newapiintegration.FMGoFamilyV25, newapiintegration.FMGoFamilyV2:
+		return newapiintegration.FMGoSeedanceClientID
+	default:
+		return newapiintegration.FMGoSeedanceClientID
+	}
 }
 
 func fmgoChatCompletionsBody(model, prompt string, images []string, resolution string, duration int, aspectRatio string) ([]byte, error) {
@@ -210,12 +269,9 @@ func (a *fmgoTaskAdaptor) sanitizeFetchResponse(body []byte) []byte {
 		return body
 	}
 	model := current.String()
-	if !strings.HasPrefix(model, "feimiao-v2-") {
+	client := newapiintegration.FMGoClientForUpstreamSKU(model)
+	if client == "" || client == strings.TrimSpace(model) {
 		return body
-	}
-	client := newapiintegration.FMGoSeedanceClientID
-	if strings.Contains(model, "-fast-") {
-		client = newapiintegration.FMGoSeedanceFastClientID
 	}
 	rewritten, err := sjson.SetBytes(body, "model", client)
 	if err != nil {

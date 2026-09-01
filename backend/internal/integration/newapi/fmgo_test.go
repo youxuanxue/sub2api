@@ -43,17 +43,18 @@ func TestFMGoSeedanceUpstreamSKU(t *testing.T) {
 		want       string
 		wantErr    bool
 	}{
-		{"defaults", FMGoSeedanceClientID, "", 0, "feimiao-v2-720p-15s", false},
-		{"fast defaults", FMGoSeedanceFastClientID, "", 0, "feimiao-v2-fast-720p-15s", false},
-		{"explicit", FMGoSeedanceClientID, "720p", 10, "feimiao-v2-720p-10s", false},
-		{"480p 8s", FMGoSeedanceClientID, "480p", 8, "feimiao-v2-480p-8s", false},
-		{"6s", FMGoSeedanceClientID, "720p", 6, "feimiao-v2-720p-6s", false},
-		{"fast 12s", FMGoSeedanceFastClientID, "720p", 12, "feimiao-v2-fast-720p-12s", false},
+		{"defaults", FMGoSeedanceClientID, "", 0, "feimiao-v2-431-720p-15s", false},
+		{"fast defaults", FMGoSeedanceFastClientID, "", 0, "feimiao-v2-431-fast-720p-15s", false},
+		{"explicit", FMGoSeedanceClientID, "720p", 10, "feimiao-v2-431-720p-10s", false},
+		{"480p 15s", FMGoSeedanceClientID, "480p", 15, "feimiao-v2-431-480p-15s", false},
+		{"reject 6s", FMGoSeedanceClientID, "720p", 6, "", true},
+		{"reject 8s", FMGoSeedanceClientID, "480p", 8, "", true},
+		{"reject 12s", FMGoSeedanceFastClientID, "720p", 12, "", true},
 		{"reject 1080p", FMGoSeedanceClientID, "1080p", 10, "", true},
 		{"reject 4k", FMGoSeedanceClientID, "4k", 10, "", true},
 		{"reject 9s", FMGoSeedanceClientID, "720p", 9, "", true},
 		{"passthrough other", "doubao-seedance-2-5-260628", "1080p", 5, "doubao-seedance-2-5-260628", false},
-		{"passthrough already sku", "feimiao-v2-720p-10s", "720p", 10, "feimiao-v2-720p-10s", false},
+		{"passthrough already sku", "feimiao-v2.5-720p-10s", "720p", 10, "feimiao-v2.5-720p-10s", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -72,6 +73,34 @@ func TestFMGoSeedanceUpstreamSKU(t *testing.T) {
 				t.Fatalf("sku = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestFMGoUsesVideosDialect(t *testing.T) {
+	t.Parallel()
+	for _, model := range []string{
+		FMGoSeedanceClientID,
+		FMGoSeedanceFastClientID,
+		"feimiao-v2.5-720p-15s",
+		"feimiao-v2-431-720p-15s",
+		"feimiao-v2-431-fast-480p-10s",
+		"feimiao-v2-mini-720p-10s",
+	} {
+		if !FMGoUsesVideosDialect(model) {
+			t.Fatalf("%q must use /v1/videos", model)
+		}
+	}
+	if FMGoUsesVideosDialect("feimiao-v2-720p-15s") {
+		t.Fatal("legacy v2 SKU must stay on chat completions")
+	}
+	if got := FMGoSubmitPath(FMGoSeedanceClientID); got != FMGoVideosPath {
+		t.Fatalf("seedance submit path = %q", got)
+	}
+	if !IsFMGoVideoInventoryID("feimiao-v2.5-720p-15s") || IsFMGoVideoInventoryID("claude-opus-4-8") {
+		t.Fatal("video inventory classifier drifted")
+	}
+	if IsFMGoVideoInventoryID("veo-3-fast-4k-8s") || IsFMGoVideoInventoryID("grok-video-3") {
+		t.Fatal("unsupported video families must not look probeable")
 	}
 }
 

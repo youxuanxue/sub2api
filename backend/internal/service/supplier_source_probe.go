@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 )
 
 const (
@@ -276,6 +278,13 @@ func (s *SupplierSourceService) StartSupplierProbeJob(ctx context.Context, sourc
 		if !supplierUpstreamTypeProbeable(entry.Type, source.ChannelType) {
 			result.RejectedCandidates = append(result.RejectedCandidates, SupplierProbeRejectedCandidate{
 				UpstreamModelID: entry.ID, Type: entry.Type, Reason: "non_chat_type",
+			})
+			continue
+		}
+		if newapiintegration.IsFMGoBaseURL(source.ChannelType, source.Endpoint) &&
+			!newapiintegration.IsFMGoVideoInventoryID(entry.ID) {
+			result.RejectedCandidates = append(result.RejectedCandidates, SupplierProbeRejectedCandidate{
+				UpstreamModelID: entry.ID, Type: entry.Type, Reason: "non_video_inventory",
 			})
 			continue
 		}

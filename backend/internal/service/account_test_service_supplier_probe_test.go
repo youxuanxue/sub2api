@@ -107,17 +107,30 @@ func TestUS048_VideoProbeFailToFetchTaskDoesNotPass(t *testing.T) {
 	}
 }
 
-func TestUS048_FMGoVideoProbeURLUsesChatCompletions(t *testing.T) {
-	got := supplierVideoProbeURL(newapiconstant.ChannelTypeDoubaoVideo, newapiintegration.FMGoBaseURL)
+func TestUS048_FMGoVideoProbeURLUsesVideosForLiveFamilies(t *testing.T) {
+	got := supplierVideoProbeURL(newapiconstant.ChannelTypeDoubaoVideo, newapiintegration.FMGoBaseURL, "feimiao-v2.5-720p-15s")
+	require.Equal(t, newapiintegration.FMGoBaseURL+newapiintegration.FMGoVideosPath, got)
+	got = supplierVideoProbeURL(newapiconstant.ChannelTypeDoubaoVideo, "https://www.fmgo.top", "feimiao-v2-431-fast-720p-15s")
+	require.Equal(t, newapiintegration.FMGoBaseURL+newapiintegration.FMGoVideosPath, got)
+	got = supplierVideoProbeURL(newapiconstant.ChannelTypeDoubaoVideo, newapiintegration.FMGoBaseURL, "feimiao-v2-720p-15s")
 	require.Equal(t, newapiintegration.FMGoBaseURL+newapiintegration.FMGoChatCompletionsPath, got)
-	got = supplierVideoProbeURL(newapiconstant.ChannelTypeDoubaoVideo, "https://www.fmgo.top")
-	require.Equal(t, newapiintegration.FMGoBaseURL+newapiintegration.FMGoChatCompletionsPath, got)
-	got = supplierVideoProbeURL(newapiconstant.ChannelTypeDoubaoVideo, "https://ark.cn-beijing.volces.com")
+	got = supplierVideoProbeURL(newapiconstant.ChannelTypeDoubaoVideo, "https://ark.cn-beijing.volces.com", "feimiao-v2-431-720p-15s")
 	require.Equal(t, "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks", got)
 }
 
 func TestUS048_VideoProbeAcceptsHTTP202(t *testing.T) {
 	require.Equal(t, SupplierProbeStatusPassed, supplierVideoProbeStatus(http.StatusAccepted, []byte(`{"id":"task-1"}`)))
+}
+
+func TestUS048_FMGoVideosProbeBodyMatchesOfficialDialect(t *testing.T) {
+	body := supplierFMGoVideosProbeBody("feimiao-v2-431-fast-720p-15s")
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	require.Equal(t, "feimiao-v2-431-fast-720p-15s", payload["model"])
+	require.Equal(t, "probe", payload["prompt"])
+	require.Equal(t, "16:9", payload["aspect_ratio"])
+	require.Equal(t, "720p", payload["resolution"])
+	require.Equal(t, "15", payload["seconds"])
 }
 
 func TestUS048_FMGoChatProbeBodyMatchesOfficialDialect(t *testing.T) {
