@@ -76,7 +76,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] account=%d(%s) platform=%s model=%s upstream=%s stream=%v",
 		account.ID, account.Name, account.Platform, originalModel, upstreamModel, clientStream)
 
-	apiKey := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
+	apiKey := nativeAnthropicAPIKeyForAccount(account)
 	if apiKey == "" {
 		return nil, fmt.Errorf("account %d missing api_key", account.ID)
 	}
@@ -119,6 +119,17 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 		return s.handleNativeAnthropicStreamingResponse(ctx, resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
 	}
 	return s.handleNativeAnthropicBufferedResponse(ctx, resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
+}
+
+// nativeAnthropicAPIKeyForAccount returns the credential for a request whose
+// selected wire protocol is Anthropic Messages. The selected protocol, not the
+// account's platform label, owns this choice: edge mirror stubs remain
+// platform=anthropic while OpenAI-compatible ingress reaches this transport.
+func nativeAnthropicAPIKeyForAccount(account *Account) string {
+	if account == nil || account.Type != AccountTypeAPIKey {
+		return ""
+	}
+	return strings.TrimSpace(account.GetCredential("api_key"))
 }
 
 // nativeAnthropicTargetURL 组装国产供应商原生 Anthropic messages 端点。

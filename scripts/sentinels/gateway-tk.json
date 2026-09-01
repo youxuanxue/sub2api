@@ -7234,6 +7234,7 @@
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_anthropic_native.go",
       "must_contain": [
+        "apiKey := nativeAnthropicAPIKeyForAccount(account)",
         "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {",
         "if tkAnthropicBufferedEventCompletesMessage(&event) {",
         "streamCompleted = true\n\t\t\tbreak",
@@ -7246,6 +7247,7 @@
     {
       "path": "backend/internal/service/openai_gateway_responses_anthropic_native.go",
       "must_contain": [
+        "apiKey := nativeAnthropicAPIKeyForAccount(account)",
         "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {",
         "if tkAnthropicBufferedEventCompletesMessage(&event) {",
         "streamCompleted = true\n\t\t\tbreak",
@@ -7254,6 +7256,26 @@
         "tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)"
       ],
       "rationale": "Native-Anthropic Responses buffered path shares the same completion, failover-before-write, and partial-truncation contract, including idle timeout handling."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_anthropic_native_tk.go",
+      "must_contain": [
+        "apiKey := nativeAnthropicAPIKeyForAccount(account)",
+        "func nativeAnthropicAPIKeyForAccount(account *Account) string {",
+        "account.Type != AccountTypeAPIKey",
+        "account.GetCredential(\"api_key\")"
+      ],
+      "rationale": "Single credential owner for every native Anthropic Messages transport reached through the OpenAI-compatible protocol router. The selected wire protocol owns the credential shape; platform=anthropic Kiro mirror stubs must read their API-key credential instead of passing through the OpenAI-platform getter and failing locally before HTTP dispatch."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution_target_test.go",
+      "must_contain": [
+        "func TestProtocolChatToMessagesUsesNativeAnthropicCredentialForKiroMirror(",
+        "account.Name = \"kiro-us6\"",
+        "account.Platform = PlatformAnthropic",
+        "x-api-key = %q, want Kiro mirror credential"
+      ],
+      "rationale": "Incident-shaped regression for default/composite OpenAI Chat Completions routing to a platform=anthropic Kiro API-key mirror. It must issue exactly one Messages request with x-api-key and no OpenAI Authorization bearer header."
     },
     {
       "path": "backend/internal/handler/gateway_anthropic_buffered_failover_tk_test.go",
