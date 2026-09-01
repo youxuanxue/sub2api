@@ -103,7 +103,9 @@
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_FMGoSeedanceSyncProjectsOfficialClientsOnly`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_DoubaoVideoChannelProbesVideoPathNotChat`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_VideoProbeFailToFetchTaskDoesNotPass`
-- `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_FMGoVideoProbeURLUsesVideoGenerations`
+- `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_FMGoVideoProbeURLUsesChatCompletions`
+- `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_FMGoChatProbeBodyMatchesOfficialDialect`
+- `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_VideoProbeAcceptsHTTP202`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_SupplierManagedAccountDeclaresOnlyChatProtocol`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_SupplierManagedQianfanDeclaresBaiduV2ChatProtocol`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_UnmanagedQianfanIdentityKeyStaysStable`

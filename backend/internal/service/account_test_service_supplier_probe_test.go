@@ -126,7 +126,10 @@ func TestUS048_FMGoChatProbeBodyMatchesOfficialDialect(t *testing.T) {
 	require.NoError(t, json.Unmarshal(body, &payload))
 	require.Equal(t, "feimiao-v2-fast-720p-15s", payload["model"])
 	require.Equal(t, true, payload["async"])
-	video := payload["generationConfig"].(map[string]any)["videoConfig"].(map[string]any)
+	gen, ok := payload["generationConfig"].(map[string]any)
+	require.True(t, ok)
+	video, ok := gen["videoConfig"].(map[string]any)
+	require.True(t, ok)
 	require.Equal(t, "720p", video["resolution"])
 	require.Equal(t, float64(15), video["duration"])
 }
