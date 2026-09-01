@@ -191,7 +191,11 @@ func preservesMessagesToChat(req CanonicalRequest) bool {
 }
 
 func preservesChatToResponses(req CanonicalRequest) bool {
-	return preservesTextOnlyWithoutTools(req) &&
+	// ChatCompletionsToResponses already preserves function tools, images, and
+	// tool_call / tool result turns. Text-only-without-tools was fail-closing
+	// Agent /v1/chat/completions onto identity chat, which TokenKey edge
+	// ChatGPT OAuth pools cannot serve (supported_protocols=[responses]).
+	return preservesMessagesToResponsesContent(req) &&
 		req.profile.Continuation == ContinuationNone
 }
 

@@ -2308,6 +2308,13 @@ func accountAdmitsRequestedModel(account *Account, requestedModel string, thinki
 	if account.IsAnthropicTokenseaRelay() {
 		return account.IsModelSupported(requestedModel)
 	}
+	// OpenAI tokensea leftover model_mapping is a passthrough whitelist in the
+	// block below. Floor IDs such as gpt-5.6-luna must still admit even when
+	// that leftover snapshot omitted them — otherwise Plan returns
+	// model_not_supported and failover never reaches account 92's chat hop.
+	if account.IsOpenAITokenseaRelay() && tokenseaRelaySupportsRequestedModel(requestedModel) {
+		return true
+	}
 	if account.Platform == PlatformAntigravity {
 		if strings.TrimSpace(requestedModel) == "" {
 			return true

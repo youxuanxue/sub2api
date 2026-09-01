@@ -110,6 +110,9 @@ func TestOpenAITokenseaRelayFloorIsProbeCuratedOnly(t *testing.T) {
 	require.Contains(t, mapping, "gpt-5.4")
 	require.Contains(t, mapping, "claude-sonnet-4-6")
 	require.Contains(t, mapping, "gpt-5.6")
+	require.Contains(t, mapping, "gpt-5.6-luna")
+	require.Contains(t, mapping, "gpt-5.6-sol")
+	require.Contains(t, mapping, "gpt-5.6-terra")
 	require.NotContains(t, mapping, "byteplus/dreamina-seedance-2-0-260128", "non-SSOT upstream id is a boundary sample, not an owner copy")
 	// Live 2026-08-20 account 92 raw chat: listed DeepSeek/Qwen/GLM/Kimi IDs
 	// returned 400 openai_error; dated flash-0731 is not even listed.
