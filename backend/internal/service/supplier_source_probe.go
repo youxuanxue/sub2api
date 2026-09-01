@@ -13,21 +13,21 @@ import (
 )
 
 const (
-	supplierDiscoverDefaultPurchaseRatio = 1.0
-	// Concurrent live Chat probes for one discover job. Admin-only, long-running.
-	supplierDiscoverProbeConcurrency = 8
-	supplierDiscoverJobTTL           = 30 * time.Minute
-	supplierDiscoverProbeTimeout     = 15 * time.Minute
+	supplierProbeDefaultPurchaseRatio = 1.0
+	// Concurrent live Chat probes for one supplier probe job. Admin-only, long-running.
+	supplierProbeCandidateConcurrency = 8
+	supplierProbeJobTTL               = 30 * time.Minute
+	supplierProbeJobTimeout           = 15 * time.Minute
 )
 
-// SupplierDiscoverProbeStatus is the async candidate-probe lifecycle for models-discover.
-type SupplierDiscoverProbeStatus string
+// SupplierProbeJobStatus is the async candidate-probe lifecycle for supplier probe.
+type SupplierProbeJobStatus string
 
 const (
-	SupplierDiscoverProbePending   SupplierDiscoverProbeStatus = "pending"
-	SupplierDiscoverProbeRunning   SupplierDiscoverProbeStatus = "running"
-	SupplierDiscoverProbeCompleted SupplierDiscoverProbeStatus = "completed"
-	SupplierDiscoverProbeFailed    SupplierDiscoverProbeStatus = "failed"
+	SupplierProbeJobPending   SupplierProbeJobStatus = "pending"
+	SupplierProbeJobRunning   SupplierProbeJobStatus = "running"
+	SupplierProbeJobCompleted SupplierProbeJobStatus = "completed"
+	SupplierProbeJobFailed    SupplierProbeJobStatus = "failed"
 )
 
 // SupplierModelNormalizeChange records a configured-row rewrite to a canonical upstream id.
@@ -38,106 +38,169 @@ type SupplierModelNormalizeChange struct {
 	ToUpstreamModelID   string `json:"to_upstream_model_id"`
 }
 
-// SupplierModelDiscoverIssue is a configured model that cannot be matched to the upstream list.
-type SupplierModelDiscoverIssue struct {
+// SupplierProbeConfiguredIssue is a configured model that cannot be matched to the upstream list.
+type SupplierProbeConfiguredIssue struct {
 	ClientModelID   string `json:"client_model_id"`
 	UpstreamModelID string `json:"upstream_model_id"`
 	Reason          string `json:"reason"`
 }
 
-// SupplierModelDiscoverRejection is an upstream-only candidate that was not suggested.
-type SupplierModelDiscoverRejection struct {
+// SupplierProbeRejectedCandidate is an upstream-only candidate that was not suggested.
+type SupplierProbeRejectedCandidate struct {
 	UpstreamModelID string `json:"upstream_model_id"`
 	Type            string `json:"type,omitempty"`
 	Reason          string `json:"reason"`
 	Detail          string `json:"detail,omitempty"`
 }
 
-// SupplierModelsDiscoverResult is a read-only preview used by “校验并同步” before account projection.
+// SupplierSourceProbeResult is a read-only preview used by probe before account projection.
 // List + normalize return immediately; candidate Chat probes continue asynchronously under JobID.
 // It never writes accounts or the supplier source row. The UI applies NormalizedModels when
 // NeedsConfirmation is set; SuggestedAppends stay opt-in via an explicit form action.
-type SupplierModelsDiscoverResult struct {
+type SupplierSourceProbeResult struct {
 	SourceID           int64                            `json:"source_id"`
 	JobID              string                           `json:"job_id,omitempty"`
-	ProbeStatus        SupplierDiscoverProbeStatus      `json:"probe_status"`
+	ProbeStatus        SupplierProbeJobStatus           `json:"probe_status"`
 	ProbeTotal         int                              `json:"probe_total"`
 	ProbeDone          int                              `json:"probe_done"`
 	UpstreamModels     []SupplierUpstreamModelEntry     `json:"upstream_models"`
 	NormalizedModels   []SupplierSourceModel            `json:"normalized_models"`
 	NormalizedChanges  []SupplierModelNormalizeChange   `json:"normalized_changes"`
 	SuggestedAppends   []SupplierSourceModel            `json:"suggested_appends"`
-	RejectedCandidates []SupplierModelDiscoverRejection `json:"rejected_candidates"`
-	ConfiguredIssues   []SupplierModelDiscoverIssue     `json:"configured_issues"`
+	RejectedCandidates []SupplierProbeRejectedCandidate `json:"rejected_candidates"`
+	ConfiguredIssues   []SupplierProbeConfiguredIssue   `json:"configured_issues"`
 	ProbeResults       []SupplierProbeResult            `json:"probe_results"`
 	NeedsConfirmation  bool                             `json:"needs_confirmation"`
 	FailedStep         string                           `json:"failed_step,omitempty"`
 }
 
-type supplierDiscoverJob struct {
+type supplierProbeJob struct {
 	cancel    context.CancelFunc
 	mu        sync.Mutex
-	result    *SupplierModelsDiscoverResult
+	result    *SupplierSourceProbeResult
 	err       error
 	seen      map[string]struct{}
 	createdAt time.Time
 }
 
-type supplierDiscoverJobRegistry struct {
+type supplierProbeJobRegistry struct {
 	mu       sync.Mutex
-	byID     map[string]*supplierDiscoverJob
+	byID     map[string]*supplierProbeJob
 	bySource map[int64]string
 }
 
-func newSupplierDiscoverJobRegistry() *supplierDiscoverJobRegistry {
-	return &supplierDiscoverJobRegistry{
-		byID:     make(map[string]*supplierDiscoverJob),
+func newSupplierProbeJobRegistry() *supplierProbeJobRegistry {
+	return &supplierProbeJobRegistry{
+		byID:     make(map[string]*supplierProbeJob),
 		bySource: make(map[int64]string),
 	}
 }
 
-func (s *SupplierSourceService) discoverJobRegistry() *supplierDiscoverJobRegistry {
+func (s *SupplierSourceService) probeJobRegistry() *supplierProbeJobRegistry {
 	if s == nil {
 		return nil
 	}
-	if s.discoverJobs == nil {
-		s.discoverJobs = newSupplierDiscoverJobRegistry()
+	if s.probeJobs == nil {
+		s.probeJobs = newSupplierProbeJobRegistry()
 	}
-	return s.discoverJobs
+	return s.probeJobs
 }
 
-// StartDiscoverModels lists/normalizes synchronously, then probes every probeable upstream
-// candidate asynchronously with high concurrency. Poll GetDiscoverModelsJob until ProbeStatus
+// Probe is the public admin action: list/normalize + candidate probes + configured-row gate.
+// It never writes the supplier source or accounts.
+func (s *SupplierSourceService) Probe(ctx context.Context, sourceID int64) (*SupplierSourceProbeResult, error) {
+	result, err := s.StartSupplierProbeJob(ctx, sourceID)
+	if err != nil {
+		return result, err
+	}
+	configured, probeErr := s.probeConfiguredSourceModels(ctx, sourceID)
+	if result != nil {
+		result.ProbeResults = append(configured, result.ProbeResults...)
+		s.attachConfiguredProbeResults(sourceID, result.JobID, configured)
+		if probeErr != nil {
+			result.FailedStep = "probe"
+		}
+	}
+	if probeErr != nil {
+		return result, probeErr
+	}
+	return result, nil
+}
+
+func (s *SupplierSourceService) probeConfiguredSourceModels(ctx context.Context, sourceID int64) ([]SupplierProbeResult, error) {
+	if s == nil || s.repo == nil || s.probe == nil || s.encryptor == nil {
+		return nil, ErrSupplierSourceInvalidInput
+	}
+	source, err := s.repo.Get(ctx, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	if len(source.Models) == 0 {
+		return []SupplierProbeResult{}, nil
+	}
+	credential, err := s.encryptor.Decrypt(source.EncryptedCredential)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt supplier credential: %w", err)
+	}
+	targets, err := supplierTargetBands(source)
+	if err != nil {
+		return nil, err
+	}
+	results := s.probeSupplierTargets(ctx, source, credential, targets, nil, nil)
+	if supplierProbeResultsFailed(results) {
+		return results, ErrSupplierSourceProbeFailed
+	}
+	return results, nil
+}
+
+func (s *SupplierSourceService) attachConfiguredProbeResults(sourceID int64, jobID string, configured []SupplierProbeResult) {
+	if s == nil || strings.TrimSpace(jobID) == "" || len(configured) == 0 {
+		return
+	}
+	job, ok := s.probeJobRegistry().get(sourceID, jobID)
+	if !ok || job == nil {
+		return
+	}
+	job.mu.Lock()
+	defer job.mu.Unlock()
+	if job.result == nil {
+		return
+	}
+	job.result.ProbeResults = append(append([]SupplierProbeResult{}, configured...), job.result.ProbeResults...)
+}
+
+// StartSupplierProbeJob lists/normalizes synchronously, then probes every probeable upstream
+// candidate asynchronously with high concurrency. Poll GetSupplierProbeJob until ProbeStatus
 // is completed or failed. SuggestedAppends only include probe-passed models.
-func (s *SupplierSourceService) StartDiscoverModels(ctx context.Context, sourceID int64) (*SupplierModelsDiscoverResult, error) {
-	result := emptySupplierModelsDiscoverResult(sourceID)
+func (s *SupplierSourceService) StartSupplierProbeJob(ctx context.Context, sourceID int64) (*SupplierSourceProbeResult, error) {
+	result := emptySupplierSourceProbeResult(sourceID)
 	if s == nil || s.repo == nil || s.probe == nil || s.encryptor == nil || sourceID <= 0 {
 		result.FailedStep = "validate_request"
-		result.ProbeStatus = SupplierDiscoverProbeFailed
+		result.ProbeStatus = SupplierProbeJobFailed
 		return result, ErrSupplierSourceInvalidInput
 	}
 	lister, ok := s.probe.(SupplierUpstreamModelsLister)
 	if !ok || lister == nil {
 		result.FailedStep = "models_lister"
-		result.ProbeStatus = SupplierDiscoverProbeFailed
+		result.ProbeStatus = SupplierProbeJobFailed
 		return result, ErrSupplierSourceInvalidInput
 	}
 	source, err := s.repo.Get(ctx, sourceID)
 	if err != nil {
 		result.FailedStep = "load_source"
-		result.ProbeStatus = SupplierDiscoverProbeFailed
+		result.ProbeStatus = SupplierProbeJobFailed
 		return result, err
 	}
 	credential, err := s.encryptor.Decrypt(source.EncryptedCredential)
 	if err != nil {
 		result.FailedStep = "decrypt_credential"
-		result.ProbeStatus = SupplierDiscoverProbeFailed
+		result.ProbeStatus = SupplierProbeJobFailed
 		return result, fmt.Errorf("decrypt supplier credential: %w", err)
 	}
 	upstream, err := lister.ListSupplierUpstreamModels(ctx, source.Endpoint, source.ChannelType, credential)
 	if err != nil {
 		result.FailedStep = "list_upstream_models"
-		result.ProbeStatus = SupplierDiscoverProbeFailed
+		result.ProbeStatus = SupplierProbeJobFailed
 		return result, err
 	}
 	result.UpstreamModels = upstream
@@ -159,7 +222,7 @@ func (s *SupplierSourceService) StartDiscoverModels(ctx context.Context, sourceI
 			canonical, matched = matchSupplierUpstreamModelID(model.ClientModelID, upstream)
 		}
 		if !matched {
-			result.ConfiguredIssues = append(result.ConfiguredIssues, SupplierModelDiscoverIssue{
+			result.ConfiguredIssues = append(result.ConfiguredIssues, SupplierProbeConfiguredIssue{
 				ClientModelID: model.ClientModelID, UpstreamModelID: model.UpstreamModelID,
 				Reason: "not_in_upstream_list",
 			})
@@ -199,19 +262,19 @@ func (s *SupplierSourceService) StartDiscoverModels(ctx context.Context, sourceI
 	priority, priorityErr := SupplierAccountPriority(source.BasePriority, 6)
 	if priorityErr != nil {
 		result.FailedStep = "build_probe_account"
-		result.ProbeStatus = SupplierDiscoverProbeFailed
+		result.ProbeStatus = SupplierProbeJobFailed
 		return result, priorityErr
 	}
 	probeAccount := supplierProbeAccount(nil, source, credential, supplierTargetBand{
 		Band: 6, Priority: priority, Mapping: map[string]string{},
 	})
-	probeAccount.ID = supplierDiscoverProbeAccountID(source.ID)
-	probeAccount.Concurrency = supplierDiscoverProbeConcurrency
+	probeAccount.ID = supplierProbeAccountID(source.ID)
+	probeAccount.Concurrency = supplierProbeCandidateConcurrency
 
 	probeable := make([]SupplierUpstreamModelEntry, 0, len(candidates))
 	for _, entry := range candidates {
-		if !supplierUpstreamTypeProbeable(entry.Type) {
-			result.RejectedCandidates = append(result.RejectedCandidates, SupplierModelDiscoverRejection{
+		if !supplierUpstreamTypeProbeable(entry.Type, source.ChannelType) {
+			result.RejectedCandidates = append(result.RejectedCandidates, SupplierProbeRejectedCandidate{
 				UpstreamModelID: entry.ID, Type: entry.Type, Reason: "non_chat_type",
 			})
 			continue
@@ -222,99 +285,99 @@ func (s *SupplierSourceService) StartDiscoverModels(ctx context.Context, sourceI
 	result.NeedsConfirmation = len(result.NormalizedChanges) > 0
 	result.ProbeTotal = len(probeable)
 	if len(probeable) == 0 {
-		result.ProbeStatus = SupplierDiscoverProbeCompleted
+		result.ProbeStatus = SupplierProbeJobCompleted
 		result.ProbeDone = 0
-		return cloneSupplierModelsDiscoverResult(result), nil
+		return cloneSupplierSourceProbeResult(result), nil
 	}
 
-	jobID, err := newSupplierDiscoverJobID()
+	jobID, err := newSupplierProbeJobID()
 	if err != nil {
 		result.FailedStep = "create_job"
-		result.ProbeStatus = SupplierDiscoverProbeFailed
-		return result, fmt.Errorf("create discover job id: %w", err)
+		result.ProbeStatus = SupplierProbeJobFailed
+		return result, fmt.Errorf("create probe job id: %w", err)
 	}
 	result.JobID = jobID
-	result.ProbeStatus = SupplierDiscoverProbeRunning
+	result.ProbeStatus = SupplierProbeJobRunning
 	result.ProbeDone = 0
 
-	jobCtx, cancel := context.WithTimeout(context.Background(), supplierDiscoverProbeTimeout)
-	job := &supplierDiscoverJob{
+	jobCtx, cancel := context.WithTimeout(context.Background(), supplierProbeJobTimeout)
+	job := &supplierProbeJob{
 		cancel:    cancel,
-		result:    cloneSupplierModelsDiscoverResult(result),
+		result:    cloneSupplierSourceProbeResult(result),
 		createdAt: time.Now().UTC(),
 	}
-	s.discoverJobRegistry().put(sourceID, jobID, job)
-	go s.runSupplierDiscoverProbes(jobCtx, job, probeAccount, probeable)
-	return cloneSupplierModelsDiscoverResult(job.snapshot()), nil
+	s.probeJobRegistry().put(sourceID, jobID, job)
+	go s.runSupplierProbeCandidates(jobCtx, job, probeAccount, probeable)
+	return cloneSupplierSourceProbeResult(job.snapshot()), nil
 }
 
-// DiscoverModels starts async discover and, for callers that expect a finished snapshot
+// ProbeUntilComplete starts async probe and, for callers that expect a finished snapshot
 // (unit tests), waits until the probe job completes. HTTP handlers should use
-// StartDiscoverModels + GetDiscoverModelsJob instead.
-func (s *SupplierSourceService) DiscoverModels(ctx context.Context, sourceID int64) (*SupplierModelsDiscoverResult, error) {
-	result, err := s.StartDiscoverModels(ctx, sourceID)
+// StartSupplierProbeJob + GetSupplierProbeJob instead.
+func (s *SupplierSourceService) ProbeUntilComplete(ctx context.Context, sourceID int64) (*SupplierSourceProbeResult, error) {
+	result, err := s.StartSupplierProbeJob(ctx, sourceID)
 	if err != nil {
 		return result, err
 	}
-	if result == nil || result.JobID == "" || result.ProbeStatus != SupplierDiscoverProbeRunning {
+	if result == nil || result.JobID == "" || result.ProbeStatus != SupplierProbeJobRunning {
 		return result, nil
 	}
-	deadline := time.Now().Add(supplierDiscoverProbeTimeout)
+	deadline := time.Now().Add(supplierProbeJobTimeout)
 	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
 			return result, ctx.Err()
 		case <-time.After(20 * time.Millisecond):
 		}
-		next, getErr := s.GetDiscoverModelsJob(ctx, sourceID, result.JobID)
+		next, getErr := s.GetSupplierProbeJob(ctx, sourceID, result.JobID)
 		if getErr != nil {
 			return next, getErr
 		}
 		result = next
-		if result.ProbeStatus == SupplierDiscoverProbeCompleted {
+		if result.ProbeStatus == SupplierProbeJobCompleted {
 			return result, nil
 		}
-		if result.ProbeStatus == SupplierDiscoverProbeFailed {
+		if result.ProbeStatus == SupplierProbeJobFailed {
 			if result.FailedStep == "probe_candidate" {
 				return result, ErrSupplierSourceProbeFailed
 			}
-			return result, fmt.Errorf("supplier discover probe failed")
+			return result, fmt.Errorf("supplier source probe failed")
 		}
 	}
 	result.FailedStep = "probe_timeout"
-	result.ProbeStatus = SupplierDiscoverProbeFailed
-	return result, fmt.Errorf("supplier discover probe timed out")
+	result.ProbeStatus = SupplierProbeJobFailed
+	return result, fmt.Errorf("supplier source probe timed out")
 }
 
-// GetDiscoverModelsJob returns the latest snapshot for an async models-discover job.
-func (s *SupplierSourceService) GetDiscoverModelsJob(ctx context.Context, sourceID int64, jobID string) (*SupplierModelsDiscoverResult, error) {
+// GetSupplierProbeJob returns the latest snapshot for an async supplier probe job.
+func (s *SupplierSourceService) GetSupplierProbeJob(ctx context.Context, sourceID int64, jobID string) (*SupplierSourceProbeResult, error) {
 	_ = ctx
 	if s == nil || sourceID <= 0 || strings.TrimSpace(jobID) == "" {
-		return emptySupplierModelsDiscoverResult(sourceID), ErrSupplierSourceInvalidInput
+		return emptySupplierSourceProbeResult(sourceID), ErrSupplierSourceInvalidInput
 	}
-	job, ok := s.discoverJobRegistry().get(sourceID, jobID)
+	job, ok := s.probeJobRegistry().get(sourceID, jobID)
 	if !ok || job == nil {
 		// Poll-friendly: expired/superseded jobs are not "source missing".
-		result := emptySupplierModelsDiscoverResult(sourceID)
+		result := emptySupplierSourceProbeResult(sourceID)
 		result.JobID = jobID
 		result.FailedStep = "job_not_found"
-		result.ProbeStatus = SupplierDiscoverProbeFailed
+		result.ProbeStatus = SupplierProbeJobFailed
 		return result, nil
 	}
 	result := job.snapshot()
 	return result, nil
 }
 
-func (s *SupplierSourceService) runSupplierDiscoverProbes(
+func (s *SupplierSourceService) runSupplierProbeCandidates(
 	ctx context.Context,
-	job *supplierDiscoverJob,
+	job *supplierProbeJob,
 	probeAccount *Account,
 	probeable []SupplierUpstreamModelEntry,
 ) {
 	defer job.cancel()
-	defaultRatio := supplierDiscoverDefaultPurchaseRatio
+	defaultRatio := supplierProbeDefaultPurchaseRatio
 	var authFailed atomic.Bool
-	sem := make(chan struct{}, supplierDiscoverProbeConcurrency)
+	sem := make(chan struct{}, supplierProbeCandidateConcurrency)
 	var wg sync.WaitGroup
 	for _, entry := range probeable {
 		wg.Add(1)
@@ -353,7 +416,7 @@ func (s *SupplierSourceService) runSupplierDiscoverProbes(
 	job.finish(authFailed.Load())
 }
 
-func (r *supplierDiscoverJobRegistry) put(sourceID int64, jobID string, job *supplierDiscoverJob) {
+func (r *supplierProbeJobRegistry) put(sourceID int64, jobID string, job *supplierProbeJob) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.evictExpiredLocked(time.Now().UTC())
@@ -367,7 +430,7 @@ func (r *supplierDiscoverJobRegistry) put(sourceID int64, jobID string, job *sup
 	r.bySource[sourceID] = jobID
 }
 
-func (r *supplierDiscoverJobRegistry) get(sourceID int64, jobID string) (*supplierDiscoverJob, bool) {
+func (r *supplierProbeJobRegistry) get(sourceID int64, jobID string) (*supplierProbeJob, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.evictExpiredLocked(time.Now().UTC())
@@ -381,9 +444,9 @@ func (r *supplierDiscoverJobRegistry) get(sourceID int64, jobID string) (*suppli
 	return job, true
 }
 
-func (r *supplierDiscoverJobRegistry) evictExpiredLocked(now time.Time) {
+func (r *supplierProbeJobRegistry) evictExpiredLocked(now time.Time) {
 	for id, job := range r.byID {
-		if job == nil || now.Sub(job.createdAt) <= supplierDiscoverJobTTL {
+		if job == nil || now.Sub(job.createdAt) <= supplierProbeJobTTL {
 			continue
 		}
 		job.cancel()
@@ -396,18 +459,18 @@ func (r *supplierDiscoverJobRegistry) evictExpiredLocked(now time.Time) {
 	}
 }
 
-func (j *supplierDiscoverJob) snapshot() *SupplierModelsDiscoverResult {
+func (j *supplierProbeJob) snapshot() *SupplierSourceProbeResult {
 	result, _ := j.snapshotWithErr()
 	return result
 }
 
-func (j *supplierDiscoverJob) snapshotWithErr() (*SupplierModelsDiscoverResult, error) {
+func (j *supplierProbeJob) snapshotWithErr() (*SupplierSourceProbeResult, error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return cloneSupplierModelsDiscoverResult(j.result), j.err
+	return cloneSupplierSourceProbeResult(j.result), j.err
 }
 
-func (j *supplierDiscoverJob) applyProbeOutcome(
+func (j *supplierProbeJob) applyProbeOutcome(
 	entry SupplierUpstreamModelEntry,
 	probeResult SupplierProbeResult,
 	defaultRatio *float64,
@@ -423,17 +486,17 @@ func (j *supplierDiscoverJob) applyProbeOutcome(
 	}
 	j.result.ProbeResults = append(j.result.ProbeResults, probeResult)
 	if authFailed || probeResult.Status == SupplierProbeStatusAuthFailed {
-		j.result.RejectedCandidates = append(j.result.RejectedCandidates, SupplierModelDiscoverRejection{
+		j.result.RejectedCandidates = append(j.result.RejectedCandidates, SupplierProbeRejectedCandidate{
 			UpstreamModelID: entry.ID, Type: entry.Type, Reason: string(probeResult.Status),
 			Detail: probeResult.Detail,
 		})
 		j.result.FailedStep = "probe_candidate"
-		j.result.ProbeStatus = SupplierDiscoverProbeFailed
+		j.result.ProbeStatus = SupplierProbeJobFailed
 		j.err = ErrSupplierSourceProbeFailed
 		return
 	}
 	if probeResult.Status != SupplierProbeStatusPassed {
-		j.result.RejectedCandidates = append(j.result.RejectedCandidates, SupplierModelDiscoverRejection{
+		j.result.RejectedCandidates = append(j.result.RejectedCandidates, SupplierProbeRejectedCandidate{
 			UpstreamModelID: entry.ID, Type: entry.Type, Reason: string(probeResult.Status),
 			Detail: probeResult.Detail,
 		})
@@ -444,7 +507,7 @@ func (j *supplierDiscoverJob) applyProbeOutcome(
 	})
 }
 
-func (j *supplierDiscoverJob) markProbeSkipped(entry SupplierUpstreamModelEntry, reason string) {
+func (j *supplierProbeJob) markProbeSkipped(entry SupplierUpstreamModelEntry, reason string) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.result == nil {
@@ -453,12 +516,12 @@ func (j *supplierDiscoverJob) markProbeSkipped(entry SupplierUpstreamModelEntry,
 	if !j.noteProbeDoneLocked(entry.ID) {
 		return
 	}
-	j.result.RejectedCandidates = append(j.result.RejectedCandidates, SupplierModelDiscoverRejection{
+	j.result.RejectedCandidates = append(j.result.RejectedCandidates, SupplierProbeRejectedCandidate{
 		UpstreamModelID: entry.ID, Type: entry.Type, Reason: reason,
 	})
 }
 
-func (j *supplierDiscoverJob) noteProbeDoneLocked(upstreamModelID string) bool {
+func (j *supplierProbeJob) noteProbeDoneLocked(upstreamModelID string) bool {
 	if j.seen == nil {
 		j.seen = make(map[string]struct{})
 	}
@@ -473,7 +536,7 @@ func (j *supplierDiscoverJob) noteProbeDoneLocked(upstreamModelID string) bool {
 	return true
 }
 
-func (j *supplierDiscoverJob) finish(authFailed bool) {
+func (j *supplierProbeJob) finish(authFailed bool) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.result == nil {
@@ -482,42 +545,42 @@ func (j *supplierDiscoverJob) finish(authFailed bool) {
 	if j.result.ProbeDone > j.result.ProbeTotal {
 		j.result.ProbeDone = j.result.ProbeTotal
 	}
-	if authFailed || j.result.ProbeStatus == SupplierDiscoverProbeFailed {
-		j.result.ProbeStatus = SupplierDiscoverProbeFailed
+	if authFailed || j.result.ProbeStatus == SupplierProbeJobFailed {
+		j.result.ProbeStatus = SupplierProbeJobFailed
 		if j.err == nil {
 			j.err = ErrSupplierSourceProbeFailed
 		}
 		return
 	}
-	j.result.ProbeStatus = SupplierDiscoverProbeCompleted
+	j.result.ProbeStatus = SupplierProbeJobCompleted
 	j.result.NeedsConfirmation = len(j.result.NormalizedChanges) > 0
 }
 
-func emptySupplierModelsDiscoverResult(sourceID int64) *SupplierModelsDiscoverResult {
-	return &SupplierModelsDiscoverResult{
+func emptySupplierSourceProbeResult(sourceID int64) *SupplierSourceProbeResult {
+	return &SupplierSourceProbeResult{
 		SourceID:           sourceID,
-		ProbeStatus:        SupplierDiscoverProbePending,
+		ProbeStatus:        SupplierProbeJobPending,
 		UpstreamModels:     make([]SupplierUpstreamModelEntry, 0),
 		NormalizedModels:   make([]SupplierSourceModel, 0),
 		NormalizedChanges:  make([]SupplierModelNormalizeChange, 0),
 		SuggestedAppends:   make([]SupplierSourceModel, 0),
-		RejectedCandidates: make([]SupplierModelDiscoverRejection, 0),
-		ConfiguredIssues:   make([]SupplierModelDiscoverIssue, 0),
+		RejectedCandidates: make([]SupplierProbeRejectedCandidate, 0),
+		ConfiguredIssues:   make([]SupplierProbeConfiguredIssue, 0),
 		ProbeResults:       make([]SupplierProbeResult, 0),
 	}
 }
 
-func cloneSupplierModelsDiscoverResult(in *SupplierModelsDiscoverResult) *SupplierModelsDiscoverResult {
+func cloneSupplierSourceProbeResult(in *SupplierSourceProbeResult) *SupplierSourceProbeResult {
 	if in == nil {
-		return emptySupplierModelsDiscoverResult(0)
+		return emptySupplierSourceProbeResult(0)
 	}
 	out := *in
 	out.UpstreamModels = append([]SupplierUpstreamModelEntry(nil), in.UpstreamModels...)
 	out.NormalizedModels = cloneSupplierSourceModels(in.NormalizedModels)
 	out.NormalizedChanges = append([]SupplierModelNormalizeChange(nil), in.NormalizedChanges...)
 	out.SuggestedAppends = cloneSupplierSourceModels(in.SuggestedAppends)
-	out.RejectedCandidates = append([]SupplierModelDiscoverRejection(nil), in.RejectedCandidates...)
-	out.ConfiguredIssues = append([]SupplierModelDiscoverIssue(nil), in.ConfiguredIssues...)
+	out.RejectedCandidates = append([]SupplierProbeRejectedCandidate(nil), in.RejectedCandidates...)
+	out.ConfiguredIssues = append([]SupplierProbeConfiguredIssue(nil), in.ConfiguredIssues...)
 	out.ProbeResults = append([]SupplierProbeResult(nil), in.ProbeResults...)
 	return &out
 }
@@ -537,7 +600,7 @@ func cloneSupplierSourceModels(in []SupplierSourceModel) []SupplierSourceModel {
 	return out
 }
 
-func newSupplierDiscoverJobID() (string, error) {
+func newSupplierProbeJobID() (string, error) {
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return "", err
@@ -545,7 +608,7 @@ func newSupplierDiscoverJobID() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
-func supplierDiscoverProbeAccountID(sourceID int64) int64 {
+func supplierProbeAccountID(sourceID int64) int64 {
 	if sourceID <= 0 {
 		return -1
 	}

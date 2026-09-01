@@ -216,20 +216,20 @@ func (h *SupplierSourceHandler) Sync(c *gin.Context) {
 	response.Success(c, result)
 }
 
-func (h *SupplierSourceHandler) DiscoverModels(c *gin.Context) {
+func (h *SupplierSourceHandler) Probe(c *gin.Context) {
 	id, ok := supplierSourceID(c)
 	if !ok {
 		return
 	}
-	result, err := h.service.StartDiscoverModels(c.Request.Context(), id)
+	result, err := h.service.Probe(c.Request.Context(), id)
 	if err != nil {
-		writeSupplierSourceDiscoverError(c, result, err)
+		writeSupplierSourceProbeError(c, result, err)
 		return
 	}
 	response.Success(c, result)
 }
 
-func (h *SupplierSourceHandler) GetDiscoverModelsJob(c *gin.Context) {
+func (h *SupplierSourceHandler) GetProbeJob(c *gin.Context) {
 	id, ok := supplierSourceID(c)
 	if !ok {
 		return
@@ -239,21 +239,21 @@ func (h *SupplierSourceHandler) GetDiscoverModelsJob(c *gin.Context) {
 		response.InvalidRequest(c)
 		return
 	}
-	result, err := h.service.GetDiscoverModelsJob(c.Request.Context(), id, jobID)
+	result, err := h.service.GetSupplierProbeJob(c.Request.Context(), id, jobID)
 	if err != nil {
-		writeSupplierSourceDiscoverError(c, result, err)
+		writeSupplierSourceProbeError(c, result, err)
 		return
 	}
 	response.Success(c, result)
 }
 
-func writeSupplierSourceDiscoverError(c *gin.Context, result *service.SupplierModelsDiscoverResult, err error) {
+func writeSupplierSourceProbeError(c *gin.Context, result *service.SupplierSourceProbeResult, err error) {
 	statusCode, message, reason, metadata := supplierSourceHTTPError(err)
 	failedStep := ""
 	if result != nil {
 		failedStep = result.FailedStep
 	}
-	slog.Warn("supplier_models_discover_failed",
+	slog.Warn("supplier_source_probe_failed",
 		"status_code", statusCode,
 		"failed_step", failedStep,
 		"message", message,

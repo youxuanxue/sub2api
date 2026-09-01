@@ -408,8 +408,8 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /api/v1/admin/supplier-sources` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/supplier-sources/:id` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/supplier-sources/:id` from `backend/internal/server/routes/admin.go`
-- `POST /api/v1/admin/supplier-sources/:id/models-discover` from `backend/internal/server/routes/admin.go`
-- `GET /api/v1/admin/supplier-sources/:id/models-discover/jobs/:job_id` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/supplier-sources/:id/probe` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/supplier-sources/:id/probe/jobs/:job_id` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/supplier-sources/:id/sync` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/supplier-sources/priority-preview` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/system/check-updates` from `backend/internal/server/routes/admin.go`

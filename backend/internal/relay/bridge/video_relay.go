@@ -517,14 +517,14 @@ func readVideoFetchResponseBodyLimited(r io.Reader, maxBytes int64) ([]byte, err
 // bridge-local lookup; external preflight callers MUST use engine-level truth
 // so capability semantics stay centralized outside the bridge package.
 //
-// baseURL selects among variants that share a channel_type. Today that is
-// XRToken, an ARK-compatible reseller reached on ChannelTypeDoubaoVideo whose
-// task paths differ from official Ark by one middle path segment — see
-// video_relay_tk_xrtoken.go. Dispatching on the sentinel base_url (rather than
-// minting a TK-private channel_type) keeps this a pure bridge-local concern:
-// engine capability, route registration and the admin channel catalog all keep
-// treating the account as ch54, exactly as they do for the ch45 Agent Plan and
-// ch46 Qianfan sentinels.
+// baseURL selects among variants that share a channel_type. Today those are
+// XRToken and FMGo, both reached on ChannelTypeDoubaoVideo with host-specific
+// task paths — see video_relay_tk_xrtoken.go and video_relay_tk_fmgo.go.
+// Dispatching on the sentinel base_url (rather than minting a TK-private
+// channel_type) keeps this a pure bridge-local concern: engine capability,
+// route registration and the admin channel catalog all keep treating the
+// account as ch54, exactly as they do for the ch45 Agent Plan and ch46
+// Qianfan sentinels.
 //
 // An empty baseURL falls through to the upstream adaptor, which is the correct
 // default: callers that have no base_url (legacy registry rows) get official
@@ -535,6 +535,9 @@ func taskAdaptorForChannel(channelType int, baseURL string) channel.TaskAdaptor 
 	}
 	if newapiintegration.IsXRTokenBaseURL(channelType, baseURL) {
 		return newXRTokenTaskAdaptor()
+	}
+	if newapiintegration.IsFMGoBaseURL(channelType, baseURL) {
+		return newFMGoTaskAdaptor()
 	}
 	platform := newapiconstant.TaskPlatform(strconv.Itoa(channelType))
 	return newapirelay.GetTaskAdaptor(platform)

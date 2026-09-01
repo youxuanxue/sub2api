@@ -96,21 +96,21 @@ func TestUS048_SupplierSourceErrorsUseStableHTTPClasses(t *testing.T) {
 	}
 }
 
-func TestUS048_DiscoverUpstreamListFailureReturnsSafeMessageAndFailedStep(t *testing.T) {
+func TestUS048_ProbeUpstreamListFailureReturnsSafeMessageAndFailedStep(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
-	result := &service.SupplierModelsDiscoverResult{
+	result := &service.SupplierSourceProbeResult{
 		SourceID:           3,
 		UpstreamModels:     []service.SupplierUpstreamModelEntry{},
 		NormalizedModels:   []service.SupplierSourceModel{},
 		NormalizedChanges:  []service.SupplierModelNormalizeChange{},
 		SuggestedAppends:   []service.SupplierSourceModel{},
-		RejectedCandidates: []service.SupplierModelDiscoverRejection{},
-		ConfiguredIssues:   []service.SupplierModelDiscoverIssue{},
+		RejectedCandidates: []service.SupplierProbeRejectedCandidate{},
+		ConfiguredIssues:   []service.SupplierProbeConfiguredIssue{},
 		ProbeResults:       []service.SupplierProbeResult{},
 		FailedStep:         "list_upstream_models",
 	}
-	writeSupplierSourceDiscoverError(ctx, result, &service.UpstreamModelSyncError{
+	writeSupplierSourceProbeError(ctx, result, &service.UpstreamModelSyncError{
 		Kind:    service.UpstreamModelSyncErrorUpstream,
 		Message: "Supplier model list request failed with HTTP 401",
 		Err:     errors.New("supplier model list returned HTTP 401"),

@@ -51,18 +51,67 @@ func TestUS048_SupplierProbeUsesInMemoryAccountWithoutRepositoryLookup(t *testin
 	require.Zero(t, repo.getCalls, "supplier probe must not require a persisted account")
 }
 
-func TestUS048_FMGoSeedanceIsProtocolUnsupportedWithoutAccountWrite(t *testing.T) {
+func TestUS048_DoubaoVideoChannelProbesVideoPathNotChat(t *testing.T) {
+	var hitPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		hitPath = request.URL.Path
+		require.Equal(t, "Bearer secret", request.Header.Get("Authorization"))
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, `{"id":"task-1"}`)
+	}))
+	defer server.Close()
+
 	repo := &supplierProbeAccountRepoFake{}
 	svc := &AccountTestService{accountRepo: repo}
 	result := svc.ProbeSupplierModel(context.Background(), SupplierProbeInput{
-		Account:         &Account{Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1},
-		ClientModelID:   "doubao-seedance-2-0-260128",
-		UpstreamModelID: "feimiao-seedance-2-0-260128",
+		Account: &Account{
+			Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
+			ChannelType: newapiconstant.ChannelTypeDoubaoVideo, Concurrency: 1,
+			Credentials: supplierManagedCredentials(
+				server.URL, "secret", map[string]string{"doubao-seedance-2-0-260128": "feimiao-v2-720p-15s"},
+				newapiconstant.ChannelTypeDoubaoVideo),
+		},
+		ClientModelID: "doubao-seedance-2-0-260128", UpstreamModelID: "feimiao-v2-720p-15s",
 	})
 
-	require.Equal(t, SupplierProbeStatusProtocolUnsupported, result.Status)
-	require.Equal(t, "supplier protocol unsupported", result.Detail)
+	require.Equal(t, SupplierProbeStatusPassed, result.Status)
+	require.Equal(t, "openai_video", result.Protocol)
+	require.Equal(t, "/api/v3/contents/generations/tasks", hitPath)
 	require.Zero(t, repo.getCalls)
+}
+
+func TestUS048_VideoProbeFailToFetchTaskDoesNotPass(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, `{"code":"fail_to_fetch_task","message":"{\"detail\":\"Not Found\"}"}`)
+	}))
+	defer server.Close()
+
+	// HTTP 200 with a task-fetch failure is still not servable evidence.
+	// Status classification treats 2xx as passed today only when the body is not
+	// an auth/model error; fail_to_fetch_task must not count as passed.
+	svc := &AccountTestService{accountRepo: &supplierProbeAccountRepoFake{}}
+	result := svc.ProbeSupplierModel(context.Background(), SupplierProbeInput{
+		Account: &Account{
+			Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
+			ChannelType: newapiconstant.ChannelTypeDoubaoVideo,
+			Credentials: supplierManagedCredentials(
+				server.URL, "secret", map[string]string{"a": "b"},
+				newapiconstant.ChannelTypeDoubaoVideo),
+		},
+		ClientModelID: "doubao-seedance-2-0-260128", UpstreamModelID: "feimiao-v2-720p-15s",
+	})
+
+	if result.Status == SupplierProbeStatusPassed {
+		t.Fatal("fail_to_fetch_task must not pass the video probe gate")
+	}
+}
+
+func TestUS048_FMGoVideoProbeURLUsesVideoGenerations(t *testing.T) {
+	got := supplierVideoProbeURL(newapiconstant.ChannelTypeDoubaoVideo, newapiintegration.FMGoBaseURL)
+	require.Equal(t, newapiintegration.FMGoBaseURL+"/v1/video/generations", got)
+	got = supplierVideoProbeURL(newapiconstant.ChannelTypeDoubaoVideo, "https://ark.cn-beijing.volces.com")
+	require.Equal(t, "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks", got)
 }
 
 func TestUS048_SupplierManagedAccountDeclaresOnlyChatProtocol(t *testing.T) {

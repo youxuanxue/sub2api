@@ -51,7 +51,7 @@ func TestUS048_BuildSupplierModelsListURLUsesAliCompatibleModePath(t *testing.T)
 	require.Equal(t, "https://dashscope.aliyuncs.com/compatible-mode/v1/models", buildSupplierModelsListURL(transport))
 }
 
-func TestUS048_DiscoverModelsNormalizesAndSuggestsOnlyProbePassed(t *testing.T) {
+func TestUS048_ProbeUntilCompleteNormalizesAndSuggestsOnlyProbePassed(t *testing.T) {
 	ratio := 0.5
 	source := &SupplierSource{
 		ID: 3, SupplierName: "baidu", ChannelName: "default",
@@ -63,7 +63,7 @@ func TestUS048_DiscoverModelsNormalizesAndSuggestsOnlyProbePassed(t *testing.T) 
 		},
 	}
 	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
-	lister := &supplierDiscoverProbeFake{
+	lister := &supplierProbeFake{
 		entries: []SupplierUpstreamModelEntry{
 			{ID: "deepseek-v4-pro", Type: "chat"},
 			{ID: "glm-5.1", Type: "chat"},
@@ -77,14 +77,14 @@ func TestUS048_DiscoverModelsNormalizesAndSuggestsOnlyProbePassed(t *testing.T) 
 	}
 	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 
-	result, err := svc.DiscoverModels(context.Background(), 3)
+	result, err := svc.ProbeUntilComplete(context.Background(), 3)
 	require.NoError(t, err)
 	require.True(t, result.NeedsConfirmation)
 	require.Len(t, result.NormalizedChanges, 1)
 	require.Equal(t, "deepseek-v4-pro", result.NormalizedChanges[0].ToUpstreamModelID)
 	require.Equal(t, "deepseek-v4-pro", result.NormalizedModels[0].UpstreamModelID)
 	require.Equal(t, "MiniMax-M2.7", result.NormalizedModels[1].UpstreamModelID)
-	require.Equal(t, []string{"MiniMax-M2.7"}, discoverIssueUpstreamIDs(result.ConfiguredIssues))
+	require.Equal(t, []string{"MiniMax-M2.7"}, probeConfiguredIssueUpstreamIDs(result.ConfiguredIssues))
 	require.Len(t, result.SuggestedAppends, 1)
 	require.Equal(t, "glm-5.1", result.SuggestedAppends[0].UpstreamModelID)
 	require.NotNil(t, result.SuggestedAppends[0].PurchaseRatio)
@@ -99,7 +99,33 @@ func TestUS048_DiscoverModelsNormalizesAndSuggestsOnlyProbePassed(t *testing.T) 
 	require.NotContains(t, rejected, "glm-5.1")
 }
 
-func TestUS048_DiscoverModelsSuggestionsAloneDoNotBlockProjection(t *testing.T) {
+func TestUS048_ProbeIncludesConfiguredRowResultsWithoutWritingAccounts(t *testing.T) {
+	ratio := 0.5
+	source := &SupplierSource{
+		ID: 11, SupplierName: "baidu", ChannelName: "default",
+		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com",
+		EncryptedCredential: "enc:secret", BasePriority: 100,
+		Models: []SupplierSourceModel{
+			{ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio},
+		},
+	}
+	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
+	lister := &supplierProbeFake{
+		entries: []SupplierUpstreamModelEntry{{ID: "deepseek-v4-pro", Type: "chat"}},
+		probeStatus: map[string]SupplierProbeStatus{
+			"deepseek-v4-pro": SupplierProbeStatusPassed,
+		},
+	}
+	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	result, err := svc.Probe(context.Background(), 11)
+	require.NoError(t, err)
+	require.NotEmpty(t, result.ProbeResults)
+	require.Equal(t, "deepseek-v4-pro", result.ProbeResults[0].UpstreamModelID)
+	require.Equal(t, SupplierProbeStatusPassed, result.ProbeResults[0].Status)
+}
+
+func TestUS048_ProbeUntilCompleteSuggestionsAloneDoNotBlockProjection(t *testing.T) {
 	ratio := 0.5
 	source := &SupplierSource{
 		ID: 5, SupplierName: "baidu", ChannelName: "default",
@@ -110,7 +136,7 @@ func TestUS048_DiscoverModelsSuggestionsAloneDoNotBlockProjection(t *testing.T) 
 		},
 	}
 	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
-	lister := &supplierDiscoverProbeFake{
+	lister := &supplierProbeFake{
 		entries: []SupplierUpstreamModelEntry{
 			{ID: "deepseek-v4-pro", Type: "chat"},
 			{ID: "glm-5.1", Type: "chat"},
@@ -118,7 +144,7 @@ func TestUS048_DiscoverModelsSuggestionsAloneDoNotBlockProjection(t *testing.T) 
 		probeStatus: map[string]SupplierProbeStatus{"glm-5.1": SupplierProbeStatusPassed},
 	}
 	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
-	result, err := svc.DiscoverModels(context.Background(), 5)
+	result, err := svc.ProbeUntilComplete(context.Background(), 5)
 	require.NoError(t, err)
 	require.False(t, result.NeedsConfirmation)
 	require.Empty(t, result.NormalizedChanges)
@@ -126,7 +152,7 @@ func TestUS048_DiscoverModelsSuggestionsAloneDoNotBlockProjection(t *testing.T) 
 	require.Equal(t, "glm-5.1", result.SuggestedAppends[0].UpstreamModelID)
 }
 
-func TestUS048_DiscoverModelsPreservesIntentionalClientUpstreamRemap(t *testing.T) {
+func TestUS048_ProbeUntilCompletePreservesIntentionalClientUpstreamRemap(t *testing.T) {
 	ratio := 0.5
 	source := &SupplierSource{
 		ID: 6, SupplierName: "FMGo", ChannelName: "seedance",
@@ -139,13 +165,13 @@ func TestUS048_DiscoverModelsPreservesIntentionalClientUpstreamRemap(t *testing.
 		}},
 	}
 	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
-	lister := &supplierDiscoverProbeFake{
+	lister := &supplierProbeFake{
 		entries: []SupplierUpstreamModelEntry{
 			{ID: "feimiao-seedance-2-0-260128", Type: "chat"},
 		},
 	}
 	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
-	result, err := svc.DiscoverModels(context.Background(), 6)
+	result, err := svc.ProbeUntilComplete(context.Background(), 6)
 	require.NoError(t, err)
 	require.True(t, result.NeedsConfirmation)
 	require.Len(t, result.NormalizedModels, 1)
@@ -155,40 +181,40 @@ func TestUS048_DiscoverModelsPreservesIntentionalClientUpstreamRemap(t *testing.
 	require.Equal(t, "feimiao-seedance-2-0-260128", result.NormalizedChanges[0].ToUpstreamModelID)
 }
 
-func TestUS048_DiscoverModelsAuthFailureStopsWithoutSuggesting(t *testing.T) {
+func TestUS048_ProbeUntilCompleteAuthFailureStopsWithoutSuggesting(t *testing.T) {
 	source := &SupplierSource{
 		ID: 4, SupplierName: "baidu", ChannelName: "default",
 		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
 		BasePriority: 100, Models: nil,
 	}
 	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
-	lister := &supplierDiscoverProbeFake{
+	lister := &supplierProbeFake{
 		entries: []SupplierUpstreamModelEntry{{ID: "glm-5.1", Type: "chat"}},
 		probeStatus: map[string]SupplierProbeStatus{
 			"glm-5.1": SupplierProbeStatusAuthFailed,
 		},
 	}
 	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
-	result, err := svc.DiscoverModels(context.Background(), 4)
+	result, err := svc.ProbeUntilComplete(context.Background(), 4)
 	require.ErrorIs(t, err, ErrSupplierSourceProbeFailed)
 	require.Equal(t, "probe_candidate", result.FailedStep)
-	require.Equal(t, SupplierDiscoverProbeFailed, result.ProbeStatus)
+	require.Equal(t, SupplierProbeJobFailed, result.ProbeStatus)
 	require.Empty(t, result.SuggestedAppends)
 }
 
-func TestUS048_GetDiscoverModelsJobMissingReturnsFailedSnapshot(t *testing.T) {
+func TestUS048_GetSupplierProbeJobMissingReturnsFailedSnapshot(t *testing.T) {
 	svc := NewSupplierSourceService(
-		&supplierSourceRepoFake{}, nil, &supplierDiscoverProbeFake{},
+		&supplierSourceRepoFake{}, nil, &supplierProbeFake{},
 		supplierSyncEncryptor{}, supplierSourceTestFingerprinter{},
 	)
-	result, err := svc.GetDiscoverModelsJob(context.Background(), 3, "missing-job")
+	result, err := svc.GetSupplierProbeJob(context.Background(), 3, "missing-job")
 	require.NoError(t, err)
 	require.Equal(t, "missing-job", result.JobID)
 	require.Equal(t, "job_not_found", result.FailedStep)
-	require.Equal(t, SupplierDiscoverProbeFailed, result.ProbeStatus)
+	require.Equal(t, SupplierProbeJobFailed, result.ProbeStatus)
 }
 
-func TestUS048_StartDiscoverModelsProbesAllCandidatesAsynchronously(t *testing.T) {
+func TestUS048_StartSupplierProbeJobProbesAllCandidatesAsynchronously(t *testing.T) {
 	source := &SupplierSource{
 		ID: 8, SupplierName: "baidu", ChannelName: "default",
 		Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
@@ -202,25 +228,25 @@ func TestUS048_StartDiscoverModelsProbesAllCandidatesAsynchronously(t *testing.T
 		entries = append(entries, SupplierUpstreamModelEntry{ID: id, Type: "chat"})
 		probeStatus[id] = SupplierProbeStatusPassed
 	}
-	lister := &supplierDiscoverProbeFake{entries: entries, probeStatus: probeStatus}
+	lister := &supplierProbeFake{entries: entries, probeStatus: probeStatus}
 	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
-	started, err := svc.StartDiscoverModels(context.Background(), 8)
+	started, err := svc.StartSupplierProbeJob(context.Background(), 8)
 	require.NoError(t, err)
-	require.Equal(t, SupplierDiscoverProbeRunning, started.ProbeStatus)
+	require.Equal(t, SupplierProbeJobRunning, started.ProbeStatus)
 	require.Equal(t, 12, started.ProbeTotal)
 	require.NotEmpty(t, started.JobID)
 
 	deadline := time.Now().Add(2 * time.Second)
-	var result *SupplierModelsDiscoverResult
+	var result *SupplierSourceProbeResult
 	for time.Now().Before(deadline) {
-		result, err = svc.GetDiscoverModelsJob(context.Background(), 8, started.JobID)
+		result, err = svc.GetSupplierProbeJob(context.Background(), 8, started.JobID)
 		require.NoError(t, err)
-		if result.ProbeStatus == SupplierDiscoverProbeCompleted {
+		if result.ProbeStatus == SupplierProbeJobCompleted {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	require.Equal(t, SupplierDiscoverProbeCompleted, result.ProbeStatus)
+	require.Equal(t, SupplierProbeJobCompleted, result.ProbeStatus)
 	require.Equal(t, 12, result.ProbeDone)
 	require.Equal(t, int64(12), lister.probeCalls.Load())
 	require.Len(t, result.SuggestedAppends, 12)
@@ -240,14 +266,14 @@ func TestUS048_ExtractSupplierUpstreamModelEntriesKeepsType(t *testing.T) {
 	}, entries)
 }
 
-type supplierDiscoverProbeFake struct {
+type supplierProbeFake struct {
 	entries     []SupplierUpstreamModelEntry
 	probeStatus map[string]SupplierProbeStatus
 	listErr     error
 	probeCalls  atomic.Int64
 }
 
-func (f *supplierDiscoverProbeFake) ListSupplierUpstreamModels(
+func (f *supplierProbeFake) ListSupplierUpstreamModels(
 	context.Context, string, int, string,
 ) ([]SupplierUpstreamModelEntry, error) {
 	if f.listErr != nil {
@@ -258,7 +284,7 @@ func (f *supplierDiscoverProbeFake) ListSupplierUpstreamModels(
 	return out, nil
 }
 
-func (f *supplierDiscoverProbeFake) ProbeSupplierModel(_ context.Context, input SupplierProbeInput) SupplierProbeResult {
+func (f *supplierProbeFake) ProbeSupplierModel(_ context.Context, input SupplierProbeInput) SupplierProbeResult {
 	f.probeCalls.Add(1)
 	status := SupplierProbeStatusFailed
 	if f.probeStatus != nil {
@@ -272,7 +298,7 @@ func (f *supplierDiscoverProbeFake) ProbeSupplierModel(_ context.Context, input 
 	}
 }
 
-func discoverIssueUpstreamIDs(issues []SupplierModelDiscoverIssue) []string {
+func probeConfiguredIssueUpstreamIDs(issues []SupplierProbeConfiguredIssue) []string {
 	out := make([]string, 0, len(issues))
 	for _, issue := range issues {
 		out = append(out, issue.UpstreamModelID)

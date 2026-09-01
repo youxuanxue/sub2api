@@ -111,7 +111,7 @@ export default {
       failedToToggleSchedulable: '切换调度状态失败',
       supplierManaged: {
         badge: '供应源托管',
-        viewHint: '该账号由供应源创建；在供应源点击「校验并同步」会覆盖更新投影字段（如 priority、model_mapping 等）。平时可按普通账号编辑。',
+        viewHint: '该账号由供应源创建；在供应源点击「同步账号」会覆盖更新投影字段（如 priority、model_mapping 等）。平时可按普通账号编辑。',
         openManagement: '前往供应源管理'
       },
       groupCountTotal: '共 {count} 个分组',

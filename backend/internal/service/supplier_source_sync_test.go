@@ -10,6 +10,39 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestUS048_FMGoSeedanceSyncProjectsOfficialClientsOnly(t *testing.T) {
+	ratio := 0.5
+	notes := "inventory: feimiao-v2-480p-8s feimiao-v2-720p-15s feimiao-v2-fast-720p-10s"
+	repo := &supplierSourceRepoFake{stored: &SupplierSource{
+		ID: 10, SupplierName: "feimiao", ChannelName: "feimiao-svip",
+		ChannelType:         newapiconstant.ChannelTypeDoubaoVideo,
+		Endpoint:            "https://www.fmgo.top",
+		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
+		Notes: notes,
+		Models: []SupplierSourceModel{
+			{ClientModelID: "doubao-seedance-2-0-260128", UpstreamModelID: "feimiao-v2-720p-15s", PurchaseRatio: &ratio},
+			{ClientModelID: "doubao-seedance-2-0-fast-260128", UpstreamModelID: "feimiao-v2-fast-720p-15s", PurchaseRatio: &ratio},
+		},
+	}}
+	accounts := &supplierSyncAccountStoreFake{}
+	probe := &supplierSyncProbeFake{}
+	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	result, err := svc.Sync(context.Background(), 10)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotEmpty(t, accounts.updated)
+	require.Equal(t, map[string]string{
+		"doubao-seedance-2-0-260128":      "feimiao-v2-720p-15s",
+		"doubao-seedance-2-0-fast-260128": "feimiao-v2-fast-720p-15s",
+	}, accounts.updated[0].ModelMapping)
+	for clientID := range accounts.updated[0].ModelMapping {
+		require.False(t, strings.HasPrefix(clientID, "feimiao-v2-"), "SKU %q leaked as client", clientID)
+	}
+	require.Len(t, accounts.updated[0].ModelMapping, 2)
+}
+
 func TestUS048_SupplierSyncGroupsSameBandModelsIntoOneAccount(t *testing.T) {
 	ratio05, ratio055 := 0.5, 0.55
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{

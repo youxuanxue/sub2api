@@ -1978,10 +1978,10 @@
         "syncResult.value !== null",
         "syncError.value === ''",
         "&& !syncResult.value.failed_step",
-        "async function waitDiscoverJob(",
-        "adminAPI.supplierSources.getDiscoverModelsJob(sourceID, jobID)",
-        "data-test=\"discover-probe-progress\"",
-        "v-if=\"discoverResult.probe_status === 'completed'\"",
+        "async function waitProbeJob(",
+        "adminAPI.supplierSources.getProbeJob(sourceID, jobID)",
+        "data-test=\"probe-candidate-progress\"",
+        "v-if=\"probeResult.probe_status === 'completed'\"",
         "form.channel_type",
         "channel_name: 'default'",
         "useNewApiChannelTypes",
@@ -1993,17 +1993,17 @@
         "syncSucceeded = ref",
         "watch(() => form.channel_type"
       ],
-      "rationale": "The supplier page derives success from the current response, the current request error, and absence of failed_step. It must poll async models-discover jobs to completion before projection sync, show probe progress, and only allow appending suggestions after probing finishes so partial candidate sets cannot enter the form. BaiduV2 remains an explicit supplier transport even though it is absent from NewAPI's generic model-fetch set, and catalog endpoint defaults apply only to operator channel changes so source hydration preserves persisted custom endpoints."
+      "rationale": "The supplier page derives success from the current response, the current request error, and absence of failed_step. It must poll async probe jobs to completion, show probe progress, and only allow appending suggestions after probing finishes so partial candidate sets cannot enter the form. Probe and sync stay independent; dirty or probe-backfilled drafts disable both. BaiduV2 remains an explicit supplier transport even though it is absent from NewAPI's generic model-fetch set, and catalog endpoint defaults apply only to operator channel changes so source hydration preserves persisted custom endpoints."
     },
     {
       "path": "frontend/src/api/admin/supplierSources.ts",
       "must_contain": [
-        "async function discoverModels(id: number): Promise<SupplierModelsDiscoverResult>",
-        "`/admin/supplier-sources/${id}/models-discover`",
-        "async function getDiscoverModelsJob(id: number, jobId: string): Promise<SupplierModelsDiscoverResult>",
-        "`/admin/supplier-sources/${id}/models-discover/jobs/${encodeURIComponent(jobId)}`"
+        "async function probe(id: number): Promise<SupplierSourceProbeResult>",
+        "`/admin/supplier-sources/${id}/probe`",
+        "async function getProbeJob(id: number, jobId: string): Promise<SupplierSourceProbeResult>",
+        "`/admin/supplier-sources/${id}/probe/jobs/${encodeURIComponent(jobId)}`"
       ],
-      "rationale": "Admin client must expose both models-discover start and job poll endpoints. Dropping the poll client forces synchronous long probes behind the browser timeout again."
+      "rationale": "Admin client must expose both probe start and job poll endpoints. Dropping the poll client forces synchronous long probes behind the browser timeout again."
     },
     {
       "path": "frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts",
@@ -2014,11 +2014,11 @@
         "does not show success when a resolved sync result reports a failed step",
         "shows protocol_unsupported probe results from a 422 response without success wording",
         "contains no state machine, audit, activation, pause, or account-group controls",
-        "polls a running models-discover job until completed before syncing",
-        "shows discover failure message and failed_step outside the sync-result block",
+        "polls a running probe job until completed without syncing",
+        "shows probe failure message and failed_step outside the sync-result block",
         "offers and hydrates BaiduV2 while preserving a custom endpoint during source selection"
       ],
-      "rationale": "Focused UI regressions pin the final minimal workflow: save is side-effect free, unsaved edits cannot accidentally sync the previous database snapshot, sync renders current probes and real account changes, resolved failed_step responses cannot display success, private protocol failures remain closed, async discover polling must complete before projection sync, discover failures stay visible outside the sync block, BaiduV2 stays selectable without hydration overwriting a custom endpoint, and no state machine or account-group controls return."
+      "rationale": "Focused UI regressions pin the final minimal workflow: save is side-effect free, unsaved edits cannot accidentally sync the previous database snapshot, probe and sync stay independent, sync renders current probes and real account changes, resolved failed_step responses cannot display success, private protocol failures remain closed, async probe polling must complete without auto-sync, probe failures stay visible outside the sync block, BaiduV2 stays selectable without hydration overwriting a custom endpoint, and no state machine or account-group controls return."
     },
     {
       "path": "frontend/src/composables/useSupplierManagedAccount.ts",
