@@ -5,7 +5,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -66,10 +65,28 @@ func TestUS048_SupplierPriorityIsBasePlusBandTimesStep(t *testing.T) {
 
 // Pins FE SUPPLIER_DISCOUNT_PRIORITY_STEP to backend SupplierDiscountPriorityStep
 // so Admin form live preview cannot drift from sync/account priority.
+// Locates the monorepo root via Getwd (not runtime.Caller): CI builds with
+// -trimpath, so Caller paths are module-shaped and not on disk.
 func TestUS048_DiscountPriorityStepMatchesFrontendConstant(t *testing.T) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	feConst := filepath.Join(filepath.Dir(thisFile), "..", "..", "..", "frontend", "src", "constants", "supplierSource.tk.ts")
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	root := ""
+	for dir := wd; ; dir = filepath.Dir(dir) {
+		feDir := filepath.Join(dir, "frontend", "src", "constants")
+		backendMod := filepath.Join(dir, "backend", "go.mod")
+		if st, err := os.Stat(feDir); err == nil && st.IsDir() {
+			if _, err := os.Stat(backendMod); err == nil {
+				root = dir
+				break
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+	}
+	require.NotEmpty(t, root, "monorepo root not found from wd=%s", wd)
+	feConst := filepath.Join(root, "frontend", "src", "constants", "supplierSource.tk.ts")
 	raw, err := os.ReadFile(feConst)
 	require.NoError(t, err, "frontend constant file must exist at %s", feConst)
 	needle := fmt.Sprintf("export const SUPPLIER_DISCOUNT_PRIORITY_STEP = %d", SupplierDiscountPriorityStep)
