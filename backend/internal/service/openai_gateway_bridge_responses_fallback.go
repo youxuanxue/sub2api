@@ -251,6 +251,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 		return nil, fmt.Errorf("marshal bridge chat fallback request: %w", err)
 	}
 	chatBody = applyNewAPIResponsesChatFallbackShape(upstreamModel, chatBody)
+	chatBody = applyNewAPIAliFixedSamplingShape(upstreamModel, chatBody)
 	chatBody = ensureNewAPIChatFallbackStreamOptions(chatBody)
 	upstreamStream := chatFallbackUpstreamRequiresStream(chatBody)
 	chatBody = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, chatBody, upstreamModel)

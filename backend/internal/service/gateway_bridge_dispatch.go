@@ -13,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -101,6 +102,7 @@ func (s *GatewayService) ForwardAsChatCompletionsDispatched(
 	if !protocolExecutionBound(ctx) {
 		body = rewriteNewAPIBridgeBodyModel(account, body, "")
 	}
+	body = applyNewAPIAliFixedSamplingShape(gjson.GetBytes(body, "model").String(), body)
 	auth := bridgeAuthFromGin(c)
 	body, in, err := bindProtocolPlanToNewAPIBridge(ctx, account, body, auth.UserID, auth.GroupName, newapitypes.RelayFormatOpenAI)
 	if err != nil {
