@@ -2764,14 +2764,17 @@
         "forbidden_model_mapping_keys",
         "_BUNDLE.account_override_scope",
         "\"account_bulk_changed\"",
-        "\"group_changed\""
+        "\"group_changed\"",
+        "def _is_supplier_managed_account(",
+        "'supplier_source_id_present', COALESCE(a.extra ? 'supplier_source_id', false)",
+        "if _is_supplier_managed_account(row):"
       ],
       "must_not_contain": [
         "GO_HELPER",
         "--ssot-repo-root",
         "--allow-extra-model-mapping"
       ],
-      "rationale": "Explicit ops check/apply surfaces for account model_mapping. The script must consume the checksummed bundle without Go/source discovery, prioritize property-selected account overrides over shared platform/channel floors, select VolcEngine Agent Plan by platform/channel/base_url rather than account ID, use one required-floor + forbidden-policy rule, preserve compatible extras, keep check-accounts read-only, scope release-gate to explicit model activation, require confirmation before writes, update only model_mapping/group scopes, and enqueue scheduler outbox events. Activation pins the resolved prod instance and rechecks runtime-shadow absence under a settings-table lock before writes. Generic deploy wiring is prohibited by the workflow sentinel above, while direct Edge diagnostics/apply remain available."
+      "rationale": "Explicit ops check/apply surfaces for account model_mapping. The script must consume the checksummed bundle without Go/source discovery, prioritize property-selected account overrides over shared platform/channel floors, select VolcEngine Agent Plan by platform/channel/base_url rather than account ID, use one required-floor + forbidden-policy rule, preserve compatible extras, keep check-accounts read-only, scope release-gate to explicit model activation, require confirmation before writes, update only model_mapping/group scopes, and enqueue scheduler outbox events. Accounts with Extra.supplier_source_id are owned by supplier Sync (exact procurement subset) and must be exempt from floor check/apply/release-gate convergence. Activation pins the resolved prod instance and rechecks runtime-shadow absence under a settings-table lock before writes. Generic deploy wiring is prohibited by the workflow sentinel above, while direct Edge diagnostics/apply remain available."
     },
     {
       "path": "backend/cmd/account-model-mapping/main.go",
