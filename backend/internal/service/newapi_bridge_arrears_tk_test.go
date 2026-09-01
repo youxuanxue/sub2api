@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
@@ -24,6 +25,8 @@ func arrearsBridgeError(statusCode int, msg, typ, code string) *newapitypes.NewA
 }
 
 const dashscopeArrearsMessage = "Access denied, please make sure your account is in good standing. For details, see: https://help.aliyun.com/zh/model-studio/error-code#overdue-payment"
+
+const vstecscloudPrepaidQuotaMessage = "预扣费额度失败, 用户剩余额度: ¥0.031624, 需要预扣费额度: ¥0.470498 (request id: test-request)"
 
 func newQwenArrearsAccount() *Account {
 	// Mirrors prod account 60 "Qwen": fifth-platform newapi apikey account on
@@ -58,11 +61,42 @@ func TestTkIsBridgeUpstreamArrears_MessageAndCaseVariants(t *testing.T) {
 		{"overdue phrase", arrearsBridgeError(400, "Your payment is overdue, please recharge.", "billing_error", "billing")},
 		{"arrear phrase", arrearsBridgeError(400, "Account in arrears.", "", "")},
 		{"403 arrears", arrearsBridgeError(403, "x", "Arrearage", "Arrearage")},
+		{"vstecscloud prepaid quota 403", arrearsBridgeError(403, vstecscloudPrepaidQuotaMessage, "insufficient_user_quota", "insufficient_user_quota")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.True(t, tkIsBridgeUpstreamArrears(tc.err))
 		})
 	}
+}
+
+func TestTkHandleBridgeArrearsPenalty_VstecscloudPrepaidQuotaUsesStandingBillingSSOT(t *testing.T) {
+	svc, repo, blocker, incidents := newBridgePenaltyTestService()
+	account := &Account{
+		ID:          101,
+		Name:        "佳杰-stbl-5",
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: 1,
+	}
+	apiErr := arrearsBridgeError(
+		http.StatusForbidden,
+		vstecscloudPrepaidQuotaMessage,
+		"insufficient_user_quota",
+		"insufficient_user_quota",
+	)
+
+	handled := tkHandleBridgeArrearsPenalty(context.Background(), svc, account, apiErr)
+
+	require.True(t, handled)
+	require.Equal(t, 1, repo.setErrorCalls, "prepaid quota exhaustion must permanently stop scheduling")
+	require.Zero(t, repo.tempCalls)
+	require.Contains(t, repo.lastErrorMsg, "Account billing standing (403)")
+	require.Contains(t, repo.lastErrorMsg, "预扣费额度失败")
+	require.Equal(t, []string{tkStandingBillingIncidentReason}, blocker.reasons)
+	require.Equal(t, []string{tkStandingBillingIncidentReason}, incidents.reasons)
+	require.Len(t, incidents.details, 1)
+	require.Contains(t, incidents.details[0], "用户剩余额度")
+	require.True(t, tkBridgeUpstreamShouldFailoverAfterPenalty(apiErr))
 }
 
 // Part A NEGATIVE: genuine client / validation / oversize 400s, model-not-found
