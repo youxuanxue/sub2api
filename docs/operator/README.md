@@ -11,3 +11,5 @@
 | [anthropic-prod-edge-relay.md](./anthropic-prod-edge-relay.md) | Prod 分组 + Edge OAuth 中继（例：cc-uk1-oauth） |
 | [kiro-account-onboarding.md](./kiro-account-onboarding.md) | Kiro 账号接入 |
 | [gcp-trial-vertex-onboarding.md](./gcp-trial-vertex-onboarding.md) | GCP 试用 Vertex 媒体账号 |
+| [async-image-tasks.md](./async-image-tasks.md) | 异步图片任务 API |
+| [composite-groups.md](./composite-groups.md) | Composite Groups 多供应商路由 |

@@ -8,7 +8,7 @@ description: >-
 
 适用于本仓库（TokenKey fork of sub2api）。把 **真实 cc 流量** 当作 ground truth，**TokenKey 常量 + DB TLS profile** 当作待对齐对象。TLS 与 HTTP **分轨采集、分轨决策**——禁止从 UA 版本号推断 ja3 或 `X-Stainless-Package-Version`。
 
-**指纹范畴（OAuth mimic 路径）**：不仅是 `User-Agent` 版本。完整出站指纹 = **TLS JA3** + **HTTP 头**（`User-Agent`、`anthropic-beta` 全集、`x-stainless-*`、`x-app`）+ **system 表面**（`x-anthropic-billing-header` 块、identity anchor、geo-stego 类）。ingress `usage_logs.user_agent`（如 `OpenAI/Python`）≠ 上游所见；用 `gateway.anthropic_oauth_mimic_egress` 或 `probe-oauth-mimicry-chain.sh` 验证出站。见 `docs/spec-delta-cc-oauth-mimicry-fingerprint-scope.md`。
+**指纹范畴（OAuth mimic 路径）**：不仅是 `User-Agent` 版本。完整出站指纹 = **TLS JA3** + **HTTP 头**（`User-Agent`、`anthropic-beta` 全集、`x-stainless-*`、`x-app`）+ **system 表面**（`x-anthropic-billing-header` 块、identity anchor、geo-stego 类）。ingress `usage_logs.user_agent`（如 `OpenAI/Python`）≠ 上游所见；用 `gateway.anthropic_oauth_mimic_egress` 或 `probe-oauth-mimicry-chain.sh` 验证出站。见 `docs/spec-delta/cc-oauth-mimicry-fingerprint-scope.md`。
 
 **版本 ground truth** = 本机 **`claude` CLI**（`~/.local/bin/claude` 或 `claude update`）。`client-release-watch` 的 **仅版本漂移** 走静态对齐（类 Codex / Antigravity），**不需要** cc0-here / Claude Desktop / mitm。
 
@@ -353,7 +353,7 @@ bash ops/anthropic/capture-cc-fingerprint.sh emit-edits
      与 deploy 源 byte-identical 同步。
 3. **不写**独立 spec-delta（纯版本 bump 没有行为变更意图）。记录由提交信息
    + `baselines.json` `cc_version` + `.tls_list/*-cc-capture.bundle.json` 天然承载；
-   只在 `docs/cc-fingerprint-changelog.md` **追加一行**（版本｜日期｜`pure UA`｜
+   只在 `docs/ops/cc-fingerprint-changelog.md` **追加一行**（版本｜日期｜`pure UA`｜
    `A→B, TLS/beta 未变`，含 comprehensive 的 haiku A/B 计数）。一行，不是一文件。
 
 > skill 总是跑 `--write` 并 **review 生成的 diff**（编译兜底 UA 值值得扫一眼）。
@@ -371,7 +371,7 @@ bash ops/anthropic/capture-cc-fingerprint.sh emit-edits
 - **写/更新一份按主题命名的决策记录** `docs/spec-delta-cc-<topic>.md`（如
   `…-haiku-beta-ab.md`、`…-canonical-ua.md`；不要用版本号命名、不要一 patch 一份），
   记录 token 集合、分布与抉择理由，并就地更新；代码按稳定名引用它。在
-  `docs/cc-fingerprint-changelog.md` 追加一行、type 标 `decision` 并链到该记录。
+  `docs/ops/cc-fingerprint-changelog.md` 追加一行、type 标 `decision` 并链到该记录。
   （bimodal Haiku A/B 已在 `spec-delta-cc-2.1.160.md` + #429 刻画，勿逐 patch 重述。）
 
 ### 4.4 Geo stego body 漂移（`--check-gateway` FAIL；capture 内建 `--fix` 未收敛）
@@ -389,7 +389,7 @@ CC system prompt 是 load-bearing 指纹维度（上游检测身份 banner + 计
 - `scripts/sentinels/cc-system-prompt.json`（唯一声明源：`capture_anchors` + `sentinels[].must_contain` + `byte_identical`）。
 - 同一 commit 同步 Go 副本：`claude_code_validator.go` 的 `claudeCodeSystemPrompts[]` / `claudeCodeBillingHeaderPrefix`、`gateway_service.go` 的 `claudeCodeSystemPrompt`（banner）/ `claudeCodePromptPrefixes[]`；banner 在两文件须**字节一致**。
 - `ops/anthropic/test_capture_cc_fingerprint.py` 的 system 断言（如锚点串变了）。
-- 决策记录就地更新 `docs/spec-delta-cc-system-prompt.md` + `docs/cc-fingerprint-changelog.md` 追加 `decision` 行。
+- 决策记录就地更新 `docs/spec-delta/cc-system-prompt.md` + `docs/ops/cc-fingerprint-changelog.md` 追加 `decision` 行。
 
 守卫 `check-cc-system-prompt.py` 是**纯守卫无 `--write`**：它只证明"代码 == 注册表 + banner 字节一致"；漂移由抓包侧发现，人工带证据改。无发版（capture + 守卫 + 文档，无运行时/编译产物变更）。
 
