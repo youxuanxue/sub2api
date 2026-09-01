@@ -7,10 +7,10 @@ revised_at: 2026-09-01
 created: 2026-05-06
 owners: [tk-platform]
 scope: "model availability evidence / upstream discovery / catalog decoration and structural-gone pruning"
-related_design: docs/approved/pricing-serving-single-source-of-truth.md
+superseded_by: docs/approved/pricing-serving-single-source-of-truth.md
 revision_note: >
-  本文仍是 availability Evidence owner（未退役）。交付组合公式只在
-  pricing-serving-single-source-of-truth.md；去掉易误读的 superseded_by。
+  superseded_by 仅表示「交付公式」由 pricing-serving 拥有；本文仍是 availability
+  Evidence owner（观测、徽章、structurally-gone），不是整篇作废。
 ---
 
 # 模型可用性观测与目录投影——证据，不是交付资格 SSOT

@@ -26,7 +26,7 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 卫星（只回答自己那一块，不是第二套交付公式）：
 
 - [`priced-or-it-doesnt-ship.md`](priced-or-it-doesnt-ship.md) — 运行期价格闸
-- [`pricing-availability-source-of-truth.md`](pricing-availability-source-of-truth.md) — availability Evidence / structurally-gone
+- [`pricing-availability-source-of-truth.md`](pricing-availability-source-of-truth.md) — availability Evidence / structurally-gone（`superseded_by` 只移交交付公式，Evidence owner 仍有效）
 - [`pricing-registry-hot-reload.md`](pricing-registry-hot-reload.md) — complete registry 热发布
 - [`served-model-reconcile-planner.md`](served-model-reconcile-planner.md) — modelops 只读对账
 - [`model-surface-activation-contract.md`](model-surface-activation-contract.md) — `modelops activate` 证据契约

@@ -72,7 +72,10 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 5. 发版后默认只读：Anthropic OAuth snapshot/check；`manage-account-model-mapping-runtime.py check-accounts --json`
    （prod only；violation = yellow，不 rollback 镜像）。
 6. 两阶段实测：`ops/observability/run-post-release-check.sh` + `scripts/release_post_check.py`
-   （禁止模型自造 verdict）。
+   （`--phase immediate` / `--phase delayed`；禁止模型自造 verdict）。
+   Workflow 步骤名与 Summary 标题必须对齐：`Check PR hooks immediately`、
+   `Check traffic and 5xx after 5 minutes`、`### Traffic / 5xx (+5 min)`（含
+   completed requests / top paths）。
 
 Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci 字面标记（见 `CLAUDE.md` §9）。
 
