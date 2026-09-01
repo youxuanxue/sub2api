@@ -105,7 +105,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 				)
 			}
 		}()
-		out, apiErr = dispatchNewAPIChatCompletions(ctx, c, in, chatBody)
+		out, apiErr = bridge.DispatchChatCompletions(ctx, c, in, chatBody)
 	}()
 
 	if dispatchPanic != nil {

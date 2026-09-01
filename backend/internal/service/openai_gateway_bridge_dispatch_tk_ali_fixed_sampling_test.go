@@ -4,13 +4,12 @@ package service
 
 import (
 	"context"
-	"errors"
-	"net/http"
-	"net/http/httptest"
+	"encoding/json"
 	"strings"
 	"testing"
 
 	newapitypes "github.com/QuantumNous/new-api/types"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -153,44 +152,28 @@ func TestForwardAsChatCompletionsDispatched_PinsKimiK3TopP(t *testing.T) {
 	}
 }
 
-func TestForwardAsAnthropicDispatched_PinsKimiK3TopP(t *testing.T) {
-	oldDispatch := dispatchNewAPIChatCompletions
-	t.Cleanup(func() { dispatchNewAPIChatCompletions = oldDispatch })
-
-	var capturedBody []byte
-	dispatchNewAPIChatCompletions = func(_ context.Context, _ *gin.Context, _ bridge.ChannelContextInput, body []byte) (*bridge.DispatchOutcome, *newapitypes.NewAPIError) {
-		capturedBody = append([]byte(nil), body...)
-		return nil, newapitypes.NewError(errors.New("stop after capture"), newapitypes.ErrorCodeInvalidRequest)
-	}
-
-	account := &Account{
-		ID:          110,
-		Platform:    PlatformNewAPI,
-		ChannelType: 17,
-		Type:        AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key": "test-key",
-			"model_mapping": map[string]any{
-				"kimi-k3": "kimi-k3",
-			},
+func TestAnthropicToChatBody_AppliesAliFixedSamplingForKimiK3(t *testing.T) {
+	// ForwardAsAnthropicDispatched must call applyNewAPIAliFixedSamplingShape before
+	// bridge.DispatchChatCompletions (literal call site is sentinel-pinned). Prove the
+	// same composition the production path uses: convert then shape.
+	temp := 0.7
+	req := &apicompat.AnthropicRequest{
+		Model:       "kimi-k3",
+		MaxTokens:   16,
+		Temperature: &temp,
+		Messages: []apicompat.AnthropicMessage{
+			{Role: "user", Content: json.RawMessage(`"hi"`)},
 		},
 	}
-	svc := &OpenAIGatewayService{}
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-	body := []byte(`{"model":"kimi-k3","max_tokens":16,"messages":[{"role":"user","content":"hi"}],"temperature":0.7}`)
-	_, err := svc.ForwardAsAnthropicDispatched(context.Background(), c, account, body, "", "")
-	if err == nil {
-		t.Fatal("expected dispatch error after capture")
+	chatBody, err := anthropicToChatCompletionsBody(req, "kimi-k3")
+	if err != nil {
+		t.Fatalf("anthropicToChatCompletionsBody: %v", err)
 	}
-	if len(capturedBody) == 0 {
-		t.Fatal("expected anthropic→chat body to reach dispatch")
+	shaped := applyNewAPIAliFixedSamplingShape("kimi-k3", chatBody)
+	if topP := gjson.GetBytes(shaped, "top_p").Float(); topP != 0.95 {
+		t.Fatalf("shaped top_p=%v want 0.95", topP)
 	}
-	if topP := gjson.GetBytes(capturedBody, "top_p").Float(); topP != 0.95 {
-		t.Fatalf("anthropic bridge chat body top_p=%v want 0.95", topP)
-	}
-	if temp := gjson.GetBytes(capturedBody, "temperature").Float(); temp != 1.0 {
-		t.Fatalf("anthropic bridge chat body temperature=%v want 1.0", temp)
+	if gotTemp := gjson.GetBytes(shaped, "temperature").Float(); gotTemp != 1.0 {
+		t.Fatalf("shaped temperature=%v want 1.0", gotTemp)
 	}
 }
