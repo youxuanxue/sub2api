@@ -12,7 +12,7 @@ revision_note: >
 related_prs: [1016]
 related_commits: []
 related_stories: []
-related_design: docs/approved/pricing-registry-hot-reload.md, docs/approved/pricing-serving-single-source-of-truth.md, docs/approved/pricing-availability-source-of-truth.md, docs/approved/channel-pricing-refund-gate-and-runtime-pricing.md, docs/approved/newapi-served-models-reconciler.md
+related_design: docs/approved/pricing-registry-hot-reload.md, docs/approved/pricing-serving-single-source-of-truth.md, docs/approved/pricing-availability-source-of-truth.md
 supersedes: none
 ---
 

@@ -12,9 +12,9 @@ The deterministic model operations include:
   * compare explicit mirror-account policies from a live mapping snapshot,
   * keep the public catalog / user menu surface tied to the same servable sets.
 
-Writes still go through the existing reviewed paths:
+Writes go through the reviewed owners:
 
-  * model_mapping: migrations or ops/newapi/apply-model-mapping-live.py
+  * model_mapping: generated bundle + this script's ``activate`` command
   * price: ops/pricing/apply-pricing-hotfix.py / tk_pricing_overlay.json
   * manifest: backend/internal/service/tk_served_models.json
   * catalog/menu allowlists: ops/pricing/refresh-servable-allowlist.py
@@ -64,6 +64,19 @@ _bundle_spec = importlib.util.spec_from_file_location(
 _BUNDLE = importlib.util.module_from_spec(_bundle_spec)
 _bundle_spec.loader.exec_module(_BUNDLE)
 
+_probe_spec = importlib.util.spec_from_file_location(
+    "tk_modelops_probe", REPO_ROOT / "ops" / "pricing" / "modelops_probe.py")
+_PROBE = importlib.util.module_from_spec(_probe_spec)
+_probe_spec.loader.exec_module(_PROBE)
+
+AccountSnapshot = _PROBE.AccountSnapshot
+ProbeAggregate = _PROBE.ProbeAggregate
+infer_mode = _PROBE.infer_mode
+load_probe_results = _PROBE.load_probe_results
+normalize_probe_model = _PROBE.normalize_probe_model
+probe_env_name = _PROBE.probe_env_name
+run_probe_command = _PROBE.run_probe_command
+
 ACTIVATION_EVIDENCE_SCHEMA_VERSION = 2
 ACTIVATION_EVIDENCE_MAX_AGE = dt.timedelta(hours=24)
 ACTIVATION_CONFIRM = "yes-activate-model-surface"
@@ -79,41 +92,6 @@ MODE_FIELDS = {
 # build_snapshot_sql below.
 SELF_CHECK_EXEMPT = {
     "cmd_snapshot_sql": "argparse command wrapper; build_snapshot_sql is enumerated",
-}
-
-
-class AccountPolicy:
-    __slots__ = ("account_id", "name", "platform", "channel_type", "base_url")
-
-    def __init__(
-        self,
-        account_id: str,
-        name: str,
-        platform: str,
-        channel_type: int,
-        base_url: str | None = None,
-    ) -> None:
-        self.account_id = account_id
-        self.name = name
-        self.platform = platform
-        self.channel_type = channel_type
-        self.base_url = (base_url or "").strip().lower().rstrip("/")
-
-
-# Historical metadata for curated long-tail seed accounts. Account IDs only
-# identify the legacy CLI seed; serving/probe scope comes from platform,
-# channel_type, and base_url (prefer a live snapshot from snapshot-sql).
-KNOWN_ACCOUNTS: dict[str, AccountPolicy] = {
-    "7": AccountPolicy(
-        "7", "volcengine", "newapi", 45, "https://ark.cn-beijing.volces.com/api/v3"
-    ),
-    "88": AccountPolicy(
-        "88", "volcengine-agent-plan", "newapi", 45,
-        "https://ark.cn-beijing.volces.com/api/plan/v3",
-    ),
-    "39": AccountPolicy("39", "ds-官", "newapi", 43),
-    "60": AccountPolicy("60", "Qwen", "newapi", 17),
-    "72": AccountPolicy("72", "Qwen-2", "newapi", 17),
 }
 
 
@@ -170,57 +148,6 @@ class Candidate:
         self.model_id = model_id
         self.source = source
         self.upstream_pricing_status = upstream_pricing_status
-
-
-class ProbeAggregate:
-    __slots__ = ("platform", "model_id", "verdicts", "codes", "variants")
-
-    def __init__(self, platform: str, model_id: str) -> None:
-        self.platform = platform
-        self.model_id = model_id
-        self.verdicts: collections.Counter[str] = collections.Counter()
-        self.codes: collections.Counter[str] = collections.Counter()
-        self.variants: list[str] = []
-
-    def add(self, code: str, verdict: str, variant: str | None = None) -> None:
-        self.verdicts[verdict] += 1
-        self.codes[code] += 1
-        if variant:
-            self.variants.append(variant)
-
-    @property
-    def status(self) -> str:
-        if self.verdicts["servable"]:
-            return "servable"
-        if self.verdicts["not_allowlisted"]:
-            return "mapping_gap"
-        if self.verdicts["auth_error"] or self.verdicts["config_error"]:
-            return "probe_error"
-        if self.verdicts["inconclusive"]:
-            return "inconclusive"
-        if self.verdicts["unsupported"]:
-            return "unsupported"
-        return "unknown"
-
-
-class AccountSnapshot:
-    __slots__ = ("account_id", "name", "platform", "channel_type", "base_url", "model_mapping")
-
-    def __init__(
-        self,
-        account_id: str,
-        name: str | None = None,
-        platform: str | None = None,
-        channel_type: int | None = None,
-        model_mapping: dict[str, str] | None = None,
-        base_url: str | None = None,
-    ) -> None:
-        self.account_id = account_id
-        self.name = name
-        self.platform = platform
-        self.channel_type = channel_type
-        self.base_url = (base_url or "").strip().lower().rstrip("/")
-        self.model_mapping = model_mapping or {}
 
 
 def _is_pos_number(value: Any) -> bool:
@@ -352,36 +279,6 @@ def load_upstream_spec(spec: str, default_account: str | None = None) -> list[Ca
     return [Candidate(account, model, str(path), pricing) for model, pricing in pairs]
 
 
-_VARIANT_RE = re.compile(r"^(?P<model>.+?)\s+\((?P<variant>thinking|nonthinking)\)$")
-
-
-def normalize_probe_model(raw: str) -> tuple[str, str | None]:
-    raw = raw.strip()
-    match = _VARIANT_RE.match(raw)
-    if match:
-        return match.group("model").strip(), match.group("variant")
-    return raw, None
-
-
-def load_probe_results(paths: list[Path]) -> dict[str, ProbeAggregate]:
-    out: dict[str, ProbeAggregate] = {}
-    for path in paths:
-        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split("\t")
-            if len(parts) != 4:
-                raise SystemExit(f"{path}:{lineno}: expected 4 TSV columns, got {len(parts)}")
-            platform, raw_model, code, verdict = (p.strip() for p in parts)
-            model, variant = normalize_probe_model(raw_model)
-            if not model:
-                continue
-            agg = out.setdefault(model, ProbeAggregate(platform=platform, model_id=model))
-            agg.add(code, verdict, variant)
-    return out
-
-
 def _string_mapping(raw: Any) -> dict[str, str]:
     if not isinstance(raw, dict):
         return {}
@@ -463,94 +360,6 @@ def price_status(
     return "missing", "none"
 
 
-def policy_for_account(account_id: str, snapshot: AccountSnapshot | None = None) -> AccountPolicy:
-    if snapshot:
-        known = KNOWN_ACCOUNTS.get(account_id)
-        return AccountPolicy(
-            account_id=account_id,
-            name=snapshot.name or (known.name if known else f"account-{account_id}"),
-            platform=snapshot.platform or (known.platform if known else "newapi"),
-            channel_type=snapshot.channel_type or (known.channel_type if known else 0),
-            base_url=snapshot.base_url or (known.base_url if known else None),
-        )
-    return KNOWN_ACCOUNTS.get(account_id, AccountPolicy(account_id, f"account-{account_id}", "newapi", 0))
-
-
-def infer_mode(model_id: str, overlay: dict[str, dict[str, Any]]) -> str:
-    mode = overlay.get(model_id, {}).get("mode")
-    if mode == "image_generation":
-        return "image"
-    if mode == "video_generation":
-        return "video"
-    lower = model_id.lower()
-    if "seedream" in lower or "image" in lower or "imagen" in lower:
-        return "image"
-    if "seedance" in lower or "video" in lower or "veo" in lower:
-        return "video"
-    return "chat"
-
-
-def probe_env_name(
-    account_id: str,
-    model_id: str,
-    overlay: dict[str, dict[str, Any]],
-    snapshot: AccountSnapshot | None = None,
-) -> str | None:
-    policy = policy_for_account(account_id, snapshot)
-    if policy.channel_type == 17:
-        return "DASHSCOPE_CHAT_MODELS"
-    if policy.channel_type == 26:
-        return None
-    if policy.channel_type == 45:
-        if policy.base_url == "https://ark.cn-beijing.volces.com/api/plan/v3":
-            return "VOLCENGINE_AGENT_PLAN_MODELS"
-        mode = infer_mode(model_id, overlay)
-        if mode == "image":
-            return "ARK_IMAGE_MODELS"
-        if mode == "video":
-            return "ARK_VIDEO_MODELS"
-        return "ARK_CHAT_MODELS"
-    return None
-
-
-def run_probe_command(env_name: str, models: list[str]) -> str:
-    if env_name == "VOLCENGINE_AGENT_PLAN_MODELS":
-        model_value = " ".join(models)
-        return (
-            "bash ops/observability/run-probe.sh --target prod "
-            "--script ops/pricing/probe-volcengine-agent-plan-models.sh "
-            f"--env {shlex.quote('AGENT_PLAN_CHAT_MODELS=' + model_value)} "
-            f"--env {shlex.quote('AGENT_PLAN_RESPONSES_MODELS=' + model_value)} "
-            "--timeout-seconds 600"
-        )
-    env_value = f"{env_name}={' '.join(models)}"
-    # probe-servable-models.sh resolves every probe key through reserved
-    # __tk_probe_* groups; its companion library must ride along via --with.
-    return (
-        "bash ops/observability/run-probe.sh --target prod "
-        "--script ops/pricing/probe-servable-models.sh "
-        "--with ops/pricing/probe_reserved_resources.sh "
-        f"--env {shlex.quote(env_value)} --timeout-seconds 300"
-    )
-
-
-def apply_command(account_id: str, model_id: str, snapshot: AccountSnapshot | None = None) -> str:
-    return apply_many_command(account_id, [model_id], snapshot)
-
-
-def apply_many_command(account_id: str, model_ids: list[str], snapshot: AccountSnapshot | None = None) -> str:
-    policy = policy_for_account(account_id, snapshot)
-    adds = " ".join(f"--add-identity {shlex.quote(model_id)}" for model_id in model_ids if model_id.strip())
-    return (
-        "python3 ops/newapi/apply-model-mapping-live.py sync-live "
-        f"--account-id {shlex.quote(policy.account_id)} "
-        f"--name {shlex.quote(policy.name)} "
-        f"--platform {shlex.quote(policy.platform)} "
-        f"--channel-type {policy.channel_type} "
-        f"{adds} --dry-run"
-    )
-
-
 def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     manifest = load_manifest()
     overlay = load_overlay()
@@ -598,7 +407,6 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         "mapping_missing": [],
         "mapping_extra_review": [],
         "mirror_drift": [],
-        "mirror_sync_commands": [],
         "probe_commands": [],
     }
 
@@ -644,7 +452,6 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
                         "account_id": account_id,
                         "model_id": model_id,
                         "actual": actual,
-                        "suggested_command": apply_command(account_id, model_id, snap),
                     })
             for model_id, target in sorted(snap.model_mapping.items()):
                 if model_id in expected:
@@ -695,14 +502,6 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
             "value_differences": different,
             "ok": not missing and not extra and not different,
         })
-        if missing and target:
-            plan["mirror_sync_commands"].append({
-                "source": source_id,
-                "target": target_id,
-                "missing_models": missing,
-                "command": apply_many_command(target_id, missing, target),
-            })
-
     probe_groups: dict[str, set[str]] = collections.defaultdict(set)
     for item in plan["probe_needed"]:
         env = probe_env_name(item["account_id"], item["model_id"], overlay, live.get(item["account_id"]))
@@ -785,7 +584,8 @@ def print_plan(plan: dict[str, Any]) -> None:
     print_section(
         "live mapping missing manifest intent",
         plan["mapping_missing"],
-        lambda r: f"account {r['account_id']} {r['model_id']} missing; dry-run: {r['suggested_command']}",
+        lambda r: f"account {r['account_id']} {r['model_id']} missing; "
+                  "converge through a reviewed bundle + modelops activate",
     )
     print_section(
         "live mapping extras needing review",
@@ -808,16 +608,6 @@ def print_plan(plan: dict[str, Any]) -> None:
                 f"missing={row['missing_in_target']} extra={row['extra_in_target']} "
                 f"diff={row['value_differences']}"
             )
-
-    print("\nmirror sync commands")
-    if not plan["mirror_sync_commands"]:
-        print("  ok: none")
-    for row in plan["mirror_sync_commands"]:
-        print(
-            f"  - {row['source']} -> {row['target']}: "
-            f"add {row['missing_models']} via {row['command']}"
-        )
-
 
 def cmd_plan(args: argparse.Namespace) -> int:
     plan = build_plan(args)
@@ -1391,17 +1181,17 @@ def _selftest() -> int:
         failures.append("overlay_price_ok failed")
     if infer_mode("seedream-x", overlay) != "image":
         failures.append("infer_mode failed for image")
-    if probe_env_name("60", "qwen-new", overlay) != "DASHSCOPE_CHAT_MODELS":
-        failures.append("probe env failed for qwen")
+    if probe_env_name("60", "qwen-new", overlay) is not None:
+        failures.append("probe env must require a fresh live account snapshot")
     dynamic_qwen = AccountSnapshot("17001", "Qwen runtime member", "newapi", 17, {}, None)
     if probe_env_name("17001", "qwen-new", overlay, dynamic_qwen) != "DASHSCOPE_CHAT_MODELS":
         failures.append("probe env failed for runtime qwen snapshot")
-    if probe_env_name("67", "glm-5-turbo", overlay) is not None:
-        failures.append("removed GLM direct account must not emit zhipu probe env")
-    if probe_env_name("7", "seedream-x", overlay) != "ARK_IMAGE_MODELS":
-        failures.append("probe env failed for ark image")
-    if probe_env_name("88", "minimax-m3", overlay) != "VOLCENGINE_AGENT_PLAN_MODELS":
-        failures.append("probe env failed for VolcEngine Agent Plan")
+    dynamic_ark = AccountSnapshot(
+        "17002", "runtime ark", "newapi", 45, {},
+        "https://ark.cn-beijing.volces.com/api/v3",
+    )
+    if probe_env_name("17002", "seedream-x", overlay, dynamic_ark) != "ARK_IMAGE_MODELS":
+        failures.append("probe env failed for runtime ark snapshot")
     dynamic_agent_plan = AccountSnapshot(
         "12345",
         "renamed runtime account",
@@ -1442,9 +1232,6 @@ def _selftest() -> int:
     })
     if live["60"].model_mapping != {"qwen-a": "qwen-a"}:
         failures.append("parse_live_mapping failed direct shape")
-
-    if "--add-identity qwen-new --dry-run" not in apply_command("60", "qwen-new", live["60"]):
-        failures.append("apply_command shape changed")
 
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
@@ -1500,9 +1287,8 @@ def _selftest() -> int:
         mirror_row = plan["mirror_drift"][0]
         if mirror_row.get("missing_in_target") != ["qwen-extra"]:
             failures.append(f"mirror diff wrong: {mirror_row}")
-        mirror_sync = plan["mirror_sync_commands"][0]
-        if "--add-identity qwen-extra" not in mirror_sync["command"]:
-            failures.append(f"mirror sync command wrong: {mirror_sync}")
+        if "mirror_sync_commands" in plan:
+            failures.append("read-only planner must not emit parallel live mapping write commands")
 
     if failures:
         print("SELFTEST FAILED:")

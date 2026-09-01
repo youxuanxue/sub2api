@@ -5,7 +5,7 @@ approved_by: "xuejiao (design directive, 2026-07-15)"
 approved_at: "2026-07-15"
 authors: [agent]
 created: 2026-07-15
-related_design: docs/approved/served-model-reconcile-planner.md, docs/approved/pricing-serving-single-source-of-truth.md, docs/approved/priced-or-it-doesnt-ship.md
+related_design: docs/approved/pricing-serving-single-source-of-truth.md, docs/approved/priced-or-it-doesnt-ship.md
 ---
 
 # Model Surface Activation Contract

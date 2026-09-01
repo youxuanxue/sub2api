@@ -97,8 +97,8 @@ provider 下线调查。它只能触发 owner 的正常写路径，不能直接�
 - generation capability / route：`protocol-routing-ssot.md`。probe 只经 canonical writer
   更新对应 capability；availability 不写 capability，也不建第二套 route graph。
 - 价格与 `_aliases`：`pricing-registry-hot-reload.md`。availability 只能显示价格是否缺失。
-- newapi mapping / manifest：`newapi-served-models-reconciler.md`。availability/probe 只作
-  激活或复核证据。
+- newapi mapping / manifest：`tk_served_models.json` +
+  `model-surface-activation-contract.md`。availability/probe 只作激活或复核证据。
 
 ## 6. 稳定判别
 

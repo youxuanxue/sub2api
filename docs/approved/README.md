@@ -28,9 +28,7 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 - [`priced-or-it-doesnt-ship.md`](priced-or-it-doesnt-ship.md) — 运行期价格闸
 - [`pricing-availability-source-of-truth.md`](pricing-availability-source-of-truth.md) — availability Evidence / structurally-gone（`superseded_by` 只移交交付公式，Evidence owner 仍有效）
 - [`pricing-registry-hot-reload.md`](pricing-registry-hot-reload.md) — complete registry 热发布
-- [`served-model-reconcile-planner.md`](served-model-reconcile-planner.md) — modelops 只读对账
 - [`model-surface-activation-contract.md`](model-surface-activation-contract.md) — `modelops activate` 证据契约
-- [`newapi-served-models-reconciler.md`](newapi-served-models-reconciler.md) — 禁止无人值守 newapi 自动 sync
 
 Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
@@ -63,7 +61,6 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`anthropic-buffered-stream-failure-contract.md`](anthropic-buffered-stream-failure-contract.md) | Anthropic buffered stream failure |
 | [`cc-only-disable-prep-decisions.md`](cc-only-disable-prep-decisions.md) | Relaxing cc-only OAuth identity gates |
 | [`rpm-override-deferred-removal.md`](rpm-override-deferred-removal.md) | RPM override layer |
-| [`channel-pricing-refund-gate-and-runtime-pricing.md`](channel-pricing-refund-gate-and-runtime-pricing.md) | Channel pricing + refund gate |
 | [`model-supplier-source-management.md`](model-supplier-source-management.md) | 供应源管理 |
 | [`model-supplier-source-probe-sync-split.md`](model-supplier-source-probe-sync-split.md) | 供应源探测/同步拆分 |
 | [`model-supplier-source-fmgo-seedance-account-rewrite.md`](model-supplier-source-fmgo-seedance-account-rewrite.md) | FMGo Seedance 账号改写 |

@@ -2841,9 +2841,9 @@ echo "=== sub2api: newapi live mapping mutation contract ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for newapi live mapping mutation tests)"
     errors=$((errors + 1))
-elif ! python3 -m unittest ops/newapi/test_apply_model_mapping_live.py -q; then
+elif ! python3 -m unittest ops/newapi/test_remove_model_mapping_live.py -q; then
     echo "  FAIL: newapi live mapping mutation tests failed"
-    echo "        — run: python3 -m unittest ops/newapi/test_apply_model_mapping_live.py -v"
+    echo "        — run: python3 -m unittest ops/newapi/test_remove_model_mapping_live.py -v"
     errors=$((errors + 1))
 else
     echo "  ok: newapi live mapping mutation guard and postcondition contract"

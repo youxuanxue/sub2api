@@ -133,12 +133,6 @@ class PricingServingDocsContractTest(unittest.TestCase):
         path.write_text("# 上架一个模型（served + priced）\n", encoding="utf-8")
         self.assertTrue(any("served + priced" in error for error in MODULE.check(root)))
 
-    def test_rejects_stale_availability_r002_citation(self) -> None:
-        root = self.fixture()
-        path = root / "docs/approved/newapi-served-models-reconciler.md"
-        path.write_text("per pricing-availability-source-of-truth.md §2.4 / R-002 it is a feed\n", encoding="utf-8")
-        self.assertTrue(any("§2.4 / R-002" in error for error in MODULE.check(root)))
-
     def test_rejects_availability_copy_of_delivery_formula(self) -> None:
         root = self.fixture()
         path = root / "docs/approved/pricing-availability-source-of-truth.md"
@@ -163,12 +157,6 @@ class PricingServingDocsContractTest(unittest.TestCase):
             "// ServableClientFacingIDs is the SINGLE client-facing servable truth.\n",
             encoding="utf-8",
         )
-        self.assertTrue(any("secondary delivery-truth claim" in error for error in MODULE.check(root)))
-
-    def test_rejects_old_four_fact_owner_model(self) -> None:
-        root = self.fixture()
-        path = root / "docs/approved/served-model-reconcile-planner.md"
-        path.write_text("The Jobs cut is one entry, four facts:\n", encoding="utf-8")
         self.assertTrue(any("secondary delivery-truth claim" in error for error in MODULE.check(root)))
 
     def test_rejects_universal_capability_as_second_ssot(self) -> None:
