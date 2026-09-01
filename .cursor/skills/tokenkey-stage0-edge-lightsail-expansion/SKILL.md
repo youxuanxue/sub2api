@@ -190,7 +190,7 @@ aws iam get-role --role-name tokenkey-gha-us-east-1-error-clustering \
 - **不要**在 `cicd-oidc.yaml` 新增 `Edge<PascalCase>CloudFormationExecutionRoleArn` / `EdgeXTargetInstanceId` / 区域 SSM `ssm:SendCommand` 到 EC2 instance ARN——那是已于 2026-06-07 退役的 EC2/CFN edge 路径,不要复活。
 - 运维入口：`deploy-edge-lightsail-stage0.yml` + SSM Hybrid tag `EdgeId` / `Platform=lightsail`。
 
-若误加了 uk1 EC2 IAM 又已迁移到 Lightsail，Phase 5 收尾见 `tokenkey-stage0-edge-platform-migration` §5。
+若误加了 uk1 EC2 IAM：只清残留 IAM/文档；edge 已无 EC2 迁移流程，新增 edge 只用本 skill。
 
 ### 1.6 PR + 落库
 

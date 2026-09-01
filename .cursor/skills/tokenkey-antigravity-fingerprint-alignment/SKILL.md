@@ -46,7 +46,7 @@ python3 -m unittest discover -s ops/antigravity -p 'test_*.py' -t ops/antigravit
 
 - **版本**：`emit-edits` → bump `DefaultUserAgentVersion` + `oauth_test.go`
 - **热推**：admin `antigravity_user_agent_version`（不发版）
-- **changelog**：`docs/antigravity-fingerprint-changelog.md` 追加一行
+- **changelog**：`docs/ops/antigravity-fingerprint-changelog.md` 追加一行
 
 ## 禁止
 

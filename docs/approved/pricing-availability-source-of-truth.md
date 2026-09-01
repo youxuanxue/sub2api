@@ -3,14 +3,14 @@ title: 模型可用性观测与目录投影——证据，不是交付资格 SSO
 status: approved
 approved_by: "xuejiao（2026-08-25 本会话确认 B+）"
 approved_at: 2026-05-06
-revised_at: 2026-08-29
+revised_at: 2026-09-01
 created: 2026-05-06
 owners: [tk-platform]
 scope: "model availability evidence / upstream discovery / catalog decoration and structural-gone pruning"
 superseded_by: docs/approved/pricing-serving-single-source-of-truth.md
 revision_note: >
-  本文只拥有 availability Evidence：带时间的观测、展示徽章，以及 structurally-gone 裁剪谓词。
-  交付组合公式不在本文。
+  superseded_by 仅表示「交付公式」由 pricing-serving 拥有；本文仍是 availability
+  Evidence owner（观测、徽章、structurally-gone），不是整篇作废。
 ---
 
 # 模型可用性观测与目录投影——证据，不是交付资格 SSOT

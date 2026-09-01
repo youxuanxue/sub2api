@@ -2,6 +2,7 @@
 title: Approved docs index
 status: approved
 approved_by: "docs cleanup 2026-07-09"
+revised_at: 2026-09-01
 ---
 
 # Approved docs index
@@ -12,6 +13,26 @@ to their paths. Prefer status changes and short index notes over moving files.
 
 Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 `draft`, `pending`, `approved`, `shipped`, `archived`.
+
+## 模型交付阅读顺序（最高优先）
+
+一次请求能不能交付，只按这个顺序读；不要从历史清单或 skill 散文另建真相：
+
+1. [`pricing-serving-single-source-of-truth.md`](pricing-serving-single-source-of-truth.md) — `CatalogPolicy + RequestPlan + RuntimeReadiness`
+2. [`protocol-routing-ssot.md`](protocol-routing-ssot.md) — generation RequestPlan（协议路由）
+3. [`ops/pricing/README.md`](../../ops/pricing/README.md) — probe / refresh / mapping 工具表（非判定公式）
+4. 运营入口 skill：`tokenkey-modelops-planner`（再按分支加载子 skill）
+
+卫星（只回答自己那一块，不是第二套交付公式）：
+
+- [`priced-or-it-doesnt-ship.md`](priced-or-it-doesnt-ship.md) — 运行期价格闸
+- [`pricing-availability-source-of-truth.md`](pricing-availability-source-of-truth.md) — availability Evidence / structurally-gone（`superseded_by` 只移交交付公式，Evidence owner 仍有效）
+- [`pricing-registry-hot-reload.md`](pricing-registry-hot-reload.md) — complete registry 热发布
+- [`served-model-reconcile-planner.md`](served-model-reconcile-planner.md) — modelops 只读对账
+- [`model-surface-activation-contract.md`](model-surface-activation-contract.md) — `modelops activate` 证据契约
+- [`newapi-served-models-reconciler.md`](newapi-served-models-reconciler.md) — 禁止无人值守 newapi 自动 sync
+
+Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
 ## Shipped baselines
 
@@ -26,41 +47,66 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 | [`openai-codex-as-claude-thinking-continuity.md`](openai-codex-as-claude-thinking-continuity.md) | Codex-as-Claude thinking continuity |
 | [`sticky-routing.md`](sticky-routing.md) | Sticky routing and prompt cache |
 
-## Active approved baselines
+## Active by theme
+
+### Routing / keys / platforms
 
 | File | Topic |
 | --- | --- |
+| [`universal-key-routing.md`](universal-key-routing.md) | Universal key routing |
+| [`universal-key-capability-discovery.md`](universal-key-capability-discovery.md) | Per-key protocol/operation discovery |
+| [`grok-relay-first-class-platform.md`](grok-relay-first-class-platform.md) | Grok relay platform |
+| [`glm-direct-zhipuv4-onboarding.md`](glm-direct-zhipuv4-onboarding.md) | GLM direct onboarding |
+| [`kiro-claude-code-completion-continuity.md`](kiro-claude-code-completion-continuity.md) | Kiro Claude Code completion |
+| [`kiro-content-filter-outcome.md`](kiro-content-filter-outcome.md) | Kiro content-filter outcome |
+| [`anthropic-window-util-sched.md`](anthropic-window-util-sched.md) | Upstream window-util scheduling |
+| [`anthropic-buffered-stream-failure-contract.md`](anthropic-buffered-stream-failure-contract.md) | Anthropic buffered stream failure |
+| [`cc-only-disable-prep-decisions.md`](cc-only-disable-prep-decisions.md) | Relaxing cc-only OAuth identity gates |
+| [`rpm-override-deferred-removal.md`](rpm-override-deferred-removal.md) | RPM override layer |
+| [`channel-pricing-refund-gate-and-runtime-pricing.md`](channel-pricing-refund-gate-and-runtime-pricing.md) | Channel pricing + refund gate |
+| [`model-supplier-source-management.md`](model-supplier-source-management.md) | 供应源管理 |
+| [`model-supplier-source-probe-sync-split.md`](model-supplier-source-probe-sync-split.md) | 供应源探测/同步拆分 |
+| [`model-supplier-source-fmgo-seedance-account-rewrite.md`](model-supplier-source-fmgo-seedance-account-rewrite.md) | FMGo Seedance 账号改写 |
+
+### Data layer / QA / deploy safety
+
+| File | Topic |
+| --- | --- |
+| [`design-capacity-first-data-layer-safety.md`](design-capacity-first-data-layer-safety.md) | Capacity-first 阈值 |
+| [`design-data-layer-prod-export-canary.md`](design-data-layer-prod-export-canary.md) | 生产只读 export canary |
+| [`design-data-layer-archive-rehearsal.md`](design-data-layer-archive-rehearsal.md) | Archive rehearsal |
+| [`design-data-layer-phase1-closeout.md`](design-data-layer-phase1-closeout.md) | Phase1 closeout |
+| [`design-phase1-prod-activation-gates.md`](design-phase1-prod-activation-gates.md) | Phase1 activation gates |
+| [`design-prod-archive-bucket.md`](design-prod-archive-bucket.md) | 长期 archive 桶 |
+| [`design-prod-qa-24h-s3-lifecycle.md`](design-prod-qa-24h-s3-lifecycle.md) | QA 24h S3 lifecycle |
+| [`design-fleet-pgdump-restore-canary.md`](design-fleet-pgdump-restore-canary.md) | Fleet pgdump restore canary |
+| [`design-edge-env-secrets-recovery.md`](design-edge-env-secrets-recovery.md) | Edge env secrets recovery |
+| [`design-edge-model-family-alert.md`](design-edge-model-family-alert.md) | Edge model-family alert |
+| [`edge-bluegreen-release-safety.md`](edge-bluegreen-release-safety.md) | Edge blue/green safety |
+| [`design-apex-domain-phase2.md`](design-apex-domain-phase2.md) | Apex domain phase2 |
+
+### Ops / admin / misc
+
+| File | Topic |
+| --- | --- |
+| [`ops-unified-contract.md`](ops-unified-contract.md) | Ops unified contract |
+| [`ops-sla-error-owner-scope.md`](ops-sla-error-owner-scope.md) | Ops SLA owner scope |
 | [`admin-dashboard-rollup-performance.md`](admin-dashboard-rollup-performance.md) | Admin dashboard rollups |
 | [`admin-ui-performance-rollups.md`](admin-ui-performance-rollups.md) | Admin UI rollup performance |
-| [`anthropic-window-util-sched.md`](anthropic-window-util-sched.md) | Upstream window-util scheduling |
-| [`cc-only-disable-prep-decisions.md`](cc-only-disable-prep-decisions.md) | canonical Anthropic OAuth identity gates when relaxing cc-only |
-| [`channel-pricing-refund-gate-and-runtime-pricing.md`](channel-pricing-refund-gate-and-runtime-pricing.md) | Runtime pricing and refund gate |
-| [`design-data-layer-prod-export-canary.md`](design-data-layer-prod-export-canary.md) | 生产只读、export-only、无删除归档 canary |
-| [`design-capacity-first-data-layer-safety.md`](design-capacity-first-data-layer-safety.md) | Capacity-first 阈值契约；正式 probe 已晋升进 daily diagnostics |
-| [`design-prod-archive-bucket.md`](design-prod-archive-bucket.md) | 长期 ops archive 桶 + promote |
-| [`design-prod-qa-24h-s3-lifecycle.md`](design-prod-qa-24h-s3-lifecycle.md) | Prod-only QA 24h 在线层与 7d raw S3 生命周期 SSOT |
+| [`user-cold-start.md`](user-cold-start.md) | New-user cold start |
 | [`disable-cancel-storm-detector.md`](disable-cancel-storm-detector.md) | Cancel-storm detector retirement |
-| [`glm-direct-zhipuv4-onboarding.md`](glm-direct-zhipuv4-onboarding.md) | GLM direct onboarding |
-| [`grok-relay-first-class-platform.md`](grok-relay-first-class-platform.md) | Grok relay platform |
-| [`kiro-claude-code-completion-continuity.md`](kiro-claude-code-completion-continuity.md) | Kiro Claude Code completion continuity |
-| [`model-supplier-source-management.md`](model-supplier-source-management.md) | 模型供应源管理、探测门禁与账号 ownership |
-| [`newapi-served-models-reconciler.md`](newapi-served-models-reconciler.md) | No unattended newapi auto-sync |
-| [`ops-sla-error-owner-scope.md`](ops-sla-error-owner-scope.md) | Ops SLA owner scope |
-| [`ops-unified-contract.md`](ops-unified-contract.md) | Ops unified contract |
-| [`priced-or-it-doesnt-ship.md`](priced-or-it-doesnt-ship.md) | Runtime priced-serving gate |
-| [`pricing-availability-source-of-truth.md`](pricing-availability-source-of-truth.md) | Availability evidence and structural-gone catalog pruning |
-| [`pricing-registry-hot-reload.md`](pricing-registry-hot-reload.md) | Global pricing registry owner and protected hot reload |
-| [`pricing-serving-single-source-of-truth.md`](pricing-serving-single-source-of-truth.md) | One delivery promise, three decision boundaries |
-| [`protocol-routing-ssot.md`](protocol-routing-ssot.md) | Generation endpoint capability and protocol route planning |
-| [`rpm-override-deferred-removal.md`](rpm-override-deferred-removal.md) | RPM override layer |
-| [`served-model-reconcile-planner.md`](served-model-reconcile-planner.md) | Modelops planner |
+| [`usage-balance-fallback.md`](usage-balance-fallback.md) | Usage balance fallback |
+| [`prod-user-visible-failure-hotfix-2026-08-24.md`](prod-user-visible-failure-hotfix-2026-08-24.md) | User-visible failure hotfix |
 | [`tk041-migration-checksum-remediation.md`](tk041-migration-checksum-remediation.md) | Migration checksum remediation |
 | [`tk052-reenable-anthropic-request-normalize.md`](tk052-reenable-anthropic-request-normalize.md) | Anthropic request normalize |
-| [`universal-key-routing.md`](universal-key-routing.md) | Universal key routing |
-| [`universal-key-capability-discovery.md`](universal-key-capability-discovery.md) | Per-key/protocol/operation discovery projection |
-| [`upstream-merge-2026-07-02.md`](upstream-merge-2026-07-02.md) | Upstream merge anchor |
-| [`upstream-merge-2026-08-15-migrations.md`](upstream-merge-2026-08-15-migrations.md) | Upstream merge 2026-08-15 migration anchor |
-| [`user-cold-start.md`](user-cold-start.md) | New-user cold start |
+
+### Upstream merge anchors
+
+| File | Topic |
+| --- | --- |
+| [`upstream-merge-2026-07-02.md`](upstream-merge-2026-07-02.md) | Upstream merge 2026-07-02 |
+| [`upstream-merge-2026-07-25-migrations.md`](upstream-merge-2026-07-25-migrations.md) | Upstream merge 2026-07-25 migrations |
+| [`upstream-merge-2026-08-15-migrations.md`](upstream-merge-2026-08-15-migrations.md) | Upstream merge 2026-08-15 migrations |
 
 ## Pending baselines
 

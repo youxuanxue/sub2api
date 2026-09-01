@@ -6,6 +6,7 @@ authors: [codex]
 created: 2026-08-24
 revised: 2026-09-01
 revision_note: >
+  Slimmed §§7–14 to contract-only after ship; §§1–6 unchanged.
   Plans and Execute no longer compare account or capability revision tokens.
   Send-time freshness is authoritative reload plus route-fact equivalence.
   /health is drain-only. Protocol remediations never 503 the process.
@@ -379,409 +380,48 @@ are not classified as this empty-attempt failure.
 Planning and pre-send validation failures perform no network I/O. Upstream
 failures retain existing cooldown and account-failover classification.
 
-## 7. Capability discovery and re-probe
+## 7. Capability discovery (contract only)
 
-### 7.1 Coordination unit and triggers
+Probe coordination is **endpoint-scoped** (`capability_key + probe_generation`), never
+account-scoped. Triggers: new key without conclusive/seed evidence; admin re-probe;
+structured endpoint drift; repaired witness while capability still empty/inconclusive.
+Same-key account add and credential rotation do **not** probe.
 
-Probe coordination is endpoint-scoped, never account-scoped. The logical job
-key is `capability_key + probe_generation`. A database lease and
-compare-and-swap write ensure that concurrent instances do not probe or
-overwrite the same generation twice.
+Witness selection is deterministic (auth → schedulable → no error → priority → id).
+Verdicts: `positive` adds; `endpoint_negative` removes; `model_specific` /
+`inconclusive` preserve membership. Contradictory positive+negative →
+`identity_conflict` (fail-closed). Customer failures may enqueue probes but never
+directly mutate capability.
 
-A probe may be requested only when:
+## 8. Governed profiles and admin surface
 
-- a new capability key is first created and has neither a conclusive probe nor
-  an allowed official seed;
-- an administrator explicitly re-probes an account or capability;
-- structured runtime evidence indicates endpoint drift;
-- a previously unusable witness becomes healthy and the shared capability is
-  still empty, unprobed, or inconclusive.
+Governance is compile-time account shape. Governed profiles include configurable
+text/NewAPI endpoints, Antigravity OAuth (`antigravity_cloudcode`), exact Vertex
+service-account, and exact TokenKey Antigravity edge-relay stubs. Official seed only
+for immutable compile-time official endpoint profiles.
 
-Adding another account with an established key reuses the existing row and
-does not probe. Credential rotation does not probe. There is no periodic
-per-account scan.
+Admin entry remains `POST /api/v1/admin/accounts/:id/protocol-probe` (endpoint-scoped
+job). `account.supported_protocols` is a derived projection, never admin-written.
+Outcomes: `updated` / `unchanged` / `inconclusive` / `not_applicable`. No protocol
+ordering/force/mode UI.
 
-A successful account connection/recovery test may enqueue the last trigger,
-but it still creates at most one endpoint-scoped job. This makes an endpoint
-whose first witnesses had broken authorization recover automatically after an
-operator fixes one account, without turning account tests into a second
-capability writer.
+## 9. Cutover and rollback projection
 
-### 7.2 Witness selection
+New code always reads the capability table — no fallback to
+`accounts.extra.supported_protocols`. `/health` is drain-only. CutoverReady is
+publication-completeness, not traffic admission. Missing/illegal capability stays
+fail-closed at schedule/execute without 503'ing the process.
 
-The coordinator chooses a witness account from all accounts linked to the key.
-The deterministic order requires:
+`accounts.extra.supported_protocols` is a one-window write-only rollback projection
+for the previous image; after the window, deleting it is a separate change.
 
-1. complete and non-expired authorization;
-2. active and schedulable state;
-3. no current account error;
-4. existing priority order;
-5. account ID as the final tie-breaker.
+## 10. Mechanical verification and approval
 
-The exact production transport, wrapper, endpoint builder, routing headers,
-and real resolved upstream models are reused. Within one witness and protocol,
-the historical first representative model stays first; a deterministic,
-deduplicated candidate set derived from concrete text `model_mapping` values is
-capped by the compile-time `protocolProbeMaxModels` policy. The probe advances to the
-next model only after model-specific evidence. Authentication, rate limit,
-server, network, timeout, and malformed-response failures do not fan out across
-models. A provider-owned relay profile may nominate one canonical representative
-from its existing model SSOT; CloudWise Messages may try that representative
-after its known model-routing 401, while a 401 from that representative remains
-inconclusive. Alternate witnesses may be tried only after an inconclusive
-account-specific failure and stop at one compile-time `maxWitnessAttempts`
-policy owned by the coordinator. All model candidates within one witness share
-that protocol attempt's existing timeout.
+CI uses registry-derived route tests and mock upstreams. Preflight/sentinels fail when
+handlers choose protocols, capability is read from legacy account fields, identity is
+rebuilt outside its owner, or `ForwardAs*` bypasses the router.
 
-### 7.3 Verdicts
-
-Each protocol observation is classified as:
-
-- `positive`: a recognized protocol response proves endpoint support;
-- `endpoint_negative`: structured provider evidence proves that the endpoint
-  identity does not implement the protocol/path;
-- `model_specific`: the protocol exists but the selected model or action is
-  unsupported;
-- `inconclusive`: authentication, authorization, rate limit, server, network,
-  timeout, token exchange, malformed response, or ambiguous provider error.
-
-Only `positive` adds a protocol. Only `endpoint_negative` removes it.
-`model_specific` and `inconclusive` preserve existing membership. Raw 401/403,
-429, 5xx, timeout, network error, or generic 404/405 never clears a shared
-capability because it may describe the witness, model, project, or transient
-service state rather than endpoint protocol support. A classified provider
-model-routing response may select another bounded model candidate, but it still
-cannot remove protocol membership.
-
-One narrow managed-relay exception applies: for an exact TokenKey Antigravity
-Edge relay stub, the canonical `No available accounts` capacity response is
-`positive` endpoint evidence. That response is emitted only after the Edge
-gateway accepted the concrete protocol path and request shape; it proves the
-protocol endpoint while saying nothing about the current native OAuth/Kiro
-pool. Arbitrary provider 429/5xx responses remain `inconclusive`.
-
-If the same key obtains both conclusive positive and conclusive endpoint
-negative evidence for one protocol, the protocol is removed from routing and
-the row records `identity_conflict`. That protocol remains fail-closed until a
-new probe or identity correction resolves the conflict. The system never
-silently splits capability by account; a real difference means the identity
-builder is missing a key dimension and must be fixed.
-
-The coordinator atomically replaces the complete sorted set and evidence only
-when both the leased `probe_generation` and the previously read `revision`
-remain current. A route-relevant change increments `revision`; an evidence-only
-refresh does not. Customer-request failures may enqueue a probe but cannot
-directly mutate capability or retry a second protocol on the same account.
-
-Real probes are runtime lifecycle operations. CI uses mocks and never calls
-production upstreams.
-
-## 8. Governed account profiles
-
-Governance is determined by stable compile-time account shapes, not current
-health. Once an account shape is governed, missing credentials, an empty
-capability, or an illegal route makes it fail closed; it cannot escape to a
-legacy route.
-
-The governed profiles include:
-
-- existing configurable text API-key/upstream/NewAPI account shapes with
-  explicit endpoint identities;
-- supported Antigravity OAuth accounts, mapped to the
-  `antigravity_cloudcode` endpoint/request profile and probed through the real
-  Code Assist wrapper;
-- exact `IsNewAPIVertexServiceAccount()` accounts, mapped to the
-  `vertex_service_account` profile and probed through the real JWT exchange,
-  project/location resolver, and Vertex Gemini endpoint;
-- exact TokenKey Antigravity edge-relay API-key stubs, treated as configurable
-  text endpoints using their explicit relay URLs.
-
-Arbitrary Antigravity API-key accounts and arbitrary service accounts are not
-silently included. A service account is governed only when it matches the exact
-supported Vertex shape. Adding another stable shape requires an explicit
-identity/profile implementation and tests.
-
-Official capability seeding is allowed only for an immutable compile-time
-official endpoint profile whose host, protocol contract, and inability to be
-administrator-overridden are all enforced by code. Platform or URL similarity
-is never an official seed.
-
-## 9. Account lifecycle and administrator surface
-
-Account create/import/edit computes the canonical identity, upserts the shared
-capability row by key, and atomically links the account. Token rotation keeps
-the link. An identity-affecting edit links a new or existing key. No API accepts
-`capability_key` or `supported_protocols` as administrator-written input.
-
-The existing account action remains the human entry point:
-
-```text
-POST /api/v1/admin/accounts/:id/protocol-probe
-```
-
-Internally it resolves the account's capability key, acquires or joins the
-shared job, selects a witness, and refreshes every linked account's projection.
-The compatibility `account.supported_protocols` response field is derived from
-the linked capability row, never read from account JSON. The response includes:
-
-```json
-{
-  "account": {},
-  "capability": {
-    "capability_key": "...",
-    "supported_protocols": ["responses"],
-    "revision": 7,
-    "last_probed_at": "2026-08-27T00:00:00Z",
-    "affected_account_count": 3
-  },
-  "outcome": "updated",
-  "reason": "positive_evidence"
-}
-```
-
-Outcomes are `updated`, `unchanged`, `inconclusive`, or `not_applicable`.
-Execution and persistence failures are non-2xx responses. The UI must not show
-an inconclusive, unavailable, or failed probe as a successful capability
-update.
-
-Account pages show read-only shared capability chips, the shared-account count,
-last probe time, and a re-probe action. They do not provide protocol editing,
-ordering, forcing, or mode controls.
-
-If a governed account currently links to an empty capability after upstream
-authorization or scheduling is repaired, the operator may run the normal
-account connection test or the explicit protocol re-probe. Both converge on
-the same endpoint-scoped coordinator; only the latter is synchronous.
-
-## 10. Migration, readiness, and rollback
-
-### 10.1 Additive migration
-
-Migration is idempotent and runs before the new image can receive traffic. It
-has two phases with one explicit publication boundary.
-
-The silent preparation phase:
-
-1. create the capability table and account foreign key;
-2. compute canonical identity for every governed account;
-3. upsert one row per distinct key and link all matching accounts;
-4. seed each row from the positive union of historical account-level
-   `supported_protocols` values for that key;
-5. treat missing or empty historical values as no evidence, never as negative;
-6. probe each distinct unverified key once, subject to witness availability;
-7. evaluate preliminary readiness from the new table only.
-
-Silent preparation may create capability rows, account links, leases, and probe
-evidence. It must not change `accounts.extra.supported_protocols`, account
-business revision timestamps, or scheduler outbox state. A failed candidate may
-therefore leave reusable preparation facts without changing anything consumed
-by the previous image.
-
-Only after preliminary readiness succeeds, one transaction publishes the
-release boundary:
-
-1. write the complete rollback projection to every linked governed account
-   whose existing projection differs;
-2. advance the affected account revisions;
-3. enqueue scheduler invalidation for the affected accounts;
-4. reload and evaluate final readiness without creating or repairing links;
-5. commit all effects together only when final readiness succeeds, or roll all
-   legacy-visible effects back together.
-
-Final readiness runs inside the publication transaction and sees its
-uncommitted projection/outbox writes. It is read-only with respect to
-capability/link facts: a concurrently introduced missing or mismatched link
-fails CutoverReady instead of being repaired after publication. Only that
-final successful evaluation may commit the transaction. `/health` does not
-wait for publication.
-Repeating publication with already-matching projections is a no-op: it
-does not advance account revisions or enqueue duplicate scheduler events.
-
-Historical union is a migration seed, not permanent evidence ownership. Once
-an accepted probe result has been persisted, migration never merges historical
-account projections into that capability again. A conclusive endpoint-negative
-observation may therefore remove a seeded protocol even when another protocol
-in the same generation remains inconclusive.
-
-### 10.2 Cutover rule
-
-New application code always reads the capability table. It has no fallback to
-`accounts.extra.supported_protocols`, even during migration. Preparation,
-probing, and hard routing cutover may ship in one image. CutoverReady is the
-publication-completeness signal. `/health` does not read it.
-
-The image reports `/health` as `503` only while draining. An individual
-active, schedulable, governed account that:
-
-- lacks a valid capability link;
-- has neither completed initial probing nor an allowed official seed;
-- is linked to an identity conflict relevant to its served routes;
-- has no legal native or convertible route for its served models;
-- fails its independent authorization/schedulability gate;
-
-is recorded as remediation, stays fail-closed at schedule and execute, and
-does not 503 the process. CutoverReady remains the publication-completeness
-signal; it is not the traffic-admission boundary.
-
-Disabled or deliberately unschedulable accounts do not block release
-publication. They remain fail-closed if re-enabled before their identity,
-capability, and account gates are valid.
-
-The candidate image never serves customer traffic through legacy routing. A
-failed preparation, probe, preliminary readiness, publication, or final
-readiness check keeps the previous image serving. In those failure cases the
-previous image continues to observe the same legacy projection, account
-revision, and scheduler snapshots that existed before the candidate started.
-
-### 10.3 Rollback projection
-
-For one release rollback window,
-`accounts.extra.supported_protocols` is a write-only projection of the linked
-capability set for the previous image. New routing, scheduling, APIs, and UI do
-not read it. Normal post-cutover capability changes and their linked rollback
-projections commit in one database transaction. During candidate startup,
-capability preparation is intentionally durable but unpublished; the complete
-projection, account revision advances, and scheduler invalidations are instead
-published together only after preliminary readiness succeeds. A publication
-callback that fails CutoverReady rolls back every legacy-visible effect.
-`/health` stays drain-only. A publication transaction error fails
-preparation and keeps CutoverReady false; it does not invent a second
-process-admission boolean.
-
-After the rollback window, deleting the legacy field, projection writer, and
-compatibility code is a separate reviewed change. The shared capability table
-remains the permanent SSOT.
-
-No production schema application, external probe, deployment, or data mutation
-is authorized by approval of this document alone.
-
-## 11. Mechanical verification
-
-CI derives exhaustive route behavior from the immutable registry and uses mock
-upstreams. It does not enumerate production accounts, base URLs, or
-credentials, and it does not call external providers.
-
-Required tests include:
-
-- canonical identity normalization and stable key generation;
-- same-key account sharing and unique-row upsert under concurrency;
-- token rotation retaining the key and avoiding a probe;
-- identity-affecting configuration creating or reusing a different key;
-- empty capability fail-closed behavior;
-- deterministic witness selection and bounded alternate-witness fallback;
-- 401/403, 429, 5xx, timeout, and network failures not mutating shared facts;
-- exact TokenKey Antigravity Edge relay capacity responses adding endpoint
-  facts while arbitrary 429/5xx responses remain inconclusive;
-- positive addition, structured endpoint-negative removal, and model-specific
-  preservation;
-- positive/negative identity conflict failing closed;
-- lease, generation, and compare-and-swap race handling;
-- migration positive union and empty-as-no-evidence semantics;
-- silent candidate preparation preserving legacy projection, account revision,
-  and scheduler outbox state when readiness fails;
-- atomic release publication of all rollback projections, account revisions,
-  and scheduler invalidations only after preliminary readiness succeeds;
-- idempotent publication skipping unchanged projections, revisions, and
-  scheduler invalidations;
-- publication failure rolling back every legacy-visible effect;
-- final-readiness failure rolling back the publication transaction, with final
-  validation unable to repair capability links;
-- failed-candidate restart reusing completed endpoint probes without exposing
-  partial publication;
-- identity-first and fixed conversion order;
-- model, feature, Responses-path, endpoint, adapter, and transport constraints;
-- plan capture and inequivalent-route rejection before network I/O;
-- exact outbound host/path/body/credential boundary and response shape;
-- immutable request behavior across account failover;
-- account-level authorization gates remaining independent of shared capability;
-- readiness failure for missing links, unresolved initial capability, conflict,
-  no legal path, broken account gates, or failed rollback projection;
-- administrator re-probe returning key, affected-account count, and honest
-  outcome;
-- Antigravity, exact Vertex service-account, and edge-relay profile boundaries.
-
-A small independent policy-contract test asserts only the product invariants:
-the governed protocol identifiers, identity-first behavior, and fixed fallback
-order. Detailed adapter/model/feature cases remain registry-derived so CI does
-not become a second route matrix.
-
-The project preflight adds syntax-aware guards and sentinels that fail when:
-
-- a production handler, compatibility helper, or transport chooses a protocol
-  or fallback;
-- capability is read from an account legacy field or probe evidence;
-- endpoint identity is rebuilt outside its owner;
-- `ForwardAs*` bypasses the router execution boundary;
-- platform-derived custom endpoints return;
-- the capability owner, router owner, or their load-bearing tests disappear.
-
-API/service integration tests are not described as e2e. The read-only admin
-projection and re-probe journey use the repository's normal UI test level.
-
-## 12. Observability
-
-Logs and metrics record the capability key prefix, capability revision,
-selected witness account ID, probe generation/outcome/reason, affected-account
-count, selected inbound/target protocol, endpoint profile, and route failure
-reason. They never record credentials or authentication headers.
-
-Operational views distinguish:
-
-- no endpoint capability;
-- no legal conversion for the concrete request/model;
-- account authorization or health rejection;
-- endpoint identity conflict;
-- probe inconclusive or lease contention;
-- stale plan/capability rejection.
-
-These distinctions are diagnostics only. They do not create alternate routing
-or capability state.
-
-## 13. Acceptance criteria
-
-- One canonical endpoint identity produces one unique capability row.
-- All accounts with the same key observe the same sorted native protocol set.
-- Adding a same-key account or rotating credentials does not trigger redundant
-  capability probing.
-- Adding a new key, explicit re-probe, or structured endpoint drift can trigger
-  exactly one coordinated endpoint probe generation.
-- Account authorization, balance, limit, cooldown, and health remain
-  independent hard gates and cannot mutate shared endpoint capability.
-- Empty capability and identity conflict are fail-closed; there is no persisted
-  `unknown` or legacy-routing escape.
-- Every governed request receives one deterministic legal plan or fails before
-  network I/O.
-- The plan selected during scheduling is the exact immutable plan executed.
-- No configurable endpoint can default to an official host, and credentials are
-  attached only after endpoint identity validation.
-- Handlers, compatibility helpers, transports, and forwarding methods contain
-  no independent route, endpoint, or fallback decision.
-- Antigravity OAuth and exact Vertex service-account profiles are governed;
-  arbitrary service accounts remain outside the boundary until explicitly
-  supported.
-- Administrator re-probe is account-addressed but endpoint-scoped and reports
-  the shared key, affected accounts, and an honest result.
-- Migration probes each distinct key rather than each account, and positive
-  historical union cannot turn empty/absent values into negative evidence.
-- Candidate preparation and probing can persist new-table facts but cannot
-  change the legacy projection, account revision, or scheduler outbox before
-  preliminary readiness succeeds.
-- A successful candidate publishes rollback projections, account revisions,
-  and scheduler invalidations in one transaction after CutoverReady.
-- A failed candidate can be retried from persisted preparation facts while the
-  previous image continues to observe its pre-candidate routing state.
-- The new image reads only the capability table. `/health` is drain-only.
-  An account without a legal route fails closed at selection or execute.
-- The account legacy field exists only as a one-window rollback projection and
-  is never a new-version routing input.
-- CI uses mock upstreams and mechanically rejects competing protocol owners.
-- An upstream merge that restores account-level capability ownership or a
-  parallel routing decision path fails preflight.
-
-## 14. Approval boundary
-
-Approval authorizes implementation planning only. Implementation, production
-migration, external probes, deployment, PR merge, and release retain their
-normal review and approval gates.
+Approval of this document authorizes planning only — not production migration, probes,
+deploy, or merge.
 
 high-risk-anchor: protocol-routing-ssot

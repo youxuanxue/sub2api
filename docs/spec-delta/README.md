@@ -22,4 +22,7 @@ high-risk approval baseline. High-risk designs belong in `docs/approved/`.
 | [`cc-http-mimicry-runtime.md`](cc-http-mimicry-runtime.md) | Runtime HTTP mimicry manifest |
 | [`cc-system-prompt.md`](cc-system-prompt.md) | Claude Code system-prompt anchors |
 | [`edge-lightsail.md`](edge-lightsail.md) | Lightsail-only edge path |
+| [`edge-host-external-alerts.md`](edge-host-external-alerts.md) | Edge host external HTTPS + mem/disk Feishu |
 | [`group-unsupported-model-negative-cache.md`](group-unsupported-model-negative-cache.md) | Group unsupported-model negative cache |
+| [`glm52-menu-catalog-price.md`](glm52-menu-catalog-price.md) | GLM 5.2 group menu catalog price display |
+| [`cc-oauth-mimicry-fingerprint-scope.md`](cc-oauth-mimicry-fingerprint-scope.md) | OAuth mimicry fingerprint scope beyond UA |

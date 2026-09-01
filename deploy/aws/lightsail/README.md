@@ -148,7 +148,7 @@ gh workflow run deploy-edge-lightsail-stage0.yml \
 | IaC | `stage0-edge-ec2.yaml` | Lightsail API + SSM 参数状态 |
 | 运维入口 | EC2 SSM（原生 instance profile） | SSM Hybrid（`mi-*`） |
 | 静态 IP | EIP + CFN Retain/IMPORT | Lightsail Static IP |
-| IP 污染轮换 | `tokenkey-stage0-edge-ip-rotation` skill（EIP） | `tokenkey-stage0-edge-lightsail-ip-rotation` skill + `ops/lightsail/rotate-static-ip.sh` |
+| IP 污染轮换 | （EC2 EIP 已退役，勿再走） | `tokenkey-stage0-edge-lightsail-ip-rotation` skill + `ops/lightsail/rotate-static-ip.sh` |
 | 区域 | 与 EC2 region 一一对应 | **Paris 无 Lightsail**；fra1 映射 Frankfurt |
 | 架构 | Graviton arm64（t4g） | Lightsail bundle 多为 x86（multi-arch 镜像仍可用） |
 | Swap | CFN user-data 配 **2 GiB** `/swapfile` | matrix `swap_gib` → `provision-edge.sh` → bootstrap `SWAP_SIZE_GIB`（默认 2 GiB）；已运行实例可经 SSM 跑 `ops/lightsail/ensure-edge-swap.sh` |

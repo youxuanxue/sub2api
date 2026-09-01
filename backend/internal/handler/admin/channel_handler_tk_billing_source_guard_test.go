@@ -12,7 +12,7 @@ import (
 )
 
 // TestTkRequireBillingModelSourceConfirm pins the B1 guardrail
-// (docs/approved/priced-or-it-doesnt-ship.md 复审 B1): switching a channel's
+// (docs/approved/priced-or-it-doesnt-ship.md §2 B1): switching a channel's
 // billing_model_source to a risky value (requested/upstream) — which can reopen
 // the $0-leak by charging on a key the priced-serving gate let through under a
 // different key — MUST require explicit human confirmation. The safe default

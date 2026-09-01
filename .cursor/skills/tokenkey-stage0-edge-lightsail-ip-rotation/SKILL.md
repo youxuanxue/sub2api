@@ -7,7 +7,7 @@ description: >-
 # TokenKey：Lightsail Edge 静态 IP 轮换（污染快速恢复）
 
 适用于通过 `deploy-edge-lightsail-stage0.yml` 部署的 Lightsail Edge（与 EC2 EIP 路径不通用）。
-EC2 路径见 `tokenkey-stage0-edge-ip-rotation`。Lightsail 路径**没有 CloudFormation**，所以**没有 drift IMPORT** 这一节。
+Lightsail 路径**没有 CloudFormation**，所以**没有 drift IMPORT** 这一节。EC2/EIP edge 路径已删除。
 
 ## 确定性基线
 
