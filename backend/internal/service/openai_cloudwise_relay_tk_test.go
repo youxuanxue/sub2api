@@ -15,6 +15,7 @@ func TestOpenAICloudwiseRelayAllowedModelPrefixes(t *testing.T) {
 		"glm-",
 		"minimax-",
 		"deepseek-",
+		"hy3",
 	}, openAICloudwiseRelayAllowedModelPrefixes)
 }
 
@@ -26,6 +27,7 @@ func TestOpenAICloudwiseRelayWildcardModelMappingFloor(t *testing.T) {
 		"glm-*":      "glm-*",
 		"minimax-*":  "minimax-*",
 		"deepseek-*": "deepseek-*",
+		"hy3*":       "hy3*",
 	}, mapping)
 }
 
@@ -57,7 +59,7 @@ func TestCloudwiseRelayAccountSupportsPrefixFamiliesOnly(t *testing.T) {
 	}
 	require.True(t, account.IsOpenAICloudwiseRelay())
 
-	for _, model := range []string{"claude-opus-4-6", "kimi-k3", "glm-5", "MiniMax-M3", "deepseek-v4-flash"} {
+	for _, model := range []string{"claude-opus-4-6", "kimi-k3", "glm-5", "MiniMax-M3", "deepseek-v4-flash", "hy3"} {
 		require.True(t, account.IsModelSupported(model), model)
 		require.Equal(t, model, account.GetMappedModel(model), model)
 	}
@@ -88,7 +90,7 @@ func TestCloudwiseRelayEmptyMappingStillRejectsForeignFamilies(t *testing.T) {
 				},
 				Extra: map[string]any{"openai_passthrough": true},
 			}
-			for _, model := range []string{"claude-opus-4-8", "glm-5.3", "MiniMax-M3", "kimi-k3", "deepseek-v4-flash"} {
+			for _, model := range []string{"claude-opus-4-8", "glm-5.3", "MiniMax-M3", "kimi-k3", "deepseek-v4-flash", "hy3"} {
 				require.True(t, account.IsModelSupported(model), model)
 			}
 			for _, model := range []string{"gpt-5.4", "gpt-5.4-mini", "gemini-3-pro-preview"} {
@@ -148,7 +150,7 @@ func TestGatewayService_CloudwiseRelayPassthroughEmptyMappingUsesPrefixGate(t *t
 				},
 				Extra: map[string]any{"openai_passthrough": true},
 			}
-			for _, model := range []string{"claude-opus-4-8", "glm-5.3", "MiniMax-M3", "kimi-k3", "deepseek-v4-flash"} {
+			for _, model := range []string{"claude-opus-4-8", "glm-5.3", "MiniMax-M3", "kimi-k3", "deepseek-v4-flash", "hy3"} {
 				require.True(t, svc.isModelSupportedByAccount(account, model), model)
 			}
 			for _, model := range []string{"gpt-5.4", "gpt-5.4-mini", "gemini-3-pro-preview"} {
