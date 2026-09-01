@@ -131,6 +131,8 @@
         "ModelMappedHelper",
         "IsXRTokenBaseURL",
         "newXRTokenTaskAdaptor",
+        "IsFMGoBaseURL",
+        "newFMGoTaskAdaptor",
         "readVideoFetchResponseBodyForAdaptor",
         "videoFetchResponseSanitizer"
       ],
@@ -767,6 +769,53 @@
         "TestDispatchVideoFetch_XRTokenStripsVendorPrefixFromClientBody"
       ],
       "rationale": "Focused bridge regressions for the XRToken video path. The DoRequest test executes a real POST and asserts /v1, catching Go embedded-method dispatch that can bypass an otherwise-correct BuildRequestURL override; the fake upstream serves only XRToken's shape and 404s /api/v3/*, so a regression to the inherited URL fails here instead of in prod. AppliesModelMapping pins that credentials.model_mapping reaches the upstream body while OriginModel (the billing key) stays the client-facing Ark id; IdentityMappingIsNoOp pins that existing Ark accounts provisioned with `X: X` identity whitelists (tk_033/tk_056) are unaffected. The BuildRequestBody regressions assert both halves of the prefix design: the wire model gains the vendor namespace under an IDENTITY model_mapping (the only shape the SSOT emits), the billing key stays the bare Ark id, and an already-namespaced id is not doubled. The submit test proves the prefix reaches the wire while OriginModelName (the overlay billing key) stays the bare Ark id; the fetch test drives readVideoFetchResponseBodyForAdaptor so the sanitize WIRING is covered, not just the rewrite helper."
+    },
+    {
+      "path": "backend/internal/integration/newapi/fmgo.go",
+      "must_contain": [
+        "FMGoBaseURL",
+        "IsFMGoBaseURL",
+        "NormalizeFMGoBaseURL",
+        "FMGoSeedanceUpstreamSKU",
+        "FMGoSeedanceClientID",
+        "FMGoSeedanceFastClientID",
+        "ChannelTypeDoubaoVideo"
+      ],
+      "rationale": "FMGo (feimiao) host detection and pinned Seedance capability set. Identification is channel_type + base_url only; scheduler/gateway must never read supplier_source_id. FMGoSeedanceUpstreamSKU is the only owner of {480p,720p} x {8,10,12,15} and the feimiao-v2[-fast]-{res}-{dur}s formula. Dropping it freezes probe-anchor SKUs or leaks inventory ids as clients."
+    },
+    {
+      "path": "backend/internal/integration/newapi/fmgo_test.go",
+      "must_contain": [
+        "TestIsFMGoBaseURL",
+        "TestFMGoSeedanceUpstreamSKU",
+        "TestParseFMGoVideoDuration"
+      ],
+      "rationale": "Regressions for FMGo host detection, default-to-max SKU, illegal resolution/duration rejection, and passthrough of non-official clients."
+    },
+    {
+      "path": "backend/internal/relay/bridge/video_relay_tk_fmgo.go",
+      "must_contain": [
+        "fmgoTaskAdaptor",
+        "newFMGoTaskAdaptor",
+        "/v1/video/generations",
+        "fmgoSeedanceClientFromRelay",
+        "fmgoVideoParamsFromSubmit",
+        "FMGoSeedanceUpstreamSKU"
+      ],
+      "rationale": "TK companion task adaptor for FMGo video. Must submit /v1/video/generations, rewrite official Seedance clients from OriginModelName plus request params, and ignore probe-anchor mapping as a frozen SKU. Capability set stays in newapiintegration, never notes or supplier Extra."
+    },
+    {
+      "path": "backend/internal/relay/bridge/video_relay_tk_fmgo_test.go",
+      "must_contain": [
+        "TestFMGoTaskAdaptor_BuildRequestURL",
+        "TestTaskAdaptorForChannel_SelectsFMGo",
+        "TestFMGoTaskAdaptor_RewritesOfficialSeedanceSKU",
+        "TestFMGoTaskAdaptor_RewritesPastProbeAnchorMapping",
+        "TestFMGoTaskAdaptor_DefaultsToMaxResolutionAndDuration",
+        "TestFMGoTaskAdaptor_RejectsUnsupportedResolution",
+        "TestFMGoTaskAdaptor_RejectsUnsupportedDuration"
+      ],
+      "rationale": "Focused FMGo video regressions: host selection, official + probe-anchor rewrite, defaults, and illegal param rejection."
     },
     {
       "path": "backend/internal/integration/newapi/ark_channel_base_url.go",

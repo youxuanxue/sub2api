@@ -53,7 +53,7 @@ type SupplierModelDiscoverRejection struct {
 	Detail          string `json:"detail,omitempty"`
 }
 
-// SupplierModelsDiscoverResult is a read-only preview used by “校验并同步” before account projection.
+// SupplierModelsDiscoverResult is a read-only preview used by probe before account projection.
 // List + normalize return immediately; candidate Chat probes continue asynchronously under JobID.
 // It never writes accounts or the supplier source row. The UI applies NormalizedModels when
 // NeedsConfirmation is set; SuggestedAppends stay opt-in via an explicit form action.
@@ -104,6 +104,69 @@ func (s *SupplierSourceService) discoverJobRegistry() *supplierDiscoverJobRegist
 		s.discoverJobs = newSupplierDiscoverJobRegistry()
 	}
 	return s.discoverJobs
+}
+
+// Probe is the public admin action: list/normalize + candidate probes + configured-row gate.
+// It never writes the supplier source or accounts.
+func (s *SupplierSourceService) Probe(ctx context.Context, sourceID int64) (*SupplierModelsDiscoverResult, error) {
+	result, err := s.StartDiscoverModels(ctx, sourceID)
+	if err != nil {
+		return result, err
+	}
+	configured, probeErr := s.probeConfiguredSourceModels(ctx, sourceID)
+	if result != nil {
+		result.ProbeResults = append(configured, result.ProbeResults...)
+		s.attachConfiguredProbeResults(sourceID, result.JobID, configured)
+		if probeErr != nil {
+			result.FailedStep = "probe"
+		}
+	}
+	if probeErr != nil {
+		return result, probeErr
+	}
+	return result, nil
+}
+
+func (s *SupplierSourceService) probeConfiguredSourceModels(ctx context.Context, sourceID int64) ([]SupplierProbeResult, error) {
+	if s == nil || s.repo == nil || s.probe == nil || s.encryptor == nil {
+		return nil, ErrSupplierSourceInvalidInput
+	}
+	source, err := s.repo.Get(ctx, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	if len(source.Models) == 0 {
+		return []SupplierProbeResult{}, nil
+	}
+	credential, err := s.encryptor.Decrypt(source.EncryptedCredential)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt supplier credential: %w", err)
+	}
+	targets, err := supplierTargetBands(source)
+	if err != nil {
+		return nil, err
+	}
+	results := s.probeSupplierTargets(ctx, source, credential, targets, nil, nil)
+	if supplierProbeResultsFailed(results) {
+		return results, ErrSupplierSourceProbeFailed
+	}
+	return results, nil
+}
+
+func (s *SupplierSourceService) attachConfiguredProbeResults(sourceID int64, jobID string, configured []SupplierProbeResult) {
+	if s == nil || strings.TrimSpace(jobID) == "" || len(configured) == 0 {
+		return
+	}
+	job, ok := s.discoverJobRegistry().get(sourceID, jobID)
+	if !ok || job == nil {
+		return
+	}
+	job.mu.Lock()
+	defer job.mu.Unlock()
+	if job.result == nil {
+		return
+	}
+	job.result.ProbeResults = append(append([]SupplierProbeResult{}, configured...), job.result.ProbeResults...)
 }
 
 // StartDiscoverModels lists/normalizes synchronously, then probes every probeable upstream
@@ -210,7 +273,7 @@ func (s *SupplierSourceService) StartDiscoverModels(ctx context.Context, sourceI
 
 	probeable := make([]SupplierUpstreamModelEntry, 0, len(candidates))
 	for _, entry := range candidates {
-		if !supplierUpstreamTypeProbeable(entry.Type) {
+		if !supplierUpstreamTypeProbeable(entry.Type, source.ChannelType) {
 			result.RejectedCandidates = append(result.RejectedCandidates, SupplierModelDiscoverRejection{
 				UpstreamModelID: entry.ID, Type: entry.Type, Reason: "non_chat_type",
 			})

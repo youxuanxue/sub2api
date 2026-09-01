@@ -156,17 +156,16 @@ async function priorityPreview(): Promise<SupplierPriorityPreview> {
   return data
 }
 
-async function discoverModels(id: number): Promise<SupplierModelsDiscoverResult> {
-  // Starts async candidate probing; returns list/normalize immediately with job_id.
+async function probe(id: number): Promise<SupplierModelsDiscoverResult> {
   const { data } = await apiClient.post<SupplierModelsDiscoverResult>(
-    `/admin/supplier-sources/${id}/models-discover`,
+    `/admin/supplier-sources/${id}/probe`,
   )
   return data
 }
 
-async function getDiscoverModelsJob(id: number, jobId: string): Promise<SupplierModelsDiscoverResult> {
+async function getProbeJob(id: number, jobId: string): Promise<SupplierModelsDiscoverResult> {
   const { data } = await apiClient.get<SupplierModelsDiscoverResult>(
-    `/admin/supplier-sources/${id}/models-discover/jobs/${encodeURIComponent(jobId)}`,
+    `/admin/supplier-sources/${id}/probe/jobs/${encodeURIComponent(jobId)}`,
   )
   return data
 }
@@ -176,4 +175,4 @@ async function sync(id: number): Promise<SupplierSourceSyncResult> {
   return data
 }
 
-export default { list, get, create, update, priorityPreview, discoverModels, getDiscoverModelsJob, sync }
+export default { list, get, create, update, priorityPreview, probe, getProbeJob, sync }

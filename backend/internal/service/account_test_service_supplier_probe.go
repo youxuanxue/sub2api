@@ -1,11 +1,18 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
+	"time"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/gin-gonic/gin"
 )
 
@@ -25,10 +32,8 @@ func (s *AccountTestService) ProbeSupplierModel(ctx context.Context, input Suppl
 		baseResult.Detail = supplierProbeSafeDetail(SupplierProbeStatusFailed)
 		return baseResult
 	}
-	if isFMGoSeedanceSupplierProbe(baseResult.ClientModelID, baseResult.UpstreamModelID) {
-		baseResult.Status = SupplierProbeStatusProtocolUnsupported
-		baseResult.Detail = supplierProbeSafeDetail(SupplierProbeStatusProtocolUnsupported)
-		return baseResult
+	if supplierAccountUsesVideoProbe(input.Account) {
+		return s.probeSupplierVideoModel(ctx, input, baseResult)
 	}
 	recorder := httptest.NewRecorder()
 	ginContext, _ := gin.CreateTestContext(recorder)
@@ -50,9 +55,79 @@ func (s *AccountTestService) ProbeSupplierModel(ctx context.Context, input Suppl
 	return result
 }
 
-func isFMGoSeedanceSupplierProbe(clientModelID, upstreamModelID string) bool {
-	return strings.TrimSpace(clientModelID) == "doubao-seedance-2-0-260128" &&
-		strings.TrimSpace(upstreamModelID) == "feimiao-seedance-2-0-260128"
+func supplierAccountUsesVideoProbe(account *Account) bool {
+	return account != nil && account.ChannelType == newapiconstant.ChannelTypeDoubaoVideo
+}
+
+func (s *AccountTestService) probeSupplierVideoModel(
+	ctx context.Context,
+	input SupplierProbeInput,
+	baseResult SupplierProbeResult,
+) SupplierProbeResult {
+	account := input.Account
+	baseURL := strings.TrimRight(strings.TrimSpace(account.GetBaseURL()), "/")
+	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
+	if baseURL == "" || apiKey == "" {
+		baseResult.Status = SupplierProbeStatusFailed
+		baseResult.Detail = supplierProbeSafeDetail(SupplierProbeStatusFailed)
+		return baseResult
+	}
+	submitURL := supplierVideoProbeURL(account.ChannelType, baseURL)
+	body := []byte(fmt.Sprintf(`{"model":%q,"prompt":"probe"}`, baseResult.UpstreamModelID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, submitURL, bytes.NewReader(body))
+	if err != nil {
+		baseResult.Status = SupplierProbeStatusFailed
+		baseResult.Detail = supplierProbeSafeDetail(SupplierProbeStatusFailed)
+		return baseResult
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		baseResult.Status = SupplierProbeStatusFailed
+		baseResult.Detail = supplierProbeSafeDetail(SupplierProbeStatusFailed)
+		return baseResult
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	status := supplierVideoProbeStatus(resp.StatusCode, raw)
+	baseResult.Status = status
+	if status == SupplierProbeStatusPassed {
+		baseResult.Protocol = "openai_video"
+	}
+	baseResult.Detail = supplierProbeSafeDetail(status)
+	return baseResult
+}
+
+func supplierVideoProbeURL(channelType int, baseURL string) string {
+	baseURL = strings.TrimRight(baseURL, "/")
+	switch {
+	case newapiintegration.IsFMGoBaseURL(channelType, baseURL):
+		return newapiintegration.NormalizeFMGoBaseURL(baseURL) + "/v1/video/generations"
+	case newapiintegration.IsXRTokenBaseURL(channelType, baseURL):
+		return newapiintegration.NormalizeXRTokenBaseURL(baseURL) + "/v1/contents/generations/tasks"
+	default:
+		return baseURL + "/api/v3/contents/generations/tasks"
+	}
+}
+
+func supplierVideoProbeStatus(statusCode int, body []byte) SupplierProbeStatus {
+	lower := strings.ToLower(string(body))
+	switch {
+	case statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden ||
+		strings.Contains(lower, "unauthorized") || strings.Contains(lower, "forbidden"):
+		return SupplierProbeStatusAuthFailed
+	case strings.Contains(lower, "model_not_found") || strings.Contains(lower, "model not found") ||
+		strings.Contains(lower, "unknown model"):
+		return SupplierProbeStatusModelUnsupported
+	case strings.Contains(lower, "fail_to_fetch_task") || strings.Contains(lower, "not found"):
+		return SupplierProbeStatusFailed
+	case statusCode >= 200 && statusCode < 300:
+		return SupplierProbeStatusPassed
+	default:
+		return SupplierProbeStatusFailed
+	}
 }
 
 func supplierProbeResultFromSSE(body string, probeErr error) SupplierProbeResult {

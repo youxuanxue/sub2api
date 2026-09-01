@@ -12,10 +12,12 @@ related_stories: ["US-048"]
 
 # TokenKey 模型供应源管理审批基线
 
+> 按钮与探测主路径以 [`model-supplier-source-probe-sync-split.md`](model-supplier-source-probe-sync-split.md) 为准：探测校验 → 保存 → 同步账号。FMGo Seedance 改写见 [`model-supplier-source-fmgo-seedance-account-rewrite.md`](model-supplier-source-fmgo-seedance-account-rewrite.md)。
+
 ## 决策
 
 运营只管理一个对象：供应源。一个供应源表示一个供应商通道、一个 endpoint、一份 API Key、一个
-`base_priority` 和一组明确的模型采购事实。保存只写供应源；运营主动点击“校验并同步”后，系统才
+`base_priority` 和一组明确的模型采购事实。保存只写供应源；运营主动点击“同步账号”后，系统才
 把事实投影为现有 TokenKey 账号配置。
 
 线上调度不增加任何供应来源概念。scheduler 继续只比较账号现有 `priority`，数值越小越先调度；
@@ -64,31 +66,18 @@ account.priority = source.base_priority + discount_priority
 
 “保存”只校验和更新供应源单表，不探测、不建号、不改账号。全局 priority 预览只排序所有供应源
 目标档位并提示相同 priority，不扫描普通账号、OAuth 账号或账号组。运营结合账号管理页的真实
-priority 自行判断和修改 `base_priority`。已选来源的表单存在未保存修改时，页面禁用“校验并同步”并
+priority 自行判断和修改 `base_priority`。已选来源的表单存在未保存修改时，页面禁用探测与同步并
 提示先保存；同步 API 始终只读取数据库中已保存的供应事实。
 
-“校验并同步”在账号投影前先走只读 `POST /admin/supplier-sources/:id/models-discover`：
+探测校验、保存、同步账号的按钮顺序、禁用矩阵与探测主路径以
+[`model-supplier-source-probe-sync-split.md`](model-supplier-source-probe-sync-split.md) 为准。
+`POST /admin/supplier-sources/:id/probe` 只读发现 + 已配置门禁；保存只写供应源；`POST .../sync`
+再测后投影账号。管理路由不再注册 `models-discover`。
 
-1. 拉取上游 models 列表（OpenAI 兼容 `/v1/models`；千帆 BaiduV2 为 `/v2/models`；DashScope Ali
-   为 `/compatible-mode/v1/models`）；
-2. 把已配置的上游模型 ID 规整为规范 ID（大小写、空格等）；当 `client_model_id` 与
-   `upstream_model_id` 为同一事实（相同或模糊等价）时同步规整 client，显式 remap（如 FMGo
-   Seedance）保留 client。无法匹配的保留原值并标 `configured_issues`，不自动删除；
-3. 对列表中尚未配置、且 type 可探测（`chat` / `multimodal` / `image2text` / 空）的候选做真实
-   Chat Completions 探测：`POST models-discover` 同步完成 list/规整后立即返回 `job_id`，后台以高并发
-   异步探测**全部**候选；管理页轮询 `GET .../models-discover/jobs/:job_id` 直到 `probe_status`
-   为 `completed`/`failed`，并展示 `probe_done/probe_total`。不得用固定条数裁剪可服务性判断；
-   `embeddings` / `text2image` 等直接拒绝建议；
-4. **仅探测通过**的候选进入 `suggested_appends`（默认 `purchase_ratio=1.0`）；探测失败的进入
-   `rejected_candidates`，不得写入表单建议、更不得投影账号；
-5. 若有已配置 ID 规整变更，结果回填表单草稿并要求人工确认后保存；建议追加只展示，需运营主动
-   「加入表单」才进入草稿。discover 本身不写供应源、不写账号。保存后再点“校验并同步”才进入
-   既有账号投影；
-6. 若无需规整确认，即使仍有建议追加，也继续执行下方投影同步（建议可在同屏查看后择机加入）。
-
-discover / sync 失败时，API 必须返回可读 `message`（含上游 models 列表的 `UpstreamModelSyncError.SafeMessage`）
-与结果体中的 `failed_step`；管理页必须在同步结果区之外独立展示错误文案，并在「上游模型发现」中展示
-`failed_step` 与计数摘要，禁止只露出空标题。
+上游列表仍按通道能力拉取（OpenAI 兼容 `/v1/models`；千帆 BaiduV2 为 `/v2/models`；DashScope Ali
+为 `/compatible-mode/v1/models`）。探测协议由通道能力决定（如 `channel_type=54` 走视频门禁），
+不按 client 名字开例外。失败时 API 必须返回可读 `message` 与 `failed_step`；管理页必须在结果区
+之外独立展示错误文案，禁止只露出空标题。
 
 同步按以下最小规则执行：
 
@@ -130,7 +119,7 @@ supplier_discount_band
 普通创建与导入仍拒绝伪造 `supplier_source_id` / `supplier_discount_band`；普通 Extra 编辑会保留
 已有受管身份键，复制账号时剥离这些键以免重复身份。
 
-仅在供应源点击「校验并同步」时，通过专用窄写命令覆盖供应源投影字段（名称、凭证含
+仅在供应源点击「同步账号」时，通过专用窄写命令覆盖供应源投影字段（名称、凭证含
 `model_mapping`、priority、concurrency、status/schedulable、transport 等），不读取或写入账号组，
 也不携带 `rate_multiplier`。供应投影更新不能回退到通用账号 Update。
 
@@ -141,7 +130,7 @@ supplier_discount_band
 ```
 
 徽标链接携带 `source_id`，供应源页面加载列表后直接选中对应来源。账号编辑提示说明：平时可按普通
-账号编辑；「校验并同步」会覆盖投影字段。
+账号编辑；「同步账号」会覆盖投影字段。
 
 ## 第一版 API 与页面
 
@@ -151,14 +140,15 @@ GET    /admin/supplier-sources/:id
 POST   /admin/supplier-sources
 PUT    /admin/supplier-sources/:id
 GET    /admin/supplier-sources/priority-preview
-POST   /admin/supplier-sources/:id/models-discover
+POST   /admin/supplier-sources/:id/probe
+GET    /admin/supplier-sources/:id/probe/jobs/:job_id
 POST   /admin/supplier-sources/:id/sync
 ```
 
-不提供 DELETE、validate、activation-preview、activate、pause 或供应源 audits API。供应源读写体含
+不提供 DELETE、validate、activation-preview、activate、pause、供应源 audits 或 `models-discover` API。供应源读写体含
 `account_concurrency`（正整数，默认 `1000`）。页面只展示运营
-字段、档位与目标 priority、全局供应源 priority、保存、单源“校验并同步”（内嵌 models-discover
-规整/建议）、当次发现结果、当次逐模型探测结果和实际账号变化。
+字段、档位与目标 priority、全局供应源 priority、探测校验、保存、同步账号、当次发现结果、
+当次逐模型探测结果和实际账号变化。
 
 ## 首批验收
 
@@ -167,9 +157,9 @@ POST   /admin/supplier-sources/:id/sync
 - 佳杰 / VSTECS：首批只录入 `deepseek-v4-pro` 与 `qwen-3.7-max` 的最低合法比例 `0.50`，两者进入档位
   3 并合并到一个目标账号。当前没有生产 API Key，因此真实 HTTP 探测和账号同步必须保持 `not_run`，
   要求补全真实 endpoint 与凭证后再验收。
-- FMGo：只录入客户 ID `doubao-seedance-2-0-260128` 到上游 ID
-  `feimiao-seedance-2-0-260128` 的显式映射，ratio `0.50`。当前缺少 endpoint 与凭证；固定边界返回
-  `protocol_unsupported`，不发起伪 OpenAI Chat 请求，也不写账号。这不是通用前缀替换。
+- FMGo：只录入两个官方 Seedance client remap（锚点 `feimiao-v2-720p-15s` /
+  `feimiao-v2-fast-720p-15s`）。`channel_type=54` 走视频门禁，不以 OpenAI Chat 伪探测冒充成功。
+  运行时 SKU 改写见 [`model-supplier-source-fmgo-seedance-account-rewrite.md`](model-supplier-source-fmgo-seedance-account-rewrite.md)。
 - 百度千帆：供应源 endpoint 主机为 `qianfan.baidubce.com` 时使用 BaiduV2 transport，可接管生产账号
   90（channel_type=46、同一凭证与 endpoint 根）。缺少供应凭证时仍无法完成指纹匹配或同步；凭证齐备后
   Sync 走 Chat Completions 探测与投影，不再因 transport 固定为 OpenAI 而 `protocol_unsupported`。

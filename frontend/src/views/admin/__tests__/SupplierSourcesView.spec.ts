@@ -4,13 +4,13 @@ import { nextTick } from 'vue'
 
 import SupplierSourcesView from '../SupplierSourcesView.vue'
 
-const { list, create, update, priorityPreview, discoverModels, getDiscoverModelsJob, sync, routeQuery, channelTypes } = vi.hoisted(() => ({
+const { list, create, update, priorityPreview, probe, getProbeJob, sync, routeQuery, channelTypes } = vi.hoisted(() => ({
   list: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
   priorityPreview: vi.fn(),
-  discoverModels: vi.fn(),
-  getDiscoverModelsJob: vi.fn(),
+  probe: vi.fn(),
+  getProbeJob: vi.fn(),
   sync: vi.fn(),
   routeQuery: {} as Record<string, unknown>,
   channelTypes: { value: [
@@ -30,7 +30,7 @@ vi.mock('@/composables/useNewApiChannelTypes', () => ({
 }))
 
 vi.mock('@/api/admin', () => ({
-  adminAPI: { supplierSources: { list, create, update, priorityPreview, discoverModels, getDiscoverModelsJob, sync } },
+  adminAPI: { supplierSources: { list, create, update, priorityPreview, probe, getProbeJob, sync } },
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -67,7 +67,7 @@ describe('SupplierSourcesView', () => {
     create.mockReset()
     update.mockReset()
     priorityPreview.mockReset().mockResolvedValue({ entries: [], warnings: [] })
-    discoverModels.mockReset().mockResolvedValue({
+    probe.mockReset().mockResolvedValue({
       source_id: 7,
       probe_status: 'completed',
       probe_total: 0,
@@ -81,7 +81,7 @@ describe('SupplierSourcesView', () => {
       probe_results: [],
       needs_confirmation: false,
     })
-    getDiscoverModelsJob.mockReset()
+    getProbeJob.mockReset()
     sync.mockReset()
   })
 
@@ -130,6 +130,8 @@ describe('SupplierSourcesView', () => {
       aliSource.endpoint,
     )
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-test="probe-source"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-test="save-source"]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('[data-test="sync-save-first"]').exists()).toBe(false)
   })
 
@@ -182,10 +184,10 @@ describe('SupplierSourcesView', () => {
     expect(update).toHaveBeenCalledWith(7, expect.objectContaining({ credential: '', notes: '合同已复核' }))
   })
 
-  it('serializes save and sync submissions for the selected source', async () => {
+  it('serializes probe and sync submissions for the selected source', async () => {
     list.mockResolvedValueOnce([source])
-    let resolveUpdate!: (value: typeof source) => void
-    update.mockReturnValueOnce(new Promise(resolve => { resolveUpdate = resolve }))
+    let resolveProbe!: (value: Record<string, unknown>) => void
+    probe.mockReturnValueOnce(new Promise(resolve => { resolveProbe = resolve }))
     let resolveSync!: (value: {
       source_id: number
       probe_results: never[]
@@ -196,20 +198,34 @@ describe('SupplierSourcesView', () => {
     await flushPromises()
     await wrapper.get('[data-test="source-select-7"]').trigger('click')
 
-    await wrapper.get('[data-test="save-source"]').trigger('submit')
+    expect(wrapper.get('[data-test="save-source"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-test="probe-source"]').trigger('click')
     await nextTick()
 
-    expect(wrapper.get('[data-test="save-source"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-test="probe-source"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
 
-    resolveUpdate(source)
+    resolveProbe({
+      source_id: 7,
+      probe_status: 'completed',
+      probe_total: 0,
+      probe_done: 0,
+      upstream_models: [],
+      normalized_models: source.models,
+      normalized_changes: [],
+      suggested_appends: [],
+      rejected_candidates: [],
+      configured_issues: [],
+      probe_results: [],
+      needs_confirmation: false,
+    })
     await flushPromises()
     await wrapper.get('[data-test="sync-source"]').trigger('click')
     await nextTick()
 
-    expect(wrapper.get('[data-test="save-source"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
-    expect(discoverModels).toHaveBeenCalledWith(7)
+    expect(probe).toHaveBeenCalledWith(7)
+    expect(sync).toHaveBeenCalledWith(7)
 
     resolveSync({ source_id: 7, probe_results: [], changes: [] })
     await flushPromises()
@@ -225,11 +241,13 @@ describe('SupplierSourcesView', () => {
     await nextTick()
 
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-test="probe-source"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-test="sync-save-first"]').text()).toContain(
       'admin.supplierSources.saveBeforeSync',
     )
     await wrapper.get('[data-test="sync-source"]').trigger('click')
-    expect(discoverModels).not.toHaveBeenCalled()
+    await wrapper.get('[data-test="probe-source"]').trigger('click')
+    expect(probe).not.toHaveBeenCalled()
     expect(sync).not.toHaveBeenCalled()
 
     await wrapper.get('[data-test="notes"]').setValue(source.notes)
@@ -241,7 +259,7 @@ describe('SupplierSourcesView', () => {
 
   it('applies discover normalize to the form and keeps suggestions opt-in', async () => {
     list.mockResolvedValueOnce([source])
-    discoverModels.mockResolvedValueOnce({
+    probe.mockResolvedValueOnce({
       source_id: 7,
       probe_status: 'completed',
       probe_total: 1,
@@ -279,10 +297,11 @@ describe('SupplierSourcesView', () => {
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
     await wrapper.get('[data-test="source-select-7"]').trigger('click')
-    await wrapper.get('[data-test="sync-source"]').trigger('click')
+    await wrapper.get('[data-test="probe-source"]').trigger('click')
     await flushPromises()
 
     expect(sync).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-test="probe-source"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-test="discover-needs-save"]').text()).toContain(
       'admin.supplierSources.discoverNeedsSave',
     )
@@ -299,9 +318,9 @@ describe('SupplierSourcesView', () => {
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
   })
 
-  it('continues to account sync when discover only has optional suggestions', async () => {
+  it('keeps suggestions opt-in and does not auto-sync after probe', async () => {
     list.mockResolvedValueOnce([source])
-    discoverModels.mockResolvedValueOnce({
+    probe.mockResolvedValueOnce({
       source_id: 7,
       probe_status: 'completed',
       probe_total: 1,
@@ -319,22 +338,22 @@ describe('SupplierSourcesView', () => {
       probe_results: [],
       needs_confirmation: false,
     })
-    sync.mockResolvedValueOnce({ source_id: 7, probe_results: [], changes: [] })
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
     await wrapper.get('[data-test="source-select-7"]').trigger('click')
-    await wrapper.get('[data-test="sync-source"]').trigger('click')
+    await wrapper.get('[data-test="probe-source"]').trigger('click')
     await flushPromises()
 
-    expect(sync).toHaveBeenCalledWith(7)
+    expect(sync).not.toHaveBeenCalled()
     expect(wrapper.get('[data-test="discover-result"]').text()).toContain('glm-5.1')
     expect(wrapper.find('[data-test="discover-needs-save"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeUndefined()
   })
 
-  it('polls a running models-discover job until completed before syncing', async () => {
+  it('polls a running probe job until completed without syncing', async () => {
     vi.useFakeTimers()
     list.mockResolvedValueOnce([source])
-    discoverModels.mockResolvedValueOnce({
+    probe.mockResolvedValueOnce({
       source_id: 7,
       job_id: 'job-async-1',
       probe_status: 'running',
@@ -349,7 +368,7 @@ describe('SupplierSourcesView', () => {
       probe_results: [],
       needs_confirmation: false,
     })
-    getDiscoverModelsJob
+    getProbeJob
       .mockResolvedValueOnce({
         source_id: 7,
         job_id: 'job-async-1',
@@ -388,12 +407,10 @@ describe('SupplierSourcesView', () => {
         probe_results: [],
         needs_confirmation: false,
       })
-    sync.mockResolvedValueOnce({ source_id: 7, probe_results: [], changes: [] })
-
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
     await wrapper.get('[data-test="source-select-7"]').trigger('click')
-    await wrapper.get('[data-test="sync-source"]').trigger('click')
+    await wrapper.get('[data-test="probe-source"]').trigger('click')
     await flushPromises()
 
     expect(wrapper.get('[data-test="discover-probe-progress"]').exists()).toBe(true)
@@ -402,12 +419,12 @@ describe('SupplierSourcesView', () => {
 
     await vi.advanceTimersByTimeAsync(1000)
     await flushPromises()
-    expect(getDiscoverModelsJob).toHaveBeenCalledWith(7, 'job-async-1')
+    expect(getProbeJob).toHaveBeenCalledWith(7, 'job-async-1')
     expect(wrapper.find('[data-test="append-suggested"]').exists()).toBe(false)
 
     await vi.advanceTimersByTimeAsync(1000)
     await flushPromises()
-    expect(sync).toHaveBeenCalledWith(7)
+    expect(sync).not.toHaveBeenCalled()
     expect(wrapper.find('[data-test="discover-probe-progress"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="append-suggested"]').exists()).toBe(true)
 
@@ -416,7 +433,7 @@ describe('SupplierSourcesView', () => {
 
   it('shows discover failure message and failed_step outside the sync-result block', async () => {
     list.mockResolvedValueOnce([source])
-    discoverModels.mockRejectedValueOnce(Object.assign(
+    probe.mockRejectedValueOnce(Object.assign(
       new Error('Supplier model list request failed with HTTP 401'),
       {
         status: 502,
@@ -440,7 +457,7 @@ describe('SupplierSourcesView', () => {
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
     await wrapper.get('[data-test="source-select-7"]').trigger('click')
-    await wrapper.get('[data-test="sync-source"]').trigger('click')
+    await wrapper.get('[data-test="probe-source"]').trigger('click')
     await flushPromises()
 
     expect(wrapper.get('[data-test="sync-error"]').text()).toContain(

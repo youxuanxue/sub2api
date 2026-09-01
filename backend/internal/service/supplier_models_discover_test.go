@@ -99,6 +99,32 @@ func TestUS048_DiscoverModelsNormalizesAndSuggestsOnlyProbePassed(t *testing.T) 
 	require.NotContains(t, rejected, "glm-5.1")
 }
 
+func TestUS048_ProbeIncludesConfiguredRowResultsWithoutWritingAccounts(t *testing.T) {
+	ratio := 0.5
+	source := &SupplierSource{
+		ID: 11, SupplierName: "baidu", ChannelName: "default",
+		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com",
+		EncryptedCredential: "enc:secret", BasePriority: 100,
+		Models: []SupplierSourceModel{
+			{ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio},
+		},
+	}
+	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
+	lister := &supplierDiscoverProbeFake{
+		entries: []SupplierUpstreamModelEntry{{ID: "deepseek-v4-pro", Type: "chat"}},
+		probeStatus: map[string]SupplierProbeStatus{
+			"deepseek-v4-pro": SupplierProbeStatusPassed,
+		},
+	}
+	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	result, err := svc.Probe(context.Background(), 11)
+	require.NoError(t, err)
+	require.NotEmpty(t, result.ProbeResults)
+	require.Equal(t, "deepseek-v4-pro", result.ProbeResults[0].UpstreamModelID)
+	require.Equal(t, SupplierProbeStatusPassed, result.ProbeResults[0].Status)
+}
+
 func TestUS048_DiscoverModelsSuggestionsAloneDoNotBlockProjection(t *testing.T) {
 	ratio := 0.5
 	source := &SupplierSource{

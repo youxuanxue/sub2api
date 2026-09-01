@@ -113,7 +113,7 @@ export default {
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
       supplierManaged: {
         badge: 'Supplier managed',
-        viewHint: 'Created from a supplier source. Validate & Sync overwrites projection fields (priority, model_mapping, etc.). Edit like any other account otherwise.',
+        viewHint: 'Created from a supplier source. Sync accounts overwrites projection fields (priority, model_mapping, etc.). Edit like any other account otherwise.',
         openManagement: 'Open Supplier Sources'
       },
       groupCountTotal: '{count} groups total',

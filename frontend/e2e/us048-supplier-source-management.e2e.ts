@@ -161,7 +161,7 @@ function source(overrides: Partial<SupplierSource> = {}): SupplierSource {
   }
 }
 
-/** Sync now runs models-discover first; return a completed, no-confirm payload. */
+/** Probe is read-only; return a completed, no-confirm payload. */
 function discoverOK(src: SupplierSource) {
   return {
     source_id: src.id,
@@ -231,7 +231,7 @@ test('US048 Jiajie saves facts previews priority and syncs one band account', as
       })
       return true
     }
-    if (path === '/api/v1/admin/supplier-sources/7/models-discover' && request.method() === 'POST') {
+    if (path === '/api/v1/admin/supplier-sources/7/probe' && request.method() === 'POST') {
       await fulfillSuccess(route, discoverOK(sources[0]))
       return true
     }
@@ -352,7 +352,7 @@ test('US048 FMGo shows the fixed protocol boundary without account changes', asy
       await fulfillSuccess(route, [fmgo])
       return true
     }
-    if (path === '/api/v1/admin/supplier-sources/9/models-discover' && request.method() === 'POST') {
+    if (path === '/api/v1/admin/supplier-sources/9/probe' && request.method() === 'POST') {
       await fulfillSuccess(route, discoverOK(fmgo))
       return true
     }
@@ -464,7 +464,7 @@ test('US048 accounts UI marks supplier-managed accounts and allows ordinary edit
   // Scope to the edit dialog: page-level name:'更新' also matches toolbar「批量更新」.
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('heading', { name: '编辑账号' })).toBeVisible()
-  await expect(dialog.getByText('该账号由供应源创建；在供应源点击「校验并同步」会覆盖更新投影字段（如 priority、model_mapping 等）。平时可按普通账号编辑。')).toBeVisible()
+  await expect(dialog.getByText('该账号由供应源创建；在供应源点击「同步账号」会覆盖更新投影字段（如 priority、model_mapping 等）。平时可按普通账号编辑。')).toBeVisible()
   await expect(dialog.locator('[data-tour="account-form-submit"]')).toBeVisible()
   await expect(dialog.locator('[data-tour="edit-account-form-name"]')).toBeEnabled()
   await expect(dialog.locator('[data-tour="account-form-priority"]')).toBeEnabled()

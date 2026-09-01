@@ -150,8 +150,8 @@ func registerSupplierSourceRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		sources.GET("/priority-preview", h.Admin.SupplierSource.PriorityPreview)
 		sources.GET("/:id", h.Admin.SupplierSource.Get)
 		sources.PUT("/:id", h.Admin.SupplierSource.Update)
-		sources.POST("/:id/models-discover", h.Admin.SupplierSource.DiscoverModels)
-		sources.GET("/:id/models-discover/jobs/:job_id", h.Admin.SupplierSource.GetDiscoverModelsJob)
+		sources.POST("/:id/probe", h.Admin.SupplierSource.Probe)
+		sources.GET("/:id/probe/jobs/:job_id", h.Admin.SupplierSource.GetProbeJob)
 		sources.POST("/:id/sync", h.Admin.SupplierSource.Sync)
 	}
 }

@@ -216,12 +216,12 @@ func (h *SupplierSourceHandler) Sync(c *gin.Context) {
 	response.Success(c, result)
 }
 
-func (h *SupplierSourceHandler) DiscoverModels(c *gin.Context) {
+func (h *SupplierSourceHandler) Probe(c *gin.Context) {
 	id, ok := supplierSourceID(c)
 	if !ok {
 		return
 	}
-	result, err := h.service.StartDiscoverModels(c.Request.Context(), id)
+	result, err := h.service.Probe(c.Request.Context(), id)
 	if err != nil {
 		writeSupplierSourceDiscoverError(c, result, err)
 		return
@@ -229,7 +229,7 @@ func (h *SupplierSourceHandler) DiscoverModels(c *gin.Context) {
 	response.Success(c, result)
 }
 
-func (h *SupplierSourceHandler) GetDiscoverModelsJob(c *gin.Context) {
+func (h *SupplierSourceHandler) GetProbeJob(c *gin.Context) {
 	id, ok := supplierSourceID(c)
 	if !ok {
 		return

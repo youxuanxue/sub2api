@@ -536,6 +536,9 @@ func taskAdaptorForChannel(channelType int, baseURL string) channel.TaskAdaptor 
 	if newapiintegration.IsXRTokenBaseURL(channelType, baseURL) {
 		return newXRTokenTaskAdaptor()
 	}
+	if newapiintegration.IsFMGoBaseURL(channelType, baseURL) {
+		return newFMGoTaskAdaptor()
+	}
 	platform := newapiconstant.TaskPlatform(strconv.Itoa(channelType))
 	return newapirelay.GetTaskAdaptor(platform)
 }

@@ -7668,15 +7668,15 @@
     {
       "path": "backend/internal/handler/admin/supplier_source_handler.go",
       "must_contain": [
-        "func (h *SupplierSourceHandler) DiscoverModels(c *gin.Context)",
-        "result, err := h.service.StartDiscoverModels(c.Request.Context(), id)",
-        "func (h *SupplierSourceHandler) GetDiscoverModelsJob(c *gin.Context)",
+        "func (h *SupplierSourceHandler) Probe(c *gin.Context)",
+        "result, err := h.service.Probe(c.Request.Context(), id)",
+        "func (h *SupplierSourceHandler) GetProbeJob(c *gin.Context)",
         "result, err := h.service.GetDiscoverModelsJob(c.Request.Context(), id, jobID)",
         "AccountConcurrency",
         "account_concurrency",
         "case errors.As(err, &syncErr):"
       ],
-      "rationale": "Admin discover must start the async probe job and expose job polling; upstream models-list failures must map through UpstreamModelSyncError.SafeMessage so the page never shows only an empty discover title. Supplier-source CRUD must round-trip account_concurrency."
+      "rationale": "Admin probe must start the async probe job and expose job polling; upstream models-list failures must map through UpstreamModelSyncError.SafeMessage so the page never shows only an empty title. Supplier-source CRUD must round-trip account_concurrency."
     },
     {
       "path": "backend/internal/service/supplier_source_service.go",

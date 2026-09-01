@@ -287,9 +287,19 @@
           <p v-if="saveError" class="text-sm text-red-600">{{ saveError }}</p>
           <div class="flex flex-wrap gap-2">
             <button
+              v-if="selected"
+              data-test="probe-source"
+              type="button"
+              :disabled="saving || probing || syncing || blocksProbeAndSync"
+              class="rounded-lg border border-gray-300 px-4 py-2 disabled:opacity-50 dark:border-dark-600"
+              @click="probeSelected"
+            >
+              {{ t('admin.supplierSources.probe') }}
+            </button>
+            <button
               data-test="save-source"
               type="submit"
-              :disabled="saving || syncing"
+              :disabled="saving || probing || syncing || !canSaveSelected"
               class="rounded-lg bg-primary-600 px-4 py-2 text-white disabled:opacity-50"
             >
               {{ t('admin.supplierSources.save') }}
@@ -298,14 +308,14 @@
               v-if="selected"
               data-test="sync-source"
               type="button"
-              :disabled="saving || syncing || hasUnsavedChanges"
+              :disabled="saving || probing || syncing || blocksProbeAndSync"
               class="rounded-lg border border-gray-300 px-4 py-2 disabled:opacity-50 dark:border-dark-600"
               @click="syncSelected"
             >
               {{ t('admin.supplierSources.sync') }}
             </button>
             <span
-              v-if="selected && hasUnsavedChanges"
+              v-if="selected && blocksProbeAndSync"
               data-test="sync-save-first"
               class="self-center text-sm text-amber-700"
             >
@@ -359,6 +369,21 @@
           <p v-if="discoverNeedsSave" data-test="discover-needs-save" class="text-sm text-amber-700">
             {{ t('admin.supplierSources.discoverNeedsSave') }}
           </p>
+          <div v-if="discoverResult.probe_results.length">
+            <h3 class="text-sm font-medium">{{ t('admin.supplierSources.configuredProbes') }}</h3>
+            <ul class="mt-2 space-y-2">
+              <li
+                v-for="probe in discoverResult.probe_results"
+                :key="`configured-${probe.client_model_id}-${probe.upstream_model_id}`"
+                class="rounded-lg bg-gray-50 p-3 text-sm dark:bg-dark-900"
+              >
+                <div class="font-medium">{{ probe.client_model_id }} → {{ probe.upstream_model_id }}</div>
+                <div class="text-gray-600 dark:text-gray-300">
+                  {{ probe.status }}<span v-if="probe.protocol"> · {{ probe.protocol }}</span><span v-if="probe.detail"> · {{ probe.detail }}</span>
+                </div>
+              </li>
+            </ul>
+          </div>
           <div v-if="discoverResult.normalized_changes.length">
             <h3 class="text-sm font-medium">{{ t('admin.supplierSources.normalizedChanges') }}</h3>
             <ul class="mt-2 space-y-1 text-sm">
@@ -510,6 +535,7 @@ const supplierChannelTypeOptions = computed(() =>
 
 const loading = ref(true)
 const saving = ref(false)
+const probing = ref(false)
 const syncing = ref(false)
 const previewing = ref(false)
 const sources = ref<SupplierSource[]>([])
@@ -783,6 +809,9 @@ const hasUnsavedChanges = computed(() => {
   return JSON.stringify(input.models) !== JSON.stringify(source.models)
 })
 
+const blocksProbeAndSync = computed(() => hasUnsavedChanges.value || discoverNeedsSave.value)
+const canSaveSelected = computed(() => !selected.value || hasUnsavedChanges.value || discoverNeedsSave.value)
+
 function replaceSource(source: SupplierSource): void {
   const index = sources.value.findIndex(item => item.id === source.id)
   if (index >= 0) sources.value[index] = source
@@ -883,7 +912,7 @@ function supplierDiscoverResultFromError(error: unknown): SupplierModelsDiscover
   }
 }
 
-async function waitDiscoverJob(
+async function waitProbeJob(
   sourceID: number,
   started: SupplierModelsDiscoverResult,
 ): Promise<SupplierModelsDiscoverResult> {
@@ -896,7 +925,7 @@ async function waitDiscoverJob(
   const deadline = Date.now() + 15 * 60 * 1000
   while (Date.now() < deadline) {
     await new Promise(resolve => window.setTimeout(resolve, 1000))
-    current = await adminAPI.supplierSources.getDiscoverModelsJob(sourceID, jobID)
+    current = await adminAPI.supplierSources.getProbeJob(sourceID, jobID)
     discoverResult.value = current
     if (current.probe_status === 'completed') {
       return current
@@ -908,31 +937,47 @@ async function waitDiscoverJob(
       throw Object.assign(new Error(message), { data: current, status: 422 })
     }
   }
-  throw new Error('supplier discover probe timed out')
+  throw new Error('supplier probe timed out')
 }
 
-async function syncSelected(): Promise<void> {
-  if (!selected.value || hasUnsavedChanges.value) return
-  syncing.value = true
+async function probeSelected(): Promise<void> {
+  if (!selected.value || blocksProbeAndSync.value) return
+  probing.value = true
   syncResult.value = null
   discoverResult.value = null
   discoverNeedsSave.value = false
   syncError.value = ''
   try {
-    const started = await adminAPI.supplierSources.discoverModels(selected.value.id)
-    const discovered = await waitDiscoverJob(selected.value.id, started)
+    const started = await adminAPI.supplierSources.probe(selected.value.id)
+    const discovered = await waitProbeJob(selected.value.id, started)
     discoverResult.value = discovered
     if (discovered.needs_confirmation) {
       applyDiscoverToForm(discovered)
       discoverNeedsSave.value = true
-      return
     }
-    syncResult.value = await adminAPI.supplierSources.sync(selected.value.id)
   } catch (error) {
     const discovered = supplierDiscoverResultFromError(error)
     if (discovered) {
       discoverResult.value = discovered
+      if (discovered.needs_confirmation) {
+        applyDiscoverToForm(discovered)
+        discoverNeedsSave.value = true
+      }
     }
+    syncError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    probing.value = false
+  }
+}
+
+async function syncSelected(): Promise<void> {
+  if (!selected.value || blocksProbeAndSync.value) return
+  syncing.value = true
+  syncResult.value = null
+  syncError.value = ''
+  try {
+    syncResult.value = await adminAPI.supplierSources.sync(selected.value.id)
+  } catch (error) {
     syncResult.value = supplierSyncResultFromError(error)
     syncError.value = error instanceof Error ? error.message : String(error)
   } finally {

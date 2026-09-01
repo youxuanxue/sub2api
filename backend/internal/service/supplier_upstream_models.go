@@ -201,8 +201,17 @@ func matchSupplierUpstreamModelID(configured string, upstream []SupplierUpstream
 	return "", false
 }
 
-func supplierUpstreamTypeProbeable(modelType string) bool {
-	switch strings.TrimSpace(strings.ToLower(modelType)) {
+func supplierUpstreamTypeProbeable(modelType string, channelType int) bool {
+	modelType = strings.TrimSpace(strings.ToLower(modelType))
+	if channelType == newapiconstant.ChannelTypeDoubaoVideo {
+		switch modelType {
+		case "", "video", "text2video":
+			return true
+		default:
+			return false
+		}
+	}
+	switch modelType {
 	case "", "chat", "multimodal", "image2text":
 		return true
 	default:
