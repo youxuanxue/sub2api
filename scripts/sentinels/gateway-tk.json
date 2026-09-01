@@ -1070,9 +1070,10 @@
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic.go",
       "must_contain": [
         "chatReq[\"metadata\"] = json.RawMessage(req.Metadata)",
-        "chatBody = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, chatBody, upstreamModel)"
+        "chatBody = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, chatBody, upstreamModel)",
+        "applyNewAPIAliFixedSamplingShape"
       ],
-      "rationale": "Anthropic-shaped requests converted to Chat Completions must preserve metadata blobs and apply unified sticky injection so Claude Code identities and session affinity survive OpenAI-compat bridge paths during scheduling."
+      "rationale": "Anthropic-shaped requests converted to Chat Completions must preserve metadata blobs and apply unified sticky injection so Claude Code identities and session affinity survive OpenAI-compat bridge paths during scheduling. They must also pin kimi-k3 fixed sampling before the Ali adaptor coerces missing top_p to 0.001."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_model_mapping.go",
@@ -1087,9 +1088,10 @@
       "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
       "must_contain": [
         "rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)",
-        "rewriteNewAPIBridgeBodyModel(account, body, \"\")"
+        "rewriteNewAPIBridgeBodyModel(account, body, \"\")",
+        "applyNewAPIAliFixedSamplingShape"
       ],
-      "rationale": "Bridge chat/embeddings/images dispatch and admin account-test probes must call rewriteNewAPIBridgeBodyModel after sticky injection so upstream model_mapping alias applies on the newapi adaptor path."
+      "rationale": "Bridge chat/embeddings/images dispatch and admin account-test probes must call rewriteNewAPIBridgeBodyModel after sticky injection so upstream model_mapping alias applies on the newapi adaptor path. Chat and account-test paths must also pin kimi-k3 fixed sampling before the Ali adaptor."
     },
     {
       "path": "backend/internal/service/openai_codex_transform.go",
