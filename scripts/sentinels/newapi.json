@@ -555,6 +555,14 @@
       "rationale": "SSOT for account-standing billing / prepaid quota death across 400/402/403. Prod 2026-08-30 tokensea-cc #93 returned 403 '用户额度不足' and only failovers (no SetError, no account-incident P0). This file owns the shared phrase list and the SetError + newapi_arrears Feishu path. 'weekly usage quota' is the negative marker so recoverable windows (account 88) must not permanently disable. Dropping the file or the tokensea phrase re-opens the prepaid-dead account staying schedulable."
     },
     {
+      "path": "backend/internal/service/newapi_bridge_arrears_tk.go",
+      "must_contain": [
+        "tkIsAccountStandingBillingFailure(\"\", body)",
+        "rls.tkTryHandleStandingBilling"
+      ],
+      "rationale": "The newapi bridge must delegate the complete 400/403 upstream envelope to the account-standing billing SSOT for both penalty and failover classification. Prod 2026-09-01 vstecscloud returned 403 insufficient_user_quota with '预扣费额度失败'; using the 429-only narrow matcher skipped SetError and the immediate newapi_arrears Feishu P0. Passing message-only here can still split penalty from failover when the billing marker lives in error.code/type. Bridge-only Arrearage metadata and narrow billing 429 handling remain compatibility fallbacks."
+    },
+    {
       "path": "backend/internal/service/account_standing_billing_tk_test.go",
       "must_contain": [
         "TestTkTryHandleStandingBilling_Tokensea403DisablesAndAlerts",
@@ -562,6 +570,15 @@
         "tokenseaQuota403Body"
       ],
       "rationale": "Regression for prepaid 额度不足 403 (prod 2026-08-30 account 93) and the weekly-quota negative. Dropping these tests lets handle403 stub-saturation failover stay green while a dead prepaid account remains schedulable."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_arrears_tk_test.go",
+      "must_contain": [
+        "TestTkHandleBridgeArrearsPenalty_VstecscloudPrepaidQuotaUsesStandingBillingSSOT",
+        "TestTkHandleBridgeArrearsPenalty_StandingBillingMarkerOutsideMessageStillFailsOver",
+        "vstecscloudPrepaidQuotaMessage"
+      ],
+      "rationale": "Regression for the real vstecscloud 403 insufficient_user_quota response shape plus a marker-outside-message boundary: the bridge must SetError, emit newapi_arrears through the account incident notifier, preserve the upstream detail, and make the same failover decision from the complete envelope."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",

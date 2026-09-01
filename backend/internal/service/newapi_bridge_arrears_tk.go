@@ -120,7 +120,11 @@ func tkIsBridgeUpstreamArrears(apiErr *newapitypes.NewAPIError) bool {
 			return true
 		}
 	}
-	return tkIsBridgeUpstreamArrearsBillingMessage(msg)
+	// 400/403 account-standing balance/quota text is owned by the shared
+	// matcher. Keep bridge-only Arrearage metadata above, but do not duplicate
+	// provider phrases here (vstecscloud insufficient_user_quota is one such
+	// 403 shape).
+	return tkIsAccountStandingBillingFailure("", body)
 }
 
 // tkIsBridgeUpstreamArrearsBillingMessage is the 429-safe standing-failure set.
@@ -168,13 +172,21 @@ func tkBridgeArrearsDetail(apiErr *newapitypes.NewAPIError) string {
 }
 
 // tkHandleBridgeArrearsPenalty applies the account-level penalty for an upstream
-// arrears 400 and emits the immediate P0 Feishu alert. Returns true when it
-// handled the error (caller must NOT then run the generic status-allowlist
-// penalty). The account-state write survives client cancellation via
-// openAIAccountStateContext (context.WithoutCancel), like the sibling penalty.
+// standing-billing failure and emits the immediate P0 Feishu alert. Shared
+// prepaid/balance text delegates to tkTryHandleStandingBilling; bridge-only
+// Arrearage and billing-429 shapes retain the compatibility fallback below.
+// Returns true when handled (caller must not run the generic status allowlist).
 func tkHandleBridgeArrearsPenalty(ctx context.Context, rls *RateLimitService, account *Account, apiErr *newapitypes.NewAPIError) bool {
 	if rls == nil || account == nil || apiErr == nil {
 		return false
+	}
+	body := tkBridgeUpstreamErrorBody(apiErr)
+	// Balance/prepaid standing failures use the same owner as native gateway
+	// errors: one matcher, SetError policy, incident reason and Feishu P0 path.
+	// Bridge-only Arrearage metadata and the deliberately narrow billing 429
+	// compatibility remain below.
+	if rls.tkTryHandleStandingBilling(ctx, account, apiErr.StatusCode, body) {
+		return true
 	}
 	if !tkIsBridgeUpstreamArrears(apiErr) {
 		return false
