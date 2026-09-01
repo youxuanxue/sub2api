@@ -260,6 +260,26 @@ func TestVideoRequestedSeconds(t *testing.T) {
 	}
 }
 
+func TestVideoBillingSecondsForAccount(t *testing.T) {
+	fmgo := &service.Account{
+		Platform:    service.PlatformNewAPI,
+		Type:        service.AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeDoubaoVideo,
+		Credentials: map[string]any{"base_url": newapiintegration.FMGoBaseURL},
+	}
+	ark := &service.Account{
+		Platform:    service.PlatformNewAPI,
+		Type:        service.AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeDoubaoVideo,
+		Credentials: map[string]any{"base_url": "https://ark.cn-beijing.volces.com"},
+	}
+
+	require.Equal(t, int64(newapiintegration.FMGoDefaultDuration), videoBillingSecondsForAccount(fmgo, []byte(`{"model":"doubao-seedance-2-0-260128"}`)))
+	require.Equal(t, int64(8), videoBillingSecondsForAccount(ark, []byte(`{"model":"doubao-seedance-2-0-260128"}`)))
+	require.Equal(t, int64(6), videoBillingSecondsForAccount(fmgo, []byte(`{"duration":6}`)))
+	require.Equal(t, int64(newapiintegration.FMGoDefaultDuration), videoBillingSecondsForAccount(fmgo, []byte(`{"duration":0}`)))
+}
+
 func TestVideoSubmitHasVideoInput(t *testing.T) {
 	cases := []struct {
 		name string

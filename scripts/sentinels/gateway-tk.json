@@ -2945,6 +2945,7 @@
       "path": "backend/internal/handler/openai_gateway_tk_video.go",
       "must_contain": [
         "videoRequestedSeconds",
+        "videoBillingSecondsForAccount",
         "VideoSubmitBillingParamsFromBody",
         "VideoDurationSeconds",
         "VideoResolution:      videoBilling.Resolution",
@@ -2956,7 +2957,16 @@
         "TkVideoModelUnpriced",
         "videoDurationBelowProviderMinimum"
       ],
-      "rationale": "Per-second video billing: VideoSubmitBillingParamsFromBody resolves resolution/audio/image-input once and the explicit ForwardResult assignments carry those exact dimensions into settlement; dropping any one silently flattens tier billing even when submit still succeeds. videoRequestedSeconds anchors duration, RefundVideoUsageOnFailure anchors terminal-failed refund, and videoSubmitHasVideoInput anchors the unpriced video-input reject guard. videoDurationBelowProviderMinimum keeps XRToken's four-second floor local and before paid upstream dispatch."
+      "rationale": "Per-second video billing: VideoSubmitBillingParamsFromBody resolves resolution/audio/image-input once and the explicit ForwardResult assignments carry those exact dimensions into settlement; dropping any one silently flattens tier billing even when submit still succeeds. videoBillingSecondsForAccount resolves provider-specific omitted-duration semantics after account selection and before the hold, while videoRequestedSeconds anchors the shared explicit-duration parser. RefundVideoUsageOnFailure anchors terminal-failed refund, videoSubmitHasVideoInput anchors the unpriced video-input reject guard, and videoDurationBelowProviderMinimum keeps XRToken's four-second floor local and before paid upstream dispatch."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_tk_video_test.go",
+      "must_contain": [
+        "TestVideoBillingSecondsForAccount",
+        "FMGoDefaultDuration",
+        "https://ark.cn-beijing.volces.com"
+      ],
+      "rationale": "The same public Seedance model can route to FMGo or official Ark. This regression locks FMGo's omitted duration to the adaptor-owned 15 seconds while preserving the shared 8-second default for Ark, and proves explicit durations still win."
     },
     {
       "path": "backend/internal/service/billing_service_tk_video_test.go",
@@ -7624,9 +7634,13 @@
         "protocol != \"account_test\" && protocol != \"openai_chat_completions\"",
         "SupplierProbeStatusProtocolUnsupported",
         "return \"openai_responses\"",
-        "return \"anthropic_messages\""
+        "return \"anthropic_messages\"",
+        "supplierFMGoChatProbeBody",
+        "fmgo_chat_completions",
+        "respond-async",
+        "FMGoChatCompletionsPath"
       ],
-      "rationale": "Version-one supplier probing is intentionally fixed to OpenAI Chat. Even successful Responses or Anthropic Messages evidence must fail closed as protocol_unsupported instead of silently expanding the production transport surface."
+      "rationale": "Version-one supplier probing is intentionally fixed to OpenAI Chat. Even successful Responses or Anthropic Messages evidence must fail closed as protocol_unsupported instead of silently expanding the production transport surface. FMGo ch54 is the exception that still uses official async chat-completions video dialect (not hi-Chat fake success, not /v1/video/generations)."
     },
     {
       "path": "backend/internal/service/account_test_service_supplier_probe_test.go",
@@ -7636,9 +7650,12 @@
         "TestUS048_SupplierManagedOpenAIEndpointDoesNotDuplicateV1",
         "TestUS048_SupplierProbeDoesNotLogRawUpstreamError",
         "TestUS048_SupplierProbeClassifiesEventsWithoutPersistingUpstreamDetail",
-        "successful non-chat protocol remains unsupported"
+        "successful non-chat protocol remains unsupported",
+        "TestUS048_FMGoVideoProbeURLUsesChatCompletions",
+        "TestUS048_FMGoChatProbeBodyMatchesOfficialDialect",
+        "TestUS048_VideoProbeAcceptsHTTP202"
       ],
-      "rationale": "Probe regressions pin in-memory execution, the managed identity's single Chat capability, supplier-only trailing-/v1 normalization, raw-upstream log redaction, fixed public result details, and non-Chat failure closure without persisting an account or upstream response body."
+      "rationale": "Probe regressions pin in-memory execution, the managed identity's single Chat capability, supplier-only trailing-/v1 normalization, raw-upstream log redaction, fixed public result details, and non-Chat failure closure without persisting an account or upstream response body. FMGo video probe must hit official chat completions, carry the vendor video body, and accept HTTP 202."
     },
     {
       "path": "backend/internal/service/supplier_managed_account_guard.go",

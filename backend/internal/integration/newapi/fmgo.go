@@ -9,8 +9,14 @@ import (
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 )
 
-// FMGoBaseURL is the canonical FMGo (feimiao) API root.
-const FMGoBaseURL = "https://www.fmgo.top"
+// FMGoBaseURL is the canonical FMGo (feimiao) API root from the vendor guide.
+const FMGoBaseURL = "https://api.fmgo.top"
+
+// FMGo chat-completions video dialect (feimiao-v2 / feimiao-v2-fast).
+const (
+	FMGoChatCompletionsPath = "/v1/chat/completions"
+	FMGoTaskPathPrefix      = "/v1/tasks"
+)
 
 // Official Seedance 2.0 client ids TokenKey exposes. Runtime rewrite on the
 // FMGo video adaptor turns these into feimiao-v2[-fast]-{res}-{dur}s SKUs.
@@ -32,7 +38,10 @@ var (
 		"720p": {},
 	}
 	fmgoDurations = map[int]struct{}{
-		8: {}, 10: {}, 12: {}, 15: {},
+		6: {}, 8: {}, 10: {}, 12: {}, 15: {},
+	}
+	fmgoAspectRatios = map[string]struct{}{
+		"16:9": {}, "9:16": {}, "1:1": {}, "2:3": {}, "3:2": {},
 	}
 )
 
@@ -46,7 +55,7 @@ func IsFMGoBaseURL(channelType int, base string) bool {
 }
 
 // NormalizeFMGoBaseURL collapses accepted FMGo spellings to the canonical root.
-// Accepts www.fmgo.top and fmgo.top, with or without a trailing /v1.
+// Accepts api.fmgo.top, www.fmgo.top, and fmgo.top, with or without a trailing /v1.
 // Non-FMGo hosts pass through unchanged.
 func NormalizeFMGoBaseURL(base string) string {
 	base = strings.TrimRight(strings.TrimSpace(base), "/")
@@ -73,7 +82,16 @@ func isFMGoHost(host string) bool {
 	host = strings.TrimPrefix(host, "https://")
 	host = strings.TrimPrefix(host, "http://")
 	host = strings.TrimSuffix(host, "/")
-	return host == "www.fmgo.top" || host == "fmgo.top"
+	return host == "api.fmgo.top" || host == "www.fmgo.top" || host == "fmgo.top"
+}
+
+// NormalizeFMGoAspectRatio returns a vendor-legal ratio, or 16:9 when absent/unknown.
+func NormalizeFMGoAspectRatio(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if _, ok := fmgoAspectRatios[raw]; ok {
+		return raw
+	}
+	return "16:9"
 }
 
 // IsFMGoSeedanceClient reports a TokenKey-facing official Seedance 2.0 id.

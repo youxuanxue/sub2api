@@ -127,18 +127,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	}
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
-	// TK: pre-flight balance hold (concurrent-overdraft fix; see
-	// openai_gateway_handler_tk_hold.go). Video reserves the exact submit-time
-	// cost (same request-derived seconds the billing path uses); refund
-	// ownership is handed to the usage-record task at submit time. Balance
-	// users only.
 	videoBilling := service.VideoSubmitBillingParamsFromBody(body)
-	hold, holdReject := h.tkApplyVideoHold(c, apiKey, reqModel, videoRequestedSeconds(body), videoBilling)
-	if holdReject {
-		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
-		return
-	}
-	defer hold.ReleaseUnlessSettling()
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -199,6 +188,19 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	openAIMarkAffinitySelected(c, groupName, account.ID)
 
 	service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
+
+	// The public Seedance IDs can route to several ch54 providers, whose omitted
+	// duration defaults differ. Resolve the billing duration only after account
+	// selection, then reserve before any paid upstream request. The same value is
+	// handed to settlement below so hold, generation, and recorded usage agree.
+	videoSeconds := videoBillingSecondsForAccount(account, body)
+	hold, holdReject := h.tkApplyVideoHold(c, apiKey, reqModel, videoSeconds, videoBilling)
+	if holdReject {
+		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
+		return
+	}
+	defer hold.ReleaseUnlessSettling()
+
 	forwardStart := time.Now()
 
 	// Generate the public task id BEFORE dispatch so the bridge can stamp it
@@ -278,11 +280,8 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 
 	userAgent := c.GetHeader("User-Agent")
 	clientIP := ip.GetClientIP(c)
-	// Per-second video billing (veo etc.): we record at submit using the requested
-	// duration (default 8s) rather than at fetch — the submit path already holds the
-	// full billing context (apiKey/user/account/subscription), and 8s is veo's
-	// conservative max so we never under-charge when the field is omitted.
-	videoSeconds := videoRequestedSeconds(body)
+	// Per-second video billing is recorded at submit rather than fetch. The
+	// account-resolved duration above is also what the pre-flight hold reserved.
 	tkHoldRequestID := hold.HandOffToSettlement()
 	gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
 	h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
@@ -529,6 +528,17 @@ func generateVideoTaskID() string {
 // conservative 8s (veo's max) so per-second billing never under-charges when the client
 // omits the field; clamped to a sane [1,60] range.
 func videoRequestedSeconds(body []byte) int64 {
+	return videoRequestedSecondsOrDefault(body, 8)
+}
+
+func videoBillingSecondsForAccount(account *service.Account, body []byte) int64 {
+	if account != nil && newapiintegration.IsFMGoBaseURL(account.ChannelType, account.GetBaseURL()) {
+		return videoRequestedSecondsOrDefault(body, int64(newapiintegration.FMGoDefaultDuration))
+	}
+	return videoRequestedSeconds(body)
+}
+
+func videoRequestedSecondsOrDefault(body []byte, defaultSeconds int64) int64 {
 	for _, key := range []string{"seconds", "duration_seconds", "duration"} {
 		r := gjson.GetBytes(body, key)
 		if !r.Exists() {
@@ -544,7 +554,7 @@ func videoRequestedSeconds(body []byte) int64 {
 			return n
 		}
 	}
-	return 8
+	return defaultSeconds
 }
 
 // videoSubmitHasVideoInput reports whether a video submit body carries a

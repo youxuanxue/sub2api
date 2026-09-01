@@ -14,10 +14,12 @@ func TestIsFMGoBaseURL(t *testing.T) {
 		base        string
 		want        bool
 	}{
+		{"ch54 api", newapiconstant.ChannelTypeDoubaoVideo, "https://api.fmgo.top", true},
 		{"ch54 www", newapiconstant.ChannelTypeDoubaoVideo, "https://www.fmgo.top", true},
 		{"ch54 www /v1", newapiconstant.ChannelTypeDoubaoVideo, "https://www.fmgo.top/v1", true},
 		{"ch54 apex", newapiconstant.ChannelTypeDoubaoVideo, "https://fmgo.top", true},
 		{"ch1 www", 1, "https://www.fmgo.top", false},
+		{"ch1 api", 1, "https://api.fmgo.top", false},
 		{"ch54 ark", newapiconstant.ChannelTypeDoubaoVideo, "https://ark.cn-beijing.volces.com", false},
 		{"empty", newapiconstant.ChannelTypeDoubaoVideo, "", false},
 	}
@@ -45,6 +47,7 @@ func TestFMGoSeedanceUpstreamSKU(t *testing.T) {
 		{"fast defaults", FMGoSeedanceFastClientID, "", 0, "feimiao-v2-fast-720p-15s", false},
 		{"explicit", FMGoSeedanceClientID, "720p", 10, "feimiao-v2-720p-10s", false},
 		{"480p 8s", FMGoSeedanceClientID, "480p", 8, "feimiao-v2-480p-8s", false},
+		{"6s", FMGoSeedanceClientID, "720p", 6, "feimiao-v2-720p-6s", false},
 		{"fast 12s", FMGoSeedanceFastClientID, "720p", 12, "feimiao-v2-fast-720p-12s", false},
 		{"reject 1080p", FMGoSeedanceClientID, "1080p", 10, "", true},
 		{"reject 4k", FMGoSeedanceClientID, "4k", 10, "", true},
@@ -69,6 +72,37 @@ func TestFMGoSeedanceUpstreamSKU(t *testing.T) {
 				t.Fatalf("sku = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeFMGoBaseURL(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []string{
+		"https://api.fmgo.top",
+		"https://api.fmgo.top/v1",
+		"https://www.fmgo.top",
+		"https://www.fmgo.top/v1/",
+		"https://fmgo.top",
+	} {
+		if got := NormalizeFMGoBaseURL(raw); got != FMGoBaseURL {
+			t.Fatalf("NormalizeFMGoBaseURL(%q) = %q, want %q", raw, got, FMGoBaseURL)
+		}
+	}
+	if got := NormalizeFMGoBaseURL("https://ark.cn-beijing.volces.com"); got != "https://ark.cn-beijing.volces.com" {
+		t.Fatalf("non-FMGo host must pass through, got %q", got)
+	}
+}
+
+func TestNormalizeFMGoAspectRatio(t *testing.T) {
+	t.Parallel()
+	if got := NormalizeFMGoAspectRatio("9:16"); got != "9:16" {
+		t.Fatalf("legal ratio = %q", got)
+	}
+	if got := NormalizeFMGoAspectRatio(""); got != "16:9" {
+		t.Fatalf("empty ratio must default to 16:9, got %q", got)
+	}
+	if got := NormalizeFMGoAspectRatio("21:9"); got != "16:9" {
+		t.Fatalf("unknown ratio must default to 16:9, got %q", got)
 	}
 }
 
