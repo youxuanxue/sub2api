@@ -339,7 +339,7 @@ func TestForwardAsAnthropic_ForceChatCompletionsEmptyStreamFailsOver(t *testing.
 	var failoverErr *UpstreamFailoverError
 	require.True(t, errors.As(err, &failoverErr))
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
-	require.True(t, failoverErr.SafeToFailoverAfterWrite)
+	require.False(t, failoverErr.SafeToFailoverAfterWrite, "no-write failure must retain the full failover budget")
 	require.True(t, IsOpenAISilentRefusalErrorBody(failoverErr.ResponseBody))
 	require.False(t, c.Writer.Written(), "empty attempt must remain replayable")
 	require.Empty(t, rec.Body.String(), "empty attempt must not synthesize end_turn")

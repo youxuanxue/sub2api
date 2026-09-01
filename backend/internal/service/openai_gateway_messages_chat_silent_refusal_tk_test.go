@@ -45,7 +45,7 @@ func TestMessagesChatSilentRefusal_RoleOnlyStopFailsOver(t *testing.T) {
 	require.Nil(t, result)
 	var failoverErr *UpstreamFailoverError
 	require.True(t, errors.As(err, &failoverErr))
-	require.True(t, failoverErr.SafeToFailoverAfterWrite)
+	require.False(t, failoverErr.SafeToFailoverAfterWrite, "no-write failure must retain the full failover budget")
 	require.True(t, IsOpenAISilentRefusalErrorBody(failoverErr.ResponseBody))
 	require.False(t, c.Writer.Written())
 	require.Empty(t, rec.Body.String())
@@ -81,6 +81,39 @@ func TestMessagesChatSilentRefusal_UsageOnlyStreamSucceeds(t *testing.T) {
 	require.Equal(t, 4, result.Usage.InputTokens)
 	require.Zero(t, result.Usage.OutputTokens)
 	require.Contains(t, rec.Body.String(), `"input_tokens":4`)
+	require.Contains(t, rec.Body.String(), "event: message_stop")
+}
+
+func TestMessagesChatSilentRefusal_EmptyLengthStreamSucceeds(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.4","max_tokens":8,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstreamBody := strings.Join([]string{
+		`data: {"id":"chatcmpl_length","object":"chat.completion.chunk","model":"gpt-5.4","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"chatcmpl_length","object":"chat.completion.chunk","model":"gpt-5.4","choices":[{"index":0,"delta":{},"finish_reason":"length"}]}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_msg_chat_length"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, forceChatMessagesFallbackAccount(), body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Zero(t, result.Usage.InputTokens)
+	require.Zero(t, result.Usage.OutputTokens)
+	require.Contains(t, rec.Body.String(), `"stop_reason":"max_tokens"`)
 	require.Contains(t, rec.Body.String(), "event: message_stop")
 }
 

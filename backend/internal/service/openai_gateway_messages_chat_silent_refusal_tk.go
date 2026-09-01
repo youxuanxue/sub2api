@@ -43,10 +43,13 @@ func (s *messagesChatAnthropicOutputStage) Finalize(
 	if !s.semanticOutputReleased && !finalHasSemanticOutput &&
 		!openAIUsageHasTokens(&usage) && messagesChatEmptyFinishIsSilentRefusal(state.FinishReason) {
 		failoverErr := newOpenAISilentRefusalFailoverError(s.c, account, requestID)
-		// Every bridge event is still staged. Bytes already written can only be
-		// header-wait pings, so the OpenAI handler may safely switch accounts on
-		// the same client stream.
-		failoverErr.SafeToFailoverAfterWrite = true
+		// Every bridge event is still staged. If bytes were written, they can only
+		// be header-wait pings, so the handler may safely switch accounts on the
+		// same client stream. Leave the marker false before any write so ordinary
+		// empty attempts retain the full account-failover budget.
+		if s.c.Writer.Written() {
+			failoverErr.SafeToFailoverAfterWrite = true
+		}
 		return failoverErr
 	}
 	s.emit(finalEvents, true)
