@@ -54,8 +54,14 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		}
 	}
 
-	if result, routed, err := s.tkTryRouteForwardAsAnthropic(ctx, c, account, body, defaultMappedModel); routed {
-		return result, err
+	// A bound protocol plan is immutable. In particular, a Responses plan must
+	// not be reclassified by the legacy TokenKey account flags below: doing so
+	// pairs a Chat Completions converter with the plan-selected /v1/responses
+	// endpoint and can synthesize an empty Anthropic end_turn response.
+	if !protocolExecutionBound(ctx) {
+		if result, routed, err := s.tkTryRouteForwardAsAnthropic(ctx, c, account, body, defaultMappedModel); routed {
+			return result, err
+		}
 	}
 
 	startTime := time.Now()

@@ -369,6 +369,76 @@ func TestProtocolExecutionPlanOverridesLegacyMessagesRouting(t *testing.T) {
 	}
 }
 
+func TestProtocolResponsesPlanOverridesLegacyDualStackMessagesRouting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, stream := range []bool{false, true} {
+		stream := stream
+		t.Run(map[bool]string{false: "non_stream", true: "stream"}[stream], func(t *testing.T) {
+			body := []byte(`{"model":"gpt-5.4","max_tokens":8,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
+			if stream {
+				body = []byte(`{"model":"gpt-5.4","max_tokens":8,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
+			}
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+			upstream := &protocolTargetHTTPUpstream{responses: []*http.Response{
+				protocolRouteContractResponse(protocolRouteSpecByAdapter(t, protocolrouter.AdapterMessagesToResponses)),
+			}}
+			svc := protocolTargetTestService(upstream)
+			account := protocolTargetTestAccount(
+				protocolrouter.ProtocolMessages,
+				protocolrouter.ProtocolChatCompletions,
+				protocolrouter.ProtocolResponses,
+			)
+			account.Name = "openai-us4"
+			account.Extra[openai_compat.ExtraKeyResponsesSupported] = true
+			account.Extra[openai_compat.ExtraKeyNativeMessagesSupported] = true
+
+			value, err := protocolTargetTestExecution(t, protocolrouter.ProtocolMessages, body, account, func(
+				executionCtx context.Context,
+				account *Account,
+				plan protocolrouter.Plan,
+				request protocolrouter.CanonicalRequest,
+			) (any, error) {
+				if plan.TargetProtocol() != protocolrouter.ProtocolResponses || plan.AdapterID() != protocolrouter.AdapterMessagesToResponses {
+					t.Fatalf("plan target/adapter = %q/%q, want responses/%s", plan.TargetProtocol(), plan.AdapterID(), protocolrouter.AdapterMessagesToResponses)
+				}
+				return svc.ForwardAsAnthropic(executionCtx, c, account, request.Body(), "", "")
+			})
+			if err != nil {
+				t.Fatalf("ExecuteSelectedProtocol: %v", err)
+			}
+			result, ok := value.(*OpenAIForwardResult)
+			if !ok || result == nil {
+				t.Fatalf("result type = %T, want *OpenAIForwardResult", value)
+			}
+			if len(upstream.requests) != 1 {
+				t.Fatalf("upstream requests = %d, want 1", len(upstream.requests))
+			}
+			request := upstream.requests[0]
+			if got := request.URL.String(); got != "http://upstream.example/v1/responses" {
+				t.Fatalf("upstream URL = %q, want plan-selected Responses endpoint", got)
+			}
+			wireBody := readProtocolTargetRequestBody(t, request)
+			if !gjson.GetBytes(wireBody, "input").Exists() || gjson.GetBytes(wireBody, "messages").Exists() {
+				t.Fatalf("upstream body is not Responses-shaped: %s", wireBody)
+			}
+			if stream {
+				if !strings.Contains(recorder.Body.String(), `"text":"ok"`) || !strings.Contains(recorder.Body.String(), "event: message_stop") {
+					t.Fatalf("streaming Anthropic response lost Responses output: %s", recorder.Body.String())
+				}
+			} else {
+				if got := gjson.Get(recorder.Body.String(), "content.0.text").String(); got != "ok" {
+					t.Fatalf("buffered Anthropic response text = %q, want ok; body=%s", got, recorder.Body.String())
+				}
+				if got := gjson.Get(recorder.Body.String(), "usage.output_tokens").Int(); got != 1 {
+					t.Fatalf("buffered Anthropic output_tokens = %d, want 1; body=%s", got, recorder.Body.String())
+				}
+			}
+		})
+	}
+}
+
 func TestProtocolMessagesIdentityUsesNativeAnthropicCredentialContractForCNAccount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"model":"claude-client","max_tokens":8,"messages":[{"role":"user","content":"hello"}],"stream":false}`)

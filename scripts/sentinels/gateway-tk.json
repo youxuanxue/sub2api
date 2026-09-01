@@ -1175,6 +1175,25 @@
       "rationale": "TK /v1/messages entry routing (tokensea native /v1/messages, CC fallback, CN providers) and OAuth prompt-cache conversation_id cleanup extracted to companion. OpenAI APIKey dual-stack relays (tokensea/cloudwise) branch to native /v1/messages passthrough for claude-* models; tokensea #92 must do this even when extra.openai_native_messages_supported is a false-negative (GPT probe timeout). Non-Claude models (MiniMax-M3, glm-5) must fall back to raw chat completions like /v1/responses. The newAPIBridgeOwnsAnthropicMessages guard MUST stay the FIRST branch: inbound /v1/messages reaches ForwardAsAnthropic directly from the handler, so without it a bridge-eligible newapi account falls through the last predicate into the OpenAI-shaped CC fallback, whose base URL resolves to \"\" for platform=newapi and defaults to api.openai.com while still sending the real channel key (Qwen/Qwen-2/Qwen-4, 2026-08-24). Dropping it compiles clean and silently re-leaks the credential."
     },
     {
+      "path": "backend/internal/service/openai_gateway_messages.go",
+      "must_contain": [
+        "if !protocolExecutionBound(ctx) {",
+        "if result, routed, err := s.tkTryRouteForwardAsAnthropic(ctx, c, account, body, defaultMappedModel); routed {"
+      ],
+      "rationale": "A scheduler-bound ProtocolResponses plan is immutable and must bypass legacy TokenKey Messages account-flag routing. If this guard is removed, dual-stack OpenAI mirror accounts can pair the Chat Completions converter with the plan-selected /v1/responses endpoint: streaming requests fail as empty Chat streams, while Claude Code's non-streaming fallback can be synthesized into an empty Anthropic end_turn and report false success."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution_target_test.go",
+      "must_contain": [
+        "func TestProtocolResponsesPlanOverridesLegacyDualStackMessagesRouting(t *testing.T) {",
+        "protocolrouter.AdapterMessagesToResponses",
+        "account.Extra[openai_compat.ExtraKeyNativeMessagesSupported] = true",
+        "upstream body is not Responses-shaped",
+        "buffered Anthropic response text = %q, want ok"
+      ],
+      "rationale": "Incident-shaped regression for Claude Code on an OpenAI mirror account advertising messages, chat_completions, and responses while both native-Messages and Responses legacy flags are true. Both client stream modes must keep the planned Responses endpoint/body and preserve semantic text plus usage; otherwise streaming failure followed by Claude Code non-stream fallback can regress to false done."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_messages_native.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(",
