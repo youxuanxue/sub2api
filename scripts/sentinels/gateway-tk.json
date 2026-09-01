@@ -2766,7 +2766,7 @@
         "\"account_bulk_changed\"",
         "\"group_changed\"",
         "def _is_supplier_managed_account(",
-        "'supplier_source_id', a.extra->>'supplier_source_id'",
+        "'supplier_source_id_present', COALESCE(a.extra ? 'supplier_source_id', false)",
         "if _is_supplier_managed_account(row):"
       ],
       "must_not_contain": [

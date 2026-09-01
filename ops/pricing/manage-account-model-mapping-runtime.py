@@ -111,7 +111,7 @@ SELECT jsonb_build_object(
       'base_url', a.credentials->>'base_url',
       'auth_mode', a.credentials->>'auth_mode',
       'vertex_capability_profile', a.credentials->>'vertex_capability_profile',
-      'supplier_source_id', a.extra->>'supplier_source_id'
+      'supplier_source_id_present', COALESCE(a.extra ? 'supplier_source_id', false)
     ) ORDER BY a.platform, a.id)
     FROM accounts a
     WHERE a.deleted_at IS NULL
@@ -689,15 +689,11 @@ def _vertex_profile_issue(row: dict[str, Any], floor: dict[str, Any]) -> str | N
 def _is_supplier_managed_account(row: dict[str, Any]) -> bool:
     """True when Extra.supplier_source_id marks supplier Sync as mapping owner.
 
-    Presence of a non-empty value is enough (matches Go IsSupplierManagedAccount).
+    SQL projects JSONB key presence so even a malformed JSON null value matches
+    Go IsSupplierManagedAccount's fail-closed ownership rule.
     Floor check/apply must not expand these rows to a platform/channel floor.
     """
-    raw = (row or {}).get("supplier_source_id")
-    if raw is None:
-        return False
-    if isinstance(raw, str):
-        return bool(raw.strip())
-    return True
+    return (row or {}).get("supplier_source_id_present") is True
 
 
 def _account_plan(
@@ -848,6 +844,8 @@ def _check_target(
         return violations, [], runtime_present
     floor = _load_effective_floor(runtime_raw)
     for row in bundle.get("accounts") or []:
+        if _is_supplier_managed_account(row):
+            continue
         plan = _account_plan(row, floor)
         if plan:
             plan["target"] = label
@@ -2070,22 +2068,30 @@ def cmd_selftest(_args) -> int:
         "type": "apikey",
         "channel_type": 45,
         "base_url": "https://qianfan.baidubce.com",
-        "supplier_source_id": "7",
+        "supplier_source_id_present": True,
         "model_mapping": {
             "deepseek-v4-flash": "deepseek-v4-flash",
             "deepseek-v4-pro": "deepseek-v4-pro",
         },
     }
     assert _is_supplier_managed_account(supplier_subset)
-    assert not _is_supplier_managed_account({**supplier_subset, "supplier_source_id": None})
-    assert not _is_supplier_managed_account({**supplier_subset, "supplier_source_id": ""})
+    # SQL key-presence projection stays true even when the JSON value is null.
+    assert _is_supplier_managed_account({**supplier_subset, "supplier_source_id_present": True})
+    assert not _is_supplier_managed_account({**supplier_subset, "supplier_source_id_present": False})
+    assert "COALESCE(a.extra ? 'supplier_source_id', false)" in ACCOUNT_MODEL_MAPPING_CHECK_SQL
     assert _account_plan(supplier_subset, floor) is None
-    assert _account_plan({**supplier_subset, "supplier_source_id": None}, floor) is not None
+    assert _account_plan({**supplier_subset, "supplier_source_id_present": False}, floor) is not None
+    supplier_vertex = {
+        **supplier_subset,
+        "id": 105,
+        "channel_type": 41,
+        "vertex_capability_profile": "",
+    }
     original_run_check_sql_json = globals()["_run_check_sql_json"]
     original_load_effective_floor = globals()["_load_effective_floor"]
     globals()["_run_check_sql_json"] = lambda _region, _instance_id, _label: {
         "runtime_setting": None,
-        "accounts": [supplier_subset, {
+        "accounts": [supplier_subset, supplier_vertex, {
             "id": 2,
             "platform": "openai",
             "type": "oauth",
@@ -2101,12 +2107,15 @@ def cmd_selftest(_args) -> int:
     try:
         check_violations, _, _ = _check_target("prod", "test-region", "i-test")
         assert all(int(v.get("id") or 0) != 104 for v in check_violations)
+        assert all(int(v.get("id") or 0) != 105 for v in check_violations)
         assert any(int(v.get("id") or 0) == 2 for v in check_violations)
         apply_plan = _collect_apply_plan(
-            "prod", "test-region", "i-test", account_ids=[104, 2],
+            "prod", "test-region", "i-test", account_ids=[104, 105, 2],
         )
         assert 104 in apply_plan["skipped_ids"]
+        assert 105 in apply_plan["skipped_ids"]
         assert 104 not in apply_plan["changed_ids"]
+        assert 105 not in apply_plan["changed_ids"]
         assert 2 in apply_plan["changed_ids"]
     finally:
         globals()["_run_check_sql_json"] = original_run_check_sql_json
