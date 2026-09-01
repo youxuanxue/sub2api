@@ -38,6 +38,9 @@ de-duplication and Go-map splicing. Do not reproduce those algorithms in this sk
   in skill text.
 - Probe results for a platform that is not supported by the automatic splice remain
   review evidence; do not manually reinterpret them as an automatic catalog write.
+- Antigravity literal chat-vs-`generateContent` diagnosis uses
+  `probe-antigravity-gemini25pro-literal.sh`; its output is review evidence only and never
+  enters the automatic splice.
 - Paid or high-cost media probes must be limited to models actually under review.
 - Review unexpected bulk additions/removals before opening a PR. Merge authorization stays
   with a human.

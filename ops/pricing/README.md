@@ -34,6 +34,7 @@ No tool in this directory may collapse those owners into a persistent `deliverab
 | `probe-servable-models.sh` | Minimal real requests with machine-readable verdicts. |
 | `probe_reserved_resources.sh` | Guarded reusable probe groups/keys and cleanup. |
 | `probe-traffic-proven-models.sh` | Positive-only recent traffic evidence. |
+| `probe-antigravity-gemini25pro-literal.sh` | Focused Antigravity chat-vs-v1beta diagnostic; review evidence only. |
 | `manage-account-model-mapping-runtime.py` | Validate, inspect and explicitly converge reviewed runtime/account mapping state. |
 | `../newapi/apply-model-mapping-live.py remove-live` | Guarded emergency removal only; cannot add or rewrite mapping keys. |
 | `model_surface_bundle.py` | Bundle schema and digest validation; owns no model list. |
