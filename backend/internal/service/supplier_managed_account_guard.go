@@ -7,12 +7,30 @@ import (
 // IsSupplierManagedAccount reports whether Extra carries the supplier_source_id
 // marker used by supplier-source sync and admin UI badges. Presence alone is
 // enough (fail closed on malformed values).
+//
+// Do NOT use this alone on gateway/scheduler hot paths: scheduler Extra
+// intentionally omits supplier_source_id. Prefer
+// HasSupplierManagedTransportIdentity for transport exceptions that must also
+// work on scheduler-cache-shaped accounts.
 func IsSupplierManagedAccount(account *Account) bool {
 	if account == nil || account.Extra == nil {
 		return false
 	}
 	_, exists := account.Extra[SupplierSourceIDExtraKey]
 	return exists
+}
+
+// HasSupplierManagedTransportIdentity is the SSOT for supplier-managed
+// transport exceptions on gateway/scheduler hot paths.
+//
+// Primary signal: credentials.protocol_endpoints_exclusive (kept by scheduler
+// cache; identity uses account credentials, not Extra.supplier_source_id).
+// Fallback: Extra.supplier_source_id on full DB-loaded accounts.
+func HasSupplierManagedTransportIdentity(account *Account) bool {
+	if accountDeclaresExclusiveProtocolEndpoints(account) {
+		return true
+	}
+	return IsSupplierManagedAccount(account)
 }
 
 // ValidateSupplierReservedAccountExtra rejects forging supplier ownership keys

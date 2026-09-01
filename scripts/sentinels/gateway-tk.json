@@ -7547,12 +7547,33 @@
       "rationale": "Probe regressions pin in-memory execution, the managed identity's single Chat capability, supplier-only trailing-/v1 normalization, raw-upstream log redaction, fixed public result details, and non-Chat failure closure without persisting an account or upstream response body."
     },
     {
+      "path": "backend/internal/service/supplier_managed_account_guard.go",
+      "must_contain": [
+        "func HasSupplierManagedTransportIdentity(account *Account) bool",
+        "accountDeclaresExclusiveProtocolEndpoints(account)",
+        "Do NOT use this alone on gateway/scheduler hot paths"
+      ],
+      "rationale": "SSOT for supplier transport exceptions on hot paths: credentials.protocol_endpoints_exclusive survives scheduler Extra filtering; Extra.supplier_source_id does not. Call sites must not re-invent IsSupplierManagedAccount || exclusive inline."
+    },
+    {
       "path": "backend/internal/service/newapi_bridge_usage.go",
       "must_contain": [
-        "if account.ChannelType == newapiconstant.ChannelTypeOpenAI && IsSupplierManagedAccount(account) {",
+        "shouldNormalizeNewAPIOpenAIChannelBaseURL(account)",
+        "HasSupplierManagedTransportIdentity(account)",
         "baseURL = normalizeNewAPIOpenAIChannelBaseURL(baseURL)"
       ],
-      "rationale": "Trailing-/v1 normalization is a supplier-managed transport exception, not a global NewAPI OpenAI behavior change. The supplier_source_id ownership marker must remain part of the condition so ordinary accounts keep their stored base URL untouched."
+      "must_not_contain": [
+        "IsSupplierManagedAccount(account) || accountDeclaresExclusiveProtocolEndpoints(account)"
+      ],
+      "rationale": "Trailing-/v1 normalization must go through shouldNormalizeNewAPIOpenAIChannelBaseURL → HasSupplierManagedTransportIdentity so plan-time scheduler accounts and execution-time reloads agree. Ordinary unmanaged OpenAI NewAPI accounts without exclusive keep their stored base URL."
+    },
+    {
+      "path": "backend/internal/service/supplier_managed_account_guard_test.go",
+      "must_contain": [
+        "TestHasSupplierManagedTransportIdentity_SchedulerSafeSSOT",
+        "exclusive credential alone must light the hot-path transport identity"
+      ],
+      "rationale": "Pins the SSOT matrix: exclusive-only (scheduler-shaped), Extra-only (full DB load), neither, and both."
     },
     {
       "path": "backend/internal/service/newapi_bridge_usage_test.go",

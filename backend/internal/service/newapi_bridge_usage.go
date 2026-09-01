@@ -77,7 +77,7 @@ func newAPIBridgeChannelInputForModel(account *Account, userID int64, groupLabel
 	}
 	baseURL := strings.TrimSpace(account.GetBaseURL())
 	baseURL = newapiintegration.NormalizeArkChannelBaseURL(account.ChannelType, baseURL)
-	if account.ChannelType == newapiconstant.ChannelTypeOpenAI && IsSupplierManagedAccount(account) {
+	if shouldNormalizeNewAPIOpenAIChannelBaseURL(account) {
 		baseURL = normalizeNewAPIOpenAIChannelBaseURL(baseURL)
 	}
 	// Fifth platform `newapi`: OpenAI base URL fallback does not apply; credentials.base_url is required at create time.
@@ -125,6 +125,16 @@ func newAPIBridgeChannelInputForModel(account *Account, userID int64, groupLabel
 		VertexKeyType:         vertexKeyType,
 		VertexLocation:        vertexLocation,
 	}
+}
+
+// shouldNormalizeNewAPIOpenAIChannelBaseURL is the SSOT gate for stripping a
+// trailing /v1 before OpenAI-channel adaptors (they append /v1/... themselves).
+// Uses HasSupplierManagedTransportIdentity so scheduler-cache-shaped accounts
+// (no Extra.supplier_source_id) still match execution-time reloads.
+func shouldNormalizeNewAPIOpenAIChannelBaseURL(account *Account) bool {
+	return account != nil &&
+		account.ChannelType == newapiconstant.ChannelTypeOpenAI &&
+		HasSupplierManagedTransportIdentity(account)
 }
 
 func normalizeNewAPIOpenAIChannelBaseURL(baseURL string) string {

@@ -14,6 +14,30 @@ func TestUS048_ManagedAccountUsesSupplierSourceIDAsOnlyMarker(t *testing.T) {
 	require.False(t, IsSupplierManagedAccount(&Account{}))
 }
 
+func TestHasSupplierManagedTransportIdentity_SchedulerSafeSSOT(t *testing.T) {
+	exclusiveOnly := &Account{
+		Credentials: map[string]any{ProtocolEndpointsExclusiveCredentialKey: true},
+	}
+	extraOnly := &Account{
+		Extra: map[string]any{SupplierSourceIDExtraKey: int64(7)},
+	}
+	neither := &Account{}
+	both := &Account{
+		Credentials: map[string]any{ProtocolEndpointsExclusiveCredentialKey: true},
+		Extra:       map[string]any{SupplierSourceIDExtraKey: int64(7)},
+	}
+
+	require.True(t, HasSupplierManagedTransportIdentity(exclusiveOnly),
+		"exclusive credential alone must light the hot-path transport identity (scheduler Extra omits supplier_source_id)")
+	require.False(t, IsSupplierManagedAccount(exclusiveOnly))
+	require.True(t, HasSupplierManagedTransportIdentity(extraOnly),
+		"full DB loads with Extra.supplier_source_id remain recognized")
+	require.False(t, accountDeclaresExclusiveProtocolEndpoints(extraOnly))
+	require.False(t, HasSupplierManagedTransportIdentity(neither))
+	require.True(t, HasSupplierManagedTransportIdentity(both))
+	require.False(t, HasSupplierManagedTransportIdentity(nil))
+}
+
 func TestUS048_OrdinaryCreateRejectsSupplierReservedExtra(t *testing.T) {
 	for _, key := range []string{SupplierSourceIDExtraKey, SupplierDiscountBandExtraKey} {
 		err := ValidateSupplierReservedAccountExtra(map[string]any{key: 7})
