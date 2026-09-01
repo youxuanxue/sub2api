@@ -3,10 +3,27 @@
 package service
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func TestIsOpenAICompatPreviousResponseNotFound_OwnerMismatch(t *testing.T) {
+	t.Parallel()
+
+	ownerMsg := "previous_response_id is not available for this user"
+	ownerBody := []byte(`{"error":{"type":"invalid_request_error","message":"previous_response_id is not available for this user"}}`)
+
+	assert.True(t, isOpenAICompatPreviousResponseNotFound(http.StatusBadRequest, ownerMsg, nil),
+		"edge ownership gate message must trigger Messages continuation fallback")
+	assert.True(t, isOpenAICompatPreviousResponseNotFound(http.StatusBadRequest, "", ownerBody),
+		"edge ownership gate JSON body must trigger Messages continuation fallback")
+	assert.False(t, isOpenAICompatPreviousResponseNotFound(http.StatusBadRequest, "invalid model", nil),
+		"unrelated 400 must not be treated as previous_response recovery")
+	assert.False(t, isOpenAICompatPreviousResponseUnsupported(http.StatusBadRequest, ownerMsg, ownerBody),
+		"ownership mismatch is not_found recovery, not unsupported-parameter disable")
+}
 
 func TestOpenAICompatContinuationEnabled(t *testing.T) {
 	cases := []struct {
