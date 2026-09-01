@@ -415,9 +415,14 @@ func TestProtocolChatToMessagesUsesNativeAnthropicCredentialForKiroMirror(t *tes
 	route := protocolRouteSpecByAdapter(t, protocolrouter.AdapterChatToMessages)
 	upstream := &protocolTargetHTTPUpstream{responses: []*http.Response{protocolRouteContractResponse(route)}}
 	svc := protocolTargetTestService(upstream)
-	account := protocolTargetTestAccount(protocolrouter.ProtocolMessages)
+	account := protocolTargetTestAccount(
+		protocolrouter.ProtocolMessages,
+		protocolrouter.ProtocolChatCompletions,
+		protocolrouter.ProtocolResponses,
+	)
 	account.Name = "kiro-us6"
 	account.Platform = PlatformAnthropic
+	account.Credentials["mirror_platform"] = PlatformKiro
 	account.Credentials["model_mapping"] = map[string]any{"claude-opus-4-8": "claude-opus-4-8"}
 
 	_, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, body, account, func(
@@ -435,6 +440,9 @@ func TestProtocolChatToMessagesUsesNativeAnthropicCredentialForKiroMirror(t *tes
 		t.Fatalf("upstream requests = %d, want 1", len(upstream.requests))
 	}
 	request := upstream.requests[0]
+	if got, want := request.URL.String(), "http://upstream.example/v1/messages"; got != want {
+		t.Fatalf("upstream URL = %q, want Kiro native messages hop %q", got, want)
+	}
 	if got := request.Header.Get("x-api-key"); got != "sk-protocol-target" {
 		t.Fatalf("x-api-key = %q, want Kiro mirror credential", got)
 	}

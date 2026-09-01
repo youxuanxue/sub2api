@@ -7273,9 +7273,48 @@
         "func TestProtocolChatToMessagesUsesNativeAnthropicCredentialForKiroMirror(",
         "account.Name = \"kiro-us6\"",
         "account.Platform = PlatformAnthropic",
+        "account.Credentials[\"mirror_platform\"] = PlatformKiro",
+        "http://upstream.example/v1/messages",
         "x-api-key = %q, want Kiro mirror credential"
       ],
-      "rationale": "Incident-shaped regression for default/composite OpenAI Chat Completions routing to a platform=anthropic Kiro API-key mirror. It must issue exactly one Messages request with x-api-key and no OpenAI Authorization bearer header."
+      "rationale": "Incident-shaped regression for default/composite OpenAI Chat Completions routing to a mirror_platform=kiro Anthropic API-key stub whose stored evidence also claims Chat and Responses. Planning must still convert to exactly one edge /v1/messages request with x-api-key and no OpenAI Authorization bearer header."
+    },
+    {
+      "path": "backend/internal/service/account_supported_protocols.go",
+      "must_contain": [
+        "func routingSupportedProtocols(account *Account) []protocolrouter.Protocol {",
+        "if account.IsKiroMirrorStub() {",
+        "return []protocolrouter.Protocol{protocolrouter.ProtocolMessages}"
+      ],
+      "rationale": "The Plan-facing protocol projection is the execution SSOT for Kiro mirror stubs. Stored probe evidence may include compatibility endpoints, but mirror_platform=kiro must expose only native Messages so Chat/Responses ingress converts before the prod-to-edge hop."
+    },
+    {
+      "path": "backend/internal/service/account_supported_protocols_test.go",
+      "must_contain": [
+        "func TestRoutingSupportedProtocolsClampsKiroMirrorToMessages(",
+        "protocolrouter.ProtocolChatCompletions",
+        "protocolrouter.ProtocolResponses",
+        "capability owner list was rewritten"
+      ],
+      "rationale": "Regression pins the separation between stored protocol evidence and the effective Kiro execution projection: stale or probe-positive Chat/Responses remain observable but cannot become planner targets."
+    },
+    {
+      "path": "backend/internal/service/protocol_capability_probe.go",
+      "must_contain": [
+        "func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {",
+        "if account.IsKiroMirrorStub() {",
+        "return []protocolrouter.Protocol{protocolrouter.ProtocolMessages}"
+      ],
+      "rationale": "Generic endpoint discovery must not promote edge Chat/Responses compatibility ingress into native Kiro execution capability. Kiro mirror probing is restricted to the prod-to-edge Messages hop."
+    },
+    {
+      "path": "backend/internal/service/protocol_capability_probe_test.go",
+      "must_contain": [
+        "kiro edge mirror probes only its native messages hop",
+        "\"mirror_platform\": PlatformKiro",
+        "want: []protocolrouter.Protocol{protocolrouter.ProtocolMessages}"
+      ],
+      "rationale": "Regression pins the Kiro probe candidate set to Messages even though the edge gateway also accepts selected compatibility endpoints."
     },
     {
       "path": "backend/internal/handler/gateway_anthropic_buffered_failover_tk_test.go",
