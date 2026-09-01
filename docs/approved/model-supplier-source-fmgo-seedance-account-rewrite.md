@@ -77,7 +77,9 @@ mini       仅 (720p,10) / (480p,15)
 legacy v2  {480p,720p} × {6,8,10,12,15}，仍走 chat completions
 ```
 
-## 供应源唯一存法
+## 官方 Seedance 承接时的存法
+
+只承接官方 Seedance 时保存这两行 remap。探测通过的 v2.5 / 431 / mini identity 行是 opt-in 采购事实，不是这张表的互斥条件。
 
 | client_model_id | upstream_model_id（探测锚点） | 同步进账号 mapping |
 |---|---|---|
@@ -111,14 +113,14 @@ legacy v2  {480p,720p} × {6,8,10,12,15}，仍走 chat completions
 
 ### 正向
 
-1. 同步后账号 mapping 仅含 2 个官方 client。
+1. 若只保存 2 行官方 remap，同步后账号 mapping 仅含 2 个官方 client。
 2. `…-260128` + `720p` + `10` → `feimiao-v2-431-720p-10s`。
 3. 省略 resolution/duration → `720p` + `15s` → `feimiao-v2-431-720p-15s`（或 fast 变体）。
 
 ### 负向
 
 1. `1080p` / `4k` / `9s` / `6s` / `8s` / `12s` → 拒绝。
-2. 保存或同步把 `feimiao-*` 写成 client → 缺陷；测试锁死不出现。
+2. 把飞秒 SKU 做成 TokenKey 对外 / Studio client 或写入对外目录 → 缺陷。供应源 `models` 可以有 identity 行，那是采购事实。
 3. 网关不查供应源表、不解析 notes。
 4. 探测候选不含 `claude-*` / `gpt-*` / `veo-*` / `grok-video*`。
 
