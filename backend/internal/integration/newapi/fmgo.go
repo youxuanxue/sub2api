@@ -178,23 +178,12 @@ func FMGoFetchPath(model string) string {
 	}
 }
 
-// IsFMGoVideoInventoryID reports catalog ids that are real FMGo video SKUs.
-// Used to keep ch54 candidate probes off Claude/GPT chat rows in a mixed group.
+// IsFMGoVideoInventoryID reports catalog ids this adaptor can actually speak:
+// v2.5 / 431 / mini / legacy v2, plus official Seedance clients.
+// Other video-looking rows (veo/sora/grok-video/omni) stay out so ch54
+// candidate probes do not hit them with the Seedance or legacy-v2 dialect.
 func IsFMGoVideoInventoryID(model string) bool {
-	model = strings.ToLower(strings.TrimSpace(model))
-	if FMGoModelFamily(model) != "" {
-		return true
-	}
-	switch {
-	case strings.HasPrefix(model, "veo-"),
-		strings.HasPrefix(model, "sora-"),
-		strings.HasPrefix(model, "grok-video"),
-		strings.HasPrefix(model, "gemini-omni"),
-		model == "omni":
-		return true
-	default:
-		return false
-	}
+	return FMGoModelFamily(model) != ""
 }
 
 // FMGoSeedanceUpstreamSKU maps an official Seedance client + request params

@@ -99,6 +99,9 @@ func TestFMGoUsesVideosDialect(t *testing.T) {
 	if !IsFMGoVideoInventoryID("feimiao-v2.5-720p-15s") || IsFMGoVideoInventoryID("claude-opus-4-8") {
 		t.Fatal("video inventory classifier drifted")
 	}
+	if IsFMGoVideoInventoryID("veo-3-fast-4k-8s") || IsFMGoVideoInventoryID("grok-video-3") {
+		t.Fatal("unsupported video families must not look probeable")
+	}
 }
 
 func TestNormalizeFMGoBaseURL(t *testing.T) {

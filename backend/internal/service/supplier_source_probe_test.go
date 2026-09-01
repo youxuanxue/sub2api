@@ -266,6 +266,7 @@ func TestUS048_FMGoProbeSkipsNonVideoInventory(t *testing.T) {
 			{ID: "claude-opus-4-8"},
 			{ID: "feimiao-v2-431-720p-15s"},
 			{ID: "gpt-5.4"},
+			{ID: "veo-3-fast-4k-8s"},
 			{ID: "feimiao-v2.5-720p-15s"},
 		},
 		probeStatus: map[string]SupplierProbeStatus{
@@ -283,6 +284,7 @@ func TestUS048_FMGoProbeSkipsNonVideoInventory(t *testing.T) {
 	}
 	require.Equal(t, "non_video_inventory", rejected["claude-opus-4-8"])
 	require.Equal(t, "non_video_inventory", rejected["gpt-5.4"])
+	require.Equal(t, "non_video_inventory", rejected["veo-3-fast-4k-8s"])
 	require.NotContains(t, rejected, "feimiao-v2-431-720p-15s")
 	require.NotContains(t, rejected, "feimiao-v2.5-720p-15s")
 	require.Equal(t, int64(2), lister.probeCalls.Load())

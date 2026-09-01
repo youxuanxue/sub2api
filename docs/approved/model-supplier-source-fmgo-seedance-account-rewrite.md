@@ -53,7 +53,7 @@ operator_locks: "2026-09-01 live default group: official Seedance remaps to 431[
 | 项 | 决定 |
 |---|---|
 | 对外 client | 仅 `doubao-seedance-2-0-260128`、`doubao-seedance-2-0-fast-260128`（Studio / 目录不暴露飞秒 SKU） |
-| 探测 | 列出 `/v1/models` 里**全部可探视频库存**（v2.5 / 431 / mini 网格，以及 veo / grok-video / omni 等）；跳过 Claude/GPT。结果应是很多行，不是 2 行 |
+| 探测 | 列出 `/v1/models` 里本 adaptor 能说的视频库存（v2.5 / 431 / mini / legacy v2）；跳过 Claude/GPT 以及 veo/sora/grok-video/omni。结果应是很多行，不是 2 行 |
 | 供应源 `models` | 探测通过的建议追加是 opt-in。若只要承接官方 Seedance，保存 2 行 remap；若要把库存写进采购表，可加入全部通过的 identity 行 |
 | 同步投影 | 投影**当时已保存的** `models` 行。探测到很多 SKU ≠ 自动同步很多 client |
 | 非法 resolution / duration | **拒绝**，不降级、不钳制 |
@@ -120,7 +120,7 @@ legacy v2  {480p,720p} × {6,8,10,12,15}，仍走 chat completions
 1. `1080p` / `4k` / `9s` / `6s` / `8s` / `12s` → 拒绝。
 2. 保存或同步把 `feimiao-*` 写成 client → 缺陷；测试锁死不出现。
 3. 网关不查供应源表、不解析 notes。
-4. 探测候选不含 `claude-*` / `gpt-*`。
+4. 探测候选不含 `claude-*` / `gpt-*` / `veo-*` / `grok-video*`。
 
 ## Validation
 
@@ -132,15 +132,15 @@ legacy v2  {480p,720p} × {6,8,10,12,15}，仍走 chat completions
 
 ## 非目标
 
-- 不把飞秒目录 SKU 进 models / 目录 / 对外 client。
-- 不把 v2.5 / mini 做成 TokenKey 对外 client（adaptor 只支持其 `/v1/videos` 方言与透传）。
+- 不把飞秒 SKU 做成 TokenKey 对外 / Studio client；供应源 `models` 可以 opt-in 保存探测通过的 identity 行，同步只投影已保存行。
+- 不实现 veo / sora / grok-video / omni 方言；这些目录行探测直接跳过。
 - 不在供应源服务内拼运行时 SKU。
 - 不实现探测/同步按钮拆分。
 - 不做 inventory 行标记。
 
 ## 审批检查清单
 
-- [x] 探测覆盖全部视频库存；官方 Seedance 对外仍是 2 个 client
+- [x] 探测覆盖 v2.5 / 431 / mini / legacy v2；官方 Seedance 对外仍是 2 个 client
 - [x] 能力集合钉在 adaptor
 - [x] 缺省取族默认；非法拒绝
 - [x] 改写在账号 relay；不读供应源
