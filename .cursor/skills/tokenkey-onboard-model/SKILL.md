@@ -49,7 +49,7 @@ owner；一次请求能不能交付仍看 `docs/approved/pricing-serving-single-
 4. **activate** — 独立 probe/pricing evidence + `modelops.py activate` dry-run → 人审 →
    `--confirm yes-activate-model-surface`。只写 prod；generic deploy/rollback 不代替。
    契约：`docs/approved/model-surface-activation-contract.md`。
-5. **livefire** — 同 §1 probe 族对 model_id 再打真 200（定价就绪 ≠ prod 可服务）。
+5. **livefire** — 同步骤 1 probe 族对 model_id 再打真 200（定价就绪 ≠ prod 可服务）。
 6. **计费核对** — `usage_logs` 用 `requested_model`；思考档费率在 overlay
    `thinking_output_cost_per_token`，结果仍进 `output_cost`。
 

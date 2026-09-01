@@ -61,7 +61,7 @@ TLS·HTTP·geo 抓包命令与 cohort 分类见 `ops/anthropic/capture-cc-finger
 | `system.identity_anchor` (`FAIL`) | 真实 CC system 块不命中任一 canonical 身份锚点 = banner 漂移（上游 403 风险，**actionable**）| 走 §4.5：改注册表 + Go 副本 + spec-delta |
 | `system.identity_anchor` (`SKIP`) | 本次未抓到 system 块（仅 TLS 跑）| 跑 `capture --http` 再看 |
 | `system.billing_prefix` (`INVESTIGATE`) | 未见 `x-anthropic-billing-header` 块 → 非硬错 | count_tokens / 子请求本就不带；仅当正常 `/v1/messages` 也缺才查 |
-| `geo.messages.currentDate` (`FAIL`) | messages `<system-reminder>` 日期行非 US 形态 | §2.6 probe + `gateway_request_tk_cc_geo_stego.go` |
+| `geo.messages.currentDate` (`FAIL`) | messages `<system-reminder>` 日期行非 US 形态 | `capture-cc-fingerprint.sh` / `cc_geo_stego_align.sh` + §4.4 + `gateway_request_tk_cc_geo_stego.go` |
 | `geo.date_change.newDate` (`FAIL`) | attachment 日期仍为 `/` | 同上 |
 
 ## 4) 代码修复清单（HTTP-only 型）
@@ -146,5 +146,5 @@ HTTP 合并后 `bash ops/anthropic/cc_fingerprint_apply_http_runtime.sh`；TLS �
 - ja3 变了却只改 HTTP 常量
 - 用 `cc0-here` 直接做 HTTP mitm（应走 `http_capture_invoke.sh`）
 - 跳过 comprehensive 直接开 PR（beta 分裂未验证）
-- 未跑 §2.6 probe 就扩展 geo normalize 规则（须用真实 `capture.jsonl` line 作测试 fixture）
+- 未跑 geo capture / `cc_geo_stego_align.sh` 就扩展 geo normalize 规则（须用真实 `capture.jsonl` line 作测试 fixture；修复清单见 §4.4）
 - 把 `# Environment` 段 TZ/proxy 字符串当作 TokenKey 应改写的隐写
