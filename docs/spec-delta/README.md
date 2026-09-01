@@ -23,3 +23,4 @@ high-risk approval baseline. High-risk designs belong in `docs/approved/`.
 | [`cc-system-prompt.md`](cc-system-prompt.md) | Claude Code system-prompt anchors |
 | [`edge-lightsail.md`](edge-lightsail.md) | Lightsail-only edge path |
 | [`group-unsupported-model-negative-cache.md`](group-unsupported-model-negative-cache.md) | Group unsupported-model negative cache |
+| [`gemini-generatecontent-to-chat-bridge.md`](gemini-generatecontent-to-chat-bridge.md) | WIP: Gemini generateContent → chat_completions protocol edge |
