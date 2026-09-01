@@ -140,10 +140,10 @@ export type {
   SupplierProbeResult,
   SupplierSourceAccountChange,
   SupplierSourceSyncResult,
-  SupplierModelsDiscoverResult,
+  SupplierSourceProbeResult,
   SupplierModelNormalizeChange,
-  SupplierModelDiscoverIssue,
-  SupplierModelDiscoverRejection,
+  SupplierProbeConfiguredIssue,
+  SupplierProbeRejectedCandidate,
 } from './supplierSources'
 export type {
   TrialPreset,

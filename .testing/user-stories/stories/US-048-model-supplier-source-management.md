@@ -91,15 +91,15 @@
 - `backend/internal/service/supplier_managed_account_guard_test.go`::`TestUS048_PreserveSupplierManagedExtraKeys`
 - `backend/internal/service/crs_sync_supplier_managed_test.go`::`TestUS048_CRSSyncAllowsSupplierManagedAccountOverwrite`
 - `backend/internal/service/crs_sync_supplier_managed_test.go`::`TestUS048_CRSSyncRejectsReservedSupplierExtraOnNewAccount`
-- `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_SupplierModelMatchKeyNormalizesCaseAndSpaces`
-- `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_MatchSupplierUpstreamModelIDPrefersCanonicalID`
-- `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_BuildSupplierModelsListURLUsesBaiduV2Path`
-- `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_DiscoverModelsNormalizesAndSuggestsOnlyProbePassed`
-- `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_DiscoverModelsSuggestionsAloneDoNotBlockProjection`
-- `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_DiscoverModelsPreservesIntentionalClientUpstreamRemap`
-- `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_DiscoverModelsAuthFailureStopsWithoutSuggesting`
-- `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_StartDiscoverModelsProbesAllCandidatesAsynchronously`
-- `backend/internal/service/supplier_models_discover_test.go`::`TestUS048_ExtractSupplierUpstreamModelEntriesKeepsType`
+- `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_SupplierModelMatchKeyNormalizesCaseAndSpaces`
+- `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_MatchSupplierUpstreamModelIDPrefersCanonicalID`
+- `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_BuildSupplierModelsListURLUsesBaiduV2Path`
+- `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_ProbeUntilCompleteNormalizesAndSuggestsOnlyProbePassed`
+- `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_ProbeUntilCompleteSuggestionsAloneDoNotBlockProjection`
+- `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_ProbeUntilCompletePreservesIntentionalClientUpstreamRemap`
+- `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_ProbeUntilCompleteAuthFailureStopsWithoutSuggesting`
+- `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_StartSupplierProbeJobProbesAllCandidatesAsynchronously`
+- `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_ExtractSupplierUpstreamModelEntriesKeepsType`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_FMGoSeedanceSyncProjectsOfficialClientsOnly`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_DoubaoVideoChannelProbesVideoPathNotChat`
 - `backend/internal/service/account_test_service_supplier_probe_test.go`::`TestUS048_VideoProbeFailToFetchTaskDoesNotPass`
@@ -119,10 +119,10 @@
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`saves new and existing sources through create or update only`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`requires saving edited supplier facts before syncing the selected source`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`offers and hydrates BaiduV2 while preserving a custom endpoint during source selection`
-- `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`applies discover normalize to the form and keeps suggestions opt-in`
+- `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`applies probe normalize to the form and keeps suggestions opt-in`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`keeps suggestions opt-in and does not auto-sync after probe`
-- `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`shows discover failure message and failed_step outside the sync-result block`
-- `backend/internal/handler/admin/supplier_source_handler_test.go`::`TestUS048_DiscoverUpstreamListFailureReturnsSafeMessageAndFailedStep`
+- `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`shows probe failure message and failed_step outside the sync-result block`
+- `backend/internal/handler/admin/supplier_source_handler_test.go`::`TestUS048_ProbeUpstreamListFailureReturnsSafeMessageAndFailedStep`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`renders every probe result and actual account change returned by sync`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`does not show success when a resolved sync result reports a failed step`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`shows protocol_unsupported probe results from a 422 response without success wording`

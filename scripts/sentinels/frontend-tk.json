@@ -1980,8 +1980,8 @@
         "&& !syncResult.value.failed_step",
         "async function waitProbeJob(",
         "adminAPI.supplierSources.getProbeJob(sourceID, jobID)",
-        "data-test=\"discover-probe-progress\"",
-        "v-if=\"discoverResult.probe_status === 'completed'\"",
+        "data-test=\"probe-candidate-progress\"",
+        "v-if=\"probeResult.probe_status === 'completed'\"",
         "form.channel_type",
         "channel_name: 'default'",
         "useNewApiChannelTypes",
@@ -1998,9 +1998,9 @@
     {
       "path": "frontend/src/api/admin/supplierSources.ts",
       "must_contain": [
-        "async function probe(id: number): Promise<SupplierModelsDiscoverResult>",
+        "async function probe(id: number): Promise<SupplierSourceProbeResult>",
         "`/admin/supplier-sources/${id}/probe`",
-        "async function getProbeJob(id: number, jobId: string): Promise<SupplierModelsDiscoverResult>",
+        "async function getProbeJob(id: number, jobId: string): Promise<SupplierSourceProbeResult>",
         "`/admin/supplier-sources/${id}/probe/jobs/${encodeURIComponent(jobId)}`"
       ],
       "rationale": "Admin client must expose both probe start and job poll endpoints. Dropping the poll client forces synchronous long probes behind the browser timeout again."
@@ -2015,7 +2015,7 @@
         "shows protocol_unsupported probe results from a 422 response without success wording",
         "contains no state machine, audit, activation, pause, or account-group controls",
         "polls a running probe job until completed without syncing",
-        "shows discover failure message and failed_step outside the sync-result block",
+        "shows probe failure message and failed_step outside the sync-result block",
         "offers and hydrates BaiduV2 while preserving a custom endpoint during source selection"
       ],
       "rationale": "Focused UI regressions pin the final minimal workflow: save is side-effect free, unsaved edits cannot accidentally sync the previous database snapshot, probe and sync stay independent, sync renders current probes and real account changes, resolved failed_step responses cannot display success, private protocol failures remain closed, async probe polling must complete without auto-sync, probe failures stay visible outside the sync block, BaiduV2 stays selectable without hydration overwriting a custom endpoint, and no state machine or account-group controls return."

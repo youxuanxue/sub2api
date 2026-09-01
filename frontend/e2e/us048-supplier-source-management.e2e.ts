@@ -162,7 +162,7 @@ function source(overrides: Partial<SupplierSource> = {}): SupplierSource {
 }
 
 /** Probe is read-only; return a completed, no-confirm payload. */
-function discoverOK(src: SupplierSource) {
+function probeOK(src: SupplierSource) {
   return {
     source_id: src.id,
     probe_status: 'completed',
@@ -232,7 +232,7 @@ test('US048 Jiajie saves facts previews priority and syncs one band account', as
       return true
     }
     if (path === '/api/v1/admin/supplier-sources/7/probe' && request.method() === 'POST') {
-      await fulfillSuccess(route, discoverOK(sources[0]))
+      await fulfillSuccess(route, probeOK(sources[0]))
       return true
     }
     if (path === '/api/v1/admin/supplier-sources/7/sync' && request.method() === 'POST') {
@@ -356,7 +356,7 @@ test('US048 FMGo shows the fixed protocol boundary without account changes', asy
       return true
     }
     if (path === '/api/v1/admin/supplier-sources/9/probe' && request.method() === 'POST') {
-      await fulfillSuccess(route, discoverOK(fmgo))
+      await fulfillSuccess(route, probeOK(fmgo))
       return true
     }
     if (path === '/api/v1/admin/supplier-sources/9/sync' && request.method() === 'POST') {

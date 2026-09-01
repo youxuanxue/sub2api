@@ -99,33 +99,33 @@ export interface SupplierModelNormalizeChange {
   to_upstream_model_id: string
 }
 
-export interface SupplierModelDiscoverIssue {
+export interface SupplierProbeConfiguredIssue {
   client_model_id: string
   upstream_model_id: string
   reason: string
 }
 
-export interface SupplierModelDiscoverRejection {
+export interface SupplierProbeRejectedCandidate {
   upstream_model_id: string
   type?: string
   reason: string
   detail?: string
 }
 
-export type SupplierDiscoverProbeStatus = 'pending' | 'running' | 'completed' | 'failed'
+export type SupplierProbeJobStatus = 'pending' | 'running' | 'completed' | 'failed'
 
-export interface SupplierModelsDiscoverResult {
+export interface SupplierSourceProbeResult {
   source_id: number
   job_id?: string
-  probe_status: SupplierDiscoverProbeStatus
+  probe_status: SupplierProbeJobStatus
   probe_total: number
   probe_done: number
   upstream_models: SupplierUpstreamModelEntry[]
   normalized_models: SupplierSourceModel[]
   normalized_changes: SupplierModelNormalizeChange[]
   suggested_appends: SupplierSourceModel[]
-  rejected_candidates: SupplierModelDiscoverRejection[]
-  configured_issues: SupplierModelDiscoverIssue[]
+  rejected_candidates: SupplierProbeRejectedCandidate[]
+  configured_issues: SupplierProbeConfiguredIssue[]
   probe_results: SupplierProbeResult[]
   needs_confirmation: boolean
   failed_step?: string
@@ -156,15 +156,15 @@ async function priorityPreview(): Promise<SupplierPriorityPreview> {
   return data
 }
 
-async function probe(id: number): Promise<SupplierModelsDiscoverResult> {
-  const { data } = await apiClient.post<SupplierModelsDiscoverResult>(
+async function probe(id: number): Promise<SupplierSourceProbeResult> {
+  const { data } = await apiClient.post<SupplierSourceProbeResult>(
     `/admin/supplier-sources/${id}/probe`,
   )
   return data
 }
 
-async function getProbeJob(id: number, jobId: string): Promise<SupplierModelsDiscoverResult> {
-  const { data } = await apiClient.get<SupplierModelsDiscoverResult>(
+async function getProbeJob(id: number, jobId: string): Promise<SupplierSourceProbeResult> {
+  const { data } = await apiClient.get<SupplierSourceProbeResult>(
     `/admin/supplier-sources/${id}/probe/jobs/${encodeURIComponent(jobId)}`,
   )
   return data

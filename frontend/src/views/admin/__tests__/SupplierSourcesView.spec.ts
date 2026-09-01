@@ -257,7 +257,7 @@ describe('SupplierSourcesView', () => {
     expect(wrapper.find('[data-test="sync-save-first"]').exists()).toBe(false)
   })
 
-  it('applies discover normalize to the form and keeps suggestions opt-in', async () => {
+  it('applies probe normalize to the form and keeps suggestions opt-in', async () => {
     list.mockResolvedValueOnce([source])
     probe.mockResolvedValueOnce({
       source_id: 7,
@@ -302,10 +302,10 @@ describe('SupplierSourcesView', () => {
 
     expect(sync).not.toHaveBeenCalled()
     expect(wrapper.get('[data-test="probe-source"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[data-test="discover-needs-save"]').text()).toContain(
-      'admin.supplierSources.discoverNeedsSave',
+    expect(wrapper.get('[data-test="probe-needs-save"]').text()).toContain(
+      'admin.supplierSources.probeNeedsSave',
     )
-    expect(wrapper.get('[data-test="discover-result"]').text()).toContain('glm-5.1')
+    expect(wrapper.get('[data-test="probe-result"]').text()).toContain('glm-5.1')
     expect(wrapper.findAll('[data-test="upstream-model-id"]')).toHaveLength(1)
     expect((wrapper.get('[data-test="upstream-model-id"]').element as HTMLInputElement).value)
       .toBe('deepseek-v4-pro')
@@ -345,8 +345,8 @@ describe('SupplierSourcesView', () => {
     await flushPromises()
 
     expect(sync).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-test="discover-result"]').text()).toContain('glm-5.1')
-    expect(wrapper.find('[data-test="discover-needs-save"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="probe-result"]').text()).toContain('glm-5.1')
+    expect(wrapper.find('[data-test="probe-needs-save"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeUndefined()
   })
 
@@ -413,7 +413,7 @@ describe('SupplierSourcesView', () => {
     await wrapper.get('[data-test="probe-source"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('[data-test="discover-probe-progress"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="probe-candidate-progress"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="append-suggested"]').exists()).toBe(false)
     expect(sync).not.toHaveBeenCalled()
 
@@ -425,13 +425,13 @@ describe('SupplierSourcesView', () => {
     await vi.advanceTimersByTimeAsync(1000)
     await flushPromises()
     expect(sync).not.toHaveBeenCalled()
-    expect(wrapper.find('[data-test="discover-probe-progress"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="probe-candidate-progress"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="append-suggested"]').exists()).toBe(true)
 
     vi.useRealTimers()
   })
 
-  it('shows discover failure message and failed_step outside the sync-result block', async () => {
+  it('shows probe failure message and failed_step outside the sync-result block', async () => {
     list.mockResolvedValueOnce([source])
     probe.mockRejectedValueOnce(Object.assign(
       new Error('Supplier model list request failed with HTTP 401'),
@@ -463,9 +463,9 @@ describe('SupplierSourcesView', () => {
     expect(wrapper.get('[data-test="sync-error"]').text()).toContain(
       'Supplier model list request failed with HTTP 401',
     )
-    expect(wrapper.get('[data-test="discover-failed-step"]').text()).toContain('list_upstream_models')
-    expect(wrapper.get('[data-test="discover-summary"]').text()).toBe(
-      'admin.supplierSources.discoverSummary',
+    expect(wrapper.get('[data-test="probe-failed-step"]').text()).toContain('list_upstream_models')
+    expect(wrapper.get('[data-test="probe-summary"]').text()).toBe(
+      'admin.supplierSources.probeSummary',
     )
     expect(wrapper.find('[data-test="sync-result"]').exists()).toBe(false)
     expect(sync).not.toHaveBeenCalled()

@@ -7715,12 +7715,12 @@
       "rationale": "Regression evidence for the supplier-source audit boundary: a realistic create body must retain non-sensitive management facts while replacing credential with the audit placeholder."
     },
     {
-      "path": "backend/internal/service/supplier_models_discover.go",
+      "path": "backend/internal/service/supplier_source_probe.go",
       "must_contain": [
-        "func (s *SupplierSourceService) StartDiscoverModels(",
-        "func (s *SupplierSourceService) GetDiscoverModelsJob(",
-        "supplierDiscoverProbeConcurrency = 8",
-        "go s.runSupplierDiscoverProbes(jobCtx, job, probeAccount, probeable)"
+        "func (s *SupplierSourceService) StartSupplierProbeJob(",
+        "func (s *SupplierSourceService) GetSupplierProbeJob(",
+        "supplierProbeCandidateConcurrency = 8",
+        "go s.runSupplierProbeCandidates(jobCtx, job, probeAccount, probeable)"
       ],
       "must_not_contain": [
         "supplierDiscoverProbeBudget",
@@ -7729,10 +7729,10 @@
       "rationale": "models-discover must list/normalize synchronously then probe EVERY probeable candidate asynchronously at high concurrency. A fixed probe budget would silently leave remaining upstream models' servability unknown, which violates the supplier-source product definition."
     },
     {
-      "path": "backend/internal/service/supplier_models_discover_test.go",
+      "path": "backend/internal/service/supplier_source_probe_test.go",
       "must_contain": [
-        "func TestUS048_StartDiscoverModelsProbesAllCandidatesAsynchronously(",
-        "func TestUS048_GetDiscoverModelsJobMissingReturnsFailedSnapshot(",
+        "func TestUS048_StartSupplierProbeJobProbesAllCandidatesAsynchronously(",
+        "func TestUS048_GetSupplierProbeJobMissingReturnsFailedSnapshot(",
         "require.Equal(t, int64(12), lister.probeCalls.Load())"
       ],
       "rationale": "Focused regressions pin full-candidate async probing without a budget cap, and prove missing/expired jobs return a failed snapshot rather than conflating with supplier-source-not-found."
@@ -7743,7 +7743,7 @@
         "func (h *SupplierSourceHandler) Probe(c *gin.Context)",
         "result, err := h.service.Probe(c.Request.Context(), id)",
         "func (h *SupplierSourceHandler) GetProbeJob(c *gin.Context)",
-        "result, err := h.service.GetDiscoverModelsJob(c.Request.Context(), id, jobID)",
+        "result, err := h.service.GetSupplierProbeJob(c.Request.Context(), id, jobID)",
         "AccountConcurrency",
         "account_concurrency",
         "case errors.As(err, &syncErr):"
