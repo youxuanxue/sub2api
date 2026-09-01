@@ -64,44 +64,14 @@ cd backend && go test -tags=unit ./internal/service/ -run PublicCatalog
 
 `run` 不带 `--open-pr` 只重写本地 Go 文件，便于先审 `git diff`。
 
-### 24h 流量短路（`--skip-proven-by-traffic`，加性优化、默认关、可灰度）
+### 24h 流量短路 / `--skip-video`
 
-全量探测约 162 模型 / 16 批 / 8–15 分钟。很多候选**近 24h 已被真实客流成功调用**，再探纯属浪费。
-`--skip-proven-by-traffic`（或 env `REFRESH_SKIP_PROVEN_BY_TRAFFIC=1`）在探测前先经 `run-probe.sh` 投递
-`probe-traffic-proven-models.sh`，只读聚合 `usage_logs` 近 `--traffic-hours`（默认 24）的成功流量，把
-**已被流量证明 servable 的候选直接判 servable 并移出探测批**，batch 数显著下降：
-
-```bash
-python3 ops/pricing/refresh-servable-allowlist.py run --skip-proven-by-traffic
-python3 ops/pricing/refresh-servable-allowlist.py run --skip-proven-by-traffic --traffic-hours 48
-# probe 子命令同样支持；被跳过的模型以 servable 行写进 TSV，apply 仍完整
-python3 ops/pricing/refresh-servable-allowlist.py probe --skip-proven-by-traffic | tee /tmp/servable.tsv
-```
-
-跳过项显式打到 stderr 供人审：`[refresh] skipping N models proven by 24h traffic: anthropic/claude-opus-4-8, …`。
-
-**正确性契约（改动前必读，全是为了不引入假阳/假阴）**：
-
-- **纯加性**：流量成功=确凿 servable 正证据；**没流量 ≠ 不可服务**（可能只是没人调）——未命中流量的候选
-  **仍正常进探测批**，短路只删探测、绝不判 unsupported。默认关，保守全探仍是基线，开关用于灰度。
-- **只能跳/加候选集内模型**：proven 集与派生候选集求交，流量无法把候选集外（无价/未知）模型塞进 allowlist。
-- **平台桶按候选集定，不按服务账号**：Vertex 经 `accounts.platform='newapi'` 服务，所以流量里的
-  `gemini-2.5-pro` 按其**候选平台** `gemini` 入桶；`usage_logs` 行只需 model id 命中候选即可。
-- **deadlist 不会因一条流量复活**：skiplist/deadlist 早已从候选集剔除，proven 再过一遍
-  `validate_results_against_reprobe_ledger` 兜底。
-- `usage_logs` 一行 = 一次**计费**请求（不耗 token 的错误不落行）；查询再要求真实产出（token/图/视频）
-  排除 `$0` 占位行，确保不把空请求当 servable 证据。
-
-### 视频族跳过（`--skip-video`，省真实付费任务、默认关）
-
-video 族（`gemini_video` → veo）的一次 submit = **一条真实付费生成任务**（不像 chat 16 token、image ~1 张那样廉价）。日常刷 catalog/menu 通常只想确认 chat/image，没必要每次为 veo 烧钱。`--skip-video`（或 env `REFRESH_SKIP_VIDEO=1`）从 `run`/`probe` 的探测族里剔除所有 `*_video`：
+可选开关与正确性契约只维护在 `ops/pricing/README.md`（`--skip-proven-by-traffic`、`--skip-video`）。
+本 skill 不复述；默认仍是全量探测。日常刷 catalog 常用：
 
 ```bash
 python3 ops/pricing/refresh-servable-allowlist.py run --skip-proven-by-traffic --skip-video
-python3 ops/pricing/refresh-servable-allowlist.py probe --skip-video | tee /tmp/servable.tsv
 ```
-
-**正确性契约（关键，别破）**：splice 是**整平台块替换**——若只探 chat/image 而 video 族缺席，gemini 块会被重写成「chat+image」从而**丢掉已 servable 的 veo**。所以 `--skip-video` 不只是「不探 video」，还会把**当前 allowlist 里的 video 条目原样 carry-forward**（以 `平台\t模型\t000\tservable` 合成行回灌探测结果），`run`（parse_results）与 `probe`→`apply` 两条路都保住 veo。`live_probe` 用 `_probe_family_for` 判定 video 族，与正常探测同一分类器；`carried_forward_rows` 的 selftest + preflight `servable-allowlist generator selftest` 守住。只有真要刷 veo 可服务性 / 上架新 veo 时才省略本 flag（接受 submit 付费）。ark video 是另一条手动路径（见下「Volcengine / ark 三族」），本 flag 不管它——别给 ark probe 设 `ARK_VIDEO_MODELS` 即可。
 
 ## Gemini / Vertex 三族（newapi 第五平台，探测目标 prod）
 
@@ -123,36 +93,9 @@ edge native 平台如 **grok** 仍保留内网 wget。「对客 prod→edge rela
 
 ### 新模型 prod model_mapping floor：prod 负例不等于上游不可服务
 
-Catalog refresh 的 prod probe 默认只证明**当前 prod serving 面**是否可服务。prod 账号会按 SSOT
-`model_mapping` 收窄可服务模型；对尚未进入当前 mapping/floor 的新型号，prod 可能在调度前返回
-`400 Unsupported model: <id>`（`ops_error_logs.account_id=null`、无 upstream event）、空池或无可用账号。
-这只是当前 prod mapping/floor 未放行，不能证明目标平台账号的上游能力。不要因为模型已补价或
-overlay/display 存在就直接把它加进 allowlist/runtime；也不要因为 prod floor 拒绝就把候选判死。
-
-需要区分时，用 `tokenkey-account-model-probe` 对目标 prod/edge 单账号实测；平台有专用直连真值时
-优先用专用探测（例如 ark 直连数据面）：
-
-```bash
-# control：先证明同一账号能服务已知型号
-bash ops/observability/run-probe.sh --target <prod|edge:edge_id> \
-  --script ops/stage0/probe_account_model.sh \
-  --with ops/pricing/probe_reserved_resources.sh \
-  --env ACCOUNT_ID=<account_id> --env MODEL=<known_model> \
-  --env ENDPOINT=<messages|chat|responses> --timeout-seconds 180
-
-# 目标型号：必须看到 verdict=servable 才能进 catalog/Menu 或 runtime mapping
-bash ops/observability/run-probe.sh --target <prod|edge:edge_id> \
-  --script ops/stage0/probe_account_model.sh \
-  --with ops/pricing/probe_reserved_resources.sh \
-  --env ACCOUNT_ID=<account_id> --env MODEL=<candidate_model> \
-  --env ENDPOINT=<messages|chat|responses> --timeout-seconds 180
-```
-
-**实测（2026-07-08）**：`gpt-5.6`/`gpt-5.6-sol` 在 prod 普通探测被
-`Unsupported model` 本地拦截；edge OpenAI OAuth account 7(`edge:us4`) 与 account 5(`edge:us3`)
-都能到达上游，但返回 `The 'gpt-5.6-sol' model is not supported when using Codex with a ChatGPT account.`
-所以不能通过清开 prod model_mapping/floor 单独上架，当前应保持不展示。这个判读不是 OpenAI
-特例：后续所有新模型都要同时验证「上游账号能力」和「prod SSOT model_mapping 已放行」。
+判读与探测顺序只在 `tokenkey-modelops-planner` §「floor vs 上游能力」+
+`tokenkey-account-model-probe`；本 skill 不重复命令。prod `Unsupported model` / 空池只说明
+当前 floor 未放行。进 allowlist 前必须看到目标账号路径 `verdict=servable`。
 
 - **候选来源（不走 litellm）**：账号的 `credentials.model_pricing_status`（上游发现清单）∪ imagen/veo
   种子。经 `--discovered <file>` 传入（接受该 JSON 对象、JSON list 或换行清单）；省略则只探 imagen/veo 种子。
@@ -260,7 +203,7 @@ bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-ser
 ### Antigravity `gemini-2.5-pro` 专项（literal id，不进 `run` splice）
 
 全量 `ANTIGRAVITY_CHAT_MODELS` 批里 `gemini-2.5-pro` 的 `:generateContent` 常 **000 timeout /
-inconclusive**（历史快照见 `docs/all-platform-model-inventory.md`，不是交付 SSOT），与 chat 路径结论混在一起难判根因。
+inconclusive**，与 chat 路径结论混在一起难判根因。
 用 **`probe-antigravity-gemini25pro-literal.sh`** 窄打 Google-Gemini 源组（默认
 `gemini-pro-agent` + `gemini-2.5-pro`），**同一 key** 并排探 `/v1/chat/completions` 与
 `/antigravity/v1beta/models/{id}:generateContent`，附账号快照（无 secret）：

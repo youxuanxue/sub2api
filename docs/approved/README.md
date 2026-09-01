@@ -13,6 +13,23 @@ to their paths. Prefer status changes and short index notes over moving files.
 Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 `draft`, `pending`, `approved`, `shipped`, `archived`.
 
+## 模型交付阅读顺序（最高优先）
+
+一次请求能不能交付，只按这个顺序读；不要从历史清单或 skill 散文另建真相：
+
+1. [`pricing-serving-single-source-of-truth.md`](pricing-serving-single-source-of-truth.md) — `CatalogPolicy + RequestPlan + RuntimeReadiness`
+2. [`protocol-routing-ssot.md`](protocol-routing-ssot.md) — generation RequestPlan（协议路由）
+3. [`ops/pricing/README.md`](../../ops/pricing/README.md) — probe / refresh / mapping 工具表（非判定公式）
+4. 运营入口 skill：`tokenkey-modelops-planner`（再按分支加载子 skill）
+
+卫星（只回答自己那一块，不是第二套交付公式）：
+
+- [`priced-or-it-doesnt-ship.md`](priced-or-it-doesnt-ship.md) — 运行期价格闸
+- [`pricing-availability-source-of-truth.md`](pricing-availability-source-of-truth.md) — availability Evidence / structurally-gone
+- [`served-model-reconcile-planner.md`](served-model-reconcile-planner.md) — modelops 只读对账边界
+
+Watchlist / skiplist / deadlist 机器源：`ops/pricing/servable-reprobe-ledger.json`（不要另建手写模型清单）。
+
 ## Shipped baselines
 
 | File | Topic |

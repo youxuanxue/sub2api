@@ -1,6 +1,6 @@
 {
   "_doc": "Machine-readable reprobe ledger for ops/pricing/refresh-servable-allowlist.py. Keys are platform/model pairs. watchlist entries are transient or unconfirmed and must be re-probed before freshness expires; skiplist/deadlist entries are not allowed to re-enter a servable allowlist without editing this file with evidence.",
-  "_generated_from": "docs/all-platform-model-inventory.md §4.4, mechanized 2026-06-22",
+  "_generated_from": "mechanized 2026-06-22 from then-current probe ledger; current owner is this file",
   "watchlist": [
     {
       "platform": "antigravity",

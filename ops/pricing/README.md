@@ -361,9 +361,9 @@ Git revert of the registry followed by the same publisher. Alert digest cadence 
 ### Antigravity `gemini-2.5-pro` literal probe
 
 The broad servable batch times out on `gemini-2.5-pro` generateContent.
-Historical snapshot notes live in `docs/all-platform-model-inventory.md`;
-that file is not the delivery SSOT. When you need a focused before/after
-signal without rerunning the full refresh:
+The broad servable batch times out on `gemini-2.5-pro` generateContent.
+When you need a focused before/after signal without rerunning the full
+refresh:
 
 ```bash
 bash ops/observability/run-probe.sh --target prod \
