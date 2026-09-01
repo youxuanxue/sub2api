@@ -107,11 +107,28 @@ func TestUS048_VideoProbeFailToFetchTaskDoesNotPass(t *testing.T) {
 	}
 }
 
-func TestUS048_FMGoVideoProbeURLUsesVideoGenerations(t *testing.T) {
+func TestUS048_FMGoVideoProbeURLUsesChatCompletions(t *testing.T) {
 	got := supplierVideoProbeURL(newapiconstant.ChannelTypeDoubaoVideo, newapiintegration.FMGoBaseURL)
-	require.Equal(t, newapiintegration.FMGoBaseURL+"/v1/video/generations", got)
+	require.Equal(t, newapiintegration.FMGoBaseURL+newapiintegration.FMGoChatCompletionsPath, got)
+	got = supplierVideoProbeURL(newapiconstant.ChannelTypeDoubaoVideo, "https://www.fmgo.top")
+	require.Equal(t, newapiintegration.FMGoBaseURL+newapiintegration.FMGoChatCompletionsPath, got)
 	got = supplierVideoProbeURL(newapiconstant.ChannelTypeDoubaoVideo, "https://ark.cn-beijing.volces.com")
 	require.Equal(t, "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks", got)
+}
+
+func TestUS048_VideoProbeAcceptsHTTP202(t *testing.T) {
+	require.Equal(t, SupplierProbeStatusPassed, supplierVideoProbeStatus(http.StatusAccepted, []byte(`{"id":"task-1"}`)))
+}
+
+func TestUS048_FMGoChatProbeBodyMatchesOfficialDialect(t *testing.T) {
+	body := supplierFMGoChatProbeBody("feimiao-v2-fast-720p-15s")
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	require.Equal(t, "feimiao-v2-fast-720p-15s", payload["model"])
+	require.Equal(t, true, payload["async"])
+	video := payload["generationConfig"].(map[string]any)["videoConfig"].(map[string]any)
+	require.Equal(t, "720p", video["resolution"])
+	require.Equal(t, float64(15), video["duration"])
 }
 
 func TestUS048_SupplierManagedAccountDeclaresOnlyChatProtocol(t *testing.T) {

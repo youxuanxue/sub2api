@@ -90,7 +90,8 @@ POST /admin/supplier-sources/:id/sync
 ### MODIFIED — 探测协议
 
 - 默认：Chat Completions 正向证据。
-- 通道能力为视频（DoubaoVideo / 54）→ 视频协议真实探测，不得用 Chat 伪成功。
+- 通道能力为视频（DoubaoVideo / 54）→ 该通道真实视频方言，不得用「hi」Chat 伪成功。
+- FMGo `feimiao-v2` 的真实视频方言就是官方异步 `POST /v1/chat/completions`；Ark / XRToken 仍走各自视频口。
 - 每一行用该行 `upstream_model_id` 探测；失败封闭，不写账号。
 - 不按 client 名字开协议例外。
 

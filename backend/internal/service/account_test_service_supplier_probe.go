@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"time"
 
@@ -74,6 +75,10 @@ func (s *AccountTestService) probeSupplierVideoModel(
 	}
 	submitURL := supplierVideoProbeURL(account.ChannelType, baseURL)
 	body := []byte(fmt.Sprintf(`{"model":%q,"prompt":"probe"}`, baseResult.UpstreamModelID))
+	fmgo := newapiintegration.IsFMGoBaseURL(account.ChannelType, baseURL)
+	if fmgo {
+		body = supplierFMGoChatProbeBody(baseResult.UpstreamModelID)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, submitURL, bytes.NewReader(body))
 	if err != nil {
 		baseResult.Status = SupplierProbeStatusFailed
@@ -82,6 +87,9 @@ func (s *AccountTestService) probeSupplierVideoModel(
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
+	if fmgo {
+		req.Header.Set("Prefer", "respond-async")
+	}
 	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -94,7 +102,11 @@ func (s *AccountTestService) probeSupplierVideoModel(
 	status := supplierVideoProbeStatus(resp.StatusCode, raw)
 	baseResult.Status = status
 	if status == SupplierProbeStatusPassed {
-		baseResult.Protocol = "openai_video"
+		if fmgo {
+			baseResult.Protocol = "fmgo_chat_completions"
+		} else {
+			baseResult.Protocol = "openai_video"
+		}
 	}
 	baseResult.Detail = supplierProbeSafeDetail(status)
 	return baseResult
@@ -104,12 +116,48 @@ func supplierVideoProbeURL(channelType int, baseURL string) string {
 	baseURL = strings.TrimRight(baseURL, "/")
 	switch {
 	case newapiintegration.IsFMGoBaseURL(channelType, baseURL):
-		return newapiintegration.NormalizeFMGoBaseURL(baseURL) + "/v1/video/generations"
+		return newapiintegration.NormalizeFMGoBaseURL(baseURL) + newapiintegration.FMGoChatCompletionsPath
 	case newapiintegration.IsXRTokenBaseURL(channelType, baseURL):
 		return newapiintegration.NormalizeXRTokenBaseURL(baseURL) + "/v1/contents/generations/tasks"
 	default:
 		return baseURL + "/api/v3/contents/generations/tasks"
 	}
+}
+
+func supplierFMGoChatProbeBody(upstreamModelID string) []byte {
+	resolution := newapiintegration.FMGoDefaultResolution
+	duration := newapiintegration.FMGoDefaultDuration
+	model := strings.TrimSpace(upstreamModelID)
+	for _, res := range []string{"720p", "480p"} {
+		if strings.Contains(model, "-"+res+"-") {
+			resolution = res
+			break
+		}
+	}
+	for _, seconds := range []int{15, 12, 10, 8, 6} {
+		if strings.HasSuffix(model, fmt.Sprintf("-%ds", seconds)) {
+			duration = seconds
+			break
+		}
+	}
+	body, err := json.Marshal(map[string]any{
+		"model": model,
+		"messages": []map[string]any{
+			{"role": "user", "content": "probe"},
+		},
+		"generationConfig": map[string]any{
+			"videoConfig": map[string]any{
+				"duration":    duration,
+				"aspectRatio": "16:9",
+				"resolution":  resolution,
+			},
+		},
+		"async": true,
+	})
+	if err != nil {
+		return []byte(`{"model":` + strconv.Quote(model) + `,"async":true}`)
+	}
+	return body
 }
 
 func supplierVideoProbeStatus(statusCode int, body []byte) SupplierProbeStatus {

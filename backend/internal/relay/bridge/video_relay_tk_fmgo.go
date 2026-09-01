@@ -2,12 +2,14 @@ package bridge
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	newapichannel "github.com/QuantumNous/new-api/relay/channel"
 	taskdoubao "github.com/QuantumNous/new-api/relay/channel/task/doubao"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -21,10 +23,10 @@ import (
 
 // TokenKey: FMGo (feimiao) video task adaptor.
 //
-// FMGo resells Seedance as baked SKUs (feimiao-v2[-fast]-{res}-{dur}s) behind a
-// NewAPI-shaped surface. TokenKey clients send official Ark ids plus
-// resolution/duration. Identification is channel_type + base_url only — never
-// supplier_source_id. Capability set is pinned in newapiintegration.
+// Official feimiao-v2 / feimiao-v2-fast dialect is async chat completions
+// (POST /v1/chat/completions + GET /v1/tasks/{id}), not OpenAI /v1/videos.
+// TokenKey clients still send official Ark ids plus resolution/duration.
+// Identification is channel_type + base_url only — never supplier_source_id.
 type fmgoTaskAdaptor struct {
 	*taskdoubao.TaskAdaptor
 	baseURL string
@@ -45,11 +47,28 @@ func (a *fmgoTaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, err
 	if a.baseURL == "" {
 		return "", fmt.Errorf("fmgo video submit: empty base_url")
 	}
-	return fmt.Sprintf("%s/v1/video/generations", a.baseURL), nil
+	return a.baseURL + newapiintegration.FMGoChatCompletionsPath, nil
+}
+
+func (a *fmgoTaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
+	if err := a.TaskAdaptor.BuildRequestHeader(c, req, info); err != nil {
+		return err
+	}
+	req.Header.Set("Prefer", "respond-async")
+	return nil
 }
 
 func (a *fmgoTaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
-	return newapichannel.DoTaskApiRequest(a, c, info, requestBody)
+	resp, err := newapichannel.DoTaskApiRequest(a, c, info, requestBody)
+	if err != nil || resp == nil {
+		return resp, err
+	}
+	// Vendor guide: create returns HTTP 202. DispatchVideoSubmit only accepts 200.
+	if resp.StatusCode == http.StatusAccepted {
+		resp.StatusCode = http.StatusOK
+		resp.Status = http.StatusText(http.StatusOK)
+	}
+	return resp, nil
 }
 
 func (a *fmgoTaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy string) (*http.Response, error) {
@@ -61,13 +80,12 @@ func (a *fmgoTaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, pr
 	if base == "" {
 		return nil, fmt.Errorf("fmgo video fetch: empty base_url")
 	}
-	uri := fmt.Sprintf("%s/v1/videos/%s", base, taskID)
+	uri := fmt.Sprintf("%s%s/%s", base, newapiintegration.FMGoTaskPathPrefix, taskID)
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+key)
 	client, err := newapiservice.GetHttpClientWithProxy(proxy)
 	if err != nil {
@@ -77,19 +95,13 @@ func (a *fmgoTaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, pr
 }
 
 func (a *fmgoTaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayInfo) (io.Reader, error) {
-	inner, err := a.TaskAdaptor.BuildRequestBody(c, info)
-	if err != nil {
-		return nil, err
+	orig := fmgoOriginalSubmitBody(c)
+	wireModel := gjson.GetBytes(orig, "model").String()
+	if wireModel == "" && info != nil {
+		wireModel = info.OriginModelName
 	}
-	if inner == nil {
-		return nil, fmt.Errorf("fmgo video submit: embedded adaptor produced no body")
-	}
-	raw, err := io.ReadAll(inner)
-	if err != nil {
-		return nil, fmt.Errorf("fmgo video submit: read embedded body: %w", err)
-	}
-	client := fmgoSeedanceClientFromRelay(info, gjson.GetBytes(raw, "model").String())
-	resolution, duration, durErr := fmgoVideoParamsFromSubmit(c, raw)
+	client := fmgoSeedanceClientFromRelay(info, wireModel)
+	resolution, duration, durErr := fmgoVideoParamsFromSubmit(c, orig)
 	if durErr != nil {
 		return nil, durErr
 	}
@@ -97,17 +109,81 @@ func (a *fmgoTaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.Rel
 	if skuErr != nil {
 		return nil, skuErr
 	}
-	if upstream == gjson.GetBytes(raw, "model").String() {
-		return bytes.NewReader(raw), nil
-	}
-	rewritten, err := sjson.SetBytes(raw, "model", upstream)
-	if err != nil {
-		return nil, fmt.Errorf("fmgo video submit: rewrite model to %q: %w", upstream, err)
-	}
 	if info != nil {
 		info.UpstreamModelName = upstream
 	}
-	return bytes.NewReader(rewritten), nil
+	if resolution == "" {
+		resolution = newapiintegration.FMGoDefaultResolution
+	}
+	if duration == 0 {
+		duration = newapiintegration.FMGoDefaultDuration
+	}
+	payload, err := fmgoChatCompletionsBody(upstream, fmgoPromptFromSubmit(c, orig), fmgoImagesFromSubmit(c, orig), resolution, duration, fmgoAspectRatioFromSubmit(c, orig))
+	if err != nil {
+		return nil, err
+	}
+	return bytes.NewReader(payload), nil
+}
+
+func (a *fmgoTaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
+	info := &relaycommon.TaskInfo{Code: 0}
+	status := strings.ToLower(firstNonEmptyJSONString(respBody, "status", "task.status"))
+	videoURL := firstNonEmptyJSONString(respBody, "result.url", "content.video_url")
+	reason := firstNonEmptyJSONString(respBody, "error.message", "task.error", "message")
+	switch status {
+	case "queued", "pending":
+		info.Status = model.TaskStatusQueued
+		info.Progress = "10%"
+	case "in_progress", "processing", "running":
+		info.Status = model.TaskStatusInProgress
+		info.Progress = "50%"
+	case "completed", "succeeded", "success":
+		info.Status = model.TaskStatusSuccess
+		info.Progress = "100%"
+		info.Url = videoURL
+	case "failed", "failure", "error":
+		info.Status = model.TaskStatusFailure
+		info.Progress = "100%"
+		info.Reason = reason
+	default:
+		info.Status = model.TaskStatusInProgress
+		info.Progress = "30%"
+	}
+	return info, nil
+}
+
+func fmgoChatCompletionsBody(model, prompt string, images []string, resolution string, duration int, aspectRatio string) ([]byte, error) {
+	message := map[string]any{"role": "user"}
+	if len(images) == 0 {
+		message["content"] = prompt
+	} else {
+		parts := []map[string]any{{"type": "text", "text": prompt}}
+		for _, imageURL := range images {
+			imageURL = strings.TrimSpace(imageURL)
+			if imageURL == "" {
+				continue
+			}
+			parts = append(parts, map[string]any{
+				"type":      "image_url",
+				"image_url": map[string]any{"url": imageURL},
+			})
+		}
+		message["content"] = parts
+	}
+	return json.Marshal(map[string]any{
+		"model": model,
+		"messages": []map[string]any{
+			message,
+		},
+		"generationConfig": map[string]any{
+			"videoConfig": map[string]any{
+				"duration":    duration,
+				"aspectRatio": aspectRatio,
+				"resolution":  resolution,
+			},
+		},
+		"async": true,
+	})
 }
 
 // fmgoSeedanceClientFromRelay prefers OriginModelName: production mapping remaps
@@ -231,6 +307,67 @@ func parseFMGoDurationValue(value any) (int, error) {
 	default:
 		return 0, fmt.Errorf("fmgo seedance: duration has unsupported type %T", value)
 	}
+}
+
+func fmgoPromptFromSubmit(c *gin.Context, raw []byte) string {
+	if c != nil {
+		if req, err := relaycommon.GetTaskRequest(c); err == nil {
+			if prompt := strings.TrimSpace(req.Prompt); prompt != "" {
+				return prompt
+			}
+		}
+	}
+	if prompt := firstNonEmptyJSONString(raw, "prompt", "input"); prompt != "" {
+		return prompt
+	}
+	return "probe"
+}
+
+func fmgoImagesFromSubmit(c *gin.Context, raw []byte) []string {
+	images := make([]string, 0, 4)
+	if c != nil {
+		if req, err := relaycommon.GetTaskRequest(c); err == nil {
+			images = append(images, req.Images...)
+			if trimmed := strings.TrimSpace(req.Image); trimmed != "" {
+				images = append(images, trimmed)
+			}
+			if trimmed := strings.TrimSpace(req.InputReference); trimmed != "" {
+				images = append(images, trimmed)
+			}
+		}
+	}
+	for _, path := range []string{"image", "input_reference"} {
+		if value := firstNonEmptyJSONString(raw, path); value != "" {
+			images = append(images, value)
+		}
+	}
+	seen := make(map[string]struct{}, len(images))
+	out := make([]string, 0, len(images))
+	for _, image := range images {
+		image = strings.TrimSpace(image)
+		if image == "" {
+			continue
+		}
+		if _, ok := seen[image]; ok {
+			continue
+		}
+		seen[image] = struct{}{}
+		out = append(out, image)
+	}
+	return out
+}
+
+func fmgoAspectRatioFromSubmit(c *gin.Context, raw []byte) string {
+	if c != nil {
+		if req, err := relaycommon.GetTaskRequest(c); err == nil && req.Metadata != nil {
+			for _, key := range []string{"aspect_ratio", "aspectRatio", "ratio"} {
+				if value, ok := req.Metadata[key].(string); ok {
+					return newapiintegration.NormalizeFMGoAspectRatio(value)
+				}
+			}
+		}
+	}
+	return newapiintegration.NormalizeFMGoAspectRatio(firstNonEmptyJSONString(raw, "aspect_ratio", "aspectRatio", "ratio", "metadata.aspect_ratio", "metadata.aspectRatio", "metadata.ratio"))
 }
 
 func fmgoVideoParamsFromBody(raw []byte) (string, int, error) {
