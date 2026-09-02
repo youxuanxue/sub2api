@@ -454,10 +454,47 @@ func TestTryModelFilePricing_Success(t *testing.T) {
 		},
 	})
 	tokens := UsageTokens{InputTokens: 100, OutputTokens: 50}
-	result := tryModelFilePricing(bs, "claude-sonnet-4", tokens, "")
+	result := tryModelFilePricing(bs, "claude-sonnet-4", tokens, "", time.Time{})
 	require.NotNil(t, result)
 	// 100*0.001 + 50*0.002 = 0.1 + 0.1 = 0.2
 	require.InDelta(t, 0.2, *result, 1e-12)
+}
+
+func TestTryModelFilePricing_AppliesDeepSeekPeakValleyAtBillingAt(t *testing.T) {
+	// Regression: priority-3 account_stats_cost must follow the same peak-valley policy as
+	// user total_cost (see resolveAccountStatsCost NOTE — pre-2026-09-02 rows are not backfilled).
+	policy := loadTkDeepSeekPeakValleyPolicy()
+	require.NotNil(t, policy)
+
+	bs := newTestBillingService()
+	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000}
+
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	require.NoError(t, err)
+	peakAt := time.Date(2026, 7, 21, 10, 0, 0, 0, shanghai)
+	offPeakAt := time.Date(2026, 7, 21, 13, 0, 0, 0, shanghai)
+
+	peakCost, err := bs.calculateCostInternalWithPolicyAt(
+		"deepseek-v4-pro", tokens, 1, "", nil, true, peakAt,
+	)
+	require.NoError(t, err)
+
+	offPeakCost, err := bs.calculateCostInternalWithPolicyAt(
+		"deepseek-v4-pro", tokens, 1, "", nil, true, offPeakAt,
+	)
+	require.NoError(t, err)
+
+	peakStats := tryModelFilePricing(bs, "deepseek-v4-pro", tokens, "", peakAt)
+	offPeakStats := tryModelFilePricing(bs, "deepseek-v4-pro", tokens, "", offPeakAt)
+	require.NotNil(t, peakStats)
+	require.NotNil(t, offPeakStats)
+
+	require.InDelta(t, peakCost.TotalCost, *peakStats, 1e-9,
+		"account stats must match user billing peak total at the same billing instant")
+	require.InDelta(t, offPeakCost.TotalCost, *offPeakStats, 1e-9,
+		"account stats must match user billing off-peak total at the same billing instant")
+	require.Greater(t, *peakStats, *offPeakStats)
+	require.InDelta(t, *offPeakStats*policy.PeakMultiplier, *peakStats, 1e-6)
 }
 
 func TestTryModelFilePricing_AppliesLongContextPricing(t *testing.T) {
@@ -473,7 +510,7 @@ func TestTryModelFilePricing_AppliesLongContextPricing(t *testing.T) {
 	})
 	tokens := UsageTokens{InputTokens: 101, OutputTokens: 10, CacheReadTokens: 5}
 
-	result := tryModelFilePricing(bs, "gpt-5.6-sol", tokens, "")
+	result := tryModelFilePricing(bs, "gpt-5.6-sol", tokens, "", time.Time{})
 
 	require.NotNil(t, result)
 	// Input and cache-read use the 2x input tier; output uses the 1.5x tier.
@@ -512,7 +549,7 @@ func TestTryModelFilePricing_AppliesServiceTierPricing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tryModelFilePricing(bs, "gpt-5.6-sol", tokens, tt.serviceTier)
+			result := tryModelFilePricing(bs, "gpt-5.6-sol", tokens, tt.serviceTier, time.Time{})
 			require.NotNil(t, result)
 			require.InDelta(t, tt.want, *result, 1e-12)
 		})
@@ -542,7 +579,7 @@ func TestTryModelFilePricing_CombinesPriorityAndLongContextPricing(t *testing.T)
 		CacheReadTokens:     5,
 	}
 
-	result := tryModelFilePricing(bs, "gpt-5.6-sol", tokens, "priority")
+	result := tryModelFilePricing(bs, "gpt-5.6-sol", tokens, "priority", time.Time{})
 
 	require.NotNil(t, result)
 	// priority 单价先应用，再叠加长上下文输入 2x、输出 1.5x。
@@ -553,7 +590,7 @@ func TestTryModelFilePricing_PricingNotFound(t *testing.T) {
 	// "nonexistent-model" does not match any fallback pattern
 	bs := newTestBillingServiceWithPrices(map[string]*ModelPricing{})
 	tokens := UsageTokens{InputTokens: 100, OutputTokens: 50}
-	result := tryModelFilePricing(bs, "nonexistent-model", tokens, "")
+	result := tryModelFilePricing(bs, "nonexistent-model", tokens, "", time.Time{})
 	require.Nil(t, result)
 }
 
@@ -563,7 +600,7 @@ func TestTryModelFilePricing_NilFallback(t *testing.T) {
 		"claude-sonnet-4": nil,
 	})
 	tokens := UsageTokens{InputTokens: 100}
-	result := tryModelFilePricing(bs, "claude-sonnet-4", tokens, "")
+	result := tryModelFilePricing(bs, "claude-sonnet-4", tokens, "", time.Time{})
 	require.Nil(t, result)
 }
 
@@ -575,7 +612,7 @@ func TestTryModelFilePricing_ZeroCost(t *testing.T) {
 		},
 	})
 	tokens := UsageTokens{} // all zero tokens → cost = 0 → nil
-	result := tryModelFilePricing(bs, "claude-sonnet-4", tokens, "")
+	result := tryModelFilePricing(bs, "claude-sonnet-4", tokens, "", time.Time{})
 	require.Nil(t, result)
 }
 
@@ -592,7 +629,7 @@ func TestTryModelFilePricing_WithImageOutput(t *testing.T) {
 		OutputTokens:      50,
 		ImageOutputTokens: 10,
 	}
-	result := tryModelFilePricing(bs, "claude-sonnet-4", tokens, "")
+	result := tryModelFilePricing(bs, "claude-sonnet-4", tokens, "", time.Time{})
 	require.NotNil(t, result)
 	// 100*0.001 + 50*0.002 + 10*0.01 = 0.1 + 0.1 + 0.1 = 0.3
 	require.InDelta(t, 0.3, *result, 1e-12)
@@ -613,7 +650,7 @@ func TestTryModelFilePricing_WithCacheTokens(t *testing.T) {
 		CacheCreationTokens: 200,
 		CacheReadTokens:     300,
 	}
-	result := tryModelFilePricing(bs, "claude-sonnet-4", tokens, "")
+	result := tryModelFilePricing(bs, "claude-sonnet-4", tokens, "", time.Time{})
 	require.NotNil(t, result)
 	// 100*0.001 + 50*0.002 + 200*0.003 + 300*0.0005
 	// = 0.1 + 0.1 + 0.6 + 0.15 = 0.95
@@ -630,7 +667,7 @@ func TestResolveAccountStatsCost_NilChannelService(t *testing.T) {
 		nil, // channelService is nil
 		newTestBillingServiceWithPrices(map[string]*ModelPricing{}),
 		1, 1, "claude-sonnet-4",
-		UsageTokens{InputTokens: 100}, 1, 0.5, "",
+		UsageTokens{InputTokens: 100}, 1, 0.5, "", time.Time{},
 	)
 	require.Nil(t, result)
 }
@@ -646,7 +683,7 @@ func TestResolveAccountStatsCost_EmptyUpstreamModel(t *testing.T) {
 		cs,
 		newTestBillingServiceWithPrices(map[string]*ModelPricing{}),
 		1, 1, "", // empty upstream model
-		UsageTokens{InputTokens: 100}, 1, 0.5, "",
+		UsageTokens{InputTokens: 100}, 1, 0.5, "", time.Time{},
 	)
 	require.Nil(t, result)
 }
@@ -663,7 +700,7 @@ func TestResolveAccountStatsCost_GetChannelForGroupReturnsNil(t *testing.T) {
 		cs,
 		newTestBillingServiceWithPrices(map[string]*ModelPricing{}),
 		1, 99, "claude-sonnet-4", // groupID 99 has no channel
-		UsageTokens{InputTokens: 100}, 1, 0.5, "",
+		UsageTokens{InputTokens: 100}, 1, 0.5, "", time.Time{},
 	)
 	require.Nil(t, result)
 }
@@ -694,7 +731,7 @@ func TestResolveAccountStatsCost_HitsCustomRule(t *testing.T) {
 		context.Background(),
 		cs, nil, // billingService not needed when custom rule hits
 		1, 10, "claude-sonnet-4",
-		tokens, 1, 999.0, "priority", // 自定义账号价格不叠加服务层级倍率
+		tokens, 1, 999.0, "priority", time.Time{}, // 自定义账号价格不叠加服务层级倍率
 	)
 	require.NotNil(t, result)
 	// 100*0.01 + 50*0.02 = 1.0 + 1.0 = 2.0
@@ -716,7 +753,7 @@ func TestResolveAccountStatsCost_ApplyPricingToAccountStats_UsesTotalCost(t *tes
 		context.Background(),
 		cs, nil,
 		1, 10, "claude-sonnet-4",
-		tokens, 1, 0.75, "priority", // 已完成用户计费，不再重复应用服务层级倍率
+		tokens, 1, 0.75, "priority", time.Time{}, // 已完成用户计费，不再重复应用服务层级倍率
 	)
 	require.NotNil(t, result)
 	require.InDelta(t, 0.75, *result, 1e-12)
@@ -734,7 +771,7 @@ func TestResolveAccountStatsCost_ApplyPricingToAccountStats_ZeroTotalCost_Return
 		context.Background(),
 		cs, nil,
 		1, 10, "claude-sonnet-4",
-		UsageTokens{}, 1, 0.0, "", // totalCost = 0
+		UsageTokens{}, 1, 0.0, "", time.Time{}, // totalCost = 0
 	)
 	require.Nil(t, result)
 }
@@ -761,7 +798,7 @@ func TestResolveAccountStatsCost_FallsBackToLiteLLM(t *testing.T) {
 		context.Background(),
 		cs, bs,
 		1, 10, "claude-sonnet-4",
-		tokens, 1, 999.0, "", // totalCost ignored
+		tokens, 1, 999.0, "", time.Time{}, // totalCost ignored
 	)
 	require.NotNil(t, result)
 	// 100*0.001 + 50*0.002 = 0.1 + 0.1 = 0.2
@@ -782,7 +819,7 @@ func TestResolveAccountStatsCost_FallbackHonorsAnthropicFast(t *testing.T) {
 		context.Background(), cs, bs,
 		1, 10, "claude-opus-5",
 		UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000},
-		1, 0, "fast",
+		1, 0, "fast", time.Time{},
 	)
 	require.NotNil(t, result)
 	require.InDelta(t, 60, *result, 1e-12)
@@ -801,7 +838,7 @@ func TestResolveAccountStatsCost_Gemini36FlashTierUsesFallbackPricing(t *testing
 		context.Background(),
 		cs, bs,
 		1, 10, "gemini-3.6-flash-low",
-		UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}, 1, 0, "",
+		UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}, 1, 0, "", time.Time{},
 	)
 	require.NotNil(t, result)
 	require.InDelta(t, 9.15, *result, 1e-12)
@@ -825,7 +862,7 @@ func TestResolveAccountStatsCost_AllMiss_ReturnsNil(t *testing.T) {
 		context.Background(),
 		cs, bs,
 		1, 10, "totally-unknown-model",
-		tokens, 1, 0.0, "",
+		tokens, 1, 0.0, "", time.Time{},
 	)
 	require.Nil(t, result)
 }
@@ -842,7 +879,7 @@ func TestResolveAccountStatsCost_NilBillingService_SkipsLiteLLM(t *testing.T) {
 		context.Background(),
 		cs, nil, // billingService is nil
 		1, 10, "claude-sonnet-4",
-		UsageTokens{InputTokens: 100}, 1, 0.0, "",
+		UsageTokens{InputTokens: 100}, 1, 0.0, "", time.Time{},
 	)
 	require.Nil(t, result)
 }
@@ -875,7 +912,7 @@ func TestResolveAccountStatsCost_CustomRulePriorityOverApplyPricing(t *testing.T
 		context.Background(),
 		cs, nil,
 		1, 10, "claude-sonnet-4",
-		tokens, 1, 99.0, "", // totalCost = 99.0 (would be used if ApplyPricing wins)
+		tokens, 1, 99.0, "", time.Time{}, // totalCost = 99.0 (would be used if ApplyPricing wins)
 	)
 	require.NotNil(t, result)
 	// Custom rule: 100*0.05 = 5.0 (NOT 99.0 from totalCost)

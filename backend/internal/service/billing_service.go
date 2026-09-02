@@ -1598,6 +1598,20 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 	channelPricing *ChannelModelPricing,
 	longContextBillingEnabled bool,
 ) (*CostBreakdown, error) {
+	return s.calculateCostInternalWithPolicyAt(
+		model, tokens, rateMultiplier, serviceTier, channelPricing, longContextBillingEnabled, time.Time{},
+	)
+}
+
+func (s *BillingService) calculateCostInternalWithPolicyAt(
+	model string,
+	tokens UsageTokens,
+	rateMultiplier float64,
+	serviceTier string,
+	channelPricing *ChannelModelPricing,
+	longContextBillingEnabled bool,
+	billingAt time.Time,
+) (*CostBreakdown, error) {
 	var pricing *ModelPricing
 	var err error
 	if channelPricing != nil {
@@ -1609,12 +1623,17 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 		return nil, err
 	}
 
+	at := billingAt
+	if at.IsZero() {
+		at = timezone.Now()
+	}
+
 	source := PricingSourceLiteLLM
 	if channelPricing != nil {
 		source = PricingSourceChannel
 	}
 	pricing = s.applyModelSpecificPricingPolicy(model, pricing)
-	pricing = tkApplyDeepSeekPeakValleyPricing(model, pricing, timezone.Now(), source)
+	pricing = tkApplyDeepSeekPeakValleyPricing(model, pricing, at, source)
 
 	// 旧路径始终检查长上下文定价（无区间定价概念）。该路径不携带 enable_thinking
 	// （仅 CalculateCostUnified/CostInput 链路透传思考模式），故按非思考计费。
