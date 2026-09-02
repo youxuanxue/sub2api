@@ -2980,6 +2980,7 @@
       "must_contain": [
         "ResolveSeedanceClientAlias",
         "ApplySeedanceClientAlias",
+        "doubao-seedance-1-5-pro-251215",
         "doubao-seedance-2-0-260128",
         "doubao-seedance-2-0-fast-260128",
         "doubao-seedance-2-5-260628"
@@ -2992,9 +2993,10 @@
         "TestResolveSeedanceClientAlias",
         "TestApplySeedanceClientAlias_RewritesBody",
         "TestApplySeedanceClientAlias_LeavesForeignBody",
+        "doubao-seedance-1.5-pro",
         "doubao-seedance-2.0-mini"
       ],
-      "rationale": "Locks hyphen/dot aliases, rejects mini as 2.0, and proves body rewrite only touches model."
+      "rationale": "Locks hyphen/dot aliases including 1.5-pro, rejects mini as 2.0, and proves body rewrite only touches model."
     },
     {
       "path": "backend/internal/handler/openai_gateway_tk_video_test.go",

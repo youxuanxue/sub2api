@@ -12,6 +12,8 @@ import (
 // serving the dated whitelist keys. Aliases stay off the public catalog /
 // Studio menu.
 var seedanceClientAliases = map[string]string{
+	"doubao-seedance-1-5-pro":  "doubao-seedance-1-5-pro-251215",
+	"doubao-seedance-1.5-pro":  "doubao-seedance-1-5-pro-251215",
 	"doubao-seedance-2-0":      "doubao-seedance-2-0-260128",
 	"doubao-seedance-2.0":      "doubao-seedance-2-0-260128",
 	"doubao-seedance-2-0-fast": "doubao-seedance-2-0-fast-260128",

@@ -14,17 +14,20 @@ func TestResolveSeedanceClientAlias(t *testing.T) {
 		want      string
 		wantAlias bool
 	}{
+		{"hyphen 1.5-pro", "doubao-seedance-1-5-pro", "doubao-seedance-1-5-pro-251215", true},
+		{"dotted 1.5-pro", "doubao-seedance-1.5-pro", "doubao-seedance-1-5-pro-251215", true},
 		{"hyphen 2.0", "doubao-seedance-2-0", "doubao-seedance-2-0-260128", true},
 		{"dotted 2.0", "doubao-seedance-2.0", "doubao-seedance-2-0-260128", true},
 		{"hyphen 2.0-fast", "doubao-seedance-2-0-fast", "doubao-seedance-2-0-fast-260128", true},
 		{"dotted 2.0-fast", "doubao-seedance-2.0-fast", "doubao-seedance-2-0-fast-260128", true},
 		{"hyphen 2.5", "doubao-seedance-2-5", "doubao-seedance-2-5-260628", true},
 		{"dotted 2.5", "doubao-seedance-2.5", "doubao-seedance-2-5-260628", true},
-		{"case fold", "Doubao-Seedance-2.5", "doubao-seedance-2-5-260628", true},
+		{"case fold", "Doubao-Seedance-1.5-Pro", "doubao-seedance-1-5-pro-251215", true},
+		{"dated 1.5-pro stays", "doubao-seedance-1-5-pro-251215", "", false},
 		{"dated 2.0 stays", "doubao-seedance-2-0-260128", "", false},
 		{"dated 2.5 stays", "doubao-seedance-2-5-260628", "", false},
 		{"mini is not 2.0", "doubao-seedance-2.0-mini", "", false},
-		{"unknown stays", "doubao-seedance-1-5-pro-251215", "", false},
+		{"unknown stays", "doubao-seedance-3-0", "", false},
 		{"empty", "", "", false},
 	}
 	for _, tc := range cases {
