@@ -116,6 +116,38 @@ func TestUS048_FMGoVideoProbeURLUsesVideosForLiveFamilies(t *testing.T) {
 	require.Equal(t, newapiintegration.FMGoBaseURL+newapiintegration.FMGoChatCompletionsPath, got)
 	got = supplierVideoProbeURL(newapiconstant.ChannelTypeDoubaoVideo, "https://ark.cn-beijing.volces.com", "feimiao-v2-431-720p-15s")
 	require.Equal(t, "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks", got)
+	got = supplierVideoProbeURL(newapiconstant.ChannelTypeDoubaoVideo, newapiintegration.XRTokenBaseURL, "doubao-seedance-1-5-pro-251215")
+	require.Equal(t, newapiintegration.XRTokenBaseURL+"/v1/contents/generations/tasks", got)
+}
+
+func TestUS048_ArkContentsProbeBodyUsesContentArray(t *testing.T) {
+	body := supplierArkContentsProbeBody("doubao-seedance-1-5-pro-251215")
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	require.Equal(t, "doubao-seedance-1-5-pro-251215", payload["model"])
+	require.Nil(t, payload["prompt"])
+	content, ok := payload["content"].([]any)
+	require.True(t, ok)
+	require.Len(t, content, 1)
+	item, ok := content[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "text", item["type"])
+	require.Equal(t, "probe", item["text"])
+}
+
+func TestUS048_XRTokenVideoProbeURLAndPrefix(t *testing.T) {
+	require.Equal(t,
+		newapiintegration.XRTokenBaseURL+"/v1/contents/generations/tasks",
+		supplierVideoProbeURL(newapiconstant.ChannelTypeDoubaoVideo, newapiintegration.XRTokenBaseURL, "doubao-seedance-1-5-pro-251215"),
+	)
+	require.Equal(t,
+		"volcengine/doubao-seedance-1-5-pro-251215",
+		newapiintegration.XRTokenUpstreamVideoModel("doubao-seedance-1-5-pro-251215"),
+	)
+	prefixedBody := supplierArkContentsProbeBody(newapiintegration.XRTokenUpstreamVideoModel("doubao-seedance-1-5-pro-251215"))
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(prefixedBody, &payload))
+	require.Equal(t, "volcengine/doubao-seedance-1-5-pro-251215", payload["model"])
 }
 
 func TestUS048_VideoProbeAcceptsHTTP202(t *testing.T) {

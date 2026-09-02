@@ -74,8 +74,15 @@ func (s *AccountTestService) probeSupplierVideoModel(
 		return baseResult
 	}
 	submitURL := supplierVideoProbeURL(account.ChannelType, baseURL, baseResult.UpstreamModelID)
-	body := []byte(fmt.Sprintf(`{"model":%q,"prompt":"probe"}`, baseResult.UpstreamModelID))
+	upstreamModelID := baseResult.UpstreamModelID
 	fmgo := newapiintegration.IsFMGoBaseURL(account.ChannelType, baseURL)
+	xrtoken := newapiintegration.IsXRTokenBaseURL(account.ChannelType, baseURL)
+	if xrtoken {
+		// XRToken publishes Ark SKUs under volcengine/; bare ids may work on
+		// some SKUs but production relay always prefixes — probe must match.
+		upstreamModelID = newapiintegration.XRTokenUpstreamVideoModel(upstreamModelID)
+	}
+	body := supplierArkContentsProbeBody(upstreamModelID)
 	fmgoVideos := fmgo && newapiintegration.FMGoUsesVideosDialect(baseResult.UpstreamModelID)
 	if fmgoVideos {
 		body = supplierFMGoVideosProbeBody(baseResult.UpstreamModelID)
@@ -127,6 +134,24 @@ func supplierVideoProbeURL(channelType int, baseURL, upstreamModelID string) str
 	default:
 		return baseURL + "/api/v3/contents/generations/tasks"
 	}
+}
+
+// supplierArkContentsProbeBody builds the Ark / XRToken contents.generations
+// probe payload. Official Ark and XRToken both reject a top-level `prompt`
+// field (MissingParameter: content); Sync used to send prompt-only and
+// permanently failed every XRToken configured model.
+func supplierArkContentsProbeBody(upstreamModelID string) []byte {
+	model := strings.TrimSpace(upstreamModelID)
+	body, err := json.Marshal(map[string]any{
+		"model": model,
+		"content": []map[string]any{
+			{"type": "text", "text": "probe"},
+		},
+	})
+	if err != nil {
+		return []byte(`{"model":` + strconv.Quote(model) + `,"content":[{"type":"text","text":"probe"}]}`)
+	}
+	return body
 }
 
 func supplierFMGoVideosProbeBody(upstreamModelID string) []byte {
