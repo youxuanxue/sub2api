@@ -34,5 +34,5 @@ func openAICompatFirstAttemptSelectionFailure(
 		return tkSelectFailureStatusMessage(c, err, displayModel)
 	}
 	markOpsRoutingCapacityLimited(c)
-	return cls.Status, cls.ErrType, cls.Message
+	return tkNoAvailableAccounts(c), "api_error", "No available accounts"
 }

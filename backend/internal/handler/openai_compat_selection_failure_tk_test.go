@@ -145,6 +145,27 @@ func TestOpenAICompatFirstAttemptSelectionFailure(t *testing.T) {
 		assert.Equal(t, "model_not_found", errType)
 	})
 
+	t.Run("nil selection with genuine empty pool -> 429 with Retry-After", func(t *testing.T) {
+		c, _ := newCtx(t)
+		groupID := int64(18)
+		apiKey := &service.APIKey{
+			GroupID: &groupID,
+			Group:   &service.Group{ID: groupID, Platform: service.PlatformNewAPI},
+		}
+		fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{
+			HasAccountsInPool: false,
+			HasModelSupport:   false,
+		}}
+
+		status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, fd, apiKey, "gpt-4o", "gpt-4o", nil)
+
+		require.Equal(t, http.StatusTooManyRequests, status)
+		assert.Equal(t, "api_error", errType)
+		assert.Equal(t, "No available accounts", msg)
+		assert.Equal(t, tkNoAvailableAccountsRetryAfterSeconds, c.Writer.Header().Get("Retry-After"))
+		assert.True(t, isOpsRoutingCapacityLimited(c))
+	})
+
 	t.Run("scheduler fault stays 503 even when mapping is absent", func(t *testing.T) {
 		c, _ := newCtx(t)
 		groupID := int64(18)
