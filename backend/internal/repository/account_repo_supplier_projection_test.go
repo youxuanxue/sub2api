@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 
@@ -136,6 +138,200 @@ func TestUS048_SupplierConfigurationRepositoryRejectsUnverifiedNonEmptyMapping(t
 	}, false)
 
 	require.ErrorIs(t, err, service.ErrSupplierProjectionProtocolNotReady)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUS048_SupplierVerifiedProtocolForAnthropicIsMessages(t *testing.T) {
+	require.Equal(t, protocolrouter.ProtocolMessages, supplierVerifiedProtocolForAccount(&service.Account{
+		ChannelType: newapiconstant.ChannelTypeAnthropic,
+	}))
+	require.Equal(t, protocolrouter.ProtocolChatCompletions, supplierVerifiedProtocolForAccount(&service.Account{
+		ChannelType: newapiconstant.ChannelTypeOpenAI,
+	}))
+	require.Equal(t, protocolrouter.ProtocolChatCompletions, supplierVerifiedProtocolForAccount(&service.Account{
+		ChannelType: newapiconstant.ChannelTypeBaiduV2,
+	}))
+	require.Equal(t, protocolrouter.ProtocolChatCompletions, supplierVerifiedProtocolForAccount(nil))
+}
+
+func TestUS048_SupplierAnthropicProjectionRejectsChatOnlyIdentity(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+	t.Cleanup(func() { _ = client.Close() })
+	repo := newAccountRepositoryWithSQL(client, db, nil, nil)
+
+	creds := supplierExclusiveChatCredentials(
+		"https://api.cloudwise.ai/api", "secret",
+		map[string]any{"claude-opus-4-6": "claude-opus-4-6"},
+	)
+	credJSON, err := json.Marshal(creds)
+	require.NoError(t, err)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`(?s)UPDATE accounts\s+SET\s+name = \$1,\s+platform = \$2,\s+type = \$3,\s+channel_type = \$4,\s+credentials = \$5::jsonb,\s+extra = COALESCE\(extra, '\{\}'::jsonb\) \|\| \$6::jsonb,\s+priority = \$7,\s+status = \$8,\s+schedulable = \$9,\s+concurrency = \$10,\s+updated_at = NOW\(\)\s+WHERE id = \$11 AND deleted_at IS NULL`).
+		WithArgs(
+			"supplier/cloudwise · 档位 1",
+			service.PlatformNewAPI,
+			service.AccountTypeAPIKey,
+			newapiconstant.ChannelTypeAnthropic,
+			string(credJSON),
+			`{"supplier_discount_band":1,"supplier_source_id":7}`,
+			160,
+			service.StatusActive,
+			true,
+			1000,
+			int64(41),
+		).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`(?s)SELECT id, platform, type, credentials, extra, channel_type, protocol_endpoint_capability_id.*FOR UPDATE`).
+		WithArgs(int64(41)).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "platform", "type", "credentials", "extra", "channel_type", "protocol_endpoint_capability_id",
+		}).AddRow(
+			int64(41), service.PlatformNewAPI, service.AccountTypeAPIKey,
+			string(credJSON),
+			`{"supplier_discount_band":1,"supplier_source_id":7}`,
+			newapiconstant.ChannelTypeAnthropic,
+			nil,
+		))
+	mock.ExpectRollback()
+
+	err = repo.UpdateSupplierProjection(context.Background(), &service.Account{
+		ID:          41,
+		Name:        "supplier/cloudwise · 档位 1",
+		Platform:    service.PlatformNewAPI,
+		Type:        service.AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeAnthropic,
+		Credentials: creds,
+		Extra: map[string]any{
+			service.SupplierSourceIDExtraKey:     int64(7),
+			service.SupplierDiscountBandExtraKey: 1,
+		},
+		Priority:    160,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		Concurrency: 1000,
+	}, true)
+	require.ErrorIs(t, err, service.ErrSupplierProjectionProtocolNotReady)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUS048_SupplierAnthropicProjectionPublishesMessagesCapability(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+	t.Cleanup(func() { _ = client.Close() })
+	repo := newAccountRepositoryWithSQL(client, db, nil, nil)
+
+	creds := supplierExclusiveMessagesCredentials(
+		"https://api.cloudwise.ai/api", "secret",
+		map[string]any{"claude-opus-4-6": "claude-opus-4-6"},
+	)
+	credJSON, err := json.Marshal(creds)
+	require.NoError(t, err)
+	account := &service.Account{
+		ID:          41,
+		Name:        "supplier/cloudwise · 档位 1",
+		Platform:    service.PlatformNewAPI,
+		Type:        service.AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeAnthropic,
+		Credentials: creds,
+		Extra: map[string]any{
+			service.SupplierSourceIDExtraKey:     int64(7),
+			service.SupplierDiscountBandExtraKey: 1,
+		},
+		Priority:    160,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		Concurrency: 1000,
+	}
+	identity, governed, err := service.BuildProtocolEndpointIdentity(account)
+	require.NoError(t, err)
+	require.True(t, governed)
+	require.Len(t, identity.ProtocolEndpoints, 1)
+	_, hasMessages := identity.ProtocolEndpoints[protocolrouter.ProtocolMessages]
+	require.True(t, hasMessages)
+	identityJSON, err := identity.CanonicalJSON()
+	require.NoError(t, err)
+	now := time.Date(2026, time.August, 28, 0, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`(?s)UPDATE accounts\s+SET\s+name = \$1,\s+platform = \$2,\s+type = \$3,\s+channel_type = \$4,\s+credentials = \$5::jsonb,\s+extra = COALESCE\(extra, '\{\}'::jsonb\) \|\| \$6::jsonb,\s+priority = \$7,\s+status = \$8,\s+schedulable = \$9,\s+concurrency = \$10,\s+updated_at = NOW\(\)\s+WHERE id = \$11 AND deleted_at IS NULL`).
+		WithArgs(
+			"supplier/cloudwise · 档位 1",
+			service.PlatformNewAPI,
+			service.AccountTypeAPIKey,
+			newapiconstant.ChannelTypeAnthropic,
+			string(credJSON),
+			`{"supplier_discount_band":1,"supplier_source_id":7}`,
+			160,
+			service.StatusActive,
+			true,
+			1000,
+			int64(41),
+		).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`(?s)SELECT id, platform, type, credentials, extra, channel_type, protocol_endpoint_capability_id.*FOR UPDATE`).
+		WithArgs(int64(41)).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "platform", "type", "credentials", "extra", "channel_type", "protocol_endpoint_capability_id",
+		}).AddRow(
+			int64(41), service.PlatformNewAPI, service.AccountTypeAPIKey,
+			string(credJSON),
+			`{"supplier_discount_band":1,"supplier_source_id":7,"supported_protocols":[]}`,
+			newapiconstant.ChannelTypeAnthropic,
+			int64(8),
+		))
+	mock.ExpectExec(`INSERT INTO protocol_endpoint_capabilities`).
+		WithArgs(identity.Key(), string(identityJSON)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`(?s)FROM protocol_endpoint_capabilities.*FOR UPDATE`).
+		WithArgs(identity.Key()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "capability_key", "identity", "supported_protocols", "probe_evidence", "revision",
+			"last_probed_at", "probe_lease_owner", "probe_lease_until", "probe_generation",
+			"identity_conflict", "created_at", "updated_at",
+		}).AddRow(int64(9), identity.Key(), string(identityJSON), `[]`, `{}`, int64(1), nil, nil, nil, int64(0), false, now, now))
+	mock.ExpectExec(`UPDATE accounts\s+SET protocol_endpoint_capability_id=\$2\s+WHERE`).
+		WithArgs(int64(41), int64(9)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM accounts`).
+		WithArgs(int64(9)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(`(?s)UPDATE protocol_endpoint_capabilities\s+SET probe_generation=probe_generation\+1.*RETURNING capability_key, probe_generation, revision, probe_lease_owner`).
+		WithArgs(identity.Key(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"capability_key", "probe_generation", "revision", "probe_lease_owner",
+		}).AddRow(identity.Key(), int64(1), int64(1), "supplier-messages-probe"))
+	mock.ExpectQuery(`(?s)FROM protocol_endpoint_capabilities.*FOR UPDATE`).
+		WithArgs(identity.Key()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "capability_key", "identity", "supported_protocols", "probe_evidence", "revision",
+			"last_probed_at", "probe_lease_owner", "probe_lease_until", "probe_generation",
+			"identity_conflict", "created_at", "updated_at",
+		}).AddRow(
+			int64(9), identity.Key(), string(identityJSON), `[]`, `{}`, int64(1), nil,
+			"supplier-messages-probe", now.Add(time.Minute), int64(1), false, now, now,
+		))
+	mock.ExpectExec(`UPDATE protocol_endpoint_capabilities`).
+		WithArgs(
+			int64(9), `["messages"]`, sqlmock.AnyArg(), int64(2), sqlmock.AnyArg(), false,
+			int64(1), int64(1), "supplier-messages-probe",
+		).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`UPDATE accounts\s+SET extra=jsonb_set`).
+		WithArgs(int64(9), `["messages"]`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(41)))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO scheduler_outbox")).
+		WithArgs(service.SchedulerOutboxEventAccountChanged, int64(41), nil, nil, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	err = repo.UpdateSupplierProjection(context.Background(), account, true)
+	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

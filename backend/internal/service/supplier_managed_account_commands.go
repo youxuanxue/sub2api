@@ -18,21 +18,21 @@ type SupplierManagedAccountCreateInput struct {
 }
 
 type SupplierManagedAccountUpdateInput struct {
-	AccountID       int64
-	SourceID        int64
-	DiscountBand    int
-	MetadataOnly    bool
-	Adopt           bool
-	Name            string
-	Endpoint        string
-	ChannelType     int
-	Credential      string
-	ModelMapping    map[string]string
-	Priority        int
-	Concurrency     int
-	Status          string
-	Schedulable     bool
-	ChatProbePassed bool
+	AccountID           int64
+	SourceID            int64
+	DiscountBand        int
+	MetadataOnly        bool
+	Adopt               bool
+	Name                string
+	Endpoint            string
+	ChannelType         int
+	Credential          string
+	ModelMapping        map[string]string
+	Priority            int
+	Concurrency         int
+	Status              string
+	Schedulable         bool
+	ProtocolProbePassed bool
 }
 
 type SupplierManagedAccountCommands interface {
@@ -44,7 +44,7 @@ type SupplierManagedAccountCommands interface {
 type supplierProjectionAccountUpdater interface {
 	UpdateSupplierMetadata(ctx context.Context, accountID int64, name string, priority int) error
 	UpdateSupplierConcurrency(ctx context.Context, accountID int64, concurrency int) error
-	UpdateSupplierProjection(ctx context.Context, account *Account, chatProbePassed bool) error
+	UpdateSupplierProjection(ctx context.Context, account *Account, protocolProbePassed bool) error
 }
 
 type supplierManagedAccountReader interface {
@@ -145,7 +145,7 @@ func (s *adminServiceImpl) UpdateSupplierManagedAccount(
 	); err != nil {
 		return nil, err
 	}
-	if len(input.ModelMapping) > 0 && !input.ChatProbePassed {
+	if len(input.ModelMapping) > 0 && !input.ProtocolProbePassed {
 		return nil, ErrSupplierProjectionProtocolNotReady
 	}
 
@@ -172,7 +172,7 @@ func (s *adminServiceImpl) UpdateSupplierManagedAccount(
 		account.Status = input.Status
 	}
 	account.Schedulable = input.Schedulable && len(input.ModelMapping) > 0
-	if err := updateSupplierProjection(ctx, s.accountRepo, account, input.ChatProbePassed); err != nil {
+	if err := updateSupplierProjection(ctx, s.accountRepo, account, input.ProtocolProbePassed); err != nil {
 		return nil, err
 	}
 	return account, nil
@@ -223,12 +223,12 @@ func updateSupplierMetadata(ctx context.Context, repo AccountRepository, account
 	return updater.UpdateSupplierMetadata(ctx, account.ID, account.Name, account.Priority)
 }
 
-func updateSupplierProjection(ctx context.Context, repo AccountRepository, account *Account, chatProbePassed bool) error {
+func updateSupplierProjection(ctx context.Context, repo AccountRepository, account *Account, protocolProbePassed bool) error {
 	updater, ok := repo.(supplierProjectionAccountUpdater)
 	if !ok {
 		return ErrSupplierProjectionUpdaterMissing
 	}
-	return updater.UpdateSupplierProjection(ctx, account, chatProbePassed)
+	return updater.UpdateSupplierProjection(ctx, account, protocolProbePassed)
 }
 
 func validateSupplierManagedIdentity(sourceID int64, discountBand int) error {
@@ -266,6 +266,6 @@ func supplierManagedCredentials(endpoint, credential string, modelMapping map[st
 	}
 	// Account-self exclusive endpoint declaration — scheduling identity
 	// reads this, not supplier_source_id. Shared with FinalizeAccountCredentials.
-	applyExclusiveChatProtocolEndpoints(credentials, baseURL, channelType)
+	applyExclusiveSupplierProtocolEndpoints(credentials, baseURL, channelType)
 	return FinalizeAccountCredentials(credentials, channelType)
 }

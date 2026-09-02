@@ -83,7 +83,7 @@ func supplierManagedTransportOK(account *Account) bool {
 		return false
 	}
 	switch account.ChannelType {
-	case newapiconstant.ChannelTypeOpenAI, newapiconstant.ChannelTypeBaiduV2, newapiconstant.ChannelTypeAli:
+	case newapiconstant.ChannelTypeOpenAI, newapiconstant.ChannelTypeBaiduV2, newapiconstant.ChannelTypeAli, newapiconstant.ChannelTypeAnthropic:
 		return true
 	default:
 		return newapiintegration.IsKnownChannelType(account.ChannelType)

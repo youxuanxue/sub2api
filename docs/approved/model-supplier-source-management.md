@@ -8,6 +8,11 @@ created: 2026-08-27
 owners: [tk-platform]
 scope: "supplier facts, admin API/UI, credential isolation, account projection, probe gate; managed accounts behave like ordinary accounts after create, with sync overwriting projection fields"
 related_stories: ["US-048"]
+revision_note: >
+  2026-09-02: Anthropic channel_type=14 is a first-class supplier transport exception
+  (like BaiduV2/46 and DoubaoVideo/54). CloudWise Claude opus/sonnet upstream only
+  accepts messages; supplier probe/project declare messages-only capability and refuse
+  Chat Completions evidence for that channel.
 ---
 
 # TokenKey 模型供应源管理审批基线
@@ -46,11 +51,13 @@ account.priority = source.base_priority + discount_priority
 - 供应源持久化 `channel_type`（Extension Engine 枚举）；Admin 表单必选类型，endpoint 主机仍可作
   兼容提示，但 transport / models 路径 / 受管账号投影以 `channel_type` 为准。默认 OpenAI
   Chat（1）；千帆 BaiduV2（46）规范化 `base_url` 为 `https://qianfan.baidubce.com`；DashScope Ali
-  （17）使用 `compatible-mode/v1/*` 路径。结构同步会把 transport 漂移修复回该解析结果。
-  账号先以空 `model_mapping`、`schedulable=false` 创建。
-- 受管账号和内存预探测账号只声明 Chat Completions。供应源 endpoint 末尾 `/v1` 只在 OpenAI
-  受管路径进入 NewAPI OpenAI 适配器前规范化；Qianfan 路径使用 `/v2/chat/completions`。普通
-  NewAPI 账号的 base URL 和协议行为保持不变。
+  （17）使用 `compatible-mode/v1/*` 路径；Anthropic（14）走原生 Messages（`/v1/messages`），用于
+  CloudWise 等上游仅 messages 可服务 Claude opus/sonnet 的供应源。结构同步会把 transport 漂移
+  修复回该解析结果。账号先以空 `model_mapping`、`schedulable=false` 创建。
+- 受管账号和内存预探测账号按通道声明**单一**协议能力：默认仅 Chat Completions；视频通道（54）走
+  视频方言；Anthropic（14）仅声明 Messages。供应源 endpoint 末尾 `/v1` 只在 OpenAI 受管路径进入
+  NewAPI OpenAI 适配器前规范化；Qianfan 路径使用 `/v2/chat/completions`；Anthropic 路径使用
+  `/v1/messages`。普通 NewAPI 账号的 base URL 和协议行为保持不变。
 - 供应源不读取或写入倍率、售价、pricing registry、计费规则、用户价格或利润数据。
 - 除把账号 `status/schedulable` 收敛到目标 mapping 的投影值外，供应源不修改 gateway、scheduler、
   sticky、运行期健康窗口、冷却、限流、fallback、`error_message` 或其他运行期字段。供应源拥有
@@ -58,8 +65,10 @@ account.priority = source.base_priority + discount_priority
   并发值。
 - 凭证使用最小权限 API Key；不保存供应商后台账号密码，不自动登录、处理 MFA 或代建 API Key。
 - API 不回显明文、密文或凭证指纹；日志和 Admin Audit Log 必须擦除请求字段 `credential`。
-- 未知或私有协议失败封闭；即使探测得到 Responses、Anthropic Messages 等非 Chat 成功证据，也返回
-  `protocol_unsupported`。不按模型前缀猜 transport，也不建设通用协议配置器。
+- 探测协议由 `channel_type` 决定，不按模型前缀猜 transport，也不建设通用协议配置器。默认只接受
+  Chat Completions 正向证据；视频通道走视频方言；Anthropic（14）只接受 Messages 正向证据。其它
+  协议成功证据（含 Anthropic 通道上的 Chat、Chat 通道上的 Messages/Responses）一律
+  `protocol_unsupported`。
 - 凭证 HMAC 指纹复用现有凭证加密密钥的生命周期，不随 JWT secret 轮换；探测日志不记录上游原始响应。
 
 ## 保存、预览与同步
@@ -76,9 +85,10 @@ priority 自行判断和修改 `base_priority`。已选来源的表单存在未�
 旧 `POST .../probe` 与 probe job 路由保留为 Discover 兼容别名；管理路由不再注册 `models-discover`。
 
 上游列表仍按通道能力拉取（OpenAI 兼容 `/v1/models`；千帆 BaiduV2 为 `/v2/models`；DashScope Ali
-为 `/compatible-mode/v1/models`）。探测协议由通道能力决定（如 `channel_type=54` 走视频门禁），
-不按 client 名字开例外。失败时 API 必须返回可读 `message` 与 `failed_step`；管理页必须在结果区
-之外独立展示错误文案，禁止只露出空标题。
+为 `/compatible-mode/v1/models`；Anthropic 14 仍用 `/v1/models` 发现）。探测协议由通道能力决定
+（`channel_type=54` 走视频门禁；`channel_type=14` 走 Messages），不按 client 名字开例外。失败时
+API 必须返回可读 `message` 与 `failed_step`；管理页必须在结果区之外独立展示错误文案，禁止只露出
+空标题。
 
 同步按以下最小规则执行：
 
@@ -86,11 +96,11 @@ priority 自行判断和修改 `base_priority`。已选来源的表单存在未�
 1b. `account_concurrency` 变化时，只更新受管账号 `concurrency`，不探测；
 2. endpoint、credential、模型 ID、模型增减、跨档，或非空受管账号的 `status/schedulable` 与目标
    不一致时，先用内存目标账号逐模型真实探测；空 mapping 的调度字段漂移无需探测；
-3. 任一模型失败，返回完整当次探测结果且不写账号；全部成功生成仅供本次同步调用链使用的 Chat
-   正向证据；
+3. 任一模型失败，返回完整当次探测结果且不写账号；全部成功生成仅供本次同步调用链使用的通道协议
+   正向证据（默认 Chat；Anthropic 14 为 Messages；视频 54 为视频方言）；
 4. 先创建空 mapping、不可调度的新档位账号。非空投影必须携带该证据；service 和 repository 双重
    拒绝未经探测的非空 mapping；
-5. 单账号事务同时提交账号配置、仅含 Chat Completions 的现有协议能力、
+5. 单账号事务同时提交账号配置、该通道单一协议能力（默认 Chat Completions；Anthropic 仅 Messages）、
    `InitialProbeCompleted=true`/`OfficialSeed=false` 的正向证据及普通 scheduler outbox；提交后只读回
    配置确认，不做写后二次网络探测；
 6. 再从旧档位移除不再属于它的 mapping；空 mapping 账号保留并设 `schedulable=false`；
