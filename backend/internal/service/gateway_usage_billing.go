@@ -1354,9 +1354,5 @@ func (s *GatewayService) mirrorAccountStatsTokenCost(
 		}
 	}
 	mirror := s.calculateTokenCost(ctx, result, apiKey, billingModel, 1.0, pricingAt, opts)
-	if mirror == nil || mirror.TotalCost <= 0 {
-		return nil
-	}
-	cost := mirror.TotalCost
-	return &cost
+	return accountStatsTokenCostFromBreakdown(mirror)
 }

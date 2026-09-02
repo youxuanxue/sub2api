@@ -25,7 +25,7 @@ import (
 // totalCost 是本次请求的客户计费（倍率前），用于优先级 2。
 // serviceTier 是最终参与用户计费的 OpenAI 服务层级，用于优先级 3。
 // billingAt 与用户计费的 BillingAt 对齐（通常为 recordUsageBillingAt(pricingAt)）。
-// mirroredTokenCostAtMultOne 为用户 token 计费路径在倍率=1 下的 totalCost；非 nil 且 >0 时用于优先级 3。
+// mirroredTokenCostAtMultOne 为用户 token 计费路径在倍率=1 下的 totalCost；非 nil 时用于优先级 3（含明确零价）。
 func resolveAccountStatsCost(
 	ctx context.Context,
 	channelService *ChannelService,
@@ -65,7 +65,7 @@ func resolveAccountStatsCost(
 	}
 
 	// 优先级 3：镜像用户 token 计费（倍率=1），与用户 CalculateCostUnified 同定价源
-	if mirroredTokenCostAtMultOne != nil && *mirroredTokenCostAtMultOne > 0 {
+	if mirroredTokenCostAtMultOne != nil {
 		cost := *mirroredTokenCostAtMultOne
 		return &cost
 	}
@@ -76,6 +76,16 @@ func resolveAccountStatsCost(
 	}
 
 	return nil
+}
+
+// accountStatsTokenCostFromBreakdown preserves an authoritative zero-cost token
+// result so account stats do not fall through to a different pricing source.
+func accountStatsTokenCostFromBreakdown(breakdown *CostBreakdown) *float64 {
+	if breakdown == nil || breakdown.TotalCost < 0 {
+		return nil
+	}
+	cost := breakdown.TotalCost
+	return &cost
 }
 
 // usageLogAccountStatsTokens derives billing tokens from the persisted usage log

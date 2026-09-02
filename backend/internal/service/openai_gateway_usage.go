@@ -981,9 +981,10 @@ func (s *OpenAIGatewayService) mirrorOpenAIAccountStatsTokenCost(
 		mirror, err := s.calculateOpenAIRecordUsageTokenCost(
 			ctx, apiKey, candidate, 1.0, pricingAt, tokens, serviceTier, longContextBillingGate,
 		)
-		if err == nil && mirror != nil && mirror.TotalCost > 0 {
-			cost := mirror.TotalCost
-			return &cost
+		if err == nil {
+			if cost := accountStatsTokenCostFromBreakdown(mirror); cost != nil {
+				return cost
+			}
 		}
 	}
 	return nil

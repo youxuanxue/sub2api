@@ -977,6 +977,34 @@ func TestResolveAccountStatsCost_MirroredTokenCostOverridesLiteLLM(t *testing.T)
 	require.InDelta(t, 7.5, *result, 1e-12)
 }
 
+func TestResolveAccountStatsCost_ZeroMirroredTokenCostOverridesLiteLLM(t *testing.T) {
+	channel := &Channel{ID: 1, Status: StatusActive}
+	cs := newTestChannelServiceForStats(t, channel, 10, "openai")
+	bs := newTestBillingServiceWithPrices(map[string]*ModelPricing{
+		"explicit-free-via-channel": {
+			InputPricePerToken: 0.001,
+		},
+	})
+	zero := 0.0
+
+	result := resolveAccountStatsCost(
+		context.Background(), cs, bs,
+		1, 10, "explicit-free-via-channel",
+		UsageTokens{InputTokens: 100}, 1, 0, "", time.Time{}, &zero,
+	)
+
+	require.NotNil(t, result)
+	require.Zero(t, *result, "authoritative channel zero price must not fall through to LiteLLM")
+}
+
+func TestAccountStatsTokenCostFromBreakdown_PreservesZero(t *testing.T) {
+	result := accountStatsTokenCostFromBreakdown(&CostBreakdown{TotalCost: 0})
+	require.NotNil(t, result)
+	require.Zero(t, *result)
+	require.Nil(t, accountStatsTokenCostFromBreakdown(nil))
+	require.Nil(t, accountStatsTokenCostFromBreakdown(&CostBreakdown{TotalCost: -1}))
+}
+
 func TestApplyAccountStatsCost_UsesUsageLogServiceTier(t *testing.T) {
 	channel := &Channel{
 		ID:                         1,
