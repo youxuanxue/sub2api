@@ -1,7 +1,7 @@
 ---
 title: OpenAI-compatible first-selection failure contract
-status: pending
-approved_by: pending
+status: approved
+approved_by: "youxuanxue (conversation approval, 2026-09-02)"
 created: 2026-09-02
 owners: [tk-platform]
 related_prs: []
