@@ -2980,6 +2980,7 @@
       "must_contain": [
         "ResolveSeedanceClientAlias",
         "ApplySeedanceClientAlias",
+        "doubao-seedance-1-5-pro-251215",
         "doubao-seedance-2-0-260128",
         "doubao-seedance-2-0-fast-260128",
         "doubao-seedance-2-5-260628"
@@ -2992,9 +2993,10 @@
         "TestResolveSeedanceClientAlias",
         "TestApplySeedanceClientAlias_RewritesBody",
         "TestApplySeedanceClientAlias_LeavesForeignBody",
+        "doubao-seedance-1.5-pro",
         "doubao-seedance-2.0-mini"
       ],
-      "rationale": "Locks hyphen/dot aliases, rejects mini as 2.0, and proves body rewrite only touches model."
+      "rationale": "Locks hyphen/dot aliases including 1.5-pro, rejects mini as 2.0, and proves body rewrite only touches model."
     },
     {
       "path": "backend/internal/handler/openai_gateway_tk_video_test.go",
@@ -7739,15 +7741,17 @@
         "SupplierProbeStatusProtocolUnsupported",
         "return \"openai_responses\"",
         "return \"anthropic_messages\"",
+        "supplierArkContentsProbeBody",
         "supplierFMGoChatProbeBody",
         "supplierFMGoVideosProbeBody",
+        "XRTokenUpstreamVideoModel",
         "fmgo_chat_completions",
         "fmgo_videos",
         "respond-async",
         "FMGoSubmitPath",
         "FMGoUsesVideosDialect"
       ],
-      "rationale": "Version-one supplier probing is intentionally fixed to OpenAI Chat. Even successful Responses or Anthropic Messages evidence must fail closed as protocol_unsupported instead of silently expanding the production transport surface. FMGo ch54 live families (v2.5/431/mini) use official POST /v1/videos; legacy feimiao-v2 stays on async chat completions. Neither path is hi-Chat fake success or /v1/video/generations."
+      "rationale": "Version-one supplier probing is intentionally fixed to OpenAI Chat. Even successful Responses or Anthropic Messages evidence must fail closed as protocol_unsupported instead of silently expanding the production transport surface. FMGo ch54 live families (v2.5/431/mini) use official POST /v1/videos; legacy feimiao-v2 stays on async chat completions. XRToken/Ark Sync probes must send Ark content[] (not prompt) and XRToken must prefix volcengine/ so Sync does not fail every configured Seedance row."
     },
     {
       "path": "backend/internal/service/account_test_service_supplier_probe_test.go",
@@ -7759,11 +7763,13 @@
         "TestUS048_SupplierProbeClassifiesEventsWithoutPersistingUpstreamDetail",
         "successful non-chat protocol remains unsupported",
         "TestUS048_FMGoVideoProbeURLUsesVideosForLiveFamilies",
+        "TestUS048_ArkContentsProbeBodyUsesContentArray",
+        "TestUS048_XRTokenVideoProbeURLAndPrefix",
         "TestUS048_FMGoVideosProbeBodyMatchesOfficialDialect",
         "TestUS048_FMGoChatProbeBodyMatchesOfficialDialect",
         "TestUS048_VideoProbeAcceptsHTTP202"
       ],
-      "rationale": "Probe regressions pin in-memory execution, the managed identity's single Chat capability, supplier-only trailing-/v1 normalization, raw-upstream log redaction, fixed public result details, and non-Chat failure closure without persisting an account or upstream response body. Live FMGo families probe POST /v1/videos; legacy feimiao-v2 still uses official chat-completions video dialect and HTTP 202."
+      "rationale": "Probe regressions pin in-memory execution, the managed identity's single Chat capability, supplier-only trailing-/v1 normalization, raw-upstream log redaction, fixed public result details, and non-Chat failure closure without persisting an account or upstream response body. Live FMGo families probe POST /v1/videos; legacy feimiao-v2 still uses official chat-completions video dialect and HTTP 202. XRToken Sync probes lock Ark content[] + volcengine/ prefix."
     },
     {
       "path": "backend/internal/service/supplier_managed_account_guard.go",
