@@ -210,6 +210,35 @@ func TestUS048_SupplierManagedAccountDeclaresOnlyChatProtocol(t *testing.T) {
 	require.Equal(t, []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}, ProtocolProbeCandidates(account))
 }
 
+func TestUS048_SupplierManagedAnthropicDeclaresOnlyMessagesProtocol(t *testing.T) {
+	account := &Account{
+		ID:          114,
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeAnthropic,
+		Credentials: supplierManagedCredentials(
+			"https://api.cloudwise.ai/api", "secret",
+			map[string]string{"claude-opus-4-6": "claude-opus-4-6"}, newapiconstant.ChannelTypeAnthropic),
+		Extra: map[string]any{
+			SupplierSourceIDExtraKey:     int64(9),
+			SupplierDiscountBandExtraKey: 6,
+		},
+	}
+
+	identity, governed, err := BuildProtocolEndpointIdentity(account)
+
+	require.NoError(t, err)
+	require.True(t, governed)
+	require.Equal(t, map[protocolrouter.Protocol]ProtocolEndpoint{
+		protocolrouter.ProtocolMessages: {URL: "https://api.cloudwise.ai/api/v1/messages"},
+	}, identity.ProtocolEndpoints)
+	require.Equal(t, []protocolrouter.Protocol{protocolrouter.ProtocolMessages}, ProtocolProbeCandidates(account))
+	require.Equal(t, true, account.Credentials[ProtocolEndpointsExclusiveCredentialKey])
+	require.Equal(t, map[string]any{
+		APIProtocolAnthropic: "https://api.cloudwise.ai/api",
+	}, account.Credentials[apiBaseURLsCredentialKey])
+}
+
 func TestUS048_ChatOnlyIdentityDoesNotRequireSupplierSourceBinding(t *testing.T) {
 	// Scheduling/gateway identity must follow account credentials, not Extra.supplier_source_id.
 	account := &Account{
@@ -406,4 +435,71 @@ func TestUS048_SupplierProbeClassifiesEventsWithoutPersistingUpstreamDetail(t *t
 		require.Equal(t, "openai_responses", result.Protocol)
 		require.Equal(t, "supplier protocol unsupported", result.Detail)
 	})
+}
+
+func TestUS048_AnthropicMessagesProbeAcceptsMessageShapeOnly(t *testing.T) {
+	t.Run("message json passes", func(t *testing.T) {
+		require.Equal(t, SupplierProbeStatusPassed, supplierAnthropicMessagesProbeStatus(
+			http.StatusOK,
+			[]byte(`{"type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":1,"output_tokens":1}}`),
+		))
+	})
+	t.Run("chat completion shape is protocol_unsupported", func(t *testing.T) {
+		require.Equal(t, SupplierProbeStatusProtocolUnsupported, supplierAnthropicMessagesProbeStatus(
+			http.StatusOK,
+			[]byte(`{"id":"chatcmpl-1","object":"chat.completion","choices":[{"message":{"role":"assistant","content":"hi"}}]}`),
+		))
+	})
+	t.Run("auth failure", func(t *testing.T) {
+		require.Equal(t, SupplierProbeStatusAuthFailed, supplierAnthropicMessagesProbeStatus(
+			http.StatusUnauthorized, []byte(`{"error":{"type":"authentication_error"}}`),
+		))
+	})
+	t.Run("model unsupported", func(t *testing.T) {
+		require.Equal(t, SupplierProbeStatusModelUnsupported, supplierAnthropicMessagesProbeStatus(
+			http.StatusNotFound, []byte(`{"error":{"message":"model not found"}}`),
+		))
+	})
+}
+
+func TestUS048_AnthropicMessagesProbeURL(t *testing.T) {
+	require.Equal(t, "https://api.cloudwise.ai/api/v1/messages",
+		supplierAnthropicMessagesProbeURL("https://api.cloudwise.ai/api"))
+	require.Equal(t, "https://api.cloudwise.ai/api/v1/messages",
+		supplierAnthropicMessagesProbeURL("https://api.cloudwise.ai/api/v1"))
+	require.Equal(t, "https://api.cloudwise.ai/api/v1/messages",
+		supplierAnthropicMessagesProbeURL("https://api.cloudwise.ai/api/v1/messages"))
+}
+
+func TestUS048_SupplierAnthropicMessagesProbeHitsMessagesPath(t *testing.T) {
+	var gotMethod, gotPath, gotAuth, gotAPIKey, gotVersion string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		gotAPIKey = r.Header.Get("x-api-key")
+		gotVersion = r.Header.Get("anthropic-version")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"type":"message","role":"assistant","content":[{"type":"text","text":"OK"}],"usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	t.Cleanup(server.Close)
+
+	svc := &AccountTestService{}
+	account := &Account{
+		Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeAnthropic,
+		Credentials: supplierManagedCredentials(server.URL, "cw-secret", map[string]string{
+			"claude-sonnet-4-6": "claude-sonnet-4-6",
+		}, newapiconstant.ChannelTypeAnthropic),
+	}
+	result := svc.ProbeSupplierModel(context.Background(), SupplierProbeInput{
+		Account: account, ClientModelID: "claude-sonnet-4-6", UpstreamModelID: "claude-sonnet-4-6",
+	})
+
+	require.Equal(t, SupplierProbeStatusPassed, result.Status)
+	require.Equal(t, "anthropic_messages", result.Protocol)
+	require.Equal(t, http.MethodPost, gotMethod)
+	require.Equal(t, "/v1/messages", gotPath)
+	require.Equal(t, "Bearer cw-secret", gotAuth)
+	require.Equal(t, "cw-secret", gotAPIKey)
+	require.Equal(t, "2023-06-01", gotVersion)
 }

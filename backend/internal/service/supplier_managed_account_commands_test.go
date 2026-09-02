@@ -137,6 +137,28 @@ func TestUS048_SupplierQianfanCreateUsesBaiduV2Transport(t *testing.T) {
 	require.Zero(t, accounts.bindCalls)
 }
 
+func TestUS048_SupplierAnthropicCreateDeclaresMessagesExclusive(t *testing.T) {
+	accounts := &supplierManagedCommandsAccountRepoFake{}
+	groups := &supplierManagedCommandsGroupRepoFake{groups: []Group{{ID: 9, Name: PlatformNewAPI + "-default", Platform: PlatformNewAPI}}}
+	svc := &adminServiceImpl{accountRepo: accounts, groupRepo: groups}
+
+	_, err := svc.CreateSupplierManagedAccount(context.Background(), SupplierManagedAccountCreateInput{
+		SourceID: 9, DiscountBand: 6, Name: "CloudWise/Anthropic · 档位 6",
+		Endpoint: "https://api.cloudwise.ai/api", Credential: "secret",
+		ChannelType: newapiconstant.ChannelTypeAnthropic, Priority: 160,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, newapiconstant.ChannelTypeAnthropic, accounts.created.ChannelType)
+	require.Equal(t, "https://api.cloudwise.ai/api", accounts.created.Credentials["base_url"])
+	require.Equal(t, true, accounts.created.Credentials[ProtocolEndpointsExclusiveCredentialKey])
+	require.Equal(t, map[string]any{
+		APIProtocolAnthropic: "https://api.cloudwise.ai/api",
+	}, accounts.created.Credentials[apiBaseURLsCredentialKey])
+	require.False(t, accounts.created.Schedulable)
+	require.Zero(t, accounts.bindCalls)
+}
+
 func TestUS048_SupplierConfigurationUpdateRequiresPassedChatProbe(t *testing.T) {
 	accounts := &supplierManagedCommandsAccountRepoFake{existing: &Account{
 		ID: 41, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeOpenAI,

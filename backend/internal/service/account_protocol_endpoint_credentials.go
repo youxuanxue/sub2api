@@ -97,16 +97,30 @@ func deriveExclusiveChatProtocolURL(baseURL string, channelType int) string {
 	return trimmed
 }
 
-// applyExclusiveChatProtocolEndpoints writes the chat-only exclusive identity
-// block used by supplier-managed NewAPI accounts.
+// deriveExclusiveMessagesProtocolURL builds the messages base URL declared under
+// protocol_endpoints_exclusive for Anthropic supplier accounts. Identity
+// normalization appends /v1/messages when the path is not already complete.
+func deriveExclusiveMessagesProtocolURL(baseURL string) string {
+	return strings.TrimRight(strings.TrimSpace(baseURL), "/")
+}
+
+// applyExclusiveChatProtocolEndpoints writes the channel-appropriate exclusive
+// identity block used by supplier-managed NewAPI accounts. Anthropic (14) is
+// messages-only; all other supplier transports remain chat-only.
 func applyExclusiveChatProtocolEndpoints(credentials map[string]any, baseURL string, channelType int) {
 	if credentials == nil {
 		return
 	}
 	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	credentials["base_url"] = trimmed
-	credentials[apiBaseURLsCredentialKey] = map[string]any{
-		APIProtocolChatCompletions: deriveExclusiveChatProtocolURL(trimmed, channelType),
+	if channelType == newapiconstant.ChannelTypeAnthropic {
+		credentials[apiBaseURLsCredentialKey] = map[string]any{
+			APIProtocolAnthropic: deriveExclusiveMessagesProtocolURL(trimmed),
+		}
+	} else {
+		credentials[apiBaseURLsCredentialKey] = map[string]any{
+			APIProtocolChatCompletions: deriveExclusiveChatProtocolURL(trimmed, channelType),
+		}
 	}
 	credentials[ProtocolEndpointsExclusiveCredentialKey] = true
 }
@@ -124,6 +138,14 @@ func reconcileExclusiveProtocolEndpointCredentials(credentials map[string]any, c
 		delete(credentials, apiBaseURLsCredentialKey)
 		return credentials
 	}
+	if channelType == newapiconstant.ChannelTypeAnthropic {
+		wantMessages := deriveExclusiveMessagesProtocolURL(baseURL)
+		credentials[apiBaseURLsCredentialKey] = map[string]any{
+			APIProtocolAnthropic: wantMessages,
+		}
+		credentials[ProtocolEndpointsExclusiveCredentialKey] = true
+		return credentials
+	}
 	wantChat := deriveExclusiveChatProtocolURL(baseURL, channelType)
 	raw, _ := credentials[apiBaseURLsCredentialKey].(map[string]any)
 	out := make(map[string]any, len(raw)+1)
@@ -134,6 +156,8 @@ func reconcileExclusiveProtocolEndpointCredentials(credentials map[string]any, c
 	if !exclusiveChatURLsAligned(gotChat, wantChat) {
 		out[APIProtocolChatCompletions] = wantChat
 	}
+	delete(out, APIProtocolAnthropic)
+	delete(out, APIProtocolResponses)
 	credentials[apiBaseURLsCredentialKey] = out
 	credentials[ProtocolEndpointsExclusiveCredentialKey] = true
 	return credentials

@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
 	dbaccountgroup "github.com/Wei-Shaw/sub2api/ent/accountgroup"
@@ -241,10 +242,11 @@ func publishVerifiedSupplierChatCapability(
 	if err != nil {
 		return false, err
 	}
+	wantProtocol := supplierVerifiedProtocolForAccount(account)
 	if !input.Governed || len(input.Identity.ProtocolEndpoints) != 1 {
 		return false, service.ErrSupplierProjectionProtocolNotReady
 	}
-	if _, ok := input.Identity.ProtocolEndpoints[protocolrouter.ProtocolChatCompletions]; !ok {
+	if _, ok := input.Identity.ProtocolEndpoints[wantProtocol]; !ok {
 		return false, service.ErrSupplierProjectionProtocolNotReady
 	}
 
@@ -262,8 +264,8 @@ func publishVerifiedSupplierChatCapability(
 		return false, service.ErrSupplierProjectionProtocolNotReady
 	}
 
-	chatOnly := []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}
-	projectionAlreadyChatOnly := slices.Equal(service.LegacySupportedProtocolsProjection(account), chatOnly)
+	protocolOnly := []protocolrouter.Protocol{wantProtocol}
+	projectionAlreadyProtocolOnly := slices.Equal(service.LegacySupportedProtocolsProjection(account), protocolOnly)
 	now := time.Now().UTC()
 	lease, acquired, err := repo.AcquireProbeLease(
 		ctx,
@@ -284,11 +286,11 @@ func publishVerifiedSupplierChatCapability(
 	for protocol, verdict := range evidence.Verdicts {
 		verdicts[protocol] = verdict
 	}
-	verdicts[string(protocolrouter.ProtocolChatCompletions)] = string(service.ProtocolProbePositive)
+	verdicts[string(wantProtocol)] = string(service.ProtocolProbePositive)
 	evidence.Verdicts = verdicts
 	evidence.IdentityConflict = false
 	updated, _, err := repo.CommitProbeResult(ctx, lease, service.ProtocolCapabilityMutation{
-		SupportedProtocols:    chatOnly,
+		SupportedProtocols:    protocolOnly,
 		ProbeEvidence:         evidence,
 		InitialProbeCompleted: true,
 		IdentityConflict:      false,
@@ -302,7 +304,14 @@ func publishVerifiedSupplierChatCapability(
 	}
 	account.ProtocolEndpointCapabilityID = &updated.ID
 	account.ProtocolEndpointCapability = updated
-	return !projectionAlreadyChatOnly, nil
+	return !projectionAlreadyProtocolOnly, nil
+}
+
+func supplierVerifiedProtocolForAccount(account *service.Account) protocolrouter.Protocol {
+	if account != nil && account.ChannelType == newapiconstant.ChannelTypeAnthropic {
+		return protocolrouter.ProtocolMessages
+	}
+	return protocolrouter.ProtocolChatCompletions
 }
 
 // NewAdminAccountRepository exposes the account repository's atomic duplication capability
