@@ -715,7 +715,6 @@ def project_allowlists(
         if begin not in text or end not in text or text.find(begin) > text.find(end):
             raise SystemExit(f"FATAL: splice markers for {platform} not found in {GO_FILE.name}")
     positive = {p: set(servable.get(p, set())) for p in platforms}
-    guard_openai_refresh_scope(dedup(positive.get("openai", set())), text)
     gone = {
         (entry["platform"], entry["model"])
         for entry in _ledger_entries(ledger, "structurally_gone")
@@ -734,6 +733,10 @@ def project_allowlists(
             for model in positive_models
             if model not in current_models and model not in removed_models
         )
+    # The scope guard protects the final native OpenAI projection, not a partial
+    # positive-evidence batch. Under additive refresh a small Ainzy-shaped success
+    # set is safe while the existing native-only rows remain present.
+    guard_openai_refresh_scope(final["openai"], text)
     for plat in platforms:
         if final[plat] != _allowlist_members_for_platform(text, plat):
             text = splice_go(text, plat, final[plat])
@@ -1198,9 +1201,9 @@ def selftest() -> int:
     assert '"gemini-2.5-pro": {},' in gout, gout
     assert splice_go(gout, "gemini", ["gemini-2.5-pro", "imagen-4.0-generate-001"]) == gout, "gemini not idempotent"
 
-    # Native OpenAI and api.ainzy.net/v1 are separate scopes. Applying an
-    # Ainzy-shaped probe result to the native openai marker is almost certainly
-    # a source-group mistake, so the refresh path must fail before splicing.
+    # Native OpenAI and api.ainzy.net/v1 are separate scopes. Replacing the final
+    # native OpenAI projection with an Ainzy-shaped set is almost certainly a
+    # source-group mistake, so the refresh path must fail before splicing.
     scope_guard_sample = (
         "var supportedOpenAICatalogModels = map[string]struct{}{\n"
         "\t// servable-allowlist:begin openai\n"
@@ -1217,6 +1220,22 @@ def selftest() -> int:
     except SystemExit as e:
         assert "api.ainzy.net/v1" in str(e), e
     guard_openai_refresh_scope(["gpt-5.2", "gpt-5-pro"], scope_guard_sample)
+    scope_projection_sample = (
+        "var supportedAnthropicCatalogModels = map[string]struct{}{\n"
+        "\t// servable-allowlist:begin anthropic\n"
+        "\t// servable-allowlist:end anthropic\n}\n"
+        + scope_guard_sample
+        + "var supportedGeminiCatalogModels = map[string]struct{}{\n"
+        "\t// servable-allowlist:begin gemini\n"
+        "\t// servable-allowlist:end gemini\n}\n"
+    )
+    scope_projected_text, scope_projected = project_allowlists(
+        scope_projection_sample,
+        {"openai": {"gpt-5.2"}},
+        {"watchlist": [], "skiplist": [], "structurally_gone": []},
+    )
+    assert scope_projected["openai"] == ["gpt-5-pro", "gpt-5.2"], scope_projected
+    assert scope_projected_text == scope_projection_sample, scope_projected_text
 
     # --skip-video carry-forward: a chat/image refresh must preserve existing video
     # (veo) ids verbatim. carried_forward_rows emits ONLY the video-family members
