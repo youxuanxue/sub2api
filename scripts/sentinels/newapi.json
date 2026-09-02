@@ -33,9 +33,19 @@
       "must_contain": [
         "func attachUpstreamQuotaForAccount",
         "account.Platform == PlatformNewAPI",
-        "unsupportedUpstreamQuota(PlatformNewAPI"
+        "buildNewAPIUpstreamQuota"
       ],
-      "rationale": "Unified upstream_quota projection must explicitly mark NewAPI/Vertex as unsupported rather than leaving the field absent. NewAPI channel providers have heterogeneous balance/quota APIs; Vertex service_account channel_type=41 currently has no GCP Billing/Monitoring/Service Usage integration, so the UI must show a clear unsupported upstream-quota state while local usage windows remain available."
+      "rationale": "Unified upstream_quota projection must route NewAPI through buildNewAPIUpstreamQuota rather than leaving the field absent. Without a snapshot the state is unknown (no false 'unsupported' chip); when a recoverable weekly/5h/7d 429 Extra snapshot exists it surfaces utilization + resets_at. Vertex service_account channel_type=41 still has no GCP Billing integration, so it stays unknown until a future control-plane quota adapter is added."
+    },
+    {
+      "path": "backend/internal/service/newapi_usage_window_tk.go",
+      "must_contain": [
+        "tkTryHandleNewAPIUsageWindow429",
+        "applyNewAPIUsageWindowSnapshot",
+        "buildNewAPIUpstreamQuota",
+        "newAPIWeeklyUtilExtraKey"
+      ],
+      "rationale": "NewAPI Agent Plan weekly/5h/7d prose 429s must cool until the parsed reset and persist Extra so admin usage windows show exhaustion instead of a permanent 'unsupported' chip. Dropping this companion recreates the account-88 weekly-quota UI blind spot."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_newapi_pool.go",
