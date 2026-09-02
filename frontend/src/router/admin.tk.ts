@@ -132,8 +132,7 @@ export const adminRoutes: RouteRecordRaw[] = [
         component: () => import('@/views/admin/SupplierSourcesView.vue'),
         meta: {
           title: 'Supplier Sources',
-          titleKey: 'admin.supplierSources.title',
-          descriptionKey: 'admin.supplierSources.description'
+          titleKey: 'admin.supplierSources.title'
         }
       },
       {

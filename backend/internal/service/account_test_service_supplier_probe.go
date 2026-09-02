@@ -36,6 +36,9 @@ func (s *AccountTestService) ProbeSupplierModel(ctx context.Context, input Suppl
 	if supplierAccountUsesVideoProbe(input.Account) {
 		return s.probeSupplierVideoModel(ctx, input, baseResult)
 	}
+	if supplierAccountUsesAnthropicMessagesProbe(input.Account) {
+		return s.probeSupplierAnthropicMessagesModel(ctx, input, baseResult)
+	}
 	recorder := httptest.NewRecorder()
 	ginContext, _ := gin.CreateTestContext(recorder)
 	ginContext.Request = httptest.NewRequest("POST", "/internal/supplier-probe", nil).WithContext(ctx)
@@ -58,6 +61,102 @@ func (s *AccountTestService) ProbeSupplierModel(ctx context.Context, input Suppl
 
 func supplierAccountUsesVideoProbe(account *Account) bool {
 	return account != nil && account.ChannelType == newapiconstant.ChannelTypeDoubaoVideo
+}
+
+func supplierAccountUsesAnthropicMessagesProbe(account *Account) bool {
+	return account != nil && account.ChannelType == newapiconstant.ChannelTypeAnthropic
+}
+
+func (s *AccountTestService) probeSupplierAnthropicMessagesModel(
+	ctx context.Context,
+	input SupplierProbeInput,
+	baseResult SupplierProbeResult,
+) SupplierProbeResult {
+	account := input.Account
+	baseURL := strings.TrimRight(strings.TrimSpace(account.GetBaseURL()), "/")
+	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
+	if baseURL == "" || apiKey == "" {
+		baseResult.Status = SupplierProbeStatusFailed
+		baseResult.Detail = supplierProbeSafeDetail(SupplierProbeStatusFailed)
+		return baseResult
+	}
+	messagesURL := supplierAnthropicMessagesProbeURL(baseURL)
+	body, err := json.Marshal(map[string]any{
+		"model":      baseResult.UpstreamModelID,
+		"max_tokens": 8,
+		"messages": []map[string]any{
+			{"role": "user", "content": "hi"},
+		},
+		"stream": false,
+	})
+	if err != nil {
+		baseResult.Status = SupplierProbeStatusFailed
+		baseResult.Detail = supplierProbeSafeDetail(SupplierProbeStatusFailed)
+		return baseResult
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, messagesURL, bytes.NewReader(body))
+	if err != nil {
+		baseResult.Status = SupplierProbeStatusFailed
+		baseResult.Detail = supplierProbeSafeDetail(SupplierProbeStatusFailed)
+		return baseResult
+	}
+	// CloudWise Anthropic MaaS accepts Bearer (prod matrix); also set x-api-key for
+	// Anthropic-native relays that ignore Authorization.
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		baseResult.Status = SupplierProbeStatusFailed
+		baseResult.Detail = supplierProbeSafeDetail(SupplierProbeStatusFailed)
+		return baseResult
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	status := supplierAnthropicMessagesProbeStatus(resp.StatusCode, raw)
+	baseResult.Status = status
+	if status == SupplierProbeStatusPassed {
+		baseResult.Protocol = "anthropic_messages"
+	} else {
+		baseResult.Detail = supplierProbeSafeDetail(status)
+	}
+	return baseResult
+}
+
+func supplierAnthropicMessagesProbeURL(baseURL string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if strings.HasSuffix(trimmed, "/v1/messages") {
+		return trimmed
+	}
+	if strings.HasSuffix(trimmed, "/v1") {
+		return trimmed + "/messages"
+	}
+	return trimmed + "/v1/messages"
+}
+
+func supplierAnthropicMessagesProbeStatus(statusCode int, body []byte) SupplierProbeStatus {
+	lower := strings.ToLower(string(body))
+	switch {
+	case statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden:
+		return SupplierProbeStatusAuthFailed
+	case statusCode == http.StatusNotFound || strings.Contains(lower, "model not found") ||
+		strings.Contains(lower, "model_not_found") || strings.Contains(lower, "unknown model"):
+		return SupplierProbeStatusModelUnsupported
+	case statusCode == http.StatusOK && (strings.Contains(lower, "chat.completion") ||
+		strings.Contains(lower, "response.completed")):
+		return SupplierProbeStatusProtocolUnsupported
+	case statusCode == http.StatusOK && (strings.Contains(lower, `"type":"message"`) ||
+		strings.Contains(lower, `"type": "message"`) || strings.Contains(lower, "message_start")):
+		return SupplierProbeStatusPassed
+	case statusCode >= 200 && statusCode < 300:
+		// 2xx without Anthropic message shape is not Messages evidence.
+		return SupplierProbeStatusProtocolUnsupported
+	default:
+		return SupplierProbeStatusFailed
+	}
 }
 
 func (s *AccountTestService) probeSupplierVideoModel(

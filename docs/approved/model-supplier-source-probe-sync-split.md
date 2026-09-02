@@ -10,7 +10,7 @@ scope: "amend US-048 / model-supplier-source-management: four explicit actions; 
 related_stories: ["US-048"]
 amends: ["docs/approved/model-supplier-source-management.md"]
 related_design: ["docs/approved/model-supplier-source-fmgo-seedance-account-rewrite.md"]
-operator_locks: "2026-09-02: discover -> validate -> save -> project; validate is read-only preview, never write authorization; project re-probes immediately before structural writes; no validation cache/token; POST .../probe and probe job remain discover aliases"
+operator_locks: "2026-09-02: discover -> validate -> save -> project; validate is read-only preview, never write authorization; project re-probes immediately before structural writes; no validation cache/token; POST .../probe and probe job remain discover aliases; Anthropic channel_type=14 messages-only probe/project"
 ---
 
 # 供应源：发现 / 校验 / 保存 / 投影
@@ -91,6 +91,8 @@ GET  /admin/supplier-sources/:id/probe/jobs/:job_id
 
 - 默认：Chat Completions 正向证据。
 - 视频通道（DoubaoVideo / 54）：走该通道真实视频方言，不用 `hi` Chat 冒充成功。
+- Anthropic 通道（14）：走 `/v1/messages` 正向证据（CloudWise Claude opus/sonnet 上游仅 messages）；
+  不用 Chat Completions 冒充成功；投影账号仅声明 Messages。
 - 每一行用该行 `upstream_model_id` 探测；失败封闭。
 - 不按 client 名字猜 transport，不建设通用协议配置器。
 

@@ -87,15 +87,19 @@ describe('SupplierSourcesView', () => {
     sync.mockReset()
   })
 
-  it('fills AppLayout main width like Dashboard/RiskControl (no max-w / mx-auto page shell)', async () => {
+  it('fills AppLayout viewport without an in-page title shell', async () => {
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
 
     const root = wrapper.get('[data-test="supplier-sources-page"]')
-    expect(root.classes()).toEqual(expect.arrayContaining(['w-full', 'min-w-0', 'space-y-6']))
+    expect(root.classes()).toEqual(expect.arrayContaining(['supplier-sources-page', 'w-full', 'min-w-0', 'flex', 'flex-col']))
     expect(root.classes()).not.toContain('max-w-7xl')
     expect(root.classes()).not.toContain('mx-auto')
-    expect(root.classes().some((c) => c.startsWith('p-') || c.startsWith('sm:p-'))).toBe(false)
+    expect(root.classes()).not.toContain('space-y-6')
+    expect(wrapper.find('h1').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('admin.supplierSources.description')
+    expect(wrapper.find('[data-test="supplier-sources-workspace"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="priority-preview-button"]').exists()).toBe(true)
   })
 
   it('defaults a new source to channel default and base priority 100', async () => {

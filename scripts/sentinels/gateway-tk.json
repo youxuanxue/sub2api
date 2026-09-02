@@ -7650,15 +7650,15 @@
       "must_contain": [
         "func (r *accountRepository) UpdateSupplierMetadata(ctx context.Context, accountID int64, name string, priority int) error",
         "func (r *accountRepository) UpdateSupplierConcurrency(ctx context.Context, accountID int64, concurrency int) error",
-        "func (r *accountRepository) UpdateSupplierProjection(ctx context.Context, account *service.Account, chatProbePassed bool) error",
-        "if len(account.GetModelMapping()) > 0 && !chatProbePassed {",
-        "publishVerifiedSupplierChatCapability(",
+        "func (r *accountRepository) UpdateSupplierProjection(ctx context.Context, account *service.Account, protocolProbePassed bool) error",
+        "if len(account.GetModelMapping()) > 0 && !protocolProbePassed {",
+        "publishVerifiedSupplierProtocolCapability(",
         "concurrency = $10",
         "enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil)",
         "enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, nil)",
         "extra = COALESCE(extra, '{}'::jsonb) || $6::jsonb"
       ],
-      "rationale": "Production-only narrow write paths for supplier metadata, concurrency and full projections. Concurrency-only sync writes the single owned column plus scheduler invalidation without fabricating probe evidence. Non-empty full projections fail closed without the current sync call's Chat probe evidence; the same account transaction publishes the verified Chat-only capability before ordinary scheduler invalidation. These writes avoid account-group payloads, and the full projection merges only the two owned supplier keys while preserving every non-owned Extra. The generic AccountRepository.Update forwards billing and unrelated runtime fields, so supplier sync must never fall back to it."
+      "rationale": "Production-only narrow write paths for supplier metadata, concurrency and full projections. Concurrency-only sync writes the single owned column plus scheduler invalidation without fabricating probe evidence. Non-empty full projections fail closed without the current sync call's protocol probe evidence; the same account transaction publishes the verified channel protocol capability (Chat Completions by default, Messages for Anthropic channel_type=14) before ordinary scheduler invalidation. These writes avoid account-group payloads, and the full projection merges only the two owned supplier keys while preserving every non-owned Extra. The generic AccountRepository.Update forwards billing and unrelated runtime fields, so supplier sync must never fall back to it."
     },
     {
       "path": "backend/internal/repository/account_repo.go",
@@ -7695,16 +7695,16 @@
         "ChannelType: transport.ChannelType",
         "account.ChannelType = transport.ChannelType",
         "SkipDefaultGroupBind: true",
-        "if len(input.ModelMapping) > 0 && !input.ChatProbePassed {",
+        "if len(input.ModelMapping) > 0 && !input.ProtocolProbePassed {",
         "return ErrSupplierProjectionUpdaterMissing",
         "return updater.UpdateSupplierMetadata(ctx, account.ID, account.Name, account.Priority)",
         "updater.UpdateSupplierConcurrency(ctx, account.ID, concurrency)",
-        "return updater.UpdateSupplierProjection(ctx, account, chatProbePassed)",
+        "return updater.UpdateSupplierProjection(ctx, account, protocolProbePassed)",
         "account.Concurrency = ResolveSupplierSourceAccountConcurrency(input.Concurrency)",
-        "applyExclusiveChatProtocolEndpoints(credentials, baseURL, channelType)",
+        "applyExclusiveSupplierProtocolEndpoints(credentials, baseURL, channelType)",
         "return FinalizeAccountCredentials(credentials, channelType)"
       ],
-      "rationale": "The supplier-source owner reads only the narrow projection, creates new managed accounts empty, unschedulable and ungrouped, resolves managed transport from the procurement endpoint (OpenAI Chat or Qianfan BaiduV2), preserves non-owned account metadata, requires current-call Chat probe evidence for every non-empty mapping, and fails closed unless both narrow repository writes are available. Supplier projection writes exclusive chat identity only through the shared applyExclusiveChatProtocolEndpoints helper so Qianfan/OpenAI chat shapes cannot drift from FinalizeAccountCredentials."
+      "rationale": "The supplier-source owner reads only the narrow projection, creates new managed accounts empty, unschedulable and ungrouped, resolves managed transport from the procurement endpoint (OpenAI Chat or Qianfan BaiduV2), preserves non-owned account metadata, requires current-call protocol probe evidence for every non-empty mapping, and fails closed unless both narrow repository writes are available. Supplier projection writes exclusive protocol identity only through the shared applyExclusiveSupplierProtocolEndpoints helper (messages for Anthropic; chat for other supplier transports) so shapes cannot drift from FinalizeAccountCredentials."
     },
     {
       "path": "backend/internal/service/supplier_managed_account_commands_test.go",
@@ -7713,13 +7713,13 @@
         "TestUS048_OrdinaryCreateAccountStillFailsWhenDefaultGroupBindFails",
         "TestUS048_SupplierConcurrencyUpdateUsesNarrowWriteWithoutProbeEvidence",
         "TestUS048_SupplierConfigurationUpdateUsesGroupFreeReadAndNarrowWrite",
-        "TestUS048_SupplierConfigurationUpdateRequiresPassedChatProbe",
+        "TestUS048_SupplierConfigurationUpdateRequiresPassedProtocolProbe",
         "TestUS048_SupplierQianfanCreateUsesBaiduV2Transport",
         "require.Equal(t, 1, accounts.projectionUpdateCalls)",
-        "require.True(t, accounts.projectionChatProbePassed)",
+        "require.True(t, accounts.projectionProtocolProbePassed)",
         "require.Zero(t, accounts.genericUpdateCalls"
       ],
-      "rationale": "Behavior regressions pin empty, unschedulable, ungrouped supplier creation, the unchanged ordinary CreateAccount group-bind failure contract, Qianfan BaiduV2 transport selection, the non-empty Chat evidence gate, and prove supplier configuration updates use a group-free read plus the isolated projection write exactly once, never the generic account update path."
+      "rationale": "Behavior regressions pin empty, unschedulable, ungrouped supplier creation, the unchanged ordinary CreateAccount group-bind failure contract, Qianfan BaiduV2 transport selection, the non-empty protocol probe evidence gate, and prove supplier configuration updates use a group-free read plus the isolated projection write exactly once, never the generic account update path."
     },
     {
       "path": "backend/internal/repository/account_repo_supplier_projection_test.go",
@@ -7727,6 +7727,9 @@
         "TestUS048_SupplierMetadataRepositoryWritesOnlyNameAndPriority",
         "TestUS048_SupplierConcurrencyRepositoryWritesOnlyConcurrency",
         "TestUS048_SupplierConfigurationRepositoryRejectsUnverifiedNonEmptyMapping",
+        "TestUS048_SupplierAnthropicProjectionPublishesMessagesCapability",
+        "TestUS048_SupplierAnthropicProjectionRejectsChatOnlyIdentity",
+        "TestUS048_SupplierVerifiedProtocolForAnthropicIsMessages",
         "TestUS048_SupplierConfigurationRepositoryWritesOnlyOwnedFields",
         "TestUS048_SupplierProjectionReadSelectsOnlyRequiredConfigurationFields",
         "rate_multiplier",
@@ -7948,7 +7951,7 @@
         "func MergeAccountCredentials(existing, incoming map[string]any, channelType int, mode CredentialMergeMode) map[string]any",
         "func FinalizeAccountCredentials(credentials map[string]any, channelType int) map[string]any",
         "func PrepareBulkCredentialPatch(patch map[string]any) map[string]any",
-        "func applyExclusiveChatProtocolEndpoints(credentials map[string]any, baseURL string, channelType int)",
+        "func applyExclusiveSupplierProtocolEndpoints(credentials map[string]any, baseURL string, channelType int)",
         "func deriveExclusiveChatProtocolURL(baseURL string, channelType int) string",
         "CredentialMergePreserveAll",
         "delete(merged, apiBaseURLsCredentialKey)",
@@ -7966,7 +7969,7 @@
         "TestSupplierManagedCredentials_UsesSharedExclusiveChatSSOT",
         "TestPrepareBulkCredentialPatch_LeavesExclusiveAloneForAPIKeyOnlyRotate"
       ],
-      "rationale": "Focused regressions for the exclusive-endpoint SSOT: CRS preserve-all drops stale identity, admin spread realigns chat URLs to the new base_url, Qianfan exclusive chat paths rebuild, bulk base_url/api_key patches clear identity keys, and supplierManagedCredentials shares applyExclusiveChatProtocolEndpoints."
+      "rationale": "Focused regressions for the exclusive-endpoint SSOT: CRS preserve-all drops stale identity, admin spread realigns chat URLs to the new base_url, Qianfan exclusive chat paths rebuild, bulk base_url/api_key patches clear identity keys, and supplierManagedCredentials shares applyExclusiveSupplierProtocolEndpoints."
     },
     {
       "path": "backend/internal/service/account_supported_protocols.go",

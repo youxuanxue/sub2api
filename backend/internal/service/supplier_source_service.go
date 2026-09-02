@@ -332,7 +332,7 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 			ModelMapping: additionMapping, Priority: target.Priority, Concurrency: source.AccountConcurrency,
 			Status:      StatusActive,
 			Schedulable: len(additionMapping) > 0, Adopt: adopt,
-			ChatProbePassed: len(additionMapping) > 0,
+			ProtocolProbePassed: len(additionMapping) > 0,
 		}
 		updated, updateErr := s.accounts.UpdateManagedAccount(ctx, updateInput)
 		if updateErr != nil {
@@ -386,7 +386,7 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 			ModelMapping: cloneSupplierStringMap(desiredMapping), Priority: desiredPriority,
 			Concurrency: source.AccountConcurrency,
 			Status:      StatusActive, Schedulable: len(desiredMapping) > 0,
-			ChatProbePassed: len(desiredMapping) > 0,
+			ProtocolProbePassed: len(desiredMapping) > 0,
 		})
 		if updateErr != nil {
 			result.FailedStep = fmt.Sprintf("remove_band_%d", band)

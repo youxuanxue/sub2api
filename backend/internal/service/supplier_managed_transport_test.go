@@ -30,6 +30,13 @@ func TestUS048_ResolveSupplierManagedTransportKeepsOpenAIForGenericHosts(t *test
 	require.Equal(t, "https://token.vstecscloud.com/v1", transport.Endpoint)
 }
 
+func TestUS048_ResolveSupplierManagedTransportKeepsExplicitAnthropic(t *testing.T) {
+	transport, err := resolveSupplierManagedTransport("https://api.cloudwise.ai/api", newapiconstant.ChannelTypeAnthropic)
+	require.NoError(t, err)
+	require.Equal(t, newapiconstant.ChannelTypeAnthropic, transport.ChannelType)
+	require.Equal(t, "https://api.cloudwise.ai/api", transport.Endpoint)
+}
+
 func TestUS048_SupplierManagedEndpointsEqualCollapsesQianfanPathVariants(t *testing.T) {
 	require.True(t, supplierManagedEndpointsEqual(
 		"https://qianfan.baidubce.com/v2",

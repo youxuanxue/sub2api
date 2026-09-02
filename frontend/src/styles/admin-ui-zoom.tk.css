@@ -34,8 +34,10 @@ html.tk-admin-ui-zoom main {
 }
 
 /* Flex fill beats vh subtraction — chrome/padding drift under zoom caused the
-   post-#1047 gap below pagination on /admin/accounts. */
-html.tk-admin-ui-zoom .table-page-layout:not(.mobile-mode) {
+   post-#1047 gap below pagination on /admin/accounts. Same rule for Supplier
+   Sources (vh-fill page shell under AdminShell zoom). */
+html.tk-admin-ui-zoom .table-page-layout:not(.mobile-mode),
+html.tk-admin-ui-zoom .supplier-sources-page {
   flex: 1 1 auto;
   min-height: 0;
   height: auto !important;
