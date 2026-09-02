@@ -178,6 +178,41 @@ func TestFMGoTaskAdaptor_DefaultsToMaxResolutionAndDuration(t *testing.T) {
 	}
 }
 
+func TestFMGoTaskAdaptor_RewritesOfficialSeedance25SKU(t *testing.T) {
+	client := newapiintegration.FMGoSeedance25ClientID
+	wire, info, err := buildFMGoSubmitBody(t, client, `{"`+client+`":"feimiao-v2.5-720p-15s"}`, map[string]any{
+		"resolution": "720p",
+		"duration":   30,
+	})
+	if err != nil {
+		t.Fatalf("BuildRequestBody: %v", err)
+	}
+	want := "feimiao-v2.5-720p-30s"
+	if got := gjson.GetBytes(wire, "model").String(); got != want {
+		t.Fatalf("wire model = %q, want %q", got, want)
+	}
+	if gjson.GetBytes(wire, "seconds").String() != "30" {
+		t.Fatalf("seconds = %s", gjson.GetBytes(wire, "seconds").Raw)
+	}
+	if info.UpstreamModelName != want {
+		t.Fatalf("UpstreamModelName = %q, want %q", info.UpstreamModelName, want)
+	}
+	if info.OriginModelName != client {
+		t.Fatalf("billing key leaked: OriginModelName=%q", info.OriginModelName)
+	}
+}
+
+func TestFMGoTaskAdaptor_RejectsUnsupportedSeedance25Combo(t *testing.T) {
+	client := newapiintegration.FMGoSeedance25ClientID
+	_, _, err := buildFMGoSubmitBody(t, client, `{"`+client+`":"`+client+`"}`, map[string]any{
+		"resolution": "720p",
+		"duration":   5,
+	})
+	if err == nil {
+		t.Fatal("expected rejection for v2.5 720p/5s")
+	}
+}
+
 func TestFMGoTaskAdaptor_RejectsUnsupportedResolution(t *testing.T) {
 	client := newapiintegration.FMGoSeedanceClientID
 	_, _, err := buildFMGoSubmitBody(t, client, `{"`+client+`":"`+client+`"}`, map[string]any{
@@ -217,16 +252,29 @@ func TestFMGoTaskAdaptor_ReadsDurationSecondsAlias(t *testing.T) {
 func TestFMGoTaskAdaptor_SanitizeFetchResponse(t *testing.T) {
 	t.Parallel()
 	adaptor := newFMGoTaskAdaptor()
-	got := adaptor.sanitizeFetchResponse([]byte(`{"id":"t1","model":"feimiao-v2-431-720p-10s","status":"succeeded"}`))
+	got := adaptor.sanitizeFetchResponse(
+		[]byte(`{"id":"t1","model":"feimiao-v2-431-720p-10s","status":"succeeded"}`),
+		newapiintegration.FMGoSeedanceClientID,
+	)
 	if gjson.GetBytes(got, "model").String() != newapiintegration.FMGoSeedanceClientID {
 		t.Fatalf("non-fast sku model = %q", gjson.GetBytes(got, "model").String())
 	}
 	if gjson.GetBytes(got, "status").String() != "succeeded" || gjson.GetBytes(got, "id").String() != "t1" {
 		t.Fatalf("sanitize must only rewrite model, got %s", got)
 	}
-	got = adaptor.sanitizeFetchResponse([]byte(`{"model":"feimiao-v2-fast-480p-8s"}`))
+	got = adaptor.sanitizeFetchResponse(
+		[]byte(`{"model":"feimiao-v2-fast-480p-8s"}`),
+		newapiintegration.FMGoSeedanceFastClientID,
+	)
 	if gjson.GetBytes(got, "model").String() != newapiintegration.FMGoSeedanceFastClientID {
 		t.Fatalf("fast sku model = %q", gjson.GetBytes(got, "model").String())
+	}
+	got = adaptor.sanitizeFetchResponse(
+		[]byte(`{"model":"feimiao-v2.5-720p-30s"}`),
+		newapiintegration.FMGoSeedance25ClientID,
+	)
+	if gjson.GetBytes(got, "model").String() != newapiintegration.FMGoSeedance25ClientID {
+		t.Fatalf("v2.5 sku model = %q", gjson.GetBytes(got, "model").String())
 	}
 	for name, body := range map[string]string{
 		"no model":       `{"id":"x","status":"succeeded"}`,
@@ -234,13 +282,17 @@ func TestFMGoTaskAdaptor_SanitizeFetchResponse(t *testing.T) {
 		"not json":       `<html>error</html>`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			rewritten := adaptor.sanitizeFetchResponse([]byte(body))
+			rewritten := adaptor.sanitizeFetchResponse([]byte(body), newapiintegration.FMGoSeedanceClientID)
 			if string(rewritten) != body {
 				t.Fatalf("must leave foreign body alone:\n got: %s\nwant: %s", rewritten, body)
 			}
 		})
 	}
-	if got := adaptor.sanitizeFetchResponse(nil); got != nil {
+	directSKU := `{"model":"feimiao-v2.5-720p-30s","status":"succeeded"}`
+	if got := adaptor.sanitizeFetchResponse([]byte(directSKU), "feimiao-v2.5-720p-30s"); string(got) != directSKU {
+		t.Fatalf("direct identity SKU must stay unchanged, got %s", got)
+	}
+	if got := adaptor.sanitizeFetchResponse(nil, newapiintegration.FMGoSeedance25ClientID); got != nil {
 		t.Fatalf("nil body must stay nil, got %q", got)
 	}
 }

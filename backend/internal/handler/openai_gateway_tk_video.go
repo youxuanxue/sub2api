@@ -86,6 +86,10 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	if rewritten, resolved, ok := service.ApplySeedanceClientAlias(body, reqModel); ok {
+		body = rewritten
+		reqModel = resolved
+	}
 	promptResult := gjson.GetBytes(body, "prompt")
 	if !promptResult.Exists() || promptResult.Type != gjson.String || strings.TrimSpace(promptResult.String()) == "" {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "prompt is required")
@@ -375,16 +379,7 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		return
 	}
 
-	in := bridge.VideoFetchInput{
-		UpstreamTaskID: rec.UpstreamTaskID,
-		ChannelType:    rec.ChannelType,
-		BaseURL:        rec.BaseURL,
-		APIKey:         rec.APIKey,
-		// Platform + AccountID drive the grok-native poll branch (channel_type=0,
-		// re-resolve a fresh rotating OAuth Bearer). Ignored by the bridge path.
-		Platform:  rec.Platform,
-		AccountID: rec.AccountID,
-	}
+	in := videoFetchInputFromRecord(rec)
 	writerSizeBeforeForward := c.Writer.Size()
 	out, err := h.gatewayService.ForwardAsVideoFetchDispatched(c.Request.Context(), c, in)
 	if err != nil {
@@ -427,6 +422,20 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		// refunded (registry record expires with its TTL); openai_video_refund.*
 		// logs are the audit trail.
 		h.scheduleVideoRefundAttempt(c.Request.Context(), rec, 0)
+	}
+}
+
+func videoFetchInputFromRecord(rec *service.VideoTaskRecord) bridge.VideoFetchInput {
+	return bridge.VideoFetchInput{
+		UpstreamTaskID: rec.UpstreamTaskID,
+		OriginModel:    rec.OriginModel,
+		ChannelType:    rec.ChannelType,
+		BaseURL:        rec.BaseURL,
+		APIKey:         rec.APIKey,
+		// Platform + AccountID drive the grok-native poll branch (channel_type=0,
+		// re-resolve a fresh rotating OAuth Bearer). Ignored by the bridge path.
+		Platform:  rec.Platform,
+		AccountID: rec.AccountID,
 	}
 }
 

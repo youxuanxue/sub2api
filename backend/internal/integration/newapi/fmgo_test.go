@@ -53,7 +53,13 @@ func TestFMGoSeedanceUpstreamSKU(t *testing.T) {
 		{"reject 1080p", FMGoSeedanceClientID, "1080p", 10, "", true},
 		{"reject 4k", FMGoSeedanceClientID, "4k", 10, "", true},
 		{"reject 9s", FMGoSeedanceClientID, "720p", 9, "", true},
-		{"passthrough other", "doubao-seedance-2-5-260628", "1080p", 5, "doubao-seedance-2-5-260628", false},
+		{"v2.5 defaults", FMGoSeedance25ClientID, "", 0, "feimiao-v2.5-720p-15s", false},
+		{"v2.5 720p 30s", FMGoSeedance25ClientID, "720p", 30, "feimiao-v2.5-720p-30s", false},
+		{"v2.5 480p 5s", FMGoSeedance25ClientID, "480p", 5, "feimiao-v2.5-480p-5s", false},
+		{"v2.5 reject 1080p", FMGoSeedance25ClientID, "1080p", 15, "", true},
+		{"v2.5 reject 720p 5s", FMGoSeedance25ClientID, "720p", 5, "", true},
+		{"v2.5 reject 8s", FMGoSeedance25ClientID, "720p", 8, "", true},
+		{"passthrough other", "doubao-seedance-1-5-pro-251015", "1080p", 5, "doubao-seedance-1-5-pro-251015", false},
 		{"passthrough already sku", "feimiao-v2.5-720p-10s", "720p", 10, "feimiao-v2.5-720p-10s", false},
 	}
 	for _, tc := range cases {
@@ -81,6 +87,7 @@ func TestFMGoUsesVideosDialect(t *testing.T) {
 	for _, model := range []string{
 		FMGoSeedanceClientID,
 		FMGoSeedanceFastClientID,
+		FMGoSeedance25ClientID,
 		"feimiao-v2.5-720p-15s",
 		"feimiao-v2-431-720p-15s",
 		"feimiao-v2-431-fast-480p-10s",
@@ -151,5 +158,38 @@ func TestParseFMGoVideoDuration(t *testing.T) {
 	}
 	if _, err = ParseFMGoVideoDuration("abc"); err == nil {
 		t.Fatal("expected error for non-integer duration")
+	}
+}
+
+func TestFMGoModelFamily_Official25IsV25Not431(t *testing.T) {
+	t.Parallel()
+	if got := FMGoModelFamily(FMGoSeedance25ClientID); got != FMGoFamilyV25 {
+		t.Fatalf("official 2.5 family = %q, want %s", got, FMGoFamilyV25)
+	}
+	if got := FMGoModelFamily(FMGoSeedanceClientID); got != FMGoFamily431 {
+		t.Fatalf("official 2.0 family = %q, want %s", got, FMGoFamily431)
+	}
+}
+
+func TestFMGoClientForUpstreamSKU(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		upstream string
+		want     string
+	}{
+		{"feimiao-v2-431-720p-15s", FMGoSeedanceClientID},
+		{"feimiao-v2-431-fast-480p-10s", FMGoSeedanceFastClientID},
+		{"feimiao-v2.5-720p-30s", FMGoSeedance25ClientID},
+		{"feimiao-v2.5-480p-5s", FMGoSeedance25ClientID},
+		{"feimiao-v2-720p-15s", FMGoSeedanceClientID},
+		{"claude-opus-4-8", "claude-opus-4-8"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.upstream, func(t *testing.T) {
+			t.Parallel()
+			if got := FMGoClientForUpstreamSKU(tc.upstream); got != tc.want {
+				t.Fatalf("FMGoClientForUpstreamSKU(%q) = %q, want %q", tc.upstream, got, tc.want)
+			}
+		})
 	}
 }

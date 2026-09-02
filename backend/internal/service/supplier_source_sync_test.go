@@ -22,6 +22,7 @@ func TestUS048_FMGoSeedanceSyncProjectsOfficialClientsOnly(t *testing.T) {
 		Models: []SupplierSourceModel{
 			{ClientModelID: "doubao-seedance-2-0-260128", UpstreamModelID: "feimiao-v2-431-720p-15s", PurchaseRatio: &ratio},
 			{ClientModelID: "doubao-seedance-2-0-fast-260128", UpstreamModelID: "feimiao-v2-431-fast-720p-15s", PurchaseRatio: &ratio},
+			{ClientModelID: "doubao-seedance-2-5-260628", UpstreamModelID: "feimiao-v2.5-720p-15s", PurchaseRatio: &ratio},
 		},
 	}}
 	accounts := &supplierSyncAccountStoreFake{}
@@ -36,11 +37,12 @@ func TestUS048_FMGoSeedanceSyncProjectsOfficialClientsOnly(t *testing.T) {
 	require.Equal(t, map[string]string{
 		"doubao-seedance-2-0-260128":      "feimiao-v2-431-720p-15s",
 		"doubao-seedance-2-0-fast-260128": "feimiao-v2-431-fast-720p-15s",
+		"doubao-seedance-2-5-260628":      "feimiao-v2.5-720p-15s",
 	}, accounts.updated[0].ModelMapping)
 	for clientID := range accounts.updated[0].ModelMapping {
-		require.False(t, strings.HasPrefix(clientID, "feimiao-v2-"), "SKU %q leaked as client", clientID)
+		require.False(t, strings.HasPrefix(clientID, "feimiao-v2"), "SKU %q leaked as client", clientID)
 	}
-	require.Len(t, accounts.updated[0].ModelMapping, 2)
+	require.Len(t, accounts.updated[0].ModelMapping, 3)
 }
 
 func TestUS048_SupplierSyncGroupsSameBandModelsIntoOneAccount(t *testing.T) {

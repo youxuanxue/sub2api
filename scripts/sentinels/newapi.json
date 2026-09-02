@@ -819,6 +819,7 @@
         "FMGoSeedanceUpstreamSKU",
         "FMGoSeedanceClientID",
         "FMGoSeedanceFastClientID",
+        "FMGoSeedance25ClientID",
         "FMGoChatCompletionsPath",
         "FMGoVideosPath",
         "FMGoUsesVideosDialect",
@@ -827,7 +828,7 @@
         "api.fmgo.top",
         "ChannelTypeDoubaoVideo"
       ],
-      "rationale": "FMGo (feimiao) host detection and pinned Seedance capability set. Identification is channel_type + base_url only; scheduler/gateway must never read supplier_source_id. Canonical host is api.fmgo.top. Live default-group Seedance inventory is v2.5/431/mini on /v1/videos; FMGoSeedanceUpstreamSKU is the only owner of official client → 431[-fast] rewrite."
+      "rationale": "FMGo (feimiao) host detection and pinned Seedance capability set. Identification is channel_type + base_url only; scheduler/gateway must never read supplier_source_id. Canonical host is api.fmgo.top. Live default-group Seedance inventory is v2.5/431/mini on /v1/videos; FMGoSeedanceUpstreamSKU is the only owner of official client → 431[-fast]/v2.5 rewrite."
     },
     {
       "path": "backend/internal/integration/newapi/fmgo_test.go",
@@ -836,9 +837,11 @@
         "TestNormalizeFMGoBaseURL",
         "TestFMGoSeedanceUpstreamSKU",
         "TestFMGoUsesVideosDialect",
-        "TestParseFMGoVideoDuration"
+        "TestParseFMGoVideoDuration",
+        "TestFMGoModelFamily_Official25IsV25Not431",
+        "TestFMGoClientForUpstreamSKU"
       ],
-      "rationale": "Regressions for FMGo host detection, default-to-max SKU, illegal resolution/duration rejection, and passthrough of non-official clients."
+      "rationale": "Regressions for FMGo host detection, official 2.0/2.5 SKU rewrite, illegal resolution/duration rejection, poll rewrite back to the matching official client, and passthrough of non-official clients."
     },
     {
       "path": "backend/internal/relay/bridge/video_relay_tk_fmgo.go",
@@ -855,7 +858,7 @@
         "FMGoSeedanceUpstreamSKU",
         "duration_seconds"
       ],
-      "rationale": "TK companion task adaptor for live FMGo Seedance inventory: official clients rewrite to 431[-fast] and submit POST /v1/videos; legacy feimiao-v2 stays on chat completions. Must ignore probe-anchor mapping as a frozen SKU. Capability set stays in newapiintegration, never notes or supplier Extra."
+      "rationale": "TK companion task adaptor for live FMGo Seedance inventory: official clients rewrite to 431[-fast]/v2.5 and submit POST /v1/videos; legacy feimiao-v2 stays on chat completions. Must ignore probe-anchor mapping as a frozen SKU. Capability set stays in newapiintegration, never notes or supplier Extra."
     },
     {
       "path": "backend/internal/relay/bridge/video_relay_tk_fmgo_test.go",
@@ -863,6 +866,8 @@
         "TestFMGoTaskAdaptor_BuildRequestURL",
         "TestTaskAdaptorForChannel_SelectsFMGo",
         "TestFMGoTaskAdaptor_RewritesOfficialSeedanceSKU",
+        "TestFMGoTaskAdaptor_RewritesOfficialSeedance25SKU",
+        "TestFMGoTaskAdaptor_RejectsUnsupportedSeedance25Combo",
         "TestFMGoTaskAdaptor_RewritesPastProbeAnchorMapping",
         "TestFMGoTaskAdaptor_DefaultsToMaxResolutionAndDuration",
         "TestFMGoTaskAdaptor_RejectsUnsupportedResolution",
