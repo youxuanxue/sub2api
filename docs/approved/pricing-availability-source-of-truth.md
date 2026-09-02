@@ -7,10 +7,7 @@ revised_at: 2026-09-01
 created: 2026-05-06
 owners: [tk-platform]
 scope: "model availability evidence / upstream discovery / catalog decoration and structural-gone pruning"
-superseded_by: docs/approved/pricing-serving-single-source-of-truth.md
-revision_note: >
-  superseded_by 仅表示「交付公式」由 pricing-serving 拥有；本文仍是 availability
-  Evidence owner（观测、徽章、structurally-gone），不是整篇作废。
+owner_kind: availability_evidence
 ---
 
 # 模型可用性观测与目录投影——证据，不是交付资格 SSOT
@@ -125,7 +122,7 @@ provider 下线调查。它只能触发 owner 的正常写路径，不能直接�
 - availability 写入必须保留 platform/model/account/time/failure-kind。
 - scheduler 读取 availability 作为 hard gate 必须触发 review finding。
 - availability 写 price、alias、mapping 或 group entitlement 必须失败。
-- `superseded_by` 指向交付总规范，禁止两份 approved 文档同时宣称 serving SSOT。
+- 本文只能声明 availability Evidence owner，不得声明 serving SSOT。
 
 ## 8. 验收
 

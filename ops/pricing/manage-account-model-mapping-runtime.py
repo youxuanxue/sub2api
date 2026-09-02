@@ -13,11 +13,11 @@ when generating apply-accounts / check-accounts desired mappings; absent
 scopes keep the compiled floor. Writing the setting does not mutate
 accounts.
 
-Empty-mapping Antigravity accounts (typical edge OAuth rows) honor
+Empty-mapping Antigravity accounts honor
 ``platforms.antigravity`` as a serving overlay on compiled
 ``DefaultAntigravityModelMapping`` after settings fan-out. That is the
-hot-add path for group 21 / edge AG: ``sync-runtime`` is enough. Non-empty
-account mappings stay authoritative and still need ``apply-accounts``.
+runtime hot-add path: ``sync-runtime`` is enough. Non-empty account mappings
+stay authoritative and still need ``apply-accounts``.
 Use ``check-accounts`` to diff live accounts against a generated model
 surface bundle, then
 ``apply-accounts --confirm ...`` when an operator has reviewed the diff and
@@ -96,6 +96,7 @@ _bundle_spec.loader.exec_module(_BUNDLE)
 PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
 REDISCLI = "env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli"
 APPLY_CONFIRM = "yes-apply-account-model-mapping"
+RUNTIME_MUTATION_CONFIRM = "yes-change-account-model-mapping-runtime"
 VERTEX_PROFILE_ASSIGN_CONFIRM = "yes-assign-vertex-capability-profiles"
 VERTEX_PROFILE_CREDENTIAL_KEY = "vertex_capability_profile"
 DEFAULT_BUNDLE_PATH = _BUNDLE.DEFAULT_BUNDLE_PATH
@@ -333,6 +334,18 @@ def _resolve_apply_targets(
     if target in {"all", "all-deployable-and-prod"}:
         return _resolve_check_targets(skip_prod=False, include_edges=True)
     fail("--target must be prod, edge:<id>, or all-deployable-and-prod")
+
+
+def _resolve_runtime_mutation_target(
+    target: str,
+) -> tuple[str, str, str]:
+    normalized = target.strip().lower()
+    if normalized in {"all", "all-deployable-and-prod"}:
+        fail("runtime writes require one explicit --target: prod or edge:<id>")
+    targets = _resolve_apply_targets(normalized)
+    if len(targets) != 1:
+        fail("runtime writes require exactly one resolved target")
+    return targets[0]
 
 
 def _runtime_scope_summary(doc: dict) -> dict[str, list[str]]:
@@ -1461,7 +1474,7 @@ def _runtime_setting_remediation(report: dict[str, Any]) -> list[str]:
     targets = sorted({str(v.get("target") or "").strip() for v in violations if v.get("target")})
     steps: list[str] = []
     for target in targets:
-        sync_cmd = _command_with_bundle([
+        sync_plan = _command_with_bundle([
             "python3",
             "ops/pricing/manage-account-model-mapping-runtime.py",
             "sync-runtime",
@@ -1470,16 +1483,20 @@ def _runtime_setting_remediation(report: dict[str, Any]) -> list[str]:
             "--target",
             target,
         ])
-        clear_cmd = " ".join(shlex.quote(part) for part in [
+        sync_apply = f"{sync_plan} --confirm {RUNTIME_MUTATION_CONFIRM}"
+        clear_plan = " ".join(shlex.quote(part) for part in [
             "python3",
             "ops/pricing/manage-account-model-mapping-runtime.py",
             "clear-runtime",
             "--target",
             target,
         ])
+        clear_apply = f"{clear_plan} --confirm {RUNTIME_MUTATION_CONFIRM}"
         steps.extend([
-            f"Correct the runtime JSON so it complies with the selected bundle policy, then sync {target}: {sync_cmd}",
-            f"Or remove the runtime replacement and return {target} to the compiled floor: {clear_cmd}",
+            f"Review the corrected runtime JSON for {target}: {sync_plan}",
+            f"After approval, sync only {target}: {sync_apply}",
+            f"Or review removal of the runtime replacement on {target}: {clear_plan}",
+            f"After approval, clear only {target}: {clear_apply}",
         ])
     return steps
 
@@ -1851,23 +1868,21 @@ def cmd_sync_runtime(args) -> int:
     if runtime_reason:
         fail(runtime_reason)
     payload = canonical_json(doc).encode("utf-8")
-    targets = _resolve_apply_targets(args.target)
-    if args.dry_run:
-        print(f"DRY-RUN: would UPSERT settings[{SETTING_KEY}] on {len(targets)} target(s) "
+    if args.confirm not in {None, RUNTIME_MUTATION_CONFIRM}:
+        fail(f"sync-runtime requires --confirm {RUNTIME_MUTATION_CONFIRM}")
+    target = _resolve_runtime_mutation_target(args.target)
+    if args.confirm is None:
+        print(f"DRY-RUN: would UPSERT settings[{SETTING_KEY}] on 1 target "
               f"({len(payload)} bytes, scopes={_runtime_scope_summary(doc)}) + PUBLISH settings_updated reload.")
-        for label, _, _ in targets:
-            print(f"  - {label}")
+        print(f"  - {target[0]}")
         return 0
     synced: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
-    with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as ex:
-        futs = {ex.submit(_sync_runtime_target, label, region, instance_id, payload, doc): label for label, region, instance_id in targets}
-        for fut in as_completed(futs):
-            label = futs[fut]
-            try:
-                synced.append(fut.result())
-            except Exception as e:  # noqa: BLE001 - report every target write.
-                errors.append({"target": label, "error": str(e)})
+    label, region, instance_id = target
+    try:
+        synced.append(_sync_runtime_target(label, region, instance_id, payload, doc))
+    except Exception as e:  # noqa: BLE001 - render the target-specific failure.
+        errors.append({"target": label, "error": str(e)})
     result = {
         "synced": sorted(synced, key=lambda r: str(r.get("target") or "")),
         "errors": sorted(errors, key=lambda e: str(e.get("target") or "")),
@@ -1877,22 +1892,20 @@ def cmd_sync_runtime(args) -> int:
 
 
 def cmd_clear_runtime(args) -> int:
-    targets = _resolve_apply_targets(args.target)
-    if args.dry_run:
-        print(f"DRY-RUN: would DELETE settings[{SETTING_KEY}] on {len(targets)} target(s) + PUBLISH settings_updated reload.")
-        for label, _, _ in targets:
-            print(f"  - {label}")
+    if args.confirm not in {None, RUNTIME_MUTATION_CONFIRM}:
+        fail(f"clear-runtime requires --confirm {RUNTIME_MUTATION_CONFIRM}")
+    target = _resolve_runtime_mutation_target(args.target)
+    if args.confirm is None:
+        print(f"DRY-RUN: would DELETE settings[{SETTING_KEY}] on 1 target + PUBLISH settings_updated reload.")
+        print(f"  - {target[0]}")
         return 0
     cleared: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
-    with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as ex:
-        futs = {ex.submit(_clear_runtime_target, label, region, instance_id): label for label, region, instance_id in targets}
-        for fut in as_completed(futs):
-            label = futs[fut]
-            try:
-                cleared.append(fut.result())
-            except Exception as e:  # noqa: BLE001 - report every target write.
-                errors.append({"target": label, "error": str(e)})
+    label, region, instance_id = target
+    try:
+        cleared.append(_clear_runtime_target(label, region, instance_id))
+    except Exception as e:  # noqa: BLE001 - render the target-specific failure.
+        errors.append({"target": label, "error": str(e)})
     result = {
         "cleared": sorted(cleared, key=lambda r: str(r.get("target") or "")),
         "errors": sorted(errors, key=lambda e: str(e.get("target") or "")),
@@ -2500,7 +2513,19 @@ def cmd_selftest(_args) -> int:
     assert not hasattr(profile_args, "target"), "profile assignment must be prod-only with no target escape hatch"
     selected_bundle_args = ["--bundle", str(DEFAULT_BUNDLE_PATH)]
     assert parser.parse_args(["validate", "--file", "runtime.json", *selected_bundle_args]).bundle
-    assert parser.parse_args(["sync-runtime", "--file", "runtime.json", *selected_bundle_args]).bundle
+    sync_args = parser.parse_args([
+        "sync-runtime", "--file", "runtime.json", "--target", "prod", *selected_bundle_args,
+    ])
+    assert sync_args.bundle and sync_args.confirm is None
+    clear_args = parser.parse_args(["clear-runtime", "--target", "edge:us3"])
+    assert clear_args.target == "edge:us3" and clear_args.confirm is None
+    with contextlib.redirect_stderr(io.StringIO()):
+        try:
+            parser.parse_args(["sync-runtime", "--file", "runtime.json"])
+        except SystemExit as e:
+            assert e.code == 2
+        else:
+            raise AssertionError("sync-runtime accepted a missing explicit target")
     activation_apply_args = parser.parse_args([
         "apply-accounts",
         "--target", "prod",
@@ -2513,6 +2538,7 @@ def cmd_selftest(_args) -> int:
 
     command_bundle_calls: list[str | None] = []
     account_report_calls: list[dict[str, Any]] = []
+    runtime_target_resolutions: list[str] = []
     original_command_helpers = {
         "_set_bundle_path": globals()["_set_bundle_path"],
         "load_doc": globals()["load_doc"],
@@ -2532,18 +2558,34 @@ def cmd_selftest(_args) -> int:
             "errors": [],
         }
 
+    def fake_resolve_apply_targets(target: str) -> list[tuple[str, str, str]]:
+        runtime_target_resolutions.append(target)
+        return [("prod", "test-region", "i-test")]
+
     globals()["_set_bundle_path"] = lambda raw: command_bundle_calls.append(raw) or DEFAULT_BUNDLE_PATH
     globals()["load_doc"] = lambda _path: {"platforms": {"test": {"test": "test"}}}
     globals()["_runtime_setting_violation"] = lambda _raw: None
-    globals()["_resolve_apply_targets"] = lambda _target: [("prod", "test-region", "i-test")]
+    globals()["_resolve_apply_targets"] = fake_resolve_apply_targets
     globals()["_account_check_report"] = fake_account_check_report
     try:
         with contextlib.redirect_stdout(io.StringIO()):
             assert cmd_validate(argparse.Namespace(
                 file=Path("runtime.json"), bundle="validate-bundle")) == 0
             assert cmd_sync_runtime(argparse.Namespace(
-                file=Path("runtime.json"), target="prod", dry_run=True,
-                parallel=1, bundle="sync-bundle")) == 0
+                file=Path("runtime.json"), target="prod", confirm=None,
+                bundle="sync-bundle")) == 0
+            assert cmd_clear_runtime(argparse.Namespace(
+                target="prod", confirm=None)) == 0
+            resolutions_before_bad_confirm = len(runtime_target_resolutions)
+            with contextlib.redirect_stderr(io.StringIO()):
+                try:
+                    cmd_clear_runtime(argparse.Namespace(
+                        target="prod", confirm="wrong-confirmation"))
+                except SystemExit as e:
+                    assert e.code == 2
+                else:
+                    raise AssertionError("clear-runtime accepted an invalid confirmation")
+            assert len(runtime_target_resolutions) == resolutions_before_bad_confirm
             assert cmd_check_accounts(argparse.Namespace(
                 skip_prod=False, include_edges=True, parallel=1,
                 prod_instance_id="i-00000000000000000",
@@ -2559,6 +2601,14 @@ def cmd_selftest(_args) -> int:
     check_call, release_call = account_report_calls
     assert check_call["include_edges"] is True
     assert release_call["include_edges"] is False
+    assert runtime_target_resolutions == ["prod", "prod"]
+    with contextlib.redirect_stderr(io.StringIO()):
+        try:
+            _resolve_runtime_mutation_target("all-deployable-and-prod")
+        except SystemExit as e:
+            assert e.code == 2
+        else:
+            raise AssertionError("runtime mutation accepted a fleet-wide target")
 
     # --- Targeted apply: _parse_account_ids ---
     assert _parse_account_ids("1,2,3") == [1, 2, 3]
@@ -2988,16 +3038,14 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--dry-run", action="store_true", help="verify selectors and print profile-only changes")
     sp.add_argument("--prod-instance-id", help="pin prod planning and apply to this EC2 instance id")
     sp.add_argument("--bundle", help="generated model-surface bundle whose profile names are allowed")
-    sp = sub.add_parser("sync-runtime", help="hot-push a JSON file to runtime settings")
+    sp = sub.add_parser("sync-runtime", help="plan or explicitly write one target runtime setting")
     sp.add_argument("--file", type=Path, required=True)
-    sp.add_argument("--target", default=DEFAULT_RUNTIME_TARGET, help="prod, edge:<id>, or all-deployable-and-prod")
-    sp.add_argument("--dry-run", action="store_true")
+    sp.add_argument("--target", required=True, help="one target: prod or edge:<id>")
+    sp.add_argument("--confirm", help=f"write instead of dry-run: {RUNTIME_MUTATION_CONFIRM}")
     sp.add_argument("--bundle", help="generated model-surface bundle to validate against")
-    sp.add_argument("--parallel", type=int, default=3, help="parallel SSM workers")
-    sp = sub.add_parser("clear-runtime", help="delete runtime override and use compiled floor")
-    sp.add_argument("--target", default=DEFAULT_RUNTIME_TARGET, help="prod, edge:<id>, or all-deployable-and-prod")
-    sp.add_argument("--dry-run", action="store_true")
-    sp.add_argument("--parallel", type=int, default=3, help="parallel SSM workers")
+    sp = sub.add_parser("clear-runtime", help="plan or explicitly delete one target runtime setting")
+    sp.add_argument("--target", required=True, help="one target: prod or edge:<id>")
+    sp.add_argument("--confirm", help=f"write instead of dry-run: {RUNTIME_MUTATION_CONFIRM}")
     sub.add_parser("example", help="print an example runtime JSON")
     return ap
 

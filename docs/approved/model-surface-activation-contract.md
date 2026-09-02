@@ -47,13 +47,13 @@ projections, not parallel model lists.
 5. **One Admin DTO.** `GET /admin/accounts/:id/models` returns the same minimal model
    option shape for every platform: `id` and `display_name`.
 
-## Explicit Non-goals
+## Boundaries
 
 - Do not add a live `model_mapping` prerequisite to `deploy-stage0.yml`.
 - Do not add a background writer or startup/tick account reconciler.
-- Do not add a server-side model activation feature flag in this PR.
-- Do not remove the existing Edge diagnostic/apply CLI surface in this PR; that
-  proposal was not approved. Routine release and activation remain prod-only.
+- Do not add a server-side model activation feature flag.
+- Edge diagnostic/apply remains separate. Routine release and activation are
+  prod-only.
 - Do not infer servability from upstream discovery or price presence. A real probe
   success is required evidence.
 

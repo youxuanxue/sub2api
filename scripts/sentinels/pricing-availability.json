@@ -331,30 +331,31 @@
       "must_contain": [
         "tk_served_models.json",
         "servable-allowlist:begin",
-        "VALID_MAPPING_SOURCES = {\"activation\", \"admin_legacy\"}",
-        "STALE_MAPPING_MARKERS",
-        "notes contains obsolete machine marker",
-        "#812-class gap",
-        "def _selftest(",
+        "SCHEMA_VERSION = 3",
+        "ENTRY_FIELDS = {\"channel_type\", \"scopes\", \"price_owner\", \"display\"}",
+        "ALLOWED_SCOPES",
+        "def _scope_errors(",
+        "def cmd_selftest(",
+        "unknown fields: notes",
         "_aliases"
       ],
-      "rationale": "The served-models manifest drift guard asserts repository agreement for the thin intent layer: (A1) non-zero pricing, (A2) native allowlist or manifest-owned newapi display, and (A3) an explicit mapping write path. Legacy rows may be evidenced by a quoted model id plus account guard in tk_*.sql or mapping_source=admin_legacy; every new floor declares mapping_source=activation and then completes the approved evidence-backed prod activation before release. A3 catches the #812 priced/displayed-but-empty-pool failure without forcing generic deploy to mutate live accounts. Pinning the structured enum, stale-marker rejection, selftest, and allowlist parser prevents an upstream merge from silently dropping either safety path. Wired into preflight and the upstream conflict gate."
+      "rationale": "The catalog drift guard validates the schema-v3 intent layer: exact manifest fields, normalized property scopes, positive pricing owners, displayed alias resolution, and priced native allowlists. It rejects operational annotations so the manifest remains current policy only."
     },
     {
       "path": "backend/internal/service/tk_served_models.json",
       "must_contain": [
+        "\"schema_version\": 3",
         "\"entries\"",
-        "\"price_source\"",
-        "\"served_on\"",
+        "\"channel_type\"",
+        "\"scopes\"",
+        "\"base_url\"",
+        "\"price_owner\"",
         "\"display\"",
-        "\"mapping_source\"",
-        "\"activation\"",
-        "\"admin_legacy\"",
-        "account 88",
-        "account 90",
-        "account 96"
+        "https://ark.cn-beijing.volces.com/api/plan/v3",
+        "https://qianfan.baidubce.com",
+        "https://api.xrtoken.net"
       ],
-      "rationale": "The served-models MANIFEST is the single declarative intent source consumed by the drift guard, onboarding skill, display projections, and generated account-mapping bundle. Pinning the schema keys plus structured mapping provenance prevents an upstream merge from truncating the manifest or reverting new mapping floors to generic-deploy migrations while leaving compile/tests superficially green. Co-located with the overlay so the same preflight parses price and serving intent. account 96 pins the XRToken ch54 Seedance serving intent (two XRToken-only SKUs plus three shared with the Ark pool) so a merge cannot revert the manifest to the Ark-only rows."
+      "rationale": "The schema-v3 served-models manifest is the declarative owner for curated newapi model membership, channel/property scopes, optional price-owner aliases, and display intent. Runtime projections and the generated account-mapping bundle consume this file directly."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay.go",

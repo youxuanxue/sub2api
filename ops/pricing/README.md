@@ -111,7 +111,9 @@ a scope replacement, not an incremental patch.
 
 - Default post-release account checks are prod-only and read-only.
 - Edge empty mappings are expected in routine checks.
-- `sync-runtime` changes only the runtime replacement setting.
+- `sync-runtime` and `clear-runtime` require one explicit `prod` or `edge:<id>`
+  target. Without the fixed confirmation phrase they are dry-run only; fleet-wide
+  runtime writes are not supported.
 - Persistent account changes require an explicit reviewed apply.
 - `release-gate` belongs only to deliberate model activation.
 - A live runtime replacement that shadows the target bundle blocks activation.
@@ -148,8 +150,7 @@ Relevant preflight checks include:
 - pricing/serving document ownership;
 - generated agent CLI contract drift.
 
-The former diff-scoped `display-coverage-gate.py` remains as a compatibility
-entrypoint and delegates to `catalog-serving-drift.py`; preflight runs the owner
-once rather than maintaining a second display-price predicate.
+`catalog-serving-drift.py` is the only static catalog/price/display contract
+check. Live probes remain evidence and never mutate that policy automatically.
 
 Run `./scripts/preflight.sh` at the repository exit gates defined by project rules.

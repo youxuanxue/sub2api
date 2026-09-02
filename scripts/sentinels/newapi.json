@@ -953,13 +953,14 @@
       "must_contain": [
         "tkServedModelsManifestPresetIDsForSelector",
         "tkServedModelsManifestDisplayPresetIDsForSelector",
-        "account_scope",
-        "account_scopes",
-        "manifestEntryIsAccountScopedOnly",
+        "tkServedModelsManifestSchemaVersion = 3",
+        "Scopes      []tkServedModelsManifestScope",
+        "func manifestEntryScopeKeys(",
+        "func manifestScopeKey(",
         "newAPIQianfanModelMappingPresetIDs",
         "newAPIXRTokenModelMappingPresetIDs"
       ],
-      "rationale": "Property-scoped manifest projections keep Agent Plan, Qianfan, and XRToken menus aligned with platform/channel/base_url while served_on remains evidence only. account_scopes lets one manifest model belong to additional property-scoped pools without a duplicate Go model-id list; XRToken's five-model surface therefore has one declarative owner."
+      "rationale": "Property-scoped manifest projections keep Agent Plan, Qianfan, and XRToken mapping/display menus aligned with the schema-v3 channel/base-URL scopes. One model may belong to multiple property scopes without a second model-id registry."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_tk_volcagentplan.go",

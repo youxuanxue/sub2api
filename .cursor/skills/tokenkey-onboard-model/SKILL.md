@@ -43,8 +43,9 @@ description: >-
 1. **probe 可服务性** — DashScope 用 `DASHSCOPE_CHAT_MODELS`（思考+非思考）；Kimi/单账号用
    `probe_account_model`。命令见 README / `tokenkey-account-model-probe`。须
    `verdict=servable` 且 `usage_match.account_id` 命中目标账号。
-2. **写 manifest** — `tk_served_models.json` 加 `newapi/<id>`；新 floor 声明
-   `mapping_source: activation`，人类证据留在 `notes`；其它字段语义见 manifest `_schema`。
+2. **写 manifest** — `tk_served_models.json` 加 `<id>`，只声明当前 policy：通用
+   `channel_type`、必要的 base-URL `scopes`、非同名 `price_owner` 和 `display`。
+   账号 ID、probe 日期、迁移/PR 和说明文字不进入 manifest。
 3. **价 + bundle** — 官方核价后修改 complete registry（或明确 scoped channel price）；
    `go run ./cmd/account-model-mapping bundle` 生成 target artifact（禁手改 JSON）。
 4. **activate** — 独立 probe/pricing evidence + `modelops.py activate` dry-run → 人审 →
@@ -56,16 +57,15 @@ description: >-
 
 ## 门禁
 
-`scripts/checks/catalog-serving-drift.py`（preflight）：A0 parse / A1 price / A2 display⇒owner /
-A3 served_on⇒mapping path / A4 enumeration WARN。新 floor 缺
-`mapping_source: activation` 会硬失败（#812）。
+`scripts/checks/catalog-serving-drift.py`（preflight）校验 schema、scope、价格 owner
+和 display 解析。生成 bundle 的 drift gate 校验 manifest 到运行时 floor 的投影。
 
 prod live 对账：`manage-account-model-mapping-runtime.py check-accounts --json --bundle …`。
 
 ## 坑
 
 - 大陆价基准 RMB÷6.7（Moonshot 国内表；禁国际 USD 表给 `api.moonshot.cn`）
-- 新 floor 一律 activation；不得新增历史 seed/admin/migration 旁路标记
+- 新 floor 一律 activation；不得把 activation 记录写回 manifest
 - 零计费高量：计费键是 `requested_model`，查 mapping chain
 - **合并等人授权**
 

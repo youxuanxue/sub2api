@@ -4,16 +4,9 @@ status: approved
 approved_by: "xuejiao（2026-08-26 本会话确认）"
 approved_at: "2026-06-17"
 revised_at: "2026-08-29"
-revision_note: >
-  generation plan cache 只覆盖 request digest 与 accountID；发送前用当前
-  owner 重规划，路由事实不等价才 stale。不再把 account/capability revision
-  当 Execute 裁判。availability 只作 Evidence。
 authors: [agent]
 created: 2026-06-17
-related_prs: [1821]
-related_stories: []
 related_design: docs/approved/pricing-registry-hot-reload.md, docs/approved/pricing-availability-source-of-truth.md, docs/approved/priced-or-it-doesnt-ship.md, docs/approved/protocol-routing-ssot.md, docs/approved/universal-key-capability-discovery.md
-supersedes: "pricing-availability-source-of-truth.md 中把 /pricing 或 model_availability 视为 serving eligibility owner 的声明"
 ---
 
 # 模型交付承诺 SSOT——一个承诺、三个判定
@@ -84,7 +77,7 @@ AND 没有 structurally-gone 证据
 ```
 
 公开价格 alias 只写 `_aliases: alias -> owner`：owner 必须存在，只单跳，禁止 self/chain/cycle。
-路由归一化不拥有价格；legacy substring matcher 是债务。运行期 priced-serving gate 只保证
+路由归一化不拥有价格。运行期 priced-serving gate 只保证
 发往上游前能解析结算价，见 `docs/approved/priced-or-it-doesnt-ship.md`。
 
 ## 5. 本文拥有的门禁

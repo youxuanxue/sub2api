@@ -97,41 +97,26 @@ SELF_CHECK_EXEMPT = {
 
 class ManifestEntry:
     __slots__ = (
-        "key",
-        "platform",
         "model_id",
-        "served_on",
         "channel_type",
-        "account_scope",
-        "price_source",
-        "price_key",
+        "scopes",
+        "price_owner",
         "display",
-        "notes",
     )
 
     def __init__(
         self,
-        key: str,
-        platform: str,
         model_id: str,
-        served_on: tuple[str, ...],
-        channel_type: int,
-        account_scope: dict[str, Any] | None,
-        price_source: str,
-        price_key: str,
+        channel_type: int | None,
+        scopes: tuple[dict[str, Any], ...],
+        price_owner: str,
         display: bool,
-        notes: str = "",
     ) -> None:
-        self.key = key
-        self.platform = platform
         self.model_id = model_id
-        self.served_on = served_on
         self.channel_type = channel_type
-        self.account_scope = account_scope
-        self.price_source = price_source
-        self.price_key = price_key
+        self.scopes = scopes
+        self.price_owner = price_owner
         self.display = display
-        self.notes = notes
 
 
 class Candidate:
@@ -160,30 +145,24 @@ def load_json(path: Path) -> Any:
 
 def load_manifest(path: Path = MANIFEST_PATH) -> list[ManifestEntry]:
     data = load_json(path)
+    if data.get("schema_version") != 3:
+        raise SystemExit(f"{path}: unsupported schema_version {data.get('schema_version')!r}")
     entries = data.get("entries")
     if not isinstance(entries, dict):
         raise SystemExit(f"{path}: top-level entries object missing")
     out: list[ManifestEntry] = []
-    for key, raw in entries.items():
-        if key.startswith("_"):
-            continue
+    for model_id, raw in entries.items():
         if not isinstance(raw, dict):
-            raise SystemExit(f"{path}: {key}: entry is not an object")
+            raise SystemExit(f"{path}: {model_id}: entry is not an object")
+        channel_type = raw.get("channel_type")
+        if channel_type is not None:
+            channel_type = int(channel_type)
         out.append(ManifestEntry(
-            key=key,
-            platform=str(raw.get("platform", "")),
-            model_id=str(raw.get("model_id", "")),
-            served_on=tuple(str(x) for x in raw.get("served_on", [])),
-            channel_type=int(raw.get("channel_type", 0)),
-            account_scope=(
-                raw.get("account_scope")
-                if isinstance(raw.get("account_scope"), dict)
-                else None
-            ),
-            price_source=str(raw.get("price_source", "")),
-            price_key=str(raw.get("price_key", "")),
+            model_id=str(model_id),
+            channel_type=channel_type,
+            scopes=tuple(scope for scope in raw.get("scopes", []) if isinstance(scope, dict)),
+            price_owner=str(raw.get("price_owner") or model_id),
             display=bool(raw.get("display", False)),
-            notes=str(raw.get("notes", "") or ""),
         ))
     return out
 
@@ -355,20 +334,46 @@ def price_status(
     if overlay_price_ok(overlay, model_id):
         return "priced", "overlay"
     for entry in manifest_by_model.get(model_id, []):
-        if entry.price_source == "channel":
-            return "priced", entry.price_source
+        if overlay_price_ok(overlay, entry.price_owner):
+            return "priced", "overlay"
     return "missing", "none"
+
+
+def manifest_entry_applies_to_account(
+    entry: ManifestEntry,
+    account: AccountSnapshot,
+) -> bool:
+    if (account.platform or "").strip().lower() != "newapi":
+        return False
+    if entry.channel_type is not None and account.channel_type == entry.channel_type:
+        return True
+    account_base_url = (account.base_url or "").strip().lower().rstrip("/")
+    return any(
+        account.channel_type == scope.get("channel_type")
+        and account_base_url == str(scope.get("base_url") or "").strip().lower().rstrip("/")
+        for scope in entry.scopes
+    )
+
+
+def manifest_membership_status(
+    entries: list[ManifestEntry],
+    account: AccountSnapshot | None,
+) -> str:
+    if not entries:
+        return "absent"
+    if account is None:
+        return "scope_unknown"
+    if any(manifest_entry_applies_to_account(entry, account) for entry in entries):
+        return "in_scope"
+    return "out_of_scope"
 
 
 def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     manifest = load_manifest()
     overlay = load_overlay()
     manifest_by_model: dict[str, list[ManifestEntry]] = collections.defaultdict(list)
-    manifest_by_account: dict[str, dict[str, ManifestEntry]] = collections.defaultdict(dict)
     for entry in manifest:
         manifest_by_model[entry.model_id].append(entry)
-        for account in entry.served_on:
-            manifest_by_account[account][entry.model_id] = entry
 
     candidates: dict[tuple[str, str], Candidate] = {}
     for spec in args.upstream or []:
@@ -414,7 +419,11 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         probe = probes.get(model_id)
         probe_status = probe.status if probe else "untested"
         priced, price_source = price_status(model_id, candidate, manifest_by_model, overlay)
-        in_manifest = model_id in manifest_by_account.get(account_id, {})
+        account = live.get(account_id)
+        manifest_status = manifest_membership_status(
+            manifest_by_model.get(model_id, []), account,
+        )
+        in_manifest = manifest_status == "in_scope"
         item = {
             "account_id": account_id,
             "model_id": model_id,
@@ -423,8 +432,13 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
             "price_status": priced,
             "price_source": price_source,
             "in_manifest": in_manifest,
+            "manifest_status": manifest_status,
             "upstream_pricing_status": candidate.upstream_pricing_status,
         }
+        if manifest_status == "scope_unknown":
+            item["reason"] = "--live-mapping snapshot required to verify manifest scope"
+            plan["inconclusive"].append(item)
+            continue
         if in_manifest:
             continue
         if priced != "priced":
@@ -441,10 +455,12 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
             plan["probe_needed"].append(item)
 
     if live:
-        for account_id, expected in sorted(manifest_by_account.items()):
-            snap = live.get(account_id)
-            if not snap:
-                continue
+        for account_id, snap in sorted(live.items()):
+            expected = {
+                entry.model_id: entry
+                for entry in manifest
+                if manifest_entry_applies_to_account(entry, snap)
+            }
             for model_id in sorted(expected):
                 actual = snap.model_mapping.get(model_id)
                 if actual != model_id:
@@ -1215,6 +1231,44 @@ def _selftest() -> int:
     )
     if probe_env_name("88", "minimax-m3", overlay, pay_as_you_go) != "ARK_CHAT_MODELS":
         failures.append("probe env must keep pay-as-you-go /api/v3 outside Agent Plan")
+    generic_entry = ManifestEntry("qwen-new", 17, (), "qwen-new", True)
+    if not manifest_entry_applies_to_account(generic_entry, dynamic_qwen):
+        failures.append("generic manifest channel scope did not match its account")
+    scoped_entry = ManifestEntry(
+        "minimax-m3",
+        None,
+        ({"channel_type": 45, "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"},),
+        "minimax-m3",
+        True,
+    )
+    if not manifest_entry_applies_to_account(scoped_entry, dynamic_agent_plan):
+        failures.append("property-scoped manifest entry did not match normalized account base URL")
+    if manifest_entry_applies_to_account(scoped_entry, pay_as_you_go):
+        failures.append("property-scoped manifest entry leaked into the generic channel pool")
+    if manifest_membership_status([scoped_entry], None) != "scope_unknown":
+        failures.append("listed manifest model without an account snapshot must remain inconclusive")
+    if manifest_membership_status([generic_entry], dynamic_qwen) != "in_scope":
+        failures.append("generic manifest membership did not resolve in scope")
+    if manifest_membership_status([scoped_entry], pay_as_you_go) != "out_of_scope":
+        failures.append("property-scoped manifest membership did not resolve out of scope")
+    if manifest_membership_status([], None) != "absent":
+        failures.append("missing manifest model did not resolve absent without a snapshot")
+    listed_sample = load_manifest()[0].model_id
+    no_snapshot_plan = build_plan(argparse.Namespace(
+        upstream=[],
+        account_id=None,
+        candidate=[f"missing-account:{listed_sample}"],
+        probe_results=[],
+        live_mapping=None,
+        mirror=[],
+        strict_manifest=False,
+        format="json",
+    ))
+    if (
+        len(no_snapshot_plan["inconclusive"]) != 1
+        or no_snapshot_plan["inconclusive"][0].get("manifest_status") != "scope_unknown"
+    ):
+        failures.append("planner skipped the live snapshot required for manifest scope")
     agent_plan_command = run_probe_command("VOLCENGINE_AGENT_PLAN_MODELS", ["minimax-m3"])
     if "probe-volcengine-agent-plan-models.sh" not in agent_plan_command:
         failures.append("Agent Plan probe command did not use the dedicated probe")

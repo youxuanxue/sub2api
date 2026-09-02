@@ -1,669 +1,235 @@
 #!/usr/bin/env python3
-"""Validate the TK served-models MANIFEST against the mechanisms it must agree with.
-
-Source of truth: backend/internal/service/tk_served_models.json — a THIN declarative
-intent layer ("TK serves model M on platform P via an account credentials.model_mapping
-whitelist, at price π, display=yes/no") that sits ABOVE three already-existing
-mechanisms and must AGREE with each:
-
-  (1) per-account credentials.model_mapping — the runtime servable WHITELIST, written
-      by the explicit modelops activation path (legacy rows may come from migrations
-      or admin-UI seed state). The DECLARED-served signal.
-  (2) tk_pricing_overlay.json complete registry — the global PRICE.
-  (3) display intent — newapi uses this manifest's `display` bit directly; native
-      platforms still use the Go servable-allowlist maps in
-      pricing_catalog_supported_models_tk.go.
-
-This guard hardens the #812-class regression (a model priced + advertised-as-intended
-but never actually wired onto the serving account's model_mapping => empty pool =>
-429/503 in prod) into a mechanical CI gate (CLAUDE.md §「升级原则」). It asserts:
-
-  A0 PARSE        manifest + overlay parse; every entry has the required fields/types.
-  A1 PRICE        every entry resolves to a non-zero complete-registry owner;
-                  display=true identifies it directly or through `_aliases`;
-                  channel is allowed only as an explicitly documented scope. HARD-FAIL
-  A2 DISPLAY      native display==true => model_id present in the platform's Go
-                  allowlist map. newapi display is owned by this manifest.     HARD
-  A3 SERVED_ON    every served_on account => a legacy tk_*.sql migration maps the model,
-                  or mapping_source declares `activation`. The latter is the approved
-                  path for new bundle floors and must complete before release; generic
-                  deploy never writes live account mappings. This is the #812-catching
-                  direction.                                                  HARD-FAIL
-                  Legacy mapping_source `admin_legacy` is downgraded to WARN for state
-                  that predates the activation contract.
-  A4 ENUMERATION  native display allowlists also require a direct owner or `_aliases`;
-                  (advisory WARN) every dashscope/deepseek chat overlay key SHOULD be a
-                  manifest entry (catch a priced+served-but-forgotten model).
-
-Usage: python3 scripts/checks/catalog-serving-drift.py [--quiet] [--selftest]
-Exit 0 ok, 1 drift, 2 missing dep / file / unparseable.
-"""
+"""Validate current catalog policy against its manifest and pricing owners."""
 
 from __future__ import annotations
 
+import argparse
 import json
 import pathlib
 import re
 import sys
 from typing import Any
 
+
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 SERVICE_DIR = REPO_ROOT / "backend" / "internal" / "service"
 MANIFEST = SERVICE_DIR / "tk_served_models.json"
 OVERLAY = SERVICE_DIR / "tk_pricing_overlay.json"
 ALLOWLIST_GO = SERVICE_DIR / "pricing_catalog_supported_models_tk.go"
-MIGRATIONS_DIR = REPO_ROOT / "backend" / "migrations"
-# Broad on purpose: model_mapping JSON lives in several tk_*.sql files whose NAME does
-# not contain "model_mapping" (tk_020/tk_021/tk_022 set mappings too). A3 still scopes
-# by the quoted model_id co-occurring with the account guard, so widening the glob only
-# adds files that cannot false-match (they lack the quoted id).
-MIGRATION_GLOB = "tk_*.sql"
 
-# Price mode -> the field(s) that MUST be > 0 for that mode (mirrors pricing-overlay.py
-# MODE_FIELDS so the overlay arm of A1 is byte-identical to a check already green).
+SCHEMA_VERSION = 3
+ENTRY_FIELDS = {"channel_type", "scopes", "price_owner", "display"}
+SCOPE_FIELDS = {"channel_type", "base_url"}
+ALLOWED_SCOPES = {
+    (45, "https://ark.cn-beijing.volces.com/api/plan/v3"),
+    (46, "https://qianfan.baidubce.com"),
+    (54, "https://api.xrtoken.net"),
+}
+MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
 MODE_FIELDS = {
+    "audio_speech": ("input_cost_per_token", "output_cost_per_token"),
+    "audio_transcription": ("input_cost_per_token", "output_cost_per_token"),
+    "completion": ("input_cost_per_token", "output_cost_per_token"),
     "embedding": ("input_cost_per_token",),
     "image_generation": ("output_cost_per_image",),
+    "realtime": ("input_cost_per_token", "output_cost_per_token"),
+    "responses": ("input_cost_per_token", "output_cost_per_token"),
     "video_generation": ("output_cost_per_second",),
     "chat": ("input_cost_per_token", "output_cost_per_token"),
 }
-
-# Native platforms that actually have a Go servable-allowlist map.
 ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "grok")
 
-# A4 advisory: overlay vendors whose chat models are the manifest's curated long-tail.
-ENUMERATION_PROVIDERS = {"dashscope", "deepseek", "moonshot", "volcengine", "zhipu", "bigmodel", "zai"}
 
-VALID_MAPPING_SOURCES = {"activation", "admin_legacy"}
-STALE_MAPPING_MARKERS = ("served-via-admin-ui", "served-via-modelops-activation")
-
-REQUIRED_FIELDS = {
-    "platform": str,
-    "model_id": str,
-    "served_on": list,
-    "channel_type": int,
-    "price_source": str,
-    "price_key": str,
-    "display": bool,
-}
-# "overlay" is the retained manifest token for the historically named file; it
-# now means the complete global registry. External mirrors are sensor evidence.
-VALID_PRICE_SOURCES = {"overlay", "channel"}
-ACCOUNT_SCOPE_FIELDS = {"platform", "channel_type", "base_url"}
-
-
-# --------------------------------------------------------------------------- helpers
-
-
-def _is_pos_number(v) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
+def _is_pos_number(value: Any) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and value > 0
+    )
 
 
 def parse_allowlist_maps(go_text: str) -> dict[str, set[str]]:
-    """Extract {platform: {quoted keys}} from the marker-delimited Go map literals.
-
-    Mirrors ops/pricing/refresh-servable-allowlist.py's splice anchors:
-    `// servable-allowlist:begin <platform>` ... `// servable-allowlist:end <platform>`.
-    Keys are pulled with the `"<id>":` map-key regex (comment lines have no `":`).
-    """
     out: dict[str, set[str]] = {}
     for platform in ALLOWLIST_PLATFORMS:
-        begin = re.search(
-            r"//\s*servable-allowlist:begin\s+" + re.escape(platform) + r"\b", go_text
+        match = re.search(
+            rf"servable-allowlist:begin {re.escape(platform)}"
+            rf"(.*?)servable-allowlist:end {re.escape(platform)}",
+            go_text,
+            re.S,
         )
-        end = re.search(
-            r"//\s*servable-allowlist:end\s+" + re.escape(platform) + r"\b", go_text
-        )
-        if not begin or not end or end.start() <= begin.end():
-            # Missing/corrupted marker block: leave platform absent so A2 can flag it
-            # only if some entry claims display=true on it (vacuous for the newapi seed).
-            continue
-        block = go_text[begin.end() : end.start()]
-        out[platform] = set(re.findall(r'"([^"]+)"\s*:', block))
+        out[platform] = set(re.findall(r'"([^"]+)"\s*:', match.group(1))) if match else set()
     return out
 
 
-def migration_maps_model(files: dict[str, str], account: str, model_id: str) -> bool:
-    """True iff some migration file contains BOTH the account guard `id = <account>`
-    and the QUOTED model id `"<model_id>"` (file-level co-occurrence).
-
-    Quoting defeats the prefix false-match (`"qwen3.7-max"` does NOT match inside
-    `"qwen3.7-max-preview"` because of the trailing quote). The seed shares no model_id
-    across accounts 39/60, so file-level (vs per-statement) scoping cannot bleed; a
-    future migration that maps the same name onto two accounts in one file would need
-    per-`id`-statement scoping — documented in the guardFalsePositiveAnalysis.
-    """
-    guard = re.compile(r"\bid\s*=\s*" + re.escape(account) + r"\b")
-    quoted = '"' + model_id + '"'
-    for text in files.values():
-        if quoted in text and guard.search(text):
-            return True
-    return False
+def _price_errors(label: str, owner: str, overlay_entries: dict[str, Any]) -> list[str]:
+    row = overlay_entries.get(owner)
+    if not isinstance(row, dict):
+        return [f"{label}: price owner {owner!r} is absent from tk_pricing_overlay.json"]
+    fields = MODE_FIELDS.get(row.get("mode"))
+    if fields is None:
+        return [f"{label}: price owner {owner!r} has unsupported mode {row.get('mode')!r}"]
+    return [
+        f"{label}: price owner {owner!r} requires {field} > 0, got {row.get(field)!r}"
+        for field in fields
+        if not _is_pos_number(row.get(field))
+    ]
 
 
-def validate_account_scope(label: str, scope: Any) -> list[str]:
+def _scope_errors(label: str, scope: Any) -> list[str]:
     if not isinstance(scope, dict):
         return [f"{label} must be an object"]
-    errors: list[str] = []
-    missing = sorted(ACCOUNT_SCOPE_FIELDS - set(scope))
-    unknown = sorted(set(scope) - ACCOUNT_SCOPE_FIELDS)
-    if missing:
-        errors.append(f"{label} omitted fields: " + ", ".join(missing))
-    if unknown:
-        errors.append(f"{label} has unknown fields: " + ", ".join(unknown))
-    if missing or unknown:
-        return errors
-    platform = scope["platform"]
-    channel_type = scope["channel_type"]
-    base_url = scope["base_url"]
+    if set(scope) != SCOPE_FIELDS:
+        return [f"{label} must contain exactly: " + ", ".join(sorted(SCOPE_FIELDS))]
+    channel_type = scope.get("channel_type")
+    base_url = scope.get("base_url")
     if (
-        not isinstance(platform, str)
-        or not platform.strip()
-        or platform != platform.strip().lower()
+        not isinstance(channel_type, int)
+        or isinstance(channel_type, bool)
+        or not isinstance(base_url, str)
+        or (channel_type, base_url) not in ALLOWED_SCOPES
     ):
-        errors.append(f"{label}.platform must be a normalized non-empty string")
-    if not isinstance(channel_type, int) or isinstance(channel_type, bool) or channel_type <= 0:
-        errors.append(f"{label}.channel_type must be a positive integer")
-    if (
-        not isinstance(base_url, str)
-        or not base_url.strip()
-        or base_url != base_url.strip().lower().rstrip("/")
-    ):
-        errors.append(f"{label}.base_url must be a normalized non-empty string")
-    return errors
-
-
-# --------------------------------------------------------------------------- core
+        return [f"{label} is not a supported normalized newapi property scope"]
+    return []
 
 
 def evaluate(
-    manifest: dict,
-    overlay: dict,
-    allowlist: dict[str, set[str]],
-    migration_files: dict[str, str],
-) -> tuple[list[str], list[str]]:
-    """Return (hard_errors, warnings). Pure — no I/O — so --selftest can drive it."""
+    manifest: dict[str, Any],
+    overlay: dict[str, Any],
+    allowlists: dict[str, set[str]],
+) -> list[str]:
     errors: list[str] = []
-    warnings: list[str] = []
+    if manifest.get("schema_version") != SCHEMA_VERSION:
+        errors.append(
+            f"manifest schema_version must be {SCHEMA_VERSION}, got {manifest.get('schema_version')!r}"
+        )
+    if set(manifest) != {"schema_version", "entries"}:
+        errors.append("manifest top level must contain exactly schema_version and entries")
 
     entries = manifest.get("entries")
-    if not isinstance(entries, dict):
-        return (["manifest has no top-level `entries` object"], warnings)
+    if not isinstance(entries, dict) or not entries:
+        return errors + ["manifest entries must be a non-empty object"]
 
-    overlay_entries = {k: v for k, v in overlay.items() if not k.startswith("_")}
-    overlay_aliases = overlay.get("_aliases", {})
-    if not isinstance(overlay_aliases, dict):
-        return (["tk_pricing_overlay.json _aliases must be an object"], warnings)
-    manifest_model_ids: set[str] = set()
+    overlay_entries = {key: value for key, value in overlay.items() if not key.startswith("_")}
+    aliases = overlay.get("_aliases")
+    if not isinstance(aliases, dict):
+        return errors + ["tk_pricing_overlay.json _aliases must be an object"]
 
-    for key, entry in entries.items():
-        if key.startswith("_"):
+    for model_id, entry in entries.items():
+        label = f"manifest {model_id!r}"
+        if not isinstance(model_id, str) or MODEL_ID_RE.fullmatch(model_id) is None:
+            errors.append(f"{label}: invalid model id key")
             continue
-        # ---- A0 structural ------------------------------------------------------
         if not isinstance(entry, dict):
-            errors.append(f"{key}: entry is not an object")
+            errors.append(f"{label}: entry must be an object")
             continue
-        bad_field = False
-        for field, typ in REQUIRED_FIELDS.items():
-            if field not in entry:
-                errors.append(f"{key}: missing required field {field!r}")
-                bad_field = True
-                continue
-            val = entry[field]
-            # bool is a subclass of int — guard channel_type explicitly.
-            if typ is int and isinstance(val, bool):
-                errors.append(f"{key}: field {field!r} must be int, got bool")
-                bad_field = True
-            elif not isinstance(val, typ):
-                errors.append(
-                    f"{key}: field {field!r} must be {typ.__name__}, got {type(val).__name__}"
-                )
-                bad_field = True
-        if bad_field:
-            continue
-        if any(not isinstance(a, str) for a in entry["served_on"]):
-            errors.append(f"{key}: served_on must be a list of account-id strings")
-            continue
-        if entry["price_source"] not in VALID_PRICE_SOURCES:
-            errors.append(
-                f"{key}: price_source {entry['price_source']!r} not in {sorted(VALID_PRICE_SOURCES)}"
-            )
-            continue
+        unknown = sorted(set(entry) - ENTRY_FIELDS)
+        if unknown:
+            errors.append(f"{label}: unknown fields: " + ", ".join(unknown))
+        if not isinstance(entry.get("display"), bool):
+            errors.append(f"{label}: display must be a bool")
 
-        account_scope = entry.get("account_scope")
-        if account_scope is not None:
-            scope_errors = validate_account_scope(f"{key}: account_scope", account_scope)
-            errors.extend(scope_errors)
-            if scope_errors:
-                continue
-
-        account_scopes = entry.get("account_scopes", [])
-        if not isinstance(account_scopes, list):
-            errors.append(f"{key}: account_scopes must be a list")
-            continue
-        scope_errors = [
-            error
-            for index, scope in enumerate(account_scopes)
-            for error in validate_account_scope(f"{key}: account_scopes[{index}]", scope)
-        ]
-        errors.extend(scope_errors)
-        if scope_errors:
-            continue
-
-        platform = entry["platform"]
-        model_id = entry["model_id"]
-        price_source = entry["price_source"]
-        price_key = entry["price_key"]
-        notes = entry.get("notes", "") or ""
-        if not isinstance(notes, str):
-            errors.append(f"{key}: notes must be a string")
-            continue
-        mapping_source = entry.get("mapping_source")
-        if mapping_source is not None and (
-            not isinstance(mapping_source, str) or mapping_source not in VALID_MAPPING_SOURCES
+        channel_type = entry.get("channel_type")
+        if channel_type is not None and (
+            not isinstance(channel_type, int)
+            or isinstance(channel_type, bool)
+            or channel_type <= 0
         ):
-            errors.append(
-                f"{key}: mapping_source {mapping_source!r} not in {sorted(VALID_MAPPING_SOURCES)}"
-            )
+            errors.append(f"{label}: channel_type must be a positive integer")
+
+        scopes = entry.get("scopes", [])
+        if not isinstance(scopes, list):
+            errors.append(f"{label}: scopes must be a list")
+            scopes = []
+        scope_keys: list[tuple[int, str]] = []
+        for index, scope in enumerate(scopes):
+            scope_errors = _scope_errors(f"{label} scopes[{index}]", scope)
+            errors.extend(scope_errors)
+            if not scope_errors:
+                scope_keys.append((scope["channel_type"], scope["base_url"]))
+        if len(scope_keys) != len(set(scope_keys)):
+            errors.append(f"{label}: duplicate property scope")
+        if channel_type is None and not scopes:
+            errors.append(f"{label}: at least one channel_type or property scope is required")
+
+        price_owner = entry.get("price_owner", model_id)
+        if not isinstance(price_owner, str) or not price_owner:
+            errors.append(f"{label}: price_owner must be a non-empty string")
             continue
-        stale_markers = [marker for marker in STALE_MAPPING_MARKERS if marker in notes]
-        if stale_markers:
-            errors.append(
-                f"{key}: notes contains obsolete machine marker(s) {stale_markers}; "
-                "declare mapping_source instead"
-            )
-            continue
-        manifest_model_ids.add(model_id)
-
-        # ---- A1 price-resolvable -----------------------------------------------
-        if price_source == "overlay":
-            po = overlay_entries.get(price_key)
-            if not isinstance(po, dict):
+        errors.extend(_price_errors(label, price_owner, overlay_entries))
+        if entry.get("display"):
+            resolved_owner = model_id if model_id in overlay_entries else aliases.get(model_id)
+            if resolved_owner != price_owner:
                 errors.append(
-                    f"{key}: price_source=overlay but price_key {price_key!r} absent from "
-                    f"tk_pricing_overlay.json"
-                )
-            else:
-                mode = po.get("mode")
-                fields = MODE_FIELDS.get(mode)
-                if fields is None:
-                    errors.append(
-                        f"{key}: overlay entry {price_key!r} has unrecognized mode {mode!r}"
-                    )
-                else:
-                    for f in fields:
-                        if not _is_pos_number(po.get(f)):
-                            errors.append(
-                                f"{key}: overlay {price_key!r} (mode={mode}) requires {f} > 0, "
-                                f"got {po.get(f)!r}"
-                            )
-        elif price_source == "channel":
-            if "channel" not in notes.lower():
-                errors.append(
-                    f"{key}: price_source=channel requires a notes substring documenting "
-                    f"the channel_model_pricing source (static guard cannot read the DB)"
+                    f"{label}: displayed model must resolve to {price_owner!r} through a direct owner or _aliases; got {resolved_owner!r}"
                 )
 
-        if entry["display"]:
-            if price_source != "overlay":
-                errors.append(
-                    f"{key}: display=true requires a global registry owner; "
-                    "channel_model_pricing is scope-local"
-                )
-            else:
-                explicit_owner = model_id if model_id in overlay_entries else overlay_aliases.get(model_id)
-                if explicit_owner != price_key:
-                    errors.append(
-                        f"{key}: display model {model_id!r} must resolve to price_key "
-                        f"{price_key!r} through a direct owner or _aliases, got {explicit_owner!r}"
-                    )
-
-        # ---- A2 display => allowlist -------------------------------------------
-        if entry["display"] and platform != "newapi":
-            if platform not in ALLOWLIST_PLATFORMS:
-                errors.append(
-                    f"{key}: display=true on platform {platform!r} which has NO Go "
-                    f"servable-allowlist map or manifest display owner — display must "
-                    f"be false (false promise guard)"
-                )
-            elif model_id not in allowlist.get(platform, set()):
-                errors.append(
-                    f"{key}: display=true but {model_id!r} absent from the {platform} "
-                    f"servable-allowlist map in pricing_catalog_supported_models_tk.go"
-                )
-
-        # ---- A3 served_on => legacy migration or explicit activation -----------
-        for account in entry["served_on"]:
-            if migration_maps_model(migration_files, account, model_id):
+    for platform, model_ids in allowlists.items():
+        for model_id in sorted(model_ids):
+            owner = model_id if model_id in overlay_entries else aliases.get(model_id)
+            if not isinstance(owner, str):
+                errors.append(f"{platform} allowlist {model_id!r}: no direct price owner or _aliases entry")
                 continue
-            if mapping_source == "activation":
-                continue
-            msg = (
-                f"{key}: served_on lists account {account} but NO tk_*.sql migration maps "
-                f'"{model_id}" onto it (`id = {account}` + quoted id). #812-class gap: the '
-                f"runtime pool is empty for this model until an explicit mapping write => 429/503. "
-                "For a new bundle floor, declare mapping_source='activation' and complete "
-                f"modelops activate before release; otherwise remove this row."
-            )
-            if mapping_source == "admin_legacy":
-                warnings.append(
-                    msg + "  [downgraded to WARN: mapping_source='admin_legacy']"
-                )
-            else:
-                errors.append(msg)
-
-    # ---- A4 enumeration completeness (advisory) --------------------------------
-    for platform, model_ids in allowlist.items():
-        for model_id in model_ids:
-            if model_id not in overlay_entries and model_id not in overlay_aliases:
-                errors.append(
-                    f"{platform}/{model_id}: native display allowlist has no direct owner "
-                    "or _aliases entry in tk_pricing_overlay.json"
-                )
-
-    for k, v in overlay_entries.items():
-        if not isinstance(v, dict):
-            continue
-        if v.get("litellm_provider") in ENUMERATION_PROVIDERS and v.get("mode") == "chat":
-            if k not in manifest_model_ids:
-                warnings.append(
-                    f"overlay chat model {k!r} (provider={v.get('litellm_provider')}) is not a "
-                    f"manifest entry — confirm it is intentionally not account-mapping-served, "
-                    f"or add it (advisory)."
-                )
-
-    return (errors, warnings)
+            errors.extend(_price_errors(f"{platform} allowlist {model_id!r}", owner, overlay_entries))
+    return errors
 
 
-# --------------------------------------------------------------------------- selftest
-
-
-def _selftest() -> int:
-    """Synthetic pass+fail fixtures, no repo I/O — proves each assertion fires."""
+def cmd_selftest() -> int:
     overlay = {
-        "_meta": {"note": "x"},
-        "_aliases": {"good-chat-alias": "good-chat"},
-        "good-chat": {
-            "litellm_provider": "dashscope",
-            "mode": "chat",
-            "input_cost_per_token": 1e-7,
-            "output_cost_per_token": 2e-7,
-        },
-        "zero-chat": {
-            "litellm_provider": "deepseek",
-            "mode": "chat",
-            "input_cost_per_token": 0,
-            "output_cost_per_token": 0,
-        },
-        "forgotten-chat": {
-            "litellm_provider": "dashscope",
-            "mode": "chat",
-            "input_cost_per_token": 1e-7,
-            "output_cost_per_token": 2e-7,
-        },
-        "good-embedding": {
-            "litellm_provider": "dashscope",
-            "mode": "embedding",
-            "input_cost_per_token": 1e-7,
-        },
-        "claude-opus-4-8": {
-            "litellm_provider": "anthropic",
-            "mode": "chat",
-            "input_cost_per_token": 1e-7,
-            "output_cost_per_token": 2e-7,
-        },
-        "zero-embedding": {
-            "litellm_provider": "dashscope",
-            "mode": "embedding",
-            "input_cost_per_token": 0,
-        },
+        "_aliases": {"alias-chat": "good-chat"},
+        "good-chat": {"mode": "chat", "input_cost_per_token": 1, "output_cost_per_token": 2},
     }
-    allowlist = {"anthropic": {"claude-opus-4-8"}, "openai": set(), "gemini": set(),
-                 "antigravity": set()}
-    migrations = {
-        "tk_900_x.sql": 'UPDATE accounts ... WHERE id = 60 ... "good-chat": "good-chat"',
-        # account 60 also gets the admin-ui entry below
-        "tk_901_y.sql": 'WHERE id = 60 ... "adminui-chat"',
-    }
-
-    def run(entries):
-        return evaluate({"entries": entries}, overlay, allowlist, migrations)
-
-    failures: list[str] = []
-
-    # --- PASS fixture: every assertion satisfied -------------------------------
-    pass_entries = {
-        "newapi/good-chat": {
-            "platform": "newapi", "model_id": "good-chat", "served_on": ["60"],
-            "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-            "display": True, "notes": "ok",
-        },
-        "newapi/good-chat-alias": {
-            "platform": "newapi", "model_id": "good-chat-alias", "served_on": ["60"],
-            "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-            "display": True, "mapping_source": "activation", "notes": "ok",
-        },
-        "newapi/adminui-chat": {
-            "platform": "newapi", "model_id": "adminui-chat", "served_on": ["60"],
-            "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-            "display": False, "mapping_source": "admin_legacy", "notes": "applied out-of-band",
-        },
-        "newapi/activation-chat": {
-            "platform": "newapi", "model_id": "activation-chat", "served_on": ["60"],
-            "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-            "display": False, "mapping_source": "activation", "notes": "pre-release",
-            "account_scope": {
-                "platform": "newapi", "channel_type": 45,
-                "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
+    valid = {
+        "schema_version": SCHEMA_VERSION,
+        "entries": {
+            "alias-chat": {
+                "channel_type": 17,
+                "price_owner": "good-chat",
+                "display": True,
+            },
+            "scoped-chat": {
+                "scopes": [{"channel_type": 46, "base_url": "https://qianfan.baidubce.com"}],
+                "price_owner": "good-chat",
+                "display": False,
             },
         },
     }
-    errs, warns = run(pass_entries)
-    # forgotten-chat triggers the A4 advisory warning only (not an error).
-    if errs:
-        failures.append(f"PASS fixture produced hard errors: {errs}")
-    if not any("forgotten-chat" in w for w in warns):
-        failures.append("PASS fixture: expected A4 advisory warning for forgotten-chat")
+    assert evaluate(valid, overlay, {platform: set() for platform in ALLOWLIST_PLATFORMS}) == []
 
-    # --- A1 owner identity: display may use only a direct owner or _aliases ---
-    errs, _ = run({"newapi/implicit-alias": {
-        "platform": "newapi", "model_id": "implicit-alias", "served_on": ["60"],
-        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-        "display": True, "notes": "ok",
-    }})
-    if not any("direct owner or _aliases" in e for e in errs):
-        failures.append("A1: display owner identity accepted an implicit price alias")
-
-    # --- A0: missing field / wrong type ----------------------------------------
-    errs, _ = run({"newapi/bad": {"platform": "newapi", "model_id": "good-chat"}})
-    if not any("missing required field" in e for e in errs):
-        failures.append("A0: missing-field not flagged")
-    errs, _ = run({"newapi/bad": {
-        "platform": "newapi", "model_id": "good-chat", "served_on": ["60"],
-        "channel_type": True, "price_source": "overlay", "price_key": "good-chat",
-        "display": False,
-    }})
-    if not any("must be int, got bool" in e for e in errs):
-        failures.append("A0: channel_type bool-as-int not flagged")
-    errs, _ = run({"newapi/bad-scope": {
-        "platform": "newapi", "model_id": "good-chat", "served_on": ["60"],
-        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-        "display": False, "account_scope": {"platform": "newapi", "channel_type": 45},
-    }})
-    if not any("account_scope omitted fields" in e for e in errs):
-        failures.append("A0: incomplete account_scope not flagged")
-
-    # --- A1: overlay price missing / zero --------------------------------------
-    errs, _ = run({"newapi/absent": {
-        "platform": "newapi", "model_id": "nope", "served_on": ["60"],
-        "channel_type": 17, "price_source": "overlay", "price_key": "nonexistent",
-        "display": False, "mapping_source": "admin_legacy", "notes": "legacy",
-    }})
-    if not any("absent from" in e for e in errs):
-        failures.append("A1: missing overlay key not flagged")
-    errs, _ = run({"newapi/zero": {
-        "platform": "newapi", "model_id": "zero-chat", "served_on": ["60"],
-        "channel_type": 43, "price_source": "overlay", "price_key": "zero-chat",
-        "display": False, "mapping_source": "admin_legacy", "notes": "legacy",
-    }})
-    if not any("requires" in e and "> 0" in e for e in errs):
-        failures.append("A1: $0 overlay price not flagged")
-    errs, _ = run({"newapi/emb": {
-        "platform": "newapi", "model_id": "good-embedding", "served_on": ["60"],
-        "channel_type": 46, "price_source": "overlay", "price_key": "good-embedding",
-        "display": False, "mapping_source": "admin_legacy", "notes": "legacy",
-    }})
-    if errs:
-        failures.append(f"A1: valid embedding overlay flagged: {errs}")
-    errs, _ = run({"newapi/zero-emb": {
-        "platform": "newapi", "model_id": "zero-embedding", "served_on": ["60"],
-        "channel_type": 46, "price_source": "overlay", "price_key": "zero-embedding",
-        "display": False, "mapping_source": "admin_legacy", "notes": "legacy",
-    }})
-    if not any("requires" in e and "> 0" in e for e in errs):
-        failures.append("A1: $0 embedding overlay price not flagged")
-    # External mirrors are evidence only and cannot satisfy the runtime price gate.
-    errs, _ = run({"newapi/mirror": {
-        "platform": "newapi", "model_id": "good-chat", "served_on": ["60"],
-        "channel_type": 43, "price_source": "mirror", "price_key": "good-chat",
-        "display": False, "mapping_source": "admin_legacy", "notes": "legacy",
-    }})
-    if not any("price_source 'mirror' not in" in e for e in errs):
-        failures.append("A1: external mirror accepted as an effective price source")
-
-    # --- A2: display=true on a no-map platform, and missing from a real map -----
-    errs, _ = run({"other/disp": {
-        "platform": "bedrock", "model_id": "good-chat", "served_on": ["60"],
-        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-        "display": True, "mapping_source": "admin_legacy", "notes": "legacy",
-    }})
-    if not any("has NO Go" in e for e in errs):
-        failures.append("A2: display=true on no-map platform not flagged")
-    errs, _ = run({"anthropic/disp": {
-        "platform": "anthropic", "model_id": "claude-ghost", "served_on": ["1"],
-        "channel_type": 0, "price_source": "overlay", "price_key": "good-chat",
-        "display": True, "mapping_source": "admin_legacy", "notes": "legacy",
-    }})
-    if not any("absent from the anthropic servable-allowlist" in e for e in errs):
-        failures.append("A2: display=true absent from real map not flagged")
-
-    # --- A3: served_on with no migration (hard) vs admin-ui opt-out (warn) ------
-    errs, _ = run({"newapi/gap": {
-        "platform": "newapi", "model_id": "unmapped", "served_on": ["60"],
-        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-        "display": False, "notes": "known gap",
-    }})
-    if not any("#812-class gap" in e for e in errs):
-        failures.append("A3: unmapped served_on not hard-flagged")
-    errs, warns = run({"newapi/oob": {
-        "platform": "newapi", "model_id": "unmapped", "served_on": ["60"],
-        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-        "display": False, "mapping_source": "admin_legacy", "notes": "applied out-of-band",
-    }})
-    if any("#812-class gap" in e for e in errs):
-        failures.append("A3: admin-ui opt-out still hard-failed")
-    if not any("#812-class gap" in w for w in warns):
-        failures.append("A3: admin-ui opt-out did not downgrade to WARN")
-    errs, warns = run({"newapi/activation": {
-        "platform": "newapi", "model_id": "unmapped", "served_on": ["60"],
-        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-        "display": False, "mapping_source": "activation", "notes": "modelops activation",
-    }})
-    if any("#812-class gap" in e for e in errs):
-        failures.append("A3: modelops activation declaration still hard-failed")
-    if any("#812-class gap" in w for w in warns):
-        failures.append(f"A3: modelops activation declaration produced mapping warnings: {warns}")
-    errs, _ = run({"newapi/stale-marker": {
-        "platform": "newapi", "model_id": "unmapped", "served_on": ["60"],
-        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-        "display": False, "mapping_source": "activation",
-        "notes": "served-via-modelops-activation",
-    }})
-    if not any("obsolete machine marker" in e for e in errs):
-        failures.append("A3: obsolete notes marker was accepted")
-    errs, _ = run({"newapi/bad-mapping-source": {
-        "platform": "newapi", "model_id": "unmapped", "served_on": ["60"],
-        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-        "display": False, "mapping_source": ["activation"], "notes": "bad enum type",
-    }})
-    if not any("mapping_source" in e for e in errs):
-        failures.append("A3: non-string mapping_source was accepted")
-
-    # --- A3 prefix-quote: "good-chat" must NOT match "good-chat-preview" --------
-    pmig = {"tk_902.sql": 'WHERE id = 60 ... "good-chat-preview": "good-chat-preview"'}
-    errs, _ = evaluate(
-        {"entries": {"newapi/pfx": {
-            "platform": "newapi", "model_id": "good-chat", "served_on": ["60"],
-            "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-            "display": False, "notes": "n",
-        }}},
-        overlay, allowlist, pmig,
-    )
-    if not any("#812-class gap" in e for e in errs):
-        failures.append("A3: quoted-id prefix isolation broken (matched a -preview key)")
-
-    if failures:
-        print("SELFTEST FAILED:", flush=True)
-        for f in failures:
-            print(f"  - {f}", flush=True)
-        return 1
-    print("selftest ok: A0/A1/A2/A3/A4 pass+fail fixtures all behave", flush=True)
+    invalid = json.loads(json.dumps(valid))
+    invalid["entries"]["alias-chat"]["notes"] = "history"
+    invalid["entries"]["scoped-chat"]["scopes"][0]["base_url"] += "/"
+    found = evaluate(invalid, overlay, {"openai": {"unpriced"}})
+    assert any("unknown fields: notes" in error for error in found)
+    assert any("not a supported normalized" in error for error in found)
+    assert any("openai allowlist 'unpriced'" in error for error in found)
+    print("catalog-serving-drift selftest: PASS")
     return 0
 
 
-# --------------------------------------------------------------------------- main
-
-
 def main() -> int:
-    quiet = "--quiet" in sys.argv
-    if "--selftest" in sys.argv:
-        return _selftest()
-
-    for path, label in ((MANIFEST, "served-models manifest"),
-                        (OVERLAY, "pricing overlay"),
-                        (ALLOWLIST_GO, "servable-allowlist Go file")):
-        if not path.is_file():
-            print(f"  FAIL: {label} not found: {path}", flush=True)
-            return 2
-    if not MIGRATIONS_DIR.is_dir():
-        print(f"  FAIL: migrations dir not found: {MIGRATIONS_DIR}", flush=True)
-        return 2
-
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--selftest", action="store_true")
+    args = parser.parse_args()
+    if args.selftest:
+        return cmd_selftest()
     try:
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         overlay = json.loads(OVERLAY.read_text(encoding="utf-8"))
-    except (ValueError, OSError) as exc:
-        print(f"  FAIL: manifest/overlay unparseable: {exc}", flush=True)
+        allowlists = parse_allowlist_maps(ALLOWLIST_GO.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"catalog-serving-drift: error: {exc}", file=sys.stderr)
         return 2
-    try:
-        allowlist = parse_allowlist_maps(ALLOWLIST_GO.read_text(encoding="utf-8"))
-        migration_files = {
-            p.name: p.read_text(encoding="utf-8", errors="replace")
-            for p in MIGRATIONS_DIR.glob(MIGRATION_GLOB)
-        }
-    except OSError as exc:
-        print(f"  FAIL: reading allowlist/migrations: {exc}", flush=True)
-        return 2
-
-    errors, warnings = evaluate(manifest, overlay, allowlist, migration_files)
-
-    if warnings and not quiet:
-        print(f"  note: {len(warnings)} advisory warning(s):", flush=True)
-        for w in warnings:
-            print(f"    ~ {w}", flush=True)
-
+    errors = evaluate(manifest, overlay, allowlists)
     if errors:
-        print(f"  FAIL: served-models manifest drift ({len(errors)} issue(s)):", flush=True)
-        for e in errors:
-            print(f"    - {e}", flush=True)
+        for error in errors:
+            print(f"catalog-serving-drift: FAIL: {error}", file=sys.stderr)
         return 1
-
-    if not quiet:
-        n = len([k for k in manifest.get("entries", {}) if not k.startswith("_")])
-        print(f"  ok: {n} served-models manifest entries agree with price/display/mapping declaration",
-              flush=True)
+    if not args.quiet:
+        print("catalog-serving-drift: ok")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

@@ -2751,6 +2751,7 @@
       "path": "ops/pricing/manage-account-model-mapping-runtime.py",
       "must_contain": [
         "APPLY_CONFIRM = \"yes-apply-account-model-mapping\"",
+        "RUNTIME_MUTATION_CONFIRM = \"yes-change-account-model-mapping-runtime\"",
         "tk_account_model_mapping_runtime_doc",
         "DEFAULT_BUNDLE_PATH = _BUNDLE.DEFAULT_BUNDLE_PATH",
         "return _BUNDLE.load_bundle(_BUNDLE_PATH)",
@@ -2759,6 +2760,8 @@
         "include_edges=False,",
         "\"runtime_setting_targets\"",
         "def cmd_apply_accounts(",
+        "def _resolve_runtime_mutation_target(",
+        "runtime writes require one explicit --target: prod or edge:<id>",
         "\"compatible_extra_keys\"",
         "\"resolved_targets\"",
         "--activation-floor-sha256",
@@ -2777,7 +2780,7 @@
         "--ssot-repo-root",
         "--allow-extra-model-mapping"
       ],
-      "rationale": "Explicit ops check/apply surfaces for account model_mapping. The script must consume the checksummed bundle without Go/source discovery, prioritize property-selected account overrides over shared platform/channel floors, select VolcEngine Agent Plan by platform/channel/base_url rather than account ID, use one required-floor + forbidden-policy rule, preserve compatible extras, keep check-accounts read-only, scope release-gate to explicit model activation, require confirmation before writes, update only model_mapping/group scopes, and enqueue scheduler outbox events. Accounts with Extra.supplier_source_id are owned by supplier Sync (exact procurement subset) and must be exempt from floor check/apply/release-gate convergence. Activation pins the resolved prod instance and rechecks runtime-shadow absence under a settings-table lock before writes. Generic deploy wiring is prohibited by the workflow sentinel above, while direct Edge diagnostics/apply remain available."
+      "rationale": "Explicit ops check/apply surfaces for account model_mapping. The script consumes the checksummed bundle, prioritizes property-selected account overrides, preserves compatible extras, keeps check-accounts read-only, and scopes release-gate to explicit prod model activation. Runtime setting mutations require a dedicated confirmation phrase and exactly one prod or edge target; account applies require their own confirmation and enqueue scheduler outbox events. Supplier-managed accounts remain owned by supplier Sync. Generic deploy wiring is prohibited by the workflow sentinel above."
     },
     {
       "path": "ops/pricing/account_model_mapping_runtime_doc.py",

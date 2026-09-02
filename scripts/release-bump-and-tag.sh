@@ -141,17 +141,7 @@ if [ "$ACTION" = "bump-and-tag" ]; then
     exit 1
   fi
   printf '%s\n' "$NEXT_VERSION" > "$WT_DIR/backend/cmd/server/VERSION"
-  python3 "$WT_DIR/scripts/sync_endpoint_compat_baseline_anchor.py" \
-    --version "$NEXT_VERSION" \
-    --previous-deploy-tag "$CURRENT_TAG"
   git -C "$WT_DIR" add backend/cmd/server/VERSION
-  # baseline lives under docs/ops/; force-add stays safe if docs/* ignore drifts again.
-  git -C "$WT_DIR" add -f docs/ops/endpoint-compat-baseline.md
-  if ! python3 "$WT_DIR/scripts/check_endpoint_compat_baseline_freshness.py" >/dev/null; then
-    echo "[release-bump-and-tag] ERROR: endpoint-compat baseline freshness check failed after sync" >&2
-    python3 "$WT_DIR/scripts/check_endpoint_compat_baseline_freshness.py" >&2 || true
-    exit 1
-  fi
   # NOTE: the commit body must never contain the bracketed skip-ci marker
   # (CLAUDE.md §9.2); release-tag.sh re-validates this before tagging.
   git -C "$WT_DIR" commit -m "chore: bump VERSION to $NEXT_VERSION
