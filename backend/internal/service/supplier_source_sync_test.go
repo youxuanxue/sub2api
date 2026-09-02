@@ -57,9 +57,10 @@ func TestUS048_SupplierSyncGroupsSameBandModelsIntoOneAccount(t *testing.T) {
 	probe := &supplierSyncProbeFake{}
 	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 
-	_, err := svc.Sync(context.Background(), 7)
+	result, err := svc.Sync(context.Background(), 7)
 
 	require.NoError(t, err)
+	require.Len(t, result.ProbeResults, 2)
 	require.Equal(t, 1, accounts.createCalls)
 	require.Equal(t, 3, accounts.created[0].DiscountBand)
 	require.Equal(t, 130, accounts.created[0].Priority)
@@ -105,6 +106,34 @@ func TestUS048_ValidateFailureReturnsEveryResultAndWritesNothing(t *testing.T) {
 	require.Len(t, result.ProbeResults, 2)
 	require.Equal(t, SupplierProbeStatusPassed, result.ProbeResults[0].Status)
 	require.Equal(t, SupplierProbeStatusProtocolUnsupported, result.ProbeResults[1].Status)
+	require.Zero(t, accounts.createCalls)
+	require.Empty(t, accounts.updated)
+}
+
+func TestUS048_SupplierSyncProbeFailureReturnsEveryResultAndWritesNothing(t *testing.T) {
+	ratio := 0.5
+	repo := &supplierSourceRepoFake{stored: &SupplierSource{
+		ID: 7, SupplierName: "FMGo", ChannelName: "seedance", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
+		Models: []SupplierSourceModel{
+			{ClientModelID: "model-ok", UpstreamModelID: "model-ok", PurchaseRatio: &ratio},
+			{ClientModelID: "doubao-seedance-2-0-260128", UpstreamModelID: "feimiao-seedance-2-0-260128", PurchaseRatio: &ratio},
+		},
+	}}
+	accounts := &supplierSyncAccountStoreFake{}
+	probe := &supplierSyncProbeFake{results: map[string]SupplierProbeResult{
+		"feimiao-seedance-2-0-260128": {Status: SupplierProbeStatusProtocolUnsupported, Detail: "supplier protocol unsupported"},
+	}}
+	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	result, err := svc.Sync(context.Background(), 7)
+
+	require.ErrorIs(t, err, ErrSupplierSourceProbeFailed)
+	require.Equal(t, "probe", result.FailedStep)
+	require.Len(t, result.ProbeResults, 2)
+	require.Equal(t, SupplierProbeStatusPassed, result.ProbeResults[0].Status)
+	require.Equal(t, SupplierProbeStatusProtocolUnsupported, result.ProbeResults[1].Status)
+	require.Empty(t, result.Changes)
 	require.Zero(t, accounts.createCalls)
 	require.Empty(t, accounts.updated)
 }
@@ -507,9 +536,10 @@ func TestUS048_SupplierSyncReprobesBeforeRepairingNonEmptySchedulingProjection(t
 		repo, accounts, &supplierSyncProbeFake{}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{},
 	)
 
-	_, err := svc.Sync(context.Background(), 7)
+	result, err := svc.Sync(context.Background(), 7)
 
 	require.NoError(t, err)
+	require.Len(t, result.ProbeResults, 1)
 	require.NotEmpty(t, accounts.updated)
 	require.False(t, accounts.updated[0].MetadataOnly)
 	require.Equal(t, StatusActive, accounts.managed[0].Status)
@@ -931,9 +961,10 @@ func TestUS048_SupplierSyncProtocolIdentityDriftReprobesBeforeRepair(t *testing.
 	probe := &supplierSyncProbeFake{}
 	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 
-	_, err := svc.Sync(context.Background(), 7)
+	result, err := svc.Sync(context.Background(), 7)
 
 	require.NoError(t, err)
+	require.Len(t, result.ProbeResults, 1, "protocol identity repair must be backed by this sync call's real probe")
 	require.NotEmpty(t, accounts.updated)
 	require.True(t, accounts.updated[0].ChatProbePassed)
 }

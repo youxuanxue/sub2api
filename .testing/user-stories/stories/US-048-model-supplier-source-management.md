@@ -56,6 +56,7 @@
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierSyncGroupsSameBandModelsIntoOneAccount`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierProbeAccountCarriesManagedIdentity`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_ValidateFailureReturnsEveryResultAndWritesNothing`
+- `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierSyncProbeFailureReturnsEveryResultAndWritesNothing`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierSyncReprobesImmediatelyBeforeProjection`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierSyncMetadataOnlySkipsProbe`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierSyncNameChangeUpdatesAccountWithoutProbe`

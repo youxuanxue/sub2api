@@ -80,6 +80,8 @@
         "sources.GET(\"/priority-preview\", h.Admin.SupplierSource.PriorityPreview)",
         "sources.POST(\"/:id/discover\", h.Admin.SupplierSource.Discover)",
         "sources.GET(\"/:id/discover/jobs/:job_id\", h.Admin.SupplierSource.GetDiscoverJob)",
+        "sources.POST(\"/:id/probe\", h.Admin.SupplierSource.Discover)",
+        "sources.GET(\"/:id/probe/jobs/:job_id\", h.Admin.SupplierSource.GetDiscoverJob)",
         "sources.POST(\"/:id/validate\", h.Admin.SupplierSource.Validate)",
         "sources.POST(\"/:id/sync\", h.Admin.SupplierSource.Sync)"
       ],
@@ -90,7 +92,7 @@
         "sources.POST(\"/:id/models-discover\", h.Admin.SupplierSource.DiscoverModels)",
         "sources.GET(\"/:id/models-discover/jobs/:job_id\", h.Admin.SupplierSource.GetDiscoverModelsJob)"
       ],
-      "rationale": "Canonical supplier-source route owner: discover start + job poll, validate configured models, project via sync. Activation/pause and legacy models-discover routes stay unregistered."
+      "rationale": "Canonical supplier-source route owner: discover start + job poll, validate configured models, project via sync, and probe compatibility aliases mapped to the discover handlers. Activation/pause and legacy models-discover routes stay unregistered."
     },
     {
       "path": "backend/cmd/server/wire_gen.go",

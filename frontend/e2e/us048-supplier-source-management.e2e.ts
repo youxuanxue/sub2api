@@ -257,6 +257,11 @@ test('US048 project-before-validate reprobes, fails closed, and recovers on retr
             status: 'failed',
             protocol: 'openai_chat_completions',
             detail: 'temporary upstream failure',
+          }, {
+            client_model_id: 'qwen-3.7-max',
+            upstream_model_id: 'qwen-3.7-max',
+            status: 'passed',
+            protocol: 'openai_chat_completions',
           }],
           changes: [],
           failed_step: 'probe',
@@ -268,6 +273,11 @@ test('US048 project-before-validate reprobes, fails closed, and recovers on retr
         probe_results: [{
           client_model_id: 'deepseek-v4-pro',
           upstream_model_id: 'deepseek-v4-pro',
+          status: 'passed',
+          protocol: 'openai_chat_completions',
+        }, {
+          client_model_id: 'qwen-3.7-max',
+          upstream_model_id: 'qwen-3.7-max',
           status: 'passed',
           protocol: 'openai_chat_completions',
         }],
@@ -349,6 +359,7 @@ test('US048 project-before-validate reprobes, fails closed, and recovers on retr
   await expect(page.locator('[data-test="sync-error"]')).toContainText('one or more supplier models failed validation')
   await expect(result).toContainText('失败步骤: probe')
   await expect(result).toContainText('temporary upstream failure')
+  await expect(result).toContainText('qwen-3.7-max')
   await expect(result).not.toContainText('投影完成')
   expect(syncRequests).toBe(1)
 

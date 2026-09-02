@@ -1993,7 +1993,7 @@
         "syncSucceeded = ref",
         "watch(() => form.channel_type"
       ],
-      "rationale": "The supplier page derives success from the current response, the current request error, and absence of failed_step. Discover polls async candidate jobs to completion; validate probes saved models; project writes accounts only after validate cache. Dirty or discover-backfilled drafts disable discover/validate/project. BaiduV2 remains an explicit supplier transport even though it is absent from NewAPI's generic model-fetch set, and catalog endpoint defaults apply only to operator channel changes so source hydration preserves persisted custom endpoints."
+      "rationale": "The supplier page derives success from the current response, the current request error, and absence of failed_step. Discover polls async candidate jobs to completion; validate is a read-only preview; project displays the probe evidence returned by its own authoritative request without depending on prior validation state. Dirty or discover-backfilled drafts disable discover/validate/project. BaiduV2 remains an explicit supplier transport even though it is absent from NewAPI's generic model-fetch set, and catalog endpoint defaults apply only to operator channel changes so source hydration preserves persisted custom endpoints."
     },
     {
       "path": "frontend/src/api/admin/supplierSources.ts",

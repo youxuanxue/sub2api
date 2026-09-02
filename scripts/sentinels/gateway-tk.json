@@ -7736,6 +7736,7 @@
         "TestUS048_SupplierSyncEarlyErrorsAlwaysReportFailedStep",
         "TestUS048_SupplierSyncAdditionFailureStopsBeforeRemovalAndRetryConverges",
         "TestUS048_SupplierSyncReadbackFailureReportsTheCompletedAddition",
+        "TestUS048_SupplierSyncProbeFailureReturnsEveryResultAndWritesNothing",
         "TestUS048_NonActiveExactAccountMatchBlocksDuplicateSupplierAccountCreation",
         "TestUS048_IncompatibleTransportExactMatchBlocksAdoptionWithoutRewritingAccount",
         "TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation",
