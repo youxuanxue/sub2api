@@ -848,7 +848,7 @@ func (f *supplierSyncAccountStoreFake) CreateManagedAccount(_ context.Context, i
 func (f *supplierSyncAccountStoreFake) UpdateManagedAccount(_ context.Context, input SupplierManagedAccountUpdateInput) (*Account, error) {
 	f.updated = append(f.updated, input)
 	f.operations = append(f.operations, syncOperationLabel(input))
-	if len(input.ModelMapping) > 0 && !input.ChatProbePassed {
+	if len(input.ModelMapping) > 0 && !input.ProtocolProbePassed {
 		return nil, ErrSupplierProjectionProtocolNotReady
 	}
 	if f.updateErrAt > 0 && len(f.updated) == f.updateErrAt {
@@ -968,7 +968,7 @@ func TestUS048_SupplierSyncProtocolIdentityDriftReprobesBeforeRepair(t *testing.
 	require.NoError(t, err)
 	require.Len(t, result.ProbeResults, 1, "protocol identity repair must be backed by this sync call's real probe")
 	require.NotEmpty(t, accounts.updated)
-	require.True(t, accounts.updated[0].ChatProbePassed)
+	require.True(t, accounts.updated[0].ProtocolProbePassed)
 }
 
 func TestSupplierAccountNeedsProtocolRepublishDetectsTransportDrift(t *testing.T) {

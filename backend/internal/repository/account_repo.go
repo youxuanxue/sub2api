@@ -228,9 +228,9 @@ func ensureAccountProtocolEndpointCapability(ctx context.Context, db protocolCap
 	return false, nil
 }
 
-const supplierVerifiedChatCapabilityLeaseTTL = 2 * time.Minute
+const supplierVerifiedProtocolCapabilityLeaseTTL = 2 * time.Minute
 
-func publishVerifiedSupplierChatCapability(
+func publishVerifiedSupplierProtocolCapability(
 	ctx context.Context,
 	repo *protocolEndpointCapabilityRepository,
 	account *service.Account,
@@ -272,7 +272,7 @@ func publishVerifiedSupplierChatCapability(
 		capability.CapabilityKey,
 		uuid.NewString(),
 		now,
-		supplierVerifiedChatCapabilityLeaseTTL,
+		supplierVerifiedProtocolCapabilityLeaseTTL,
 	)
 	if err != nil {
 		return false, err
@@ -872,11 +872,11 @@ func (r *accountRepository) UpdateSupplierConcurrency(ctx context.Context, accou
 	return nil
 }
 
-func (r *accountRepository) UpdateSupplierProjection(ctx context.Context, account *service.Account, chatProbePassed bool) error {
+func (r *accountRepository) UpdateSupplierProjection(ctx context.Context, account *service.Account, protocolProbePassed bool) error {
 	if account == nil {
 		return nil
 	}
-	if len(account.GetModelMapping()) > 0 && !chatProbePassed {
+	if len(account.GetModelMapping()) > 0 && !protocolProbePassed {
 		return service.ErrSupplierProjectionProtocolNotReady
 	}
 	credentials, err := json.Marshal(normalizeJSONMap(account.Credentials))
@@ -950,7 +950,7 @@ func (r *accountRepository) UpdateSupplierProjection(ctx context.Context, accoun
 	}
 	protocolPublished := false
 	if len(updatedAccount.GetModelMapping()) > 0 {
-		protocolPublished, err = publishVerifiedSupplierChatCapability(
+		protocolPublished, err = publishVerifiedSupplierProtocolCapability(
 			ctx,
 			r.protocolCapabilityRepository(ctx),
 			updatedAccount,

@@ -104,10 +104,10 @@ func deriveExclusiveMessagesProtocolURL(baseURL string) string {
 	return strings.TrimRight(strings.TrimSpace(baseURL), "/")
 }
 
-// applyExclusiveChatProtocolEndpoints writes the channel-appropriate exclusive
+// applyExclusiveSupplierProtocolEndpoints writes the channel-appropriate exclusive
 // identity block used by supplier-managed NewAPI accounts. Anthropic (14) is
 // messages-only; all other supplier transports remain chat-only.
-func applyExclusiveChatProtocolEndpoints(credentials map[string]any, baseURL string, channelType int) {
+func applyExclusiveSupplierProtocolEndpoints(credentials map[string]any, baseURL string, channelType int) {
 	if credentials == nil {
 		return
 	}

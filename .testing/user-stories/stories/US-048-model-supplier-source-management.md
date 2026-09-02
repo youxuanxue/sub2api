@@ -80,7 +80,7 @@
 - `backend/internal/service/supplier_managed_account_commands_test.go`::`TestUS048_SupplierCreateStartsEmptyUngroupedAndUnschedulable`
 - `backend/internal/service/supplier_managed_account_commands_test.go`::`TestUS048_OrdinaryCreateAccountStillFailsWhenDefaultGroupBindFails`
 - `backend/internal/service/supplier_managed_account_commands_test.go`::`TestUS048_SupplierConfigurationUpdateUsesGroupFreeReadAndNarrowWrite`
-- `backend/internal/service/supplier_managed_account_commands_test.go`::`TestUS048_SupplierConfigurationUpdateRequiresPassedChatProbe`
+- `backend/internal/service/supplier_managed_account_commands_test.go`::`TestUS048_SupplierConfigurationUpdateRequiresPassedProtocolProbe`
 - `backend/internal/repository/account_repo_supplier_projection_test.go`::`TestUS048_SupplierConfigurationRepositoryRejectsUnverifiedNonEmptyMapping`
 - `backend/internal/repository/account_repo_supplier_projection_test.go`::`TestUS048_SupplierVerifiedProtocolForAnthropicIsMessages`
 - `backend/internal/repository/account_repo_supplier_projection_test.go`::`TestUS048_SupplierAnthropicProjectionRejectsChatOnlyIdentity`

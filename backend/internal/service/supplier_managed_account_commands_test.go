@@ -99,7 +99,7 @@ func TestUS048_SupplierConfigurationUpdateUsesGroupFreeReadAndNarrowWrite(t *tes
 		AccountID: 41, SourceID: 7, DiscountBand: 3, Name: "佳杰/stbl-5 · 档位 3",
 		Endpoint: "https://new.example/v1", Credential: "new-secret",
 		ModelMapping: map[string]string{"deepseek-v4-pro": "deepseek-v4-pro"},
-		Priority:     123, Status: StatusActive, Schedulable: true, ChatProbePassed: true,
+		Priority:     123, Status: StatusActive, Schedulable: true, ProtocolProbePassed: true,
 	})
 
 	require.NoError(t, err)
@@ -115,7 +115,7 @@ func TestUS048_SupplierConfigurationUpdateUsesGroupFreeReadAndNarrowWrite(t *tes
 	require.Equal(t, AccountTypeAPIKey, accounts.updated.Type)
 	require.Equal(t, newapiconstant.ChannelTypeOpenAI, accounts.updated.ChannelType, "generic supplier hosts keep the OpenAI Chat transport")
 	require.Equal(t, 1, accounts.projectionUpdateCalls)
-	require.True(t, accounts.projectionChatProbePassed)
+	require.True(t, accounts.projectionProtocolProbePassed)
 	require.Zero(t, accounts.genericUpdateCalls, "supplier projections must not use the generic account update path")
 }
 
@@ -159,7 +159,7 @@ func TestUS048_SupplierAnthropicCreateDeclaresMessagesExclusive(t *testing.T) {
 	require.Zero(t, accounts.bindCalls)
 }
 
-func TestUS048_SupplierConfigurationUpdateRequiresPassedChatProbe(t *testing.T) {
+func TestUS048_SupplierConfigurationUpdateRequiresPassedProtocolProbe(t *testing.T) {
 	accounts := &supplierManagedCommandsAccountRepoFake{existing: &Account{
 		ID: 41, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeOpenAI,
 		Credentials: supplierManagedCredentials(
@@ -239,7 +239,7 @@ func TestUS048_SupplierAdoptAddsManagedIdentityWithoutReadingOrWritingGroups(t *
 		AccountID: 90, SourceID: 7, DiscountBand: 3, Name: "百度/千帆 · 档位 3",
 		Endpoint: "https://qianfan.baidubce.com/v1", Credential: "secret",
 		ModelMapping: map[string]string{"deepseek-v4-pro": "deepseek-v4-pro", "qwen": "qwen"},
-		Priority:     103, Status: StatusActive, Schedulable: true, Adopt: true, ChatProbePassed: true,
+		Priority:     103, Status: StatusActive, Schedulable: true, Adopt: true, ProtocolProbePassed: true,
 	})
 
 	require.NoError(t, err)
@@ -274,24 +274,24 @@ func TestUS048_SupplierUpdateRejectsCrossSourceOrCrossBandTakeover(t *testing.T)
 
 type supplierManagedCommandsAccountRepoFake struct {
 	AccountRepository
-	existing                  *Account
-	created                   *Account
-	updated                   *Account
-	boundGroupIDs             []int64
-	bindCalls                 int
-	genericUpdateCalls        int
-	projectionUpdateCalls     int
-	projectionChatProbePassed bool
-	metadataUpdateCalls       int
-	metadataAccountID         int64
-	metadataName              string
-	metadataPriority          int
-	concurrencyUpdateCalls    int
-	concurrencyAccountID      int64
-	concurrencyValue          int
-	bindErr                   error
-	genericGetCalls           int
-	supplierGetCalls          int
+	existing                      *Account
+	created                       *Account
+	updated                       *Account
+	boundGroupIDs                 []int64
+	bindCalls                     int
+	genericUpdateCalls            int
+	projectionUpdateCalls         int
+	projectionProtocolProbePassed bool
+	metadataUpdateCalls           int
+	metadataAccountID             int64
+	metadataName                  string
+	metadataPriority              int
+	concurrencyUpdateCalls        int
+	concurrencyAccountID          int64
+	concurrencyValue              int
+	bindErr                       error
+	genericGetCalls               int
+	supplierGetCalls              int
 }
 
 func (r *supplierManagedCommandsAccountRepoFake) Create(_ context.Context, account *Account) error {
@@ -324,9 +324,9 @@ func (r *supplierManagedCommandsAccountRepoFake) Update(_ context.Context, accou
 	return nil
 }
 
-func (r *supplierManagedCommandsAccountRepoFake) UpdateSupplierProjection(_ context.Context, account *Account, chatProbePassed bool) error {
+func (r *supplierManagedCommandsAccountRepoFake) UpdateSupplierProjection(_ context.Context, account *Account, protocolProbePassed bool) error {
 	r.projectionUpdateCalls++
-	r.projectionChatProbePassed = chatProbePassed
+	r.projectionProtocolProbePassed = protocolProbePassed
 	r.updated = cloneSupplierManagedCommandsTestAccount(account)
 	return nil
 }
