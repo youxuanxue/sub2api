@@ -1308,6 +1308,23 @@ type CostInput struct {
 	BillingAt time.Time
 }
 
+// RecordUsageBillingAt is the single frozen instant for provider time-of-day
+// pricing (DeepSeek peak-valley) on a usage record. Prefer the request-level
+// pricingAt (same as channel TimePricing / profit gate D); fall back to now.
+func RecordUsageBillingAt(pricingAt time.Time) time.Time {
+	if !pricingAt.IsZero() {
+		return pricingAt
+	}
+	return timezone.Now()
+}
+
+func costInputBillingAt(input CostInput) time.Time {
+	if !input.BillingAt.IsZero() {
+		return input.BillingAt
+	}
+	return RecordUsageBillingAt(input.PricingAt)
+}
+
 // CalculateCostUnified 统一计费入口，支持三种计费模式。
 // 使用 ModelPricingResolver 解析定价，然后根据 BillingMode 分发计算。
 func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, error) {
@@ -1317,13 +1334,15 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 		if input.LongContextBillingEnabled != nil {
 			applyLongContextBilling = *input.LongContextBillingEnabled
 		}
-		return s.calculateCostInternalWithPolicy(
+		billingAt := costInputBillingAt(input)
+		return s.calculateCostInternalWithPolicyAt(
 			input.Model,
 			input.Tokens,
 			input.RateMultiplier,
 			input.ServiceTier,
 			nil,
 			applyLongContextBilling,
+			billingAt,
 		)
 	}
 
@@ -1380,10 +1399,7 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 		return nil, fmt.Errorf("no pricing available for model: %s: %w", input.Model, ErrModelPricingUnavailable)
 	}
 
-	at := input.BillingAt
-	if at.IsZero() {
-		at = timezone.Now()
-	}
+	at := costInputBillingAt(input)
 	pricing = s.applyModelSpecificPricingPolicy(input.Model, pricing)
 	pricing = tkApplyDeepSeekPeakValleyPricing(input.Model, pricing, at, resolved.Source)
 
@@ -1576,16 +1592,6 @@ func (s *BillingService) CalculateCostWithServiceTier(model string, tokens Usage
 	return s.calculateCostInternal(model, tokens, rateMultiplier, serviceTier, nil)
 }
 
-func (s *BillingService) calculateCostWithServiceTierPolicy(
-	model string,
-	tokens UsageTokens,
-	rateMultiplier float64,
-	serviceTier string,
-	longContextBillingEnabled bool,
-) (*CostBreakdown, error) {
-	return s.calculateCostInternalWithPolicy(model, tokens, rateMultiplier, serviceTier, nil, longContextBillingEnabled)
-}
-
 func (s *BillingService) calculateCostInternal(model string, tokens UsageTokens, rateMultiplier float64, serviceTier string, channelPricing *ChannelModelPricing) (*CostBreakdown, error) {
 	return s.calculateCostInternalWithPolicy(model, tokens, rateMultiplier, serviceTier, channelPricing, true)
 }
@@ -1598,6 +1604,20 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 	channelPricing *ChannelModelPricing,
 	longContextBillingEnabled bool,
 ) (*CostBreakdown, error) {
+	return s.calculateCostInternalWithPolicyAt(
+		model, tokens, rateMultiplier, serviceTier, channelPricing, longContextBillingEnabled, time.Time{},
+	)
+}
+
+func (s *BillingService) calculateCostInternalWithPolicyAt(
+	model string,
+	tokens UsageTokens,
+	rateMultiplier float64,
+	serviceTier string,
+	channelPricing *ChannelModelPricing,
+	longContextBillingEnabled bool,
+	billingAt time.Time,
+) (*CostBreakdown, error) {
 	var pricing *ModelPricing
 	var err error
 	if channelPricing != nil {
@@ -1609,12 +1629,17 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 		return nil, err
 	}
 
+	at := billingAt
+	if at.IsZero() {
+		at = timezone.Now()
+	}
+
 	source := PricingSourceLiteLLM
 	if channelPricing != nil {
 		source = PricingSourceChannel
 	}
 	pricing = s.applyModelSpecificPricingPolicy(model, pricing)
-	pricing = tkApplyDeepSeekPeakValleyPricing(model, pricing, timezone.Now(), source)
+	pricing = tkApplyDeepSeekPeakValleyPricing(model, pricing, at, source)
 
 	// 旧路径始终检查长上下文定价（无区间定价概念）。该路径不携带 enable_thinking
 	// （仅 CalculateCostUnified/CostInput 链路透传思考模式），故按非思考计费。
@@ -1696,15 +1721,31 @@ func (s *BillingService) CalculateCostWithConfig(model string, tokens UsageToken
 // 拆分为：范围内 (200k, 0) + 范围外 (10k, 10k)
 // 范围内正常计费，范围外 × 2 计费
 func (s *BillingService) CalculateCostWithLongContext(model string, tokens UsageTokens, rateMultiplier float64, threshold int, extraMultiplier float64) (*CostBreakdown, error) {
+	return s.CalculateCostWithLongContextAt(model, tokens, rateMultiplier, threshold, extraMultiplier, time.Time{})
+}
+
+func (s *BillingService) CalculateCostWithLongContextAt(
+	model string,
+	tokens UsageTokens,
+	rateMultiplier float64,
+	threshold int,
+	extraMultiplier float64,
+	billingAt time.Time,
+) (*CostBreakdown, error) {
+	at := RecordUsageBillingAt(billingAt)
+	costAt := func(chunk UsageTokens, mult float64) (*CostBreakdown, error) {
+		return s.calculateCostInternalWithPolicyAt(model, chunk, mult, "", nil, true, at)
+	}
+
 	// 未启用长上下文计费，直接走正常计费
 	if threshold <= 0 || extraMultiplier <= 1 {
-		return s.CalculateCost(model, tokens, rateMultiplier)
+		return costAt(tokens, rateMultiplier)
 	}
 
 	// 计算总输入 token（缓存读取 + 新输入）
 	total := tokens.CacheReadTokens + tokens.InputTokens
 	if total <= threshold {
-		return s.CalculateCost(model, tokens, rateMultiplier)
+		return costAt(tokens, rateMultiplier)
 	}
 
 	// 拆分成范围内和范围外
@@ -1734,8 +1775,9 @@ func (s *BillingService) CalculateCostWithLongContext(model string, tokens Usage
 		CacheCreation5mTokens: tokens.CacheCreation5mTokens,
 		CacheCreation1hTokens: tokens.CacheCreation1hTokens,
 		ImageOutputTokens:     tokens.ImageOutputTokens,
+		ImageInputTokens:      tokens.ImageInputTokens,
 	}
-	inRangeCost, err := s.CalculateCost(model, inRangeTokens, rateMultiplier)
+	inRangeCost, err := costAt(inRangeTokens, rateMultiplier)
 	if err != nil {
 		return nil, err
 	}
@@ -1745,7 +1787,7 @@ func (s *BillingService) CalculateCostWithLongContext(model string, tokens Usage
 		InputTokens:     outRangeInputTokens,
 		CacheReadTokens: outRangeCacheTokens,
 	}
-	outRangeCost, err := s.CalculateCost(model, outRangeTokens, rateMultiplier*extraMultiplier)
+	outRangeCost, err := costAt(outRangeTokens, rateMultiplier*extraMultiplier)
 	if err != nil {
 		return inRangeCost, fmt.Errorf("out-range cost: %w", err)
 	}

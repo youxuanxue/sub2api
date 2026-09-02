@@ -365,6 +365,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		CacheCreationTokens:   result.Usage.CacheCreationInputTokens,
 		CacheReadTokens:       result.Usage.CacheReadInputTokens,
 		ImageOutputTokens:     result.Usage.ImageOutputTokens,
+		ImageInputTokens:      result.Usage.ImageInputTokens,
 		ImageCount:            result.ImageCount,
 		ImageSize:             optionalTrimmedStringPtr(result.ImageSize),
 		ImageInputSize:        optionalTrimmedStringPtr(result.ImageInputSize),
@@ -447,9 +448,15 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
 	if apiKey.GroupID != nil {
+		var mirroredTokenCost *float64
+		if cost != nil {
+			mirroredTokenCost = s.mirrorOpenAIAccountStatsTokenCost(
+				ctx, result, apiKey, billingModels, pricingAt, tokens, serviceTier, longContextBillingGate, cost,
+			)
+		}
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
 			account.ID, *apiKey.GroupID, result.UpstreamModel, result.Model,
-			tokens, cost.TotalCost,
+			cost.TotalCost, pricingAt, mirroredTokenCost,
 		)
 	}
 
@@ -671,19 +678,19 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 ) (*CostBreakdown, error) {
 	if s.resolver != nil && apiKey.Group != nil {
 		gid := apiKey.Group.ID
+		billingAt := RecordUsageBillingAt(pricingAt)
 		return s.billingService.CalculateCostUnified(CostInput{
 			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
-			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier, PricingAt: pricingAt,
+			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier,
+			PricingAt: pricingAt, BillingAt: billingAt,
 			ServiceTier: serviceTier, Resolver: s.resolver,
 			LongContextBillingEnabled: longContextBillingGate,
 		})
 	}
-	return s.billingService.calculateCostWithServiceTierPolicy(
-		billingModel,
-		tokens,
-		multiplier,
-		serviceTier,
+	return s.billingService.calculateCostInternalWithPolicyAt(
+		billingModel, tokens, multiplier, serviceTier, nil,
 		longContextBillingGate == nil || *longContextBillingGate,
+		RecordUsageBillingAt(pricingAt),
 	)
 }
 
@@ -928,6 +935,57 @@ func (s *OpenAIGatewayService) resolveOpenAIChannelPricing(ctx context.Context, 
 	resolved := s.resolver.Resolve(ctx, PricingInput{Model: billingModel, GroupID: &gid, Group: apiKey.Group})
 	if resolved.Source == PricingSourceGroup || resolved.Source == PricingSourceChannel {
 		return resolved
+	}
+	return nil
+}
+
+// mirrorOpenAIAccountStatsTokenCost re-runs OpenAI token billing at multiplier=1 for account stats.
+func (s *OpenAIGatewayService) mirrorOpenAIAccountStatsTokenCost(
+	ctx context.Context,
+	result *OpenAIForwardResult,
+	apiKey *APIKey,
+	billingModels []string,
+	pricingAt time.Time,
+	tokens UsageTokens,
+	serviceTier string,
+	longContextBillingGate *bool,
+	userCost *CostBreakdown,
+) *float64 {
+	if userCost == nil {
+		return nil
+	}
+	if userCost.BillingMode != "" && userCost.BillingMode != string(BillingModeToken) {
+		return nil
+	}
+	if result != nil {
+		if result.VideoCount > 0 || result.WebSearchCalls > 0 || result.AudioUsage != nil {
+			return nil
+		}
+		if result.ImageCount > 0 {
+			billingModel := firstUsageBillingModel(billingModels)
+			resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey)
+			useTokenPath := resolved != nil && resolved.Mode == BillingModeToken
+			if useTokenPath && s.resolver != nil && s.resolver.tkResolveOverlayMediaPerRequest(billingModel) != nil {
+				useTokenPath = false
+			}
+			if !useTokenPath {
+				return nil
+			}
+		}
+	}
+	for _, candidate := range billingModels {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		mirror, err := s.calculateOpenAIRecordUsageTokenCost(
+			ctx, apiKey, candidate, 1.0, pricingAt, tokens, serviceTier, longContextBillingGate,
+		)
+		if err == nil {
+			if cost := accountStatsTokenCostFromBreakdown(mirror); cost != nil {
+				return cost
+			}
+		}
 	}
 	return nil
 }

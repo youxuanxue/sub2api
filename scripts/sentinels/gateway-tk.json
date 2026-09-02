@@ -8011,6 +8011,39 @@
         "TestMessagesChatSilentRefusal_AfterPingDoesNotEndTurn"
       ],
       "rationale": "Focused companion regressions pin the production role-only false-success shape, the non-zero usage and explicit non-stop terminal exemptions, and the late header-wait ping case so an upstream merge cannot restore empty end_turn framing or shrink ordinary no-write account failover while text/tool tests remain green."
+    },
+    {
+      "path": "backend/internal/service/account_stats_pricing.go",
+      "must_contain": [
+        "if mirroredTokenCostAtMultOne != nil {",
+        "func accountStatsTokenCostFromBreakdown(",
+        "return tryModelFilePricing(billingService, upstreamModel, tokens, serviceTier, billingAt)"
+      ],
+      "rationale": "Account-stats pricing priority 3 must treat a successfully mirrored user token cost, including an authoritative zero, as stronger than the LiteLLM fallback. Dropping the non-nil check or breakdown conversion silently makes account_stats_cost diverge from user TotalCost for channel overrides and peak-valley pricing while ordinary user billing remains correct."
+    },
+    {
+      "path": "backend/internal/service/account_stats_pricing_test.go",
+      "must_contain": [
+        "TestResolveAccountStatsCost_ZeroMirroredTokenCostOverridesLiteLLM",
+        "TestAccountStatsTokenCostFromBreakdown_PreservesZero"
+      ],
+      "rationale": "Focused regressions prove explicit zero-cost channel pricing cannot fall through to a positive LiteLLM row and that nil/negative breakdowns remain non-authoritative."
+    },
+    {
+      "path": "backend/internal/service/gateway_usage_billing.go",
+      "must_contain": [
+        "mirroredTokenCost = s.mirrorAccountStatsTokenCost(",
+        "return accountStatsTokenCostFromBreakdown(mirror)"
+      ],
+      "rationale": "Anthropic/generic usage settlement must re-run the user token path at multiplier 1 and hand the authoritative result to account-stats pricing. Losing either call site silently restores file-price drift."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_usage.go",
+      "must_contain": [
+        "mirroredTokenCost = s.mirrorOpenAIAccountStatsTokenCost(",
+        "if cost := accountStatsTokenCostFromBreakdown(mirror); cost != nil {"
+      ],
+      "rationale": "OpenAI-compatible usage settlement must mirror the same candidate and token policy used by user billing, including explicit zero, before account stats may consider LiteLLM fallback."
     }
   ]
 }
