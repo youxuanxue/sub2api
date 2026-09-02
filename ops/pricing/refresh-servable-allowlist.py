@@ -728,11 +728,13 @@ def project_allowlists(
         # Preserve current membership byte-for-byte at the set level. De-dup only
         # newly observed aliases; no probe failure is allowed to shrink current.
         final[platform] = [model for model in current_order if model not in removed_models]
-        final[platform].extend(
-            model
-            for model in positive_models
-            if model not in current_models and model not in removed_models
-        )
+        for model in positive_models:
+            if model in current_models or model in removed_models:
+                continue
+            dated = DATED_RE.match(model)
+            if dated and dated.group(1) in final[platform]:
+                continue
+            final[platform].append(model)
     # The scope guard protects the final native OpenAI projection, not a partial
     # positive-evidence batch. Under additive refresh a small Ainzy-shaped success
     # set is safe while the existing native-only rows remain present.
@@ -1178,6 +1180,31 @@ def selftest() -> int:
         "openai": ["gpt-current", "gpt-retired", "gpt-timeout"],
         "gemini": ["gemini-current"],
     }, no_op_projection
+    base_alias_sample = projection_sample.replace(
+        '\t"gpt-current": {},\n',
+        '\t"gpt-current": {},\n\t"gpt-5.5": {},\n',
+    )
+    alias_text, alias_projection = project_allowlists(
+        base_alias_sample,
+        {"openai": {"gpt-5.5-2026-04-23"}},
+        {"watchlist": [], "skiplist": [], "structurally_gone": []},
+    )
+    assert alias_text == base_alias_sample, "dated positive alias must not duplicate a current base"
+    assert "gpt-5.5-2026-04-23" not in alias_projection["openai"], alias_projection
+    removed_base_text, removed_base_projection = project_allowlists(
+        base_alias_sample,
+        {"openai": {"gpt-5.5-2026-04-23"}},
+        {
+            "watchlist": [],
+            "skiplist": [],
+            "structurally_gone": [
+                {"platform": "openai", "model": "gpt-5.5", "reason": "reviewed base retirement"}
+            ],
+        },
+    )
+    assert "gpt-5.5" not in removed_base_projection["openai"], removed_base_projection
+    assert "gpt-5.5-2026-04-23" in removed_base_projection["openai"], removed_base_projection
+    assert '"gpt-5.5-2026-04-23": {},' in removed_base_text, removed_base_text
     try:
         project_allowlists(
             projection_sample.replace("\t// servable-allowlist:end gemini", "\t// marker removed"),
