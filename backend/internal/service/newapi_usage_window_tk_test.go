@@ -52,6 +52,9 @@ func TestTkTryHandleNewAPIUsageWindow429_PersistsExtraAndCoolsUntilReset(t *test
 	require.True(t, svc.tkTryHandleNewAPIUsageWindow429(context.Background(), account, body))
 	require.Equal(t, 1, repo.setRateLimitedCalls)
 	require.WithinDuration(t, resetAt.UTC(), repo.lastRateLimitedResetAt.UTC(), time.Second)
+	require.NotNil(t, repo.lastExtraUpdates)
+	require.Equal(t, 1.0, repo.lastExtraUpdates[newAPIWeeklyUtilExtraKey])
+	require.Equal(t, float64(resetAt.Unix()), repo.lastExtraUpdates[newAPIWeeklyResetExtraKey])
 	require.Equal(t, 1.0, account.Extra[newAPIWeeklyUtilExtraKey])
 	require.Equal(t, float64(resetAt.Unix()), account.Extra[newAPIWeeklyResetExtraKey])
 }
@@ -127,4 +130,7 @@ func TestHandle429_NewAPIWeeklyUsesResetNotFallback(t *testing.T) {
 	require.Equal(t, 1, repo.setRateLimitedCalls)
 	require.WithinDuration(t, resetAt.UTC(), repo.lastRateLimitedResetAt.UTC(), time.Second)
 	require.Greater(t, repo.lastRateLimitedResetAt.Sub(time.Now()), 24*time.Hour)
+	require.NotNil(t, repo.lastExtraUpdates)
+	require.Equal(t, 1.0, repo.lastExtraUpdates[newAPIWeeklyUtilExtraKey])
+	require.Equal(t, float64(resetAt.Unix()), repo.lastExtraUpdates[newAPIWeeklyResetExtraKey])
 }
