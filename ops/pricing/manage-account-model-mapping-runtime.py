@@ -78,6 +78,13 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+_runtime_doc_spec = importlib.util.spec_from_file_location(
+    "tk_account_model_mapping_runtime_doc",
+    REPO_ROOT / "ops" / "pricing" / "account_model_mapping_runtime_doc.py",
+)
+_RUNTIME_DOC = importlib.util.module_from_spec(_runtime_doc_spec)
+_runtime_doc_spec.loader.exec_module(_RUNTIME_DOC)
+
 SETTING_KEY = "tk_account_model_mapping_runtime"
 MANAGED_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "newapi", "kiro", "grok")
 
@@ -165,67 +172,15 @@ def fail(msg: str) -> NoReturn:
     sys.exit(2)
 
 
-def _normalize_mapping(label: str, mapping) -> dict[str, str]:
-    if not isinstance(mapping, dict) or not mapping:
-        fail(f"{label}: model_mapping must be a non-empty object")
-    out: dict[str, str] = {}
-    for k, v in mapping.items():
-        if not isinstance(k, str) or not isinstance(v, str):
-            fail(f"{label}: keys and values must be strings")
-        key = k.strip()
-        val = v.strip()
-        if not key or not val:
-            fail(f"{label}: empty key/value is not allowed")
-        out[key] = val
-    return dict(sorted(out.items()))
-
-
 def normalize_platform_key(platform: str) -> str:
-    key = platform.strip().lower()
-    if key == "claude":
-        return "anthropic"
-    if key == "xai":
-        return "grok"
-    return key
+    return _RUNTIME_DOC.normalize_platform_key(platform)
 
 
 def normalize_runtime_doc(doc) -> dict:
-    if not isinstance(doc, dict):
-        fail("runtime document must be a JSON object")
-    out: dict[str, dict] = {}
-    platforms = doc.get("platforms", {})
-    if platforms is None:
-        platforms = {}
-    if not isinstance(platforms, dict):
-        fail("platforms must be an object")
-    clean_platforms: dict[str, dict[str, str]] = {}
-    for platform, mapping in platforms.items():
-        if not isinstance(platform, str) or not platform.strip():
-            fail("platforms contains an empty platform key")
-        key = normalize_platform_key(platform)
-        if key in clean_platforms:
-            fail(f"platforms.{platform}: duplicate normalized platform key {key!r}")
-        clean_platforms[key] = _normalize_mapping(f"platforms.{platform}", mapping)
-    if clean_platforms:
-        out["platforms"] = dict(sorted(clean_platforms.items()))
-
-    channel_types = doc.get("newapi_channel_types", {})
-    if channel_types is None:
-        channel_types = {}
-    if not isinstance(channel_types, dict):
-        fail("newapi_channel_types must be an object")
-    clean_ct: dict[str, dict[str, str]] = {}
-    for raw_ct, mapping in channel_types.items():
-        key = str(raw_ct).strip()
-        if not key.isdigit() or int(key) <= 0:
-            fail(f"invalid newapi channel_type {raw_ct!r}")
-        clean_ct[key] = _normalize_mapping(f"newapi_channel_types.{key}", mapping)
-    if clean_ct:
-        out["newapi_channel_types"] = dict(sorted(clean_ct.items(), key=lambda kv: int(kv[0])))
-
-    if not out:
-        fail("runtime document has no replacement scopes")
-    return out
+    try:
+        return _RUNTIME_DOC.normalize(doc)
+    except _RUNTIME_DOC.RuntimeDocumentError as exc:
+        fail(str(exc))
 
 
 def canonical_json(doc: dict) -> str:
@@ -234,7 +189,7 @@ def canonical_json(doc: dict) -> str:
 
 def load_doc(path: Path) -> dict:
     try:
-        return normalize_runtime_doc(json.loads(path.read_text()))
+        return _RUNTIME_DOC.load(path, normalize_doc=normalize_runtime_doc)
     except OSError as e:
         fail(f"cannot read {path}: {e}")
     except json.JSONDecodeError as e:
@@ -242,13 +197,7 @@ def load_doc(path: Path) -> dict:
 
 
 def _decode_runtime_value(out: str) -> dict:
-    out = out.strip()
-    if not out:
-        return {}
-    raw = gzip.decompress(base64.b64decode(out)).decode("utf-8").strip()
-    if not raw:
-        return {}
-    return json.loads(raw)
+    return _RUNTIME_DOC.decode_runtime_value(out)
 
 
 def read_runtime_blob(region: str, instance_id: str) -> dict:

@@ -102,6 +102,8 @@
       "must_contain": [
         "def project_allowlists(",
         "current + positive - reviewed structural removals",
+        "tk_servable_reprobe_ledger",
+        "def augment_candidates_with_probe_policy(",
         "_ledger_entries(ledger, \"structurally_gone\")",
         "def watchlist_freshness(",
         "sub.add_parser(\"watchlist-status\")",
@@ -110,6 +112,19 @@
         "reviewed base retirement"
       ],
       "rationale": "Catalog refresh must be additive: current membership survives absent traffic, auth/setup failures, 429, 5xx and timeout; only the reviewed structurally_gone ledger may remove a row. The pure projection and mixed-result regression assertions keep this invariant executable without re-expanding dated aliases beside an existing base, while watchlist-status separates freshness alerting from candidate generation. Losing these anchors could silently reintroduce bulk catalog shrink, duplicate menu rows, or the selftest-green/candidates-broken failure mode."
+    },
+    {
+      "path": "ops/pricing/servable_reprobe_ledger.py",
+      "must_contain": [
+        "LEDGER_LISTS = (\"probe_candidates\", \"watchlist\", \"skiplist\", \"structurally_gone\")",
+        "VOLATILE_CANDIDATE_FIELDS",
+        "def validate(",
+        "def watchlist_freshness(",
+        "def augment_candidates(",
+        "for entry in entries(ledger, \"probe_candidates\")",
+        "for list_name in (\"skiplist\", \"structurally_gone\")"
+      ],
+      "rationale": "The refresh entrypoint delegates ledger schema and projection to this pure owner. Durable explicit probe candidates must remain independent from expiring operational follow-up, while skiplist and reviewed structurally_gone policy continue to filter candidate/results paths. Losing this split either restores permanent stale alerts or silently changes the generated candidate universe."
     },
     {
       "path": "backend/internal/service/tk_served_models_manifest_tk.go",
@@ -316,13 +331,14 @@
       "must_contain": [
         "tk_served_models.json",
         "servable-allowlist:begin",
-        "served-via-admin-ui",
-        "served-via-modelops-activation",
+        "VALID_MAPPING_SOURCES = {\"activation\", \"admin_legacy\"}",
+        "STALE_MAPPING_MARKERS",
+        "notes contains obsolete machine marker",
         "#812-class gap",
         "def _selftest(",
         "_aliases"
       ],
-      "rationale": "The served-models manifest drift guard asserts repository agreement for the thin intent layer: (A1) non-zero pricing, (A2) native allowlist or manifest-owned newapi display, and (A3) an explicit mapping write path. Legacy rows may be evidenced by a quoted model id plus account guard in tk_*.sql or by the served-via-admin-ui seed-state marker; every new floor must declare served-via-modelops-activation and then complete the approved evidence-backed prod activation before release. A3 catches the #812 priced/displayed-but-empty-pool failure without forcing generic deploy to mutate live accounts. Pinning both legacy and activation markers, the selftest, and the allowlist parser prevents an upstream merge from silently dropping either safety path. Wired into preflight and the upstream conflict gate."
+      "rationale": "The served-models manifest drift guard asserts repository agreement for the thin intent layer: (A1) non-zero pricing, (A2) native allowlist or manifest-owned newapi display, and (A3) an explicit mapping write path. Legacy rows may be evidenced by a quoted model id plus account guard in tk_*.sql or mapping_source=admin_legacy; every new floor declares mapping_source=activation and then completes the approved evidence-backed prod activation before release. A3 catches the #812 priced/displayed-but-empty-pool failure without forcing generic deploy to mutate live accounts. Pinning the structured enum, stale-marker rejection, selftest, and allowlist parser prevents an upstream merge from silently dropping either safety path. Wired into preflight and the upstream conflict gate."
     },
     {
       "path": "backend/internal/service/tk_served_models.json",
@@ -331,12 +347,14 @@
         "\"price_source\"",
         "\"served_on\"",
         "\"display\"",
+        "\"mapping_source\"",
+        "\"activation\"",
+        "\"admin_legacy\"",
         "account 88",
         "account 90",
-        "served-via-modelops-activation",
         "account 96"
       ],
-      "rationale": "The served-models MANIFEST is the single declarative intent source consumed by the drift guard, onboarding skill, display projections, and generated account-mapping bundle. Pinning the schema keys plus the modelops activation declaration prevents an upstream merge from truncating the manifest or reverting new mapping floors to generic-deploy migrations while leaving compile/tests superficially green. Co-located with the overlay so the same preflight parses price and serving intent. account 96 pins the XRToken ch54 Seedance serving intent (two XRToken-only SKUs plus three shared with the Ark pool) so a merge cannot revert the manifest to the Ark-only rows."
+      "rationale": "The served-models MANIFEST is the single declarative intent source consumed by the drift guard, onboarding skill, display projections, and generated account-mapping bundle. Pinning the schema keys plus structured mapping provenance prevents an upstream merge from truncating the manifest or reverting new mapping floors to generic-deploy migrations while leaving compile/tests superficially green. Co-located with the overlay so the same preflight parses price and serving intent. account 96 pins the XRToken ch54 Seedance serving intent (two XRToken-only SKUs plus three shared with the Ark pool) so a merge cannot revert the manifest to the Ark-only rows."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay.go",

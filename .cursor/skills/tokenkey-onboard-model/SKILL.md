@@ -8,7 +8,7 @@ description: >-
 
 # TokenKey：上架一个模型（newapi 策展模型面）
 
-经 hub **`tokenkey-modelops-planner` 分支 C** 进入。本 skill 准备 manifest、价格 owner、
+经 hub **`tokenkey-modelops-planner` 的 curated onboarding 路由**进入。本 skill 准备 manifest、价格 owner、
 生成 bundle 与激活证据；一次请求能不能交付仍看
 `docs/approved/pricing-serving-single-source-of-truth.md`。
 
@@ -38,13 +38,13 @@ description: >-
 
 ## 流程
 
-不确定缺口 → 先 hub **分支 A** `modelops.py plan`。
+不确定缺口 → 先走 hub 的 read-only planning 路由：`modelops.py plan`。
 
 1. **probe 可服务性** — DashScope 用 `DASHSCOPE_CHAT_MODELS`（思考+非思考）；Kimi/单账号用
    `probe_account_model`。命令见 README / `tokenkey-account-model-probe`。须
    `verdict=servable` 且 `usage_match.account_id` 命中目标账号。
-2. **写 manifest** — `tk_served_models.json` 加 `newapi/<id>`；新 floor 的 `notes` 必须含
-   `served-via-modelops-activation`；`display` / `price_source` 语义见 manifest `_schema`。
+2. **写 manifest** — `tk_served_models.json` 加 `newapi/<id>`；新 floor 声明
+   `mapping_source: activation`，人类证据留在 `notes`；其它字段语义见 manifest `_schema`。
 3. **价 + bundle** — 官方核价后修改 complete registry（或明确 scoped channel price）；
    `go run ./cmd/account-model-mapping bundle` 生成 target artifact（禁手改 JSON）。
 4. **activate** — 独立 probe/pricing evidence + `modelops.py activate` dry-run → 人审 →
@@ -58,7 +58,7 @@ description: >-
 
 `scripts/checks/catalog-serving-drift.py`（preflight）：A0 parse / A1 price / A2 display⇒owner /
 A3 served_on⇒mapping path / A4 enumeration WARN。新 floor 缺
-`served-via-modelops-activation` 会硬失败（#812）。
+`mapping_source: activation` 会硬失败（#812）。
 
 prod live 对账：`manage-account-model-mapping-runtime.py check-accounts --json --bundle …`。
 

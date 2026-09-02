@@ -114,7 +114,7 @@ func TestXRTokenManifestScopeOwnsAllFiveModels(t *testing.T) {
 // Before this override existed the bundle carried no XRToken scope at all, so
 // activation had nothing to add and refused with "bundle delta has no added or
 // retargeted required model mappings" — i.e. the documented
-// `served-via-modelops-activation` path could not actually run.
+// the declared modelops activation path could not actually run.
 //
 // Two assertions, both load-bearing:
 //

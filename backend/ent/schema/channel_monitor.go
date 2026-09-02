@@ -115,7 +115,7 @@ func (ChannelMonitor) Fields() []ent.Field {
 		// 自动维护的监控。系统监控由 pricing_availability_seeder_tk.go 生成，
 		// 周期性探测 catalog 内 cold-tail 模型可达性，复用 ChannelMonitorRunner
 		// 的 ticker / pond 调度基础设施而不新建 scheduler。详见
-		// docs/approved/pricing-availability-source-of-truth.md §1.1 / §5.
+		// docs/approved/pricing-availability-source-of-truth.md#availability-operations.
 		field.Enum("kind").
 			Values("user", "system_availability").
 			Default("user"),

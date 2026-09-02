@@ -25,12 +25,12 @@ but never actually wired onto the serving account's model_mapping => empty pool 
   A2 DISPLAY      native display==true => model_id present in the platform's Go
                   allowlist map. newapi display is owned by this manifest.     HARD
   A3 SERVED_ON    every served_on account => a legacy tk_*.sql migration maps the model,
-                  or notes explicitly declare `served-via-modelops-activation`. The
-                  latter is the approved path for new bundle floors and must complete
-                  before release; generic deploy never writes live account mappings.
-                  This is the #812-catching direction.                        HARD-FAIL
-                  Legacy escape hatch: `served-via-admin-ui` is downgraded to WARN for
-                  mapping state that predates the activation contract.
+                  or mapping_source declares `activation`. The latter is the approved
+                  path for new bundle floors and must complete before release; generic
+                  deploy never writes live account mappings. This is the #812-catching
+                  direction.                                                  HARD-FAIL
+                  Legacy mapping_source `admin_legacy` is downgraded to WARN for state
+                  that predates the activation contract.
   A4 ENUMERATION  native display allowlists also require a direct owner or `_aliases`;
                   (advisory WARN) every dashscope/deepseek chat overlay key SHOULD be a
                   manifest entry (catch a priced+served-but-forgotten model).
@@ -45,6 +45,7 @@ import json
 import pathlib
 import re
 import sys
+from typing import Any
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 SERVICE_DIR = REPO_ROOT / "backend" / "internal" / "service"
@@ -73,9 +74,8 @@ ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "grok")
 # A4 advisory: overlay vendors whose chat models are the manifest's curated long-tail.
 ENUMERATION_PROVIDERS = {"dashscope", "deepseek", "moonshot", "volcengine", "zhipu", "bigmodel", "zai"}
 
-# Recognized literal declarations in an entry's notes (A3 migration-scan alternatives).
-ADMIN_UI_OPT_OUT = "served-via-admin-ui"
-MODELOPS_ACTIVATION = "served-via-modelops-activation"
+VALID_MAPPING_SOURCES = {"activation", "admin_legacy"}
+STALE_MAPPING_MARKERS = ("served-via-admin-ui", "served-via-modelops-activation")
 
 REQUIRED_FIELDS = {
     "platform": str,
@@ -255,6 +255,24 @@ def evaluate(
         price_source = entry["price_source"]
         price_key = entry["price_key"]
         notes = entry.get("notes", "") or ""
+        if not isinstance(notes, str):
+            errors.append(f"{key}: notes must be a string")
+            continue
+        mapping_source = entry.get("mapping_source")
+        if mapping_source is not None and (
+            not isinstance(mapping_source, str) or mapping_source not in VALID_MAPPING_SOURCES
+        ):
+            errors.append(
+                f"{key}: mapping_source {mapping_source!r} not in {sorted(VALID_MAPPING_SOURCES)}"
+            )
+            continue
+        stale_markers = [marker for marker in STALE_MAPPING_MARKERS if marker in notes]
+        if stale_markers:
+            errors.append(
+                f"{key}: notes contains obsolete machine marker(s) {stale_markers}; "
+                "declare mapping_source instead"
+            )
+            continue
         manifest_model_ids.add(model_id)
 
         # ---- A1 price-resolvable -----------------------------------------------
@@ -315,23 +333,21 @@ def evaluate(
                 )
 
         # ---- A3 served_on => legacy migration or explicit activation -----------
-        admin_ui = ADMIN_UI_OPT_OUT in notes
-        modelops_activation = MODELOPS_ACTIVATION in notes
         for account in entry["served_on"]:
             if migration_maps_model(migration_files, account, model_id):
                 continue
-            if modelops_activation:
+            if mapping_source == "activation":
                 continue
             msg = (
                 f"{key}: served_on lists account {account} but NO tk_*.sql migration maps "
                 f'"{model_id}" onto it (`id = {account}` + quoted id). #812-class gap: the '
                 f"runtime pool is empty for this model until an explicit mapping write => 429/503. "
-                f"For a new bundle floor, declare {MODELOPS_ACTIVATION!r} in notes and complete "
+                "For a new bundle floor, declare mapping_source='activation' and complete "
                 f"modelops activate before release; otherwise remove this row."
             )
-            if admin_ui:
+            if mapping_source == "admin_legacy":
                 warnings.append(
-                    msg + f"  [downgraded to WARN: notes carries '{ADMIN_UI_OPT_OUT}']"
+                    msg + "  [downgraded to WARN: mapping_source='admin_legacy']"
                 )
             else:
                 errors.append(msg)
@@ -425,17 +441,17 @@ def _selftest() -> int:
         "newapi/good-chat-alias": {
             "platform": "newapi", "model_id": "good-chat-alias", "served_on": ["60"],
             "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-            "display": True, "notes": "served-via-modelops-activation",
+            "display": True, "mapping_source": "activation", "notes": "ok",
         },
         "newapi/adminui-chat": {
             "platform": "newapi", "model_id": "adminui-chat", "served_on": ["60"],
             "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-            "display": False, "notes": "applied out-of-band served-via-admin-ui",
+            "display": False, "mapping_source": "admin_legacy", "notes": "applied out-of-band",
         },
         "newapi/activation-chat": {
             "platform": "newapi", "model_id": "activation-chat", "served_on": ["60"],
             "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-            "display": False, "notes": "pre-release served-via-modelops-activation",
+            "display": False, "mapping_source": "activation", "notes": "pre-release",
             "account_scope": {
                 "platform": "newapi", "channel_type": 45,
                 "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
@@ -481,28 +497,28 @@ def _selftest() -> int:
     errs, _ = run({"newapi/absent": {
         "platform": "newapi", "model_id": "nope", "served_on": ["60"],
         "channel_type": 17, "price_source": "overlay", "price_key": "nonexistent",
-        "display": False, "notes": "served-via-admin-ui",
+        "display": False, "mapping_source": "admin_legacy", "notes": "legacy",
     }})
     if not any("absent from" in e for e in errs):
         failures.append("A1: missing overlay key not flagged")
     errs, _ = run({"newapi/zero": {
         "platform": "newapi", "model_id": "zero-chat", "served_on": ["60"],
         "channel_type": 43, "price_source": "overlay", "price_key": "zero-chat",
-        "display": False, "notes": "served-via-admin-ui",
+        "display": False, "mapping_source": "admin_legacy", "notes": "legacy",
     }})
     if not any("requires" in e and "> 0" in e for e in errs):
         failures.append("A1: $0 overlay price not flagged")
     errs, _ = run({"newapi/emb": {
         "platform": "newapi", "model_id": "good-embedding", "served_on": ["60"],
         "channel_type": 46, "price_source": "overlay", "price_key": "good-embedding",
-        "display": False, "notes": "served-via-admin-ui",
+        "display": False, "mapping_source": "admin_legacy", "notes": "legacy",
     }})
     if errs:
         failures.append(f"A1: valid embedding overlay flagged: {errs}")
     errs, _ = run({"newapi/zero-emb": {
         "platform": "newapi", "model_id": "zero-embedding", "served_on": ["60"],
         "channel_type": 46, "price_source": "overlay", "price_key": "zero-embedding",
-        "display": False, "notes": "served-via-admin-ui",
+        "display": False, "mapping_source": "admin_legacy", "notes": "legacy",
     }})
     if not any("requires" in e and "> 0" in e for e in errs):
         failures.append("A1: $0 embedding overlay price not flagged")
@@ -510,7 +526,7 @@ def _selftest() -> int:
     errs, _ = run({"newapi/mirror": {
         "platform": "newapi", "model_id": "good-chat", "served_on": ["60"],
         "channel_type": 43, "price_source": "mirror", "price_key": "good-chat",
-        "display": False, "notes": "served-via-admin-ui",
+        "display": False, "mapping_source": "admin_legacy", "notes": "legacy",
     }})
     if not any("price_source 'mirror' not in" in e for e in errs):
         failures.append("A1: external mirror accepted as an effective price source")
@@ -519,14 +535,14 @@ def _selftest() -> int:
     errs, _ = run({"other/disp": {
         "platform": "bedrock", "model_id": "good-chat", "served_on": ["60"],
         "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-        "display": True, "notes": "served-via-admin-ui",
+        "display": True, "mapping_source": "admin_legacy", "notes": "legacy",
     }})
     if not any("has NO Go" in e for e in errs):
         failures.append("A2: display=true on no-map platform not flagged")
     errs, _ = run({"anthropic/disp": {
         "platform": "anthropic", "model_id": "claude-ghost", "served_on": ["1"],
         "channel_type": 0, "price_source": "overlay", "price_key": "good-chat",
-        "display": True, "notes": "served-via-admin-ui",
+        "display": True, "mapping_source": "admin_legacy", "notes": "legacy",
     }})
     if not any("absent from the anthropic servable-allowlist" in e for e in errs):
         failures.append("A2: display=true absent from real map not flagged")
@@ -542,7 +558,7 @@ def _selftest() -> int:
     errs, warns = run({"newapi/oob": {
         "platform": "newapi", "model_id": "unmapped", "served_on": ["60"],
         "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-        "display": False, "notes": "applied out-of-band served-via-admin-ui",
+        "display": False, "mapping_source": "admin_legacy", "notes": "applied out-of-band",
     }})
     if any("#812-class gap" in e for e in errs):
         failures.append("A3: admin-ui opt-out still hard-failed")
@@ -551,12 +567,27 @@ def _selftest() -> int:
     errs, warns = run({"newapi/activation": {
         "platform": "newapi", "model_id": "unmapped", "served_on": ["60"],
         "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
-        "display": False, "notes": "served-via-modelops-activation",
+        "display": False, "mapping_source": "activation", "notes": "modelops activation",
     }})
     if any("#812-class gap" in e for e in errs):
         failures.append("A3: modelops activation declaration still hard-failed")
     if any("#812-class gap" in w for w in warns):
         failures.append(f"A3: modelops activation declaration produced mapping warnings: {warns}")
+    errs, _ = run({"newapi/stale-marker": {
+        "platform": "newapi", "model_id": "unmapped", "served_on": ["60"],
+        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
+        "display": False, "mapping_source": "activation",
+        "notes": "served-via-modelops-activation",
+    }})
+    if not any("obsolete machine marker" in e for e in errs):
+        failures.append("A3: obsolete notes marker was accepted")
+    errs, _ = run({"newapi/bad-mapping-source": {
+        "platform": "newapi", "model_id": "unmapped", "served_on": ["60"],
+        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
+        "display": False, "mapping_source": ["activation"], "notes": "bad enum type",
+    }})
+    if not any("mapping_source" in e for e in errs):
+        failures.append("A3: non-string mapping_source was accepted")
 
     # --- A3 prefix-quote: "good-chat" must NOT match "good-chat-preview" --------
     pmig = {"tk_902.sql": 'WHERE id = 60 ... "good-chat-preview": "good-chat-preview"'}

@@ -818,7 +818,7 @@ fi
 # service files (TkRecordFailureFromErr call sites, RecordOutcome hook) are
 # still present after any upstream merge. Without these taps the model_availability
 # table receives no data and the /pricing availability decoration silently stops
-# working. See docs/approved/pricing-availability-source-of-truth.md §4 and
+# working. See docs/approved/pricing-availability-source-of-truth.md#availability-evidence-owner and
 # CLAUDE.md §「升级原则」.
 echo ""
 echo "=== sub2api: pricing-availability sentinel registry ==="
@@ -2500,33 +2500,10 @@ else
     fi
 fi
 
-# ---- sub2api: display-coverage gate (servable ⇒ displayable) ----------------
-# Guards the #1030 / #1029 failure class: a model added to the Go servable
-# allowlist with NO display price source. Prod's /pricing reads the upstream
-# remote mirror ∪ tk_pricing_overlay.json; the bundled resources/model-pricing
-# mirror is a SHADOWED, hand-maintained fallback prod never reads — so a model
-# present only there renders a BLANK price (gpt-5.6 #1030; antigravity gemini-*
-# #1029). Diff-scoped: only NEW allowlist entries must be overlay-priced (or carry
-# `display-via-remote-verified`). Live backstop:
-# ops/pricing/audit-display-coverage.py check --live. CLAUDE.md §「升级原则」.
-echo ""
-echo "=== sub2api: display-coverage gate ==="
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required by display-coverage-gate)"
-    errors=$((errors + 1))
-elif ! python3 ./scripts/checks/display-coverage-gate.py selftest >/dev/null 2>&1; then
-    echo "  FAIL: display-coverage-gate.py selftest (re-run: python3 scripts/checks/display-coverage-gate.py selftest)"
-    errors=$((errors + 1))
-elif ! python3 ./scripts/checks/display-coverage-gate.py check --base "${PREFLIGHT_BASE:-origin/main}"; then
-    # gate already printed the actionable failure.
-    errors=$((errors + 1))
-fi
-
 # ---- sub2api: display-coverage audit selftest -------------------------------
-# ops/pricing/audit-display-coverage.py is the LIVE close-out of any catalog
-# change (run `check --live`, require 0 gaps) and a safe read-only periodic prod
-# audit. CI only runs its offline selftest; the --live audit is an operator /
-# scheduled action (no prod network in CI).
+# Static display ownership is already enforced repository-wide by
+# catalog-serving-drift A4. This audit is the read-only live close-out: it checks
+# that complete-registry + allowlist expectations reached public /pricing.
 echo ""
 echo "=== sub2api: display-coverage audit selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then

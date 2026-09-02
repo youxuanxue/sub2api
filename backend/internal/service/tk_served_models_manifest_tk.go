@@ -226,33 +226,20 @@ func tkServedModelsManifestDisplayPresetIDsForSelector(platform string, channelT
 	return out
 }
 
-// qianfanSharedManifestModelIDs lists manifest rows also served on Baidu Qianfan
-// account 90 but indexed under other channel_type keys (manifest forbids duplicate model_id).
-var qianfanSharedManifestModelIDs = []string{
-	"deepseek-v4-pro",
-	"deepseek-v4-flash",
-	"glm-5",
-	"glm-5.1",
-	"glm-5.2",
-	"kimi-k2.6",
-}
-
 func newAPIQianfanModelMappingPresetIDs() []string {
-	scoped := tkServedModelsManifestPresetIDsForSelector(
+	return tkServedModelsManifestPresetIDsForSelector(
 		PlatformNewAPI,
 		newapiconstant.ChannelTypeBaiduV2,
 		newapiintegration.QianfanBaseURL,
 	)
-	return mergeSortedManifestModelIDs(scoped, qianfanSharedManifestModelIDs)
 }
 
 func newAPIQianfanModelDisplayPresetIDs() []string {
-	scoped := tkServedModelsManifestDisplayPresetIDsForSelector(
+	return tkServedModelsManifestDisplayPresetIDsForSelector(
 		PlatformNewAPI,
 		newapiconstant.ChannelTypeBaiduV2,
 		newapiintegration.QianfanBaseURL,
 	)
-	return mergeSortedManifestModelIDs(scoped, qianfanSharedManifestModelIDs)
 }
 
 func newAPIXRTokenModelMappingPresetIDs() []string {
@@ -269,41 +256,6 @@ func newAPIXRTokenModelDisplayPresetIDs() []string {
 		newapiconstant.ChannelTypeDoubaoVideo,
 		newapiintegration.XRTokenBaseURL,
 	)
-}
-
-func mergeSortedManifestModelIDs(primary, extra []string) []string {
-	if len(primary) == 0 && len(extra) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(primary)+len(extra))
-	out := make([]string, 0, len(primary)+len(extra))
-	for _, id := range primary {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		out = append(out, id)
-	}
-	for _, id := range extra {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		out = append(out, id)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	sort.Strings(out)
-	return out
 }
 
 // tkServedModelsManifestPresetIDsByChannelType returns empirically verified

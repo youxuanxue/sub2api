@@ -541,7 +541,8 @@ main() {
 			# (translation params) not documented in the new-api volcengine adaptor. Until
 			# that authoritative shape is known it stays inconclusive (the model is priced +
 			# served in prod regardless; this only affects probe classification). Do NOT ship
-			# a guessed shape. See SKILL.md "translation 族探测" note.
+				# a guessed shape. Keep the verdict inconclusive until the provider's
+				# authoritative translation request schema is represented by this probe.
 			[ -n "${ARK_CHAT_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/chat/completions "$ARK_CHAT_MODELS" body_chat
 			[ -n "${ARK_IMAGE_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/images/generations "$ARK_IMAGE_MODELS" body_ark_img
 			[ -n "${ARK_VIDEO_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/contents/generations/tasks "$ARK_VIDEO_MODELS" body_ark_video

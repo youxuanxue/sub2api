@@ -37,7 +37,7 @@ func IsKnownChannelType(t int) bool {
 // DiscoveryFilter.Apply) is responsible for the model_availability table check
 // + pricing_status tagging.
 //
-// Per docs/approved/pricing-availability-source-of-truth.md §2.4 (Goal 1).
+// Per docs/approved/pricing-availability-source-of-truth.md#availability-admin-discovery.
 func FetchUpstreamModelList(ctx context.Context, baseURL string, channelType int, apiKey string) ([]rawDiscoveredModel, error) {
 	if ctx == nil {
 		ctx = context.Background()

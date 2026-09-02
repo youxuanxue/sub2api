@@ -1,7 +1,7 @@
 package newapi
 
 // TokenKey: upstream model-discovery filter pipeline.
-// Spec: docs/approved/pricing-availability-source-of-truth.md §2.4 (R-002, Goal 1).
+// Spec: docs/approved/pricing-availability-source-of-truth.md#availability-admin-discovery.
 //
 // Pipeline:
 //   raw upstream /v1/models response

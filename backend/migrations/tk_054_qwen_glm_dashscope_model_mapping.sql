@@ -5,8 +5,9 @@
 -- dashscope.aliyuncs.com (channel_type=17):
 --   glm-5.2, glm-5.1, glm-5, glm-4.7, glm-4.6, glm-4.5, glm-4.5-air
 --
--- Mirror invariant (docs/approved/served-model-reconcile-planner.md):
---   account 72 model_mapping == account 60 model_mapping
+-- This migration gave accounts 60 and 72 the same GLM floor at apply time.
+-- Current mapping validity comes from the generated bundle and explicit activation:
+-- docs/approved/model-surface-activation-contract.md.
 --
 -- DashScope model ids match the Alibaba百炼 GLM section (华北2北京 mainland).
 -- User-facing overlay pricing follows Zhipu official list (https://open.bigmodel.cn/pricing).

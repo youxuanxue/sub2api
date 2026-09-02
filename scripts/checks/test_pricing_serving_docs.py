@@ -322,6 +322,10 @@ class PricingServingDocsContractTest(unittest.TestCase):
             "one entry, four facts",
             "列出即可调用",
             "account.go:639",
+            "pricing-availability-source-of-truth.md §2.5",
+            "Goal 2 of pricing-availability-source-of-truth.md",
+            "served-model-reconcile-planner.md",
+            "tokenkey-modelops-planner 分支 C",
         )
         for sample in samples:
             with self.subTest(sample=sample):
@@ -331,6 +335,27 @@ class PricingServingDocsContractTest(unittest.TestCase):
         self.assertFalse(
             MODULE.secondary_truth_candidate("package service\n\nfunc add(a int, b int) int { return a + b }\n")
         )
+
+    def test_rejects_obsolete_availability_section_references_in_both_orders(self) -> None:
+        samples = (
+            "See R-001 of\n// docs/approved/pricing-availability-source-of-truth.md.",
+            "See R-003 /\n// docs/approved/pricing-availability-source-of-truth.md#availability-structural-pruning.",
+            "Why this helper exists (R-004 of\n// docs/approved/pricing-availability-source-of-truth.md):",
+            "pricing-availability single-source-of-truth (R-001 of\n"
+            "// docs/approved/pricing-availability-source-of-truth.md).",
+            "docs/approved/pricing-availability-source-of-truth.md\n"
+            "// §2.4 (Goal 1, R-002).",
+            "see §8 of docs/approved/pricing-availability-source-of-truth.md",
+        )
+        for index, sample in enumerate(samples):
+            with self.subTest(sample=sample):
+                root = self.fixture()
+                path = root / f"backend/internal/service/stale_reference_{index}.go"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("package service\n// " + sample + "\n", encoding="utf-8")
+                self.assertTrue(
+                    any("secondary delivery-truth claim" in error for error in MODULE.check(root))
+                )
 
 
 if __name__ == "__main__":

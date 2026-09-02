@@ -41,7 +41,7 @@ No tool in this directory may collapse those owners into a persistent `deliverab
 | `pricing-registry-sensor.py` | Provider comparison evidence and registry-only PR candidate generation. |
 | `manage-overlay-runtime.py` | Protected-main registry publication and read-only runtime audit. |
 | `apply-pricing-hotfix.py` | Provider lookup evidence and explicitly scoped channel-price remediation. |
-| `audit-display-coverage.py` | Live display-closeout audit paired with the static gate. |
+| `audit-display-coverage.py` | Read-only complete-registry → live `/pricing` projection close-out. |
 
 Provider-specific OpenRouter helpers are documented in
 `ops/pricing/openrouter-provider-onboarding.md` and are not modelops entrypoints.
@@ -96,9 +96,10 @@ Safety invariants:
 - source groups, accounts and deployable edges are resolved from live/machine owners, not
   copied into runbooks.
 
-`python3 ops/pricing/refresh-servable-allowlist.py candidates` reports stale watchlist
-evidence as a warning but remains usable. `watchlist-status` is the independent
-machine-readable operational alert and exits non-zero while stale entries exist.
+The reprobe ledger separates durable `probe_candidates` from time-bounded `watchlist`
+follow-up. Candidate generation reads only the durable set; `watchlist-status` is the
+independent machine-readable operational alert and exits non-zero while stale entries
+exist.
 
 Validate with the refresh selftest, inspect the Go diff, then run the focused catalog
 service tests before opening a PR.
@@ -146,5 +147,9 @@ Relevant preflight checks include:
 - refresh and modelops selftests;
 - pricing/serving document ownership;
 - generated agent CLI contract drift.
+
+The former diff-scoped `display-coverage-gate.py` remains as a compatibility
+entrypoint and delegates to `catalog-serving-drift.py`; preflight runs the owner
+once rather than maintaining a second display-price predicate.
 
 Run `./scripts/preflight.sh` at the repository exit gates defined by project rules.

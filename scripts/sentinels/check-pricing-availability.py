@@ -29,7 +29,7 @@ Why this exists:
   don't exercise end-to-end. This script upgrades the protection from
   "code-reviewer must remember" to "preflight will fail".
 
-  See docs/approved/pricing-availability-source-of-truth.md §4 and
+  See docs/approved/pricing-availability-source-of-truth.md#availability-evidence-owner and
   CLAUDE.md §「升级原则」.
 """
 from __future__ import annotations

@@ -147,8 +147,8 @@ func provideCleanup(
 	// TokenKey: forces wire to evaluate ProvideTKGatewayPricingAvailability so
 	// GatewayService.SetPricingAvailabilityService is called at startup. The
 	// handler-side wiring is forced via ProvideTKPricingCatalogHandler being
-	// the constructor used by handler ProviderSet. See R-001 of
-	// docs/approved/pricing-availability-source-of-truth.md.
+	// the constructor used by handler ProviderSet. See
+	// docs/approved/pricing-availability-source-of-truth.md#availability-evidence-owner.
 	_ service.TKGatewayPricingAvailabilityReady,
 	// TokenKey: forces wire to evaluate ProvideTKPricingOverlayRuntime so the
 	// runtime hot-pushable pricing overlay (settings-blob getter + catalog cache
@@ -175,8 +175,8 @@ func provideCleanup(
 	// sustained relay empty-pool responses create exact-model cooldowns.
 	_ service.TKAntigravitySaturationReady,
 	// TokenKey: forces wire to evaluate ProvideTKGatewayHandlerModelList so
-	// GatewayHandler.SetModelListFilter is called at startup. See R-003 /
-	// Goal 2 of docs/approved/pricing-availability-source-of-truth.md.
+	// GatewayHandler.SetModelListFilter is called at startup. See
+	// docs/approved/pricing-availability-source-of-truth.md#availability-structural-pruning.
 	_ handler.TKGatewayHandlerModelListReady,
 	// TokenKey: forces wire to evaluate ProvideTKUniversalModelsProvider so the
 	// universal-key resolver's "group served-model set" truth source

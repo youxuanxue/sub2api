@@ -14,7 +14,7 @@ import (
 //
 // PR-1 synchronous implementation — one PG round-trip per RecordOutcome.
 // Redis write-buffer optimisation is deferred to PR-2 / PR-3 (see
-// docs/approved/pricing-availability-source-of-truth.md §2.2).
+// docs/approved/pricing-availability-source-of-truth.md#availability-catalog-decoration).
 type modelAvailabilityRepository struct {
 	client *dbent.Client
 
