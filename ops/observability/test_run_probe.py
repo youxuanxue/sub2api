@@ -9,6 +9,7 @@ stdlib-only.
 """
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import subprocess
@@ -75,6 +76,34 @@ class RunProbeValidationTest(unittest.TestCase):
                 self.assertEqual(proc.returncode, 1)
                 self.assertIn("integer from 30 to 2592000", proc.stderr)
 
+    def test_registered_probe_contract_is_machine_readable(self) -> None:
+        probe = pathlib.Path(__file__).resolve().parents[1] / "stage0" / "probe_direct_upstream_model.sh"
+        proc = _run("--script", str(probe), "--describe-script")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("probe_openai_upstream_model.sh", proc.stdout)
+        self.assertIn('"upstream_auth_rejected"', proc.stdout)
+
+        contract_path = pathlib.Path(__file__).resolve().parent / "probe-contracts.json"
+        contracts = json.loads(contract_path.read_text(encoding="utf-8"))
+        repo = pathlib.Path(__file__).resolve().parents[2]
+        for script, contract in contracts.items():
+            with self.subTest(script=script):
+                self.assertTrue(contract["verdicts"])
+                for companion in contract["companions"]:
+                    self.assertTrue((repo / companion).is_file(), companion)
+
+    def test_unknown_probe_contract_is_rejected(self) -> None:
+        existing = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
+        proc = _run("--script", str(existing), "--describe-script")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("no registered contract", proc.stderr)
+
+    def test_unknown_probe_contract_cannot_run(self) -> None:
+        existing = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
+        proc = _run("--target", "prod", "--script", str(existing))
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("no registered contract", proc.stderr)
+
 
 class RunProbePollingTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -82,10 +111,11 @@ class RunProbePollingTest(unittest.TestCase):
         self.root = pathlib.Path(self.temporary.name)
         self.bin_dir = self.root / "bin"
         self.bin_dir.mkdir()
-        self.probe = self.root / "probe.sh"
+        self.probe = self.root / "probe_cloudwise_upstream_matrix.sh"
         self._write_executable(self.probe, "#!/usr/bin/env bash\necho unused\n")
 
         self.aws_log = self.root / "aws.log"
+        self.aws_params_log = self.root / "aws-params.log"
         self.aws_state = self.root / "aws-state"
         self.date_state = self.root / "date-state"
         self._write_executable(
@@ -138,6 +168,11 @@ class RunProbePollingTest(unittest.TestCase):
                     print("i-test")
                     raise SystemExit(0)
                 if operation == "ssm send-command":
+                    params_log = os.environ.get("FAKE_AWS_PARAMS_LOG")
+                    if params_log and "--parameters" in args:
+                        Path(params_log).write_text(
+                            args[args.index("--parameters") + 1], encoding="utf-8"
+                        )
                     print("11111111-2222-3333-4444-555555555555")
                     raise SystemExit(0)
                 if operation != "ssm get-command-invocation":
@@ -203,6 +238,7 @@ class RunProbePollingTest(unittest.TestCase):
             {
                 "PATH": f"{self.bin_dir}{os.pathsep}{env['PATH']}",
                 "FAKE_AWS_LOG": str(self.aws_log),
+                "FAKE_AWS_PARAMS_LOG": str(self.aws_params_log),
                 "FAKE_AWS_STATE": str(self.aws_state),
                 "FAKE_AWS_SCENARIO": scenario,
                 "FAKE_DATE_STATE": str(self.date_state),
@@ -289,6 +325,15 @@ class RunProbePollingTest(unittest.TestCase):
         self.assertIn("resolved instance does not match --expected-instance-id", proc.stderr)
         operations = [operation for operation, _ in self._aws_calls()]
         self.assertNotIn("ssm send-command", operations)
+
+    def test_registered_companions_are_uploaded_automatically(self) -> None:
+        probe = pathlib.Path(__file__).resolve().parents[1] / "stage0" / "probe_direct_upstream_model.sh"
+        self.probe = probe
+        proc = self._run_scenario("terminal-failure")
+        self.assertEqual(proc.returncode, 3)
+        params = self.aws_params_log.read_text(encoding="utf-8")
+        self.assertIn("/tmp/probe_openai_upstream_model.sh", params)
+        self.assertIn("/tmp/probe_grok_upstream_model.sh", params)
 
 
 if __name__ == "__main__":

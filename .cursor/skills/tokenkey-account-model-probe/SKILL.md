@@ -23,13 +23,19 @@ identifiers only, never capability metadata.
 | Which Claude IDs does one Kiro account serve? | `ops/stage0/probe_kiro_claude_models.sh` |
 
 For the canonical gateway path, pass the target, `ACCOUNT_ID`, `MODEL`, and the
-operation-appropriate `ENDPOINT` to `probe_account_model.sh`. Use `messages` for
+operation-appropriate `ENDPOINT` to `probe_account_model.sh`. `run-probe.sh`
+automatically ships the registered companions for every script in the table;
+inspect its machine-owned contract before a less familiar path with
+`--script <path> --describe-script`. Use `messages` for
 Anthropic/Kiro, `chat` for OpenAI-compatible chat, `responses` for Codex/OpenAI
-Responses, and `embeddings` for embedding SKUs. Read each script's header/help for its
-current companions and optional request-shape parameters; do not copy account-specific
-commands into this skill.
+Responses, and `embeddings` for embedding SKUs. Read each script's header for optional
+request-shape parameters; do not copy account-specific commands into this skill.
 
 ## Interpret the result
+
+The contract printed by `--describe-script` is authoritative because direct, list,
+matrix and batch probes intentionally have different verdict vocabularies. For the
+canonical gateway path:
 
 - `servable`: the request succeeded and, where usage attribution applies,
   `usage_match.account_id` is the requested account.

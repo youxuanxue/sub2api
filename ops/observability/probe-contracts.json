@@ -1,0 +1,97 @@
+{
+  "probe_account_model.sh": {
+    "companions": [
+      "ops/pricing/probe_reserved_resources.sh",
+      "ops/stage0/probe_account_model_verdict.py",
+      "ops/stage0/smoke_anthropic_realistic.py"
+    ],
+    "verdicts": [
+      "servable",
+      "wrong_account",
+      "gateway_rejected",
+      "upstream_rejected",
+      "uncorrelated_success",
+      "setup_error"
+    ]
+  },
+  "probe_direct_upstream_model.sh": {
+    "companions": [
+      "ops/stage0/probe_openai_upstream_model.sh",
+      "ops/stage0/probe_grok_upstream_model.sh"
+    ],
+    "verdicts": [
+      "servable",
+      "upstream_auth_rejected",
+      "upstream_rejected",
+      "setup_error"
+    ]
+  },
+  "probe_kiro_upstream_models.sh": {
+    "companions": [
+      "ops/kiro/probe_runtime_gateway.py",
+      "backend/internal/pkg/kiro/constants.go"
+    ],
+    "verdicts": [
+      "servable",
+      "inconclusive_transport",
+      "upstream_rejected",
+      "setup_error"
+    ]
+  },
+  "probe_kiro_upstream_thinking_fields.sh": {
+    "companions": [
+      "ops/kiro/probe_upstream_thinking_fields.py"
+    ],
+    "verdicts": [
+      "setup_error"
+    ],
+    "success_when": "http_status == 200; inspect reasoningContentEvent_count and frames_with_signature_key"
+  },
+  "probe_account_upstream_models.sh": {
+    "companions": [],
+    "verdicts": [
+      "servable",
+      "upstream_rejected",
+      "upstream_error",
+      "inconclusive_transport",
+      "listed",
+      "not_listed",
+      "empty",
+      "setup_error"
+    ]
+  },
+  "probe_cloudwise_upstream_matrix.sh": {
+    "companions": [],
+    "verdicts": [
+      "ok",
+      "partial",
+      "setup_error"
+    ]
+  },
+  "probe_cloudwise_model_case.sh": {
+    "companions": [],
+    "verdicts": [
+      "servable",
+      "upstream_auth_rejected",
+      "upstream_rejected",
+      "setup_error"
+    ]
+  },
+  "probe_kiro_claude_models.sh": {
+    "companions": [
+      "ops/stage0/probe_account_model.sh",
+      "ops/pricing/probe_reserved_resources.sh",
+      "ops/stage0/probe_account_model_verdict.py",
+      "ops/stage0/smoke_anthropic_realistic.py"
+    ],
+    "verdicts": [
+      "servable",
+      "wrong_account",
+      "gateway_rejected",
+      "upstream_rejected",
+      "uncorrelated_success",
+      "setup_error",
+      "parse_error"
+    ]
+  }
+}
