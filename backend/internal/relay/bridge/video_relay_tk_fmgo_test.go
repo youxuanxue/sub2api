@@ -252,18 +252,27 @@ func TestFMGoTaskAdaptor_ReadsDurationSecondsAlias(t *testing.T) {
 func TestFMGoTaskAdaptor_SanitizeFetchResponse(t *testing.T) {
 	t.Parallel()
 	adaptor := newFMGoTaskAdaptor()
-	got := adaptor.sanitizeFetchResponse([]byte(`{"id":"t1","model":"feimiao-v2-431-720p-10s","status":"succeeded"}`))
+	got := adaptor.sanitizeFetchResponse(
+		[]byte(`{"id":"t1","model":"feimiao-v2-431-720p-10s","status":"succeeded"}`),
+		newapiintegration.FMGoSeedanceClientID,
+	)
 	if gjson.GetBytes(got, "model").String() != newapiintegration.FMGoSeedanceClientID {
 		t.Fatalf("non-fast sku model = %q", gjson.GetBytes(got, "model").String())
 	}
 	if gjson.GetBytes(got, "status").String() != "succeeded" || gjson.GetBytes(got, "id").String() != "t1" {
 		t.Fatalf("sanitize must only rewrite model, got %s", got)
 	}
-	got = adaptor.sanitizeFetchResponse([]byte(`{"model":"feimiao-v2-fast-480p-8s"}`))
+	got = adaptor.sanitizeFetchResponse(
+		[]byte(`{"model":"feimiao-v2-fast-480p-8s"}`),
+		newapiintegration.FMGoSeedanceFastClientID,
+	)
 	if gjson.GetBytes(got, "model").String() != newapiintegration.FMGoSeedanceFastClientID {
 		t.Fatalf("fast sku model = %q", gjson.GetBytes(got, "model").String())
 	}
-	got = adaptor.sanitizeFetchResponse([]byte(`{"model":"feimiao-v2.5-720p-30s"}`))
+	got = adaptor.sanitizeFetchResponse(
+		[]byte(`{"model":"feimiao-v2.5-720p-30s"}`),
+		newapiintegration.FMGoSeedance25ClientID,
+	)
 	if gjson.GetBytes(got, "model").String() != newapiintegration.FMGoSeedance25ClientID {
 		t.Fatalf("v2.5 sku model = %q", gjson.GetBytes(got, "model").String())
 	}
@@ -273,13 +282,17 @@ func TestFMGoTaskAdaptor_SanitizeFetchResponse(t *testing.T) {
 		"not json":       `<html>error</html>`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			rewritten := adaptor.sanitizeFetchResponse([]byte(body))
+			rewritten := adaptor.sanitizeFetchResponse([]byte(body), newapiintegration.FMGoSeedanceClientID)
 			if string(rewritten) != body {
 				t.Fatalf("must leave foreign body alone:\n got: %s\nwant: %s", rewritten, body)
 			}
 		})
 	}
-	if got := adaptor.sanitizeFetchResponse(nil); got != nil {
+	directSKU := `{"model":"feimiao-v2.5-720p-30s","status":"succeeded"}`
+	if got := adaptor.sanitizeFetchResponse([]byte(directSKU), "feimiao-v2.5-720p-30s"); string(got) != directSKU {
+		t.Fatalf("direct identity SKU must stay unchanged, got %s", got)
+	}
+	if got := adaptor.sanitizeFetchResponse(nil, newapiintegration.FMGoSeedance25ClientID); got != nil {
 		t.Fatalf("nil body must stay nil, got %q", got)
 	}
 }

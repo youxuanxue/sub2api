@@ -521,7 +521,7 @@ func TestDispatchVideoFetch_XRTokenStripsVendorPrefixFromClientBody(t *testing.T
 	// Go through the SAME entry point DispatchVideoFetch uses, not the sanitizer
 	// directly: the bounded read and the dialect rewrite are fused there, so this
 	// also proves the wiring is in place rather than only the rewrite logic.
-	sanitized, err := readVideoFetchResponseBodyForAdaptor(adaptor, bytes.NewReader(raw))
+	sanitized, err := readVideoFetchResponseBodyForAdaptor(adaptor, bytes.NewReader(raw), arkID)
 	if err != nil {
 		t.Fatalf("readVideoFetchResponseBodyForAdaptor: %v", err)
 	}
@@ -555,13 +555,13 @@ func TestXRTokenSanitizeFetchResponse_LeavesForeignBodiesAlone(t *testing.T) {
 		"empty object":   `{}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := adaptor.sanitizeFetchResponse([]byte(body))
+			got := adaptor.sanitizeFetchResponse([]byte(body), "")
 			if string(got) != body {
 				t.Fatalf("sanitizeFetchResponse rewrote a body it should not touch:\n got: %s\nwant: %s", got, body)
 			}
 		})
 	}
-	if got := adaptor.sanitizeFetchResponse(nil); got != nil {
+	if got := adaptor.sanitizeFetchResponse(nil, ""); got != nil {
 		t.Fatalf("nil body must stay nil, got %q", got)
 	}
 }

@@ -375,16 +375,7 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		return
 	}
 
-	in := bridge.VideoFetchInput{
-		UpstreamTaskID: rec.UpstreamTaskID,
-		ChannelType:    rec.ChannelType,
-		BaseURL:        rec.BaseURL,
-		APIKey:         rec.APIKey,
-		// Platform + AccountID drive the grok-native poll branch (channel_type=0,
-		// re-resolve a fresh rotating OAuth Bearer). Ignored by the bridge path.
-		Platform:  rec.Platform,
-		AccountID: rec.AccountID,
-	}
+	in := videoFetchInputFromRecord(rec)
 	writerSizeBeforeForward := c.Writer.Size()
 	out, err := h.gatewayService.ForwardAsVideoFetchDispatched(c.Request.Context(), c, in)
 	if err != nil {
@@ -427,6 +418,20 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		// refunded (registry record expires with its TTL); openai_video_refund.*
 		// logs are the audit trail.
 		h.scheduleVideoRefundAttempt(c.Request.Context(), rec, 0)
+	}
+}
+
+func videoFetchInputFromRecord(rec *service.VideoTaskRecord) bridge.VideoFetchInput {
+	return bridge.VideoFetchInput{
+		UpstreamTaskID: rec.UpstreamTaskID,
+		OriginModel:    rec.OriginModel,
+		ChannelType:    rec.ChannelType,
+		BaseURL:        rec.BaseURL,
+		APIKey:         rec.APIKey,
+		// Platform + AccountID drive the grok-native poll branch (channel_type=0,
+		// re-resolve a fresh rotating OAuth Bearer). Ignored by the bridge path.
+		Platform:  rec.Platform,
+		AccountID: rec.AccountID,
 	}
 }
 
