@@ -3511,16 +3511,69 @@
       "path": "backend/internal/handler/openai_compat_selection_failure_tk.go",
       "must_contain": [
         "func openAICompatFirstAttemptSelectionFailure(",
-        "errors.Is(err, service.ErrUnsupportedModel)",
+        "err != nil && !isOpsNoAvailableAccountError(err)",
         "classifyOpenAICompatibleNoAccountErrorFromGin(c, diag, apiKey, routingModel, displayModel)",
         "tkSelectFailureStatusMessage(c, err, displayModel)"
       ],
       "rationale": "SSOT for first-attempt openai/newapi/grok compat account-selection HTTP semantics: unsupported model name -> 400 invalid_request_error; persistent group mapping gap -> 404 model_not_found via classifyOpenAICompatibleNoAccountErrorFromGin (group platform, not hard-coded PlatformOpenAI); genuine empty pool -> 429+Retry-After via tkSelectFailureStatusMessage. Fixes prod embeddings 503 misclassification (user16/newapi/text-embedding-3-small) and prevents per-route drift across chat/responses/messages/count_tokens/images/embeddings/video. Regression: openai_compat_selection_failure_tk_test.go."
     },
     {
+      "path": "backend/internal/handler/openai_compat_selection_failure_tk_test.go",
+      "must_contain": [
+        "scheduler fault stays 503 even when mapping is absent",
+        "deprecated model stays 400 before mapping diagnosis",
+        "embeddings regression newapi group model not in mapping -> 404 model_not_found",
+        "genuine empty pool -> 429 with Retry-After"
+      ],
+      "rationale": "Behavior-level regression matrix pins client-owned 400, persistent mapping-gap 404, empty-pool 429 and genuine scheduler-fault 503 precedence."
+    },
+    {
+      "path": "backend/internal/handler/openai_embeddings.go",
+      "must_contain": [
+        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, reqModel, reqModel, err)",
+        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, reqModel, reqModel, nil)"
+      ],
+      "rationale": "The primary /v1/embeddings production regression path must remain wired to the shared first-selection failure contract for both explicit errors and nil selections."
+    },
+    {
+      "path": "backend/internal/handler/openai_alpha_search.go",
+      "must_contain": [
+        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, requestedModel, requestedModel, err)"
+      ],
+      "rationale": "Alpha search first-selection errors must retain the shared 400/404/429/503 classification."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_count_tokens.go",
+      "must_contain": [
+        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, routingModel, reqModel, err)",
+        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, routingModel, reqModel, nil)",
+        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, currentRoutingModel, reqModel, err)",
+        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, currentRoutingModel, reqModel, nil)"
+      ],
+      "rationale": "Responses input_tokens and OpenAI-compatible messages/count_tokens must preserve shared first-selection classification for explicit errors and nil selections."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_embeddings_images.go",
+      "must_contain": [
+        "selectionModel := reqModel",
+        "selectionModel = defaultModel",
+        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, selectionModel, reqModel, err)",
+        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, selectionModel, reqModel, nil)"
+      ],
+      "rationale": "ImageGenerations must diagnose the model actually attempted, including the optional default-model fallback, and route both error forms through the shared contract."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_tk_video.go",
+      "must_contain": [
+        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, reqModel, reqModel, err)"
+      ],
+      "rationale": "Video submission's combined err/nil first-selection branch must retain the shared OpenAI-compatible failure contract."
+    },
+    {
       "path": "backend/internal/handler/openai_chat_completions.go",
       "must_contain": [
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, reqModel, reqModel, err)",
+        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, reqModel, reqModel, nil)",
         "routingModel := service.CanonicalizeOpenAICompatRoutingModel(reqModel)"
       ],
       "rationale": "/v1/chat/completions first-selection failure (len(failedAccountIDs)==0) must route through openAICompatFirstAttemptSelectionFailure (SSOT) so empty openai/newapi pool fast-fails 429, mapping gaps return 404, and unsupported model names return 400 — not 503 (PR #723, #575 parity; prod 2026-06-11: 480 empty-pool 503s in 2min). Account selection must use CanonicalizeOpenAICompatRoutingModel(routingModel) so gpt5.4-mini alias spellings hit the same restriction/negative-cache keys as gpt-5.4-mini (prod 2026-07 user16/key172). Reverting either hook compiles clean but re-exposes misclassification or alias drift."
@@ -3530,8 +3583,10 @@
       "must_contain": [
         "h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), \"compact_not_supported\"",
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, selectionModel, reqModel, err)",
+        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, selectionModel, reqModel, nil)",
         "h.handleStreamingAwareError(c, status, errType, msg, streamStarted)",
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, currentRoutingModel, reqModel, err)",
+        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, currentRoutingModel, reqModel, nil)",
         "h.anthropicStreamingAwareError(c, status, errType, msg, streamStarted)"
       ],
       "rationale": "OpenAI-gateway /v1/responses + openai_messages first-selection failure branches must route through openAICompatFirstAttemptSelectionFailure (429 on empty pool, 404 on mapping gap, 400 on unsupported model, 503 on real scheduler faults). Empty compact pool (ErrNoAvailableCompactAccounts) keeps its compact_not_supported code but joins the 429 no-available family (PR #723, #575 parity). The two call sites pin distinct error writers (handleStreamingAwareError vs anthropicStreamingAwareError)."
@@ -3539,7 +3594,8 @@
     {
       "path": "backend/internal/handler/openai_images.go",
       "must_contain": [
-        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, routingModel, clientRequestModel, err)"
+        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, routingModel, clientRequestModel, err)",
+        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, routingModel, clientRequestModel, nil)"
       ],
       "rationale": "Images first-selection failure must route through openAICompatFirstAttemptSelectionFailure (SSOT) for both err and selection==nil branches — 429 on empty pool, 404 on mapping gap, not 503 (PR #723, #575 parity). An upstream merge restoring bare tkSelectFailureStatusMessage or hard-coded PlatformOpenAI classify compiles clean but regresses misclassification on newapi groups."
     },

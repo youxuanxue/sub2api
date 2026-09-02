@@ -136,6 +136,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 	for {
 		c.Set("openai_v1_json_fallback_model", "")
 		reqLog.Debug("openai_images_generations.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
+		selectionModel := reqModel
 		selectionCtx, groupName := h.tkOpenAIChatSelectionCtx(c, apiKey, reqModel)
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithScheduler(
 			selectionCtx,
@@ -160,6 +161,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 					defaultModel = apiKey.Group.DefaultMappedModel
 				}
 				if defaultModel != "" && defaultModel != reqModel {
+					selectionModel = defaultModel
 					reqLog.Info("openai_images_generations.fallback_to_default_model",
 						zap.String("default_mapped_model", defaultModel),
 					)
@@ -178,7 +180,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 					}
 				}
 				if err != nil {
-					status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, defaultModel, reqModel, err)
+					status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, selectionModel, reqModel, err)
 					h.handleStreamingAwareError(c, status, errType, msg, streamStarted)
 					return
 				}
@@ -192,7 +194,8 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 			}
 		}
 		if selection == nil || selection.Account == nil {
-			h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts", streamStarted)
+			status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, selectionModel, reqModel, nil)
+			h.handleStreamingAwareError(c, status, errType, msg, streamStarted)
 			return
 		}
 		account := selection.Account

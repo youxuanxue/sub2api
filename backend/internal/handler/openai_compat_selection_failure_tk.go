@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"errors"
-
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -22,7 +20,9 @@ func openAICompatFirstAttemptSelectionFailure(
 	displayModel string,
 	err error,
 ) (status int, errType string, message string) {
-	if err != nil && errors.Is(err, service.ErrUnsupportedModel) {
+	// Persistent mapping diagnosis only explains an empty selection. It must
+	// never overwrite a concrete scheduler fault (DB/context/etc.) with a 404.
+	if err != nil && !isOpsNoAvailableAccountError(err) {
 		return tkSelectFailureStatusMessage(c, err, displayModel)
 	}
 	cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, diag, apiKey, routingModel, displayModel)

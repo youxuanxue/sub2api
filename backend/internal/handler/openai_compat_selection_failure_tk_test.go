@@ -5,6 +5,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -142,6 +143,49 @@ func TestOpenAICompatFirstAttemptSelectionFailure(t *testing.T) {
 
 		require.Equal(t, http.StatusNotFound, status)
 		assert.Equal(t, "model_not_found", errType)
+	})
+
+	t.Run("scheduler fault stays 503 even when mapping is absent", func(t *testing.T) {
+		c, _ := newCtx(t)
+		groupID := int64(18)
+		apiKey := &service.APIKey{
+			GroupID: &groupID,
+			Group:   &service.Group{ID: groupID, Platform: service.PlatformNewAPI},
+		}
+		fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{
+			HasAccountsInPool: true,
+			HasModelSupport:   false,
+		}}
+
+		status, errType, msg := openAICompatFirstAttemptSelectionFailure(
+			c, fd, apiKey, "text-embedding-3-small", "text-embedding-3-small", errors.New("query accounts failed: context deadline exceeded"),
+		)
+
+		require.Equal(t, http.StatusServiceUnavailable, status)
+		assert.Equal(t, "api_error", errType)
+		assert.Equal(t, "Service temporarily unavailable", msg)
+		assert.Empty(t, fd.calls, "concrete scheduler faults must not be re-diagnosed as mapping gaps")
+	})
+
+	t.Run("deprecated model stays 400 before mapping diagnosis", func(t *testing.T) {
+		c, _ := newCtx(t)
+		groupID := int64(2)
+		apiKey := &service.APIKey{
+			GroupID: &groupID,
+			Group:   &service.Group{ID: groupID, Platform: service.PlatformOpenAI},
+		}
+		fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{
+			HasAccountsInPool: true,
+			HasModelSupport:   false,
+		}}
+		err := fmt.Errorf("%w: gpt-5.2", service.ErrDeprecatedOpenAIModel)
+
+		status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, fd, apiKey, "gpt-5.2", "gpt-5.2", err)
+
+		require.Equal(t, http.StatusBadRequest, status)
+		assert.Equal(t, service.TkDeprecatedOpenAIErrorType, errType)
+		assert.Contains(t, msg, "gpt-5.5")
+		assert.Empty(t, fd.calls, "client-owned model errors must win before mapping diagnosis")
 	})
 }
 
