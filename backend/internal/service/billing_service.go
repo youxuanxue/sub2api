@@ -1721,15 +1721,31 @@ func (s *BillingService) CalculateCostWithConfig(model string, tokens UsageToken
 // 拆分为：范围内 (200k, 0) + 范围外 (10k, 10k)
 // 范围内正常计费，范围外 × 2 计费
 func (s *BillingService) CalculateCostWithLongContext(model string, tokens UsageTokens, rateMultiplier float64, threshold int, extraMultiplier float64) (*CostBreakdown, error) {
+	return s.CalculateCostWithLongContextAt(model, tokens, rateMultiplier, threshold, extraMultiplier, time.Time{})
+}
+
+func (s *BillingService) CalculateCostWithLongContextAt(
+	model string,
+	tokens UsageTokens,
+	rateMultiplier float64,
+	threshold int,
+	extraMultiplier float64,
+	billingAt time.Time,
+) (*CostBreakdown, error) {
+	at := RecordUsageBillingAt(billingAt)
+	costAt := func(chunk UsageTokens, mult float64) (*CostBreakdown, error) {
+		return s.calculateCostInternalWithPolicyAt(model, chunk, mult, "", nil, true, at)
+	}
+
 	// 未启用长上下文计费，直接走正常计费
 	if threshold <= 0 || extraMultiplier <= 1 {
-		return s.CalculateCost(model, tokens, rateMultiplier)
+		return costAt(tokens, rateMultiplier)
 	}
 
 	// 计算总输入 token（缓存读取 + 新输入）
 	total := tokens.CacheReadTokens + tokens.InputTokens
 	if total <= threshold {
-		return s.CalculateCost(model, tokens, rateMultiplier)
+		return costAt(tokens, rateMultiplier)
 	}
 
 	// 拆分成范围内和范围外
@@ -1759,8 +1775,9 @@ func (s *BillingService) CalculateCostWithLongContext(model string, tokens Usage
 		CacheCreation5mTokens: tokens.CacheCreation5mTokens,
 		CacheCreation1hTokens: tokens.CacheCreation1hTokens,
 		ImageOutputTokens:     tokens.ImageOutputTokens,
+		ImageInputTokens:      tokens.ImageInputTokens,
 	}
-	inRangeCost, err := s.CalculateCost(model, inRangeTokens, rateMultiplier)
+	inRangeCost, err := costAt(inRangeTokens, rateMultiplier)
 	if err != nil {
 		return nil, err
 	}
@@ -1770,7 +1787,7 @@ func (s *BillingService) CalculateCostWithLongContext(model string, tokens Usage
 		InputTokens:     outRangeInputTokens,
 		CacheReadTokens: outRangeCacheTokens,
 	}
-	outRangeCost, err := s.CalculateCost(model, outRangeTokens, rateMultiplier*extraMultiplier)
+	outRangeCost, err := costAt(outRangeTokens, rateMultiplier*extraMultiplier)
 	if err != nil {
 		return inRangeCost, fmt.Errorf("out-range cost: %w", err)
 	}

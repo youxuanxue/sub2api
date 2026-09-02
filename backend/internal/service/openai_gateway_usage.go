@@ -448,9 +448,15 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
 	if apiKey.GroupID != nil {
+		var mirroredTokenCost *float64
+		if cost != nil {
+			mirroredTokenCost = s.mirrorOpenAIAccountStatsTokenCost(
+				ctx, result, apiKey, billingModels, pricingAt, tokens, serviceTier, longContextBillingGate, cost,
+			)
+		}
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
 			account.ID, *apiKey.GroupID, result.UpstreamModel, result.Model,
-			cost.TotalCost, pricingAt,
+			cost.TotalCost, pricingAt, mirroredTokenCost,
 		)
 	}
 
@@ -929,6 +935,56 @@ func (s *OpenAIGatewayService) resolveOpenAIChannelPricing(ctx context.Context, 
 	resolved := s.resolver.Resolve(ctx, PricingInput{Model: billingModel, GroupID: &gid, Group: apiKey.Group})
 	if resolved.Source == PricingSourceGroup || resolved.Source == PricingSourceChannel {
 		return resolved
+	}
+	return nil
+}
+
+// mirrorOpenAIAccountStatsTokenCost re-runs OpenAI token billing at multiplier=1 for account stats.
+func (s *OpenAIGatewayService) mirrorOpenAIAccountStatsTokenCost(
+	ctx context.Context,
+	result *OpenAIForwardResult,
+	apiKey *APIKey,
+	billingModels []string,
+	pricingAt time.Time,
+	tokens UsageTokens,
+	serviceTier string,
+	longContextBillingGate *bool,
+	userCost *CostBreakdown,
+) *float64 {
+	if userCost == nil {
+		return nil
+	}
+	if userCost.BillingMode != "" && userCost.BillingMode != string(BillingModeToken) {
+		return nil
+	}
+	if result != nil {
+		if result.VideoCount > 0 || result.WebSearchCalls > 0 || result.AudioUsage != nil {
+			return nil
+		}
+		if result.ImageCount > 0 {
+			billingModel := firstUsageBillingModel(billingModels)
+			resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey)
+			useTokenPath := resolved != nil && resolved.Mode == BillingModeToken
+			if useTokenPath && s.resolver != nil && s.resolver.tkResolveOverlayMediaPerRequest(billingModel) != nil {
+				useTokenPath = false
+			}
+			if !useTokenPath {
+				return nil
+			}
+		}
+	}
+	for _, candidate := range billingModels {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		mirror, err := s.calculateOpenAIRecordUsageTokenCost(
+			ctx, apiKey, candidate, 1.0, pricingAt, tokens, serviceTier, longContextBillingGate,
+		)
+		if err == nil && mirror != nil && mirror.TotalCost > 0 {
+			cost := mirror.TotalCost
+			return &cost
+		}
 	}
 	return nil
 }

@@ -1232,6 +1232,23 @@ func TestCalculateCostWithLongContext_PropagatesError(t *testing.T) {
 	require.Contains(t, err.Error(), "pricing not found")
 }
 
+func TestCalculateCostWithLongContextAt_PropagatesBillingAt(t *testing.T) {
+	bs := newTestBillingService()
+	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000}
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	require.NoError(t, err)
+	peakAt := time.Date(2026, 7, 21, 10, 0, 0, 0, shanghai)
+	offPeakAt := time.Date(2026, 7, 21, 13, 0, 0, 0, shanghai)
+
+	peak, err := bs.CalculateCostWithLongContextAt("deepseek-v4-pro", tokens, 1, 0, 2, peakAt)
+	require.NoError(t, err)
+	offPeak, err := bs.CalculateCostWithLongContextAt("deepseek-v4-pro", tokens, 1, 0, 2, offPeakAt)
+	require.NoError(t, err)
+
+	require.Greater(t, peak.TotalCost, offPeak.TotalCost,
+		"long-context entry must pass BillingAt into calculateCostInternalWithPolicyAt")
+}
+
 func TestGetModelPricing_Grok45OfficialFallback(t *testing.T) {
 	svc := newTestBillingService()
 

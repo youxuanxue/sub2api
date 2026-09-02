@@ -832,6 +832,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	if err != nil {
 		return err
 	}
+	effectiveBillingModel := billingModel
 	// response_model：按上游成功响应自报的模型计费（渠道显式开启才生效）。
 	// 采纳条件见 responseModelBillingDeclaration + hasIdentifiedResponseModelPricing
 	// + responseModelBillingAdoptable。任一条件不满足都静默回落基线，即开启本模式前的
@@ -853,6 +854,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 				// 因此这里不改写它，改由日志记录实际生效的计费基准。
 				logResponseModelBillingApplied("service.gateway", account, result.RequestID, billingModel, responseModel, cost, responseCost)
 				cost = responseCost
+				effectiveBillingModel = responseModel
 			}
 		}
 	}
@@ -876,9 +878,13 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
 	if apiKey.GroupID != nil {
+		var mirroredTokenCost *float64
+		if cost != nil {
+			mirroredTokenCost = s.mirrorAccountStatsTokenCost(ctx, result, apiKey, effectiveBillingModel, pricingAt, opts, cost)
+		}
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
 			account.ID, *apiKey.GroupID, result.UpstreamModel, result.Model,
-			cost.TotalCost, pricingAt,
+			cost.TotalCost, pricingAt, mirroredTokenCost,
 		)
 	}
 
@@ -1180,7 +1186,9 @@ func (s *GatewayService) calculateTokenCost(
 		})
 	} else if opts.LongContextThreshold > 0 && (apiKey.Group == nil || apiKey.Group.LongContextPricingEnabled) {
 		// 长上下文双倍计费（如 Gemini 200K 阈值）
-		cost, err = s.billingService.CalculateCostWithLongContext(billingModel, tokens, multiplier, opts.LongContextThreshold, opts.LongContextMultiplier)
+		cost, err = s.billingService.CalculateCostWithLongContextAt(
+			billingModel, tokens, multiplier, opts.LongContextThreshold, opts.LongContextMultiplier, billingAt,
+		)
 	} else if s.resolver != nil && apiKey.Group != nil {
 		gid := apiKey.Group.ID
 		cost, err = s.billingService.CalculateCostUnified(CostInput{
@@ -1318,4 +1326,37 @@ func optionalSubscriptionID(subscription *UserSubscription) *int64 {
 		return &subscription.ID
 	}
 	return nil
+}
+
+// mirrorAccountStatsTokenCost re-runs the user token billing path at multiplier=1 so
+// account stats priority-3 mirrors channel/resolver pricing instead of LiteLLM file prices.
+func (s *GatewayService) mirrorAccountStatsTokenCost(
+	ctx context.Context,
+	result *ForwardResult,
+	apiKey *APIKey,
+	billingModel string,
+	pricingAt time.Time,
+	opts *recordUsageOpts,
+	userCost *CostBreakdown,
+) *float64 {
+	if userCost == nil {
+		return nil
+	}
+	if userCost.BillingMode != "" && userCost.BillingMode != string(BillingModeToken) {
+		return nil
+	}
+	if result.AudioUsage != nil {
+		return nil
+	}
+	if result.ImageCount > 0 {
+		if resolved := s.resolveChannelPricing(ctx, billingModel, apiKey); resolved == nil || resolved.Mode != BillingModeToken {
+			return nil
+		}
+	}
+	mirror := s.calculateTokenCost(ctx, result, apiKey, billingModel, 1.0, pricingAt, opts)
+	if mirror == nil || mirror.TotalCost <= 0 {
+		return nil
+	}
+	cost := mirror.TotalCost
+	return &cost
 }
