@@ -109,7 +109,6 @@ SECONDARY_TRUTH_PATTERNS = (
         r"pricing-availability-source-of-truth\.md[\s\S]{0,100}(?:Goal\s+\d+|R-\d{3})",
         re.IGNORECASE,
     ),
-    re.compile(r"served-model-reconcile-planner\.md", re.IGNORECASE),
     re.compile(r"tokenkey-modelops-planner.{0,40}(?:分支|branch)\s+[A-Z]", re.IGNORECASE),
 )
 
@@ -135,7 +134,6 @@ SECONDARY_TRUTH_PREFILTER = (
     "account.go:639",
     "four facts",
     "pricing-availability-source-of-truth.md",
-    "served-model-reconcile-planner.md",
     "tokenkey-modelops-planner",
 )
 
@@ -203,14 +201,8 @@ def check(root: Path) -> list[str]:
     main = docs[MAIN]
     availability = docs[AVAILABILITY]
     protocol = docs[PROTOCOL]
-    availability_name = Path(AVAILABILITY).name
-    main_prs = {int(value) for value in re.findall(r"\d+", main.get("related_prs", ""))}
-    if 1821 not in main_prs:
-        errors.append(f"{MAIN}: related_prs must link #1821")
-    if availability_name not in main.get("supersedes", ""):
-        errors.append(f"{MAIN}: supersedes must name {availability_name}")
-    if availability.get("superseded_by") != MAIN:
-        errors.append(f"{AVAILABILITY}: superseded_by must be {MAIN}")
+    if availability.get("owner_kind") != "availability_evidence":
+        errors.append(f"{AVAILABILITY}: owner_kind must remain availability_evidence")
     related_design = main.get("related_design", "")
     for required in (AVAILABILITY, PROTOCOL):
         if required not in related_design:

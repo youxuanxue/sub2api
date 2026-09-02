@@ -2538,10 +2538,9 @@ else
 fi
 
 # ---- sub2api: SSOT delta gate (structural; live in post-deploy closeout) ---
-# Replaces the retired daily full SSOT matrix scan (account-ban risk). Structural
-# SSOT stays in catalog-serving-drift + display-coverage-gate. PR/commit gates
-# only derive the diff-scoped pending-live models; prod HTTP proof runs after
-# deployment, when new mapping/catalog code is actually live.
+# Structural SSOT stays in catalog-serving-drift. PR/commit gates only derive
+# the diff-scoped pending-live models; prod HTTP proof runs after deployment,
+# when new mapping/catalog code is actually live.
 echo ""
 echo "=== sub2api: SSOT delta gate (structural) ==="
 if ! command -v python3 >/dev/null 2>&1; then
@@ -2554,18 +2553,6 @@ elif ! python3 ./scripts/checks/ssot-delta-gate.py check --base "${PREFLIGHT_BAS
     errors=$((errors + 1))
 else
     echo "  ok: SSOT delta gate structural check (live proof runs post-deploy)"
-fi
-
-echo ""
-echo "=== sub2api: endpoint-compat baseline freshness ==="
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required by check_endpoint_compat_baseline_freshness.py)"
-    errors=$((errors + 1))
-elif ! python3 scripts/check_endpoint_compat_baseline_freshness.py >/dev/null 2>&1; then
-    echo "  FAIL: endpoint-compat baseline must mention backend/cmd/server/VERSION (re-run: python3 scripts/check_endpoint_compat_baseline_freshness.py)"
-    errors=$((errors + 1))
-else
-    echo "  ok: endpoint-compat baseline freshness"
 fi
 
 # probe-servable-models.sh unconditionally sources its companion

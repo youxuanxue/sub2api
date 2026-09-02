@@ -6,7 +6,6 @@
 
 | 文件 | 用途 |
 |------|------|
-| [endpoint-compat-baseline.md](./endpoint-compat-baseline.md) | 端点兼容 SSOT 基线（preflight / CI 校验） |
 | [cc-fingerprint-changelog.md](./cc-fingerprint-changelog.md) | Claude Code 指纹对齐 changelog（skill 追加） |
 | [antigravity-fingerprint-changelog.md](./antigravity-fingerprint-changelog.md) | Antigravity 指纹对齐 changelog（skill 追加） |
 | [cc-uk1-oauth-edge-uk1-sticky-audit-2026-05-12.md](./cc-uk1-oauth-edge-uk1-sticky-audit-2026-05-12.md) | cc-uk1 链路代码审计（配置步骤见 operator 手册） |

@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 """ssot-delta-gate — SSOT delta discovery for catalog diffs.
 
-Replaces the retired daily full SSOT gate (account-ban risk from ~356 HTTP probes).
-Structural catalog contracts (display owner, price owner, and reviewed activation evidence)
-stay in catalog-serving-drift.py and display-coverage-gate.py (preflight, zero HTTP). PR CI runs this gate with
---skip-live so new catalog/model_mapping changes do not deadlock on the old prod
-deployment. Post-deploy closeout owns live HTTP proof via endpoint-compat-audit,
-or this script can still run focused live probes when explicitly invoked without
---skip-live.
+Structural catalog contracts stay in catalog-serving-drift.py (preflight, zero
+HTTP). PR CI runs this gate with --skip-live. Post-deploy closeout owns focused
+live HTTP proof via endpoint-compat-audit, or this script can run the same proof
+when explicitly invoked without --skip-live after rollout.
 
 Catalog touch paths (any diff base..HEAD):
   - backend/internal/service/tk_served_models.json
@@ -38,6 +35,7 @@ REPO = Path(__file__).resolve().parents[2]
 GO_REL = "backend/internal/service/pricing_catalog_supported_models_tk.go"
 MANIFEST_REL = "backend/internal/service/tk_served_models.json"
 OVERLAY_REL = "backend/internal/service/tk_pricing_overlay.json"
+BUNDLE_REL = "ops/pricing/model-surface-bundle.json"
 MIGRATION_PREFIX = "backend/migrations/tk_"
 ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "grok")
 MATRIX = REPO / "ops/test/gateway_model_ssot_matrix.py"
@@ -101,8 +99,22 @@ def _load_manifest(text: str) -> dict[str, dict]:
     if not text.strip():
         return {}
     data = json.loads(text)
+    if data.get("schema_version") != 3:
+        return {}
     entries = data.get("entries") or {}
-    return {k: v for k, v in entries.items() if isinstance(v, dict)}
+    out: dict[str, dict] = {}
+    for model_id, raw in entries.items():
+        if not isinstance(raw, dict):
+            continue
+        model_id = str(model_id).strip()
+        out[model_id] = {
+            "model_id": model_id,
+            "channel_type": raw.get("channel_type"),
+            "scopes": raw.get("scopes", []),
+            "price_owner": raw.get("price_owner", model_id),
+            "display": raw.get("display", False),
+        }
+    return out
 
 
 def _overlay_priced(entry: object) -> bool:
@@ -161,16 +173,26 @@ def overlay_delta_models_from_payloads(
 
 
 def manifest_delta_models(base: str) -> set[str]:
-    base_entries = _load_manifest(_read_at(base, MANIFEST_REL))
-    head_entries = _load_manifest((REPO / MANIFEST_REL).read_text(encoding="utf-8"))
+    base_text = _read_at(base, MANIFEST_REL)
+    head_text = (REPO / MANIFEST_REL).read_text(encoding="utf-8")
+    base_entries = _load_manifest(base_text)
+    head_entries = _load_manifest(head_text)
+    if not base_entries and head_entries:
+        # A schema replacement is live-neutral only when the generated runtime
+        # floor artifact is unchanged. If it changed, conservatively probe every
+        # displayed row in the new manifest.
+        if BUNDLE_REL not in changed_paths(base):
+            return set()
+        return {
+            model_id
+            for model_id, entry in head_entries.items()
+            if entry.get("display")
+        }
     out: set[str] = set()
-    for key, head in head_entries.items():
+    for model_id, head in head_entries.items():
         if not head.get("display"):
             continue
-        model_id = str(head.get("model_id") or "").strip()
-        if not model_id:
-            continue
-        base_entry = base_entries.get(key)
+        base_entry = base_entries.get(model_id)
         if base_entry is None:
             out.add(model_id)
             continue
@@ -178,13 +200,9 @@ def manifest_delta_models(base: str) -> set[str]:
             out.add(model_id)
             continue
         for field in (
-            "model_id",
-            "served_on",
             "channel_type",
-            "account_scope",
-            "account_scopes",
-            "price_source",
-            "price_key",
+            "scopes",
+            "price_owner",
             "display",
         ):
             if base_entry.get(field) != head.get(field):
@@ -390,36 +408,34 @@ def cmd_selftest(_args) -> int:
 
     base_manifest = json.dumps(
         {
+            "schema_version": 3,
             "entries": {
-                "newapi/qwen3-8b": {
-                    "platform": "newapi",
-                    "model_id": "qwen3-8b",
+                "qwen3-8b": {
                     "display": False,
-                    "served_on": ["60"],
-                    "price_source": "overlay",
-                    "price_key": "qwen3-8b",
+                    "channel_type": 17,
                 }
             }
         }
     )
     head_manifest = json.dumps(
         {
+            "schema_version": 3,
             "entries": {
-                "newapi/qwen3-8b": {
-                    "platform": "newapi",
-                    "model_id": "qwen3-8b",
+                "qwen3-8b": {
                     "display": True,
-                    "served_on": ["60"],
-                    "price_source": "overlay",
-                    "price_key": "qwen3-8b",
+                    "channel_type": 17,
                 }
             }
         }
     )
     bm = _load_manifest(base_manifest)
     hm = _load_manifest(head_manifest)
-    assert hm["newapi/qwen3-8b"]["display"] is True
-    assert bm["newapi/qwen3-8b"]["display"] is False
+    assert hm["qwen3-8b"]["display"] is True
+    assert bm["qwen3-8b"]["display"] is False
+    equivalent = json.loads(base_manifest)
+    equivalent["entries"]["qwen3-8b"]["display"] = True
+    assert _load_manifest(json.dumps(equivalent)) == hm
+    assert _load_manifest(json.dumps({"entries": {}})) == {}
 
     line = '+                "glm-4.7-flash": "glm-4.7-flash",'
     m = MIGRATION_ADDED_MODEL_RE.match(line)

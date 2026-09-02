@@ -40,8 +40,9 @@ Protocol capability and route legality belong to `protocolrouter` and
 - New or retargeted mapping floors use a generated bundle plus fresh independent probe
   and pricing evidence through `modelops.py activate`. Do not hot-merge a single mapping
   key as a substitute for activation.
-- `sync-runtime` writes the runtime replacement setting only. Persistent account changes
-  require a reviewed diff and the fixed confirmation phrase exposed by the CLI.
+- `sync-runtime` and `clear-runtime` accept one explicit `prod` or `edge:<id>` target.
+  They default to dry-run and require the fixed CLI confirmation phrase to write.
+  Persistent account changes require a separate reviewed `apply-accounts` diff.
 - Routine post-release checks target prod. Edge empty mappings are expected unless an
   explicit troubleshooting task includes edges.
 - Catalog/menu/pricing/mapping tests derive samples from their owners; do not maintain a

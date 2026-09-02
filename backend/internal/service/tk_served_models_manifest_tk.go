@@ -12,37 +12,31 @@ import (
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 )
 
-// TokenKey: runtime loader for tk_served_models.json — the curated newapi
-// long-tail manifest. The drift guard (scripts/checks/catalog-serving-drift.py)
-// asserts this file agrees with overlay price + account model_mapping; the
-// public /pricing presentation filter and the per-user newapi Group Catalog
-// whitelist fallback consume the same embedded source so priced-but-unwired
-// models (deepseek-v3-2-251201) and withdrawn SKUs (glm-4-32b upstream 400,
-// glm-4-7-251222 VolcEngine duplicate — GLM served via DashScope as glm-4.7)
-// cannot mislead the storefront.
+// TokenKey: runtime loader for the curated newapi long-tail manifest. The file
+// contains current policy only: channel/base-URL scopes, price owner and display
+// intent. Operational evidence and account history live outside the manifest.
 
 //go:embed tk_served_models.json
 var tkServedModelsManifestRaw []byte
 
 type tkServedModelsManifestFile struct {
-	Entries map[string]tkServedModelsManifestEntry `json:"entries"`
+	SchemaVersion int                                    `json:"schema_version"`
+	Entries       map[string]tkServedModelsManifestEntry `json:"entries"`
 }
 
 type tkServedModelsManifestEntry struct {
-	Platform      string                        `json:"platform"`
-	ModelID       string                        `json:"model_id"`
-	ChannelType   int                           `json:"channel_type"`
-	AccountScope  *tkServedModelsManifestScope  `json:"account_scope"`
-	AccountScopes []tkServedModelsManifestScope `json:"account_scopes"`
-	Display       bool                          `json:"display"`
-	ServedOn      []string                      `json:"served_on"`
+	ChannelType int                           `json:"channel_type"`
+	Scopes      []tkServedModelsManifestScope `json:"scopes"`
+	PriceOwner  string                        `json:"price_owner"`
+	Display     bool                          `json:"display"`
 }
 
 type tkServedModelsManifestScope struct {
-	Platform    string `json:"platform"`
 	ChannelType int    `json:"channel_type"`
 	BaseURL     string `json:"base_url"`
 }
+
+const tkServedModelsManifestSchemaVersion = 3
 
 var (
 	tkServedModelsManifestOnce                    sync.Once
@@ -62,7 +56,8 @@ func loadTkServedModelsManifestIDs() map[string]struct{} {
 func loadTkServedModelsManifest() {
 	tkServedModelsManifestOnce.Do(func() {
 		var doc tkServedModelsManifestFile
-		if err := json.Unmarshal(tkServedModelsManifestRaw, &doc); err != nil {
+		if err := json.Unmarshal(tkServedModelsManifestRaw, &doc); err != nil ||
+			doc.SchemaVersion != tkServedModelsManifestSchemaVersion {
 			tkServedModelsManifestIDs = map[string]struct{}{}
 			tkServedModelsManifestDisplayIDs = map[string]struct{}{}
 			tkServedModelsManifestIDsByChannelType = map[int][]string{}
@@ -77,28 +72,26 @@ func loadTkServedModelsManifest() {
 		displayByChannel := make(map[int]map[string]struct{})
 		byScope := make(map[string]map[string]struct{})
 		displayByScope := make(map[string]map[string]struct{})
-		for _, e := range doc.Entries {
-			if e.ModelID == "" {
+		for modelID, e := range doc.Entries {
+			modelID = strings.TrimSpace(modelID)
+			if modelID == "" {
 				continue
 			}
-			out[e.ModelID] = struct{}{}
+			out[modelID] = struct{}{}
 			if e.Display {
-				display[e.ModelID] = struct{}{}
+				display[modelID] = struct{}{}
 			}
 			for _, scope := range manifestEntryScopeKeys(e) {
 				if byScope[scope] == nil {
 					byScope[scope] = make(map[string]struct{})
 				}
-				byScope[scope][e.ModelID] = struct{}{}
+				byScope[scope][modelID] = struct{}{}
 				if e.Display {
 					if displayByScope[scope] == nil {
 						displayByScope[scope] = make(map[string]struct{})
 					}
-					displayByScope[scope][e.ModelID] = struct{}{}
+					displayByScope[scope][modelID] = struct{}{}
 				}
-			}
-			if manifestEntryIsAccountScopedOnly(e) {
-				continue
 			}
 			if e.ChannelType <= 0 {
 				continue
@@ -106,12 +99,12 @@ func loadTkServedModelsManifest() {
 			if byChannel[e.ChannelType] == nil {
 				byChannel[e.ChannelType] = make(map[string]struct{})
 			}
-			byChannel[e.ChannelType][e.ModelID] = struct{}{}
+			byChannel[e.ChannelType][modelID] = struct{}{}
 			if e.Display {
 				if displayByChannel[e.ChannelType] == nil {
 					displayByChannel[e.ChannelType] = make(map[string]struct{})
 				}
-				displayByChannel[e.ChannelType][e.ModelID] = struct{}{}
+				displayByChannel[e.ChannelType][modelID] = struct{}{}
 			}
 		}
 		tkServedModelsManifestIDs = out
@@ -155,21 +148,10 @@ func loadTkServedModelsManifest() {
 	})
 }
 
-func manifestEntryIsAccountScopedOnly(e tkServedModelsManifestEntry) bool {
-	return e.AccountScope != nil &&
-		e.ChannelType == e.AccountScope.ChannelType &&
-		manifestScopeKey(*e.AccountScope) != ""
-}
-
 func manifestEntryScopeKeys(e tkServedModelsManifestEntry) []string {
-	scopes := make([]tkServedModelsManifestScope, 0, len(e.AccountScopes)+1)
-	if e.AccountScope != nil {
-		scopes = append(scopes, *e.AccountScope)
-	}
-	scopes = append(scopes, e.AccountScopes...)
-	seen := make(map[string]struct{}, len(scopes))
-	out := make([]string, 0, len(scopes))
-	for _, scope := range scopes {
+	seen := make(map[string]struct{}, len(e.Scopes))
+	out := make([]string, 0, len(e.Scopes))
+	for _, scope := range e.Scopes {
 		key := manifestScopeKey(scope)
 		if key == "" {
 			continue
@@ -184,15 +166,12 @@ func manifestEntryScopeKeys(e tkServedModelsManifestEntry) []string {
 }
 
 func manifestScopeKey(scope tkServedModelsManifestScope) string {
-	if !strings.EqualFold(strings.TrimSpace(scope.Platform), PlatformNewAPI) {
-		return ""
-	}
 	if !newapiintegration.IsVolcEngineAgentPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsQianfanBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsXRTokenBaseURL(scope.ChannelType, scope.BaseURL) {
 		return ""
 	}
-	return normalizeAccountModelMappingOverrideScope(scope.Platform, scope.ChannelType, scope.BaseURL)
+	return normalizeAccountModelMappingOverrideScope(PlatformNewAPI, scope.ChannelType, scope.BaseURL)
 }
 
 func normalizeAccountModelMappingOverrideScope(platform string, channelType int, baseURL string) string {

@@ -18,17 +18,13 @@ import (
 var tkServedModelsOwnerRawForTest []byte
 
 type tkServedModelsOwnerEntryForTest struct {
-	Platform      string                            `json:"platform"`
-	ModelID       string                            `json:"model_id"`
-	ChannelType   int                               `json:"channel_type"`
-	AccountScope  *tkServedModelsOwnerScopeForTest  `json:"account_scope"`
-	AccountScopes []tkServedModelsOwnerScopeForTest `json:"account_scopes"`
-	Display       bool                              `json:"display"`
-	ServedOn      []string                          `json:"served_on"`
+	ChannelType int                               `json:"channel_type"`
+	Scopes      []tkServedModelsOwnerScopeForTest `json:"scopes"`
+	PriceOwner  string                            `json:"price_owner"`
+	Display     bool                              `json:"display"`
 }
 
 type tkServedModelsOwnerScopeForTest struct {
-	Platform    string `json:"platform"`
 	ChannelType int    `json:"channel_type"`
 	BaseURL     string `json:"base_url"`
 }
@@ -126,13 +122,17 @@ func TestIsNewAPILongTailCatalogVendor(t *testing.T) {
 func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerProjectionForTest {
 	t.Helper()
 	var doc struct {
-		Entries map[string]tkServedModelsOwnerEntryForTest `json:"entries"`
+		SchemaVersion int                                        `json:"schema_version"`
+		Entries       map[string]tkServedModelsOwnerEntryForTest `json:"entries"`
 	}
 	if err := json.Unmarshal(tkServedModelsOwnerRawForTest, &doc); err != nil {
 		t.Fatalf("parse raw served-models owner: %v", err)
 	}
 	if len(doc.Entries) == 0 {
 		t.Fatal("raw served-models owner must contain entries")
+	}
+	if doc.SchemaVersion != tkServedModelsManifestSchemaVersion {
+		t.Fatalf("raw served-models owner schema_version = %d, want %d", doc.SchemaVersion, tkServedModelsManifestSchemaVersion)
 	}
 
 	out := tkServedModelsOwnerProjectionForTest{
@@ -143,32 +143,31 @@ func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerP
 		IDsByScope:          make(map[string][]string),
 		displayIDsByScope:   make(map[string][]string),
 	}
-	for key, entry := range doc.Entries {
-		if entry.ModelID == "" {
-			t.Fatalf("raw owner entry %q has an empty model_id", key)
+	for modelID, entry := range doc.Entries {
+		if strings.TrimSpace(modelID) == "" || modelID != strings.TrimSpace(modelID) {
+			t.Fatalf("raw owner has an invalid model id key %q", modelID)
 		}
-		if entry.ChannelType <= 0 {
-			t.Fatalf("raw owner entry %q has invalid channel_type %d", key, entry.ChannelType)
+		if entry.ChannelType <= 0 && len(entry.Scopes) == 0 {
+			t.Fatalf("raw owner entry %q has no channel or property scope", modelID)
 		}
-		if _, duplicate := out.listedIDs[entry.ModelID]; duplicate {
-			t.Fatalf("raw owner declares model_id %q more than once", entry.ModelID)
+		if _, duplicate := out.listedIDs[modelID]; duplicate {
+			t.Fatalf("raw owner declares model_id %q more than once", modelID)
 		}
-		out.listedIDs[entry.ModelID] = struct{}{}
+		out.listedIDs[modelID] = struct{}{}
 		if entry.Display {
-			out.displayIDs[entry.ModelID] = struct{}{}
+			out.displayIDs[modelID] = struct{}{}
 		}
 		for _, scope := range manifestScopeKeysForTest(entry) {
-			out.IDsByScope[scope] = append(out.IDsByScope[scope], entry.ModelID)
+			out.IDsByScope[scope] = append(out.IDsByScope[scope], modelID)
 			if entry.Display {
-				out.displayIDsByScope[scope] = append(out.displayIDsByScope[scope], entry.ModelID)
+				out.displayIDsByScope[scope] = append(out.displayIDsByScope[scope], modelID)
 			}
 		}
-		if manifestEntryIsAccountScopedOnlyForTest(entry) {
-			continue
-		}
-		out.IDsByChannel[entry.ChannelType] = append(out.IDsByChannel[entry.ChannelType], entry.ModelID)
-		if entry.Display {
-			out.displayIDsByChannel[entry.ChannelType] = append(out.displayIDsByChannel[entry.ChannelType], entry.ModelID)
+		if entry.ChannelType > 0 {
+			out.IDsByChannel[entry.ChannelType] = append(out.IDsByChannel[entry.ChannelType], modelID)
+			if entry.Display {
+				out.displayIDsByChannel[entry.ChannelType] = append(out.displayIDsByChannel[entry.ChannelType], modelID)
+			}
 		}
 	}
 	for channelType, ids := range out.IDsByChannel {
@@ -192,21 +191,10 @@ func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerP
 	return out
 }
 
-func manifestEntryIsAccountScopedOnlyForTest(entry tkServedModelsOwnerEntryForTest) bool {
-	return entry.AccountScope != nil &&
-		entry.ChannelType == entry.AccountScope.ChannelType &&
-		manifestScopeKeyForTest(*entry.AccountScope) != ""
-}
-
 func manifestScopeKeysForTest(entry tkServedModelsOwnerEntryForTest) []string {
-	scopes := make([]tkServedModelsOwnerScopeForTest, 0, len(entry.AccountScopes)+1)
-	if entry.AccountScope != nil {
-		scopes = append(scopes, *entry.AccountScope)
-	}
-	scopes = append(scopes, entry.AccountScopes...)
-	seen := make(map[string]struct{}, len(scopes))
-	out := make([]string, 0, len(scopes))
-	for _, scope := range scopes {
+	seen := make(map[string]struct{}, len(entry.Scopes))
+	out := make([]string, 0, len(entry.Scopes))
+	for _, scope := range entry.Scopes {
 		key := manifestScopeKeyForTest(scope)
 		if key == "" {
 			continue
@@ -221,18 +209,14 @@ func manifestScopeKeysForTest(entry tkServedModelsOwnerEntryForTest) []string {
 }
 
 func manifestScopeKeyForTest(scope tkServedModelsOwnerScopeForTest) string {
-	platform := strings.ToLower(strings.TrimSpace(scope.Platform))
 	baseURL := strings.TrimRight(strings.ToLower(strings.TrimSpace(scope.BaseURL)), "/")
-	if platform != "newapi" {
-		return ""
-	}
 	valid := (scope.ChannelType == 45 && baseURL == "https://ark.cn-beijing.volces.com/api/plan/v3") ||
 		(scope.ChannelType == 46 && baseURL == "https://qianfan.baidubce.com") ||
 		(scope.ChannelType == 54 && baseURL == "https://api.xrtoken.net")
 	if !valid {
 		return ""
 	}
-	return platform + ":" + strconv.Itoa(scope.ChannelType) + ":" + baseURL
+	return "newapi:" + strconv.Itoa(scope.ChannelType) + ":" + baseURL
 }
 
 func requireServedManifestProjectionEqualForTest(t *testing.T, name string, want, got any) {

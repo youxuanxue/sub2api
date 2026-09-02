@@ -13,7 +13,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 
 | 步骤 | 类型 | 承载 |
 |---|---|---|
-| **release 全步骤（决策→bump→push→tag，worktree 隔离）** | 机械 | `bash scripts/release-bump-and-tag.sh [--dry-run]`（bump 时同步 `docs/ops/endpoint-compat-baseline.md` runtime anchor；默认 **direct-push**；仅 `release-main-push-route`=`bump-via-pr` 时 delegate `release-bump-via-pr.sh`；永不写共享 checkout） |
+| **release 全步骤（决策→bump→push→tag，worktree 隔离）** | 机械 | `bash scripts/release-bump-and-tag.sh [--dry-run]`（默认 **direct-push**；仅 `release-main-push-route`=`bump-via-pr` 时 delegate `release-bump-via-pr.sh`；永不写共享 checkout） |
 | **发版 bypass 一次性配置（scheme 1）** | 机械 | `bash scripts/release-configure-main-bypass.sh`（个人仓库：`enforce_admins=false`；组织仓库：`bypass_pull_request_allowances.users`） |
 | **VERSION bump 经 PR（fallback）** | 机械 | `bash scripts/release-bump-via-pr.sh [--dry-run] [--pr N]`（仅当当前 gh 账号无法 direct-push 时） |
 | main bump 路由探测（direct-push / bump-via-pr） | 机械 | `bash scripts/release-main-push-route.sh`（读 protection + 当前 gh 用户 bypass 能力） |
@@ -99,7 +99,6 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
 
 | 现象 | 处理 |
 |------|------|
-| `release.yml` 在 **Verify endpoint-compat baseline** 失败（baseline 仍锚定旧 tag） | 2026-07-08 v1.8.91 实录：`bump` 只改 VERSION 未同步 baseline → release 红。现已由 `release-bump-and-tag.sh` / `release-bump-via-pr.sh` 在 bump commit 内机械同步；若仍失败，手动 `python3 scripts/sync_endpoint_compat_baseline_anchor.py --version X.Y.Z --previous-deploy-tag vA.B.C` 后删 tag 重建。 |
 | `release-bump-and-tag.sh` 无输出且 exit 1（action=tag-only） | 已修：`field()` grep 无匹配 + `set -e` 静默退出。升级后重跑；临时绕过 = worktree @ origin/main + `release-tag.sh vX.Y.Z`。 |
 | `push origin HEAD:main` / GH006 **Protected branch** | 先 `bash scripts/release-configure-main-bypass.sh`；仍失败则 fallback `release-bump-via-pr.sh`。 |
 | bump PR CI 仅 **preflight** flaky fail | `gh run rerun <run_id> --failed`，再 `release-bump-via-pr.sh --pr <N>`；不要改 VERSION 对冲。 |
@@ -125,14 +124,14 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
 | 无代理后 dispatch 报 `HTTP 403 Must have admin rights to Repository` | `gh` 可能切到另一个账号；先 `env -u GH_TOKEN ... gh auth status`，必要时 `gh auth switch -u <repo-owner>` 后重试 dispatch。 |
 | 发版后 Anthropic `check` 报 violation（tier/TLS/stub pool/balance） | **不要** rollback 镜像；按 `/tokenkey-anthropic-oauth-config` 从 `$JOBDIR/post-release-check.json` 派生 plan → apply → verify。TLS/UA 漂移优先 `remediate-guard-drift --sync-runtime`。 |
 | 发版后 Anthropic `snapshot` SSM 失败 | 记 yellow；prod/Edge 镜像仍有效。补 OIDC/实例在线后重跑 snapshot+check，或 `snapshot --skip-prod` 仅 edge。 |
-| 发版后 Account model_mapping `check-accounts` 报 violation | **不要** rollback 镜像；审 `$JOBDIR/post-release-account-model-mapping-check.json` 的账号/group diff。期望与 forbidden policy 均来自 Go SSOT；确认要覆盖 live 配置时走 `/tokenkey-modelops-planner` 的 runtime/account mapping 路由：必要时 `validate/check/sync-runtime` 更新 desired layer，然后 `apply-accounts --confirm yes-apply-account-model-mapping`。 |
+| 发版后 Account model_mapping `check-accounts` 报 violation | **不要** rollback 镜像；审 `$JOBDIR/post-release-account-model-mapping-check.json` 的账号/group diff。期望与 forbidden policy 均来自 Go SSOT；确认要覆盖 live 配置时走 `/tokenkey-modelops-planner`：`sync-runtime` 先对单个显式 target 做 dry-run，批准后用 CLI 固定短语写入；账号持久层另走 `apply-accounts --confirm yes-apply-account-model-mapping`。 |
 | 发版后 Account model_mapping `check-accounts` SSM 失败 | 记 yellow；prod/Edge 镜像仍有效。补 OIDC/实例在线后重跑 `python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json`；仅排障 edge 时加 `--include-edges` 或 `--skip-prod`。 |
 
 ## 扩展阅读
 
 - `.cursor/skills/tokenkey-anthropic-oauth-config/SKILL.md` — 发版后 check violation 的 plan/apply/verify canonical 路径。
 
-- `scripts/release-bump-and-tag.sh` — release 全步骤（worktree；bump 时同步 endpoint-compat baseline；默认 direct-push，fallback 才 delegate PR）。
+- `scripts/release-bump-and-tag.sh` — release 全步骤（worktree；默认 direct-push，fallback 才 delegate PR）。
 - `scripts/release-bump-via-pr.sh` — VERSION bump 经 PR + merge + tag。
 - `scripts/release-configure-main-bypass.sh` — scheme 1：发版账号 bypass（个人 repo / 组织 repo 双路径）。
 - `scripts/release-main-push-route.sh` — direct-push vs bump-via-pr 探测。

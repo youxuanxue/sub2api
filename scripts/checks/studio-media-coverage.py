@@ -121,11 +121,13 @@ def manifest_model_ids(manifest_text: str) -> set[str]:
     entries = data.get("entries") if isinstance(data, dict) else None
     if not isinstance(entries, dict):
         return set()
-    out: set[str] = set()
-    for entry in entries.values():
-        if isinstance(entry, dict) and isinstance(entry.get("model_id"), str):
-            out.add(entry["model_id"])
-    return out
+    if data.get("schema_version") != 3:
+        return set()
+    return {
+        model_id
+        for model_id, entry in entries.items()
+        if isinstance(model_id, str) and isinstance(entry, dict)
+    }
 
 
 def servable_source_ids(go_text: str, manifest_text: str) -> set[str]:
@@ -338,9 +340,10 @@ def selftest() -> int:
     )
     manifest = json.dumps(
         {
+            "schema_version": 3,
             "entries": {
-                "newapi/seedream": {"model_id": "doubao-seedream-5-0-260128"},
-                "newapi/fast": {"model_id": "doubao-seedance-1-0-pro-fast-251015"},
+                "doubao-seedream-5-0-260128": {"channel_type": 45, "display": True},
+                "doubao-seedance-1-0-pro-fast-251015": {"channel_type": 45, "display": True},
             }
         }
     )

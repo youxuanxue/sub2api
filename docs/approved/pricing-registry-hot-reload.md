@@ -5,20 +5,15 @@ approved_by: "feng (chat approval, 2026-08-03)"
 approved_at: "2026-08-03"
 authors: [agent]
 created: 2026-08-03
-related_prs: ["#1524 (superseded implementation)"]
-related_commits: []
-related_stories: ["US-043"]
 related_design: docs/approved/pricing-serving-single-source-of-truth.md, docs/approved/priced-or-it-doesnt-ship.md
-supersedes: "The former global price-owner and runtime-overlay designs"
 ---
 
 # Pricing Registry SSOT and Protected Hot Reload
 
 ## Decision
 
-`backend/internal/service/tk_pricing_overlay.json` keeps its historical path to
-avoid an upstream-conflict rename, but its meaning changes from a fill-only
-overlay to the complete global pricing registry. It is the only editable owner
+`backend/internal/service/tk_pricing_overlay.json` keeps its filename to avoid
+an upstream-conflict rename. It is the complete global pricing registry and the only editable owner
 of global price numbers and executable global pricing policy.
 
 Provider and LiteLLM documents are sensors. They may open a diff PR, but they
@@ -83,7 +78,7 @@ embedded registry --startup--> active last-known-good
 	   runtime envelope absent --------> keep embedded at startup
 	   valid supported envelope ------> atomic full replacement
 	   later absent/empty envelope ----> keep last-known-good + error
-	   legacy/invalid envelope --------> keep last-known-good + error
+	   invalid envelope ---------------> keep last-known-good + error
 	   corrected newer envelope -------> atomic full replacement
 ```
 
@@ -151,35 +146,13 @@ Rows that are not valid serving owners, including a provider-advertised model
 that TokenKey deliberately aliases to another routed model, remain report-only
 until a human decides the requested/routed/billing relationship.
 
-## Migration
-
-1. Capture the current external runtime document and current embedded overlay.
-2. Materialize the current effective precedence plus existing family-floor
-   owners into the complete registry.
-3. Compare requested model, routed model, resolved owner and every billed
-   dimension against the pre-change implementation. Unapproved differences
-   block activation.
-4. Deploy the reader while legacy raw runtime blobs are ignored in favor of the
-   complete embedded fallback.
-5. Enable protected-main publication. The first valid envelope replaces the
-   embedded snapshot atomically.
-6. Remove numeric Go fallbacks; keep only alias-to-registry-owner policy.
-7. Enable the scheduled sensor-to-PR loop.
-
-The migration includes one explicit price correction: `kimi-k2.6` keeps the
-reviewed Moonshot China list price already documented in its registry source
-(`¥6.50` cache-miss input, `¥27.00` output, `¥1.10` cache-hit input per MTok,
-converted at TokenKey `CNY/USD=6.7`). The materialized provider row had rounded
-USD values inconsistent with that declared formula; the registry uses the exact
-conversion and the existing billing regression test pins it.
-
 ## Hard gates
 
 - Registry validation rejects malformed, non-finite, negative, empty-owner and
   unsafe media rows; deliberate free rows require explicit metadata.
 - Runtime validation rejects unsupported schema, non-protected source shape,
   digest mismatch, decompression failure and invalid registry content.
-- A legacy raw overlay cannot override a complete registry.
+- A raw non-envelope overlay cannot override a complete registry.
 - Requested model to routed model to billing owner is covered for compatibility
   aliases, including `gpt-5.5-pro` routing and billing through `gpt-5.5`.
 - Balance hold, final settlement, catalog display and channel override tests use

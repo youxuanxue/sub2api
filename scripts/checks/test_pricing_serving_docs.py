@@ -21,9 +21,7 @@ class PricingServingDocsContractTest(unittest.TestCase):
         (approved / "pricing-serving-single-source-of-truth.md").write_text(
             "---\n"
             "status: approved\n"
-            "related_prs: [1821]\n"
             "related_design: docs/approved/pricing-availability-source-of-truth.md, docs/approved/protocol-routing-ssot.md\n"
-            "supersedes: pricing-availability-source-of-truth.md serving-owner claims\n"
             "---\n"
             "新执行由 RequestPlan 规划；异步任务由 TaskContinuation 按提交时绑定续接。\n",
             encoding="utf-8",
@@ -31,7 +29,7 @@ class PricingServingDocsContractTest(unittest.TestCase):
         (approved / "pricing-availability-source-of-truth.md").write_text(
             "---\n"
             "status: approved\n"
-            "superseded_by: docs/approved/pricing-serving-single-source-of-truth.md\n"
+            "owner_kind: availability_evidence\n"
             "---\n",
             encoding="utf-8",
         )
@@ -51,13 +49,13 @@ class PricingServingDocsContractTest(unittest.TestCase):
     def test_accepts_one_way_delivery_to_protocol_link(self) -> None:
         self.assertEqual(MODULE.check(self.fixture()), [])
 
-    def test_rejects_missing_availability_supersession(self) -> None:
+    def test_rejects_missing_availability_evidence_owner(self) -> None:
         root = self.fixture()
         path = root / "docs/approved/pricing-availability-source-of-truth.md"
         path.write_text(path.read_text(encoding="utf-8").replace(
-            "superseded_by: docs/approved/pricing-serving-single-source-of-truth.md\n", ""
+            "owner_kind: availability_evidence\n", ""
         ), encoding="utf-8")
-        self.assertTrue(any("superseded_by" in error for error in MODULE.check(root)))
+        self.assertTrue(any("owner_kind" in error for error in MODULE.check(root)))
 
     def test_rejects_reverse_protocol_link_to_delivery_design(self) -> None:
         root = self.fixture()
@@ -142,12 +140,6 @@ class PricingServingDocsContractTest(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertTrue(any("delivery formula" in error for error in MODULE.check(root)))
-
-    def test_rejects_main_doc_without_1821_relation(self) -> None:
-        root = self.fixture()
-        path = root / "docs/approved/pricing-serving-single-source-of-truth.md"
-        path.write_text(path.read_text(encoding="utf-8").replace("[1821]", "[]"), encoding="utf-8")
-        self.assertTrue(any("#1821" in error for error in MODULE.check(root)))
 
     def test_rejects_secondary_client_facing_serving_truth(self) -> None:
         root = self.fixture()
@@ -324,7 +316,6 @@ class PricingServingDocsContractTest(unittest.TestCase):
             "account.go:639",
             "pricing-availability-source-of-truth.md §2.5",
             "Goal 2 of pricing-availability-source-of-truth.md",
-            "served-model-reconcile-planner.md",
             "tokenkey-modelops-planner 分支 C",
         )
         for sample in samples:

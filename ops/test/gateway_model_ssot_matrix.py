@@ -303,21 +303,24 @@ def parse_local_allowlists() -> dict[str, set[str]]:
     return out
 
 
-def load_local_served_manifest() -> tuple[set[str], set[str]]:
-    manifest = load_json_file(LOCAL_SERVED_MANIFEST)
+def parse_local_served_manifest(manifest: dict[str, Any]) -> tuple[set[str], set[str]]:
+    if manifest.get("schema_version") != 3:
+        return set(), set()
     entries = manifest.get("entries") if isinstance(manifest.get("entries"), dict) else {}
     listed: set[str] = set()
     displayed: set[str] = set()
-    for entry in entries.values():
-        if not isinstance(entry, dict):
+    for model_id, entry in entries.items():
+        if not isinstance(model_id, str) or not model_id.strip() or not isinstance(entry, dict):
             continue
-        model = str(entry.get("model_id") or "").strip()
-        if not model:
-            continue
-        listed.add(model)
+        model_id = model_id.strip()
+        listed.add(model_id)
         if entry.get("display"):
-            displayed.add(model)
+            displayed.add(model_id)
     return listed, displayed
+
+
+def load_local_served_manifest() -> tuple[set[str], set[str]]:
+    return parse_local_served_manifest(load_json_file(LOCAL_SERVED_MANIFEST))
 
 
 def is_local_newapi_longtail_vendor(vendor: str) -> bool:
@@ -818,6 +821,18 @@ def cmd_gate(args) -> int:
 
 
 def cmd_selftest(_args) -> int:
+    listed, displayed = parse_local_served_manifest({
+        "schema_version": 3,
+        "entries": {
+            "shown-model": {"channel_type": 17, "display": True},
+            "hidden-model": {"channel_type": 17, "display": False},
+        },
+    })
+    assert listed == {"shown-model", "hidden-model"}
+    assert displayed == {"shown-model"}
+    assert parse_local_served_manifest(
+        {"entries": {"old-shape": {"display": True}}}
+    ) == (set(), set())
     payload = {
         "data": [
             {"vendor": "openai", "model_id": "gpt-5.1", "pricing": {"input_per_1k_tokens": 1}},

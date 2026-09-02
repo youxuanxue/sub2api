@@ -844,21 +844,19 @@ guardedly assign ch41 capability profiles on prod without changing model_mapping
 
 #### `manage-account-model-mapping-runtime.py sync-runtime`
 
-hot-push a JSON file to runtime settings
+plan or explicitly write one target runtime setting
 
 - `--file` (required):
-- `--target` (default: `all-deployable-and-prod`): prod, edge:<id>, or all-deployable-and-prod
-- `--dry-run`:
+- `--target` (required): one target: prod or edge:<id>
+- `--confirm`: write instead of dry-run: yes-change-account-model-mapping-runtime
 - `--bundle`: generated model-surface bundle to validate against
-- `--parallel` (default: `3`): parallel SSM workers
 
 #### `manage-account-model-mapping-runtime.py clear-runtime`
 
-delete runtime override and use compiled floor
+plan or explicitly delete one target runtime setting
 
-- `--target` (default: `all-deployable-and-prod`): prod, edge:<id>, or all-deployable-and-prod
-- `--dry-run`:
-- `--parallel` (default: `3`): parallel SSM workers
+- `--target` (required): one target: prod or edge:<id>
+- `--confirm`: write instead of dry-run: yes-change-account-model-mapping-runtime
 
 #### `manage-account-model-mapping-runtime.py example`
 
