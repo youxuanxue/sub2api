@@ -355,6 +355,19 @@ def manifest_entry_applies_to_account(
     )
 
 
+def manifest_membership_status(
+    entries: list[ManifestEntry],
+    account: AccountSnapshot | None,
+) -> str:
+    if not entries:
+        return "absent"
+    if account is None:
+        return "scope_unknown"
+    if any(manifest_entry_applies_to_account(entry, account) for entry in entries):
+        return "in_scope"
+    return "out_of_scope"
+
+
 def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     manifest = load_manifest()
     overlay = load_overlay()
@@ -407,14 +420,10 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         probe_status = probe.status if probe else "untested"
         priced, price_source = price_status(model_id, candidate, manifest_by_model, overlay)
         account = live.get(account_id)
-        listed_in_manifest = model_id in manifest_by_model
-        in_manifest = listed_in_manifest and (
-            account is None
-            or any(
-                manifest_entry_applies_to_account(entry, account)
-                for entry in manifest_by_model[model_id]
-            )
+        manifest_status = manifest_membership_status(
+            manifest_by_model.get(model_id, []), account,
         )
+        in_manifest = manifest_status == "in_scope"
         item = {
             "account_id": account_id,
             "model_id": model_id,
@@ -423,9 +432,13 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
             "price_status": priced,
             "price_source": price_source,
             "in_manifest": in_manifest,
-            "manifest_scope_checked": account is not None,
+            "manifest_status": manifest_status,
             "upstream_pricing_status": candidate.upstream_pricing_status,
         }
+        if manifest_status == "scope_unknown":
+            item["reason"] = "--live-mapping snapshot required to verify manifest scope"
+            plan["inconclusive"].append(item)
+            continue
         if in_manifest:
             continue
         if priced != "priced":
@@ -1232,6 +1245,30 @@ def _selftest() -> int:
         failures.append("property-scoped manifest entry did not match normalized account base URL")
     if manifest_entry_applies_to_account(scoped_entry, pay_as_you_go):
         failures.append("property-scoped manifest entry leaked into the generic channel pool")
+    if manifest_membership_status([scoped_entry], None) != "scope_unknown":
+        failures.append("listed manifest model without an account snapshot must remain inconclusive")
+    if manifest_membership_status([generic_entry], dynamic_qwen) != "in_scope":
+        failures.append("generic manifest membership did not resolve in scope")
+    if manifest_membership_status([scoped_entry], pay_as_you_go) != "out_of_scope":
+        failures.append("property-scoped manifest membership did not resolve out of scope")
+    if manifest_membership_status([], None) != "absent":
+        failures.append("missing manifest model did not resolve absent without a snapshot")
+    listed_sample = load_manifest()[0].model_id
+    no_snapshot_plan = build_plan(argparse.Namespace(
+        upstream=[],
+        account_id=None,
+        candidate=[f"missing-account:{listed_sample}"],
+        probe_results=[],
+        live_mapping=None,
+        mirror=[],
+        strict_manifest=False,
+        format="json",
+    ))
+    if (
+        len(no_snapshot_plan["inconclusive"]) != 1
+        or no_snapshot_plan["inconclusive"][0].get("manifest_status") != "scope_unknown"
+    ):
+        failures.append("planner skipped the live snapshot required for manifest scope")
     agent_plan_command = run_probe_command("VOLCENGINE_AGENT_PLAN_MODELS", ["minimax-m3"])
     if "probe-volcengine-agent-plan-models.sh" not in agent_plan_command:
         failures.append("Agent Plan probe command did not use the dedicated probe")
