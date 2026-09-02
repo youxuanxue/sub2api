@@ -269,7 +269,12 @@
           </template>
 
           <template #cell-account_count="{ row }">
-            <div class="space-y-0.5 text-xs">
+            <button
+              type="button"
+              class="space-y-0.5 text-left text-xs hover:opacity-80"
+              :title="t('admin.groups.members.manage')"
+              @click="openMembersModal(row)"
+            >
               <div>
                 <span class="text-gray-500 dark:text-gray-400">{{
                   t("admin.groups.accountsAvailable")
@@ -301,7 +306,7 @@
                   t("admin.groups.accountsTotal")
                 }}</span>
                 <span
-                  class="ml-1 font-medium text-gray-700 dark:text-gray-300"
+                  class="ml-1 font-medium text-primary-600 underline decoration-dotted dark:text-primary-400"
                   >{{ row.account_count || 0 }}</span
                 >
                 <span
@@ -309,7 +314,7 @@
                   >{{ t("admin.groups.accountsUnit") }}</span
                 >
               </div>
-            </div>
+            </button>
           </template>
 
           <template #cell-capacity="{ row }">
@@ -4413,6 +4418,13 @@
       @close="showRPMOverridesModal = false"
       @success="loadGroups"
     />
+
+    <GroupMembersModal
+      :show="showMembersModal"
+      :group="membersGroup"
+      @close="closeMembersModal"
+      @changed="loadGroups"
+    />
 </template>
 
 <script setup lang="ts">
@@ -4447,6 +4459,7 @@ import PlatformIcon from "@/components/common/PlatformIcon.vue";
 import Icon from "@/components/icons/Icon.vue";
 import GroupRateMultipliersModal from "@/components/admin/group/GroupRateMultipliersModal.vue";
 import GroupRPMOverridesModal from "@/components/admin/group/GroupRPMOverridesModal.vue";
+import GroupMembersModal from "@/components/admin/group/GroupMembersModal.vue";
 import GroupCapacityBadge from "@/components/common/GroupCapacityBadge.vue";
 import ReasoningEffortPolicyFields from "@/components/admin/group/ReasoningEffortPolicyFields.vue";
 import PricingEntryCard from "@/components/admin/channel/PricingEntryCard.vue";
@@ -4980,6 +4993,8 @@ const showRateMultipliersModal = ref(false);
 const rateMultipliersGroup = ref<AdminGroup | null>(null);
 const showRPMOverridesModal = ref(false);
 const rpmOverridesGroup = ref<AdminGroup | null>(null);
+const showMembersModal = ref(false);
+const membersGroup = ref<AdminGroup | null>(null);
 const sortableGroups = ref<AdminGroup[]>([]);
 type ConcreteGroupPlatform = Exclude<GroupPlatform, "composite">;
 type CompositeRouteFormState = {
@@ -6438,6 +6453,16 @@ const handleRateMultipliers = (group: AdminGroup) => {
 const handleRPMOverrides = (group: AdminGroup) => {
   rpmOverridesGroup.value = group;
   showRPMOverridesModal.value = true;
+};
+
+const openMembersModal = (group: AdminGroup) => {
+  membersGroup.value = group;
+  showMembersModal.value = true;
+};
+
+const closeMembersModal = () => {
+  showMembersModal.value = false;
+  membersGroup.value = null;
 };
 
 const handleDuplicate = async (group: AdminGroup) => {

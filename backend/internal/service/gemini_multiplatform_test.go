@@ -271,6 +271,9 @@ func (m *mockGroupRepoForGemini) DeleteAccountGroupsByGroupID(ctx context.Contex
 func (m *mockGroupRepoForGemini) BindAccountsToGroup(ctx context.Context, groupID int64, accountIDs []int64) error {
 	return nil
 }
+func (m *mockGroupRepoForGemini) UnbindAccountsFromGroup(ctx context.Context, groupID int64, accountIDs []int64) error {
+	return nil
+}
 
 func (m *mockGroupRepoForGemini) GetAccountIDsByGroupIDs(ctx context.Context, groupIDs []int64) ([]int64, error) {
 	return nil, nil

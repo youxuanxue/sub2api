@@ -382,6 +382,10 @@ func registerGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		groups.PUT("/:id/rpm-overrides", h.Admin.Group.BatchSetGroupRPMOverrides)
 		groups.DELETE("/:id/rpm-overrides", h.Admin.Group.ClearGroupRPMOverrides)
 		groups.GET("/:id/api-keys", h.Admin.Group.GetGroupAPIKeys)
+		// TK: group membership panel (account_groups SSOT view/add/remove)
+		groups.GET("/:id/accounts", h.Admin.Group.ListAccounts)
+		groups.POST("/:id/accounts", h.Admin.Group.BindAccounts)
+		groups.DELETE("/:id/accounts", h.Admin.Group.UnbindAccounts)
 	}
 }
 

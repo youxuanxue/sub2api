@@ -1907,6 +1907,9 @@ func (stubGroupRepo) DeleteAccountGroupsByGroupID(ctx context.Context, groupID i
 func (stubGroupRepo) BindAccountsToGroup(ctx context.Context, groupID int64, accountIDs []int64) error {
 	return errors.New("not implemented")
 }
+func (stubGroupRepo) UnbindAccountsFromGroup(ctx context.Context, groupID int64, accountIDs []int64) error {
+	return nil
+}
 
 func (stubGroupRepo) GetAccountIDsByGroupIDs(ctx context.Context, groupIDs []int64) ([]int64, error) {
 	return nil, errors.New("not implemented")
