@@ -82,6 +82,9 @@
 - `backend/internal/service/supplier_managed_account_commands_test.go`::`TestUS048_SupplierConfigurationUpdateUsesGroupFreeReadAndNarrowWrite`
 - `backend/internal/service/supplier_managed_account_commands_test.go`::`TestUS048_SupplierConfigurationUpdateRequiresPassedChatProbe`
 - `backend/internal/repository/account_repo_supplier_projection_test.go`::`TestUS048_SupplierConfigurationRepositoryRejectsUnverifiedNonEmptyMapping`
+- `backend/internal/repository/account_repo_supplier_projection_test.go`::`TestUS048_SupplierVerifiedProtocolForAnthropicIsMessages`
+- `backend/internal/repository/account_repo_supplier_projection_test.go`::`TestUS048_SupplierAnthropicProjectionRejectsChatOnlyIdentity`
+- `backend/internal/repository/account_repo_supplier_projection_test.go`::`TestUS048_SupplierAnthropicProjectionPublishesMessagesCapability`
 - `backend/internal/repository/account_repo_supplier_projection_test.go`::`TestUS048_SupplierConfigurationRepositoryWritesOnlyOwnedFields`
 - `backend/internal/repository/account_repo_supplier_projection_test.go`::`TestUS048_SupplierProjectionReadSelectsOnlyRequiredConfigurationFields`
 - `backend/internal/repository/account_repo_supplier_projection_test.go`::`TestUS048_SupplierMetadataRepositoryWritesOnlyNameAndPriority`
