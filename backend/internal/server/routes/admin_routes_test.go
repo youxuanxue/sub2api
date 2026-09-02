@@ -56,6 +56,8 @@ func TestUS048_SupplierSourceRoutesAreRegistered(t *testing.T) {
 		{http.MethodPut, "/api/v1/admin/supplier-sources/:id"},
 		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/discover"},
 		{http.MethodGet, "/api/v1/admin/supplier-sources/:id/discover/jobs/:job_id"},
+		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/probe"},
+		{http.MethodGet, "/api/v1/admin/supplier-sources/:id/probe/jobs/:job_id"},
 		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/validate"},
 		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/sync"},
 	} {
@@ -66,8 +68,6 @@ func TestUS048_SupplierSourceRoutesAreRegistered(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/probe"},
-		{http.MethodGet, "/api/v1/admin/supplier-sources/:id/probe/jobs/:job_id"},
 		{http.MethodGet, "/api/v1/admin/supplier-sources/:id/activation-preview"},
 		{http.MethodGet, "/api/v1/admin/supplier-sources/:id/audits"},
 		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/activate"},

@@ -191,7 +191,7 @@ function validateOK(src: SupplierSource) {
   }
 }
 
-test('US048 Jiajie saves facts previews priority and syncs one band account', async ({ page }) => {
+test('US048 project-before-validate reprobes, fails closed, and recovers on retry', async ({ page }) => {
   let sources: SupplierSource[] = []
   let submitted: Record<string, unknown> | null = null
   let syncRequests = 0
@@ -248,9 +248,29 @@ test('US048 Jiajie saves facts previews priority and syncs one band account', as
     }
     if (path === '/api/v1/admin/supplier-sources/7/sync' && request.method() === 'POST') {
       syncRequests += 1
+      if (syncRequests === 1) {
+        await fulfillError(route, 422, 'one or more supplier models failed validation', {
+          source_id: 7,
+          probe_results: [{
+            client_model_id: 'deepseek-v4-pro',
+            upstream_model_id: 'deepseek-v4-pro',
+            status: 'failed',
+            protocol: 'openai_chat_completions',
+            detail: 'temporary upstream failure',
+          }],
+          changes: [],
+          failed_step: 'probe',
+        })
+        return true
+      }
       await fulfillSuccess(route, {
         source_id: 7,
-        probe_results: [],
+        probe_results: [{
+          client_model_id: 'deepseek-v4-pro',
+          upstream_model_id: 'deepseek-v4-pro',
+          status: 'passed',
+          protocol: 'openai_chat_completions',
+        }],
         changes: [{
           account_id: 101,
           discount_band: 3,
@@ -324,14 +344,21 @@ test('US048 Jiajie saves facts previews priority and syncs one band account', as
   await page.locator('[data-test="notes"]').fill('首批最低合法比例')
   await expect(page.locator('[data-test="sync-source"]')).toBeEnabled()
 
-  await page.locator('[data-test="validate-source"]').click()
   await page.locator('[data-test="sync-source"]').click()
   const result = page.locator('[data-test="sync-result"]')
+  await expect(page.locator('[data-test="sync-error"]')).toContainText('one or more supplier models failed validation')
+  await expect(result).toContainText('失败步骤: probe')
+  await expect(result).toContainText('temporary upstream failure')
+  await expect(result).not.toContainText('投影完成')
+  expect(syncRequests).toBe(1)
+
+  await page.locator('[data-test="sync-source"]').click()
   await expect(result).toContainText('投影完成')
+  await expect(result).toContainText('passed')
   await expect(result).toContainText('新增模型: deepseek-v4-pro, qwen-3.7-max')
   await expect(result).toContainText('#101 · created · band 3')
   await expect(result).toContainText('priority — → 130')
-  expect(syncRequests).toBe(1)
+  expect(syncRequests).toBe(2)
   await expect(page.getByRole('button', { name: /激活|暂停/ })).toHaveCount(0)
 })
 

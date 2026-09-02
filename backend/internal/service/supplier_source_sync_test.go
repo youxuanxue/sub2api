@@ -10,14 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func supplierValidateThenSync(svc *SupplierSourceService, sourceID int64) (*SupplierSourceSyncResult, error) {
-	_, validateErr := svc.Validate(context.Background(), sourceID)
-	if validateErr != nil {
-		return nil, validateErr
-	}
-	return svc.Sync(context.Background(), sourceID)
-}
-
 func TestUS048_FMGoSeedanceSyncProjectsOfficialClientsOnly(t *testing.T) {
 	ratio := 0.5
 	notes := "inventory: feimiao-v2.5-720p-15s feimiao-v2-431-720p-15s feimiao-v2-mini-720p-10s"
@@ -36,7 +28,7 @@ func TestUS048_FMGoSeedanceSyncProjectsOfficialClientsOnly(t *testing.T) {
 	probe := &supplierSyncProbeFake{}
 	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 
-	result, err := supplierValidateThenSync(svc, 10)
+	result, err := svc.Sync(context.Background(), 10)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -65,7 +57,7 @@ func TestUS048_SupplierSyncGroupsSameBandModelsIntoOneAccount(t *testing.T) {
 	probe := &supplierSyncProbeFake{}
 	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 
-	_, err := supplierValidateThenSync(svc, 7)
+	_, err := svc.Sync(context.Background(), 7)
 
 	require.NoError(t, err)
 	require.Equal(t, 1, accounts.createCalls)
@@ -117,7 +109,7 @@ func TestUS048_ValidateFailureReturnsEveryResultAndWritesNothing(t *testing.T) {
 	require.Empty(t, accounts.updated)
 }
 
-func TestUS048_SupplierSyncWithoutValidateReturnsValidateRequired(t *testing.T) {
+func TestUS048_SupplierSyncReprobesImmediatelyBeforeProjection(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
 		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
@@ -133,10 +125,11 @@ func TestUS048_SupplierSyncWithoutValidateReturnsValidateRequired(t *testing.T) 
 
 	result, err := svc.Sync(context.Background(), 7)
 
-	require.ErrorIs(t, err, ErrSupplierSourceValidateRequired)
-	require.Equal(t, "validate", result.FailedStep)
-	require.Zero(t, accounts.createCalls)
-	require.Empty(t, accounts.updated)
+	require.NoError(t, err)
+	require.Len(t, result.ProbeResults, 1)
+	require.Equal(t, SupplierProbeStatusPassed, result.ProbeResults[0].Status)
+	require.Equal(t, 1, accounts.createCalls)
+	require.NotEmpty(t, accounts.updated)
 }
 
 func TestUS048_SupplierSyncMetadataOnlySkipsProbe(t *testing.T) {
@@ -208,7 +201,7 @@ func TestUS048_SupplierSyncMovesModelByAddingBeforeRemoving(t *testing.T) {
 	probe := &supplierSyncProbeFake{}
 	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 
-	_, err := supplierValidateThenSync(svc, 7)
+	_, err := svc.Sync(context.Background(), 7)
 
 	require.NoError(t, err)
 	addIndex, removeIndex := -1, -1
@@ -241,7 +234,7 @@ func TestUS048_SupplierSyncStopsBeforeRemovalWhenVerifiedProjectionWriteFails(t 
 	probe := &supplierSyncProbeFake{}
 	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 
-	result, err := supplierValidateThenSync(svc, 7)
+	result, err := svc.Sync(context.Background(), 7)
 
 	require.ErrorIs(t, err, ErrSupplierProjectionProtocolNotReady)
 	require.Equal(t, "add_band_4", result.FailedStep)
@@ -295,7 +288,7 @@ func TestUS048_SupplierSyncAdditionFailureStopsBeforeRemovalAndRetryConverges(t 
 	probe := &supplierSyncProbeFake{}
 	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 
-	firstResult, firstErr := supplierValidateThenSync(svc, 7)
+	firstResult, firstErr := svc.Sync(context.Background(), 7)
 
 	require.Error(t, firstErr)
 	require.Equal(t, "add_band_4", firstResult.FailedStep)
@@ -309,7 +302,7 @@ func TestUS048_SupplierSyncAdditionFailureStopsBeforeRemovalAndRetryConverges(t 
 
 	accounts.updateErrAt = 0
 	accounts.operations = nil
-	secondResult, secondErr := supplierValidateThenSync(svc, 7)
+	secondResult, secondErr := svc.Sync(context.Background(), 7)
 
 	require.NoError(t, secondErr)
 	require.Empty(t, secondResult.FailedStep)
@@ -334,7 +327,7 @@ func TestUS048_SupplierSyncReadbackFailureReportsTheCompletedAddition(t *testing
 		repo, accounts, &supplierSyncProbeFake{}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{},
 	)
 
-	result, err := supplierValidateThenSync(svc, 7)
+	result, err := svc.Sync(context.Background(), 7)
 
 	require.Error(t, err)
 	require.Equal(t, "verify_band_3", result.FailedStep)
@@ -356,7 +349,7 @@ func TestUS048_SupplierSyncCreateUpdateFailureRetryConverges(t *testing.T) {
 		repo, accounts, &supplierSyncProbeFake{}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{},
 	)
 
-	firstResult, firstErr := supplierValidateThenSync(svc, 7)
+	firstResult, firstErr := svc.Sync(context.Background(), 7)
 
 	require.Error(t, firstErr)
 	require.Equal(t, "add_band_3", firstResult.FailedStep)
@@ -369,7 +362,7 @@ func TestUS048_SupplierSyncCreateUpdateFailureRetryConverges(t *testing.T) {
 
 	accounts.updateErrAt = 0
 	accounts.operations = nil
-	secondResult, secondErr := supplierValidateThenSync(svc, 7)
+	secondResult, secondErr := svc.Sync(context.Background(), 7)
 
 	require.NoError(t, secondErr)
 	require.Empty(t, secondResult.FailedStep)
@@ -397,7 +390,7 @@ func TestUS048_ExistingSupplierAccountIsAdoptedOnlyOnUniqueNarrowMatch(t *testin
 	}}}
 	svc := NewSupplierSourceService(repo, accounts, &supplierSyncProbeFake{}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 
-	result, err := supplierValidateThenSync(svc, 7)
+	result, err := svc.Sync(context.Background(), 7)
 
 	require.NoError(t, err)
 	require.Zero(t, accounts.createCalls)
@@ -499,7 +492,7 @@ func TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation(
 	require.Empty(t, accounts.updated)
 }
 
-func TestUS048_SupplierSyncRequiresValidateBeforeRepairingNonEmptySchedulingProjection(t *testing.T) {
+func TestUS048_SupplierSyncReprobesBeforeRepairingNonEmptySchedulingProjection(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
 		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
@@ -514,7 +507,7 @@ func TestUS048_SupplierSyncRequiresValidateBeforeRepairingNonEmptySchedulingProj
 		repo, accounts, &supplierSyncProbeFake{}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{},
 	)
 
-	_, err := supplierValidateThenSync(svc, 7)
+	_, err := svc.Sync(context.Background(), 7)
 
 	require.NoError(t, err)
 	require.NotEmpty(t, accounts.updated)
@@ -566,7 +559,7 @@ func TestUS048_QianfanBaiduV2ExactMatchIsAdopted(t *testing.T) {
 	}}}
 	svc := NewSupplierSourceService(repo, accounts, &supplierSyncProbeFake{}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 
-	result, err := supplierValidateThenSync(svc, 7)
+	result, err := svc.Sync(context.Background(), 7)
 
 	require.NoError(t, err)
 	require.Zero(t, accounts.createCalls)
@@ -913,7 +906,7 @@ func TestUS048_SupplierSyncAppliesSourceAccountConcurrency(t *testing.T) {
 	require.Equal(t, 1000, accounts.managed[0].Concurrency)
 }
 
-func TestUS048_SupplierSyncProtocolIdentityDriftRequiresValidateBeforeRepair(t *testing.T) {
+func TestUS048_SupplierSyncProtocolIdentityDriftReprobesBeforeRepair(t *testing.T) {
 	ratio := 0.5
 	capabilityID := int64(797)
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
@@ -938,7 +931,7 @@ func TestUS048_SupplierSyncProtocolIdentityDriftRequiresValidateBeforeRepair(t *
 	probe := &supplierSyncProbeFake{}
 	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 
-	_, err := supplierValidateThenSync(svc, 7)
+	_, err := svc.Sync(context.Background(), 7)
 
 	require.NoError(t, err)
 	require.NotEmpty(t, accounts.updated)

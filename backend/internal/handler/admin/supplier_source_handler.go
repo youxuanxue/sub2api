@@ -328,7 +328,6 @@ func supplierSourceHTTPError(err error) (int, string, string, map[string]string)
 		errors.Is(err, service.ErrSupplierSourceMultipleMatches):
 		return http.StatusConflict, err.Error(), "", nil
 	case errors.Is(err, service.ErrSupplierSourceProbeFailed),
-		errors.Is(err, service.ErrSupplierSourceValidateRequired),
 		errors.Is(err, service.ErrSupplierProjectionProtocolNotReady):
 		status := infraerrors.FromError(err)
 		return int(status.Code), status.Message, status.Reason, status.Metadata

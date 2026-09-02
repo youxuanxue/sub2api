@@ -7739,12 +7739,12 @@
         "TestUS048_NonActiveExactAccountMatchBlocksDuplicateSupplierAccountCreation",
         "TestUS048_IncompatibleTransportExactMatchBlocksAdoptionWithoutRewritingAccount",
         "TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation",
-        "TestUS048_SupplierSyncRequiresValidateBeforeRepairingNonEmptySchedulingProjection",
-        "TestUS048_SupplierSyncWithoutValidateReturnsValidateRequired",
+        "TestUS048_SupplierSyncReprobesBeforeRepairingNonEmptySchedulingProjection",
+        "TestUS048_SupplierSyncReprobesImmediatelyBeforeProjection",
         "TestUS048_SupplierSyncRepairsEmptySchedulingProjectionWithoutProbe",
         "TestSupplierAccountNeedsProtocolRepublishDetectsTransportDrift"
       ],
-      "rationale": "Sync regressions keep failed_step and completed changes present on early and mid-write errors, preserve successful additions, stop pending removals and prove retry convergence. They also block duplicate creation whenever an exact account match cannot satisfy the narrow adoption contract, including disabled/error accounts and multi-band sources, require validate before structural projection repair, and keep empty-band scheduling repair on the metadata-only path."
+      "rationale": "Sync regressions keep failed_step and completed changes present on early and mid-write errors, preserve successful additions, stop pending removals and prove retry convergence. They also block duplicate creation whenever an exact account match cannot satisfy the narrow adoption contract, including disabled/error accounts and multi-band sources, require an immediate reprobe before structural projection or repair, and keep empty-band scheduling repair on the metadata-only path."
     },
     {
       "path": "backend/internal/service/crs_sync_supplier_managed_test.go",

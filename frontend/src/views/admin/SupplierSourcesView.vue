@@ -492,6 +492,22 @@
           </div>
 
           <div>
+            <h3 class="text-sm font-medium">{{ t('admin.supplierSources.configuredProbes') }}</h3>
+            <ul v-if="syncResult.probe_results.length" class="mt-2 space-y-2 text-sm">
+              <li
+                v-for="probe in syncResult.probe_results"
+                :key="`projected-${probe.client_model_id}-${probe.upstream_model_id}`"
+                class="rounded-lg bg-gray-50 p-3 dark:bg-dark-900"
+              >
+                <div class="font-medium">{{ probe.client_model_id }} → {{ probe.upstream_model_id }}</div>
+                <div class="text-gray-600 dark:text-gray-300">
+                  {{ probe.status }}<span v-if="probe.protocol"> · {{ probe.protocol }}</span><span v-if="probe.detail"> · {{ probe.detail }}</span>
+                </div>
+              </li>
+            </ul>
+          </div>
+
+          <div>
             <h3 class="text-sm font-medium">{{ t('admin.supplierSources.changes') }}</h3>
             <p v-if="syncResult.changes.length === 0" class="mt-1 text-sm text-gray-500">
               {{ t('admin.supplierSources.noChanges') }}

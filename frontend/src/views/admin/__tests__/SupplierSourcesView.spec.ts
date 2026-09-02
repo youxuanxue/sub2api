@@ -478,16 +478,12 @@ describe('SupplierSourcesView', () => {
 
   it('renders account changes returned by sync', async () => {
     list.mockResolvedValueOnce([source])
-    validate.mockResolvedValueOnce({
+    sync.mockResolvedValueOnce({
       source_id: 7,
       probe_results: [{
         client_model_id: 'deepseek-v4-pro', upstream_model_id: 'deepseek-v4-pro',
         status: 'passed', protocol: 'openai_chat_completions',
       }],
-    })
-    sync.mockResolvedValueOnce({
-      source_id: 7,
-      probe_results: [],
       changes: [{
         account_id: 101, discount_band: 3, action: 'created',
         added_models: ['deepseek-v4-pro', 'qwen-3.7-max'], removed_models: [],
@@ -498,7 +494,6 @@ describe('SupplierSourcesView', () => {
     await flushPromises()
 
     await wrapper.get('[data-test="source-select-7"]').trigger('click')
-    await wrapper.get('[data-test="validate-source"]').trigger('click')
     await wrapper.get('[data-test="sync-source"]').trigger('click')
     await flushPromises()
 
@@ -507,6 +502,8 @@ describe('SupplierSourcesView', () => {
     expect(result).toContain('qwen-3.7-max')
     expect(result).toContain('101')
     expect(result).toContain('created')
+    expect(result).toContain('passed')
+    expect(validate).not.toHaveBeenCalled()
   })
 
   it('does not show success when a resolved sync result reports a failed step', async () => {
@@ -521,7 +518,6 @@ describe('SupplierSourcesView', () => {
     await flushPromises()
 
     await wrapper.get('[data-test="source-select-7"]').trigger('click')
-    await wrapper.get('[data-test="validate-source"]').trigger('click')
     await wrapper.get('[data-test="sync-source"]').trigger('click')
     await flushPromises()
 

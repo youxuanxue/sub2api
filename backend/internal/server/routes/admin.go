@@ -152,6 +152,8 @@ func registerSupplierSourceRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		sources.PUT("/:id", h.Admin.SupplierSource.Update)
 		sources.POST("/:id/discover", h.Admin.SupplierSource.Discover)
 		sources.GET("/:id/discover/jobs/:job_id", h.Admin.SupplierSource.GetDiscoverJob)
+		sources.POST("/:id/probe", h.Admin.SupplierSource.Discover)
+		sources.GET("/:id/probe/jobs/:job_id", h.Admin.SupplierSource.GetDiscoverJob)
 		sources.POST("/:id/validate", h.Admin.SupplierSource.Validate)
 		sources.POST("/:id/sync", h.Admin.SupplierSource.Sync)
 	}

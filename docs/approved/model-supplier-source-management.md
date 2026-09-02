@@ -1,9 +1,9 @@
 ---
 title: TokenKey Model Supplier Source Management
 status: approved
-approved_by: "xuejiao (operator directives through 2026-08-28)"
+approved_by: "xuejiao (operator directives through 2026-09-02)"
 approved_at: 2026-08-27
-updated: 2026-09-01
+updated: 2026-09-02
 created: 2026-08-27
 owners: [tk-platform]
 scope: "supplier facts, admin API/UI, credential isolation, account projection, probe gate; managed accounts behave like ordinary accounts after create, with sync overwriting projection fields"
@@ -12,12 +12,12 @@ related_stories: ["US-048"]
 
 # TokenKey 模型供应源管理审批基线
 
-> 按钮与探测主路径以 [`model-supplier-source-probe-sync-split.md`](model-supplier-source-probe-sync-split.md) 为准：探测校验 → 保存 → 同步账号。FMGo Seedance 改写见 [`model-supplier-source-fmgo-seedance-account-rewrite.md`](model-supplier-source-fmgo-seedance-account-rewrite.md)。
+> 按钮与探测主路径以 [`model-supplier-source-probe-sync-split.md`](model-supplier-source-probe-sync-split.md) 为准：发现模型 -> 校验模型 -> 保存 -> 投影账号。FMGo Seedance 改写见 [`model-supplier-source-fmgo-seedance-account-rewrite.md`](model-supplier-source-fmgo-seedance-account-rewrite.md)。
 
 ## 决策
 
 运营只管理一个对象：供应源。一个供应源表示一个供应商通道、一个 endpoint、一份 API Key、一个
-`base_priority` 和一组明确的模型采购事实。保存只写供应源；运营主动点击“同步账号”后，系统才
+`base_priority` 和一组明确的模型采购事实。保存只写供应源；运营主动点击“投影账号”后，系统才
 把事实投影为现有 TokenKey 账号配置。
 
 线上调度不增加任何供应来源概念。scheduler 继续只比较账号现有 `priority`，数值越小越先调度；
@@ -66,13 +66,14 @@ account.priority = source.base_priority + discount_priority
 
 “保存”只校验和更新供应源单表，不探测、不建号、不改账号。全局 priority 预览只排序所有供应源
 目标档位并提示相同 priority，不扫描普通账号、OAuth 账号或账号组。运营结合账号管理页的真实
-priority 自行判断和修改 `base_priority`。已选来源的表单存在未保存修改时，页面禁用探测与同步并
-提示先保存；同步 API 始终只读取数据库中已保存的供应事实。
+priority 自行判断和修改 `base_priority`。已选来源的表单存在未保存修改时，页面禁用发现、校验与投影并
+提示先保存；投影 API 始终只读取数据库中已保存的供应事实。
 
-探测校验、保存、同步账号的按钮顺序、禁用矩阵与探测主路径以
+发现、校验、保存、投影的按钮顺序、禁用矩阵与探测主路径以
 [`model-supplier-source-probe-sync-split.md`](model-supplier-source-probe-sync-split.md) 为准。
-`POST /admin/supplier-sources/:id/probe` 只读发现 + 已配置门禁；保存只写供应源；`POST .../sync`
-再测后投影账号。管理路由不再注册 `models-discover`。
+`POST .../discover` 只读发现候选，`POST .../validate` 只读校验已配置模型，保存只写供应源；
+`POST .../sync` 在结构写入前当次重探后投影账号。Validate 结果不缓存也不授权后续写入。
+旧 `POST .../probe` 与 probe job 路由保留为 Discover 兼容别名；管理路由不再注册 `models-discover`。
 
 上游列表仍按通道能力拉取（OpenAI 兼容 `/v1/models`；千帆 BaiduV2 为 `/v2/models`；DashScope Ali
 为 `/compatible-mode/v1/models`）。探测协议由通道能力决定（如 `channel_type=54` 走视频门禁），
@@ -119,7 +120,7 @@ supplier_discount_band
 普通创建与导入仍拒绝伪造 `supplier_source_id` / `supplier_discount_band`；普通 Extra 编辑会保留
 已有受管身份键，复制账号时剥离这些键以免重复身份。
 
-仅在供应源点击「同步账号」时，通过专用窄写命令覆盖供应源投影字段（名称、凭证含
+仅在供应源点击「投影账号」时，通过专用窄写命令覆盖供应源投影字段（名称、凭证含
 `model_mapping`、priority、concurrency、status/schedulable、transport 等），不读取或写入账号组，
 也不携带 `rate_multiplier`。供应投影更新不能回退到通用账号 Update。
 
@@ -135,7 +136,7 @@ floor 收敛只作用于非供应源托管账号。否则会出现 Sync 子集 �
 ```
 
 徽标链接携带 `source_id`，供应源页面加载列表后直接选中对应来源。账号编辑提示说明：平时可按普通
-账号编辑；「同步账号」会覆盖投影字段。
+账号编辑；「投影账号」会覆盖投影字段。
 
 ## 第一版 API 与页面
 
@@ -147,12 +148,15 @@ PUT    /admin/supplier-sources/:id
 GET    /admin/supplier-sources/priority-preview
 POST   /admin/supplier-sources/:id/probe
 GET    /admin/supplier-sources/:id/probe/jobs/:job_id
+POST   /admin/supplier-sources/:id/discover
+GET    /admin/supplier-sources/:id/discover/jobs/:job_id
+POST   /admin/supplier-sources/:id/validate
 POST   /admin/supplier-sources/:id/sync
 ```
 
-不提供 DELETE、validate、activation-preview、activate、pause、供应源 audits 或 `models-discover` API。供应源读写体含
+`probe` 与 probe job 是 Discover 的兼容别名。不提供 DELETE、activation-preview、activate、pause、供应源 audits 或 `models-discover` API。供应源读写体含
 `account_concurrency`（正整数，默认 `1000`）。页面只展示运营
-字段、档位与目标 priority、全局供应源 priority、探测校验、保存、同步账号、当次发现结果、
+字段、档位与目标 priority、全局供应源 priority、发现、校验、保存、投影、当次发现结果、
 当次逐模型探测结果和实际账号变化。
 
 ## 首批验收
