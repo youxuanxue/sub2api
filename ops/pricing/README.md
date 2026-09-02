@@ -83,16 +83,22 @@ splicing.
 
 Safety invariants:
 
+- refresh projection is `current + positive evidence - reviewed structurally_gone`;
 - successful traffic can skip a duplicate probe; absent traffic cannot mark a model
   unsupported;
 - `--skip-video` carries existing video entries forward because video probing may create
   paid tasks;
-- 401/403 is setup/auth failure, and 429/5xx/timeout is inconclusive;
+- 401/403 is setup/auth failure, and 429/5xx/timeout is inconclusive; none of these
+  outcomes can remove a current row;
 - local `Unsupported model` or empty-pool results do not prove upstream inability;
 - automatic splice coverage is defined by the script. Other platform results stay review
   evidence until the script explicitly supports them;
 - source groups, accounts and deployable edges are resolved from live/machine owners, not
   copied into runbooks.
+
+`python3 ops/pricing/refresh-servable-allowlist.py candidates` reports stale watchlist
+evidence as a warning but remains usable. `watchlist-status` is the independent
+machine-readable operational alert and exits non-zero while stale entries exist.
 
 Validate with the refresh selftest, inspect the Go diff, then run the focused catalog
 service tests before opening a PR.

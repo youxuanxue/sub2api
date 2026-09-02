@@ -27,6 +27,8 @@ de-duplication and Go-map splicing. Do not reproduce those algorithms in this sk
 
 - A real successful request is positive evidence. No recent traffic is not negative
   evidence and must not remove a candidate by itself.
+- Apply projects `current + positive evidence - reviewed structurally_gone`; probe output
+  alone never authorizes removal.
 - `--skip-video` must preserve existing video entries; video probes may create paid
   upstream tasks.
 - 401/403 means probe setup or credential failure. 429/5xx/timeout is inconclusive.
@@ -44,6 +46,8 @@ de-duplication and Go-map splicing. Do not reproduce those algorithms in this sk
 - Paid or high-cost media probes must be limited to models actually under review.
 - Review unexpected bulk additions/removals before opening a PR. Merge authorization stays
   with a human.
+- Watchlist freshness is an operational alert, not a candidate-generation gate. Use the
+  script's `watchlist-status` command for the machine-readable stale set.
 
 ## Pricing findings
 

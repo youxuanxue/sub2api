@@ -3,34 +3,36 @@
 
 Pipeline (operator runs locally with AWS creds; the probe needs prod SSM):
 
-    derive priced/discovered candidates
-      -> optionally accept recent successful traffic as positive evidence
-      -> live-probe the remaining candidates through the canonical SSM transport
-      -> parse evidence and de-duplicate dated aliases
-      -> splice the three automatically managed Go marker blocks
+    derive candidates from discovery/pricing
+      -> optionally accept successful traffic as positive evidence
+      -> live-probe remaining candidates through the canonical SSM transport
+      -> merge positive evidence into the current catalog projection
+      -> remove only reviewed structurally_gone ledger entries
+      -> splice the automatically managed Go marker blocks
       -> emit a local diff or optionally open a review PR
 
-This tool refreshes catalog/menu evidence projections only. It does not decide
+This tool refreshes catalog/menu empirical projections only. It does not decide
 request-time delivery, publish pricing, or write account model_mapping. Probe,
-traffic and discovery are evidence; 401/403, 429, 5xx and timeout are not
-structural model-removal evidence. Review removals before opening or merging a
-PR. Delivery ownership stays in
+traffic and discovery are evidence; auth/setup errors, 429, 5xx and timeout are
+never removal evidence. Only a reviewed structurally_gone ledger entry may
+remove a current row. Delivery ownership stays in
 docs/approved/pricing-serving-single-source-of-truth.md.
 
 The probe script owns request classification. This orchestrator owns candidate
-derivation, positive-traffic short-circuiting, batching, result parsing,
-de-duplication and marker-delimited Go splicing. `selftest` covers the offline
-mechanics without touching prod.
+derivation, positive-traffic short-circuiting, batching, additive evidence
+projection, de-duplication and marker-delimited Go splicing. `selftest` covers
+the offline mechanics without touching prod.
 
 Subcommands:
   candidates           print the per-family candidate model lists (no prod)
+  watchlist-status     report stale watchlist evidence independently
   probe                live-probe; print the raw TSV results (needs prod SSM)
-  apply --results F    review and splice evidence results into managed Go maps
+  apply --results F    add positive rows and apply reviewed structural removals
   run [--open-pr]      probe + apply in one shot
   selftest             deterministic unit checks (no prod); used by preflight
 
-Positive traffic or a real successful probe is positive evidence. Absence of
-traffic and transient probe failure are not negative evidence.
+Positive traffic or a real successful probe can add a model. Absence of traffic
+and transient probe failures cannot remove one.
 """
 from __future__ import annotations
 
@@ -114,7 +116,7 @@ GO_ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "grok"
 # veo/seedance ids. Derived from the family table so a future *_video family is
 # covered automatically.
 VIDEO_FAMILIES = frozenset(f for f in FAMILY_PLATFORM if f.endswith("_video"))
-REPROBE_LISTS = ("watchlist", "skiplist", "deadlist")
+REPROBE_LISTS = ("watchlist", "skiplist", "structurally_gone")
 
 
 # ----- vendor → platform (mirrors service.inferPlatformFromVendor) -----
@@ -243,19 +245,23 @@ def _parse_date(value: str, label: str) -> dt.date:
         raise ValueError(f"{label}: expected YYYY-MM-DD, got {value!r}") from exc
 
 
+def _allowlist_members_for_platform(text: str, platform: str) -> list[str]:
+    begin = f"\t// servable-allowlist:begin {platform}\n"
+    end = f"\t// servable-allowlist:end {platform}"
+    bi = text.find(begin)
+    ei = text.find(end)
+    if bi < 0 or ei < 0 or ei < bi:
+        return []
+    block = text[bi + len(begin) : ei]
+    return re.findall(r'^\s*"([^"]+)":\s*\{\},', block, flags=re.MULTILINE)
+
+
 def _known_allowlist_members(text: str) -> set[tuple[str, str]]:
-    out: set[tuple[str, str]] = set()
-    for platform in GO_ALLOWLIST_PLATFORMS:
-        begin = f"\t// servable-allowlist:begin {platform}\n"
-        end = f"\t// servable-allowlist:end {platform}"
-        bi = text.find(begin)
-        ei = text.find(end)
-        if bi < 0 or ei < 0 or ei < bi:
-            continue
-        block = text[bi + len(begin) : ei]
-        for match in re.finditer(r'^\s*"([^"]+)":\s*\{\},', block, flags=re.MULTILINE):
-            out.add((platform, match.group(1)))
-    return out
+    return {
+        (platform, model)
+        for platform in GO_ALLOWLIST_PLATFORMS
+        for model in _allowlist_members_for_platform(text, platform)
+    }
 
 
 def _go_map_members(text: str, var_name: str) -> set[str]:
@@ -343,7 +349,7 @@ def validate_reprobe_ledger(
     seen: dict[tuple[str, str], str] = {}
     watch_keys: set[tuple[str, str]] = set()
     skip_keys: set[tuple[str, str]] = set()
-    dead_keys: set[tuple[str, str]] = set()
+    gone_keys: set[tuple[str, str]] = set()
     candidate_keys = _candidate_members(candidates) if candidates is not None else set()
 
     for list_name in REPROBE_LISTS:
@@ -368,42 +374,86 @@ def validate_reprobe_ledger(
                 last_probe = entry.get("last_probe")
                 expires = entry.get("expires")
                 freshness_days = entry.get("freshness_days")
+                if freshness_days is not None and (not isinstance(freshness_days, int) or freshness_days < 1):
+                    raise ValueError(f"watchlist {platform}/{model}: freshness_days must be a positive integer")
                 if last_probe:
                     probed_at = _parse_date(str(last_probe), f"watchlist {platform}/{model} last_probe")
                     if probed_at > today:
                         raise ValueError(f"watchlist {platform}/{model}: last_probe {probed_at} is in the future")
-                    if freshness_days is not None:
-                        if not isinstance(freshness_days, int) or freshness_days < 1:
-                            raise ValueError(f"watchlist {platform}/{model}: freshness_days must be a positive integer")
-                        expires_at = probed_at + dt.timedelta(days=freshness_days)
-                        if today > expires_at:
-                            raise ValueError(
-                                f"watchlist {platform}/{model}: last_probe {probed_at} is stale "
-                                f"(freshness_days={freshness_days}, expired {expires_at})"
-                            )
                 elif not expires:
                     raise ValueError(f"watchlist {platform}/{model}: last_probe or expires is required")
                 if expires:
-                    expires_at = _parse_date(str(expires), f"watchlist {platform}/{model} expires")
-                    if today > expires_at:
-                        raise ValueError(f"watchlist {platform}/{model}: expires {expires_at} is stale")
+                    _parse_date(str(expires), f"watchlist {platform}/{model} expires")
+                elif freshness_days is None:
+                    raise ValueError(
+                        f"watchlist {platform}/{model}: freshness_days or expires is required"
+                    )
                 if entry.get("auto_probe") and candidates is not None and key not in candidate_keys:
                     raise ValueError(f"watchlist {platform}/{model}: auto_probe entry missing from candidates")
             elif list_name == "skiplist":
                 skip_keys.add(key)
             else:
-                dead_keys.add(key)
+                gone_keys.add(key)
 
-    blocked = skip_keys | dead_keys
+    blocked = skip_keys | gone_keys
     overlap = watch_keys & blocked
     if overlap:
         rendered = ", ".join(f"{platform}/{model}" for platform, model in sorted(overlap))
-        raise ValueError(f"watchlist cannot overlap skiplist/deadlist: {rendered}")
+        raise ValueError(f"watchlist cannot overlap skiplist/structurally_gone: {rendered}")
     if allowlist_members:
-        conflicts = allowlist_members & blocked
+        # A current row may intentionally appear in structurally_gone: apply uses
+        # that reviewed ledger entry as the only removal authority. A skiplist
+        # overlap remains contradictory because skiplist is candidate policy, not
+        # a removal instruction.
+        conflicts = allowlist_members & skip_keys
         if conflicts:
             rendered = ", ".join(f"{platform}/{model}" for platform, model in sorted(conflicts))
-            raise ValueError(f"servable allowlist cannot overlap skiplist/deadlist: {rendered}")
+            raise ValueError(f"servable allowlist cannot overlap skiplist: {rendered}")
+
+
+def watchlist_freshness(ledger: dict, *, today: dt.date | None = None) -> list[dict[str, object]]:
+    """Return stale watchlist rows without changing schema validation semantics."""
+    today = today or dt.date.today()
+    stale: list[dict[str, object]] = []
+    for entry in _ledger_entries(ledger, "watchlist"):
+        expires = entry.get("expires")
+        last_probe = entry.get("last_probe")
+        freshness_days = entry.get("freshness_days")
+        if expires:
+            deadline = _parse_date(
+                str(expires),
+                f"watchlist {entry.get('platform')}/{entry.get('model')} expires",
+            )
+        elif last_probe and isinstance(freshness_days, int):
+            deadline = _parse_date(
+                str(last_probe),
+                f"watchlist {entry.get('platform')}/{entry.get('model')} last_probe",
+            ) + dt.timedelta(days=freshness_days)
+        else:
+            continue
+        if today > deadline:
+            stale.append(
+                {
+                    "platform": entry["platform"],
+                    "model": entry["model"],
+                    "deadline": deadline.isoformat(),
+                    "days_stale": (today - deadline).days,
+                }
+            )
+    return sorted(stale, key=lambda row: (str(row["platform"]), str(row["model"])))
+
+
+def warn_stale_watchlist(ledger: dict, *, today: dt.date | None = None) -> None:
+    stale = watchlist_freshness(ledger, today=today)
+    if not stale:
+        return
+    oldest = max(int(row["days_stale"]) for row in stale)
+    print(
+        f"[refresh] WARN: {len(stale)} watchlist entr{'y is' if len(stale) == 1 else 'ies are'} "
+        f"stale (oldest={oldest}d); candidates remain usable. "
+        "Run `refresh-servable-allowlist.py watchlist-status` for details.",
+        file=sys.stderr,
+    )
 
 
 def augment_candidates_with_watchlist(candidates: dict[str, list[str]], ledger: dict) -> dict[str, list[str]]:
@@ -419,7 +469,7 @@ def augment_candidates_with_watchlist(candidates: dict[str, list[str]], ledger: 
         out.setdefault(family, []).append(model)
     blocked = {
         (entry["platform"], entry["model"])
-        for list_name in ("skiplist", "deadlist")
+        for list_name in ("skiplist", "structurally_gone")
         for entry in _ledger_entries(ledger, list_name)
     }
     for family, platforms in (
@@ -443,23 +493,14 @@ def augment_candidates_with_watchlist(candidates: dict[str, list[str]], ledger: 
 def validate_results_against_reprobe_ledger(servable: dict[str, set[str]], ledger: dict) -> None:
     blocked = {
         (entry["platform"], entry["model"])
-        for list_name in ("skiplist", "deadlist")
+        for list_name in ("skiplist", "structurally_gone")
         for entry in _ledger_entries(ledger, list_name)
     }
     observed = {(platform, model) for platform, models in servable.items() for model in models}
     conflicts = observed & blocked
     if conflicts:
         rendered = ", ".join(f"{platform}/{model}" for platform, model in sorted(conflicts))
-        raise SystemExit(f"FATAL: probe results mark skiplist/deadlist model as servable: {rendered}")
-
-
-def _watchlist_last_probe_dates(ledger: dict) -> list[dt.date]:
-    dates: list[dt.date] = []
-    for entry in _ledger_entries(ledger, "watchlist"):
-        last_probe = entry.get("last_probe")
-        if last_probe:
-            dates.append(_parse_date(str(last_probe), "watchlist last_probe"))
-    return dates
+        raise SystemExit(f"FATAL: probe results mark skiplist/structurally_gone model as servable: {rendered}")
 
 
 def build_probe_candidates(
@@ -476,6 +517,7 @@ def build_probe_candidates(
         allowlist_members=_known_allowlist_members(GO_FILE.read_text(encoding="utf-8")),
         candidates=cands,
     )
+    warn_stale_watchlist(ledger, today=today)
     return cands, ledger
 
 
@@ -518,9 +560,9 @@ def proven_servable_from_traffic(
         candidates survive. A candidate absent from traffic is simply not returned
         (it stays in the probe set). A served model that is not a candidate is
         dropped (never injected into the allowlist).
-      * Blocked models (skiplist/deadlist) are already absent from `candidates`
+      * Blocked models (skiplist/structurally_gone) are already absent from `candidates`
         (augment_candidates_with_watchlist removed them), so they can never appear
-        here even with a real traffic hit — a deadlist model cannot revive on one
+        here even with a real traffic hit — a structurally-gone model cannot revive on one
         successful request. validate_results_against_reprobe_ledger is still run on
         the result by callers as defense-in-depth.
     Returns platform -> set of proven-servable model ids."""
@@ -607,7 +649,8 @@ def short_circuit_by_traffic(
     re-probed; proven is merged into the servable results by the caller."""
     traffic = fetch_traffic_proven(hours=hours, target=target)
     proven = proven_servable_from_traffic(traffic, candidates)
-    # Defense-in-depth: proven ⊆ candidates (which already exclude skiplist/deadlist),
+    # Defense-in-depth: proven ⊆ candidates (which already exclude
+    # skiplist/structurally_gone),
     # so this never fires — but it guards against any future candidate-derivation drift.
     validate_results_against_reprobe_ledger(proven, ledger)
     _log_proven_skip(proven, hours)
@@ -657,21 +700,53 @@ def splice_go(text: str, platform: str, ids: list[str]) -> str:
     return text[: bi + len(begin)] + body + text[ei:]
 
 
-def write_allowlists(servable: dict[str, set[str]], ledger: dict | None = None) -> dict[str, list[str]]:
-    if ledger is not None:
-        validate_results_against_reprobe_ledger(servable, ledger)
-    text = GO_FILE.read_text(encoding="utf-8")
+def project_allowlists(
+    text: str,
+    servable: dict[str, set[str]],
+    ledger: dict | None = None,
+) -> tuple[str, dict[str, list[str]]]:
+    """Pure catalog projection: current + positive - reviewed structural removals."""
+    ledger = ledger or {"watchlist": [], "skiplist": [], "structurally_gone": []}
+    validate_results_against_reprobe_ledger(servable, ledger)
     platforms = ("anthropic", "openai", "gemini")
-    final = {p: dedup(servable.get(p, set())) for p in platforms}
-    guard_openai_refresh_scope(final.get("openai", []), text)
+    for platform in platforms:
+        begin = f"\t// servable-allowlist:begin {platform}\n"
+        end = f"\t// servable-allowlist:end {platform}"
+        if begin not in text or end not in text or text.find(begin) > text.find(end):
+            raise SystemExit(f"FATAL: splice markers for {platform} not found in {GO_FILE.name}")
+    positive = {p: set(servable.get(p, set())) for p in platforms}
+    gone = {
+        (entry["platform"], entry["model"])
+        for entry in _ledger_entries(ledger, "structurally_gone")
+    }
+    final: dict[str, list[str]] = {}
+    for platform in platforms:
+        current_order = _allowlist_members_for_platform(text, platform)
+        current_models = set(current_order)
+        positive_models = dedup(positive[platform])
+        removed_models = {model for owner, model in gone if owner == platform}
+        # Preserve current membership byte-for-byte at the set level. De-dup only
+        # newly observed aliases; no probe failure is allowed to shrink current.
+        final[platform] = [model for model in current_order if model not in removed_models]
+        for model in positive_models:
+            if model in current_models or model in removed_models:
+                continue
+            dated = DATED_RE.match(model)
+            if dated and dated.group(1) in final[platform]:
+                continue
+            final[platform].append(model)
+    # The scope guard protects the final native OpenAI projection, not a partial
+    # positive-evidence batch. Under additive refresh a small Ainzy-shaped success
+    # set is safe while the existing native-only rows remain present.
+    guard_openai_refresh_scope(final["openai"], text)
     for plat in platforms:
-        if not final[plat]:
-            # Empty => this platform was not probed in this run (a partial refresh,
-            # e.g. a single-platform subset). Skip so we never WIPE an existing allowlist with a
-            # subset probe. A genuine "all dropped" is rare; clear it by hand if so.
-            print(f"[refresh] {plat}: 0 servable in results — leaving existing block untouched", file=sys.stderr)
-            continue
-        text = splice_go(text, plat, final[plat])
+        if final[plat] != _allowlist_members_for_platform(text, plat):
+            text = splice_go(text, plat, final[plat])
+    return text, final
+
+
+def write_allowlists(servable: dict[str, set[str]], ledger: dict | None = None) -> dict[str, list[str]]:
+    text, final = project_allowlists(GO_FILE.read_text(encoding="utf-8"), servable, ledger)
     GO_FILE.write_text(text, encoding="utf-8")
     subprocess.run(["gofmt", "-w", str(GO_FILE)], check=True)
     return final
@@ -845,7 +920,7 @@ def open_pr(final: dict[str, list[str]]) -> None:
         f"openai ({len(final['openai'])}): {', '.join(final['openai'])}\n"
         f"gemini ({len(final.get('gemini', []))}): {', '.join(final.get('gemini', []))}\n\n"
         "Regenerated by `ops/pricing/refresh-servable-allowlist.py run --open-pr`\n"
-        "(live probe; kept verdict==servable, de-duplicated dated snapshots).\n\n"
+        "(current projection + positive evidence - reviewed structurally_gone).\n\n"
         "no-web-impact\n"
     )
     def git(*a):
@@ -886,8 +961,9 @@ def selftest() -> int:
     assert "gpt-4o" not in sum(c.values(), []), "unpriced must be skipped"
     assert "gemini-2.5-pro" not in sum(c.values(), []), "vertex not a litellm-catalog candidate"
 
-    # reprobe ledger: auto-probe watchlist items are first-class candidates, and
-    # freshness/skip/dead conflicts fail before an operator can trust stale docs.
+    # Reprobe ledger: schema validity gates candidate generation, while freshness
+    # is an operational status. Stale evidence must remain visible without making
+    # the deterministic candidates command unusable.
     ledger = {
         "watchlist": [
             {
@@ -920,7 +996,7 @@ def selftest() -> int:
             {"platform": "openai", "model": "codex-mini-latest", "reason": "stable ChatGPT-account rejection"},
             {"platform": "openai", "model": "gpt-image-dead", "reason": "fixture skiplist exclusion"},
         ],
-        "deadlist": [
+        "structurally_gone": [
             {"platform": "grok", "model": "grok-imagine-image-pro", "reason": "retired upstream"}
         ],
     }
@@ -941,11 +1017,16 @@ def selftest() -> int:
     )
     stale = json.loads(json.dumps(ledger))
     stale["watchlist"][0]["last_probe"] = "2026-05-01"
-    try:
-        validate_reprobe_ledger(stale, today=dt.date(2026, 6, 22), candidates=aug)
-        raise AssertionError("stale watchlist must fail")
-    except ValueError as e:
-        assert "stale" in str(e), e
+    validate_reprobe_ledger(stale, today=dt.date(2026, 6, 22), candidates=aug)
+    stale_rows = watchlist_freshness(stale, today=dt.date(2026, 6, 22))
+    assert stale_rows == [
+        {
+            "platform": "openai",
+            "model": "gpt-5.2",
+            "deadline": "2026-05-31",
+            "days_stale": 22,
+        }
+    ], stale_rows
     duplicate = json.loads(json.dumps(ledger))
     duplicate["skiplist"].append({"platform": "openai", "model": "gpt-5.2", "reason": "bad duplicate"})
     try:
@@ -954,7 +1035,7 @@ def selftest() -> int:
     except ValueError as e:
         assert "appears in both" in str(e), e
     conflict = json.loads(json.dumps(ledger))
-    conflict["deadlist"].append({"platform": "openai", "model": "gpt-5.4", "reason": "bad allowlist conflict"})
+    conflict["skiplist"].append({"platform": "openai", "model": "gpt-5.4", "reason": "bad allowlist conflict"})
     try:
         validate_reprobe_ledger(
             conflict,
@@ -962,14 +1043,14 @@ def selftest() -> int:
             allowlist_members={("openai", "gpt-5.4")},
             candidates=aug,
         )
-        raise AssertionError("allowlist/deadlist conflict must fail")
+        raise AssertionError("allowlist/skiplist conflict must fail")
     except ValueError as e:
         assert "appears in both" in str(e) or "allowlist cannot overlap" in str(e), e
     try:
         validate_results_against_reprobe_ledger({"openai": {"codex-mini-latest"}}, ledger)
         raise AssertionError("servable skiplist result must fail")
     except SystemExit as e:
-        assert "skiplist/deadlist" in str(e), e
+        assert "skiplist/structurally_gone" in str(e), e
 
     # gemini family split: core families kept, exotic dropped, predict seed merged
     g = split_gemini_families([
@@ -1043,6 +1124,97 @@ def selftest() -> int:
         "grok": {"grok-4.3"},
     }, p
 
+    # Catalog refresh is additive. Mixed transient failures cannot remove current
+    # rows; only an explicitly reviewed structurally_gone ledger entry can do so.
+    projection_sample = (
+        "var supportedAnthropicCatalogModels = map[string]struct{}{\n"
+        "\t// servable-allowlist:begin anthropic\n"
+        '\t"claude-current": {},\n'
+        "\t// servable-allowlist:end anthropic\n}\n"
+        "var supportedOpenAICatalogModels = map[string]struct{}{\n"
+        "\t// servable-allowlist:begin openai\n"
+        '\t"gpt-current": {},\n\t"gpt-retired": {},\n\t"gpt-timeout": {},\n'
+        "\t// servable-allowlist:end openai\n}\n"
+        "var supportedGeminiCatalogModels = map[string]struct{}{\n"
+        "\t// servable-allowlist:begin gemini\n"
+        '\t"gemini-current": {},\n'
+        "\t// servable-allowlist:end gemini\n}\n"
+    )
+    mixed = parse_results(
+        "openai\tgpt-new\t200\tservable\n"
+        "openai\tgpt-current\t429\tinconclusive\n"
+        "openai\tgpt-timeout\t000\tinconclusive\n"
+        "gemini\tgemini-current\t503\tinconclusive\n"
+        "anthropic\tclaude-current\t401\tauth_error\n"
+    )
+    projected_text, projected = project_allowlists(
+        projection_sample,
+        mixed,
+        {
+            "watchlist": [],
+            "skiplist": [],
+            "structurally_gone": [
+                {"platform": "openai", "model": "gpt-retired", "reason": "reviewed retirement"}
+            ],
+        },
+    )
+    assert projected == {
+        "anthropic": ["claude-current"],
+        "openai": ["gpt-current", "gpt-timeout", "gpt-new"],
+        "gemini": ["gemini-current"],
+    }, projected
+    assert '"gpt-retired": {},' not in projected_text, projected_text
+    assert '"gpt-timeout": {},' in projected_text, projected_text
+    no_op_text, no_op_projection = project_allowlists(
+        projection_sample,
+        parse_results(
+            "openai\tgpt-current\t429\tinconclusive\n"
+            "gemini\tgemini-current\t503\tinconclusive\n"
+            "anthropic\tclaude-current\t401\tauth_error\n"
+        ),
+        {"watchlist": [], "skiplist": [], "structurally_gone": []},
+    )
+    assert no_op_text == projection_sample, "transient-only evidence must produce a byte-identical projection"
+    assert no_op_projection == {
+        "anthropic": ["claude-current"],
+        "openai": ["gpt-current", "gpt-retired", "gpt-timeout"],
+        "gemini": ["gemini-current"],
+    }, no_op_projection
+    base_alias_sample = projection_sample.replace(
+        '\t"gpt-current": {},\n',
+        '\t"gpt-current": {},\n\t"gpt-5.5": {},\n',
+    )
+    alias_text, alias_projection = project_allowlists(
+        base_alias_sample,
+        {"openai": {"gpt-5.5-2026-04-23"}},
+        {"watchlist": [], "skiplist": [], "structurally_gone": []},
+    )
+    assert alias_text == base_alias_sample, "dated positive alias must not duplicate a current base"
+    assert "gpt-5.5-2026-04-23" not in alias_projection["openai"], alias_projection
+    removed_base_text, removed_base_projection = project_allowlists(
+        base_alias_sample,
+        {"openai": {"gpt-5.5-2026-04-23"}},
+        {
+            "watchlist": [],
+            "skiplist": [],
+            "structurally_gone": [
+                {"platform": "openai", "model": "gpt-5.5", "reason": "reviewed base retirement"}
+            ],
+        },
+    )
+    assert "gpt-5.5" not in removed_base_projection["openai"], removed_base_projection
+    assert "gpt-5.5-2026-04-23" in removed_base_projection["openai"], removed_base_projection
+    assert '"gpt-5.5-2026-04-23": {},' in removed_base_text, removed_base_text
+    try:
+        project_allowlists(
+            projection_sample.replace("\t// servable-allowlist:end gemini", "\t// marker removed"),
+            {},
+            {"watchlist": [], "skiplist": [], "structurally_gone": []},
+        )
+        raise AssertionError("missing marker must fail even when the projection is otherwise a no-op")
+    except SystemExit as e:
+        assert "splice markers for gemini" in str(e), e
+
     # splice round-trips between markers and is idempotent (anthropic + gemini)
     sample = (
         "x{\n\t// servable-allowlist:begin anthropic\n\t\"old\": {},\n"
@@ -1056,9 +1228,9 @@ def selftest() -> int:
     assert '"gemini-2.5-pro": {},' in gout, gout
     assert splice_go(gout, "gemini", ["gemini-2.5-pro", "imagen-4.0-generate-001"]) == gout, "gemini not idempotent"
 
-    # Native OpenAI and api.ainzy.net/v1 are separate scopes. Applying an
-    # Ainzy-shaped probe result to the native openai marker is almost certainly
-    # a source-group mistake, so the refresh path must fail before splicing.
+    # Native OpenAI and api.ainzy.net/v1 are separate scopes. Replacing the final
+    # native OpenAI projection with an Ainzy-shaped set is almost certainly a
+    # source-group mistake, so the refresh path must fail before splicing.
     scope_guard_sample = (
         "var supportedOpenAICatalogModels = map[string]struct{}{\n"
         "\t// servable-allowlist:begin openai\n"
@@ -1075,6 +1247,22 @@ def selftest() -> int:
     except SystemExit as e:
         assert "api.ainzy.net/v1" in str(e), e
     guard_openai_refresh_scope(["gpt-5.2", "gpt-5-pro"], scope_guard_sample)
+    scope_projection_sample = (
+        "var supportedAnthropicCatalogModels = map[string]struct{}{\n"
+        "\t// servable-allowlist:begin anthropic\n"
+        "\t// servable-allowlist:end anthropic\n}\n"
+        + scope_guard_sample
+        + "var supportedGeminiCatalogModels = map[string]struct{}{\n"
+        "\t// servable-allowlist:begin gemini\n"
+        "\t// servable-allowlist:end gemini\n}\n"
+    )
+    scope_projected_text, scope_projected = project_allowlists(
+        scope_projection_sample,
+        {"openai": {"gpt-5.2"}},
+        {"watchlist": [], "skiplist": [], "structurally_gone": []},
+    )
+    assert scope_projected["openai"] == ["gpt-5-pro", "gpt-5.2"], scope_projected
+    assert scope_projected_text == scope_projection_sample, scope_projected_text
 
     # --skip-video carry-forward: a chat/image refresh must preserve existing video
     # (veo) ids verbatim. carried_forward_rows emits ONLY the video-family members
@@ -1092,18 +1280,13 @@ def selftest() -> int:
     # The real machine ledger is part of preflight, not just a runtime input.
     # Include discovered fixtures so skiplist removal and watchlist
     # probe_family overrides are both exercised without prod.
-    # Anchor today to max(watchlist last_probe) so calendar bitrot on
-    # freshness_days does not force unrelated PRs to fake-roll last_probe.
-    # Operational refresh (default today=None → date.today()) still enforces
-    # wall-clock staleness when operators actually rebuild candidates.
+    # Use the real current date: stale watchlist rows must warn but cannot make
+    # selftest green while the actual candidates command is broken.
     real_catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
-    real_ledger_preview = load_reprobe_ledger()
-    probe_dates = _watchlist_last_probe_dates(real_ledger_preview)
-    selftest_today = max(probe_dates) if probe_dates else dt.date.today()
     real_cands, _real_ledger = build_probe_candidates(
         real_catalog,
         ["gemini-3-pro-preview", "gemini-3-pro-image-preview", "gemini-3.1-flash-image"],
-        today=selftest_today,
+        today=dt.date.today(),
     )
     real_members = _candidate_members(real_cands)
     assert ("openai", "gpt-5.2") not in real_members, "deprecated gpt-5.2 must not be probed back into allowlist"
@@ -1113,7 +1296,7 @@ def selftest() -> int:
     assert ("openai", "gpt-5.3-codex") not in real_members, "non-display gpt-5.3-codex alias must not be probed back into allowlist"
     assert ("openai", "gpt-5-codex") not in real_members, "non-display gpt-5-codex alias must not be probed back into allowlist"
     assert ("openai", "gpt-5.5-pro") not in real_members, "non-display gpt-5.5-pro alias must not be probed back into allowlist"
-    assert ("gemini", "gemini-3-pro-preview") not in real_members, "skiplist gemini chat must be excluded"
+    assert ("gemini", "gemini-3-pro-preview") in real_members, "transient 502 must remain eligible for re-probe"
     # gemini-*-image route to the gemini_chat_image family (chat/generateContent
     # surface), not gemini_chat (text) or gemini_image (imagen predict API).
     assert "gemini-3-pro-image-preview" in real_cands["gemini_chat_image"], real_cands["gemini_chat_image"]
@@ -1154,7 +1337,7 @@ def selftest() -> int:
     flat_proven = {m for s in proven.values() for m in s}
     assert "gpt-image-dead" not in flat_proven, "blocked model must never revive via traffic"
     assert "gpt-4o" not in flat_proven, "non-candidate must never be injected via traffic"
-    # proven ⊆ candidates (which exclude skiplist/deadlist) -> ledger validation passes.
+    # proven ⊆ candidates (which exclude skiplist/structurally_gone) -> ledger validation passes.
     validate_results_against_reprobe_ledger(proven, ledger)
     # reduced candidates: proven removed (not re-probed), untrafficked candidates kept (still probed).
     reduced = remove_proven_from_candidates(traffic_cands, proven)
@@ -1175,7 +1358,7 @@ def selftest() -> int:
         validate_results_against_reprobe_ledger({"openai": {"gpt-image-dead"}}, ledger)
         raise AssertionError("blocked proven model must fail ledger validation")
     except SystemExit as e:
-        assert "skiplist/deadlist" in str(e), e
+        assert "skiplist/structurally_gone" in str(e), e
     # proven_as_tsv round-trips into servable probe rows the apply path understands
     tsv = proven_as_tsv({"anthropic": {"claude-opus-4-8"}, "openai": {"gpt-5.4"}})
     assert parse_results(tsv) == {
@@ -1213,6 +1396,7 @@ def main() -> int:
 
     ap_cand = sub.add_parser("candidates")
     ap_cand.add_argument("--discovered", help=DISC_HELP)
+    sub.add_parser("watchlist-status")
     ap_probe = sub.add_parser("probe")
     ap_probe.add_argument("--discovered", help=DISC_HELP)
     add_traffic_flags(ap_probe)
@@ -1247,6 +1431,27 @@ def main() -> int:
         cands, _ledger = build_probe_candidates(json.loads(CATALOG.read_text(encoding="utf-8")), load_discovered(args.discovered))
         print(json.dumps(cands, indent=2, ensure_ascii=False))
         return 0
+
+    if args.cmd == "watchlist-status":
+        ledger = load_reprobe_ledger()
+        validate_reprobe_ledger(
+            ledger,
+            allowlist_members=_known_allowlist_members(GO_FILE.read_text(encoding="utf-8")),
+        )
+        stale = watchlist_freshness(ledger)
+        print(
+            json.dumps(
+                {
+                    "today": dt.date.today().isoformat(),
+                    "watchlist_count": len(_ledger_entries(ledger, "watchlist")),
+                    "stale_count": len(stale),
+                    "stale": stale,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 1 if stale else 0
 
     if args.cmd == "probe":
         cands, ledger = build_probe_candidates(json.loads(CATALOG.read_text(encoding="utf-8")), load_discovered(args.discovered))
