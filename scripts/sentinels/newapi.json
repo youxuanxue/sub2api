@@ -33,9 +33,41 @@
       "must_contain": [
         "func attachUpstreamQuotaForAccount",
         "account.Platform == PlatformNewAPI",
-        "unsupportedUpstreamQuota(PlatformNewAPI"
+        "buildNewAPIUpstreamQuota"
       ],
-      "rationale": "Unified upstream_quota projection must explicitly mark NewAPI/Vertex as unsupported rather than leaving the field absent. NewAPI channel providers have heterogeneous balance/quota APIs; Vertex service_account channel_type=41 currently has no GCP Billing/Monitoring/Service Usage integration, so the UI must show a clear unsupported upstream-quota state while local usage windows remain available."
+      "rationale": "Unified upstream_quota projection must route NewAPI through buildNewAPIUpstreamQuota rather than leaving the field absent. Without a snapshot the state is unknown (no false 'unsupported' chip); when a recoverable weekly/5h/7d 429 Extra snapshot exists it surfaces utilization + resets_at. Vertex service_account channel_type=41 still has no GCP Billing integration, so it stays unknown until a future control-plane quota adapter is added."
+    },
+    {
+      "path": "backend/internal/service/newapi_usage_window_tk.go",
+      "must_contain": [
+        "tkTryHandleNewAPIUsageWindow429",
+        "applyNewAPIUsageWindowSnapshot",
+        "buildNewAPIUpstreamQuota",
+        "newAPIWeeklyUtilExtraKey"
+      ],
+      "rationale": "NewAPI Agent Plan weekly/5h/7d prose 429s must cool until the parsed reset and persist Extra so admin usage windows show exhaustion instead of a permanent 'unsupported' chip. Dropping this companion recreates the account-88 weekly-quota UI blind spot."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "account.Platform == PlatformNewAPI && s.tkTryHandleNewAPIUsageWindow429(ctx, account, responseBody)"
+      ],
+      "rationale": "handle429 NewAPI branch must call tkTryHandleNewAPIUsageWindow429 after OpenAI-shaped resets_at parse fails. Without this injection, weekly/5h/7d prose 429s fall through to the short fallback cooldown and never persist Extra — recreating the account-88 operator blind spot even if newapi_usage_window_tk.go still compiles."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service.go",
+      "must_contain": [
+        "applyNewAPIUsageWindowSnapshot(account, usage)",
+        "applyNewAPIUsageWindowSnapshot(account, info)"
+      ],
+      "rationale": "Local-window GetUsage/GetPassiveUsage paths for NewAPI must overlay the recoverable weekly/5h/7d Extra snapshot onto progress bars before attachUpstreamQuota. account_usage_service.go is upstream-shaped; dropping either call compiles clean while unit tests of applyNewAPIUsageWindowSnapshot still pass, silently restoring 0% bars."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_tk_passive_batch.go",
+      "must_contain": [
+        "applyNewAPIUsageWindowSnapshot(account, usage)"
+      ],
+      "rationale": "Batch passive usage for admin overview cards must apply the same NewAPI Extra snapshot overlay as the single-account path. Dropping this call leaves list/overview cards at 0% while the detail card (getPassiveUsageForAccount) looks exhausted."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_newapi_pool.go",

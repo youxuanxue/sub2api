@@ -327,3 +327,38 @@ func TestClassifyOpsRoutingCapacityWinsOverClientInduced(t *testing.T) {
 	require.Equal(t, "routing", phase)
 	require.Equal(t, "platform", errorOwner)
 }
+
+func TestClassifyOpsBurstProtection429OwnedByClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	burstMsg := "System protection triggered by request burst. Please slow down traffic growth and increase requests gradually before retrying."
+
+	t.Run("final 429 with burst upstream text is client-owned and outside SLA", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		service.SetOpsUpstreamError(c, http.StatusTooManyRequests, burstMsg, "")
+
+		phase, _, errorOwner, errorSource := classifyOpsErrorLog(
+			c, "api_error", burstMsg, "", http.StatusTooManyRequests)
+
+		require.Equal(t, "request", phase)
+		require.Equal(t, "client", errorOwner)
+		require.Equal(t, "client_request", errorSource)
+		require.False(t, service.IsOpsSLAFaultOwner(errorOwner))
+	})
+
+	t.Run("final 499 after burst upstream 429 stays client-owned", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{{
+			UpstreamStatusCode: http.StatusTooManyRequests,
+			Message:            burstMsg,
+		}})
+
+		phase, _, errorOwner, _ := classifyOpsErrorLog(
+			c, "api_error", burstMsg, "", statusClientClosedRequest)
+
+		require.Equal(t, "request", phase)
+		require.Equal(t, "client", errorOwner)
+		require.False(t, service.IsOpsSLAFaultOwner(errorOwner))
+	})
+}

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -120,6 +121,17 @@ func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool
 	// Only request-validation 4xx are caller-fault. 401 (and non-TK 403) and any
 	// 5xx stay provider-owned (account auth / availability / genuine upstream
 	// failure); 404 model-not-found is handled as caller-fault just above.
+	//
+	// Upstream 429 "System protection triggered by request burst" is also
+	// caller-fault: the client ramped QPS too fast. Final 499 already lands as
+	// phase=request/client via statusClientClosedRequest; this branch covers the
+	// case where the gateway surfaces the same burst rejection as a final 429
+	// so it still drops out of SLA / upstream_error_rate.
+	if status == http.StatusTooManyRequests {
+		body, msg := tkOpsUpstreamErrorText(c)
+		combined := strings.ToLower(strings.TrimSpace(msg + "\n" + body))
+		return strings.Contains(combined, "system protection triggered by request burst")
+	}
 	if status != 400 && status != 422 {
 		return false
 	}

@@ -70,6 +70,7 @@ func (s *AccountUsageService) GetPassiveUsageBatch(ctx context.Context, accountI
 		if windows, ok := localWindows[account.ID]; ok {
 			now := time.Now()
 			usage = buildLocalWindowUsageFromStats(now, windows.fiveHour, windows.sevenDay)
+			applyNewAPIUsageWindowSnapshot(account, usage)
 			attachUpstreamQuotaForAccount(account, usage)
 		} else if windows, ok := openAIWindows[account.ID]; ok {
 			usage = s.buildPassiveOpenAIUsage(ctx, account, &windows)
