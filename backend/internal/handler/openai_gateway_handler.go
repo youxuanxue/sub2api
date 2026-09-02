@@ -606,8 +606,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "compact_not_supported", "No available OpenAI accounts support /responses/compact", streamStarted)
 					return
 				}
-				tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, reqModel)
-				h.handleStreamingAwareError(c, tkStatus, tkType, tkMsg, streamStarted)
+				status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, selectionModel, reqModel, err)
+				h.handleStreamingAwareError(c, status, errType, msg, streamStarted)
 				return
 			}
 			if lastFailoverErr != nil {
@@ -618,11 +618,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			return
 		}
 		if selection == nil || selection.Account == nil {
-			cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, requestPlatform)
-			if !cls.ModelNotFound {
-				markOpsRoutingCapacityLimited(c)
-			}
-			h.handleStreamingAwareError(c, cls.Status, cls.ErrType, cls.Message, streamStarted)
+			status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, selectionModel, reqModel, nil)
+			h.handleStreamingAwareError(c, status, errType, msg, streamStarted)
 			return
 		}
 		if previousResponseID != "" && selection != nil && selection.Account != nil {
@@ -1246,8 +1243,8 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				)...,
 			)
 			if len(failedAccountIDs) == 0 {
-				tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, currentRoutingModel)
-				h.anthropicStreamingAwareError(c, tkStatus, tkType, tkMsg, streamStarted)
+				status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, currentRoutingModel, reqModel, err)
+				h.anthropicStreamingAwareError(c, status, errType, msg, streamStarted)
 				return
 			} else {
 				if lastFailoverErr != nil {
@@ -1259,11 +1256,8 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			}
 		}
 		if selection == nil || selection.Account == nil {
-			cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, currentRoutingModel, reqModel)
-			if !cls.ModelNotFound {
-				markOpsRoutingCapacityLimited(c)
-			}
-			h.anthropicStreamingAwareError(c, cls.Status, cls.ErrType, cls.Message, streamStarted)
+			status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, currentRoutingModel, reqModel, nil)
+			h.anthropicStreamingAwareError(c, status, errType, msg, streamStarted)
 			return
 		}
 		account := selection.Account

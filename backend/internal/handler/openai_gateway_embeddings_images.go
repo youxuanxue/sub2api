@@ -178,10 +178,8 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 					}
 				}
 				if err != nil {
-					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-					// TK: empty pool fast-fails 429 (#575 parity); other scheduler errors stay 503.
-					tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, defaultModel)
-					h.handleStreamingAwareError(c, tkStatus, tkType, tkMsg, streamStarted)
+					status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, defaultModel, reqModel, err)
+					h.handleStreamingAwareError(c, status, errType, msg, streamStarted)
 					return
 				}
 			} else {

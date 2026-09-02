@@ -123,19 +123,13 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 		reqLog.Warn("openai_input_tokens.account_select_failed",
 			tkSelectionFailureLogFields(err, zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)))...,
 		)
-		cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, routingModel, reqModel)
-		if !cls.ModelNotFound {
-			markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-		}
-		h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
+		status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, routingModel, reqModel, err)
+		h.errorResponse(c, status, errType, msg)
 		return
 	}
 	if selection == nil || selection.Account == nil {
-		cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, routingModel, reqModel)
-		if !cls.ModelNotFound {
-			markOpsRoutingCapacityLimited(c)
-		}
-		h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
+		status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, routingModel, reqModel, nil)
+		h.errorResponse(c, status, errType, msg)
 		return
 	}
 	account := selection.Account
@@ -328,19 +322,13 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 		reqLog.Warn("openai_count_tokens.account_select_failed",
 			tkSelectionFailureLogFields(err, zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)))...,
 		)
-		cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, currentRoutingModel, reqModel)
-		if !cls.ModelNotFound {
-			markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-		}
-		h.anthropicErrorResponse(c, cls.Status, cls.ErrType, cls.Message)
+		status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, currentRoutingModel, reqModel, err)
+		h.anthropicErrorResponse(c, status, errType, msg)
 		return
 	}
 	if account == nil {
-		cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, currentRoutingModel, reqModel)
-		if !cls.ModelNotFound {
-			markOpsRoutingCapacityLimited(c)
-		}
-		h.anthropicErrorResponse(c, cls.Status, cls.ErrType, cls.Message)
+		status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, currentRoutingModel, reqModel, nil)
+		h.anthropicErrorResponse(c, status, errType, msg)
 		return
 	}
 

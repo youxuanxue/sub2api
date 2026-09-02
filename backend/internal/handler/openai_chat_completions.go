@@ -217,9 +217,8 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				)...,
 			)
 			if len(failedAccountIDs) == 0 {
-				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, reqModel)
-				h.handleStreamingAwareError(c, tkStatus, tkType, tkMsg, streamStarted)
+				status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, reqModel, reqModel, err)
+				h.handleStreamingAwareError(c, status, errType, msg, streamStarted)
 				return
 			} else {
 				if lastFailoverErr != nil {
@@ -231,11 +230,8 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			}
 		}
 		if selection == nil || selection.Account == nil {
-			cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel)
-			if !cls.ModelNotFound {
-				markOpsRoutingCapacityLimited(c)
-			}
-			h.handleStreamingAwareError(c, cls.Status, cls.ErrType, cls.Message, streamStarted)
+			status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, reqModel, reqModel, nil)
+			h.handleStreamingAwareError(c, status, errType, msg, streamStarted)
 			return
 		}
 		account := selection.Account

@@ -16,13 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestOpenAIEmbeddingsSelectionFailureResponse pins embeddings account-selection
-// failures to the same client-facing contract as openai/newapi chat: unsupported
-// model names → 400; model absent from group mapping on newapi groups → 404
-// model_not_found (not 503 internal from a wrong PlatformOpenAI diagnosis).
-func TestOpenAIEmbeddingsSelectionFailureResponse(t *testing.T) {
+// TestOpenAICompatFirstAttemptSelectionFailure pins the SSOT contract for
+// openai/newapi compat routes. Embeddings prod regression (newapi group +
+// text-embedding-3-small not onboarded) is one case in this matrix.
+func TestOpenAICompatFirstAttemptSelectionFailure(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	h := &OpenAIGatewayHandler{}
 
 	newCtx := func(t *testing.T) (*gin.Context, *httptest.ResponseRecorder) {
 		t.Helper()
@@ -39,6 +37,12 @@ func TestOpenAIEmbeddingsSelectionFailureResponse(t *testing.T) {
 		} `json:"error"`
 	}
 
+	writeJSON := func(t *testing.T, w *httptest.ResponseRecorder, status int, errType, msg string) {
+		t.Helper()
+		w.WriteHeader(status)
+		_, _ = w.WriteString(fmt.Sprintf(`{"error":{"type":%q,"message":%q}}`, errType, msg))
+	}
+
 	t.Run("unsupported model -> 400 invalid_request_error", func(t *testing.T) {
 		c, w := newCtx(t)
 		groupID := int64(18)
@@ -46,19 +50,20 @@ func TestOpenAIEmbeddingsSelectionFailureResponse(t *testing.T) {
 			GroupID: &groupID,
 			Group:   &service.Group{ID: groupID, Platform: service.PlatformNewAPI},
 		}
-		err := fmt.Errorf("%w: text-embedding-3-small (total=10 eligible=0 model_unsupported=10)", service.ErrUnsupportedModel)
+		err := fmt.Errorf("%w: deepseek-chat (total=10 eligible=0 model_unsupported=10)", service.ErrUnsupportedModel)
 
-		h.respondOpenAIEmbeddingsAccountSelectionFailure(c, apiKey, "text-embedding-3-small", err)
+		status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, nil, apiKey, "deepseek-chat", "deepseek-chat", err)
+		writeJSON(t, w, status, errType, msg)
 
 		require.Equal(t, http.StatusBadRequest, w.Code)
 		assert.Empty(t, w.Header().Get("Retry-After"))
 		var body errorBody
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 		assert.Equal(t, service.TkUnsupportedModelErrType, body.Error.Type)
-		assert.Equal(t, service.TkUnsupportedModelMessage("text-embedding-3-small"), body.Error.Message)
+		assert.Equal(t, service.TkUnsupportedModelMessage("deepseek-chat"), body.Error.Message)
 	})
 
-	t.Run("newapi group model not in mapping -> 404 model_not_found", func(t *testing.T) {
+	t.Run("embeddings regression newapi group model not in mapping -> 404 model_not_found", func(t *testing.T) {
 		c, w := newCtx(t)
 		groupID := int64(18)
 		apiKey := &service.APIKey{
@@ -69,10 +74,10 @@ func TestOpenAIEmbeddingsSelectionFailureResponse(t *testing.T) {
 			HasAccountsInPool: true,
 			HasModelSupport:   false,
 		}}
-		h := &OpenAIGatewayHandler{}
 		err := fmt.Errorf("%w for platform %q", service.ErrNoAvailableAccounts, service.PlatformNewAPI)
 
-		h.respondOpenAIEmbeddingsAccountSelectionFailureWithDiagnoser(c, apiKey, "text-embedding-3-small", err, fd)
+		status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, fd, apiKey, "text-embedding-3-small", "text-embedding-3-small", err)
+		writeJSON(t, w, status, errType, msg)
 
 		require.Equal(t, http.StatusNotFound, w.Code)
 		assert.Empty(t, w.Header().Get("Retry-After"))
@@ -85,29 +90,64 @@ func TestOpenAIEmbeddingsSelectionFailureResponse(t *testing.T) {
 		assert.False(t, isOpsRoutingCapacityLimited(c))
 	})
 
+	t.Run("chat-style err path same mapping gap -> 404 not 429", func(t *testing.T) {
+		c, _ := newCtx(t)
+		groupID := int64(18)
+		apiKey := &service.APIKey{
+			GroupID: &groupID,
+			Group:   &service.Group{ID: groupID, Platform: service.PlatformNewAPI},
+		}
+		fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{
+			HasAccountsInPool: true,
+			HasModelSupport:   false,
+		}}
+		err := fmt.Errorf("%w for platform %q", service.ErrNoAvailableAccounts, service.PlatformNewAPI)
+
+		status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, fd, apiKey, "gpt-4o", "gpt-4o", err)
+
+		require.Equal(t, http.StatusNotFound, status)
+		assert.Equal(t, "model_not_found", errType)
+		assert.Contains(t, msg, "gpt-4o")
+	})
+
 	t.Run("genuine empty pool -> 429 with Retry-After", func(t *testing.T) {
-		c, w := newCtx(t)
+		c, _ := newCtx(t)
 		groupID := int64(2)
 		apiKey := &service.APIKey{
 			GroupID: &groupID,
 			Group:   &service.Group{ID: groupID, Platform: service.PlatformOpenAI},
 		}
-		h := &OpenAIGatewayHandler{}
 
-		h.respondOpenAIEmbeddingsAccountSelectionFailure(c, apiKey, "text-embedding-3-small", service.ErrNoAvailableAccounts)
+		status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, nil, apiKey, "text-embedding-3-small", "text-embedding-3-small", service.ErrNoAvailableAccounts)
 
-		require.Equal(t, http.StatusTooManyRequests, w.Code)
-		assert.Equal(t, tkNoAvailableAccountsRetryAfterSeconds, w.Header().Get("Retry-After"))
-		var body errorBody
-		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-		assert.Equal(t, "api_error", body.Error.Type)
-		assert.Contains(t, body.Error.Message, "No available accounts")
+		require.Equal(t, http.StatusTooManyRequests, status)
+		assert.Equal(t, tkNoAvailableAccountsRetryAfterSeconds, c.Writer.Header().Get("Retry-After"))
+		assert.Equal(t, "api_error", errType)
+		assert.Contains(t, msg, "No available accounts")
+	})
+
+	t.Run("nil selection without err -> 404 when mapping gap", func(t *testing.T) {
+		c, _ := newCtx(t)
+		groupID := int64(18)
+		apiKey := &service.APIKey{
+			GroupID: &groupID,
+			Group:   &service.Group{ID: groupID, Platform: service.PlatformNewAPI},
+		}
+		fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{
+			HasAccountsInPool: true,
+			HasModelSupport:   false,
+		}}
+
+		status, errType, _ := openAICompatFirstAttemptSelectionFailure(c, fd, apiKey, "gpt-4o", "gpt-4o", nil)
+
+		require.Equal(t, http.StatusNotFound, status)
+		assert.Equal(t, "model_not_found", errType)
 	})
 }
 
-// TestOpenAIEmbeddingsRegression_WrongPlatformDiagnosis documents the prod bug:
+// TestOpenAICompatSelectionFailure_WrongPlatformDiagnosis documents the prod bug:
 // diagnosing a newapi group with PlatformOpenAI returned 503 instead of 404.
-func TestOpenAIEmbeddingsRegression_WrongPlatformDiagnosis(t *testing.T) {
+func TestOpenAICompatSelectionFailure_WrongPlatformDiagnosis(t *testing.T) {
 	c := newTestGinContextWithRequest()
 	fd := &platformAwareFakeDiagnoser{byPlatform: map[string]service.ModelAvailabilityDiagnosis{
 		service.PlatformOpenAI: {HasAccountsInPool: false, HasModelSupport: false},
@@ -123,12 +163,12 @@ func TestOpenAIEmbeddingsRegression_WrongPlatformDiagnosis(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, wrong.Status)
 	require.False(t, wrong.ModelNotFound)
 
-	right := classifyOpenAICompatibleNoAccountErrorFromGin(c, fd, apiKey, "text-embedding-3-small", "text-embedding-3-small")
-	require.Equal(t, http.StatusNotFound, right.Status)
-	require.True(t, right.ModelNotFound)
-	require.Len(t, fd.calls, 2)
-	require.Equal(t, service.PlatformOpenAI, fd.calls[0].Platform)
-	require.Equal(t, service.PlatformNewAPI, fd.calls[1].Platform)
+	fd.calls = nil
+	status, errType, _ := openAICompatFirstAttemptSelectionFailure(c, fd, apiKey, "text-embedding-3-small", "text-embedding-3-small", service.ErrNoAvailableAccounts)
+	require.Equal(t, http.StatusNotFound, status)
+	require.Equal(t, "model_not_found", errType)
+	require.Len(t, fd.calls, 1)
+	require.Equal(t, service.PlatformNewAPI, fd.calls[0].Platform)
 }
 
 type platformAwareFakeDiagnoser struct {

@@ -145,11 +145,8 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 				return
 			}
 			if len(failedAccountIDs) == 0 {
-				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, requestedModel, requestedModel, service.PlatformOpenAI)
-				if !cls.ModelNotFound {
-					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				}
-				h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
+				status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, requestedModel, requestedModel, err)
+				h.errorResponse(c, status, errType, msg)
 				return
 			}
 			if lastFailoverErr != nil {

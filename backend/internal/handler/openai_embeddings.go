@@ -158,7 +158,8 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
 			if len(failedAccountIDs) == 0 {
-				h.respondOpenAIEmbeddingsAccountSelectionFailure(c, apiKey, reqModel, err)
+				status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, reqModel, reqModel, err)
+				h.errorResponse(c, status, errType, msg)
 				return
 			}
 			if lastFailoverErr != nil {
@@ -169,7 +170,8 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 			return
 		}
 		if selection == nil || selection.Account == nil {
-			h.respondOpenAIEmbeddingsAccountSelectionFailure(c, apiKey, reqModel, nil)
+			status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, reqModel, reqModel, nil)
+			h.errorResponse(c, status, errType, msg)
 			return
 		}
 		account := selection.Account
@@ -296,46 +298,4 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		)
 		return
 	}
-}
-
-// respondOpenAIEmbeddingsAccountSelectionFailure maps first-attempt embeddings
-// account-selection failures to client-facing responses. It mirrors the
-// openai/newapi compat chat path (tkSelectFailureStatusMessage for unsupported
-// model names) and count_tokens (classifyOpenAICompatibleNoAccountErrorFromGin
-// with the group's platform). The old hard-coded PlatformOpenAI diagnosis on
-// newapi groups mislabeled "model not in group mapping" as 503 internal.
-func (h *OpenAIGatewayHandler) respondOpenAIEmbeddingsAccountSelectionFailure(
-	c *gin.Context,
-	apiKey *service.APIKey,
-	reqModel string,
-	err error,
-) {
-	h.respondOpenAIEmbeddingsAccountSelectionFailureWithDiagnoser(c, apiKey, reqModel, err, h.gatewayService)
-}
-
-func (h *OpenAIGatewayHandler) respondOpenAIEmbeddingsAccountSelectionFailureWithDiagnoser(
-	c *gin.Context,
-	apiKey *service.APIKey,
-	reqModel string,
-	err error,
-	diag service.ModelAvailabilityDiagnoser,
-) {
-	if err != nil && errors.Is(err, service.ErrUnsupportedModel) {
-		status, errType, msg := tkSelectFailureStatusMessage(c, err, reqModel)
-		h.errorResponse(c, status, errType, msg)
-		return
-	}
-	cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, diag, apiKey, reqModel, reqModel)
-	if cls.ModelNotFound {
-		h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
-		return
-	}
-	if err != nil {
-		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-		status, errType, msg := tkSelectFailureStatusMessage(c, err, reqModel)
-		h.errorResponse(c, status, errType, msg)
-		return
-	}
-	markOpsRoutingCapacityLimited(c)
-	h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
 }
