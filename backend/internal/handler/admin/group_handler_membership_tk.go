@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -52,17 +53,20 @@ func (h *GroupHandler) ListAccounts(c *gin.Context) {
 
 	items := make([]gin.H, 0, len(accounts))
 	for i := range accounts {
-		acc := accounts[i]
+		mapped := dto.AccountFromServiceShallow(&accounts[i])
+		if mapped == nil {
+			continue
+		}
 		items = append(items, gin.H{
-			"id":           acc.ID,
-			"name":         acc.Name,
-			"platform":     acc.Platform,
-			"type":         acc.Type,
-			"channel_type": acc.ChannelType,
-			"status":       acc.Status,
-			"schedulable":  acc.Schedulable,
-			"priority":     acc.Priority,
-			"extra":        acc.Extra,
+			"id":           mapped.ID,
+			"name":         mapped.Name,
+			"platform":     mapped.Platform,
+			"type":         mapped.Type,
+			"channel_type": mapped.ChannelType,
+			"status":       mapped.Status,
+			"schedulable":  mapped.Schedulable,
+			"priority":     mapped.Priority,
+			"extra":        mapped.Extra,
 		})
 	}
 	response.Paginated(c, items, total, page, pageSize)

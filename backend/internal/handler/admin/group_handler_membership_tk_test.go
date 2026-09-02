@@ -109,3 +109,35 @@ func TestGroupHandler_ListAccounts_OK(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Contains(t, w.Body.String(), `"id":3`)
 }
+
+func TestGroupHandler_ListAccounts_RedactsManagedExtra(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &membershipAdminServiceStub{
+		listFn: func(groupID int64, page, pageSize int, status, search string, channelType int) ([]service.Account, int64, error) {
+			return []service.Account{{
+				ID:       3,
+				Name:     "ollama",
+				Platform: service.PlatformOpenAI,
+				Status:   service.StatusActive,
+				Extra: map[string]any{
+					service.OllamaCloudUsageSessionExtraKey: "ciphertext-secret",
+					"ordinary":                              "kept",
+					"mixed_scheduling":                      true,
+				},
+			}}, 1, nil
+		},
+	}
+	h := NewGroupHandler(svc, nil, nil)
+	r := gin.New()
+	r.GET("/groups/:id/accounts", h.ListAccounts)
+
+	req := httptest.NewRequest(http.MethodGet, "/groups/7/accounts", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	require.NotContains(t, body, "ciphertext-secret")
+	require.NotContains(t, body, service.OllamaCloudUsageSessionExtraKey)
+	require.Contains(t, body, `"ordinary":"kept"`)
+	require.Contains(t, body, `"mixed_scheduling":true`)
+}

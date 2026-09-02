@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -131,6 +132,10 @@ func (s *adminServiceImpl) BindGroupAccounts(
 			acc.Credentials,
 			[]int64{groupID},
 		); err != nil {
+			var policyErr *PublicGroupAggregatorChannelError
+			if errors.As(err, &policyErr) {
+				return infraerrors.BadRequest("PUBLIC_GROUP_AGGREGATOR_CHANNEL", policyErr.Error())
+			}
 			return err
 		}
 	}

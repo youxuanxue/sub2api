@@ -830,6 +830,8 @@ export default {
         colSchedulable: '可调度',
         empty: '本分组暂无绑定账号',
         total: '共 {count} 个',
+        prevPage: '上一页',
+        nextPage: '下一页',
         addTitle: '添加账号到本分组',
         addHintSamePlatform: '只能添加 platform = {platform} 的账号',
         addHintMixed: '可添加同平台账号，或开启 mixed_scheduling 的 Antigravity 账号',

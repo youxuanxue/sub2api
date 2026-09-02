@@ -97,7 +97,7 @@
             :disabled="page <= 1 || loadingMembers"
             @click="page--; loadMembers()"
           >
-            {{ t('common.previous') }}
+            {{ t('admin.groups.members.prevPage') }}
           </button>
           <button
             type="button"
@@ -105,7 +105,7 @@
             :disabled="page * pageSize >= total || loadingMembers"
             @click="page++; loadMembers()"
           >
-            {{ t('common.next') }}
+            {{ t('admin.groups.members.nextPage') }}
           </button>
         </div>
       </div>
@@ -268,11 +268,17 @@ async function loadMembers() {
   }
 }
 
-function candidateSearchFilters(): { search?: string; lite: string; status: string } {
+function candidateSearchFilters(platform?: string): {
+  search?: string
+  lite: string
+  status: string
+  platform?: string
+} {
   return {
     search: candidateSearch.value.trim() || undefined,
     lite: '1',
-    status: 'active'
+    status: 'active',
+    ...(platform ? { platform } : {})
   }
 }
 
@@ -293,12 +299,56 @@ function isCandidateAllowed(acc: Account): boolean {
   return false
 }
 
+const COMPOSITE_CANDIDATE_PLATFORMS = [
+  'anthropic',
+  'openai',
+  'gemini',
+  'antigravity',
+  'newapi',
+  'kiro',
+  'grok',
+  'kimi',
+  'zhipu',
+  'deepseek'
+] as const
+
 async function loadCandidates() {
   if (!props.group) return
   loadingCandidates.value = true
   try {
-    const res = await listAccounts(1, 50, candidateSearchFilters())
-    candidates.value = (res.items || []).filter(isCandidateAllowed)
+    const groupPlatform = props.group.platform
+    const pageSize = 50
+    let items: Account[] = []
+
+    if (groupPlatform === 'composite') {
+      const pages = await Promise.all(
+        COMPOSITE_CANDIDATE_PLATFORMS.map((platform) =>
+          listAccounts(1, 20, candidateSearchFilters(platform))
+        )
+      )
+      const byID = new Map<number, Account>()
+      for (const page of pages) {
+        for (const acc of page.items || []) {
+          byID.set(acc.id, acc)
+        }
+      }
+      items = [...byID.values()]
+    } else if (groupPlatform === 'anthropic' || groupPlatform === 'gemini') {
+      const [same, antigravity] = await Promise.all([
+        listAccounts(1, pageSize, candidateSearchFilters(groupPlatform)),
+        listAccounts(1, pageSize, candidateSearchFilters('antigravity'))
+      ])
+      const byID = new Map<number, Account>()
+      for (const acc of [...(same.items || []), ...(antigravity.items || [])]) {
+        byID.set(acc.id, acc)
+      }
+      items = [...byID.values()]
+    } else {
+      const res = await listAccounts(1, pageSize, candidateSearchFilters(groupPlatform))
+      items = res.items || []
+    }
+
+    candidates.value = items.filter(isCandidateAllowed)
   } catch (err) {
     appStore.showError(err instanceof Error ? err.message : String(err))
   } finally {

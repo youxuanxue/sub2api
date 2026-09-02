@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
@@ -149,4 +150,30 @@ func TestBindGroupAccounts_RejectsMissingAccount(t *testing.T) {
 	err := svc.BindGroupAccounts(context.Background(), 1, []int64{99}, false)
 	require.Error(t, err)
 	require.Equal(t, "ACCOUNT_NOT_FOUND", infraerrors.Reason(err))
+}
+
+func TestBindGroupAccounts_RejectsPublicAggregatorAsBadRequest(t *testing.T) {
+	bound := false
+	groupRepo := &groupRepoStubForAdmin{
+		getByIDByID: map[int64]*Group{
+			1: {ID: 1, Name: "public-newapi", Platform: PlatformNewAPI, IsExclusive: false},
+		},
+		bindAccountsToGroupFn: func(int64, []int64) error {
+			bound = true
+			return nil
+		},
+	}
+	accRepo := &membershipAccountRepoFake{byID: map[int64]*Account{
+		10: {
+			ID: 10, Name: "or", Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
+			ChannelType: newapiconstant.ChannelTypeOpenRouter,
+		},
+	}}
+	svc := &adminServiceImpl{groupRepo: groupRepo, accountRepo: accRepo}
+
+	err := svc.BindGroupAccounts(context.Background(), 1, []int64{10}, true)
+	require.Error(t, err)
+	require.Equal(t, "PUBLIC_GROUP_AGGREGATOR_CHANNEL", infraerrors.Reason(err))
+	require.Equal(t, 400, infraerrors.Code(err))
+	require.False(t, bound)
 }

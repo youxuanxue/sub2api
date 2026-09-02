@@ -837,6 +837,8 @@ export default {
         colSchedulable: 'Schedulable',
         empty: 'No accounts bound to this group',
         total: '{count} total',
+        prevPage: 'Previous',
+        nextPage: 'Next',
         addTitle: 'Add accounts to this group',
         addHintSamePlatform: 'Only accounts with platform = {platform}',
         addHintMixed: 'Same-platform accounts, or Antigravity with mixed_scheduling',
