@@ -1,19 +1,13 @@
 <template>
   <!--
-    Match Dashboard/RiskControl: fill AppLayout main (already padded via lg:p-8).
-    Do not re-introduce max-w-* / mx-auto / extra page padding — that shrinks the
-    page relative to Accounts/Groups and leaves empty side gutters.
+    Fill AppLayout main like TablePageLayout (header 64px + lg:p-8). Title lives in
+    AppHeader only — do not reintroduce an in-page h1/description shell.
   -->
-  <div data-test="supplier-sources-page" class="w-full min-w-0 space-y-6">
-    <header class="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">
-          {{ t('admin.supplierSources.title') }}
-        </h1>
-        <p class="mt-1 text-sm text-gray-500">
-          {{ t('admin.supplierSources.description') }}
-        </p>
-      </div>
+  <div
+    data-test="supplier-sources-page"
+    class="supplier-sources-page flex w-full min-w-0 flex-col gap-4"
+  >
+    <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
       <button
         data-test="priority-preview-button"
         type="button"
@@ -23,12 +17,12 @@
       >
         {{ t('admin.supplierSources.globalPriorityPreview') }}
       </button>
-    </header>
+    </div>
 
     <section
       v-if="priorityPreview"
       data-test="priority-preview"
-      class="rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800"
+      class="shrink-0 rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800"
     >
       <h2 class="font-medium">{{ t('admin.supplierSources.globalPriorityPreview') }}</h2>
       <p v-if="priorityPreview.entries.length === 0" class="mt-2 text-sm text-gray-500">
@@ -61,10 +55,13 @@
       </ul>
     </section>
 
-    <div class="grid items-start gap-6 lg:grid-cols-[minmax(16rem,20rem)_minmax(0,1fr)]">
+    <div
+      data-test="supplier-sources-workspace"
+      class="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[minmax(16rem,20rem)_minmax(0,1fr)]"
+    >
       <section
         data-test="source-list"
-        class="flex max-h-[min(22rem,50vh)] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-8rem)]"
+        class="flex max-h-[min(22rem,50vh)] min-h-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800 lg:max-h-none lg:h-full"
       >
         <div class="shrink-0 space-y-2 border-b border-gray-200 p-3 dark:border-dark-700">
           <div class="flex items-center justify-between gap-2">
@@ -142,9 +139,9 @@
       <section
         ref="editorEl"
         data-test="source-editor"
-        class="min-w-0 space-y-5 rounded-xl border border-gray-200 bg-white p-4 sm:p-5 dark:border-dark-700 dark:bg-dark-800"
+        class="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800 lg:h-full"
       >
-        <form class="space-y-4" @submit.prevent="save">
+        <form class="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5" @submit.prevent="save">
           <div class="flex flex-wrap items-start justify-between gap-2">
             <div>
               <h2 data-test="editor-title" class="font-medium">{{ editorTitle }}</h2>
@@ -339,6 +336,10 @@
           </div>
         </form>
 
+        <div
+          v-if="syncError || discoverResult || validateResult || syncResult"
+          class="min-h-0 shrink-0 space-y-4 overflow-y-auto border-t border-gray-200 p-4 dark:border-dark-700 sm:p-5"
+        >
         <p
           v-if="syncError"
           data-test="sync-error"
@@ -350,7 +351,7 @@
         <section
           v-if="discoverResult"
           data-test="discover-result"
-          class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-700"
+          class="space-y-4"
         >
           <div class="flex flex-wrap items-center gap-3">
             <h2 class="font-medium">{{ t('admin.supplierSources.discoverPanelTitle') }}</h2>
@@ -452,7 +453,7 @@
         <section
           v-if="validateResult"
           data-test="validate-result"
-          class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-700"
+          class="space-y-4"
         >
           <div class="flex flex-wrap items-center gap-3">
             <h2 class="font-medium">{{ t('admin.supplierSources.validatePanelTitle') }}</h2>
@@ -484,7 +485,7 @@
         <section
           v-if="syncResult"
           data-test="sync-result"
-          class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-700"
+          class="space-y-4"
         >
           <div class="flex flex-wrap items-center gap-3">
             <h2 class="font-medium">{{ t('admin.supplierSources.syncResult') }}</h2>
@@ -527,6 +528,7 @@
             </ul>
           </div>
         </section>
+        </div>
       </section>
     </div>
   </div>
@@ -1056,3 +1058,17 @@ async function syncSelected(): Promise<void> {
 
 onMounted(load)
 </script>
+
+<style scoped>
+.supplier-sources-page {
+  /* Match TablePageLayout: header 64px + AppLayout lg:p-8 vertical padding. */
+  height: calc(100vh - 64px - 4rem);
+}
+
+@media (max-width: 1023px) {
+  .supplier-sources-page {
+    height: auto;
+    min-height: calc(100vh - 64px - 2rem);
+  }
+}
+</style>
