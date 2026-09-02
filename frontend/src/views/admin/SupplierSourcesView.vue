@@ -288,18 +288,28 @@
           <div class="flex flex-wrap gap-2">
             <button
               v-if="selected"
-              data-test="probe-source"
+              data-test="discover-source"
               type="button"
-              :disabled="saving || probing || syncing || blocksProbeAndSync"
+              :disabled="saving || discovering || validating || syncing || blocksDiscoverValidateProject"
               class="rounded-lg border border-gray-300 px-4 py-2 disabled:opacity-50 dark:border-dark-600"
-              @click="probeSelected"
+              @click="discoverSelected"
             >
-              {{ t('admin.supplierSources.probe') }}
+              {{ t('admin.supplierSources.discover') }}
+            </button>
+            <button
+              v-if="selected"
+              data-test="validate-source"
+              type="button"
+              :disabled="saving || discovering || validating || syncing || blocksDiscoverValidateProject"
+              class="rounded-lg border border-gray-300 px-4 py-2 disabled:opacity-50 dark:border-dark-600"
+              @click="validateSelected"
+            >
+              {{ t('admin.supplierSources.validate') }}
             </button>
             <button
               data-test="save-source"
               type="submit"
-              :disabled="saving || probing || syncing || !canSaveSelected"
+              :disabled="saving || discovering || validating || syncing || !canSaveSelected"
               class="rounded-lg bg-primary-600 px-4 py-2 text-white disabled:opacity-50"
             >
               {{ t('admin.supplierSources.save') }}
@@ -308,18 +318,18 @@
               v-if="selected"
               data-test="sync-source"
               type="button"
-              :disabled="saving || probing || syncing || blocksProbeAndSync"
+              :disabled="saving || discovering || validating || syncing || blocksDiscoverValidateProject"
               class="rounded-lg border border-gray-300 px-4 py-2 disabled:opacity-50 dark:border-dark-600"
               @click="syncSelected"
             >
-              {{ t('admin.supplierSources.sync') }}
+              {{ t('admin.supplierSources.project') }}
             </button>
             <span
-              v-if="selected && blocksProbeAndSync"
+              v-if="selected && blocksDiscoverValidateProject"
               data-test="sync-save-first"
               class="self-center text-sm text-amber-700"
             >
-              {{ t('admin.supplierSources.saveBeforeSync') }}
+              {{ t('admin.supplierSources.saveBeforeAction') }}
             </span>
           </div>
         </form>
@@ -333,62 +343,47 @@
         </p>
 
         <section
-          v-if="probeResult"
-          data-test="probe-result"
+          v-if="discoverResult"
+          data-test="discover-result"
           class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-700"
         >
           <div class="flex flex-wrap items-center gap-3">
-            <h2 class="font-medium">{{ t('admin.supplierSources.probePanelTitle') }}</h2>
+            <h2 class="font-medium">{{ t('admin.supplierSources.discoverPanelTitle') }}</h2>
             <span
-              v-if="probeResult.failed_step"
-              data-test="probe-failed-step"
+              v-if="discoverResult.failed_step"
+              data-test="discover-failed-step"
               class="text-sm text-red-600"
             >
-              {{ t('admin.supplierSources.failedStep') }}: {{ probeResult.failed_step }}
+              {{ t('admin.supplierSources.failedStep') }}: {{ discoverResult.failed_step }}
             </span>
           </div>
-          <p data-test="probe-summary" class="text-sm text-gray-600 dark:text-gray-300">
-            {{ t('admin.supplierSources.probeSummary', {
-              upstream: probeResult.upstream_models.length,
-              normalized: probeResult.normalized_changes.length,
-              suggested: probeResult.suggested_appends.length,
-              issues: probeResult.configured_issues.length,
-              rejected: probeResult.rejected_candidates.length,
+          <p data-test="discover-summary" class="text-sm text-gray-600 dark:text-gray-300">
+            {{ t('admin.supplierSources.discoverSummary', {
+              upstream: discoverResult.upstream_models.length,
+              normalized: discoverResult.normalized_changes.length,
+              suggested: discoverResult.suggested_appends.length,
+              issues: discoverResult.configured_issues.length,
+              rejected: discoverResult.rejected_candidates.length,
             }) }}
           </p>
           <p
-            v-if="probeResult.probe_status === 'running'"
-            data-test="probe-candidate-progress"
+            v-if="discoverResult.probe_status === 'running'"
+            data-test="discover-candidate-progress"
             class="text-sm text-amber-700"
           >
-            {{ t('admin.supplierSources.probeCandidateProgress', {
-              done: probeResult.probe_done,
-              total: probeResult.probe_total,
+            {{ t('admin.supplierSources.discoverCandidateProgress', {
+              done: discoverResult.probe_done,
+              total: discoverResult.probe_total,
             }) }}
           </p>
-          <p v-if="probeNeedsSave" data-test="probe-needs-save" class="text-sm text-amber-700">
-            {{ t('admin.supplierSources.probeNeedsSave') }}
+          <p v-if="discoverNeedsSave" data-test="discover-needs-save" class="text-sm text-amber-700">
+            {{ t('admin.supplierSources.discoverNeedsSave') }}
           </p>
-          <div v-if="probeResult.probe_results.length">
-            <h3 class="text-sm font-medium">{{ t('admin.supplierSources.configuredProbes') }}</h3>
-            <ul class="mt-2 space-y-2">
-              <li
-                v-for="probe in probeResult.probe_results"
-                :key="`configured-${probe.client_model_id}-${probe.upstream_model_id}`"
-                class="rounded-lg bg-gray-50 p-3 text-sm dark:bg-dark-900"
-              >
-                <div class="font-medium">{{ probe.client_model_id }} → {{ probe.upstream_model_id }}</div>
-                <div class="text-gray-600 dark:text-gray-300">
-                  {{ probe.status }}<span v-if="probe.protocol"> · {{ probe.protocol }}</span><span v-if="probe.detail"> · {{ probe.detail }}</span>
-                </div>
-              </li>
-            </ul>
-          </div>
-          <div v-if="probeResult.normalized_changes.length">
+          <div v-if="discoverResult.normalized_changes.length">
             <h3 class="text-sm font-medium">{{ t('admin.supplierSources.normalizedChanges') }}</h3>
             <ul class="mt-2 space-y-1 text-sm">
               <li
-                v-for="change in probeResult.normalized_changes"
+                v-for="change in discoverResult.normalized_changes"
                 :key="`${change.from_upstream_model_id}->${change.to_upstream_model_id}`"
               >
                 {{ change.from_client_model_id }} / {{ change.from_upstream_model_id }}
@@ -396,18 +391,18 @@
               </li>
             </ul>
           </div>
-          <div v-if="probeResult.suggested_appends.length">
+          <div v-if="discoverResult.suggested_appends.length">
             <h3 class="text-sm font-medium">{{ t('admin.supplierSources.suggestedAppends') }}</h3>
             <ul class="mt-2 space-y-1 text-sm">
               <li
-                v-for="model in probeResult.suggested_appends"
+                v-for="model in discoverResult.suggested_appends"
                 :key="`suggest-${model.upstream_model_id}`"
               >
                 {{ model.upstream_model_id }} · ratio {{ model.purchase_ratio ?? '—' }}
               </li>
             </ul>
             <button
-              v-if="probeResult.probe_status === 'completed'"
+              v-if="discoverResult.probe_status === 'completed'"
               type="button"
               data-test="append-suggested"
               class="mt-2 text-sm text-primary-600"
@@ -416,22 +411,22 @@
               {{ t('admin.supplierSources.appendSuggested') }}
             </button>
           </div>
-          <div v-if="probeResult.configured_issues.length">
+          <div v-if="discoverResult.configured_issues.length">
             <h3 class="text-sm font-medium">{{ t('admin.supplierSources.configuredIssues') }}</h3>
             <ul class="mt-2 space-y-1 text-sm">
               <li
-                v-for="issue in probeResult.configured_issues"
+                v-for="issue in discoverResult.configured_issues"
                 :key="`issue-${issue.upstream_model_id}`"
               >
                 {{ issue.client_model_id }} / {{ issue.upstream_model_id }} · {{ issue.reason }}
               </li>
             </ul>
           </div>
-          <div v-if="probeResult.rejected_candidates.length">
+          <div v-if="discoverResult.rejected_candidates.length">
             <h3 class="text-sm font-medium">{{ t('admin.supplierSources.rejectedCandidates') }}</h3>
             <ul class="mt-2 space-y-1 text-sm text-gray-600 dark:text-gray-300">
               <li
-                v-for="item in probeResult.rejected_candidates"
+                v-for="item in discoverResult.rejected_candidates"
                 :key="`reject-${item.upstream_model_id}`"
               >
                 {{ item.upstream_model_id }}
@@ -441,12 +436,44 @@
             </ul>
           </div>
           <p
-            v-if="probeEmptyDetail"
-            data-test="probe-empty"
+            v-if="discoverEmptyDetail"
+            data-test="discover-empty"
             class="text-sm text-gray-500"
           >
-            {{ t('admin.supplierSources.probeEmpty') }}
+            {{ t('admin.supplierSources.discoverEmpty') }}
           </p>
+        </section>
+
+        <section
+          v-if="validateResult"
+          data-test="validate-result"
+          class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-700"
+        >
+          <div class="flex flex-wrap items-center gap-3">
+            <h2 class="font-medium">{{ t('admin.supplierSources.validatePanelTitle') }}</h2>
+            <span
+              v-if="validateResult.failed_step"
+              data-test="validate-failed-step"
+              class="text-sm text-red-600"
+            >
+              {{ t('admin.supplierSources.failedStep') }}: {{ validateResult.failed_step }}
+            </span>
+          </div>
+          <div v-if="validateResult.probe_results.length">
+            <h3 class="text-sm font-medium">{{ t('admin.supplierSources.configuredProbes') }}</h3>
+            <ul class="mt-2 space-y-2">
+              <li
+                v-for="probe in validateResult.probe_results"
+                :key="`validated-${probe.client_model_id}-${probe.upstream_model_id}`"
+                class="rounded-lg bg-gray-50 p-3 text-sm dark:bg-dark-900"
+              >
+                <div class="font-medium">{{ probe.client_model_id }} → {{ probe.upstream_model_id }}</div>
+                <div class="text-gray-600 dark:text-gray-300">
+                  {{ probe.status }}<span v-if="probe.protocol"> · {{ probe.protocol }}</span><span v-if="probe.detail"> · {{ probe.detail }}</span>
+                </div>
+              </li>
+            </ul>
+          </div>
         </section>
 
         <section
@@ -462,21 +489,6 @@
             <span v-if="syncResult.failed_step" class="text-sm text-red-600">
               {{ t('admin.supplierSources.failedStep') }}: {{ syncResult.failed_step }}
             </span>
-          </div>
-
-          <div>
-            <h3 class="text-sm font-medium">{{ t('admin.supplierSources.probes') }}</h3>
-            <p v-if="syncResult.probe_results.length === 0" class="mt-1 text-sm text-gray-500">
-              {{ t('admin.supplierSources.noProbes') }}
-            </p>
-            <ul v-else class="mt-2 space-y-2 text-sm">
-              <li v-for="probe in syncResult.probe_results" :key="`${probe.client_model_id}-${probe.upstream_model_id}`" class="rounded-lg bg-gray-50 p-3 dark:bg-dark-900">
-                <div class="font-medium">{{ probe.client_model_id }} → {{ probe.upstream_model_id }}</div>
-                <div class="text-gray-600 dark:text-gray-300">
-                  {{ probe.status }}<span v-if="probe.protocol"> · {{ probe.protocol }}</span><span v-if="probe.detail"> · {{ probe.detail }}</span>
-                </div>
-              </li>
-            </ul>
           </div>
 
           <div>
@@ -506,6 +518,7 @@ import { useRoute } from 'vue-router'
 import {
   adminAPI,
   type SupplierSourceProbeResult,
+  type SupplierSourceValidateResult,
   type SupplierPriorityPreview,
   type SupplierSource,
   type SupplierSourceInput,
@@ -535,7 +548,8 @@ const supplierChannelTypeOptions = computed(() =>
 
 const loading = ref(true)
 const saving = ref(false)
-const probing = ref(false)
+const discovering = ref(false)
+const validating = ref(false)
 const syncing = ref(false)
 const previewing = ref(false)
 const sources = ref<SupplierSource[]>([])
@@ -545,8 +559,9 @@ const listQuery = ref('')
 const editorEl = ref<HTMLElement | null>(null)
 const priorityPreview = ref<SupplierPriorityPreview | null>(null)
 const syncResult = ref<SupplierSourceSyncResult | null>(null)
-const probeResult = ref<SupplierSourceProbeResult | null>(null)
-const probeNeedsSave = ref(false)
+const discoverResult = ref<SupplierSourceProbeResult | null>(null)
+const validateResult = ref<SupplierSourceValidateResult | null>(null)
+const discoverNeedsSave = ref(false)
 const syncError = ref('')
 const saveError = ref('')
 
@@ -596,8 +611,8 @@ const syncSucceeded = computed(() => (
   && !syncResult.value.failed_step
 ))
 
-const probeEmptyDetail = computed(() => {
-  const result = probeResult.value
+const discoverEmptyDetail = computed(() => {
+  const result = discoverResult.value
   if (!result || result.failed_step || syncError.value) return false
   if (result.probe_status === 'running' || result.probe_status === 'pending') return false
   return result.normalized_changes.length === 0
@@ -658,8 +673,9 @@ function resetForm(): void {
   selected.value = null
   copiedFrom.value = null
   syncResult.value = null
-  probeResult.value = null
-  probeNeedsSave.value = false
+  discoverResult.value = null
+  validateResult.value = null
+  discoverNeedsSave.value = false
   syncError.value = ''
   saveError.value = ''
   Object.assign(form, {
@@ -679,8 +695,9 @@ function selectSource(source: SupplierSource): void {
   selected.value = source
   copiedFrom.value = null
   syncResult.value = null
-  probeResult.value = null
-  probeNeedsSave.value = false
+  discoverResult.value = null
+  validateResult.value = null
+  discoverNeedsSave.value = false
   syncError.value = ''
   saveError.value = ''
   Object.assign(form, {
@@ -718,8 +735,9 @@ function copySelected(): void {
   copiedFrom.value = origin
   selected.value = null
   syncResult.value = null
-  probeResult.value = null
-  probeNeedsSave.value = false
+  discoverResult.value = null
+  validateResult.value = null
+  discoverNeedsSave.value = false
   syncError.value = ''
   saveError.value = ''
   Object.assign(form, {
@@ -809,8 +827,8 @@ const hasUnsavedChanges = computed(() => {
   return JSON.stringify(input.models) !== JSON.stringify(source.models)
 })
 
-const blocksProbeAndSync = computed(() => hasUnsavedChanges.value || probeNeedsSave.value)
-const canSaveSelected = computed(() => !selected.value || hasUnsavedChanges.value || probeNeedsSave.value)
+const blocksDiscoverValidateProject = computed(() => hasUnsavedChanges.value || discoverNeedsSave.value)
+const canSaveSelected = computed(() => !selected.value || hasUnsavedChanges.value || discoverNeedsSave.value)
 
 function replaceSource(source: SupplierSource): void {
   const index = sources.value.findIndex(item => item.id === source.id)
@@ -844,10 +862,10 @@ async function loadPriorityPreview(): Promise<void> {
   }
 }
 
-function applyProbeToForm(result: SupplierSourceProbeResult): void {
+function applyDiscoverToForm(result: SupplierSourceProbeResult): void {
   // Only rewrite configured rows to canonical IDs. Suggested appends stay in the
-  // probe panel until the operator explicitly adds them — auto-appending would
-  // re-dirty the form on every Sync after the operator removed unwanted models.
+  // discover panel until the operator explicitly adds them — auto-appending would
+  // re-dirty the form on every project after the operator removed unwanted models.
   form.models = result.normalized_models.length > 0
     ? result.normalized_models.map(model => ({
       client_model_id: model.client_model_id,
@@ -858,11 +876,11 @@ function applyProbeToForm(result: SupplierSourceProbeResult): void {
 }
 
 function appendSuggestedModels(): void {
-  if (!probeResult.value) return
+  if (!discoverResult.value) return
   const existing = new Set(
     form.models.map(model => model.client_model_id.trim().toLowerCase()).filter(Boolean),
   )
-  for (const model of probeResult.value.suggested_appends) {
+  for (const model of discoverResult.value.suggested_appends) {
     const key = model.client_model_id.trim().toLowerCase()
     if (!key || existing.has(key)) continue
     form.models.push({
@@ -883,7 +901,7 @@ function supplierSyncResultFromError(error: unknown): SupplierSourceSyncResult |
   return candidate as SupplierSourceSyncResult
 }
 
-function supplierProbeResultFromError(error: unknown): SupplierSourceProbeResult | null {
+function supplierDiscoverResultFromError(error: unknown): SupplierSourceProbeResult | null {
   if (!error || typeof error !== 'object') return null
   const data = (error as { data?: unknown }).data
   if (!data || typeof data !== 'object') return null
@@ -912,12 +930,25 @@ function supplierProbeResultFromError(error: unknown): SupplierSourceProbeResult
   }
 }
 
-async function waitProbeJob(
+function supplierValidateResultFromError(error: unknown): SupplierSourceValidateResult | null {
+  if (!error || typeof error !== 'object') return null
+  const data = (error as { data?: unknown }).data
+  if (!data || typeof data !== 'object') return null
+  const candidate = data as Partial<SupplierSourceValidateResult>
+  if (!Array.isArray(candidate.probe_results)) return null
+  return {
+    source_id: typeof candidate.source_id === 'number' ? candidate.source_id : 0,
+    probe_results: candidate.probe_results,
+    failed_step: typeof candidate.failed_step === 'string' ? candidate.failed_step : undefined,
+  }
+}
+
+async function waitDiscoverJob(
   sourceID: number,
   started: SupplierSourceProbeResult,
 ): Promise<SupplierSourceProbeResult> {
   let current = started
-  probeResult.value = current
+  discoverResult.value = current
   const jobID = current.job_id
   if (!jobID || current.probe_status !== 'running') {
     return current
@@ -925,53 +956,70 @@ async function waitProbeJob(
   const deadline = Date.now() + 15 * 60 * 1000
   while (Date.now() < deadline) {
     await new Promise(resolve => window.setTimeout(resolve, 1000))
-    current = await adminAPI.supplierSources.getProbeJob(sourceID, jobID)
-    probeResult.value = current
+    current = await adminAPI.supplierSources.getDiscoverJob(sourceID, jobID)
+    discoverResult.value = current
     if (current.probe_status === 'completed') {
       return current
     }
     if (current.probe_status === 'failed') {
       const message = current.failed_step
         ? `${t('admin.supplierSources.failedStep')}: ${current.failed_step}`
-        : t('admin.supplierSources.probePanelTitle')
+        : t('admin.supplierSources.discoverPanelTitle')
       throw Object.assign(new Error(message), { data: current, status: 422 })
     }
   }
-  throw new Error('supplier probe timed out')
+  throw new Error('supplier discover timed out')
 }
 
-async function probeSelected(): Promise<void> {
-  if (!selected.value || blocksProbeAndSync.value) return
-  probing.value = true
+async function discoverSelected(): Promise<void> {
+  if (!selected.value || blocksDiscoverValidateProject.value) return
+  discovering.value = true
   syncResult.value = null
-  probeResult.value = null
-  probeNeedsSave.value = false
+  discoverResult.value = null
+  validateResult.value = null
+  discoverNeedsSave.value = false
   syncError.value = ''
   try {
-    const started = await adminAPI.supplierSources.probe(selected.value.id)
-    const probed = await waitProbeJob(selected.value.id, started)
-    probeResult.value = probed
-    if (probed.needs_confirmation) {
-      applyProbeToForm(probed)
-      probeNeedsSave.value = true
+    const started = await adminAPI.supplierSources.discover(selected.value.id)
+    const discovered = await waitDiscoverJob(selected.value.id, started)
+    discoverResult.value = discovered
+    if (discovered.needs_confirmation) {
+      applyDiscoverToForm(discovered)
+      discoverNeedsSave.value = true
     }
   } catch (error) {
-    const probed = supplierProbeResultFromError(error)
-    if (probed) {
-      probeResult.value = probed
-      if (probed.needs_confirmation) {
-        applyProbeToForm(probed)
-        probeNeedsSave.value = true
+    const discovered = supplierDiscoverResultFromError(error)
+    if (discovered) {
+      discoverResult.value = discovered
+      if (discovered.needs_confirmation) {
+        applyDiscoverToForm(discovered)
+        discoverNeedsSave.value = true
       }
     }
     syncError.value = error instanceof Error ? error.message : String(error)
   } finally {
-    probing.value = false
+    discovering.value = false
+  }
+}
+
+async function validateSelected(): Promise<void> {
+  if (!selected.value || blocksDiscoverValidateProject.value) return
+  validating.value = true
+  syncResult.value = null
+  validateResult.value = null
+  syncError.value = ''
+  try {
+    validateResult.value = await adminAPI.supplierSources.validate(selected.value.id)
+  } catch (error) {
+    validateResult.value = supplierValidateResultFromError(error)
+    syncError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    validating.value = false
   }
 }
 
 async function syncSelected(): Promise<void> {
-  if (!selected.value || blocksProbeAndSync.value) return
+  if (!selected.value || blocksDiscoverValidateProject.value) return
   syncing.value = true
   syncResult.value = null
   syncError.value = ''

@@ -99,7 +99,7 @@ func TestUS048_ProbeUntilCompleteNormalizesAndSuggestsOnlyProbePassed(t *testing
 	require.NotContains(t, rejected, "glm-5.1")
 }
 
-func TestUS048_ProbeIncludesConfiguredRowResultsWithoutWritingAccounts(t *testing.T) {
+func TestUS048_ValidateProbesConfiguredRowsWithoutWritingAccounts(t *testing.T) {
 	ratio := 0.5
 	source := &SupplierSource{
 		ID: 11, SupplierName: "baidu", ChannelName: "default",
@@ -118,7 +118,7 @@ func TestUS048_ProbeIncludesConfiguredRowResultsWithoutWritingAccounts(t *testin
 	}
 	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 
-	result, err := svc.Probe(context.Background(), 11)
+	result, err := svc.Validate(context.Background(), 11)
 	require.NoError(t, err)
 	require.NotEmpty(t, result.ProbeResults)
 	require.Equal(t, "deepseek-v4-pro", result.ProbeResults[0].UpstreamModelID)

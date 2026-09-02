@@ -161,26 +161,33 @@ function source(overrides: Partial<SupplierSource> = {}): SupplierSource {
   }
 }
 
-/** Probe is read-only; return a completed, no-confirm payload. */
-function probeOK(src: SupplierSource) {
+/** Discover is read-only; return a completed, no-confirm payload. */
+function discoverOK(src: SupplierSource) {
   return {
     source_id: src.id,
     probe_status: 'completed',
-    probe_total: src.models.length,
-    probe_done: src.models.length,
-    upstream_models: src.models.map(model => ({ id: model.upstream_model_id, type: 'chat' })),
+    probe_total: 0,
+    probe_done: 0,
+    upstream_models: [],
     normalized_models: src.models,
     normalized_changes: [],
     suggested_appends: [],
     rejected_candidates: [],
     configured_issues: [],
+    probe_results: [],
+    needs_confirmation: false,
+  }
+}
+
+function validateOK(src: SupplierSource) {
+  return {
+    source_id: src.id,
     probe_results: src.models.map(model => ({
       client_model_id: model.client_model_id,
       upstream_model_id: model.upstream_model_id,
       status: 'passed',
       protocol: 'openai_chat_completions',
     })),
-    needs_confirmation: false,
   }
 }
 
@@ -231,28 +238,19 @@ test('US048 Jiajie saves facts previews priority and syncs one band account', as
       })
       return true
     }
-    if (path === '/api/v1/admin/supplier-sources/7/probe' && request.method() === 'POST') {
-      await fulfillSuccess(route, probeOK(sources[0]))
+    if (path === '/api/v1/admin/supplier-sources/7/discover' && request.method() === 'POST') {
+      await fulfillSuccess(route, discoverOK(sources[0]))
+      return true
+    }
+    if (path === '/api/v1/admin/supplier-sources/7/validate' && request.method() === 'POST') {
+      await fulfillSuccess(route, validateOK(sources[0]))
       return true
     }
     if (path === '/api/v1/admin/supplier-sources/7/sync' && request.method() === 'POST') {
       syncRequests += 1
       await fulfillSuccess(route, {
         source_id: 7,
-        probe_results: [
-          {
-            client_model_id: 'deepseek-v4-pro',
-            upstream_model_id: 'deepseek-v4-pro',
-            status: 'passed',
-            protocol: 'openai_chat_completions',
-          },
-          {
-            client_model_id: 'qwen-3.7-max',
-            upstream_model_id: 'qwen-3.7-max',
-            status: 'passed',
-            protocol: 'openai_chat_completions',
-          },
-        ],
+        probe_results: [],
         changes: [{
           account_id: 101,
           discount_band: 3,
@@ -317,19 +315,20 @@ test('US048 Jiajie saves facts previews priority and syncs one band account', as
 
   await page.locator('[data-test="notes"]').fill('尚未保存的运营修改')
   await expect(page.locator('[data-test="sync-source"]')).toBeDisabled()
-  await expect(page.locator('[data-test="probe-source"]')).toBeDisabled()
+  await expect(page.locator('[data-test="discover-source"]')).toBeDisabled()
+  await expect(page.locator('[data-test="validate-source"]')).toBeDisabled()
   await expect(page.locator('[data-test="sync-save-first"]')).toContainText(
-    '请先保存当前修改，再探测或同步。',
+    '请先保存当前修改，再发现、校验或投影。',
   )
   expect(syncRequests).toBe(0)
   await page.locator('[data-test="notes"]').fill('首批最低合法比例')
   await expect(page.locator('[data-test="sync-source"]')).toBeEnabled()
 
+  await page.locator('[data-test="validate-source"]').click()
   await page.locator('[data-test="sync-source"]').click()
   const result = page.locator('[data-test="sync-result"]')
-  await expect(result).toContainText('同步完成')
-  await expect(result).toContainText('deepseek-v4-pro → deepseek-v4-pro')
-  await expect(result).toContainText('qwen-3.7-max → qwen-3.7-max')
+  await expect(result).toContainText('投影完成')
+  await expect(result).toContainText('新增模型: deepseek-v4-pro, qwen-3.7-max')
   await expect(result).toContainText('#101 · created · band 3')
   await expect(result).toContainText('priority — → 130')
   expect(syncRequests).toBe(1)
@@ -355,12 +354,8 @@ test('US048 FMGo shows the fixed protocol boundary without account changes', asy
       await fulfillSuccess(route, [fmgo])
       return true
     }
-    if (path === '/api/v1/admin/supplier-sources/9/probe' && request.method() === 'POST') {
-      await fulfillSuccess(route, probeOK(fmgo))
-      return true
-    }
-    if (path === '/api/v1/admin/supplier-sources/9/sync' && request.method() === 'POST') {
-      await fulfillError(route, 422, 'supplier source probe failed', {
+    if (path === '/api/v1/admin/supplier-sources/9/validate' && request.method() === 'POST') {
+      await fulfillError(route, 422, 'one or more supplier models failed validation', {
         source_id: 9,
         probe_results: [{
           client_model_id: 'doubao-seedance-2-0-260128',
@@ -368,8 +363,7 @@ test('US048 FMGo shows the fixed protocol boundary without account changes', asy
           status: 'protocol_unsupported',
           detail: 'supplier protocol unsupported',
         }],
-        changes: [],
-        failed_step: 'probe',
+        failed_step: 'validate',
       })
       return true
     }
@@ -381,13 +375,12 @@ test('US048 FMGo shows the fixed protocol boundary without account changes', asy
   await expect(page.locator('[data-test="client-model-id"]')).toHaveValue('doubao-seedance-2-0-260128')
   await expect(page.locator('[data-test="upstream-model-id"]')).toHaveValue('feimiao-seedance-2-0-260128')
 
-  await page.locator('[data-test="sync-source"]').click()
-  const result = page.locator('[data-test="sync-result"]')
-  await expect(result).toContainText('protocol_unsupported')
-  await expect(result).toContainText('supplier protocol unsupported')
-  await expect(result).toContainText('失败步骤: probe')
-  await expect(result).toContainText('本次没有账号变更。')
-  await expect(result).not.toContainText('同步完成')
+  await page.locator('[data-test="validate-source"]').click()
+  const validateResult = page.locator('[data-test="validate-result"]')
+  await expect(validateResult).toContainText('protocol_unsupported')
+  await expect(validateResult).toContainText('supplier protocol unsupported')
+  await expect(validateResult).toContainText('失败步骤: validate')
+  await expect(page.locator('[data-test="sync-result"]')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /激活|暂停/ })).toHaveCount(0)
 })
 
@@ -467,7 +460,7 @@ test('US048 accounts UI marks supplier-managed accounts and allows ordinary edit
   // Scope to the edit dialog: page-level name:'更新' also matches toolbar「批量更新」.
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('heading', { name: '编辑账号' })).toBeVisible()
-  await expect(dialog.getByText('该账号由供应源创建；在供应源点击「同步账号」会覆盖更新投影字段（如 priority、model_mapping 等）。平时可按普通账号编辑。')).toBeVisible()
+  await expect(dialog.getByText('该账号由供应源创建；在供应源点击「投影账号」会覆盖更新投影字段（如 priority、model_mapping 等）。平时可按普通账号编辑。')).toBeVisible()
   await expect(dialog.locator('[data-tour="account-form-submit"]')).toBeVisible()
   await expect(dialog.locator('[data-tour="edit-account-form-name"]')).toBeEnabled()
   await expect(dialog.locator('[data-tour="account-form-priority"]')).toBeEnabled()

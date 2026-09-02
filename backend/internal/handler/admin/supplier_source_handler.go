@@ -216,12 +216,12 @@ func (h *SupplierSourceHandler) Sync(c *gin.Context) {
 	response.Success(c, result)
 }
 
-func (h *SupplierSourceHandler) Probe(c *gin.Context) {
+func (h *SupplierSourceHandler) Discover(c *gin.Context) {
 	id, ok := supplierSourceID(c)
 	if !ok {
 		return
 	}
-	result, err := h.service.Probe(c.Request.Context(), id)
+	result, err := h.service.Discover(c.Request.Context(), id)
 	if err != nil {
 		writeSupplierSourceProbeError(c, result, err)
 		return
@@ -229,7 +229,20 @@ func (h *SupplierSourceHandler) Probe(c *gin.Context) {
 	response.Success(c, result)
 }
 
-func (h *SupplierSourceHandler) GetProbeJob(c *gin.Context) {
+func (h *SupplierSourceHandler) Validate(c *gin.Context) {
+	id, ok := supplierSourceID(c)
+	if !ok {
+		return
+	}
+	result, err := h.service.Validate(c.Request.Context(), id)
+	if err != nil {
+		writeSupplierSourceValidateError(c, result, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *SupplierSourceHandler) GetDiscoverJob(c *gin.Context) {
 	id, ok := supplierSourceID(c)
 	if !ok {
 		return
@@ -239,12 +252,29 @@ func (h *SupplierSourceHandler) GetProbeJob(c *gin.Context) {
 		response.InvalidRequest(c)
 		return
 	}
-	result, err := h.service.GetSupplierProbeJob(c.Request.Context(), id, jobID)
+	result, err := h.service.GetSupplierDiscoverJob(c.Request.Context(), id, jobID)
 	if err != nil {
 		writeSupplierSourceProbeError(c, result, err)
 		return
 	}
 	response.Success(c, result)
+}
+
+func writeSupplierSourceValidateError(c *gin.Context, result *service.SupplierSourceValidateResult, err error) {
+	statusCode, message, reason, metadata := supplierSourceHTTPError(err)
+	failedStep := ""
+	if result != nil {
+		failedStep = result.FailedStep
+	}
+	slog.Warn("supplier_source_validate_failed",
+		"status_code", statusCode,
+		"failed_step", failedStep,
+		"message", message,
+		"err", err.Error(),
+	)
+	c.JSON(statusCode, response.Response{
+		Code: statusCode, Message: message, Reason: reason, Metadata: metadata, Data: result,
+	})
 }
 
 func writeSupplierSourceProbeError(c *gin.Context, result *service.SupplierSourceProbeResult, err error) {
@@ -298,6 +328,7 @@ func supplierSourceHTTPError(err error) (int, string, string, map[string]string)
 		errors.Is(err, service.ErrSupplierSourceMultipleMatches):
 		return http.StatusConflict, err.Error(), "", nil
 	case errors.Is(err, service.ErrSupplierSourceProbeFailed),
+		errors.Is(err, service.ErrSupplierSourceValidateRequired),
 		errors.Is(err, service.ErrSupplierProjectionProtocolNotReady):
 		status := infraerrors.FromError(err)
 		return int(status.Code), status.Message, status.Reason, status.Metadata

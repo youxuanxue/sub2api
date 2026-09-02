@@ -54,7 +54,8 @@
 - `backend/internal/repository/supplier_source_repo_test.go`::`TestSupplierSourceRepositoryCreateClassifiesIdentityConflict`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierSyncGroupsSameBandModelsIntoOneAccount`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierProbeAccountCarriesManagedIdentity`
-- `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierSyncProbeFailureReturnsEveryResultAndWritesNothing`
+- `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_ValidateFailureReturnsEveryResultAndWritesNothing`
+- `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierSyncWithoutValidateReturnsValidateRequired`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierSyncMetadataOnlySkipsProbe`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierSyncNameChangeUpdatesAccountWithoutProbe`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierSyncMovesModelByAddingBeforeRemoving`
@@ -69,7 +70,7 @@
 - `backend/internal/service/supplier_managed_transport_test.go`::`TestUS048_ResolveSupplierManagedTransportSelectsBaiduV2ForQianfan`
 - `backend/internal/service/supplier_managed_account_commands_test.go`::`TestUS048_SupplierQianfanCreateUsesBaiduV2Transport`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation`
-- `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierSyncProbesBeforeRepairingNonEmptySchedulingProjection`
+- `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierSyncRequiresValidateBeforeRepairingNonEmptySchedulingProjection`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_SupplierSyncRepairsEmptySchedulingProjectionWithoutProbe`
 - `backend/internal/service/supplier_source_account_store_test.go`::`TestUS048_SupplierAccountStoreMatchesWithoutReadingGroups`
 - `backend/internal/repository/account_repo_integration_test.go`::`TestAccountRepoSuite`（子测试：`TestUS048_SupplierProjectionReadsDoNotQueryAccountGroups`）
@@ -94,6 +95,7 @@
 - `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_SupplierModelMatchKeyNormalizesCaseAndSpaces`
 - `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_MatchSupplierUpstreamModelIDPrefersCanonicalID`
 - `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_BuildSupplierModelsListURLUsesBaiduV2Path`
+- `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_ValidateProbesConfiguredRowsWithoutWritingAccounts`
 - `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_ProbeUntilCompleteNormalizesAndSuggestsOnlyProbePassed`
 - `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_ProbeUntilCompleteSuggestionsAloneDoNotBlockProjection`
 - `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_ProbeUntilCompletePreservesIntentionalClientUpstreamRemap`
@@ -127,9 +129,9 @@
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`keeps suggestions opt-in and does not auto-sync after probe`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`shows probe failure message and failed_step outside the sync-result block`
 - `backend/internal/handler/admin/supplier_source_handler_test.go`::`TestUS048_ProbeUpstreamListFailureReturnsSafeMessageAndFailedStep`
-- `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`renders every probe result and actual account change returned by sync`
+- `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`renders account changes returned by sync`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`does not show success when a resolved sync result reports a failed step`
-- `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`shows protocol_unsupported probe results from a 422 response without success wording`
+- `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`shows protocol_unsupported validate results from a 422 response without success wording`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`selects the supplier source requested by source_id after loading the list`
 - `frontend/src/views/admin/__tests__/AccountsView.supplierManaged.spec.ts`::`shows the supplier-managed badge and treats managed rows like ordinary accounts`
 - `frontend/src/views/admin/__tests__/AccountsView.supplierManaged.spec.ts`::`opens the account modal for supplier-managed rows`

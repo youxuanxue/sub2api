@@ -84,6 +84,7 @@ type SupplierSourceService struct {
 	encryptor     SecretEncryptor
 	fingerprinter SupplierCredentialFingerprinter
 	probeJobs     *supplierProbeJobRegistry
+	validateCache *supplierValidateCache
 }
 
 func NewSupplierSourceService(
@@ -95,7 +96,8 @@ func NewSupplierSourceService(
 ) *SupplierSourceService {
 	return &SupplierSourceService{
 		repo: repo, accounts: accounts, probe: probe, encryptor: encryptor, fingerprinter: fingerprinter,
-		probeJobs: newSupplierProbeJobRegistry(),
+		probeJobs:     newSupplierProbeJobRegistry(),
+		validateCache: newSupplierValidateCache(),
 	}
 }
 
@@ -145,6 +147,7 @@ func (s *SupplierSourceService) Create(ctx context.Context, input SupplierSource
 	if err := s.repo.Create(ctx, source); err != nil {
 		return nil, err
 	}
+	s.invalidateSupplierValidateCache(source.ID)
 	return source, nil
 }
 
@@ -185,6 +188,7 @@ func (s *SupplierSourceService) Update(ctx context.Context, id int64, input Supp
 	if err := s.repo.Update(ctx, updated); err != nil {
 		return nil, err
 	}
+	s.invalidateSupplierValidateCache(updated.ID)
 	return updated, nil
 }
 
@@ -285,10 +289,11 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 	}
 
 	if len(source.Models) > 0 {
-		result.ProbeResults = s.probeSupplierTargets(ctx, source, credential, targets, managedByBand, adoptByBand)
-		if supplierProbeResultsFailed(result.ProbeResults) {
-			result.FailedStep = "probe"
-			return result, ErrSupplierSourceProbeFailed
+		fingerprint := supplierValidateFingerprint(source)
+		passed, ok := s.validateCacheRegistry().get(source.ID, fingerprint)
+		if !ok || !passed {
+			result.FailedStep = "validate"
+			return result, ErrSupplierSourceValidateRequired
 		}
 	}
 

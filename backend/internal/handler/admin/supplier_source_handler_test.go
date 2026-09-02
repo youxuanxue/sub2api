@@ -80,6 +80,7 @@ func TestUS048_SupplierSourceErrorsUseStableHTTPClasses(t *testing.T) {
 		{service.ErrSupplierSourceNotFound, http.StatusNotFound},
 		{service.ErrSupplierSourceIdentityConflict, http.StatusConflict},
 		{service.ErrSupplierSourceProbeFailed, http.StatusUnprocessableEntity},
+		{service.ErrSupplierSourceValidateRequired, http.StatusUnprocessableEntity},
 		{service.ErrSupplierProjectionProtocolNotReady, http.StatusUnprocessableEntity},
 		{&service.UpstreamModelSyncError{
 			Kind: service.UpstreamModelSyncErrorConfiguration, Message: "No supplier API key is available",

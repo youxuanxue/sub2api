@@ -4,13 +4,14 @@ import { nextTick } from 'vue'
 
 import SupplierSourcesView from '../SupplierSourcesView.vue'
 
-const { list, create, update, priorityPreview, probe, getProbeJob, sync, routeQuery, channelTypes } = vi.hoisted(() => ({
+const { list, create, update, priorityPreview, discover, getDiscoverJob, validate, sync, routeQuery, channelTypes } = vi.hoisted(() => ({
   list: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
   priorityPreview: vi.fn(),
-  probe: vi.fn(),
-  getProbeJob: vi.fn(),
+  discover: vi.fn(),
+  getDiscoverJob: vi.fn(),
+  validate: vi.fn(),
   sync: vi.fn(),
   routeQuery: {} as Record<string, unknown>,
   channelTypes: { value: [
@@ -30,7 +31,7 @@ vi.mock('@/composables/useNewApiChannelTypes', () => ({
 }))
 
 vi.mock('@/api/admin', () => ({
-  adminAPI: { supplierSources: { list, create, update, priorityPreview, probe, getProbeJob, sync } },
+  adminAPI: { supplierSources: { list, create, update, priorityPreview, discover, getDiscoverJob, validate, sync } },
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -67,7 +68,7 @@ describe('SupplierSourcesView', () => {
     create.mockReset()
     update.mockReset()
     priorityPreview.mockReset().mockResolvedValue({ entries: [], warnings: [] })
-    probe.mockReset().mockResolvedValue({
+    discover.mockReset().mockResolvedValue({
       source_id: 7,
       probe_status: 'completed',
       probe_total: 0,
@@ -81,7 +82,8 @@ describe('SupplierSourcesView', () => {
       probe_results: [],
       needs_confirmation: false,
     })
-    getProbeJob.mockReset()
+    getDiscoverJob.mockReset()
+    validate.mockReset().mockResolvedValue({ source_id: 7, probe_results: [] })
     sync.mockReset()
   })
 
@@ -130,7 +132,7 @@ describe('SupplierSourcesView', () => {
       aliSource.endpoint,
     )
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeUndefined()
-    expect(wrapper.get('[data-test="probe-source"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-test="discover-source"]').attributes('disabled')).toBeUndefined()
     expect(wrapper.get('[data-test="save-source"]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('[data-test="sync-save-first"]').exists()).toBe(false)
   })
@@ -187,7 +189,7 @@ describe('SupplierSourcesView', () => {
   it('serializes probe and sync submissions for the selected source', async () => {
     list.mockResolvedValueOnce([source])
     let resolveProbe!: (value: Record<string, unknown>) => void
-    probe.mockReturnValueOnce(new Promise(resolve => { resolveProbe = resolve }))
+    discover.mockReturnValueOnce(new Promise(resolve => { resolveProbe = resolve }))
     let resolveSync!: (value: {
       source_id: number
       probe_results: never[]
@@ -199,10 +201,10 @@ describe('SupplierSourcesView', () => {
     await wrapper.get('[data-test="source-select-7"]').trigger('click')
 
     expect(wrapper.get('[data-test="save-source"]').attributes('disabled')).toBeDefined()
-    await wrapper.get('[data-test="probe-source"]').trigger('click')
+    await wrapper.get('[data-test="discover-source"]').trigger('click')
     await nextTick()
 
-    expect(wrapper.get('[data-test="probe-source"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-test="discover-source"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
 
     resolveProbe({
@@ -220,11 +222,13 @@ describe('SupplierSourcesView', () => {
       needs_confirmation: false,
     })
     await flushPromises()
+    await wrapper.get('[data-test="validate-source"]').trigger('click')
     await wrapper.get('[data-test="sync-source"]').trigger('click')
     await nextTick()
 
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
-    expect(probe).toHaveBeenCalledWith(7)
+    expect(discover).toHaveBeenCalledWith(7)
+    expect(validate).toHaveBeenCalledWith(7)
     expect(sync).toHaveBeenCalledWith(7)
 
     resolveSync({ source_id: 7, probe_results: [], changes: [] })
@@ -241,13 +245,14 @@ describe('SupplierSourcesView', () => {
     await nextTick()
 
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[data-test="probe-source"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-test="discover-source"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-test="sync-save-first"]').text()).toContain(
-      'admin.supplierSources.saveBeforeSync',
+      'admin.supplierSources.saveBeforeAction',
     )
     await wrapper.get('[data-test="sync-source"]').trigger('click')
-    await wrapper.get('[data-test="probe-source"]').trigger('click')
-    expect(probe).not.toHaveBeenCalled()
+    await wrapper.get('[data-test="discover-source"]').trigger('click')
+    await wrapper.get('[data-test="validate-source"]').trigger('click')
+    expect(discover).not.toHaveBeenCalled()
     expect(sync).not.toHaveBeenCalled()
 
     await wrapper.get('[data-test="notes"]').setValue(source.notes)
@@ -259,7 +264,7 @@ describe('SupplierSourcesView', () => {
 
   it('applies probe normalize to the form and keeps suggestions opt-in', async () => {
     list.mockResolvedValueOnce([source])
-    probe.mockResolvedValueOnce({
+    discover.mockResolvedValueOnce({
       source_id: 7,
       probe_status: 'completed',
       probe_total: 1,
@@ -297,15 +302,15 @@ describe('SupplierSourcesView', () => {
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
     await wrapper.get('[data-test="source-select-7"]').trigger('click')
-    await wrapper.get('[data-test="probe-source"]').trigger('click')
+    await wrapper.get('[data-test="discover-source"]').trigger('click')
     await flushPromises()
 
     expect(sync).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-test="probe-source"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[data-test="probe-needs-save"]').text()).toContain(
-      'admin.supplierSources.probeNeedsSave',
+    expect(wrapper.get('[data-test="discover-source"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-test="discover-needs-save"]').text()).toContain(
+      'admin.supplierSources.discoverNeedsSave',
     )
-    expect(wrapper.get('[data-test="probe-result"]').text()).toContain('glm-5.1')
+    expect(wrapper.get('[data-test="discover-result"]').text()).toContain('glm-5.1')
     expect(wrapper.findAll('[data-test="upstream-model-id"]')).toHaveLength(1)
     expect((wrapper.get('[data-test="upstream-model-id"]').element as HTMLInputElement).value)
       .toBe('deepseek-v4-pro')
@@ -320,7 +325,7 @@ describe('SupplierSourcesView', () => {
 
   it('keeps suggestions opt-in and does not auto-sync after probe', async () => {
     list.mockResolvedValueOnce([source])
-    probe.mockResolvedValueOnce({
+    discover.mockResolvedValueOnce({
       source_id: 7,
       probe_status: 'completed',
       probe_total: 1,
@@ -341,19 +346,19 @@ describe('SupplierSourcesView', () => {
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
     await wrapper.get('[data-test="source-select-7"]').trigger('click')
-    await wrapper.get('[data-test="probe-source"]').trigger('click')
+    await wrapper.get('[data-test="discover-source"]').trigger('click')
     await flushPromises()
 
     expect(sync).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-test="probe-result"]').text()).toContain('glm-5.1')
-    expect(wrapper.find('[data-test="probe-needs-save"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="discover-result"]').text()).toContain('glm-5.1')
+    expect(wrapper.find('[data-test="discover-needs-save"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeUndefined()
   })
 
   it('polls a running probe job until completed without syncing', async () => {
     vi.useFakeTimers()
     list.mockResolvedValueOnce([source])
-    probe.mockResolvedValueOnce({
+    discover.mockResolvedValueOnce({
       source_id: 7,
       job_id: 'job-async-1',
       probe_status: 'running',
@@ -368,7 +373,7 @@ describe('SupplierSourcesView', () => {
       probe_results: [],
       needs_confirmation: false,
     })
-    getProbeJob
+    getDiscoverJob
       .mockResolvedValueOnce({
         source_id: 7,
         job_id: 'job-async-1',
@@ -410,22 +415,22 @@ describe('SupplierSourcesView', () => {
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
     await wrapper.get('[data-test="source-select-7"]').trigger('click')
-    await wrapper.get('[data-test="probe-source"]').trigger('click')
+    await wrapper.get('[data-test="discover-source"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('[data-test="probe-candidate-progress"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="discover-candidate-progress"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="append-suggested"]').exists()).toBe(false)
     expect(sync).not.toHaveBeenCalled()
 
     await vi.advanceTimersByTimeAsync(1000)
     await flushPromises()
-    expect(getProbeJob).toHaveBeenCalledWith(7, 'job-async-1')
+    expect(getDiscoverJob).toHaveBeenCalledWith(7, 'job-async-1')
     expect(wrapper.find('[data-test="append-suggested"]').exists()).toBe(false)
 
     await vi.advanceTimersByTimeAsync(1000)
     await flushPromises()
     expect(sync).not.toHaveBeenCalled()
-    expect(wrapper.find('[data-test="probe-candidate-progress"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="discover-candidate-progress"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="append-suggested"]').exists()).toBe(true)
 
     vi.useRealTimers()
@@ -433,7 +438,7 @@ describe('SupplierSourcesView', () => {
 
   it('shows probe failure message and failed_step outside the sync-result block', async () => {
     list.mockResolvedValueOnce([source])
-    probe.mockRejectedValueOnce(Object.assign(
+    discover.mockRejectedValueOnce(Object.assign(
       new Error('Supplier model list request failed with HTTP 401'),
       {
         status: 502,
@@ -457,34 +462,32 @@ describe('SupplierSourcesView', () => {
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
     await wrapper.get('[data-test="source-select-7"]').trigger('click')
-    await wrapper.get('[data-test="probe-source"]').trigger('click')
+    await wrapper.get('[data-test="discover-source"]').trigger('click')
     await flushPromises()
 
     expect(wrapper.get('[data-test="sync-error"]').text()).toContain(
       'Supplier model list request failed with HTTP 401',
     )
-    expect(wrapper.get('[data-test="probe-failed-step"]').text()).toContain('list_upstream_models')
-    expect(wrapper.get('[data-test="probe-summary"]').text()).toBe(
-      'admin.supplierSources.probeSummary',
+    expect(wrapper.get('[data-test="discover-failed-step"]').text()).toContain('list_upstream_models')
+    expect(wrapper.get('[data-test="discover-summary"]').text()).toBe(
+      'admin.supplierSources.discoverSummary',
     )
     expect(wrapper.find('[data-test="sync-result"]').exists()).toBe(false)
     expect(sync).not.toHaveBeenCalled()
   })
 
-  it('renders every probe result and actual account change returned by sync', async () => {
+  it('renders account changes returned by sync', async () => {
     list.mockResolvedValueOnce([source])
+    validate.mockResolvedValueOnce({
+      source_id: 7,
+      probe_results: [{
+        client_model_id: 'deepseek-v4-pro', upstream_model_id: 'deepseek-v4-pro',
+        status: 'passed', protocol: 'openai_chat_completions',
+      }],
+    })
     sync.mockResolvedValueOnce({
       source_id: 7,
-      probe_results: [
-        {
-          client_model_id: 'deepseek-v4-pro', upstream_model_id: 'deepseek-v4-pro',
-          status: 'passed', protocol: 'openai_chat_completions',
-        },
-        {
-          client_model_id: 'qwen-3.7-max', upstream_model_id: 'qwen-3.7-max',
-          status: 'passed', protocol: 'openai_chat_completions',
-        },
-      ],
+      probe_results: [],
       changes: [{
         account_id: 101, discount_band: 3, action: 'created',
         added_models: ['deepseek-v4-pro', 'qwen-3.7-max'], removed_models: [],
@@ -495,6 +498,7 @@ describe('SupplierSourcesView', () => {
     await flushPromises()
 
     await wrapper.get('[data-test="source-select-7"]').trigger('click')
+    await wrapper.get('[data-test="validate-source"]').trigger('click')
     await wrapper.get('[data-test="sync-source"]').trigger('click')
     await flushPromises()
 
@@ -517,6 +521,7 @@ describe('SupplierSourcesView', () => {
     await flushPromises()
 
     await wrapper.get('[data-test="source-select-7"]').trigger('click')
+    await wrapper.get('[data-test="validate-source"]').trigger('click')
     await wrapper.get('[data-test="sync-source"]').trigger('click')
     await flushPromises()
 
@@ -525,7 +530,7 @@ describe('SupplierSourcesView', () => {
     expect(result).not.toContain('admin.supplierSources.syncSucceeded')
   })
 
-  it('shows protocol_unsupported probe results from a 422 response without success wording', async () => {
+  it('shows protocol_unsupported validate results from a 422 response without success wording', async () => {
     list.mockResolvedValueOnce([{ ...source, id: 9, supplier_name: 'FMGo', channel_name: 'seedance' }])
     const failedResult = {
       source_id: 9,
@@ -535,10 +540,9 @@ describe('SupplierSourcesView', () => {
         status: 'protocol_unsupported',
         detail: 'supplier protocol unsupported',
       }],
-      changes: [],
-      failed_step: 'probe',
+      failed_step: 'validate',
     }
-    sync.mockRejectedValueOnce(Object.assign(new Error('one or more supplier models failed validation'), {
+    validate.mockRejectedValueOnce(Object.assign(new Error('one or more supplier models failed validation'), {
       status: 422,
       reason: 'SUPPLIER_SOURCE_PROBE_FAILED',
       data: failedResult,
@@ -547,13 +551,14 @@ describe('SupplierSourcesView', () => {
     await flushPromises()
 
     await wrapper.get('[data-test="source-select-9"]').trigger('click')
-    await wrapper.get('[data-test="sync-source"]').trigger('click')
+    await wrapper.get('[data-test="validate-source"]').trigger('click')
     await flushPromises()
 
-    const result = wrapper.get('[data-test="sync-result"]').text()
+    const result = wrapper.get('[data-test="validate-result"]').text()
     expect(result).toContain('protocol_unsupported')
     expect(result).toContain('doubao-seedance-2-0-260128')
-    expect(result).not.toContain('admin.supplierSources.syncSucceeded')
+    expect(wrapper.find('[data-test="sync-result"]').exists()).toBe(false)
+    expect(sync).not.toHaveBeenCalled()
   })
 
   it('contains no state machine, audit, activation, pause, or account-group controls', async () => {
@@ -566,7 +571,7 @@ describe('SupplierSourcesView', () => {
     for (const forbidden of ['activation', 'activate', 'pause', 'audit', 'revision', 'group_ids', 'account group']) {
       expect(text).not.toContain(forbidden)
     }
-    for (const testID of ['validate-source', 'activate-source', 'pause-source', 'audit-history', 'activation-preview']) {
+    for (const testID of ['activate-source', 'pause-source', 'audit-history', 'activation-preview']) {
       expect(wrapper.find(`[data-test="${testID}"]`).exists()).toBe(false)
     }
   })

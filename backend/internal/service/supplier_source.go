@@ -32,6 +32,7 @@ var (
 	ErrSupplierSourceDuplicateClientModel = errors.New("supplier source client model ids must be unique")
 	ErrSupplierSourceInvalidInput         = errors.New("invalid supplier source input")
 	ErrSupplierSourceProbeFailed          = infraerrors.New(http.StatusUnprocessableEntity, "SUPPLIER_SOURCE_PROBE_FAILED", "one or more supplier models failed validation")
+	ErrSupplierSourceValidateRequired     = infraerrors.New(http.StatusUnprocessableEntity, "SUPPLIER_SOURCE_VALIDATE_REQUIRED", "supplier models must be validated before projection")
 	ErrSupplierSourceMultipleMatches      = errors.New("supplier source matched multiple accounts")
 	ErrSupplierSourceIdentityConflict     = errors.New("supplier source identity already exists")
 	ErrSupplierProjectionReadbackMismatch = errors.New("supplier projection readback mismatch")

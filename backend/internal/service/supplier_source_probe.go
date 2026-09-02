@@ -108,27 +108,6 @@ func (s *SupplierSourceService) probeJobRegistry() *supplierProbeJobRegistry {
 	return s.probeJobs
 }
 
-// Probe is the public admin action: list/normalize + candidate probes + configured-row gate.
-// It never writes the supplier source or accounts.
-func (s *SupplierSourceService) Probe(ctx context.Context, sourceID int64) (*SupplierSourceProbeResult, error) {
-	result, err := s.StartSupplierProbeJob(ctx, sourceID)
-	if err != nil {
-		return result, err
-	}
-	configured, probeErr := s.probeConfiguredSourceModels(ctx, sourceID)
-	if result != nil {
-		result.ProbeResults = append(configured, result.ProbeResults...)
-		s.attachConfiguredProbeResults(sourceID, result.JobID, configured)
-		if probeErr != nil {
-			result.FailedStep = "probe"
-		}
-	}
-	if probeErr != nil {
-		return result, probeErr
-	}
-	return result, nil
-}
-
 func (s *SupplierSourceService) probeConfiguredSourceModels(ctx context.Context, sourceID int64) ([]SupplierProbeResult, error) {
 	if s == nil || s.repo == nil || s.probe == nil || s.encryptor == nil {
 		return nil, ErrSupplierSourceInvalidInput
@@ -153,22 +132,6 @@ func (s *SupplierSourceService) probeConfiguredSourceModels(ctx context.Context,
 		return results, ErrSupplierSourceProbeFailed
 	}
 	return results, nil
-}
-
-func (s *SupplierSourceService) attachConfiguredProbeResults(sourceID int64, jobID string, configured []SupplierProbeResult) {
-	if s == nil || strings.TrimSpace(jobID) == "" || len(configured) == 0 {
-		return
-	}
-	job, ok := s.probeJobRegistry().get(sourceID, jobID)
-	if !ok || job == nil {
-		return
-	}
-	job.mu.Lock()
-	defer job.mu.Unlock()
-	if job.result == nil {
-		return
-	}
-	job.result.ProbeResults = append(append([]SupplierProbeResult{}, configured...), job.result.ProbeResults...)
 }
 
 // StartSupplierProbeJob lists/normalizes synchronously, then probes every probeable upstream
