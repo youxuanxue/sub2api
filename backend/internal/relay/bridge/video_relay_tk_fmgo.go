@@ -204,7 +204,9 @@ func fmgoRelayModel(info *relaycommon.RelayInfo, family string) string {
 	switch family {
 	case newapiintegration.FMGoFamily431Fast, newapiintegration.FMGoFamilyV2Fast, newapiintegration.FMGoFamilyMini:
 		return newapiintegration.FMGoSeedanceFastClientID
-	case newapiintegration.FMGoFamily431, newapiintegration.FMGoFamilyV25, newapiintegration.FMGoFamilyV2:
+	case newapiintegration.FMGoFamilyV25:
+		return newapiintegration.FMGoSeedance25ClientID
+	case newapiintegration.FMGoFamily431, newapiintegration.FMGoFamilyV2:
 		return newapiintegration.FMGoSeedanceClientID
 	default:
 		return newapiintegration.FMGoSeedanceClientID
@@ -260,8 +262,14 @@ func fmgoSeedanceClientFromRelay(info *relaycommon.RelayInfo, wireModel string) 
 	return strings.TrimSpace(wireModel)
 }
 
-func (a *fmgoTaskAdaptor) sanitizeFetchResponse(body []byte) []byte {
+// sanitizeFetchResponse restores an official client id only when that exact id
+// was persisted at submit time. Direct feimiao SKU requests keep identity.
+func (a *fmgoTaskAdaptor) sanitizeFetchResponse(body []byte, originModel string) []byte {
 	if len(body) == 0 {
+		return body
+	}
+	originModel = strings.TrimSpace(originModel)
+	if !newapiintegration.IsFMGoSeedanceClient(originModel) {
 		return body
 	}
 	current := gjson.GetBytes(body, "model")
@@ -270,10 +278,10 @@ func (a *fmgoTaskAdaptor) sanitizeFetchResponse(body []byte) []byte {
 	}
 	model := current.String()
 	client := newapiintegration.FMGoClientForUpstreamSKU(model)
-	if client == "" || client == strings.TrimSpace(model) {
+	if client != originModel || client == strings.TrimSpace(model) {
 		return body
 	}
-	rewritten, err := sjson.SetBytes(body, "model", client)
+	rewritten, err := sjson.SetBytes(body, "model", originModel)
 	if err != nil {
 		return body
 	}

@@ -20,12 +20,13 @@ const (
 	FMGoVideosPath          = "/v1/videos"
 )
 
-// Official Seedance 2.0 client ids TokenKey exposes. Runtime rewrite on the
+// Official Seedance client ids TokenKey exposes. Runtime rewrite on the
 // FMGo video adaptor turns these into catalog families that the live default
-// group actually serves: 431 / 431-fast (FMGo aliases seedance-2.0).
+// group actually serves: 431 / 431-fast / v2.5 (FMGo aliases seedance-2.0*).
 const (
 	FMGoSeedanceClientID     = "doubao-seedance-2-0-260128"
 	FMGoSeedanceFastClientID = "doubao-seedance-2-0-fast-260128"
+	FMGoSeedance25ClientID   = "doubao-seedance-2-5-260628"
 )
 
 const (
@@ -114,10 +115,11 @@ func NormalizeFMGoAspectRatio(raw string) string {
 	return "16:9"
 }
 
-// IsFMGoSeedanceClient reports a TokenKey-facing official Seedance 2.0 id.
+// IsFMGoSeedanceClient reports a TokenKey-facing official Seedance id
+// that the FMGo adaptor rewrites onto live inventory.
 func IsFMGoSeedanceClient(model string) bool {
 	switch strings.TrimSpace(model) {
-	case FMGoSeedanceClientID, FMGoSeedanceFastClientID:
+	case FMGoSeedanceClientID, FMGoSeedanceFastClientID, FMGoSeedance25ClientID:
 		return true
 	default:
 		return false
@@ -125,18 +127,18 @@ func IsFMGoSeedanceClient(model string) bool {
 }
 
 // FMGoModelFamily classifies a client or upstream id onto a pinned FMGo family.
-// Official Seedance clients map to 431 / 431-fast (live default-group inventory).
+// Official Seedance clients map to 431 / 431-fast / v2.5 (live default-group inventory).
 func FMGoModelFamily(model string) string {
 	model = strings.ToLower(strings.TrimSpace(model))
 	switch {
 	case model == "":
 		return ""
+	case model == FMGoSeedance25ClientID || strings.HasPrefix(model, "feimiao-v2.5"):
+		return FMGoFamilyV25
 	case model == FMGoSeedanceFastClientID || strings.HasPrefix(model, "feimiao-v2-431-fast"):
 		return FMGoFamily431Fast
 	case model == FMGoSeedanceClientID || strings.HasPrefix(model, "feimiao-v2-431"):
 		return FMGoFamily431
-	case strings.HasPrefix(model, "feimiao-v2.5"):
-		return FMGoFamilyV25
 	case strings.HasPrefix(model, "feimiao-v2-mini"):
 		return FMGoFamilyMini
 	case strings.HasPrefix(model, "feimiao-v2-fast-"):
@@ -267,7 +269,9 @@ func FMGoClientForUpstreamSKU(model string) string {
 	switch FMGoModelFamily(model) {
 	case FMGoFamily431Fast, FMGoFamilyV2Fast, FMGoFamilyMini:
 		return FMGoSeedanceFastClientID
-	case FMGoFamily431, FMGoFamilyV25, FMGoFamilyV2:
+	case FMGoFamilyV25:
+		return FMGoSeedance25ClientID
+	case FMGoFamily431, FMGoFamilyV2:
 		return FMGoSeedanceClientID
 	default:
 		return strings.TrimSpace(model)

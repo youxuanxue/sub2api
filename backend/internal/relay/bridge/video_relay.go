@@ -58,9 +58,12 @@ type TaskSubmitOutcome struct {
 // caller invokes DispatchVideoFetch — there is no stateful new-api model.Task.
 type VideoFetchInput struct {
 	UpstreamTaskID string
-	ChannelType    int
-	BaseURL        string
-	APIKey         string
+	// OriginModel is the client-facing model persisted at submit time. Variant
+	// adaptors use it to distinguish an official-client remap from a direct SKU.
+	OriginModel string
+	ChannelType int
+	BaseURL     string
+	APIKey      string
 	// Platform + AccountID support the grok-native video poll path (platform=grok,
 	// channel_type=0), which does NOT go through the new-api task adaptor. The
 	// bridge fetch ignores both; the TK service layer branches on Platform=="grok"
@@ -435,7 +438,7 @@ func DispatchVideoFetch(_ context.Context, _ *gin.Context, in VideoFetchInput) (
 		return nil, types.NewError(errors.New("empty upstream fetch response"), types.ErrorCodeDoRequestFailed, types.ErrOptionWithSkipRetry())
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := readVideoFetchResponseBodyForAdaptor(adaptor, resp.Body)
+	body, err := readVideoFetchResponseBodyForAdaptor(adaptor, resp.Body, in.OriginModel)
 	if err != nil {
 		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeReadResponseBodyFailed, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 	}
@@ -461,7 +464,7 @@ func DispatchVideoFetch(_ context.Context, _ *gin.Context, in VideoFetchInput) (
 // own file (see video_relay_tk_xrtoken.go) and adaptors without a dialect need
 // no code at all.
 type videoFetchResponseSanitizer interface {
-	sanitizeFetchResponse(body []byte) []byte
+	sanitizeFetchResponse(body []byte, originModel string) []byte
 }
 
 // readVideoFetchResponseBodyForAdaptor reads the bounded poll body and gives a
@@ -480,13 +483,13 @@ type videoFetchResponseSanitizer interface {
 // return terminal video bytes inline, so a rewrite that consumed the stream
 // earlier (FetchTask hands back an *http.Response) would bypass that bound and
 // pull unbounded media into memory.
-func readVideoFetchResponseBodyForAdaptor(adaptor channel.TaskAdaptor, r io.Reader) ([]byte, error) {
+func readVideoFetchResponseBodyForAdaptor(adaptor channel.TaskAdaptor, r io.Reader, originModel string) ([]byte, error) {
 	body, err := readVideoFetchResponseBody(r)
 	if err != nil {
 		return nil, err
 	}
 	if variant, ok := adaptor.(videoFetchResponseSanitizer); ok {
-		body = variant.sanitizeFetchResponse(body)
+		body = variant.sanitizeFetchResponse(body, originModel)
 	}
 	return body, nil
 }

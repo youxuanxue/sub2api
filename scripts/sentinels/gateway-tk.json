@@ -2970,9 +2970,31 @@
         "videoSubmitHasVideoInput",
         "videoTerminalOutcome",
         "TkVideoModelUnpriced",
-        "videoDurationBelowProviderMinimum"
+        "videoDurationBelowProviderMinimum",
+        "ApplySeedanceClientAlias"
       ],
-      "rationale": "Per-second video billing: VideoSubmitBillingParamsFromBody resolves resolution/audio/image-input once and the explicit ForwardResult assignments carry those exact dimensions into settlement; dropping any one silently flattens tier billing even when submit still succeeds. videoBillingSecondsForAccount resolves provider-specific omitted-duration semantics after account selection and before the hold, while videoRequestedSeconds anchors the shared explicit-duration parser. RefundVideoUsageOnFailure anchors terminal-failed refund, videoSubmitHasVideoInput anchors the unpriced video-input reject guard, and videoDurationBelowProviderMinimum keeps XRToken's four-second floor local and before paid upstream dispatch."
+      "rationale": "Per-second video billing: VideoSubmitBillingParamsFromBody resolves resolution/audio/image-input once and the explicit ForwardResult assignments carry those exact dimensions into settlement; dropping any one silently flattens tier billing even when submit still succeeds. videoBillingSecondsForAccount resolves provider-specific omitted-duration semantics after account selection and before the hold, while videoRequestedSeconds anchors the shared explicit-duration parser. RefundVideoUsageOnFailure anchors terminal-failed refund, videoSubmitHasVideoInput anchors the unpriced video-input reject guard, and videoDurationBelowProviderMinimum keeps XRToken's four-second floor local and before paid upstream dispatch. ApplySeedanceClientAlias must stay before the unpriced guard so undated public aliases bill and schedule as the dated official ids."
+    },
+    {
+      "path": "backend/internal/service/seedance_client_alias_tk.go",
+      "must_contain": [
+        "ResolveSeedanceClientAlias",
+        "ApplySeedanceClientAlias",
+        "doubao-seedance-2-0-260128",
+        "doubao-seedance-2-0-fast-260128",
+        "doubao-seedance-2-5-260628"
+      ],
+      "rationale": "TokenKey public Seedance aliases must resolve to the dated official clients already priced and mapped. Do not serve undated ids as a third product or write them into Studio."
+    },
+    {
+      "path": "backend/internal/service/seedance_client_alias_tk_test.go",
+      "must_contain": [
+        "TestResolveSeedanceClientAlias",
+        "TestApplySeedanceClientAlias_RewritesBody",
+        "TestApplySeedanceClientAlias_LeavesForeignBody",
+        "doubao-seedance-2.0-mini"
+      ],
+      "rationale": "Locks hyphen/dot aliases, rejects mini as 2.0, and proves body rewrite only touches model."
     },
     {
       "path": "backend/internal/handler/openai_gateway_tk_video_test.go",

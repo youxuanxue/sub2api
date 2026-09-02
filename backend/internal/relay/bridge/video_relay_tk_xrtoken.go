@@ -197,7 +197,7 @@ func (a *xrTokenTaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.
 //
 // Returns the input untouched on any parse/rewrite failure: a cosmetic model
 // name is never worth failing a poll the client needs for its video URL.
-func (a *xrTokenTaskAdaptor) sanitizeFetchResponse(body []byte) []byte {
+func (a *xrTokenTaskAdaptor) sanitizeFetchResponse(body []byte, _ string) []byte {
 	if len(body) == 0 {
 		return body
 	}

@@ -115,6 +115,27 @@ func TestVideoFetch_MissingTaskID_Returns400(t *testing.T) {
 	}
 }
 
+func TestVideoFetchInputFromRecordPreservesOriginModel(t *testing.T) {
+	rec := &service.VideoTaskRecord{
+		UpstreamTaskID: "fmgo-task-1",
+		OriginModel:    newapiintegration.FMGoSeedance25ClientID,
+		ChannelType:    newapiconstant.ChannelTypeDoubaoVideo,
+		BaseURL:        newapiintegration.FMGoBaseURL,
+		APIKey:         "fmgo-key",
+		Platform:       service.PlatformNewAPI,
+		AccountID:      118,
+	}
+
+	got := videoFetchInputFromRecord(rec)
+	require.Equal(t, rec.UpstreamTaskID, got.UpstreamTaskID)
+	require.Equal(t, rec.OriginModel, got.OriginModel)
+	require.Equal(t, rec.ChannelType, got.ChannelType)
+	require.Equal(t, rec.BaseURL, got.BaseURL)
+	require.Equal(t, rec.APIKey, got.APIKey)
+	require.Equal(t, rec.Platform, got.Platform)
+	require.Equal(t, rec.AccountID, got.AccountID)
+}
+
 func TestVideoFetch_FailedTerminalDeletesTaskAndSchedulesRefund(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

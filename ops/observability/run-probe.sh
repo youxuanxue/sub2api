@@ -20,6 +20,7 @@
 #       [--comment "free text"] \
 #       [--expected-instance-id i-*|mi-*] \
 #       [--timeout-seconds 120]
+#       [--describe-script]  print the registered companion/verdict contract and exit
 #
 # Endpoint route-gate matrix (group.platform × gateway path, prod):
 #   bash ops/observability/run-probe.sh --target prod \
@@ -73,6 +74,7 @@ REMOTE_PATH=""
 COMMENT="run-probe wrapper"
 TIMEOUT_SECONDS=120
 EXPECTED_INSTANCE_ID=""
+DESCRIBE_SCRIPT=0
 declare -a ENVS=()
 declare -a WITH_FILES=()
 
@@ -87,11 +89,12 @@ while [ "$#" -gt 0 ]; do
     --comment) COMMENT="${2:-}"; shift 2 ;;
     --expected-instance-id) EXPECTED_INSTANCE_ID="${2:-}"; shift 2 ;;
     --timeout-seconds) TIMEOUT_SECONDS="${2:-}"; shift 2 ;;
+    --describe-script) DESCRIBE_SCRIPT=1; shift ;;
     *) echo "[run-probe] ERROR: unknown arg: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
 
-if [ -z "$TARGET" ] || [ -z "$SCRIPT_PATH" ]; then
+if [ -z "$SCRIPT_PATH" ] || { [ "$DESCRIBE_SCRIPT" = "0" ] && [ -z "$TARGET" ]; }; then
   echo "[run-probe] ERROR: --target and --script are required" >&2
   usage >&2
   exit 1
@@ -112,12 +115,10 @@ if [ ! -f "$SCRIPT_PATH" ]; then
   exit 1
 fi
 
-for extra in "${WITH_FILES[@]+"${WITH_FILES[@]}"}"; do
-  if [ ! -f "$extra" ]; then
-    echo "[run-probe] ERROR: --with file not found: $extra" >&2
-    exit 1
-  fi
-done
+if [ "$DESCRIBE_SCRIPT" = "0" ] && [ "$TARGET" != "prod" ] && [[ "$TARGET" != edge:* ]]; then
+  echo "[run-probe] ERROR: --target must be 'prod' or 'edge:<id>', got: $TARGET" >&2
+  exit 1
+fi
 
 # Default remote path to /tmp/<basename>
 if [ -z "$REMOTE_PATH" ]; then
@@ -125,6 +126,49 @@ if [ -z "$REMOTE_PATH" ]; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PROBE_CONTRACTS="$REPO_ROOT/ops/observability/probe-contracts.json"
+
+probe_contract() {
+  python3 - "$PROBE_CONTRACTS" "$(basename "$SCRIPT_PATH")" "$1" <<'PY'
+import json
+import sys
+
+path, script, field = sys.argv[1:4]
+with open(path, encoding="utf-8") as handle:
+    contract = json.load(handle).get(script)
+if contract is None:
+    raise SystemExit(2)
+if field == "json":
+    print(json.dumps({"script": script, **contract}, ensure_ascii=False, indent=2))
+else:
+    for item in contract[field]:
+        print(item)
+PY
+}
+
+if [ "$DESCRIBE_SCRIPT" = "1" ]; then
+  if [ ! -f "$PROBE_CONTRACTS" ] || ! probe_contract json; then
+    echo "[run-probe] ERROR: no registered contract for $(basename "$SCRIPT_PATH")" >&2
+    exit 1
+  fi
+  exit 0
+fi
+
+if [ ! -f "$PROBE_CONTRACTS" ] || ! probe_contract json >/dev/null 2>&1; then
+  echo "[run-probe] ERROR: no registered contract for $(basename "$SCRIPT_PATH")" >&2
+  exit 1
+fi
+
+while IFS= read -r companion; do
+  [ -n "$companion" ] && WITH_FILES+=("$REPO_ROOT/$companion")
+done < <(probe_contract companions)
+
+for extra in "${WITH_FILES[@]+"${WITH_FILES[@]}"}"; do
+  if [ ! -f "$extra" ]; then
+    echo "[run-probe] ERROR: companion file not found: $extra" >&2
+    exit 1
+  fi
+done
 
 # Always ship the canonical app-container resolvers alongside the probe, so any
 # probe can `. /tmp/resolve-app-container.sh` without every call site having to
@@ -140,12 +184,6 @@ for _tk_resolver in \
     WITH_FILES+=("$_tk_resolver")
   fi
 done
-if [ "$(basename "$SCRIPT_PATH")" = "probe_account_model.sh" ]; then
-  _tk_probe_verdict="$REPO_ROOT/ops/stage0/probe_account_model_verdict.py"
-  if [ -f "$_tk_probe_verdict" ]; then
-    WITH_FILES+=("$_tk_probe_verdict")
-  fi
-fi
 
 # Local macOS/Homebrew preflight: catch the known aws/pyexpat loader breakage
 # before the first real AWS call. Diagnose only; repair stays explicit in the
@@ -226,9 +264,6 @@ elif [[ "$TARGET" == edge:* ]]; then
     rm -f "$PYERR"
     eval "$RES_LINES"
   fi
-else
-  echo "[run-probe] ERROR: --target must be 'prod' or 'edge:<id>', got: $TARGET" >&2
-  exit 1
 fi
 
 if [ -z "${INSTANCE_ID:-}" ] || [ "$INSTANCE_ID" = "None" ]; then
