@@ -162,8 +162,8 @@ POST   /admin/supplier-sources/:id/sync
 - 佳杰 / VSTECS：首批只录入 `deepseek-v4-pro` 与 `qwen-3.7-max` 的最低合法比例 `0.50`，两者进入档位
   3 并合并到一个目标账号。当前没有生产 API Key，因此真实 HTTP 探测和账号同步必须保持 `not_run`，
   要求补全真实 endpoint 与凭证后再验收。
-- FMGo：只录入两个官方 Seedance client remap（锚点 `feimiao-v2-720p-15s` /
-  `feimiao-v2-fast-720p-15s`）。`channel_type=54` 走视频门禁，不以 OpenAI Chat 伪探测冒充成功。
+- FMGo：只录入官方 Seedance 2.0 / 2.0-fast / 2.5 remap（锚点 `feimiao-v2-431-720p-15s` /
+  `feimiao-v2-431-fast-720p-15s` / `feimiao-v2.5-720p-15s`）。`channel_type=54` 走视频门禁，不以 OpenAI Chat 伪探测冒充成功。
   运行时 SKU 改写见 [`model-supplier-source-fmgo-seedance-account-rewrite.md`](model-supplier-source-fmgo-seedance-account-rewrite.md)。
 - 百度千帆：供应源 endpoint 主机为 `qianfan.baidubce.com` 时使用 BaiduV2 transport，可接管生产账号
   90（channel_type=46、同一凭证与 endpoint 根）。缺少供应凭证时仍无法完成指纹匹配或同步；凭证齐备后

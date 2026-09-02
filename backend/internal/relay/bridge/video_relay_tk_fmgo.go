@@ -204,7 +204,9 @@ func fmgoRelayModel(info *relaycommon.RelayInfo, family string) string {
 	switch family {
 	case newapiintegration.FMGoFamily431Fast, newapiintegration.FMGoFamilyV2Fast, newapiintegration.FMGoFamilyMini:
 		return newapiintegration.FMGoSeedanceFastClientID
-	case newapiintegration.FMGoFamily431, newapiintegration.FMGoFamilyV25, newapiintegration.FMGoFamilyV2:
+	case newapiintegration.FMGoFamilyV25:
+		return newapiintegration.FMGoSeedance25ClientID
+	case newapiintegration.FMGoFamily431, newapiintegration.FMGoFamilyV2:
 		return newapiintegration.FMGoSeedanceClientID
 	default:
 		return newapiintegration.FMGoSeedanceClientID

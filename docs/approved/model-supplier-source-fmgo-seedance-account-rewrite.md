@@ -3,21 +3,21 @@ title: FMGo Seedance — account/relay SKU rewrite (not supplier runtime)
 status: approved
 approved_by: "xuejiao (operator directives 2026-09-01; live-group override 2026-09-01)"
 approved_at: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-02
 created: 2026-09-01
 owners: [tk-platform]
-scope: "FMGo ch54: models are 2 official remaps onto live 431 inventory; runtime rewrite on account video relay; capability set pinned in adaptor"
+scope: "FMGo ch54: models are official 2.0 / 2.0-fast / 2.5 remaps onto live 431/v2.5 inventory; runtime rewrite on account video relay; capability set pinned in adaptor"
 related_stories: ["US-048"]
 related_design: ["docs/approved/model-supplier-source-probe-sync-split.md"]
 amends: ["docs/approved/model-supplier-source-management.md"]
-operator_locks: "2026-09-01 live default group: official Seedance remaps to 431[-fast]; submit POST /v1/videos; v2.5/mini dialect supported as passthrough; capability set in FMGo adaptor; missing res/dur→family default; illegal→reject; no supplier_source_id in gateway"
+operator_locks: "2026-09-02 official Seedance remaps to 431[-fast]/v2.5; submit POST /v1/videos; mini dialect supported as passthrough; capability set in FMGo adaptor; missing res/dur→family default; illegal→reject; no supplier_source_id in gateway"
 ---
 
 # FMGo Seedance：账号侧动态改写（审批草案）
 
 ## 一件事
 
-客户只打 2 个官方 Seedance 2.0 client id。线上由**账号视频通道**按请求参数改写为飞秒现网目录里已有的 SKU。
+客户只打官方 Seedance 2.0 / 2.0-fast / 2.5 client id。线上由**账号视频通道**按请求参数改写为飞秒现网目录里已有的 SKU。
 
 供应源不进入 scheduler / gateway。探测/同步按钮见  
 `docs/approved/model-supplier-source-probe-sync-split.md`（可并行，非实现前置）。
@@ -52,9 +52,9 @@ operator_locks: "2026-09-01 live default group: official Seedance remaps to 431[
 
 | 项 | 决定 |
 |---|---|
-| 对外 client | 仅 `doubao-seedance-2-0-260128`、`doubao-seedance-2-0-fast-260128`（Studio / 目录不暴露飞秒 SKU） |
-| 探测 | 列出 `/v1/models` 里本 adaptor 能说的视频库存（v2.5 / 431 / mini / legacy v2）；跳过 Claude/GPT 以及 veo/sora/grok-video/omni。结果应是很多行，不是 2 行 |
-| 供应源 `models` | 探测通过的建议追加是 opt-in。若只要承接官方 Seedance，保存 2 行 remap；若要把库存写进采购表，可加入全部通过的 identity 行 |
+| 对外 client | 仅 `doubao-seedance-2-0-260128`、`doubao-seedance-2-0-fast-260128`、`doubao-seedance-2-5-260628`（Studio / 目录不暴露飞秒 SKU） |
+| 探测 | 列出 `/v1/models` 里本 adaptor 能说的视频库存（v2.5 / 431 / mini / legacy v2）；跳过 Claude/GPT 以及 veo/sora/grok-video/omni。结果应是很多行，不是官方 remap 行数 |
+| 供应源 `models` | 探测通过的建议追加是 opt-in。若只要承接官方 Seedance，保存 2.0 / 2.0-fast / 2.5 remap；若要把库存写进采购表，可加入全部通过的 identity 行 |
 | 同步投影 | 投影**当时已保存的** `models` 行。探测到很多 SKU ≠ 自动同步很多 client |
 | 非法 resolution / duration | **拒绝**，不降级、不钳制 |
 | 缺省 resolution | `720p` |
@@ -69,22 +69,23 @@ operator_locks: "2026-09-01 live default group: official Seedance remaps to 431[
 
 ```text
 host       ∈ {api.fmgo.top, www.fmgo.top, fmgo.top} → canonical https://api.fmgo.top
-official   → feimiao-v2-431[-fast]-{resolution}-{duration}s
+official   → feimiao-v2-431[-fast]-* / feimiao-v2.5-*
 resolution ∈ {480p, 720p}
 431 dur    ∈ {10, 15}
-v2.5       透传目录组合（480p: 5/10/15/30；720p: 10/15/30）
+v2.5       官方 2.5 client 按目录组合改写（480p: 5/10/15/30；720p: 10/15/30）
 mini       仅 (720p,10) / (480p,15)
 legacy v2  {480p,720p} × {6,8,10,12,15}，仍走 chat completions
 ```
 
 ## 官方 Seedance 承接时的存法
 
-只承接官方 Seedance 时保存这两行 remap。探测通过的 v2.5 / 431 / mini identity 行是 opt-in 采购事实，不是这张表的互斥条件。
+只承接官方 Seedance 时保存这三行 remap。探测通过的 identity 行是 opt-in 采购事实，不是这张表的互斥条件。
 
 | client_model_id | upstream_model_id（探测锚点） | 同步进账号 mapping |
 |---|---|---|
 | `doubao-seedance-2-0-260128` | `feimiao-v2-431-720p-15s` | 是 |
 | `doubao-seedance-2-0-fast-260128` | `feimiao-v2-431-fast-720p-15s` | 是 |
+| `doubao-seedance-2-5-260628` | `feimiao-v2.5-720p-15s` | 是 |
 
 `notes` 可列出 v2.5 / 431 / mini 备忘。运行时不读 notes。
 
@@ -92,12 +93,13 @@ legacy v2  {480p,720p} × {6,8,10,12,15}，仍走 chat completions
 
 账号 mapping 表明本账号可承接该官方 client 后：
 
-1. fast 与否 → `feimiao-v2-431-fast-*` / `feimiao-v2-431-*`
+1. 官方 2.5 → `feimiao-v2.5-*`；fast → `feimiao-v2-431-fast-*`；其余 2.0 → `feimiao-v2-431-*`
 2. resolution：缺省 → `720p`；∈ 集合 → 用其值；否则明确拒绝
-3. duration：缺省 → `15`；∈ `{10,15}` → 用其值；`6/8/12` **拒绝**（相对旧 chat 族是行为变化）
+3. duration：缺省 → `15`；431 仅 `{10,15}`；v2.5 按分辨率组合；`6/8/12` 对 431 **拒绝**
 4. 拼出唯一上游 SKU，按 `/v1/videos` 提交（`seconds` 为字符串）
 
 已经是 `feimiao-v2.5-*` / `feimiao-v2-mini-*` / legacy `feimiao-v2-*` 的请求按族透传，不改写成官方 client。
+轮询回写：`feimiao-v2.5-*` → `doubao-seedance-2-5-260628`，不得回写成 2.0 client。
 
 ## 探测
 
@@ -113,9 +115,10 @@ legacy v2  {480p,720p} × {6,8,10,12,15}，仍走 chat completions
 
 ### 正向
 
-1. 若只保存 2 行官方 remap，同步后账号 mapping 仅含 2 个官方 client。
+1. 若只保存官方 remap，同步后账号 mapping 仅含官方 client，不含飞秒 SKU。
 2. `…-260128` + `720p` + `10` → `feimiao-v2-431-720p-10s`。
-3. 省略 resolution/duration → `720p` + `15s` → `feimiao-v2-431-720p-15s`（或 fast 变体）。
+3. `…-2-5-260628` + `720p` + `30` → `feimiao-v2.5-720p-30s`。
+4. 省略 resolution/duration → `720p` + `15s` → 对应族默认锚点。
 
 ### 负向
 
@@ -126,8 +129,8 @@ legacy v2  {480p,720p} × {6,8,10,12,15}，仍走 chat completions
 
 ## Validation
 
-- 单测：缺省 → 431 最大；非法（含旧 6/8/12）→ 拒绝；fast/非 fast 拼 SKU。
-- 单测：同步投影后 mapping 客户端集合 == 2 个官方 id，锚点为 431。
+- 单测：缺省 → 族默认；非法（含 431 的 6/8/12、v2.5 的 720p/5s）→ 拒绝；2.0/2.5 拼 SKU。
+- 单测：同步投影后 mapping 客户端集合 == 官方 2.0 / 2.0-fast / 2.5，锚点为 431 / v2.5。
 - 单测：adaptor 能力集合不从供应源/notes 读取。
 - 单测：live 族打 `/v1/videos`；legacy 族打 chat completions。
 - 上游视频 task 404 时探测失败，不写账号。
@@ -142,7 +145,7 @@ legacy v2  {480p,720p} × {6,8,10,12,15}，仍走 chat completions
 
 ## 审批检查清单
 
-- [x] 探测覆盖 v2.5 / 431 / mini / legacy v2；官方 Seedance 对外仍是 2 个 client
+- [x] 探测覆盖 v2.5 / 431 / mini / legacy v2；官方对外是 2.0 / 2.0-fast / 2.5，不暴露飞秒 SKU
 - [x] 能力集合钉在 adaptor
 - [x] 缺省取族默认；非法拒绝
 - [x] 改写在账号 relay；不读供应源
