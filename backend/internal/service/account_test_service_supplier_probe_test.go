@@ -53,9 +53,11 @@ func TestUS048_SupplierProbeUsesInMemoryAccountWithoutRepositoryLookup(t *testin
 
 func TestUS048_DoubaoVideoChannelProbesVideoPathNotChat(t *testing.T) {
 	var hitPath string
+	var payload map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		hitPath = request.URL.Path
 		require.Equal(t, "Bearer secret", request.Header.Get("Authorization"))
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
 		w.WriteHeader(http.StatusOK)
 		_, _ = fmt.Fprint(w, `{"id":"task-1"}`)
 	}))
@@ -77,6 +79,11 @@ func TestUS048_DoubaoVideoChannelProbesVideoPathNotChat(t *testing.T) {
 	require.Equal(t, SupplierProbeStatusPassed, result.Status)
 	require.Equal(t, "openai_video", result.Protocol)
 	require.Equal(t, "/api/v3/contents/generations/tasks", hitPath)
+	require.Equal(t, "feimiao-v2-720p-15s", payload["model"])
+	require.Nil(t, payload["prompt"], "Ark/XRToken Sync probes must not send top-level prompt")
+	content, ok := payload["content"].([]any)
+	require.True(t, ok, "Ark contents.generations body must include content[]")
+	require.Len(t, content, 1)
 	require.Zero(t, repo.getCalls)
 }
 
