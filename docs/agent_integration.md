@@ -219,6 +219,9 @@ Generated from live Gin route registrations; do not edit this section.
 - `DELETE /api/v1/admin/groups/:id` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/groups/:id` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/groups/:id` from `backend/internal/server/routes/admin.go`
+- `DELETE /api/v1/admin/groups/:id/accounts` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/groups/:id/accounts` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/groups/:id/accounts` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/groups/:id/api-keys` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/groups/:id/composite-routes` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/groups/:id/composite-routes` from `backend/internal/server/routes/admin.go`

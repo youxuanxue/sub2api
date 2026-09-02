@@ -110,6 +110,9 @@ func (f *fakeGroupRepo) GetAccountIDsByGroupIDs(context.Context, []int64) ([]int
 	return nil, nil
 }
 func (f *fakeGroupRepo) BindAccountsToGroup(context.Context, int64, []int64) error { return nil }
+func (f *fakeGroupRepo) UnbindAccountsFromGroup(context.Context, int64, []int64) error {
+	return nil
+}
 func (f *fakeGroupRepo) UpdateSortOrders(context.Context, []service.GroupSortOrderUpdate) error {
 	return nil
 }

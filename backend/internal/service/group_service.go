@@ -33,6 +33,8 @@ type GroupRepository interface {
 	GetAccountIDsByGroupIDs(ctx context.Context, groupIDs []int64) ([]int64, error)
 	// BindAccountsToGroup 将多个账号绑定到指定分组
 	BindAccountsToGroup(ctx context.Context, groupID int64, accountIDs []int64) error
+	// UnbindAccountsFromGroup 将多个账号从指定分组解绑（只删本组成员边）
+	UnbindAccountsFromGroup(ctx context.Context, groupID int64, accountIDs []int64) error
 	// UpdateSortOrders 批量更新分组排序
 	UpdateSortOrders(ctx context.Context, updates []GroupSortOrderUpdate) error
 }

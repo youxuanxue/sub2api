@@ -1047,6 +1047,30 @@ func (r *groupRepository) BindAccountsToGroup(ctx context.Context, groupID int64
 	return nil
 }
 
+// UnbindAccountsFromGroup 将多个账号从指定分组解绑（只删本组成员边，不动账号其它分组）
+func (r *groupRepository) UnbindAccountsFromGroup(ctx context.Context, groupID int64, accountIDs []int64) error {
+	if len(accountIDs) == 0 {
+		return nil
+	}
+
+	_, err := r.sql.ExecContext(
+		ctx,
+		`DELETE FROM account_groups
+		 WHERE group_id = $1 AND account_id = ANY($2::bigint[])`,
+		groupID,
+		pq.Array(accountIDs),
+	)
+	if err != nil {
+		return err
+	}
+
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventGroupChanged, nil, &groupID, nil); err != nil {
+		logger.LegacyPrintf("repository.group", "[SchedulerOutbox] enqueue unbind accounts from group failed: group=%d err=%v", groupID, err)
+	}
+
+	return nil
+}
+
 // UpdateSortOrders 批量更新分组排序
 func (r *groupRepository) UpdateSortOrders(ctx context.Context, updates []service.GroupSortOrderUpdate) error {
 	if len(updates) == 0 {

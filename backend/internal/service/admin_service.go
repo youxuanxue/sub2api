@@ -56,6 +56,12 @@ type AdminService interface {
 	ClearGroupRPMOverrides(ctx context.Context, groupID int64) error
 	BatchSetGroupRPMOverrides(ctx context.Context, groupID int64, entries []GroupRPMOverrideInput) error
 	UpdateGroupSortOrders(ctx context.Context, updates []GroupSortOrderUpdate) error
+	// ListGroupAccounts lists accounts bound to a group (account_groups SSOT).
+	ListGroupAccounts(ctx context.Context, groupID int64, page, pageSize int, status, search string, channelType int) ([]Account, int64, error)
+	// BindGroupAccounts adds accounts to a group with shared membership policy.
+	BindGroupAccounts(ctx context.Context, groupID int64, accountIDs []int64, skipMixedChannelCheck bool) error
+	// UnbindGroupAccounts removes accounts from a group (membership edge only).
+	UnbindGroupAccounts(ctx context.Context, groupID int64, accountIDs []int64) error
 
 	// API Key management (admin)
 	AdminUpdateAPIKeyGroupID(ctx context.Context, keyID int64, groupID *int64) (*AdminUpdateAPIKeyGroupIDResult, error)

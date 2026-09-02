@@ -740,6 +740,15 @@ func (s *stubAdminService) GetUserBalanceHistory(ctx context.Context, userID int
 func (s *stubAdminService) UpdateGroupSortOrders(ctx context.Context, updates []service.GroupSortOrderUpdate) error {
 	return nil
 }
+func (s *stubAdminService) ListGroupAccounts(ctx context.Context, groupID int64, page, pageSize int, status, search string, channelType int) ([]service.Account, int64, error) {
+	return nil, 0, nil
+}
+func (s *stubAdminService) BindGroupAccounts(ctx context.Context, groupID int64, accountIDs []int64, skipMixedChannelCheck bool) error {
+	return nil
+}
+func (s *stubAdminService) UnbindGroupAccounts(ctx context.Context, groupID int64, accountIDs []int64) error {
+	return nil
+}
 
 func (s *stubAdminService) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID int64, groupID *int64) (*service.AdminUpdateAPIKeyGroupIDResult, error) {
 	for i := range s.apiKeys {

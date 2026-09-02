@@ -65,6 +65,9 @@ func (s *stubGroupRepoForAvailable) GetAccountIDsByGroupIDs(ctx context.Context,
 func (s *stubGroupRepoForAvailable) BindAccountsToGroup(ctx context.Context, groupID int64, accountIDs []int64) error {
 	return nil
 }
+func (s *stubGroupRepoForAvailable) UnbindAccountsFromGroup(ctx context.Context, groupID int64, accountIDs []int64) error {
+	return nil
+}
 func (s *stubGroupRepoForAvailable) UpdateSortOrders(ctx context.Context, updates []GroupSortOrderUpdate) error {
 	return nil
 }
