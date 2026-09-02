@@ -141,6 +141,7 @@ export type {
   SupplierSourceAccountChange,
   SupplierSourceSyncResult,
   SupplierSourceProbeResult,
+  SupplierSourceValidateResult,
   SupplierModelNormalizeChange,
   SupplierProbeConfiguredIssue,
   SupplierProbeRejectedCandidate,
