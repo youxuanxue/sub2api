@@ -1489,6 +1489,11 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 				slog.Info("account_rate_limited", "account_id", account.ID, "platform", account.Platform, "reset_at", resetTime, "reset_in", time.Until(resetTime).Truncate(time.Second))
 				return true
 			}
+			// NewAPI weekly/5h/7d prose ("It will reset at …") is not OpenAI-shaped;
+			// parse + cool until reset + persist Extra before short fallback.
+			if account.Platform == PlatformNewAPI && s.tkTryHandleNewAPIUsageWindow429(ctx, account, responseBody) {
+				return true
+			}
 		case PlatformGemini, PlatformAntigravity:
 			// 尝试解析 Gemini 格式（用于其他平台）
 			if resetAt := ParseGeminiRateLimitResetTime(responseBody); resetAt != nil {

@@ -86,7 +86,12 @@ const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCel
 const { t } = useI18n()
 const rootRef = ref<HTMLElement | null>(null)
 const upstreamQuotaWindowDimensionKeys = [
-  'openai_codex_7d'
+  'openai_codex_7d',
+  // NewAPI weekly exhaustion is mirrored onto the 7d progress bar; hide the
+  // duplicate UpstreamQuota chip so the cell stays one composition.
+  'newapi_weekly',
+  'newapi_7d',
+  'newapi_5h',
 ]
 
 const { loading, activeQueryLoading, usageInfo, loadActiveUsage } = useAccountUsageFetch(

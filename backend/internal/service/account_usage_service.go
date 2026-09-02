@@ -532,6 +532,7 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 		}
 	case accountUsageWindowAdapterLocal:
 		usage = s.buildLocalWindowUsage(ctx, account)
+		applyNewAPIUsageWindowSnapshot(account, usage)
 	case accountUsageWindowAdapterGemini:
 		usage, err = s.getGeminiUsage(ctx, account)
 		if err == nil {
@@ -728,8 +729,10 @@ func (s *AccountUsageService) getPassiveUsageForAccount(ctx context.Context, acc
 	case accountUsageWindowAdapterLocal:
 		// NewAPI / Grok / Antigravity edge stubs do not expose a common upstream
 		// percentage-quota protocol. Surface TokenKey account billing windows so
-		// operators still see activity from the same passive endpoint.
+		// operators still see activity from the same passive endpoint. NewAPI may
+		// also carry a recoverable weekly/5h/7d Extra snapshot from 429 text.
 		info := s.buildLocalWindowUsage(ctx, account)
+		applyNewAPIUsageWindowSnapshot(account, info)
 		attachUpstreamQuotaForAccount(account, info)
 		return info, nil
 	case accountUsageWindowAdapterAnthropic:

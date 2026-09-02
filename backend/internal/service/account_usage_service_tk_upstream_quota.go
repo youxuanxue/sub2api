@@ -212,7 +212,10 @@ func buildLocalAdapterUpstreamQuota(account *Account, usage *UsageInfo) *Upstrea
 		return buildGrokUpstreamQuota(account, usage)
 	}
 	if account.Platform == PlatformNewAPI {
-		return unsupportedUpstreamQuota(PlatformNewAPI, usage, "unsupported", "upstream quota is not configured for NewAPI accounts; TokenKey local usage windows are shown instead")
+		// Recoverable weekly/5h/7d exhaustion is persisted from 429 text into Extra
+		// (newapi_usage_window_tk.go). Until observed, state stays unknown — not a
+		// permanent "unsupported" claim that hides real upstream windows.
+		return buildNewAPIUpstreamQuota(account, usage)
 	}
 	if account.Platform == PlatformAntigravity {
 		return unsupportedUpstreamQuota(PlatformAntigravity, usage, "relay_stub", "upstream quota is available on the edge OAuth account, not this relay stub")

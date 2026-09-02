@@ -270,15 +270,15 @@ func TestAccountUsageService_NewAPIVertexUsesLocalWindowStats(t *testing.T) {
 	require.Equal(t, 4.25, usage.FiveHour.WindowStats.Cost)
 	require.NotNil(t, usage.UpstreamQuota)
 	require.Equal(t, "newapi", usage.UpstreamQuota.Provider)
-	require.Equal(t, "unsupported", usage.UpstreamQuota.State)
-	require.Equal(t, "unsupported", usage.UpstreamQuota.ErrorCode)
+	require.Equal(t, "unknown", usage.UpstreamQuota.State)
+	require.Empty(t, usage.UpstreamQuota.ErrorCode)
 	require.Equal(t, int64(2), logRepo.singleCalls.Load())
 
 	passive, err := svc.GetPassiveUsage(context.Background(), 78)
 	require.NoError(t, err)
 	require.NotNil(t, passive.FiveHour)
 	require.Equal(t, 4.25, passive.SevenDay.WindowStats.Cost)
-	require.Equal(t, "unsupported", passive.UpstreamQuota.State)
+	require.Equal(t, "unknown", passive.UpstreamQuota.State)
 }
 
 func TestAccountUsageService_KiroPassiveBuildsUpstreamQuotaCredits(t *testing.T) {
