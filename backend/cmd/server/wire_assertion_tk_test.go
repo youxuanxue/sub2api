@@ -14,8 +14,8 @@ import (
 // GatewayService. The sentinel-style provider would silently no-op if its
 // implementation regressed; this test pins the behavior.
 //
-// R-001 of docs/approved/pricing-availability-source-of-truth.md mandates
-// production DI evidence.
+// docs/approved/pricing-availability-source-of-truth.md#availability-evidence-owner
+// requires production DI evidence.
 func TestProvideTKGatewayPricingAvailability_WiresGatewayService(t *testing.T) {
 	// Build a minimal GatewayService — only the availability slot is asserted.
 	gw := &service.GatewayService{}

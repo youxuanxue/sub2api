@@ -6,8 +6,8 @@ package handler
 // failure tap site (5 today: gateway_handler.go × 2, chat_completions, responses,
 // gemini_v1beta) should be a single line; the errors.As extraction lives here.
 //
-// Why this helper exists (R-004 of
-// docs/approved/pricing-availability-source-of-truth.md):
+// Why this helper exists:
+// docs/approved/pricing-availability-source-of-truth.md#availability-evidence-owner.
 //
 // Before: handlers passed statusCode=0 to TKRecordForwardFailure. The
 // classifier in pricing_availability_service_tk.go requires UpstreamStatusCode

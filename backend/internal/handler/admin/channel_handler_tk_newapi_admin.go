@@ -27,9 +27,9 @@ type TKChannelAdminHandler struct {
 //
 // pricingCatalog and availabilitySvc are wired into a DiscoveryFilter so the
 // "fetch upstream models" admin endpoint can tag pricing_status and drop
-// explicitly-unavailable models per docs/approved/pricing-availability-source-of-truth.md
-// §2.4 (Goal 1, R-002). Both may be nil — see DiscoveryFilter for nil-safety
-// semantics.
+// explicitly-unavailable models per
+// docs/approved/pricing-availability-source-of-truth.md#availability-admin-discovery.
+// Both may be nil — see DiscoveryFilter for nil-safety semantics.
 func NewTKChannelAdminHandler(
 	gatewayService *service.GatewayService,
 	adminService service.AdminService,
@@ -264,7 +264,8 @@ func (h *TKChannelAdminHandler) FetchUpstreamModels(c *gin.Context) {
 		return
 	}
 	// Pipeline: drop provider-marked unavailable + drop unreachable cells +
-	// tag pricing_status. Per docs/approved/pricing-availability-source-of-truth.md §2.4.
+	// tag pricing_status. Per
+	// docs/approved/pricing-availability-source-of-truth.md#availability-admin-discovery.
 	// Platform is "newapi" — the channel-type accounts always belong to the
 	// fifth platform (per CLAUDE.md fifth-platform doctrine).
 	models := h.discoveryFilter.Apply(c.Request.Context(), service.PlatformNewAPI, rawModels)

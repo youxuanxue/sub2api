@@ -1,19 +1,20 @@
 {
   "_doc": "TokenKey served-models MANIFEST — the single declarative source of intent for 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no'. This is a THIN INTENT layer ABOVE the two mechanisms it must agree with: (1) per-account credentials.model_mapping (the runtime servable WHITELIST; new floors are written only by evidence-backed modelops activation, while legacy rows may come from migrations/admin seed state), and (2) tk_pricing_overlay.json as the complete global price registry. Generic deploy/rollback never writes live mappings or pricing. scripts/checks/catalog-serving-drift.py asserts repository agreement; modelops activate proves and writes live mapping agreement before release. SCOPE: ONLY the TK-curated, account-model_mapping-served newapi long-tail — qwen/deepseek, Moonshot/Kimi channel_type 25, GLM through the configured China newapi pool, and VolcEngine Ark chat/image/video. NOT the litellm catalog, native-platform allowlists, or grok. Consumers: drift guard, tokenkey-onboard-model skill, public /pricing + Group Catalog filters, and the account model_mapping bundle/reconciler. Co-located with tk_pricing_overlay.json so the same Go package embeds both and preflight parses both.",
   "_schema": {
-    "version": 1,
+    "version": 2,
     "entry_key": "<platform>/<model_id>",
     "fields": {
       "platform": "account/group platform string; for this manifest always 'newapi' (the fifth platform). MUST equal the served account's accounts.platform.",
       "model_id": "the client-facing model id that must appear as a KEY in the served account's credentials.model_mapping whitelist (identity-mapped: key==value for these accounts).",
-      "served_on": "string list of accounts.id (as strings) whose credentials.model_mapping MUST advertise model_id. This is a static drift-guard/evidence anchor, not the complete live serving pool; account membership can expand or shrink in runtime DB/admin config. New floors declare served-via-modelops-activation in notes; legacy rows may be evidenced by a migration or served-via-admin-ui marker.",
+      "served_on": "string list of accounts.id (as strings) whose credentials.model_mapping MUST advertise model_id. This is a static drift-guard/evidence anchor, not the complete live serving pool; account membership can expand or shrink in runtime DB/admin config. Rows without migration evidence declare mapping_source.",
       "channel_type": "the newapi channel_type of the serving account (17=Ali/DashScope, 25=Moonshot, 43=DeepSeek, 45=VolcEngine; 26=ZhipuV4 only if a future direct GLM pool is re-provisioned). Documents the upstream adaptor; not asserted against DB (admin-UI editable) but recorded for the reconciler.",
       "account_scope": "optional primary object with platform + channel_type + normalized base_url. When present, it adds a property-scoped serving pool; served_on remains evidence only.",
       "account_scopes": "optional additional platform + channel_type + normalized base_url objects for models shared by multiple property-scoped pools. Use this instead of duplicating model ids in Go.",
       "price_source": "one of 'overlay' (historical token meaning the complete tk_pricing_overlay.json registry) or 'channel' (explicitly scoped channel_model_pricing DB rows). Provider/LiteLLM mirrors are sensor evidence and never an effective price source.",
       "price_key": "the complete-registry owner key, or the scoped channel pricing model id. Usually == model_id.",
       "display": "bool. true => this manifest-listed, priced, mapped model is allowed to appear in public /pricing and model-menu display surfaces. false keeps the runtime mapping/pricing intent but hides the model until the SSOT display gate proves it or entitlement/provisioning is fixed.",
-      "notes": "free-form provenance / known-gap marker."
+      "notes": "free-form human provenance / known-gap context; never parsed for machine policy.",
+      "mapping_source": "optional repository mapping provenance when tk_*.sql does not evidence every served_on account: activation (evidence-backed modelops activation) or admin_legacy (pre-contract admin state, advisory only). Omit when migrations fully evidence the row."
     }
   },
   "entries": {
@@ -34,7 +35,15 @@
       "price_source": "overlay",
       "price_key": "deepseek-v4-pro",
       "display": true,
-      "notes": "ds-官 account 39. Mapped by tk_022 (identity whitelist). Priced in overlay from DeepSeek official list (https://api-docs.deepseek.com/quick_start/pricing, captured 2026-08-17); every serving account, including Baidu Qianfan account 90, bills from the single deepseek-v4-pro owner and follows its peak-valley policy. served-via-admin-ui (model_mapping predates the tk_*.sql era / set out-of-band; A3 downgraded to WARN). Also on VolcEngine Agent Plan account 88; mapped by tk_068; probe 200 on 2026-07-30. Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07. Account 90 mapping: served-via-modelops-activation."
+      "notes": "ds-官 account 39. Mapped by tk_022 (identity whitelist). Priced in overlay from DeepSeek official list (https://api-docs.deepseek.com/quick_start/pricing, captured 2026-08-17); every serving account, including Baidu Qianfan account 90, bills from the single deepseek-v4-pro owner and follows its peak-valley policy. The account 39 model_mapping predates the tk_*.sql era and was provisioned through the admin UI. Also on VolcEngine Agent Plan account 88; mapped by tk_068; probe 200 on 2026-07-30. Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07.",
+      "mapping_source": "activation",
+      "account_scopes": [
+        {
+          "platform": "newapi",
+          "channel_type": 46,
+          "base_url": "https://qianfan.baidubce.com"
+        }
+      ]
     },
     "newapi/deepseek-v4-flash": {
       "platform": "newapi",
@@ -53,7 +62,15 @@
       "price_source": "overlay",
       "price_key": "deepseek-v4-flash",
       "display": true,
-      "notes": "ds-官 account 39. Mapped by tk_022. Priced in overlay from DeepSeek official list (https://api-docs.deepseek.com/quick_start/pricing, captured 2026-08-17); every serving account, including Baidu Qianfan account 90, bills from the single deepseek-v4-flash owner and follows its peak-valley policy. served-via-admin-ui (model_mapping predates the tk_*.sql era / set out-of-band; A3 downgraded to WARN). Also on VolcEngine Agent Plan account 88; mapped by tk_068; probe 200 on 2026-07-30. Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07. Account 90 mapping: served-via-modelops-activation."
+      "notes": "ds-官 account 39. Mapped by tk_022. Priced in overlay from DeepSeek official list (https://api-docs.deepseek.com/quick_start/pricing, captured 2026-08-17); every serving account, including Baidu Qianfan account 90, bills from the single deepseek-v4-flash owner and follows its peak-valley policy. The account 39 model_mapping predates the tk_*.sql era and was provisioned through the admin UI. Also on VolcEngine Agent Plan account 88; mapped by tk_068; probe 200 on 2026-07-30. Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07.",
+      "mapping_source": "activation",
+      "account_scopes": [
+        {
+          "platform": "newapi",
+          "channel_type": 46,
+          "base_url": "https://qianfan.baidubce.com"
+        }
+      ]
     },
     "newapi/deepseek-chat": {
       "platform": "newapi",
@@ -89,7 +106,8 @@
       "price_source": "overlay",
       "price_key": "kimi-k2.5",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China price in overlay. Upstream /v1/models listed and direct chat plus prod gateway account probe returned 200 on 2026-07-20."
+      "notes": "Moonshot China account 83 (kimi). Official China price in overlay. Upstream /v1/models listed and direct chat plus prod gateway account probe returned 200 on 2026-07-20.",
+      "mapping_source": "activation"
     },
     "newapi/kimi-k2.6": {
       "platform": "newapi",
@@ -108,7 +126,15 @@
       "price_source": "overlay",
       "price_key": "kimi-k2.6",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20. Also on VolcEngine Agent Plan account 88 (ch45 /api/plan/v3); mapped by tk_068; probe 200 on 2026-07-30. Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07. Account 90 mapping: served-via-modelops-activation."
+      "notes": "Moonshot China account 83 (kimi). Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20. Also on VolcEngine Agent Plan account 88 (ch45 /api/plan/v3); mapped by tk_068; probe 200 on 2026-07-30. Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07.",
+      "mapping_source": "activation",
+      "account_scopes": [
+        {
+          "platform": "newapi",
+          "channel_type": 46,
+          "base_url": "https://qianfan.baidubce.com"
+        }
+      ]
     },
     "newapi/kimi-k2.7-code": {
       "platform": "newapi",
@@ -126,7 +152,8 @@
       "price_source": "overlay",
       "price_key": "kimi-k2.7-code",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20. Also on VolcEngine Agent Plan account 88 (ch45 /api/plan/v3); mapped by tk_068; probe 200 on 2026-07-30."
+      "notes": "Moonshot China account 83 (kimi). Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20. Also on VolcEngine Agent Plan account 88 (ch45 /api/plan/v3); mapped by tk_068; probe 200 on 2026-07-30.",
+      "mapping_source": "activation"
     },
     "newapi/kimi-k2.7-code-highspeed": {
       "platform": "newapi",
@@ -138,7 +165,8 @@
       "price_source": "overlay",
       "price_key": "kimi-k2.7-code-highspeed",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China high-speed price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20."
+      "notes": "Moonshot China account 83 (kimi). Official China high-speed price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20.",
+      "mapping_source": "activation"
     },
     "newapi/kimi-k3": {
       "platform": "newapi",
@@ -156,7 +184,8 @@
       "price_source": "overlay",
       "price_key": "kimi-k3",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20. Also on VolcEngine Agent Plan account 88 (ch45 /api/plan/v3); mapped by tk_068; probe 200 on 2026-07-30."
+      "notes": "Moonshot China account 83 (kimi). Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20. Also on VolcEngine Agent Plan account 88 (ch45 /api/plan/v3); mapped by tk_068; probe 200 on 2026-07-30.",
+      "mapping_source": "activation"
     },
     "newapi/moonshot-v1-8k": {
       "platform": "newapi",
@@ -168,7 +197,8 @@
       "price_source": "overlay",
       "price_key": "moonshot-v1-8k",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China 8K price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
+      "notes": "Moonshot China account 83 (kimi). Official China 8K price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31.",
+      "mapping_source": "activation"
     },
     "newapi/moonshot-v1-8k-vision-preview": {
       "platform": "newapi",
@@ -180,7 +210,8 @@
       "price_source": "overlay",
       "price_key": "moonshot-v1-8k-vision-preview",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China 8K vision price in overlay. Upstream /v1/models listed and direct text chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
+      "notes": "Moonshot China account 83 (kimi). Official China 8K vision price in overlay. Upstream /v1/models listed and direct text chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31.",
+      "mapping_source": "activation"
     },
     "newapi/moonshot-v1-32k": {
       "platform": "newapi",
@@ -192,7 +223,8 @@
       "price_source": "overlay",
       "price_key": "moonshot-v1-32k",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China 32K price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
+      "notes": "Moonshot China account 83 (kimi). Official China 32K price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31.",
+      "mapping_source": "activation"
     },
     "newapi/moonshot-v1-32k-vision-preview": {
       "platform": "newapi",
@@ -204,7 +236,8 @@
       "price_source": "overlay",
       "price_key": "moonshot-v1-32k-vision-preview",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China 32K vision price in overlay. Upstream /v1/models listed and direct text chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
+      "notes": "Moonshot China account 83 (kimi). Official China 32K vision price in overlay. Upstream /v1/models listed and direct text chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31.",
+      "mapping_source": "activation"
     },
     "newapi/moonshot-v1-128k": {
       "platform": "newapi",
@@ -216,7 +249,8 @@
       "price_source": "overlay",
       "price_key": "moonshot-v1-128k",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China 128K price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
+      "notes": "Moonshot China account 83 (kimi). Official China 128K price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31.",
+      "mapping_source": "activation"
     },
     "newapi/moonshot-v1-128k-vision-preview": {
       "platform": "newapi",
@@ -228,7 +262,8 @@
       "price_source": "overlay",
       "price_key": "moonshot-v1-128k-vision-preview",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China 128K vision price in overlay. Upstream /v1/models listed and direct text chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
+      "notes": "Moonshot China account 83 (kimi). Official China 128K vision price in overlay. Upstream /v1/models listed and direct text chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31.",
+      "mapping_source": "activation"
     },
     "newapi/moonshot-v1-auto": {
       "platform": "newapi",
@@ -240,7 +275,8 @@
       "price_source": "overlay",
       "price_key": "moonshot-v1-auto",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Fixed at the official Moonshot V1 128K price by operator decision because auto may select the highest tier; upstream /v1/models listed and direct chat returned 200 on 2026-07-20 (the minimal probe selected moonshot-v1-8k). Official docs announce Moonshot V1 retirement on 2026-08-31."
+      "notes": "Moonshot China account 83 (kimi). Fixed at the official Moonshot V1 128K price by operator decision because auto may select the highest tier; upstream /v1/models listed and direct chat returned 200 on 2026-07-20 (the minimal probe selected moonshot-v1-8k). Official docs announce Moonshot V1 retirement on 2026-08-31.",
+      "mapping_source": "activation"
     },
     "newapi/qwen3.7-max": {
       "platform": "newapi",
@@ -264,7 +300,8 @@
       "price_source": "overlay",
       "price_key": "qwen3.7-max-preview",
       "display": true,
-      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 400 request-shape. served-via-admin-ui."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 400 request-shape.",
+      "mapping_source": "admin_legacy"
     },
     "newapi/qwen3.7-max-2026-05-17": {
       "platform": "newapi",
@@ -276,7 +313,8 @@
       "price_source": "overlay",
       "price_key": "qwen3.7-max-2026-05-17",
       "display": true,
-      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 400 request-shape. served-via-admin-ui."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 400 request-shape.",
+      "mapping_source": "admin_legacy"
     },
     "newapi/qwen3.7-max-2026-05-20": {
       "platform": "newapi",
@@ -288,7 +326,8 @@
       "price_source": "overlay",
       "price_key": "qwen3.7-max-2026-05-20",
       "display": true,
-      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 200. served-via-admin-ui."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 200.",
+      "mapping_source": "admin_legacy"
     },
     "newapi/qwen3.7-max-2026-06-08": {
       "platform": "newapi",
@@ -300,7 +339,8 @@
       "price_source": "overlay",
       "price_key": "qwen3.7-max-2026-06-08",
       "display": true,
-      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 200. served-via-admin-ui."
+      "notes": "Qwen channel_type=17 pool; served_on account 60 is static mapping evidence, not complete live pool membership. Priced in overlay. Present in 2026-06-23 prod account mapping and confirmed by livefire: thinking 200; nonthinking 200.",
+      "mapping_source": "admin_legacy"
     },
     "newapi/qwen3.7-plus": {
       "platform": "newapi",
@@ -327,7 +367,8 @@
       "price_source": "overlay",
       "price_key": "qwen3.7-flash",
       "display": true,
-      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77,78 are static mapping evidence, not complete live pool membership. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14; account 78 exact-account gateway probes returned 200 on 2026-08-23. Tiered (overlay intervals)."
+      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77,78 are static mapping evidence, not complete live pool membership. Direct + exact-account gateway probes returned 200 on 2026-08-14; account 78 exact-account gateway probes returned 200 on 2026-08-23. Tiered (overlay intervals).",
+      "mapping_source": "activation"
     },
     "newapi/qwen3.7-flash-2026-07-15": {
       "platform": "newapi",
@@ -342,7 +383,8 @@
       "price_source": "overlay",
       "price_key": "qwen3.7-flash-2026-07-15",
       "display": true,
-      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77,78 are static mapping evidence, not complete live pool membership. Dated snapshot of qwen3.7-flash. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14; account 78 exact-account gateway probes returned 200 on 2026-08-23. Tiered (overlay intervals)."
+      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77,78 are static mapping evidence, not complete live pool membership. Dated snapshot of qwen3.7-flash. Direct + exact-account gateway probes returned 200 on 2026-08-14; account 78 exact-account gateway probes returned 200 on 2026-08-23. Tiered (overlay intervals).",
+      "mapping_source": "activation"
     },
     "newapi/qwen3.8-2.4t-a95b": {
       "platform": "newapi",
@@ -357,7 +399,8 @@
       "price_source": "overlay",
       "price_key": "qwen3.8-2.4t-a95b",
       "display": true,
-      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77,78 are static mapping evidence, not complete live pool membership. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14 (thinking/streaming only); account 78 exact-account gateway probes returned 200 on 2026-08-23 (thinking/streaming only). Non-thinking probe shape returns 400 (request-shape constraint, not upstream unavailability)."
+      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77,78 are static mapping evidence, not complete live pool membership. Direct + exact-account gateway probes returned 200 on 2026-08-14 (thinking/streaming only); account 78 exact-account gateway probes returned 200 on 2026-08-23 (thinking/streaming only). Non-thinking probe shape returns 400 (request-shape constraint, not upstream unavailability).",
+      "mapping_source": "activation"
     },
     "newapi/qwen3.8-max": {
       "platform": "newapi",
@@ -372,7 +415,8 @@
       "price_source": "overlay",
       "price_key": "qwen3.8-max",
       "display": true,
-      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77,78 are static mapping evidence, not complete live pool membership. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14; account 78 exact-account gateway probes returned 200 on 2026-08-23."
+      "notes": "Qwen channel_type=17 pool; served_on accounts 60,72,77,78 are static mapping evidence, not complete live pool membership. Direct + exact-account gateway probes returned 200 on 2026-08-14; account 78 exact-account gateway probes returned 200 on 2026-08-23.",
+      "mapping_source": "activation"
     },
     "newapi/qwen3.6-flash": {
       "platform": "newapi",
@@ -740,7 +784,8 @@
       "price_source": "overlay",
       "price_key": "doubao-seedance-1-5-pro-251215",
       "display": true,
-      "notes": "volcengine account 7. Seedance 1.5-pro VIDEO model, mapped by tk_033. Priced in overlay (output_cost_per_second, VolcEngine Ark official 1080p-with-audio max tier). Also served on XRToken account 96 through the additional property scope above; same Ark model id, so the adaptor-only vendor prefix leaves the overlay billing key unchanged. Account 96 mapping: served-via-modelops-activation."
+      "notes": "volcengine account 7. Seedance 1.5-pro VIDEO model, mapped by tk_033. Priced in overlay (output_cost_per_second, VolcEngine Ark official 1080p-with-audio max tier). Also served on XRToken account 96 through the additional property scope above; same Ark model id, so the adaptor-only vendor prefix leaves the overlay billing key unchanged.",
+      "mapping_source": "activation"
     },
     "newapi/doubao-seedance-1-0-pro-fast-251015": {
       "platform": "newapi",
@@ -772,7 +817,8 @@
       "price_source": "overlay",
       "price_key": "doubao-seedance-2-0-260128",
       "display": true,
-      "notes": "volcengine account 7. Seedance 2.0 VIDEO model, mapped by tk_033. Priced in overlay (output_cost_per_second, VolcEngine Ark official 1080p text/image-to-video tier). NOTE: video-input continuation is rejected upstream of pricing by the video submit guard until re-priced. Also served on XRToken account 96 through the additional property scope above; the task adaptor adds XRToken's vendor prefix only on the wire, preserving this Ark billing id. Account 96 mapping: served-via-modelops-activation."
+      "notes": "volcengine account 7. Seedance 2.0 VIDEO model, mapped by tk_033. Priced in overlay (output_cost_per_second, VolcEngine Ark official 1080p text/image-to-video tier). NOTE: video-input continuation is rejected upstream of pricing by the video submit guard until re-priced. Also served on XRToken account 96 through the additional property scope above; the task adaptor adds XRToken's vendor prefix only on the wire, preserving this Ark billing id.",
+      "mapping_source": "activation"
     },
     "newapi/doubao-seedance-2-0-fast-260128": {
       "platform": "newapi",
@@ -792,7 +838,8 @@
       "price_source": "overlay",
       "price_key": "doubao-seedance-2-0-fast-260128",
       "display": true,
-      "notes": "volcengine account 7. Seedance 2.0-fast VIDEO model, mapped by tk_033. Priced in overlay (output_cost_per_second, VolcEngine Ark official 720p max-output tier). Also served on XRToken account 96 through the additional property scope above; the task adaptor adds XRToken's vendor prefix only on the wire, preserving this Ark billing id. Account 96 mapping: served-via-modelops-activation."
+      "notes": "volcengine account 7. Seedance 2.0-fast VIDEO model, mapped by tk_033. Priced in overlay (output_cost_per_second, VolcEngine Ark official 720p max-output tier). Also served on XRToken account 96 through the additional property scope above; the task adaptor adds XRToken's vendor prefix only on the wire, preserving this Ark billing id.",
+      "mapping_source": "activation"
     },
     "newapi/doubao-seedance-2-5-260628": {
       "platform": "newapi",
@@ -809,7 +856,8 @@
       "price_source": "overlay",
       "price_key": "doubao-seedance-2-5-260628",
       "display": true,
-      "notes": "XRToken account 96 (platform=newapi, channel_type=54 DoubaoVideo, base_url=https://api.xrtoken.net). Seedance 2.5 VIDEO model reached through the ARK-compatible task-adaptor wrapper in internal/relay/bridge/video_relay_tk_xrtoken.go (XRToken serves Ark bodies at /v1/contents/generations/tasks instead of Ark's /api/v3 path). XRToken exposes the SKU as volcengine/doubao-seedance-2-5-260628; the task adaptor adds that prefix only on the upstream wire while the identity model_mapping preserves this Ark billing id, so the overlay price applies. Priced in overlay from the VolcEngine Ark official model-pricing page 70.00 CNY/M-token input-without-video rate; Ark publishes ONLY 480p/720p for this SKU, so the tiers stop at 720p on purpose — inventing a 1080p tier would silently bill a resolution the upstream does not produce. Video-input continuation stays rejected by the video submit guard (it bills input+output duration). Account 96 mapping: served-via-modelops-activation."
+      "notes": "XRToken account 96 (platform=newapi, channel_type=54 DoubaoVideo, base_url=https://api.xrtoken.net). Seedance 2.5 VIDEO model reached through the ARK-compatible task-adaptor wrapper in internal/relay/bridge/video_relay_tk_xrtoken.go (XRToken serves Ark bodies at /v1/contents/generations/tasks instead of Ark's /api/v3 path). XRToken exposes the SKU as volcengine/doubao-seedance-2-5-260628; the task adaptor adds that prefix only on the upstream wire while the identity model_mapping preserves this Ark billing id, so the overlay price applies. Priced in overlay from the VolcEngine Ark official model-pricing page 70.00 CNY/M-token input-without-video rate; Ark publishes ONLY 480p/720p for this SKU, so the tiers stop at 720p on purpose — inventing a 1080p tier would silently bill a resolution the upstream does not produce. Video-input continuation stays rejected by the video submit guard (it bills input+output duration).",
+      "mapping_source": "activation"
     },
     "newapi/doubao-seedance-2.0-mini": {
       "platform": "newapi",
@@ -826,7 +874,8 @@
       "price_source": "overlay",
       "price_key": "doubao-seedance-2.0-mini",
       "display": true,
-      "notes": "XRToken account 96 (platform=newapi, channel_type=54 DoubaoVideo, base_url=https://api.xrtoken.net). Seedance 2.0 Mini VIDEO model via the ARK-compatible task-adaptor wrapper in internal/relay/bridge/video_relay_tk_xrtoken.go. The dotted id is Ark's OWN spelling on the official model-pricing page (doubao-seedance-2.0-mini, no date suffix), not an XRToken rename, so it is also the Ark billing id and the overlay price key; XRToken exposes it as volcengine/doubao-seedance-2.0-mini; the task adaptor adds that prefix only on the upstream wire while the account model_mapping remains identity. Priced in overlay from the Ark official 23.00 CNY/M-token input-without-video LIST rate — the page's 限时4折 promo is deliberately NOT applied, matching every existing seedance row (a promo expiry would otherwise turn into silent under-billing). Ark publishes ONLY 480p/720p for this SKU so the tiers stop at 720p. Video-input continuation stays rejected by the video submit guard. Account 96 mapping: served-via-modelops-activation."
+      "notes": "XRToken account 96 (platform=newapi, channel_type=54 DoubaoVideo, base_url=https://api.xrtoken.net). Seedance 2.0 Mini VIDEO model via the ARK-compatible task-adaptor wrapper in internal/relay/bridge/video_relay_tk_xrtoken.go. The dotted id is Ark's OWN spelling on the official model-pricing page (doubao-seedance-2.0-mini, no date suffix), not an XRToken rename, so it is also the Ark billing id and the overlay price key; XRToken exposes it as volcengine/doubao-seedance-2.0-mini; the task adaptor adds that prefix only on the upstream wire while the account model_mapping remains identity. Priced in overlay from the Ark official 23.00 CNY/M-token input-without-video LIST rate — the page's 限时4折 promo is deliberately NOT applied, matching every existing seedance row (a promo expiry would otherwise turn into silent under-billing). Ark publishes ONLY 480p/720p for this SKU so the tiers stop at 720p. Video-input continuation stays rejected by the video submit guard.",
+      "mapping_source": "activation"
     },
     "newapi/doubao-seedream-4-0-250828": {
       "platform": "newapi",
@@ -882,7 +931,15 @@
       "price_source": "overlay",
       "price_key": "glm-5.2",
       "display": true,
-      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time). Also on VolcEngine Agent Plan account 88 (ch45 /api/plan/v3); mapped by tk_068; probe 200 on 2026-07-30. Also on Baidu Qianfan account 90 (ch46); Qianfan console confirms ¥0.008/¥0.028 per 1k in/out; probe 200 on 2026-08-07. Account 90 mapping: served-via-modelops-activation."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time). Also on VolcEngine Agent Plan account 88 (ch45 /api/plan/v3); mapped by tk_068; probe 200 on 2026-07-30. Also on Baidu Qianfan account 90 (ch46); Qianfan console confirms ¥0.008/¥0.028 per 1k in/out; probe 200 on 2026-08-07.",
+      "mapping_source": "activation",
+      "account_scopes": [
+        {
+          "platform": "newapi",
+          "channel_type": 46,
+          "base_url": "https://qianfan.baidubce.com"
+        }
+      ]
     },
     "newapi/glm-5.2-fast-preview": {
       "platform": "newapi",
@@ -897,7 +954,8 @@
       "price_source": "overlay",
       "price_key": "glm-5.2-fast-preview",
       "display": true,
-      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on accounts 60,72,77,78 are static mapping-evidence anchors, while live account membership comes from runtime DB/admin config. served-via-modelops-activation. Direct + exact-account gateway probes returned 200 on 2026-08-14; account 78 exact-account gateway probes returned 200 on 2026-08-23. Overlay uses Alibaba DashScope official China-mainland pricing (https://help.aliyun.com/zh/model-studio/model-pricing, captured 2026-08-14; CNY/USD=6.7)."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on accounts 60,72,77,78 are static mapping-evidence anchors, while live account membership comes from runtime DB/admin config. Direct + exact-account gateway probes returned 200 on 2026-08-14; account 78 exact-account gateway probes returned 200 on 2026-08-23. Overlay uses Alibaba DashScope official China-mainland pricing (https://help.aliyun.com/zh/model-studio/model-pricing, captured 2026-08-14; CNY/USD=6.7).",
+      "mapping_source": "activation"
     },
     "newapi/glm-5.1": {
       "platform": "newapi",
@@ -911,7 +969,15 @@
       "price_source": "overlay",
       "price_key": "glm-5.1",
       "display": true,
-      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time). Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07. Account 90 mapping: served-via-modelops-activation."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time). Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07.",
+      "mapping_source": "activation",
+      "account_scopes": [
+        {
+          "platform": "newapi",
+          "channel_type": 46,
+          "base_url": "https://qianfan.baidubce.com"
+        }
+      ]
     },
     "newapi/glm-5": {
       "platform": "newapi",
@@ -925,7 +991,15 @@
       "price_source": "overlay",
       "price_key": "glm-5",
       "display": true,
-      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time). Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07. Account 90 mapping: served-via-modelops-activation."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time). Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07.",
+      "mapping_source": "activation",
+      "account_scopes": [
+        {
+          "platform": "newapi",
+          "channel_type": 46,
+          "base_url": "https://qianfan.baidubce.com"
+        }
+      ]
     },
     "newapi/glm-4.7": {
       "platform": "newapi",
@@ -1130,7 +1204,8 @@
       "price_source": "overlay",
       "price_key": "ernie-4.5-turbo-vl-32k",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). Probe 200 via account 90 + china group 19 on 2026-08-07. Priced from Qianfan console ¥0.003/¥0.009 per 1k tok in/out; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). Probe 200 via account 90 + china group 19 on 2026-08-07. Priced from Qianfan console ¥0.003/¥0.009 per 1k tok in/out; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/deepseek-v4-flash-0731": {
       "platform": "newapi",
@@ -1148,7 +1223,8 @@
       "price_source": "overlay",
       "price_key": "deepseek-v4-flash",
       "display": true,
-      "notes": "Dated flash SKU. Probe 200 on 2026-08-07 via Baidu Qianfan account 90; also served by account 88 as an alias (tk_088; account 39 excluded while its DeepSeek path fails closed, see #1806). Bills from the deepseek-v4-flash official owner (the same upstream model, per the DeepSeek price page), so official peak windows apply. served-via-modelops-activation."
+      "notes": "Dated flash SKU. Probe 200 on 2026-08-07 via Baidu Qianfan account 90; also served by account 88 as an alias (tk_088; account 39 excluded while its DeepSeek path fails closed, see #1806). Bills from the deepseek-v4-flash official owner (the same upstream model, per the DeepSeek price page), so official peak windows apply.",
+      "mapping_source": "activation"
     },
     "newapi/deepseek-v3.2": {
       "platform": "newapi",
@@ -1165,7 +1241,8 @@
       "price_source": "overlay",
       "price_key": "deepseek-v3.2",
       "display": true,
-      "notes": "Baidu Qianfan account 90. Probe 200 on 2026-08-07. Qianfan tiered ¥0.002–0.004 in / ¥0.003–0.006 out per 1k; overlay intervals from GET /v2/models tier table. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90. Probe 200 on 2026-08-07. Qianfan tiered ¥0.002–0.004 in / ¥0.003–0.006 out per 1k; overlay intervals from GET /v2/models tier table.",
+      "mapping_source": "activation"
     },
     "newapi/deepseek-v3.2-think": {
       "platform": "newapi",
@@ -1182,7 +1259,8 @@
       "price_source": "overlay",
       "price_key": "deepseek-v3.2-think",
       "display": true,
-      "notes": "Baidu Qianfan account 90. Probe 200 on 2026-08-07 (reasoning path). Same Qianfan tier table as deepseek-v3.2; overlay intervals + thinking_output_cost_per_token from GET /v2/models tier table. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90. Probe 200 on 2026-08-07 (reasoning path). Same Qianfan tier table as deepseek-v3.2; overlay intervals + thinking_output_cost_per_token from GET /v2/models tier table.",
+      "mapping_source": "activation"
     },
     "newapi/bge-large-en": {
       "platform": "newapi",
@@ -1199,7 +1277,8 @@
       "price_source": "overlay",
       "price_key": "bge-large-en",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/bge-large-zh": {
       "platform": "newapi",
@@ -1216,7 +1295,8 @@
       "price_source": "overlay",
       "price_key": "bge-large-zh",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/deepseek-ocr": {
       "platform": "newapi",
@@ -1233,7 +1313,8 @@
       "price_source": "overlay",
       "price_key": "deepseek-ocr",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/ernie-4.5-turbo-128k": {
       "platform": "newapi",
@@ -1250,7 +1331,8 @@
       "price_source": "overlay",
       "price_key": "ernie-4.5-turbo-128k",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/ernie-4.5-turbo-20260402": {
       "platform": "newapi",
@@ -1267,7 +1349,8 @@
       "price_source": "overlay",
       "price_key": "ernie-4.5-turbo-20260402",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/ernie-4.5-turbo-32k": {
       "platform": "newapi",
@@ -1284,7 +1367,8 @@
       "price_source": "overlay",
       "price_key": "ernie-4.5-turbo-32k",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/ernie-4.5-turbo-vl": {
       "platform": "newapi",
@@ -1301,7 +1385,8 @@
       "price_source": "overlay",
       "price_key": "ernie-4.5-turbo-vl",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/ernie-5.0": {
       "platform": "newapi",
@@ -1318,7 +1403,8 @@
       "price_source": "overlay",
       "price_key": "ernie-5.0",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/ernie-5.0-thinking-preview": {
       "platform": "newapi",
@@ -1335,7 +1421,8 @@
       "price_source": "overlay",
       "price_key": "ernie-5.0-thinking-preview",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/ernie-5.1": {
       "platform": "newapi",
@@ -1352,7 +1439,8 @@
       "price_source": "overlay",
       "price_key": "ernie-5.1",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/ernie-x1.1": {
       "platform": "newapi",
@@ -1369,7 +1457,8 @@
       "price_source": "overlay",
       "price_key": "ernie-x1.1",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/ernie-x1.1-preview": {
       "platform": "newapi",
@@ -1386,7 +1475,8 @@
       "price_source": "overlay",
       "price_key": "ernie-x1.1-preview",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/internvl3-38b": {
       "platform": "newapi",
@@ -1403,7 +1493,8 @@
       "price_source": "overlay",
       "price_key": "internvl3-38b",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/qianfan-ocr": {
       "platform": "newapi",
@@ -1420,7 +1511,8 @@
       "price_source": "overlay",
       "price_key": "qianfan-ocr",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/qwen3-embedding-0.6b": {
       "platform": "newapi",
@@ -1437,7 +1529,8 @@
       "price_source": "overlay",
       "price_key": "qwen3-embedding-0.6b",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/qwen3-embedding-4b": {
       "platform": "newapi",
@@ -1454,7 +1547,8 @@
       "price_source": "overlay",
       "price_key": "qwen3-embedding-4b",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/qwen3-embedding-8b": {
       "platform": "newapi",
@@ -1471,7 +1565,8 @@
       "price_source": "overlay",
       "price_key": "qwen3-embedding-8b",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/qwen3.5-122b-a10b": {
       "platform": "newapi",
@@ -1488,7 +1583,8 @@
       "price_source": "overlay",
       "price_key": "qwen3.5-122b-a10b",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/qwen3.5-27b": {
       "platform": "newapi",
@@ -1505,7 +1601,8 @@
       "price_source": "overlay",
       "price_key": "qwen3.5-27b",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/qwen3.5-35b-a3b": {
       "platform": "newapi",
@@ -1522,7 +1619,8 @@
       "price_source": "overlay",
       "price_key": "qwen3.5-35b-a3b",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     },
     "newapi/qwen3.5-397b-a17b": {
       "platform": "newapi",
@@ -1539,7 +1637,8 @@
       "price_source": "overlay",
       "price_key": "qwen3.5-397b-a17b",
       "display": true,
-      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7. served-via-modelops-activation."
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing tiered via overlay intervals when applicable; CNY/USD=6.7.",
+      "mapping_source": "activation"
     }
   }
 }

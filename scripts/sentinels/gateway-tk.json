@@ -2751,6 +2751,7 @@
       "path": "ops/pricing/manage-account-model-mapping-runtime.py",
       "must_contain": [
         "APPLY_CONFIRM = \"yes-apply-account-model-mapping\"",
+        "tk_account_model_mapping_runtime_doc",
         "DEFAULT_BUNDLE_PATH = _BUNDLE.DEFAULT_BUNDLE_PATH",
         "return _BUNDLE.load_bundle(_BUNDLE_PATH)",
         "def cmd_check_accounts(",
@@ -2777,6 +2778,17 @@
         "--allow-extra-model-mapping"
       ],
       "rationale": "Explicit ops check/apply surfaces for account model_mapping. The script must consume the checksummed bundle without Go/source discovery, prioritize property-selected account overrides over shared platform/channel floors, select VolcEngine Agent Plan by platform/channel/base_url rather than account ID, use one required-floor + forbidden-policy rule, preserve compatible extras, keep check-accounts read-only, scope release-gate to explicit model activation, require confirmation before writes, update only model_mapping/group scopes, and enqueue scheduler outbox events. Accounts with Extra.supplier_source_id are owned by supplier Sync (exact procurement subset) and must be exempt from floor check/apply/release-gate convergence. Activation pins the resolved prod instance and rechecks runtime-shadow absence under a settings-table lock before writes. Generic deploy wiring is prohibited by the workflow sentinel above, while direct Edge diagnostics/apply remain available."
+    },
+    {
+      "path": "ops/pricing/account_model_mapping_runtime_doc.py",
+      "must_contain": [
+        "class RuntimeDocumentError(ValueError):",
+        "def normalize_platform_key(",
+        "def normalize(doc)",
+        "def load(",
+        "def decode_runtime_value("
+      ],
+      "rationale": "Pure owner for runtime replacement document normalization, loading and settings-blob decoding. The stable CLI entrypoint delegates here so document policy stays testable without SSM/SQL side effects and cannot grow another copy inside the operator command."
     },
     {
       "path": "backend/cmd/account-model-mapping/main.go",

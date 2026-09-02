@@ -1120,8 +1120,8 @@ var ProviderSet = wire.NewSet(
 	// issuer onto AuthService post-construction. The returned sentinel is
 	// consumed by provideCleanup (cmd/server/wire.go) so wire forces evaluation.
 	ProvideTKAuthServiceColdStart,
-	// TokenKey: pricing-availability single-source-of-truth (R-001 of
-	// docs/approved/pricing-availability-source-of-truth.md). Builds the
+	// TokenKey: pricing-availability evidence owner; see
+	// docs/approved/pricing-availability-source-of-truth.md#availability-evidence-owner. Builds the
 	// availability service and wires it onto GatewayService post-construction.
 	// Handler-side wiring lives in handler/wire.go (ProvideTKPricingCatalogHandler).
 	ProvidePricingAvailabilityService,

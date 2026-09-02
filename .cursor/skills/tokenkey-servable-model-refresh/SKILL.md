@@ -46,8 +46,8 @@ de-duplication and Go-map splicing. Do not reproduce those algorithms in this sk
 - Paid or high-cost media probes must be limited to models actually under review.
 - Review unexpected bulk additions/removals before opening a PR. Merge authorization stays
   with a human.
-- Watchlist freshness is an operational alert, not a candidate-generation gate. Use the
-  script's `watchlist-status` command for the machine-readable stale set.
+- Durable explicit candidates belong in ledger `probe_candidates`; time-bounded follow-up
+  belongs in `watchlist`. Use `watchlist-status` for its machine-readable stale set.
 
 ## Pricing findings
 

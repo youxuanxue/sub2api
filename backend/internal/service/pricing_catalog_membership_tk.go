@@ -1,7 +1,7 @@
 package service
 
-// TokenKey: catalog-membership predicates for the upstream-discovery filter
-// (R-002, Goal 1) and client model-list filter (R-003, Goal 2).
+// TokenKey: catalog-membership predicates shared by the upstream-discovery
+// filter and client model-list filter.
 //
 // Why this lives in a TK companion file rather than pricing_catalog_tk.go:
 // the catalog parsing/build code in the primary file is mostly upstream-shaped
@@ -22,11 +22,8 @@ import (
 )
 
 // IsModelPriced reports whether modelID has a pricing entry in the catalog.
-// The platform parameter is reserved for a future *cross-vendor* pricing
-// split — e.g. claude-3-haiku-20240307 priced differently on Bedrock vs
-// anthropic.com (see §8 of docs/approved/pricing-availability-source-of-truth.md
-// "遗留事项") — and is currently ignored; the catalog is platform-agnostic
-// in v1. Note: <vendor>/<model>-style ids already carry their own
+// The platform parameter is currently ignored because catalog membership is
+// platform-agnostic. Note: <vendor>/<model>-style ids already carry their own
 // per-vendor signal via the "/" prefix, which the fallback below consumes
 // without needing the platform argument.
 //

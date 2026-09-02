@@ -96,6 +96,21 @@ SECONDARY_TRUTH_PATTERNS = (
     re.compile(r"§2\.4\s*/\s*R-002"),
     re.compile(r"同一\s*servable\s+surface"),
     re.compile(r"account\.go:639"),
+    re.compile(r"pricing-availability-source-of-truth\.md\s+§", re.IGNORECASE),
+    re.compile(
+        r"§\d+(?:\.\d+)?[\s\S]{0,100}pricing-availability-source-of-truth\.md",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:Goal\s+\d+|R-\d{3})[\s\S]{0,100}pricing-availability-source-of-truth\.md",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"pricing-availability-source-of-truth\.md[\s\S]{0,100}(?:Goal\s+\d+|R-\d{3})",
+        re.IGNORECASE,
+    ),
+    re.compile(r"served-model-reconcile-planner\.md", re.IGNORECASE),
+    re.compile(r"tokenkey-modelops-planner.{0,40}(?:分支|branch)\s+[A-Z]", re.IGNORECASE),
 )
 
 # Cheap literal cover of SECONDARY_TRUTH_PATTERNS. A file that cannot contain
@@ -119,6 +134,9 @@ SECONDARY_TRUTH_PREFILTER = (
     "r-002",
     "account.go:639",
     "four facts",
+    "pricing-availability-source-of-truth.md",
+    "served-model-reconcile-planner.md",
+    "tokenkey-modelops-planner",
 )
 
 

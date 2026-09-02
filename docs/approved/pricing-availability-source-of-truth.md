@@ -24,6 +24,8 @@ structurally-gone 谓词，不另写一套 availability + pricing 准入。
 
 ## 1. 本文唯一拥有的事实
 
+<a id="availability-evidence-owner"></a>
+
 `model_availability` 只保存带时间范围的观测证据，例如：
 
 - 最近一次成功/失败时间；
@@ -47,16 +49,22 @@ structurally-gone 谓词，不另写一套 availability + pricing 准入。
 
 ### 2.1 Admin upstream discovery
 
+<a id="availability-admin-discovery"></a>
+
 上游 `/models` 是 discovery feed。admin 可以看到 retired/deprecated 元数据、是否存在
 canonical price owner、最近 evidence，以及 `priced` / `missing` 操作提示。
 这是运营候选信息，不是自动上架或自动写 mapping 的指令。
 
 ### 2.2 公共目录装饰
 
+<a id="availability-catalog-decoration"></a>
+
 公共目录可以展示 `degraded`、`stale`、`untested` 徽章。5xx、网络错误、限速或认证错误
 不得让模型在橱窗中闪进闪出。
 
 ### 2.3 结构性消失的裁剪
+
+<a id="availability-structural-pruning"></a>
 
 只有 provider 明确、可重复地返回 model-not-found/retired，且信号属于 platform/model
 而非单账号 auth/quota 时，公共投影可以隐藏 structurally-gone 模型。
@@ -65,6 +73,8 @@ canonical price owner、最近 evidence，以及 `priced` / `missing` 操作提�
 owner 不被 availability 改写；admin/审计面仍能看到原始证据。
 
 ### 2.4 运维触发器
+
+<a id="availability-operations"></a>
 
 availability 可以触发 re-probe、告警、人工 review、catalog/mapping/price drift 审计、
 provider 下线调查。它只能触发 owner 的正常写路径，不能直接跨写 owner。

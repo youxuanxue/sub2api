@@ -18,8 +18,8 @@ import (
 // during Wire DI setup; absent call = filter disabled (FilterClientFacing is
 // nil-safe → fail-open, returns candidates unchanged).
 //
-// Per docs/approved/pricing-availability-source-of-truth.md §2.5 (Goal 2,
-// R-003). Mirrors GatewayService.SetPricingAvailabilityService in shape.
+// Per docs/approved/pricing-availability-source-of-truth.md#availability-structural-pruning.
+// Mirrors GatewayService.SetPricingAvailabilityService in shape.
 func (h *GatewayHandler) SetModelListFilter(f *service.ModelListFilter) {
 	if h != nil {
 		h.tkModelListFilter = f
