@@ -1,233 +1,67 @@
 ---
 name: tokenkey-account-model-probe
-description: Probe a specific TokenKey prod or edge account against one model by reusing reserved __tk_probe_* debug resources. Use when debugging whether account_id N on prod/edge can actually serve a model, when isolating routing from account capability, or when checking a suspect prod/edge account before changing scheduling.
+description: Probe one TokenKey prod or edge account against one model through the gateway or direct upstream path using reserved debug resources. Use to separate account capability, TokenKey routing, and usage attribution before modelops or scheduling changes.
 ---
 
-# TokenKey Account Model Probe
+# TokenKey account/model probe
 
-Run a live, low-cost probe for one account and one model. Default path reuses one reserved exclusive `__tk_probe_<platform>_group` and `__tk_probe_<platform>_key` per target host/platform, temporarily binds only the target account, sends one real gateway request, then removes the account binding and disables the probe resources. This avoids accumulating or leaving active one-off debug groups and keys.
+Run probes through `ops/observability/run-probe.sh`; do not SSH manually. Account IDs,
+names, groups and edge placement come from the current task or live snapshot and are
+identifiers only, never capability metadata.
 
-Use `ops/observability/run-probe.sh`; do not SSH manually.
+## Choose the evidence path
 
-## Quick Run
+| Question | Script |
+| --- | --- |
+| Can TokenKey route this request to the intended account? | `ops/stage0/probe_account_model.sh` with `ops/pricing/probe_reserved_resources.sh` |
+| Can the raw OpenAI/Grok credential serve it? | `ops/stage0/probe_direct_upstream_model.sh` plus the platform companion |
+| What does an Antigravity or Anthropic account advertise/test upstream? | `ops/stage0/probe_account_upstream_models.sh` |
+| Can a Kiro OAuth account serve a model through its runtime? | `ops/stage0/probe_kiro_upstream_models.sh` |
+| Are Kiro thinking fields present? | `ops/stage0/probe_kiro_upstream_thinking_fields.sh` |
+| What protocols does a CloudWise account expose? | `ops/stage0/probe_cloudwise_upstream_matrix.sh` |
+| Does one CloudWise spelling work? | `ops/stage0/probe_cloudwise_model_case.sh` |
+| Which Claude IDs does one Kiro account serve? | `ops/stage0/probe_kiro_claude_models.sh` |
 
-```bash
-bash ops/observability/run-probe.sh \
-  --target prod \
-  --script ops/stage0/probe_account_model.sh \
-  --with ops/pricing/probe_reserved_resources.sh \
-  --env ACCOUNT_ID=<account_id> \
-  --env MODEL=<model> \
-  --env ENDPOINT=messages
-```
+For the canonical gateway path, pass the target, `ACCOUNT_ID`, `MODEL`, and the
+operation-appropriate `ENDPOINT` to `probe_account_model.sh`. `run-probe.sh`
+automatically ships the registered companions for every script in the table;
+inspect its machine-owned contract before a less familiar path with
+`--script <path> --describe-script`. Use `messages` for
+Anthropic/Kiro, `chat` for OpenAI-compatible chat, `responses` for Codex/OpenAI
+Responses, and `embeddings` for embedding SKUs. Read each script's header for optional
+request-shape parameters; do not copy account-specific commands into this skill.
 
-Embedding models (must use `/v1/embeddings`, not chat):
+## Interpret the result
 
-```bash
-bash ops/observability/run-probe.sh \
-  --target prod \
-  --script ops/stage0/probe_account_model.sh \
-  --with ops/pricing/probe_reserved_resources.sh \
-  --env ACCOUNT_ID=<account_id> \
-  --env MODEL=bge-large-en \
-  --env ENDPOINT=embeddings
-```
+The contract printed by `--describe-script` is authoritative because direct, list,
+matrix and batch probes intentionally have different verdict vocabularies. For the
+canonical gateway path:
 
-For an edge account:
+- `servable`: the request succeeded and, where usage attribution applies,
+  `usage_match.account_id` is the requested account.
+- `wrong_account`: the request succeeded through a different account.
+- `gateway_rejected`: TokenKey rejected before usable upstream evidence, often because
+  of the current mapping/floor, capacity, billing or request shape.
+- `upstream_rejected`: the intended upstream account path was reached and rejected the
+  credential/model/request combination.
+- `uncorrelated_success`: HTTP succeeded but the usage row did not arrive in the bounded
+  correlation window; inspect logs before trusting it.
+- `setup_error`: probe resource or account setup failed; it is not a model verdict.
 
-```bash
-bash ops/observability/run-probe.sh \
-  --target edge:<edge_id> \
-  --script ops/stage0/probe_account_model.sh \
-  --with ops/pricing/probe_reserved_resources.sh \
-  --env ACCOUNT_ID=<account_id> \
-  --env MODEL=<model> \
-  --env ENDPOINT=messages
-```
+A local `Unsupported model`, empty pool or `account_id=null` is not proof that the
+provider account lacks the model. A direct upstream probe proves raw account capability;
+the gateway probe proves TokenKey-path serving and attribution. Model activation needs
+both the appropriate upstream evidence and a gateway result attributed to the intended
+account.
 
-When the question is raw provider capability rather than TokenKey-path serving,
-use a direct upstream probe on the same target host:
+## Safety
 
-```bash
-bash ops/observability/run-probe.sh \
-  --target edge:<edge_id> \
-  --script ops/stage0/probe_direct_upstream_model.sh \
-  --with ops/stage0/probe_openai_upstream_model.sh \
-  --with ops/stage0/probe_grok_upstream_model.sh \
-  --env PLATFORM=<openai|grok> \
-  --env ACCOUNT_ID=<account_id> \
-  --env MODEL=<model>
-```
-
-For a Kiro edge OAuth account, bypass the compiled Kiro model floor and call
-the Kiro runtime directly. The wrapper keeps DB credentials in a mode-600 temp
-file and emits only account id, model, status, and a bounded response excerpt:
-
-```bash
-bash ops/observability/run-probe.sh \
-  --target edge:<edge_id> \
-  --script ops/stage0/probe_kiro_upstream_models.sh \
-  --with ops/kiro/probe_runtime_gateway.py \
-  --with ops/kiro/capture_kiro_fingerprint.py \
-  --with backend/internal/pkg/kiro/constants.go \
-  --env ACCOUNT_ID=<account_id> \
-  --env 'MODELS=<control_model> <candidate_model>'
-```
-
-To verify Kiro adaptive-thinking wire fields (`reasoningContentEvent` +
-`signature`) on a live edge OAuth account:
-
-```bash
-bash ops/observability/run-probe.sh \
-  --target edge:<edge_id> \
-  --script ops/stage0/probe_kiro_upstream_thinking_fields.sh \
-  --with ops/kiro/probe_upstream_thinking_fields.py \
-  --env ACCOUNT_ID=<account_id> \
-  --env MODEL=auto
-```
-
-For an Antigravity OAuth account, query its canonical upstream
-`fetchAvailableModels` result through the account service without modifying
-`model_mapping`:
-
-```bash
-bash ops/observability/run-probe.sh \
-  --target edge:<edge_id> \
-  --script ops/stage0/probe_account_upstream_models.sh \
-  --env ACCOUNT_ID=<account_id> \
-  --env BASE_URL=https://api-<edge_id>.tokenkey.dev/api/v1 \
-  --env 'TARGET_MODELS=<candidate_model> <candidate_alias>'
-```
-
-For an Anthropic OAuth/setup-token account, the same wrapper can call the
-canonical admin account-test service directly, bypassing the gateway pricing
-floor while retaining the account's proxy and TLS fingerprint. Account-test
-success may update the account's normal recovery state:
-
-```bash
-bash ops/observability/run-probe.sh \
-  --target edge:<edge_id> \
-  --script ops/stage0/probe_account_upstream_models.sh \
-  --env ACCOUNT_ID=<account_id> \
-  --env BASE_URL=https://api-<edge_id>.tokenkey.dev/api/v1 \
-  --env MODEL=<candidate_model>
-```
-
-For a CloudWise MaaS OpenAI apikey account (`base_url` under
-`api.cloudwise.ai` / `api-us.cloudwise.ai`), run the direct upstream protocol
-matrix (models list, chat, messages, responses, embeddings, images, videos).
-Output never includes `api_key`; use it to refresh probe-curated
-`openai_cloudwise_relay` catalog floors and `extra` capability flags:
-
-```bash
-bash ops/observability/run-probe.sh \
-  --target prod \
-  --script ops/stage0/probe_cloudwise_upstream_matrix.sh \
-  --env ACCOUNT_ID=95
-```
-
-To probe one model spelling against CloudWise `/v1/chat/completions` (case
-sensitivity / canonical wire id — e.g. `MiniMax-M3` vs `minimax-m3`):
-
-```bash
-bash ops/observability/run-probe.sh \
-  --target prod \
-  --script ops/stage0/probe_cloudwise_model_case.sh \
-  --env ACCOUNT_ID=95 \
-  --env MODEL=MiniMax-M3
-```
-
-The JSON result includes database-derived `account_platform` and effective
-`account_scope` (for example an Anthropic transport stub with
-`mirror_platform=kiro` reports `account_platform=anthropic`,
-`account_scope=kiro`) for model-activation evidence.
-
-Useful options:
-
-- `ENDPOINT=messages|chat|responses|embeddings` chooses `/v1/messages`, `/v1/chat/completions`, `/v1/responses`, or `/v1/embeddings`.
-- Embedding SKUs (for example `bge-large-en`, `text-embedding-3-small`) must use `ENDPOINT=embeddings`. Do **not** probe them via `ENDPOINT=chat`; upstream returns 401 and TokenKey may mark the account `error`.
-- `MAX_TOKENS=16` keeps cost low.
-- `PROMPT_TEXT='Reply OK only.'` changes the prompt.
-- `REQUEST_EXTRA_JSON='{"temperature":0.7,"top_p":0.9}'` merges extra top-level JSON fields into the generated payload for request-shape compatibility probes.
-- `REQUEST_TIMEOUT_SECONDS=90` caps the in-container gateway request.
-- `PROBE_REUSE_MODE=1` is the default: reuse `__tk_probe_<platform>_group` / `__tk_probe_<platform>_key`.
-- `PROBE_REUSE_MODE=0` creates a one-off `__tk_probe_tkprobe-*` group/key and soft-deletes it on cleanup.
-- `KEEP_PROBE_ARTIFACTS=1` keeps the current account binding for manual follow-up. In one-off mode it also keeps that temporary group/key; in reuse mode it leaves the reserved group/key active until manual cleanup. Default is cleanup.
-- `PROBE_LOCK_TIMEOUT_SECONDS=120` caps waiting for another same-platform reuse probe to finish.
-- `APP_CONTAINER=tokenkey APP_URL=http://localhost:8080` are the default in-container request target.
-
-## How To Read It
-
-The script emits one JSON object. Treat these fields as the decision surface:
-
-- `verdict=servable`: HTTP 2xx and `usage_logs` confirms `account_id == ACCOUNT_ID` (chat/messages/responses), or for `ENDPOINT=embeddings`/`count_tokens` a valid endpoint-specific 2xx body (embeddings may omit usage when logs lag).
-- `verdict=wrong_account`: request succeeded but `usage_logs` shows a different `account_id` (including `ENDPOINT=embeddings` when usage is present).
-- `verdict=gateway_rejected`: TokenKey rejected before upstream, usually model unsupported, no available accounts, billing/RPM, or request shape.
-- `verdict=upstream_rejected`: upstream reached but rejected auth/model/request.
-- `verdict=uncorrelated_success`: HTTP 2xx but no usage row was found in the poll window; inspect recent logs before trusting it.
-- `verdict=setup_error`: target account/group/key setup failed; not a model signal.
-
-Never paste returned API keys or credentials. The script intentionally prints IDs, names, status, short body excerpts, and log excerpts only.
-
-### model_mapping / upstream gate interpretation
-
-For modelops, distinguish TokenKey's current production serving floor from raw upstream account capability:
-
-- `gateway_rejected` with body like `Unsupported model: <id>` or an empty-pool / no-account response
-  can mean TokenKey rejected before a usable upstream call because the current account `model_mapping`
-  / compiled floor does not include the model. Prod accounts are expected to follow the SSOT
-  `model_mapping`, so a negative prod catalog probe is not proof that the raw provider account cannot
-  serve the model.
-- `upstream_rejected` means the upstream provider path was reached and the upstream account/model/request
-  combination rejected it. The exact text is platform-specific, for example OpenAI OAuth can return
-  `not supported when using Codex with a ChatGPT account`.
-- A direct upstream probe proves only raw provider account capability. A gateway account probe proves
-  TokenKey-path serving and usage attribution. A model is promotable to catalog/Menu or runtime
-  `model_mapping` only after the platform-appropriate probe returns `verdict=servable`, the gateway
-  account probe confirms `usage_match.account_id == ACCOUNT_ID`, and the prod `model_mapping` path has
-  been updated/re-probed through the modelops flow when prod serving is the goal.
-
-Example from 2026-07-08: prod normal probes for `gpt-5.6*` returned local
-`Unsupported model` with `account_id=null`; edge OpenAI OAuth accounts on `edge:us4` and `edge:us3`
-then reached upstream but returned `The 'gpt-5.6-sol' model is not supported when using Codex with a ChatGPT account.`
-So clearing or changing prod `model_mapping` alone would not make `gpt-5.6` servable; the upstream
-account capability still has to return `verdict=servable`.
-
-## Rules
-
-- Prefer this skill over creating permanent admin groups for single-account debugging.
-- This is a live probe. It may consume a tiny amount of quota and can update normal usage tables.
-- Default reuse mode intentionally leaves at most one reserved probe group/key per platform on each target host, disables it after cleanup, and removes account binding after the request.
-- Probe groups must stay exclusive, grant `user_allowed_groups` only to the probe key owner, and remain direct probe-key only; they must not enter universal-key routing candidates.
-- Use `ENDPOINT=messages` for Anthropic/Kiro style accounts, `chat` for OpenAI-compatible chat, `responses` for Codex/OpenAI responses, and `embeddings` for OpenAI-compatible embedding models.
-- If the goal is "can the raw upstream credential serve this model", use the platform direct upstream probe. The default gateway probe remains the authoritative TokenKey-path proof.
-
-## Follow-Up Checks
-
-If the verdict is not `servable`, inspect:
-
-```bash
-# Recent account-specific ops errors/logs on the same target
-bash ops/observability/run-probe.sh \
-  --target <prod|edge:id> \
-  --script ops/observability/probe-caps.sh \
-  --env PLATFORM=<platform> \
-  --env ERR_HOURS=1
-```
-
-For Kiro OAuth auth drift, switch to `tokenkey-kiro-reauth`. For any modelops work (catalog refresh, mapping drift, onboard), enter via `tokenkey-modelops-planner` first.
-
-## Batch Kiro Claude model matrix
-
-When validating which Claude ids a Kiro account (native edge OAuth or prod mirror stub) actually serves, run the batch wrapper (loops `probe_account_model.sh`):
-
-```bash
-bash ops/observability/run-probe.sh \
-  --target prod \
-  --script ops/stage0/probe_kiro_claude_models.sh \
-  --with ops/stage0/probe_account_model.sh \
-  --with ops/pricing/probe_reserved_resources.sh \
-  --env ACCOUNT_ID=66
-```
-
-Override the default model list with `MODELS="claude-haiku-4-5 claude-opus-4-8 ..."` if needed.
+- This is a live, low-cost request: it may consume quota, append usage rows, and update
+  normal account recovery state.
+- Reserved `__tk_probe_*` groups/keys stay exclusive and direct-probe-only. Default
+  cleanup removes the temporary binding and disables the reusable resources.
+- Do not print or paste credentials. Probe outputs must remain bounded and sanitized.
+- Use the direct upstream path only for capability isolation; it does not authorize
+  catalog, pricing, mapping or scheduling writes.
+- Enter model-surface work through `tokenkey-modelops-planner`; use
+  `tokenkey-kiro-reauth` when the evidence shows Kiro OAuth auth drift.

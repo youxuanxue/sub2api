@@ -6,87 +6,21 @@ import (
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 )
 
-// TokenKey: the empirically-servable native-platform model sets. Native account
-// mapping and unrestricted-account menu fallbacks consume these platform-local
-// sets through supportedCatalogModelIDsForPlatform. The public Claude catalog
-// additionally projects Kiro-served IDs onto its anthropic vendor surface via
-// supportedClaudeCatalogModels because Kiro mirror stubs live in Claude groups.
+// TokenKey native catalog/menu empirical projections. These sets own display
+// membership only; they do not own pricing, request legality, account mapping or
+// runtime readiness. See pricing-serving-single-source-of-truth.md for the
+// delivery composition and pricing-availability-source-of-truth.md for evidence
+// and structurally-gone semantics.
 //
-// Rule: keep only model IDs that passed a live prod probe (real 200).
-// Canonical / advertised DefaultModels lists are not a catalog owner.
+// supportedCatalogModelIDsForPlatform consumes the platform-local sets. The
+// public Claude surface additionally projects Kiro IDs through
+// supportedClaudeCatalogModels because the public catalog has no Kiro vendor.
 //
-// Provenance:
-//   - anthropic: Claude-Code-shaped POST /v1/messages through the edge-us7
-//     relay (account #54 key). Kept the IDs that returned 200; dropped
-//     deprecated-gate 400s, upstream-rejected 502s, and dated snapshots whose
-//     non-dated form also serves.
-//   - openai: 2026-07-10 SSOT audit probes (prod OAuth accounts + account 76
-//     Ainzy relay checks). Native ChatGPT-OAuth servable set is the curated
-//     floor in ops/pricing/examples/openai-oauth-proven.json plus the
-//     GPT-pro1-verified GPT-5.6 family. Compatibility GPT-5 spellings such as
-//     gpt-5.4-high, codex-mini-latest, and gpt-5-chat-latest remain priced for
-//     billing but hidden from /pricing and /models; clients may still request
-//     them and are routed through CanonicalizeOpenAICompatRoutingModel to a
-//     served floor id. Retired ids such as gpt-5.2 take the deprecated-model 400
-//     path instead; non-display aliases such as gpt-5.3-codex route to their
-//     canonical supported target. codex-auto-review is empirically servable on
-//     prod ChatGPT OAuth accounts (2026-07-28 upstream probe) and is allowlisted.
-//
-//   - gemini/Vertex (2026-06-09 live probe of the us6 google group, account 3
-//     catch-all, hit the app internally to bypass the edge Caddy): kept the IDs
-//     that returned 200 — gemini-2.5-flash/-flash-lite/-pro and imagen-4.0
-//     fast/generate/ultra. Dropped as not-currently-
-//     servable through that Vertex project/region: gemini-2.0-* and gemini-3.x
-//     chat (uniform 502 while 2.5 served — a project/region availability
-//     signal, not transient), and the gemini-*-image generateContent models (500
-//     via /v1/images/generations — those ride the chat endpoint, not the images
-//     predict surface; re-probe via chat to add them). veo-3.1-generate-001 was
-//     added after the 2026-07-04 post-#1198 paid gate returned direct/universal
-//     200 queued video for the Vertex group.
-//   - gemini-embedding-001 (2026-08-07 direct upstream probe on prod Vertex
-//     accounts 47/57/58/59/74): :predict returned 200 with embedding values.
-//
-// Maintenance: this is an empirical snapshot, refreshed by re-running the
-// probe (ops/observability/run-probe.sh) when the served fleet changes. An
-// empty gemini set is still treated as passthrough (the code guards len==0),
-// so clearing it reverts to canonical.
-//
-//   - antigravity (2026-06-13 empirical probe: /v1internal:fetchAvailableModels
-//     catalog + per-model generateContent replay of edge-us3 account 3; refreshed
-//     2026-06-23 via prod /antigravity/v1beta/...:generateContent): kept the
-//     gemini wire ids that returned a real 200. PR #1265 / 2026-07-07 then
-//     confirmed the live Antigravity Claude subset is exactly
-//     claude-sonnet-4-6 and claude-opus-4-6-thinking (with bare
-//     claude-opus-4-6 mapped to the thinking wire id). gpt-oss remains off
-//     antigravity. gemini-2.5-pro remained inconclusive on 2026-06-23
-//     generateContent + streamGenerateContent retry (000 timeout), so it stays
-//     out until a real 200 — re-confirmed inconclusive on the 2026-06-27 prod
-//     ANTIGRAVITY_CHAT_MODELS probe (000 timeout again), so it stays out.
-//   - antigravity 2026-06-27 (prod ANTIGRAVITY_CHAT_MODELS probe via
-//     ops/pricing/probe-servable-models.sh): gemini-3.5-flash returned a real prod
-//     200 (was previously not servable) → added. It prices via the bundled litellm
-//     mirror (gemini-3.5-flash present: in $1.5/M, out $9/M), so no overlay entry
-//     and no served_at_fallback.
-//   - 2026-06-27 image models: the gemini-*-image set (gemini-2.5-flash-image,
-//     gemini-3-pro-image, gemini-3.1-flash-image, gemini-3.1-flash-image-preview)
-//     probed a real 200 through the ANTIGRAVITY account pool and bills per-image via
-//     CalculateImageCost. Per the operator rule "a model that tests servable through a
-//     group's accounts joins that group's servable list", they are listed under
-//     supportedAntigravityCatalogModels (the group that actually serves them). They
-//     are NOT added to supportedGeminiCatalogModels because the gemini/Vertex accounts
-//     (constrained 7-key mapping) do not serve them.
-
-// The anthropic/openai/gemini maps below are regenerated by
-// ops/pricing/refresh-servable-allowlist.py from a live probe. The
-// `servable-allowlist:begin/end <platform>` markers are the splice anchors the
-// generator rewrites between — keep them intact, and hand-edits inside those
-// three blocks will be overwritten on the next refresh. Last claude probe:
-// 2026-06-05. Last native openai audit replay: 2026-07-10. The antigravity block is
-// hand-maintained from the empirical probe above: the refresh tool's platforms
-// tuple is anthropic/openai/gemini and its
-// GEMINI_EXCLUDE_RE drops antigravity from the google catch-all, so it never
-// rewrites the antigravity anchors. Adding an antigravity probe family to that
-// tool is a follow-up.
+// ops/pricing/refresh-servable-allowlist.py rewrites only the marker-delimited
+// anthropic/openai/gemini blocks. Keep those anchors intact. Antigravity and Grok
+// remain reviewed projections because their specialized probes are not automatic
+// splice inputs. Point-in-time account, fleet and probe evidence belongs in the
+// evidence ledger or Git history, not beside these load-bearing sets.
 
 // supportedAnthropicCatalogModels — claude IDs confirmed servable.
 var supportedAnthropicCatalogModels = map[string]struct{}{
@@ -134,23 +68,18 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	// servable-allowlist:end openai
 }
 
-// supportedOpenAIAinzyRelayCatalogModels — gpt IDs kept in the compiled
-// model_mapping floor for prod account 76 (api.ainzy.net/v1). Mirrors the
-// operator-applied runtime mapping so deploys do not re-narrow the account
-// back to a stale floor. gpt-5.3-codex-spark excluded: 2026-07-28 prod probe
-// showed api.ainzy.net returns 404 for spark; OAuth/edge accounts serve it.
+// supportedOpenAIAinzyRelayCatalogModels is the compiled mapping floor for the
+// api.ainzy.net/v1 relay scope. It is separate from native OpenAI membership.
 var supportedOpenAIAinzyRelayCatalogModels = map[string]struct{}{
 	"gpt-5.4":      {},
 	"gpt-5.4-mini": {},
 	"gpt-5.5":      {},
 }
 
-// supportedOpenAITokenseaRelayCatalogModels — upstream GET /v1/models owner for
-// prod account 92 (agent.tokensea.ai OpenAI relay) on 2026-08-20. The compiled
-// account floor is this set intersected with the public CatalogPolicy
-// projection that tokensea can actually chat-serve. Listing here does not add public
-// catalog/menu rows; DeepSeek/Qwen/GLM/Kimi rows listed on 2026-08-20 failed
-// raw /v1/chat/completions (400 openai_error) and stay off the floor.
+// supportedOpenAITokenseaRelayCatalogModels is the upstream-listed universe for
+// the agent.tokensea.ai OpenAI relay scope. The compiled account floor applies
+// the relay's public CatalogPolicy predicate; membership here alone does not add
+// public catalog/menu rows.
 var supportedOpenAITokenseaRelayCatalogModels = map[string]struct{}{
 	"byteplus/dreamina-seedance-2-0-260128":      {},
 	"byteplus/dreamina-seedance-2-0-fast-260128": {},
@@ -201,9 +130,8 @@ var supportedOpenAITokenseaRelayCatalogModels = map[string]struct{}{
 	"us.anthropic.claude-sonnet-5":   {},
 }
 
-// supportedAnthropicTokenseaRelayCatalogModels — Claude short-name aliases for
-// prod account 93. The live floor is tokenseaRelayCorePublicFloorIDs (same
-// SSOT set as account 92) plus these shorts; wire IDs stay in
+// supportedAnthropicTokenseaRelayCatalogModels contains the Claude short-name
+// aliases for the Anthropic-shaped tokensea relay scope. Wire mappings stay in
 // anthropicTokenseaRelayModelMappingFloor.
 var supportedAnthropicTokenseaRelayCatalogModels = map[string]struct{}{
 	"claude-fable-5":            {},
@@ -221,13 +149,8 @@ var supportedAnthropicTokenseaRelayCatalogModels = map[string]struct{}{
 
 // CloudWise relay model families: openai_cloudwise_relay_tk.go (openAICloudwiseRelayAllowedModelPrefixes).
 
-// supportedGeminiCatalogModels — gemini/Vertex IDs confirmed servable through
-// the prod Vertex pool. Gemini 3.5 Flash Lite and 3.6 Flash were confirmed on
-// accounts 47/57/58/59/74 via direct global generateContent on 2026-07-22.
-// Gemini 3.7 Flash was confirmed on accounts 47/57/59 via the same global
-// generateContent path on 2026-08-19 (us-central1 returns 404).
-// While EMPTY the catalog/menu gates fall through to passthrough/canonical (no
-// regression).
+// supportedGeminiCatalogModels is the reviewed Gemini/Vertex catalog projection.
+// An empty set preserves the existing passthrough/canonical fallback.
 var supportedGeminiCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin gemini
 	"gemini-2.5-flash":              {},
@@ -244,15 +167,9 @@ var supportedGeminiCatalogModels = map[string]struct{}{
 	// servable-allowlist:end gemini
 }
 
-// supportedAntigravityCatalogModels — antigravity wire/client ids confirmed
-// servable (Gemini 2026-06 probes + PR #1265 Antigravity Claude live subset).
-// Gemini 3.6 Flash was confirmed on us3 account 3 and us4 account 5 through the
-// gemini-3.6-flash-tiered wire id on 2026-07-22. Gemini 3.7 Flash was listed by
-// fetchAvailableModels on us3/us4/us6 on 2026-08-19 as
-// gemini-3.7-flash-{low,medium,high} (no -tiered wire id). Gemini 3.5 Flash Lite remained
-// upstream-unsupported and is intentionally Vertex-only. Hand-maintained (see
-// header). While EMPTY the catalog/menu gates fall through to
-// passthrough/canonical (no regression).
+// supportedAntigravityCatalogModels is the reviewed Antigravity client/wire
+// projection. It is maintained from the specialized Antigravity evidence path;
+// an empty set preserves the existing passthrough/canonical fallback.
 var supportedAntigravityCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin antigravity
 	"claude-opus-4-6":                {},
@@ -277,28 +194,10 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 	// servable-allowlist:end antigravity
 }
 
-// supportedGrokCatalogModels — xAI / Grok (seventh platform) wire ids that
-// TokenKey serves AND prices. Grok is a native OAuth-relay platform: its
-// accounts are unrestricted (empty credentials.model_mapping) and carry no
-// channel, so before this set both the channel stage and the whitelist stage
-// of the per-user menu produced nothing and a grok group showed an EMPTY
-// "分组目录" (incident 2026-06-20). The set is the SAME grok IDs the public
-// /pricing catalog surfaces: grok chat ids whose official xAI price is in
-// tk_pricing_overlay.json and whose native-grok live probe returned 200. Grok
-// 4.6 was added after the 2026-08-13 direct xAI upstream probe on edge-us4
-// account 6 returned 200; grok-latest stayed mapped to upstream grok-4.3 in the
-// same probe window, and the bare grok / grok-4.6-latest aliases returned
-// model-not-found upstream, so only the official grok-4.6 id is displayed. The
-// grok-imagine paid media ids joined this set after the 2026-07-04 post-#1198
-// paid gate returned direct/universal 200 for image and video. Note that
-// `/v1/videos/generations` is the xAI-native alias and returns request_id
-// rather than the TokenKey OpenAI-video task shape.
-//
-// Hand-maintained like the antigravity arm (the refresh tool's probe tuple is
-// anthropic/openai/gemini and does not cover grok yet). Display policy follows
-// CatalogPolicy: official ids/aliases may be public-listed when they have a
-// price owner and are not structurally gone. Legacy retirement redirects
-// (grok-4-fast-reasoning) stay priced-only.
+// supportedGrokCatalogModels is the reviewed native Grok catalog/menu
+// projection. Grok accounts may have empty model_mapping, so this set supplies
+// the platform-local menu owner. It is not rewritten by the automatic refresh;
+// public membership still requires CatalogPolicy and structurally-gone review.
 var supportedGrokCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin grok
 	"grok-4.20-0309-non-reasoning": {},

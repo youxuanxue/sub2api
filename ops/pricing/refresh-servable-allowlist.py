@@ -1,30 +1,36 @@
 #!/usr/bin/env python3
-"""refresh-servable-allowlist.py — re-runnable refresh of the public-catalog
-servable model allowlists.
+"""Refresh the native public-catalog empirical model projections.
 
 Pipeline (operator runs locally with AWS creds; the probe needs prod SSM):
 
-    derive candidates from the litellm catalog
-      -> live-probe each through prod (ops/pricing/probe-servable-models.sh via
-         ops/observability/run-probe.sh)
-      -> keep verdict==servable, de-duplicate dated snapshots
-      -> splice the two Go maps in
-         backend/internal/service/pricing_catalog_supported_models_tk.go
-      -> optionally open a PR
+    derive priced/discovered candidates
+      -> optionally accept recent successful traffic as positive evidence
+      -> live-probe the remaining candidates through the canonical SSM transport
+      -> parse evidence and de-duplicate dated aliases
+      -> splice the three automatically managed Go marker blocks
+      -> emit a local diff or optionally open a review PR
 
-The classification engine is the probe script; this orchestrator owns the
-deterministic glue (candidate derivation, de-dup, Go splice) — all covered by
-`selftest` so preflight can verify it without touching prod.
+This tool refreshes catalog/menu evidence projections only. It does not decide
+request-time delivery, publish pricing, or write account model_mapping. Probe,
+traffic and discovery are evidence; 401/403, 429, 5xx and timeout are not
+structural model-removal evidence. Review removals before opening or merging a
+PR. Delivery ownership stays in
+docs/approved/pricing-serving-single-source-of-truth.md.
+
+The probe script owns request classification. This orchestrator owns candidate
+derivation, positive-traffic short-circuiting, batching, result parsing,
+de-duplication and marker-delimited Go splicing. `selftest` covers the offline
+mechanics without touching prod.
 
 Subcommands:
   candidates           print the per-family candidate model lists (no prod)
   probe                live-probe; print the raw TSV results (needs prod SSM)
-  apply --results F    de-dup F's servable rows and splice the Go maps
+  apply --results F    review and splice evidence results into managed Go maps
   run [--open-pr]      probe + apply in one shot
   selftest             deterministic unit checks (no prod); used by preflight
 
-Verdict reminder: a model is kept iff the probe saw a real 200. canonical /
-advertised status is irrelevant (operator directive 实测通过的才行).
+Positive traffic or a real successful probe is positive evidence. Absence of
+traffic and transient probe failure are not negative evidence.
 """
 from __future__ import annotations
 
