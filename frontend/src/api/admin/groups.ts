@@ -445,6 +445,70 @@ export async function clearGroupRPMOverrides(id: number): Promise<{ message: str
   return data
 }
 
+export type GroupMemberAccount = {
+  id: number
+  name: string
+  platform: string
+  type: string
+  channel_type: number
+  status: string
+  schedulable: boolean
+  priority: number
+  extra?: Record<string, unknown> | null
+}
+
+/**
+ * List accounts bound to a group (account_groups SSOT).
+ */
+export async function listGroupAccounts(
+  groupId: number,
+  page: number = 1,
+  pageSize: number = 20,
+  filters?: { status?: string; search?: string; channel_type?: number },
+  options?: { signal?: AbortSignal }
+): Promise<PaginatedResponse<GroupMemberAccount>> {
+  const { data } = await apiClient.get<PaginatedResponse<GroupMemberAccount>>(
+    `/admin/groups/${groupId}/accounts`,
+    {
+      params: {
+        page,
+        page_size: pageSize,
+        ...filters
+      },
+      signal: options?.signal
+    }
+  )
+  return data
+}
+
+/**
+ * Bind accounts into a group (idempotent add).
+ */
+export async function bindGroupAccounts(
+  groupId: number,
+  accountIds: number[],
+  options?: { confirmMixedChannelRisk?: boolean }
+): Promise<{ message: string }> {
+  const { data } = await apiClient.post<{ message: string }>(`/admin/groups/${groupId}/accounts`, {
+    account_ids: accountIds,
+    confirm_mixed_channel_risk: options?.confirmMixedChannelRisk || undefined
+  })
+  return data
+}
+
+/**
+ * Unbind accounts from a group (membership edge only).
+ */
+export async function unbindGroupAccounts(
+  groupId: number,
+  accountIds: number[]
+): Promise<{ message: string }> {
+  const { data } = await apiClient.delete<{ message: string }>(`/admin/groups/${groupId}/accounts`, {
+    data: { account_ids: accountIds }
+  })
+  return data
+}
+
 export type GroupUsageSummary = {
   group_id: number
   today_cost: number
@@ -506,7 +570,10 @@ export const groupsAPI = {
   batchSetGroupRPMOverrides,
   updateSortOrder,
   getUsageSummary,
-  getCapacitySummary
+  getCapacitySummary,
+  listGroupAccounts,
+  bindGroupAccounts,
+  unbindGroupAccounts
 }
 
 export default groupsAPI
