@@ -1974,6 +1974,8 @@
     {
       "path": "frontend/src/views/admin/SupplierSourcesView.vue",
       "must_contain": [
+        "w-full min-w-0 space-y-6",
+        "data-test=\"supplier-sources-page\"",
         "const syncSucceeded = computed(() => (",
         "syncResult.value !== null",
         "syncError.value === ''",
@@ -1991,9 +1993,11 @@
       ],
       "must_not_contain": [
         "syncSucceeded = ref",
-        "watch(() => form.channel_type"
+        "watch(() => form.channel_type",
+        "max-w-7xl",
+        "mx-auto max-w-7xl"
       ],
-      "rationale": "The supplier page derives success from the current response, the current request error, and absence of failed_step. Discover polls async candidate jobs to completion; validate is a read-only preview; project displays the probe evidence returned by its own authoritative request without depending on prior validation state. Dirty or discover-backfilled drafts disable discover/validate/project. BaiduV2 remains an explicit supplier transport even though it is absent from NewAPI's generic model-fetch set, and catalog endpoint defaults apply only to operator channel changes so source hydration preserves persisted custom endpoints."
+      "rationale": "The supplier page derives success from the current response, the current request error, and absence of failed_step. Discover polls async candidate jobs to completion; validate is a read-only preview; project displays the probe evidence returned by its own authoritative request without depending on prior validation state. Dirty or discover-backfilled drafts disable discover/validate/project. BaiduV2 remains an explicit supplier transport even though it is absent from NewAPI's generic model-fetch set, and catalog endpoint defaults apply only to operator channel changes so source hydration preserves persisted custom endpoints. Also anchors the full-bleed admin page shell (no max-w-7xl / mx-auto page chrome) so the layout stays aligned with Dashboard/RiskControl."
     },
     {
       "path": "frontend/src/api/admin/supplierSources.ts",
@@ -2010,6 +2014,7 @@
     {
       "path": "frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts",
       "must_contain": [
+        "fills AppLayout main width like Dashboard/RiskControl (no max-w / mx-auto page shell)",
         "saves new and existing sources through create or update only",
         "requires saving edited supplier facts before syncing the selected source",
         "renders account changes returned by sync",
@@ -2020,7 +2025,7 @@
         "shows probe failure message and failed_step outside the sync-result block",
         "offers and hydrates BaiduV2 while preserving a custom endpoint during source selection"
       ],
-      "rationale": "Focused UI regressions pin discover/validate/project workflow: save is side-effect free, unsaved edits block discover/validate/project, project renders account changes only, validate failures stay in validate panel, resolved failed_step cannot show success, async discover polling completes without auto-project, discover failures visible outside project block, BaiduV2 stays selectable without hydration overwriting custom endpoint, no state machine or account-group controls."
+      "rationale": "Focused UI regressions pin discover/validate/project workflow: save is side-effect free, unsaved edits block discover/validate/project, project renders account changes only, validate failures stay in validate panel, resolved failed_step cannot show success, async discover polling completes without auto-project, discover failures visible outside project block, BaiduV2 stays selectable without hydration overwriting custom endpoint, no state machine or account-group controls. Also pins the full-bleed page-shell regression."
     },
     {
       "path": "frontend/src/composables/useSupplierManagedAccount.ts",

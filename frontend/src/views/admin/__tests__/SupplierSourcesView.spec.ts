@@ -87,6 +87,17 @@ describe('SupplierSourcesView', () => {
     sync.mockReset()
   })
 
+  it('fills AppLayout main width like Dashboard/RiskControl (no max-w / mx-auto page shell)', async () => {
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+
+    const root = wrapper.get('[data-test="supplier-sources-page"]')
+    expect(root.classes()).toEqual(expect.arrayContaining(['w-full', 'min-w-0', 'space-y-6']))
+    expect(root.classes()).not.toContain('max-w-7xl')
+    expect(root.classes()).not.toContain('mx-auto')
+    expect(root.classes().some((c) => c.startsWith('p-') || c.startsWith('sm:p-'))).toBe(false)
+  })
+
   it('defaults a new source to channel default and base priority 100', async () => {
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()

@@ -1,5 +1,10 @@
 <template>
-  <div class="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
+  <!--
+    Match Dashboard/RiskControl: fill AppLayout main (already padded via lg:p-8).
+    Do not re-introduce max-w-* / mx-auto / extra page padding — that shrinks the
+    page relative to Accounts/Groups and leaves empty side gutters.
+  -->
+  <div data-test="supplier-sources-page" class="w-full min-w-0 space-y-6">
     <header class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">
@@ -56,10 +61,10 @@
       </ul>
     </section>
 
-    <div class="grid items-start gap-6 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
+    <div class="grid items-start gap-6 lg:grid-cols-[minmax(16rem,20rem)_minmax(0,1fr)]">
       <section
         data-test="source-list"
-        class="flex max-h-[min(22rem,50vh)] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-6rem)]"
+        class="flex max-h-[min(22rem,50vh)] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-8rem)]"
       >
         <div class="shrink-0 space-y-2 border-b border-gray-200 p-3 dark:border-dark-700">
           <div class="flex items-center justify-between gap-2">
@@ -137,7 +142,7 @@
       <section
         ref="editorEl"
         data-test="source-editor"
-        class="space-y-5 rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800"
+        class="min-w-0 space-y-5 rounded-xl border border-gray-200 bg-white p-4 sm:p-5 dark:border-dark-700 dark:bg-dark-800"
       >
         <form class="space-y-4" @submit.prevent="save">
           <div class="flex flex-wrap items-start justify-between gap-2">
