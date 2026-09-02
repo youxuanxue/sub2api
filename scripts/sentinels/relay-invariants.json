@@ -5,9 +5,17 @@
     {
       "path": "backend/internal/service/openai_compat_model_test.go",
       "must_contain": [
-        "func TestForwardAsAnthropic_DisablesAPIKeyContinuationWhenUpstreamRejectsHTTPContinuation("
+        "func TestForwardAsAnthropic_DisablesAPIKeyContinuationWhenUpstreamRejectsHTTPContinuation(",
+        "func TestForwardAsAnthropic_ReplaysWithoutContinuationWhenPreviousResponseOwnerMismatch("
       ],
-      "rationale": "OpenAI API-key relay HTTP continuation fallback. An API-key account can route through an OAuth-backed edge that rejects previous_response_id on HTTP; the gateway must replay full history once and disable continuation for the sticky window instead of returning repeated 400s. The characterization test pins both the exact relay error classification and the subsequent no-continuation behavior so an upstream rewrite cannot silently remove the recovery path together with its test."
+      "rationale": "OpenAI API-key relay HTTP continuation fallback. An API-key account can route through an OAuth-backed edge that rejects previous_response_id on HTTP; the gateway must replay full history once and disable continuation for the sticky window instead of returning repeated 400s. Owner-mismatch 400 from edge ownership gate (blue/green or sticky hop) must classify the same way: strip previous_response_id and replay. The characterization tests pin both the exact relay error classification and the subsequent no-continuation behavior so an upstream rewrite cannot silently remove the recovery path together with its test."
+    },
+    {
+      "path": "backend/internal/service/openai_messages_continuation.go",
+      "must_contain": [
+        "not available for this user"
+      ],
+      "rationale": "Messages continuation must treat TokenKey edge ownership 400 (previous_response_id is not available for this user) as not-found recovery, not a terminal client error. Without this anchor an upstream rewrite of isOpenAICompatPreviousResponseNotFound can drop the matcher while tests still pass on unrelated cases."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_model_cooldown_test.go",

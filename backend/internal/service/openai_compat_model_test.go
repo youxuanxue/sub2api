@@ -887,6 +887,53 @@ func TestForwardAsAnthropic_ReplaysWithoutContinuationWhenPreviousResponseMissin
 	require.Equal(t, "resp_replayed", gjson.GetBytes(upstream.bodies[2], "previous_response_id").String())
 }
 
+func TestForwardAsAnthropic_ReplaysWithoutContinuationWhenPreviousResponseOwnerMismatch(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	upstream := &httpUpstreamRecorder{}
+	svc := &OpenAIGatewayService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := &Account{
+		ID:          63,
+		Name:        "openai-us6",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-edge-relay",
+			"base_url": "https://api-us6.tokenkey.dev/v1",
+		},
+	}
+
+	svc.bindOpenAICompatSessionResponseID(context.Background(), nil, account, "stable-cache-key", "resp_owner_mismatch")
+	secondBody := []byte(`{"model":"gpt-5.4","max_tokens":16,"messages":[{"role":"user","content":"first"},{"role":"assistant","content":"ok"},{"role":"user","content":"second"}],"stream":false}`)
+	upstream.responses = []*http.Response{
+		{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_owner_mismatch"}},
+			Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","message":"previous_response_id is not available for this user"}}`)),
+		},
+		openAICompatSSECompletedResponse("resp_owner_replayed", "gpt-5.4"),
+	}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(secondBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, secondBody, "stable-cache-key", "gpt-5.4")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "resp_owner_replayed", result.ResponseID)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "resp_owner_mismatch", gjson.GetBytes(upstream.bodies[0], "previous_response_id").String())
+	require.False(t, gjson.GetBytes(upstream.bodies[1], "previous_response_id").Exists(),
+		"edge ownership 400 must strip previous_response_id and replay")
+}
+
 func TestForwardAsAnthropic_OAuthDisablesContinuationAfterPreviousResponseNotFound(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
