@@ -878,16 +878,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	if apiKey.GroupID != nil {
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
 			account.ID, *apiKey.GroupID, result.UpstreamModel, result.Model,
-			// Anthropic's input_tokens excludes cache_read and cache_creation (billed separately);
-			// OpenAI gateway uses actualInputTokens which also excludes cache_read for the same reason.
-			UsageTokens{
-				InputTokens:         result.Usage.InputTokens,
-				OutputTokens:        result.Usage.OutputTokens,
-				CacheCreationTokens: result.Usage.CacheCreationInputTokens,
-				CacheReadTokens:     result.Usage.CacheReadInputTokens,
-				ImageOutputTokens:   result.Usage.ImageOutputTokens,
-			},
-			cost.TotalCost,
+			cost.TotalCost, pricingAt,
 		)
 	}
 
@@ -1164,6 +1155,8 @@ func (s *GatewayService) calculateTokenCost(
 		ImageOutputTokens:     result.Usage.ImageOutputTokens,
 	}
 
+	billingAt := RecordUsageBillingAt(pricingAt)
+
 	var cost *CostBreakdown
 	var err error
 
@@ -1180,6 +1173,7 @@ func (s *GatewayService) calculateTokenCost(
 			RequestCount:   1,
 			RateMultiplier: multiplier,
 			PricingAt:      pricingAt,
+			BillingAt:      billingAt,
 			ServiceTier:    optionalStringValue(result.ServiceTier),
 			Resolver:       s.resolver,
 			Resolved:       resolved,
@@ -1191,11 +1185,14 @@ func (s *GatewayService) calculateTokenCost(
 		gid := apiKey.Group.ID
 		cost, err = s.billingService.CalculateCostUnified(CostInput{
 			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
-			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier, PricingAt: pricingAt,
+			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier,
+			PricingAt: pricingAt, BillingAt: billingAt,
 			ServiceTier: optionalStringValue(result.ServiceTier), Resolver: s.resolver,
 		})
 	} else {
-		cost, err = s.billingService.CalculateCost(billingModel, tokens, multiplier)
+		cost, err = s.billingService.calculateCostInternalWithPolicyAt(
+			billingModel, tokens, multiplier, optionalStringValue(result.ServiceTier), nil, true, billingAt,
+		)
 	}
 	if err != nil {
 		// TK: surface pricing-missing as structured zero-cost logs instead of silent ActualCost:0.

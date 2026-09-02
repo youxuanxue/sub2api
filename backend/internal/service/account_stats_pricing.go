@@ -14,7 +14,7 @@ import (
 // 优先级（先命中为准）：
 //  1. 自定义规则（始终尝试，不依赖 ApplyPricingToAccountStats 开关）
 //  2. ApplyPricingToAccountStats 启用时，直接使用本次请求的客户计费（倍率前的 totalCost）
-//  3. 模型定价文件（LiteLLM）中上游模型的默认价格（含 DeepSeek 峰谷价，billingAt 与 usage_logs.created_at 对齐）
+//  3. 模型定价文件（LiteLLM）默认价格 — 经 calculateCostInternalWithPolicyAt / computeTokenBreakdown，与用户 token 计费同核
 //  4. nil → 走默认公式（total_cost × account_rate_multiplier）
 //
 // NOTE: 2026-09-02 之前 priority-3 路径未应用峰谷价，历史 usage_logs.account_stats_cost
@@ -23,7 +23,7 @@ import (
 // upstreamModel 是最终发往上游的模型 ID。
 // totalCost 是本次请求的客户计费（倍率前），用于优先级 2。
 // serviceTier 是最终参与用户计费的 OpenAI 服务层级，用于优先级 3。
-// billingAt 是请求落库时刻（usage_logs.created_at），用于峰谷价与用户计费对齐。
+// billingAt 与用户计费的 BillingAt 对齐（通常为 recordUsageBillingAt(pricingAt)）。
 func resolveAccountStatsCost(
 	ctx context.Context,
 	channelService *ChannelService,
@@ -61,7 +61,7 @@ func resolveAccountStatsCost(
 		return &cost
 	}
 
-	// 优先级 3：模型定价文件（LiteLLM）默认价格
+	// 优先级 3：模型定价文件（LiteLLM）— 与用户 total_cost 共用 computeTokenBreakdown
 	if billingService != nil {
 		return tryModelFilePricing(billingService, upstreamModel, tokens, serviceTier, billingAt)
 	}
@@ -69,42 +69,40 @@ func resolveAccountStatsCost(
 	return nil
 }
 
-// tryModelFilePricing 使用模型定价文件（LiteLLM/fallback）中的价格计算费用。
-// billingAt 与用户计费的峰谷时刻对齐（通常为 usageLog.CreatedAt）；零值回退到 timezone.Now()。
-// DeepSeek 等受 _config.deepseek_peak_valley 约束的模型在此与用户 total_cost 使用同一峰谷窗口。
+// usageLogAccountStatsTokens derives billing tokens from the persisted usage log
+// fields so account stats see the same token breakdown as user settlement.
+func usageLogAccountStatsTokens(log *UsageLog) UsageTokens {
+	if log == nil {
+		return UsageTokens{}
+	}
+	return UsageTokens{
+		InputTokens:           log.InputTokens,
+		OutputTokens:          log.OutputTokens,
+		CacheCreationTokens:   log.CacheCreationTokens,
+		CacheReadTokens:       log.CacheReadTokens,
+		CacheCreation5mTokens: log.CacheCreation5mTokens,
+		CacheCreation1hTokens: log.CacheCreation1hTokens,
+		ImageOutputTokens:     log.ImageOutputTokens,
+		ImageInputTokens:      log.ImageInputTokens,
+	}
+}
+
+// tryModelFilePricing prices account stats from the LiteLLM/fallback registry via
+// calculateCostInternalWithPolicyAt (computeTokenBreakdown SSOT).
 func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens, serviceTier string, billingAt time.Time) *float64 {
 	pricing, err := billingService.GetModelPricing(model)
 	if err != nil || pricing == nil {
 		return nil
 	}
-	at := billingAt
-	if at.IsZero() {
-		at = timezone.Now()
-	}
-	normalizedTier := normalizeBillingServiceTier(serviceTier)
-	if normalizedTier == "priority" || normalizedTier == "fast" || normalizedTier == "flex" ||
-		billingService.shouldApplySessionLongContextPricing(tokens, pricing) {
-		breakdown, err := billingService.calculateCostInternalWithPolicyAt(
-			model, tokens, 1, normalizedTier, nil,
-			billingService.shouldApplySessionLongContextPricing(tokens, pricing),
-			at,
-		)
-		if err != nil || breakdown == nil || breakdown.TotalCost <= 0 {
-			return nil
-		}
-		return &breakdown.TotalCost
-	}
-	pricing = billingService.applyModelSpecificPricingPolicy(model, pricing)
-	pricing = tkApplyDeepSeekPeakValleyPricing(model, pricing, at, PricingSourceLiteLLM)
-	cost := float64(tokens.InputTokens)*pricing.InputPricePerToken +
-		float64(tokens.OutputTokens)*pricing.OutputPricePerToken +
-		float64(tokens.CacheCreationTokens)*pricing.CacheCreationPricePerToken +
-		float64(tokens.CacheReadTokens)*pricing.CacheReadPricePerToken +
-		float64(tokens.ImageOutputTokens)*pricing.ImageOutputPricePerToken
-	if cost <= 0 {
+	at := RecordUsageBillingAt(billingAt)
+	longCtx := billingService.shouldApplySessionLongContextPricing(tokens, pricing)
+	breakdown, err := billingService.calculateCostInternalWithPolicyAt(
+		model, tokens, 1, normalizeBillingServiceTier(serviceTier), nil, longCtx, at,
+	)
+	if err != nil || breakdown == nil || breakdown.TotalCost <= 0 {
 		return nil
 	}
-	return &cost
+	return &breakdown.TotalCost
 }
 
 // tryCustomRules 遍历自定义规则，按数组顺序先命中为准。
@@ -246,16 +244,16 @@ func calculateTokenStatsCost(pricing *ChannelModelPricing, tokens UsageTokens) *
 }
 
 // applyAccountStatsCost resolves the account stats cost for a usage log entry.
-// It resolves the upstream model (falling back to the requested model) and calls
-// the 4-level priority chain via resolveAccountStatsCost.
+// billingAt must match the BillingAt passed to user CalculateCostUnified on the
+// same record (typically RecordUsageBillingAt(pricingAt)).
 func applyAccountStatsCost(
 	ctx context.Context,
 	usageLog *UsageLog,
 	cs *ChannelService, bs *BillingService,
 	accountID int64, groupID int64,
 	upstreamModel, requestedModel string,
-	tokens UsageTokens,
 	totalCost float64,
+	billingAt time.Time,
 ) {
 	model := upstreamModel
 	if model == "" {
@@ -269,11 +267,15 @@ func applyAccountStatsCost(
 	if usageLog != nil && usageLog.ServiceTier != nil {
 		serviceTier = *usageLog.ServiceTier
 	}
-	billingAt := time.Time{}
-	if usageLog != nil {
-		billingAt = usageLog.CreatedAt
+	at := billingAt
+	if at.IsZero() && usageLog != nil && !usageLog.CreatedAt.IsZero() {
+		at = usageLog.CreatedAt
+	}
+	if at.IsZero() {
+		at = timezone.Now()
 	}
 	usageLog.AccountStatsCost = resolveAccountStatsCost(
-		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, totalCost, serviceTier, billingAt,
+		ctx, cs, bs, accountID, groupID, model, usageLogAccountStatsTokens(usageLog),
+		requestCount, totalCost, serviceTier, at,
 	)
 }

@@ -365,6 +365,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		CacheCreationTokens:   result.Usage.CacheCreationInputTokens,
 		CacheReadTokens:       result.Usage.CacheReadInputTokens,
 		ImageOutputTokens:     result.Usage.ImageOutputTokens,
+		ImageInputTokens:      result.Usage.ImageInputTokens,
 		ImageCount:            result.ImageCount,
 		ImageSize:             optionalTrimmedStringPtr(result.ImageSize),
 		ImageInputSize:        optionalTrimmedStringPtr(result.ImageInputSize),
@@ -449,7 +450,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if apiKey.GroupID != nil {
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
 			account.ID, *apiKey.GroupID, result.UpstreamModel, result.Model,
-			tokens, cost.TotalCost,
+			cost.TotalCost, pricingAt,
 		)
 	}
 
@@ -671,19 +672,19 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 ) (*CostBreakdown, error) {
 	if s.resolver != nil && apiKey.Group != nil {
 		gid := apiKey.Group.ID
+		billingAt := RecordUsageBillingAt(pricingAt)
 		return s.billingService.CalculateCostUnified(CostInput{
 			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
-			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier, PricingAt: pricingAt,
+			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier,
+			PricingAt: pricingAt, BillingAt: billingAt,
 			ServiceTier: serviceTier, Resolver: s.resolver,
 			LongContextBillingEnabled: longContextBillingGate,
 		})
 	}
-	return s.billingService.calculateCostWithServiceTierPolicy(
-		billingModel,
-		tokens,
-		multiplier,
-		serviceTier,
+	return s.billingService.calculateCostInternalWithPolicyAt(
+		billingModel, tokens, multiplier, serviceTier, nil,
 		longContextBillingGate == nil || *longContextBillingGate,
+		RecordUsageBillingAt(pricingAt),
 	)
 }
 

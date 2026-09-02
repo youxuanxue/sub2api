@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/stretchr/testify/require"
 )
 
@@ -458,6 +459,36 @@ func TestTryModelFilePricing_Success(t *testing.T) {
 	require.NotNil(t, result)
 	// 100*0.001 + 50*0.002 = 0.1 + 0.1 = 0.2
 	require.InDelta(t, 0.2, *result, 1e-12)
+
+	expected, err := bs.calculateCostInternalWithPolicyAt(
+		"claude-sonnet-4", tokens, 1, "", nil, false, time.Time{},
+	)
+	require.NoError(t, err)
+	require.InDelta(t, expected.TotalCost, *result, 1e-12,
+		"priority-3 must delegate to computeTokenBreakdown SSOT")
+}
+
+func TestUsageLogAccountStatsTokens_IncludesCacheBreakdown(t *testing.T) {
+	log := &UsageLog{
+		InputTokens:           10,
+		OutputTokens:          20,
+		CacheCreation5mTokens: 30,
+		CacheCreation1hTokens: 40,
+		ImageInputTokens:      5,
+	}
+	tokens := usageLogAccountStatsTokens(log)
+	require.Equal(t, 10, tokens.InputTokens)
+	require.Equal(t, 20, tokens.OutputTokens)
+	require.Equal(t, 30, tokens.CacheCreation5mTokens)
+	require.Equal(t, 40, tokens.CacheCreation1hTokens)
+	require.Equal(t, 5, tokens.ImageInputTokens)
+}
+
+func TestRecordUsageBillingAt(t *testing.T) {
+	fixed := time.Date(2026, 7, 21, 10, 0, 0, 0, time.UTC)
+	require.Equal(t, fixed, RecordUsageBillingAt(fixed))
+	fallback := RecordUsageBillingAt(time.Time{})
+	require.WithinDuration(t, timezone.Now(), fallback, 2*time.Second)
 }
 
 func TestTryModelFilePricing_AppliesDeepSeekPeakValleyAtBillingAt(t *testing.T) {
@@ -631,8 +662,9 @@ func TestTryModelFilePricing_WithImageOutput(t *testing.T) {
 	}
 	result := tryModelFilePricing(bs, "claude-sonnet-4", tokens, "", time.Time{})
 	require.NotNil(t, result)
-	// 100*0.001 + 50*0.002 + 10*0.01 = 0.1 + 0.1 + 0.1 = 0.3
-	require.InDelta(t, 0.3, *result, 1e-12)
+	// computeTokenBreakdown: text output = 50-10, image output billed separately
+	// 100*0.001 + 40*0.002 + 10*0.01 = 0.28
+	require.InDelta(t, 0.28, *result, 1e-12)
 }
 
 func TestTryModelFilePricing_WithCacheTokens(t *testing.T) {
@@ -935,12 +967,16 @@ func TestApplyAccountStatsCost_UsesUsageLogServiceTier(t *testing.T) {
 		},
 	})
 	serviceTier := "priority"
-	usageLog := &UsageLog{ServiceTier: &serviceTier}
+	usageLog := &UsageLog{
+		ServiceTier:  &serviceTier,
+		InputTokens:  100,
+		OutputTokens: 50,
+	}
 
 	applyAccountStatsCost(
 		context.Background(), usageLog, cs, bs,
 		1, 10, "gpt-5.6-sol", "gpt-5.6-sol",
-		UsageTokens{InputTokens: 100, OutputTokens: 50}, 999,
+		999, time.Time{},
 	)
 
 	require.NotNil(t, usageLog.AccountStatsCost)

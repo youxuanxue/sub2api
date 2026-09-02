@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
@@ -312,12 +313,14 @@ func TestCalculateCost_OpenAIGPT54LongContextAppliesWholeSessionMultipliers(t *t
 func TestCalculateCost_OpenAIGPT54LongContextMarkerRequiresActualCostIncrease(t *testing.T) {
 	svc := newTestBillingService()
 
-	cost, err := svc.calculateCostWithServiceTierPolicy(
+	cost, err := svc.calculateCostInternalWithPolicyAt(
 		"gpt-5.4-2026-03-05",
 		UsageTokens{InputTokens: 300000},
 		0,
 		"",
+		nil,
 		true,
+		time.Time{},
 	)
 
 	require.NoError(t, err)

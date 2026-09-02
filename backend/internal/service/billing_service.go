@@ -1308,6 +1308,23 @@ type CostInput struct {
 	BillingAt time.Time
 }
 
+// RecordUsageBillingAt is the single frozen instant for provider time-of-day
+// pricing (DeepSeek peak-valley) on a usage record. Prefer the request-level
+// pricingAt (same as channel TimePricing / profit gate D); fall back to now.
+func RecordUsageBillingAt(pricingAt time.Time) time.Time {
+	if !pricingAt.IsZero() {
+		return pricingAt
+	}
+	return timezone.Now()
+}
+
+func costInputBillingAt(input CostInput) time.Time {
+	if !input.BillingAt.IsZero() {
+		return input.BillingAt
+	}
+	return RecordUsageBillingAt(input.PricingAt)
+}
+
 // CalculateCostUnified 统一计费入口，支持三种计费模式。
 // 使用 ModelPricingResolver 解析定价，然后根据 BillingMode 分发计算。
 func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, error) {
@@ -1317,13 +1334,15 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 		if input.LongContextBillingEnabled != nil {
 			applyLongContextBilling = *input.LongContextBillingEnabled
 		}
-		return s.calculateCostInternalWithPolicy(
+		billingAt := costInputBillingAt(input)
+		return s.calculateCostInternalWithPolicyAt(
 			input.Model,
 			input.Tokens,
 			input.RateMultiplier,
 			input.ServiceTier,
 			nil,
 			applyLongContextBilling,
+			billingAt,
 		)
 	}
 
@@ -1380,10 +1399,7 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 		return nil, fmt.Errorf("no pricing available for model: %s: %w", input.Model, ErrModelPricingUnavailable)
 	}
 
-	at := input.BillingAt
-	if at.IsZero() {
-		at = timezone.Now()
-	}
+	at := costInputBillingAt(input)
 	pricing = s.applyModelSpecificPricingPolicy(input.Model, pricing)
 	pricing = tkApplyDeepSeekPeakValleyPricing(input.Model, pricing, at, resolved.Source)
 
@@ -1574,16 +1590,6 @@ func (s *BillingService) CalculateCost(model string, tokens UsageTokens, rateMul
 
 func (s *BillingService) CalculateCostWithServiceTier(model string, tokens UsageTokens, rateMultiplier float64, serviceTier string) (*CostBreakdown, error) {
 	return s.calculateCostInternal(model, tokens, rateMultiplier, serviceTier, nil)
-}
-
-func (s *BillingService) calculateCostWithServiceTierPolicy(
-	model string,
-	tokens UsageTokens,
-	rateMultiplier float64,
-	serviceTier string,
-	longContextBillingEnabled bool,
-) (*CostBreakdown, error) {
-	return s.calculateCostInternalWithPolicy(model, tokens, rateMultiplier, serviceTier, nil, longContextBillingEnabled)
 }
 
 func (s *BillingService) calculateCostInternal(model string, tokens UsageTokens, rateMultiplier float64, serviceTier string, channelPricing *ChannelModelPricing) (*CostBreakdown, error) {
