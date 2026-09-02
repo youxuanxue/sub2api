@@ -86,6 +86,10 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	if rewritten, resolved, ok := service.ApplySeedanceClientAlias(body, reqModel); ok {
+		body = rewritten
+		reqModel = resolved
+	}
 	promptResult := gjson.GetBytes(body, "prompt")
 	if !promptResult.Exists() || promptResult.Type != gjson.String || strings.TrimSpace(promptResult.String()) == "" {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "prompt is required")
