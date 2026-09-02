@@ -22,6 +22,12 @@
 #       [--timeout-seconds 120]
 #       [--describe-script]  print the registered companion/verdict contract and exit
 #
+# Probe contracts (ops/observability/probe-contracts.json):
+#   Optional for delivery. Registered scripts auto-upload companions and expose a
+#   machine-readable verdict vocabulary via --describe-script. Unregistered scripts
+#   still run (empty companions) so plain SQL/observability probes are not gated.
+#   --describe-script remains fail-closed for unregistered scripts.
+#
 # Endpoint route-gate matrix (group.platform × gateway path, prod):
 #   bash ops/observability/run-probe.sh --target prod \
 #       --script ops/observability/probe-endpoint-matrix.sh \
@@ -154,14 +160,12 @@ if [ "$DESCRIBE_SCRIPT" = "1" ]; then
   exit 0
 fi
 
-if [ ! -f "$PROBE_CONTRACTS" ] || ! probe_contract json >/dev/null 2>&1; then
-  echo "[run-probe] ERROR: no registered contract for $(basename "$SCRIPT_PATH")" >&2
-  exit 1
+# Registration is optional for delivery: only registered probes auto-load companions.
+if [ -f "$PROBE_CONTRACTS" ] && probe_contract json >/dev/null 2>&1; then
+  while IFS= read -r companion; do
+    [ -n "$companion" ] && WITH_FILES+=("$REPO_ROOT/$companion")
+  done < <(probe_contract companions)
 fi
-
-while IFS= read -r companion; do
-  [ -n "$companion" ] && WITH_FILES+=("$REPO_ROOT/$companion")
-done < <(probe_contract companions)
 
 for extra in "${WITH_FILES[@]+"${WITH_FILES[@]}"}"; do
   if [ ! -f "$extra" ]; then

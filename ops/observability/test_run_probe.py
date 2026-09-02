@@ -92,15 +92,9 @@ class RunProbeValidationTest(unittest.TestCase):
                 for companion in contract["companions"]:
                     self.assertTrue((repo / companion).is_file(), companion)
 
-    def test_unknown_probe_contract_is_rejected(self) -> None:
+    def test_unknown_probe_contract_is_rejected_for_describe(self) -> None:
         existing = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
         proc = _run("--script", str(existing), "--describe-script")
-        self.assertEqual(proc.returncode, 1)
-        self.assertIn("no registered contract", proc.stderr)
-
-    def test_unknown_probe_contract_cannot_run(self) -> None:
-        existing = pathlib.Path(__file__).resolve().parent / "probe-caps.sh"
-        proc = _run("--target", "prod", "--script", str(existing))
         self.assertEqual(proc.returncode, 1)
         self.assertIn("no registered contract", proc.stderr)
 
@@ -334,6 +328,15 @@ class RunProbePollingTest(unittest.TestCase):
         params = self.aws_params_log.read_text(encoding="utf-8")
         self.assertIn("/tmp/probe_openai_upstream_model.sh", params)
         self.assertIn("/tmp/probe_grok_upstream_model.sh", params)
+
+    def test_unregistered_probe_is_still_delivered(self) -> None:
+        unregistered = self.root / "probe_unregistered_obs.sh"
+        self._write_executable(unregistered, "#!/usr/bin/env bash\necho unused\n")
+        self.probe = unregistered
+        proc = self._run_scenario("terminal-failure")
+        self.assertEqual(proc.returncode, 3, proc.stderr)
+        self.assertNotIn("no registered contract", proc.stderr)
+        self._assert_one_command(expected_gets=1)
 
 
 if __name__ == "__main__":
